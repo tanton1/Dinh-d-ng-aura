@@ -1,0 +1,31 @@
+{
+  "name": "aura-fitness-learning",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "nutrition:index": "node scripts/build-nutrition-client-index.mjs",
+    "build:gh-pages": "npm run build -- --base /aura-fitness-elearning-/",
+    "deploy:gh-pages": "npm run build:gh-pages && npx --yes gh-pages -d dist -r https://github.com/tanton1/aura-fitness-elearning-.git",
+    "preview": "vite preview",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-aura-fitness \"node --test tests/firestore.rules.test.mjs\"",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "firebase": "^12.16.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.0",
+    "firebase-admin": "^14.2.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.1.2"
+  }
+}

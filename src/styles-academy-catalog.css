@@ -1,0 +1,95 @@
+.academy-catalog-intro {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: -6px 0 20px;
+}
+
+.academy-catalog-intro article {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 96px;
+  padding: 16px;
+  border: 1px solid #e8e7f2;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #fff, #fafaff);
+  box-shadow: 0 9px 24px rgba(38, 33, 75, .045);
+}
+
+.academy-catalog-intro article > span {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: #6558d9;
+  background: #f0edff;
+}
+
+.academy-catalog-intro article:nth-child(2) > span {
+  color: #307a45;
+  background: #eaf8ed;
+}
+
+.academy-catalog-intro article:nth-child(3) > span {
+  color: #a65b16;
+  background: #fff1df;
+}
+
+.academy-catalog-intro strong,
+.academy-catalog-intro small {
+  display: block;
+}
+
+.academy-catalog-intro strong {
+  margin: 1px 0 5px;
+  font-size: 13px;
+}
+
+.hero-dumbbell.academy-orbit-mark {
+  top: 88px;
+  justify-content: center;
+  color: rgba(255, 255, 255, .92);
+  transform: none;
+}
+
+.hero-dumbbell.academy-orbit-mark::before,
+.hero-dumbbell.academy-orbit-mark::after {
+  display: none;
+}
+
+.academy-catalog-intro small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+@media (max-width: 850px) {
+  .academy-catalog-intro { grid-template-columns: 1fr; }
+  .academy-catalog-intro article { min-height: 0; }
+}
+
+.academy-progress-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 17px;
+}
+
+.academy-progress-summary span {
+  padding: 13px 8px;
+  border-radius: 12px;
+  text-align: center;
+  background: #f7f6fc;
+}
+
+.academy-progress-summary strong,
+.academy-progress-summary small { display: block; }
+.academy-progress-summary strong { color: #5e53cf; font-size: 19px; }
+.academy-progress-summary small { margin-top: 3px; color: var(--muted); font-size: 8px; }
+.academy-progress-note { display: flex; align-items: center; gap: 8px; margin: 14px 0 0; color: var(--muted); font-size: 10px; }
+.academy-assessment-progress { padding: 18px 4px 6px; }
+.academy-assessment-progress strong { display: block; font-size: 28px; }
+.academy-assessment-progress span { display: block; margin: 3px 0 13px; color: var(--muted); font-size: 10px; }

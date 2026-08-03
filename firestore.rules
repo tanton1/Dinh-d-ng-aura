@@ -1,0 +1,591 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function currentUser() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasRole(roles) {
+      return signedIn() && currentUser().role in roles;
+    }
+
+    function isAcademyStaff() {
+      return hasRole(['editor', 'admin', 'super_admin']);
+    }
+
+    function isCoachingStaff() {
+      return hasRole(['coach', 'admin', 'super_admin']);
+    }
+
+    function isAdmin() {
+      return hasRole(['admin', 'super_admin']);
+    }
+
+    function canManageCourseAfter(courseId) {
+      return isAdmin()
+             || (hasRole(['editor'])
+                 && getAfter(/databases/$(database)/documents/courses/$(courseId)).data.status in ['draft', 'review']);
+    }
+
+    function hasValidCourseSchema(data) {
+      return data.schemaVersion == 2
+             && data.title is string
+             && data.slug is string
+             && data.modules is list
+             && data.settings is map
+             && data.settings.accessTier in ['free', 'pro']
+             && data.settings.visibility in ['members', 'private']
+             && data.settings.dripSchedule in ['none', 'weekly']
+             && data.settings.completionPercent is int
+             && data.settings.completionPercent >= 50
+             && data.settings.completionPercent <= 100
+             && data.status in ['draft', 'review', 'scheduled', 'published', 'archived'];
+    }
+
+    function hasValidQuizKeySchema(data) {
+      return data.keys().hasOnly([
+               'quizId', 'answers', 'passPercent', 'questionCount',
+               'contentHash', 'createdAt', 'updatedAt', 'updatedBy'
+             ])
+             && data.quizId is string
+             && data.quizId.size() > 0
+             && data.quizId.size() <= 200
+             && data.answers is map
+             && data.passPercent is int
+             && data.passPercent >= 0
+             && data.passPercent <= 100
+             && data.questionCount is int
+             && data.questionCount > 0
+             && data.questionCount <= 100
+             && (!data.keys().hasAny(['contentHash'])
+                 || (data.contentHash is string
+                     && data.contentHash.matches('^[a-f0-9]{64}$')))
+             && (!data.keys().hasAny(['createdAt']) || data.createdAt is timestamp)
+             && data.updatedAt == request.time
+             && (!data.keys().hasAny(['updatedBy'])
+                 || data.updatedBy == request.auth.uid);
+    }
+
+    function hasValidCourseMediaMetadata(data, courseId) {
+      return data.keys().hasOnly([
+               'courseId', 'lessonId', 'storagePath', 'assetId', 'mediaId', 'title',
+               'contentType', 'sizeBytes', 'status', 'uploadedBy', 'createdAt',
+               'updatedAt', 'checksum'
+             ])
+             && data.courseId == courseId
+             && data.lessonId is string
+             && data.lessonId.size() > 0
+             && data.lessonId.size() <= 200
+             && ((data.keys().hasAny(['assetId'])
+                  && data.assetId is string
+                  && data.assetId.size() > 0)
+                 || (data.keys().hasAny(['mediaId'])
+                     && data.mediaId is string
+                     && data.mediaId.size() > 0))
+             && data.storagePath is string
+             && data.storagePath.size() > 0
+             && data.contentType is string
+             && data.sizeBytes is int
+             && data.sizeBytes > 0
+             && data.sizeBytes <= 500 * 1024 * 1024
+             && data.status in ['uploading', 'ready', 'failed']
+             && data.uploadedBy is string
+             && (!data.keys().hasAny(['title']) || data.title is string)
+             && (!data.keys().hasAny(['checksum']) || data.checksum is string)
+             && (!data.keys().hasAny(['createdAt']) || data.createdAt is timestamp)
+             && data.updatedAt == request.time;
+    }
+
+    function hasValidProgramVersionSchema(data, programId, versionId) {
+      return data.keys().hasOnly([
+               'programId', 'versionId', 'schemaVersion', 'title', 'description',
+               'durationWeeks', 'daysPerWeek', 'status', 'sessionsByDay',
+               'weeksByWeek', 'createdAt'
+             ])
+             && data.programId == programId
+             && data.versionId == versionId
+             && data.schemaVersion == 2
+             && data.title is string
+             && data.description is string
+             && data.durationWeeks is int
+             && data.durationWeeks >= 1
+             && data.durationWeeks <= 52
+             && data.daysPerWeek is int
+             && data.daysPerWeek >= 1
+             && data.daysPerWeek <= 7
+             && data.status in ['draft', 'review', 'published']
+             && data.sessionsByDay is map
+             && (!data.keys().hasAny(['weeksByWeek']) || data.weeksByWeek is map)
+             && data.createdAt == request.time;
+    }
+
+    function hasAcademyEnrollment(userId, courseId) {
+      return exists(/databases/$(database)/documents/enrollments/$(userId + '_' + courseId))
+             && get(/databases/$(database)/documents/enrollments/$(userId + '_' + courseId)).data.userId == userId
+             && get(/databases/$(database)/documents/enrollments/$(userId + '_' + courseId)).data.courseId == courseId
+             && get(/databases/$(database)/documents/enrollments/$(userId + '_' + courseId)).data.status in ['active', 'completed'];
+    }
+
+    function hasValidAcademyNote(data) {
+      return data.keys().hasOnly([
+               'courseId', 'lessonId', 'body', 'anchorSeconds', 'createdAt', 'updatedAt'
+             ])
+             && data.courseId is string
+             && data.courseId.size() > 0
+             && data.lessonId is string
+             && data.lessonId.size() > 0
+             && data.body is string
+             && data.body.size() <= 20000
+             && (!data.keys().hasAny(['anchorSeconds'])
+                 || (data.anchorSeconds is int
+                     && data.anchorSeconds >= 0
+                     && data.anchorSeconds <= 86400))
+             && data.createdAt is timestamp
+             && data.updatedAt == request.time;
+    }
+
+    function hasValidAcademyReviewItem(data) {
+      return data.keys().hasOnly([
+               'courseId', 'lessonId', 'cardId', 'state', 'dueAt',
+               'intervalDays', 'easeFactor', 'repetitions', 'createdAt', 'updatedAt'
+             ])
+             && data.courseId is string
+             && data.courseId.size() > 0
+             && data.lessonId is string
+             && data.lessonId.size() > 0
+             && data.cardId is string
+             && data.cardId.size() > 0
+             && data.state in ['new', 'learning', 'review', 'mastered']
+             && data.dueAt is timestamp
+             && data.intervalDays is int
+             && data.intervalDays >= 0
+             && data.intervalDays <= 3650
+             && data.easeFactor is number
+             && data.easeFactor >= 1.3
+             && data.easeFactor <= 5
+             && data.repetitions is int
+             && data.repetitions >= 0
+             && data.repetitions <= 10000
+             && data.createdAt is timestamp
+             && data.updatedAt == request.time;
+    }
+
+    function coachOwnsClient(clientId) {
+      return hasRole(['coach'])
+             && exists(/databases/$(database)/documents/coachClients/$(clientId))
+             && get(/databases/$(database)/documents/coachClients/$(clientId)).data.clientId == clientId
+             && get(/databases/$(database)/documents/coachClients/$(clientId)).data.coachId == request.auth.uid;
+    }
+
+    function hasValidClientProgram(data) {
+      let hasNoProgram = data.currentProgramId == '' && data.currentVersionId == '';
+      let hasProgramPair = data.currentProgramId.size() > 0 && data.currentVersionId.size() > 0;
+      return (hasNoProgram || (hasProgramPair
+               && exists(/databases/$(database)/documents/coachingPrograms/$(data.currentProgramId))
+               && exists(/databases/$(database)/documents/coachingPrograms/$(data.currentProgramId)/versions/$(data.currentVersionId))
+               && get(/databases/$(database)/documents/coachingPrograms/$(data.currentProgramId)).data.domain == 'pt-coaching'
+               && get(/databases/$(database)/documents/coachingPrograms/$(data.currentProgramId)).data.coachId == data.coachId
+               && get(/databases/$(database)/documents/coachingPrograms/$(data.currentProgramId)).data.status == 'published'
+               && get(/databases/$(database)/documents/coachingPrograms/$(data.currentProgramId)/versions/$(data.currentVersionId)).data.programId == data.currentProgramId
+               && get(/databases/$(database)/documents/coachingPrograms/$(data.currentProgramId)/versions/$(data.currentVersionId)).data.versionId == data.currentVersionId
+               && get(/databases/$(database)/documents/coachingPrograms/$(data.currentProgramId)/versions/$(data.currentVersionId)).data.coachId == data.coachId
+               && get(/databases/$(database)/documents/coachingPrograms/$(data.currentProgramId)/versions/$(data.currentVersionId)).data.status == 'published'))
+             && (!(data.coachingStatus in ['active', 'paused']) || hasProgramPair);
+    }
+
+    function hasValidCoachClient(data, clientId) {
+      return data.keys().hasOnly([
+               'clientId', 'coachId', 'goal', 'coachingStatus',
+               'currentProgramName', 'currentProgramId', 'currentVersionId',
+               'activeAssignmentCycleId', 'lastAssignmentCycleId',
+               'readiness', 'sleepHours', 'soreness', 'bodyWeightKg',
+               'lastCheckInAt', 'nextCheckInDate', 'coachNotes',
+               'createdAt', 'updatedAt'
+             ])
+             && data.clientId == clientId
+             && data.coachId is string
+             && data.coachId.size() > 0
+             && data.goal is string
+             && data.goal.size() <= 300
+             && data.coachingStatus in ['active', 'onboarding', 'paused', 'completed']
+             && data.currentProgramName is string
+             && data.currentProgramName.size() <= 200
+             && data.currentProgramId is string
+             && data.currentProgramId.size() <= 200
+             && data.currentVersionId is string
+             && data.currentVersionId.size() <= 200
+             && (!data.keys().hasAny(['activeAssignmentCycleId'])
+                 || (data.activeAssignmentCycleId is string
+                     && data.activeAssignmentCycleId.size() <= 500))
+             && (!data.keys().hasAny(['lastAssignmentCycleId'])
+                 || (data.lastAssignmentCycleId is string
+                     && data.lastAssignmentCycleId.size() <= 500))
+             && hasValidClientProgram(data)
+             && (data.readiness == null
+                 || (data.readiness is number && data.readiness >= 1 && data.readiness <= 5))
+             && (data.sleepHours == null
+                 || (data.sleepHours is number && data.sleepHours >= 0 && data.sleepHours <= 24))
+             && (data.soreness == null
+                 || (data.soreness is number && data.soreness >= 1 && data.soreness <= 5))
+             && (data.bodyWeightKg == null
+                 || (data.bodyWeightKg is number && data.bodyWeightKg >= 20 && data.bodyWeightKg <= 500))
+             && data.lastCheckInAt is timestamp
+             && data.nextCheckInDate is string
+             && data.nextCheckInDate.size() <= 10
+             && data.coachNotes is string
+             && data.coachNotes.size() <= 4000
+             && (!data.keys().hasAny(['createdAt']) || data.createdAt is timestamp)
+             && data.updatedAt == request.time;
+    }
+
+    function hasValidCoachingProgram(data) {
+      return data.keys().hasOnly([
+               'domain', 'schemaVersion', 'coachId', 'title', 'description',
+               'durationWeeks', 'daysPerWeek', 'status', 'currentVersionId',
+               'createdAt', 'updatedAt'
+             ])
+             && data.domain == 'pt-coaching'
+             && data.schemaVersion == 2
+             && data.coachId is string
+             && data.coachId.size() > 0
+             && data.title is string
+             && data.title.size() > 0
+             && data.title.size() <= 200
+             && data.description is string
+             && data.description.size() <= 2000
+             && data.durationWeeks is int
+             && data.durationWeeks >= 1
+             && data.durationWeeks <= 52
+             && data.daysPerWeek is int
+             && data.daysPerWeek >= 1
+             && data.daysPerWeek <= 7
+             && data.status in ['draft', 'review', 'published', 'archived']
+             && data.currentVersionId is string
+             && data.currentVersionId.size() > 0
+             && data.createdAt is timestamp
+             && data.updatedAt == request.time;
+    }
+
+    function hasValidCoachingProgramVersion(data, programId, versionId) {
+      return data.keys().hasOnly([
+               'programId', 'versionId', 'schemaVersion', 'domain', 'coachId',
+               'title', 'description', 'durationWeeks', 'daysPerWeek', 'status',
+               'sessionsByDay', 'weeksByWeek', 'createdAt'
+             ])
+             && data.programId == programId
+             && data.versionId == versionId
+             && data.schemaVersion == 2
+             && data.domain == 'pt-coaching'
+             && data.coachId is string
+             && data.coachId.size() > 0
+             && data.title is string
+             && data.title.size() > 0
+             && data.title.size() <= 200
+             && data.description is string
+             && data.description.size() <= 2000
+             && data.durationWeeks is int
+             && data.durationWeeks >= 1
+             && data.durationWeeks <= 52
+             && data.daysPerWeek is int
+             && data.daysPerWeek >= 1
+             && data.daysPerWeek <= 7
+             && data.status in ['draft', 'review', 'published']
+             && data.sessionsByDay is map
+             && (!data.keys().hasAny(['weeksByWeek']) || data.weeksByWeek is map)
+             && data.createdAt == request.time;
+    }
+
+    match /users/{userId} {
+      allow create: if isOwner(userId)
+                    && request.resource.data.uid == userId
+                    && (request.resource.data.role == 'student' || request.auth.token.email == 'nhattank16.1@gmail.com')
+                    && (request.resource.data.membership == 'free' || request.auth.token.email == 'nhattank16.1@gmail.com');
+      allow read: if isOwner(userId) || isAdmin() || request.auth.token.email == 'nhattank16.1@gmail.com';
+      allow update: if isOwner(userId)
+                    && request.resource.data.uid == resource.data.uid
+                    && (request.resource.data.role == resource.data.role || request.auth.token.email == 'nhattank16.1@gmail.com')
+                    && (request.resource.data.membership == resource.data.membership || request.auth.token.email == 'nhattank16.1@gmail.com');
+      allow delete: if false;
+
+      match /progress/{courseId} {
+        allow read: if isOwner(userId);
+        allow read: if isAdmin();
+        // Progress is written only by the completeCourseLesson callable after
+        // validating enrollment, entitlement and lesson membership.
+        allow create, update, delete: if false;
+      }
+
+      match /quizAttempts/{attemptId} {
+        // Attempts are immutable from clients. gradeCourseQuiz is the only
+        // writer and never stores or returns an answer key.
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, update, delete: if false;
+      }
+
+      match /quizAttemptCounters/{counterId} {
+        // Server-only rate limit state for Academy quiz attempts.
+        allow read, write: if false;
+      }
+
+      match /courseLessonProofs/{proofId} {
+        // Server-only completion proof. Neither PT logs nor client writes can
+        // manufacture Academy lesson completion.
+        allow read, write: if false;
+      }
+
+      match /academyNotes/{noteId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+                      && hasValidAcademyNote(request.resource.data)
+                      && hasAcademyEnrollment(userId, request.resource.data.courseId);
+        allow update: if isOwner(userId)
+                      && hasValidAcademyNote(request.resource.data)
+                      && request.resource.data.courseId == resource.data.courseId
+                      && request.resource.data.lessonId == resource.data.lessonId
+                      && request.resource.data.createdAt == resource.data.createdAt
+                      && hasAcademyEnrollment(userId, resource.data.courseId);
+        allow delete: if isOwner(userId);
+      }
+
+      match /academyReviewItems/{reviewId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+                      && hasValidAcademyReviewItem(request.resource.data)
+                      && hasAcademyEnrollment(userId, request.resource.data.courseId);
+        allow update: if isOwner(userId)
+                      && hasValidAcademyReviewItem(request.resource.data)
+                      && request.resource.data.courseId == resource.data.courseId
+                      && request.resource.data.lessonId == resource.data.lessonId
+                      && request.resource.data.cardId == resource.data.cardId
+                      && request.resource.data.createdAt == resource.data.createdAt
+                      && hasAcademyEnrollment(userId, resource.data.courseId);
+        allow delete: if isOwner(userId);
+      }
+
+      match /workoutLogs/{logId} {
+        allow read: if isOwner(userId);
+        allow read: if isAdmin();
+        allow create: if isOwner(userId)
+                      && !request.resource.data.keys().hasAny([
+                        'verificationVersion', 'verifiedCourseId', 'verifiedLessonId'
+                      ]);
+        allow update: if isOwner(userId)
+                      && !resource.data.keys().hasAny([
+                        'verificationVersion', 'verifiedCourseId', 'verifiedLessonId'
+                      ])
+                      && !request.resource.data.keys().hasAny([
+                        'verificationVersion', 'verifiedCourseId', 'verifiedLessonId'
+                      ]);
+        allow delete: if isAdmin()
+                      || (isOwner(userId)
+                          && !resource.data.keys().hasAny([
+                            'verificationVersion', 'verifiedCourseId', 'verifiedLessonId'
+                          ]));
+      }
+
+      match /coachingWorkoutLogs/{logId} {
+        // PT logs are server-verified against the immutable assigned version.
+        allow read: if isOwner(userId) || isAdmin() || coachOwnsClient(userId);
+        allow create, update: if false;
+        allow delete: if isAdmin();
+      }
+
+      match /bodyMetrics/{metricId} {
+        allow read, write: if isOwner(userId);
+        allow read: if isAdmin();
+      }
+    }
+
+    match /courses/{courseId} {
+      // Full modules live in this staff-only document. Learners receive a
+      // catalog plus entitlement-filtered content from listAcademyCourses.
+      allow read: if isAcademyStaff();
+      allow create: if hasValidCourseSchema(request.resource.data)
+                    && (isAdmin()
+                    || (hasRole(['editor'])
+                        && request.resource.data.status in ['draft', 'review']));
+      allow update: if hasValidCourseSchema(request.resource.data)
+                    && (isAdmin()
+                    || (hasRole(['editor'])
+                        && resource.data.status in ['draft', 'review']
+                        && request.resource.data.status in ['draft', 'review']));
+      allow delete: if isAdmin();
+
+      match /quizKeys/{lessonId} {
+        // Server-side answer keys. Learners only receive aggregate grading
+        // results through gradeCourseQuiz.
+        allow read: if hasRole(['editor', 'admin', 'super_admin']);
+        allow create, update: if canManageCourseAfter(courseId)
+                              && hasValidQuizKeySchema(request.resource.data);
+        allow delete: if canManageCourseAfter(courseId);
+      }
+
+      match /media/{mediaId} {
+        // This catalog is administrative metadata. Learners request an
+        // entitlement-checked signed URL instead of reading it directly.
+        allow read: if hasRole(['editor', 'admin', 'super_admin']);
+        allow create, update: if canManageCourseAfter(courseId)
+                              && hasValidCourseMediaMetadata(request.resource.data, courseId);
+        allow delete: if isAdmin();
+      }
+    }
+
+    match /coachClients/{clientId} {
+      allow read: if isOwner(clientId)
+                  || isAdmin()
+                  || (hasRole(['coach']) && resource.data.coachId == request.auth.uid);
+      // Staff lifecycle changes go through savePtClientCoachingProfile so the
+      // relationship and immutable assignment are committed atomically.
+      allow create: if false;
+      allow update: if hasValidCoachClient(request.resource.data, clientId)
+                    && request.resource.data.clientId == resource.data.clientId
+                    && request.resource.data.coachId == resource.data.coachId
+                    && isOwner(clientId)
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                      'readiness', 'sleepHours', 'soreness', 'bodyWeightKg',
+                      'lastCheckInAt', 'updatedAt'
+                    ]);
+      allow delete: if isAdmin();
+
+      match /scheduleEvents/{eventId} {
+        // Schedule mutations are server-only so lifecycle, ownership,
+        // optimistic concurrency and immutable workout refs stay atomic.
+        allow read, create, update, delete: if false;
+      }
+    }
+
+    match /coachingPrograms/{programId} {
+      // PT Coaching is relationship-based and never grants Academy enrollment.
+      // Learners resolve their pinned program/version through the callable.
+      allow read: if isAdmin()
+                  || (hasRole(['coach']) && resource.data.coachId == request.auth.uid);
+      allow create: if hasValidCoachingProgram(request.resource.data)
+                    && (isAdmin()
+                        || (hasRole(['coach'])
+                            && request.resource.data.coachId == request.auth.uid
+                            && request.resource.data.status in ['draft', 'review']));
+      allow update: if hasValidCoachingProgram(request.resource.data)
+                    && request.resource.data.domain == resource.data.domain
+                    && request.resource.data.schemaVersion == resource.data.schemaVersion
+                    && request.resource.data.coachId == resource.data.coachId
+                    && request.resource.data.createdAt == resource.data.createdAt
+                    && (isAdmin()
+                        || (hasRole(['coach'])
+                            && resource.data.coachId == request.auth.uid
+                            && resource.data.status in ['draft', 'review']
+                            && request.resource.data.status in ['draft', 'review']));
+      allow delete: if isAdmin();
+
+      match /versions/{versionId} {
+        allow read: if isAdmin()
+                    || (hasRole(['coach'])
+                        && get(/databases/$(database)/documents/coachingPrograms/$(programId)).data.coachId == request.auth.uid);
+        allow create: if hasValidCoachingProgramVersion(request.resource.data, programId, versionId)
+                      && request.resource.data.coachId == getAfter(/databases/$(database)/documents/coachingPrograms/$(programId)).data.coachId
+                      && (isAdmin()
+                          || (hasRole(['coach'])
+                              && getAfter(/databases/$(database)/documents/coachingPrograms/$(programId)).data.coachId == request.auth.uid))
+                      && getAfter(/databases/$(database)/documents/coachingPrograms/$(programId)).data.currentVersionId == versionId
+                      && (isAdmin()
+                          || getAfter(/databases/$(database)/documents/coachingPrograms/$(programId)).data.status in ['draft', 'review']);
+        allow update, delete: if false;
+      }
+    }
+
+    match /programAssignments/{assignmentId} {
+      allow read: if signedIn()
+                  && (resource.data.clientId == request.auth.uid
+                      || isAdmin()
+                      || (hasRole(['coach']) && resource.data.coachId == request.auth.uid));
+      // Server transaction only; clients cannot create partial assignments.
+      allow create, update, delete: if false;
+    }
+
+    match /programAssignmentCycles/{cycleId} {
+      // V2 assignment history is append/transition-only through trusted
+      // callables. Legacy programAssignments remains readable during rollout.
+      allow read: if signedIn()
+                  && (resource.data.clientId == request.auth.uid
+                      || isAdmin()
+                      || (hasRole(['coach']) && resource.data.coachId == request.auth.uid));
+      allow create, update, delete: if false;
+    }
+
+    match /programs/{programId} {
+      // Learners resolve a pinned session through getCourseWorkoutSession so
+      // enrollment, membership and drip rules are enforced server-side. New
+      // authoring uses coachingPrograms; legacy writes are admin-only.
+      allow read: if isCoachingStaff();
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+
+      match /versions/{versionId} {
+        allow read: if isCoachingStaff();
+        allow create: if hasValidProgramVersionSchema(request.resource.data, programId, versionId)
+                      && isAdmin()
+                      && getAfter(/databases/$(database)/documents/programs/$(programId)).data.currentVersionId == versionId
+                      && getAfter(/databases/$(database)/documents/programs/$(programId)).data.status in ['draft', 'review', 'published'];
+        allow update, delete: if false;
+
+        match /quizKeys/{sessionId} {
+          allow read: if isCoachingStaff();
+          allow create: if hasValidQuizKeySchema(request.resource.data)
+                        && isAdmin()
+                        && getAfter(/databases/$(database)/documents/programs/$(programId)/versions/$(versionId)).data.programId == programId
+                        && getAfter(/databases/$(database)/documents/programs/$(programId)/versions/$(versionId)).data.versionId == versionId;
+          allow update, delete: if false;
+        }
+      }
+    }
+
+    match /exercises/{exerciseId} {
+      allow read, create, update: if isCoachingStaff();
+      allow delete: if isAdmin();
+    }
+
+    match /enrollments/{enrollmentId} {
+      allow get: if signedIn()
+                 && (isAdmin()
+                     || (resource.data.userId == request.auth.uid
+                         && enrollmentId == request.auth.uid + '_' + resource.data.courseId));
+      allow list: if signedIn()
+                  && (resource.data.userId == request.auth.uid || isAdmin());
+      // Enrollment mutations go through the enrollInCourse callable so the
+      // server can enforce private-course and Free/Pro access rules.
+      allow create, update, delete: if false;
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow update: if signedIn()
+                    && resource.data.userId == request.auth.uid
+                    && request.resource.data.userId == resource.data.userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                      'read', 'readAt', 'updatedAt'
+                    ])
+                    && request.resource.data.read is bool
+                    && request.resource.data.updatedAt == request.time
+                    && (!request.resource.data.keys().hasAny(['readAt'])
+                        || request.resource.data.readAt is timestamp);
+      allow create, delete: if isAcademyStaff() || isCoachingStaff();
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

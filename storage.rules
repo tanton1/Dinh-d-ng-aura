@@ -1,0 +1,109 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isAcademyStaff() {
+      return signedIn()
+             && request.auth.token.role in ['editor', 'admin', 'super_admin'];
+    }
+
+    function canManageCourseMedia() {
+      return signedIn()
+             && request.auth.token.role in ['editor', 'admin', 'super_admin'];
+    }
+
+    function isAdmin() {
+      return signedIn()
+             && request.auth.token.role in ['admin', 'super_admin'];
+    }
+
+    function isSupportedCourseMedia() {
+      return request.resource.size > 0
+             && ((request.resource.metadata.resourceKind == 'video'
+                  && request.resource.size <= 500 * 1024 * 1024
+                  && request.resource.contentType.matches('video/.*'))
+                 || (request.resource.metadata.resourceKind == 'slide'
+                     && request.resource.size <= 50 * 1024 * 1024
+                     && request.resource.contentType.matches(
+                       'application/pdf|application/vnd\\.ms-powerpoint|application/vnd\\.openxmlformats-officedocument\\.presentationml\\.presentation'
+                     ))
+                 || (request.resource.metadata.resourceKind == 'document'
+                     && request.resource.size <= 50 * 1024 * 1024
+                     && request.resource.contentType.matches(
+                       'application/pdf|application/msword|application/vnd\\.openxmlformats-officedocument\\.wordprocessingml\\.document|text/plain'
+                     )));
+    }
+
+    function hasValidCourseMediaMetadata(courseId, lessonId) {
+      return request.resource.metadata.courseId == courseId
+             && request.resource.metadata.lessonId == lessonId
+             && request.resource.metadata.resourceKind in ['slide', 'video', 'document']
+             && request.resource.metadata.uploadedBy == request.auth.uid
+             && ((request.resource.metadata.assetId is string
+                  && request.resource.metadata.assetId.size() > 0
+                  && request.resource.metadata.assetId.size() <= 200)
+                 || (request.resource.metadata.mediaId is string
+                     && request.resource.metadata.mediaId.size() > 0
+                     && request.resource.metadata.mediaId.size() <= 200));
+    }
+
+    function hasImmutableCourseMediaMetadata() {
+      return request.resource.metadata.courseId == resource.metadata.courseId
+             && request.resource.metadata.lessonId == resource.metadata.lessonId
+             && request.resource.metadata.resourceKind == resource.metadata.resourceKind
+             && request.resource.metadata.uploadedBy == resource.metadata.uploadedBy
+             && ((request.resource.metadata.assetId is string
+                  && request.resource.metadata.assetId == resource.metadata.assetId)
+                 || (request.resource.metadata.mediaId is string
+                     && request.resource.metadata.mediaId == resource.metadata.mediaId));
+    }
+
+    match /course-media/{courseId}/{lessonId}/{allPaths=**} {
+      // Paid lesson media stays staff-only until delivery uses a callable
+      // entitlement check and short-lived signed URLs.
+      allow read: if isAcademyStaff();
+      allow create: if canManageCourseMedia()
+                    && isSupportedCourseMedia()
+                    && hasValidCourseMediaMetadata(courseId, lessonId);
+      allow update: if isAdmin()
+                    && isSupportedCourseMedia()
+                    && hasValidCourseMediaMetadata(courseId, lessonId)
+                    && hasImmutableCourseMediaMetadata();
+      allow delete: if isAdmin();
+    }
+
+    match /avatars/{userId}/{fileName} {
+      allow read: if signedIn();
+      allow write: if signedIn()
+                   && request.auth.uid == userId
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    match /nutrition-scans/{userId}/{scanId}/{fileName} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId)
+                    && scanId.matches('[A-Za-z0-9_-]{8,80}')
+                    && fileName.matches('original\\.(jpg|jpeg|png|webp)')
+                    && request.resource.size > 0
+                    && request.resource.size <= 8 * 1024 * 1024
+                    && request.resource.contentType.matches('image/(jpeg|png|webp)')
+                    && request.resource.metadata.ownerUid == userId
+                    && request.resource.metadata.scanId == scanId;
+      allow update: if false;
+      allow delete: if isOwner(userId);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

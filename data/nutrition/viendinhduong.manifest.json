@@ -1,0 +1,273 @@
+{
+  "schemaVersion": "1.0.0",
+  "generatedAt": "2026-08-03T09:27:01.985Z",
+  "publisher": "Viện Dinh dưỡng Quốc gia",
+  "importer": {
+    "script": "scripts/scrape-viendinhduong.mjs",
+    "userAgent": "AuraNutritionDataImporter/0.1 (respectful public-data client; configure contact with NIN_SCRAPER_USER_AGENT)",
+    "pageSize": 100,
+    "minimumDelayMs": 1250,
+    "jitterMs": 250,
+    "maxRetries": 4
+  },
+  "robots": {
+    "url": "https://viendinhduong.vn/robots.txt",
+    "fetchedAt": "2026-08-03T09:27:01.985Z",
+    "sha256": "195dba3418e4c5e47c7dece1d9677d5168af893d84920bda347b7570a23a90fe",
+    "decisions": [
+      {
+        "url": "https://viendinhduong.vn/vi/cong-cu-va-tien-ich/gia-tri-dinh-duong-mon-an",
+        "allowed": true
+      },
+      {
+        "url": "https://viendinhduong.vn/api/fe/tool/getPageFoodData",
+        "allowed": true
+      },
+      {
+        "url": "https://viendinhduong.vn/vi/cong-cu-va-tien-ich/gia-tri-dinh-duong-thuc-pham",
+        "allowed": true
+      },
+      {
+        "url": "https://viendinhduong.vn/api/fe/foodNatunal/getPageFoodData",
+        "allowed": true
+      }
+    ],
+    "notice": "robots.txt allowed these paths when the import ran. Re-check before each future import."
+  },
+  "legal": {
+    "machineReadableLicenseFound": false,
+    "explicitTermsLinkFoundOnSourcePages": false,
+    "sourceFooterNotice": "Copyright @ 2025 Bản Quyền Thuộc Viện Dinh Dưỡng Quốc Gia",
+    "recommendation": "Obtain written permission or a confirmed reuse licence before redistributing or using this dataset commercially. Keep attribution and provenance visible."
+  },
+  "scope": {
+    "selected": [
+      "dishes",
+      "foods"
+    ],
+    "recordCount": 2103,
+    "counts": {
+      "dish": 1250,
+      "food": 853
+    },
+    "complete": true
+  },
+  "sources": [
+    {
+      "kind": "dish",
+      "pageUrl": "https://viendinhduong.vn/vi/cong-cu-va-tien-ich/gia-tri-dinh-duong-mon-an",
+      "apiUrl": "https://viendinhduong.vn/api/fe/tool/getPageFoodData",
+      "fetchedPages": 13,
+      "fetchedRecords": 1250,
+      "sourceReportedTotal": 1250,
+      "truncated": false,
+      "responses": [
+        {
+          "page": 1,
+          "count": 100,
+          "total": 1250,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 2,
+          "count": 100,
+          "total": 1250,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 3,
+          "count": 100,
+          "total": 1250,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 4,
+          "count": 100,
+          "total": 1250,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 5,
+          "count": 100,
+          "total": 1250,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 6,
+          "count": 100,
+          "total": 1250,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 7,
+          "count": 100,
+          "total": 1250,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 8,
+          "count": 100,
+          "total": 1250,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 9,
+          "count": 100,
+          "total": 1250,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 10,
+          "count": 100,
+          "total": 1250,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 11,
+          "count": 100,
+          "total": 1250,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 12,
+          "count": 100,
+          "total": 1250,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 13,
+          "count": 50,
+          "total": 1250,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ]
+    },
+    {
+      "kind": "food",
+      "pageUrl": "https://viendinhduong.vn/vi/cong-cu-va-tien-ich/gia-tri-dinh-duong-thuc-pham",
+      "apiUrl": "https://viendinhduong.vn/api/fe/foodNatunal/getPageFoodData",
+      "fetchedPages": 9,
+      "fetchedRecords": 853,
+      "sourceReportedTotal": 853,
+      "truncated": false,
+      "responses": [
+        {
+          "page": 1,
+          "count": 100,
+          "total": 853,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 2,
+          "count": 100,
+          "total": 853,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 3,
+          "count": 100,
+          "total": 853,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 4,
+          "count": 100,
+          "total": 853,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 5,
+          "count": 100,
+          "total": 853,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 6,
+          "count": 100,
+          "total": 853,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 7,
+          "count": 100,
+          "total": 853,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 8,
+          "count": 100,
+          "total": 853,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "page": 9,
+          "count": 53,
+          "total": 853,
+          "perPage": 100,
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ]
+    }
+  ],
+  "files": {
+    "json": {
+      "path": "data/nutrition/viendinhduong.records.json",
+      "bytes": 8956297,
+      "sha256": "09064c9690880c30f3462a875eee66de8dff398ee1f23f790f7d906e20c14b0c"
+    },
+    "csv": {
+      "path": "data/nutrition/viendinhduong.records.csv",
+      "bytes": 9287634,
+      "sha256": "35d105e5840747eaaa074482658e57aa3a962f61b155a3bde5b3eab50d605d90"
+    }
+  },
+  "interpretationNotes": [
+    "Food values are labelled by the publisher as per 100 g edible, raw/fresh.",
+    "The dish page does not state a standard mass or serving basis in its visible labels; dish basis is therefore not_specified_by_source.",
+    "Blank source nutrient amounts are preserved as null, not zero.",
+    "Nutrition values are reference data and are not a medical diagnosis."
+  ]
+}

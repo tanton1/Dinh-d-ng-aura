@@ -1,0 +1,16 @@
+.nutrition-group-icon {
+  --food-icon-fg: #237a57;
+  --food-icon-bg: #e9f6ef;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--food-icon-fg);
+  background: var(--food-icon-bg);
+}
+
+.nutrition-group-icon[data-food-tone='amber'] { --food-icon-fg: #92540d; --food-icon-bg: #fff1da; }
+.nutrition-group-icon[data-food-tone='terracotta'] { --food-icon-fg: #a64632; --food-icon-bg: #fcece7; }
+.nutrition-group-icon[data-food-tone='rose'] { --food-icon-fg: #a93c5a; --food-icon-bg: #fdebf0; }
+.nutrition-group-icon[data-food-tone='blue'] { --food-icon-fg: #326fa8; --food-icon-bg: #eaf4fc; }
+.nutrition-group-icon[data-food-tone='violet'] { --food-icon-fg: #6650c7; --food-icon-bg: #f0edfc; }
+.nutrition-group-icon[data-food-tone='neutral'] { --food-icon-fg: #626872; --food-icon-bg: #f2f3f5; }
