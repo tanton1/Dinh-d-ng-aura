@@ -16,6 +16,7 @@ export interface UserProfile {
   photoURL?: string | null
   role: UserRole
   membership: 'free' | 'pro' | 'coach'
+  onboardingCompleted?: boolean
   goals?: string[]
   heightCm?: number | null
   weightKg?: number | null

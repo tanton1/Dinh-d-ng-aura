@@ -34,6 +34,7 @@ const demoProfile: UserProfile = {
   photoURL: null,
   role: 'admin',
   membership: 'pro',
+  onboardingCompleted: true,
   goals: ['Giảm mỡ', 'Tăng sức bền'],
 }
 
@@ -90,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               photoURL: firebaseUser.photoURL,
               role: firebaseUser.email === 'nhattank16.1@gmail.com' ? 'super_admin' : 'student',
               membership: firebaseUser.email === 'nhattank16.1@gmail.com' ? 'pro' : 'free',
+              onboardingCompleted: false,
             }
             setProfile(nextProfile)
             setLoading(false)
@@ -109,6 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             displayName: firebaseUser.displayName ?? 'Thành viên Aura',
             role: 'student',
             membership: 'free',
+            onboardingCompleted: false,
           })
           setLoading(false)
         },
@@ -171,6 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           displayName,
           role: email === 'nhattank16.1@gmail.com' ? 'super_admin' : 'student',
           membership: email === 'nhattank16.1@gmail.com' ? 'pro' : 'free',
+          onboardingCompleted: false,
         })
         console.log('User profile created in Firestore successfully.');
       } catch (error) {
@@ -191,6 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         photoURL: credential.user.photoURL,
         role: userEmail === 'nhattank16.1@gmail.com' ? 'super_admin' : 'student',
         membership: userEmail === 'nhattank16.1@gmail.com' ? 'pro' : 'free',
+        onboardingCompleted: false,
       })
     },
     resetPassword: async (email) => {

@@ -64,6 +64,8 @@ const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
   'admin-roles': 'team.view',
 }
 
+import OnboardingFlow, { type OnboardingData } from './components/OnboardingFlow'
+
 interface AuraRoute {
   view: ViewId
   courseId: string | null
@@ -618,6 +620,32 @@ function AuraApplication() {
       case 'admin-roles': return <AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} />
       default: return <HomePage onNavigate={navigate} onOpenCourse={openCourse} courseItems={studentCourses} displayName={effectiveDisplayName} isDemo={backendMode === 'demo'} />
     }
+  }
+
+  if (user && profile && !profile.onboardingCompleted) {
+    return (
+      <OnboardingFlow
+        initialName={user.displayName ?? ''}
+        onComplete={async (data) => {
+          if (backendMode === 'firebase' && user) {
+            await updateUserProfile(user.uid, {
+              onboardingCompleted: true,
+              goals: [data.goal],
+              heightCm: data.heightCm,
+              weightKg: data.weightKg,
+              nutritionProfile: {
+                ...data,
+                eatingStyle: 'Omnivore',
+                allergies: 'None',
+              },
+            })
+          } else {
+            // For demo mode, just update the local context or reload
+            window.location.reload()
+          }
+        }}
+      />
+    )
   }
 
   return (

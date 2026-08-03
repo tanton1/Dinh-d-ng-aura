@@ -1,0 +1,337 @@
+.onboarding-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #f8fafc;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.onboarding-content {
+  width: 100%;
+  max-width: 480px;
+  position: relative;
+  text-align: center;
+  margin: auto;
+}
+
+.onboarding-step {
+  padding: 32px 24px;
+  background: #fff;
+  border-radius: 24px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.04);
+}
+
+.results-step {
+  text-align: left;
+}
+
+.results-step h1 {
+  font-family: 'Playfair Display', serif;
+  font-size: 24px !important;
+  margin-bottom: 32px !important;
+  text-align: center;
+}
+
+.onboarding-icon-wrapper {
+  color: var(--purple, #635bff);
+  margin-bottom: 24px;
+  display: flex;
+  justify-content: center;
+}
+
+.onboarding-step h1 {
+  font-family: 'Playfair Display', serif;
+  font-size: 28px;
+  color: #1e293b;
+  margin: 0 0 16px;
+  line-height: 1.3;
+}
+
+.onboarding-step p {
+  color: #64748b;
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 0 0 32px;
+}
+
+.onboarding-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.onboarding-options h3 {
+  font-size: 14px;
+  color: #94a3b8;
+  margin: 0 0 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  text-align: left;
+}
+
+.onboarding-card {
+  background: #fff;
+  border: 2px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  color: #334155;
+}
+
+.onboarding-card:hover {
+  border-color: #cbd5e1;
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(0,0,0,0.04);
+}
+
+.onboarding-card.active {
+  border-color: var(--purple, #635bff);
+  background: #f5f3ff;
+  color: var(--purple, #635bff);
+}
+
+.onboarding-card strong {
+  display: block;
+  font-size: 16px;
+  margin-bottom: 6px;
+}
+
+.onboarding-card small {
+  font-size: 13.5px;
+  color: #64748b;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.onboarding-card.active small {
+  color: #4f46e5;
+  opacity: 0.9;
+}
+
+.onboarding-input-group {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.onboarding-input-group label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 8px;
+}
+
+.onboarding-input {
+  width: 100%;
+  font-size: 24px;
+  padding: 16px 20px;
+  border: 2px solid #e2e8f0;
+  border-radius: 16px;
+  text-align: center;
+  transition: border-color 0.2s;
+  outline: none;
+  color: #1e293b;
+  font-weight: 500;
+}
+
+.onboarding-input:focus {
+  border-color: var(--purple, #635bff);
+  box-shadow: 0 0 0 4px #ede9fe;
+}
+
+.onboarding-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 32px;
+}
+
+.onboarding-actions button {
+  flex: 1;
+  padding: 16px;
+  font-size: 16px;
+  border-radius: 14px;
+  font-weight: 700;
+}
+
+.text-button {
+  border: none;
+  cursor: pointer;
+}
+
+.onboarding-progress {
+  margin-top: 32px;
+  padding: 0 24px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--purple, #635bff);
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* BMI Gauge Styles */
+.bmi-gauge {
+  margin: 40px 0 32px;
+  position: relative;
+}
+
+.bmi-tooltip {
+  position: absolute;
+  top: -35px;
+  transform: translateX(-50%);
+  background: #0f172a;
+  color: #fff;
+  padding: 4px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.bmi-tooltip::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 4px 4px 0;
+  border-style: solid;
+  border-color: #0f172a transparent transparent transparent;
+}
+
+.bmi-labels {
+  position: relative;
+  height: 20px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #0f172a;
+}
+
+.bmi-labels span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+.bmi-labels span:first-child { transform: none; }
+.bmi-labels span:last-child { transform: none; right: 0; }
+
+.bmi-bar {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(to right, #3b82f6 14%, #22c55e 14% 40%, #f59e0b 40% 60%, #ef4444 60%);
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.bmi-marker {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border: 3px solid #fde047;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.bmi-categories {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 700;
+  color: #334155;
+}
+
+/* Info Cards */
+.tdee-card {
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 16px;
+  color: #1e293b;
+}
+
+.tdee-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 15px;
+}
+
+.tdee-details {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.tdee-details li {
+  margin-bottom: 8px;
+}
+.tdee-details li:last-child {
+  margin-bottom: 0;
+}
+
+.info-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  margin-bottom: 16px;
+  background: #fff;
+}
+
+.info-icon {
+  background: #f1f5f9;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.info-content {
+  display: flex;
+  flex-direction: column;
+  font-size: 15px;
+  color: #334155;
+  line-height: 1.5;
+}
+
+.info-content strong {
+  font-size: 18px;
+  color: #22c55e;
+  margin-top: 4px;
+}
+
+.info-card.suggestion {
+  background: #f8fafc;
+  font-weight: 500;
+}
