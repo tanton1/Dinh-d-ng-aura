@@ -82,8 +82,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         doc(firestoreDb!, 'users', firebaseUser.uid),
         async (snapshot) => {
           if (snapshot.exists()) {
-            setProfile(snapshot.data() as UserProfile)
+            const data = snapshot.data() as UserProfile
+            const localOnboarding = typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${firebaseUser.uid}`) === 'true'
+            const localNut = typeof window !== 'undefined' && window.localStorage.getItem(`aura:nutrition-profile:${firebaseUser.uid}`)
+            const isCompleted = Boolean(
+              data.onboardingCompleted ||
+              data.nutritionProfile ||
+              localNut ||
+              localOnboarding ||
+              (data.heightCm && data.weightKg) ||
+              (data.goals && data.goals.length > 0)
+            )
+            setProfile({
+              ...data,
+              onboardingCompleted: isCompleted,
+            })
           } else {
+            const localOnboarding = typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${firebaseUser.uid}`) === 'true'
+            const localNut = typeof window !== 'undefined' && window.localStorage.getItem(`aura:nutrition-profile:${firebaseUser.uid}`)
             const nextProfile: UserProfile = {
               uid: firebaseUser.uid,
               email: firebaseUser.email ?? '',
@@ -91,7 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               photoURL: firebaseUser.photoURL,
               role: firebaseUser.email === 'nhattank16.1@gmail.com' ? 'super_admin' : 'student',
               membership: firebaseUser.email === 'nhattank16.1@gmail.com' ? 'pro' : 'free',
-              onboardingCompleted: false,
+              onboardingCompleted: localOnboarding || Boolean(localNut),
             }
             setProfile(nextProfile)
             setLoading(false)
@@ -105,13 +121,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setLoading(false)
         },
         () => {
+          const localOnboarding = typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${firebaseUser.uid}`) === 'true'
+          const localNut = typeof window !== 'undefined' && window.localStorage.getItem(`aura:nutrition-profile:${firebaseUser.uid}`)
           setProfile({
             uid: firebaseUser.uid,
             email: firebaseUser.email ?? '',
             displayName: firebaseUser.displayName ?? 'Thành viên Aura',
             role: 'student',
             membership: 'free',
-            onboardingCompleted: false,
+            onboardingCompleted: localOnboarding || Boolean(localNut),
           })
           setLoading(false)
         },
@@ -195,7 +213,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         photoURL: credential.user.photoURL,
         role: userEmail === 'nhattank16.1@gmail.com' ? 'super_admin' : 'student',
         membership: userEmail === 'nhattank16.1@gmail.com' ? 'pro' : 'free',
-        onboardingCompleted: false,
       })
     },
     resetPassword: async (email) => {

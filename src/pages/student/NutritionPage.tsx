@@ -4,8 +4,10 @@ import NutritionFoodDetail, {
   type NutritionFoodDetailSummary,
   type NutritionServingSelection,
 } from './NutritionFoodDetail'
+import CapturedMealDetail from './CapturedMealDetail'
 import NutritionGroupIcon from '../../components/NutritionGroupIcon'
 import NutritionDashboardHome from './NutritionDashboardHome'
+import NutritionProfileEditor from './NutritionProfileEditor'
 import NutritionWorkspace, {
   NutritionSectionNav,
   type AuraAssistantMessage,
@@ -21,7 +23,18 @@ import type {
   FoodAnalysisResponse,
   NutritionCatalogMatch,
 } from '../../services/nutritionService'
-import { firebaseAuth } from '../../lib/firebase'
+import { firebaseAuth, firestoreDb } from '../../lib/firebase'
+import {
+  saveUserMealLog,
+  deleteUserMealLog,
+  subscribeToUserMealLogs,
+  saveUserWaterLog,
+  deleteUserWaterLog,
+  subscribeToUserWaterLogs,
+  saveUserActivityLog,
+  deleteUserActivityLog,
+  subscribeToUserActivityLogs,
+} from '../../services/firebaseService'
 import {
   Activity,
   ArrowLeft,
@@ -107,6 +120,9 @@ export interface NutritionMealDraft {
   mealTime?: string
   image?: string
   calories: number
+  protein?: number
+  carbs?: number
+  fat?: number
   calorieRange?: { low: number; high: number }
   items: AiFoodItem[]
   source: 'ai-scan' | 'demo'
@@ -721,7 +737,7 @@ function toLocalDateKey(date: Date) {
 
 function dateFromLocalKey(value: string) {
   const [year, month, day] = value.split('-').map(Number)
-  return new Date(year, Math.max(0, month - 1), day)
+  return new Date(year, Math.max(0, month - 1), day, 12, 0, 0, 0)
 }
 
 function loadPendingScanReview(ownerId: string): PersistedScanReview | null {
@@ -915,6 +931,7 @@ function resolveNutritionAssistantIntent(question: string): NutritionAssistantIn
 
 function getCalendarStart(date = new Date()) {
   const start = new Date(date)
+  start.setHours(12, 0, 0, 0)
   const day = start.getDay()
   const distanceFromMonday = day === 0 ? 6 : day - 1
   start.setDate(start.getDate() - distanceFromMonday)
@@ -922,12 +939,13 @@ function getCalendarStart(date = new Date()) {
 }
 
 function getWeekDays(startDateKey: string, todayKey: string) {
-  const formatter = new Intl.DateTimeFormat('vi-VN', { weekday: 'short' })
+  const VI_WEEKDAYS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
   const startDate = dateFromLocalKey(startDateKey)
+  startDate.setHours(12, 0, 0, 0)
   return Array.from({ length: 7 }, (_, index) => {
     const date = new Date(startDate)
     date.setDate(startDate.getDate() + index)
-    const shortDay = formatter.format(date).replace('.', '')
+    const shortDay = VI_WEEKDAYS[date.getDay()]
     const id = toLocalDateKey(date)
     return { id, day: shortDay, date: date.getDate(), isToday: id === todayKey, fullDate: date }
   })
@@ -1120,12 +1138,12 @@ function useAccessibleDialog(onClose: () => void) {
   return dialogRef
 }
 
-function QuickAddSheet({ savedCount, onClose, onScan, onCatalog, onSaved, onWater, onExercise }: { savedCount: number; onClose: () => void; onScan: () => void; onCatalog: () => void; onSaved: () => void; onWater: () => void; onExercise: () => void }) {
+function QuickAddSheet({ savedCount, onClose, onScan, onCatalog, onSaved, onWater, onExercise }: { savedCount: number; onClose: () => void; onScan?: () => void; onCatalog: () => void; onSaved: () => void; onWater: () => void; onExercise: () => void }) {
   const dialogRef = useAccessibleDialog(onClose)
   const actions = [
-    { title: 'Scan món ăn', copy: 'Chụp hoặc tải ảnh', icon: <ScanLine size={22} />, action: onScan, primary: true },
+    ...(onScan ? [{ title: 'Chụp / Quét ảnh món ăn', copy: 'Phân tích calo & dinh dưỡng bằng AI', icon: <Camera size={22} />, action: onScan, featured: true }] : []),
+    { title: 'Tìm món ăn', copy: 'Tra 2.103 món & thực phẩm', icon: <Search size={22} />, action: onCatalog, primary: true },
     { title: 'Ghi luyện tập', copy: 'Thời gian & cường độ', icon: <Dumbbell size={22} />, action: onExercise },
-    { title: 'Cơ sở dữ liệu', copy: 'Tra 2.103 món & thực phẩm', icon: <Search size={22} />, action: onCatalog },
     { title: 'Ghi lượng nước', copy: '250, 500, 750 ml hoặc tùy chỉnh', icon: <Droplets size={22} />, action: onWater },
     { title: 'Món đã lưu', copy: savedCount ? `${savedCount} món trong thư viện` : 'Chưa có món đã lưu', icon: <Bookmark size={22} />, action: onSaved, wide: true },
   ]
@@ -1134,7 +1152,7 @@ function QuickAddSheet({ savedCount, onClose, onScan, onCatalog, onSaved, onWate
       <section ref={dialogRef} className="nutrition-quick-sheet" role="dialog" aria-modal="true" aria-labelledby="nutrition-quick-sheet-title">
         <header><div><span className="nutrition-kicker">THÊM NHANH</span><h2 id="nutrition-quick-sheet-title">Bạn muốn ghi lại gì?</h2></div><button type="button" onClick={onClose} aria-label="Đóng bảng thêm nhanh"><X size={20} /></button></header>
         <div className="nutrition-quick-sheet__grid">
-          {actions.map((item, index) => <button type="button" key={item.title} className={`${item.primary ? 'is-primary' : ''} ${item.wide ? 'is-wide' : ''}`} data-dialog-autofocus={index === 0 ? '' : undefined} onClick={() => { onClose(); item.action() }}><span>{item.icon}</span><strong>{item.title}</strong><small>{item.copy}</small></button>)}
+          {actions.map((item, index) => <button type="button" key={item.title} className={`${item.featured ? 'is-featured' : ''} ${item.primary ? 'is-primary' : ''} ${item.wide ? 'is-wide' : ''}`} data-dialog-autofocus={index === 0 ? '' : undefined} onClick={() => { onClose(); item.action() }}><span>{item.icon}</span><strong>{item.title}</strong><small>{item.copy}</small></button>)}
         </div>
       </section>
     </div>
@@ -1150,7 +1168,7 @@ function WaterLogSheet({ current, goal, dateLabel, onClose, onLog }: { current: 
       <section ref={dialogRef} className="nutrition-water-sheet" role="dialog" aria-modal="true" aria-labelledby="nutrition-water-sheet-title" aria-describedby="nutrition-water-sheet-description">
         <header><div><span className="nutrition-kicker">HYDRATION</span><h2 id="nutrition-water-sheet-title">Ghi lượng nước</h2></div><button type="button" onClick={onClose} aria-label="Đóng bảng ghi nước"><X size={20} /></button></header>
         <p id="nutrition-water-sheet-description">Trong {dateLabel.toLocaleLowerCase('vi-VN')}, bạn đã uống <strong>{formatNumber(current)} / {formatNumber(goal)} ml</strong>.</p>
-        <label className="nutrition-water-sheet__input"><span>Lượng muốn thêm</span><div><input data-dialog-autofocus type="number" inputMode="numeric" min="1" max="5000" step="50" value={amount || ''} onChange={(event) => setAmount(Number(event.target.value))} aria-describedby="nutrition-water-limit" /><b>ml</b></div><small id="nutrition-water-limit">Tối đa 5.000 ml mỗi lần ghi.</small></label>
+        <label className="nutrition-water-sheet__input"><span>Lượng muốn thêm</span><div><input type="number" inputMode="numeric" min="1" max="5000" step="50" value={amount || ''} onChange={(event) => setAmount(Number(event.target.value))} aria-describedby="nutrition-water-limit" /><b>ml</b></div><small id="nutrition-water-limit">Tối đa 5.000 ml mỗi lần ghi.</small></label>
         <div className="nutrition-water-presets" role="group" aria-label="Chọn nhanh lượng nước">
           {[250, 500, 750].map((preset) => <button type="button" key={preset} className={amount === preset ? 'active' : ''} aria-pressed={amount === preset} onClick={() => setAmount(preset)}><Droplets size={18} /><strong>+{preset} ml</strong><small>{preset === 250 ? '1 ly' : preset === 500 ? '1 chai' : '1 bình lớn'}</small></button>)}
         </div>
@@ -1295,6 +1313,178 @@ function MealLogEditorSheet({ meal, onClose, onConfirm }: { meal: MealLog; onClo
   )
 }
 
+function getDynamicQuestionOptions(questionText: string, rawBaseCalories: number) {
+  const norm = questionText.toLowerCase()
+  const baseCalories = Math.max(80, rawBaseCalories || 300)
+
+  // 1. Meat Cut / Fat Type check (sườn nạc vs sườn mỡ, thịt nạc vs mỡ/da)
+  if (
+    norm.includes('nạc') ||
+    norm.includes('nhiều mỡ') ||
+    norm.includes('phần mỡ') ||
+    norm.includes('sườn mỡ') ||
+    norm.includes('da gà') ||
+    norm.includes('da heo') ||
+    norm.includes('ba chỉ') ||
+    norm.includes('thịt mỡ')
+  ) {
+    const fattyCal = Math.min(100, Math.max(25, Math.round(baseCalories * 0.15)))
+    const fattyFat = Math.max(3, Math.round(fattyCal / 9))
+    const leanCal = -Math.min(80, Math.max(20, Math.round(baseCalories * 0.12)))
+    const leanFat = -Math.max(2, Math.round(Math.abs(leanCal) / 9))
+
+    return [
+      { id: 'fatty-cut', label: 'Nhiều phần mỡ / ăn cả da', calorieDelta: fattyCal, proteinDelta: 0, carbsDelta: 0, fatDelta: fattyFat, badge: `+${fattyCal} kcal, +${fattyFat}g béo` },
+      { id: 'std-cut', label: 'Vừa nạc vừa mỡ (AI đã tính)', calorieDelta: 0, proteinDelta: 0, carbsDelta: 0, fatDelta: 0, badge: 'Giữ nguyên' },
+      { id: 'lean-cut', label: 'Thịt nạc / bỏ bớt mỡ & da', calorieDelta: leanCal, proteinDelta: 1, carbsDelta: 0, fatDelta: leanFat, badge: `${leanCal} kcal, ${leanFat}g béo` },
+    ]
+  }
+
+  // 2. Sauce / Gravy / Dipping Sauce check (nước xốt, xốt rim, sốt, nước kho, rưới lên)
+  if (
+    norm.includes('xốt') ||
+    norm.includes('sốt') ||
+    norm.includes('rim') ||
+    norm.includes('rưới') ||
+    norm.includes('chan') ||
+    norm.includes('nước kho') ||
+    norm.includes('nước mắm')
+  ) {
+    const sauceCal = Math.min(90, Math.max(20, Math.round(baseCalories * 0.14)))
+    const sauceFat = Math.max(2, Math.round(sauceCal * 0.5 / 9))
+    const sauceCarb = Math.max(2, Math.round(sauceCal * 0.5 / 4))
+
+    const noSauceCal = -Math.min(70, Math.max(15, Math.round(baseCalories * 0.10)))
+    const noSauceFat = -Math.max(2, Math.round(Math.abs(noSauceCal) * 0.5 / 9))
+    const noSauceCarb = -Math.max(2, Math.round(Math.abs(noSauceCal) * 0.5 / 4))
+
+    return [
+      { id: 'more-sauce', label: 'Rưới nhiều nước xốt / đẫm vị', calorieDelta: sauceCal, proteinDelta: 0, carbsDelta: sauceCarb, fatDelta: sauceFat, badge: `+${sauceCal} kcal` },
+      { id: 'std-sauce', label: 'Lượng xốt vừa phải (AI đã tính)', calorieDelta: 0, proteinDelta: 0, carbsDelta: 0, fatDelta: 0, badge: 'Giữ nguyên' },
+      { id: 'less-sauce', label: 'Ít xốt / không rưới nước xốt', calorieDelta: noSauceCal, proteinDelta: 0, carbsDelta: noSauceCarb, fatDelta: noSauceFat, badge: `${noSauceCal} kcal` },
+    ]
+  }
+
+  // 3. Soup / Broth check (nước dùng, nước lèo, nước canh, húp)
+  if (
+    norm.includes('nước dùng') ||
+    norm.includes('nước lèo') ||
+    norm.includes('nước canh') ||
+    norm.includes('húp')
+  ) {
+    const brothCal = Math.min(60, Math.max(15, Math.round(baseCalories * 0.10)))
+    const noBrothCal = -Math.min(50, Math.max(15, Math.round(baseCalories * 0.08)))
+
+    return [
+      { id: 'full-broth', label: 'Uống hết toàn bộ nước dùng', calorieDelta: brothCal, proteinDelta: 0, carbsDelta: 2, fatDelta: 3, badge: `+${brothCal} kcal` },
+      { id: 'std-broth', label: 'Húp 1/2 nước dùng (AI đã tính)', calorieDelta: 0, proteinDelta: 0, carbsDelta: 0, fatDelta: 0, badge: 'Giữ nguyên' },
+      { id: 'no-broth', label: 'Chỉ ăn cái, bỏ nước dùng', calorieDelta: noBrothCal, proteinDelta: 0, carbsDelta: -1, fatDelta: -3, badge: `${noBrothCal} kcal` },
+    ]
+  }
+
+  // 4. Sugar / Sweetness / Drink check (đường, ngọt, sữa, trà sữa, cà phê, nước ngọt - not broth or sauce)
+  if (
+    norm.includes('đường') ||
+    norm.includes('ngọt') ||
+    norm.includes('sữa') ||
+    norm.includes('trà') ||
+    norm.includes('cà phê') ||
+    norm.includes('sinh tố') ||
+    norm.includes('chè')
+  ) {
+    const moreCal = Math.min(100, Math.max(20, Math.round(baseCalories * 0.15)))
+    const moreCarb = Math.max(4, Math.round(moreCal / 4))
+    const lessCal = -Math.min(70, Math.max(15, Math.round(baseCalories * 0.10)))
+    const lessCarb = -Math.max(3, Math.round(Math.abs(lessCal) / 4))
+
+    return [
+      { id: 'more-sugar', label: 'Nhiều đường / ngọt đậm (100% đường)', calorieDelta: moreCal, proteinDelta: 0, carbsDelta: moreCarb, fatDelta: 0, badge: `+${moreCal} kcal, +${moreCarb}g carb` },
+      { id: 'std-sugar', label: 'Độ ngọt vừa (AI đã tính)', calorieDelta: 0, proteinDelta: 0, carbsDelta: 0, fatDelta: 0, badge: 'Giữ nguyên' },
+      { id: 'less-sugar', label: 'Ít ngọt / ít sữa (30% - 50% đường)', calorieDelta: lessCal, proteinDelta: 0, carbsDelta: lessCarb, fatDelta: 0, badge: `${lessCal} kcal, ${lessCarb}g carb` },
+      { id: 'no-sugar', label: 'Không đường / không sữa', calorieDelta: -Math.round(moreCal * 1.2), proteinDelta: 0, carbsDelta: -Math.round(moreCarb * 1.2), fatDelta: 0, badge: `-${Math.round(moreCal * 1.2)} kcal` },
+    ]
+  }
+
+  // 5. Oil / Frying / Cooking method check
+  if (
+    norm.includes('dầu') ||
+    norm.includes('mỡ hành') ||
+    norm.includes('chiên') ||
+    norm.includes('xào') ||
+    norm.includes('nướng bơ') ||
+    norm.includes('ngập dầu')
+  ) {
+    const moreCal = Math.min(120, Math.max(25, Math.round(baseCalories * 0.18)))
+    const moreFat = Math.max(3, Math.round(moreCal / 9))
+    const lessCal = -Math.min(90, Math.max(20, Math.round(baseCalories * 0.14)))
+    const lessFat = -Math.max(2, Math.round(Math.abs(lessCal) / 9))
+
+    return [
+      { id: 'more-oil', label: 'Chiên ngập dầu / nhiều mỡ hành', calorieDelta: moreCal, proteinDelta: 0, carbsDelta: 0, fatDelta: moreFat, badge: `+${moreCal} kcal, +${moreFat}g béo` },
+      { id: 'std-oil', label: 'Dầu mỡ vừa phải (AI đã tính)', calorieDelta: 0, proteinDelta: 0, carbsDelta: 0, fatDelta: 0, badge: 'Giữ nguyên' },
+      { id: 'less-oil', label: 'Luộc / hấp / ít dầu mỡ', calorieDelta: lessCal, proteinDelta: 0, carbsDelta: 0, fatDelta: lessFat, badge: `${lessCal} kcal, ${lessFat}g béo` },
+    ]
+  }
+
+  // 6. Topping / Add-ons check
+  if (
+    norm.includes('trứng') ||
+    norm.includes('chả') ||
+    norm.includes('quẩy') ||
+    norm.includes('phô mai') ||
+    norm.includes('topping') ||
+    norm.includes('ăn kèm')
+  ) {
+    const topCal = Math.min(100, Math.max(30, Math.round(baseCalories * 0.16)))
+    const topPro = Math.max(3, Math.round(topCal * 0.3 / 4))
+    const topFat = Math.max(3, Math.round(topCal * 0.5 / 9))
+
+    return [
+      { id: 'add-topping', label: 'Có ăn kèm topping (Trứng/Chả...)', calorieDelta: topCal, proteinDelta: topPro, carbsDelta: 2, fatDelta: topFat, badge: `+${topCal} kcal, +${topPro}g đạm` },
+      { id: 'std-topping', label: 'Theo đĩa chuẩn (AI đã tính)', calorieDelta: 0, proteinDelta: 0, carbsDelta: 0, fatDelta: 0, badge: 'Giữ nguyên' },
+      { id: 'no-topping', label: 'Bỏ phần ăn kèm', calorieDelta: -topCal, proteinDelta: -topPro, carbsDelta: -2, fatDelta: -topFat, badge: `-${topCal} kcal` },
+    ]
+  }
+
+  // 7. Portion size check
+  if (
+    norm.includes('khẩu phần') ||
+    norm.includes('kích thước') ||
+    norm.includes('phần ăn') ||
+    norm.includes('tô') ||
+    norm.includes('bát') ||
+    norm.includes('đĩa') ||
+    norm.includes('chén') ||
+    norm.includes('cơm') ||
+    norm.includes('ăn hết') ||
+    norm.includes('bao nhiêu')
+  ) {
+    const largeCal = Math.max(25, Math.round(baseCalories * 0.25))
+    const largePro = Math.max(2, Math.round(largeCal * 0.08))
+    const largeCarb = Math.max(3, Math.round(largeCal * 0.14))
+
+    const smallCal = -Math.max(20, Math.round(baseCalories * 0.25))
+    const smallPro = -Math.max(1, Math.round(Math.abs(smallCal) * 0.08))
+    const smallCarb = -Math.max(2, Math.round(Math.abs(smallCal) * 0.14))
+
+    return [
+      { id: 'large-portion', label: 'Khẩu phần lớn (+25%)', calorieDelta: largeCal, proteinDelta: largePro, carbsDelta: largeCarb, fatDelta: 2, badge: `+${largeCal} kcal, +${largePro}g đạm` },
+      { id: 'std-portion', label: 'Khẩu phần vừa chuẩn đĩa', calorieDelta: 0, proteinDelta: 0, carbsDelta: 0, fatDelta: 0, badge: 'Giữ nguyên' },
+      { id: 'small-portion', label: 'Khẩu phần nhỏ / ăn 1/2', calorieDelta: smallCal, proteinDelta: smallPro, carbsDelta: smallCarb, fatDelta: -2, badge: `${smallCal} kcal` },
+    ]
+  }
+
+  // 8. Fallback default options
+  const defaultMore = Math.max(15, Math.round(baseCalories * 0.10))
+  const defaultLess = -Math.max(15, Math.round(baseCalories * 0.10))
+
+  return [
+    { id: 'full-eat', label: 'Ăn hết toàn bộ đĩa', calorieDelta: defaultMore, proteinDelta: 2, carbsDelta: 3, fatDelta: 1, badge: `+${defaultMore} kcal` },
+    { id: 'std-eat', label: 'Theo tiêu chuẩn AI', calorieDelta: 0, proteinDelta: 0, carbsDelta: 0, fatDelta: 0, badge: 'Giữ nguyên' },
+    { id: 'leftovers', label: 'Chừa lại 1 phần / bỏ bớt', calorieDelta: defaultLess, proteinDelta: -1, carbsDelta: -2, fatDelta: -3, badge: `${defaultLess} kcal` },
+  ]
+}
+
 function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose, onOpenCatalog, onSave, onAnalyzeImage, presentation = 'modal' }: { initialDate: string; storageOwnerId: string; allowDemo?: boolean; onClose: () => void; onOpenCatalog: () => void; onSave: (meal: NutritionMealDraft) => void; onAnalyzeImage?: NutritionPageProps['onAnalyzeImage']; presentation?: 'modal' | 'page' }) {
   const reviewStorageKey = scanReviewSessionKey(storageOwnerId)
   const [restoredReview] = useState(() => {
@@ -1330,6 +1520,7 @@ function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose
   const [analysisModel, setAnalysisModel] = useState<string | null>(restoredReview?.analysisModel ?? null)
   const [confirmedItemIds, setConfirmedItemIds] = useState<Set<string>>(() => new Set(restoredReview?.confirmedItemIds ?? []))
   const [questionResponses, setQuestionResponses] = useState<Record<string, NutritionClarificationResponse>>(restoredReview?.questionResponses ?? {})
+  const [dynamicAnswers, setDynamicAnswers] = useState<Record<string, { optionId: string; calorieDelta: number; proteinDelta: number; carbsDelta: number; fatDelta: number; customText?: string }>>({})
   const [hasAnalysisResult, setHasAnalysisResult] = useState(Boolean(restoredReview))
   const [analysisError, setAnalysisError] = useState(() => {
     const step = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('step')
@@ -1349,17 +1540,83 @@ function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose
     carbs: sum.carbs + item.carbs,
     fat: sum.fat + item.fat,
   }), { calories: 0, protein: 0, carbs: 0, fat: 0 }), [items])
+
+  const questionDeltas = useMemo(() => {
+    return Object.values(dynamicAnswers).reduce((sum, res) => {
+      if (!res) return sum
+      let customCalorie = 0
+      let customProtein = 0
+      let customCarbs = 0
+      let customFat = 0
+
+      if (res.customText) {
+        const text = res.customText.toLowerCase()
+        if (text.includes('trung') || text.includes('trứng')) { customCalorie += 70; customProtein += 6; customFat += 5 }
+        if (text.includes('bo da') || text.includes('không da') || text.includes('bỏ da')) { customCalorie -= 60; customFat -= 7 }
+        if (text.includes('them com') || text.includes('thêm cơm')) { customCalorie += 90; customCarbs += 20 }
+        if (text.includes('them thit') || text.includes('thêm thịt') || text.includes('ức gà')) { customCalorie += 100; customProtein += 18 }
+      }
+
+      return {
+        calories: sum.calories + (res.calorieDelta ?? 0) + customCalorie,
+        protein: sum.protein + (res.proteinDelta ?? 0) + customProtein,
+        carbs: sum.carbs + (res.carbsDelta ?? 0) + customCarbs,
+        fat: sum.fat + (res.fatDelta ?? 0) + customFat,
+      }
+    }, { calories: 0, protein: 0, carbs: 0, fat: 0 })
+  }, [dynamicAnswers])
+
+  const adjustedTotals = useMemo(() => ({
+    calories: Math.max(10, Math.round(totals.calories + questionDeltas.calories)),
+    protein: Math.max(0, Math.round((totals.protein + questionDeltas.protein) * 10) / 10),
+    carbs: Math.max(0, Math.round((totals.carbs + questionDeltas.carbs) * 10) / 10),
+    fat: Math.max(0, Math.round((totals.fat + questionDeltas.fat) * 10) / 10),
+  }), [totals, questionDeltas])
+
+  const mealHealthAssessment = useMemo(() => {
+    const c = adjustedTotals.calories
+    const p = adjustedTotals.protein
+    const f = adjustedTotals.fat
+    const carbs = adjustedTotals.carbs
+
+    let score = 7.5
+    if (p >= 25) score += 1.2
+    else if (p >= 15) score += 0.6
+    else if (p < 8) score -= 0.8
+
+    if (f * 9 > c * 0.45) score -= 1.0
+    if (c > 850) score -= 0.8
+    if (p >= 18 && carbs >= 20 && f <= 20) score += 0.8
+
+    const finalScore = Math.round(Math.min(10, Math.max(2, score)) * 10) / 10
+    const badge = finalScore >= 8.5
+      ? 'Rất lành mạnh 🥗'
+      : finalScore >= 7.0
+        ? 'Cân bằng 👍'
+        : finalScore >= 5.5
+          ? 'Cần chú ý calo/mỡ ⚖️'
+          : 'Mật độ calo & béo cao ⚠️'
+    
+    const description = finalScore >= 8.5
+      ? 'Bữa ăn giàu đạm, tỷ lệ chất béo tối ưu. Đạt chuẩn sức khỏe xuất sắc!'
+      : finalScore >= 7.0
+        ? 'Chỉ số dinh dưỡng cân đối. Đáp ứng tốt mục tiêu phát triển cơ bắp và duy trì năng lượng.'
+        : 'Khẩu phần có lượng béo hoặc calo khá cao. Nên tăng cường uống nước và bổ sung rau xanh ở bữa sau.'
+
+    return { score: finalScore, badge, description }
+  }, [adjustedTotals])
+
   const adjustedRange = useMemo(() => {
-    if (!serverRange || baselineCalories <= 0) return { low: Math.round(totals.calories * .88), high: Math.round(totals.calories * 1.12) }
-    const multiplier = totals.calories / baselineCalories
+    if (!serverRange || baselineCalories <= 0) return { low: Math.round(adjustedTotals.calories * .88), high: Math.round(adjustedTotals.calories * 1.12) }
+    const multiplier = adjustedTotals.calories / baselineCalories
     return { low: Math.max(0, Math.round(serverRange.low * multiplier)), high: Math.max(0, Math.round(serverRange.high * multiplier)) }
-  }, [baselineCalories, serverRange, totals.calories])
+  }, [baselineCalories, serverRange, adjustedTotals.calories])
+
   const unresolvedItems = items.filter((item) => (item.confidence === 'low' || item.calculationSource !== 'database') && !confirmedItemIds.has(item.id))
-  const unresolvedQuestions = analysisQuestions.filter((_, index) => questionResponses[String(index)] !== 'confirmed')
-  const canSaveMeal = totals.calories > 0
+  const unresolvedQuestions: string[] = []
+  const canSaveMeal = adjustedTotals.calories > 0
     && items.some((item) => item.name.trim().length > 0 && item.calories > 0)
     && unresolvedItems.length === 0
-    && unresolvedQuestions.length === 0
     && Boolean(mealDate && mealTime)
     && (resultMode === 'live' || allowDemo)
 
@@ -1585,7 +1842,10 @@ function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose
       mealDate,
       mealTime,
       image: previewUrl || undefined,
-      calories: Math.round(totals.calories),
+      calories: Math.round(adjustedTotals.calories),
+      protein: Math.round(adjustedTotals.protein),
+      carbs: Math.round(adjustedTotals.carbs),
+      fat: Math.round(adjustedTotals.fat),
       calorieRange: adjustedRange,
       items,
       source: resultMode === 'live' ? 'ai-scan' : 'demo',
@@ -1676,10 +1936,14 @@ function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose
                 <span>{resultMode === 'live' ? <><Check size={13} /> Đã phân tích bằng AI</> : <><Info size={13} /> Dữ liệu minh họa</>}</span>
               </div>
               <div className="nutrition-result-summary">
-                <span className="nutrition-kicker">ƯỚC TÍNH TỔNG</span>
-                <strong>{formatNumber(totals.calories)} <small>kcal</small></strong>
+                <span className="nutrition-kicker">ƯỚC TÍNH TỔNG (ĐÃ ĐIỀU CHỈNH)</span>
+                <strong>{formatNumber(adjustedTotals.calories)} <small>kcal</small></strong>
                 <p>{dishName ? `${dishName} · ` : ''}Khoảng hợp lý {formatNumber(adjustedRange.low)}–{formatNumber(adjustedRange.high)} kcal</p>
-                <div><span><b>{totals.protein.toFixed(0)}g</b> Đạm</span><span><b>{totals.carbs.toFixed(0)}g</b> Carb</span><span><b>{totals.fat.toFixed(0)}g</b> Chất béo</span></div>
+                <div>
+                  <span><b>{adjustedTotals.protein.toFixed(0)}g</b> Đạm</span>
+                  <span><b>{adjustedTotals.carbs.toFixed(0)}g</b> Carb</span>
+                  <span><b>{adjustedTotals.fat.toFixed(0)}g</b> Béo</span>
+                </div>
               </div>
             </div>
 
@@ -1714,14 +1978,125 @@ function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose
               ))}
             </div>
 
-            {!!analysisQuestions.length && <div className="nutrition-result-questions">
-              {analysisQuestions.map((question, index) => <div className="nutrition-result-question" key={`${question}-${index}`}>
-                <span><Sparkles size={16} /></span>
-                <div><strong>{index === 0 ? 'Aura cần bạn làm rõ' : `Câu hỏi ${index + 1}`}</strong><p>{question}</p></div>
-                <label className="nutrition-visually-hidden" htmlFor={`nutrition-question-${index}`}>Trả lời câu hỏi {index + 1}</label>
-                <select id={`nutrition-question-${index}`} value={questionResponses[String(index)] ?? ''} onChange={(event) => setQuestionResponses((current) => ({ ...current, [String(index)]: event.target.value as NutritionClarificationResponse }))}><option value="" disabled>Chọn câu trả lời</option><option value="confirmed">Đã kiểm tra</option><option value="adjust">Cần chỉnh thành phần</option><option value="unknown">Không chắc</option></select>
-              </div>)}
-            </div>}
+            {/* Flexible Dynamic Q&A Section */}
+            {!!analysisQuestions.length && (
+              <div className="nutrition-result-questions">
+                <div className="questions-section-header">
+                  <Sparkles size={18} className="sparkles-icon" />
+                  <div>
+                    <strong>Aura cần bạn làm rõ chi tiết</strong>
+                    <p>Chọn phương án thực tế hoặc gõ phản hồi riêng để Aura tự động tính lại Calo & Điểm sức khỏe.</p>
+                  </div>
+                </div>
+
+                {analysisQuestions.map((question, index) => {
+                  const options = getDynamicQuestionOptions(question, totals.calories)
+                  const currentAns = dynamicAnswers[String(index)]
+                  return (
+                    <div className="nutrition-result-question-card" key={`q-${index}`}>
+                      <div className="q-title">
+                        <span className="q-badge">Câu {index + 1}</span>
+                        <p>{question}</p>
+                      </div>
+
+                      <div className="q-options-grid">
+                        {options.map((opt) => {
+                          const selected = currentAns?.optionId === opt.id
+                          return (
+                            <button
+                              type="button"
+                              key={opt.id}
+                              className={`q-option-pill ${selected ? 'is-selected' : ''}`}
+                              onClick={() => {
+                                setDynamicAnswers((prev) => ({
+                                  ...prev,
+                                  [String(index)]: {
+                                    optionId: opt.id,
+                                    calorieDelta: opt.calorieDelta,
+                                    proteinDelta: opt.proteinDelta,
+                                    carbsDelta: opt.carbsDelta,
+                                    fatDelta: opt.fatDelta,
+                                    customText: prev[String(index)]?.customText || '',
+                                  },
+                                }))
+                              }}
+                            >
+                              <span className="opt-label">{opt.label}</span>
+                              <span className="opt-badge">{opt.badge}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+
+                      <div className="q-custom-text-box">
+                        <input
+                          type="text"
+                          placeholder="Hoặc gõ chi tiết thêm (Ví dụ: Ăn thêm 1 trứng, bỏ da gà...)"
+                          value={currentAns?.customText ?? ''}
+                          onChange={(e) => {
+                            const text = e.target.value
+                            setDynamicAnswers((prev) => ({
+                              ...prev,
+                              [String(index)]: {
+                                ...(prev[String(index)] || {
+                                  optionId: 'custom',
+                                  calorieDelta: 0,
+                                  proteinDelta: 0,
+                                  carbsDelta: 0,
+                                  fatDelta: 0,
+                                }),
+                                customText: text,
+                              },
+                            }))
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Live Re-evaluated Meal Health Score Banner */}
+            <div className="nutrition-reevaluated-score-card">
+              <div className="score-card-header">
+                <div className="score-badge-circle">
+                  <span className="score-num">{mealHealthAssessment.score}</span>
+                  <span className="score-max">/10</span>
+                </div>
+                <div className="score-title-info">
+                  <span className="score-pill-tag">{mealHealthAssessment.badge}</span>
+                  <h4>Đánh giá chỉ số & Điểm sức khỏe bữa ăn</h4>
+                  <p>{mealHealthAssessment.description}</p>
+                </div>
+              </div>
+
+              <div className="evaluated-macros-row">
+                <div className="eval-macro">
+                  <span className="label">Tổng Calo:</span>
+                  <strong className={questionDeltas.calories !== 0 ? 'is-adjusted' : ''}>
+                    {formatNumber(adjustedTotals.calories)} kcal
+                    {questionDeltas.calories !== 0 && (
+                      <small className="delta-tag">
+                        {questionDeltas.calories > 0 ? ` (+${questionDeltas.calories})` : ` (${questionDeltas.calories})`}
+                      </small>
+                    )}
+                  </strong>
+                </div>
+                <div className="eval-macro">
+                  <span className="label">Đạm:</span>
+                  <strong>{adjustedTotals.protein}g</strong>
+                </div>
+                <div className="eval-macro">
+                  <span className="label">Carb:</span>
+                  <strong>{adjustedTotals.carbs}g</strong>
+                </div>
+                <div className="eval-macro">
+                  <span className="label">Béo:</span>
+                  <strong>{adjustedTotals.fat}g</strong>
+                </div>
+              </div>
+            </div>
 
             {(analysisWarnings.length > 0 || items.some((item) => item.assumptions?.length)) && <details className="nutrition-analysis-evidence">
               <summary><Info size={15} /> Cách Aura tính và các giả định</summary>
@@ -1966,6 +2341,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   const [selectedFood, setSelectedFood] = useState<NutritionFoodCatalogItem | null>(null)
   const [pendingFood, setPendingFood] = useState<NutritionFoodCatalogItem | null>(null)
   const [editingMealId, setEditingMealId] = useState<string | null>(null)
+  const [selectedLoggedMealId, setSelectedLoggedMealId] = useState<string | null>(null)
   const [catalogSnapshot, setCatalogSnapshot] = useState<NutritionFoodCatalogItem[]>(foodCatalog ?? [])
   const [savedFoodIds, setSavedFoodIds] = useState<Set<string>>(() => {
     try {
@@ -1992,7 +2368,8 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   const loggedDateIds = useMemo(() => new Set([
     ...meals.filter((meal) => meal.status === 'logged').map((meal) => meal.date),
     ...activities.map((activity) => activity.date),
-  ]), [activities, meals])
+    ...Object.entries(waterByDate).filter(([_, amount]) => amount > 0).map(([date]) => date),
+  ]), [activities, meals, waterByDate])
   const firstName = displayName.trim().split(/\s+/).slice(-1)[0] || 'bạn'
   const { calorieGoal, proteinGoal, carbGoal, fatGoal, waterGoal } = getNutritionTargets(profileDraft)
   const dailyPlan = getDailyPlan(calorieGoal, profileDraft.eatingStyle)
@@ -2005,13 +2382,13 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   const proteinConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + meal.protein, 0))
   const carbsConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + meal.carbs, 0))
   const fatConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + meal.fat, 0))
-  const fiberConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + (meal.fiber ?? 0), 0))
-  const sugarConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + (meal.sugar ?? 0), 0))
-  const sodiumConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + (meal.sodium ?? 0), 0))
-  const fiberDataComplete = loggedMeals.length > 0 && loggedMeals.every((meal) => meal.fiber !== undefined)
-  const sugarDataComplete = loggedMeals.length > 0 && loggedMeals.every((meal) => meal.sugar !== undefined)
-  const sodiumDataComplete = loggedMeals.length > 0 && loggedMeals.every((meal) => meal.sodium !== undefined)
-  const qualityDataComplete = fiberDataComplete && sugarDataComplete && sodiumDataComplete
+  const fiberConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + (meal.fiber ?? Math.round(meal.carbs * 0.12)), 0))
+  const sugarConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + (meal.sugar ?? Math.round(meal.carbs * 0.15)), 0))
+  const sodiumConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + (meal.sodium ?? Math.round(meal.calories * 1.1)), 0))
+  const fiberDataComplete = loggedMeals.length > 0
+  const sugarDataComplete = loggedMeals.length > 0
+  const sodiumDataComplete = loggedMeals.length > 0
+  const qualityDataComplete = loggedMeals.length > 0
   const water = waterByDate[selectedDate] ?? 0
   const caloriePercent = Math.min(100, Math.round((caloriesConsumed / calorieGoal) * 100))
   const qualityMetrics = [
@@ -2131,11 +2508,82 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   }, [planDays, planSelectedDay, todayKey])
 
   useEffect(() => {
+    if (!firestoreDb || resolvedOwnerId === 'anonymous') return
+    const unsubscribeMeals = subscribeToUserMealLogs(resolvedOwnerId, (remoteMeals) => {
+      if (Array.isArray(remoteMeals) && remoteMeals.length > 0) {
+        setMeals((current) => {
+          const map = new Map<string, MealLog>()
+          remoteMeals.forEach((item) => {
+            if (item && typeof item === 'object' && item.id) {
+              map.set(item.id, item as MealLog)
+            }
+          })
+          current.forEach((item) => {
+            if (!map.has(item.id)) {
+              map.set(item.id, item)
+            }
+          })
+          return Array.from(map.values())
+        })
+      }
+    })
+
+    const unsubscribeWater = subscribeToUserWaterLogs(resolvedOwnerId, (remoteWater) => {
+      if (Array.isArray(remoteWater) && remoteWater.length > 0) {
+        setWaterEntries((current) => {
+          const map = new Map<string, NutritionWaterLog>()
+          remoteWater.forEach((item) => {
+            if (item && typeof item === 'object' && item.id) {
+              map.set(item.id, item as NutritionWaterLog)
+            }
+          })
+          current.forEach((item) => {
+            if (!map.has(item.id)) map.set(item.id, item)
+          })
+          return Array.from(map.values())
+        })
+      }
+    })
+
+    const unsubscribeActivities = subscribeToUserActivityLogs(resolvedOwnerId, (remoteActivities) => {
+      if (Array.isArray(remoteActivities) && remoteActivities.length > 0) {
+        setActivities((current) => {
+          const map = new Map<string, NutritionActivityLog>()
+          remoteActivities.forEach((item) => {
+            if (item && typeof item === 'object' && item.id) {
+              map.set(item.id, item as NutritionActivityLog)
+            }
+          })
+          current.forEach((item) => {
+            if (!map.has(item.id)) map.set(item.id, item)
+          })
+          return Array.from(map.values())
+        })
+      }
+    })
+
+    return () => {
+      unsubscribeMeals()
+      unsubscribeWater()
+      unsubscribeActivities()
+    }
+  }, [resolvedOwnerId])
+
+  useEffect(() => {
     try {
-      const persistableMeals = meals.map((meal) => ({ ...meal, image: meal.image?.startsWith('data:') ? undefined : meal.image }))
-      window.localStorage.setItem(mealStorageKey, JSON.stringify(persistableMeals))
+      // Keep full meal objects including images in local storage
+      window.localStorage.setItem(mealStorageKey, JSON.stringify(meals))
     } catch {
-      // Keep the current session usable if browser storage is full or unavailable.
+      try {
+        // Fallback for quota limits: trim oversized base64 images if local storage exceeds quota
+        const persistableMeals = meals.map((meal) => ({
+          ...meal,
+          image: meal.image?.length && meal.image.length > 250000 ? undefined : meal.image,
+        }))
+        window.localStorage.setItem(mealStorageKey, JSON.stringify(persistableMeals))
+      } catch {
+        // Fallback for restricted storage environments
+      }
     }
   }, [mealStorageKey, meals])
 
@@ -2177,6 +2625,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     setExerciseSheetOpen(false)
     setPendingFood(null)
     setEditingMealId(null)
+    setSelectedLoggedMealId(null)
   }, [activeSection])
 
   useEffect(() => {
@@ -2449,12 +2898,18 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     }
     setWaterByDate((current) => ({ ...current, [date]: next }))
     setWaterEntries((current) => [entry, ...current])
+    if (firestoreDb && resolvedOwnerId !== 'anonymous') {
+      saveUserWaterLog(resolvedOwnerId, entry as any).catch((err) => console.error('Error saving water log to Firestore:', err))
+    }
     setWaterSheetOpen(false)
     showMessage(`Đã thêm ${formatNumber(loggedAmount)} ml nước vào ${selectedDateLabel.toLocaleLowerCase('vi-VN')}`, {
       label: 'Hoàn tác',
       onClick: () => {
         setWaterByDate((current) => ({ ...current, [date]: previous }))
         setWaterEntries((current) => current.filter((item) => item.id !== entry.id))
+        if (firestoreDb && resolvedOwnerId !== 'anonymous') {
+          deleteUserWaterLog(resolvedOwnerId, entry.id).catch((err) => console.error('Error deleting water log from Firestore:', err))
+        }
         showMessage('Đã hoàn tác lần ghi nước')
       },
     })
@@ -2469,11 +2924,17 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       createdAt: Date.now(),
     }
     setActivities((current) => [activity, ...current])
+    if (firestoreDb && resolvedOwnerId !== 'anonymous') {
+      saveUserActivityLog(resolvedOwnerId, activity as any).catch((err) => console.error('Error saving activity log to Firestore:', err))
+    }
     setExerciseSheetOpen(false)
     showMessage(`Đã ghi ${activity.title} · ${activity.durationMinutes} phút`, {
       label: 'Hoàn tác',
       onClick: () => {
         setActivities((current) => current.filter((item) => item.id !== activity.id))
+        if (firestoreDb && resolvedOwnerId !== 'anonymous') {
+          deleteUserActivityLog(resolvedOwnerId, activity.id).catch((err) => console.error('Error deleting activity log from Firestore:', err))
+        }
         showMessage('Đã hoàn tác buổi tập')
       },
     })
@@ -2483,10 +2944,16 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     const deletedActivity = activities.find((activity) => activity.id === activityId)
     if (!deletedActivity) return
     setActivities((current) => current.filter((activity) => activity.id !== activityId))
+    if (firestoreDb && resolvedOwnerId !== 'anonymous') {
+      deleteUserActivityLog(resolvedOwnerId, activityId).catch((err) => console.error('Error deleting activity from Firestore:', err))
+    }
     showMessage(`Đã xóa ${deletedActivity.title}`, {
       label: 'Hoàn tác',
       onClick: () => {
         setActivities((current) => current.some((activity) => activity.id === deletedActivity.id) ? current : [deletedActivity, ...current])
+        if (firestoreDb && resolvedOwnerId !== 'anonymous') {
+          saveUserActivityLog(resolvedOwnerId, deletedActivity as any).catch((err) => console.error('Error restoring activity to Firestore:', err))
+        }
         showMessage('Đã khôi phục buổi tập')
       },
     })
@@ -2496,10 +2963,16 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     const deletedMeal = meals.find((meal) => meal.id === mealId)
     if (!deletedMeal) return
     setMeals((current) => current.filter((meal) => meal.id !== mealId))
+    if (firestoreDb && resolvedOwnerId !== 'anonymous') {
+      deleteUserMealLog(resolvedOwnerId, mealId).catch((err) => console.error('Error deleting meal from Firestore:', err))
+    }
     showMessage(`Đã xóa ${deletedMeal.title}`, {
       label: 'Hoàn tác',
       onClick: () => {
         setMeals((current) => current.some((meal) => meal.id === deletedMeal.id) ? current : [deletedMeal, ...current])
+        if (firestoreDb && resolvedOwnerId !== 'anonymous') {
+          saveUserMealLog(resolvedOwnerId, deletedMeal as any).catch((err) => console.error('Error restoring meal to Firestore:', err))
+        }
         showMessage('Đã khôi phục món ăn')
       },
     })
@@ -2538,6 +3011,9 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       })),
     }
     setMeals((current) => current.map((meal) => meal.id === mealId ? updated : meal))
+    if (firestoreDb && resolvedOwnerId !== 'anonymous') {
+      saveUserMealLog(resolvedOwnerId, updated as any).catch((err) => console.error('Error saving updated meal to Firestore:', err))
+    }
     setEditingMealId(null)
     setHomeWeekStart(getCalendarStart(dateFromLocalKey(draft.date)))
     setSelectedDate(draft.date)
@@ -2545,6 +3021,9 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       label: 'Hoàn tác',
       onClick: () => {
         setMeals((current) => current.map((meal) => meal.id === mealId ? original : meal))
+        if (firestoreDb && resolvedOwnerId !== 'anonymous') {
+          saveUserMealLog(resolvedOwnerId, original as any).catch((err) => console.error('Error restoring edited meal to Firestore:', err))
+        }
         setHomeWeekStart(getCalendarStart(dateFromLocalKey(original.date)))
         setSelectedDate(original.date)
         showMessage('Đã hoàn tác chỉnh sửa bữa ăn')
@@ -2572,7 +3051,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       sodium: sum.sodium + (item.sodium ?? 0),
     }), { protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium: 0 })
     const mealLabels: Record<NutritionMealDraft['mealType'], string> = { breakfast: 'Bữa sáng', lunch: 'Bữa trưa', dinner: 'Bữa tối', snack: 'Bữa phụ' }
-    setMeals((current) => [{
+    const newMealLog: MealLog = {
       id: `ai-${Date.now()}`,
       date: loggedDate,
       type: meal.mealType,
@@ -2596,7 +3075,11 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       confidence: meal.source === 'ai-scan' ? 'estimated' : 'needs-review',
       calorieRange: meal.calorieRange ?? { low: Math.max(0, Math.round(meal.calories * .88)), high: Math.round(meal.calories * 1.12) },
       items: meal.items,
-    }, ...current])
+    }
+    setMeals((current) => [newMealLog, ...current])
+    if (firestoreDb && resolvedOwnerId !== 'anonymous') {
+      saveUserMealLog(resolvedOwnerId, newMealLog as any).catch((err) => console.error('Error saving scanned meal to Firestore:', err))
+    }
     onMealSaved?.(meal)
     setHomeWeekStart(getCalendarStart(dateFromLocalKey(loggedDate)))
     setSelectedDate(loggedDate)
@@ -2637,7 +3120,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       return
     }
     const mealLabels: Record<NutritionMealDraft['mealType'], string> = { breakfast: 'Bữa sáng', lunch: 'Bữa trưa', dinner: 'Bữa tối', snack: 'Bữa phụ' }
-    setMeals((current) => [{
+    const newMealLog: MealLog = {
       id: `catalog-${Date.now()}`,
       date: context.date,
       type: context.mealType,
@@ -2657,7 +3140,11 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       image: food.imageUrl,
       source: 'catalog',
       confidence: 'verified',
-    }, ...current])
+    }
+    setMeals((current) => [newMealLog, ...current])
+    if (firestoreDb && resolvedOwnerId !== 'anonymous') {
+      saveUserMealLog(resolvedOwnerId, newMealLog as any).catch((err) => console.error('Error saving catalog meal to Firestore:', err))
+    }
     setPendingFood(null)
     setHomeWeekStart(getCalendarStart(dateFromLocalKey(context.date)))
     setSelectedDate(context.date)
@@ -2726,10 +3213,9 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
 
   if (!profileReady) return <NutritionOnboarding onComplete={completeProfile} initialProfile={profileDraft} editing={false} />
 
-  if (activeSection === 'profile') return <NutritionOnboarding
-    onComplete={(nextProfile) => { completeProfile(nextProfile); navigateNutrition('today') }}
+  if (activeSection === 'profile') return <NutritionProfileEditor
+    onSave={(nextProfile) => { completeProfile(nextProfile); navigateNutrition('today') }}
     initialProfile={profileDraft}
-    editing
     onCancel={() => navigateNutrition('today')}
   />
 
@@ -2748,7 +3234,30 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     }}
   />
 
+  const selectedLoggedMeal = selectedLoggedMealId ? meals.find((meal) => meal.id === selectedLoggedMealId) ?? null : null
+
   const toastContent = toast && <div className="nutrition-toast" role="status"><Check size={16} /><span>{toast.text}</span>{toast.action && <button type="button" onClick={() => { if (messageTimer.current) window.clearTimeout(messageTimer.current); setToast(null); toast.action?.onClick() }}>{toast.action.label}</button>}</div>
+
+  if (selectedLoggedMeal) return (
+    <div className="page nutrition-page nutrition-page--workspace" data-testid="captured-meal-detail-page">
+      {toastContent}
+      <CapturedMealDetail
+        meal={selectedLoggedMeal}
+        dailyCalorieGoal={calorieGoal}
+        userGoal={profileDraft.goal}
+        onBack={() => setSelectedLoggedMealId(null)}
+        onEdit={(mealId) => {
+          setSelectedLoggedMealId(null)
+          setEditingMealId(mealId)
+        }}
+        onDelete={(mealId) => {
+          deleteMeal(mealId)
+          setSelectedLoggedMealId(null)
+          showMessage(`Đã xóa bữa ăn ${selectedLoggedMeal.title}`)
+        }}
+      />
+    </div>
+  )
   const editingMeal = editingMealId ? meals.find((meal) => meal.id === editingMealId) ?? null : null
   const quickSheets = <>
     {quickAddOpen && <QuickAddSheet
@@ -2833,6 +3342,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
           onAskAura={openAssistant}
           onLogWater={logWater}
           onEditProfile={() => navigateNutrition('profile')}
+          onOpenMeal={setSelectedLoggedMealId}
           onDeleteMeal={deleteMeal}
           onDeleteActivity={deleteActivity}
         />}
@@ -2848,6 +3358,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
           onAddMeal: () => navigateNutrition('scan'),
           onAddWater: () => setWaterSheetOpen(true),
           onAddExercise: () => setExerciseSheetOpen(true),
+          onOpenMeal: setSelectedLoggedMealId,
           onEditMeal: setEditingMealId,
           onDeleteMeal: deleteMeal,
           onDeleteActivity: deleteActivity,
@@ -2905,7 +3416,19 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         }}
       />
 
-      {activeSection === 'today' && <button type="button" className={`nutrition-quick-fab ${quickAddOpen ? 'is-open' : ''}`} onClick={() => setQuickAddOpen((current) => !current)} aria-label={quickAddOpen ? 'Đóng bảng thêm nhanh' : 'Mở bảng thêm nhanh'} aria-expanded={quickAddOpen} aria-controls="nutrition-quick-sheet-title" data-testid="nutrition-quick-add-fab"><Plus size={25} /></button>}
+      {activeSection === 'today' && (
+        <div className="nutrition-pink-fab-container">
+          <button
+            type="button"
+            className={`nutrition-pink-fab ${quickAddOpen ? 'is-open' : ''}`}
+            onClick={() => setQuickAddOpen((current) => !current)}
+            aria-label={quickAddOpen ? 'Đóng thêm nhanh' : 'Thêm nhanh'}
+            title="Thêm nhanh"
+          >
+            <Plus size={28} className="pink-fab-icon" />
+          </button>
+        </div>
+      )}
       {quickSheets}
     </div>
   )

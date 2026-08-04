@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import AppShell from './components/AppShell'
 import { hasPermission, type Permission } from './config/permissions'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -36,20 +36,86 @@ import type {
 } from './types'
 import { flattenCourseLessons, getInitialDemoCompletedLessonIds } from './utils/courseContent'
 
-const AdminAcademyStudentsPage = lazy(() => import('./pages/admin/AdminAcademyStudentsPage'))
-const AdminCoursesPage = lazy(() => import('./pages/admin/AdminCoursesPage'))
-const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'))
-const AdminProgramsPage = lazy(() => import('./pages/admin/AdminProgramsPage'))
-const AdminRolesPage = lazy(() => import('./pages/admin/AdminRolesPage'))
-const AdminStudentsPage = lazy(() => import('./pages/admin/AdminStudentsPage'))
-const CourseEditorPage = lazy(() => import('./pages/admin/CourseEditorPage'))
-const CourseDetailPage = lazy(() => import('./pages/student/CourseDetailPage'))
-const CoursesPage = lazy(() => import('./pages/student/CoursesPage'))
-const NutritionPage = lazy(() => import('./pages/student/NutritionPage'))
-const ProfilePage = lazy(() => import('./pages/student/ProfilePage'))
-const ProgressPage = lazy(() => import('./pages/student/ProgressPage'))
-const SchedulePage = lazy(() => import('./pages/student/SchedulePage'))
-const WorkoutPage = lazy(() => import('./pages/student/WorkoutPage'))
+function lazyWithRetry<T extends React.ComponentType<any>>(
+  factory: () => Promise<{ default: T }>
+) {
+  return lazy(async () => {
+    const pageHasBeenRefreshed = sessionStorage.getItem('aura_page_refreshed_for_chunk')
+    try {
+      const component = await factory()
+      sessionStorage.removeItem('aura_page_refreshed_for_chunk')
+      return component
+    } catch (error) {
+      console.error('Module script import failed:', error)
+      if (!pageHasBeenRefreshed) {
+        sessionStorage.setItem('aura_page_refreshed_for_chunk', 'true')
+        window.location.reload()
+        return new Promise<{ default: T }>(() => {})
+      }
+      sessionStorage.removeItem('aura_page_refreshed_for_chunk')
+      throw error
+    }
+  })
+}
+
+interface ChunkErrorBoundaryProps {
+  children: React.ReactNode
+}
+
+interface ChunkErrorBoundaryState {
+  hasError: boolean
+  error: Error | null
+}
+
+class ChunkErrorBoundary extends Component<ChunkErrorBoundaryProps, ChunkErrorBoundaryState> {
+  constructor(props: ChunkErrorBoundaryProps) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+
+  static getDerivedStateFromError(error: Error): ChunkErrorBoundaryState {
+    return { hasError: true, error }
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Chunk loading error caught by boundary:', error, errorInfo)
+  }
+
+  handleReload = () => {
+    window.location.reload()
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="course-detail-state" role="alert" style={{ padding: '40px 20px', textAlign: 'center' }}>
+          <span className="brand-mark compact" aria-hidden="true">A<span /></span>
+          <h1 style={{ fontSize: '20px', margin: '16px 0 8px' }}>Giao diện đang được cập nhật</h1>
+          <p style={{ color: '#666', marginBottom: '20px' }}>Một số tập tin đã được đổi mới. Vui lòng nhấn tải lại để tiếp tục sử dụng.</p>
+          <button type="button" className="primary-button" onClick={this.handleReload}>
+            Tải lại ứng dụng
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+const AdminAcademyStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminAcademyStudentsPage'))
+const AdminCoursesPage = lazyWithRetry(() => import('./pages/admin/AdminCoursesPage'))
+const AdminDashboard = lazyWithRetry(() => import('./pages/admin/AdminDashboard'))
+const AdminProgramsPage = lazyWithRetry(() => import('./pages/admin/AdminProgramsPage'))
+const AdminRolesPage = lazyWithRetry(() => import('./pages/admin/AdminRolesPage'))
+const AdminStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminStudentsPage'))
+const CourseEditorPage = lazyWithRetry(() => import('./pages/admin/CourseEditorPage'))
+const CourseDetailPage = lazyWithRetry(() => import('./pages/student/CourseDetailPage'))
+const CoursesPage = lazyWithRetry(() => import('./pages/student/CoursesPage'))
+const NutritionPage = lazyWithRetry(() => import('./pages/student/NutritionPage'))
+const ProfilePage = lazyWithRetry(() => import('./pages/student/ProfilePage'))
+const ProgressPage = lazyWithRetry(() => import('./pages/student/ProgressPage'))
+const SchedulePage = lazyWithRetry(() => import('./pages/student/SchedulePage'))
+const WorkoutPage = lazyWithRetry(() => import('./pages/student/WorkoutPage'))
 
 const adminViews: ViewId[] = ['admin-dashboard', 'admin-courses', 'admin-course-editor', 'admin-academy-students', 'admin-programs', 'admin-students', 'admin-roles']
 const validViews: ViewId[] = ['home', 'courses', 'course-detail', 'schedule', 'nutrition', 'progress', 'profile', 'workout', ...adminViews]
@@ -178,9 +244,34 @@ function AuraApplication() {
     }
   }, [user?.uid])
 
+  const isOnboardingDone = Boolean(
+    profile?.onboardingCompleted ||
+    profile?.nutritionProfile ||
+    localNutritionProfile ||
+    (profile?.heightCm && profile?.weightKg) ||
+    (profile?.goals && profile.goals.length > 0) ||
+    (user?.uid && typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${user.uid}`) === 'true')
+  )
+
+  useEffect(() => {
+    if (user && backendMode === 'firebase' && isOnboardingDone && profile && !profile.onboardingCompleted) {
+      updateUserProfile(user.uid, { onboardingCompleted: true }).catch(() => {})
+    }
+  }, [user, backendMode, isOnboardingDone, profile])
+
   const saveProfile = async (values: ProfileUpdateInput) => {
+    if (user?.uid) {
+      try {
+        window.localStorage.setItem(`aura:onboarding-completed:${user.uid}`, 'true')
+      } catch {
+        // Storage unavailable
+      }
+    }
     if (backendMode === 'firebase' && user) {
-      await updateUserProfile(user.uid, values)
+      await updateUserProfile(user.uid, {
+        ...values,
+        onboardingCompleted: true,
+      })
       return
     }
     setLocalProfile((current) => {
@@ -552,12 +643,20 @@ function AuraApplication() {
         onProfileComplete={async (nutritionProfile) => {
           setLocalNutritionProfile(nutritionProfile)
           window.localStorage.setItem(`aura:nutrition-profile:${user?.uid ?? 'demo'}`, JSON.stringify(nutritionProfile))
+          if (user?.uid) {
+            try {
+              window.localStorage.setItem(`aura:onboarding-completed:${user.uid}`, 'true')
+            } catch {
+              // Ignore
+            }
+          }
           if (backendMode === 'firebase' && user) {
             await updateUserProfile(user.uid, {
               nutritionProfile,
               heightCm: nutritionProfile.heightCm,
               weightKg: nutritionProfile.weightKg,
               goals: [nutritionProfile.goal],
+              onboardingCompleted: true,
             })
           }
         }}
@@ -622,22 +721,32 @@ function AuraApplication() {
     }
   }
 
-  if (user && profile && !profile.onboardingCompleted) {
+  if (user && profile && !isOnboardingDone) {
     return (
       <OnboardingFlow
         initialName={user.displayName ?? ''}
         onComplete={async (data) => {
+          const nutProfile = {
+            ...data,
+            eatingStyle: 'Omnivore' as const,
+            allergies: 'None',
+          }
+          if (user?.uid) {
+            try {
+              window.localStorage.setItem(`aura:onboarding-completed:${user.uid}`, 'true')
+              window.localStorage.setItem(`aura:nutrition-profile:${user.uid}`, JSON.stringify(nutProfile))
+            } catch {
+              // Ignore
+            }
+          }
+          setLocalNutritionProfile(nutProfile)
           if (backendMode === 'firebase' && user) {
             await updateUserProfile(user.uid, {
               onboardingCompleted: true,
               goals: [data.goal],
               heightCm: data.heightCm,
               weightKg: data.weightKg,
-              nutritionProfile: {
-                ...data,
-                eatingStyle: 'Omnivore',
-                allergies: 'None',
-              },
+              nutritionProfile: nutProfile,
             })
           } else {
             // For demo mode, just update the local context or reload
@@ -675,9 +784,11 @@ function AuraApplication() {
           : 'admin-courses')
       }}
     >
-      <Suspense fallback={<RouteLoadingFallback />}>
-        {renderPage()}
-      </Suspense>
+      <ChunkErrorBoundary>
+        <Suspense fallback={<RouteLoadingFallback />}>
+          {renderPage()}
+        </Suspense>
+      </ChunkErrorBoundary>
     </AppShell>
   )
 }

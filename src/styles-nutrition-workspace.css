@@ -370,13 +370,14 @@
 }
 
 @media (max-width: 767px) {
-  .nutrition-workspace button { min-width: 44px; min-height: 44px; }
-  .nutrition-workspace-nav { position: static; padding: 9px 14px; background: #fff; }
-  .nutrition-workspace-nav__sections { order: 2; gap: 2px; padding: 3px; border-radius: 13px; background: #f0eff3; }
-  .nutrition-workspace-nav__sections button { min-width: 44px; min-height: 44px; gap: 5px; padding: 0 5px; border-radius: 10px; font-size: 9px; }
+  .nutrition-workspace button { min-height: 40px; }
+  .nutrition-workspace-nav { position: static; padding: 6px 10px; background: #fff; border-bottom: 1px solid var(--nw-line); }
+  .nutrition-workspace-nav__sections { gap: 2px; padding: 3px; border-radius: 13px; background: #f0eff3; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); width: 100%; }
+  .nutrition-workspace-nav__sections button { min-width: 0; min-height: 40px; gap: 3px; padding: 2px 1px; border-radius: 10px; font-size: 10px; font-weight: 750; flex-direction: column; justify-content: center; align-items: center; }
+  .nutrition-workspace-nav__sections button svg { width: 16px; height: 16px; }
   .nutrition-workspace-nav__sections button.is-active { color: var(--nw-ink); background: #fff; box-shadow: 0 3px 8px rgba(36, 31, 65, .08); }
-  .nutrition-workspace-nav__actions { order: 1; display: grid; grid-template-columns: 44px minmax(120px, auto); justify-content: end; }
-  .nutrition-workspace-nav__actions button { min-width: 44px; min-height: 44px; padding: 0; border-radius: 12px; }
+  .nutrition-workspace-nav__actions { display: grid; grid-template-columns: 44px minmax(120px, auto); justify-content: end; }
+  .nutrition-workspace-nav__actions button { min-width: 0; min-height: 40px; padding: 0; border-radius: 12px; }
   .nutrition-workspace-nav__actions .nutrition-workspace-nav__aura span { display: none; }
   .nutrition-workspace-nav__actions .nutrition-workspace-nav__scan { padding: 0 13px; }
 

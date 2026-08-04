@@ -3,7 +3,9 @@ import { initializeAppCheck, ReCaptchaEnterpriseProvider, type AppCheck } from '
 import { connectAuthEmulator, getAuth, type Auth } from 'firebase/auth'
 import {
   connectFirestoreEmulator,
+  getFirestore,
   initializeFirestore,
+  memoryLocalCache,
   persistentLocalCache,
   persistentMultipleTabManager,
   type Firestore,
@@ -47,11 +49,23 @@ if (isFirebaseConfigured) {
     })
   }
   firebaseAuth = getAuth(firebaseApp)
-  firestoreDb = initializeFirestore(
-    firebaseApp,
-    { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) },
-    firestoreDatabaseId,
-  )
+  try {
+    firestoreDb = initializeFirestore(
+      firebaseApp,
+      { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) },
+      firestoreDatabaseId,
+    )
+  } catch {
+    try {
+      firestoreDb = initializeFirestore(
+        firebaseApp,
+        { localCache: memoryLocalCache() },
+        firestoreDatabaseId,
+      )
+    } catch {
+      firestoreDb = getFirestore(firebaseApp, firestoreDatabaseId)
+    }
+  }
   firebaseStorage = getStorage(firebaseApp)
   firebaseFunctions = getFunctions(firebaseApp, 'asia-southeast1')
 

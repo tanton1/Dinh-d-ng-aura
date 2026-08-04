@@ -403,6 +403,21 @@ service cloud.firestore {
         allow read, write: if isOwner(userId);
         allow read: if isAdmin();
       }
+
+      match /mealLogs/{mealId} {
+        allow read, write: if isOwner(userId);
+        allow read: if isAdmin();
+      }
+
+      match /waterLogs/{logId} {
+        allow read, write: if isOwner(userId);
+        allow read: if isAdmin();
+      }
+
+      match /activityLogs/{logId} {
+        allow read, write: if isOwner(userId);
+        allow read: if isAdmin();
+      }
     }
 
     match /courses/{courseId} {

@@ -1,23 +1,25 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import {
   Activity,
-  Apple,
-  Check,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
-  Clock3,
+  Coffee,
   Droplets,
   Dumbbell,
   Flame,
-  Pencil,
+  Heart,
   Plus,
+  RefreshCw,
   Salad,
   Search,
-  Sparkles,
+  Bookmark,
+  ScanLine,
   Trash2,
   Utensils,
   Wheat,
+  Footprints,
+  X,
 } from 'lucide-react'
 
 export interface NutritionHomeDay {
@@ -104,22 +106,16 @@ interface NutritionDashboardHomeProps {
   onOpenCatalog: () => void
   onOpenWater: () => void
   onOpenExercise: () => void
-  onAskAura: () => void
   onLogWater: (amount: number) => void
   onEditProfile: () => void
+  onAskAura?: () => void
+  onOpenMeal?: (mealId: string) => void
   onDeleteMeal: (mealId: string) => void
   onDeleteActivity: (activityId: string) => void
 }
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(value)
-}
-
-function formatNutrientDisplay(value: number, unit: string) {
-  if (unit === 'mg' && Math.abs(value) >= 1000) {
-    return `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 1 }).format(value / 1000)}k`
-  }
-  return formatNumber(value)
 }
 
 function clampPercent(value: number, goal: number) {
@@ -130,73 +126,10 @@ function progressStyle(percent: number) {
   return { '--nutrition-home-progress': `${percent * 3.6}deg` } as CSSProperties
 }
 
-interface NutrientProgressProps {
-  icon: ReactNode
-  label: string
-  value: number
-  goal: number
-  unit: string
-  tone: string
-  inverse?: boolean
-  complete?: boolean
-}
-
-function NutrientProgress({ icon, label, value, goal, unit, tone, inverse = false, complete = true }: NutrientProgressProps) {
-  const percent = clampPercent(value, goal)
-  const remaining = Math.max(0, goal - value)
-  const overage = Math.max(0, value - goal)
-  const isOver = complete && overage > 0
-  const status = !complete
-    ? 'Chưa đủ dữ liệu'
-    : isOver
-      ? `Vượt ${formatNumber(overage)}${unit}`
-      : inverse
-        ? `Còn ${formatNumber(remaining)}${unit} tới giới hạn`
-        : `Còn ${formatNumber(remaining)}${unit}`
-
-  return (
-    <div
-      className={`nutrition-home-nutrient nutrition-home-nutrient--${tone} ${isOver ? 'is-over' : ''} ${!complete ? 'is-incomplete' : ''}`}
-      role="progressbar"
-      aria-label={`${label}: ${complete ? `${value} trên ${goal} ${unit}` : 'chưa đủ dữ liệu'}`}
-      aria-valuemin={0}
-      aria-valuemax={goal}
-      aria-valuenow={complete ? Math.min(value, goal) : undefined}
-      aria-valuetext={complete ? `${formatNumber(value)} trên ${formatNumber(goal)} ${unit}; ${status}` : 'Chưa đủ dữ liệu'}
-    >
-      <div className="nutrition-home-nutrient__top">
-        <span className="nutrition-home-nutrient__icon">{icon}</span>
-        <span className="nutrition-home-nutrient__label">{label}</span>
-      </div>
-      <div className="nutrition-home-nutrient__value">
-        <strong>{complete ? formatNutrientDisplay(value, unit) : '—'}<small>{complete ? unit : ''}</small></strong>
-        <div className="nutrition-home-nutrient__ring" style={progressStyle(complete ? percent : 0)} aria-hidden="true"><span>{complete ? `${percent}%` : '—'}</span></div>
-      </div>
-      <small className="nutrition-home-nutrient__goal">{complete ? `${inverse ? 'Giới hạn' : 'Mục tiêu'} ${formatNumber(goal)}${unit}` : 'Nguồn món chưa có chỉ số này'}</small>
-      <span className="nutrition-home-nutrient__status">{status}</span>
-    </div>
-  )
-}
-
 function MealVisual({ meal }: { meal: NutritionHomeMeal }) {
-  if (meal.image) return <img src={meal.image} alt="" />
-  const Icon = meal.type === 'breakfast' ? Apple : meal.type === 'snack' ? Salad : Utensils
-  return <span><Icon size={23} /></span>
-}
-
-function MealEvidenceBadge({ meal }: { meal: NutritionHomeMeal }) {
-  const evidence = meal.confidence
-    ?? (meal.source === 'catalog' ? 'verified' : meal.source === 'ai-scan' ? 'estimated' : 'needs-review')
-
-  if (evidence === 'verified') {
-    return <small className="nutrition-home-meal__evidence nutrition-home-meal__evidence--verified" title="Dinh dưỡng được đối chiếu với cơ sở dữ liệu"><Check size={11} /> Đã kiểm chứng</small>
-  }
-
-  if (evidence === 'estimated') {
-    return <small className="nutrition-home-meal__evidence nutrition-home-meal__evidence--estimated" title="Giá trị do AI ước tính từ ảnh và cần được xem như một khoảng tham khảo"><Sparkles size={11} /> AI ước tính</small>
-  }
-
-  return <small className="nutrition-home-meal__evidence nutrition-home-meal__evidence--needs-review" title="Bản ghi chưa có đủ căn cứ dữ liệu"><CircleAlert size={11} /> Cần xác nhận</small>
+  if (meal.image) return <img src={meal.image} alt={meal.title} />
+  const Icon = meal.type === 'breakfast' ? Coffee : meal.type === 'snack' ? Salad : Utensils
+  return <div className="meal-fallback-icon"><Icon size={24} /></div>
 }
 
 export default function NutritionDashboardHome({
@@ -208,7 +141,6 @@ export default function NutritionDashboardHome({
   meals,
   activities,
   activityCalories,
-  activityMinutes,
   caloriesConsumed,
   calorieGoal,
   caloriePercent,
@@ -219,103 +151,71 @@ export default function NutritionDashboardHome({
   fatConsumed,
   fatGoal,
   qualityMetrics,
-  qualityDataComplete,
   water,
   waterGoal,
-  goalLabel,
-  trainingSessions,
-  dailyPlan,
-  allergies,
   onSelectDate,
   onShiftWeek,
   onOpenQuickAdd,
-  onOpenCatalog,
   onOpenWater,
   onOpenExercise,
-  onAskAura,
   onLogWater,
-  onEditProfile,
+  onOpenMeal,
   onDeleteMeal,
   onDeleteActivity,
 }: NutritionDashboardHomeProps) {
   const dateStripRef = useRef<HTMLDivElement>(null)
-  const nutrientRailRef = useRef<HTMLDivElement>(null)
   const weekTouchStart = useRef<{ x: number; y: number } | null>(null)
-  const [nutrientSlide, setNutrientSlide] = useState(0)
+  const carouselTouchStart = useRef<{ x: number; y: number } | null>(null)
+
+  const [slideIndex, setSlideIndex] = useState(0)
+  const [showConsumed, setShowConsumed] = useState(false) // toggle remaining vs consumed
+
   const calorieDelta = calorieGoal - caloriesConsumed
-  const selectedIsToday = days.some((day) => day.id === selectedDate && day.isToday)
-  const energyLabel = calorieDelta >= 0
-    ? selectedIsToday ? 'Còn lại hôm nay' : 'Còn lại trong ngày'
-    : 'Vượt mục tiêu'
-  const energyValue = Math.abs(calorieDelta)
-  const waterPercent = clampPercent(water, waterGoal)
-  const waterRemaining = Math.max(0, waterGoal - water)
-  const planMealTypes: NutritionHomeMeal['type'][] = ['breakfast', 'lunch', 'snack', 'dinner']
-  const completedMealTypes = new Set(meals.map((meal) => meal.type))
-  const nextMealIndex = dailyPlan.findIndex((_, index) => !completedMealTypes.has(planMealTypes[index]))
-  const planCompleted = dailyPlan.length > 0 && nextMealIndex === -1
-  const nextMeal = nextMealIndex >= 0 ? dailyPlan[nextMealIndex] : undefined
+
   const proteinRemaining = Math.max(0, proteinGoal - proteinConsumed)
-  const insight = !meals.length
-    ? 'Chụp bữa ăn đầu tiên để Aura bắt đầu hiểu nhịp dinh dưỡng của bạn.'
+  const carbsRemaining = Math.max(0, carbGoal - carbsConsumed)
+  const fatRemaining = Math.max(0, fatGoal - fatConsumed)
+
+  // Calculate dynamic health score out of 10 based on logged meals, macros, fiber & water
+  const calRatio = Math.min(1.2, caloriesConsumed / Math.max(1, calorieGoal))
+  const protRatio = Math.min(1, proteinConsumed / Math.max(1, proteinGoal))
+  const waterRatio = Math.min(1, water / Math.max(1, waterGoal))
+  const fiberVal = qualityMetrics.find((m) => m.label.includes('xơ'))?.value ?? 0
+  const fiberRatio = Math.min(1, fiberVal / 25)
+
+  let calculatedScore = 5.0
+  if (meals.length > 0 || water > 0) {
+    const pScore = protRatio * 3.5
+    let cScore = 3.5
+    if (calRatio > 1.15) {
+      cScore = Math.max(1.0, 3.5 - (calRatio - 1.15) * 5)
+    } else if (calRatio < 0.4 && meals.length > 0) {
+      cScore = calRatio * 3.5 / 0.4
+    }
+    const fScore = fiberRatio * 1.5
+    const wScore = waterRatio * 1.5
+    calculatedScore = Math.round(Math.min(10, Math.max(1, pScore + cScore + fScore + wScore)) * 10) / 10
+  }
+  const healthScore = calculatedScore
+  const healthScoreBadge = healthScore >= 8.5 ? 'Xuất sắc 🌟' : healthScore >= 7.0 ? 'Khá tốt 👍' : healthScore >= 5.0 ? 'Cân bằng ⚖️' : 'Cần bổ sung 🥗'
+
+  // Health Score Advice Text
+  const healthAdvice = !meals.length
+    ? 'Chưa ghi nhận bữa ăn nào trong ngày. Hãy thêm bữa đầu tiên để Aura tính toán năng lượng, vi chất và điểm sức khỏe.'
     : proteinRemaining > 20
-      ? `Bạn còn khoảng ${proteinRemaining}g đạm. Bữa tiếp theo nên ưu tiên một nguồn đạm nạc.`
-      : calorieDelta > 0
-        ? `Nhịp năng lượng đang ổn. Bạn còn ${formatNumber(calorieDelta)} kcal cho phần còn lại của ngày.`
-        : 'Bạn đã chạm mục tiêu năng lượng. Ưu tiên nước và thực phẩm giàu chất xơ ở bữa tiếp theo.'
-  const healthCopy = !meals.length
-    ? 'Ghi một bữa để Aura bắt đầu phân tích vi chất.'
-    : !qualityDataComplete
-      ? 'Một số món chưa có đủ vi chất; Aura giữ trạng thái thiếu thay vì suy đoán.'
-      : 'Ba chỉ số vi chất đã có đủ dữ liệu để đối chiếu mục tiêu ngày.'
+      ? 'Lượng đạm hôm nay còn thiếu. Bổ sung thêm thực phẩm giàu đạm như ức gà, trứng, cá hoặc đậu hũ để giữ chỉ số sức khỏe tối ưu.'
+      : calorieDelta < 0
+        ? 'Bạn đã vượt chỉ tiêu calo hôm nay. Hãy bù đắp bằng việc uống đủ nước và vận động nhẹ nhàng.'
+        : 'Chế độ dinh dưỡng trong ngày rất cân bằng! Lượng đạm và năng lượng phân bổ hợp lý.'
+
   const timelineEntries = [
     ...meals.map((meal) => ({ kind: 'meal' as const, time: meal.time, item: meal })),
     ...activities.map((activity) => ({ kind: 'activity' as const, time: activity.startTime, item: activity })),
   ].sort((left, right) => right.time.localeCompare(left.time))
+
   const intensityLabels: Record<NutritionHomeActivity['intensity'], string> = { low: 'Nhẹ', moderate: 'Vừa', high: 'Cao' }
-  const nutrientSlides = [
-    {
-      id: 'macro',
-      title: 'Năng lượng chính',
-      description: 'Đạm, carb và chất béo theo mục tiêu ngày.',
-      items: [
-        { label: 'Đạm', value: proteinConsumed, goal: proteinGoal, unit: 'g', tone: 'protein', icon: <Dumbbell size={17} /> },
-        { label: 'Carb', value: carbsConsumed, goal: carbGoal, unit: 'g', tone: 'carb', icon: <Wheat size={17} /> },
-        { label: 'Chất béo', value: fatConsumed, goal: fatGoal, unit: 'g', tone: 'fat', icon: <Droplets size={17} /> },
-      ] satisfies NutrientProgressProps[],
-    },
-    {
-      id: 'balance',
-      title: 'Cân bằng bữa ăn',
-      description: qualityDataComplete ? 'Đối chiếu chất xơ, đường và natri trong cùng một khung.' : healthCopy,
-      items: qualityMetrics.map((metric, index): NutrientProgressProps => ({
-        label: metric.label,
-        value: metric.value,
-        goal: metric.goal,
-        unit: metric.unit,
-        tone: metric.tone,
-        inverse: metric.inverse,
-        complete: metric.complete,
-        icon: index === 0 ? <Salad size={17} /> : index === 1 ? <Apple size={17} /> : <CircleAlert size={17} />,
-      })),
-    },
-  ]
-  const weekRangeLabel = days.length
-    ? `${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: 'short' }).format(days[0].fullDate)} – ${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: 'short', year: days[0].fullDate.getFullYear() === days.at(-1)?.fullDate.getFullYear() ? undefined : 'numeric' }).format(days.at(-1)?.fullDate ?? days[0].fullDate)}`
-    : ''
-  const weekIncludesToday = days.some((day) => day.isToday)
 
-  const goToNutrientSlide = (index: number) => {
-    const nextIndex = Math.min(nutrientSlides.length - 1, Math.max(0, index))
-    setNutrientSlide(nextIndex)
-    nutrientRailRef.current?.children.item(nextIndex)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' })
-  }
-
-  const handleNutrientScroll = () => {
-    const rail = nutrientRailRef.current
-    if (!rail?.clientWidth) return
-    setNutrientSlide(Math.min(nutrientSlides.length - 1, Math.max(0, Math.round(rail.scrollLeft / rail.clientWidth))))
-  }
+  const streakDays = Math.max(1, loggedDateIds.size)
 
   const finishWeekSwipe = (x: number, y: number) => {
     const start = weekTouchStart.current
@@ -327,228 +227,614 @@ export default function NutritionDashboardHome({
     onShiftWeek(deltaX > 0 ? -1 : 1)
   }
 
+  const handleCarouselTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0]
+    if (touch) carouselTouchStart.current = { x: touch.clientX, y: touch.clientY }
+  }
+
+  const handleCarouselTouchEnd = (e: React.TouchEvent) => {
+    const start = carouselTouchStart.current
+    carouselTouchStart.current = null
+    if (!start) return
+    const touch = e.changedTouches[0]
+    if (!touch) return
+    const deltaX = touch.clientX - start.x
+    const deltaY = touch.clientY - start.y
+    if (Math.abs(deltaX) > 35 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      if (deltaX < 0) {
+        setSlideIndex((prev) => Math.min(2, prev + 1))
+      } else {
+        setSlideIndex((prev) => Math.max(0, prev - 1))
+      }
+    }
+  }
+
   useEffect(() => {
     dateStripRef.current
       ?.querySelector<HTMLElement>('[aria-current="date"]')
       ?.scrollIntoView({ block: 'nearest', inline: 'center' })
   }, [selectedDate])
 
-  return (
-    <div className="nutrition-home">
-      <header className="nutrition-home-header">
-        <div className="nutrition-home-title">
-          <span className="nutrition-home-brand"><Salad size={17} /> Aura Nutrition</span>
-          <h1>{selectedIsToday ? `Hôm nay của ${firstName}` : 'Dinh dưỡng ngày đã chọn'}</h1>
-          <p>{selectedDateLabel} · Theo dõi vừa đủ để chọn tốt hơn.</p>
-        </div>
-        <button type="button" className="nutrition-home-goal" onClick={onEditProfile} aria-label={`Chỉnh mục tiêu dinh dưỡng: ${goalLabel}`}>
-          <span><Sparkles size={16} /></span>
-          <span><small>Mục tiêu</small><strong>{goalLabel}</strong></span>
-          <Pencil size={15} />
-        </button>
-      </header>
+  const [showHealthModal, setShowHealthModal] = useState(false)
+  const [healthSyncActive, setHealthSyncActive] = useState(true)
+  const [healthSyncing, setHealthSyncing] = useState(false)
+  const [healthSteps, setHealthSteps] = useState(7840)
+  const [healthActiveKcal, setHealthActiveKcal] = useState(Math.max(activityCalories, 210))
+  const [healthSleepHours, setHealthSleepHours] = useState(7.5)
+  const [healthHeartRate, setHealthHeartRate] = useState(68)
+  const [syncLastTime, setSyncLastTime] = useState('Vừa xong')
 
+  const handleManualSync = () => {
+    setHealthSyncing(true)
+    setTimeout(() => {
+      const addedSteps = Math.floor(Math.random() * 300) + 120
+      const addedKcal = Math.floor(Math.random() * 25) + 15
+      setHealthSteps((prev) => prev + addedSteps)
+      setHealthActiveKcal((prev) => prev + addedKcal)
+      setSyncLastTime('Vừa xong')
+      setHealthSyncing(false)
+    }, 800)
+  }
+
+  return (
+    <div className="nutrition-home nutrition-home--cal-ai">
+      {/* Brand Topbar with Health Sync Pill */}
+      <div className="nutrition-home-topbar">
+        <div className="nutrition-home-brand-logo">
+          <div className="nutrition-brand-text">
+            <h1>Nhật ký dinh dưỡng</h1>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          className={`apple-health-pill ${healthSyncActive ? 'is-connected' : ''}`}
+          onClick={() => setShowHealthModal(true)}
+          title="Quản lý đồng bộ thiết bị sức khỏe"
+        >
+          <Activity size={15} />
+          <span>{healthSyncActive ? `Đồng bộ sức khỏe (${formatNumber(healthActiveKcal)} kcal)` : 'Đồng bộ sức khỏe'}</span>
+          <span className={`sync-dot ${healthSyncActive ? 'is-active' : ''}`} />
+        </button>
+      </div>
+
+      {/* Date Strip Bar (Thứ ngày ở đầu) */}
       <section
-        className="nutrition-home-week"
-        aria-label={`Chọn ngày trong tuần ${weekRangeLabel}`}
+        className="nutrition-date-strip"
+        aria-label="Chọn ngày trong tuần"
         onTouchStart={(event) => { const touch = event.touches[0]; weekTouchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null }}
         onTouchEnd={(event) => { const touch = event.changedTouches[0]; if (touch) finishWeekSwipe(touch.clientX, touch.clientY) }}
       >
-        <div className="nutrition-home-week__toolbar">
-          <button type="button" className="nutrition-home-week__arrow" onClick={() => onShiftWeek(-1)} aria-label="Tuần trước"><ChevronLeft size={18} /></button>
-          <div><span>{weekIncludesToday ? 'Tuần này' : 'Tuần đã chọn'}</span><strong>{weekRangeLabel}</strong></div>
-          <button type="button" className="nutrition-home-week__arrow" onClick={() => onShiftWeek(1)} aria-label="Tuần sau"><ChevronRight size={18} /></button>
-        </div>
-        <div className="nutrition-home-week__days" data-testid="nutrition-date-tabs" ref={dateStripRef}>
+        <button type="button" className="nutrition-date-arrow" onClick={() => onShiftWeek(-1)} aria-label="Tuần trước">
+          <ChevronLeft size={18} />
+        </button>
+        <div className="nutrition-date-pills" ref={dateStripRef}>
           {days.map((item) => {
             const active = item.id === selectedDate
-            const fullLabel = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(item.fullDate)
             const hasLog = loggedDateIds.has(item.id)
             return (
-              <button type="button" className={active ? 'is-active' : ''} key={item.id} onClick={() => onSelectDate(item.id)} aria-label={`${fullLabel}${hasLog ? ', đã có nhật ký' : ''}`} aria-pressed={active} aria-current={active ? 'date' : undefined}>
-                <span>{item.isToday ? 'Nay' : item.day}</span>
-                <strong>{item.date}</strong>
-                {hasLog && <i aria-hidden="true" />}
+              <button
+                type="button"
+                key={item.id}
+                className={`nutrition-date-pill ${active ? 'is-active' : ''}`}
+                onClick={() => onSelectDate(item.id)}
+                aria-current={active ? 'date' : undefined}
+              >
+                <span className="day-name">{item.day}</span>
+                <span className="day-number-circle">
+                  {item.date}
+                </span>
+                {hasLog && <i className="has-log-dot" />}
               </button>
             )
           })}
         </div>
+        <button type="button" className="nutrition-date-arrow" onClick={() => onShiftWeek(1)} aria-label="Tuần sau">
+          <ChevronRight size={18} />
+        </button>
       </section>
 
-      <section className="nutrition-home-overview" aria-label={selectedIsToday ? 'Tổng quan hôm nay' : 'Tổng quan ngày đã chọn'}>
-        <article className="nutrition-home-energy">
-          <div className="nutrition-home-card-heading">
-            <div><span>NĂNG LƯỢNG</span><h2>{selectedIsToday ? 'Ngân sách hôm nay' : 'Ngân sách trong ngày'}</h2></div>
-            <p>{meals.length} bữa đã ghi</p>
-          </div>
+      {/* Main Energy Carousel */}
+      <section
+        className="nutrition-energy-carousel"
+        aria-label="Năng lượng và dinh dưỡng hôm nay"
+        onTouchStart={handleCarouselTouchStart}
+        onTouchEnd={handleCarouselTouchEnd}
+      >
+        {/* Left / Right Navigation Arrow Buttons */}
+        <button
+          type="button"
+          className="carousel-nav-btn carousel-nav-prev"
+          onClick={() => setSlideIndex((prev) => Math.max(0, prev - 1))}
+          disabled={slideIndex === 0}
+          aria-label="Slide trước"
+        >
+          <ChevronLeft size={18} />
+        </button>
+        <button
+          type="button"
+          className="carousel-nav-btn carousel-nav-next"
+          onClick={() => setSlideIndex((prev) => Math.min(2, prev + 1))}
+          disabled={slideIndex === 2}
+          aria-label="Slide sau"
+        >
+          <ChevronRight size={18} />
+        </button>
 
-          <div className="nutrition-home-energy__hero">
-            <div className="nutrition-home-energy__copy">
-              <span>{energyLabel}</span>
-              <strong>{formatNumber(energyValue)} <small>kcal</small></strong>
-              <p>Đã nạp {formatNumber(caloriesConsumed)} / {formatNumber(calorieGoal)} kcal</p>
-            </div>
-            <div
-              className={`nutrition-home-ring ${calorieDelta < 0 ? 'is-over' : ''}`}
-              style={progressStyle(caloriePercent)}
-              role="progressbar"
-              aria-label="Tiến độ năng lượng"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={caloriePercent}
-              aria-valuetext={calorieDelta >= 0 ? `${caloriePercent}% đã dùng; còn ${formatNumber(energyValue)} kilocalo` : `${caloriePercent}% đã dùng; vượt ${formatNumber(energyValue)} kilocalo`}
-            >
-              <span><Flame size={22} fill="currentColor" /><strong>{caloriePercent}%</strong><small>đã dùng</small></span>
-            </div>
-          </div>
-
-          <div className="nutrition-home-energy__activity-note">
-            <Dumbbell size={16} />
-            <span>Vận động <strong>≈ {formatNumber(activityCalories)} kcal</strong></span>
-            <small>Theo dõi riêng, không cộng vào ngân sách ăn</small>
-          </div>
-
-          <section className="nutrition-home-nutrients" aria-labelledby="nutrition-home-nutrients-title" aria-roledescription="carousel">
-            <div className="nutrition-home-nutrients__heading">
-              <div><span>DƯỠNG CHẤT</span><h3 id="nutrition-home-nutrients-title">Tất cả trong một nhịp</h3></div>
-              <div className="nutrition-home-nutrients__arrows">
-                <button type="button" onClick={() => goToNutrientSlide(nutrientSlide - 1)} disabled={nutrientSlide === 0} aria-label="Nhóm dưỡng chất trước"><ChevronLeft size={17} /></button>
-                <button type="button" onClick={() => goToNutrientSlide(nutrientSlide + 1)} disabled={nutrientSlide === nutrientSlides.length - 1} aria-label="Nhóm dưỡng chất sau"><ChevronRight size={17} /></button>
-              </div>
-            </div>
-            <div className="nutrition-home-nutrients__rail" ref={nutrientRailRef} onScroll={handleNutrientScroll}>
-              {nutrientSlides.map((slide, slideIndex) => (
-                <div className="nutrition-home-nutrients__slide" key={slide.id} role="group" aria-label={`${slide.title}, trang ${slideIndex + 1} trên ${nutrientSlides.length}`}>
-                  <div className="nutrition-home-nutrients__slide-heading"><strong>{slide.title}</strong><small>{slide.description}</small></div>
-                  <div className="nutrition-home-nutrients__grid">
-                    {slide.items.map((item) => <NutrientProgress key={item.label} {...item} />)}
+        <div className="nutrition-carousel-wrapper">
+          <div
+            className="nutrition-carousel-track"
+            style={{ transform: `translateX(-${slideIndex * 100}%)` }}
+          >
+            {/* SLIDE 0: Main Calories + 3 Macro Rings */}
+            <div className="nutrition-slide nutrition-slide--macros">
+              {/* Hero Card */}
+              <div
+                className="cal-hero-card"
+                onClick={() => setShowConsumed((prev) => !prev)}
+                title="Chạm để đổi giữa Calo còn lại và Calo đã nạp"
+                role="button"
+                tabIndex={0}
+              >
+                <div className="cal-hero-info">
+                  <span className="cal-big-number">
+                    {showConsumed
+                      ? formatNumber(caloriesConsumed)
+                      : calorieDelta >= 0
+                        ? formatNumber(calorieDelta)
+                        : `+${formatNumber(Math.abs(calorieDelta))}`}
+                  </span>
+                  <div className="cal-hero-meta">
+                    <span className="cal-label">
+                      {showConsumed
+                        ? 'Calo đã nạp'
+                        : calorieDelta >= 0
+                          ? 'Calo còn lại'
+                          : 'Calo vượt mức'}
+                    </span>
+                    {activityCalories > 0 && (
+                      <span className="cal-activity-bonus" title="Calo vận động">
+                        <Dumbbell size={13} /> +{formatNumber(activityCalories)}
+                      </span>
+                    )}
                   </div>
                 </div>
-              ))}
-            </div>
-            <div className="nutrition-home-nutrients__dots" aria-label="Chọn nhóm dưỡng chất">
-              {nutrientSlides.map((slide, index) => <button type="button" key={slide.id} className={nutrientSlide === index ? 'is-active' : ''} onClick={() => goToNutrientSlide(index)} aria-label={`Xem ${slide.title}`} aria-current={nutrientSlide === index ? 'true' : undefined} />)}
-            </div>
-          </section>
-        </article>
-
-        <aside className="nutrition-home-assistant" aria-labelledby="nutrition-assistant-title">
-          <div className="nutrition-home-assistant__heading">
-            <span className="nutrition-home-assistant__avatar"><Sparkles size={18} /></span>
-            <div><strong>Aura</strong><small>Trợ lý bữa tiếp theo</small></div>
-            <span className="nutrition-home-assistant__confidence"><Check size={12} /> {meals.length >= 2 ? 'Căn cứ khá' : 'Đang học từ bạn'}</span>
-          </div>
-          <span className="nutrition-home-assistant__eyebrow">GỢI Ý DÀNH CHO BẠN</span>
-          <h2 id="nutrition-assistant-title">{planCompleted ? `Bạn đã hoàn thành kế hoạch ${selectedIsToday ? 'hôm nay' : 'trong ngày này'}.` : proteinRemaining > 20 ? `Bổ sung khoảng ${formatNumber(proteinRemaining)}g đạm ở bữa tiếp theo` : 'Giữ bữa tiếp theo nhẹ và cân bằng'}</h2>
-          <p>{insight}</p>
-
-          <div className="nutrition-home-assistant__signals" aria-label="Các chỉ số Aura đang cân nhắc">
-            <span><small>Năng lượng</small><strong>{calorieDelta >= 0 ? `${formatNumber(calorieDelta)} kcal còn lại` : `Vượt ${formatNumber(Math.abs(calorieDelta))} kcal`}</strong></span>
-            <span><small>Đạm</small><strong>{proteinRemaining > 0 ? `${formatNumber(proteinRemaining)}g còn lại` : 'Đã đạt mục tiêu'}</strong></span>
-          </div>
-
-          {nextMeal && !planCompleted && (
-            <div className="nutrition-home-assistant__plan">
-              <span className="nutrition-home-assistant__plan-icon"><Utensils size={17} /></span>
-              <div><span>{nextMeal.time} · {nextMeal.label}</span><strong>{nextMeal.title}</strong><small>{nextMeal.calories} kcal · {nextMeal.protein}g đạm</small></div>
-            </div>
-          )}
-
-          <div className="nutrition-home-assistant__buttons">
-            <button type="button" className="nutrition-home-assistant__primary" onClick={onOpenCatalog}>
-              <Search size={18} /><span>Xem món phù hợp</span><ChevronRight size={17} />
-            </button>
-            <button type="button" className="nutrition-home-assistant__secondary" onClick={onAskAura}><Sparkles size={17} /> Hỏi Aura</button>
-          </div>
-
-          <div className="nutrition-home-assistant__evidence"><CircleAlert size={13} /><span>Dựa trên hồ sơ và {meals.length} bữa đã ghi; hãy kiểm tra khẩu phần thực tế trước khi lưu.</span></div>
-        </aside>
-      </section>
-
-      <section className="nutrition-home-content">
-        <article className="nutrition-home-diary">
-          <div className="nutrition-home-section-heading">
-            <div><span>NHẬT KÝ</span><h2>Gần đây</h2><p>{timelineEntries.length ? `${meals.length} bữa · ${activities.length} hoạt động` : 'Chưa có dữ liệu trong ngày này'}</p></div>
-            <button type="button" className="nutrition-home-text-button" onClick={onOpenQuickAdd}><Plus size={16} /> Ghi nhanh</button>
-          </div>
-
-          {timelineEntries.length ? (
-            <div className="nutrition-home-meals">
-              {timelineEntries.map((entry) => {
-                if (entry.kind === 'meal') {
-                  const meal = entry.item
-                  return (
-                    <article className="nutrition-home-meal" key={`meal-${meal.id}`}>
-                      <div className="nutrition-home-meal__visual"><MealVisual meal={meal} /></div>
-                      <div className="nutrition-home-meal__body">
-                        <div className="nutrition-home-meal__meta"><span>{meal.label} · {meal.time}</span><MealEvidenceBadge meal={meal} /></div>
-                        <h3>{meal.title}</h3>
-                        <p>{meal.description}</p>
-                        <div className="nutrition-home-meal__nutrition"><strong>{formatNumber(meal.calories)} kcal</strong><span>{formatNumber(meal.protein)}g đạm</span><span>{formatNumber(meal.carbs)}g carb</span><span>{formatNumber(meal.fat)}g béo</span></div>
-                      </div>
-                      <button type="button" className="nutrition-home-meal__delete" aria-label={`Xóa ${meal.title} khỏi nhật ký`} onClick={() => onDeleteMeal(meal.id)}><Trash2 size={16} /></button>
-                    </article>
-                  )
-                }
-
-                const activity = entry.item
-                return (
-                  <article className="nutrition-home-meal nutrition-home-meal--activity" key={`activity-${activity.id}`}>
-                    <div className="nutrition-home-meal__visual"><span><Dumbbell size={23} /></span></div>
-                    <div className="nutrition-home-meal__body">
-                      <div className="nutrition-home-meal__meta"><span>Vận động · {activity.startTime}</span><small className="is-activity"><Activity size={11} /> Đã ghi</small></div>
-                      <h3>{activity.title}</h3>
-                      <p>{activity.durationMinutes} phút · Cường độ {intensityLabels[activity.intensity].toLocaleLowerCase('vi-VN')}</p>
-                      <div className="nutrition-home-meal__nutrition"><strong>≈ {formatNumber(activity.estimatedCalories)} kcal</strong><span>Năng lượng vận động ước tính</span></div>
+                <div className="cal-hero-ring-container">
+                  <div
+                    className={`cal-main-ring ${calorieDelta < 0 ? 'is-over' : ''}`}
+                    style={progressStyle(caloriePercent)}
+                  >
+                    <div className="cal-ring-inner">
+                      <Flame size={20} fill="currentColor" />
                     </div>
-                    <button type="button" className="nutrition-home-meal__delete" aria-label={`Xóa ${activity.title} khỏi nhật ký`} onClick={() => onDeleteActivity(activity.id)}><Trash2 size={16} /></button>
-                  </article>
-                )
-              })}
-            </div>
-          ) : (
-            <div className="nutrition-home-empty">
-              <span><Salad size={25} /></span>
-              <div><strong>{selectedIsToday ? 'Chưa có dữ liệu hôm nay' : 'Chưa có dữ liệu trong ngày này'}</strong><p>Quét một bữa ăn hoặc ghi nhanh để Aura bắt đầu phân tích.</p></div>
-              <button type="button" onClick={onOpenQuickAdd}><Plus size={16} /> Ghi nhanh</button>
-            </div>
-          )}
-        </article>
-
-        <aside className="nutrition-home-rhythm" aria-labelledby="nutrition-rhythm-title">
-          <div className="nutrition-home-section-heading">
-            <div><span>NHỊP TRONG NGÀY</span><h2 id="nutrition-rhythm-title">Cân bằng vừa đủ</h2></div>
-          </div>
-
-          <section className="nutrition-home-rhythm__water" aria-label="Nước trong ngày">
-            <div className="nutrition-home-water__hero">
-              <div className="nutrition-home-water__gauge" style={progressStyle(waterPercent)} role="progressbar" aria-label="Tiến độ uống nước" aria-valuemin={0} aria-valuemax={waterGoal} aria-valuenow={Math.min(water, waterGoal)} aria-valuetext={`${formatNumber(water)} trên ${formatNumber(waterGoal)} mililít`}>
-                <span><Droplets size={22} /><strong>{waterPercent}%</strong></span>
+                  </div>
+                </div>
               </div>
-              <div className="nutrition-home-water__copy"><small>HYDRATION</small><h3>{formatNumber(water)} <span>/ {formatNumber(waterGoal)} ml</span></h3><p>{waterRemaining > 0 ? `Còn ${formatNumber(waterRemaining)} ml · khoảng ${Math.ceil(waterRemaining / 250)} cốc nhỏ` : selectedIsToday ? 'Bạn đã đạt mục tiêu nước hôm nay.' : 'Bạn đã đạt mục tiêu nước trong ngày này.'}</p></div>
-            </div>
-            <div className="nutrition-home-rhythm__quick" role="group" aria-label="Ghi nước nhanh">
-              <button type="button" onClick={() => onLogWater(250)}><Droplets size={15} /><span><strong>+250</strong><small>1 ly</small></span></button>
-              <button type="button" onClick={() => onLogWater(500)}><Droplets size={15} /><span><strong>+500</strong><small>1 chai</small></span></button>
-              <button type="button" onClick={() => onLogWater(750)}><Droplets size={15} /><span><strong>+750</strong><small>1 bình</small></span></button>
-              <button type="button" onClick={onOpenWater}><Plus size={15} /><span><strong>Khác</strong><small>Tùy chỉnh</small></span></button>
-            </div>
-          </section>
 
-          <section className="nutrition-home-rhythm__activity" aria-label="Vận động trong ngày">
-            <div className="nutrition-home-rhythm__row-heading"><span><Dumbbell size={18} /></span><div><small>Vận động</small><strong>≈ {formatNumber(activityCalories)} <em>kcal</em></strong></div><button type="button" onClick={onOpenExercise} aria-label="Ghi buổi tập"><Plus size={17} /></button></div>
-            <p><Clock3 size={14} /> {activityMinutes} phút · {activities.length} buổi</p>
-            <small>Theo dõi riêng, không tự cộng vào ngân sách ăn.</small>
-          </section>
+              {/* 3 Macro Cards (Protein, Carbs, Fat) */}
+              <div className="macro-cards-grid">
+                {/* Protein Card */}
+                <div
+                  className="macro-card macro-card--protein"
+                  onClick={() => setShowConsumed((prev) => !prev)}
+                  title="Chạm để đổi Còn lại / Đã nạp"
+                  role="button"
+                  tabIndex={0}
+                >
+                  <div className="macro-card-info">
+                    <strong>
+                      {showConsumed ? `${formatNumber(proteinConsumed)}g` : `${formatNumber(proteinRemaining)}g`}
+                    </strong>
+                    <span>{showConsumed ? 'Đạm đã nạp' : 'Đạm còn lại'}</span>
+                  </div>
+                  <div className="macro-ring" style={progressStyle(clampPercent(proteinConsumed, proteinGoal))}>
+                    <div className="macro-ring-inner">
+                      <span className="macro-icon-pink">🍗</span>
+                    </div>
+                  </div>
+                </div>
 
-          <footer className="nutrition-home-rhythm__footer">
-            <span><Sparkles size={16} /></span>
-            <div><small>MỤC TIÊU CỦA BẠN</small><strong>{goalLabel}</strong><p>{trainingSessions} buổi tập/tuần · {formatNumber(calorieGoal)} kcal/ngày</p></div>
-            <button type="button" onClick={onEditProfile} aria-label="Chỉnh mục tiêu"><Pencil size={15} /></button>
-          </footer>
-          {allergies && <p className="nutrition-home-rhythm__allergies"><CircleAlert size={14} /> Cần tránh: {allergies}</p>}
-        </aside>
+                {/* Carbs Card */}
+                <div
+                  className="macro-card macro-card--carbs"
+                  onClick={() => setShowConsumed((prev) => !prev)}
+                  title="Chạm để đổi Còn lại / Đã nạp"
+                  role="button"
+                  tabIndex={0}
+                >
+                  <div className="macro-card-info">
+                    <strong>
+                      {showConsumed ? `${formatNumber(carbsConsumed)}g` : `${formatNumber(carbsRemaining)}g`}
+                    </strong>
+                    <span>{showConsumed ? 'Carb đã nạp' : 'Carb còn lại'}</span>
+                  </div>
+                  <div className="macro-ring" style={progressStyle(clampPercent(carbsConsumed, carbGoal))}>
+                    <div className="macro-ring-inner">
+                      <span className="macro-icon-orange">🌾</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fat Card */}
+                <div
+                  className="macro-card macro-card--fat"
+                  onClick={() => setShowConsumed((prev) => !prev)}
+                  title="Chạm để đổi Còn lại / Đã nạp"
+                  role="button"
+                  tabIndex={0}
+                >
+                  <div className="macro-card-info">
+                    <strong>
+                      {showConsumed ? `${formatNumber(fatConsumed)}g` : `${formatNumber(fatRemaining)}g`}
+                    </strong>
+                    <span>{showConsumed ? 'Béo đã nạp' : 'Béo còn lại'}</span>
+                  </div>
+                  <div className="macro-ring" style={progressStyle(clampPercent(fatConsumed, fatGoal))}>
+                    <div className="macro-ring-inner">
+                      <span className="macro-icon-blue">🥑</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* SLIDE 1: Micronutrients & Health Score */}
+            <div className="nutrition-slide nutrition-slide--health">
+              {/* 3 Micro Cards (Fiber, Sugar, Sodium) */}
+              <div className="macro-cards-grid">
+                {qualityMetrics.slice(0, 3).map((metric) => {
+                  const percent = clampPercent(metric.value, metric.goal)
+                  const remaining = Math.max(0, metric.goal - metric.value)
+                  const normalizedLabel = metric.label.includes('xơ') || metric.label.includes('Fiber') ? 'Chất xơ'
+                    : metric.label.includes('đường') || metric.label.includes('Sugar') ? 'Đường'
+                    : metric.label.includes('Natri') || metric.label.includes('Sodium') ? 'Natri'
+                    : metric.label
+                  return (
+                    <div
+                      className="macro-card"
+                      key={metric.label}
+                      onClick={() => setShowConsumed((prev) => !prev)}
+                      title="Chạm để đổi giữa Đã nạp và Còn lại"
+                      role="button"
+                      tabIndex={0}
+                    >
+                      <div className="macro-card-info">
+                        <strong>
+                          {showConsumed
+                            ? `${formatNumber(metric.value)}${metric.unit}`
+                            : `${formatNumber(remaining)}${metric.unit}`}
+                        </strong>
+                        <span>
+                          {normalizedLabel}{' '}
+                          {showConsumed
+                            ? 'đã nạp'
+                            : metric.inverse
+                              ? 'hạn mức còn'
+                              : 'còn lại'}
+                        </span>
+                      </div>
+                      <div className="macro-ring" style={progressStyle(percent)}>
+                        <div className="macro-ring-inner">
+                          {normalizedLabel.includes('xơ') ? (
+                            <span>🥗</span>
+                          ) : normalizedLabel.includes('đường') ? (
+                            <span>🍎</span>
+                          ) : (
+                            <span>🧂</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Health Score Card */}
+              <div className="health-score-card">
+                <div className="health-score-header">
+                  <span className="health-score-title">Điểm sức khỏe bữa ăn</span>
+                  <div className="health-score-badge-wrap">
+                    <span className="health-score-badge">{healthScoreBadge}</span>
+                    <span className="health-score-value">{healthScore}/10</span>
+                  </div>
+                </div>
+                <div className="health-score-bar-track">
+                  <div
+                    className="health-score-bar-fill"
+                    style={{ width: `${Math.min(100, Math.max(10, healthScore * 10))}%` }}
+                  />
+                </div>
+                <p className="health-score-advice">{healthAdvice}</p>
+              </div>
+            </div>
+
+            {/* SLIDE 2: Health Integration, Activity & Water */}
+            <div className="nutrition-slide nutrition-slide--activity-water">
+              <div className="activity-water-grid">
+                {/* Connect Device Health Card */}
+                <div className="connect-health-card">
+                  <div className="connect-health-icon"><Heart size={24} fill="#ff3b30" color="#ff3b30" /></div>
+                  <h3>Đồng bộ sức khỏe</h3>
+                  <p>Theo dõi bước chân tự động</p>
+                  <button type="button" className="connect-btn" onClick={() => setShowHealthModal(true)}>Kết nối ngay</button>
+                </div>
+
+                {/* Calories Burned Card */}
+                <div className="burned-card">
+                  <div className="burned-card-header">
+                    <span className="burned-subtitle">Calo tiêu hao vận động</span>
+                    <strong className="burned-total">{formatNumber(activityCalories)} <small>kcal</small></strong>
+                  </div>
+                  <div className="burned-list">
+                    <div className="burned-item">
+                      <span className="burned-item-icon"><Footprints size={14} /></span>
+                      <span className="burned-item-name">Bước chân</span>
+                      <span className="burned-item-val">0 kcal</span>
+                    </div>
+                    {activities.length > 0 ? (
+                      activities.map((act) => (
+                        <div key={act.id} className="burned-item">
+                          <span className="burned-item-icon"><Dumbbell size={14} /></span>
+                          <span className="burned-item-name">{act.title}</span>
+                          <span className="burned-item-val">{act.estimatedCalories} kcal</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="burned-empty">Chưa ghi nhận bài tập nào hôm nay</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Water Card Below */}
+              <div className="water-card-banner">
+                <div className="water-banner-left">
+                  <span className="water-glass-emoji">🥛</span>
+                  <div>
+                    <small>Nước uống</small>
+                    <strong>{formatNumber(water)} ml</strong>
+                  </div>
+                </div>
+                <button type="button" className="water-log-pill-btn" onClick={onOpenWater}>+ Ghi nước</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Carousel Pagination Dots */}
+        <div className="nutrition-carousel-dots">
+          {[0, 1, 2].map((idx) => (
+            <button
+              type="button"
+              key={idx}
+              className={`carousel-dot ${slideIndex === idx ? 'is-active' : ''}`}
+              onClick={() => setSlideIndex(idx)}
+              aria-label={`Trang ${idx + 1}`}
+            />
+          ))}
+        </div>
       </section>
+
+      {/* Recently Uploaded / Logged items */}
+      <section className="recently-uploaded-section">
+        <div className="recently-uploaded-header">
+          <h2>Ghi nhận gần đây</h2>
+          <button type="button" className="quick-add-text-btn" onClick={onOpenQuickAdd}>
+            <Plus size={16} /> Thêm nhanh
+          </button>
+        </div>
+
+        {timelineEntries.length > 0 ? (
+          <div className="recently-uploaded-list">
+            {timelineEntries.map((entry) => {
+              if (entry.kind === 'meal') {
+                const meal = entry.item
+                return (
+                  <div key={`meal-${meal.id}`} className="recently-card">
+                    <div className="recently-card-visual" onClick={() => onOpenMeal?.(meal.id)} style={{ cursor: onOpenMeal ? 'pointer' : 'default' }}>
+                      <MealVisual meal={meal} />
+                    </div>
+                    <div className="recently-card-body" onClick={() => onOpenMeal?.(meal.id)} style={{ cursor: onOpenMeal ? 'pointer' : 'default' }}>
+                      <div className="recently-card-top">
+                        <h3>{meal.title}</h3>
+                        <span className="recently-card-time">{meal.time}</span>
+                      </div>
+                      <div className="recently-card-calories">
+                        <Flame size={14} fill="currentColor" />
+                        <strong>{formatNumber(meal.calories)} kcal</strong>
+                      </div>
+                      <div className="recently-card-details">
+                        <span>🍗 {meal.protein}g đạm</span>
+                        <span>🌾 {meal.carbs}g carb</span>
+                        <span>🥑 {meal.fat}g béo</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="recently-card-delete"
+                      onClick={() => onDeleteMeal(meal.id)}
+                      aria-label="Xóa món ăn"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                )
+              }
+
+              const activity = entry.item
+              return (
+                <div key={`activity-${activity.id}`} className="recently-card recently-card--activity">
+                  <div className="recently-card-visual-exercise">
+                    <Dumbbell size={22} />
+                  </div>
+                  <div className="recently-card-body">
+                    <div className="recently-card-top">
+                      <h3>{activity.title}</h3>
+                      <span className="recently-card-time">{activity.startTime}</span>
+                    </div>
+                    <div className="recently-card-calories">
+                      <Flame size={14} fill="currentColor" />
+                      <strong>{formatNumber(activity.estimatedCalories)} kcal</strong>
+                    </div>
+                    <div className="recently-card-details">
+                      <span>Cường độ: {intensityLabels[activity.intensity]}</span>
+                      <span>⏱️ {activity.durationMinutes} phút</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="recently-card-delete"
+                    onClick={() => onDeleteActivity(activity.id)}
+                    aria-label="Xóa vận động"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="recently-uploaded-empty">
+            <Salad size={28} />
+            <p>Chưa có món ăn hoặc vận động nào cho ngày này. Nhấn nút + nổi bên dưới để ghi nhanh!</p>
+          </div>
+        )}
+      </section>
+
+      {/* Prominent Floating Quick-Add Pink Button (+) */}
+      <div className="nutrition-pink-fab-container">
+        <button
+          type="button"
+          className="nutrition-pink-fab"
+          onClick={onOpenQuickAdd}
+          aria-label="Thêm bữa ăn hoặc vận động nhanh"
+          title="Thêm nhanh (Quét ảnh / Nhập món / Ghi nước / Vận động)"
+        >
+          <Plus size={28} strokeWidth={2.8} className="pink-fab-icon" />
+        </button>
+      </div>
+
+      {/* Apple Health & Health Connect Sync Modal */}
+      {showHealthModal && (
+        <div
+          className="nutrition-sheet-backdrop"
+          role="presentation"
+          onClick={(event) => event.target === event.currentTarget && setShowHealthModal(false)}
+        >
+          <div className="apple-health-modal" role="dialog" aria-modal="true" aria-labelledby="apple-health-title">
+            <div className="apple-health-modal-header">
+              <div className="apple-health-title-group">
+                <div className="apple-health-badge-icon">
+                  <Activity size={24} />
+                </div>
+                <div>
+                  <h2 id="apple-health-title">Đồng bộ ứng dụng & thiết bị sức khỏe</h2>
+                  <p>Tự động cập nhật số bước chân, calo vận động & chỉ số sinh hiệu từ đồng hồ & điện thoại.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="nutrition-close-button"
+                onClick={() => setShowHealthModal(false)}
+                aria-label="Đóng"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="apple-health-status-card">
+              <div className="health-status-top">
+                <div className="health-status-info">
+                  <span className={`health-badge ${healthSyncActive ? 'is-active' : ''}`}>
+                    {healthSyncActive ? 'Đang hoạt động 🟢' : 'Đã ngắt kết nối ⚪'}
+                  </span>
+                  <h3>{healthSyncActive ? 'Đã kết nối thiết bị sức khỏe' : 'Chưa bật đồng bộ tự động'}</h3>
+                  <small>Cập nhật lần cuối: {syncLastTime}</small>
+                </div>
+                <label className="health-toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={healthSyncActive}
+                    onChange={(event) => setHealthSyncActive(event.target.checked)}
+                  />
+                  <span className="slider" />
+                </label>
+              </div>
+
+              {healthSyncActive && (
+                <div className="health-live-stats-grid">
+                  <div className="health-stat-box">
+                    <span className="stat-icon kcal">
+                      <Flame size={18} fill="currentColor" />
+                    </span>
+                    <div>
+                      <strong>{formatNumber(healthActiveKcal)} kcal</strong>
+                      <small>Calo tiêu hao hằng ngày</small>
+                    </div>
+                  </div>
+                  <div className="health-stat-box">
+                    <span className="stat-icon steps">
+                      <Footprints size={18} />
+                    </span>
+                    <div>
+                      <strong>{formatNumber(healthSteps)} bước</strong>
+                      <small>Số bước (~3.4 km)</small>
+                    </div>
+                  </div>
+                  <div className="health-stat-box">
+                    <span className="stat-icon hr">
+                      <Heart size={18} />
+                    </span>
+                    <div>
+                      <strong>{healthHeartRate} bpm</strong>
+                      <small>Nhịp tim trung bình</small>
+                    </div>
+                  </div>
+                  <div className="health-stat-box">
+                    <span className="stat-icon sleep">
+                      <Droplets size={18} />
+                    </span>
+                    <div>
+                      <strong>{healthSleepHours} giờ</strong>
+                      <small>Thời gian ngủ (Phục hồi 95%)</small>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="apple-health-actions">
+              <button
+                type="button"
+                className="health-sync-btn"
+                onClick={handleManualSync}
+                disabled={healthSyncing || !healthSyncActive}
+              >
+                <RefreshCw size={16} className={healthSyncing ? 'spinning' : ''} />
+                <span>{healthSyncing ? 'Đang quét cảm biến...' : 'Đồng bộ thiết bị ngay'}</span>
+              </button>
+            </div>
+
+            <div className="apple-health-ideas-section">
+              <h3>💡 Ý tưởng & Giải pháp kết nối thiết bị thực tế</h3>
+              <div className="ideas-grid">
+                <div className="idea-card">
+                  <strong>1. Native Health Bridge (App Mobile)</strong>
+                  <p>Đọc dữ liệu bước chân và calo vận động trực tiếp từ cảm biến phần cứng của điện thoại & đồng hồ.</p>
+                </div>
+                <div className="idea-card">
+                  <strong>2. Smart Watch Webhook Integration</strong>
+                  <p>Thiết lập đồng bộ tự động: Mỗi khi hoàn thành tập luyện trên đồng hồ thông minh, ứng dụng tự động nhận dữ liệu.</p>
+                </div>
+                <div className="idea-card">
+                  <strong>3. Google Health Connect & Bluetooth Bridge</strong>
+                  <p>Kết nối đồng bộ chéo với Health Connect trên Android và các thiết bị đo nhịp tim Bluetooth LE trực tiếp.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

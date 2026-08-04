@@ -69,6 +69,21 @@ async function networkFirstNavigation(request) {
   }
 }
 
+async function networkFirstScript(event) {
+  try {
+    const response = await fetch(event.request)
+    if (isCacheableResponse(response)) {
+      const cache = await caches.open(STATIC_CACHE)
+      await cache.put(event.request, response.clone())
+    }
+    return response
+  } catch {
+    const cached = await caches.match(event.request)
+    if (cached) return cached
+    return fetch(event.request)
+  }
+}
+
 function staleWhileRevalidate(event) {
   const networkResponse = fetch(event.request).then(async (response) => {
     if (isCacheableResponse(response)) {
@@ -84,7 +99,7 @@ function staleWhileRevalidate(event) {
     try {
       return await networkResponse
     } catch {
-      return Response.error()
+      return fetch(event.request)
     }
   })
 }
@@ -114,6 +129,11 @@ self.addEventListener('fetch', (event) => {
 
   if (event.request.mode === 'navigate') {
     event.respondWith(networkFirstNavigation(event.request))
+    return
+  }
+
+  if (event.request.destination === 'script' || url.pathname.endsWith('.js')) {
+    event.respondWith(networkFirstScript(event))
     return
   }
 

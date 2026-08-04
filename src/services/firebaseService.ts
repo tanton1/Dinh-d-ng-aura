@@ -1,6 +1,7 @@
 import {
   collection,
   collectionGroup,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -789,3 +790,121 @@ export async function seedAuraDemoData() {
 
   await batch.commit()
 }
+
+export async function saveUserMealLog(userId: string, meal: Record<string, unknown> & { id: string }) {
+  const db = requireDb()
+  const reference = doc(db, 'users', userId, 'mealLogs', meal.id)
+  await setDoc(
+    reference,
+    withoutUndefined({
+      ...meal,
+      updatedAt: serverTimestamp(),
+      createdAt: meal.createdAt ?? serverTimestamp(),
+    }),
+    { merge: true },
+  )
+}
+
+export async function deleteUserMealLog(userId: string, mealId: string) {
+  const db = requireDb()
+  const reference = doc(db, 'users', userId, 'mealLogs', mealId)
+  await deleteDoc(reference)
+}
+
+export function subscribeToUserMealLogs(
+  userId: string,
+  onData: (meals: any[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  const db = requireDb()
+  return onSnapshot(
+    collection(db, 'users', userId, 'mealLogs'),
+    (snapshot) => {
+      const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      onData(items)
+    },
+    (error) => {
+      console.error('Error fetching user meal logs from Firestore:', error)
+      onError?.(error)
+    },
+  )
+}
+
+export async function saveUserWaterLog(userId: string, entry: Record<string, unknown> & { id: string }) {
+  const db = requireDb()
+  const reference = doc(db, 'users', userId, 'waterLogs', entry.id)
+  await setDoc(
+    reference,
+    withoutUndefined({
+      ...entry,
+      updatedAt: serverTimestamp(),
+      createdAt: entry.createdAt ?? serverTimestamp(),
+    }),
+    { merge: true },
+  )
+}
+
+export async function deleteUserWaterLog(userId: string, entryId: string) {
+  const db = requireDb()
+  const reference = doc(db, 'users', userId, 'waterLogs', entryId)
+  await deleteDoc(reference)
+}
+
+export function subscribeToUserWaterLogs(
+  userId: string,
+  onData: (entries: any[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  const db = requireDb()
+  return onSnapshot(
+    collection(db, 'users', userId, 'waterLogs'),
+    (snapshot) => {
+      const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      onData(items)
+    },
+    (error) => {
+      console.error('Error fetching user water logs from Firestore:', error)
+      onError?.(error)
+    },
+  )
+}
+
+export async function saveUserActivityLog(userId: string, activity: Record<string, unknown> & { id: string }) {
+  const db = requireDb()
+  const reference = doc(db, 'users', userId, 'activityLogs', activity.id)
+  await setDoc(
+    reference,
+    withoutUndefined({
+      ...activity,
+      updatedAt: serverTimestamp(),
+      createdAt: activity.createdAt ?? serverTimestamp(),
+    }),
+    { merge: true },
+  )
+}
+
+export async function deleteUserActivityLog(userId: string, activityId: string) {
+  const db = requireDb()
+  const reference = doc(db, 'users', userId, 'activityLogs', activityId)
+  await deleteDoc(reference)
+}
+
+export function subscribeToUserActivityLogs(
+  userId: string,
+  onData: (activities: any[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  const db = requireDb()
+  return onSnapshot(
+    collection(db, 'users', userId, 'activityLogs'),
+    (snapshot) => {
+      const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      onData(items)
+    },
+    (error) => {
+      console.error('Error fetching user activity logs from Firestore:', error)
+      onError?.(error)
+    },
+  )
+}
+

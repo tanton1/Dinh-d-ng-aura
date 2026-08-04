@@ -188,11 +188,9 @@ function confidenceCopy(confidence: NutritionDataConfidence | undefined) {
 export function NutritionSectionNav({
   activeSection,
   onSectionChange,
-  onScan,
   onOpenCatalog,
-  onOpenAskAura,
   className = '',
-}: NutritionSectionNavProps) {
+}: Omit<NutritionSectionNavProps, 'onScan' | 'onOpenAskAura'> & { onScan?: () => void; onOpenAskAura?: () => void }) {
   return (
     <nav className={`nutrition-workspace-nav ${className}`.trim()} aria-label="Điều hướng dinh dưỡng">
       <div className="nutrition-workspace-nav__sections" aria-label="Khu vực dinh dưỡng">
@@ -211,17 +209,6 @@ export function NutritionSectionNav({
             </button>
           )
         })}
-      </div>
-
-      <div className="nutrition-workspace-nav__actions" aria-label="Công cụ dinh dưỡng">
-        <button type="button" className="nutrition-workspace-nav__aura" onClick={onOpenAskAura}>
-          <Sparkles size={17} aria-hidden="true" />
-          <span>Hỏi Aura</span>
-        </button>
-        <button type="button" className="nutrition-workspace-nav__scan" onClick={onScan} data-testid="nutrition-scan-cta">
-          <Camera size={17} aria-hidden="true" />
-          <span>Quét món</span>
-        </button>
       </div>
     </nav>
   )
@@ -364,7 +351,7 @@ export function NutritionDiaryPage({
                       <time>{meal.time}</time>
                       <span className="nutrition-diary-event__node"><Utensils size={16} /></span>
                       <article>
-                        <div className="nutrition-diary-event__visual">
+                        <div className="nutrition-diary-event__visual" onClick={() => onOpenMeal?.(meal.id)} style={{ cursor: onOpenMeal ? 'pointer' : 'default' }}>
                           {meal.image ? <img src={meal.image} alt="" /> : <span><Salad size={22} /></span>}
                         </div>
                         <div className="nutrition-diary-event__content">
@@ -374,7 +361,7 @@ export function NutritionDiaryPage({
                           </div>
                           <button type="button" className="nutrition-diary-event__title" onClick={() => onOpenMeal?.(meal.id)} disabled={!onOpenMeal}>{meal.title}</button>
                           {meal.description && <p>{meal.description}</p>}
-                          <div className="nutrition-diary-event__nutrition"><strong>{formatNumber(meal.calories)} kcal</strong><span>{formatNumber(meal.protein)}g P</span><span>{formatNumber(meal.carbs)}g C</span><span>{formatNumber(meal.fat)}g F</span></div>
+                          <div className="nutrition-diary-event__nutrition" onClick={() => onOpenMeal?.(meal.id)} style={{ cursor: onOpenMeal ? 'pointer' : 'default' }}><strong>{formatNumber(meal.calories)} kcal</strong><span>{formatNumber(meal.protein)}g P</span><span>{formatNumber(meal.carbs)}g C</span><span>{formatNumber(meal.fat)}g F</span></div>
                         </div>
                         {(onEditMeal || onDeleteMeal) && (
                           <div className="nutrition-diary-event__actions">
