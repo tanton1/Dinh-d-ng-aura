@@ -204,16 +204,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!firebaseAuth) throw new Error('Firebase chưa được cấu hình.')
       const provider = new GoogleAuthProvider()
       provider.setCustomParameters({ prompt: 'select_account' })
-      const credential = await signInWithPopup(firebaseAuth, provider)
-      const userEmail = credential.user.email ?? ''
-      await createOrUpdateUserProfile({
-        uid: credential.user.uid,
-        email: userEmail,
-        displayName: credential.user.displayName ?? 'Thành viên Aura',
-        photoURL: credential.user.photoURL,
-        role: userEmail === 'nhattank16.1@gmail.com' ? 'super_admin' : 'student',
-        membership: userEmail === 'nhattank16.1@gmail.com' ? 'pro' : 'free',
-      })
+      try {
+        const credential = await signInWithPopup(firebaseAuth, provider)
+        const userEmail = credential.user.email ?? ''
+        await createOrUpdateUserProfile({
+          uid: credential.user.uid,
+          email: userEmail,
+          displayName: credential.user.displayName ?? 'Thành viên Aura',
+          photoURL: credential.user.photoURL,
+          role: userEmail === 'nhattank16.1@gmail.com' ? 'super_admin' : 'student',
+          membership: userEmail === 'nhattank16.1@gmail.com' ? 'pro' : 'free',
+        })
+      } catch (error: any) {
+        if (error?.code === 'auth/popup-closed-by-user') {
+          console.log('Popup closed by user');
+          return;
+        }
+        if (window.self !== window.top) {
+          alert('Tính năng đăng nhập bằng Google có thể bị chặn khi xem ở chế độ nhúng (iFrame). Vui lòng mở ứng dụng trong một tab mới để tiếp tục.')
+        }
+        throw error;
+      }
     },
     resetPassword: async (email) => {
       if (!firebaseAuth) throw new Error('Firebase chưa được cấu hình.')

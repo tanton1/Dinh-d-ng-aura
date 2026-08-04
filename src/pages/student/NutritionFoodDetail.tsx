@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft,
+  Beef,
   Bookmark,
   BookmarkCheck,
   Camera,
@@ -9,6 +10,7 @@ import {
   ChevronUp,
   CircleAlert,
   Database,
+  Droplets,
   ExternalLink,
   Flame,
   Info,
@@ -22,6 +24,7 @@ import {
   ScanLine,
   Sparkles,
   Utensils,
+  Wheat,
 } from 'lucide-react'
 import NutritionGroupIcon, { getNutritionGroupVisual } from '../../components/NutritionGroupIcon'
 import '../../styles-nutrition-detail.css'
@@ -475,16 +478,28 @@ export default function NutritionFoodDetail({
                 <div><small>Năng lượng</small><strong>{formatValue(energy)} <em>kcal</em></strong></div>
               </div>
               <div className="nutrition-food-detail__macro nutrition-food-detail__macro--protein">
-                <span><Sparkles size={18} aria-hidden="true" /></span>
-                <div><small>Chất đạm</small><strong>{formatValue(protein)} <em>g</em></strong></div>
+                <span><Beef size={18} aria-hidden="true" /></span>
+                <div>
+                  <small>Chất đạm</small>
+                  <strong>{formatValue(protein)} <em>g</em></strong>
+                  {(protein ?? 0) > 0 && <em>({Math.round((((protein ?? 0) * 4) / Math.max(1, energy ?? 0)) * 100)}%)</em>}
+                </div>
               </div>
               <div className="nutrition-food-detail__macro nutrition-food-detail__macro--carbs">
-                <span><Salad size={18} aria-hidden="true" /></span>
-                <div><small>Bột đường</small><strong>{formatValue(carbohydrate)} <em>g</em></strong></div>
+                <span><Wheat size={18} aria-hidden="true" /></span>
+                <div>
+                  <small>Bột đường</small>
+                  <strong>{formatValue(carbohydrate)} <em>g</em></strong>
+                  {(carbohydrate ?? 0) > 0 && <em>({Math.round((((carbohydrate ?? 0) * 4) / Math.max(1, energy ?? 0)) * 100)}%)</em>}
+                </div>
               </div>
               <div className="nutrition-food-detail__macro nutrition-food-detail__macro--fat">
-                <span><Leaf size={18} aria-hidden="true" /></span>
-                <div><small>Chất béo</small><strong>{formatValue(fat)} <em>g</em></strong></div>
+                <span><Droplets size={18} aria-hidden="true" /></span>
+                <div>
+                  <small>Chất béo</small>
+                  <strong>{formatValue(fat)} <em>g</em></strong>
+                  {(fat ?? 0) > 0 && <em>({Math.round((((fat ?? 0) * 9) / Math.max(1, energy ?? 0)) * 100)}%)</em>}
+                </div>
               </div>
             </div>
           </section>

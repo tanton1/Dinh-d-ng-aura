@@ -6,6 +6,7 @@ import {
   getDoc,
   getDocs,
   onSnapshot,
+  orderBy,
   query,
   serverTimestamp,
   setDoc,
@@ -802,6 +803,79 @@ export async function saveUserMealLog(userId: string, meal: Record<string, unkno
       createdAt: meal.createdAt ?? serverTimestamp(),
     }),
     { merge: true },
+  )
+}
+
+export async function submitMealReview(userId: string, userName: string, meal: any) {
+  const db = requireDb()
+  const reference = doc(db, 'mealReviews', meal.id)
+  await setDoc(
+    reference,
+    withoutUndefined({
+      id: meal.id,
+      userId,
+      userName,
+      meal,
+      status: 'pending',
+      updatedAt: serverTimestamp(),
+      createdAt: serverTimestamp(),
+    }),
+    { merge: true },
+  )
+}
+
+export async function updateMealReview(reviewId: string, updates: any) {
+  const db = requireDb()
+  
+  const reference = doc(db, 'mealReviews', reviewId)
+  await updateDoc(
+    reference,
+    withoutUndefined({
+      ...updates,
+      updatedAt: serverTimestamp(),
+    })
+  )
+
+  // If coach feedback is provided, sync to user's mealLogs
+  if (updates.coachFeedback) {
+    const reviewSnap = await getDoc(reference)
+    if (reviewSnap.exists()) {
+      const data = reviewSnap.data()
+      if (data.userId && data.meal?.id) {
+        const mealRef = doc(db, 'users', data.userId, 'mealLogs', data.meal.id)
+        await setDoc(mealRef, {
+          coachFeedback: updates.coachFeedback,
+          aiAnalysis: data.aiAnalysis,
+          reviewStatus: updates.status,
+          updatedAt: serverTimestamp()
+        }, { merge: true })
+      }
+    }
+  }
+}
+
+export function subscribeToAllMealReviews(
+  onData: (reviews: any[]) => void,
+  onError?: (error: Error) => void
+) {
+  const db = requireDb()
+  const q = query(
+    collection(db, 'mealReviews'),
+    orderBy('createdAt', 'desc')
+  )
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const results = snapshot.docs.map((d) => ({
+        ...d.data(),
+        id: d.id,
+      }))
+      onData(results)
+    },
+    (error) => {
+      console.error('Error fetching meal reviews:', error)
+      onError?.(error)
+    }
   )
 }
 

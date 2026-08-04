@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import {
   Activity,
+  ArrowRight,
+  Bookmark,
+  Check,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
@@ -8,18 +11,23 @@ import {
   Droplets,
   Dumbbell,
   Flame,
+  Footprints,
   Heart,
   Plus,
   RefreshCw,
   Salad,
-  Search,
-  Bookmark,
   ScanLine,
+  Search,
+  ShieldCheck,
+  Smartphone,
+  Sparkles,
   Trash2,
+  TrendingUp,
   Utensils,
+  Watch,
   Wheat,
-  Footprints,
   X,
+  Zap,
 } from 'lucide-react'
 
 export interface NutritionHomeDay {
@@ -263,41 +271,25 @@ export default function NutritionDashboardHome({
   const [healthSleepHours, setHealthSleepHours] = useState(7.5)
   const [healthHeartRate, setHealthHeartRate] = useState(68)
   const [syncLastTime, setSyncLastTime] = useState('Vừa xong')
+  const [selectedDevice, setSelectedDevice] = useState<'apple' | 'android' | 'garmin' | 'sensor'>('apple')
+  const [stepGoal, setStepGoal] = useState<number>(10000)
+  const [autoBurnOffset, setAutoBurnOffset] = useState<boolean>(true)
+  const [activeStepTab, setActiveStepTab] = useState<number>(1)
 
-  const handleManualSync = () => {
+  const handleManualSync = (addSteps = 0) => {
     setHealthSyncing(true)
     setTimeout(() => {
-      const addedSteps = Math.floor(Math.random() * 300) + 120
-      const addedKcal = Math.floor(Math.random() * 25) + 15
+      const addedSteps = addSteps > 0 ? addSteps : Math.floor(Math.random() * 300) + 120
+      const addedKcal = Math.round(addedSteps * 0.038)
       setHealthSteps((prev) => prev + addedSteps)
       setHealthActiveKcal((prev) => prev + addedKcal)
       setSyncLastTime('Vừa xong')
       setHealthSyncing(false)
-    }, 800)
+    }, 600)
   }
 
   return (
     <div className="nutrition-home nutrition-home--cal-ai">
-      {/* Brand Topbar with Health Sync Pill */}
-      <div className="nutrition-home-topbar">
-        <div className="nutrition-home-brand-logo">
-          <div className="nutrition-brand-text">
-            <h1>Nhật ký dinh dưỡng</h1>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          className={`apple-health-pill ${healthSyncActive ? 'is-connected' : ''}`}
-          onClick={() => setShowHealthModal(true)}
-          title="Quản lý đồng bộ thiết bị sức khỏe"
-        >
-          <Activity size={15} />
-          <span>{healthSyncActive ? `Đồng bộ sức khỏe (${formatNumber(healthActiveKcal)} kcal)` : 'Đồng bộ sức khỏe'}</span>
-          <span className={`sync-dot ${healthSyncActive ? 'is-active' : ''}`} />
-        </button>
-      </div>
-
       {/* Date Strip Bar (Thứ ngày ở đầu) */}
       <section
         className="nutrition-date-strip"
@@ -721,15 +713,15 @@ export default function NutritionDashboardHome({
           role="presentation"
           onClick={(event) => event.target === event.currentTarget && setShowHealthModal(false)}
         >
-          <div className="apple-health-modal" role="dialog" aria-modal="true" aria-labelledby="apple-health-title">
+          <div className="apple-health-modal health-interactive-modal" role="dialog" aria-modal="true" aria-labelledby="apple-health-title">
             <div className="apple-health-modal-header">
               <div className="apple-health-title-group">
                 <div className="apple-health-badge-icon">
                   <Activity size={24} />
                 </div>
                 <div>
-                  <h2 id="apple-health-title">Đồng bộ ứng dụng & thiết bị sức khỏe</h2>
-                  <p>Tự động cập nhật số bước chân, calo vận động & chỉ số sinh hiệu từ đồng hồ & điện thoại.</p>
+                  <h2 id="apple-health-title">Trung tâm Thiết bị & Đồng bộ Sức khỏe</h2>
+                  <p>Đồng bộ thời gian thực số bước chân, calo tiêu hao & sinh hiệu từ đồng hồ & điện thoại của bạn.</p>
                 </div>
               </div>
               <button
@@ -742,13 +734,59 @@ export default function NutritionDashboardHome({
               </button>
             </div>
 
+            {/* Device Selector Chips */}
+            <div className="health-device-selector">
+              <span className="section-label">Thiết bị ưu tiên:</span>
+              <div className="device-chips-grid">
+                <button
+                  type="button"
+                  className={`device-chip ${selectedDevice === 'apple' ? 'is-active' : ''}`}
+                  onClick={() => setSelectedDevice('apple')}
+                >
+                  <Watch size={16} />
+                  <span>Apple Watch / iOS</span>
+                </button>
+                <button
+                  type="button"
+                  className={`device-chip ${selectedDevice === 'android' ? 'is-active' : ''}`}
+                  onClick={() => setSelectedDevice('android')}
+                >
+                  <Smartphone size={16} />
+                  <span>Health Connect</span>
+                </button>
+                <button
+                  type="button"
+                  className={`device-chip ${selectedDevice === 'garmin' ? 'is-active' : ''}`}
+                  onClick={() => setSelectedDevice('garmin')}
+                >
+                  <Watch size={16} />
+                  <span>Garmin / Fitbit</span>
+                </button>
+                <button
+                  type="button"
+                  className={`device-chip ${selectedDevice === 'sensor' ? 'is-active' : ''}`}
+                  onClick={() => setSelectedDevice('sensor')}
+                >
+                  <Zap size={16} />
+                  <span>Cảm biến di động</span>
+                </button>
+              </div>
+            </div>
+
             <div className="apple-health-status-card">
               <div className="health-status-top">
                 <div className="health-status-info">
                   <span className={`health-badge ${healthSyncActive ? 'is-active' : ''}`}>
-                    {healthSyncActive ? 'Đang hoạt động 🟢' : 'Đã ngắt kết nối ⚪'}
+                    {healthSyncActive ? 'Đã kết nối 🟢' : 'Đã ngắt kết nối ⚪'}
                   </span>
-                  <h3>{healthSyncActive ? 'Đã kết nối thiết bị sức khỏe' : 'Chưa bật đồng bộ tự động'}</h3>
+                  <h3>
+                    {healthSyncActive ? (
+                      selectedDevice === 'apple' ? 'Đã kết nối Apple HealthKit (Active)' :
+                      selectedDevice === 'android' ? 'Đã đồng bộ Google Health Connect' :
+                      selectedDevice === 'garmin' ? 'Đã liên kết tài khoản Garmin cloud' :
+                      'Đang sử dụng cảm biến CoreMotion di động'
+                    ) : 'Chưa bật đồng bộ tự động'}
+                  </h3>
                   <small>Cập nhật lần cuối: {syncLastTime}</small>
                 </div>
                 <label className="health-toggle-switch">
@@ -762,75 +800,205 @@ export default function NutritionDashboardHome({
               </div>
 
               {healthSyncActive && (
-                <div className="health-live-stats-grid">
-                  <div className="health-stat-box">
-                    <span className="stat-icon kcal">
-                      <Flame size={18} fill="currentColor" />
-                    </span>
-                    <div>
-                      <strong>{formatNumber(healthActiveKcal)} kcal</strong>
-                      <small>Calo tiêu hao hằng ngày</small>
+                <>
+                  <div className="health-live-stats-grid">
+                    <div className="health-stat-box">
+                      <span className="stat-icon kcal">
+                        <Flame size={18} fill="currentColor" />
+                      </span>
+                      <div>
+                        <strong>{formatNumber(healthActiveKcal)} kcal</strong>
+                        <small>Calo tiêu hao vận động</small>
+                      </div>
+                    </div>
+                    <div className="health-stat-box">
+                      <span className="stat-icon steps">
+                        <Footprints size={18} />
+                      </span>
+                      <div>
+                        <strong>{formatNumber(healthSteps)} bước</strong>
+                        <small>Tiến độ: {Math.round((healthSteps / stepGoal) * 100)}% mục tiêu</small>
+                      </div>
+                    </div>
+                    <div className="health-stat-box">
+                      <span className="stat-icon hr">
+                        <Heart size={18} />
+                      </span>
+                      <div>
+                        <strong>{healthHeartRate} bpm</strong>
+                        <small>Nhịp tim nghỉ trung bình</small>
+                      </div>
+                    </div>
+                    <div className="health-stat-box">
+                      <span className="stat-icon sleep">
+                        <Droplets size={18} />
+                      </span>
+                      <div>
+                        <strong>{healthSleepHours} giờ</strong>
+                        <small>Giấc ngủ sâu đêm qua</small>
+                      </div>
                     </div>
                   </div>
-                  <div className="health-stat-box">
-                    <span className="stat-icon steps">
-                      <Footprints size={18} />
-                    </span>
-                    <div>
-                      <strong>{formatNumber(healthSteps)} bước</strong>
-                      <small>Số bước (~3.4 km)</small>
+
+                  {/* Dynamic Configurations inside Connected view */}
+                  <div className="health-sync-settings">
+                    <div className="setting-slider-group">
+                      <div className="slider-header">
+                        <span className="lbl"><TrendingUp size={14} /> Mục tiêu số bước hằng ngày:</span>
+                        <strong className="val">{formatNumber(stepGoal)} bước</strong>
+                      </div>
+                      <input
+                        type="range"
+                        min="4000"
+                        max="20000"
+                        step="1000"
+                        value={stepGoal}
+                        onChange={(e) => setStepGoal(parseInt(e.target.value, 10))}
+                        className="health-range-slider"
+                      />
+                    </div>
+
+                    <div className="setting-toggle-row">
+                      <div className="toggle-label-group">
+                        <span className="lbl">💡 Tự động bù trừ Calo tiêu thụ</span>
+                        <p className="desc">Tự động tăng mức trần Calories được ăn hôm nay dựa trên lượng vận động thực tế.</p>
+                      </div>
+                      <label className="health-toggle-switch small-toggle">
+                        <input
+                          type="checkbox"
+                          checked={autoBurnOffset}
+                          onChange={(e) => setAutoBurnOffset(e.target.checked)}
+                        />
+                        <span className="slider" />
+                      </label>
                     </div>
                   </div>
-                  <div className="health-stat-box">
-                    <span className="stat-icon hr">
-                      <Heart size={18} />
-                    </span>
-                    <div>
-                      <strong>{healthHeartRate} bpm</strong>
-                      <small>Nhịp tim trung bình</small>
-                    </div>
-                  </div>
-                  <div className="health-stat-box">
-                    <span className="stat-icon sleep">
-                      <Droplets size={18} />
-                    </span>
-                    <div>
-                      <strong>{healthSleepHours} giờ</strong>
-                      <small>Thời gian ngủ (Phục hồi 95%)</small>
-                    </div>
-                  </div>
-                </div>
+                </>
               )}
             </div>
 
-            <div className="apple-health-actions">
-              <button
-                type="button"
-                className="health-sync-btn"
-                onClick={handleManualSync}
-                disabled={healthSyncing || !healthSyncActive}
-              >
-                <RefreshCw size={16} className={healthSyncing ? 'spinning' : ''} />
-                <span>{healthSyncing ? 'Đang quét cảm biến...' : 'Đồng bộ thiết bị ngay'}</span>
-              </button>
-            </div>
+            {/* Simulation & Test Hardware Sensors Sandbox */}
+            {healthSyncActive && (
+              <div className="sensor-simulation-sandbox">
+                <div className="sandbox-header">
+                  <Sparkles size={16} className="spark-anim" />
+                  <h4>Trình giả lập & Kiểm tra cảm biến phần cứng</h4>
+                </div>
+                <p className="sandbox-desc">Thử nghiệm gửi gói tin bước chân thực tế của cảm biến di động để kiểm chứng thuật toán đồng bộ:</p>
 
+                <div className="sandbox-simulation-actions">
+                  <button
+                    type="button"
+                    className="sim-btn step-1000"
+                    onClick={() => handleManualSync(1000)}
+                    disabled={healthSyncing}
+                  >
+                    <span>+1,000 bước</span>
+                    <small>~38 kcal tiêu hao</small>
+                  </button>
+                  <button
+                    type="button"
+                    className="sim-btn step-3000"
+                    onClick={() => handleManualSync(3000)}
+                    disabled={healthSyncing}
+                  >
+                    <span>+3,000 bước</span>
+                    <small>~114 kcal tiêu hao</small>
+                  </button>
+                  <button
+                    type="button"
+                    className="sim-btn step-custom"
+                    onClick={() => handleManualSync(5000)}
+                    disabled={healthSyncing}
+                  >
+                    <span>+5,000 bước (Chạy bộ)</span>
+                    <small>~190 kcal tiêu hao</small>
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  className={`health-sync-btn ${healthSyncing ? 'is-syncing' : ''}`}
+                  onClick={() => handleManualSync(0)}
+                  disabled={healthSyncing}
+                >
+                  <RefreshCw size={16} className={healthSyncing ? 'spinning' : ''} />
+                  <span>{healthSyncing ? 'Đang giao tiếp với phần cứng thiết bị...' : 'Kiểm tra tín hiệu Bluetooth / Health API'}</span>
+                </button>
+              </div>
+            )}
+
+            {/* Interactive Concept Tab list */}
             <div className="apple-health-ideas-section">
-              <h3>💡 Ý tưởng & Giải pháp kết nối thiết bị thực tế</h3>
-              <div className="ideas-grid">
-                <div className="idea-card">
-                  <strong>1. Native Health Bridge (App Mobile)</strong>
-                  <p>Đọc dữ liệu bước chân và calo vận động trực tiếp từ cảm biến phần cứng của điện thoại & đồng hồ.</p>
-                </div>
-                <div className="idea-card">
-                  <strong>2. Smart Watch Webhook Integration</strong>
-                  <p>Thiết lập đồng bộ tự động: Mỗi khi hoàn thành tập luyện trên đồng hồ thông minh, ứng dụng tự động nhận dữ liệu.</p>
-                </div>
-                <div className="idea-card">
-                  <strong>3. Google Health Connect & Bluetooth Bridge</strong>
-                  <p>Kết nối đồng bộ chéo với Health Connect trên Android và các thiết bị đo nhịp tim Bluetooth LE trực tiếp.</p>
+              <div className="ideas-tab-header">
+                <h3>🛠️ Kiến trúc vận hành hệ thống kết nối</h3>
+                <div className="tab-pills">
+                  <button
+                    type="button"
+                    className={`tab-pill ${activeStepTab === 1 ? 'is-active' : ''}`}
+                    onClick={() => setActiveStepTab(1)}
+                  >
+                    Capacitor Native Bridge
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab-pill ${activeStepTab === 2 ? 'is-active' : ''}`}
+                    onClick={() => setActiveStepTab(2)}
+                  >
+                    API / Cloud Sync
+                  </button>
                 </div>
               </div>
+
+              {activeStepTab === 1 ? (
+                <div className="ideas-grid conceptual-grid animate-fade">
+                  <div className="idea-card">
+                    <div className="card-head">
+                      <Smartphone size={16} />
+                      <strong>1. iOS Apple HealthKit Bridge</strong>
+                    </div>
+                    <p>Sử dụng SDK gốc và plugin <code>@periferia/capacitor-healthkit</code> để đọc dữ liệu <code>HKQuantityTypeIdentifierActiveEnergyBurned</code> trực tiếp từ phần cứng Apple HealthKit khi app mở.</p>
+                  </div>
+                  <div className="idea-card">
+                    <div className="card-head">
+                      <Watch size={16} />
+                      <strong>2. Android Health Connect Sync</strong>
+                    </div>
+                    <p>Gọi API trung gian của Google Health Connect để đọc chỉ số bước chân và nhịp tim được chia sẻ bởi Samsung Health, Google Fit hay Fitbit một cách bảo mật.</p>
+                  </div>
+                  <div className="idea-card">
+                    <div className="card-head">
+                      <Activity size={16} />
+                      <strong>3. Web Bluetooth Core Sensors</strong>
+                    </div>
+                    <p>Giao tiếp trực tiếp với các thiết bị đo nhịp tim đeo ngực Garmin / Polar thông qua Web Bluetooth API của trình duyệt khi chạy bộ tại nhà.</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="ideas-grid conceptual-grid animate-fade">
+                  <div className="idea-card">
+                    <div className="card-head">
+                      <ShieldCheck size={16} />
+                      <strong>A. Phân quyền bảo mật (Privacy Guard)</strong>
+                    </div>
+                    <p>Cấp quyền Read-Only cho các trường thông tin cụ thể. Dữ liệu chỉ lưu trữ cục bộ trên máy và đồng bộ về hồ sơ học viên Aura Fitness để PT theo dõi.</p>
+                  </div>
+                  <div className="idea-card">
+                    <div className="card-head">
+                      <Sparkles size={16} />
+                      <strong>B. Webhook Tự động từ Đồng hồ</strong>
+                    </div>
+                    <p>Sử dụng phím tắt iOS (iOS Automation Shortcuts): Mỗi khi hoàn thành buổi tập luyện, iPhone tự động đẩy JSON chứa kết quả tới Webhook URL cá nhân của học viên.</p>
+                  </div>
+                  <div className="idea-card">
+                    <div className="card-head">
+                      <Plus size={16} />
+                      <strong>C. Tự động tính toán Calo thặng dư</strong>
+                    </div>
+                    <p>Hệ thống tự động tính toán bù trừ: Calories Mục tiêu = BMR + (Calo Vận Động × Hệ số 0.95). Giúp phân bổ lại thực đơn chính xác nhất.</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

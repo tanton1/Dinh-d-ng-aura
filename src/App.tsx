@@ -108,6 +108,7 @@ const AdminDashboard = lazyWithRetry(() => import('./pages/admin/AdminDashboard'
 const AdminProgramsPage = lazyWithRetry(() => import('./pages/admin/AdminProgramsPage'))
 const AdminRolesPage = lazyWithRetry(() => import('./pages/admin/AdminRolesPage'))
 const AdminStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminStudentsPage'))
+const AdminNutritionReviewsPage = lazyWithRetry(() => import('./pages/admin/AdminNutritionReviewsPage'))
 const CourseEditorPage = lazyWithRetry(() => import('./pages/admin/CourseEditorPage'))
 const CourseDetailPage = lazyWithRetry(() => import('./pages/student/CourseDetailPage'))
 const CoursesPage = lazyWithRetry(() => import('./pages/student/CoursesPage'))
@@ -717,6 +718,7 @@ function AuraApplication() {
         }}
       />
       case 'admin-roles': return <AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} />
+      case 'admin-nutrition-reviews': return <AdminNutritionReviewsPage onNavigate={navigate} />
       default: return <HomePage onNavigate={navigate} onOpenCourse={openCourse} courseItems={studentCourses} displayName={effectiveDisplayName} isDemo={backendMode === 'demo'} />
     }
   }

@@ -117,6 +117,7 @@ export type AdminView =
   | 'admin-programs'
   | 'admin-students'
   | 'admin-roles'
+  | 'admin-nutrition-reviews'
 
 export type ViewId = StudentView | AdminView
 

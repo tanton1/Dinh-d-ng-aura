@@ -558,3 +558,32 @@ export async function analyzeFoodPhoto(
   const upload = await uploadFoodPhoto(image)
   return analyzeUploadedFoodPhoto(upload, options)
 }
+export async function generateMealReview(meal: any, userProfile: any): Promise<string> {
+  const apiKey = localStorage.getItem('aura_gemini_api_key')
+  if (!apiKey) return 'Cần cấu hình Gemini API Key để AI có thể phân tích.'
+
+  const { GoogleGenAI } = await import('@google/genai')
+  const ai = new GoogleGenAI({ apiKey })
+
+  const prompt = `
+  Đóng vai một chuyên gia dinh dưỡng khắt khe nhưng thấu hiểu.
+  Phân tích bữa ăn sau đây của học viên:
+  - Tên món: ${meal.title || meal.label}
+  - Kcal: ${meal.calories}
+  - Đạm: ${meal.protein}g, Bột đường: ${meal.carbs}g, Béo: ${meal.fat}g
+  
+  Mục tiêu của học viên: ${userProfile?.goals?.includes('lose-fat') ? 'Giảm mỡ' : userProfile?.goals?.includes('gain-muscle') ? 'Tăng cơ' : 'Duy trì vóc dáng'}
+  
+  Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm tốt và điểm cần cải thiện của bữa ăn này dựa trên mục tiêu của họ. KHÔNG dùng markdown hay định dạng phức tạp. Viết trực tiếp nội dung.
+  `
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    })
+    return response.text || 'Không thể phân tích bữa ăn lúc này.'
+  } catch (error) {
+    console.error('Error generating meal review:', error)
+    return 'Lỗi khi kết nối với AI để phân tích bữa ăn.'
+  }
+}

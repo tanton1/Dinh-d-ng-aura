@@ -299,7 +299,8 @@
 .nutrition-food-detail__macro small { color: #727b77; font-size: 11px; font-weight: 700; }
 .nutrition-food-detail__macro strong { overflow: hidden; font-size: 20px; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
 .nutrition-food-detail__macro em { color: #88918c; font-size: 10px; font-style: normal; font-weight: 650; }
-.nutrition-food-detail__macro--energy > span { color: #c87329; background: #fff0df; }
+.nutrition-food-detail__macro--energy > span { color: #ec4899; background: #fce7f3; }
+.nutrition-food-detail__macro--energy strong { color: #db2777; font-weight: 850; }
 .nutrition-food-detail__macro--protein > span { color: #cc5676; background: #fdebf1; }
 .nutrition-food-detail__macro--carbs > span { color: #b67b25; background: #fff3d9; }
 .nutrition-food-detail__macro--fat > span { color: #4284c2; background: #eaf4ff; }
@@ -767,7 +768,8 @@
 .fdet-cal-value {
   font-size: 40px;
   font-weight: 900;
-  color: #5850ec;
+  color: #ec4899;
+  text-shadow: 0 1px 4px rgba(236, 72, 153, 0.15);
   line-height: 1;
   letter-spacing: -1px;
 }

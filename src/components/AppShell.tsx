@@ -132,6 +132,7 @@ const viewTitles: Record<ViewId, string> = {
   'admin-programs': 'Kho giáo án PT',
   'admin-students': 'Khách hàng PT',
   'admin-roles': 'Đội ngũ & quyền',
+  'admin-nutrition-reviews': 'Duyệt ăn',
 }
 
 function isNavigationActive(view: ViewId, itemId: ViewId, mobile = false) {

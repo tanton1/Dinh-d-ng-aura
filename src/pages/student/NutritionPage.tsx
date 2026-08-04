@@ -28,6 +28,7 @@ import {
   saveUserMealLog,
   deleteUserMealLog,
   subscribeToUserMealLogs,
+  submitMealReview,
   saveUserWaterLog,
   deleteUserWaterLog,
   subscribeToUserWaterLogs,
@@ -126,6 +127,7 @@ export interface NutritionMealDraft {
   calorieRange?: { low: number; high: number }
   items: AiFoodItem[]
   source: 'ai-scan' | 'demo'
+  submitForReview?: boolean
 }
 
 export type NutritionImageAnalysisResponse = FoodAnalysisResponse
@@ -220,6 +222,8 @@ interface MealLog {
   confidence?: 'verified' | 'estimated' | 'needs-review'
   calorieRange?: { low: number; high: number }
   items?: AiFoodItem[]
+  reviewStatus?: 'pending' | 'reviewed'
+  coachFeedback?: string
 }
 
 interface NutritionWaterLog {
@@ -1833,7 +1837,7 @@ function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose
     }])
   }
 
-  const saveMeal = () => {
+  const saveMeal = (submitForReview = false) => {
     if (!canSaveMeal) return
     clearPendingScanReview(storageOwnerId)
     onSave({
@@ -1849,6 +1853,7 @@ function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose
       calorieRange: adjustedRange,
       items,
       source: resultMode === 'live' ? 'ai-scan' : 'demo',
+      submitForReview
     })
   }
 
@@ -2112,7 +2117,8 @@ function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose
               <label><span>Ngày</span><input type="date" value={mealDate} onChange={(event) => setMealDate(event.target.value)} /></label>
               <label><span>Thời gian</span><input type="time" value={mealTime} onChange={(event) => setMealTime(event.target.value)} /></label>
               <label className="nutrition-secondary-button" htmlFor={galleryInputId} tabIndex={0} role="button" onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); galleryInputRef.current?.click() } }}><ImagePlus size={17} /> Chọn ảnh khác</label>
-              <button type="button" className="nutrition-primary-button" onClick={saveMeal} disabled={!canSaveMeal} title={!canSaveMeal ? resultMode === 'demo' && !allowDemo ? 'Dữ liệu minh họa không thể ghi vào nhật ký thật' : unresolvedItems.length ? 'Hãy xác nhận các thành phần có độ tin cậy thấp' : unresolvedQuestions.length ? 'Hãy trả lời các câu hỏi cần làm rõ' : 'Cần ngày, giờ và ít nhất một thành phần có tên cùng năng lượng lớn hơn 0' : undefined} data-testid="nutrition-save-scan"><Check size={17} /> Xác nhận và ghi nhật ký</button>
+              <button type="button" className="nutrition-secondary-button" onClick={() => saveMeal(false)} disabled={!canSaveMeal} title={!canSaveMeal ? resultMode === 'demo' && !allowDemo ? 'Dữ liệu minh họa không thể ghi vào nhật ký thật' : unresolvedItems.length ? 'Hãy xác nhận các thành phần có độ tin cậy thấp' : unresolvedQuestions.length ? 'Hãy trả lời các câu hỏi cần làm rõ' : 'Cần ngày, giờ và ít nhất một thành phần có tên cùng năng lượng lớn hơn 0' : undefined} data-testid="nutrition-save-scan"><Check size={17} /> Lưu vào nhật ký</button>
+              <button type="button" className="nutrition-primary-button" onClick={() => saveMeal(true)} disabled={!canSaveMeal} title={!canSaveMeal ? resultMode === 'demo' && !allowDemo ? 'Dữ liệu minh họa không thể ghi vào nhật ký thật' : unresolvedItems.length ? 'Hãy xác nhận các thành phần có độ tin cậy thấp' : unresolvedQuestions.length ? 'Hãy trả lời các câu hỏi cần làm rõ' : 'Cần ngày, giờ và ít nhất một thành phần có tên cùng năng lượng lớn hơn 0' : undefined}><ScanLine size={17} /> Xác nhận & Gửi Coach duyệt</button>
             </footer>
             <p className="nutrition-source-note">Dữ liệu dinh dưỡng sẽ được đối chiếu từ CSDL Viện Dinh dưỡng; kết quả AI luôn cần người dùng xác nhận.</p>
           </div>
@@ -3075,10 +3081,15 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       confidence: meal.source === 'ai-scan' ? 'estimated' : 'needs-review',
       calorieRange: meal.calorieRange ?? { low: Math.max(0, Math.round(meal.calories * .88)), high: Math.round(meal.calories * 1.12) },
       items: meal.items,
+      reviewStatus: meal.submitForReview ? 'pending' : undefined,
     }
     setMeals((current) => [newMealLog, ...current])
     if (firestoreDb && resolvedOwnerId !== 'anonymous') {
-      saveUserMealLog(resolvedOwnerId, newMealLog as any).catch((err) => console.error('Error saving scanned meal to Firestore:', err))
+      saveUserMealLog(resolvedOwnerId, newMealLog as any).then(() => {
+        if (meal.submitForReview) {
+          submitMealReview(resolvedOwnerId, firstName || 'Học viên', newMealLog as any).catch((err) => console.error('Error submitting meal review:', err))
+        }
+      }).catch((err) => console.error('Error saving scanned meal to Firestore:', err))
     }
     onMealSaved?.(meal)
     setHomeWeekStart(getCalendarStart(dateFromLocalKey(loggedDate)))

@@ -8,6 +8,8 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  ScanLine,
+  LoaderCircle,
   Share2,
   Sparkles,
   Trash2,
@@ -55,7 +57,14 @@ export interface MealLogItem {
   confidence?: 'verified' | 'estimated' | 'needs-review'
   calorieRange?: { low: number; high: number }
   items?: AiFoodItem[]
+  coachFeedback?: string
+  aiAnalysis?: string
+  reviewStatus?: 'pending' | 'reviewed'
 }
+
+import { useAuth } from '../../contexts/AuthContext'
+import { generateMealReview } from '../../services/nutritionService'
+import { submitMealReview } from '../../services/firebaseService'
 
 export interface CapturedMealDetailProps {
   meal: MealLogItem
@@ -91,6 +100,28 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
   onEdit,
   onDelete,
 }) => {
+  const { user } = useAuth()
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false)
+  const [reviewSubmitted, setReviewSubmitted] = useState(false)
+
+  const handleSubmitReview = async () => {
+    if (!user) return alert('Vui lòng đăng nhập để gửi.')
+    setIsSubmittingReview(true)
+    try {
+      const aiAnalysis = await generateMealReview(meal, { goals: [userGoal] })
+      await submitMealReview(user.uid, user.displayName || user.email || 'Học viên', {
+        ...meal,
+        aiAnalysis
+      })
+      setReviewSubmitted(true)
+    } catch (error) {
+      console.error(error)
+      alert('Có lỗi xảy ra khi gửi.')
+    } finally {
+      setIsSubmittingReview(false)
+    }
+  }
+
   const [isBookmarked, setIsBookmarked] = useState(false)
   const [portionCount, setPortionCount] = useState<number>(1)
   const [activeSlide, setActiveSlide] = useState<number>(0)
@@ -127,6 +158,8 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
   const totalCarbs = Math.round((meal.carbs || 40) * portionCount)
   const totalFat = Math.round((meal.fat || 12) * portionCount)
   const totalFiber = Math.round((meal.fiber || 0) * portionCount)
+  
+  const macroSumCal = Math.max(1, (totalProtein * 4) + (totalCarbs * 4) + (totalFat * 9))
 
   const handleAddIngredient = (e: React.FormEvent) => {
     e.preventDefault()
@@ -192,7 +225,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
           </button>
 
           <div className="fdet-nutrition-badge">
-            <span>Nutrition</span>
+            <span>Dinh dưỡng</span>
           </div>
 
           <div className="fdet-hero-actions">
@@ -297,10 +330,19 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
           </div>
 
           <div className="fdet-calories-col">
-            <span className="fdet-cal-label">⚡ CALORIES</span>
+            <span className="fdet-cal-label">⚡ NĂNG LƯỢNG</span>
             <span className="fdet-cal-value">{totalCal}</span>
           </div>
         </div>
+
+        {meal.coachFeedback && (
+          <div className="fdet-coach-feedback" style={{ marginTop: '20px', padding: '16px', borderRadius: '12px', background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#166534', fontWeight: 800, marginBottom: '8px', fontSize: '13px' }}>
+              <Sparkles size={16} /> <span>Coach nhận xét</span>
+            </div>
+            <p style={{ margin: 0, fontSize: '14px', color: '#14532d', lineHeight: 1.5 }}>{meal.coachFeedback}</p>
+          </div>
+        )}
 
         {/* Macro & Micro Nutrients Carousel (Slide 1 & Slide 2) */}
         <div
@@ -318,8 +360,8 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
             <div className="fdet-macros-grid fdet-slide-anim">
               <div className="fdet-macro-card">
                 <div className="fdet-macro-head">
-                  <span className="fdet-macro-icon fdet-icon-protein">📌</span>
-                  <span className="fdet-macro-label">Protein</span>
+                  <span className="fdet-macro-icon fdet-icon-protein">🥩</span>
+                  <span className="fdet-macro-label">Chất đạm</span>
                 </div>
                 <span className="fdet-macro-val">{totalProtein} g</span>
               </div>
@@ -327,7 +369,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
               <div className="fdet-macro-card">
                 <div className="fdet-macro-head">
                   <span className="fdet-macro-icon fdet-icon-carbs">🌾</span>
-                  <span className="fdet-macro-label">Carbs</span>
+                  <span className="fdet-macro-label">Bột đường</span>
                 </div>
                 <span className="fdet-macro-val">{totalCarbs} g</span>
               </div>
@@ -335,7 +377,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
               <div className="fdet-macro-card">
                 <div className="fdet-macro-head">
                   <span className="fdet-macro-icon fdet-icon-fats">💧</span>
-                  <span className="fdet-macro-label">Fats</span>
+                  <span className="fdet-macro-label">Chất béo</span>
                 </div>
                 <span className="fdet-macro-val">{totalFat} g</span>
               </div>
@@ -353,7 +395,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
               <div className="fdet-macro-card">
                 <div className="fdet-macro-head">
                   <span className="fdet-macro-icon">🍯</span>
-                  <span className="fdet-macro-label">Đường (Sugar)</span>
+                  <span className="fdet-macro-label">Đường</span>
                 </div>
                 <span className="fdet-macro-val">{Math.round((meal.sugar ?? (meal.carbs * 0.22)) * portionCount)} g</span>
               </div>
@@ -361,23 +403,23 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
               <div className="fdet-macro-card">
                 <div className="fdet-macro-head">
                   <span className="fdet-macro-icon">🧂</span>
-                  <span className="fdet-macro-label">Muối (Sodium)</span>
+                  <span className="fdet-macro-label">Muối</span>
                 </div>
                 <span className="fdet-macro-val">{Math.round((meal.sodium ?? 420) * portionCount)} mg</span>
               </div>
 
               <div className="fdet-macro-card">
                 <div className="fdet-macro-head">
-                  <span className="fdet-macro-icon">⚡</span>
-                  <span className="fdet-macro-label">% Protein</span>
+                  <span className="fdet-macro-icon">🥩</span>
+                  <span className="fdet-macro-label">% Đạm</span>
                 </div>
                 <span className="fdet-macro-val">{Math.round((totalProtein * 4 / Math.max(1, totalCal)) * 100)}%</span>
               </div>
 
               <div className="fdet-macro-card">
                 <div className="fdet-macro-head">
-                  <span className="fdet-macro-icon">🔥</span>
-                  <span className="fdet-macro-label">% Carbs / Fat</span>
+                  <span className="fdet-macro-icon">🌾</span>
+                  <span className="fdet-macro-label">% Bột đường / Béo</span>
                 </div>
                 <span className="fdet-macro-val">
                   {Math.round((totalCarbs * 4 / Math.max(1, totalCal)) * 100)}% / {Math.round((totalFat * 9 / Math.max(1, totalCal)) * 100)}%
@@ -502,7 +544,23 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
           }}
         >
           <Edit3 size={16} />
-          <span>Sửa lại món</span>
+          <span>Sửa món</span>
+        </button>
+
+        <button
+          type="button"
+          className="fdet-btn-secondary"
+          onClick={handleSubmitReview}
+          disabled={isSubmittingReview || reviewSubmitted || meal.reviewStatus === 'pending' || meal.reviewStatus === 'reviewed'}
+          style={{ color: (reviewSubmitted || meal.reviewStatus) ? '#10b981' : undefined }}
+        >
+          {isSubmittingReview ? <LoaderCircle size={16} className="animate-spin" /> : (reviewSubmitted || meal.reviewStatus) ? <Check size={16} /> : <ScanLine size={16} />}
+          <span>
+            {isSubmittingReview ? 'Đang gửi...' 
+             : meal.reviewStatus === 'reviewed' ? 'Đã duyệt'
+             : (reviewSubmitted || meal.reviewStatus === 'pending') ? 'Đang chờ duyệt' 
+             : 'Gửi duyệt'}
+          </span>
         </button>
 
         <button type="button" className="fdet-btn-primary" onClick={onBack}>

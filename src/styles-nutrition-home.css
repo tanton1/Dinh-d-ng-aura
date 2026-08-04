@@ -1360,4 +1360,345 @@
   margin-left: 2px;
 }
 
+/* ==========================================
+   Interactive Health Device Sync Hub Styles
+   ========================================== */
+
+.health-interactive-modal {
+  width: min(580px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
+  padding: 24px;
+  animation: modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes modalSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.health-interactive-modal::-webkit-scrollbar {
+  width: 6px;
+}
+
+.health-interactive-modal::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+/* Device Selector Group */
+.health-device-selector {
+  margin-bottom: 20px;
+}
+
+.health-device-selector .section-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #64748b;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.device-chips-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+@media (max-width: 480px) {
+  .device-chips-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.device-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1.5px solid #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+}
+
+.device-chip:hover {
+  border-color: #94a3b8;
+  background: #f1f5f9;
+}
+
+.device-chip.is-active {
+  border-color: #0f172a;
+  background: #0f172a;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+}
+
+.device-chip svg {
+  flex-shrink: 0;
+}
+
+/* Settings, sliders, toggles in sync hub */
+.health-sync-settings {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.setting-slider-group {
+  margin-bottom: 16px;
+}
+
+.setting-slider-group .slider-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.setting-slider-group .slider-header .lbl {
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.setting-slider-group .slider-header .val {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.health-range-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: #e2e8f0;
+  outline: none;
+}
+
+.health-range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #0f172a;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.health-range-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.setting-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.setting-toggle-row .toggle-label-group {
+  flex: 1;
+}
+
+.setting-toggle-row .lbl {
+  display: block;
+  font-size: 13px;
+  font-weight: 800;
+  color: #1e293b;
+}
+
+.setting-toggle-row .desc {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.small-toggle {
+  transform: scale(0.85);
+}
+
+/* Simulation Sandbox */
+.sensor-simulation-sandbox {
+  margin-top: 20px;
+  padding: 16px;
+  border-radius: 16px;
+  background: #fff1f2;
+  border: 1px solid #ffe4e6;
+}
+
+.sandbox-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #be123c;
+  margin-bottom: 6px;
+}
+
+.sandbox-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.sandbox-desc {
+  margin: 0 0 12px;
+  font-size: 11px;
+  color: #9f1239;
+  line-height: 1.4;
+}
+
+.sandbox-simulation-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 480px) {
+  .sandbox-simulation-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sim-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 6px;
+  border-radius: 10px;
+  border: 1.5px solid #fecdd3;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sim-btn:hover:not(:disabled) {
+  border-color: #fb7185;
+  background: #fff1f2;
+  transform: translateY(-1px);
+}
+
+.sim-btn span {
+  font-size: 12px;
+  font-weight: 800;
+  color: #be123c;
+}
+
+.sim-btn small {
+  font-size: 9px;
+  color: #fb7185;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.health-sync-btn.is-syncing {
+  background: #475569;
+}
+
+/* Idea Tab Selection bar */
+.ideas-tab-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 8px;
+}
+
+.ideas-tab-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.tab-pills {
+  display: flex;
+  gap: 4px;
+}
+
+.tab-pill {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: none;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tab-pill.is-active {
+  background: #0f172a;
+  color: #ffffff;
+}
+
+.conceptual-grid {
+  margin-top: 10px;
+}
+
+.conceptual-grid .card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+.conceptual-grid .card-head svg {
+  color: #64748b;
+}
+
+.animate-fade {
+  animation: simpleFadeIn 0.25s ease-out;
+}
+
+@keyframes simpleFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.spark-anim {
+  animation: sparkRotate 3s infinite linear;
+}
+
+@keyframes sparkRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+
 

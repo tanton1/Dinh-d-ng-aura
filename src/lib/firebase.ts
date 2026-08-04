@@ -52,14 +52,20 @@ if (isFirebaseConfigured) {
   try {
     firestoreDb = initializeFirestore(
       firebaseApp,
-      { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) },
+      { 
+        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+        experimentalForceLongPolling: true
+      },
       firestoreDatabaseId,
     )
   } catch {
     try {
       firestoreDb = initializeFirestore(
         firebaseApp,
-        { localCache: memoryLocalCache() },
+        { 
+          localCache: memoryLocalCache(),
+          experimentalForceLongPolling: true
+        },
         firestoreDatabaseId,
       )
     } catch {
