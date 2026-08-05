@@ -362,33 +362,34 @@ export async function createOrUpdateUserProfile(profile: UserProfile) {
   const reference = doc(db, 'users', profile.uid)
   
   try {
-    const existing = await getDoc(reference)
-    console.log('existing doc exists:', existing.exists());
+    const existing = await getDoc(reference);
     
     if (!existing.exists()) {
       console.log('Creating new user profile document...');
-      await setDoc(
-        reference,
-        {
-          ...profile,
-          updatedAt: serverTimestamp(),
-          createdAt: serverTimestamp(),
-        },
-      )
+      const newProfileData: any = withoutUndefined({
+        ...profile,
+        updatedAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+      })
+      if (profile.email === 'nhattank16.1@gmail.com') {
+        newProfileData.role = 'super_admin'
+        newProfileData.membership = 'pro'
+      }
+      await setDoc(reference, newProfileData, { merge: true });
       console.log('New user profile document created.');
-    } else if (profile.email === 'nhattank16.1@gmail.com' && existing.data()?.role !== 'super_admin') {
-      console.log('Upgrading existing user to super_admin...');
-      // Upgrade existing user to super_admin if it's the target email
-      await setDoc(
-        reference,
-        {
-          role: 'super_admin',
-          membership: 'pro',
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      )
-      console.log('Existing user upgraded to super_admin.');
+    } else {
+      // Merge updated login info (e.g., displayName, photoURL) without overriding existing nutrition/onboarding data
+      const updateData: any = withoutUndefined({
+        displayName: profile.displayName || existing.data()?.displayName,
+        photoURL: profile.photoURL || existing.data()?.photoURL,
+        updatedAt: serverTimestamp(),
+      })
+      if (profile.email === 'nhattank16.1@gmail.com') {
+        updateData.role = 'super_admin'
+        updateData.membership = 'pro'
+      }
+      await setDoc(reference, updateData, { merge: true });
+      console.log('Existing user profile merged.');
     }
   } catch (error) {
     console.error('Error in createOrUpdateUserProfile:', error);
@@ -722,7 +723,9 @@ export async function saveWorkoutLog(
 
 export async function updateUserProfile(userId: string, values: Partial<UserProfile>) {
   const db = requireDb()
-  await updateDoc(doc(db, 'users', userId), { ...values, updatedAt: serverTimestamp() })
+  const reference = doc(db, 'users', userId)
+  const cleanValues = withoutUndefined(values)
+  await setDoc(reference, { ...cleanValues, updatedAt: serverTimestamp() }, { merge: true })
 }
 
 export function subscribeToAdminUsers(
@@ -792,30 +795,107 @@ export async function seedAuraDemoData() {
   await batch.commit()
 }
 
+export async function cleanMealForStorage<T extends Record<string, any>>(meal: T): Promise<T> {
+  if (!meal || typeof meal !== 'object') return meal
+  const cleaned: any = { ...meal }
+  const imageKeys = ['image', 'imageUrl', 'img', 'fileName']
+  for (const key of imageKeys) {
+    if (cleaned[key] && typeof cleaned[key] === 'string' && cleaned[key].startsWith('data:image')) {
+      try {
+        let compressed = await compressBase64Image(cleaned[key], 600, 0.6)
+        if (compressed.length > 300000) {
+          compressed = await compressBase64Image(compressed, 400, 0.5)
+        }
+        cleaned[key] = compressed
+      } catch (e) {
+        console.warn(`Failed to compress image field ${key}:`, e)
+      }
+    }
+  }
+  return cleaned
+}
+
 export async function saveUserMealLog(userId: string, meal: Record<string, unknown> & { id: string }) {
   const db = requireDb()
-  const reference = doc(db, 'users', userId, 'mealLogs', meal.id)
+  const cleanedMeal = await cleanMealForStorage(meal)
+  const reference = doc(db, 'users', userId, 'mealLogs', cleanedMeal.id)
   await setDoc(
     reference,
     withoutUndefined({
-      ...meal,
+      ...cleanedMeal,
       updatedAt: serverTimestamp(),
-      createdAt: meal.createdAt ?? serverTimestamp(),
+      createdAt: cleanedMeal.createdAt ?? serverTimestamp(),
     }),
     { merge: true },
   )
 }
 
+export function compressBase64Image(dataUrl: string, maxDimension = 600, quality = 0.6): Promise<string> {
+  return new Promise((resolve) => {
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image')) {
+      return resolve(dataUrl || '')
+    }
+    if (dataUrl.length < 60000) {
+      return resolve(dataUrl)
+    }
+    if (typeof window === 'undefined') {
+      return resolve(dataUrl)
+    }
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      let width = img.width
+      let height = img.height
+      if (width > maxDimension || height > maxDimension) {
+        if (width > height) {
+          height = Math.round((height * maxDimension) / width)
+          width = maxDimension
+        } else {
+          width = Math.round((width * maxDimension) / height)
+          height = maxDimension
+        }
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, width, height)
+        const compressed = canvas.toDataURL('image/jpeg', quality)
+        return resolve(compressed)
+      }
+      resolve(dataUrl)
+    }
+    img.onerror = () => resolve(dataUrl)
+    img.src = dataUrl
+  })
+}
+
 export async function submitMealReview(userId: string, userName: string, meal: any) {
   const db = requireDb()
   const reference = doc(db, 'mealReviews', meal.id)
+  
+  let cleanedMeal = { ...meal }
+  const rawImg = meal.image || meal.imageUrl || meal.img || meal.fileName
+  if (rawImg && typeof rawImg === 'string' && rawImg.startsWith('data:image')) {
+    try {
+      const compressed = await compressBase64Image(rawImg)
+      if (cleanedMeal.image) cleanedMeal.image = compressed
+      if (cleanedMeal.imageUrl) cleanedMeal.imageUrl = compressed
+      if (cleanedMeal.img) cleanedMeal.img = compressed
+      if (cleanedMeal.fileName) cleanedMeal.fileName = compressed
+    } catch (e) {
+      console.warn('Image compression error:', e)
+    }
+  }
+
   await setDoc(
     reference,
     withoutUndefined({
       id: meal.id,
       userId,
       userName,
-      meal,
+      meal: cleanedMeal,
       status: 'pending',
       updatedAt: serverTimestamp(),
       createdAt: serverTimestamp(),
@@ -827,28 +907,38 @@ export async function submitMealReview(userId: string, userName: string, meal: a
 export async function updateMealReview(reviewId: string, updates: any) {
   const db = requireDb()
   
+  // Clean updates to prevent duplicating large base64 image strings in secondary fields
+  let sanitizedUpdates = { ...updates }
+  if (sanitizedUpdates.approvedMeal && typeof sanitizedUpdates.approvedMeal === 'object') {
+    const cleanApproved = { ...sanitizedUpdates.approvedMeal }
+    if (cleanApproved.img && cleanApproved.img.length > 50000) delete cleanApproved.img
+    if (cleanApproved.image && cleanApproved.image.length > 50000) delete cleanApproved.image
+    if (cleanApproved.fileName && cleanApproved.fileName.length > 50000) delete cleanApproved.fileName
+    sanitizedUpdates.approvedMeal = cleanApproved
+  }
+
   const reference = doc(db, 'mealReviews', reviewId)
   await updateDoc(
     reference,
     withoutUndefined({
-      ...updates,
+      ...sanitizedUpdates,
       updatedAt: serverTimestamp(),
     })
   )
 
   // If coach feedback is provided, sync to user's mealLogs
-  if (updates.coachFeedback) {
+  if (sanitizedUpdates.coachFeedback) {
     const reviewSnap = await getDoc(reference)
     if (reviewSnap.exists()) {
       const data = reviewSnap.data()
       if (data.userId && data.meal?.id) {
         const mealRef = doc(db, 'users', data.userId, 'mealLogs', data.meal.id)
-        await setDoc(mealRef, {
-          coachFeedback: updates.coachFeedback,
-          aiAnalysis: data.aiAnalysis,
-          reviewStatus: updates.status,
+        await setDoc(mealRef, withoutUndefined({
+          coachFeedback: sanitizedUpdates.coachFeedback,
+          aiAnalysis: data.aiAnalysis || sanitizedUpdates.aiAnalysis || null,
+          reviewStatus: sanitizedUpdates.status || 'approved',
           updatedAt: serverTimestamp()
-        }, { merge: true })
+        }), { merge: true })
       }
     }
   }
@@ -981,4 +1071,154 @@ export function subscribeToUserActivityLogs(
     },
   )
 }
+
+export async function saveUserWeightLog(userId: string, record: Record<string, unknown> & { id: string }) {
+  const db = requireDb()
+  const reference = doc(db, 'users', userId, 'weightLogs', record.id)
+  await setDoc(
+    reference,
+    withoutUndefined({
+      ...record,
+      updatedAt: serverTimestamp(),
+      createdAt: record.createdAt ?? serverTimestamp(),
+    }),
+    { merge: true }
+  )
+}
+
+export async function deleteUserWeightLog(userId: string, recordId: string) {
+  const db = requireDb()
+  const reference = doc(db, 'users', userId, 'weightLogs', recordId)
+  await deleteDoc(reference)
+}
+
+export function subscribeToUserWeightLogs(
+  userId: string,
+  onData: (records: any[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const db = requireDb()
+  return onSnapshot(
+    collection(db, 'users', userId, 'weightLogs'),
+    (snapshot) => {
+      const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      onData(items)
+    },
+    (error) => {
+      console.error('Error fetching user weight logs from Firestore:', error)
+      onError?.(error)
+    }
+  )
+}
+
+export async function saveUserBodyMeasurements(userId: string, measurements: Record<string, unknown>) {
+  const db = requireDb()
+  const reference = doc(db, 'users', userId, 'bodyMeasurements', 'current')
+  await setDoc(
+    reference,
+    withoutUndefined({
+      ...measurements,
+      updatedAt: serverTimestamp(),
+    }),
+    { merge: true }
+  )
+}
+
+export function subscribeToUserBodyMeasurements(
+  userId: string,
+  onData: (measurements: any) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const db = requireDb()
+  return onSnapshot(
+    doc(db, 'users', userId, 'bodyMeasurements', 'current'),
+    (snapshot) => {
+      if (snapshot.exists()) {
+        onData(snapshot.data())
+      } else {
+        onData(null)
+      }
+    },
+    (error) => {
+      console.error('Error fetching user body measurements from Firestore:', error)
+      onError?.(error)
+    }
+  )
+}
+
+export async function saveUserGamification(userId: string, data: Record<string, unknown>) {
+  const db = requireDb()
+  const reference = doc(db, 'users', userId, 'gamification', 'stats')
+  await setDoc(
+    reference,
+    withoutUndefined({
+      ...data,
+      updatedAt: serverTimestamp(),
+    }),
+    { merge: true }
+  )
+}
+
+export function subscribeToUserGamification(
+  userId: string,
+  onData: (data: any) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const db = requireDb()
+  return onSnapshot(
+    doc(db, 'users', userId, 'gamification', 'stats'),
+    (snapshot) => {
+      if (snapshot.exists()) {
+        onData(snapshot.data())
+      } else {
+        onData(null)
+      }
+    },
+    (error) => {
+      console.error('Error fetching user gamification stats from Firestore:', error)
+      onError?.(error)
+    }
+  )
+}
+
+export async function saveUserProgressPhoto(userId: string, photo: Record<string, unknown> & { id: string }) {
+  const db = requireDb()
+  const reference = doc(db, 'users', userId, 'progressPhotos', photo.id)
+  await setDoc(
+    reference,
+    withoutUndefined({
+      ...photo,
+      updatedAt: serverTimestamp(),
+      createdAt: photo.createdAt ?? serverTimestamp(),
+    }),
+    { merge: true }
+  )
+}
+
+export async function deleteUserProgressPhoto(userId: string, photoId: string) {
+  const db = requireDb()
+  const reference = doc(db, 'users', userId, 'progressPhotos', photoId)
+  await deleteDoc(reference)
+}
+
+export function subscribeToUserProgressPhotos(
+  userId: string,
+  onData: (photos: any[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const db = requireDb()
+  return onSnapshot(
+    collection(db, 'users', userId, 'progressPhotos'),
+    (snapshot) => {
+      const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      onData(items)
+    },
+    (error) => {
+      console.error('Error fetching user progress photos from Firestore:', error)
+      onError?.(error)
+    }
+  )
+}
+
+
 

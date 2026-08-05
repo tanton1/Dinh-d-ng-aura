@@ -1075,7 +1075,65 @@ function createNutritionFunctions({ app, db }) {
     }
   })
 
-  return { analyzeFoodImage }
+  const generateMealReview = onCall({
+    timeoutSeconds: 30,
+    memory: '256MiB',
+    maxInstances: 3,
+    concurrency: 4,
+    enforceAppCheck: ENFORCE_APP_CHECK,
+    secrets: [GEMINI_API_KEY],
+  }, async (request) => {
+    const uid = requireCaller(request)
+    const { meal, userProfile } = request.data || {}
+    if (!meal) throw new HttpsError('invalid-argument', 'Meal data is required.')
+
+    const apiKey = getApiKey()
+    if (!apiKey) {
+      return { review: 'Cần cấu hình Gemini API Key trên máy chủ để AI có thể phân tích.' }
+    }
+
+    const prompt = `
+Đóng vai một chuyên gia dinh dưỡng khắt khe nhưng thấu hiểu.
+Phân tích bữa ăn sau đây của học viên:
+- Tên món: ${meal.title || meal.label || 'Không rõ'}
+- Kcal: ${meal.calories || 0}
+- Đạm: ${meal.protein || 0}g, Bột đường: ${meal.carbs || 0}g, Béo: ${meal.fat || 0}g
+
+Mục tiêu của học viên: ${userProfile?.goals?.includes('lose-fat') ? 'Giảm mỡ' : userProfile?.goals?.includes('gain-muscle') ? 'Tăng cơ' : 'Duy trì vóc dáng'}
+
+Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm tốt và điểm cần cải thiện của bữa ăn này dựa trên mục tiêu của họ. KHÔNG dùng markdown hay định dạng phức tạp. Viết trực tiếp nội dung.
+`
+
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
+        {
+          method: 'POST',
+          headers: {
+            'x-goog-api-key': apiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+              maxOutputTokens: 500,
+            },
+          }),
+        }
+      )
+      if (!response.ok) {
+         return { review: 'Lỗi khi kết nối với AI (HTTP ' + response.status + ')' }
+      }
+      const data = await response.json()
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+      return { review: text || 'Không thể phân tích bữa ăn lúc này.' }
+    } catch (e) {
+      logger.error('Failed to generate meal review', e)
+      return { review: 'Lỗi khi gọi AI phân tích bữa ăn.' }
+    }
+  })
+
+  return { analyzeFoodImage, generateMealReview }
 }
 
 module.exports = {

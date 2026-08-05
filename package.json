@@ -4,25 +4,31 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "tsx server.ts",
+    "build": "tsc -b && vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "nutrition:index": "node scripts/build-nutrition-client-index.mjs",
     "build:gh-pages": "npm run build -- --base /aura-fitness-elearning-/",
     "deploy:gh-pages": "npm run build:gh-pages && npx --yes gh-pages -d dist -r https://github.com/tanton1/aura-fitness-elearning-.git",
     "preview": "vite preview",
     "test:rules": "firebase emulators:exec --only firestore --project demo-aura-fitness \"node --test tests/firestore.rules.test.mjs\"",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "start": "node dist/server.cjs"
   },
   "dependencies": {
     "@google/genai": "^2.15.0",
+    "esbuild": "^0.28.1",
+    "express": "^5.2.1",
     "firebase": "^12.16.0",
     "lucide-react": "^0.468.0",
     "motion": "^12.43.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "recharts": "^3.10.1",
+    "tsx": "^4.23.5"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.1",
+    "@types/express": "^5.0.6",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.0",

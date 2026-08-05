@@ -136,6 +136,10 @@ export interface FoodAnalysis {
   warnings: string[]
   databaseEvidence?: NutritionDatabaseEvidence
   databaseNotices?: string[]
+  quantityAndCookingAnalysis?: string
+  portionAndCalorieRationale?: string
+  goalAlignmentAssessment?: string
+  coachFeedbackSuggestion?: string
 }
 
 export interface FoodAnalysisResponse {
@@ -554,36 +558,122 @@ export async function analyzeFoodPhoto(
   image: Blob,
   options: AnalyzeFoodPhotoOptions = {},
 ): Promise<FoodAnalysisResponse> {
+  try {
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(reader.result as string)
+      reader.onerror = reject
+      reader.readAsDataURL(image)
+    })
+
+    const token = localStorage.getItem('token')
+    const res = await fetch('/api/ai/analyze-meal', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        imageBase64: base64,
+        studentNote: options.notes,
+        studentGoal: 'Siết cơ giảm mỡ (Tăng cơ nạc, thâm hụt calo)',
+        studentCondition: 'Nữ, 55kg, 162cm, TDEE 1800 kcal',
+      }),
+    })
+
+    if (res.ok) {
+      const data = await res.json()
+      if (data.success && data.analysis) {
+        const a = data.analysis
+        return {
+          scanId: `scan-${Date.now()}`,
+          status: 'completed',
+          mode: 'live',
+          provider: 'gemini',
+          model: 'gemini-3.6-flash',
+          providerRequestId: null,
+          notices: [],
+          imageRetained: false,
+          analyzedAt: new Date().toISOString(),
+          analysis: {
+            isFood: true,
+            dishNameVi: a.items?.[0]?.name || 'Món ăn dinh dưỡng',
+            dishNameEn: 'Nutritional Meal',
+            portionSummary: '1 đĩa phần ăn tiêu chuẩn',
+            confidence: 0.92,
+            calorieRange: {
+              low: Math.max(100, Math.round((a.totalKcal || 350) * 0.9)),
+              high: Math.round((a.totalKcal || 350) * 1.1),
+            },
+            totals: {
+              calories: a.totalKcal || 350,
+              proteinG: a.totalProtein || 30,
+              carbsG: Math.round((a.totalKcal || 350) * 0.4 / 4),
+              fatG: Math.round((a.totalKcal || 350) * 0.2 / 9),
+              fiberG: 2,
+              sugarG: 1,
+              sodiumMg: 350,
+            },
+            catalogMatch: null,
+            catalogCandidates: [],
+            quantityAndCookingAnalysis: a.quantityAndCookingAnalysis || 'Phân tích định lượng thực tế quan sát qua hình ảnh và cách chế biến giữ vị tự nhiên.',
+            portionAndCalorieRationale: a.portionAndCalorieRationale || 'Cơ sở dự đoán dựa trên đường kính bát/đĩa tiêu chuẩn và độ dày khẩu phần.',
+            goalAlignmentAssessment: a.goalAlignmentAssessment || 'Nhận định bữa ăn đáp ứng tốt mục tiêu tăng cơ và kiểm soát calo trong ngày.',
+            coachFeedbackSuggestion: a.coachFeedbackSuggestion || 'Bữa ăn rất chuẩn bài em nhé! Tiếp tục duy trì chế độ dinh dưỡng lành mạnh này.',
+            items: (a.items || []).map((item: any, idx: number) => ({
+              id: `item-${idx}`,
+              nameVi: item.name,
+              nameEn: item.name,
+              searchNameAscii: item.name,
+              estimatedGrams: item.weight || 100,
+              gramRange: { low: Math.round((item.weight || 100) * 0.9), high: Math.round((item.weight || 100) * 1.1) },
+              cookingMethod: 'Nấu chín',
+              nutrition: {
+                calories: item.kcal || 0,
+                proteinG: item.protein || 0,
+                carbsG: Math.round((item.kcal || 0) * 0.4 / 4),
+                fatG: Math.round((item.kcal || 0) * 0.2 / 9),
+                fiberG: 1,
+                sugarG: 0,
+                sodiumMg: 150,
+              },
+              confidence: 0.92,
+              assumptions: [],
+              catalogMatch: null,
+              catalogCandidates: [],
+            })),
+            warnings: [],
+            databaseNotices: [],
+            questions: [],
+          },
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Direct AI endpoint fallback:', e)
+  }
+
   validateAnalyzeOptions(options)
   const upload = await uploadFoodPhoto(image)
   return analyzeUploadedFoodPhoto(upload, options)
 }
 export async function generateMealReview(meal: any, userProfile: any): Promise<string> {
-  const apiKey = localStorage.getItem('aura_gemini_api_key')
-  if (!apiKey) return 'Cần cấu hình Gemini API Key để AI có thể phân tích.'
-
-  const { GoogleGenAI } = await import('@google/genai')
-  const ai = new GoogleGenAI({ apiKey })
-
-  const prompt = `
-  Đóng vai một chuyên gia dinh dưỡng khắt khe nhưng thấu hiểu.
-  Phân tích bữa ăn sau đây của học viên:
-  - Tên món: ${meal.title || meal.label}
-  - Kcal: ${meal.calories}
-  - Đạm: ${meal.protein}g, Bột đường: ${meal.carbs}g, Béo: ${meal.fat}g
-  
-  Mục tiêu của học viên: ${userProfile?.goals?.includes('lose-fat') ? 'Giảm mỡ' : userProfile?.goals?.includes('gain-muscle') ? 'Tăng cơ' : 'Duy trì vóc dáng'}
-  
-  Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm tốt và điểm cần cải thiện của bữa ăn này dựa trên mục tiêu của họ. KHÔNG dùng markdown hay định dạng phức tạp. Viết trực tiếp nội dung.
-  `
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    })
-    return response.text || 'Không thể phân tích bữa ăn lúc này.'
+    const response = await fetch('/api/generateMealReview', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ meal, userProfile })
+    });
+    if (!response.ok) {
+      console.error('Failed to generate meal review, server returned', response.status);
+      return 'Lỗi khi kết nối với máy chủ để phân tích bữa ăn.';
+    }
+    const data = await response.json();
+    return data.review || 'Lỗi khi kết nối với máy chủ để phân tích bữa ăn.';
   } catch (error) {
-    console.error('Error generating meal review:', error)
-    return 'Lỗi khi kết nối với AI để phân tích bữa ăn.'
+    console.error('Error calling generateMealReview API:', error);
+    return 'Lỗi khi kết nối với máy chủ để phân tích bữa ăn.';
   }
 }

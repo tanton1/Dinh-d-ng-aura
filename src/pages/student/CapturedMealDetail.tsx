@@ -490,44 +490,44 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
           </div>
         </div>
 
-        {/* ✨ Đánh Giá Từ AI Section */}
+        {/* ✨ Đánh Giá Từ AI Coach & Nhận Xét Từ Coach */}
         <div className="fdet-section">
           <div className="fdet-section-header">
             <h2 className="fdet-section-title fdet-ai-title">
-              <Sparkles size={18} className="fdet-sparkle-icon" />
-              Đánh giá từ AI
+              <Sparkles size={18} className="fdet-sparkle-icon text-purple-600" />
+              <span>Đánh giá từ AI Coach</span>
             </h2>
           </div>
 
-          {/* AI Analysis Lavender Card */}
-          <div className="fdet-ai-card fdet-ai-card--analysis">
-            <p>
-              <strong className="fdet-ai-bold-purple">AI Phân tích:</strong> Khẩu phần {portionCount} người gồm{' '}
-              {ingredients.map((i) => i.name).join(', ')}. Tổng năng lượng ước tính {totalCal} kcal ({totalProtein}g
-              Protein, {totalCarbs}g Carb, {totalFat}g Fat).
+          {/* AI Aura Coach Assessment Card */}
+          <div className="p-4 bg-gray-50/90 border border-gray-200 rounded-2xl space-y-2 text-left my-2 shadow-2xs">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-purple-600 text-white rounded-xl shadow-xs flex items-center justify-center">
+                <Sparkles size={15} />
+              </div>
+              <span className="text-xs font-extrabold text-gray-900 uppercase tracking-wider">AI Aura Coach</span>
+            </div>
+            <p className="text-xs sm:text-sm text-gray-800 font-medium leading-relaxed bg-white p-3 rounded-xl border border-gray-200/80">
+              {meal.aiAnalysis || `Khẩu phần ${portionCount} phần gồm ${ingredients.map((i) => i.name).join(', ')}. Tổng năng lượng ${totalCal} kcal (${totalProtein}g Đạm, ${totalCarbs}g Carb, ${totalFat}g Béo) đạt tỉ lệ dinh dưỡng cân đối, phù hợp với chế độ tập luyện.`}
             </p>
           </div>
 
-          {/* Coach Recommendation Soft Mint Card */}
-          <div className="fdet-ai-card fdet-ai-card--coach">
-            <p>
-              <strong className="fdet-ai-bold-green">Gợi ý từ Coach:</strong> Bữa ăn đã được đối chiếu dữ liệu Viện
-              Dinh dưỡng Quốc Gia. Đạt tỉ lệ dinh dưỡng rất tốt!
-            </p>
-          </div>
+          {/* Coach Reviewed Feedback (When reviewed by Coach) */}
+          {meal.coachFeedback && (
+            <div className="p-4 bg-emerald-50/90 border border-emerald-200 rounded-2xl space-y-2 text-left my-3 shadow-2xs">
+              <div className="flex items-center gap-2 text-emerald-800">
+                <div className="p-1.5 bg-emerald-600 text-white rounded-xl shadow-xs flex items-center justify-center">
+                  <Sparkles size={15} />
+                </div>
+                <span className="text-xs font-extrabold uppercase tracking-wider">LỜI KHUYÊN TỪ COACH KHI DUYỆT MÓN</span>
+              </div>
+              <p className="text-xs sm:text-sm text-emerald-950 font-medium leading-relaxed bg-white/90 p-3 rounded-xl border border-emerald-200/80">
+                "{meal.coachFeedback}"
+              </p>
+            </div>
+          )}
         </div>
 
-        {/* Floating Web Coach Badge */}
-        <div className="fdet-web-coach-wrapper">
-          <button
-            type="button"
-            className="fdet-web-coach-pill"
-            onClick={() => showToast('Đã kết nối với Web Coach AI')}
-          >
-            <ArrowLeftRight size={14} />
-            <span>Tới Web Coach</span>
-          </button>
-        </div>
       </div>
 
       {/* Sticky Bottom Action Buttons */}

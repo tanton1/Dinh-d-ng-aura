@@ -20,6 +20,9 @@ export interface UserProfile {
   goals?: string[]
   heightCm?: number | null
   weightKg?: number | null
+  targetWeightDeltaKg?: number | null
+  targetTimeframeMonths?: number | null
+  targetSpeedPace?: 'slow' | 'standard' | 'fast' | null
   injuries?: string[]
   equipment?: string[]
   notificationSettings?: Record<string, boolean | undefined>
@@ -29,6 +32,9 @@ export interface UserProfile {
     biologicalSex: 'female' | 'male'
     heightCm: number
     weightKg: number
+    targetWeightDeltaKg?: number
+    targetTimeframeMonths?: number
+    targetSpeedPace?: 'slow' | 'standard' | 'fast'
     activityLevel: 'low' | 'moderate' | 'high'
     trainingSessions: number
     eatingStyle: string

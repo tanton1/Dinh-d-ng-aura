@@ -15,7 +15,8 @@ service cloud.firestore {
     }
 
     function hasRole(roles) {
-      return signedIn() && currentUser().role in roles;
+      let userDoc = get(/databases/$(database)/documents/users/$(request.auth.uid));
+      return signedIn() && userDoc != null && userDoc.data.get('role', '') in roles;
     }
 
     function isAcademyStaff() {
@@ -305,17 +306,8 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow create: if isOwner(userId)
-                    && request.resource.data.uid == userId
-                    && (request.resource.data.role == 'student' || request.auth.token.email == 'nhattank16.1@gmail.com')
-                    && (request.resource.data.membership == 'free' || request.auth.token.email == 'nhattank16.1@gmail.com');
-      allow read: if isOwner(userId) || isAdmin() || request.auth.token.email == 'nhattank16.1@gmail.com';
-      allow update: if isOwner(userId)
-                    && request.resource.data.uid == resource.data.uid
-                    && (request.resource.data.role == resource.data.role || request.auth.token.email == 'nhattank16.1@gmail.com')
-                    && (request.resource.data.membership == resource.data.membership || request.auth.token.email == 'nhattank16.1@gmail.com');
+      allow read, create, update: if isOwner(userId) || isAdmin() || (request.auth != null && request.auth.token.email == 'nhattank16.1@gmail.com');
       allow delete: if false;
-
       match /progress/{courseId} {
         allow read: if isOwner(userId);
         allow read: if isAdmin();
@@ -404,9 +396,24 @@ service cloud.firestore {
         allow read: if isAdmin();
       }
 
-      match /mealLogs/{mealId} {
+      match /bodyMeasurements/{metricId} {
         allow read, write: if isOwner(userId);
         allow read: if isAdmin();
+      }
+
+      match /weightLogs/{logId} {
+        allow read, write: if isOwner(userId);
+        allow read: if isAdmin();
+      }
+
+      match /gamification/{docId} {
+        allow read, write: if isOwner(userId);
+        allow read: if isAdmin();
+      }
+
+      match /mealLogs/{mealId} {
+        allow read, write: if isOwner(userId);
+        allow read, update: if isCoachingStaff();
       }
 
       match /waterLogs/{logId} {
@@ -415,6 +422,11 @@ service cloud.firestore {
       }
 
       match /activityLogs/{logId} {
+        allow read, write: if isOwner(userId);
+        allow read: if isAdmin();
+      }
+
+      match /progressPhotos/{photoId} {
         allow read, write: if isOwner(userId);
         allow read: if isAdmin();
       }
@@ -600,9 +612,9 @@ service cloud.firestore {
     }
 
     match /mealReviews/{reviewId} {
-      allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow read: if true;
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow update: if true;
       allow delete: if isAdmin();
     }
 

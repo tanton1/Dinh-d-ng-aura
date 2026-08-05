@@ -29,6 +29,7 @@ import {
   X,
 } from 'lucide-react'
 import { useId, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import ProgressPage from './ProgressPage'
 import '../../styles-nutrition-workspace.css'
 
 export type NutritionWorkspaceSection = 'today' | 'diary' | 'plan' | 'catalog' | 'insights'
@@ -96,31 +97,6 @@ export interface NutritionPlannedMeal {
   prepMinutes?: number
   image?: string
   rationale?: string
-}
-
-export interface NutritionInsightMetric {
-  id: string
-  label: string
-  value: string
-  change?: string
-  direction?: 'up' | 'down' | 'steady'
-  state?: 'positive' | 'warning' | 'neutral'
-  detail?: string
-}
-
-export interface NutritionTrendPoint {
-  label: string
-  value: number
-  target?: number
-}
-
-export interface NutritionInsightItem {
-  id: string
-  title: string
-  description: string
-  action?: string
-  tone?: 'positive' | 'attention' | 'neutral'
-  evidence?: string[]
 }
 
 export interface AuraAssistantMessage {
@@ -520,92 +496,6 @@ export function NutritionPlanPage({
   )
 }
 
-export type NutritionInsightsPeriod = '7d' | '30d' | '90d'
-
-export interface NutritionInsightsPageProps {
-  period: NutritionInsightsPeriod
-  periodLabel: string
-  metrics: NutritionInsightMetric[]
-  trend: NutritionTrendPoint[]
-  insights: NutritionInsightItem[]
-  dataCompleteness: number
-  assistantSummary?: string
-  onPeriodChange: (period: NutritionInsightsPeriod) => void
-  onInsightAction?: (insightId: string) => void
-  onAskAura: () => void
-}
-
-export function NutritionInsightsPage({
-  period,
-  periodLabel,
-  metrics,
-  trend,
-  insights,
-  dataCompleteness,
-  assistantSummary,
-  onPeriodChange,
-  onInsightAction,
-  onAskAura,
-}: NutritionInsightsPageProps) {
-  const chartMaximum = Math.max(1, ...trend.map((point) => Math.max(point.value, point.target ?? 0)))
-  const summary = assistantSummary ?? (dataCompleteness >= 70
-    ? 'Nhịp ăn của bạn đang ổn định hơn. Ưu tiên tiếp theo là phân bổ đạm đều hơn vào bữa sáng và bữa trưa.'
-    : 'Aura cần thêm vài ngày nhật ký để đưa ra kết luận đáng tin cậy hơn.')
-
-  return (
-    <section className="nutrition-workspace-page nutrition-insights" id="nutrition-workspace-panel-insights" aria-label="Phân tích tiến độ">
-      <header className="nutrition-workspace-page__header">
-        <div><span className="nutrition-workspace-eyebrow">PHÂN TÍCH TIẾN ĐỘ</span><h1>Hiểu xu hướng, không phán xét từng ngày</h1><p>{periodLabel} · Phân tích dựa trên nhật ký thực tế.</p></div>
-        <div className="nutrition-insights-period" role="group" aria-label="Khoảng thời gian">
-          {(['7d', '30d', '90d'] as const).map((item) => <button type="button" key={item} className={period === item ? 'is-active' : ''} onClick={() => onPeriodChange(item)} aria-pressed={period === item}>{item === '7d' ? '7 ngày' : item === '30d' ? '30 ngày' : '90 ngày'}</button>)}
-        </div>
-      </header>
-
-      <div className="nutrition-insights-brief">
-        <span><Sparkles size={20} /></span>
-        <div><small>AURA TÓM TẮT</small><h2>{summary}</h2><p>Độ đầy đủ dữ liệu: <strong>{Math.round(dataCompleteness)}%</strong></p></div>
-        <button type="button" onClick={onAskAura}>Hỏi sâu hơn <ChevronRight size={16} /></button>
-      </div>
-
-      <div className="nutrition-insights-metrics">
-        {metrics.map((metric) => (
-          <article key={metric.id} className={`nutrition-insights-metric nutrition-insights-metric--${metric.state ?? 'neutral'}`}>
-            <span>{metric.label}</span><strong>{metric.value}</strong>
-            {metric.change && <small className={`is-${metric.direction ?? 'steady'}`}><TrendingUp size={13} /> {metric.change}</small>}
-            {metric.detail && <p>{metric.detail}</p>}
-          </article>
-        ))}
-      </div>
-
-      <div className="nutrition-insights-layout">
-        <article className="nutrition-insights-chart">
-          <div className="nutrition-workspace-section-heading"><div><h2>Năng lượng theo ngày</h2><p>Cột màu là mức đã ghi; vạch ngang là mục tiêu.</p></div><span className="nutrition-insights-chart__legend"><i /> Đã ghi</span></div>
-          {trend.length ? (
-            <div className="nutrition-insights-chart__plot" role="img" aria-label="Biểu đồ năng lượng theo ngày">
-              {trend.map((point) => (
-                <div className="nutrition-insights-chart__column" key={`${point.label}-${point.value}`} aria-label={`${point.label}: ${formatNumber(point.value)} kcal`}>
-                  <div><span style={{ height: `${Math.max(3, (point.value / chartMaximum) * 100)}%` }} /><i style={{ bottom: `${((point.target ?? 0) / chartMaximum) * 100}%` }} /></div>
-                  <strong>{formatNumber(point.value)}</strong><small>{point.label}</small>
-                </div>
-              ))}
-            </div>
-          ) : <div className="nutrition-workspace-empty nutrition-workspace-empty--compact"><BarChart3 size={24} /><h3>Chưa đủ dữ liệu biểu đồ</h3><p>Ghi bữa ăn trong ít nhất 3 ngày để xem xu hướng.</p></div>}
-        </article>
-
-        <aside className="nutrition-insights-actions">
-          <div className="nutrition-workspace-section-heading"><div><h2>Điều đáng chú ý</h2><p>Ưu tiên theo mức ảnh hưởng.</p></div></div>
-          {insights.length ? insights.map((insight) => (
-            <article key={insight.id} className={`nutrition-insight-item nutrition-insight-item--${insight.tone ?? 'neutral'}`}>
-              <span>{insight.tone === 'positive' ? <Check size={16} /> : insight.tone === 'attention' ? <CircleAlert size={16} /> : <Sparkles size={16} />}</span>
-              <div><h3>{insight.title}</h3><p>{insight.description}</p>{insight.evidence?.length ? <small>{insight.evidence.join(' · ')}</small> : null}{insight.action && onInsightAction && <button type="button" onClick={() => onInsightAction(insight.id)}>{insight.action} <ChevronRight size={14} /></button>}</div>
-            </article>
-          )) : <div className="nutrition-workspace-empty nutrition-workspace-empty--compact"><Sparkles size={24} /><h3>Chưa có nhận xét mới</h3><p>Aura sẽ cập nhật khi có thêm nhật ký.</p></div>}
-        </aside>
-      </div>
-    </section>
-  )
-}
-
 export interface AskAuraPanelProps {
   open: boolean
   variant?: 'sheet' | 'page'
@@ -698,12 +588,15 @@ export interface NutritionWorkspaceProps {
   todayContent: ReactNode
   diary: NutritionDiaryPageProps
   plan: NutritionPlanPageProps
-  insights: NutritionInsightsPageProps
+  insights?: any
   assistant?: AskAuraPanelProps
   onScan: () => void
   onOpenCatalog: () => void
   onOpenAskAura: () => void
   className?: string
+  weightKg?: number
+  targetWeightDeltaKg?: number
+  targetTimeframeMonths?: number
 }
 
 export default function NutritionWorkspace({
@@ -712,12 +605,14 @@ export default function NutritionWorkspace({
   todayContent,
   diary,
   plan,
-  insights,
   assistant,
   onScan,
   onOpenCatalog,
   onOpenAskAura,
   className = '',
+  weightKg,
+  targetWeightDeltaKg,
+  targetTimeframeMonths,
 }: NutritionWorkspaceProps) {
   const assistantIsPage = Boolean(assistant?.open && assistant.variant === 'page')
   return (
@@ -728,7 +623,14 @@ export default function NutritionWorkspace({
           {activeSection === 'today' && <div id="nutrition-workspace-panel-today">{todayContent}</div>}
           {activeSection === 'diary' && <NutritionDiaryPage {...diary} />}
           {activeSection === 'plan' && <NutritionPlanPage {...plan} />}
-          {activeSection === 'insights' && <NutritionInsightsPage {...insights} />}
+          {activeSection === 'insights' && (
+            <ProgressPage
+              onNavigate={(view) => { if (typeof view === 'string') onSectionChange(view as any) }}
+              weightKg={weightKg}
+              targetWeightDeltaKg={targetWeightDeltaKg}
+              targetTimeframeMonths={targetTimeframeMonths}
+            />
+          )}
         </>}
       </div>
       {assistant && !assistantIsPage && <AskAuraPanel {...assistant} />}

@@ -1,0 +1,6 @@
+{
+  "name": "Aura Fitness & Nutrition",
+  "description": "Ứng dụng đào tạo PT và quản lý dinh dưỡng với Gemini AI",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

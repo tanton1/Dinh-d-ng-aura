@@ -18,6 +18,7 @@ type AuthContextValue = {
   user: AppUser | null
   profile: UserProfile | null
   role: UserRole
+  setPreviewRole: (role: UserRole) => void
   loading: boolean
   backendMode: 'demo' | 'firebase'
   signIn: (email: string, password: string) => Promise<void>
@@ -61,6 +62,7 @@ export function getFriendlyAuthError(error: unknown) {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(isFirebaseConfigured ? null : toAppUser(demoProfile))
   const [profile, setProfile] = useState<UserProfile | null>(isFirebaseConfigured ? null : demoProfile)
+  const [previewRole, setPreviewRole] = useState<UserRole | null>(null)
   const [loading, setLoading] = useState(isFirebaseConfigured)
 
   useEffect(() => {
@@ -84,17 +86,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (snapshot.exists()) {
             const data = snapshot.data() as UserProfile
             const localOnboarding = typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${firebaseUser.uid}`) === 'true'
-            const localNut = typeof window !== 'undefined' && window.localStorage.getItem(`aura:nutrition-profile:${firebaseUser.uid}`)
+            const localNutRaw = typeof window !== 'undefined' ? window.localStorage.getItem(`aura:nutrition-profile:${firebaseUser.uid}`) : null
+            let localNut = null
+            if (localNutRaw) {
+              try { localNut = JSON.parse(localNutRaw) } catch {}
+            }
+            const activeNutritionProfile = data.nutritionProfile || localNut || undefined
+            if (data.nutritionProfile && typeof window !== 'undefined') {
+              try {
+                window.localStorage.setItem(`aura:nutrition-profile:${firebaseUser.uid}`, JSON.stringify(data.nutritionProfile))
+                window.localStorage.setItem(`aura:onboarding-completed:${firebaseUser.uid}`, 'true')
+              } catch {}
+            }
             const isCompleted = Boolean(
               data.onboardingCompleted ||
-              data.nutritionProfile ||
-              localNut ||
+              activeNutritionProfile ||
               localOnboarding ||
               (data.heightCm && data.weightKg) ||
               (data.goals && data.goals.length > 0)
             )
             setProfile({
               ...data,
+              nutritionProfile: activeNutritionProfile,
               onboardingCompleted: isCompleted,
             })
           } else {
@@ -145,7 +158,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(() => ({
     user,
     profile,
-    role: profile?.role ?? 'student',
+    role: previewRole ?? profile?.role ?? 'student',
+    setPreviewRole,
     loading,
     backendMode: isFirebaseConfigured ? 'firebase' : 'demo',
     signIn: async (email, password) => {
@@ -233,7 +247,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signOut: async () => {
       if (firebaseAuth) await firebaseSignOut(firebaseAuth)
     },
-  }), [loading, profile, user])
+  }), [loading, profile, user, previewRole])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

@@ -132,11 +132,52 @@ export default function NutritionProfileEditor({ initialProfile, onSave, onCance
             </label>
           </div>
 
-          <h3>Mục tiêu</h3>
+          <h3>Mục tiêu & Tiến trình</h3>
           <div className="goal-options">
             <button className={profile.goal === 'lose-fat' ? 'active' : ''} onClick={() => setField('goal', 'lose-fat')}>Giảm mỡ</button>
             <button className={profile.goal === 'gain-muscle' ? 'active' : ''} onClick={() => setField('goal', 'gain-muscle')}>Tăng cơ</button>
             <button className={profile.goal === 'maintain' ? 'active' : ''} onClick={() => setField('goal', 'maintain')}>Duy trì</button>
+          </div>
+
+          <div className="form-grid" style={{ marginTop: '12px' }}>
+            <label>
+              <span>Mục tiêu thay đổi (kg)</span>
+              <input
+                type="number"
+                step="0.5"
+                value={profile.targetWeightDeltaKg ?? (profile.goal === 'lose-fat' ? -4 : profile.goal === 'gain-muscle' ? 3 : 0)}
+                onChange={(e) => setField('targetWeightDeltaKg', Number(e.target.value))}
+                placeholder="Ví dụ: -5 (giảm) hoặc +3 (tăng)"
+              />
+            </label>
+
+            <label>
+              <span>Thời gian hoàn thành</span>
+              <select
+                value={profile.targetTimeframeMonths ?? 3}
+                onChange={(e) => setField('targetTimeframeMonths', Number(e.target.value))}
+              >
+                <option value={1}>1 tháng (Nhanh)</option>
+                <option value={2}>2 tháng</option>
+                <option value={3}>3 tháng (Tiêu chuẩn)</option>
+                <option value={4}>4 tháng</option>
+                <option value={6}>6 tháng (Bền vững)</option>
+                <option value={9}>9 tháng</option>
+                <option value={12}>12 tháng (1 năm)</option>
+              </select>
+            </label>
+
+            <label className="span-2">
+              <span>Tốc độ thực hiện</span>
+              <select
+                value={profile.targetSpeedPace || 'standard'}
+                onChange={(e) => setField('targetSpeedPace', e.target.value as any)}
+              >
+                <option value="slow">Thong thả & Bền vững (~0.3 kg/tuần)</option>
+                <option value="standard">Tiêu chuẩn (~0.5 kg/tuần - Khuyên dùng)</option>
+                <option value="fast">Nhanh & Tối đa (~0.8 kg/tuần)</option>
+              </select>
+            </label>
           </div>
 
           <h3>Vận động & Chế độ</h3>

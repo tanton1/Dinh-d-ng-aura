@@ -122,9 +122,11 @@ export const rolePermissions = {
 } as const satisfies Record<UserRole, readonly Permission[]>
 
 export function hasPermission(
-  role: UserRole | null | undefined,
+  role: UserRole | string | null | undefined,
   permission: Permission,
 ): boolean {
   if (!role) return false
-  return (rolePermissions[role] as readonly Permission[]).includes(permission)
+  const permissions = (rolePermissions as Record<string, readonly Permission[]>)[role]
+  if (!permissions) return false
+  return permissions.includes(permission)
 }

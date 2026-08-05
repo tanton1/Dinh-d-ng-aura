@@ -86,6 +86,14 @@ h1, h2, h3, p { margin-top: 0; }
 .avatar-photo { display: block; object-fit: cover; }
 .avatar.green { color: #2b5e26; background: #d9f4bf; }
 .user-copy { display: flex; flex-direction: column; min-width: 100px; }
+.user-dropdown-layer { position: fixed; inset: 0; z-index: 99; }
+.user-dropdown-menu { position: absolute; right: 15px; top: 76px; z-index: 100; width: 220px; background: #fff; border-radius: 12px; box-shadow: 0 14px 45px rgba(20, 15, 40, 0.12), 0 4px 15px rgba(20, 15, 40, 0.05); border: 1px solid var(--line); padding: 8px; display: flex; flex-direction: column; }
+.user-dropdown-menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px -8px; }
+.user-dropdown-menu strong.dropdown-label { font-size: 9px; font-weight: 800; color: var(--muted); padding: 6px 12px 2px; text-transform: uppercase; letter-spacing: 0.8px; }
+.user-dropdown-menu button { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 8px; font-size: 11px; font-weight: 600; color: var(--ink); background: transparent; text-align: left; width: 100%; transition: all 0.15s; }
+.user-dropdown-menu button.active { background: #f5f3ff; color: var(--purple); }
+.user-dropdown-menu button:hover:not(.active) { background: #f8f8fb; }
+.user-dropdown-menu button.danger { color: #d87584; }
 .user-copy strong { font-size: 12px; }
 .user-copy small { margin-top: 2px; color: var(--muted); font-size: 9px; }
 .backend-indicator { display: inline-flex; align-items: center; gap: 5px; padding: 6px 8px; border-radius: 8px; color: #75727f; background: #f0eff3; font-size: 7px; font-weight: 750; }

@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleAlert,
+  Clock,
   Coffee,
   Droplets,
   Dumbbell,
@@ -52,6 +53,7 @@ export interface NutritionHomeMeal {
   type: 'breakfast' | 'lunch' | 'dinner' | 'snack'
   source?: 'ai-scan' | 'demo' | 'catalog' | 'manual'
   confidence?: 'verified' | 'estimated' | 'needs-review'
+  reviewStatus?: 'pending' | 'reviewed'
 }
 
 export interface NutritionHomeActivity {
@@ -553,9 +555,12 @@ export default function NutritionDashboardHome({
 
                 {/* Calories Burned Card */}
                 <div className="burned-card">
-                  <div className="burned-card-header">
-                    <span className="burned-subtitle">Calo tiêu hao vận động</span>
-                    <strong className="burned-total">{formatNumber(activityCalories)} <small>kcal</small></strong>
+                  <div className="burned-card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <div>
+                      <span className="burned-subtitle">Calo tiêu hao vận động</span>
+                      <strong className="burned-total">{formatNumber(activityCalories)} <small>kcal</small></strong>
+                    </div>
+                    <button type="button" className="water-log-pill-btn" onClick={onOpenExercise}>+ Ghi buổi tập</button>
                   </div>
                   <div className="burned-list">
                     <div className="burned-item">
@@ -628,7 +633,7 @@ export default function NutritionDashboardHome({
                     </div>
                     <div className="recently-card-body" onClick={() => onOpenMeal?.(meal.id)} style={{ cursor: onOpenMeal ? 'pointer' : 'default' }}>
                       <div className="recently-card-top">
-                        <h3>{meal.title}</h3>
+                        <h3>{meal.title} {meal.reviewStatus === 'pending' ? <span style={{ marginLeft: 6, fontSize: 11, padding: '2px 6px', background: '#fef3c7', color: '#d97706', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}><Clock size={10} /> Chờ duyệt</span> : meal.reviewStatus === 'reviewed' ? <span style={{ marginLeft: 6, fontSize: 11, padding: '2px 6px', background: '#d1fae5', color: '#059669', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}><Check size={10} /> Đã duyệt</span> : null}</h3>
                         <span className="recently-card-time">{meal.time}</span>
                       </div>
                       <div className="recently-card-calories">

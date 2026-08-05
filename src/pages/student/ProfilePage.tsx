@@ -14,6 +14,7 @@ import {
   Pencil,
   Ruler,
   Save,
+  Scale,
   ShieldCheck,
   Smartphone,
   Target,
@@ -36,6 +37,9 @@ export interface ProfileUpdateInput {
   goals?: string[]
   heightCm?: number | null
   weightKg?: number | null
+  targetWeightDeltaKg?: number | null
+  targetTimeframeMonths?: number | null
+  targetSpeedPace?: 'slow' | 'standard' | 'fast' | null
   notificationSettings?: ProfileNotificationSettings
 }
 
@@ -46,6 +50,9 @@ interface ProfilePageProps {
   goals?: string[]
   heightCm?: number | null
   weightKg?: number | null
+  targetWeightDeltaKg?: number | null
+  targetTimeframeMonths?: number | null
+  targetSpeedPace?: 'slow' | 'standard' | 'fast' | null
   notificationSettings?: ProfileNotificationSettings | boolean | null
   onSave?: (values: ProfileUpdateInput) => Promise<void>
   onSignOut?: () => void | Promise<void>
@@ -77,6 +84,9 @@ export default function ProfilePage({
   goals = EMPTY_GOALS,
   heightCm,
   weightKg,
+  targetWeightDeltaKg,
+  targetTimeframeMonths,
+  targetSpeedPace,
   notificationSettings,
   onSave,
   onSignOut,
@@ -86,6 +96,9 @@ export default function ProfilePage({
   const [goalsInput, setGoalsInput] = useState(goals.join(', '))
   const [heightInput, setHeightInput] = useState(heightCm == null ? '' : String(heightCm))
   const [weightInput, setWeightInput] = useState(weightKg == null ? '' : String(weightKg))
+  const [targetDeltaInput, setTargetDeltaInput] = useState(targetWeightDeltaKg == null ? '' : String(targetWeightDeltaKg))
+  const [timeframeInput, setTimeframeInput] = useState(targetTimeframeMonths == null ? '3' : String(targetTimeframeMonths))
+  const [speedPaceInput, setSpeedPaceInput] = useState<'slow' | 'standard' | 'fast'>(targetSpeedPace || 'standard')
   const [savingProfile, setSavingProfile] = useState(false)
   const [notificationValues, setNotificationValues] = useState<ProfileNotificationSettings>(() => normalizeNotificationSettings(notificationSettings))
   const [savingNotification, setSavingNotification] = useState(false)
@@ -103,7 +116,10 @@ export default function ProfilePage({
     setGoalsInput(goals.join(', '))
     setHeightInput(heightCm == null ? '' : String(heightCm))
     setWeightInput(weightKg == null ? '' : String(weightKg))
-  }, [displayName, editing, goalsSignature, heightCm, weightKg])
+    setTargetDeltaInput(targetWeightDeltaKg == null ? '' : String(targetWeightDeltaKg))
+    setTimeframeInput(targetTimeframeMonths == null ? '3' : String(targetTimeframeMonths))
+    setSpeedPaceInput(targetSpeedPace || 'standard')
+  }, [displayName, editing, goalsSignature, heightCm, weightKg, targetWeightDeltaKg, targetTimeframeMonths, targetSpeedPace])
 
   useEffect(() => {
     setNotificationValues(normalizeNotificationSettings(notificationSettings))
@@ -123,6 +139,9 @@ export default function ProfilePage({
     setGoalsInput(goals.join(', '))
     setHeightInput(heightCm == null ? '' : String(heightCm))
     setWeightInput(weightKg == null ? '' : String(weightKg))
+    setTargetDeltaInput(targetWeightDeltaKg == null ? '' : String(targetWeightDeltaKg))
+    setTimeframeInput(targetTimeframeMonths == null ? '3' : String(targetTimeframeMonths))
+    setSpeedPaceInput(targetSpeedPace || 'standard')
     setError(null)
     setSuccess(null)
     setEditing(true)
@@ -135,6 +154,9 @@ export default function ProfilePage({
     setGoalsInput(goals.join(', '))
     setHeightInput(heightCm == null ? '' : String(heightCm))
     setWeightInput(weightKg == null ? '' : String(weightKg))
+    setTargetDeltaInput(targetWeightDeltaKg == null ? '' : String(targetWeightDeltaKg))
+    setTimeframeInput(targetTimeframeMonths == null ? '3' : String(targetTimeframeMonths))
+    setSpeedPaceInput(targetSpeedPace || 'standard')
   }
 
   const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
@@ -145,6 +167,9 @@ export default function ProfilePage({
     const normalizedGoals = [...new Set(goalsInput.split(/[\n,]+/).map((item) => item.trim()).filter(Boolean))]
     const normalizedHeight = heightInput.trim() === '' ? null : Number(heightInput)
     const normalizedWeight = weightInput.trim() === '' ? null : Number(weightInput)
+    const normalizedDelta = targetDeltaInput.trim() === '' ? null : Number(targetDeltaInput)
+    const normalizedTimeframe = timeframeInput.trim() === '' ? null : Number(timeframeInput)
+    const normalizedPace = speedPaceInput
 
     if (normalizedName.length < 2 || normalizedName.length > 80) {
       setError('Tên hiển thị cần từ 2 đến 80 ký tự.')
@@ -172,6 +197,9 @@ export default function ProfilePage({
         goals: normalizedGoals,
         heightCm: normalizedHeight,
         weightKg: normalizedWeight,
+        targetWeightDeltaKg: normalizedDelta,
+        targetTimeframeMonths: normalizedTimeframe,
+        targetSpeedPace: normalizedPace,
       })
       setEditing(false)
       setSuccess('Hồ sơ đã được lưu thành công.')
@@ -230,15 +258,64 @@ export default function ProfilePage({
             {editing ? (
               <form className="course-form-grid" onSubmit={saveProfile}>
                 <label className="span-2"><span>Tên hiển thị</span><input required maxLength={80} autoComplete="name" value={nameInput} onChange={(event) => setNameInput(event.target.value)} /></label>
-                <label className="span-2"><span>Mục tiêu · phân cách bằng dấu phẩy hoặc xuống dòng</span><textarea maxLength={700} value={goalsInput} onChange={(event) => setGoalsInput(event.target.value)} placeholder="Ví dụ: Tăng sức mạnh, Cải thiện độ linh hoạt" /></label>
+                <label className="span-2"><span>Mục tiêu chính · phân cách bằng dấu phẩy hoặc xuống dòng</span><textarea maxLength={700} value={goalsInput} onChange={(event) => setGoalsInput(event.target.value)} placeholder="Ví dụ: Giảm mỡ, Tăng cơ, Cải thiện sức bền" /></label>
                 <label><span>Chiều cao (cm)</span><input type="number" min="80" max="250" step="0.1" inputMode="decimal" value={heightInput} onChange={(event) => setHeightInput(event.target.value)} placeholder="Chưa thiết lập" /></label>
                 <label><span>Cân nặng (kg)</span><input type="number" min="20" max="500" step="0.1" inputMode="decimal" value={weightInput} onChange={(event) => setWeightInput(event.target.value)} placeholder="Chưa thiết lập" /></label>
-                <div className="span-2 editor-footer"><span>Chỉ các trường trên được cập nhật</span><div><button className="outline-button" type="button" onClick={cancelEdit} disabled={savingProfile}>Hủy</button><button className="primary-button" type="submit" disabled={savingProfile}>{savingProfile ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />} {savingProfile ? 'Đang lưu...' : 'Lưu hồ sơ'}</button></div></div>
+                
+                <label>
+                  <span>Mục tiêu thay đổi cân nặng (kg)</span>
+                  <input type="number" step="0.5" min="-50" max="50" value={targetDeltaInput} onChange={(e) => setTargetDeltaInput(e.target.value)} placeholder="Ví dụ: -5 (giảm) hoặc +3 (tăng)" />
+                  <small style={{ color: '#6b7280', fontSize: '11px', marginTop: '2px', display: 'block' }}>Nhập số âm (-) để giảm, số dương (+) để tăng cân</small>
+                </label>
+                <label>
+                  <span>Thời gian thực hiện (1–12 tháng)</span>
+                  <select value={timeframeInput} onChange={(e) => setTimeframeInput(e.target.value)}>
+                    <option value="1">1 tháng</option>
+                    <option value="2">2 tháng</option>
+                    <option value="3">3 tháng (Khuyên dùng)</option>
+                    <option value="4">4 tháng</option>
+                    <option value="6">6 tháng</option>
+                    <option value="9">9 tháng</option>
+                    <option value="12">12 tháng (1 năm)</option>
+                  </select>
+                </label>
+                <label className="span-2">
+                  <span>Tốc độ tiến trình</span>
+                  <select value={speedPaceInput} onChange={(e) => setSpeedPaceInput(e.target.value as any)}>
+                    <option value="slow">Thong thả & Bền vững (Chậm nhưng chắc chắn)</option>
+                    <option value="standard">Tiêu chuẩn & An toàn (Được đề xuất)</option>
+                    <option value="fast">Nhanh & Quyết liệt (Cần kỷ luật cao)</option>
+                  </select>
+                </label>
+
+                <div className="span-2 editor-footer"><span>Các thông tin sẽ được đồng bộ cùng Aura AI</span><div><button className="outline-button" type="button" onClick={cancelEdit} disabled={savingProfile}>Hủy</button><button className="primary-button" type="submit" disabled={savingProfile}>{savingProfile ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />} {savingProfile ? 'Đang lưu...' : 'Lưu hồ sơ'}</button></div></div>
               </form>
             ) : (
               <div className="profile-goal-grid">
-                <div><span><Target size={19} /></span><small>Mục tiêu</small><strong>{goalsLabel}</strong></div>
+                <div><span><Target size={19} /></span><small>Mục tiêu chính</small><strong>{goalsLabel}</strong></div>
                 <div><span><Ruler size={19} /></span><small>Chiều cao · Cân nặng</small><strong>{formatMeasurement(heightCm, 'cm')} · {formatMeasurement(weightKg, 'kg')}</strong></div>
+                <div>
+                  <span><Scale size={19} /></span>
+                  <small>Thay đổi cân nặng mong muốn</small>
+                  <strong>
+                    {targetWeightDeltaKg != null
+                      ? targetWeightDeltaKg < 0
+                        ? `Giảm ${Math.abs(targetWeightDeltaKg)} kg`
+                        : targetWeightDeltaKg > 0
+                        ? `Tăng ${targetWeightDeltaKg} kg`
+                        : 'Duy trì cân nặng hiện tại'
+                      : 'Chưa thiết lập'}
+                  </strong>
+                </div>
+                <div>
+                  <span><Target size={19} /></span>
+                  <small>Thời gian thực hiện</small>
+                  <strong>
+                    {targetTimeframeMonths != null
+                      ? `${targetTimeframeMonths} tháng ${targetTimeframeMonths === 12 ? '(1 năm)' : ''}`
+                      : 'Chưa thiết lập'}
+                  </strong>
+                </div>
                 <div><span><Bell size={19} /></span><small>Thông báo</small><strong>{notificationEnabled ? 'Đang bật' : 'Đang tắt'}</strong></div>
               </div>
             )}

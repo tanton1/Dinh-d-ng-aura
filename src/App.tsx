@@ -1,5 +1,6 @@
 import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import AppShell from './components/AppShell'
+import OnboardingFlow, { type OnboardingData } from './components/OnboardingFlow'
 import { hasPermission, type Permission } from './config/permissions'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useCourses } from './hooks/useCourses'
@@ -118,7 +119,7 @@ const ProgressPage = lazyWithRetry(() => import('./pages/student/ProgressPage'))
 const SchedulePage = lazyWithRetry(() => import('./pages/student/SchedulePage'))
 const WorkoutPage = lazyWithRetry(() => import('./pages/student/WorkoutPage'))
 
-const adminViews: ViewId[] = ['admin-dashboard', 'admin-courses', 'admin-course-editor', 'admin-academy-students', 'admin-programs', 'admin-students', 'admin-roles']
+const adminViews: ViewId[] = ['admin-dashboard', 'admin-courses', 'admin-course-editor', 'admin-academy-students', 'admin-programs', 'admin-students', 'admin-roles', 'admin-nutrition-reviews']
 const validViews: ViewId[] = ['home', 'courses', 'course-detail', 'schedule', 'nutrition', 'progress', 'profile', 'workout', ...adminViews]
 
 const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
@@ -129,9 +130,8 @@ const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
   'admin-programs': 'program.view',
   'admin-students': 'student.view_assigned',
   'admin-roles': 'team.view',
+  'admin-nutrition-reviews': 'student.view_assigned',
 }
-
-import OnboardingFlow, { type OnboardingData } from './components/OnboardingFlow'
 
 interface AuraRoute {
   view: ViewId
@@ -199,7 +199,7 @@ function toCourseDraft(course: Course): CourseDraftInput {
 }
 
 function AuraApplication() {
-  const { user, profile, role, loading, backendMode, signOut } = useAuth()
+  const { user, profile, role, setPreviewRole, loading, backendMode, signOut } = useAuth()
   const canAccessAdmin = hasPermission(role, 'dashboard.view')
   const canManageAcademy = canAccessAdmin && hasPermission(role, 'course.view')
   const canManageCoaching = canAccessAdmin && hasPermission(role, 'program.view')
@@ -627,6 +627,15 @@ function AuraApplication() {
   const effectiveGoals = profileOverride && 'goals' in profileOverride ? profileOverride.goals : profile?.goals
   const effectiveHeight = profileOverride && 'heightCm' in profileOverride ? profileOverride.heightCm : profile?.heightCm
   const effectiveWeight = profileOverride && 'weightKg' in profileOverride ? profileOverride.weightKg : profile?.weightKg
+  const effectiveTargetWeightDeltaKg = profileOverride && 'targetWeightDeltaKg' in profileOverride
+    ? profileOverride.targetWeightDeltaKg
+    : (profile?.targetWeightDeltaKg ?? profile?.nutritionProfile?.targetWeightDeltaKg ?? localNutritionProfile?.targetWeightDeltaKg)
+  const effectiveTargetTimeframeMonths = profileOverride && 'targetTimeframeMonths' in profileOverride
+    ? profileOverride.targetTimeframeMonths
+    : (profile?.targetTimeframeMonths ?? profile?.nutritionProfile?.targetTimeframeMonths ?? localNutritionProfile?.targetTimeframeMonths)
+  const effectiveTargetSpeedPace = profileOverride && 'targetSpeedPace' in profileOverride
+    ? profileOverride.targetSpeedPace
+    : (profile?.targetSpeedPace ?? profile?.nutritionProfile?.targetSpeedPace ?? localNutritionProfile?.targetSpeedPace)
   const effectiveNotifications = profileOverride && 'notificationSettings' in profileOverride ? profileOverride.notificationSettings : profile?.notificationSettings
 
   const renderPage = () => {
@@ -656,6 +665,9 @@ function AuraApplication() {
               nutritionProfile,
               heightCm: nutritionProfile.heightCm,
               weightKg: nutritionProfile.weightKg,
+              targetWeightDeltaKg: nutritionProfile.targetWeightDeltaKg,
+              targetTimeframeMonths: nutritionProfile.targetTimeframeMonths,
+              targetSpeedPace: nutritionProfile.targetSpeedPace,
               goals: [nutritionProfile.goal],
               onboardingCompleted: true,
             })
@@ -663,8 +675,8 @@ function AuraApplication() {
         }}
         onAnalyzeImage={backendMode === 'firebase' && user ? (file, options) => analyzeFoodPhoto(file, options) : undefined}
       />
-      case 'progress': return <ProgressPage ownerId={user?.uid ?? 'demo'} courseItems={studentCourses} progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error || learningData.error} onOpenCourse={openCourse} />
-      case 'profile': return <ProfilePage displayName={effectiveDisplayName} email={profile?.email} membership={profile?.membership} goals={effectiveGoals} heightCm={effectiveHeight} weightKg={effectiveWeight} notificationSettings={effectiveNotifications} onSave={saveProfile} onSignOut={signOut} />
+      case 'progress': return <ProgressPage ownerId={user?.uid ?? 'demo'} courseItems={studentCourses} progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error || learningData.error} onOpenCourse={openCourse} onNavigate={navigate} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} heightCm={effectiveHeight} />
+      case 'profile': return <ProfilePage displayName={effectiveDisplayName} email={profile?.email} membership={profile?.membership} goals={effectiveGoals} heightCm={effectiveHeight} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} targetSpeedPace={effectiveTargetSpeedPace} notificationSettings={effectiveNotifications} onSave={saveProfile} onSignOut={signOut} />
       case 'workout': {
         return <WorkoutPage key="pt-coaching-workout" onNavigate={navigate} onSave={async (log) => {
           if (backendMode === 'firebase' && user) {
@@ -719,7 +731,17 @@ function AuraApplication() {
       />
       case 'admin-roles': return <AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} />
       case 'admin-nutrition-reviews': return <AdminNutritionReviewsPage onNavigate={navigate} />
-      default: return <HomePage onNavigate={navigate} onOpenCourse={openCourse} courseItems={studentCourses} displayName={effectiveDisplayName} isDemo={backendMode === 'demo'} />
+      default: return (
+        <HomePage
+          onNavigate={navigate}
+          onOpenCourse={openCourse}
+          courseItems={studentCourses}
+          displayName={effectiveDisplayName}
+          isDemo={backendMode === 'demo'}
+          ownerId={user?.uid ?? 'demo'}
+          progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())}
+        />
+      )
     }
   }
 
@@ -748,6 +770,9 @@ function AuraApplication() {
               goals: [data.goal],
               heightCm: data.heightCm,
               weightKg: data.weightKg,
+              targetWeightDeltaKg: (data as any).targetWeightDeltaKg ?? null,
+              targetTimeframeMonths: (data as any).targetTimeframeMonths ?? null,
+              targetSpeedPace: (data as any).targetSpeedPace ?? null,
               nutritionProfile: nutProfile,
             })
           } else {
@@ -770,6 +795,7 @@ function AuraApplication() {
       userName={effectiveDisplayName ?? user?.displayName ?? 'Thành viên Aura'}
       userRole={roleLabels[role]}
       role={role}
+      setPreviewRole={setPreviewRole}
       userPhoto={profile?.photoURL ?? user?.photoURL}
       backendMode={backendMode}
       canAccessAdmin={canAccessAdmin}

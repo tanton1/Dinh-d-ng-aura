@@ -3,6 +3,7 @@ import {
   BarChart3,
   Bell,
   BookOpen,
+  Check,
   CalendarDays,
   ChevronDown,
   ClipboardList,
@@ -38,6 +39,7 @@ interface AppShellProps {
   userName: string
   userRole: string
   role: UserRole
+  setPreviewRole?: (role: UserRole) => void
   userPhoto?: string | null
   backendMode: 'demo' | 'firebase'
   canAccessAdmin: boolean
@@ -75,8 +77,8 @@ const studentNavSections: ShellNavSection[] = [
 const studentMobileNav: ShellNavItem[] = [
   { id: 'home', label: 'Hôm nay', icon: Home },
   { id: 'courses', label: 'Học', icon: BookOpen },
+  { id: 'progress', label: 'Tiến độ', icon: BarChart3 },
   { id: 'nutrition', label: 'Dinh dưỡng', icon: Salad },
-  { id: 'schedule', label: 'Lịch PT', icon: CalendarDays },
   { id: 'profile', label: 'Cá nhân', icon: UserRound },
 ]
 
@@ -99,6 +101,7 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
     items: [
       { id: 'admin-students' as const, label: 'Khách hàng PT', icon: Users, permission: 'student.view_assigned' as Permission },
       { id: 'admin-programs' as const, label: 'Giáo án gym', icon: ClipboardList, permission: 'program.view' as Permission },
+      { id: 'admin-nutrition-reviews' as const, label: 'Duyệt ăn', icon: Check, permission: 'student.view_assigned' as Permission },
     ],
   },
   {
@@ -114,6 +117,7 @@ const adminMobileNav: ShellAdminNavItem[] = [
   { id: 'admin-courses', label: 'Academy', icon: GraduationCap, permission: 'course.view' },
   { id: 'admin-students', label: 'Khách PT', icon: Users, permission: 'student.view_assigned' },
   { id: 'admin-programs', label: 'Giáo án', icon: ClipboardList, permission: 'program.view' },
+  { id: 'admin-nutrition-reviews', label: 'Duyệt ăn', icon: Check, permission: 'student.view_assigned' },
 ]
 
 const viewTitles: Record<ViewId, string> = {
@@ -139,10 +143,10 @@ function isNavigationActive(view: ViewId, itemId: ViewId, mobile = false) {
   if (view === itemId) return true
   if (view === 'course-detail' && itemId === 'courses') return true
   if (view === 'admin-course-editor' && itemId === 'admin-courses') return true
-  return mobile && view === 'progress' && itemId === 'courses'
+  return false
 }
 
-export default function AppShell({ children, mode, view, onNavigate, onModeChange, mobileMenu, setMobileMenu, userName, userRole, role, userPhoto, backendMode, canAccessAdmin, onSignOut, onSearch }: AppShellProps) {
+export default function AppShell({ children, mode, view, onNavigate, onModeChange, mobileMenu, setMobileMenu, userName, userRole, role, setPreviewRole, userPhoto, backendMode, canAccessAdmin, onSignOut, onSearch }: AppShellProps) {
   const navSections: ShellNavSection[] = mode === 'student'
     ? studentNavSections
     : adminNavSections
@@ -155,6 +159,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
   const isImmersive = view === 'workout'
   const [searchQuery, setSearchQuery] = useState('')
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [online, setOnline] = useState(navigator.onLine)
   const [shellMessage, setShellMessage] = useState<string | null>(null)
   const mobileSearchInputRef = useRef<HTMLInputElement>(null)
@@ -268,11 +273,53 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
             <button className="mobile-search-button" aria-label="Mở tìm kiếm" aria-expanded={mobileSearchOpen} onClick={() => setMobileSearchOpen(true)}><Search size={20} /></button>
             <span className={`backend-indicator ${backendMode}`} title={backendMode === 'firebase' ? 'Dữ liệu đã được đồng bộ' : 'Đang dùng dữ liệu xem trước'}><Cloud size={14} />{backendMode === 'firebase' ? 'Đã đồng bộ' : 'Xem trước'}</span>
             <button className="icon-button notification-button" aria-label="Thông báo" onClick={() => setShellMessage('Bạn chưa có thông báo mới. Trung tâm thông báo thời gian thực đang được phát triển.')}><Bell size={20} /></button>
-            <button className="user-menu" aria-label={`Tài khoản ${userName}`} onClick={() => mode === 'student' && onNavigate('profile')}>
-              {userPhoto ? <img className="avatar avatar-photo" src={userPhoto} alt="" referrerPolicy="no-referrer" /> : <span className="avatar">{userName.split(' ').map((part) => part[0]).slice(-2).join('').toUpperCase()}</span>}
-              <span className="user-copy"><strong>{userName}</strong><small>{userRole}</small></span>
-              <ChevronDown size={16} />
-            </button>
+            <div style={{ position: 'relative' }}>
+              <button className="user-menu" aria-label={`Tài khoản ${userName}`} aria-expanded={userMenuOpen} onClick={() => setUserMenuOpen(!userMenuOpen)}>
+                {userPhoto ? <img className="avatar avatar-photo" src={userPhoto} alt="" referrerPolicy="no-referrer" /> : <span className="avatar">{userName.split(' ').map((part) => part[0]).slice(-2).join('').toUpperCase()}</span>}
+                <span className="user-copy"><strong>{userName}</strong><small>{userRole}</small></span>
+                <ChevronDown size={16} />
+              </button>
+              {userMenuOpen && (
+                <>
+                  <div className="user-dropdown-layer" onClick={() => setUserMenuOpen(false)} />
+                  <div className="user-dropdown-menu">
+                    {mode === 'student' && (
+                      <>
+                        <button onClick={() => { setUserMenuOpen(false); onNavigate('profile') }}>
+                          <span>Hồ sơ cá nhân</span>
+                          <UserRound size={15} />
+                        </button>
+                        <hr />
+                      </>
+                    )}
+                    
+                    <strong className="dropdown-label">Xem trước giao diện</strong>
+                    <button className={role === 'student' ? 'active' : ''} onClick={() => { setPreviewRole?.('student'); setUserMenuOpen(false); }}>
+                      <span>Học viên</span>
+                      {role === 'student' && <Check size={14} />}
+                    </button>
+                    <button className={role === 'coach' ? 'active' : ''} onClick={() => { setPreviewRole?.('coach'); setUserMenuOpen(false); }}>
+                      <span>Huấn luyện viên</span>
+                      {role === 'coach' && <Check size={14} />}
+                    </button>
+                    <button className={role === 'admin' ? 'active' : ''} onClick={() => { setPreviewRole?.('admin'); setUserMenuOpen(false); }}>
+                      <span>Admin</span>
+                      {role === 'admin' && <Check size={14} />}
+                    </button>
+                    
+                    {backendMode === 'firebase' && (
+                      <>
+                        <hr />
+                        <button className="danger" onClick={() => { setUserMenuOpen(false); onSignOut(); }}>
+                          <span>Đăng xuất</span>
+                          <LogOut size={15} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </header>
 

@@ -121,7 +121,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
         action={(
           <div className="filter-button" style={{ cursor: 'default', minWidth: 184, justifyContent: 'center' }}>
             <ShieldCheck size={17} color="var(--aura-pink)" />
-            Bạn là {roleMeta[currentRole].label}
+            Bạn là {(roleMeta[currentRole] || roleMeta.student).label}
           </div>
         )}
       />
@@ -192,6 +192,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
 
         {!loading && filteredUsers.map((user, index) => {
           const status = statusMeta[user.status ?? 'active']
+          const userRoleData = roleMeta[user.role] || roleMeta.student
           const isSaving = savingUid === user.uid
           const roleLocked = !canAssignRole
             || Boolean(savingUid)
@@ -210,12 +211,12 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
               <span>
                 <select
                   aria-label={`Vai trò của ${user.displayName || user.email}`}
-                  value={user.role}
+                  value={user.role || 'student'}
                   disabled={roleLocked || isSaving}
                   onChange={(event) => void changeRole(user, event.target.value as UserRole)}
                   style={{
                     width: '100%', minHeight: 36, padding: '0 9px', border: '1px solid var(--line)',
-                    borderRadius: 8, color: roleMeta[user.role].tone, background: '#fff', fontSize: 11, fontWeight: 750,
+                    borderRadius: 8, color: userRoleData.tone, background: '#fff', fontSize: 11, fontWeight: 750,
                   }}
                 >
                   {roles.map((role) => (
@@ -226,7 +227,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
                 </select>
               </span>
 
-              <span className="program-name" style={{ color: '#66636f', fontSize: 11, lineHeight: 1.45 }}>{roleMeta[user.role].scope}</span>
+              <span className="program-name" style={{ color: '#66636f', fontSize: 11, lineHeight: 1.45 }}>{userRoleData.scope}</span>
               <span className="student-streak" style={{ color: '#797988', fontSize: 10 }}>{user.lastActive ?? 'Chưa có dữ liệu'}</span>
               <span><i className={`status-badge ${status.className}`} style={{ fontSize: 9 }}>{status.label}</i></span>
               <span className="row-actions" aria-live="polite">
