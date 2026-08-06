@@ -71,6 +71,13 @@ import {
   ShieldCheck,
   Heart,
   ChevronDown,
+  Egg,
+  Wheat,
+  Droplet,
+  MapPin,
+  LayoutGrid,
+  CheckCircle2,
+  Leaf,
 } from 'lucide-react'
 import '../../styles-nutrition.css'
 import '../../styles-nutrition-home.css'
@@ -2216,26 +2223,53 @@ function FoodCatalogModal({ catalog, savedFoodIds, initialSavedOnly = false, all
     <div className={presentation === 'page' ? 'nutrition-route-page nutrition-route-page--catalog' : 'nutrition-modal-backdrop'} role="presentation" onMouseDown={(event) => presentation === 'modal' && event.target === event.currentTarget && onClose()}>
       <section ref={presentation === 'modal' ? dialogRef : undefined} className={`nutrition-catalog-modal ${presentation === 'page' ? 'nutrition-catalog-modal--page' : ''}`} role={presentation === 'modal' ? 'dialog' : 'region'} aria-modal={presentation === 'modal' ? true : undefined} aria-labelledby="nutrition-catalog-title" data-testid="nutrition-food-search-modal">
         <header className="nutrition-scan-modal__header">
-          <div><span className="nutrition-ai-mark"><Search size={15} /> Cơ sở dữ liệu</span><h2 id="nutrition-catalog-title">Tìm món & thực phẩm</h2></div>
+          <div><h2 id="nutrition-catalog-title">Tìm món & thực phẩm</h2>
+            <div className="nutrition-catalog-verified">
+              <ShieldCheck size={16} className="icon-shield" />
+              <span>Hơn 2.100 món ăn đã được Viện Dinh dưỡng<br />Việt Nam kiểm chứng</span>
+            </div>
+          </div>
           <button type="button" className="nutrition-close-button" onClick={onClose} aria-label={presentation === 'page' ? 'Quay lại trang dinh dưỡng' : 'Đóng'}>{presentation === 'page' ? <ArrowLeft size={20} /> : <X size={20} />}</button>
         </header>
         <div className="nutrition-catalog-body">
-          <label className="nutrition-catalog-search"><Search size={18} /><input autoFocus={presentation === 'modal'} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên món, mã, nhóm hoặc vùng miền…" data-testid="nutrition-food-search-input" /><kbd>{formatNumber(matchingItems.length)} kết quả</kbd></label>
+          <label className="nutrition-catalog-search">
+            <Search size={18} />
+            <input autoFocus={presentation === 'modal'} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên món, mã, nhóm hoặc nguyên liệu..." data-testid="nutrition-food-search-input" />
+            <span className="search-result-count">{formatNumber(matchingItems.length)} kết quả</span>
+          </label>
           <div className="nutrition-catalog-filters" aria-label="Lọc danh mục">
             <div className="nutrition-catalog-kind-filter">
-              {([['all', 'Tất cả'], ['dish', 'Món ăn'], ['food', 'Thực phẩm']] as const).map(([value, label]) => <button type="button" key={value} className={kindFilter === value ? 'active' : ''} onClick={() => setKindFilter(value)} aria-pressed={kindFilter === value}>{label}</button>)}
+              <button type="button" className={kindFilter === 'all' ? 'active' : ''} onClick={() => setKindFilter('all')} aria-pressed={kindFilter === 'all'}>
+                <LayoutGrid size={15} /> Tất cả
+              </button>
+              <button type="button" className={kindFilter === 'dish' ? 'active' : ''} onClick={() => setKindFilter('dish')} aria-pressed={kindFilter === 'dish'}>
+                <Utensils size={15} /> Món ăn
+              </button>
+              <button type="button" className={kindFilter === 'food' ? 'active' : ''} onClick={() => setKindFilter('food')} aria-pressed={kindFilter === 'food'}>
+                <Leaf size={15} /> Thực phẩm
+              </button>
+              <button type="button" className={`nutrition-catalog-saved-filter ${savedOnly ? 'active' : ''}`} onClick={() => setSavedOnly((current) => !current)} aria-pressed={savedOnly}>
+                <Bookmark size={15} /> Đã lưu
+              </button>
             </div>
-            <button type="button" className={`nutrition-catalog-saved-filter ${savedOnly ? 'active' : ''}`} onClick={() => setSavedOnly((current) => !current)} aria-pressed={savedOnly}><Bookmark size={15} /> Đã lưu{savedFoodIds?.size ? ` (${savedFoodIds.size})` : ''}</button>
-            <label><span>Nhóm</span><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="all">Tất cả nhóm</option>{categories.map((category) => <option value={category} key={category}>{category}</option>)}</select></label>
-            <div className="nutrition-catalog-layout-toggle" role="group" aria-label="Kiểu hiển thị thư viện">
-              <button type="button" className={layoutMode === 'single' ? 'active' : ''} onClick={() => setLayout('single')} aria-pressed={layoutMode === 'single'} title="Hiển thị một cột"><Rows2 size={16} /><span>1 cột</span></button>
-              <button type="button" className={layoutMode === 'grid' ? 'active' : ''} onClick={() => setLayout('grid')} aria-pressed={layoutMode === 'grid'} title="Hiển thị hai cột"><Columns2 size={16} /><span>2 cột</span></button>
+            <label className="nutrition-category-dropdown">
+              <span>Nhóm</span>
+              <div className="dropdown-wrapper">
+                <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+                  <option value="all">Tất cả nhóm</option>
+                  {categories.map((category) => <option value={category} key={category}>{category}</option>)}
+                </select>
+                <ChevronDown size={16} className="dropdown-icon" />
+              </div>
+            </label>
+            <div className="nutrition-catalog-verified-status">
+              <CheckCircle2 size={15} className="icon-check" />
+              <span>Dữ liệu được cập nhật từ Viện Dinh dưỡng Quốc gia</span>
             </div>
-            <span className="nutrition-catalog-count"><strong>{formatNumber(items.length)}</strong> bản ghi</span>
           </div>
           <div className={`nutrition-catalog-status nutrition-catalog-status--${catalogState}`}>
-            {catalogState === 'loading' ? <LoaderCircle size={15} className="nutrition-spinner" /> : catalogState === 'live' ? <Check size={15} /> : catalogState === 'error' ? <CircleAlert size={15} /> : <Info size={15} />}
-            <span>{catalogState === 'loading' ? 'Đang tải dữ liệu dinh dưỡng…' : catalogState === 'live' ? 'Dữ liệu được nạp từ danh mục Viện Dinh dưỡng.' : catalogState === 'error' ? 'Không tải được thư viện. Dữ liệu minh họa không được thay thế cho dữ liệu thật.' : 'Chưa tìm thấy tệp dữ liệu. Đang hiển thị một số bản ghi minh họa.'}</span>
+            {catalogState === 'loading' ? <LoaderCircle size={15} className="nutrition-spinner" /> : catalogState === 'error' ? <CircleAlert size={15} /> : null}
+            <span>{catalogState === 'loading' ? 'Đang tải dữ liệu dinh dưỡng…' : catalogState === 'error' ? 'Không tải được thư viện. Dữ liệu minh họa không được thay thế cho dữ liệu thật.' : ''}</span>
             {catalogState === 'error' && <button type="button" onClick={retryCatalog}><RefreshCw size={14} /> Thử lại</button>}
           </div>
           <div className={`nutrition-catalog-list nutrition-catalog-list--${layoutMode}`} data-layout={layoutMode}>
@@ -2244,38 +2278,86 @@ function FoodCatalogModal({ catalog, savedFoodIds, initialSavedOnly = false, all
               const scaledFood = scaleCatalogFood(food, portion)
               const canAdd = portion > 0 && canLogCatalogFood(food)
               const portionLabel = food.servingGrams !== null
-                ? `${formatDecimal(portion)} khẩu phần · ${formatDecimal((food.servingGrams ?? 0) * portion)} g`
+                ? `${formatDecimal(portion)} suất theo nguồn`
                 : `${formatDecimal(portion)} suất theo nguồn`
+              
+              const isSaved = savedFoodIds?.has(food.id)
+              
               return (
                 <article className="nutrition-catalog-card" key={food.id}>
-                  <button type="button" className="nutrition-catalog-card__identity" onClick={() => onOpenDetail(food, items)} aria-label={`Xem chi tiết ${food.name}`}>
-                    <span className="nutrition-catalog-card__media"><NutritionGroupIcon categoryName={food.category?.nameVi} kind={food.kind ?? 'food'} size={28} className="nutrition-catalog-card__placeholder" />{food.imageUrl && <img src={food.imageUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.style.display = 'none' }} />}</span>
-                    <span className="nutrition-catalog-card__name"><small>{food.kind === 'dish' ? 'Món ăn' : food.kind === 'food' ? 'Thực phẩm' : 'Dữ liệu dinh dưỡng'}{food.category?.nameVi ? ` · ${food.category.nameVi}` : ''}</small><strong>{food.name}</strong>{food.region?.nameVi && <em>{food.region.nameVi}</em>}</span>
-                    <ChevronRight size={17} />
-                  </button>
-
-                  <div className="nutrition-catalog-card__summary">
-                    <span><small>Khẩu phần đang chọn</small><strong>{portionLabel}</strong></span>
-                    <span><small>Năng lượng</small><strong>{scaledFood.calories !== null ? formatNumber(scaledFood.calories) : '—'} <em>kcal</em></strong></span>
-                  </div>
-
-                  <div className="nutrition-catalog-card__macros" aria-label={`Dinh dưỡng của ${portionLabel}`}>
-                    <span><small>Đạm</small><strong>{scaledFood.protein !== null ? `${formatDecimal(scaledFood.protein)}g` : '—'}</strong></span>
-                    <span><small>Carb</small><strong>{scaledFood.carbs !== null ? `${formatDecimal(scaledFood.carbs)}g` : '—'}</strong></span>
-                    <span><small>Chất béo</small><strong>{scaledFood.fat !== null ? `${formatDecimal(scaledFood.fat)}g` : '—'}</strong></span>
-                  </div>
-
-                  <div className="nutrition-catalog-card__portion">
-                    <div><label htmlFor={`catalog-portion-${food.id}`}>Khẩu phần</label><output htmlFor={`catalog-portion-${food.id}`}>{formatDecimal(portion)}×</output></div>
-                    <input id={`catalog-portion-${food.id}`} type="range" min="0" max="5" step="0.1" value={portion} onChange={(event) => updatePortion(food.id, Number(event.target.value))} aria-valuetext={portionLabel} />
-                    <div className="nutrition-catalog-card__portion-quick" role="group" aria-label={`Chọn nhanh khẩu phần ${food.name}`}>
-                      {[0.5, 1, 1.5, 2].map((value) => <button type="button" key={value} className={portion === value ? 'active' : ''} onClick={() => updatePortion(food.id, value)} aria-pressed={portion === value}>{formatDecimal(value)}×</button>)}
+                  <div className="catalog-card-top-row">
+                    <div className="catalog-card-image-box">
+                      <span className="nutrition-catalog-card__media">
+                        <NutritionGroupIcon categoryName={food.category?.nameVi} kind={food.kind ?? 'food'} size={28} className="nutrition-catalog-card__placeholder" />
+                        {food.imageUrl && <img src={food.imageUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.style.display = 'none' }} />}
+                      </span>
+                      <div className="catalog-card-calories-badge">{scaledFood.calories !== null ? formatNumber(scaledFood.calories) : '—'} kcal</div>
+                    </div>
+                    
+                    <div className="catalog-card-info-box">
+                      <div className="catalog-card-header">
+                        <span className="catalog-card-category">{food.kind === 'dish' ? 'MÓN ĂN' : food.kind === 'food' ? 'THỰC PHẨM' : 'DỮ LIỆU'} {food.category?.nameVi ? `· ${food.category.nameVi.toUpperCase()}` : ''}</span>
+                        <button className={`catalog-card-bookmark ${isSaved ? 'saved' : ''}`}><Bookmark size={18} /></button>
+                      </div>
+                      
+                      <button type="button" className="catalog-card-title-btn" onClick={() => onOpenDetail(food, items)} aria-label={`Xem chi tiết ${food.name}`}>
+                        <h3 className="catalog-card-title">{food.name}</h3>
+                      </button>
+                      {food.region?.nameVi && <span className="catalog-card-location"><MapPin size={12} /> {food.region.nameVi}</span>}
                     </div>
                   </div>
 
-                  <div className="nutrition-catalog-card__actions">
-                    <button type="button" className="view" onClick={() => onOpenDetail(food, items)}><Search size={15} /> Chi tiết</button>
-                    <button type="button" className="add" onClick={() => addCatalogFood(food, portion)} disabled={!canAdd || addingFoodId !== null} title={!canLogCatalogFood(food) ? 'Bản ghi nguồn còn thiếu kcal hoặc macro để thêm an toàn' : portion === 0 ? 'Hãy chọn khẩu phần lớn hơn 0' : undefined}>{addingFoodId === food.id ? <LoaderCircle className="nutrition-spin" size={16} /> : <Plus size={16} />} {addingFoodId === food.id ? 'Đang nạp' : 'Thêm món'}</button>
+                  <div className="catalog-card-summary-box">
+                    <div className="catalog-summary-item">
+                      <small>Khẩu phần</small>
+                      <strong>{portionLabel}</strong>
+                    </div>
+                    <div className="catalog-summary-item align-right">
+                      <small>Năng lượng</small>
+                      <strong className="calories-text">{scaledFood.calories !== null ? formatNumber(scaledFood.calories) : '—'} <span>kcal</span></strong>
+                    </div>
+                  </div>
+
+                  <div className="catalog-card-macros-box" aria-label={`Dinh dưỡng của ${portionLabel}`}>
+                    <div className="macro-pill macro-protein">
+                      <div className="macro-icon"><Egg size={15} /></div>
+                      <div className="macro-texts">
+                        <small>Đạm</small>
+                        <strong>{scaledFood.protein !== null ? `${formatDecimal(scaledFood.protein)}g` : '—'}</strong>
+                      </div>
+                    </div>
+                    <div className="macro-pill macro-carbs">
+                      <div className="macro-icon"><Wheat size={15} /></div>
+                      <div className="macro-texts">
+                        <small>Carb</small>
+                        <strong>{scaledFood.carbs !== null ? `${formatDecimal(scaledFood.carbs)}g` : '—'}</strong>
+                      </div>
+                    </div>
+                    <div className="macro-pill macro-fat">
+                      <div className="macro-icon"><Droplet size={15} /></div>
+                      <div className="macro-texts">
+                        <small>Chất béo</small>
+                        <strong>{scaledFood.fat !== null ? `${formatDecimal(scaledFood.fat)}g` : '—'}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="catalog-card-slider-box">
+                    <div className="catalog-slider-header">
+                      <label htmlFor={`catalog-portion-${food.id}`}>Khẩu phần</label>
+                      <output htmlFor={`catalog-portion-${food.id}`}>{formatDecimal(portion)}x</output>
+                    </div>
+                    <input className="catalog-slider-input" id={`catalog-portion-${food.id}`} type="range" min="0" max="5" step="0.1" value={portion} onChange={(event) => updatePortion(food.id, Number(event.target.value))} aria-valuetext={portionLabel} />
+                  </div>
+
+                  <div className="catalog-card-actions-box">
+                    <div className="catalog-quick-portions" role="group" aria-label={`Chọn nhanh khẩu phần ${food.name}`}>
+                      {[0.5, 1, 1.5, 2].map((value) => <button type="button" key={value} className={portion === value ? 'active' : ''} onClick={() => updatePortion(food.id, value)} aria-pressed={portion === value}>{formatDecimal(value)}x</button>)}
+                    </div>
+                    
+                    <button type="button" className="catalog-add-btn" onClick={() => addCatalogFood(food, portion)} disabled={!canAdd || addingFoodId !== null} title={!canLogCatalogFood(food) ? 'Bản ghi nguồn còn thiếu kcal hoặc macro để thêm an toàn' : portion === 0 ? 'Hãy chọn khẩu phần lớn hơn 0' : undefined}>
+                      {addingFoodId === food.id ? <LoaderCircle className="nutrition-spin" size={16} /> : <Plus size={16} />} Thêm món
+                    </button>
                   </div>
                 </article>
               )

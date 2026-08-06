@@ -10,6 +10,7 @@ export interface PendingMealItem {
   studentGoal?: string
   studentCondition?: string
   time: string
+  createdAtTimestamp?: number
   img: string
   note?: string
   items?: Array<{ name: string; weight?: number; kcal?: number; protein?: number }>
@@ -25,6 +26,7 @@ export interface PendingMealItem {
   targetFat?: number
   targetFiber?: number
   targetSodium?: number
+  approvedAtTimestamp?: number
   status: 'pending' | 'approved' | 'rejected'
   priority?: 'high' | 'normal'
   isNew?: boolean
@@ -70,6 +72,7 @@ export async function approveMealInFirestore(
     status: 'approved',
     coachFeedback,
     approvedMeal: approvedMealData,
+    approvedAtTimestamp: Date.now(),
   })
 }
 
@@ -156,6 +159,7 @@ function mapDocToMeal(r: any): PendingMealItem {
     studentGoal,
     studentCondition,
     time: formattedTime,
+    createdAtTimestamp: r.createdAt?.toMillis ? r.createdAt.toMillis() : Date.now(),
     img: rawImage || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80',
     note: rawNote,
     items: mealObj.items || [],
@@ -171,11 +175,12 @@ function mapDocToMeal(r: any): PendingMealItem {
     targetFat: r.targetFat || mealObj.targetFat || 20,
     targetFiber: r.targetFiber || mealObj.targetFiber || 25,
     targetSodium: r.targetSodium || mealObj.targetSodium || 1500,
+    approvedAtTimestamp: r.approvedAtTimestamp,
     status: r.status || 'pending',
     priority: r.priority || mealObj.priority || 'normal',
     isNew: r.isNew ?? mealObj.isNew ?? false,
     mealType: r.mealType || mealObj.mealType || 'Bữa trưa',
-    aiScore: r.aiScore || mealObj.aiScore || 85,
+    
     confidence: r.confidence || mealObj.confidence || 'high',
     tags: r.tags || mealObj.tags || [],
     ingredients: r.ingredients || mealObj.ingredients || [],

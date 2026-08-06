@@ -2036,3 +2036,129 @@
   transform: scale(0.98);
 }
 
+
+/* Redesigned Catalog UI */
+.nutrition-catalog-verified { display: flex; align-items: center; gap: 8px; margin-top: 6px; color: #ec4899; font-size: 11px; font-weight: 500; }
+.nutrition-catalog-verified .icon-shield { flex-shrink: 0; }
+.nutrition-catalog-search { position: relative; display: flex; align-items: center; background: #fff; border: 1px solid #fce7f3; border-radius: 20px; padding: 4px 16px; margin-bottom: 12px; box-shadow: 0 4px 15px rgba(236, 72, 153, 0.05); }
+.nutrition-catalog-search input { flex: 1; border: none; outline: none; padding: 12px 10px; font-size: 13px; color: #374151; }
+.nutrition-catalog-search input::placeholder { color: #9ca3af; }
+.nutrition-catalog-search svg { color: #ec4899; }
+.nutrition-catalog-search .search-result-count { background: #fdf2f8; color: #ec4899; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+
+.nutrition-catalog-filters { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+.nutrition-catalog-kind-filter { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+.nutrition-catalog-kind-filter::-webkit-scrollbar { display: none; }
+.nutrition-catalog-kind-filter button { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 10px 16px; border: 1px solid #f3f4f6; border-radius: 16px; background: #fff; color: #4b5563; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s; }
+.nutrition-catalog-kind-filter button svg { color: #9ca3af; }
+.nutrition-catalog-kind-filter button.active { background: linear-gradient(135deg, #f43f5e, #fb923c); color: #fff; border-color: transparent; box-shadow: 0 4px 12px rgba(244, 63, 94, 0.2); }
+.nutrition-catalog-kind-filter button.active svg { color: #fff; }
+
+.nutrition-catalog-saved-filter { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 10px 16px; border: 1px solid #f3f4f6; border-radius: 16px; background: #fff; color: #4b5563; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s; }
+.nutrition-catalog-saved-filter svg { color: #f59e0b; }
+.nutrition-catalog-saved-filter.active { background: #fef3c7; border-color: #fde68a; color: #b45309; }
+
+.nutrition-category-dropdown { display: flex; align-items: center; gap: 12px; width: 100%; border-bottom: 1px solid #f3f4f6; padding-bottom: 12px; }
+.nutrition-category-dropdown > span { font-size: 13px; color: #6b7280; font-weight: 500; }
+.nutrition-category-dropdown .dropdown-wrapper { position: relative; flex: 1; }
+.nutrition-category-dropdown select { width: 100%; appearance: none; border: none; background: transparent; font-size: 14px; font-weight: 700; color: #111827; outline: none; cursor: pointer; }
+.nutrition-category-dropdown .dropdown-icon { position: absolute; right: 0; top: 50%; transform: translateY(-50%); color: #6b7280; pointer-events: none; }
+
+.nutrition-catalog-verified-status { display: flex; align-items: center; gap: 6px; color: #6b7280; font-size: 11px; }
+.nutrition-catalog-verified-status .icon-check { color: #ec4899; }
+
+.nutrition-catalog-card { background: #fff; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); padding: 16px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 14px; border: 1px solid #f9fafb; }
+.catalog-card-top-row { display: flex; gap: 16px; }
+.catalog-card-image-box { position: relative; width: 90px; height: 90px; border-radius: 16px; overflow: hidden; background: #f3f4f6; flex-shrink: 0; }
+.catalog-card-image-box img { width: 100%; height: 100%; object-fit: cover; }
+.catalog-card-calories-badge { position: absolute; bottom: 0; left: 0; background: #ef4444; color: #fff; font-size: 10px; font-weight: 700; padding: 4px 8px; border-radius: 0 10px 0 0; }
+
+.catalog-card-info-box { flex: 1; display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.catalog-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+.catalog-card-category { font-size: 9px; font-weight: 700; color: #ef4444; letter-spacing: 0.5px; }
+.catalog-card-bookmark { color: #fca5a5; background: none; border: none; cursor: pointer; padding: 0; transition: color .2s; }
+.catalog-card-bookmark.saved { color: #ef4444; }
+
+.catalog-card-title-btn { background: none; border: none; padding: 0; text-align: left; cursor: pointer; }
+.catalog-card-title { font-size: 16px; font-weight: 800; color: #111827; margin: 0 0 4px 0; line-height: 1.2; text-overflow: ellipsis; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.catalog-card-location { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #6b7280; }
+.catalog-card-location svg { color: #f43f5e; }
+
+.catalog-card-summary-box { display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed #e5e7eb; padding-top: 12px; }
+.catalog-summary-item { display: flex; flex-direction: column; gap: 2px; }
+.catalog-summary-item.align-right { text-align: right; }
+.catalog-summary-item small { font-size: 10px; color: #6b7280; }
+.catalog-summary-item strong { font-size: 13px; color: #111827; }
+.catalog-summary-item .calories-text { color: #ef4444; font-size: 15px; }
+.catalog-summary-item .calories-text span { font-size: 11px; font-weight: 600; color: #374151; }
+
+.catalog-card-macros-box { display: flex; gap: 8px; }
+.macro-pill { flex: 1; display: flex; align-items: center; gap: 8px; background: #fffaf5; border: 1px solid #ffedd5; padding: 8px; border-radius: 12px; }
+.macro-pill.macro-protein { background: #fff5f2; border-color: #ffedd5; }
+.macro-pill.macro-carbs { background: #fdf4ff; border-color: #fae8ff; }
+.macro-pill.macro-fat { background: #fffbeb; border-color: #fef3c7; }
+
+.macro-icon { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.macro-protein .macro-icon { background: #ffedd5; color: #ea580c; }
+.macro-carbs .macro-icon { background: #fae8ff; color: #d946ef; }
+.macro-fat .macro-icon { background: #fef3c7; color: #eab308; }
+
+.macro-texts { display: flex; flex-direction: column; }
+.macro-texts small { font-size: 9px; color: #6b7280; }
+.macro-texts strong { font-size: 12px; color: #111827; }
+
+.catalog-card-slider-box { margin-top: 4px; }
+.catalog-slider-header { display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 600; color: #111827; margin-bottom: 8px; }
+.catalog-slider-header output { color: #ef4444; font-size: 12px; }
+
+.catalog-slider-input { width: 100%; height: 6px; background: #fce7f3; border-radius: 3px; appearance: none; outline: none; }
+.catalog-slider-input::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #f43f5e; cursor: pointer; box-shadow: 0 2px 4px rgba(244, 63, 94, 0.3); }
+
+.catalog-card-actions-box { display: flex; align-items: stretch; gap: 12px; margin-top: 8px; }
+.catalog-quick-portions { display: flex; flex: 1; gap: 6px; }
+.catalog-quick-portions button { flex: 1; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; font-size: 11px; font-weight: 600; color: #4b5563; cursor: pointer; transition: all .2s; }
+.catalog-quick-portions button.active { background: #ef4444; color: #fff; border-color: transparent; box-shadow: 0 4px 10px rgba(239, 68, 68, 0.3); }
+
+.catalog-add-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; background: linear-gradient(135deg, #f43f5e, #fb923c); color: #fff; border: none; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all .2s; padding: 12px; box-shadow: 0 6px 15px rgba(244, 63, 94, 0.25); }
+.catalog-add-btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+
+/* Ensure modal looks right with new design */
+.nutrition-scan-modal__header { background: radial-gradient(circle at 100% 0, #fff1f2, transparent 50%); padding-bottom: 0 !important; border-bottom: none !important; }
+.nutrition-catalog-body { background: #fafaf9; }
+.catalog-card-image-box .nutrition-catalog-card__media { width: 100%; height: 100%; border-radius: 0; }
+.nutrition-category-dropdown { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 16px; background: #f3f4f6; width: auto; margin-bottom: 8px; border: none; }
+.nutrition-category-dropdown > span { font-size: 11px; color: #6b7280; font-weight: 600; text-transform: uppercase; }
+.nutrition-category-dropdown .dropdown-wrapper { position: relative; flex: 1; }
+.nutrition-category-dropdown select { width: 100%; appearance: none; border: none; background: transparent; font-size: 14px; font-weight: 700; color: #111827; outline: none; cursor: pointer; padding-right: 24px; padding-top: 0; padding-bottom: 0; }
+.nutrition-category-dropdown .dropdown-icon { position: absolute; right: 0; top: 50%; transform: translateY(-50%); color: #6b7280; pointer-events: none; }
+
+.nutrition-catalog-card { background: #fff; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); padding: 12px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 12px; border: 1px solid #f9fafb; }
+.catalog-card-image-box { position: relative; width: 80px; height: 80px; border-radius: 14px; overflow: hidden; background: #f3f4f6; flex-shrink: 0; }
+.catalog-card-title { font-size: 15px; font-weight: 800; color: #111827; margin: 0 0 4px 0; line-height: 1.2; text-overflow: ellipsis; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.catalog-card-summary-box { display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed #e5e7eb; padding-top: 10px; }
+.macro-pill { flex: 1; display: flex; align-items: center; gap: 6px; background: #fffaf5; border: 1px solid #ffedd5; padding: 6px; border-radius: 10px; }
+.catalog-add-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; background: linear-gradient(135deg, #f43f5e, #fb923c); color: #fff; border: none; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all .2s; padding: 10px; box-shadow: 0 6px 15px rgba(244, 63, 94, 0.25); }
+
+/* Override specific to the category dropdown so it doesn't get stretched by media queries */
+.nutrition-catalog-filters > label.nutrition-category-dropdown { 
+  flex: none !important;
+  flex-basis: auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  min-height: auto !important;
+  display: inline-flex !important;
+  align-items: center; 
+  gap: 12px; 
+  padding: 12px 16px !important; 
+  border-radius: 16px !important; 
+  background: #f3f4f6 !important; 
+  margin-bottom: 8px; 
+  border: none !important; 
+}
+.nutrition-catalog-filters > label.nutrition-category-dropdown span {
+  display: block !important;
+  font-size: 11px; 
+  color: #6b7280; 
+  font-weight: 600; 
+  text-transform: uppercase; 
+}

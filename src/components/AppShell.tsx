@@ -13,7 +13,7 @@ import {
   HelpCircle,
   Home,
   LayoutDashboard,
-  Salad,
+  Soup,
   LogOut,
   Menu,
   Search,
@@ -60,7 +60,7 @@ const studentNavSections: ShellNavSection[] = [
     label: 'AURA ACADEMY',
     items: [
       { id: 'courses' as const, label: 'Học chuyên sâu', icon: BookOpen },
-      { id: 'nutrition' as const, label: 'Dinh dưỡng', icon: Salad },
+      { id: 'nutrition' as const, label: 'Dinh dưỡng', icon: Soup },
       { id: 'progress' as const, label: 'Tiến độ & ôn tập', icon: BarChart3 },
     ],
   },
@@ -77,8 +77,8 @@ const studentNavSections: ShellNavSection[] = [
 const studentMobileNav: ShellNavItem[] = [
   { id: 'home', label: 'Hôm nay', icon: Home },
   { id: 'courses', label: 'Học', icon: BookOpen },
+  { id: 'nutrition', label: 'Dinh dưỡng', icon: Soup },
   { id: 'progress', label: 'Tiến độ', icon: BarChart3 },
-  { id: 'nutrition', label: 'Dinh dưỡng', icon: Salad },
   { id: 'profile', label: 'Cá nhân', icon: UserRound },
 ]
 

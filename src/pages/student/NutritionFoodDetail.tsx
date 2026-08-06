@@ -463,46 +463,48 @@ export default function NutritionFoodDetail({
 
       <div className="nutrition-food-detail__layout">
         <div className="nutrition-food-detail__main">
-          <section className="nutrition-food-detail__section" aria-labelledby="macro-heading">
-            <div className="nutrition-food-detail__section-heading">
-              <div>
-                <span>THÀNH PHẦN CHÍNH</span>
-                <h2 id="macro-heading">Dinh dưỡng theo {serving.label}</h2>
+          {(energy != null || protein != null || carbohydrate != null || fat != null) && (
+            <section className="nutrition-food-detail__section" aria-labelledby="macro-heading">
+              <div className="nutrition-food-detail__section-heading">
+                <div>
+                  <span>THÀNH PHẦN CHÍNH</span>
+                  <h2 id="macro-heading">Dinh dưỡng theo {serving.label}</h2>
+                </div>
+                <span className="nutrition-food-detail__reference-label">Dữ liệu tham khảo</span>
               </div>
-              <span className="nutrition-food-detail__reference-label">Dữ liệu tham khảo</span>
-            </div>
 
-            <div className="nutrition-food-detail__macro-grid">
-              <div className="nutrition-food-detail__macro nutrition-food-detail__macro--energy">
-                <span><Flame size={18} aria-hidden="true" /></span>
-                <div><small>Năng lượng</small><strong>{formatValue(energy)} <em>kcal</em></strong></div>
-              </div>
-              <div className="nutrition-food-detail__macro nutrition-food-detail__macro--protein">
-                <span><Beef size={18} aria-hidden="true" /></span>
-                <div>
-                  <small>Chất đạm</small>
-                  <strong>{formatValue(protein)} <em>g</em></strong>
-                  {(protein ?? 0) > 0 && <em>({Math.round((((protein ?? 0) * 4) / Math.max(1, energy ?? 0)) * 100)}%)</em>}
+              <div className="nutrition-food-detail__macro-grid">
+                <div className="nutrition-food-detail__macro nutrition-food-detail__macro--energy">
+                  <span><Flame size={18} aria-hidden="true" /></span>
+                  <div><small>Năng lượng</small><strong>{formatValue(energy)} <em>kcal</em></strong></div>
+                </div>
+                <div className="nutrition-food-detail__macro nutrition-food-detail__macro--protein">
+                  <span><Beef size={18} aria-hidden="true" /></span>
+                  <div>
+                    <small>Chất đạm</small>
+                    <strong>{formatValue(protein)} <em>g</em></strong>
+                    {(protein ?? 0) > 0 && <em>({Math.round((((protein ?? 0) * 4) / Math.max(1, energy ?? 0)) * 100)}%)</em>}
+                  </div>
+                </div>
+                <div className="nutrition-food-detail__macro nutrition-food-detail__macro--carbs">
+                  <span><Wheat size={18} aria-hidden="true" /></span>
+                  <div>
+                    <small>Bột đường</small>
+                    <strong>{formatValue(carbohydrate)} <em>g</em></strong>
+                    {(carbohydrate ?? 0) > 0 && <em>({Math.round((((carbohydrate ?? 0) * 4) / Math.max(1, energy ?? 0)) * 100)}%)</em>}
+                  </div>
+                </div>
+                <div className="nutrition-food-detail__macro nutrition-food-detail__macro--fat">
+                  <span><Droplets size={18} aria-hidden="true" /></span>
+                  <div>
+                    <small>Chất béo</small>
+                    <strong>{formatValue(fat)} <em>g</em></strong>
+                    {(fat ?? 0) > 0 && <em>({Math.round((((fat ?? 0) * 9) / Math.max(1, energy ?? 0)) * 100)}%)</em>}
+                  </div>
                 </div>
               </div>
-              <div className="nutrition-food-detail__macro nutrition-food-detail__macro--carbs">
-                <span><Wheat size={18} aria-hidden="true" /></span>
-                <div>
-                  <small>Bột đường</small>
-                  <strong>{formatValue(carbohydrate)} <em>g</em></strong>
-                  {(carbohydrate ?? 0) > 0 && <em>({Math.round((((carbohydrate ?? 0) * 4) / Math.max(1, energy ?? 0)) * 100)}%)</em>}
-                </div>
-              </div>
-              <div className="nutrition-food-detail__macro nutrition-food-detail__macro--fat">
-                <span><Droplets size={18} aria-hidden="true" /></span>
-                <div>
-                  <small>Chất béo</small>
-                  <strong>{formatValue(fat)} <em>g</em></strong>
-                  {(fat ?? 0) > 0 && <em>({Math.round((((fat ?? 0) * 9) / Math.max(1, energy ?? 0)) * 100)}%)</em>}
-                </div>
-              </div>
-            </div>
-          </section>
+            </section>
+          )}
 
           <section className="nutrition-food-detail__section" aria-labelledby="micronutrient-heading">
             <div className="nutrition-food-detail__section-heading">
@@ -556,24 +558,29 @@ export default function NutritionFoodDetail({
             )}
           </section>
 
-          {!!record.recipeComponents?.length && (
-            <section className="nutrition-food-detail__section" aria-labelledby="ingredients-heading">
-              <div className="nutrition-food-detail__section-heading">
-                <div>
-                  <span>THÀNH PHẦN MÓN</span>
-                  <h2 id="ingredients-heading">Nguyên liệu từ nguồn</h2>
+          {(() => {
+            const validComponents = record.recipeComponents?.filter(c => (c.nameVi || c.nameEn) && c.amount != null && c.amount > 0) || [];
+            if (validComponents.length === 0) return null;
+            
+            return (
+              <section className="nutrition-food-detail__section" aria-labelledby="ingredients-heading">
+                <div className="nutrition-food-detail__section-heading">
+                  <div>
+                    <span>THÀNH PHẦN MÓN</span>
+                    <h2 id="ingredients-heading">Nguyên liệu từ nguồn</h2>
+                  </div>
                 </div>
-              </div>
-              <ul className="nutrition-food-detail__ingredients">
-                {record.recipeComponents.map((component, index) => (
-                  <li key={component.id || `${component.nameVi ?? 'ingredient'}-${index}`}>
-                    <span>{component.nameVi || component.nameEn || 'Thành phần chưa đặt tên'}</span>
-                    <strong>{component.amount == null ? '—' : formatValue(component.amount, 2)} {component.unit || ''}</strong>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
+                <ul className="nutrition-food-detail__ingredients">
+                  {validComponents.map((component, index) => (
+                    <li key={component.id || `${component.nameVi ?? 'ingredient'}-${index}`}>
+                      <span>{component.nameVi || component.nameEn}</span>
+                      <strong>{component.amount == null ? '—' : formatValue(component.amount, 2)} {component.unit || ''}</strong>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })()}
 
           <section className="nutrition-food-detail__source" aria-labelledby="source-heading">
             <span className="nutrition-food-detail__source-icon"><Database size={20} aria-hidden="true" /></span>

@@ -75,23 +75,6 @@ export interface CapturedMealDetailProps {
   onDelete?: (mealId: string) => void
 }
 
-const DEFAULT_INGREDIENTS: Record<string, AiFoodItem[]> = {
-  default: [
-    { id: 'ing-1', name: 'Thịt gà luộc (xé phay)', grams: 90, calories: 577, protein: 28, carbs: 0, fat: 12 },
-    { id: 'ing-2', name: 'Cơm trắng', grams: 100, calories: 130, protein: 2.7, carbs: 28, fat: 0.3 },
-    { id: 'ing-3', name: 'Trứng gà luộc', grams: 50, calories: 105, protein: 6.3, carbs: 0.6, fat: 5.3 },
-    { id: 'ing-4', name: 'Súp lơ xanh luộc', grams: 80, calories: 96, protein: 2.5, carbs: 6, fat: 0.3 },
-    { id: 'ing-5', name: 'Cà rốt luộc', grams: 60, calories: 112, protein: 0.8, carbs: 8, fat: 0.2 },
-    { id: 'ing-6', name: 'Cà chua bi', grams: 60, calories: 19, protein: 0.5, carbs: 2.4, fat: 0.1 },
-  ],
-  pho: [
-    { id: 'ing-p1', name: 'Bánh phở tươi', grams: 150, calories: 210, protein: 4, carbs: 46, fat: 0.8 },
-    { id: 'ing-p2', name: 'Thịt bò tái/nạm', grams: 100, calories: 288, protein: 26, carbs: 0, fat: 20 },
-    { id: 'ing-p3', name: 'Nước dùng phở bò', grams: 250, calories: 44, protein: 3, carbs: 2, fat: 2.5 },
-    { id: 'ing-p4', name: 'Hành lá & rau thơm', grams: 20, calories: 8, protein: 0.5, carbs: 1.5, fat: 0.1 },
-  ],
-}
-
 export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
   meal,
   dailyCalorieGoal = 2000,
@@ -142,12 +125,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
 
   // Initial ingredients
   const initialItems = React.useMemo(() => {
-    if (meal.items && meal.items.length > 0) return meal.items
-    const lowerTitle = meal.title.toLowerCase()
-    if (lowerTitle.includes('phở') || lowerTitle.includes('pho')) {
-      return DEFAULT_INGREDIENTS.pho
-    }
-    return DEFAULT_INGREDIENTS.default
+    return meal.items && meal.items.length > 0 ? meal.items : []
   }, [meal])
 
   const [ingredients, setIngredients] = useState<AiFoodItem[]>(initialItems)
@@ -456,49 +434,51 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
         </div>
 
         {/* Ingredients / Thành Phần Section */}
-        <div className="fdet-section">
-          <div className="fdet-section-header">
-            <h2 className="fdet-section-title">Thành phần</h2>
-            <button
-              type="button"
-              className="fdet-add-more-btn"
-              onClick={() => setShowAddIngredientModal(true)}
-            >
-              <Plus size={15} />
-              <span>Thêm</span>
-            </button>
-          </div>
+        {ingredients.length > 0 && (
+          <div className="fdet-section">
+            <div className="fdet-section-header">
+              <h2 className="fdet-section-title">Thành phần</h2>
+              <button
+                type="button"
+                className="fdet-add-more-btn"
+                onClick={() => setShowAddIngredientModal(true)}
+              >
+                <Plus size={15} />
+                <span>Thêm</span>
+              </button>
+            </div>
 
-          <div className="fdet-ingredients-list">
-            {ingredients.map((item) => {
-              const scaledGrams = Math.round(item.grams * portionCount)
-              const scaledCalories = Math.round(item.calories * portionCount)
+            <div className="fdet-ingredients-list">
+              {ingredients.map((item) => {
+                const scaledGrams = Math.round(item.grams * portionCount)
+                const scaledCalories = Math.round(item.calories * portionCount)
 
-              return (
-                <div className="fdet-ingredient-card" key={item.id}>
-                  <div className="fdet-ing-left">
-                    <strong className="fdet-ing-name">{item.name}</strong>
-                    <span className="fdet-ing-cal"> · {scaledCalories} cal</span>
+                return (
+                  <div className="fdet-ingredient-card" key={item.id}>
+                    <div className="fdet-ing-left">
+                      <strong className="fdet-ing-name">{item.name}</strong>
+                      <span className="fdet-ing-cal"> · {scaledCalories} cal</span>
+                    </div>
+
+                    <div className="fdet-ing-right">
+                      <span className="fdet-ing-grams">{scaledGrams}g</span>
+                      {ingredients.length > 1 && (
+                        <button
+                          type="button"
+                          className="fdet-ing-del"
+                          onClick={() => handleDeleteIngredient(item.id)}
+                          title="Xóa thành phần"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
                   </div>
-
-                  <div className="fdet-ing-right">
-                    <span className="fdet-ing-grams">{scaledGrams}g</span>
-                    {ingredients.length > 1 && (
-                      <button
-                        type="button"
-                        className="fdet-ing-del"
-                        onClick={() => handleDeleteIngredient(item.id)}
-                        title="Xóa thành phần"
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* ✨ Đánh Giá Từ AI Coach & Nhận Xét Từ Coach */}
         <div className="fdet-section" style={{ marginTop: '16px' }}>

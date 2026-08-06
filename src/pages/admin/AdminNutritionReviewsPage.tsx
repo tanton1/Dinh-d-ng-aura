@@ -53,9 +53,32 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
   const [isLoading, setIsLoading] = useState(true)
   
   // Filters & Search
-  const [activeFilter, setActiveFilter] = useState<'all' | 'priority' | 'new' | 'low_ai' | 'pending_response' | 'approved'>('all')
+  const [activeFilter, setActiveFilter] = useState<'all' | 'priority' | 'new'  | 'pending_response' | 'approved' | 'overdue'>('all')
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60000)
+    return () => clearInterval(timer)
+  }, [])
+  const [hasSwitchedToOverdue, setHasSwitchedToOverdue] = useState(false)
+  useEffect(() => {
+    const hasOverdue = allMeals.some(m => m.status === 'pending' && m.createdAtTimestamp && (now - m.createdAtTimestamp) > 3600000)
+    if (hasOverdue && !hasSwitchedToOverdue) {
+      setActiveFilter('overdue')
+      setHasSwitchedToOverdue(true)
+    }
+  }, [allMeals, now, hasSwitchedToOverdue])
   const [batchFilter, setBatchFilter] = useState<'all' | 'priority' | 'new' | 'low_ai'>('all')
   const [searchTerm, setSearchTerm] = useState('')
+
+  const onTimePercentage = useMemo(() => {
+    const approved = allMeals.filter(m => m.status === 'approved')
+    if (approved.length === 0) return 100
+    const onTimeCount = approved.filter(m => {
+      if (!m.createdAtTimestamp || !m.approvedAtTimestamp) return true
+      return (m.approvedAtTimestamp - m.createdAtTimestamp) <= 3600000
+    }).length
+    return Math.round((onTimeCount / approved.length) * 100)
+  }, [allMeals])
 
   // Batch Selection State
   const [selectedBatchIds, setSelectedBatchIds] = useState<Set<string>>(new Set())
@@ -106,20 +129,25 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
 
       if (activeFilter === 'priority') return m.priority === 'high' && m.status === 'pending'
       if (activeFilter === 'new') return Boolean(m.isNew) && m.status === 'pending'
-      if (activeFilter === 'low_ai') return (m.aiScore ? m.aiScore < 75 : false) && m.status === 'pending'
-      if (activeFilter === 'pending_response') return m.status === 'pending'
+      
+      if (activeFilter === 'pending_response') return m.status === 'pending' && !(m.createdAtTimestamp && (now - m.createdAtTimestamp) > 3600000)
       if (activeFilter === 'approved') return m.status === 'approved'
+      if (activeFilter === 'overdue') return m.status === 'pending' && Boolean(m.createdAtTimestamp && (now - m.createdAtTimestamp) > 3600000)
 
       return true
     })
   }, [allMeals, activeFilter, searchTerm])
 
   const highPriorityMeals = useMemo(() => {
-    return filteredMeals.filter((m) => m.priority === 'high' && m.status === 'pending')
+    return filteredMeals.filter((m) => m.priority === 'high' && m.status === 'pending' && !(m.createdAtTimestamp && (now - m.createdAtTimestamp) > 3600000))
   }, [filteredMeals])
 
+  const overdueMeals = useMemo(() => {
+    return filteredMeals.filter((m) => m.status === 'pending' && Boolean(m.createdAtTimestamp && (now - m.createdAtTimestamp) > 3600000))
+  }, [filteredMeals, now])
+
   const pendingMeals = useMemo(() => {
-    return filteredMeals.filter((m) => m.priority !== 'high' && m.status === 'pending')
+    return filteredMeals.filter((m) => m.priority !== 'high' && m.status === 'pending' && !(m.createdAtTimestamp && (now - m.createdAtTimestamp) > 3600000))
   }, [filteredMeals])
 
   const approvedMeals = useMemo(() => {
@@ -223,7 +251,7 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
   }
 
   const handleQuickApproveAiHighConfidence = async () => {
-    const highAiMeals = allMeals.filter((m) => m.status === 'pending' && (m.aiScore || 0) >= 90)
+    const highAiMeals: any[] = []
     for (const m of highAiMeals) {
       try {
         await approveMealInFirestore(m.id, 'Phê duyệt tự động - Chỉ số AI tin cậy cao >= 90%')
@@ -472,38 +500,7 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
             </div>
           </div>
 
-          {/* AI Analysis Section (Cleaned without negative tags) */}
-          <div className="aura-detail-section-card">
-            <div className="aura-section-header-title">
-              <h3>Chỉ số AI phân tích</h3>
-              <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                ⚡ Nhận diện tự động
-              </span>
-            </div>
-
-            {/* AI Confidence Gauge */}
-            <div className="aura-ai-gauge-box">
-              <div className="aura-gauge-circle-wrapper">
-                <svg className="aura-gauge-svg" viewBox="0 0 36 36">
-                  <path
-                    className="gauge-bg"
-                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                  />
-                  <path
-                    className="gauge-progress"
-                    strokeDasharray={`${meal.aiScore || 94}, 100`}
-                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                  />
-                </svg>
-                <div className="aura-gauge-text">{meal.aiScore || 94}%</div>
-              </div>
-              <div className="aura-gauge-info">
-                <h4>Độ chính xác AI đạt {meal.aiScore || 94}%</h4>
-                <p>Hệ thống tự động phân tích hình ảnh và ước tính thành phần dinh dưỡng chuẩn xác.</p>
-              </div>
-            </div>
-          </div>
-
+          
           {/* Slide 1 & Slide 2 Tab Navigation Switcher */}
           <div className="aura-slides-tab-row">
             <button
@@ -847,6 +844,13 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
           <div className="aura-filter-pills-scroll">
             <button
               type="button"
+              className={`aura-filter-pill-item ${activeFilter === 'overdue' ? 'active' : ''}`}
+              onClick={() => setActiveFilter('overdue')}
+            >
+              Quá hạn <span className="pill-count">{allMeals.filter((m) => m.status === 'pending' && Boolean(m.createdAtTimestamp && (now - m.createdAtTimestamp) > 3600000)).length}</span>
+            </button>
+            <button
+              type="button"
               className={`aura-filter-pill-item ${batchFilter === 'all' ? 'active' : ''}`}
               onClick={() => setBatchFilter('all')}
             >
@@ -942,7 +946,7 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
 
                         <div className="aura-batch-sub-row">
                           <span className="aura-meal-sub-label">{meal.mealType || 'Bữa tối'}</span>
-                          <span className="aura-ai-score-tag purple">AI {meal.aiScore || 68}%</span>
+                          
                         </div>
 
                         <div className="aura-batch-macros-row">
@@ -1000,7 +1004,7 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
 
                         <div className="aura-batch-sub-row">
                           <span className="aura-meal-sub-label">{meal.mealType || 'Bữa trưa'}</span>
-                          <span className="aura-ai-score-tag green">AI {meal.aiScore || 92}%</span>
+                          
                         </div>
 
                         <div className="aura-batch-macros-row">
@@ -1089,6 +1093,7 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
     )
   }
 
+
   // ==========================================
   // VIEW 1: OVERVIEW DASHBOARD ("DUYỆT BỮA ĂN")
   // ==========================================
@@ -1122,13 +1127,11 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
         {/* Welcome Hero Card */}
         <div className="aura-welcome-hero-card">
           <div className="aura-hero-text-col">
-            <h2 className="aura-welcome-title">Xin chào Hải Âu! 👋</h2>
-            <p className="aura-welcome-desc">
-              Bạn có <strong>{allMeals.filter((m) => m.status === 'pending').length} bữa ăn</strong> cần duyệt hôm nay.
-            </p>
+            <h2>Chào buổi sáng, Coach!</h2>
+            <p>Hôm nay bạn có {allMeals.filter((m) => m.status === 'pending').length} bữa ăn cần duyệt.</p>
           </div>
-          <div className="aura-hero-graphic-col">
-            <div className="aura-hero-3d-graphic flex items-center justify-center">
+          <div className="aura-hero-stats-badge">
+            <div className="aura-stat-circle">
               <span className="text-2xl">📋</span>
             </div>
           </div>
@@ -1136,23 +1139,23 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
 
         {/* 4-Stat KPI Grid */}
         <div className="aura-kpi-stats-grid">
-          <div className="aura-kpi-card orange">
+          <div className={`aura-kpi-card orange cursor-pointer ${activeFilter === 'pending_response' ? 'ring-2 ring-orange-500' : ''}`} onClick={() => setActiveFilter('pending_response')}>
             <div className="aura-kpi-icon">
               <Clock size={16} />
             </div>
-            <strong className="aura-kpi-val">{allMeals.filter((m) => m.status === 'pending').length}</strong>
+            <strong className="aura-kpi-val">{allMeals.filter((m) => m.status === 'pending' && !(m.createdAtTimestamp && (now - m.createdAtTimestamp) > 3600000)).length}</strong>
             <span className="aura-kpi-lbl">Chờ duyệt</span>
           </div>
 
-          <div className="aura-kpi-card pink">
+          <div className={`aura-kpi-card pink cursor-pointer ${activeFilter === 'overdue' ? 'ring-2 ring-pink-500' : ''}`} onClick={() => setActiveFilter('overdue')}>
             <div className="aura-kpi-icon">
-              <Flame size={16} />
+              <AlertCircle size={16} />
             </div>
-            <strong className="aura-kpi-val">{allMeals.filter((m) => m.priority === 'high' && m.status === 'pending').length}</strong>
-            <span className="aura-kpi-lbl">Ưu tiên cao</span>
+            <strong className="aura-kpi-val">{allMeals.filter((m) => m.status === 'pending' && Boolean(m.createdAtTimestamp && (now - m.createdAtTimestamp) > 3600000)).length}</strong>
+            <span className="aura-kpi-lbl">Trễ SLA</span>
           </div>
 
-          <div className="aura-kpi-card green">
+          <div className={`aura-kpi-card green cursor-pointer ${activeFilter === 'approved' ? 'ring-2 ring-emerald-500' : ''}`} onClick={() => setActiveFilter('approved')}>
             <div className="aura-kpi-icon">
               <CheckCircle2 size={16} />
             </div>
@@ -1164,66 +1167,8 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
             <div className="aura-kpi-icon">
               <Percent size={16} />
             </div>
-            <strong className="aura-kpi-val">92%</strong>
-            <span className="aura-kpi-lbl">Đúng hạn</span>
-          </div>
-        </div>
-
-        {/* AI Banner Alert */}
-        <div className="aura-ai-reminder-banner" onClick={() => setViewMode('batch')}>
-          <div className="aura-ai-banner-left">
-            <Sparkles size={16} className="text-pink-600" />
-            <span>AI gợi ý: 2 bữa ăn cần phản hồi trước 20 phút</span>
-          </div>
-          <ChevronRight size={16} className="text-pink-600" />
-        </div>
-
-        {/* Quick Filter Pill Tabs */}
-        <div className="aura-quick-filters-row">
-          <span className="aura-filter-heading-lbl">Bộ lọc nhanh</span>
-          <div className="aura-filter-pills-scroll">
-            <button
-              type="button"
-              className={`aura-filter-pill-item ${activeFilter === 'all' ? 'active' : ''}`}
-              onClick={() => setActiveFilter('all')}
-            >
-              Tất cả <span className="pill-count">{allMeals.length}</span>
-            </button>
-            <button
-              type="button"
-              className={`aura-filter-pill-item ${activeFilter === 'priority' ? 'active' : ''}`}
-              onClick={() => setActiveFilter('priority')}
-            >
-              Ưu tiên <span className="pill-count">{allMeals.filter((m) => m.priority === 'high' && m.status === 'pending').length}</span>
-            </button>
-            <button
-              type="button"
-              className={`aura-filter-pill-item ${activeFilter === 'new' ? 'active' : ''}`}
-              onClick={() => setActiveFilter('new')}
-            >
-              Mới <span className="pill-count">{allMeals.filter((m) => m.isNew && m.status === 'pending').length}</span>
-            </button>
-            <button
-              type="button"
-              className={`aura-filter-pill-item ${activeFilter === 'low_ai' ? 'active' : ''}`}
-              onClick={() => setActiveFilter('low_ai')}
-            >
-              AI thấp <span className="pill-count">{allMeals.filter((m) => (m.confidence === 'low' || (m.aiScore || 0) < 80) && m.status === 'pending').length}</span>
-            </button>
-            <button
-              type="button"
-              className={`aura-filter-pill-item ${activeFilter === 'pending_response' ? 'active' : ''}`}
-              onClick={() => setActiveFilter('pending_response')}
-            >
-              Đợi phản hồi <span className="pill-count">{allMeals.filter((m) => m.status === 'pending').length}</span>
-            </button>
-            <button
-              type="button"
-              className={`aura-filter-pill-item ${activeFilter === 'approved' ? 'active' : ''}`}
-              onClick={() => setActiveFilter('approved')}
-            >
-              Đã duyệt <span className="pill-count">{allMeals.filter((m) => m.status === 'approved').length}</span>
-            </button>
+            <strong className="aura-kpi-val">{onTimePercentage}%</strong>
+            <span className="aura-kpi-lbl">SLA (60p)</span>
           </div>
         </div>
 
@@ -1243,228 +1188,80 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
           </button>
         </div>
 
-        {/* SECTION 1: ƯU TIÊN CAO */}
-        {highPriorityMeals.length > 0 && (
-          <div className="aura-dash-group-section">
-            <div className="aura-group-header-row">
-              <h3>Ưu tiên cao ({highPriorityMeals.length})</h3>
-              <button
-                type="button"
-                className="aura-see-all-link"
-                onClick={() => setViewMode('batch')}
-              >
-                Xem tất cả &gt;
-              </button>
-            </div>
-
-            <div className="aura-priority-cards-grid">
-              {highPriorityMeals.map((meal) => (
+        {/* Render filtered meals directly */}
+        <div className="aura-dash-group-section" style={{ marginTop: '16px' }}>
+          <div className="aura-pending-meals-list">
+            {filteredMeals.length === 0 ? (
+               <div className="text-center py-8 text-gray-400">Không có dữ liệu phù hợp.</div>
+            ) : filteredMeals.map((meal) => {
+              const isOverdue = meal.status === 'pending' && Boolean(meal.createdAtTimestamp && (now - meal.createdAtTimestamp) > 3600000);
+              return (
                 <div
                   key={meal.id}
-                  className="aura-priority-meal-card cursor-pointer"
+                  className="aura-pending-meal-item-row cursor-pointer relative"
                   onClick={() => handleOpenDetail(meal.id)}
-                >
-                  <div className="aura-card-photo-wrapper">
-                    <img src={meal.img} alt={meal.studentName} />
-                    <span className="aura-badge-priority-top">
-                      <Flame size={12} fill="currentColor" /> Ưu tiên
-                    </span>
-                  </div>
-
-                  <div className="aura-card-info-content">
-                    <div className="aura-card-title-row">
-                      <div className="aura-student-title">
-                        <strong>{meal.studentName}</strong>
-                        {meal.isNew && <span className="aura-new-badge">⭐ Mới</span>}
-                      </div>
-                      <span className="aura-card-time">{meal.time}</span>
-                    </div>
-
-                    <div className="aura-meal-sub-title">
-                      <span>{meal.mealType || 'Bữa tối'}</span>
-                      {meal.aiScore && (
-                        <span className="aura-ai-score-pill purple">AI {meal.aiScore}%</span>
-                      )}
-                    </div>
-
-                    <div className="aura-tags-flex">
-                      <span className="aura-pill-tag purple">AI tự tin thấp</span>
-                      <span className="aura-pill-tag orange">Cần phản hồi</span>
-                    </div>
-
-                    <div className="aura-macros-stats-line">
-                      <span><strong>{meal.totalKcal}</strong> Kcal</span>
-                      <span><strong>{meal.totalProtein}g</strong> Protein</span>
-                      <span><strong>{meal.totalCarb || 35}g</strong> Carb</span>
-                      <span><strong>{meal.totalFat || 10}g</strong> Fat</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* SECTION 2: CẦN DUYỆT */}
-        <div className="aura-dash-group-section">
-          <div
-            className="aura-group-header-row cursor-pointer"
-            onClick={() => setIsPendingGroupOpen(!isPendingGroupOpen)}
-          >
-            <div className="flex items-center gap-2">
-              <h3>Cần duyệt ({pendingMeals.length})</h3>
-            </div>
-            <button type="button" className="aura-collapse-btn">
-              <ChevronDown
-                size={18}
-                style={{
-                  transform: isPendingGroupOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                  transition: 'transform 0.2s'
-                }}
-              />
-            </button>
-          </div>
-
-          {isPendingGroupOpen && (
-            <div className="aura-pending-meals-list">
-              {pendingMeals.map((meal) => (
-                <div
-                  key={meal.id}
-                  className="aura-pending-meal-item-row cursor-pointer"
-                  onClick={() => handleOpenDetail(meal.id)}
+                  style={isOverdue ? { borderColor: '#fecaca', background: '#fff5f5' } : {}}
                 >
                   <div className="aura-item-thumb">
                     <img src={meal.img} alt={meal.studentName} />
                   </div>
 
-                  <div className="aura-item-details">
-                    <div className="aura-item-top">
-                      <strong className="aura-student-name">{meal.studentName}</strong>
-                      <span className="aura-item-time">{meal.time}</span>
+                  <div className="aura-item-details flex-1">
+                    <div className="aura-item-top flex justify-between items-center mb-1">
+                      <strong className="aura-student-name flex items-center gap-2">
+                        {meal.studentName}
+                        {isOverdue && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Trễ SLA</span>}
+                      </strong>
+                      <span className={`aura-item-time ${isOverdue ? 'text-red-600 font-medium' : ''}`}>{meal.time}</span>
                     </div>
 
-                    <div className="aura-item-sub">
-                      <span className="aura-meal-type">{meal.mealType || 'Bữa trưa'}</span>
-                      <span className="aura-ai-score-tag green">AI {meal.aiScore || 92}%</span>
+                    <div className="aura-item-sub flex justify-between items-center mb-2">
+                      <span className="aura-meal-type text-gray-500 text-xs">{meal.mealType || 'Bữa ăn'}</span>
+                      {meal.status === 'approved' ? (
+                        <span className="aura-status-approved-badge flex items-center gap-1 text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full text-[11px] font-semibold border border-emerald-100">
+                          <Check size={12} /> Đã duyệt
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-gray-400 font-medium">Chờ duyệt</span>
+                      )}
                     </div>
 
-                    <div className="aura-item-macros">
-                      <span><strong>{meal.totalKcal}</strong> kcal</span>
-                      <span><strong>{meal.totalProtein}g</strong></span>
-                      <span><strong>{meal.totalCarb || 28}g</strong></span>
-                      <span><strong>{meal.totalFat || 8}g</strong></span>
+                    <div className="aura-item-macros flex gap-3 text-[12px] text-gray-600">
+                      <span className="flex items-center gap-1"><Flame size={12} className="text-orange-500" /> <strong>{meal.totalKcal}</strong> kcal</span>
+                      <span><strong>{meal.totalProtein}g</strong> đạm</span>
+                      <span><strong>{meal.totalCarb || 38}g</strong> carb</span>
+                      <span><strong>{meal.totalFat || 9}g</strong> béo</span>
                     </div>
                   </div>
                 </div>
-              ))}
-
-              <button
-                type="button"
-                className="aura-btn-see-all-batch"
-                onClick={() => setViewMode('batch')}
-              >
-                Xem tất cả {pendingMeals.length + highPriorityMeals.length} bữa
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* SECTION 3: ĐÃ DUYỆT GẦN ĐÂY */}
-        {approvedMeals.length > 0 && (
-          <div className="aura-dash-group-section">
-            <div
-              className="aura-group-header-row cursor-pointer"
-              onClick={() => setIsApprovedGroupOpen(!isApprovedGroupOpen)}
-            >
-              <h3>Đã duyệt gần đây</h3>
-              <button type="button" className="aura-see-all-link">
-                Xem tất cả &gt;
-              </button>
-            </div>
-
-            {isApprovedGroupOpen && (
-              <div className="aura-approved-meals-list">
-                {approvedMeals.map((meal) => (
-                  <div key={meal.id} className="aura-approved-item-card">
-                    <div className="aura-approved-icon flex items-center justify-center text-emerald-600">
-                      <CheckCircle2 size={18} />
-                    </div>
-
-                    <div className="aura-item-thumb">
-                      <img src={meal.img} alt={meal.studentName} />
-                    </div>
-
-                    <div className="aura-item-details">
-                      <div className="aura-item-top">
-                        <strong className="aura-student-name">{meal.studentName}</strong>
-                        <span className="aura-item-time">{meal.time}</span>
-                      </div>
-
-                      <div className="aura-item-sub">
-                        <span className="aura-meal-type">{meal.mealType || 'Bữa sáng'}</span>
-                        <span className="aura-status-approved-badge flex items-center gap-1">
-                          <Check size={12} /> Đã duyệt
-                        </span>
-                      </div>
-
-                      <div className="aura-item-macros">
-                        <span><strong>{meal.totalKcal}</strong> kcal</span>
-                        <span><strong>{meal.totalProtein}g</strong></span>
-                        <span><strong>{meal.totalCarb || 38}g</strong></span>
-                        <span><strong>{meal.totalFat || 9}g</strong></span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+              );
+            })}
           </div>
-        )}
+        </div>
       </div>
 
       {/* App Bottom Navigation Bar */}
       <nav className="aura-app-bottom-navbar">
         <button
           type="button"
-          className="aura-nav-item"
-          onClick={() => onNavigate && onNavigate('admin-dashboard')}
-        >
-          <span className="aura-nav-icon">📊</span>
-          <span>Tổng quan</span>
-        </button>
-
-        <button
-          type="button"
-          className="aura-nav-item"
-          onClick={() => onNavigate && onNavigate('admin-courses')}
-        >
-          <span className="aura-nav-icon">🎓</span>
-          <span>Academy</span>
-        </button>
-
-        <button
-          type="button"
-          className="aura-nav-item"
-          onClick={() => onNavigate && onNavigate('admin-students')}
-        >
-          <span className="aura-nav-icon">👥</span>
-          <span>Khách PT</span>
-        </button>
-
-        <button
-          type="button"
           className="aura-nav-item active"
-          onClick={() => setViewMode('overview')}
+          onClick={() => onNavigate?.('admin-nutrition-reviews')}
         >
-          <span className="aura-nav-icon">🍱</span>
-          <span>Duyệt bữa ăn</span>
-          <span className="aura-nav-active-dot" />
+          <span className="aura-nav-icon">🥗</span>
+          <span>Duyệt Meal</span>
         </button>
-
         <button
           type="button"
           className="aura-nav-item"
-          onClick={() => alert('Chức năng cài đặt mở rộng')}
+          onClick={() => onNavigate?.('admin-programs')}
+        >
+          <span className="aura-nav-icon">📋</span>
+          <span>Chương trình</span>
+        </button>
+        <button
+          type="button"
+          className="aura-nav-item"
+          onClick={() => onNavigate?.('admin-roles')}
         >
           <span className="aura-nav-icon">⚙️</span>
           <span>Thêm</span>

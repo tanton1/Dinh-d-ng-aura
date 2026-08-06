@@ -53,24 +53,13 @@ if (isFirebaseConfigured) {
     firestoreDb = initializeFirestore(
       firebaseApp,
       { 
-        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+        localCache: memoryLocalCache(),
         experimentalForceLongPolling: true
       },
       firestoreDatabaseId,
     )
   } catch {
-    try {
-      firestoreDb = initializeFirestore(
-        firebaseApp,
-        { 
-          localCache: memoryLocalCache(),
-          experimentalForceLongPolling: true
-        },
-        firestoreDatabaseId,
-      )
-    } catch {
-      firestoreDb = getFirestore(firebaseApp, firestoreDatabaseId)
-    }
+    firestoreDb = getFirestore(firebaseApp, firestoreDatabaseId)
   }
   firebaseStorage = getStorage(firebaseApp)
   firebaseFunctions = getFunctions(firebaseApp, 'asia-southeast1')
