@@ -27,7 +27,7 @@ export function ProgressRing({ value, size = 56, stroke = 6, label }: { value: n
   )
 }
 
-export function StatCard({ icon, value, label, detail, tone = 'purple' }: { icon: ReactNode; value: string; label: string; detail?: string; tone?: string }) {
+export function StatCard({ icon, value, label, detail, tone = 'pink' }: { icon: ReactNode; value: string; label: string; detail?: string; tone?: string }) {
   return (
     <article className="stat-card">
       <div className={`stat-icon ${tone}`}>{icon}</div>
@@ -66,7 +66,7 @@ export function SectionHeader({ title, action, onAction }: { title: string; acti
   )
 }
 
-export function ProgressBar({ value, tone = 'purple' }: { value: number; tone?: string }) {
+export function ProgressBar({ value, tone = 'pink' }: { value: number; tone?: string }) {
   return (
     <div className="progress-bar" aria-label={`${value}%`}>
       <span className={tone} style={{ width: `${value}%` }} />

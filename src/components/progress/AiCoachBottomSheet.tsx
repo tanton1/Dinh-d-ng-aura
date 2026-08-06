@@ -1,8 +1,19 @@
 import React, { useState } from 'react'
-import { Bot, Send, Sparkles, X } from 'lucide-react'
+import { Bot, Send, Sparkles, X, Loader2 } from 'lucide-react'
+import { askAiCoach } from '../../services/nutritionService'
 
 interface AiCoachBottomSheetProps {
   onClose: () => void
+  userProfile?: {
+    weightKg?: number
+    heightCm?: number
+    targetWeightDeltaKg?: number
+    targetTimeframeMonths?: number
+    age?: number
+    biologicalSex?: 'male' | 'female'
+    goal?: string
+    targetCalories?: number
+  }
 }
 
 interface ChatMessage {
@@ -11,46 +22,64 @@ interface ChatMessage {
   text: string;
 }
 
-export function AiCoachBottomSheet({ onClose }: AiCoachBottomSheetProps) {
+export function AiCoachBottomSheet({ onClose, userProfile }: AiCoachBottomSheetProps) {
+  const currentWeight = userProfile?.weightKg || 65
+  const targetWeight = currentWeight + (userProfile?.targetWeightDeltaKg || -4)
+  const isLoss = (userProfile?.targetWeightDeltaKg || -4) < 0
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '1',
       sender: 'ai',
-      text: 'Xin chào! Tôi là AI Coach của Aura. Bạn muốn hỏi gì về tiến độ sức khỏe và vóc dáng hôm nay?',
+      text: `Xin chào! Tôi là AI Coach của Aura. Dựa trên hồ sơ của bạn (Cân nặng ${currentWeight}kg, mục tiêu ${isLoss ? 'giảm' : 'tăng'} về ${targetWeight}kg), bạn cần hỗ trợ thông tin gì hôm nay?`,
     },
   ])
   const [inputVal, setInputVal] = useState('')
+  const [loading, setLoading] = useState(false)
 
   const chips = [
     '• Vì sao cân chưa thay đổi?',
-    '• Tôi cần ăn bao nhiêu hôm nay?',
+    '• Tôi cần ăn bao nhiêu kcal hôm nay?',
     '• Tuần này tập luyện có hiệu quả không?',
-    '• Phân tích dữ liệu 7 ngày qua',
+    '• Lời khuyên tối ưu cho vóc dáng tôi',
   ]
 
-  const handleSend = (textToSend?: string) => {
+  const handleSend = async (textToSend?: string) => {
     const text = textToSend || inputVal
-    if (!text.trim()) return
+    if (!text.trim() || loading) return
 
     const userMsg: ChatMessage = { id: Date.now().toString(), sender: 'user', text }
     setMessages((prev) => [...prev, userMsg])
     if (!textToSend) setInputVal('')
 
-    // Generate AI response based on topic
-    setTimeout(() => {
-      let aiText = 'Dựa trên dữ liệu 7 ngày qua: '
-      if (text.includes('Vì sao cân chưa thay đổi') || text.includes('cân')) {
-        aiText += 'Cân nặng của bạn đang dao động trong khoảng 0.2-0.3kg. Đây là hiện tượng bình thường do lượng nước và glycogen tích trữ sau các buổi tập strength. Xu hướng 30 ngày vẫn đang đi đúng tiến độ!'
-      } else if (text.includes('ăn bao nhiêu')) {
-        aiText += 'Mục tiêu khuyến nghị hôm nay là 2.200 kcal với 105g Protein, 240g Carb và 65g Fat. Hãy ưu tiên bổ sung protein từ ức gà, cá ngừ hoặc lòng trắng trứng!'
-      } else if (text.includes('tập luyện')) {
-        aiText += 'Bạn đã hoàn thành 3 buổi tập chất lượng trong tuần này. Chỉ số Impact đạt 82/100, độ phục hồi cơ bắp rất tốt. Tiếp tục duy trì buổi tập tiếp theo nhé!'
-      } else {
-        aiText += 'Bạn đang duy trì thói quen rất tốt với chuỗi 5 ngày liên tiếp. Điểm tiến độ đạt 82/100, tăng 8 điểm so với tuần trước. Ưu tiên tuần tới là ghi nhận cân nặng 2 lần vào buổi sáng!'
-      }
+    setLoading(true)
 
-      setMessages((prev) => [...prev, { id: (Date.now() + 1).toString(), sender: 'ai', text: aiText }])
-    }, 600)
+    try {
+      const responseText = await askAiCoach(text, userProfile || {})
+      if (responseText && responseText !== 'Không thể kết nối với AI Coach.' && responseText !== 'AI Coach chưa thể trả lời lúc này.') {
+        setMessages((prev) => [...prev, { id: (Date.now() + 1).toString(), sender: 'ai', text: responseText }])
+      } else {
+        // Dynamic calculated fallback based strictly on user profile
+        let fallback = ''
+        if (text.includes('Vì sao cân chưa thay đổi') || text.includes('cân')) {
+          fallback = `Cân nặng hiện tại ${currentWeight}kg đang dao động bình thường. Với mục tiêu ${targetWeight}kg, việc cân nặng giữ nguyên trong vài ngày thường do tích nước cơ bắp sau tập. Hãy tiếp tục duy trì thói quen nhé!`
+        } else if (text.includes('ăn bao nhiêu')) {
+          const bmr = Math.round(10 * currentWeight + 6.25 * (userProfile?.heightCm || 168) - 5 * (userProfile?.age || 25) + (userProfile?.biologicalSex === 'male' ? 5 : -161))
+          const targetCal = userProfile?.targetCalories || (isLoss ? Math.round(bmr * 1.3 - 350) : Math.round(bmr * 1.35 + 300))
+          const protein = Math.round(currentWeight * 1.8)
+          fallback = `Dựa trên cân nặng ${currentWeight}kg và chiều cao ${userProfile?.heightCm || 168}cm: Mức calo khuyến nghị cho bạn là khoảng ${targetCal} kcal/ngày, với ${protein}g Protein để duy trì cơ bắp.`
+        } else if (text.includes('tập luyện')) {
+          fallback = `Hoạt động tập luyện đều đặn rất tốt cho mục tiêu ${currentWeight}kg -> ${targetWeight}kg của bạn. Hãy đảm bảo nghỉ ngơi đầy đủ giữa các buổi tập!`
+        } else {
+          fallback = `Hồ sơ vóc dáng của bạn (${currentWeight}kg, mục tiêu ${targetWeight}kg) đang đi đúng hướng. Hãy kiên trì ghi nhận dinh dưỡng và tập luyện hàng ngày!`
+        }
+        setMessages((prev) => [...prev, { id: (Date.now() + 1).toString(), sender: 'ai', text: fallback }])
+      }
+    } catch {
+      setMessages((prev) => [...prev, { id: (Date.now() + 1).toString(), sender: 'ai', text: 'Có lỗi xảy ra khi gọi AI Coach. Bạn vui lòng thử lại sau.' }])
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -98,8 +127,9 @@ export function AiCoachBottomSheet({ onClose }: AiCoachBottomSheetProps) {
         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
           <input
             type="text"
-            placeholder="Hỏi AI Coach về tiến độ..."
+            placeholder={loading ? "AI đang suy nghĩ..." : "Hỏi AI Coach về tiến độ..."}
             value={inputVal}
+            disabled={loading}
             onChange={(e) => setInputVal(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
             style={{
@@ -110,26 +140,29 @@ export function AiCoachBottomSheet({ onClose }: AiCoachBottomSheetProps) {
               padding: '0 16px',
               fontSize: 14,
               outline: 'none',
+              opacity: loading ? 0.7 : 1,
             }}
           />
           <button
             type="button"
+            disabled={loading}
             onClick={() => handleSend()}
             style={{
               width: 48,
               height: 48,
               borderRadius: 16,
               border: 'none',
-              background: 'linear-gradient(110deg, #f72567 0%, #ff7a38 100%)',
+              background: 'linear-gradient(110deg, #ec4899 0%, #fb923c 100%)',
               color: '#ffffff',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              cursor: 'pointer',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.7 : 1,
               flexShrink: 0,
             }}
           >
-            <Send size={18} />
+            {loading ? <Loader2 className="spin" size={18} /> : <Send size={18} />}
           </button>
         </div>
       </div>

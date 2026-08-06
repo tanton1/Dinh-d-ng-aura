@@ -597,6 +597,7 @@ export interface NutritionWorkspaceProps {
   weightKg?: number
   targetWeightDeltaKg?: number
   targetTimeframeMonths?: number
+  ownerId?: string
 }
 
 export default function NutritionWorkspace({
@@ -613,6 +614,7 @@ export default function NutritionWorkspace({
   weightKg,
   targetWeightDeltaKg,
   targetTimeframeMonths,
+  ownerId,
 }: NutritionWorkspaceProps) {
   const assistantIsPage = Boolean(assistant?.open && assistant.variant === 'page')
   return (
@@ -625,6 +627,7 @@ export default function NutritionWorkspace({
           {activeSection === 'plan' && <NutritionPlanPage {...plan} />}
           {activeSection === 'insights' && (
             <ProgressPage
+              ownerId={ownerId}
               onNavigate={(view) => { if (typeof view === 'string') onSectionChange(view as any) }}
               weightKg={weightKg}
               targetWeightDeltaKg={targetWeightDeltaKg}

@@ -137,6 +137,7 @@ const viewTitles: Record<ViewId, string> = {
   'admin-students': 'Khách hàng PT',
   'admin-roles': 'Đội ngũ & quyền',
   'admin-nutrition-reviews': 'Duyệt ăn',
+  'progress-photo-studio': 'Thêm ảnh tiến độ',
 }
 
 function isNavigationActive(view: ViewId, itemId: ViewId, mobile = false) {
@@ -218,9 +219,9 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
         <button className="sidebar-close" aria-label="Đóng menu" onClick={() => setMobileMenu(false)}><X size={22} /></button>
 
         <nav className="sidebar-nav" aria-label="Điều hướng chính">
-          {navSections.map((section) => (
-            <div className="sidebar-nav__section" key={section.label}>
-              <p>{section.label}</p>
+          {navSections.map((section, sectionIdx) => (
+            <div className="sidebar-nav__section" key={section.label || `section-${sectionIdx}`}>
+              {section.label ? <p>{section.label}</p> : null}
               {section.items.map((item) => {
                 const Icon = item.icon
                 const active = isNavigationActive(view, item.id)

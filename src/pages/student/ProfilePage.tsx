@@ -19,6 +19,7 @@ import {
   Smartphone,
   Target,
   UserRound,
+  Zap,
 } from 'lucide-react'
 import { PageHeader, Toggle } from '../../components/ui'
 
@@ -314,6 +315,19 @@ export default function ProfilePage({
                     {targetTimeframeMonths != null
                       ? `${targetTimeframeMonths} tháng ${targetTimeframeMonths === 12 ? '(1 năm)' : ''}`
                       : 'Chưa thiết lập'}
+                  </strong>
+                </div>
+                <div>
+                  <span><Zap size={19} /></span>
+                  <small>Tốc độ tiến trình</small>
+                  <strong>
+                    {targetSpeedPace === 'slow'
+                      ? 'Thong thả & Bền vững (~0.3 kg/tuần)'
+                      : targetSpeedPace === 'fast'
+                      ? 'Nhanh & Quyết liệt (~0.8 kg/tuần)'
+                      : targetSpeedPace === 'standard'
+                      ? 'Tiêu chuẩn (~0.5 kg/tuần)'
+                      : 'Mặc định (Tiêu chuẩn)'}
                   </strong>
                 </div>
                 <div><span><Bell size={19} /></span><small>Thông báo</small><strong>{notificationEnabled ? 'Đang bật' : 'Đang tắt'}</strong></div>

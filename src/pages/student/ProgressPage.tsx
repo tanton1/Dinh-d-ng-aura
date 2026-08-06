@@ -664,10 +664,7 @@ export default function ProgressPage({
     } else if (action === 'measurement') {
       setMetricsModalOpen(true)
     } else if (action === 'photo') {
-      if (category !== 'overview' && category !== 'body') {
-        setCategory('overview')
-      }
-      setTriggerPhotoUpload(true)
+      onNavigate?.('progress-photo-studio')
     } else if (action === 'water') {
       window.location.hash = '#/nutrition?action=water'
     }
@@ -779,6 +776,7 @@ export default function ProgressPage({
           ownerId={ownerId} 
           triggerAddPhoto={triggerPhotoUpload}
           onAddPhotoTriggered={() => setTriggerPhotoUpload(false)}
+          onNavigateToStudio={() => onNavigate?.('progress-photo-studio')}
         />
       )}
 
@@ -801,7 +799,7 @@ export default function ProgressPage({
             padding: '12px 20px',
             borderRadius: 9999,
             border: 'none',
-            background: 'linear-gradient(110deg, #f72567 0%, #ff7a38 100%)',
+            background: 'linear-gradient(110deg, #ec4899 0%, #fb923c 100%)',
             color: '#ffffff',
             fontSize: 14,
             fontWeight: 800,
@@ -839,7 +837,15 @@ export default function ProgressPage({
       )}
 
       {coachSheetOpen && (
-        <AiCoachBottomSheet onClose={() => setCoachSheetOpen(false)} />
+        <AiCoachBottomSheet
+          onClose={() => setCoachSheetOpen(false)}
+          userProfile={{
+            weightKg: weightKg ?? undefined,
+            heightCm: heightCm ?? undefined,
+            targetWeightDeltaKg: targetWeightDeltaKg ?? undefined,
+            targetTimeframeMonths: targetTimeframeMonths ?? undefined,
+          }}
+        />
       )}
     </div>
   )

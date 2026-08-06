@@ -160,6 +160,8 @@ export interface AnalyzeFoodPhotoOptions {
   notes?: string
   /** Images are deleted after analysis by default. Set true only with explicit user consent. */
   retainImage?: boolean
+  userGoal?: string
+  userCondition?: string
 }
 
 export interface UploadedFoodImage {
@@ -576,8 +578,8 @@ export async function analyzeFoodPhoto(
       body: JSON.stringify({
         imageBase64: base64,
         studentNote: options.notes,
-        studentGoal: 'Siết cơ giảm mỡ (Tăng cơ nạc, thâm hụt calo)',
-        studentCondition: 'Nữ, 55kg, 162cm, TDEE 1800 kcal',
+        studentGoal: options.userGoal || 'Giảm mỡ thâm hụt calo / Tăng cơ nạc',
+        studentCondition: options.userCondition || 'Học viên Aura Fitness',
       }),
     })
 
@@ -675,5 +677,25 @@ export async function generateMealReview(meal: any, userProfile: any): Promise<s
   } catch (error) {
     console.error('Error calling generateMealReview API:', error);
     return 'Lỗi khi kết nối với máy chủ để phân tích bữa ăn.';
+  }
+}
+
+export async function askAiCoach(message: string, userProfile: any): Promise<string> {
+  try {
+    const response = await fetch('/api/ai/coach-chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ message, userProfile })
+    });
+    if (!response.ok) {
+      return 'AI Coach chưa thể trả lời lúc này.';
+    }
+    const data = await response.json();
+    return data.text || 'AI Coach chưa có phản hồi.';
+  } catch (error) {
+    console.error('Error calling askAiCoach:', error);
+    return 'Không thể kết nối với AI Coach.';
   }
 }

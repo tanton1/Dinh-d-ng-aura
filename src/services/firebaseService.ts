@@ -18,7 +18,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
-import { ref as storageRef, uploadBytesResumable } from 'firebase/storage'
+import { ref as storageRef, uploadBytesResumable, getDownloadURL } from 'firebase/storage'
 import { firebaseAuth, firebaseFunctions, firebaseStorage, firestoreDb } from '../lib/firebase'
 import type {
   AdminUserRecord,
@@ -889,12 +889,39 @@ export async function submitMealReview(userId: string, userName: string, meal: a
     }
   }
 
+  let studentGoal = meal.studentGoal || meal.userGoal
+  let studentCondition = meal.studentCondition || meal.userCondition
+
+  if (!studentGoal || !studentCondition) {
+    try {
+      const userDoc = await getDoc(doc(db, 'users', userId))
+      if (userDoc.exists()) {
+        const uData = userDoc.data()
+        const np = uData.nutritionProfile || uData.profile || uData
+        if (np) {
+          const goalStr = np.goal === 'lose-fat' ? 'Giảm mỡ thâm hụt calo' : np.goal === 'gain-muscle' ? 'Tăng cơ nạc' : 'Duy trì vóc dáng'
+          const sexStr = np.biologicalSex === 'female' ? 'Nữ' : np.biologicalSex === 'male' ? 'Nam' : ''
+          const ageStr = np.age ? `${np.age} tuổi` : ''
+          const hStr = np.heightCm ? `Cao ${np.heightCm}cm` : ''
+          const wStr = np.weightKg ? `Nặng ${np.weightKg}kg` : ''
+          const trStr = np.trainingSessions ? `Tập ${np.trainingSessions} buổi/tuần` : ''
+          if (!studentGoal) studentGoal = goalStr
+          if (!studentCondition) studentCondition = [sexStr, ageStr, hStr, wStr, trStr].filter(Boolean).join(', ')
+        }
+      }
+    } catch (e) {
+      console.warn('Could not fetch user profile for meal review:', e)
+    }
+  }
+
   await setDoc(
     reference,
     withoutUndefined({
       id: meal.id,
       userId,
       userName,
+      studentGoal: studentGoal || 'Giảm mỡ thâm hụt calo & Tăng cơ nạc',
+      studentCondition: studentCondition || 'Tập gym 3-4 buổi/tuần (Chỉ số theo nhật ký)',
       meal: cleanedMeal,
       status: 'pending',
       updatedAt: serverTimestamp(),
@@ -1193,6 +1220,31 @@ export async function saveUserProgressPhoto(userId: string, photo: Record<string
     }),
     { merge: true }
   )
+}
+
+export async function uploadUserProgressPhoto(userId: string, file: File, onProgress?: (percent: number) => void): Promise<string> {
+  if (!firebaseStorage) return Promise.reject(new Error('Firebase Storage is not initialized.'))
+  
+  const fileExtension = file.name.split('.').pop() ?? 'jpg'
+  const randomName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExtension}`
+  const fileRef = storageRef(firebaseStorage, `users/${userId}/progress-photos/${randomName}`)
+  
+  return new Promise((resolve, reject) => {
+    const uploadTask = uploadBytesResumable(fileRef, file)
+    uploadTask.on(
+      'state_changed',
+      (snapshot) => onProgress?.(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)),
+      (error) => reject(error),
+      async () => {
+        try {
+          const url = await getDownloadURL(uploadTask.snapshot.ref)
+          resolve(url)
+        } catch (e) {
+          reject(e)
+        }
+      }
+    )
+  })
 }
 
 export async function deleteUserProgressPhoto(userId: string, photoId: string) {

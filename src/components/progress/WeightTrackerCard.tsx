@@ -89,7 +89,7 @@ export function WeightTrackerCard({
                 width: `${percentComplete}%`,
                 height: '100%',
                 borderRadius: 4,
-                background: 'linear-gradient(110deg, #f72567 0%, #ff7a38 100%)',
+                background: 'linear-gradient(110deg, #ec4899 0%, #fb923c 100%)',
               }}
             />
             <div
@@ -102,7 +102,7 @@ export function WeightTrackerCard({
                 height: 14,
                 borderRadius: '50%',
                 background: '#ffffff',
-                border: '3px solid #f72567',
+                border: '3px solid #ec4899',
                 boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
               }}
             />

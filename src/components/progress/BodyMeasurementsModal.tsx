@@ -109,7 +109,7 @@ export function BodyMeasurementsModal({ metrics, onClose, onSave }: BodyMeasurem
               height: 48,
               borderRadius: 16,
               border: 'none',
-              background: 'linear-gradient(110deg, #f72567 0%, #ff7a38 100%)',
+              background: 'linear-gradient(110deg, #ec4899 0%, #fb923c 100%)',
               color: '#ffffff',
               fontSize: 15,
               fontWeight: 800,

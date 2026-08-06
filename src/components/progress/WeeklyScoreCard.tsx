@@ -71,7 +71,7 @@ export function WeeklyScoreCard({
       <div className="pg-card pg-hero-card" style={{ background: 'linear-gradient(135deg, #fff5f8 0%, #ffffff 100%)', border: '1px solid #fce7f3' }}>
         <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 44, height: 44, borderRadius: 14, background: '#fce7f3', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f72567', flexShrink: 0 }}>
+            <div style={{ width: 44, height: 44, borderRadius: 14, background: '#fce7f3', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ec4899', flexShrink: 0 }}>
               <Sparkles size={24} />
             </div>
             <div>
@@ -83,7 +83,7 @@ export function WeeklyScoreCard({
           </div>
           <div style={{ background: '#ffffff', borderRadius: 12, padding: '12px 16px', border: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#475569' }}>Tiến độ thu thập dữ liệu</span>
-            <span style={{ fontSize: 13, fontWeight: 800, color: '#f72567' }}>{daysOfData}/3 ngày tối thiểu</span>
+            <span style={{ fontSize: 13, fontWeight: 800, color: '#ec4899' }}>{daysOfData}/3 ngày tối thiểu</span>
           </div>
         </div>
       </div>
@@ -124,8 +124,8 @@ export function WeeklyScoreCard({
               />
               <defs>
                 <linearGradient id="pgHeroGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#f72567" />
-                  <stop offset="100%" stopColor="#ff7a38" />
+                  <stop offset="0%" stopColor="#ec4899" />
+                  <stop offset="100%" stopColor="#fb923c" />
                 </linearGradient>
               </defs>
             </svg>
@@ -220,7 +220,7 @@ export function WeeklyScoreCard({
           }}
         >
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Sparkles size={14} style={{ color: '#f72567' }} /> Chi tiết 5 thành phần cấu thành điểm ({finalScore}/100)
+            <Sparkles size={14} style={{ color: '#ec4899' }} /> Chi tiết 5 thành phần cấu thành điểm ({finalScore}/100)
           </span>
           {showBreakdown ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </button>
@@ -253,7 +253,7 @@ export function WeeklyScoreCard({
 
       {/* AI Insight banner at bottom */}
       <div className="pg-hero-banner" style={{ marginTop: 12 }}>
-        <Sparkles size={18} style={{ color: '#f72567', fill: '#f72567', flexShrink: 0 }} />
+        <Sparkles size={18} style={{ color: '#ec4899', fill: '#ec4899', flexShrink: 0 }} />
         <div>
           {insightText || (
             <>
@@ -310,7 +310,7 @@ export function WeeklyScoreCard({
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
-              <div style={{ background: '#f8fafc', padding: 12, borderRadius: 12, borderLeft: '4px solid #f72567' }}>
+              <div style={{ background: '#f8fafc', padding: 12, borderRadius: 12, borderLeft: '4px solid #ec4899' }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>1. Tuân thủ kế hoạch — Trọng số 40%</div>
                 <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
                   Bao gồm tỷ lệ ghi bữa ăn (37.5%), hoàn thành calo (25%), protein (20%), nước (10%), nhiệm vụ ngày (7.5%).
@@ -352,7 +352,7 @@ export function WeeklyScoreCard({
               style={{
                 width: '100%',
                 padding: '12px',
-                background: '#f72567',
+                background: '#ec4899',
                 color: '#ffffff',
                 border: 'none',
                 borderRadius: 12,

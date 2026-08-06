@@ -8,7 +8,7 @@ interface QuickLogBottomSheetProps {
 
 export function QuickLogBottomSheet({ onClose, onSelectAction }: QuickLogBottomSheetProps) {
   const actions = [
-    { id: 'weight' as const, label: 'Cân nặng', icon: Scale, color: '#f72567' },
+    { id: 'weight' as const, label: 'Cân nặng', icon: Scale, color: '#ec4899' },
     { id: 'meal' as const, label: 'Bữa ăn', icon: Utensils, color: '#ea580c' },
     { id: 'workout' as const, label: 'Buổi tập', icon: Dumbbell, color: '#9333ea' },
     { id: 'measurement' as const, label: 'Số đo', icon: Ruler, color: '#2563eb' },

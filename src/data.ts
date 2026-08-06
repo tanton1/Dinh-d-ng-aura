@@ -69,7 +69,7 @@ export const courseLessons: Lesson[] = [
 ]
 
 export const workoutExercises: Exercise[] = [
-  { id: 1, name: 'Goblet Squat', target: 'Đùi trước · Mông', sets: 4, reps: '10 lần', rest: 60, icon: '01', color: 'purple' },
+  { id: 1, name: 'Goblet Squat', target: 'Đùi trước · Mông', sets: 4, reps: '10 lần', rest: 60, icon: '01', color: 'pink' },
   { id: 2, name: 'Dumbbell Row', target: 'Lưng · Tay trước', sets: 3, reps: '12 mỗi bên', rest: 45, icon: '02', color: 'green' },
   { id: 3, name: 'Push-up', target: 'Ngực · Tay sau', sets: 3, reps: '8–12 lần', rest: 45, icon: '03', color: 'orange' },
   { id: 4, name: 'Romanian Deadlift', target: 'Đùi sau · Mông', sets: 4, reps: '10 lần', rest: 60, icon: '04', color: 'pink' },
@@ -87,7 +87,7 @@ export const weeklyActivity = [
 ]
 
 export const scheduleItems = [
-  { date: 29, time: '18:00', title: 'Full Body A', type: 'Buổi tập', coach: 'Tự tập', color: 'purple' },
+  { date: 29, time: '18:00', title: 'Full Body A', type: 'Buổi tập', coach: 'Tự tập', color: 'pink' },
   { date: 30, time: '07:30', title: 'Mobility Flow', type: 'Phục hồi', coach: 'Quang Huy', color: 'green' },
   { date: 31, time: '20:00', title: 'Q&A dinh dưỡng', type: 'Livestream', coach: 'Thảo Vy', color: 'orange' },
   { date: 1, time: '18:00', title: 'Lower Body B', type: 'Buổi tập', coach: 'Tự tập', color: 'pink' },

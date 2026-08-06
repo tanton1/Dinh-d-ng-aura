@@ -41,19 +41,24 @@ function lazyWithRetry<T extends React.ComponentType<any>>(
   factory: () => Promise<{ default: T }>
 ) {
   return lazy(async () => {
-    const pageHasBeenRefreshed = sessionStorage.getItem('aura_page_refreshed_for_chunk')
+    let pageHasBeenRefreshed = false;
+    try {
+      pageHasBeenRefreshed = sessionStorage.getItem('aura_page_refreshed_for_chunk') === 'true';
+    } catch (e) {
+      // Ignore sessionStorage errors
+    }
     try {
       const component = await factory()
-      sessionStorage.removeItem('aura_page_refreshed_for_chunk')
+      try { sessionStorage.removeItem('aura_page_refreshed_for_chunk') } catch (e) {}
       return component
     } catch (error) {
       console.error('Module script import failed:', error)
       if (!pageHasBeenRefreshed) {
-        sessionStorage.setItem('aura_page_refreshed_for_chunk', 'true')
+        try { sessionStorage.setItem('aura_page_refreshed_for_chunk', 'true') } catch (e) {}
         window.location.reload()
         return new Promise<{ default: T }>(() => {})
       }
-      sessionStorage.removeItem('aura_page_refreshed_for_chunk')
+      try { sessionStorage.removeItem('aura_page_refreshed_for_chunk') } catch (e) {}
       throw error
     }
   })
@@ -92,7 +97,7 @@ class ChunkErrorBoundary extends Component<ChunkErrorBoundaryProps, ChunkErrorBo
         <div className="course-detail-state" role="alert" style={{ padding: '40px 20px', textAlign: 'center' }}>
           <span className="brand-mark compact" aria-hidden="true">A<span /></span>
           <h1 style={{ fontSize: '20px', margin: '16px 0 8px' }}>Giao diện đang được cập nhật</h1>
-          <p style={{ color: '#666', marginBottom: '20px' }}>Một số tập tin đã được đổi mới. Vui lòng nhấn tải lại để tiếp tục sử dụng.</p>
+          <p style={{ color: '#666', marginBottom: '20px' }}>Một số tập tin đã được đổi mới. Lỗi: {this.state.error?.message}</p>
           <button type="button" className="primary-button" onClick={this.handleReload}>
             Tải lại ứng dụng
           </button>
@@ -116,11 +121,12 @@ const CoursesPage = lazyWithRetry(() => import('./pages/student/CoursesPage'))
 const NutritionPage = lazyWithRetry(() => import('./pages/student/NutritionPage'))
 const ProfilePage = lazyWithRetry(() => import('./pages/student/ProfilePage'))
 const ProgressPage = lazyWithRetry(() => import('./pages/student/ProgressPage'))
+const ProgressPhotoStudio = lazyWithRetry(() => import('./pages/student/ProgressPhotoStudio'))
 const SchedulePage = lazyWithRetry(() => import('./pages/student/SchedulePage'))
 const WorkoutPage = lazyWithRetry(() => import('./pages/student/WorkoutPage'))
 
 const adminViews: ViewId[] = ['admin-dashboard', 'admin-courses', 'admin-course-editor', 'admin-academy-students', 'admin-programs', 'admin-students', 'admin-roles', 'admin-nutrition-reviews']
-const validViews: ViewId[] = ['home', 'courses', 'course-detail', 'schedule', 'nutrition', 'progress', 'profile', 'workout', ...adminViews]
+const validViews: ViewId[] = ['home', 'courses', 'course-detail', 'schedule', 'nutrition', 'progress', 'progress-photo-studio', 'profile', 'workout', ...adminViews]
 
 const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
   'admin-dashboard': 'dashboard.view',
@@ -673,8 +679,24 @@ function AuraApplication() {
             })
           }
         }}
-        onAnalyzeImage={backendMode === 'firebase' && user ? (file, options) => analyzeFoodPhoto(file, options) : undefined}
+        onAnalyzeImage={async (file, options) => {
+          const p: any = profile?.nutritionProfile ?? localNutritionProfile
+          const goalStr = p?.goal === 'lose-fat' ? 'Giảm mỡ thâm hụt calo' : p?.goal === 'gain-muscle' ? 'Tăng cơ nạc' : 'Duy trì vóc dáng'
+          const sexStr = p?.biologicalSex === 'female' ? 'Nữ' : p?.biologicalSex === 'male' ? 'Nam' : ''
+          const ageStr = p?.age ? `${p.age} tuổi` : ''
+          const heightStr = p?.heightCm ? `${p.heightCm}cm` : effectiveHeight ? `${effectiveHeight}cm` : ''
+          const weightStr = p?.weightKg ? `${p.weightKg}kg` : effectiveWeight ? `${effectiveWeight}kg` : ''
+          const calStr = p?.targetCalories ? `Mục tiêu ${p.targetCalories} kcal/ngày` : ''
+          const userCondStr = [sexStr, ageStr, heightStr, weightStr, calStr].filter(Boolean).join(', ')
+
+          return analyzeFoodPhoto(file, {
+            ...options,
+            userGoal: goalStr,
+            userCondition: userCondStr || 'Học viên Aura Fitness',
+          })
+        }}
       />
+      case 'progress-photo-studio': return <ProgressPhotoStudio onNavigate={navigate} ownerId={user?.uid ?? 'demo'} />
       case 'progress': return <ProgressPage ownerId={user?.uid ?? 'demo'} courseItems={studentCourses} progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error || learningData.error} onOpenCourse={openCourse} onNavigate={navigate} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} heightCm={effectiveHeight} />
       case 'profile': return <ProfilePage displayName={effectiveDisplayName} email={profile?.email} membership={profile?.membership} goals={effectiveGoals} heightCm={effectiveHeight} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} targetSpeedPace={effectiveTargetSpeedPace} notificationSettings={effectiveNotifications} onSave={saveProfile} onSignOut={signOut} />
       case 'workout': {

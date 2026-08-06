@@ -96,7 +96,7 @@ export function WeightChartCard({ records = defaultRecords, goalWeightKg = 61.0 
               padding: '4px 12px',
               borderRadius: 9999,
               background: '#fff0f5',
-              color: '#f72567',
+              color: '#ec4899',
               fontSize: 13,
               fontWeight: 800,
             }}
@@ -118,8 +118,8 @@ export function WeightChartCard({ records = defaultRecords, goalWeightKg = 61.0 
         <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
           <defs>
             <linearGradient id="weightAreaGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#f72567" stopOpacity="0.15" />
-              <stop offset="100%" stopColor="#f72567" stopOpacity="0.0" />
+              <stop offset="0%" stopColor="#ec4899" stopOpacity="0.15" />
+              <stop offset="100%" stopColor="#ec4899" stopOpacity="0.0" />
             </linearGradient>
           </defs>
 
@@ -146,7 +146,7 @@ export function WeightChartCard({ records = defaultRecords, goalWeightKg = 61.0 
           <path d={trendPath} fill="none" stroke="#fbcfe8" strokeWidth="2" strokeDasharray="4 4" />
 
           {/* Main Weight Line */}
-          <path d={weightPath} fill="none" stroke="#f72567" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          <path d={weightPath} fill="none" stroke="#ec4899" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
 
           {/* Data Points & X-Axis Labels */}
           {dataList.map((d, i) => {
@@ -156,7 +156,7 @@ export function WeightChartCard({ records = defaultRecords, goalWeightKg = 61.0 
             return (
               <g key={d.id || i} style={{ cursor: 'pointer' }} onClick={() => setActivePointIndex(isActive ? null : i)}>
                 {/* X Axis Label */}
-                <text x={x} y={chartHeight - 8} textAnchor="middle" fill={isActive ? '#f72567' : '#94a3b8'} fontSize="10" fontWeight={isActive ? '800' : '600'}>
+                <text x={x} y={chartHeight - 8} textAnchor="middle" fill={isActive ? '#ec4899' : '#94a3b8'} fontSize="10" fontWeight={isActive ? '800' : '600'}>
                   {d.label}
                 </text>
 
@@ -168,8 +168,8 @@ export function WeightChartCard({ records = defaultRecords, goalWeightKg = 61.0 
                   cx={x}
                   cy={y}
                   r={isActive ? 6 : 4}
-                  fill={isActive ? '#f72567' : '#ffffff'}
-                  stroke="#f72567"
+                  fill={isActive ? '#ec4899' : '#ffffff'}
+                  stroke="#ec4899"
                   strokeWidth={isActive ? 3 : 2}
                 />
               </g>
@@ -225,7 +225,7 @@ export function WeightChartCard({ records = defaultRecords, goalWeightKg = 61.0 
               borderRadius: 10,
               border: 'none',
               background: range === r.id ? '#ffffff' : 'transparent',
-              color: range === r.id ? '#f72567' : '#64748b',
+              color: range === r.id ? '#ec4899' : '#64748b',
               fontWeight: range === r.id ? 800 : 600,
               fontSize: 12,
               cursor: 'pointer',

@@ -105,7 +105,7 @@ export function EnergyBalanceCard({
                 flex: 1,
                 maxWidth: 140,
                 padding: '10px 16px',
-                background: '#f72567',
+                background: '#ec4899',
                 color: '#ffffff',
                 border: 'none',
                 borderRadius: 8,
@@ -126,8 +126,8 @@ export function EnergyBalanceCard({
                 maxWidth: 140,
                 padding: '10px 16px',
                 background: '#ffffff',
-                color: '#f72567',
-                border: '1.5px solid #f72567',
+                color: '#ec4899',
+                border: '1.5px solid #ec4899',
                 borderRadius: 8,
                 fontSize: 13,
                 fontWeight: 800,
@@ -183,7 +183,7 @@ export function EnergyBalanceCard({
           style={{
             background: 'none',
             border: 'none',
-            color: '#f72567',
+            color: '#ec4899',
             fontWeight: 700,
             fontSize: 12,
             cursor: 'pointer',
@@ -282,14 +282,14 @@ export function EnergyBalanceCard({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b' }}>Chênh lệch ({activeDays} ngày)</span>
-            <div style={{ fontSize: 22, fontWeight: 900, color: balance < 0 ? '#10b981' : '#f72567', marginTop: 1 }}>
+            <div style={{ fontSize: 22, fontWeight: 900, color: balance < 0 ? '#10b981' : '#ec4899', marginTop: 1 }}>
               {balance >= 0 ? '+' : ''}{balance.toLocaleString('vi-VN')} kcal
             </div>
           </div>
 
           <div style={{ textAlign: 'right' }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b' }}>Trung bình</span>
-            <div style={{ fontSize: 16, fontWeight: 800, color: avgDailyBalance < 0 ? '#10b981' : '#f72567', marginTop: 1 }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: avgDailyBalance < 0 ? '#10b981' : '#ec4899', marginTop: 1 }}>
               {avgDailyBalance >= 0 ? '+' : ''}{avgDailyBalance.toLocaleString('vi-VN')} kcal/ngày
             </div>
           </div>

@@ -16,8 +16,8 @@ export function AiWeeklyAnalysisCard({ onOpenCoach }: { onOpenCoach: () => void 
         </div>
 
         <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#f72567', fontSize: 13, fontWeight: 800 }}>
-            <Sparkles size={16} fill="#f72567" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#ec4899', fontSize: 13, fontWeight: 800 }}>
+            <Sparkles size={16} fill="#ec4899" />
             <span>AI Coach Phân Tích Tuần</span>
           </div>
 
@@ -37,7 +37,7 @@ export function AiWeeklyAnalysisCard({ onOpenCoach }: { onOpenCoach: () => void 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
               {priorities.map((item, index) => (
                 <div key={index} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: '#334155', fontWeight: 600 }}>
-                  <CheckCircle2 size={16} style={{ color: '#f72567', flexShrink: 0, marginTop: 2 }} />
+                  <CheckCircle2 size={16} style={{ color: '#ec4899', flexShrink: 0, marginTop: 2 }} />
                   <span>{item}</span>
                 </div>
               ))}
@@ -50,7 +50,7 @@ export function AiWeeklyAnalysisCard({ onOpenCoach }: { onOpenCoach: () => void 
             style={{
               background: 'none',
               border: 'none',
-              color: '#f72567',
+              color: '#ec4899',
               fontWeight: 800,
               fontSize: 13,
               display: 'inline-flex',

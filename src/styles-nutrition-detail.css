@@ -6,7 +6,7 @@
   --nfd-green-dark: #06623f;
   --nfd-green-soft: #e9f6ef;
   --nfd-lime: var(--nutrition-lime, #c9ef8c);
-  --nfd-purple: var(--purple, #635bff);
+  --nfd-purple: var(--purple, #ec4899);
   --nfd-surface: #fff;
   --nfd-soft: #f8fafc;
   --nfd-shadow: 0 2px 8px rgba(16, 24, 40, .035);
@@ -207,7 +207,7 @@
   padding: 0 18px;
   border-radius: 12px;
   color: #fff;
-  background: linear-gradient(125deg, var(--nfd-purple), #4f46e5);
+  background: linear-gradient(125deg, var(--nfd-purple), #db2777);
   box-shadow: 0 10px 22px rgba(99, 91, 255, .22);
   font-size: 13px;
   font-weight: 800;
@@ -997,34 +997,40 @@
 
 /* AI Evaluation Cards */
 .fdet-ai-card {
-  border-radius: 18px;
-  padding: 16px 18px;
-  margin-bottom: 10px;
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 12px;
   font-size: 13.5px;
-  line-height: 1.55;
+  line-height: 1.6;
 }
 
 .fdet-ai-card--analysis {
-  background: #f5f3ff;
-  border: 1px solid #e0e7ff;
-  color: #3730a3;
+  background: linear-gradient(135deg, #fff0f6 0%, #fff7ed 50%, #fdf2f8 100%);
+  border: 1.5px solid #fbcfe8;
+  color: #1e293b;
+  box-shadow: 0 8px 24px rgba(255, 45, 145, 0.08);
 }
 
 .fdet-ai-bold-purple {
-  color: #4f46e5;
-  font-weight: 800;
+  background: linear-gradient(135deg, #db2777 0%, #ea580c 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 900;
   margin-right: 4px;
 }
 
 .fdet-ai-card--coach {
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  color: #166534;
+  background: linear-gradient(135deg, #fdf2f8 0%, #f0fdf4 40%, #e0f2fe 100%);
+  border: 1.5px solid #bae6fd;
+  color: #0f172a;
+  box-shadow: 0 8px 24px rgba(2, 132, 199, 0.08);
 }
 
 .fdet-ai-bold-green {
-  color: #15803d;
-  font-weight: 800;
+  background: linear-gradient(135deg, #db2777 0%, #0284c7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 900;
   margin-right: 4px;
 }
 
@@ -1612,7 +1618,7 @@
 
 .cmd-badge--confidence {
   background: #eef2ff;
-  color: #635bff;
+  color: #ec4899;
 }
 
 .cmd-title {
@@ -1838,7 +1844,7 @@
 }
 
 .cmd-icon-purple {
-  color: #635bff;
+  color: #ec4899;
 }
 
 .cmd-card-sub {
@@ -1872,7 +1878,7 @@
 }
 
 .cmd-macro-bar__seg--f {
-  background: #635bff;
+  background: #ec4899;
 }
 
 .cmd-macro-bar-legend {
@@ -1899,7 +1905,7 @@
 
 .legend-p .dot { background: #087a50; }
 .legend-c .dot { background: #eab308; }
-.legend-f .dot { background: #635bff; }
+.legend-f .dot { background: #ec4899; }
 
 /* 3 Macro Cards Grid */
 .cmd-macro-cards-grid {
@@ -1938,7 +1944,7 @@
 
 .cmd-dot--p { background: #087a50; }
 .cmd-dot--c { background: #eab308; }
-.cmd-dot--f { background: #635bff; }
+.cmd-dot--f { background: #ec4899; }
 
 .cmd-macro-name {
   flex: 1;
@@ -1984,7 +1990,7 @@
 
 .cmd-progress-fill--p { background: #087a50; }
 .cmd-progress-fill--c { background: #eab308; }
-.cmd-progress-fill--f { background: #635bff; }
+.cmd-progress-fill--f { background: #ec4899; }
 
 /* AI Evaluation Box */
 .cmd-pill-tag {
@@ -1996,7 +2002,7 @@
 
 .cmd-pill-tag--ai {
   background: #eef2ff;
-  color: #635bff;
+  color: #ec4899;
 }
 
 .cmd-pill-tag--green {
@@ -2179,7 +2185,7 @@
 
 .cmd-source-tag--ai-estimate {
   background: #eef2ff;
-  color: #635bff;
+  color: #ec4899;
 }
 
 .cmd-weight-pill,
@@ -2201,7 +2207,7 @@
 
 .cmd-macro-pills .p { color: #087a50; }
 .cmd-macro-pills .c { color: #d97706; }
-.cmd-macro-pills .f { color: #635bff; }
+.cmd-macro-pills .f { color: #ec4899; }
 
 .cmd-single-item-box {
   padding: 16px;
@@ -2336,37 +2342,6 @@
     grid-template-columns: 1fr;
   }
 }
-
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border: 1px solid #f43f5e;
-  border-radius: 12px;
-  background: #fff1f2;
-  font-size: 13px;
-  font-weight: 600;
-  color: #be123c;
-}
-
-.cmd-confirm-yes {
-  padding: 4px 10px;
-  border: none;
-  border-radius: 8px;
-  background: #e11d48;
-  color: #ffffff;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.cmd-confirm-no {
-  padding: 4px 10px;
-  border: 1px solid #f43f5e;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #9f1239;
-  cursor: pointer;
-}
-
 /* Layout Grid */
 .cmd-layout {
   display: grid;

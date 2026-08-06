@@ -112,6 +112,7 @@ export type StudentView =
   | 'schedule'
   | 'nutrition'
   | 'progress'
+  | 'progress-photo-studio'
   | 'profile'
   | 'workout'
 

@@ -67,6 +67,10 @@ import {
   TrendingDown,
   Utensils,
   X,
+  History,
+  ShieldCheck,
+  Heart,
+  ChevronDown,
 } from 'lucide-react'
 import '../../styles-nutrition.css'
 import '../../styles-nutrition-home.css'
@@ -229,6 +233,8 @@ interface MealLog {
   items?: AiFoodItem[]
   reviewStatus?: 'pending' | 'reviewed'
   coachFeedback?: string
+  studentGoal?: string
+  studentCondition?: string
 }
 
 interface NutritionWaterLog {
@@ -1534,7 +1540,6 @@ function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose
   const unresolvedQuestions: string[] = []
   const canSaveMeal = adjustedTotals.calories > 0
     && items.some((item) => item.name.trim().length > 0 && item.calories > 0)
-    && unresolvedItems.length === 0
     && Boolean(mealDate && mealTime)
     && (resultMode === 'live' || allowDemo)
 
@@ -1780,13 +1785,29 @@ function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose
 
   return (
     <div className={presentation === 'page' ? 'nutrition-route-page nutrition-route-page--scan' : 'nutrition-modal-backdrop'} role="presentation" onMouseDown={(event) => presentation === 'modal' && event.target === event.currentTarget && onClose()}>
-      <section ref={presentation === 'modal' ? dialogRef : undefined} className={`nutrition-scan-modal ${presentation === 'page' ? 'nutrition-scan-modal--page' : ''}`} role={presentation === 'modal' ? 'dialog' : 'region'} aria-modal={presentation === 'modal' ? true : undefined} aria-labelledby="nutrition-scan-title" data-testid="nutrition-scan-modal">
-        <header className="nutrition-scan-modal__header">
-          <div>
-            <span className="nutrition-ai-mark"><Sparkles size={15} /> Aura Vision</span>
-            <h2 id="nutrition-scan-title">{stage === 'result' ? 'Kiểm tra kết quả AI' : 'Phân tích món ăn'}</h2>
-          </div>
-          <button type="button" className="nutrition-close-button" onClick={onClose} aria-label={presentation === 'page' ? 'Quay lại trang dinh dưỡng' : 'Đóng'}>{presentation === 'page' ? <ArrowLeft size={20} /> : <X size={20} />}</button>
+      <section ref={presentation === 'modal' ? dialogRef : undefined} className={`nutrition-scan-modal ${presentation === 'page' ? 'nutrition-scan-modal--page' : ''} ${stage === 'result' ? '!bg-gradient-to-br !from-pink-500 !to-orange-400 !border-none !p-0 !rounded-t-[32px]' : ''}`} role={presentation === 'modal' ? 'dialog' : 'region'} aria-modal={presentation === 'modal' ? true : undefined} aria-labelledby="nutrition-scan-title" data-testid="nutrition-scan-modal">
+        <header className={`nutrition-scan-modal__header ${stage === 'result' ? '!bg-transparent !border-none !backdrop-blur-none !text-white !p-5' : ''}`}>
+          {stage === 'result' ? (
+            <>
+              <button type="button" className="w-10 h-10 flex items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors" onClick={onClose} aria-label={presentation === 'page' ? 'Quay lại trang dinh dưỡng' : 'Đóng'}>
+                {presentation === 'page' ? <ArrowLeft size={20} /> : <X size={20} />}
+              </button>
+              <h2 id="nutrition-scan-title" className="!text-white !text-xl font-bold flex-1 text-center !m-0">Kiểm tra kết quả AI</h2>
+              <button className="flex items-center gap-1.5 px-3 py-2 bg-white/20 hover:bg-white/30 rounded-full text-white text-xs font-semibold transition-colors">
+                <History size={16} /> Lịch sử
+              </button>
+            </>
+          ) : (
+            <>
+              <div>
+                <span className="nutrition-ai-mark"><Sparkles size={15} /> Aura Vision</span>
+                <h2 id="nutrition-scan-title">Phân tích món ăn</h2>
+              </div>
+              <button type="button" className="nutrition-close-button" onClick={onClose} aria-label={presentation === 'page' ? 'Quay lại trang dinh dưỡng' : 'Đóng'}>
+                {presentation === 'page' ? <ArrowLeft size={20} /> : <X size={20} />}
+              </button>
+            </>
+          )}
         </header>
 
         <input ref={galleryInputRef} id={galleryInputId} className="nutrition-visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" tabIndex={-1} aria-hidden="true" data-testid="nutrition-file-input" onChange={handleInputChange} />
@@ -1801,14 +1822,22 @@ function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose
               onDrop={(event) => { event.preventDefault(); handleFile(event.dataTransfer.files[0]) }}
               aria-describedby="nutrition-upload-requirements"
             >
-              <span className="nutrition-dropzone__icon"><ImagePlus size={28} /></span>
-              <strong>Thả ảnh món ăn vào đây</strong>
-              <small>hoặc chọn nguồn ảnh bên dưới</small>
-              <em id="nutrition-upload-requirements">JPEG, PNG, WebP · tối đa 8 MB</em>
+              <div className="nutrition-dropzone__icon">
+                <ScanLine size={28} />
+              </div>
+              <strong>Quét món ăn bằng AI</strong>
+              <small>Phân tích calo & dinh dưỡng tức thì</small>
+              <em id="nutrition-upload-requirements">Hỗ trợ JPEG, PNG, WebP · Dưới 8MB</em>
             </label>
             <div className="nutrition-upload-actions">
-              <label htmlFor={galleryInputId} tabIndex={0} role="button" data-dialog-autofocus onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); galleryInputRef.current?.click() } }}><ImagePlus size={18} /><span><strong>Chọn từ thiết bị</strong><small>Thư viện ảnh hoặc tệp</small></span></label>
-              <label htmlFor={cameraInputId} tabIndex={0} role="button" onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); cameraInputRef.current?.click() } }}><Camera size={18} /><span><strong>Chụp ảnh mới</strong><small>Mở camera sau</small></span></label>
+              <label htmlFor={galleryInputId} tabIndex={0} role="button" data-dialog-autofocus onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); galleryInputRef.current?.click() } }}>
+                <ImagePlus size={20} />
+                <span><strong>Tải ảnh lên</strong><small>Thư viện ảnh</small></span>
+              </label>
+              <label htmlFor={cameraInputId} tabIndex={0} role="button" onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); cameraInputRef.current?.click() } }}>
+                <Camera size={20} />
+                <span><strong>Chụp ảnh mới</strong><small>Mở camera sau</small></span>
+              </label>
             </div>
             {uploadError && <p className="nutrition-upload-error" role="alert"><CircleAlert size={15} /> {uploadError}</p>}
             <div className="nutrition-photo-tips">
@@ -1858,17 +1887,38 @@ function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose
           <div className="nutrition-result-step" data-testid="nutrition-scan-result">
             <div className="nutrition-result-hero">
               <div className="nutrition-result-image">
-                {previewUrl ? <img src={previewUrl} alt="Ảnh món ăn đã tải lên" /> : <div className="nutrition-food-placeholder"><Salad size={54} /></div>}
-                <span>{resultMode === 'live' ? <><Check size={13} /> Đã phân tích bằng AI</> : <><Info size={13} /> Dữ liệu minh họa</>}</span>
+                {previewUrl ? <img src={previewUrl} alt="Ảnh món ăn" /> : <div className="nutrition-food-placeholder"><Salad size={40} /></div>}
+                <span>
+                  {resultMode === 'live' ? <><Check size={12} /> Đã phân tích bằng AI</> : <><Info size={12} /> Minh họa</>}
+                </span>
               </div>
+              
               <div className="nutrition-result-summary">
-                <span className="nutrition-kicker">ƯỚC TÍNH TỔNG (ĐÃ ĐIỀU CHỈNH)</span>
-                <strong>{formatNumber(adjustedTotals.calories)} <small>kcal</small></strong>
-                <p>{dishName ? `${dishName} · ` : ''}Khoảng hợp lý {formatNumber(adjustedRange.low)}–{formatNumber(adjustedRange.high)} kcal</p>
-                <div>
-                  <span><b>{adjustedTotals.protein.toFixed(0)}g</b> Đạm</span>
-                  <span><b>{adjustedTotals.carbs.toFixed(0)}g</b> Carb</span>
-                  <span><b>{adjustedTotals.fat.toFixed(0)}g</b> Béo</span>
+                <span style={{ display: 'inline-block', alignSelf: 'flex-start', padding: '4px 10px', background: '#ffedd5', color: '#c2410c', borderRadius: '999px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
+                  Ước tính tổng (đã điều chỉnh)
+                </span>
+                
+                <strong style={{ display: 'block', fontSize: '32px', fontWeight: 900, color: '#1e293b', lineHeight: 1.1, margin: '4px 0' }}>
+                  {formatNumber(adjustedTotals.calories)} <small style={{ fontSize: '14px', color: '#64748b', fontWeight: 600 }}>kcal</small>
+                </strong>
+                
+                <p style={{ margin: '4px 0 12px', fontSize: '12px', color: '#64748b' }}>
+                  {dishName ? `${dishName} · ` : ''}Khoảng hợp lý {formatNumber(adjustedRange.low)}–{formatNumber(adjustedRange.high)} kcal <Info size={12} style={{ display: 'inline', opacity: 0.5 }} />
+                </p>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', width: '100%' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '8px 4px', borderRadius: '10px', background: '#fef2f2', border: '1px solid #fee2e2' }}>
+                    <span style={{ color: '#ef4444', fontWeight: 800, fontSize: '14px', lineHeight: 1 }}>{adjustedTotals.protein.toFixed(0)}<span style={{ fontSize: '10px', fontWeight: 500, marginLeft: '2px' }}>g</span></span>
+                    <span style={{ color: '#64748b', fontSize: '10px', marginTop: '3px' }}>Đạm</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '8px 4px', borderRadius: '10px', background: '#fff7ed', border: '1px solid #ffedd5' }}>
+                    <span style={{ color: '#f97316', fontWeight: 800, fontSize: '14px', lineHeight: 1 }}>{adjustedTotals.carbs.toFixed(0)}<span style={{ fontSize: '10px', fontWeight: 500, marginLeft: '2px' }}>g</span></span>
+                    <span style={{ color: '#64748b', fontSize: '10px', marginTop: '3px' }}>Carb</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '8px 4px', borderRadius: '10px', background: '#fefce8', border: '1px solid #fef08a' }}>
+                    <span style={{ color: '#ca8a04', fontWeight: 800, fontSize: '14px', lineHeight: 1 }}>{adjustedTotals.fat.toFixed(0)}<span style={{ fontSize: '10px', fontWeight: 500, marginLeft: '2px' }}>g</span></span>
+                    <span style={{ color: '#64748b', fontSize: '10px', marginTop: '3px' }}>Béo</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1880,15 +1930,15 @@ function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose
                 : resultNotice}</span>
             </div>
 
-            {/* AI Aura Coach - Nền xám nhẹ & khung viền */}
-            <div className="p-3.5 bg-gray-50/90 border border-gray-200 rounded-2xl space-y-2 text-left my-3 shadow-2xs">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-purple-600 text-white rounded-xl shadow-xs flex items-center justify-center">
+            {/* AI Aura Coach - Trực tiếp khung nền, không khung trắng bên trong */}
+            <div style={{ padding: '14px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', margin: '12px 0', textAlign: 'left' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <div style={{ padding: '6px', background: 'linear-gradient(135deg, #ec4899, #fb923c)', color: '#fff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Sparkles size={15} />
                 </div>
-                <span className="text-xs font-extrabold text-gray-900 uppercase tracking-wider">AI Aura Coach</span>
+                <span style={{ fontSize: '12px', fontWeight: 800, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.05em' }}>AI Aura Coach</span>
               </div>
-              <p className="text-xs sm:text-sm text-gray-800 font-medium leading-relaxed bg-white p-3 rounded-xl border border-gray-200/80 shadow-2xs">
+              <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', fontWeight: 500, lineHeight: 1.55 }}>
                 {goalAlignmentAssessment || 'Bữa ăn cân đối hàm lượng đạm và calo, hỗ trợ tốt mục tiêu tập luyện trong ngày của bạn.'}
               </p>
             </div>
@@ -1897,67 +1947,70 @@ function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose
             <button
               type="button"
               onClick={() => setShowDetailedAnalysis(!showDetailedAnalysis)}
-              className="w-full py-2.5 px-3.5 flex items-center justify-between text-xs font-semibold text-gray-800 bg-gray-100/90 hover:bg-gray-200/80 border border-gray-200 rounded-xl transition-all my-2.5 shadow-xs cursor-pointer"
+              style={{ width: '100%', padding: '10px 14px', display: 'flex', alignItems: 'center', justifySelf: 'stretch', justifyContent: 'space-between', fontSize: '12px', fontWeight: 600, color: '#1e293b', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '12px', margin: '10px 0', cursor: 'pointer' }}
             >
-              <span className="flex items-center gap-1.5 font-bold text-gray-800">
-                <Utensils size={14} className="text-purple-600" />
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}>
+                <Utensils size={14} style={{ color: '#ec4899', flexShrink: 0 }} />
                 <span>Chi tiết phân tích định lượng & phương pháp chế biến</span>
               </span>
-              <span className="text-purple-700 font-bold text-[11px] flex items-center gap-1">
+              <span style={{ color: '#be185d', fontWeight: 700, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0, marginLeft: '8px' }}>
                 {showDetailedAnalysis ? 'Ẩn chi tiết ▲' : 'Xem chi tiết ▼'}
               </span>
             </button>
 
             {showDetailedAnalysis && (
-              <div className="nutrition-ai-analysis-cards my-2.5 space-y-2.5">
-                <div className="p-3.5 bg-amber-50/90 border border-amber-200/80 rounded-xl space-y-1 text-left shadow-xs">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-800 uppercase tracking-wide">
+              <div style={{ margin: '10px 0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ padding: '14px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '12px', textAlign: 'left' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: '#92400e', textTransform: 'uppercase', marginBottom: '4px' }}>
                     <Utensils size={14} />
                     <span>Phân Tích Định Lượng & Chế Biến</span>
                   </div>
-                  <p className="text-xs text-amber-950 leading-relaxed">
+                  <p style={{ margin: 0, fontSize: '12px', color: '#78350f', lineHeight: 1.5 }}>
                     {quantityCookingAnalysis || 'Khẩu phần thực tế được bóc tách định lượng chính xác theo thành phần chính, phương pháp chế biến thanh nhẹ giữ trọn vi chất.'}
                   </p>
                 </div>
 
-                <div className="p-3.5 bg-blue-50/90 border border-blue-200/80 rounded-xl space-y-1 text-left shadow-xs">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-blue-800 uppercase tracking-wide">
+                <div style={{ padding: '14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '12px', textAlign: 'left' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', marginBottom: '4px' }}>
                     <Scale size={14} />
                     <span>Cơ Sở Dự Đoán Khối Lượng & Kcal</span>
                   </div>
-                  <p className="text-xs text-blue-950 leading-relaxed">
+                  <p style={{ margin: 0, fontSize: '12px', color: '#1e3a8a', lineHeight: 1.5 }}>
                     {portionCalorieRationale || 'Căn cứ dự đoán calo và khối lượng dựa trên tương quan kích thước đĩa ăn chuẩn 22cm và tỷ lệ gia vị sốt phủ.'}
                   </p>
                 </div>
               </div>
             )}
 
-            <div className="nutrition-result-toolbar">
-              <div><strong>Thành phần nhận diện</strong><small>{items.length} thành phần · có thể chỉnh sửa</small></div>
-              <button type="button" onClick={addItem}><Plus size={15} /> Thêm</button>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '20px', marginBottom: '10px' }}>
+              <div>
+                <strong style={{ display: 'block', fontSize: '15px', color: '#1e293b', fontWeight: 700 }}>Thành phần nhận diện</strong>
+                <small style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>{items.length} thành phần · có thể chỉnh sửa</small>
+              </div>
+              <button type="button" onClick={addItem} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '6px 14px', background: '#ec4899', color: '#fff', borderRadius: '999px', fontSize: '12px', fontWeight: 700, border: 'none', cursor: 'pointer' }}><Plus size={14} /> Thêm</button>
             </div>
 
-            <div className="nutrition-ingredient-list">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {items.map((item) => (
-                <div className="nutrition-ingredient" key={item.id}>
-                  <span className={`nutrition-confidence-dot nutrition-confidence-dot--${item.confidence}`} title={`Độ tin cậy ${item.confidence}`} />
-                  <label>
-                    <span className="nutrition-visually-hidden">Tên thành phần</span>
-                    <input value={item.name} onChange={(event) => updateItem(item.id, 'name', event.target.value)} />
-                    <small className="text-emerald-700 font-semibold flex items-center gap-1">
-                      <span>Độ tin cậy: {item.confidenceValue !== undefined ? `${Math.round(item.confidenceValue * 100)}%` : item.confidence === 'high' ? 'Cao (90%+)' : item.confidence === 'medium' ? 'Khá (75%+)' : 'Cần xác nhận'}</span>
-                    </small>
-                  </label>
-                  <label className="nutrition-inline-field"><input type="number" min="0" value={item.grams} onChange={(event) => updateItem(item.id, 'grams', event.target.value)} /><span>g</span></label>
-                  <label className="nutrition-inline-field"><input type="number" min="0" value={item.calories} onChange={(event) => updateItem(item.id, 'calories', event.target.value)} /><span>kcal</span></label>
-                  {(item.confidence === 'low' || item.calculationSource !== 'database') && <button type="button" className={`nutrition-confirm-item ${confirmedItemIds.has(item.id) ? 'is-confirmed' : ''}`} onClick={() => setConfirmedItemIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })} aria-pressed={confirmedItemIds.has(item.id)}>{confirmedItemIds.has(item.id) ? <Check size={15} /> : <CircleAlert size={15} />} {confirmedItemIds.has(item.id) ? 'Đã xác nhận' : item.calculationSource === 'ai-estimate' ? 'Dùng ước tính AI' : 'Xác nhận chỉnh sửa'}</button>}
-                  <button type="button" className="nutrition-remove-item" onClick={() => setItems((current) => current.filter((entry) => entry.id !== item.id))} aria-label={`Xóa ${item.name}`}><Trash2 size={16} /></button>
+                <div key={item.id} style={{ padding: '12px 14px', border: '1px solid #e2e8f0', background: '#fff', borderRadius: '16px', position: 'relative' }}>
+                  <button type="button" style={{ position: 'absolute', top: '8px', right: '8px', padding: '6px', color: '#94a3b8', background: '#f8fafc', border: 'none', borderRadius: '8px', cursor: 'pointer' }} onClick={() => setItems((current) => current.filter((entry) => entry.id !== item.id))} aria-label={`Xóa ${item.name}`}><Trash2 size={14} /></button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingRight: '32px' }}>
+                    <div style={{ width: '10px', height: '10px', borderRadius: '50%', flexShrink: 0, background: item.confidence === 'low' ? '#f43f5e' : '#10b981' }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <input style={{ fontWeight: 700, fontSize: '14px', color: '#1e293b', width: '100%', outline: 'none', background: '#fff', padding: '4px 8px', borderRadius: '8px', border: '1px solid #e2e8f0' }} value={item.name} onChange={(event) => updateItem(item.id, 'name', event.target.value)} />
+                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Độ tin cậy: {item.confidenceValue !== undefined ? `${Math.round(item.confidenceValue * 100)}%` : item.confidence === 'high' ? 'Cao (90%+)' : item.confidence === 'medium' ? 'Khá (75%+)' : 'Cần xác nhận'}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', background: '#f8fafc', padding: '4px 8px', borderRadius: '10px', border: '1px solid #e2e8f0', flexShrink: 0 }}>
+                       <input type="number" min="0" style={{ width: '55px', background: '#fff', textAlign: 'right', fontWeight: 700, fontSize: '14px', outline: 'none', color: '#1e293b', padding: '4px 6px', borderRadius: '6px', border: '1px solid #e2e8f0' }} value={item.grams} onChange={(event) => updateItem(item.id, 'grams', event.target.value)} />
+                       <span style={{ fontSize: '11px', color: '#64748b', marginLeft: '4px' }}>g</span>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
 
             {/* Live Re-evaluated Meal Health Score Banner */}
-            <div className="nutrition-reevaluated-score-card">
+            <div className="nutrition-reevaluated-score-card" style={{ marginTop: '16px' }}>
               <div className="score-card-header">
                 <div className="score-badge-circle">
                   <span className="score-num">{mealHealthAssessment.score}</span>
@@ -2007,30 +2060,29 @@ function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose
             </details>}
 
             {/* Tối ưu Bữa ăn / Ngày / Giờ trên cùng 1 dòng */}
-            <div className="grid grid-cols-3 gap-2 w-full p-2.5 bg-gray-50/90 border border-gray-200/90 rounded-xl my-2.5 text-left">
-              <label className="flex flex-col gap-1 text-[11px] font-bold text-gray-700">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', width: '100%', padding: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', margin: '14px 0', textAlign: 'left' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', fontWeight: 700, color: '#334155' }}>
                 <span>Bữa ăn</span>
-                <select value={mealType} onChange={(event) => setMealType(event.target.value as NutritionMealDraft['mealType'])} className="h-9 px-2 bg-white border border-gray-300 rounded-lg text-xs font-semibold focus:ring-1 focus:ring-purple-500 outline-none w-full">
+                <select value={mealType} onChange={(event) => setMealType(event.target.value as NutritionMealDraft['mealType'])} style={{ height: '36px', padding: '0 8px', background: '#fff', borderRadius: '8px', fontSize: '12px', fontWeight: 600, outline: 'none', border: '1px solid #cbd5e1' }}>
                   <option value="breakfast">Bữa sáng</option>
                   <option value="lunch">Bữa trưa</option>
                   <option value="dinner">Bữa tối</option>
                   <option value="snack">Bữa phụ</option>
                 </select>
               </label>
-              <label className="flex flex-col gap-1 text-[11px] font-bold text-gray-700">
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', fontWeight: 700, color: '#334155' }}>
                 <span>Ngày</span>
-                <input type="date" value={mealDate} onChange={(event) => setMealDate(event.target.value)} className="h-9 px-2 bg-white border border-gray-300 rounded-lg text-xs font-semibold w-full focus:ring-1 focus:ring-purple-500 outline-none" />
+                <input type="date" value={mealDate} onChange={(event) => setMealDate(event.target.value)} style={{ height: '36px', padding: '0 8px', background: '#fff', borderRadius: '8px', fontSize: '12px', fontWeight: 600, outline: 'none', border: '1px solid #cbd5e1' }} />
               </label>
-              <label className="flex flex-col gap-1 text-[11px] font-bold text-gray-700">
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', fontWeight: 700, color: '#334155' }}>
                 <span>Thời gian</span>
-                <input type="time" value={mealTime} onChange={(event) => setMealTime(event.target.value)} className="h-9 px-2 bg-white border border-gray-300 rounded-lg text-xs font-semibold w-full focus:ring-1 focus:ring-purple-500 outline-none" />
+                <input type="time" value={mealTime} onChange={(event) => setMealTime(event.target.value)} style={{ height: '36px', padding: '0 8px', background: '#fff', borderRadius: '8px', fontSize: '12px', fontWeight: 600, outline: 'none', border: '1px solid #cbd5e1' }} />
               </label>
             </div>
 
             <footer className="nutrition-result-footer">
-              <label className="nutrition-secondary-button" htmlFor={galleryInputId} tabIndex={0} role="button" onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); galleryInputRef.current?.click() } }}><ImagePlus size={17} /> Chọn ảnh khác</label>
-              <button type="button" className="nutrition-secondary-button" onClick={() => saveMeal(false)} disabled={!canSaveMeal} title={!canSaveMeal ? resultMode === 'demo' && !allowDemo ? 'Dữ liệu minh họa không thể ghi vào nhật ký thật' : unresolvedItems.length ? 'Hãy xác nhận các thành phần có độ tin cậy thấp' : 'Cần ngày, giờ và ít nhất một thành phần có tên cùng năng lượng lớn hơn 0' : undefined} data-testid="nutrition-save-scan"><Check size={17} /> Lưu vào nhật ký</button>
-              <button type="button" className="nutrition-primary-button" onClick={() => saveMeal(true)} disabled={!canSaveMeal} title={!canSaveMeal ? resultMode === 'demo' && !allowDemo ? 'Dữ liệu minh họa không thể ghi vào nhật ký thật' : unresolvedItems.length ? 'Hãy xác nhận các thành phần có độ tin cậy thấp' : 'Cần ngày, giờ và ít nhất một thành phần có tên cùng năng lượng lớn hơn 0' : undefined}><ScanLine size={17} /> Xác nhận & Gửi Coach duyệt</button>
+              <button type="button" className="nutrition-secondary-button" onClick={() => saveMeal(false)} disabled={!canSaveMeal} title={!canSaveMeal ? resultMode === 'demo' && !allowDemo ? 'Dữ liệu minh họa không thể ghi vào nhật ký thật' : 'Cần ngày, giờ và ít nhất một thành phần có tên cùng năng lượng lớn hơn 0' : undefined} data-testid="nutrition-save-scan"><Check size={17} /> Lưu vào nhật ký</button>
+              <button type="button" className="nutrition-primary-button" onClick={() => saveMeal(true)} disabled={!canSaveMeal} title={!canSaveMeal ? resultMode === 'demo' && !allowDemo ? 'Dữ liệu minh họa không thể ghi vào nhật ký thật' : 'Cần ngày, giờ và ít nhất một thành phần có tên cùng năng lượng lớn hơn 0' : undefined}><ScanLine size={17} /> Gửi thông tin cho Coach</button>
             </footer>
             <p className="nutrition-source-note">Dữ liệu dinh dưỡng sẽ được đối chiếu từ CSDL Viện Dinh dưỡng; kết quả AI luôn cần người dùng xác nhận.</p>
           </div>
@@ -3006,6 +3058,20 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       calorieRange: meal.calorieRange ?? { low: Math.max(0, Math.round(meal.calories * .88)), high: Math.round(meal.calories * 1.12) },
       items: meal.items,
       reviewStatus: meal.submitForReview ? 'pending' : undefined,
+      studentGoal: profileDraft.goal === 'lose-fat'
+        ? `Giảm mỡ thâm hụt calo (${profileDraft.targetWeightDeltaKg ? `Giảm ${Math.abs(profileDraft.targetWeightDeltaKg)}kg` : 'Thâm hụt calo'})`
+        : profileDraft.goal === 'gain-muscle'
+        ? `Tăng cơ nạc (${profileDraft.targetWeightDeltaKg ? `Tăng ${profileDraft.targetWeightDeltaKg}kg` : 'Thặng dư đạm'})`
+        : 'Duy trì vóc dáng & Sức khỏe',
+      studentCondition: [
+        profileDraft.biologicalSex === 'female' ? 'Nữ' : 'Nam',
+        profileDraft.age ? `${profileDraft.age} tuổi` : '',
+        profileDraft.heightCm ? `Cao ${profileDraft.heightCm}cm` : '',
+        (actual30DayWeight || profileDraft.weightKg) ? `Nặng ${actual30DayWeight || profileDraft.weightKg}kg` : '',
+        profileDraft.trainingSessions ? `Tập ${profileDraft.trainingSessions} buổi/tuần` : '',
+        calorieGoal ? `Calo MT: ${calorieGoal} kcal` : '',
+        proteinGoal ? `Đạm MT: ${proteinGoal}g` : ''
+      ].filter(Boolean).join(', '),
     }
     setMeals((current) => [newMealLog, ...current])
     if (firestoreDb && resolvedOwnerId !== 'anonymous') {
@@ -3253,6 +3319,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         weightKg={profileDraft.weightKg}
         targetWeightDeltaKg={profileDraft.targetWeightDeltaKg}
         targetTimeframeMonths={profileDraft.targetTimeframeMonths}
+        ownerId={resolvedOwnerId}
         todayContent={<NutritionDashboardHome
           firstName={firstName}
           selectedDate={selectedDate}

@@ -52,8 +52,8 @@ export function NutritionProgressCard({
   const calPercent = targetCalories > 0 ? Math.round((avgCalories / targetCalories) * 100) : 0
 
   const items = [
-    { label: 'Protein', actual: proteinGrams, target: proteinGoal, unit: 'g', color: '#f72567' },
-    { label: 'Carb', actual: carbGrams, target: carbGoal, unit: 'g', color: '#ff7a38' },
+    { label: 'Protein', actual: proteinGrams, target: proteinGoal, unit: 'g', color: '#ec4899' },
+    { label: 'Carb', actual: carbGrams, target: carbGoal, unit: 'g', color: '#fb923c' },
     { label: 'Chất béo', actual: fatGrams, target: fatGoal, unit: 'g', color: '#8b5cf6' },
     { label: 'Chất xơ', actual: fiberGrams, target: fiberGoal, unit: 'g', color: '#10b981' },
     { label: 'Nước uống', actual: waterMl, target: waterGoal, unit: 'ml', color: '#0284c7' },
@@ -90,7 +90,7 @@ export function NutritionProgressCard({
             onClick={onLogMeal}
             style={{
               padding: '8px 20px',
-              background: '#f72567',
+              background: '#ec4899',
               color: '#ffffff',
               border: 'none',
               borderRadius: 8,
@@ -122,7 +122,7 @@ export function NutritionProgressCard({
           style={{
             background: 'none',
             border: 'none',
-            color: '#f72567',
+            color: '#ec4899',
             fontWeight: 700,
             fontSize: 12,
             cursor: 'pointer',
@@ -156,8 +156,8 @@ export function NutritionProgressCard({
               />
               <defs>
                 <linearGradient id="pgNutriGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#f72567" />
-                  <stop offset="100%" stopColor="#ff7a38" />
+                  <stop offset="0%" stopColor="#ec4899" />
+                  <stop offset="100%" stopColor="#fb923c" />
                 </linearGradient>
               </defs>
             </svg>

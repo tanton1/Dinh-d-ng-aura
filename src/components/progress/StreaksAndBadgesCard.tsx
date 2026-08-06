@@ -458,7 +458,7 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
             <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b' }}>{xp} XP</span>
           </div>
           <div style={{ width: '100%', height: 6, background: '#cbd5e1', borderRadius: 3, overflow: 'hidden' }}>
-            <div style={{ width: `${xpPercent}%`, height: '100%', background: 'linear-gradient(90deg, #f72567 0%, #ff7a38 100%)', borderRadius: 3 }} />
+            <div style={{ width: `${xpPercent}%`, height: '100%', background: 'linear-gradient(90deg, #ec4899 0%, #fb923c 100%)', borderRadius: 3 }} />
           </div>
           <span style={{ fontSize: 9, color: '#94a3b8', fontWeight: 600, textAlign: 'right' }}>Còn {500 - xpInCurrentLevel} XP lên cấp</span>
         </div>
@@ -493,7 +493,7 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, background: '#f8fafc', padding: 14, borderRadius: 12, border: '1px solid #e2e8f0' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
           <span style={{ fontSize: 13, fontWeight: 800, color: '#334155', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <Calendar size={14} style={{ color: '#f72567' }} />
+            <Calendar size={14} style={{ color: '#ec4899' }} />
             Bảng điểm danh tuần này
           </span>
           <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Kỷ lục chuỗi: <strong>{longestStreak} ngày</strong></span>
@@ -506,7 +506,7 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
             
             return (
               <div key={day.dateStr} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: day.isToday ? '#f72567' : '#94a3b8' }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: day.isToday ? '#ec4899' : '#94a3b8' }}>
                   {day.name} {day.isToday && '•'}
                 </span>
                 <div
@@ -517,8 +517,8 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
                     background: isCompleted 
                       ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' 
                       : (day.isToday ? '#fce7f3' : '#e2e8f0'),
-                    color: isCompleted ? '#ffffff' : (day.isToday ? '#f72567' : '#64748b'),
-                    border: day.isToday && !isCompleted ? '1.5px solid #f72567' : 'none',
+                    color: isCompleted ? '#ffffff' : (day.isToday ? '#ec4899' : '#64748b'),
+                    border: day.isToday && !isCompleted ? '1.5px solid #ec4899' : 'none',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -547,7 +547,7 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
             border: 'none',
             background: isCheckedInToday 
               ? '#e2e8f0' 
-              : 'linear-gradient(90deg, #f72567 0%, #ff7a38 100%)',
+              : 'linear-gradient(90deg, #ec4899 0%, #fb923c 100%)',
             color: isCheckedInToday ? '#94a3b8' : '#ffffff',
             fontSize: 13,
             fontWeight: 800,
@@ -591,7 +591,7 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
               borderRadius: 8,
               border: 'none',
               background: activeTab === tab.id ? '#fce7f3' : 'transparent',
-              color: activeTab === tab.id ? '#f72567' : '#64748b',
+              color: activeTab === tab.id ? '#ec4899' : '#64748b',
               fontSize: 12,
               fontWeight: 800,
               cursor: 'pointer',
@@ -675,7 +675,7 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
                     height: '100%',
                     background: isUnlocked 
                       ? 'linear-gradient(90deg, #10b981, #059669)' 
-                      : 'linear-gradient(90deg, #f72567, #ff7a38)',
+                      : 'linear-gradient(90deg, #ec4899, #fb923c)',
                     borderRadius: 2
                   }} />
                 </div>
@@ -761,7 +761,7 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
                 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, fontWeight: 800, color: '#475569', marginTop: 4 }}>
                   <span>Tiến độ:</span>
-                  <span style={{ color: showBadgeModal.actual >= showBadgeModal.target ? '#10b981' : '#f72567' }}>
+                  <span style={{ color: showBadgeModal.actual >= showBadgeModal.target ? '#10b981' : '#ec4899' }}>
                     {showBadgeModal.actual} / {showBadgeModal.target} {showBadgeModal.unit}
                   </span>
                 </div>

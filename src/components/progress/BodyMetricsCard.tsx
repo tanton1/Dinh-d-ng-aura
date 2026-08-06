@@ -36,7 +36,7 @@ export function BodyMetricsCard({
           style={{
             background: 'none',
             border: 'none',
-            color: '#f72567',
+            color: '#ec4899',
             fontWeight: 700,
             fontSize: 13,
             cursor: 'pointer',

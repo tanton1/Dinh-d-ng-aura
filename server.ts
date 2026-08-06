@@ -32,13 +32,26 @@ async function startServer() {
         return res.status(500).json({ review: 'Cần cấu hình Gemini API Key trên máy chủ để AI có thể phân tích.' });
       }
 
+      const goal = userProfile?.goals?.[0] || userProfile?.goal;
+      const goalStr = goal === 'lose-fat' ? 'Giảm mỡ (Thâm hụt calo)' : goal === 'gain-muscle' ? 'Tăng cơ (Thặng dư đạm & calo)' : 'Duy trì vóc dáng & sức khỏe';
+      const sexStr = userProfile?.biologicalSex === 'female' ? 'Nữ' : userProfile?.biologicalSex === 'male' ? 'Nam' : '';
+      const ageStr = userProfile?.age ? `${userProfile.age} tuổi` : '';
+      const heightStr = userProfile?.heightCm ? `${userProfile.heightCm} cm` : '';
+      const weightStr = userProfile?.weightKg ? `${userProfile.weightKg} kg` : '';
+      const calStr = userProfile?.targetCalories ? `Mục tiêu calo hàng ngày: ${userProfile.targetCalories} kcal` : '';
+
+      const profileSummary = [sexStr, ageStr, heightStr, weightStr, goalStr, calStr].filter(Boolean).join(', ');
+
       const prompt = `Đóng vai một chuyên gia dinh dưỡng PT Aura Fitness khắt khe nhưng động viên.
 Phân tích bữa ăn sau đây của học viên:
 - Tên món: ${meal?.title || meal?.label || 'Không rõ'}
 - Kcal: ${meal?.calories || 0}
 - Đạm: ${meal?.protein || 0}g, Bột đường: ${meal?.carbs || 0}g, Béo: ${meal?.fat || 0}g
-Mục tiêu của học viên: ${userProfile?.goals?.includes('lose-fat') ? 'Giảm mỡ' : userProfile?.goals?.includes('gain-muscle') ? 'Tăng cơ' : 'Duy trì vóc dáng'}
-Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm tốt và điểm cần cải thiện của bữa ăn này dựa trên mục tiêu của họ. KHÔNG dùng markdown hay định dạng phức tạp. Viết trực tiếp nội dung.`;
+
+Hồ sơ cá nhân học viên: ${profileSummary || 'Chưa cập nhật đầy đủ'}
+
+BẮT BUỘC: Lời khuyên và nhận xét phải dựa TRỰC TIẾP trên thông tin hồ sơ của học viên này (cân nặng, chiều cao, mục tiêu calo & vóc dáng), tuyệt đối không dùng thông tin mẫu chung chung.
+Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm tốt và điểm cần cải thiện của bữa ăn dựa trên đúng mục tiêu & thể trạng của họ. KHÔNG dùng markdown. Viết trực tiếp nội dung.`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3.6-flash',
@@ -93,20 +106,20 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
       }
 
       const promptText = `Bạn là hệ thống AI Aura Nutrition & Chuyên gia Dinh dưỡng PT hàng đầu.
-Nhiệm vụ: Nhận diện hình ảnh món ăn (nếu có) kết hợp với ghi chú và hồ sơ cá nhân của học viên để phân tích dinh dưỡng chuẩn xác.
+Nhiệm vụ: Nhận diện hình ảnh món ăn (nếu có) kết hợp với ghi chú và hồ sơ cá nhân THỰC TẾ của học viên để phân tích dinh dưỡng chuẩn xác.
 
-Thông tin học viên:
+Thông tin học viên (Từ hồ sơ cá nhân thực tế):
 - Ghi chú bữa ăn từ học viên: "${studentNote || 'Không có ghi chú'}"
-- Mục tiêu học viên: "${studentGoal || 'Tăng cơ, siết mỡ'}"
-- Thể trạng & Hồ sơ học viên: "${studentCondition || 'Nữ, 55kg, BMR 1200 kcal'}"
+- Mục tiêu học viên: "${studentGoal || 'Chưa cập nhật'}"
+- Thể trạng & Hồ sơ học viên: "${studentCondition || 'Chưa cập nhật'}"
 
 Yêu cầu phân tích chi tiết:
 1. items: Danh sách các thực phẩm cấu thành bữa ăn (tên món tiếng Việt, khối lượng ước tính gram, kcal, đạm/protein gram).
 2. totalKcal & totalProtein: Tổng năng lượng (kcal) và tổng đạm (g) của toàn bộ bữa ăn.
 3. quantityAndCookingAnalysis: Phân tích chi tiết về định lượng thực tế quan sát được (VD: khoảng 150g cơm trắng, 120g ức gà áp chảo...) và nhận định cụ thể về phương pháp chế biến (luộc, hấp, chiên xù, xào nhiều dầu, áp chảo, nướng...).
 4. portionAndCalorieRationale: Giải thích rõ ràng cơ sở/căn cứ để dự đoán khối lượng và số Kcal đó (dựa trên kích thước bát/đĩa tương quan, độ dày miếng thịt, lượng dầu mỡ/sốt phủ).
-5. goalAlignmentAssessment: Nhận định ngắn gọn, súc tích về bữa ăn này so với mục tiêu cụ thể của khách hàng (VD: "Bữa ăn đáp ứng rất tốt lượng đạm cho mục tiêu tăng cơ, tuy nhiên lượng calo hơi cao so với mức thâm hụt mong muốn...").
-6. coachFeedbackSuggestion: Lời khuyên/gợi ý phản hồi chi tiết dành riêng cho Coach để gửi khách hàng (BẮT BUỘC độ dài từ 30 - 100 từ). Ngôn từ vừa chuẩn chuyên môn dinh dưỡng/PT, vừa gần gũi, ấm áp, truyền động lực. Phân tích rõ tỉ lệ đạm, cách chế biến và đưa ra giải pháp thực tế để học viên thực hiện dựa trên mục tiêu & hồ sơ của học viên.`;
+5. goalAlignmentAssessment: Nhận định ngắn gọn, súc tích về bữa ăn này so với mục tiêu cụ thể ĐÃ CUNG CẤP CỦA KHÁCH HÀNG (VD: "Bữa ăn đáp ứng rất tốt lượng đạm cho mục tiêu tăng cơ, tuy nhiên lượng calo hơi cao so với mức thâm hụt mong muốn...").
+6. coachFeedbackSuggestion: Lời khuyên/gợi ý phản hồi chi tiết dành riêng cho Coach/PT để gửi đến học viên (BẮT BUỘC ĐỘ DÀI TỪ 30 ĐẾN 100 TỪ). Đánh giá phải dựa TRỰC TIẾP trên hồ sơ chi tiết của học viên ("${studentGoal}", "${studentCondition}"). Văn phong chuyên nghiệp chuẩn chuyên môn PT & dinh dưỡng, phân tích sâu về phân bổ Macronutrients (đạm, carb, chất béo), phương pháp chế biến, mức thâm hụt/thặng dư năng lượng và mang tính khích lệ, truyền động lực mạnh mẽ. Tuyệt đối KHÔNG sử dụng thông tin mẫu hay số liệu mặc định giả định.`;
 
       parts.push({ text: promptText });
 
@@ -161,16 +174,285 @@ Yêu cầu phân tích chi tiết:
     }
   });
 
+  // Endpoint AI Health Coach Chat strictly using user profile
+  app.post("/api/ai/coach-chat", async (req, res) => {
+    try {
+      const { message, userProfile } = req.body;
+      const ai = getGenAI();
+      if (!ai) {
+        return res.status(500).json({ text: 'AI Coach sẵn sàng. Hãy cài đặt Gemini API Key để trò chuyện trực tiếp với AI.' });
+      }
+
+      const goal = userProfile?.goal || userProfile?.goals?.[0] || 'lose-fat';
+      const goalStr = goal === 'lose-fat' ? 'Giảm mỡ thâm hụt calo' : goal === 'gain-muscle' ? 'Tăng cơ nạc thặng dư đạm' : 'Duy trì vóc dáng & sức khỏe';
+      const sexStr = userProfile?.biologicalSex === 'female' ? 'Nữ' : userProfile?.biologicalSex === 'male' ? 'Nam' : 'Chưa rõ';
+      const ageStr = userProfile?.age ? `${userProfile.age} tuổi` : 'Chưa rõ';
+      const heightStr = userProfile?.heightCm ? `${userProfile.heightCm} cm` : 'Chưa rõ';
+      const weightStr = userProfile?.weightKg ? `${userProfile.weightKg} kg` : 'Chưa rõ';
+      
+      const weight = parseFloat(userProfile?.weightKg || '');
+      const height = parseFloat(userProfile?.heightCm || '');
+      let bmiStr = 'Chưa rõ';
+      if (!isNaN(weight) && !isNaN(height) && height > 0) {
+        const bmi = weight / ((height / 100) ** 2);
+        let cat = 'Bình thường';
+        if (bmi < 18.5) cat = 'Thiếu cân';
+        else if (bmi < 23) cat = 'Bình thường';
+        else if (bmi < 25) cat = 'Thừa cân';
+        else cat = 'Béo phì';
+        bmiStr = `${bmi.toFixed(1)} (${cat})`;
+      }
+
+      const deltaStr = userProfile?.targetWeightDeltaKg ? (userProfile.targetWeightDeltaKg > 0 ? `Tăng ${userProfile.targetWeightDeltaKg} kg` : `Giảm ${Math.abs(userProfile.targetWeightDeltaKg)} kg`) : 'Chưa rõ';
+      const targetCalories = userProfile?.targetCalories || 0;
+      const targetCalStr = targetCalories ? `${targetCalories} kcal/ngày` : 'Chưa rõ';
+
+      let pTarget = 0, cTarget = 0, fTarget = 0;
+      if (targetCalories) {
+        if (goal === 'lose-fat') {
+          pTarget = Math.round((targetCalories * 0.3) / 4);
+          fTarget = Math.round((targetCalories * 0.25) / 9);
+          cTarget = Math.round((targetCalories * 0.45) / 4);
+        } else if (goal === 'gain-muscle') {
+          pTarget = Math.round((targetCalories * 0.25) / 4);
+          fTarget = Math.round((targetCalories * 0.25) / 9);
+          cTarget = Math.round((targetCalories * 0.5) / 4);
+        } else {
+          pTarget = Math.round((targetCalories * 0.2) / 4);
+          fTarget = Math.round((targetCalories * 0.25) / 9);
+          cTarget = Math.round((targetCalories * 0.55) / 4);
+        }
+      }
+      const proteinTargetStr = userProfile?.targetProtein ? `${userProfile.targetProtein} g` : pTarget ? `${pTarget} g` : 'Chưa rõ';
+      const carbTargetStr = userProfile?.targetCarbs ? `${userProfile.targetCarbs} g` : cTarget ? `${cTarget} g` : 'Chưa rõ';
+      const fatTargetStr = userProfile?.targetFat ? `${userProfile.targetFat} g` : fTarget ? `${fTarget} g` : 'Chưa rõ';
+
+      const startDate = userProfile?.startDate || userProfile?.createdAt?.split('T')[0] || 'Chưa rõ';
+      let programDay = 'Chưa rõ';
+      if (startDate && startDate !== 'Chưa rõ') {
+        try {
+          const start = new Date(startDate);
+          const now = new Date();
+          const diffTime = Math.abs(now.getTime() - start.getTime());
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          programDay = `${diffDays} ngày`;
+        } catch (err) {
+          // fallback
+        }
+      }
+      const progressStr = userProfile?.progress || (userProfile?.weeklyRateKg ? `Đang tiến triển (${userProfile.weeklyRateKg > 0 ? 'tăng' : 'giảm'} khoảng ${Math.abs(userProfile.weeklyRateKg).toFixed(2)} kg/tuần)` : 'Đang duy trì thói quen tập luyện và dinh dưỡng hàng ngày');
+
+      const prompt = `Bạn là AI Health & Nutrition Coach của Aura Fitness.
+
+Vai trò:
+- Chuyên gia dinh dưỡng và huấn luyện viên cá nhân.
+- Giải thích khoa học bằng ngôn ngữ đơn giản, dễ hiểu.
+- Luôn trả lời như đang tư vấn 1:1 cho chính học viên.
+- Không trả lời theo mẫu chung.
+
+=========================
+HỒ SƠ HỌC VIÊN
+=========================
+
+Giới tính: ${sexStr}
+Tuổi: ${ageStr}
+Chiều cao: ${heightStr}
+Cân nặng hiện tại: ${weightStr}
+BMI: ${bmiStr}
+Mục tiêu: ${goalStr}
+Khối lượng cần thay đổi: ${deltaStr}
+Calories mục tiêu: ${targetCalStr}
+Protein mục tiêu: ${proteinTargetStr}
+Carb mục tiêu: ${carbTargetStr}
+Fat mục tiêu: ${fatTargetStr}
+Ngày bắt đầu: ${startDate}
+Ngày theo chương trình: ${programDay}
+Tiến độ hiện tại: ${progressStr}
+
+=========================
+QUY TẮC BẮT BUỘC
+=========================
+
+1. Mọi câu trả lời PHẢI dựa trên hồ sơ học viên ở trên.
+
+2. Không được sử dụng số liệu mẫu hoặc giả định.
+
+3. Không được đoán tuổi, cân nặng, chiều cao, calories, protein nếu hồ sơ không có.
+
+4. Nếu thiếu dữ liệu để tính toán, hãy nói rõ:
+"Hiện mình chưa đủ dữ liệu để tính chính xác."
+
+5. Không đưa ra lời khuyên trái với mục tiêu hiện tại của học viên.
+
+6. Không chẩn đoán bệnh.
+Nếu liên quan bệnh lý hoặc thuốc, hãy khuyến nghị trao đổi với bác sĩ và chỉ hỗ trợ về dinh dưỡng, tập luyện.
+
+7. Không sử dụng markdown.
+Không dùng bullet nếu không cần.
+Không emoji.
+
+=========================
+QUY TẮC TRẢ LỜI
+=========================
+
+Luôn trả lời theo cấu trúc:
+
+Bước 1
+Trả lời trực tiếp đúng câu hỏi.
+
+Bước 2
+Giải thích ngắn gọn dựa trên hồ sơ.
+
+Bước 3
+Đưa ra lời khuyên thực tế hoặc động viên.
+
+=========================
+ĐỘ DÀI
+=========================
+
+- Mặc định từ 5-10 câu.
+- Nếu câu hỏi cần tính toán hoặc giải thích chuyên sâu: tối đa 10 câu.
+- Mỗi câu ngắn gọn, rõ ý.
+- Không viết lan man.
+- Không lặp ý.
+- Không bỏ dở câu.
+- Không kết thúc giữa chừng.
+- Luôn hoàn thành đầy đủ ý trước khi kết thúc.
+
+Giới hạn toàn bộ câu trả lời:
+- Tối đa khoảng 300 từ hoặc 2000 ký tự.
+- Nếu nội dung vượt giới hạn, hãy ưu tiên thông tin quan trọng nhất và kết thúc bằng một câu hoàn chỉnh.
+
+=========================
+KHI TÍNH TOÁN
+=========================
+
+Nếu học viên hỏi về:
+
+- Calories
+- Protein
+- Carb
+- Fat
+- BMI
+- TDEE
+- BMR
+- Giảm cân
+- Tăng cân
+- Macro
+
+=> Chỉ sử dụng dữ liệu trong hồ sơ.
+
+Không sử dụng bất kỳ giá trị mặc định nào.
+
+=========================
+KHI HỌC VIÊN HỎI
+=========================
+
+Nếu hỏi:
+
+"Hôm nay tôi nên ăn bao nhiêu?"
+
+=> Trả lời calories, protein, carb và fat theo hồ sơ.
+
+Nếu hỏi:
+
+"Tôi ăn món này được không?"
+
+=> Đánh giá dựa trên mục tiêu, calories, macro và khẩu phần.
+
+Nếu hỏi:
+
+"Vì sao cân chưa giảm?"
+
+=> Xem xét:
+- thời gian theo chương trình
+- calories
+- protein
+- luyện tập
+- ngủ nghỉ
+- tiến độ hiện tại
+
+Không mặc định là do ăn nhiều.
+
+Nếu hỏi:
+
+"Khi nào đạt mục tiêu?"
+
+=> Ước tính từ mục tiêu và tiến độ hiện tại.
+Không hứa chắc chắn.
+
+=========================
+GIỌNG VĂN
+=========================
+
+Ưu tiên các cách mở đầu như:
+
+"Theo hồ sơ hiện tại của bạn..."
+
+"Dựa trên mục tiêu của bạn..."
+
+"Hiện tại..."
+
+"Với chỉ số của bạn..."
+
+Không dùng:
+
+"Thông thường..."
+
+"Hầu hết mọi người..."
+
+"Người trưởng thành..."
+
+=========================
+MỤC TIÊU CUỐI
+=========================
+
+Mỗi câu trả lời phải tạo cảm giác:
+
+- Được tư vấn riêng.
+- Đúng dữ liệu cá nhân.
+- Khoa học nhưng dễ hiểu.
+- Ngắn gọn.
+- Hoàn chỉnh.
+- Không bị cắt ngang.
+- Có giá trị thực tế.
+- Tạo động lực để tiếp tục hành trình.
+
+=========================
+CÂU HỎI CỦA HỌC VIÊN
+=========================
+
+${message}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.6-flash',
+        contents: prompt,
+        config: {
+          maxOutputTokens: 3000,
+        }
+      });
+
+      res.json({ text: response.text || 'AI Coach chưa thể trả lời ngay lúc này.' });
+    } catch (e) {
+      console.error('Failed in /api/ai/coach-chat:', e);
+      res.status(500).json({ text: 'Lỗi khi kết nối với AI Coach.' });
+    }
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
+
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

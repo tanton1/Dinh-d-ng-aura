@@ -108,7 +108,12 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
     if (!user) return alert('Vui lòng đăng nhập để gửi.')
     setIsSubmittingReview(true)
     try {
-      const aiAnalysis = await generateMealReview(meal, { goals: [userGoal] })
+      const aiAnalysis = await generateMealReview(meal, {
+        goals: [userGoal],
+        goal: userGoal,
+        targetCalories: dailyCalorieGoal,
+        studentName: user.displayName || user.email || 'Học viên',
+      })
       await submitMealReview(user.uid, user.displayName || user.email || 'Học viên', {
         ...meal,
         aiAnalysis
@@ -336,11 +341,16 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
         </div>
 
         {meal.coachFeedback && (
-          <div className="fdet-coach-feedback" style={{ marginTop: '20px', padding: '16px', borderRadius: '12px', background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#166534', fontWeight: 800, marginBottom: '8px', fontSize: '13px' }}>
-              <Sparkles size={16} /> <span>Coach nhận xét</span>
+          <div className="fdet-coach-feedback" style={{ marginTop: '20px', padding: '16px', borderRadius: '24px', background: 'linear-gradient(135deg, #fdf2f8 0%, #f0fdf4 40%, #e0f2fe 100%)', border: '1.5px solid #bae6fd', boxShadow: '0 4px 16px rgba(2, 132, 199, 0.08)' }}>
+            <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <div style={{ padding: '6px', background: 'linear-gradient(135deg, #ec4899 0%, #f97316 100%)', color: '#fff', borderRadius: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Sparkles size={15} />
+              </div>
+              <span style={{ fontSize: '13px', fontWeight: 900, background: 'linear-gradient(135deg, #db2777 0%, #ea580c 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
+                NHẬN XÉT TỪ COACH
+              </span>
             </div>
-            <p style={{ margin: 0, fontSize: '14px', color: '#14532d', lineHeight: 1.5 }}>{meal.coachFeedback}</p>
+            <p style={{ margin: 0, fontSize: '14px', color: '#0f172a', lineHeight: 1.5, fontWeight: 500, background: 'rgba(255, 255, 255, 0.9)', padding: '12px 14px', borderRadius: '16px', border: '1px solid rgba(186, 230, 253, 0.8)' }}>"{meal.coachFeedback}"</p>
           </div>
         )}
 
@@ -435,13 +445,13 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
             type="button"
             className={`fdet-dot-btn ${activeSlide === 0 ? 'active' : ''}`}
             onClick={() => setActiveSlide(0)}
-            aria-label="Slide 1: Đa lượng"
+            aria-label="Đa lượng"
           />
           <button
             type="button"
             className={`fdet-dot-btn ${activeSlide === 1 ? 'active' : ''}`}
             onClick={() => setActiveSlide(1)}
-            aria-label="Slide 2: Vi chất & Tỷ lệ Kcal"
+            aria-label="Vi chất & Tỷ lệ Kcal"
           />
         </div>
 
@@ -491,37 +501,65 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
         </div>
 
         {/* ✨ Đánh Giá Từ AI Coach & Nhận Xét Từ Coach */}
-        <div className="fdet-section">
-          <div className="fdet-section-header">
-            <h2 className="fdet-section-title fdet-ai-title">
-              <Sparkles size={18} className="fdet-sparkle-icon text-purple-600" />
-              <span>Đánh giá từ AI Coach</span>
+        <div className="fdet-section" style={{ marginTop: '16px' }}>
+          <div className="fdet-section-header" style={{ marginBottom: '10px' }}>
+            <h2 className="fdet-section-title fdet-ai-title" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
+              <div style={{ padding: '6px', background: 'linear-gradient(135deg, #ec4899 0%, #f97316 100%)', color: '#fff', borderRadius: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Sparkles size={16} />
+              </div>
+              <span style={{ fontSize: '15px', fontWeight: 900, background: 'linear-gradient(135deg, #db2777 0%, #ea580c 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', whiteSpace: 'nowrap' }}>
+                Gợi ý từ AI Coach & Nhận xét từ Coach
+              </span>
             </h2>
           </div>
 
-          {/* AI Aura Coach Assessment Card */}
-          <div className="p-4 bg-gray-50/90 border border-gray-200 rounded-2xl space-y-2 text-left my-2 shadow-2xs">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-purple-600 text-white rounded-xl shadow-xs flex items-center justify-center">
-                <Sparkles size={15} />
+          {/* AI Aura Coach Assessment Card (Gradient Hồng - Cam) */}
+          <div
+            style={{
+              padding: '16px',
+              borderRadius: '24px',
+              background: 'linear-gradient(135deg, #fff0f6 0%, #fff7ed 50%, #fdf2f8 100%)',
+              border: '1px solid #fce7f3',
+              boxShadow: '0 8px 24px rgba(255, 45, 145, 0.08)',
+              marginTop: '10px',
+              marginBottom: '12px'
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <div style={{ padding: '6px', background: 'linear-gradient(135deg, #ec4899 0%, #f97316 100%)', color: '#fff', borderRadius: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Sparkles size={14} />
               </div>
-              <span className="text-xs font-extrabold text-gray-900 uppercase tracking-wider">AI Aura Coach</span>
+              <span style={{ fontSize: '13px', fontWeight: 900, background: 'linear-gradient(135deg, #db2777 0%, #ea580c 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
+                Gợi ý từ AI Coach
+              </span>
             </div>
-            <p className="text-xs sm:text-sm text-gray-800 font-medium leading-relaxed bg-white p-3 rounded-xl border border-gray-200/80">
+            <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500 }}>
               {meal.aiAnalysis || `Khẩu phần ${portionCount} phần gồm ${ingredients.map((i) => i.name).join(', ')}. Tổng năng lượng ${totalCal} kcal (${totalProtein}g Đạm, ${totalCarbs}g Carb, ${totalFat}g Béo) đạt tỉ lệ dinh dưỡng cân đối, phù hợp với chế độ tập luyện.`}
             </p>
           </div>
 
-          {/* Coach Reviewed Feedback (When reviewed by Coach) */}
+          {/* Coach Reviewed Feedback (When reviewed by Coach - Gradient Hồng - Xanh Tươi Mát) */}
           {meal.coachFeedback && (
-            <div className="p-4 bg-emerald-50/90 border border-emerald-200 rounded-2xl space-y-2 text-left my-3 shadow-2xs">
-              <div className="flex items-center gap-2 text-emerald-800">
-                <div className="p-1.5 bg-emerald-600 text-white rounded-xl shadow-xs flex items-center justify-center">
-                  <Sparkles size={15} />
+            <div
+              style={{
+                padding: '16px',
+                borderRadius: '24px',
+                background: 'linear-gradient(135deg, #fdf2f8 0%, #f0fdf4 40%, #e0f2fe 100%)',
+                border: '1px solid #e0f2fe',
+                boxShadow: '0 8px 24px rgba(2, 132, 199, 0.08)',
+                marginTop: '12px',
+                marginBottom: '12px'
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <div style={{ padding: '6px', background: 'linear-gradient(135deg, #ec4899 0%, #f97316 100%)', color: '#fff', borderRadius: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Sparkles size={14} />
                 </div>
-                <span className="text-xs font-extrabold uppercase tracking-wider">LỜI KHUYÊN TỪ COACH KHI DUYỆT MÓN</span>
+                <span style={{ fontSize: '13px', fontWeight: 900, background: 'linear-gradient(135deg, #db2777 0%, #ea580c 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
+                  Nhận xét từ Coach
+                </span>
               </div>
-              <p className="text-xs sm:text-sm text-emerald-950 font-medium leading-relaxed bg-white/90 p-3 rounded-xl border border-emerald-200/80">
+              <p style={{ margin: 0, fontSize: '13px', color: '#0f172a', lineHeight: 1.6, fontWeight: 500 }}>
                 "{meal.coachFeedback}"
               </p>
             </div>

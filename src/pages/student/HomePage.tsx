@@ -368,12 +368,12 @@ export default function HomePage({
           <p>Học kiến thức tại Aura Academy và theo dõi kế hoạch tập luyện PT trong hai không gian độc lập.</p>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-          <div className="streak-pill" style={{ background: 'rgba(247, 37, 103, 0.08)', color: '#f72567', border: '1px solid rgba(247, 37, 103, 0.15)' }}>
+          <div className="streak-pill" style={{ background: 'rgba(236, 72, 153, 0.08)', color: '#ec4899', border: '1px solid rgba(236, 72, 153, 0.15)' }}>
             <Flame size={18} fill="currentColor" />
             <strong>{streak}</strong>
             <span>ngày liên tiếp</span>
           </div>
-          <div className="streak-pill" style={{ background: 'rgba(255, 122, 56, 0.08)', color: '#ff7a38', border: '1px solid rgba(255, 122, 56, 0.15)' }}>
+          <div className="streak-pill" style={{ background: 'rgba(255, 122, 56, 0.08)', color: '#fb923c', border: '1px solid rgba(255, 122, 56, 0.15)' }}>
             <Zap size={18} fill="currentColor" />
             <strong>Cấp {currentLevel}</strong>
             <span>({xp} XP)</span>
@@ -386,7 +386,7 @@ export default function HomePage({
         <section style={{ marginBottom: 24 }}>
           <div 
             style={{
-              background: 'linear-gradient(135deg, #f72567 0%, #ff7a38 100%)',
+              background: 'linear-gradient(135deg, #ec4899 0%, #fb923c 100%)',
               borderRadius: 16,
               padding: '20px 24px',
               color: '#ffffff',
@@ -427,7 +427,7 @@ export default function HomePage({
                 onClick={handleCheckIn}
                 style={{
                   background: '#ffffff',
-                  color: '#f72567',
+                  color: '#ec4899',
                   border: 'none',
                   padding: '12px 24px',
                   borderRadius: 12,
@@ -597,7 +597,7 @@ export default function HomePage({
             value={`${completedLessonsCount} bài`} 
             label="Bài học hoàn thành" 
             detail="Tích lũy lý thuyết dinh dưỡng" 
-            tone="purple" 
+            tone="pink" 
           />
           <StatCard 
             icon={<Award />} 
