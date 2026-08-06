@@ -52,48 +52,208 @@ export default function AuthPage() {
   }
 
   return (
-    <div className="auth-page">
-      <section className="auth-story">
-        <div className="auth-brand"><div className="brand-mark">A<span /></div><div><strong>AURA</strong><small>FITNESS</small></div></div>
-        <div className="auth-story__content">
-          <span className="auth-kicker"><Sparkles size={15} /> HỌC ĐÚNG · TẬP CHẤT · SỐNG KHỎE</span>
-          <h1>Mỗi ngày mạnh mẽ hơn một chút.</h1>
-          <p>Lộ trình học và tập luyện được cá nhân hóa, đồng hành cùng bạn từ buổi đầu tiên đến khi chạm mục tiêu.</p>
-          <div className="auth-benefits">
-            <span><CheckCircle2 /> Giáo án khoa học từ huấn luyện viên Aura</span>
-            <span><CheckCircle2 /> Theo dõi tiến độ trên mọi thiết bị</span>
-            <span><CheckCircle2 /> Dữ liệu được đồng bộ và bảo vệ bởi Firebase</span>
-          </div>
-        </div>
-        <div className="auth-orbit one" /><div className="auth-orbit two" /><div className="auth-glow" />
-        <div className="auth-trust"><ShieldCheck size={18} /><span><strong>Dữ liệu riêng tư</strong><small>Bạn kiểm soát toàn bộ thông tin sức khỏe của mình.</small></span></div>
-      </section>
-
-      <main className="auth-form-panel">
-        <div className="auth-form-wrap">
-          <div className="auth-form-heading">
-            <span className="eyebrow">CHÀO MỪNG ĐẾN AURA</span>
-            <h2>{mode === 'signin' ? 'Đăng nhập tài khoản' : 'Bắt đầu hành trình'}</h2>
-            <p>{mode === 'signin' ? 'Tiếp tục khóa học và buổi tập đang chờ bạn.' : 'Tạo tài khoản để nhận lộ trình phù hợp với mục tiêu.'}</p>
+    <div className="auth-container">
+      <div className="auth-card-frame">
+        {/* Top Header Area with Brand and 3D Visual */}
+        <header className="auth-header-gradient">
+          <div className="auth-header-top">
+            <div className="auth-logo-brand">
+              <div className="auth-logo-symbol">
+                <span>Λ</span>
+              </div>
+              <div className="auth-logo-text">
+                <span className="logo-title">AURA</span>
+                <span className="logo-subtitle">FITNESS</span>
+              </div>
+            </div>
           </div>
 
-          <div className="auth-mode-tabs"><button className={mode === 'signin' ? 'active' : ''} onClick={() => setMode('signin')}>Đăng nhập</button><button className={mode === 'signup' ? 'active' : ''} onClick={() => setMode('signup')}>Đăng ký</button></div>
+          <div className="auth-header-main">
+            <span className="auth-greeting">Chào mừng đến Aura</span>
+            <h1 className="auth-display-title">
+              {mode === 'signin' ? (
+                <>Đăng nhập để<br />tiếp tục hành trình</>
+              ) : (
+                <>Đăng ký để<br />bắt đầu hành trình</>
+              )}
+            </h1>
+            <p className="auth-display-subtitle">
+              Theo dõi tiến độ, khóa học và<br />buổi tập của bạn ✨
+            </p>
+          </div>
 
-          <form onSubmit={submit}>
-            {mode === 'signup' && <label><span>Họ và tên</span><div><UserRound size={18} /><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Nguyễn Minh Anh" autoComplete="name" /></div></label>}
-            <label><span>Email</span><div><Mail size={18} /><input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="ban@aurafitness.vn" autoComplete="email" /></div></label>
-            <label><span>Mật khẩu</span><div><LockKeyhole size={18} /><input required minLength={6} type={showPassword ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Tối thiểu 6 ký tự" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} /><button type="button" onClick={() => setShowPassword((value) => !value)}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></label>
-            {mode === 'signin' && <button type="button" className="forgot-button" onClick={forgotPassword}>Quên mật khẩu?</button>}
-            {error && <div className="auth-message error">{error}</div>}
-            {message && <div className="auth-message success">{message}</div>}
-            <button className="auth-submit" disabled={loading}>{loading ? <LoaderCircle className="spin" size={19} /> : <>{mode === 'signin' ? 'Đăng nhập' : 'Tạo tài khoản'} <ArrowRight size={18} /></>}</button>
+          {/* 3D-like Premium CSS Illustration */}
+          <div className="auth-3d-illustration-container">
+            <div className="aura-3d-glass-card">
+              <span className="aura-card-logo">Λ</span>
+              {/* Dumbbell 3D Illustration */}
+              <div className="aura-3d-dumbbell">
+                <div className="db-handle" />
+                <div className="db-weight-left" />
+                <div className="db-weight-right" />
+                <div className="db-cap-left" />
+                <div className="db-cap-right" />
+              </div>
+            </div>
+          </div>
+          
+          <div className="auth-header-dots" />
+        </header>
+
+        {/* Bottom Form Card Area */}
+        <main className="auth-form-card">
+          {/* Mode Switcher Tabs */}
+          <div className="auth-tabs-wrapper">
+            <button
+              type="button"
+              className={`auth-tab-btn ${mode === 'signin' ? 'active' : ''}`}
+              onClick={() => {
+                setMode('signin')
+                setError(null)
+                setMessage(null)
+              }}
+            >
+              Đăng nhập
+            </button>
+            <button
+              type="button"
+              className={`auth-tab-btn ${mode === 'signup' ? 'active' : ''}`}
+              onClick={() => {
+                setMode('signup')
+                setError(null)
+                setMessage(null)
+              }}
+            >
+              Đăng ký
+            </button>
+          </div>
+
+          {/* Form */}
+          <form className="auth-interactive-form" onSubmit={submit}>
+            {mode === 'signup' && (
+              <div className="auth-input-group">
+                <label className="auth-input-label">Họ và tên</label>
+                <div className="auth-input-wrapper">
+                  <UserRound className="auth-input-icon" size={18} />
+                  <input
+                    required
+                    type="text"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    placeholder="Nguyễn Minh Anh"
+                    autoComplete="name"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="auth-input-group">
+              <label className="auth-input-label">Email</label>
+              <div className="auth-input-wrapper">
+                <Mail className="auth-input-icon" size={18} />
+                <input
+                  required
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="Nhập email của bạn"
+                  autoComplete="email"
+                />
+              </div>
+            </div>
+
+            <div className="auth-input-group">
+              <label className="auth-input-label">Mật khẩu</label>
+              <div className="auth-input-wrapper">
+                <LockKeyhole className="auth-input-icon" size={18} />
+                <input
+                  required
+                  minLength={6}
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Nhập mật khẩu"
+                  autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+                />
+                <button
+                  type="button"
+                  className="auth-password-toggle"
+                  onClick={() => setShowPassword((value) => !value)}
+                  title={showPassword ? 'Ẩn mật khẩu' : 'Hiển thị mật khẩu'}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+
+            {mode === 'signin' && (
+              <div className="auth-forgot-row">
+                <button type="button" className="auth-forgot-link" onClick={forgotPassword}>
+                  Quên mật khẩu?
+                </button>
+              </div>
+            )}
+
+            {/* Error & Success Messages */}
+            {error && (
+              <div className="auth-state-message error">
+                <span>⚠️ {error}</span>
+              </div>
+            )}
+            {message && (
+              <div className="auth-state-message success">
+                <span>✨ {message}</span>
+              </div>
+            )}
+
+            {/* Submit Button */}
+            <button className="auth-submit-btn-gradient" type="submit" disabled={loading}>
+              {loading ? (
+                <LoaderCircle className="animate-spin" size={20} />
+              ) : (
+                <>
+                  <span>{mode === 'signin' ? 'Đăng nhập' : 'Đăng ký'}</span>
+                  <ArrowRight size={18} />
+                </>
+              )}
+            </button>
           </form>
 
-          <div className="auth-divider"><span>hoặc tiếp tục với</span></div>
-          <button className="google-button" disabled={loading} onClick={google}><span>G</span> Google</button>
-          <p className="auth-terms">Bằng cách tiếp tục, bạn đồng ý với <button>Điều khoản sử dụng</button> và <button>Chính sách quyền riêng tư</button> của Aura Fitness.</p>
-        </div>
-      </main>
+          {/* Social login divider */}
+          <div className="auth-divider-section">
+            <span className="auth-divider-text">hoặc tiếp tục với</span>
+          </div>
+
+          {/* Google Button */}
+          <button className="auth-google-btn-sleek" type="button" disabled={loading} onClick={google}>
+            <svg className="auth-google-svg" viewBox="0 0 24 24" width="20" height="20">
+              <path
+                fill="#4285F4"
+                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+              />
+              <path
+                fill="#34A853"
+                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.85z"
+              />
+              <path
+                fill="#EA4335"
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.85c.87-2.6 3.3-4.53 6.16-4.53z"
+              />
+            </svg>
+            <span>Tiếp tục với Google</span>
+          </button>
+
+          {/* Terms and conditions */}
+          <p className="auth-footer-terms">
+            Bằng cách tiếp tục, bạn đồng ý với <button type="button" className="term-link">Điều khoản sử dụng</button> và{' '}
+            <button type="button" className="term-link">Chính sách quyền riêng tư</button> của Aura Fitness.
+          </p>
+        </main>
+      </div>
     </div>
   )
 }
