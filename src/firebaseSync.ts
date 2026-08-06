@@ -73,6 +73,15 @@ export async function approveMealInFirestore(
   })
 }
 
+export async function sendFeedbackInFirestore(
+  mealId: string,
+  coachFeedback: string
+): Promise<void> {
+  await updateMealReview(mealId, {
+    coachFeedback
+  })
+}
+
 export function subscribeToRealtimeMeals(
   callback: (meals: PendingMealItem[]) => void
 ): () => void {

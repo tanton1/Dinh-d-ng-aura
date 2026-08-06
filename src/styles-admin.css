@@ -1901,7 +1901,7 @@
   border-top: 1px solid #e2e8f0;
   box-shadow: 0 -4px 20px rgba(15, 23, 42, 0.06);
   box-sizing: border-box;
-  z-index: 40;
+  z-index: 120;
 }
 .aura-bottom-btn-chat {
   flex: 1;

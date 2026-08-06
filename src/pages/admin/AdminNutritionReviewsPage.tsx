@@ -34,6 +34,7 @@ import type { ViewId } from '../../types'
 import {
   getPendingMealsFromFirestore,
   approveMealInFirestore,
+  sendFeedbackInFirestore,
   subscribeToRealtimeMeals,
   type PendingMealItem,
 } from '../../firebaseSync'
@@ -67,6 +68,8 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
   const [activeDetailTab, setActiveDetailTab] = useState<'slide1' | 'slide2'>('slide1')
   const [coachFeedback, setCoachFeedback] = useState('')
   const [isApprovedSuccess, setIsApprovedSuccess] = useState(false)
+  const [isSendingFeedback, setIsSendingFeedback] = useState(false)
+  const [feedbackSuccess, setFeedbackSuccess] = useState(false)
 
   // Sync strictly from Firestore Realtime
   useEffect(() => {
@@ -148,6 +151,30 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
       setViewMode('overview')
       setSelectedMealId(null)
     }, 800)
+  }
+
+  const handleSendFeedbackOnly = async (mealId: string) => {
+    const text = coachFeedback.trim()
+    if (!text) return
+    setIsSendingFeedback(true)
+    setFeedbackSuccess(false)
+
+    try {
+      await sendFeedbackInFirestore(mealId, text)
+      setFeedbackSuccess(true)
+      
+      setAllMeals((prev) =>
+        prev.map((m) => (m.id === mealId ? { ...m, coachFeedback: text } : m))
+      )
+
+      setTimeout(() => {
+        setFeedbackSuccess(false)
+      }, 2000)
+    } catch (e) {
+      console.error('Send feedback error:', e)
+    } finally {
+      setIsSendingFeedback(false)
+    }
   }
 
   const handleBatchToggleSelect = (id: string) => {
@@ -726,6 +753,47 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
           >
             <MessageCircle size={18} />
             <span>Nhắn học viên</span>
+          </button>
+
+          <button
+            type="button"
+            className="aura-bottom-btn-feedback"
+            style={{
+              flex: '1',
+              height: '48px',
+              borderRadius: '14px',
+              border: '1px solid #0891b2',
+              backgroundColor: '#ecfeff',
+              color: '#0891b2',
+              fontSize: '14px',
+              fontWeight: 800,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              cursor: 'pointer',
+              opacity: !coachFeedback.trim() ? 0.6 : 1
+            }}
+            onClick={() => handleSendFeedbackOnly(meal.id)}
+            disabled={isSendingFeedback || !coachFeedback.trim()}
+            title={!coachFeedback.trim() ? 'Vui lòng nhập nhận xét trước khi gửi' : 'Gửi nhận xét cho học viên'}
+          >
+            {isSendingFeedback ? (
+              <>
+                <RefreshCw className="animate-spin" size={18} />
+                <span>Đang gửi...</span>
+              </>
+            ) : feedbackSuccess ? (
+              <>
+                <Check size={18} />
+                <span>Đã gửi nhận xét!</span>
+              </>
+            ) : (
+              <>
+                <Send size={18} />
+                <span>Gửi nhận xét</span>
+              </>
+            )}
           </button>
 
           <button

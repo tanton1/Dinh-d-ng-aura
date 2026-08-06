@@ -20,6 +20,8 @@ import {
   Target,
   UserRound,
   Zap,
+  BookOpen,
+  Calendar,
 } from 'lucide-react'
 import { PageHeader, Toggle } from '../../components/ui'
 
@@ -60,8 +62,14 @@ interface ProfilePageProps {
 }
 
 function normalizeNotificationSettings(value: ProfilePageProps['notificationSettings']): ProfileNotificationSettings {
-  if (typeof value === 'boolean') return { enabled: value }
-  return value ? { ...value } : { enabled: false }
+  if (typeof value === 'boolean') return { enabled: value, workoutReminders: value, learningUpdates: value }
+  return value ? {
+    enabled: value.enabled ?? false,
+    workoutReminders: value.workoutReminders ?? false,
+    learningUpdates: value.learningUpdates ?? false,
+    coachMessages: value.coachMessages ?? false,
+    ...value
+  } : { enabled: false, workoutReminders: false, learningUpdates: false, coachMessages: false }
 }
 
 function formatMeasurement(value: number | null | undefined, unit: string) {
@@ -211,17 +219,24 @@ export default function ProfilePage({
     }
   }
 
-  const toggleNotifications = async () => {
+  const toggleNotificationKey = async (key: keyof ProfileNotificationSettings) => {
     if (!onSave || savingNotification) return
     const previous = notificationValues
-    const next = { ...previous, enabled: !notificationEnabled }
+    const nextValue = !previous[key]
+    const next = { ...previous, [key]: nextValue }
+
+    // If enabling any sub-option but main enabled is false, turn main on
+    if (key !== 'enabled' && nextValue && !previous.enabled) {
+      next.enabled = true
+    }
+
     setNotificationValues(next)
     setSavingNotification(true)
     setError(null)
     setSuccess(null)
     try {
       await onSave({ notificationSettings: next })
-      setSuccess(next.enabled ? 'Đã bật thông báo Aura.' : 'Đã tắt thông báo Aura.')
+      setSuccess('Đã cập nhật cài đặt thông báo.')
     } catch {
       setNotificationValues(previous)
       setError('Chưa thể lưu cài đặt thông báo. Vui lòng thử lại.')
@@ -340,11 +355,34 @@ export default function ProfilePage({
 
           <article className="card settings-group">
             <h2>Cài đặt trải nghiệm</h2>
-            <button className="setting-row" type="button" onClick={() => void toggleNotifications()} disabled={!onSave || savingNotification} aria-pressed={notificationEnabled}>
+            <button className="setting-row" type="button" onClick={() => void toggleNotificationKey('enabled')} disabled={!onSave || savingNotification} aria-pressed={notificationEnabled}>
               <span className="setting-row__icon"><Bell /></span>
-              <span className="setting-row__copy"><strong>Thông báo Aura</strong><small>{savingNotification ? 'Đang đồng bộ...' : onSave ? notificationEnabled ? 'Đang bật nhắc lịch và cập nhật học tập' : 'Đang tắt' : 'Chưa kết nối lưu cài đặt'}</small></span>
+              <span className="setting-row__copy"><strong>Thông báo đẩy Aura</strong><small>{savingNotification ? 'Đang đồng bộ...' : onSave ? notificationEnabled ? 'Bật nhắc lịch bài học và tập luyện' : 'Đang tắt tất cả thông báo' : 'Chưa kết nối lưu cài đặt'}</small></span>
               {savingNotification ? <LoaderCircle className="spin" size={19} /> : <Toggle checked={notificationEnabled} />}
             </button>
+
+            {/* Sub-notification settings indented */}
+            {notificationEnabled && (
+              <div className="sub-settings-container" style={{ paddingLeft: '1.25rem', borderLeft: '2px solid #ff2d91', marginLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px', marginBottom: '8px' }}>
+                <button className="setting-row sub-row" type="button" onClick={() => void toggleNotificationKey('learningUpdates')} disabled={!onSave || savingNotification} style={{ border: 'none', background: 'transparent', width: '100%', padding: '8px 12px' }}>
+                  <span className="setting-row__icon" style={{ color: '#6366f1' }}><BookOpen size={16} /></span>
+                  <span className="setting-row__copy" style={{ textAlign: 'left' }}>
+                    <strong style={{ fontSize: '13px' }}>Thông báo bài học</strong>
+                    <small style={{ fontSize: '11px', color: '#64748b' }}>Nhắc nhở học tập hàng ngày và bài học mới</small>
+                  </span>
+                  <Toggle checked={!!notificationValues.learningUpdates} />
+                </button>
+                <button className="setting-row sub-row" type="button" onClick={() => void toggleNotificationKey('workoutReminders')} disabled={!onSave || savingNotification} style={{ border: 'none', background: 'transparent', width: '100%', padding: '8px 12px' }}>
+                  <span className="setting-row__icon" style={{ color: '#ef4444' }}><Calendar size={16} /></span>
+                  <span className="setting-row__copy" style={{ textAlign: 'left' }}>
+                    <strong style={{ fontSize: '13px' }}>Lịch tập luyện</strong>
+                    <small style={{ fontSize: '11px', color: '#64748b' }}>Nhắc nhở lịch tập cá nhân và lịch PT</small>
+                  </span>
+                  <Toggle checked={!!notificationValues.workoutReminders} />
+                </button>
+              </div>
+            )}
+
             <UpcomingSettingRow icon={<Moon />} title="Giao diện tối" description="Tùy chọn giao diện theo thiết bị" />
             <UpcomingSettingRow icon={<Globe2 />} title="Ngôn ngữ & đơn vị" description="Tiếng Việt · Kilogram (kg)" />
             <UpcomingSettingRow icon={<Smartphone />} title="Thiết bị đã đăng nhập" description="Quản lý các phiên đăng nhập" />

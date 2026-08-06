@@ -931,6 +931,36 @@ export async function submitMealReview(userId: string, userName: string, meal: a
   )
 }
 
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: firebaseAuth?.currentUser?.uid || null,
+      email: firebaseAuth?.currentUser?.email || null,
+      emailVerified: firebaseAuth?.currentUser?.emailVerified || null,
+      isAnonymous: firebaseAuth?.currentUser?.isAnonymous || null,
+      tenantId: firebaseAuth?.currentUser?.tenantId || null,
+      providerInfo: firebaseAuth?.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
 export async function updateMealReview(reviewId: string, updates: any) {
   const db = requireDb()
   
@@ -945,29 +975,63 @@ export async function updateMealReview(reviewId: string, updates: any) {
   }
 
   const reference = doc(db, 'mealReviews', reviewId)
-  await updateDoc(
-    reference,
-    withoutUndefined({
-      ...sanitizedUpdates,
-      updatedAt: serverTimestamp(),
-    })
-  )
+  try {
+    await updateDoc(
+      reference,
+      withoutUndefined({
+        ...sanitizedUpdates,
+        updatedAt: serverTimestamp(),
+      })
+    )
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `mealReviews/${reviewId}`)
+  }
 
   // If coach feedback is provided, sync to user's mealLogs
   if (sanitizedUpdates.coachFeedback) {
-    const reviewSnap = await getDoc(reference)
+    let reviewSnap
+    try {
+      reviewSnap = await getDoc(reference)
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, `mealReviews/${reviewId}`)
+      return
+    }
+
     if (reviewSnap.exists()) {
       const data = reviewSnap.data()
       if (data.userId && data.meal?.id) {
         const mealRef = doc(db, 'users', data.userId, 'mealLogs', data.meal.id)
-        await setDoc(mealRef, withoutUndefined({
-          coachFeedback: sanitizedUpdates.coachFeedback,
-          aiAnalysis: data.aiAnalysis || sanitizedUpdates.aiAnalysis || null,
-          reviewStatus: sanitizedUpdates.status || 'approved',
-          updatedAt: serverTimestamp()
-        }), { merge: true })
+        try {
+          await setDoc(mealRef, withoutUndefined({
+            coachFeedback: sanitizedUpdates.coachFeedback,
+            aiAnalysis: data.aiAnalysis || sanitizedUpdates.aiAnalysis || null,
+            reviewStatus: sanitizedUpdates.status || 'approved',
+            updatedAt: serverTimestamp()
+          }), { merge: true })
+        } catch (error) {
+          handleFirestoreError(error, OperationType.WRITE, `users/${data.userId}/mealLogs/${data.meal.id}`)
+        }
       }
     }
+  }
+}
+
+function safeGetCache(key: string, defaultValue: any) {
+  try {
+    const val = typeof window !== 'undefined' ? window.localStorage.getItem(`aura:cache:${key}`) : null;
+    return val ? JSON.parse(val) : defaultValue;
+  } catch (e) {
+    return defaultValue;
+  }
+}
+
+function safeSetCache(key: string, value: any) {
+  try {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(`aura:cache:${key}`, JSON.stringify(value));
+    }
+  } catch (e) {
+    // ignore
   }
 }
 
@@ -987,11 +1051,14 @@ export function subscribeToAllMealReviews(
         ...d.data(),
         id: d.id,
       }))
+      safeSetCache('all_meal_reviews', results)
       onData(results)
     },
     (error) => {
-      console.error('Error fetching meal reviews:', error)
-      onError?.(error)
+      console.warn('Firestore subscription status warning (all_meal_reviews):', error.message || error)
+      const cached = safeGetCache('all_meal_reviews', [])
+      onData(cached)
+      if (onError) onError(error)
     }
   )
 }
@@ -1012,11 +1079,14 @@ export function subscribeToUserMealLogs(
     collection(db, 'users', userId, 'mealLogs'),
     (snapshot) => {
       const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      safeSetCache(`user_meal_logs:${userId}`, items)
       onData(items)
     },
     (error) => {
-      console.error('Error fetching user meal logs from Firestore:', error)
-      onError?.(error)
+      console.warn(`Firestore subscription status warning (user_meal_logs:${userId}):`, error.message || error)
+      const cached = safeGetCache(`user_meal_logs:${userId}`, [])
+      onData(cached)
+      if (onError) onError(error)
     },
   )
 }
@@ -1051,11 +1121,14 @@ export function subscribeToUserWaterLogs(
     collection(db, 'users', userId, 'waterLogs'),
     (snapshot) => {
       const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      safeSetCache(`user_water_logs:${userId}`, items)
       onData(items)
     },
     (error) => {
-      console.error('Error fetching user water logs from Firestore:', error)
-      onError?.(error)
+      console.warn(`Firestore subscription status warning (user_water_logs:${userId}):`, error.message || error)
+      const cached = safeGetCache(`user_water_logs:${userId}`, [])
+      onData(cached)
+      if (onError) onError(error)
     },
   )
 }
@@ -1090,11 +1163,14 @@ export function subscribeToUserActivityLogs(
     collection(db, 'users', userId, 'activityLogs'),
     (snapshot) => {
       const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      safeSetCache(`user_activity_logs:${userId}`, items)
       onData(items)
     },
     (error) => {
-      console.error('Error fetching user activity logs from Firestore:', error)
-      onError?.(error)
+      console.warn(`Firestore subscription status warning (user_activity_logs:${userId}):`, error.message || error)
+      const cached = safeGetCache(`user_activity_logs:${userId}`, [])
+      onData(cached)
+      if (onError) onError(error)
     },
   )
 }
@@ -1129,11 +1205,14 @@ export function subscribeToUserWeightLogs(
     collection(db, 'users', userId, 'weightLogs'),
     (snapshot) => {
       const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      safeSetCache(`user_weight_logs:${userId}`, items)
       onData(items)
     },
     (error) => {
-      console.error('Error fetching user weight logs from Firestore:', error)
-      onError?.(error)
+      console.warn(`Firestore subscription status warning (user_weight_logs:${userId}):`, error.message || error)
+      const cached = safeGetCache(`user_weight_logs:${userId}`, [])
+      onData(cached)
+      if (onError) onError(error)
     }
   )
 }
@@ -1160,15 +1239,15 @@ export function subscribeToUserBodyMeasurements(
   return onSnapshot(
     doc(db, 'users', userId, 'bodyMeasurements', 'current'),
     (snapshot) => {
-      if (snapshot.exists()) {
-        onData(snapshot.data())
-      } else {
-        onData(null)
-      }
+      const data = snapshot.exists() ? snapshot.data() : null
+      safeSetCache(`user_body_measurements:${userId}`, data)
+      onData(data)
     },
     (error) => {
-      console.error('Error fetching user body measurements from Firestore:', error)
-      onError?.(error)
+      console.warn(`Firestore subscription status warning (user_body_measurements:${userId}):`, error.message || error)
+      const cached = safeGetCache(`user_body_measurements:${userId}`, null)
+      onData(cached)
+      if (onError) onError(error)
     }
   )
 }
@@ -1195,15 +1274,15 @@ export function subscribeToUserGamification(
   return onSnapshot(
     doc(db, 'users', userId, 'gamification', 'stats'),
     (snapshot) => {
-      if (snapshot.exists()) {
-        onData(snapshot.data())
-      } else {
-        onData(null)
-      }
+      const data = snapshot.exists() ? snapshot.data() : null
+      safeSetCache(`user_gamification:${userId}`, data)
+      onData(data)
     },
     (error) => {
-      console.error('Error fetching user gamification stats from Firestore:', error)
-      onError?.(error)
+      console.warn(`Firestore subscription status warning (user_gamification:${userId}):`, error.message || error)
+      const cached = safeGetCache(`user_gamification:${userId}`, null)
+      onData(cached)
+      if (onError) onError(error)
     }
   )
 }
@@ -1263,11 +1342,14 @@ export function subscribeToUserProgressPhotos(
     collection(db, 'users', userId, 'progressPhotos'),
     (snapshot) => {
       const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      safeSetCache(`user_progress_photos:${userId}`, items)
       onData(items)
     },
     (error) => {
-      console.error('Error fetching user progress photos from Firestore:', error)
-      onError?.(error)
+      console.warn(`Firestore subscription status warning (user_progress_photos:${userId}):`, error.message || error)
+      const cached = safeGetCache(`user_progress_photos:${userId}`, [])
+      onData(cached)
+      if (onError) onError(error)
     }
   )
 }
