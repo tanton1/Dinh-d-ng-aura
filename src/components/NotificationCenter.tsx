@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Bell, Check, ChevronRight } from 'lucide-react'
-import { subscribeToUserNotifications, markNotificationAsRead, markAllNotificationsAsRead } from '../services/notificationService'
+import { subscribeToUserNotifications, markNotificationAsRead, markAllNotificationsAsRead, sendBrowserNativePushNotification } from '../services/notificationService'
 import type { AppNotification } from '../types'
 import { useAuth } from '../contexts/AuthContext'
 import { useDailyFoodReminder } from '../hooks/useDailyFoodReminder'
@@ -26,12 +26,32 @@ export default function NotificationCenter({
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   
+  const isInitialLoadRef = useRef(true)
+  const previousNotifIdsRef = useRef<Set<string>>(new Set())
+
   // Call the hook to check for daily food reminders
   useDailyFoodReminder(userId)
   
   useEffect(() => {
     if (!userId) return
+    isInitialLoadRef.current = true
+    previousNotifIdsRef.current = new Set()
+
     const unsubscribe = subscribeToUserNotifications(userId, (data) => {
+      if (isInitialLoadRef.current) {
+        // Initial snapshot: record all existing notification IDs
+        previousNotifIdsRef.current = new Set(data.map(n => n.id))
+        isInitialLoadRef.current = false
+      } else {
+        // Subsequent real-time snapshots: check for newly added unread notifications
+        data.forEach(n => {
+          if (!previousNotifIdsRef.current.has(n.id) && !n.read) {
+            previousNotifIdsRef.current.add(n.id)
+            // Trigger device-native Web Push Notification
+            sendBrowserNativePushNotification(n.title, n.message, n.actionUrl)
+          }
+        })
+      }
       setNotifications(data)
     })
     return () => unsubscribe()

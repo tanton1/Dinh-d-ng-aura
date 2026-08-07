@@ -273,7 +273,86 @@
   background: #f8fafc;
   padding: 4px;
   border-radius: 16px;
-  margin-bottom: 24px;
+  margin-bottom: 14px;
+}
+
+.auth-method-switcher {
+  display: flex;
+  background: #fff1f2;
+  padding: 3px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  gap: 4px;
+  border: 1px solid #fecdd3;
+}
+
+.auth-method-btn {
+  flex: 1;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: #9f1239;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.auth-method-btn.active {
+  background: #ffffff;
+  color: #be123c;
+  box-shadow: 0 2px 8px rgba(225, 29, 72, 0.15);
+}
+
+.otp-send-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.otp-send-btn {
+  padding: 0 14px;
+  background: linear-gradient(135deg, #f43f5e 0%, #fb923c 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.2s ease;
+}
+
+.otp-send-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.otp-hint-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 12px;
+  color: #9f1239;
+}
+
+.otp-hint-banner strong {
+  font-family: monospace;
+  font-size: 15px;
+  background: #ffffff;
+  padding: 2px 8px;
+  border-radius: 6px;
+  color: #be123c;
+  border: 1px solid #fecdd3;
 }
 
 .auth-tab-btn {

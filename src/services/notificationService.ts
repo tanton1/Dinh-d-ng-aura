@@ -175,34 +175,54 @@ export async function dispatchAdminPushBroadcast(params: {
   let sentCount = 0
   const logId = `log_${Date.now()}`
 
-  // Write notification for each target user in Firestore
-  if (firestoreDb && targetUserIds.length > 0) {
-    const batch = writeBatch(firestoreDb)
+  let finalTargetUserIds = [...targetUserIds]
 
-    // Chunk in batches of 400 (Firestore batch limit is 500)
-    for (const uId of targetUserIds) {
-      const ref = doc(collection(firestoreDb, 'users', uId, 'notifications'))
-      batch.set(ref, {
-        id: ref.id,
-        userId: uId,
-        title,
-        message,
-        type,
-        read: false,
-        actionUrl: actionUrl || '/home',
-        createdAt: serverTimestamp()
-      })
-      sentCount++
-    }
-
+  // If targetType is 'all' or targetUserIds is empty, query all users from Firestore
+  if (firestoreDb && (targetType === 'all' || finalTargetUserIds.length === 0)) {
     try {
-      await batch.commit()
-    } catch (err) {
-      console.error('Error committing notification batch to Firestore:', err)
+      const usersSnap = await getDocs(collection(firestoreDb, 'users'))
+      if (!usersSnap.empty) {
+        const dbUids = usersSnap.docs.map(d => d.id)
+        if (dbUids.length > 0) {
+          finalTargetUserIds = Array.from(new Set([...finalTargetUserIds, ...dbUids]))
+        }
+      }
+    } catch (e) {
+      console.warn('Could not fetch all users from Firestore for broadcast:', e)
+    }
+  }
+
+  // Write notification for each target user in Firestore
+  if (firestoreDb && finalTargetUserIds.length > 0) {
+    // Process in batches of 400 (Firestore batch limit is 500)
+    for (let i = 0; i < finalTargetUserIds.length; i += 400) {
+      const chunk = finalTargetUserIds.slice(i, i + 400)
+      const batch = writeBatch(firestoreDb)
+
+      for (const uId of chunk) {
+        const ref = doc(collection(firestoreDb, 'users', uId, 'notifications'))
+        batch.set(ref, {
+          id: ref.id,
+          userId: uId,
+          title,
+          message,
+          type,
+          read: false,
+          actionUrl: actionUrl || '/home',
+          createdAt: serverTimestamp()
+        })
+        sentCount++
+      }
+
+      try {
+        await batch.commit()
+      } catch (err) {
+        console.error('Error committing notification batch chunk to Firestore:', err)
+      }
     }
   } else {
     // Demo fallback count
-    sentCount = targetUserIds.length > 0 ? targetUserIds.length : 1
+    sentCount = finalTargetUserIds.length > 0 ? finalTargetUserIds.length : 1
   }
 
   // Also trigger local browser push notification if requested

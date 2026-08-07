@@ -585,7 +585,15 @@ function AuraApplication() {
     && !canManageAcademy,
   )
   if (loading) {
-    return <div className="app-loading"><div className="brand-mark">A<span /></div><strong>Đang kết nối Aura Fitness</strong><small>Đồng bộ hồ sơ và tiến độ từ Firebase...</small><i /></div>
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4 text-center">
+        <div className="w-16 h-16 bg-[#e11d48] rounded-2xl flex items-center justify-center text-white text-3xl font-black mb-6 shadow-lg shadow-rose-500/30">
+          A
+        </div>
+        <strong className="text-gray-900 text-xl font-bold tracking-tight">Đang kết nối Aura Fitness</strong>
+        <small className="text-gray-500 mt-2 text-sm">Đồng bộ hồ sơ và tiến độ từ Firebase...</small>
+      </div>
+    )
   }
 
   if (backendMode === 'firebase' && !user) return <AuthPage />

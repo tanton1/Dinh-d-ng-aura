@@ -268,7 +268,390 @@
   .pt-client-drawer { border-radius: 18px 0 0 18px; }
 }
 
-@media (max-width: 680px) {
+
+/* Pink-Orange Gradient Theme for Student Detail View */
+.pt-client-drawer.gradient-pink-orange {
+  border-radius: 24px 0 0 24px;
+  background: #fdfbfb;
+}
+
+.student-gradient-header {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 24px 26px;
+  background: linear-gradient(135deg, #f43f5e 0%, #fb923c 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 20px rgba(244, 63, 94, 0.22);
+}
+
+.student-gradient-header__main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.student-avatar-badge {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(10px);
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  font-weight: 900;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  flex-shrink: 0;
+}
+
+.student-identity-info .eyebrow-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #ffffff;
+  margin-bottom: 4px;
+}
+
+.student-identity-info h2 {
+  margin: 2px 0 3px;
+  font-size: 22px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.student-identity-info p {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.student-quick-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.student-quick-pills span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(8px);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.close-btn {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.2) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  border-radius: 50% !important;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.close-btn:hover {
+  background: rgba(255, 255, 255, 0.35) !important;
+}
+
+.pink-orange-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 10px 20px;
+  background: #ffffff;
+  border-bottom: 1px solid var(--line);
+}
+
+.pink-orange-tabs button {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: #64748b;
+  background: #f8fafc;
+  font-size: 11px;
+  font-weight: 700;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.pink-orange-tabs button.active {
+  color: #ffffff;
+  background: linear-gradient(135deg, #f43f5e 0%, #fb923c 100%);
+  box-shadow: 0 4px 12px rgba(244, 63, 94, 0.28);
+}
+
+.pt-drawer-section-title.pink-orange {
+  color: #f43f5e;
+}
+
+.drawer-card {
+  border-radius: 16px !important;
+  border: 1px solid #fed7aa !important;
+  box-shadow: 0 2px 10px rgba(251, 146, 60, 0.05) !important;
+}
+
+.pink-orange-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(135deg, #f43f5e 0%, #fb923c 100%);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(244, 63, 94, 0.32);
+  transition: all 0.2s ease;
+}
+
+.pink-orange-button:hover:not(:disabled) {
+  opacity: 0.94;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(244, 63, 94, 0.4);
+}
+
+.pink-orange-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.direct-push-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.direct-push-banner.success {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.direct-push-banner.error {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.push-action-wrapper {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Modal student account creation */
+.create-student-modal {
+  width: 100%;
+  max-width: 540px;
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.create-student-modal header {
+  padding: 22px 24px;
+  background: linear-gradient(135deg, #f43f5e 0%, #fb923c 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.create-student-modal header .eyebrow {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #ffffff;
+  margin-bottom: 4px;
+}
+
+.create-student-modal header h2 {
+  margin: 2px 0 4px;
+  font-size: 20px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.create-student-modal header p {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.modal-segmented-control {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 6px;
+  margin: 16px 24px 0;
+  background: #f1f5f9;
+  border-radius: 12px;
+  gap: 4px;
+}
+
+.modal-segmented-control button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.modal-segmented-control button.active {
+  color: #ffffff;
+  background: linear-gradient(135deg, #f43f5e 0%, #fb923c 100%);
+  box-shadow: 0 2px 8px rgba(244, 63, 94, 0.25);
+}
+
+.modal-body-form {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-body-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.modal-body-form label span {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-body-form input,
+.modal-body-form textarea,
+.modal-body-form select {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  font-size: 13px;
+  color: #0f172a;
+  background: #f8fafc;
+  transition: all 0.2s ease;
+}
+
+.modal-body-form input:focus,
+.modal-body-form textarea:focus {
+  outline: none;
+  border-color: #f43f5e;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.15);
+}
+
+.modal-body-form small {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.success-account-card {
+  padding: 18px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #fff1f2 0%, #ffedd5 100%);
+  border: 1px solid #fecdd3;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.success-account-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #be123c;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.success-account-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  background: #ffffff;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #fecdd3;
+}
+
+.success-account-details-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.success-account-details-item small {
+  font-size: 10px;
+  font-weight: 700;
+  color: #9f1239;
+  text-transform: uppercase;
+}
+
+.success-account-details-item strong {
+  font-size: 12px;
+  color: #0f172a;
+}
+
+.pink-code {
+  font-family: monospace;
+  background: #ffe4e6;
+  color: #9f1239;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+
   .pt-program-catalog .admin-header-actions { align-items: stretch; flex-direction: column; }
   .pt-client-insights { grid-template-columns: 1fr 1fr; gap: 8px; }
   .pt-client-insights article { grid-template-columns: 34px minmax(0, 1fr); min-height: 96px; padding: 12px; }

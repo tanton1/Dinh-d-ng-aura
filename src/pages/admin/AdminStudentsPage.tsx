@@ -1,30 +1,43 @@
 import {
   Activity,
   AlertCircle,
+  Bell,
   CalendarCheck,
   Check,
+  CheckCircle2,
   ChevronDown,
   ClipboardList,
   Copy,
   Download,
   Dumbbell,
+  HeartPulse,
+  Key,
   Mail,
+  Phone,
   Search,
+  Send,
+  ShieldCheck,
   SlidersHorizontal,
+  Smartphone,
+  Sparkles,
   Target,
   UserPlus,
   Users,
   X,
+  Zap,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import PtClientSchedulePanel from '../../components/coaching/PtClientSchedulePanel'
 import { PageHeader } from '../../components/ui'
+import { createNotification } from '../../services/notificationService'
 import {
+  createStudentAccount,
   loadPtClientProfiles,
   listPublishedPtPrograms,
   listPtClients,
   onboardPtClientByEmail,
   savePtClientProfile,
+  type CreatedStudentAccountResult,
   type PtClientDirectoryRecord,
   type PtClientProfile,
   type PtCoachingStatus,
@@ -42,7 +55,7 @@ interface AdminStudentsPageProps {
 }
 
 type SortKey = 'name' | 'checkIn' | 'readiness'
-type ClientDrawerTab = 'profile' | 'schedule'
+type ClientDrawerTab = 'profile' | 'schedule' | 'push'
 
 type DisplayClient = AdminStudentDirectoryItem & {
   normalizedName: string
@@ -139,7 +152,7 @@ export default function AdminStudentsPage({
   onRetry,
   initialQuery = '',
 }: AdminStudentsPageProps) {
-  const fallbackCandidates = useMemo(() => students.filter((student) => student.role === 'student'), [students])
+  const fallbackCandidates = useMemo(() => students.filter((student) => student.role !== 'admin' && student.role !== 'super_admin'), [students])
   const [directoryClients, setDirectoryClients] = useState<PtClientDirectoryRecord[] | null>(null)
   const [profiles, setProfiles] = useState<Record<string, PtClientProfile>>({})
   const [profilesLoading, setProfilesLoading] = useState(false)
@@ -160,6 +173,114 @@ export default function AdminStudentsPage({
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [publishedPrograms, setPublishedPrograms] = useState<PublishedPtProgramOption[]>([])
   const [programsLoading, setProgramsLoading] = useState(false)
+
+  // Direct Push Notification state
+  const [directPushTitle, setDirectPushTitle] = useState('')
+  const [directPushMessage, setDirectPushMessage] = useState('')
+  const [directPushType, setDirectPushType] = useState<'REMINDER' | 'ANNOUNCEMENT' | 'WORKOUT' | 'MOTIVATION' | 'INFO'>('REMINDER')
+  const [directPushSending, setDirectPushSending] = useState(false)
+  const [directPushSuccess, setDirectPushSuccess] = useState<string | null>(null)
+  const [directPushError, setDirectPushError] = useState<string | null>(null)
+
+  // Add/Create Student Account state
+  const [addMode, setAddMode] = useState<'create' | 'link'>('create')
+  const [createName, setCreateName] = useState('')
+  const [createPhone, setCreatePhone] = useState('')
+  const [createEmail, setCreateEmail] = useState('')
+  const [createPassword, setCreatePassword] = useState('')
+  const [createGoal, setCreateGoal] = useState('')
+  const [createCustomEmailEdited, setCreateCustomEmailEdited] = useState(false)
+  const [createCustomPasswordEdited, setCreateCustomPasswordEdited] = useState(false)
+  const [createSaving, setCreateSaving] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [createdAccountResult, setCreatedAccountResult] = useState<CreatedStudentAccountResult | null>(null)
+  const [copiedAccountInfo, setCopiedAccountInfo] = useState(false)
+
+  const handlePhoneChange = (val: string) => {
+    setCreatePhone(val)
+    const phone = val.trim().replace(/\s+/g, '')
+    if (!createCustomEmailEdited) {
+      setCreateEmail(phone ? `${phone}@aurafitness.com` : '')
+    }
+    if (!createCustomPasswordEdited) {
+      setCreatePassword(phone || '')
+    }
+  }
+
+  const handleCreateStudent = async () => {
+    if (!createPhone.trim()) {
+      setCreateError('Vui lòng nhập số điện thoại của học viên.')
+      return
+    }
+    setCreateSaving(true)
+    setCreateError(null)
+    try {
+      const result = await createStudentAccount({
+        displayName: createName.trim(),
+        phoneNumber: createPhone.trim(),
+        email: createEmail.trim(),
+        password: createPassword.trim(),
+        goal: createGoal.trim(),
+      })
+      setCreatedAccountResult(result)
+      const records = await listPtClients()
+      if (records) {
+        setDirectoryClients(records)
+      }
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Không thể tạo tài khoản học viên.')
+    } finally {
+      setCreateSaving(false)
+    }
+  }
+
+  const copyCreatedAccountInfo = async () => {
+    if (!createdAccountResult) return
+    const appUrl = window.location.origin
+    const text = `Xin chào ${createdAccountResult.displayName}!\nTài khoản học viên Aura Fitness của bạn đã được khởi tạo:\n\n🌐 Đăng nhập tại: ${appUrl}\n📧 Email đăng nhập: ${createdAccountResult.email}\n🔑 Mật khẩu ban đầu: ${createdAccountResult.password}\n📱 SĐT: ${createdAccountResult.phoneNumber}\n\nHãy đăng nhập ngay để xem giáo án tập luyện và theo dõi tiến độ cùng HLV!`
+    await navigator.clipboard.writeText(text)
+    setCopiedAccountInfo(true)
+    window.setTimeout(() => setCopiedAccountInfo(false), 2200)
+  }
+
+  const resetAddModal = () => {
+    setInviteOpen(false)
+    setAddMode('create')
+    setCreateName('')
+    setCreatePhone('')
+    setCreateEmail('')
+    setCreatePassword('')
+    setCreateGoal('')
+    setCreateCustomEmailEdited(false)
+    setCreateCustomPasswordEdited(false)
+    setCreateError(null)
+    setCreatedAccountResult(null)
+    setCopiedAccountInfo(false)
+    setInviteEmail('')
+    setInviteError(null)
+  }
+
+  const handleSendDirectPush = async () => {
+    if (!selectedClient || !directPushTitle.trim() || !directPushMessage.trim()) return
+    setDirectPushSending(true)
+    setDirectPushSuccess(null)
+    setDirectPushError(null)
+    try {
+      await createNotification(selectedClient.uid, {
+        title: directPushTitle.trim(),
+        message: directPushMessage.trim(),
+        type: directPushType,
+        actionUrl: '/home'
+      })
+      setDirectPushSuccess(`Đã gửi thông báo đẩy trực tiếp đến thiết bị học viên ${selectedClient.displayName}!`)
+      setDirectPushTitle('')
+      setDirectPushMessage('')
+    } catch (err) {
+      setDirectPushError(err instanceof Error ? err.message : 'Không thể gửi thông báo đẩy.')
+    } finally {
+      setDirectPushSending(false)
+    }
+  }
 
   const ptCandidates = useMemo<AdminStudentDirectoryItem[]>(() => {
     if (!directoryClients) return fallbackCandidates
@@ -281,6 +402,10 @@ export default function AdminStudentsPage({
     setProfileDraft({ ...client.coaching })
     setDrawerTab('profile')
     setSaveError(null)
+    setDirectPushTitle('')
+    setDirectPushMessage('')
+    setDirectPushSuccess(null)
+    setDirectPushError(null)
   }
 
   const closeClient = () => {
@@ -288,6 +413,8 @@ export default function AdminStudentsPage({
     setProfileDraft(null)
     setDrawerTab('profile')
     setSaveError(null)
+    setDirectPushSuccess(null)
+    setDirectPushError(null)
   }
 
   const saveProfile = async () => {
@@ -355,7 +482,7 @@ export default function AdminStudentsPage({
         eyebrow="PT COACHING · CRM"
         title="Khách hàng PT"
         description="Quản lý mục tiêu, check-in, trạng thái và giáo án gym của từng khách hàng. Dữ liệu này tách biệt với Aura Academy."
-        action={<div className="admin-header-actions"><button className="outline-button" onClick={() => downloadCSV(filtered)} disabled={!filtered.length}><Download size={17} /> Xuất danh sách</button><button className="primary-button" onClick={() => { setInviteError(null); setInviteOpen(true) }}><UserPlus size={18} /> Thêm khách hàng</button></div>}
+        action={<div className="admin-header-actions"><button className="outline-button" onClick={() => downloadCSV(filtered)} disabled={!filtered.length}><Download size={17} /> Xuất danh sách</button><button className="pink-orange-button" onClick={() => { setInviteError(null); setInviteOpen(true) }}><UserPlus size={18} /> Thêm học viên mới</button></div>}
       />
 
       <section className="pt-client-insights">
@@ -393,20 +520,457 @@ export default function AdminStudentsPage({
       </section>
 
       {selectedClient && profileDraft && <div className="modal-backdrop pt-client-drawer-backdrop" role="presentation" onClick={closeClient}>
-        <section className="pt-client-drawer" role="dialog" aria-modal="true" aria-labelledby="pt-client-title" onClick={(event) => event.stopPropagation()}>
-          <header><div><span className="eyebrow">HỒ SƠ PT COACHING</span><h2 id="pt-client-title">{selectedClient.displayName}</h2><p>{selectedClient.email}</p></div><button className="icon-button" aria-label="Đóng hồ sơ" onClick={closeClient}><X size={19} /></button></header>
-          <div className="pt-client-drawer-tabs" role="tablist" aria-label="Nội dung khách hàng PT"><button type="button" role="tab" aria-selected={drawerTab === 'profile'} aria-controls="pt-client-profile-panel" className={drawerTab === 'profile' ? 'active' : ''} onClick={() => setDrawerTab('profile')}><ClipboardList size={16} /> Hồ sơ coaching</button><button type="button" role="tab" aria-selected={drawerTab === 'schedule'} aria-controls="pt-client-schedule-tab-panel" className={drawerTab === 'schedule' ? 'active' : ''} onClick={() => setDrawerTab('schedule')}><CalendarCheck size={16} /> Lịch coaching</button></div>
-          {drawerTab === 'profile' ? <div className="pt-client-drawer__body" id="pt-client-profile-panel" role="tabpanel">
-            <section><div className="pt-drawer-section-title"><Target size={18} /><span><strong>Mục tiêu & trạng thái</strong><small>Thông tin do PT quản lý, độc lập với khóa học</small></span></div><div className="pt-form-grid"><label className="span-2"><span>Mục tiêu khách hàng</span><textarea rows={3} value={profileDraft.goal} onChange={(event) => updateDraft('goal', event.target.value)} placeholder="Ví dụ: tăng 3 kg cơ, cải thiện squat trong 12 tuần" /></label><label><span>Trạng thái</span><select value={profileDraft.coachingStatus} onChange={(event) => updateDraft('coachingStatus', event.target.value as PtCoachingStatus)}>{Object.entries(coachingStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>Ngày check-in kế tiếp</span><input type="date" value={profileDraft.nextCheckInDate} onChange={(event) => updateDraft('nextCheckInDate', event.target.value)} /></label></div></section>
-            <section><div className="pt-drawer-section-title"><Dumbbell size={18} /><span><strong>Giáo án đang gán</strong><small>Chỉ chọn phiên bản đã xuất bản và đúng PT phụ trách</small></span></div><div className="pt-form-grid"><label className="span-2"><span>Giáo án đã xuất bản</span><select value={profileDraft.currentProgramId && profileDraft.currentVersionId ? `${profileDraft.currentProgramId}::${profileDraft.currentVersionId}` : ''} onChange={(event) => selectProgram(event.target.value)} disabled={programsLoading}><option value="">{programsLoading ? 'Đang tải giáo án...' : 'Chưa gán giáo án'}</option>{publishedPrograms.filter((program) => profileDraft.coachingStatus === 'onboarding' || !profileDraft.coachId || program.coachId === profileDraft.coachId).map((program) => <option key={`${program.id}:${program.currentVersionId}`} value={`${program.id}::${program.currentVersionId}`}>{program.title}</option>)}</select><small>{profileDraft.currentProgramId ? `Program ${profileDraft.currentProgramId} · Version ${profileDraft.currentVersionId}` : 'Hãy chọn giáo án trước khi chuyển trạng thái sang Đang coaching.'}</small></label></div></section>
-            <section><div className="pt-drawer-section-title"><CalendarCheck size={18} /><span><strong>Check-in gần nhất</strong><small>Cập nhật khả năng sẵn sàng trước khi điều chỉnh giáo án</small></span></div><div className="pt-form-grid metrics"><label><span>Readiness (1–5)</span><input type="number" min={1} max={5} value={profileDraft.readiness ?? ''} onChange={(event) => updateDraft('readiness', event.target.value ? Number(event.target.value) : null)} /></label><label><span>Giấc ngủ (giờ)</span><input type="number" min={0} max={24} step={0.5} value={profileDraft.sleepHours ?? ''} onChange={(event) => updateDraft('sleepHours', event.target.value ? Number(event.target.value) : null)} /></label><label><span>Đau mỏi (1–5)</span><input type="number" min={1} max={5} value={profileDraft.soreness ?? ''} onChange={(event) => updateDraft('soreness', event.target.value ? Number(event.target.value) : null)} /></label><label><span>Cân nặng (kg)</span><input type="number" min={20} max={500} step={0.1} value={profileDraft.bodyWeightKg ?? ''} onChange={(event) => updateDraft('bodyWeightKg', event.target.value ? Number(event.target.value) : null)} /></label><label className="span-2"><span>Ghi chú coaching chia sẻ với khách hàng</span><textarea rows={4} value={profileDraft.coachNotes} onChange={(event) => updateDraft('coachNotes', event.target.value)} placeholder="Chỉ dẫn kỹ thuật, mục tiêu tuần và phản hồi có thể chia sẻ với khách hàng." /></label></div></section>
-          </div> : <div className="pt-client-drawer__body schedule" id="pt-client-schedule-tab-panel" role="tabpanel"><PtClientSchedulePanel clientId={selectedClient.uid} clientName={selectedClient.displayName} coachingStatus={selectedClient.coaching.coachingStatus} relationshipReady={Boolean(selectedClient.coaching.coachId)} /></div>}
+        <section className="pt-client-drawer gradient-pink-orange" role="dialog" aria-modal="true" aria-labelledby="pt-client-title" onClick={(event) => event.stopPropagation()}>
+          <header className="student-gradient-header">
+            <div className="student-gradient-header__main">
+              <div className="student-avatar-badge">
+                <span>{selectedClient.initials}</span>
+              </div>
+              <div className="student-identity-info">
+                <span className="eyebrow-pill">HỒ SƠ HỌC VIÊN PT COACHING</span>
+                <h2 id="pt-client-title">{selectedClient.displayName}</h2>
+                <p>{selectedClient.email}</p>
+
+                <div className="student-quick-pills">
+                  <span className={`status-pill ${selectedClient.coaching.coachingStatus}`}>
+                    {coachingStatusLabels[selectedClient.coaching.coachingStatus]}
+                  </span>
+                  {selectedClient.coaching.currentProgramName && (
+                    <span className="program-pill">
+                      <Dumbbell size={12} /> {selectedClient.coaching.currentProgramName}
+                    </span>
+                  )}
+                  {selectedClient.coaching.readiness !== null && selectedClient.coaching.readiness !== undefined && (
+                    <span className="readiness-pill">
+                      <Zap size={12} /> Readiness {selectedClient.coaching.readiness}/5
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <button className="icon-button close-btn" aria-label="Đóng hồ sơ" onClick={closeClient}>
+              <X size={19} />
+            </button>
+          </header>
+
+          <div className="pt-client-drawer-tabs pink-orange-tabs" role="tablist" aria-label="Nội dung học viên PT">
+            <button type="button" role="tab" aria-selected={drawerTab === 'profile'} className={drawerTab === 'profile' ? 'active' : ''} onClick={() => setDrawerTab('profile')}>
+              <ClipboardList size={16} /> Hồ sơ & Chỉ số
+            </button>
+            <button type="button" role="tab" aria-selected={drawerTab === 'schedule'} className={drawerTab === 'schedule' ? 'active' : ''} onClick={() => setDrawerTab('schedule')}>
+              <CalendarCheck size={16} /> Lịch coaching
+            </button>
+            <button type="button" role="tab" aria-selected={drawerTab === 'push'} className={drawerTab === 'push' ? 'active' : ''} onClick={() => setDrawerTab('push')}>
+              <Bell size={16} /> Gửi Push Notification
+            </button>
+          </div>
+
+          {drawerTab === 'profile' && (
+            <div className="pt-client-drawer__body" id="pt-client-profile-panel" role="tabpanel">
+              <section className="drawer-card">
+                <div className="pt-drawer-section-title pink-orange">
+                  <Target size={18} />
+                  <span>
+                    <strong>Mục tiêu & Trạng thái</strong>
+                    <small>Thông tin do PT quản lý, độc lập với khóa học Academy</small>
+                  </span>
+                </div>
+                <div className="pt-form-grid">
+                  <label className="span-2">
+                    <span>Mục tiêu khách hàng</span>
+                    <textarea rows={3} value={profileDraft.goal} onChange={(event) => updateDraft('goal', event.target.value)} placeholder="Ví dụ: tăng 3 kg cơ, cải thiện squat trong 12 tuần" />
+                  </label>
+                  <label>
+                    <span>Trạng thái coaching</span>
+                    <select value={profileDraft.coachingStatus} onChange={(event) => updateDraft('coachingStatus', event.target.value as PtCoachingStatus)}>
+                      {Object.entries(coachingStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Ngày check-in kế tiếp</span>
+                    <input type="date" value={profileDraft.nextCheckInDate} onChange={(event) => updateDraft('nextCheckInDate', event.target.value)} />
+                  </label>
+                </div>
+              </section>
+
+              <section className="drawer-card">
+                <div className="pt-drawer-section-title pink-orange">
+                  <Dumbbell size={18} />
+                  <span>
+                    <strong>Giáo án đang gán</strong>
+                    <small>Chỉ chọn phiên bản đã xuất bản và đúng PT phụ trách</small>
+                  </span>
+                </div>
+                <div className="pt-form-grid">
+                  <label className="span-2">
+                    <span>Giáo án đã xuất bản</span>
+                    <select value={profileDraft.currentProgramId && profileDraft.currentVersionId ? `${profileDraft.currentProgramId}::${profileDraft.currentVersionId}` : ''} onChange={(event) => selectProgram(event.target.value)} disabled={programsLoading}>
+                      <option value="">{programsLoading ? 'Đang tải giáo án...' : 'Chưa gán giáo án'}</option>
+                      {publishedPrograms.filter((program) => profileDraft.coachingStatus === 'onboarding' || !profileDraft.coachId || program.coachId === profileDraft.coachId).map((program) => <option key={`${program.id}:${program.currentVersionId}`} value={`${program.id}::${program.currentVersionId}`}>{program.title}</option>)}
+                    </select>
+                    <small>{profileDraft.currentProgramId ? `Program ${profileDraft.currentProgramId} · Version ${profileDraft.currentVersionId}` : 'Hãy chọn giáo án trước khi chuyển trạng thái sang Đang coaching.'}</small>
+                  </label>
+                </div>
+              </section>
+
+              <section className="drawer-card">
+                <div className="pt-drawer-section-title pink-orange">
+                  <HeartPulse size={18} />
+                  <span>
+                    <strong>Chỉ số sức khỏe & Check-in gần nhất</strong>
+                    <small>Cập nhật khả năng sẵn sàng trước khi điều chỉnh giáo án</small>
+                  </span>
+                </div>
+                <div className="pt-form-grid metrics">
+                  <label>
+                    <span>Readiness (1–5)</span>
+                    <input type="number" min={1} max={5} value={profileDraft.readiness ?? ''} onChange={(event) => updateDraft('readiness', event.target.value ? Number(event.target.value) : null)} />
+                  </label>
+                  <label>
+                    <span>Giấc ngủ (giờ)</span>
+                    <input type="number" min={0} max={24} step={0.5} value={profileDraft.sleepHours ?? ''} onChange={(event) => updateDraft('sleepHours', event.target.value ? Number(event.target.value) : null)} />
+                  </label>
+                  <label>
+                    <span>Đau mỏi (1–5)</span>
+                    <input type="number" min={1} max={5} value={profileDraft.soreness ?? ''} onChange={(event) => updateDraft('soreness', event.target.value ? Number(event.target.value) : null)} />
+                  </label>
+                  <label>
+                    <span>Cân nặng (kg)</span>
+                    <input type="number" min={20} max={500} step={0.1} value={profileDraft.bodyWeightKg ?? ''} onChange={(event) => updateDraft('bodyWeightKg', event.target.value ? Number(event.target.value) : null)} />
+                  </label>
+                  <label className="span-2">
+                    <span>Ghi chú coaching chia sẻ với khách hàng</span>
+                    <textarea rows={4} value={profileDraft.coachNotes} onChange={(event) => updateDraft('coachNotes', event.target.value)} placeholder="Chỉ dẫn kỹ thuật, mục tiêu tuần và phản hồi có thể chia sẻ với khách hàng." />
+                  </label>
+                </div>
+              </section>
+            </div>
+          )}
+
+          {drawerTab === 'schedule' && (
+            <div className="pt-client-drawer__body schedule" id="pt-client-schedule-tab-panel" role="tabpanel">
+              <PtClientSchedulePanel clientId={selectedClient.uid} clientName={selectedClient.displayName} coachingStatus={selectedClient.coaching.coachingStatus} relationshipReady={Boolean(selectedClient.coaching.coachId)} />
+            </div>
+          )}
+
+          {drawerTab === 'push' && (
+            <div className="pt-client-drawer__body direct-push" id="pt-client-push-tab-panel" role="tabpanel">
+              <section className="drawer-card push-card">
+                <div className="pt-drawer-section-title pink-orange">
+                  <Bell size={18} />
+                  <span>
+                    <strong>Gửi thông báo đẩy trực tiếp (Push Notification)</strong>
+                    <small>Gửi thông báo riêng đến thiết bị của học viên {selectedClient.displayName}</small>
+                  </span>
+                </div>
+
+                {directPushSuccess && (
+                  <div className="direct-push-banner success" role="status">
+                    <CheckCircle2 size={16} /> {directPushSuccess}
+                  </div>
+                )}
+
+                {directPushError && (
+                  <div className="direct-push-banner error" role="alert">
+                    <AlertCircle size={16} /> {directPushError}
+                  </div>
+                )}
+
+                <div className="pt-form-grid">
+                  <label className="span-2">
+                    <span>Loại thông báo</span>
+                    <select value={directPushType} onChange={(e) => setDirectPushType(e.target.value as any)}>
+                      <option value="REMINDER">⏰ Nhắc nhở tập luyện / Check-in</option>
+                      <option value="WORKOUT">💪 Bài tập & Giáo án mới</option>
+                      <option value="MOTIVATION">🔥 Phản hồi & Động lực từ HLV</option>
+                      <option value="ANNOUNCEMENT">📢 Thông báo quan trọng</option>
+                      <option value="INFO">ℹ️ Thông tin chung</option>
+                    </select>
+                  </label>
+
+                  <label className="span-2">
+                    <span>Tiêu đề thông báo</span>
+                    <input type="text" value={directPushTitle} onChange={(e) => setDirectPushTitle(e.target.value)} placeholder="Ví dụ: Lịch check-in hôm nay, Đã có giáo án tuần mới..." />
+                  </label>
+
+                  <label className="span-2">
+                    <span>Nội dung thông báo</span>
+                    <textarea rows={4} value={directPushMessage} onChange={(e) => setDirectPushMessage(e.target.value)} placeholder="Nhập tin nhắn chi tiết sẽ hiển thị trên thông báo đẩy thiết bị của học viên..." />
+                  </label>
+                </div>
+
+                <div className="push-action-wrapper">
+                  <button className="pink-orange-button" disabled={!directPushTitle.trim() || !directPushMessage.trim() || directPushSending} onClick={() => void handleSendDirectPush()}>
+                    {directPushSending ? <Activity className="spin" size={17} /> : <Send size={17} />}
+                    {directPushSending ? 'Đang gửi Push...' : 'Gửi Push Notification ngay'}
+                  </button>
+                </div>
+              </section>
+            </div>
+          )}
+
           {drawerTab === 'profile' && saveError && <div className="builder-save-error" role="alert"><AlertCircle size={16} /> {saveError}</div>}
-          <footer>{drawerTab === 'profile' ? <><span><CalendarCheck size={16} /> Check-in gần nhất: {formatDate(profileDraft.lastCheckInAt)}</span><div><button className="outline-button" onClick={closeClient}>Đóng</button><button className="primary-button" onClick={() => void saveProfile()} disabled={savingProfile}>{savingProfile ? 'Đang lưu...' : 'Lưu hồ sơ coaching'}</button></div></> : <><span><CalendarCheck size={16} /> Lịch được đồng bộ riêng cho khách hàng này</span><div><button className="outline-button" onClick={closeClient}>Đóng</button></div></>}</footer>
+
+          <footer>
+            {drawerTab === 'profile' ? (
+              <>
+                <span><CalendarCheck size={16} /> Check-in gần nhất: {formatDate(profileDraft.lastCheckInAt)}</span>
+                <div>
+                  <button className="outline-button" onClick={closeClient}>Đóng</button>
+                  <button className="pink-orange-button" onClick={() => void saveProfile()} disabled={savingProfile}>
+                    {savingProfile ? 'Đang lưu...' : 'Lưu hồ sơ coaching'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <span><CalendarCheck size={16} /> Chi tiết học viên được cập nhật thời gian thực</span>
+                <div>
+                  <button className="outline-button" onClick={closeClient}>Đóng</button>
+                </div>
+              </>
+            )}
+          </footer>
         </section>
       </div>}
 
-      {inviteOpen && <div className="modal-backdrop" role="presentation" onClick={() => setInviteOpen(false)}><section className="invite-modal" role="dialog" aria-modal="true" aria-labelledby="invite-title" onClick={(event) => event.stopPropagation()}><header><div><span className="eyebrow">THÊM KHÁCH HÀNG</span><h2 id="invite-title">Bắt đầu PT Coaching</h2><p>Nhập email tài khoản Aura đã đăng ký để tạo hồ sơ onboarding. Nếu chưa có tài khoản, hãy gửi liên kết mời bên dưới.</p></div><button className="icon-button" aria-label="Đóng" onClick={() => setInviteOpen(false)}><X size={18} /></button></header><label><span>Email khách hàng</span><input type="email" value={inviteEmail} onChange={(event) => { setInviteEmail(event.target.value); setInviteError(null) }} placeholder="khachhang@example.com" /></label>{inviteError && <div className="builder-save-error" role="alert"><AlertCircle size={16} /> {inviteError}</div>}<div className="invite-link"><span>{registrationUrl}</span><button className="outline-button" onClick={() => void copyInvite()}>{inviteCopied ? <Check size={16} /> : <Copy size={16} />}{inviteCopied ? 'Đã sao chép' : 'Sao chép lời mời'}</button></div><footer><button className="outline-button" onClick={openInviteEmail} disabled={!inviteEmail.trim()}><Mail size={16} /> Gửi email mời</button><button className="primary-button" onClick={() => void addExistingClient()} disabled={!inviteEmail.trim() || inviteSaving}><UserPlus size={16} /> {inviteSaving ? 'Đang thêm...' : 'Thêm tài khoản đã có'}</button></footer></section></div>}
+      {inviteOpen && (
+        <div className="modal-backdrop" role="presentation" onClick={resetAddModal}>
+          <section className="create-student-modal" role="dialog" aria-modal="true" aria-labelledby="add-student-title" onClick={(event) => event.stopPropagation()}>
+            <header>
+              <div>
+                <span className="eyebrow">QUẢN LÝ HỌC VIÊN PT</span>
+                <h2 id="add-student-title">Tạo & Thêm Học Viên</h2>
+                <p>Tạo mới tài khoản đăng nhập cho học viên hoặc liên kết bằng email sẵn có.</p>
+              </div>
+              <button className="icon-button close-btn" aria-label="Đóng" onClick={resetAddModal} style={{ color: '#ffffff', background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                <X size={18} />
+              </button>
+            </header>
+
+            <div className="modal-segmented-control" role="tablist">
+              <button
+                type="button"
+                className={addMode === 'create' ? 'active' : ''}
+                onClick={() => { setAddMode('create'); setCreateError(null); }}
+              >
+                <Sparkles size={15} /> Tạo tài khoản mới
+              </button>
+              <button
+                type="button"
+                className={addMode === 'link' ? 'active' : ''}
+                onClick={() => { setAddMode('link'); setInviteError(null); }}
+              >
+                <Mail size={15} /> Liên kết bằng email
+              </button>
+            </div>
+
+            {addMode === 'create' ? (
+              <div className="modal-body-form">
+                {createdAccountResult ? (
+                  <div className="success-account-card">
+                    <div className="success-account-card__head">
+                      <CheckCircle2 size={20} />
+                      <span>Đã tạo tài khoản học viên thành công!</span>
+                    </div>
+
+                    <div className="success-account-details">
+                      <div className="success-account-details-item">
+                        <small>Họ và tên</small>
+                        <strong>{createdAccountResult.displayName}</strong>
+                      </div>
+                      <div className="success-account-details-item">
+                        <small>Số điện thoại</small>
+                        <strong>{createdAccountResult.phoneNumber}</strong>
+                      </div>
+                      <div className="success-account-details-item" style={{ gridColumn: 'span 2' }}>
+                        <small>Email đăng nhập</small>
+                        <code className="pink-code">{createdAccountResult.email}</code>
+                      </div>
+                      <div className="success-account-details-item" style={{ gridColumn: 'span 2' }}>
+                        <small>Mật khẩu khởi tạo</small>
+                        <code className="pink-code">{createdAccountResult.password}</code>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                      <button
+                        type="button"
+                        className="pink-orange-button"
+                        onClick={() => void copyCreatedAccountInfo()}
+                      >
+                        {copiedAccountInfo ? <Check size={16} /> : <Copy size={16} />}
+                        {copiedAccountInfo ? 'Đã sao chép tin nhắn gửi học viên!' : 'Sao chép thông tin gửi học viên'}
+                      </button>
+
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          className="outline-button"
+                          style={{ flex: 1 }}
+                          onClick={() => {
+                            setCreatedAccountResult(null)
+                            setCreateName('')
+                            setCreatePhone('')
+                            setCreateEmail('')
+                            setCreatePassword('')
+                            setCreateGoal('')
+                            setCreateCustomEmailEdited(false)
+                            setCreateCustomPasswordEdited(false)
+                          }}
+                        >
+                          Tạo tiếp tài khoản khác
+                        </button>
+                        <button
+                          type="button"
+                          className="outline-button"
+                          style={{ flex: 1 }}
+                          onClick={resetAddModal}
+                        >
+                          Hoàn tất
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {createError && (
+                      <div className="builder-save-error" role="alert">
+                        <AlertCircle size={16} /> {createError}
+                      </div>
+                    )}
+
+                    <label>
+                      <span>
+                        Họ và tên học viên
+                      </span>
+                      <input
+                        type="text"
+                        value={createName}
+                        onChange={(e) => setCreateName(e.target.value)}
+                        placeholder="Ví dụ: Nguyễn Văn A"
+                      />
+                    </label>
+
+                    <label>
+                      <span>
+                        Số điện thoại <small style={{ color: '#f43f5e', fontWeight: 700 }}>* (Bắt buộc)</small>
+                      </span>
+                      <input
+                        type="tel"
+                        value={createPhone}
+                        onChange={(e) => handlePhoneChange(e.target.value)}
+                        placeholder="Ví dụ: 0912345678"
+                      />
+                      <small style={{ color: '#e11d48', fontWeight: 600, marginTop: '2px', background: '#fff1f2', padding: '6px 10px', borderRadius: '8px', border: '1px solid #fecdd3' }}>
+                        💡 Mặc định email đăng nhập: <strong>{createPhone.trim() ? `${createPhone.trim()}@aurafitness.com` : 'sđt@aurafitness.com'}</strong> · Mật khẩu: <strong>{createPhone.trim() ? createPhone.trim() : 'sđt'}</strong>
+                      </small>
+                    </label>
+
+                    <label>
+                      <span>Email đăng nhập</span>
+                      <input
+                        type="email"
+                        value={createEmail}
+                        onChange={(e) => {
+                          setCreateEmail(e.target.value)
+                          setCreateCustomEmailEdited(true)
+                        }}
+                        placeholder="sdt@aurafitness.com"
+                      />
+                    </label>
+
+                    <label>
+                      <span>Mật khẩu khởi tạo</span>
+                      <input
+                        type="text"
+                        value={createPassword}
+                        onChange={(e) => {
+                          setCreatePassword(e.target.value)
+                          setCreateCustomPasswordEdited(true)
+                        }}
+                        placeholder="Mật khẩu khởi tạo (mặc định là số điện thoại)"
+                      />
+                    </label>
+
+                    <label>
+                      <span>Mục tiêu coaching ban đầu (tùy chọn)</span>
+                      <textarea
+                        rows={2}
+                        value={createGoal}
+                        onChange={(e) => setCreateGoal(e.target.value)}
+                        placeholder="Ví dụ: Tăng 3kg cơ, tập 3 buổi/tuần, cải thiện Squat..."
+                      />
+                    </label>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+                      <button type="button" className="outline-button" onClick={resetAddModal}>
+                        Hủy
+                      </button>
+                      <button
+                        type="button"
+                        className="pink-orange-button"
+                        onClick={() => void handleCreateStudent()}
+                        disabled={!createPhone.trim() || createSaving}
+                      >
+                        {createSaving ? <Activity className="spin" size={16} /> : <UserPlus size={16} />}
+                        {createSaving ? 'Đang tạo...' : 'Tạo tài khoản học viên'}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="modal-body-form">
+                <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>
+                  Nhập email tài khoản Aura đã đăng ký để thêm học viên vào danh sách PT Coaching.
+                </p>
+
+                <label>
+                  <span>Email khách hàng đã có tài khoản</span>
+                  <input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(event) => {
+                      setInviteEmail(event.target.value)
+                      setInviteError(null)
+                    }}
+                    placeholder="khachhang@example.com"
+                  />
+                </label>
+
+                {inviteError && (
+                  <div className="builder-save-error" role="alert">
+                    <AlertCircle size={16} /> {inviteError}
+                  </div>
+                )}
+
+                <div className="invite-link" style={{ marginTop: '6px' }}>
+                  <span style={{ fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{registrationUrl}</span>
+                  <button className="outline-button" onClick={() => void copyInvite()}>
+                    {inviteCopied ? <Check size={15} /> : <Copy size={15} />}
+                    {inviteCopied ? 'Đã sao chép' : 'Sao chép liên kết mời'}
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
+                  <button className="outline-button" onClick={openInviteEmail} disabled={!inviteEmail.trim()}>
+                    <Mail size={16} /> Gửi email mời
+                  </button>
+                  <button
+                    className="pink-orange-button"
+                    onClick={() => void addExistingClient()}
+                    disabled={!inviteEmail.trim() || inviteSaving}
+                  >
+                    {inviteSaving ? <Activity className="spin" size={16} /> : <UserPlus size={16} />}
+                    {inviteSaving ? 'Đang thêm...' : 'Thêm tài khoản đã có'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
     </div>
   )
 }

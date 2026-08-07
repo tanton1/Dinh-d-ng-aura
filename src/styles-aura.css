@@ -584,6 +584,10 @@ body.shell-overlay-open { overflow: hidden; }
 
   .sidebar,
   .admin .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 150;
+    height: 100vh;
     width: min(320px, calc(100vw - 36px));
     padding: max(22px, env(safe-area-inset-top)) 16px 18px;
     transform: translateX(-100%);
@@ -593,7 +597,7 @@ body.shell-overlay-open { overflow: hidden; }
   .sidebar.open,
   .admin .sidebar.open { transform: none; box-shadow: 24px 0 70px rgba(9, 9, 11, .42); }
   .sidebar-close { top: max(18px, env(safe-area-inset-top)); right: 14px; display: grid; place-items: center; width: 44px; height: 44px; color: var(--aura-white); }
-  .sidebar-scrim { display: block; background: rgba(9, 9, 11, .62); backdrop-filter: blur(5px); }
+  .sidebar-scrim { position: fixed; inset: 0; z-index: 149; display: block; background: rgba(9, 9, 11, .62); backdrop-filter: blur(5px); }
   .brand { justify-content: flex-start; }
   .brand > div:last-child { display: flex; }
   .sidebar-nav__section > p { display: block; }

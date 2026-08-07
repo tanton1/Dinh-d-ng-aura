@@ -12,6 +12,7 @@ export interface AppUser {
 export interface UserProfile {
   uid: string
   email: string
+  phoneNumber?: string
   displayName: string
   photoURL?: string | null
   role: UserRole
