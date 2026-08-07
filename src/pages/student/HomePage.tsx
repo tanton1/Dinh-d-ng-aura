@@ -593,10 +593,10 @@ export default function HomePage({
             tone="orange" 
           />
           <StatCard 
-            icon={<Trophy />} 
-            value={`${completedLessonsCount} bài`} 
-            label="Bài học hoàn thành" 
-            detail="Tích lũy lý thuyết dinh dưỡng" 
+            icon={<Zap />} 
+            value={`${xp} XP`} 
+            label="Điểm cấp độ" 
+            detail="Kinh nghiệm học tập" 
             tone="pink" 
           />
           <StatCard 

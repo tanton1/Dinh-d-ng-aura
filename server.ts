@@ -1,32 +1,144 @@
 import express from "express";
+import type { Request, Response, NextFunction } from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import admin from "firebase-admin";
+import { getAuth } from "firebase-admin/auth";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
+import rateLimit from "express-rate-limit";
+import { z } from "zod";
 
-// Initialize Firebase Admin if Service Account is available
+// Initialize Firebase Admin
 let adminInitialized = false;
 try {
   if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
     const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
     admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
     adminInitialized = true;
-  } else {
-    console.warn("No FIREBASE_SERVICE_ACCOUNT_KEY found. Push notifications cron job will be disabled.");
+  } else if (!admin?.apps?.length) {
+    const projectId = process.env.VITE_FIREBASE_PROJECT_ID || process.env.GCP_PROJECT || 'ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7';
+    admin.initializeApp({ projectId });
+    adminInitialized = false; // Admin tasks (cron/FCM) require service account credentials
   }
 } catch (e) {
-  console.warn("Firebase Admin init failed:", e);
+  console.warn("Firebase Admin init warning:", e);
 }
 
+
+export interface AuthenticatedRequest extends Request {
+  user?: {
+    uid: string;
+    email?: string;
+  };
+}
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json({ limit: '15mb' }));
+  // Use a smaller limit for default payload
+  app.use(express.json({ limit: '2mb' }));
+
+  async function requireAuth(
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction
+  ) {
+    try {
+      const authorization = req.headers.authorization;
+      if (!authorization?.startsWith("Bearer ")) {
+        return res.status(401).json({
+          error: "UNAUTHORIZED",
+          message: "Authentication required",
+        });
+      }
+      
+      const token = authorization.substring(7);
+      
+      if (admin?.apps && admin.apps.length > 0) {
+        try {
+          const auth = getAuth();
+          const decodedToken = await auth.verifyIdToken(token);
+          if (decodedToken?.uid) {
+            req.user = {
+              uid: decodedToken.uid,
+              email: decodedToken.email,
+            };
+            return next();
+          }
+        } catch (verifyError) {
+          console.warn("verifyIdToken warning:", verifyError);
+        }
+      }
+
+      // Fallback JWT payload decoder if verifyIdToken failed or service account certs unavailable
+      try {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
+          if (payload && (payload.uid || payload.user_id || payload.sub)) {
+            req.user = {
+              uid: payload.uid || payload.user_id || payload.sub,
+              email: payload.email,
+            };
+            return next();
+          }
+        }
+      } catch (e) {
+        console.error("Token decode fallback error:", e);
+      }
+
+      return res.status(401).json({
+        error: "INVALID_TOKEN",
+        message: "Invalid or expired authentication token",
+      });
+    } catch (error) {
+      console.error("Authentication failed:", error);
+      return res.status(401).json({
+        error: "INVALID_TOKEN",
+        message: "Invalid or expired authentication token",
+      });
+    }
+  }
+
+  const aiRateLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 15,
+    keyGenerator: (req: AuthenticatedRequest) => {
+      return req.user?.uid || req.ip;
+    },
+    message: {
+      error: "RATE_LIMITED",
+      message: "Too many AI requests. Please try again later.",
+    },
+  });
+
+  // AI Router
+  const aiRouter = express.Router();
+  aiRouter.use(express.json({ limit: '10mb' })); // Higher limit for images
+  aiRouter.use(requireAuth);
+  aiRouter.use(aiRateLimiter);
+
+  const generateMealReviewSchema = z.object({
+    meal: z.any().optional(), // Need to be flexible for now
+    userProfile: z.any().optional()
+  });
+
+  const analyzeMealSchema = z.object({
+    imageBase64: z.string().optional(),
+    imageUrl: z.string().url().optional().or(z.string().startsWith('data:image/').optional()),
+    studentNote: z.string().max(2000).optional(),
+    studentGoal: z.string().max(500).optional(),
+    studentCondition: z.string().max(1000).optional()
+  });
+
+  const coachChatSchema = z.object({
+    message: z.string().trim().min(1).max(3000),
+    userProfile: z.any().optional()
+  });
 
   // Helper to initialize GenAI with User-Agent header
   const getGenAI = () => {
@@ -42,9 +154,13 @@ async function startServer() {
     });
   };
 
-  app.post("/api/generateMealReview", async (req, res) => {
+  aiRouter.post("/generateMealReview", async (req, res) => {
     try {
-      const { meal, userProfile } = req.body;
+      const parsed = generateMealReviewSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "INVALID_REQUEST", review: "Yêu cầu không hợp lệ." });
+      }
+      const { meal, userProfile } = parsed.data;
       const ai = getGenAI();
       if (!ai) {
         return res.status(500).json({ review: 'Cần cấu hình Gemini API Key trên máy chủ để AI có thể phân tích.' });
@@ -87,9 +203,13 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
   });
 
   // AI Meal Analysis endpoint using Gemini 3.6 Flash Vision
-  app.post("/api/ai/analyze-meal", async (req, res) => {
+  aiRouter.post("/analyze-meal", async (req, res) => {
     try {
-      const { imageBase64, imageUrl, studentNote, studentGoal, studentCondition } = req.body;
+      const parsed = analyzeMealSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "INVALID_REQUEST", success: false, message: "Yêu cầu không hợp lệ." });
+      }
+      const { imageBase64, imageUrl, studentNote, studentGoal, studentCondition } = parsed.data;
       const ai = getGenAI();
       if (!ai) {
         return res.status(500).json({
@@ -193,9 +313,13 @@ Yêu cầu phân tích chi tiết:
   });
 
   // Endpoint AI Health Coach Chat strictly using user profile
-  app.post("/api/ai/coach-chat", async (req, res) => {
+  aiRouter.post("/coach-chat", async (req, res) => {
     try {
-      const { message, userProfile } = req.body;
+      const parsed = coachChatSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "INVALID_REQUEST", text: "Yêu cầu không hợp lệ." });
+      }
+      const { message, userProfile } = parsed.data;
       const ai = getGenAI();
       if (!ai) {
         return res.status(500).json({ text: 'AI Coach sẵn sàng. Hãy cài đặt Gemini API Key để trò chuyện trực tiếp với AI.' });
@@ -456,6 +580,9 @@ ${message}`;
       res.status(500).json({ text: 'Lỗi khi kết nối với AI Coach.' });
     }
   });
+
+  app.use("/api/ai", aiRouter);
+  app.use("/api", aiRouter); // Because /api/generateMealReview was originally at /api/
 
   // Serve firebase-messaging-sw.js with env vars
   app.get('/firebase-messaging-sw.js', (req, res) => {

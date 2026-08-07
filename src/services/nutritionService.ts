@@ -568,7 +568,7 @@ export async function analyzeFoodPhoto(
       reader.readAsDataURL(image)
     })
 
-    const token = localStorage.getItem('token')
+    const token = await firebaseAuth?.currentUser?.getIdToken();
     const res = await fetch('/api/ai/analyze-meal', {
       method: 'POST',
       headers: {
@@ -661,10 +661,12 @@ export async function analyzeFoodPhoto(
 }
 export async function generateMealReview(meal: any, userProfile: any): Promise<string> {
   try {
+    const token = await firebaseAuth?.currentUser?.getIdToken();
     const response = await fetch('/api/generateMealReview', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ meal, userProfile })
     });
@@ -682,10 +684,12 @@ export async function generateMealReview(meal: any, userProfile: any): Promise<s
 
 export async function askAiCoach(message: string, userProfile: any): Promise<string> {
   try {
+    const token = await firebaseAuth?.currentUser?.getIdToken();
     const response = await fetch('/api/ai/coach-chat', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ message, userProfile })
     });

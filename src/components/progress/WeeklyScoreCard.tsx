@@ -199,58 +199,6 @@ export function WeeklyScoreCard({
         </div>
       </div>
 
-      {/* Expand / Collapse Score Breakdown Bar */}
-      <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12, marginTop: 12 }}>
-        <button
-          type="button"
-          onClick={() => setShowBreakdown(!showBreakdown)}
-          style={{
-            background: '#f8fafc',
-            border: '1px solid #e2e8f0',
-            borderRadius: 10,
-            padding: '8px 12px',
-            width: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            fontSize: 12,
-            fontWeight: 700,
-            color: '#334155',
-            cursor: 'pointer',
-          }}
-        >
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Sparkles size={14} style={{ color: '#ec4899' }} /> Chi tiết 5 thành phần cấu thành điểm ({finalScore}/100)
-          </span>
-          {showBreakdown ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </button>
-
-        {showBreakdown && (
-          <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
-            <div style={{ background: '#fdf2f8', padding: '10px 12px', borderRadius: 12, border: '1px solid #fbcfe8' }}>
-              <div style={{ fontSize: 11, color: '#9d174d', fontWeight: 600 }}>Tuân thủ (40%)</div>
-              <div style={{ fontSize: 18, fontWeight: 900, color: '#be185d' }}>{breakdown.adherence}<span style={{ fontSize: 11 }}>/100</span></div>
-            </div>
-            <div style={{ background: '#f0fdf4', padding: '10px 12px', borderRadius: 12, border: '1px solid #bbf7d0' }}>
-              <div style={{ fontSize: 11, color: '#166534', fontWeight: 600 }}>Dinh dưỡng (25%)</div>
-              <div style={{ fontSize: 18, fontWeight: 900, color: '#15803d' }}>{breakdown.nutrition}<span style={{ fontSize: 11 }}>/100</span></div>
-            </div>
-            <div style={{ background: '#fff7ed', padding: '10px 12px', borderRadius: 12, border: '1px solid #fed7aa' }}>
-              <div style={{ fontSize: 11, color: '#9a3412', fontWeight: 600 }}>Vận động (15%)</div>
-              <div style={{ fontSize: 18, fontWeight: 900, color: '#c2410c' }}>{breakdown.activity}<span style={{ fontSize: 11 }}>/100</span></div>
-            </div>
-            <div style={{ background: '#f5f3ff', padding: '10px 12px', borderRadius: 12, border: '1px solid #ddd6fe' }}>
-              <div style={{ fontSize: 11, color: '#5b21b6', fontWeight: 600 }}>Cơ thể (15%)</div>
-              <div style={{ fontSize: 18, fontWeight: 900, color: '#6d28d9' }}>{breakdown.bodyProgress}<span style={{ fontSize: 11 }}>/100</span></div>
-            </div>
-            <div style={{ background: '#f0f9ff', padding: '10px 12px', borderRadius: 12, border: '1px solid #bae6fd' }}>
-              <div style={{ fontSize: 11, color: '#075985', fontWeight: 600 }}>Dữ liệu (5%)</div>
-              <div style={{ fontSize: 18, fontWeight: 900, color: '#0369a1' }}>{breakdown.tracking}<span style={{ fontSize: 11 }}>/100</span></div>
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* AI Insight banner at bottom */}
       <div className="pg-hero-banner" style={{ marginTop: 12 }}>
         <Sparkles size={18} style={{ color: '#ec4899', fill: '#ec4899', flexShrink: 0 }} />

@@ -772,7 +772,7 @@ export default function ProgressPage({
             />
           </div>
           <div style={{ marginBottom: 20 }}>
-            <NutritionChartsCard />
+            <NutritionChartsCard ownerId={ownerId} />
           </div>
         </>
       )}

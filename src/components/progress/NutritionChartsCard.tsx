@@ -1,12 +1,28 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { Info, BarChart } from 'lucide-react'
+import { subscribeToUserMealLogs, subscribeToUserWaterLogs } from '../../services/firebaseService'
 
 type RangeType = '7d' | '30d' | '90d'
-type MetricType = 'calories' | 'protein' | 'water' | 'fiber' | 'sodium'
+type MetricType = 'calories' | 'protein' | 'carbs' | 'fat' | 'water' | 'fiber'
 
-export const NutritionChartsCard = React.memo(function NutritionChartsCard() {
+export const NutritionChartsCard = React.memo(function NutritionChartsCard({ ownerId = 'demo' }: { ownerId?: string }) {
   const [range, setRange] = useState<RangeType>('7d')
   const [metric, setMetric] = useState<MetricType>('calories')
+  const [mealLogs, setMealLogs] = useState<any[]>([])
+  const [waterLogs, setWaterLogs] = useState<any[]>([])
+
+  useEffect(() => {
+    const unsubMeals = subscribeToUserMealLogs(ownerId, (meals) => {
+      setMealLogs(meals || [])
+    })
+    const unsubWater = subscribeToUserWaterLogs(ownerId, (water) => {
+      setWaterLogs(water || [])
+    })
+    return () => {
+      unsubMeals()
+      unsubWater()
+    }
+  }, [ownerId])
 
   const ranges: Array<{ id: RangeType; label: string }> = [
     { id: '7d', label: '7 ngày' },
@@ -17,26 +33,58 @@ export const NutritionChartsCard = React.memo(function NutritionChartsCard() {
   const metrics: Array<{ id: MetricType; label: string, color: string }> = [
     { id: 'calories', label: 'Calo', color: '#f59e0b' },
     { id: 'protein', label: 'Protein', color: '#ec4899' },
+    { id: 'carbs', label: 'Carb', color: '#f97316' },
+    { id: 'fat', label: 'Chất béo', color: '#3b82f6' },
     { id: 'water', label: 'Nước', color: '#0ea5e9' },
     { id: 'fiber', label: 'Xơ', color: '#10b981' },
-    { id: 'sodium', label: 'Natri', color: '#6366f1' },
   ]
 
   const activeColor = metrics.find(m => m.id === metric)?.color || '#ec4899'
 
-  // Dummy data generation
-  const data = Array.from({ length: range === '7d' ? 7 : range === '30d' ? 30 : 90 }).map((_, i) => {
-    return {
-      label: `Ngày ${i + 1}`,
-      val: metric === 'calories' ? 1800 + Math.random() * 600 :
-           metric === 'protein' ? 80 + Math.random() * 50 :
-           metric === 'water' ? 1500 + Math.random() * 1000 :
-           metric === 'fiber' ? 15 + Math.random() * 15 :
-           1500 + Math.random() * 1000
-    }
-  })
+  const data = useMemo(() => {
+    const days = range === '7d' ? 7 : range === '30d' ? 30 : 90
+    const result = []
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    
+    // Create a map for fast lookup
+    const mealsByDate = new Map<string, number>()
+    const waterByDate = new Map<string, number>()
+    
+    mealLogs.forEach(log => {
+      if (!log.date) return
+      const current = mealsByDate.get(log.date) || 0
+      mealsByDate.set(log.date, current + (Number(log[metric === 'calories' ? 'calories' : metric]) || 0))
+    })
 
-  const maxVal = Math.max(...data.map(d => d.val))
+    waterLogs.forEach(log => {
+      if (!log.date) return
+      const current = waterByDate.get(log.date) || 0
+      waterByDate.set(log.date, current + (Number(log.amountMl) || 0))
+    })
+
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today)
+      d.setDate(d.getDate() - i)
+      const dateStr = [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-')
+      
+      let val = 0
+      if (metric === 'water') {
+        val = waterByDate.get(dateStr) || 0
+      } else {
+        val = mealsByDate.get(dateStr) || 0
+      }
+
+      result.push({
+        label: `Ngày ${d.getDate()}/${d.getMonth() + 1}`,
+        val
+      })
+    }
+    return result
+  }, [range, metric, mealLogs, waterLogs])
+
+  // fallback so chart isn't empty if no data
+  const maxVal = Math.max(...data.map(d => d.val), 1)
   
   return (
     <div className="pg-card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -71,7 +119,7 @@ export const NutritionChartsCard = React.memo(function NutritionChartsCard() {
 
       <div style={{ height: 160, display: 'flex', alignItems: 'flex-end', gap: range === '90d' ? 2 : range === '30d' ? 4 : 12, marginTop: 8 }}>
         {data.map((d, i) => (
-          <div key={i} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', position: 'relative' }}>
+          <div key={i} title={`${d.label}: ${Math.round(d.val)}`} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', position: 'relative' }}>
             <div
               style={{
                 width: '100%',

@@ -47,19 +47,27 @@ function lazyWithRetry<T extends React.ComponentType<any>>(
     } catch (e) {
       // Ignore sessionStorage errors
     }
+
     try {
       const component = await factory()
       try { sessionStorage.removeItem('aura_page_refreshed_for_chunk') } catch (e) {}
       return component
-    } catch (error) {
-      console.error('Module script import failed:', error)
-      if (!pageHasBeenRefreshed) {
-        try { sessionStorage.setItem('aura_page_refreshed_for_chunk', 'true') } catch (e) {}
-        window.location.reload()
-        return new Promise<{ default: T }>(() => {})
+    } catch (firstError) {
+      // Attempt immediate retry after a brief delay
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        const retryComponent = await factory()
+        try { sessionStorage.removeItem('aura_page_refreshed_for_chunk') } catch (e) {}
+        return retryComponent
+      } catch (secondError) {
+        if (!pageHasBeenRefreshed) {
+          try { sessionStorage.setItem('aura_page_refreshed_for_chunk', 'true') } catch (e) {}
+          window.location.reload()
+          return new Promise<{ default: T }>(() => {})
+        }
+        try { sessionStorage.removeItem('aura_page_refreshed_for_chunk') } catch (e) {}
+        throw secondError
       }
-      try { sessionStorage.removeItem('aura_page_refreshed_for_chunk') } catch (e) {}
-      throw error
     }
   })
 }

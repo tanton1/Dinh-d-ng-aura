@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
+    "lint": "tsc -b",
     "build": "tsc -b && vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "nutrition:index": "node scripts/build-nutrition-client-index.mjs",
     "build:gh-pages": "npm run build -- --base /aura-fitness-elearning-/",
@@ -21,6 +22,7 @@
     "clsx": "^2.1.1",
     "esbuild": "^0.28.1",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.6.2",
     "firebase": "^12.16.0",
     "lucide-react": "^1.28.0",
     "motion": "^12.43.0",
