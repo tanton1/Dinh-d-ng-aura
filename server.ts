@@ -42,9 +42,36 @@ async function startServer() {
     });
   };
 
-  app.post("/api/generateMealReview", async (req, res) => {
+  
+  const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (!adminInitialized) {
+      // Allow fallback for dev environment if admin not init, but ideally should fail.
+      // We'll enforce auth checking if initialized, otherwise fail.
+      return res.status(500).json({ success: false, error: 'Firebase Admin not initialized' });
+    }
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Missing token' });
+    }
+    const token = authHeader.split('Bearer ')[1];
     try {
-      const { meal, userProfile } = req.body;
+      const decodedToken = await admin.auth().verifyIdToken(token);
+      (req as any).user = decodedToken;
+      next();
+    } catch (error) {
+      console.error('Error verifying token:', error);
+      return res.status(401).json({ success: false, error: 'Unauthorized: Invalid token' });
+    }
+  };
+
+  app.post("/api/generateMealReview", requireAuth, async (req, res) => {
+    try {
+      
+      const { meal } = req.body;
+      const uid = (req as any).user.uid;
+      const userDoc = await getFirestore().collection('users').doc(uid).get();
+      const userProfile = userDoc.exists ? userDoc.data() : null;
+
       const ai = getGenAI();
       if (!ai) {
         return res.status(500).json({ review: 'Cần cấu hình Gemini API Key trên máy chủ để AI có thể phân tích.' });
@@ -87,9 +114,23 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
   });
 
   // AI Meal Analysis endpoint using Gemini 3.6 Flash Vision
-  app.post("/api/ai/analyze-meal", async (req, res) => {
+  app.post("/api/ai/analyze-meal", requireAuth, async (req, res) => {
     try {
-      const { imageBase64, imageUrl, studentNote, studentGoal, studentCondition } = req.body;
+      
+      const { imageBase64, imageUrl, studentNote } = req.body;
+      const uid = (req as any).user.uid;
+      const userDoc = await getFirestore().collection('users').doc(uid).get();
+      const userProfile = userDoc.exists ? userDoc.data() : null;
+      
+      const goal = userProfile?.goal || userProfile?.goals?.[0] || 'lose-fat';
+      const studentGoal = goal === 'lose-fat' ? 'Giảm mỡ thâm hụt calo' : goal === 'gain-muscle' ? 'Tăng cơ nạc thặng dư đạm' : 'Duy trì vóc dáng & sức khỏe';
+      
+      const sexStr = userProfile?.biologicalSex === 'female' ? 'Nữ' : userProfile?.biologicalSex === 'male' ? 'Nam' : 'Chưa rõ';
+      const ageStr = userProfile?.age ? `${userProfile.age} tuổi` : 'Chưa rõ';
+      const heightStr = userProfile?.heightCm ? `${userProfile.heightCm} cm` : 'Chưa rõ';
+      const weightStr = userProfile?.weightKg ? `${userProfile.weightKg} kg` : 'Chưa rõ';
+      const studentCondition = `Giới tính: ${sexStr}, Tuổi: ${ageStr}, Cao: ${heightStr}, Nặng: ${weightStr}`;
+
       const ai = getGenAI();
       if (!ai) {
         return res.status(500).json({
@@ -111,15 +152,37 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
             }
           });
         }
-      } else if (imageUrl && typeof imageUrl === 'string' && imageUrl.startsWith('data:')) {
-        const match = imageUrl.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
-        if (match) {
-          parts.push({
-            inlineData: {
-              mimeType: match[1],
-              data: match[2]
+      } else if (imageUrl && typeof imageUrl === 'string') {
+        if (imageUrl.startsWith('data:')) {
+          const match = imageUrl.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+          if (match) {
+            parts.push({
+              inlineData: {
+                mimeType: match[1],
+                data: match[2]
+              }
+            });
+          }
+        } else if (imageUrl.startsWith('http')) {
+          // Fetch the image from URL and convert to base64
+          try {
+            const imgRes = await fetch(imageUrl);
+            if (imgRes.ok) {
+              const arrayBuffer = await imgRes.arrayBuffer();
+              const buffer = Buffer.from(arrayBuffer);
+              const mimeType = imgRes.headers.get('content-type') || 'image/jpeg';
+              parts.push({
+                inlineData: {
+                  mimeType,
+                  data: buffer.toString('base64')
+                }
+              });
+            } else {
+              console.warn('Failed to fetch image URL:', imgRes.status);
             }
-          });
+          } catch (fetchErr) {
+            console.error('Error fetching image URL:', fetchErr);
+          }
         }
       }
 
@@ -193,9 +256,14 @@ Yêu cầu phân tích chi tiết:
   });
 
   // Endpoint AI Health Coach Chat strictly using user profile
-  app.post("/api/ai/coach-chat", async (req, res) => {
+  app.post("/api/ai/coach-chat", requireAuth, async (req, res) => {
     try {
-      const { message, userProfile } = req.body;
+      
+      const { message } = req.body;
+      const uid = (req as any).user.uid;
+      const userDoc = await getFirestore().collection('users').doc(uid).get();
+      const userProfile = userDoc.exists ? userDoc.data() : null;
+
       const ai = getGenAI();
       if (!ai) {
         return res.status(500).json({ text: 'AI Coach sẵn sàng. Hãy cài đặt Gemini API Key để trò chuyện trực tiếp với AI.' });
@@ -593,7 +661,7 @@ self.addEventListener('notificationclick', (event) => {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    app.get('*all', (req, res) => {
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');

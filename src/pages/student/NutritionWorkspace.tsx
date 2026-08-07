@@ -1,3 +1,4 @@
+import React from 'react'
 import {
   Activity,
   BarChart3,
@@ -600,7 +601,8 @@ export interface NutritionWorkspaceProps {
   ownerId?: string
 }
 
-export default function NutritionWorkspace({
+export default React.memo(NutritionWorkspace)
+function NutritionWorkspace({
   activeSection,
   onSectionChange,
   todayContent,

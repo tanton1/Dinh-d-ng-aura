@@ -26,7 +26,7 @@ function getEnergyBalanceStatus(avgDailyBalance: number) {
   return { text: 'Thặng dư cao', color: '#7c3aed', bg: '#f3e8ff' }
 }
 
-export function EnergyBalanceCard({
+export const EnergyBalanceCard = React.memo(function EnergyBalanceCard({
   onOpenDetails,
   intake = 0,
   basal = 0,
@@ -319,4 +319,4 @@ export function EnergyBalanceCard({
       </div>
     </div>
   )
-}
+})

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import React, { useEffect, useRef, useState, type CSSProperties } from 'react'
 import {
   Activity,
   ArrowRight,
@@ -142,7 +142,8 @@ function MealVisual({ meal }: { meal: NutritionHomeMeal }) {
   return <div className="meal-fallback-icon"><Icon size={24} /></div>
 }
 
-export default function NutritionDashboardHome({
+export default React.memo(NutritionDashboardHome)
+function NutritionDashboardHome({
   firstName,
   selectedDate,
   selectedDateLabel,

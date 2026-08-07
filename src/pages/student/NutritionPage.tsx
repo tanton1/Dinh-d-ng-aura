@@ -1,4 +1,5 @@
-import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import React, { useEffect, useId, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useDebounce } from '../../hooks/useDebounce'
 import { useAuth } from '../../contexts/AuthContext'
 import NutritionFoodDetail, {
   type NutritionFoodDetailRecord,
@@ -97,6 +98,18 @@ export interface NutritionProfileDraft {
   trainingSessions: number
   eatingStyle: string
   allergies: string
+  mealsPerDay?: number
+  mealTimes?: string[]
+  dislikes?: string
+  budget?: 'low' | 'medium' | 'high' | 'unlimited'
+  prepTime?: 'quick' | 'medium' | 'long'
+  favoriteCuisine?: string
+  reminders?: {
+    water: boolean
+    breakfast: boolean
+    lunch: boolean
+    dinner: boolean
+  }
 }
 
 export interface AiFoodItem {
@@ -423,6 +436,17 @@ const DEFAULT_PROFILE: NutritionProfileDraft = {
   trainingSessions: 4,
   eatingStyle: 'Không giới hạn',
   allergies: '',
+  mealsPerDay: 3,
+  dislikes: '',
+  budget: 'medium',
+  prepTime: 'medium',
+  favoriteCuisine: 'Đa dạng',
+  reminders: {
+    water: false,
+    breakfast: false,
+    lunch: false,
+    dinner: false,
+  }
 }
 
 function formatNumber(value: number) {
@@ -460,22 +484,55 @@ function getNutritionTargets(profile: NutritionProfileDraft, overrideWeight?: nu
   return { calorieGoal, proteinGoal, carbGoal, fatGoal, waterGoal, maintenanceCalories, dailyAdjustment, targetDelta, timeframeMonths }
 }
 
-function getDailyPlan(calorieGoal: number, eatingStyle: string) {
+function getDailyPlan(calorieGoal: number, profile: NutritionProfileDraft) {
+  const eatingStyle = profile.eatingStyle
+  const mealsCount = profile.mealsPerDay || 3
   const vegetarian = eatingStyle === 'Ăn chay' || eatingStyle === 'Thuần chay'
   const lowCarb = eatingStyle === 'Ít tinh bột'
-  const titles = vegetarian
-    ? ['Yến mạch, trái cây & hạt', 'Cơm đậu phụ & rau xanh', 'Sữa chua thực vật', 'Đậu lăng & rau củ nướng']
-    : lowCarb
-      ? ['Trứng, bơ & rau xanh', 'Gà nướng & salad', 'Sữa chua không đường', 'Cá & rau củ áp chảo']
-      : WEEK_PLAN.map((item) => item.title)
-  const ratios = [0.24, 0.32, 0.1]
+  const isVietnamese = profile.favoriteCuisine === 'Món Việt truyền thống'
+  const isWestern = profile.favoriteCuisine === 'Món Tây / Âu'
+  
+  let titles: string[] = []
+  let ratios: number[] = []
+  let labels: string[] = []
+  let times: string[] = []
+  
+  if (mealsCount === 2) {
+    titles = vegetarian ? ['Salad bơ đậu hũ', 'Cơm lứt rau củ nướng'] : lowCarb ? ['Trứng ốp la & bơ', 'Salad ức gà'] : isVietnamese ? ['Phở bò cốt trong', 'Cơm tấm sườn bi'] : ['Sandwich trứng', 'Cá hồi áp chảo']
+    ratios = [0.45]
+    labels = ['Bữa chính 1', 'Bữa chính 2']
+    times = ['11:30', '18:30']
+  } else if (mealsCount === 4) {
+    titles = vegetarian ? ['Yến mạch', 'Cơm đậu phụ', 'Sữa chua', 'Đậu lăng nướng'] : lowCarb ? ['Trứng bơ', 'Gà salad', 'Hạt', 'Cá áp chảo'] : isVietnamese ? ['Bún mọc', 'Cơm gà', 'Trái cây', 'Cơm cá kho'] : ['Oatmeal', 'Chicken Rice', 'Greek Yogurt', 'Steak']
+    ratios = [0.24, 0.32, 0.1]
+    labels = ['Bữa sáng', 'Bữa trưa', 'Bữa phụ', 'Bữa tối']
+    times = ['07:30', '12:15', '15:30', '19:00']
+  } else if (mealsCount === 5) {
+    titles = vegetarian ? ['Yến mạch', 'Hạt', 'Cơm đậu phụ', 'Sữa chua', 'Đậu lăng'] : lowCarb ? ['Trứng bơ', 'Hạt', 'Gà salad', 'Sữa chua', 'Cá áp chảo'] : isVietnamese ? ['Bún mọc', 'Chuối', 'Cơm gà', 'Sữa chua', 'Cơm cá kho'] : ['Oatmeal', 'Almonds', 'Chicken Rice', 'Yogurt', 'Steak']
+    ratios = [0.20, 0.1, 0.30, 0.1]
+    labels = ['Bữa sáng', 'Bữa phụ sáng', 'Bữa trưa', 'Bữa phụ chiều', 'Bữa tối']
+    times = ['07:30', '10:00', '12:30', '15:30', '19:00']
+  } else {
+    titles = vegetarian ? ['Yến mạch', 'Cơm đậu phụ', 'Đậu lăng nướng'] : lowCarb ? ['Trứng bơ', 'Gà salad', 'Cá áp chảo'] : isVietnamese ? ['Phở bò', 'Cơm sườn', 'Cơm cá kho'] : ['Oatmeal', 'Chicken Salad', 'Steak & Veggies']
+    ratios = [0.30, 0.40]
+    labels = ['Bữa sáng', 'Bữa trưa', 'Bữa tối']
+    times = ['07:30', '12:30', '19:00']
+  }
+
   const firstMeals = ratios.map((ratio) => Math.round((calorieGoal * ratio) / 10) * 10)
-  const dinnerCalories = calorieGoal - firstMeals.reduce((sum, calories) => sum + calories, 0)
-  return WEEK_PLAN.map((item, index) => ({
-    ...item,
-    title: titles[index],
-    calories: index < firstMeals.length ? firstMeals[index] : dinnerCalories,
-  }))
+  const lastMealCalories = calorieGoal - firstMeals.reduce((sum, calories) => sum + calories, 0)
+  
+  return titles.map((title, index) => {
+    const calories = index < firstMeals.length ? firstMeals[index] : lastMealCalories
+    const protein = Math.round(calories * 0.3 / 4) // Giả sử 30% năng lượng từ protein
+    return {
+      time: times[index],
+      label: labels[index],
+      title,
+      calories,
+      protein,
+    }
+  })
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -1013,9 +1070,9 @@ function NutritionOnboarding({ onComplete, initialProfile = DEFAULT_PROFILE, onC
       <section className="nutrition-onboarding" aria-labelledby="nutrition-onboarding-title">
         <header className="nutrition-onboarding__header">
           <span className="nutrition-ai-mark"><Sparkles size={16} /> {editing ? 'Cập nhật kế hoạch' : 'Aura Nutrition AI'}</span>
-          <span className="nutrition-onboarding__step">Bước {step} / 3</span>
-          <div className="nutrition-onboarding__progress" aria-label={`Tiến độ ${Math.round((step / 3) * 100)}%`}>
-            <span style={{ width: `${(step / 3) * 100}%` }} />
+          <span className="nutrition-onboarding__step">Bước {step} / 4</span>
+          <div className="nutrition-onboarding__progress" aria-label={`Tiến độ ${Math.round((step / 4) * 100)}%`}>
+            <span style={{ width: `${(step / 4) * 100}%` }} />
           </div>
         </header>
 
@@ -1173,12 +1230,60 @@ function NutritionOnboarding({ onComplete, initialProfile = DEFAULT_PROFILE, onC
           </div>
         )}
 
+        {step === 4 && (
+          <div className="nutrition-onboarding__body">
+            <span className="nutrition-kicker">CÁ THỂ HÓA THỰC ĐƠN</span>
+            <h1 id="nutrition-onboarding-title">Chi tiết cho kế hoạch 7 ngày</h1>
+            <p>Giúp Aura gợi ý thực đơn phù hợp với thời gian, ngân sách và sở thích của bạn.</p>
+            <div className="nutrition-form-grid">
+              <label className="nutrition-field">
+                <span>Số bữa ăn mỗi ngày</span>
+                <select value={profile.mealsPerDay || 3} onChange={(event) => setField('mealsPerDay', Number(event.target.value))}>
+                  <option value={2}>2 bữa (VD: Nhịn ăn gián đoạn)</option>
+                  <option value={3}>3 bữa (Sáng, Trưa, Tối)</option>
+                  <option value={4}>4 bữa (Thêm 1 bữa phụ)</option>
+                  <option value={5}>5 bữa (Chia nhỏ trong ngày)</option>
+                </select>
+              </label>
+              <label className="nutrition-field">
+                <span>Ngân sách thực phẩm</span>
+                <select value={profile.budget || 'medium'} onChange={(event) => setField('budget', event.target.value as any)}>
+                  <option value="low">Tiết kiệm</option>
+                  <option value="medium">Tiêu chuẩn</option>
+                  <option value="high">Linh hoạt / Thoải mái</option>
+                </select>
+              </label>
+              <label className="nutrition-field">
+                <span>Thời gian nấu nướng</span>
+                <select value={profile.prepTime || 'medium'} onChange={(event) => setField('prepTime', event.target.value as any)}>
+                  <option value="quick">Nhanh gọn (&lt; 20 phút)</option>
+                  <option value="medium">Vừa phải (20 - 45 phút)</option>
+                  <option value="long">Có nhiều thời gian (&gt; 45 phút)</option>
+                </select>
+              </label>
+              <label className="nutrition-field">
+                <span>Khẩu vị / Vùng miền yêu thích</span>
+                <select value={profile.favoriteCuisine || 'Đa dạng'} onChange={(event) => setField('favoriteCuisine', event.target.value)}>
+                  <option>Đa dạng</option>
+                  <option>Món Việt truyền thống</option>
+                  <option>Món Tây / Âu</option>
+                  <option>Món Á (Nhật, Hàn, Thái...)</option>
+                </select>
+              </label>
+              <label className="nutrition-field" style={{ gridColumn: 'span 2' }}>
+                <span>Món ăn không thích</span>
+                <input type="text" value={profile.dislikes || ''} placeholder="Ví dụ: hành, mướp đắng, cá mè..." onChange={(event) => setField('dislikes', event.target.value)} />
+              </label>
+            </div>
+          </div>
+        )}
+
         <footer className="nutrition-onboarding__footer">
           <button type="button" className="nutrition-secondary-button" onClick={() => step === 1 && onCancel ? onCancel() : setStep((current) => Math.max(1, current - 1))} disabled={step === 1 && !onCancel}>
             {step === 1 && onCancel ? <X size={17} /> : <ArrowLeft size={17} />} {step === 1 && onCancel ? 'Hủy' : 'Quay lại'}
           </button>
-          <button type="button" className="nutrition-primary-button" onClick={() => step < 3 ? setStep((current) => current + 1) : onComplete(profile)}>
-            {step < 3 ? 'Tiếp tục' : 'Tạo kế hoạch của tôi'} {step < 3 ? <ArrowRight size={17} /> : <Sparkles size={17} />}
+          <button type="button" className="nutrition-primary-button" onClick={() => step < 4 ? setStep((current) => current + 1) : onComplete(profile)}>
+            {step < 4 ? 'Tiếp tục' : 'Tạo kế hoạch của tôi'} {step < 4 ? <ArrowRight size={17} /> : <Sparkles size={17} />}
           </button>
         </footer>
       </section>
@@ -1346,7 +1451,7 @@ interface MealEditorContext {
   time: string
 }
 
-function MealEditorSheet({ food, initialDate, onClose, onConfirm }: { food: NutritionFoodCatalogItem; initialDate: string; onClose: () => void; onConfirm: (food: NutritionFoodCatalogItem, context: MealEditorContext) => void }) {
+const MealEditorSheet = React.memo(function MealEditorSheet({ food, initialDate, onClose, onConfirm }: { food: NutritionFoodCatalogItem; initialDate: string; onClose: () => void; onConfirm: (food: NutritionFoodCatalogItem, context: MealEditorContext) => void }) {
   const [date, setDate] = useState(initialDate)
   const [mealType, setMealType] = useState<NutritionMealDraft['mealType']>('lunch')
   const [time, setTime] = useState(() => new Date().toTimeString().slice(0, 5))
@@ -1372,7 +1477,7 @@ function MealEditorSheet({ food, initialDate, onClose, onConfirm }: { food: Nutr
       </section>
     </div>
   )
-}
+})
 
 interface MealLogEditDraft {
   date: string
@@ -1381,7 +1486,7 @@ interface MealLogEditDraft {
   portionMultiplier: number
 }
 
-function MealLogEditorSheet({ meal, onClose, onConfirm }: { meal: MealLog; onClose: () => void; onConfirm: (draft: MealLogEditDraft) => void }) {
+const MealLogEditorSheet = React.memo(function MealLogEditorSheet({ meal, onClose, onConfirm }: { meal: MealLog; onClose: () => void; onConfirm: (draft: MealLogEditDraft) => void }) {
   const [date, setDate] = useState(meal.date)
   const [time, setTime] = useState(meal.time)
   const [mealType, setMealType] = useState(meal.type)
@@ -1408,11 +1513,11 @@ function MealLogEditorSheet({ meal, onClose, onConfirm }: { meal: MealLog; onClo
       </section>
     </div>
   )
-}
+})
 
 
 
-function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose, onOpenCatalog, onSave, onAnalyzeImage, presentation = 'modal' }: { initialDate: string; storageOwnerId: string; allowDemo?: boolean; onClose: () => void; onOpenCatalog: () => void; onSave: (meal: NutritionMealDraft) => void; onAnalyzeImage?: NutritionPageProps['onAnalyzeImage']; presentation?: 'modal' | 'page' }) {
+const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose, onOpenCatalog, onSave, onAnalyzeImage, presentation = 'modal' }: { initialDate: string; storageOwnerId: string; allowDemo?: boolean; onClose: () => void; onOpenCatalog: () => void; onSave: (meal: NutritionMealDraft) => void; onAnalyzeImage?: NutritionPageProps['onAnalyzeImage']; presentation?: 'modal' | 'page' }) {
   const reviewStorageKey = scanReviewSessionKey(storageOwnerId)
   const [restoredReview] = useState(() => {
     const step = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('step')
@@ -2099,7 +2204,7 @@ function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose
       </section>
     </div>
   )
-}
+})
 
 function scaleCatalogFood(food: NutritionFoodCatalogItem, multiplier: number): NutritionFoodCatalogItem {
   const safeMultiplier = Math.min(5, Math.max(0, Math.round(multiplier * 10) / 10))
@@ -2121,8 +2226,9 @@ function scaleCatalogFood(food: NutritionFoodCatalogItem, multiplier: number): N
   }
 }
 
-function FoodCatalogModal({ catalog, savedFoodIds, initialSavedOnly = false, allowDemo = false, onClose, onAdd, onOpenDetail, presentation = 'modal' }: { catalog?: NutritionFoodCatalogItem[]; savedFoodIds?: Set<string>; initialSavedOnly?: boolean; allowDemo?: boolean; onClose: () => void; onAdd: (food: NutritionFoodCatalogItem, multiplier: number) => void | Promise<void>; onOpenDetail: (food: NutritionFoodCatalogItem, catalog: NutritionFoodCatalogItem[]) => void; presentation?: 'modal' | 'page' }) {
+const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFoodIds, initialSavedOnly = false, allowDemo = false, onClose, onAdd, onOpenDetail, presentation = 'modal' }: { catalog?: NutritionFoodCatalogItem[]; savedFoodIds?: Set<string>; initialSavedOnly?: boolean; allowDemo?: boolean; onClose: () => void; onAdd: (food: NutritionFoodCatalogItem, multiplier: number) => void | Promise<void>; onOpenDetail: (food: NutritionFoodCatalogItem, catalog: NutritionFoodCatalogItem[]) => void; presentation?: 'modal' | 'page' }) {
   const [query, setQuery] = useState('')
+  const debouncedQuery = useDebounce(query, 300)
   const [items, setItems] = useState<NutritionFoodCatalogItem[]>(catalog?.length ? catalog : [])
   const [catalogState, setCatalogState] = useState<'loading' | 'live' | 'demo' | 'error'>(catalog?.length ? 'live' : 'loading')
   const [retryToken, setRetryToken] = useState(0)
@@ -2205,7 +2311,7 @@ function FoodCatalogModal({ catalog, savedFoodIds, initialSavedOnly = false, all
   }, [categories, categoryFilter])
 
   const matchingItems = useMemo(() => {
-    const normalizedQuery = normalizeSearch(query)
+    const normalizedQuery = normalizeSearch(debouncedQuery)
     return items.filter((item) => {
       if (kindFilter !== 'all' && item.kind !== kindFilter) return false
       if (savedOnly && !savedFoodIds?.has(item.id)) return false
@@ -2213,9 +2319,9 @@ function FoodCatalogModal({ catalog, savedFoodIds, initialSavedOnly = false, all
       if (!normalizedQuery) return true
       return normalizeSearch(`${item.name} ${item.nameEn ?? ''} ${item.nameAscii ?? ''} ${item.code ?? ''} ${item.category?.nameVi ?? ''} ${item.region?.nameVi ?? ''}`).includes(normalizedQuery)
     })
-  }, [categoryFilter, items, kindFilter, query, savedFoodIds, savedOnly])
+  }, [categoryFilter, items, kindFilter, debouncedQuery, savedFoodIds, savedOnly])
 
-  useEffect(() => setVisibleCount(36), [categoryFilter, kindFilter, query, savedOnly])
+  useEffect(() => setVisibleCount(36), [categoryFilter, kindFilter, debouncedQuery, savedOnly])
 
   const filteredItems = matchingItems.slice(0, visibleCount)
 
@@ -2370,7 +2476,7 @@ function FoodCatalogModal({ catalog, savedFoodIds, initialSavedOnly = false, all
       </section>
     </div>
   )
-}
+})
 
 export default function NutritionPage({ displayName = 'Thành viên Aura', isDemo = false, storageOwnerId, hasProfile = true, profile, onProfileComplete, onMealSaved, onAnalyzeImage, foodCatalog }: NutritionPageProps) {
   const resolvedOwnerId = storageOwnerId ?? firebaseAuth?.currentUser?.uid ?? 'anonymous'
@@ -2453,7 +2559,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   }, [resolvedOwnerId, profileDraft.weightKg])
 
   const { calorieGoal, proteinGoal, carbGoal, fatGoal, waterGoal } = getNutritionTargets(profileDraft, actual30DayWeight)
-  const dailyPlan = getDailyPlan(calorieGoal, profileDraft.eatingStyle)
+  const dailyPlan = getDailyPlan(calorieGoal, profileDraft)
   const selectedDayMeals = meals.filter((meal) => meal.date === selectedDate)
   const loggedMeals = selectedDayMeals.filter((meal) => meal.status === 'logged')
   const selectedDayActivities = activities.filter((activity) => activity.date === selectedDate)
@@ -2511,19 +2617,19 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     label: day.isToday ? 'Hôm nay' : undefined,
     isToday: day.isToday,
   }))
-  const planMealTypes: NutritionMealDraft['mealType'][] = ['breakfast', 'lunch', 'snack', 'dinner']
+  const planMealTypes: NutritionMealDraft['mealType'][] = ['breakfast', 'snack', 'lunch', 'snack', 'dinner']
   const workspacePlannedMeals: NutritionPlannedMeal[] = planGenerated ? workspacePlanDays.flatMap((day) => dailyPlan.map((meal, index) => ({
     id: `${day.id}-plan-${index}`,
     dayId: day.id,
     time: meal.time,
-    type: planMealTypes[index],
+    type: index === 0 ? 'breakfast' : index === dailyPlan.length - 1 ? 'dinner' : dailyPlan.length === 2 ? 'lunch' : 'snack',
     label: meal.label,
     title: meal.title,
     description: `${formatNumber(meal.calories)} kcal · khoảng ${formatNumber(meal.protein)}g đạm`,
     calories: meal.calories,
     protein: meal.protein,
-    prepMinutes: index === 2 ? 5 : 20,
-    rationale: index === 0 ? 'Ưu tiên năng lượng ổn định đầu ngày' : index === 3 ? 'Bù phần macro còn thiếu trong ngày' : 'Phân bổ theo mục tiêu cá nhân',
+    prepMinutes: profileDraft.prepTime === 'quick' ? 10 : profileDraft.prepTime === 'long' ? 45 : 20,
+    rationale: index === 0 ? 'Ưu tiên năng lượng ổn định đầu ngày' : index === dailyPlan.length - 1 ? 'Bù phần macro còn thiếu trong ngày' : 'Phân bổ theo mục tiêu cá nhân',
   }))) : []
   const selectedFoodSummary = useMemo(() => selectedFood ? toFoodDetailSummary(selectedFood) : null, [selectedFood])
   const relatedFoodSummaries = useMemo(() => {
@@ -3465,12 +3571,24 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
           meals: workspacePlannedMeals,
           dailyCalorieGoal: calorieGoal,
           strategyTitle: profileDraft.goal === 'gain-muscle' ? 'Đủ đạm, ưu tiên phục hồi' : profileDraft.goal === 'lose-fat' ? 'No lâu, thâm hụt vừa phải' : 'Cân bằng và dễ duy trì',
-          strategyDescription: `Bản nháp dựa trên mục tiêu ${GOAL_LABELS[profileDraft.goal].toLocaleLowerCase('vi-VN')}, ${profileDraft.trainingSessions} buổi tập/tuần và phong cách ${profileDraft.eatingStyle.toLocaleLowerCase('vi-VN')}.`,
-          constraints: [profileDraft.allergies ? `Tránh: ${profileDraft.allergies}` : 'Chưa ghi nhận dị ứng', `Mục tiêu ${formatNumber(calorieGoal)} kcal/ngày`, `${profileDraft.trainingSessions} buổi tập/tuần`],
+          strategyDescription: `Bản nháp dựa trên mục tiêu ${GOAL_LABELS[profileDraft.goal].toLocaleLowerCase('vi-VN')}, ${profileDraft.trainingSessions} buổi tập/tuần, phong cách ${profileDraft.eatingStyle.toLocaleLowerCase('vi-VN')}, ${profileDraft.mealsPerDay || 3} bữa/ngày và gu ẩm thực ${profileDraft.favoriteCuisine || 'đa dạng'}.`,
+          constraints: [
+            profileDraft.allergies ? `Tránh: ${profileDraft.allergies}` : 'Chưa ghi nhận dị ứng',
+            profileDraft.dislikes ? `Không thích: ${profileDraft.dislikes}` : 'Không có món kén ăn',
+            `Mục tiêu ${formatNumber(calorieGoal)} kcal/ngày`,
+            `${profileDraft.trainingSessions} buổi tập/tuần`
+          ],
           onSelectDay: setPlanSelectedDay,
           onGeneratePlan: () => { setPlanGenerated(true); showMessage('Đã tạo bản nháp 7 ngày; Aura chưa tự lưu hoặc thay đổi mục tiêu của bạn') },
           onAddMeal: () => openCatalog(false),
           onReplaceMeal: () => { openCatalog(false); showMessage('Chọn món có macro tương đương trong thư viện') },
+          onCreateShoppingList: () => {
+            if (!planGenerated) {
+              showMessage('Vui lòng tạo bản nháp trước khi xem danh sách mua sắm')
+              return
+            }
+            showMessage('Đã tạo danh sách mua sắm cho kế hoạch hiện tại (tính năng đang được hoàn thiện)')
+          },
         }}
         assistant={{
           open: activeSection === 'assistant',

@@ -560,15 +560,21 @@ export async function analyzeFoodPhoto(
   image: Blob,
   options: AnalyzeFoodPhotoOptions = {},
 ): Promise<FoodAnalysisResponse> {
+  validateAnalyzeOptions(options);
+  const upload = await uploadFoodPhoto(image);
+  
+  const firebase = requireNutritionFirebase();
+  const { getDownloadURL } = await import('firebase/storage');
+  
+  let imageUrl = '';
   try {
-    const base64 = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onloadend = () => resolve(reader.result as string)
-      reader.onerror = reject
-      reader.readAsDataURL(image)
-    })
+    imageUrl = await getDownloadURL(ref(firebase.storage, upload.storagePath));
+  } catch (err) {
+    throw new Error('Không thể lấy URL hình ảnh từ Storage.');
+  }
 
-    const token = localStorage.getItem('token')
+  try {
+    const token = localStorage.getItem('token') || await firebase.user.getIdToken();
     const res = await fetch('/api/ai/analyze-meal', {
       method: 'POST',
       headers: {
@@ -576,26 +582,31 @@ export async function analyzeFoodPhoto(
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({
-        imageBase64: base64,
+        imageUrl,
         studentNote: options.notes,
-        studentGoal: options.userGoal || 'Giảm mỡ thâm hụt calo / Tăng cơ nạc',
-        studentCondition: options.userCondition || 'Học viên Aura Fitness',
       }),
-    })
+    });
 
     if (res.ok) {
-      const data = await res.json()
+      const data = await res.json();
       if (data.success && data.analysis) {
-        const a = data.analysis
+        // cleanup image if requested
+        if (options.retainImage !== true) {
+          try {
+            await deleteObject(ref(firebase.storage, upload.storagePath));
+          } catch {}
+        }
+
+        const a = data.analysis;
         return {
-          scanId: `scan-${Date.now()}`,
+          scanId: upload.scanId,
           status: 'completed',
           mode: 'live',
           provider: 'gemini',
           model: 'gemini-3.6-flash',
           providerRequestId: null,
           notices: [],
-          imageRetained: false,
+          imageRetained: options.retainImage === true,
           analyzedAt: new Date().toISOString(),
           analysis: {
             isFood: true,
@@ -649,24 +660,35 @@ export async function analyzeFoodPhoto(
             questions: [],
           },
         }
+      } else {
+        throw new Error(data.error || 'Phân tích thất bại');
       }
+    } else {
+      const errText = await res.text();
+      throw new Error(`Server lỗi: ${res.status} ${errText}`);
     }
   } catch (e) {
-    console.warn('Direct AI endpoint fallback:', e)
+    // cleanup
+    if (options.retainImage !== true) {
+      try {
+        await deleteObject(ref(firebase.storage, upload.storagePath));
+      } catch {}
+    }
+    throw e;
   }
-
-  validateAnalyzeOptions(options)
-  const upload = await uploadFoodPhoto(image)
-  return analyzeUploadedFoodPhoto(upload, options)
 }
+
 export async function generateMealReview(meal: any, userProfile: any): Promise<string> {
   try {
+    const firebase = requireNutritionFirebase();
+    const token = await firebase.user.getIdToken();
     const response = await fetch('/api/generateMealReview', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ meal, userProfile })
+      body: JSON.stringify({ meal }) // userProfile is fetched on server now
     });
     if (!response.ok) {
       console.error('Failed to generate meal review, server returned', response.status);
@@ -682,12 +704,15 @@ export async function generateMealReview(meal: any, userProfile: any): Promise<s
 
 export async function askAiCoach(message: string, userProfile: any): Promise<string> {
   try {
+    const firebase = requireNutritionFirebase();
+    const token = await firebase.user.getIdToken();
     const response = await fetch('/api/ai/coach-chat', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ message, userProfile })
+      body: JSON.stringify({ message }) // userProfile is fetched on server now
     });
     if (!response.ok) {
       return 'AI Coach chưa thể trả lời lúc này.';

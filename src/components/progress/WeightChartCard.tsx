@@ -17,7 +17,7 @@ const defaultRecords: WeightRecord[] = [
   { id: '7', date: '2026-08-04', label: '04/08', weightKg: 65.0, trendKg: 64.9 },
 ]
 
-export function WeightChartCard({ records = defaultRecords, goalWeightKg = 61.0 }: WeightChartCardProps) {
+export const WeightChartCard = React.memo(function WeightChartCard({ records = defaultRecords, goalWeightKg = 61.0 }: WeightChartCardProps) {
   const [range, setRange] = useState<'30d' | '90d' | '6m' | '1y'>('30d')
   const [activePointIndex, setActivePointIndex] = useState<number | null>(null)
 
@@ -68,8 +68,8 @@ export function WeightChartCard({ records = defaultRecords, goalWeightKg = 61.0 
   const trendPoints = dataList.map((d, i) => `${getX(i)},${getY(d.trendKg || d.weightKg)}`).join(' L ')
   const trendPath = `M ${trendPoints}`
 
-  // Area under weight path
-  const areaPath = `M ${getX(0)},${chartHeight - padBottom} L ${weightPoints} L ${getX(dataList.length - 1)},${chartHeight - padBottom} Z`
+  // Area under trend path
+  const areaPath = `M ${getX(0)},${chartHeight - padBottom} L ${trendPoints} L ${getX(dataList.length - 1)},${chartHeight - padBottom} Z`
 
   const activeRecord = activePointIndex !== null ? dataList[activePointIndex] : null
 
@@ -142,11 +142,11 @@ export function WeightChartCard({ records = defaultRecords, goalWeightKg = 61.0 
           {/* Gradient area */}
           <path d={areaPath} fill="url(#weightAreaGrad)" />
 
-          {/* Dotted Trend Line */}
-          <path d={trendPath} fill="none" stroke="#fbcfe8" strokeWidth="2" strokeDasharray="4 4" />
+          {/* Dotted Weight Line (actual points) */}
+          <path d={weightPath} fill="none" stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="3 3" />
 
-          {/* Main Weight Line */}
-          <path d={weightPath} fill="none" stroke="#ec4899" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          {/* Main Trend Line (smoothed) */}
+          <path d={trendPath} fill="none" stroke="#ec4899" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
 
           {/* Data Points & X-Axis Labels */}
           {dataList.map((d, i) => {
@@ -238,5 +238,5 @@ export function WeightChartCard({ records = defaultRecords, goalWeightKg = 61.0 
       </div>
     </div>
   )
-}
+})
 

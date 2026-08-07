@@ -128,6 +128,8 @@ interface CoursesPageProps {
   initialQuery?: string
 }
 
+import { useDebounce } from '../../hooks/useDebounce'
+
 export default function CoursesPage({
   onOpenCourse,
   courseItems = demoCourses,
@@ -139,6 +141,7 @@ export default function CoursesPage({
   const mineCount = courseItems.filter((course) => course.status !== 'Khám phá').length
   const [tab, setTab] = useState<'mine' | 'explore'>(mineCount > 0 ? 'mine' : 'explore')
   const [query, setQuery] = useState('')
+  const debouncedQuery = useDebounce(query, 300)
   const [category, setCategory] = useState('Tất cả')
   const [level, setLevel] = useState('Tất cả')
   const [showFilters, setShowFilters] = useState(false)
@@ -147,7 +150,7 @@ export default function CoursesPage({
     if (mineCount === 0 && tab === 'mine') {
       setTab('explore')
     }
-  }, [mineCount])
+  }, [mineCount, tab])
 
   useEffect(() => setQuery(initialQuery), [initialQuery])
 
@@ -155,7 +158,6 @@ export default function CoursesPage({
     () => ['Tất cả', ...Array.from(new Set(courseItems.map((course) => course.category)))],
     [courseItems],
   )
-
   const levels = useMemo(
     () => ['Tất cả', ...Array.from(new Set(courseItems.map((course) => course.level)))],
     [courseItems],
@@ -165,12 +167,12 @@ export default function CoursesPage({
     () =>
       courseItems.filter((course) => {
         const belongsToTab = tab === 'explore' || course.status !== 'Khám phá'
-        const matchesQuery = course.title.toLowerCase().includes(query.toLowerCase())
+        const matchesQuery = course.title.toLowerCase().includes(debouncedQuery.toLowerCase())
         const matchesCategory = category === 'Tất cả' || course.category === category
         const matchesLevel = level === 'Tất cả' || course.level === level
         return belongsToTab && matchesQuery && matchesCategory && matchesLevel
       }),
-    [tab, query, category, courseItems, level],
+    [tab, debouncedQuery, category, courseItems, level],
   )
 
   return (

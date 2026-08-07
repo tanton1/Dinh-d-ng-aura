@@ -12,6 +12,7 @@ import { WeightTrackerCard } from '../../components/progress/WeightTrackerCard'
 import { WeightChartCard } from '../../components/progress/WeightChartCard'
 import { BodyMetricsCard } from '../../components/progress/BodyMetricsCard'
 import { NutritionProgressCard } from '../../components/progress/NutritionProgressCard'
+import { NutritionChartsCard } from '../../components/progress/NutritionChartsCard'
 import { EnergyBalanceCard } from '../../components/progress/EnergyBalanceCard'
 import { ProgressPhotosCard } from '../../components/progress/ProgressPhotosCard'
 import { StreaksAndBadgesCard } from '../../components/progress/StreaksAndBadgesCard'
@@ -734,41 +735,46 @@ export default function ProgressPage({
       )}
 
       {(category === 'overview' || category === 'nutrition') && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 20 }}>
-          <NutritionProgressCard
-            onOpenDetails={() => onNavigate?.('nutrition')}
-            onLogMeal={() => onNavigate?.('nutrition')}
-            avgCalories={nutritionProgressData.avgCalories}
-            targetCalories={nutritionProgressData.targetCalories}
-            proteinGrams={nutritionProgressData.avgProtein}
-            proteinGoal={nutritionProgressData.proteinGoal}
-            carbGrams={nutritionProgressData.avgCarbs}
-            carbGoal={nutritionProgressData.carbGoal}
-            fatGrams={nutritionProgressData.avgFat}
-            fatGoal={nutritionProgressData.fatGoal}
-            fiberGrams={nutritionProgressData.avgFiber}
-            fiberGoal={nutritionProgressData.fiberGoal}
-            waterMl={nutritionProgressData.avgWater}
-            waterGoal={nutritionProgressData.waterGoal}
-            activeDays={nutritionProgressData.activeDays}
-          />
-          <EnergyBalanceCard
-            onOpenDetails={() => onNavigate?.('nutrition')}
-            onLogMeal={() => onNavigate?.('nutrition')}
-            onLogWorkout={() => onNavigate?.('workout')}
-            intake={energyBalanceData.intake}
-            basal={energyBalanceData.basal}
-            dailyActivity={energyBalanceData.dailyActivity}
-            workout={energyBalanceData.workout}
-            thermicEffect={energyBalanceData.thermicEffect}
-            confidence={energyBalanceData.confidence}
-            goal={energyBalanceData.goal}
-            periodDays={energyBalanceData.periodDays}
-            totalPeriodDays={energyBalanceData.totalPeriodDays}
-            activeDays={energyBalanceData.activeDays}
-            workoutDays={energyBalanceData.workoutDays}
-          />
-        </div>
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 20 }}>
+            <NutritionProgressCard
+              onOpenDetails={() => onNavigate?.('nutrition')}
+              onLogMeal={() => onNavigate?.('nutrition')}
+              avgCalories={nutritionProgressData.avgCalories}
+              targetCalories={nutritionProgressData.targetCalories}
+              proteinGrams={nutritionProgressData.avgProtein}
+              proteinGoal={nutritionProgressData.proteinGoal}
+              carbGrams={nutritionProgressData.avgCarbs}
+              carbGoal={nutritionProgressData.carbGoal}
+              fatGrams={nutritionProgressData.avgFat}
+              fatGoal={nutritionProgressData.fatGoal}
+              fiberGrams={nutritionProgressData.avgFiber}
+              fiberGoal={nutritionProgressData.fiberGoal}
+              waterMl={nutritionProgressData.avgWater}
+              waterGoal={nutritionProgressData.waterGoal}
+              activeDays={nutritionProgressData.activeDays}
+            />
+            <EnergyBalanceCard
+              onOpenDetails={() => onNavigate?.('nutrition')}
+              onLogMeal={() => onNavigate?.('nutrition')}
+              onLogWorkout={() => onNavigate?.('workout')}
+              intake={energyBalanceData.intake}
+              basal={energyBalanceData.basal}
+              dailyActivity={energyBalanceData.dailyActivity}
+              workout={energyBalanceData.workout}
+              thermicEffect={energyBalanceData.thermicEffect}
+              confidence={energyBalanceData.confidence}
+              goal={energyBalanceData.goal}
+              periodDays={energyBalanceData.periodDays}
+              totalPeriodDays={energyBalanceData.totalPeriodDays}
+              activeDays={energyBalanceData.activeDays}
+              workoutDays={energyBalanceData.workoutDays}
+            />
+          </div>
+          <div style={{ marginBottom: 20 }}>
+            <NutritionChartsCard />
+          </div>
+        </>
       )}
 
       {(category === 'overview' || category === 'workout' || category === 'body') && (

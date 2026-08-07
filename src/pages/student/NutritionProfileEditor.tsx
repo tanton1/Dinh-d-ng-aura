@@ -195,6 +195,58 @@ export default function NutritionProfileEditor({ initialProfile, onSave, onCance
               <input type="text" placeholder="Trống nếu không có" value={profile.allergies} onChange={(e) => setField('allergies', e.target.value)} />
             </label>
           </div>
+
+          <h3>Nhắc nhở (Push Notification)</h3>
+          <div className="form-grid" style={{ gridTemplateColumns: '1fr', gap: '12px' }}>
+            <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '12px', background: '#f8fafc', padding: '12px', borderRadius: '12px', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={profile.reminders?.water ?? false} 
+                onChange={(e) => setField('reminders', { ...profile.reminders, water: e.target.checked } as any)} 
+                style={{ width: '20px', height: '20px' }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '14px', fontWeight: 600, color: '#0f172a' }}>Nhắc uống nước</span>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>Mỗi 2 tiếng trong ngày</span>
+              </div>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '12px', background: '#f8fafc', padding: '12px', borderRadius: '12px', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={profile.reminders?.breakfast ?? false} 
+                onChange={(e) => setField('reminders', { ...profile.reminders, breakfast: e.target.checked } as any)} 
+                style={{ width: '20px', height: '20px' }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '14px', fontWeight: 600, color: '#0f172a' }}>Nhắc ghi bữa sáng</span>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>08:00 mỗi ngày</span>
+              </div>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '12px', background: '#f8fafc', padding: '12px', borderRadius: '12px', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={profile.reminders?.lunch ?? false} 
+                onChange={(e) => setField('reminders', { ...profile.reminders, lunch: e.target.checked } as any)} 
+                style={{ width: '20px', height: '20px' }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '14px', fontWeight: 600, color: '#0f172a' }}>Nhắc ghi bữa trưa</span>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>13:00 mỗi ngày</span>
+              </div>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '12px', background: '#f8fafc', padding: '12px', borderRadius: '12px', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={profile.reminders?.dinner ?? false} 
+                onChange={(e) => setField('reminders', { ...profile.reminders, dinner: e.target.checked } as any)} 
+                style={{ width: '20px', height: '20px' }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '14px', fontWeight: 600, color: '#0f172a' }}>Nhắc ghi bữa tối</span>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>19:30 mỗi ngày</span>
+              </div>
+            </label>
+          </div>
         </section>
       </div>
     </div>
