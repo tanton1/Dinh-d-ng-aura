@@ -109,6 +109,7 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
     label: 'QUẢN TRỊ',
     items: [
       { id: 'admin-roles' as const, label: 'Vai trò & quyền', icon: ShieldCheck, permission: 'team.view' as Permission },
+      { id: 'admin-notifications' as const, label: 'Push Notifications & Cài đặt', icon: Bell, permission: 'team.view' as Permission },
     ],
   },
 ]
@@ -138,6 +139,7 @@ const viewTitles: Record<ViewId, string> = {
   'admin-students': 'Khách hàng PT',
   'admin-roles': 'Đội ngũ & quyền',
   'admin-nutrition-reviews': 'Duyệt ăn',
+  'admin-notifications': 'Cài đặt Push Notifications',
   'progress-photo-studio': 'Thêm ảnh tiến độ',
 }
 

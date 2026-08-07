@@ -725,6 +725,18 @@ export async function updateUserProfile(userId: string, values: Partial<UserProf
   const db = requireDb()
   const reference = doc(db, 'users', userId)
   const cleanValues = withoutUndefined(values)
+  safeSetCache(`user_profile:${userId}`, cleanValues)
+  if (typeof window !== 'undefined') {
+    try {
+      const raw1 = window.localStorage.getItem(`aura:user-profile:${userId}`)
+      const raw2 = window.localStorage.getItem(`aura:profile:${userId}`)
+      const p1 = raw1 ? JSON.parse(raw1) : {}
+      const p2 = raw2 ? JSON.parse(raw2) : {}
+      const merged = { ...p1, ...p2, ...cleanValues }
+      window.localStorage.setItem(`aura:user-profile:${userId}`, JSON.stringify(merged))
+      window.localStorage.setItem(`aura:profile:${userId}`, JSON.stringify(merged))
+    } catch {}
+  }
   await setDoc(reference, { ...cleanValues, updatedAt: serverTimestamp() }, { merge: true })
 }
 

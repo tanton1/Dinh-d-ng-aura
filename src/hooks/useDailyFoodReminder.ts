@@ -64,7 +64,7 @@ export function useDailyFoodReminder(userId?: string) {
             }
         }
       } catch (err) {
-        console.error("Error checking daily food reminder", err)
+        console.warn("Could not check daily food reminder (Firestore quota or network limit):", err)
       }
     }
     

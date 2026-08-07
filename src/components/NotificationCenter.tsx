@@ -5,7 +5,21 @@ import type { AppNotification } from '../types'
 import { useAuth } from '../contexts/AuthContext'
 import { useDailyFoodReminder } from '../hooks/useDailyFoodReminder'
 
-export default function NotificationCenter() {
+interface NotificationCenterProps {
+  className?: string
+  showLabel?: boolean
+  align?: 'left' | 'right'
+  iconSize?: number
+  style?: React.CSSProperties
+}
+
+export default function NotificationCenter({
+  className = '',
+  showLabel = false,
+  align = 'right',
+  iconSize = 20,
+  style = {},
+}: NotificationCenterProps) {
   const { user } = useAuth()
   const userId = user?.uid
   const [notifications, setNotifications] = useState<AppNotification[]>([])
@@ -42,7 +56,8 @@ export default function NotificationCenter() {
     }
     if (notif.actionUrl) {
       setIsOpen(false)
-      window.location.hash = notif.actionUrl.replace('/', '')
+      const cleanUrl = notif.actionUrl.startsWith('/') ? notif.actionUrl.slice(1) : notif.actionUrl
+      window.location.hash = cleanUrl
     }
   }
 
@@ -52,30 +67,50 @@ export default function NotificationCenter() {
   }
 
   return (
-    <div className="notification-center" ref={dropdownRef} style={{ position: 'relative' }}>
+    <div className={`notification-center ${className}`} ref={dropdownRef} style={{ position: 'relative', display: 'inline-block' }}>
       <button 
         className="icon-button notification-button" 
         aria-label="Thông báo"
         onClick={() => setIsOpen(!isOpen)}
-        style={{ position: 'relative' }}
+        style={{
+          position: 'relative',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+          padding: showLabel ? '8px 14px' : '8px',
+          borderRadius: '10px',
+          border: showLabel ? '1px solid rgba(226, 232, 240, 0.8)' : 'none',
+          backgroundColor: showLabel ? '#ffffff' : 'transparent',
+          color: '#334155',
+          fontSize: '13px',
+          fontWeight: 600,
+          cursor: 'pointer',
+          boxShadow: showLabel ? '0 1px 3px rgba(0,0,0,0.05)' : 'none',
+          transition: 'all 0.15s ease',
+          ...style
+        }}
       >
-        <Bell size={20} />
+        <Bell size={iconSize} />
+        {showLabel && <span>Thông báo</span>}
         {unreadCount > 0 && (
           <span style={{
             position: 'absolute',
-            top: '4px',
-            right: '4px',
+            top: showLabel ? '2px' : '2px',
+            right: showLabel ? '2px' : '2px',
             backgroundColor: '#ef4444',
             color: 'white',
             fontSize: '10px',
             fontWeight: 'bold',
-            borderRadius: '50%',
-            width: '16px',
+            borderRadius: '10px',
+            minWidth: '16px',
             height: '16px',
+            padding: '0 4px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            border: '2px solid white'
+            border: '2px solid white',
+            boxShadow: '0 2px 5px rgba(239, 68, 68, 0.4)'
           }}>
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
@@ -86,34 +121,40 @@ export default function NotificationCenter() {
         <div style={{
           position: 'absolute',
           top: '100%',
-          right: '0',
+          right: align === 'right' ? 0 : 'auto',
+          left: align === 'left' ? 0 : 'auto',
           marginTop: '8px',
           width: '320px',
+          maxWidth: 'calc(100vw - 28px)',
           backgroundColor: '#ffffff',
-          borderRadius: '12px',
-          boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
-          border: '1px solid #e5e7eb',
-          zIndex: 50,
+          borderRadius: '14px',
+          boxShadow: '0 20px 30px -10px rgba(0, 0, 0, 0.15), 0 10px 15px -5px rgba(0, 0, 0, 0.08)',
+          border: '1px solid #e2e8f0',
+          zIndex: 1000,
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
-          maxHeight: '400px'
+          maxHeight: '420px'
         }}>
           <div style={{
-            padding: '16px',
-            borderBottom: '1px solid #e5e7eb',
+            padding: '14px 16px',
+            borderBottom: '1px solid #f1f5f9',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            backgroundColor: '#f9fafb'
+            backgroundColor: '#f8fafc'
           }}>
-            <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#111827' }}>Thông báo</h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Bell size={16} style={{ color: '#ec4899' }} />
+              <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>Thông báo học viên</h3>
+            </div>
             {unreadCount > 0 && (
               <button 
                 onClick={handleMarkAllAsRead}
                 style={{ 
-                  background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                  fontSize: '12px', color: '#6366f1', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px'
+                  background: 'none', border: 'none', padding: '2px 6px', cursor: 'pointer',
+                  fontSize: '12px', color: '#ec4899', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px',
+                  borderRadius: '6px'
                 }}
               >
                 <Check size={14} /> Đánh dấu đã đọc
@@ -123,9 +164,12 @@ export default function NotificationCenter() {
           
           <div style={{ overflowY: 'auto', flex: 1 }}>
             {notifications.length === 0 ? (
-              <div style={{ padding: '32px 16px', textAlign: 'center', color: '#6b7280', fontSize: '14px' }}>
-                <Bell size={24} style={{ margin: '0 auto 8px', opacity: 0.2 }} />
-                Bạn chưa có thông báo nào.
+              <div style={{ padding: '36px 16px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
+                <Bell size={28} style={{ margin: '0 auto 10px', opacity: 0.25, color: '#94a3b8' }} />
+                <p style={{ margin: 0, fontWeight: 500 }}>Bạn chưa có thông báo mới nào.</p>
+                <small style={{ color: '#94a3b8', display: 'block', marginTop: '4px' }}>
+                  Thông báo về nhắc nhở ăn uống, bài tập và khóa học sẽ xuất hiện ở đây.
+                </small>
               </div>
             ) : (
               notifications.map((notif) => (
@@ -133,10 +177,10 @@ export default function NotificationCenter() {
                   key={notif.id}
                   onClick={() => handleNotificationClick(notif)}
                   style={{
-                    padding: '16px',
-                    borderBottom: '1px solid #f3f4f6',
+                    padding: '14px 16px',
+                    borderBottom: '1px solid #f1f5f9',
                     cursor: notif.actionUrl ? 'pointer' : 'default',
-                    backgroundColor: notif.read ? '#ffffff' : '#eff6ff',
+                    backgroundColor: notif.read ? '#ffffff' : 'rgba(236, 72, 153, 0.04)',
                     display: 'flex',
                     gap: '12px',
                     transition: 'background-color 0.15s ease'
@@ -147,20 +191,20 @@ export default function NotificationCenter() {
                       width: '8px',
                       height: '8px',
                       borderRadius: '50%',
-                      backgroundColor: notif.read ? 'transparent' : '#3b82f6',
+                      backgroundColor: notif.read ? 'transparent' : '#ec4899',
                       marginTop: '6px'
                     }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ margin: '0 0 4px', fontSize: '14px', fontWeight: notif.read ? 500 : 600, color: '#1f2937' }}>
+                    <p style={{ margin: '0 0 3px', fontSize: '13px', fontWeight: notif.read ? 600 : 700, color: '#0f172a' }}>
                       {notif.title}
                     </p>
-                    <p style={{ margin: 0, fontSize: '13px', color: '#6b7280', lineHeight: 1.4 }}>
+                    <p style={{ margin: 0, fontSize: '12px', color: '#475569', lineHeight: 1.4 }}>
                       {notif.message}
                     </p>
                   </div>
                   {notif.actionUrl && (
-                    <div style={{ flexShrink: 0, alignSelf: 'center', color: '#9ca3af' }}>
+                    <div style={{ flexShrink: 0, alignSelf: 'center', color: '#94a3b8' }}>
                       <ChevronRight size={16} />
                     </div>
                   )}

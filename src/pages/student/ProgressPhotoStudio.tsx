@@ -505,9 +505,13 @@ function StudioActionBar({ step, onBack, onNext, ownerId, onNavigate }: { step: 
 
       // 1. Instant local sync
       try {
-        const cachedKey = `aura:progress-photos:${ownerId}`
-        const existing = JSON.parse(localStorage.getItem(cachedKey) || '[]')
-        localStorage.setItem(cachedKey, JSON.stringify([photoPayload, ...existing]))
+        const cachedKey1 = `aura:progress-photos:${ownerId}`
+        const cachedKey2 = `aura:cache:user_progress_photos:${ownerId}`
+        const existing1 = JSON.parse(localStorage.getItem(cachedKey1) || localStorage.getItem(cachedKey2) || '[]')
+        const updated = [photoPayload, ...existing1]
+        localStorage.setItem(cachedKey1, JSON.stringify(updated))
+        localStorage.setItem(cachedKey2, JSON.stringify(updated))
+        window.dispatchEvent(new Event('aura:progress-photos-updated'))
       } catch (e) {
         console.error("Local storage sync warning:", e)
       }

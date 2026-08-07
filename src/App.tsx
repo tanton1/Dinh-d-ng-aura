@@ -115,6 +115,7 @@ const AdminProgramsPage = lazyWithRetry(() => import('./pages/admin/AdminProgram
 const AdminRolesPage = lazyWithRetry(() => import('./pages/admin/AdminRolesPage'))
 const AdminStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminStudentsPage'))
 const AdminNutritionReviewsPage = lazyWithRetry(() => import('./pages/admin/AdminNutritionReviewsPage'))
+const AdminNotificationsPage = lazyWithRetry(() => import('./pages/admin/AdminNotificationsPage'))
 const CourseEditorPage = lazyWithRetry(() => import('./pages/admin/CourseEditorPage'))
 const CourseDetailPage = lazyWithRetry(() => import('./pages/student/CourseDetailPage'))
 const CoursesPage = lazyWithRetry(() => import('./pages/student/CoursesPage'))
@@ -125,7 +126,7 @@ const ProgressPhotoStudio = lazyWithRetry(() => import('./pages/student/Progress
 const SchedulePage = lazyWithRetry(() => import('./pages/student/SchedulePage'))
 const WorkoutPage = lazyWithRetry(() => import('./pages/student/WorkoutPage'))
 
-const adminViews: ViewId[] = ['admin-dashboard', 'admin-courses', 'admin-course-editor', 'admin-academy-students', 'admin-programs', 'admin-students', 'admin-roles', 'admin-nutrition-reviews']
+const adminViews: ViewId[] = ['admin-dashboard', 'admin-courses', 'admin-course-editor', 'admin-academy-students', 'admin-programs', 'admin-students', 'admin-roles', 'admin-nutrition-reviews', 'admin-notifications']
 const validViews: ViewId[] = ['home', 'courses', 'course-detail', 'schedule', 'nutrition', 'progress', 'progress-photo-studio', 'profile', 'workout', ...adminViews]
 
 const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
@@ -137,6 +138,7 @@ const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
   'admin-students': 'student.view_assigned',
   'admin-roles': 'team.view',
   'admin-nutrition-reviews': 'student.view_assigned',
+  'admin-notifications': 'team.view',
 }
 
 interface AuraRoute {
@@ -270,16 +272,11 @@ function AuraApplication() {
     if (user?.uid) {
       try {
         window.localStorage.setItem(`aura:onboarding-completed:${user.uid}`, 'true')
+        window.localStorage.setItem(`aura:profile:${user.uid}`, JSON.stringify(values))
+        window.localStorage.setItem(`aura:user-profile:${user.uid}`, JSON.stringify(values))
       } catch {
         // Storage unavailable
       }
-    }
-    if (backendMode === 'firebase' && user) {
-      await updateUserProfile(user.uid, {
-        ...values,
-        onboardingCompleted: true,
-      })
-      return
     }
     setLocalProfile((current) => {
       const next: ProfileUpdateInput = {
@@ -291,11 +288,24 @@ function AuraApplication() {
       }
       try {
         window.localStorage.setItem(`aura:profile:${user?.uid ?? 'demo'}`, JSON.stringify(next))
+        window.localStorage.setItem(`aura:user-profile:${user?.uid ?? 'demo'}`, JSON.stringify(next))
       } catch {
         // The in-memory profile remains editable when storage is unavailable.
       }
       return next
     })
+
+    if (backendMode === 'firebase' && user) {
+      try {
+        await updateUserProfile(user.uid, {
+          ...values,
+          onboardingCompleted: true,
+        })
+      } catch (err) {
+        console.warn("Could not save profile to Firebase (network or quota limit):", err)
+      }
+      return
+    }
   }
 
   useEffect(() => {
@@ -628,21 +638,22 @@ function AuraApplication() {
   const editingCourse = editingCourseId
     ? adminCourseData.courses.find((course) => String(course.id) === editingCourseId)
     : undefined
-  const profileOverride = backendMode === 'demo' ? localProfile : null
-  const effectiveDisplayName = profileOverride?.displayName ?? profile?.displayName
-  const effectiveGoals = profileOverride && 'goals' in profileOverride ? profileOverride.goals : profile?.goals
-  const effectiveHeight = profileOverride && 'heightCm' in profileOverride ? profileOverride.heightCm : profile?.heightCm
-  const effectiveWeight = profileOverride && 'weightKg' in profileOverride ? profileOverride.weightKg : profile?.weightKg
-  const effectiveTargetWeightDeltaKg = profileOverride && 'targetWeightDeltaKg' in profileOverride
-    ? profileOverride.targetWeightDeltaKg
-    : (profile?.targetWeightDeltaKg ?? profile?.nutritionProfile?.targetWeightDeltaKg ?? localNutritionProfile?.targetWeightDeltaKg)
-  const effectiveTargetTimeframeMonths = profileOverride && 'targetTimeframeMonths' in profileOverride
-    ? profileOverride.targetTimeframeMonths
-    : (profile?.targetTimeframeMonths ?? profile?.nutritionProfile?.targetTimeframeMonths ?? localNutritionProfile?.targetTimeframeMonths)
-  const effectiveTargetSpeedPace = profileOverride && 'targetSpeedPace' in profileOverride
-    ? profileOverride.targetSpeedPace
-    : (profile?.targetSpeedPace ?? profile?.nutritionProfile?.targetSpeedPace ?? localNutritionProfile?.targetSpeedPace)
-  const effectiveNotifications = profileOverride && 'notificationSettings' in profileOverride ? profileOverride.notificationSettings : profile?.notificationSettings
+  const effectiveDisplayName = profile?.displayName ?? localProfile?.displayName ?? user?.displayName ?? undefined
+  const effectiveGoals = (profile?.goals && profile.goals.length > 0)
+    ? profile.goals
+    : (localProfile?.goals && localProfile.goals.length > 0)
+      ? localProfile.goals
+      : profile?.nutritionProfile?.goal
+        ? [profile.nutritionProfile.goal]
+        : localNutritionProfile?.goal
+          ? [localNutritionProfile.goal]
+          : []
+  const effectiveHeight = profile?.heightCm ?? localProfile?.heightCm ?? profile?.nutritionProfile?.heightCm ?? localNutritionProfile?.heightCm ?? null
+  const effectiveWeight = profile?.weightKg ?? localProfile?.weightKg ?? profile?.nutritionProfile?.weightKg ?? localNutritionProfile?.weightKg ?? null
+  const effectiveTargetWeightDeltaKg = profile?.targetWeightDeltaKg ?? localProfile?.targetWeightDeltaKg ?? profile?.nutritionProfile?.targetWeightDeltaKg ?? localNutritionProfile?.targetWeightDeltaKg ?? null
+  const effectiveTargetTimeframeMonths = profile?.targetTimeframeMonths ?? localProfile?.targetTimeframeMonths ?? profile?.nutritionProfile?.targetTimeframeMonths ?? localNutritionProfile?.targetTimeframeMonths ?? null
+  const effectiveTargetSpeedPace = profile?.targetSpeedPace ?? localProfile?.targetSpeedPace ?? profile?.nutritionProfile?.targetSpeedPace ?? localNutritionProfile?.targetSpeedPace ?? null
+  const effectiveNotifications = profile?.notificationSettings ?? localProfile?.notificationSettings
 
   const renderPage = () => {
     switch (view) {
@@ -753,6 +764,7 @@ function AuraApplication() {
       />
       case 'admin-roles': return <AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} />
       case 'admin-nutrition-reviews': return <AdminNutritionReviewsPage onNavigate={navigate} />
+      case 'admin-notifications': return <AdminNotificationsPage onNavigate={navigate} users={adminUsers} currentUserUid={user?.uid} />
       default: return (
         <HomePage
           onNavigate={navigate}
@@ -777,15 +789,26 @@ function AuraApplication() {
             eatingStyle: 'Omnivore' as const,
             allergies: 'None',
           }
+          const profileInput: ProfileUpdateInput = {
+            goals: [data.goal],
+            heightCm: data.heightCm,
+            weightKg: data.weightKg,
+            targetWeightDeltaKg: (data as any).targetWeightDeltaKg ?? null,
+            targetTimeframeMonths: (data as any).targetTimeframeMonths ?? null,
+            targetSpeedPace: (data as any).targetSpeedPace ?? null,
+          }
           if (user?.uid) {
             try {
               window.localStorage.setItem(`aura:onboarding-completed:${user.uid}`, 'true')
               window.localStorage.setItem(`aura:nutrition-profile:${user.uid}`, JSON.stringify(nutProfile))
+              window.localStorage.setItem(`aura:profile:${user.uid}`, JSON.stringify(profileInput))
+              window.localStorage.setItem(`aura:user-profile:${user.uid}`, JSON.stringify(profileInput))
             } catch {
               // Ignore
             }
           }
           setLocalNutritionProfile(nutProfile)
+          setLocalProfile(profileInput)
           if (backendMode === 'firebase' && user) {
             await updateUserProfile(user.uid, {
               onboardingCompleted: true,

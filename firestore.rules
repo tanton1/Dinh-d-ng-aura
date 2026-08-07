@@ -433,8 +433,12 @@ service cloud.firestore {
       }
 
       match /notifications/{notificationId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwner(userId) || signedIn();
       }
+    }
+
+    match /system/{document=**} {
+      allow read, write: if true;
     }
 
     match /courses/{courseId} {

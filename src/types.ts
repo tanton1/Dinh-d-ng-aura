@@ -127,8 +127,42 @@ export type AdminView =
   | 'admin-students'
   | 'admin-roles'
   | 'admin-nutrition-reviews'
+  | 'admin-notifications'
 
 export type ViewId = StudentView | AdminView
+
+export interface SystemPushSettings {
+  enabled: boolean
+  vapidPublicKey: string
+  fcmSenderId: string
+  fcmProjectId: string
+  autoMealReminders: boolean
+  mealReminderTimes: {
+    breakfast: string
+    lunch: string
+    dinner: string
+  }
+  workoutReminderTime: string
+  weeklyProgressReviewDay: string
+  soundEnabled: boolean
+  badgeEnabled: boolean
+  updatedAt?: string
+  updatedBy?: string
+}
+
+export interface PushBroadcastLog {
+  id: string
+  title: string
+  message: string
+  type: 'REMINDER' | 'INFO' | 'ALERT' | 'ANNOUNCEMENT' | 'WORKOUT' | 'MOTIVATION' | 'PROMOTION'
+  targetType: 'all' | 'category' | 'individual'
+  targetValue?: string
+  actionUrl?: string
+  sentCount: number
+  webPushSentCount: number
+  createdAt: string
+  sentBy: string
+}
 
 export interface Course {
   id: number | string
@@ -437,7 +471,7 @@ export interface AppNotification {
   userId: string;
   title: string;
   message: string;
-  type: 'REMINDER' | 'INFO' | 'ALERT';
+  type: 'REMINDER' | 'INFO' | 'ALERT' | 'ANNOUNCEMENT' | 'WORKOUT' | 'MOTIVATION' | 'PROMOTION';
   read: boolean;
   actionUrl?: string;
   dateString?: string;

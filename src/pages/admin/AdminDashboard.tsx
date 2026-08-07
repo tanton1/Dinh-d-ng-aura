@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertCircle, ArrowRight, BookOpen, CalendarClock, CheckCircle2, DollarSign, Dumbbell, GraduationCap, Plus, TrendingUp, Users } from 'lucide-react'
+import { AlertCircle, ArrowRight, Bell, BookOpen, CalendarClock, CheckCircle2, DollarSign, Dumbbell, GraduationCap, Plus, TrendingUp, Users } from 'lucide-react'
 import type { ViewId } from '../../types'
 import { PageHeader } from '../../components/ui'
 
@@ -18,7 +18,7 @@ export default function AdminDashboard({ onNavigate, onSeed, adminName = 'Admin 
 
       <section className="admin-workspace-grid" aria-label="Không gian quản trị Aura">
         {canManageAcademy && <article className="admin-workspace-card academy"><span><GraduationCap size={23} /></span><div><small>AURA ACADEMY</small><h2>Đào tạo dinh dưỡng</h2><p>Quản lý khóa học chuyên sâu, nội dung ghi nhớ, bài kiểm tra và tiến độ học tập.</p><div className="admin-workspace-actions"><button className="text-button" onClick={() => onNavigate('admin-courses')}>Khóa học <ArrowRight size={15} /></button>{canManageEnrollments && <button className="text-button" onClick={() => onNavigate('admin-academy-students')}>Học viên <ArrowRight size={15} /></button>}</div></div></article>}
-        {canManageCoaching && <article className="admin-workspace-card coaching"><span><Dumbbell size={23} /></span><div><small>PT COACHING</small><h2>Quản lý khách hàng gym</h2><p>Theo dõi khách hàng, xây dựng giáo án gym và đánh giá mức độ tuân thủ tập luyện.</p><div className="admin-workspace-actions"><button className="text-button" onClick={() => onNavigate('admin-students')}>Khách hàng <ArrowRight size={15} /></button><button className="text-button" onClick={() => onNavigate('admin-programs')}>Giáo án <ArrowRight size={15} /></button><button className="text-button" onClick={() => onNavigate('admin-nutrition-reviews')}>Duyệt ăn <ArrowRight size={15} /></button></div></div></article>}
+        {canManageCoaching && <article className="admin-workspace-card coaching"><span><Dumbbell size={23} /></span><div><small>PT COACHING</small><h2>Quản lý khách hàng gym</h2><p>Theo dõi khách hàng, xây dựng giáo án gym và đánh giá mức độ tuân thủ tập luyện.</p><div className="admin-workspace-actions"><button className="text-button" onClick={() => onNavigate('admin-students')}>Khách hàng <ArrowRight size={15} /></button><button className="text-button" onClick={() => onNavigate('admin-programs')}>Giáo án <ArrowRight size={15} /></button><button className="text-button" onClick={() => onNavigate('admin-nutrition-reviews')}>Duyệt ăn <ArrowRight size={15} /></button><button className="text-button" onClick={() => onNavigate('admin-notifications')}>Push Notification <Bell size={14} /></button></div></div></article>}
       </section>
 
       <div className="admin-kpi-grid">

@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import re
+
+new_code = '''import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { 
   Camera, 
   ChevronRight, 
@@ -181,13 +183,10 @@ export function ProgressPhotosCard({ ownerId, triggerAddPhoto, onAddPhotoTrigger
 
   // Load photos from local storage and sync with Firebase
   const loadLocalPhotos = () => {
-    const cached1 = localStorage.getItem(`aura:progress-photos:${ownerId}`)
-    const cached2 = localStorage.getItem(`aura:cache:user_progress_photos:${ownerId}`)
-    const cached = cached1 || cached2
+    const cached = localStorage.getItem(`aura:progress-photos:${ownerId}`)
     if (cached) {
-      try {
-        const parsed = JSON.parse(cached)
-        if (Array.isArray(parsed) && parsed.length > 0) {
+      try {        const parsed = JSON.parse(cached)
+        if (Array.isArray(parsed)) {
           setPhotos(parsed)
         }
       } catch (e) {
@@ -216,11 +215,9 @@ export function ProgressPhotosCard({ ownerId, triggerAddPhoto, onAddPhotoTrigger
     if (ownerId && ownerId !== 'demo' && ownerId !== 'anonymous') {
       try {
         const unsub = subscribeToUserProgressPhotos(ownerId, (data) => {
-          if (Array.isArray(data) && data.length > 0) {
-            setPhotos(data)
-            localStorage.setItem(`aura:progress-photos:${ownerId}`, JSON.stringify(data))
-            localStorage.setItem(`aura:cache:user_progress_photos:${ownerId}`, JSON.stringify(data))
-          }
+          setPhotos(data)
+          localStorage.setItem(`aura:progress-photos:${ownerId}`, JSON.stringify(data))
+          window.dispatchEvent(new Event('aura:progress-photos-updated'))
         })
         return () => unsub()
       } catch (err) {
@@ -838,3 +835,8 @@ export function ProgressPhotosCard({ ownerId, triggerAddPhoto, onAddPhotoTrigger
     </div>
   )
 }
+'''
+
+with open('src/components/progress/ProgressPhotosCard.tsx', 'w') as f:
+    f.write(new_code)
+print("UPDATED SUCCESSFULLY")

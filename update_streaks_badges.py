@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import re
+
+new_code = '''import React, { useState, useEffect, useMemo } from 'react'
 import { 
   Flame, 
   Award, 
@@ -838,3 +840,8 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
     </div>
   )
 }
+'''
+
+with open('src/components/progress/StreaksAndBadgesCard.tsx', 'w') as f:
+    f.write(new_code)
+print("UPDATED STREAKS & BADGES SUCCESSFULLY")

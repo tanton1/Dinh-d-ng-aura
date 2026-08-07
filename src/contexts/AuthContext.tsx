@@ -80,6 +80,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       setUser(toAppUser(firebaseUser))
+
+      // Load initial cached profile immediately to prevent missing fields during snapshot load or offline/quota
+      const cachedProfileRaw = typeof window !== 'undefined' ? (window.localStorage.getItem(`aura:profile:${firebaseUser.uid}`) || window.localStorage.getItem(`aura:user-profile:${firebaseUser.uid}`)) : null
+      if (cachedProfileRaw) {
+        try {
+          const parsed = JSON.parse(cachedProfileRaw)
+          setProfile((prev) => ({
+            uid: firebaseUser.uid,
+            email: firebaseUser.email ?? '',
+            displayName: firebaseUser.displayName ?? 'Thành viên Aura',
+            role: firebaseUser.email === 'nhattank16.1@gmail.com' ? 'super_admin' : 'student',
+            membership: firebaseUser.email === 'nhattank16.1@gmail.com' ? 'pro' : 'free',
+            ...parsed,
+            ...prev,
+          }))
+        } catch {}
+      }
+
       unsubscribeProfile = onSnapshot(
         doc(firestoreDb!, 'users', firebaseUser.uid),
         async (snapshot) => {
@@ -92,27 +110,65 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               try { localNut = JSON.parse(localNutRaw) } catch {}
             }
             const activeNutritionProfile = data.nutritionProfile || localNut || undefined
-            if (data.nutritionProfile && typeof window !== 'undefined') {
+
+            let localProf: any = {}
+            if (typeof window !== 'undefined') {
               try {
-                window.localStorage.setItem(`aura:nutrition-profile:${firebaseUser.uid}`, JSON.stringify(data.nutritionProfile))
-                window.localStorage.setItem(`aura:onboarding-completed:${firebaseUser.uid}`, 'true')
+                const raw = window.localStorage.getItem(`aura:profile:${firebaseUser.uid}`) || window.localStorage.getItem(`aura:user-profile:${firebaseUser.uid}`)
+                if (raw) localProf = JSON.parse(raw)
               } catch {}
             }
-            const isCompleted = Boolean(
-              data.onboardingCompleted ||
-              activeNutritionProfile ||
-              localOnboarding ||
-              (data.heightCm && data.weightKg) ||
-              (data.goals && data.goals.length > 0)
-            )
-            setProfile({
+
+            const mergedData: UserProfile = {
+              ...localProf,
               ...data,
               nutritionProfile: activeNutritionProfile,
+              heightCm: data.heightCm ?? localProf.heightCm ?? activeNutritionProfile?.heightCm,
+              weightKg: data.weightKg ?? localProf.weightKg ?? activeNutritionProfile?.weightKg,
+              goals: (data.goals && data.goals.length > 0) ? data.goals : (localProf.goals && localProf.goals.length > 0) ? localProf.goals : (activeNutritionProfile?.goal ? [activeNutritionProfile.goal] : undefined),
+              targetWeightDeltaKg: data.targetWeightDeltaKg ?? localProf.targetWeightDeltaKg ?? activeNutritionProfile?.targetWeightDeltaKg,
+              targetTimeframeMonths: data.targetTimeframeMonths ?? localProf.targetTimeframeMonths ?? activeNutritionProfile?.targetTimeframeMonths,
+              targetSpeedPace: data.targetSpeedPace ?? localProf.targetSpeedPace ?? activeNutritionProfile?.targetSpeedPace,
+            }
+
+            const isCompleted = Boolean(
+              mergedData.onboardingCompleted ||
+              activeNutritionProfile ||
+              localOnboarding ||
+              (mergedData.heightCm && mergedData.weightKg) ||
+              (mergedData.goals && mergedData.goals.length > 0)
+            )
+
+            const finalProfile: UserProfile = {
+              ...mergedData,
               onboardingCompleted: isCompleted,
-            })
+            }
+
+            setProfile(finalProfile)
+
+            if (typeof window !== 'undefined') {
+              try {
+                window.localStorage.setItem(`aura:profile:${firebaseUser.uid}`, JSON.stringify(finalProfile))
+                window.localStorage.setItem(`aura:user-profile:${firebaseUser.uid}`, JSON.stringify(finalProfile))
+                if (activeNutritionProfile) {
+                  window.localStorage.setItem(`aura:nutrition-profile:${firebaseUser.uid}`, JSON.stringify(activeNutritionProfile))
+                }
+                if (isCompleted) {
+                  window.localStorage.setItem(`aura:onboarding-completed:${firebaseUser.uid}`, 'true')
+                }
+              } catch {}
+            }
           } else {
             const localOnboarding = typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${firebaseUser.uid}`) === 'true'
             const localNut = typeof window !== 'undefined' && window.localStorage.getItem(`aura:nutrition-profile:${firebaseUser.uid}`)
+            let localProf: any = {}
+            if (typeof window !== 'undefined') {
+              try {
+                const raw = window.localStorage.getItem(`aura:profile:${firebaseUser.uid}`) || window.localStorage.getItem(`aura:user-profile:${firebaseUser.uid}`)
+                if (raw) localProf = JSON.parse(raw)
+              } catch {}
+            }
+
             const nextProfile: UserProfile = {
               uid: firebaseUser.uid,
               email: firebaseUser.email ?? '',
@@ -120,7 +176,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               photoURL: firebaseUser.photoURL,
               role: firebaseUser.email === 'nhattank16.1@gmail.com' ? 'super_admin' : 'student',
               membership: firebaseUser.email === 'nhattank16.1@gmail.com' ? 'pro' : 'free',
-              onboardingCompleted: localOnboarding || Boolean(localNut),
+              onboardingCompleted: localOnboarding || Boolean(localNut) || Boolean(localProf.heightCm),
+              ...localProf,
             }
             setProfile(nextProfile)
             setLoading(false)
@@ -133,16 +190,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
           setLoading(false)
         },
-        () => {
+        (err) => {
+          console.warn("Firestore user profile subscription error/quota:", err)
           const localOnboarding = typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${firebaseUser.uid}`) === 'true'
-          const localNut = typeof window !== 'undefined' && window.localStorage.getItem(`aura:nutrition-profile:${firebaseUser.uid}`)
+          const localNutRaw = typeof window !== 'undefined' ? window.localStorage.getItem(`aura:nutrition-profile:${firebaseUser.uid}`) : null
+          let localNut = null
+          if (localNutRaw) {
+            try { localNut = JSON.parse(localNutRaw) } catch {}
+          }
+          let localProf: any = {}
+          if (typeof window !== 'undefined') {
+            try {
+              const raw = window.localStorage.getItem(`aura:profile:${firebaseUser.uid}`) || window.localStorage.getItem(`aura:user-profile:${firebaseUser.uid}`)
+              if (raw) localProf = JSON.parse(raw)
+            } catch {}
+          }
+
           setProfile({
             uid: firebaseUser.uid,
             email: firebaseUser.email ?? '',
             displayName: firebaseUser.displayName ?? 'Thành viên Aura',
-            role: 'student',
-            membership: 'free',
-            onboardingCompleted: localOnboarding || Boolean(localNut),
+            role: firebaseUser.email === 'nhattank16.1@gmail.com' ? 'super_admin' : 'student',
+            membership: firebaseUser.email === 'nhattank16.1@gmail.com' ? 'pro' : 'free',
+            onboardingCompleted: localOnboarding || Boolean(localNut) || Boolean(localProf.heightCm),
+            nutritionProfile: localNut || undefined,
+            ...localProf,
           })
           setLoading(false)
         },
