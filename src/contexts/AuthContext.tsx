@@ -210,7 +210,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
         console.log('User profile created in Firestore successfully.');
       } catch (error) {
-        console.error('Error during signUp:', error);
+        // Firebase auth errors are handled in AuthPage
         throw error;
       }
     },

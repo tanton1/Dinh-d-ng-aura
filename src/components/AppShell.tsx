@@ -27,6 +27,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { hasPermission, type Permission } from '../config/permissions'
 import type { AppMode, UserRole, ViewId } from '../types'
+import NotificationCenter from './NotificationCenter'
 
 interface AppShellProps {
   children: ReactNode
@@ -273,7 +274,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
           <div className="topbar-actions">
             <button className="mobile-search-button" aria-label="Mở tìm kiếm" aria-expanded={mobileSearchOpen} onClick={() => setMobileSearchOpen(true)}><Search size={20} /></button>
             <span className={`backend-indicator ${backendMode}`} title={backendMode === 'firebase' ? 'Dữ liệu đã được đồng bộ' : 'Đang dùng dữ liệu xem trước'}><Cloud size={14} />{backendMode === 'firebase' ? 'Đã đồng bộ' : 'Xem trước'}</span>
-            <button className="icon-button notification-button" aria-label="Thông báo" onClick={() => setShellMessage('Bạn chưa có thông báo mới. Trung tâm thông báo thời gian thực đang được phát triển.')}><Bell size={20} /></button>
+            <NotificationCenter />
             <div style={{ position: 'relative' }}>
               <button className="user-menu" aria-label={`Tài khoản ${userName}`} aria-expanded={userMenuOpen} onClick={() => setUserMenuOpen(!userMenuOpen)}>
                 {userPhoto ? <img className="avatar avatar-photo" src={userPhoto} alt="" referrerPolicy="no-referrer" /> : <span className="avatar">{userName.split(' ').map((part) => part[0]).slice(-2).join('').toUpperCase()}</span>}

@@ -6,12 +6,11 @@ import {
   getFirestore,
   initializeFirestore,
   memoryLocalCache,
-  persistentLocalCache,
-  persistentMultipleTabManager,
   type Firestore,
 } from 'firebase/firestore'
 import { connectStorageEmulator, getStorage, type FirebaseStorage } from 'firebase/storage'
 import { connectFunctionsEmulator, getFunctions, type Functions } from 'firebase/functions'
+import { getMessaging, type Messaging, isSupported } from 'firebase/messaging'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -24,6 +23,7 @@ const firebaseConfig = {
 
 const firestoreDatabaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || '(default)'
 const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APP_CHECK_SITE_KEY?.trim() || ''
+
 const forceDemoMode = import.meta.env.DEV && import.meta.env.VITE_FORCE_DEMO === 'true'
 
 export const isFirebaseConfigured = !forceDemoMode && Object.values(firebaseConfig).every(
@@ -39,16 +39,20 @@ export let firebaseAuth: Auth | null = null
 export let firestoreDb: Firestore | null = null
 export let firebaseStorage: FirebaseStorage | null = null
 export let firebaseFunctions: Functions | null = null
+export let firebaseMessaging: Messaging | null = null
 
 if (isFirebaseConfigured) {
   firebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig)
+
   if (appCheckSiteKey && !useFirebaseEmulators) {
     firebaseAppCheck = initializeAppCheck(firebaseApp, {
       provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
       isTokenAutoRefreshEnabled: true,
     })
   }
+
   firebaseAuth = getAuth(firebaseApp)
+
   try {
     firestoreDb = initializeFirestore(
       firebaseApp,
@@ -61,8 +65,23 @@ if (isFirebaseConfigured) {
   } catch {
     firestoreDb = getFirestore(firebaseApp, firestoreDatabaseId)
   }
+
   firebaseStorage = getStorage(firebaseApp)
   firebaseFunctions = getFunctions(firebaseApp, 'asia-southeast1')
+  
+  if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+    isSupported().then((supported) => {
+      if (supported) {
+        try {
+          firebaseMessaging = getMessaging(firebaseApp!)
+        } catch (e) {
+          console.warn('Firebase Messaging failed to initialize', e)
+        }
+      } else {
+        console.warn('Firebase Messaging not supported in this browser')
+      }
+    }).catch((e) => console.warn('Firebase Messaging check failed', e))
+  }
 
   if (useFirebaseEmulators) {
     connectAuthEmulator(firebaseAuth, 'http://127.0.0.1:9099', { disableWarnings: true })

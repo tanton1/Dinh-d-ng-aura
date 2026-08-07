@@ -431,6 +431,10 @@ service cloud.firestore {
         allow read, write: if isOwner(userId);
         allow read: if isAdmin();
       }
+
+      match /notifications/{notificationId} {
+        allow read, write: if isOwner(userId);
+      }
     }
 
     match /courses/{courseId} {

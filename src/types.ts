@@ -26,6 +26,8 @@ export interface UserProfile {
   injuries?: string[]
   equipment?: string[]
   notificationSettings?: Record<string, boolean | undefined>
+  fcmTokens?: string[]
+  mealReminderTime?: string
   nutritionProfile?: {
     goal: 'lose-fat' | 'gain-muscle' | 'maintain'
     age: number
@@ -428,4 +430,16 @@ export interface WorkoutLogInput {
     weightKg: number
     reps: number
   }>
+}
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
+  type: 'REMINDER' | 'INFO' | 'ALERT';
+  read: boolean;
+  actionUrl?: string;
+  dateString?: string;
+  createdAt?: unknown;
 }
