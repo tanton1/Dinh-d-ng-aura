@@ -22,9 +22,13 @@ import {
   Zap,
   BookOpen,
   Calendar,
+  Dumbbell,
+  Utensils,
+  Sparkles,
 } from 'lucide-react'
 import { PageHeader, Toggle } from '../../components/ui'
 import { requestFcmPermissionAndToken } from '../../services/fcmService'
+import { sendBrowserNativePushNotification } from '../../services/notificationService'
 import { useAuth } from '../../contexts/AuthContext'
 
 const EMPTY_GOALS: string[] = []
@@ -32,6 +36,7 @@ const EMPTY_GOALS: string[] = []
 export interface ProfileNotificationSettings {
   enabled?: boolean
   workoutReminders?: boolean
+  mealReminders?: boolean
   learningUpdates?: boolean
   coachMessages?: boolean
   [key: string]: boolean | undefined
@@ -227,13 +232,66 @@ export default function ProfilePage({
     }
   }
 
+  const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(() => {
+    return typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default'
+  })
+
+  const handleEnableWebPush = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setError('Trình duyệt của bạn không hỗ trợ Web Push Notification.')
+      return
+    }
+
+    try {
+      const permission = await Notification.requestPermission()
+      setBrowserPermission(permission)
+
+      if (permission === 'granted') {
+        if (user?.uid) {
+          await requestFcmPermissionAndToken(user.uid)
+        }
+        
+        const nextSettings: ProfileNotificationSettings = {
+          ...notificationValues,
+          enabled: true,
+          workoutReminders: true,
+          mealReminders: true,
+          learningUpdates: true,
+          coachMessages: true,
+        }
+        setNotificationValues(nextSettings)
+        if (onSave) {
+          await onSave({ notificationSettings: nextSettings })
+        }
+
+        sendBrowserNativePushNotification(
+          '🔥 Aura Fitness Push Notification',
+          'Chúc mừng! Bạn đã bật nhận thông báo trực tiếp trên thiết bị này.'
+        )
+        setSuccess('Đã kích hoạt thành công Push Notification trên thiết bị!')
+      } else if (permission === 'denied') {
+        setError('Quyền thông báo đã bị từ chối trong cài đặt trình duyệt.')
+      }
+    } catch (e) {
+      console.error(e)
+      setError('Có lỗi xảy ra khi yêu cầu quyền thông báo.')
+    }
+  }
+
+  const handleTestPushNotification = () => {
+    sendBrowserNativePushNotification(
+      '🔔 Thử nghiệm thông báo đẩy Aura',
+      'Đây là thông báo thử nghiệm từ hệ thống Aura Fitness! Hệ thống đang hoạt động hoàn hảo.'
+    )
+    setSuccess('Đã phát thử nghiệm thông báo đẩy trực tiếp tới thiết bị.')
+  }
+
   const toggleNotificationKey = async (key: keyof ProfileNotificationSettings) => {
     if (!onSave || savingNotification) return
     const previous = notificationValues
     const nextValue = !previous[key]
     const next = { ...previous, [key]: nextValue }
 
-    // If enabling any sub-option but main enabled is false, turn main on
     if (key !== 'enabled' && nextValue && !previous.enabled) {
       next.enabled = true
     }
@@ -255,10 +313,42 @@ export default function ProfilePage({
 
   return (
     <div className="page profile-page">
-      
-      
-
       <section className="profile-layout" style={{ maxWidth: '600px', margin: '0 auto' }}>
+        {error && (
+          <div style={{
+            padding: '12px 16px',
+            borderRadius: '12px',
+            backgroundColor: '#fef2f2',
+            border: '1px solid #fecaca',
+            color: '#991b1b',
+            fontSize: '13px',
+            fontWeight: 600,
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <span>⚠️ {error}</span>
+          </div>
+        )}
+        {success && (
+          <div style={{
+            padding: '12px 16px',
+            borderRadius: '12px',
+            backgroundColor: '#f0fdf4',
+            border: '1px solid #bbf7d0',
+            color: '#166534',
+            fontSize: '13px',
+            fontWeight: 600,
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <span>✅ {success}</span>
+          </div>
+        )}
+
         <aside className="profile-summary-new">
           <div className="profile-summary-bg"></div>
           <div className="profile-top-row">
@@ -440,6 +530,251 @@ export default function ProfilePage({
               </div>
             </div>
           )}
+        </article>
+
+        {/* Push Notification Settings Card - Tone Gradient Pink-Orange */}
+        <article className="section-card" style={{ marginTop: '24px' }}>
+          <div style={{
+            background: 'linear-gradient(135deg, #f43f5e 0%, #fb923c 100%)',
+            borderRadius: '18px',
+            padding: '22px 24px',
+            color: '#ffffff',
+            marginBottom: '20px',
+            boxShadow: '0 12px 28px -6px rgba(244, 63, 94, 0.35)',
+            position: 'relative',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              position: 'absolute',
+              right: '-25px',
+              top: '-25px',
+              width: '140px',
+              height: '140px',
+              background: 'rgba(255, 255, 255, 0.12)',
+              borderRadius: '50%',
+              pointerEvents: 'none'
+            }} />
+
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <div style={{
+                  width: '46px',
+                  height: '46px',
+                  borderRadius: '14px',
+                  background: 'rgba(255, 255, 255, 0.22)',
+                  backdropFilter: 'blur(8px)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#ffffff',
+                  flexShrink: 0
+                }}>
+                  <Bell size={24} />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
+                    Cài đặt Push Notification
+                  </h2>
+                  <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'rgba(255, 255, 255, 0.95)', lineHeight: 1.4 }}>
+                    Nhận thông báo nhắc nhở giờ tập, dinh dưỡng & lời khuyên từ HLV trực tiếp trên thiết bị
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                {browserPermission === 'granted' ? (
+                  <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 12px',
+                    borderRadius: '20px',
+                    background: 'rgba(255, 255, 255, 0.28)',
+                    backdropFilter: 'blur(4px)',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 700
+                  }}>
+                    <CheckCircle2 size={14} /> Đã cấp quyền thiết bị
+                  </span>
+                ) : browserPermission === 'denied' ? (
+                  <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 12px',
+                    borderRadius: '20px',
+                    background: 'rgba(190, 18, 60, 0.5)',
+                    backdropFilter: 'blur(4px)',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 700
+                  }}>
+                    ⚠️ Đã bị chặn trong cài đặt
+                  </span>
+                ) : (
+                  <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 12px',
+                    borderRadius: '20px',
+                    background: 'rgba(255, 255, 255, 0.22)',
+                    backdropFilter: 'blur(4px)',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 700
+                  }}>
+                    Chưa kích hoạt trên thiết bị
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              marginTop: '16px',
+              paddingTop: '14px',
+              borderTop: '1px solid rgba(255, 255, 255, 0.22)',
+              flexWrap: 'wrap'
+            }}>
+              <span style={{ fontSize: '13px', color: '#ffffff', fontWeight: 600 }}>
+                {browserPermission === 'granted'
+                  ? 'Quyền Push Notification trên thiết bị này đã sẵn sàng!'
+                  : 'Cho phép nhận thông báo trực tiếp trên màn hình khóa điện thoại hoặc máy tính.'}
+              </span>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                {browserPermission === 'granted' && (
+                  <button
+                    type="button"
+                    onClick={handleTestPushNotification}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '10px',
+                      border: '1px solid rgba(255, 255, 255, 0.4)',
+                      background: 'rgba(255, 255, 255, 0.18)',
+                      color: '#ffffff',
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <Zap size={15} /> Thử gửi Push
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleEnableWebPush}
+                  style={{
+                    padding: '8px 18px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    background: '#ffffff',
+                    color: '#f43f5e',
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <Smartphone size={16} />
+                  {browserPermission === 'granted' ? 'Đồng bộ lại quyền thiết bị' : 'Bật Push Notification ngay'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="section-header-row" style={{ marginBottom: '14px' }}>
+            <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: '#0f172a' }}>Danh mục thông báo muốn nhận</h2>
+            <small style={{ color: '#64748b', fontSize: '12px' }}>Tự do chọn các loại thông báo bạn muốn hệ thống gửi</small>
+          </div>
+
+          <div className="list-group">
+            <div 
+              className="list-item" 
+              onClick={() => toggleNotificationKey('workoutReminders')}
+              style={{ cursor: 'pointer' }}
+            >
+              <div className="icon-wrapper" style={{ background: 'linear-gradient(135deg, #f43f5e, #fb923c)', color: '#ffffff' }}>
+                <Dumbbell size={18} />
+              </div>
+              <div className="item-content">
+                <small style={{ color: '#f43f5e', fontWeight: 700 }}>Tập luyện & Lịch trình</small>
+                <strong>Nhắc nhở giờ tập gym & bài tập hôm nay</strong>
+                <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>Thông báo trước giờ tập 15-30 phút để duy trì tính kỷ luật</p>
+              </div>
+              <div className="item-action">
+                <Toggle checked={notificationValues.workoutReminders !== false} />
+              </div>
+            </div>
+
+            <div 
+              className="list-item" 
+              onClick={() => toggleNotificationKey('mealReminders')}
+              style={{ cursor: 'pointer' }}
+            >
+              <div className="icon-wrapper" style={{ background: 'linear-gradient(135deg, #ec4899, #f97316)', color: '#ffffff' }}>
+                <Utensils size={18} />
+              </div>
+              <div className="item-content">
+                <small style={{ color: '#ec4899', fontWeight: 700 }}>Dinh dưỡng & Nước uống</small>
+                <strong>Nhắc nhở ghi chép bữa ăn & uống nước</strong>
+                <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>Nhắc nhở chụp ảnh bữa ăn đúng khung giờ ({mealReminderTime || '12:00'})</p>
+              </div>
+              <div className="item-action">
+                <Toggle checked={notificationValues.mealReminders !== false} />
+              </div>
+            </div>
+
+            <div 
+              className="list-item" 
+              onClick={() => toggleNotificationKey('learningUpdates')}
+              style={{ cursor: 'pointer' }}
+            >
+              <div className="icon-wrapper" style={{ background: 'linear-gradient(135deg, #f43f5e, #fb923c)', color: '#ffffff' }}>
+                <BookOpen size={18} />
+              </div>
+              <div className="item-content">
+                <small style={{ color: '#f43f5e', fontWeight: 700 }}>Bài giảng & Kiến thức</small>
+                <strong>Cập nhật bài học mới & chuỗi học tập (Streak)</strong>
+                <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>Nhắc nhở hoàn thành bài học để giữ chuỗi ngày liên tục</p>
+              </div>
+              <div className="item-action">
+                <Toggle checked={notificationValues.learningUpdates !== false} />
+              </div>
+            </div>
+
+            <div 
+              className="list-item" 
+              onClick={() => toggleNotificationKey('coachMessages')}
+              style={{ cursor: 'pointer' }}
+            >
+              <div className="icon-wrapper" style={{ background: 'linear-gradient(135deg, #ec4899, #f97316)', color: '#ffffff' }}>
+                <Sparkles size={18} />
+              </div>
+              <div className="item-content">
+                <small style={{ color: '#ec4899', fontWeight: 700 }}>HLV & Aura AI Assistant</small>
+                <strong>Phản hồi từ HLV cá nhân & trợ lý AI</strong>
+                <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>Nhận xét thực đơn, đánh giá form tập & khuyến nghị riêng cho bạn</p>
+              </div>
+              <div className="item-action">
+                <Toggle checked={notificationValues.coachMessages !== false} />
+              </div>
+            </div>
+          </div>
         </article>
       </section>
     </div>
