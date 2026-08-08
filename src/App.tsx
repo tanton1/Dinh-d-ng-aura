@@ -1,4 +1,5 @@
 import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Utensils, Flame, Dumbbell, HeartPulse } from 'lucide-react'
 import AppShell from './components/AppShell'
 import OnboardingFlow, { type OnboardingData } from './components/OnboardingFlow'
 import { hasPermission, type Permission } from './config/permissions'
@@ -594,12 +595,58 @@ function AuraApplication() {
   )
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4 text-center">
-        <div className="w-16 h-16 bg-[#e11d48] rounded-2xl flex items-center justify-center text-white text-3xl font-black mb-6 shadow-lg shadow-rose-500/30">
-          A
+      <div 
+        className="flex flex-col items-center justify-between min-h-screen p-8 text-center relative"
+        style={{ 
+          background: 'linear-gradient(to bottom, #e0004d, #f55a00)',
+        }}
+      >
+        <div className="absolute inset-0 bg-black/10"></div>
+        
+        <div className="relative z-10 flex-1 flex flex-col items-center justify-center w-full">
+           <div className="relative flex items-center justify-center mb-8">
+              <div className="flex flex-col items-center drop-shadow-[0_0_15px_rgba(255,255,255,0.8)]">
+                  <h1 className="text-6xl font-black italic tracking-widest text-transparent" style={{ WebkitTextStroke: '2px white' }}>AURA</h1>
+                  <h2 className="text-2xl font-bold tracking-[0.2em] text-white mt-1">+FITNESS+</h2>
+              </div>
+           </div>
         </div>
-        <strong className="text-gray-900 text-xl font-bold tracking-tight">Đang kết nối Aura Fitness</strong>
-        <small className="text-gray-500 mt-2 text-sm">Đồng bộ hồ sơ và tiến độ từ Firebase...</small>
+
+        <div className="relative z-10 w-full flex justify-between items-start max-w-sm mx-auto mb-12">
+            <div className="flex flex-col items-center w-1/4">
+                <div className="w-14 h-14 rounded-full bg-white/10 border border-white/20 flex items-center justify-center mb-3">
+                    <Utensils className="w-6 h-6 text-white" />
+                </div>
+                <span className="text-white text-[10px] font-semibold text-center uppercase tracking-wide leading-tight">Dinh dưỡng<br/>khoa học</span>
+            </div>
+            <div className="flex flex-col items-center w-1/4">
+                <div className="w-14 h-14 rounded-full bg-white/10 border border-white/20 flex items-center justify-center mb-3">
+                    <Flame className="w-6 h-6 text-white" />
+                </div>
+                <span className="text-white text-[10px] font-semibold text-center uppercase tracking-wide leading-tight">Đốt mỡ<br/>hiệu quả</span>
+            </div>
+            <div className="flex flex-col items-center w-1/4">
+                <div className="w-14 h-14 rounded-full bg-white/10 border border-white/20 flex items-center justify-center mb-3">
+                    <Dumbbell className="w-6 h-6 text-white" />
+                </div>
+                <span className="text-white text-[10px] font-semibold text-center uppercase tracking-wide leading-tight">Tập luyện<br/>thông minh</span>
+            </div>
+            <div className="flex flex-col items-center w-1/4">
+                <div className="w-14 h-14 rounded-full bg-white/10 border border-white/20 flex items-center justify-center mb-3">
+                    <HeartPulse className="w-6 h-6 text-white" />
+                </div>
+                <span className="text-white text-[10px] font-semibold text-center uppercase tracking-wide leading-tight">Sức khỏe<br/>bền vững</span>
+            </div>
+        </div>
+
+        <div className="relative z-10 flex flex-col items-center justify-center w-full">
+          <div className="flex items-center justify-center space-x-4 mb-4">
+              <div className="w-8 h-[1px] bg-white/50"></div>
+              <p className="text-white text-lg italic" style={{ fontFamily: 'cursive' }}>Your Body - Your Aura</p>
+              <div className="w-8 h-[1px] bg-white/50"></div>
+          </div>
+          <small className="text-white/60 text-xs">Đồng bộ hồ sơ và tiến độ từ Firebase...</small>
+        </div>
       </div>
     )
   }
