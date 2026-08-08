@@ -108,7 +108,7 @@ async function startServer() {
     windowMs: 60 * 1000,
     limit: 15,
     keyGenerator: (req: AuthenticatedRequest) => {
-      return req.user?.uid || req.ip;
+      return req.user?.uid || "unknown";
     },
     message: {
       error: "RATE_LIMITED",

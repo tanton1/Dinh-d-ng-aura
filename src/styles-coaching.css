@@ -651,7 +651,7 @@
   word-break: break-all;
 }
 
-
+@media (max-width: 768px) {
   .pt-program-catalog .admin-header-actions { align-items: stretch; flex-direction: column; }
   .pt-client-insights { grid-template-columns: 1fr 1fr; gap: 8px; }
   .pt-client-insights article { grid-template-columns: 34px minmax(0, 1fr); min-height: 96px; padding: 12px; }
