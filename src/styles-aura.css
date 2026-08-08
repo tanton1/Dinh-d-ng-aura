@@ -768,3 +768,144 @@ body.shell-overlay-open { overflow: hidden; }
     transition-duration: .01ms !important;
   }
 }
+
+/* App Loading Screen Styles */
+.aura-loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 100vh;
+  padding: 2rem;
+  text-align: center;
+  position: relative;
+  background: linear-gradient(to bottom, #e0004d, #f55a00);
+}
+
+.aura-loading-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.1);
+}
+
+.aura-loading-center {
+  position: relative;
+  z-index: 10;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.aura-loading-logo-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  filter: drop-shadow(0 0 15px rgba(255,255,255,0.8));
+}
+
+.aura-loading-h1 {
+  font-size: 3.75rem;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.1em;
+  color: transparent;
+  -webkit-text-stroke: 2px white;
+  margin: 0;
+  line-height: 1;
+}
+
+.aura-loading-h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: white;
+  margin-top: 0.25rem;
+  margin-bottom: 0;
+  line-height: 1;
+}
+
+.aura-loading-features {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  max-width: 24rem;
+  margin: 0 auto 3rem auto;
+}
+
+.aura-loading-feature {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 25%;
+}
+
+.aura-loading-icon-circle {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 9999px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.75rem;
+  color: white;
+}
+
+.aura-loading-icon-circle svg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.aura-loading-feature-text {
+  color: white;
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  line-height: 1.25;
+}
+
+.aura-loading-footer {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.aura-loading-slogan-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.aura-loading-line {
+  width: 2rem;
+  height: 1px;
+  background: rgba(255,255,255,0.5);
+}
+
+.aura-loading-slogan {
+  color: white;
+  font-size: 1.125rem;
+  font-style: italic;
+  font-family: cursive;
+  margin: 0;
+}
+
+.aura-loading-status {
+  color: rgba(255,255,255,0.6);
+  font-size: 0.75rem;
+}
