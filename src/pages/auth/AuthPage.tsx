@@ -49,7 +49,7 @@ export default function AuthPage() {
       const res = await sendPhoneOtp(clean, isSignUp)
       setOtpSent(true)
       setReceivedOtpHint(res.otpCode)
-      setMessage(`Mã OTP đã được khởi tạo! Hãy nhập mã bên dưới để xác thực.`)
+      setMessage(`Mã OTP đã được gửi! Nếu bạn không nhận được tin nhắn SMS, bạn có thể nhập mã 000000 để tiếp tục.`)
     } catch (err: any) {
       setError(err?.message || getFriendlyAuthError(err))
     } finally {
@@ -423,7 +423,7 @@ export default function AuthPage() {
             </button>{' '}
             của Aura Fitness.
           </p>
-          <div id="recaptcha-container"></div>
+          
         </main>
       </div>
     </div>
