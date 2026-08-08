@@ -1153,7 +1153,70 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
     }
   })
 
-  return { analyzeFoodImage, generateMealReview }
+  const askAiCoach = onCall({
+    timeoutSeconds: 30,
+    memory: '256MiB',
+    maxInstances: 3,
+    concurrency: 4,
+    enforceAppCheck: ENFORCE_APP_CHECK,
+    secrets: [GEMINI_API_KEY],
+  }, async (request) => {
+    const uid = requireCaller(request)
+    const { message, userProfile } = request.data || {}
+    if (!message) throw new HttpsError('invalid-argument', 'Message is required.')
+
+    const apiKey = getApiKey()
+    if (!apiKey) {
+      return { text: 'Cần cấu hình Gemini API Key trên máy chủ để AI Coach có thể trả lời.' }
+    }
+
+    const goalStr = userProfile?.goals?.includes('lose-fat') ? 'Giảm mỡ (Thâm hụt calo)' : userProfile?.goals?.includes('gain-muscle') ? 'Tăng cơ (Thặng dư đạm & calo)' : 'Duy trì vóc dáng & sức khỏe'
+    const sexStr = userProfile?.biologicalSex === 'female' ? 'Nữ' : userProfile?.biologicalSex === 'male' ? 'Nam' : ''
+    const ageStr = userProfile?.age ? `${userProfile.age} tuổi` : ''
+    const heightStr = userProfile?.heightCm ? `${userProfile.heightCm} cm` : ''
+    const weightStr = userProfile?.weightKg ? `${userProfile.weightKg} kg` : ''
+    const calStr = userProfile?.targetCalories ? `Mục tiêu calo hàng ngày: ${userProfile.targetCalories} kcal` : ''
+    const profileSummary = [sexStr, ageStr, heightStr, weightStr, goalStr, calStr].filter(Boolean).join(', ')
+
+    const prompt = `Bạn là AI Health & Nutrition Coach của Aura Fitness.
+Một học viên đang hỏi bạn một câu hỏi về dinh dưỡng/tập luyện.
+Hồ sơ học viên hiện tại: ${profileSummary || 'Chưa cập nhật đầy đủ'}
+
+Câu hỏi của học viên: "${message}"
+
+Hãy trả lời học viên một cách thân thiện, ngắn gọn, khoa học và BẮT BUỘC DỰA TRÊN hồ sơ của họ (nếu có thông tin). 
+Không dùng markdown định dạng phức tạp, chỉ cần xuống dòng hợp lý.`
+
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
+        {
+          method: 'POST',
+          headers: {
+            'x-goog-api-key': apiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+              maxOutputTokens: 600,
+            },
+          }),
+        }
+      )
+      if (!response.ok) {
+         return { text: 'Lỗi khi kết nối với AI (HTTP ' + response.status + ')' }
+      }
+      const data = await response.json()
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+      return { text: text || 'AI Coach chưa có phản hồi.' }
+    } catch (e) {
+      logger.error('Failed to ask AI coach', e)
+      return { text: 'Không thể kết nối với AI Coach lúc này.' }
+    }
+  })
+
+  return { analyzeFoodImage, generateMealReview, askAiCoach }
 }
 
 module.exports = {
