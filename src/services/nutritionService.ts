@@ -176,6 +176,8 @@ interface AnalyzeFoodImageRequest {
   mealType: MealType
   notes: string
   retainImage: boolean
+  studentGoal?: string
+  studentCondition?: string
 }
 
 const acceptedImageTypes = new Map<string, string>([
@@ -537,6 +539,8 @@ export async function analyzeUploadedFoodPhoto(
       mealType: options.mealType ?? 'other',
       notes,
       retainImage: options.retainImage === true,
+      studentGoal: options.userGoal,
+      studentCondition: options.userCondition,
     })
     const response = validateAnalysisResponse(result.data, upload.scanId)
     if (options.retainImage !== true && response.imageRetained) {

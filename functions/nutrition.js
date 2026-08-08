@@ -55,6 +55,10 @@ const foodAnalysisSchema = {
       required: ['low', 'high'],
     },
     totals: nutritionTotalsSchema,
+    quantityAndCookingAnalysis: { type: 'string', minLength: 1, maxLength: 1000 },
+    portionAndCalorieRationale: { type: 'string', minLength: 1, maxLength: 1000 },
+    goalAlignmentAssessment: { type: 'string', minLength: 1, maxLength: 1000 },
+    coachFeedbackSuggestion: { type: 'string', minLength: 1, maxLength: 2000 },
     items: {
       type: 'array',
       maxItems: 12,
@@ -158,12 +162,17 @@ function parseAnalyzeRequest(data, uid) {
     throw new HttpsError('invalid-argument', 'Tùy chọn lưu ảnh không hợp lệ.')
   }
 
+  const studentGoal = data.studentGoal === undefined ? '' : data.studentGoal
+  const studentCondition = data.studentCondition === undefined ? '' : data.studentCondition
+
   return {
     storagePath,
     scanId: pathParts[2],
     mealType,
     notes: notes.trim(),
     retainImage: data.retainImage === true,
+    studentGoal,
+    studentCondition,
   }
 }
 
@@ -380,6 +389,10 @@ function validateFoodAnalysis(value) {
     confidence: requireNumber(value.confidence, 'confidence', 0, 1),
     calorieRange: validateRange(value.calorieRange, 'calorieRange', 10000),
     totals: validateNutritionTotals(value.totals, 'totals'),
+    quantityAndCookingAnalysis: typeof value.quantityAndCookingAnalysis === 'string' ? value.quantityAndCookingAnalysis.trim().slice(0, 1000) : '',
+    portionAndCalorieRationale: typeof value.portionAndCalorieRationale === 'string' ? value.portionAndCalorieRationale.trim().slice(0, 1000) : '',
+    goalAlignmentAssessment: typeof value.goalAlignmentAssessment === 'string' ? value.goalAlignmentAssessment.trim().slice(0, 1000) : '',
+    coachFeedbackSuggestion: typeof value.coachFeedbackSuggestion === 'string' ? value.coachFeedbackSuggestion.trim().slice(0, 2000) : '',
     items: value.items.map((item, index) => {
       if (!isPlainObject(item)) throw new Error(`items[${index}] is invalid.`)
       return {
@@ -908,19 +921,24 @@ async function requestGeminiModel({ apiKey, buffer, contentType, prompt, instruc
   return { ok: true, payload, requestId }
 }
 
-async function analyzeWithGemini({ apiKey, buffer, contentType, mealType, notes, scanId }) {
+async function analyzeWithGemini({ apiKey, buffer, contentType, mealType, notes, scanId, studentGoal, studentCondition }) {
   const configuredModel = process.env.GEMINI_VISION_MODEL?.trim()
   const configuredFallbackModel = process.env.GEMINI_VISION_FALLBACK_MODEL?.trim()
   const models = [...new Set([
     configuredModel || DEFAULT_MODEL,
     configuredFallbackModel || DEFAULT_FALLBACK_MODEL,
   ])]
-  const context = JSON.stringify({ mealType, notes })
+  
+  const studentInfo = `Mục tiêu học viên: "${studentGoal || 'Chưa cập nhật'}". Thể trạng: "${studentCondition || 'Chưa cập nhật'}"`
+  const context = JSON.stringify({ mealType, notes, studentInfo })
   const instructions = [
-    'You are Aura Food Vision, a careful food-recognition and nutrition-estimation component.',
-    'Analyze the photographed meal as a nutrition-estimation draft, not as a medical diagnosis.',
+    'You are Aura Food Vision and a top PT Nutritionist.',
+    'Analyze the photographed meal as a nutrition-estimation draft.',
     'Identify visible Vietnamese or international dishes and ingredients. Estimate edible cooked portion mass and a realistic range.',
-    'Do not claim hidden oil, sauces, sugar, or cooking method as certain. Put uncertainty in assumptions and warnings.',
+    'Provide quantityAndCookingAnalysis: Detailed analysis of the observed real quantity (e.g., 150g white rice) and cooking method (boiled, steamed, fried, etc.).',
+    'Provide portionAndCalorieRationale: Clear explanation for the estimated mass and calories (based on plate size, meat thickness, oil/sauce).',
+    'Provide goalAlignmentAssessment: Short assessment of how this meal aligns with the student goal: ' + (studentGoal || 'Chưa cập nhật'),
+    'Provide coachFeedbackSuggestion: Detailed feedback (30-100 words) from a Coach/PT perspective for the student. Base it DIRECTLY on their goal and condition. Use a professional, encouraging PT tone, analyzing macros and deficit/surplus. Do NOT use generic placeholder text.',
     'Return Vietnamese display names, English names, and an ASCII Vietnamese search term suitable for exact database matching.',
     'Estimate kcal, protein, carbohydrate, fat, fiber, sugar, and sodium for the visible portion.',
     'Ask at most three short Vietnamese questions, only for uncertainties that could materially change calories.',
@@ -1038,6 +1056,8 @@ function createNutritionFunctions({ app, db }) {
           mealType: input.mealType,
           notes: input.notes,
           scanId: input.scanId,
+          studentGoal: input.studentGoal,
+          studentCondition: input.studentCondition,
         })
         const analysis = await enrichWithNutritionDatabase(db, providerResult.analysis)
         response = {
