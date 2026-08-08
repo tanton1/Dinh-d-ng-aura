@@ -685,7 +685,11 @@ function AuraApplication() {
         profile={profile?.nutritionProfile ?? localNutritionProfile ?? undefined}
         onProfileComplete={async (nutritionProfile) => {
           setLocalNutritionProfile(nutritionProfile)
-          window.localStorage.setItem(`aura:nutrition-profile:${user?.uid ?? 'demo'}`, JSON.stringify(nutritionProfile))
+          try {
+            window.localStorage.setItem(`aura:nutrition-profile:${user?.uid ?? 'demo'}`, JSON.stringify(nutritionProfile))
+          } catch {
+            // Ignore quota error
+          }
           if (user?.uid) {
             try {
               window.localStorage.setItem(`aura:onboarding-completed:${user.uid}`, 'true')

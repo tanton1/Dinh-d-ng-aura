@@ -132,6 +132,25 @@ export type AdminView =
 
 export type ViewId = StudentView | AdminView
 
+export type FitnessGoalTarget = 'all' | 'lose-fat' | 'gain-muscle' | 'maintain' | 'health'
+
+export type NotificationCategory = 'workout' | 'nutrition' | 'learning' | 'coach' | 'general'
+
+export interface PushTemplate {
+  id: string
+  title: string
+  message: string
+  type: 'REMINDER' | 'WORKOUT' | 'ANNOUNCEMENT' | 'MOTIVATION' | 'PROMOTION' | 'INFO'
+  category?: NotificationCategory
+  targetGoal: FitnessGoalTarget
+  scheduledTime?: string // e.g. "07:30", "12:00", "17:30"
+  triggerLabel?: string // e.g. "Thâm hụt Calo", "Nạp Đạm", "Vận động NEAT"
+  actionUrl: string
+  active: boolean
+  createdAt: string
+  updatedAt?: string
+}
+
 export interface SystemPushSettings {
   enabled: boolean
   vapidPublicKey: string

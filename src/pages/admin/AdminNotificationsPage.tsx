@@ -21,16 +21,37 @@ import {
   Dumbbell, 
   Utensils,
   ExternalLink,
-  RefreshCw
+  Plus,
+  Trash2,
+  Edit3,
+  Target,
+  X,
+  Tag,
+  ToggleLeft,
+  ToggleRight,
+  Filter,
+  Layers
 } from 'lucide-react'
 import { PageHeader } from '../../components/ui'
-import type { AdminUserRecord, SystemPushSettings, PushBroadcastLog, AppNotification } from '../../types'
+import type { 
+  AdminUserRecord, 
+  SystemPushSettings, 
+  PushBroadcastLog, 
+  AppNotification,
+  PushTemplate,
+  FitnessGoalTarget,
+  NotificationCategory
+} from '../../types'
 import { 
   getSystemPushSettings, 
   saveSystemPushSettings, 
   dispatchAdminPushBroadcast, 
   getPushBroadcastLogs, 
   sendBrowserNativePushNotification, 
+  getPushTemplates,
+  savePushTemplate,
+  deletePushTemplate,
+  togglePushTemplateActive,
   DEFAULT_PUSH_SETTINGS 
 } from '../../services/notificationService'
 import { requestFcmPermissionAndToken } from '../../services/fcmService'
@@ -42,24 +63,50 @@ interface AdminNotificationsPageProps {
 }
 
 export default function AdminNotificationsPage({ onNavigate, users = [] }: AdminNotificationsPageProps) {
-  const [activeTab, setActiveTab] = useState<'dispatch' | 'settings' | 'tester' | 'logs'>('dispatch')
+  const [activeTab, setActiveTab] = useState<'dispatch' | 'goal_templates' | 'settings' | 'tester' | 'logs'>('dispatch')
 
   // Dispatch Form State
-  const [targetType, setTargetType] = useState<'all' | 'coaching' | 'academy' | 'missing_meals' | 'individual'>('all')
+  const [targetType, setTargetType] = useState<
+    'all' | 'goal_lose_fat' | 'goal_gain_muscle' | 'goal_maintain' | 'coaching' | 'academy' | 'missing_meals' | 'individual' | 'pref_workout' | 'pref_nutrition' | 'pref_learning' | 'pref_coach'
+  >('all')
   const [selectedUserId, setSelectedUserId] = useState<string>('')
   const [notifType, setNotifType] = useState<AppNotification['type']>('REMINDER')
   const [title, setTitle] = useState('Nhắc nhở cập nhật nhật ký ăn uống 🥗')
   const [message, setMessage] = useState('Hôm nay bạn chưa tải lên hình ảnh bữa ăn nào. Hãy cập nhật ngay để theo dõi tiến trình dinh dưỡng cùng HLV nhé!')
   const [actionUrl, setActionUrl] = useState('/nutrition')
   const [sendBrowserPush, setSendBrowserPush] = useState(true)
+  const [respectUserPreferences, setRespectUserPreferences] = useState(true)
 
   const [dispatching, setDispatching] = useState(false)
-  const [dispatchSuccess, setDispatchSuccess] = useState<{ count: number } | null>(null)
+  const [dispatchSuccess, setDispatchSuccess] = useState<{ count: number; filteredOutCount?: number } | null>(null)
 
   // Settings State
   const [settings, setSettings] = useState<SystemPushSettings>(DEFAULT_PUSH_SETTINGS)
   const [savingSettings, setSavingSettings] = useState(false)
   const [settingsSaved, setSettingsSaved] = useState(false)
+
+  // Goal Push Templates State
+  const [pushTemplates, setPushTemplates] = useState<PushTemplate[]>([])
+  const [loadingTemplates, setLoadingTemplates] = useState(false)
+  const [templateGoalFilter, setTemplateGoalFilter] = useState<FitnessGoalTarget | 'all'>('all')
+  const [templateCategoryFilter, setTemplateCategoryFilter] = useState<NotificationCategory | 'all'>('all')
+
+  // Modal State for Adding / Editing Templates
+  const [showModal, setShowModal] = useState(false)
+  const [editingTemplate, setEditingTemplate] = useState<PushTemplate | null>(null)
+  const [formTitle, setFormTitle] = useState('')
+  const [formMessage, setFormMessage] = useState('')
+  const [formType, setFormType] = useState<PushTemplate['type']>('REMINDER')
+  const [formCategory, setFormCategory] = useState<NotificationCategory>('nutrition')
+  const [formTargetGoal, setFormTargetGoal] = useState<FitnessGoalTarget>('lose-fat')
+  const [formScheduledTime, setFormScheduledTime] = useState('12:00')
+  const [formTriggerLabel, setFormTriggerLabel] = useState('')
+  const [formActionUrl, setFormActionUrl] = useState('/nutrition')
+  const [formActive, setFormActive] = useState(true)
+  const [savingTemplate, setSavingTemplate] = useState(false)
+
+  // Delete Confirmation State
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   // Logs State
   const [logs, setLogs] = useState<PushBroadcastLog[]>([])
@@ -74,11 +121,16 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
   const [requestingToken, setRequestingToken] = useState(false)
   const [copiedToken, setCopiedToken] = useState(false)
 
-  // Load Settings and Logs on mount
+  // Load Settings, Push Templates, and Logs on mount
   useEffect(() => {
     async function initData() {
       const s = await getSystemPushSettings()
       setSettings(s)
+
+      setLoadingTemplates(true)
+      const tmpls = await getPushTemplates()
+      setPushTemplates(tmpls)
+      setLoadingTemplates(false)
 
       setLoadingLogs(true)
       const l = await getPushBroadcastLogs()
@@ -88,12 +140,21 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
     initData()
   }, [])
 
-  // Filter target users count estimation
+  // Filter target users count estimation based on goal, role, or user preferences
   const targetUsersList = useMemo(() => {
     if (!users || users.length === 0) return []
 
     if (targetType === 'individual') {
       return users.filter(u => u.uid === selectedUserId)
+    }
+    if (targetType === 'goal_lose_fat') {
+      return users.filter(u => (u as any).goals?.includes('lose-fat') || (u as any).nutritionProfile?.goal === 'lose-fat')
+    }
+    if (targetType === 'goal_gain_muscle') {
+      return users.filter(u => (u as any).goals?.includes('gain-muscle') || (u as any).nutritionProfile?.goal === 'gain-muscle')
+    }
+    if (targetType === 'goal_maintain') {
+      return users.filter(u => (u as any).goals?.includes('maintain') || (u as any).nutritionProfile?.goal === 'maintain')
     }
     if (targetType === 'coaching') {
       return users.filter(u => u.role === 'coach' || u.role === 'admin')
@@ -101,53 +162,133 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
     if (targetType === 'academy') {
       return users.filter(u => u.role === 'student')
     }
+    if (targetType === 'pref_workout') {
+      return users.filter(u => (u as any).notificationSettings?.workoutReminders !== false)
+    }
+    if (targetType === 'pref_nutrition') {
+      return users.filter(u => (u as any).notificationSettings?.mealReminders !== false)
+    }
+    if (targetType === 'pref_learning') {
+      return users.filter(u => (u as any).notificationSettings?.learningUpdates !== false)
+    }
+    if (targetType === 'pref_coach') {
+      return users.filter(u => (u as any).notificationSettings?.coachMessages !== false)
+    }
     return users // 'all' or 'missing_meals'
   }, [users, targetType, selectedUserId])
 
-  // Quick preset templates
-  const presets = [
-    {
-      label: '🥗 Nhắc ăn trưa',
-      title: 'Nhắc nhở cập nhật nhật ký bữa trưa 🥗',
-      message: 'Đã đến giờ ăn trưa rồi! Bạn hãy chụp ảnh đĩa ăn gửi cho HLV để tính toán lượng Calo chính xác nhé.',
-      type: 'REMINDER' as const,
-      actionUrl: '/nutrition'
-    },
-    {
-      label: '💧 Nhắc uống nước',
-      title: 'Đã đến lúc uống thêm 1 ly nước! 💧',
-      message: 'Đừng quên duy trì độ ẩm cho cơ thể để tối ưu quá trình trao đổi chất và phục hồi cơ bắp nhé.',
-      type: 'REMINDER' as const,
-      actionUrl: '/nutrition'
-    },
-    {
-      label: '🏋️ Nhắc tập gym chiều',
-      title: 'Sẵn sàng cho buổi tập gym hôm nay! 🏋️‍♂️',
-      message: 'Giáo án tập luyện của bạn đã sẵn sàng. Hãy dành 45 phút chiều nay để bứt phá giới hạn bản thân!',
-      type: 'WORKOUT' as const,
-      actionUrl: '/workout'
-    },
-    {
-      label: '📏 Nhắc cập nhật số đo',
-      title: 'Cập nhật cân nặng & số đo tuần 📏',
-      message: 'Cuối tuần rồi! Hãy dành 1 phút cập nhật cân nặng mới để HLV đánh giá tiến độ vóc dáng nhé.',
-      type: 'REMINDER' as const,
-      actionUrl: '/progress'
-    },
-    {
-      label: '🎓 Mở khóa khóa học',
-      title: 'Chương mới tại Aura Academy đã mở! 🎓',
-      message: 'Bài học mới về nguyên lý Macro & Khoa học Calo đã sẵn sàng. Hãy hoàn thành ngay để tích lũy XP nhé!',
-      type: 'ANNOUNCEMENT' as const,
-      actionUrl: '/courses'
-    }
-  ]
+  // Filter Push Templates by Target Goal & Student Preference Category
+  const filteredTemplates = useMemo(() => {
+    return pushTemplates.filter(t => {
+      const matchGoal = templateGoalFilter === 'all' || t.targetGoal === templateGoalFilter
+      const matchCategory = templateCategoryFilter === 'all' || t.category === templateCategoryFilter
+      return matchGoal && matchCategory
+    })
+  }, [pushTemplates, templateGoalFilter, templateCategoryFilter])
 
-  const applyPreset = (preset: typeof presets[0]) => {
-    setTitle(preset.title)
-    setMessage(preset.message)
-    setNotifType(preset.type)
-    setActionUrl(preset.actionUrl)
+  // Apply a template directly to Dispatch Form
+  const applyTemplateToDispatch = (tmpl: PushTemplate) => {
+    setTitle(tmpl.title)
+    setMessage(tmpl.message)
+    setNotifType(tmpl.type)
+    if (tmpl.category) setFormCategory(tmpl.category)
+    setActionUrl(tmpl.actionUrl || '/nutrition')
+
+    // Automatically pick audience based on goal or category
+    if (tmpl.targetGoal === 'lose-fat') setTargetType('goal_lose_fat')
+    else if (tmpl.targetGoal === 'gain-muscle') setTargetType('goal_gain_muscle')
+    else if (tmpl.targetGoal === 'maintain') setTargetType('goal_maintain')
+    else if (tmpl.category === 'workout') setTargetType('pref_workout')
+    else if (tmpl.category === 'nutrition') setTargetType('pref_nutrition')
+    else if (tmpl.category === 'learning') setTargetType('pref_learning')
+    else if (tmpl.category === 'coach') setTargetType('pref_coach')
+    else setTargetType('all')
+
+    setActiveTab('dispatch')
+  }
+
+  // Open Modal for New Template
+  const handleOpenAddModal = () => {
+    setEditingTemplate(null)
+    setFormTitle('')
+    setFormMessage('')
+    setFormType('REMINDER')
+    setFormCategory('nutrition')
+    setFormTargetGoal('lose-fat')
+    setFormScheduledTime('12:00')
+    setFormTriggerLabel('Bữa trưa Calo Deficit')
+    setFormActionUrl('/nutrition')
+    setFormActive(true)
+    setShowModal(true)
+  }
+
+  // Open Modal for Editing Template
+  const handleOpenEditModal = (tmpl: PushTemplate) => {
+    setEditingTemplate(tmpl)
+    setFormTitle(tmpl.title)
+    setFormMessage(tmpl.message)
+    setFormType(tmpl.type)
+    setFormCategory(tmpl.category || 'general')
+    setFormTargetGoal(tmpl.targetGoal)
+    setFormScheduledTime(tmpl.scheduledTime || '12:00')
+    setFormTriggerLabel(tmpl.triggerLabel || '')
+    setFormActionUrl(tmpl.actionUrl || '/nutrition')
+    setFormActive(tmpl.active)
+    setShowModal(true)
+  }
+
+  // Submit Template Save (Create or Edit)
+  const handleSaveTemplateSubmit = async () => {
+    if (!formTitle.trim() || !formMessage.trim()) return
+
+    setSavingTemplate(true)
+    const newOrUpdated: PushTemplate = {
+      id: editingTemplate ? editingTemplate.id : `tmpl_${Date.now().toString(36)}`,
+      title: formTitle.trim(),
+      message: formMessage.trim(),
+      type: formType,
+      category: formCategory,
+      targetGoal: formTargetGoal,
+      scheduledTime: formScheduledTime,
+      triggerLabel: formTriggerLabel.trim() || undefined,
+      actionUrl: formActionUrl,
+      active: formActive,
+      createdAt: editingTemplate ? editingTemplate.createdAt : new Date().toISOString()
+    }
+
+    try {
+      await savePushTemplate(newOrUpdated)
+      const refreshed = await getPushTemplates()
+      setPushTemplates(refreshed)
+      setShowModal(false)
+    } catch (err) {
+      console.error('Error saving template:', err)
+    } finally {
+      setSavingTemplate(false)
+    }
+  }
+
+  // Delete Template Handler
+  const handleDeleteTemplateConfirm = async (id: string) => {
+    try {
+      await deletePushTemplate(id)
+      const refreshed = await getPushTemplates()
+      setPushTemplates(refreshed)
+      setDeletingId(null)
+    } catch (err) {
+      console.error('Error deleting template:', err)
+    }
+  }
+
+  // Toggle Template Active Handler
+  const handleToggleActiveHandler = async (id: string, currentActive: boolean) => {
+    try {
+      await togglePushTemplateActive(id, !currentActive)
+      const refreshed = await getPushTemplates()
+      setPushTemplates(refreshed)
+    } catch (err) {
+      console.error('Error toggling template active status:', err)
+    }
   }
 
   // Handle Dispatch Broadcast
@@ -158,7 +299,6 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
     setDispatchSuccess(null)
 
     const targetUserIds = targetUsersList.map(u => u.uid)
-    // Fallback if users list is empty in demo
     const effectiveIds = targetUserIds.length > 0 ? targetUserIds : ['demo_user_1', 'demo_user_2']
 
     try {
@@ -169,10 +309,11 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
         targetType: targetType === 'individual' ? 'individual' : targetType === 'all' ? 'all' : 'category',
         targetUserIds: effectiveIds,
         actionUrl,
-        sendBrowserPush
+        sendBrowserPush,
+        respectCategoryPreferences: respectUserPreferences
       })
 
-      setDispatchSuccess({ count: res.sentCount })
+      setDispatchSuccess({ count: res.sentCount, filteredOutCount: res.filteredOutCount })
       
       // Refresh logs
       const updatedLogs = await getPushBroadcastLogs()
@@ -220,12 +361,84 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
     return logs.filter(l => l.type === logFilter)
   }, [logs, logFilter])
 
+  // Helper for Goal Badge UI
+  const renderGoalBadge = (goal: FitnessGoalTarget) => {
+    switch (goal) {
+      case 'lose-fat':
+        return (
+          <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: '#fff0f5', color: '#ff1a8c', border: '1px solid #fbcfe8', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Flame size={12} /> Giảm Mỡ (Lose Fat)
+          </span>
+        )
+      case 'gain-muscle':
+        return (
+          <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Dumbbell size={12} /> Tăng Cơ (Gain Muscle)
+          </span>
+        )
+      case 'maintain':
+        return (
+          <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Utensils size={12} /> Duy Trì Vóc Dáng
+          </span>
+        )
+      case 'health':
+        return (
+          <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Sparkles size={12} /> Sức Khỏe & Giãn Cơ
+          </span>
+        )
+      default:
+        return (
+          <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Target size={12} /> Tất Cả Mục Tiêu
+          </span>
+        )
+    }
+  }
+
+  // Helper for Student Notification Preference Category Badge UI
+  const renderCategoryBadge = (category?: NotificationCategory) => {
+    switch (category) {
+      case 'workout':
+        return (
+          <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            🏋️ Tập luyện & Lịch trình
+          </span>
+        )
+      case 'nutrition':
+        return (
+          <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: '#fff7ed', color: '#ea580c', border: '1px solid #ffedd5', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            🥗 Dinh dưỡng & Nước uống
+          </span>
+        )
+      case 'learning':
+        return (
+          <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: '#fdf2f8', color: '#db2777', border: '1px solid #fbcfe8', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            🎓 Bài giảng & Kiến thức
+          </span>
+        )
+      case 'coach':
+        return (
+          <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: '#faf5ff', color: '#9333ea', border: '1px solid #f3e8ff', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            💬 HLV & Aura AI
+          </span>
+        )
+      default:
+        return (
+          <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            📢 Thông báo chung
+          </span>
+        )
+    }
+  }
+
   return (
     <div className="page admin-notifications-page" style={{ paddingBottom: 60 }}>
       <PageHeader 
         eyebrow="AURA · ADMIN MANAGEMENT" 
         title="Cài đặt & Quản lý Push Notifications" 
-        description="Gửi thông báo đẩy, cấu hình tự động hóa khung giờ nhắc nhở và quản lý nhật ký phát sóng toàn hệ thống."
+        description="Gửi thông báo đẩy, tạo & chỉnh sửa các mẫu Push phân loại theo từng mục tiêu học viên, và quản lý tự động hóa hệ thống."
       />
 
       {/* Tabs Navigation */}
@@ -239,6 +452,7 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
       }}>
         {[
           { id: 'dispatch', label: 'Soạn & Gửi thông báo', icon: Send },
+          { id: 'goal_templates', label: 'Mẫu Push Theo Mục Tiêu', icon: Target, badge: pushTemplates.length },
           { id: 'settings', label: 'Cấu hình & Tự động hóa', icon: Settings },
           { id: 'tester', label: 'Thử nghiệm Web Push', icon: Smartphone },
           { id: 'logs', label: 'Nhật ký phát sóng', icon: History }
@@ -269,6 +483,18 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
             >
               <Icon size={16} />
               <span>{tab.label}</span>
+              {tab.badge !== undefined && (
+                <span style={{
+                  fontSize: 11,
+                  fontWeight: 800,
+                  padding: '2px 7px',
+                  borderRadius: 12,
+                  background: isActive ? '#ff1a8c' : '#e2e8f0',
+                  color: isActive ? '#ffffff' : '#475569'
+                }}>
+                  {tab.badge}
+                </span>
+              )}
             </button>
           )
         })}
@@ -288,10 +514,16 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
                 {[
-                  { id: 'all', label: 'Tất cả học viên', desc: `Phát sóng tới ${users.length || 'toàn bộ'} tài khoản` },
+                  { id: 'all', label: 'Tất cả học viên', desc: `Phát sóng tới toàn bộ ${users.length || ''} tài khoản` },
+                  { id: 'pref_workout', label: '🏋️ Tập luyện & Lịch trình', desc: 'Lọc học viên bật nhận giờ tập gym' },
+                  { id: 'pref_nutrition', label: '🥗 Dinh dưỡng & Nước uống', desc: 'Lọc học viên bật nhận nhắc bữa ăn' },
+                  { id: 'pref_learning', label: '🎓 Bài giảng & Kiến thức', desc: 'Lọc học viên bật nhận Streak & bài học' },
+                  { id: 'pref_coach', label: '💬 HLV & Aura AI Assistant', desc: 'Lọc học viên bật nhận phản hồi HLV' },
+                  { id: 'goal_lose_fat', label: '🔥 Học viên Giảm Mỡ', desc: 'Học viên có mục tiêu thâm hụt Calo' },
+                  { id: 'goal_gain_muscle', label: '💪 Học viên Tăng Cơ', desc: 'Học viên nâng tạ & xây dựng cơ bắp' },
+                  { id: 'goal_maintain', label: '🥑 Học viên Duy Trì', desc: 'Học viên cân bằng thể trạng' },
                   { id: 'coaching', label: 'Khách PT Coaching', desc: 'Dành cho khách hàng có HLV PT' },
-                  { id: 'academy', label: 'Học viên Academy', desc: 'Chỉ các tài khoản đăng ký khóa học' },
-                  { id: 'missing_meals', label: 'Chưa nộp bữa ăn hôm nay', desc: 'Tự động lọc những người chưa ghi nhận' },
+                  { id: 'academy', label: 'Học viên Academy', desc: 'Tài khoản đăng ký khóa học' },
                   { id: 'individual', label: 'Gửi riêng 1 học viên', desc: 'Chọn trực tiếp trong danh sách' }
                 ].map((item) => (
                   <button
@@ -315,6 +547,12 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
                     <span style={{ fontSize: 11, color: '#64748b', display: 'block', marginTop: 4 }}>{item.desc}</span>
                   </button>
                 ))}
+              </div>
+
+              {/* Audience Count Summary Banner */}
+              <div style={{ marginTop: 12, background: '#f8fafc', padding: '8px 14px', borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12, color: '#475569', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Users size={14} style={{ color: '#ff1a8c' }} />
+                <span>Ước tính số học viên sẽ nhận thông báo: <strong style={{ color: '#ff1a8c' }}>{targetUsersList.length || 'Tất cả'} học viên</strong></span>
               </div>
 
               {/* Individual Selector */}
@@ -351,15 +589,24 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
                 2. Soạn nội dung thông báo Push
               </h3>
 
-              {/* Presets chips */}
+              {/* Goal Template Quick Selector */}
               <div style={{ marginBottom: 16 }}>
-                <span style={{ fontSize: 11, fontWeight: 800, color: '#64748b', display: 'block', marginBottom: 8 }}>MẪU NỘI DUNG SOẠN NHANH:</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: '#64748b' }}>CHỌN MẪU THÔNG BÁO THEO MỤC TIÊU:</span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('goal_templates')}
+                    style={{ border: 'none', background: 'transparent', color: '#ff1a8c', fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                  >
+                    <Plus size={12} /> Quản lý thư viện mẫu
+                  </button>
+                </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {presets.map((p, idx) => (
+                  {pushTemplates.map((tmpl) => (
                     <button
-                      key={idx}
+                      key={tmpl.id}
                       type="button"
-                      onClick={() => applyPreset(p)}
+                      onClick={() => applyTemplateToDispatch(tmpl)}
                       style={{
                         padding: '6px 12px',
                         borderRadius: 20,
@@ -368,10 +615,13 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
                         color: '#ff1a8c',
                         fontSize: 12,
                         fontWeight: 700,
-                        cursor: 'pointer'
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6
                       }}
                     >
-                      {p.label}
+                      <span>{tmpl.title}</span>
                     </button>
                   ))}
                 </div>
@@ -471,8 +721,22 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
                   </select>
                 </div>
 
+                {/* Respect User Preferences Toggle */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff0f5', padding: 12, borderRadius: 12, border: '1px solid #fbcfe8', marginTop: 4 }}>
+                  <input
+                    type="checkbox"
+                    id="respectUserPreferencesToggle"
+                    checked={respectUserPreferences}
+                    onChange={(e) => setRespectUserPreferences(e.target.checked)}
+                    style={{ width: 18, height: 18, accentColor: '#ff1a8c', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="respectUserPreferencesToggle" style={{ fontSize: 13, fontWeight: 700, color: '#9f1239', cursor: 'pointer' }}>
+                    Tôn trọng Cài đặt Danh mục thông báo cá nhân của học viên (Tự động lọc bớt người dùng tắt nhận loại tin này)
+                  </label>
+                </div>
+
                 {/* Send Native Push Toggle */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f8fafc', padding: 12, borderRadius: 12, border: '1px solid #e2e8f0', marginTop: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f8fafc', padding: 12, borderRadius: 12, border: '1px solid #e2e8f0' }}>
                   <input
                     type="checkbox"
                     id="browserPushToggle"
@@ -514,9 +778,16 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
 
                 {/* Success feedback */}
                 {dispatchSuccess && (
-                  <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', padding: 12, borderRadius: 12, color: '#065f46', fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-                    <CheckCircle2 size={18} style={{ color: '#10b981' }} />
-                    <span>Thành công! Đã phát sóng thông báo tới {dispatchSuccess.count} học viên mục tiêu.</span>
+                  <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', padding: 12, borderRadius: 12, color: '#065f46', fontSize: 13, fontWeight: 700, display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <CheckCircle2 size={18} style={{ color: '#10b981' }} />
+                      <span>Thành công! Đã phát sóng thông báo tới {dispatchSuccess.count} học viên mục tiêu.</span>
+                    </div>
+                    {dispatchSuccess.filteredOutCount && dispatchSuccess.filteredOutCount > 0 ? (
+                      <span style={{ fontSize: 12, color: '#047857', marginLeft: 26 }}>
+                        🛡️ Đã đồng bộ & loại trừ {dispatchSuccess.filteredOutCount} học viên do họ đã tắt nhận danh mục thông báo này trong Hồ sơ cá nhân.
+                      </span>
+                    ) : null}
                   </div>
                 )}
               </div>
@@ -543,8 +814,7 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
                   boxShadow: '0 10px 20px rgba(0, 0, 0, 0.2)',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: 8,
-                  animation: 'scale-up 0.3s ease-out'
+                  gap: 8
                 }}>
                   {/* Top Bar */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -577,14 +847,287 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
 
               <div style={{ marginTop: 14, background: '#fff0f5', padding: 12, borderRadius: 12, fontSize: 12, color: '#ff1a8c', fontWeight: 600, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                 <Sparkles size={16} style={{ flexShrink: 0, marginTop: 2 }} />
-                <span>Người dùng chỉ cần cho phép cấp quyền Notification 1 lần duy nhất để nhận thông điệp ngay cả khi đang đóng trình duyệt!</span>
+                <span>Người dùng chỉ cần cấp quyền Notification 1 lần duy nhất để nhận thông điệp ngay cả khi đang đóng trình duyệt!</span>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* TAB 2: SYSTEM PUSH SETTINGS */}
+      {/* TAB 2: GOAL-BASED PUSH TEMPLATES MANAGEMENT */}
+      {activeTab === 'goal_templates' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* Top Control Bar */}
+          <div style={{ background: '#ffffff', borderRadius: 20, padding: 20, border: '1px solid #f1f5f9', boxShadow: '0 2px 12px rgba(0,0,0,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
+            <div>
+              <h3 style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Target size={20} style={{ color: '#ff1a8c' }} />
+                Quản lý Mẫu Thông Báo Push Theo Mục Tiêu
+              </h3>
+              <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 0 0' }}>
+                Thêm, sửa, xóa và thiết lập kích hoạt tự động các kịch bản nhắc nhở thiết kế chuẩn chuyên môn cho từng mục tiêu học viên.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleOpenAddModal}
+              style={{
+                padding: '10px 18px',
+                borderRadius: 12,
+                border: 'none',
+                background: 'linear-gradient(135deg, #ff1a8c 0%, #ff7b54 100%)',
+                color: '#ffffff',
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                boxShadow: '0 4px 12px rgba(255, 26, 140, 0.3)'
+              }}
+            >
+              <Plus size={16} />
+              <span>Thêm Mẫu Push Mới</span>
+            </button>
+          </div>
+
+          {/* Goal & Category Filter Pills */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, background: '#ffffff', padding: 16, borderRadius: 18, border: '1px solid #f1f5f9' }}>
+            {/* Goal Filter */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: '#475569', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Target size={14} style={{ color: '#ff1a8c' }} />
+                <span>Lọc theo Mục Tiêu Gym:</span>
+              </span>
+              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
+                {[
+                  { id: 'all', label: 'Tất cả mục tiêu', icon: Layers },
+                  { id: 'lose-fat', label: '🔥 Giảm Mỡ / Giảm Cân', icon: Flame },
+                  { id: 'gain-muscle', label: '💪 Tăng Cơ / Nâng Tạ', icon: Dumbbell },
+                  { id: 'maintain', label: '🥑 Duy Trì Vóc Dáng', icon: Utensils },
+                  { id: 'health', label: '🧘 Sức Khỏe & Giãn Cơ', icon: Sparkles }
+                ].map((f) => {
+                  const Icon = f.icon
+                  const isSelected = templateGoalFilter === f.id
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setTemplateGoalFilter(f.id as any)}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: 20,
+                        border: isSelected ? '2px solid #ff1a8c' : '1px solid #cbd5e1',
+                        background: isSelected ? '#fff0f5' : '#ffffff',
+                        color: isSelected ? '#ff1a8c' : '#475569',
+                        fontSize: 12,
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        whiteSpace: 'nowrap',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      <Icon size={14} />
+                      <span>{f.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Category Preference Filter */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid #f8fafc', paddingTop: 10 }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: '#475569', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Filter size={14} style={{ color: '#ff1a8c' }} />
+                <span>Lọc theo Nhóm Cài Đặt Học Viên Muốn Nhận:</span>
+              </span>
+              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
+                {[
+                  { id: 'all', label: 'Tất cả nhóm' },
+                  { id: 'workout', label: '🏋️ Tập luyện & Lịch trình' },
+                  { id: 'nutrition', label: '🥗 Dinh dưỡng & Nước uống' },
+                  { id: 'learning', label: '🎓 Bài giảng & Kiến thức' },
+                  { id: 'coach', label: '💬 HLV & Aura AI Assistant' },
+                  { id: 'general', label: '📢 Thông báo chung' }
+                ].map((cat) => {
+                  const isSelected = templateCategoryFilter === cat.id
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setTemplateCategoryFilter(cat.id as any)}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: 20,
+                        border: isSelected ? '2px solid #ff1a8c' : '1px solid #cbd5e1',
+                        background: isSelected ? '#fff0f5' : '#ffffff',
+                        color: isSelected ? '#ff1a8c' : '#475569',
+                        fontSize: 12,
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      <span>{cat.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Templates Grid */}
+          {filteredTemplates.length === 0 ? (
+            <div style={{ background: '#ffffff', borderRadius: 20, padding: 40, textAlign: 'center', border: '1px solid #f1f5f9' }}>
+              <Target size={36} style={{ color: '#cbd5e1', margin: '0 auto 12px' }} />
+              <h4 style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: '0 0 6px 0' }}>Chưa có mẫu thông báo nào trong danh mục này</h4>
+              <p style={{ fontSize: 13, color: '#64748b', margin: 0 }}>Hãy bấm "Thêm Mẫu Push Mới" để tạo kịch bản chăm sóc học viên tự động.</p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
+              {filteredTemplates.map((tmpl) => (
+                <div
+                  key={tmpl.id}
+                  style={{
+                    background: '#ffffff',
+                    borderRadius: 18,
+                    padding: 18,
+                    border: tmpl.active ? '1px solid #f1f5f9' : '1px dashed #cbd5e1',
+                    opacity: tmpl.active ? 1 : 0.7,
+                    boxShadow: tmpl.active ? '0 4px 15px rgba(0,0,0,0.03)' : 'none',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    position: 'relative'
+                  }}
+                >
+                  {/* Top Bar: Goal & Category Badges + Active Toggle */}
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {renderGoalBadge(tmpl.targetGoal)}
+                        {renderCategoryBadge(tmpl.category)}
+                      </div>
+
+                      {/* Active Status Switch */}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleActiveHandler(tmpl.id, tmpl.active)}
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          fontSize: 11,
+                          fontWeight: 800,
+                          color: tmpl.active ? '#10b981' : '#94a3b8'
+                        }}
+                      >
+                        {tmpl.active ? <ToggleRight size={24} style={{ color: '#10b981' }} /> : <ToggleLeft size={24} style={{ color: '#cbd5e1' }} />}
+                        <span>{tmpl.active ? 'Đang bật' : 'Đã tắt'}</span>
+                      </button>
+                    </div>
+
+                    {/* Trigger Time / Tag */}
+                    {(tmpl.scheduledTime || tmpl.triggerLabel) && (
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Clock size={12} style={{ color: '#ff1a8c' }} />
+                        <span>{tmpl.scheduledTime ? `Giờ tự động: ${tmpl.scheduledTime}` : ''} {tmpl.triggerLabel ? `(${tmpl.triggerLabel})` : ''}</span>
+                      </div>
+                    )}
+
+                    {/* Title & Message */}
+                    <h4 style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', margin: '0 0 6px 0', lineHeight: 1.3 }}>
+                      {tmpl.title}
+                    </h4>
+                    <p style={{ fontSize: 12, color: '#475569', margin: 0, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      {tmpl.message}
+                    </p>
+                  </div>
+
+                  {/* Bottom Actions Row */}
+                  <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <button
+                      type="button"
+                      onClick={() => applyTemplateToDispatch(tmpl)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 8,
+                        border: 'none',
+                        background: '#fff0f5',
+                        color: '#ff1a8c',
+                        fontSize: 11,
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4
+                      }}
+                    >
+                      <Send size={12} />
+                      <span>Gửi ngay mẫu này</span>
+                    </button>
+
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditModal(tmpl)}
+                        style={{
+                          padding: '6px 10px',
+                          borderRadius: 8,
+                          border: '1px solid #cbd5e1',
+                          background: '#ffffff',
+                          color: '#0f172a',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4
+                        }}
+                      >
+                        <Edit3 size={12} />
+                        <span>Sửa</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setDeletingId(tmpl.id)}
+                        style={{
+                          padding: '6px 10px',
+                          borderRadius: 8,
+                          border: '1px solid #fecaca',
+                          background: '#fef2f2',
+                          color: '#ef4444',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4
+                        }}
+                      >
+                        <Trash2 size={12} />
+                        <span>Xóa</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 3: SYSTEM PUSH SETTINGS */}
       {activeTab === 'settings' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 800 }}>
           {/* Master Switch Card */}
@@ -823,7 +1366,7 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
         </div>
       )}
 
-      {/* TAB 3: WEB PUSH TESTER */}
+      {/* TAB 4: WEB PUSH TESTER */}
       {activeTab === 'tester' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 700 }}>
           <div style={{ background: '#ffffff', borderRadius: 20, padding: 20, border: '1px solid #f1f5f9', boxShadow: '0 2px 12px rgba(0,0,0,0.03)' }}>
@@ -933,7 +1476,7 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
         </div>
       )}
 
-      {/* TAB 4: BROADCAST HISTORY & LOGS */}
+      {/* TAB 5: BROADCAST HISTORY & LOGS */}
       {activeTab === 'logs' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Header & Filter Bar */}
@@ -1048,6 +1591,287 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* CREATE / EDIT TEMPLATE MODAL */}
+      {showModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.6)',
+          backdropFilter: 'blur(4px)',
+          display: 'grid',
+          placeItems: 'center',
+          zIndex: 9999,
+          padding: 16
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: 20,
+            width: '100%',
+            maxWidth: 580,
+            padding: 24,
+            boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+            maxHeight: '90vh',
+            overflowY: 'auto'
+          }}>
+            {/* Modal Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: 12 }}>
+              <h3 style={{ fontSize: 17, fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Target size={20} style={{ color: '#ff1a8c' }} />
+                <span>{editingTemplate ? 'Chỉnh sửa Mẫu Push Notification' : 'Thêm Mẫu Push Notification Theo Mục Tiêu'}</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowModal(false)}
+                style={{ border: 'none', background: 'transparent', color: '#64748b', cursor: 'pointer', padding: 4 }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Form Fields */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4, display: 'block' }}>
+                  Mục tiêu học viên hướng tới (Target Goal):
+                </label>
+                <select
+                  value={formTargetGoal}
+                  onChange={(e) => setFormTargetGoal(e.target.value as FitnessGoalTarget)}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13, background: '#ffffff', fontWeight: 700 }}
+                >
+                  <option value="lose-fat">🔥 Giảm Mỡ / Giảm Cân (Lose Fat)</option>
+                  <option value="gain-muscle">💪 Tăng Cơ / Xây Bắp (Gain Muscle)</option>
+                  <option value="maintain">🥑 Duy Trì Vóc Dáng (Maintain)</option>
+                  <option value="health">🧘 Sức Khỏe & Giãn Cơ (Health)</option>
+                  <option value="all">🎯 Tất cả các mục tiêu (General)</option>
+                </select>
+              </div>
+
+              {/* Category Preference Matching Box */}
+              <div style={{ background: '#fff0f5', padding: 12, borderRadius: 12, border: '1px solid #fbcfe8' }}>
+                <label style={{ fontSize: 12, fontWeight: 800, color: '#9f1239', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>🏷️ Nhóm thông báo học viên (Khớp với Cài đặt Thông báo Học viên nhận):</span>
+                </label>
+                <select
+                  value={formCategory}
+                  onChange={(e) => setFormCategory(e.target.value as NotificationCategory)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    border: '1px solid #f43f5e',
+                    fontSize: 13,
+                    background: '#ffffff',
+                    fontWeight: 800,
+                    color: '#0f172a'
+                  }}
+                >
+                  <option value="workout">🏋️ Tập luyện & Lịch trình (Giờ tập gym & bài tập hôm nay)</option>
+                  <option value="nutrition">🥗 Dinh dưỡng & Nước uống (Nhắc ghi chép bữa ăn & uống nước)</option>
+                  <option value="learning">🎓 Bài giảng & Kiến thức (Bài học mới & Streak học tập)</option>
+                  <option value="coach">💬 HLV & Aura AI Assistant (Phản hồi từ HLV cá nhân & trợ lý AI)</option>
+                  <option value="general">📢 Thông báo chung / Hệ thống (Thông điệp chung hệ thống)</option>
+                </select>
+                <span style={{ fontSize: 11, color: '#881337', marginTop: 4, display: 'block', fontWeight: 600 }}>
+                  🛡️ Khi phát sóng, hệ thống sẽ tự động đồng bộ & lọc loại trừ học viên đã tắt nhận loại thông báo này trong Hồ sơ.
+                </span>
+              </div>
+
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4, display: 'block' }}>
+                  Tiêu đề thông báo (Title):
+                </label>
+                <input
+                  type="text"
+                  value={formTitle}
+                  onChange={(e) => setFormTitle(e.target.value)}
+                  placeholder="Ví dụ: 🥗 Bữa trưa thâm hụt Calo Giảm Mỡ"
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13, fontWeight: 700 }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4, display: 'block' }}>
+                  Nội dung thông báo (Message):
+                </label>
+                <textarea
+                  rows={3}
+                  value={formMessage}
+                  onChange={(e) => setFormMessage(e.target.value)}
+                  placeholder="Mô tả chi tiết lời nhắc hoặc lời khuyên chuyên môn..."
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13, fontFamily: 'inherit' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4, display: 'block' }}>
+                    Phân loại Push:
+                  </label>
+                  <select
+                    value={formType}
+                    onChange={(e) => setFormType(e.target.value as any)}
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13, background: '#ffffff' }}
+                  >
+                    <option value="REMINDER">⏰ Nhắc nhở (Reminder)</option>
+                    <option value="WORKOUT">🏋️ Tập luyện (Workout)</option>
+                    <option value="MOTIVATION">🔥 Động viên (Motivation)</option>
+                    <option value="ANNOUNCEMENT">📢 Thông báo (Announcement)</option>
+                    <option value="PROMOTION">🎁 Ưu đãi (Promotion)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4, display: 'block' }}>
+                    Giờ tự động nhắc (Time):
+                  </label>
+                  <input
+                    type="time"
+                    value={formScheduledTime}
+                    onChange={(e) => setFormScheduledTime(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13 }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4, display: 'block' }}>
+                    Nhãn gợi nhớ (Trigger Tag):
+                  </label>
+                  <input
+                    type="text"
+                    value={formTriggerLabel}
+                    onChange={(e) => setFormTriggerLabel(e.target.value)}
+                    placeholder="Ví dụ: Bữa trưa Calo Deficit"
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 12 }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4, display: 'block' }}>
+                    Đường dẫn khi bấm (Action URL):
+                  </label>
+                  <select
+                    value={formActionUrl}
+                    onChange={(e) => setFormActionUrl(e.target.value)}
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13, background: '#ffffff' }}
+                  >
+                    <option value="/nutrition">🥗 Dinh dưỡng (/nutrition)</option>
+                    <option value="/workout">🏋️ Tập luyện (/workout)</option>
+                    <option value="/progress">📊 Tiến độ (/progress)</option>
+                    <option value="/courses">🎓 Học viện (/courses)</option>
+                    <option value="/schedule">📅 Lịch PT (/schedule)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f8fafc', padding: 12, borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                <input
+                  type="checkbox"
+                  id="templateActiveCheck"
+                  checked={formActive}
+                  onChange={(e) => setFormActive(e.target.checked)}
+                  style={{ width: 18, height: 18, accentColor: '#ff1a8c', cursor: 'pointer' }}
+                />
+                <label htmlFor="templateActiveCheck" style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', cursor: 'pointer' }}>
+                  Kích hoạt mẫu này cho kịch bản tự động hóa Push Notifications
+                </label>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, borderTop: '1px solid #f1f5f9', paddingTop: 14 }}>
+              <button
+                type="button"
+                onClick={() => setShowModal(false)}
+                style={{ padding: '8px 18px', borderRadius: 10, border: '1px solid #cbd5e1', background: '#ffffff', color: '#475569', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+              >
+                Hủy
+              </button>
+
+              <button
+                type="button"
+                disabled={!formTitle.trim() || !formMessage.trim() || savingTemplate}
+                onClick={handleSaveTemplateSubmit}
+                style={{
+                  padding: '8px 22px',
+                  borderRadius: 10,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #ff1a8c 0%, #ff7b54 100%)',
+                  color: '#ffffff',
+                  fontSize: 13,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(255, 26, 140, 0.3)'
+                }}
+              >
+                {savingTemplate ? 'Đang lưu...' : editingTemplate ? 'Cập Nhật Mẫu' : 'Tạo Mẫu Mới'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION DIALOG */}
+      {deletingId && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.6)',
+          backdropFilter: 'blur(4px)',
+          display: 'grid',
+          placeItems: 'center',
+          zIndex: 9999,
+          padding: 16
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: 20,
+            width: '100%',
+            maxWidth: 420,
+            padding: 24,
+            boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+            textAlign: 'center'
+          }}>
+            <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#fef2f2', color: '#ef4444', display: 'grid', placeItems: 'center', margin: '0 auto' }}>
+              <Trash2 size={24} />
+            </div>
+
+            <div>
+              <h3 style={{ fontSize: 17, fontWeight: 800, color: '#0f172a', margin: '0 0 6px 0' }}>Xác nhận xóa Mẫu Push?</h3>
+              <p style={{ fontSize: 13, color: '#64748b', margin: 0, lineHeight: 1.4 }}>
+                Hành động này sẽ xóa vĩnh viễn mẫu thông báo đẩy này khỏi thư viện và hệ thống tự động hóa.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 4 }}>
+              <button
+                type="button"
+                onClick={() => setDeletingId(null)}
+                style={{ padding: '10px 20px', borderRadius: 12, border: '1px solid #cbd5e1', background: '#ffffff', color: '#475569', fontSize: 13, fontWeight: 700, cursor: 'pointer', flex: 1 }}
+              >
+                Hủy bỏ
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleDeleteTemplateConfirm(deletingId)}
+                style={{ padding: '10px 20px', borderRadius: 12, border: 'none', background: '#ef4444', color: '#ffffff', fontSize: 13, fontWeight: 800, cursor: 'pointer', flex: 1, boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)' }}
+              >
+                Đồng ý Xóa
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

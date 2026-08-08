@@ -1,4 +1,5 @@
 import React, { useState, useRef } from "react"
+import { safeLocalStorageSet } from "../../lib/safeStorage"
 import { useForm, FormProvider, Controller, useFieldArray, useFormContext } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -509,8 +510,8 @@ function StudioActionBar({ step, onBack, onNext, ownerId, onNavigate }: { step: 
         const cachedKey2 = `aura:cache:user_progress_photos:${ownerId}`
         const existing1 = JSON.parse(localStorage.getItem(cachedKey1) || localStorage.getItem(cachedKey2) || '[]')
         const updated = [photoPayload, ...existing1]
-        localStorage.setItem(cachedKey1, JSON.stringify(updated))
-        localStorage.setItem(cachedKey2, JSON.stringify(updated))
+        safeLocalStorageSet(cachedKey1, JSON.stringify(updated))
+        safeLocalStorageSet(cachedKey2, JSON.stringify(updated))
         window.dispatchEvent(new Event('aura:progress-photos-updated'))
       } catch (e) {
         console.error("Local storage sync warning:", e)

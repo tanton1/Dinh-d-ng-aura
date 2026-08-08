@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import { safeLocalStorageSet } from '../../lib/safeStorage'
 import '../../styles-progress.css'
 import { Plus } from 'lucide-react'
 
@@ -226,7 +227,7 @@ export default function ProgressPage({
             return new Date(a.date).getTime() - new Date(b.date).getTime()
           })
           setWeightRecords(sorted)
-          localStorage.setItem(`aura:progress:weight-records:${ownerId}`, JSON.stringify(sorted))
+          safeLocalStorageSet(`aura:progress:weight-records:${ownerId}`, JSON.stringify(sorted))
         }
       }, (err) => {
         console.warn('Error subscribing to weight logs:', err)
@@ -235,7 +236,7 @@ export default function ProgressPage({
       unsubscribeMetrics = subscribeToUserBodyMeasurements(ownerId, (remoteMetrics) => {
         if (remoteMetrics && typeof remoteMetrics === 'object' && remoteMetrics !== null) {
           setBodyMetrics(remoteMetrics as BodyMeasurements)
-          localStorage.setItem(`aura:progress:body-measurements:${ownerId}`, JSON.stringify(remoteMetrics))
+          safeLocalStorageSet(`aura:progress:body-measurements:${ownerId}`, JSON.stringify(remoteMetrics))
         }
       }, (err) => {
         console.warn('Error subscribing to body measurements:', err)
@@ -245,7 +246,7 @@ export default function ProgressPage({
         if (remote && typeof remote === 'object' && remote !== null) {
           const remoteStreak = Number(remote.streak) || 0
           setStreak(remoteStreak)
-          localStorage.setItem(`aura:gamification:streak:${ownerId}`, String(remoteStreak))
+          safeLocalStorageSet(`aura:gamification:streak:${ownerId}`, String(remoteStreak))
         }
       }, (err) => {
         console.warn('Error subscribing to gamification:', err)
@@ -274,7 +275,7 @@ export default function ProgressPage({
     }
     const updated = [...weightRecords, newRecord]
     setWeightRecords(updated)
-    localStorage.setItem(`aura:progress:weight-records:${ownerId}`, JSON.stringify(updated))
+    safeLocalStorageSet(`aura:progress:weight-records:${ownerId}`, JSON.stringify(updated))
 
     if (ownerId && ownerId !== 'anonymous') {
       saveUserWeightLog(ownerId, newRecord as any).catch((err) => {
@@ -286,7 +287,7 @@ export default function ProgressPage({
   const handleSaveMetrics = (updated: Partial<BodyMeasurements>) => {
     const next = { ...bodyMetrics, ...updated }
     setBodyMetrics(next)
-    localStorage.setItem(`aura:progress:body-measurements:${ownerId}`, JSON.stringify(next))
+    safeLocalStorageSet(`aura:progress:body-measurements:${ownerId}`, JSON.stringify(next))
 
     if (ownerId && ownerId !== 'anonymous') {
       saveUserBodyMeasurements(ownerId, next as any).catch((err) => {

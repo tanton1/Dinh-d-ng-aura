@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { safeLocalStorageSet } from '../../lib/safeStorage'
 import { 
   Camera, 
   ChevronRight, 
@@ -163,7 +164,7 @@ export function ProgressPhotosCard({ ownerId, triggerAddPhoto, onAddPhotoTrigger
       delete updated[activeAngle]
     }
     setCustomBeforeMap(updated)
-    localStorage.setItem(`aura:progress-photos:before:${ownerId}`, JSON.stringify(updated))
+    safeLocalStorageSet(`aura:progress-photos:before:${ownerId}`, JSON.stringify(updated))
   }
 
   const handleSetCustomAfterId = (id: string | null) => {
@@ -174,7 +175,7 @@ export function ProgressPhotosCard({ ownerId, triggerAddPhoto, onAddPhotoTrigger
       delete updated[activeAngle]
     }
     setCustomAfterMap(updated)
-    localStorage.setItem(`aura:progress-photos:after:${ownerId}`, JSON.stringify(updated))
+    safeLocalStorageSet(`aura:progress-photos:after:${ownerId}`, JSON.stringify(updated))
   }
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -218,8 +219,8 @@ export function ProgressPhotosCard({ ownerId, triggerAddPhoto, onAddPhotoTrigger
         const unsub = subscribeToUserProgressPhotos(ownerId, (data) => {
           if (Array.isArray(data) && data.length > 0) {
             setPhotos(data)
-            localStorage.setItem(`aura:progress-photos:${ownerId}`, JSON.stringify(data))
-            localStorage.setItem(`aura:cache:user_progress_photos:${ownerId}`, JSON.stringify(data))
+            safeLocalStorageSet(`aura:progress-photos:${ownerId}`, JSON.stringify(data))
+            safeLocalStorageSet(`aura:cache:user_progress_photos:${ownerId}`, JSON.stringify(data))
           }
         })
         return () => unsub()
@@ -287,7 +288,7 @@ export function ProgressPhotosCard({ ownerId, triggerAddPhoto, onAddPhotoTrigger
 
       const updated = [...photos, newPhoto]
       setPhotos(updated)
-      localStorage.setItem(`aura:progress-photos:${ownerId}`, JSON.stringify(updated))
+      safeLocalStorageSet(`aura:progress-photos:${ownerId}`, JSON.stringify(updated))
       window.dispatchEvent(new Event('aura:progress-photos-updated'))
 
       if (ownerId && ownerId !== 'demo' && ownerId !== 'anonymous') {
@@ -310,7 +311,7 @@ export function ProgressPhotosCard({ ownerId, triggerAddPhoto, onAddPhotoTrigger
     e?.stopPropagation()
     const updated = photos.filter(p => p.id !== id)
     setPhotos(updated)
-    localStorage.setItem(`aura:progress-photos:${ownerId}`, JSON.stringify(updated))
+    safeLocalStorageSet(`aura:progress-photos:${ownerId}`, JSON.stringify(updated))
     window.dispatchEvent(new Event('aura:progress-photos-updated'))
 
     if (ownerId && ownerId !== 'demo' && ownerId !== 'anonymous') {

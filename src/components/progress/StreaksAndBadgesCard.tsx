@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import { safeLocalStorageSet } from '../../lib/safeStorage'
 import { 
   Flame, 
   Award, 
@@ -385,10 +386,10 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
     setXp(newXp)
 
     // Save locally
-    localStorage.setItem(`aura:gamification:checked-in-dates:${ownerId}`, JSON.stringify(newDates))
-    localStorage.setItem(`aura:gamification:streak:${ownerId}`, newStreak.toString())
-    localStorage.setItem(`aura:gamification:longest-streak:${ownerId}`, newLongest.toString())
-    localStorage.setItem(`aura:gamification:xp:${ownerId}`, newXp.toString())
+    safeLocalStorageSet(`aura:gamification:checked-in-dates:${ownerId}`, JSON.stringify(newDates))
+    safeLocalStorageSet(`aura:gamification:streak:${ownerId}`, newStreak.toString())
+    safeLocalStorageSet(`aura:gamification:longest-streak:${ownerId}`, newLongest.toString())
+    safeLocalStorageSet(`aura:gamification:xp:${ownerId}`, newXp.toString())
 
     // Save to Firestore
     if (ownerId && ownerId !== 'anonymous') {

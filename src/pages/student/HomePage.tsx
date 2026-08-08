@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import { safeLocalStorageSet } from '../../lib/safeStorage'
 import {
   ArrowRight,
   Award,
@@ -159,19 +160,19 @@ export default function HomePage({
       if (remote) {
         if (typeof remote.streak === 'number') {
           setStreak(remote.streak)
-          localStorage.setItem(`aura:gamification:streak:${ownerId}`, remote.streak.toString())
+          safeLocalStorageSet(`aura:gamification:streak:${ownerId}`, remote.streak.toString())
         }
         if (typeof remote.longestStreak === 'number') {
           setLongestStreak(remote.longestStreak)
-          localStorage.setItem(`aura:gamification:longest-streak:${ownerId}`, remote.longestStreak.toString())
+          safeLocalStorageSet(`aura:gamification:longest-streak:${ownerId}`, remote.longestStreak.toString())
         }
         if (typeof remote.xp === 'number') {
           setXp(remote.xp)
-          localStorage.setItem(`aura:gamification:xp:${ownerId}`, remote.xp.toString())
+          safeLocalStorageSet(`aura:gamification:xp:${ownerId}`, remote.xp.toString())
         }
         if (Array.isArray(remote.checkedInDates)) {
           setCheckedInDates(remote.checkedInDates)
-          localStorage.setItem(`aura:gamification:checked-in-dates:${ownerId}`, JSON.stringify(remote.checkedInDates))
+          safeLocalStorageSet(`aura:gamification:checked-in-dates:${ownerId}`, JSON.stringify(remote.checkedInDates))
         }
       }
     }, (err) => {
@@ -339,10 +340,10 @@ export default function HomePage({
     setXp(newXp)
 
     // Save locally
-    localStorage.setItem(`aura:gamification:checked-in-dates:${ownerId}`, JSON.stringify(newDates))
-    localStorage.setItem(`aura:gamification:streak:${ownerId}`, newStreak.toString())
-    localStorage.setItem(`aura:gamification:longest-streak:${ownerId}`, newLongest.toString())
-    localStorage.setItem(`aura:gamification:xp:${ownerId}`, newXp.toString())
+    safeLocalStorageSet(`aura:gamification:checked-in-dates:${ownerId}`, JSON.stringify(newDates))
+    safeLocalStorageSet(`aura:gamification:streak:${ownerId}`, newStreak.toString())
+    safeLocalStorageSet(`aura:gamification:longest-streak:${ownerId}`, newLongest.toString())
+    safeLocalStorageSet(`aura:gamification:xp:${ownerId}`, newXp.toString())
 
     // Save to firebase if not demo
     if (ownerId && ownerId !== 'demo' && ownerId !== 'anonymous') {

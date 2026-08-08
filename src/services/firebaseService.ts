@@ -20,6 +20,7 @@ import {
 import { httpsCallable } from 'firebase/functions'
 import { ref as storageRef, uploadBytesResumable, getDownloadURL } from 'firebase/storage'
 import { firebaseAuth, firebaseFunctions, firebaseStorage, firestoreDb } from '../lib/firebase'
+import { safeLocalStorageSet } from '../lib/safeStorage'
 import type {
   AdminUserRecord,
   Course,
@@ -1038,13 +1039,7 @@ function safeGetCache(key: string, defaultValue: any) {
 }
 
 function safeSetCache(key: string, value: any) {
-  try {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(`aura:cache:${key}`, JSON.stringify(value));
-    }
-  } catch (e) {
-    // ignore
-  }
+  safeLocalStorageSet(`aura:cache:${key}`, JSON.stringify(value))
 }
 
 export function subscribeToAllMealReviews(
