@@ -1,7 +1,7 @@
 import { AlertCircle, BookOpen, CheckCircle2, Clock3, Eye, Filter, LoaderCircle, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Star, TrendingUp, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { Course, CourseAnalytics, PublicationStatus } from '../../types'
-import { PageHeader, ProgressBar } from '../../components/ui'
+import { ProgressBar } from '../../components/ui'
 
 interface AdminCoursesPageProps {
   courseItems?: Course[]
@@ -173,22 +173,49 @@ export default function AdminCoursesPage({
 
   return (
     <div className="page admin-courses-page">
-      <PageHeader
-        eyebrow="AURA ACADEMY · QUẢN LÝ NỘI DUNG"
-        title="Khóa học dinh dưỡng"
-        description="Xây dựng lộ trình chuyên sâu, nội dung ghi nhớ chủ động, ngân hàng câu hỏi và chứng nhận học tập."
-        action={
-          canCreate
-            ? <button className="primary-button" onClick={onCreate}><Plus size={18} /> Tạo khóa học Academy</button>
-            : undefined
-        }
-      />
+      <div className="admin-hero-header text-white">
+        <div className="admin-hero-header-bg">
+           <svg width="300" height="300" viewBox="0 0 100 100" fill="none"><circle cx="50" cy="50" r="50" fill="white"/></svg>
+        </div>
+        <div className="admin-hero-header-content text-white">
+          <span className="admin-hero-eyebrow text-white">
+            Aura Academy · Quản lý nội dung
+          </span>
+          <h1 className="admin-hero-title text-white">Khóa học & Đào tạo</h1>
+          <p className="admin-hero-desc text-white">
+            Xây dựng lộ trình chuyên sâu, thiết kế bài giảng, câu hỏi trắc nghiệm và cấp chứng nhận học tập cho hội viên Aura Fitness.
+          </p>
+        </div>
+        {canCreate && (
+          <div className="admin-hero-action">
+            <button className="admin-hero-btn" onClick={onCreate}>
+              <Plus size={18} />
+              <span>Tạo khóa học mới</span>
+            </button>
+          </div>
+        )}
+      </div>
 
-      <div className="admin-kpi-grid" style={{ marginBottom: 13 }}>
-        <article className="admin-kpi"><div className="admin-kpi__icon purple"><BookOpen size={16} /></div><div><span>KHÓA HỌC</span><strong>{totals.total}</strong><small><TrendingUp size={10} /> Trong hệ thống</small></div></article>
-        <article className="admin-kpi"><div className="admin-kpi__icon green"><Users size={16} /></div><div><span>HỌC VIÊN ĐANG GHI DANH</span><strong>{totals.learners}</strong><small>Tổng lượt học viên đang hoạt động</small></div></article>
-        <article className="admin-kpi"><div className="admin-kpi__icon orange"><CheckCircle2 size={16} /></div><div><span>HOÀN THÀNH TB.</span><strong>{totals.avgCompletion}%</strong><small>Trung bình tất cả khóa học</small></div></article>
-        <article className="admin-kpi"><div className="admin-kpi__icon pink"><Clock3 size={16} /></div><div><span>CHỜ DUYỆT</span><strong>{totals.pending}</strong><small>{totals.draft} khóa bản nháp cần xem</small></div></article>
+      <div className="admin-kpi-grid" style={{ marginBottom: 24 }}>
+        <article className="admin-kpi">
+          <div className="admin-kpi__icon gradient-pink-orange"><BookOpen size={16} /></div>
+          <div><span>TỔNG KHÓA HỌC</span><strong>{totals.total}</strong><small><TrendingUp size={10} /> Trong hệ thống</small></div>
+        </article>
+        
+        <article className="admin-kpi">
+          <div className="admin-kpi__icon gradient-pink-orange"><Users size={16} /></div>
+          <div><span>HỌC VIÊN GHI DANH</span><strong>{totals.learners}</strong><small>Lượt hoạt động</small></div>
+        </article>
+
+        <article className="admin-kpi">
+          <div className="admin-kpi__icon gradient-pink-orange"><CheckCircle2 size={16} /></div>
+          <div><span>HOÀN THÀNH TB</span><strong>{totals.avgCompletion}%</strong><small>Toàn bộ khóa học</small></div>
+        </article>
+
+        <article className="admin-kpi">
+          <div className="admin-kpi__icon gradient-pink-orange"><Clock3 size={16} /></div>
+          <div><span>CHỜ DUYỆT / NHÁP</span><strong>{totals.pending + totals.draft}</strong><small>{totals.pending} chờ duyệt, {totals.draft} nháp</small></div>
+        </article>
       </div>
 
       <div className="admin-list-toolbar">

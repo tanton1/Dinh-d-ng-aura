@@ -621,6 +621,47 @@ const courseMediaTypes: Record<LessonResourceKind, RegExp> = {
   document: /^(application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document|text\/plain)$/,
 }
 
+export function uploadCourseCover(
+  courseId: string,
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<string> {
+  if (!firebaseStorage || !firebaseAuth?.currentUser) return Promise.reject(new Error('Bạn cần đăng nhập để tải ảnh lên Firebase.'))
+  
+  if (!/^image\/(jpeg|png|webp|gif)$/.test(file.type)) {
+    return Promise.reject(new Error('Vui lòng chọn ảnh định dạng JPG, PNG, WEBP hoặc GIF.'))
+  }
+  
+  const maxBytes = 5 * 1024 * 1024 // 5MB
+  if (file.size < 1 || file.size > maxBytes) {
+    return Promise.reject(new Error('Kích thước ảnh không được vượt quá 5MB.'))
+  }
+
+  const assetId = crypto.randomUUID()
+  const safeFileName = file.name.normalize('NFKD').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'cover.jpg'
+  const storagePath = `public-assets/course-covers/${courseId}/${assetId}-${safeFileName}`
+  
+  const task = uploadBytesResumable(storageRef(firebaseStorage, storagePath), file, {
+    contentType: file.type,
+    customMetadata: { courseId, uploadedBy: firebaseAuth.currentUser.uid },
+  })
+
+  return new Promise((resolve, reject) => {
+    task.on(
+      'state_changed',
+      (snap) => {
+        if (onProgress && snap.totalBytes > 0) {
+          onProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100))
+        }
+      },
+      (error) => reject(error),
+      () => {
+        getDownloadURL(task.snapshot.ref).then(resolve).catch(reject)
+      }
+    )
+  })
+}
+
 /** Uploads a private course asset. Learners resolve it through getCourseMediaUrl. */
 export function uploadCourseMedia(
   input: { courseId: string; lessonId: string; kind: LessonResourceKind },

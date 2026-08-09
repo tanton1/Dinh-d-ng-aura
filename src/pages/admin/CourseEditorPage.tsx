@@ -34,7 +34,7 @@ import {
   toAcademyLessonMemory,
   type AcademyLessonContent,
 } from '../../services/academyLearningService'
-import { loadCourseQuizAnswerKeys, uploadCourseMedia } from '../../services/firebaseService'
+import { loadCourseQuizAnswerKeys, uploadCourseMedia, uploadCourseCover } from '../../services/firebaseService'
 import type {
   CourseDraftInput,
   CourseQuizAnswerKeys,
@@ -208,6 +208,7 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
   const [detailLessonModuleIndex, setDetailLessonModuleIndex] = useState(0)
   const [detailLessonIndex, setDetailLessonIndex] = useState(0)
   const [mediaUploads, setMediaUploads] = useState<Record<string, { progress: number; error?: string }>>({})
+  const [coverUploading, setCoverUploading] = useState(false)
   const coverInputRef = useRef<HTMLInputElement>(null)
   const isDirty = JSON.stringify(course) !== lastSavedSnapshot.current
   const isPublished = course.publicationStatus === 'published'
@@ -706,7 +707,32 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
 
   const focusCoverInput = () => {
     setActiveStep(1)
-    window.setTimeout(() => coverInputRef.current?.focus(), 0)
+    window.setTimeout(() => coverInputRef.current?.click(), 0)
+  }
+
+  const handleCoverUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    
+    if (saveTarget !== 'firebase') {
+      alert('Vui lòng đồng bộ khóa học với Firebase (hoặc cài đặt biến môi trường Firebase) để tải ảnh.')
+      return
+    }
+    
+    if (!course.id) {
+       alert('Vui lòng lưu nháp khóa học một lần trước khi tải ảnh lên.')
+       return
+    }
+
+    try {
+      setCoverUploading(true)
+      const url = await uploadCourseCover(course.id, file)
+      updateField('coverUrl', url)
+    } catch (error: any) {
+      alert(error.message || 'Có lỗi xảy ra khi tải ảnh lên.')
+    } finally {
+      setCoverUploading(false)
+    }
   }
 
   return (
@@ -856,7 +882,20 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
               <div className="course-form-grid">
                 <label className="span-2"><span>Tên khóa học *</span><input value={course.title} onChange={(event) => updateField('title', event.target.value)} /></label>
                 <label className="span-2"><span>Slug *</span><input value={course.slug} onChange={(event) => updateField('slug', event.target.value)} /></label>
-                <label className="span-2"><span>URL ảnh bìa</span><input ref={coverInputRef} type="url" inputMode="url" value={course.coverUrl ?? ''} onChange={(event) => updateField('coverUrl', event.target.value)} placeholder="https://.../anh-khoa-hoc.jpg" /><small>Dùng ảnh ngang tối thiểu 1200 × 675 px để hiển thị sắc nét trên mọi thiết bị.</small></label>
+                <label className="span-2">
+                  <span>Ảnh bìa</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                     <input 
+                       ref={coverInputRef} 
+                       type="file" 
+                       accept="image/jpeg, image/png, image/webp, image/gif" 
+                       onChange={handleCoverUpload} 
+                       style={{ flex: 1 }}
+                     />
+                     {coverUploading && <span style={{ fontSize: '14px', color: '#666' }}>Đang tải...</span>}
+                  </div>
+                  <small>Dùng ảnh ngang tối thiểu 1200 × 675 px. {course.coverUrl && <a href={course.coverUrl} target="_blank" rel="noreferrer" style={{ color: '#0066cc', textDecoration: 'underline' }}>Xem ảnh hiện tại</a>}</small>
+                </label>
                 <label className="span-2"><span>Mô tả *</span><textarea value={course.description} onChange={(event) => updateField('description', event.target.value)} /></label>
                 <label><span>Danh mục</span><select value={course.category} onChange={(event) => updateField('category', event.target.value)}>{!['Dinh dưỡng nền tảng', 'Dinh dưỡng giảm mỡ', 'Dinh dưỡng tăng cơ', 'Dinh dưỡng thể thao', 'Dinh dưỡng chuyên sâu', 'Chứng nhận chuyên môn'].includes(course.category) ? <option>{course.category}</option> : null}<option>Dinh dưỡng nền tảng</option><option>Dinh dưỡng giảm mỡ</option><option>Dinh dưỡng tăng cơ</option><option>Dinh dưỡng thể thao</option><option>Dinh dưỡng chuyên sâu</option><option>Chứng nhận chuyên môn</option></select></label>
                 <label><span>Cấp độ</span><select value={course.level} onChange={(event) => updateField('level', event.target.value)}><option>Cơ bản</option><option>Trung cấp</option><option>Nâng cao</option><option>Mọi cấp độ</option></select></label>

@@ -19,19 +19,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom'],
-          'firebase-core': ['firebase/app'],
-          'firebase-app-check': ['firebase/app-check'],
-          'firebase-auth': ['firebase/auth'],
-          'firebase-firestore': ['firebase/firestore'],
-          'firebase-functions': ['firebase/functions'],
-          'firebase-storage': ['firebase/storage'],
-          'ui-motion': ['motion'],
-          'ui-charts': ['recharts'],
-          'ui-forms': ['react-hook-form', '@hookform/resolvers', 'zod'],
-          'icons': ['lucide-react'],
-        },
+        manualChunks: undefined,
       },
     },
   },
