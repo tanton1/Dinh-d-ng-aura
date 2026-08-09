@@ -1,8 +1,9 @@
 import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Utensils, Flame, Dumbbell, HeartPulse } from 'lucide-react'
 import AppShell from './components/AppShell'
-import OnboardingFlow, { type OnboardingData } from './components/OnboardingFlow'
+import Onboarding from './onboarding/Onboarding'
 import { hasPermission, type Permission } from './config/permissions'
+import { calculateNutritionTargets } from './services/nutritionSyncService'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useCourses } from './hooks/useCourses'
 import { useLearningProgress } from './hooks/useLearningProgress'
@@ -232,6 +233,7 @@ function AuraApplication() {
   const [adminCourseAnalytics, setAdminCourseAnalytics] = useState<CourseAnalytics[]>([])
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
   const [localNutritionProfile, setLocalNutritionProfile] = useState<NutritionProfileDraft | null>(null)
+  const [forceOnboarding, setForceOnboarding] = useState(false)
   const [localProfile, setLocalProfile] = useState<ProfileUpdateInput | null>(null)
   const [localEnrollmentIds, setLocalEnrollmentIds] = useState<Set<string>>(() => new Set())
   const [demoProgressByCourseId, setDemoProgressByCourseId] = useState<Map<string, CourseProgress>>(() => new Map())
@@ -262,13 +264,14 @@ function AuraApplication() {
     }
   }, [user?.uid])
 
-  const isOnboardingDone = Boolean(
+  const isOnboardingDone = !forceOnboarding && Boolean(
     profile?.onboardingCompleted ||
     profile?.nutritionProfile ||
     localNutritionProfile ||
     (profile?.heightCm && profile?.weightKg) ||
     (profile?.goals && profile.goals.length > 0) ||
-    (user?.uid && typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${user.uid}`) === 'true')
+    (user?.uid && typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${user.uid}`) === 'true') ||
+    (typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${user?.uid ?? 'demo'}`) === 'true')
   )
 
   useEffect(() => {
@@ -278,16 +281,48 @@ function AuraApplication() {
   }, [user, backendMode, isOnboardingDone, profile])
 
   const saveProfile = async (values: ProfileUpdateInput) => {
+    // Recalculate targets based on new values
+    const rawGoal = values.goals ? values.goals[0] : (profile?.nutritionProfile?.goal || 'maintain');
+    const safeGoal = rawGoal === 'fat_loss' ? 'lose-fat' : rawGoal === 'muscle_gain' ? 'gain-muscle' : 'maintain';
+    
+    const mergedProfileData = {
+      ...(profile?.nutritionProfile || {}),
+      ...(localNutritionProfile || {}),
+      ...values,
+      heightCm: values.heightCm ?? profile?.nutritionProfile?.heightCm ?? 165,
+      weightKg: values.weightKg ?? profile?.nutritionProfile?.weightKg ?? 60,
+      targetWeightDeltaKg: values.targetWeightDeltaKg ?? profile?.nutritionProfile?.targetWeightDeltaKg ?? 0,
+      targetTimeframeMonths: values.targetTimeframeMonths ?? profile?.nutritionProfile?.targetTimeframeMonths ?? 3,
+      goal: safeGoal
+    }
+    const newTargets = calculateNutritionTargets(mergedProfileData as any)
+    
+    const nextNutritionProfile = {
+      ...mergedProfileData,
+      age: mergedProfileData.age ?? 30,
+      biologicalSex: mergedProfileData.biologicalSex ?? 'female',
+      targetSpeedPace: mergedProfileData.targetSpeedPace || undefined,
+      goal: safeGoal as "lose-fat" | "gain-muscle" | "maintain",
+      targetCalories: newTargets.targetCaloriesKcal,
+      protein: newTargets.proteinG,
+      carbs: newTargets.carbsG,
+      fat: newTargets.fatG,
+      waterLiters: newTargets.waterLiters,
+      steps: newTargets.stepsPerDay
+    } as any;
+
     if (user?.uid) {
       try {
         window.localStorage.setItem(`aura:onboarding-completed:${user.uid}`, 'true')
         window.localStorage.setItem(`aura:profile:${user.uid}`, JSON.stringify(values))
         window.localStorage.setItem(`aura:user-profile:${user.uid}`, JSON.stringify(values))
+        window.localStorage.setItem(`aura:nutrition-profile:${user.uid}`, JSON.stringify(nextNutritionProfile))
       } catch {
         // Storage unavailable
       }
     }
-    setLocalProfile((current) => {
+    
+    setLocalProfile((current: any) => {
       const next: ProfileUpdateInput = {
         ...current,
         ...values,
@@ -304,10 +339,13 @@ function AuraApplication() {
       return next
     })
 
+    setLocalNutritionProfile(nextNutritionProfile as any)
+
     if (backendMode === 'firebase' && user) {
       try {
         await updateUserProfile(user.uid, {
           ...values,
+          nutritionProfile: nextNutritionProfile,
           onboardingCompleted: true,
         })
       } catch (err) {
@@ -600,8 +638,7 @@ function AuraApplication() {
         
         <div className="aura-loading-center">
            <div className="aura-loading-logo-group">
-              <h1 className="aura-loading-h1">AURA</h1>
-              <h2 className="aura-loading-h2">+FITNESS+</h2>
+              <img src="/aura-onboarding.png" alt="Aura Fitness Background" style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', inset: 0, zIndex: 0 }} />
            </div>
         </div>
 
@@ -721,7 +758,7 @@ function AuraApplication() {
         displayName={effectiveDisplayName ?? user?.displayName ?? undefined}
         isDemo={backendMode === 'demo'}
         storageOwnerId={user?.uid ?? 'demo'}
-        hasProfile={Boolean(profile?.nutritionProfile || localNutritionProfile)}
+        hasProfile={!forceOnboarding && Boolean(profile?.nutritionProfile || localNutritionProfile)}
         profile={profile?.nutritionProfile ?? localNutritionProfile ?? undefined}
         onProfileComplete={async (nutritionProfile) => {
           setLocalNutritionProfile(nutritionProfile)
@@ -769,7 +806,7 @@ function AuraApplication() {
       />
       case 'progress-photo-studio': return <ProgressPhotoStudio onNavigate={navigate} ownerId={user?.uid ?? 'demo'} />
       case 'progress': return <ProgressPage ownerId={user?.uid ?? 'demo'} courseItems={studentCourses} progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error || learningData.error} onOpenCourse={openCourse} onNavigate={navigate} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} heightCm={effectiveHeight} />
-      case 'profile': return <ProfilePage displayName={effectiveDisplayName} email={profile?.email} membership={profile?.membership} goals={effectiveGoals} heightCm={effectiveHeight} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} targetSpeedPace={effectiveTargetSpeedPace} notificationSettings={effectiveNotifications} mealReminderTime={profile?.mealReminderTime} onSave={saveProfile} onSignOut={signOut} />
+      case 'profile': return <ProfilePage fullProfile={profile} displayName={effectiveDisplayName} email={profile?.email} membership={profile?.membership} goals={effectiveGoals} heightCm={effectiveHeight} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} targetSpeedPace={effectiveTargetSpeedPace} notificationSettings={effectiveNotifications} mealReminderTime={profile?.mealReminderTime} onSave={saveProfile} onSignOut={signOut} onEditProfile={() => setForceOnboarding(true)} />
       case 'workout': {
         return <WorkoutPage key="pt-coaching-workout" onNavigate={navigate} onSave={async (log) => {
           if (backendMode === 'firebase' && user) {
@@ -839,52 +876,66 @@ function AuraApplication() {
     }
   }
 
-  if (user && profile && !isOnboardingDone) {
+  if ((user || backendMode === 'demo') && !isOnboardingDone) {
     return (
-      <OnboardingFlow
-        initialName={user.displayName ?? ''}
-        onComplete={async (data) => {
-          const nutProfile = {
-            ...data,
-            eatingStyle: 'Omnivore' as const,
-            allergies: 'None',
+      <Onboarding 
+        initialProfile={{}}
+        onComplete={async (profile, plan) => {
+          const uid = user?.uid ?? 'demo';
+          const nutritionProfile = {
+            ...profile,
+            age: plan.age || (profile?.birthYear ? new Date().getFullYear() - profile.birthYear : 30),
+            goal: profile.primaryGoal === 'fat_loss' ? 'lose-fat' : profile.primaryGoal === 'muscle_gain' ? 'gain-muscle' : 'maintain',
+            targetWeightDeltaKg: profile.targetWeightKg && profile.weightKg ? profile.targetWeightKg - profile.weightKg : 0,
+            targetTimeframeMonths: Math.max(1, Math.round((plan.estimatedWeeks || 12) / 4.33)) || 3,
+            targetCalories: plan.targetCaloriesKcal,
+            protein: plan.proteinG,
+            carbs: plan.carbsG,
+            fat: plan.fatG,
+            waterLiters: plan.waterLiters,
+            steps: plan.stepsPerDay
+          };
+
+          try {
+            window.localStorage.setItem(`aura:onboarding-completed:${uid}`, 'true');
+            window.localStorage.setItem(`aura:nutrition-profile:${uid}`, JSON.stringify(nutritionProfile));
+          } catch (e) {
+            console.error('LocalStorage error:', e);
           }
-          const profileInput: ProfileUpdateInput = {
-            goals: [data.goal],
-            heightCm: data.heightCm,
-            weightKg: data.weightKg,
-            targetWeightDeltaKg: (data as any).targetWeightDeltaKg ?? null,
-            targetTimeframeMonths: (data as any).targetTimeframeMonths ?? null,
-            targetSpeedPace: (data as any).targetSpeedPace ?? null,
-          }
-          if (user?.uid) {
+
+          setLocalNutritionProfile(nutritionProfile);
+          setForceOnboarding(false);
+
+          if (backendMode === 'firebase' && user) {
             try {
-              window.localStorage.setItem(`aura:onboarding-completed:${user.uid}`, 'true')
-              window.localStorage.setItem(`aura:nutrition-profile:${user.uid}`, JSON.stringify(nutProfile))
-              window.localStorage.setItem(`aura:profile:${user.uid}`, JSON.stringify(profileInput))
-              window.localStorage.setItem(`aura:user-profile:${user.uid}`, JSON.stringify(profileInput))
-            } catch {
-              // Ignore
+              const { doc, setDoc } = await import('firebase/firestore');
+              const { firestoreDb } = await import('./lib/firebase');
+              if (firestoreDb) {
+                const userRef = doc(firestoreDb, 'users', user.uid);
+                await setDoc(userRef, { 
+                  onboardingCompleted: true,
+                  onboardingData: profile,
+                  nutritionProfile,
+                  heightCm: profile.heightCm,
+                  weightKg: profile.weightKg,
+                  goals: profile.goals || (profile.primaryGoal ? [profile.primaryGoal] : []),
+                  biologicalSex: profile.biologicalSex,
+                  birthYear: profile.birthYear,
+                  activityLevel: profile.activityLevel,
+                  sleepHours: profile.sleepHours,
+                  sleepQuality: profile.sleepQuality,
+                  stressLevel: profile.stressLevel,
+                  dietType: profile.dietType,
+                  healthConditions: profile.healthConditions
+                }, { merge: true });
+              }
+            } catch (e) {
+              console.error('Firestore onboarding save error:', e);
             }
           }
-          setLocalNutritionProfile(nutProfile)
-          setLocalProfile(profileInput)
-          if (backendMode === 'firebase' && user) {
-            await updateUserProfile(user.uid, {
-              onboardingCompleted: true,
-              goals: [data.goal],
-              heightCm: data.heightCm,
-              weightKg: data.weightKg,
-              targetWeightDeltaKg: (data as any).targetWeightDeltaKg ?? null,
-              targetTimeframeMonths: (data as any).targetTimeframeMonths ?? null,
-              targetSpeedPace: (data as any).targetSpeedPace ?? null,
-              nutritionProfile: nutProfile,
-            })
-          } else {
-            // For demo mode, just update the local context or reload
-            window.location.reload()
-          }
-        }}
+
+          navigate('nutrition');
+        }} 
       />
     )
   }

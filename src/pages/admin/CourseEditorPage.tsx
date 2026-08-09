@@ -210,6 +210,142 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
   const [mediaUploads, setMediaUploads] = useState<Record<string, { progress: number; error?: string }>>({})
   const [coverUploading, setCoverUploading] = useState(false)
   const coverInputRef = useRef<HTMLInputElement>(null)
+  
+  const [generatingOutline, setGeneratingOutline] = useState(false)
+  const [generatingQuiz, setGeneratingQuiz] = useState(false)
+  const [generatingMemory, setGeneratingMemory] = useState(false)
+
+  const handleGenerateOutline = async () => {
+    if (!course.title) {
+      alert("Vui lòng nhập tên khóa học ở Bước 1 trước khi tự động lên sườn.");
+      return;
+    }
+    if (course.modules.length > 0) {
+      if (!window.confirm("Khóa học đã có chương. Việc tạo tự động có thể sẽ xóa hoặc ghi đè nội dung. Bạn có chắc chắn muốn tiếp tục?")) return;
+    }
+    try {
+      setGeneratingOutline(true);
+      const res = await fetch("/api/ai/generate-course-outline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: course.title,
+          audience: course.description || course.outcomes.join(', '),
+          weeks: course.duration,
+        })
+      });
+      const data = await res.json();
+      if (data && data.modules) {
+        setCourse((c) => ({
+          ...c,
+          modules: data.modules.map((m: any, i: number) => ({
+            id: 'module-' + crypto.randomUUID(),
+            title: m.title,
+            lessons: m.lessons.map((l: any, j: number) => ({
+              id: 'lesson-' + crypto.randomUUID(),
+              type: "Video",
+              title: l.title,
+              duration: "5 phút",
+              preview: false,
+              summary: l.summary,
+            }))
+          }))
+        }));
+      }
+    } catch (e) {
+      alert("Có lỗi xảy ra khi gọi AI.");
+    } finally {
+      setGeneratingOutline(false);
+    }
+  }
+
+  const handleGenerateQuiz = async () => {
+    const detailLesson = course.modules[detailLessonModuleIndex]?.lessons[detailLessonIndex]
+    if (!detailLesson) return;
+    try {
+      setGeneratingQuiz(true);
+      const res = await fetch("/api/ai/generate-course-quiz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lessonTitle: detailLesson.title,
+          lessonSummary: detailLesson.summary || detailLesson.coachNotes || course.title,
+        })
+      });
+      const data = await res.json();
+      if (data && data.questions) {
+        setCourse((c) => {
+          const newCourse = { ...c };
+          const mod = newCourse.modules[detailLessonModuleIndex];
+          const les = mod.lessons[detailLessonIndex];
+          if (!les.quiz) {
+            les.quiz = { id: crypto.randomUUID(),
+              questionOrder: 'sequential',
+              passPercent: 70,
+              publicSettings: { maxAttempts: 3, revealMode: 'after-submit' },
+              questions: []
+            };
+          }
+          les.quiz!.questions = [
+            ...(les.quiz!.questions || []),
+            ...data.questions.map((q: any) => ({
+              id: 'quiz-' + crypto.randomUUID(),
+              question: q.question,
+              options: q.options,
+              correctIndex: q.correctIndex,
+              explanation: q.explanation
+            }))
+          ];
+          return newCourse;
+        });
+      }
+    } catch (e) {
+      alert("Có lỗi xảy ra khi gọi AI Quiz.");
+    } finally {
+      setGeneratingQuiz(false);
+    }
+  }
+
+  const handleGenerateMemory = async () => {
+    const detailLesson = course.modules[detailLessonModuleIndex]?.lessons[detailLessonIndex]
+    if (!detailLesson) return;
+    try {
+      setGeneratingMemory(true);
+      const res = await fetch("/api/ai/generate-course-memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lessonTitle: detailLesson.title,
+          lessonSummary: detailLesson.summary || detailLesson.coachNotes || course.title,
+        })
+      });
+      const data = await res.json();
+      if (data) {
+        setCourse((c) => {
+          const newCourse = { ...c };
+          const mod = newCourse.modules[detailLessonModuleIndex];
+          const les = mod.lessons[detailLessonIndex];
+          const existingContent = getAcademyLessonContent(les);
+          
+          const newContent = {
+             minuteSummary: data.minuteSummary || existingContent.minuteSummary,
+             keyTakeaways: [...(existingContent.keyTakeaways||[]), ...(data.keyTakeaways||[])],
+             terms: [...(existingContent.terms||[]), ...(data.terms||[]).map((t:any) => ({ id: crypto.randomUUID(), term: t.term, definition: t.definition }))],
+             recallPrompts: [...(existingContent.recallPrompts||[]), ...(data.recallPrompts||[]).map((r:any) => ({ id: crypto.randomUUID(), prompt: r.prompt, answer: r.answer }))],
+             flashcards: [...(existingContent.flashcards||[]), ...(data.flashcards||[]).map((f:any) => ({ id: crypto.randomUUID(), front: f.front, back: f.back, hint: f.hint }))]
+          };
+          
+          les.memory = toAcademyLessonMemory(newContent);
+          return newCourse;
+        });
+      }
+    } catch (e) {
+      alert("Có lỗi xảy ra khi gọi AI Flashcard.");
+    } finally {
+      setGeneratingMemory(false);
+    }
+  }
+
   const isDirty = JSON.stringify(course) !== lastSavedSnapshot.current
   const isPublished = course.publicationStatus === 'published'
 
@@ -909,7 +1045,7 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
 
           {activeStep === 2 && (
             <section className="editor-step-panel">
-              <div className="builder-heading"><div><span className="eyebrow">BƯỚC 2 / 4</span><h1>Nội dung Aura Academy</h1><p>Thiết kế khóa đào tạo dinh dưỡng chuyên sâu, độc lập hoàn toàn với giáo án PT.</p></div><button className="outline-button" onClick={addModule}><Plus size={17} /> Thêm chương</button></div>
+              <div className="builder-heading"><div><span className="eyebrow">BƯỚC 2 / 4</span><h1>Nội dung Aura Academy</h1><p>Thiết kế khóa đào tạo dinh dưỡng chuyên sâu, độc lập hoàn toàn với giáo án PT.</p></div><div style={{display: 'flex', gap: 8}}><button className="outline-button" onClick={handleGenerateOutline} disabled={generatingOutline} style={{color: '#8b5cf6', border: '1px solid #8b5cf6'}}><Sparkles size={17} /> {generatingOutline ? 'Đang tạo...' : 'AI Lên sườn nội dung'}</button><button className="outline-button" onClick={addModule}><Plus size={17} /> Thêm chương</button></div></div>
               <div className="builder-tip"><span>💡</span><p><strong>Nhịp học ghi nhớ sâu</strong>Kết hợp video, bài đọc, tóm tắt 60 giây, active recall, flashcard và quiz kiểm tra.</p></div>
               <div className="module-list">
                 {course.modules.map((module, moduleIndex) => (
@@ -1051,6 +1187,9 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
                             <select value={detailLesson.quiz?.publicSettings?.revealMode ?? 'after-submit'} onChange={(event) => updateLesson(detailLessonModuleIndex, detailLessonIndex, { quiz: { ...(detailLesson.quiz ?? createDefaultQuiz()), publicSettings: { ...(detailLesson.quiz?.publicSettings ?? {}), revealMode: event.target.value as 'never' | 'after-submit' | 'after-pass' } } })} aria-label="Thời điểm hiện giải thích">
                               <option value="never">Không hiện đáp án</option><option value="after-submit">Sau khi nộp</option><option value="after-pass">Sau khi đạt</option>
                             </select>
+                          </div>
+                          <div className="builder-quiz-head" style={{marginTop: 16, borderTop: '1px solid #e2e8f0', paddingTop: 16}}>
+                            <button className="outline-button" onClick={handleGenerateQuiz} disabled={generatingQuiz} style={{color: '#8b5cf6', border: '1px solid #8b5cf6'}}><Sparkles size={14} /> {generatingQuiz ? 'Đang tạo...' : 'AI Tạo câu hỏi'}</button>
                           </div>
                           {(detailLesson.quiz?.questions ?? []).map((question, questionIndex) => (
                             <div className="builder-question" key={question.id}>

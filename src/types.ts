@@ -18,6 +18,7 @@ export interface UserProfile {
   role: UserRole
   membership: 'free' | 'pro' | 'coach'
   onboardingCompleted?: boolean
+  onboardingData?: any
   goals?: string[]
   heightCm?: number | null
   weightKg?: number | null

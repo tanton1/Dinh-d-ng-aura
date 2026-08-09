@@ -7,6 +7,7 @@ import NutritionFoodDetail, {
   type NutritionServingSelection,
 } from './NutritionFoodDetail'
 import CapturedMealDetail from './CapturedMealDetail'
+import { calculateNutritionTargets } from '../../services/nutritionSyncService'
 import NutritionGroupIcon from '../../components/NutritionGroupIcon'
 import NutritionDashboardHome from './NutritionDashboardHome'
 import NutritionProfileEditor from './NutritionProfileEditor'
@@ -380,7 +381,7 @@ const WEEK_PLAN = [
 ]
 
 const ACTIVITY_FACTORS: Record<NutritionProfileDraft['activityLevel'], number> = {
-  low: 1.25,
+  low: 1.3,
   moderate: 1.45,
   high: 1.65,
 }
@@ -402,10 +403,14 @@ const ACTIVITY_INTENSITY_LABELS: Record<NutritionActivityIntensity, string> = {
   high: 'Cao',
 }
 
-const GOAL_LABELS: Record<NutritionGoal, string> = {
+const GOAL_LABELS: Record<string, string> = {
   'lose-fat': 'Giảm mỡ bền vững',
   'gain-muscle': 'Tăng cơ & phục hồi',
   maintain: 'Duy trì thể trạng',
+  'fat_loss': 'Giảm mỡ bền vững',
+  'muscle_gain': 'Tăng cơ & phục hồi',
+  'maintenance': 'Duy trì thể trạng',
+  'health': 'Cải thiện sức khỏe'
 }
 
 const DEMO_CATALOG: NutritionFoodCatalogItem[] = [
@@ -458,30 +463,22 @@ function formatDecimal(value: number, maximumFractionDigits = 1) {
 }
 
 function getNutritionTargets(profile: NutritionProfileDraft, overrideWeight?: number) {
-  const weight = overrideWeight ?? profile.weightKg
-  const sexOffset = profile.biologicalSex === 'male' ? 5 : -161
-  const restingCalories = 10 * weight + 6.25 * profile.heightCm - 5 * profile.age + sexOffset
-  const maintenanceCalories = restingCalories * ACTIVITY_FACTORS[profile.activityLevel]
+  const targets = calculateNutritionTargets({
+    ...profile,
+    weightKg: overrideWeight ?? profile.weightKg
+  });
   
-  const targetDelta = profile.targetWeightDeltaKg ?? (profile.goal === 'lose-fat' ? -4 : profile.goal === 'gain-muscle' ? 3 : 0)
-  const timeframeMonths = profile.targetTimeframeMonths ?? 3
-  
-  let dailyAdjustment = 0
-  if (profile.goal === 'lose-fat') {
-    const totalDeficit = Math.abs(targetDelta) * 7700
-    dailyAdjustment = -Math.min(800, Math.max(250, Math.round(totalDeficit / (timeframeMonths * 30))))
-  } else if (profile.goal === 'gain-muscle') {
-    const totalSurplus = Math.abs(targetDelta) * 5500
-    dailyAdjustment = Math.min(600, Math.max(200, Math.round(totalSurplus / (timeframeMonths * 30))))
+  return {
+    calorieGoal: targets.targetCaloriesKcal,
+    proteinGoal: targets.proteinG,
+    carbGoal: targets.carbsG,
+    fatGoal: targets.fatG,
+    waterGoal: targets.waterLiters * 1000,
+    maintenanceCalories: targets.tdee,
+    dailyAdjustment: targets.targetCaloriesKcal - targets.tdee,
+    targetDelta: profile.targetWeightDeltaKg ?? 0,
+    timeframeMonths: profile.targetTimeframeMonths ?? 3
   }
-
-  const calorieGoal = Math.min(4500, Math.max(1200, Math.round((maintenanceCalories + dailyAdjustment) / 50) * 50))
-  const proteinPerKg = profile.goal === 'gain-muscle' ? 2 : profile.goal === 'lose-fat' ? 1.8 : 1.6
-  const proteinGoal = Math.round(weight * proteinPerKg)
-  const fatGoal = Math.max(45, Math.round(weight * 0.8))
-  const carbGoal = Math.max(80, Math.round((calorieGoal - proteinGoal * 4 - fatGoal * 9) / 4))
-  const waterGoal = Math.min(4000, Math.max(1500, Math.round((weight * 35) / 100) * 100))
-  return { calorieGoal, proteinGoal, carbGoal, fatGoal, waterGoal, maintenanceCalories, dailyAdjustment, targetDelta, timeframeMonths }
 }
 
 function getDailyPlan(calorieGoal: number, profile: NutritionProfileDraft) {
@@ -3571,7 +3568,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
           meals: workspacePlannedMeals,
           dailyCalorieGoal: calorieGoal,
           strategyTitle: profileDraft.goal === 'gain-muscle' ? 'Đủ đạm, ưu tiên phục hồi' : profileDraft.goal === 'lose-fat' ? 'No lâu, thâm hụt vừa phải' : 'Cân bằng và dễ duy trì',
-          strategyDescription: `Bản nháp dựa trên mục tiêu ${GOAL_LABELS[profileDraft.goal].toLocaleLowerCase('vi-VN')}, ${profileDraft.trainingSessions} buổi tập/tuần, phong cách ${profileDraft.eatingStyle.toLocaleLowerCase('vi-VN')}, ${profileDraft.mealsPerDay || 3} bữa/ngày và gu ẩm thực ${profileDraft.favoriteCuisine || 'đa dạng'}.`,
+          strategyDescription: `Bản nháp dựa trên mục tiêu ${(GOAL_LABELS[profileDraft.goal] || '').toLocaleLowerCase('vi-VN')}, ${profileDraft.trainingSessions} buổi tập/tuần, phong cách ${(profileDraft.eatingStyle || 'linh hoạt').toLocaleLowerCase('vi-VN')}, ${profileDraft.mealsPerDay || 3} bữa/ngày và gu ẩm thực ${profileDraft.favoriteCuisine || 'đa dạng'}.`,
           constraints: [
             profileDraft.allergies ? `Tránh: ${profileDraft.allergies}` : 'Chưa ghi nhận dị ứng',
             profileDraft.dislikes ? `Không thích: ${profileDraft.dislikes}` : 'Không có món kén ăn',

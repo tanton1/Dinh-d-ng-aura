@@ -173,6 +173,8 @@ function NutritionDashboardHome({
   onOpenMeal,
   onDeleteMeal,
   onDeleteActivity,
+  onEditProfile,
+  goalLabel,
 }: NutritionDashboardHomeProps) {
   const dateStripRef = useRef<HTMLDivElement>(null)
   const weekTouchStart = useRef<{ x: number; y: number } | null>(null)
@@ -293,6 +295,15 @@ function NutritionDashboardHome({
 
   return (
     <div className="nutrition-home nutrition-home--cal-ai">
+      <header className="nutrition-home-header" style={{ padding: '20px 20px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+           <h1 style={{ fontSize: 20, margin: '0 0 4px', fontWeight: 800 }}>Chào {firstName || 'bạn'},</h1>
+           <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13 }}>{goalLabel}</p>
+        </div>
+        <button onClick={onEditProfile} className="outline-button" style={{ minHeight: 32, padding: '0 12px', fontSize: 11, borderRadius: 99 }}>
+          Hồ sơ
+        </button>
+      </header>
       {/* Date Strip Bar (Thứ ngày ở đầu) */}
       <section
         className="nutrition-date-strip"

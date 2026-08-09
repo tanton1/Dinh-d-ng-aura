@@ -1200,7 +1200,7 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
                   key={meal.id}
                   className="aura-pending-meal-item-row cursor-pointer relative"
                   onClick={() => handleOpenDetail(meal.id)}
-                  style={isOverdue ? { borderColor: '#fecaca', background: '#fff5f5' } : {}}
+                  style={isOverdue ? { border: '1px solid #fecaca', background: '#fff5f5' } : {}}
                 >
                   <div className="aura-item-thumb">
                     <img src={meal.img} alt={meal.studentName} />

@@ -141,7 +141,7 @@ export default function OnboardingFlow({ initialName, onComplete }: OnboardingFl
     bmr += (data.biologicalSex === 'male' ? 5 : -161)
 
     const activityMultipliers = {
-      low: 1.2,
+      low: 1.3,
       moderate: 1.55,
       high: 1.725,
     }
@@ -158,7 +158,8 @@ export default function OnboardingFlow({ initialName, onComplete }: OnboardingFl
     let targetCalories = Math.round(tdee + dailyCalorieAdjustment)
 
     // Bounds safety
-    if (targetCalories < 1200) targetCalories = 1200
+    const floorCalories = Math.max(1200, Math.round(bmr * 0.95));
+    if (targetCalories < floorCalories) targetCalories = floorCalories
     if (targetCalories > 4000) targetCalories = 4000
 
     let expectation = 'Ổn định cân nặng & tối ưu sức khỏe'

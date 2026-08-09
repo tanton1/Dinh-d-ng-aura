@@ -82,10 +82,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(isFirebaseConfigured)
 
   useEffect(() => {
-    if (!isFirebaseConfigured || !firebaseAuth || !firestoreDb) return
+    if (!isFirebaseConfigured || !firebaseAuth || !firestoreDb) {
+      setLoading(false)
+      return
+    }
+
+    // Safety timeout to prevent getting stuck on infinite loading screen
+    const safetyTimeout = setTimeout(() => {
+      setLoading(false)
+    }, 2500)
 
     let unsubscribeProfile: (() => void) | undefined
     const unsubscribeAuth = onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
+      clearTimeout(safetyTimeout)
       unsubscribeProfile?.()
 
       if (!firebaseUser) {

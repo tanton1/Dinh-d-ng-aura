@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="vi">
   <head>
+    <link rel="icon" type="image/png" href="https://aurafitness.vn/wp-content/uploads/2023/11/LogoAura_Update_final2.png" />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, viewport-fit=cover" />
     <meta name="theme-color" content="#09090b" />
@@ -12,13 +13,45 @@
     <link rel="preconnect" href="https://www.google.com" crossorigin />
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
 
-    <link rel="icon" href="/icons/aura-icon.svg" />
-    <link rel="apple-touch-icon" href="/icons/aura-icon-192.png" />
+    
+    <link rel="apple-touch-icon" href="https://aurafitness.vn/wp-content/uploads/2023/11/LogoAura_Update_final2.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <title>Aura Fitness</title>
   </head>
   <body>
-    <div id="root"></div>
+    
+    <div id="root">
+      <style>
+        .app-loader {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: flex-end;
+          height: 100vh;
+          height: 100dvh;
+          background-color: #fff5f7;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          position: relative;
+          overflow: hidden;
+        }
+        .app-loader-spinner {
+          width: 48px;
+          height: 48px;
+          border: 4px solid #ffe4e6;
+          border-top-color: #ff3f7d;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      </style>
+      <div class="app-loader">
+        <img src="/aura-onboarding.png" alt="Aura Fitness" style="width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; z-index: 0;" />
+        <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(255,255,255,1) 0%, rgba(255,255,255,0.7) 30%, rgba(255,255,255,0) 100%); z-index: 1;"></div>
+        <div class="app-loader-spinner" style="z-index: 2; margin-top: auto; margin-bottom: 80px;"></div>
+      </div>
+    </div>
     <div id="recaptcha-container"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -10,6 +10,7 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
+import { calculateNutritionTargets } from "./src/services/nutritionSyncService";
 
 // Initialize Firebase Admin
 let adminInitialized = false;
@@ -579,6 +580,196 @@ ${message}`;
       console.error('Failed in /api/ai/coach-chat:', e);
       res.status(500).json({ text: 'Lỗi khi kết nối với AI Coach.' });
     }
+  });
+
+
+  aiRouter.post("/generate-course-outline", async (req, res) => {
+    try {
+      const { topic, audience, weeks } = req.body;
+      const prompt = `Hãy đóng vai một chuyên gia thiết kế chương trình học (Instructional Designer) và chuyên gia thể hình/dinh dưỡng.
+Tạo sườn nội dung khóa học cho chủ đề: "${topic}"
+Đối tượng học viên: "${audience}"
+Thời lượng dự kiến: ${weeks || 4} tuần.
+
+Yêu cầu định dạng JSON chính xác:
+{
+  "title": "Tên khóa học",
+  "description": "Mô tả khóa học (2-3 câu)",
+  "modules": [
+    {
+      "title": "Tên chương",
+      "lessons": [
+        {
+          "title": "Tên bài học",
+          "summary": "Tóm tắt ngắn gọn bài học"
+        }
+      ]
+    }
+  ]
+}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.6-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+        }
+      });
+      res.json(JSON.parse(response.text));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Lỗi AI" });
+    }
+  });
+
+  aiRouter.post("/generate-course-quiz", async (req, res) => {
+    try {
+      const { lessonTitle, lessonSummary } = req.body;
+      const prompt = `Tạo 3 câu hỏi trắc nghiệm (quiz) kiểm tra kiến thức cho bài học sau:
+Tên bài: "${lessonTitle}"
+Tóm tắt nội dung: "${lessonSummary}"
+
+Yêu cầu định dạng JSON chính xác:
+{
+  "questions": [
+    {
+      "question": "Nội dung câu hỏi",
+      "options": ["Đáp án A", "Đáp án B", "Đáp án C", "Đáp án D"],
+      "correctIndex": 0,
+      "explanation": "Giải thích ngắn gọn tại sao chọn đáp án này"
+    }
+  ]
+}`;
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.6-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+        }
+      });
+      res.json(JSON.parse(response.text));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Lỗi AI" });
+    }
+  });
+
+  aiRouter.post("/generate-course-memory", async (req, res) => {
+    try {
+      const { lessonTitle, lessonSummary } = req.body;
+      const prompt = `Tạo bộ công cụ học sâu (active recall và flashcard) cho bài học:
+Tên bài: "${lessonTitle}"
+Tóm tắt nội dung: "${lessonSummary}"
+
+Yêu cầu định dạng JSON chính xác:
+{
+  "minuteSummary": "Đoạn tóm tắt cốt lõi trong 60 giây",
+  "keyTakeaways": ["Ý chính 1", "Ý chính 2", "Ý chính 3"],
+  "terms": [
+    { "term": "Khái niệm", "definition": "Định nghĩa" }
+  ],
+  "recallPrompts": [
+    { "prompt": "Câu hỏi mở để người học tự nhớ lại", "answer": "Đáp án hoặc các ý chính cần có" }
+  ],
+  "flashcards": [
+    { "front": "Mặt trước thẻ (Câu hỏi/Khái niệm)", "back": "Mặt sau thẻ (Định nghĩa/Giải thích ngắn)", "hint": "Gợi ý ngắn (tùy chọn)" }
+  ]
+}`;
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.6-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+        }
+      });
+      res.json(JSON.parse(response.text));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Lỗi AI" });
+    }
+  });
+
+
+  aiRouter.post("/summarize-lesson", async (req, res) => {
+    try {
+      const { lessonTitle, lessonContent, courseTitle } = req.body;
+      const prompt = `Hãy đóng vai một trợ lý học tập AI. Tóm tắt bài học sau đây thành các điểm chính (Takeaways) và các khái niệm quan trọng (Key Concepts).
+Khóa học: "${courseTitle}"
+Tên bài học: "${lessonTitle}"
+Nội dung bài học: "${lessonContent}"
+
+Yêu cầu định dạng JSON chính xác:
+{
+  "takeaways": ["Điểm chính 1", "Điểm chính 2"],
+  "keyConcepts": [
+    { "term": "Khái niệm 1", "definition": "Định nghĩa ngắn gọn" }
+  ]
+}`;
+
+      const ai = getGenAI();
+      if (!ai) {
+        return res.status(500).json({ error: "Thiếu Gemini API Key" });
+      }
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.6-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+        }
+      });
+      res.json(JSON.parse(response.text));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Lỗi AI" });
+    }
+  });
+
+
+  app.post('/api/onboarding/preview', (req, res) => {
+    const profile = req.body;
+    const currentYear = new Date().getFullYear();
+    const age = profile.birthYear ? currentYear - profile.birthYear : 30;
+    
+    const heightM = (profile.heightCm || 165) / 100;
+    const bmi = (profile.weightKg || 60) / (heightM * heightM);
+    let bmiLabel = 'Bình thường';
+    if (bmi < 18.5) bmiLabel = 'Thiếu cân';
+    else if (bmi >= 25) bmiLabel = 'Thừa cân';
+
+    const targetDelta = profile.targetWeightKg ? (profile.targetWeightKg - (profile.weightKg || 60)) : 0;
+    
+    const pace = profile.pace || 'balanced';
+    const weeklyRate = pace === 'fast' ? 0.6 : pace === 'comfortable' ? 0.3 : 0.4;
+    const totalWeeks = Math.max(1, Math.abs(targetDelta) / weeklyRate);
+    const targetTimeframeMonths = Math.max(1, Math.round(totalWeeks / 4.33));
+
+    const targets = calculateNutritionTargets({
+      ...profile,
+      age,
+      targetWeightDeltaKg: targetDelta,
+      targetTimeframeMonths
+    });
+    
+    const plan = {
+      age,
+      bmi: Math.round(bmi * 10) / 10,
+      bmiLabel,
+      bmrKcal: targets.bmr,
+      tdeeKcal: targets.tdee,
+      targetCaloriesKcal: targets.targetCaloriesKcal,
+      proteinG: targets.proteinG,
+      carbsG: targets.carbsG,
+      fatG: targets.fatG,
+      waterLiters: targets.waterLiters,
+      stepsPerDay: targets.stepsPerDay,
+      workoutsPerWeek: profile.activityLevel === 'sedentary' ? 1 : profile.activityLevel === 'light' ? 3 : 5,
+      estimatedWeeks: Math.round(totalWeeks),
+      targetWeightDeltaKg: targetDelta,
+      targetTimeframeMonths
+    };
+    
+    res.json(plan);
   });
 
   app.use("/api/ai", aiRouter);
