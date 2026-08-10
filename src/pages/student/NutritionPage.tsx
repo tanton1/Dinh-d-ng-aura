@@ -2335,27 +2335,31 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                         style={{ border: '1px solid #fce7f3', background: 'rgba(255, 255, 255, 0.95)' }}
                       >
                         {/* Row 1: Name and Compact Gram Stepper shifted slightly left */}
-                        <div className="flex items-center justify-between gap-2 w-full pr-0">
-                          <input
-                            type="text"
+                        <div className="flex items-start justify-between gap-3 w-full pr-0">
+                          <textarea
                             value={item.name}
-                            onChange={(event) => updateItem(item.id, 'name', event.target.value)}
-                            className="flex-1 min-w-0 font-extrabold text-sm sm:text-base text-slate-900 block p-0 m-0 bg-transparent outline-none leading-snug text-ellipsis focus:outline-none focus:ring-0"
-                            style={{ border: 'none', outline: 'none', boxShadow: 'none' }}
+                            onChange={(event) => {
+                              event.target.style.height = 'auto';
+                              event.target.style.height = event.target.scrollHeight + 'px';
+                              updateItem(item.id, 'name', event.target.value);
+                            }}
+                            className="flex-1 min-w-0 font-extrabold text-sm sm:text-base text-slate-900 block p-0 m-0 bg-transparent outline-none leading-snug focus:outline-none focus:ring-0 resize-none overflow-hidden"
+                            style={{ border: 'none', outline: 'none', boxShadow: 'none', height: '24px', minHeight: '24px' }}
                             placeholder="Tên thành phần..."
+                            rows={1}
                           />
                           
                           {/* Compact Stepper Control - Extended width (108px) sang trái để hiển thị rõ gram */}
                           <div 
-                            className="flex items-center justify-between bg-slate-100/90 border border-slate-200/80 rounded-xl p-0.5 shrink-0 box-border mr-3.5 sm:mr-4"
-                            style={{ width: '108px', minWidth: '100px' }}
+                            className="flex items-center justify-between bg-white rounded-xl p-0.5 shrink-0 box-border mr-8 sm:mr-10"
+                            style={{ width: '108px', minWidth: '100px', boxShadow: '0 2px 12px rgba(148, 163, 184, 0.2), inset 0 1px 0 rgba(255,255,255,1)', border: '1px solid rgba(203, 213, 225, 0.5)' }}
                           >
                             <button
                               type="button"
                               onClick={() => updateItem(item.id, 'grams', String(Math.max(0, (parseInt(item.grams.toString()) || 0) - 10)))}
-                              className="w-6 h-6 flex-none flex items-center justify-center rounded-lg bg-white text-slate-700 hover:bg-slate-200/60 active:scale-95 transition-all shadow-xs cursor-pointer border-0 outline-none focus:outline-none focus:ring-0"
+                              className="w-6 h-6 flex-none flex items-center justify-center rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-100 active:scale-95 transition-all cursor-pointer border-0 outline-none focus:outline-none focus:ring-0"
                               title="Giảm 10g"
-                              style={{ border: 'none', outline: 'none' }}
+                              style={{ border: 'none', outline: 'none', boxShadow: 'none' }}
                             >
                               <Minus size={11} />
                             </button>
@@ -2379,9 +2383,9 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                             <button
                               type="button"
                               onClick={() => updateItem(item.id, 'grams', String((parseInt(item.grams.toString()) || 0) + 10))}
-                              className="w-6 h-6 flex-none flex items-center justify-center rounded-lg bg-white text-pink-600 hover:bg-pink-50 active:scale-95 transition-all shadow-xs cursor-pointer border-0 outline-none focus:outline-none focus:ring-0"
+                              className="w-6 h-6 flex-none flex items-center justify-center rounded-lg bg-pink-50 text-pink-600 hover:bg-pink-100 active:scale-95 transition-all cursor-pointer border-0 outline-none focus:outline-none focus:ring-0"
                               title="Tăng 10g"
-                              style={{ border: 'none', outline: 'none' }}
+                              style={{ border: 'none', outline: 'none', boxShadow: 'none' }}
                             >
                               <Plus size={11} />
                             </button>
