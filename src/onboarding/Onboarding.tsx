@@ -10,10 +10,11 @@ import { GeneratedPlan } from './types';
 
 interface OnboardingProps {
   onComplete: (profile: any, plan: any) => Promise<void>;
+  onSkip?: () => void;
   initialProfile?: any;
 }
 
-export default function Onboarding({ onComplete, initialProfile }: OnboardingProps) {
+export default function Onboarding({ onComplete, onSkip, initialProfile }: OnboardingProps) {
   const store = useOnboarding();
   const { currentStep, profile, updateProfile, goNext, goBack, generatedPlan, setGeneratedPlan } = store;
   
@@ -33,7 +34,7 @@ export default function Onboarding({ onComplete, initialProfile }: OnboardingPro
 
   const renderStep = () => {
     switch (currentStep) {
-      case 'welcome': return <WelcomeScreen onNext={goNext} />;
+      case 'welcome': return <WelcomeScreen onNext={goNext} onSkip={onSkip} />;
       case 'sex': return <SexScreen profile={profile} updateProfile={updateProfile} onNext={goNext} />;
       case 'birth-year': return <BirthYearScreen profile={profile} updateProfile={updateProfile} onNext={goNext} />;
       case 'height': return <HeightScreen profile={profile} updateProfile={updateProfile} onNext={goNext} />;
@@ -60,7 +61,7 @@ export default function Onboarding({ onComplete, initialProfile }: OnboardingPro
   return (
     <div className="onboarding-container">
       <div className={`onboarding-content ${currentStep === 'welcome' ? 'no-padding' : ''}`}>
-        <Header currentStep={currentStep} profile={profile} onBack={goBack} />
+        <Header currentStep={currentStep} profile={profile} onBack={goBack} onSkip={onSkip} />
         <AnimatePresence mode="wait">
           {renderStep()}
         </AnimatePresence>

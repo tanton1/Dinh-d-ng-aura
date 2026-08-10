@@ -4,6 +4,7 @@ import App from './App'
 import { GlobalErrorBoundary } from './GlobalErrorBoundary'
 import './styles.css'
 import './styles-aura.css'
+import './styles-meal-plan.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -65,21 +65,26 @@
 .nutrition-date-strip {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   margin-bottom: 20px;
   touch-action: pan-y;
   user-select: none;
   width: 100%;
+  background: #ffffff;
+  border: 1px solid #f0dede;
+  border-radius: 20px;
+  padding: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.03);
 }
 
 .nutrition-date-arrow {
-  width: 28px;
+  width: 32px;
   height: 52px;
   display: grid;
   place-items: center;
   border: none;
   background: transparent;
-  color: #8e8894;
+  color: #ff3f7d;
   border-radius: 12px;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
@@ -87,8 +92,8 @@
 }
 
 .nutrition-date-arrow:hover {
-  background: #eae7ec;
-  color: #171419;
+  background: #fff0f3;
+  color: #ff3578;
 }
 
 .nutrition-date-pills {
@@ -97,7 +102,7 @@
   justify-content: space-between;
   flex: 1;
   min-width: 0;
-  gap: 3px;
+  gap: 4px;
   scrollbar-width: none;
 }
 
@@ -125,50 +130,51 @@
 }
 
 .nutrition-date-pill .day-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: #8e8894;
+  font-size: 11px;
+  font-weight: 700;
+  color: #888888;
 }
 
 .nutrition-date-pill .day-number-circle {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   border-radius: 50%;
-  font-size: 14px;
-  font-weight: 700;
-  color: #171419;
-  border: 1.5px dashed #d5d0d8;
+  font-size: 13px;
+  font-weight: 800;
+  color: #222222;
+  border: 1.5px solid #f0dede;
   transition: all 0.2s ease;
 }
 
 .nutrition-date-pill.is-active {
-  background: #ffffff;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  background: linear-gradient(135deg, #fff0f4 0%, #fff3ea 100%);
+  box-shadow: 0 2px 10px rgba(255, 63, 125, 0.12);
 }
 
 .nutrition-date-pill.is-active .day-name {
-  color: #171419;
-  font-weight: 700;
+  color: #ff3f7d;
+  font-weight: 800;
 }
 
 .nutrition-date-pill.is-active .day-number-circle {
-  border: 2px solid #171419;
-  background: #171419;
+  border-color: transparent;
+  background: linear-gradient(135deg, #ff3578, #ff8c34);
   color: #ffffff;
+  box-shadow: 0 2px 8px rgba(255, 53, 120, 0.25);
 }
 
 .has-log-dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #ff007a;
+  background: #ff3578;
   position: absolute;
   bottom: 2px;
   left: 50%;
   transform: translateX(-50%);
-  box-shadow: 0 0 6px rgba(255, 0, 122, 0.4);
+  box-shadow: 0 0 6px rgba(255, 53, 120, 0.5);
 }
 
 /* 3. Main Energy Carousel Track */
@@ -230,7 +236,9 @@
   font-weight: 850;
   letter-spacing: -0.04em;
   line-height: 1.0;
-  color: #171419;
+  background: linear-gradient(135deg, #ff3578 0%, #ff8a33 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .cal-hero-meta {
@@ -327,7 +335,9 @@
   font-size: 22px;
   font-weight: 800;
   letter-spacing: -0.02em;
-  color: #171419;
+  background: linear-gradient(135deg, #ff3578 0%, #ff8a33 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
   line-height: 1.1;
 }
 
@@ -1444,10 +1454,10 @@
 }
 
 .device-chip.is-active {
-  border-color: #0f172a;
-  background: #0f172a;
+  border-color: transparent;
+  background: linear-gradient(135deg, #ec4899 0%, #f97316 100%);
   color: #ffffff;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+  box-shadow: 0 4px 12px rgba(236, 72, 153, 0.25);
 }
 
 .device-chip svg {

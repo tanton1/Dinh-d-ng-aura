@@ -40,8 +40,9 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Use a smaller limit for default payload
-  app.use(express.json({ limit: '2mb' }));
+  // Increase JSON & URL-encoded body limit to prevent PayloadTooLargeError on image uploads & batch payloads
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   async function requireAuth(
     req: AuthenticatedRequest,
@@ -270,6 +271,7 @@ Yêu cầu phân tích chi tiết:
           responseSchema: {
             type: Type.OBJECT,
             properties: {
+              dishName: { type: Type.STRING, description: "Tên đại diện tổng thể của món ăn (độ dài 5-15 từ)" },
               items: {
                 type: Type.ARRAY,
                 description: "Danh sách thực phẩm cấu thành bữa ăn",
@@ -292,7 +294,7 @@ Yêu cầu phân tích chi tiết:
               aiFeedback: { type: Type.STRING, description: "Nhận định tổng quan về dinh dưỡng" },
               coachFeedbackSuggestion: { type: Type.STRING, description: "Lời khuyên gần gũi từ Coach dành riêng cho học viên" }
             },
-            required: ["items", "totalKcal", "totalProtein", "quantityAndCookingAnalysis", "portionAndCalorieRationale", "goalAlignmentAssessment", "aiFeedback", "coachFeedbackSuggestion"]
+            required: ["dishName", "items", "totalKcal", "totalProtein", "quantityAndCookingAnalysis", "portionAndCalorieRationale", "goalAlignmentAssessment", "aiFeedback", "coachFeedbackSuggestion"]
           }
         }
       });
@@ -722,6 +724,120 @@ Yêu cầu định dạng JSON chính xác:
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Lỗi AI" });
+    }
+  });
+
+  aiRouter.post("/generate-recipe", async (req, res) => {
+    try {
+      const { prompt: userPrompt, goal, mealType } = req.body;
+      const ai = getGenAI();
+      if (!ai) {
+        return res.status(500).json({ error: "Thiếu Gemini API Key trên server" });
+      }
+
+      const systemPrompt = `Bạn là Chuyên gia Dinh dưỡng & Đầu bếp Thể hình Aura Fitness hàng đầu.
+Sáng tạo công thức món ăn chuẩn thể hình (Fitness Clean Eating / High Protein / Keto / Low Carb) dựa trên yêu cầu:
+- Ý tưởng/Thành phần: "${userPrompt || 'Món ăn dinh dưỡng cao cấp tốt cho vóc dáng'}"
+- Mục tiêu: "${goal || 'Giảm mỡ'}"
+- Bữa ăn: "${mealType || 'Bữa bất kỳ'}"
+
+Yêu cầu trả về đúng định dạng JSON chuẩn xác theo cấu trúc:
+{
+  "name": "Tên món ăn sáng tạo, hấp dẫn bằng Tiếng Việt",
+  "meal": "breakfast" hoặc "lunch" hoặc "dinner" hoặc "snack",
+  "goal": "fat-loss" hoặc "muscle-gain" hoặc "maintenance",
+  "kcal": số nguyên calo (vd: 420),
+  "protein": số nguyên gam đạm (vd: 38),
+  "carbs": số nguyên gam carb (vd: 32),
+  "fat": số nguyên gam chất béo (vd: 12),
+  "minutes": số phút chế biến (vd: 20),
+  "diet": "Nhãn chế độ ăn (vd: Giàu Đạm, Ít Carb, Clean Eating)",
+  "badge": "Huy hiệu thu hút (vd: Hot Giảm Mỡ, Siêu Đạm, Easy Cook)",
+  "description": "Mô tả ngắn về hương vị, công dụng dinh dưỡng (2 câu)",
+  "ingredients": ["Nguyên liệu 1 với định lượng", "Nguyên liệu 2..."],
+  "instructions": ["Bước 1: ...", "Bước 2: ..."]
+}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.6-flash',
+        contents: systemPrompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              meal: { type: Type.STRING },
+              goal: { type: Type.STRING },
+              kcal: { type: Type.NUMBER },
+              protein: { type: Type.NUMBER },
+              carbs: { type: Type.NUMBER },
+              fat: { type: Type.NUMBER },
+              minutes: { type: Type.NUMBER },
+              diet: { type: Type.STRING },
+              badge: { type: Type.STRING },
+              description: { type: Type.STRING },
+              ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
+              instructions: { type: Type.ARRAY, items: { type: Type.STRING } }
+            },
+            required: ["name", "meal", "goal", "kcal", "protein", "carbs", "fat", "minutes", "diet", "badge", "description", "ingredients", "instructions"]
+          }
+        }
+      });
+
+      const data = JSON.parse(response.text || '{}');
+      res.json({ success: true, recipe: data });
+    } catch (e: any) {
+      console.error('Failed in /api/ai/generate-recipe:', e);
+      res.status(500).json({ error: e?.message || "Lỗi tạo món ăn bằng AI" });
+    }
+  });
+
+  aiRouter.post("/suggest-meal-plan", async (req, res) => {
+    try {
+      const { goal, targetCalories, targetProtein } = req.body;
+      const ai = getGenAI();
+      if (!ai) {
+        return res.status(500).json({ error: "Thiếu Gemini API Key" });
+      }
+
+      const prompt = `Bạn là Chuyên gia thiết kế Thực đơn Thể hình Aura Fitness.
+Đề xuất khung thực đơn 7 ngày dành cho mục tiêu: "${goal || 'Giảm mỡ thần tốc'}", mức Calo mục tiêu: ${targetCalories || 1600} kcal/ngày, Đạm mục tiêu: ${targetProtein || 120}g/ngày.
+
+Yêu cầu trả về đúng định dạng JSON:
+{
+  "title": "Tên khung thực đơn hấp dẫn",
+  "summary": "Tóm tắt chiến lược phân bổ calo và dinh dưỡng trong tuần",
+  "recommendations": [
+    "Gợi ý chiến lược 1",
+    "Gợi ý chiến lược 2",
+    "Gợi ý chiến lược 3"
+  ],
+  "sampleDays": [
+    {
+      "dayName": "Thứ 2",
+      "breakfast": "Tên món sáng gợi ý",
+      "lunch": "Tên món trưa gợi ý",
+      "snack": "Tên món phụ gợi ý",
+      "dinner": "Tên món tối gợi ý",
+      "totalKcal": 1580,
+      "totalProtein": 125
+    }
+  ]
+}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.6-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      res.json({ success: true, planSuggestion: JSON.parse(response.text || '{}') });
+    } catch (e: any) {
+      console.error('Failed in /api/ai/suggest-meal-plan:', e);
+      res.status(500).json({ error: "Lỗi tạo gợi ý khung thực đơn" });
     }
   });
 

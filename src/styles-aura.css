@@ -42,15 +42,37 @@
 }
 
 html {
+  scroll-behavior: smooth;
   scroll-padding-top: calc(var(--shell-topbar-height) + 16px);
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
   color: var(--ink);
   background: var(--aura-canvas);
-  font-family: Inter, "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   font-size: 15px;
   line-height: 1.55;
+  margin: 0;
+}
+
+/* Performance & GPU acceleration layers */
+img {
+  image-rendering: -webkit-optimize-contrast;
+  content-visibility: auto;
+}
+
+.aura-app-shell,
+.aura-app-shell__mobile-dock,
+.aura-loading-img-wrapper,
+.primary-button,
+.card,
+.modal-overlay {
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 body.shell-overlay-open { overflow: hidden; }
@@ -804,6 +826,50 @@ body.shell-overlay-open { overflow: hidden; }
   flex-direction: column;
   align-items: center;
   filter: drop-shadow(0 0 15px rgba(255,255,255,0.8));
+}
+
+.aura-loading-img-wrapper {
+  width: 140px;
+  height: 140px;
+  border-radius: 28px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25), 0 0 20px rgba(255, 255, 255, 0.4);
+  border: 3px solid rgba(255, 255, 255, 0.8);
+  animation: auraPulse 2.4s ease-in-out infinite;
+  background: white;
+}
+
+.aura-loading-brand-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+@keyframes auraPulse {
+  0% { transform: scale(0.97); opacity: 0.9; }
+  50% { transform: scale(1.03); opacity: 1; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35), 0 0 30px rgba(255, 255, 255, 0.7); }
+  100% { transform: scale(0.97); opacity: 0.9; }
+}
+
+.aura-route-fallback-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  text-align: center;
+  min-height: 280px;
+}
+
+.aura-route-fallback-img {
+  width: 90px;
+  height: 90px;
+  border-radius: 22px;
+  object-fit: cover;
+  margin-bottom: 16px;
+  box-shadow: 0 8px 24px rgba(255, 63, 125, 0.25);
+  animation: auraPulse 2s ease-in-out infinite;
 }
 
 .aura-loading-h1 {

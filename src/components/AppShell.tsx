@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { prefetchRoute } from '../utils/routePreloader'
 import {
   BarChart3,
   Bell,
@@ -22,6 +23,7 @@ import {
   Sparkles,
   UserRound,
   Users,
+  Utensils,
   X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -62,6 +64,7 @@ const studentNavSections: ShellNavSection[] = [
     items: [
       { id: 'courses' as const, label: 'Học chuyên sâu', icon: BookOpen },
       { id: 'nutrition' as const, label: 'Dinh dưỡng', icon: Soup },
+      { id: 'meal-plan' as const, label: 'Thực đơn', icon: Utensils },
       { id: 'progress' as const, label: 'Tiến độ & ôn tập', icon: BarChart3 },
     ],
   },
@@ -98,10 +101,11 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
     ],
   },
   {
-    label: 'PT COACHING',
+    label: 'PT COACHING & DINH DƯỠNG',
     items: [
       { id: 'admin-students' as const, label: 'Khách hàng PT', icon: Users, permission: 'student.view_assigned' as Permission },
       { id: 'admin-programs' as const, label: 'Giáo án gym', icon: ClipboardList, permission: 'program.view' as Permission },
+      { id: 'admin-meal-plans' as const, label: 'Thực đơn & Công thức', icon: Utensils, permission: 'student.view_assigned' as Permission },
       { id: 'admin-nutrition-reviews' as const, label: 'Duyệt ăn', icon: Check, permission: 'student.view_assigned' as Permission },
     ],
   },
@@ -127,6 +131,7 @@ const viewTitles: Record<ViewId, string> = {
   courses: 'Học',
   'course-detail': 'Không gian học',
   nutrition: 'Dinh dưỡng',
+  'meal-plan': 'Thực đơn',
   progress: 'Tiến độ & ôn tập',
   schedule: 'Lịch PT',
   profile: 'Cá nhân',
@@ -139,6 +144,7 @@ const viewTitles: Record<ViewId, string> = {
   'admin-students': 'Khách hàng PT',
   'admin-roles': 'Đội ngũ & quyền',
   'admin-nutrition-reviews': 'Duyệt ăn',
+  'admin-meal-plans': 'Quản lý Thực đơn & Công thức',
   'admin-notifications': 'Cài đặt Push Notifications',
   'progress-photo-studio': 'Thêm ảnh tiến độ',
 }
@@ -229,7 +235,15 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
                 const Icon = item.icon
                 const active = isNavigationActive(view, item.id)
                 return (
-                  <button key={item.id} className={active ? 'active' : ''} aria-current={active ? 'page' : undefined} title={item.label} onClick={() => { onNavigate(item.id); setMobileMenu(false) }}>
+                  <button 
+                    key={item.id} 
+                    className={active ? 'active' : ''} 
+                    aria-current={active ? 'page' : undefined} 
+                    title={item.label} 
+                    onMouseEnter={() => prefetchRoute(item.id)}
+                    onTouchStart={() => prefetchRoute(item.id)}
+                    onClick={() => { onNavigate(item.id); setMobileMenu(false) }}
+                  >
                     <Icon size={20} /><span>{item.label}</span>{active && <i />}
                   </button>
                 )
@@ -358,7 +372,14 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
               const Icon = item.icon
               const active = isNavigationActive(view, item.id, true)
               return (
-                <button key={item.id} className={active ? 'active' : ''} aria-current={active ? 'page' : undefined} onClick={() => onNavigate(item.id)}>
+                <button 
+                  key={item.id} 
+                  className={active ? 'active' : ''} 
+                  aria-current={active ? 'page' : undefined} 
+                  onTouchStart={() => prefetchRoute(item.id)}
+                  onMouseEnter={() => prefetchRoute(item.id)}
+                  onClick={() => onNavigate(item.id)}
+                >
                   <Icon size={21} /><span>{item.label}</span>
                 </button>
               )
@@ -370,7 +391,14 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
               const Icon = item.icon
               const active = isNavigationActive(view, item.id, true)
               return (
-                <button key={item.id} className={active ? 'active' : ''} aria-current={active ? 'page' : undefined} onClick={() => onNavigate(item.id)}>
+                <button 
+                  key={item.id} 
+                  className={active ? 'active' : ''} 
+                  aria-current={active ? 'page' : undefined} 
+                  onTouchStart={() => prefetchRoute(item.id)}
+                  onMouseEnter={() => prefetchRoute(item.id)}
+                  onClick={() => onNavigate(item.id)}
+                >
                   <Icon size={21} /><span>{item.label}</span>
                 </button>
               )

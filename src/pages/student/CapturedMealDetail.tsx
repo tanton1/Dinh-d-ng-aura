@@ -314,7 +314,10 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
 
           <div className="fdet-calories-col">
             <span className="fdet-cal-label">⚡ NĂNG LƯỢNG</span>
-            <span className="fdet-cal-value">{totalCal}</span>
+            <div className="flex items-baseline gap-1">
+              <span className="fdet-cal-value">{totalCal}</span>
+              <span className="text-xs font-black text-pink-600 uppercase">kcal</span>
+            </div>
           </div>
         </div>
 

@@ -130,7 +130,7 @@ const SECTION_ITEMS: Array<{
 }> = [
   { id: 'today', label: 'Hôm nay', icon: Salad },
   { id: 'diary', label: 'Nhật ký', icon: CalendarDays },
-  { id: 'plan', label: 'Kế hoạch', icon: ListPlus },
+  { id: 'plan', label: 'Thực đơn', icon: ListPlus },
   { id: 'catalog', label: 'Thư viện', icon: Database },
   { id: 'insights', label: 'Tiến độ', icon: BarChart3 },
 ]
@@ -178,7 +178,15 @@ export function NutritionSectionNav({
               type="button"
               key={id}
               className={active ? 'is-active' : ''}
-              onClick={() => id === 'catalog' ? onOpenCatalog() : onSectionChange(id)}
+              onClick={() => {
+                if (id === 'plan') {
+                  window.location.hash = '#/meal-plan'
+                } else if (id === 'catalog') {
+                  onOpenCatalog()
+                } else {
+                  onSectionChange(id)
+                }
+              }}
               aria-current={active ? 'page' : undefined}
             >
               <Icon size={17} aria-hidden="true" />

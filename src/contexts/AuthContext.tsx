@@ -120,6 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ...parsed,
             ...prev,
           }))
+          setLoading(false)
         } catch {}
       }
 

@@ -38,6 +38,7 @@ import type {
   ViewId,
 } from './types'
 import { flattenCourseLessons, getInitialDemoCompletedLessonIds } from './utils/courseContent'
+import { idlePrefetchStudentRoutes, idlePrefetchAdminRoutes } from './utils/routePreloader'
 
 function lazyWithRetry<T extends React.ComponentType<any>>(
   factory: () => Promise<{ default: T }>
@@ -125,19 +126,21 @@ const AdminProgramsPage = lazyWithRetry(() => import('./pages/admin/AdminProgram
 const AdminRolesPage = lazyWithRetry(() => import('./pages/admin/AdminRolesPage'))
 const AdminStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminStudentsPage'))
 const AdminNutritionReviewsPage = lazyWithRetry(() => import('./pages/admin/AdminNutritionReviewsPage'))
+const AdminMealPlansPage = lazyWithRetry(() => import('./pages/admin/AdminMealPlansPage'))
 const AdminNotificationsPage = lazyWithRetry(() => import('./pages/admin/AdminNotificationsPage'))
 const CourseEditorPage = lazyWithRetry(() => import('./pages/admin/CourseEditorPage'))
 const CourseDetailPage = lazyWithRetry(() => import('./pages/student/CourseDetailPage'))
 const CoursesPage = lazyWithRetry(() => import('./pages/student/CoursesPage'))
 const NutritionPage = lazyWithRetry(() => import('./pages/student/NutritionPage'))
+const MealPlanPage = lazyWithRetry(() => import('./pages/student/MealPlanPage'))
 const ProfilePage = lazyWithRetry(() => import('./pages/student/ProfilePage'))
 const ProgressPage = lazyWithRetry(() => import('./pages/student/ProgressPage'))
 const ProgressPhotoStudio = lazyWithRetry(() => import('./pages/student/ProgressPhotoStudio'))
 const SchedulePage = lazyWithRetry(() => import('./pages/student/SchedulePage'))
 const WorkoutPage = lazyWithRetry(() => import('./pages/student/WorkoutPage'))
 
-const adminViews: ViewId[] = ['admin-dashboard', 'admin-courses', 'admin-course-editor', 'admin-academy-students', 'admin-programs', 'admin-students', 'admin-roles', 'admin-nutrition-reviews', 'admin-notifications']
-const validViews: ViewId[] = ['home', 'courses', 'course-detail', 'schedule', 'nutrition', 'progress', 'progress-photo-studio', 'profile', 'workout', ...adminViews]
+const adminViews: ViewId[] = ['admin-dashboard', 'admin-courses', 'admin-course-editor', 'admin-academy-students', 'admin-programs', 'admin-students', 'admin-roles', 'admin-nutrition-reviews', 'admin-meal-plans', 'admin-notifications']
+const validViews: ViewId[] = ['home', 'courses', 'course-detail', 'schedule', 'nutrition', 'meal-plan', 'progress', 'progress-photo-studio', 'profile', 'workout', ...adminViews]
 
 const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
   'admin-dashboard': 'dashboard.view',
@@ -148,6 +151,7 @@ const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
   'admin-students': 'student.view_assigned',
   'admin-roles': 'team.view',
   'admin-nutrition-reviews': 'student.view_assigned',
+  'admin-meal-plans': 'student.view_assigned',
   'admin-notifications': 'team.view',
 }
 
@@ -243,6 +247,13 @@ function AuraApplication() {
   const adminCourseData = useCourses(Boolean(user) && canManageAcademy, true)
   const view = route.view
   const mode: AppMode = adminViews.includes(view) ? 'admin' : 'student'
+
+  useEffect(() => {
+    idlePrefetchStudentRoutes()
+    if (canAccessAdmin) {
+      idlePrefetchAdminRoutes()
+    }
+  }, [canAccessAdmin])
 
   useEffect(() => {
     const profileKey = `aura:nutrition-profile:${user?.uid ?? 'demo'}`
@@ -638,7 +649,11 @@ function AuraApplication() {
         
         <div className="aura-loading-center">
            <div className="aura-loading-logo-group">
-              <img src="/aura-onboarding.png" alt="Aura Fitness Background" style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', inset: 0, zIndex: 0 }} />
+              <div className="aura-loading-img-wrapper">
+                <img src="/aura-onboarding.png" alt="Aura Fitness Loading" className="aura-loading-brand-img" />
+              </div>
+              <h1 className="aura-loading-h1">AURA</h1>
+              <h2 className="aura-loading-h2">FITNESS & NUTRITION</h2>
            </div>
         </div>
 
@@ -804,6 +819,7 @@ function AuraApplication() {
           })
         }}
       />
+      case 'meal-plan': return <MealPlanPage onNavigate={navigate} />
       case 'progress-photo-studio': return <ProgressPhotoStudio onNavigate={navigate} ownerId={user?.uid ?? 'demo'} />
       case 'progress': return <ProgressPage ownerId={user?.uid ?? 'demo'} courseItems={studentCourses} progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error || learningData.error} onOpenCourse={openCourse} onNavigate={navigate} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} heightCm={effectiveHeight} />
       case 'profile': return <ProfilePage fullProfile={profile} displayName={effectiveDisplayName} email={profile?.email} membership={profile?.membership} goals={effectiveGoals} heightCm={effectiveHeight} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} targetSpeedPace={effectiveTargetSpeedPace} notificationSettings={effectiveNotifications} mealReminderTime={profile?.mealReminderTime} onSave={saveProfile} onSignOut={signOut} onEditProfile={() => setForceOnboarding(true)} />
@@ -861,6 +877,7 @@ function AuraApplication() {
       />
       case 'admin-roles': return <AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} />
       case 'admin-nutrition-reviews': return <AdminNutritionReviewsPage onNavigate={navigate} />
+      case 'admin-meal-plans': return <AdminMealPlansPage onNavigate={navigate} />
       case 'admin-notifications': return <AdminNotificationsPage onNavigate={navigate} users={adminUsers} currentUserUid={user?.uid} />
       default: return (
         <HomePage
@@ -879,7 +896,33 @@ function AuraApplication() {
   if ((user || backendMode === 'demo') && !isOnboardingDone) {
     return (
       <Onboarding 
-        initialProfile={{}}
+        initialProfile={profile || {}}
+        onSkip={async () => {
+          const uid = user?.uid ?? 'demo';
+          try {
+            window.localStorage.setItem(`aura:onboarding-completed:${uid}`, 'true');
+          } catch (e) {
+            console.error('LocalStorage error:', e);
+          }
+          setForceOnboarding(false);
+
+          if (backendMode === 'firebase' && user) {
+            try {
+              const { doc, setDoc } = await import('firebase/firestore');
+              const { firestoreDb } = await import('./lib/firebase');
+              if (firestoreDb) {
+                const userRef = doc(firestoreDb, 'users', user.uid);
+                await setDoc(userRef, { 
+                  onboardingCompleted: true
+                }, { merge: true });
+              }
+            } catch (e) {
+              console.error('Firestore onboarding skip save error:', e);
+            }
+          }
+
+          navigate('courses');
+        }}
         onComplete={async (profile, plan) => {
           const uid = user?.uid ?? 'demo';
           const nutritionProfile = {
@@ -979,10 +1022,10 @@ function AuraApplication() {
 
 function RouteLoadingFallback() {
   return (
-    <div className="course-detail-state" role="status" aria-live="polite">
-      <span className="brand-mark compact" aria-hidden="true">A<span /></span>
-      <h1>Đang mở không gian Aura</h1>
-      <p>Nội dung đang được tải an toàn. Quá trình này chỉ mất một chút thời gian.</p>
+    <div className="aura-route-fallback-card" role="status" aria-live="polite">
+      <img src="/aura-onboarding.png" alt="Aura Loading" className="aura-route-fallback-img" />
+      <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a', margin: '0 0 6px 0' }}>Đang tải không gian Aura...</h1>
+      <p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>Nội dung đang được đồng bộ và tối ưu hiển thị mượt mà.</p>
     </div>
   )
 }

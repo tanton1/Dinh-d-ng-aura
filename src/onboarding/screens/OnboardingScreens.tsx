@@ -50,7 +50,7 @@ export const ChoiceCard = ({ title, subtitle, selected, onClick, icon }: any) =>
   </div>
 );
 
-export const Header = ({ currentStep, profile, onBack }: any) => {
+export const Header = ({ currentStep, profile, onBack, onSkip }: any) => {
   const steps = getSteps(profile);
   const index = steps.indexOf(currentStep);
   const progress = ((index + 1) / steps.length) * 100;
@@ -58,12 +58,32 @@ export const Header = ({ currentStep, profile, onBack }: any) => {
   if (currentStep === 'welcome' || currentStep === 'analyzing' || currentStep === 'result') return null;
 
   return (
-    <div className="onboarding-header">
-      <button className="back-button" onClick={onBack}><ArrowLeft size={24} /></button>
-      <div className="progress-bar">
+    <div className="onboarding-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+      <button className="back-button" onClick={onBack} aria-label="Quay lại"><ArrowLeft size={24} /></button>
+      <div className="progress-bar" style={{ flex: 1 }}>
         <div className="progress-fill" style={{ width: `${progress}%` }} />
       </div>
       <div className="progress-text">{index + 1} / {steps.length}</div>
+      {onSkip && (
+        <button 
+          type="button"
+          onClick={onSkip}
+          style={{
+            background: 'rgba(241, 245, 249, 0.9)',
+            border: 'none',
+            color: '#64748b',
+            fontSize: '13px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            padding: '6px 12px',
+            borderRadius: '12px',
+            whiteSpace: 'nowrap',
+            marginLeft: '4px'
+          }}
+        >
+          Để sau
+        </button>
+      )}
     </div>
   );
 };

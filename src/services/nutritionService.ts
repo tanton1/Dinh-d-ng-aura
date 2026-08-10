@@ -603,7 +603,7 @@ export async function analyzeFoodPhoto(
           analyzedAt: new Date().toISOString(),
           analysis: {
             isFood: true,
-            dishNameVi: a.items?.[0]?.name || 'Món ăn dinh dưỡng',
+            dishNameVi: a.dishName || a.items?.[0]?.name || 'Bữa ăn dinh dưỡng',
             dishNameEn: 'Nutritional Meal',
             portionSummary: '1 đĩa phần ăn tiêu chuẩn',
             confidence: 0.92,
