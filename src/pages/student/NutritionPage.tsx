@@ -26,6 +26,7 @@ import type {
   FoodAnalysisResponse,
   NutritionCatalogMatch,
 } from '../../services/nutritionService'
+import { askAiCoach } from '../../services/nutritionService'
 import { firebaseAuth, firestoreDb } from '../../lib/firebase'
 import {
   saveUserMealLog,
@@ -2343,16 +2344,16 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                               event.target.style.height = event.target.scrollHeight + 'px';
                               updateItem(item.id, 'name', event.target.value);
                             }}
-                            className="flex-1 min-w-0 font-extrabold text-sm sm:text-base text-slate-900 block p-0 m-0 bg-transparent outline-none leading-snug focus:outline-none focus:ring-0 resize-none overflow-hidden"
-                            style={{ border: 'none', outline: 'none', boxShadow: 'none', height: '24px', minHeight: '24px' }}
+                            className="flex-1 min-w-0 font-extrabold text-sm sm:text-base text-slate-900 block p-0 m-0 bg-transparent outline-none leading-snug focus:outline-none focus:ring-0 resize-none overflow-hidden break-words whitespace-pre-wrap"
+                            style={{ border: 'none', outline: 'none', boxShadow: 'none', minHeight: '24px' }}
                             placeholder="Tên thành phần..."
                             rows={1}
                           />
                           
                           {/* Compact Stepper Control - Extended width (108px) sang trái để hiển thị rõ gram */}
                           <div 
-                            className="flex items-center justify-between bg-white rounded-xl p-0.5 shrink-0 box-border mr-8 sm:mr-10"
-                            style={{ width: '108px', minWidth: '100px', boxShadow: '0 2px 12px rgba(148, 163, 184, 0.2), inset 0 1px 0 rgba(255,255,255,1)', border: '1px solid rgba(203, 213, 225, 0.5)' }}
+                            className="flex items-center justify-between bg-white rounded-xl p-0.5 shrink-0 box-border mr-12 sm:mr-16"
+                            style={{ width: '108px', minWidth: '100px', boxShadow: '0 4px 12px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.1), inset 0 1px 1px rgba(255,255,255,1)', border: 'none', marginRight: '60px' }}
                           >
                             <button
                               type="button"
@@ -3452,9 +3453,9 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         content = 'Bắt đầu bằng một thao tác: quét ảnh hoặc chọn món trong Thư viện, kiểm tra khẩu phần rồi xác nhận bữa và thời gian. Sau một đến hai bữa, Aura có thể trả lời phần còn thiếu cụ thể hơn.'
         evidence = [`${loggedMeals.length} bữa đã ghi trong ngày đã chọn`]
       } else {
-        content = 'Mình chưa nhận ra bạn đang hỏi về chỉ số hay bữa ăn nào. Bạn có thể hỏi cụ thể về bữa tiếp theo, kcal, đạm, carb, chất béo, chất xơ, đường, natri, nước hoặc dinh dưỡng quanh buổi tập.'
-        evidence = ['Cần một câu hỏi cụ thể hơn để tránh suy đoán']
-        confidenceLabel = 'Cần làm rõ ý định'
+        content = await askAiCoach(question, profileDraft)
+        evidence = ['Phân tích từ AI Studio (Gemini 3.6 Flash)']
+        confidenceLabel = 'AI Generated'
       }
       setAssistantMessages((current) => [...current, {
         id: `aura-assistant-${Date.now()}`,
