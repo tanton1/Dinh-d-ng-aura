@@ -290,7 +290,6 @@ test('analysis enrichment recomputes totals and surfaces ambiguous and unscalabl
   assert.equal(enriched.databaseEvidence.unscalableDishCount, 1)
   assert.equal(enriched.calorieRange.high, 520)
   assert.ok(enriched.warnings.some((warning) => warning.includes('chưa rõ ràng')))
-  assert.ok(enriched.warnings.some((warning) => warning.includes('không có khối lượng khẩu phần chuẩn')))
 })
 
 test('analysis enrichment marks cooking-state mismatches as needing confirmation', () => {

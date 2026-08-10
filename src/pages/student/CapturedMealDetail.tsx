@@ -58,7 +58,8 @@ export interface MealLogItem {
   calorieRange?: { low: number; high: number }
   items?: AiFoodItem[]
   coachFeedback?: string
-  aiAnalysis?: string
+  aiAnalysis?: any
+  goalAlignmentAssessment?: string
   reviewStatus?: 'pending' | 'reviewed'
 }
 
@@ -459,7 +460,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
                 return (
                   <div className="fdet-ingredient-card" key={item.id}>
                     <div className="fdet-ing-left">
-                      <strong className="fdet-ing-name">{item.name}</strong>
+                      <span className="fdet-ing-name font-normal">{item.name}</span>
                       <span className="fdet-ing-cal"> · {scaledCalories} cal</span>
                     </div>
 
@@ -517,7 +518,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500 }}>
-              {meal.aiAnalysis || `Khẩu phần ${portionCount} phần gồm ${ingredients.map((i) => i.name).join(', ')}. Tổng năng lượng ${totalCal} kcal (${totalProtein}g Đạm, ${totalCarbs}g Carb, ${totalFat}g Béo) đạt tỉ lệ dinh dưỡng cân đối, phù hợp với chế độ tập luyện.`}
+              {meal.goalAlignmentAssessment || (typeof meal.aiAnalysis === 'object' ? meal.aiAnalysis?.goalAlignmentAssessment || meal.aiAnalysis?.aiSuggestion || meal.aiAnalysis?.aiFeedback : meal.aiAnalysis) || `Khẩu phần ${portionCount} phần gồm ${ingredients.map((i) => i.name).join(', ')}. Tổng năng lượng ${totalCal} kcal (${totalProtein}g Đạm, ${totalCarbs}g Carb, ${totalFat}g Béo) đạt tỉ lệ dinh dưỡng cân đối, phù hợp với chế độ tập luyện.`}
             </p>
           </div>
 

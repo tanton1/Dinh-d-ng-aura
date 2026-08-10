@@ -22,6 +22,7 @@ import { AiWeeklyAnalysisCard } from '../../components/progress/AiWeeklyAnalysis
 import { QuickLogBottomSheet } from '../../components/progress/QuickLogBottomSheet'
 import { WeightLogModal } from '../../components/progress/WeightLogModal'
 import { BodyMeasurementsModal } from '../../components/progress/BodyMeasurementsModal'
+import { firebaseAuth } from '../../lib/firebase'
 import { AiCoachBottomSheet } from '../../components/progress/AiCoachBottomSheet'
 import { calculateProgressScore, defaultProgressInputSample } from '../../utils/progressScoreCalculator'
 import {
@@ -29,7 +30,10 @@ import {
   subscribeToUserWeightLogs,
   saveUserBodyMeasurements,
   subscribeToUserBodyMeasurements,
-  subscribeToUserGamification
+  subscribeToUserGamification,
+  subscribeToUserMealLogs,
+  subscribeToUserWaterLogs,
+  subscribeToUserActivityLogs,
 } from '../../services/firebaseService'
 
 interface ProgressPageProps {
@@ -62,6 +66,10 @@ export default function ProgressPage({
   const [period, setPeriod] = useState<ProgressPeriod>('7-days')
   const [category, setCategory] = useState<ProgressCategory>('overview')
 
+  const resolvedOwnerId = (ownerId && ownerId !== 'demo' && ownerId !== 'anonymous')
+    ? ownerId
+    : (firebaseAuth?.currentUser?.uid || 'demo')
+
   // Modals & Bottom Sheets state
   const [quickLogOpen, setQuickLogOpen] = useState(false)
   const [weightModalOpen, setWeightModalOpen] = useState(false)
@@ -72,6 +80,85 @@ export default function ProgressPage({
   const baseWeight = weightKg ?? 65.0
   const startWeightKg = baseWeight
   const goalWeightKg = Number((baseWeight + (targetWeightDeltaKg ?? -4)).toFixed(1))
+
+  // Live Nutrition Data States
+  const [allMeals, setAllMeals] = useState<any[]>(() => {
+    try {
+      const raw = localStorage.getItem(`aura:nutrition:meals:v2:${resolvedOwnerId}`)
+      return raw ? JSON.parse(raw) : []
+    } catch {
+      return []
+    }
+  })
+
+  const [allActivities, setAllActivities] = useState<any[]>(() => {
+    try {
+      const raw = localStorage.getItem(`aura:nutrition:activities:v1:${resolvedOwnerId}`)
+      return raw ? JSON.parse(raw) : []
+    } catch {
+      return []
+    }
+  })
+
+  const [allWater, setAllWater] = useState<any[]>(() => {
+    try {
+      const raw = localStorage.getItem(`aura:nutrition:water-entries:v1:${resolvedOwnerId}`)
+      return raw ? JSON.parse(raw) : []
+    } catch {
+      return []
+    }
+  })
+
+  useEffect(() => {
+    const loadFromStorage = () => {
+      try {
+        const rawM = localStorage.getItem(`aura:nutrition:meals:v2:${resolvedOwnerId}`)
+        if (rawM) setAllMeals(JSON.parse(rawM))
+        const rawA = localStorage.getItem(`aura:nutrition:activities:v1:${resolvedOwnerId}`)
+        if (rawA) setAllActivities(JSON.parse(rawA))
+        const rawW = localStorage.getItem(`aura:nutrition:water-entries:v1:${resolvedOwnerId}`)
+        if (rawW) setAllWater(JSON.parse(rawW))
+      } catch (e) {
+        console.error(e)
+      }
+    }
+
+    loadFromStorage()
+
+    const handleStorage = () => loadFromStorage()
+    window.addEventListener('storage', handleStorage)
+    window.addEventListener('aura:nutrition:updated', handleStorage)
+
+    if (resolvedOwnerId && resolvedOwnerId !== 'anonymous') {
+      const unsubM = subscribeToUserMealLogs(resolvedOwnerId, (remote) => {
+        if (remote && Array.isArray(remote)) {
+          setAllMeals(remote)
+        }
+      })
+      const unsubW = subscribeToUserWaterLogs(resolvedOwnerId, (remote) => {
+        if (remote && Array.isArray(remote)) {
+          setAllWater(remote)
+        }
+      })
+      const unsubA = subscribeToUserActivityLogs(resolvedOwnerId, (remote) => {
+        if (remote && Array.isArray(remote)) {
+          setAllActivities(remote)
+        }
+      })
+      return () => {
+        window.removeEventListener('storage', handleStorage)
+        window.removeEventListener('aura:nutrition:updated', handleStorage)
+        unsubM()
+        unsubW()
+        unsubA()
+      }
+    }
+
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      window.removeEventListener('aura:nutrition:updated', handleStorage)
+    }
+  }, [resolvedOwnerId])
 
   // Weight Data State
   const [weightRecords, setWeightRecords] = useState<WeightRecord[]>(() => {
@@ -296,46 +383,15 @@ export default function ProgressPage({
     }
   }
 
-  // Loaded once at component level for performance and consistency
-  const allMeals = useMemo(() => {
-    try {
-      const raw = localStorage.getItem(`aura:nutrition:meals:v2:${ownerId}`)
-      return raw ? JSON.parse(raw) : []
-    } catch (e) {
-      console.error(e)
-      return []
-    }
-  }, [ownerId])
-
-  const allActivities = useMemo(() => {
-    try {
-      const raw = localStorage.getItem(`aura:nutrition:activities:v1:${ownerId}`)
-      return raw ? JSON.parse(raw) : []
-    } catch (e) {
-      console.error(e)
-      return []
-    }
-  }, [ownerId])
-
-  const allWater = useMemo(() => {
-    try {
-      const raw = localStorage.getItem(`aura:nutrition:water-entries:v1:${ownerId}`)
-      return raw ? JSON.parse(raw) : []
-    } catch (e) {
-      console.error(e)
-      return []
-    }
-  }, [ownerId])
-
   const userProfile = useMemo(() => {
     try {
-      const raw = localStorage.getItem(`aura:nutrition-profile:${ownerId}`)
+      const raw = localStorage.getItem(`aura:nutrition-profile:${resolvedOwnerId}`)
       return raw ? JSON.parse(raw) : null
     } catch (e) {
       console.error(e)
       return null
     }
-  }, [ownerId])
+  }, [resolvedOwnerId])
 
   // Get actual weight in the last 30 days based on weight history of this user
   const actual30DayWeight = useMemo(() => {
@@ -415,7 +471,8 @@ export default function ProgressPage({
     const factors: Record<string, number> = { low: 1.25, moderate: 1.45, high: 1.65 }
     const dailyBase = Math.round(resting * (factors[act] || 1.45))
     
-    const periodMeals = allMeals.filter((m: any) => m.status === 'logged' && dateKeys.includes(m.date))
+    const isMealLogged = (m: any) => !m.status || m.status === 'logged'
+    const periodMeals = allMeals.filter((m: any) => isMealLogged(m) && dateKeys.includes(m.date))
     const totalIntake = periodMeals.reduce((sum: number, m: any) => sum + (Number(m.calories) || 0), 0)
     
     const periodActivities = allActivities.filter((a: any) => dateKeys.includes(a.date))
@@ -451,7 +508,7 @@ export default function ProgressPage({
       activeDays: uniqueDaysWithMeals,
       workoutDays: daysWithWorkout,
     }
-  }, [period, ownerId, actual30DayWeight, allMeals, allActivities, userProfile, heightCm])
+  }, [period, resolvedOwnerId, actual30DayWeight, allMeals, allActivities, userProfile, heightCm])
 
   // Nutrition progress calculation based on real log history and actual 30-day weight
   const nutritionProgressData = useMemo(() => {
@@ -497,7 +554,8 @@ export default function ProgressPage({
     const fiberGoal = 30
     const waterGoal = userProfile?.waterTargetMl || 2000
 
-    const periodMeals = allMeals.filter((m: any) => m.status === 'logged' && dateKeys.includes(m.date))
+    const isMealLogged = (m: any) => !m.status || m.status === 'logged'
+    const periodMeals = allMeals.filter((m: any) => isMealLogged(m) && dateKeys.includes(m.date))
     const uniqueDaysWithMeals = new Set(periodMeals.map((m: any) => m.date)).size
     const divisor = Math.max(1, uniqueDaysWithMeals)
     
@@ -525,7 +583,7 @@ export default function ProgressPage({
       waterGoal,
       activeDays: uniqueDaysWithMeals,
     }
-  }, [period, ownerId, actual30DayWeight, allMeals, allWater, userProfile, heightCm])
+  }, [period, resolvedOwnerId, actual30DayWeight, allMeals, allWater, userProfile, heightCm])
 
   // Real Progress Score calculation based on real user logged data
   const realProgressInput = useMemo(() => {
@@ -541,13 +599,14 @@ export default function ProgressPage({
       dateKeys.push(`${yr}-${mo}-${dy}`)
     }
 
-    const periodMeals = allMeals.filter((m: any) => m.status === 'logged' && dateKeys.includes(m.date))
+    const isMealLogged = (m: any) => !m.status || m.status === 'logged'
+    const periodMeals = allMeals.filter((m: any) => isMealLogged(m) && dateKeys.includes(m.date))
     const uniqueDaysWithMeals = new Set(periodMeals.map((m: any) => m.date)).size
     const mealLoggingRate = Math.round((uniqueDaysWithMeals / daysCount) * 100)
 
     // Calculate calorie and protein adherence per day
-    let calorieOnTargetDays = 0
-    let proteinOnTargetDays = 0
+    let totalCalorieScoreSum = 0
+    let totalProteinScoreSum = 0
     const targetCal = nutritionProgressData.targetCalories || 2000
     const targetProt = nutritionProgressData.proteinGoal || 100
 
@@ -557,18 +616,18 @@ export default function ProgressPage({
         const dayCalories = dayMeals.reduce((sum: number, m: any) => sum + (Number(m.calories) || 0), 0)
         const dayProtein = dayMeals.reduce((sum: number, m: any) => sum + (Number(m.protein) || 0), 0)
         
-        // Target: within ±15%
-        if (dayCalories >= targetCal * 0.85 && dayCalories <= targetCal * 1.15) {
-          calorieOnTargetDays++
-        }
-        if (dayProtein >= targetProt * 0.85 && dayProtein <= targetProt * 1.15) {
-          proteinOnTargetDays++
-        }
+        const cRatio = targetCal > 0 ? dayCalories / targetCal : 0
+        const cScore = cRatio === 0 ? 0 : cRatio >= 0.85 && cRatio <= 1.15 ? 100 : Math.max(30, Math.round((1 - Math.min(1, Math.abs(1 - cRatio))) * 100))
+        totalCalorieScoreSum += cScore
+
+        const pRatio = targetProt > 0 ? dayProtein / targetProt : 0
+        const pScore = pRatio === 0 ? 0 : pRatio >= 0.85 && pRatio <= 1.15 ? 100 : Math.max(30, Math.round((1 - Math.min(1, Math.abs(1 - pRatio))) * 100))
+        totalProteinScoreSum += pScore
       }
     })
 
-    const calorieTargetRate = uniqueDaysWithMeals > 0 ? Math.round((calorieOnTargetDays / uniqueDaysWithMeals) * 100) : 0
-    const proteinTargetRate = uniqueDaysWithMeals > 0 ? Math.round((proteinOnTargetDays / uniqueDaysWithMeals) * 100) : 0
+    const calorieTargetRate = uniqueDaysWithMeals > 0 ? Math.round(totalCalorieScoreSum / uniqueDaysWithMeals) : 0
+    const proteinTargetRate = uniqueDaysWithMeals > 0 ? Math.round(totalProteinScoreSum / uniqueDaysWithMeals) : 0
 
     // Hydration rate
     const periodWater = allWater.filter((w: any) => dateKeys.includes(w.date))
@@ -672,6 +731,30 @@ export default function ProgressPage({
     }
   }
 
+  const todayStr = useMemo(() => {
+    const d = new Date()
+    const yr = d.getFullYear()
+    const mo = String(d.getMonth() + 1).padStart(2, '0')
+    const dy = String(d.getDate()).padStart(2, '0')
+    return `${yr}-${mo}-${dy}`
+  }, [])
+
+  const todayMealsCount = useMemo(() => {
+    return allMeals.filter((m: any) => (!m.status || m.status === 'logged') && m.date === todayStr).length
+  }, [allMeals, todayStr])
+
+  const todayWaterMl = useMemo(() => {
+    return allWater.filter((w: any) => w.date === todayStr).reduce((sum: number, w: any) => sum + (Number(w.amountMl) || 0), 0)
+  }, [allWater, todayStr])
+
+  const todayWeightLogged = useMemo(() => {
+    return weightRecords.some(r => r.date === todayStr)
+  }, [weightRecords, todayStr])
+
+  const todayWorkoutLogged = useMemo(() => {
+    return allActivities.some(a => a.date === todayStr)
+  }, [allActivities, todayStr])
+
   return (
     <div className="progress-center-page">
       {/* Header with Time Selector & Category Pills & Coach Button */}
@@ -708,6 +791,11 @@ export default function ProgressPage({
 
           {/* Daily Actions Checklist */}
           <DailyActionsCard
+            todayMealCount={todayMealsCount}
+            todayWaterMl={todayWaterMl}
+            waterTargetMl={nutritionProgressData.waterGoal}
+            todayWeightLogged={todayWeightLogged}
+            todayWorkoutLogged={todayWorkoutLogged}
             onOpenQuickLog={(type) => {
               if (type === 'weight') setWeightModalOpen(true)
               else if (type === 'meal') onNavigate?.('nutrition')
@@ -773,14 +861,14 @@ export default function ProgressPage({
             />
           </div>
           <div style={{ marginBottom: 20 }}>
-            <NutritionChartsCard ownerId={ownerId} />
+            <NutritionChartsCard ownerId={resolvedOwnerId} />
           </div>
         </>
       )}
 
       {(category === 'overview' || category === 'workout' || category === 'body') && (
         <ProgressPhotosCard 
-          ownerId={ownerId} 
+          ownerId={resolvedOwnerId} 
           triggerAddPhoto={triggerPhotoUpload}
           onAddPhotoTriggered={() => setTriggerPhotoUpload(false)}
           onNavigateToStudio={() => onNavigate?.('progress-photo-studio')}
@@ -788,7 +876,7 @@ export default function ProgressPage({
       )}
 
       {(category === 'overview' || category === 'achievements') && (
-        <StreaksAndBadgesCard ownerId={ownerId} progressItems={progressItems} />
+        <StreaksAndBadgesCard ownerId={resolvedOwnerId} progressItems={progressItems} />
       )}
 
       {/* AI Analysis Weekly Summary */}

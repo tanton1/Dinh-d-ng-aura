@@ -4,23 +4,77 @@ import type { DailyTask } from '../../types/progressTypes'
 
 interface DailyActionsCardProps {
   onOpenQuickLog?: (type: DailyTask['type']) => void
+  todayMealCount?: number
+  todayWaterMl?: number
+  waterTargetMl?: number
+  todayWeightLogged?: boolean
+  todayWorkoutLogged?: boolean
 }
 
-export function DailyActionsCard({ onOpenQuickLog }: DailyActionsCardProps) {
-  const [tasks, setTasks] = useState<DailyTask[]>([
-    { id: '1', title: 'Ghi cân nặng', subtitle: 'Buổi sáng', type: 'weight', completed: false },
-    { id: '2', title: 'Ghi bữa ăn', subtitle: 'Sáng', type: 'meal', completed: true },
-    { id: '3', title: 'Uống nước', subtitle: '1.2 / 2.2 lít', type: 'water', completed: false, progress: 55 },
-    { id: '4', title: 'Buổi tập', subtitle: 'Thân dưới', type: 'workout', completed: false },
-  ])
+export function DailyActionsCard({
+  onOpenQuickLog,
+  todayMealCount,
+  todayWaterMl,
+  waterTargetMl = 2000,
+  todayWeightLogged,
+  todayWorkoutLogged,
+}: DailyActionsCardProps) {
+  const waterPct = Math.min(100, Math.round(((todayWaterMl ?? 1200) / waterTargetMl) * 100))
+  const isWaterDone = (todayWaterMl ?? 0) >= waterTargetMl
+  const isMealDone = typeof todayMealCount === 'number' ? todayMealCount > 0 : true
+  const isWeightDone = typeof todayWeightLogged === 'boolean' ? todayWeightLogged : false
+  const isWorkoutDone = typeof todayWorkoutLogged === 'boolean' ? todayWorkoutLogged : false
+
+  const [manualCompleted, setManualCompleted] = useState<Record<string, boolean>>({})
+
+  const isTaskCompleted = (id: string, type: DailyTask['type']) => {
+    if (manualCompleted[id] !== undefined) return manualCompleted[id]
+    switch (type) {
+      case 'weight': return isWeightDone
+      case 'meal': return isMealDone
+      case 'water': return isWaterDone
+      case 'workout': return isWorkoutDone
+      default: return false
+    }
+  }
+
+  const tasks: DailyTask[] = [
+    {
+      id: '1',
+      title: 'Ghi cân nặng',
+      subtitle: isWeightDone ? 'Đã ghi hôm nay' : 'Chưa ghi nhận',
+      type: 'weight',
+      completed: isTaskCompleted('1', 'weight')
+    },
+    {
+      id: '2',
+      title: 'Ghi bữa ăn',
+      subtitle: todayMealCount !== undefined ? `${todayMealCount} bữa đã ghi` : 'Sáng',
+      type: 'meal',
+      completed: isTaskCompleted('2', 'meal')
+    },
+    {
+      id: '3',
+      title: 'Uống nước',
+      subtitle: `${((todayWaterMl ?? 1200) / 1000).toFixed(1)} / ${(waterTargetMl / 1000).toFixed(1)} lít`,
+      type: 'water',
+      completed: isTaskCompleted('3', 'water'),
+      progress: waterPct
+    },
+    {
+      id: '4',
+      title: 'Buổi tập',
+      subtitle: isWorkoutDone ? 'Đã hoàn thành' : 'Thân dưới',
+      type: 'workout',
+      completed: isTaskCompleted('4', 'workout')
+    },
+  ]
 
   const toggleTask = (id: string, type: DailyTask['type'], currentCompleted: boolean) => {
     if (!currentCompleted && onOpenQuickLog) {
       onOpenQuickLog(type)
     }
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t))
-    )
+    setManualCompleted((prev) => ({ ...prev, [id]: !currentCompleted }))
   }
 
   const getIcon = (type: DailyTask['type']) => {

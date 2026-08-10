@@ -59,6 +59,7 @@ const foodAnalysisSchema = {
     portionAndCalorieRationale: { type: 'string', minLength: 1, maxLength: 1000 },
     goalAlignmentAssessment: { type: 'string', minLength: 1, maxLength: 1000 },
     coachFeedbackSuggestion: { type: 'string', minLength: 1, maxLength: 2000 },
+    aiFeedback: { type: 'string', minLength: 1, maxLength: 2000 },
     items: {
       type: 'array',
       maxItems: 12,
@@ -393,6 +394,7 @@ function validateFoodAnalysis(value) {
     portionAndCalorieRationale: typeof value.portionAndCalorieRationale === 'string' ? value.portionAndCalorieRationale.trim().slice(0, 1000) : '',
     goalAlignmentAssessment: typeof value.goalAlignmentAssessment === 'string' ? value.goalAlignmentAssessment.trim().slice(0, 1000) : '',
     coachFeedbackSuggestion: typeof value.coachFeedbackSuggestion === 'string' ? value.coachFeedbackSuggestion.trim().slice(0, 2000) : '',
+    aiFeedback: typeof value.aiFeedback === 'string' ? value.aiFeedback.trim().slice(0, 2000) : '',
     items: value.items.map((item, index) => {
       if (!isPlainObject(item)) throw new Error(`items[${index}] is invalid.`)
       return {
@@ -790,14 +792,8 @@ function enrichAnalysisWithLookups(analysis, dishLookup, itemLookups) {
   if (belowTrustThresholdCount) {
     appendWarning(`Có ${belowTrustThresholdCount} kết quả đối chiếu có độ tương đồng thấp nên Aura vẫn giữ ước tính AI.`)
   }
-  if (unscalableDishCount) {
-    appendWarning('Một số món ăn trong cơ sở dữ liệu không có khối lượng khẩu phần chuẩn nên chưa được dùng để thay thế số liệu AI.')
-  }
   if (cookingStateNeedsConfirmationCount) {
     appendWarning(`Có ${cookingStateNeedsConfirmationCount} thành phần đối chiếu với dữ liệu sống/tươi nhưng trạng thái chế biến không tương thích hoặc chưa rõ; Aura giữ ước tính AI cho đến khi bạn xác nhận.`)
-  }
-  if (notFoundItemCount) {
-    appendWarning(`Có ${notFoundItemCount} thành phần chưa tìm thấy bản ghi phù hợp trong cơ sở dữ liệu.`)
   }
 
   const databaseNotices = []
@@ -879,7 +875,7 @@ async function requestGeminiModel({ apiKey, buffer, contentType, prompt, instruc
             ],
           }],
           generationConfig: {
-            maxOutputTokens: 4096,
+            maxOutputTokens: 8192,
             thinkingConfig: { thinkingLevel: 'medium' },
             responseFormat: {
               text: {
@@ -939,6 +935,7 @@ async function analyzeWithGemini({ apiKey, buffer, contentType, mealType, notes,
     'Provide portionAndCalorieRationale: Clear explanation for the estimated mass and calories (based on plate size, meat thickness, oil/sauce).',
     'Provide goalAlignmentAssessment: Short assessment of how this meal aligns with the student goal: ' + (studentGoal || 'Chưa cập nhật'),
     'Provide coachFeedbackSuggestion: Detailed feedback (30-100 words) from a Coach/PT perspective for the student. Base it DIRECTLY on their goal and condition. Use a professional, encouraging PT tone, analyzing macros and deficit/surplus. Do NOT use generic placeholder text.',
+    'Provide aiFeedback: An overall nutritional feedback.',
     'Return Vietnamese display names, English names, and an ASCII Vietnamese search term suitable for exact database matching.',
     'Estimate kcal, protein, carbohydrate, fat, fiber, sugar, and sodium for the visible portion.',
     'Ask at most three short Vietnamese questions, only for uncertainties that could materially change calories.',

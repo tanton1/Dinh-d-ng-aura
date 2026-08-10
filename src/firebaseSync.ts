@@ -49,6 +49,7 @@ export interface PendingMealItem {
     coachFeedbackSuggestion?: string
   }
   aiFeedback?: string
+  goalAlignmentAssessment?: string
   coachFeedbackSuggestion?: string
   coachFeedback?: string
 }
@@ -187,13 +188,14 @@ function mapDocToMeal(r: any): PendingMealItem {
     aiWarning: r.aiWarning || mealObj.aiWarning || null,
     aiSuggestions: r.aiSuggestions || mealObj.aiSuggestions || [],
     coachFeedback: r.coachFeedback || mealObj.coachFeedback,
-    aiAnalysis: r.aiAnalysis || {
+    aiAnalysis: r.aiAnalysis || mealObj.aiAnalysis || {
       items: mealObj.items || [],
       totalKcal: rawKcal,
       totalProtein: rawProtein,
       aiSuggestion: typeof mealObj.aiAnalysis === 'string' ? mealObj.aiAnalysis : 'Bữa ăn đã được đánh giá chỉ số dinh dưỡng.',
       coachFeedbackSuggestion: 'Bữa ăn đầy đủ dinh dưỡng, tiếp tục duy trì nhé!',
     },
-    coachFeedbackSuggestion: 'Bữa ăn này rất tốt! Em cố gắng duy trì nhé.',
+    goalAlignmentAssessment: r.goalAlignmentAssessment || mealObj.goalAlignmentAssessment || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.goalAlignmentAssessment : undefined) || (typeof mealObj.aiAnalysis === 'object' ? mealObj.aiAnalysis?.goalAlignmentAssessment : undefined),
+    coachFeedbackSuggestion: r.coachFeedbackSuggestion || mealObj.coachFeedbackSuggestion || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.coachFeedbackSuggestion : undefined) || (typeof mealObj.aiAnalysis === 'object' ? mealObj.aiAnalysis?.coachFeedbackSuggestion : undefined) || 'Bữa ăn này rất tốt! Em cố gắng duy trì nhé.',
   }
 }

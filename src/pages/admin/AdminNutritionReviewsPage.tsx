@@ -632,14 +632,14 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
             </div>
           )}
 
-          {/* AI COACH GỢI Ý (KHUNG NỀN GRADIENT HỒNG - CAM NỔI BẬT) */}
+          {/* AI COACH GỢI Ý (KHUNG NỀN GRADIENT HỒNG - CAM) */}
           <div className="aura-detail-section-card aura-gradient-pink-orange-card !rounded-3xl">
             <div className="aura-section-header-title">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 bg-gradient-to-r from-pink-500 to-orange-400 text-white rounded-xl shadow-2xs flex items-center justify-center">
                   <Sparkles size={16} />
                 </div>
-                <h3 className="font-black text-base bg-gradient-to-r from-pink-600 via-rose-500 to-orange-500 bg-clip-text text-transparent flex items-center gap-1.5">
+                <h3 className="font-bold text-base text-slate-800 flex items-center gap-1.5">
                   Gợi ý từ AI Coach
                 </h3>
               </div>
@@ -649,16 +649,16 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
             </div>
 
             {/* Student Goals & Profile Overview Pill */}
-            <div className="bg-white/80 backdrop-blur-sm p-3 rounded-2xl border border-pink-200/60 flex flex-wrap gap-2 text-xs font-bold text-slate-700">
+            <div className="bg-white/80 backdrop-blur-sm p-3 rounded-2xl border border-slate-200/60 flex flex-wrap gap-2 text-xs font-bold text-slate-700">
               <span className="bg-pink-100 text-pink-800 px-2.5 py-1 rounded-xl">🎯 Target: {meal.studentGoal || 'Giảm mỡ - Tăng cơ'}</span>
               <span className="bg-orange-100 text-orange-800 px-2.5 py-1 rounded-xl">🏋️ {meal.studentCondition || 'Tập gym 4 buổi/tuần'}</span>
               <span className="bg-amber-100 text-amber-800 px-2.5 py-1 rounded-xl">🍽️ Bữa: {meal.mealType || 'Bữa chính'}</span>
             </div>
 
             {/* AI Personalized Coach Recommendation */}
-            <div className="bg-white/90 p-3.5 rounded-2xl border border-pink-200 text-xs text-slate-700 leading-relaxed shadow-xs">
+            <div className="bg-white/90 p-3.5 rounded-2xl border border-slate-200/80 text-xs text-slate-700 leading-relaxed shadow-xs">
               <div className="flex items-center justify-between mb-1.5">
-                <strong className="bg-gradient-to-r from-pink-600 to-orange-500 bg-clip-text text-transparent font-bold text-xs">🤖 AI Coach Tư Vấn Dành Cho PT/Coach:</strong>
+                <strong className="font-bold text-xs text-slate-800">🤖 AI Coach Tư Vấn Dành Cho PT/Coach:</strong>
                 <button
                   type="button"
                   className="text-[11px] font-bold text-pink-600 hover:text-pink-800 bg-pink-50 hover:bg-pink-100 px-2.5 py-1 rounded-xl border border-pink-200 flex items-center gap-1 transition-all"
@@ -671,19 +671,19 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
                 </button>
               </div>
               <p className="margin-0 font-medium text-slate-700">
-                "{coachInternalAdvice}"
+                "{meal.coachFeedbackSuggestion || meal.aiAnalysis?.coachFeedbackSuggestion || coachInternalAdvice}"
               </p>
             </div>
           </div>
 
-          {/* NHẬN XÉT TỪ COACH (KHUNG NỀN GRADIENT HỒNG - XANH TƯƠI MÁT) */}
+          {/* NHẬN XÉT TỪ COACH (KHUNG NỀN GRADIENT HỒNG - XANH) */}
           <div className="aura-detail-section-card aura-gradient-pink-blue-card !rounded-3xl">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 bg-gradient-to-r from-pink-500 to-orange-400 text-white rounded-xl shadow-2xs flex items-center justify-center">
                   <Sparkles size={16} />
                 </div>
-                <h3 className="font-black text-base bg-gradient-to-r from-pink-600 via-rose-500 to-orange-500 bg-clip-text text-transparent flex items-center gap-1.5">
+                <h3 className="font-bold text-base text-slate-800 flex items-center gap-1.5">
                   Nhận xét từ Coach
                 </h3>
               </div>

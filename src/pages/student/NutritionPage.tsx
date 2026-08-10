@@ -2205,7 +2205,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                       : 'Món ăn mẫu'}
                   </span>
                 </span>
-                <span className="fdet-time-badge font-mono px-3 py-1 rounded-full text-xs font-black shadow-2xs" style={{ border: '1px solid #fed7aa', background: '#fff7ed', color: '#c2410c' }}>{mealTime}</span>
+                <span className="fdet-time-badge font-mono px-2.5 py-0.5 rounded-full text-[11px] font-medium shadow-2xs" style={{ border: '1px solid #fed7aa', background: '#fff7ed', color: '#c2410c' }}>{mealTime}</span>
               </div>
 
               {/* Title & Calories Header (fdet-title-cal-row) */}
@@ -2344,7 +2344,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                               event.target.style.height = event.target.scrollHeight + 'px';
                               updateItem(item.id, 'name', event.target.value);
                             }}
-                            className="flex-1 min-w-0 font-extrabold text-sm sm:text-base text-slate-900 block p-0 m-0 bg-transparent outline-none leading-snug focus:outline-none focus:ring-0 resize-none overflow-hidden break-words whitespace-pre-wrap"
+                            className="flex-1 min-w-0 font-normal text-sm sm:text-base text-slate-900 block p-0 m-0 bg-transparent outline-none leading-snug focus:outline-none focus:ring-0 resize-none overflow-hidden break-words whitespace-pre-wrap"
                             style={{ border: 'none', outline: 'none', boxShadow: 'none', minHeight: '24px' }}
                             placeholder="Tên thành phần..."
                             rows={1}
@@ -2352,8 +2352,8 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                           
                           {/* Compact Stepper Control - Extended width (108px) sang trái để hiển thị rõ gram */}
                           <div 
-                            className="flex items-center justify-between bg-white rounded-xl p-0.5 shrink-0 box-border mr-12 sm:mr-16"
-                            style={{ width: '108px', minWidth: '100px', boxShadow: '0 4px 12px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.1), inset 0 1px 1px rgba(255,255,255,1)', border: 'none', marginRight: '60px' }}
+                            className="flex items-center justify-between bg-white rounded-xl p-0.5 shrink-0 box-border mr-8 sm:mr-10"
+                            style={{ width: '108px', minWidth: '100px', boxShadow: '0 4px 12px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.1), inset 0 1px 1px rgba(255,255,255,1)', border: 'none', marginRight: '20px' }}
                           >
                             <button
                               type="button"
@@ -2452,7 +2452,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                       </div>
                       <div>
                         <span className="text-xs font-black text-pink-300 uppercase tracking-wider block">
-                          Aura Coach Gợi Ý
+                          Gợi Ý Từ AI Coach
                         </span>
                         <span className="text-[10px] text-slate-300 font-medium">Tư vấn dinh dưỡng từ AI cá nhân hóa</span>
                       </div>
@@ -2550,13 +2550,13 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                   <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-pink-500 to-orange-500 shadow-2xs" />
                   <span className="text-xs font-black text-slate-900 uppercase tracking-wider">Thời Gian & Phân Loại Bữa Ăn</span>
                 </div>
-                <div className="grid grid-cols-3 gap-1.5 sm:gap-3 w-full">
-                  <label className="flex flex-col gap-1 text-[10px] sm:text-[11px] font-extrabold text-slate-700 min-w-0">
+                <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5 w-full items-end">
+                  <label className="flex flex-col gap-1 text-[10px] sm:text-[11px] font-medium text-slate-700 min-w-0">
                     <span className="flex items-center gap-1 truncate"><Utensils size={11} className="text-pink-500 shrink-0" /> Bữa ăn</span>
                     <select
                       value={mealType}
                       onChange={(event) => setMealType(event.target.value as NutritionMealDraft['mealType'])}
-                      className="h-9 px-1.5 sm:px-2.5 rounded-xl text-[11px] sm:text-xs font-bold text-slate-800 outline-none cursor-pointer shadow-2xs w-full transition-all bg-white focus:border-pink-400 focus:ring-2 focus:ring-pink-500/10 truncate"
+                      className="h-9 px-1.5 sm:px-2 rounded-xl text-[10px] sm:text-[11px] font-normal text-slate-800 outline-none cursor-pointer shadow-2xs w-full transition-all bg-white focus:border-pink-400 focus:ring-2 focus:ring-pink-500/10 truncate"
                       style={{ border: '1px solid #fbcfe8' }}
                     >
                       <option value="breakfast">Bữa sáng</option>
@@ -2566,23 +2566,23 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                     </select>
                   </label>
 
-                  <label className="flex flex-col gap-1 text-[10px] sm:text-[11px] font-extrabold text-slate-700 min-w-0">
+                  <label className="flex flex-col gap-1 text-[10px] sm:text-[11px] font-medium text-slate-700 min-w-0">
                     <span className="flex items-center gap-1 truncate"><Calendar size={11} className="text-rose-500 shrink-0" /> Ngày</span>
                     <input
                       type="date"
                       value={mealDate}
                       onChange={(event) => setMealDate(event.target.value)}
-                      className="h-9 px-1 sm:px-2 rounded-xl text-[11px] sm:text-xs font-bold text-slate-800 outline-none cursor-pointer shadow-2xs w-full transition-all bg-white border border-pink-100 focus:border-pink-400 focus:ring-2 focus:ring-pink-500/10"
+                      className="h-9 px-1 sm:px-1.5 rounded-xl text-[10px] sm:text-[11px] font-normal text-slate-800 outline-none cursor-pointer shadow-2xs w-full transition-all bg-white border border-pink-100 focus:border-pink-400 focus:ring-2 focus:ring-pink-500/10"
                     />
                   </label>
 
-                  <label className="flex flex-col gap-1 text-[10px] sm:text-[11px] font-extrabold text-slate-700 min-w-0">
+                  <label className="flex flex-col gap-1 text-[10px] sm:text-[11px] font-medium text-slate-700 min-w-0">
                     <span className="flex items-center gap-1 truncate"><Clock size={11} className="text-orange-500 shrink-0" /> Thời gian</span>
                     <input
                       type="time"
                       value={mealTime}
                       onChange={(event) => setMealTime(event.target.value)}
-                      className="h-9 px-1 sm:px-2 rounded-xl text-[11px] sm:text-xs font-bold text-slate-800 outline-none cursor-pointer shadow-2xs w-full transition-all bg-white border border-pink-100 focus:border-pink-400 focus:ring-2 focus:ring-pink-500/10"
+                      className="h-9 px-1 sm:px-1.5 rounded-xl text-[10px] sm:text-[11px] font-normal text-slate-800 outline-none cursor-pointer shadow-2xs w-full transition-all bg-white border border-pink-100 focus:border-pink-400 focus:ring-2 focus:ring-pink-500/10"
                     />
                   </label>
                 </div>

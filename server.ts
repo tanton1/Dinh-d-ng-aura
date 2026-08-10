@@ -259,7 +259,8 @@ Yêu cầu phân tích chi tiết:
 3. quantityAndCookingAnalysis: Phân tích chi tiết về định lượng thực tế quan sát được (VD: khoảng 150g cơm trắng, 120g ức gà áp chảo...) và nhận định cụ thể về phương pháp chế biến (luộc, hấp, chiên xù, xào nhiều dầu, áp chảo, nướng...).
 4. portionAndCalorieRationale: Giải thích rõ ràng cơ sở/căn cứ để dự đoán khối lượng và số Kcal đó (dựa trên kích thước bát/đĩa tương quan, độ dày miếng thịt, lượng dầu mỡ/sốt phủ).
 5. goalAlignmentAssessment: Nhận định ngắn gọn, súc tích về bữa ăn này so với mục tiêu cụ thể ĐÃ CUNG CẤP CỦA KHÁCH HÀNG (VD: "Bữa ăn đáp ứng rất tốt lượng đạm cho mục tiêu tăng cơ, tuy nhiên lượng calo hơi cao so với mức thâm hụt mong muốn...").
-6. coachFeedbackSuggestion: Lời khuyên/gợi ý phản hồi chi tiết dành riêng cho Coach/PT để gửi đến học viên (BẮT BUỘC ĐỘ DÀI TỪ 30 ĐẾN 100 TỪ). Đánh giá phải dựa TRỰC TIẾP trên hồ sơ chi tiết của học viên ("${studentGoal}", "${studentCondition}"). Văn phong chuyên nghiệp chuẩn chuyên môn PT & dinh dưỡng, phân tích sâu về phân bổ Macronutrients (đạm, carb, chất béo), phương pháp chế biến, mức thâm hụt/thặng dư năng lượng và mang tính khích lệ, truyền động lực mạnh mẽ. Tuyệt đối KHÔNG sử dụng thông tin mẫu hay số liệu mặc định giả định.`;
+6. coachFeedbackSuggestion: Lời khuyên/gợi ý phản hồi chi tiết dành riêng cho Coach/PT để gửi đến học viên (BẮT BUỘC ĐỘ DÀI TỪ 30 ĐẾN 100 TỪ). Đánh giá phải dựa TRỰC TIẾP trên hồ sơ chi tiết của học viên ("${studentGoal}", "${studentCondition}"). Văn phong chuyên nghiệp chuẩn chuyên môn PT & dinh dưỡng, phân tích sâu về phân bổ Macronutrients (đạm, carb, chất béo), phương pháp chế biến, mức thâm hụt/thặng dư năng lượng và mang tính khích lệ, truyền động lực mạnh mẽ. Tuyệt đối KHÔNG sử dụng thông tin mẫu hay số liệu mặc định giả định.
+7. aiFeedback: Nhận định tổng quan về dinh dưỡng của bữa ăn.`;
 
       parts.push({ text: promptText });
 
@@ -267,6 +268,7 @@ Yêu cầu phân tích chi tiết:
         model: 'gemini-3.6-flash',
         contents: { parts },
         config: {
+          maxOutputTokens: 8192,
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
