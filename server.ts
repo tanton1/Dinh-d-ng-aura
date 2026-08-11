@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import path from "path";
@@ -120,7 +121,7 @@ async function startServer() {
 
   // AI Router
   const aiRouter = express.Router();
-  aiRouter.use(express.json({ limit: '10mb' })); // Higher limit for images
+  aiRouter.use(express.json({ limit: '50mb' })); // Higher limit for images
   aiRouter.use(requireAuth);
   aiRouter.use(aiRateLimiter);
 
@@ -144,7 +145,7 @@ async function startServer() {
 
   // Helper to initialize GenAI with User-Agent header
   const getGenAI = () => {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
     if (!apiKey) return null;
     return new GoogleGenAI({
       apiKey,

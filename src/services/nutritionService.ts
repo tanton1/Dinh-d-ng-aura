@@ -431,7 +431,6 @@ function isFoodAnalysis(value: unknown): value is FoodAnalysis {
     || value.catalogCandidates.length > 5
     || !value.catalogCandidates.every((candidate) => candidate !== null && isCatalogMatch(candidate))
     || !Array.isArray(value.items)
-    || value.items.length > 12
     || !Array.isArray(value.questions)
     || value.questions.length > 3
     || !Array.isArray(value.warnings)
@@ -572,6 +571,20 @@ export async function analyzeFoodPhoto(
       reader.readAsDataURL(image)
     })
 
+    let cacheKey = '';
+    try {
+      const msgBuffer = new TextEncoder().encode(base64 + (options.notes || '') + (options.userGoal || '') + (options.userCondition || ''));
+      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      cacheKey = 'meal_analysis_cache_' + hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        return JSON.parse(cached) as FoodAnalysisResponse;
+      }
+    } catch (e) {
+      console.warn('Cache check failed', e);
+    }
+
     const token = await firebaseAuth?.currentUser?.getIdToken();
     const res = await fetch('/api/ai/analyze-meal', {
       method: 'POST',
@@ -587,11 +600,18 @@ export async function analyzeFoodPhoto(
       }),
     })
 
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      if (errData.error === 'Thiếu GEMINI_API_KEY trên server.') {
+        throw new Error('MISSING_GEMINI_API_KEY');
+      }
+      throw new Error(errData.error || 'Lỗi từ máy chủ AI');
+    }
     if (res.ok) {
       const data = await res.json()
       if (data.success && data.analysis) {
         const a = data.analysis
-        return {
+        const finalResponse: FoodAnalysisResponse = {
           scanId: `scan-${Date.now()}`,
           status: 'completed',
           mode: 'live',
@@ -653,10 +673,23 @@ export async function analyzeFoodPhoto(
             questions: [],
           },
         }
+        
+        try {
+          if (cacheKey) {
+            localStorage.setItem(cacheKey, JSON.stringify(finalResponse))
+          }
+        } catch (e) {
+          console.warn('Failed to cache analysis', e)
+        }
+
+        return finalResponse
       }
     }
-  } catch (e) {
+  } catch (e: any) {
     console.warn('Direct AI endpoint fallback:', e)
+    if (e?.message === 'MISSING_GEMINI_API_KEY') {
+      throw new Error('Thiếu GEMINI_API_KEY trong môi trường production (Cài đặt -> Secrets). Hệ thống không thể sử dụng phiên bản AI mới để phân tích chi tiết.');
+    }
   }
 
   validateAnalyzeOptions(options)
@@ -674,12 +707,22 @@ export async function generateMealReview(meal: any, userProfile: any): Promise<s
       },
       body: JSON.stringify({ meal, userProfile })
     });
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      if (errData.error === 'Thiếu GEMINI_API_KEY trên server.') {
+        throw new Error('MISSING_GEMINI_API_KEY');
+      }
+      throw new Error(errData.error || 'Lỗi từ máy chủ AI');
+    }
     if (response.ok) {
       const data = await response.json();
       return data.review || 'Lỗi khi kết nối với máy chủ để phân tích bữa ăn.';
     }
-  } catch (error) {
+  } catch (error: any) {
     console.warn('Direct AI endpoint fallback for generateMealReview:', error);
+    if (error?.message === 'MISSING_GEMINI_API_KEY') {
+      return 'Thiếu GEMINI_API_KEY trong môi trường production. Vui lòng cài đặt (Settings -> Secrets) để nhận nhận xét từ AI.';
+    }
   }
 
   // Fallback to Firebase Functions
@@ -708,12 +751,22 @@ export async function askAiCoach(message: string, userProfile: any): Promise<str
       },
       body: JSON.stringify({ message, userProfile })
     });
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      if (errData.error === 'Thiếu GEMINI_API_KEY trên server.') {
+        throw new Error('MISSING_GEMINI_API_KEY');
+      }
+      throw new Error(errData.error || 'Lỗi từ máy chủ AI');
+    }
     if (response.ok) {
       const data = await response.json();
       return data.text || 'AI Coach chưa có phản hồi.';
     }
-  } catch (error) {
+  } catch (error: any) {
     console.warn('Direct AI endpoint fallback for askAiCoach:', error);
+    if (error?.message === 'MISSING_GEMINI_API_KEY') {
+      return 'Thiếu GEMINI_API_KEY trong môi trường production. Vui lòng cài đặt (Settings -> Secrets) để trò chuyện với AI.';
+    }
   }
 
   // Fallback to Firebase Functions
