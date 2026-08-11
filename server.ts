@@ -622,7 +622,7 @@ Yêu cầu định dạng JSON chính xác:
           responseMimeType: "application/json",
         }
       });
-      res.json(JSON.parse(response.text));
+      let responseText = response.text || ''; responseText = responseText.replace(/^s*```jsons*/i, '').replace(/s*```s*$/i, '').trim(); res.json(JSON.parse(responseText));
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Lỗi AI" });
@@ -654,7 +654,7 @@ Yêu cầu định dạng JSON chính xác:
           responseMimeType: "application/json",
         }
       });
-      res.json(JSON.parse(response.text));
+      let responseText = response.text || ''; responseText = responseText.replace(/^s*```jsons*/i, '').replace(/s*```s*$/i, '').trim(); res.json(JSON.parse(responseText));
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Lỗi AI" });
@@ -689,7 +689,7 @@ Yêu cầu định dạng JSON chính xác:
           responseMimeType: "application/json",
         }
       });
-      res.json(JSON.parse(response.text));
+      let responseText = response.text || ''; responseText = responseText.replace(/^s*```jsons*/i, '').replace(/s*```s*$/i, '').trim(); res.json(JSON.parse(responseText));
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Lỗi AI" });
@@ -725,7 +725,7 @@ Yêu cầu định dạng JSON chính xác:
           responseMimeType: "application/json",
         }
       });
-      res.json(JSON.parse(response.text));
+      let responseText = response.text || ''; responseText = responseText.replace(/^s*```jsons*/i, '').replace(/s*```s*$/i, '').trim(); res.json(JSON.parse(responseText));
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Lỗi AI" });
@@ -790,7 +790,7 @@ Yêu cầu trả về đúng định dạng JSON chuẩn xác theo cấu trúc:
         }
       });
 
-      const data = JSON.parse(response.text || '{}');
+      let rt = response.text || '{}'; rt = rt.replace(/^\s*```json\s*/i, '').replace(/\s*```\s*$/i, '').trim(); const data = JSON.parse(rt);
       res.json({ success: true, recipe: data });
     } catch (e: any) {
       console.error('Failed in /api/ai/generate-recipe:', e);
@@ -839,7 +839,7 @@ Yêu cầu trả về đúng định dạng JSON:
         }
       });
 
-      res.json({ success: true, planSuggestion: JSON.parse(response.text || '{}') });
+      let rt = response.text || '{}'; rt = rt.replace(/^\s*```json\s*/i, '').replace(/\s*```\s*$/i, '').trim(); res.json({ success: true, planSuggestion: JSON.parse(rt) });
     } catch (e: any) {
       console.error('Failed in /api/ai/suggest-meal-plan:', e);
       res.status(500).json({ error: "Lỗi tạo gợi ý khung thực đơn" });
