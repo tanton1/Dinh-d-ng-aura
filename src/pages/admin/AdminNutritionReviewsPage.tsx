@@ -401,23 +401,29 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
       ]
     }
 
-    // Dynamic AI Coach Internal Advice (30-100 words, deep PT analysis & student profile focused)
+    // Dynamic AI Coach Advice & Goal Alignment
     const goalText = meal.studentGoal || 'Giảm mỡ thâm hụt calo & săn chắc cơ bắp'
     const conditionText = meal.studentCondition || 'Học viên Aura Fitness'
-    const protDiff = targetProt - currentProt
-    const protStatus = currentProt >= targetProt 
-      ? `lượng đạm nạp vào (${currentProt}g) đã đáp ứng xuất sắc target ${targetProt}g để tối ưu tổng hợp cơ bắp`
-      : `lượng đạm (${currentProt}g) còn thiếu khoảng ${protDiff}g so với mục tiêu ${targetProt}g`
-    const kcalStatus = currentKcal > targetKcal
-      ? `năng lượng bữa này (${currentKcal} kcal) hơi vượt mức kiểm soát, Coach nên nhắc điều chỉnh lượng dầu mỡ hoặc tinh bột bữa tiếp theo`
-      : `năng lượng (${currentKcal}/${targetKcal} kcal) nằm trong ngưỡng thâm hụt an toàn`
+    const protDiff = Math.max(0, targetProt - currentProt)
 
-    const coachInternalAdvice = meal.coachFeedbackSuggestion || meal.aiAnalysis?.coachFeedbackSuggestion || (
-      `Phân tích chuyên sâu cho học viên ${meal.studentName} (${conditionText}, Mục tiêu: ${goalText}): Bữa ${meal.mealType || 'chính'}${meal.note ? ` ("${meal.note}")` : ''} nạp ${currentKcal} kcal và ${currentProt}g đạm. Đánh giá PT chuyên môn: ${protStatus}, đồng thời ${kcalStatus}. Gợi ý Coach: Khen ngợi sự tích cực ghi nhận nhật ký của học viên và khuyên bổ sung ${protDiff > 0 ? `${protDiff}g đạm nạc (ức gà/lòng trắng trứng)` : 'thêm 150g rau xanh'} ở bữa tiếp theo để giữ vững tiến độ!`
-    )
+    let parsedAiAnalysis: any = null
+    if (typeof meal.aiAnalysis === 'object' && meal.aiAnalysis) {
+      parsedAiAnalysis = meal.aiAnalysis
+    } else if (typeof meal.aiAnalysis === 'string') {
+      try { parsedAiAnalysis = JSON.parse(meal.aiAnalysis) } catch {}
+    }
 
-    // Dynamic Student-Facing Message for Quick Paste (30-100 words)
-    const coachStudentMsg = `Chào ${meal.studentName}! Coach đã duyệt bữa ${meal.mealType || 'ăn'}${meal.note ? ` (${meal.note})` : ''} của em (${currentKcal} Kcal, ${currentProt}g đạm). Dựa trên mục tiêu ${goalText}: ${currentProt >= targetProt ? 'Chỉ số đạm của em rất tuyệt vời, giúp cơ bắp phục hồi và phát triển tối đa!' : `Bữa này em còn thiếu khoảng ${protDiff}g đạm nạc so với mục tiêu, lần sau nhớ bổ sung thêm ức gà hoặc trứng nhé.`} Hãy kiên trì nỗ lực và giữ vững phong độ em nhé! 💪`
+    const effectiveGoalAlignment = meal.goalAlignmentAssessment
+      || parsedAiAnalysis?.goalAlignmentAssessment
+      || (currentProt >= targetProt 
+          ? `Bữa ăn (${currentKcal} kcal, ${currentProt}g đạm) đạt tỉ lệ dinh dưỡng cân đối, đáp ứng tốt chỉ tiêu ${targetProt}g đạm cho mục tiêu ${goalText}.`
+          : `Bữa ăn (${currentKcal} kcal, ${currentProt}g đạm) hỗ trợ năng lượng cần thiết nhưng còn thiếu khoảng ${protDiff}g đạm so với chỉ tiêu ${targetProt}g đạm cho mục tiêu ${goalText}.`)
+
+    const effectiveCoachSuggestion = meal.coachFeedbackSuggestion
+      || parsedAiAnalysis?.coachFeedbackSuggestion
+      || parsedAiAnalysis?.aiFeedback
+      || parsedAiAnalysis?.aiSuggestion
+      || `Chào ${meal.studentName}! Coach đã duyệt bữa ${meal.mealType || 'ăn'}${meal.note ? ` (${meal.note})` : ''} của em (${currentKcal} Kcal, ${currentProt}g đạm). Dựa trên mục tiêu ${goalText}: ${currentProt >= targetProt ? 'Chỉ số đạm của em rất tuyệt vời, giúp cơ bắp phục hồi và phát triển tối đa!' : `Bữa này em còn thiếu khoảng ${protDiff}g đạm nạc so với mục tiêu, lần sau nhớ bổ sung thêm ức gà hoặc trứng nhé.`} Hãy kiên trì nỗ lực và giữ vững phong độ em nhé! 💪`
 
     return (
       <div className="aura-review-detail-screen">
@@ -649,21 +655,29 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
             </div>
 
             {/* Student Goals & Profile Overview Pill */}
-            <div className="bg-white/80 backdrop-blur-sm p-3 rounded-2xl border border-slate-200/60 flex flex-wrap gap-2 text-xs font-bold text-slate-700">
+            <div className="bg-white/80 backdrop-blur-sm p-3 rounded-2xl flex flex-wrap gap-2 text-xs font-bold text-slate-700">
               <span className="bg-pink-100 text-pink-800 px-2.5 py-1 rounded-xl">🎯 Target: {meal.studentGoal || 'Giảm mỡ - Tăng cơ'}</span>
               <span className="bg-orange-100 text-orange-800 px-2.5 py-1 rounded-xl">🏋️ {meal.studentCondition || 'Tập gym 4 buổi/tuần'}</span>
               <span className="bg-amber-100 text-amber-800 px-2.5 py-1 rounded-xl">🍽️ Bữa: {meal.mealType || 'Bữa chính'}</span>
             </div>
 
+            {/* Goal Alignment Assessment */}
+            <div className="bg-white/90 p-3.5 rounded-2xl text-xs text-slate-700 leading-relaxed shadow-xs">
+              <strong className="font-bold text-xs text-slate-800 block mb-1">🎯 Đánh giá Mức độ Phù hợp Mục tiêu (Goal Alignment):</strong>
+              <p className="margin-0 font-medium text-slate-700">
+                {effectiveGoalAlignment}
+              </p>
+            </div>
+
             {/* AI Personalized Coach Recommendation */}
-            <div className="bg-white/90 p-3.5 rounded-2xl border border-slate-200/80 text-xs text-slate-700 leading-relaxed shadow-xs">
+            <div className="bg-white/90 p-3.5 rounded-2xl text-xs text-slate-700 leading-relaxed shadow-xs">
               <div className="flex items-center justify-between mb-1.5">
                 <strong className="font-bold text-xs text-slate-800">🤖 AI Coach Tư Vấn Dành Cho PT/Coach:</strong>
                 <button
                   type="button"
                   className="text-[11px] font-bold text-pink-600 hover:text-pink-800 bg-pink-50 hover:bg-pink-100 px-2.5 py-1 rounded-xl border border-pink-200 flex items-center gap-1 transition-all"
                   onClick={() => {
-                    applyQuickPillText(coachStudentMsg)
+                    applyQuickPillText(effectiveCoachSuggestion)
                   }}
                 >
                   <Sparkles size={12} className="text-pink-500" />
@@ -671,7 +685,7 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
                 </button>
               </div>
               <p className="margin-0 font-medium text-slate-700">
-                "{meal.coachFeedbackSuggestion || meal.aiAnalysis?.coachFeedbackSuggestion || coachInternalAdvice}"
+                "{effectiveCoachSuggestion}"
               </p>
             </div>
           </div>
@@ -698,7 +712,7 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
                 type="button"
                 className="aura-quick-pill border-pink-300 text-pink-700 bg-pink-50/60 hover:bg-pink-100 rounded-2xl"
                 onClick={() => {
-                  applyQuickPillText(coachStudentMsg)
+                  applyQuickPillText(effectiveCoachSuggestion)
                 }}
               >
                 📋 Dán từ AI Coach

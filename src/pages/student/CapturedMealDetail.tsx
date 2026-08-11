@@ -60,6 +60,7 @@ export interface MealLogItem {
   coachFeedback?: string
   aiAnalysis?: any
   goalAlignmentAssessment?: string
+  coachFeedbackSuggestion?: string
   reviewStatus?: 'pending' | 'reviewed'
 }
 
@@ -322,20 +323,6 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
           </div>
         </div>
 
-        {meal.coachFeedback && (
-          <div className="fdet-coach-feedback" style={{ marginTop: '20px', padding: '16px', borderRadius: '24px', background: 'linear-gradient(135deg, #fdf2f8 0%, #f0fdf4 40%, #e0f2fe 100%)', border: '1.5px solid #bae6fd', boxShadow: '0 4px 16px rgba(2, 132, 199, 0.08)' }}>
-            <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <div style={{ padding: '6px', background: 'linear-gradient(135deg, #ec4899 0%, #f97316 100%)', color: '#fff', borderRadius: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Sparkles size={15} />
-              </div>
-              <span style={{ fontSize: '13px', fontWeight: 900, background: 'linear-gradient(135deg, #db2777 0%, #ea580c 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
-                NHẬN XÉT TỪ COACH
-              </span>
-            </div>
-            <p style={{ margin: 0, fontSize: '14px', color: '#0f172a', lineHeight: 1.5, fontWeight: 500, background: 'rgba(255, 255, 255, 0.9)', padding: '12px 14px', borderRadius: '16px', border: '1px solid rgba(186, 230, 253, 0.8)' }}>"{meal.coachFeedback}"</p>
-          </div>
-        )}
-
         {/* Macro & Micro Nutrients Carousel (Slide 1 & Slide 2) */}
         <div
           className="fdet-carousel-area"
@@ -517,9 +504,18 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
                 Gợi ý từ AI Coach
               </span>
             </div>
-            <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500 }}>
-              {meal.goalAlignmentAssessment || (typeof meal.aiAnalysis === 'object' ? meal.aiAnalysis?.goalAlignmentAssessment || meal.aiAnalysis?.aiSuggestion || meal.aiAnalysis?.aiFeedback : meal.aiAnalysis) || `Khẩu phần ${portionCount} phần gồm ${ingredients.map((i) => i.name).join(', ')}. Tổng năng lượng ${totalCal} kcal (${totalProtein}g Đạm, ${totalCarbs}g Carb, ${totalFat}g Béo) đạt tỉ lệ dinh dưỡng cân đối, phù hợp với chế độ tập luyện.`}
-            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500 }}>
+                <strong style={{ color: '#0f172a' }}>🎯 Đánh giá phù hợp mục tiêu: </strong>
+                {meal.goalAlignmentAssessment || (typeof meal.aiAnalysis === 'object' ? meal.aiAnalysis?.goalAlignmentAssessment : '') || `Khẩu phần ${portionCount} phần gồm ${ingredients.map((i) => i.name).join(', ')}. Tổng năng lượng ${totalCal} kcal (${totalProtein}g Đạm, ${totalCarbs}g Carb, ${totalFat}g Béo) đạt tỉ lệ dinh dưỡng cân đối, phù hợp với chế độ tập luyện.`}
+              </p>
+              {(meal.coachFeedbackSuggestion || (typeof meal.aiAnalysis === 'object' && meal.aiAnalysis?.coachFeedbackSuggestion)) && (
+                <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500 }}>
+                  <strong style={{ color: '#0f172a' }}>💡 Tư vấn từ AI Coach: </strong>
+                  {meal.coachFeedbackSuggestion || (typeof meal.aiAnalysis === 'object' ? meal.aiAnalysis?.coachFeedbackSuggestion : '')}
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Coach Reviewed Feedback (When reviewed by Coach - Gradient Hồng - Xanh Tươi Mát) */}

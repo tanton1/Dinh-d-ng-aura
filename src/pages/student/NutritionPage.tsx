@@ -2465,6 +2465,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                   {/* Main Recommendation Text */}
                   <div className="p-3.5 rounded-2xl mb-3 shadow-2xs" style={{ border: 'none', background: 'rgba(255, 255, 255, 0.06)' }}>
                     <p className="text-xs text-slate-100 font-medium leading-relaxed m-0">
+                      <strong className="text-pink-300 font-bold block mb-1">🎯 Đánh giá Phù hợp Mục tiêu (Goal Alignment):</strong>
                       {goalAlignmentAssessment || (
                         adjustedTotals.protein >= 30
                           ? `Bữa ăn rất dồi dào đạm (${adjustedTotals.protein}g đạm - ${mealHealthAssessment.proteinPct}% calo), cực kỳ lý tưởng cho phục hồi tế bào cơ và duy trì năng lượng bền bỉ.`
