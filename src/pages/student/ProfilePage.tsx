@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Bell, 
   UserRound, Ruler, Scale, Calendar, Target, Activity, 
-  Moon, Coffee, Heart, AlertCircle, Pencil, LogOut, ShieldCheck, Zap, Key
+  Moon, Coffee, Heart, AlertCircle, Pencil, LogOut, ShieldCheck, Zap
 } from 'lucide-react';
 import { PageHeader } from '../../components/ui';
 
@@ -48,25 +48,6 @@ export interface ProfilePageProps {
 export default function ProfilePage({ fullProfile, displayName, email, membership, onSignOut, onEditProfile }: ProfilePageProps) {
   const data = { ...(fullProfile || {}), ...(fullProfile?.onboardingData || {}) };
   const nutrition = fullProfile?.nutritionProfile || {};
-  
-  const [apiKey, setApiKey] = useState('');
-  const [isEditingKey, setIsEditingKey] = useState(false);
-
-  useEffect(() => {
-    const savedKey = localStorage.getItem('GEMINI_API_KEY');
-    if (savedKey) {
-      setApiKey(savedKey);
-    }
-  }, []);
-
-  const handleSaveApiKey = () => {
-    if (apiKey.trim()) {
-      localStorage.setItem('GEMINI_API_KEY', apiKey.trim());
-    } else {
-      localStorage.removeItem('GEMINI_API_KEY');
-    }
-    setIsEditingKey(false);
-  };
   
   const currentYear = new Date().getFullYear();
   const age = data.birthYear ? currentYear - data.birthYear : '--';
@@ -272,59 +253,6 @@ export default function ProfilePage({ fullProfile, displayName, email, membershi
         </div>
 
         
-        
-        {/* AI Integration */}
-        <div style={{ background: 'white', padding: '24px', borderRadius: '22px', border: '1px solid var(--aura-border)', position: 'relative', overflow: 'hidden' }}>
-          <div style={{ position: 'absolute', top: 0, left: 0, width: '4px', height: '100%', background: 'linear-gradient(to bottom, #3b82f6, #10b981)' }}></div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-            <div style={{ background: '#eff6ff', padding: '8px', borderRadius: '12px' }}><Key size={20} color="#3b82f6" /></div>
-            <h3 style={{ fontSize: '18px', fontWeight: 700, margin: 0 }}>Tích hợp AI (Gemini)</h3>
-          </div>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ padding: '16px', background: '#f8fafc', borderRadius: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isEditingKey ? '12px' : '0' }}>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: '15px', color: '#0f172a' }}>Gemini API Key</div>
-                  <div style={{ fontSize: '13px', color: 'var(--aura-muted)', marginTop: '4px' }}>
-                    {apiKey && !isEditingKey ? 'Đã thiết lập khóa API' : 'Chưa thiết lập khóa API (App sẽ không thể gọi Gemini)'}
-                  </div>
-                </div>
-                {!isEditingKey && (
-                  <button onClick={() => setIsEditingKey(true)} style={{ background: 'white', color: '#3b82f6', border: '1px solid #bfdbfe', borderRadius: '999px', padding: '6px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                    {apiKey ? 'Thay đổi' : 'Thiết lập'}
-                  </button>
-                )}
-              </div>
-              
-              {isEditingKey && (
-                <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
-                  <input 
-                    type="text" 
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="Nhập Gemini API Key của bạn"
-                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none' }}
-                  />
-                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                    <button onClick={() => {
-                      setApiKey(localStorage.getItem('GEMINI_API_KEY') || '');
-                      setIsEditingKey(false);
-                    }} style={{ background: 'transparent', color: '#64748b', border: 'none', padding: '8px 12px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}>
-                      Hủy
-                    </button>
-                    <button onClick={handleSaveApiKey} style={{ background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}>
-                      Lưu khóa
-                    </button>
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
-                    * Khóa này chỉ được lưu cục bộ trên trình duyệt của bạn.
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
         
         {/* Settings */}
         <div style={{ background: 'white', padding: '24px', borderRadius: '22px', border: '1px solid var(--aura-border)', position: 'relative', overflow: 'hidden' }}>
