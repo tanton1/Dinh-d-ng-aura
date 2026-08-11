@@ -616,7 +616,7 @@ export async function analyzeFoodPhoto(
           status: 'completed',
           mode: 'live',
           provider: 'gemini',
-          model: 'gemini-3.6-flash',
+          model: 'gemini-flash-latest',
           providerRequestId: null,
           notices: [],
           imageRetained: false,

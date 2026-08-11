@@ -191,7 +191,7 @@ BẮT BUỘC: Lời khuyên và nhận xét phải dựa TRỰC TIẾP trên th�
 Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm tốt và điểm cần cải thiện của bữa ăn dựa trên đúng mục tiêu & thể trạng của họ. KHÔNG dùng markdown. Viết trực tiếp nội dung.`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-flash-latest',
         contents: prompt,
         config: {
           maxOutputTokens: 500,
@@ -225,7 +225,7 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
 
       // Check if imageBase64 is passed
       if (imageBase64 && typeof imageBase64 === 'string') {
-        const match = imageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+        const match = imageBase64.match(/^data:(image\/[a-zA-Z0-9+-]+);base64,(.+)$/s);
         if (match) {
           parts.push({
             inlineData: {
@@ -266,7 +266,7 @@ Yêu cầu phân tích chi tiết:
       parts.push({ text: promptText });
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-flash-latest',
         contents: { parts },
         config: {
           maxOutputTokens: 8192,
@@ -573,7 +573,7 @@ CÂU HỎI CỦA HỌC VIÊN
 ${message}`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-flash-latest',
         contents: prompt,
         config: {
           maxOutputTokens: 3000,
@@ -590,6 +590,8 @@ ${message}`;
 
   aiRouter.post("/generate-course-outline", async (req, res) => {
     try {
+      const ai = getGenAI();
+      if (!ai) return res.status(500).json({ error: "Thiếu Gemini API Key" });
       const { topic, audience, weeks } = req.body;
       const prompt = `Hãy đóng vai một chuyên gia thiết kế chương trình học (Instructional Designer) và chuyên gia thể hình/dinh dưỡng.
 Tạo sườn nội dung khóa học cho chủ đề: "${topic}"
@@ -614,7 +616,7 @@ Yêu cầu định dạng JSON chính xác:
 }`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-flash-latest',
         contents: prompt,
         config: {
           responseMimeType: "application/json",
@@ -629,6 +631,8 @@ Yêu cầu định dạng JSON chính xác:
 
   aiRouter.post("/generate-course-quiz", async (req, res) => {
     try {
+      const ai = getGenAI();
+      if (!ai) return res.status(500).json({ error: "Thiếu Gemini API Key" });
       const { lessonTitle, lessonSummary } = req.body;
       const prompt = `Tạo 3 câu hỏi trắc nghiệm (quiz) kiểm tra kiến thức cho bài học sau:
 Tên bài: "${lessonTitle}"
@@ -646,7 +650,7 @@ Yêu cầu định dạng JSON chính xác:
   ]
 }`;
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-flash-latest',
         contents: prompt,
         config: {
           responseMimeType: "application/json",
@@ -661,6 +665,8 @@ Yêu cầu định dạng JSON chính xác:
 
   aiRouter.post("/generate-course-memory", async (req, res) => {
     try {
+      const ai = getGenAI();
+      if (!ai) return res.status(500).json({ error: "Thiếu Gemini API Key" });
       const { lessonTitle, lessonSummary } = req.body;
       const prompt = `Tạo bộ công cụ học sâu (active recall và flashcard) cho bài học:
 Tên bài: "${lessonTitle}"
@@ -681,7 +687,7 @@ Yêu cầu định dạng JSON chính xác:
   ]
 }`;
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-flash-latest',
         contents: prompt,
         config: {
           responseMimeType: "application/json",
@@ -717,7 +723,7 @@ Yêu cầu định dạng JSON chính xác:
       }
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-flash-latest',
         contents: prompt,
         config: {
           responseMimeType: "application/json",
@@ -762,7 +768,7 @@ Yêu cầu trả về đúng định dạng JSON chuẩn xác theo cấu trúc:
 }`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-flash-latest',
         contents: systemPrompt,
         config: {
           responseMimeType: "application/json",
@@ -830,7 +836,7 @@ Yêu cầu trả về đúng định dạng JSON:
 }`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-flash-latest',
         contents: prompt,
         config: {
           responseMimeType: "application/json"
