@@ -1,3 +1,4 @@
+import { firebaseAuth } from '../../lib/firebase';
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
@@ -225,9 +226,13 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     }
     try {
       setGeneratingOutline(true);
+      const token = await firebaseAuth?.currentUser?.getIdToken();
       const res = await fetch("/api/ai/generate-course-outline", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
           topic: course.title,
           audience: course.description || course.outcomes.join(', '),
@@ -264,9 +269,13 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     if (!detailLesson) return;
     try {
       setGeneratingQuiz(true);
+      const token = await firebaseAuth?.currentUser?.getIdToken();
       const res = await fetch("/api/ai/generate-course-quiz", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
           lessonTitle: detailLesson.title,
           lessonSummary: detailLesson.summary || detailLesson.coachNotes || course.title,
@@ -311,9 +320,13 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     if (!detailLesson) return;
     try {
       setGeneratingMemory(true);
+      const token = await firebaseAuth?.currentUser?.getIdToken();
       const res = await fetch("/api/ai/generate-course-memory", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
           lessonTitle: detailLesson.title,
           lessonSummary: detailLesson.summary || detailLesson.coachNotes || course.title,

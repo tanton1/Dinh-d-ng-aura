@@ -1,3 +1,4 @@
+import { firebaseAuth } from '../../lib/firebase';
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
@@ -125,9 +126,13 @@ export default function CourseDetailPage({
     if (!selectedLesson || !course) return;
     try {
       setAiSummaryState('generating');
+      const token = await firebaseAuth?.currentUser?.getIdToken();
       const res = await fetch("/api/ai/summarize-lesson", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
           courseTitle: course.title,
           lessonTitle: selectedLesson.title,

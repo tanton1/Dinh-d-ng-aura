@@ -506,7 +506,19 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500 }}>
-                <strong style={{ color: '#0f172a' }}>🎯 Đánh giá phù hợp mục tiêu: </strong>
+                {(meal.aiAnalysis?.quantityAndCookingAnalysis) && (
+                <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500, marginBottom: 8 }}>
+                  <strong style={{ color: '#0f172a' }}>🔍 Phân tích định lượng & chế biến: </strong>
+                  {meal.aiAnalysis.quantityAndCookingAnalysis}
+                </p>
+              )}
+              {(meal.aiAnalysis?.portionAndCalorieRationale) && (
+                <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500, marginBottom: 8 }}>
+                  <strong style={{ color: '#0f172a' }}>⚖️ Cơ sở calo & khối lượng: </strong>
+                  {meal.aiAnalysis.portionAndCalorieRationale}
+                </p>
+              )}
+              <strong style={{ color: '#0f172a' }}>🎯 Đánh giá phù hợp mục tiêu: </strong>
                 {meal.goalAlignmentAssessment || (typeof meal.aiAnalysis === 'object' ? meal.aiAnalysis?.goalAlignmentAssessment : '') || `Khẩu phần ${portionCount} phần gồm ${ingredients.map((i) => i.name).join(', ')}. Tổng năng lượng ${totalCal} kcal (${totalProtein}g Đạm, ${totalCarbs}g Carb, ${totalFat}g Béo) đạt tỉ lệ dinh dưỡng cân đối, phù hợp với chế độ tập luyện.`}
               </p>
               {(meal.coachFeedbackSuggestion || (typeof meal.aiAnalysis === 'object' && meal.aiAnalysis?.coachFeedbackSuggestion)) && (

@@ -154,6 +154,11 @@ export interface AiFoodItem {
 }
 
 export interface NutritionMealDraft {
+  quantityCookingAnalysis?: string
+  portionCalorieRationale?: string
+  goalAlignmentAssessment?: string
+  coachFeedbackSuggestion?: string
+  aiAnalysis?: any
   name: string
   mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack'
   mealDate?: string
@@ -267,6 +272,7 @@ interface MealLog {
   items?: AiFoodItem[]
   reviewStatus?: 'pending' | 'reviewed'
   coachFeedback?: string
+  aiAnalysis?: any
   studentGoal?: string
   studentCondition?: string
 }
@@ -2065,7 +2071,11 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
       calorieRange: adjustedRange,
       items,
       source: resultMode === 'live' ? 'ai-scan' : 'demo',
-      submitForReview
+      submitForReview,
+      quantityCookingAnalysis,
+      portionCalorieRationale,
+      goalAlignmentAssessment,
+      coachFeedbackSuggestion
     })
   }
 
@@ -3716,6 +3726,12 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       calorieRange: meal.calorieRange ?? { low: Math.max(0, Math.round(meal.calories * .88)), high: Math.round(meal.calories * 1.12) },
       items: meal.items,
       reviewStatus: meal.submitForReview ? 'pending' : undefined,
+      aiAnalysis: {
+        quantityAndCookingAnalysis: meal.quantityCookingAnalysis,
+        portionAndCalorieRationale: meal.portionCalorieRationale,
+        goalAlignmentAssessment: meal.goalAlignmentAssessment,
+        coachFeedbackSuggestion: meal.coachFeedbackSuggestion
+      },
       studentGoal: profileDraft.goal === 'lose-fat'
         ? `Giảm mỡ thâm hụt calo (${profileDraft.targetWeightDeltaKg ? `Giảm ${Math.abs(profileDraft.targetWeightDeltaKg)}kg` : 'Thâm hụt calo'})`
         : profileDraft.goal === 'gain-muscle'

@@ -52,6 +52,8 @@ export interface PendingMealItem {
   goalAlignmentAssessment?: string
   coachFeedbackSuggestion?: string
   coachFeedback?: string
+  quantityAndCookingAnalysis?: string
+  portionAndCalorieRationale?: string
 }
 
 export async function getPendingMealsFromFirestore(): Promise<PendingMealItem[]> {
@@ -193,6 +195,8 @@ function mapDocToMeal(r: any): PendingMealItem {
       || mealObj.goalAlignmentAssessment 
       || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.goalAlignmentAssessment : undefined) 
       || (typeof mealObj.aiAnalysis === 'object' ? mealObj.aiAnalysis?.goalAlignmentAssessment : undefined),
+    quantityAndCookingAnalysis: r.quantityAndCookingAnalysis || mealObj.quantityAndCookingAnalysis || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.quantityAndCookingAnalysis : undefined) || (typeof mealObj.aiAnalysis === 'object' ? mealObj.aiAnalysis?.quantityAndCookingAnalysis : undefined),
+    portionAndCalorieRationale: r.portionAndCalorieRationale || mealObj.portionAndCalorieRationale || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.portionAndCalorieRationale : undefined) || (typeof mealObj.aiAnalysis === 'object' ? mealObj.aiAnalysis?.portionAndCalorieRationale : undefined),
     coachFeedbackSuggestion: r.coachFeedbackSuggestion 
       || mealObj.coachFeedbackSuggestion 
       || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.coachFeedbackSuggestion : undefined) 

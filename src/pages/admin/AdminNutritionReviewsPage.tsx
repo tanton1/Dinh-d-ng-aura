@@ -413,9 +413,9 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
       try { parsedAiAnalysis = JSON.parse(meal.aiAnalysis) } catch {}
     }
 
-    const effectiveGoalAlignment = meal.goalAlignmentAssessment
-      || parsedAiAnalysis?.goalAlignmentAssessment
-      || (currentProt >= targetProt 
+    const effectiveQuantityAndCookingAnalysis = meal.quantityAndCookingAnalysis || parsedAiAnalysis?.quantityAndCookingAnalysis || 'Phân tích định lượng thực tế quan sát qua hình ảnh và cách chế biến giữ vi chất.';
+    const effectivePortionAndCalorieRationale = meal.portionAndCalorieRationale || parsedAiAnalysis?.portionAndCalorieRationale || 'Cơ sở dự đoán calo & khối lượng dựa trên đĩa ăn tiêu chuẩn.';
+    const effectiveGoalAlignment = meal.goalAlignmentAssessment || parsedAiAnalysis?.goalAlignmentAssessment || (currentProt >= targetProt 
           ? `Bữa ăn (${currentKcal} kcal, ${currentProt}g đạm) đạt tỉ lệ dinh dưỡng cân đối, đáp ứng tốt chỉ tiêu ${targetProt}g đạm cho mục tiêu ${goalText}.`
           : `Bữa ăn (${currentKcal} kcal, ${currentProt}g đạm) hỗ trợ năng lượng cần thiết nhưng còn thiếu khoảng ${protDiff}g đạm so với chỉ tiêu ${targetProt}g đạm cho mục tiêu ${goalText}.`)
 
@@ -661,6 +661,15 @@ export default function AdminNutritionReviewsPage({ onNavigate }: AdminNutrition
               <span className="bg-amber-100 text-amber-800 px-2.5 py-1 rounded-xl">🍽️ Bữa: {meal.mealType || 'Bữa chính'}</span>
             </div>
 
+            
+            <div className="bg-white/90 p-3.5 rounded-2xl text-xs text-slate-700 leading-relaxed shadow-xs mb-2">
+              <strong className="font-bold text-xs text-slate-800 block mb-1">🔍 Phân tích Định lượng & Chế biến:</strong>
+              <p className="margin-0 font-medium text-slate-700">{effectiveQuantityAndCookingAnalysis}</p>
+            </div>
+            <div className="bg-white/90 p-3.5 rounded-2xl text-xs text-slate-700 leading-relaxed shadow-xs mb-2">
+              <strong className="font-bold text-xs text-slate-800 block mb-1">⚖️ Cơ sở Khối lượng & Calo:</strong>
+              <p className="margin-0 font-medium text-slate-700">{effectivePortionAndCalorieRationale}</p>
+            </div>
             {/* Goal Alignment Assessment */}
             <div className="bg-white/90 p-3.5 rounded-2xl text-xs text-slate-700 leading-relaxed shadow-xs">
               <strong className="font-bold text-xs text-slate-800 block mb-1">🎯 Đánh giá Mức độ Phù hợp Mục tiêu (Goal Alignment):</strong>
