@@ -200,8 +200,9 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
       res.json({ review: response.text || 'Không thể phân tích bữa ăn lúc này.' });
     } catch (e: any) {
       console.error('Failed to generate meal review', e);
-      const isRateLimit = e?.status === 429 || e?.status === 'RESOURCE_EXHAUSTED' || e?.message?.includes('429') || e?.message?.includes('Quota exceeded');
-      res.status(isRateLimit ? 429 : 500).json({ review: isRateLimit ? 'Đã vượt quá giới hạn lượt dùng AI. Vui lòng thử lại sau.' : 'Lỗi khi gọi AI phân tích bữa ăn.' });
+      const errString = String(e?.message || e).toLowerCase();
+      const isRateLimit = e?.status === 429 || errString.includes('429') || errString.includes('resource_exhausted') || errString.includes('quota exceeded');
+      res.status(isRateLimit ? 429 : 500).json({ review: isRateLimit ? 'Đã vượt quá giới hạn lượt dùng AI (Hết Quota). Vui lòng cấu hình API Key riêng có đủ hạn mức hoặc thử lại sau.' : 'Lỗi khi gọi AI phân tích bữa ăn.' });
     }
   });
 
@@ -312,10 +313,11 @@ Yêu cầu phân tích chi tiết:
       });
     } catch (e: any) {
       console.error('Failed in /api/ai/analyze-meal:', e);
-      const isRateLimit = e?.status === 429 || e?.status === 'RESOURCE_EXHAUSTED' || e?.message?.includes('429') || e?.message?.includes('Quota exceeded');
+      const errString = String(e?.message || e).toLowerCase();
+      const isRateLimit = e?.status === 429 || errString.includes('429') || errString.includes('resource_exhausted') || errString.includes('quota exceeded');
       res.status(isRateLimit ? 429 : 500).json({
         success: false,
-        error: isRateLimit ? 'Đã vượt quá giới hạn lượt dùng AI (Rate Limit). Vui lòng thử lại sau.' : (e?.message || 'Lỗi xử lý AI')
+        error: isRateLimit ? 'Đã vượt quá giới hạn lượt dùng AI (Hết Quota). Vui lòng cấu hình API Key riêng có đủ hạn mức hoặc thử lại sau.' : (e?.message || 'Lỗi xử lý AI')
       });
     }
   });
@@ -583,9 +585,11 @@ ${message}`;
       });
 
       res.json({ text: response.text || 'AI Coach chưa thể trả lời ngay lúc này.' });
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed in /api/ai/coach-chat:', e);
-      res.status(500).json({ text: 'Lỗi khi kết nối với AI Coach.' });
+      const errString = String(e?.message || e).toLowerCase();
+      const isRateLimit = e?.status === 429 || errString.includes('429') || errString.includes('resource_exhausted') || errString.includes('quota exceeded');
+      res.status(isRateLimit ? 429 : 500).json({ text: isRateLimit ? 'Đã vượt quá giới hạn lượt dùng AI (Hết Quota). Vui lòng cấu hình API Key riêng có đủ hạn mức hoặc thử lại sau.' : 'Lỗi khi kết nối với AI Coach.' });
     }
   });
 

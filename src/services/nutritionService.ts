@@ -670,6 +670,7 @@ export async function analyzeFoodPhoto(
   const upload = await uploadFoodPhoto(image)
   return analyzeUploadedFoodPhoto(upload, options)
 }
+
 export async function generateMealReview(meal: any, userProfile: any): Promise<string> {
   try {
     const token = await firebaseAuth?.currentUser?.getIdToken();
@@ -681,25 +682,11 @@ export async function generateMealReview(meal: any, userProfile: any): Promise<s
       },
       body: JSON.stringify({ meal, userProfile })
     });
-    if (response.ok) {
-      const data = await response.json();
-      return data.review || 'Lỗi khi kết nối với máy chủ để phân tích bữa ăn.';
-    }
+    
+    const data = await response.json();
+    return data.review || 'Lỗi khi phân tích bữa ăn.';
   } catch (error) {
     console.warn('Direct AI endpoint fallback for generateMealReview:', error);
-  }
-
-  // Fallback to Firebase Functions
-  try {
-    const firebase = requireNutritionFirebase();
-    const callable = httpsCallable<{ meal: any, userProfile: any }, { review: string }>(
-      firebase.functions,
-      'generateMealReview'
-    );
-    const result = await callable({ meal, userProfile });
-    return result.data.review || 'Lỗi khi phân tích bữa ăn.';
-  } catch (err) {
-    console.error('Error calling generateMealReview function:', err);
     return 'Lỗi khi kết nối với máy chủ để phân tích bữa ăn.';
   }
 }
@@ -715,25 +702,11 @@ export async function askAiCoach(message: string, userProfile: any): Promise<str
       },
       body: JSON.stringify({ message, userProfile })
     });
-    if (response.ok) {
-      const data = await response.json();
-      return data.text || 'AI Coach chưa có phản hồi.';
-    }
+    
+    const data = await response.json();
+    return data.text || 'AI Coach chưa có phản hồi.';
   } catch (error) {
     console.warn('Direct AI endpoint fallback for askAiCoach:', error);
-  }
-
-  // Fallback to Firebase Functions
-  try {
-    const firebase = requireNutritionFirebase();
-    const callable = httpsCallable<{ message: string, userProfile: any }, { text: string }>(
-      firebase.functions,
-      'askAiCoach'
-    );
-    const result = await callable({ message, userProfile });
-    return result.data.text || 'AI Coach chưa có phản hồi.';
-  } catch (err) {
-    console.error('Error calling askAiCoach function:', err);
     return 'Không thể kết nối với AI Coach lúc này.';
   }
 }
