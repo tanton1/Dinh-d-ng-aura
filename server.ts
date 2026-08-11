@@ -198,11 +198,9 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
       });
 
       res.json({ review: response.text || 'Không thể phân tích bữa ăn lúc này.' });
-    } catch (e: any) {
+    } catch (e) {
       console.error('Failed to generate meal review', e);
-      const errString = String(e?.message || e).toLowerCase();
-      const isRateLimit = e?.status === 429 || errString.includes('429') || errString.includes('resource_exhausted') || errString.includes('quota exceeded');
-      res.status(isRateLimit ? 429 : 500).json({ review: isRateLimit ? 'Đã vượt quá giới hạn lượt dùng AI (Hết Quota). Vui lòng cấu hình API Key riêng có đủ hạn mức hoặc thử lại sau.' : 'Lỗi khi gọi AI phân tích bữa ăn.' });
+      res.status(500).json({ review: 'Lỗi khi gọi AI phân tích bữa ăn.' });
     }
   });
 
@@ -303,8 +301,7 @@ Yêu cầu phân tích chi tiết:
         }
       });
 
-      let responseText = response.text || '';
-      responseText = responseText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+      const responseText = response.text || '';
       const parsedData = JSON.parse(responseText);
 
       res.json({
@@ -313,11 +310,9 @@ Yêu cầu phân tích chi tiết:
       });
     } catch (e: any) {
       console.error('Failed in /api/ai/analyze-meal:', e);
-      const errString = String(e?.message || e).toLowerCase();
-      const isRateLimit = e?.status === 429 || errString.includes('429') || errString.includes('resource_exhausted') || errString.includes('quota exceeded');
-      res.status(isRateLimit ? 429 : 500).json({
+      res.status(500).json({
         success: false,
-        error: isRateLimit ? 'Đã vượt quá giới hạn lượt dùng AI (Hết Quota). Vui lòng cấu hình API Key riêng có đủ hạn mức hoặc thử lại sau.' : (e?.message || 'Lỗi xử lý AI')
+        error: e?.message || 'Lỗi xử lý AI'
       });
     }
   });
@@ -585,11 +580,9 @@ ${message}`;
       });
 
       res.json({ text: response.text || 'AI Coach chưa thể trả lời ngay lúc này.' });
-    } catch (e: any) {
+    } catch (e) {
       console.error('Failed in /api/ai/coach-chat:', e);
-      const errString = String(e?.message || e).toLowerCase();
-      const isRateLimit = e?.status === 429 || errString.includes('429') || errString.includes('resource_exhausted') || errString.includes('quota exceeded');
-      res.status(isRateLimit ? 429 : 500).json({ text: isRateLimit ? 'Đã vượt quá giới hạn lượt dùng AI (Hết Quota). Vui lòng cấu hình API Key riêng có đủ hạn mức hoặc thử lại sau.' : 'Lỗi khi kết nối với AI Coach.' });
+      res.status(500).json({ text: 'Lỗi khi kết nối với AI Coach.' });
     }
   });
 
@@ -626,7 +619,7 @@ Yêu cầu định dạng JSON chính xác:
           responseMimeType: "application/json",
         }
       });
-      let responseText = response.text || ''; responseText = responseText.replace(/^s*```jsons*/i, '').replace(/s*```s*$/i, '').trim(); res.json(JSON.parse(responseText));
+      res.json(JSON.parse(response.text));
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Lỗi AI" });
@@ -658,7 +651,7 @@ Yêu cầu định dạng JSON chính xác:
           responseMimeType: "application/json",
         }
       });
-      let responseText = response.text || ''; responseText = responseText.replace(/^s*```jsons*/i, '').replace(/s*```s*$/i, '').trim(); res.json(JSON.parse(responseText));
+      res.json(JSON.parse(response.text));
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Lỗi AI" });
@@ -693,7 +686,7 @@ Yêu cầu định dạng JSON chính xác:
           responseMimeType: "application/json",
         }
       });
-      let responseText = response.text || ''; responseText = responseText.replace(/^s*```jsons*/i, '').replace(/s*```s*$/i, '').trim(); res.json(JSON.parse(responseText));
+      res.json(JSON.parse(response.text));
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Lỗi AI" });
@@ -729,7 +722,7 @@ Yêu cầu định dạng JSON chính xác:
           responseMimeType: "application/json",
         }
       });
-      let responseText = response.text || ''; responseText = responseText.replace(/^s*```jsons*/i, '').replace(/s*```s*$/i, '').trim(); res.json(JSON.parse(responseText));
+      res.json(JSON.parse(response.text));
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Lỗi AI" });
@@ -794,7 +787,7 @@ Yêu cầu trả về đúng định dạng JSON chuẩn xác theo cấu trúc:
         }
       });
 
-      let rt = response.text || '{}'; rt = rt.replace(/^\s*```json\s*/i, '').replace(/\s*```\s*$/i, '').trim(); const data = JSON.parse(rt);
+      const data = JSON.parse(response.text || '{}');
       res.json({ success: true, recipe: data });
     } catch (e: any) {
       console.error('Failed in /api/ai/generate-recipe:', e);
@@ -843,7 +836,7 @@ Yêu cầu trả về đúng định dạng JSON:
         }
       });
 
-      let rt = response.text || '{}'; rt = rt.replace(/^\s*```json\s*/i, '').replace(/\s*```\s*$/i, '').trim(); res.json({ success: true, planSuggestion: JSON.parse(rt) });
+      res.json({ success: true, planSuggestion: JSON.parse(response.text || '{}') });
     } catch (e: any) {
       console.error('Failed in /api/ai/suggest-meal-plan:', e);
       res.status(500).json({ error: "Lỗi tạo gợi ý khung thực đơn" });

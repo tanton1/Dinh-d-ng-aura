@@ -140,7 +140,6 @@ export interface FoodAnalysis {
   portionAndCalorieRationale?: string
   goalAlignmentAssessment?: string
   coachFeedbackSuggestion?: string
-  aiFeedback?: string
 }
 
 export interface FoodAnalysisResponse {
@@ -588,11 +587,6 @@ export async function analyzeFoodPhoto(
       }),
     })
 
-    if (res.status === 429) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error || 'Đã vượt quá giới hạn lượt dùng AI (Rate Limit). Vui lòng thử lại sau.');
-    }
-
     if (res.ok) {
       const data = await res.json()
       if (data.success && data.analysis) {
@@ -631,8 +625,7 @@ export async function analyzeFoodPhoto(
             quantityAndCookingAnalysis: a.quantityAndCookingAnalysis || 'Phân tích định lượng thực tế quan sát qua hình ảnh và cách chế biến giữ vị tự nhiên.',
             portionAndCalorieRationale: a.portionAndCalorieRationale || 'Cơ sở dự đoán dựa trên đường kính bát/đĩa tiêu chuẩn và độ dày khẩu phần.',
             goalAlignmentAssessment: a.goalAlignmentAssessment || 'Nhận định bữa ăn đáp ứng tốt mục tiêu tăng cơ và kiểm soát calo trong ngày.',
-            coachFeedbackSuggestion: a.coachFeedbackSuggestion || "Bữa ăn rất chuẩn bài em nhé! Tiếp tục duy trì chế độ dinh dưỡng lành mạnh này.",
-            aiFeedback: a.aiFeedback || "Bữa ăn cân đối.",
+            coachFeedbackSuggestion: a.coachFeedbackSuggestion || 'Bữa ăn rất chuẩn bài em nhé! Tiếp tục duy trì chế độ dinh dưỡng lành mạnh này.',
             items: (a.items || []).map((item: any, idx: number) => ({
               id: `item-${idx}`,
               nameVi: item.name,
@@ -670,7 +663,6 @@ export async function analyzeFoodPhoto(
   const upload = await uploadFoodPhoto(image)
   return analyzeUploadedFoodPhoto(upload, options)
 }
-
 export async function generateMealReview(meal: any, userProfile: any): Promise<string> {
   try {
     const token = await firebaseAuth?.currentUser?.getIdToken();
@@ -682,11 +674,25 @@ export async function generateMealReview(meal: any, userProfile: any): Promise<s
       },
       body: JSON.stringify({ meal, userProfile })
     });
-    
-    const data = await response.json();
-    return data.review || 'Lỗi khi phân tích bữa ăn.';
+    if (response.ok) {
+      const data = await response.json();
+      return data.review || 'Lỗi khi kết nối với máy chủ để phân tích bữa ăn.';
+    }
   } catch (error) {
     console.warn('Direct AI endpoint fallback for generateMealReview:', error);
+  }
+
+  // Fallback to Firebase Functions
+  try {
+    const firebase = requireNutritionFirebase();
+    const callable = httpsCallable<{ meal: any, userProfile: any }, { review: string }>(
+      firebase.functions,
+      'generateMealReview'
+    );
+    const result = await callable({ meal, userProfile });
+    return result.data.review || 'Lỗi khi phân tích bữa ăn.';
+  } catch (err) {
+    console.error('Error calling generateMealReview function:', err);
     return 'Lỗi khi kết nối với máy chủ để phân tích bữa ăn.';
   }
 }
@@ -702,11 +708,25 @@ export async function askAiCoach(message: string, userProfile: any): Promise<str
       },
       body: JSON.stringify({ message, userProfile })
     });
-    
-    const data = await response.json();
-    return data.text || 'AI Coach chưa có phản hồi.';
+    if (response.ok) {
+      const data = await response.json();
+      return data.text || 'AI Coach chưa có phản hồi.';
+    }
   } catch (error) {
     console.warn('Direct AI endpoint fallback for askAiCoach:', error);
+  }
+
+  // Fallback to Firebase Functions
+  try {
+    const firebase = requireNutritionFirebase();
+    const callable = httpsCallable<{ message: string, userProfile: any }, { text: string }>(
+      firebase.functions,
+      'askAiCoach'
+    );
+    const result = await callable({ message, userProfile });
+    return result.data.text || 'AI Coach chưa có phản hồi.';
+  } catch (err) {
+    console.error('Error calling askAiCoach function:', err);
     return 'Không thể kết nối với AI Coach lúc này.';
   }
 }

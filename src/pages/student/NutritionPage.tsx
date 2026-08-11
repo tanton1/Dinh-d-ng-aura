@@ -164,21 +164,9 @@ export interface NutritionMealDraft {
   carbs?: number
   fat?: number
   calorieRange?: { low: number; high: number }
-  aiAnalysis?: {
-    quantityAndCookingAnalysis?: string
-    portionAndCalorieRationale?: string
-    goalAlignmentAssessment?: string
-    coachFeedbackSuggestion?: string
-    aiFeedback?: string
-  }
   items: AiFoodItem[]
   source: 'ai-scan' | 'demo'
   submitForReview?: boolean
-  quantityAndCookingAnalysis?: string
-  portionAndCalorieRationale?: string
-  goalAlignmentAssessment?: string
-  coachFeedbackSuggestion?: string
-  aiFeedback?: string
 }
 
 export type NutritionImageAnalysisResponse = FoodAnalysisResponse
@@ -277,13 +265,6 @@ interface MealLog {
   coachFeedback?: string
   studentGoal?: string
   studentCondition?: string
-  aiAnalysis?: {
-    quantityAndCookingAnalysis?: string
-    portionAndCalorieRationale?: string
-    goalAlignmentAssessment?: string
-    coachFeedbackSuggestion?: string
-    aiFeedback?: string
-  }
 }
 
 interface NutritionWaterLog {
@@ -764,11 +745,6 @@ function normalizeAnalysis(response: NutritionImageAnalysisResponse) {
     catalogCandidates: analysis.catalogCandidates,
     notices: response.notices,
     model: response.model,
-    quantityAndCookingAnalysis: analysis.quantityAndCookingAnalysis,
-    portionAndCalorieRationale: analysis.portionAndCalorieRationale,
-    goalAlignmentAssessment: analysis.goalAlignmentAssessment,
-    coachFeedbackSuggestion: analysis.coachFeedbackSuggestion,
-    aiFeedback: analysis.aiFeedback,
   }
 }
 
@@ -1691,8 +1667,6 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
   const [quantityCookingAnalysis, setQuantityCookingAnalysis] = useState<string>('')
   const [portionCalorieRationale, setPortionCalorieRationale] = useState<string>('')
   const [goalAlignmentAssessment, setGoalAlignmentAssessment] = useState<string>('')
-  const [coachFeedbackSuggestion, setCoachFeedbackSuggestion] = useState<string>('')
-  const [aiFeedback, setAiFeedback] = useState<string>('')
   const [showDetailedAnalysis, setShowDetailedAnalysis] = useState<boolean>(false)
   const [activeSlide, setActiveSlide] = useState<'ingredients' | 'nutrition'>('ingredients')
   const [confirmedItemIds, setConfirmedItemIds] = useState<Set<string>>(() => new Set(restoredReview?.confirmedItemIds ?? []))
@@ -1939,8 +1913,6 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
         setQuantityCookingAnalysis(response.analysis.quantityAndCookingAnalysis || 'Phân tích định lượng thực tế quan sát qua hình ảnh và cách chế biến giữ vi chất.')
         setPortionCalorieRationale(response.analysis.portionAndCalorieRationale || 'Cơ sở dự đoán calo & khối lượng dựa trên đĩa ăn tiêu chuẩn.')
         setGoalAlignmentAssessment(response.analysis.goalAlignmentAssessment || 'Bữa ăn phù hợp chỉ tiêu năng lượng và đạm trong ngày.')
-        setCoachFeedbackSuggestion(response.analysis.coachFeedbackSuggestion || '')
-        setAiFeedback(response.analysis.aiFeedback || '')
       }
       if (!normalized) {
         setAnalysisError(response.analysis?.isFood === false
@@ -2079,12 +2051,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
       calorieRange: adjustedRange,
       items,
       source: resultMode === 'live' ? 'ai-scan' : 'demo',
-      submitForReview,
-      quantityAndCookingAnalysis: quantityCookingAnalysis,
-      portionAndCalorieRationale: portionCalorieRationale,
-      goalAlignmentAssessment,
-      coachFeedbackSuggestion,
-      aiFeedback,
+      submitForReview
     })
   }
 
@@ -3725,13 +3692,6 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       calorieRange: meal.calorieRange ?? { low: Math.max(0, Math.round(meal.calories * .88)), high: Math.round(meal.calories * 1.12) },
       items: meal.items,
       reviewStatus: meal.submitForReview ? 'pending' : undefined,
-      aiAnalysis: meal.source === 'ai-scan' ? {
-        quantityAndCookingAnalysis: meal.quantityAndCookingAnalysis,
-        portionAndCalorieRationale: meal.portionAndCalorieRationale,
-        goalAlignmentAssessment: meal.goalAlignmentAssessment,
-        coachFeedbackSuggestion: meal.coachFeedbackSuggestion,
-        aiFeedback: meal.aiFeedback,
-      } : undefined,
       studentGoal: profileDraft.goal === 'lose-fat'
         ? `Giảm mỡ thâm hụt calo (${profileDraft.targetWeightDeltaKg ? `Giảm ${Math.abs(profileDraft.targetWeightDeltaKg)}kg` : 'Thâm hụt calo'})`
         : profileDraft.goal === 'gain-muscle'
