@@ -516,9 +516,23 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
                 const effectiveGoalAlignment = meal.goalAlignmentAssessment || parsedAiAnalysis?.goalAlignmentAssessment
                 const effectiveAiFeedback = meal.aiFeedback || parsedAiAnalysis?.aiFeedback || parsedAiAnalysis?.aiSuggestion
                 const effectiveCoachSuggestion = meal.coachFeedbackSuggestion || parsedAiAnalysis?.coachFeedbackSuggestion
+                const effectiveQuantityAnalysis = parsedAiAnalysis?.quantityAndCookingAnalysis
+                const effectivePortionRationale = parsedAiAnalysis?.portionAndCalorieRationale
 
                 return (
                   <>
+                    {effectiveQuantityAnalysis && (
+                      <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500, paddingBottom: '8px', borderBottom: '1px solid #fce7f3' }}>
+                        <strong style={{ color: '#0f172a' }}>🍳 Phân tích chế biến & định lượng: </strong>
+                        {effectiveQuantityAnalysis}
+                      </p>
+                    )}
+                    {effectivePortionRationale && (
+                      <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500, paddingBottom: '8px', borderBottom: '1px solid #fce7f3' }}>
+                        <strong style={{ color: '#0f172a' }}>⚖️ Cơ sở ước tính Calo: </strong>
+                        {effectivePortionRationale}
+                      </p>
+                    )}
                     <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500 }}>
                       <strong style={{ color: '#0f172a' }}>🎯 Đánh giá phù hợp mục tiêu: </strong>
                       {effectiveGoalAlignment || `Khẩu phần ${portionCount} phần gồm ${ingredients.map((i) => i.name).join(', ')}. Tổng năng lượng ${totalCal} kcal (${totalProtein}g Đạm, ${totalCarbs}g Carb, ${totalFat}g Béo) đạt tỉ lệ dinh dưỡng cân đối, phù hợp với chế độ tập luyện.`}
