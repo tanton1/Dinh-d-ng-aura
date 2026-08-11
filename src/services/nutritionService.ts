@@ -588,6 +588,11 @@ export async function analyzeFoodPhoto(
       }),
     })
 
+    if (res.status === 429) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Đã vượt quá giới hạn lượt dùng AI (Rate Limit). Vui lòng thử lại sau.');
+    }
+
     if (res.ok) {
       const data = await res.json()
       if (data.success && data.analysis) {

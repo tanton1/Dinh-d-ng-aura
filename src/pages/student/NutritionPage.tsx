@@ -164,6 +164,13 @@ export interface NutritionMealDraft {
   carbs?: number
   fat?: number
   calorieRange?: { low: number; high: number }
+  aiAnalysis?: {
+    quantityAndCookingAnalysis?: string
+    portionAndCalorieRationale?: string
+    goalAlignmentAssessment?: string
+    coachFeedbackSuggestion?: string
+    aiFeedback?: string
+  }
   items: AiFoodItem[]
   source: 'ai-scan' | 'demo'
   submitForReview?: boolean

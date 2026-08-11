@@ -302,7 +302,8 @@ Yêu cầu phân tích chi tiết:
         }
       });
 
-      const responseText = response.text || '';
+      let responseText = response.text || '';
+      responseText = responseText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
       const parsedData = JSON.parse(responseText);
 
       res.json({
