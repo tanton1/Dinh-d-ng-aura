@@ -58,6 +58,7 @@ export interface MealLogItem {
   calorieRange?: { low: number; high: number }
   items?: AiFoodItem[]
   coachFeedback?: string
+  aiFeedback?: string
   aiAnalysis?: any
   goalAlignmentAssessment?: string
   coachFeedbackSuggestion?: string
@@ -505,16 +506,38 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
               </span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500 }}>
-                <strong style={{ color: '#0f172a' }}>🎯 Đánh giá phù hợp mục tiêu: </strong>
-                {meal.goalAlignmentAssessment || (typeof meal.aiAnalysis === 'object' ? meal.aiAnalysis?.goalAlignmentAssessment : '') || `Khẩu phần ${portionCount} phần gồm ${ingredients.map((i) => i.name).join(', ')}. Tổng năng lượng ${totalCal} kcal (${totalProtein}g Đạm, ${totalCarbs}g Carb, ${totalFat}g Béo) đạt tỉ lệ dinh dưỡng cân đối, phù hợp với chế độ tập luyện.`}
-              </p>
-              {(meal.coachFeedbackSuggestion || (typeof meal.aiAnalysis === 'object' && meal.aiAnalysis?.coachFeedbackSuggestion)) && (
-                <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500 }}>
-                  <strong style={{ color: '#0f172a' }}>💡 Tư vấn từ AI Coach: </strong>
-                  {meal.coachFeedbackSuggestion || (typeof meal.aiAnalysis === 'object' ? meal.aiAnalysis?.coachFeedbackSuggestion : '')}
-                </p>
-              )}
+              {(() => {
+                let parsedAiAnalysis: any = null
+                if (typeof meal.aiAnalysis === 'object' && meal.aiAnalysis) {
+                  parsedAiAnalysis = meal.aiAnalysis
+                } else if (typeof meal.aiAnalysis === 'string') {
+                  try { parsedAiAnalysis = JSON.parse(meal.aiAnalysis) } catch {}
+                }
+                const effectiveGoalAlignment = meal.goalAlignmentAssessment || parsedAiAnalysis?.goalAlignmentAssessment
+                const effectiveAiFeedback = meal.aiFeedback || parsedAiAnalysis?.aiFeedback || parsedAiAnalysis?.aiSuggestion
+                const effectiveCoachSuggestion = meal.coachFeedbackSuggestion || parsedAiAnalysis?.coachFeedbackSuggestion
+
+                return (
+                  <>
+                    <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500 }}>
+                      <strong style={{ color: '#0f172a' }}>🎯 Đánh giá phù hợp mục tiêu: </strong>
+                      {effectiveGoalAlignment || `Khẩu phần ${portionCount} phần gồm ${ingredients.map((i) => i.name).join(', ')}. Tổng năng lượng ${totalCal} kcal (${totalProtein}g Đạm, ${totalCarbs}g Carb, ${totalFat}g Béo) đạt tỉ lệ dinh dưỡng cân đối, phù hợp với chế độ tập luyện.`}
+                    </p>
+                    {effectiveAiFeedback && (
+                      <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500 }}>
+                        <strong style={{ color: '#0f172a' }}>💡 Đánh giá tổng quan: </strong>
+                        {effectiveAiFeedback}
+                      </p>
+                    )}
+                    {effectiveCoachSuggestion && (
+                      <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500 }}>
+                        <strong style={{ color: '#0f172a' }}>💬 Lời khuyên cho bạn: </strong>
+                        {effectiveCoachSuggestion}
+                      </p>
+                    )}
+                  </>
+                )
+              })()}
             </div>
           </div>
 

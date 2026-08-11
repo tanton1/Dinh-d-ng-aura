@@ -140,6 +140,7 @@ export interface FoodAnalysis {
   portionAndCalorieRationale?: string
   goalAlignmentAssessment?: string
   coachFeedbackSuggestion?: string
+  aiFeedback?: string
 }
 
 export interface FoodAnalysisResponse {
@@ -625,7 +626,8 @@ export async function analyzeFoodPhoto(
             quantityAndCookingAnalysis: a.quantityAndCookingAnalysis || 'Phân tích định lượng thực tế quan sát qua hình ảnh và cách chế biến giữ vị tự nhiên.',
             portionAndCalorieRationale: a.portionAndCalorieRationale || 'Cơ sở dự đoán dựa trên đường kính bát/đĩa tiêu chuẩn và độ dày khẩu phần.',
             goalAlignmentAssessment: a.goalAlignmentAssessment || 'Nhận định bữa ăn đáp ứng tốt mục tiêu tăng cơ và kiểm soát calo trong ngày.',
-            coachFeedbackSuggestion: a.coachFeedbackSuggestion || 'Bữa ăn rất chuẩn bài em nhé! Tiếp tục duy trì chế độ dinh dưỡng lành mạnh này.',
+            coachFeedbackSuggestion: a.coachFeedbackSuggestion || "Bữa ăn rất chuẩn bài em nhé! Tiếp tục duy trì chế độ dinh dưỡng lành mạnh này.",
+            aiFeedback: a.aiFeedback || "Bữa ăn cân đối.",
             items: (a.items || []).map((item: any, idx: number) => ({
               id: `item-${idx}`,
               nameVi: item.name,

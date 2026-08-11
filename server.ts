@@ -198,9 +198,10 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
       });
 
       res.json({ review: response.text || 'Không thể phân tích bữa ăn lúc này.' });
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to generate meal review', e);
-      res.status(500).json({ review: 'Lỗi khi gọi AI phân tích bữa ăn.' });
+      const isRateLimit = e?.status === 429 || e?.status === 'RESOURCE_EXHAUSTED' || e?.message?.includes('429') || e?.message?.includes('Quota exceeded');
+      res.status(isRateLimit ? 429 : 500).json({ review: isRateLimit ? 'Đã vượt quá giới hạn lượt dùng AI. Vui lòng thử lại sau.' : 'Lỗi khi gọi AI phân tích bữa ăn.' });
     }
   });
 
@@ -310,9 +311,10 @@ Yêu cầu phân tích chi tiết:
       });
     } catch (e: any) {
       console.error('Failed in /api/ai/analyze-meal:', e);
-      res.status(500).json({
+      const isRateLimit = e?.status === 429 || e?.status === 'RESOURCE_EXHAUSTED' || e?.message?.includes('429') || e?.message?.includes('Quota exceeded');
+      res.status(isRateLimit ? 429 : 500).json({
         success: false,
-        error: e?.message || 'Lỗi xử lý AI'
+        error: isRateLimit ? 'Đã vượt quá giới hạn lượt dùng AI (Rate Limit). Vui lòng thử lại sau.' : (e?.message || 'Lỗi xử lý AI')
       });
     }
   });
