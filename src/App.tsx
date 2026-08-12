@@ -896,7 +896,12 @@ function AuraApplication() {
   if ((user || backendMode === 'demo') && !isOnboardingDone) {
     return (
       <Onboarding 
-        initialProfile={profile || {}}
+        initialProfile={
+          (() => {
+            const src = profile?.onboardingData || profile || {};
+            return Object.fromEntries(Object.entries(src).filter(([_, v]) => v !== undefined));
+          })()
+        }
         onSkip={async () => {
           const uid = user?.uid ?? 'demo';
           try {
@@ -955,7 +960,8 @@ function AuraApplication() {
               const { firestoreDb } = await import('./lib/firebase');
               if (firestoreDb) {
                 const userRef = doc(firestoreDb, 'users', user.uid);
-                await setDoc(userRef, { 
+                const { withoutUndefined } = await import('./services/firebaseService');
+                await setDoc(userRef, withoutUndefined({ 
                   onboardingCompleted: true,
                   onboardingData: profile,
                   nutritionProfile,
@@ -970,7 +976,7 @@ function AuraApplication() {
                   stressLevel: profile.stressLevel,
                   dietType: profile.dietType,
                   healthConditions: profile.healthConditions
-                }, { merge: true });
+                }), { merge: true });
               }
             } catch (e) {
               console.error('Firestore onboarding save error:', e);

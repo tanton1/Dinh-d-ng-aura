@@ -102,7 +102,7 @@ function mapCourse(snapshot: QueryDocumentSnapshot<DocumentData>): Course {
   return mapCourseData(snapshot.id, snapshot.data())
 }
 
-function withoutUndefined<T>(value: T): T {
+export function withoutUndefined<T>(value: T): T {
   if (Array.isArray(value)) return value.map((item) => withoutUndefined(item)) as T
   if (value && typeof value === 'object') {
     const prototype = Object.getPrototypeOf(value)

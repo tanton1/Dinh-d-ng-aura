@@ -576,7 +576,7 @@ export async function analyzeFoodPhoto(
       const msgBuffer = new TextEncoder().encode(base64 + (options.notes || '') + (options.userGoal || '') + (options.userCondition || ''));
       const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
-      cacheKey = 'meal_analysis_cache_' + hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      cacheKey = 'meal_analysis_v2_' + hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
       const cached = localStorage.getItem(cacheKey);
       if (cached) {
         return JSON.parse(cached) as FoodAnalysisResponse;
