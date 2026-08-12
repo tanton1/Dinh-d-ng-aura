@@ -1,27 +1,38 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
+  EmailAuthProvider,
   GoogleAuthProvider,
+  PhoneAuthProvider,
   createUserWithEmailAndPassword,
+  getRedirectResult,
   getIdTokenResult,
+  linkWithCredential,
+  linkWithPopup,
+  linkWithRedirect,
   onIdTokenChanged,
+  sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut as firebaseSignOut,
   updateProfile,
   RecaptchaVerifier,
   signInWithPhoneNumber,
+  type AuthCredential,
   type ConfirmationResult
 } from 'firebase/auth'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { firebaseAuth, firestoreDb, isFirebaseConfigured } from '../lib/firebase'
-import { createOrUpdateUserProfile } from '../services/firebaseService'
+import { createOrUpdateUserProfile, updateUserProfile } from '../services/firebaseService'
+import { reportClientIssue } from '../services/clientTelemetryService'
 import type { AppUser, UserProfile, UserRole } from '../types'
 
 declare global {
   interface Window {
     recaptchaVerifier?: RecaptchaVerifier | null
     confirmationResult?: ConfirmationResult | null
+    phoneLinkVerificationId?: string | null
   }
 }
 
@@ -35,6 +46,10 @@ type AuthContextValue = {
   signIn: (email: string, password: string) => Promise<void>
   signUp: (displayName: string, email: string, password: string) => Promise<void>
   signInWithGoogle: () => Promise<void>
+  linkGoogleProvider: () => Promise<void>
+  linkEmailProvider: (email: string, password: string) => Promise<void>
+  sendPhoneLinkOtp: (phoneNumber: string) => Promise<string>
+  verifyPhoneLinkOtp: (phoneNumber: string, otpCode: string) => Promise<void>
   sendPhoneOtp: (phoneNumber: string, isSignUp?: boolean) => Promise<{ otpCode: string; message: string }>
   verifyPhoneOtpAndSignIn: (phoneNumber: string, otpCode: string, displayName?: string) => Promise<void>
   resetPassword: (email: string) => Promise<void>
@@ -58,6 +73,8 @@ const validUserRoles = new Set<UserRole>(['student', 'coach', 'editor', 'admin',
 const demoOtpEnabled = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_OTP === 'true'
 const e2eOtpEnabled = import.meta.env.MODE === 'e2e' && import.meta.env.VITE_ENABLE_DEMO_OTP === 'true'
 const localOtpEnabled = demoOtpEnabled || e2eOtpEnabled
+const recaptchaContainerId = 'aura-recaptcha-container'
+let pendingGoogleCredential: AuthCredential | null = null
 
 function normalizePhoneNumber(phoneNumber: string) {
   const compact = phoneNumber.trim().replace(/[\s().-]/g, '')
@@ -101,8 +118,34 @@ function clearUserScopedStorage(userId: string) {
   }
 }
 
-function toAppUser(user: { uid: string; email: string | null; displayName: string | null; photoURL?: string | null }): AppUser {
-  return { uid: user.uid, email: user.email, displayName: user.displayName, photoURL: user.photoURL ?? null }
+function toAppUser(user: { uid: string; email: string | null; displayName: string | null; photoURL?: string | null; phoneNumber?: string | null; emailVerified?: boolean; providerData?: Array<{ providerId: string }> }): AppUser {
+  return {
+    uid: user.uid,
+    email: user.email,
+    displayName: user.displayName,
+    photoURL: user.photoURL ?? null,
+    phoneNumber: user.phoneNumber ?? null,
+    emailVerified: Boolean(user.emailVerified),
+    providerIds: [...new Set((user.providerData ?? []).map((provider) => provider.providerId))],
+  }
+}
+
+function isMobileAuthFlow() {
+  if (typeof window === 'undefined') return false
+  return window.matchMedia('(max-width: 760px)').matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+}
+
+function getRecaptchaVerifier() {
+  if (!firebaseAuth) throw new Error('Firebase chưa được cấu hình.')
+  const container = document.getElementById(recaptchaContainerId)
+  if (!container) throw new Error('Không thể khởi tạo bước xác minh bảo mật. Vui lòng tải lại trang.')
+  window.recaptchaVerifier?.clear()
+  window.recaptchaVerifier = null
+  container.innerHTML = ''
+  firebaseAuth.languageCode = 'vi'
+  const verifier = new RecaptchaVerifier(firebaseAuth, recaptchaContainerId, { size: 'invisible' })
+  window.recaptchaVerifier = verifier
+  return verifier
 }
 
 export function getFriendlyAuthError(error: any) {
@@ -119,6 +162,15 @@ export function getFriendlyAuthError(error: any) {
     'auth/popup-closed-by-user': 'Cửa sổ đăng nhập Google đã được đóng.',
     'auth/too-many-requests': 'Bạn đã thử quá nhiều lần. Vui lòng quay lại sau.',
     'auth/network-request-failed': 'Không thể kết nối Firebase. Hãy kiểm tra mạng.',
+    'auth/operation-not-allowed': 'Phương thức đăng nhập này chưa được bật. Vui lòng thử cách khác.',
+    'auth/unauthorized-domain': 'Tên miền hiện tại chưa được cấp quyền đăng nhập Firebase.',
+    'auth/popup-blocked': 'Trình duyệt đã chặn cửa sổ Google. Aura sẽ chuyển sang trang đăng nhập an toàn.',
+    'auth/account-exists-with-different-credential': 'Email này đã có tài khoản Aura. Hãy đăng nhập bằng email để tự động liên kết Google.',
+    'auth/link-existing-account': 'Email này đã có tài khoản Aura. Hãy đăng nhập bằng email để tự động liên kết Google.',
+    'auth/credential-already-in-use': 'Phương thức này đã thuộc một tài khoản Aura khác.',
+    'auth/provider-already-linked': 'Phương thức đăng nhập này đã được liên kết.',
+    'auth/invalid-verification-code': 'Mã OTP không chính xác. Vui lòng kiểm tra lại.',
+    'auth/session-expired': 'Phiên OTP đã hết hạn. Vui lòng gửi lại mã mới.',
   }
   return messages[code ?? ''] ?? error?.message ?? 'Đã có lỗi xảy ra. Vui lòng thử lại.'
 }
@@ -128,6 +180,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(isFirebaseConfigured ? null : demoProfile)
   const [previewRole, setPreviewRole] = useState<UserRole | null>(null)
   const [loading, setLoading] = useState(isFirebaseConfigured)
+
+  useEffect(() => {
+    if (!firebaseAuth) return
+    void getRedirectResult(firebaseAuth)
+      .then(async (result) => {
+        if (!result) return
+        await createOrUpdateUserProfile({
+          uid: result.user.uid,
+          email: result.user.email ?? '',
+          displayName: result.user.displayName ?? 'Thành viên Aura',
+          photoURL: result.user.photoURL,
+          phoneNumber: result.user.phoneNumber ?? undefined,
+          role: 'student',
+          membership: 'free',
+        })
+      })
+      .catch((error) => {
+        reportClientIssue('auth', error, { phase: 'google_redirect_result', provider: 'google', retryable: true })
+        const friendlyMessage = getFriendlyAuthError(error)
+        try {
+          sessionStorage.setItem('aura:auth-redirect-error', friendlyMessage)
+        } catch {
+          // The next screen can still offer email/phone sign-in if storage is unavailable.
+        }
+        window.dispatchEvent(new CustomEvent('aura-auth-redirect-error', { detail: friendlyMessage }))
+      })
+  }, [])
 
   useEffect(() => {
     if (!isFirebaseConfigured || !firebaseAuth || !firestoreDb) {
@@ -275,6 +354,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
         (err) => {
           console.warn("Firestore user profile subscription error/quota:", err)
+          reportClientIssue('firestore', err, { phase: 'profile_subscription', retryable: true })
           const localOnboarding = typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${firebaseUser.uid}`) === 'true'
           const localNutRaw = typeof window !== 'undefined' ? window.localStorage.getItem(`aura:nutrition-profile:${firebaseUser.uid}`) : null
           let localNut = null
@@ -307,6 +387,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       unsubscribeProfile?.()
       unsubscribeAuth()
+      window.recaptchaVerifier?.clear()
+      window.recaptchaVerifier = null
     }
   }, [])
 
@@ -320,24 +402,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     backendMode: isFirebaseConfigured ? 'firebase' : 'demo',
     signIn: async (email, password) => {
-      console.log('Starting signIn for email:', email);
       if (!firebaseAuth) {
-        console.error('Firebase Auth is not configured');
         throw new Error('Firebase chưa được cấu hình.')
       }
-      await signInWithEmailAndPassword(firebaseAuth, email, password)
+      try {
+        const result = await signInWithEmailAndPassword(firebaseAuth, email, password)
+        if (pendingGoogleCredential) {
+          await linkWithCredential(result.user, pendingGoogleCredential)
+          pendingGoogleCredential = null
+        }
+      } catch (error) {
+        reportClientIssue('auth', error, { phase: 'email_signin', provider: 'password', retryable: true })
+        throw error
+      }
     },
     signUp: async (displayName, email, password) => {
-      console.log('Starting signUp for email:', email);
       if (!firebaseAuth) {
-        console.error('Firebase Auth is not configured');
         throw new Error('Firebase chưa được cấu hình.')
       }
       try {
         const credential = await createUserWithEmailAndPassword(firebaseAuth, email, password)
-        console.log('createUserWithEmailAndPassword success:', credential.user.uid);
         await updateProfile(credential.user, { displayName })
-        console.log('Profile updated with displayName');
         await createOrUpdateUserProfile({
           uid: credential.user.uid,
           email,
@@ -346,10 +431,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           membership: 'free',
           onboardingCompleted: false,
         })
-        console.log('User profile created in Firestore successfully.');
       } catch (error) {
-        // Firebase auth errors are handled in AuthPage
-        throw error;
+        reportClientIssue('auth', error, { phase: 'email_signup', provider: 'password', retryable: true })
+        throw error
       }
     },
     signInWithGoogle: async () => {
@@ -357,6 +441,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const provider = new GoogleAuthProvider()
       provider.setCustomParameters({ prompt: 'select_account' })
       try {
+        if (isMobileAuthFlow() || window.self !== window.top) {
+          await signInWithRedirect(firebaseAuth, provider)
+          return
+        }
         const credential = await signInWithPopup(firebaseAuth, provider)
         const userEmail = credential.user.email ?? ''
         await createOrUpdateUserProfile({
@@ -368,14 +456,80 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           membership: 'free',
         })
       } catch (error: any) {
-        if (error?.code === 'auth/popup-closed-by-user') {
-          console.log('Popup closed by user');
-          return;
+        if (error?.code === 'auth/popup-blocked') {
+          await signInWithRedirect(firebaseAuth, provider)
+          return
         }
-        if (window.self !== window.top) {
-          throw new Error('Đăng nhập Google bị chặn khi xem ở chế độ nhúng. Vui lòng mở ứng dụng trong tab mới (icon góc phải trên).')
+        if (error?.code === 'auth/account-exists-with-different-credential') {
+          pendingGoogleCredential = GoogleAuthProvider.credentialFromError(error)
+          const linkError = new Error('Email này đã có tài khoản Aura. Hãy đăng nhập bằng email để tự động liên kết Google.') as Error & { code: string; email?: string }
+          linkError.code = 'auth/link-existing-account'
+          linkError.email = typeof error?.customData?.email === 'string' ? error.customData.email : undefined
+          reportClientIssue('auth', error, { phase: 'google_existing_account', provider: 'google', retryable: true })
+          throw linkError
         }
-        throw error;
+        reportClientIssue('auth', error, { phase: 'google_signin', provider: 'google', retryable: error?.code !== 'auth/popup-closed-by-user' })
+        throw error
+      }
+    },
+    linkGoogleProvider: async () => {
+      if (!firebaseAuth?.currentUser) throw new Error('Vui lòng đăng nhập lại trước khi liên kết Google.')
+      if (firebaseAuth.currentUser.providerData.some((item) => item.providerId === 'google.com')) return
+      const provider = new GoogleAuthProvider()
+      provider.setCustomParameters({ prompt: 'select_account' })
+      try {
+        if (isMobileAuthFlow() || window.self !== window.top) {
+          await linkWithRedirect(firebaseAuth.currentUser, provider)
+          return
+        }
+        const result = await linkWithPopup(firebaseAuth.currentUser, provider)
+        setUser(toAppUser(result.user))
+      } catch (error: any) {
+        if (error?.code === 'auth/popup-blocked') {
+          await linkWithRedirect(firebaseAuth.currentUser, provider)
+          return
+        }
+        reportClientIssue('auth', error, { phase: 'link_google', provider: 'google', retryable: true })
+        throw error
+      }
+    },
+    linkEmailProvider: async (email, password) => {
+      if (!firebaseAuth?.currentUser) throw new Error('Vui lòng đăng nhập lại trước khi liên kết email.')
+      try {
+        const result = await linkWithCredential(firebaseAuth.currentUser, EmailAuthProvider.credential(email.trim(), password))
+        if (!result.user.emailVerified) await sendEmailVerification(result.user)
+        setUser(toAppUser(result.user))
+      } catch (error) {
+        reportClientIssue('auth', error, { phase: 'link_email', provider: 'password', retryable: true })
+        throw error
+      }
+    },
+    sendPhoneLinkOtp: async (phoneNumber) => {
+      if (!firebaseAuth?.currentUser) throw new Error('Vui lòng đăng nhập lại trước khi liên kết số điện thoại.')
+      const formattedPhone = normalizePhoneNumber(phoneNumber)
+      try {
+        const provider = new PhoneAuthProvider(firebaseAuth)
+        window.phoneLinkVerificationId = await provider.verifyPhoneNumber(formattedPhone, getRecaptchaVerifier())
+        return `Mã OTP đã được gửi đến ${maskPhoneNumber(formattedPhone)}.`
+      } catch (error) {
+        window.recaptchaVerifier?.clear()
+        window.recaptchaVerifier = null
+        reportClientIssue('auth', error, { phase: 'link_phone_send', provider: 'phone', retryable: true })
+        throw error
+      }
+    },
+    verifyPhoneLinkOtp: async (phoneNumber, otpCode) => {
+      if (!firebaseAuth?.currentUser) throw new Error('Vui lòng đăng nhập lại trước khi liên kết số điện thoại.')
+      if (!window.phoneLinkVerificationId) throw new Error('Phiên OTP đã hết hạn. Vui lòng gửi lại mã mới.')
+      const formattedPhone = normalizePhoneNumber(phoneNumber)
+      try {
+        const result = await linkWithCredential(firebaseAuth.currentUser, PhoneAuthProvider.credential(window.phoneLinkVerificationId, otpCode.replace(/\D/g, '')))
+        await updateUserProfile(firebaseAuth.currentUser.uid, { phoneNumber: formattedPhone })
+        setUser(toAppUser(result.user))
+        window.phoneLinkVerificationId = null
+      } catch (error) {
+        reportClientIssue('auth', error, { phase: 'link_phone_verify', provider: 'phone', retryable: true })
+        throw error
       }
     },
     sendPhoneOtp: async (phoneNumber: string, _isSignUp?: boolean) => {
@@ -390,7 +544,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const container = document.getElementById('recaptcha-container')
+      const container = document.getElementById(recaptchaContainerId)
       if (!container) throw new Error('Không thể khởi tạo bước xác minh bảo mật. Vui lòng tải lại trang.')
 
       window.confirmationResult = null
@@ -399,15 +553,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       container.innerHTML = ''
 
       try {
-        const verifier = new RecaptchaVerifier(firebaseAuth, 'recaptcha-container', { size: 'invisible' })
-        window.recaptchaVerifier = verifier
+        const verifier = getRecaptchaVerifier()
         window.confirmationResult = await signInWithPhoneNumber(firebaseAuth, formattedPhone, verifier)
         return {
           otpCode: '',
           message: `Mã OTP đã được gửi đến ${maskPhoneNumber(formattedPhone)}.`,
         }
       } catch (error: any) {
-        window.recaptchaVerifier?.clear()
+        reportClientIssue('auth', error, { phase: 'phone_otp_send', provider: 'phone', retryable: true })
+        const activeVerifier = window.recaptchaVerifier as RecaptchaVerifier | null | undefined
+        activeVerifier?.clear()
         window.recaptchaVerifier = null
         window.confirmationResult = null
         container.innerHTML = ''
@@ -473,6 +628,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
         window.confirmationResult = null
       } catch (error: any) {
+        reportClientIssue('auth', error, { phase: 'phone_otp_verify', provider: 'phone', retryable: true })
         const errorCode = typeof error?.code === 'string' ? error.code : ''
         if (errorCode === 'auth/invalid-verification-code') {
           throw new Error('Mã OTP không chính xác. Vui lòng kiểm tra lại.')

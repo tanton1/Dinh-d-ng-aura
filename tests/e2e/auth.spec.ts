@@ -5,7 +5,11 @@ test('phone OTP signup is friendly, testable and responsive', async ({ page }) =
 
   await expect(page.getByTestId('auth-page')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Đăng nhập để tiếp tục hành trình' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Tiếp tục với Google/ })).toBeVisible()
+  await expect(page.getByText('Google sẵn sàng')).toBeVisible()
+  await expect(page.getByText('OTP Việt Nam')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Số điện thoại' })).toHaveClass(/is-active/)
+  await expect(page.locator('#aura-recaptcha-container')).toHaveCount(1)
 
   await page.getByRole('tab', { name: 'Tạo tài khoản' }).click()
   await page.getByPlaceholder('Nguyễn Minh Anh').fill('Minh Anh')

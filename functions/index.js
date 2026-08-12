@@ -5,6 +5,7 @@ const { getMessaging } = require('firebase-admin/messaging')
 const { getStorage } = require('firebase-admin/storage')
 const { HttpsError, onCall: firebaseOnCall } = require('firebase-functions/v2/https')
 const { setGlobalOptions } = require('firebase-functions/v2/options')
+const { logger } = require('firebase-functions')
 const { createHash } = require('node:crypto')
 const { createGenerativeAiFunctions } = require('./generative-ai')
 const { createNutritionFunctions } = require('./nutrition')
@@ -27,12 +28,34 @@ const quizMaxAttemptLimit = 20
 const mediaUrlTtlMs = 5 * 60 * 1000
 const enforceAppCheck = process.env.ENFORCE_APP_CHECK === 'true'
 const publicAppUrl = process.env.PUBLIC_APP_URL || 'https://gen-lang-client-0815966909.web.app'
+const clientIncidentRateWindows = new Map()
 
 function onCall(optionsOrHandler, maybeHandler) {
   if (typeof optionsOrHandler === 'function') {
     return firebaseOnCall({ enforceAppCheck }, optionsOrHandler)
   }
   return firebaseOnCall({ ...optionsOrHandler, enforceAppCheck }, maybeHandler)
+}
+
+function boundedIncidentValue(value, maximum) {
+  return typeof value === 'string' ? value.trim().slice(0, maximum) : ''
+}
+
+function allowClientIncident(request) {
+  const source = request.auth?.uid
+    || request.app?.appId
+    || createHash('sha256').update(String(request.rawRequest?.ip || 'unknown')).digest('hex').slice(0, 20)
+  const now = Date.now()
+  const previous = clientIncidentRateWindows.get(source)
+  const sameWindow = previous && now - previous.startedAt < 5 * 60 * 1000
+  const count = sameWindow ? previous.count + 1 : 1
+  clientIncidentRateWindows.set(source, { startedAt: sameWindow ? previous.startedAt : now, count })
+  if (clientIncidentRateWindows.size > 200) {
+    for (const [key, window] of clientIncidentRateWindows) {
+      if (now - window.startedAt > 5 * 60 * 1000) clientIncidentRateWindows.delete(key)
+    }
+  }
+  return count <= 20
 }
 
 setGlobalOptions({ region: 'asia-southeast1', maxInstances: 3 })
@@ -581,6 +604,44 @@ const productEventNames = new Set([
   'nutrition_scan_completed',
   'workout_completed',
 ])
+
+const clientIssueAreas = new Set(['auth', 'gemini', 'firestore', 'ui'])
+const clientIssueProviders = new Set(['google', 'phone', 'email', 'password', 'gemini'])
+
+exports.reportClientIssue = onCall(async (request) => {
+  if (!allowClientIncident(request)) {
+    throw new HttpsError('resource-exhausted', 'Quá nhiều báo cáo trong thời gian ngắn.')
+  }
+  const area = boundedIncidentValue(request.data?.area, 24)
+  const code = boundedIncidentValue(request.data?.code, 80)
+  const phase = boundedIncidentValue(request.data?.phase, 80)
+  const route = boundedIncidentValue(request.data?.route, 160)
+  const provider = boundedIncidentValue(request.data?.provider, 20)
+  const incidentId = boundedIncidentValue(request.data?.incidentId, 80)
+  const release = boundedIncidentValue(request.data?.release, 80)
+  if (!clientIssueAreas.has(area) || !/^[a-zA-Z0-9_./:-]{1,80}$/.test(code) || !phase) {
+    throw new HttpsError('invalid-argument', 'Báo cáo sự cố không hợp lệ.')
+  }
+  if (provider && !clientIssueProviders.has(provider)) {
+    throw new HttpsError('invalid-argument', 'Nhà cung cấp xác thực không hợp lệ.')
+  }
+
+  logger.error('Aura client incident', {
+    area,
+    code,
+    phase,
+    route,
+    provider: provider || null,
+    incidentId: incidentId || null,
+    release: release || 'web',
+    retryable: request.data?.retryable === true,
+    authenticated: Boolean(request.auth?.uid),
+    userId: request.auth?.uid || null,
+    appVerified: Boolean(request.app?.appId),
+    schemaVersion: 1,
+  })
+  return { accepted: true }
+})
 
 exports.trackProductEvent = onCall(async (request) => {
   const userId = requireCaller(request)

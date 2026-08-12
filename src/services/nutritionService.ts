@@ -1,6 +1,7 @@
 import { httpsCallable } from 'firebase/functions'
 import { deleteObject, ref, uploadBytes } from 'firebase/storage'
 import { firebaseAuth, firebaseFunctions, firebaseStorage } from '../lib/firebase'
+import { reportClientIssue } from './clientTelemetryService'
 
 export const MAX_NUTRITION_IMAGE_BYTES = 8 * 1024 * 1024
 
@@ -641,6 +642,7 @@ export async function analyzeUploadedFoodPhoto(
     }
     return response
   } catch (error) {
+    reportClientIssue('gemini', error, { phase: 'analyze_food_callable', provider: 'gemini', retryable: true })
     if (options.retainImage !== true && storage) {
       await deleteObject(ref(storage, upload.storagePath)).catch(() => undefined)
     }
@@ -783,8 +785,13 @@ export async function analyzeFoodPhoto(
   }
 
   validateAnalyzeOptions(options)
-  const upload = await uploadFoodPhoto(image)
-  return analyzeUploadedFoodPhoto(upload, options)
+  try {
+    const upload = await uploadFoodPhoto(image)
+    return await analyzeUploadedFoodPhoto(upload, options)
+  } catch (error) {
+    reportClientIssue('gemini', error, { phase: 'analyze_food_pipeline', provider: 'gemini', retryable: true })
+    throw error
+  }
 }
 export async function generateMealReview(meal: any, userProfile: any): Promise<string> {
   if (useLegacyAiHttpApi) {

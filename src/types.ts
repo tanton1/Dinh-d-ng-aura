@@ -7,6 +7,9 @@ export interface AppUser {
   email: string | null
   displayName: string | null
   photoURL: string | null
+  phoneNumber: string | null
+  emailVerified: boolean
+  providerIds: string[]
 }
 
 export interface UserProfile {

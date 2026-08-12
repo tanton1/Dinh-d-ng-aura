@@ -21,6 +21,7 @@ import { httpsCallable } from 'firebase/functions'
 import { ref as storageRef, uploadBytesResumable, getDownloadURL } from 'firebase/storage'
 import { firebaseAuth, firebaseFunctions, firebaseStorage, firestoreDb } from '../lib/firebase'
 import { safeLocalStorageSet } from '../lib/safeStorage'
+import { reportClientIssue } from './clientTelemetryService'
 import type {
   AdminUserRecord,
   Course,
@@ -1040,6 +1041,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     ? String((error as { code?: unknown }).code ?? 'unknown')
     : 'unknown'
   console.error('Firestore operation failed', { operationType, path, code })
+  reportClientIssue('firestore', error, { phase: operationType, retryable: true })
   throw new Error('Không thể đồng bộ dữ liệu. Vui lòng thử lại.')
 }
 

@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { reportClientIssue } from './services/clientTelemetryService'
 
 type ErrorBoundaryState = {
   hasError: boolean
@@ -19,6 +20,11 @@ export class GlobalErrorBoundary extends Component<{ children: ReactNode }, Erro
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     if (import.meta.env.DEV) console.error('GlobalErrorBoundary caught an error', error, errorInfo)
+    reportClientIssue('ui', error, {
+      phase: 'global_error_boundary',
+      incidentId: this.state.incidentId,
+      retryable: true,
+    })
   }
 
   render() {

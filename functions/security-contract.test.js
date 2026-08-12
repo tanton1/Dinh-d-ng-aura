@@ -38,3 +38,12 @@ test('production auth has no email role bootstrap or unconditional demo OTP', ()
   assert.equal(existsSync(join(repositoryRoot, 'deleteRecreate.mjs')), false)
   assert.equal(existsSync(join(repositoryRoot, 'import-client.mjs')), false)
 })
+
+test('client incident reporting is bounded, validated and rate limited', () => {
+  const incidentSource = functionsSource.match(/exports\.reportClientIssue = onCall[\s\S]*?return \{ accepted: true \}\s*\}\)/)?.[0] ?? ''
+  assert.match(incidentSource, /exports\.reportClientIssue = onCall/)
+  assert.match(incidentSource, /allowClientIncident\(request\)/)
+  assert.match(incidentSource, /clientIssueAreas\.has\(area\)/)
+  assert.match(incidentSource, /boundedIncidentValue\(request\.data\?\.code, 80\)/)
+  assert.doesNotMatch(incidentSource, /request\.data\?\.message/)
+})

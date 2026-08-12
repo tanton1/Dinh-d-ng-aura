@@ -4,6 +4,7 @@ import { Bell,
   Moon, Coffee, Heart, AlertCircle, Pencil, LogOut, ShieldCheck, Zap
 } from 'lucide-react';
 import { PageHeader } from '../../components/ui';
+import AccountConnectionsCard from '../../components/account/AccountConnectionsCard';
 
 
 export interface ProfileNotificationSettings {
@@ -108,6 +109,7 @@ export default function ProfilePage({ fullProfile, displayName, email, membershi
             </div>
           </div>
         </div>
+        <AccountConnectionsCard />
         {/* Basic Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
           <div style={{ background: 'white', padding: '20px', borderRadius: '22px', border: '1px solid var(--aura-border)', textAlign: 'center' }}>
