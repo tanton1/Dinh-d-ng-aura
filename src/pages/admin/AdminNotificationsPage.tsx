@@ -62,7 +62,7 @@ interface AdminNotificationsPageProps {
   currentUserUid?: string
 }
 
-export default function AdminNotificationsPage({ onNavigate, users = [] }: AdminNotificationsPageProps) {
+export default function AdminNotificationsPage({ onNavigate, users = [], currentUserUid }: AdminNotificationsPageProps) {
   const [activeTab, setActiveTab] = useState<'dispatch' | 'goal_templates' | 'settings' | 'tester' | 'logs'>('dispatch')
 
   // Dispatch Form State
@@ -348,8 +348,8 @@ export default function AdminNotificationsPage({ onNavigate, users = [] }: Admin
 
       if (perm === 'granted') {
         setRequestingToken(true)
-        const token = await requestFcmPermissionAndToken('admin_device')
-        setCurrentFcmToken(token || 'fcm_token_demo_' + Date.now().toString(36))
+        const token = currentUserUid ? await requestFcmPermissionAndToken(currentUserUid) : null
+        setCurrentFcmToken(token || '')
         setRequestingToken(false)
       }
     }

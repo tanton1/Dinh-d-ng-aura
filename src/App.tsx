@@ -25,6 +25,7 @@ import {
 } from './services/firebaseService'
 import { savePtWorkoutProgram } from './services/ptCoachingProgramService'
 import { savePtWorkoutLog } from './services/ptCoachingWorkoutService'
+import { trackProductEvent } from './services/analyticsService'
 import type {
   AdminStudentDirectoryItem,
   AdminUserRecord,
@@ -395,6 +396,14 @@ function AuraApplication() {
       }
     })()
   }, [backendMode, role, user])
+
+  useEffect(() => {
+    if (!user || backendMode !== 'firebase') return
+    void trackProductEvent('page_view', {
+      view,
+      ...(route.courseId ? { courseId: route.courseId } : {}),
+    })
+  }, [backendMode, route.courseId, user, view])
 
   useEffect(() => {
     routeRef.current = route

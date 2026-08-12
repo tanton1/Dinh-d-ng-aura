@@ -1,25 +1,21 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import fs from 'fs'
-
-const envConfig: Record<string, string> = {};
-try {
-  const envContent = fs.readFileSync('.env', 'utf-8');
-  envContent.split('\n').forEach(line => {
-    const [key, ...values] = line.split('=');
-    if (key && values.length > 0) {
-      envConfig[`import.meta.env.${key.trim()}`] = JSON.stringify(values.join('=').trim());
-    }
-  });
-} catch (e) {}
 
 export default defineConfig({
   plugins: [react()],
-  define: envConfig,
   build: {
     rollupOptions: {
       output: {
-        manualChunks: undefined,
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('/firebase/') || id.includes('/@firebase/') || id.includes('node_modules\\firebase') || id.includes('node_modules\\@firebase')) return 'vendor-firebase'
+          if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/') || id.includes('node_modules\\react') || id.includes('node_modules\\scheduler')) return 'vendor-react'
+          if (id.includes('lucide-react')) return 'vendor-icons'
+          if (id.includes('/motion/') || id.includes('/motion-') || id.includes('node_modules\\motion')) return 'vendor-motion'
+          if (id.includes('@google/genai')) return 'vendor-ai'
+          if (id.includes('react-hook-form') || id.includes('@hookform') || id.includes('/zod/')) return 'vendor-forms'
+          return undefined
+        },
       },
     },
   },

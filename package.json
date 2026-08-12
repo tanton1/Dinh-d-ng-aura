@@ -11,7 +11,11 @@
     "build:gh-pages": "tsc -b && vite build --base /aura-fitness-elearning-/ && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "deploy:gh-pages": "npm run build:gh-pages && npx --yes gh-pages -d dist -r https://github.com/tanton1/aura-fitness-elearning-.git",
     "preview": "vite preview",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-aura-fitness \"node --test tests/firestore.rules.test.mjs\"",
+    "test:rules": "npx --yes firebase-tools@15.9.1 emulators:exec --only firestore --project demo-aura-fitness \"node --test tests/firestore.rules.test.mjs\"",
+    "test:functions": "npm --prefix functions test",
+    "test:e2e": "playwright test",
+    "test": "npm run test:functions",
+    "ci": "npm run typecheck && npm run build && npm --prefix functions run check",
     "typecheck": "tsc -b",
     "start": "node dist/server.cjs"
   },
@@ -36,6 +40,7 @@
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.1",
+    "@playwright/test": "^1.62.1",
     "@types/express": "^5.0.6",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",

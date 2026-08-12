@@ -1,8 +1,9 @@
 const { initializeApp } = require('firebase-admin/app')
 const { getAuth } = require('firebase-admin/auth')
 const { FieldValue, getFirestore } = require('firebase-admin/firestore')
+const { getMessaging } = require('firebase-admin/messaging')
 const { getStorage } = require('firebase-admin/storage')
-const { HttpsError, onCall } = require('firebase-functions/v2/https')
+const { HttpsError, onCall: firebaseOnCall } = require('firebase-functions/v2/https')
 const { setGlobalOptions } = require('firebase-functions/v2/options')
 const { createHash } = require('node:crypto')
 const { createGenerativeAiFunctions } = require('./generative-ai')
@@ -12,13 +13,27 @@ const app = initializeApp()
 const databaseId = 'ai-studio-aurafitnessacade-2b8f85bb-737e-43d9-ac19-3be1ee1798b8'
 const db = getFirestore(app, databaseId)
 const auth = getAuth(app)
+const messaging = getMessaging(app)
 const storage = getStorage(app)
 const assignableRoles = new Set(['student', 'coach', 'editor', 'admin', 'super_admin'])
+const privilegedAdminRoles = new Set(['admin', 'super_admin'])
 const academyStaffRoles = new Set(['editor', 'admin', 'super_admin'])
 const coachingStaffRoles = new Set(['coach', 'admin', 'super_admin'])
+const coachOnlyRoles = new Set(['coach'])
+const studentOnlyRoles = new Set(['student'])
+const ptScheduleActorRoles = new Set(['student', 'coach', 'admin', 'super_admin'])
 const quizAnswerLimit = 100
 const quizMaxAttemptLimit = 20
 const mediaUrlTtlMs = 5 * 60 * 1000
+const enforceAppCheck = process.env.ENFORCE_APP_CHECK === 'true'
+const publicAppUrl = process.env.PUBLIC_APP_URL || 'https://gen-lang-client-0815966909.web.app'
+
+function onCall(optionsOrHandler, maybeHandler) {
+  if (typeof optionsOrHandler === 'function') {
+    return firebaseOnCall({ enforceAppCheck }, optionsOrHandler)
+  }
+  return firebaseOnCall({ ...optionsOrHandler, enforceAppCheck }, maybeHandler)
+}
 
 setGlobalOptions({ region: 'asia-southeast1', maxInstances: 3 })
 
@@ -85,12 +100,525 @@ function requireCaller(request) {
   return uid
 }
 
+function callerTokenRole(request) {
+  const role = request.auth?.token?.role
+  return assignableRoles.has(role) ? role : 'student'
+}
+
+function hasTrustedRole(request, profile, allowedRoles) {
+  const tokenRole = callerTokenRole(request)
+  return profile?.disabled !== true
+    && profile?.role === tokenRole
+    && allowedRoles.has(tokenRole)
+}
+
+function boundedPushString(value, label, maximum) {
+  if (typeof value !== 'string' || !value.trim() || value.trim().length > maximum) {
+    throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
+  }
+  return value.trim()
+}
+
+function normalizedPushActionUrl(value) {
+  const actionUrl = typeof value === 'string' && value.trim() ? value.trim() : '/home'
+  if (!actionUrl.startsWith('/') || actionUrl.startsWith('//') || actionUrl.length > 300) {
+    throw new HttpsError('invalid-argument', 'Đường dẫn thông báo không hợp lệ.')
+  }
+  return actionUrl
+}
+
+function acceptsPushCategory(profile, category) {
+  const settings = profile?.notificationSettings
+  if (!settings || settings.enabled !== false) {
+    if (!settings) return true
+  } else {
+    return false
+  }
+  if (category === 'workout') return settings.workoutReminders !== false
+  if (category === 'nutrition') return settings.mealReminders !== false
+  if (category === 'learning') return settings.learningUpdates !== false
+  if (category === 'coach') return settings.coachMessages !== false
+  return true
+}
+
+exports.registerFcmToken = onCall(async (request) => {
+  const userId = requireCaller(request)
+  const token = boundedPushString(request.data?.token, 'FCM token', 4096)
+  if (token.length < 20) throw new HttpsError('invalid-argument', 'FCM token không hợp lệ.')
+  const tokenHash = createHash('sha256').update(token).digest('hex')
+  const deviceReference = db.doc(`users/${userId}/devices/${tokenHash}`)
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(deviceReference)
+    transaction.set(deviceReference, {
+      userId,
+      token,
+      platform: typeof request.data?.platform === 'string'
+        ? request.data.platform.trim().slice(0, 40)
+        : 'web',
+      enabled: true,
+      createdAt: snapshot.exists ? snapshot.data().createdAt : FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true })
+  })
+  return { registered: true, deviceId: tokenHash }
+})
+
+exports.unregisterFcmToken = onCall(async (request) => {
+  const userId = requireCaller(request)
+  const token = boundedPushString(request.data?.token, 'FCM token', 4096)
+  const tokenHash = createHash('sha256').update(token).digest('hex')
+  await db.doc(`users/${userId}/devices/${tokenHash}`).delete()
+  return { unregistered: true }
+})
+
+exports.dispatchPushBroadcast = onCall(async (request) => {
+  const actorId = requireCaller(request)
+  const actorSnapshot = await db.doc(`users/${actorId}`).get()
+  const actor = actorSnapshot.data()
+  if (!actorSnapshot.exists || !hasTrustedRole(request, actor, privilegedAdminRoles)) {
+    throw new HttpsError('permission-denied', 'Bạn không có quyền gửi thông báo hệ thống.')
+  }
+
+  const title = boundedPushString(request.data?.title, 'Tiêu đề', 120)
+  const message = boundedPushString(request.data?.message, 'Nội dung', 1000)
+  const actionUrl = normalizedPushActionUrl(request.data?.actionUrl)
+  const type = ['REMINDER', 'MOTIVATION', 'WORKOUT', 'ANNOUNCEMENT', 'PROMOTION', 'INFO'].includes(request.data?.type)
+    ? request.data.type
+    : 'INFO'
+  const category = ['workout', 'nutrition', 'learning', 'coach', 'general'].includes(request.data?.category)
+    ? request.data.category
+    : 'general'
+  const targetType = request.data?.targetType === 'all' ? 'all' : 'selected'
+  const requestedIds = Array.isArray(request.data?.targetUserIds)
+    ? [...new Set(request.data.targetUserIds
+      .filter((value) => typeof value === 'string' && value.trim() && !value.includes('/'))
+      .map((value) => value.trim()))].slice(0, 1000)
+    : []
+  if (targetType !== 'all' && !requestedIds.length) {
+    throw new HttpsError('invalid-argument', 'Cần chọn ít nhất một người nhận.')
+  }
+
+  const profileSnapshots = targetType === 'all'
+    ? (await db.collection('users').limit(2000).get()).docs
+    : await db.getAll(...requestedIds.map((userId) => db.doc(`users/${userId}`)))
+  const eligibleProfiles = profileSnapshots
+    .filter((snapshot) => snapshot.exists)
+    .map((snapshot) => ({ userId: snapshot.id, profile: snapshot.data() }))
+    .filter(({ profile }) => profile.disabled !== true && acceptsPushCategory(profile, category))
+  const eligibleUserIds = eligibleProfiles.map(({ userId }) => userId)
+  const filteredOutCount = profileSnapshots.length - eligibleUserIds.length
+  const logReference = db.collection('system').doc('push_broadcast_logs').collection('logs').doc()
+
+  for (let offset = 0; offset < eligibleUserIds.length; offset += 400) {
+    const batch = db.batch()
+    for (const userId of eligibleUserIds.slice(offset, offset + 400)) {
+      const notificationReference = db.collection(`users/${userId}/notifications`).doc()
+      batch.set(notificationReference, {
+        id: notificationReference.id,
+        userId,
+        title,
+        message,
+        type,
+        category,
+        actionUrl,
+        read: false,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+    }
+    await batch.commit()
+  }
+
+  const devices = []
+  for (let offset = 0; offset < eligibleUserIds.length; offset += 30) {
+    const userIdChunk = eligibleUserIds.slice(offset, offset + 30)
+    if (!userIdChunk.length) continue
+    const snapshot = await db.collectionGroup('devices')
+      .where('userId', 'in', userIdChunk)
+      .get()
+    snapshot.docs.forEach((device) => {
+      const data = device.data()
+      const token = data.token
+      if (data.enabled === false) return
+      if (typeof token === 'string' && token) devices.push({ token, reference: device.ref })
+    })
+  }
+
+  let webPushSentCount = 0
+  let webPushFailureCount = 0
+  const invalidDeviceReferences = []
+  for (let offset = 0; offset < devices.length; offset += 500) {
+    const deviceChunk = devices.slice(offset, offset + 500)
+    let response
+    try {
+      response = await messaging.sendEachForMulticast({
+        tokens: deviceChunk.map(({ token }) => token),
+        notification: { title, body: message },
+        data: { actionUrl, type, category },
+        webpush: { fcmOptions: { link: new URL(actionUrl, publicAppUrl).toString() } },
+      })
+    } catch (error) {
+      webPushFailureCount += deviceChunk.length
+      console.error('FCM multicast request failed', { code: error?.code ?? 'unknown' })
+      continue
+    }
+    webPushSentCount += response.successCount
+    webPushFailureCount += response.failureCount
+    response.responses.forEach((result, index) => {
+      if (!result.success && [
+        'messaging/registration-token-not-registered',
+        'messaging/invalid-registration-token',
+      ].includes(result.error?.code)) {
+        invalidDeviceReferences.push(deviceChunk[index].reference)
+      }
+    })
+  }
+  for (let offset = 0; offset < invalidDeviceReferences.length; offset += 400) {
+    const batch = db.batch()
+    invalidDeviceReferences.slice(offset, offset + 400).forEach((reference) => batch.delete(reference))
+    await batch.commit()
+  }
+
+  await logReference.set({
+    id: logReference.id,
+    title,
+    message,
+    type,
+    category,
+    targetType,
+    targetValue: targetType,
+    actionUrl,
+    sentCount: eligibleUserIds.length,
+    webPushSentCount,
+    webPushFailureCount,
+    filteredOutCount,
+    sentBy: actorId,
+    createdAt: FieldValue.serverTimestamp(),
+  })
+  return {
+    sentCount: eligibleUserIds.length,
+    webPushSentCount,
+    webPushFailureCount,
+    filteredOutCount,
+    logId: logReference.id,
+  }
+})
+
 function requireDocumentId(value, label) {
   if (typeof value !== 'string' || !value.trim() || value.includes('/') || value.trim().length > 500) {
     throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
   }
   return value.trim()
 }
+
+async function requireTrustedAdmin(request) {
+  const actorId = requireCaller(request)
+  const snapshot = await db.doc(`users/${actorId}`).get()
+  if (!snapshot.exists || !hasTrustedRole(request, snapshot.data(), privilegedAdminRoles)) {
+    throw new HttpsError('permission-denied', 'Bạn không có quyền quản trị nội dung dinh dưỡng.')
+  }
+  return actorId
+}
+
+async function requireTrustedAcademyStaff(request) {
+  const actorId = requireCaller(request)
+  const snapshot = await db.doc(`users/${actorId}`).get()
+  if (!snapshot.exists || !hasTrustedRole(request, snapshot.data(), academyStaffRoles)) {
+    throw new HttpsError('permission-denied', 'Bạn không có quyền quản trị Aura Academy.')
+  }
+  return actorId
+}
+
+function boundedNumber(value, label, minimum, maximum) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum || value > maximum) {
+    throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
+  }
+  return Math.round(value * 10) / 10
+}
+
+function normalizeRecipeInput(value) {
+  if (!isPlainObject(value)) throw new HttpsError('invalid-argument', 'Công thức không hợp lệ.')
+  const image = boundedPushString(value.image, 'Ảnh công thức', 2000)
+  if (!/^https?:\/\//i.test(image) && !image.startsWith('/')) {
+    throw new HttpsError('invalid-argument', 'Ảnh công thức phải được tải lên Storage trước khi lưu.')
+  }
+  const ingredients = Array.isArray(value.ingredients) ? value.ingredients.slice(0, 50).map((item) => ({
+    name: boundedPushString(item?.name, 'Tên nguyên liệu', 120),
+    amount: boundedPushString(item?.amount, 'Định lượng', 80),
+  })) : []
+  const instructions = Array.isArray(value.instructions)
+    ? value.instructions.slice(0, 30).map((item) => boundedPushString(item, 'Bước chế biến', 1000))
+    : []
+  return {
+    id: requireDocumentId(value.id, 'Mã công thức'),
+    name: boundedPushString(value.name, 'Tên công thức', 200),
+    meal: ['breakfast', 'lunch', 'dinner', 'snack'].includes(value.meal) ? value.meal : 'lunch',
+    goal: ['fat-loss', 'muscle-gain', 'maintenance'].includes(value.goal) ? value.goal : 'maintenance',
+    diet: typeof value.diet === 'string' ? value.diet.trim().slice(0, 100) : '',
+    kcal: boundedNumber(value.kcal, 'Năng lượng', 0, 5000),
+    protein: boundedNumber(value.protein, 'Protein', 0, 500),
+    carbs: boundedNumber(value.carbs, 'Carb', 0, 1000),
+    fat: boundedNumber(value.fat, 'Chất béo', 0, 500),
+    minutes: boundedNumber(value.minutes, 'Thời gian chế biến', 1, 1440),
+    image,
+    badge: typeof value.badge === 'string' ? value.badge.trim().slice(0, 80) : '',
+    isPro: value.isPro === true,
+    description: typeof value.description === 'string' ? value.description.trim().slice(0, 4000) : '',
+    ingredients,
+    instructions,
+    status: ['draft', 'published', 'archived'].includes(value.status) ? value.status : 'published',
+  }
+}
+
+function normalizeMealPlanInput(value) {
+  if (!isPlainObject(value)) throw new HttpsError('invalid-argument', 'Khung thực đơn không hợp lệ.')
+  const days = Array.isArray(value.days) ? value.days.slice(0, 14).map((day) => ({
+    dayName: boundedPushString(day?.dayName, 'Tên ngày', 40),
+    breakfast: boundedPushString(day?.breakfast, 'Bữa sáng', 300),
+    lunch: boundedPushString(day?.lunch, 'Bữa trưa', 300),
+    snack: boundedPushString(day?.snack, 'Bữa phụ', 300),
+    dinner: boundedPushString(day?.dinner, 'Bữa tối', 300),
+    totalKcal: boundedNumber(day?.totalKcal, 'Tổng năng lượng', 0, 10000),
+    totalProtein: boundedNumber(day?.totalProtein, 'Tổng protein', 0, 1000),
+  })) : []
+  return {
+    id: requireDocumentId(value.id, 'Mã khung thực đơn'),
+    title: boundedPushString(value.title, 'Tên khung thực đơn', 200),
+    goal: boundedPushString(value.goal, 'Mục tiêu', 300),
+    proteinTarget: boundedNumber(value.proteinTarget, 'Mục tiêu protein', 0, 1000),
+    calorieTarget: boundedNumber(value.calorieTarget, 'Mục tiêu năng lượng', 0, 10000),
+    popularRecipe: typeof value.popularRecipe === 'string' ? value.popularRecipe.trim().slice(0, 200) : '',
+    days,
+    status: ['draft', 'published', 'archived'].includes(value.status) ? value.status : 'published',
+  }
+}
+
+function serializeAdminContent(snapshot) {
+  const data = snapshot.data()
+  return {
+    ...data,
+    id: snapshot.id,
+    createdAt: typeof data.createdAt?.toDate === 'function' ? data.createdAt.toDate().toISOString() : null,
+    updatedAt: typeof data.updatedAt?.toDate === 'function' ? data.updatedAt.toDate().toISOString() : null,
+  }
+}
+
+exports.listMealPlanAdminData = onCall(async (request) => {
+  await requireTrustedAdmin(request)
+  const [recipeSnapshot, planSnapshot, assignmentSnapshot] = await Promise.all([
+    db.collection('recipes').limit(500).get(),
+    db.collection('mealPlans').limit(100).get(),
+    db.collection('mealPlanAssignments').limit(2000).get(),
+  ])
+  const assignmentsByPlan = new Map()
+  assignmentSnapshot.docs.forEach((item) => {
+    const mealPlanId = item.data().mealPlanId
+    if (typeof mealPlanId === 'string') assignmentsByPlan.set(mealPlanId, (assignmentsByPlan.get(mealPlanId) ?? 0) + 1)
+  })
+  return {
+    recipes: recipeSnapshot.docs.map(serializeAdminContent),
+    mealPlans: planSnapshot.docs.map((item) => ({
+      ...serializeAdminContent(item),
+      assignedStudents: assignmentsByPlan.get(item.id) ?? 0,
+    })),
+  }
+})
+
+exports.saveMealPlanRecipe = onCall(async (request) => {
+  const actorId = await requireTrustedAdmin(request)
+  const recipe = normalizeRecipeInput(request.data?.recipe)
+  const reference = db.doc(`recipes/${recipe.id}`)
+  let revision = 1
+  await db.runTransaction(async (transaction) => {
+    const existing = await transaction.get(reference)
+    revision = existing.exists ? (Number(existing.data().revision) || 0) + 1 : 1
+    transaction.set(reference, {
+      ...recipe,
+      revision,
+      createdAt: existing.exists ? existing.data().createdAt : FieldValue.serverTimestamp(),
+      createdBy: existing.exists ? existing.data().createdBy : actorId,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actorId,
+      logsCount: existing.exists ? Number(existing.data().logsCount) || 0 : 0,
+      savedCount: existing.exists ? Number(existing.data().savedCount) || 0 : 0,
+    })
+    transaction.set(db.collection('auditLogs').doc(), {
+      action: existing.exists ? 'recipe.updated' : 'recipe.created',
+      actorUid: actorId,
+      targetId: recipe.id,
+      revision,
+      createdAt: FieldValue.serverTimestamp(),
+    })
+  })
+  return { recipe: { ...recipe, revision } }
+})
+
+exports.deleteMealPlanRecipe = onCall(async (request) => {
+  const actorId = await requireTrustedAdmin(request)
+  const recipeId = requireDocumentId(request.data?.recipeId, 'Mã công thức')
+  const usedByPlan = await db.collection('mealPlans').where('recipeIds', 'array-contains', recipeId).limit(1).get()
+  if (!usedByPlan.empty) throw new HttpsError('failed-precondition', 'Công thức đang được dùng trong khung thực đơn.')
+  await db.runTransaction(async (transaction) => {
+    transaction.delete(db.doc(`recipes/${recipeId}`))
+    transaction.set(db.collection('auditLogs').doc(), {
+      action: 'recipe.deleted',
+      actorUid: actorId,
+      targetId: recipeId,
+      createdAt: FieldValue.serverTimestamp(),
+    })
+  })
+  return { deleted: true, recipeId }
+})
+
+exports.saveMealPlan = onCall(async (request) => {
+  const actorId = await requireTrustedAdmin(request)
+  const mealPlan = normalizeMealPlanInput(request.data?.mealPlan)
+  const reference = db.doc(`mealPlans/${mealPlan.id}`)
+  let revision = 1
+  await db.runTransaction(async (transaction) => {
+    const existing = await transaction.get(reference)
+    revision = existing.exists ? (Number(existing.data().revision) || 0) + 1 : 1
+    transaction.set(reference, {
+      ...mealPlan,
+      revision,
+      createdAt: existing.exists ? existing.data().createdAt : FieldValue.serverTimestamp(),
+      createdBy: existing.exists ? existing.data().createdBy : actorId,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actorId,
+    })
+    transaction.set(db.collection('auditLogs').doc(), {
+      action: existing.exists ? 'meal-plan.updated' : 'meal-plan.created',
+      actorUid: actorId,
+      targetId: mealPlan.id,
+      revision,
+      createdAt: FieldValue.serverTimestamp(),
+    })
+  })
+  return { mealPlan: { ...mealPlan, revision } }
+})
+
+exports.assignMealPlan = onCall(async (request) => {
+  const actorId = await requireTrustedAdmin(request)
+  const userId = requireDocumentId(request.data?.userId, 'Mã học viên')
+  const mealPlanId = requireDocumentId(request.data?.mealPlanId, 'Mã khung thực đơn')
+  const [userSnapshot, planSnapshot] = await Promise.all([
+    db.doc(`users/${userId}`).get(),
+    db.doc(`mealPlans/${mealPlanId}`).get(),
+  ])
+  if (!userSnapshot.exists || userSnapshot.data().disabled === true || userSnapshot.data().role !== 'student') {
+    throw new HttpsError('failed-precondition', 'Học viên không sẵn sàng để nhận thực đơn.')
+  }
+  if (!planSnapshot.exists || planSnapshot.data().status !== 'published') {
+    throw new HttpsError('failed-precondition', 'Khung thực đơn chưa được xuất bản.')
+  }
+  await db.doc(`mealPlanAssignments/${userId}`).set({
+    userId,
+    mealPlanId,
+    assignedBy: actorId,
+    assignedAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+    status: 'active',
+  })
+  return { userId, mealPlanId, status: 'active' }
+})
+
+exports.getMyMealPlan = onCall(async (request) => {
+  const userId = requireCaller(request)
+  const profileSnapshot = await db.doc(`users/${userId}`).get()
+  if (!profileSnapshot.exists || !hasTrustedRole(request, profileSnapshot.data(), studentOnlyRoles)) {
+    throw new HttpsError('permission-denied', 'Tài khoản không thể truy cập thực đơn cá nhân.')
+  }
+  const assignmentSnapshot = await db.doc(`mealPlanAssignments/${userId}`).get()
+  if (!assignmentSnapshot.exists || assignmentSnapshot.data().status !== 'active') return { mealPlan: null }
+  const mealPlanId = assignmentSnapshot.data().mealPlanId
+  const planSnapshot = await db.doc(`mealPlans/${mealPlanId}`).get()
+  if (!planSnapshot.exists || planSnapshot.data().status !== 'published') return { mealPlan: null }
+  return { mealPlan: serializeAdminContent(planSnapshot) }
+})
+
+exports.recordCourseRevision = onCall(async (request) => {
+  const actorId = await requireTrustedAcademyStaff(request)
+  const courseId = requireDocumentId(request.data?.courseId, 'Mã khóa học')
+  const courseReference = db.doc(`courses/${courseId}`)
+  let revision = 0
+  await db.runTransaction(async (transaction) => {
+    const courseSnapshot = await transaction.get(courseReference)
+    if (!courseSnapshot.exists || courseSnapshot.data().schemaVersion !== 2) {
+      throw new HttpsError('failed-precondition', 'Khóa học V2 chưa sẵn sàng để tạo revision.')
+    }
+    const course = courseSnapshot.data()
+    revision = (Number(course.revision) || 0) + 1
+    const revisionId = `${courseId}_${String(revision).padStart(6, '0')}`
+    transaction.create(db.doc(`courseRevisions/${revisionId}`), {
+      courseId,
+      revision,
+      contentHash: createHash('sha256').update(JSON.stringify(course)).digest('hex'),
+      course,
+      createdBy: actorId,
+      createdAt: FieldValue.serverTimestamp(),
+    })
+    transaction.update(courseReference, {
+      revision,
+      revisionUpdatedAt: FieldValue.serverTimestamp(),
+      revisionUpdatedBy: actorId,
+    })
+    transaction.set(db.collection('auditLogs').doc(), {
+      action: 'course.revision.created',
+      actorUid: actorId,
+      targetId: courseId,
+      revision,
+      createdAt: FieldValue.serverTimestamp(),
+    })
+  })
+  return { courseId, revision }
+})
+
+const productEventNames = new Set([
+  'page_view',
+  'course_opened',
+  'course_enrolled',
+  'lesson_completed',
+  'nutrition_scan_started',
+  'nutrition_scan_completed',
+  'workout_completed',
+])
+
+exports.trackProductEvent = onCall(async (request) => {
+  const userId = requireCaller(request)
+  const name = request.data?.name
+  if (!productEventNames.has(name)) throw new HttpsError('invalid-argument', 'Sự kiện không hợp lệ.')
+  const properties = isPlainObject(request.data?.properties)
+    ? Object.fromEntries(Object.entries(request.data.properties).slice(0, 20).flatMap(([key, value]) => {
+      if (!/^[a-zA-Z0-9_]{1,40}$/.test(key)) return []
+      if (typeof value === 'string') return [[key, value.slice(0, 200)]]
+      if (typeof value === 'number' && Number.isFinite(value)) return [[key, value]]
+      if (typeof value === 'boolean') return [[key, value]]
+      return []
+    }))
+    : {}
+  const rateReference = db.doc(`productEventRateLimits/${userId}`)
+  const eventReference = db.collection('productEvents').doc()
+  await db.runTransaction(async (transaction) => {
+    const rateSnapshot = await transaction.get(rateReference)
+    const now = Date.now()
+    const previousWindow = Number(rateSnapshot.data()?.windowStartedAtMs) || 0
+    const sameWindow = now - previousWindow < 60_000
+    const count = sameWindow ? (Number(rateSnapshot.data()?.count) || 0) + 1 : 1
+    if (count > 120) throw new HttpsError('resource-exhausted', 'Quá nhiều sự kiện trong một phút.')
+    transaction.set(rateReference, {
+      windowStartedAtMs: sameWindow ? previousWindow : now,
+      count,
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    transaction.create(eventReference, {
+      userId,
+      name,
+      properties,
+      occurredAt: FieldValue.serverTimestamp(),
+      schemaVersion: 1,
+    })
+  })
+  return { accepted: true }
+})
 
 function hasCourseEntitlement(course, profile, isStaff) {
   if (isStaff) return true
@@ -151,7 +679,7 @@ function assertDripAccess(course, enrollment, moduleIndex, isStaff) {
   }
 }
 
-async function requireCourseLessonAccess({ userId, courseId, lessonId, allowPreview }) {
+async function requireCourseLessonAccess({ request, userId, courseId, lessonId, allowPreview }) {
   const userReference = db.doc(`users/${userId}`)
   const courseReference = db.doc(`courses/${courseId}`)
   const enrollmentReference = db.doc(`enrollments/${userId}_${courseId}`)
@@ -171,7 +699,7 @@ async function requireCourseLessonAccess({ userId, courseId, lessonId, allowPrev
   const profile = userSnapshot.data()
   const course = courseSnapshot.data()
   const enrollment = enrollmentSnapshot.data()
-  const isStaff = academyStaffRoles.has(profile.role)
+  const isStaff = hasTrustedRole(request, profile, academyStaffRoles)
   const selected = findCourseLesson(course, lessonId)
   if (!isStaff && course.schemaVersion !== 2) {
     throw new HttpsError('failed-precondition', 'Khóa học cần được quản trị viên nâng cấp lên dữ liệu V2.')
@@ -449,7 +977,7 @@ exports.listAcademyCourses = onCall(async (request) => {
   if (profile.disabled === true) {
     throw new HttpsError('permission-denied', 'Tài khoản không sẵn sàng để truy cập Aura Academy.')
   }
-  const isStaff = academyStaffRoles.has(profile.role)
+  const isStaff = hasTrustedRole(request, profile, academyStaffRoles)
   const enrollmentByCourseId = new Map(enrollmentSnapshot.docs.flatMap((item) => {
     const enrollment = item.data()
     return typeof enrollment.courseId === 'string' && enrollment.userId === userId
@@ -508,7 +1036,7 @@ exports.manageAcademyEnrollment = onCall(async (request) => {
   const actorSnapshot = await db.doc(`users/${actorId}`).get()
   if (!actorSnapshot.exists
       || actorSnapshot.data().disabled === true
-      || !['admin', 'super_admin'].includes(actorSnapshot.data().role)) {
+      || !hasTrustedRole(request, actorSnapshot.data(), privilegedAdminRoles)) {
     throw new HttpsError('permission-denied', 'Bạn không có quyền quản lý ghi danh Aura Academy.')
   }
   const courseId = requireDocumentId(request.data?.courseId, 'Mã khóa học')
@@ -579,7 +1107,7 @@ exports.enrollInCourse = onCall(async (request) => {
 
     const profile = userSnapshot.data()
     const course = courseSnapshot.data()
-    const isStaff = academyStaffRoles.has(profile.role)
+    const isStaff = hasTrustedRole(request, profile, academyStaffRoles)
     const existingEnrollment = enrollmentSnapshot.data()
     if (!isStaff && course.schemaVersion !== 2) {
       throw new HttpsError('failed-precondition', 'Khóa học cần được quản trị viên nâng cấp lên dữ liệu V2.')
@@ -649,7 +1177,7 @@ exports.completeCourseLesson = onCall(async (request) => {
     const profile = userSnapshot.data()
     const course = courseSnapshot.data()
     const enrollment = enrollmentSnapshot.data()
-    const isStaff = academyStaffRoles.has(profile.role)
+    const isStaff = hasTrustedRole(request, profile, academyStaffRoles)
     if (!isStaff && course.schemaVersion !== 2) {
       throw new HttpsError('failed-precondition', 'Khóa học cần được quản trị viên nâng cấp lên dữ liệu V2.')
     }
@@ -809,6 +1337,7 @@ exports.gradeCourseQuiz = onCall(async (request) => {
   const courseId = requireDocumentId(request.data?.courseId, 'Mã khóa học')
   const lessonId = requireDocumentId(request.data?.lessonId, 'Mã bài học')
   const access = await requireCourseLessonAccess({
+    request,
     userId,
     courseId,
     lessonId,
@@ -916,6 +1445,7 @@ exports.getCourseMediaUrl = onCall(async (request) => {
   const lessonId = requireDocumentId(request.data?.lessonId, 'Mã bài học')
   const path = requireCourseMediaPath(request.data?.path, courseId, lessonId)
   const access = await requireCourseLessonAccess({
+    request,
     userId,
     courseId,
     lessonId,
@@ -1171,7 +1701,7 @@ exports.saveCourseWorkoutLog = onCall(async (request) => {
   const userId = requireCaller(request)
   const courseId = requireDocumentId(request.data?.courseId, 'Mã khóa học')
   const lessonId = requireDocumentId(request.data?.lessonId, 'Mã bài học')
-  const access = await requireCourseLessonAccess({ userId, courseId, lessonId, allowPreview: false })
+  const access = await requireCourseLessonAccess({ request, userId, courseId, lessonId, allowPreview: false })
   const workoutRef = access.lesson?.workoutRef
   if (access.lesson?.type !== 'Buổi tập' || !isPlainObject(workoutRef)) {
     throw new HttpsError('failed-precondition', 'Bài học chưa liên kết giáo án hợp lệ.')
@@ -1216,6 +1746,7 @@ exports.getCourseWorkoutSession = onCall(async (request) => {
   const sessionId = requireDocumentId(request.data?.sessionId, 'Mã session')
   const versionId = requireDocumentId(request.data?.versionId, 'Mã phiên bản')
   const access = await requireCourseLessonAccess({
+    request,
     userId,
     courseId,
     lessonId,
@@ -1247,13 +1778,13 @@ async function requirePtStaffActor(request) {
   const actor = actorSnapshot.data()
   if (!actorSnapshot.exists
       || actor?.disabled === true
-      || !coachingStaffRoles.has(actor?.role)) {
+      || !hasTrustedRole(request, actor, coachingStaffRoles)) {
     throw new HttpsError('permission-denied', 'Bạn không có quyền quản lý PT Coaching.')
   }
   return {
     actorId,
     actor,
-    isAdmin: ['admin', 'super_admin'].includes(actor.role),
+    isAdmin: privilegedAdminRoles.has(actor.role),
   }
 }
 
@@ -1559,6 +2090,7 @@ function assertActiveStudentAccount(authUser, profileSnapshot) {
       || profile?.disabled === true
       || profile?.status === 'disabled'
       || profile?.role !== 'student'
+      || (authUser.customClaims?.role ?? 'student') !== 'student'
       || (typeof profile.uid === 'string' && profile.uid !== authUser.uid)) {
     throw new HttpsError('failed-precondition', 'Tài khoản đích phải là học viên đang hoạt động.')
   }
@@ -2160,9 +2692,8 @@ exports.getPtWorkoutSession = onCall(async (request) => {
   const profile = userSnapshot.data()
   const program = programSnapshot.data()
   const version = versionSnapshot.data()
-  const isAdminActor = ['admin', 'super_admin'].includes(profile.role)
-  const isOwnerCoach = coachingStaffRoles.has(profile.role)
-    && profile.role === 'coach'
+  const isAdminActor = hasTrustedRole(request, profile, privilegedAdminRoles)
+  const isOwnerCoach = hasTrustedRole(request, profile, coachOnlyRoles)
     && program.coachId === userId
   const canPreview = isAdminActor || isOwnerCoach
 
@@ -2457,8 +2988,8 @@ exports.listPtClients = onCall(async (request) => {
   if (!actorSnapshot.exists || actor?.disabled === true) {
     throw new HttpsError('permission-denied', 'Tài khoản không sẵn sàng để quản lý khách hàng PT.')
   }
-  const isAdminActor = ['admin', 'super_admin'].includes(actor.role)
-  const isCoachActor = actor.role === 'coach'
+  const isAdminActor = hasTrustedRole(request, actor, privilegedAdminRoles)
+  const isCoachActor = hasTrustedRole(request, actor, coachOnlyRoles)
   if (!isAdminActor && !isCoachActor) {
     throw new HttpsError('permission-denied', 'Bạn không có quyền xem danh sách khách hàng PT.')
   }
@@ -2639,13 +3170,13 @@ async function requirePtScheduleActor(request) {
   if (!actorSnapshot.exists
       || actor?.disabled === true
       || actor?.status === 'disabled'
-      || !['student', 'coach', 'admin', 'super_admin'].includes(actor?.role)) {
+      || !hasTrustedRole(request, actor, ptScheduleActorRoles)) {
     throw new HttpsError('permission-denied', 'Tài khoản không có quyền truy cập lịch PT.')
   }
   return {
     actorId,
     role: actor.role,
-    isAdmin: ['admin', 'super_admin'].includes(actor.role),
+    isAdmin: privilegedAdminRoles.has(actor.role),
     isCoach: actor.role === 'coach',
     isStudent: actor.role === 'student',
   }

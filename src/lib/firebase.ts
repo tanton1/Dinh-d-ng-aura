@@ -6,6 +6,8 @@ import {
   getFirestore,
   initializeFirestore,
   memoryLocalCache,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   type Firestore,
 } from 'firebase/firestore'
 import { connectStorageEmulator, getStorage, type FirebaseStorage } from 'firebase/storage'
@@ -23,6 +25,7 @@ const firebaseConfig = {
 
 const firestoreDatabaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || '(default)'
 const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APP_CHECK_SITE_KEY?.trim() || ''
+const persistentOfflineCacheEnabled = import.meta.env.VITE_ENABLE_OFFLINE_CACHE === 'true'
 
 const forceDemoMode = import.meta.env.DEV && import.meta.env.VITE_FORCE_DEMO === 'true'
 
@@ -57,7 +60,9 @@ if (isFirebaseConfigured) {
     firestoreDb = initializeFirestore(
       firebaseApp,
       { 
-        localCache: memoryLocalCache(),
+        localCache: persistentOfflineCacheEnabled
+          ? persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+          : memoryLocalCache(),
         experimentalForceLongPolling: true
       },
       firestoreDatabaseId,

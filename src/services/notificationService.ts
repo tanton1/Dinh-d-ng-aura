@@ -1,5 +1,6 @@
 import { collection, doc, onSnapshot, orderBy, query, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs, writeBatch, where, getDoc } from 'firebase/firestore'
-import { firestoreDb } from '../lib/firebase'
+import { httpsCallable } from 'firebase/functions'
+import { firebaseFunctions, firestoreDb } from '../lib/firebase'
 import { safeLocalStorageSet } from '../lib/safeStorage'
 import type { AppNotification, SystemPushSettings, PushBroadcastLog, PushTemplate, FitnessGoalTarget, NotificationCategory } from '../types'
 
@@ -218,8 +219,8 @@ export function sendBrowserNativePushNotification(title: string, message: string
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
       const notif = new Notification(title, {
         body: message,
-        icon: '/icons/icon-192x192.png',
-        badge: '/icons/icon-192x192.png',
+        icon: '/icons/aura-icon-192.png',
+        badge: '/icons/aura-icon-192.png',
         data: { url: actionUrl || '/' }
       })
 
@@ -307,6 +308,21 @@ export async function dispatchAdminPushBroadcast(params: {
     sendBrowserPush = true,
     respectCategoryPreferences = true 
   } = params
+
+  if (firebaseFunctions) {
+    const callable = httpsCallable<typeof params, {
+      sentCount: number
+      webPushSentCount: number
+      filteredOutCount: number
+      logId: string
+    }>(firebaseFunctions, 'dispatchPushBroadcast')
+    const response = await callable(params)
+    return {
+      sentCount: response.data.sentCount,
+      filteredOutCount: response.data.filteredOutCount,
+      logId: response.data.logId,
+    }
+  }
 
   let sentCount = 0
   let filteredOutCount = 0

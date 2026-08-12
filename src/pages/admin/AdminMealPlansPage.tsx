@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import {
   Utensils,
   Plus,
@@ -35,6 +35,14 @@ import {
 } from 'lucide-react'
 import type { ViewId } from '../../types'
 import { generateMealPlanWithAi, generateRecipeWithAi } from '../../services/generativeAiService'
+import {
+  deleteAdminRecipe,
+  loadMealPlanAdminData,
+  saveAdminMealPlan,
+  saveAdminRecipe,
+  uploadRecipeImage,
+  type AdminMealPlan,
+} from '../../services/mealPlanAdminService'
 import '../../styles-admin-meal-plans.css'
 
 interface AdminMealPlansPageProps {
@@ -212,6 +220,10 @@ const INITIAL_ADMIN_RECIPES: AdminRecipe[] = [
 export default function AdminMealPlansPage({ onNavigate }: AdminMealPlansPageProps) {
   const [activeTab, setActiveTab] = useState<'recipes' | 'plans' | 'analytics'>('recipes')
   const [recipes, setRecipes] = useState<AdminRecipe[]>(INITIAL_ADMIN_RECIPES)
+  const [mealPlans, setMealPlans] = useState<AdminMealPlan[]>([])
+  const [isLoadingData, setIsLoadingData] = useState(true)
+  const [isSavingRecipe, setIsSavingRecipe] = useState(false)
+  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null)
   
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('')
@@ -265,6 +277,24 @@ export default function AdminMealPlansPage({ onNavigate }: AdminMealPlansPagePro
   } | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
+  useEffect(() => {
+    let active = true
+    loadMealPlanAdminData<AdminRecipe>()
+      .then((data) => {
+        if (!active) return
+        setRecipes(data.recipes)
+        setMealPlans(data.mealPlans)
+      })
+      .catch((error) => {
+        console.error('Meal plan data load failed', error)
+        if (active) setToastMessage('Không thể tải dữ liệu Meal Plan từ máy chủ.')
+      })
+      .finally(() => {
+        if (active) setIsLoadingData(false)
+      })
+    return () => { active = false }
+  }, [])
+
   // Form state for creating/editing recipe
   const [formData, setFormData] = useState<Partial<AdminRecipe>>({
     name: '',
@@ -294,10 +324,11 @@ export default function AdminMealPlansPage({ onNavigate }: AdminMealPlansPagePro
   const handleImageFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > 5 * 1024 * 1024 || !/^image\/(jpeg|png|webp)$/.test(file.type)) {
       showToast('Kích thước ảnh vượt quá 10MB. Vui lòng chọn tệp nhỏ hơn!')
       return
     }
+    setPendingImageFile(file)
     const reader = new FileReader()
     reader.onload = (evt) => {
       if (evt.target?.result) {
@@ -429,6 +460,7 @@ export default function AdminMealPlansPage({ onNavigate }: AdminMealPlansPagePro
   // Open Create Recipe Modal
   const handleOpenCreateModal = () => {
     setEditingRecipe(null)
+    setPendingImageFile(null)
     setFormData({
       name: '',
       meal: 'lunch',
@@ -452,26 +484,27 @@ export default function AdminMealPlansPage({ onNavigate }: AdminMealPlansPagePro
   // Open Edit Recipe Modal
   const handleOpenEditModal = (recipe: AdminRecipe) => {
     setEditingRecipe(recipe)
+    setPendingImageFile(null)
     setFormData({ ...recipe })
     setIsRecipeModalOpen(true)
   }
 
   // Handle Save Recipe (Create or Edit)
-  const handleSaveRecipe = (e: React.FormEvent) => {
+  const handleSaveRecipe = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.name?.trim()) {
       alert('Vui lòng nhập tên công thức món ăn!')
       return
     }
 
-    if (editingRecipe) {
-      setRecipes((prev) =>
-        prev.map((r) => (r.id === editingRecipe.id ? ({ ...r, ...formData } as AdminRecipe) : r))
-      )
-      showToast(`Đã cập nhật món "${formData.name}"!`)
-    } else {
+    const recipeId = editingRecipe?.id ?? `rec-${Date.now()}`
+    setIsSavingRecipe(true)
+    try {
+      const imageUrl = pendingImageFile
+        ? await uploadRecipeImage(pendingImageFile, recipeId)
+        : formData.image
       const newRec: AdminRecipe = {
-        id: `rec-${Date.now()}`,
+        id: recipeId,
         name: formData.name || 'Món mới',
         meal: (formData.meal as any) || 'lunch',
         goal: (formData.goal as any) || 'fat-loss',
@@ -481,31 +514,46 @@ export default function AdminMealPlansPage({ onNavigate }: AdminMealPlansPagePro
         carbs: Number(formData.carbs) || 30,
         fat: Number(formData.fat) || 10,
         minutes: Number(formData.minutes) || 15,
-        image: formData.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80',
+        image: imageUrl || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80',
         badge: formData.badge || 'Mới',
         isPro: Boolean(formData.isPro),
         description: formData.description || '',
         ingredients: formData.ingredients || [],
         instructions: formData.instructions || [],
-        logsCount: 0,
-        savedCount: 0
+        logsCount: editingRecipe?.logsCount ?? 0,
+        savedCount: editingRecipe?.savedCount ?? 0,
       }
-      setRecipes([newRec, ...recipes])
-      showToast(`Đã thêm món mới "${newRec.name}" vào thư viện!`)
+      const savedRecipe = await saveAdminRecipe(newRec)
+      setRecipes((previous) => editingRecipe
+        ? previous.map((recipe) => recipe.id === savedRecipe.id ? savedRecipe : recipe)
+        : [savedRecipe, ...previous])
+      showToast(editingRecipe ? `Đã cập nhật món "${savedRecipe.name}"!` : `Đã thêm món "${savedRecipe.name}"!`)
+      setPendingImageFile(null)
+      setIsRecipeModalOpen(false)
+    } catch (error) {
+      console.error('Recipe save failed', error)
+      showToast('Không thể lưu công thức lên máy chủ.')
+    } finally {
+      setIsSavingRecipe(false)
     }
-    setIsRecipeModalOpen(false)
   }
 
   // Delete Recipe
-  const handleDeleteRecipe = (id: string, name: string) => {
+  const handleDeleteRecipe = async (id: string, name: string) => {
     if (window.confirm(`Bạn có chắc chắn muốn xóa món "${name}" khỏi thư viện?`)) {
-      setRecipes((prev) => prev.filter((r) => r.id !== id))
-      showToast(`Đã xóa thành công món "${name}"!`)
+      try {
+        await deleteAdminRecipe(id)
+        setRecipes((prev) => prev.filter((r) => r.id !== id))
+        showToast(`Đã xóa món "${name}"!`)
+      } catch (error) {
+        console.error('Recipe delete failed', error)
+        showToast('Không thể xóa công thức đang được sử dụng.')
+      }
     }
   }
 
   // Duplicate Recipe
-  const handleDuplicateRecipe = (recipe: AdminRecipe) => {
+  const handleDuplicateRecipe = async (recipe: AdminRecipe) => {
     const dup: AdminRecipe = {
       ...recipe,
       id: `rec-${Date.now()}`,
@@ -513,15 +561,52 @@ export default function AdminMealPlansPage({ onNavigate }: AdminMealPlansPagePro
       logsCount: 0,
       savedCount: 0
     }
-    setRecipes([dup, ...recipes])
-    showToast(`Đã nhân bản "${recipe.name}"!`)
+    try {
+      const savedRecipe = await saveAdminRecipe(dup)
+      setRecipes([savedRecipe, ...recipes])
+      showToast(`Đã nhân bản "${recipe.name}"!`)
+    } catch (error) {
+      console.error('Recipe duplicate failed', error)
+      showToast('Không thể nhân bản công thức.')
+    }
   }
 
   // Toggle Pro badge
-  const handleTogglePro = (id: string) => {
-    setRecipes((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, isPro: !r.isPro } : r))
-    )
+  const handleTogglePro = async (id: string) => {
+    const recipe = recipes.find((item) => item.id === id)
+    if (!recipe) return
+    try {
+      const savedRecipe = await saveAdminRecipe({ ...recipe, isPro: !recipe.isPro })
+      setRecipes((prev) => prev.map((item) => item.id === id ? savedRecipe : item))
+    } catch (error) {
+      console.error('Recipe tier update failed', error)
+      showToast('Không thể cập nhật quyền Pro của công thức.')
+    }
+  }
+
+  const persistAiMealPlan = async () => {
+    if (!aiPlanResult?.sampleDays?.length) return
+    const mealPlan: AdminMealPlan = {
+      id: `plan-${Date.now()}`,
+      title: aiPlanResult.title?.trim() || `Thực đơn ${aiPlanCalories} kcal`,
+      goal: aiPlanGoal.trim(),
+      proteinTarget: aiPlanProtein,
+      calorieTarget: aiPlanCalories,
+      popularRecipe: aiPlanResult.sampleDays[0]?.lunch ?? '',
+      days: aiPlanResult.sampleDays,
+      status: 'published',
+      assignedStudents: 0,
+    }
+    try {
+      const savedPlan = await saveAdminMealPlan(mealPlan)
+      setMealPlans((previous) => [savedPlan, ...previous])
+      setIsAiPlanModalOpen(false)
+      setAiPlanResult(null)
+      showToast(`Đã lưu khung thực đơn "${savedPlan.title}"!`)
+    } catch (error) {
+      console.error('Meal plan save failed', error)
+      showToast('Không thể lưu khung thực đơn lên máy chủ.')
+    }
   }
 
   return (
@@ -531,6 +616,13 @@ export default function AdminMealPlansPage({ onNavigate }: AdminMealPlansPagePro
         <div className="fixed top-5 right-5 z-50 flex items-center gap-2 rounded-2xl bg-[#0f172a] px-5 py-3 text-sm font-bold text-white shadow-2xl animate-in slide-in-from-top duration-200">
           <CheckCircle2 size={18} className="text-[#10b981]" />
           <span>{toastMessage}</span>
+        </div>
+      )}
+      {isLoadingData && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-white/70 backdrop-blur-xs">
+          <div className="flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-bold text-slate-700 shadow-xl">
+            <Loader2 size={18} className="animate-spin text-[#ff3f7d]" /> Đang tải dữ liệu thực đơn...
+          </div>
         </div>
       )}
 
@@ -999,7 +1091,12 @@ export default function AdminMealPlansPage({ onNavigate }: AdminMealPlansPagePro
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {[
+              {(mealPlans.length > 0 ? mealPlans.map((plan) => ({
+                ...plan,
+                protein: `${plan.proteinTarget}g/ngày`,
+                daysCount: plan.days.length,
+                assignedStudents: plan.assignedStudents ?? 0,
+              })) : [
                 {
                   title: 'Thực đơn Giảm Mỡ 1.600 kcal / ngày',
                   goal: 'Giảm Mỡ Chuẩn Siết Body',
@@ -1032,8 +1129,8 @@ export default function AdminMealPlansPage({ onNavigate }: AdminMealPlansPagePro
                   assignedStudents: 180,
                   popularRecipe: 'Smoothie Protein Dâu'
                 }
-              ].map((plan, index) => (
-                <div key={index} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs hover:border-pink-300 transition-all">
+              ]).map((plan, index) => (
+                <div key={'id' in plan ? plan.id : index} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs hover:border-pink-300 transition-all">
                   <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
                     <span className="rounded-full bg-pink-100 text-[#ff3f7d] px-3 py-1 text-xs font-extrabold">
                       {plan.goal}
@@ -1393,9 +1490,10 @@ export default function AdminMealPlansPage({ onNavigate }: AdminMealPlansPagePro
                   </button>
                   <button
                     type="submit"
-                    className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#ff3f7d] to-[#ff7e40] text-xs font-extrabold text-white shadow-md hover:opacity-95 cursor-pointer"
+                    disabled={isSavingRecipe}
+                    className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#ff3f7d] to-[#ff7e40] text-xs font-extrabold text-white shadow-md hover:opacity-95 cursor-pointer disabled:opacity-50"
                   >
-                    Lưu Công Thức
+                    {isSavingRecipe ? 'Đang lưu...' : 'Lưu Công Thức'}
                   </button>
                 </div>
               </form>
@@ -1843,6 +1941,15 @@ export default function AdminMealPlansPage({ onNavigate }: AdminMealPlansPagePro
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100 mt-4">
+                {aiPlanResult?.sampleDays?.length ? (
+                  <button
+                    type="button"
+                    onClick={persistAiMealPlan}
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 to-amber-500 text-xs font-extrabold text-white shadow-md hover:opacity-95 cursor-pointer"
+                  >
+                    Lưu & xuất bản khung
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => setIsAiPlanModalOpen(false)}

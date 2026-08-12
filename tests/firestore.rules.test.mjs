@@ -5,7 +5,7 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore'
+import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
 
 const projectId = 'demo-aura-fitness'
 const rulesPath = new URL('../firestore.rules', import.meta.url)
@@ -82,12 +82,30 @@ async function seedPtSecurityFixtures() {
         title: 'Lower Body Strength',
         status: 'planned',
       }),
+      setDoc(doc(db, 'system', 'pushConfig'), {
+        enabled: true,
+      }),
+      setDoc(doc(db, 'mealReviews', 'review-1'), {
+        id: 'review-1',
+        userId: 'client-1',
+        userName: 'Aura learner',
+        meal: { id: 'meal-1', calories: 450 },
+        status: 'pending',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      }),
+      setDoc(doc(db, 'users', 'client-1', 'notifications', 'notification-1'), {
+        userId: 'client-1',
+        title: 'Aura update',
+        read: false,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      }),
     ])
   })
 }
 
-function authenticatedDb(uid, role) {
-  return testEnvironment.authenticatedContext(uid, { role }).firestore()
+function authenticatedDb(uid, role, extraClaims = {}) {
+  return testEnvironment.authenticatedContext(uid, { role, ...extraClaims }).firestore()
 }
 
 describe('Aura PT Firestore rules', () => {
@@ -176,5 +194,102 @@ describe('Aura PT Firestore rules', () => {
         sessionId: 'forged-session',
       }))
     }
+  })
+
+  test('users can update profile fields but cannot elevate role or membership', async () => {
+    const db = authenticatedDb('client-1', 'student')
+    const profileReference = doc(db, 'users', 'client-1')
+
+    await assertSucceeds(updateDoc(profileReference, { displayName: 'Updated learner', updatedAt: serverTimestamp() }))
+    await assertFails(updateDoc(profileReference, { role: 'admin' }))
+    await assertFails(updateDoc(profileReference, { membership: 'coach' }))
+    await assertFails(updateDoc(profileReference, { disabled: true }))
+    await assertFails(updateDoc(profileReference, { uid: 'admin-1' }))
+  })
+
+  test('new profiles must use the authenticated identity and safe defaults', async () => {
+    const validDb = authenticatedDb('new-user', 'student', { email: 'new@example.com' })
+    await assertSucceeds(setDoc(doc(validDb, 'users', 'new-user'), {
+      uid: 'new-user',
+      email: 'new@example.com',
+      displayName: 'New learner',
+      role: 'student',
+      membership: 'free',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }))
+
+    const invalidDb = authenticatedDb('forged-user', 'admin', { email: 'forged@example.com' })
+    await assertFails(setDoc(doc(invalidDb, 'users', 'forged-user'), {
+      uid: 'forged-user',
+      email: 'forged@example.com',
+      role: 'admin',
+      membership: 'pro',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }))
+  })
+
+  test('stored roles and token roles must match for privileged access', async () => {
+    const systemPath = ['system', 'pushConfig']
+    await assertSucceeds(getDoc(doc(authenticatedDb('admin-1', 'admin'), ...systemPath)))
+    await assertFails(getDoc(doc(authenticatedDb('client-1', 'student'), ...systemPath)))
+    await assertFails(getDoc(doc(authenticatedDb('coach-1', 'admin'), ...systemPath)))
+    await assertFails(getDoc(doc(testEnvironment.unauthenticatedContext().firestore(), ...systemPath)))
+  })
+
+  test('meal reviews are private and only the assigned coach or admin can moderate', async () => {
+    const reviewPath = ['mealReviews', 'review-1']
+    await assertSucceeds(getDoc(doc(authenticatedDb('client-1', 'student'), ...reviewPath)))
+    await assertSucceeds(getDoc(doc(authenticatedDb('coach-1', 'coach'), ...reviewPath)))
+    await assertSucceeds(getDoc(doc(authenticatedDb('admin-1', 'admin'), ...reviewPath)))
+    await assertFails(getDoc(doc(authenticatedDb('other-client', 'student'), ...reviewPath)))
+    await assertFails(getDoc(doc(authenticatedDb('other-coach', 'coach'), ...reviewPath)))
+
+    await assertFails(updateDoc(doc(authenticatedDb('client-1', 'student'), ...reviewPath), {
+      status: 'approved',
+      updatedAt: serverTimestamp(),
+    }))
+    await assertFails(updateDoc(doc(authenticatedDb('other-coach', 'coach'), ...reviewPath), {
+      status: 'approved',
+      updatedAt: serverTimestamp(),
+    }))
+    await assertSucceeds(updateDoc(doc(authenticatedDb('coach-1', 'coach'), ...reviewPath), {
+      status: 'approved',
+      coachFeedback: 'Balanced meal',
+      updatedAt: serverTimestamp(),
+    }))
+    await assertFails(updateDoc(doc(authenticatedDb('coach-1', 'coach'), ...reviewPath), {
+      userId: 'other-client',
+      updatedAt: serverTimestamp(),
+    }))
+  })
+
+  test('user notifications are isolated and only support safe acknowledgement updates', async () => {
+    const notificationPath = ['users', 'client-1', 'notifications', 'notification-1']
+    await assertSucceeds(getDoc(doc(authenticatedDb('client-1', 'student'), ...notificationPath)))
+    await assertFails(getDoc(doc(authenticatedDb('other-client', 'student'), ...notificationPath)))
+
+    await assertSucceeds(setDoc(doc(authenticatedDb('client-1', 'student'), 'users', 'client-1', 'notifications', 'notification-2'), {
+      userId: 'client-1',
+      title: 'New notification',
+      read: false,
+      createdAt: serverTimestamp(),
+    }))
+    await assertFails(setDoc(doc(authenticatedDb('other-client', 'student'), 'users', 'client-1', 'notifications', 'notification-3'), {
+      userId: 'client-1',
+      title: 'Forged notification',
+      read: false,
+      createdAt: serverTimestamp(),
+    }))
+    await assertSucceeds(updateDoc(doc(authenticatedDb('client-1', 'student'), ...notificationPath), {
+      read: true,
+      readAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }))
+    await assertFails(updateDoc(doc(authenticatedDb('client-1', 'student'), ...notificationPath), {
+      title: 'Tampered title',
+      updatedAt: serverTimestamp(),
+    }))
   })
 })

@@ -2,7 +2,8 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
-  onAuthStateChanged,
+  getIdTokenResult,
+  onIdTokenChanged,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
@@ -53,6 +54,24 @@ const demoProfile: UserProfile = {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
+const validUserRoles = new Set<UserRole>(['student', 'coach', 'editor', 'admin', 'super_admin'])
+const demoOtpEnabled = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_OTP === 'true'
+
+function tokenRoleFromClaims(role: unknown): UserRole {
+  return typeof role === 'string' && validUserRoles.has(role as UserRole) ? role as UserRole : 'student'
+}
+
+function effectiveRole(tokenRole: UserRole, storedRole: unknown): UserRole {
+  return storedRole === tokenRole ? tokenRole : 'student'
+}
+
+function clearUserScopedStorage(userId: string) {
+  if (typeof window === 'undefined') return
+  for (const key of Object.keys(window.localStorage)) {
+    if (key.includes(userId)) window.localStorage.removeItem(key)
+  }
+}
+
 function toAppUser(user: { uid: string; email: string | null; displayName: string | null; photoURL?: string | null }): AppUser {
   return { uid: user.uid, email: user.email, displayName: user.displayName, photoURL: user.photoURL ?? null }
 }
@@ -93,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, 2500)
 
     let unsubscribeProfile: (() => void) | undefined
-    const unsubscribeAuth = onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
+    const unsubscribeAuth = onIdTokenChanged(firebaseAuth, async (firebaseUser) => {
       clearTimeout(safetyTimeout)
       unsubscribeProfile?.()
 
@@ -105,21 +124,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       setUser(toAppUser(firebaseUser))
+      let tokenRole: UserRole = 'student'
+      try {
+        const tokenResult = await getIdTokenResult(firebaseUser)
+        tokenRole = tokenRoleFromClaims(tokenResult.claims.role)
+      } catch {
+        // Fail closed to the learner role while token refresh is unavailable.
+      }
 
       // Load initial cached profile immediately to prevent missing fields during snapshot load or offline/quota
       const cachedProfileRaw = typeof window !== 'undefined' ? (window.localStorage.getItem(`aura:profile:${firebaseUser.uid}`) || window.localStorage.getItem(`aura:user-profile:${firebaseUser.uid}`)) : null
       if (cachedProfileRaw) {
         try {
           const parsed = JSON.parse(cachedProfileRaw)
-          setProfile((prev) => ({
+          setProfile({
+            ...parsed,
             uid: firebaseUser.uid,
             email: firebaseUser.email ?? '',
             displayName: firebaseUser.displayName ?? 'Thành viên Aura',
-            role: firebaseUser.email === 'nhattank16.1@gmail.com' ? 'super_admin' : 'student',
-            membership: firebaseUser.email === 'nhattank16.1@gmail.com' ? 'pro' : 'free',
-            ...parsed,
-            ...prev,
-          }))
+            role: 'student',
+            membership: 'free',
+          })
           setLoading(false)
         } catch {}
       }
@@ -168,6 +193,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const finalProfile: UserProfile = {
               ...mergedData,
               onboardingCompleted: isCompleted,
+              uid: firebaseUser.uid,
+              email: firebaseUser.email ?? '',
+              role: effectiveRole(tokenRole, data.role),
             }
 
             setProfile(finalProfile)
@@ -196,14 +224,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
 
             const nextProfile: UserProfile = {
+              ...localProf,
               uid: firebaseUser.uid,
               email: firebaseUser.email ?? '',
               displayName: firebaseUser.displayName ?? 'Thành viên Aura',
               photoURL: firebaseUser.photoURL,
-              role: firebaseUser.email === 'nhattank16.1@gmail.com' ? 'super_admin' : 'student',
-              membership: firebaseUser.email === 'nhattank16.1@gmail.com' ? 'pro' : 'free',
+              role: 'student',
+              membership: 'free',
               onboardingCompleted: localOnboarding || Boolean(localNut) || Boolean(localProf.heightCm),
-              ...localProf,
             }
             setProfile(nextProfile)
             setLoading(false)
@@ -233,14 +261,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
 
           setProfile({
+            ...localProf,
             uid: firebaseUser.uid,
             email: firebaseUser.email ?? '',
             displayName: firebaseUser.displayName ?? 'Thành viên Aura',
-            role: firebaseUser.email === 'nhattank16.1@gmail.com' ? 'super_admin' : 'student',
-            membership: firebaseUser.email === 'nhattank16.1@gmail.com' ? 'pro' : 'free',
+            role: 'student',
+            membership: 'free',
             onboardingCompleted: localOnboarding || Boolean(localNut) || Boolean(localProf.heightCm),
             nutritionProfile: localNut || undefined,
-            ...localProf,
           })
           setLoading(false)
         },
@@ -256,8 +284,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(() => ({
     user,
     profile,
-    role: previewRole ?? profile?.role ?? 'student',
-    setPreviewRole,
+    role: isFirebaseConfigured ? (profile?.role ?? 'student') : (previewRole ?? profile?.role ?? 'student'),
+    setPreviewRole: (role) => {
+      if (!isFirebaseConfigured) setPreviewRole(role)
+    },
     loading,
     backendMode: isFirebaseConfigured ? 'firebase' : 'demo',
     signIn: async (email, password) => {
@@ -266,25 +296,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error('Firebase Auth is not configured');
         throw new Error('Firebase chưa được cấu hình.')
       }
-      try {
-        const credential = await signInWithEmailAndPassword(firebaseAuth, email, password)
-        console.log('signInWithEmailAndPassword success:', credential.user.uid);
-        
-        // Đảm bảo cấp quyền admin nếu đăng nhập bằng email admin
-        if (email === 'nhattank16.1@gmail.com') {
-          console.log('Admin login detected, updating user profile...');
-          await createOrUpdateUserProfile({
-            uid: credential.user.uid,
-            email,
-            displayName: credential.user.displayName ?? 'Thành viên Aura',
-            role: 'super_admin',
-            membership: 'pro',
-          })
-          console.log('Admin profile updated successfully.');
-        }
-      } catch (error) {
-        throw error;
-      }
+      await signInWithEmailAndPassword(firebaseAuth, email, password)
     },
     signUp: async (displayName, email, password) => {
       console.log('Starting signUp for email:', email);
@@ -301,8 +313,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           uid: credential.user.uid,
           email,
           displayName,
-          role: email === 'nhattank16.1@gmail.com' ? 'super_admin' : 'student',
-          membership: email === 'nhattank16.1@gmail.com' ? 'pro' : 'free',
+          role: 'student',
+          membership: 'free',
           onboardingCompleted: false,
         })
         console.log('User profile created in Firestore successfully.');
@@ -323,8 +335,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           email: userEmail,
           displayName: credential.user.displayName ?? 'Thành viên Aura',
           photoURL: credential.user.photoURL,
-          role: userEmail === 'nhattank16.1@gmail.com' ? 'super_admin' : 'student',
-          membership: userEmail === 'nhattank16.1@gmail.com' ? 'pro' : 'free',
+          role: 'student',
+          membership: 'free',
         })
       } catch (error: any) {
         if (error?.code === 'auth/popup-closed-by-user') {
@@ -410,9 +422,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.warn('[PhoneAuth] Failed to send OTP. Exact error from Firebase:', error);
         console.warn('[PhoneAuth] Request payload:', { formattedPhone, appVerifierExists: !!appVerifier });
         
-        // Error logging removed for iframe/demo testing
-        // Fallback for iframe/demo testing when Firebase Phone Auth fails
-        console.log('[PhoneAuth] Falling back to local demo OTP...');
+        if (!demoOtpEnabled) throw error
+
+        // Explicit local-development fallback. Never enabled in a production build.
         const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString()
         if (typeof window !== 'undefined') {
           sessionStorage.setItem(`aura_otp_${cleanPhone}`, JSON.stringify({
@@ -439,8 +451,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('Firebase chưa được cấu hình.')
       }
       
-      // Developer backdoor for missing SMS
-      if (cleanCode === '000000') {
+      // Optional local-development shortcut, disabled from every production build.
+      if (demoOtpEnabled && cleanCode === '000000') {
         const demoEmail = `${cleanPhone}@aurafitness.demo.com`
         const demoPassword = `Demo${cleanPhone}!`
         let nameToUse = displayName?.trim() || `Học viên ${cleanPhone}`
@@ -473,7 +485,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       // Fallback check
       const storedOtpData = typeof window !== 'undefined' ? sessionStorage.getItem(`aura_otp_${cleanPhone}`) : null
-      if (storedOtpData && !window.confirmationResult) {
+      if (demoOtpEnabled && storedOtpData && !window.confirmationResult) {
         try {
           const { code, createdAt } = JSON.parse(storedOtpData)
           if (Date.now() - createdAt > 5 * 60 * 1000) {
@@ -563,7 +575,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await sendPasswordResetEmail(firebaseAuth, email)
     },
     signOut: async () => {
-      if (firebaseAuth) await firebaseSignOut(firebaseAuth)
+      if (firebaseAuth) {
+        const userId = firebaseAuth.currentUser?.uid
+        await firebaseSignOut(firebaseAuth)
+        if (userId) clearUserScopedStorage(userId)
+      }
     },
   }), [loading, profile, user, previewRole])
 

@@ -54,6 +54,42 @@ function requireFunctions() {
   return firebaseFunctions
 }
 
+const clientMutableProfileFields = [
+  'phoneNumber',
+  'displayName',
+  'photoURL',
+  'onboardingCompleted',
+  'onboardingData',
+  'goals',
+  'heightCm',
+  'weightKg',
+  'targetWeightDeltaKg',
+  'targetTimeframeMonths',
+  'targetSpeedPace',
+  'injuries',
+  'equipment',
+  'notificationSettings',
+  'mealReminderTime',
+  'nutritionProfile',
+  'biologicalSex',
+  'birthYear',
+  'activityLevel',
+  'sleepHours',
+  'sleepQuality',
+  'stressLevel',
+  'dietType',
+  'healthConditions',
+] as const
+
+function clientMutableProfileValues(values: Partial<UserProfile>) {
+  const source = values as Record<string, unknown>
+  const safe: Record<string, unknown> = {}
+  for (const field of clientMutableProfileFields) {
+    if (source[field] !== undefined) safe[field] = source[field]
+  }
+  return withoutUndefined(safe)
+}
+
 function normalizeCourseSettings(value: unknown): CourseSettings {
   const settings = value && typeof value === 'object' ? value as Partial<CourseSettings> : {}
   const completionPercent = typeof settings.completionPercent === 'number'
@@ -358,39 +394,35 @@ export async function manageAcademyEnrollment(input: {
 }
 
 export async function createOrUpdateUserProfile(profile: UserProfile) {
-  console.log('createOrUpdateUserProfile called with profile:', profile);
   const db = requireDb()
+  const authenticatedUser = firebaseAuth?.currentUser
+  if (!authenticatedUser || authenticatedUser.uid !== profile.uid) {
+    throw new Error('Phiên đăng nhập không khớp với hồ sơ cần cập nhật.')
+  }
   const reference = doc(db, 'users', profile.uid)
   
   try {
     const existing = await getDoc(reference);
     
     if (!existing.exists()) {
-      console.log('Creating new user profile document...');
-      const newProfileData: any = withoutUndefined({
-        ...profile,
+      const newProfileData = withoutUndefined({
+        ...clientMutableProfileValues(profile),
+        uid: profile.uid,
+        email: authenticatedUser.email ?? '',
+        role: 'student',
+        membership: 'free',
         updatedAt: serverTimestamp(),
         createdAt: serverTimestamp(),
       })
-      if (profile.email === 'nhattank16.1@gmail.com') {
-        newProfileData.role = 'super_admin'
-        newProfileData.membership = 'pro'
-      }
-      await setDoc(reference, newProfileData, { merge: true });
-      console.log('New user profile document created.');
+      await setDoc(reference, newProfileData)
     } else {
-      // Merge updated login info (e.g., displayName, photoURL) without overriding existing nutrition/onboarding data
-      const updateData: any = withoutUndefined({
+      const updateData = withoutUndefined({
+        ...clientMutableProfileValues(profile),
         displayName: profile.displayName || existing.data()?.displayName,
-        photoURL: profile.photoURL || existing.data()?.photoURL,
+        photoURL: profile.photoURL ?? existing.data()?.photoURL,
         updatedAt: serverTimestamp(),
       })
-      if (profile.email === 'nhattank16.1@gmail.com') {
-        updateData.role = 'super_admin'
-        updateData.membership = 'pro'
-      }
-      await setDoc(reference, updateData, { merge: true });
-      console.log('Existing user profile merged.');
+      await setDoc(reference, updateData, { merge: true })
     }
   } catch (error: any) {
     console.warn('Error in createOrUpdateUserProfile (possibly offline):', error);
@@ -475,6 +507,11 @@ export async function saveCourseDraft(input: CourseDraftInput & { publish?: bool
     if (!quizKeys[keyDocument.id]) batch.delete(keyDocument.ref)
   })
   await batch.commit()
+  const recordRevision = httpsCallable<{ courseId: string }, { courseId: string; revision: number }>(
+    requireFunctions(),
+    'recordCourseRevision',
+  )
+  await recordRevision({ courseId: reference.id })
   return reference.id
 }
 
@@ -769,7 +806,7 @@ export async function saveWorkoutLog(
 export async function updateUserProfile(userId: string, values: Partial<UserProfile>) {
   const db = requireDb()
   const reference = doc(db, 'users', userId)
-  const cleanValues = withoutUndefined(values)
+  const cleanValues = clientMutableProfileValues(values)
   safeSetCache(`user_profile:${userId}`, cleanValues)
   if (typeof window !== 'undefined') {
     try {
@@ -998,24 +1035,11 @@ export enum OperationType {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: firebaseAuth?.currentUser?.uid || null,
-      email: firebaseAuth?.currentUser?.email || null,
-      emailVerified: firebaseAuth?.currentUser?.emailVerified || null,
-      isAnonymous: firebaseAuth?.currentUser?.isAnonymous || null,
-      tenantId: firebaseAuth?.currentUser?.tenantId || null,
-      providerInfo: firebaseAuth?.currentUser?.providerData?.map(provider => ({
-        providerId: provider.providerId,
-        email: provider.email,
-      })) || []
-    },
-    operationType,
-    path
-  }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  const code = typeof error === 'object' && error && 'code' in error
+    ? String((error as { code?: unknown }).code ?? 'unknown')
+    : 'unknown'
+  console.error('Firestore operation failed', { operationType, path, code })
+  throw new Error('Không thể đồng bộ dữ liệu. Vui lòng thử lại.')
 }
 
 export async function updateMealReview(reviewId: string, updates: any) {

@@ -14,11 +14,50 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    function authRole() {
+      return signedIn() ? request.auth.token.get('role', 'student') : '';
+    }
+
     function hasRole(roles) {
-      return signedIn() && (
-        request.auth.token.email == 'nhattank16.1@gmail.com' ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in roles
-      );
+      return signedIn()
+             && authRole() in roles
+             && currentUser().get('role', 'student') == authRole()
+             && currentUser().get('disabled', false) != true;
+    }
+
+    function hasValidUserCreate(data, userId) {
+      return data.keys().hasOnly([
+               'uid', 'email', 'phoneNumber', 'displayName', 'photoURL',
+               'role', 'membership', 'onboardingCompleted', 'onboardingData',
+               'goals', 'heightCm', 'weightKg', 'targetWeightDeltaKg',
+               'targetTimeframeMonths', 'targetSpeedPace', 'injuries',
+               'equipment', 'notificationSettings',
+               'mealReminderTime', 'nutritionProfile', 'biologicalSex',
+               'birthYear', 'activityLevel', 'sleepHours', 'sleepQuality',
+               'stressLevel', 'dietType', 'healthConditions', 'createdAt',
+               'updatedAt'
+             ])
+             && data.uid == userId
+             && data.email == request.auth.token.get('email', '')
+             && data.role == 'student'
+             && data.membership == 'free'
+             && data.get('disabled', false) == false
+             && data.createdAt == request.time
+             && data.updatedAt == request.time;
+    }
+
+    function hasOnlySafeUserChanges() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+               'phoneNumber', 'displayName', 'photoURL', 'onboardingCompleted',
+               'onboardingData', 'goals', 'heightCm', 'weightKg',
+               'targetWeightDeltaKg', 'targetTimeframeMonths',
+               'targetSpeedPace', 'injuries', 'equipment',
+               'notificationSettings', 'mealReminderTime',
+               'nutritionProfile', 'biologicalSex', 'birthYear',
+               'activityLevel', 'sleepHours', 'sleepQuality', 'stressLevel',
+               'dietType', 'healthConditions', 'updatedAt'
+             ])
+             && request.resource.data.updatedAt == request.time;
     }
 
     function isAcademyStaff() {
@@ -308,7 +347,11 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read, create, update: if isOwner(userId) || isAdmin() || (request.auth != null && request.auth.token.email == 'nhattank16.1@gmail.com');
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId)
+                    && hasValidUserCreate(request.resource.data, userId);
+      allow update: if isOwner(userId)
+                    && hasOnlySafeUserChanges();
       allow delete: if false;
       match /progress/{courseId} {
         allow read: if isOwner(userId);
@@ -414,7 +457,13 @@ service cloud.firestore {
       }
 
       match /mealLogs/{mealId} {
-        allow read, write: if isOwner(userId) || isCoachingStaff() || (request.auth != null && request.auth.token.email == 'nhattank16.1@gmail.com');
+        allow read: if isOwner(userId) || isAdmin() || coachOwnsClient(userId);
+        allow create, update: if isOwner(userId) || isAdmin();
+        allow update: if coachOwnsClient(userId)
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                        'coachFeedback', 'aiAnalysis', 'reviewStatus', 'updatedAt'
+                      ]);
+        allow delete: if isOwner(userId) || isAdmin();
       }
 
       match /waterLogs/{logId} {
@@ -433,12 +482,50 @@ service cloud.firestore {
       }
 
       match /notifications/{notificationId} {
-        allow read, write: if isOwner(userId) || signedIn();
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+                      && request.resource.data.userId == userId
+                      && request.resource.data.read == false
+                      && request.resource.data.createdAt == request.time;
+        allow update: if isOwner(userId)
+                      && request.resource.data.userId == resource.data.userId
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                        'read', 'readAt', 'updatedAt'
+                      ])
+                      && request.resource.data.read is bool
+                      && request.resource.data.updatedAt == request.time;
+        allow delete: if isOwner(userId);
       }
     }
 
     match /system/{document=**} {
-      allow read, write: if true;
+      allow read, write: if isAdmin();
+    }
+
+    match /recipes/{recipeId} {
+      allow read: if signedIn() && resource.data.status == 'published';
+      allow write: if false;
+    }
+
+    match /mealPlans/{mealPlanId} {
+      allow read, write: if false;
+    }
+
+    match /mealPlanAssignments/{userId} {
+      allow read, write: if false;
+    }
+
+    match /courseRevisions/{revisionId} {
+      allow read: if isAcademyStaff();
+      allow write: if false;
+    }
+
+    match /productEvents/{eventId} {
+      allow read, write: if false;
+    }
+
+    match /productEventRateLimits/{userId} {
+      allow read, write: if false;
     }
 
     match /courses/{courseId} {
@@ -612,7 +699,7 @@ service cloud.firestore {
                     && request.resource.data.updatedAt == request.time
                     && (!request.resource.data.keys().hasAny(['readAt'])
                         || request.resource.data.readAt is timestamp);
-      allow create, delete: if isAcademyStaff() || isCoachingStaff();
+      allow create, delete: if false;
     }
 
     match /auditLogs/{logId} {
@@ -621,9 +708,24 @@ service cloud.firestore {
     }
 
     match /mealReviews/{reviewId} {
-      allow read: if true;
-      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
-      allow update: if true;
+      allow read: if signedIn()
+                  && (resource.data.userId == request.auth.uid
+                      || isAdmin()
+                      || coachOwnsClient(resource.data.userId));
+      allow create: if signedIn()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.updatedAt == request.time;
+      allow update: if (isAdmin() || coachOwnsClient(resource.data.userId))
+                    && request.resource.data.userId == resource.data.userId
+                    && request.resource.data.createdAt == resource.data.createdAt
+                    && request.resource.data.status in ['pending', 'approved', 'rejected']
+                    && request.resource.data.updatedAt == request.time
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                      'status', 'coachFeedback', 'approvedMeal',
+                      'approvedAtTimestamp', 'aiAnalysis', 'updatedAt'
+                    ]);
       allow delete: if isAdmin();
     }
 

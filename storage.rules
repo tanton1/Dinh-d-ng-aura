@@ -102,6 +102,19 @@ service firebase.storage {
       allow delete: if isOwner(userId);
     }
 
+    match /recipe-images/{recipeId}/{fileName} {
+      allow read: if signedIn();
+      allow create, update: if isAdmin()
+                            && recipeId.matches('[A-Za-z0-9_-]{3,200}')
+                            && fileName.matches('[A-Za-z0-9_-]+\\.(jpg|jpeg|png|webp)')
+                            && request.resource.size > 0
+                            && request.resource.size <= 5 * 1024 * 1024
+                            && request.resource.contentType.matches('image/(jpeg|png|webp)')
+                            && request.resource.metadata.uploadedBy == request.auth.uid
+                            && request.resource.metadata.recipeId == recipeId;
+      allow delete: if isAdmin();
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

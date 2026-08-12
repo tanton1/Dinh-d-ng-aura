@@ -310,6 +310,8 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
                         <hr />
                       </>
                     )}
+                    {backendMode === 'demo' && (
+                      <>
                     
                     <strong className="dropdown-label">Xem trước giao diện</strong>
                     <button className={role === 'student' ? 'active' : ''} onClick={() => { setPreviewRole?.('student'); setUserMenuOpen(false); }}>
@@ -324,6 +326,8 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
                       <span>Admin</span>
                       {role === 'admin' && <Check size={14} />}
                     </button>
+                      </>
+                    )}
                     
                     {backendMode === 'firebase' && (
                       <>
