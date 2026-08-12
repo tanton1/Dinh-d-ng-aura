@@ -897,6 +897,7 @@ function AuraApplication() {
           isDemo={backendMode === 'demo'}
           ownerId={user?.uid ?? 'demo'}
           progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())}
+          nutritionProfile={profile?.nutritionProfile ?? localNutritionProfile}
         />
       )
     }

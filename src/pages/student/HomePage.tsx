@@ -20,7 +20,58 @@ import {
 import { courses as demoCourses, weeklyActivity } from '../../data'
 import type { Course, ViewId, CourseProgress } from '../../types'
 import { ProgressBar, ProgressRing, SectionHeader, StatCard } from '../../components/ui'
-import { saveUserGamification, subscribeToUserGamification } from '../../services/firebaseService'
+import AuraDailyPulse from '../../components/AuraDailyPulse'
+import { calculateNutritionTargets } from '../../services/nutritionSyncService'
+import {
+  saveUserGamification,
+  subscribeToUserGamification,
+  subscribeToUserMealLogs,
+  subscribeToUserWaterLogs,
+} from '../../services/firebaseService'
+import type { NutritionProfileDraft } from './NutritionPage'
+
+interface DailyPulseMeal {
+  id?: string
+  date?: string
+  status?: string
+  calories?: number
+  protein?: number
+}
+
+interface DailyPulseWaterEntry {
+  id?: string
+  date?: string
+  amountMl?: number
+}
+
+function toLocalDateKey(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function readStoredArray<T>(key: string): T[] {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) ?? '[]')
+    return Array.isArray(parsed) ? parsed as T[] : []
+  } catch {
+    return []
+  }
+}
+
+function calculateLoggingStreak(dateIds: Set<string>, anchorDateId: string) {
+  if (dateIds.size === 0) return 0
+  const anchor = new Date(`${anchorDateId}T12:00:00`)
+  if (!dateIds.has(anchorDateId)) anchor.setDate(anchor.getDate() - 1)
+
+  let streak = 0
+  while (streak < 366 && dateIds.has(toLocalDateKey(anchor))) {
+    streak += 1
+    anchor.setDate(anchor.getDate() - 1)
+  }
+  return streak
+}
 
 interface HomePageProps {
   onNavigate: (view: ViewId) => void
@@ -30,6 +81,7 @@ interface HomePageProps {
   isDemo?: boolean
   ownerId?: string
   progressItems?: CourseProgress[]
+  nutritionProfile?: NutritionProfileDraft | null
 }
 
 export default function HomePage({
@@ -40,11 +92,76 @@ export default function HomePage({
   isDemo = true,
   ownerId = 'demo',
   progressItems = [],
+  nutritionProfile,
 }: HomePageProps) {
   const now = new Date()
   const dateLabel = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: 'numeric', month: 'long' }).format(now).toUpperCase()
   const greeting = now.getHours() < 11 ? 'Chào buổi sáng' : now.getHours() < 18 ? 'Chào buổi chiều' : 'Chào buổi tối'
   const firstName = displayName.trim().split(/\s+/).slice(-1)[0] || 'bạn'
+  const todayDateId = toLocalDateKey(now)
+
+  const [dailyPulseMeals, setDailyPulseMeals] = useState<DailyPulseMeal[]>(() =>
+    readStoredArray<DailyPulseMeal>(`aura:nutrition:meals:v2:${ownerId}`)
+  )
+  const [dailyPulseWater, setDailyPulseWater] = useState<DailyPulseWaterEntry[]>(() =>
+    readStoredArray<DailyPulseWaterEntry>(`aura:nutrition:water-entries:v1:${ownerId}`)
+  )
+
+  useEffect(() => {
+    setDailyPulseMeals(readStoredArray<DailyPulseMeal>(`aura:nutrition:meals:v2:${ownerId}`))
+    setDailyPulseWater(readStoredArray<DailyPulseWaterEntry>(`aura:nutrition:water-entries:v1:${ownerId}`))
+
+    if (isDemo || !ownerId || ownerId === 'anonymous') return
+
+    try {
+      const unsubscribeMeals = subscribeToUserMealLogs(ownerId, (remoteMeals) => {
+        if (Array.isArray(remoteMeals) && remoteMeals.length > 0) setDailyPulseMeals(remoteMeals as DailyPulseMeal[])
+      })
+      const unsubscribeWater = subscribeToUserWaterLogs(ownerId, (remoteWater) => {
+        if (Array.isArray(remoteWater) && remoteWater.length > 0) setDailyPulseWater(remoteWater as DailyPulseWaterEntry[])
+      })
+      return () => {
+        unsubscribeMeals()
+        unsubscribeWater()
+      }
+    } catch (error) {
+      console.warn('Aura Daily Pulse đang dùng dữ liệu gần nhất trên thiết bị:', error)
+    }
+  }, [isDemo, ownerId])
+
+  const dailyPulseTargets = useMemo(() => {
+    const storedTargets = nutritionProfile as (NutritionProfileDraft & {
+      targetCalories?: number
+      protein?: number
+      waterLiters?: number
+    }) | null | undefined
+    if (nutritionProfile) {
+      const targets = calculateNutritionTargets(nutritionProfile)
+      return {
+        calories: storedTargets?.targetCalories || targets.targetCaloriesKcal,
+        protein: storedTargets?.protein || targets.proteinG,
+      }
+    }
+    return { calories: 2000, protein: 100 }
+  }, [nutritionProfile])
+
+  const todayPulseMeals = useMemo(() => dailyPulseMeals.filter((meal) =>
+    meal.date === todayDateId && meal.status === 'logged'
+  ), [dailyPulseMeals, todayDateId])
+  const todayCalories = todayPulseMeals.reduce((sum, meal) => sum + (Number(meal.calories) || 0), 0)
+  const todayProtein = todayPulseMeals.reduce((sum, meal) => sum + (Number(meal.protein) || 0), 0)
+  const todayWaterMl = dailyPulseWater
+    .filter((entry) => entry.date === todayDateId)
+    .reduce((sum, entry) => sum + (Number(entry.amountMl) || 0), 0)
+  const nutritionLogDates = useMemo(() => new Set(dailyPulseMeals
+    .filter((meal) => meal.status === 'logged' && typeof meal.date === 'string')
+    .map((meal) => meal.date as string)), [dailyPulseMeals])
+  const nutritionLoggingStreak = calculateLoggingStreak(nutritionLogDates, todayDateId)
+  const nutritionGoalLabel = nutritionProfile?.goal === 'lose-fat'
+    ? 'Giảm mỡ bền vững'
+    : nutritionProfile?.goal === 'gain-muscle'
+      ? 'Tăng cơ & phục hồi'
+      : 'Duy trì thể trạng'
   
   const continueCourses = courseItems.filter((course) => course.status !== 'Khám phá').slice(0, 2)
   const learningCourses = courseItems.filter((course) => course.status !== 'Khám phá')
@@ -154,7 +271,7 @@ export default function HomePage({
 
   // Subscribe to real-time gamification stats from Firestore
   useEffect(() => {
-    if (!ownerId || ownerId === 'demo' || ownerId === 'anonymous') return
+    if (isDemo || !ownerId || ownerId === 'demo' || ownerId === 'anonymous') return
 
     const unsubscribe = subscribeToUserGamification(ownerId, (remote) => {
       if (remote) {
@@ -180,7 +297,7 @@ export default function HomePage({
     })
 
     return () => unsubscribe()
-  }, [ownerId])
+  }, [isDemo, ownerId])
 
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], [])
   const isCheckedInToday = checkedInDates.includes(todayStr)
@@ -346,7 +463,7 @@ export default function HomePage({
     safeLocalStorageSet(`aura:gamification:xp:${ownerId}`, newXp.toString())
 
     // Save to firebase if not demo
-    if (ownerId && ownerId !== 'demo' && ownerId !== 'anonymous') {
+    if (!isDemo && ownerId && ownerId !== 'demo' && ownerId !== 'anonymous') {
       saveUserGamification(ownerId, {
         streak: newStreak,
         longestStreak: newLongest,
@@ -381,6 +498,19 @@ export default function HomePage({
           </div>
         </div>
       </section>
+
+      <AuraDailyPulse
+        firstName={firstName}
+        goalLabel={nutritionGoalLabel}
+        caloriesConsumed={todayCalories}
+        calorieGoal={dailyPulseTargets.calories}
+        proteinConsumed={todayProtein}
+        proteinGoal={dailyPulseTargets.protein}
+        waterMl={todayWaterMl}
+        mealsCount={todayPulseMeals.length}
+        loggingStreak={nutritionLoggingStreak}
+        onOpenNutrition={() => onNavigate('nutrition')}
+      />
 
       {/* Interactive Attendance Check-in Banner */}
       {!isCheckedInToday && (

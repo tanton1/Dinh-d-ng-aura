@@ -73,9 +73,7 @@ export interface NutritionHomePlanItem {
 }
 
 interface NutritionDashboardHomeProps {
-  firstName: string
   selectedDate: string
-  selectedDateLabel: string
   days: NutritionHomeDay[]
   loggedDateIds: Set<string>
   meals: NutritionHomeMeal[]
@@ -92,10 +90,8 @@ interface NutritionDashboardHomeProps {
   fatConsumed: number
   fatGoal: number
   qualityMetrics: NutritionHomeMetric[]
-  qualityDataComplete: boolean
   water: number
   waterGoal: number
-  goalLabel: string
   trainingSessions: number
   dailyPlan: NutritionHomePlanItem[]
   allergies?: string
@@ -106,7 +102,6 @@ interface NutritionDashboardHomeProps {
   onOpenWater: () => void
   onOpenExercise: () => void
   onLogWater: (amount: number) => void
-  onEditProfile: () => void
   onAskAura?: () => void
   onOpenMeal?: (mealId: string) => void
   onDeleteMeal: (mealId: string) => void
@@ -125,27 +120,6 @@ function progressStyle(percent: number) {
   return { '--nutrition-home-progress': `${percent * 3.6}deg` } as CSSProperties
 }
 
-function dateIdFromLocalDate(date: Date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function calculateLoggingStreak(loggedDateIds: Set<string>, anchorDateId: string) {
-  const anchor = new Date(`${anchorDateId}T12:00:00`)
-  if (Number.isNaN(anchor.getTime()) || loggedDateIds.size === 0) return 0
-
-  if (!loggedDateIds.has(anchorDateId)) anchor.setDate(anchor.getDate() - 1)
-
-  let streak = 0
-  while (streak < 366 && loggedDateIds.has(dateIdFromLocalDate(anchor))) {
-    streak += 1
-    anchor.setDate(anchor.getDate() - 1)
-  }
-  return streak
-}
-
 function MealVisual({ meal }: { meal: NutritionHomeMeal }) {
   if (meal.image) return <img src={meal.image} alt={meal.title} />
   const Icon = meal.type === 'breakfast' ? Coffee : meal.type === 'snack' ? Salad : Utensils
@@ -154,9 +128,7 @@ function MealVisual({ meal }: { meal: NutritionHomeMeal }) {
 
 export default React.memo(NutritionDashboardHome)
 function NutritionDashboardHome({
-  firstName,
   selectedDate,
-  selectedDateLabel,
   days,
   loggedDateIds,
   meals,
@@ -172,7 +144,6 @@ function NutritionDashboardHome({
   fatConsumed,
   fatGoal,
   qualityMetrics,
-  qualityDataComplete,
   water,
   waterGoal,
   onSelectDate,
@@ -185,8 +156,6 @@ function NutritionDashboardHome({
   onOpenMeal,
   onDeleteMeal,
   onDeleteActivity,
-  onEditProfile,
-  goalLabel,
 }: NutritionDashboardHomeProps) {
   const dateStripRef = useRef<HTMLDivElement>(null)
   const weekTouchStart = useRef<{ x: number; y: number } | null>(null)
@@ -200,12 +169,6 @@ function NutritionDashboardHome({
   const proteinRemaining = Math.max(0, proteinGoal - proteinConsumed)
   const carbsRemaining = Math.max(0, carbGoal - carbsConsumed)
   const fatRemaining = Math.max(0, fatGoal - fatConsumed)
-  const dataCompleteness = Math.round(([
-    meals.length > 0,
-    water > 0,
-    qualityDataComplete,
-  ].filter(Boolean).length / 3) * 100)
-
   // Calculate dynamic health score out of 10 based on logged meals, macros, fiber & water
   const calRatio = Math.min(1.2, caloriesConsumed / Math.max(1, calorieGoal))
   const protRatio = Math.min(1, proteinConsumed / Math.max(1, proteinGoal))
@@ -244,16 +207,6 @@ function NutritionDashboardHome({
   ].sort((left, right) => right.time.localeCompare(left.time))
 
   const intensityLabels: Record<NutritionHomeActivity['intensity'], string> = { low: 'Nhẹ', moderate: 'Vừa', high: 'Cao' }
-
-  const streakDays = calculateLoggingStreak(loggedDateIds, selectedDate)
-
-  const pulseState = meals.length === 0
-    ? { label: 'Sẵn sàng bắt đầu', detail: 'Ghi bữa đầu tiên để Aura tạo nhịp dinh dưỡng cho ngày này.' }
-    : calorieDelta < 0
-      ? { label: 'Điều chỉnh nhẹ', detail: `Đang vượt ${formatNumber(Math.abs(calorieDelta))} kcal; ưu tiên nước, rau và vận động nhẹ.` }
-      : caloriePercent >= 80 && clampPercent(proteinConsumed, proteinGoal) >= 75
-        ? { label: 'Đang đúng nhịp', detail: 'Năng lượng và đạm đang tiến gần mục tiêu. Hãy duy trì lựa chọn hiện tại.' }
-        : { label: 'Còn dư địa tốt', detail: `Còn ${formatNumber(calorieDelta)} kcal và ${formatNumber(proteinRemaining)}g đạm cho phần còn lại của ngày.` }
 
   const nextAction = meals.length === 0
     ? { eyebrow: 'BẮT ĐẦU NGÀY', title: 'Ghi bữa ăn đầu tiên', detail: 'Chụp ảnh hoặc nhập nhanh món bạn vừa ăn.', label: 'Ghi bữa ngay', icon: ScanLine, action: onOpenQuickAdd }
@@ -348,77 +301,6 @@ function NutritionDashboardHome({
         <button type="button" className="nutrition-date-arrow" onClick={() => onShiftWeek(1)} aria-label="Tuần sau">
           <ChevronRight size={18} />
         </button>
-      </section>
-
-      <section className="nutrition-daily-pulse" aria-labelledby="nutrition-daily-pulse-title">
-        <div className="nutrition-daily-pulse__glow" aria-hidden="true" />
-        <header className="nutrition-daily-pulse__header">
-          <div>
-            <span><Sparkles size={15} /> AURA DAILY PULSE</span>
-            <h1 id="nutrition-daily-pulse-title">Chào {firstName}, {pulseState.label.toLocaleLowerCase('vi-VN')}</h1>
-            <p>{selectedDateLabel} · Mục tiêu {goalLabel.toLocaleLowerCase('vi-VN')}</p>
-          </div>
-          <div className="nutrition-daily-pulse__streak" title="Chuỗi ngày ghi nhật ký liên tiếp">
-            <Flame size={17} fill="currentColor" />
-            <strong>{streakDays}</strong>
-            <span>ngày liên tiếp</span>
-          </div>
-        </header>
-
-        <div className="nutrition-daily-pulse__body">
-          <div className="nutrition-daily-pulse__energy">
-            <span className={calorieDelta < 0 ? 'is-over' : ''}>
-              {calorieDelta >= 0 ? formatNumber(calorieDelta) : `+${formatNumber(Math.abs(calorieDelta))}`}
-            </span>
-            <div><strong>{calorieDelta >= 0 ? 'kcal còn lại' : 'kcal vượt mức'}</strong><small>{formatNumber(caloriesConsumed)} / {formatNumber(calorieGoal)} kcal đã ghi</small></div>
-          </div>
-          <div className="nutrition-daily-pulse__status">
-            <strong>{pulseState.label}</strong>
-            <p>{pulseState.detail}</p>
-          </div>
-        </div>
-
-        <div className="nutrition-daily-pulse__footer">
-          <div>
-            <span>Mức đầy đủ dữ liệu</span>
-            <strong>{dataCompleteness}%</strong>
-          </div>
-          <div className="nutrition-daily-pulse__completeness" role="progressbar" aria-label={`Mức đầy đủ dữ liệu ${dataCompleteness}%`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={dataCompleteness}>
-            <span style={{ width: `${dataCompleteness}%` }} />
-          </div>
-          <button type="button" onClick={onEditProfile}>Kiểm tra mục tiêu <ArrowRight size={14} /></button>
-        </div>
-      </section>
-
-      <section className="nutrition-next-action" aria-label="Việc nên làm tiếp theo">
-        <span className="nutrition-next-action__icon"><NextActionIcon size={22} /></span>
-        <div>
-          <small>{nextAction.eyebrow}</small>
-          <h2>{nextAction.title}</h2>
-          <p>{nextAction.detail}</p>
-        </div>
-        <button type="button" onClick={nextAction.action}>{nextAction.label} <ArrowRight size={16} /></button>
-      </section>
-
-      <section className="nutrition-meal-rhythm" aria-labelledby="nutrition-meal-rhythm-title">
-        <div className="nutrition-meal-rhythm__heading">
-          <div><span>NHỊP BỮA ĂN</span><h2 id="nutrition-meal-rhythm-title">Một ngày, bốn điểm chạm</h2></div>
-          <small>{mealRhythm.filter((slot) => slot.meal).length}/4 đã ghi</small>
-        </div>
-        <div className="nutrition-meal-rhythm__grid">
-          {mealRhythm.map((slot) => (
-            <button
-              type="button"
-              key={slot.type}
-              className={slot.meal ? 'is-complete' : ''}
-              onClick={() => slot.meal && onOpenMeal ? onOpenMeal(slot.meal.id) : onOpenQuickAdd()}
-            >
-              <span className="nutrition-meal-rhythm__marker">{slot.meal ? <Check size={15} /> : <Plus size={15} />}</span>
-              <span className="nutrition-meal-rhythm__copy"><strong>{slot.label}</strong><small>{slot.meal ? slot.meal.title : slot.window}</small></span>
-              {slot.meal ? <em>{formatNumber(slot.meal.calories)} kcal</em> : <em>Ghi bữa</em>}
-            </button>
-          ))}
-        </div>
       </section>
 
       {/* Main Energy Carousel */}
@@ -701,6 +583,37 @@ function NutritionDashboardHome({
               onClick={() => setSlideIndex(idx)}
               aria-label={`Trang ${idx + 1}`}
             />
+          ))}
+        </div>
+      </section>
+
+      <section className="nutrition-next-action" aria-label="Việc nên làm tiếp theo">
+        <span className="nutrition-next-action__icon"><NextActionIcon size={22} /></span>
+        <div>
+          <small>{nextAction.eyebrow}</small>
+          <h2>{nextAction.title}</h2>
+          <p>{nextAction.detail}</p>
+        </div>
+        <button type="button" onClick={nextAction.action}>{nextAction.label} <ArrowRight size={16} /></button>
+      </section>
+
+      <section className="nutrition-meal-rhythm" aria-labelledby="nutrition-meal-rhythm-title">
+        <div className="nutrition-meal-rhythm__heading">
+          <div><span>NHỊP BỮA ĂN</span><h2 id="nutrition-meal-rhythm-title">Một ngày, bốn điểm chạm</h2></div>
+          <small>{mealRhythm.filter((slot) => slot.meal).length}/4 đã ghi</small>
+        </div>
+        <div className="nutrition-meal-rhythm__grid">
+          {mealRhythm.map((slot) => (
+            <button
+              type="button"
+              key={slot.type}
+              className={slot.meal ? 'is-complete' : ''}
+              onClick={() => slot.meal && onOpenMeal ? onOpenMeal(slot.meal.id) : onOpenQuickAdd()}
+            >
+              <span className="nutrition-meal-rhythm__marker">{slot.meal ? <Check size={15} /> : <Plus size={15} />}</span>
+              <span className="nutrition-meal-rhythm__copy"><strong>{slot.label}</strong><small>{slot.meal ? slot.meal.title : slot.window}</small></span>
+              {slot.meal ? <em>{formatNumber(slot.meal.calories)} kcal</em> : <em>Ghi bữa</em>}
+            </button>
           ))}
         </div>
       </section>
