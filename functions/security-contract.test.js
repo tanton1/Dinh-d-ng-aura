@@ -33,7 +33,8 @@ test('meal reviews and notifications are owner scoped', () => {
 test('production auth has no email role bootstrap or unconditional demo OTP', () => {
   assert.doesNotMatch(authSource, /nhattank16/i)
   assert.match(authSource, /import\.meta\.env\.DEV && import\.meta\.env\.VITE_ENABLE_DEMO_OTP === 'true'/)
-  assert.match(authSource, /demoOtpEnabled && cleanCode === '000000'/)
+  assert.doesNotMatch(authSource, /cleanCode === '000000'/)
+  assert.match(authSource, /import\.meta\.env\.MODE === 'e2e' && import\.meta\.env\.VITE_ENABLE_DEMO_OTP === 'true'/)
   assert.equal(existsSync(join(repositoryRoot, 'deleteRecreate.mjs')), false)
   assert.equal(existsSync(join(repositoryRoot, 'import-client.mjs')), false)
 })

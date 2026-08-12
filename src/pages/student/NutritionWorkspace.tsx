@@ -246,6 +246,16 @@ type DiaryTimelineEntry =
   | { kind: 'activity'; id: string; time: string; item: NutritionActivityEntry }
   | { kind: 'water'; id: string; time: string; item: NutritionWaterEntry }
 
+type DiaryFilter = 'all' | 'meal' | 'water' | 'activity' | 'review'
+
+const DIARY_FILTERS: Array<{ id: DiaryFilter; label: string }> = [
+  { id: 'all', label: 'Tất cả' },
+  { id: 'meal', label: 'Bữa ăn' },
+  { id: 'water', label: 'Nước' },
+  { id: 'activity', label: 'Vận động' },
+  { id: 'review', label: 'Cần kiểm tra' },
+]
+
 export function NutritionDiaryPage({
   dateLabel,
   targets,
@@ -263,6 +273,7 @@ export function NutritionDiaryPage({
   onDeleteMeal,
   onDeleteActivity,
 }: NutritionDiaryPageProps) {
+  const [activeFilter, setActiveFilter] = useState<DiaryFilter>('all')
   const totals = useMemo(() => meals.reduce((result, meal) => ({
     calories: result.calories + meal.calories,
     protein: result.protein + meal.protein,
@@ -277,6 +288,13 @@ export function NutritionDiaryPage({
   ].sort((left, right) => left.time.localeCompare(right.time)), [activities, meals, waterEntries])
 
   const caloriesRemaining = targets.calories - totals.calories
+  const filteredTimeline = useMemo(() => timeline.filter((event) => {
+    if (activeFilter === 'all') return true
+    if (activeFilter === 'review') return event.kind === 'meal' && event.item.confidence && event.item.confidence !== 'verified'
+    return event.kind === activeFilter
+  }), [activeFilter, timeline])
+  const needsReviewCount = useMemo(() => meals.filter((meal) => meal.confidence && meal.confidence !== 'verified').length, [meals])
+  const dayProgress = clampPercent(totals.calories, targets.calories)
   const defaultBrief = meals.length
     ? caloriesRemaining > 0
       ? `Bạn còn khoảng ${formatNumber(caloriesRemaining)} kcal. Aura sẽ ưu tiên món phù hợp với phần macro còn thiếu.`
@@ -298,6 +316,20 @@ export function NutritionDiaryPage({
         </div>
       </header>
 
+      <section className="nutrition-diary-overview" aria-label="Tổng kết dinh dưỡng trong ngày">
+        <div className="nutrition-diary-overview__main">
+          <span>TỔNG KẾT TRONG NGÀY</span>
+          <div><strong>{caloriesRemaining >= 0 ? formatNumber(caloriesRemaining) : `+${formatNumber(Math.abs(caloriesRemaining))}`}</strong><p>{caloriesRemaining >= 0 ? 'kcal còn lại' : 'kcal vượt mục tiêu'}</p></div>
+          <small>{formatNumber(totals.calories)} / {formatNumber(targets.calories)} kcal đã ghi</small>
+        </div>
+        <div className="nutrition-diary-overview__stats">
+          <div><small>Tiến độ</small><strong>{dayProgress}%</strong></div>
+          <div><small>Sự kiện</small><strong>{timeline.length}</strong></div>
+          <div><small>Cần kiểm tra</small><strong>{needsReviewCount}</strong></div>
+        </div>
+        <div className="nutrition-diary-overview__bar" role="progressbar" aria-label={`Tiến độ năng lượng ${dayProgress}%`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={dayProgress}><span style={{ width: `${dayProgress}%` }} /></div>
+      </section>
+
       <div className="nutrition-assistant-brief">
         <span><Sparkles size={18} aria-hidden="true" /></span>
         <div><small>AURA NHẬN XÉT</small><p>{assistantBrief ?? defaultBrief}</p></div>
@@ -315,8 +347,22 @@ export function NutritionDiaryPage({
       <div className="nutrition-diary-layout">
         <div className="nutrition-diary-timeline">
           <div className="nutrition-workspace-section-heading">
-            <div><h2>Dòng thời gian</h2><p>{timeline.length} hoạt động đã ghi</p></div>
+            <div><h2>Dòng thời gian</h2><p>{filteredTimeline.length} / {timeline.length} hoạt động đang hiển thị</p></div>
             <button type="button" onClick={onAddMeal}><Plus size={16} /> Thêm món</button>
+          </div>
+
+          <div className="nutrition-diary-filters" aria-label="Lọc nhật ký">
+            {DIARY_FILTERS.map((filter) => (
+              <button
+                type="button"
+                key={filter.id}
+                className={activeFilter === filter.id ? 'is-active' : ''}
+                onClick={() => setActiveFilter(filter.id)}
+                aria-pressed={activeFilter === filter.id}
+              >
+                {filter.label}{filter.id === 'review' && needsReviewCount > 0 ? <span>{needsReviewCount}</span> : null}
+              </button>
+            ))}
           </div>
 
           {timeline.length === 0 ? (
@@ -326,9 +372,16 @@ export function NutritionDiaryPage({
               <p>Chụp ảnh hoặc chọn món từ thư viện để ghi nhanh và chính xác hơn.</p>
               <button type="button" onClick={onAddMeal}><Plus size={16} /> Ghi bữa ăn</button>
             </div>
+          ) : filteredTimeline.length === 0 ? (
+            <div className="nutrition-workspace-empty nutrition-workspace-empty--compact">
+              <span><Database size={23} /></span>
+              <h3>Không có dữ liệu trong bộ lọc này</h3>
+              <p>Chọn “Tất cả” hoặc ghi thêm dữ liệu để tiếp tục theo dõi.</p>
+              <button type="button" onClick={() => setActiveFilter('all')}>Xem tất cả</button>
+            </div>
           ) : (
             <ol className="nutrition-diary-events">
-              {timeline.map((event) => {
+              {filteredTimeline.map((event) => {
                 if (event.kind === 'meal') {
                   const meal = event.item
                   return (

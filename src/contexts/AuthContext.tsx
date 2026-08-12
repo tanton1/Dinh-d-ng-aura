@@ -13,7 +13,7 @@ import {
   signInWithPhoneNumber,
   type ConfirmationResult
 } from 'firebase/auth'
-import { doc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore'
+import { doc, onSnapshot } from 'firebase/firestore'
 import { firebaseAuth, firestoreDb, isFirebaseConfigured } from '../lib/firebase'
 import { createOrUpdateUserProfile } from '../services/firebaseService'
 import type { AppUser, UserProfile, UserRole } from '../types'
@@ -56,6 +56,35 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 const validUserRoles = new Set<UserRole>(['student', 'coach', 'editor', 'admin', 'super_admin'])
 const demoOtpEnabled = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_OTP === 'true'
+const e2eOtpEnabled = import.meta.env.MODE === 'e2e' && import.meta.env.VITE_ENABLE_DEMO_OTP === 'true'
+const localOtpEnabled = demoOtpEnabled || e2eOtpEnabled
+
+function normalizePhoneNumber(phoneNumber: string) {
+  const compact = phoneNumber.trim().replace(/[\s().-]/g, '')
+  const digits = compact.replace(/\D/g, '')
+  if (!digits || digits.length < 9 || digits.length > 12) {
+    throw new Error('Vui lòng nhập số điện thoại hợp lệ.')
+  }
+  if (compact.startsWith('+')) return `+${digits}`
+  if (digits.startsWith('84')) return `+${digits}`
+  if (digits.startsWith('0')) return `+84${digits.slice(1)}`
+  return `+84${digits}`
+}
+
+function maskPhoneNumber(phoneNumber: string) {
+  return phoneNumber.length > 7
+    ? `${phoneNumber.slice(0, 4)} ••• ${phoneNumber.slice(-3)}`
+    : phoneNumber
+}
+
+function storeDemoOtp(phoneNumber: string) {
+  const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString()
+  sessionStorage.setItem(`aura_otp_${phoneNumber}`, JSON.stringify({
+    code: generatedOtp,
+    createdAt: Date.now(),
+  }))
+  return generatedOtp
+}
 
 function tokenRoleFromClaims(role: unknown): UserRole {
   return typeof role === 'string' && validUserRoles.has(role as UserRole) ? role as UserRole : 'student'
@@ -349,225 +378,111 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw error;
       }
     },
-    sendPhoneOtp: async (phoneNumber: string, isSignUp?: boolean) => {
-      const cleanPhone = phoneNumber.trim().replace(/\s+/g, '')
-      if (!cleanPhone || cleanPhone.length < 8) {
-        throw new Error('Vui lòng nhập số điện thoại hợp lệ (từ 9 đến 11 chữ số).')
-      }
+    sendPhoneOtp: async (phoneNumber: string, _isSignUp?: boolean) => {
+      const formattedPhone = normalizePhoneNumber(phoneNumber)
 
       if (!firebaseAuth) {
-        throw new Error('Firebase chưa được cấu hình.')
-      }
-
-      let formattedPhone = cleanPhone
-      if (formattedPhone.startsWith('0')) {
-        formattedPhone = '+84' + formattedPhone.substring(1)
-      } else if (!formattedPhone.startsWith('+')) {
-        formattedPhone = '+' + formattedPhone
-      }
-
-      // Check if user exists before sending OTP
-      if (firestoreDb) {
-        try {
-          const usersRef = collection(firestoreDb, 'users')
-          const q1 = query(usersRef, where('phoneNumber', '==', formattedPhone))
-          const q2 = query(usersRef, where('phoneNumber', '==', cleanPhone))
-          
-          const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)])
-          const exists = !snap1.empty || !snap2.empty
-          
-          if (isSignUp && exists) {
-            throw new Error('Số điện thoại này đã được đăng ký. Vui lòng chuyển sang tab Đăng nhập.')
-          } else if (isSignUp === false && !exists) {
-            throw new Error('Số điện thoại này chưa được đăng ký. Vui lòng chuyển sang tab Đăng ký tài khoản.')
-          }
-        } catch (e: any) {
-          // If the error is not about existing user (e.g., missing permissions because user is not authenticated yet),
-          // we just log it and proceed to send OTP anyway to avoid blocking the auth flow.
-          if (e.message.includes('đăng ký')) {
-            throw e;
-          }
-          console.warn('[PhoneAuth] Could not verify if user exists (likely due to firestore rules before auth). Proceeding with OTP.', e);
-        }
-      }
-
-      let appVerifier: any = window.recaptchaVerifier;
-      if (!appVerifier) {
-        try {
-          const container = document.getElementById('recaptcha-container');
-          if (container) {
-            container.innerHTML = '';
-          }
-          appVerifier = new RecaptchaVerifier(firebaseAuth, 'recaptcha-container', {
-            size: 'invisible'
-          });
-          window.recaptchaVerifier = appVerifier;
-        } catch (err) {
-          console.error('[PhoneAuth] Error creating RecaptchaVerifier:', err);
-          throw new Error('Lỗi khởi tạo hệ thống bảo mật captcha.');
-        }
-      }
-      
-      try {
-        console.log(`[PhoneAuth] Sending OTP to ${formattedPhone}...`, { cleanPhone, isSignUp });
-        const confirmationResult = await signInWithPhoneNumber(firebaseAuth, formattedPhone, appVerifier)
-        window.confirmationResult = confirmationResult
-        console.log(`[PhoneAuth] OTP sent successfully to ${formattedPhone}`);
-        
+        if (!localOtpEnabled) throw new Error('Firebase chưa được cấu hình.')
+        const otpCode = storeDemoOtp(formattedPhone)
         return {
-          otpCode: '', // Not used in real Firebase Phone Auth
-          message: `Mã xác thực OTP đã được gửi đến số ${formattedPhone}.`,
+          otpCode,
+          message: `[Chế độ thử nghiệm] Mã OTP đã được tạo cho ${maskPhoneNumber(formattedPhone)}.`,
+        }
+      }
+
+      const container = document.getElementById('recaptcha-container')
+      if (!container) throw new Error('Không thể khởi tạo bước xác minh bảo mật. Vui lòng tải lại trang.')
+
+      window.confirmationResult = null
+      window.recaptchaVerifier?.clear()
+      window.recaptchaVerifier = null
+      container.innerHTML = ''
+
+      try {
+        const verifier = new RecaptchaVerifier(firebaseAuth, 'recaptcha-container', { size: 'invisible' })
+        window.recaptchaVerifier = verifier
+        window.confirmationResult = await signInWithPhoneNumber(firebaseAuth, formattedPhone, verifier)
+        return {
+          otpCode: '',
+          message: `Mã OTP đã được gửi đến ${maskPhoneNumber(formattedPhone)}.`,
         }
       } catch (error: any) {
-        console.warn('[PhoneAuth] Failed to send OTP. Exact error from Firebase:', error);
-        console.warn('[PhoneAuth] Request payload:', { formattedPhone, appVerifierExists: !!appVerifier });
-        
-        if (!demoOtpEnabled) throw error
+        window.recaptchaVerifier?.clear()
+        window.recaptchaVerifier = null
+        window.confirmationResult = null
+        container.innerHTML = ''
 
-        // Explicit local-development fallback. Never enabled in a production build.
-        const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString()
-        if (typeof window !== 'undefined') {
-          sessionStorage.setItem(`aura_otp_${cleanPhone}`, JSON.stringify({
-            code: generatedOtp,
-            createdAt: Date.now(),
-          }))
+        if (localOtpEnabled) {
+          const otpCode = storeDemoOtp(formattedPhone)
+          return {
+            otpCode,
+            message: `[Chế độ thử nghiệm] Mã OTP đã được tạo cho ${maskPhoneNumber(formattedPhone)}.`,
+          }
         }
-        
-        // Return a mock success response so the user can proceed in the UI
-        return {
-          otpCode: generatedOtp,
-          message: `[Chế độ thử nghiệm] Mã OTP của bạn là ${generatedOtp}.`,
+
+        const messages: Record<string, string> = {
+          'auth/invalid-phone-number': 'Số điện thoại chưa đúng. Hãy kiểm tra mã quốc gia và thử lại.',
+          'auth/missing-phone-number': 'Vui lòng nhập số điện thoại.',
+          'auth/quota-exceeded': 'Hệ thống đã tạm đạt giới hạn gửi SMS. Vui lòng thử lại sau.',
+          'auth/too-many-requests': 'Bạn đã yêu cầu OTP quá nhiều lần. Vui lòng đợi một lúc rồi thử lại.',
+          'auth/captcha-check-failed': 'Bước xác minh bảo mật chưa hoàn tất. Vui lòng thử gửi lại mã.',
+          'auth/operation-not-allowed': 'Đăng nhập bằng số điện thoại chưa được bật trên Firebase.',
         }
+        throw new Error(messages[error?.code] || 'Không thể gửi OTP lúc này. Vui lòng kiểm tra kết nối và thử lại.')
       }
     },
     verifyPhoneOtpAndSignIn: async (phoneNumber: string, otpCode: string, displayName?: string) => {
-      const cleanPhone = phoneNumber.trim().replace(/\s+/g, '')
-      const cleanCode = otpCode.trim()
+      const formattedPhone = normalizePhoneNumber(phoneNumber)
+      const cleanCode = otpCode.replace(/\D/g, '')
+      if (cleanCode.length !== 6) throw new Error('Vui lòng nhập đủ 6 chữ số OTP.')
 
-      if (!cleanPhone) throw new Error('Chưa có số điện thoại.')
-      if (!cleanCode || cleanCode.length < 4) throw new Error('Mã OTP không hợp lệ.')
+      const storedOtpData = typeof window !== 'undefined'
+        ? sessionStorage.getItem(`aura_otp_${formattedPhone}`)
+        : null
 
-      if (!firebaseAuth) {
-        throw new Error('Firebase chưa được cấu hình.')
-      }
-      
-      // Optional local-development shortcut, disabled from every production build.
-      if (demoOtpEnabled && cleanCode === '000000') {
-        const demoEmail = `${cleanPhone}@aurafitness.demo.com`
-        const demoPassword = `Demo${cleanPhone}!`
-        let nameToUse = displayName?.trim() || `Học viên ${cleanPhone}`
-        let credential: any;
-        try {
-          credential = await signInWithEmailAndPassword(firebaseAuth, demoEmail, demoPassword)
-        } catch (e: any) {
-          credential = await createUserWithEmailAndPassword(firebaseAuth, demoEmail, demoPassword)
-          await updateProfile(credential.user, { displayName: nameToUse })
+      if (localOtpEnabled && storedOtpData && !window.confirmationResult) {
+        const { code, createdAt } = JSON.parse(storedOtpData) as { code: string; createdAt: number }
+        if (Date.now() - createdAt > 5 * 60 * 1000) {
+          sessionStorage.removeItem(`aura_otp_${formattedPhone}`)
+          throw new Error('Mã OTP đã hết hạn. Vui lòng gửi lại mã mới.')
         }
-        
-        let formattedPhone = cleanPhone
-        if (formattedPhone.startsWith('0')) {
-          formattedPhone = '+84' + formattedPhone.substring(1)
-        } else if (!formattedPhone.startsWith('+')) {
-          formattedPhone = '+' + formattedPhone
-        }
-
-        await createOrUpdateUserProfile({
-          uid: credential.user.uid,
-          email: credential.user.email,
-          phoneNumber: formattedPhone,
-          displayName: credential.user.displayName || nameToUse,
-          role: 'student',
-          membership: 'free',
-          onboardingCompleted: false,
-        })
-        return;
-      }
-      
-      // Fallback check
-      const storedOtpData = typeof window !== 'undefined' ? sessionStorage.getItem(`aura_otp_${cleanPhone}`) : null
-      if (demoOtpEnabled && storedOtpData && !window.confirmationResult) {
-        try {
-          const { code, createdAt } = JSON.parse(storedOtpData)
-          if (Date.now() - createdAt > 5 * 60 * 1000) {
-            throw new Error('Mã OTP đã hết hạn.')
-          }
-          if (code === cleanCode) {
-            sessionStorage.removeItem(`aura_otp_${cleanPhone}`)
-            
-            // Map demo auth to email/password under the hood to bypass iframe limits
-            const demoEmail = `${cleanPhone}@aurafitness.demo.com`
-            const demoPassword = `Demo${cleanPhone}!`
-            let nameToUse = displayName?.trim() || `Học viên ${cleanPhone}`
-            let credential: any;
-            try {
-              credential = await signInWithEmailAndPassword(firebaseAuth, demoEmail, demoPassword)
-            } catch (e: any) {
-              credential = await createUserWithEmailAndPassword(firebaseAuth, demoEmail, demoPassword)
-              await updateProfile(credential.user, { displayName: nameToUse })
-            }
-            
-            let formattedPhone = cleanPhone
-            if (formattedPhone.startsWith('0')) {
-              formattedPhone = '+84' + formattedPhone.substring(1)
-            } else if (!formattedPhone.startsWith('+')) {
-              formattedPhone = '+' + formattedPhone
-            }
-
-            await createOrUpdateUserProfile({
-              uid: credential.user.uid,
-              email: credential.user.email,
-              phoneNumber: formattedPhone,
-              displayName: credential.user.displayName || nameToUse,
-              role: 'student',
-              membership: 'free',
-              onboardingCompleted: false,
-            })
-            return;
-          } else {
-            throw new Error('Mã OTP không chính xác.')
-          }
-        } catch (e: any) {
-          throw new Error(e.message || 'Lỗi kiểm tra OTP.')
-        }
+        if (code !== cleanCode) throw new Error('Mã OTP không chính xác. Vui lòng kiểm tra lại.')
+        sessionStorage.removeItem(`aura_otp_${formattedPhone}`)
+        if (!firebaseAuth) return
       }
 
+      if (!firebaseAuth) throw new Error('Firebase chưa được cấu hình.')
       if (!window.confirmationResult) {
-        throw new Error('Không tìm thấy phiên xác thực OTP. Vui lòng lấy mã mới.')
-      }
-
-      let formattedPhone = cleanPhone
-      if (formattedPhone.startsWith('0')) {
-        formattedPhone = '+84' + formattedPhone.substring(1)
-      } else if (!formattedPhone.startsWith('+')) {
-        formattedPhone = '+' + formattedPhone
+        throw new Error('Phiên xác thực đã hết hiệu lực. Vui lòng gửi lại OTP.')
       }
 
       try {
         const credential = await window.confirmationResult.confirm(cleanCode)
-        let nameToUse = displayName?.trim() || `Học viên ${cleanPhone}`
-        
-        if (!credential.user.displayName && displayName?.trim()) {
-           await updateProfile(credential.user, { displayName: nameToUse })
-        } else if (credential.user.displayName) {
-           nameToUse = credential.user.displayName
+        const requestedName = displayName?.trim() || ''
+        if (!credential.user.displayName && requestedName) {
+          await updateProfile(credential.user, { displayName: requestedName })
         }
 
         await createOrUpdateUserProfile({
           uid: credential.user.uid,
-          email: credential.user.email || `${cleanPhone}@aurafitness.com`,
+          email: credential.user.email || '',
           phoneNumber: credential.user.phoneNumber || formattedPhone,
-          displayName: nameToUse,
+          displayName: credential.user.displayName || requestedName || '',
           role: 'student',
           membership: 'free',
-          onboardingCompleted: false,
         })
+        window.confirmationResult = null
       } catch (error: any) {
-        if (error.code === 'auth/invalid-verification-code') {
+        const errorCode = typeof error?.code === 'string' ? error.code : ''
+        if (errorCode === 'auth/invalid-verification-code') {
           throw new Error('Mã OTP không chính xác. Vui lòng kiểm tra lại.')
-        } else if (error.code === 'auth/code-expired') {
+        }
+        if (errorCode === 'auth/code-expired' || errorCode === 'auth/session-expired') {
+          window.confirmationResult = null
           throw new Error('Mã OTP đã hết hạn. Vui lòng gửi lại OTP mới.')
         }
-        throw new Error('Đăng nhập bằng OTP thất bại. Vui lòng thử lại.')
+        if (!errorCode && error instanceof Error) throw error
+        throw new Error('Không thể xác thực OTP lúc này. Vui lòng thử lại.')
       }
     },
     resetPassword: async (email) => {

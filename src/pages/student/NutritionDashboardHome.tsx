@@ -2,11 +2,9 @@ import React, { useEffect, useRef, useState, type CSSProperties } from 'react'
 import {
   Activity,
   ArrowRight,
-  Bookmark,
   Check,
   ChevronLeft,
   ChevronRight,
-  CircleAlert,
   Clock,
   Coffee,
   Droplets,
@@ -15,20 +13,11 @@ import {
   Footprints,
   Heart,
   Plus,
-  RefreshCw,
   Salad,
   ScanLine,
-  Search,
-  ShieldCheck,
-  Smartphone,
   Sparkles,
   Trash2,
-  TrendingUp,
   Utensils,
-  Watch,
-  Wheat,
-  X,
-  Zap,
 } from 'lucide-react'
 
 export interface NutritionHomeDay {
@@ -136,6 +125,27 @@ function progressStyle(percent: number) {
   return { '--nutrition-home-progress': `${percent * 3.6}deg` } as CSSProperties
 }
 
+function dateIdFromLocalDate(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function calculateLoggingStreak(loggedDateIds: Set<string>, anchorDateId: string) {
+  const anchor = new Date(`${anchorDateId}T12:00:00`)
+  if (Number.isNaN(anchor.getTime()) || loggedDateIds.size === 0) return 0
+
+  if (!loggedDateIds.has(anchorDateId)) anchor.setDate(anchor.getDate() - 1)
+
+  let streak = 0
+  while (streak < 366 && loggedDateIds.has(dateIdFromLocalDate(anchor))) {
+    streak += 1
+    anchor.setDate(anchor.getDate() - 1)
+  }
+  return streak
+}
+
 function MealVisual({ meal }: { meal: NutritionHomeMeal }) {
   if (meal.image) return <img src={meal.image} alt={meal.title} />
   const Icon = meal.type === 'breakfast' ? Coffee : meal.type === 'snack' ? Salad : Utensils
@@ -162,11 +172,13 @@ function NutritionDashboardHome({
   fatConsumed,
   fatGoal,
   qualityMetrics,
+  qualityDataComplete,
   water,
   waterGoal,
   onSelectDate,
   onShiftWeek,
   onOpenQuickAdd,
+  onOpenCatalog,
   onOpenWater,
   onOpenExercise,
   onLogWater,
@@ -188,6 +200,11 @@ function NutritionDashboardHome({
   const proteinRemaining = Math.max(0, proteinGoal - proteinConsumed)
   const carbsRemaining = Math.max(0, carbGoal - carbsConsumed)
   const fatRemaining = Math.max(0, fatGoal - fatConsumed)
+  const dataCompleteness = Math.round(([
+    meals.length > 0,
+    water > 0,
+    qualityDataComplete,
+  ].filter(Boolean).length / 3) * 100)
 
   // Calculate dynamic health score out of 10 based on logged meals, macros, fiber & water
   const calRatio = Math.min(1.2, caloriesConsumed / Math.max(1, calorieGoal))
@@ -228,7 +245,34 @@ function NutritionDashboardHome({
 
   const intensityLabels: Record<NutritionHomeActivity['intensity'], string> = { low: 'Nhẹ', moderate: 'Vừa', high: 'Cao' }
 
-  const streakDays = Math.max(1, loggedDateIds.size)
+  const streakDays = calculateLoggingStreak(loggedDateIds, selectedDate)
+
+  const pulseState = meals.length === 0
+    ? { label: 'Sẵn sàng bắt đầu', detail: 'Ghi bữa đầu tiên để Aura tạo nhịp dinh dưỡng cho ngày này.' }
+    : calorieDelta < 0
+      ? { label: 'Điều chỉnh nhẹ', detail: `Đang vượt ${formatNumber(Math.abs(calorieDelta))} kcal; ưu tiên nước, rau và vận động nhẹ.` }
+      : caloriePercent >= 80 && clampPercent(proteinConsumed, proteinGoal) >= 75
+        ? { label: 'Đang đúng nhịp', detail: 'Năng lượng và đạm đang tiến gần mục tiêu. Hãy duy trì lựa chọn hiện tại.' }
+        : { label: 'Còn dư địa tốt', detail: `Còn ${formatNumber(calorieDelta)} kcal và ${formatNumber(proteinRemaining)}g đạm cho phần còn lại của ngày.` }
+
+  const nextAction = meals.length === 0
+    ? { eyebrow: 'BẮT ĐẦU NGÀY', title: 'Ghi bữa ăn đầu tiên', detail: 'Chụp ảnh hoặc nhập nhanh món bạn vừa ăn.', label: 'Ghi bữa ngay', icon: ScanLine, action: onOpenQuickAdd }
+    : water < waterGoal * 0.5
+      ? { eyebrow: 'ƯU TIÊN BÂY GIỜ', title: 'Bổ sung 250 ml nước', detail: `Bạn mới đạt ${clampPercent(water, waterGoal)}% mục tiêu nước.`, label: '+250 ml', icon: Droplets, action: () => onLogWater(250) }
+      : proteinRemaining > 20
+        ? { eyebrow: 'GỢI Ý TỪ AURA', title: 'Chọn thêm món giàu đạm', detail: `Còn thiếu khoảng ${formatNumber(proteinRemaining)}g đạm để chạm mục tiêu.`, label: 'Xem món phù hợp', icon: Salad, action: onOpenCatalog }
+        : calorieDelta < 0
+          ? { eyebrow: 'CÂN BẰNG LẠI', title: 'Thêm một hoạt động nhẹ', detail: 'Đi bộ hoặc vận động vừa sức; không tự động bù trừ ngân sách ăn.', label: 'Ghi vận động', icon: Footprints, action: onOpenExercise }
+          : { eyebrow: 'ĐANG ĐÚNG NHỊP', title: 'Duy trì lựa chọn hiện tại', detail: 'Macro chính đang cân bằng; tiếp tục ghi lại các bữa còn lại.', label: 'Thêm bữa tiếp theo', icon: Sparkles, action: onOpenQuickAdd }
+
+  const mealRhythm = [
+    { type: 'breakfast' as const, label: 'Bữa sáng', window: '06:00–09:00' },
+    { type: 'lunch' as const, label: 'Bữa trưa', window: '11:00–13:30' },
+    { type: 'snack' as const, label: 'Bữa phụ', window: '14:00–17:00' },
+    { type: 'dinner' as const, label: 'Bữa tối', window: '18:00–21:00' },
+  ].map((slot) => ({ ...slot, meal: meals.find((meal) => meal.type === slot.type) }))
+
+  const NextActionIcon = nextAction.icon
 
   const finishWeekSwipe = (x: number, y: number) => {
     const start = weekTouchStart.current
@@ -268,31 +312,6 @@ function NutritionDashboardHome({
       ?.scrollIntoView({ block: 'nearest', inline: 'center' })
   }, [selectedDate])
 
-  const [showHealthModal, setShowHealthModal] = useState(false)
-  const [healthSyncActive, setHealthSyncActive] = useState(true)
-  const [healthSyncing, setHealthSyncing] = useState(false)
-  const [healthSteps, setHealthSteps] = useState(7840)
-  const [healthActiveKcal, setHealthActiveKcal] = useState(Math.max(activityCalories, 210))
-  const [healthSleepHours, setHealthSleepHours] = useState(7.5)
-  const [healthHeartRate, setHealthHeartRate] = useState(68)
-  const [syncLastTime, setSyncLastTime] = useState('Vừa xong')
-  const [selectedDevice, setSelectedDevice] = useState<'apple' | 'android' | 'garmin' | 'sensor'>('apple')
-  const [stepGoal, setStepGoal] = useState<number>(10000)
-  const [autoBurnOffset, setAutoBurnOffset] = useState<boolean>(true)
-  const [activeStepTab, setActiveStepTab] = useState<number>(1)
-
-  const handleManualSync = (addSteps = 0) => {
-    setHealthSyncing(true)
-    setTimeout(() => {
-      const addedSteps = addSteps > 0 ? addSteps : Math.floor(Math.random() * 300) + 120
-      const addedKcal = Math.round(addedSteps * 0.038)
-      setHealthSteps((prev) => prev + addedSteps)
-      setHealthActiveKcal((prev) => prev + addedKcal)
-      setSyncLastTime('Vừa xong')
-      setHealthSyncing(false)
-    }, 600)
-  }
-
   return (
     <div className="nutrition-home nutrition-home--cal-ai">
       {/* Date Strip Bar (Thứ ngày ở đầu) */}
@@ -329,6 +348,77 @@ function NutritionDashboardHome({
         <button type="button" className="nutrition-date-arrow" onClick={() => onShiftWeek(1)} aria-label="Tuần sau">
           <ChevronRight size={18} />
         </button>
+      </section>
+
+      <section className="nutrition-daily-pulse" aria-labelledby="nutrition-daily-pulse-title">
+        <div className="nutrition-daily-pulse__glow" aria-hidden="true" />
+        <header className="nutrition-daily-pulse__header">
+          <div>
+            <span><Sparkles size={15} /> AURA DAILY PULSE</span>
+            <h1 id="nutrition-daily-pulse-title">Chào {firstName}, {pulseState.label.toLocaleLowerCase('vi-VN')}</h1>
+            <p>{selectedDateLabel} · Mục tiêu {goalLabel.toLocaleLowerCase('vi-VN')}</p>
+          </div>
+          <div className="nutrition-daily-pulse__streak" title="Chuỗi ngày ghi nhật ký liên tiếp">
+            <Flame size={17} fill="currentColor" />
+            <strong>{streakDays}</strong>
+            <span>ngày liên tiếp</span>
+          </div>
+        </header>
+
+        <div className="nutrition-daily-pulse__body">
+          <div className="nutrition-daily-pulse__energy">
+            <span className={calorieDelta < 0 ? 'is-over' : ''}>
+              {calorieDelta >= 0 ? formatNumber(calorieDelta) : `+${formatNumber(Math.abs(calorieDelta))}`}
+            </span>
+            <div><strong>{calorieDelta >= 0 ? 'kcal còn lại' : 'kcal vượt mức'}</strong><small>{formatNumber(caloriesConsumed)} / {formatNumber(calorieGoal)} kcal đã ghi</small></div>
+          </div>
+          <div className="nutrition-daily-pulse__status">
+            <strong>{pulseState.label}</strong>
+            <p>{pulseState.detail}</p>
+          </div>
+        </div>
+
+        <div className="nutrition-daily-pulse__footer">
+          <div>
+            <span>Mức đầy đủ dữ liệu</span>
+            <strong>{dataCompleteness}%</strong>
+          </div>
+          <div className="nutrition-daily-pulse__completeness" role="progressbar" aria-label={`Mức đầy đủ dữ liệu ${dataCompleteness}%`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={dataCompleteness}>
+            <span style={{ width: `${dataCompleteness}%` }} />
+          </div>
+          <button type="button" onClick={onEditProfile}>Kiểm tra mục tiêu <ArrowRight size={14} /></button>
+        </div>
+      </section>
+
+      <section className="nutrition-next-action" aria-label="Việc nên làm tiếp theo">
+        <span className="nutrition-next-action__icon"><NextActionIcon size={22} /></span>
+        <div>
+          <small>{nextAction.eyebrow}</small>
+          <h2>{nextAction.title}</h2>
+          <p>{nextAction.detail}</p>
+        </div>
+        <button type="button" onClick={nextAction.action}>{nextAction.label} <ArrowRight size={16} /></button>
+      </section>
+
+      <section className="nutrition-meal-rhythm" aria-labelledby="nutrition-meal-rhythm-title">
+        <div className="nutrition-meal-rhythm__heading">
+          <div><span>NHỊP BỮA ĂN</span><h2 id="nutrition-meal-rhythm-title">Một ngày, bốn điểm chạm</h2></div>
+          <small>{mealRhythm.filter((slot) => slot.meal).length}/4 đã ghi</small>
+        </div>
+        <div className="nutrition-meal-rhythm__grid">
+          {mealRhythm.map((slot) => (
+            <button
+              type="button"
+              key={slot.type}
+              className={slot.meal ? 'is-complete' : ''}
+              onClick={() => slot.meal && onOpenMeal ? onOpenMeal(slot.meal.id) : onOpenQuickAdd()}
+            >
+              <span className="nutrition-meal-rhythm__marker">{slot.meal ? <Check size={15} /> : <Plus size={15} />}</span>
+              <span className="nutrition-meal-rhythm__copy"><strong>{slot.label}</strong><small>{slot.meal ? slot.meal.title : slot.window}</small></span>
+              {slot.meal ? <em>{formatNumber(slot.meal.calories)} kcal</em> : <em>Ghi bữa</em>}
+            </button>
+          ))}
+        </div>
       </section>
 
       {/* Main Energy Carousel */}
@@ -552,8 +642,8 @@ function NutritionDashboardHome({
                 <div className="connect-health-card">
                   <div className="connect-health-icon"><Heart size={24} fill="#ff3b30" color="#ff3b30" /></div>
                   <h3>Đồng bộ sức khỏe</h3>
-                  <p>Theo dõi bước chân tự động</p>
-                  <button type="button" className="connect-btn" onClick={() => setShowHealthModal(true)}>Kết nối ngay</button>
+                  <p>Apple Health và Health Connect</p>
+                  <button type="button" className="connect-btn" disabled title="Tính năng đang được hoàn thiện với dữ liệu thiết bị thật">Sắp ra mắt</button>
                 </div>
 
                 {/* Calories Burned Card */}
@@ -714,303 +804,6 @@ function NutritionDashboardHome({
         </button>
       </div>
 
-      {/* Apple Health & Health Connect Sync Modal */}
-      {showHealthModal && (
-        <div
-          className="nutrition-sheet-backdrop"
-          role="presentation"
-          onClick={(event) => event.target === event.currentTarget && setShowHealthModal(false)}
-        >
-          <div className="apple-health-modal health-interactive-modal" role="dialog" aria-modal="true" aria-labelledby="apple-health-title">
-            <div className="apple-health-modal-header">
-              <div className="apple-health-title-group">
-                <div className="apple-health-badge-icon">
-                  <Activity size={24} />
-                </div>
-                <div>
-                  <h2 id="apple-health-title">Trung tâm Thiết bị & Đồng bộ Sức khỏe</h2>
-                  <p>Đồng bộ thời gian thực số bước chân, calo tiêu hao & sinh hiệu từ đồng hồ & điện thoại của bạn.</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                className="nutrition-close-button"
-                onClick={() => setShowHealthModal(false)}
-                aria-label="Đóng"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Device Selector Chips */}
-            <div className="health-device-selector">
-              <span className="section-label">Thiết bị ưu tiên:</span>
-              <div className="device-chips-grid">
-                <button
-                  type="button"
-                  className={`device-chip ${selectedDevice === 'apple' ? 'is-active' : ''}`}
-                  onClick={() => setSelectedDevice('apple')}
-                >
-                  <Watch size={16} />
-                  <span>Apple Watch / iOS</span>
-                </button>
-                <button
-                  type="button"
-                  className={`device-chip ${selectedDevice === 'android' ? 'is-active' : ''}`}
-                  onClick={() => setSelectedDevice('android')}
-                >
-                  <Smartphone size={16} />
-                  <span>Health Connect</span>
-                </button>
-                <button
-                  type="button"
-                  className={`device-chip ${selectedDevice === 'garmin' ? 'is-active' : ''}`}
-                  onClick={() => setSelectedDevice('garmin')}
-                >
-                  <Watch size={16} />
-                  <span>Garmin / Fitbit</span>
-                </button>
-                <button
-                  type="button"
-                  className={`device-chip ${selectedDevice === 'sensor' ? 'is-active' : ''}`}
-                  onClick={() => setSelectedDevice('sensor')}
-                >
-                  <Zap size={16} />
-                  <span>Cảm biến di động</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="apple-health-status-card">
-              <div className="health-status-top">
-                <div className="health-status-info">
-                  <span className={`health-badge ${healthSyncActive ? 'is-active' : ''}`}>
-                    {healthSyncActive ? 'Đã kết nối 🟢' : 'Đã ngắt kết nối ⚪'}
-                  </span>
-                  <h3>
-                    {healthSyncActive ? (
-                      selectedDevice === 'apple' ? 'Đã kết nối Apple HealthKit (Active)' :
-                      selectedDevice === 'android' ? 'Đã đồng bộ Google Health Connect' :
-                      selectedDevice === 'garmin' ? 'Đã liên kết tài khoản Garmin cloud' :
-                      'Đang sử dụng cảm biến CoreMotion di động'
-                    ) : 'Chưa bật đồng bộ tự động'}
-                  </h3>
-                  <small>Cập nhật lần cuối: {syncLastTime}</small>
-                </div>
-                <label className="health-toggle-switch">
-                  <input
-                    type="checkbox"
-                    checked={healthSyncActive}
-                    onChange={(event) => setHealthSyncActive(event.target.checked)}
-                  />
-                  <span className="slider" />
-                </label>
-              </div>
-
-              {healthSyncActive && (
-                <>
-                  <div className="health-live-stats-grid">
-                    <div className="health-stat-box">
-                      <span className="stat-icon kcal">
-                        <Flame size={18} fill="currentColor" />
-                      </span>
-                      <div>
-                        <strong>{formatNumber(healthActiveKcal)} kcal</strong>
-                        <small>Calo tiêu hao vận động</small>
-                      </div>
-                    </div>
-                    <div className="health-stat-box">
-                      <span className="stat-icon steps">
-                        <Footprints size={18} />
-                      </span>
-                      <div>
-                        <strong>{formatNumber(healthSteps)} bước</strong>
-                        <small>Tiến độ: {Math.round((healthSteps / stepGoal) * 100)}% mục tiêu</small>
-                      </div>
-                    </div>
-                    <div className="health-stat-box">
-                      <span className="stat-icon hr">
-                        <Heart size={18} />
-                      </span>
-                      <div>
-                        <strong>{healthHeartRate} bpm</strong>
-                        <small>Nhịp tim nghỉ trung bình</small>
-                      </div>
-                    </div>
-                    <div className="health-stat-box">
-                      <span className="stat-icon sleep">
-                        <Droplets size={18} />
-                      </span>
-                      <div>
-                        <strong>{healthSleepHours} giờ</strong>
-                        <small>Giấc ngủ sâu đêm qua</small>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Dynamic Configurations inside Connected view */}
-                  <div className="health-sync-settings">
-                    <div className="setting-slider-group">
-                      <div className="slider-header">
-                        <span className="lbl"><TrendingUp size={14} /> Mục tiêu số bước hằng ngày:</span>
-                        <strong className="val">{formatNumber(stepGoal)} bước</strong>
-                      </div>
-                      <input
-                        type="range"
-                        min="4000"
-                        max="20000"
-                        step="1000"
-                        value={stepGoal}
-                        onChange={(e) => setStepGoal(parseInt(e.target.value, 10))}
-                        className="health-range-slider"
-                      />
-                    </div>
-
-                    <div className="setting-toggle-row">
-                      <div className="toggle-label-group">
-                        <span className="lbl">💡 Tự động bù trừ Calo tiêu thụ</span>
-                        <p className="desc">Tự động tăng mức trần Calories được ăn hôm nay dựa trên lượng vận động thực tế.</p>
-                      </div>
-                      <label className="health-toggle-switch small-toggle">
-                        <input
-                          type="checkbox"
-                          checked={autoBurnOffset}
-                          onChange={(e) => setAutoBurnOffset(e.target.checked)}
-                        />
-                        <span className="slider" />
-                      </label>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* Simulation & Test Hardware Sensors Sandbox */}
-            {healthSyncActive && (
-              <div className="sensor-simulation-sandbox">
-                <div className="sandbox-header">
-                  <Sparkles size={16} className="spark-anim" />
-                  <h4>Trình giả lập & Kiểm tra cảm biến phần cứng</h4>
-                </div>
-                <p className="sandbox-desc">Thử nghiệm gửi gói tin bước chân thực tế của cảm biến di động để kiểm chứng thuật toán đồng bộ:</p>
-
-                <div className="sandbox-simulation-actions">
-                  <button
-                    type="button"
-                    className="sim-btn step-1000"
-                    onClick={() => handleManualSync(1000)}
-                    disabled={healthSyncing}
-                  >
-                    <span>+1,000 bước</span>
-                    <small>~38 kcal tiêu hao</small>
-                  </button>
-                  <button
-                    type="button"
-                    className="sim-btn step-3000"
-                    onClick={() => handleManualSync(3000)}
-                    disabled={healthSyncing}
-                  >
-                    <span>+3,000 bước</span>
-                    <small>~114 kcal tiêu hao</small>
-                  </button>
-                  <button
-                    type="button"
-                    className="sim-btn step-custom"
-                    onClick={() => handleManualSync(5000)}
-                    disabled={healthSyncing}
-                  >
-                    <span>+5,000 bước (Chạy bộ)</span>
-                    <small>~190 kcal tiêu hao</small>
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  className={`health-sync-btn ${healthSyncing ? 'is-syncing' : ''}`}
-                  onClick={() => handleManualSync(0)}
-                  disabled={healthSyncing}
-                >
-                  <RefreshCw size={16} className={healthSyncing ? 'spinning' : ''} />
-                  <span>{healthSyncing ? 'Đang giao tiếp với phần cứng thiết bị...' : 'Kiểm tra tín hiệu Bluetooth / Health API'}</span>
-                </button>
-              </div>
-            )}
-
-            {/* Interactive Concept Tab list */}
-            <div className="apple-health-ideas-section">
-              <div className="ideas-tab-header">
-                <h3>🛠️ Kiến trúc vận hành hệ thống kết nối</h3>
-                <div className="tab-pills">
-                  <button
-                    type="button"
-                    className={`tab-pill ${activeStepTab === 1 ? 'is-active' : ''}`}
-                    onClick={() => setActiveStepTab(1)}
-                  >
-                    Capacitor Native Bridge
-                  </button>
-                  <button
-                    type="button"
-                    className={`tab-pill ${activeStepTab === 2 ? 'is-active' : ''}`}
-                    onClick={() => setActiveStepTab(2)}
-                  >
-                    API / Cloud Sync
-                  </button>
-                </div>
-              </div>
-
-              {activeStepTab === 1 ? (
-                <div className="ideas-grid conceptual-grid animate-fade">
-                  <div className="idea-card">
-                    <div className="card-head">
-                      <Smartphone size={16} />
-                      <strong>1. iOS Apple HealthKit Bridge</strong>
-                    </div>
-                    <p>Sử dụng SDK gốc và plugin <code>@periferia/capacitor-healthkit</code> để đọc dữ liệu <code>HKQuantityTypeIdentifierActiveEnergyBurned</code> trực tiếp từ phần cứng Apple HealthKit khi app mở.</p>
-                  </div>
-                  <div className="idea-card">
-                    <div className="card-head">
-                      <Watch size={16} />
-                      <strong>2. Android Health Connect Sync</strong>
-                    </div>
-                    <p>Gọi API trung gian của Google Health Connect để đọc chỉ số bước chân và nhịp tim được chia sẻ bởi Samsung Health, Google Fit hay Fitbit một cách bảo mật.</p>
-                  </div>
-                  <div className="idea-card">
-                    <div className="card-head">
-                      <Activity size={16} />
-                      <strong>3. Web Bluetooth Core Sensors</strong>
-                    </div>
-                    <p>Giao tiếp trực tiếp với các thiết bị đo nhịp tim đeo ngực Garmin / Polar thông qua Web Bluetooth API của trình duyệt khi chạy bộ tại nhà.</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="ideas-grid conceptual-grid animate-fade">
-                  <div className="idea-card">
-                    <div className="card-head">
-                      <ShieldCheck size={16} />
-                      <strong>A. Phân quyền bảo mật (Privacy Guard)</strong>
-                    </div>
-                    <p>Cấp quyền Read-Only cho các trường thông tin cụ thể. Dữ liệu chỉ lưu trữ cục bộ trên máy và đồng bộ về hồ sơ học viên Aura Fitness để PT theo dõi.</p>
-                  </div>
-                  <div className="idea-card">
-                    <div className="card-head">
-                      <Sparkles size={16} />
-                      <strong>B. Webhook Tự động từ Đồng hồ</strong>
-                    </div>
-                    <p>Sử dụng phím tắt iOS (iOS Automation Shortcuts): Mỗi khi hoàn thành buổi tập luyện, iPhone tự động đẩy JSON chứa kết quả tới Webhook URL cá nhân của học viên.</p>
-                  </div>
-                  <div className="idea-card">
-                    <div className="card-head">
-                      <Plus size={16} />
-                      <strong>C. Tự động tính toán Calo thặng dư</strong>
-                    </div>
-                    <p>Hệ thống tự động tính toán bù trừ: Calories Mục tiêu = BMR + (Calo Vận Động × Hệ số 0.95). Giúp phân bổ lại thực đơn chính xác nhất.</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

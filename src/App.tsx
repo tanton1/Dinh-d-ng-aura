@@ -697,6 +697,7 @@ function AuraApplication() {
     )
   }
 
+  if (import.meta.env.MODE === 'e2e' && window.location.hash.startsWith('#/auth-preview')) return <AuthPage />
   if (backendMode === 'firebase' && !user) return <AuthPage />
 
   const changeMode = (next: AppMode) => {

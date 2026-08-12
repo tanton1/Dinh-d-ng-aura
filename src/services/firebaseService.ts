@@ -409,6 +409,7 @@ export async function createOrUpdateUserProfile(profile: UserProfile) {
         ...clientMutableProfileValues(profile),
         uid: profile.uid,
         email: authenticatedUser.email ?? '',
+        displayName: profile.displayName || authenticatedUser.displayName || 'Thành viên Aura',
         role: 'student',
         membership: 'free',
         updatedAt: serverTimestamp(),

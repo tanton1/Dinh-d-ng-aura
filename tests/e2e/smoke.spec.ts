@@ -36,3 +36,42 @@ test('admin meal plan route enforces auth or renders the workspace', async ({ pa
   await expect(page.getByText(/Thư viện công thức/i)).toBeVisible()
   await expect(page.getByText(/Kế hoạch 7 Ngày mẫu/i)).toBeVisible()
 })
+
+test('nutrition today and diary expose the new daily guidance without horizontal overflow', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem('aura:nutrition-profile:demo-admin', JSON.stringify({
+      goal: 'maintain',
+      age: 28,
+      biologicalSex: 'female',
+      heightCm: 162,
+      weightKg: 58,
+      activityLevel: 'moderate',
+      trainingSessions: 4,
+      eatingStyle: 'Không giới hạn',
+      allergies: '',
+      mealsPerDay: 3,
+      dislikes: '',
+      budget: 'medium',
+      prepTime: 'medium',
+      favoriteCuisine: 'Đa dạng',
+      reminders: { water: false, breakfast: false, lunch: false, dinner: false },
+    }))
+  })
+  await page.goto('/#/nutrition?section=today')
+
+  await expect(page.getByText('AURA DAILY PULSE')).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Một ngày, bốn điểm chạm/i })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Việc nên làm tiếp theo' })).toBeVisible()
+
+  const todayOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+  expect(todayOverflow).toBeLessThanOrEqual(1)
+
+  await page.getByRole('button', { name: 'Nhật ký' }).click()
+  await expect(page.getByText('TỔNG KẾT TRONG NGÀY')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Cần kiểm tra' })).toBeVisible()
+  await page.getByRole('button', { name: 'Cần kiểm tra' }).click()
+  await expect(page.getByText('Không có dữ liệu trong bộ lọc này')).toBeVisible()
+
+  const diaryOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+  expect(diaryOverflow).toBeLessThanOrEqual(1)
+})

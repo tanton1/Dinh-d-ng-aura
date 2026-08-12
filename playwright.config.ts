@@ -24,7 +24,7 @@ export default defineConfig({
   ],
   webServer: {
     command: previewCommand,
-    env: process.env.CI ? { VITE_FORCE_DEMO: 'true' } : undefined,
+    env: process.env.CI ? { VITE_FORCE_DEMO: 'true', VITE_ENABLE_DEMO_OTP: 'true' } : undefined,
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
