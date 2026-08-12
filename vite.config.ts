@@ -8,6 +8,8 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined
+          const normalizedId = id.replaceAll('\\', '/')
+          if (normalizedId.includes('/@firebase/messaging/') || normalizedId.includes('/firebase/messaging/')) return 'vendor-firebase-messaging'
           if (id.includes('/firebase/') || id.includes('/@firebase/') || id.includes('node_modules\\firebase') || id.includes('node_modules\\@firebase')) return 'vendor-firebase'
           if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/') || id.includes('node_modules\\react') || id.includes('node_modules\\scheduler')) return 'vendor-react'
           if (id.includes('lucide-react')) return 'vendor-icons'

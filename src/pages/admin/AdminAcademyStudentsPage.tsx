@@ -1,3 +1,4 @@
+import '../../styles-admin.css'
 import { AlertCircle, BookOpen, CheckCircle2, GraduationCap, LoaderCircle, Mail, Search, UserPlus, Users, XCircle } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { PageHeader } from '../../components/ui'

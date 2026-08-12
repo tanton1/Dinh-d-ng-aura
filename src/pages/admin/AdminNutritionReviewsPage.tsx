@@ -1,3 +1,4 @@
+import '../../styles-admin.css'
 import { useState, useEffect, useMemo } from 'react'
 import {
   Sparkles,

@@ -1,3 +1,4 @@
+import '../../styles-admin.css'
 import { AlertCircle, BookOpen, CheckCircle2, Clock3, Eye, Filter, LoaderCircle, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Star, TrendingUp, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { Course, CourseAnalytics, PublicationStatus } from '../../types'

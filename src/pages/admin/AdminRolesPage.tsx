@@ -1,3 +1,4 @@
+import '../../styles-admin.css'
 import { useMemo, useState } from 'react'
 import {
   AlertCircle,

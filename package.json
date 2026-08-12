@@ -15,7 +15,8 @@
     "test:functions": "npm --prefix functions test",
     "test:e2e": "playwright test",
     "test": "npm run test:functions",
-    "ci": "npm run typecheck && npm run build && npm --prefix functions run check",
+    "performance:check": "node scripts/check-performance-budget.mjs",
+    "ci": "npm run typecheck && npm run build && npm run performance:check && npm --prefix functions run check",
     "typecheck": "tsc -b",
     "start": "node dist/server.cjs"
   },

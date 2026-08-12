@@ -1,3 +1,4 @@
+import '../../styles-admin.css'
 import { useEffect, useState, useMemo, useRef } from 'react'
 import {
   Utensils,

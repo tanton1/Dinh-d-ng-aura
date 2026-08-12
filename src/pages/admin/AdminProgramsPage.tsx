@@ -26,6 +26,7 @@
   X,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import '../../styles-admin.css'
 import ExercisePrescriptionFields from '../../components/coaching/ExercisePrescriptionFields'
 import { PageHeader } from '../../components/ui'
 import { workoutExercises } from '../../data'

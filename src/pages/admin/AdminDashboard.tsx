@@ -1,3 +1,4 @@
+import '../../styles-admin.css'
 import { useState } from 'react'
 import { AlertCircle, ArrowRight, Bell, BookOpen, CalendarClock, CheckCircle2, DollarSign, Dumbbell, GraduationCap, Plus, TrendingUp, Users } from 'lucide-react'
 import type { ViewId } from '../../types'

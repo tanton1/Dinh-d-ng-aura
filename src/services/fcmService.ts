@@ -1,9 +1,8 @@
-import { getToken } from 'firebase/messaging'
 import { httpsCallable } from 'firebase/functions'
-import { firebaseAuth, firebaseFunctions, firebaseMessaging } from '../lib/firebase'
+import { firebaseAuth, firebaseFunctions, getFirebaseMessaging } from '../lib/firebase'
 
 export async function requestFcmPermissionAndToken(userId: string) {
-  if (!firebaseMessaging || !firebaseFunctions || !firebaseAuth?.currentUser) return null
+  if (!firebaseFunctions || !firebaseAuth?.currentUser) return null
   if (firebaseAuth.currentUser.uid !== userId) throw new Error('Phiên đăng nhập không hợp lệ.')
   if (!('Notification' in window) || !('serviceWorker' in navigator)) return null
 
@@ -13,6 +12,10 @@ export async function requestFcmPermissionAndToken(userId: string) {
 
     const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY?.trim()
     if (!vapidKey) throw new Error('VAPID public key chưa được cấu hình.')
+    const firebaseMessaging = await getFirebaseMessaging()
+    if (!firebaseMessaging) return null
+
+    const { getToken } = await import('firebase/messaging')
     const serviceWorkerRegistration = await navigator.serviceWorker.ready
     const currentToken = await getToken(firebaseMessaging, { vapidKey, serviceWorkerRegistration })
     if (!currentToken) return null

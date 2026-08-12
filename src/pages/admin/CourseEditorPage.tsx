@@ -1,3 +1,4 @@
+import '../../styles-admin.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,

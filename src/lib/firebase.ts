@@ -12,7 +12,7 @@ import {
 } from 'firebase/firestore'
 import { connectStorageEmulator, getStorage, type FirebaseStorage } from 'firebase/storage'
 import { connectFunctionsEmulator, getFunctions, type Functions } from 'firebase/functions'
-import { getMessaging, type Messaging, isSupported } from 'firebase/messaging'
+import type { Messaging } from 'firebase/messaging'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -42,7 +42,29 @@ export let firebaseAuth: Auth | null = null
 export let firestoreDb: Firestore | null = null
 export let firebaseStorage: FirebaseStorage | null = null
 export let firebaseFunctions: Functions | null = null
-export let firebaseMessaging: Messaging | null = null
+let firebaseMessagingPromise: Promise<Messaging | null> | null = null
+
+export function getFirebaseMessaging(): Promise<Messaging | null> {
+  if (!firebaseApp || typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+    return Promise.resolve(null)
+  }
+
+  if (!firebaseMessagingPromise) {
+    firebaseMessagingPromise = import('firebase/messaging')
+      .then(async ({ getMessaging, isSupported }) => {
+        if (!(await isSupported())) return null
+        return getMessaging(firebaseApp!)
+      })
+      .catch((error) => {
+        if (import.meta.env.DEV) {
+          console.warn('Firebase Messaging failed to initialize', error)
+        }
+        return null
+      })
+  }
+
+  return firebaseMessagingPromise
+}
 
 if (isFirebaseConfigured) {
   firebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig)
@@ -63,7 +85,6 @@ if (isFirebaseConfigured) {
         localCache: persistentOfflineCacheEnabled
           ? persistentLocalCache({ tabManager: persistentMultipleTabManager() })
           : memoryLocalCache(),
-        experimentalForceLongPolling: true
       },
       firestoreDatabaseId,
     )
@@ -74,20 +95,6 @@ if (isFirebaseConfigured) {
   firebaseStorage = getStorage(firebaseApp)
   firebaseFunctions = getFunctions(firebaseApp, 'asia-southeast1')
   
-  if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-    isSupported().then((supported) => {
-      if (supported) {
-        try {
-          firebaseMessaging = getMessaging(firebaseApp!)
-        } catch (e) {
-          console.warn('Firebase Messaging failed to initialize', e)
-        }
-      } else {
-        console.warn('Firebase Messaging not supported in this browser')
-      }
-    }).catch((e) => console.warn('Firebase Messaging check failed', e))
-  }
-
   if (useFirebaseEmulators) {
     connectAuthEmulator(firebaseAuth, 'http://127.0.0.1:9099', { disableWarnings: true })
     connectFirestoreEmulator(firestoreDb, '127.0.0.1', 8080)

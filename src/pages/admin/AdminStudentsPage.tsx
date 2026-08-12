@@ -27,6 +27,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import '../../styles-admin.css'
 import PtClientSchedulePanel from '../../components/coaching/PtClientSchedulePanel'
 import { PageHeader } from '../../components/ui'
 import { createNotification } from '../../services/notificationService'

@@ -10,6 +10,20 @@ test('demo dashboard loads without a fatal runtime error', async ({ page }) => {
   expect(pageErrors).toEqual([])
 })
 
+test('home route keeps deferred assets out of the initial request path', async ({ page }) => {
+  await page.goto('/#/home')
+  await expect(page.locator('#root')).not.toBeEmpty()
+
+  const resourcePaths = await page.evaluate(() => performance
+    .getEntriesByType('resource')
+    .map((entry) => new URL(entry.name).pathname))
+
+  expect(resourcePaths.some((path) => path.endsWith('/aura-onboarding.webp'))).toBe(true)
+  expect(resourcePaths.some((path) => path.endsWith('/aura-onboarding.png'))).toBe(false)
+  expect(resourcePaths.some((path) => path.includes('styles-admin-'))).toBe(false)
+  expect(resourcePaths.some((path) => path.includes('vendor-firebase-messaging-'))).toBe(false)
+})
+
 test('admin meal plan route enforces auth or renders the workspace', async ({ page }) => {
   await page.goto('/#/admin-meal-plans')
   const signInHeading = page.getByRole('heading', { name: /Đăng nhập để tiếp tục hành trình/i })

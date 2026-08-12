@@ -39,7 +39,6 @@ import type {
   ViewId,
 } from './types'
 import { flattenCourseLessons, getInitialDemoCompletedLessonIds } from './utils/courseContent'
-import { idlePrefetchStudentRoutes, idlePrefetchAdminRoutes } from './utils/routePreloader'
 
 function lazyWithRetry<T extends React.ComponentType<any>>(
   factory: () => Promise<{ default: T }>
@@ -248,13 +247,6 @@ function AuraApplication() {
   const adminCourseData = useCourses(Boolean(user) && canManageAcademy, true)
   const view = route.view
   const mode: AppMode = adminViews.includes(view) ? 'admin' : 'student'
-
-  useEffect(() => {
-    idlePrefetchStudentRoutes()
-    if (canAccessAdmin) {
-      idlePrefetchAdminRoutes()
-    }
-  }, [canAccessAdmin])
 
   useEffect(() => {
     const profileKey = `aura:nutrition-profile:${user?.uid ?? 'demo'}`
@@ -659,7 +651,7 @@ function AuraApplication() {
         <div className="aura-loading-center">
            <div className="aura-loading-logo-group">
               <div className="aura-loading-img-wrapper">
-                <img src="/aura-onboarding.png" alt="Aura Fitness Loading" className="aura-loading-brand-img" />
+                <img src="/aura-onboarding.webp" alt="Aura Fitness Loading" className="aura-loading-brand-img" decoding="async" fetchPriority="high" />
               </div>
               <h1 className="aura-loading-h1">AURA</h1>
               <h2 className="aura-loading-h2">FITNESS & NUTRITION</h2>
@@ -1038,7 +1030,7 @@ function AuraApplication() {
 function RouteLoadingFallback() {
   return (
     <div className="aura-route-fallback-card" role="status" aria-live="polite">
-      <img src="/aura-onboarding.png" alt="Aura Loading" className="aura-route-fallback-img" />
+      <img src="/aura-onboarding.webp" alt="Aura Loading" className="aura-route-fallback-img" decoding="async" />
       <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a', margin: '0 0 6px 0' }}>Đang tải không gian Aura...</h1>
       <p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>Nội dung đang được đồng bộ và tối ưu hiển thị mượt mà.</p>
     </div>
