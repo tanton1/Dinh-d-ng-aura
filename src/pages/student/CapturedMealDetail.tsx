@@ -59,13 +59,17 @@ export interface MealLogItem {
   items?: AiFoodItem[]
   coachFeedback?: string
   aiAnalysis?: any
+  quantityAndCookingAnalysis?: string
+  portionAndCalorieRationale?: string
   goalAlignmentAssessment?: string
+  calorieOptimizationTip?: string
+  macroBalanceAssessment?: string
   coachFeedbackSuggestion?: string
   reviewStatus?: 'pending' | 'reviewed'
 }
 
 import { useAuth } from '../../contexts/AuthContext'
-import { generateMealReview } from '../../services/nutritionService'
+import { generateMealReview, getUsableFoodAnalysisText } from '../../services/nutritionService'
 import { submitMealReview } from '../../services/firebaseService'
 
 export interface CapturedMealDetailProps {
@@ -143,6 +147,17 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
   const totalCarbs = Math.round((meal.carbs || 40) * portionCount)
   const totalFat = Math.round((meal.fat || 12) * portionCount)
   const totalFiber = Math.round((meal.fiber || 0) * portionCount)
+  const storedAiAnalysis = typeof meal.aiAnalysis === 'object' && meal.aiAnalysis !== null ? meal.aiAnalysis : {}
+  const quantityAndCookingAnalysis = getUsableFoodAnalysisText(meal.quantityAndCookingAnalysis)
+    || getUsableFoodAnalysisText(storedAiAnalysis.quantityAndCookingAnalysis)
+  const portionAndCalorieRationale = getUsableFoodAnalysisText(meal.portionAndCalorieRationale)
+    || getUsableFoodAnalysisText(storedAiAnalysis.portionAndCalorieRationale)
+  const goalAlignmentAssessment = getUsableFoodAnalysisText(meal.goalAlignmentAssessment)
+    || getUsableFoodAnalysisText(storedAiAnalysis.goalAlignmentAssessment)
+  const calorieOptimizationTip = getUsableFoodAnalysisText(meal.calorieOptimizationTip)
+    || getUsableFoodAnalysisText(storedAiAnalysis.calorieOptimizationTip)
+  const macroBalanceAssessment = getUsableFoodAnalysisText(meal.macroBalanceAssessment)
+    || getUsableFoodAnalysisText(storedAiAnalysis.macroBalanceAssessment)
   
   const macroSumCal = Math.max(1, (totalProtein * 4) + (totalCarbs * 4) + (totalFat * 9))
 
@@ -471,50 +486,41 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
           </div>
         )}
 
-        {/* ✨ Đánh Giá Từ AI Coach & Nhận Xét Từ Coach */}
+        {/* Structured Aura AI analysis and reviewed Coach feedback */}
         <div className="fdet-section" style={{ marginTop: '16px' }}>
-          <div className="fdet-section-header" style={{ marginBottom: '10px' }}>
-            <h2 className="fdet-section-title fdet-ai-title" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
-              <div style={{ padding: '6px', background: 'linear-gradient(135deg, #ec4899 0%, #f97316 100%)', color: '#fff', borderRadius: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <div className="fdet-section-header">
+            <h2 className="fdet-section-title fdet-ai-title">
+              <div className="fdet-ai-title__icon">
                 <Sparkles size={16} />
               </div>
-              <span style={{ fontSize: '15px', fontWeight: 900, background: 'linear-gradient(135deg, #db2777 0%, #ea580c 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', whiteSpace: 'nowrap' }}>
-                Gợi ý từ AI Coach & Nhận xét từ Coach
-              </span>
+              <span>Phân tích từ Aura AI</span>
             </h2>
           </div>
 
-          {/* AI Aura Coach Assessment Card (Gradient Hồng - Cam) */}
-          <div
-            style={{
-              padding: '16px',
-              borderRadius: '24px',
-              background: 'linear-gradient(135deg, #fff0f6 0%, #fff7ed 50%, #fdf2f8 100%)',
-              border: '1px solid #fce7f3',
-              boxShadow: '0 8px 24px rgba(255, 45, 145, 0.08)',
-              marginTop: '10px',
-              marginBottom: '12px'
-            }}
-          >
-            <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <div style={{ padding: '6px', background: 'linear-gradient(135deg, #ec4899 0%, #f97316 100%)', color: '#fff', borderRadius: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Sparkles size={14} />
-              </div>
-              <span style={{ fontSize: '13px', fontWeight: 900, background: 'linear-gradient(135deg, #db2777 0%, #ea580c 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
-                Gợi ý từ AI Coach
-              </span>
+          <div className="fdet-ai-analysis-card">
+            <div className="fdet-ai-analysis-card__primary">
+              <span>🎯 Mức độ phù hợp với mục tiêu</span>
+              <p>{goalAlignmentAssessment || 'Kết quả cũ chưa có đánh giá riêng theo mục tiêu. Hãy phân tích lại ảnh để cập nhật theo hồ sơ hiện tại.'}</p>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500 }}>
-                <strong style={{ color: '#0f172a' }}>🎯 Đánh giá phù hợp mục tiêu: </strong>
-                {meal.goalAlignmentAssessment || (typeof meal.aiAnalysis === 'object' ? meal.aiAnalysis?.goalAlignmentAssessment : '') || `Khẩu phần ${portionCount} phần gồm ${ingredients.map((i) => i.name).join(', ')}. Tổng năng lượng ${totalCal} kcal (${totalProtein}g Đạm, ${totalCarbs}g Carb, ${totalFat}g Béo) đạt tỉ lệ dinh dưỡng cân đối, phù hợp với chế độ tập luyện.`}
-              </p>
-              {(meal.coachFeedbackSuggestion || (typeof meal.aiAnalysis === 'object' && meal.aiAnalysis?.coachFeedbackSuggestion)) && (
-                <p style={{ margin: 0, fontSize: '13px', color: '#1e293b', lineHeight: 1.6, fontWeight: 500 }}>
-                  <strong style={{ color: '#0f172a' }}>💡 Tư vấn từ AI Coach: </strong>
-                  {meal.coachFeedbackSuggestion || (typeof meal.aiAnalysis === 'object' ? meal.aiAnalysis?.coachFeedbackSuggestion : '')}
-                </p>
-              )}
+            <div className="fdet-ai-analysis-card__tips">
+              <article>
+                <span>🔥 Mẹo tối ưu calo</span>
+                <p>{calorieOptimizationTip || 'Kết quả cũ chưa có mẹo calo riêng cho món ăn này. Hãy phân tích lại ảnh để nhận điều chỉnh khẩu phần cụ thể.'}</p>
+              </article>
+              <article>
+                <span>⚖️ Cân bằng Macro</span>
+                <p>{macroBalanceAssessment || 'Kết quả cũ chưa có đánh giá riêng về đạm, carb, chất béo và chất xơ. Hãy phân tích lại ảnh để cập nhật.'}</p>
+              </article>
+            </div>
+            <div className="fdet-ai-analysis-card__evidence">
+              <article>
+                <span>🍽️ Phương pháp chế biến & Định lượng</span>
+                <p>{quantityAndCookingAnalysis || 'Kết quả này chưa có mô tả riêng về định lượng và phương pháp chế biến.'}</p>
+              </article>
+              <article>
+                <span>📏 Cơ sở dự đoán Khối lượng & Kcal</span>
+                <p>{portionAndCalorieRationale || 'Kết quả này chưa có giải thích riêng về căn cứ ước tính khối lượng và calo.'}</p>
+              </article>
             </div>
           </div>
 

@@ -810,8 +810,15 @@ function AuraApplication() {
           const ageStr = p?.age ? `${p.age} tuổi` : ''
           const heightStr = p?.heightCm ? `${p.heightCm}cm` : effectiveHeight ? `${effectiveHeight}cm` : ''
           const weightStr = p?.weightKg ? `${p.weightKg}kg` : effectiveWeight ? `${effectiveWeight}kg` : ''
-          const calStr = p?.targetCalories ? `Mục tiêu ${p.targetCalories} kcal/ngày` : ''
-          const userCondStr = [sexStr, ageStr, heightStr, weightStr, calStr].filter(Boolean).join(', ')
+          const targets = p ? calculateNutritionTargets(p) : null
+          const targetCalories = p?.targetCalories ?? targets?.targetCaloriesKcal
+          const targetProtein = p?.protein ?? targets?.proteinG
+          const targetCarbs = p?.carbs ?? targets?.carbsG
+          const targetFat = p?.fat ?? targets?.fatG
+          const targetStr = targetCalories
+            ? `Mục tiêu ngày ${Math.round(targetCalories)} kcal, ${Math.round(targetProtein || 0)}g đạm, ${Math.round(targetCarbs || 0)}g carb, ${Math.round(targetFat || 0)}g béo`
+            : ''
+          const userCondStr = [sexStr, ageStr, heightStr, weightStr, targetStr].filter(Boolean).join(', ')
 
           return analyzeFoodPhoto(file, {
             ...options,

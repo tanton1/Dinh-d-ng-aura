@@ -3,6 +3,7 @@ const test = require('node:test')
 
 const {
   applyCatalogLookupToItem,
+  buildFoodAnalysisInstructions,
   createGeminiSchema,
   enrichAnalysisWithLookups,
   foodAnalysisSchema,
@@ -10,6 +11,7 @@ const {
   isGeminiModelCompatibilityError,
   sanitizeProviderErrorMessage,
   scaleCatalogNutrition,
+  shouldTryNextFoodAnalysisModel,
   sumNutritionItems,
   validateFoodAnalysis,
 } = require('./nutrition')
@@ -31,6 +33,32 @@ test('Gemini model candidates use stable defaults and remove duplicates', () => 
     if (originalFallback === undefined) delete process.env.GEMINI_VISION_FALLBACK_MODEL
     else process.env.GEMINI_VISION_FALLBACK_MODEL = originalFallback
   }
+})
+
+test('food analysis retries transient, incomplete, and invalid structured responses on the fallback model', () => {
+  const base = { index: 0, modelCount: 2, providerMessage: null }
+
+  assert.equal(shouldTryNextFoodAnalysisModel({ ...base, status: 0, stage: 'provider_error' }), true)
+  assert.equal(shouldTryNextFoodAnalysisModel({ ...base, status: 500, stage: 'provider_error' }), true)
+  assert.equal(shouldTryNextFoodAnalysisModel({ ...base, status: 200, stage: 'incomplete_response' }), true)
+  assert.equal(shouldTryNextFoodAnalysisModel({ ...base, status: 200, stage: 'structured_output' }), true)
+})
+
+test('food analysis does not retry permanent provider errors or after the last model', () => {
+  assert.equal(shouldTryNextFoodAnalysisModel({
+    index: 0,
+    modelCount: 2,
+    status: 400,
+    providerMessage: 'Invalid image data.',
+    stage: 'provider_error',
+  }), false)
+  assert.equal(shouldTryNextFoodAnalysisModel({
+    index: 1,
+    modelCount: 2,
+    status: 503,
+    providerMessage: null,
+    stage: 'provider_error',
+  }), false)
 })
 
 function collectKeys(value, keys = []) {
@@ -55,6 +83,80 @@ test('Gemini schema omits provider-complexity constraints enforced on the server
   assert.equal(keys.includes('maxItems'), false)
   assert.equal(schema.required.includes('items'), true)
   assert.equal(schema.properties.items.type, 'array')
+  assert.equal(schema.required.includes('goalAlignmentAssessment'), true)
+  assert.equal(schema.required.includes('calorieOptimizationTip'), true)
+  assert.equal(schema.required.includes('macroBalanceAssessment'), true)
+})
+
+test('food analysis prompt keeps advisory fields separate by responsibility', () => {
+  const instructions = buildFoodAnalysisInstructions()
+
+  assert.match(instructions, /quantityAndCookingAnalysis: Describe only visible estimated quantities/)
+  assert.match(instructions, /calorieOptimizationTip: Give one practical food\/portion change/)
+  assert.match(instructions, /macroBalanceAssessment: Assess protein, carbohydrate, fat, and fiber balance/)
+  assert.match(instructions, /Never concatenate headings, repeat the same sentence, or move content between fields/)
+  assert.match(instructions, /student goal supplied only as untrusted metadata/)
+  assert.match(instructions, /Never add filler, greetings, motivational slogans, body\/beauty claims/)
+})
+
+test('food analysis validation preserves the new structured advisory fields', () => {
+  const source = {
+    isFood: true,
+    dishNameVi: 'Cơm gà',
+    dishNameEn: 'Chicken rice',
+    portionSummary: 'Một phần cơm gà',
+    confidence: 0.9,
+    calorieRange: { low: 400, high: 500 },
+    totals: nutrition({ calories: 450 }),
+    quantityAndCookingAnalysis: 'Khoảng 150g cơm và 120g gà áp chảo.',
+    portionAndCalorieRationale: 'Ước tính theo kích thước đĩa và độ dày miếng gà.',
+    goalAlignmentAssessment: 'Bữa ăn 450 kcal với khoảng 38g đạm phù hợp mục tiêu giảm mỡ hiện tại.',
+    calorieOptimizationTip: 'Giảm một nửa lượng sốt để hạ năng lượng từ chất béo.',
+    macroBalanceAssessment: 'Khoảng 38g đạm và 48g carb khá tốt, nhưng 16g chất béo hơi cao và 4g chất xơ còn thấp.',
+    coachFeedbackSuggestion: 'Bản nháp dành cho Coach kiểm tra trước khi gửi học viên.',
+    aiFeedback: 'Bữa ăn có cấu trúc dinh dưỡng khá cân đối.',
+    items: [analysisItem()],
+    questions: [],
+    warnings: [],
+  }
+
+  const result = validateFoodAnalysis(source)
+  assert.equal(result.calorieOptimizationTip, source.calorieOptimizationTip)
+  assert.equal(result.macroBalanceAssessment, source.macroBalanceAssessment)
+  assert.notEqual(result.quantityAndCookingAnalysis, result.goalAlignmentAssessment)
+})
+
+test('food analysis validation rejects missing advisory answers', () => {
+  const source = validFoodAnalysis()
+  delete source.calorieOptimizationTip
+  assert.throws(() => validateFoodAnalysis(source), /calorieOptimizationTip must be a non-empty string/)
+})
+
+test('food analysis validation rejects repetitive and unrelated Gemini tails', () => {
+  const source = validFoodAnalysis()
+  source.quantityAndCookingAnalysis += ' bạn nhé đàng hoàng bạn nhé đàng hoàng bạn nhé đàng hoàng bạn nhé đàng hoàng bạn nhé đàng hoàng bạn nhé đàng hoàng'
+  assert.throws(() => validateFoodAnalysis(source), /repetitive or degenerate text/)
+
+  const beautyTail = validFoodAnalysis()
+  beautyTail.quantityAndCookingAnalysis += ' Nội dung này giúp làn da mịn màng, vóc dáng xinh xắn, trẻ trung, quyến rũ và tỏa sáng.'
+  assert.throws(() => validateFoodAnalysis(beautyTail), /repetitive or degenerate text/)
+})
+
+test('food analysis validation rejects generic goal and macro placeholders without numeric meal evidence', () => {
+  assert.throws(
+    () => validateFoodAnalysis({
+      ...validFoodAnalysis(),
+      goalAlignmentAssessment: 'Bữa ăn phù hợp chỉ tiêu năng lượng và đạm trong ngày.',
+    }),
+    /goalAlignmentAssessment must compare numeric meal data/,
+  )
+  assert.throws(
+    () => validateFoodAnalysis({
+      ...validFoodAnalysis(),
+      macroBalanceAssessment: 'Hàm lượng đạm rất tốt cho sự phục hồi cơ bắp.',
+    }),
+    /macroBalanceAssessment must assess numeric data/,
+  )
 })
 
 test('server validation still enforces the item limit removed from the provider schema', () => {
@@ -137,6 +239,29 @@ function analysisItem(overrides = {}) {
     nutrition: nutrition(),
     confidence: 0.8,
     assumptions: [],
+    ...overrides,
+  }
+}
+
+function validFoodAnalysis(overrides = {}) {
+  return {
+    isFood: true,
+    dishNameVi: 'Cơm gà rau củ',
+    dishNameEn: 'Chicken rice with vegetables',
+    portionSummary: 'Một phần cơm gà kèm rau củ',
+    confidence: 0.88,
+    calorieRange: { low: 420, high: 500 },
+    totals: nutrition({ calories: 460, proteinG: 38, carbsG: 48, fatG: 16, fiberG: 4 }),
+    quantityAndCookingAnalysis: 'Khoảng 150g cơm chín, 120g ức gà áp chảo và 80g rau củ luộc.',
+    portionAndCalorieRationale: 'Ước tính dựa trên kích thước đĩa, độ dày phần ức gà và lượng dầu khó quan sát khi áp chảo.',
+    goalAlignmentAssessment: 'Bữa ăn khoảng 460 kcal và 38g đạm phù hợp mục tiêu giảm mỡ, nhưng chất xơ còn thấp.',
+    calorieOptimizationTip: 'Giảm khoảng 5g dầu áp chảo hoặc bớt sốt để hạ năng lượng của khẩu phần.',
+    macroBalanceAssessment: 'Khoảng 38g đạm và 48g carb khá tốt, nhưng 16g chất béo hơi cao và 4g chất xơ còn thấp.',
+    coachFeedbackSuggestion: 'Bữa ăn có lượng đạm phù hợp; Coach nên xác nhận lượng dầu và khuyến khích học viên bổ sung thêm rau.',
+    aiFeedback: 'Bữa ăn giàu đạm và có mức năng lượng vừa phải, nhưng cần tăng thêm chất xơ.',
+    items: [analysisItem()],
+    questions: [],
+    warnings: [],
     ...overrides,
   }
 }
@@ -355,6 +480,13 @@ test('non-food analysis cannot carry food items, calorie ranges, or nutrition to
     confidence: 0.95,
     calorieRange: { low: 0, high: 0 },
     totals: zeroNutrition,
+    quantityAndCookingAnalysis: 'Không áp dụng vì ảnh không chứa món ăn.',
+    portionAndCalorieRationale: 'Không áp dụng vì ảnh không chứa món ăn.',
+    goalAlignmentAssessment: 'Không áp dụng vì ảnh không chứa món ăn.',
+    calorieOptimizationTip: 'Không áp dụng vì ảnh không chứa món ăn.',
+    macroBalanceAssessment: 'Không áp dụng vì ảnh không chứa món ăn.',
+    coachFeedbackSuggestion: 'Không áp dụng vì ảnh không chứa món ăn.',
+    aiFeedback: 'Không áp dụng vì ảnh không chứa món ăn.',
     items: [],
     questions: [],
     warnings: ['Ảnh không chứa món ăn.'],

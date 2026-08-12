@@ -4,6 +4,88 @@ import { firebaseAuth, firebaseFunctions, firebaseStorage } from '../lib/firebas
 
 export const MAX_NUTRITION_IMAGE_BYTES = 8 * 1024 * 1024
 
+const legacyFoodAnalysisPlaceholders = new Set([
+  'bua an phu hop chi tieu nang luong va dam trong ngay',
+  'muc calo vua van phu hop duy tri cho bua an chinh',
+  'ham luong dam rat tot cho su phuc hoi co bap',
+  'nhan dinh bua an dap ung tot muc tieu tang co va kiem soat calo trong ngay',
+  'giu khau phan hien tai va uu tien gia vi it nang luong de kiem soat tong calo',
+  'doi chieu luong dam carb chat beo va chat xo truoc khi dieu chinh khau phan',
+])
+
+function normalizeAnalysisText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[đĐ]/g, 'd')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+function containsDegenerateAnalysisText(value: string): boolean {
+  const unrelatedClaims = value.toLowerCase().match(/xinh xắn|xinh đẹp|quyến rũ|làn da|mịn màng|mượt mà|tỏa sáng|trẻ trung|đáng yêu|sức hút/g) ?? []
+  if (unrelatedClaims.length >= 2) return true
+  const tokens = normalizeAnalysisText(value).split(' ').filter(Boolean)
+  if (tokens.length < 18) return false
+  const ignored = new Set(['anh', 'ban', 'cac', 'cho', 'co', 'cua', 'da', 'de', 'duoc', 'khong', 'la', 'mot', 'nay', 'nen', 'nhung', 'qua', 'trong', 'tu', 'va', 'voi'])
+  const contentTokens = tokens.filter((token) => token.length > 2 && !ignored.has(token))
+  if (contentTokens.length < 10) return false
+  const counts = new Map<string, number>()
+  contentTokens.forEach((token) => counts.set(token, (counts.get(token) ?? 0) + 1))
+  if (Math.max(...counts.values()) >= Math.max(5, Math.ceil(contentTokens.length * 0.14))) return true
+  const tail = contentTokens.slice(-30)
+  return tail.length >= 16 && new Set(tail).size / tail.length < 0.5
+}
+
+export function getUsableFoodAnalysisText(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const text = value.trim()
+  if (!text) return ''
+  const normalized = normalizeAnalysisText(text)
+  if (legacyFoodAnalysisPlaceholders.has(normalized)) return ''
+  if (containsDegenerateAnalysisText(text)) return ''
+  return text
+}
+
+export function getFoodAnalysisErrorMessage(error: unknown): string {
+  const rawMessage = error instanceof Error
+    ? error.message.trim()
+    : isRecord(error) && typeof error.message === 'string'
+      ? error.message.trim()
+      : ''
+  const rawCode = isRecord(error) && typeof error.code === 'string' ? error.code : ''
+  const code = rawCode.replace(/^functions\//, '')
+  const hasUsefulMessage = rawMessage.length > 0
+    && !/^(internal|unknown|error)$/i.test(rawMessage)
+
+  if (code === 'failed-precondition') {
+    return hasUsefulMessage
+      ? rawMessage
+      : 'Aura chưa nhận ra món ăn trong ảnh này. Hãy thử ảnh rõ hơn và chụp trọn phần ăn.'
+  }
+  if (code === 'resource-exhausted') {
+    return 'Dịch vụ AI đang bận. Vui lòng chờ một chút rồi thử lại chính ảnh này.'
+  }
+  if (code === 'deadline-exceeded') {
+    return 'Phân tích mất nhiều thời gian hơn dự kiến. Vui lòng thử lại chính ảnh này.'
+  }
+  if (code === 'unavailable' || code === 'internal' || /^(internal|unknown)$/i.test(rawMessage)) {
+    return code === 'unavailable' && hasUsefulMessage
+      ? rawMessage
+      : 'Aura AI chưa hoàn tất lần phân tích này. Bạn có thể thử lại chính ảnh vừa chọn.'
+  }
+  if (code === 'unauthenticated') {
+    return 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại rồi thử phân tích ảnh.'
+  }
+  if (code.startsWith('storage/') || /network|fetch|offline/i.test(rawMessage)) {
+    return 'Không thể tải ảnh lên do kết nối mạng. Vui lòng kiểm tra mạng rồi thử lại.'
+  }
+  return hasUsefulMessage
+    ? rawMessage
+    : 'Không thể kết nối dịch vụ phân tích ảnh. Vui lòng kiểm tra mạng và thử lại.'
+}
+
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'other'
 
 export interface NutritionTotals {
@@ -139,6 +221,9 @@ export interface FoodAnalysis {
   quantityAndCookingAnalysis?: string
   portionAndCalorieRationale?: string
   goalAlignmentAssessment?: string
+  calorieOptimizationTip?: string
+  macroBalanceAssessment?: string
+  aiFeedback?: string
   coachFeedbackSuggestion?: string
 }
 
@@ -439,6 +524,8 @@ function isFoodAnalysis(value: unknown): value is FoodAnalysis {
     || value.warnings.length > 8
     || value.questions.some((question) => typeof question !== 'string')
     || value.warnings.some((warning) => typeof warning !== 'string')
+    || ['quantityAndCookingAnalysis', 'portionAndCalorieRationale', 'goalAlignmentAssessment', 'calorieOptimizationTip', 'macroBalanceAssessment', 'aiFeedback', 'coachFeedbackSuggestion']
+      .some((field) => value[field] !== undefined && typeof value[field] !== 'string')
   ) return false
 
   const hasDatabaseEvidence = value.databaseEvidence !== undefined
@@ -579,7 +666,7 @@ export async function analyzeFoodPhoto(
       const msgBuffer = new TextEncoder().encode(base64 + (options.notes || '') + (options.userGoal || '') + (options.userCondition || ''));
       const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
-      cacheKey = 'meal_analysis_v2_' + hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      cacheKey = 'meal_analysis_v3_' + hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
       const cached = localStorage.getItem(cacheKey);
       if (cached) {
         return JSON.parse(cached) as FoodAnalysisResponse;
@@ -645,10 +732,12 @@ export async function analyzeFoodPhoto(
             },
             catalogMatch: null,
             catalogCandidates: [],
-            quantityAndCookingAnalysis: a.quantityAndCookingAnalysis || 'Phân tích định lượng thực tế quan sát qua hình ảnh và cách chế biến giữ vị tự nhiên.',
-            portionAndCalorieRationale: a.portionAndCalorieRationale || 'Cơ sở dự đoán dựa trên đường kính bát/đĩa tiêu chuẩn và độ dày khẩu phần.',
-            goalAlignmentAssessment: a.goalAlignmentAssessment || 'Nhận định bữa ăn đáp ứng tốt mục tiêu tăng cơ và kiểm soát calo trong ngày.',
-            coachFeedbackSuggestion: a.coachFeedbackSuggestion || 'Bữa ăn rất chuẩn bài em nhé! Tiếp tục duy trì chế độ dinh dưỡng lành mạnh này.',
+            quantityAndCookingAnalysis: getUsableFoodAnalysisText(a.quantityAndCookingAnalysis),
+            portionAndCalorieRationale: getUsableFoodAnalysisText(a.portionAndCalorieRationale),
+            goalAlignmentAssessment: getUsableFoodAnalysisText(a.goalAlignmentAssessment),
+            calorieOptimizationTip: getUsableFoodAnalysisText(a.calorieOptimizationTip),
+            macroBalanceAssessment: getUsableFoodAnalysisText(a.macroBalanceAssessment),
+            coachFeedbackSuggestion: getUsableFoodAnalysisText(a.coachFeedbackSuggestion),
             items: (a.items || []).map((item: any, idx: number) => ({
               id: `item-${idx}`,
               nameVi: item.name,

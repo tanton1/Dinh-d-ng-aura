@@ -26,7 +26,7 @@ import type {
   FoodAnalysisResponse,
   NutritionCatalogMatch,
 } from '../../services/nutritionService'
-import { askAiCoach } from '../../services/nutritionService'
+import { askAiCoach, getFoodAnalysisErrorMessage, getUsableFoodAnalysisText } from '../../services/nutritionService'
 import { firebaseAuth, firestoreDb } from '../../lib/firebase'
 import {
   saveUserMealLog,
@@ -156,6 +156,8 @@ export interface NutritionMealDraft {
   quantityCookingAnalysis?: string
   portionCalorieRationale?: string
   goalAlignmentAssessment?: string
+  calorieOptimizationTip?: string
+  macroBalanceAssessment?: string
   coachFeedbackSuggestion?: string
   aiAnalysis?: any
   name: string
@@ -223,6 +225,8 @@ interface PersistedScanReview {
   quantityCookingAnalysis?: string
   portionCalorieRationale?: string
   goalAlignmentAssessment?: string
+  calorieOptimizationTip?: string
+  macroBalanceAssessment?: string
   coachFeedbackSuggestion?: string
 }
 
@@ -474,6 +478,18 @@ const DEFAULT_PROFILE: NutritionProfileDraft = {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(value)
+}
+
+function createAnalysisImageFile(dataUrl: string, originalName: string): File {
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/i.exec(dataUrl)
+  if (!match) throw new Error('Ảnh đã chọn không thể được chuẩn hóa để phân tích.')
+  const contentType = match[1].toLowerCase()
+  const binary = window.atob(match[2])
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+  const extension = contentType === 'image/png' ? 'png' : contentType === 'image/webp' ? 'webp' : 'jpg'
+  const safeBaseName = originalName.replace(/\.[^.]+$/, '').trim() || 'mon-an'
+  return new File([bytes], `${safeBaseName}.${extension}`, { type: contentType })
 }
 
 function formatDecimal(value: number, maximumFractionDigits = 1) {
@@ -757,6 +773,8 @@ function normalizeAnalysis(response: NutritionImageAnalysisResponse) {
     quantityAndCookingAnalysis: analysis.quantityAndCookingAnalysis,
     portionAndCalorieRationale: analysis.portionAndCalorieRationale,
     goalAlignmentAssessment: analysis.goalAlignmentAssessment,
+    calorieOptimizationTip: analysis.calorieOptimizationTip,
+    macroBalanceAssessment: analysis.macroBalanceAssessment,
     coachFeedbackSuggestion: analysis.coachFeedbackSuggestion,
   }
 }
@@ -1677,10 +1695,12 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
   const [analysisQuestions, setAnalysisQuestions] = useState<string[]>(restoredReview?.analysisQuestions ?? [])
   const [analysisWarnings, setAnalysisWarnings] = useState<string[]>(restoredReview?.analysisWarnings ?? [])
   const [analysisModel, setAnalysisModel] = useState<string | null>(restoredReview?.analysisModel ?? null)
-  const [quantityCookingAnalysis, setQuantityCookingAnalysis] = useState<string>(restoredReview?.quantityCookingAnalysis ?? '')
-  const [portionCalorieRationale, setPortionCalorieRationale] = useState<string>(restoredReview?.portionCalorieRationale ?? '')
-  const [goalAlignmentAssessment, setGoalAlignmentAssessment] = useState<string>(restoredReview?.goalAlignmentAssessment ?? '')
-  const [coachFeedbackSuggestion, setCoachFeedbackSuggestion] = useState<string>(restoredReview?.coachFeedbackSuggestion ?? '')
+  const [quantityCookingAnalysis, setQuantityCookingAnalysis] = useState<string>(() => getUsableFoodAnalysisText(restoredReview?.quantityCookingAnalysis))
+  const [portionCalorieRationale, setPortionCalorieRationale] = useState<string>(() => getUsableFoodAnalysisText(restoredReview?.portionCalorieRationale))
+  const [goalAlignmentAssessment, setGoalAlignmentAssessment] = useState<string>(() => getUsableFoodAnalysisText(restoredReview?.goalAlignmentAssessment))
+  const [calorieOptimizationTip, setCalorieOptimizationTip] = useState<string>(() => getUsableFoodAnalysisText(restoredReview?.calorieOptimizationTip))
+  const [macroBalanceAssessment, setMacroBalanceAssessment] = useState<string>(() => getUsableFoodAnalysisText(restoredReview?.macroBalanceAssessment))
+  const [coachFeedbackSuggestion, setCoachFeedbackSuggestion] = useState<string>(() => getUsableFoodAnalysisText(restoredReview?.coachFeedbackSuggestion))
   const [showDetailedAnalysis, setShowDetailedAnalysis] = useState<boolean>(false)
   const [activeSlide, setActiveSlide] = useState<'ingredients' | 'nutrition'>('ingredients')
   const [confirmedItemIds, setConfirmedItemIds] = useState<Set<string>>(() => new Set(restoredReview?.confirmedItemIds ?? []))
@@ -1886,6 +1906,8 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
       quantityCookingAnalysis,
       portionCalorieRationale,
       goalAlignmentAssessment,
+      calorieOptimizationTip,
+      macroBalanceAssessment,
       coachFeedbackSuggestion,
     }
     try {
@@ -1893,7 +1915,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     } catch {
       // A review remains usable in memory even when session storage is unavailable.
     }
-  }, [analysisConfidence, analysisModel, analysisQuestions, analysisWarnings, baselineCalories, confirmedItemIds, dishName, fileName, hasAnalysisResult, items, mealDate, mealTime, mealType, questionResponses, resultMode, resultNotice, reviewStorageKey, serverRange, stage, storageOwnerId, quantityCookingAnalysis, portionCalorieRationale, goalAlignmentAssessment, coachFeedbackSuggestion])
+  }, [analysisConfidence, analysisModel, analysisQuestions, analysisWarnings, baselineCalories, calorieOptimizationTip, confirmedItemIds, dishName, fileName, goalAlignmentAssessment, hasAnalysisResult, items, macroBalanceAssessment, mealDate, mealTime, mealType, portionCalorieRationale, questionResponses, quantityCookingAnalysis, resultMode, resultNotice, reviewStorageKey, serverRange, stage, storageOwnerId, coachFeedbackSuggestion])
 
   const startDemoAnalysis = (notice = 'Đây là dữ liệu minh họa để bạn trải nghiệm luồng chỉnh sửa. Chưa có kết quả từ mô hình AI.') => {
     setResultMode('demo')
@@ -1906,6 +1928,12 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     setQuestionResponses({})
     setAnalysisWarnings([])
     setAnalysisModel(null)
+    setQuantityCookingAnalysis('Khẩu phần minh họa gồm cơm, ức gà áp chảo, rau củ luộc và một lượng nhỏ sốt hoặc dầu chế biến.')
+    setPortionCalorieRationale('Đây là dữ liệu minh họa theo khẩu phần mẫu; không phải suy luận từ ảnh đã tải.')
+    setGoalAlignmentAssessment('Dữ liệu minh họa chưa sử dụng hồ sơ và mục tiêu thực tế của bạn.')
+    setCalorieOptimizationTip('Hãy phân tích ảnh thật để nhận một điều chỉnh khẩu phần phù hợp với mục tiêu calo của bạn.')
+    setMacroBalanceAssessment('Khẩu phần minh họa có đủ ba nhóm macro; cần kết quả ảnh thật để đánh giá lượng đạm, carb, béo và chất xơ chính xác hơn.')
+    setCoachFeedbackSuggestion('')
     setConfirmedItemIds(new Set())
     setItems(INITIAL_ANALYSIS.map((item) => ({ ...item, perGram: perGramNutrition(item) })))
     setHasAnalysisResult(true)
@@ -1928,10 +1956,12 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
       const response = await onAnalyzeImage(file, { mealType })
       const normalized = normalizeAnalysis(response)
       if (response.analysis) {
-        setQuantityCookingAnalysis(response.analysis.quantityAndCookingAnalysis || 'Phân tích định lượng thực tế quan sát qua hình ảnh và cách chế biến giữ vi chất.')
-        setPortionCalorieRationale(response.analysis.portionAndCalorieRationale || 'Cơ sở dự đoán calo & khối lượng dựa trên đĩa ăn tiêu chuẩn.')
-        setGoalAlignmentAssessment(response.analysis.goalAlignmentAssessment || 'Bữa ăn phù hợp chỉ tiêu năng lượng và đạm trong ngày.')
-        setCoachFeedbackSuggestion(response.analysis.coachFeedbackSuggestion || 'Bữa ăn rất chuẩn bài em nhé! Tiếp tục duy trì chế độ dinh dưỡng lành mạnh này.')
+        setQuantityCookingAnalysis(getUsableFoodAnalysisText(response.analysis.quantityAndCookingAnalysis))
+        setPortionCalorieRationale(getUsableFoodAnalysisText(response.analysis.portionAndCalorieRationale))
+        setGoalAlignmentAssessment(getUsableFoodAnalysisText(response.analysis.goalAlignmentAssessment))
+        setCalorieOptimizationTip(getUsableFoodAnalysisText(response.analysis.calorieOptimizationTip))
+        setMacroBalanceAssessment(getUsableFoodAnalysisText(response.analysis.macroBalanceAssessment))
+        setCoachFeedbackSuggestion(getUsableFoodAnalysisText(response.analysis.coachFeedbackSuggestion))
       }
       if (!normalized) {
         setAnalysisError(response.analysis?.isFood === false
@@ -1960,10 +1990,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
       }
       setStage('result')
     } catch (error) {
-      const message = error instanceof Error && error.message.trim()
-        ? error.message
-        : 'Không thể kết nối dịch vụ phân tích ảnh. Vui lòng kiểm tra mạng và thử lại.'
-      setAnalysisError(message)
+      setAnalysisError(getFoodAnalysisErrorMessage(error))
       setStage('error')
     }
   }
@@ -1985,11 +2012,18 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     }
     const reader = new FileReader()
     reader.onload = async () => {
-      const rawUrl = String(reader.result ?? '')
-      const compressedUrl = await compressBase64Image(rawUrl, 600, 0.6)
-      setPreviewUrl(compressedUrl)
-      setFileName(file.name)
-      void runImageAnalysis(file)
+      try {
+        const rawUrl = String(reader.result ?? '')
+        const analysisUrl = await compressBase64Image(rawUrl, 1600, 0.82)
+        const compressedUrl = await compressBase64Image(analysisUrl, 600, 0.68)
+        const analysisFile = createAnalysisImageFile(analysisUrl, file.name)
+        setPreviewUrl(compressedUrl)
+        setFileName(file.name)
+        void runImageAnalysis(analysisFile)
+      } catch (error) {
+        setStage('upload')
+        setUploadError(getFoodAnalysisErrorMessage(error))
+      }
     }
     reader.onerror = () => {
       setStage('upload')
@@ -2074,6 +2108,8 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
       quantityCookingAnalysis,
       portionCalorieRationale,
       goalAlignmentAssessment,
+      calorieOptimizationTip,
+      macroBalanceAssessment,
       coachFeedbackSuggestion
     })
   }
@@ -2157,8 +2193,13 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
             <span><CircleAlert size={22} /></span>
             <h3>Không thể phân tích ảnh này</h3>
             <p>{analysisError || 'Rất tiếc, AI không thể nhận diện được món ăn trong ảnh. Bạn có thể thử chụp lại ảnh rõ nét hơn hoặc nhập thủ công.'}</p>
-            <div className="flex gap-2 mt-3">
-              <label htmlFor={cameraInputId} className="nutrition-primary-button cursor-pointer">
+            <div className="nutrition-scan-error__actions">
+              {lastFile && (
+                <button type="button" className="nutrition-primary-button" onClick={() => void runImageAnalysis(lastFile)} data-testid="nutrition-retry-scan">
+                  <RefreshCw size={16} /> Thử lại ảnh này
+                </button>
+              )}
+              <label htmlFor={cameraInputId} className="nutrition-secondary-button cursor-pointer">
                 <Camera size={16} /> Chụp lại ảnh khác
               </label>
               <label htmlFor={galleryInputId} className="nutrition-secondary-button cursor-pointer">
@@ -2468,11 +2509,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                     <p>
                       <strong>🎯 Mức độ phù hợp với mục tiêu</strong>
                       {goalAlignmentAssessment || (
-                        adjustedTotals.protein >= 30
-                          ? `Bữa ăn rất dồi dào đạm (${adjustedTotals.protein}g đạm - ${mealHealthAssessment.proteinPct}% calo), cực kỳ lý tưởng cho phục hồi tế bào cơ và duy trì năng lượng bền bỉ.`
-                          : adjustedTotals.calories > 750
-                            ? `Khẩu phần cung cấp năng lượng khá dồi dào (${formatNumber(adjustedTotals.calories)} kcal). Khuyên nên bổ sung thêm chất xơ và vận động nhẹ nhàng sau bữa ăn.`
-                            : `Bữa ăn cân đối với ${adjustedTotals.protein}g đạm, ${adjustedTotals.carbs}g tinh bột và ${adjustedTotals.fat}g chất béo. Hỗ trợ tốt cho mục tiêu tập luyện hàng ngày.`
+                        'Kết quả cũ chưa có đánh giá riêng theo mục tiêu. Hãy phân tích lại ảnh để Aura đối chiếu với hồ sơ hiện tại.'
                       )}
                     </p>
                   </div>
@@ -2485,9 +2522,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                       </div>
                       <div>
                         <strong>Mẹo tối ưu calo</strong>
-                        {adjustedTotals.calories > 650
-                          ? 'Món ăn khá giàu năng lượng, nên kết hợp đi bộ nhẹ 20 phút sau ăn.'
-                          : 'Mức calo vừa vặn, phù hợp duy trì cho bữa ăn chính.'}
+                        {calorieOptimizationTip || 'Kết quả cũ chưa có mẹo calo riêng cho món ăn này. Hãy phân tích lại ảnh để nhận điều chỉnh khẩu phần cụ thể.'}
                       </div>
                     </div>
 
@@ -2497,9 +2532,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                       </div>
                       <div>
                         <strong>Cân bằng Macro</strong>
-                        {adjustedTotals.protein < 20
-                          ? 'Lượng đạm hơi thấp, khuyên bổ sung thêm trứng hoặc ức gà.'
-                          : 'Hàm lượng đạm rất tốt cho sự phục hồi cơ bắp.'}
+                        {macroBalanceAssessment || 'Kết quả cũ chưa có đánh giá riêng về đạm, carb, chất béo và chất xơ. Hãy phân tích lại ảnh để cập nhật.'}
                       </div>
                     </div>
                   </div>
@@ -2528,7 +2561,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                           <span>Phương pháp chế biến & Định lượng</span>
                         </div>
                         <p>
-                          {quantityCookingAnalysis || 'Khẩu phần thực tế được bóc tách định lượng chính xác theo thành phần chính, phương pháp chế biến thanh nhẹ giữ trọn vi chất.'}
+                          {quantityCookingAnalysis || 'Kết quả này chưa có mô tả riêng về định lượng và phương pháp chế biến.'}
                         </p>
                       </div>
 
@@ -2538,7 +2571,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                           <span>Cơ sở dự đoán Khối lượng & Kcal</span>
                         </div>
                         <p>
-                          {portionCalorieRationale || 'Căn cứ dự đoán calo và khối lượng dựa trên tương quan kích thước đĩa ăn chuẩn 22cm và tỷ lệ gia vị sốt phủ.'}
+                          {portionCalorieRationale || 'Kết quả này chưa có giải thích riêng về căn cứ ước tính khối lượng và calo.'}
                         </p>
                       </div>
                     </div>
@@ -3696,6 +3729,8 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         quantityAndCookingAnalysis: meal.quantityCookingAnalysis,
         portionAndCalorieRationale: meal.portionCalorieRationale,
         goalAlignmentAssessment: meal.goalAlignmentAssessment,
+        calorieOptimizationTip: meal.calorieOptimizationTip,
+        macroBalanceAssessment: meal.macroBalanceAssessment,
         coachFeedbackSuggestion: meal.coachFeedbackSuggestion
       },
       studentGoal: profileDraft.goal === 'lose-fat'

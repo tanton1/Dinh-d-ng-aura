@@ -44,12 +44,16 @@ export interface PendingMealItem {
     quantityAndCookingAnalysis?: string
     portionAndCalorieRationale?: string
     goalAlignmentAssessment?: string
+    calorieOptimizationTip?: string
+    macroBalanceAssessment?: string
     aiSuggestion?: string
     aiFeedback?: string
     coachFeedbackSuggestion?: string
   }
   aiFeedback?: string
   goalAlignmentAssessment?: string
+  calorieOptimizationTip?: string
+  macroBalanceAssessment?: string
   coachFeedbackSuggestion?: string
   coachFeedback?: string
   quantityAndCookingAnalysis?: string
@@ -197,6 +201,8 @@ function mapDocToMeal(r: any): PendingMealItem {
       || (typeof mealObj.aiAnalysis === 'object' ? mealObj.aiAnalysis?.goalAlignmentAssessment : undefined),
     quantityAndCookingAnalysis: r.quantityAndCookingAnalysis || mealObj.quantityAndCookingAnalysis || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.quantityAndCookingAnalysis : undefined) || (typeof mealObj.aiAnalysis === 'object' ? mealObj.aiAnalysis?.quantityAndCookingAnalysis : undefined),
     portionAndCalorieRationale: r.portionAndCalorieRationale || mealObj.portionAndCalorieRationale || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.portionAndCalorieRationale : undefined) || (typeof mealObj.aiAnalysis === 'object' ? mealObj.aiAnalysis?.portionAndCalorieRationale : undefined),
+    calorieOptimizationTip: r.calorieOptimizationTip || mealObj.calorieOptimizationTip || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.calorieOptimizationTip : undefined) || (typeof mealObj.aiAnalysis === 'object' ? mealObj.aiAnalysis?.calorieOptimizationTip : undefined),
+    macroBalanceAssessment: r.macroBalanceAssessment || mealObj.macroBalanceAssessment || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.macroBalanceAssessment : undefined) || (typeof mealObj.aiAnalysis === 'object' ? mealObj.aiAnalysis?.macroBalanceAssessment : undefined),
     coachFeedbackSuggestion: r.coachFeedbackSuggestion 
       || mealObj.coachFeedbackSuggestion 
       || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.coachFeedbackSuggestion : undefined) 

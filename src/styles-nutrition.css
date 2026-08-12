@@ -948,6 +948,8 @@
 .nutrition-scan-error h3 { margin: 13px 0 6px; font-size: 17px; }
 .nutrition-scan-error > p { max-width: 510px; margin: 0; color: var(--nutrition-muted); font-size: 12px; line-height: 1.55; }
 .nutrition-scan-error > div:not(.nutrition-scan-error__visual) { display: flex; gap: 9px; margin-top: 18px; }
+.nutrition-scan-error > .nutrition-scan-error__actions { width: min(520px, 100%); display: grid; grid-template-columns: 1fr 1fr; }
+.nutrition-scan-error__actions > button:first-child { grid-column: 1 / -1; }
 .nutrition-modal-backdrop .nutrition-primary-button { background: var(--purple, #ec4899); }
 .nutrition-modal-backdrop .nutrition-ai-mark,
 .nutrition-modal-backdrop .nutrition-demo-scan { color: var(--purple, #ec4899); background: var(--purple-soft, #eef2ff); }
@@ -1005,6 +1007,8 @@
   .nutrition-water-presets button { min-height: 90px; padding: 10px; }
   .nutrition-scan-error { padding: 19px 16px; }
   .nutrition-scan-error > div:not(.nutrition-scan-error__visual) { width: 100%; flex-direction: column; }
+  .nutrition-scan-error > .nutrition-scan-error__actions { grid-template-columns: 1fr; }
+  .nutrition-scan-error__actions > button:first-child { grid-column: auto; }
   .nutrition-scan-error > div:not(.nutrition-scan-error__visual) > button,
   .nutrition-scan-error > div:not(.nutrition-scan-error__visual) > label { width: 100%; }
   .nutrition-upload-actions { grid-template-columns: 1fr; }
@@ -2525,6 +2529,9 @@
   .nutrition-scan-result__ingredient-name { font-size: 13px; }
   .nutrition-scan-result__gram-stepper { width: 108px; flex-basis: 108px; }
   .nutrition-scan-result__ai-tips { grid-template-columns: 1fr; }
+  .nutrition-scan-result__analysis-toggle { align-items: flex-start; }
+  .nutrition-scan-result__analysis-toggle > span span { overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.35; }
+  .nutrition-scan-result__analysis-toggle > strong { padding-top: 2px; }
   .nutrition-scan-result__meal-fields-grid { grid-template-columns: 1fr 1fr; }
   .nutrition-scan-result__meal-fields-grid label:first-child { grid-column: 1 / -1; }
   .nutrition-scan-result__actions { grid-template-columns: 1fr; }

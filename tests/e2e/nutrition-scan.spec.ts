@@ -26,6 +26,9 @@ test('nutrition scan result stays responsive and does not expose Coach/PT sugges
   const result = page.getByTestId('nutrition-scan-result')
   await expect(result).toBeVisible()
   await expect(result.getByText('Gợi ý từ Coach/PT', { exact: false })).toHaveCount(0)
+  await expect(result.getByText('Dữ liệu minh họa chưa sử dụng hồ sơ và mục tiêu thực tế của bạn.')).toBeVisible()
+  await expect(result.getByText(/điều chỉnh khẩu phần phù hợp với mục tiêu calo/i)).toBeVisible()
+  await expect(result.getByText(/đánh giá lượng đạm, carb, béo và chất xơ/i)).toBeVisible()
 
   const macroGrid = result.locator('.nutrition-scan-result__macro-grid')
   const ingredient = result.locator('.nutrition-scan-result__ingredient').first()
@@ -66,5 +69,23 @@ test('nutrition scan result stays responsive and does not expose Coach/PT sugges
 
   if (process.env.SCAN_SCREENSHOT) {
     await page.screenshot({ path: 'test-results/nutrition-scan-mobile-detail.png' })
+  }
+
+  await result.getByRole('button', { name: /Lưu vào nhật ký/i }).click()
+  await page.getByRole('heading', { name: /Cơm gạo lứt đỏ, Ức gà áp chảo/i }).click()
+
+  const mealDetail = page.getByTestId('captured-meal-detail-page')
+  await expect(mealDetail).toBeVisible()
+  await expect(mealDetail.getByRole('heading', { name: 'Phân tích từ Aura AI' })).toBeVisible()
+  await expect(mealDetail.getByText('🎯 Mức độ phù hợp với mục tiêu')).toBeVisible()
+  await expect(mealDetail.getByText('🔥 Mẹo tối ưu calo')).toBeVisible()
+  await expect(mealDetail.getByText('⚖️ Cân bằng Macro')).toBeVisible()
+  await expect(mealDetail.getByText('🍽️ Phương pháp chế biến & Định lượng')).toBeVisible()
+  await expect(mealDetail.getByText('📏 Cơ sở dự đoán Khối lượng & Kcal')).toBeVisible()
+  await expect(mealDetail.getByText('Tư vấn từ AI Coach', { exact: false })).toHaveCount(0)
+
+  if (process.env.SCAN_SCREENSHOT) {
+    await mealDetail.getByRole('heading', { name: 'Phân tích từ Aura AI' }).scrollIntoViewIfNeeded()
+    await page.screenshot({ path: 'test-results/nutrition-meal-detail-mobile.png' })
   }
 })
