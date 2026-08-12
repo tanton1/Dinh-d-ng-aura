@@ -34,5 +34,5 @@ test('admin meal plan route enforces auth or renders the workspace', async ({ pa
     return
   }
   await expect(page.getByText(/Thư viện công thức/i)).toBeVisible()
-  await expect(page.getByText(/Mẫu Meal Plan 7 ngày/i)).toBeVisible()
+  await expect(page.getByText(/Kế hoạch 7 Ngày mẫu/i)).toBeVisible()
 })

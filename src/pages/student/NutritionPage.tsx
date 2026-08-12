@@ -74,7 +74,6 @@ import {
   X,
   History,
   ShieldCheck,
-  Heart,
   ChevronDown,
   Egg,
   Wheat,
@@ -2081,7 +2080,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
 
   return (
     <div className={presentation === 'page' ? 'nutrition-route-page nutrition-route-page--scan' : 'nutrition-modal-backdrop'} role="presentation" onMouseDown={(event) => presentation === 'modal' && event.target === event.currentTarget && onClose()}>
-      <section ref={presentation === 'modal' ? dialogRef : undefined} className={`nutrition-scan-modal ${presentation === 'page' ? 'nutrition-scan-modal--page' : ''} ${stage === 'result' ? '!bg-gradient-to-br !from-pink-500 !to-orange-400 !border-none !p-0 !rounded-t-[32px]' : ''}`} role={presentation === 'modal' ? 'dialog' : 'region'} aria-modal={presentation === 'modal' ? true : undefined} aria-labelledby="nutrition-scan-title" data-testid="nutrition-scan-modal">
+      <section ref={presentation === 'modal' ? dialogRef : undefined} className={`nutrition-scan-modal ${presentation === 'page' ? 'nutrition-scan-modal--page' : ''} ${stage === 'result' ? 'nutrition-scan-modal--result' : ''}`} role={presentation === 'modal' ? 'dialog' : 'region'} aria-modal={presentation === 'modal' ? true : undefined} aria-labelledby="nutrition-scan-title" data-testid="nutrition-scan-modal">
         {stage !== 'result' && (
           <header className={`nutrition-scan-modal__header`}>
             <div>
@@ -2175,40 +2174,41 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
         )}
 
         {stage === 'result' && (
-          <div className="fdet-container !max-w-full !p-0" data-testid="nutrition-scan-result">
+          <div className="nutrition-scan-result fdet-container" data-testid="nutrition-scan-result">
             {/* 1. Hero Image Header (fdet-hero) - Soft rounded corners */}
-            <div className="fdet-hero !min-h-[200px] sm:!min-h-[260px] rounded-2xl sm:rounded-3xl relative overflow-hidden bg-slate-900 shadow-sm my-2">
+            <div className="nutrition-scan-result__hero fdet-hero">
               {previewUrl ? (
-                <img src={previewUrl} alt={dishName || "Món ăn"} className="fdet-hero-img w-full h-[200px] sm:h-[260px] object-cover rounded-2xl sm:rounded-3xl" />
+                <img src={previewUrl} alt={dishName || "Món ăn"} className="nutrition-scan-result__hero-image fdet-hero-img" />
               ) : (
-                <div className="w-full h-[200px] sm:h-[260px] flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900 text-slate-400 rounded-2xl sm:rounded-3xl">
+                <div className="nutrition-scan-result__hero-placeholder">
                   <Salad size={52} />
                 </div>
               )}
 
               {/* Hero Overlaid Controls */}
-              <div className="fdet-hero-overlay flex items-center justify-between absolute top-0 left-0 w-full p-4 z-10" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0) 100%)' }}>
-                <button type="button" className="w-10 h-10 flex items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors backdrop-blur-sm" onClick={onClose} title="Quay lại">
+              <div className="nutrition-scan-result__hero-overlay fdet-hero-overlay">
+                <button type="button" className="nutrition-scan-result__icon-button" onClick={onClose} title="Quay lại" aria-label="Quay lại trang dinh dưỡng">
                   <ArrowLeft size={20} />
                 </button>
 
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-pink-500 to-orange-500 text-white text-xs font-bold shadow-md">
-                    <Sparkles size={14} className="animate-pulse" />
+                <div className="nutrition-scan-result__hero-actions">
+                  <div className="nutrition-scan-result__vision-badge">
+                    <Sparkles size={14} />
                     <span>{resultMode === 'live' ? 'Aura Vision AI' : 'Bản Minh Họa'}</span>
                   </div>
 
                   {previewUrl && (
                     <button
                       type="button"
-                      className="w-10 h-10 flex items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors backdrop-blur-sm"
+                      className="nutrition-scan-result__icon-button"
                       onClick={() => {
                         const link = document.createElement('a')
                         link.href = previewUrl
                         link.download = `scan-${Date.now()}.jpg`
                         link.click()
                       }}
-                      title="Lịch sử"
+                      title="Tải ảnh đã quét"
+                      aria-label="Tải ảnh đã quét"
                     >
                       <History size={18} />
                     </button>
@@ -2218,149 +2218,136 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
             </div>
 
             {/* 2. Main Sheet Card (fdet-sheet) */}
-            <div className="fdet-sheet !p-4 sm:!p-6 !rounded-t-[28px] -mt-6 relative z-10 bg-white shadow-xl pb-40 border-0 !border-transparent ring-0">
+            <div className="nutrition-scan-result__sheet fdet-sheet">
               {/* Meta Row: AI Confidence & Meal Time Badge */}
-              <div className="fdet-meta-row flex items-center justify-between mb-3">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-2xs" style={{ border: '1px solid #fbcfe8', background: '#fdf2f8', color: '#be185d' }}>
-                  <Check size={13} className="text-pink-600 shrink-0" />
+              <div className="nutrition-scan-result__meta fdet-meta-row">
+                <span className="nutrition-scan-result__confidence">
+                  <Check size={13} />
                   <span>
                     {resultMode === 'live'
                       ? `AI Nhận Diện · Độ tin cậy ${analysisConfidence === null ? '90%' : `${Math.round(analysisConfidence * 100)}%`}`
                       : 'Món ăn mẫu'}
                   </span>
                 </span>
-                <span className="fdet-time-badge font-mono px-2.5 py-0.5 rounded-full text-[11px] font-medium shadow-2xs" style={{ border: '1px solid #fed7aa', background: '#fff7ed', color: '#c2410c' }}>{mealTime}</span>
+                <span className="nutrition-scan-result__time fdet-time-badge">{mealTime}</span>
               </div>
 
               {/* Title & Calories Header (fdet-title-cal-row) */}
-              <div className="fdet-title-cal-row flex items-center justify-between gap-3 mb-4">
-                <div className="fdet-title-col flex-1 min-w-0 pr-1">
+              <div className="nutrition-scan-result__summary fdet-title-cal-row">
+                <div className="nutrition-scan-result__title-column fdet-title-col">
                   <textarea
                     rows={2}
                     value={dishName}
                     onChange={(e) => setDishName(e.target.value)}
-                    className="!text-xl sm:!text-2xl font-black text-slate-900 w-full py-1 leading-snug tracking-tight resize-none bg-transparent outline-none overflow-hidden block"
-                    style={{ border: 'none', borderBottom: '2px dashed #f472b6', outline: 'none', boxShadow: 'none' }}
+                    className="nutrition-scan-result__dish-name"
                     placeholder="Nhập tên món ăn..."
                   />
-                  <p className="text-xs text-slate-600 mt-1 font-medium">
-                    Mức năng lượng ước tính: <span className="font-bold text-slate-800">{formatNumber(adjustedRange.low)} – {formatNumber(adjustedRange.high)} kcal</span>
+                  <p className="nutrition-scan-result__energy-range">
+                    Mức năng lượng ước tính: <strong>{formatNumber(adjustedRange.low)} – {formatNumber(adjustedRange.high)} kcal</strong>
                   </p>
                 </div>
 
                 {/* Main Calorie Badge: Number and kcal on the same line */}
                 <div 
-                  className="fdet-calories-col flex flex-col items-center justify-center shrink-0 px-4 sm:px-5 py-3 rounded-2xl shadow-md min-w-[120px] sm:min-w-[130px] text-center"
-                  style={{
-                    border: 'none',
-                    background: 'linear-gradient(135deg, #ec4899 0%, #f43f5e 50%, #f97316 100%)',
-                    boxShadow: '0 6px 20px -2px rgba(236, 72, 153, 0.4)'
-                  }}
+                  className="nutrition-scan-result__calories fdet-calories-col"
                 >
-                  <span className="text-[10px] font-black tracking-wider uppercase text-white flex items-center justify-center gap-1 mb-0.5">
-                    <Zap size={12} className="text-amber-200 fill-amber-200" /> NĂNG LƯỢNG
+                  <span className="nutrition-scan-result__calorie-label">
+                    <Zap size={12} /> NĂNG LƯỢNG
                   </span>
-                  <div className="flex items-baseline justify-center gap-1 my-0.5">
-                    <span 
-                      className="text-2xl sm:text-3xl font-black leading-none text-white tracking-tight"
-                      style={{ textShadow: '0 2px 8px rgba(0,0,0,0.35)' }}
-                    >
+                  <div className="nutrition-scan-result__calorie-value">
+                    <strong>
                       {formatNumber(adjustedTotals.calories)}
-                    </span>
-                    <span className="text-xs font-black uppercase text-white/95">
-                      kcal
-                    </span>
+                    </strong>
+                    <span>kcal</span>
                   </div>
                 </div>
               </div>
 
               {/* 3. BẢNG MACRONUTRIENTS (fdet-macros-grid) - 4 Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6 mt-4">
+              <div className="nutrition-scan-result__macro-grid">
                 {/* Chất đạm */}
-                <div className="p-3 sm:p-3.5 rounded-2xl shadow-2xs" style={{ border: '1px solid #fbcfe8', background: 'linear-gradient(135deg, rgba(253, 242, 248, 0.8) 0%, rgba(255, 237, 213, 0.8) 100%)' }}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm">🥩</span>
-                      <span className="text-xs font-extrabold text-rose-900">Chất đạm</span>
+                <div className="nutrition-scan-result__macro nutrition-scan-result__macro--protein">
+                  <div className="nutrition-scan-result__macro-head">
+                    <div className="nutrition-scan-result__macro-label">
+                      <span>🥩</span>
+                      <strong>Chất đạm</strong>
                     </div>
-                    <span className="text-[10px] font-extrabold text-rose-700 bg-rose-100/80 px-1.5 py-0.5 rounded-md">
+                    <span className="nutrition-scan-result__macro-percent">
                       {Math.round((adjustedTotals.protein * 4 / Math.max(1, adjustedTotals.calories)) * 100)}%
                     </span>
                   </div>
-                  <span className="text-base sm:text-lg font-black text-rose-950 block">{adjustedTotals.protein} g</span>
+                  <strong className="nutrition-scan-result__macro-value">{adjustedTotals.protein} g</strong>
                 </div>
 
                 {/* Bột đường */}
-                <div className="p-3 sm:p-3.5 rounded-2xl shadow-2xs" style={{ border: '1px solid #fbcfe8', background: 'linear-gradient(135deg, rgba(253, 242, 248, 0.8) 0%, rgba(255, 237, 213, 0.8) 100%)' }}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm">🌾</span>
-                      <span className="text-xs font-extrabold text-amber-900">Bột đường</span>
+                <div className="nutrition-scan-result__macro nutrition-scan-result__macro--carbs">
+                  <div className="nutrition-scan-result__macro-head">
+                    <div className="nutrition-scan-result__macro-label">
+                      <span>🌾</span>
+                      <strong>Bột đường</strong>
                     </div>
-                    <span className="text-[10px] font-extrabold text-amber-700 bg-amber-100/80 px-1.5 py-0.5 rounded-md">
+                    <span className="nutrition-scan-result__macro-percent">
                       {Math.round((adjustedTotals.carbs * 4 / Math.max(1, adjustedTotals.calories)) * 100)}%
                     </span>
                   </div>
-                  <span className="text-base sm:text-lg font-black text-amber-950 block">{adjustedTotals.carbs} g</span>
+                  <strong className="nutrition-scan-result__macro-value">{adjustedTotals.carbs} g</strong>
                 </div>
 
                 {/* Chất béo */}
-                <div className="p-3 sm:p-3.5 rounded-2xl shadow-2xs" style={{ border: '1px solid #fbcfe8', background: 'linear-gradient(135deg, rgba(253, 242, 248, 0.8) 0%, rgba(255, 237, 213, 0.8) 100%)' }}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm">💧</span>
-                      <span className="text-xs font-extrabold text-sky-900">Chất béo</span>
+                <div className="nutrition-scan-result__macro nutrition-scan-result__macro--fat">
+                  <div className="nutrition-scan-result__macro-head">
+                    <div className="nutrition-scan-result__macro-label">
+                      <span>💧</span>
+                      <strong>Chất béo</strong>
                     </div>
-                    <span className="text-[10px] font-extrabold text-sky-700 bg-sky-100/80 px-1.5 py-0.5 rounded-md">
+                    <span className="nutrition-scan-result__macro-percent">
                       {Math.round((adjustedTotals.fat * 9 / Math.max(1, adjustedTotals.calories)) * 100)}%
                     </span>
                   </div>
-                  <span className="text-base sm:text-lg font-black text-sky-950 block">{adjustedTotals.fat} g</span>
+                  <strong className="nutrition-scan-result__macro-value">{adjustedTotals.fat} g</strong>
                 </div>
 
                 {/* Chất xơ */}
-                <div className="p-3 sm:p-3.5 rounded-2xl shadow-2xs" style={{ border: '1px solid #fbcfe8', background: 'linear-gradient(135deg, rgba(253, 242, 248, 0.8) 0%, rgba(255, 237, 213, 0.8) 100%)' }}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm">🥦</span>
-                      <span className="text-xs font-extrabold text-emerald-900">Chất xơ</span>
+                <div className="nutrition-scan-result__macro nutrition-scan-result__macro--fiber">
+                  <div className="nutrition-scan-result__macro-head">
+                    <div className="nutrition-scan-result__macro-label">
+                      <span>🥦</span>
+                      <strong>Chất xơ</strong>
                     </div>
-                    <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-100/80 px-1.5 py-0.5 rounded-md">
+                    <span className="nutrition-scan-result__macro-percent">
                       Chất xơ
                     </span>
                   </div>
-                  <span className="text-base sm:text-lg font-black text-emerald-950 block">{adjustedTotals.fiber ?? 7.9} g</span>
+                  <strong className="nutrition-scan-result__macro-value">{adjustedTotals.fiber ?? 7.9} g</strong>
                 </div>
               </div>
 
               {/* THÀNH PHẦN NHẬN DIỆN (Được nới khoảng cách thêm so với khung trên) */}
-              <div className="mt-14 mb-8 pt-2">
-                <div className="fdet-section p-3 sm:p-4 rounded-2xl shadow-2xs" style={{ border: '1px solid #fbcfe8', background: 'linear-gradient(135deg, rgba(253, 242, 248, 0.75) 0%, rgba(255, 237, 213, 0.75) 100%)' }}>
-                  <div className="fdet-section-header flex items-center justify-between mb-3.5">
+              <div className="nutrition-scan-result__ingredients-wrap">
+                <div className="nutrition-scan-result__ingredients fdet-section">
+                  <div className="nutrition-scan-result__section-header fdet-section-header">
                     <div>
-                      <h2 className="fdet-section-title text-base font-black text-slate-900 m-0">Thành phần nhận diện</h2>
-                      <span className="text-xs text-slate-600 font-medium block mt-0.5">{items.length} thành phần · Nhấn để chỉnh sửa gram</span>
+                      <h2 className="fdet-section-title">Thành phần nhận diện</h2>
+                      <span className="nutrition-scan-result__section-description">{items.length} thành phần · Nhấn để chỉnh sửa gram</span>
                     </div>
                     <button
                       type="button"
                       onClick={addItem}
-                      className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-full text-white text-xs font-extrabold transition-all cursor-pointer shadow-xs hover:opacity-95 shrink-0 border-0 outline-none focus:outline-none"
-                      style={{ border: 'none', background: 'linear-gradient(to right, #ec4899, #f97316)' }}
+                      className="nutrition-scan-result__add-button"
                     >
                       <Plus size={14} />
                       <span>Thêm</span>
                     </button>
                   </div>
 
-                  <div className="space-y-2.5">
+                  <div className="nutrition-scan-result__ingredient-list">
                     {items.map((item) => (
                       <div 
                         key={item.id} 
-                        className="p-3 sm:p-3.5 rounded-2xl flex flex-col gap-2 shadow-2xs transition-all w-full box-border"
-                        style={{ border: '1px solid #fce7f3', background: 'rgba(255, 255, 255, 0.95)' }}
+                        className="nutrition-scan-result__ingredient"
                       >
                         {/* Row 1: Name and Compact Gram Stepper shifted slightly left */}
-                        <div className="flex items-start justify-between gap-3 w-full pr-0">
+                        <div className="nutrition-scan-result__ingredient-main">
                           <textarea
                             value={item.name}
                             onChange={(event) => {
@@ -2368,28 +2355,26 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                               event.target.style.height = event.target.scrollHeight + 'px';
                               updateItem(item.id, 'name', event.target.value);
                             }}
-                            className="flex-1 min-w-0 font-normal text-sm sm:text-base text-slate-900 block p-0 m-0 bg-transparent outline-none leading-snug focus:outline-none focus:ring-0 resize-none overflow-hidden break-words whitespace-pre-wrap"
-                            style={{ border: 'none', outline: 'none', boxShadow: 'none', minHeight: '24px' }}
+                            className="nutrition-scan-result__ingredient-name"
                             placeholder="Tên thành phần..."
                             rows={1}
                           />
                           
                           {/* Compact Stepper Control - Extended width (108px) sang trái để hiển thị rõ gram */}
                           <div 
-                            className="flex items-center justify-between bg-white rounded-xl p-0.5 shrink-0 box-border mr-8 sm:mr-10"
-                            style={{ width: '108px', minWidth: '100px', boxShadow: '0 4px 12px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.1), inset 0 1px 1px rgba(255,255,255,1)', border: 'none', marginRight: '20px' }}
+                            className="nutrition-scan-result__gram-stepper"
                           >
                             <button
                               type="button"
                               onClick={() => updateItem(item.id, 'grams', String(Math.max(0, (parseInt(item.grams.toString()) || 0) - 10)))}
-                              className="w-6 h-6 flex-none flex items-center justify-center rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-100 active:scale-95 transition-all cursor-pointer border-0 outline-none focus:outline-none focus:ring-0"
+                              className="nutrition-scan-result__step-button"
                               title="Giảm 10g"
                               style={{ border: 'none', outline: 'none', boxShadow: 'none' }}
                             >
                               <Minus size={11} />
                             </button>
                             
-                            <div className="flex items-center justify-center flex-1 min-w-0 text-center">
+                            <div className="nutrition-scan-result__gram-value">
                               <input
                                 type="text"
                                 inputMode="numeric"
@@ -2399,16 +2384,15 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                                   const val = event.target.value.replace(/[^0-9]/g, '');
                                   updateItem(item.id, 'grams', val);
                                 }}
-                                className="font-black text-[12px] text-slate-900 m-0 p-0 bg-transparent text-center focus:ring-0 outline-none focus:outline-none"
-                                style={{ border: 'none', outline: 'none', boxShadow: 'none', background: 'transparent', width: '32px', minWidth: 0, padding: 0, fontSize: '12px' }}
+                                className="nutrition-scan-result__gram-input"
                               />
-                              <span className="text-[10px] font-extrabold text-slate-500 shrink-0 ml-0.5" style={{ fontSize: '10px' }}>g</span>
+                              <span>g</span>
                             </div>
                             
                             <button
                               type="button"
                               onClick={() => updateItem(item.id, 'grams', String((parseInt(item.grams.toString()) || 0) + 10))}
-                              className="w-6 h-6 flex-none flex items-center justify-center rounded-lg bg-pink-50 text-pink-600 hover:bg-pink-100 active:scale-95 transition-all cursor-pointer border-0 outline-none focus:outline-none focus:ring-0"
+                              className="nutrition-scan-result__step-button nutrition-scan-result__step-button--plus"
                               title="Tăng 10g"
                               style={{ border: 'none', outline: 'none', boxShadow: 'none' }}
                             >
@@ -2418,21 +2402,22 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                         </div>
 
                         {/* Row 2: Confidence Bar and Trash Button */}
-                        <div className="flex items-center justify-between gap-2 w-full mt-0.5">
-                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                            <span className="text-[11px] text-slate-500 font-medium shrink-0 whitespace-nowrap">Độ tin cậy:</span>
-                            <span className="text-[11px] font-black text-pink-600 bg-pink-50 px-1.5 py-0.5 rounded-md shrink-0">
+                        <div className="nutrition-scan-result__ingredient-meta">
+                          <div className="nutrition-scan-result__confidence-row">
+                            <span>Độ tin cậy:</span>
+                            <strong>
                               {item.confidenceValue !== undefined ? Math.round(item.confidenceValue * 100) : (item.confidence === 'low' ? 40 : 92)}%
-                            </span>
-                            <div className="flex-1 min-w-[30px] h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full" style={{ width: `${item.confidenceValue !== undefined ? Math.round(item.confidenceValue * 100) : (item.confidence === 'low' ? 40 : 92)}%`, background: 'linear-gradient(to right, #f97316, #ec4899)' }} />
+                            </strong>
+                            <div className="nutrition-scan-result__confidence-track">
+                              <div style={{ width: `${item.confidenceValue !== undefined ? Math.round(item.confidenceValue * 100) : (item.confidence === 'low' ? 40 : 92)}%` }} />
                             </div>
                           </div>
 
                           <button
                             type="button"
                             onClick={() => removeItem(item.id)}
-                            className="w-7 h-7 flex-none flex items-center justify-center rounded-xl bg-white text-slate-400 hover:text-rose-500 hover:bg-rose-50 active:scale-95 transition-all cursor-pointer border border-pink-100/80 shrink-0 outline-none focus:outline-none focus:ring-0"
+                            className="nutrition-scan-result__delete-button"
+                            aria-label={`Xóa ${item.name}`}
                             title="Xóa thành phần"
                           >
                             <Trash2 size={13} />
@@ -2445,51 +2430,43 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
               </div>
 
               {/* 5. BẢNG ĐÁNH GIÁ ĐIỂM CHẤT LƯỢNG MÓN ĂN */}
-              <div className="mt-6 mb-6 p-4 rounded-2xl text-white shadow-md relative overflow-hidden" style={{ border: 'none', background: 'linear-gradient(135deg, #ec4899 0%, #f97316 100%)', color: '#ffffff' }}>
-                <div className="flex items-start gap-3.5 relative z-10">
-                  <div className="shrink-0 flex flex-col items-center justify-center w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md text-white shadow-xs mt-0.5" style={{ border: 'none' }}>
-                    <span className="text-xl font-black leading-none">{mealHealthAssessment.score}</span>
+              <div className="nutrition-scan-result__health-card">
+                <div className="nutrition-scan-result__health-content">
+                  <div className="nutrition-scan-result__health-score">
+                    <strong>{mealHealthAssessment.score}</strong>
                   </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-white text-pink-600 uppercase tracking-wider shadow-2xs">
+                  <div className="nutrition-scan-result__health-copy">
+                    <div className="nutrition-scan-result__health-heading">
+                      <span>
                         {mealHealthAssessment.badge}
                       </span>
-                      <span className="text-xs font-black text-white">Điểm dinh dưỡng</span>
+                      <strong>Điểm dinh dưỡng</strong>
                     </div>
-                    <p className="text-xs text-rose-50 font-medium leading-relaxed m-0">{mealHealthAssessment.description}</p>
+                    <p>{mealHealthAssessment.description}</p>
                   </div>
                 </div>
               </div>
 
-              {/* 6. BẢNG AURA COACH GỢI Ý */}
-              <div className="mt-8 mb-8 p-4 sm:p-5 rounded-3xl shadow-xl relative overflow-hidden" style={{ border: '1px solid rgba(244, 114, 182, 0.3)', background: 'linear-gradient(135deg, #1e1b4b 0%, #31103f 50%, #4c0519 100%)', color: '#ffffff' }}>
-                {/* Visual Glow */}
-                <div className="absolute -top-10 -right-10 w-32 h-32 bg-pink-500/20 rounded-full blur-2xl pointer-events-none" />
-                <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-pink-700/15 rounded-full blur-2xl pointer-events-none" />
-
-                <div className="relative z-10">
-                  <div className="flex items-center justify-between mb-3.5">
-                    <div className="flex items-center gap-2">
-                      <div className="p-1.5 rounded-xl bg-pink-500 text-white shadow-sm shrink-0">
+              {/* 6. PHÂN TÍCH DINH DƯỠNG TỪ AURA AI */}
+              <div className="nutrition-scan-result__ai-card">
+                <div className="nutrition-scan-result__ai-content">
+                  <div className="nutrition-scan-result__ai-header">
+                    <div className="nutrition-scan-result__ai-title">
+                      <div className="nutrition-scan-result__ai-icon">
                         <Sparkles size={15} />
                       </div>
                       <div>
-                        <span className="text-xs font-black text-pink-300 uppercase tracking-wider block">
-                          Gợi Ý Từ AI Coach
-                        </span>
-                        <span className="text-[10px] text-slate-300 font-medium">Tư vấn dinh dưỡng từ AI cá nhân hóa</span>
+                        <strong>Phân tích từ Aura AI</strong>
+                        <span>Ước tính dinh dưỡng cá nhân hóa</span>
                       </div>
                     </div>
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-pink-500/20 text-pink-300 shrink-0" style={{ border: 'none' }}>
-                      Cập nhật AI
-                    </span>
+                    <span className="nutrition-scan-result__ai-badge">AI</span>
                   </div>
 
                   {/* Main Recommendation Text */}
-                  <div className="p-3.5 rounded-2xl mb-3 shadow-2xs" style={{ border: 'none', background: 'rgba(255, 255, 255, 0.06)' }}>
-                    <p className="text-xs text-slate-100 font-medium leading-relaxed m-0">
-                      <strong className="text-pink-300 font-bold block mb-1">🎯 Đánh giá Phù hợp Mục tiêu (Goal Alignment):</strong>
+                  <div className="nutrition-scan-result__ai-highlight">
+                    <p>
+                      <strong>🎯 Mức độ phù hợp với mục tiêu</strong>
                       {goalAlignmentAssessment || (
                         adjustedTotals.protein >= 30
                           ? `Bữa ăn rất dồi dào đạm (${adjustedTotals.protein}g đạm - ${mealHealthAssessment.proteinPct}% calo), cực kỳ lý tưởng cho phục hồi tế bào cơ và duy trì năng lượng bền bỉ.`
@@ -2501,25 +2478,25 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                   </div>
 
                   {/* Smart Action Tips Grid */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-3">
-                    <div className="p-3 rounded-2xl flex items-start gap-2.5 shadow-2xs" style={{ border: 'none', background: 'rgba(255, 255, 255, 0.04)' }}>
-                      <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">
+                  <div className="nutrition-scan-result__ai-tips">
+                    <div className="nutrition-scan-result__ai-tip">
+                      <div className="nutrition-scan-result__ai-tip-icon nutrition-scan-result__ai-tip-icon--calories">
                         <Flame size={14} />
                       </div>
-                      <div className="text-[11px] text-slate-200 leading-snug">
-                        <strong className="text-amber-400 block font-bold mb-0.5">Mẹo tối ưu calo:</strong>
+                      <div>
+                        <strong>Mẹo tối ưu calo</strong>
                         {adjustedTotals.calories > 650
                           ? 'Món ăn khá giàu năng lượng, nên kết hợp đi bộ nhẹ 20 phút sau ăn.'
                           : 'Mức calo vừa vặn, phù hợp duy trì cho bữa ăn chính.'}
                       </div>
                     </div>
 
-                    <div className="p-3 rounded-2xl flex items-start gap-2.5 shadow-2xs" style={{ border: 'none', background: 'rgba(255, 255, 255, 0.04)' }}>
-                      <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 shrink-0 mt-0.5">
+                    <div className="nutrition-scan-result__ai-tip">
+                      <div className="nutrition-scan-result__ai-tip-icon nutrition-scan-result__ai-tip-icon--macro">
                         <Scale size={14} />
                       </div>
-                      <div className="text-[11px] text-slate-200 leading-snug">
-                        <strong className="text-emerald-400 block font-bold mb-0.5">Cân bằng Macro:</strong>
+                      <div>
+                        <strong>Cân bằng Macro</strong>
                         {adjustedTotals.protein < 20
                           ? 'Lượng đạm hơi thấp, khuyên bổ sung thêm trứng hoặc ức gà.'
                           : 'Hàm lượng đạm rất tốt cho sự phục hồi cơ bắp.'}
@@ -2531,47 +2508,37 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                   <button
                     type="button"
                     onClick={() => setShowDetailedAnalysis(!showDetailedAnalysis)}
-                    className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-bold text-white transition-all cursor-pointer shadow-2xs hover:bg-white/10"
-                    style={{ border: 'none', background: 'rgba(255, 255, 255, 0.06)' }}
+                    className="nutrition-scan-result__analysis-toggle"
+                    aria-expanded={showDetailedAnalysis}
                   >
-                    <span className="flex items-center gap-2">
-                      <Utensils size={13} className="text-pink-400" />
+                    <span>
+                      <Utensils size={13} />
                       <span>Phân tích chế biến & Bóc tách định lượng</span>
                     </span>
-                    <span className="text-pink-400 text-[11px] font-extrabold">
+                    <strong>
                       {showDetailedAnalysis ? 'Ẩn chi tiết ▲' : 'Xem chi tiết ▼'}
-                    </span>
+                    </strong>
                   </button>
 
                   {showDetailedAnalysis && (
-                    <div className="mt-3 space-y-2 pt-2.5 border-t border-white/10">
-                      <div className="p-3 rounded-2xl text-left shadow-2xs" style={{ border: 'none', background: 'rgba(255, 255, 255, 0.04)' }}>
-                        <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-amber-400 uppercase mb-1">
+                    <div className="nutrition-scan-result__analysis-details">
+                      <div className="nutrition-scan-result__analysis-detail">
+                        <div className="nutrition-scan-result__analysis-detail-title nutrition-scan-result__analysis-detail-title--cooking">
                           <Utensils size={13} />
                           <span>Phương pháp chế biến & Định lượng</span>
                         </div>
-                        <p className="text-xs text-slate-200 leading-relaxed font-medium m-0">
+                        <p>
                           {quantityCookingAnalysis || 'Khẩu phần thực tế được bóc tách định lượng chính xác theo thành phần chính, phương pháp chế biến thanh nhẹ giữ trọn vi chất.'}
                         </p>
                       </div>
 
-                      <div className="p-3 rounded-2xl text-left shadow-2xs" style={{ border: 'none', background: 'rgba(255, 255, 255, 0.04)' }}>
-                        <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-sky-400 uppercase mb-1">
+                      <div className="nutrition-scan-result__analysis-detail">
+                        <div className="nutrition-scan-result__analysis-detail-title nutrition-scan-result__analysis-detail-title--portion">
                           <Scale size={13} />
                           <span>Cơ sở dự đoán Khối lượng & Kcal</span>
                         </div>
-                        <p className="text-xs text-slate-200 leading-relaxed font-medium m-0">
+                        <p>
                           {portionCalorieRationale || 'Căn cứ dự đoán calo và khối lượng dựa trên tương quan kích thước đĩa ăn chuẩn 22cm và tỷ lệ gia vị sốt phủ.'}
-                        </p>
-                      </div>
-
-                      <div className="p-3 rounded-2xl text-left shadow-2xs" style={{ border: 'none', background: 'rgba(255, 255, 255, 0.04)' }}>
-                        <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-pink-400 uppercase mb-1">
-                          <Heart size={13} />
-                          <span>Gợi ý từ Coach/PT</span>
-                        </div>
-                        <p className="text-xs text-slate-200 leading-relaxed font-medium m-0">
-                          {coachFeedbackSuggestion || 'Bữa ăn rất chuẩn bài em nhé! Tiếp tục duy trì chế độ dinh dưỡng lành mạnh này.'}
                         </p>
                       </div>
                     </div>
@@ -2580,13 +2547,13 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
               </div>
 
               {/* 7. SELECTORS BỮA ĂN, NGÀY, THỜI GIAN - Side by side on 1 single row */}
-              <div className="mt-8 mb-8 p-3.5 sm:p-5 rounded-2xl text-left shadow-xs relative overflow-hidden" style={{ border: '1px solid #fbcfe8', background: 'linear-gradient(135deg, rgba(252, 231, 243, 0.6) 0%, rgba(255, 237, 213, 0.6) 100%)' }}>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-pink-500 to-orange-500 shadow-2xs" />
+              <div className="nutrition-scan-result__meal-fields">
+                <div className="nutrition-scan-result__meal-fields-heading">
+                  <i />
                   <span className="text-xs font-black text-slate-900 uppercase tracking-wider">Thời Gian & Phân Loại Bữa Ăn</span>
                 </div>
-                <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5 w-full items-end">
-                  <label className="flex flex-col gap-1 text-[10px] sm:text-[11px] font-medium text-slate-700 min-w-0">
+                <div className="nutrition-scan-result__meal-fields-grid">
+                  <label>
                     <span className="flex items-center gap-1 truncate"><Utensils size={11} className="text-pink-500 shrink-0" /> Bữa ăn</span>
                     <select
                       value={mealType}
@@ -2601,7 +2568,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                     </select>
                   </label>
 
-                  <label className="flex flex-col gap-1 text-[10px] sm:text-[11px] font-medium text-slate-700 min-w-0">
+                  <label>
                     <span className="flex items-center gap-1 truncate"><Calendar size={11} className="text-rose-500 shrink-0" /> Ngày</span>
                     <input
                       type="date"
@@ -2611,7 +2578,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                     />
                   </label>
 
-                  <label className="flex flex-col gap-1 text-[10px] sm:text-[11px] font-medium text-slate-700 min-w-0">
+                  <label>
                     <span className="flex items-center gap-1 truncate"><Clock size={11} className="text-orange-500 shrink-0" /> Thời gian</span>
                     <input
                       type="time"
@@ -2625,7 +2592,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
 
               {/* Assumptions & Evidence Note */}
               {(analysisWarnings.length > 0 || items.some((item) => item.assumptions?.length)) && (
-                <details className="nutrition-analysis-evidence my-4 text-xs text-slate-500 bg-slate-50 p-3 rounded-xl border border-slate-200/60 shadow-2xs">
+                <details className="nutrition-analysis-evidence nutrition-scan-result__evidence">
                   <summary className="cursor-pointer font-bold text-slate-700 flex items-center gap-1.5">
                     <Info size={14} /> Cách Aura tính toán và giả định
                   </summary>
@@ -2645,10 +2612,10 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
               )}
 
               {/* ACTION BUTTONS: Saved directly without outer frame */}
-              <div className="grid grid-cols-2 gap-3 mt-6 mb-8">
+              <div className="nutrition-scan-result__actions">
                 <button
                   type="button"
-                  className="inline-flex items-center justify-center gap-2 h-12 px-3 sm:px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-extrabold shadow-md active:scale-[0.98] transition-all cursor-pointer border-none"
+                  className="nutrition-scan-result__action nutrition-scan-result__action--save"
                   onClick={() => saveMeal(false)}
                   disabled={!canSaveMeal}
                 >
@@ -2658,8 +2625,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
 
                 <button
                   type="button"
-                  className="inline-flex items-center justify-center gap-2 h-12 px-3 sm:px-4 rounded-2xl text-white text-xs sm:text-sm font-extrabold shadow-md active:scale-[0.98] transition-all cursor-pointer border-none hover:opacity-95"
-                  style={{ background: 'linear-gradient(135deg, #ec4899 0%, #f97316 100%)' }}
+                  className="nutrition-scan-result__action nutrition-scan-result__action--review"
                   onClick={() => saveMeal(true)}
                   disabled={!canSaveMeal}
                 >

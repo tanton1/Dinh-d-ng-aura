@@ -2225,3 +2225,315 @@
   font-weight: 600; 
   text-transform: uppercase; 
 }
+
+/* Scan result uses component-owned classes so it does not depend on Tailwind utilities. */
+.nutrition-scan-modal--result {
+  overflow: hidden;
+  border: 0 !important;
+  background: linear-gradient(145deg, #ec4899 0%, #f97316 100%) !important;
+}
+
+.nutrition-scan-result {
+  max-width: 100%;
+  min-height: 0;
+  padding: 0 0 max(24px, env(safe-area-inset-bottom));
+  overflow: hidden;
+  background: transparent;
+  box-shadow: none;
+}
+
+.nutrition-scan-result__hero {
+  height: clamp(240px, 36vw, 340px);
+  min-height: 240px;
+  margin: 0;
+  border-radius: 0;
+  background: #172033;
+  box-shadow: none;
+}
+
+.nutrition-scan-result__hero-image {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  object-fit: cover;
+}
+
+.nutrition-scan-result__hero-placeholder {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: #94a3b8;
+  background: linear-gradient(145deg, #334155, #0f172a);
+}
+
+.nutrition-scan-result__hero-overlay {
+  inset: 0 0 auto;
+  width: 100%;
+  min-height: 90px;
+  padding: 18px 20px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, .7), transparent);
+}
+
+.nutrition-scan-result__icon-button {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(15,23,42,.42);
+  box-shadow: 0 4px 14px rgba(15,23,42,.22);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+}
+
+.nutrition-scan-result__icon-button:hover { background: rgba(15,23,42,.6); }
+.nutrition-scan-result__hero-actions { display: flex; align-items: center; gap: 9px; }
+.nutrition-scan-result__vision-badge {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 999px;
+  color: #fff;
+  background: linear-gradient(135deg, #ec4899, #f97316);
+  box-shadow: 0 6px 18px rgba(190,24,93,.32);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.nutrition-scan-result__sheet {
+  margin-top: -24px;
+  padding: 22px 24px 36px;
+  border: 0;
+  border-radius: 28px 28px 0 0;
+  background: #fff;
+  box-shadow: 0 -8px 30px rgba(15,23,42,.09);
+}
+
+.nutrition-scan-result__meta {
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.nutrition-scan-result__confidence,
+.nutrition-scan-result__time {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.nutrition-scan-result__confidence {
+  min-width: 0;
+  color: #be185d;
+  border: 1px solid #fbcfe8;
+  background: #fdf2f8;
+}
+.nutrition-scan-result__confidence > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nutrition-scan-result__confidence svg { flex: 0 0 auto; }
+.nutrition-scan-result__time { color: #c2410c; border: 1px solid #fed7aa; background: #fff7ed; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.nutrition-scan-result__summary {
+  align-items: stretch;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.nutrition-scan-result__title-column { padding-right: 2px; }
+.nutrition-scan-result__dish-name {
+  width: 100%;
+  min-height: 62px;
+  display: block;
+  resize: none;
+  overflow: hidden;
+  padding: 3px 0 6px;
+  border: 0;
+  border-bottom: 2px dashed #f472b6;
+  border-radius: 0;
+  color: #0f172a;
+  background: transparent;
+  box-shadow: none;
+  outline: 0;
+  font: inherit;
+  font-size: clamp(19px, 3vw, 24px);
+  font-weight: 900;
+  line-height: 1.25;
+  letter-spacing: -.025em;
+}
+.nutrition-scan-result__energy-range { margin: 7px 0 0; color: #64748b; font-size: 12px; line-height: 1.5; }
+.nutrition-scan-result__energy-range strong { color: #334155; }
+.nutrition-scan-result__calories {
+  min-width: 132px;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 16px;
+  border-radius: 18px;
+  color: #fff;
+  text-align: center;
+  background: linear-gradient(135deg, #ec4899 0%, #f43f5e 52%, #f97316 100%);
+  box-shadow: 0 8px 22px rgba(236,72,153,.3);
+}
+.nutrition-scan-result__calorie-label { display: flex; align-items: center; gap: 5px; color: #fff7ed; font-size: 10px; font-weight: 900; letter-spacing: .08em; }
+.nutrition-scan-result__calorie-value { display: flex; align-items: baseline; justify-content: center; gap: 4px; margin-top: 3px; }
+.nutrition-scan-result__calorie-value strong { color: #fff; font-size: 29px; font-weight: 900; line-height: 1; text-shadow: 0 2px 7px rgba(15,23,42,.24); }
+.nutrition-scan-result__calorie-value span { color: rgba(255,255,255,.95); font-size: 11px; font-weight: 900; text-transform: uppercase; }
+
+.nutrition-scan-result__macro-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0 0 24px; }
+.nutrition-scan-result__macro {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #fbcfe8;
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(253,242,248,.9), rgba(255,237,213,.72));
+  box-shadow: 0 3px 10px rgba(190,24,93,.05);
+}
+.nutrition-scan-result__macro-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 5px; }
+.nutrition-scan-result__macro-label { min-width: 0; display: flex; align-items: center; gap: 5px; }
+.nutrition-scan-result__macro-label span { flex: 0 0 auto; font-size: 14px; }
+.nutrition-scan-result__macro-label strong { overflow: hidden; color: #4c0519; font-size: 11px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.nutrition-scan-result__macro-percent { flex: 0 0 auto; padding: 2px 5px; border-radius: 6px; color: #be185d; background: rgba(251,207,232,.55); font-size: 9px; font-weight: 900; }
+.nutrition-scan-result__macro-value { display: block; margin-top: 7px; color: #0f172a; font-size: 18px; }
+.nutrition-scan-result__macro--carbs .nutrition-scan-result__macro-percent { color: #b45309; background: rgba(254,243,199,.75); }
+.nutrition-scan-result__macro--fat .nutrition-scan-result__macro-percent { color: #0369a1; background: rgba(224,242,254,.75); }
+.nutrition-scan-result__macro--fiber .nutrition-scan-result__macro-percent { color: #047857; background: rgba(209,250,229,.75); }
+
+.nutrition-scan-result__ingredients-wrap { margin: 0 0 24px; }
+.nutrition-scan-result__ingredients { padding: 16px; border: 1px solid #fbcfe8; border-radius: 18px; background: linear-gradient(145deg, rgba(253,242,248,.75), rgba(255,237,213,.7)); }
+.nutrition-scan-result__section-header { align-items: center; margin-bottom: 13px; }
+.nutrition-scan-result__section-description { display: block; margin-top: 3px; color: #64748b; font-size: 11px; font-weight: 600; }
+.nutrition-scan-result__add-button { min-height: 34px; display: inline-flex; align-items: center; gap: 5px; padding: 0 13px; border: 0; border-radius: 999px; color: #fff; background: linear-gradient(135deg, #ec4899, #f97316); box-shadow: 0 5px 14px rgba(236,72,153,.2); font-size: 11px; font-weight: 900; cursor: pointer; }
+.nutrition-scan-result__ingredient-list { display: grid; gap: 9px; }
+.nutrition-scan-result__ingredient { min-width: 0; display: grid; gap: 10px; padding: 13px; border: 1px solid #fce7f3; border-radius: 16px; background: rgba(255,255,255,.94); box-shadow: 0 2px 8px rgba(15,23,42,.035); }
+.nutrition-scan-result__ingredient-main { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.nutrition-scan-result__ingredient-name { min-width: 0; flex: 1 1 auto; min-height: 32px; display: block; resize: none; overflow: hidden; padding: 5px 0; border: 0; color: #172033; background: transparent; box-shadow: none; outline: 0; font: inherit; font-size: 14px; line-height: 1.4; }
+.nutrition-scan-result__gram-stepper { width: 116px; flex: 0 0 116px; display: flex; align-items: center; justify-content: space-between; padding: 4px; border: 1px solid #f1f5f9; border-radius: 13px; background: #fff; box-shadow: 0 3px 10px rgba(15,23,42,.08); }
+.nutrition-scan-result__step-button { width: 30px; height: 30px; flex: 0 0 30px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 9px; color: #475569; background: #f8fafc; cursor: pointer; }
+.nutrition-scan-result__step-button--plus { color: #db2777; background: #fdf2f8; }
+.nutrition-scan-result__gram-value { min-width: 0; display: flex; align-items: center; justify-content: center; gap: 1px; color: #64748b; font-size: 10px; font-weight: 800; }
+.nutrition-scan-result__gram-input { width: 38px; min-width: 0; padding: 0; border: 0; color: #0f172a; background: transparent; box-shadow: none; outline: 0; font-size: 12px; font-weight: 900; text-align: right; }
+.nutrition-scan-result__ingredient-meta { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.nutrition-scan-result__confidence-row { min-width: 0; flex: 1 1 auto; display: flex; align-items: center; gap: 7px; color: #64748b; font-size: 10px; white-space: nowrap; }
+.nutrition-scan-result__confidence-row strong { padding: 2px 6px; border-radius: 6px; color: #db2777; background: #fdf2f8; font-size: 10px; }
+.nutrition-scan-result__confidence-track { min-width: 28px; flex: 1 1 auto; height: 6px; overflow: hidden; border-radius: 99px; background: #f1f5f9; }
+.nutrition-scan-result__confidence-track > div { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #f97316, #ec4899); }
+.nutrition-scan-result__delete-button { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; padding: 0; border: 1px solid #fce7f3; border-radius: 10px; color: #94a3b8; background: #fff; cursor: pointer; }
+.nutrition-scan-result__delete-button:hover { color: #e11d48; background: #fff1f2; }
+
+.nutrition-scan-result__health-card { margin: 0 0 24px; padding: 16px; border-radius: 18px; color: #fff; background: linear-gradient(135deg, #ec4899, #f97316); box-shadow: 0 8px 22px rgba(236,72,153,.2); }
+.nutrition-scan-result__health-content { display: flex; align-items: flex-start; gap: 14px; }
+.nutrition-scan-result__health-score { width: 50px; height: 50px; flex: 0 0 50px; display: grid; place-items: center; border-radius: 14px; background: rgba(255,255,255,.19); }
+.nutrition-scan-result__health-score strong { color: #fff; font-size: 20px; }
+.nutrition-scan-result__health-copy { min-width: 0; flex: 1 1 auto; }
+.nutrition-scan-result__health-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-bottom: 5px; }
+.nutrition-scan-result__health-heading span { padding: 3px 8px; border-radius: 999px; color: #db2777; background: #fff; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.nutrition-scan-result__health-heading strong { color: #fff; font-size: 12px; }
+.nutrition-scan-result__health-copy p { margin: 0; color: #fff7ed; font-size: 11px; font-weight: 600; line-height: 1.55; }
+
+.nutrition-scan-result__ai-card { position: relative; overflow: hidden; margin: 0 0 24px; padding: 18px; border: 1px solid rgba(244,114,182,.28); border-radius: 22px; color: #fff; background: linear-gradient(145deg, #1e1b4b, #31103f 55%, #4c0519); box-shadow: 0 12px 30px rgba(30,27,75,.2); }
+.nutrition-scan-result__ai-card::before { content: ''; position: absolute; width: 160px; height: 160px; top: -95px; right: -70px; border-radius: 50%; background: rgba(236,72,153,.18); filter: blur(20px); }
+.nutrition-scan-result__ai-content { position: relative; z-index: 1; }
+.nutrition-scan-result__ai-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
+.nutrition-scan-result__ai-title { min-width: 0; display: flex; align-items: center; gap: 9px; }
+.nutrition-scan-result__ai-icon { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; border-radius: 10px; color: #fff; background: #ec4899; }
+.nutrition-scan-result__ai-title strong { display: block; color: #f9a8d4; font-size: 12px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
+.nutrition-scan-result__ai-title span { display: block; margin-top: 2px; color: #cbd5e1; font-size: 10px; }
+.nutrition-scan-result__ai-badge { flex: 0 0 auto; padding: 4px 9px; border-radius: 999px; color: #f9a8d4; background: rgba(236,72,153,.16); font-size: 9px; font-weight: 900; }
+.nutrition-scan-result__ai-highlight,
+.nutrition-scan-result__ai-tip,
+.nutrition-scan-result__analysis-detail { border-radius: 14px; background: rgba(255,255,255,.06); }
+.nutrition-scan-result__ai-highlight { margin-bottom: 10px; padding: 13px; }
+.nutrition-scan-result__ai-highlight p { margin: 0; color: #f1f5f9; font-size: 11px; font-weight: 500; line-height: 1.6; }
+.nutrition-scan-result__ai-highlight strong { display: block; margin-bottom: 4px; color: #f9a8d4; }
+.nutrition-scan-result__ai-tips { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-bottom: 10px; }
+.nutrition-scan-result__ai-tip { min-width: 0; display: flex; align-items: flex-start; gap: 9px; padding: 11px; color: #e2e8f0; font-size: 10px; line-height: 1.45; }
+.nutrition-scan-result__ai-tip strong { display: block; margin-bottom: 2px; color: #fbbf24; }
+.nutrition-scan-result__ai-tip:nth-child(2) strong { color: #34d399; }
+.nutrition-scan-result__ai-tip-icon { width: 28px; height: 28px; flex: 0 0 28px; display: grid; place-items: center; border-radius: 9px; }
+.nutrition-scan-result__ai-tip-icon--calories { color: #fbbf24; background: rgba(245,158,11,.16); }
+.nutrition-scan-result__ai-tip-icon--macro { color: #34d399; background: rgba(16,185,129,.16); }
+.nutrition-scan-result__analysis-toggle { width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; border: 0; border-radius: 14px; color: #fff; background: rgba(255,255,255,.07); cursor: pointer; font-size: 10px; font-weight: 800; text-align: left; }
+.nutrition-scan-result__analysis-toggle > span { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.nutrition-scan-result__analysis-toggle > span span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nutrition-scan-result__analysis-toggle > strong { flex: 0 0 auto; color: #f472b6; font-size: 9px; }
+.nutrition-scan-result__analysis-details { display: grid; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.09); }
+.nutrition-scan-result__analysis-detail { padding: 11px; }
+.nutrition-scan-result__analysis-detail-title { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; color: #fbbf24; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.nutrition-scan-result__analysis-detail-title--portion { color: #38bdf8; }
+.nutrition-scan-result__analysis-detail p { margin: 0; color: #e2e8f0; font-size: 11px; line-height: 1.55; }
+
+.nutrition-scan-result__meal-fields { margin: 0 0 18px; padding: 15px; border: 1px solid #fbcfe8; border-radius: 18px; background: linear-gradient(145deg, rgba(252,231,243,.62), rgba(255,237,213,.65)); }
+.nutrition-scan-result__meal-fields-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.nutrition-scan-result__meal-fields-heading i { width: 10px; height: 10px; flex: 0 0 10px; border-radius: 50%; background: linear-gradient(135deg, #ec4899, #f97316); }
+.nutrition-scan-result__meal-fields-heading span { color: #172033; font-size: 11px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
+.nutrition-scan-result__meal-fields-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.nutrition-scan-result__meal-fields-grid label { min-width: 0; display: grid; gap: 5px; color: #475569; font-size: 10px; font-weight: 700; }
+.nutrition-scan-result__meal-fields-grid label > span { min-width: 0; display: flex; align-items: center; gap: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nutrition-scan-result__meal-fields-grid label > span svg { flex: 0 0 auto; color: #ec4899; }
+.nutrition-scan-result__meal-fields-grid select,
+.nutrition-scan-result__meal-fields-grid input { width: 100%; min-width: 0; height: 42px; padding: 0 9px; border: 1px solid #fbcfe8; border-radius: 12px; color: #334155; background: #fff; box-shadow: 0 2px 6px rgba(15,23,42,.03); outline: 0; font: inherit; font-size: 11px; }
+.nutrition-scan-result__meal-fields-grid select:focus,
+.nutrition-scan-result__meal-fields-grid input:focus { border-color: #f472b6; box-shadow: 0 0 0 3px rgba(236,72,153,.1); }
+
+.nutrition-scan-result__evidence { margin: 14px 0 18px; }
+.nutrition-scan-result__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.nutrition-scan-result__action { min-width: 0; min-height: 50px; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 13px; border: 0; border-radius: 15px; color: #fff; box-shadow: 0 7px 18px rgba(15,23,42,.14); cursor: pointer; font-size: 12px; font-weight: 900; }
+.nutrition-scan-result__action svg { flex: 0 0 auto; }
+.nutrition-scan-result__action span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nutrition-scan-result__action--save { background: #172033; }
+.nutrition-scan-result__action--review { background: linear-gradient(135deg, #ec4899, #f97316); }
+.nutrition-scan-result__action:disabled { opacity: .48; cursor: not-allowed; box-shadow: none; }
+
+@media (max-width: 767px) {
+  .nutrition-route-page--scan { padding: 0 0 96px; }
+  .nutrition-route-page--scan .nutrition-scan-modal--result { border-radius: 0; }
+  .nutrition-scan-result__hero { height: 260px; min-height: 260px; }
+  .nutrition-scan-result__sheet { padding: 20px 16px 30px; }
+  .nutrition-scan-result__macro-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 480px) {
+  .nutrition-scan-result__hero { height: 225px; min-height: 225px; }
+  .nutrition-scan-result__hero-overlay { min-height: 76px; padding: 14px; }
+  .nutrition-scan-result__icon-button { width: 40px; height: 40px; flex-basis: 40px; }
+  .nutrition-scan-result__vision-badge { max-width: 170px; min-height: 32px; padding-inline: 10px; }
+  .nutrition-scan-result__vision-badge span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nutrition-scan-result__sheet { margin-top: -20px; padding: 18px 14px 28px; border-radius: 24px 24px 0 0; }
+  .nutrition-scan-result__confidence { max-width: calc(100% - 70px); }
+  .nutrition-scan-result__summary { gap: 10px; }
+  .nutrition-scan-result__dish-name { min-height: 54px; font-size: 18px; }
+  .nutrition-scan-result__energy-range { font-size: 10px; }
+  .nutrition-scan-result__calories { min-width: 105px; padding: 11px 8px; }
+  .nutrition-scan-result__calorie-value strong { font-size: 24px; }
+  .nutrition-scan-result__macro-grid { gap: 8px; }
+  .nutrition-scan-result__macro { padding: 11px 10px; }
+  .nutrition-scan-result__macro-label strong { font-size: 10px; }
+  .nutrition-scan-result__macro-value { font-size: 16px; }
+  .nutrition-scan-result__ingredients { padding: 13px; }
+  .nutrition-scan-result__section-header { gap: 8px; }
+  .nutrition-scan-result__section-description { font-size: 10px; }
+  .nutrition-scan-result__ingredient { padding: 11px; }
+  .nutrition-scan-result__ingredient-main { gap: 8px; }
+  .nutrition-scan-result__ingredient-name { font-size: 13px; }
+  .nutrition-scan-result__gram-stepper { width: 108px; flex-basis: 108px; }
+  .nutrition-scan-result__ai-tips { grid-template-columns: 1fr; }
+  .nutrition-scan-result__meal-fields-grid { grid-template-columns: 1fr 1fr; }
+  .nutrition-scan-result__meal-fields-grid label:first-child { grid-column: 1 / -1; }
+  .nutrition-scan-result__actions { grid-template-columns: 1fr; }
+  .nutrition-scan-result__action { font-size: 12px; }
+}
+
+@media (max-width: 350px) {
+  .nutrition-scan-result__summary { display: grid; grid-template-columns: 1fr; }
+  .nutrition-scan-result__calories { width: 100%; min-height: 72px; }
+  .nutrition-scan-result__ingredient-main { flex-direction: column; }
+  .nutrition-scan-result__gram-stepper { width: 100%; flex-basis: auto; }
+}
