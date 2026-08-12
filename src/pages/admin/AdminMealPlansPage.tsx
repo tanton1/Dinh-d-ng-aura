@@ -34,7 +34,7 @@ import {
   ChevronRight
 } from 'lucide-react'
 import type { ViewId } from '../../types'
-import { firebaseAuth } from '../../lib/firebase'
+import { generateMealPlanWithAi, generateRecipeWithAi } from '../../services/generativeAiService'
 import '../../styles-admin-meal-plans.css'
 
 interface AdminMealPlansPageProps {
@@ -346,25 +346,12 @@ export default function AdminMealPlansPage({ onNavigate }: AdminMealPlansPagePro
     }
     try {
       setIsGeneratingAiRecipe(true)
-      let token: string | null = null
-      if (firebaseAuth?.currentUser) {
-        token = await firebaseAuth.currentUser.getIdToken()
-      }
-      const res = await fetch('/api/ai/generate-recipe', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          prompt: aiPrompt,
-          goal: aiGoal,
-          mealType: aiMealType
-        })
+      const rec = await generateRecipeWithAi({
+        prompt: aiPrompt,
+        goal: aiGoal,
+        mealType: aiMealType,
       })
-      const data = await res.json()
-      if (data.success && data.recipe) {
-        const rec = data.recipe
+      if (rec) {
         setFormData({
           name: rec.name || 'Món ăn AI',
           meal: rec.meal || aiMealType,
@@ -390,8 +377,6 @@ export default function AdminMealPlansPage({ onNavigate }: AdminMealPlansPagePro
         setEditingRecipe(null)
         setIsRecipeModalOpen(true)
         showToast('AI đã tạo công thức! Bạn có thể chọn ảnh từ máy tính trước khi lưu.')
-      } else {
-        showToast(data.error || 'Không thể tạo công thức AI')
       }
     } catch (err) {
       console.error(err)
@@ -405,28 +390,14 @@ export default function AdminMealPlansPage({ onNavigate }: AdminMealPlansPagePro
   const handleGenerateAiPlan = async () => {
     try {
       setIsGeneratingAiPlan(true)
-      let token: string | null = null
-      if (firebaseAuth?.currentUser) {
-        token = await firebaseAuth.currentUser.getIdToken()
-      }
-      const res = await fetch('/api/ai/suggest-meal-plan', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          goal: aiPlanGoal,
-          targetCalories: aiPlanCalories,
-          targetProtein: aiPlanProtein
-        })
+      const planSuggestion = await generateMealPlanWithAi({
+        goal: aiPlanGoal,
+        targetCalories: aiPlanCalories,
+        targetProtein: aiPlanProtein,
       })
-      const data = await res.json()
-      if (data.success && data.planSuggestion) {
-        setAiPlanResult(data.planSuggestion)
+      if (planSuggestion) {
+        setAiPlanResult(planSuggestion)
         showToast('AI đã hoàn tất gợi ý khung thực đơn!')
-      } else {
-        showToast('Không thể kết nối dịch vụ gợi ý thực đơn')
       }
     } catch (err) {
       console.error(err)

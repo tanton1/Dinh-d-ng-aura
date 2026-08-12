@@ -1,4 +1,3 @@
-import { firebaseAuth } from '../../lib/firebase';
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
@@ -36,6 +35,7 @@ import {
   type AcademyLessonContent,
 } from '../../services/academyLearningService'
 import { loadCourseQuizAnswerKeys, uploadCourseMedia, uploadCourseCover } from '../../services/firebaseService'
+import { generateCourseMemory, generateCourseOutline, generateCourseQuiz } from '../../services/generativeAiService'
 import type {
   CourseDraftInput,
   CourseQuizAnswerKeys,
@@ -226,26 +226,18 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     }
     try {
       setGeneratingOutline(true);
-      const token = await firebaseAuth?.currentUser?.getIdToken();
-      const res = await fetch("/api/ai/generate-course-outline", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          topic: course.title,
-          audience: course.description || course.outcomes.join(', '),
-          weeks: course.duration,
-        })
+      const data = await generateCourseOutline({
+        topic: course.title,
+        audience: course.description || course.outcomes.join(', '),
+        weeks: Number.parseInt(course.duration, 10) || 4,
       });
-      const data = await res.json();
       if (data && data.modules) {
         setCourse((c) => ({
           ...c,
           modules: data.modules.map((m: any, i: number) => ({
             id: 'module-' + crypto.randomUUID(),
             title: m.title,
+            order: i,
             lessons: m.lessons.map((l: any, j: number) => ({
               id: 'lesson-' + crypto.randomUUID(),
               type: "Video",
@@ -269,19 +261,10 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     if (!detailLesson) return;
     try {
       setGeneratingQuiz(true);
-      const token = await firebaseAuth?.currentUser?.getIdToken();
-      const res = await fetch("/api/ai/generate-course-quiz", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          lessonTitle: detailLesson.title,
-          lessonSummary: detailLesson.summary || detailLesson.coachNotes || course.title,
-        })
+      const data = await generateCourseQuiz({
+        lessonTitle: detailLesson.title,
+        lessonSummary: detailLesson.summary || detailLesson.coachNotes || course.title,
       });
-      const data = await res.json();
       if (data && data.questions) {
         setCourse((c) => {
           const newCourse = { ...c };
@@ -320,19 +303,10 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     if (!detailLesson) return;
     try {
       setGeneratingMemory(true);
-      const token = await firebaseAuth?.currentUser?.getIdToken();
-      const res = await fetch("/api/ai/generate-course-memory", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          lessonTitle: detailLesson.title,
-          lessonSummary: detailLesson.summary || detailLesson.coachNotes || course.title,
-        })
+      const data = await generateCourseMemory({
+        lessonTitle: detailLesson.title,
+        lessonSummary: detailLesson.summary || detailLesson.coachNotes || course.title,
       });
-      const data = await res.json();
       if (data) {
         setCourse((c) => {
           const newCourse = { ...c };

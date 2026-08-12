@@ -6,12 +6,32 @@ const {
   createGeminiSchema,
   enrichAnalysisWithLookups,
   foodAnalysisSchema,
+  getGeminiModelCandidates,
   isGeminiModelCompatibilityError,
   sanitizeProviderErrorMessage,
   scaleCatalogNutrition,
   sumNutritionItems,
   validateFoodAnalysis,
 } = require('./nutrition')
+
+test('Gemini model candidates use stable defaults and remove duplicates', () => {
+  const originalModel = process.env.GEMINI_VISION_MODEL
+  const originalFallback = process.env.GEMINI_VISION_FALLBACK_MODEL
+  try {
+    delete process.env.GEMINI_VISION_MODEL
+    delete process.env.GEMINI_VISION_FALLBACK_MODEL
+    assert.deepEqual(getGeminiModelCandidates(), ['gemini-3.6-flash', 'gemini-3.1-pro-preview'])
+
+    process.env.GEMINI_VISION_MODEL = 'gemini-3.6-flash'
+    process.env.GEMINI_VISION_FALLBACK_MODEL = 'gemini-3.6-flash'
+    assert.deepEqual(getGeminiModelCandidates(), ['gemini-3.6-flash'])
+  } finally {
+    if (originalModel === undefined) delete process.env.GEMINI_VISION_MODEL
+    else process.env.GEMINI_VISION_MODEL = originalModel
+    if (originalFallback === undefined) delete process.env.GEMINI_VISION_FALLBACK_MODEL
+    else process.env.GEMINI_VISION_FALLBACK_MODEL = originalFallback
+  }
+})
 
 function collectKeys(value, keys = []) {
   if (Array.isArray(value)) {

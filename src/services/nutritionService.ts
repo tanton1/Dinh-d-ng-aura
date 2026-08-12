@@ -186,6 +186,8 @@ const acceptedImageTypes = new Map<string, string>([
   ['image/webp', 'webp'],
 ])
 const acceptedMealTypes = new Set<MealType>(['breakfast', 'lunch', 'dinner', 'snack', 'other'])
+const useLegacyAiHttpApi = import.meta.env.DEV
+  && import.meta.env.VITE_USE_LEGACY_AI_HTTP_API === 'true'
 
 function requireNutritionFirebase() {
   if (!firebaseAuth || !firebaseFunctions || !firebaseStorage) {
@@ -563,7 +565,8 @@ export async function analyzeFoodPhoto(
   image: Blob,
   options: AnalyzeFoodPhotoOptions = {},
 ): Promise<FoodAnalysisResponse> {
-  try {
+  if (useLegacyAiHttpApi) {
+    try {
     const base64 = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader()
       reader.onloadend = () => resolve(reader.result as string)
@@ -685,10 +688,8 @@ export async function analyzeFoodPhoto(
         return finalResponse
       }
     }
-  } catch (e: any) {
-    console.warn('Direct AI endpoint fallback:', e)
-    if (e?.message === 'MISSING_GEMINI_API_KEY') {
-      throw new Error('Thiếu GEMINI_API_KEY trong môi trường production (Cài đặt -> Secrets). Hệ thống không thể sử dụng phiên bản AI mới để phân tích chi tiết.');
+    } catch (e: any) {
+      console.warn('Local AI HTTP endpoint failed; using Firebase callable instead:', e)
     }
   }
 
@@ -697,7 +698,8 @@ export async function analyzeFoodPhoto(
   return analyzeUploadedFoodPhoto(upload, options)
 }
 export async function generateMealReview(meal: any, userProfile: any): Promise<string> {
-  try {
+  if (useLegacyAiHttpApi) {
+    try {
     const token = await firebaseAuth?.currentUser?.getIdToken();
     const response = await fetch('/api/generateMealReview', {
       method: 'POST',
@@ -718,19 +720,17 @@ export async function generateMealReview(meal: any, userProfile: any): Promise<s
       const data = await response.json();
       return data.review || 'Lỗi khi kết nối với máy chủ để phân tích bữa ăn.';
     }
-  } catch (error: any) {
-    console.warn('Direct AI endpoint fallback for generateMealReview:', error);
-    if (error?.message === 'MISSING_GEMINI_API_KEY') {
-      return 'Thiếu GEMINI_API_KEY trong môi trường production. Vui lòng cài đặt (Settings -> Secrets) để nhận nhận xét từ AI.';
+    } catch (error) {
+      console.warn('Local meal-review endpoint failed; using Firebase callable instead:', error)
     }
   }
 
-  // Fallback to Firebase Functions
   try {
     const firebase = requireNutritionFirebase();
     const callable = httpsCallable<{ meal: any, userProfile: any }, { review: string }>(
       firebase.functions,
-      'generateMealReview'
+      'generateMealReview',
+      { timeout: 30_000 },
     );
     const result = await callable({ meal, userProfile });
     return result.data.review || 'Lỗi khi phân tích bữa ăn.';
@@ -741,7 +741,8 @@ export async function generateMealReview(meal: any, userProfile: any): Promise<s
 }
 
 export async function askAiCoach(message: string, userProfile: any): Promise<string> {
-  try {
+  if (useLegacyAiHttpApi) {
+    try {
     const token = await firebaseAuth?.currentUser?.getIdToken();
     const response = await fetch('/api/ai/coach-chat', {
       method: 'POST',
@@ -762,19 +763,17 @@ export async function askAiCoach(message: string, userProfile: any): Promise<str
       const data = await response.json();
       return data.text || 'AI Coach chưa có phản hồi.';
     }
-  } catch (error: any) {
-    console.warn('Direct AI endpoint fallback for askAiCoach:', error);
-    if (error?.message === 'MISSING_GEMINI_API_KEY') {
-      return 'Thiếu GEMINI_API_KEY trong môi trường production. Vui lòng cài đặt (Settings -> Secrets) để trò chuyện với AI.';
+    } catch (error) {
+      console.warn('Local AI Coach endpoint failed; using Firebase callable instead:', error)
     }
   }
 
-  // Fallback to Firebase Functions
   try {
     const firebase = requireNutritionFirebase();
     const callable = httpsCallable<{ message: string, userProfile: any }, { text: string }>(
       firebase.functions,
-      'askAiCoach'
+      'askAiCoach',
+      { timeout: 30_000 },
     );
     const result = await callable({ message, userProfile });
     return result.data.text || 'AI Coach chưa có phản hồi.';

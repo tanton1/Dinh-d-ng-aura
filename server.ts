@@ -207,10 +207,6 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
 
   // AI Meal Analysis endpoint using Gemini 3.6 Flash Vision
   aiRouter.post("/analyze-meal", async (req, res) => {
-    const rawApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
-    const maskedKey = rawApiKey.length > 8 ? `${rawApiKey.substring(0, 4)}...${rawApiKey.substring(rawApiKey.length - 4)}` : (rawApiKey ? 'TOO_SHORT' : 'MISSING');
-    console.log(`[Diagnostic] /api/ai/analyze-meal called. GEMINI_API_KEY present: ${!!rawApiKey}, Masked Key: ${maskedKey}`);
-
     try {
       const parsed = analyzeMealSchema.safeParse(req.body);
       if (!parsed.success) {

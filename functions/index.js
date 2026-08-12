@@ -5,6 +5,7 @@ const { getStorage } = require('firebase-admin/storage')
 const { HttpsError, onCall } = require('firebase-functions/v2/https')
 const { setGlobalOptions } = require('firebase-functions/v2/options')
 const { createHash } = require('node:crypto')
+const { createGenerativeAiFunctions } = require('./generative-ai')
 const { createNutritionFunctions } = require('./nutrition')
 
 const app = initializeApp()
@@ -22,6 +23,7 @@ const mediaUrlTtlMs = 5 * 60 * 1000
 setGlobalOptions({ region: 'asia-southeast1', maxInstances: 3 })
 
 Object.assign(exports, createNutritionFunctions({ app, db }))
+Object.assign(exports, createGenerativeAiFunctions({ db }))
 
 exports.updateUserRole = onCall(async (request) => {
   const actorUid = request.auth?.uid

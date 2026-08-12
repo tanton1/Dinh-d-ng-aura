@@ -42,8 +42,14 @@ Keep the API key in Firebase Secret Manager:
 
 ```powershell
 firebase functions:secrets:set GEMINI_API_KEY
-firebase deploy --only functions:analyzeFoodImage,storage
+firebase deploy --only "functions:analyzeFoodImage,functions:generateMealReview,functions:askAiCoach,functions:generateAuraContent,storage" `
+  --project gen-lang-client-0815966909
 ```
+
+Production is Firebase Hosting plus regional callable Functions. The browser must
+call these functions through the Firebase SDK; `/api/*` belongs to the optional
+local Express server and is not served by the Hosting SPA rewrite. Deploying only
+Hosting leaves newly added callable functions unavailable.
 
 To deploy the production-shaped demo without a Gemini key, set the secret value
 to `disabled` when prompted. The endpoint will use the explicit no-fabrication
@@ -60,6 +66,17 @@ The optional `GEMINI_VISION_MODEL` environment variable defaults to
 function falls back to `GEMINI_VISION_FALLBACK_MODEL`, which defaults to
 `gemini-3.1-pro-preview`. Do not expose any provider configuration value through
 a `VITE_*` variable.
+
+Verify deployment metadata without printing the secret value:
+
+```powershell
+firebase functions:secrets:get GEMINI_API_KEY --project gen-lang-client-0815966909
+firebase functions:list --project gen-lang-client-0815966909
+```
+
+The list must include `analyzeFoodImage`, `generateMealReview`, `askAiCoach`,
+and `generateAuraContent` in `asia-southeast1`. Never use
+`functions:secrets:access` in logs or CI output.
 
 When no server-side key is available, the callable returns
 `status: "provider_not_configured"`, `mode: "demo"`, and `analysis: null`. It does

@@ -5,7 +5,7 @@ const { defineSecret } = require('firebase-functions/params')
 const { HttpsError, onCall } = require('firebase-functions/v2/https')
 
 const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY', {
-  description: 'Gemini API key used only by the server-side food vision function.',
+  description: 'Gemini API key used only by server-side Aura nutrition functions.',
 })
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
@@ -313,6 +313,15 @@ function isGeminiModelCompatibilityError(status, providerMessage) {
   const reportsIncompatibility = /\b(not supported|unsupported|does not support|isn't supported|not available|incompatible)\b/i
     .test(providerMessage)
   return mentionsModelConfiguration && reportsIncompatibility
+}
+
+function getGeminiModelCandidates() {
+  const configuredModel = process.env.GEMINI_VISION_MODEL?.trim()
+  const configuredFallbackModel = process.env.GEMINI_VISION_FALLBACK_MODEL?.trim()
+  return [...new Set([
+    configuredModel || DEFAULT_MODEL,
+    configuredFallbackModel || DEFAULT_FALLBACK_MODEL,
+  ])]
 }
 
 function extractGeminiResponseText(payload) {
@@ -918,12 +927,7 @@ async function requestGeminiModel({ apiKey, buffer, contentType, prompt, instruc
 }
 
 async function analyzeWithGemini({ apiKey, buffer, contentType, mealType, notes, scanId, studentGoal, studentCondition }) {
-  const configuredModel = process.env.GEMINI_VISION_MODEL?.trim()
-  const configuredFallbackModel = process.env.GEMINI_VISION_FALLBACK_MODEL?.trim()
-  const models = [...new Set([
-    configuredModel || DEFAULT_MODEL,
-    configuredFallbackModel || DEFAULT_FALLBACK_MODEL,
-  ])]
+  const models = getGeminiModelCandidates()
   
   const studentInfo = `Mục tiêu học viên: "${studentGoal || 'Chưa cập nhật'}". Thể trạng: "${studentCondition || 'Chưa cập nhật'}"`
   const context = JSON.stringify({ mealType, notes, studentInfo })
@@ -1001,6 +1005,75 @@ async function analyzeWithGemini({ apiKey, buffer, contentType, mealType, notes,
   }
 
   throw new HttpsError('unavailable', 'AI chưa thể phân tích ảnh lúc này. Hãy thử lại sau.')
+}
+
+async function generateGeminiText({ apiKey, prompt, maxOutputTokens, operation }) {
+  const models = getGeminiModelCandidates()
+
+  for (const [index, model] of models.entries()) {
+    let response
+    try {
+      response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+        {
+          method: 'POST',
+          headers: {
+            'x-goog-api-key': apiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { maxOutputTokens },
+          }),
+          signal: AbortSignal.timeout(25000),
+        },
+      )
+    } catch (error) {
+      logger.error('Gemini text request failed.', {
+        operation,
+        model,
+        reason: error instanceof Error ? error.message : 'unknown',
+      })
+      throw new HttpsError('unavailable', 'Dịch vụ AI đang gián đoạn. Hãy thử lại sau.')
+    }
+
+    const headerRequestId = response.headers.get('x-request-id') ?? response.headers.get('x-guploader-uploadid')
+    const payload = await response.json().catch(() => null)
+    const requestId = typeof payload?.responseId === 'string' ? payload.responseId : (headerRequestId ?? null)
+
+    if (!response.ok) {
+      const providerMessage = sanitizeProviderErrorMessage(payload?.error?.message)
+      logger.error('Gemini text request returned an error.', {
+        operation,
+        model,
+        requestId,
+        status: response.status,
+        providerCode: payload?.error?.code,
+        providerType: payload?.error?.status,
+        providerMessage,
+      })
+      const canTryFallback = index === 0
+        && models.length > 1
+        && (
+          [404, 503].includes(response.status)
+          || isGeminiModelCompatibilityError(response.status, providerMessage)
+        )
+      if (canTryFallback) continue
+      if (response.status === 429) {
+        throw new HttpsError('resource-exhausted', 'Dịch vụ AI đang bận. Hãy thử lại sau ít phút.')
+      }
+      throw new HttpsError('unavailable', 'AI chưa thể trả lời lúc này. Hãy thử lại sau.')
+    }
+
+    const text = extractGeminiResponseText(payload)
+    if (!text) {
+      logger.error('Gemini text request returned no text.', { operation, model, requestId })
+      throw new HttpsError('internal', 'AI trả về kết quả trống. Hãy thử lại.')
+    }
+    return { text, model, requestId }
+  }
+
+  throw new HttpsError('unavailable', 'AI chưa thể trả lời lúc này. Hãy thử lại sau.')
 }
 
 function createDemoResponse(scanId) {
@@ -1100,9 +1173,9 @@ function createNutritionFunctions({ app, db }) {
     enforceAppCheck: ENFORCE_APP_CHECK,
     secrets: [GEMINI_API_KEY],
   }, async (request) => {
-    const uid = requireCaller(request)
+    requireCaller(request)
     const { meal, userProfile } = request.data || {}
-    if (!meal) throw new HttpsError('invalid-argument', 'Meal data is required.')
+    if (!isPlainObject(meal)) throw new HttpsError('invalid-argument', 'Meal data is required.')
 
     const apiKey = getApiKey()
     if (!apiKey) {
@@ -1121,33 +1194,13 @@ Mục tiêu của học viên: ${userProfile?.goals?.includes('lose-fat') ? 'Gi�
 Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm tốt và điểm cần cải thiện của bữa ăn này dựa trên mục tiêu của họ. KHÔNG dùng markdown hay định dạng phức tạp. Viết trực tiếp nội dung.
 `
 
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent`,
-        {
-          method: 'POST',
-          headers: {
-            'x-goog-api-key': apiKey,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: {
-              maxOutputTokens: 500,
-            },
-          }),
-        }
-      )
-      if (!response.ok) {
-         return { review: 'Lỗi khi kết nối với AI (HTTP ' + response.status + ')' }
-      }
-      const data = await response.json()
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text
-      return { review: text || 'Không thể phân tích bữa ăn lúc này.' }
-    } catch (e) {
-      logger.error('Failed to generate meal review', e)
-      return { review: 'Lỗi khi gọi AI phân tích bữa ăn.' }
-    }
+    const result = await generateGeminiText({
+      apiKey,
+      prompt,
+      maxOutputTokens: 500,
+      operation: 'generateMealReview',
+    })
+    return { review: result.text, model: result.model, providerRequestId: result.requestId }
   })
 
   const askAiCoach = onCall({
@@ -1158,9 +1211,11 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
     enforceAppCheck: ENFORCE_APP_CHECK,
     secrets: [GEMINI_API_KEY],
   }, async (request) => {
-    const uid = requireCaller(request)
+    requireCaller(request)
     const { message, userProfile } = request.data || {}
-    if (!message) throw new HttpsError('invalid-argument', 'Message is required.')
+    if (typeof message !== 'string' || !message.trim() || message.trim().length > 3000) {
+      throw new HttpsError('invalid-argument', 'Message must contain between 1 and 3000 characters.')
+    }
 
     const apiKey = getApiKey()
     if (!apiKey) {
@@ -1184,33 +1239,13 @@ Câu hỏi của học viên: "${message}"
 Hãy trả lời học viên một cách thân thiện, ngắn gọn, khoa học và BẮT BUỘC DỰA TRÊN hồ sơ của họ (nếu có thông tin). 
 Không dùng markdown định dạng phức tạp, chỉ cần xuống dòng hợp lý.`
 
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent`,
-        {
-          method: 'POST',
-          headers: {
-            'x-goog-api-key': apiKey,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: {
-              maxOutputTokens: 600,
-            },
-          }),
-        }
-      )
-      if (!response.ok) {
-         return { text: 'Lỗi khi kết nối với AI (HTTP ' + response.status + ')' }
-      }
-      const data = await response.json()
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text
-      return { text: text || 'AI Coach chưa có phản hồi.' }
-    } catch (e) {
-      logger.error('Failed to ask AI coach', e)
-      return { text: 'Không thể kết nối với AI Coach lúc này.' }
-    }
+    const result = await generateGeminiText({
+      apiKey,
+      prompt,
+      maxOutputTokens: 600,
+      operation: 'askAiCoach',
+    })
+    return { text: result.text, model: result.model, providerRequestId: result.requestId }
   })
 
   return { analyzeFoodImage, generateMealReview, askAiCoach }
@@ -1222,6 +1257,7 @@ module.exports = {
   createNutritionFunctions,
   enrichAnalysisWithLookups,
   foodAnalysisSchema,
+  getGeminiModelCandidates,
   isGeminiModelCompatibilityError,
   sanitizeProviderErrorMessage,
   scaleCatalogNutrition,

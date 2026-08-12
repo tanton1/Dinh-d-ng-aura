@@ -1,4 +1,3 @@
-import { firebaseAuth } from '../../lib/firebase';
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
@@ -18,6 +17,7 @@ import AcademyLessonStudy from '../../components/academy/AcademyLessonStudy'
 import { CoursePrimaryContent, CourseQuizRunner, CourseResourceItem } from '../../components/CourseLessonRuntime'
 import { ProgressBar } from '../../components/ui'
 import { getAcademyCoachNote, loadAcademyNoteFromCloud, saveAcademyNoteToCloud } from '../../services/academyLearningService'
+import { summarizeLessonWithAi } from '../../services/generativeAiService'
 import type { Course, CourseLessonDraft, CourseProgress } from '../../types'
 import { flattenCourseLessons, getCourseModules, getInitialDemoCompletedLessonIds } from '../../utils/courseContent'
 
@@ -126,20 +126,11 @@ export default function CourseDetailPage({
     if (!selectedLesson || !course) return;
     try {
       setAiSummaryState('generating');
-      const token = await firebaseAuth?.currentUser?.getIdToken();
-      const res = await fetch("/api/ai/summarize-lesson", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          courseTitle: course.title,
-          lessonTitle: selectedLesson.title,
-          lessonContent: selectedLesson.summary || course.description,
-        })
+      const data = await summarizeLessonWithAi({
+        courseTitle: course.title,
+        lessonTitle: selectedLesson.title,
+        lessonContent: selectedLesson.summary || course.description,
       });
-      const data = await res.json();
       if (data && data.takeaways) {
         setAiSummaryData(data);
         setAiSummaryState('done');
