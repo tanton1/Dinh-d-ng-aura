@@ -171,7 +171,7 @@ exports.unregisterFcmToken = onCall(async (request) => {
   return { unregistered: true }
 })
 
-exports.dispatchPushBroadcast = onCall(async (request) => {
+exports.dispatchPushBroadcast = onCall({ maxInstances: 1 }, async (request) => {
   const actorId = requireCaller(request)
   const actorSnapshot = await db.doc(`users/${actorId}`).get()
   const actor = actorSnapshot.data()
@@ -402,7 +402,7 @@ function serializeAdminContent(snapshot) {
   }
 }
 
-exports.listMealPlanAdminData = onCall(async (request) => {
+exports.listMealPlanAdminData = onCall({ maxInstances: 1 }, async (request) => {
   await requireTrustedAdmin(request)
   const [recipeSnapshot, planSnapshot, assignmentSnapshot] = await Promise.all([
     db.collection('recipes').limit(500).get(),
@@ -423,7 +423,7 @@ exports.listMealPlanAdminData = onCall(async (request) => {
   }
 })
 
-exports.saveMealPlanRecipe = onCall(async (request) => {
+exports.saveMealPlanRecipe = onCall({ maxInstances: 1 }, async (request) => {
   const actorId = await requireTrustedAdmin(request)
   const recipe = normalizeRecipeInput(request.data?.recipe)
   const reference = db.doc(`recipes/${recipe.id}`)
