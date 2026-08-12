@@ -27,7 +27,8 @@ const firestoreDatabaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || '(defau
 const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APP_CHECK_SITE_KEY?.trim() || ''
 const persistentOfflineCacheEnabled = import.meta.env.VITE_ENABLE_OFFLINE_CACHE === 'true'
 
-const forceDemoMode = import.meta.env.DEV && import.meta.env.VITE_FORCE_DEMO === 'true'
+const forceDemoMode = import.meta.env.VITE_FORCE_DEMO === 'true'
+  && (import.meta.env.DEV || import.meta.env.MODE === 'e2e')
 
 export const isFirebaseConfigured = !forceDemoMode && Object.values(firebaseConfig).every(
   (value) => typeof value === 'string' && value.trim().length > 0,
