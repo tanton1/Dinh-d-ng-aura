@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { courses as demoCourses } from '../data'
 import { isFirebaseConfigured } from '../lib/firebase'
-import { subscribeToCourses } from '../services/firebaseService'
+import { academyDemoFallbackEnabled, subscribeToCourses } from '../services/firebaseService'
 import type { Course } from '../types'
 
 export function useCourses(enabled: boolean, includeDrafts = false, refreshKey = '') {
-  const [items, setItems] = useState<Course[]>(isFirebaseConfigured ? [] : demoCourses)
-  const [source, setSource] = useState<'demo' | 'firebase'>(isFirebaseConfigured ? 'firebase' : 'demo')
+  const [items, setItems] = useState<Course[]>(isFirebaseConfigured || !academyDemoFallbackEnabled ? [] : demoCourses)
+  const [source, setSource] = useState<'demo' | 'firebase'>(
+    isFirebaseConfigured || !academyDemoFallbackEnabled ? 'firebase' : 'demo',
+  )
   const [loading, setLoading] = useState(isFirebaseConfigured)
   const [error, setError] = useState<string | null>(null)
   const [refreshNonce, setRefreshNonce] = useState(0)
@@ -27,6 +29,10 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
 
   useEffect(() => {
     if (!enabled || !isFirebaseConfigured) {
+      if (enabled && !isFirebaseConfigured && !academyDemoFallbackEnabled) {
+        setItems([])
+        setError('Firebase Academy chưa được cấu hình cho môi trường production.')
+      }
       setLoading(false)
       return
     }
@@ -42,7 +48,7 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
       },
       (subscriptionError) => {
         setError(subscriptionError.message)
-        setItems(demoCourses)
+        setItems(academyDemoFallbackEnabled ? demoCourses : [])
         setSource('firebase')
         setLoading(false)
       },

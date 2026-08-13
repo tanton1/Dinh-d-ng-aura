@@ -2,26 +2,22 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { safeLocalStorageSet } from '../../lib/safeStorage'
 import {
   ArrowRight,
-  Award,
   BookOpen,
-  BrainCircuit,
-  CalendarDays,
-  CheckCircle2,
-  ChevronRight,
   Clock3,
-  Dumbbell,
   Flame,
-  Play,
-  Sparkles,
   Trophy,
-  Check,
   Zap,
 } from 'lucide-react'
-import { courses as demoCourses, weeklyActivity } from '../../data'
+import { courses as demoCourses } from '../../data'
 import type { Course, ViewId, CourseProgress } from '../../types'
-import { ProgressBar, ProgressRing, SectionHeader, StatCard } from '../../components/ui'
 import AuraTodayFlow from '../../components/AuraTodayFlow'
 import { calculateNutritionTargets } from '../../services/nutritionSyncService'
+import {
+  isPtScheduleCloudAvailable,
+  listLocalPtScheduleEvents,
+  listPtScheduleEvents,
+  type PtScheduleEvent,
+} from '../../services/ptCoachingScheduleService'
 import {
   saveUserGamification,
   subscribeToUserGamification,
@@ -34,6 +30,9 @@ interface DailyPulseMeal {
   id?: string
   date?: string
   status?: string
+  time?: string
+  label?: string
+  title?: string
   calories?: number
   protein?: number
 }
@@ -106,6 +105,8 @@ export default function HomePage({
   const [dailyPulseWater, setDailyPulseWater] = useState<DailyPulseWaterEntry[]>(() =>
     readStoredArray<DailyPulseWaterEntry>(`aura:nutrition:water-entries:v1:${ownerId}`)
   )
+  const [upcomingSchedule, setUpcomingSchedule] = useState<PtScheduleEvent | null>(null)
+  const [weeklyScheduleMinutesByDate, setWeeklyScheduleMinutesByDate] = useState<Record<string, number>>({})
 
   useEffect(() => {
     setDailyPulseMeals(readStoredArray<DailyPulseMeal>(`aura:nutrition:meals:v2:${ownerId}`))
@@ -115,10 +116,10 @@ export default function HomePage({
 
     try {
       const unsubscribeMeals = subscribeToUserMealLogs(ownerId, (remoteMeals) => {
-        if (Array.isArray(remoteMeals) && remoteMeals.length > 0) setDailyPulseMeals(remoteMeals as DailyPulseMeal[])
+        setDailyPulseMeals(Array.isArray(remoteMeals) ? remoteMeals as DailyPulseMeal[] : [])
       })
       const unsubscribeWater = subscribeToUserWaterLogs(ownerId, (remoteWater) => {
-        if (Array.isArray(remoteWater) && remoteWater.length > 0) setDailyPulseWater(remoteWater as DailyPulseWaterEntry[])
+        setDailyPulseWater(Array.isArray(remoteWater) ? remoteWater as DailyPulseWaterEntry[] : [])
       })
       return () => {
         unsubscribeMeals()
@@ -127,6 +128,52 @@ export default function HomePage({
     } catch (error) {
       console.warn('Aura Daily Pulse đang dùng dữ liệu gần nhất trên thiết bị:', error)
     }
+  }, [isDemo, ownerId])
+
+  useEffect(() => {
+    let active = true
+    const currentDate = new Date()
+    const today = toLocalDateKey(currentDate)
+    const through = new Date(currentDate)
+    through.setDate(through.getDate() + 30)
+    const currentDay = currentDate.getDay()
+    const monday = new Date(currentDate)
+    monday.setDate(currentDate.getDate() + (currentDay === 0 ? -6 : 1 - currentDay))
+    const sunday = new Date(monday)
+    sunday.setDate(monday.getDate() + 6)
+    const weekFromDate = toLocalDateKey(monday)
+    const weekToDate = toLocalDateKey(sunday)
+
+    const selectUpcoming = (events: PtScheduleEvent[]) => events
+      .filter((event) => event.status === 'planned' && event.date >= today)
+      .sort((left, right) => `${left.date}${left.time}${left.id}`.localeCompare(`${right.date}${right.time}${right.id}`))[0] ?? null
+    const minutesByDate = (events: PtScheduleEvent[]) => events
+      .filter((event) => event.status === 'done' && event.date >= weekFromDate && event.date <= weekToDate)
+      .reduce<Record<string, number>>((result, event) => {
+        result[event.date] = (result[event.date] ?? 0) + event.durationMinutes
+        return result
+      }, {})
+
+    const localEvents = listLocalPtScheduleEvents(ownerId)
+    setUpcomingSchedule(selectUpcoming(localEvents))
+    setWeeklyScheduleMinutesByDate(minutesByDate(localEvents))
+
+    if (isDemo || !ownerId || ownerId === 'anonymous' || !isPtScheduleCloudAvailable()) {
+      return () => { active = false }
+    }
+
+    // One request hydrates both the upcoming agenda and the current-week chart.
+    listPtScheduleEvents({ clientId: ownerId, fromDate: weekFromDate, toDate: toLocalDateKey(through) })
+      .then((events) => {
+        if (!active) return
+        setUpcomingSchedule(selectUpcoming(events))
+        setWeeklyScheduleMinutesByDate(minutesByDate(events))
+      })
+      .catch(() => {
+        // Keep the last local snapshot. A schedule outage must not block Home.
+      })
+
+    return () => { active = false }
   }, [isDemo, ownerId])
 
   const dailyPulseTargets = useMemo(() => {
@@ -140,9 +187,10 @@ export default function HomePage({
       return {
         calories: storedTargets?.targetCalories || targets.targetCaloriesKcal,
         protein: storedTargets?.protein || targets.proteinG,
+        waterMl: (storedTargets?.waterLiters || targets.waterLiters) * 1_000,
       }
     }
-    return { calories: 2000, protein: 100 }
+    return { calories: 2000, protein: 100, waterMl: 2_000 }
   }, [nutritionProfile])
 
   const todayPulseMeals = useMemo(() => dailyPulseMeals.filter((meal) =>
@@ -163,21 +211,15 @@ export default function HomePage({
       ? 'Tăng cơ & phục hồi'
       : 'Duy trì thể trạng'
   
-  const continueCourses = courseItems.filter((course) => course.status !== 'Khám phá').slice(0, 2)
-  const learningCourses = courseItems.filter((course) => course.status !== 'Khám phá')
-  
-  const overallCourseProgress = learningCourses.length 
-    ? Math.round(learningCourses.reduce((total, course) => total + course.progress, 0) / learningCourses.length) 
-    : 0
-  const completedCourses = learningCourses.filter((course) => course.progress >= 100)
-  
+  const continueCourses = courseItems
+    .filter((course) => course.status !== 'Khám phá' && course.progress < 100)
+    .sort((left, right) => right.progress - left.progress)
+    .slice(0, 1)
   // Dynamic completed lessons calculation based on real lesson progress state
   const completedLessonsCount = useMemo(() => {
     if (!progressItems || !Array.isArray(progressItems)) return 0
     return progressItems.reduce((acc, progress) => acc + (progress.completedLessonIds?.length || 0), 0)
   }, [progressItems])
-
-  const totalLessons = learningCourses.reduce((total, course) => total + course.lessons, 0)
 
   // Gamification stats state with offline local storage fallback
   const [streak, setStreak] = useState<number>(() => {
@@ -218,10 +260,10 @@ export default function HomePage({
       d4.setDate(today.getDate() - 4)
 
       return [
-        yesterday.toISOString().split('T')[0],
-        d2.toISOString().split('T')[0],
-        d3.toISOString().split('T')[0],
-        d4.toISOString().split('T')[0],
+        toLocalDateKey(yesterday),
+        toLocalDateKey(d2),
+        toLocalDateKey(d3),
+        toLocalDateKey(d4),
       ]
     }
     return []
@@ -259,10 +301,10 @@ export default function HomePage({
       d4.setDate(today.getDate() - 4)
 
       setCheckedInDates([
-        yesterday.toISOString().split('T')[0],
-        d2.toISOString().split('T')[0],
-        d3.toISOString().split('T')[0],
-        d4.toISOString().split('T')[0],
+        toLocalDateKey(yesterday),
+        toLocalDateKey(d2),
+        toLocalDateKey(d3),
+        toLocalDateKey(d4),
       ])
     } else {
       setCheckedInDates([])
@@ -299,7 +341,7 @@ export default function HomePage({
     return () => unsubscribe()
   }, [isDemo, ownerId])
 
-  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], [])
+  const todayStr = useMemo(() => toLocalDateKey(new Date()), [])
   const isCheckedInToday = checkedInDates.includes(todayStr)
   const currentLevel = Math.floor(xp / 500) + 1
 
@@ -371,8 +413,6 @@ export default function HomePage({
 
   // Dynamic weekly activity tracking based on current calendar week
   const dynamicWeeklyActivity = useMemo(() => {
-    const isDemoUser = ownerId === 'demo'
-    
     // Determine the dates of the current week (Monday to Sunday)
     const today = new Date()
     const currentDay = today.getDay() // 0 = Sunday, 1 = Monday, ...
@@ -380,31 +420,34 @@ export default function HomePage({
     
     const monday = new Date(today)
     monday.setDate(today.getDate() + mondayOffset)
-    
+
+    const localMinutesByDate: Record<string, number> = {}
+    try {
+      const rawActivities = localStorage.getItem(`aura:nutrition:activities:v1:${ownerId}`)
+      const activities = rawActivities ? JSON.parse(rawActivities) : []
+      if (Array.isArray(activities)) {
+        for (const activity of activities) {
+          if (typeof activity?.date !== 'string') continue
+          localMinutesByDate[activity.date] = (localMinutesByDate[activity.date] ?? 0)
+            + (Number(activity.durationMinutes) || 0)
+        }
+      }
+    } catch (error) {
+      console.warn('Không thể đọc nhật ký vận động gần nhất:', error)
+    }
+
     const daysLabel = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
-    let hasAnyLogs = false
-    
     const result = daysLabel.map((label, idx) => {
       const d = new Date(monday)
       d.setDate(monday.getDate() + idx)
-      const dateStr = d.toISOString().split('T')[0]
-      
-      let activeMinutes = 0
-      try {
-        const actRaw = localStorage.getItem(`aura:nutrition:activities:v1:${ownerId}`)
-        if (actRaw) {
-          const acts = JSON.parse(actRaw)
-          if (Array.isArray(acts)) {
-            const dayActs = acts.filter(a => a.date === dateStr)
-            if (dayActs.length > 0) {
-              hasAnyLogs = true
-            }
-            activeMinutes = dayActs.reduce((sum, a) => sum + (Number(a.durationMinutes) || 0), 0)
-          }
-        }
-      } catch (e) {
-        console.error(e)
-      }
+      const dateStr = toLocalDateKey(d)
+
+      // A completed PT session can also be mirrored into the activity journal.
+      // Use the larger total so Home neither loses the schedule nor double-counts it.
+      const activeMinutes = Math.max(
+        weeklyScheduleMinutesByDate[dateStr] ?? 0,
+        localMinutesByDate[dateStr] ?? 0,
+      )
       
       return {
         day: label,
@@ -413,23 +456,48 @@ export default function HomePage({
       }
     })
     
-    // Fallback to static weeklyActivity if it's the demo user and no workouts are logged yet
-    if (!hasAnyLogs && isDemoUser) {
-      return weeklyActivity
-    }
-    
     return result
-  }, [ownerId])
+  }, [ownerId, weeklyScheduleMinutesByDate])
 
   const dynamicTotalWeeklyMinutes = useMemo(() => {
-    // If it's a real user and there are no logged workouts yet, show 0 instead of hardcoded 160
     const minutesSum = dynamicWeeklyActivity.reduce((sum, item) => sum + item.minutes, 0)
-    if (minutesSum === 0 && ownerId !== 'demo') {
-      return 0
+    return minutesSum
+  }, [dynamicWeeklyActivity])
+
+  const nextMilestone = useMemo(() => {
+    if (streak < 7) {
+      return {
+        title: 'Chuỗi 7 ngày',
+        detail: `Còn ${7 - streak} ngày điểm danh để hoàn thành cột mốc đầu tiên.`,
+        progress: Math.round((streak / 7) * 100),
+        label: `${streak}/7 ngày`,
+      }
     }
-    // For demo/unlogged users with fallback, use 160 + journal workouts or the actual sum
-    return minutesSum || (160 + journalMetrics.workoutsCount * 30)
-  }, [dynamicWeeklyActivity, ownerId, journalMetrics.workoutsCount])
+    if (xp < currentLevel * 500) {
+      const levelStartXp = (currentLevel - 1) * 500
+      const earnedInLevel = xp - levelStartXp
+      return {
+        title: `Tiến tới Cấp ${currentLevel + 1}`,
+        detail: `Còn ${currentLevel * 500 - xp} XP để mở cấp độ tiếp theo.`,
+        progress: Math.round((earnedInLevel / 500) * 100),
+        label: `${earnedInLevel}/500 XP`,
+      }
+    }
+    if (completedLessonsCount < 5) {
+      return {
+        title: 'Hoàn thành 5 bài học',
+        detail: `Còn ${5 - completedLessonsCount} bài để nhận dấu mốc học tập đầu tiên.`,
+        progress: Math.round((completedLessonsCount / 5) * 100),
+        label: `${completedLessonsCount}/5 bài`,
+      }
+    }
+    return {
+      title: 'Mở huy hiệu tiếp theo',
+      detail: `Bạn đã mở ${unlockedBadgesCount} huy hiệu. Xem bộ sưu tập để chọn thử thách mới.`,
+      progress: Math.min(100, Math.round((unlockedBadgesCount / 8) * 100)),
+      label: `${unlockedBadgesCount}/8 huy hiệu`,
+    }
+  }, [completedLessonsCount, currentLevel, streak, unlockedBadgesCount, xp])
 
   const handleCheckIn = () => {
     if (isCheckedInToday) return
@@ -440,7 +508,7 @@ export default function HomePage({
     let newStreak = streak
     const yesterday = new Date()
     yesterday.setDate(yesterday.getDate() - 1)
-    const yesterdayStr = yesterday.toISOString().split('T')[0]
+    const yesterdayStr = toLocalDateKey(yesterday)
 
     if (checkedInDates.includes(yesterdayStr)) {
       newStreak = streak + 1
@@ -478,23 +546,20 @@ export default function HomePage({
 
   return (
     <div className="page home-page">
-      {/* Header with Welcome and Level stats */}
-      <section className="welcome-row">
+      <section className="home-v2-welcome">
         <div>
           <span className="eyebrow">{dateLabel}</span>
           <h1>{greeting}, {firstName}! <span>👋</span></h1>
-          <p>Học kiến thức tại Aura Academy và theo dõi kế hoạch tập luyện PT trong hai không gian độc lập.</p>
+          <p>Mọi quyết định quan trọng cho sức khỏe hôm nay, trong một nhịp rõ ràng.</p>
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-          <div className="streak-pill" style={{ background: 'rgba(236, 72, 153, 0.08)', color: '#ec4899', border: '1px solid rgba(236, 72, 153, 0.15)' }}>
+        <div className="home-v2-welcome__signals">
+          <div className="home-v2-signal">
             <Flame size={18} fill="currentColor" />
-            <strong>{streak}</strong>
-            <span>ngày liên tiếp</span>
+            <span><strong>{streak}</strong> ngày</span>
           </div>
-          <div className="streak-pill" style={{ background: 'rgba(255, 122, 56, 0.08)', color: '#fb923c', border: '1px solid rgba(255, 122, 56, 0.15)' }}>
+          <div className="home-v2-signal is-xp">
             <Zap size={18} fill="currentColor" />
-            <strong>Cấp {currentLevel}</strong>
-            <span>({xp} XP)</span>
+            <span><strong>Cấp {currentLevel}</strong> · {xp} XP</span>
           </div>
         </div>
       </section>
@@ -507,168 +572,101 @@ export default function HomePage({
         proteinConsumed={todayProtein}
         proteinGoal={dailyPulseTargets.protein}
         waterMl={todayWaterMl}
+        waterGoalMl={dailyPulseTargets.waterMl}
         mealsCount={todayPulseMeals.length}
-        loggingStreak={nutritionLoggingStreak}
+        nutritionLoggingStreak={nutritionLoggingStreak}
         checkedIn={isCheckedInToday}
+        weeklyMovementMinutes={dynamicTotalWeeklyMinutes}
         learningTitle={continueCourses[0]?.title}
         learningProgress={continueCourses[0]?.progress}
+        todayMeals={todayPulseMeals}
+        upcomingSchedule={upcomingSchedule ? {
+          title: upcomingSchedule.title,
+          date: upcomingSchedule.date,
+          time: upcomingSchedule.time,
+          durationMinutes: upcomingSchedule.durationMinutes,
+        } : null}
         onOpenNutrition={() => onNavigate('nutrition')}
         onCheckIn={handleCheckIn}
         onOpenLearning={() => continueCourses[0] ? onOpenCourse(String(continueCourses[0].id)) : onNavigate('courses')}
+        onOpenProgress={() => onNavigate('progress')}
+        onOpenSchedule={() => onNavigate('schedule')}
       />
 
-      {/* Hero Grid with current learning info and course progression */}
-      <section className="hero-grid">
-        <article className="today-workout">
-          <div className="today-workout__content">
-            <span className="hero-label"><span /> AURA ACADEMY · TIẾP TỤC HỌC</span>
-            <h2>{continueCourses[0]?.title ?? 'Nền tảng dinh dưỡng ứng dụng'}</h2>
-            <div className="workout-meta">
-              <span><Clock3 size={17} /> {continueCourses[0]?.duration ?? '6 tuần'}</span>
-              <span><BookOpen size={17} /> {continueCourses[0]?.lessons ?? 24} bài học</span>
-              <span><BrainCircuit size={17} /> Học · Ôn · Kiểm tra</span>
-            </div>
-            <button className="primary-button light" onClick={() => continueCourses[0] ? onOpenCourse(String(continueCourses[0].id)) : onNavigate('courses')}><Play size={18} fill="currentColor" /> {continueCourses[0] ? 'Tiếp tục học' : 'Khám phá khóa học'}</button>
-          </div>
-          <div className="hero-visual" aria-hidden="true" style={{ overflow: 'hidden' }}>
-            <div className="hero-orbit orbit-one" />
-            <div className="hero-orbit orbit-two" />
-            <div className="hero-number">A+</div>
-            <div className="hero-dumbbell academy-orbit-mark"><BrainCircuit size={62} /></div>
-            <small style={{ letterSpacing: '0.15em' }}>DINH DƯỠNG CHUYÊN SÂU</small>
-          </div>
-        </article>
-
-        <article className="weekly-goal card">
-          <div className="weekly-goal__top">
-            <div>
-              <span className="eyebrow">TIẾN ĐỘ HỌC TẬP</span>
-              <h3>{learningCourses.length ? 'Tiếp tục hành trình của bạn' : 'Chọn khóa học đầu tiên'}</h3>
-            </div>
-            <ProgressRing value={learningCourses.length ? overallCourseProgress : 0} size={76} stroke={8} />
-          </div>
-          
-          <div className="goal-row">
-            <span><CheckCircle2 size={18} /> Khóa học đang tham gia</span>
-            <strong>{completedCourses.length}/{learningCourses.length}</strong>
-          </div>
-          <ProgressBar value={learningCourses.length ? Math.round((completedCourses.length / learningCourses.length) * 100) : 0} />
-          
-          <div className="goal-row" style={{ marginTop: 12 }}>
-            <span><BookOpen size={18} /> Bài lý thuyết đã xong</span>
-            <strong>{completedLessonsCount}/{totalLessons || 24}</strong>
-          </div>
-          <ProgressBar value={totalLessons ? Math.round((completedLessonsCount / totalLessons) * 100) : 0} tone="green" />
-          
-          <div className="goal-tip" style={{ marginTop: 16 }}>
-            <Sparkles size={17} />
-            <span>Tiến độ được cập nhật tức thì khi bạn học xong mỗi bài lý thuyết.</span>
-          </div>
-        </article>
-      </section>
-
-      {/* Courses in progress section */}
-      <section>
-        <SectionHeader title="Tiếp tục hành trình" action="Xem tất cả" onAction={() => onNavigate('courses')} />
-        <div className="continue-grid">
-          {continueCourses.map((course, index) => (
-            <article className="continue-card" key={course.id} role="link" tabIndex={0} onClick={() => onOpenCourse(String(course.id))} onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                onOpenCourse(String(course.id))
-              }
-            }}>
-              <div className={`course-thumb ${course.accent}`}>
-                <span className="course-thumb__mesh" />
-                {index === 0 ? <BookOpen size={42} /> : <span className="nutrition-glyph">A+</span>}
-                <span className="course-type">AURA ACADEMY</span>
-              </div>
-              <div className="continue-card__body">
-                <div className="course-kicker">{course.category} · {course.level}</div>
-                <h3>{course.title}</h3>
-                <span className="lesson-position">{course.progress > 0 ? `${course.progress}% lộ trình đã hoàn thành` : `${course.lessons} bài học đang chờ bạn`}</span>
-                <div className="course-progress-row"><ProgressBar value={course.progress} tone={course.accent} /><strong>{course.progress}%</strong></div>
-              </div>
-              <span className="round-arrow" aria-hidden="true"><ArrowRight size={18} /></span>
-            </article>
-          ))}
-          {continueCourses.length === 0 && (
-            <div className="empty-state card">
-              <BookOpen size={30} />
-              <h3>Chọn khóa học đầu tiên</h3>
-              <p>Khám phá thư viện Aura và bắt đầu một lộ trình phù hợp với bạn.</p>
-              <button className="primary-button" onClick={() => onNavigate('courses')}>Khám phá khóa học</button>
-            </div>
-          )}
+      <section className="home-v2-section" aria-labelledby="home-learning-title">
+        <div className="home-v2-section__heading">
+          <div><span>AURA ACADEMY</span><h2 id="home-learning-title">Học tiếp</h2></div>
+          <button type="button" onClick={() => onNavigate('courses')}>Xem thư viện <ArrowRight size={18} /></button>
         </div>
+        <article className="home-v2-learning-card">
+          <span className="home-v2-learning-card__icon"><BookOpen size={25} /></span>
+          <div className="home-v2-learning-card__copy">
+            <span>{continueCourses[0] ? `${continueCourses[0].category} · ${continueCourses[0].level}` : 'Lộ trình dành cho bạn'}</span>
+            <h3>{continueCourses[0]?.title ?? 'Chọn khóa học đầu tiên'}</h3>
+            <p>{continueCourses[0]?.description ?? 'Khám phá thư viện Aura và bắt đầu một lộ trình phù hợp với mục tiêu của bạn.'}</p>
+            {continueCourses[0] && (
+              <>
+                <div className="home-v2-learning-card__meta">
+                  <span><Clock3 size={15} /> {continueCourses[0].duration}</span>
+                  <span><BookOpen size={15} /> {continueCourses[0].lessons} bài học</span>
+                </div>
+                <div className="home-v2-learning-card__progress">
+                  <span><i style={{ width: `${continueCourses[0].progress}%` }} /></span>
+                  <strong>{continueCourses[0].progress}%</strong>
+                </div>
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            className="home-v2-card-action"
+            onClick={() => continueCourses[0] ? onOpenCourse(String(continueCourses[0].id)) : onNavigate('courses')}
+          >
+            {continueCourses[0] ? 'Học tiếp' : 'Khám phá'} <ArrowRight size={17} />
+          </button>
+        </article>
       </section>
 
-      {/* Activities tracking view */}
-      <section className="overview-grid">
-        <article className="activity-card card">
-          <SectionHeader title="Hoạt động tuần này" action="Chi tiết" onAction={() => onNavigate('progress')} />
-          <div className="activity-summary">
+      <section className="home-v2-lower-grid">
+        <article className="home-v2-week-card">
+          <header className="home-v2-card-header">
+            <div><span>TỔNG KẾT TUẦN</span><h2>Tuần của bạn</h2></div>
+            <button type="button" onClick={() => onNavigate('progress')} aria-label="Mở tiến độ"><ArrowRight size={19} /></button>
+          </header>
+          <div className="home-v2-week-summary">
             <strong>{dynamicTotalWeeklyMinutes}</strong>
             <span>phút vận động</span>
-            <small>Tập trung kỷ luật</small>
+            <small>{dynamicTotalWeeklyMinutes >= 150 ? 'Đã đạt mốc tuần' : `${Math.max(0, 150 - dynamicTotalWeeklyMinutes)} phút tới mốc 150`}</small>
           </div>
-          <div className="mini-chart">
+          <div className="home-v2-week-chart" aria-label={`${dynamicTotalWeeklyMinutes} phút vận động tuần này`}>
             {dynamicWeeklyActivity.map((item) => (
-              <div className="mini-chart__column" key={item.day}>
-                <div className="bar-track"><span className={item.completed ? 'done' : ''} style={{ height: `${Math.max(item.minutes * 1.35, 8)}px` }} /></div>
+              <div key={item.day}>
+                <i className={item.completed ? 'is-done' : ''} style={{ height: `${Math.min(60, Math.max(5, item.minutes * 1.15))}px` }} />
                 <small>{item.day}</small>
               </div>
             ))}
           </div>
+          {dynamicTotalWeeklyMinutes === 0 && (
+            <div className="home-v2-week-empty">
+              <span>Chưa có vận động được ghi trong tuần này.</span>
+              <button type="button" onClick={() => onNavigate('schedule')}>Lên lịch vận động</button>
+            </div>
+          )}
         </article>
 
-        <article className="next-events card">
-          <SectionHeader title="Lịch sắp tới" action="Mở lịch" onAction={() => onNavigate('schedule')} />
-          <div className="event-row">
-            <div className="event-date"><strong>+1</strong><small>NGÀY</small></div>
-            <div>
-              <strong>Mobility Flow</strong>
-              <span><CalendarDays size={14} /> 07:30 · 25 phút</span>
-            </div>
-            <ChevronRight size={18} />
+        <article className="home-v2-milestone">
+          <span className="home-v2-milestone__icon"><Trophy size={24} /></span>
+          <div className="home-v2-milestone__copy">
+            <span>DẤU MỐC TIẾP THEO</span>
+            <h2>{nextMilestone.title}</h2>
+            <p>{nextMilestone.detail}</p>
           </div>
-          <div className="event-row">
-            <div className="event-date orange"><strong>+2</strong><small>NGÀY</small></div>
-            <div>
-              <strong>Q&A Dinh dưỡng cùng PT</strong>
-              <span><CalendarDays size={14} /> 20:00 · Trực tuyến</span>
-            </div>
-            <ChevronRight size={18} />
+          <div className="home-v2-milestone__progress">
+            <span><i style={{ width: `${nextMilestone.progress}%` }} /></span>
+            <strong>{nextMilestone.label}</strong>
           </div>
+          <button type="button" onClick={() => onNavigate('progress')}>Xem hành trình tiến độ <ArrowRight size={18} /></button>
         </article>
-      </section>
-
-      {/* Gamified streaks and badges display directly on student dashboard */}
-      <section>
-        <SectionHeader title="Thành tích đạt được" action="Mở bộ sưu tập" onAction={() => { onNavigate('progress') }} />
-        <div className="achievement-row">
-          <StatCard 
-            icon={<Flame />} 
-            value={`${streak} ngày`} 
-            label="Chuỗi điểm danh" 
-            detail={`Kỷ lục dài nhất: ${longestStreak} ngày`} 
-            tone="orange" 
-          />
-          <StatCard 
-            icon={<Zap />} 
-            value={`${xp} XP`} 
-            label="Điểm cấp độ" 
-            detail="Kinh nghiệm học tập" 
-            tone="pink" 
-          />
-          <StatCard 
-            icon={<Award />} 
-            value={`${unlockedBadgesCount} huy hiệu`} 
-            label="Huy hiệu đã mở" 
-            detail="Hành trình kỷ luật toàn diện" 
-            tone="green" 
-          />
-        </div>
       </section>
     </div>
   )

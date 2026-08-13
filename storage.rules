@@ -66,6 +66,32 @@ service firebase.storage {
                      && request.resource.metadata.mediaId == resource.metadata.mediaId));
     }
 
+    function isSupportedCourseCover() {
+      return request.resource.size > 0
+             && request.resource.size <= 5 * 1024 * 1024
+             && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    function hasValidCourseCoverMetadata(courseId) {
+      return request.resource.metadata.courseId == courseId
+             && request.resource.metadata.uploadedBy == request.auth.uid;
+    }
+
+    match /public-assets/course-covers/{courseId}/{fileName} {
+      // Covers are intentionally public catalog assets. Only trusted Academy
+      // staff may upload them, and their ownership metadata is immutable.
+      allow read: if true;
+      allow create: if isAcademyStaff()
+                    && courseId.matches('[A-Za-z0-9_-]{1,200}')
+                    && fileName.matches('[A-Za-z0-9._-]{1,240}')
+                    && isSupportedCourseCover()
+                    && hasValidCourseCoverMetadata(courseId);
+      // UUID file names make cover writes append-only; replacements upload a
+      // new object instead of mutating a cached public asset.
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
     match /course-media/{courseId}/{lessonId}/{allPaths=**} {
       // Paid lesson media stays staff-only until delivery uses a callable
       // entitlement check and short-lived signed URLs.

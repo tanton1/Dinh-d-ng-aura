@@ -67,9 +67,17 @@ export function SectionHeader({ title, action, onAction }: { title: string; acti
 }
 
 export function ProgressBar({ value, tone = 'pink' }: { value: number; tone?: string }) {
+  const normalizedValue = Math.max(0, Math.min(100, value))
   return (
-    <div className="progress-bar" aria-label={`${value}%`}>
-      <span className={tone} style={{ width: `${value}%` }} />
+    <div
+      className="progress-bar"
+      role="progressbar"
+      aria-label="Tiến độ"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={normalizedValue}
+    >
+      <span className={tone} style={{ width: `${normalizedValue}%` }} />
     </div>
   )
 }

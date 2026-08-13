@@ -532,24 +532,15 @@ service cloud.firestore {
       // Full modules live in this staff-only document. Learners receive a
       // catalog plus entitlement-filtered content from listAcademyCourses.
       allow read: if isAcademyStaff();
-      allow create: if hasValidCourseSchema(request.resource.data)
-                    && (isAdmin()
-                    || (hasRole(['editor'])
-                        && request.resource.data.status in ['draft', 'review']));
-      allow update: if hasValidCourseSchema(request.resource.data)
-                    && (isAdmin()
-                    || (hasRole(['editor'])
-                        && resource.data.status in ['draft', 'review']
-                        && request.resource.data.status in ['draft', 'review']));
-      allow delete: if isAdmin();
+      // Course, quiz key, revision and audit writes must stay in the same
+      // saveCourseDraftAtomic server transaction.
+      allow create, update, delete: if false;
 
       match /quizKeys/{lessonId} {
         // Server-side answer keys. Learners only receive aggregate grading
         // results through gradeCourseQuiz.
         allow read: if hasRole(['editor', 'admin', 'super_admin']);
-        allow create, update: if canManageCourseAfter(courseId)
-                              && hasValidQuizKeySchema(request.resource.data);
-        allow delete: if canManageCourseAfter(courseId);
+        allow create, update, delete: if false;
       }
 
       match /media/{mediaId} {

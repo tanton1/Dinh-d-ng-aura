@@ -11,7 +11,11 @@ const { createGenerativeAiFunctions } = require('./generative-ai')
 const { createNutritionFunctions } = require('./nutrition')
 
 const app = initializeApp()
-const databaseId = 'ai-studio-aurafitnessacade-2b8f85bb-737e-43d9-ac19-3be1ee1798b8'
+// Keep callable writes on the same named database used by the production web app.
+// FIRESTORE_DATABASE_ID is optional for controlled environments; the fallback is
+// the canonical Aura production database and is contract-tested against Firebase config.
+const defaultFirestoreDatabaseId = 'ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7'
+const databaseId = process.env.FIRESTORE_DATABASE_ID || defaultFirestoreDatabaseId
 const db = getFirestore(app, databaseId)
 const auth = getAuth(app)
 const messaging = getMessaging(app)
@@ -558,41 +562,560 @@ exports.getMyMealPlan = onCall(async (request) => {
   return { mealPlan: serializeAdminContent(planSnapshot) }
 })
 
-exports.recordCourseRevision = onCall(async (request) => {
-  const actorId = await requireTrustedAcademyStaff(request)
-  const courseId = requireDocumentId(request.data?.courseId, 'Mã khóa học')
-  const courseReference = db.doc(`courses/${courseId}`)
-  let revision = 0
+const coursePublicationStatuses = new Set(['draft', 'review', 'scheduled', 'published', 'archived'])
+const courseLessonTypes = new Set(['Video', 'Bài đọc', 'Quiz'])
+const courseResourceKinds = new Set(['slide', 'video', 'document'])
+const courseCompletionModes = new Set(['manual', 'media-progress', 'quiz-pass'])
+
+function courseString(value, label, maximum, required = true) {
+  if (typeof value !== 'string' || value.length > maximum || (required && !value.trim())) {
+    throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
+  }
+  return value.trim()
+}
+
+function courseId(value, label) {
+  const normalized = requireDocumentId(value, label)
+  if (normalized.length > 200 || !/^[A-Za-z0-9_-]+$/.test(normalized)) {
+    throw new HttpsError('invalid-argument', `${label} chỉ được chứa chữ, số, dấu gạch ngang hoặc gạch dưới.`)
+  }
+  return normalized
+}
+
+function courseStringList(value, label, maximumItems, maximumLength) {
+  if (!Array.isArray(value) || value.length > maximumItems) {
+    throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
+  }
+  return value.map((item, index) => courseString(item, `${label} ${index + 1}`, maximumLength, false))
+}
+
+function normalizeCourseMemory(value) {
+  if (!isPlainObject(value)) return undefined
+  const objectList = (items, label, maximum, fields) => {
+    if (!Array.isArray(items) || items.length > maximum) {
+      throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
+    }
+    return items.map((item, index) => {
+      if (!isPlainObject(item)) throw new HttpsError('invalid-argument', `${label} ${index + 1} không hợp lệ.`)
+      return Object.fromEntries(fields.flatMap(([name, length, required = true]) => {
+        const fieldValue = item[name]
+        if (!required && (fieldValue === undefined || fieldValue === null || fieldValue === '')) return []
+        return [[name, courseString(fieldValue, `${label} ${index + 1}`, length, required)]]
+      }))
+    })
+  }
+  return {
+    ...(typeof value.recap === 'string' ? { recap: courseString(value.recap, 'Tóm tắt bài học', 5000, false) } : {}),
+    takeaways: courseStringList(value.takeaways ?? [], 'Ý chính', 20, 1000),
+    glossary: objectList(value.glossary ?? [], 'Thuật ngữ', 30, [
+      ['id', 200], ['term', 300], ['definition', 2000],
+    ]),
+    recallPrompts: objectList(value.recallPrompts ?? [], 'Câu hỏi tự nhớ', 30, [
+      ['id', 200], ['prompt', 1000], ['answer', 3000],
+    ]),
+    flashcards: objectList(value.flashcards ?? [], 'Flashcard', 50, [
+      ['id', 200], ['front', 1000], ['back', 3000], ['hint', 1000, false],
+    ]),
+  }
+}
+
+function normalizeCourseAssetReference(value, courseIdentifier, lessonIdentifier, resourceKind) {
+  if (!isPlainObject(value)) return undefined
+  const assetId = courseId(value.assetId, 'Mã học liệu')
+  const storagePath = courseString(value.storagePath, 'Đường dẫn học liệu', 1024)
+  const expectedPrefix = `course-media/${courseIdentifier}/${lessonIdentifier}/`
+  if (!storagePath.startsWith(expectedPrefix) || storagePath === expectedPrefix || storagePath.includes('..')) {
+    throw new HttpsError('invalid-argument', 'Học liệu không thuộc khóa học và bài học đã chọn.')
+  }
+  if (value.status !== undefined && !['uploading', 'ready', 'failed'].includes(value.status)) {
+    throw new HttpsError('invalid-argument', 'Trạng thái học liệu không hợp lệ.')
+  }
+  if (value.contentType !== undefined && !isSupportedCourseMediaType(value.contentType, resourceKind)) {
+    throw new HttpsError('invalid-argument', 'Định dạng học liệu không phù hợp với loại tài nguyên.')
+  }
+  if (value.sizeBytes !== undefined
+      && (!Number.isInteger(value.sizeBytes) || value.sizeBytes < 1 || value.sizeBytes > 500 * 1024 * 1024)) {
+    throw new HttpsError('invalid-argument', 'Kích thước học liệu không hợp lệ.')
+  }
+  return {
+    assetId,
+    storagePath,
+    ...(typeof value.fileName === 'string' ? { fileName: courseString(value.fileName, 'Tên tệp', 500, false) } : {}),
+    ...(typeof value.contentType === 'string' ? { contentType: value.contentType } : {}),
+    ...(Number.isInteger(value.sizeBytes) ? { sizeBytes: value.sizeBytes } : {}),
+    ...(typeof value.status === 'string' ? { status: value.status } : {}),
+  }
+}
+
+function normalizeCourseDraftInput(value) {
+  if (!isPlainObject(value)) throw new HttpsError('invalid-argument', 'Dữ liệu khóa học không hợp lệ.')
+  const identifier = courseId(value.id, 'Mã khóa học')
+  const requestedStatus = value.publish === true ? 'published' : value.publicationStatus
+  if (!coursePublicationStatuses.has(requestedStatus)) {
+    throw new HttpsError('invalid-argument', 'Trạng thái xuất bản không hợp lệ.')
+  }
+  if (requestedStatus === 'scheduled') {
+    throw new HttpsError(
+      'failed-precondition',
+      'Tính năng lên lịch xuất bản chưa được kích hoạt. Hãy gửi duyệt hoặc xuất bản trực tiếp.',
+    )
+  }
+  const settings = value.settings
+  if (!isPlainObject(settings)
+      || !['free', 'pro'].includes(settings.accessTier)
+      || !['members', 'private'].includes(settings.visibility)
+      || !['none', 'weekly'].includes(settings.dripSchedule)
+      || !Number.isInteger(settings.completionPercent)
+      || settings.completionPercent < 50
+      || settings.completionPercent > 100
+      || typeof settings.certificateEnabled !== 'boolean') {
+    throw new HttpsError('invalid-argument', 'Thiết lập quyền truy cập hoặc hoàn thành khóa học không hợp lệ.')
+  }
+
+  const rawAnswerKeys = isPlainObject(value.quizAnswerKeys) ? value.quizAnswerKeys : {}
+  const quizDefinitions = new Map()
+  const answerCandidates = new Map()
+  const lessonIds = new Set()
+  const moduleIds = new Set()
+  if (!Array.isArray(value.modules) || value.modules.length > 40) {
+    throw new HttpsError('invalid-argument', 'Danh sách chương không hợp lệ hoặc vượt quá giới hạn.')
+  }
+  let lessonCount = 0
+  const modules = value.modules.map((module, moduleIndex) => {
+    if (!isPlainObject(module) || !Array.isArray(module.lessons) || module.lessons.length > 50) {
+      throw new HttpsError('invalid-argument', `Chương ${moduleIndex + 1} không hợp lệ.`)
+    }
+    const moduleIdentifier = courseId(module.id, `Mã chương ${moduleIndex + 1}`)
+    if (moduleIds.has(moduleIdentifier)) throw new HttpsError('invalid-argument', 'Mã chương bị trùng.')
+    moduleIds.add(moduleIdentifier)
+    const lessons = module.lessons.map((lesson, lessonIndex) => {
+      lessonCount += 1
+      if (lessonCount > 200 || !isPlainObject(lesson)) {
+        throw new HttpsError('invalid-argument', 'Số bài học vượt quá giới hạn hoặc dữ liệu bài học không hợp lệ.')
+      }
+      const lessonIdentifier = courseId(lesson.id, `Mã bài học ${lessonIndex + 1}`)
+      if (lessonIds.has(lessonIdentifier)) throw new HttpsError('invalid-argument', 'Mã bài học bị trùng trong khóa học.')
+      lessonIds.add(lessonIdentifier)
+      const lessonType = lesson.type === 'Buổi tập' ? 'Bài đọc' : lesson.type
+      if (!courseLessonTypes.has(lessonType)) throw new HttpsError('invalid-argument', 'Loại bài học không hợp lệ.')
+
+      const resources = lesson.resources === undefined ? [] : lesson.resources
+      if (!Array.isArray(resources) || resources.length > 20) {
+        throw new HttpsError('invalid-argument', 'Danh sách học liệu không hợp lệ.')
+      }
+      const resourceIds = new Set()
+      const normalizedResources = resources.map((resource, resourceIndex) => {
+        if (!isPlainObject(resource) || !courseResourceKinds.has(resource.kind)) {
+          throw new HttpsError('invalid-argument', `Học liệu ${resourceIndex + 1} không hợp lệ.`)
+        }
+        const resourceIdentifier = courseId(resource.id, 'Mã học liệu')
+        if (resourceIds.has(resourceIdentifier)) throw new HttpsError('invalid-argument', 'Mã học liệu bị trùng trong bài học.')
+        resourceIds.add(resourceIdentifier)
+        const assetRef = normalizeCourseAssetReference(resource.assetRef, identifier, lessonIdentifier, resource.kind)
+        const resourceUrl = courseString(resource.url ?? '', 'Liên kết học liệu', 2000, false)
+        if (resourceUrl && !/^https?:\/\//i.test(resourceUrl) && !resourceUrl.startsWith('/')) {
+          throw new HttpsError('invalid-argument', 'Liên kết học liệu phải dùng HTTP, HTTPS hoặc đường dẫn nội bộ.')
+        }
+        return {
+          id: resourceIdentifier,
+          kind: resource.kind,
+          title: courseString(resource.title, 'Tên học liệu', 300, false),
+          url: resourceUrl,
+          ...(typeof resource.note === 'string' ? { note: courseString(resource.note, 'Ghi chú học liệu', 3000, false) } : {}),
+          ...(assetRef ? { assetRef } : {}),
+          ...(resource.isPrimary === true ? { isPrimary: true } : {}),
+        }
+      })
+
+      let quiz
+      if (lesson.quiz !== undefined) {
+        if (!isPlainObject(lesson.quiz)
+            || !Array.isArray(lesson.quiz.questions)
+            || lesson.quiz.questions.length > 100
+            || !Number.isInteger(lesson.quiz.passPercent)
+            || lesson.quiz.passPercent < 0
+            || lesson.quiz.passPercent > 100
+            || !['sequential', 'shuffle'].includes(lesson.quiz.questionOrder)) {
+          throw new HttpsError('invalid-argument', 'Thiết lập quiz không hợp lệ.')
+        }
+        const questionIds = new Set()
+        const lessonAnswerCandidates = {}
+        const questions = lesson.quiz.questions.map((question, questionIndex) => {
+          if (!isPlainObject(question) || !Array.isArray(question.options) || question.options.length > 10) {
+            throw new HttpsError('invalid-argument', `Câu hỏi ${questionIndex + 1} không hợp lệ.`)
+          }
+          const questionIdentifier = courseId(question.id, 'Mã câu hỏi')
+          if (questionIds.has(questionIdentifier)) throw new HttpsError('invalid-argument', 'Mã câu hỏi bị trùng trong quiz.')
+          questionIds.add(questionIdentifier)
+          const options = question.options.map((option) => courseString(option, 'Phương án trả lời', 1000, false))
+          const lessonKeys = isPlainObject(rawAnswerKeys[lessonIdentifier]) ? rawAnswerKeys[lessonIdentifier] : {}
+          const suppliedIndexes = Array.isArray(lessonKeys[questionIdentifier]) ? lessonKeys[questionIdentifier] : []
+          const candidate = Number.isInteger(question.correctIndex) ? question.correctIndex : suppliedIndexes[0]
+          if (Number.isInteger(candidate)) lessonAnswerCandidates[questionIdentifier] = candidate
+          return {
+            id: questionIdentifier,
+            question: courseString(question.question, 'Câu hỏi', 2000, false),
+            options,
+            ...(typeof question.explanation === 'string'
+              ? { explanation: courseString(question.explanation, 'Giải thích đáp án', 3000, false) }
+              : {}),
+          }
+        })
+        const publicSettings = isPlainObject(lesson.quiz.publicSettings) ? lesson.quiz.publicSettings : {}
+        quiz = {
+          id: courseId(lesson.quiz.id, 'Mã quiz'),
+          passPercent: lesson.quiz.passPercent,
+          questionOrder: lesson.quiz.questionOrder,
+          publicSettings: {
+            ...(Number.isInteger(publicSettings.maxAttempts)
+              && publicSettings.maxAttempts >= 1 && publicSettings.maxAttempts <= quizMaxAttemptLimit
+              ? { maxAttempts: publicSettings.maxAttempts }
+              : {}),
+            ...(Number.isInteger(publicSettings.timeLimitMinutes)
+              && publicSettings.timeLimitMinutes >= 1 && publicSettings.timeLimitMinutes <= 600
+              ? { timeLimitMinutes: publicSettings.timeLimitMinutes }
+              : {}),
+            ...(['never', 'after-submit', 'after-pass'].includes(publicSettings.revealMode)
+              ? { revealMode: publicSettings.revealMode }
+              : {}),
+          },
+          questions,
+        }
+        quizDefinitions.set(lessonIdentifier, quiz)
+        answerCandidates.set(lessonIdentifier, lessonAnswerCandidates)
+      }
+
+      let completionPolicy
+      if (lesson.completionPolicy !== undefined) {
+        if (!isPlainObject(lesson.completionPolicy) || !courseCompletionModes.has(lesson.completionPolicy.mode)) {
+          throw new HttpsError('invalid-argument', 'Điều kiện hoàn thành bài học không hợp lệ.')
+        }
+        completionPolicy = {
+          mode: lesson.completionPolicy.mode,
+          ...(Number.isInteger(lesson.completionPolicy.thresholdPercent)
+            ? { thresholdPercent: lesson.completionPolicy.thresholdPercent }
+            : {}),
+          ...(typeof lesson.completionPolicy.quizId === 'string'
+            ? { quizId: courseString(lesson.completionPolicy.quizId, 'Mã quiz hoàn thành', 200, false) }
+            : {}),
+        }
+        if (completionPolicy.thresholdPercent !== undefined
+            && (completionPolicy.thresholdPercent < 1 || completionPolicy.thresholdPercent > 100)) {
+          throw new HttpsError('invalid-argument', 'Ngưỡng hoàn thành phải từ 1 đến 100%.')
+        }
+      }
+
+      let primaryContent
+      if (lesson.primaryContent !== undefined) {
+        if (!isPlainObject(lesson.primaryContent) || !['resource', 'rich-text', 'workout'].includes(lesson.primaryContent.kind)) {
+          throw new HttpsError('invalid-argument', 'Nội dung chính của bài học không hợp lệ.')
+        }
+        primaryContent = lesson.primaryContent.kind === 'workout'
+          ? { kind: 'rich-text', body: courseString(lesson.summary ?? '', 'Nội dung bài học', 50_000, false) }
+          : {
+              kind: lesson.primaryContent.kind,
+              ...(typeof lesson.primaryContent.resourceId === 'string'
+                ? { resourceId: courseString(lesson.primaryContent.resourceId, 'Mã học liệu chính', 200, false) }
+                : {}),
+              ...(typeof lesson.primaryContent.body === 'string'
+                ? { body: courseString(lesson.primaryContent.body, 'Nội dung bài học', 50_000, false) }
+                : {}),
+            }
+      }
+
+      const memory = normalizeCourseMemory(lesson.memory)
+      return {
+        id: lessonIdentifier,
+        title: courseString(lesson.title, 'Tên bài học', 300, false),
+        type: lessonType,
+        duration: courseString(lesson.duration, 'Thời lượng bài học', 100, false),
+        ...(lesson.preview === true ? { preview: true } : {}),
+        ...(typeof lesson.summary === 'string' ? { summary: courseString(lesson.summary, 'Tóm tắt bài học', 10_000, false) } : {}),
+        ...(normalizedResources.length ? { resources: normalizedResources } : {}),
+        ...(Array.isArray(lesson.tags) ? { tags: courseStringList(lesson.tags, 'Nhãn bài học', 20, 100) } : {}),
+        ...(typeof lesson.coachNotes === 'string' ? { coachNotes: courseString(lesson.coachNotes, 'Ghi chú giảng viên', 10_000, false) } : {}),
+        ...(memory ? { memory } : {}),
+        ...(quiz ? { quiz } : {}),
+        ...(primaryContent ? { primaryContent } : {}),
+        ...(completionPolicy ? { completionPolicy } : {}),
+      }
+    })
+    return {
+      id: moduleIdentifier,
+      title: courseString(module.title, 'Tên chương', 300, false),
+      order: Number.isInteger(module.order) ? module.order : moduleIndex + 1,
+      ...(typeof module.description === 'string' ? { description: courseString(module.description, 'Mô tả chương', 3000, false) } : {}),
+      lessons,
+    }
+  })
+
+  const coverUrl = typeof value.coverUrl === 'string' ? value.coverUrl.trim() : ''
+  if (coverUrl && (coverUrl.length > 2048 || (!/^https:\/\//i.test(coverUrl) && !coverUrl.startsWith('/')))) {
+    throw new HttpsError('invalid-argument', 'Ảnh bìa khóa học không hợp lệ.')
+  }
+  const slug = courseString(value.slug, 'Đường dẫn khóa học', 200)
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+    throw new HttpsError('invalid-argument', 'Đường dẫn khóa học chỉ dùng chữ thường, số và dấu gạch ngang.')
+  }
+  return {
+    identifier,
+    requestedStatus,
+    lessonCount,
+    quizDefinitions,
+    answerCandidates,
+    course: {
+      schemaVersion: 2,
+      title: courseString(value.title, 'Tên khóa học', 200),
+      coverUrl: coverUrl || null,
+      slug,
+      description: courseString(value.description, 'Mô tả khóa học', 10_000, false),
+      category: courseString(value.category, 'Danh mục khóa học', 200),
+      level: courseString(value.level, 'Trình độ khóa học', 100),
+      duration: courseString(value.duration, 'Thời lượng khóa học', 100),
+      coach: courseString(value.coach, 'Giảng viên', 200),
+      outcomes: courseStringList(value.outcomes, 'Kết quả học tập', 30, 1000),
+      requirements: courseStringList(value.requirements, 'Yêu cầu đầu vào', 30, 1000),
+      modules,
+      settings: {
+        accessTier: settings.accessTier,
+        visibility: settings.visibility,
+        completionPercent: settings.completionPercent,
+        certificateEnabled: settings.certificateEnabled,
+        dripSchedule: settings.dripSchedule,
+      },
+      lessons: lessonCount,
+      accent: 'purple',
+      icon: 'nutrition',
+      status: requestedStatus,
+    },
+  }
+}
+
+function assertCourseStatusTransition(currentStatus, nextStatus, role, exists) {
+  if (role === 'editor') {
+    if (!['draft', 'review'].includes(nextStatus)
+        || (exists && !['draft', 'review'].includes(currentStatus))) {
+      throw new HttpsError('permission-denied', 'Biên tập viên chỉ được lưu bản nháp hoặc gửi duyệt.')
+    }
+    return
+  }
+  const transitions = {
+    draft: new Set(['draft', 'review', 'published', 'archived']),
+    review: new Set(['draft', 'review', 'scheduled', 'published', 'archived']),
+    scheduled: new Set(['draft', 'review', 'scheduled', 'published', 'archived']),
+    published: new Set(['draft', 'published', 'archived']),
+    archived: new Set(['draft', 'archived']),
+  }
+  if (exists && (!transitions[currentStatus] || !transitions[currentStatus].has(nextStatus))) {
+    throw new HttpsError('failed-precondition', `Không thể chuyển khóa học từ ${currentStatus} sang ${nextStatus}.`)
+  }
+}
+
+function assertCourseReadyToPublish(course, quizDocuments) {
+  if (!course.description || !course.coach
+      || !course.outcomes.length || course.outcomes.some((item) => !item)
+      || !course.requirements.length || course.requirements.some((item) => !item)
+      || !course.modules.length || course.lessons < 6) {
+    throw new HttpsError('failed-precondition', 'Khóa học chưa đủ mô tả, mục tiêu, yêu cầu và tối thiểu 6 bài học để xuất bản.')
+  }
+  for (const module of course.modules) {
+    if (!module.title || !module.lessons.length) {
+      throw new HttpsError('failed-precondition', 'Mỗi chương phải có tên và ít nhất một bài học trước khi xuất bản.')
+    }
+    for (const lesson of module.lessons) {
+      if (!lesson.title || !lesson.duration) {
+        throw new HttpsError('failed-precondition', 'Mỗi bài học phải có tên và thời lượng trước khi xuất bản.')
+      }
+      const resources = lesson.resources ?? []
+      const validResources = resources.filter((resource) => Boolean(
+        resource.title
+          && (resource.assetRef
+            ? resource.assetRef.status === 'ready'
+            : resource.url),
+      ))
+      if (validResources.length !== resources.length) {
+        throw new HttpsError(
+          'failed-precondition',
+          `Bài “${lesson.title}” có học liệu thiếu tên, liên kết hoặc tệp đã tải lên hoàn tất.`,
+        )
+      }
+      if (lesson.type === 'Video' && !validResources.some((resource) => resource.kind === 'video')) {
+        throw new HttpsError('failed-precondition', `Bài video “${lesson.title}” chưa có video hợp lệ.`)
+      }
+      if (lesson.type === 'Bài đọc') {
+        const hasReadableBody = Boolean(
+          lesson.summary?.trim()
+            || (lesson.primaryContent?.kind === 'rich-text' && lesson.primaryContent.body?.trim()),
+        )
+        if (!hasReadableBody && !validResources.length) {
+          throw new HttpsError(
+            'failed-precondition',
+            `Bài đọc “${lesson.title}” cần có nội dung tóm tắt, nội dung bài viết hoặc ít nhất một học liệu hợp lệ.`,
+          )
+        }
+      }
+      if (lesson.type === 'Quiz') {
+        const quizKey = quizDocuments.get(lesson.id)
+        if (!lesson.quiz?.questions?.length || !quizKey
+            || lesson.quiz.questions.some((question) => !question.question
+              || question.options.length < 2
+              || question.options.some((option) => !option)
+              || !Number.isInteger(quizKey.answers[question.id])
+              || quizKey.answers[question.id] < 0
+              || quizKey.answers[question.id] >= question.options.length)) {
+          throw new HttpsError('failed-precondition', `Quiz “${lesson.title}” chưa có đầy đủ câu hỏi và đáp án đúng.`)
+        }
+      }
+      const primaryResource = lesson.primaryContent?.kind === 'resource'
+        ? validResources.find((resource) => resource.id === lesson.primaryContent.resourceId)
+        : null
+      if (lesson.primaryContent?.kind === 'resource' && !primaryResource) {
+        throw new HttpsError('failed-precondition', `Bài “${lesson.title}” chưa chọn đúng học liệu chính.`)
+      }
+      if (lesson.completionPolicy?.mode === 'media-progress'
+          && (!primaryResource || primaryResource.kind !== 'video')) {
+        throw new HttpsError('failed-precondition', `Bài “${lesson.title}” phải chọn video chính để theo dõi tiến độ.`)
+      }
+      if (lesson.type === 'Quiz' && lesson.completionPolicy?.mode !== 'quiz-pass') {
+        throw new HttpsError('failed-precondition', `Bài “${lesson.title}” phải hoàn thành bằng kết quả quiz.`)
+      }
+      const requiresPrivateDelivery = course.settings.accessTier === 'pro' || course.settings.visibility === 'private'
+      if (requiresPrivateDelivery && resources.some((resource) => resource.assetRef?.status !== 'ready')) {
+        throw new HttpsError('failed-precondition', `Bài “${lesson.title}” phải tải học liệu lên Firebase trước khi xuất bản.`)
+      }
+    }
+  }
+}
+
+async function requireTrustedAcademyStaffContext(request) {
+  const actorId = requireCaller(request)
+  const snapshot = await db.doc(`users/${actorId}`).get()
+  if (!snapshot.exists || !hasTrustedRole(request, snapshot.data(), academyStaffRoles)) {
+    throw new HttpsError('permission-denied', 'Bạn không có quyền quản trị Aura Academy.')
+  }
+  return { actorId, role: snapshot.data().role }
+}
+
+/** Atomically saves the course, private quiz keys, immutable revision and audit event. */
+exports.saveCourseDraftAtomic = onCall({ cpu: 'gcf_gen1', maxInstances: 3 }, async (request) => {
+  const actor = await requireTrustedAcademyStaffContext(request)
+  const normalized = normalizeCourseDraftInput(request.data?.course)
+  const expectedRevision = request.data?.expectedRevision
+  if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+    throw new HttpsError('invalid-argument', 'Cần revision hiện tại để lưu khóa học an toàn.')
+  }
+  const courseReference = db.doc(`courses/${normalized.identifier}`)
+  let savedRevision = 0
   await db.runTransaction(async (transaction) => {
     const courseSnapshot = await transaction.get(courseReference)
-    if (!courseSnapshot.exists || courseSnapshot.data().schemaVersion !== 2) {
-      throw new HttpsError('failed-precondition', 'Khóa học V2 chưa sẵn sàng để tạo revision.')
+    const quizKeySnapshot = await transaction.get(courseReference.collection('quizKeys'))
+    const existingCourse = courseSnapshot.data() ?? {}
+    const currentRevision = courseSnapshot.exists ? Number(existingCourse.revision) || 0 : 0
+    if (currentRevision !== expectedRevision) {
+      throw new HttpsError(
+        'aborted',
+        'Khóa học đã được thay đổi ở một phiên khác. Hãy tải lại bản mới nhất trước khi lưu.',
+        { expectedRevision, currentRevision },
+      )
     }
-    const course = courseSnapshot.data()
-    revision = (Number(course.revision) || 0) + 1
-    const revisionId = `${courseId}_${String(revision).padStart(6, '0')}`
+    assertCourseStatusTransition(existingCourse.status ?? 'draft', normalized.requestedStatus, actor.role, courseSnapshot.exists)
+    const existingKeys = new Map(quizKeySnapshot.docs.map((snapshot) => [snapshot.id, snapshot.data()]))
+    const quizDocuments = new Map()
+    for (const [lessonId, quiz] of normalized.quizDefinitions) {
+      if (!quiz.questions.length) continue
+      const existingAnswers = isPlainObject(existingKeys.get(lessonId)?.answers) ? existingKeys.get(lessonId).answers : {}
+      const suppliedAnswers = normalized.answerCandidates.get(lessonId) ?? {}
+      const answers = Object.fromEntries(quiz.questions.flatMap((question) => {
+        const candidate = Number.isInteger(suppliedAnswers[question.id])
+          ? suppliedAnswers[question.id]
+          : existingAnswers[question.id]
+        return Number.isInteger(candidate) && candidate >= 0 && candidate < question.options.length
+          ? [[question.id, candidate]]
+          : []
+      }))
+      const contentHash = buildQuizContentHash(quiz, answers)
+      quizDocuments.set(lessonId, {
+        quizId: quiz.id,
+        passPercent: quiz.passPercent,
+        answers,
+        questionCount: quiz.questions.length,
+        contentHash,
+      })
+    }
+    if (normalized.requestedStatus === 'review' || normalized.requestedStatus === 'published') {
+      assertCourseReadyToPublish(normalized.course, quizDocuments)
+    }
+
+    savedRevision = currentRevision + 1
+    const firstPublishedAt = normalized.requestedStatus === 'published'
+      ? existingCourse.publishedAt ?? FieldValue.serverTimestamp()
+      : existingCourse.publishedAt
+    const nextCourse = {
+      ...normalized.course,
+      revision: savedRevision,
+      createdAt: existingCourse.createdAt ?? FieldValue.serverTimestamp(),
+      createdBy: existingCourse.createdBy ?? actor.actorId,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actor.actorId,
+      revisionUpdatedAt: FieldValue.serverTimestamp(),
+      revisionUpdatedBy: actor.actorId,
+      ...(firstPublishedAt ? { publishedAt: firstPublishedAt } : {}),
+    }
+    const revisionId = `${normalized.identifier}_${String(savedRevision).padStart(6, '0')}`
+    const revisionCourse = { ...normalized.course, revision: savedRevision }
+    const revisionQuizKeys = Object.fromEntries(quizDocuments)
+    const revisionPayload = JSON.stringify({ course: revisionCourse, quizKeys: revisionQuizKeys })
+    if (Buffer.byteLength(revisionPayload, 'utf8') > 750 * 1024) {
+      throw new HttpsError(
+        'resource-exhausted',
+        'Khóa học đã vượt giới hạn an toàn của một phiên bản. Hãy chia nhỏ nội dung hoặc học liệu trước khi lưu.',
+      )
+    }
+    transaction.set(courseReference, nextCourse)
+    for (const [lessonId, data] of quizDocuments) {
+      const existingKey = existingKeys.get(lessonId) ?? {}
+      transaction.set(courseReference.collection('quizKeys').doc(lessonId), {
+        ...data,
+        createdAt: existingKey.createdAt ?? FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actor.actorId,
+      })
+    }
+    for (const snapshot of quizKeySnapshot.docs) {
+      if (!quizDocuments.has(snapshot.id)) transaction.delete(snapshot.ref)
+    }
     transaction.create(db.doc(`courseRevisions/${revisionId}`), {
-      courseId,
-      revision,
-      contentHash: createHash('sha256').update(JSON.stringify(course)).digest('hex'),
-      course,
-      createdBy: actorId,
+      courseId: normalized.identifier,
+      revision: savedRevision,
+      contentHash: createHash('sha256').update(revisionPayload).digest('hex'),
+      course: revisionCourse,
+      quizKeys: revisionQuizKeys,
+      createdBy: actor.actorId,
       createdAt: FieldValue.serverTimestamp(),
     })
-    transaction.update(courseReference, {
-      revision,
-      revisionUpdatedAt: FieldValue.serverTimestamp(),
-      revisionUpdatedBy: actorId,
-    })
     transaction.set(db.collection('auditLogs').doc(), {
-      action: 'course.revision.created',
-      actorUid: actorId,
-      targetId: courseId,
-      revision,
+      action: !courseSnapshot.exists
+        ? 'course.created'
+        : existingCourse.status !== normalized.requestedStatus
+          ? 'course.status.changed'
+          : 'course.updated',
+      actorUid: actor.actorId,
+      targetId: normalized.identifier,
+      previousStatus: courseSnapshot.exists ? existingCourse.status ?? 'draft' : null,
+      status: normalized.requestedStatus,
+      revision: savedRevision,
       createdAt: FieldValue.serverTimestamp(),
     })
   })
-  return { courseId, revision }
+  return { courseId: normalized.identifier, revision: savedRevision, status: normalized.requestedStatus }
+})
+
+exports.recordCourseRevision = onCall(async (request) => {
+  await requireTrustedAcademyStaff(request)
+  throw new HttpsError(
+    'failed-precondition',
+    'Luồng revision cũ đã ngừng hoạt động. Hãy cập nhật ứng dụng và lưu qua saveCourseDraftAtomic.',
+  )
 })
 
 const productEventNames = new Set([
@@ -1015,7 +1538,9 @@ function academyModulesForLearner(modules, mode, maxFullModuleIndex = Number.POS
             ...safeLesson.quiz,
             questions: safeLesson.quiz.questions.map((question) => {
               if (!isPlainObject(question)) return question
-              const { correctIndex: _answerKey, ...safeQuestion } = question
+              // Answer explanations can reveal the correct choice even when
+              // revealMode is "never" or the learner has not submitted yet.
+              const { correctIndex: _answerKey, explanation: _answerExplanation, ...safeQuestion } = question
               return safeQuestion
             }),
           }

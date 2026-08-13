@@ -6,8 +6,8 @@
     "node": "22"
   },
   "scripts": {
-    "check": "node --check index.js && node --check nutrition.js && node --check generative-ai.js && node --test nutrition.test.js generative-ai.test.js pt-contract.test.js security-contract.test.js",
-    "test": "node --test nutrition.test.js generative-ai.test.js pt-contract.test.js security-contract.test.js"
+    "check": "node --check index.js && node --check nutrition.js && node --check generative-ai.js && node --test nutrition.test.js generative-ai.test.js pt-contract.test.js security-contract.test.js academy-contract.test.js",
+    "test": "node --test nutrition.test.js generative-ai.test.js pt-contract.test.js security-contract.test.js academy-contract.test.js"
   },
   "dependencies": {
     "firebase-admin": "^14.2.0",

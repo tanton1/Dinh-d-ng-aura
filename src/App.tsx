@@ -8,7 +8,6 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useCourses } from './hooks/useCourses'
 import { useLearningProgress } from './hooks/useLearningProgress'
 import AuthPage from './pages/auth/AuthPage'
-import HomePage from './pages/student/HomePage'
 import type { NutritionProfileDraft } from './features/nutrition/types'
 import type { ProfileUpdateInput } from './pages/student/ProfilePage'
 import { analyzeFoodPhoto } from './services/nutritionService'
@@ -44,6 +43,7 @@ import { adminViewPermissions, adminViews, getCurrentRoute, isSameRoute, routeHa
 import { toCourseDraft } from './utils/courseDraft'
 
 const AdminAcademyStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminAcademyStudentsPage'))
+const HomePage = lazyWithRetry(() => import('./pages/student/HomePage'))
 const AdminCoursesPage = lazyWithRetry(() => import('./pages/admin/AdminCoursesPage'))
 const AdminDashboard = lazyWithRetry(() => import('./pages/admin/AdminDashboard'))
 const AdminProgramsPage = lazyWithRetry(() => import('./pages/admin/AdminProgramsPage'))
@@ -79,6 +79,7 @@ function AuraApplication() {
   const canManageCoaching = canAccessAdmin && hasPermission(role, 'program.view')
   const [route, setRoute] = useState<AuraRoute>(getCurrentRoute)
   const routeRef = useRef(route)
+  const [adminPreviewCourseId, setAdminPreviewCourseId] = useState<string | null>(null)
   const [editorDirty, setEditorDirty] = useState(false)
   const [courseNoteDirty, setCourseNoteDirty] = useState(false)
   const [mobileMenu, setMobileMenu] = useState(false)
@@ -305,7 +306,10 @@ function AuraApplication() {
   }
 
   const navigate = (next: ViewId) => goTo(next)
-  const openCourse = (courseId: string, lessonId?: string | null) => goTo('course-detail', courseId, lessonId)
+  const openCourse = (courseId: string, lessonId?: string | null) => {
+    setAdminPreviewCourseId(null)
+    goTo('course-detail', courseId, lessonId)
+  }
 
   useEffect(() => {
     const requiredPermission = adminViewPermissions[view]
@@ -353,10 +357,10 @@ function AuraApplication() {
     ])
 
   useEffect(() => {
-    const completionByCourse = new Map<string, number[]>()
+    const completionByCourse = new Map<string, Array<{ userId: string; percent: number }>>()
     for (const progress of adminStudentProgress) {
       const values = completionByCourse.get(progress.courseId) ?? []
-      values.push(progress.percent)
+      values.push({ userId: progress.userId, percent: progress.percent })
       completionByCourse.set(progress.courseId, values)
     }
     const enrollmentsByCourse = new Map<string, Enrollment[]>()
@@ -368,15 +372,19 @@ function AuraApplication() {
     setAdminCourseAnalytics(adminCourseData.courses.map((course) => {
       const courseId = String(course.id)
       const enrollments = enrollmentsByCourse.get(courseId) ?? []
-      const completionValues = completionByCourse.get(courseId) ?? []
+      const countedEnrollments = enrollments.filter((item) => item.status !== 'cancelled')
+      const countedUserIds = new Set(countedEnrollments.map((item) => item.userId))
+      const completionValues = (completionByCourse.get(courseId) ?? [])
+        .filter((item) => countedUserIds.has(item.userId))
+        .map((item) => item.percent)
       const averageCompletion = completionValues.length
         ? Math.round(completionValues.reduce((total, value) => total + value, 0) / completionValues.length)
         : 0
       return {
         courseId,
-        learners: enrollments.length,
-        activeLearners: enrollments.filter((item) => item.status === 'active').length,
-        completedLearners: enrollments.filter((item) => item.status === 'completed').length,
+        learners: countedEnrollments.length,
+        activeLearners: countedEnrollments.filter((item) => item.status === 'active').length,
+        completedLearners: countedEnrollments.filter((item) => item.status === 'completed').length,
         averageCompletion,
         rating: null,
         updatedAt: course.updatedAt,
@@ -457,8 +465,11 @@ function AuraApplication() {
     })
   }, [adminCourseData.courses, adminEnrollments, adminStudentProgress, adminUsers])
 
+  const isAdminCoursePreview = Boolean(route.courseId && adminPreviewCourseId === route.courseId)
   const selectedCourse = route.courseId
-    ? studentCourses.find((course) => String(course.id) === route.courseId)
+    ? isAdminCoursePreview
+      ? adminCourseData.courses.find((course) => String(course.id) === route.courseId)
+      : studentCourses.find((course) => String(course.id) === route.courseId)
     : studentCourses[0]
   const selectedCourseId = selectedCourse ? String(selectedCourse.id) : null
   const selectedProgress = selectedCourse
@@ -596,6 +607,10 @@ function AuraApplication() {
 
   const createCourse = () => goTo('admin-course-editor')
   const editCourse = (courseId: string) => goTo('admin-course-editor', courseId)
+  const previewAdminCourse = (courseId: string) => {
+    setAdminPreviewCourseId(courseId)
+    goTo('course-detail', courseId)
+  }
   const editingCourseId = view === 'admin-course-editor' ? route.courseId : null
   const editingCourse = editingCourseId
     ? adminCourseData.courses.find((course) => String(course.id) === editingCourseId)
@@ -620,7 +635,14 @@ function AuraApplication() {
   const renderPage = () => {
     switch (view) {
       case 'courses': return <CoursesPage onOpenCourse={openCourse} courseItems={studentCourses} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error} warning={learningData.error} initialQuery={globalSearchQuery} />
-      case 'course-detail': return <CourseDetailPage course={selectedCourse} progress={selectedProgress} activeLessonId={selectedLessonId} enrolled={selectedEnrollment} enrolledAt={selectedEnrollmentRecord?.enrolledAt} noteOwnerId={user?.uid ?? 'demo'} onNoteDirtyChange={setCourseNoteDirty} accessLocked={selectedCourseLocked} learningWarning={learningData.error} loading={studentCourseData.loading || learningData.loading} allowDemoContent={backendMode === 'demo'} onBack={() => navigate('courses')} onSelectLesson={(lessonId) => selectedCourseId && openCourse(selectedCourseId, lessonId)} onEnroll={enrollSelectedCourse} onComplete={completeLesson} onUpgrade={() => navigate('profile')} />
+      case 'course-detail': return <CourseDetailPage course={selectedCourse} progress={selectedProgress} activeLessonId={selectedLessonId} enrolled={selectedEnrollment} enrolledAt={selectedEnrollmentRecord?.enrolledAt} noteOwnerId={user?.uid ?? 'demo'} onNoteDirtyChange={setCourseNoteDirty} accessLocked={selectedCourseLocked} learningWarning={learningData.error} loading={studentCourseData.loading || learningData.loading} allowDemoContent={backendMode === 'demo'} previewMode={isAdminCoursePreview} onBack={() => {
+        if (isAdminCoursePreview) {
+          setAdminPreviewCourseId(null)
+          navigate('admin-courses')
+          return
+        }
+        navigate('courses')
+      }} onSelectLesson={(lessonId) => selectedCourseId && (isAdminCoursePreview ? goTo('course-detail', selectedCourseId, lessonId) : openCourse(selectedCourseId, lessonId))} onEnroll={enrollSelectedCourse} onComplete={completeLesson} onUpgrade={() => navigate('profile')} />
       case 'schedule': return <SchedulePage key={user?.uid ?? 'demo'} onNavigate={navigate} isDemo={backendMode === 'demo'} ownerId={user?.uid ?? 'demo'} />
       case 'nutrition': return <NutritionPage
         key={user?.uid ?? 'demo'}
@@ -702,6 +724,7 @@ function AuraApplication() {
         canEdit={hasPermission(role, 'course.edit')}
         onCreate={createCourse}
         onEdit={editCourse}
+        onView={previewAdminCourse}
       />
       case 'admin-academy-students': return <AdminAcademyStudentsPage
         users={adminUsers}
@@ -716,8 +739,9 @@ function AuraApplication() {
         if (editingCourseId && !editingCourse) return <div className="course-detail-state"><BookOpenIcon /><h1>Không tìm thấy giáo án</h1><p>Giáo án có thể đã bị xóa hoặc bạn không có quyền truy cập.</p><button className="primary-button" onClick={() => navigate('admin-courses')}>Về danh sách</button></div>
         return <CourseEditorPage key={editingCourseId ?? 'new-course'} initialCourse={editingCourse ? toCourseDraft(editingCourse) : undefined} onNavigate={navigate} onDirtyChange={setEditorDirty} canPublish={hasPermission(role, 'course.publish')} saveTarget={backendMode === 'firebase' ? 'firebase' : 'demo'} onSave={async (course, publish) => {
           if (backendMode === 'firebase') {
-            const savedCourseId = await saveCourseDraft({ ...course, publish })
-            if (!editingCourseId) window.history.replaceState(null, '', routeHash('admin-course-editor', savedCourseId))
+            const result = await saveCourseDraft({ ...course, publish })
+            if (!editingCourseId) window.history.replaceState(null, '', routeHash('admin-course-editor', result.courseId))
+            return result
           }
         }} />
       }

@@ -3,6 +3,7 @@ import type { Course, CourseDraftInput } from '../types'
 export function toCourseDraft(course: Course): CourseDraftInput {
   return {
     id: String(course.id),
+    revision: Number.isInteger(course.revision) ? course.revision : 0,
     coverUrl: course.coverUrl,
     slug: course.slug ?? String(course.id),
     title: course.title,

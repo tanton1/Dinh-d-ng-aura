@@ -12,7 +12,7 @@ const overwrite = args.has('--overwrite')
 const fallbackCoachId = args.get('--coach-id')
 const selectedProgramId = args.get('--program-id')
 const projectId = args.get('--project') || 'gen-lang-client-0815966909'
-const databaseId = args.get('--database') || 'ai-studio-aurafitnessacade-2b8f85bb-737e-43d9-ac19-3be1ee1798b8'
+const databaseId = args.get('--database') || 'ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7'
 
 function integerInRange(value, fallback, minimum, maximum) {
   return Number.isInteger(value) && value >= minimum && value <= maximum ? value : fallback

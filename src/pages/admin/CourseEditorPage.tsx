@@ -4,30 +4,28 @@ import {
   ArrowLeft,
   BookOpen,
   Check,
-  CheckCircle2,
   ChevronRight,
   Clock3,
   FileQuestion,
   FileSpreadsheet,
   FileText,
   FileType,
-  GraduationCap,
   GripVertical,
-  Image,
-  Layers,
   Play,
   PlusCircle,
   Plus,
   Save,
   Sparkles,
-  Settings2,
   ShieldCheck,
   X,
   Trash2,
+  Undo2,
   Video,
 } from 'lucide-react'
 import { auraFoundationCourse } from '../../course-template'
 import AcademyLessonMemoryEditor from '../../components/academy/AcademyLessonMemoryEditor'
+import CourseEditorSidebar from '../../components/admin/CourseEditorSidebar'
+import CourseEditorValidationPanel, { type CourseEditorValidationIssue } from '../../components/admin/CourseEditorValidationPanel'
 import {
   getAcademyCoachNote,
   getAcademyLessonContent,
@@ -49,10 +47,15 @@ import type {
 } from '../../types'
 
 type SaveMode = 'draft' | 'review' | 'publish'
+type CourseSaveResult = { courseId: string; revision: number }
+type CourseUndoState = {
+  message: string
+  restore: (current: CourseDraftInput) => CourseDraftInput
+}
 
 interface CourseEditorPageProps {
   onNavigate: (view: ViewId) => void
-  onSave?: (course: CourseDraftInput, publish: boolean) => Promise<void>
+  onSave?: (course: CourseDraftInput, publish: boolean) => Promise<void | CourseSaveResult>
   onDirtyChange?: (dirty: boolean) => void
   canPublish?: boolean
   initialCourse?: CourseDraftInput
@@ -212,6 +215,9 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
   const [mediaUploads, setMediaUploads] = useState<Record<string, { progress: number; error?: string }>>({})
   const [coverUploading, setCoverUploading] = useState(false)
   const coverInputRef = useRef<HTMLInputElement>(null)
+  const [validationRequested, setValidationRequested] = useState(false)
+  const [undoState, setUndoState] = useState<CourseUndoState | null>(null)
+  const undoTimeoutRef = useRef<number | null>(null)
   
   const [generatingOutline, setGeneratingOutline] = useState(false)
   const [generatingQuiz, setGeneratingQuiz] = useState(false)
@@ -344,7 +350,13 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     setActiveStep(1)
     setSavedMode(null)
     setSaveError(null)
+    setValidationRequested(false)
+    setUndoState(null)
   }, [initialCourse?.id])
+
+  useEffect(() => () => {
+    if (undoTimeoutRef.current !== null) window.clearTimeout(undoTimeoutRef.current)
+  }, [])
 
   useEffect(() => {
     if (!initialCourse?.id || saveTarget !== 'firebase') return
@@ -412,6 +424,23 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     }
     if (resources.length !== validResources.length) issues.push(`${label}: học liệu thiếu tên hoặc nguồn hợp lệ.`)
 
+    if (lesson.type === 'Video' && !validResources.some((resource) => resource.kind === 'video')) {
+      issues.push(`${label}: bài Video cần ít nhất một video hợp lệ.`)
+    }
+    if (lesson.type === 'Bài đọc') {
+      const hasReadableBody = Boolean(
+        lesson.summary?.trim()
+          || (lesson.primaryContent?.kind === 'rich-text' && lesson.primaryContent.body?.trim()),
+      )
+      if (!hasReadableBody && !validResources.length) {
+        issues.push(`${label}: bài đọc cần mô tả, nội dung bài viết hoặc ít nhất một học liệu hợp lệ.`)
+      }
+    }
+    if (lesson.primaryContent?.kind === 'resource'
+        && !validResources.some((resource) => resource.id === lesson.primaryContent?.resourceId)) {
+      issues.push(`${label}: học liệu chính không còn hợp lệ.`)
+    }
+
     const policy = lesson.completionPolicy ?? defaultCompletionPolicy(lesson.type)
     if (policy.mode === 'media-progress') {
       const threshold = policy.thresholdPercent ?? 80
@@ -453,20 +482,28 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     && Number.isInteger(course.settings.completionPercent)
     && course.settings.completionPercent >= 50
     && course.settings.completionPercent <= 100
-  const isReady = Boolean(
+  const basicsReady = Boolean(
     course.title.trim()
       && course.slug.trim()
       && course.description.trim()
+      && course.category.trim()
+      && course.level.trim()
       && course.coach.trim()
-      && curriculumReady
-      && lessonTotal >= 6
+      && course.duration.trim()
       && course.outcomes.length > 0
       && course.requirements.length > 0
+  )
+  const contentReady = contentIssues.length === 0
+  const isReady = Boolean(
+    basicsReady
+      && curriculumReady
+      && lessonTotal >= 6
       && settingsReady
-      && contentIssues.length === 0
+      && contentReady
   )
   const completeness = Math.round(([
     course.title,
+    course.slug,
     course.description,
     course.category,
     course.level,
@@ -477,13 +514,57 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     course.outcomes.length > 0,
     course.requirements.length > 0,
     settingsReady,
-  ].filter(Boolean).length / 11) * 100)
+    contentReady,
+  ].filter(Boolean).length / 13) * 100)
+  const validationIssues = useMemo<CourseEditorValidationIssue[]>(() => {
+    const issues: CourseEditorValidationIssue[] = []
+    const add = (issue: CourseEditorValidationIssue) => issues.push(issue)
+
+    if (!course.title.trim()) add({ id: 'title', step: 1, label: 'Tên khóa học', detail: 'Nhập tên rõ ràng để học viên nhận biết khóa học.', targetId: 'course-title' })
+    if (!course.slug.trim()) add({ id: 'slug', step: 1, label: 'Đường dẫn khóa học', detail: 'Slug là trường bắt buộc khi lưu và xuất bản.', targetId: 'course-slug' })
+    if (!course.description.trim()) add({ id: 'description', step: 1, label: 'Mô tả khóa học', detail: 'Bổ sung giá trị và nội dung chính của khóa học.', targetId: 'course-description' })
+    if (!course.category.trim()) add({ id: 'category', step: 1, label: 'Danh mục khóa học', detail: 'Chọn danh mục phù hợp để học viên tìm thấy khóa học.', targetId: 'course-category' })
+    if (!course.level.trim()) add({ id: 'level', step: 1, label: 'Cấp độ khóa học', detail: 'Chọn cấp độ phù hợp với người học.', targetId: 'course-level' })
+    if (!course.coach.trim()) add({ id: 'coach', step: 1, label: 'Giảng viên phụ trách', detail: 'Phân công người chịu trách nhiệm chuyên môn.', targetId: 'course-coach' })
+    if (!course.duration.trim()) add({ id: 'duration', step: 1, label: 'Thời lượng khóa học', detail: 'Bổ sung thời lượng dự kiến của khóa học.', targetId: 'course-duration' })
+    if (!course.outcomes.length) add({ id: 'outcomes', step: 1, label: 'Kết quả đầu ra', detail: 'Thêm ít nhất một kết quả học viên sẽ đạt được.', targetId: 'course-outcomes' })
+    if (!course.requirements.length) add({ id: 'requirements', step: 1, label: 'Yêu cầu tham gia', detail: 'Thêm ít nhất một điều kiện hoặc ghi rõ không yêu cầu.', targetId: 'course-requirements' })
+    if (!curriculumReady) add({ id: 'curriculum', step: 2, label: 'Cấu trúc chương và bài học', detail: 'Mỗi chương cần tên và ít nhất một bài có tên, thời lượng.', targetId: 'course-curriculum' })
+    if (lessonTotal < 6) add({ id: 'lesson-count', step: 2, label: 'Tối thiểu 6 bài học', detail: `Hiện có ${lessonTotal}/6 bài học.`, targetId: 'course-curriculum' })
+    contentIssues.slice(0, 6).forEach((detail, index) => add({ id: `content-${index}`, step: 2, label: 'Học liệu cần hoàn thiện', detail, targetId: 'course-lesson-detail' }))
+    if (!settingsReady) add({ id: 'settings', step: 3, label: 'Thiết lập hoàn thành', detail: 'Kiểm tra gói, hiển thị, lịch mở và ngưỡng hoàn thành 50–100%.', targetId: 'course-settings' })
+    return issues
+  }, [contentIssues, course.category, course.coach, course.description, course.duration, course.level, course.outcomes.length, course.requirements.length, course.slug, course.title, curriculumReady, lessonTotal, settingsReady])
   const detailModule = course.modules[detailLessonModuleIndex]
   const detailLesson = detailModule?.lessons[detailLessonIndex]
   const detailAcademyContent = getAcademyLessonContent(detailLesson)
 
   const updateField = <K extends keyof CourseDraftInput>(key: K, value: CourseDraftInput[K]) => {
+    setSaveError(null)
     setCourse((current) => ({ ...current, [key]: value }))
+  }
+
+  const openValidationIssue = (issue: CourseEditorValidationIssue) => {
+    setValidationRequested(true)
+    setActiveStep(issue.step)
+    window.setTimeout(() => {
+      const target = issue.targetId ? document.getElementById(issue.targetId) : null
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) target.focus()
+    }, 80)
+  }
+
+  const rememberUndo = (message: string, restore: CourseUndoState['restore']) => {
+    setUndoState({ message, restore })
+    if (undoTimeoutRef.current !== null) window.clearTimeout(undoTimeoutRef.current)
+    undoTimeoutRef.current = window.setTimeout(() => setUndoState(null), 6500)
+  }
+
+  const restoreUndo = () => {
+    if (!undoState) return
+    setCourse((current) => undoState.restore(current))
+    setUndoState(null)
+    if (undoTimeoutRef.current !== null) window.clearTimeout(undoTimeoutRef.current)
   }
 
   const updateModule = (moduleIndex: number, values: Partial<CourseDraftInput['modules'][number]>) => {
@@ -706,6 +787,15 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
   }
 
   const removeModule = (moduleIndex: number) => {
+    const module = course.modules[moduleIndex]
+    if (!module || !window.confirm(`Xóa chương “${module.title || `Chương ${moduleIndex + 1}`}” và toàn bộ ${module.lessons.length} bài học bên trong?`)) return
+    const removedModule = structuredClone(module)
+    rememberUndo(`Đã xóa chương “${module.title || `Chương ${moduleIndex + 1}`}”.`, (current) => {
+      if (current.modules.some((item) => item.id === removedModule.id)) return current
+      const modules = [...current.modules]
+      modules.splice(Math.min(moduleIndex, modules.length), 0, removedModule)
+      return { ...current, modules: modules.map((item, index) => ({ ...item, order: index + 1 })) }
+    })
     setCourse((current) => ({
       ...current,
       modules: current.modules
@@ -736,6 +826,19 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
   }
 
   const removeLesson = (moduleIndex: number, lessonIndex: number) => {
+    const lesson = course.modules[moduleIndex]?.lessons[lessonIndex]
+    if (!lesson || !window.confirm(`Xóa bài học “${lesson.title || `Bài ${lessonIndex + 1}`}”?`)) return
+    const moduleId = course.modules[moduleIndex].id
+    const removedLesson = structuredClone(lesson)
+    rememberUndo(`Đã xóa bài học “${lesson.title || `Bài ${lessonIndex + 1}`}”.`, (current) => ({
+      ...current,
+      modules: current.modules.map((module) => {
+        if (module.id !== moduleId || module.lessons.some((item) => item.id === removedLesson.id)) return module
+        const lessons = [...module.lessons]
+        lessons.splice(Math.min(lessonIndex, lessons.length), 0, removedLesson)
+        return { ...module, lessons }
+      }),
+    }))
     setCourse((current) => ({
       ...current,
       modules: current.modules.map((module, index) => index === moduleIndex
@@ -746,6 +849,8 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
 
   const save = async (mode: SaveMode) => {
     if ((mode === 'review' || mode === 'publish') && !isReady) {
+      setValidationRequested(true)
+      setActiveStep(4)
       if (contentIssues.length) {
         setSaveError(`Chưa thể xuất bản: ${contentIssues.slice(0, 3).join(' ')}`)
         return
@@ -776,7 +881,8 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     try {
       if (saveTarget === 'firebase') {
         if (!onSave) throw new Error('Missing Firebase save handler')
-        await onSave(nextCourse, mode === 'publish')
+        const result = await onSave(nextCourse, mode === 'publish')
+        if (result) Object.assign(nextCourse, { revision: result.revision })
       } else {
         window.localStorage.setItem(`aura-demo-course:${nextCourse.id}`, JSON.stringify(nextCourse))
       }
@@ -864,7 +970,7 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
       <header className="editor-header">
         <button className="back-button" onClick={navigateBack}><ArrowLeft size={18} /> Khóa học</button>
         <div className="editor-title"><span className={`draft-dot ${course.publicationStatus}`} /><div><strong>{course.title || 'Khóa học mới'}</strong><small>{publicationLabels[course.publicationStatus]} · {lessonTotal} bài học</small></div></div>
-        <div className="editor-actions"><button className="outline-button" onClick={() => setActiveStep(4)}><Play size={16} /> Kiểm tra</button><button className="primary-button" onClick={saveFromHeader} disabled={saving || (isPublished && !canPublish)} title={isPublished && !canPublish ? 'Chỉ Administrator có quyền cập nhật trực tiếp khóa học đã xuất bản.' : undefined}>{(isPublished ? savedMode === 'publish' : savedMode === 'draft') ? <Check size={17} /> : <Save size={17} />}{saving ? 'Đang lưu...' : isPublished ? savedMode === 'publish' ? 'Đã cập nhật' : canPublish ? 'Lưu cập nhật' : 'Cần Admin' : savedMode === 'draft' ? saveTarget === 'firebase' ? 'Đã lưu' : 'Đã lưu' : 'Lưu bản nháp'}</button></div>
+        <div className="editor-actions"><button className="outline-button editor-preview-button" aria-label="Kiểm tra khóa học trước khi xuất bản" onClick={() => { setValidationRequested(true); setActiveStep(4) }}><Play size={16} /><span>Kiểm tra</span></button><button className="primary-button" aria-label={saving ? 'Đang lưu khóa học' : 'Lưu khóa học'} onClick={saveFromHeader} disabled={saving || (isPublished && !canPublish)} title={isPublished && !canPublish ? 'Chỉ Administrator có quyền cập nhật trực tiếp khóa học đã xuất bản.' : undefined}>{(isPublished ? savedMode === 'publish' : savedMode === 'draft') ? <Check size={17} /> : <Save size={17} />}{saving ? 'Đang lưu...' : isPublished ? savedMode === 'publish' ? 'Đã cập nhật' : canPublish ? 'Lưu cập nhật' : 'Cần Admin' : savedMode === 'draft' ? saveTarget === 'firebase' ? 'Đã lưu' : 'Đã lưu' : 'Lưu bản nháp'}</button></div>
       </header>
 
       {/* Mobile Step Switcher Bar (visible on screens <= 900px) */}
@@ -879,6 +985,7 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
             key={item.step}
             type="button"
             className={`mobile-step-btn ${activeStep === item.step ? 'active' : ''}`}
+            aria-current={activeStep === item.step ? 'step' : undefined}
             onClick={() => setActiveStep(item.step)}
           >
             {item.label}
@@ -887,132 +994,34 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
       </nav>
 
       <div className="editor-layout">
-        <aside className="builder-summary unified-editor-sidebar">
-          {/* Top Header & Cover Box */}
-          <div className="sidebar-course-header">
-            <div className={`course-cover-editor ${course.coverUrl ? 'has-image' : ''}`}>
-              {course.coverUrl && <img src={course.coverUrl} alt="" />}
-              <div className="cover-pattern"><i /><i /></div>
-              {!course.coverUrl && <BookOpen size={38} />}
-              <button type="button" onClick={focusCoverInput}>
-                <Image size={15} /> {course.coverUrl ? 'Đổi ảnh bìa' : 'Thêm ảnh bìa'}
-              </button>
-            </div>
-            <div className="sidebar-course-copy">
-              <span className={`status-pill-mini ${course.publicationStatus}`}>
-                {publicationLabels[course.publicationStatus]}
-              </span>
-              <h2>{course.title || 'Khóa học chưa đặt tên'}</h2>
-              <p>{course.description || 'Chưa có mô tả ngắn cho khóa học này.'}</p>
-            </div>
-          </div>
-
-          {/* Completeness Bar */}
-          <div className="builder-completeness">
-            <div>
-              <span>Mức độ hoàn thiện</span>
-              <strong>{completeness}%</strong>
-            </div>
-            <i>
-              <span style={{ width: `${completeness}%` }} />
-            </i>
-            <small>
-              {isReady
-                ? 'Khóa học đã đủ điều kiện gửi duyệt / xuất bản.'
-                : 'Hoàn thiện các trường bắt buộc trước khi xuất bản.'}
-            </small>
-          </div>
-
-          {/* Grouped Vertical Section Navigation Menu */}
-          <div className="editor-nav-group">
-            <span className="nav-group-label">NỘI DUNG BIÊN TẬP</span>
-            <nav className="editor-sections-menu" aria-label="Danh mục các phần biên tập khóa học">
-              {[
-                {
-                  step: 1,
-                  title: '1. Thông tin cơ bản',
-                  subtitle: 'Tên, mô tả, danh mục & kết quả',
-                  icon: FileText,
-                  done: Boolean(course.title && course.description),
-                },
-                {
-                  step: 2,
-                  title: '2. Chương & Bài học',
-                  subtitle: `${course.modules.length} chương · ${lessonTotal} bài`,
-                  icon: Layers,
-                  done: curriculumReady && lessonTotal >= 6,
-                },
-                {
-                  step: 3,
-                  title: '3. Thiết lập & Quyền',
-                  subtitle: `${course.settings.accessTier === 'pro' ? 'Aura Pro' : 'Miễn phí'} · ${course.settings.visibility === 'private' ? 'Riêng tư' : 'Thành viên'}`,
-                  icon: Settings2,
-                  done: settingsReady,
-                },
-                {
-                  step: 4,
-                  title: '4. Kiểm tra & Xuất bản',
-                  subtitle: isReady ? 'Đã sẵn sàng ra mắt' : 'Cần hoàn thiện checklist',
-                  icon: ShieldCheck,
-                  done: isReady,
-                },
-              ].map((item) => {
-                const ItemIcon = item.icon
-                const isActive = activeStep === item.step
-                return (
-                  <button
-                    key={item.step}
-                    type="button"
-                    className={`section-menu-item ${isActive ? 'active' : ''} ${item.done ? 'is-done' : ''}`}
-                    onClick={() => setActiveStep(item.step)}
-                  >
-                    <span className="menu-item-icon">
-                      <ItemIcon size={18} />
-                    </span>
-                    <div className="menu-item-content">
-                      <strong className="menu-item-title">{item.title}</strong>
-                      <small className="menu-item-sub">{item.subtitle}</small>
-                    </div>
-                    {item.done ? (
-                      <span className="menu-item-check" title="Đã hoàn thành mục này">
-                        <CheckCircle2 size={16} />
-                      </span>
-                    ) : (
-                      <span className="menu-item-badge">B{item.step}</span>
-                    )}
-                  </button>
-                )
-              })}
-            </nav>
-          </div>
-
-          {/* Bottom Integrated Meta Footer */}
-          <div className="sidebar-meta-footer">
-            <div className="meta-footer-item">
-              <Clock3 size={15} />
-              <span>{course.duration || 'Chưa đặt thời lượng'}</span>
-            </div>
-            <div className="meta-footer-item">
-              <GraduationCap size={15} />
-              <span>{course.coach || 'Chưa phân công giảng viên'}</span>
-            </div>
-          </div>
-        </aside>
+        <CourseEditorSidebar
+          course={course}
+          activeStep={activeStep}
+          lessonTotal={lessonTotal}
+          completeness={completeness}
+          basicsReady={basicsReady}
+          curriculumReady={curriculumReady}
+          contentReady={contentReady}
+          settingsReady={settingsReady}
+          isReady={isReady}
+          onStepChange={setActiveStep}
+          onChooseCover={focusCoverInput}
+        />
 
         <main className="curriculum-builder">
           {activeStep === 1 && (
             <section className="editor-step-panel">
               <div className="builder-heading"><div><span className="eyebrow">BƯỚC 1 / 4</span><h1>Thông tin cơ bản</h1><p>Định vị khóa học rõ ràng để học viên biết mình sẽ đạt được gì.</p></div></div>
               <div className="course-form-grid">
-                <label className="span-2"><span>Tên khóa học *</span><input value={course.title} onChange={(event) => updateField('title', event.target.value)} /></label>
-                <label className="span-2"><span>Slug *</span><input value={course.slug} onChange={(event) => updateField('slug', event.target.value)} /></label>
+                <label className={`span-2 ${validationRequested && !course.title.trim() ? 'field-has-error' : ''}`}><span>Tên khóa học *</span><input id="course-title" value={course.title} aria-invalid={validationRequested && !course.title.trim()} onChange={(event) => updateField('title', event.target.value)} />{validationRequested && !course.title.trim() && <small className="field-error">Nhập tên khóa học.</small>}</label>
+                <label className={`span-2 ${validationRequested && !course.slug.trim() ? 'field-has-error' : ''}`}><span>Slug *</span><input id="course-slug" value={course.slug} aria-invalid={validationRequested && !course.slug.trim()} onChange={(event) => updateField('slug', event.target.value)} />{validationRequested && !course.slug.trim() && <small className="field-error">Slug không được để trống.</small>}</label>
                 <label className="span-2">
                   <span>Ảnh bìa</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                      <input 
                        ref={coverInputRef} 
                        type="file" 
-                       accept="image/jpeg, image/png, image/webp, image/gif" 
+                       accept="image/jpeg, image/png, image/webp"
                        onChange={handleCoverUpload} 
                        style={{ flex: 1 }}
                      />
@@ -1020,36 +1029,36 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
                   </div>
                   <small>Dùng ảnh ngang tối thiểu 1200 × 675 px. {course.coverUrl && <a href={course.coverUrl} target="_blank" rel="noreferrer" style={{ color: '#0066cc', textDecoration: 'underline' }}>Xem ảnh hiện tại</a>}</small>
                 </label>
-                <label className="span-2"><span>Mô tả *</span><textarea value={course.description} onChange={(event) => updateField('description', event.target.value)} /></label>
-                <label><span>Danh mục</span><select value={course.category} onChange={(event) => updateField('category', event.target.value)}>{!['Dinh dưỡng nền tảng', 'Dinh dưỡng giảm mỡ', 'Dinh dưỡng tăng cơ', 'Dinh dưỡng thể thao', 'Dinh dưỡng chuyên sâu', 'Chứng nhận chuyên môn'].includes(course.category) ? <option>{course.category}</option> : null}<option>Dinh dưỡng nền tảng</option><option>Dinh dưỡng giảm mỡ</option><option>Dinh dưỡng tăng cơ</option><option>Dinh dưỡng thể thao</option><option>Dinh dưỡng chuyên sâu</option><option>Chứng nhận chuyên môn</option></select></label>
-                <label><span>Cấp độ</span><select value={course.level} onChange={(event) => updateField('level', event.target.value)}><option>Cơ bản</option><option>Trung cấp</option><option>Nâng cao</option><option>Mọi cấp độ</option></select></label>
-                <label><span>Giảng viên *</span><input value={course.coach} onChange={(event) => updateField('coach', event.target.value)} /></label>
-                <label><span>Thời lượng</span><input value={course.duration} onChange={(event) => updateField('duration', event.target.value)} /></label>
-                <label><span>Kết quả đầu ra · mỗi dòng một ý</span><textarea value={course.outcomes.join('\n')} onChange={(event) => updateField('outcomes', event.target.value.split('\n').filter(Boolean))} /></label>
-                <label><span>Yêu cầu tham gia · mỗi dòng một ý</span><textarea value={course.requirements.join('\n')} onChange={(event) => updateField('requirements', event.target.value.split('\n').filter(Boolean))} /></label>
+                <label className={`span-2 ${validationRequested && !course.description.trim() ? 'field-has-error' : ''}`}><span>Mô tả *</span><textarea id="course-description" value={course.description} aria-invalid={validationRequested && !course.description.trim()} onChange={(event) => updateField('description', event.target.value)} />{validationRequested && !course.description.trim() && <small className="field-error">Mô tả giúp học viên hiểu giá trị khóa học.</small>}</label>
+                <label><span>Danh mục</span><select id="course-category" value={course.category} onChange={(event) => updateField('category', event.target.value)}>{!['Dinh dưỡng nền tảng', 'Dinh dưỡng giảm mỡ', 'Dinh dưỡng tăng cơ', 'Dinh dưỡng thể thao', 'Dinh dưỡng chuyên sâu', 'Chứng nhận chuyên môn'].includes(course.category) ? <option>{course.category}</option> : null}<option>Dinh dưỡng nền tảng</option><option>Dinh dưỡng giảm mỡ</option><option>Dinh dưỡng tăng cơ</option><option>Dinh dưỡng thể thao</option><option>Dinh dưỡng chuyên sâu</option><option>Chứng nhận chuyên môn</option></select></label>
+                <label><span>Cấp độ</span><select id="course-level" value={course.level} onChange={(event) => updateField('level', event.target.value)}><option>Cơ bản</option><option>Trung cấp</option><option>Nâng cao</option><option>Mọi cấp độ</option></select></label>
+                <label className={validationRequested && !course.coach.trim() ? 'field-has-error' : ''}><span>Giảng viên *</span><input id="course-coach" value={course.coach} aria-invalid={validationRequested && !course.coach.trim()} onChange={(event) => updateField('coach', event.target.value)} />{validationRequested && !course.coach.trim() && <small className="field-error">Chọn hoặc nhập giảng viên phụ trách.</small>}</label>
+                <label><span>Thời lượng</span><input id="course-duration" value={course.duration} onChange={(event) => updateField('duration', event.target.value)} /></label>
+                <label className={validationRequested && !course.outcomes.length ? 'field-has-error' : ''}><span>Kết quả đầu ra · mỗi dòng một ý</span><textarea id="course-outcomes" value={course.outcomes.join('\n')} aria-invalid={validationRequested && !course.outcomes.length} onChange={(event) => updateField('outcomes', event.target.value.split('\n').map((item) => item.trim()).filter(Boolean))} />{validationRequested && !course.outcomes.length && <small className="field-error">Thêm ít nhất một kết quả đầu ra.</small>}</label>
+                <label className={validationRequested && !course.requirements.length ? 'field-has-error' : ''}><span>Yêu cầu tham gia · mỗi dòng một ý</span><textarea id="course-requirements" value={course.requirements.join('\n')} aria-invalid={validationRequested && !course.requirements.length} onChange={(event) => updateField('requirements', event.target.value.split('\n').map((item) => item.trim()).filter(Boolean))} />{validationRequested && !course.requirements.length && <small className="field-error">Thêm yêu cầu hoặc ghi “Không yêu cầu”.</small>}</label>
               </div>
             </section>
           )}
 
           {activeStep === 2 && (
-            <section className="editor-step-panel">
-              <div className="builder-heading"><div><span className="eyebrow">BƯỚC 2 / 4</span><h1>Nội dung Aura Academy</h1><p>Thiết kế khóa đào tạo dinh dưỡng chuyên sâu, độc lập hoàn toàn với giáo án PT.</p></div><div style={{display: 'flex', gap: 8}}><button className="outline-button" onClick={handleGenerateOutline} disabled={generatingOutline} style={{color: '#8b5cf6', border: '1px solid #8b5cf6'}}><Sparkles size={17} /> {generatingOutline ? 'Đang tạo...' : 'AI Lên sườn nội dung'}</button><button className="outline-button" onClick={addModule}><Plus size={17} /> Thêm chương</button></div></div>
+            <section className="editor-step-panel" id="course-curriculum">
+              <div className="builder-heading"><div><span className="eyebrow">BƯỚC 2 / 4</span><h1>Nội dung Aura Academy</h1><p>Thiết kế khóa đào tạo dinh dưỡng chuyên sâu, độc lập hoàn toàn với giáo án PT.</p></div><div className="builder-heading-actions"><button className="outline-button" onClick={handleGenerateOutline} disabled={generatingOutline} style={{color: '#8b5cf6', border: '1px solid #8b5cf6'}}><Sparkles size={17} /> {generatingOutline ? 'Đang tạo...' : 'AI Lên sườn nội dung'}</button><button className="outline-button" onClick={addModule}><Plus size={17} /> Thêm chương</button></div></div>
               <div className="builder-tip"><span>💡</span><p><strong>Nhịp học ghi nhớ sâu</strong>Kết hợp video, bài đọc, tóm tắt 60 giây, active recall, flashcard và quiz kiểm tra.</p></div>
               <div className="module-list">
                 {course.modules.map((module, moduleIndex) => (
                   <article className="builder-module editable" key={module.id}>
-                    <header><GripVertical size={18} /><span className="module-number">{moduleIndex + 1}</span><input value={module.title} onChange={(event) => updateModule(moduleIndex, { title: event.target.value })} /><small>{module.lessons.length} bài</small><button title="Xóa chương" onClick={() => removeModule(moduleIndex)}><Trash2 size={16} /></button></header>
+                    <header><GripVertical size={18} /><span className="module-number">{moduleIndex + 1}</span><input value={module.title} aria-label={`Tên chương ${moduleIndex + 1}`} onChange={(event) => updateModule(moduleIndex, { title: event.target.value })} /><small>{module.lessons.length} bài</small><button type="button" title="Xóa chương" aria-label={`Xóa chương ${module.title || moduleIndex + 1}`} onClick={() => removeModule(moduleIndex)}><Trash2 size={16} /></button></header>
                     <div className="builder-lessons">
                       {module.lessons.map((item, lessonIndex) => {
                         const Icon = lessonIcons[item.type] ?? FileText
-                        return <div className="builder-lesson editable" key={item.id}><GripVertical size={16} /><span className={`lesson-type-icon ${item.type === 'Video' ? 'purple' : item.type === 'Quiz' ? 'orange' : 'blue'}`}><Icon size={17} /></span><input value={item.title} onChange={(event) => updateLesson(moduleIndex, lessonIndex, { title: event.target.value })} /><select value={item.type} onChange={(event) => updateLessonType(moduleIndex, lessonIndex, event.target.value as CourseLessonType)}>{lessonTypes.map((type) => <option key={type}>{type}</option>)}</select><input className="duration-input" value={item.duration} onChange={(event) => updateLesson(moduleIndex, lessonIndex, { duration: event.target.value })} /><label className="preview-toggle"><input type="checkbox" checked={Boolean(item.preview)} onChange={(event) => updateLesson(moduleIndex, lessonIndex, { preview: event.target.checked })} /> Xem thử</label><button title="Xóa bài" onClick={() => removeLesson(moduleIndex, lessonIndex)}><Trash2 size={16} /></button></div>
+                        return <div className="builder-lesson editable" key={item.id}><GripVertical size={16} /><span className={`lesson-type-icon ${item.type === 'Video' ? 'purple' : item.type === 'Quiz' ? 'orange' : 'blue'}`}><Icon size={17} /></span><input value={item.title} aria-label={`Tên bài học ${lessonIndex + 1}`} onChange={(event) => updateLesson(moduleIndex, lessonIndex, { title: event.target.value })} /><select value={item.type} aria-label={`Loại bài học ${lessonIndex + 1}`} onChange={(event) => updateLessonType(moduleIndex, lessonIndex, event.target.value as CourseLessonType)}>{lessonTypes.map((type) => <option key={type}>{type}</option>)}</select><input className="duration-input" value={item.duration} aria-label={`Thời lượng bài học ${lessonIndex + 1}`} onChange={(event) => updateLesson(moduleIndex, lessonIndex, { duration: event.target.value })} /><label className="preview-toggle"><input type="checkbox" checked={Boolean(item.preview)} onChange={(event) => updateLesson(moduleIndex, lessonIndex, { preview: event.target.checked })} /> Xem thử</label><button type="button" title="Xóa bài" aria-label={`Xóa bài ${item.title || lessonIndex + 1}`} onClick={() => removeLesson(moduleIndex, lessonIndex)}><Trash2 size={16} /></button></div>
                       })}
                       <button className="add-lesson-button" onClick={() => addLesson(moduleIndex)}><Plus size={16} /> Thêm bài học</button>
                     </div>
                   </article>
                 ))}
               </div>
-              <div className="builder-lesson-editor">
+              <div className="builder-lesson-editor" id="course-lesson-detail">
                 <div className="builder-heading">
                   <div><span className="eyebrow">Chi tiết bài học</span><h2>Công cụ biên tập Academy</h2><p>Thêm học liệu, ghi chú giảng viên, bộ ghi nhớ sâu và bài kiểm tra kiến thức.</p></div>
                   {detailModule && detailModule.lessons.length > 0 ? null : <button className="outline-button" onClick={() => addLesson(0)}><Plus size={16} /> Tạo bài học trước</button>}
@@ -1074,9 +1083,10 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
                         <label className="span-2"><span>Chủ đề kiến thức</span><input value={detailLesson?.tags?.join(', ') ?? ''} onChange={(event) => updateLessonTags(detailLessonModuleIndex, detailLessonIndex, event.target.value)} placeholder="protein, cân bằng năng lượng, nhãn thực phẩm..." /></label>
                         <label className="span-2"><span>Mô tả bài học</span><textarea value={detailLesson?.summary ?? ''} onChange={(event) => updateLesson(detailLessonModuleIndex, detailLessonIndex, { summary: event.target.value })} rows={2} /></label>
                         <label className="span-2"><span>Ghi chú giảng viên</span><textarea value={getAcademyCoachNote(detailLesson)} onChange={(event) => updateInstructorNote(event.target.value)} rows={3} placeholder="Bối cảnh, lưu ý chuyên môn hoặc hướng dẫn học tập..." /></label>
-                        <label className="span-2"><span>Điều kiện hoàn thành</span>
+                        <div className="span-2 builder-control-group"><strong className="builder-control-label">Điều kiện hoàn thành</strong>
                           <div className="course-form-grid form-grid-2col">
                             <select
+                              aria-label="Chế độ hoàn thành bài học"
                               value={detailLesson?.completionPolicy?.mode ?? 'manual'}
                               disabled={detailLesson?.type === 'Quiz'}
                               onChange={(event) => updateLesson(detailLessonModuleIndex, detailLessonIndex, {
@@ -1094,11 +1104,11 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
                               <input type="number" min={1} max={100} value={detailLesson.completionPolicy.thresholdPercent ?? 80} onChange={(event) => updateLesson(detailLessonModuleIndex, detailLessonIndex, { completionPolicy: { ...detailLesson.completionPolicy!, thresholdPercent: Number(event.target.value) } })} aria-label="Phần trăm media cần xem" />
                             ) : <small>Quiz được chấm bảo mật trên backend; chế độ thủ công do học viên xác nhận.</small>}
                           </div>
-                        </label>
+                        </div>
                         <div className="span-2">
                           <AcademyLessonMemoryEditor content={detailAcademyContent} onChange={updateAcademyContent} />
                         </div>
-                        <label className="span-2"><span>Tài nguyên học liệu</span>
+                        <section className="span-2 builder-control-group" aria-labelledby="course-resources-heading"><strong id="course-resources-heading" className="builder-control-label">Tài nguyên học liệu</strong>
                           {(detailLesson?.resources?.length ?? 0) > 0 && (
                             <select value={detailLesson?.primaryContent?.resourceId ?? ''} onChange={(event) => updateLesson(detailLessonModuleIndex, detailLessonIndex, { primaryContent: { kind: 'resource', resourceId: event.target.value } })} aria-label="Học liệu chính">
                               <option value="">Chọn học liệu chính</option>
@@ -1109,20 +1119,22 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
                           {(detailLesson?.resources ?? []).map((resource, resourceIndex) => (
                             <div className="builder-resource-row" key={resource.id}>
                               <span className="resource-kind-icon">{resourceTypeIcon(resource.kind)}</span>
-                              <select value={resource.kind} onChange={(event) => updateLessonResource(detailLessonModuleIndex, detailLessonIndex, resourceIndex, { kind: event.target.value as LessonResourceKind })}>
+                              <select aria-label={`Loại tài nguyên ${resourceIndex + 1}`} value={resource.kind} onChange={(event) => updateLessonResource(detailLessonModuleIndex, detailLessonIndex, resourceIndex, { kind: event.target.value as LessonResourceKind })}>
                                 {(Object.keys(resourceTypeLabels) as LessonResourceKind[]).map((kind) => (
                                   <option key={kind} value={kind}>{resourceTypeLabels[kind]}</option>
                                 ))}
                               </select>
                               <input
-                                className="resource-title"
+                                 className="resource-title"
+                                 aria-label={`Tên tài nguyên ${resourceIndex + 1}`}
                                 value={resource.title}
                                 onChange={(event) => updateLessonResource(detailLessonModuleIndex, detailLessonIndex, resourceIndex, { title: event.target.value })}
                                 placeholder="Tên tài nguyên"
                               />
                               <div className="resource-url">
                                 <input
-                                  value={resource.url}
+                                 value={resource.url}
+                                 aria-label={`Đường dẫn tài nguyên ${resourceIndex + 1}`}
                                   onChange={(event) => updateLessonResource(detailLessonModuleIndex, detailLessonIndex, resourceIndex, { url: event.target.value, assetRef: undefined })}
                                   placeholder={resource.assetRef?.storagePath || resourceTypeHints[resource.kind]}
                                   disabled={resource.assetRef?.status === 'ready'}
@@ -1143,26 +1155,27 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
                                 {mediaUploads[resource.id]?.error && <small role="alert">{mediaUploads[resource.id].error}</small>}
                               </div>
                               <input
-                                className="resource-note"
+                                 className="resource-note"
+                                 aria-label={`Ghi chú tài nguyên ${resourceIndex + 1}`}
                                 value={resource.note ?? ''}
                                 onChange={(event) => updateLessonResource(detailLessonModuleIndex, detailLessonIndex, resourceIndex, { note: event.target.value })}
                                 placeholder="Ghi chú tài nguyên (nội bộ cho bài học)"
                               />
-                              <button type="button" title="Xóa tài nguyên" onClick={() => removeLessonResource(detailLessonModuleIndex, detailLessonIndex, resourceIndex)}><Trash2 size={14} /></button>
+                              <button type="button" title="Xóa tài nguyên" aria-label={`Xóa tài nguyên ${resource.title || resourceIndex + 1}`} onClick={() => removeLessonResource(detailLessonModuleIndex, detailLessonIndex, resourceIndex)}><Trash2 size={14} /></button>
                             </div>
                           ))}
                         </div>
                         <button type="button" className="outline-button" onClick={() => addLessonResource(detailLessonModuleIndex, detailLessonIndex)}><PlusCircle size={14} /> Thêm tài nguyên</button>
-                      </label>
-                      {detailLesson?.type === 'Quiz' && (
-                        <label className="span-2">
-                          <span>Quiz builder</span>
-                          <div className="builder-quiz-head">
-                            <select value={detailLesson.quiz?.questionOrder ?? 'sequential'} onChange={(event) => updateLesson(detailLessonModuleIndex, detailLessonIndex, { quiz: { ...(detailLesson.quiz ?? createDefaultQuiz()), questionOrder: event.target.value as 'sequential' | 'shuffle' } })}>
+                        </section>
+                        {detailLesson?.type === 'Quiz' && (
+                          <section className="span-2 builder-control-group" aria-labelledby="course-quiz-heading">
+                            <strong id="course-quiz-heading" className="builder-control-label">Quiz builder</strong>
+                            <div className="builder-quiz-head">
+                              <select aria-label="Thứ tự câu hỏi" value={detailLesson.quiz?.questionOrder ?? 'sequential'} onChange={(event) => updateLesson(detailLessonModuleIndex, detailLessonIndex, { quiz: { ...(detailLesson.quiz ?? createDefaultQuiz()), questionOrder: event.target.value as 'sequential' | 'shuffle' } })}>
                               <option value="sequential">Theo thứ tự</option>
                               <option value="shuffle">Ngẫu nhiên</option>
                             </select>
-                            <select value={detailLesson.quiz?.passPercent ?? 70} onChange={(event) => updateLesson(detailLessonModuleIndex, detailLessonIndex, { quiz: { ...(detailLesson.quiz ?? createDefaultQuiz()), passPercent: Number(event.target.value) } })}>
+                              <select aria-label="Điểm đạt quiz" value={detailLesson.quiz?.passPercent ?? 70} onChange={(event) => updateLesson(detailLessonModuleIndex, detailLessonIndex, { quiz: { ...(detailLesson.quiz ?? createDefaultQuiz()), passPercent: Number(event.target.value) } })}>
                               <option value={50}>Đạt: 50%</option>
                               <option value={60}>Đạt: 60%</option>
                               <option value={70}>Đạt: 70%</option>
@@ -1181,22 +1194,22 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
                           </div>
                           {(detailLesson.quiz?.questions ?? []).map((question, questionIndex) => (
                             <div className="builder-question" key={question.id}>
-                              <div className="builder-question-head"><span>Câu hỏi {questionIndex + 1}</span><button onClick={() => removeQuizQuestion(detailLessonModuleIndex, detailLessonIndex, questionIndex)}><Trash2 size={13} /></button></div>
-                              <textarea value={question.question} onChange={(event) => updateQuizQuestion(detailLessonModuleIndex, detailLessonIndex, questionIndex, { question: event.target.value })} />
+                              <div className="builder-question-head"><span>Câu hỏi {questionIndex + 1}</span><button type="button" aria-label={`Xóa câu hỏi ${questionIndex + 1}`} onClick={() => removeQuizQuestion(detailLessonModuleIndex, detailLessonIndex, questionIndex)}><Trash2 size={13} /></button></div>
+                              <textarea aria-label={`Nội dung câu hỏi ${questionIndex + 1}`} value={question.question} onChange={(event) => updateQuizQuestion(detailLessonModuleIndex, detailLessonIndex, questionIndex, { question: event.target.value })} />
                               <div className="builder-quiz-options">
                                 {question.options.map((option, optionIndex) => (
-                                  <label key={`${question.id}-${optionIndex}`}>
-                                    <input type="radio" checked={question.correctIndex === optionIndex} onChange={() => updateQuizQuestion(detailLessonModuleIndex, detailLessonIndex, questionIndex, { correctIndex: optionIndex })} />
-                                    <input value={option} onChange={(event) => updateQuizOption(detailLessonModuleIndex, detailLessonIndex, questionIndex, optionIndex, event.target.value)} />
-                                    {question.options.length > 2 ? <button className="outline-button small" onClick={() => removeQuizOption(detailLessonModuleIndex, detailLessonIndex, questionIndex, optionIndex)}><X size={12} /></button> : <span />}
-                                  </label>
+                                  <div key={`${question.id}-${optionIndex}`}>
+                                    <input type="radio" name={`correct-${question.id}`} aria-label={`Đặt đáp án ${optionIndex + 1} là đáp án đúng`} checked={question.correctIndex === optionIndex} onChange={() => updateQuizQuestion(detailLessonModuleIndex, detailLessonIndex, questionIndex, { correctIndex: optionIndex })} />
+                                    <input type="text" aria-label={`Nội dung đáp án ${optionIndex + 1}`} value={option} onChange={(event) => updateQuizOption(detailLessonModuleIndex, detailLessonIndex, questionIndex, optionIndex, event.target.value)} />
+                                    {question.options.length > 2 ? <button type="button" aria-label={`Xóa đáp án ${optionIndex + 1}`} className="outline-button small" onClick={() => removeQuizOption(detailLessonModuleIndex, detailLessonIndex, questionIndex, optionIndex)}><X size={12} /></button> : <span />}
+                                  </div>
                                 ))}
                               </div>
                               <button className="outline-button" onClick={() => updateQuizQuestion(detailLessonModuleIndex, detailLessonIndex, questionIndex, { options: [...question.options, ''] })}><Plus size={13} /> Thêm đáp án</button>
                             </div>
                           ))}
                           <button className="outline-button" onClick={() => addQuizQuestion(detailLessonModuleIndex, detailLessonIndex)}><Plus size={14} /> Thêm câu hỏi</button>
-                        </label>
+                          </section>
                       )}
                     </div>
                   </>
@@ -1208,7 +1221,7 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
           )}
 
           {activeStep === 3 && (
-            <section className="editor-step-panel">
+            <section className="editor-step-panel" id="course-settings">
               <div className="builder-heading"><div><span className="eyebrow">BƯỚC 3 / 4</span><h1>Thiết lập khóa học</h1><p>Kiểm soát quyền truy cập, hoàn thành, chứng nhận và lịch mở bài.</p></div></div>
               <div className="course-settings-grid">
                 <label><span>Gói truy cập</span><select value={course.settings.accessTier} onChange={(event) => updateField('settings', { ...course.settings, accessTier: event.target.value as 'free' | 'pro' })}><option value="free">Miễn phí</option><option value="pro">Aura Pro</option></select><small>Quyết định nhóm thành viên được phép tham gia.</small></label>
@@ -1223,11 +1236,12 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
           {activeStep === 4 && (
             <section className="editor-step-panel">
               <div className="builder-heading"><div><span className="eyebrow">BƯỚC 4 / 4</span><h1>Kiểm tra & xuất bản</h1><p>Xác nhận chất lượng nội dung trước khi đưa khóa học đến học viên.</p></div></div>
+              <CourseEditorValidationPanel issues={validationIssues} onSelect={openValidationIssue} />
               <div className="publish-review-grid">
                 <article className="publish-preview-card"><div className={`preview-cover ${course.coverUrl ? 'has-image' : ''}`}>{course.coverUrl ? <img src={course.coverUrl} alt={`Ảnh bìa ${course.title}`} /> : <BookOpen size={46} />}</div><span>{course.category} · {course.level}</span><h2>{course.title}</h2><p>{course.description}</p><div><strong>{course.modules.length}</strong><small>chương</small><strong>{lessonTotal}</strong><small>bài học</small><strong>{course.duration}</strong><small>thời lượng</small></div></article>
                 <article className="publish-checklist"><h2>Checklist xuất bản</h2>{[
-                  ['Thông tin khóa học', Boolean(course.title && course.description)],
-                  ['Giáo trình không còn bài placeholder', curriculumReady && lessonTotal >= 6],
+                  ['Thông tin khóa học', basicsReady],
+                  ['Giáo trình và học liệu hoàn chỉnh', curriculumReady && lessonTotal >= 6 && contentReady],
                   ['Mục tiêu và yêu cầu', course.outcomes.length > 0 && course.requirements.length > 0],
                   ['Thiết lập quyền truy cập', Boolean(course.settings.accessTier)],
                   ['Ngưỡng hoàn thành hợp lệ', settingsReady],
@@ -1237,8 +1251,19 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
             </section>
           )}
 
-          {saveError && <div className="builder-save-error">{saveError}</div>}
-          <div className="editor-footer"><span>{isDirty ? <Clock3 size={16} /> : <Check size={16} />} {saving ? saveTarget === 'firebase' ? 'Đang đồng bộ với Firebase...' : 'Đang lưu bản demo...' : isDirty ? 'Có thay đổi chưa lưu' : savedMode ? saveTarget === 'firebase' ? 'Đã đồng bộ với Firebase' : 'Đã lưu bản demo trên thiết bị' : 'Không có thay đổi chưa lưu'}</span><div>{activeStep > 1 && <button className="outline-button" onClick={() => setActiveStep((step) => step - 1)}>Quay lại</button>}{activeStep < 4 ? <button className="primary-button" onClick={() => setActiveStep((step) => step + 1)}>Tiếp tục <ChevronRight size={17} /></button> : <>{!isPublished && <button className="outline-button" onClick={() => void save('draft')} disabled={saving}>Lưu nháp</button>}<button className="primary-button" onClick={() => void save(isPublished ? 'publish' : canPublish ? 'publish' : 'review')} disabled={saving || !isReady || (isPublished && !canPublish)}>{isPublished && !canPublish ? <><ShieldCheck size={17} /> Cần Admin cập nhật</> : canPublish ? <><ShieldCheck size={17} /> {isPublished ? 'Cập nhật khóa học' : 'Xuất bản khóa học'}</> : <><Save size={17} /> Gửi duyệt</>}</button></>}</div></div>
+          {saveError && <div className="builder-save-error" role="alert">{saveError}</div>}
+          {undoState && <div className="course-undo-toast" role="status"><span>{undoState.message}</span><button type="button" onClick={restoreUndo}><Undo2 size={15} /> Hoàn tác</button></div>}
+          <div className="editor-footer">
+            <span role="status" aria-live="polite">{isDirty ? <Clock3 size={16} /> : <Check size={16} />} {saving ? saveTarget === 'firebase' ? 'Đang đồng bộ với Firebase...' : 'Đang lưu bản demo...' : isDirty ? 'Có thay đổi chưa lưu' : savedMode ? saveTarget === 'firebase' ? 'Đã đồng bộ với Firebase' : 'Đã lưu bản demo trên thiết bị' : 'Không có thay đổi chưa lưu'}</span>
+            <div>
+              {activeStep > 1 && <button className="outline-button editor-nav-back" onClick={() => setActiveStep((step) => step - 1)}>Quay lại</button>}
+              {activeStep < 4 && <button className="outline-button editor-review-action" onClick={() => { setValidationRequested(true); setActiveStep(4) }}><Play size={15} /> Kiểm tra</button>}
+              {!isPublished && <button className="outline-button editor-draft-action" onClick={() => void save('draft')} disabled={saving}><Save size={15} /> Lưu nháp</button>}
+              {activeStep < 4
+                ? <button className="primary-button editor-nav-next" onClick={() => setActiveStep((step) => step + 1)}>Tiếp tục <ChevronRight size={17} /></button>
+                : <button className="primary-button editor-publish-action" onClick={() => void save(isPublished ? 'publish' : canPublish ? 'publish' : 'review')} disabled={saving || !isReady || (isPublished && !canPublish)}>{isPublished && !canPublish ? <><ShieldCheck size={17} /> Cần Admin cập nhật</> : canPublish ? <><ShieldCheck size={17} /> {isPublished ? 'Cập nhật khóa học' : 'Xuất bản khóa học'}</> : <><Save size={17} /> Gửi duyệt</>}</button>}
+            </div>
+          </div>
         </main>
       </div>
     </div>

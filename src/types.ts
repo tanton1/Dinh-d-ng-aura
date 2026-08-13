@@ -212,6 +212,8 @@ export interface Course {
   coverUrl?: string
   /** Version of the persisted curriculum contract. Missing means the legacy V1 shape. */
   schemaVersion?: 2
+  /** Monotonic server revision used to detect concurrent Academy edits. */
+  revision?: number
   updatedAt?: unknown
 }
 
@@ -433,6 +435,8 @@ export interface CourseSettings {
 export interface CourseDraftInput {
   id: string
   schemaVersion?: 2
+  /** Revision loaded when the editor opened. New and legacy unversioned courses use 0. */
+  revision?: number
   /** Editor-only keys, persisted into courses/{courseId}/quizKeys/{lessonId}. */
   quizAnswerKeys?: CourseQuizAnswerKeys
   coverUrl?: string

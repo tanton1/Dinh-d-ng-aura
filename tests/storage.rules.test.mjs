@@ -1,0 +1,63 @@
+import { readFile } from 'node:fs/promises'
+import { after, before, describe, test } from 'node:test'
+import {
+  assertFails,
+  assertSucceeds,
+  initializeTestEnvironment,
+} from '@firebase/rules-unit-testing'
+import { getBytes, ref, uploadBytes } from 'firebase/storage'
+
+const projectId = 'demo-aura-fitness-storage'
+const rulesPath = new URL('../storage.rules', import.meta.url)
+const validImage = new Uint8Array([0xff, 0xd8, 0xff, 0xd9])
+
+let testEnvironment
+
+function storageFor(uid, role) {
+  return testEnvironment.authenticatedContext(uid, { role }).storage()
+}
+
+function uploadCover(storage, courseId, name, bytes = validImage, options = {}) {
+  return uploadBytes(ref(storage, `public-assets/course-covers/${courseId}/${name}`), bytes, {
+    contentType: options.contentType ?? 'image/jpeg',
+    customMetadata: {
+      courseId: options.metadataCourseId ?? courseId,
+      uploadedBy: options.uploadedBy ?? 'editor-1',
+    },
+  })
+}
+
+describe('Aura Academy Storage rules', () => {
+  before(async () => {
+    testEnvironment = await initializeTestEnvironment({
+      projectId,
+      storage: { rules: await readFile(rulesPath, 'utf8') },
+    })
+  })
+
+  after(async () => {
+    await testEnvironment.cleanup()
+  })
+
+  test('Academy staff can upload a valid cover and the catalog can read it', async () => {
+    const staffStorage = storageFor('editor-1', 'editor')
+    const path = `course-${Date.now()}`
+    const uploaded = await assertSucceeds(uploadCover(staffStorage, path, 'cover.jpg'))
+    const publicStorage = testEnvironment.unauthenticatedContext().storage()
+    await assertSucceeds(getBytes(ref(publicStorage, uploaded.ref.fullPath)))
+  })
+
+  test('students, unsupported images and forged metadata are denied', async () => {
+    const studentStorage = storageFor('student-1', 'student')
+    const editorStorage = storageFor('editor-1', 'editor')
+    await assertFails(uploadCover(studentStorage, 'course-student', 'cover.jpg', validImage, { uploadedBy: 'student-1' }))
+    await assertFails(uploadCover(editorStorage, 'course-gif', 'cover.gif', validImage, { contentType: 'image/gif' }))
+    await assertFails(uploadCover(editorStorage, 'course-meta', 'cover.jpg', validImage, { metadataCourseId: 'another-course' }))
+    await assertFails(uploadCover(editorStorage, 'course-owner', 'cover.jpg', validImage, { uploadedBy: 'someone-else' }))
+  })
+
+  test('cover uploads larger than five MiB are denied', async () => {
+    const editorStorage = storageFor('editor-1', 'editor')
+    await assertFails(uploadCover(editorStorage, 'course-large', 'cover.jpg', new Uint8Array(5 * 1024 * 1024 + 1)))
+  })
+})

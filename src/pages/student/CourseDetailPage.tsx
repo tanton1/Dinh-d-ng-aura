@@ -35,6 +35,7 @@ interface CourseDetailPageProps {
   learningWarning?: string | null
   loading?: boolean
   allowDemoContent?: boolean
+  previewMode?: boolean
   onBack: () => void
   onSelectLesson: (lessonId: string) => void
   onEnroll: () => Promise<void>
@@ -92,6 +93,7 @@ export default function CourseDetailPage({
   learningWarning,
   loading = false,
   allowDemoContent = false,
+  previewMode = false,
   onBack,
   onSelectLesson,
   onEnroll,
@@ -149,7 +151,7 @@ export default function CourseDetailPage({
     ? modules.findIndex((module) => module.lessons.some((lesson) => lesson.id === selectedLesson.id))
     : -1
   const selectedModule = selectedModuleIndex >= 0 ? modules[selectedModuleIndex] : undefined
-  const dripEnabled = enrolled && !allowDemoContent && course?.settings?.dripSchedule === 'weekly'
+  const dripEnabled = enrolled && !previewMode && !allowDemoContent && course?.settings?.dripSchedule === 'weekly'
   const enrolledAtMillis = timestampToMillis(enrolledAt)
   const getModuleUnlockAt = (moduleIndex: number) => {
     if (!dripEnabled || moduleIndex <= 0) return null
@@ -166,7 +168,7 @@ export default function CourseDetailPage({
     || selectedLesson?.primaryContent?.kind === 'workout'
   const completionThreshold = Math.max(1, Math.min(100, completionPolicy.thresholdPercent ?? 80))
   const mediaThresholdReached = mediaProgress >= completionThreshold
-  const canStudy = enrolled && !accessLocked && selectedLessonAvailable
+  const canStudy = (enrolled || previewMode) && !accessLocked && selectedLessonAvailable
   const canPreview = Boolean(selectedLesson?.preview)
   const canViewContent = canStudy || canPreview
   const noteStorageKey = course && selectedLesson
@@ -325,7 +327,7 @@ export default function CourseDetailPage({
     }
     if (tab === 'memory') {
       if (!selectedLesson) return <div className="lesson-empty-state"><BookOpen size={28} /><h2>Chưa có bài học để ôn</h2></div>
-      return <AcademyLessonStudy ownerId={noteOwnerId} courseId={String(course.id)} lesson={selectedLesson} courseOutcomes={course.outcomes} canReview={canStudy} />
+      return <AcademyLessonStudy ownerId={noteOwnerId} courseId={String(course.id)} lesson={selectedLesson} courseOutcomes={course.outcomes} canReview={canStudy && !previewMode} />
     }
     if (tab === 'discussion') {
       return <div className="lesson-empty-state"><MessageCircle size={28} /><h2>Thảo luận đang hoàn thiện</h2><p>Gặp lại bạn sẽ có thể đặt câu hỏi và trao đổi trực tiếp dưới mỗi bài học.</p><span className="coming-soon-badge">SẮP RA MẮT</span></div>
@@ -336,7 +338,7 @@ export default function CourseDetailPage({
           <CourseQuizRunner
             courseId={String(course.id)}
             lesson={selectedLesson}
-            canSubmit={canStudy}
+            canSubmit={canStudy && !previewMode}
             demoMode={allowDemoContent}
             completed={lessonCompleted}
             onPassed={completeLesson}
@@ -411,8 +413,10 @@ export default function CourseDetailPage({
   return (
     <div className="course-detail-page">
       <div className="course-detail-topline">
-        <button className="back-button" onClick={onBack}><ArrowLeft size={18} /> Quay lại khóa học</button>
-        <div><span>{percent}% hoàn thành</span><ProgressBar value={percent} /><strong>{completedLessonIds.length}/{lessons.length} bài</strong></div>
+        <button className="back-button" onClick={onBack}><ArrowLeft size={18} /> {previewMode ? 'Quay lại quản trị' : 'Quay lại khóa học'}</button>
+        {previewMode
+          ? <div className="course-preview-indicator"><span>XEM TRƯỚC HỌC VIÊN</span><strong>Không ghi tiến độ</strong></div>
+          : <div><span>{percent}% hoàn thành</span><ProgressBar value={percent} /><strong>{completedLessonIds.length}/{lessons.length} bài</strong></div>}
       </div>
 
         <div className="learning-layout">
@@ -435,7 +439,9 @@ export default function CourseDetailPage({
               <h1>{selectedLesson?.title ?? course.title}</h1>
               <p>{selectedLesson?.summary || course.description}</p>
             </div>
-            {accessLocked ? (
+            {previewMode ? (
+              <button className="outline-button" disabled><Sparkles size={18} /> Chế độ xem trước</button>
+            ) : accessLocked ? (
               <button className="primary-button" onClick={onUpgrade}><LockKeyhole size={18} /> Nâng cấp gói Pro</button>
             ) : !enrolled ? (
               <button className="primary-button" onClick={enroll} disabled={enrollState === 'saving' || lessons.length === 0}><Play size={18} fill="currentColor" /> {enrollState === 'saving' ? 'Đang ghi danh...' : enrollState === 'error' ? 'Thử ghi danh lại' : 'Bắt đầu khóa học'}</button>
@@ -451,7 +457,7 @@ export default function CourseDetailPage({
               <button className="primary-button" onClick={completeLesson} disabled={!selectedLesson || completeState === 'saving' || completeState === 'saved'}><Check size={18} /> {completeState === 'saving' ? 'Đang đóng...' : completeState === 'saved' ? 'Đã hoàn thành' : completeState === 'error' ? 'Thử đóng lại' : 'Đánh dấu hoàn thành'}</button>
             )}
           </div>
-          {selectedLesson && canViewContent ? <div className="lesson-completion-status" role="status" aria-live="polite">{isLegacyWorkoutLesson ? 'Bài học kế thừa đang chờ giảng viên chuyển đổi sang Aura Academy.' : completionPolicy.mode === 'media-progress' ? `Điều kiện hoàn thành: xem ít nhất ${completionThreshold}% media.` : completionPolicy.mode === 'quiz-pass' ? 'Điều kiện hoàn thành: đạt điểm yêu cầu của quiz.' : 'Bạn chủ động đánh dấu khi đã học xong nội dung.'}</div> : null}
+          {selectedLesson && canViewContent ? <div className="lesson-completion-status" role="status" aria-live="polite">{previewMode ? 'Bạn đang xem nội dung bằng quyền quản trị. Mọi thao tác hoàn thành và quiz đều không được ghi.' : isLegacyWorkoutLesson ? 'Bài học kế thừa đang chờ giảng viên chuyển đổi sang Aura Academy.' : completionPolicy.mode === 'media-progress' ? `Điều kiện hoàn thành: xem ít nhất ${completionThreshold}% media.` : completionPolicy.mode === 'quiz-pass' ? 'Điều kiện hoàn thành: đạt điểm yêu cầu của quiz.' : 'Bạn chủ động đánh dấu khi đã học xong nội dung.'}</div> : null}
           {(actionError || learningWarning) && <div className="learning-action-error" role="alert">{actionError ?? `Tiến độ tạm thời chưa lưu: ${learningWarning}`}</div>}
 
           <div className="lesson-tabs" role="tablist" aria-label="Nội dung bài học">

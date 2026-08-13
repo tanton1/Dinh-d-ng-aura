@@ -22,7 +22,7 @@ same ID explicitly. The importer is dry-run unless `--commit` is supplied:
 ```powershell
 node functions/scripts/import-nutrition-catalog.cjs `
   --project YOUR_PROJECT_ID `
-  --database-id ai-studio-aurafitnessacade-2b8f85bb-737e-43d9-ac19-3be1ee1798b8 `
+  --database-id ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7 `
   --commit
 ```
 

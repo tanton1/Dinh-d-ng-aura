@@ -13,6 +13,10 @@ import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { calculateNutritionTargets } from "./src/services/nutritionSyncService";
 
+const firestoreDatabaseId = process.env.FIRESTORE_DATABASE_ID
+  || process.env.VITE_FIREBASE_DATABASE_ID
+  || 'ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7';
+
 // Initialize Firebase Admin
 let adminInitialized = false;
 try {
@@ -21,7 +25,7 @@ try {
     admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
     adminInitialized = true;
   } else if (!admin?.apps?.length) {
-    const projectId = process.env.VITE_FIREBASE_PROJECT_ID || process.env.GCP_PROJECT || 'ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7';
+    const projectId = process.env.VITE_FIREBASE_PROJECT_ID || process.env.GCP_PROJECT || 'gen-lang-client-0815966909';
     admin.initializeApp({ projectId });
     adminInitialized = false; // Admin tasks (cron/FCM) require service account credentials
   }
@@ -970,7 +974,7 @@ self.addEventListener('notificationclick', (event) => {
   setInterval(async () => {
     if (!adminInitialized) return;
     try {
-      const db = getFirestore();
+      const db = getFirestore(admin.app(), firestoreDatabaseId);
       const now = new Date();
       // Only run roughly on the minute mark (we run every minute but to avoid multiple sends we can mark them)
       const currentHour = String(now.getHours()).padStart(2, '0');

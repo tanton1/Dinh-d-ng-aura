@@ -72,6 +72,9 @@ import type {
 import { courses as demoCourses, workoutExercises } from '../data'
 import { auraFoundationCourse } from '../course-template'
 
+/** Sample Academy content is never shown as Firebase data in a production build. */
+export const academyDemoFallbackEnabled = import.meta.env.DEV || import.meta.env.MODE === 'e2e'
+
 function requireDb() {
   if (!firestoreDb) throw new Error('Firebase chưa được cấu hình. Hãy kiểm tra file .env.local.')
   return firestoreDb
@@ -158,6 +161,7 @@ function mapCourseData(id: string, data: DocumentData): Course {
     settings: normalizeCourseSettings(data.settings),
     coverUrl: data.coverUrl,
     schemaVersion: data.schemaVersion === 2 ? 2 : undefined,
+    revision: Number.isInteger(data.revision) && data.revision >= 0 ? data.revision : 0,
     updatedAt: data.updatedAt,
   }
 }
@@ -180,63 +184,6 @@ export function withoutUndefined<T>(value: T): T {
     ) as T
   }
   return value
-}
-
-function courseModulesForPublicRead(input: CourseDraftInput) {
-  return withoutUndefined(input.modules.map((module) => ({
-    ...module,
-    lessons: module.lessons.map((lesson) => {
-      const { workoutRef: _legacyWorkoutReference, ...academyLesson } = lesson
-      return {
-        ...academyLesson,
-        type: lesson.type === 'Buổi tập' ? 'Bài đọc' : lesson.type,
-        primaryContent: lesson.primaryContent?.kind === 'workout'
-          ? { kind: 'rich-text' as const, body: lesson.summary ?? '' }
-          : lesson.primaryContent,
-        completionPolicy: lesson.type === 'Quiz'
-          ? { mode: 'quiz-pass' as const }
-          : lesson.completionPolicy?.mode === 'workout-complete'
-            ? { mode: 'manual' as const }
-            : lesson.completionPolicy,
-        quiz: lesson.quiz
-          ? {
-              ...lesson.quiz,
-              questions: lesson.quiz.questions.map(({ correctIndex: _legacyAnswer, ...question }) => question),
-            }
-          : undefined,
-      }
-    }),
-  })))
-}
-
-function quizKeysByLesson(input: CourseDraftInput) {
-  return Object.fromEntries(input.modules.flatMap((module) => module.lessons.flatMap((lesson) => {
-    if (!lesson.quiz) return []
-    const answers = Object.fromEntries(lesson.quiz.questions.map((question) => {
-      const editorAnswer = input.quizAnswerKeys?.[lesson.id]?.[question.id]
-      const legacyAnswer = typeof question.correctIndex === 'number' ? [question.correctIndex] : []
-      return [question.id, legacyAnswer.length ? legacyAnswer : (editorAnswer ?? [])]
-    }))
-    return [[lesson.id, { quizId: lesson.quiz.id, answers }]]
-  }))) as Record<string, { quizId: string; answers: Record<string, number[]> }>
-}
-
-async function buildCourseQuizContentHash(
-  quiz: { id: string; passPercent: number; questions: Array<{ id: string; question: string; options: string[] }> },
-  answers: Record<string, number>,
-) {
-  const canonical = JSON.stringify({
-    quizId: quiz.id,
-    passPercent: quiz.passPercent,
-    questions: quiz.questions.map((question) => ({
-      id: question.id,
-      question: question.question,
-      options: question.options,
-      correctIndex: answers[question.id],
-    })),
-  })
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical))
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
 function mapCourseProgress(snapshot: QueryDocumentSnapshot<DocumentData>): CourseProgress {
@@ -302,10 +249,10 @@ export function subscribeToCourses(
       { includeMetadataChanges: true },
       (snapshot) => {
         const items = snapshot.docs.map(mapCourse)
-        onData(items.length > 0 ? items : demoCourses)
+        onData(items.length > 0 ? items : (academyDemoFallbackEnabled ? demoCourses : []))
       },
       (error) => {
-        onData(demoCourses)
+        onData(academyDemoFallbackEnabled ? demoCourses : [])
         onError(error)
       },
     )
@@ -325,12 +272,12 @@ export function subscribeToCourses(
         const course = value as Record<string, unknown>
         return typeof course.id === 'string' ? [mapCourseData(course.id, course)] : []
       })
-      onData(mapped.length > 0 ? mapped : demoCourses)
+      onData(mapped.length > 0 ? mapped : (academyDemoFallbackEnabled ? demoCourses : []))
     })
-    .catch(() => {
+    .catch((error: Error) => {
       if (!active) return
-      // Fallback to demo courses when cloud function returns auth or sync error
-      onData(demoCourses)
+      onData(academyDemoFallbackEnabled ? demoCourses : [])
+      onError(error)
     })
   return () => { active = false }
 }
@@ -462,86 +409,35 @@ export async function createOrUpdateUserProfile(profile: UserProfile) {
   }
 }
 
+/** Saves course content, private quiz keys, revision and audit atomically on the server. */
 export async function saveCourseDraft(input: CourseDraftInput & { publish?: boolean }) {
-  const db = requireDb()
-  const reference = doc(db, 'courses', input.id)
-  const existing = await getDoc(reference)
-  const existingQuizKeys = await getDocs(collection(reference, 'quizKeys'))
-  const existingStatus = existing.data()?.status
-  const status = input.publish
-    ? 'published'
-    : input.publicationStatus
-  const lessonCount = input.modules.reduce((total, module) => total + module.lessons.length, 0)
-  const publicModules = courseModulesForPublicRead(input)
-  const quizKeys = quizKeysByLesson(input)
-  const existingQuizKeyData = Object.fromEntries(existingQuizKeys.docs.map((item) => [item.id, item.data()]))
-  const existingAnswers = Object.fromEntries(existingQuizKeys.docs.map((item) => [
-    item.id,
-    item.data().answers && typeof item.data().answers === 'object'
-      ? item.data().answers as Record<string, number>
-      : {},
-  ])) as Record<string, Record<string, number>>
-  const batch = writeBatch(db)
-  batch.set(
-    reference,
-    {
-      schemaVersion: 2,
-      title: input.title,
-      coverUrl: input.coverUrl?.trim() || null,
-      slug: input.slug,
-      description: input.description,
-      category: input.category,
-      level: input.level,
-      duration: input.duration,
-      coach: input.coach,
-      outcomes: input.outcomes,
-      requirements: input.requirements,
-      modules: publicModules,
-      settings: input.settings,
-      lessons: lessonCount,
-      accent: 'purple',
-      icon: 'nutrition',
-      status,
-      ...(input.publish && existingStatus !== 'published' ? { publishedAt: serverTimestamp() } : {}),
-      updatedAt: serverTimestamp(),
-      ...(!existing.exists() ? { createdAt: serverTimestamp() } : {}),
-    },
-    { merge: true },
-  )
-
-  const quizKeyDocuments = await Promise.all(Object.entries(quizKeys).map(async ([lessonId, key]) => {
-    const lessonQuiz = input.modules.flatMap((module) => module.lessons).find((lesson) => lesson.id === lessonId)?.quiz
-    const answers = Object.fromEntries(Object.entries(key.answers).flatMap(([questionId, indexes]) => {
-      const answer = indexes[0] ?? existingAnswers[lessonId]?.[questionId]
-      return typeof answer === 'number' && answer >= 0 ? [[questionId, answer]] : []
-    }))
-    return {
-      lessonId,
-      data: {
-      quizId: key.quizId,
-      passPercent: lessonQuiz?.passPercent ?? 70,
-      answers,
-      questionCount: lessonQuiz?.questions.length ?? 0,
-      contentHash: lessonQuiz ? await buildCourseQuizContentHash(lessonQuiz, answers) : undefined,
-      createdAt: existingQuizKeyData[lessonId]?.createdAt ?? serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      ...(firebaseAuth?.currentUser?.uid ? { updatedBy: firebaseAuth.currentUser.uid } : {}),
-      },
+  const normalizedCourseId = requireDocumentId(input.id, 'Mã khóa học')
+  const expectedRevision = Number.isInteger(input.revision) && (input.revision ?? 0) >= 0
+    ? input.revision ?? 0
+    : 0
+  const payload = {
+    course: withoutUndefined({ ...input, id: normalizedCourseId }),
+    expectedRevision,
+  }
+  const callable = httpsCallable<
+    typeof payload,
+    { courseId: string; revision: number; status: string }
+  >(requireFunctions(), 'saveCourseDraftAtomic')
+  try {
+    const response = await callable(payload)
+    if (response.data.courseId !== normalizedCourseId
+        || !Number.isInteger(response.data.revision)
+        || response.data.revision <= expectedRevision) {
+      throw new Error('Phản hồi lưu khóa học không hợp lệ.')
     }
-  }))
-  quizKeyDocuments.forEach(({ lessonId, data }) => {
-    batch.set(doc(reference, 'quizKeys', lessonId), withoutUndefined(data))
-  })
-  existingQuizKeys.docs.forEach((keyDocument) => {
-    if (!quizKeys[keyDocument.id]) batch.delete(keyDocument.ref)
-  })
-  await batch.commit()
-  const recordRevision = httpsCallable<{ courseId: string }, { courseId: string; revision: number }>(
-    requireFunctions(),
-    'recordCourseRevision',
-  )
-  await recordRevision({ courseId: reference.id })
-  return reference.id
+    return response.data
+  } catch (error) {
+    const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : ''
+    if (code === 'functions/aborted' || code === 'aborted') {
+      throw new Error('Khóa học đã được chỉnh sửa ở phiên khác. Hãy tải lại trang để lấy bản mới nhất rồi lưu lại.')
+    }
+    throw error
+  }
 }
 
 export async function loadCourseQuizAnswerKeys(courseId: string): Promise<CourseQuizAnswerKeys> {
@@ -696,9 +592,13 @@ export function uploadCourseCover(
   onProgress?: (percent: number) => void,
 ): Promise<string> {
   if (!firebaseStorage || !firebaseAuth?.currentUser) return Promise.reject(new Error('Bạn cần đăng nhập để tải ảnh lên Firebase.'))
-  
-  if (!/^image\/(jpeg|png|webp|gif)$/.test(file.type)) {
-    return Promise.reject(new Error('Vui lòng chọn ảnh định dạng JPG, PNG, WEBP hoặc GIF.'))
+
+  const normalizedCourseId = requireDocumentId(courseId, 'Mã khóa học')
+  if (!/^[A-Za-z0-9_-]{1,200}$/.test(normalizedCourseId)) {
+    return Promise.reject(new Error('Mã khóa học không hợp lệ để tải ảnh bìa.'))
+  }
+  if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
+    return Promise.reject(new Error('Vui lòng chọn ảnh định dạng JPG, PNG hoặc WEBP.'))
   }
   
   const maxBytes = 5 * 1024 * 1024 // 5MB
@@ -707,12 +607,12 @@ export function uploadCourseCover(
   }
 
   const assetId = crypto.randomUUID()
-  const safeFileName = file.name.normalize('NFKD').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'cover.jpg'
-  const storagePath = `public-assets/course-covers/${courseId}/${assetId}-${safeFileName}`
+  const safeFileName = (file.name.normalize('NFKD').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'cover.jpg').slice(0, 200)
+  const storagePath = `public-assets/course-covers/${normalizedCourseId}/${assetId}-${safeFileName}`
   
   const task = uploadBytesResumable(storageRef(firebaseStorage, storagePath), file, {
     contentType: file.type,
-    customMetadata: { courseId, uploadedBy: firebaseAuth.currentUser.uid },
+    customMetadata: { courseId: normalizedCourseId, uploadedBy: firebaseAuth.currentUser.uid },
   })
 
   return new Promise((resolve, reject) => {
@@ -893,18 +793,12 @@ export async function seedAuraFoundationCourse(publish = true) {
 }
 
 export async function seedAuraDemoData() {
+  if (!academyDemoFallbackEnabled) {
+    throw new Error('Không được phép tạo dữ liệu mẫu Academy trong production.')
+  }
   const db = requireDb()
+  await seedAuraFoundationCourse(false)
   const batch = writeBatch(db)
-
-  demoCourses.forEach((course) => {
-    batch.set(doc(db, 'courses', `course-${course.id}`), {
-      ...course,
-      learnerStatus: course.status,
-      status: course.status === 'Khám phá' ? 'draft' : 'published',
-      updatedAt: serverTimestamp(),
-      createdAt: serverTimestamp(),
-    })
-  })
 
   workoutExercises.forEach((exercise) => {
     batch.set(doc(db, 'exercises', `exercise-${exercise.id}`), {
