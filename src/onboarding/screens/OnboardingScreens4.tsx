@@ -5,6 +5,7 @@ import { motion } from 'motion/react';
 import { ChoiceCard } from './OnboardingScreens';
 import { Loader2, CheckCircle2, Bell } from 'lucide-react';
 import { GeneratedPlan } from '../types';
+import { normalizeOnboardingProfile } from '../defaults';
 
 export const HealthDetailsScreen = ({ profile, updateProfile, onNext }: any) => {
   const hasDiabetes = profile.healthConditions?.includes('Tiểu đường');
@@ -75,11 +76,12 @@ export const AnalyzingScreen = ({ profile, setGeneratedPlan, onNext }: any) => {
     }, 400);
 
     const generate = async () => {
+      const normalizedProfile = normalizeOnboardingProfile(profile);
       try {
         const res = await fetch('/api/onboarding/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(profile)
+          body: JSON.stringify(normalizedProfile)
         });
         if (res.ok) {
           const plan = await res.json();
@@ -89,14 +91,14 @@ export const AnalyzingScreen = ({ profile, setGeneratedPlan, onNext }: any) => {
         }
       } catch (e) {
         // Fallback to client-side calc
-        const age = profile.birthYear ? new Date().getFullYear() - profile.birthYear : 30;
-        const heightM = (profile.heightCm || 165) / 100;
-        const bmi = (profile.weightKg || 60) / (heightM * heightM);
+        const age = normalizedProfile.birthYear ? new Date().getFullYear() - normalizedProfile.birthYear : 30;
+        const heightM = (normalizedProfile.heightCm ?? 165) / 100;
+        const bmi = (normalizedProfile.weightKg ?? 60) / (heightM * heightM);
         let bmiLabel = 'Bình thường';
         if (bmi < 18.5) bmiLabel = 'Thiếu cân';
         else if (bmi >= 25) bmiLabel = 'Thừa cân';
         
-        const targets = calculateNutritionTargets({ ...profile, age });
+        const targets = calculateNutritionTargets({ ...normalizedProfile, age });
         setGeneratedPlan({
           age,
           bmi: Math.round(bmi * 10) / 10,
@@ -109,7 +111,7 @@ export const AnalyzingScreen = ({ profile, setGeneratedPlan, onNext }: any) => {
           fatG: targets.fatG,
           waterLiters: targets.waterLiters,
           stepsPerDay: targets.stepsPerDay,
-          workoutsPerWeek: profile.activityLevel === 'sedentary' ? 1 : profile.activityLevel === 'light' ? 3 : 5,
+          workoutsPerWeek: normalizedProfile.activityLevel === 'sedentary' ? 1 : normalizedProfile.activityLevel === 'light' ? 3 : 5,
           estimatedWeeks: Math.round((targets.timeframeMonths || 3) * 4.33),
           targetWeightDeltaKg: targets.targetDelta,
           targetTimeframeMonths: targets.timeframeMonths

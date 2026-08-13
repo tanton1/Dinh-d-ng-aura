@@ -7,6 +7,7 @@ import { HealthDetailsScreen, NotificationsScreen, AnalyzingScreen, ResultScreen
 import { AnimatePresence } from 'motion/react';
 import '../styles-onboarding.css';
 import { GeneratedPlan } from './types';
+import { normalizeOnboardingProfile } from './defaults';
 
 interface OnboardingProps {
   onComplete: (profile: any, plan: any) => Promise<void>;
@@ -21,7 +22,7 @@ export default function Onboarding({ onComplete, onSkip, initialProfile }: Onboa
   
   useEffect(() => {
     if (initialProfile) {
-      updateProfile(initialProfile);
+      updateProfile(normalizeOnboardingProfile(initialProfile));
     }
   }, [initialProfile, updateProfile]);
 
@@ -36,7 +37,7 @@ export default function Onboarding({ onComplete, onSkip, initialProfile }: Onboa
 
   const handleComplete = async (plan: GeneratedPlan) => {
     try {
-      await onComplete(profile, plan);
+      await onComplete(normalizeOnboardingProfile(profile), plan);
     } catch (e) {
       alert("Lỗi khi lưu thông tin: " + String(e));
     }

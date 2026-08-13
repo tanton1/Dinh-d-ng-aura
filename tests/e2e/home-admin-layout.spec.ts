@@ -53,6 +53,7 @@ test.describe('Home V2 mobile layout', () => {
     const statusCards = todayFlow.locator('.aura-today-flow__status')
 
     await expect(statusCards).toHaveCount(3)
+    await expect(todayFlow.getByText(/AURA DAILY PULSE/i)).toBeVisible()
     await expect(statusCards.filter({ hasText: /chuỗi/i })).toHaveCount(0)
     await expect(page.locator('.today-workout, .home-academy-hero, .academy-feature-hero')).toHaveCount(0)
 

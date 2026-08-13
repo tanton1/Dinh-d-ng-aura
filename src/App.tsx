@@ -2,6 +2,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Utensils, Flame, Dumbbell, HeartPulse } from 'lucide-react'
 import AppShell from './components/AppShell'
 import Onboarding from './onboarding/Onboarding'
+import { normalizeOnboardingProfile } from './onboarding/defaults'
 import { hasPermission, type Permission } from './config/permissions'
 import { calculateNutritionTargets } from './services/nutritionSyncService'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -816,11 +817,15 @@ function AuraApplication() {
         }}
         onComplete={async (profile, plan) => {
           const uid = user?.uid ?? 'demo';
+          // Numeric controls display 165 cm / 60 kg before the member touches
+          // them. Persist the hydrated draft so Firestore never receives null
+          // for values the member actually saw and accepted.
+          const persistedProfile = normalizeOnboardingProfile(profile);
           const nutritionProfile = {
-            ...profile,
-            age: plan.age || (profile?.birthYear ? new Date().getFullYear() - profile.birthYear : 30),
-            goal: profile.primaryGoal === 'fat_loss' ? 'lose-fat' : profile.primaryGoal === 'muscle_gain' ? 'gain-muscle' : 'maintain',
-            targetWeightDeltaKg: profile.targetWeightKg && profile.weightKg ? profile.targetWeightKg - profile.weightKg : 0,
+            ...persistedProfile,
+            age: plan.age || (persistedProfile.birthYear ? new Date().getFullYear() - persistedProfile.birthYear : 30),
+            goal: persistedProfile.primaryGoal === 'fat_loss' ? 'lose-fat' : persistedProfile.primaryGoal === 'muscle_gain' ? 'gain-muscle' : 'maintain',
+            targetWeightDeltaKg: persistedProfile.targetWeightKg && persistedProfile.weightKg ? persistedProfile.targetWeightKg - persistedProfile.weightKg : 0,
             targetTimeframeMonths: Math.max(1, Math.round((plan.estimatedWeeks || 12) / 4.33)) || 3,
             targetCalories: plan.targetCaloriesKcal,
             protein: plan.proteinG,
@@ -828,7 +833,7 @@ function AuraApplication() {
             fat: plan.fatG,
             waterLiters: plan.waterLiters,
             steps: plan.stepsPerDay
-          };
+          } as any;
 
           try {
             window.localStorage.setItem(`aura:onboarding-completed:${uid}`, 'true');
@@ -849,19 +854,19 @@ function AuraApplication() {
                 const { withoutUndefined } = await import('./services/firebaseService');
                 await setDoc(userRef, withoutUndefined({ 
                   onboardingCompleted: true,
-                  onboardingData: profile,
+                  onboardingData: persistedProfile,
                   nutritionProfile,
-                  heightCm: profile.heightCm,
-                  weightKg: profile.weightKg,
-                  goals: profile.goals || (profile.primaryGoal ? [profile.primaryGoal] : []),
-                  biologicalSex: profile.biologicalSex,
-                  birthYear: profile.birthYear,
-                  activityLevel: profile.activityLevel,
-                  sleepHours: profile.sleepHours,
-                  sleepQuality: profile.sleepQuality,
-                  stressLevel: profile.stressLevel,
-                  dietType: profile.dietType,
-                  healthConditions: profile.healthConditions
+                  heightCm: persistedProfile.heightCm,
+                  weightKg: persistedProfile.weightKg,
+                  goals: persistedProfile.primaryGoal ? [persistedProfile.primaryGoal] : [],
+                  biologicalSex: persistedProfile.biologicalSex,
+                  birthYear: persistedProfile.birthYear,
+                  activityLevel: persistedProfile.activityLevel,
+                  sleepHours: persistedProfile.sleepHours,
+                  sleepQuality: persistedProfile.sleepQuality,
+                  stressLevel: persistedProfile.stressLevel,
+                  dietType: persistedProfile.dietType,
+                  healthConditions: persistedProfile.healthConditions
                 }), { merge: true });
               }
             } catch (e) {

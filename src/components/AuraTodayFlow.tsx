@@ -192,7 +192,7 @@ export default function AuraTodayFlow({
     <section className="aura-today-flow" aria-labelledby="aura-today-flow-title">
       <header className="aura-today-flow__heading">
         <div>
-          <span><Sparkles size={16} /> TỔNG QUAN HÔM NAY</span>
+          <span><Sparkles size={16} /> <span className="aura-today-flow__pulse-label">AURA DAILY PULSE</span><span aria-hidden="true"> · </span><span>TỔNG QUAN HÔM NAY</span></span>
           <h2 id="aura-today-flow-title">Ba nhịp chính của {firstName}</h2>
         </div>
         <p>Vuốt để xem · chạm để mở chi tiết</p>

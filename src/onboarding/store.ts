@@ -1,33 +1,27 @@
 import { useState, useCallback } from 'react';
 import { OnboardingProfile, OnboardingStepId, GeneratedPlan } from './types';
 import { getSteps } from './flow';
+import { normalizeOnboardingProfile } from './defaults';
 
 export function useOnboarding() {
-  const [profile, setProfile] = useState<OnboardingProfile>({
+  const [profile, setProfile] = useState<OnboardingProfile>(() => normalizeOnboardingProfile({
     biologicalSex: null,
-    birthYear: null,
-    heightCm: null,
-    weightKg: null,
     primaryGoal: null,
     targetWeightKg: null,
-    secondaryGoals: [],
     pace: null,
     activityLevel: null,
     sleepHours: null,
     sleepQuality: null,
     stressLevel: null,
     dietType: null,
-    dietaryRestrictions: [],
-    allergies: [],
     nutritionTracking: null,
-    healthConditions: [],
-  });
+  }));
 
   const [currentStep, setCurrentStep] = useState<OnboardingStepId>('welcome');
   const [generatedPlan, setGeneratedPlan] = useState<GeneratedPlan | null>(null);
 
   const updateProfile = useCallback((updates: Partial<OnboardingProfile>) => {
-    setProfile(prev => ({ ...prev, ...updates }));
+    setProfile(prev => normalizeOnboardingProfile({ ...prev, ...updates }));
   }, []);
 
   const goNext = useCallback(() => {
