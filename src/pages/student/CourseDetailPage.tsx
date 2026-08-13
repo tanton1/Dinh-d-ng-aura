@@ -5,10 +5,14 @@ import {
   Check,
   CheckCircle2,
   Circle,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
   FileText,
   ListChecks,
   LockKeyhole,
   MessageCircle,
+  List,
   NotebookPen,
   Play,
   Sparkles,
@@ -109,6 +113,7 @@ export default function CourseDetailPage({
   const [actionError, setActionError] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [mediaProgress, setMediaProgress] = useState(0)
+  const [mobileLessonsOpen, setMobileLessonsOpen] = useState(false)
   const modules = useMemo(() => course ? getCourseModules(course, allowDemoContent) : [], [allowDemoContent, course])
   const lessons = useMemo(() => course ? flattenCourseLessons(course, allowDemoContent) : [], [allowDemoContent, course])
   const fallbackCompletedIds = useMemo(
@@ -151,6 +156,9 @@ export default function CourseDetailPage({
     ? modules.findIndex((module) => module.lessons.some((lesson) => lesson.id === selectedLesson.id))
     : -1
   const selectedModule = selectedModuleIndex >= 0 ? modules[selectedModuleIndex] : undefined
+  const selectedLessonIndex = selectedLesson ? lessons.findIndex((lesson) => lesson.id === selectedLesson.id) : -1
+  const previousLesson = selectedLessonIndex > 0 ? lessons[selectedLessonIndex - 1] : undefined
+  const nextLesson = selectedLessonIndex >= 0 && selectedLessonIndex < lessons.length - 1 ? lessons[selectedLessonIndex + 1] : undefined
   const dripEnabled = enrolled && !previewMode && !allowDemoContent && course?.settings?.dripSchedule === 'weekly'
   const enrolledAtMillis = timestampToMillis(enrolledAt)
   const getModuleUnlockAt = (moduleIndex: number) => {
@@ -182,6 +190,15 @@ export default function CourseDetailPage({
     setMediaProgress(0)
     setActionError(null)
   }, [lessonCompleted, selectedLesson?.id])
+
+  useEffect(() => {
+    if (!mobileLessonsOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileLessonsOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [mobileLessonsOpen])
 
   useEffect(() => {
     if (!noteStorageKey) {
@@ -287,6 +304,11 @@ export default function CourseDetailPage({
   }
 
   const selectLesson = (lessonId: string) => onSelectLesson(lessonId)
+
+  const selectMobileLesson = (lessonId: string) => {
+    selectLesson(lessonId)
+    setMobileLessonsOpen(false)
+  }
 
   const unlockLabel = (unlockAt: number | null) => {
     if (unlockAt === Number.POSITIVE_INFINITY) return 'Đang chờ đăng ký ngày ghi danh'
@@ -419,6 +441,29 @@ export default function CourseDetailPage({
           : <div><span>{percent}% hoàn thành</span><ProgressBar value={percent} /><strong>{completedLessonIds.length}/{lessons.length} bài</strong></div>}
       </div>
 
+      <section className="course-detail-hero" aria-label="Thông tin khóa học">
+        <div className="course-detail-hero__visual">
+          {course.coverUrl ? <img src={course.coverUrl} alt={`Ảnh bìa ${course.title}`} /> : <BookOpen size={46} />}
+          <span>AURA ACADEMY</span>
+        </div>
+        <div className="course-detail-hero__copy">
+          <span className="eyebrow">{course.category} · {course.level}</span>
+          <h1>{course.title}</h1>
+          <p>{course.description}</p>
+          <div className="course-detail-hero__meta">
+            <span><BookOpen size={15} /> {lessons.length} bài học</span>
+            <span><Clock3 size={15} /> {course.duration}</span>
+            <span><Sparkles size={15} /> {course.coach}</span>
+          </div>
+        </div>
+        <div className="course-detail-hero__progress">
+          <strong>{percent}%</strong>
+          <span>hoàn thành</span>
+          <ProgressBar value={percent} />
+          <small>{completedLessonIds.length}/{lessons.length} bài</small>
+        </div>
+      </section>
+
         <div className="learning-layout">
         <section className="lesson-main">
           {selectedLesson ? (
@@ -468,6 +513,12 @@ export default function CourseDetailPage({
             <button role="tab" aria-selected={tab === 'discussion'} className={tab === 'discussion' ? 'active' : ''} onClick={() => setTab('discussion')}>Thảo luận</button>
           </div>
           <div role="tabpanel">{renderTab()}</div>
+
+          <nav className="lesson-sequence" aria-label="Điều hướng bài học">
+            <button type="button" disabled={!previousLesson} onClick={() => previousLesson && selectLesson(previousLesson.id)}><ChevronLeft size={17} /> Bài trước</button>
+            <span>{selectedLessonIndex >= 0 ? `${selectedLessonIndex + 1}/${lessons.length}` : `0/${lessons.length}`}</span>
+            <button type="button" disabled={!nextLesson} onClick={() => nextLesson && selectLesson(nextLesson.id)}>Bài tiếp theo <ChevronRight size={17} /></button>
+          </nav>
         </section>
 
         <aside className="lesson-sidebar">
@@ -500,6 +551,42 @@ export default function CourseDetailPage({
            <div className="coach-help"><div className="avatar green">{course.coach.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</div><div><strong>Cần trợ giúp?</strong><span>Gửi câu hỏi cho giảng viên</span></div><MessageCircle size={18} /></div>
         </aside>
       </div>
+
+      <nav className="mobile-lesson-cta" aria-label="Điều hướng học trên mobile">
+        <button type="button" aria-label="Bài trước" disabled={!previousLesson} onClick={() => previousLesson && selectLesson(previousLesson.id)}><ChevronLeft size={19} /></button>
+        <button type="button" className="mobile-lesson-cta__list" onClick={() => setMobileLessonsOpen(true)}><List size={17} /><span>Bài học</span><strong>{selectedLessonIndex >= 0 ? `${selectedLessonIndex + 1}/${lessons.length}` : `${lessons.length}`}</strong></button>
+        <button type="button" className="mobile-lesson-cta__complete" disabled={!canStudy || completionPolicy.mode !== 'manual' || completeState === 'saving' || completeState === 'saved'} onClick={completeLesson}><Check size={17} /> {completeState === 'saved' ? 'Đã xong' : 'Hoàn thành'}</button>
+        <button type="button" aria-label="Bài tiếp theo" disabled={!nextLesson} onClick={() => nextLesson && selectLesson(nextLesson.id)}><ChevronRight size={19} /></button>
+      </nav>
+
+      {mobileLessonsOpen ? (
+        <div className="mobile-lesson-sheet-backdrop" role="presentation" onClick={() => setMobileLessonsOpen(false)}>
+          <section className="mobile-lesson-sheet" role="dialog" aria-modal="true" aria-label="Danh sách bài học" onClick={(event) => event.stopPropagation()}>
+            <header><div><span className="eyebrow">KHÓA HỌC</span><h2>{course.title}</h2></div><button type="button" aria-label="Đóng danh sách bài học" onClick={() => setMobileLessonsOpen(false)}>×</button></header>
+            <div className="mobile-lesson-sheet__progress"><span style={{ width: `${percent}%` }} /></div>
+            <div className="mobile-lesson-sheet__body">
+              {modules.map((module, moduleIndex) => {
+                const moduleCompleted = module.lessons.filter((lesson) => completedLessonIds.includes(lesson.id)).length
+                return <div className="mobile-lesson-module" key={module.id}>
+                  <div className="module-heading"><div><span>CHƯƠNG {moduleIndex + 1}</span><strong>{module.title}</strong></div><small>{moduleCompleted}/{module.lessons.length} bài</small></div>
+                  <div className="lesson-list">
+                    {module.lessons.map((lesson) => {
+                      const completed = completedLessonIds.includes(lesson.id)
+                      const active = selectedLesson?.id === lesson.id
+                      const lessonUnlockAt = getModuleUnlockAt(moduleIndex)
+                      const dripLocked = lessonUnlockAt !== null && lessonUnlockAt > now
+                      return <button key={lesson.id} className={`${active ? 'active' : ''} ${completed ? 'completed' : ''} ${dripLocked ? 'locked' : ''}`} disabled={dripLocked && !lesson.preview} onClick={() => selectMobileLesson(lesson.id)}>
+                        <span className="lesson-state">{completed ? <CheckCircle2 size={20} /> : dripLocked ? <LockKeyhole size={18} /> : active ? <Play size={18} fill="currentColor" /> : <Circle size={19} />}</span>
+                        <span><strong>{lesson.title}</strong><small>{lessonIcon(lesson)} {lesson.type} · {lesson.duration}</small></span>
+                      </button>
+                    })}
+                  </div>
+                </div>
+              })}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   )
 }
