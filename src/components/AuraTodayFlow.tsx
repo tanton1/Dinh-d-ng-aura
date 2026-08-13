@@ -210,7 +210,6 @@ export default function AuraTodayFlow({
     <section className="aura-today-flow" aria-labelledby="aura-today-flow-title">
       <header className="aura-today-flow__heading">
         <div>
-          <span><Sparkles size={16} /> <span className="aura-today-flow__pulse-label">AURA TODAY FLOW</span><span aria-hidden="true"> · </span><span>3 NHỊP HÔM NAY</span></span>
           <h2 id="aura-today-flow-title">Hôm nay của {firstName}</h2>
         </div>
         <div className="aura-today-flow__heading-actions">
