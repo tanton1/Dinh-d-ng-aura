@@ -37,6 +37,7 @@ interface AuraTodayFlowProps {
   waterGoalMl?: number
   mealsCount: number
   checkedIn: boolean
+  movementMinutesToday?: number
   weeklyMovementMinutes?: number
   learningTitle?: string
   learningProgress?: number
@@ -79,6 +80,7 @@ export default function AuraTodayFlow({
   waterGoalMl = 2_000,
   mealsCount,
   checkedIn,
+  movementMinutesToday = 0,
   weeklyMovementMinutes = 0,
   learningTitle,
   learningProgress = 0,
@@ -94,7 +96,7 @@ export default function AuraTodayFlow({
   const calorieProgress = percent(caloriesConsumed, calorieGoal)
   const proteinProgress = percent(proteinConsumed, proteinGoal)
   const waterProgress = percent(waterMl, waterGoalMl)
-  const movementProgress = percent(weeklyMovementMinutes, 150)
+  const movementProgress = percent(movementMinutesToday, 30)
   const hasMeal = mealsCount > 0
   const hasLearning = Boolean(learningTitle)
   const sortedMeals = [...todayMeals]
@@ -122,12 +124,12 @@ export default function AuraTodayFlow({
       tone: 'movement',
       icon: <Activity size={20} />,
       label: 'Vận động',
-      value: formatNumber(weeklyMovementMinutes),
-      unit: 'phút tuần này',
-      detail: checkedIn ? 'Đã điểm danh · duy trì nhịp vận động tuần' : 'Chưa điểm danh hôm nay',
+      value: formatNumber(movementMinutesToday),
+      unit: 'phút hôm nay',
+      detail: `${formatNumber(weeklyMovementMinutes)}/150 phút tuần · ${checkedIn ? 'đã điểm danh' : 'chưa điểm danh'}`,
       progress: movementProgress,
-      progressLabel: `${movementProgress}% mốc 150 phút/tuần`,
-      action: onOpenProgress,
+      progressLabel: `${movementProgress}% mốc 30 phút hôm nay`,
+      action: onOpenSchedule,
     },
     {
       id: 'learning',
@@ -143,32 +145,32 @@ export default function AuraTodayFlow({
     },
   ]
 
-  const nextAction = !checkedIn
+  const nextAction = !hasMeal
     ? {
         eyebrow: 'VIỆC NÊN LÀM TIẾP THEO',
-        title: 'Điểm danh để bắt đầu nhịp hôm nay',
-        detail: 'Một thao tác ngắn giúp Aura ghi nhận chuỗi thói quen và mở khóa 50 XP.',
-        label: 'Điểm danh +50 XP',
-        action: onCheckIn,
-        icon: <Flame size={21} />,
+        title: 'Ghi bữa đầu tiên trong ngày',
+        detail: 'Sau khi có dữ liệu bữa ăn, Aura sẽ cập nhật năng lượng và macro còn lại.',
+        label: 'Mở Dinh dưỡng',
+        action: onOpenNutrition,
+        icon: <Utensils size={21} />,
       }
-    : !hasMeal
+    : waterProgress < 60
       ? {
           eyebrow: 'VIỆC NÊN LÀM TIẾP THEO',
-          title: 'Ghi bữa đầu tiên trong ngày',
-          detail: 'Sau khi có dữ liệu bữa ăn, Aura sẽ cập nhật năng lượng và macro còn lại.',
-          label: 'Mở Dinh dưỡng',
+          title: 'Bổ sung một cốc nước',
+          detail: `Bạn đã ghi ${formatNumber(waterMl)}/${formatNumber(waterGoalMl)} ml nước hôm nay.`,
+          label: 'Ghi nước uống',
           action: onOpenNutrition,
-          icon: <Utensils size={21} />,
+          icon: <Droplets size={21} />,
         }
-      : waterProgress < 60
+      : movementMinutesToday < 30
         ? {
             eyebrow: 'VIỆC NÊN LÀM TIẾP THEO',
-            title: 'Bổ sung một cốc nước',
-            detail: `Bạn đã ghi ${formatNumber(waterMl)}/${formatNumber(waterGoalMl)} ml nước hôm nay.`,
-            label: 'Ghi nước uống',
-            action: onOpenNutrition,
-            icon: <Droplets size={21} />,
+            title: 'Tạo một nhịp vận động ngắn',
+            detail: `Bạn đã vận động ${formatNumber(movementMinutesToday)}/30 phút hôm nay. Một buổi ngắn vẫn tạo khác biệt.`,
+            label: 'Mở lịch vận động',
+            action: onOpenSchedule,
+            icon: <Activity size={21} />,
           }
         : hasLearning && learningProgress < 100
           ? {
@@ -179,6 +181,15 @@ export default function AuraTodayFlow({
               action: onOpenLearning,
               icon: <BookOpenCheck size={21} />,
             }
+          : !checkedIn
+            ? {
+                eyebrow: 'HOÀN TẤT NHỊP HÔM NAY',
+                title: 'Điểm danh để ghi nhận sự đều đặn',
+                detail: 'Aura sẽ lưu chuỗi thói quen sau khi các dữ liệu sức khỏe chính đã được ưu tiên.',
+                label: 'Điểm danh +50 XP',
+                action: onCheckIn,
+                icon: <Flame size={21} />,
+              }
           : {
               eyebrow: 'GIỮ ĐÀ TỐT',
               title: 'Xem lại tiến độ tuần này',
@@ -193,7 +204,7 @@ export default function AuraTodayFlow({
       <header className="aura-today-flow__heading">
         <div>
           <span><Sparkles size={16} /> <span className="aura-today-flow__pulse-label">AURA DAILY PULSE</span><span aria-hidden="true"> · </span><span>TỔNG QUAN HÔM NAY</span></span>
-          <h2 id="aura-today-flow-title">Ba nhịp chính của {firstName}</h2>
+          <h2 id="aura-today-flow-title">Ba nhịp sức khỏe của {firstName}</h2>
         </div>
         <p>Vuốt để xem · chạm để mở chi tiết</p>
       </header>

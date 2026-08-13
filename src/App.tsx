@@ -791,27 +791,16 @@ function AuraApplication() {
         }
         onSkip={async () => {
           const uid = user?.uid ?? 'demo';
+          if (backendMode === 'firebase' && user) {
+            await updateUserProfile(user.uid, { onboardingCompleted: true });
+          }
+
           try {
             window.localStorage.setItem(`aura:onboarding-completed:${uid}`, 'true');
           } catch (e) {
             console.error('LocalStorage error:', e);
           }
           setForceOnboarding(false);
-
-          if (backendMode === 'firebase' && user) {
-            try {
-              const { doc, setDoc } = await import('firebase/firestore');
-              const { firestoreDb } = await import('./lib/firebase');
-              if (firestoreDb) {
-                const userRef = doc(firestoreDb, 'users', user.uid);
-                await setDoc(userRef, { 
-                  onboardingCompleted: true
-                }, { merge: true });
-              }
-            } catch (e) {
-              console.error('Firestore onboarding skip save error:', e);
-            }
-          }
 
           navigate('courses');
         }}
@@ -835,6 +824,30 @@ function AuraApplication() {
             steps: plan.stepsPerDay
           } as any;
 
+          const profileUpdate = {
+            onboardingCompleted: true,
+            onboardingData: persistedProfile,
+            nutritionProfile,
+            heightCm: persistedProfile.heightCm,
+            weightKg: persistedProfile.weightKg,
+            goals: persistedProfile.primaryGoal ? [persistedProfile.primaryGoal] : [],
+            biologicalSex: persistedProfile.biologicalSex,
+            birthYear: persistedProfile.birthYear,
+            activityLevel: persistedProfile.activityLevel,
+            sleepHours: persistedProfile.sleepHours,
+            sleepQuality: persistedProfile.sleepQuality,
+            stressLevel: persistedProfile.stressLevel,
+            dietType: persistedProfile.dietType,
+            healthConditions: persistedProfile.healthConditions
+          };
+
+          // Firestore is the source of truth in production. Do not show the
+          // onboarding as completed until the complete normalized profile has
+          // actually been persisted successfully.
+          if (backendMode === 'firebase' && user) {
+            await updateUserProfile(user.uid, profileUpdate as any);
+          }
+
           try {
             window.localStorage.setItem(`aura:onboarding-completed:${uid}`, 'true');
             window.localStorage.setItem(`aura:nutrition-profile:${uid}`, JSON.stringify(nutritionProfile));
@@ -844,35 +857,6 @@ function AuraApplication() {
 
           setLocalNutritionProfile(nutritionProfile);
           setForceOnboarding(false);
-
-          if (backendMode === 'firebase' && user) {
-            try {
-              const { doc, setDoc } = await import('firebase/firestore');
-              const { firestoreDb } = await import('./lib/firebase');
-              if (firestoreDb) {
-                const userRef = doc(firestoreDb, 'users', user.uid);
-                const { withoutUndefined } = await import('./services/firebaseService');
-                await setDoc(userRef, withoutUndefined({ 
-                  onboardingCompleted: true,
-                  onboardingData: persistedProfile,
-                  nutritionProfile,
-                  heightCm: persistedProfile.heightCm,
-                  weightKg: persistedProfile.weightKg,
-                  goals: persistedProfile.primaryGoal ? [persistedProfile.primaryGoal] : [],
-                  biologicalSex: persistedProfile.biologicalSex,
-                  birthYear: persistedProfile.birthYear,
-                  activityLevel: persistedProfile.activityLevel,
-                  sleepHours: persistedProfile.sleepHours,
-                  sleepQuality: persistedProfile.sleepQuality,
-                  stressLevel: persistedProfile.stressLevel,
-                  dietType: persistedProfile.dietType,
-                  healthConditions: persistedProfile.healthConditions
-                }), { merge: true });
-              }
-            } catch (e) {
-              console.error('Firestore onboarding save error:', e);
-            }
-          }
 
           navigate('nutrition');
         }} 

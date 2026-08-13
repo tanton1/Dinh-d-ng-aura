@@ -736,6 +736,9 @@ export async function updateUserProfile(userId: string, values: Partial<UserProf
   const db = requireDb()
   const reference = doc(db, 'users', userId)
   const cleanValues = clientMutableProfileValues(values)
+  // Persist remotely before updating the local cache. This prevents a failed
+  // Firestore write from looking successful after the next page refresh.
+  await setDoc(reference, { ...cleanValues, updatedAt: serverTimestamp() }, { merge: true })
   safeSetCache(`user_profile:${userId}`, cleanValues)
   if (typeof window !== 'undefined') {
     try {
@@ -748,7 +751,6 @@ export async function updateUserProfile(userId: string, values: Partial<UserProf
       window.localStorage.setItem(`aura:profile:${userId}`, JSON.stringify(merged))
     } catch {}
   }
-  await setDoc(reference, { ...cleanValues, updatedAt: serverTimestamp() }, { merge: true })
 }
 
 export function subscribeToAdminUsers(

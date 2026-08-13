@@ -447,40 +447,43 @@ export default function HomePage({
     return minutesSum
   }, [dynamicWeeklyActivity])
 
+  const todayActivityIndex = now.getDay() === 0 ? 6 : now.getDay() - 1
+  const todayMovementMinutes = dynamicWeeklyActivity[todayActivityIndex]?.minutes ?? 0
+  const dataCompletionPercent = Math.round(([
+    todayPulseMeals.length > 0,
+    todayWaterMl > 0,
+    todayMovementMinutes > 0,
+  ].filter(Boolean).length / 3) * 100)
+
   const nextMilestone = useMemo(() => {
-    if (streak < 7) {
-      return {
-        title: 'Chuỗi 7 ngày',
-        detail: `Còn ${7 - streak} ngày điểm danh để hoàn thành cột mốc đầu tiên.`,
-        progress: Math.round((streak / 7) * 100),
-        label: `${streak}/7 ngày`,
-      }
-    }
-    if (xp < currentLevel * 500) {
-      const levelStartXp = (currentLevel - 1) * 500
-      const earnedInLevel = xp - levelStartXp
-      return {
+    const levelStartXp = (currentLevel - 1) * 500
+    const earnedInLevel = Math.max(0, xp - levelStartXp)
+    const lessonTarget = completedLessonsCount < 5 ? 5 : 15
+    const badgeTarget = Math.max(1, Math.min(8, unlockedBadgesCount + 1))
+    const candidates = [
+      {
         title: `Tiến tới Cấp ${currentLevel + 1}`,
-        detail: `Còn ${currentLevel * 500 - xp} XP để mở cấp độ tiếp theo.`,
+        detail: `Còn ${Math.max(0, 500 - earnedInLevel)} XP để mở cấp độ tiếp theo.`,
         progress: Math.round((earnedInLevel / 500) * 100),
         label: `${earnedInLevel}/500 XP`,
-      }
-    }
-    if (completedLessonsCount < 5) {
-      return {
-        title: 'Hoàn thành 5 bài học',
-        detail: `Còn ${5 - completedLessonsCount} bài để nhận dấu mốc học tập đầu tiên.`,
-        progress: Math.round((completedLessonsCount / 5) * 100),
-        label: `${completedLessonsCount}/5 bài`,
-      }
-    }
-    return {
-      title: 'Mở huy hiệu tiếp theo',
-      detail: `Bạn đã mở ${unlockedBadgesCount} huy hiệu. Xem bộ sưu tập để chọn thử thách mới.`,
-      progress: Math.min(100, Math.round((unlockedBadgesCount / 8) * 100)),
-      label: `${unlockedBadgesCount}/8 huy hiệu`,
-    }
-  }, [completedLessonsCount, currentLevel, streak, unlockedBadgesCount, xp])
+      },
+      {
+        title: `Hoàn thành ${lessonTarget} bài học`,
+        detail: `Còn ${Math.max(0, lessonTarget - completedLessonsCount)} bài để đạt cột mốc học tập tiếp theo.`,
+        progress: Math.min(100, Math.round((completedLessonsCount / lessonTarget) * 100)),
+        label: `${completedLessonsCount}/${lessonTarget} bài`,
+      },
+      {
+        title: 'Mở huy hiệu tiếp theo',
+        detail: `Bạn đã mở ${unlockedBadgesCount} huy hiệu. Duy trì thói quen để hoàn tất bộ sưu tập.`,
+        progress: Math.min(100, Math.round((unlockedBadgesCount / badgeTarget) * 100)),
+        label: `${unlockedBadgesCount}/${badgeTarget} huy hiệu`,
+      },
+    ]
+    return candidates
+      .filter((candidate) => candidate.progress < 100)
+      .sort((left, right) => right.progress - left.progress)[0] ?? candidates[0]
+  }, [completedLessonsCount, currentLevel, unlockedBadgesCount, xp])
 
   const handleCheckIn = () => {
     if (isCheckedInToday) return
@@ -540,9 +543,9 @@ export default function HomePage({
             <Flame size={18} fill="currentColor" />
             <span><strong>{streak}</strong> ngày</span>
           </div>
-          <div className="home-v2-signal is-xp">
+          <div className="home-v2-signal is-data">
             <Zap size={18} fill="currentColor" />
-            <span><strong>Cấp {currentLevel}</strong> · {xp} XP</span>
+            <span><strong>{dataCompletionPercent}%</strong> dữ liệu hôm nay</span>
           </div>
         </div>
       </section>
@@ -558,6 +561,7 @@ export default function HomePage({
         waterGoalMl={dailyPulseTargets.waterMl}
         mealsCount={todayPulseMeals.length}
         checkedIn={isCheckedInToday}
+        movementMinutesToday={todayMovementMinutes}
         weeklyMovementMinutes={dynamicTotalWeeklyMinutes}
         learningTitle={continueCourses[0]?.title}
         learningProgress={continueCourses[0]?.progress}

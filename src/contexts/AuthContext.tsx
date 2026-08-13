@@ -25,6 +25,7 @@ import {
 import { doc, onSnapshot } from 'firebase/firestore'
 import { firebaseAuth, firestoreDb, isFirebaseConfigured } from '../lib/firebase'
 import { createOrUpdateUserProfile, updateUserProfile } from '../services/firebaseService'
+import { normalizeOnboardingProfile } from '../onboarding/defaults'
 import { reportClientIssue } from '../services/clientTelemetryService'
 import type { AppUser, UserProfile, UserRole } from '../types'
 
@@ -73,6 +74,11 @@ const validUserRoles = new Set<UserRole>(['student', 'coach', 'editor', 'admin',
 const demoOtpEnabled = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_OTP === 'true'
 const e2eOtpEnabled = import.meta.env.MODE === 'e2e' && import.meta.env.VITE_ENABLE_DEMO_OTP === 'true'
 const localOtpEnabled = demoOtpEnabled || e2eOtpEnabled
+const repairedLegacyOnboardingProfiles = new Set<string>()
+
+function isMeasurement(value: unknown, min: number, max: number): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max
+}
 const recaptchaContainerId = 'aura-recaptcha-container'
 let pendingGoogleCredential: AuthCredential | null = null
 
@@ -334,6 +340,75 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
 
             setProfile(finalProfile)
+
+            // Older onboarding documents could contain valid measurements only
+            // inside onboardingData/nutritionProfile while the top-level fields
+            // stayed null. Repair those documents once on the next authenticated
+            // snapshot without ever replacing a valid value chosen by the member.
+            const onboardingSource = data.onboardingData && typeof data.onboardingData === 'object'
+              ? data.onboardingData
+              : null
+            const normalizedOnboarding = onboardingSource
+              ? normalizeOnboardingProfile(onboardingSource)
+              : null
+            const canonicalHeight = isMeasurement(data.heightCm, 100, 220)
+              ? data.heightCm
+              : isMeasurement(activeNutritionProfile?.heightCm, 100, 220)
+                ? activeNutritionProfile.heightCm
+                : normalizedOnboarding?.heightCm
+            const canonicalWeight = isMeasurement(data.weightKg, 30, 150)
+              ? data.weightKg
+              : isMeasurement(activeNutritionProfile?.weightKg, 30, 150)
+                ? activeNutritionProfile.weightKg
+                : normalizedOnboarding?.weightKg
+
+            const topLevelNeedsRepair = !isMeasurement(data.heightCm, 100, 220)
+              || !isMeasurement(data.weightKg, 30, 150)
+            const onboardingNeedsRepair = Boolean(onboardingSource) && (
+              !isMeasurement(onboardingSource.heightCm, 100, 220)
+              || !isMeasurement(onboardingSource.weightKg, 30, 150)
+            )
+            const nutritionNeedsRepair = Boolean(activeNutritionProfile) && (
+              !isMeasurement(activeNutritionProfile?.heightCm, 100, 220)
+              || !isMeasurement(activeNutritionProfile?.weightKg, 30, 150)
+            )
+
+            if (
+              isCompleted
+              && canonicalHeight
+              && canonicalWeight
+              && (topLevelNeedsRepair || onboardingNeedsRepair || nutritionNeedsRepair)
+              && !repairedLegacyOnboardingProfiles.has(firebaseUser.uid)
+            ) {
+              repairedLegacyOnboardingProfiles.add(firebaseUser.uid)
+              const repair: Partial<UserProfile> = {}
+              if (topLevelNeedsRepair) {
+                repair.heightCm = canonicalHeight
+                repair.weightKg = canonicalWeight
+              }
+              if (onboardingNeedsRepair && onboardingSource) {
+                repair.onboardingData = {
+                  ...onboardingSource,
+                  heightCm: canonicalHeight,
+                  weightKg: canonicalWeight,
+                }
+              }
+              if (nutritionNeedsRepair && activeNutritionProfile) {
+                repair.nutritionProfile = {
+                  ...activeNutritionProfile,
+                  heightCm: canonicalHeight,
+                  weightKg: canonicalWeight,
+                }
+              }
+
+              void updateUserProfile(firebaseUser.uid, repair).catch((error) => {
+                repairedLegacyOnboardingProfiles.delete(firebaseUser.uid)
+                reportClientIssue('firestore', error, {
+                  phase: 'legacy_onboarding_profile_repair',
+                  retryable: true,
+                })
+              })
+            }
 
             if (typeof window !== 'undefined') {
               try {

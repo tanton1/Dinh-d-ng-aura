@@ -76,14 +76,13 @@
   color: #b52566;
   background: rgba(255, 255, 255, .72);
   box-shadow: 0 7px 16px rgba(197, 54, 112, .07);
-  backdrop-filter: blur(8px);
   font-size: 12px;
   font-weight: 780;
   white-space: nowrap;
 }
 
-.home-v2-signal.is-xp {
-  color: #c96124;
+.home-v2-signal.is-data {
+  color: #bf5620;
   border-color: rgba(255, 137, 53, .18);
   background: rgba(255, 255, 255, .68);
 }
@@ -94,6 +93,26 @@
   --today-orange: var(--home-orange, #ff8935);
   position: relative;
   margin-bottom: 30px;
+  padding: 22px;
+  overflow: hidden;
+  border: 1px solid rgba(245, 44, 130, .14);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 100% 0, rgba(255, 137, 53, .18), transparent 30%),
+    radial-gradient(circle at 0 54%, rgba(245, 44, 130, .1), transparent 34%),
+    linear-gradient(145deg, #fffafd 0%, #fff 45%, #fff7f0 100%);
+  box-shadow: 0 16px 38px rgba(99, 42, 67, .075);
+}
+
+.aura-today-flow::before {
+  position: absolute;
+  top: 0;
+  left: 24px;
+  width: 94px;
+  height: 3px;
+  border-radius: 0 0 99px 99px;
+  background: linear-gradient(90deg, var(--today-pink), var(--today-orange));
+  content: '';
 }
 
 .aura-today-flow__heading {
@@ -114,6 +133,17 @@
   font-size: 11px;
   font-weight: 880;
   letter-spacing: .1em;
+}
+
+.aura-today-flow__pulse-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 27px;
+  padding: 0 10px;
+  border: 1px solid rgba(245, 44, 130, .15);
+  border-radius: 99px;
+  background: linear-gradient(110deg, rgba(245, 44, 130, .1), rgba(255, 137, 53, .12));
+  white-space: nowrap;
 }
 
 .aura-today-flow__heading h2 {
@@ -279,7 +309,7 @@
   place-items: center;
   border-radius: 15px;
   color: #fff;
-  background: linear-gradient(135deg, var(--today-pink), var(--today-orange));
+  background: linear-gradient(135deg, var(--today-pink, var(--home-pink, #f52c82)), var(--today-orange, var(--home-orange, #ff8935)));
   box-shadow: 0 9px 20px rgba(245, 44, 130, .2);
 }
 
@@ -306,7 +336,7 @@
   border: 0;
   border-radius: 13px;
   color: #fff;
-  background: linear-gradient(135deg, var(--today-pink), var(--today-orange));
+  background: linear-gradient(135deg, var(--today-pink, var(--home-pink, #f52c82)), var(--today-orange, var(--home-orange, #ff8935)));
   font-size: 12px;
   font-weight: 820;
   white-space: nowrap;
@@ -327,6 +357,18 @@
   border-radius: 22px;
   background: linear-gradient(145deg, #fff 0%, #fffafd 72%, #fff5ee 100%);
   box-shadow: 0 10px 25px rgba(82, 40, 60, .055);
+}
+
+.aura-today-flow__rhythm-card:first-child {
+  background:
+    radial-gradient(circle at 0 100%, rgba(245, 44, 130, .11), transparent 38%),
+    linear-gradient(145deg, #fff 0%, #fff5fa 100%);
+}
+
+.aura-today-flow__rhythm-card:last-child {
+  background:
+    radial-gradient(circle at 100% 0, rgba(255, 137, 53, .13), transparent 38%),
+    linear-gradient(145deg, #fff 0%, #fff8f1 100%);
 }
 
 .aura-today-flow__rhythm-card header {
@@ -403,9 +445,18 @@
 .aura-today-flow__schedule > svg:last-child,
 .aura-today-flow__empty > svg:last-child { justify-self: end; }
 
-.home-v2-section { margin: 0 0 28px; }
+.home-v2-section {
+  margin: 0 0 28px;
+  padding: 22px;
+  border: 1px solid rgba(245, 44, 130, .12);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 96% 0, rgba(255, 137, 53, .13), transparent 30%),
+    linear-gradient(145deg, #fffafd, #fff 50%, #fff8f2);
+  box-shadow: 0 14px 34px rgba(82, 40, 60, .06);
+}
 .home-v2-section__heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
-.home-v2-section__heading span { display: block; color: var(--home-pink); font-size: 10px; font-weight: 880; letter-spacing: .1em; }
+.home-v2-section__heading span { display: inline-flex; min-height: 25px; align-items: center; padding: 0 9px; border-radius: 99px; color: var(--home-pink); background: #fff0f6; font-size: 10px; font-weight: 880; letter-spacing: .1em; }
 .home-v2-section__heading h2 { margin: 4px 0 0; font-size: clamp(21px, 2.4vw, 28px); letter-spacing: -.035em; }
 
 .home-v2-learning-card {
@@ -460,7 +511,10 @@
   padding: 20px;
   border: 1px solid var(--home-line);
   border-radius: 22px;
-  background: linear-gradient(145deg, #fff 0%, #fff9fb 70%, #fff5ef 100%);
+  background:
+    radial-gradient(circle at 0 100%, rgba(245, 44, 130, .1), transparent 34%),
+    radial-gradient(circle at 100% 0, rgba(255, 137, 53, .14), transparent 34%),
+    linear-gradient(145deg, #fff 0%, #fff8fb 58%, #fff6ef 100%);
   box-shadow: 0 12px 30px rgba(82, 40, 60, .06);
 }
 
@@ -496,8 +550,9 @@
   align-content: start;
   gap: 14px;
   background:
-    radial-gradient(circle at 100% 0, rgba(255, 137, 53, .14), transparent 38%),
-    linear-gradient(145deg, #fff, #fff8fb);
+    radial-gradient(circle at 100% 0, rgba(255, 137, 53, .2), transparent 38%),
+    radial-gradient(circle at 0 100%, rgba(245, 44, 130, .12), transparent 42%),
+    linear-gradient(145deg, #fff, #fff4f8 58%, #fff5ec);
 }
 
 .home-v2-milestone__icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 15px; color: #c96526; background: #fff0df; }
@@ -536,8 +591,10 @@
   .home-v2-welcome__signals { width: 100%; }
   .home-v2-signal { flex: 1; justify-content: center; padding-inline: 9px; font-size: 11px; }
 
-  .aura-today-flow { margin-bottom: 26px; }
+  .aura-today-flow { margin: 0 -2px 26px; padding: 18px 14px; border-radius: 24px; }
   .aura-today-flow__heading { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .aura-today-flow__heading > div > span { gap: 5px; font-size: 9.5px; letter-spacing: .065em; white-space: nowrap; }
+  .aura-today-flow__pulse-label { min-height: 25px; padding-inline: 8px; }
   .aura-today-flow__heading h2 { font-size: 23px; }
   .aura-today-flow__heading > p { font-size: 11px; }
   .aura-today-flow__status-track { grid-auto-columns: minmax(260px, 86%); }
@@ -555,7 +612,7 @@
   .aura-today-flow__rhythm-card header button svg { width: 19px; height: 19px; }
   .aura-today-flow__meal-list > div { grid-template-columns: 39px 20px minmax(0, 1fr) 18px; gap: 7px; }
 
-  .home-v2-section { margin-bottom: 24px; }
+  .home-v2-section { margin: 0 -2px 24px; padding: 17px 14px; border-radius: 24px; }
   .home-v2-section__heading h2 { font-size: 22px; }
   .home-v2-section__heading button { min-width: 44px; padding: 0; font-size: 0; }
   .home-v2-section__heading button svg { width: 20px; height: 20px; }
