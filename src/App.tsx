@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Utensils, Flame, Dumbbell, HeartPulse } from 'lucide-react'
 import AppShell from './components/AppShell'
 import Onboarding from './onboarding/Onboarding'
@@ -9,7 +9,7 @@ import { useCourses } from './hooks/useCourses'
 import { useLearningProgress } from './hooks/useLearningProgress'
 import AuthPage from './pages/auth/AuthPage'
 import HomePage from './pages/student/HomePage'
-import type { NutritionProfileDraft } from './pages/student/NutritionPage'
+import type { NutritionProfileDraft } from './features/nutrition/types'
 import type { ProfileUpdateInput } from './pages/student/ProfilePage'
 import { analyzeFoodPhoto } from './services/nutritionService'
 import {
@@ -39,85 +39,9 @@ import type {
   ViewId,
 } from './types'
 import { flattenCourseLessons, getInitialDemoCompletedLessonIds } from './utils/courseContent'
-
-function lazyWithRetry<T extends React.ComponentType<any>>(
-  factory: () => Promise<{ default: T }>
-) {
-  return lazy(async () => {
-    let pageHasBeenRefreshed = false;
-    try {
-      pageHasBeenRefreshed = sessionStorage.getItem('aura_page_refreshed_for_chunk') === 'true';
-    } catch (e) {
-      // Ignore sessionStorage errors
-    }
-
-    try {
-      const component = await factory()
-      try { sessionStorage.removeItem('aura_page_refreshed_for_chunk') } catch (e) {}
-      return component
-    } catch (firstError) {
-      // Attempt immediate retry after a brief delay
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        const retryComponent = await factory()
-        try { sessionStorage.removeItem('aura_page_refreshed_for_chunk') } catch (e) {}
-        return retryComponent
-      } catch (secondError) {
-        if (!pageHasBeenRefreshed) {
-          try { sessionStorage.setItem('aura_page_refreshed_for_chunk', 'true') } catch (e) {}
-          window.location.reload()
-          return new Promise<{ default: T }>(() => {})
-        }
-        try { sessionStorage.removeItem('aura_page_refreshed_for_chunk') } catch (e) {}
-        throw secondError
-      }
-    }
-  })
-}
-
-interface ChunkErrorBoundaryProps {
-  children: React.ReactNode
-}
-
-interface ChunkErrorBoundaryState {
-  hasError: boolean
-  error: Error | null
-}
-
-class ChunkErrorBoundary extends Component<ChunkErrorBoundaryProps, ChunkErrorBoundaryState> {
-  constructor(props: ChunkErrorBoundaryProps) {
-    super(props)
-    this.state = { hasError: false, error: null }
-  }
-
-  static getDerivedStateFromError(error: Error): ChunkErrorBoundaryState {
-    return { hasError: true, error }
-  }
-
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('Chunk loading error caught by boundary:', error, errorInfo)
-  }
-
-  handleReload = () => {
-    window.location.reload()
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="course-detail-state" role="alert" style={{ padding: '40px 20px', textAlign: 'center' }}>
-          <span className="brand-mark compact" aria-hidden="true">A<span /></span>
-          <h1 style={{ fontSize: '20px', margin: '16px 0 8px' }}>Giao diện đang được cập nhật</h1>
-          <p style={{ color: '#666', marginBottom: '20px' }}>Một số tập tin đã được đổi mới. Lỗi: {this.state.error?.message}</p>
-          <button type="button" className="primary-button" onClick={this.handleReload}>
-            Tải lại ứng dụng
-          </button>
-        </div>
-      )
-    }
-    return this.props.children
-  }
-}
+import ChunkErrorBoundary, { lazyWithRetry } from './components/ChunkErrorBoundary'
+import { adminViewPermissions, adminViews, getCurrentRoute, isSameRoute, routeHash, type AuraRoute } from './routing/appRouting'
+import { toCourseDraft } from './utils/courseDraft'
 
 const AdminAcademyStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminAcademyStudentsPage'))
 const AdminCoursesPage = lazyWithRetry(() => import('./pages/admin/AdminCoursesPage'))
@@ -139,53 +63,6 @@ const ProgressPhotoStudio = lazyWithRetry(() => import('./pages/student/Progress
 const SchedulePage = lazyWithRetry(() => import('./pages/student/SchedulePage'))
 const WorkoutPage = lazyWithRetry(() => import('./pages/student/WorkoutPage'))
 
-const adminViews: ViewId[] = ['admin-dashboard', 'admin-courses', 'admin-course-editor', 'admin-academy-students', 'admin-programs', 'admin-students', 'admin-roles', 'admin-nutrition-reviews', 'admin-meal-plans', 'admin-notifications']
-const validViews: ViewId[] = ['home', 'courses', 'course-detail', 'schedule', 'nutrition', 'meal-plan', 'progress', 'progress-photo-studio', 'profile', 'workout', ...adminViews]
-
-const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
-  'admin-dashboard': 'dashboard.view',
-  'admin-courses': 'course.view',
-  'admin-course-editor': 'course.edit',
-  'admin-academy-students': 'enrollment.manage',
-  'admin-programs': 'program.view',
-  'admin-students': 'student.view_assigned',
-  'admin-roles': 'team.view',
-  'admin-nutrition-reviews': 'student.view_assigned',
-  'admin-meal-plans': 'student.view_assigned',
-  'admin-notifications': 'team.view',
-}
-
-interface AuraRoute {
-  view: ViewId
-  courseId: string | null
-  lessonId: string | null
-}
-
-function getCurrentRoute(): AuraRoute {
-  const rawHash = window.location.hash.replace(/^#\/?/, '')
-  const [rawView = 'home', rawQuery = ''] = rawHash.split('?')
-  const view = validViews.includes(rawView as ViewId) ? rawView as ViewId : 'home'
-  const params = new URLSearchParams(rawQuery)
-  return {
-    view,
-    courseId: params.get('courseId'),
-    lessonId: params.get('lessonId'),
-  }
-}
-
-function routeHash(view: ViewId, courseId?: string | null, lessonId?: string | null) {
-  const params = new URLSearchParams()
-  if (courseId) params.set('courseId', courseId)
-  if (lessonId) params.set('lessonId', lessonId)
-  const query = params.toString()
-  return `#/${view}${query ? `?${query}` : ''}`
-}
-
-function isSameRoute(left: AuraRoute, right: AuraRoute) {
-  return left.view === right.view
-    && left.courseId === right.courseId
-    && left.lessonId === right.lessonId
-}
 
 const roleLabels = {
   student: 'Học viên',
@@ -193,31 +70,6 @@ const roleLabels = {
   editor: 'Biên tập viên',
   admin: 'Administrator',
   super_admin: 'Super Administrator',
-}
-
-function toCourseDraft(course: Course): CourseDraftInput {
-  return {
-    id: String(course.id),
-    coverUrl: course.coverUrl,
-    slug: course.slug ?? String(course.id),
-    title: course.title,
-    description: course.description,
-    category: course.category,
-    level: course.level,
-    coach: course.coach,
-    duration: course.duration,
-    outcomes: course.outcomes ?? [],
-    requirements: course.requirements ?? [],
-    modules: course.modules ?? [],
-    settings: course.settings ?? {
-      accessTier: 'pro',
-      completionPercent: 80,
-      certificateEnabled: true,
-      dripSchedule: 'weekly',
-      visibility: 'members',
-    },
-    publicationStatus: course.publicationStatus ?? 'draft',
-  }
 }
 
 function AuraApplication() {

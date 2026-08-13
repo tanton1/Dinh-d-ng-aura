@@ -22,6 +22,33 @@ import { ref as storageRef, uploadBytesResumable, getDownloadURL } from 'firebas
 import { firebaseAuth, firebaseFunctions, firebaseStorage, firestoreDb } from '../lib/firebase'
 import { safeLocalStorageSet } from '../lib/safeStorage'
 import { reportClientIssue } from './clientTelemetryService'
+import { compressBase64Image } from './firebaseNutritionLogService'
+export {
+  cleanMealForStorage,
+  compressBase64Image,
+  deleteUserActivityLog,
+  deleteUserMealLog,
+  deleteUserWaterLog,
+  saveUserActivityLog,
+  saveUserMealLog,
+  saveUserWaterLog,
+  subscribeToUserActivityLogs,
+  subscribeToUserMealLogs,
+  subscribeToUserWaterLogs,
+} from './firebaseNutritionLogService'
+export {
+  deleteUserProgressPhoto,
+  deleteUserWeightLog,
+  saveUserBodyMeasurements,
+  saveUserGamification,
+  saveUserProgressPhoto,
+  saveUserWeightLog,
+  subscribeToUserBodyMeasurements,
+  subscribeToUserGamification,
+  subscribeToUserProgressPhotos,
+  subscribeToUserWeightLogs,
+  uploadUserProgressPhoto,
+} from './firebaseProgressService'
 import type {
   AdminUserRecord,
   Course,
@@ -891,82 +918,6 @@ export async function seedAuraDemoData() {
   await batch.commit()
 }
 
-export async function cleanMealForStorage<T extends Record<string, any>>(meal: T): Promise<T> {
-  if (!meal || typeof meal !== 'object') return meal
-  const cleaned: any = { ...meal }
-  const imageKeys = ['image', 'imageUrl', 'img', 'fileName']
-  for (const key of imageKeys) {
-    if (cleaned[key] && typeof cleaned[key] === 'string' && cleaned[key].startsWith('data:image')) {
-      try {
-        let compressed = await compressBase64Image(cleaned[key], 600, 0.6)
-        if (compressed.length > 300000) {
-          compressed = await compressBase64Image(compressed, 400, 0.5)
-        }
-        cleaned[key] = compressed
-      } catch (e) {
-        console.warn(`Failed to compress image field ${key}:`, e)
-      }
-    }
-  }
-  return cleaned
-}
-
-export async function saveUserMealLog(userId: string, meal: Record<string, unknown> & { id: string }) {
-  const db = requireDb()
-  const cleanedMeal = await cleanMealForStorage(meal)
-  const reference = doc(db, 'users', userId, 'mealLogs', cleanedMeal.id)
-  await setDoc(
-    reference,
-    withoutUndefined({
-      ...cleanedMeal,
-      updatedAt: serverTimestamp(),
-      createdAt: cleanedMeal.createdAt ?? serverTimestamp(),
-    }),
-    { merge: true },
-  )
-}
-
-export function compressBase64Image(dataUrl: string, maxDimension = 600, quality = 0.6): Promise<string> {
-  return new Promise((resolve) => {
-    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image')) {
-      return resolve(dataUrl || '')
-    }
-    if (dataUrl.length < 60000) {
-      return resolve(dataUrl)
-    }
-    if (typeof window === 'undefined') {
-      return resolve(dataUrl)
-    }
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      let width = img.width
-      let height = img.height
-      if (width > maxDimension || height > maxDimension) {
-        if (width > height) {
-          height = Math.round((height * maxDimension) / width)
-          width = maxDimension
-        } else {
-          width = Math.round((width * maxDimension) / height)
-          height = maxDimension
-        }
-      }
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      const ctx = canvas.getContext('2d')
-      if (ctx) {
-        ctx.drawImage(img, 0, 0, width, height)
-        const compressed = canvas.toDataURL('image/jpeg', quality)
-        return resolve(compressed)
-      }
-      resolve(dataUrl)
-    }
-    img.onerror = () => resolve(dataUrl)
-    img.src = dataUrl
-  })
-}
-
 export async function submitMealReview(userId: string, userName: string, meal: any) {
   const db = requireDb()
   const reference = doc(db, 'mealReviews', meal.id)
@@ -1140,297 +1091,3 @@ export function subscribeToAllMealReviews(
     }
   )
 }
-
-export async function deleteUserMealLog(userId: string, mealId: string) {
-  const db = requireDb()
-  const reference = doc(db, 'users', userId, 'mealLogs', mealId)
-  await deleteDoc(reference)
-}
-
-export function subscribeToUserMealLogs(
-  userId: string,
-  onData: (meals: any[]) => void,
-  onError?: (error: Error) => void,
-): Unsubscribe {
-  const db = requireDb()
-  return onSnapshot(
-    collection(db, 'users', userId, 'mealLogs'),
-    (snapshot) => {
-      const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-      safeSetCache(`user_meal_logs:${userId}`, items)
-      onData(items)
-    },
-    (error) => {
-      console.warn(`Firestore subscription status warning (user_meal_logs:${userId}):`, error.message || error)
-      const cached = safeGetCache(`user_meal_logs:${userId}`, [])
-      onData(cached)
-      if (onError) onError(error)
-    },
-  )
-}
-
-export async function saveUserWaterLog(userId: string, entry: Record<string, unknown> & { id: string }) {
-  const db = requireDb()
-  const reference = doc(db, 'users', userId, 'waterLogs', entry.id)
-  await setDoc(
-    reference,
-    withoutUndefined({
-      ...entry,
-      updatedAt: serverTimestamp(),
-      createdAt: entry.createdAt ?? serverTimestamp(),
-    }),
-    { merge: true },
-  )
-}
-
-export async function deleteUserWaterLog(userId: string, entryId: string) {
-  const db = requireDb()
-  const reference = doc(db, 'users', userId, 'waterLogs', entryId)
-  await deleteDoc(reference)
-}
-
-export function subscribeToUserWaterLogs(
-  userId: string,
-  onData: (entries: any[]) => void,
-  onError?: (error: Error) => void,
-): Unsubscribe {
-  const db = requireDb()
-  return onSnapshot(
-    collection(db, 'users', userId, 'waterLogs'),
-    (snapshot) => {
-      const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-      safeSetCache(`user_water_logs:${userId}`, items)
-      onData(items)
-    },
-    (error) => {
-      console.warn(`Firestore subscription status warning (user_water_logs:${userId}):`, error.message || error)
-      const cached = safeGetCache(`user_water_logs:${userId}`, [])
-      onData(cached)
-      if (onError) onError(error)
-    },
-  )
-}
-
-export async function saveUserActivityLog(userId: string, activity: Record<string, unknown> & { id: string }) {
-  const db = requireDb()
-  const reference = doc(db, 'users', userId, 'activityLogs', activity.id)
-  await setDoc(
-    reference,
-    withoutUndefined({
-      ...activity,
-      updatedAt: serverTimestamp(),
-      createdAt: activity.createdAt ?? serverTimestamp(),
-    }),
-    { merge: true },
-  )
-}
-
-export async function deleteUserActivityLog(userId: string, activityId: string) {
-  const db = requireDb()
-  const reference = doc(db, 'users', userId, 'activityLogs', activityId)
-  await deleteDoc(reference)
-}
-
-export function subscribeToUserActivityLogs(
-  userId: string,
-  onData: (activities: any[]) => void,
-  onError?: (error: Error) => void,
-): Unsubscribe {
-  const db = requireDb()
-  return onSnapshot(
-    collection(db, 'users', userId, 'activityLogs'),
-    (snapshot) => {
-      const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-      safeSetCache(`user_activity_logs:${userId}`, items)
-      onData(items)
-    },
-    (error) => {
-      console.warn(`Firestore subscription status warning (user_activity_logs:${userId}):`, error.message || error)
-      const cached = safeGetCache(`user_activity_logs:${userId}`, [])
-      onData(cached)
-      if (onError) onError(error)
-    },
-  )
-}
-
-export async function saveUserWeightLog(userId: string, record: Record<string, unknown> & { id: string }) {
-  const db = requireDb()
-  const reference = doc(db, 'users', userId, 'weightLogs', record.id)
-  await setDoc(
-    reference,
-    withoutUndefined({
-      ...record,
-      updatedAt: serverTimestamp(),
-      createdAt: record.createdAt ?? serverTimestamp(),
-    }),
-    { merge: true }
-  )
-}
-
-export async function deleteUserWeightLog(userId: string, recordId: string) {
-  const db = requireDb()
-  const reference = doc(db, 'users', userId, 'weightLogs', recordId)
-  await deleteDoc(reference)
-}
-
-export function subscribeToUserWeightLogs(
-  userId: string,
-  onData: (records: any[]) => void,
-  onError?: (error: Error) => void
-): Unsubscribe {
-  const db = requireDb()
-  return onSnapshot(
-    collection(db, 'users', userId, 'weightLogs'),
-    (snapshot) => {
-      const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-      safeSetCache(`user_weight_logs:${userId}`, items)
-      onData(items)
-    },
-    (error) => {
-      console.warn(`Firestore subscription status warning (user_weight_logs:${userId}):`, error.message || error)
-      const cached = safeGetCache(`user_weight_logs:${userId}`, [])
-      onData(cached)
-      if (onError) onError(error)
-    }
-  )
-}
-
-export async function saveUserBodyMeasurements(userId: string, measurements: Record<string, unknown>) {
-  const db = requireDb()
-  const reference = doc(db, 'users', userId, 'bodyMeasurements', 'current')
-  await setDoc(
-    reference,
-    withoutUndefined({
-      ...measurements,
-      updatedAt: serverTimestamp(),
-    }),
-    { merge: true }
-  )
-}
-
-export function subscribeToUserBodyMeasurements(
-  userId: string,
-  onData: (measurements: any) => void,
-  onError?: (error: Error) => void
-): Unsubscribe {
-  const db = requireDb()
-  return onSnapshot(
-    doc(db, 'users', userId, 'bodyMeasurements', 'current'),
-    (snapshot) => {
-      const data = snapshot.exists() ? snapshot.data() : null
-      safeSetCache(`user_body_measurements:${userId}`, data)
-      onData(data)
-    },
-    (error) => {
-      console.warn(`Firestore subscription status warning (user_body_measurements:${userId}):`, error.message || error)
-      const cached = safeGetCache(`user_body_measurements:${userId}`, null)
-      onData(cached)
-      if (onError) onError(error)
-    }
-  )
-}
-
-export async function saveUserGamification(userId: string, data: Record<string, unknown>) {
-  const db = requireDb()
-  const reference = doc(db, 'users', userId, 'gamification', 'stats')
-  await setDoc(
-    reference,
-    withoutUndefined({
-      ...data,
-      updatedAt: serverTimestamp(),
-    }),
-    { merge: true }
-  )
-}
-
-export function subscribeToUserGamification(
-  userId: string,
-  onData: (data: any) => void,
-  onError?: (error: Error) => void
-): Unsubscribe {
-  const db = requireDb()
-  return onSnapshot(
-    doc(db, 'users', userId, 'gamification', 'stats'),
-    (snapshot) => {
-      const data = snapshot.exists() ? snapshot.data() : null
-      safeSetCache(`user_gamification:${userId}`, data)
-      onData(data)
-    },
-    (error) => {
-      console.warn(`Firestore subscription status warning (user_gamification:${userId}):`, error.message || error)
-      const cached = safeGetCache(`user_gamification:${userId}`, null)
-      onData(cached)
-      if (onError) onError(error)
-    }
-  )
-}
-
-export async function saveUserProgressPhoto(userId: string, photo: Record<string, unknown> & { id: string }) {
-  const db = requireDb()
-  const reference = doc(db, 'users', userId, 'progressPhotos', photo.id)
-  await setDoc(
-    reference,
-    withoutUndefined({
-      ...photo,
-      updatedAt: serverTimestamp(),
-      createdAt: photo.createdAt ?? serverTimestamp(),
-    }),
-    { merge: true }
-  )
-}
-
-export async function uploadUserProgressPhoto(userId: string, file: File, onProgress?: (percent: number) => void): Promise<string> {
-  if (!firebaseStorage) return Promise.reject(new Error('Firebase Storage is not initialized.'))
-  
-  const fileExtension = file.name.split('.').pop() ?? 'jpg'
-  const randomName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExtension}`
-  const fileRef = storageRef(firebaseStorage, `users/${userId}/progress-photos/${randomName}`)
-  
-  return new Promise((resolve, reject) => {
-    const uploadTask = uploadBytesResumable(fileRef, file)
-    uploadTask.on(
-      'state_changed',
-      (snapshot) => onProgress?.(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)),
-      (error) => reject(error),
-      async () => {
-        try {
-          const url = await getDownloadURL(uploadTask.snapshot.ref)
-          resolve(url)
-        } catch (e) {
-          reject(e)
-        }
-      }
-    )
-  })
-}
-
-export async function deleteUserProgressPhoto(userId: string, photoId: string) {
-  const db = requireDb()
-  const reference = doc(db, 'users', userId, 'progressPhotos', photoId)
-  await deleteDoc(reference)
-}
-
-export function subscribeToUserProgressPhotos(
-  userId: string,
-  onData: (photos: any[]) => void,
-  onError?: (error: Error) => void
-): Unsubscribe {
-  const db = requireDb()
-  return onSnapshot(
-    collection(db, 'users', userId, 'progressPhotos'),
-    (snapshot) => {
-      const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-      safeSetCache(`user_progress_photos:${userId}`, items)
-      onData(items)
-    },
-    (error) => {
-      console.warn(`Firestore subscription status warning (user_progress_photos:${userId}):`, error.message || error)
-      const cached = safeGetCache(`user_progress_photos:${userId}`, [])
-      onData(cached)
-      if (onError) onError(error)
-    }
-  )
-}
-
-
-

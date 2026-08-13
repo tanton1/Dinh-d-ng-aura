@@ -111,7 +111,7 @@ export default function AccountConnectionsCard() {
         {openForm === 'phone' && !phoneConnected && (
           <form className="account-link-form" onSubmit={submitPhone}>
             <label><span>{otpSent ? 'Mã OTP' : 'Số điện thoại'}</span><div>{otpSent ? <KeyRound size={17} /> : <Phone size={17} />}<input required value={otpSent ? otp : phone} onChange={(event) => otpSent ? setOtp(event.target.value.replace(/\D/g, '').slice(0, 6)) : setPhone(event.target.value)} placeholder={otpSent ? '6 chữ số' : '0912 345 678'} inputMode={otpSent ? 'numeric' : 'tel'} /></div></label>
-            <button disabled={busy === 'phone' || (otpSent && otp.length !== 6)}>{busy === 'phone' ? <LoaderCircle className="auth-spin" size={16} /> : null}{otpSent ? 'Xác minh' : 'Gửi OTP'}</button>
+            <button id={!otpSent ? 'phone-link-otp-button' : undefined} disabled={busy === 'phone' || (otpSent && otp.length !== 6)}>{busy === 'phone' ? <LoaderCircle className="auth-spin" size={16} /> : null}{otpSent ? 'Xác minh' : 'Gửi OTP'}</button>
           </form>
         )}
 

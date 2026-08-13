@@ -45,5 +45,6 @@ test('client incident reporting is bounded, validated and rate limited', () => {
   assert.match(incidentSource, /allowClientIncident\(request\)/)
   assert.match(incidentSource, /clientIssueAreas\.has\(area\)/)
   assert.match(incidentSource, /boundedIncidentValue\(request\.data\?\.code, 80\)/)
+  assert.match(incidentSource, /boundedIncidentValue\(request\.data\?\.host, 120\)/)
   assert.doesNotMatch(incidentSource, /request\.data\?\.message/)
 })

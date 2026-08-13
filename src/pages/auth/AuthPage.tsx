@@ -17,6 +17,7 @@ import {
   UserRound,
 } from 'lucide-react'
 import { getFriendlyAuthError, useAuth } from '../../contexts/AuthContext'
+import { getCanonicalAuthRedirectUrl } from '../../services/authOriginService'
 
 type AuthMode = 'signin' | 'signup'
 type AuthMethod = 'phone' | 'email'
@@ -46,6 +47,20 @@ export default function AuthPage() {
   const [loadingAction, setLoadingAction] = useState<'form' | 'google' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [captchaVisible, setCaptchaVisible] = useState(false)
+  const canonicalRedirectUrl = getCanonicalAuthRedirectUrl()
+
+  useEffect(() => {
+    if (canonicalRedirectUrl) window.location.replace(canonicalRedirectUrl)
+  }, [canonicalRedirectUrl])
+
+  useEffect(() => {
+    const handleCaptchaVisibility = (event: Event) => {
+      setCaptchaVisible(Boolean((event as CustomEvent<boolean>).detail))
+    }
+    window.addEventListener('aura-recaptcha-visibility', handleCaptchaVisibility)
+    return () => window.removeEventListener('aura-recaptcha-visibility', handleCaptchaVisibility)
+  }, [])
 
   useEffect(() => {
     const handleRedirectError = (event: Event) => {
@@ -189,6 +204,15 @@ export default function AuthPage() {
     ? 'Đăng nhập để tiếp tục hành trình'
     : 'Tạo tài khoản Aura của bạn'
 
+  if (canonicalRedirectUrl) {
+    return (
+      <main className="auth-origin-redirect" role="status">
+        <LoaderCircle className="auth-spin" size={24} />
+        <strong>Đang mở đăng nhập Aura an toàn…</strong>
+      </main>
+    )
+  }
+
   return (
     <div className="auth-shell" data-testid="auth-page">
       <section className="auth-showcase" aria-label="Giới thiệu Aura Fitness">
@@ -309,10 +333,11 @@ export default function AuthPage() {
             )}
 
             {receivedOtpHint && <div className="auth-demo-otp"><span>Mã thử nghiệm</span><strong>{receivedOtpHint}</strong></div>}
+            {captchaVisible && <div className="auth-captcha-notice" role="status"><ShieldCheck size={16} /> Hãy hoàn tất ô xác minh bảo mật đang hiển thị để nhận OTP.</div>}
             {error && <div className="auth-message auth-message--error" role="alert">{error}</div>}
             {message && <div className="auth-message auth-message--success" role="status">{message}</div>}
 
-            <button className="auth-primary-button" type="submit" disabled={loading || (authMethod === 'phone' && otpSent && otpCode.length !== 6)}>
+            <button id={authMethod === 'phone' && !otpSent ? 'phone-otp-button' : undefined} className="auth-primary-button" type="submit" disabled={loading || (authMethod === 'phone' && otpSent && otpCode.length !== 6)}>
               {loadingAction === 'form' ? <LoaderCircle className="auth-spin" size={20} /> : <><span>{authMethod === 'phone' ? (otpSent ? 'Xác minh và tiếp tục' : 'Nhận mã OTP') : (mode === 'signin' ? 'Đăng nhập' : 'Tạo tài khoản')}</span><ArrowRight size={18} /></>}
             </button>
           </form>

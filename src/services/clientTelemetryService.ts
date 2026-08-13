@@ -7,6 +7,7 @@ interface ClientIssueContext {
   phase: string
   incidentId?: string
   route?: string
+  host?: string
   provider?: 'google' | 'phone' | 'email' | 'password' | 'gemini'
   retryable?: boolean
 }
@@ -39,6 +40,7 @@ export function reportClientIssue(
     code: string
     phase: string
     route: string
+    host: string
     incidentId?: string
     provider?: ClientIssueContext['provider']
     retryable?: boolean
@@ -50,6 +52,7 @@ export function reportClientIssue(
     code,
     phase: context.phase.slice(0, 80),
     route: (context.route || window.location.hash || '#/').slice(0, 160),
+    host: (context.host || window.location.hostname || 'unknown').slice(0, 120),
     incidentId: context.incidentId?.slice(0, 80),
     provider: context.provider,
     retryable: context.retryable,

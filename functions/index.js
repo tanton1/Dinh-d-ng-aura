@@ -616,6 +616,7 @@ exports.reportClientIssue = onCall(async (request) => {
   const code = boundedIncidentValue(request.data?.code, 80)
   const phase = boundedIncidentValue(request.data?.phase, 80)
   const route = boundedIncidentValue(request.data?.route, 160)
+  const host = boundedIncidentValue(request.data?.host, 120)
   const provider = boundedIncidentValue(request.data?.provider, 20)
   const incidentId = boundedIncidentValue(request.data?.incidentId, 80)
   const release = boundedIncidentValue(request.data?.release, 80)
@@ -631,6 +632,7 @@ exports.reportClientIssue = onCall(async (request) => {
     code,
     phase,
     route,
+    host: /^[a-zA-Z0-9.-]{1,120}$/.test(host) ? host : 'unknown',
     provider: provider || null,
     incidentId: incidentId || null,
     release: release || 'web',

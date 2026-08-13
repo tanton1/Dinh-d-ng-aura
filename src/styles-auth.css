@@ -139,6 +139,9 @@
 .auth-terms { margin: 14px 0 0; color: #948790; font-size: 8px; line-height: 1.55; text-align: center; }
 .auth-terms button { padding: 0; color: var(--auth-pink); background: transparent; font-size: inherit; font-weight: 750; }
 #aura-recaptcha-container { position: fixed; z-index: -1; right: 0; bottom: 0; width: 1px; height: 1px; overflow: hidden; opacity: .01; }
+#aura-recaptcha-container.is-visible { z-index: 1200; right: 50%; bottom: max(24px, env(safe-area-inset-bottom)); width: min(344px, calc(100vw - 24px)); height: auto; min-height: 104px; padding: 13px; overflow: visible; border: 1px solid rgba(245, 48, 130, .18); border-radius: 18px; opacity: 1; background: #fff; box-shadow: 0 24px 70px rgba(52, 20, 40, .28); transform: translateX(50%); }
+.auth-captcha-notice { display: flex; align-items: center; gap: 7px; padding: 10px 12px; border-radius: 12px; color: #855a24; background: #fff7e9; font-size: 9px; line-height: 1.45; }
+.auth-origin-redirect { min-height: 100dvh; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 24px; color: #5b3348; background: radial-gradient(circle at 20% 10%, #ffe5ef, transparent 34%), #fffaf8; font: 600 14px/1.5 system-ui, sans-serif; }
 
 @media (max-width: 900px) {
   .auth-shell { display: block; background: #fffaf8; }

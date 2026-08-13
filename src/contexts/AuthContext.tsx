@@ -135,15 +135,29 @@ function isMobileAuthFlow() {
   return window.matchMedia('(max-width: 760px)').matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 }
 
-function getRecaptchaVerifier() {
-  if (!firebaseAuth) throw new Error('Firebase chưa được cấu hình.')
+function setRecaptchaVisibility(visible: boolean) {
   const container = document.getElementById(recaptchaContainerId)
-  if (!container) throw new Error('Không thể khởi tạo bước xác minh bảo mật. Vui lòng tải lại trang.')
-  window.recaptchaVerifier?.clear()
+  container?.classList.toggle('is-visible', visible)
+  window.dispatchEvent(new CustomEvent('aura-recaptcha-visibility', { detail: visible }))
+}
+
+function clearRecaptchaVerifier() {
+  const activeVerifier = window.recaptchaVerifier as RecaptchaVerifier | null | undefined
+  activeVerifier?.clear()
   window.recaptchaVerifier = null
-  container.innerHTML = ''
+  const container = document.getElementById(recaptchaContainerId)
+  if (container) container.innerHTML = ''
+  setRecaptchaVisibility(false)
+}
+
+function getRecaptchaVerifier(size: 'invisible' | 'normal' = 'invisible', anchorId = recaptchaContainerId) {
+  if (!firebaseAuth) throw new Error('Firebase chưa được cấu hình.')
+  const container = document.getElementById(anchorId)
+  if (!container) throw new Error('Không thể khởi tạo bước xác minh bảo mật. Vui lòng tải lại trang.')
+  clearRecaptchaVerifier()
+  setRecaptchaVisibility(size === 'normal')
   firebaseAuth.languageCode = 'vi'
-  const verifier = new RecaptchaVerifier(firebaseAuth, recaptchaContainerId, { size: 'invisible' })
+  const verifier = new RecaptchaVerifier(firebaseAuth, anchorId, { size })
   window.recaptchaVerifier = verifier
   return verifier
 }
@@ -387,8 +401,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       unsubscribeProfile?.()
       unsubscribeAuth()
-      window.recaptchaVerifier?.clear()
-      window.recaptchaVerifier = null
+      clearRecaptchaVerifier()
     }
   }, [])
 
@@ -509,11 +522,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const formattedPhone = normalizePhoneNumber(phoneNumber)
       try {
         const provider = new PhoneAuthProvider(firebaseAuth)
-        window.phoneLinkVerificationId = await provider.verifyPhoneNumber(formattedPhone, getRecaptchaVerifier())
+        window.phoneLinkVerificationId = await provider.verifyPhoneNumber(formattedPhone, getRecaptchaVerifier('invisible', 'phone-link-otp-button'))
         return `Mã OTP đã được gửi đến ${maskPhoneNumber(formattedPhone)}.`
       } catch (error) {
-        window.recaptchaVerifier?.clear()
-        window.recaptchaVerifier = null
+        clearRecaptchaVerifier()
         reportClientIssue('auth', error, { phase: 'link_phone_send', provider: 'phone', retryable: true })
         throw error
       }
@@ -548,12 +560,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!container) throw new Error('Không thể khởi tạo bước xác minh bảo mật. Vui lòng tải lại trang.')
 
       window.confirmationResult = null
-      window.recaptchaVerifier?.clear()
-      window.recaptchaVerifier = null
-      container.innerHTML = ''
+      clearRecaptchaVerifier()
 
       try {
-        const verifier = getRecaptchaVerifier()
+        const verifier = getRecaptchaVerifier('invisible', 'phone-otp-button')
         window.confirmationResult = await signInWithPhoneNumber(firebaseAuth, formattedPhone, verifier)
         return {
           otpCode: '',
@@ -561,17 +571,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (error: any) {
         reportClientIssue('auth', error, { phase: 'phone_otp_send', provider: 'phone', retryable: true })
-        const activeVerifier = window.recaptchaVerifier as RecaptchaVerifier | null | undefined
-        activeVerifier?.clear()
-        window.recaptchaVerifier = null
+        clearRecaptchaVerifier()
         window.confirmationResult = null
-        container.innerHTML = ''
 
         if (localOtpEnabled) {
           const otpCode = storeDemoOtp(formattedPhone)
           return {
             otpCode,
             message: `[Chế độ thử nghiệm] Mã OTP đã được tạo cho ${maskPhoneNumber(formattedPhone)}.`,
+          }
+        }
+
+        if (error?.code === 'auth/captcha-check-failed') {
+          try {
+            const visibleVerifier = getRecaptchaVerifier('normal')
+            window.confirmationResult = await signInWithPhoneNumber(firebaseAuth, formattedPhone, visibleVerifier)
+            clearRecaptchaVerifier()
+            return {
+              otpCode: '',
+              message: `Xác minh bảo mật thành công. Mã OTP đã được gửi đến ${maskPhoneNumber(formattedPhone)}.`,
+            }
+          } catch (visibleCaptchaError: any) {
+            reportClientIssue('auth', visibleCaptchaError, { phase: 'phone_otp_visible_captcha', provider: 'phone', retryable: true })
+            clearRecaptchaVerifier()
+            const visibleCode = visibleCaptchaError?.code
+            if (visibleCode && visibleCode !== 'auth/captcha-check-failed') throw visibleCaptchaError
           }
         }
 

@@ -3,7 +3,6 @@ import { useDebounce } from '../../hooks/useDebounce'
 import { useAuth } from '../../contexts/AuthContext'
 import NutritionFoodDetail, {
   type NutritionFoodDetailRecord,
-  type NutritionFoodDetailSummary,
   type NutritionServingSelection,
 } from './NutritionFoodDetail'
 import CapturedMealDetail from './CapturedMealDetail'
@@ -18,14 +17,7 @@ import NutritionWorkspace, {
   type NutritionMealEntry,
   type NutritionPlannedMeal,
   type NutritionPlanDay,
-  type NutritionWorkspaceSection,
 } from './NutritionWorkspace'
-import type {
-  AnalyzeFoodPhotoOptions,
-  FoodAnalysisItem,
-  FoodAnalysisResponse,
-  NutritionCatalogMatch,
-} from '../../services/nutritionService'
 import { askAiCoach, getFoodAnalysisErrorMessage, getUsableFoodAnalysisText } from '../../services/nutritionService'
 import { firebaseAuth, firestoreDb } from '../../lib/firebase'
 import {
@@ -91,156 +83,49 @@ import {
 import '../../styles-nutrition.css'
 import '../../styles-nutrition-home.css'
 
-export type NutritionGoal = 'lose-fat' | 'gain-muscle' | 'maintain'
-
-export interface NutritionProfileDraft {
-  goal: NutritionGoal
-  age: number
-  biologicalSex: 'female' | 'male'
-  heightCm: number
-  weightKg: number
-  targetWeightDeltaKg?: number
-  targetTimeframeMonths?: number
-  targetSpeedPace?: 'slow' | 'standard' | 'fast'
-  activityLevel: 'low' | 'moderate' | 'high'
-  trainingSessions: number
-  eatingStyle: string
-  allergies: string
-  mealsPerDay?: number
-  mealTimes?: string[]
-  dislikes?: string
-  budget?: 'low' | 'medium' | 'high' | 'unlimited'
-  prepTime?: 'quick' | 'medium' | 'long'
-  favoriteCuisine?: string
-  reminders?: {
-    water: boolean
-    breakfast: boolean
-    lunch: boolean
-    dinner: boolean
-  }
-}
-
-export interface AiFoodItem {
-  id: string
-  name: string
-  category?: string
-  grams: number
-  gramRange?: { low: number; high: number }
-  cookingMethod?: string
-  calories: number
-  protein: number
-  carbs: number
-  fat: number
-  fiber?: number
-  sugar?: number
-  sodium?: number
-  confidence: 'high' | 'medium' | 'low'
-  confidenceValue?: number
-  assumptions?: string[]
-  catalogMatch?: NutritionCatalogMatch | null
-  catalogCandidates?: NutritionCatalogMatch[]
-  nutritionEvidence?: FoodAnalysisItem['nutritionEvidence']
-  calculationSource?: 'database' | 'mixed' | 'ai-estimate' | 'manual'
-  perGram?: {
-    calories: number
-    protein: number
-    carbs: number
-    fat: number
-    fiber: number
-    sugar: number
-    sodium: number
-  }
-}
-
-export interface NutritionMealDraft {
-  quantityCookingAnalysis?: string
-  portionCalorieRationale?: string
-  goalAlignmentAssessment?: string
-  calorieOptimizationTip?: string
-  macroBalanceAssessment?: string
-  coachFeedbackSuggestion?: string
-  aiAnalysis?: any
-  name: string
-  mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack'
-  mealDate?: string
-  mealTime?: string
-  image?: string
-  calories: number
-  protein?: number
-  carbs?: number
-  fat?: number
-  calorieRange?: { low: number; high: number }
-  items: AiFoodItem[]
-  source: 'ai-scan' | 'demo'
-  submitForReview?: boolean
-}
-
-export type NutritionImageAnalysisResponse = FoodAnalysisResponse
-
-export interface NutritionFoodCatalogItem {
-  id: string
-  kind?: 'dish' | 'food'
-  code?: string
-  name: string
-  nameEn?: string
-  nameAscii?: string
-  category?: { id?: string | null; nameVi?: string | null; nameEn?: string | null }
-  region?: { id?: string | null; nameVi?: string | null; code?: string | null } | null
-  servingGrams: number | null
-  servingLabel?: string
-  calories: number | null
-  protein: number | null
-  carbs: number | null
-  fat: number | null
-  fiber?: number | null
-  sugar?: number | null
-  sodium?: number | null
-  source?: string
-  sourceUrl?: string
-  sourceId?: string
-  imageUrl?: string
-  detailBucket?: string
-}
-
-type NutritionClarificationResponse = 'confirmed' | 'adjust' | 'unknown'
-
-interface PersistedScanReview {
-  ownerId: string
-  dishName: string
-  items: AiFoodItem[]
-  resultMode: 'live' | 'demo'
-  resultNotice: string
-  serverRange: { low: number; high: number } | null
-  baselineCalories: number
-  analysisConfidence: number | null
-  analysisQuestions: string[]
-  analysisWarnings: string[]
-  analysisModel: string | null
-  confirmedItemIds: string[]
-  questionResponses: Record<string, NutritionClarificationResponse>
-  mealType: NutritionMealDraft['mealType']
-  mealDate: string
-  mealTime: string
-  fileName: string
-  quantityCookingAnalysis?: string
-  portionCalorieRationale?: string
-  goalAlignmentAssessment?: string
-  calorieOptimizationTip?: string
-  macroBalanceAssessment?: string
-  coachFeedbackSuggestion?: string
-}
-
-interface NutritionPageProps {
-  displayName?: string
-  isDemo?: boolean
-  storageOwnerId?: string
-  hasProfile?: boolean
-  profile?: NutritionProfileDraft
-  onProfileComplete?: (profile: NutritionProfileDraft) => void
-  onMealSaved?: (meal: NutritionMealDraft) => void
-  onAnalyzeImage?: (file: File, options?: AnalyzeFoodPhotoOptions) => Promise<NutritionImageAnalysisResponse>
-  foodCatalog?: NutritionFoodCatalogItem[]
-}
+export type { NutritionGoal, NutritionProfileDraft } from '../../features/nutrition/types'
+import type {
+  AiFoodItem,
+  MealLog,
+  NutritionActivityDraft,
+  NutritionActivityIntensity,
+  NutritionActivityKind,
+  NutritionActivityLog,
+  NutritionClarificationResponse,
+  NutritionFoodCatalogItem,
+  NutritionGoal,
+  NutritionImageAnalysisResponse,
+  NutritionMealDraft,
+  NutritionPageProps,
+  NutritionProfileDraft,
+  NutritionWaterLog,
+  PersistedScanReview,
+} from '../../features/nutrition/types'
+import {
+  dateFromLocalKey,
+  getCalendarStart,
+  getRecentDateKeys,
+  getWeekDays,
+  nutritionFoodIdFromHash,
+  nutritionSectionFromHash,
+  nutritionSectionHash,
+  normalizeNutritionSearch as normalizeSearch,
+  resolveNutritionAssistantIntent,
+  toLocalDateKey,
+  toWorkspaceSection,
+  type NutritionPrimarySection,
+  type NutritionRouteSection,
+} from '../../features/nutrition/routing'
+import {
+  detailNutrientValue,
+  findNutritionDetailRecord,
+  loadNutritionCatalog,
+  nutritionDetailBucketUrl,
+  resetNutritionCatalog,
+  scaleOptionalNumber,
+  toFoodDetailSummary,
+} from '../../features/nutrition/catalog'
+import { normalizeAnalysis, nutritionEvidenceLabel, perGramNutrition } from '../../features/nutrition/analysis'
 
 function canLogCatalogFood(food: NutritionFoodCatalogItem): food is NutritionFoodCatalogItem & {
   calories: number
@@ -250,73 +135,6 @@ function canLogCatalogFood(food: NutritionFoodCatalogItem): food is NutritionFoo
 } {
   return food.calories !== null && food.protein !== null && food.carbs !== null && food.fat !== null
 }
-
-interface MealLog {
-  id: string
-  date: string
-  type: NutritionMealDraft['mealType']
-  label: string
-  time: string
-  title: string
-  description: string
-  calories: number
-  protein: number
-  carbs: number
-  fat: number
-  fiber?: number
-  sugar?: number
-  sodium?: number
-  status: 'logged' | 'planned'
-  tone: 'violet' | 'orange' | 'green' | 'pink'
-  image?: string
-  source?: 'ai-scan' | 'demo' | 'catalog' | 'manual'
-  confidence?: 'verified' | 'estimated' | 'needs-review'
-  calorieRange?: { low: number; high: number }
-  items?: AiFoodItem[]
-  reviewStatus?: 'pending' | 'reviewed'
-  coachFeedback?: string
-  aiAnalysis?: any
-  studentGoal?: string
-  studentCondition?: string
-}
-
-interface NutritionWaterLog {
-  id: string
-  date: string
-  time: string
-  amountMl: number
-  createdAt: number
-}
-
-type NutritionActivityKind = 'strength' | 'running' | 'walking' | 'cycling' | 'hiit' | 'swimming' | 'yoga' | 'other'
-type NutritionActivityIntensity = 'low' | 'moderate' | 'high'
-
-interface NutritionActivityLog {
-  id: string
-  date: string
-  startTime: string
-  kind: NutritionActivityKind
-  title: string
-  durationMinutes: number
-  intensity: NutritionActivityIntensity
-  estimatedCalories: number
-  met: number
-  weightKgAtEstimate: number
-  source: 'manual'
-  createdAt: number
-}
-
-interface NutritionActivityDraft {
-  startTime: string
-  kind: NutritionActivityKind
-  title: string
-  durationMinutes: number
-  intensity: NutritionActivityIntensity
-  estimatedCalories: number
-  met: number
-  weightKgAtEstimate: number
-}
-
 const INITIAL_ANALYSIS: AiFoodItem[] = [
   { id: 'rice', name: 'Cơm gạo lứt đỏ', grams: 180, calories: 216, protein: 4.5, carbs: 45.0, fat: 1.6, confidence: 'high' },
   { id: 'chicken', name: 'Ức gà áp chảo', grams: 125, calories: 206, protein: 38.8, carbs: 0, fat: 4.5, confidence: 'high' },
@@ -701,135 +519,6 @@ function loadPersistedActivities(storageKey: string, fallback: NutritionActivity
   }
 }
 
-function perGramNutrition(item: Pick<AiFoodItem, 'grams' | 'calories' | 'protein' | 'carbs' | 'fat' | 'fiber' | 'sugar' | 'sodium'>) {
-  const grams = Math.max(item.grams, 0.001)
-  return {
-    calories: item.calories / grams,
-    protein: item.protein / grams,
-    carbs: item.carbs / grams,
-    fat: item.fat / grams,
-    fiber: (item.fiber ?? 0) / grams,
-    sugar: (item.sugar ?? 0) / grams,
-    sodium: (item.sodium ?? 0) / grams,
-  }
-}
-
-function normalizeAnalysisItem(item: FoodAnalysisItem, index: number): AiFoodItem {
-  const confidence: AiFoodItem['confidence'] = item.confidence >= .78 ? 'high' : item.confidence >= .5 ? 'medium' : 'low'
-  const normalized: AiFoodItem = {
-    id: `live-${index}-${item.searchNameAscii || item.nameVi || 'item'}`,
-    name: item.nameVi || `Thành phần ${index + 1}`,
-    grams: item.estimatedGrams,
-    gramRange: item.gramRange,
-    cookingMethod: item.cookingMethod,
-    calories: item.nutrition.calories,
-    protein: item.nutrition.proteinG,
-    carbs: item.nutrition.carbsG,
-    fat: item.nutrition.fatG,
-    fiber: item.nutrition.fiberG,
-    sugar: item.nutrition.sugarG,
-    sodium: item.nutrition.sodiumMg,
-    confidence,
-    confidenceValue: item.confidence,
-    assumptions: item.assumptions,
-    catalogMatch: item.catalogMatch,
-    catalogCandidates: item.catalogCandidates,
-    nutritionEvidence: item.nutritionEvidence,
-    calculationSource: item.nutritionEvidence?.sourceType === 'catalog_scaled'
-      ? 'database'
-      : item.nutritionEvidence?.sourceType === 'catalog_scaled_with_ai_gaps'
-        ? 'mixed'
-        : 'ai-estimate',
-  }
-  return { ...normalized, perGram: perGramNutrition(normalized) }
-}
-
-function nutritionEvidenceLabel(item: AiFoodItem) {
-  if (item.nutritionEvidence?.sourceType === 'catalog_scaled') return 'Nguồn số: CSDL đã quy đổi'
-  if (item.nutritionEvidence?.sourceType === 'catalog_scaled_with_ai_gaps') {
-    const catalogFields = Object.values(item.nutritionEvidence.fields).filter((source) => source === 'catalog').length
-    return `Nguồn số: CSDL ${catalogFields}/7 trường · AI bổ sung phần thiếu`
-  }
-  if (item.calculationSource === 'manual') return 'Nguồn số: bạn đã chỉnh · cần xác nhận'
-  return 'Nguồn số: AI ước tính · cần bạn chấp nhận'
-}
-
-function normalizeAnalysis(response: NutritionImageAnalysisResponse) {
-  const analysis = response.analysis
-  if (!analysis || !analysis.isFood) return null
-  const items = analysis.items.map(normalizeAnalysisItem)
-  if (!items.length) return null
-  return {
-    items,
-    dishName: analysis.dishNameVi,
-    range: analysis.calorieRange,
-    confidence: analysis.confidence,
-    questions: analysis.questions,
-    warnings: [...analysis.warnings, ...(analysis.databaseNotices ?? [])],
-    catalogMatch: analysis.catalogMatch,
-    catalogCandidates: analysis.catalogCandidates,
-    notices: response.notices,
-    model: response.model,
-    quantityAndCookingAnalysis: analysis.quantityAndCookingAnalysis,
-    portionAndCalorieRationale: analysis.portionAndCalorieRationale,
-    goalAlignmentAssessment: analysis.goalAlignmentAssessment,
-    calorieOptimizationTip: analysis.calorieOptimizationTip,
-    macroBalanceAssessment: analysis.macroBalanceAssessment,
-    coachFeedbackSuggestion: analysis.coachFeedbackSuggestion,
-  }
-}
-
-function normalizeCatalogPayload(payload: unknown): NutritionFoodCatalogItem[] {
-  const root = asRecord(payload)
-  const candidates = Array.isArray(payload)
-    ? payload
-    : Array.isArray(root?.items) ? root.items
-      : Array.isArray(root?.foods) ? root.foods
-        : Array.isArray(root?.records) ? root.records
-          : []
-  return candidates.map((candidate, index): NutritionFoodCatalogItem | null => {
-    const item = asRecord(candidate)
-    if (!item) return null
-    const nutrition = asRecord(item.nutrition)
-    const macros = asRecord(item.macros)
-    const basis = asRecord(item.basis)
-    const source = asRecord(item.source)
-    const name = item.nameVi ?? item.name ?? item.foodName ?? item.title
-    if (typeof name !== 'string' || !name.trim()) return null
-    return {
-      id: String(item.id ?? item.catalogId ?? item.code ?? `catalog-${index}`),
-      kind: item.kind === 'dish' || item.kind === 'food' ? item.kind : undefined,
-      code: typeof item.code === 'string' ? item.code : undefined,
-      name: name.trim(),
-      nameEn: typeof item.nameEn === 'string' ? item.nameEn : undefined,
-      nameAscii: typeof item.nameAscii === 'string' ? item.nameAscii : undefined,
-      category: asRecord(item.category) ? {
-        id: typeof asRecord(item.category)?.id === 'string' ? String(asRecord(item.category)?.id) : null,
-        nameVi: typeof asRecord(item.category)?.nameVi === 'string' ? String(asRecord(item.category)?.nameVi) : null,
-        nameEn: typeof asRecord(item.category)?.nameEn === 'string' ? String(asRecord(item.category)?.nameEn) : null,
-      } : undefined,
-      region: asRecord(item.region) ? {
-        id: typeof asRecord(item.region)?.id === 'string' ? String(asRecord(item.region)?.id) : null,
-        nameVi: typeof asRecord(item.region)?.nameVi === 'string' ? String(asRecord(item.region)?.nameVi) : null,
-        code: typeof asRecord(item.region)?.code === 'string' ? String(asRecord(item.region)?.code) : null,
-      } : null,
-      servingGrams: typeof (item.servingGrams ?? item.grams ?? item.basisGrams ?? basis?.amount) === 'number'
-        ? readNumber(item.servingGrams ?? item.grams ?? item.basisGrams ?? basis?.amount)
-        : null,
-      servingLabel: typeof basis?.labelVi === 'string' ? basis.labelVi : undefined,
-      calories: readOptionalNumber(item.energyKcal ?? item.calories ?? nutrition?.calories),
-      protein: readOptionalNumber(item.proteinG ?? item.protein ?? nutrition?.proteinG ?? macros?.proteinG),
-      carbs: readOptionalNumber(item.carbsG ?? item.carbs ?? nutrition?.carbsG ?? macros?.carbohydrateG),
-      fat: readOptionalNumber(item.fatG ?? item.fat ?? nutrition?.fatG ?? macros?.fatG),
-      source: String(item.publisher ?? source?.publisher ?? root?.publisher ?? 'Viện Dinh dưỡng'),
-      sourceUrl: typeof item.sourceUrl === 'string' ? item.sourceUrl : typeof item.pageUrl === 'string' ? item.pageUrl : typeof source?.pageUrl === 'string' ? source.pageUrl : undefined,
-      sourceId: typeof item.sourceId === 'string' ? item.sourceId : typeof source?.sourceId === 'string' ? source.sourceId : undefined,
-      imageUrl: typeof item.imageUrl === 'string' ? item.imageUrl : undefined,
-      detailBucket: typeof item.detailBucket === 'string' ? item.detailBucket : undefined,
-    }
-  }).filter((item): item is NutritionFoodCatalogItem => Boolean(item))
-}
-
 interface NutritionToastState {
   text: string
   action?: {
@@ -858,18 +547,6 @@ function clearPendingScanReview(ownerId: string) {
   } catch {
     // Session cleanup must not block the active nutrition flow.
   }
-}
-
-function toLocalDateKey(date: Date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function dateFromLocalKey(value: string) {
-  const [year, month, day] = value.split('-').map(Number)
-  return new Date(year, Math.max(0, month - 1), day, 12, 0, 0, 0)
 }
 
 function loadPendingScanReview(ownerId: string): PersistedScanReview | null {
@@ -923,173 +600,6 @@ function createInitialActivities(): NutritionActivityLog[] {
     source: 'manual',
     createdAt: Date.now(),
   }]
-}
-
-let catalogRequest: Promise<NutritionFoodCatalogItem[]> | null = null
-
-function loadNutritionCatalog() {
-  if (!catalogRequest) {
-    catalogRequest = fetch(`${import.meta.env.BASE_URL}data/nutrition-catalog.json`)
-      .then((response) => {
-        if (!response.ok) throw new Error('catalog_unavailable')
-        return response.json() as Promise<unknown>
-      })
-      .then((payload) => {
-        const items = normalizeCatalogPayload(payload)
-        if (!items.length) throw new Error('catalog_empty')
-        return items
-      })
-      .catch((error: unknown) => {
-        catalogRequest = null
-        throw error
-      })
-  }
-  return catalogRequest
-}
-
-function nutritionFoodIdFromHash() {
-  const query = window.location.hash.split('?')[1] ?? ''
-  return new URLSearchParams(query).get('foodId')
-}
-
-type NutritionRouteSection = 'today' | 'diary' | 'scan' | 'catalog' | 'plan' | 'insights' | 'assistant' | 'profile'
-type NutritionPrimarySection = Extract<NutritionRouteSection, NutritionWorkspaceSection>
-
-const NUTRITION_ROUTE_SECTIONS = new Set<NutritionRouteSection>(['today', 'diary', 'scan', 'catalog', 'plan', 'insights', 'assistant', 'profile'])
-
-function nutritionSectionFromHash(): NutritionRouteSection {
-  const query = window.location.hash.split('?')[1] ?? ''
-  const rawSection = new URLSearchParams(query).get('section')
-  return NUTRITION_ROUTE_SECTIONS.has(rawSection as NutritionRouteSection) ? rawSection as NutritionRouteSection : 'today'
-}
-
-function nutritionSectionHash(section: NutritionRouteSection) {
-  return section === 'today' ? '#/nutrition' : `#/nutrition?section=${section}`
-}
-
-function toWorkspaceSection(section: NutritionRouteSection): NutritionWorkspaceSection {
-  return section === 'diary' || section === 'plan' || section === 'catalog' || section === 'insights' ? section : 'today'
-}
-
-function toFoodDetailSummary(food: NutritionFoodCatalogItem): NutritionFoodDetailSummary {
-  const inferredKind = food.kind ?? (food.servingGrams === null ? 'dish' : 'food')
-  const sourceId = food.sourceId ?? food.id.split(':').at(-1) ?? ''
-  const detailBucket = food.detailBucket ?? [...sourceId].reverse().find((character) => /[0-9a-f]/i.test(character))?.toLowerCase() ?? 'other'
-  return {
-    id: food.id,
-    kind: inferredKind,
-    detailBucket,
-    code: food.code,
-    nameVi: food.name,
-    nameEn: food.nameEn,
-    category: food.category,
-    region: food.region,
-    basis: {
-      amount: food.servingGrams,
-      unit: food.servingGrams === null ? null : 'g',
-      qualifier: inferredKind === 'food' ? 'edible_raw_fresh' : 'not_specified_by_source',
-      labelVi: food.servingLabel ?? (inferredKind === 'food' ? '100 g phần ăn được' : 'Khẩu phần tham chiếu theo nguồn'),
-    },
-    energyKcal: food.calories,
-    macros: {
-      proteinG: food.protein,
-      carbohydrateG: food.carbs,
-      fatG: food.fat,
-    },
-    imageUrl: food.imageUrl,
-    sourceUrl: food.sourceUrl,
-  }
-}
-
-function detailNutrientValue(record: NutritionFoodDetailRecord, key: string) {
-  const value = record.nutrients?.find((nutrient) => nutrient.key === key)?.value
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function isNutritionDetailRecord(value: unknown): value is NutritionFoodDetailRecord {
-  const record = asRecord(value)
-  return Boolean(record
-    && typeof record.id === 'string'
-    && typeof record.nameVi === 'string'
-    && (record.kind === 'dish' || record.kind === 'food'))
-}
-
-function findNutritionDetailRecord(payload: unknown, id: string) {
-  if (Array.isArray(payload)) return payload.find((record) => isNutritionDetailRecord(record) && record.id === id) ?? null
-  const root = asRecord(payload)
-  if (!root) return null
-  if (Array.isArray(root.records)) return root.records.find((record) => isNutritionDetailRecord(record) && record.id === id) ?? null
-  return isNutritionDetailRecord(root[id]) ? root[id] : null
-}
-
-function nutritionDetailBucketUrl(bucket: string) {
-  const basePath = String(import.meta.env.BASE_URL ?? '/').replace(/\/$/, '')
-  return `${basePath}/data/nutrition-details/${encodeURIComponent(bucket.replace(/\.json$/i, ''))}.json`
-}
-
-function scaleOptionalNumber(value: number | null | undefined, multiplier: number) {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.round(value * multiplier * 10) / 10 : null
-}
-
-function normalizeSearch(value: string) {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[đĐ]/g, 'd')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-type NutritionAssistantIntent = 'hydration' | 'protein' | 'carbs' | 'fat' | 'fiber' | 'sugar' | 'sodium' | 'workout' | 'allergy' | 'next-meal' | 'energy' | 'getting-started' | 'general'
-
-function resolveNutritionAssistantIntent(question: string): NutritionAssistantIntent {
-  const value = normalizeSearch(question)
-  if (/\b(natri|sodium|muoi|man)\b/.test(value)) return 'sodium'
-  if (/\b(chat xo|fiber|xo)\b/.test(value)) return 'fiber'
-  if (/\b(duong|sugar|ngot)\b/.test(value) && !/\b(tinh bot|bot duong|carb)\b/.test(value)) return 'sugar'
-  if (/\b(carb|tinh bot|bot duong|carbohydrate)\b/.test(value)) return 'carbs'
-  if (/\b(chat beo|fat|lipid|dau mo)\b/.test(value)) return 'fat'
-  if (/\b(dam|protein|thit nac)\b/.test(value)) return 'protein'
-  if (/\b(tap|luyen tap|van dong|truoc tap|sau tap|workout)\b/.test(value)) return 'workout'
-  if (/\b(nuoc|uong nuoc|bu nuoc|hydration|khat)\b/.test(value)) return 'hydration'
-  if (/\b(di ung|can tranh|khong an duoc)\b/.test(value)) return 'allergy'
-  if (/\b(bua tiep|bua toi|bua trua|bua sang|nen an gi|an mon gi|mon phu hop)\b/.test(value)) return 'next-meal'
-  if (/\b(kcal|calo|calorie|nang luong|muc tieu)\b/.test(value)) return 'energy'
-  if (/\b(bat dau|ghi bua|su dung|lam sao)\b/.test(value)) return 'getting-started'
-  return 'general'
-}
-
-function getCalendarStart(date = new Date()) {
-  const start = new Date(date)
-  start.setHours(12, 0, 0, 0)
-  const day = start.getDay()
-  const distanceFromMonday = day === 0 ? 6 : day - 1
-  start.setDate(start.getDate() - distanceFromMonday)
-  return toLocalDateKey(start)
-}
-
-function getWeekDays(startDateKey: string, todayKey: string) {
-  const VI_WEEKDAYS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
-  const startDate = dateFromLocalKey(startDateKey)
-  startDate.setHours(12, 0, 0, 0)
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(startDate)
-    date.setDate(startDate.getDate() + index)
-    const shortDay = VI_WEEKDAYS[date.getDay()]
-    const id = toLocalDateKey(date)
-    return { id, day: shortDay, date: date.getDate(), isToday: id === todayKey, fullDate: date }
-  })
-}
-
-function getRecentDateKeys(endDateKey: string, count: number) {
-  const end = dateFromLocalKey(endDateKey)
-  return Array.from({ length: Math.max(1, count) }, (_, index) => {
-    const date = new Date(end)
-    date.setDate(end.getDate() - (count - index - 1))
-    return toLocalDateKey(date)
-  })
 }
 
 function NutritionOnboarding({ onComplete, initialProfile = DEFAULT_PROFILE, onCancel, editing = false }: { onComplete: (profile: NutritionProfileDraft) => void; initialProfile?: NutritionProfileDraft; onCancel?: () => void; editing?: boolean }) {
@@ -2764,7 +2274,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
   }, [allowDemo, catalog, retryToken])
 
   const retryCatalog = () => {
-    catalogRequest = null
+    resetNutritionCatalog()
     setItems([])
     setCatalogState('loading')
     setRetryToken((current) => current + 1)
