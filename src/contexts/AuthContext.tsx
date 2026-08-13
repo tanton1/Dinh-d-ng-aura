@@ -246,6 +246,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       setUser(toAppUser(firebaseUser))
+      const provisionalProfile: UserProfile = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email ?? '',
+        displayName: firebaseUser.displayName ?? 'Thành viên Aura',
+        photoURL: firebaseUser.photoURL,
+        phoneNumber: firebaseUser.phoneNumber ?? undefined,
+        role: 'student',
+        membership: 'free',
+        onboardingCompleted: false,
+      }
+      setProfile(provisionalProfile)
+      // Firebase Auth is the login boundary. Do not keep the whole app blocked
+      // while the ID-token claims or Firestore profile are still synchronising.
+      setLoading(false)
       let tokenRole: UserRole = 'student'
       try {
         const tokenResult = await getIdTokenResult(firebaseUser)
@@ -264,10 +278,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             uid: firebaseUser.uid,
             email: firebaseUser.email ?? '',
             displayName: firebaseUser.displayName ?? 'Thành viên Aura',
-            role: 'student',
-            membership: 'free',
+            role: effectiveRole(tokenRole, parsed.role),
+            membership: parsed.membership ?? 'free',
           })
-          setLoading(false)
         } catch {}
       }
 

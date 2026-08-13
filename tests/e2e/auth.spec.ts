@@ -22,12 +22,46 @@ test('phone OTP signup is friendly, testable and responsive', async ({ page }) =
   const otpText = await page.locator('.auth-feedback--success strong').innerText()
   const otp = otpText.replace(/\D/g, '')
   await page.getByLabel('Mã OTP').fill(otp)
-  await page.getByRole('button', { name: 'Xác minh và tiếp tục' }).click()
+  // A complete one-time code must submit itself. This is essential on iOS
+  // landscape where the software keyboard leaves very little vertical space.
   await expect(page.getByText(/Xác thực thành công/i)).toBeVisible()
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   expect(overflow).toBeLessThanOrEqual(1)
 })
+
+for (const viewport of [
+  { name: 'iPhone portrait', width: 390, height: 844 },
+  { name: 'iPhone landscape', width: 844, height: 390 },
+]) {
+  test(`OTP action remains inside the fixed ${viewport.name} viewport`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height })
+    await page.goto('/#/auth-preview')
+    await page.getByRole('button', { name: 'Tạo tài khoản', exact: true }).click()
+    await page.getByRole('button', { name: 'Tạo tài khoản bằng số điện thoại' }).click()
+    await page.getByPlaceholder('Nguyễn Minh Anh').fill('Minh Anh')
+    await page.getByPlaceholder('0912 345 678').fill('0912 345 678')
+    await page.getByRole('button', { name: 'Nhận mã OTP' }).click()
+
+    const action = page.getByRole('button', { name: 'Xác minh và tiếp tục' })
+    await expect(action).toBeVisible()
+    const layout = await page.evaluate(() => {
+      const button = document.querySelector<HTMLButtonElement>('.auth-primary-button')!
+      const bounds = button.getBoundingClientRect()
+      return {
+        bodyScrollHeight: document.body.scrollHeight,
+        viewportHeight: window.visualViewport?.height ?? window.innerHeight,
+        buttonTop: bounds.top,
+        buttonBottom: bounds.bottom,
+        scrollY: window.scrollY,
+      }
+    })
+    expect(layout.bodyScrollHeight).toBeLessThanOrEqual(layout.viewportHeight + 1)
+    expect(layout.buttonTop).toBeGreaterThanOrEqual(0)
+    expect(layout.buttonBottom).toBeLessThanOrEqual(layout.viewportHeight + 1)
+    expect(layout.scrollY).toBe(0)
+  })
+}
 
 test('email remains available as an alternate sign-in method', async ({ page }) => {
   await page.goto('/#/auth-preview')

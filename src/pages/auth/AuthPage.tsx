@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
@@ -57,7 +57,39 @@ export default function AuthPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [captchaVisible, setCaptchaVisible] = useState(false)
+  const [keyboardOpen, setKeyboardOpen] = useState(false)
+  const authFormRef = useRef<HTMLFormElement>(null)
+  const lastAutoSubmittedOtpRef = useRef('')
+  const otpVerificationInFlightRef = useRef(false)
   const canonicalRedirectUrl = getCanonicalAuthRedirectUrl()
+
+  useEffect(() => {
+    const root = document.documentElement
+    const body = document.body
+    const visualViewport = window.visualViewport
+    const updateViewport = () => {
+      const viewportHeight = Math.round(visualViewport?.height ?? window.innerHeight)
+      root.style.setProperty('--auth-viewport-height', `${viewportHeight}px`)
+      setKeyboardOpen(viewportHeight < window.innerHeight - 120)
+    }
+
+    root.classList.add('auth-screen-open')
+    body.classList.add('auth-screen-open')
+    window.scrollTo(0, 0)
+    updateViewport()
+    window.addEventListener('resize', updateViewport)
+    visualViewport?.addEventListener('resize', updateViewport)
+    visualViewport?.addEventListener('scroll', updateViewport)
+
+    return () => {
+      window.removeEventListener('resize', updateViewport)
+      visualViewport?.removeEventListener('resize', updateViewport)
+      visualViewport?.removeEventListener('scroll', updateViewport)
+      root.classList.remove('auth-screen-open')
+      body.classList.remove('auth-screen-open')
+      root.style.removeProperty('--auth-viewport-height')
+    }
+  }, [])
 
   useEffect(() => {
     if (canonicalRedirectUrl) window.location.replace(canonicalRedirectUrl)
@@ -88,12 +120,23 @@ export default function AuthPage() {
     return () => window.clearInterval(timer)
   }, [retrySeconds])
 
+  useEffect(() => {
+    if (authMethod !== 'phone' || !otpSent || otpCode.length !== 6 || loading) return undefined
+    if (lastAutoSubmittedOtpRef.current === otpCode) return undefined
+
+    lastAutoSubmittedOtpRef.current = otpCode
+    const frame = window.requestAnimationFrame(() => authFormRef.current?.requestSubmit())
+    return () => window.cancelAnimationFrame(frame)
+  }, [authMethod, loading, otpCode, otpSent])
+
   const resetFeedback = () => {
     setError(null)
     setMessage(null)
   }
 
   const resetPhoneStep = () => {
+    lastAutoSubmittedOtpRef.current = ''
+    otpVerificationInFlightRef.current = false
     setOtpSent(false)
     setOtpCode('')
     setReceivedOtpHint(null)
@@ -156,6 +199,10 @@ export default function AuthPage() {
       return
     }
 
+    const isPhoneVerification = authMethod === 'phone' && otpSent
+    if (isPhoneVerification && otpVerificationInFlightRef.current) return
+    if (isPhoneVerification) otpVerificationInFlightRef.current = true
+
     setLoading(true)
     setLoadingAction('form')
     resetFeedback()
@@ -170,6 +217,7 @@ export default function AuthPage() {
     } catch (authError) {
       setError(getFriendlyAuthError(authError))
     } finally {
+      if (isPhoneVerification) otpVerificationInFlightRef.current = false
       setLoading(false)
       setLoadingAction(null)
     }
@@ -230,7 +278,16 @@ export default function AuthPage() {
       <div className="auth-soft-shape auth-soft-shape--top" />
       <div className="auth-soft-shape auth-soft-shape--bottom" />
 
-      <section className={`auth-entry ${authMethod ? 'is-form-step' : 'is-choice-step'}`} aria-labelledby="auth-title">
+      <section
+        className={[
+          'auth-entry',
+          authMethod ? 'is-form-step' : 'is-choice-step',
+          mode === 'signup' ? 'is-signup' : 'is-signin',
+          authMethod === 'phone' && otpSent ? 'is-otp-step' : '',
+          keyboardOpen ? 'is-keyboard-open' : '',
+        ].filter(Boolean).join(' ')}
+        aria-labelledby="auth-title"
+      >
         <div className="auth-logo-stage">
           <img src="/aura-logo-transparent-512.png" alt="Aura Fit" className="auth-logo-image" width="512" height="341" fetchPriority="high" />
         </div>
@@ -269,7 +326,7 @@ export default function AuthPage() {
             </button>
           </div>
         ) : (
-          <form className="auth-form auth-entry-form" onSubmit={submit} noValidate>
+          <form ref={authFormRef} className="auth-form auth-entry-form" onSubmit={submit} noValidate>
             {mode === 'signup' && (
               <label className="auth-field">
                 <span>Họ và tên</span>
@@ -295,7 +352,7 @@ export default function AuthPage() {
                   </div>
                   <label className="auth-field auth-field--otp">
                     <span>Mã OTP</span>
-                    <div><KeyRound size={19} /><input required className="auth-otp-input" type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6} value={otpCode} onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" autoComplete="one-time-code" autoFocus /></div>
+                    <div><KeyRound size={19} /><input required className="auth-otp-input" type="text" inputMode="numeric" enterKeyHint="done" pattern="[0-9]*" maxLength={6} value={otpCode} onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" autoComplete="one-time-code" /></div>
                   </label>
                   <div className="auth-resend-row">
                     <span>Chưa nhận được mã?</span>
