@@ -715,7 +715,7 @@ service cloud.firestore {
                     && request.resource.data.updatedAt == request.time
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                       'status', 'coachFeedback', 'approvedMeal',
-                      'approvedAtTimestamp', 'aiAnalysis', 'updatedAt'
+                      'approvedAtTimestamp', 'updatedAt'
                     ]);
       allow delete: if isAdmin();
     }

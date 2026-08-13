@@ -186,6 +186,30 @@ export function withoutUndefined<T>(value: T): T {
   return value
 }
 
+type MealAnalysisSnapshot = Record<string, unknown>
+
+function isMealAnalysisSnapshot(value: unknown): value is MealAnalysisSnapshot {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * Finds the first structured analysis object while ignoring legacy review
+ * strings. A JSON object string is accepted only to recover older records.
+ */
+export function resolveMealAnalysisSnapshot(...candidates: unknown[]): MealAnalysisSnapshot | undefined {
+  for (const candidate of candidates) {
+    if (isMealAnalysisSnapshot(candidate)) return withoutUndefined(candidate)
+    if (typeof candidate !== 'string' || !candidate.trim().startsWith('{')) continue
+    try {
+      const parsed = JSON.parse(candidate)
+      if (isMealAnalysisSnapshot(parsed)) return withoutUndefined(parsed)
+    } catch {
+      // A legacy Coach review is plain text, not an analysis snapshot.
+    }
+  }
+  return undefined
+}
+
 function mapCourseProgress(snapshot: QueryDocumentSnapshot<DocumentData>): CourseProgress {
   const data = snapshot.data()
   return {
@@ -819,6 +843,13 @@ export async function submitMealReview(userId: string, userName: string, meal: a
   const reference = doc(db, 'mealReviews', meal.id)
   
   let cleanedMeal = { ...meal }
+  const analysisSnapshot = resolveMealAnalysisSnapshot(meal.analysisSnapshot, meal.aiAnalysis)
+  if (analysisSnapshot) {
+    // Keep the snapshot next to the meal for backwards-compatible readers and
+    // at the review root as the immutable source used during approval.
+    cleanedMeal.aiAnalysis = analysisSnapshot
+    cleanedMeal.analysisSnapshot = analysisSnapshot
+  }
   const rawImg = meal.image || meal.imageUrl || meal.img || meal.fileName
   if (rawImg && typeof rawImg === 'string' && rawImg.startsWith('data:image')) {
     try {
@@ -866,6 +897,7 @@ export async function submitMealReview(userId: string, userName: string, meal: a
       studentGoal: studentGoal || 'Giảm mỡ thâm hụt calo & Tăng cơ nạc',
       studentCondition: studentCondition || 'Tập gym 3-4 buổi/tuần (Chỉ số theo nhật ký)',
       meal: cleanedMeal,
+      analysisSnapshot,
       status: 'pending',
       updatedAt: serverTimestamp(),
       createdAt: serverTimestamp(),
@@ -933,12 +965,32 @@ export async function updateMealReview(reviewId: string, updates: any) {
       if (data.userId && data.meal?.id) {
         const mealRef = doc(db, 'users', data.userId, 'mealLogs', data.meal.id)
         try {
-          await setDoc(mealRef, withoutUndefined({
+          const mealSnapshot = await getDoc(mealRef)
+          const existingAnalysis = mealSnapshot.exists()
+            ? resolveMealAnalysisSnapshot(
+                mealSnapshot.data().analysisSnapshot,
+                mealSnapshot.data().aiAnalysis,
+              )
+            : undefined
+          const reviewAnalysis = resolveMealAnalysisSnapshot(
+            data.analysisSnapshot,
+            data.meal?.analysisSnapshot,
+            data.meal?.aiAnalysis,
+            data.aiAnalysis,
+            sanitizedUpdates.analysisSnapshot,
+            sanitizedUpdates.aiAnalysis,
+          )
+          const mealLogUpdate: Record<string, unknown> = {
             coachFeedback: sanitizedUpdates.coachFeedback,
-            aiAnalysis: data.aiAnalysis || sanitizedUpdates.aiAnalysis || null,
             reviewStatus: sanitizedUpdates.status || 'approved',
-            updatedAt: serverTimestamp()
-          }), { merge: true })
+            updatedAt: serverTimestamp(),
+          }
+          // Never overwrite an existing structured analysis. Only repair an
+          // older null/missing log from the immutable review snapshot.
+          if (!existingAnalysis && reviewAnalysis) {
+            mealLogUpdate.aiAnalysis = reviewAnalysis
+          }
+          await setDoc(mealRef, withoutUndefined(mealLogUpdate), { merge: true })
         } catch (error) {
           handleFirestoreError(error, OperationType.WRITE, `users/${data.userId}/mealLogs/${data.meal.id}`)
         }

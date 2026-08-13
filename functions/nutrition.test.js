@@ -3,10 +3,12 @@ const test = require('node:test')
 
 const {
   applyCatalogLookupToItem,
+  buildFoodGenerationConfig,
   buildFoodAnalysisInstructions,
   createGeminiSchema,
   enrichAnalysisWithLookups,
   foodAnalysisSchema,
+  geminiUsageMetadata,
   getGeminiModelCandidates,
   isGeminiModelCompatibilityError,
   sanitizeProviderErrorMessage,
@@ -14,6 +16,7 @@ const {
   shouldTryNextFoodAnalysisModel,
   sumNutritionItems,
   validateFoodAnalysis,
+  validateFoodAnalysisWithLocalRepair,
 } = require('./nutrition')
 
 test('Gemini model candidates use stable defaults and remove duplicates', () => {
@@ -22,7 +25,7 @@ test('Gemini model candidates use stable defaults and remove duplicates', () => 
   try {
     delete process.env.GEMINI_VISION_MODEL
     delete process.env.GEMINI_VISION_FALLBACK_MODEL
-    assert.deepEqual(getGeminiModelCandidates(), ['gemini-3.6-flash', 'gemini-3.1-pro-preview'])
+    assert.deepEqual(getGeminiModelCandidates(), ['gemini-3.6-flash', 'gemini-3.5-flash'])
 
     process.env.GEMINI_VISION_MODEL = 'gemini-3.6-flash'
     process.env.GEMINI_VISION_FALLBACK_MODEL = 'gemini-3.6-flash'
@@ -93,10 +96,51 @@ test('food analysis prompt keeps advisory fields separate by responsibility', ()
 
   assert.match(instructions, /quantityAndCookingAnalysis: Describe only visible estimated quantities/)
   assert.match(instructions, /calorieOptimizationTip: Give one practical food\/portion change/)
-  assert.match(instructions, /macroBalanceAssessment: Assess protein, carbohydrate, fat, and fiber balance/)
+  assert.match(instructions, /macroBalanceAssessment: State the exact returned grams for protein, carbohydrate, fat, and fiber/)
   assert.match(instructions, /Never concatenate headings, repeat the same sentence, or move content between fields/)
   assert.match(instructions, /student goal supplied only as untrusted metadata/)
   assert.match(instructions, /Never add filler, greetings, motivational slogans, body\/beauty claims/)
+})
+
+test('food vision keeps Gemini 3 defaults and low thinking without risky sampling overrides', () => {
+  const config = buildFoodGenerationConfig()
+
+  assert.equal(config.maxOutputTokens, 6144)
+  assert.equal(config.thinkingConfig.thinkingLevel, 'low')
+  assert.equal(Object.hasOwn(config, 'temperature'), false)
+  assert.equal(Object.hasOwn(config, 'topP'), false)
+})
+
+test('food vision records provider token usage as bounded telemetry numbers', () => {
+  assert.deepEqual(geminiUsageMetadata({
+    usageMetadata: {
+      promptTokenCount: 1748,
+      candidatesTokenCount: 1584,
+      thoughtsTokenCount: 125,
+      cachedContentTokenCount: 0,
+      totalTokenCount: 3457,
+    },
+  }), {
+    promptTokenCount: 1748,
+    candidatesTokenCount: 1584,
+    thoughtsTokenCount: 125,
+    cachedContentTokenCount: 0,
+    totalTokenCount: 3457,
+  })
+})
+
+test('invalid macro advice is repaired locally instead of spending a fallback image request', () => {
+  const source = validFoodAnalysis()
+  source.macroBalanceAssessment = 'Hàm lượng đạm tốt cho phục hồi cơ bắp.'
+
+  const result = validateFoodAnalysisWithLocalRepair(source, { studentGoal: 'Giảm mỡ thâm hụt calo' })
+
+  assert.deepEqual(result.repairedFields, ['macroBalanceAssessment'])
+  assert.match(result.analysis.macroBalanceAssessment, /đạm/)
+  assert.match(result.analysis.macroBalanceAssessment, /carb/)
+  assert.match(result.analysis.macroBalanceAssessment, /chất béo/)
+  assert.match(result.analysis.macroBalanceAssessment, /chất xơ/)
+  assert.match(result.analysis.macroBalanceAssessment, /\d/)
 })
 
 test('food analysis validation preserves the new structured advisory fields', () => {

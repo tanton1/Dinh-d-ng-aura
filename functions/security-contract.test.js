@@ -8,6 +8,8 @@ const rules = readFileSync(join(repositoryRoot, 'firestore.rules'), 'utf8')
 const functionsSource = readFileSync(join(__dirname, 'index.js'), 'utf8')
 const authSource = readFileSync(join(repositoryRoot, 'src', 'contexts', 'AuthContext.tsx'), 'utf8')
 const authOriginSource = readFileSync(join(repositoryRoot, 'src', 'services', 'authOriginService.ts'), 'utf8')
+const mealDetailSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'student', 'CapturedMealDetail.tsx'), 'utf8')
+const firebaseServiceSource = readFileSync(join(repositoryRoot, 'src', 'services', 'firebaseService.ts'), 'utf8')
 
 test('profile rules prevent client role and membership changes', () => {
   assert.match(rules, /function hasOnlySafeUserChanges\(\)/)
@@ -29,6 +31,19 @@ test('meal reviews and notifications are owner scoped', () => {
   assert.match(rules, /match \/mealReviews\/\{reviewId\}[\s\S]*?resource\.data\.userId == request\.auth\.uid/)
   assert.match(rules, /request\.resource\.data\.userId == resource\.data\.userId/)
   assert.match(rules, /match \/notifications\/\{notificationId\}[\s\S]*?allow read: if isOwner\(userId\)/)
+})
+
+test('meal approval preserves the immutable structured AI analysis snapshot', () => {
+  assert.match(firebaseServiceSource, /resolveMealAnalysisSnapshot/)
+  assert.match(firebaseServiceSource, /data\.meal\?\.aiAnalysis/)
+  assert.match(firebaseServiceSource, /if \(!existingAnalysis && reviewAnalysis\)/)
+  assert.doesNotMatch(firebaseServiceSource, /aiAnalysis:\s*data\.aiAnalysis\s*\|\|\s*sanitizedUpdates\.aiAnalysis\s*\|\|\s*null/)
+  assert.doesNotMatch(mealDetailSource, /generateMealReview/)
+  assert.match(mealDetailSource, /submitMealReview\([^\n]+, meal\)/)
+
+  const reviewUpdateRule = rules.match(/match \/mealReviews\/\{reviewId\}[\s\S]*?allow delete: if isAdmin\(\);/)?.[0] ?? ''
+  assert.doesNotMatch(reviewUpdateRule, /'aiAnalysis'/)
+  assert.doesNotMatch(reviewUpdateRule, /'analysisSnapshot'/)
 })
 
 test('production auth has no email role bootstrap or unconditional demo OTP', () => {

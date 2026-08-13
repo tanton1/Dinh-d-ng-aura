@@ -64,7 +64,7 @@ GEMINI_API_KEY=replace_with_your_key
 The optional `GEMINI_VISION_MODEL` environment variable defaults to
 `gemini-3.6-flash`. If that stable model is temporarily unavailable, the
 function falls back to `GEMINI_VISION_FALLBACK_MODEL`, which defaults to
-`gemini-3.1-pro-preview`. Do not expose any provider configuration value through
+`gemini-3.5-flash`. Do not expose any provider configuration value through
 a `VITE_*` variable.
 
 Verify deployment metadata without printing the secret value:

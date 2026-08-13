@@ -69,7 +69,7 @@ export interface MealLogItem {
 }
 
 import { useAuth } from '../../contexts/AuthContext'
-import { generateMealReview, getUsableFoodAnalysisText } from '../../services/nutritionService'
+import { getUsableFoodAnalysisText } from '../../services/nutritionService'
 import { submitMealReview } from '../../services/firebaseService'
 
 export interface CapturedMealDetailProps {
@@ -83,8 +83,6 @@ export interface CapturedMealDetailProps {
 
 export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
   meal,
-  dailyCalorieGoal = 2000,
-  userGoal = 'lose-fat',
   onBack,
   onEdit,
   onDelete,
@@ -97,16 +95,10 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
     if (!user) return alert('Vui lòng đăng nhập để gửi.')
     setIsSubmittingReview(true)
     try {
-      const aiAnalysis = await generateMealReview(meal, {
-        goals: [userGoal],
-        goal: userGoal,
-        targetCalories: dailyCalorieGoal,
-        studentName: user.displayName || user.email || 'Học viên',
-      })
-      await submitMealReview(user.uid, user.displayName || user.email || 'Học viên', {
-        ...meal,
-        aiAnalysis
-      })
+      // The scan already contains a complete structured AI snapshot. Sending it
+      // for review must not spend another Gemini request or replace that object
+      // with a short review string.
+      await submitMealReview(user.uid, user.displayName || user.email || 'Học viên', meal)
       setReviewSubmitted(true)
     } catch (error) {
       console.error(error)

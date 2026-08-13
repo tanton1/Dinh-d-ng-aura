@@ -50,6 +50,7 @@ export interface PendingMealItem {
     aiFeedback?: string
     coachFeedbackSuggestion?: string
   }
+  analysisSnapshot?: PendingMealItem['aiAnalysis']
   aiFeedback?: string
   goalAlignmentAssessment?: string
   calorieOptimizationTip?: string
@@ -103,6 +104,10 @@ export function subscribeToRealtimeMeals(
 
 function mapDocToMeal(r: any): PendingMealItem {
   const mealObj = r.meal || {}
+  const analysisSnapshot = r.analysisSnapshot
+    || mealObj.analysisSnapshot
+    || r.aiAnalysis
+    || mealObj.aiAnalysis
   const rawImage =
     mealObj.image ||
     mealObj.imageUrl ||
@@ -194,18 +199,17 @@ function mapDocToMeal(r: any): PendingMealItem {
     aiWarning: r.aiWarning || mealObj.aiWarning || null,
     aiSuggestions: r.aiSuggestions || mealObj.aiSuggestions || [],
     coachFeedback: r.coachFeedback || mealObj.coachFeedback,
-    aiAnalysis: r.aiAnalysis || mealObj.aiAnalysis,
+    aiAnalysis: analysisSnapshot,
+    analysisSnapshot,
     goalAlignmentAssessment: r.goalAlignmentAssessment 
       || mealObj.goalAlignmentAssessment 
-      || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.goalAlignmentAssessment : undefined) 
-      || (typeof mealObj.aiAnalysis === 'object' ? mealObj.aiAnalysis?.goalAlignmentAssessment : undefined),
-    quantityAndCookingAnalysis: r.quantityAndCookingAnalysis || mealObj.quantityAndCookingAnalysis || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.quantityAndCookingAnalysis : undefined) || (typeof mealObj.aiAnalysis === 'object' ? mealObj.aiAnalysis?.quantityAndCookingAnalysis : undefined),
-    portionAndCalorieRationale: r.portionAndCalorieRationale || mealObj.portionAndCalorieRationale || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.portionAndCalorieRationale : undefined) || (typeof mealObj.aiAnalysis === 'object' ? mealObj.aiAnalysis?.portionAndCalorieRationale : undefined),
-    calorieOptimizationTip: r.calorieOptimizationTip || mealObj.calorieOptimizationTip || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.calorieOptimizationTip : undefined) || (typeof mealObj.aiAnalysis === 'object' ? mealObj.aiAnalysis?.calorieOptimizationTip : undefined),
-    macroBalanceAssessment: r.macroBalanceAssessment || mealObj.macroBalanceAssessment || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.macroBalanceAssessment : undefined) || (typeof mealObj.aiAnalysis === 'object' ? mealObj.aiAnalysis?.macroBalanceAssessment : undefined),
+      || (typeof analysisSnapshot === 'object' ? analysisSnapshot?.goalAlignmentAssessment : undefined),
+    quantityAndCookingAnalysis: r.quantityAndCookingAnalysis || mealObj.quantityAndCookingAnalysis || (typeof analysisSnapshot === 'object' ? analysisSnapshot?.quantityAndCookingAnalysis : undefined),
+    portionAndCalorieRationale: r.portionAndCalorieRationale || mealObj.portionAndCalorieRationale || (typeof analysisSnapshot === 'object' ? analysisSnapshot?.portionAndCalorieRationale : undefined),
+    calorieOptimizationTip: r.calorieOptimizationTip || mealObj.calorieOptimizationTip || (typeof analysisSnapshot === 'object' ? analysisSnapshot?.calorieOptimizationTip : undefined),
+    macroBalanceAssessment: r.macroBalanceAssessment || mealObj.macroBalanceAssessment || (typeof analysisSnapshot === 'object' ? analysisSnapshot?.macroBalanceAssessment : undefined),
     coachFeedbackSuggestion: r.coachFeedbackSuggestion 
       || mealObj.coachFeedbackSuggestion 
-      || (typeof r.aiAnalysis === 'object' ? r.aiAnalysis?.coachFeedbackSuggestion : undefined) 
-      || (typeof mealObj.aiAnalysis === 'object' ? mealObj.aiAnalysis?.coachFeedbackSuggestion : undefined),
+      || (typeof analysisSnapshot === 'object' ? analysisSnapshot?.coachFeedbackSuggestion : undefined),
   }
 }

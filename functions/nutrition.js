@@ -17,7 +17,7 @@ const RATE_LIMIT_DAY_REQUESTS = 50
 const ALLOWED_CONTENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const ALLOWED_MEAL_TYPES = new Set(['breakfast', 'lunch', 'dinner', 'snack', 'other'])
 const DEFAULT_MODEL = 'gemini-3.6-flash'
-const DEFAULT_FALLBACK_MODEL = 'gemini-3.1-pro-preview'
+const DEFAULT_FALLBACK_MODEL = 'gemini-3.5-flash'
 const ENFORCE_APP_CHECK = process.env.ENFORCE_APP_CHECK === 'true'
 const NUTRITION_FIELDS = ['calories', 'proteinG', 'carbsG', 'fatG', 'fiberG', 'sugarG', 'sodiumMg']
 const TRUSTED_CATALOG_MATCH_SCORE = 0.8
@@ -578,6 +578,112 @@ function validateFoodAnalysis(value) {
   return analysis
 }
 
+const LOCALLY_REPAIRABLE_ADVISORY_FIELDS = Object.freeze([
+  'quantityAndCookingAnalysis',
+  'portionAndCalorieRationale',
+  'goalAlignmentAssessment',
+  'calorieOptimizationTip',
+  'macroBalanceAssessment',
+  'coachFeedbackSuggestion',
+  'aiFeedback',
+])
+
+function roundedNutritionValue(value) {
+  return Math.round((Number(value) || 0) * 10) / 10
+}
+
+function localGoalLabel(studentGoal) {
+  const normalized = normalizeVietnameseName(String(studentGoal || ''))
+  if (/giam mo|giam can|tham hut/.test(normalized)) return 'giảm mỡ'
+  if (/tang co|tang can|thang du/.test(normalized)) return 'tăng cơ'
+  return 'duy trì sức khỏe'
+}
+
+function localItemSummary(value) {
+  const items = Array.isArray(value.items) ? value.items.slice(0, 5) : []
+  if (!items.length) return '1 phần món ăn trong ảnh'
+  return items.map((item) => {
+    const name = typeof item?.nameVi === 'string'
+      ? item.nameVi.replace(/[\r\n]+/g, ' ').trim().slice(0, 60)
+      : 'thành phần'
+    const method = typeof item?.cookingMethod === 'string'
+      ? item.cookingMethod.replace(/[\r\n]+/g, ' ').trim().slice(0, 35)
+      : 'chưa rõ cách chế biến'
+    return `${roundedNutritionValue(item?.estimatedGrams)}g ${name} (${method})`
+  }).join(', ')
+}
+
+function buildLocalAdvisory(field, value, context = {}) {
+  const totals = isPlainObject(value.totals) ? value.totals : {}
+  const calories = roundedNutritionValue(totals.calories)
+  const protein = roundedNutritionValue(totals.proteinG)
+  const carbs = roundedNutritionValue(totals.carbsG)
+  const fat = roundedNutritionValue(totals.fatG)
+  const fiber = roundedNutritionValue(totals.fiberG)
+  const goal = localGoalLabel(context.studentGoal)
+
+  if (field === 'quantityAndCookingAnalysis') {
+    return `Khẩu phần quan sát được ước tính gồm ${localItemSummary(value)}. Cách chế biến của từng thành phần được mô tả theo dấu hiệu nhìn thấy trong ảnh.`
+  }
+  if (field === 'portionAndCalorieRationale') {
+    return `Mức ${calories} kcal được ước tính dựa trên tỷ lệ món ăn so với đĩa hoặc bát, độ dày và khối lượng nhìn thấy. Dầu, sốt hoặc phần bị che là nguồn sai số chính.`
+  }
+  if (field === 'goalAlignmentAssessment') {
+    return `Bữa ăn cung cấp khoảng ${calories} kcal và ${protein}g đạm. So với mục tiêu ${goal}, mức phù hợp còn phụ thuộc phần năng lượng và đạm còn lại trong chỉ tiêu cả ngày.`
+  }
+  if (field === 'calorieOptimizationTip') {
+    if (goal === 'giảm mỡ') return `Giảm khoảng 5–10g dầu hoặc sốt, đồng thời giữ phần rau để hạ kcal mà không làm giảm nhiều thể tích bữa ăn.`
+    if (goal === 'tăng cơ') return `Tăng thêm khoảng 50g nguồn đạm nạc nếu tổng năng lượng ngày còn thiếu; giữ dầu và sốt ở mức hiện tại để kiểm soát kcal.`
+    return `Giữ khẩu phần hiện tại và điều chỉnh khoảng 5–10g dầu hoặc sốt nếu tổng kcal trong ngày vượt chỉ tiêu.`
+  }
+  if (field === 'macroBalanceAssessment') {
+    const adjustment = fiber < 6
+      ? 'Chất xơ còn thấp; nên thêm khoảng 100–150g rau xanh.'
+      : protein < 20
+        ? 'Đạm còn thấp; nên thêm một phần đạm nạc phù hợp.'
+        : 'Tỷ lệ các nhóm chính tương đối cân đối; có thể giữ khẩu phần hiện tại.'
+    return `Bữa ăn có ${protein}g đạm, ${carbs}g carb, ${fat}g chất béo và ${fiber}g chất xơ. ${adjustment}`
+  }
+  if (field === 'coachFeedbackSuggestion') {
+    return `Coach có thể ghi nhận bữa ăn khoảng ${calories} kcal với ${protein}g đạm, sau đó xác nhận khẩu phần dầu hoặc sốt. Với mục tiêu ${goal}, hãy ưu tiên điều chỉnh trực tiếp lượng món ăn thay vì bù bằng vận động.`
+  }
+  if (field === 'aiFeedback') {
+    return `Bữa ăn ước tính ${calories} kcal, gồm ${protein}g đạm, ${carbs}g carb và ${fat}g chất béo; khẩu phần cần được xác nhận nếu có dầu hoặc sốt bị che.`
+  }
+  return null
+}
+
+function repairFoodAnalysisLocally(value, validationError, context = {}) {
+  if (!isPlainObject(value) || value.isFood !== true) {
+    return { value, repairedFields: [] }
+  }
+  const reason = validationError instanceof Error ? validationError.message : String(validationError || '')
+  const field = LOCALLY_REPAIRABLE_ADVISORY_FIELDS.find((candidate) => reason.includes(candidate))
+  if (!field) return { value, repairedFields: [] }
+  const replacement = buildLocalAdvisory(field, value, context)
+  if (!replacement || replacement === value[field]) return { value, repairedFields: [] }
+  return {
+    value: { ...value, [field]: replacement },
+    repairedFields: [field],
+  }
+}
+
+function validateFoodAnalysisWithLocalRepair(value, context = {}) {
+  let candidate = value
+  const repairedFields = []
+  for (let attempt = 0; attempt <= LOCALLY_REPAIRABLE_ADVISORY_FIELDS.length; attempt += 1) {
+    try {
+      return { analysis: validateFoodAnalysis(candidate), repairedFields }
+    } catch (error) {
+      const repair = repairFoodAnalysisLocally(candidate, error, context)
+      if (!repair.repairedFields.length) throw error
+      candidate = repair.value
+      repairedFields.push(...repair.repairedFields)
+    }
+  }
+  throw new Error('Food analysis local repair exceeded the advisory field limit.')
+}
+
 function normalizeVietnameseName(value) {
   return value
     .normalize('NFD')
@@ -990,6 +1096,33 @@ async function enrichWithNutritionDatabase(db, analysis) {
   return enrichAnalysisWithLookups(analysis, dishLookup, itemLookups)
 }
 
+function geminiUsageMetadata(payload) {
+  const usage = isPlainObject(payload?.usageMetadata) ? payload.usageMetadata : {}
+  const tokenCount = (value) => Number.isFinite(Number(value)) && Number(value) >= 0
+    ? Math.round(Number(value))
+    : 0
+  return {
+    promptTokenCount: tokenCount(usage.promptTokenCount),
+    candidatesTokenCount: tokenCount(usage.candidatesTokenCount),
+    thoughtsTokenCount: tokenCount(usage.thoughtsTokenCount),
+    cachedContentTokenCount: tokenCount(usage.cachedContentTokenCount),
+    totalTokenCount: tokenCount(usage.totalTokenCount),
+  }
+}
+
+function buildFoodGenerationConfig() {
+  return {
+    maxOutputTokens: 6144,
+    thinkingConfig: { thinkingLevel: 'low' },
+    responseFormat: {
+      text: {
+        mimeType: 'APPLICATION_JSON',
+        schema: geminiFoodAnalysisSchema,
+      },
+    },
+  }
+}
+
 async function requestGeminiModel({ apiKey, buffer, contentType, prompt, instructions, model, scanId }) {
   let response
   try {
@@ -1018,18 +1151,7 @@ async function requestGeminiModel({ apiKey, buffer, contentType, prompt, instruc
               },
             ],
           }],
-          generationConfig: {
-            maxOutputTokens: 6144,
-            temperature: 0.2,
-            topP: 0.8,
-            thinkingConfig: { thinkingLevel: 'low' },
-            responseFormat: {
-              text: {
-                mimeType: 'APPLICATION_JSON',
-                schema: geminiFoodAnalysisSchema,
-              },
-            },
-          },
+          generationConfig: buildFoodGenerationConfig(),
         }),
         signal: AbortSignal.timeout(50000),
       },
@@ -1051,6 +1173,15 @@ async function requestGeminiModel({ apiKey, buffer, contentType, prompt, instruc
   const headerRequestId = response.headers.get('x-request-id') ?? response.headers.get('x-guploader-uploadid')
   const payload = await response.json().catch(() => null)
   const requestId = typeof payload?.responseId === 'string' ? payload.responseId : (headerRequestId ?? null)
+  const usage = geminiUsageMetadata(payload)
+  logger.info('Food vision Gemini attempt', {
+    scanId,
+    model,
+    requestId,
+    outcome: response.ok ? 'success' : 'provider_error',
+    status: response.status,
+    ...usage,
+  })
   if (!response.ok) {
     const providerMessage = sanitizeProviderErrorMessage(payload?.error?.message)
     logger.error('Food vision provider returned an error.', {
@@ -1062,10 +1193,10 @@ async function requestGeminiModel({ apiKey, buffer, contentType, prompt, instruc
       providerType: payload?.error?.status,
       providerMessage,
     })
-    return { ok: false, status: response.status, requestId, providerMessage }
+    return { ok: false, status: response.status, requestId, providerMessage, usage }
   }
 
-  return { ok: true, payload, requestId }
+  return { ok: true, payload, requestId, usage }
 }
 
 function buildFoodAnalysisInstructions() {
@@ -1080,7 +1211,7 @@ function buildFoodAnalysisInstructions() {
     'portionAndCalorieRationale: Explain only the visual evidence and uncertainty behind the mass and calorie estimate (plate/bowl scale, food thickness, hidden oil or sauce). Do not give recommendations.',
     'goalAlignmentAssessment: Compare this meal with the student goal supplied only as untrusted metadata. Refer to relevant meal kcal/macros and state what aligns or conflicts. Do not repeat cooking observations or give the calorie/macro action tips.',
     'calorieOptimizationTip: Give one practical food/portion change for this specific meal to reduce, increase, or maintain calories in line with the supplied goal. Do not recommend exercise to compensate for food and do not discuss general macro balance.',
-    'macroBalanceAssessment: Assess protein, carbohydrate, fat, and fiber balance using the returned totals, then give one food-based macro adjustment if needed. Do not repeat goal alignment or calorie optimization.',
+    'macroBalanceAssessment: State the exact returned grams for protein, carbohydrate, fat, and fiber, assess their balance, then give one food-based macro adjustment if needed. All four macro groups and numeric gram values are mandatory. Do not repeat goal alignment or calorie optimization.',
     'coachFeedbackSuggestion: Write a separate 30-100 word internal draft for a Coach/PT to review before sending. Base it directly on the supplied goal and condition; do not copy any other field verbatim.',
     'aiFeedback: Summarize the nutritional picture in one or two concise sentences without adding facts not already represented by the structured fields.',
     'Return Vietnamese display names, English names, and an ASCII Vietnamese search term suitable for exact database matching.',
@@ -1174,10 +1305,21 @@ async function analyzeWithGemini({ apiKey, buffer, contentType, mealType, notes,
     }
 
     try {
+      const parsedAnalysis = JSON.parse(outputText)
+      const validated = validateFoodAnalysisWithLocalRepair(parsedAnalysis, { studentGoal })
+      if (validated.repairedFields.length) {
+        logger.info('Food vision advisory fields repaired without another model request.', {
+          scanId,
+          model,
+          requestId: result.requestId,
+          repairedFields: [...new Set(validated.repairedFields)],
+        })
+      }
       return {
-        analysis: validateFoodAnalysis(JSON.parse(outputText)),
+        analysis: validated.analysis,
         model,
         providerRequestId: result.requestId,
+        localRepairFields: [...new Set(validated.repairedFields)],
       }
     } catch (error) {
       logger.error('Food vision structured output failed server validation.', {
@@ -1446,16 +1588,20 @@ Không dùng markdown định dạng phức tạp, chỉ cần xuống dòng h�
 
 module.exports = {
   applyCatalogLookupToItem,
+  buildFoodGenerationConfig,
   buildFoodAnalysisInstructions,
   createGeminiSchema,
   createNutritionFunctions,
   enrichAnalysisWithLookups,
   foodAnalysisSchema,
+  geminiUsageMetadata,
   getGeminiModelCandidates,
   isGeminiModelCompatibilityError,
   shouldTryNextFoodAnalysisModel,
   sanitizeProviderErrorMessage,
   scaleCatalogNutrition,
   sumNutritionItems,
+  repairFoodAnalysisLocally,
   validateFoodAnalysis,
+  validateFoodAnalysisWithLocalRepair,
 }
