@@ -133,7 +133,7 @@ export default function HomePage({
         unsubscribeWater()
       }
     } catch (error) {
-      console.warn('Aura Daily Pulse đang dùng dữ liệu gần nhất trên thiết bị:', error)
+      console.warn('Aura Today Flow đang dùng dữ liệu gần nhất trên thiết bị:', error)
     }
   }, [isDemo, ownerId])
 
