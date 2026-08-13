@@ -25,7 +25,7 @@ import {
 import { doc, onSnapshot } from 'firebase/firestore'
 import { firebaseAuth, firestoreDb, isFirebaseConfigured } from '../lib/firebase'
 import { createOrUpdateUserProfile, updateUserProfile } from '../services/firebaseService'
-import { normalizeOnboardingProfile } from '../onboarding/defaults'
+import { ONBOARDING_DEFAULTS } from '../onboarding/defaults'
 import { reportClientIssue } from '../services/clientTelemetryService'
 import type { AppUser, UserProfile, UserRole } from '../types'
 
@@ -348,26 +348,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const onboardingSource = data.onboardingData && typeof data.onboardingData === 'object'
               ? data.onboardingData
               : null
-            const normalizedOnboarding = onboardingSource
-              ? normalizeOnboardingProfile(onboardingSource)
-              : null
             const canonicalHeight = isMeasurement(data.heightCm, 100, 220)
               ? data.heightCm
               : isMeasurement(activeNutritionProfile?.heightCm, 100, 220)
                 ? activeNutritionProfile.heightCm
-                : normalizedOnboarding?.heightCm
+                : isMeasurement(onboardingSource?.heightCm, 100, 220)
+                  ? onboardingSource.heightCm
+                  : ONBOARDING_DEFAULTS.heightCm
             const canonicalWeight = isMeasurement(data.weightKg, 30, 150)
               ? data.weightKg
               : isMeasurement(activeNutritionProfile?.weightKg, 30, 150)
                 ? activeNutritionProfile.weightKg
-                : normalizedOnboarding?.weightKg
+                : isMeasurement(onboardingSource?.weightKg, 30, 150)
+                  ? onboardingSource.weightKg
+                  : ONBOARDING_DEFAULTS.weightKg
+            const currentYear = new Date().getFullYear()
+            const canonicalBirthYear = isMeasurement(data.birthYear, 1940, currentYear - 10)
+              ? data.birthYear
+              : isMeasurement(onboardingSource?.birthYear, 1940, currentYear - 10)
+                ? onboardingSource.birthYear
+                : isMeasurement(activeNutritionProfile?.age, 10, 100)
+                  ? currentYear - activeNutritionProfile.age
+                  : ONBOARDING_DEFAULTS.birthYear
 
             const topLevelNeedsRepair = !isMeasurement(data.heightCm, 100, 220)
               || !isMeasurement(data.weightKg, 30, 150)
-            const onboardingNeedsRepair = Boolean(onboardingSource) && (
-              !isMeasurement(onboardingSource.heightCm, 100, 220)
+              || !isMeasurement(data.birthYear, 1940, currentYear - 10)
+            const onboardingNeedsRepair = !onboardingSource
+              || !isMeasurement(onboardingSource.heightCm, 100, 220)
               || !isMeasurement(onboardingSource.weightKg, 30, 150)
-            )
+              || !isMeasurement(onboardingSource.birthYear, 1940, currentYear - 10)
             const nutritionNeedsRepair = Boolean(activeNutritionProfile) && (
               !isMeasurement(activeNutritionProfile?.heightCm, 100, 220)
               || !isMeasurement(activeNutritionProfile?.weightKg, 30, 150)
@@ -377,6 +387,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               isCompleted
               && canonicalHeight
               && canonicalWeight
+              && canonicalBirthYear
               && (topLevelNeedsRepair || onboardingNeedsRepair || nutritionNeedsRepair)
               && !repairedLegacyOnboardingProfiles.has(firebaseUser.uid)
             ) {
@@ -385,12 +396,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               if (topLevelNeedsRepair) {
                 repair.heightCm = canonicalHeight
                 repair.weightKg = canonicalWeight
+                repair.birthYear = canonicalBirthYear
               }
-              if (onboardingNeedsRepair && onboardingSource) {
+              if (onboardingNeedsRepair) {
                 repair.onboardingData = {
-                  ...onboardingSource,
+                  ...(onboardingSource ?? {}),
                   heightCm: canonicalHeight,
                   weightKg: canonicalWeight,
+                  birthYear: canonicalBirthYear,
                 }
               }
               if (nutritionNeedsRepair && activeNutritionProfile) {

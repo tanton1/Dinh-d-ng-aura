@@ -789,17 +789,35 @@ function AuraApplication() {
             return Object.fromEntries(Object.entries(src).filter(([_, v]) => v !== undefined));
           })()
         }
-        onSkip={async () => {
+        onSkip={async (skippedProfile) => {
           const uid = user?.uid ?? 'demo';
+          const persistedDefaults = normalizeOnboardingProfile(skippedProfile);
+          const skippedProfileUpdate = {
+            onboardingCompleted: true,
+            onboardingData: persistedDefaults,
+            birthYear: persistedDefaults.birthYear,
+            heightCm: persistedDefaults.heightCm,
+            weightKg: persistedDefaults.weightKg,
+          };
+
           if (backendMode === 'firebase' && user) {
-            await updateUserProfile(user.uid, { onboardingCompleted: true });
+            await updateUserProfile(user.uid, skippedProfileUpdate as any);
           }
 
           try {
             window.localStorage.setItem(`aura:onboarding-completed:${uid}`, 'true');
+            const cachedProfile = JSON.parse(window.localStorage.getItem(`aura:profile:${uid}`) ?? '{}');
+            const nextCachedProfile = { ...cachedProfile, ...skippedProfileUpdate };
+            window.localStorage.setItem(`aura:profile:${uid}`, JSON.stringify(nextCachedProfile));
+            window.localStorage.setItem(`aura:user-profile:${uid}`, JSON.stringify(nextCachedProfile));
           } catch (e) {
             console.error('LocalStorage error:', e);
           }
+          setLocalProfile((current) => ({
+            ...current,
+            heightCm: persistedDefaults.heightCm,
+            weightKg: persistedDefaults.weightKg,
+          }));
           setForceOnboarding(false);
 
           navigate('courses');

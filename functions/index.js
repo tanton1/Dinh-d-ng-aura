@@ -4,11 +4,13 @@ const { FieldValue, getFirestore } = require('firebase-admin/firestore')
 const { getMessaging } = require('firebase-admin/messaging')
 const { getStorage } = require('firebase-admin/storage')
 const { HttpsError, onCall: firebaseOnCall } = require('firebase-functions/v2/https')
+const { onDocumentWritten } = require('firebase-functions/v2/firestore')
 const { setGlobalOptions } = require('firebase-functions/v2/options')
 const { logger } = require('firebase-functions')
 const { createHash } = require('node:crypto')
 const { createGenerativeAiFunctions } = require('./generative-ai')
 const { createNutritionFunctions } = require('./nutrition')
+const { buildCompletedOnboardingDefaultsPatch } = require('./profile-defaults')
 
 const app = initializeApp()
 // Keep callable writes on the same named database used by the production web app.
@@ -76,6 +78,30 @@ setGlobalOptions({ region: 'asia-southeast1', maxInstances: 3 })
 
 Object.assign(exports, createNutritionFunctions({ app, db }))
 Object.assign(exports, createGenerativeAiFunctions({ db }))
+
+// Backend invariant for onboarding profiles. This also protects members who
+// finish onboarding from an older cached PWA bundle that submitted null for
+// numeric controls whose defaults were visible but never touched.
+exports.repairCompletedOnboardingDefaults = onDocumentWritten({
+  document: 'users/{userId}',
+  database: databaseId,
+  maxInstances: 3,
+}, async (event) => {
+  const snapshot = event.data?.after
+  if (!snapshot?.exists) return
+
+  const patch = buildCompletedOnboardingDefaultsPatch(snapshot.data())
+  if (!patch) return
+
+  await snapshot.ref.set({
+    ...patch,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true })
+  logger.info('Repaired completed onboarding defaults', {
+    userId: event.params.userId,
+    fields: Object.keys(patch),
+  })
+})
 
 exports.updateUserRole = onCall(async (request) => {
   const actorUid = request.auth?.uid

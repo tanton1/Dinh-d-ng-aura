@@ -25,6 +25,7 @@ export interface UserProfile {
   goals?: string[]
   heightCm?: number | null
   weightKg?: number | null
+  birthYear?: number | null
   targetWeightDeltaKg?: number | null
   targetTimeframeMonths?: number | null
   targetSpeedPace?: 'slow' | 'standard' | 'fast' | null

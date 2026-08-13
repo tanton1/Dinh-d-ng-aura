@@ -1,5 +1,22 @@
 import { expect, test, type Page } from '@playwright/test'
 
+test('untouched onboarding defaults are committed when the member skips setup', async ({ page }) => {
+  await page.goto('/#/profile')
+  await page.getByRole('button', { name: /Cập nhật/i }).first().click()
+  await page.getByRole('button', { name: 'Thiết lập hồ sơ' }).click()
+  await expect(page.getByRole('heading', { name: /Giới tính sinh học/i })).toBeVisible()
+  await page.getByRole('button', { name: 'Để sau' }).click()
+  await expect(page).toHaveURL(/#\/courses$/)
+
+  const saved = await page.evaluate(() => JSON.parse(
+    window.localStorage.getItem('aura:profile:demo-admin') ?? '{}',
+  ))
+  expect(saved.birthYear).toBe(1995)
+  expect(saved.heightCm).toBe(165)
+  expect(saved.weightKg).toBe(60)
+  expect(saved.onboardingData).toMatchObject({ birthYear: 1995, heightCm: 165, weightKg: 60 })
+})
+
 async function reachDietStep(page: Page) {
   await page.goto('/#/profile')
   await page.getByRole('button', { name: /Cập nhật/i }).first().click()

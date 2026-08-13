@@ -250,7 +250,10 @@ export const HeightScreen = ({ profile, updateProfile, onNext }: any) => {
       </div>
       
       <div className="bottom-cta" style={{ marginTop: 'auto' }}>
-        <button className="primary-button" onClick={onNext} style={{ width: '100%', padding: '16px', borderRadius: '24px', background: 'linear-gradient(135deg, #ff3f7d, #ff8a38)', color: 'white', border: 'none', fontSize: '18px', fontWeight: 700, boxShadow: '0 8px 20px rgba(255, 63, 125, 0.3)' }}>Tiếp tục</button>
+        <button className="primary-button" onClick={() => {
+          updateProfile({ heightCm: h });
+          onNext();
+        }} style={{ width: '100%', padding: '16px', borderRadius: '24px', background: 'linear-gradient(135deg, #ff3f7d, #ff8a38)', color: 'white', border: 'none', fontSize: '18px', fontWeight: 700, boxShadow: '0 8px 20px rgba(255, 63, 125, 0.3)' }}>Tiếp tục</button>
       </div>
     </motion.div>
   );
@@ -288,7 +291,10 @@ export const WeightScreen = ({ profile, updateProfile, onNext }: any) => {
       </div>
       
       <div className="bottom-cta" style={{ marginTop: 'auto' }}>
-        <button className="primary-button" onClick={onNext} style={{ width: '100%', padding: '16px', borderRadius: '24px', background: 'linear-gradient(135deg, #ff3f7d, #ff8a38)', color: 'white', border: 'none', fontSize: '18px', fontWeight: 700, boxShadow: '0 8px 20px rgba(255, 63, 125, 0.3)' }}>Tiếp tục</button>
+        <button className="primary-button" onClick={() => {
+          updateProfile({ weightKg: currentWeight });
+          onNext();
+        }} style={{ width: '100%', padding: '16px', borderRadius: '24px', background: 'linear-gradient(135deg, #ff3f7d, #ff8a38)', color: 'white', border: 'none', fontSize: '18px', fontWeight: 700, boxShadow: '0 8px 20px rgba(255, 63, 125, 0.3)' }}>Tiếp tục</button>
       </div>
     </motion.div>
   );

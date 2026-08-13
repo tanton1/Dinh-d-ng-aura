@@ -6,12 +6,12 @@ import { DietScreen, RestrictionsScreen, NutritionTrackingScreen, HealthScreen }
 import { HealthDetailsScreen, NotificationsScreen, AnalyzingScreen, ResultScreen } from './screens/OnboardingScreens4';
 import { AnimatePresence } from 'motion/react';
 import '../styles-onboarding.css';
-import { GeneratedPlan } from './types';
+import { GeneratedPlan, type OnboardingProfile } from './types';
 import { normalizeOnboardingProfile } from './defaults';
 
 interface OnboardingProps {
   onComplete: (profile: any, plan: any) => Promise<void>;
-  onSkip?: () => void;
+  onSkip?: (profile: OnboardingProfile) => Promise<void> | void;
   initialProfile?: any;
 }
 
@@ -43,9 +43,17 @@ export default function Onboarding({ onComplete, onSkip, initialProfile }: Onboa
     }
   };
 
+  const handleSkip = onSkip ? async () => {
+    try {
+      await onSkip(normalizeOnboardingProfile(profile));
+    } catch (e) {
+      alert("Lỗi khi lưu thông tin mặc định: " + String(e));
+    }
+  } : undefined;
+
   const renderStep = () => {
     switch (currentStep) {
-      case 'welcome': return <WelcomeScreen onNext={goNext} onSkip={onSkip} />;
+      case 'welcome': return <WelcomeScreen onNext={goNext} onSkip={handleSkip} />;
       case 'sex': return <SexScreen profile={profile} updateProfile={updateProfile} onNext={goNext} />;
       case 'birth-year': return <BirthYearScreen profile={profile} updateProfile={updateProfile} onNext={goNext} />;
       case 'height': return <HeightScreen profile={profile} updateProfile={updateProfile} onNext={goNext} />;
@@ -72,7 +80,7 @@ export default function Onboarding({ onComplete, onSkip, initialProfile }: Onboa
   return (
     <div className="onboarding-container" data-onboarding-step={currentStep}>
       <div ref={contentRef} className={`onboarding-content onboarding-content--${currentStep} ${currentStep === 'welcome' ? 'no-padding' : ''}`}>
-        <Header currentStep={currentStep} profile={profile} onBack={goBack} onSkip={onSkip} />
+        <Header currentStep={currentStep} profile={profile} onBack={goBack} onSkip={handleSkip} />
         <AnimatePresence mode="wait">
           {renderStep()}
         </AnimatePresence>
