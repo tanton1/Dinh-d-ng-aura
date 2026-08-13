@@ -565,6 +565,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const verifier = getRecaptchaVerifier('invisible', 'phone-otp-button')
         window.confirmationResult = await signInWithPhoneNumber(firebaseAuth, formattedPhone, verifier)
+        clearRecaptchaVerifier()
         return {
           otpCode: '',
           message: `Mã OTP đã được gửi đến ${maskPhoneNumber(formattedPhone)}.`,
@@ -635,22 +636,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('Phiên xác thực đã hết hiệu lực. Vui lòng gửi lại OTP.')
       }
 
+      let credential
       try {
-        const credential = await window.confirmationResult.confirm(cleanCode)
-        const requestedName = displayName?.trim() || ''
-        if (!credential.user.displayName && requestedName) {
-          await updateProfile(credential.user, { displayName: requestedName })
-        }
-
-        await createOrUpdateUserProfile({
-          uid: credential.user.uid,
-          email: credential.user.email || '',
-          phoneNumber: credential.user.phoneNumber || formattedPhone,
-          displayName: credential.user.displayName || requestedName || '',
-          role: 'student',
-          membership: 'free',
-        })
-        window.confirmationResult = null
+        credential = await window.confirmationResult.confirm(cleanCode)
       } catch (error: any) {
         reportClientIssue('auth', error, { phase: 'phone_otp_verify', provider: 'phone', retryable: true })
         const errorCode = typeof error?.code === 'string' ? error.code : ''
@@ -664,6 +652,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!errorCode && error instanceof Error) throw error
         throw new Error('Không thể xác thực OTP lúc này. Vui lòng thử lại.')
       }
+
+      window.confirmationResult = null
+      clearRecaptchaVerifier()
+
+      const requestedName = displayName?.trim() || ''
+      const resolvedDisplayName = credential.user.displayName || requestedName || 'Thành viên Aura'
+      const nextProfile: UserProfile = {
+        uid: credential.user.uid,
+        email: credential.user.email || '',
+        phoneNumber: credential.user.phoneNumber || formattedPhone,
+        displayName: resolvedDisplayName,
+        photoURL: credential.user.photoURL,
+        role: 'student',
+        membership: 'free',
+        onboardingCompleted: false,
+      }
+
+      // Firebase Auth has already accepted the OTP at this point. Move the user
+      // into Aura immediately and sync the optional profile fields in the
+      // background so a slow Firestore connection cannot trap them on the OTP form.
+      setUser({ ...toAppUser(credential.user), displayName: resolvedDisplayName })
+      setProfile(nextProfile)
+      setLoading(false)
+      try {
+        localStorage.setItem(`aura:profile:${credential.user.uid}`, JSON.stringify(nextProfile))
+        localStorage.setItem(`aura:user-profile:${credential.user.uid}`, JSON.stringify(nextProfile))
+      } catch {
+        // Private browsing may make storage unavailable; Firebase Auth is still valid.
+      }
+
+      if (!credential.user.displayName && requestedName) {
+        void updateProfile(credential.user, { displayName: requestedName })
+          .then(() => setUser(toAppUser(credential.user)))
+          .catch((error) => reportClientIssue('auth', error, { phase: 'phone_profile_name', provider: 'phone', retryable: true }))
+      }
+
+      void createOrUpdateUserProfile(nextProfile)
+        .catch((error) => reportClientIssue('firestore', error, { phase: 'phone_profile_sync', provider: 'phone', retryable: true }))
     },
     resetPassword: async (email) => {
       if (!firebaseAuth) throw new Error('Firebase chưa được cấu hình.')

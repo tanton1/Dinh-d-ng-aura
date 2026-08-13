@@ -39,6 +39,18 @@ test('production auth has no email role bootstrap or unconditional demo OTP', ()
   assert.equal(existsSync(join(repositoryRoot, 'import-client.mjs')), false)
 })
 
+test('phone OTP success is not blocked by Firestore profile synchronization', () => {
+  const phoneVerificationSource = authSource.match(/verifyPhoneOtpAndSignIn: async[\s\S]*?resetPassword:/)?.[0] ?? ''
+  assert.match(phoneVerificationSource, /await window\.confirmationResult\.confirm\(cleanCode\)/)
+  assert.match(phoneVerificationSource, /setUser\(\{ \.\.\.toAppUser\(credential\.user\)/)
+  assert.match(phoneVerificationSource, /void createOrUpdateUserProfile\(nextProfile\)/)
+  assert.doesNotMatch(phoneVerificationSource, /await createOrUpdateUserProfile\(nextProfile\)/)
+  assert.ok(
+    phoneVerificationSource.indexOf('setUser(') < phoneVerificationSource.indexOf('void createOrUpdateUserProfile'),
+    'The signed-in UI must update before Firestore profile synchronization starts',
+  )
+})
+
 test('client incident reporting is bounded, validated and rate limited', () => {
   const incidentSource = functionsSource.match(/exports\.reportClientIssue = onCall[\s\S]*?return \{ accepted: true \}\s*\}\)/)?.[0] ?? ''
   assert.match(incidentSource, /exports\.reportClientIssue = onCall/)
