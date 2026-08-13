@@ -1,7 +1,21 @@
-const firebaseProjectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || 'gen-lang-client-0815966909'
+const productionAppOrigin = 'https://dinh-duong-aura.vercel.app'
+const configuredAuthOrigin = import.meta.env.VITE_AUTH_CANONICAL_ORIGIN?.trim()
 
+function isLegacyFirebaseHostingOrigin(value: string) {
+  try {
+    const hostname = new URL(value).hostname
+    return hostname.endsWith('.web.app') || hostname.endsWith('.firebaseapp.com')
+  } catch {
+    return true
+  }
+}
+
+// Vercel is the single public application host. Ignore the previous
+// Firebase Hosting value if it is still present in an older deployment env.
 export const canonicalAuthOrigin = (
-  import.meta.env.VITE_AUTH_CANONICAL_ORIGIN || `https://${firebaseProjectId}.web.app`
+  configuredAuthOrigin && !isLegacyFirebaseHostingOrigin(configuredAuthOrigin)
+    ? configuredAuthOrigin
+    : productionAppOrigin
 ).replace(/\/$/, '')
 
 function isLocalAuthOrigin(hostname: string) {
@@ -10,8 +24,8 @@ function isLocalAuthOrigin(hostname: string) {
 
 /**
  * Firebase Auth validates the page origin before opening Google/reCAPTCHA.
- * Preview hosts and PWAs installed from an old host therefore need to enter
- * the auth flow through the canonical Firebase Hosting origin.
+ * The production Vercel domain is authorized in Firebase Auth; preview and
+ * legacy hosts enter authentication through that single public origin.
  */
 export function getCanonicalAuthRedirectUrl() {
   if (typeof window === 'undefined' || isLocalAuthOrigin(window.location.hostname)) return null

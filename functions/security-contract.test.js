@@ -7,6 +7,7 @@ const repositoryRoot = join(__dirname, '..')
 const rules = readFileSync(join(repositoryRoot, 'firestore.rules'), 'utf8')
 const functionsSource = readFileSync(join(__dirname, 'index.js'), 'utf8')
 const authSource = readFileSync(join(repositoryRoot, 'src', 'contexts', 'AuthContext.tsx'), 'utf8')
+const authOriginSource = readFileSync(join(repositoryRoot, 'src', 'services', 'authOriginService.ts'), 'utf8')
 
 test('profile rules prevent client role and membership changes', () => {
   assert.match(rules, /function hasOnlySafeUserChanges\(\)/)
@@ -37,6 +38,12 @@ test('production auth has no email role bootstrap or unconditional demo OTP', ()
   assert.match(authSource, /import\.meta\.env\.MODE === 'e2e' && import\.meta\.env\.VITE_ENABLE_DEMO_OTP === 'true'/)
   assert.equal(existsSync(join(repositoryRoot, 'deleteRecreate.mjs')), false)
   assert.equal(existsSync(join(repositoryRoot, 'import-client.mjs')), false)
+})
+
+test('production authentication stays on the authorized Vercel application origin', () => {
+  assert.match(authOriginSource, /https:\/\/dinh-duong-aura\.vercel\.app/)
+  assert.match(authOriginSource, /isLegacyFirebaseHostingOrigin/)
+  assert.doesNotMatch(authOriginSource, /`https:\/\/\$\{firebaseProjectId\}\.web\.app`/)
 })
 
 test('phone OTP success is not blocked by Firestore profile synchronization', () => {

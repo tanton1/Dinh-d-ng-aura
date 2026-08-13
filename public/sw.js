@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'aura-shell-v4-20260813-home'
+const CACHE_VERSION = 'aura-shell-v5-20260813-vercel-origin'
 const APP_SHELL = [
   '/',
   '/manifest.webmanifest',
