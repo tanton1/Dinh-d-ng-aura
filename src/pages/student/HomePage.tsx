@@ -5,9 +5,7 @@ import {
   BookOpen,
   CalendarDays,
   Clock3,
-  Flame,
   Trophy,
-  Zap,
 } from 'lucide-react'
 import { courses as demoCourses } from '../../data'
 import type { Course, ViewId, CourseProgress } from '../../types'
@@ -100,8 +98,6 @@ export default function HomePage({
   nutritionProfile,
 }: HomePageProps) {
   const now = new Date()
-  const dateLabel = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: 'numeric', month: 'long' }).format(now).toUpperCase()
-  const greeting = now.getHours() < 11 ? 'Chào buổi sáng' : now.getHours() < 18 ? 'Chào buổi chiều' : 'Chào buổi tối'
   const firstName = displayName.trim().split(/\s+/).slice(-1)[0] || 'bạn'
   const todayDateId = toLocalDateKey(now)
 
@@ -470,12 +466,6 @@ export default function HomePage({
 
   const todayActivityIndex = now.getDay() === 0 ? 6 : now.getDay() - 1
   const todayMovementMinutes = dynamicWeeklyActivity[todayActivityIndex]?.minutes ?? 0
-  const dataCompletionPercent = Math.round(([
-    todayPulseMeals.length > 0,
-    todayWaterMl > 0,
-    todayMovementMinutes > 0,
-  ].filter(Boolean).length / 3) * 100)
-
   const nextMilestone = useMemo(() => {
     const levelStartXp = (currentLevel - 1) * 500
     const earnedInLevel = Math.max(0, xp - levelStartXp)
@@ -553,26 +543,9 @@ export default function HomePage({
 
   return (
     <div className="page home-page">
-      <section className="home-v3-welcome">
-        <div>
-          <span className="eyebrow">{dateLabel}</span>
-          <h1>{greeting}, {firstName}! <span>👋</span></h1>
-          <p>Một nhịp rõ ràng cho dinh dưỡng, vận động và học tập hôm nay.</p>
-        </div>
-        <div className="home-v3-welcome__signals">
-          <div className="home-v3-signal">
-            <Flame size={18} fill="currentColor" />
-            <span><strong>{streak}</strong> ngày</span>
-          </div>
-          <div className="home-v3-signal is-data">
-            <Zap size={18} fill="currentColor" />
-            <span><strong>{dataCompletionPercent}%</strong> dữ liệu hôm nay</span>
-          </div>
-        </div>
-      </section>
-
       <AuraTodayFlow
         firstName={firstName}
+        streak={streak}
         goalLabel={nutritionGoalLabel}
         caloriesConsumed={todayCalories}
         calorieGoal={dailyPulseTargets.calories}

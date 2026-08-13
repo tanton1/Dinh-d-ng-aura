@@ -21,6 +21,7 @@ interface TodayMealSummary {
 
 interface AuraTodayFlowProps {
   firstName: string
+  streak?: number
   goalLabel: string
   caloriesConsumed: number
   calorieGoal: number
@@ -52,6 +53,7 @@ function percent(value: number, goal: number) {
 
 export default function AuraTodayFlow({
   firstName,
+  streak = 0,
   goalLabel,
   caloriesConsumed,
   calorieGoal,
@@ -211,7 +213,14 @@ export default function AuraTodayFlow({
           <span><Sparkles size={16} /> <span className="aura-today-flow__pulse-label">AURA TODAY FLOW</span><span aria-hidden="true"> · </span><span>3 NHỊP HÔM NAY</span></span>
           <h2 id="aura-today-flow-title">Hôm nay của {firstName}</h2>
         </div>
-        <p>Vuốt để xem · chạm để mở chi tiết</p>
+        <div className="aura-today-flow__heading-actions">
+          <span className="aura-today-flow__streak" aria-label={`${streak} ngày liên tục`}>
+            <Flame size={15} fill="currentColor" aria-hidden="true" />
+            <strong>{Math.max(0, streak)}</strong>
+            <span>ngày streak</span>
+          </span>
+          <p>Vuốt để xem · chạm để mở chi tiết</p>
+        </div>
       </header>
 
       <div ref={statusTrackRef} onScroll={updateActiveStatus} className="aura-today-flow__status-track" aria-label="Dinh dưỡng, vận động và học tập">
