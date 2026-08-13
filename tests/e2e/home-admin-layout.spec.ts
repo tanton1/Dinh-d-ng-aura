@@ -53,7 +53,7 @@ test.describe('Home V3 mobile layout', () => {
     const statusCards = todayFlow.locator('.aura-today-flow__status')
 
     await expect(statusCards).toHaveCount(3)
-    await expect(todayFlow.getByText('AURA TODAY FLOW', { exact: true })).toBeVisible()
+    await expect(todayFlow.getByRole('heading', { name: /Hôm nay của/i })).toBeVisible()
     await expect(todayFlow.getByText(/AURA DAILY PULSE/i)).toHaveCount(0)
     await expect(statusCards.filter({ hasText: /phút hôm nay/i })).toHaveCount(1)
     await expect(statusCards.filter({ hasText: /phút tuần này/i })).toHaveCount(0)

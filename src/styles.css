@@ -804,6 +804,7 @@ body {
 
 @media (max-width: 680px) {
   .page { padding: 24px 15px 94px; }
+  .page.home-page { padding-top: 0; }
   .page-heading h1, .welcome-row h1 { font-size: 27px; }
   .page-heading p, .welcome-row p { font-size: 13px; }
   .topbar { padding: 0 14px; }
