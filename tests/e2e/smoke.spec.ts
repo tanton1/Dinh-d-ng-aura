@@ -37,7 +37,7 @@ test('admin meal plan route enforces auth or renders the workspace', async ({ pa
   await expect(page.getByText(/Kế hoạch 7 Ngày mẫu/i)).toBeVisible()
 })
 
-test('daily pulse belongs to Home while nutrition guidance follows the three-slide carousel', async ({ page }) => {
+test('Today Flow belongs to Home while nutrition guidance follows the three-slide carousel', async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem('aura:nutrition-profile:demo-admin', JSON.stringify({
       goal: 'maintain',
@@ -58,10 +58,11 @@ test('daily pulse belongs to Home while nutrition guidance follows the three-sli
     }))
   })
   await page.goto('/#/home')
-  await expect(page.getByText('AURA DAILY PULSE', { exact: true })).toBeVisible()
+  await expect(page.getByText('AURA TODAY FLOW', { exact: true })).toBeVisible()
 
   await page.goto('/#/nutrition?section=today')
 
+  await expect(page.getByText('AURA TODAY FLOW', { exact: true })).toHaveCount(0)
   await expect(page.getByText('AURA DAILY PULSE', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: /Một ngày, bốn điểm chạm/i })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Việc nên làm tiếp theo' })).toBeVisible()

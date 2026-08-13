@@ -375,6 +375,13 @@ export default function AuthPage() {
             )}
 
             {captchaVisible && <div className="auth-captcha-notice" role="status"><ShieldCheck size={16} /> Hoàn tất xác minh bảo mật bên dưới để nhận OTP.</div>}
+            {authMethod === 'phone' && (
+              <p className="auth-recaptcha-disclosure">
+                Trang n&#224;y &#273;&#432;&#7907;c b&#7843;o v&#7879; b&#7857;ng reCAPTCHA; &#225;p d&#7909;ng
+                {' '}<a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">Ch&#237;nh s&#225;ch quy&#7873;n ri&#234;ng t&#432;</a>
+                {' '}v&#224; <a href="https://policies.google.com/terms" target="_blank" rel="noreferrer">&#272;i&#7873;u kho&#7843;n</a> c&#7911;a Google.
+              </p>
+            )}
             {error && <div className="auth-feedback auth-feedback--error" role="alert">{error}</div>}
             {message && <div className="auth-feedback auth-feedback--success" role="status">{message}{receivedOtpHint && <strong> Mã thử nghiệm: {receivedOtpHint}</strong>}</div>}
 

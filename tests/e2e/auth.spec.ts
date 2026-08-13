@@ -14,6 +14,8 @@ test('phone OTP signup is friendly, testable and responsive', async ({ page }) =
   await page.getByRole('button', { name: 'Tạo tài khoản', exact: true }).click()
   await page.getByRole('button', { name: 'Tạo tài khoản bằng số điện thoại' }).click()
   await expect(page.locator('#phone-otp-button')).toHaveCount(1)
+  await expect(page.getByText(/reCAPTCHA/)).toBeVisible()
+  await expect(page.locator('.auth-recaptcha-disclosure a')).toHaveCount(2)
   await page.getByPlaceholder('Nguyễn Minh Anh').fill('Minh Anh')
   await page.getByPlaceholder('0912 345 678').fill('0912 345 678')
   await page.getByRole('button', { name: 'Nhận mã OTP' }).click()
@@ -31,7 +33,9 @@ test('phone OTP signup is friendly, testable and responsive', async ({ page }) =
 })
 
 for (const viewport of [
+  { name: 'iPhone SE portrait', width: 375, height: 667 },
   { name: 'iPhone portrait', width: 390, height: 844 },
+  { name: 'large iPhone portrait', width: 430, height: 932 },
   { name: 'iPhone landscape', width: 844, height: 390 },
 ]) {
   test(`OTP action remains inside the fixed ${viewport.name} viewport`, async ({ page }) => {
@@ -50,16 +54,25 @@ for (const viewport of [
       const bounds = button.getBoundingClientRect()
       return {
         bodyScrollHeight: document.body.scrollHeight,
+        bodyScrollWidth: document.body.scrollWidth,
+        viewportWidth: window.visualViewport?.width ?? window.innerWidth,
         viewportHeight: window.visualViewport?.height ?? window.innerHeight,
+        buttonLeft: bounds.left,
+        buttonRight: bounds.right,
         buttonTop: bounds.top,
         buttonBottom: bounds.bottom,
         scrollY: window.scrollY,
+        textSizeAdjust: getComputedStyle(document.documentElement).webkitTextSizeAdjust,
       }
     })
     expect(layout.bodyScrollHeight).toBeLessThanOrEqual(layout.viewportHeight + 1)
+    expect(layout.bodyScrollWidth).toBeLessThanOrEqual(layout.viewportWidth + 1)
+    expect(layout.buttonLeft).toBeGreaterThanOrEqual(0)
+    expect(layout.buttonRight).toBeLessThanOrEqual(layout.viewportWidth + 1)
     expect(layout.buttonTop).toBeGreaterThanOrEqual(0)
     expect(layout.buttonBottom).toBeLessThanOrEqual(layout.viewportHeight + 1)
     expect(layout.scrollY).toBe(0)
+    expect(layout.textSizeAdjust).toBe('100%')
   })
 }
 

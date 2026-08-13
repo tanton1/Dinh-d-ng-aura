@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { useOnboarding } from './store';
 import { Header, WelcomeScreen, SexScreen, BirthYearScreen, HeightScreen, WeightScreen, PrimaryGoalScreen, TargetWeightScreen, SecondaryGoalsScreen } from './screens/OnboardingScreens';
 import { GoalPaceScreen, ActivityScreen, SleepScreen, StressScreen } from './screens/OnboardingScreens2';
@@ -15,6 +15,7 @@ interface OnboardingProps {
 }
 
 export default function Onboarding({ onComplete, onSkip, initialProfile }: OnboardingProps) {
+  const contentRef = useRef<HTMLDivElement>(null);
   const store = useOnboarding();
   const { currentStep, profile, updateProfile, goNext, goBack, generatedPlan, setGeneratedPlan } = store;
   
@@ -23,6 +24,15 @@ export default function Onboarding({ onComplete, onSkip, initialProfile }: Onboa
       updateProfile(initialProfile);
     }
   }, [initialProfile, updateProfile]);
+
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    content.scrollTo({ top: 0, left: 0 });
+    content.querySelectorAll<HTMLElement>('[data-onboarding-scroll-region]').forEach((region) => {
+      region.scrollTo({ top: 0, left: 0 });
+    });
+  }, [currentStep]);
 
   const handleComplete = async (plan: GeneratedPlan) => {
     try {
@@ -59,8 +69,8 @@ export default function Onboarding({ onComplete, onSkip, initialProfile }: Onboa
   };
 
   return (
-    <div className="onboarding-container">
-      <div className={`onboarding-content ${currentStep === 'welcome' ? 'no-padding' : ''}`}>
+    <div className="onboarding-container" data-onboarding-step={currentStep}>
+      <div ref={contentRef} className={`onboarding-content onboarding-content--${currentStep} ${currentStep === 'welcome' ? 'no-padding' : ''}`}>
         <Header currentStep={currentStep} profile={profile} onBack={goBack} onSkip={onSkip} />
         <AnimatePresence mode="wait">
           {renderStep()}

@@ -20,7 +20,7 @@ import {
 import { courses as demoCourses, weeklyActivity } from '../../data'
 import type { Course, ViewId, CourseProgress } from '../../types'
 import { ProgressBar, ProgressRing, SectionHeader, StatCard } from '../../components/ui'
-import AuraDailyPulse from '../../components/AuraDailyPulse'
+import AuraTodayFlow from '../../components/AuraTodayFlow'
 import { calculateNutritionTargets } from '../../services/nutritionSyncService'
 import {
   saveUserGamification,
@@ -499,7 +499,7 @@ export default function HomePage({
         </div>
       </section>
 
-      <AuraDailyPulse
+      <AuraTodayFlow
         firstName={firstName}
         goalLabel={nutritionGoalLabel}
         caloriesConsumed={todayCalories}
@@ -509,82 +509,13 @@ export default function HomePage({
         waterMl={todayWaterMl}
         mealsCount={todayPulseMeals.length}
         loggingStreak={nutritionLoggingStreak}
+        checkedIn={isCheckedInToday}
+        learningTitle={continueCourses[0]?.title}
+        learningProgress={continueCourses[0]?.progress}
         onOpenNutrition={() => onNavigate('nutrition')}
+        onCheckIn={handleCheckIn}
+        onOpenLearning={() => continueCourses[0] ? onOpenCourse(String(continueCourses[0].id)) : onNavigate('courses')}
       />
-
-      {/* Interactive Attendance Check-in Banner */}
-      {!isCheckedInToday && (
-        <section style={{ marginBottom: 24 }}>
-          <div 
-            style={{
-              background: 'linear-gradient(135deg, #ec4899 0%, #fb923c 100%)',
-              borderRadius: 16,
-              padding: '20px 24px',
-              color: '#ffffff',
-              boxShadow: '0 10px 30px rgba(247, 37, 103, 0.2)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 16,
-              transition: 'all 0.3s ease'
-            }}
-          >
-            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <div 
-                  style={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: 12,
-                    background: 'rgba(255, 255, 255, 0.18)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 22
-                  }}
-                >
-                  🔥
-                </div>
-                <div>
-                  <h3 style={{ fontSize: 18, fontWeight: 800, margin: 0, color: '#ffffff', lineHeight: 1.3 }}>
-                    Chưa điểm danh hôm nay!
-                  </h3>
-                  <p style={{ fontSize: 14, margin: '4px 0 0 0', opacity: 0.9, fontWeight: 500 }}>
-                    Điểm danh ngay bây giờ để nhận +50 XP và tích lũy chuỗi thói quen sắt đá!
-                  </p>
-                </div>
-              </div>
-
-              <button
-                onClick={handleCheckIn}
-                style={{
-                  background: '#ffffff',
-                  color: '#ec4899',
-                  border: 'none',
-                  padding: '12px 24px',
-                  borderRadius: 12,
-                  fontWeight: 800,
-                  fontSize: 14,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  boxShadow: '0 4px 15px rgba(0, 0, 0, 0.08)',
-                  transition: 'transform 0.2s ease, opacity 0.2s ease'
-                }}
-                onMouseDown={(e) => {
-                  e.currentTarget.style.transform = 'scale(0.96)'
-                }}
-                onMouseUp={(e) => {
-                  e.currentTarget.style.transform = 'scale(1)'
-                }}
-              >
-                <Flame size={18} fill="currentColor" />
-                <span>Bấm điểm danh (+50 XP)</span>
-              </button>
-            </div>
-          </div>
-        </section>
-      )}
 
       {/* Hero Grid with current learning info and course progression */}
       <section className="hero-grid">

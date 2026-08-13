@@ -13,20 +13,20 @@ export const DietScreen = ({ profile, updateProfile, onNext }: any) => {
     { id: 'none', icon: '✨', label: 'Không theo chế độ', desc: 'Ăn uống linh hoạt' },
   ];
   return (
-    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="step-content" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '28px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>Chế độ ăn uống?</h2>
-        <p style={{ color: '#64748b', fontSize: '15px', lineHeight: 1.5 }}>
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="step-content step-content--diet">
+      <div className="diet-step-heading">
+        <h2>Chế độ ăn uống?</h2>
+        <p>
           Giúp Aura lên thực đơn phù hợp với sở thích của bạn.
         </p>
       </div>
-      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '16px', display: 'flex', flexDirection: 'column' }}>
+      <div className="diet-step-options" data-onboarding-scroll-region>
         {diets.map(d => (
           <ChoiceCard key={d.id} icon={d.icon} title={d.label} subtitle={d.desc} selected={profile.dietType === d.id} onClick={() => updateProfile({ dietType: d.id })} />
         ))}
       </div>
-      <div className="bottom-cta" style={{ marginTop: 'auto', paddingTop: '16px' }}>
-        <button className="primary-button" disabled={!profile.dietType} onClick={onNext} style={{ width: '100%', padding: '16px', borderRadius: '24px', background: 'linear-gradient(135deg, #ff3f7d, #ff8a38)', color: 'white', border: 'none', fontSize: '18px', fontWeight: 700, boxShadow: '0 8px 20px rgba(255, 63, 125, 0.3)' }}>Tiếp tục</button>
+      <div className="bottom-cta diet-step-cta">
+        <button className="primary-button" disabled={!profile.dietType} onClick={onNext}>Tiếp tục</button>
       </div>
     </motion.div>
   );
