@@ -1141,7 +1141,14 @@ const productEventNames = new Set([
 const clientIssueAreas = new Set(['auth', 'gemini', 'firestore', 'ui'])
 const clientIssueProviders = new Set(['google', 'phone', 'email', 'password', 'gemini'])
 
-exports.reportClientIssue = onCall(async (request) => {
+exports.reportClientIssue = onCall({
+  // Error reporting must stay available even when the project is close to its
+  // Cloud Run regional CPU quota.
+  memory: '256MiB',
+  cpu: 0.1666,
+  maxInstances: 1,
+  concurrency: 1,
+}, async (request) => {
   if (!allowClientIncident(request)) {
     throw new HttpsError('resource-exhausted', 'Quá nhiều báo cáo trong thời gian ngắn.')
   }
