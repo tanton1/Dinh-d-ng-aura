@@ -3,6 +3,7 @@ const { FieldValue } = require('firebase-admin/firestore')
 const { logger } = require('firebase-functions')
 const { defineSecret } = require('firebase-functions/params')
 const { HttpsError, onCall } = require('firebase-functions/v2/https')
+const { withFunctionTelemetry } = require('./observability')
 
 const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY', {
   description: 'Gemini API key used only by server-side Aura nutrition functions.',
@@ -1292,7 +1293,7 @@ function createNutritionFunctions({ app, db }) {
     concurrency: 4,
     enforceAppCheck: ENFORCE_APP_CHECK,
     secrets: [GEMINI_API_KEY],
-  }, async (request) => {
+  }, withFunctionTelemetry('analyzeFoodImage', async (request) => {
     const uid = requireCaller(request)
     const input = parseAnalyzeRequest(request.data, uid)
     const file = getStorage(app).bucket().file(input.storagePath)
@@ -1355,7 +1356,7 @@ function createNutritionFunctions({ app, db }) {
       imageRetained,
       analyzedAt: new Date().toISOString(),
     }
-  })
+  }))
 
   const generateMealReview = onCall({
     timeoutSeconds: 30,
@@ -1364,7 +1365,7 @@ function createNutritionFunctions({ app, db }) {
     concurrency: 4,
     enforceAppCheck: ENFORCE_APP_CHECK,
     secrets: [GEMINI_API_KEY],
-  }, async (request) => {
+  }, withFunctionTelemetry('generateMealReview', async (request) => {
     requireCaller(request)
     const { meal, userProfile } = request.data || {}
     if (!isPlainObject(meal)) throw new HttpsError('invalid-argument', 'Meal data is required.')
@@ -1393,7 +1394,7 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
       operation: 'generateMealReview',
     })
     return { review: result.text, model: result.model, providerRequestId: result.requestId }
-  })
+  }))
 
   const askAiCoach = onCall({
     timeoutSeconds: 30,
@@ -1402,7 +1403,7 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
     concurrency: 4,
     enforceAppCheck: ENFORCE_APP_CHECK,
     secrets: [GEMINI_API_KEY],
-  }, async (request) => {
+  }, withFunctionTelemetry('askAiCoach', async (request) => {
     requireCaller(request)
     const { message, userProfile } = request.data || {}
     if (typeof message !== 'string' || !message.trim() || message.trim().length > 3000) {
@@ -1438,7 +1439,7 @@ Không dùng markdown định dạng phức tạp, chỉ cần xuống dòng h�
       operation: 'askAiCoach',
     })
     return { text: result.text, model: result.model, providerRequestId: result.requestId }
-  })
+  }))
 
   return { analyzeFoodImage, generateMealReview, askAiCoach }
 }

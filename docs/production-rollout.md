@@ -23,3 +23,54 @@
 - Rotate the credential that was previously committed in `deleteRecreate.mjs` and `import-client.mjs`.
 - If the repository has ever been public or broadly shared, purge the credential from Git history after rotation.
 - Review the six moderate npm advisories before the next dependency-upgrade release; do not apply `npm audit fix --force` without regression testing.
+
+## P0 observability and release safety
+
+The web client now reports uncaught browser errors and App Check initialization
+state through the bounded `reportClientIssue` callable. Gemini, nutrition vision,
+meal review and AI Coach callables emit structured `Aura function failure` and
+`Aura function metric` logs with duration, outcome, model/function name, release
+and App Check verification state. No image, prompt, password, OTP or health
+payload is written to these logs.
+
+Create the two Cloud Monitoring policies from the repository after authenticating
+`gcloud` (choose an email/FCM notification channel for production):
+
+```powershell
+./scripts/configure-cloud-alerts.ps1 -NotificationChannel projects/gen-lang-client-0815966909/notificationChannels/CHANNEL_ID
+```
+
+Before an enforcement deploy, run the production gate. It reads `.env` locally
+or CI/Vercel environment variables and fails closed when the App Check key or
+Firebase identifiers are missing:
+
+```powershell
+node scripts/production-gate.mjs
+node scripts/production-smoke.mjs
+```
+
+Use `--allow-pending-app-check` only during the short compatibility rollout;
+never combine it with a release that sets `ENFORCE_APP_CHECK=true`.
+
+## Production account smoke test
+
+Run the following flows against the Vercel production URL with test accounts
+from each role (student, coach, editor, admin and super admin): Google sign-in,
+phone OTP send/verify, email sign-in, one nutrition scan, one course lesson and
+one PT schedule event. Confirm the Cloud Monitoring dashboard shows the matching
+`Aura function metric` entries and no `Aura function failure` entry. Never place
+OTP codes, passwords or Gemini keys in CI variables or screenshots.
+
+## Rollback
+
+Keep the last known-good Vercel deployment URL in the release ticket. If a gate
+fails, promote that immutable deployment without changing source history:
+
+```powershell
+./scripts/rollback-production.ps1 -VercelDeploymentUrl https://<known-good>.vercel.app
+node scripts/production-smoke.mjs
+```
+
+Only redeploy Functions from a reviewed, tagged commit (`-RedeployFunctions`);
+do not mix a web rollback with unreviewed backend code. After rollback, inspect
+the error and App Check policies before promoting a new release.

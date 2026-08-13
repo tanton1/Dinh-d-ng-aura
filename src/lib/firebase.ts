@@ -39,6 +39,8 @@ export const useFirebaseEmulators =
 
 export let firebaseApp: FirebaseApp | null = null
 export let firebaseAppCheck: AppCheck | null = null
+export type FirebaseAppCheckStatus = 'disabled' | 'enabled' | 'missing_site_key' | 'initialization_error' | 'emulator'
+export let firebaseAppCheckStatus: FirebaseAppCheckStatus = 'disabled'
 export let firebaseAuth: Auth | null = null
 export let firestoreDb: Firestore | null = null
 export let firebaseStorage: FirebaseStorage | null = null
@@ -71,10 +73,20 @@ if (isFirebaseConfigured) {
   firebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig)
 
   if (appCheckSiteKey && !useFirebaseEmulators) {
-    firebaseAppCheck = initializeAppCheck(firebaseApp, {
-      provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
-      isTokenAutoRefreshEnabled: true,
-    })
+    try {
+      firebaseAppCheck = initializeAppCheck(firebaseApp, {
+        provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
+        isTokenAutoRefreshEnabled: true,
+      })
+      firebaseAppCheckStatus = 'enabled'
+    } catch (error) {
+      firebaseAppCheckStatus = 'initialization_error'
+      if (import.meta.env.DEV) console.warn('Firebase App Check failed to initialize', error)
+    }
+  } else if (useFirebaseEmulators) {
+    firebaseAppCheckStatus = 'emulator'
+  } else {
+    firebaseAppCheckStatus = 'missing_site_key'
   }
 
   firebaseAuth = getAuth(firebaseApp)

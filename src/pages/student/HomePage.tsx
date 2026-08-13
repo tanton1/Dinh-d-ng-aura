@@ -59,19 +59,6 @@ function readStoredArray<T>(key: string): T[] {
   }
 }
 
-function calculateLoggingStreak(dateIds: Set<string>, anchorDateId: string) {
-  if (dateIds.size === 0) return 0
-  const anchor = new Date(`${anchorDateId}T12:00:00`)
-  if (!dateIds.has(anchorDateId)) anchor.setDate(anchor.getDate() - 1)
-
-  let streak = 0
-  while (streak < 366 && dateIds.has(toLocalDateKey(anchor))) {
-    streak += 1
-    anchor.setDate(anchor.getDate() - 1)
-  }
-  return streak
-}
-
 interface HomePageProps {
   onNavigate: (view: ViewId) => void
   onOpenCourse: (courseId: string) => void
@@ -201,10 +188,6 @@ export default function HomePage({
   const todayWaterMl = dailyPulseWater
     .filter((entry) => entry.date === todayDateId)
     .reduce((sum, entry) => sum + (Number(entry.amountMl) || 0), 0)
-  const nutritionLogDates = useMemo(() => new Set(dailyPulseMeals
-    .filter((meal) => meal.status === 'logged' && typeof meal.date === 'string')
-    .map((meal) => meal.date as string)), [dailyPulseMeals])
-  const nutritionLoggingStreak = calculateLoggingStreak(nutritionLogDates, todayDateId)
   const nutritionGoalLabel = nutritionProfile?.goal === 'lose-fat'
     ? 'Giảm mỡ bền vững'
     : nutritionProfile?.goal === 'gain-muscle'
@@ -574,7 +557,6 @@ export default function HomePage({
         waterMl={todayWaterMl}
         waterGoalMl={dailyPulseTargets.waterMl}
         mealsCount={todayPulseMeals.length}
-        nutritionLoggingStreak={nutritionLoggingStreak}
         checkedIn={isCheckedInToday}
         weeklyMovementMinutes={dynamicTotalWeeklyMinutes}
         learningTitle={continueCourses[0]?.title}

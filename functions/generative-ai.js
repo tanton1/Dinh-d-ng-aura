@@ -2,6 +2,7 @@ const { FieldValue } = require('firebase-admin/firestore')
 const { logger } = require('firebase-functions')
 const { defineSecret } = require('firebase-functions/params')
 const { HttpsError, onCall } = require('firebase-functions/v2/https')
+const { withFunctionTelemetry } = require('./observability')
 
 const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY', {
   description: 'Gemini API key used only by server-side Aura AI functions.',
@@ -442,7 +443,7 @@ function createGenerativeAiFunctions({ db }) {
     concurrency: 4,
     enforceAppCheck: ENFORCE_APP_CHECK,
     secrets: [GEMINI_API_KEY],
-  }, async (request) => {
+  }, withFunctionTelemetry('generateAuraContent', async (request) => {
     const uid = request.auth?.uid
     if (!uid) throw new HttpsError('unauthenticated', 'Bạn cần đăng nhập để dùng AI.')
     const action = typeof request.data?.action === 'string' ? request.data.action : ''
@@ -459,7 +460,7 @@ function createGenerativeAiFunctions({ db }) {
       model: result.model,
       providerRequestId: result.requestId,
     }
-  })
+  }))
 
   return { generateAuraContent }
 }

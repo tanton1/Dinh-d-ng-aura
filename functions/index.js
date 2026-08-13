@@ -34,6 +34,16 @@ const enforceAppCheck = process.env.ENFORCE_APP_CHECK === 'true'
 const publicAppUrl = process.env.PUBLIC_APP_URL || 'https://gen-lang-client-0815966909.web.app'
 const clientIncidentRateWindows = new Map()
 
+const appCheckPolicyLog = {
+  enforced: enforceAppCheck,
+  action: enforceAppCheck
+    ? 'Requests without a valid App Check token are rejected.'
+    : 'Configure VITE_FIREBASE_APP_CHECK_SITE_KEY and ENFORCE_APP_CHECK=true before the enforcement cutover.',
+  schemaVersion: 1,
+}
+if (enforceAppCheck) logger.info('Aura App Check policy', appCheckPolicyLog)
+else logger.warn('Aura App Check policy', appCheckPolicyLog)
+
 function onCall(optionsOrHandler, maybeHandler) {
   if (typeof optionsOrHandler === 'function') {
     return firebaseOnCall({ enforceAppCheck }, optionsOrHandler)

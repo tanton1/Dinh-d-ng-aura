@@ -17,6 +17,8 @@
     "test:e2e": "playwright test",
     "test": "npm run test:functions",
     "performance:check": "node scripts/check-performance-budget.mjs",
+    "production:gate": "node scripts/production-gate.mjs",
+    "production:smoke": "node scripts/production-smoke.mjs",
     "ci": "npm run typecheck && npm run build && npm run performance:check && npm --prefix functions run check",
     "typecheck": "tsc -b",
     "start": "node dist/server.cjs"

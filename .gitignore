@@ -1,6 +1,9 @@
 node_modules/
 dist/
 *.local
+functions/.env
+functions/.env.*
+!functions/.env.example
 *.log
 qa-*.png
 .chrome-qa*/

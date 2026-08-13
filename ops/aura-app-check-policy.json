@@ -1,0 +1,17 @@
+{
+  "displayName": "Aura Functions - App Check rejects",
+  "documentation": {
+    "content": "Aura callable requests rejected by App Check. A sudden increase usually means a stale Vercel build or an unregistered production origin.",
+    "mimeType": "text/markdown"
+  },
+  "conditions": [
+    {
+      "displayName": "App Check rejection log",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_run_revision\" AND jsonPayload.message=\"Aura client incident\" AND jsonPayload.phase=~\"app_check_.*\""
+      }
+    }
+  ],
+  "combiner": "OR",
+  "enabled": true
+}

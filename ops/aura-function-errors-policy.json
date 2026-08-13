@@ -1,0 +1,17 @@
+{
+  "displayName": "Aura Functions - errors",
+  "documentation": {
+    "content": "Aura callable function failures. Check Cloud Logging for functionName, failureCode, release and appVerified, then promote the last known-good Vercel deployment.",
+    "mimeType": "text/markdown"
+  },
+  "conditions": [
+    {
+      "displayName": "Aura function failure log",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_run_revision\" AND jsonPayload.message=\"Aura function failure\""
+      }
+    }
+  ],
+  "combiner": "OR",
+  "enabled": true
+}

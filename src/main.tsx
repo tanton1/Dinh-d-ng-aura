@@ -2,8 +2,11 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import { GlobalErrorBoundary } from './GlobalErrorBoundary'
+import { initializeClientTelemetry } from './services/clientTelemetryService'
 import './styles.css'
 import './styles-aura.css'
+
+initializeClientTelemetry()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

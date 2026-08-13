@@ -6,6 +6,11 @@
   --home-muted: #766d78;
   --home-line: #f0e4e9;
   --home-surface: #fff;
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 96% 3%, rgba(255, 137, 53, .08), transparent 25%),
+    radial-gradient(circle at 4% 24%, rgba(245, 44, 130, .06), transparent 27%);
 }
 
 .home-v2-welcome {
@@ -119,7 +124,7 @@
   text-align: left;
   background:
     radial-gradient(circle at 100% 0, rgba(245, 44, 130, .09), transparent 40%),
-    var(--home-surface, #fff);
+    linear-gradient(145deg, #fff 0%, #fff8fb 58%, #fff3ed 100%);
   box-shadow: 0 12px 30px rgba(82, 40, 60, .07);
   transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
 }
@@ -151,15 +156,15 @@
 }
 
 .aura-today-flow__status.is-movement {
-  background: radial-gradient(circle at 100% 0, rgba(39, 164, 117, .1), transparent 42%), #fff;
+  background: radial-gradient(circle at 100% 0, rgba(255, 137, 53, .14), transparent 42%), linear-gradient(145deg, #fff 0%, #fff8f4 100%);
 }
-.aura-today-flow__status.is-movement .aura-today-flow__status-icon { color: #21895f; background: #eaf8f2; }
-.aura-today-flow__status.is-movement .aura-today-flow__status-progress i { background: #32a978; }
+.aura-today-flow__status.is-movement .aura-today-flow__status-icon { color: #fff; background: linear-gradient(135deg, var(--today-pink), var(--today-coral)); }
+.aura-today-flow__status.is-movement .aura-today-flow__status-progress i { background: linear-gradient(90deg, var(--today-pink), var(--today-orange)); }
 .aura-today-flow__status.is-learning {
-  background: radial-gradient(circle at 100% 0, rgba(255, 137, 53, .13), transparent 42%), #fff;
+  background: radial-gradient(circle at 100% 0, rgba(245, 44, 130, .12), transparent 42%), linear-gradient(145deg, #fff 0%, #fff7f1 100%);
 }
-.aura-today-flow__status.is-learning .aura-today-flow__status-icon { color: #cf6d27; background: #fff3e9; }
-.aura-today-flow__status.is-learning .aura-today-flow__status-progress i { background: #f18535; }
+.aura-today-flow__status.is-learning .aura-today-flow__status-icon { color: #fff; background: linear-gradient(135deg, var(--today-coral), var(--today-orange)); }
+.aura-today-flow__status.is-learning .aura-today-flow__status-progress i { background: linear-gradient(90deg, var(--today-coral), var(--today-orange)); }
 
 .aura-today-flow__status-label {
   color: var(--home-muted, #766d78);
@@ -378,8 +383,8 @@
   border: 1px solid var(--home-line);
   border-radius: 22px;
   background:
-    radial-gradient(circle at 94% 0, rgba(255, 137, 53, .12), transparent 32%),
-    #fff;
+    radial-gradient(circle at 94% 0, rgba(255, 137, 53, .16), transparent 34%),
+    linear-gradient(135deg, #fff 0%, #fff5f8 56%, #fff1e9 100%);
   box-shadow: 0 12px 30px rgba(82, 40, 60, .06);
 }
 
@@ -418,7 +423,7 @@
   padding: 20px;
   border: 1px solid var(--home-line);
   border-radius: 22px;
-  background: #fff;
+  background: linear-gradient(145deg, #fff 0%, #fff9fb 70%, #fff5ef 100%);
   box-shadow: 0 12px 30px rgba(82, 40, 60, .06);
 }
 

@@ -36,7 +36,6 @@ interface AuraTodayFlowProps {
   waterMl: number
   waterGoalMl?: number
   mealsCount: number
-  nutritionLoggingStreak?: number
   checkedIn: boolean
   weeklyMovementMinutes?: number
   learningTitle?: string
@@ -79,7 +78,6 @@ export default function AuraTodayFlow({
   waterMl,
   waterGoalMl = 2_000,
   mealsCount,
-  nutritionLoggingStreak = 0,
   checkedIn,
   weeklyMovementMinutes = 0,
   learningTitle,
@@ -113,7 +111,7 @@ export default function AuraTodayFlow({
       value: calorieDelta >= 0 ? formatNumber(calorieDelta) : `+${formatNumber(Math.abs(calorieDelta))}`,
       unit: calorieDelta >= 0 ? 'kcal còn lại' : 'kcal vượt mục tiêu',
       detail: hasMeal
-        ? `${mealsCount} bữa · ${formatNumber(proteinConsumed)}/${formatNumber(proteinGoal)}g đạm${nutritionLoggingStreak ? ` · chuỗi ${nutritionLoggingStreak} ngày` : ''}`
+        ? `${mealsCount} bữa · ${formatNumber(proteinConsumed)}/${formatNumber(proteinGoal)}g đạm`
         : `Chưa ghi bữa · ${goalLabel}`,
       progress: calorieProgress,
       progressLabel: `${calorieProgress}% mục tiêu năng lượng`,
