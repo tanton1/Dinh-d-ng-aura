@@ -58,7 +58,7 @@ test('Today Flow belongs to Home while nutrition guidance follows the three-slid
     }))
   })
   await page.goto('/#/home')
-  await expect(page.getByText('TỔNG QUAN HÔM NAY', { exact: true })).toBeVisible()
+  await expect(page.getByText('AURA TODAY FLOW', { exact: true })).toBeVisible()
 
   await page.goto('/#/nutrition?section=today')
 

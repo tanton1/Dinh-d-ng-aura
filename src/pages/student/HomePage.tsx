@@ -3,6 +3,7 @@ import { safeLocalStorageSet } from '../../lib/safeStorage'
 import {
   ArrowRight,
   BookOpen,
+  CalendarDays,
   Clock3,
   Flame,
   Trophy,
@@ -59,6 +60,24 @@ function readStoredArray<T>(key: string): T[] {
   }
 }
 
+function formatScheduleDay(dateId: string) {
+  const target = new Date(`${dateId}T12:00:00`)
+  const today = new Date()
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const targetStart = new Date(target.getFullYear(), target.getMonth(), target.getDate())
+  const dayDelta = Math.round((targetStart.getTime() - todayStart.getTime()) / 86_400_000)
+  if (dayDelta === 0) return 'Hôm nay'
+  if (dayDelta === 1) return 'Ngày mai'
+  if (dayDelta > 1 && dayDelta <= 7) return `Còn ${dayDelta} ngày`
+  return new Intl.DateTimeFormat('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit' }).format(target)
+}
+
+function scheduleTypeLabel(type: PtScheduleEvent['type']) {
+  if (type === 'checkin') return 'Check-in cùng PT'
+  if (type === 'recovery') return 'Phục hồi'
+  return 'Vận động'
+}
+
 interface HomePageProps {
   onNavigate: (view: ViewId) => void
   onOpenCourse: (courseId: string) => void
@@ -92,8 +111,9 @@ export default function HomePage({
   const [dailyPulseWater, setDailyPulseWater] = useState<DailyPulseWaterEntry[]>(() =>
     readStoredArray<DailyPulseWaterEntry>(`aura:nutrition:water-entries:v1:${ownerId}`)
   )
-  const [upcomingSchedule, setUpcomingSchedule] = useState<PtScheduleEvent | null>(null)
+  const [upcomingSchedule, setUpcomingSchedule] = useState<PtScheduleEvent[]>([])
   const [weeklyScheduleMinutesByDate, setWeeklyScheduleMinutesByDate] = useState<Record<string, number>>({})
+  const [weekPanel, setWeekPanel] = useState<'activity' | 'schedule'>('activity')
 
   useEffect(() => {
     setDailyPulseMeals(readStoredArray<DailyPulseMeal>(`aura:nutrition:meals:v2:${ownerId}`))
@@ -133,7 +153,8 @@ export default function HomePage({
 
     const selectUpcoming = (events: PtScheduleEvent[]) => events
       .filter((event) => event.status === 'planned' && event.date >= today)
-      .sort((left, right) => `${left.date}${left.time}${left.id}`.localeCompare(`${right.date}${right.time}${right.id}`))[0] ?? null
+      .sort((left, right) => `${left.date}${left.time}${left.id}`.localeCompare(`${right.date}${right.time}${right.id}`))
+      .slice(0, 2)
     const minutesByDate = (events: PtScheduleEvent[]) => events
       .filter((event) => event.status === 'done' && event.date >= weekFromDate && event.date <= weekToDate)
       .reduce<Record<string, number>>((result, event) => {
@@ -532,18 +553,18 @@ export default function HomePage({
 
   return (
     <div className="page home-page">
-      <section className="home-v2-welcome">
+      <section className="home-v3-welcome">
         <div>
           <span className="eyebrow">{dateLabel}</span>
           <h1>{greeting}, {firstName}! <span>👋</span></h1>
-          <p>Mọi quyết định quan trọng cho sức khỏe hôm nay, trong một nhịp rõ ràng.</p>
+          <p>Một nhịp rõ ràng cho dinh dưỡng, vận động và học tập hôm nay.</p>
         </div>
-        <div className="home-v2-welcome__signals">
-          <div className="home-v2-signal">
+        <div className="home-v3-welcome__signals">
+          <div className="home-v3-signal">
             <Flame size={18} fill="currentColor" />
             <span><strong>{streak}</strong> ngày</span>
           </div>
-          <div className="home-v2-signal is-data">
+          <div className="home-v3-signal is-data">
             <Zap size={18} fill="currentColor" />
             <span><strong>{dataCompletionPercent}%</strong> dữ liệu hôm nay</span>
           </div>
@@ -566,12 +587,6 @@ export default function HomePage({
         learningTitle={continueCourses[0]?.title}
         learningProgress={continueCourses[0]?.progress}
         todayMeals={todayPulseMeals}
-        upcomingSchedule={upcomingSchedule ? {
-          title: upcomingSchedule.title,
-          date: upcomingSchedule.date,
-          time: upcomingSchedule.time,
-          durationMinutes: upcomingSchedule.durationMinutes,
-        } : null}
         onOpenNutrition={() => onNavigate('nutrition')}
         onCheckIn={handleCheckIn}
         onOpenLearning={() => continueCourses[0] ? onOpenCourse(String(continueCourses[0].id)) : onNavigate('courses')}
@@ -579,33 +594,33 @@ export default function HomePage({
         onOpenSchedule={() => onNavigate('schedule')}
       />
 
-      <section className="home-v2-section" aria-labelledby="home-learning-title">
-        <div className="home-v2-section__heading">
-          <div><span>AURA ACADEMY</span><h2 id="home-learning-title">Học tiếp</h2></div>
-          <button type="button" onClick={() => onNavigate('courses')}>Xem thư viện <ArrowRight size={18} /></button>
+      <section className="home-v3-academy" aria-labelledby="home-learning-title">
+        <div className="home-v3-section-heading">
+          <div><span>AURA ACADEMY</span><h2 id="home-learning-title">Học tiếp cùng Aura</h2></div>
+          <button type="button" onClick={() => onNavigate('courses')}>Thư viện <ArrowRight size={18} /></button>
         </div>
-        <article className="home-v2-learning-card">
-          <span className="home-v2-learning-card__icon"><BookOpen size={25} /></span>
-          <div className="home-v2-learning-card__copy">
+        <article className={`home-v3-academy-card ${continueCourses[0] ? 'has-course' : 'is-empty'}`}>
+          <span className="home-v3-academy-card__icon"><BookOpen size={25} /></span>
+          <div className="home-v3-academy-card__copy">
             <span>{continueCourses[0] ? `${continueCourses[0].category} · ${continueCourses[0].level}` : 'Lộ trình dành cho bạn'}</span>
             <h3>{continueCourses[0]?.title ?? 'Chọn khóa học đầu tiên'}</h3>
             <p>{continueCourses[0]?.description ?? 'Khám phá thư viện Aura và bắt đầu một lộ trình phù hợp với mục tiêu của bạn.'}</p>
             {continueCourses[0] && (
               <>
-                <div className="home-v2-learning-card__meta">
+                <div className="home-v3-academy-card__meta">
                   <span><Clock3 size={15} /> {continueCourses[0].duration}</span>
                   <span><BookOpen size={15} /> {continueCourses[0].lessons} bài học</span>
                 </div>
-                <div className="home-v2-learning-card__progress">
-                  <span><i style={{ width: `${continueCourses[0].progress}%` }} /></span>
-                  <strong>{continueCourses[0].progress}%</strong>
+                <div className="home-v3-academy-card__progress">
+                  <div><span>Tiến độ lộ trình</span><strong>{Math.round(continueCourses[0].progress)}%</strong></div>
+                  <span role="progressbar" aria-label="Tiến độ khóa học" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(continueCourses[0].progress)}><i style={{ width: `${continueCourses[0].progress}%` }} /></span>
                 </div>
               </>
             )}
           </div>
           <button
             type="button"
-            className="home-v2-card-action"
+            className="home-v3-primary-action"
             onClick={() => continueCourses[0] ? onOpenCourse(String(continueCourses[0].id)) : onNavigate('courses')}
           >
             {continueCourses[0] ? 'Học tiếp' : 'Khám phá'} <ArrowRight size={17} />
@@ -613,46 +628,70 @@ export default function HomePage({
         </article>
       </section>
 
-      <section className="home-v2-lower-grid">
-        <article className="home-v2-week-card">
-          <header className="home-v2-card-header">
-            <div><span>TỔNG KẾT TUẦN</span><h2>Tuần của bạn</h2></div>
-            <button type="button" onClick={() => onNavigate('progress')} aria-label="Mở tiến độ"><ArrowRight size={19} /></button>
-          </header>
-          <div className="home-v2-week-summary">
-            <strong>{dynamicTotalWeeklyMinutes}</strong>
-            <span>phút vận động</span>
-            <small>{dynamicTotalWeeklyMinutes >= 150 ? 'Đã đạt mốc tuần' : `${Math.max(0, 150 - dynamicTotalWeeklyMinutes)} phút tới mốc 150`}</small>
+      <section className="home-v3-week" aria-labelledby="home-week-title">
+        <header className="home-v3-week__header">
+          <div><span>NHỊP TUẦN</span><h2 id="home-week-title">Tuần của bạn</h2></div>
+          <div className="home-v3-week__tabs" role="tablist" aria-label="Thông tin tuần">
+            <button type="button" role="tab" aria-selected={weekPanel === 'activity'} className={weekPanel === 'activity' ? 'is-active' : ''} onClick={() => setWeekPanel('activity')}>Hoạt động</button>
+            <button type="button" role="tab" aria-selected={weekPanel === 'schedule'} className={weekPanel === 'schedule' ? 'is-active' : ''} onClick={() => setWeekPanel('schedule')}>Lịch sắp tới</button>
           </div>
-          <div className="home-v2-week-chart" aria-label={`${dynamicTotalWeeklyMinutes} phút vận động tuần này`}>
-            {dynamicWeeklyActivity.map((item) => (
-              <div key={item.day}>
-                <i className={item.completed ? 'is-done' : ''} style={{ height: `${Math.min(60, Math.max(5, item.minutes * 1.15))}px` }} />
-                <small>{item.day}</small>
-              </div>
-            ))}
-          </div>
-          {dynamicTotalWeeklyMinutes === 0 && (
-            <div className="home-v2-week-empty">
-              <span>Chưa có vận động được ghi trong tuần này.</span>
-              <button type="button" onClick={() => onNavigate('schedule')}>Lên lịch vận động</button>
-            </div>
-          )}
-        </article>
+        </header>
 
-        <article className="home-v2-milestone">
-          <span className="home-v2-milestone__icon"><Trophy size={24} /></span>
-          <div className="home-v2-milestone__copy">
+        {weekPanel === 'activity' ? (
+          <div className="home-v3-week__panel" role="tabpanel">
+            <div className="home-v3-week__summary">
+              <div><strong>{dynamicTotalWeeklyMinutes}</strong><span>phút vận động</span></div>
+              <small>{dynamicTotalWeeklyMinutes >= 150 ? 'Đã đạt mốc 150 phút' : `Còn ${Math.max(0, 150 - dynamicTotalWeeklyMinutes)} phút để đạt mục tiêu tuần`}</small>
+            </div>
+            <div className="home-v3-week__chart" aria-label={`${dynamicTotalWeeklyMinutes} phút vận động tuần này`}>
+              {dynamicWeeklyActivity.map((item, index) => (
+                <div key={item.day} className={index === todayActivityIndex ? 'is-today' : ''}>
+                  <span><i className={item.completed ? 'is-done' : ''} style={{ height: `${Math.min(68, Math.max(6, item.minutes * 1.2))}px` }} /></span>
+                  <small>{item.day}</small>
+                </div>
+              ))}
+            </div>
+            <div className="home-v3-week__footer">
+              <span>{dynamicTotalWeeklyMinutes > 0 ? 'Mỗi phút vận động đều được cộng vào nhịp tuần.' : 'Chưa có vận động được ghi trong tuần này.'}</span>
+              <button type="button" onClick={() => onNavigate(dynamicTotalWeeklyMinutes > 0 ? 'progress' : 'schedule')}>{dynamicTotalWeeklyMinutes > 0 ? 'Xem tiến độ' : 'Lên lịch'} <ArrowRight size={17} /></button>
+            </div>
+          </div>
+        ) : (
+          <div className="home-v3-week__panel home-v3-schedule" role="tabpanel">
+            {upcomingSchedule.length > 0 ? (
+              <div className="home-v3-schedule__list">
+                {upcomingSchedule.map((event) => (
+                  <button type="button" key={event.id} className="home-v3-schedule__item" onClick={() => onNavigate('schedule')}>
+                    <span className="home-v3-schedule__date"><strong>{formatScheduleDay(event.date)}</strong><small>{event.time}</small></span>
+                    <span className="home-v3-schedule__copy"><small>{scheduleTypeLabel(event.type)}</small><strong>{event.title}</strong><em>{event.durationMinutes} phút</em></span>
+                    <ArrowRight size={18} />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <button type="button" className="home-v3-schedule__empty" onClick={() => onNavigate('schedule')}>
+                <span><CalendarDays size={22} /></span>
+                <span><strong>Tạo lịch đầu tiên</strong><small>Lịch chỉ hiển thị dữ liệu thật do bạn hoặc PT đã tạo.</small></span>
+                <ArrowRight size={18} />
+              </button>
+            )}
+            <button type="button" className="home-v3-schedule__open" onClick={() => onNavigate('schedule')}>Mở lịch đầy đủ <ArrowRight size={17} /></button>
+          </div>
+        )}
+      </section>
+
+      <section className="home-v3-milestone" aria-labelledby="home-milestone-title">
+          <span className="home-v3-milestone__icon"><Trophy size={24} /></span>
+          <div className="home-v3-milestone__copy">
             <span>DẤU MỐC TIẾP THEO</span>
-            <h2>{nextMilestone.title}</h2>
+            <h2 id="home-milestone-title">{nextMilestone.title}</h2>
             <p>{nextMilestone.detail}</p>
           </div>
-          <div className="home-v2-milestone__progress">
+          <div className="home-v3-milestone__progress">
             <span><i style={{ width: `${nextMilestone.progress}%` }} /></span>
             <strong>{nextMilestone.label}</strong>
           </div>
           <button type="button" onClick={() => onNavigate('progress')}>Xem hành trình tiến độ <ArrowRight size={18} /></button>
-        </article>
       </section>
     </div>
   )

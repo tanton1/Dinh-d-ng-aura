@@ -2,13 +2,13 @@ import {
   Activity,
   ArrowRight,
   BookOpenCheck,
-  CalendarDays,
   Check,
   Droplets,
   Flame,
   Sparkles,
   Utensils,
 } from 'lucide-react'
+import { useRef, useState } from 'react'
 import '../styles-home-today-flow.css'
 
 interface TodayMealSummary {
@@ -17,13 +17,6 @@ interface TodayMealSummary {
   label?: string
   title?: string
   calories?: number
-}
-
-interface UpcomingScheduleSummary {
-  title: string
-  date: string
-  time: string
-  durationMinutes?: number
 }
 
 interface AuraTodayFlowProps {
@@ -42,7 +35,6 @@ interface AuraTodayFlowProps {
   learningTitle?: string
   learningProgress?: number
   todayMeals?: TodayMealSummary[]
-  upcomingSchedule?: UpcomingScheduleSummary | null
   onOpenNutrition: () => void
   onCheckIn: () => void
   onOpenLearning: () => void
@@ -56,17 +48,6 @@ function formatNumber(value: number) {
 
 function percent(value: number, goal: number) {
   return Math.min(100, Math.max(0, Math.round((value / Math.max(goal, 1)) * 100)))
-}
-
-function formatScheduleDate(dateId: string) {
-  const target = new Date(`${dateId}T12:00:00`)
-  const today = new Date()
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-  const targetStart = new Date(target.getFullYear(), target.getMonth(), target.getDate())
-  const dayDelta = Math.round((targetStart.getTime() - todayStart.getTime()) / 86_400_000)
-  if (dayDelta === 0) return 'Hôm nay'
-  if (dayDelta === 1) return 'Ngày mai'
-  return new Intl.DateTimeFormat('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit' }).format(target)
 }
 
 export default function AuraTodayFlow({
@@ -85,13 +66,14 @@ export default function AuraTodayFlow({
   learningTitle,
   learningProgress = 0,
   todayMeals = [],
-  upcomingSchedule,
   onOpenNutrition,
   onCheckIn,
   onOpenLearning,
   onOpenProgress,
   onOpenSchedule,
 }: AuraTodayFlowProps) {
+  const statusTrackRef = useRef<HTMLDivElement>(null)
+  const [activeStatusIndex, setActiveStatusIndex] = useState(0)
   const calorieDelta = calorieGoal - caloriesConsumed
   const calorieProgress = percent(caloriesConsumed, calorieGoal)
   const proteinProgress = percent(proteinConsumed, proteinGoal)
@@ -144,6 +126,29 @@ export default function AuraTodayFlow({
       action: onOpenLearning,
     },
   ]
+
+  const selectStatus = (index: number) => {
+    const track = statusTrackRef.current
+    const card = track?.children.item(index) as HTMLElement | null
+    const firstCard = track?.children.item(0) as HTMLElement | null
+    if (track && card && firstCard) track.scrollTo({ left: card.offsetLeft - firstCard.offsetLeft, behavior: 'smooth' })
+    setActiveStatusIndex(index)
+  }
+
+  const updateActiveStatus = () => {
+    const track = statusTrackRef.current
+    if (!track) return
+    const cards = Array.from(track.children) as HTMLElement[]
+    if (cards.length === 0) return
+    const firstOffset = cards[0].offsetLeft
+    const index = cards.reduce((closest, card, currentIndex) => (
+      Math.abs(card.offsetLeft - firstOffset - track.scrollLeft)
+        < Math.abs(cards[closest].offsetLeft - firstOffset - track.scrollLeft)
+        ? currentIndex
+        : closest
+    ), 0)
+    setActiveStatusIndex(index)
+  }
 
   const nextAction = !hasMeal
     ? {
@@ -203,13 +208,13 @@ export default function AuraTodayFlow({
     <section className="aura-today-flow" aria-labelledby="aura-today-flow-title">
       <header className="aura-today-flow__heading">
         <div>
-          <span><Sparkles size={16} /> <span className="aura-today-flow__pulse-label">AURA DAILY PULSE</span><span aria-hidden="true"> · </span><span>TỔNG QUAN HÔM NAY</span></span>
-          <h2 id="aura-today-flow-title">Ba nhịp sức khỏe của {firstName}</h2>
+          <span><Sparkles size={16} /> <span className="aura-today-flow__pulse-label">AURA TODAY FLOW</span><span aria-hidden="true"> · </span><span>3 NHỊP HÔM NAY</span></span>
+          <h2 id="aura-today-flow-title">Hôm nay của {firstName}</h2>
         </div>
         <p>Vuốt để xem · chạm để mở chi tiết</p>
       </header>
 
-      <div className="aura-today-flow__status-track" aria-label="Dinh dưỡng, vận động và học tập">
+      <div ref={statusTrackRef} onScroll={updateActiveStatus} className="aura-today-flow__status-track" aria-label="Dinh dưỡng, vận động và học tập">
         {statusCards.map((card) => (
           <button
             type="button"
@@ -234,6 +239,11 @@ export default function AuraTodayFlow({
             </span>
             <ArrowRight className="aura-today-flow__status-arrow" size={18} />
           </button>
+        ))}
+      </div>
+      <div className="aura-today-flow__dots" aria-label="Chọn nhịp hôm nay">
+        {statusCards.map((card, index) => (
+          <button type="button" key={card.id} className={index === activeStatusIndex ? 'is-active' : ''} aria-label={`Xem ${card.label}`} aria-current={index === activeStatusIndex ? 'true' : undefined} onClick={() => selectStatus(index)} />
         ))}
       </div>
 
@@ -268,30 +278,6 @@ export default function AuraTodayFlow({
             <button type="button" className="aura-today-flow__empty" onClick={onOpenNutrition}>
               <Utensils size={22} />
               <span><strong>Chưa có bữa ăn được ghi</strong><small>Thêm bữa đầu tiên để Aura tạo nhịp dinh dưỡng hôm nay.</small></span>
-              <ArrowRight size={18} />
-            </button>
-          )}
-        </article>
-
-        <article className="aura-today-flow__rhythm-card">
-          <header>
-            <div><span><CalendarDays size={16} /> LỊCH THỰC TẾ</span><h3>Hoạt động sắp tới</h3></div>
-            <button type="button" onClick={onOpenSchedule}>Mở lịch <ArrowRight size={16} /></button>
-          </header>
-          {upcomingSchedule ? (
-            <button type="button" className="aura-today-flow__schedule" onClick={onOpenSchedule}>
-              <span><CalendarDays size={21} /></span>
-              <p>
-                <small>{formatScheduleDate(upcomingSchedule.date)} · {upcomingSchedule.time}</small>
-                <strong>{upcomingSchedule.title}</strong>
-                {upcomingSchedule.durationMinutes ? <em>{upcomingSchedule.durationMinutes} phút</em> : null}
-              </p>
-              <ArrowRight size={18} />
-            </button>
-          ) : (
-            <button type="button" className="aura-today-flow__empty" onClick={onOpenSchedule}>
-              <CalendarDays size={22} />
-              <span><strong>Chưa có hoạt động sắp tới</strong><small>Lịch chỉ hiển thị dữ liệu thật do bạn hoặc PT đã tạo.</small></span>
               <ArrowRight size={18} />
             </button>
           )}

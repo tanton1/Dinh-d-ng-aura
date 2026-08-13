@@ -41,19 +41,20 @@ async function expectVisibleTargetsAtLeast(locator: Locator, minimum = 44) {
   ).toEqual([])
 }
 
-test.describe('Home V2 mobile layout', () => {
+test.describe('Home V3 mobile layout', () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(mobileViewport)
     await page.goto('/#/home')
     await expect(page.locator('.aura-today-flow')).toBeVisible()
   })
 
-  test('shows three health statuses and keeps the decision flow before Academy', async ({ page }) => {
+  test('shows the full-bleed Today Flow and keeps the decision flow before Academy', async ({ page }) => {
     const todayFlow = page.locator('.aura-today-flow')
     const statusCards = todayFlow.locator('.aura-today-flow__status')
 
     await expect(statusCards).toHaveCount(3)
-    await expect(todayFlow.getByText(/AURA DAILY PULSE/i)).toBeVisible()
+    await expect(todayFlow.getByText('AURA TODAY FLOW', { exact: true })).toBeVisible()
+    await expect(todayFlow.getByText(/AURA DAILY PULSE/i)).toHaveCount(0)
     await expect(statusCards.filter({ hasText: /phút hôm nay/i })).toHaveCount(1)
     await expect(statusCards.filter({ hasText: /phút tuần này/i })).toHaveCount(0)
     await expect(statusCards.filter({ hasText: /chuỗi/i })).toHaveCount(0)
@@ -62,7 +63,7 @@ test.describe('Home V2 mobile layout', () => {
     const sectionOrder = await page.evaluate(() => {
       const nextAction = document.querySelector('.aura-today-flow__next')
       const rhythm = document.querySelector('.aura-today-flow__rhythm-grid')
-      const learning = document.querySelector('.home-v2-section')
+      const learning = document.querySelector('.home-v3-academy')
       if (!nextAction || !rhythm || !learning) return null
 
       const follows = (first: Element, second: Element) => Boolean(
@@ -76,17 +77,41 @@ test.describe('Home V2 mobile layout', () => {
     })
 
     expect(sectionOrder).toEqual({ nextBeforeRhythm: true, rhythmBeforeLearning: true })
+
+    const flowBounds = await todayFlow.boundingBox()
+    expect(flowBounds).not.toBeNull()
+    expect(flowBounds!.x).toBeLessThanOrEqual(1)
+    expect(Math.abs(flowBounds!.width - mobileViewport.width)).toBeLessThanOrEqual(1)
     await expectNoPageOverflow(page)
+
+    await expect(page.getByRole('heading', { name: 'Học tiếp cùng Aura' })).toHaveCount(1)
+    await expect(page.getByText(/Tiến độ học tập|Tiếp tục hành trình|Thành tích đạt được/i)).toHaveCount(0)
+    await page.getByRole('tab', { name: 'Lịch sắp tới' }).click()
+    await expect(page.getByRole('tabpanel')).toBeVisible()
 
     await expectVisibleTargetsAtLeast(page.locator([
       '.aura-today-flow__status',
       '.aura-today-flow__next > button',
       '.aura-today-flow__empty',
-      '.aura-today-flow__schedule',
-      '.home-v2-card-action',
-      '.home-v2-milestone > button',
+      '.home-v3-primary-action',
+      '.home-v3-week__tabs button',
+      '.home-v3-schedule__item',
+      '.home-v3-schedule__empty',
+      '.home-v3-milestone > button',
     ].join(', ')))
   })
+
+  for (const width of [375, 430]) {
+    test(`keeps the ${width}px mobile viewport free of page-level overflow`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 })
+      await page.reload()
+      const flowBounds = await page.locator('.aura-today-flow').boundingBox()
+      expect(flowBounds).not.toBeNull()
+      expect(flowBounds!.x).toBeLessThanOrEqual(1)
+      expect(Math.abs(flowBounds!.width - width)).toBeLessThanOrEqual(1)
+      await expectNoPageOverflow(page)
+    })
+  }
 })
 
 test.describe('Academy admin mobile workspaces', () => {
