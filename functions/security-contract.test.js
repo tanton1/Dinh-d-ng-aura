@@ -100,6 +100,9 @@ test('push admin overview is privileged, aggregate-only and serializes timestamp
 
 test('all-member push broadcasts exclude staff while explicit targets stay supported', () => {
   const dispatchSource = functionsSource.match(/exports\.dispatchPushBroadcast = onCall[\s\S]*?\n\}\)\n\nfunction requireDocumentId/)?.[0] ?? ''
+  assert.match(dispatchSource, /invoker:\s*'public'/)
+  assert.match(dispatchSource, /const actorId = requireCaller\(request\)/)
+  assert.match(dispatchSource, /hasTrustedRole\(request, actor, privilegedAdminRoles\)/)
   assert.match(dispatchSource, /const audienceProfiles = targetType === 'all'/)
   assert.match(dispatchSource, /role === undefined \|\| role === null \|\| role === '' \|\| role === 'student'/)
   assert.match(dispatchSource, /: existingProfiles/)

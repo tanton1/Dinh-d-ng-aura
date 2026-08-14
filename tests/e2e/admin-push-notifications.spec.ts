@@ -31,6 +31,28 @@ test.describe('Admin Push Notifications mobile', () => {
     await expectNoPageOverflow(page)
   })
 
+  test('can scroll the final overview card completely above the mobile dock', async ({ page }) => {
+    const finalCard = page.locator('[data-testid="push-overview"] .push-overview-grid .push-card').last()
+    const bottomNav = page.locator('.admin-mobile-nav')
+
+    await finalCard.scrollIntoViewIfNeeded()
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+
+    const scrollState = await page.evaluate(() => ({
+      scrollY: window.scrollY,
+      scrollHeight: document.documentElement.scrollHeight,
+      viewportHeight: document.documentElement.clientHeight,
+    }))
+    expect(scrollState.scrollHeight).toBeGreaterThan(scrollState.viewportHeight)
+    expect(scrollState.scrollY).toBeGreaterThan(0)
+
+    const [cardBox, navBox] = await Promise.all([finalCard.boundingBox(), bottomNav.boundingBox()])
+    expect(cardBox).not.toBeNull()
+    expect(navBox).not.toBeNull()
+    expect(cardBox!.y + cardBox!.height).toBeLessThanOrEqual(navBox!.y - 16)
+    await expectNoPageOverflow(page)
+  })
+
   test('blocks an empty individual audience and keeps send action above the dock', async ({ page }) => {
     await page.getByRole('tab', { name: 'Gửi' }).click()
     await expect(page.getByTestId('push-composer')).toBeVisible()

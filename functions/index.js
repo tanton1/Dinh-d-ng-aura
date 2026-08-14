@@ -677,7 +677,13 @@ exports.getPushAdminOverview = onCall({ cpu: 'gcf_gen1', maxInstances: 2 }, asyn
   return overview
 })
 
-exports.dispatchPushBroadcast = onCall({ cpu: 'gcf_gen1', maxInstances: 1 }, async (request) => {
+exports.dispatchPushBroadcast = onCall({
+  cpu: 'gcf_gen1',
+  maxInstances: 1,
+  // The callable endpoint must stay reachable by the Firebase client SDK.
+  // requireCaller + hasTrustedRole below still enforce administrator access.
+  invoker: 'public',
+}, async (request) => {
   const actorId = requireCaller(request)
   const actorSnapshot = await db.doc(`users/${actorId}`).get()
   const actor = actorSnapshot.data()

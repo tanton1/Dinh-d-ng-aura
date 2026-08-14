@@ -11,6 +11,7 @@ import {
   Users,
   XCircle,
 } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import type { PushAdminOverview, SystemPushSettings } from '../../../types'
 import { formatPushTime } from './pushTypes'
 
@@ -70,6 +71,7 @@ export function PushOverviewPanel({
   onEnableDevice,
   onSendDeviceTest,
 }: PushOverviewPanelProps) {
+  const deviceMessageRef = useRef<HTMLDivElement>(null)
   const automationReady = settings.enabled && settings.automationEnabled && settings.autoMealReminders
   const deviceReady = permission === 'granted' && hasCurrentToken
   const accepted = overview?.webPushAccepted24h ?? 0
@@ -77,6 +79,14 @@ export function PushOverviewPanel({
   const acceptanceRate = accepted + failed > 0
     ? `${Math.round((accepted / (accepted + failed)) * 100)}%`
     : '—'
+
+  useEffect(() => {
+    if (!deviceMessage) return
+    const frame = window.requestAnimationFrame(() => {
+      deviceMessageRef.current?.scrollIntoView({ block: 'nearest' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [deviceMessage])
 
   return (
     <div className="push-panel-stack" data-testid="push-overview">
@@ -191,7 +201,7 @@ export function PushOverviewPanel({
             </button>
           </div>
           {deviceMessage && (
-            <div className={`push-alert push-alert--${deviceMessage.tone}`} role="status">
+            <div ref={deviceMessageRef} className={`push-alert push-alert--${deviceMessage.tone}`} role="status">
               {deviceMessage.tone === 'success' ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
               <span>{deviceMessage.text}</span>
             </div>

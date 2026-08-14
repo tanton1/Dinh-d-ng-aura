@@ -62,7 +62,12 @@ function initialPermission(): NotificationPermission | 'unsupported' {
 }
 
 function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error && error.message ? error.message : fallback
+  if (!(error instanceof Error) || !error.message) return fallback
+  const normalizedMessage = error.message.trim().toLowerCase()
+  if (normalizedMessage === 'internal' || normalizedMessage === 'functions/internal') {
+    return `${fallback} Dịch vụ Push chưa phản hồi đúng; vui lòng thử lại sau khi làm mới trang.`
+  }
+  return error.message
 }
 
 function audienceFromTemplate(template: PushTemplate): PushComposerDraft['audience'] {
@@ -249,6 +254,17 @@ export default function AdminNotificationsPage({
     setDeviceBusy(true)
     setDeviceMessage(null)
     try {
+      // Refresh the browser token and its server-side device registration before
+      // every test. A local token can outlive a cleared or expired Firestore row.
+      const registeredToken = await requestFcmPermissionAndToken(currentUserUid)
+      if (!registeredToken) {
+        setDeviceMessage({
+          tone: 'error',
+          text: 'Thiết bị chưa được đăng ký trên máy chủ. Hãy bật lại Push rồi thử lại.',
+        })
+        return
+      }
+      setCurrentFcmToken(registeredToken)
       const result = await dispatchAdminPushBroadcast({
         title: 'Aura Push đang hoạt động',
         message: 'Đây là bản kiểm tra dành riêng cho thiết bị quản trị hiện tại.',

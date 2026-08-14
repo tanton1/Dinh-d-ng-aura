@@ -401,7 +401,16 @@
 }
 
 @media (max-width: 767px) {
-  .admin-push-page { padding: 12px 12px calc(var(--shell-mobile-dock-height, 68px) + env(safe-area-inset-bottom) + 24px); }
+  .admin-push-page {
+    /* The fixed admin dock sits outside document flow. Reserve enough real
+       scroll space so the last status/message can move fully above it. */
+    padding: 12px 12px calc(var(--shell-mobile-dock-height, 68px) + env(safe-area-inset-bottom) + 56px);
+    scroll-padding-bottom: calc(var(--shell-mobile-dock-height, 68px) + env(safe-area-inset-bottom) + 24px);
+  }
+  .push-admin-content { padding-bottom: 8px; }
+  .push-alert {
+    scroll-margin-bottom: calc(var(--shell-mobile-dock-height, 68px) + env(safe-area-inset-bottom) + 20px);
+  }
   .admin-push-page__header .page-heading { margin-bottom: 12px; }
   .admin-push-page__header .page-heading .eyebrow,
   .admin-push-page__header .page-heading p { display: none; }
