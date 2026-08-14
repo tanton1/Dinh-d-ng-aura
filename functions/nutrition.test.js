@@ -3,14 +3,13 @@ const test = require('node:test')
 
 const {
   applyCatalogLookupToItem,
-  buildFoodGenerationConfig,
+  buildFoodOpenRouterRequest,
   buildFoodAnalysisInstructions,
-  createGeminiSchema,
   enrichAnalysisWithLookups,
+  extractOpenRouterNutritionText,
   foodAnalysisSchema,
-  geminiUsageMetadata,
-  getGeminiModelCandidates,
-  isGeminiModelCompatibilityError,
+  getOpenRouterFoodModelCandidates,
+  openRouterUsageMetadata,
   sanitizeProviderErrorMessage,
   scaleCatalogNutrition,
   shouldTryNextFoodAnalysisModel,
@@ -19,22 +18,25 @@ const {
   validateFoodAnalysisWithLocalRepair,
 } = require('./nutrition')
 
-test('Gemini model candidates use stable defaults and remove duplicates', () => {
-  const originalModel = process.env.GEMINI_VISION_MODEL
-  const originalFallback = process.env.GEMINI_VISION_FALLBACK_MODEL
+test('OpenRouter model candidates use Gemini 3.7 Flash and remove duplicates', () => {
+  const originalModel = process.env.OPENROUTER_VISION_MODEL
+  const originalFallback = process.env.OPENROUTER_VISION_FALLBACK_MODEL
   try {
-    delete process.env.GEMINI_VISION_MODEL
-    delete process.env.GEMINI_VISION_FALLBACK_MODEL
-    assert.deepEqual(getGeminiModelCandidates(), ['gemini-3.6-flash', 'gemini-3.5-flash'])
+    delete process.env.OPENROUTER_VISION_MODEL
+    delete process.env.OPENROUTER_VISION_FALLBACK_MODEL
+    assert.deepEqual(getOpenRouterFoodModelCandidates(), [
+      'google/gemini-3.7-flash',
+      'google/gemini-3.6-flash',
+    ])
 
-    process.env.GEMINI_VISION_MODEL = 'gemini-3.6-flash'
-    process.env.GEMINI_VISION_FALLBACK_MODEL = 'gemini-3.6-flash'
-    assert.deepEqual(getGeminiModelCandidates(), ['gemini-3.6-flash'])
+    process.env.OPENROUTER_VISION_MODEL = 'google/gemini-3.7-flash'
+    process.env.OPENROUTER_VISION_FALLBACK_MODEL = 'google/gemini-3.7-flash'
+    assert.deepEqual(getOpenRouterFoodModelCandidates(), ['google/gemini-3.7-flash'])
   } finally {
-    if (originalModel === undefined) delete process.env.GEMINI_VISION_MODEL
-    else process.env.GEMINI_VISION_MODEL = originalModel
-    if (originalFallback === undefined) delete process.env.GEMINI_VISION_FALLBACK_MODEL
-    else process.env.GEMINI_VISION_FALLBACK_MODEL = originalFallback
+    if (originalModel === undefined) delete process.env.OPENROUTER_VISION_MODEL
+    else process.env.OPENROUTER_VISION_MODEL = originalModel
+    if (originalFallback === undefined) delete process.env.OPENROUTER_VISION_FALLBACK_MODEL
+    else process.env.OPENROUTER_VISION_FALLBACK_MODEL = originalFallback
   }
 })
 
@@ -64,33 +66,6 @@ test('food analysis does not retry permanent provider errors or after the last m
   }), false)
 })
 
-function collectKeys(value, keys = []) {
-  if (Array.isArray(value)) {
-    value.forEach((entry) => collectKeys(entry, keys))
-    return keys
-  }
-  if (!value || typeof value !== 'object') return keys
-  Object.entries(value).forEach(([key, entry]) => {
-    keys.push(key)
-    collectKeys(entry, keys)
-  })
-  return keys
-}
-
-test('Gemini schema omits provider-complexity constraints enforced on the server', () => {
-  const schema = createGeminiSchema(foodAnalysisSchema)
-  const keys = collectKeys(schema)
-
-  assert.equal(keys.includes('minLength'), false)
-  assert.equal(keys.includes('maxLength'), false)
-  assert.equal(keys.includes('maxItems'), false)
-  assert.equal(schema.required.includes('items'), true)
-  assert.equal(schema.properties.items.type, 'array')
-  assert.equal(schema.required.includes('goalAlignmentAssessment'), true)
-  assert.equal(schema.required.includes('calorieOptimizationTip'), true)
-  assert.equal(schema.required.includes('macroBalanceAssessment'), true)
-})
-
 test('food analysis prompt keeps advisory fields separate by responsibility', () => {
   const instructions = buildFoodAnalysisInstructions()
 
@@ -102,31 +77,53 @@ test('food analysis prompt keeps advisory fields separate by responsibility', ()
   assert.match(instructions, /Never add filler, greetings, motivational slogans, body\/beauty claims/)
 })
 
-test('food vision keeps Gemini 3 defaults and low thinking without risky sampling overrides', () => {
-  const config = buildFoodGenerationConfig()
+test('food vision sends image and strict JSON schema through OpenRouter', () => {
+  const body = buildFoodOpenRouterRequest({
+    model: 'google/gemini-3.7-flash',
+    buffer: Buffer.from('image-bytes'),
+    contentType: 'image/jpeg',
+    prompt: 'Analyze this meal.',
+    instructions: 'Return nutrition JSON.',
+  })
 
-  assert.equal(config.maxOutputTokens, 6144)
-  assert.equal(config.thinkingConfig.thinkingLevel, 'low')
-  assert.equal(Object.hasOwn(config, 'temperature'), false)
-  assert.equal(Object.hasOwn(config, 'topP'), false)
+  assert.equal(body.model, 'google/gemini-3.7-flash')
+  assert.equal(body.messages[0].role, 'system')
+  assert.equal(body.messages[1].content[0].type, 'text')
+  assert.match(body.messages[1].content[1].image_url.url, /^data:image\/jpeg;base64,/)
+  assert.equal(body.max_tokens, 6144)
+  assert.equal(body.reasoning.effort, 'low')
+  assert.equal(body.response_format.type, 'json_schema')
+  assert.equal(body.response_format.json_schema.strict, true)
+  assert.equal(body.response_format.json_schema.schema, foodAnalysisSchema)
+  assert.equal(body.provider.require_parameters, true)
+  assert.equal(Object.hasOwn(body, 'temperature'), false)
 })
 
 test('food vision records provider token usage as bounded telemetry numbers', () => {
-  assert.deepEqual(geminiUsageMetadata({
-    usageMetadata: {
-      promptTokenCount: 1748,
-      candidatesTokenCount: 1584,
-      thoughtsTokenCount: 125,
-      cachedContentTokenCount: 0,
-      totalTokenCount: 3457,
+  assert.deepEqual(openRouterUsageMetadata({
+    usage: {
+      prompt_tokens: 1748,
+      completion_tokens: 1709,
+      total_tokens: 3457,
+      completion_tokens_details: { reasoning_tokens: 125 },
+      prompt_tokens_details: { cached_tokens: 20 },
     },
   }), {
     promptTokenCount: 1748,
     candidatesTokenCount: 1584,
     thoughtsTokenCount: 125,
-    cachedContentTokenCount: 0,
+    cachedContentTokenCount: 20,
     totalTokenCount: 3457,
   })
+})
+
+test('OpenRouter parser accepts completed text and rejects incomplete output', () => {
+  assert.equal(extractOpenRouterNutritionText({
+    choices: [{ finish_reason: 'stop', message: { content: '{"isFood":true}' } }],
+  }), '{"isFood":true}')
+  assert.throws(() => extractOpenRouterNutritionText({
+    choices: [{ finish_reason: 'length', message: { content: '{}' } }],
+  }), /chưa hoàn tất/)
 })
 
 test('invalid macro advice is repaired locally instead of spending a fallback image request', () => {
@@ -239,17 +236,8 @@ test('server validation still enforces the item limit removed from the provider 
   assert.throws(() => validateFoodAnalysis(analysis), /items is invalid/)
 })
 
-test('400 fallback is limited to explicit model/config incompatibility', () => {
-  assert.equal(
-    isGeminiModelCompatibilityError(400, 'thinkingLevel is not supported by this model'),
-    true,
-  )
-  assert.equal(isGeminiModelCompatibilityError(400, 'Request contains an invalid argument.'), false)
-  assert.equal(isGeminiModelCompatibilityError(429, 'response schema is unsupported'), false)
-})
-
 test('provider errors are flattened, bounded, and redact API credentials', () => {
-  const secret = `AIza${'x'.repeat(32)}`
+  const secret = `sk-or-v1-${'x'.repeat(32)}`
   const bearerSecret = 'SUPERSECRET-BEARER-TOKEN'
   const sanitized = sanitizeProviderErrorMessage(`Bad request\napi_key=${secret}\tauthorization: Bearer ${bearerSecret} ${'z'.repeat(600)}`)
 

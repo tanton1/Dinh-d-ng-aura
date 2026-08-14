@@ -14,9 +14,9 @@
 2. Run `npm run ci`.
 3. Run `npm run test:rules` on a machine with Java 21.
 4. Run `npm run test:e2e -- --project=chromium`.
-5. Deploy Functions first, then Firestore/Storage rules, then Hosting.
+5. Deploy Functions first, then Firestore/Storage rules, then the Vercel web app.
 6. Verify sign-in for student, coach, editor, admin, and super admin accounts.
-7. Verify Gemini analysis, recipe save, course revision, notification inbox, and one FCM test device.
+7. Verify OpenRouter Gemini 3.7 analysis, recipe save, course revision, notification inbox, and one FCM test device.
 
 ## Security follow-up
 
@@ -27,7 +27,7 @@
 ## P0 observability and release safety
 
 The web client now reports uncaught browser errors and App Check initialization
-state through the bounded `reportClientIssue` callable. Gemini, nutrition vision,
+state through the bounded `reportClientIssue` callable. OpenRouter, nutrition vision,
 meal review and AI Coach callables emit structured `Aura function failure` and
 `Aura function metric` logs with duration, outcome, model/function name, release
 and App Check verification state. No image, prompt, password, OTP or health
@@ -59,7 +59,7 @@ from each role (student, coach, editor, admin and super admin): Google sign-in,
 phone OTP send/verify, email sign-in, one nutrition scan, one course lesson and
 one PT schedule event. Confirm the Cloud Monitoring dashboard shows the matching
 `Aura function metric` entries and no `Aura function failure` entry. Never place
-OTP codes, passwords or Gemini keys in CI variables or screenshots.
+OTP codes, passwords or OpenRouter keys in CI variables or screenshots.
 
 ## Push notification operation
 

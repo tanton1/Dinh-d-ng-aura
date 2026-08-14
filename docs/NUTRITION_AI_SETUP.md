@@ -41,36 +41,36 @@ user to choose the correct region/record.
 Keep the API key in Firebase Secret Manager:
 
 ```powershell
-firebase functions:secrets:set GEMINI_API_KEY
+firebase functions:secrets:set OPENROUTER_API_KEY
 firebase deploy --only "functions:analyzeFoodImage,functions:generateMealReview,functions:askAiCoach,functions:generateAuraContent,storage" `
   --project gen-lang-client-0815966909
 ```
 
-Production is Firebase Hosting plus regional callable Functions. The browser must
-call these functions through the Firebase SDK; `/api/*` belongs to the optional
-local Express server and is not served by the Hosting SPA rewrite. Deploying only
-Hosting leaves newly added callable functions unavailable.
+Production uses the Vercel web app plus regional Firebase callable Functions. The
+browser calls these functions through the Firebase SDK; `/api/*` belongs only to
+the optional local Express server. Deploying only Vercel does not update the AI
+Functions.
 
-To deploy the production-shaped demo without a Gemini key, set the secret value
+To deploy the production-shaped demo without an OpenRouter key, set the secret value
 to `disabled` when prompted. The endpoint will use the explicit no-fabrication
 fallback until a real key is stored and the function is redeployed.
 
 For the local emulator, create an ignored `functions/.secret.local` file:
 
 ```text
-GEMINI_API_KEY=replace_with_your_key
+OPENROUTER_API_KEY=replace_with_your_key
 ```
 
-The optional `GEMINI_VISION_MODEL` environment variable defaults to
-`gemini-3.6-flash`. If that stable model is temporarily unavailable, the
-function falls back to `GEMINI_VISION_FALLBACK_MODEL`, which defaults to
-`gemini-3.5-flash`. Do not expose any provider configuration value through
+The optional `OPENROUTER_VISION_MODEL` environment variable defaults to
+`google/gemini-3.7-flash`. If that model is temporarily unavailable, the
+function falls back to `OPENROUTER_VISION_FALLBACK_MODEL`, which defaults to
+`google/gemini-3.6-flash`. Do not expose any provider configuration value through
 a `VITE_*` variable.
 
 Verify deployment metadata without printing the secret value:
 
 ```powershell
-firebase functions:secrets:get GEMINI_API_KEY --project gen-lang-client-0815966909
+firebase functions:secrets:get OPENROUTER_API_KEY --project gen-lang-client-0815966909
 firebase functions:list --project gen-lang-client-0815966909
 ```
 

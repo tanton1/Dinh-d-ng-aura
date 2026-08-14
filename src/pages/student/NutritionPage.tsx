@@ -2998,7 +2998,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         evidence = [`${loggedMeals.length} bữa đã ghi trong ngày đã chọn`]
       } else {
         content = await askAiCoach(question, profileDraft)
-        evidence = ['Phân tích từ AI Studio (Gemini 3.6 Flash)']
+        evidence = ['Phân tích qua OpenRouter (Gemini 3.7 Flash)']
         confidenceLabel = 'AI Generated'
       }
       setAssistantMessages((current) => [...current, {

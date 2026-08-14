@@ -1713,7 +1713,7 @@ export default function AdminMealPlansPage({ onNavigate }: AdminMealPlansPagePro
                   </div>
                   <div>
                     <h3 className="text-base sm:text-lg font-black text-slate-900">AI Chef & Dinh Dưỡng Cao Cấp</h3>
-                    <p className="text-xs text-slate-500 font-medium">Tạo tự động công thức món ăn chuẩn Macros với Gemini AI</p>
+                    <p className="text-xs text-slate-500 font-medium">Tạo công thức chuẩn macro với Aura AI · Gemini 3.7 Flash</p>
                   </div>
                 </div>
                 <button

@@ -1,13 +1,19 @@
 const { getStorage } = require('firebase-admin/storage')
 const { FieldValue } = require('firebase-admin/firestore')
 const { logger } = require('firebase-functions')
-const { defineSecret } = require('firebase-functions/params')
 const { HttpsError, onCall } = require('firebase-functions/v2/https')
 const { withFunctionTelemetry } = require('./observability')
-
-const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY', {
-  description: 'Gemini API key used only by server-side Aura nutrition functions.',
-})
+const {
+  OPENROUTER_API_KEY,
+  OPENROUTER_ENDPOINT,
+  createOpenRouterHeaders,
+  extractOpenRouterText,
+  getOpenRouterApiKey,
+  getOpenRouterModelCandidates,
+  isOpenRouterFallbackError,
+  normalizeOpenRouterUsage,
+  sanitizeProviderMessage,
+} = require('./openrouter')
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000
@@ -16,8 +22,6 @@ const RATE_LIMIT_DAY_MS = 24 * 60 * 60 * 1000
 const RATE_LIMIT_DAY_REQUESTS = 50
 const ALLOWED_CONTENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const ALLOWED_MEAL_TYPES = new Set(['breakfast', 'lunch', 'dinner', 'snack', 'other'])
-const DEFAULT_MODEL = 'gemini-3.6-flash'
-const DEFAULT_FALLBACK_MODEL = 'gemini-3.5-flash'
 const ENFORCE_APP_CHECK = process.env.ENFORCE_APP_CHECK === 'true'
 const NUTRITION_FIELDS = ['calories', 'proteinG', 'carbsG', 'fatG', 'fiberG', 'sugarG', 'sodiumMg']
 const TRUSTED_CATALOG_MATCH_SCORE = 0.8
@@ -277,87 +281,43 @@ function bufferMatchesContentType(buffer, contentType) {
   return false
 }
 
-function getApiKey() {
-  try {
-    const value = GEMINI_API_KEY.value().trim()
-    return /^(?:disabled|demo|not-configured)$/i.test(value) ? '' : value
-  } catch (error) {
-    logger.warn('GEMINI_API_KEY is unavailable; returning the explicit demo response.', {
-      reason: error instanceof Error ? error.message : 'unknown',
-    })
-    return ''
-  }
-}
-
-function createGeminiSchema(value) {
-  if (Array.isArray(value)) return value.map(createGeminiSchema)
-  if (!value || typeof value !== 'object') return value
-  return Object.fromEntries(Object.entries(value)
-    // Gemini 3.6 Flash rejects this otherwise-valid nested schema once the
-    // repeated array maxItems constraints are included. The server-side
-    // validator below remains the source of truth for every array limit.
-    .filter(([key]) => !['minLength', 'maxLength', 'maxItems'].includes(key))
-    .map(([key, entry]) => [key, createGeminiSchema(entry)]))
-}
-
-const geminiFoodAnalysisSchema = createGeminiSchema(foodAnalysisSchema)
-
 function sanitizeProviderErrorMessage(value) {
-  if (typeof value !== 'string') return null
-  const sanitized = value
-    .replace(/AIza[0-9A-Za-z_-]{20,}/g, '[redacted-api-key]')
-    .replace(
-      /\b(api[_ -]?key|authorization|x-goog-api-key)\b\s*[:=]\s*(?:Bearer\s+)?[^\s,;]+/gi,
-      '$1=[redacted]',
-    )
-    .replace(/[\r\n\t]+/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim()
-  return sanitized ? sanitized.slice(0, 500) : null
+  return sanitizeProviderMessage(value)
 }
 
-function isGeminiModelCompatibilityError(status, providerMessage) {
-  if (status !== 400 || typeof providerMessage !== 'string') return false
-  const mentionsModelConfiguration = /\b(model|generation.?config|thinking|response.?format|response.?schema|parameter|field)\b/i
-    .test(providerMessage)
-  const reportsIncompatibility = /\b(not supported|unsupported|does not support|isn't supported|not available|incompatible)\b/i
-    .test(providerMessage)
-  return mentionsModelConfiguration && reportsIncompatibility
-}
-
-function getGeminiModelCandidates() {
-  const configuredModel = process.env.GEMINI_VISION_MODEL?.trim()
-  const configuredFallbackModel = process.env.GEMINI_VISION_FALLBACK_MODEL?.trim()
-  return [...new Set([
-    configuredModel || DEFAULT_MODEL,
-    configuredFallbackModel || DEFAULT_FALLBACK_MODEL,
-  ])]
+function getOpenRouterFoodModelCandidates() {
+  return getOpenRouterModelCandidates({
+    modelEnv: process.env.OPENROUTER_VISION_MODEL,
+    fallbackModelEnv: process.env.OPENROUTER_VISION_FALLBACK_MODEL,
+  })
 }
 
 function shouldTryNextFoodAnalysisModel({ index, modelCount, status, providerMessage, stage }) {
   if (index >= modelCount - 1) return false
   if (stage === 'incomplete_response' || stage === 'structured_output') return true
-  if (status === 0 || [404, 500, 502, 503, 504].includes(status)) return true
-  return isGeminiModelCompatibilityError(status, providerMessage)
+  if (status === 0) return true
+  return isOpenRouterFallbackError(status, providerMessage)
 }
 
-function extractGeminiResponseText(payload) {
-  if (payload?.promptFeedback?.blockReason) {
-    throw new HttpsError('failed-precondition', 'AI không thể phân tích ảnh này. Hãy thử một ảnh món ăn khác.')
+function extractOpenRouterNutritionText(payload) {
+  const choice = payload?.choices?.[0]
+  const finishReason = typeof choice?.finish_reason === 'string'
+    ? choice.finish_reason.toLowerCase()
+    : ''
+  if (['content_filter', 'safety'].includes(finishReason)) {
+    throw new HttpsError('failed-precondition', 'AI không thể xử lý nội dung này. Hãy thử lại với nội dung khác.')
   }
-  const textParts = []
-  for (const candidate of Array.isArray(payload?.candidates) ? payload.candidates : []) {
-    if (['SAFETY', 'BLOCKLIST', 'PROHIBITED_CONTENT'].includes(candidate?.finishReason)) {
-      throw new HttpsError('failed-precondition', 'AI không thể phân tích ảnh này. Hãy thử một ảnh món ăn khác.')
-    }
-    if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
-      throw new HttpsError('internal', 'AI chưa hoàn tất kết quả phân tích. Hãy thử lại với ảnh rõ hơn.')
-    }
-    for (const part of Array.isArray(candidate?.content?.parts) ? candidate.content.parts : []) {
-      if (part?.thought !== true && typeof part?.text === 'string') textParts.push(part.text)
-    }
+  if (finishReason && finishReason !== 'stop') {
+    const error = new HttpsError(
+      'internal',
+      'AI chưa hoàn tất kết quả. Hãy thử lại sau.',
+    )
+    error.providerMessage = sanitizeProviderErrorMessage(
+      choice?.error?.message || payload?.error?.message,
+    )
+    throw error
   }
-  return textParts.join('\n').trim()
+  return extractOpenRouterText(payload)
 }
 
 function isPlainObject(value) {
@@ -1096,63 +1056,69 @@ async function enrichWithNutritionDatabase(db, analysis) {
   return enrichAnalysisWithLookups(analysis, dishLookup, itemLookups)
 }
 
-function geminiUsageMetadata(payload) {
-  const usage = isPlainObject(payload?.usageMetadata) ? payload.usageMetadata : {}
+function openRouterUsageMetadata(payload) {
+  const usage = isPlainObject(payload?.usage) ? payload.usage : {}
+  const normalized = normalizeOpenRouterUsage(usage)
   const tokenCount = (value) => Number.isFinite(Number(value)) && Number(value) >= 0
     ? Math.round(Number(value))
     : 0
+  const reasoningTokens = tokenCount(usage?.completion_tokens_details?.reasoning_tokens)
+  const cachedTokens = tokenCount(usage?.prompt_tokens_details?.cached_tokens)
   return {
-    promptTokenCount: tokenCount(usage.promptTokenCount),
-    candidatesTokenCount: tokenCount(usage.candidatesTokenCount),
-    thoughtsTokenCount: tokenCount(usage.thoughtsTokenCount),
-    cachedContentTokenCount: tokenCount(usage.cachedContentTokenCount),
-    totalTokenCount: tokenCount(usage.totalTokenCount),
+    promptTokenCount: normalized.promptTokens,
+    candidatesTokenCount: Math.max(0, normalized.completionTokens - reasoningTokens),
+    thoughtsTokenCount: reasoningTokens,
+    cachedContentTokenCount: cachedTokens,
+    totalTokenCount: normalized.totalTokens,
   }
 }
 
-function buildFoodGenerationConfig() {
+function buildFoodOpenRouterRequest({ model, buffer, contentType, prompt, instructions }) {
   return {
-    maxOutputTokens: 6144,
-    thinkingConfig: { thinkingLevel: 'low' },
-    responseFormat: {
-      text: {
-        mimeType: 'APPLICATION_JSON',
-        schema: geminiFoodAnalysisSchema,
+    model,
+    messages: [
+      { role: 'system', content: instructions },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          {
+            type: 'image_url',
+            image_url: { url: `data:${contentType};base64,${buffer.toString('base64')}` },
+          },
+        ],
+      },
+    ],
+    max_tokens: 6144,
+    reasoning: { effort: 'low', exclude: true },
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        name: 'aura_food_analysis',
+        strict: true,
+        schema: foodAnalysisSchema,
       },
     },
+    provider: { require_parameters: true },
+    usage: { include: true },
   }
 }
 
-async function requestGeminiModel({ apiKey, buffer, contentType, prompt, instructions, model, scanId }) {
+async function requestOpenRouterVisionModel({ apiKey, buffer, contentType, prompt, instructions, model, scanId }) {
   let response
   try {
     response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      OPENROUTER_ENDPOINT,
       {
         method: 'POST',
-        headers: {
-          'x-goog-api-key': apiKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          store: false,
-          systemInstruction: {
-            parts: [{ text: instructions }],
-          },
-          contents: [{
-            role: 'user',
-            parts: [
-              { text: prompt },
-              {
-                inlineData: {
-                  mimeType: contentType,
-                  data: buffer.toString('base64'),
-                },
-              },
-            ],
-          }],
-          generationConfig: buildFoodGenerationConfig(),
-        }),
+        headers: createOpenRouterHeaders(apiKey),
+        body: JSON.stringify(buildFoodOpenRouterRequest({
+          model,
+          buffer,
+          contentType,
+          prompt,
+          instructions,
+        })),
         signal: AbortSignal.timeout(50000),
       },
     )
@@ -1170,11 +1136,11 @@ async function requestGeminiModel({ apiKey, buffer, contentType, prompt, instruc
     }
   }
 
-  const headerRequestId = response.headers.get('x-request-id') ?? response.headers.get('x-guploader-uploadid')
+  const headerRequestId = response.headers.get('x-request-id')
   const payload = await response.json().catch(() => null)
-  const requestId = typeof payload?.responseId === 'string' ? payload.responseId : (headerRequestId ?? null)
-  const usage = geminiUsageMetadata(payload)
-  logger.info('Food vision Gemini attempt', {
+  const requestId = typeof payload?.id === 'string' ? payload.id : (headerRequestId ?? null)
+  const usage = openRouterUsageMetadata(payload)
+  logger.info('Food vision OpenRouter attempt', {
     scanId,
     model,
     requestId,
@@ -1190,7 +1156,7 @@ async function requestGeminiModel({ apiKey, buffer, contentType, prompt, instruc
       requestId,
       status: response.status,
       providerCode: payload?.error?.code,
-      providerType: payload?.error?.status,
+      providerType: payload?.error?.type ?? payload?.error?.metadata?.error_type,
       providerMessage,
     })
     return { ok: false, status: response.status, requestId, providerMessage, usage }
@@ -1222,8 +1188,8 @@ function buildFoodAnalysisInstructions() {
   ].join('\n')
 }
 
-async function analyzeWithGemini({ apiKey, buffer, contentType, mealType, notes, scanId, studentGoal, studentCondition }) {
-  const models = getGeminiModelCandidates()
+async function analyzeWithOpenRouter({ apiKey, buffer, contentType, mealType, notes, scanId, studentGoal, studentCondition }) {
+  const models = getOpenRouterFoodModelCandidates()
 
   const context = JSON.stringify({
     mealType,
@@ -1235,7 +1201,7 @@ async function analyzeWithGemini({ apiKey, buffer, contentType, mealType, notes,
   const prompt = `Untrusted meal metadata: ${context}\nAnalyze the attached image.`
 
   for (const [index, model] of models.entries()) {
-    const result = await requestGeminiModel({
+    const result = await requestOpenRouterVisionModel({
       apiKey,
       buffer,
       contentType,
@@ -1253,7 +1219,7 @@ async function analyzeWithGemini({ apiKey, buffer, contentType, mealType, notes,
         stage: 'provider_error',
       })
       if (canTryFallback) {
-        logger.warn('Gemini model unavailable; trying the configured fallback.', {
+        logger.warn('OpenRouter model unavailable; trying the configured fallback.', {
           scanId,
           model,
           fallbackModel: models[index + 1],
@@ -1270,10 +1236,10 @@ async function analyzeWithGemini({ apiKey, buffer, contentType, mealType, notes,
 
     let outputText
     try {
-      outputText = extractGeminiResponseText(result.payload)
+      outputText = extractOpenRouterNutritionText(result.payload)
     } catch (error) {
-      const finishReasons = (Array.isArray(result.payload?.candidates) ? result.payload.candidates : [])
-        .map((candidate) => candidate?.finishReason)
+      const finishReasons = (Array.isArray(result.payload?.choices) ? result.payload.choices : [])
+        .map((choice) => choice?.finish_reason)
         .filter(Boolean)
       logger.warn('Food vision response was incomplete.', {
         scanId,
@@ -1342,57 +1308,55 @@ async function analyzeWithGemini({ apiKey, buffer, contentType, mealType, notes,
   throw new HttpsError('unavailable', 'AI chưa thể phân tích ảnh lúc này. Hãy thử lại sau.')
 }
 
-async function generateGeminiText({ apiKey, prompt, maxOutputTokens, operation }) {
-  const models = getGeminiModelCandidates()
+async function generateOpenRouterText({ apiKey, prompt, maxOutputTokens, operation }) {
+  const models = getOpenRouterFoodModelCandidates()
 
   for (const [index, model] of models.entries()) {
     let response
     try {
       response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+        OPENROUTER_ENDPOINT,
         {
           method: 'POST',
-          headers: {
-            'x-goog-api-key': apiKey,
-            'Content-Type': 'application/json',
-          },
+          headers: createOpenRouterHeaders(apiKey),
           body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { maxOutputTokens },
+            model,
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: maxOutputTokens,
+            reasoning: { effort: 'low', exclude: true },
+            usage: { include: true },
           }),
           signal: AbortSignal.timeout(25000),
         },
       )
     } catch (error) {
-      logger.error('Gemini text request failed.', {
+      logger.error('OpenRouter text request failed.', {
         operation,
         model,
-        reason: error instanceof Error ? error.message : 'unknown',
+        reason: sanitizeProviderErrorMessage(error instanceof Error ? error.message : 'unknown'),
       })
+      if (index === 0 && models.length > 1) continue
       throw new HttpsError('unavailable', 'Dịch vụ AI đang gián đoạn. Hãy thử lại sau.')
     }
 
-    const headerRequestId = response.headers.get('x-request-id') ?? response.headers.get('x-guploader-uploadid')
+    const headerRequestId = response.headers.get('x-request-id')
     const payload = await response.json().catch(() => null)
-    const requestId = typeof payload?.responseId === 'string' ? payload.responseId : (headerRequestId ?? null)
+    const requestId = typeof payload?.id === 'string' ? payload.id : (headerRequestId ?? null)
 
     if (!response.ok) {
       const providerMessage = sanitizeProviderErrorMessage(payload?.error?.message)
-      logger.error('Gemini text request returned an error.', {
+      logger.error('OpenRouter text request returned an error.', {
         operation,
         model,
         requestId,
         status: response.status,
         providerCode: payload?.error?.code,
-        providerType: payload?.error?.status,
+        providerType: payload?.error?.type ?? payload?.error?.metadata?.error_type,
         providerMessage,
       })
       const canTryFallback = index === 0
         && models.length > 1
-        && (
-          [404, 503].includes(response.status)
-          || isGeminiModelCompatibilityError(response.status, providerMessage)
-        )
+        && isOpenRouterFallbackError(response.status, providerMessage)
       if (canTryFallback) continue
       if (response.status === 429) {
         throw new HttpsError('resource-exhausted', 'Dịch vụ AI đang bận. Hãy thử lại sau ít phút.')
@@ -1400,9 +1364,24 @@ async function generateGeminiText({ apiKey, prompt, maxOutputTokens, operation }
       throw new HttpsError('unavailable', 'AI chưa thể trả lời lúc này. Hãy thử lại sau.')
     }
 
-    const text = extractGeminiResponseText(payload)
+    let text
+    try {
+      text = extractOpenRouterNutritionText(payload)
+    } catch (error) {
+      logger.warn('OpenRouter text response was incomplete.', {
+        operation,
+        model,
+        requestId,
+        finishReason: payload?.choices?.[0]?.finish_reason ?? null,
+        reason: error instanceof Error ? error.message : 'unknown',
+      })
+      if (error instanceof HttpsError && error.code === 'failed-precondition') throw error
+      if (index === 0 && models.length > 1) continue
+      throw new HttpsError('unavailable', 'AI chưa hoàn tất câu trả lời. Hãy thử lại sau.')
+    }
     if (!text) {
-      logger.error('Gemini text request returned no text.', { operation, model, requestId })
+      logger.error('OpenRouter text request returned no text.', { operation, model, requestId })
+      if (index === 0 && models.length > 1) continue
       throw new HttpsError('internal', 'AI trả về kết quả trống. Hãy thử lại.')
     }
     return { text, model, requestId }
@@ -1422,7 +1401,7 @@ function createDemoResponse(scanId) {
     analysis: null,
     notices: [
       'AI nhận diện ảnh chưa được cấu hình trên máy chủ.',
-      'Ảnh không được suy đoán bằng dữ liệu mẫu. Bạn có thể nhập món thủ công hoặc cấu hình GEMINI_API_KEY.',
+      'Ảnh không được suy đoán bằng dữ liệu mẫu. Bạn có thể nhập món thủ công hoặc cấu hình OPENROUTER_API_KEY.',
     ],
   }
 }
@@ -1434,7 +1413,7 @@ function createNutritionFunctions({ app, db }) {
     maxInstances: 3,
     concurrency: 4,
     enforceAppCheck: ENFORCE_APP_CHECK,
-    secrets: [GEMINI_API_KEY],
+    secrets: [OPENROUTER_API_KEY],
   }, withFunctionTelemetry('analyzeFoodImage', async (request) => {
     const uid = requireCaller(request)
     const input = parseAnalyzeRequest(request.data, uid)
@@ -1450,11 +1429,11 @@ function createNutritionFunctions({ app, db }) {
         uid,
         input.scanId,
       )
-      const apiKey = getApiKey()
+      const apiKey = getOpenRouterApiKey()
       if (!apiKey) {
         response = createDemoResponse(input.scanId)
       } else {
-        const providerResult = await analyzeWithGemini({
+        const providerResult = await analyzeWithOpenRouter({
           apiKey,
           buffer,
           contentType,
@@ -1469,7 +1448,7 @@ function createNutritionFunctions({ app, db }) {
           scanId: input.scanId,
           status: 'completed',
           mode: 'live',
-          provider: 'gemini',
+          provider: 'openrouter',
           model: providerResult.model,
           providerRequestId: providerResult.providerRequestId,
           analysis,
@@ -1506,15 +1485,15 @@ function createNutritionFunctions({ app, db }) {
     maxInstances: 3,
     concurrency: 4,
     enforceAppCheck: ENFORCE_APP_CHECK,
-    secrets: [GEMINI_API_KEY],
+    secrets: [OPENROUTER_API_KEY],
   }, withFunctionTelemetry('generateMealReview', async (request) => {
     requireCaller(request)
     const { meal, userProfile } = request.data || {}
     if (!isPlainObject(meal)) throw new HttpsError('invalid-argument', 'Meal data is required.')
 
-    const apiKey = getApiKey()
+    const apiKey = getOpenRouterApiKey()
     if (!apiKey) {
-      return { review: 'Cần cấu hình Gemini API Key trên máy chủ để AI có thể phân tích.' }
+      return { review: 'Cần cấu hình OpenRouter API Key trên máy chủ để AI có thể phân tích.' }
     }
 
     const prompt = `
@@ -1529,7 +1508,7 @@ Mục tiêu của học viên: ${userProfile?.goals?.includes('lose-fat') ? 'Gi�
 Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm tốt và điểm cần cải thiện của bữa ăn này dựa trên mục tiêu của họ. KHÔNG dùng markdown hay định dạng phức tạp. Viết trực tiếp nội dung.
 `
 
-    const result = await generateGeminiText({
+    const result = await generateOpenRouterText({
       apiKey,
       prompt,
       maxOutputTokens: 500,
@@ -1544,7 +1523,7 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
     maxInstances: 3,
     concurrency: 4,
     enforceAppCheck: ENFORCE_APP_CHECK,
-    secrets: [GEMINI_API_KEY],
+    secrets: [OPENROUTER_API_KEY],
   }, withFunctionTelemetry('askAiCoach', async (request) => {
     requireCaller(request)
     const { message, userProfile } = request.data || {}
@@ -1552,9 +1531,9 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
       throw new HttpsError('invalid-argument', 'Message must contain between 1 and 3000 characters.')
     }
 
-    const apiKey = getApiKey()
+    const apiKey = getOpenRouterApiKey()
     if (!apiKey) {
-      return { text: 'Cần cấu hình Gemini API Key trên máy chủ để AI Coach có thể trả lời.' }
+      return { text: 'Cần cấu hình OpenRouter API Key trên máy chủ để AI Coach có thể trả lời.' }
     }
 
     const goalStr = userProfile?.goals?.includes('lose-fat') ? 'Giảm mỡ (Thâm hụt calo)' : userProfile?.goals?.includes('gain-muscle') ? 'Tăng cơ (Thặng dư đạm & calo)' : 'Duy trì vóc dáng & sức khỏe'
@@ -1574,7 +1553,7 @@ Câu hỏi của học viên: "${message}"
 Hãy trả lời học viên một cách thân thiện, ngắn gọn, khoa học và BẮT BUỘC DỰA TRÊN hồ sơ của họ (nếu có thông tin). 
 Không dùng markdown định dạng phức tạp, chỉ cần xuống dòng hợp lý.`
 
-    const result = await generateGeminiText({
+    const result = await generateOpenRouterText({
       apiKey,
       prompt,
       maxOutputTokens: 600,
@@ -1588,15 +1567,14 @@ Không dùng markdown định dạng phức tạp, chỉ cần xuống dòng h�
 
 module.exports = {
   applyCatalogLookupToItem,
-  buildFoodGenerationConfig,
+  buildFoodOpenRouterRequest,
   buildFoodAnalysisInstructions,
-  createGeminiSchema,
   createNutritionFunctions,
   enrichAnalysisWithLookups,
   foodAnalysisSchema,
-  geminiUsageMetadata,
-  getGeminiModelCandidates,
-  isGeminiModelCompatibilityError,
+  extractOpenRouterNutritionText,
+  getOpenRouterFoodModelCandidates,
+  openRouterUsageMetadata,
   shouldTryNextFoodAnalysisModel,
   sanitizeProviderErrorMessage,
   scaleCatalogNutrition,

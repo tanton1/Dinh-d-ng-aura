@@ -5,18 +5,18 @@ const { buildTask, getModelCandidates } = require('./generative-ai')
 
 test('content AI model candidates use stable defaults and remove duplicates', () => {
   const keys = [
-    'GEMINI_TEXT_MODEL',
-    'GEMINI_TEXT_FALLBACK_MODEL',
-    'GEMINI_VISION_MODEL',
-    'GEMINI_VISION_FALLBACK_MODEL',
+    'OPENROUTER_MODEL',
+    'OPENROUTER_FALLBACK_MODEL',
+    'OPENROUTER_TEXT_MODEL',
+    'OPENROUTER_TEXT_FALLBACK_MODEL',
   ]
   const originals = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
   try {
     keys.forEach((key) => delete process.env[key])
-    assert.deepEqual(getModelCandidates(), ['gemini-3.6-flash', 'gemini-3.1-pro-preview'])
-    process.env.GEMINI_TEXT_MODEL = 'gemini-3.6-flash'
-    process.env.GEMINI_TEXT_FALLBACK_MODEL = 'gemini-3.6-flash'
-    assert.deepEqual(getModelCandidates(), ['gemini-3.6-flash'])
+    assert.deepEqual(getModelCandidates(), ['google/gemini-3.7-flash', 'google/gemini-3.6-flash'])
+    process.env.OPENROUTER_TEXT_MODEL = 'google/gemini-3.7-flash'
+    process.env.OPENROUTER_TEXT_FALLBACK_MODEL = 'google/gemini-3.7-flash'
+    assert.deepEqual(getModelCandidates(), ['google/gemini-3.7-flash'])
   } finally {
     keys.forEach((key) => {
       if (originals[key] === undefined) delete process.env[key]

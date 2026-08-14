@@ -1,15 +1,12 @@
 const { FieldValue } = require('firebase-admin/firestore')
-const { logger } = require('firebase-functions')
-const { defineSecret } = require('firebase-functions/params')
 const { HttpsError, onCall } = require('firebase-functions/v2/https')
 const { withFunctionTelemetry } = require('./observability')
-
-const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY', {
-  description: 'Gemini API key used only by server-side Aura AI functions.',
-})
-
-const DEFAULT_MODEL = 'gemini-3.6-flash'
-const DEFAULT_FALLBACK_MODEL = 'gemini-3.1-pro-preview'
+const {
+  OPENROUTER_API_KEY,
+  getOpenRouterApiKey,
+  getOpenRouterModelCandidates,
+  requestOpenRouterStructured,
+} = require('./openrouter')
 const ENFORCE_APP_CHECK = process.env.ENFORCE_APP_CHECK === 'true'
 const STAFF_ROLES = new Set(['editor', 'admin', 'super_admin'])
 const ADMIN_ROLES = new Set(['admin', 'super_admin'])
@@ -284,119 +281,25 @@ function buildTask(action, payload) {
   throw new HttpsError('invalid-argument', 'AI action is not supported.')
 }
 
-function getApiKey() {
-  try {
-    const value = GEMINI_API_KEY.value().trim()
-    return /^(?:disabled|demo|not-configured)$/i.test(value) ? '' : value
-  } catch {
-    return ''
-  }
-}
-
 function getModelCandidates() {
-  const configuredModel = process.env.GEMINI_TEXT_MODEL?.trim()
-    || process.env.GEMINI_VISION_MODEL?.trim()
-  const configuredFallback = process.env.GEMINI_TEXT_FALLBACK_MODEL?.trim()
-    || process.env.GEMINI_VISION_FALLBACK_MODEL?.trim()
-  return [...new Set([
-    configuredModel || DEFAULT_MODEL,
-    configuredFallback || DEFAULT_FALLBACK_MODEL,
-  ])]
-}
-
-function sanitizeProviderMessage(value) {
-  if (typeof value !== 'string') return null
-  return value
-    .replace(/AIza[0-9A-Za-z_-]{20,}/g, '[redacted-api-key]')
-    .replace(/[\r\n\t]+/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim()
-    .slice(0, 500) || null
-}
-
-function extractText(payload) {
-  if (payload?.promptFeedback?.blockReason) {
-    throw new HttpsError('failed-precondition', 'AI không thể xử lý nội dung này.')
-  }
-  const parts = payload?.candidates?.[0]?.content?.parts
-  return (Array.isArray(parts) ? parts : [])
-    .filter((part) => part?.thought !== true && typeof part?.text === 'string')
-    .map((part) => part.text)
-    .join('\n')
-    .trim()
+  return getOpenRouterModelCandidates({
+    modelEnv: process.env.OPENROUTER_TEXT_MODEL,
+    fallbackModelEnv: process.env.OPENROUTER_TEXT_FALLBACK_MODEL,
+  })
 }
 
 async function requestStructuredContent(apiKey, task, action) {
-  const models = getModelCandidates()
-  for (const [index, model] of models.entries()) {
-    let response
-    try {
-      response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-        {
-          method: 'POST',
-          headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            store: false,
-            contents: [{ role: 'user', parts: [{ text: task.prompt }] }],
-            generationConfig: {
-              maxOutputTokens: task.maxOutputTokens,
-              thinkingConfig: { thinkingLevel: 'low' },
-              responseFormat: {
-                text: { mimeType: 'application/json', schema: task.schema },
-              },
-            },
-          }),
-          signal: AbortSignal.timeout(55000),
-        },
-      )
-    } catch (error) {
-      logger.error('Aura content AI request failed.', {
-        action,
-        model,
-        reason: error instanceof Error ? error.message : 'unknown',
-      })
-      throw new HttpsError('unavailable', 'Dịch vụ AI đang gián đoạn. Hãy thử lại sau.')
-    }
-
-    const payload = await response.json().catch(() => null)
-    const requestId = typeof payload?.responseId === 'string'
-      ? payload.responseId
-      : (response.headers.get('x-request-id') ?? null)
-    if (!response.ok) {
-      const providerMessage = sanitizeProviderMessage(payload?.error?.message)
-      logger.error('Aura content AI provider error.', {
-        action,
-        model,
-        requestId,
-        status: response.status,
-        providerType: payload?.error?.status,
-        providerMessage,
-      })
-      if (index === 0 && models.length > 1 && [400, 404, 503].includes(response.status)) continue
-      if (response.status === 429) {
-        throw new HttpsError('resource-exhausted', 'Dịch vụ AI đang bận. Hãy thử lại sau ít phút.')
-      }
-      throw new HttpsError('unavailable', 'AI chưa thể tạo nội dung lúc này.')
-    }
-
-    const text = extractText(payload)
-    if (!text) throw new HttpsError('internal', 'AI trả về kết quả trống.')
-    try {
-      const data = JSON.parse(text)
-      if (!isPlainObject(data)) throw new Error('not an object')
-      return { data, model, requestId }
-    } catch (error) {
-      logger.error('Aura content AI returned invalid structured output.', {
-        action,
-        model,
-        requestId,
-        reason: error instanceof Error ? error.message : 'unknown',
-      })
-      throw new HttpsError('internal', 'Kết quả AI không đúng định dạng an toàn.')
-    }
-  }
-  throw new HttpsError('unavailable', 'AI chưa thể tạo nội dung lúc này.')
+  return requestOpenRouterStructured({
+    apiKey,
+    prompt: task.prompt,
+    schema: task.schema,
+    schemaName: `aura_${action}`,
+    maxOutputTokens: task.maxOutputTokens,
+    operation: action,
+    modelCandidates: getModelCandidates(),
+    // Leave enough of the 60-second callable budget for the single safe fallback.
+    timeoutMs: 26000,
+  })
 }
 
 async function consumeRateLimit(db, uid) {
@@ -442,7 +345,7 @@ function createGenerativeAiFunctions({ db }) {
     maxInstances: 3,
     concurrency: 4,
     enforceAppCheck: ENFORCE_APP_CHECK,
-    secrets: [GEMINI_API_KEY],
+    secrets: [OPENROUTER_API_KEY],
   }, withFunctionTelemetry('generateAuraContent', async (request) => {
     const uid = request.auth?.uid
     if (!uid) throw new HttpsError('unauthenticated', 'Bạn cần đăng nhập để dùng AI.')
@@ -451,14 +354,15 @@ function createGenerativeAiFunctions({ db }) {
     await requireRole(db, request, task.roles)
     await consumeRateLimit(db, uid)
 
-    const apiKey = getApiKey()
-    if (!apiKey) throw new HttpsError('failed-precondition', 'Gemini chưa được cấu hình trên máy chủ.')
+    const apiKey = getOpenRouterApiKey()
+    if (!apiKey) throw new HttpsError('failed-precondition', 'OpenRouter chưa được cấu hình trên máy chủ.')
     const result = await requestStructuredContent(apiKey, task, action)
     return {
       action,
       data: result.data,
       model: result.model,
       providerRequestId: result.requestId,
+      usage: result.usage,
     }
   }))
 

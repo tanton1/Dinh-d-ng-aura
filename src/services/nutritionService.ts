@@ -232,7 +232,7 @@ export interface FoodAnalysisResponse {
   scanId: string
   status: 'completed' | 'provider_not_configured'
   mode: 'live' | 'demo'
-  provider: 'gemini' | 'none'
+  provider: 'openrouter' | 'gemini' | 'none'
   model: string | null
   providerRequestId: string | null
   analysis: FoodAnalysis | null
@@ -563,7 +563,7 @@ function validateAnalysisResponse(value: unknown, expectedScanId: string): FoodA
   if (value.status === 'completed') {
     if (
       value.mode !== 'live'
-      || value.provider !== 'gemini'
+      || (value.provider !== 'openrouter' && value.provider !== 'gemini')
       || typeof value.model !== 'string'
       || !value.model.trim()
       || (value.providerRequestId !== null && typeof value.providerRequestId !== 'string')
@@ -642,7 +642,7 @@ export async function analyzeUploadedFoodPhoto(
     }
     return response
   } catch (error) {
-    reportClientIssue('gemini', error, { phase: 'analyze_food_callable', provider: 'gemini', retryable: true })
+    reportClientIssue('openrouter', error, { phase: 'analyze_food_callable', provider: 'openrouter', retryable: true })
     if (options.retainImage !== true && storage) {
       await deleteObject(ref(storage, upload.storagePath)).catch(() => undefined)
     }
@@ -694,8 +694,11 @@ export async function analyzeFoodPhoto(
 
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
-      if (errData.error === 'Thiếu GEMINI_API_KEY trên server.') {
-        throw new Error('MISSING_GEMINI_API_KEY');
+      if (
+        errData.error === 'Thiếu OPENROUTER_API_KEY trên server.'
+        || errData.error === 'Thiếu GEMINI_API_KEY trên server.'
+      ) {
+        throw new Error('MISSING_AI_API_KEY');
       }
       throw new Error(errData.error || 'Lỗi từ máy chủ AI');
     }
@@ -789,7 +792,7 @@ export async function analyzeFoodPhoto(
     const upload = await uploadFoodPhoto(image)
     return await analyzeUploadedFoodPhoto(upload, options)
   } catch (error) {
-    reportClientIssue('gemini', error, { phase: 'analyze_food_pipeline', provider: 'gemini', retryable: true })
+    reportClientIssue('openrouter', error, { phase: 'analyze_food_pipeline', provider: 'openrouter', retryable: true })
     throw error
   }
 }
@@ -807,8 +810,11 @@ export async function generateMealReview(meal: any, userProfile: any): Promise<s
     });
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));
-      if (errData.error === 'Thiếu GEMINI_API_KEY trên server.') {
-        throw new Error('MISSING_GEMINI_API_KEY');
+      if (
+        errData.error === 'Thiếu OPENROUTER_API_KEY trên server.'
+        || errData.error === 'Thiếu GEMINI_API_KEY trên server.'
+      ) {
+        throw new Error('MISSING_AI_API_KEY');
       }
       throw new Error(errData.error || 'Lỗi từ máy chủ AI');
     }
@@ -850,8 +856,11 @@ export async function askAiCoach(message: string, userProfile: any): Promise<str
     });
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));
-      if (errData.error === 'Thiếu GEMINI_API_KEY trên server.') {
-        throw new Error('MISSING_GEMINI_API_KEY');
+      if (
+        errData.error === 'Thiếu OPENROUTER_API_KEY trên server.'
+        || errData.error === 'Thiếu GEMINI_API_KEY trên server.'
+      ) {
+        throw new Error('MISSING_AI_API_KEY');
       }
       throw new Error(errData.error || 'Lỗi từ máy chủ AI');
     }

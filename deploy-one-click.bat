@@ -114,7 +114,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [8/9] Deploy Gemini Functions va Storage Rules...
+echo [8/9] Deploy OpenRouter AI Functions va Storage Rules...
 where firebase.cmd >nul 2>&1
 if errorlevel 1 (
   call npx.cmd --yes firebase-tools deploy --only "functions:analyzeFoodImage,functions:generateMealReview,functions:askAiCoach,functions:generateAuraContent,storage" --project "%FIREBASE_PROJECT%"
@@ -122,7 +122,7 @@ if errorlevel 1 (
   call firebase.cmd deploy --only "functions:analyzeFoodImage,functions:generateMealReview,functions:askAiCoach,functions:generateAuraContent,storage" --project "%FIREBASE_PROJECT%"
 )
 if errorlevel 1 (
-  echo [ERR] Gemini Functions deploy that bai. Kiem tra Firebase va GEMINI_API_KEY.
+  echo [ERR] OpenRouter Functions deploy that bai. Kiem tra Firebase va OPENROUTER_API_KEY.
   pause
   exit /b 1
 )
