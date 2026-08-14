@@ -2620,3 +2620,11 @@
     height: 44px;
   }
 }
+.admin-push-tabs {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.admin-push-tabs::-webkit-scrollbar {
+  display: none;
+}

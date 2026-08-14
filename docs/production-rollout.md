@@ -3,7 +3,7 @@
 ## Required configuration
 
 - Create a reCAPTCHA Enterprise App Check provider for the Firebase web app and set `VITE_FIREBASE_APP_CHECK_SITE_KEY` in the hosting build environment.
-- Create a Web Push certificate and set `VITE_FIREBASE_VAPID_KEY` in the hosting build environment.
+- Web Push can start with Firebase's default VAPID key. For the widest production browser compatibility, create a Web Push certificate and set its **public** key through `VITE_FIREBASE_VAPID_KEY` or Admin → Thông báo → Nhắc tự động → Cấu hình nâng cao. Never store the private key in the app or Firestore.
 - Set `ENFORCE_APP_CHECK=true` in the Cloud Functions runtime only after the App Check key has been deployed and verified. Keep it `false` during the compatibility rollout.
 - Keep `VITE_ENABLE_DEMO_OTP=false` and never enable it in a production build.
 - Enable `VITE_ENABLE_OFFLINE_CACHE=true` only after the privacy review confirms that persistent health data on shared devices is acceptable.
@@ -60,6 +60,14 @@ phone OTP send/verify, email sign-in, one nutrition scan, one course lesson and
 one PT schedule event. Confirm the Cloud Monitoring dashboard shows the matching
 `Aura function metric` entries and no `Aura function failure` entry. Never place
 OTP codes, passwords or Gemini keys in CI variables or screenshots.
+
+## Push notification operation
+
+1. Admin enables the system channel and scheduler in **Nhắc tự động**.
+2. The customer opens Profile → **Nhắc nhở của bạn**, chooses categories and meal times, then taps **Bật Push và lưu** once on each device.
+3. The scheduled function checks every 15 minutes, skips completed meal logs, respects quiet hours and daily limits, and writes an automation log.
+4. Admin uses **Gửi thông báo** only for real events such as PT schedules, Academy updates, or coach messages; use **Kiểm tra thiết bị** for a single admin-device smoke test.
+5. Admin reviews **Lịch sử** after each broadcast and the latest scheduler result before changing automation settings.
 
 ## Rollback
 

@@ -18,7 +18,6 @@ import {
   Check, 
   Radio, 
   Flame, 
-  GraduationCap, 
   Dumbbell, 
   Utensils,
   ExternalLink,
@@ -57,7 +56,7 @@ import {
   togglePushTemplateActive,
   DEFAULT_PUSH_SETTINGS 
 } from '../../services/notificationService'
-import { requestFcmPermissionAndToken } from '../../services/fcmService'
+import { getStoredFcmToken, requestFcmPermissionAndToken } from '../../services/fcmService'
 
 interface AdminNotificationsPageProps {
   onNavigate?: (view: any) => void
@@ -131,7 +130,7 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
   const [permissionState, setPermissionState] = useState<NotificationPermission>(
     typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default'
   )
-  const [currentFcmToken, setCurrentFcmToken] = useState<string | null>(null)
+  const [currentFcmToken, setCurrentFcmToken] = useState<string | null>(() => currentUserUid ? getStoredFcmToken(currentUserUid) : null)
   const [requestingToken, setRequestingToken] = useState(false)
   const [copiedToken, setCopiedToken] = useState(false)
   const [tokenError, setTokenError] = useState('')
@@ -155,6 +154,10 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
     }
     initData()
   }, [])
+
+  useEffect(() => {
+    setCurrentFcmToken(currentUserUid ? getStoredFcmToken(currentUserUid) : null)
+  }, [currentUserUid])
 
   // Filter target users count estimation based on goal, role, or user preferences
   const targetUsersList = useMemo(() => {
@@ -361,6 +364,10 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
 
   // Handle Request Permission
   const handleRequestPermission = async () => {
+    if (!currentUserUid) {
+      setTokenError('Không tìm thấy phiên đăng nhập admin. Hãy đăng nhập lại rồi kết nối thiết bị.')
+      return
+    }
     if (typeof window !== 'undefined' && 'Notification' in window) {
       setTokenError('')
       try {
@@ -369,9 +376,9 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
 
         if (perm === 'granted') {
           setRequestingToken(true)
-          const token = currentUserUid ? await requestFcmPermissionAndToken(currentUserUid) : null
+          const token = await requestFcmPermissionAndToken(currentUserUid)
           setCurrentFcmToken(token || '')
-          if (!token) setTokenError('Chưa đăng ký được thiết bị. Kiểm tra VAPID public key và Service Worker.')
+          if (!token) setTokenError('Chưa kết nối được thiết bị. Hãy kiểm tra quyền thông báo, mạng và tải lại trang rồi thử lại.')
         }
       } catch (error) {
         setTokenError(error instanceof Error ? error.message : 'Không thể đăng ký Push trên thiết bị này.')
@@ -463,12 +470,39 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
     <div className="page admin-notifications-page" style={{ paddingBottom: 60 }}>
       <PageHeader 
         eyebrow="AURA · ADMIN MANAGEMENT" 
-        title="Cài đặt & Quản lý Push Notifications" 
-        description="Gửi thông báo đẩy, tạo & chỉnh sửa các mẫu Push phân loại theo từng mục tiêu học viên, và quản lý tự động hóa hệ thống."
+        title="Trung tâm thông báo"
+        description="Một luồng duy nhất để soạn nội dung, vận hành nhắc tự động và theo dõi kết quả gửi."
       />
 
+      <section style={{ marginBottom: 18, padding: 18, borderRadius: 20, color: '#fff', background: 'linear-gradient(135deg, #bd1764 0%, #f43f78 55%, #ff873f 100%)', boxShadow: '0 12px 28px rgba(236,72,153,.2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <strong style={{ display: 'block', fontSize: 15 }}>Luồng vận hành Push</strong>
+            <span style={{ display: 'block', marginTop: 3, color: 'rgba(255,255,255,.82)', fontSize: 11 }}>Thiết lập một lần, scheduler tự nhắc đúng giờ; admin chỉ cần theo dõi và gửi nội dung cần thiết.</span>
+          </div>
+          <span style={{ padding: '6px 10px', borderRadius: 999, background: 'rgba(255,255,255,.17)', fontSize: 10, fontWeight: 850 }}>
+            {settings.enabled ? 'KÊNH PUSH ĐANG BẬT' : 'KÊNH PUSH ĐANG TẮT'}
+          </span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 9, marginTop: 14 }}>
+          {[
+            ['1', 'Người dùng bật Push', 'Thiết bị được đăng ký tự động'],
+            ['2', 'Aura gửi đúng nhịp', settings.automationEnabled ? 'Scheduler đang được bật' : 'Scheduler đang tắt'],
+            ['3', 'Admin theo dõi', latestAutomationLog ? `Cập nhật ${formatAutomationTime(latestAutomationLog.createdAt)}` : 'Chưa có lần chạy'],
+          ].map(([step, title, detail]) => (
+            <div key={step} style={{ display: 'flex', gap: 9, padding: 11, borderRadius: 14, background: 'rgba(255,255,255,.13)', border: '1px solid rgba(255,255,255,.16)' }}>
+              <span style={{ display: 'grid', placeItems: 'center', width: 24, height: 24, flex: '0 0 auto', borderRadius: 8, color: '#be185d', background: '#fff', fontSize: 11, fontWeight: 900 }}>{step}</span>
+              <span style={{ minWidth: 0 }}>
+                <strong style={{ display: 'block', fontSize: 11 }}>{title}</strong>
+                <small style={{ display: 'block', marginTop: 2, color: 'rgba(255,255,255,.76)', fontSize: 9, lineHeight: 1.35 }}>{detail}</small>
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* Tabs Navigation */}
-      <div style={{
+      <div className="admin-push-tabs" style={{
         display: 'flex',
         gap: 8,
         borderBottom: '1px solid #e2e8f0',
@@ -477,11 +511,11 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
         paddingBottom: 4
       }}>
         {[
-          { id: 'dispatch', label: 'Soạn & Gửi thông báo', icon: Send },
-          { id: 'goal_templates', label: 'Mẫu Push Theo Mục Tiêu', icon: Target, badge: pushTemplates.length },
-          { id: 'settings', label: 'Cấu hình & Tự động hóa', icon: Settings },
-          { id: 'tester', label: 'Thử nghiệm Web Push', icon: Smartphone },
-          { id: 'logs', label: 'Nhật ký phát sóng', icon: History }
+          { id: 'dispatch', label: 'Gửi thông báo', icon: Send },
+          { id: 'settings', label: 'Nhắc tự động', icon: Settings },
+          { id: 'goal_templates', label: 'Nội dung mẫu', icon: Target, badge: pushTemplates.length },
+          { id: 'logs', label: 'Lịch sử', icon: History },
+          { id: 'tester', label: 'Kiểm tra thiết bị', icon: Smartphone }
         ].map((tab) => {
           const Icon = tab.icon
           const isActive = activeTab === tab.id
@@ -1159,10 +1193,10 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
               <div>
                 <h3 style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Zap size={20} style={{ color: '#ff1a8c' }} />
-                  Bật/Tắt Kênh Push Notification Hệ Thống
+                  Kênh Push toàn hệ thống
                 </h3>
                 <span style={{ fontSize: 13, color: '#64748b', fontWeight: 500, marginTop: 4, display: 'block' }}>
-                  Quản lý trạng thái cho phép gửi thông báo đẩy tới toàn bộ thiết bị người dùng
+                  Công tắc khẩn cấp để cho phép hoặc tạm dừng toàn bộ thông báo.
                 </span>
               </div>
 
@@ -1204,7 +1238,7 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
               Nhắc nhở tự động an toàn
             </h3>
             <p style={{ margin: '0 0 14px', color: '#64748b', fontSize: 12, lineHeight: 1.5 }}>
-              Scheduler chạy mỗi 15 phút cho nhắc nhật ký bữa ăn, dùng mã chống trùng và bỏ qua giờ yên tĩnh. Lịch PT/Academy vẫn gửi theo template và danh mục ở tab Phát thông báo.
+              Scheduler kiểm tra mỗi 15 phút, bỏ qua người đã ghi bữa ăn, chống gửi trùng và tôn trọng giờ yên tĩnh. Lịch PT/Academy được gửi ở tab Gửi thông báo khi có sự kiện thực tế.
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16 }}>
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 800, color: '#0f172a', cursor: 'pointer' }}>
@@ -1240,74 +1274,53 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
             </div>
           </div>
 
-          {/* FCM & VAPID Credentials Status */}
-          <div style={{ background: '#ffffff', borderRadius: 20, padding: 20, border: '1px solid #f1f5f9', boxShadow: '0 2px 12px rgba(0,0,0,0.03)' }}>
-            <h3 style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: '0 0 14px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <ShieldCheck size={18} style={{ color: '#ff1a8c' }} />
-              Cấu hình Firebase Cloud Messaging (FCM & Web Push)
-            </h3>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4, display: 'block' }}>FCM Project ID:</label>
-                <input
-                  type="text"
-                  value={settings.fcmProjectId}
-                  onChange={(e) => setSettings({ ...settings, fcmProjectId: e.target.value })}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 12 }}
-                />
+          {/* Optional infrastructure settings. Normal operation does not require opening this section. */}
+          <details style={{ background: '#ffffff', borderRadius: 20, border: '1px solid #f1f5f9', boxShadow: '0 2px 12px rgba(0,0,0,0.03)' }}>
+            <summary style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: 20, cursor: 'pointer', listStyle: 'none' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#0f172a', fontSize: 14, fontWeight: 800 }}>
+                <ShieldCheck size={18} style={{ color: '#ff1a8c' }} />
+                Cấu hình nâng cao · FCM & VAPID
+              </span>
+              <span style={{ padding: '5px 9px', borderRadius: 999, color: settings.vapidPublicKey.trim().length >= 40 ? '#047857' : '#475569', background: settings.vapidPublicKey.trim().length >= 40 ? '#ecfdf5' : '#f1f5f9', fontSize: 10, fontWeight: 850 }}>
+                {settings.vapidPublicKey.trim().length >= 40 ? 'KEY TÙY CHỈNH' : 'FIREBASE MẶC ĐỊNH'}
+              </span>
+            </summary>
+            <div style={{ padding: '0 20px 20px' }}>
+              <p style={{ margin: '0 0 14px', padding: '10px 12px', borderRadius: 11, color: '#475569', background: '#f8fafc', fontSize: 11, lineHeight: 1.5 }}>
+                VAPID tùy chỉnh không còn bắt buộc. Để trống, Aura dùng cấu hình mặc định của Firebase; chỉ nhập public key khi cần chuẩn hóa Web Push production trên nhiều trình duyệt.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>
+                  Firebase Project ID
+                  <input type="text" value={settings.fcmProjectId} onChange={(e) => setSettings({ ...settings, fcmProjectId: e.target.value })} style={{ boxSizing: 'border-box', width: '100%', marginTop: 5, padding: '8px 10px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 12 }} />
+                </label>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>
+                  Sender ID
+                  <input type="text" value={settings.fcmSenderId} onChange={(e) => setSettings({ ...settings, fcmSenderId: e.target.value })} style={{ boxSizing: 'border-box', width: '100%', marginTop: 5, padding: '8px 10px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 12 }} />
+                </label>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>
+                  VAPID public key · tùy chọn
+                  <input type="text" value={settings.vapidPublicKey} onChange={(e) => setSettings({ ...settings, vapidPublicKey: e.target.value })} placeholder="Để trống để dùng Firebase mặc định" style={{ boxSizing: 'border-box', width: '100%', marginTop: 5, padding: '8px 10px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 12 }} />
+                </label>
               </div>
-
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4, display: 'block' }}>FCM Sender ID:</label>
-                <input
-                  type="text"
-                  value={settings.fcmSenderId}
-                  onChange={(e) => setSettings({ ...settings, fcmSenderId: e.target.value })}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 12 }}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4, display: 'block' }}>VAPID Key (Public):</label>
-                <input
-                  type="text"
-                  value={settings.vapidPublicKey}
-                  onChange={(e) => setSettings({ ...settings, vapidPublicKey: e.target.value })}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 12 }}
-                />
-                <small style={{ display: 'block', marginTop: 5, color: '#94a3b8', fontSize: 11 }}>Lấy tại Firebase Console → Cloud Messaging → Web Push certificates. Chỉ lưu public key.</small>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginTop: 14 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: '#0f172a', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={settings.soundEnabled} onChange={(e) => setSettings({ ...settings, soundEnabled: e.target.checked })} style={{ accentColor: '#ff1a8c' }} />
+                  <Volume2 size={16} /> Âm thanh
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: '#0f172a', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={settings.badgeEnabled} onChange={(e) => setSettings({ ...settings, badgeEnabled: e.target.checked })} style={{ accentColor: '#ff1a8c' }} />
+                  Badge chưa đọc
+                </label>
               </div>
             </div>
-
-            <div style={{ marginTop: 14, display: 'flex', gap: 16 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#0f172a', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={settings.soundEnabled}
-                  onChange={(e) => setSettings({ ...settings, soundEnabled: e.target.checked })}
-                  style={{ accentColor: '#ff1a8c' }}
-                />
-                <Volume2 size={16} /> Phát âm thanh báo khi có Push
-              </label>
-
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#0f172a', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={settings.badgeEnabled}
-                  onChange={(e) => setSettings({ ...settings, badgeEnabled: e.target.checked })}
-                  style={{ accentColor: '#ff1a8c' }}
-                />
-                Hiển thị Badge số đếm chưa đọc trên biểu tượng
-              </label>
-            </div>
-          </div>
+          </details>
 
           {/* Automated Schedule Reminders Card */}
           <div style={{ background: '#ffffff', borderRadius: 20, padding: 20, border: '1px solid #f1f5f9', boxShadow: '0 2px 12px rgba(0,0,0,0.03)' }}>
             <h3 style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: '0 0 14px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
               <Clock size={18} style={{ color: '#ff1a8c' }} />
-              Cấu hình Khung giờ Nhắc nhở Tự động (Automation Schedules)
+              Lịch nhắc bữa ăn
             </h3>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1368,37 +1381,9 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
                 </div>
               </div>
 
-              {/* Workout & Progress Review */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                <div style={{ background: '#f8fafc', padding: 14, borderRadius: 14, border: '1px solid #e2e8f0' }}>
-                  <label style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                    <Dumbbell size={16} style={{ color: '#ff7b54' }} />
-                    Giờ nhắc tập gym chiều:
-                  </label>
-                  <input
-                    type="time"
-                    value={settings.workoutReminderTime}
-                    onChange={(e) => setSettings({ ...settings, workoutReminderTime: e.target.value })}
-                    style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 13 }}
-                  />
-                </div>
-
-                <div style={{ background: '#f8fafc', padding: 14, borderRadius: 14, border: '1px solid #e2e8f0' }}>
-                  <label style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                    <GraduationCap size={16} style={{ color: '#ff1a8c' }} />
-                    Ngày nhắc đánh giá tiến độ tuần:
-                  </label>
-                  <select
-                    value={settings.weeklyProgressReviewDay}
-                    onChange={(e) => setSettings({ ...settings, weeklyProgressReviewDay: e.target.value })}
-                    style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 13, background: '#ffffff' }}
-                  >
-                    <option value="monday">Thứ 2 hàng tuần</option>
-                    <option value="friday">Thứ 6 hàng tuần</option>
-                    <option value="sunday">Chủ Nhật hàng tuần</option>
-                  </select>
-                </div>
-              </div>
+              <p style={{ margin: 0, padding: '10px 12px', borderRadius: 11, color: '#64748b', background: '#fff7fb', border: '1px solid #fbcfe8', fontSize: 11, lineHeight: 1.45 }}>
+                Nhắc lịch tập, lớp học và phản hồi HLV phụ thuộc sự kiện thực tế nên được gửi từ tab Gửi thông báo, tránh tạo lịch giả hoặc gửi sai thời điểm.
+              </p>
             </div>
           </div>
 
@@ -1421,7 +1406,7 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
                 boxShadow: '0 4px 15px rgba(255, 26, 140, 0.3)'
               }}
             >
-              {savingSettings ? 'Đang lưu cài đặt...' : 'Lưu Cấu Hình Cài Đặt Push'}
+              {savingSettings ? 'Đang lưu…' : 'Lưu cài đặt Push'}
             </button>
 
             {settingsSaved && (
@@ -1469,10 +1454,11 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
                 </strong>
               </div>
 
-              {permissionState !== 'granted' && (
+              {(!currentFcmToken || permissionState !== 'granted') && (
                 <button
                   type="button"
                   onClick={handleRequestPermission}
+                  disabled={requestingToken}
                   style={{
                     padding: '8px 16px',
                     borderRadius: 10,
@@ -1481,10 +1467,11 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
                     color: '#ffffff',
                     fontSize: 12,
                     fontWeight: 800,
-                    cursor: 'pointer'
+                    cursor: requestingToken ? 'wait' : 'pointer',
+                    opacity: requestingToken ? 0.72 : 1
                   }}
                 >
-                  Xin Quyền Ngay
+                  {requestingToken ? 'Đang kết nối…' : permissionState === 'granted' ? 'Kết nối thiết bị' : 'Cho phép thông báo'}
                 </button>
               )}
             </div>

@@ -14,14 +14,40 @@ function isUsableVapidKey(value: unknown): value is string {
     && !value.includes('...')
 }
 
-async function resolveVapidKey() {
+async function resolveVapidKey(): Promise<string | undefined> {
   const buildKey = import.meta.env.VITE_FIREBASE_VAPID_KEY?.trim()
   if (isUsableVapidKey(buildKey)) return buildKey
 
   const publicConfig = await getPublicPushConfig()
   if (isUsableVapidKey(publicConfig.vapidPublicKey)) return publicConfig.vapidPublicKey.trim()
 
-  throw new Error('Web Push chưa được cấu hình VAPID public key. Admin cần bổ sung key trong Cài đặt Push.')
+  // Firebase Messaging supports its default VAPID key when no custom key is
+  // supplied. A custom key remains available as an optional production
+  // hardening setting, but it must never block a user from enabling Push.
+  return undefined
+}
+
+function friendlyPushError(error: unknown) {
+  const code = typeof error === 'object' && error && 'code' in error
+    ? String((error as { code?: unknown }).code ?? '')
+    : ''
+
+  if (code.includes('permission-blocked')) {
+    return new Error('Trình duyệt đang chặn thông báo. Hãy cho phép Aura trong cài đặt của trình duyệt rồi thử lại.')
+  }
+  if (code.includes('failed-service-worker-registration')) {
+    return new Error('Aura chưa thể khởi động dịch vụ thông báo. Hãy tải lại trang rồi thử lại.')
+  }
+  if (code.includes('token-subscribe-failed')) {
+    return new Error('Chưa thể kết nối thiết bị với dịch vụ thông báo. Hãy kiểm tra mạng rồi thử lại.')
+  }
+  if (code.includes('functions/') || code.includes('unauthenticated')) {
+    return new Error('Phiên đăng nhập đã hết hạn hoặc máy chủ chưa phản hồi. Hãy đăng nhập lại rồi thử tiếp.')
+  }
+
+  return error instanceof Error
+    ? error
+    : new Error('Chưa thể bật thông báo trên thiết bị này. Hãy thử lại sau.')
 }
 
 function saveStoredToken(userId: string, token: string | null) {
@@ -53,25 +79,32 @@ export async function requestFcmPermissionAndToken(userId: string) {
     : await Notification.requestPermission()
   if (permission !== 'granted') return null
 
-  const vapidKey = await resolveVapidKey()
-  const firebaseMessaging = await getFirebaseMessaging()
-  if (!firebaseMessaging) return null
+  try {
+    const vapidKey = await resolveVapidKey()
+    const firebaseMessaging = await getFirebaseMessaging()
+    if (!firebaseMessaging) return null
 
-  const { getToken } = await import('firebase/messaging')
-  const serviceWorkerRegistration = await navigator.serviceWorker.ready
-  const currentToken = await getToken(firebaseMessaging, { vapidKey, serviceWorkerRegistration })
-  if (!currentToken) return null
+    const { getToken } = await import('firebase/messaging')
+    const serviceWorkerRegistration = await navigator.serviceWorker.ready
+    const tokenOptions = vapidKey
+      ? { vapidKey, serviceWorkerRegistration }
+      : { serviceWorkerRegistration }
+    const currentToken = await getToken(firebaseMessaging, tokenOptions)
+    if (!currentToken) return null
 
-  const registerToken = httpsCallable<{
-    token: string
-    platform: string
-  }, { registered: boolean; deviceId: string }>(firebaseFunctions, 'registerFcmToken', { timeout: 15_000 })
-  const response = await registerToken({ token: currentToken, platform: 'web' })
-  if (!response.data.registered) return null
+    const registerToken = httpsCallable<{
+      token: string
+      platform: string
+    }, { registered: boolean; deviceId: string }>(firebaseFunctions, 'registerFcmToken', { timeout: 15_000 })
+    const response = await registerToken({ token: currentToken, platform: 'web' })
+    if (!response.data.registered) return null
 
-  saveStoredToken(userId, currentToken)
-  window.dispatchEvent(new CustomEvent('aura:fcm-ready'))
-  return currentToken
+    saveStoredToken(userId, currentToken)
+    window.dispatchEvent(new CustomEvent('aura:fcm-ready'))
+    return currentToken
+  } catch (error) {
+    throw friendlyPushError(error)
+  }
 }
 
 export async function unregisterFcmToken(userId: string, token = getStoredFcmToken(userId)) {
