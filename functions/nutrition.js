@@ -6,7 +6,9 @@ const { withFunctionTelemetry } = require('./observability')
 const {
   OPENROUTER_API_KEY,
   OPENROUTER_ENDPOINT,
+  createGeminiCompatibleSchema,
   createOpenRouterHeaders,
+  extractOpenRouterProviderMessage,
   extractOpenRouterText,
   getOpenRouterApiKey,
   getOpenRouterModelCandidates,
@@ -1096,7 +1098,7 @@ function buildFoodOpenRouterRequest({ model, buffer, contentType, prompt, instru
       json_schema: {
         name: 'aura_food_analysis',
         strict: true,
-        schema: foodAnalysisSchema,
+        schema: createGeminiCompatibleSchema(foodAnalysisSchema),
       },
     },
     provider: { require_parameters: true },
@@ -1149,7 +1151,7 @@ async function requestOpenRouterVisionModel({ apiKey, buffer, contentType, promp
     ...usage,
   })
   if (!response.ok) {
-    const providerMessage = sanitizeProviderErrorMessage(payload?.error?.message)
+    const providerMessage = extractOpenRouterProviderMessage(payload)
     logger.error('Food vision provider returned an error.', {
       scanId,
       model,

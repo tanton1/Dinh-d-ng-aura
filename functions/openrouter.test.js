@@ -5,13 +5,45 @@ const {
   OPENROUTER_ENDPOINT,
   createOpenRouterHeaders,
   createStructuredRequestBody,
+  createGeminiCompatibleSchema,
   extractOpenRouterText,
+  extractOpenRouterProviderMessage,
   getOpenRouterModelCandidates,
   isOpenRouterFallbackError,
   normalizeOpenRouterUsage,
   requestOpenRouterStructured,
   sanitizeProviderMessage,
 } = require('./openrouter')
+
+test('Gemini schema compatibility removes provider-rejected length and cardinality constraints', () => {
+  const schema = createGeminiCompatibleSchema({
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      label: { type: 'string', minLength: 1, maxLength: 80 },
+      score: { type: 'number', minimum: 0, maximum: 1 },
+      tags: { type: 'array', maxItems: 3, items: { type: 'string', minLength: 1 } },
+    },
+    required: ['label', 'score', 'tags'],
+  })
+
+  assert.deepEqual(schema.properties.label, { type: 'string' })
+  assert.deepEqual(schema.properties.score, { type: 'number', minimum: 0, maximum: 1 })
+  assert.deepEqual(schema.properties.tags, { type: 'array', items: { type: 'string' } })
+})
+
+test('OpenRouter provider diagnostics prefer the safe upstream error over a generic gateway message', () => {
+  const message = extractOpenRouterProviderMessage({
+    error: {
+      message: 'Provider returned error',
+      metadata: {
+        raw: '{"error":{"message":"Request contains an invalid argument."}}',
+      },
+    },
+  })
+
+  assert.match(message, /Request contains an invalid argument/)
+})
 
 test('OpenRouter uses Gemini 3.7 Flash with a 3.6 Flash fallback', () => {
   const keys = ['OPENROUTER_MODEL', 'OPENROUTER_FALLBACK_MODEL']

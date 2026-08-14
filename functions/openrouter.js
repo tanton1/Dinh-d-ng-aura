@@ -42,6 +42,35 @@ function sanitizeProviderMessage(value) {
     .slice(0, 500) || null
 }
 
+function extractOpenRouterProviderMessage(payload) {
+  const directMessage = sanitizeProviderMessage(payload?.error?.message)
+  const rawProviderMessage = sanitizeProviderMessage(payload?.error?.metadata?.raw)
+  if (!directMessage || /^provider returned error$/i.test(directMessage)) {
+    return rawProviderMessage || directMessage
+  }
+  return directMessage
+}
+
+function createGeminiCompatibleSchema(schema) {
+  if (Array.isArray(schema)) return schema.map((entry) => createGeminiCompatibleSchema(entry))
+  if (!schema || typeof schema !== 'object') return schema
+
+  return Object.fromEntries(Object.entries(schema).flatMap(([key, value]) => {
+    // Gemini Structured Outputs supports only a JSON Schema subset. Google AI
+    // Studio currently rejects Aura's nested production schema when it carries
+    // string-length or array-cardinality constraints, so the server enforces
+    // those bounds after parsing instead.
+    if (['minLength', 'maxLength', 'minItems', 'maxItems'].includes(key)) return []
+    if (key === 'properties' && value && typeof value === 'object' && !Array.isArray(value)) {
+      return [[key, Object.fromEntries(Object.entries(value).map(([propertyName, propertySchema]) => [
+        propertyName,
+        createGeminiCompatibleSchema(propertySchema),
+      ]))]]
+    }
+    return [[key, createGeminiCompatibleSchema(value)]]
+  }))
+}
+
 function createSchemaName(value) {
   const normalized = String(value || 'aura_response')
     .toLowerCase()
@@ -75,7 +104,7 @@ function createStructuredRequestBody({ model, prompt, schema, schemaName, maxOut
       json_schema: {
         name: createSchemaName(schemaName),
         strict: true,
-        schema,
+        schema: createGeminiCompatibleSchema(schema),
       },
     },
     provider: { require_parameters: true },
@@ -153,7 +182,7 @@ async function requestOpenRouterStructured({
       ? payload.id
       : response.headers.get('x-request-id')
     if (!response.ok) {
-      const providerMessage = sanitizeProviderMessage(payload?.error?.message)
+      const providerMessage = extractOpenRouterProviderMessage(payload)
       logger.error('OpenRouter provider error.', {
         operation,
         model,
@@ -228,8 +257,10 @@ module.exports = {
   DEFAULT_OPENROUTER_MODEL,
   OPENROUTER_API_KEY,
   OPENROUTER_ENDPOINT,
+  createGeminiCompatibleSchema,
   createOpenRouterHeaders,
   createStructuredRequestBody,
+  extractOpenRouterProviderMessage,
   extractOpenRouterText,
   getOpenRouterApiKey,
   getOpenRouterModelCandidates,
