@@ -90,9 +90,11 @@ not fabricate nutrition values from a sample meal.
   Coach/Admin/Super Admin accounts. Elevated quota requires the Auth custom claim
   and server-owned Firestore role to match.
 - Food photos are resized to a maximum 1,280-pixel long edge before upload. The
-  provider returns compact visual facts; Aura builds the advisory copy locally,
-  caches exact owner-scoped retries for 24 hours, and only calls the fallback model
-  for materially low-confidence results.
+  provider returns the complete structured nutrition and personalized advisory
+  fields, Aura caches exact owner-scoped retries for 24 hours, and only calls the
+  fallback model for materially low-confidence results. Server validation and local
+  repair remain a safety net when a provider field is malformed; they are not the
+  primary source of the student-facing advice.
 - Function concurrency is capped at 4 per instance (maximum 3 instances) to bound
   image-buffer memory and provider fan-out.
 - Provider output uses strict JSON Schema and is validated again on the server.

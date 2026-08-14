@@ -61,6 +61,12 @@ function compactFoodVisionResult() {
   }
 }
 
+function fullFoodVisionResult() {
+  return validateFoodAnalysisWithLocalRepair(compactFoodVisionResult(), {
+    studentGoal: 'Giam mo',
+  }).analysis
+}
+
 test('nutrition callable factory initializes with the configured App Check policy', () => {
   const functions = createNutritionFunctions({ app: {}, db: {} })
   assert.equal(typeof functions.analyzeFoodImage, 'function')
@@ -68,7 +74,23 @@ test('nutrition callable factory initializes with the configured App Check polic
   assert.equal(typeof functions.askAiCoach, 'function')
 })
 
-test('compact vision facts are expanded locally into the stable UI response contract', () => {
+test('full provider advisory answers are preserved without local replacement', () => {
+  const providerResult = fullFoodVisionResult()
+  const result = validateFoodAnalysisWithLocalRepair(providerResult, {
+    studentGoal: 'Giam mo',
+  })
+
+  assert.deepEqual(result.repairedFields, [])
+  assert.equal(result.analysis.quantityAndCookingAnalysis, providerResult.quantityAndCookingAnalysis)
+  assert.equal(result.analysis.portionAndCalorieRationale, providerResult.portionAndCalorieRationale)
+  assert.equal(result.analysis.goalAlignmentAssessment, providerResult.goalAlignmentAssessment)
+  assert.equal(result.analysis.calorieOptimizationTip, providerResult.calorieOptimizationTip)
+  assert.equal(result.analysis.macroBalanceAssessment, providerResult.macroBalanceAssessment)
+  assert.equal(result.analysis.coachFeedbackSuggestion, providerResult.coachFeedbackSuggestion)
+  assert.equal(result.analysis.aiFeedback, providerResult.aiFeedback)
+})
+
+test('legacy incomplete provider facts retain a local repair fallback for response compatibility', () => {
   const compact = compactFoodVisionResult()
   const result = validateFoodAnalysisWithLocalRepair(compact, {
     studentGoal: 'Giảm mỡ',
@@ -89,7 +111,7 @@ test('compact vision facts are expanded locally into the stable UI response cont
   assert.match(result.analysis.macroBalanceAssessment, /48/)
 })
 
-test('compact non-food results also receive neutral local advisory fields', () => {
+test('legacy incomplete non-food results retain neutral local advisory fallback fields', () => {
   const zeroNutrition = nutrition({
     calories: 0,
     proteinG: 0,
@@ -164,6 +186,32 @@ test('two-tier candidate scoring prefers the more defensible valid estimate', ()
   assert.equal(foodAnalysisQualityScore(null), Number.NEGATIVE_INFINITY)
 })
 
+test('locally repaired advisory fields force quality escalation to the fallback model', () => {
+  assert.match(
+    nutritionSource,
+    /needsQualityEscalation\s*=\s*validated\.repairedFields\.length\s*>\s*0\s*\|\|\s*foodAnalysisNeedsEscalation\(validated\.analysis\)/,
+  )
+  assert.match(
+    nutritionSource,
+    /Food vision result needs quality escalation; requesting the fallback model\./,
+  )
+})
+
+test('full advisory prompt receives the bounded student goal and condition context', () => {
+  assert.match(
+    nutritionSource,
+    /studentGoal:\s*studentGoal\s*\|\|\s*'Chưa cập nhật'/,
+  )
+  assert.match(
+    nutritionSource,
+    /studentCondition:\s*studentCondition\s*\|\|\s*'Chưa cập nhật'/,
+  )
+  assert.match(
+    nutritionSource,
+    /validateFoodAnalysisWithLocalRepair\(parsedAnalysis,\s*\{ studentGoal, studentCondition \}\)/,
+  )
+})
+
 test('daily food scan limits are 10 for members and 50 for trusted coach/admin accounts', () => {
   assert.equal(REGULAR_DAILY_FOOD_SCAN_LIMIT, 10)
   assert.equal(STAFF_DAILY_FOOD_SCAN_LIMIT, 50)
@@ -210,6 +258,8 @@ test('food scan cache identity is stable, opaque, and independent from retry sca
 })
 
 test('food scan cache identity changes across owner, image, context, and analysis versions', () => {
+  assert.equal(FOOD_SCAN_CACHE_VERSION, 'food-vision-full-advisory-v2')
+
   const base = {
     uid: 'member-1',
     imageBuffer: Buffer.from('image-a'),
