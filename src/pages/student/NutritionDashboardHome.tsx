@@ -99,6 +99,7 @@ interface NutritionDashboardHomeProps {
   onShiftWeek: (direction: -1 | 1) => void
   onOpenQuickAdd: () => void
   onOpenCatalog: () => void
+  onOpenEatClean?: () => void
   onOpenWater: () => void
   onOpenExercise: () => void
   onLogWater: (amount: number) => void
@@ -150,6 +151,7 @@ function NutritionDashboardHome({
   onShiftWeek,
   onOpenQuickAdd,
   onOpenCatalog,
+  onOpenEatClean,
   onOpenWater,
   onOpenExercise,
   onLogWater,
@@ -213,7 +215,7 @@ function NutritionDashboardHome({
     : water < waterGoal * 0.5
       ? { eyebrow: 'ƯU TIÊN BÂY GIỜ', title: 'Bổ sung 250 ml nước', detail: `Bạn mới đạt ${clampPercent(water, waterGoal)}% mục tiêu nước.`, label: '+250 ml', icon: Droplets, action: () => onLogWater(250) }
       : proteinRemaining > 20
-        ? { eyebrow: 'GỢI Ý TỪ AURA', title: 'Chọn thêm món giàu đạm', detail: `Còn thiếu khoảng ${formatNumber(proteinRemaining)}g đạm để chạm mục tiêu.`, label: 'Xem món phù hợp', icon: Salad, action: onOpenCatalog }
+        ? { eyebrow: 'GỢI Ý TỪ AURA', title: 'Chọn thêm món giàu đạm', detail: `Còn thiếu khoảng ${formatNumber(proteinRemaining)}g đạm để chạm mục tiêu.`, label: onOpenEatClean ? 'Đặt món Eat Clean' : 'Xem món phù hợp', icon: Salad, action: onOpenEatClean ?? onOpenCatalog }
         : calorieDelta < 0
           ? { eyebrow: 'CÂN BẰNG LẠI', title: 'Thêm một hoạt động nhẹ', detail: 'Đi bộ hoặc vận động vừa sức; không tự động bù trừ ngân sách ăn.', label: 'Ghi vận động', icon: Footprints, action: onOpenExercise }
           : { eyebrow: 'ĐANG ĐÚNG NHỊP', title: 'Duy trì lựa chọn hiện tại', detail: 'Macro chính đang cân bằng; tiếp tục ghi lại các bữa còn lại.', label: 'Thêm bữa tiếp theo', icon: Sparkles, action: onOpenQuickAdd }

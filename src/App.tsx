@@ -8,8 +8,10 @@ import { calculateNutritionTargets } from './services/nutritionSyncService'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useCourses } from './hooks/useCourses'
 import { useLearningProgress } from './hooks/useLearningProgress'
+import { useDailyNutritionSummary } from './hooks/useDailyNutritionSummary'
 import AuthPage from './pages/auth/AuthPage'
 import type { NutritionProfileDraft } from './features/nutrition/types'
+import type { EatCleanRoute } from './features/eat-clean/types'
 import type { ProfileUpdateInput } from './pages/student/ProfilePage'
 import { analyzeFoodPhoto } from './services/nutritionService'
 import {
@@ -40,7 +42,7 @@ import type {
 } from './types'
 import { flattenCourseLessons, getInitialDemoCompletedLessonIds } from './utils/courseContent'
 import ChunkErrorBoundary, { lazyWithRetry } from './components/ChunkErrorBoundary'
-import { adminViewPermissions, adminViews, getCurrentRoute, isSameRoute, routeHash, type AuraRoute } from './routing/appRouting'
+import { adminViewPermissions, adminViews, eatCleanRouteHash, getCurrentRoute, isSameRoute, routeHash, type AuraRoute } from './routing/appRouting'
 import { toCourseDraft } from './utils/courseDraft'
 
 const AdminAcademyStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminAcademyStudentsPage'))
@@ -63,6 +65,8 @@ const ProgressPage = lazyWithRetry(() => import('./pages/student/ProgressPage'))
 const ProgressPhotoStudio = lazyWithRetry(() => import('./pages/student/ProgressPhotoStudio'))
 const SchedulePage = lazyWithRetry(() => import('./pages/student/SchedulePage'))
 const WorkoutPage = lazyWithRetry(() => import('./pages/student/WorkoutPage'))
+const EatCleanPage = lazyWithRetry(() => import('./features/eat-clean/EatCleanPage'))
+const AdminEatCleanPage = lazyWithRetry(() => import('./features/eat-clean/admin/AdminEatCleanPage'))
 
 
 const roleLabels = {
@@ -101,6 +105,12 @@ function AuraApplication() {
   const adminCourseData = useCourses(Boolean(user) && canManageAcademy, true)
   const view = route.view
   const mode: AppMode = adminViews.includes(view) ? 'admin' : 'student'
+  const effectiveNutritionProfile = profile?.nutritionProfile ?? localNutritionProfile
+  const dailyNutrition = useDailyNutritionSummary(
+    user?.uid ?? 'demo',
+    effectiveNutritionProfile,
+    backendMode === 'firebase' && Boolean(user) && view === 'eat-clean',
+  )
 
   useEffect(() => {
     const profileKey = `aura:nutrition-profile:${user?.uid ?? 'demo'}`
@@ -289,7 +299,14 @@ function AuraApplication() {
     if (adminViews.includes(next) && !canAccessAdmin) return
     const requiredPermission = adminViewPermissions[next]
     if (requiredPermission && !hasPermission(role, requiredPermission)) return
-    const nextRoute = { view: next, courseId: courseId ?? null, lessonId: lessonId ?? null }
+    const nextRoute: AuraRoute = {
+      view: next,
+      courseId: courseId ?? null,
+      lessonId: lessonId ?? null,
+      eatCleanScreen: 'store',
+      mealId: null,
+      orderId: null,
+    }
     const routeChanges = !isSameRoute(route, nextRoute)
     const unsavedWarning = route.view === 'admin-course-editor' && editorDirty
       ? 'Bạn có thay đổi chưa lưu. Rời trình tạo khóa học và bỏ các thay đổi này?'
@@ -307,6 +324,28 @@ function AuraApplication() {
   }
 
   const navigate = (next: ViewId) => goTo(next)
+  const navigateEatClean = (screen: AuraRoute['eatCleanScreen'] = 'store', resourceId?: string | null) => {
+    const nextHash = eatCleanRouteHash(screen, resourceId)
+    if (window.location.hash !== nextHash) window.location.hash = nextHash
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+  const navigateEatCleanRoute = (next: EatCleanRoute) => {
+    switch (next.screen) {
+      case 'meal-detail':
+        navigateEatClean('meal', next.mealId)
+        break
+      case 'order-detail':
+        navigateEatClean('order', next.orderId)
+        break
+      case 'cart':
+      case 'checkout':
+      case 'orders':
+        navigateEatClean(next.screen)
+        break
+      default:
+        navigateEatClean('store')
+    }
+  }
   const openCourse = (courseId: string, lessonId?: string | null) => {
     setAdminPreviewCourseId(null)
     goTo('course-detail', courseId, lessonId)
@@ -702,7 +741,52 @@ function AuraApplication() {
             userCondition: userCondStr || 'Học viên Aura Fitness',
           })
         }}
+        onOpenEatClean={() => navigateEatClean('store')}
       />
+      case 'eat-clean': {
+        const eatCleanRoute: EatCleanRoute = route.eatCleanScreen === 'meal' && route.mealId
+          ? { screen: 'meal-detail', mealId: route.mealId }
+          : route.eatCleanScreen === 'cart'
+            ? { screen: 'cart' }
+            : route.eatCleanScreen === 'checkout'
+              ? { screen: 'checkout' }
+              : route.eatCleanScreen === 'orders'
+                ? { screen: 'orders' }
+                : (route.eatCleanScreen === 'order' || route.eatCleanScreen === 'success') && route.orderId
+                  ? { screen: 'order-detail', orderId: route.orderId }
+                  : { screen: 'storefront' }
+        const goal = effectiveNutritionProfile?.goal === 'gain-muscle'
+          ? 'gain-muscle'
+          : effectiveNutritionProfile?.goal === 'lose-fat'
+            ? 'lose-fat'
+            : 'maintain'
+        const allergies = String(effectiveNutritionProfile?.allergies ?? '')
+          .split(/[,;\n]/)
+          .map((item) => item.trim())
+          .filter(Boolean)
+        return <EatCleanPage
+          route={eatCleanRoute}
+          onNavigate={navigateEatCleanRoute}
+          ownerId={user?.uid ?? 'demo'}
+          displayName={effectiveDisplayName}
+          isDemo={backendMode === 'demo'}
+          recommendationProfile={{
+            goal,
+            calorieTarget: dailyNutrition.calorieTarget,
+            remainingCalories: dailyNutrition.remainingCalories,
+            remainingProtein: dailyNutrition.remainingProtein,
+            allergies,
+            eatingStyle: effectiveNutritionProfile?.eatingStyle,
+          }}
+          onBack={() => navigate('nutrition')}
+          onOrderCreated={(order) => {
+            trackProductEvent('eat_clean_order_created', { orderId: order.id, total: order.total })
+          }}
+          onConsumptionConfirmed={(order) => {
+            trackProductEvent('eat_clean_consumption_confirmed', { orderId: order.id })
+          }}
+        />
+      }
       case 'meal-plan': return <MealPlanPage onNavigate={navigate} />
       case 'progress-photo-studio': return <ProgressPhotoStudio onNavigate={navigate} ownerId={user?.uid ?? 'demo'} />
       case 'progress': return <ProgressPage ownerId={user?.uid ?? 'demo'} courseItems={studentCourses} progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error || learningData.error} onOpenCourse={openCourse} onNavigate={navigate} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} heightCm={effectiveHeight} />
@@ -765,6 +849,7 @@ function AuraApplication() {
       case 'admin-nutrition-reviews': return <AdminNutritionReviewsPage onNavigate={navigate} />
       case 'admin-meal-plans': return <AdminMealPlansPage onNavigate={navigate} />
       case 'admin-notifications': return <AdminNotificationsPage onNavigate={navigate} users={adminUsers} currentUserUid={user?.uid} />
+      case 'admin-eat-clean': return <AdminEatCleanPage currentRole={role} />
       default: return (
         <HomePage
           onNavigate={navigate}

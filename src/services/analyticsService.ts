@@ -9,6 +9,8 @@ export type ProductEventName =
   | 'nutrition_scan_started'
   | 'nutrition_scan_completed'
   | 'workout_completed'
+  | 'eat_clean_order_created'
+  | 'eat_clean_consumption_confirmed'
 
 export async function trackProductEvent(
   name: ProductEventName,

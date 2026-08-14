@@ -11,6 +11,7 @@ export const adminViews: ViewId[] = [
   'admin-roles',
   'admin-nutrition-reviews',
   'admin-meal-plans',
+  'admin-eat-clean',
   'admin-notifications',
 ]
 
@@ -20,6 +21,7 @@ const validViews: ViewId[] = [
   'course-detail',
   'schedule',
   'nutrition',
+  'eat-clean',
   'meal-plan',
   'progress',
   'progress-photo-studio',
@@ -38,6 +40,7 @@ export const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
   'admin-roles': 'team.view',
   'admin-nutrition-reviews': 'student.view_assigned',
   'admin-meal-plans': 'student.view_assigned',
+  'admin-eat-clean': 'eat_clean.manage',
   'admin-notifications': 'team.view',
 }
 
@@ -45,7 +48,12 @@ export interface AuraRoute {
   view: ViewId
   courseId: string | null
   lessonId: string | null
+  eatCleanScreen: 'store' | 'meal' | 'cart' | 'checkout' | 'orders' | 'order' | 'success'
+  mealId: string | null
+  orderId: string | null
 }
+
+const eatCleanScreens = new Set<AuraRoute['eatCleanScreen']>(['store', 'meal', 'cart', 'checkout', 'orders', 'order', 'success'])
 
 export function getCurrentRoute(): AuraRoute {
   const rawHash = window.location.hash.replace(/^#\/?/, '')
@@ -56,6 +64,11 @@ export function getCurrentRoute(): AuraRoute {
     view,
     courseId: params.get('courseId'),
     lessonId: params.get('lessonId'),
+    eatCleanScreen: eatCleanScreens.has(params.get('screen') as AuraRoute['eatCleanScreen'])
+      ? params.get('screen') as AuraRoute['eatCleanScreen']
+      : 'store',
+    mealId: params.get('mealId'),
+    orderId: params.get('orderId'),
   }
 }
 
@@ -71,4 +84,19 @@ export function isSameRoute(left: AuraRoute, right: AuraRoute) {
   return left.view === right.view
     && left.courseId === right.courseId
     && left.lessonId === right.lessonId
+    && left.eatCleanScreen === right.eatCleanScreen
+    && left.mealId === right.mealId
+    && left.orderId === right.orderId
+}
+
+export function eatCleanRouteHash(
+  screen: AuraRoute['eatCleanScreen'] = 'store',
+  resourceId?: string | null,
+) {
+  const params = new URLSearchParams()
+  if (screen !== 'store') params.set('screen', screen)
+  if (screen === 'meal' && resourceId) params.set('mealId', resourceId)
+  if (['order', 'success'].includes(screen) && resourceId) params.set('orderId', resourceId)
+  const query = params.toString()
+  return `#/eat-clean${query ? `?${query}` : ''}`
 }

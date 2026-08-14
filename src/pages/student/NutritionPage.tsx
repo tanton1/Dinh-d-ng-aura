@@ -2458,7 +2458,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
   )
 })
 
-export default function NutritionPage({ displayName = 'Thành viên Aura', isDemo = false, storageOwnerId, hasProfile = true, profile, onProfileComplete, onMealSaved, onAnalyzeImage, foodCatalog }: NutritionPageProps) {
+export default function NutritionPage({ displayName = 'Thành viên Aura', isDemo = false, storageOwnerId, hasProfile = true, profile, onProfileComplete, onMealSaved, onAnalyzeImage, foodCatalog, onOpenEatClean }: NutritionPageProps) {
   const resolvedOwnerId = storageOwnerId ?? firebaseAuth?.currentUser?.uid ?? 'anonymous'
   const mealStorageKey = `${MEAL_STORAGE_PREFIX}:${resolvedOwnerId}`
   const waterStorageKey = `${WATER_STORAGE_PREFIX}:${resolvedOwnerId}`
@@ -3548,6 +3548,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
           onShiftWeek={shiftHomeWeek}
           onOpenQuickAdd={() => setQuickAddOpen(true)}
           onOpenCatalog={() => openCatalog(false)}
+          onOpenEatClean={onOpenEatClean}
           onOpenWater={() => setWaterSheetOpen(true)}
           onOpenExercise={() => setExerciseSheetOpen(true)}
           onAskAura={openAssistant}

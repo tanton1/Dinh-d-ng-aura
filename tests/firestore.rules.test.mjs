@@ -100,6 +100,21 @@ async function seedPtSecurityFixtures() {
         read: false,
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
       }),
+      setDoc(doc(db, 'eatCleanMeals', 'active-meal'), {
+        name: 'Cơm gà Aura',
+        active: true,
+        price: 59000,
+      }),
+      setDoc(doc(db, 'eatCleanMeals', 'draft-meal'), {
+        name: 'Món đang soạn',
+        active: false,
+        price: 69000,
+      }),
+      setDoc(doc(db, 'eatCleanOrders', 'order-client-1'), {
+        userId: 'client-1',
+        orderCode: 'EC-TEST-001',
+        orderStatus: 'pending',
+      }),
     ])
   })
 }
@@ -227,6 +242,69 @@ describe('Aura PT Firestore rules', () => {
       membership: 'pro',
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
+    }))
+  })
+
+  test('Eat Clean catalog exposes active meals while drafts remain admin-only', async () => {
+    const studentDb = authenticatedDb('client-1', 'student')
+    const adminDb = authenticatedDb('admin-1', 'admin')
+
+    await assertSucceeds(getDoc(doc(studentDb, 'eatCleanMeals', 'active-meal')))
+    await assertFails(getDoc(doc(studentDb, 'eatCleanMeals', 'draft-meal')))
+    await assertSucceeds(getDoc(doc(adminDb, 'eatCleanMeals', 'draft-meal')))
+    await assertFails(setDoc(doc(adminDb, 'eatCleanMeals', 'direct-admin-write'), {
+      name: 'Không được ghi trực tiếp',
+      active: true,
+    }))
+  })
+
+  test('Eat Clean orders are owner-readable and callable-only for mutations', async () => {
+    const ownerDb = authenticatedDb('client-1', 'student')
+    const otherDb = authenticatedDb('other-client', 'student')
+    const adminDb = authenticatedDb('admin-1', 'admin')
+    const orderReference = ['eatCleanOrders', 'order-client-1']
+
+    await assertSucceeds(getDoc(doc(ownerDb, ...orderReference)))
+    await assertSucceeds(getDoc(doc(adminDb, ...orderReference)))
+    await assertFails(getDoc(doc(otherDb, ...orderReference)))
+    await assertFails(updateDoc(doc(ownerDb, ...orderReference), { orderStatus: 'delivered' }))
+    await assertFails(setDoc(doc(ownerDb, 'eatCleanOrders', 'forged-order'), {
+      userId: 'client-1',
+      orderStatus: 'pending',
+    }))
+  })
+
+  test('Eat Clean quotes, inventory, and idempotency markers remain server-only', async () => {
+    const ownerDb = authenticatedDb('client-1', 'student')
+    const adminDb = authenticatedDb('admin-1', 'admin')
+    const serverOnlyDocuments = [
+      ['eatCleanQuotes', 'quote-1'],
+      ['eatCleanInventory', '2026-08-15_active-meal'],
+      ['eatCleanIdempotency', 'request-1'],
+    ]
+
+    for (const documentPath of serverOnlyDocuments) {
+      await assertFails(getDoc(doc(ownerDb, ...documentPath)))
+      await assertFails(getDoc(doc(adminDb, ...documentPath)))
+      await assertFails(setDoc(doc(ownerDb, ...documentPath), { forged: true }))
+      await assertFails(setDoc(doc(adminDb, ...documentPath), { forged: true }))
+    }
+  })
+
+  test('Eat Clean favorites are private and can only reference their document id', async () => {
+    const ownerDb = authenticatedDb('client-1', 'student')
+    const otherDb = authenticatedDb('other-client', 'student')
+    const favoriteReference = doc(ownerDb, 'users', 'client-1', 'favoriteMeals', 'active-meal')
+
+    await assertSucceeds(setDoc(favoriteReference, {
+      mealId: 'active-meal',
+      createdAt: serverTimestamp(),
+    }))
+    await assertSucceeds(getDoc(favoriteReference))
+    await assertFails(getDoc(doc(otherDb, 'users', 'client-1', 'favoriteMeals', 'active-meal')))
+    await assertFails(setDoc(doc(ownerDb, 'users', 'client-1', 'favoriteMeals', 'other-id'), {
+      mealId: 'active-meal',
+      createdAt: serverTimestamp(),
     }))
   })
 

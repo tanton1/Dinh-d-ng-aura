@@ -123,6 +123,7 @@ export type StudentView =
   | 'course-detail'
   | 'schedule'
   | 'nutrition'
+  | 'eat-clean'
   | 'meal-plan'
   | 'progress'
   | 'progress-photo-studio'
@@ -139,6 +140,7 @@ export type AdminView =
   | 'admin-roles'
   | 'admin-nutrition-reviews'
   | 'admin-meal-plans'
+  | 'admin-eat-clean'
   | 'admin-notifications'
 
 export type ViewId = StudentView | AdminView

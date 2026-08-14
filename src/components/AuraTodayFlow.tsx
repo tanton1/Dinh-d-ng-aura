@@ -37,6 +37,7 @@ interface AuraTodayFlowProps {
   learningProgress?: number
   todayMeals?: TodayMealSummary[]
   onOpenNutrition: () => void
+  onOpenEatClean?: () => void
   onCheckIn: () => void
   onOpenLearning: () => void
   onOpenProgress: () => void
@@ -69,6 +70,7 @@ export default function AuraTodayFlow({
   learningProgress = 0,
   todayMeals = [],
   onOpenNutrition,
+  onOpenEatClean,
   onCheckIn,
   onOpenLearning,
   onOpenProgress,
@@ -286,6 +288,13 @@ export default function AuraTodayFlow({
             <button type="button" className="aura-today-flow__empty" onClick={onOpenNutrition}>
               <Utensils size={22} />
               <span><strong>Chưa có bữa ăn được ghi</strong><small>Thêm bữa đầu tiên để Aura tạo nhịp dinh dưỡng hôm nay.</small></span>
+              <ArrowRight size={18} />
+            </button>
+          )}
+          {onOpenEatClean && (
+            <button type="button" className="aura-today-flow__eat-clean" onClick={onOpenEatClean}>
+              <span><Sparkles size={17} /><strong>Aura chọn bữa Eat Clean</strong></span>
+              <small>Dựa trên phần kcal và protein còn lại hôm nay</small>
               <ArrowRight size={18} />
             </button>
           )}

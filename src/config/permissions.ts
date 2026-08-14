@@ -30,6 +30,7 @@ export type Permission =
   | 'role.assign_super_admin'
   | 'audit.view'
   | 'system.manage'
+  | 'eat_clean.manage'
 
 const allPermissions = [
   'dashboard.view',
@@ -61,6 +62,7 @@ const allPermissions = [
   'role.assign_super_admin',
   'audit.view',
   'system.manage',
+  'eat_clean.manage',
 ] as const satisfies readonly Permission[]
 
 export const rolePermissions = {
@@ -117,6 +119,7 @@ export const rolePermissions = {
     'team.view',
     'role.assign',
     'audit.view',
+    'eat_clean.manage',
   ],
   super_admin: allPermissions,
 } as const satisfies Record<UserRole, readonly Permission[]>

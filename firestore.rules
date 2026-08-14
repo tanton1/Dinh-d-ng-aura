@@ -466,6 +466,16 @@ service cloud.firestore {
         allow delete: if isOwner(userId) || isAdmin();
       }
 
+      match /favoriteMeals/{mealId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+                      && request.resource.data.keys().hasOnly(['mealId', 'createdAt'])
+                      && request.resource.data.mealId == mealId
+                      && request.resource.data.createdAt == request.time;
+        allow update: if false;
+        allow delete: if isOwner(userId);
+      }
+
       match /waterLogs/{logId} {
         allow read, write: if isOwner(userId);
         allow read: if isAdmin();
@@ -513,6 +523,35 @@ service cloud.firestore {
     match /recipes/{recipeId} {
       allow read: if signedIn() && resource.data.status == 'published';
       allow write: if false;
+    }
+
+    match /eatCleanMeals/{mealId} {
+      allow read: if signedIn()
+                  && (isAdmin() || resource.data.active == true);
+      // Catalog mutations are callable-only so revision checks and audit logs
+      // cannot be bypassed by a privileged browser session.
+      allow create, update, delete: if false;
+    }
+
+    match /eatCleanOrders/{orderId} {
+      allow read: if signedIn()
+                  && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+
+    match /eatCleanInventory/{inventoryId} {
+      allow read, write: if false;
+    }
+
+    match /eatCleanIdempotency/{requestId} {
+      allow read, write: if false;
+    }
+
+    // Quotes contain server-owned prices and one-time checkout state. They are
+    // returned through callables only and must never be consumed or forged by
+    // a browser, including an authenticated admin session.
+    match /eatCleanQuotes/{quoteId} {
+      allow read, write: if false;
     }
 
     match /mealPlans/{mealPlanId} {

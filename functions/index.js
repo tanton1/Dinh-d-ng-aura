@@ -11,6 +11,7 @@ const { logger } = require('firebase-functions')
 const { createHash } = require('node:crypto')
 const { createGenerativeAiFunctions } = require('./generative-ai')
 const { createNutritionFunctions } = require('./nutrition')
+const { createEatCleanFunctions } = require('./eat-clean')
 const { buildCompletedOnboardingDefaultsPatch } = require('./profile-defaults')
 
 const app = initializeApp()
@@ -79,6 +80,7 @@ setGlobalOptions({ region: 'asia-southeast1', maxInstances: 3 })
 
 Object.assign(exports, createNutritionFunctions({ app, db }))
 Object.assign(exports, createGenerativeAiFunctions({ db }))
+Object.assign(exports, createEatCleanFunctions({ db, onCall, requireTrustedAdmin, logger }))
 
 // Backend invariant for onboarding profiles. This also protects members who
 // finish onboarding from an older cached PWA bundle that submitted null for
@@ -1628,6 +1630,8 @@ const productEventNames = new Set([
   'nutrition_scan_started',
   'nutrition_scan_completed',
   'workout_completed',
+  'eat_clean_order_created',
+  'eat_clean_consumption_confirmed',
 ])
 
 const clientIssueAreas = new Set(['auth', 'gemini', 'firestore', 'push', 'ui'])

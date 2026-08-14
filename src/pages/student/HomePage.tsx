@@ -561,6 +561,7 @@ export default function HomePage({
         learningProgress={continueCourses[0]?.progress}
         todayMeals={todayPulseMeals}
         onOpenNutrition={() => onNavigate('nutrition')}
+        onOpenEatClean={() => onNavigate('eat-clean')}
         onCheckIn={handleCheckIn}
         onOpenLearning={() => continueCourses[0] ? onOpenCourse(String(continueCourses[0].id)) : onNavigate('courses')}
         onOpenProgress={() => onNavigate('progress')}

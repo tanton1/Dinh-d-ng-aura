@@ -20,6 +20,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  ShoppingBasket,
   Sparkles,
   UserRound,
   Users,
@@ -64,6 +65,7 @@ const studentNavSections: ShellNavSection[] = [
     items: [
       { id: 'courses' as const, label: 'Học chuyên sâu', icon: BookOpen },
       { id: 'nutrition' as const, label: 'Dinh dưỡng', icon: Soup },
+      { id: 'eat-clean' as const, label: 'Đặt món Eat Clean', icon: ShoppingBasket },
       { id: 'meal-plan' as const, label: 'Thực đơn', icon: Utensils },
       { id: 'progress' as const, label: 'Tiến độ & ôn tập', icon: BarChart3 },
     ],
@@ -106,6 +108,7 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
       { id: 'admin-students' as const, label: 'Khách hàng PT', icon: Users, permission: 'student.view_assigned' as Permission },
       { id: 'admin-programs' as const, label: 'Giáo án gym', icon: ClipboardList, permission: 'program.view' as Permission },
       { id: 'admin-meal-plans' as const, label: 'Thực đơn & Công thức', icon: Utensils, permission: 'student.view_assigned' as Permission },
+      { id: 'admin-eat-clean' as const, label: 'Vận hành Eat Clean', icon: ShoppingBasket, permission: 'eat_clean.manage' as Permission },
       { id: 'admin-nutrition-reviews' as const, label: 'Duyệt ăn', icon: Check, permission: 'student.view_assigned' as Permission },
     ],
   },
@@ -131,6 +134,7 @@ const viewTitles: Record<ViewId, string> = {
   courses: 'Học',
   'course-detail': 'Không gian học',
   nutrition: 'Dinh dưỡng',
+  'eat-clean': 'Đặt món Eat Clean',
   'meal-plan': 'Thực đơn',
   progress: 'Tiến độ & ôn tập',
   schedule: 'Lịch PT',
@@ -145,6 +149,7 @@ const viewTitles: Record<ViewId, string> = {
   'admin-roles': 'Đội ngũ & quyền',
   'admin-nutrition-reviews': 'Duyệt ăn',
   'admin-meal-plans': 'Quản lý Thực đơn & Công thức',
+  'admin-eat-clean': 'Vận hành Eat Clean',
   'admin-notifications': 'Cài đặt Push Notifications',
   'progress-photo-studio': 'Thêm ảnh tiến độ',
 }
@@ -153,6 +158,7 @@ function isNavigationActive(view: ViewId, itemId: ViewId, mobile = false) {
   if (view === itemId) return true
   if (view === 'course-detail' && itemId === 'courses') return true
   if (view === 'admin-course-editor' && itemId === 'admin-courses') return true
+  if (mobile && view === 'eat-clean' && itemId === 'nutrition') return true
   return false
 }
 
