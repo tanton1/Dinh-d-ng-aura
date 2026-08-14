@@ -2,7 +2,17 @@ import { collection, doc, onSnapshot, orderBy, query, setDoc, updateDoc, deleteD
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions, firestoreDb } from '../lib/firebase'
 import { safeLocalStorageSet } from '../lib/safeStorage'
-import type { AppNotification, SystemPushSettings, PushBroadcastLog, PushAutomationLog, PushTemplate, FitnessGoalTarget, NotificationCategory } from '../types'
+import type {
+  AppNotification,
+  SystemPushSettings,
+  PushAdminOverview,
+  PushAutomationLog,
+  PushBroadcastLog,
+  PushDispatchResult,
+  PushTemplate,
+  FitnessGoalTarget,
+  NotificationCategory,
+} from '../types'
 
 function normalizeClock(value: unknown, fallback: string) {
   return typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : fallback
@@ -387,7 +397,7 @@ export async function dispatchAdminPushBroadcast(params: {
   sentBy?: string
   sendBrowserPush?: boolean
   respectCategoryPreferences?: boolean
-}): Promise<{ sentCount: number; filteredOutCount: number; logId: string }> {
+}): Promise<PushDispatchResult> {
   const { 
     title, 
     message, 
@@ -401,15 +411,12 @@ export async function dispatchAdminPushBroadcast(params: {
   } = params
 
   if (firebaseFunctions) {
-    const callable = httpsCallable<typeof params, {
-      sentCount: number
-      webPushSentCount: number
-      filteredOutCount: number
-      logId: string
-    }>(firebaseFunctions, 'dispatchPushBroadcast')
+    const callable = httpsCallable<typeof params, PushDispatchResult>(firebaseFunctions, 'dispatchPushBroadcast')
     const response = await callable(params)
     return {
       sentCount: response.data.sentCount,
+      webPushSentCount: response.data.webPushSentCount,
+      webPushFailureCount: response.data.webPushFailureCount,
       filteredOutCount: response.data.filteredOutCount,
       logId: response.data.logId,
     }
@@ -445,6 +452,14 @@ export async function dispatchAdminPushBroadcast(params: {
 
   for (const uId of finalTargetUserIds) {
     const userData = userProfilesMap[uId]
+    const userRole = userData?.role
+    // "Táº¥t cáº£" means all active members, not operational staff accounts.
+    // Explicitly selected users remain eligible regardless of their role.
+    if (targetType === 'all' && userRole && userRole !== 'student') continue
+    if (userData?.disabled === true || userData?.status === 'disabled') {
+      filteredOutCount++
+      continue
+    }
     const settings = userData?.notificationSettings
 
     if (respectCategoryPreferences && settings) {
@@ -527,7 +542,9 @@ export async function dispatchAdminPushBroadcast(params: {
     targetValue: targetType === 'individual' ? targetUserIds[0] : targetType,
     actionUrl,
     sentCount,
-    webPushSentCount: sentCount,
+    webPushSentCount: 0,
+    webPushFailureCount: 0,
+    filteredOutCount,
     createdAt: new Date().toISOString(),
     sentBy
   }
@@ -547,7 +564,13 @@ export async function dispatchAdminPushBroadcast(params: {
     console.warn('Error saving broadcast log:', err)
   }
 
-  return { sentCount, filteredOutCount, logId }
+  return {
+    sentCount,
+    webPushSentCount: 0,
+    webPushFailureCount: 0,
+    filteredOutCount,
+    logId,
+  }
 }
 
 /**
@@ -555,7 +578,10 @@ export async function dispatchAdminPushBroadcast(params: {
  */
 export async function getPushBroadcastLogs(): Promise<PushBroadcastLog[]> {
   const cached = localStorage.getItem(PUSH_LOGS_KEY)
-  const fallback: PushBroadcastLog[] = cached ? JSON.parse(cached) : [
+  const fallback: PushBroadcastLog[] = cached
+    ? JSON.parse(cached)
+    : import.meta.env.VITE_FORCE_DEMO === 'true'
+      ? [
     {
       id: 'log_sample_1',
       title: 'Nhắc nhở nộp nhật ký bữa ăn trưa 🥗',
@@ -580,7 +606,8 @@ export async function getPushBroadcastLogs(): Promise<PushBroadcastLog[]> {
       createdAt: new Date(Date.now() - 86400000).toISOString(),
       sentBy: 'Admin Aura'
     }
-  ]
+        ]
+      : []
 
   if (!firestoreDb) return fallback
 
@@ -613,6 +640,36 @@ export async function getPushAutomationLogs(): Promise<PushAutomationLog[]> {
   } catch (error) {
     console.warn('Error fetching push automation logs from Firestore:', error)
     return []
+  }
+}
+
+/** Read privacy-safe delivery and audience aggregates from the privileged backend. */
+export async function getPushAdminOverview(): Promise<PushAdminOverview> {
+  const emptyOverview: PushAdminOverview = {
+    activeUsers: 0,
+    pushEnabledUsers: 0,
+    activeDevices: 0,
+    webPushAccepted24h: 0,
+    webPushFailures24h: 0,
+    latestAutomationAt: null,
+    latestBroadcastAt: null,
+  }
+  if (!firebaseFunctions) return emptyOverview
+
+  const callable = httpsCallable<Record<string, never>, PushAdminOverview>(
+    firebaseFunctions,
+    'getPushAdminOverview',
+  )
+  const response = await callable({})
+  const value = response.data
+  return {
+    activeUsers: Number.isFinite(value.activeUsers) ? value.activeUsers : 0,
+    pushEnabledUsers: Number.isFinite(value.pushEnabledUsers) ? value.pushEnabledUsers : 0,
+    activeDevices: Number.isFinite(value.activeDevices) ? value.activeDevices : 0,
+    webPushAccepted24h: Number.isFinite(value.webPushAccepted24h) ? value.webPushAccepted24h : 0,
+    webPushFailures24h: Number.isFinite(value.webPushFailures24h) ? value.webPushFailures24h : 0,
+    latestAutomationAt: typeof value.latestAutomationAt === 'string' ? value.latestAutomationAt : null,
+    latestBroadcastAt: typeof value.latestBroadcastAt === 'string' ? value.latestBroadcastAt : null,
   }
 }
 

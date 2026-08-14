@@ -214,6 +214,27 @@ function acceptsPushCategory(profile, category) {
   return true
 }
 
+function isMemberProfile(profile) {
+  const role = profile?.role
+  return (role === undefined || role === null || role === '' || role === 'student')
+    && profile?.disabled !== true
+    && profile?.status !== 'disabled'
+}
+
+function pushTimestampToIso(value) {
+  if (!value) return null
+  const date = typeof value.toDate === 'function'
+    ? value.toDate()
+    : value instanceof Date
+      ? value
+      : new Date(value)
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null
+}
+
+function pushMetric(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
+}
+
 const scheduledReminderDefaults = {
   enabled: true,
   automationEnabled: true,
@@ -574,6 +595,88 @@ exports.unregisterFcmToken = onCall(async (request) => {
   return { unregistered: true }
 })
 
+/**
+ * Returns only aggregate Push health metrics. Raw device documents and tokens
+ * never leave the trusted backend. Both the Auth claim and Firestore role must
+ * agree before an operator can read these figures.
+ */
+exports.getPushAdminOverview = onCall({ cpu: 'gcf_gen1', maxInstances: 2 }, async (request) => {
+  const actorId = requireCaller(request)
+  const actorSnapshot = await db.doc(`users/${actorId}`).get()
+  if (!actorSnapshot.exists || !hasTrustedRole(request, actorSnapshot.data(), privilegedAdminRoles)) {
+    throw new HttpsError('permission-denied', 'Báº¡n khÃ´ng cÃ³ quyá»n xem tráº¡ng thÃ¡i Push.')
+  }
+
+  const broadcastLogs = db.collection('system').doc('push_broadcast_logs').collection('logs')
+  const automationLogs = db.collection('system').doc('push_automation_logs').collection('logs')
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000)
+  const [
+    usersSnapshot,
+    devicesSnapshot,
+    recentBroadcasts,
+    recentAutomation,
+    latestBroadcast,
+    latestAutomation,
+  ] = await Promise.all([
+    db.collection('users').get(),
+    db.collectionGroup('devices').get(),
+    broadcastLogs.where('createdAt', '>=', cutoff).get(),
+    automationLogs.where('createdAt', '>=', cutoff).get(),
+    broadcastLogs.orderBy('createdAt', 'desc').limit(1).get(),
+    automationLogs.orderBy('createdAt', 'desc').limit(1).get(),
+  ])
+
+  const activeProfiles = new Map()
+  usersSnapshot.docs.forEach((snapshot) => {
+    const profile = snapshot.data() || {}
+    if (isMemberProfile(profile)) activeProfiles.set(snapshot.id, profile)
+  })
+
+  const activeDeviceUsers = new Set()
+  let activeDevices = 0
+  devicesSnapshot.docs.forEach((snapshot) => {
+    const device = snapshot.data() || {}
+    if (device.enabled === false
+        || typeof device.token !== 'string'
+        || !device.token
+        || !activeProfiles.has(device.userId)) return
+    activeDevices += 1
+    activeDeviceUsers.add(device.userId)
+  })
+
+  const pushEnabledUsers = [...activeProfiles].reduce((count, [userId, profile]) => {
+    const preferences = profile.notificationSettings && typeof profile.notificationSettings === 'object'
+      ? profile.notificationSettings
+      : {}
+    const enabled = preferences.enabled !== false
+      && (preferences.fcmEnabled === true || activeDeviceUsers.has(userId))
+    return count + (enabled ? 1 : 0)
+  }, 0)
+
+  let webPushAccepted24h = 0
+  let webPushFailures24h = 0
+  for (const snapshot of [...recentBroadcasts.docs, ...recentAutomation.docs]) {
+    const log = snapshot.data() || {}
+    webPushAccepted24h += pushMetric(log.webPushSentCount)
+    webPushFailures24h += pushMetric(log.webPushFailureCount)
+  }
+
+  const overview = {
+    activeUsers: activeProfiles.size,
+    pushEnabledUsers,
+    activeDevices,
+    webPushAccepted24h,
+    webPushFailures24h,
+    latestAutomationAt: latestAutomation.empty
+      ? null
+      : pushTimestampToIso(latestAutomation.docs[0].data()?.createdAt),
+    latestBroadcastAt: latestBroadcast.empty
+      ? null
+      : pushTimestampToIso(latestBroadcast.docs[0].data()?.createdAt),
+  }
+  return overview
+})
+
 exports.dispatchPushBroadcast = onCall({ cpu: 'gcf_gen1', maxInstances: 1 }, async (request) => {
   const actorId = requireCaller(request)
   const actorSnapshot = await db.doc(`users/${actorId}`).get()
@@ -585,7 +688,7 @@ exports.dispatchPushBroadcast = onCall({ cpu: 'gcf_gen1', maxInstances: 1 }, asy
   const title = boundedPushString(request.data?.title, 'Tiêu đề', 120)
   const message = boundedPushString(request.data?.message, 'Nội dung', 1000)
   const actionUrl = normalizedPushActionUrl(request.data?.actionUrl)
-  const type = ['REMINDER', 'MOTIVATION', 'WORKOUT', 'ANNOUNCEMENT', 'PROMOTION', 'INFO'].includes(request.data?.type)
+  const type = ['REMINDER', 'MOTIVATION', 'WORKOUT', 'ANNOUNCEMENT', 'PROMOTION', 'INFO', 'ALERT'].includes(request.data?.type)
     ? request.data.type
     : 'INFO'
   const category = ['workout', 'nutrition', 'learning', 'coach', 'general'].includes(request.data?.category)
@@ -601,15 +704,32 @@ exports.dispatchPushBroadcast = onCall({ cpu: 'gcf_gen1', maxInstances: 1 }, asy
     throw new HttpsError('invalid-argument', 'Cần chọn ít nhất một người nhận.')
   }
 
+  // The only preference bypass allowed is an administrator testing their own
+  // registered device. Broadcasts to members always respect opt-out settings.
+  const isSelfDeviceTest = request.data?.respectCategoryPreferences === false
+    && targetType === 'selected'
+    && requestedIds.length === 1
+    && requestedIds[0] === actorId
+
   const profileSnapshots = targetType === 'all'
     ? (await db.collection('users').limit(2000).get()).docs
     : await db.getAll(...requestedIds.map((userId) => db.doc(`users/${userId}`)))
-  const eligibleProfiles = profileSnapshots
+  const existingProfiles = profileSnapshots
     .filter((snapshot) => snapshot.exists)
     .map((snapshot) => ({ userId: snapshot.id, profile: snapshot.data() }))
-    .filter(({ profile }) => profile.disabled !== true && acceptsPushCategory(profile, category))
+  const audienceProfiles = targetType === 'all'
+    ? existingProfiles.filter(({ profile }) => {
+      const role = profile?.role
+      return role === undefined || role === null || role === '' || role === 'student'
+    })
+    : existingProfiles
+  const eligibleProfiles = audienceProfiles
+    .filter(({ profile }) => profile.disabled !== true
+      && profile.status !== 'disabled'
+      && (isSelfDeviceTest || acceptsPushCategory(profile, category)))
   const eligibleUserIds = eligibleProfiles.map(({ userId }) => userId)
-  const filteredOutCount = profileSnapshots.length - eligibleUserIds.length
+  const consideredProfileCount = targetType === 'all' ? audienceProfiles.length : profileSnapshots.length
+  const filteredOutCount = consideredProfileCount - eligibleUserIds.length
   const logReference = db.collection('system').doc('push_broadcast_logs').collection('logs').doc()
 
   for (let offset = 0; offset < eligibleUserIds.length; offset += 400) {

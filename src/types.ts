@@ -61,6 +61,10 @@ export interface AdminUserRecord {
   membership?: UserProfile['membership']
   status?: 'active' | 'invited' | 'disabled'
   lastActive?: string
+  /** Preference and goal fields required by the admin notification audience builder. */
+  notificationSettings?: NotificationSettings
+  goals?: string[]
+  nutritionProfile?: Pick<NonNullable<UserProfile['nutritionProfile']>, 'goal'>
 }
 
 export interface CourseProgress {
@@ -208,15 +212,37 @@ export interface PushBroadcastLog {
   title: string
   message: string
   type: 'REMINDER' | 'INFO' | 'ALERT' | 'ANNOUNCEMENT' | 'WORKOUT' | 'MOTIVATION' | 'PROMOTION'
-  targetType: 'all' | 'category' | 'individual'
+  targetType: 'all' | 'category' | 'individual' | 'selected'
   targetValue?: string
   category?: NotificationCategory
   dedupeKey?: string
   actionUrl?: string
   sentCount: number
-  webPushSentCount: number
+  /** Older log records may not contain Web Push delivery counters. */
+  webPushSentCount?: number
+  webPushFailureCount?: number
+  filteredOutCount?: number
   createdAt: string
   sentBy: string
+}
+
+export interface PushDispatchResult {
+  sentCount: number
+  webPushSentCount: number
+  webPushFailureCount: number
+  filteredOutCount: number
+  logId: string
+}
+
+/** Privacy-safe aggregate health metrics returned only to privileged admins. */
+export interface PushAdminOverview {
+  activeUsers: number
+  pushEnabledUsers: number
+  activeDevices: number
+  webPushAccepted24h: number
+  webPushFailures24h: number
+  latestAutomationAt?: string | null
+  latestBroadcastAt?: string | null
 }
 
 export interface PushAutomationLog {

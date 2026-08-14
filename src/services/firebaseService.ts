@@ -794,6 +794,11 @@ export function subscribeToAdminUsers(
         photoURL: data.photoURL,
         membership: data.membership,
         status: data.disabled ? 'disabled' : 'active',
+        notificationSettings: data.notificationSettings,
+        goals: Array.isArray(data.goals) ? data.goals : undefined,
+        nutritionProfile: data.nutritionProfile?.goal
+          ? { goal: data.nutritionProfile.goal }
+          : undefined,
         lastActive: 'Đã đồng bộ Firebase',
       }
     })),

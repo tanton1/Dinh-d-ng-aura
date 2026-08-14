@@ -10,6 +10,8 @@ const authSource = readFileSync(join(repositoryRoot, 'src', 'contexts', 'AuthCon
 const authOriginSource = readFileSync(join(repositoryRoot, 'src', 'services', 'authOriginService.ts'), 'utf8')
 const mealDetailSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'student', 'CapturedMealDetail.tsx'), 'utf8')
 const firebaseServiceSource = readFileSync(join(repositoryRoot, 'src', 'services', 'firebaseService.ts'), 'utf8')
+const notificationServiceSource = readFileSync(join(repositoryRoot, 'src', 'services', 'notificationService.ts'), 'utf8')
+const typesSource = readFileSync(join(repositoryRoot, 'src', 'types.ts'), 'utf8')
 
 test('profile rules prevent client role and membership changes', () => {
   assert.match(rules, /function hasOnlySafeUserChanges\(\)/)
@@ -81,4 +83,41 @@ test('client incident reporting is bounded, validated and rate limited', () => {
   assert.match(incidentSource, /boundedIncidentValue\(request\.data\?\.code, 80\)/)
   assert.match(incidentSource, /boundedIncidentValue\(request\.data\?\.host, 120\)/)
   assert.doesNotMatch(incidentSource, /request\.data\?\.message/)
+})
+
+test('push admin overview is privileged, aggregate-only and serializes timestamps', () => {
+  const overviewSource = functionsSource.match(/exports\.getPushAdminOverview = onCall[\s\S]*?\n\}\)\n\nexports\.dispatchPushBroadcast/)?.[0] ?? ''
+  assert.match(overviewSource, /hasTrustedRole\(request, actorSnapshot\.data\(\), privilegedAdminRoles\)/)
+  assert.match(overviewSource, /activeUsers: activeProfiles\.size/)
+  assert.match(overviewSource, /webPushAccepted24h/)
+  assert.match(overviewSource, /webPushFailures24h/)
+  assert.match(overviewSource, /pushTimestampToIso/)
+  assert.match(overviewSource, /return overview/)
+  assert.doesNotMatch(overviewSource, /return\s+\{[^}]*token/s)
+  assert.match(notificationServiceSource, /'getPushAdminOverview'/)
+  assert.match(typesSource, /export interface PushAdminOverview/)
+})
+
+test('all-member push broadcasts exclude staff while explicit targets stay supported', () => {
+  const dispatchSource = functionsSource.match(/exports\.dispatchPushBroadcast = onCall[\s\S]*?\n\}\)\n\nfunction requireDocumentId/)?.[0] ?? ''
+  assert.match(dispatchSource, /const audienceProfiles = targetType === 'all'/)
+  assert.match(dispatchSource, /role === undefined \|\| role === null \|\| role === '' \|\| role === 'student'/)
+  assert.match(dispatchSource, /: existingProfiles/)
+  assert.match(dispatchSource, /webPushFailureCount/)
+  assert.match(dispatchSource, /filteredOutCount/)
+})
+
+test('push preference bypass is restricted to an admin testing their own device', () => {
+  const dispatchSource = functionsSource.match(/exports\.dispatchPushBroadcast = onCall[\s\S]*?\n\}\)\n\nfunction requireDocumentId/)?.[0] ?? ''
+  assert.match(dispatchSource, /const isSelfDeviceTest = request\.data\?\.respectCategoryPreferences === false/)
+  assert.match(dispatchSource, /requestedIds\.length === 1/)
+  assert.match(dispatchSource, /requestedIds\[0\] === actorId/)
+  assert.match(dispatchSource, /isSelfDeviceTest \|\| acceptsPushCategory/)
+})
+
+test('admin user subscription keeps notification preferences and targeting goals', () => {
+  const subscriptionSource = firebaseServiceSource.match(/export function subscribeToAdminUsers[\s\S]*?\n\}/)?.[0] ?? ''
+  assert.match(subscriptionSource, /notificationSettings: data\.notificationSettings/)
+  assert.match(subscriptionSource, /goals: Array\.isArray\(data\.goals\)/)
+  assert.match(subscriptionSource, /nutritionProfile: data\.nutritionProfile\?\.goal/)
 })
