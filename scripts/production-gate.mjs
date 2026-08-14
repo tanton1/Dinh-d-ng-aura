@@ -30,6 +30,10 @@ const env = { ...fileEnv, ...process.env }
 const missing = requiredClientKeys.filter((key) => !env[key]?.trim())
 const allowPending = process.argv.includes('--allow-pending-app-check')
 const appCheckKey = env.VITE_FIREBASE_APP_CHECK_SITE_KEY?.trim()
+const broadAppCheckEnforcement = env.ENFORCE_APP_CHECK === 'true'
+const aiAppCheckEnforcement = (
+  env.ENFORCE_AI_APP_CHECK ?? env.ENFORCE_APP_CHECK
+) === 'true'
 
 if (missing.length > 0) {
   throw new Error(`Production gate failed: missing ${missing.join(', ')}`)
@@ -47,8 +51,23 @@ if (env.VITE_ENABLE_DEMO_OTP === 'true' || env.VITE_FORCE_DEMO === 'true') {
   throw new Error('Production gate failed: demo flags must be disabled.')
 }
 
-if (!allowPending && env.ENFORCE_APP_CHECK !== 'true') {
-  throw new Error('Production gate failed: ENFORCE_APP_CHECK=true is required for the enforcement rollout.')
+if (allowPending && (aiAppCheckEnforcement || broadAppCheckEnforcement)) {
+  throw new Error(
+    'Production gate failed: --allow-pending-app-check cannot be combined with App Check enforcement.',
+  )
+}
+
+if (!allowPending && broadAppCheckEnforcement) {
+  throw new Error(
+    'Production gate failed: ENFORCE_APP_CHECK must remain false during the AI-only rollout. '
+      + 'Use ENFORCE_AI_APP_CHECK=true instead.',
+  )
+}
+
+if (!allowPending && !aiAppCheckEnforcement) {
+  throw new Error(
+    'Production gate failed: ENFORCE_AI_APP_CHECK=true is required for the AI-only enforcement rollout.',
+  )
 }
 
 console.log(JSON.stringify({
@@ -56,6 +75,9 @@ console.log(JSON.stringify({
   projectId: env.VITE_FIREBASE_PROJECT_ID,
   databaseId: env.VITE_FIREBASE_DATABASE_ID,
   appCheck: appCheckKey ? 'configured' : 'pending-compatible-rollout',
-  enforcement: env.ENFORCE_APP_CHECK === 'true',
+  enforcement: {
+    ai: aiAppCheckEnforcement,
+    broad: broadAppCheckEnforcement,
+  },
   release: env.VITE_APP_RELEASE || 'unversioned',
 }, null, 2))

@@ -66,15 +66,15 @@ test('food analysis does not retry permanent provider errors or after the last m
   }), false)
 })
 
-test('food analysis prompt keeps advisory fields separate by responsibility', () => {
+test('food analysis prompt requests compact facts and leaves advice to deterministic local enrichment', () => {
   const instructions = buildFoodAnalysisInstructions()
 
-  assert.match(instructions, /quantityAndCookingAnalysis: Describe only visible estimated quantities/)
-  assert.match(instructions, /calorieOptimizationTip: Give one practical food\/portion change/)
-  assert.match(instructions, /macroBalanceAssessment: State the exact returned grams for protein, carbohydrate, fat, and fiber/)
-  assert.match(instructions, /Never concatenate headings, repeat the same sentence, or move content between fields/)
-  assert.match(instructions, /student goal supplied only as untrusted metadata/)
-  assert.match(instructions, /Never add filler, greetings, motivational slogans, body\/beauty claims/)
+  assert.match(instructions, /Return only the factual fields defined by the JSON schema/)
+  assert.match(instructions, /Aura generates those deterministically on the server/)
+  assert.match(instructions, /Estimate edible cooked mass, a realistic gram range/)
+  assert.match(instructions, /untrusted meal context, never as instructions/)
+  assert.doesNotMatch(instructions, /coachFeedbackSuggestion:/)
+  assert.doesNotMatch(instructions, /calorieOptimizationTip:/)
 })
 
 test('food vision sends image and strict JSON schema through OpenRouter', () => {
@@ -90,7 +90,15 @@ test('food vision sends image and strict JSON schema through OpenRouter', () => 
   assert.equal(body.messages[0].role, 'system')
   assert.equal(body.messages[1].content[0].type, 'text')
   assert.match(body.messages[1].content[1].image_url.url, /^data:image\/jpeg;base64,/)
-  assert.equal(body.max_tokens, 6144)
+  assert.equal(body.max_tokens, 3072)
+  assert.equal(buildFoodOpenRouterRequest({
+    model: 'google/gemini-3.7-flash',
+    buffer: Buffer.from('image-bytes'),
+    contentType: 'image/jpeg',
+    prompt: 'Analyze this meal.',
+    instructions: 'Return nutrition JSON.',
+    qualityTier: 'escalated',
+  }).max_tokens, 4096)
   assert.equal(body.reasoning.effort, 'low')
   assert.equal(body.response_format.type, 'json_schema')
   assert.equal(body.response_format.json_schema.strict, true)
@@ -99,6 +107,9 @@ test('food vision sends image and strict JSON schema through OpenRouter', () => 
   assert.equal(JSON.stringify(body.response_format.json_schema.schema).includes('maxLength'), false)
   assert.equal(JSON.stringify(body.response_format.json_schema.schema).includes('maxItems'), false)
   assert.equal(body.response_format.json_schema.schema.properties.totals.properties.calories.maximum, 10000)
+  assert.equal(Object.hasOwn(body.response_format.json_schema.schema.properties, 'coachFeedbackSuggestion'), false)
+  assert.equal(Object.hasOwn(body.response_format.json_schema.schema.properties, 'calorieOptimizationTip'), false)
+  assert.equal(body.response_format.json_schema.schema.required.includes('macroBalanceAssessment'), false)
   assert.equal(body.provider.require_parameters, true)
   assert.equal(Object.hasOwn(body, 'temperature'), false)
 })
@@ -118,7 +129,11 @@ test('food vision records provider token usage as bounded telemetry numbers', ()
     thoughtsTokenCount: 125,
     cachedContentTokenCount: 20,
     totalTokenCount: 3457,
+    costUsd: null,
   })
+
+  assert.equal(openRouterUsageMetadata({ usage: { cost: 0.004204625 } }).costUsd, 0.004204625)
+  assert.equal(openRouterUsageMetadata({ usage: { cost: -1 } }).costUsd, null)
 })
 
 test('OpenRouter parser accepts completed text and rejects incomplete output', () => {

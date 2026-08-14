@@ -2,6 +2,7 @@ import { httpsCallable } from 'firebase/functions'
 import { deleteObject, ref, uploadBytes } from 'firebase/storage'
 import { firebaseAuth, firebaseFunctions, firebaseStorage } from '../lib/firebase'
 import { reportClientIssue } from './clientTelemetryService'
+import { optimizeNutritionImageForUpload } from './nutritionImageOptimizer'
 
 export const MAX_NUTRITION_IMAGE_BYTES = 8 * 1024 * 1024
 
@@ -587,14 +588,17 @@ function validateAnalysisResponse(value: unknown, expectedScanId: string): FoodA
 export async function uploadFoodPhoto(image: Blob): Promise<UploadedFoodImage> {
   assertImage(image)
   const { user, storage } = requireNutritionFirebase()
-  const contentType = image.type.toLowerCase() as UploadedFoodImage['contentType']
+  const optimizedImage = await optimizeNutritionImageForUpload(image)
+  const uploadImage = optimizedImage.size <= MAX_NUTRITION_IMAGE_BYTES ? optimizedImage : image
+  assertImage(uploadImage)
+  const contentType = uploadImage.type.toLowerCase() as UploadedFoodImage['contentType']
   const extension = acceptedImageTypes.get(contentType)
   if (!extension) throw new Error('Định dạng ảnh không được hỗ trợ.')
 
   const scanId = createScanId()
   const storagePath = `nutrition-scans/${user.uid}/${scanId}/original.${extension}`
   const imageReference = ref(storage, storagePath)
-  await uploadBytes(imageReference, image, {
+  await uploadBytes(imageReference, uploadImage, {
     contentType,
     cacheControl: 'private, no-store, max-age=0',
     customMetadata: {
@@ -604,7 +608,7 @@ export async function uploadFoodPhoto(image: Blob): Promise<UploadedFoodImage> {
     },
   })
 
-  return { scanId, storagePath, contentType, size: image.size }
+  return { scanId, storagePath, contentType, size: uploadImage.size }
 }
 
 export async function analyzeUploadedFoodPhoto(
@@ -654,14 +658,16 @@ export async function analyzeFoodPhoto(
   image: Blob,
   options: AnalyzeFoodPhotoOptions = {},
 ): Promise<FoodAnalysisResponse> {
+  assertImage(image)
   if (useLegacyAiHttpApi) {
     try {
-    const base64 = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onloadend = () => resolve(reader.result as string)
-      reader.onerror = reject
-      reader.readAsDataURL(image)
-    })
+      const optimizedImage = await optimizeNutritionImageForUpload(image)
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result as string)
+        reader.onerror = reject
+        reader.readAsDataURL(optimizedImage)
+      })
 
     let cacheKey = '';
     try {

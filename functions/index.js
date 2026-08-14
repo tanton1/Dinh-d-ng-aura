@@ -35,17 +35,21 @@ const quizAnswerLimit = 100
 const quizMaxAttemptLimit = 20
 const mediaUrlTtlMs = 5 * 60 * 1000
 const enforceAppCheck = process.env.ENFORCE_APP_CHECK === 'true'
+const enforceAiAppCheck = (process.env.ENFORCE_AI_APP_CHECK ?? process.env.ENFORCE_APP_CHECK) === 'true'
 const publicAppUrl = process.env.PUBLIC_APP_URL || 'https://dinh-duong-aura.vercel.app'
 const clientIncidentRateWindows = new Map()
 
 const appCheckPolicyLog = {
-  enforced: enforceAppCheck,
+  broadEnforced: enforceAppCheck,
+  aiEnforced: enforceAiAppCheck,
   action: enforceAppCheck
-    ? 'Requests without a valid App Check token are rejected.'
-    : 'Configure VITE_FIREBASE_APP_CHECK_SITE_KEY and ENFORCE_APP_CHECK=true before the enforcement cutover.',
-  schemaVersion: 1,
+    ? 'All callable requests without a valid App Check token are rejected.'
+    : enforceAiAppCheck
+      ? 'Paid AI callables require a valid App Check token; other callables remain in compatibility mode.'
+      : 'Configure the web provider and ENFORCE_AI_APP_CHECK=true before the AI enforcement cutover.',
+  schemaVersion: 2,
 }
-if (enforceAppCheck) logger.info('Aura App Check policy', appCheckPolicyLog)
+if (enforceAppCheck || enforceAiAppCheck) logger.info('Aura App Check policy', appCheckPolicyLog)
 else logger.warn('Aura App Check policy', appCheckPolicyLog)
 
 function onCall(optionsOrHandler, maybeHandler) {

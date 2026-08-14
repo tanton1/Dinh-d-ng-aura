@@ -4,7 +4,7 @@
 
 - Create a reCAPTCHA Enterprise App Check provider for the Firebase web app and set `VITE_FIREBASE_APP_CHECK_SITE_KEY` in the hosting build environment.
 - Web Push can start with Firebase's default VAPID key. For the widest production browser compatibility, create a Web Push certificate and set its **public** key through `VITE_FIREBASE_VAPID_KEY` or Admin → Thông báo → Nhắc tự động → Cấu hình nâng cao. Never store the private key in the app or Firestore.
-- Set `ENFORCE_APP_CHECK=true` in the Cloud Functions runtime only after the App Check key has been deployed and verified. Keep it `false` during the compatibility rollout.
+- For the first enforcement phase, keep `ENFORCE_APP_CHECK=false` and set `ENFORCE_AI_APP_CHECK=true` in the Cloud Functions runtime only after the production App Check key has been deployed and verified. This phase protects `analyzeFoodImage`, `generateMealReview`, `askAiCoach`, and `generateAuraContent` without changing enforcement for Auth-adjacent, Push, Academy, PT, or Eat Clean callables.
 - Keep `VITE_ENABLE_DEMO_OTP=false` and never enable it in a production build.
 - Enable `VITE_ENABLE_OFFLINE_CACHE=true` only after the privacy review confirms that persistent health data on shared devices is acceptable.
 
@@ -50,7 +50,30 @@ node scripts/production-smoke.mjs
 ```
 
 Use `--allow-pending-app-check` only during the short compatibility rollout;
-never combine it with a release that sets `ENFORCE_APP_CHECK=true`.
+never combine it with `ENFORCE_AI_APP_CHECK=true` or
+`ENFORCE_APP_CHECK=true`. During the AI-only cutover, the gate requires
+`ENFORCE_AI_APP_CHECK=true` and rejects broad enforcement.
+
+Store the ignored Functions runtime values in
+`functions/.env.gen-lang-client-0815966909`:
+
+```dotenv
+ENFORCE_APP_CHECK=false
+ENFORCE_AI_APP_CHECK=true
+PUBLIC_APP_URL=https://dinh-duong-aura.vercel.app
+```
+
+Then deploy only the paid AI boundary:
+
+```powershell
+firebase.cmd deploy --only "functions:analyzeFoodImage,functions:generateMealReview,functions:askAiCoach,functions:generateAuraContent" `
+  --project gen-lang-client-0815966909
+```
+
+Run scan, meal-review, AI Coach and Academy AI smoke tests on the canonical
+production domain. Random Vercel preview domains are not covered by the
+production reCAPTCHA key; use a fixed staging domain/project instead of adding a
+broad `vercel.app` allowance or publishing a debug token.
 
 ## Production account smoke test
 

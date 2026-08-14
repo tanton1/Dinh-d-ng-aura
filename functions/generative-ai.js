@@ -7,7 +7,13 @@ const {
   getOpenRouterModelCandidates,
   requestOpenRouterStructured,
 } = require('./openrouter')
-const ENFORCE_APP_CHECK = process.env.ENFORCE_APP_CHECK === 'true'
+// Keep the paid AI boundary independently enforceable. Falling back to the
+// legacy global flag preserves existing deployments, while an explicit
+// ENFORCE_AI_APP_CHECK value lets production protect AI without unexpectedly
+// blocking Auth-adjacent, Push, Academy, PT or Eat Clean callables.
+const ENFORCE_AI_APP_CHECK = (
+  process.env.ENFORCE_AI_APP_CHECK ?? process.env.ENFORCE_APP_CHECK
+) === 'true'
 const STAFF_ROLES = new Set(['editor', 'admin', 'super_admin'])
 const ADMIN_ROLES = new Set(['admin', 'super_admin'])
 
@@ -344,7 +350,7 @@ function createGenerativeAiFunctions({ db }) {
     memory: '256MiB',
     maxInstances: 3,
     concurrency: 4,
-    enforceAppCheck: ENFORCE_APP_CHECK,
+    enforceAppCheck: ENFORCE_AI_APP_CHECK,
     secrets: [OPENROUTER_API_KEY],
   }, withFunctionTelemetry('generateAuraContent', async (request) => {
     const uid = request.auth?.uid

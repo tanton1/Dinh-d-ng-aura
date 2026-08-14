@@ -85,8 +85,14 @@ not fabricate nutrition values from a sample meal.
 ## Operational safeguards
 
 - Authentication is required and the image path must belong to the caller.
-- Limits are 10 scans per 10-minute counter window and 50 scans per 24-hour
-  counter window.
+- The burst guard is 10 scans per 10-minute counter window. The product quota is
+  10 scans per rolling 24 hours for regular/editor accounts and 50 for trusted
+  Coach/Admin/Super Admin accounts. Elevated quota requires the Auth custom claim
+  and server-owned Firestore role to match.
+- Food photos are resized to a maximum 1,280-pixel long edge before upload. The
+  provider returns compact visual facts; Aura builds the advisory copy locally,
+  caches exact owner-scoped retries for 24 hours, and only calls the fallback model
+  for materially low-confidence results.
 - Function concurrency is capped at 4 per instance (maximum 3 instances) to bound
   image-buffer memory and provider fan-out.
 - Provider output uses strict JSON Schema and is validated again on the server.
@@ -96,9 +102,12 @@ not fabricate nutrition values from a sample meal.
 - Configure a Cloud Storage lifecycle rule for the `nutrition-scans/` prefix before
   production use (for example, delete objects older than 24 hours). This is the
   fallback for interrupted cleanup and uploads abandoned before the callable starts.
-- After App Check is initialized in every production client, set
-  `ENFORCE_APP_CHECK=true` in the Functions environment and redeploy. Leave it false
-  during the current local/demo flow or callable requests will be rejected.
+- After App Check is initialized and production telemetry reports valid tokens,
+  keep `ENFORCE_APP_CHECK=false`, set `ENFORCE_AI_APP_CHECK=true` in the Functions
+  environment, and redeploy only `analyzeFoodImage`, `generateMealReview`,
+  `askAiCoach`, and `generateAuraContent`. This protects the paid AI boundary
+  without unexpectedly blocking Auth-adjacent, Push, Academy, PT, or Eat Clean
+  callables. Leave both flags false during the local/demo compatibility flow.
 
 Food-photo nutrition values remain estimates. The product should always let the user
 correct ingredients and portions before saving a meal log.

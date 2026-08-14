@@ -298,18 +298,6 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(value)
 }
 
-function createAnalysisImageFile(dataUrl: string, originalName: string): File {
-  const match = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/i.exec(dataUrl)
-  if (!match) throw new Error('Ảnh đã chọn không thể được chuẩn hóa để phân tích.')
-  const contentType = match[1].toLowerCase()
-  const binary = window.atob(match[2])
-  const bytes = new Uint8Array(binary.length)
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
-  const extension = contentType === 'image/png' ? 'png' : contentType === 'image/webp' ? 'webp' : 'jpg'
-  const safeBaseName = originalName.replace(/\.[^.]+$/, '').trim() || 'mon-an'
-  return new File([bytes], `${safeBaseName}.${extension}`, { type: contentType })
-}
-
 function formatDecimal(value: number, maximumFractionDigits = 1) {
   return new Intl.NumberFormat('vi-VN', { maximumFractionDigits }).format(value)
 }
@@ -1524,12 +1512,10 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     reader.onload = async () => {
       try {
         const rawUrl = String(reader.result ?? '')
-        const analysisUrl = await compressBase64Image(rawUrl, 1600, 0.82)
-        const compressedUrl = await compressBase64Image(analysisUrl, 600, 0.68)
-        const analysisFile = createAnalysisImageFile(analysisUrl, file.name)
+        const compressedUrl = await compressBase64Image(rawUrl, 600, 0.68)
         setPreviewUrl(compressedUrl)
         setFileName(file.name)
-        void runImageAnalysis(analysisFile)
+        void runImageAnalysis(file)
       } catch (error) {
         setStage('upload')
         setUploadError(getFoodAnalysisErrorMessage(error))
