@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'aura-shell-v5-20260813-vercel-origin'
+const CACHE_VERSION = 'aura-shell-v6-20260814-push'
 const APP_SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -32,11 +32,16 @@ self.addEventListener('push', (event) => {
   const title = notification.title || data.title || 'Aura Fitness & Nutrition'
   const body = notification.body || data.message || data.body || 'Bạn có thông báo mới từ Aura.'
   const actionUrl = data.actionUrl || data.url || '/home'
+  const appPath = actionUrl.startsWith('/#/')
+    ? actionUrl
+    : actionUrl.startsWith('#/')
+      ? `/${actionUrl}`
+      : `/#${actionUrl.startsWith('/') ? actionUrl : `/${actionUrl}`}`
   event.waitUntil(self.registration.showNotification(title, {
     body,
     icon: '/icons/aura-icon-192.png',
     badge: '/icons/aura-icon-192.png',
-    data: { url: actionUrl },
+    data: { url: appPath },
     vibrate: [100, 50, 100],
     tag: data.tag || 'aura-notification',
     renotify: true,

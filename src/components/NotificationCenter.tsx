@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Bell, Check, ChevronRight } from 'lucide-react'
-import { subscribeToUserNotifications, markNotificationAsRead, markAllNotificationsAsRead, sendBrowserNativePushNotification } from '../services/notificationService'
+import { subscribeToUserNotifications, markNotificationAsRead, markAllNotificationsAsRead } from '../services/notificationService'
+import { subscribeToForegroundPush } from '../services/fcmService'
 import type { AppNotification } from '../types'
 import { useAuth } from '../contexts/AuthContext'
-import { useDailyFoodReminder } from '../hooks/useDailyFoodReminder'
 
 interface NotificationCenterProps {
   className?: string
@@ -24,17 +24,26 @@ export default function NotificationCenter({
   const userId = user?.uid
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [isOpen, setIsOpen] = useState(false)
+  const [foregroundPushVersion, setForegroundPushVersion] = useState(0)
   const dropdownRef = useRef<HTMLDivElement>(null)
   
   const isInitialLoadRef = useRef(true)
   const previousNotifIdsRef = useRef<Set<string>>(new Set())
 
-  // Call the hook to check for daily food reminders
-  useDailyFoodReminder(userId)
-  
   useEffect(() => {
-    if (!userId) return
+    const handlePushReady = () => setForegroundPushVersion((version) => version + 1)
+    window.addEventListener('aura:fcm-ready', handlePushReady)
+    return () => window.removeEventListener('aura:fcm-ready', handlePushReady)
+  }, [])
+
+  useEffect(() => {
+    if (!userId) {
+      setNotifications([])
+      previousNotifIdsRef.current.clear()
+      return
+    }
     isInitialLoadRef.current = true
+    previousNotifIdsRef.current.clear()
     previousNotifIdsRef.current = new Set()
 
     const unsubscribe = subscribeToUserNotifications(userId, (data) => {
@@ -47,8 +56,6 @@ export default function NotificationCenter({
         data.forEach(n => {
           if (!previousNotifIdsRef.current.has(n.id) && !n.read) {
             previousNotifIdsRef.current.add(n.id)
-            // Trigger device-native Web Push Notification
-            sendBrowserNativePushNotification(n.title, n.message, n.actionUrl)
           }
         })
       }
@@ -56,6 +63,53 @@ export default function NotificationCenter({
     })
     return () => unsubscribe()
   }, [userId])
+
+  useEffect(() => {
+    if (!userId) return
+    let cancelled = false
+    let unsubscribe: (() => void) | undefined
+    void subscribeToForegroundPush((payload) => {
+      if (cancelled) return
+      const key = payload.notificationId || `${payload.title}:${payload.message}`
+      if (previousNotifIdsRef.current.has(`push:${key}`)) return
+      previousNotifIdsRef.current.add(`push:${key}`)
+
+      // FCM handles background notifications in sw.js. This path is only for
+      // an already-open tab, so it shows one foreground banner without
+      // duplicating the Firestore notification-center update.
+      try {
+        if (typeof window !== 'undefined' && Notification.permission === 'granted') {
+          const banner = new Notification(payload.title, {
+            body: payload.message,
+            icon: '/icons/aura-icon-192.png',
+            badge: '/icons/aura-icon-192.png',
+            data: { url: payload.actionUrl || '/home' },
+          })
+          banner.onclick = () => {
+            const actionUrl = payload.actionUrl || '/home'
+            window.location.hash = actionUrl.startsWith('/#/')
+              ? actionUrl.slice(1)
+              : actionUrl.startsWith('#/')
+                ? actionUrl
+                : `#${actionUrl.startsWith('/') ? actionUrl : `/${actionUrl}`}`
+            window.focus()
+            banner.close()
+          }
+        }
+      } catch {
+        // The in-app bell remains available when native foreground banners
+        // are blocked by the browser.
+      }
+    }).then((cleanup) => {
+      if (cancelled) cleanup()
+      else unsubscribe = cleanup
+    }).catch(() => {})
+
+    return () => {
+      cancelled = true
+      unsubscribe?.()
+    }
+  }, [userId, foregroundPushVersion])
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -76,8 +130,12 @@ export default function NotificationCenter({
     }
     if (notif.actionUrl) {
       setIsOpen(false)
-      const cleanUrl = notif.actionUrl.startsWith('/') ? notif.actionUrl.slice(1) : notif.actionUrl
-      window.location.hash = cleanUrl
+      const actionUrl = notif.actionUrl
+      window.location.hash = actionUrl.startsWith('/#/')
+        ? actionUrl.slice(1)
+        : actionUrl.startsWith('#/')
+          ? actionUrl
+          : `#${actionUrl.startsWith('/') ? actionUrl : `/${actionUrl}`}`
     }
   }
 

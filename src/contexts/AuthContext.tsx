@@ -27,6 +27,7 @@ import { firebaseAuth, firestoreDb, isFirebaseConfigured } from '../lib/firebase
 import { createOrUpdateUserProfile, updateUserProfile } from '../services/firebaseService'
 import { ONBOARDING_DEFAULTS } from '../onboarding/defaults'
 import { reportClientIssue } from '../services/clientTelemetryService'
+import { unregisterFcmToken } from '../services/fcmService'
 import type { AppUser, UserProfile, UserRole } from '../types'
 
 declare global {
@@ -799,6 +800,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signOut: async () => {
       if (firebaseAuth) {
         const userId = firebaseAuth.currentUser?.uid
+        if (userId) {
+          try {
+            // Remove this browser's device token before ending the session so
+            // the next account on the same phone cannot receive this user's
+            // private reminders.
+            await unregisterFcmToken(userId)
+          } catch (error) {
+            reportClientIssue('push', error, { phase: 'fcm_unregister_sign_out', retryable: true })
+          }
+        }
         await firebaseSignOut(firebaseAuth)
         if (userId) clearUserScopedStorage(userId)
       }

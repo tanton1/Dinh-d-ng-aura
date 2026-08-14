@@ -1,15 +1,25 @@
-import { collection, doc, onSnapshot, orderBy, query, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs, writeBatch, where, getDoc } from 'firebase/firestore'
+import { collection, doc, onSnapshot, orderBy, query, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs, writeBatch, where, getDoc, limit } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions, firestoreDb } from '../lib/firebase'
 import { safeLocalStorageSet } from '../lib/safeStorage'
-import type { AppNotification, SystemPushSettings, PushBroadcastLog, PushTemplate, FitnessGoalTarget, NotificationCategory } from '../types'
+import type { AppNotification, SystemPushSettings, PushBroadcastLog, PushAutomationLog, PushTemplate, FitnessGoalTarget, NotificationCategory } from '../types'
+
+function normalizeClock(value: unknown, fallback: string) {
+  return typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : fallback
+}
+
+function normalizePositiveInt(value: unknown, fallback: number, minimum: number, maximum: number) {
+  const numberValue = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : fallback
+  return Math.min(maximum, Math.max(minimum, numberValue))
+}
 
 // Default system push settings
 export const DEFAULT_PUSH_SETTINGS: SystemPushSettings = {
   enabled: true,
-  vapidPublicKey: 'BEl62iUYgUivxIkv69yViEuiBIa-569a91y39e...',
-  fcmSenderId: '463780789992',
-  fcmProjectId: 'ai-studio-aurafitnesse',
+  automationEnabled: true,
+  vapidPublicKey: import.meta.env.VITE_FIREBASE_VAPID_KEY?.trim() || '',
+  fcmSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID?.trim() || '',
+  fcmProjectId: import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim() || '',
   autoMealReminders: true,
   mealReminderTimes: {
     breakfast: '07:30',
@@ -18,10 +28,68 @@ export const DEFAULT_PUSH_SETTINGS: SystemPushSettings = {
   },
   workoutReminderTime: '17:00',
   weeklyProgressReviewDay: 'monday',
+  timezone: 'Asia/Ho_Chi_Minh',
+  quietHoursStart: '21:30',
+  quietHoursEnd: '07:00',
+  maxDailyPerUser: 3,
   soundEnabled: true,
   badgeEnabled: true,
   updatedAt: new Date().toISOString(),
   updatedBy: 'Admin Aura',
+}
+
+export function normalizeSystemPushSettings(value?: Partial<SystemPushSettings> | null): SystemPushSettings {
+  const source = value ?? {}
+  return {
+    ...DEFAULT_PUSH_SETTINGS,
+    ...source,
+    enabled: source.enabled !== false,
+    automationEnabled: source.automationEnabled !== false,
+    vapidPublicKey: typeof source.vapidPublicKey === 'string' ? source.vapidPublicKey.trim() : DEFAULT_PUSH_SETTINGS.vapidPublicKey,
+    fcmSenderId: typeof source.fcmSenderId === 'string' ? source.fcmSenderId.trim() : DEFAULT_PUSH_SETTINGS.fcmSenderId,
+    fcmProjectId: typeof source.fcmProjectId === 'string' ? source.fcmProjectId.trim() : DEFAULT_PUSH_SETTINGS.fcmProjectId,
+    autoMealReminders: source.autoMealReminders !== false,
+    mealReminderTimes: {
+      breakfast: normalizeClock(source.mealReminderTimes?.breakfast, DEFAULT_PUSH_SETTINGS.mealReminderTimes.breakfast),
+      lunch: normalizeClock(source.mealReminderTimes?.lunch, DEFAULT_PUSH_SETTINGS.mealReminderTimes.lunch),
+      dinner: normalizeClock(source.mealReminderTimes?.dinner, DEFAULT_PUSH_SETTINGS.mealReminderTimes.dinner),
+    },
+    workoutReminderTime: normalizeClock(source.workoutReminderTime, DEFAULT_PUSH_SETTINGS.workoutReminderTime),
+    weeklyProgressReviewDay: ['monday', 'friday', 'sunday'].includes(source.weeklyProgressReviewDay ?? '')
+      ? source.weeklyProgressReviewDay!
+      : DEFAULT_PUSH_SETTINGS.weeklyProgressReviewDay,
+    timezone: typeof source.timezone === 'string' && source.timezone.trim() ? source.timezone.trim() : DEFAULT_PUSH_SETTINGS.timezone,
+    quietHoursStart: normalizeClock(source.quietHoursStart, DEFAULT_PUSH_SETTINGS.quietHoursStart),
+    quietHoursEnd: normalizeClock(source.quietHoursEnd, DEFAULT_PUSH_SETTINGS.quietHoursEnd),
+    maxDailyPerUser: normalizePositiveInt(source.maxDailyPerUser, DEFAULT_PUSH_SETTINGS.maxDailyPerUser, 1, 8),
+    soundEnabled: source.soundEnabled !== false,
+    badgeEnabled: source.badgeEnabled !== false,
+  }
+}
+
+/** Public FCM configuration only; safe for any authenticated member to read. */
+export async function getPublicPushConfig() {
+  const fallback = {
+    vapidPublicKey: DEFAULT_PUSH_SETTINGS.vapidPublicKey,
+    fcmSenderId: DEFAULT_PUSH_SETTINGS.fcmSenderId,
+    fcmProjectId: DEFAULT_PUSH_SETTINGS.fcmProjectId,
+  }
+  if (!firestoreDb) return fallback
+  try {
+    const snapshot = await getDoc(doc(firestoreDb, 'system', 'push_public_config'))
+    if (snapshot.exists()) {
+      const value = snapshot.data()
+      return {
+        vapidPublicKey: typeof value.vapidPublicKey === 'string' ? value.vapidPublicKey.trim() : fallback.vapidPublicKey,
+        fcmSenderId: typeof value.fcmSenderId === 'string' ? value.fcmSenderId.trim() : fallback.fcmSenderId,
+        fcmProjectId: typeof value.fcmProjectId === 'string' ? value.fcmProjectId.trim() : fallback.fcmProjectId,
+      }
+    }
+  } catch {
+    // Students are not allowed to read the private system settings document;
+    // the public config and build-time env remain the supported fallbacks.
+  }
+  return fallback
 }
 
 // Default Push Templates Tailored to Fitness Goals & Student Preference Categories
@@ -198,14 +266,21 @@ export async function markAllNotificationsAsRead(userId: string) {
 
 export async function createNotification(userId: string, notification: Omit<AppNotification, 'id' | 'createdAt' | 'userId' | 'read'>) {
   if (!firestoreDb) return
-  const ref = doc(collection(firestoreDb, 'users', userId, 'notifications'))
-  await setDoc(ref, {
+  const dedupeId = notification.dedupeKey
+    ? `auto_${notification.dedupeKey.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120)}`
+    : null
+  const ref = dedupeId
+    ? doc(firestoreDb, 'users', userId, 'notifications', dedupeId)
+    : doc(collection(firestoreDb, 'users', userId, 'notifications'))
+  const payload = {
     id: ref.id,
     userId,
     ...notification,
     read: false,
     createdAt: serverTimestamp(),
-  })
+  }
+  if (dedupeId) await setDoc(ref, payload, { merge: true })
+  else await setDoc(ref, payload)
 
   // Try displaying native browser push notification if active in browser
   sendBrowserNativePushNotification(notification.title, notification.message, notification.actionUrl)
@@ -226,9 +301,12 @@ export function sendBrowserNativePushNotification(title: string, message: string
 
       notif.onclick = (e) => {
         e.preventDefault()
-        if (actionUrl) {
-          window.location.hash = actionUrl
-        }
+        const nextHash = actionUrl?.startsWith('/#/')
+          ? actionUrl.slice(1)
+          : actionUrl?.startsWith('#/')
+            ? actionUrl
+            : `#${actionUrl?.startsWith('/') ? actionUrl : `/${actionUrl || 'home'}`}`
+        window.location.hash = nextHash
         window.focus()
         notif.close()
       }
@@ -242,8 +320,13 @@ export function sendBrowserNativePushNotification(title: string, message: string
  * Load System Push Settings from Firestore with LocalStorage fallback
  */
 export async function getSystemPushSettings(): Promise<SystemPushSettings> {
-  const cached = localStorage.getItem(PUSH_SETTINGS_KEY)
-  let fallback: SystemPushSettings = cached ? JSON.parse(cached) : DEFAULT_PUSH_SETTINGS
+  let fallback = DEFAULT_PUSH_SETTINGS
+  try {
+    const cached = typeof window !== 'undefined' ? window.localStorage.getItem(PUSH_SETTINGS_KEY) : null
+    if (cached) fallback = normalizeSystemPushSettings(JSON.parse(cached))
+  } catch {
+    fallback = DEFAULT_PUSH_SETTINGS
+  }
 
   if (!firestoreDb) return fallback
 
@@ -251,7 +334,7 @@ export async function getSystemPushSettings(): Promise<SystemPushSettings> {
     const docRef = doc(firestoreDb, 'system', 'push_settings')
     const snap = await getDoc(docRef)
     if (snap.exists()) {
-      const data = snap.data() as SystemPushSettings
+      const data = normalizeSystemPushSettings(snap.data() as Partial<SystemPushSettings>)
       safeLocalStorageSet(PUSH_SETTINGS_KEY, JSON.stringify(data))
       return data
     }
@@ -266,19 +349,28 @@ export async function getSystemPushSettings(): Promise<SystemPushSettings> {
  * Save System Push Settings to Firestore & LocalStorage
  */
 export async function saveSystemPushSettings(settings: SystemPushSettings): Promise<void> {
-  safeLocalStorageSet(PUSH_SETTINGS_KEY, JSON.stringify(settings))
-
-  if (!firestoreDb) return
-
-  try {
-    const docRef = doc(firestoreDb, 'system', 'push_settings')
-    await setDoc(docRef, {
-      ...settings,
-      updatedAt: new Date().toISOString()
-    }, { merge: true })
-  } catch (e) {
-    console.error('Error persisting system push settings to Firestore:', e)
+  const normalized = normalizeSystemPushSettings(settings)
+  if (!firestoreDb) {
+    safeLocalStorageSet(PUSH_SETTINGS_KEY, JSON.stringify(normalized))
+    return
   }
+
+  const docRef = doc(firestoreDb, 'system', 'push_settings')
+  const publicConfigRef = doc(firestoreDb, 'system', 'push_public_config')
+  const updatedAt = new Date().toISOString()
+  const batch = writeBatch(firestoreDb)
+  batch.set(docRef, {
+    ...normalized,
+    updatedAt,
+  }, { merge: true })
+  batch.set(publicConfigRef, {
+    vapidPublicKey: normalized.vapidPublicKey,
+    fcmSenderId: normalized.fcmSenderId,
+    fcmProjectId: normalized.fcmProjectId,
+    updatedAt,
+  }, { merge: true })
+  await batch.commit()
+  safeLocalStorageSet(PUSH_SETTINGS_KEY, JSON.stringify(normalized))
 }
 
 /**
@@ -304,8 +396,7 @@ export async function dispatchAdminPushBroadcast(params: {
     targetType, 
     targetUserIds, 
     actionUrl, 
-    sentBy = 'Admin Aura', 
-    sendBrowserPush = true,
+    sentBy = 'Admin Aura',
     respectCategoryPreferences = true 
   } = params
 
@@ -405,6 +496,7 @@ export async function dispatchAdminPushBroadcast(params: {
           title,
           message,
           type,
+          category,
           read: false,
           actionUrl: actionUrl || '/home',
           createdAt: serverTimestamp()
@@ -424,17 +516,13 @@ export async function dispatchAdminPushBroadcast(params: {
     if (sentCount < 0) sentCount = 0
   }
 
-  // Also trigger local browser push notification if requested
-  if (sendBrowserPush) {
-    sendBrowserNativePushNotification(title, message, actionUrl)
-  }
-
   // Create Broadcast Log entry
   const newLog: PushBroadcastLog = {
     id: logId,
     title,
     message,
     type,
+    category,
     targetType,
     targetValue: targetType === 'individual' ? targetUserIds[0] : targetType,
     actionUrl,
@@ -509,6 +597,23 @@ export async function getPushBroadcastLogs(): Promise<PushBroadcastLog[]> {
   }
 
   return fallback
+}
+
+/** Read the latest server-side scheduler runs for the admin health panel. */
+export async function getPushAutomationLogs(): Promise<PushAutomationLog[]> {
+  if (!firestoreDb) return []
+  try {
+    const logsQuery = query(
+      collection(firestoreDb, 'system', 'push_automation_logs', 'logs'),
+      orderBy('createdAt', 'desc'),
+      limit(10),
+    )
+    const snapshot = await getDocs(logsQuery)
+    return snapshot.docs.map((item) => item.data() as PushAutomationLog)
+  } catch (error) {
+    console.warn('Error fetching push automation logs from Firestore:', error)
+    return []
+  }
 }
 
 /**

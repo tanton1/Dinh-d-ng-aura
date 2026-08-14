@@ -498,6 +498,14 @@ service cloud.firestore {
       }
     }
 
+    // FCM public key/config contains no secret and must be readable by an
+    // authenticated member so a device can register itself. The private
+    // automation settings and logs remain admin-only below.
+    match /system/push_public_config {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
     match /system/{document=**} {
       allow read, write: if isAdmin();
     }

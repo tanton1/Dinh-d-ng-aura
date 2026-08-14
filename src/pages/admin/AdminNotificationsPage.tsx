@@ -41,13 +41,15 @@ import type {
   AppNotification,
   PushTemplate,
   FitnessGoalTarget,
-  NotificationCategory
+  NotificationCategory,
+  PushAutomationLog,
 } from '../../types'
 import { 
   getSystemPushSettings, 
   saveSystemPushSettings, 
   dispatchAdminPushBroadcast, 
   getPushBroadcastLogs, 
+  getPushAutomationLogs,
   sendBrowserNativePushNotification, 
   getPushTemplates,
   savePushTemplate,
@@ -63,6 +65,14 @@ interface AdminNotificationsPageProps {
   currentUserUid?: string
 }
 
+function formatAutomationTime(value: unknown) {
+  const candidate = value && typeof value === 'object' && 'toDate' in value
+    ? (value as { toDate?: () => Date }).toDate?.()
+    : value
+  const date = candidate instanceof Date ? candidate : new Date(String(candidate ?? ''))
+  return Number.isNaN(date.getTime()) ? 'Chưa có lần chạy' : date.toLocaleString('vi-VN')
+}
+
 export default function AdminNotificationsPage({ onNavigate, users = [], currentUserUid }: AdminNotificationsPageProps) {
   const [activeTab, setActiveTab] = useState<'dispatch' | 'goal_templates' | 'settings' | 'tester' | 'logs'>('dispatch')
 
@@ -72,10 +82,10 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
   >('all')
   const [selectedUserId, setSelectedUserId] = useState<string>('')
   const [notifType, setNotifType] = useState<AppNotification['type']>('REMINDER')
+  const [dispatchCategory, setDispatchCategory] = useState<NotificationCategory>('nutrition')
   const [title, setTitle] = useState('Nhắc nhở cập nhật nhật ký ăn uống 🥗')
   const [message, setMessage] = useState('Hôm nay bạn chưa tải lên hình ảnh bữa ăn nào. Hãy cập nhật ngay để theo dõi tiến trình dinh dưỡng cùng HLV nhé!')
   const [actionUrl, setActionUrl] = useState('/nutrition')
-  const [sendBrowserPush, setSendBrowserPush] = useState(true)
   const [respectUserPreferences, setRespectUserPreferences] = useState(true)
 
   const [dispatching, setDispatching] = useState(false)
@@ -85,6 +95,7 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
   const [settings, setSettings] = useState<SystemPushSettings>(DEFAULT_PUSH_SETTINGS)
   const [savingSettings, setSavingSettings] = useState(false)
   const [settingsSaved, setSettingsSaved] = useState(false)
+  const [settingsError, setSettingsError] = useState('')
 
   // Goal Push Templates State
   const [pushTemplates, setPushTemplates] = useState<PushTemplate[]>([])
@@ -113,6 +124,8 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
   const [logs, setLogs] = useState<PushBroadcastLog[]>([])
   const [loadingLogs, setLoadingLogs] = useState(false)
   const [logFilter, setLogFilter] = useState<string>('all')
+  const [automationLogs, setAutomationLogs] = useState<PushAutomationLog[]>([])
+  const latestAutomationLog = automationLogs[0]
 
   // Push Permission Tester State
   const [permissionState, setPermissionState] = useState<NotificationPermission>(
@@ -121,6 +134,7 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
   const [currentFcmToken, setCurrentFcmToken] = useState<string | null>(null)
   const [requestingToken, setRequestingToken] = useState(false)
   const [copiedToken, setCopiedToken] = useState(false)
+  const [tokenError, setTokenError] = useState('')
 
   // Load Settings, Push Templates, and Logs on mount
   useEffect(() => {
@@ -136,6 +150,7 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
       setLoadingLogs(true)
       const l = await getPushBroadcastLogs()
       setLogs(l)
+      setAutomationLogs(await getPushAutomationLogs())
       setLoadingLogs(false)
     }
     initData()
@@ -192,6 +207,7 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
     setTitle(tmpl.title)
     setMessage(tmpl.message)
     setNotifType(tmpl.type)
+    setDispatchCategory(tmpl.category || 'general')
     if (tmpl.category) setFormCategory(tmpl.category)
     setActionUrl(tmpl.actionUrl || '/nutrition')
 
@@ -307,10 +323,10 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
         title: title.trim(),
         message: message.trim(),
         type: notifType,
+        category: dispatchCategory,
         targetType: targetType === 'individual' ? 'individual' : targetType === 'all' ? 'all' : 'category',
         targetUserIds: effectiveIds,
         actionUrl,
-        sendBrowserPush,
         respectCategoryPreferences: respectUserPreferences
       })
 
@@ -330,12 +346,14 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
   const handleSaveSettings = async () => {
     setSavingSettings(true)
     setSettingsSaved(false)
+    setSettingsError('')
     try {
       await saveSystemPushSettings(settings)
       setSettingsSaved(true)
       setTimeout(() => setSettingsSaved(false), 3000)
     } catch (err) {
       console.error('Error saving push settings:', err)
+      setSettingsError(err instanceof Error ? err.message : 'Không thể lưu cài đặt Push vào Firestore.')
     } finally {
       setSavingSettings(false)
     }
@@ -344,13 +362,20 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
   // Handle Request Permission
   const handleRequestPermission = async () => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
-      const perm = await Notification.requestPermission()
-      setPermissionState(perm)
+      setTokenError('')
+      try {
+        const perm = await Notification.requestPermission()
+        setPermissionState(perm)
 
-      if (perm === 'granted') {
-        setRequestingToken(true)
-        const token = currentUserUid ? await requestFcmPermissionAndToken(currentUserUid) : null
-        setCurrentFcmToken(token || '')
+        if (perm === 'granted') {
+          setRequestingToken(true)
+          const token = currentUserUid ? await requestFcmPermissionAndToken(currentUserUid) : null
+          setCurrentFcmToken(token || '')
+          if (!token) setTokenError('Chưa đăng ký được thiết bị. Kiểm tra VAPID public key và Service Worker.')
+        }
+      } catch (error) {
+        setTokenError(error instanceof Error ? error.message : 'Không thể đăng ký Push trên thiết bị này.')
+      } finally {
         setRequestingToken(false)
       }
     }
@@ -660,6 +685,17 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
                 </div>
               </div>
 
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6, display: 'block' }}>Danh mục để lọc đúng quyền nhận:</label>
+                <select value={dispatchCategory} onChange={(e) => setDispatchCategory(e.target.value as NotificationCategory)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1', borderRadius: 10, background: '#fff', fontSize: 13 }}>
+                  <option value="nutrition">Dinh dưỡng & nước uống</option>
+                  <option value="workout">Tập luyện & lịch PT</option>
+                  <option value="learning">Academy & streak</option>
+                  <option value="coach">HLV & Aura AI</option>
+                  <option value="general">Thông báo chung</option>
+                </select>
+              </div>
+
               {/* Title & Message */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div>
@@ -733,20 +769,6 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
                   />
                   <label htmlFor="respectUserPreferencesToggle" style={{ fontSize: 13, fontWeight: 700, color: '#9f1239', cursor: 'pointer' }}>
                     Tôn trọng Cài đặt Danh mục thông báo cá nhân của học viên (Tự động lọc bớt người dùng tắt nhận loại tin này)
-                  </label>
-                </div>
-
-                {/* Send Native Push Toggle */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f8fafc', padding: 12, borderRadius: 12, border: '1px solid #e2e8f0' }}>
-                  <input
-                    type="checkbox"
-                    id="browserPushToggle"
-                    checked={sendBrowserPush}
-                    onChange={(e) => setSendBrowserPush(e.target.checked)}
-                    style={{ width: 18, height: 18, accentColor: '#ff1a8c', cursor: 'pointer' }}
-                  />
-                  <label htmlFor="browserPushToggle" style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', cursor: 'pointer' }}>
-                    Phát Web Push Native Banner trực tiếp lên màn hình máy tính/điện thoại người dùng
                   </label>
                 </div>
 
@@ -1175,6 +1197,49 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
             </div>
           </div>
 
+          {/* Automation Guardrails */}
+          <div style={{ background: '#ffffff', borderRadius: 20, padding: 20, border: '1px solid #f1f5f9', boxShadow: '0 2px 12px rgba(0,0,0,0.03)' }}>
+            <h3 style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: '0 0 6px', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ShieldCheck size={18} style={{ color: '#ff1a8c' }} />
+              Nhắc nhở tự động an toàn
+            </h3>
+            <p style={{ margin: '0 0 14px', color: '#64748b', fontSize: 12, lineHeight: 1.5 }}>
+              Scheduler chạy mỗi 15 phút cho nhắc nhật ký bữa ăn, dùng mã chống trùng và bỏ qua giờ yên tĩnh. Lịch PT/Academy vẫn gửi theo template và danh mục ở tab Phát thông báo.
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16 }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 800, color: '#0f172a', cursor: 'pointer' }}>
+                <input type="checkbox" checked={settings.automationEnabled} onChange={(e) => setSettings({ ...settings, automationEnabled: e.target.checked })} style={{ width: 18, height: 18, accentColor: '#ff1a8c' }} />
+                Bật scheduler nhắc khách hàng
+              </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#475569' }}>
+                Múi giờ
+                <select value={settings.timezone} onChange={(e) => setSettings({ ...settings, timezone: e.target.value })} style={{ padding: '7px 9px', border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', fontSize: 12 }}>
+                  <option value="Asia/Ho_Chi_Minh">Việt Nam (GMT+7)</option>
+                  <option value="Asia/Singapore">Singapore (GMT+8)</option>
+                  <option value="Asia/Tokyo">Tokyo (GMT+9)</option>
+                </select>
+              </label>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, marginTop: 14 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+                Giờ yên tĩnh bắt đầu
+                <input type="time" value={settings.quietHoursStart} onChange={(e) => setSettings({ ...settings, quietHoursStart: e.target.value })} style={{ display: 'block', width: '100%', marginTop: 4, padding: 7, border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 12 }} />
+              </label>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+                Giờ yên tĩnh kết thúc
+                <input type="time" value={settings.quietHoursEnd} onChange={(e) => setSettings({ ...settings, quietHoursEnd: e.target.value })} style={{ display: 'block', width: '100%', marginTop: 4, padding: 7, border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 12 }} />
+              </label>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+                Tối đa / người / ngày
+                <input type="number" min={1} max={8} value={settings.maxDailyPerUser} onChange={(e) => setSettings({ ...settings, maxDailyPerUser: Number(e.target.value) })} style={{ display: 'block', width: '100%', marginTop: 4, padding: 7, border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 12 }} />
+              </label>
+            </div>
+            <div style={{ marginTop: 14, padding: '11px 13px', borderRadius: 12, background: '#fff7fb', border: '1px solid #fbcfe8', color: '#64748b', fontSize: 12 }}>
+              <strong style={{ color: '#be185d' }}>Lần chạy gần nhất:</strong>{' '}
+              {latestAutomationLog ? `${formatAutomationTime(latestAutomationLog.createdAt)} · ${latestAutomationLog.webPushSentCount} Push thành công · ${latestAutomationLog.webPushFailureCount} lỗi · ${latestAutomationLog.removedInvalidDevices} token đã dọn` : 'Chưa có log scheduler. Deploy Functions để bắt đầu ghi nhận.'}
+            </div>
+          </div>
+
           {/* FCM & VAPID Credentials Status */}
           <div style={{ background: '#ffffff', borderRadius: 20, padding: 20, border: '1px solid #f1f5f9', boxShadow: '0 2px 12px rgba(0,0,0,0.03)' }}>
             <h3 style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: '0 0 14px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1211,6 +1276,7 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
                   onChange={(e) => setSettings({ ...settings, vapidPublicKey: e.target.value })}
                   style={{ width: '100%', padding: '8px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 12 }}
                 />
+                <small style={{ display: 'block', marginTop: 5, color: '#94a3b8', fontSize: 11 }}>Lấy tại Firebase Console → Cloud Messaging → Web Push certificates. Chỉ lưu public key.</small>
               </div>
             </div>
 
@@ -1363,6 +1429,11 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
                 <CheckCircle2 size={16} /> Đã lưu cấu hình thành công!
               </span>
             )}
+            {settingsError && (
+              <span role="alert" style={{ fontSize: 13, color: '#b4234d', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <AlertCircle size={16} /> {settingsError}
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -1417,6 +1488,8 @@ export default function AdminNotificationsPage({ onNavigate, users = [], current
                 </button>
               )}
             </div>
+
+            {tokenError && <p role="alert" style={{ margin: '-6px 0 12px', padding: '10px 12px', borderRadius: 10, color: '#b4234d', background: '#fff0f5', fontSize: 12 }}>{tokenError}</p>}
 
             {/* Test Trigger Button */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

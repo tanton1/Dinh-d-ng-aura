@@ -4,6 +4,7 @@ const { FieldValue, getFirestore } = require('firebase-admin/firestore')
 const { getMessaging } = require('firebase-admin/messaging')
 const { getStorage } = require('firebase-admin/storage')
 const { HttpsError, onCall: firebaseOnCall } = require('firebase-functions/v2/https')
+const { onSchedule } = require('firebase-functions/v2/scheduler')
 const { onDocumentWritten } = require('firebase-functions/v2/firestore')
 const { setGlobalOptions } = require('firebase-functions/v2/options')
 const { logger } = require('firebase-functions')
@@ -33,7 +34,7 @@ const quizAnswerLimit = 100
 const quizMaxAttemptLimit = 20
 const mediaUrlTtlMs = 5 * 60 * 1000
 const enforceAppCheck = process.env.ENFORCE_APP_CHECK === 'true'
-const publicAppUrl = process.env.PUBLIC_APP_URL || 'https://gen-lang-client-0815966909.web.app'
+const publicAppUrl = process.env.PUBLIC_APP_URL || 'https://dinh-duong-aura.vercel.app'
 const clientIncidentRateWindows = new Map()
 
 const appCheckPolicyLog = {
@@ -190,6 +191,15 @@ function normalizedPushActionUrl(value) {
   return actionUrl
 }
 
+function publicPushActionUrl(actionUrl) {
+  const hashPath = actionUrl.startsWith('/#/')
+    ? actionUrl
+    : actionUrl.startsWith('#/')
+      ? `/${actionUrl}`
+      : `/#${actionUrl.startsWith('/') ? actionUrl : `/${actionUrl}`}`
+  return new URL(hashPath, publicAppUrl).toString()
+}
+
 function acceptsPushCategory(profile, category) {
   const settings = profile?.notificationSettings
   if (!settings || settings.enabled !== false) {
@@ -203,6 +213,336 @@ function acceptsPushCategory(profile, category) {
   if (category === 'coach') return settings.coachMessages !== false
   return true
 }
+
+const scheduledReminderDefaults = {
+  enabled: true,
+  automationEnabled: true,
+  timezone: 'Asia/Ho_Chi_Minh',
+  quietHoursStart: '21:30',
+  quietHoursEnd: '07:00',
+  maxDailyPerUser: 3,
+  mealReminderTimes: {
+    breakfast: '07:30',
+    lunch: '12:00',
+    dinner: '18:30',
+  },
+}
+
+function normalizedReminderClock(value, fallback) {
+  return typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : fallback
+}
+
+function normalizedReminderSettings(value) {
+  const source = value && typeof value === 'object' ? value : {}
+  const sourceTimes = source.mealReminderTimes && typeof source.mealReminderTimes === 'object'
+    ? source.mealReminderTimes
+    : {}
+  return {
+    ...scheduledReminderDefaults,
+    enabled: source.enabled !== false,
+    automationEnabled: source.automationEnabled !== false,
+    timezone: typeof source.timezone === 'string' && source.timezone.trim()
+      ? source.timezone.trim()
+      : scheduledReminderDefaults.timezone,
+    quietHoursStart: normalizedReminderClock(source.quietHoursStart, scheduledReminderDefaults.quietHoursStart),
+    quietHoursEnd: normalizedReminderClock(source.quietHoursEnd, scheduledReminderDefaults.quietHoursEnd),
+    maxDailyPerUser: Math.min(8, Math.max(1, Number.isFinite(source.maxDailyPerUser) ? Math.round(source.maxDailyPerUser) : scheduledReminderDefaults.maxDailyPerUser)),
+    autoMealReminders: source.autoMealReminders !== false,
+    mealReminderTimes: {
+      breakfast: normalizedReminderClock(sourceTimes.breakfast, scheduledReminderDefaults.mealReminderTimes.breakfast),
+      lunch: normalizedReminderClock(sourceTimes.lunch, scheduledReminderDefaults.mealReminderTimes.lunch),
+      dinner: normalizedReminderClock(sourceTimes.dinner, scheduledReminderDefaults.mealReminderTimes.dinner),
+    },
+  }
+}
+
+function clockToMinutes(value) {
+  const [hours, minutes] = String(value || '00:00').split(':').map(Number)
+  return (Number.isFinite(hours) ? hours : 0) * 60 + (Number.isFinite(minutes) ? minutes : 0)
+}
+
+function isInsideQuietHours(currentMinutes, start, end) {
+  const startMinutes = clockToMinutes(start)
+  const endMinutes = clockToMinutes(end)
+  if (startMinutes === endMinutes) return false
+  return startMinutes < endMinutes
+    ? currentMinutes >= startMinutes && currentMinutes < endMinutes
+    : currentMinutes >= startMinutes || currentMinutes < endMinutes
+}
+
+function isReminderWindow(currentMinutes, target) {
+  const targetMinutes = clockToMinutes(target)
+  return currentMinutes >= targetMinutes && currentMinutes < targetMinutes + 15
+}
+
+function zonedClock(date, timeZone) {
+  let parts
+  try {
+    parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      weekday: 'short',
+      hourCycle: 'h23',
+    }).formatToParts(date)
+  } catch {
+    parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: scheduledReminderDefaults.timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      weekday: 'short',
+      hourCycle: 'h23',
+    }).formatToParts(date)
+  }
+  const values = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]))
+  const dateString = `${values.year}-${values.month}-${values.day}`
+  const currentMinutes = Number(values.hour) * 60 + Number(values.minute)
+  const weekday = String(values.weekday || '').toLowerCase().slice(0, 3)
+  return { dateString, currentMinutes, weekday }
+}
+
+function normalizedReminderGoal(profile) {
+  const raw = profile?.nutritionProfile?.goal || profile?.goals?.[0] || 'all'
+  if (raw === 'fat_loss' || raw === 'lose-fat' || /giảm mỡ/i.test(String(raw))) return 'lose-fat'
+  if (raw === 'muscle_gain' || raw === 'gain-muscle' || /tăng cơ/i.test(String(raw))) return 'gain-muscle'
+  if (raw === 'maintain' || raw === 'maintenance' || /duy trì/i.test(String(raw))) return 'maintain'
+  return 'all'
+}
+
+function selectScheduledTemplate(templates, profile, category, slot) {
+  const goal = normalizedReminderGoal(profile)
+  const categoryMatches = templates.filter((template) => template?.active !== false && template?.category === category)
+  return categoryMatches.find((template) => template.targetGoal === goal && template.triggerLabel?.toLowerCase().includes(slot))
+    || categoryMatches.find((template) => template.targetGoal === goal)
+    || categoryMatches.find((template) => template.targetGoal === 'all')
+    || categoryMatches[0]
+}
+
+async function hasMealLoggedForDate(userId, dateString) {
+  try {
+    const snapshot = await db.collection(`users/${userId}/mealLogs`)
+      .where('date', '==', dateString)
+      .limit(1)
+      .get()
+    return !snapshot.empty
+  } catch (error) {
+    logger.warn('Unable to check meal log before scheduled reminder', { userId, code: error?.code || 'unknown' })
+    return false
+  }
+}
+
+async function countScheduledNotificationsForDate(userId, dateString) {
+  try {
+    const snapshot = await db.collection(`users/${userId}/notifications`)
+      .where('dateString', '==', dateString)
+      .limit(20)
+      .get()
+    return snapshot.docs.filter((document) => document.data()?.dedupeKey?.startsWith('meal_')).length
+  } catch (error) {
+    logger.warn('Unable to count scheduled reminders before delivery', { userId, code: error?.code || 'unknown' })
+    return 0
+  }
+}
+
+async function createScheduledNotification(userId, payload) {
+  const notificationReference = db.doc(`users/${userId}/notifications/${payload.dedupeKey}`)
+  let created = false
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(notificationReference)
+    if (snapshot.exists) return
+    transaction.create(notificationReference, {
+      id: notificationReference.id,
+      userId,
+      title: payload.title,
+      message: payload.message,
+      type: payload.type,
+      category: payload.category,
+      actionUrl: payload.actionUrl,
+      dedupeKey: payload.dedupeKey,
+      dateString: payload.dateString,
+      read: false,
+      createdAt: FieldValue.serverTimestamp(),
+    })
+    created = true
+  })
+  return created ? { ...payload, notificationId: notificationReference.id } : null
+}
+
+async function deliverScheduledPushes(deliveries) {
+  if (!deliveries.length) return { sent: 0, failed: 0, removed: 0 }
+  const userIds = [...new Set(deliveries.map((delivery) => delivery.userId))]
+  const deliveryByUser = new Map(deliveries.map((delivery) => [delivery.userId, delivery]))
+  const groups = new Map()
+  const invalidDeviceReferences = []
+
+  for (let offset = 0; offset < userIds.length; offset += 30) {
+    const chunk = userIds.slice(offset, offset + 30)
+    const snapshot = await db.collectionGroup('devices').where('userId', 'in', chunk).get()
+    snapshot.docs.forEach((device) => {
+      const data = device.data()
+      if (data.enabled === false || typeof data.token !== 'string' || !data.token) return
+      const delivery = deliveryByUser.get(data.userId)
+      if (!delivery) return
+      const groupKey = `${delivery.title}\n${delivery.message}\n${delivery.actionUrl}`
+      const group = groups.get(groupKey) || { delivery, devices: [] }
+      group.devices.push({ token: data.token, reference: device.ref })
+      groups.set(groupKey, group)
+    })
+  }
+
+  let sent = 0
+  let failed = 0
+  for (const group of groups.values()) {
+    for (let offset = 0; offset < group.devices.length; offset += 500) {
+      const deviceChunk = group.devices.slice(offset, offset + 500)
+      try {
+        const response = await messaging.sendEachForMulticast({
+          tokens: deviceChunk.map(({ token }) => token),
+          notification: { title: group.delivery.title, body: group.delivery.message },
+          data: {
+            actionUrl: group.delivery.actionUrl,
+            type: group.delivery.type,
+            category: group.delivery.category,
+            notificationId: group.delivery.notificationId,
+          },
+          webpush: { fcmOptions: { link: publicPushActionUrl(group.delivery.actionUrl) } },
+        })
+        sent += response.successCount
+        failed += response.failureCount
+        response.responses.forEach((result, index) => {
+          if (!result.success && ['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(result.error?.code)) {
+            invalidDeviceReferences.push(deviceChunk[index].reference)
+          }
+        })
+      } catch (error) {
+        failed += deviceChunk.length
+        logger.error('Scheduled FCM delivery failed', { code: error?.code || 'unknown' })
+      }
+    }
+  }
+
+  for (let offset = 0; offset < invalidDeviceReferences.length; offset += 400) {
+    const batch = db.batch()
+    invalidDeviceReferences.slice(offset, offset + 400).forEach((reference) => batch.delete(reference))
+    await batch.commit()
+  }
+  return { sent, failed, removed: invalidDeviceReferences.length }
+}
+
+/**
+ * Runs every fifteen minutes. The deterministic notification id makes this
+ * trigger safe to retry and prevents duplicate reminders when two scheduler
+ * invocations overlap. In-app records are created even when a user has no
+ * registered device; FCM delivery is best-effort on top of that inbox.
+ */
+exports.dispatchScheduledReminders = onSchedule({
+  schedule: 'every 15 minutes',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  retryCount: 1,
+  timeoutSeconds: 120,
+  memory: '256MiB',
+  maxInstances: 1,
+}, async () => {
+  const [settingsSnapshot, templatesSnapshot, usersSnapshot] = await Promise.all([
+    db.doc('system/push_settings').get(),
+    db.collection('system/push_templates/templates').get(),
+    db.collection('users').limit(2000).get(),
+  ])
+  const settings = normalizedReminderSettings(settingsSnapshot.exists ? settingsSnapshot.data() : {})
+  if (!settings.enabled || !settings.automationEnabled) {
+    logger.info('Scheduled push skipped because the channel is disabled')
+    return { skipped: true, reason: 'disabled' }
+  }
+
+  const templates = templatesSnapshot.docs.map((snapshot) => snapshot.data())
+  const definitions = [
+    ['breakfast', 'Bữa sáng', 'breakfast'],
+    ['lunch', 'Bữa trưa', 'lunch'],
+    ['dinner', 'Bữa tối', 'dinner'],
+  ]
+  const deliveries = []
+  const userDocuments = usersSnapshot.docs.filter((snapshot) => snapshot.data()?.disabled !== true)
+
+  for (let offset = 0; offset < userDocuments.length; offset += 20) {
+    const batch = await Promise.all(userDocuments.slice(offset, offset + 20).map(async (snapshot) => {
+      const userId = snapshot.id
+      const profile = snapshot.data() || {}
+      const preferences = profile.notificationSettings && typeof profile.notificationSettings === 'object'
+        ? profile.notificationSettings
+        : {}
+      if (preferences.enabled === false || preferences.mealReminders === false) return []
+
+      const timezone = preferences.timezone || settings.timezone
+      const clock = zonedClock(new Date(), timezone)
+      if (preferences.quietHoursEnabled !== false && isInsideQuietHours(clock.currentMinutes, preferences.quietHoursStart || settings.quietHoursStart, preferences.quietHoursEnd || settings.quietHoursEnd)) return []
+
+      const reminderTimes = {
+        ...settings.mealReminderTimes,
+        ...(preferences.mealReminderTimes || {}),
+        ...(profile.mealReminderTime ? { dinner: profile.mealReminderTime } : {}),
+      }
+      const maxDaily = Math.min(8, Math.max(1, Number.isFinite(preferences.maxDaily) ? Math.round(preferences.maxDaily) : settings.maxDailyPerUser))
+      const candidates = []
+      if (settings.autoMealReminders) {
+        const dueDefinitions = definitions.filter(([slot]) => isReminderWindow(clock.currentMinutes, reminderTimes[slot]))
+        if (dueDefinitions.length && await hasMealLoggedForDate(userId, clock.dateString)) return []
+        const alreadyScheduled = dueDefinitions.length
+          ? await countScheduledNotificationsForDate(userId, clock.dateString)
+          : 0
+        const remainingDailySlots = Math.max(0, maxDaily - alreadyScheduled)
+        if (!remainingDailySlots) return []
+        for (const [slot, label, templateSlot] of dueDefinitions) {
+          const template = selectScheduledTemplate(templates, profile, 'nutrition', templateSlot)
+          const fallback = {
+            title: `Nhắc cập nhật ${label.toLowerCase()} 🥗`,
+            message: `Bạn chưa ghi nhận ${label.toLowerCase()} hôm nay. Chụp ảnh bữa ăn để Aura giúp bạn theo dõi dinh dưỡng nhé.`,
+            type: 'REMINDER',
+            actionUrl: '/nutrition',
+          }
+          candidates.push({
+            userId,
+            dateString: clock.dateString,
+            category: 'nutrition',
+            dedupeKey: `meal_${clock.dateString}_${slot}`,
+            title: template?.title || fallback.title,
+            message: template?.message || fallback.message,
+            type: template?.type || fallback.type,
+            actionUrl: template?.actionUrl || fallback.actionUrl,
+          })
+        }
+        return candidates.slice(0, remainingDailySlots)
+      }
+      return candidates.slice(0, maxDaily)
+    }))
+    batch.flat().forEach((candidate) => deliveries.push(candidate))
+  }
+
+  const createdDeliveries = []
+  for (const delivery of deliveries) {
+    const created = await createScheduledNotification(delivery.userId, delivery)
+    if (created) createdDeliveries.push(created)
+  }
+  const deliveryResult = await deliverScheduledPushes(createdDeliveries)
+  const runId = `scheduled_${Date.now()}`
+  await db.doc(`system/push_automation_logs/logs/${runId}`).set({
+    id: runId,
+    evaluatedUsers: userDocuments.length,
+    candidates: deliveries.length,
+    createdNotifications: createdDeliveries.length,
+    webPushSentCount: deliveryResult.sent,
+    webPushFailureCount: deliveryResult.failed,
+    removedInvalidDevices: deliveryResult.removed,
+    createdAt: FieldValue.serverTimestamp(),
+  })
+  logger.info('Scheduled reminders completed', { runId, ...deliveryResult, createdNotifications: createdDeliveries.length })
+  return { runId, createdNotifications: createdDeliveries.length, ...deliveryResult }
+})
 
 exports.registerFcmToken = onCall(async (request) => {
   const userId = requireCaller(request)
@@ -316,8 +656,8 @@ exports.dispatchPushBroadcast = onCall({ cpu: 'gcf_gen1', maxInstances: 1 }, asy
       response = await messaging.sendEachForMulticast({
         tokens: deviceChunk.map(({ token }) => token),
         notification: { title, body: message },
-        data: { actionUrl, type, category },
-        webpush: { fcmOptions: { link: new URL(actionUrl, publicAppUrl).toString() } },
+        data: { actionUrl, type, category, notificationId: `${logReference.id}` },
+        webpush: { fcmOptions: { link: publicPushActionUrl(actionUrl) } },
       })
     } catch (error) {
       webPushFailureCount += deviceChunk.length
@@ -1164,7 +1504,7 @@ const productEventNames = new Set([
   'workout_completed',
 ])
 
-const clientIssueAreas = new Set(['auth', 'gemini', 'firestore', 'ui'])
+const clientIssueAreas = new Set(['auth', 'gemini', 'firestore', 'push', 'ui'])
 const clientIssueProviders = new Set(['google', 'phone', 'email', 'password', 'gemini'])
 
 exports.reportClientIssue = onCall({

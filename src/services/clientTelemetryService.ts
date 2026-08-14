@@ -1,7 +1,7 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions, firebaseAppCheckStatus, isFirebaseConfigured, useFirebaseEmulators } from '../lib/firebase'
 
-export type ClientIssueArea = 'auth' | 'gemini' | 'firestore' | 'ui'
+export type ClientIssueArea = 'auth' | 'gemini' | 'firestore' | 'push' | 'ui'
 
 interface ClientIssueContext {
   phase: string

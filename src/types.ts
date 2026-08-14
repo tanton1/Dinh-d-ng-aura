@@ -31,7 +31,7 @@ export interface UserProfile {
   targetSpeedPace?: 'slow' | 'standard' | 'fast' | null
   injuries?: string[]
   equipment?: string[]
-  notificationSettings?: Record<string, boolean | undefined>
+  notificationSettings?: NotificationSettings
   fcmTokens?: string[]
   mealReminderTime?: string
   nutritionProfile?: {
@@ -143,6 +143,27 @@ export type FitnessGoalTarget = 'all' | 'lose-fat' | 'gain-muscle' | 'maintain' 
 
 export type NotificationCategory = 'workout' | 'nutrition' | 'learning' | 'coach' | 'general'
 
+export interface NotificationSettings {
+  /** Master switch for in-app and push reminders. */
+  enabled?: boolean
+  /** Whether this browser/device has an FCM token registered. */
+  fcmEnabled?: boolean
+  workoutReminders?: boolean
+  mealReminders?: boolean
+  learningUpdates?: boolean
+  coachMessages?: boolean
+  quietHoursEnabled?: boolean
+  quietHoursStart?: string
+  quietHoursEnd?: string
+  timezone?: string
+  maxDaily?: number
+  mealReminderTimes?: {
+    breakfast: string
+    lunch: string
+    dinner: string
+  }
+}
+
 export interface PushTemplate {
   id: string
   title: string
@@ -160,6 +181,7 @@ export interface PushTemplate {
 
 export interface SystemPushSettings {
   enabled: boolean
+  automationEnabled: boolean
   vapidPublicKey: string
   fcmSenderId: string
   fcmProjectId: string
@@ -171,6 +193,10 @@ export interface SystemPushSettings {
   }
   workoutReminderTime: string
   weeklyProgressReviewDay: string
+  timezone: string
+  quietHoursStart: string
+  quietHoursEnd: string
+  maxDailyPerUser: number
   soundEnabled: boolean
   badgeEnabled: boolean
   updatedAt?: string
@@ -184,11 +210,24 @@ export interface PushBroadcastLog {
   type: 'REMINDER' | 'INFO' | 'ALERT' | 'ANNOUNCEMENT' | 'WORKOUT' | 'MOTIVATION' | 'PROMOTION'
   targetType: 'all' | 'category' | 'individual'
   targetValue?: string
+  category?: NotificationCategory
+  dedupeKey?: string
   actionUrl?: string
   sentCount: number
   webPushSentCount: number
   createdAt: string
   sentBy: string
+}
+
+export interface PushAutomationLog {
+  id: string
+  evaluatedUsers: number
+  candidates: number
+  createdNotifications: number
+  webPushSentCount: number
+  webPushFailureCount: number
+  removedInvalidDevices: number
+  createdAt?: unknown
 }
 
 export interface Course {
@@ -503,8 +542,11 @@ export interface AppNotification {
   title: string;
   message: string;
   type: 'REMINDER' | 'INFO' | 'ALERT' | 'ANNOUNCEMENT' | 'WORKOUT' | 'MOTIVATION' | 'PROMOTION';
+  category?: NotificationCategory;
   read: boolean;
   actionUrl?: string;
   dateString?: string;
+  dedupeKey?: string;
+  expiresAt?: unknown;
   createdAt?: unknown;
 }

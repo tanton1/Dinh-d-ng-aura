@@ -1,20 +1,14 @@
-import React, { useState } from 'react';
-import { Bell, 
-  UserRound, Ruler, Scale, Calendar, Target, Activity, 
-  Moon, Coffee, Heart, AlertCircle, Pencil, LogOut, ShieldCheck, Zap
+import React from 'react';
+import { UserRound, Ruler, Scale, Calendar, Target, Activity,
+  Moon, Coffee, Heart, Pencil, LogOut, ShieldCheck, Zap
 } from 'lucide-react';
 import { PageHeader } from '../../components/ui';
 import AccountConnectionsCard from '../../components/account/AccountConnectionsCard';
+import NotificationSettingsCard from '../../components/NotificationSettingsCard';
+import type { NotificationSettings } from '../../types';
 
 
-export interface ProfileNotificationSettings {
-  enabled?: boolean
-  workoutReminders?: boolean
-  mealReminders?: boolean
-  learningUpdates?: boolean
-  coachMessages?: boolean
-  [key: string]: boolean | undefined
-}
+export interface ProfileNotificationSettings extends NotificationSettings {}
 
 export interface ProfileUpdateInput {
   displayName?: string
@@ -42,11 +36,12 @@ export interface ProfilePageProps {
   email?: string;
   membership?: string;
   onSave?: (values: any) => Promise<void>;
+  userId?: string;
   onSignOut?: () => void | Promise<void>;
   onEditProfile?: () => void;
 }
 
-export default function ProfilePage({ fullProfile, displayName, email, membership, onSignOut, onEditProfile }: ProfilePageProps) {
+export default function ProfilePage({ fullProfile, displayName, email, membership, notificationSettings, mealReminderTime, userId, onSave, onSignOut, onEditProfile }: ProfilePageProps) {
   const data = { ...(fullProfile || {}), ...(fullProfile?.onboardingData || {}) };
   const nutrition = fullProfile?.nutritionProfile || {};
   
@@ -256,31 +251,12 @@ export default function ProfilePage({ fullProfile, displayName, email, membershi
 
         
         
-        {/* Settings */}
-        <div style={{ background: 'white', padding: '24px', borderRadius: '22px', border: '1px solid var(--aura-border)', position: 'relative', overflow: 'hidden' }}>
-          <div style={{ position: 'absolute', top: 0, left: 0, width: '4px', height: '100%', background: 'linear-gradient(to bottom, #a855f7, #ec4899)' }}></div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-            <div style={{ background: '#f3e8ff', padding: '8px', borderRadius: '12px' }}><Bell size={20} color="#a855f7" /></div>
-            <h3 style={{ fontSize: '18px', fontWeight: 700, margin: 0 }}>Quản lý thông báo</h3>
-          </div>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: '#f8fafc', borderRadius: '16px' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '15px', color: '#0f172a' }}>Nhắc nhở bữa ăn (3 mốc)</div>
-                <div style={{ fontSize: '13px', color: 'var(--aura-muted)', marginTop: '4px' }}>{data.mealTimes ? data.mealTimes.join(' • ') : '07:30 • 12:00 • 19:00'}</div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <button onClick={onEditProfile} style={{ background: 'white', color: '#ff3f7d', border: '1px solid #ffdde5', borderRadius: '999px', padding: '6px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                  Thiết lập
-                </button>
-                <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
-                  <input type="checkbox" style={{ width: 20, height: 20, accentColor: '#ff3f7d' }} checked={data.notificationsEnabled !== false} readOnly />
-                </label>
-              </div>
-            </div>
-          </div>
-        </div>
+        <NotificationSettingsCard
+          userId={userId}
+          settings={(notificationSettings ?? fullProfile?.notificationSettings) as NotificationSettings | undefined}
+          mealReminderTime={mealReminderTime ?? fullProfile?.mealReminderTime}
+          onSave={onSave}
+        />
         {/* Actions */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <button style={{ width: '100%', padding: '16px', background: 'white', border: '1px solid var(--aura-border)', borderRadius: '16px', color: '#ef4444', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer' }} onClick={onSignOut}>
