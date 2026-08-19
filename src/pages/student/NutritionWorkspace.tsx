@@ -12,7 +12,6 @@ import {
   Droplets,
   Dumbbell,
   Flame,
-  ListPlus,
   MessageCircle,
   MoreHorizontal,
   Plus,
@@ -130,7 +129,6 @@ const SECTION_ITEMS: Array<{
 }> = [
   { id: 'today', label: 'Hôm nay', icon: Salad },
   { id: 'diary', label: 'Nhật ký', icon: CalendarDays },
-  { id: 'plan', label: 'Thực đơn', icon: ListPlus },
   { id: 'catalog', label: 'Thư viện', icon: Database },
   { id: 'insights', label: 'Tiến độ', icon: BarChart3 },
 ]
@@ -179,9 +177,7 @@ export function NutritionSectionNav({
               key={id}
               className={active ? 'is-active' : ''}
               onClick={() => {
-                if (id === 'plan') {
-                  window.location.hash = '#/meal-plan'
-                } else if (id === 'catalog') {
+                if (id === 'catalog') {
                   onOpenCatalog()
                 } else {
                   onSectionChange(id)

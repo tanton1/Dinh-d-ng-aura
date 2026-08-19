@@ -24,17 +24,18 @@ test('home route keeps deferred assets out of the initial request path', async (
   expect(resourcePaths.some((path) => path.includes('vendor-firebase-messaging-'))).toBe(false)
 })
 
-test('admin meal plan route enforces auth or renders the workspace', async ({ page }) => {
-  await page.goto('/#/admin-meal-plans')
-  const signInHeading = page.getByRole('heading', { name: /Đăng nhập để tiếp tục hành trình/i })
-  const mealPlanHeading = page.getByRole('heading', { name: /Quản lý Công thức & Kế hoạch Ăn 7 Ngày/i })
-  await expect(signInHeading.or(mealPlanHeading)).toBeVisible()
-  if (await signInHeading.isVisible()) {
-    await expect(mealPlanHeading).toHaveCount(0)
-    return
+test('retired food, menu and workout links redirect to active workspaces', async ({ page }) => {
+  const redirects = [
+    ['/#/food-database', /#\/nutrition\?section=catalog$/],
+    ['/#/meal-plan', /#\/nutrition$/],
+    ['/#/admin-workout-plans', /#\/admin-programs$/],
+    ['/#/admin-meal-plans', /#\/admin-eat-clean$/],
+  ] as const
+
+  for (const [legacyPath, expectedUrl] of redirects) {
+    await page.goto(legacyPath)
+    await expect(page).toHaveURL(expectedUrl)
   }
-  await expect(page.getByText(/Thư viện công thức/i)).toBeVisible()
-  await expect(page.getByText(/Kế hoạch 7 Ngày mẫu/i)).toBeVisible()
 })
 
 test('Today Flow belongs to Home while nutrition guidance follows the three-slide carousel', async ({ page }) => {

@@ -4,7 +4,9 @@ export type NutritionRouteSection = 'today' | 'diary' | 'scan' | 'catalog' | 'pl
 export type NutritionPrimarySection = Extract<NutritionRouteSection, NutritionWorkspaceSection>
 export type NutritionAssistantIntent = 'hydration' | 'protein' | 'carbs' | 'fat' | 'fiber' | 'sugar' | 'sodium' | 'workout' | 'allergy' | 'next-meal' | 'energy' | 'getting-started' | 'general'
 
-const nutritionRouteSections = new Set<NutritionRouteSection>(['today', 'diary', 'scan', 'catalog', 'plan', 'insights', 'assistant', 'profile'])
+// `plan` remains in the type temporarily for backwards compatibility with old
+// saved URLs, but it is no longer an exposed nutrition surface.
+const nutritionRouteSections = new Set<NutritionRouteSection>(['today', 'diary', 'scan', 'catalog', 'insights', 'assistant', 'profile'])
 
 export function nutritionFoodIdFromHash() {
   const query = window.location.hash.split('?')[1] ?? ''
@@ -22,7 +24,7 @@ export function nutritionSectionHash(section: NutritionRouteSection) {
 }
 
 export function toWorkspaceSection(section: NutritionRouteSection): NutritionWorkspaceSection {
-  return section === 'diary' || section === 'plan' || section === 'catalog' || section === 'insights' ? section : 'today'
+  return section === 'diary' || section === 'catalog' || section === 'insights' ? section : 'today'
 }
 
 export function toLocalDateKey(date: Date) {

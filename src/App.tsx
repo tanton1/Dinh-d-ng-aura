@@ -43,7 +43,8 @@ import type {
 } from './types'
 import { flattenCourseLessons, getInitialDemoCompletedLessonIds } from './utils/courseContent'
 import ChunkErrorBoundary, { lazyWithRetry } from './components/ChunkErrorBoundary'
-import { adminViewPermissions, adminViews, eatCleanRouteHash, getCurrentRoute, isSameRoute, routeHash, type AuraRoute } from './routing/appRouting'
+import AuraOperationsFrame from './components/AuraOperationsFrame'
+import { adminViewPermissions, adminViews, canonicalRouteHash, eatCleanRouteHash, getCurrentRoute, isSameRoute, resolveSupportedView, routeHash, type AuraRoute } from './routing/appRouting'
 import { toCourseDraft } from './utils/courseDraft'
 import { DatabaseProvider } from './contexts/DatabaseContext'
 
@@ -55,13 +56,11 @@ const AdminProgramsPage = lazyWithRetry(() => import('./pages/admin/AdminProgram
 const AdminRolesPage = lazyWithRetry(() => import('./pages/admin/AdminRolesPage'))
 const AdminStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminStudentsPage'))
 const AdminNutritionReviewsPage = lazyWithRetry(() => import('./pages/admin/AdminNutritionReviewsPage'))
-const AdminMealPlansPage = lazyWithRetry(() => import('./pages/admin/AdminMealPlansPage'))
 const AdminNotificationsPage = lazyWithRetry(() => import('./pages/admin/AdminNotificationsPage'))
 const CourseEditorPage = lazyWithRetry(() => import('./pages/admin/CourseEditorPage'))
 const CourseDetailPage = lazyWithRetry(() => import('./pages/student/CourseDetailPage'))
 const CoursesPage = lazyWithRetry(() => import('./pages/student/CoursesPage'))
 const NutritionPage = lazyWithRetry(() => import('./pages/student/NutritionPage'))
-const MealPlanPage = lazyWithRetry(() => import('./pages/student/MealPlanPage'))
 const ProfilePage = lazyWithRetry(() => import('./pages/student/ProfilePage'))
 const ProgressPage = lazyWithRetry(() => import('./pages/student/ProgressPage'))
 const ProgressPhotoStudio = lazyWithRetry(() => import('./pages/student/ProgressPhotoStudio'))
@@ -80,9 +79,7 @@ const AdminHRManagement = lazyWithRetry(() => import('./components/admin/pt/HRMa
 const AdminTrainerPayroll = lazyWithRetry(() => import('./components/admin/pt/TrainerPayroll'))
 const AdminPackageSettings = lazyWithRetry(() => import('./components/admin/pt/PackageSettings'))
 const AdminQuoteGenerator = lazyWithRetry(() => import('./components/admin/pt/QuoteGenerator'))
-const AdminWorkoutPlanEditor = lazyWithRetry(() => import('./components/admin/pt/WorkoutPlanEditor'))
 const AdminScheduleSettings = lazyWithRetry(() => import('./components/admin/pt/ScheduleSettings'))
-const FoodDatabase = lazyWithRetry(() => import('./components/food/FoodDatabase'))
 const DishCollection = lazyWithRetry(() => import('./components/food/DishCollection'))
 const TrainerDashboard = lazyWithRetry(() => import('./components/admin/pt/TrainerDashboard'))
 
@@ -319,11 +316,12 @@ function AuraApplication() {
   }, [backendMode, user?.uid])
 
   const goTo = (next: ViewId, courseId?: string | null, lessonId?: string | null) => {
-    if (adminViews.includes(next) && !canAccessAdmin) return
-    const requiredPermission = adminViewPermissions[next]
+    const supportedNext = resolveSupportedView(next)
+    if (adminViews.includes(supportedNext) && !canAccessAdmin) return
+    const requiredPermission = adminViewPermissions[supportedNext]
     if (requiredPermission && !hasPermission(role, requiredPermission)) return
     const nextRoute: AuraRoute = {
-      view: next,
+      view: supportedNext,
       courseId: courseId ?? null,
       lessonId: lessonId ?? null,
       eatCleanScreen: 'store',
@@ -341,7 +339,7 @@ function AuraApplication() {
     if (routeChanges && route.view === 'course-detail') setCourseNoteDirty(false)
     routeRef.current = nextRoute
     setRoute(nextRoute)
-    const nextHash = routeHash(next, courseId, lessonId)
+    const nextHash = canonicalRouteHash(next, courseId, lessonId)
     if (window.location.hash !== nextHash) window.location.hash = nextHash
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -378,6 +376,10 @@ function AuraApplication() {
     const requiredPermission = adminViewPermissions[view]
     const outsideAdminBoundary = adminViews.includes(view) && !canAccessAdmin
     if (loading) return
+    // Keep the intended deep-link while the sign-in screen is shown. This lets
+    // a valid user continue to the requested workspace after authentication,
+    // instead of being silently sent to Home before sign-in completes.
+    if (backendMode === 'firebase' && !user) return
     if (role === 'shipper' && view !== 'delivery') {
       goTo('delivery')
       return
@@ -387,7 +389,7 @@ function AuraApplication() {
       return
     }
     if (outsideAdminBoundary || (requiredPermission && !hasPermission(role, requiredPermission))) goTo('home')
-  }, [canAccessAdmin, loading, role, view])
+  }, [backendMode, canAccessAdmin, loading, role, user, view])
 
   const studentCourses = useMemo(() => studentCourseData.courses
     .filter((course) => {
@@ -820,7 +822,6 @@ function AuraApplication() {
           }}
         />
       }
-      case 'meal-plan': return <MealPlanPage onNavigate={navigate} />
       case 'progress-photo-studio': return <ProgressPhotoStudio onNavigate={navigate} ownerId={user?.uid ?? 'demo'} />
       case 'progress': return <ProgressPage ownerId={user?.uid ?? 'demo'} courseItems={studentCourses} progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error || learningData.error} onOpenCourse={openCourse} onNavigate={navigate} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} heightCm={effectiveHeight} />
       case 'profile': return <ProfilePage userId={user?.uid} fullProfile={profile} displayName={effectiveDisplayName} email={profile?.email} membership={profile?.membership} goals={effectiveGoals} heightCm={effectiveHeight} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} targetSpeedPace={effectiveTargetSpeedPace} notificationSettings={effectiveNotifications} mealReminderTime={profile?.mealReminderTime} onSave={saveProfile} onSignOut={signOut} onEditProfile={() => setForceOnboarding(true)} />
@@ -881,27 +882,24 @@ function AuraApplication() {
       />
       case 'admin-roles': return <AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} />
       case 'admin-nutrition-reviews': return <AdminNutritionReviewsPage onNavigate={navigate} />
-      case 'admin-meal-plans': return <AdminMealPlansPage onNavigate={navigate} />
       case 'admin-notifications': return <AdminNotificationsPage onNavigate={navigate} users={adminUsers} currentUserUid={user?.uid} />
       case 'admin-eat-clean': return <AdminEatCleanPage currentRole={role} />
 
       // PT Coaching & Gym Management Views
-      case 'schedule-pt': return <SchedulerWrapper user={user as any} profile={profile} onNavigate={(view) => navigate(view as ViewId)} />
-      case 'food-database': return <FoodDatabase onNavigate={(view) => navigate(view as ViewId)} />
-      case 'dish-collection': return <DishCollection onNavigate={(view) => navigate(view as ViewId)} />
-      case 'trainer-portal': return <TrainerDashboard user={user as any} profile={profile} explicitTrainerId={user?.uid} onNavigate={(view) => navigate(view as ViewId)} />
-      case 'sales-portal': return <AdminQuoteGenerator user={user as any} profile={profile} onNavigate={(view) => navigate(view as ViewId)} />
+      case 'schedule-pt': return <AuraOperationsFrame><SchedulerWrapper user={user as any} profile={profile} onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
+      case 'dish-collection': return <AuraOperationsFrame className="aura-operations-page--dish-library"><DishCollection onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
+      case 'trainer-portal': return <AuraOperationsFrame><TrainerDashboard user={user as any} profile={profile} explicitTrainerId={user?.uid} onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
+      case 'sales-portal': return <AuraOperationsFrame><AdminQuoteGenerator user={user as any} profile={profile} onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
 
-      case 'admin-pt-students': return <AdminPTStudentManagement user={user as any} profile={profile} />
-      case 'admin-pt-schedule': return <SchedulerWrapper user={user as any} profile={profile} onNavigate={(view) => navigate(view as ViewId)} />
-      case 'admin-report': return <AdminReportDashboard onNavigate={(view) => navigate(view as ViewId)} />
-      case 'admin-finance': return <AdminFinanceManagement user={user as any} profile={profile} />
-      case 'admin-hr': return <AdminHRManagement user={user as any} />
-      case 'admin-payroll': return <AdminTrainerPayroll user={user as any} profile={profile} />
-      case 'admin-packages': return <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6"><AdminPackageSettings user={user as any} profile={profile} /></div>
-      case 'admin-quotes': return <AdminQuoteGenerator user={user as any} profile={profile} onNavigate={(view) => navigate(view as ViewId)} />
-      case 'admin-workout-plans': return <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6"><AdminWorkoutPlanEditor /></div>
-      case 'admin-schedule-settings': return <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6"><AdminScheduleSettings /></div>
+      case 'admin-pt-students': return <AuraOperationsFrame><AdminPTStudentManagement user={user as any} profile={profile} /></AuraOperationsFrame>
+      case 'admin-pt-schedule': return <AuraOperationsFrame><SchedulerWrapper user={user as any} profile={profile} onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
+      case 'admin-report': return <AuraOperationsFrame><AdminReportDashboard onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
+      case 'admin-finance': return <AuraOperationsFrame><AdminFinanceManagement user={user as any} profile={profile} /></AuraOperationsFrame>
+      case 'admin-hr': return <AuraOperationsFrame><AdminHRManagement user={user as any} /></AuraOperationsFrame>
+      case 'admin-payroll': return <AuraOperationsFrame><AdminTrainerPayroll user={user as any} profile={profile} /></AuraOperationsFrame>
+      case 'admin-packages': return <AuraOperationsFrame><div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6"><AdminPackageSettings user={user as any} profile={profile} /></div></AuraOperationsFrame>
+      case 'admin-quotes': return <AuraOperationsFrame><AdminQuoteGenerator user={user as any} profile={profile} onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
+      case 'admin-schedule-settings': return <AuraOperationsFrame><div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6"><AdminScheduleSettings /></div></AuraOperationsFrame>
 
       default: return (
         <HomePage

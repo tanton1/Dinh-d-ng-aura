@@ -5,6 +5,7 @@ import { GlobalErrorBoundary } from './GlobalErrorBoundary'
 import { initializeClientTelemetry } from './services/clientTelemetryService'
 import './styles.css'
 import './styles-aura.css'
+import './styles-operations.css'
 
 initializeClientTelemetry()
 

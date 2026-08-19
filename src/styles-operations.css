@@ -1,0 +1,376 @@
+/*
+ * Aura Operations visual bridge
+ *
+ * The PT/Gym modules were added with utility-only markup but this project does
+ * not ship Tailwind. Keep the bridge strictly scoped so it gives those modules
+ * a dependable, responsive Aura surface without changing existing screens.
+ */
+.aura-operations-page {
+  --ops-pink: #f62f82;
+  --ops-orange: #ff8751;
+  --ops-ink: #211720;
+  --ops-muted: #746c76;
+  --ops-line: #f0dfe6;
+  --ops-soft: #fff5f8;
+  position: relative;
+  min-width: 0;
+  min-height: 100%;
+  overflow: clip;
+  padding: 22px;
+  color: var(--ops-ink);
+  background:
+    radial-gradient(circle at 100% 0, rgba(255, 183, 140, .38), transparent 30%),
+    radial-gradient(circle at 0 24%, rgba(246, 47, 130, .12), transparent 33%),
+    linear-gradient(180deg, #fff9fb 0%, #f7f7fa 72%);
+}
+
+.aura-operations-page__content { position: relative; z-index: 1; min-width: 0; max-width: 1440px; margin: 0 auto; }
+.aura-operations-page__orb { position: absolute; z-index: 0; width: 260px; height: 260px; border-radius: 50%; filter: blur(4px); pointer-events: none; }
+.aura-operations-page__orb--pink { top: -150px; right: -120px; background: rgba(246, 47, 130, .1); }
+.aura-operations-page__orb--orange { bottom: -180px; left: -150px; background: rgba(255, 135, 81, .12); }
+
+.aura-operations-page *,
+.aura-operations-page *::before,
+.aura-operations-page *::after { box-sizing: border-box; }
+.aura-operations-page :where(button, input, select, textarea) { font: inherit; }
+.aura-operations-page button { cursor: pointer; }
+.aura-operations-page :where(input, select, textarea) { min-width: 0; border: 1px solid var(--ops-line); border-radius: 12px; color: var(--ops-ink); background: #fff; outline: none; }
+.aura-operations-page :where(input, select, textarea):focus { border-color: rgba(246, 47, 130, .55); box-shadow: 0 0 0 3px rgba(246, 47, 130, .12); }
+.aura-operations-page :where(button, a, input, select, textarea):focus-visible { outline: 3px solid rgba(246, 47, 130, .3); outline-offset: 2px; }
+
+/* Structural utilities used by the isolated PT / library modules. */
+.aura-operations-page .flex { display: flex; }
+.aura-operations-page .grid { display: grid; }
+.aura-operations-page .hidden { display: none; }
+.aura-operations-page .block { display: block; }
+.aura-operations-page .inline-flex { display: inline-flex; }
+.aura-operations-page .flex-col { flex-direction: column; }
+.aura-operations-page .flex-wrap { flex-wrap: wrap; }
+.aura-operations-page .flex-1 { flex: 1 1 0%; }
+.aura-operations-page .flex-shrink-0 { flex-shrink: 0; }
+.aura-operations-page .items-center { align-items: center; }
+.aura-operations-page .items-start { align-items: flex-start; }
+.aura-operations-page .items-end { align-items: flex-end; }
+.aura-operations-page .justify-center { justify-content: center; }
+.aura-operations-page .justify-between { justify-content: space-between; }
+.aura-operations-page .justify-end { justify-content: flex-end; }
+.aura-operations-page .text-center { text-align: center; }
+.aura-operations-page .text-right { text-align: right; }
+.aura-operations-page .relative { position: relative; }
+.aura-operations-page .absolute { position: absolute; }
+.aura-operations-page .fixed { position: fixed; }
+.aura-operations-page .sticky { position: sticky; }
+.aura-operations-page .inset-0 { inset: 0; }
+.aura-operations-page .inset-y-0 { top: 0; bottom: 0; }
+.aura-operations-page .top-0 { top: 0; }
+.aura-operations-page .top-2 { top: .5rem; }
+.aura-operations-page .top-4 { top: 1rem; }
+.aura-operations-page .top-full { top: 100%; }
+.aura-operations-page .top-1\/2 { top: 50%; }
+.aura-operations-page .bottom-0 { bottom: 0; }
+.aura-operations-page .bottom-2 { bottom: .5rem; }
+.aura-operations-page .left-0 { left: 0; }
+.aura-operations-page .left-3 { left: .75rem; }
+.aura-operations-page .right-0 { right: 0; }
+.aura-operations-page .right-2 { right: .5rem; }
+.aura-operations-page .right-3 { right: .75rem; }
+.aura-operations-page .right-4 { right: 1rem; }
+.aura-operations-page .-translate-y-1\/2 { transform: translateY(-50%); }
+.aura-operations-page .z-10 { z-index: 10; }
+.aura-operations-page .z-20 { z-index: 20; }
+.aura-operations-page .z-30 { z-index: 30; }
+.aura-operations-page .z-40 { z-index: 40; }
+.aura-operations-page .z-50 { z-index: 50; }
+.aura-operations-page .w-full { width: 100%; }
+.aura-operations-page .h-full { height: 100%; }
+.aura-operations-page .w-1 { width: .25rem; }
+.aura-operations-page .w-1\.5 { width: .375rem; }
+.aura-operations-page .w-2 { width: .5rem; }
+.aura-operations-page .w-3 { width: .75rem; }
+.aura-operations-page .w-3\.5 { width: .875rem; }
+.aura-operations-page .w-4 { width: 1rem; }
+.aura-operations-page .w-5 { width: 1.25rem; }
+.aura-operations-page .w-6 { width: 1.5rem; }
+.aura-operations-page .w-7 { width: 1.75rem; }
+.aura-operations-page .w-8 { width: 2rem; }
+.aura-operations-page .w-10 { width: 2.5rem; }
+.aura-operations-page .w-11 { width: 2.75rem; }
+.aura-operations-page .w-12 { width: 3rem; }
+.aura-operations-page .w-14 { width: 3.5rem; }
+.aura-operations-page .w-16 { width: 4rem; }
+.aura-operations-page .w-20 { width: 5rem; }
+.aura-operations-page .w-24 { width: 6rem; }
+.aura-operations-page .w-32 { width: 8rem; }
+.aura-operations-page .w-64 { width: 16rem; }
+.aura-operations-page .w-1\/3 { width: 33.333333%; }
+.aura-operations-page .w-\[75\%\] { width: 75%; }
+.aura-operations-page .h-1 { height: .25rem; }
+.aura-operations-page .h-1\.5 { height: .375rem; }
+.aura-operations-page .h-2 { height: .5rem; }
+.aura-operations-page .h-3 { height: .75rem; }
+.aura-operations-page .h-3\.5 { height: .875rem; }
+.aura-operations-page .h-4 { height: 1rem; }
+.aura-operations-page .h-5 { height: 1.25rem; }
+.aura-operations-page .h-6 { height: 1.5rem; }
+.aura-operations-page .h-7 { height: 1.75rem; }
+.aura-operations-page .h-8 { height: 2rem; }
+.aura-operations-page .h-10 { height: 2.5rem; }
+.aura-operations-page .h-11 { height: 2.75rem; }
+.aura-operations-page .h-12 { height: 3rem; }
+.aura-operations-page .h-14 { height: 3.5rem; }
+.aura-operations-page .h-16 { height: 4rem; }
+.aura-operations-page .h-20 { height: 5rem; }
+.aura-operations-page .h-24 { height: 6rem; }
+.aura-operations-page .h-32 { height: 8rem; }
+.aura-operations-page .h-48 { height: 12rem; }
+.aura-operations-page .h-64 { height: 16rem; }
+.aura-operations-page .h-px { height: 1px; }
+.aura-operations-page .h-\[300px\] { height: 300px; }
+.aura-operations-page .max-h-32 { max-height: 8rem; }
+.aura-operations-page .max-h-40 { max-height: 10rem; }
+.aura-operations-page .max-h-48 { max-height: 12rem; }
+.aura-operations-page .max-h-64 { max-height: 16rem; }
+.aura-operations-page .max-h-full { max-height: 100%; }
+.aura-operations-page .max-h-\[80vh\] { max-height: 80vh; }
+.aura-operations-page .max-h-\[90vh\] { max-height: 90vh; }
+.aura-operations-page .max-h-\[400px\] { max-height: 400px; }
+.aura-operations-page .max-h-\[200px\] { max-height: 200px; }
+.aura-operations-page .min-w-0 { min-width: 0; }
+.aura-operations-page .min-h-screen { min-height: 0; }
+.aura-operations-page .max-w-2xl { max-width: 42rem; }
+.aura-operations-page .max-w-4xl { max-width: 56rem; }
+.aura-operations-page .max-w-7xl { max-width: 80rem; }
+.aura-operations-page .mx-auto { margin-left: auto; margin-right: auto; }
+.aura-operations-page .overflow-hidden { overflow: hidden; }
+.aura-operations-page .overflow-auto { overflow: auto; }
+.aura-operations-page .overflow-x-auto { overflow-x: auto; }
+.aura-operations-page .overflow-y-auto { overflow-y: auto; }
+.aura-operations-page .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aura-operations-page .whitespace-nowrap { white-space: nowrap; }
+.aura-operations-page .cursor-pointer { cursor: pointer; }
+
+.aura-operations-page .grid-cols-1 { grid-template-columns: minmax(0, 1fr); }
+.aura-operations-page .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.aura-operations-page .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.aura-operations-page .grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.aura-operations-page .grid-cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.aura-operations-page .gap-1 { gap: .25rem; }
+.aura-operations-page .gap-2 { gap: .5rem; }
+.aura-operations-page .gap-3 { gap: .75rem; }
+.aura-operations-page .gap-4 { gap: 1rem; }
+.aura-operations-page .gap-5 { gap: 1.25rem; }
+.aura-operations-page .gap-6 { gap: 1.5rem; }
+.aura-operations-page .gap-8 { gap: 2rem; }
+.aura-operations-page .space-y-2 > :not([hidden]) ~ :not([hidden]) { margin-top: .5rem; }
+.aura-operations-page .space-y-3 > :not([hidden]) ~ :not([hidden]) { margin-top: .75rem; }
+.aura-operations-page .space-y-4 > :not([hidden]) ~ :not([hidden]) { margin-top: 1rem; }
+.aura-operations-page .space-y-6 > :not([hidden]) ~ :not([hidden]) { margin-top: 1.5rem; }
+.aura-operations-page .p-2 { padding: .5rem; }
+.aura-operations-page .p-1 { padding: .25rem; }
+.aura-operations-page .p-1\.5 { padding: .375rem; }
+.aura-operations-page .p-2\.5 { padding: .625rem; }
+.aura-operations-page .p-3 { padding: .75rem; }
+.aura-operations-page .p-4 { padding: 1rem; }
+.aura-operations-page .p-5 { padding: 1.25rem; }
+.aura-operations-page .p-6 { padding: 1.5rem; }
+.aura-operations-page .p-8 { padding: 2rem; }
+.aura-operations-page .p-12 { padding: 3rem; }
+.aura-operations-page .px-2 { padding-left: .5rem; padding-right: .5rem; }
+.aura-operations-page .px-1 { padding-left: .25rem; padding-right: .25rem; }
+.aura-operations-page .px-1\.5 { padding-left: .375rem; padding-right: .375rem; }
+.aura-operations-page .px-2\.5 { padding-left: .625rem; padding-right: .625rem; }
+.aura-operations-page .px-3 { padding-left: .75rem; padding-right: .75rem; }
+.aura-operations-page .px-4 { padding-left: 1rem; padding-right: 1rem; }
+.aura-operations-page .px-5 { padding-left: 1.25rem; padding-right: 1.25rem; }
+.aura-operations-page .px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
+.aura-operations-page .px-8 { padding-left: 2rem; padding-right: 2rem; }
+.aura-operations-page .pl-9 { padding-left: 2.25rem; }
+.aura-operations-page .pr-8 { padding-right: 2rem; }
+.aura-operations-page .py-0\.5 { padding-top: .125rem; padding-bottom: .125rem; }
+.aura-operations-page .py-1 { padding-top: .25rem; padding-bottom: .25rem; }
+.aura-operations-page .py-1\.5 { padding-top: .375rem; padding-bottom: .375rem; }
+.aura-operations-page .py-2 { padding-top: .5rem; padding-bottom: .5rem; }
+.aura-operations-page .py-2\.5 { padding-top: .625rem; padding-bottom: .625rem; }
+.aura-operations-page .py-3 { padding-top: .75rem; padding-bottom: .75rem; }
+.aura-operations-page .py-3\.5 { padding-top: .875rem; padding-bottom: .875rem; }
+.aura-operations-page .py-4 { padding-top: 1rem; padding-bottom: 1rem; }
+.aura-operations-page .py-6 { padding-top: 1.5rem; padding-bottom: 1.5rem; }
+.aura-operations-page .py-8 { padding-top: 2rem; padding-bottom: 2rem; }
+.aura-operations-page .py-10 { padding-top: 2.5rem; padding-bottom: 2.5rem; }
+.aura-operations-page .py-12 { padding-top: 3rem; padding-bottom: 3rem; }
+.aura-operations-page .pt-2 { padding-top: .5rem; }
+.aura-operations-page .pt-4 { padding-top: 1rem; }
+.aura-operations-page .pb-2 { padding-bottom: .5rem; }
+.aura-operations-page .pb-4 { padding-bottom: 1rem; }
+.aura-operations-page .pb-6 { padding-bottom: 1.5rem; }
+.aura-operations-page .pb-12 { padding-bottom: 3rem; }
+.aura-operations-page .pb-24 { padding-bottom: 6rem; }
+.aura-operations-page .m-0 { margin: 0; }
+.aura-operations-page .mb-1 { margin-bottom: .25rem; }
+.aura-operations-page .mb-0 { margin-bottom: 0; }
+.aura-operations-page .mb-0\.5 { margin-bottom: .125rem; }
+.aura-operations-page .mb-1\.5 { margin-bottom: .375rem; }
+.aura-operations-page .mb-2 { margin-bottom: .5rem; }
+.aura-operations-page .mb-3 { margin-bottom: .75rem; }
+.aura-operations-page .mb-4 { margin-bottom: 1rem; }
+.aura-operations-page .mb-5 { margin-bottom: 1.25rem; }
+.aura-operations-page .mb-6 { margin-bottom: 1.5rem; }
+.aura-operations-page .mb-8 { margin-bottom: 2rem; }
+.aura-operations-page .mb-16 { margin-bottom: 4rem; }
+.aura-operations-page .mt-0\.5 { margin-top: .125rem; }
+.aura-operations-page .mt-1 { margin-top: .25rem; }
+.aura-operations-page .mt-1\.5 { margin-top: .375rem; }
+.aura-operations-page .mt-2 { margin-top: .5rem; }
+.aura-operations-page .mt-3 { margin-top: .75rem; }
+.aura-operations-page .mt-4 { margin-top: 1rem; }
+.aura-operations-page .mt-6 { margin-top: 1.5rem; }
+.aura-operations-page .mt-8 { margin-top: 2rem; }
+.aura-operations-page .mt-12 { margin-top: 3rem; }
+.aura-operations-page .mt-16 { margin-top: 4rem; }
+.aura-operations-page .ml-1 { margin-left: .25rem; }
+.aura-operations-page .ml-2 { margin-left: .5rem; }
+.aura-operations-page .mr-1 { margin-right: .25rem; }
+.aura-operations-page .mr-2 { margin-right: .5rem; }
+.aura-operations-page .my-2 { margin-top: .5rem; margin-bottom: .5rem; }
+
+/* Cards, typography, status accents and pink-orange calls to action. */
+.aura-operations-page :is(.bg-zinc-950, .bg-zinc-900, .bg-zinc-800, .bg-zinc-800\/50, .bg-zinc-800\/80, .bg-zinc-900\/80, .bg-slate-900, .bg-slate-800) { color: var(--ops-ink); background: rgba(255, 255, 255, .94) !important; }
+.aura-operations-page :is(.bg-zinc-100, .bg-gray-100) { background: #fff5f8 !important; }
+.aura-operations-page :is(.bg-pink-500\/5, .bg-pink-500\/10, .bg-pink-500\/20, .bg-rose-50, .bg-rose-100) { background: #fff0f6 !important; }
+.aura-operations-page :is(.bg-orange-50, .bg-orange-500\/5, .bg-orange-500\/10, .bg-orange-500\/20, .bg-amber-500\/10, .bg-amber-500\/20) { background: #fff1ea !important; }
+.aura-operations-page :is(.bg-emerald-500\/10, .bg-emerald-500\/20, .bg-green-500\/10) { background: #eaf7ef !important; }
+.aura-operations-page :is(.bg-blue-50, .bg-blue-500\/10, .bg-indigo-500\/10, .bg-purple-500\/10) { background: #fff3f7 !important; }
+.aura-operations-page :is(.bg-red-50, .bg-red-500\/10, .bg-red-500\/20) { background: #fff0f2 !important; }
+.aura-operations-page :is(.bg-black\/50, .bg-black\/60, .bg-black\/80, .bg-black\/90) { background: rgba(39, 20, 33, .58) !important; }
+.aura-operations-page :is(.bg-white\/10, .bg-white\/20) { background: rgba(255, 255, 255, .85) !important; }
+.aura-operations-page :is(.border-zinc-800, .border-zinc-700, .border-slate-700, .border-slate-800) { border-color: var(--ops-line) !important; }
+.aura-operations-page :is(.text-white, .text-zinc-100, .text-zinc-200, .text-zinc-300, .text-slate-100) { color: var(--ops-ink) !important; }
+.aura-operations-page :is(.text-zinc-400, .text-zinc-500, .text-zinc-600, .text-slate-400, .text-gray-400) { color: var(--ops-muted) !important; }
+.aura-operations-page :is(.text-pink-400, .text-pink-500, .text-rose-500) { color: var(--ops-pink) !important; }
+.aura-operations-page :is(.text-pink-600, .text-rose-600) { color: #cf1d67 !important; }
+.aura-operations-page :is(.text-orange-400, .text-orange-500, .text-amber-500) { color: var(--ops-orange) !important; }
+.aura-operations-page :is(.text-orange-700, .text-orange-800, .text-amber-400) { color: #bd5d32 !important; }
+.aura-operations-page :is(.text-emerald-400, .text-emerald-500, .text-emerald-600, .text-green-400, .text-green-500) { color: #257a4d !important; }
+.aura-operations-page :is(.text-blue-400, .text-blue-500, .text-blue-700, .text-indigo-400, .text-indigo-500, .text-purple-400, .text-purple-500) { color: #a13d72 !important; }
+.aura-operations-page :is(.text-red-400, .text-red-500, .text-red-600, .text-red-700) { color: #b43b49 !important; }
+.aura-operations-page :is(.text-gray-500, .text-gray-600, .text-gray-700, .text-gray-900, .text-zinc-700, .text-zinc-800, .text-zinc-900, .text-black) { color: var(--ops-ink) !important; }
+.aura-operations-page :is(.bg-pink-500, .bg-pink-600, .bg-rose-500, .bg-gradient-to-r, .bg-gradient-to-br) { color: #fff !important; border-color: transparent !important; background: linear-gradient(135deg, var(--ops-pink), var(--ops-orange)) !important; box-shadow: 0 10px 24px rgba(246, 47, 130, .2); }
+.aura-operations-page :is(.bg-orange-500, .bg-orange-600, .bg-amber-500) { color: #fff !important; background: linear-gradient(135deg, #ff7259, var(--ops-orange)) !important; }
+.aura-operations-page :is(.bg-emerald-500, .bg-emerald-600, .bg-green-600) { color: #fff !important; background: #257a4d !important; }
+.aura-operations-page :is(.bg-blue-600, .bg-red-500, .bg-red-600) { color: #fff !important; background: linear-gradient(135deg, var(--ops-pink), #db485f) !important; }
+.aura-operations-page :is(.bg-pink-50, .bg-pink-100, .bg-rose-50, .bg-rose-100, .bg-orange-50) { background: var(--ops-soft) !important; }
+.aura-operations-page :is(.rounded, .rounded-lg) { border-radius: 12px; }
+.aura-operations-page :is(.rounded-xl, .rounded-2xl) { border-radius: 18px; }
+.aura-operations-page .rounded-3xl { border-radius: 24px; }
+.aura-operations-page .rounded-full { border-radius: 999px; }
+.aura-operations-page :is(.shadow, .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl) { box-shadow: 0 12px 28px rgba(61, 34, 49, .08); }
+.aura-operations-page :is(.font-medium, .font-semibold) { font-weight: 650; }
+.aura-operations-page .font-bold { font-weight: 780; }
+.aura-operations-page .text-xs { font-size: .75rem; }
+.aura-operations-page .text-sm { font-size: .875rem; }
+.aura-operations-page .text-lg { font-size: 1.125rem; }
+.aura-operations-page .text-xl { font-size: 1.25rem; }
+.aura-operations-page .text-2xl { font-size: 1.5rem; }
+.aura-operations-page .text-3xl { font-size: 1.875rem; }
+.aura-operations-page .text-base { font-size: 1rem; }
+.aura-operations-page .text-\[9px\] { font-size: 9px; }
+.aura-operations-page .text-\[10px\] { font-size: 10px; }
+.aura-operations-page .text-\[11px\] { font-size: 11px; }
+.aura-operations-page .font-light { font-weight: 350; }
+.aura-operations-page .font-normal { font-weight: 400; }
+.aura-operations-page .font-black { font-weight: 850; }
+.aura-operations-page .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.aura-operations-page .font-serif { font-family: inherit; font-weight: 780; }
+.aura-operations-page .leading-none { line-height: 1; }
+.aura-operations-page .leading-tight { line-height: 1.25; }
+.aura-operations-page .leading-relaxed { line-height: 1.625; }
+.aura-operations-page .uppercase { text-transform: uppercase; }
+.aura-operations-page .tracking-tight { letter-spacing: -.025em; }
+.aura-operations-page .tracking-tighter { letter-spacing: -.05em; }
+.aura-operations-page .tracking-wide { letter-spacing: .025em; }
+.aura-operations-page .tracking-wider { letter-spacing: .05em; }
+.aura-operations-page .tracking-widest { letter-spacing: .1em; }
+.aura-operations-page :is(.border, .border-t, .border-b) { border-color: var(--ops-line); }
+.aura-operations-page .border { border-width: 1px; border-style: solid; }
+.aura-operations-page .border-2 { border-width: 2px; border-style: solid; }
+.aura-operations-page .border-t { border-top-width: 1px; border-top-style: solid; }
+.aura-operations-page .border-t-2 { border-top-width: 2px; border-top-style: solid; }
+.aura-operations-page .border-b { border-bottom-width: 1px; border-bottom-style: solid; }
+.aura-operations-page .border-b-2 { border-bottom-width: 2px; border-bottom-style: solid; }
+.aura-operations-page .border-b-4 { border-bottom-width: 4px; border-bottom-style: solid; }
+.aura-operations-page .border-l-2 { border-left-width: 2px; border-left-style: solid; }
+.aura-operations-page .border-r { border-right-width: 1px; border-right-style: solid; }
+.aura-operations-page .border-y { border-top-width: 1px; border-bottom-width: 1px; border-style: solid; }
+.aura-operations-page .border-dashed { border-style: dashed; }
+.aura-operations-page .border-collapse { border-collapse: collapse; }
+.aura-operations-page .border-transparent { border-color: transparent !important; }
+.aura-operations-page .border-t-transparent { border-top-color: transparent !important; }
+.aura-operations-page .border-t-white { border-top-color: #fff !important; }
+.aura-operations-page .border-none { border: 0 !important; }
+.aura-operations-page .border-pink-500 { border-color: var(--ops-pink) !important; }
+.aura-operations-page .border-red-500 { border-color: #b43b49 !important; }
+.aura-operations-page .object-cover { object-fit: cover; }
+.aura-operations-page .appearance-none { appearance: none; }
+.aura-operations-page .aspect-video { aspect-ratio: 16 / 9; }
+.aura-operations-page .aspect-\[3\/4\] { aspect-ratio: 3 / 4; }
+.aura-operations-page .opacity-0 { opacity: 0; }
+.aura-operations-page .opacity-20 { opacity: .2; }
+.aura-operations-page .opacity-25 { opacity: .25; }
+.aura-operations-page .opacity-50 { opacity: .5; }
+.aura-operations-page .opacity-60 { opacity: .6; }
+.aura-operations-page .opacity-75 { opacity: .75; }
+.aura-operations-page .opacity-80 { opacity: .8; }
+.aura-operations-page .animate-spin { animation: aura-operations-spin .8s linear infinite; }
+.aura-operations-page .animate-pulse { animation: aura-operations-pulse 1.5s ease-in-out infinite; }
+@keyframes aura-operations-spin { to { transform: rotate(360deg); } }
+@keyframes aura-operations-pulse { 50% { opacity: .58; } }
+
+/* Avoid full-page dark panels and give route roots a mobile-safe canvas. */
+.aura-operations-page .min-h-screen > :first-child:not(.fixed) { min-width: 0; }
+.aura-operations-page :is(.bg-zinc-900, .bg-zinc-800, .bg-slate-900) { border: 1px solid var(--ops-line); box-shadow: 0 10px 28px rgba(61, 34, 49, .07); }
+.aura-operations-page .fixed.inset-0 { z-index: 110; }
+.aura-operations-page .fixed.inset-0 > :is(.bg-black\/90, .bg-black\/80, .bg-black\/60) { background: rgba(41, 22, 35, .46) !important; }
+
+@media (min-width: 640px) {
+  .aura-operations-page .sm\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .aura-operations-page .sm\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .aura-operations-page .sm\:flex-row { flex-direction: row; }
+  .aura-operations-page .sm\:items-center { align-items: center; }
+  .aura-operations-page .sm\:p-6 { padding: 1.5rem; }
+}
+
+@media (min-width: 768px) {
+  .aura-operations-page .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .aura-operations-page .md\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .aura-operations-page .md\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .aura-operations-page .md\:flex-row { flex-direction: row; }
+  .aura-operations-page .md\:p-6 { padding: 1.5rem; }
+  .aura-operations-page .md\:p-8 { padding: 2rem; }
+}
+
+@media (max-width: 640px) {
+  .aura-operations-page { padding: 14px 12px calc(92px + env(safe-area-inset-bottom)); }
+  .aura-operations-page .max-w-2xl { max-width: 100%; }
+  .aura-operations-page :is(.fixed.inset-0) { padding: 10px; }
+
+  /* The scheduler has three primary actions. Give each a reachable target
+     instead of letting the final CTA escape the right edge on phones. */
+  .aura-operations-page .scheduler-action-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    width: 100%;
+  }
+  .aura-operations-page .scheduler-action-row > select {
+    grid-column: 1 / -1;
+    width: 100%;
+    max-width: none;
+  }
+  .aura-operations-page .scheduler-action-row > button {
+    min-width: 0;
+    justify-content: center;
+    padding-right: .55rem;
+    padding-left: .55rem;
+    font-size: .7rem;
+  }
+  .aura-operations-page .scheduler-action-row > button:last-child { grid-column: 1 / -1; }
+}

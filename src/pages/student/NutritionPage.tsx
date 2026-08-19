@@ -880,7 +880,6 @@ function QuickAddSheet({ savedCount, onClose, onScan, onCatalog, onSaved, onWate
   const actions = [
     ...(onScan ? [{ title: 'Chụp / Quét ảnh món ăn', copy: 'Phân tích calo & dinh dưỡng bằng AI', icon: <Camera size={22} />, action: onScan, primary: true }] : []),
     { title: 'Ghi lượng nước', copy: '250, 500, 750, 1000 ml', icon: <Droplets size={22} />, action: onWater, highlight: true },
-    { title: 'Thực đơn & Công thức', copy: 'Kế hoạch ăn & 3.000+ món', icon: <Utensils size={22} />, action: () => { window.location.hash = '#/meal-plan' }, featured: true },
     { title: 'Tìm món ăn', copy: 'Tra 2.103 món & thực phẩm', icon: <Search size={22} />, action: onCatalog },
     { title: 'Ghi luyện tập', copy: 'Thời gian & cường độ', icon: <Dumbbell size={22} />, action: onExercise },
     { title: 'Món đã lưu', copy: savedCount ? `${savedCount} món trong thư viện` : 'Chưa có món đã lưu', icon: <Bookmark size={22} />, action: onSaved },
@@ -900,7 +899,7 @@ function QuickAddSheet({ savedCount, onClose, onScan, onCatalog, onSaved, onWate
             <button 
               type="button" 
               key={item.title} 
-              className={`${item.featured ? 'is-featured' : ''} ${item.primary ? 'is-primary' : ''} ${item.highlight ? 'is-highlight-water' : ''}`} 
+              className={`${item.primary ? 'is-primary' : ''} ${item.highlight ? 'is-highlight-water' : ''}`}
               data-dialog-autofocus={index === 0 ? '' : undefined} 
               onClick={() => { onClose(); item.action() }}
             >
@@ -2761,10 +2760,6 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     let active = true
     const syncFoodDetail = () => {
       const section = nutritionSectionFromHash()
-      if (section === 'plan') {
-        window.location.hash = '#/meal-plan'
-        return
-      }
       setActiveSection(section)
       
       const queryStr = window.location.hash.split('?')[1] ?? ''
@@ -2810,10 +2805,6 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   }
 
   const navigateNutrition = (section: NutritionRouteSection) => {
-    if (section === 'plan') {
-      window.location.hash = '#/meal-plan'
-      return
-    }
     const nextHash = nutritionSectionHash(section)
     setSelectedFood(null)
     setActiveSection(section)

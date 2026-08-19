@@ -24,7 +24,6 @@ import {
   Sparkles,
   UserRound,
   Users,
-  Utensils,
   X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -66,8 +65,6 @@ const studentNavSections: ShellNavSection[] = [
       { id: 'courses' as const, label: 'Học chuyên sâu', icon: BookOpen },
       { id: 'nutrition' as const, label: 'Dinh dưỡng', icon: Soup },
       { id: 'eat-clean' as const, label: 'Đặt món Eat Clean', icon: ShoppingBasket },
-      { id: 'meal-plan' as const, label: 'Thực đơn cá nhân', icon: Utensils },
-      { id: 'food-database' as const, label: 'Tra cứu Calo & Thực phẩm', icon: Utensils },
       { id: 'dish-collection' as const, label: 'Thư viện món ăn', icon: Soup },
       { id: 'progress' as const, label: 'Tiến độ & ôn tập', icon: BarChart3 },
     ],
@@ -112,7 +109,6 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
       { id: 'admin-hr' as const, label: 'Nhân sự & Chi nhánh', icon: Users, permission: 'team.view' as Permission },
       { id: 'admin-packages' as const, label: 'Gói tập PT', icon: Settings, permission: 'dashboard.view' as Permission },
       { id: 'admin-quotes' as const, label: 'Báo giá & Sales', icon: ShoppingBasket, permission: 'dashboard.view' as Permission },
-      { id: 'admin-workout-plans' as const, label: 'Mẫu giáo án PT', icon: Dumbbell, permission: 'program.view' as Permission },
     ],
   },
   {
@@ -127,7 +123,6 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
     items: [
       { id: 'admin-students' as const, label: 'Khách hàng Online', icon: Users, permission: 'student.view_assigned' as Permission },
       { id: 'admin-programs' as const, label: 'Giáo án gym online', icon: ClipboardList, permission: 'program.view' as Permission },
-      { id: 'admin-meal-plans' as const, label: 'Thực đơn & Công thức', icon: Utensils, permission: 'student.view_assigned' as Permission },
       { id: 'admin-eat-clean' as const, label: 'Vận hành Eat Clean', icon: ShoppingBasket, permission: 'eat_clean.manage' as Permission },
       { id: 'admin-nutrition-reviews' as const, label: 'Duyệt ăn', icon: Check, permission: 'student.view_assigned' as Permission },
     ],
@@ -149,14 +144,12 @@ const adminMobileNav: ShellAdminNavItem[] = [
   { id: 'admin-courses', label: 'Academy', icon: GraduationCap, permission: 'course.view' },
 ]
 
-const viewTitles: Record<ViewId, string> = {
+const viewTitles: Partial<Record<ViewId, string>> = {
   home: 'Hôm nay',
   courses: 'Học',
   'course-detail': 'Không gian học',
   nutrition: 'Dinh dưỡng',
   'eat-clean': 'Đặt món Eat Clean',
-  'meal-plan': 'Thực đơn',
-  'food-database': 'Tra cứu Calo & Thực phẩm',
   'dish-collection': 'Thư viện món ăn dinh dưỡng',
   'trainer-portal': 'Cổng làm việc HLV',
   'sales-portal': 'Cổng báo giá & Bán hàng',
@@ -175,7 +168,6 @@ const viewTitles: Record<ViewId, string> = {
   'admin-hr': 'Nhân sự & Chi nhánh',
   'admin-packages': 'Gói tập & Dịch vụ Gym',
   'admin-quotes': 'Báo giá & Chốt hợp đồng',
-  'admin-workout-plans': 'Mẫu giáo án PT Gym',
   'admin-schedule-settings': 'Cấu hình lịch & Ca làm việc',
   'admin-courses': 'Khóa học Academy',
   'admin-course-editor': 'Course Studio',
@@ -184,7 +176,6 @@ const viewTitles: Record<ViewId, string> = {
   'admin-students': 'Khách hàng PT Online',
   'admin-roles': 'Đội ngũ & quyền',
   'admin-nutrition-reviews': 'Duyệt ăn',
-  'admin-meal-plans': 'Quản lý Thực đơn & Công thức',
   'admin-eat-clean': 'Vận hành Eat Clean',
   'admin-notifications': 'Cài đặt Push Notifications',
   'progress-photo-studio': 'Thêm ảnh tiến độ',
@@ -322,7 +313,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
           <button className="mobile-menu-button" aria-label="Mở menu" aria-controls="app-sidebar" aria-expanded={mobileMenu} onClick={() => setMobileMenu(true)}><Menu size={23} /></button>
           <div className="mobile-page-context">
             <small>{mode === 'student' ? 'AURA FITNESS' : 'AURA OPERATIONS'}</small>
-            <strong>{viewTitles[view]}</strong>
+            <strong>{viewTitles[view] ?? 'Aura Fitness'}</strong>
           </div>
           <form className="topbar-search" onSubmit={submitSearch}>
             <button type="submit" aria-label="Tìm"><Search size={19} /></button>

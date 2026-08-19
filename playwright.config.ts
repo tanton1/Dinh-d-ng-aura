@@ -24,6 +24,8 @@ export default defineConfig({
   ],
   webServer: {
     command: previewCommand,
+    // The same flags are also committed in .env.e2e, because Vite replaces
+    // client-side VITE_* values at build time rather than at preview time.
     env: process.env.CI ? { VITE_FORCE_DEMO: 'true', VITE_ENABLE_DEMO_OTP: 'true' } : undefined,
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,

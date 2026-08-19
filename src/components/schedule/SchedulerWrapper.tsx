@@ -700,7 +700,7 @@ export default function SchedulerWrapper({ user, profile }: Props) {
             </div>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 scheduler-action-row">
             <select
               value={schedulingBranchId}
               onChange={(e) => setSchedulingBranchId(e.target.value)}

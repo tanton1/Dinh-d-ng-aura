@@ -11,7 +11,6 @@ export const adminViews: ViewId[] = [
   'admin-payroll',
   'admin-packages',
   'admin-quotes',
-  'admin-workout-plans',
   'admin-schedule-settings',
   'admin-courses',
   'admin-course-editor',
@@ -20,7 +19,6 @@ export const adminViews: ViewId[] = [
   'admin-students',
   'admin-roles',
   'admin-nutrition-reviews',
-  'admin-meal-plans',
   'admin-eat-clean',
   'admin-notifications',
 ]
@@ -33,8 +31,6 @@ const validViews: ViewId[] = [
   'schedule-pt',
   'nutrition',
   'eat-clean',
-  'meal-plan',
-  'food-database',
   'dish-collection',
   'trainer-portal',
   'sales-portal',
@@ -56,7 +52,6 @@ export const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
   'admin-payroll': 'analytics.view_assigned',
   'admin-packages': 'dashboard.view',
   'admin-quotes': 'dashboard.view',
-  'admin-workout-plans': 'program.view',
   'admin-schedule-settings': 'dashboard.view',
   'admin-courses': 'course.view',
   'admin-course-editor': 'course.edit',
@@ -65,7 +60,6 @@ export const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
   'admin-students': 'student.view_assigned',
   'admin-roles': 'team.view',
   'admin-nutrition-reviews': 'student.view_assigned',
-  'admin-meal-plans': 'student.view_assigned',
   'admin-eat-clean': 'eat_clean.manage',
   'admin-notifications': 'team.view',
 }
@@ -81,10 +75,34 @@ export interface AuraRoute {
 
 const eatCleanScreens = new Set<AuraRoute['eatCleanScreen']>(['store', 'meal', 'cart', 'checkout', 'orders', 'order', 'success'])
 
+/**
+ * Routes retired from the app navigation remain canonicalized so links shared
+ * before the cleanup never lead to a blank page. The underlying data is kept
+ * intact; only duplicate surfaces were removed.
+ */
+const retiredRouteRedirects: Record<string, { view: ViewId; hash: string }> = {
+  'food-database': { view: 'nutrition', hash: '#/nutrition?section=catalog' },
+  'meal-plan': { view: 'nutrition', hash: '#/nutrition' },
+  'admin-workout-plans': { view: 'admin-programs', hash: '#/admin-programs' },
+  'admin-meal-plans': { view: 'admin-eat-clean', hash: '#/admin-eat-clean' },
+}
+
+export function resolveSupportedView(view: ViewId) {
+  return retiredRouteRedirects[view]?.view ?? view
+}
+
+export function canonicalRouteHash(view: ViewId, courseId?: string | null, lessonId?: string | null) {
+  return retiredRouteRedirects[view]?.hash ?? routeHash(view, courseId, lessonId)
+}
+
 export function getCurrentRoute(): AuraRoute {
   const rawHash = window.location.hash.replace(/^#\/?/, '')
   const [rawView = 'home', rawQuery = ''] = rawHash.split('?')
-  const view = validViews.includes(rawView as ViewId) ? rawView as ViewId : 'home'
+  const retiredRoute = retiredRouteRedirects[rawView]
+  if (retiredRoute && window.location.hash !== retiredRoute.hash) {
+    window.history.replaceState(null, '', retiredRoute.hash)
+  }
+  const view = retiredRoute?.view ?? (validViews.includes(rawView as ViewId) ? rawView as ViewId : 'home')
   const params = new URLSearchParams(rawQuery)
   return {
     view,
