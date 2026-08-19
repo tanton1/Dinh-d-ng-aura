@@ -1,6 +1,8 @@
+import type { ProgressRecord, Macros } from './types/ptOperations'
+
 export type AppMode = 'student' | 'admin'
 
-export type UserRole = 'student' | 'coach' | 'editor' | 'admin' | 'super_admin'
+export type UserRole = 'student' | 'coach' | 'editor' | 'admin' | 'super_admin' | 'trainer' | 'sales' | 'manager' | 'user'
 
 export interface AppUser {
   uid: string
@@ -17,9 +19,23 @@ export interface UserProfile {
   email: string
   phoneNumber?: string
   displayName: string
+  name?: string
   photoURL?: string | null
   role: UserRole
   membership: 'free' | 'pro' | 'coach'
+  branchId?: string
+  history?: ProgressRecord[]
+  target_macros?: { [key: string]: Macros }
+  current_mode?: 'standard' | 'easy' | 'lean'
+  age?: number
+  gender?: 'male' | 'female'
+  weight?: number
+  height?: number
+  calories?: number
+  protein?: number
+  carbs?: number
+  fat?: number
+  tdee?: number
   onboardingCompleted?: boolean
   onboardingData?: any
   goals?: string[]
@@ -122,9 +138,14 @@ export type StudentView =
   | 'courses'
   | 'course-detail'
   | 'schedule'
+  | 'schedule-pt'
   | 'nutrition'
   | 'eat-clean'
   | 'meal-plan'
+  | 'food-database'
+  | 'dish-collection'
+  | 'trainer-portal'
+  | 'sales-portal'
   | 'progress'
   | 'progress-photo-studio'
   | 'profile'
@@ -137,6 +158,16 @@ export type AdminView =
   | 'admin-academy-students'
   | 'admin-programs'
   | 'admin-students'
+  | 'admin-pt-students'
+  | 'admin-pt-schedule'
+  | 'admin-report'
+  | 'admin-finance'
+  | 'admin-hr'
+  | 'admin-payroll'
+  | 'admin-packages'
+  | 'admin-quotes'
+  | 'admin-workout-plans'
+  | 'admin-schedule-settings'
   | 'admin-roles'
   | 'admin-nutrition-reviews'
   | 'admin-meal-plans'
@@ -578,3 +609,41 @@ export interface AppNotification {
   expiresAt?: unknown;
   createdAt?: unknown;
 }
+
+export type {
+  Day,
+  Macros,
+  MealTemplate,
+  FoodItem,
+  ProgressRecord,
+  SwapRule,
+  StaffMember,
+  Trainer,
+  Branch,
+  Student,
+  TrainingPackage,
+  Installment,
+  SessionRequest,
+  ContractExtension,
+  LeaveRequest,
+  StudentContract,
+  PaymentRecord,
+  Quote,
+  ScheduleEntry,
+  Schedule,
+  Warning,
+  SchedulerResult,
+  ScheduleConfig,
+  Session,
+  Payroll,
+  WorkoutSetLog,
+  WorkoutLog,
+  DailyCheckin,
+  WorkoutExercise,
+  WorkoutDay,
+  WorkoutWeek,
+  WorkoutPlan,
+  HealthyDish,
+} from './types/ptOperations'
+
+export { DAYS, HOURS } from './types/ptOperations'

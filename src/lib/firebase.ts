@@ -14,7 +14,7 @@ import { connectStorageEmulator, getStorage, type FirebaseStorage } from 'fireba
 import { connectFunctionsEmulator, getFunctions, type Functions } from 'firebase/functions'
 import type { Messaging } from 'firebase/messaging'
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
@@ -115,3 +115,5 @@ if (isFirebaseConfigured) {
     connectFunctionsEmulator(firebaseFunctions, '127.0.0.1', 5001)
   }
 }
+
+export { firestoreDb as db, firebaseAuth as auth, firebaseApp as app }

@@ -33,14 +33,18 @@ interface AdminRolesPageProps {
   loading?: boolean
 }
 
-const roles: UserRole[] = ['student', 'coach', 'editor', 'admin', 'super_admin']
+const roles: UserRole[] = ['student', 'coach', 'trainer', 'sales', 'manager', 'editor', 'admin', 'super_admin', 'user']
 
 const roleMeta: Record<UserRole, { label: string; scope: string; tone: string }> = {
   student: { label: 'Học viên', scope: 'Truy cập nội dung học tập', tone: '#797988' },
   coach: { label: 'Huấn luyện viên', scope: 'Giáo án & học viên được gán', tone: '#4e9724' },
+  trainer: { label: 'HLV PT Gym', scope: 'Dạy 1-on-1 & chấm công', tone: '#10b981' },
+  sales: { label: 'Kinh doanh / Sales', scope: 'Hợp đồng, báo giá & tư vấn', tone: '#f59e0b' },
+  manager: { label: 'Quản lý Chi nhánh', scope: 'Vận hành cơ sở & nhân sự', tone: '#8b5cf6' },
   editor: { label: 'Biên tập viên', scope: 'Khóa học, media & thư viện', tone: '#3c80bd' },
   admin: { label: 'Administrator', scope: 'Quản trị vận hành', tone: 'var(--aura-pink)' },
   super_admin: { label: 'Super Administrator', scope: 'Toàn quyền hệ thống', tone: 'var(--aura-pink-neon)' },
+  user: { label: 'Khách vãng lai', scope: 'Trải nghiệm cơ bản', tone: '#6b7280' },
 }
 
 const statusMeta = {
