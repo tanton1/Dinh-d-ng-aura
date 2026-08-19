@@ -165,6 +165,7 @@ const viewTitles: Record<ViewId, string> = {
   'schedule-pt': 'Lịch tập & Ca PT Gym',
   profile: 'Cá nhân',
   workout: 'Buổi tập',
+  delivery: 'Aura Delivery',
   'admin-dashboard': 'Tổng quan vận hành',
   'admin-pt-students': 'Quản lý Học viên PT Gym',
   'admin-pt-schedule': 'Xếp lịch & Ca tập Gym',
@@ -207,7 +208,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
       }))
       .filter((section) => section.items.length > 0)
   const mobileAdminItems = adminMobileNav.filter((item) => hasPermission(role, item.permission))
-  const isImmersive = view === 'workout'
+  const isImmersive = view === 'workout' || view === 'delivery'
   const [searchQuery, setSearchQuery] = useState('')
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)

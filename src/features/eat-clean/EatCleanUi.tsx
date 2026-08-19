@@ -34,7 +34,10 @@ export const EAT_CLEAN_STATUS_LABELS: Record<EatCleanOrderStatus, string> = {
   confirmed: 'Đã xác nhận',
   preparing: 'Đang chuẩn bị',
   ready: 'Sẵn sàng giao',
+  assigned: 'Đã có shipper',
+  'picked-up': 'Đã lấy món',
   delivering: 'Đang giao',
+  arrived: 'Shipper đã đến',
   delivered: 'Đã giao',
   cancelled: 'Đã hủy',
 }

@@ -31,6 +31,7 @@ export type Permission =
   | 'audit.view'
   | 'system.manage'
   | 'eat_clean.manage'
+  | 'eat_clean.deliver'
 
 const allPermissions = [
   'dashboard.view',
@@ -63,6 +64,7 @@ const allPermissions = [
   'audit.view',
   'system.manage',
   'eat_clean.manage',
+  'eat_clean.deliver',
 ] as const satisfies readonly Permission[]
 
 export const rolePermissions = {
@@ -90,6 +92,9 @@ export const rolePermissions = {
     'course.submit',
     'course.media.upload',
     'analytics.view_assigned',
+  ],
+  shipper: [
+    'eat_clean.deliver',
   ],
   admin: [
     'dashboard.view',

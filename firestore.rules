@@ -516,7 +516,19 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    match /system/{document=**} {
+    match /system/eat_clean_config {
+      allow read: if isAdmin();
+      // Delivery pricing and rollout flags must pass the callable revision and
+      // runtime-readiness guards; even an admin browser cannot bypass them.
+      allow write: if false;
+    }
+
+    match /system/{document} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && document != 'eat_clean_config';
+    }
+
+    match /system/{document}/{nested=**} {
       allow read, write: if isAdmin();
     }
 
@@ -551,6 +563,30 @@ service cloud.firestore {
     // returned through callables only and must never be consumed or forged by
     // a browser, including an authenticated admin session.
     match /eatCleanQuotes/{quoteId} {
+      allow read, write: if false;
+    }
+
+    match /eatCleanQuoteRateLimits/{userIdHash} {
+      allow read, write: if false;
+    }
+
+    // Address validation/default selection is transactionally enforced by
+    // callable functions; clients cannot bypass the 20-address limit.
+    match /users/{userId}/eatCleanAddresses/{addressId} {
+      allow read, write: if false;
+    }
+
+    match /eatCleanDeliveries/{orderId} {
+      // Includes private OTP-verification state. All actors receive a
+      // role-filtered/sanitized view through callable functions only.
+      allow read, create, update, delete: if false;
+    }
+
+    match /eatCleanShippers/{shipperId} {
+      allow read, write: if false;
+    }
+
+    match /eatCleanOrders/{orderId}/events/{eventId} {
       allow read, write: if false;
     }
 

@@ -25,6 +25,8 @@ import {
   XCircle,
 } from 'lucide-react'
 import './EatCleanPage.css'
+import { EatCleanDeliveryPanel } from './EatCleanDeliveryPanel'
+import { EatCleanTrackingPanel } from './EatCleanTrackingPanel'
 import { addEatCleanCartItem, readEatCleanCart, setEatCleanCartQuantity, writeEatCleanCart } from './cartStorage'
 import {
   clearEatCleanCheckoutAttempt,
@@ -71,10 +73,18 @@ import type {
 
 const DEFAULT_ROUTE: EatCleanRoute = { screen: 'storefront' }
 
+function vietnamIsoDate(dayOffset = 0) {
+  const vietnamTime = new Date(Date.now() + 7 * 60 * 60 * 1000)
+  vietnamTime.setUTCDate(vietnamTime.getUTCDate() + dayOffset)
+  return `${vietnamTime.getUTCFullYear()}-${String(vietnamTime.getUTCMonth() + 1).padStart(2, '0')}-${String(vietnamTime.getUTCDate()).padStart(2, '0')}`
+}
+
 function tomorrowIsoDate() {
-  const tomorrow = new Date()
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  return tomorrow.toISOString().slice(0, 10)
+  return vietnamIsoDate(1)
+}
+
+function todayIsoDate() {
+  return vietnamIsoDate()
 }
 
 function actionErrorMessage(error: unknown, fallback: string) {
@@ -123,6 +133,7 @@ export default function EatCleanPage({
   const [actionError, setActionError] = useState('')
   const [quote, setQuote] = useState<EatCleanOrderQuote | null>(null)
   const [quoteLoading, setQuoteLoading] = useState(false)
+  const [deliveryContextLoading, setDeliveryContextLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [checkoutContact, setCheckoutContact] = useState({ fullName: displayName ?? '', phone: '' })
   const [deliveryAddress, setDeliveryAddress] = useState<EatCleanDeliveryAddress>({
@@ -130,18 +141,30 @@ export default function EatCleanPage({
     ward: '',
     districtId: 'hai-chau',
     city: 'Đà Nẵng',
+    deliveryMode: 'scheduled',
     deliveryDate: tomorrowIsoDate(),
     deliveryWindow: 'morning',
   })
   const [paymentMethod, setPaymentMethod] = useState<EatCleanPaymentMethod>('cod')
   const [orderNote, setOrderNote] = useState('')
   const checkoutAttemptRef = useRef(readEatCleanCheckoutAttempt(ownerId))
+  const deliveryContextRequestRef = useRef(0)
+  const quoteRequestRef = useRef(0)
+
+  const invalidateQuote = useCallback(() => {
+    quoteRequestRef.current += 1
+    setQuote(null)
+    setQuoteLoading(false)
+  }, [])
 
   const loadStorefront = useCallback(async () => {
     setLoading(true)
     setLoadError('')
     try {
-      const nextStorefront = await getEatCleanStorefront()
+      const scheduledStorefront = await getEatCleanStorefront({ deliveryMode: 'scheduled' })
+      const nextStorefront = scheduledStorefront.asapEnabled
+        ? await getEatCleanStorefront({ deliveryMode: 'asap' }).catch(() => scheduledStorefront)
+        : scheduledStorefront
       setStorefront(nextStorefront)
       setDeliveryAddress((current) => {
         const slots = (nextStorefront.deliverySlots ?? []).filter((slot) => slot.active)
@@ -149,7 +172,11 @@ export default function EatCleanPage({
         return {
           ...current,
           city: 'Đà Nẵng',
-          deliveryWindow: slots.some((slot) => slot.id === current.deliveryWindow) ? current.deliveryWindow : slots[0]?.id ?? current.deliveryWindow,
+          deliveryMode: nextStorefront.deliveryMode,
+          deliveryDate: nextStorefront.serviceDate ?? current.deliveryDate,
+          deliveryWindow: nextStorefront.deliveryMode === 'asap'
+            ? 'asap'
+            : slots.some((slot) => slot.id === current.deliveryWindow) ? current.deliveryWindow : slots[0]?.id ?? current.deliveryWindow,
           districtId: districts.some((district) => district.id === current.districtId) ? current.districtId : districts[0]?.id ?? current.districtId,
         }
       })
@@ -160,6 +187,32 @@ export default function EatCleanPage({
       setLoading(false)
     }
   }, [])
+
+  const changeDeliveryAddress = useCallback(async (nextAddress: EatCleanDeliveryAddress) => {
+    const previousAddress = deliveryAddress
+    const nextMode = nextAddress.deliveryMode ?? 'scheduled'
+    const nextServiceDate = nextMode === 'asap' ? todayIsoDate() : nextAddress.deliveryDate
+    const catalogContextChanged = Boolean(storefront)
+      && (storefront?.deliveryMode !== nextMode
+        || (nextMode === 'scheduled' && storefront.serviceDate !== nextServiceDate))
+    setDeliveryAddress(nextAddress)
+    invalidateQuote()
+    if (!catalogContextChanged) return
+    const requestId = deliveryContextRequestRef.current + 1
+    deliveryContextRequestRef.current = requestId
+    setDeliveryContextLoading(true)
+    try {
+      const nextStorefront = await getEatCleanStorefront({ deliveryMode: nextMode, serviceDate: nextServiceDate })
+      if (deliveryContextRequestRef.current !== requestId) return
+      setStorefront(nextStorefront)
+    } catch (error) {
+      if (deliveryContextRequestRef.current !== requestId) return
+      setDeliveryAddress(previousAddress)
+      setActionError(actionErrorMessage(error, 'Chưa thể tải tồn kho cho thời gian giao đã chọn.'))
+    } finally {
+      if (deliveryContextRequestRef.current === requestId) setDeliveryContextLoading(false)
+    }
+  }, [deliveryAddress, invalidateQuote, storefront])
 
   useEffect(() => { void loadStorefront() }, [loadStorefront])
 
@@ -173,21 +226,34 @@ export default function EatCleanPage({
       .catch((error) => { if (active) setOrdersError(actionErrorMessage(error, 'Chưa thể tải danh sách đơn.')) })
       .finally(() => { if (active) setOrdersLoading(false) })
     return () => { active = false }
-  }, [route.screen, storefront, ordersReloadKey])
+  }, [route.screen, storefront, ordersReloadKey, ownerId])
 
   useEffect(() => {
     const nextCart = readEatCleanCart(ownerId)
     setCart(nextCart)
     checkoutAttemptRef.current = readEatCleanCheckoutAttempt(ownerId)
-  }, [ownerId])
+    setCheckoutContact({ fullName: displayName ?? '', phone: '' })
+    setDeliveryAddress({
+      addressLine: '',
+      ward: '',
+      districtId: 'hai-chau',
+      city: 'Đà Nẵng',
+      deliveryMode: 'scheduled',
+      deliveryDate: tomorrowIsoDate(),
+      deliveryWindow: 'morning',
+    })
+    setOrderNote('')
+    invalidateQuote()
+    setOrders([])
+  }, [invalidateQuote, ownerId])
 
   const updateCart = useCallback((nextCart: EatCleanCartItem[]) => {
     setCart(writeEatCleanCart(ownerId, nextCart))
     clearEatCleanCheckoutAttempt(ownerId)
     checkoutAttemptRef.current = null
-    setQuote(null)
+    invalidateQuote()
     setActionError('')
-  }, [ownerId])
+  }, [invalidateQuote, ownerId])
 
   const mealsById = useMemo(() => new Map((storefront?.meals ?? []).map((meal) => [meal.id, meal])), [storefront?.meals])
   const cartLines = useMemo<EatCleanCartLine[]>(() => cart.flatMap((item) => {
@@ -229,22 +295,27 @@ export default function EatCleanPage({
   const requestQuote = useCallback(async () => {
     if (cart.length === 0) return
     const digits = checkoutContact.phone.replace(/\D/g, '')
-    if (!checkoutContact.fullName.trim() || digits.length < 9 || !deliveryAddress.addressLine.trim() || !deliveryAddress.ward?.trim() || !deliveryAddress.districtId || !deliveryAddress.deliveryDate || !deliveryAddress.deliveryWindow) {
+    const scheduleMissing = deliveryAddress.deliveryMode === 'scheduled' && (!deliveryAddress.deliveryDate || !deliveryAddress.deliveryWindow)
+    if (!checkoutContact.fullName.trim() || digits.length < 9 || !deliveryAddress.addressLine.trim() || !deliveryAddress.ward?.trim() || !deliveryAddress.districtId || scheduleMissing) {
       setActionError('Hãy nhập đủ người nhận, phường/xã, quận/huyện và thời gian giao trước khi báo giá.')
       return
     }
     setQuoteLoading(true)
     setActionError('')
+    const requestId = quoteRequestRef.current + 1
+    quoteRequestRef.current = requestId
     try {
       const nextQuote = await quoteEatCleanOrder(
         { items: cart, contact: checkoutContact, deliveryAddress, paymentMethod, note: orderNote.trim() || undefined },
       )
+      if (quoteRequestRef.current !== requestId) return
       setQuote(nextQuote)
     } catch (error) {
+      if (quoteRequestRef.current !== requestId) return
       setQuote(null)
       setActionError(actionErrorMessage(error, 'Chưa thể tính phí cho đơn hàng.'))
     } finally {
-      setQuoteLoading(false)
+      if (quoteRequestRef.current === requestId) setQuoteLoading(false)
     }
   }, [cart, checkoutContact, deliveryAddress, orderNote, paymentMethod, storefront?.source])
 
@@ -406,14 +477,17 @@ export default function EatCleanPage({
           quote={quote}
           quoteLoading={quoteLoading}
           submitting={submitting}
-          onContactChange={(value) => { setCheckoutContact(value); setQuote(null) }}
-          onAddressChange={(value) => { setDeliveryAddress(value); setQuote(null) }}
-          onNoteChange={(value) => { setOrderNote(value); setQuote(null) }}
+          onContactChange={(value) => { setCheckoutContact(value); invalidateQuote() }}
+          onAddressChange={(value) => { void changeDeliveryAddress(value) }}
+          onNoteChange={(value) => { setOrderNote(value); invalidateQuote() }}
           onQuote={() => void requestQuote()}
           onSubmit={() => void placeOrder()}
           onBrowse={() => navigate({ screen: 'storefront' })}
           deliverySlots={storefront.deliverySlots ?? []}
           districts={storefront.districts ?? []}
+          ownerId={ownerId}
+          asapEnabled={storefront.asapEnabled}
+          deliveryContextLoading={deliveryContextLoading}
         />
       )}
       {route.screen === 'orders' && <OrdersScreen orders={orders} loading={ordersLoading} error={ordersError} onRetry={() => setOrdersReloadKey((value) => value + 1)} onOpen={(orderId) => navigate({ screen: 'order-detail', orderId })} onBrowse={() => navigate({ screen: 'storefront' })} />}
@@ -536,18 +610,46 @@ function CartScreen({ lines, onQuantityChange, onBrowse, onCheckout }: { lines: 
   )
 }
 
-function CheckoutScreen({ lines, contact, address, paymentMethod, note, quote, quoteLoading, submitting, deliverySlots, districts, onContactChange, onAddressChange, onNoteChange, onQuote, onSubmit, onBrowse }: { lines: EatCleanCartLine[]; contact: { fullName: string; phone: string }; address: EatCleanDeliveryAddress; paymentMethod: EatCleanPaymentMethod; note: string; quote: EatCleanOrderQuote | null; quoteLoading: boolean; submitting: boolean; deliverySlots: EatCleanDeliverySlot[]; districts: EatCleanDistrict[]; onContactChange: (value: { fullName: string; phone: string }) => void; onAddressChange: (value: EatCleanDeliveryAddress) => void; onNoteChange: (value: string) => void; onQuote: () => void; onSubmit: () => void; onBrowse: () => void }) {
+function CheckoutScreen({ ownerId, lines, contact, address, paymentMethod, note, quote, quoteLoading, submitting, deliverySlots, districts, asapEnabled, deliveryContextLoading, onContactChange, onAddressChange, onNoteChange, onQuote, onSubmit, onBrowse }: { ownerId?: string; lines: EatCleanCartLine[]; contact: { fullName: string; phone: string }; address: EatCleanDeliveryAddress; paymentMethod: EatCleanPaymentMethod; note: string; quote: EatCleanOrderQuote | null; quoteLoading: boolean; submitting: boolean; deliverySlots: EatCleanDeliverySlot[]; districts: EatCleanDistrict[]; asapEnabled: boolean; deliveryContextLoading: boolean; onContactChange: (value: { fullName: string; phone: string }) => void; onAddressChange: (value: EatCleanDeliveryAddress) => void; onNoteChange: (value: string) => void; onQuote: () => void; onSubmit: () => void; onBrowse: () => void }) {
   if (lines.length === 0) return <EatCleanState icon={<ShoppingBag size={28} />} title="Không còn món để đặt" description="Giỏ đã trống hoặc các món không còn phục vụ." action={<button type="button" className="eat-clean-button eat-clean-button--primary" onClick={onBrowse}>Về thực đơn</button>} />
   const activeSlots = deliverySlots.filter((slot) => slot.active)
-  const activeDistricts = districts.filter((district) => district.active)
+  const deliveryMode = address.deliveryMode ?? 'asap'
+  const distanceLabel = quote?.distanceMeters == null ? '' : `${(quote.distanceMeters / 1000).toFixed(1)} km`
+  const durationLabel = quote?.routeDurationSeconds == null ? '' : `${Math.max(1, Math.round(quote.routeDurationSeconds / 60))} phút di chuyển`
   return (
     <div className="eat-clean-checkout" data-testid="eat-clean-checkout">
       <div className="eat-clean-checkout__form">
-        <section className="eat-clean-card"><div className="eat-clean-section-heading"><div><small>BƯỚC 1</small><h2>Người nhận tại Đà Nẵng</h2></div><MapPin size={21} /></div><div className="eat-clean-form-grid"><label><span>Họ và tên</span><input value={contact.fullName} onChange={(event) => onContactChange({ ...contact, fullName: event.target.value })} autoComplete="name" /></label><label><span>Số điện thoại</span><input inputMode="tel" value={contact.phone} onChange={(event) => onContactChange({ ...contact, phone: event.target.value })} autoComplete="tel" /></label><label className="eat-clean-field--full"><span>Số nhà, tên đường</span><input value={address.addressLine} onChange={(event) => onAddressChange({ ...address, addressLine: event.target.value })} placeholder="Ví dụ: 28 Nguyễn Chí Thanh" autoComplete="street-address" /></label><label><span>Phường/xã</span><input value={address.ward ?? ''} onChange={(event) => onAddressChange({ ...address, ward: event.target.value })} placeholder="Phường/xã" /></label><label><span>Quận/huyện</span><select value={address.districtId ?? ''} onChange={(event) => onAddressChange({ ...address, districtId: event.target.value })}>{activeDistricts.length === 0 && <option value="hai-chau">Hải Châu</option>}{activeDistricts.map((district) => <option key={district.id} value={district.id}>{district.name}</option>)}</select></label><label className="eat-clean-field--full"><span>Thành phố</span><input value="Đà Nẵng" readOnly aria-readonly="true" /></label></div></section>
-        <section className="eat-clean-card"><div className="eat-clean-section-heading"><div><small>BƯỚC 2</small><h2>Thời gian giao</h2></div><CalendarDays size={21} /></div><div className="eat-clean-form-grid"><label><span>Ngày giao</span><input type="date" min={tomorrowIsoDate()} value={address.deliveryDate ?? ''} onChange={(event) => onAddressChange({ ...address, deliveryDate: event.target.value })} /></label><label><span>Khung giờ</span><select value={address.deliveryWindow ?? ''} onChange={(event) => onAddressChange({ ...address, deliveryWindow: event.target.value })}>{activeSlots.length === 0 && <><option value="morning">07:00–09:00</option><option value="lunch">10:30–12:30</option><option value="evening">16:30–18:30</option></>}{activeSlots.map((slot) => <option key={slot.id} value={slot.id}>{slot.label}</option>)}</select></label></div></section>
+        <EatCleanDeliveryPanel ownerId={ownerId} contact={contact} address={address} districts={districts} onContactChange={onContactChange} onAddressChange={onAddressChange} />
+        <section className="eat-clean-card eat-clean-delivery-time">
+          <div className="eat-clean-section-heading"><div><small>BƯỚC 2</small><h2>Khi nào bạn muốn nhận?</h2></div><CalendarDays size={21} /></div>
+          <div className={`eat-clean-delivery-mode ${!asapEnabled ? 'is-scheduled-only' : ''}`} role="radiogroup" aria-label="Chế độ giao hàng" aria-busy={deliveryContextLoading}>
+            {asapEnabled && <button type="button" role="radio" aria-checked={deliveryMode === 'asap'} className={deliveryMode === 'asap' ? 'is-active' : ''} disabled={deliveryContextLoading} onClick={() => onAddressChange({ ...address, deliveryMode: 'asap', deliveryDate: todayIsoDate(), deliveryWindow: 'asap' })}><Truck size={20} /><span><strong>Giao sớm nhất</strong><small>Bếp xác nhận và giao ngay khi món sẵn sàng</small></span>{deliveryMode === 'asap' && <Check size={18} />}</button>}
+            <button type="button" role="radio" aria-checked={deliveryMode === 'scheduled'} className={deliveryMode === 'scheduled' ? 'is-active' : ''} disabled={deliveryContextLoading} onClick={() => onAddressChange({ ...address, deliveryMode: 'scheduled', deliveryDate: address.deliveryDate && address.deliveryDate > todayIsoDate() ? address.deliveryDate : tomorrowIsoDate(), deliveryWindow: address.deliveryWindow && address.deliveryWindow !== 'asap' ? address.deliveryWindow : activeSlots[0]?.id ?? 'morning' })}><CalendarDays size={20} /><span><strong>Đặt lịch giao</strong><small>Chọn trước ngày và khung giờ phù hợp</small></span>{deliveryMode === 'scheduled' && <Check size={18} />}</button>
+          </div>
+          {deliveryContextLoading && <div className="eat-clean-context-loading"><LoaderCircle className="eat-clean-spin" size={16} /> Đang kiểm tra tồn kho theo thời gian giao…</div>}
+          {deliveryMode === 'scheduled' ? <div className="eat-clean-form-grid eat-clean-schedule-fields"><label><span>Ngày giao</span><input type="date" min={tomorrowIsoDate()} value={address.deliveryDate ?? ''} onChange={(event) => onAddressChange({ ...address, deliveryDate: event.target.value })} /></label><label><span>Khung giờ</span><select value={address.deliveryWindow ?? ''} onChange={(event) => onAddressChange({ ...address, deliveryWindow: event.target.value })}>{activeSlots.length === 0 && <><option value="morning">07:00–09:00</option><option value="lunch">10:30–12:30</option><option value="evening">16:30–18:30</option></>}{activeSlots.map((slot) => <option key={slot.id} value={slot.id}>{slot.label}</option>)}</select></label></div> : <div className="eat-clean-asap-note"><Clock3 size={18} /><span><strong>ETA sẽ được tính theo thời gian chuẩn bị và tuyến đường thực tế</strong><small>Bạn sẽ thấy giờ giao dự kiến trước khi xác nhận đơn.</small></span></div>}
+        </section>
         <section className="eat-clean-card"><div className="eat-clean-section-heading"><div><small>BƯỚC 3</small><h2>Thanh toán</h2></div><CircleDollarSign size={21} /></div><div className="eat-clean-payment-static"><CircleDollarSign size={20} /><span><strong>Thanh toán khi nhận hàng</strong><small>COD · Tiền mặt hoặc chuyển khoản cho nhân viên giao hàng</small></span><BadgeCheck size={19} /></div><label className="eat-clean-note"><span>Ghi chú cho bếp / giao hàng</span><textarea value={note} maxLength={300} onChange={(event) => onNoteChange(event.target.value)} placeholder="Ví dụ: để sốt riêng, gọi trước khi giao…" /></label><input type="hidden" value={paymentMethod} readOnly /></section>
       </div>
-      <aside className="eat-clean-card eat-clean-summary eat-clean-summary--checkout"><h2>Đơn hàng</h2>{lines.map((line) => <div className="eat-clean-summary-line" key={line.mealId}><span>{line.quantity}× {line.meal.name}</span><strong>{formatEatCleanMoney(line.lineTotal)}</strong></div>)}{quoteLoading ? <div className="eat-clean-quote-loading"><LoaderCircle className="eat-clean-spin" size={18} /> Đang xác nhận giá…</div> : quote ? <><dl><div><dt>Tiền món</dt><dd>{formatEatCleanMoney(quote.subtotal)}</dd></div><div><dt>Phí giao</dt><dd>{quote.deliveryFee === 0 ? 'Miễn phí' : formatEatCleanMoney(quote.deliveryFee)}</dd></div>{quote.discount > 0 && <div><dt>Ưu đãi</dt><dd>−{formatEatCleanMoney(quote.discount)}</dd></div>}</dl><div className="eat-clean-summary__total"><span>Tổng cộng</span><strong>{formatEatCleanMoney(quote.total)}</strong></div></> : <button type="button" className="eat-clean-button eat-clean-button--secondary" onClick={onQuote}>Cập nhật báo giá</button>}<button type="button" className="eat-clean-button eat-clean-button--primary" onClick={onSubmit} disabled={!quote || submitting}>{submitting ? <LoaderCircle className="eat-clean-spin" size={18} /> : <PackageCheck size={18} />}{submitting ? 'Đang tạo đơn…' : 'Đặt món ngay'}</button><small className="eat-clean-summary__note">Chỉ tạo đơn sau khi bạn xác nhận. Aura không tự động trừ tiền.</small></aside>
+      <aside className="eat-clean-card eat-clean-summary eat-clean-summary--checkout">
+        <h2>Kiểm tra đơn hàng</h2>
+        {lines.map((line) => <div className="eat-clean-summary-line" key={line.mealId}><span>{line.quantity}× {line.meal.name}</span><strong>{formatEatCleanMoney(line.lineTotal)}</strong></div>)}
+        {quoteLoading ? <div className="eat-clean-quote-loading"><LoaderCircle className="eat-clean-spin" size={18} /> Đang tính tuyến đường, phí ship và ETA…</div> : quote ? <>
+          {(distanceLabel || durationLabel || quote.estimatedArrivalAt) && <div className="eat-clean-route-quote"><Truck size={19} /><span><strong>{[distanceLabel, durationLabel].filter(Boolean).join(' · ') || 'Tuyến giao hàng'}</strong><small>{quote.estimatedArrivalAt ? `Dự kiến giao: ${formatEatCleanDate(quote.estimatedArrivalAt)}` : 'ETA sẽ cập nhật khi shipper xác nhận'}</small></span></div>}
+          {quote.verifiedDeliveryAddress && <div className="eat-clean-verified-address"><BadgeCheck size={19} /><span><strong>Địa chỉ Google đã xác nhận</strong><small>{quote.verifiedDeliveryAddress.addressLine}</small></span></div>}
+          <dl>
+            <div><dt>Tiền món</dt><dd>{formatEatCleanMoney(quote.subtotal)}</dd></div>
+            {quote.deliveryFeeBeforeDiscount != null && quote.deliveryFeeBeforeDiscount !== quote.deliveryFee && <div><dt>Phí giao theo khoảng cách</dt><dd>{formatEatCleanMoney(quote.deliveryFeeBeforeDiscount)}</dd></div>}
+            <div><dt>Phí giao</dt><dd>{quote.deliveryFee === 0 ? 'Miễn phí' : formatEatCleanMoney(quote.deliveryFee)}</dd></div>
+            {(quote.deliveryFeeDiscount ?? 0) > 0 && <div><dt>Giảm phí giao</dt><dd>−{formatEatCleanMoney(quote.deliveryFeeDiscount ?? 0)}</dd></div>}
+            {quote.discount > 0 && <div><dt>Ưu đãi món</dt><dd>−{formatEatCleanMoney(quote.discount)}</dd></div>}
+          </dl>
+          {quote.serviceAreaLabel && <small className="eat-clean-fee-rule">{quote.serviceAreaLabel}{quote.feeRuleVersion ? ` · Bảng phí ${quote.feeRuleVersion}` : ''}</small>}
+          <div className="eat-clean-summary__total"><span>Tổng cộng</span><strong>{formatEatCleanMoney(quote.total)}</strong></div>
+        </> : <button type="button" className="eat-clean-button eat-clean-button--secondary" aria-label="Cập nhật báo giá, tính phí ship và ETA" onClick={onQuote} disabled={deliveryContextLoading}><Truck size={18} /> Tính phí ship và ETA</button>}
+        <button type="button" className="eat-clean-button eat-clean-button--primary" onClick={onSubmit} disabled={!quote || submitting || deliveryContextLoading}>{submitting ? <LoaderCircle className="eat-clean-spin" size={18} /> : <PackageCheck size={18} />}{submitting ? 'Đang tạo đơn…' : 'Đặt món ngay'}</button>
+        <small className="eat-clean-summary__note">Giá, tồn kho và phí giao được backend xác minh lại. Aura không tự động trừ tiền.</small>
+      </aside>
     </div>
   )
 }
@@ -564,6 +666,28 @@ function OrderDetailScreen({ order, loading, error, submitting, onCancel, onConf
   if (loading) return <EatCleanLoading />
   if (error) return <EatCleanState icon={<AlertCircle size={28} />} title="Chưa tải được đơn" description={error} action={<button type="button" className="eat-clean-button eat-clean-button--primary" onClick={onOrders}>Về danh sách đơn</button>} />
   if (!order) return <EatCleanState icon={<AlertCircle size={28} />} title="Không tìm thấy đơn" description="Đơn hàng có thể chưa đồng bộ hoặc không còn khả dụng." action={<button type="button" className="eat-clean-button eat-clean-button--primary" onClick={onOrders}>Về danh sách đơn</button>} />
-  const steps = order.timeline?.length ? order.timeline : ['confirmed', 'preparing', 'ready', 'delivering', 'delivered'].map((status) => ({ status: status as EatCleanOrder['status'], label: EAT_CLEAN_STATUS_LABELS[status as EatCleanOrder['status']], completed: ['confirmed', 'preparing', 'ready', 'delivering', 'delivered'].indexOf(status) <= ['confirmed', 'preparing', 'ready', 'delivering', 'delivered'].indexOf(order.status), at: status === 'confirmed' ? order.createdAt : undefined }))
-  return <div className="eat-clean-order-detail" data-testid="eat-clean-order-detail"><section className="eat-clean-order-hero"><div><span>ĐƠN {order.code}</span><h1>{EAT_CLEAN_STATUS_LABELS[order.status]}</h1><p>Cập nhật lần cuối: {formatEatCleanDate(order.updatedAt ?? order.createdAt)}</p></div><EatCleanStatusBadge status={order.status} /></section><div className="eat-clean-order-detail__grid"><div className="eat-clean-stack"><section className="eat-clean-card"><h2>Hành trình đơn</h2><div className="eat-clean-timeline">{order.status === 'cancelled' ? <span className="is-cancelled"><XCircle size={19} /><strong>Đơn đã hủy</strong></span> : steps.map((step) => <span key={step.status} className={step.completed ? 'is-completed' : ''}><i>{step.completed ? <Check size={15} /> : null}</i><b><strong>{step.label}</strong><small>{step.at ? formatEatCleanDate(step.at) : 'Đang chờ'}</small></b></span>)}</div></section><section className="eat-clean-card"><h2>Món đã đặt</h2>{order.items.map((item) => <div className="eat-clean-order-line" key={item.mealId}><span><strong>{item.quantity}× {item.name}</strong><small>{formatEatCleanMoney(item.unitPrice)} / phần</small></span><b>{formatEatCleanMoney(item.lineTotal)}</b></div>)}</section></div><aside className="eat-clean-card eat-clean-summary"><h2>Giao đến</h2><p className="eat-clean-address"><MapPin size={18} /><span><strong>{order.contact.fullName} · {order.contact.phone}</strong><small>{order.deliveryAddress.addressLine}, {order.deliveryAddress.city}</small><small>{order.deliveryAddress.deliveryDate} · {order.deliveryAddress.deliveryWindow}</small></span></p><dl><div><dt>Tiền món</dt><dd>{formatEatCleanMoney(order.subtotal)}</dd></div><div><dt>Phí giao</dt><dd>{formatEatCleanMoney(order.deliveryFee)}</dd></div></dl><div className="eat-clean-summary__total"><span>Tổng cộng</span><strong>{formatEatCleanMoney(order.total)}</strong></div>{order.status === 'delivered' && !order.consumptionConfirmedAt && <div className="eat-clean-consumption"><label><span>Ước tính phần đã ăn</span><select value={consumedRatio} onChange={(event) => setConsumedRatio(Number(event.target.value) as 25 | 50 | 75 | 100)}><option value={25}>25%</option><option value={50}>50%</option><option value={75}>75%</option><option value={100}>100%</option></select></label><button type="button" className="eat-clean-button eat-clean-button--primary" onClick={() => onConfirmConsumption(order, consumedRatio)} disabled={submitting}><UtensilsCrossed size={18} /> Ghi vào nhật ký</button></div>}{order.consumptionConfirmedAt && <div className="eat-clean-confirmed"><BadgeCheck size={18} /><span>Đã ghi nhận vào nhật ký dinh dưỡng.</span></div>}{order.canCancel && !['delivered', 'cancelled'].includes(order.status) && <button type="button" className="eat-clean-button eat-clean-button--danger" onClick={() => onCancel(order)} disabled={submitting}>Hủy đơn</button>}</aside></div></div>
+  const statusFlow: EatCleanOrder['status'][] = ['confirmed', 'preparing', 'ready', 'assigned', 'picked-up', 'delivering', 'arrived', 'delivered']
+  const currentIndex = statusFlow.indexOf(order.status)
+  const steps = order.timeline?.length ? order.timeline : statusFlow.map((status) => ({ status, label: EAT_CLEAN_STATUS_LABELS[status], completed: currentIndex >= 0 && statusFlow.indexOf(status) <= currentIndex, at: status === 'confirmed' ? order.createdAt : undefined }))
+  return (
+    <div className="eat-clean-order-detail" data-testid="eat-clean-order-detail">
+      <section className="eat-clean-order-hero"><div><span>ĐƠN {order.code}</span><h1>{EAT_CLEAN_STATUS_LABELS[order.status]}</h1><p>Cập nhật lần cuối: {formatEatCleanDate(order.updatedAt ?? order.createdAt)}</p></div><EatCleanStatusBadge status={order.status} /></section>
+      {order.status !== 'cancelled' && <EatCleanTrackingPanel key={order.id} order={order} />}
+      <div className="eat-clean-order-detail__grid">
+        <div className="eat-clean-stack">
+          <section className="eat-clean-card"><h2>Hành trình đơn</h2><div className="eat-clean-timeline">{order.status === 'cancelled' ? <span className="is-cancelled"><XCircle size={19} /><strong>Đơn đã hủy</strong></span> : steps.map((step) => <span key={`${step.status}-${step.label}`} className={step.completed ? 'is-completed' : ''}><i>{step.completed ? <Check size={15} /> : null}</i><b><strong>{step.label}</strong><small>{step.at ? formatEatCleanDate(step.at) : 'Đang chờ'}</small></b></span>)}</div></section>
+          <section className="eat-clean-card"><h2>Món đã đặt</h2>{order.items.map((item) => <div className="eat-clean-order-line" key={item.mealId}><span><strong>{item.quantity}× {item.name}</strong><small>{formatEatCleanMoney(item.unitPrice)} / phần</small></span><b>{formatEatCleanMoney(item.lineTotal)}</b></div>)}</section>
+        </div>
+        <aside className="eat-clean-card eat-clean-summary">
+          <h2>Giao đến</h2>
+          <p className="eat-clean-address"><MapPin size={18} /><span><strong>{order.contact.fullName} · {order.contact.phone}</strong><small>{order.deliveryAddress.addressLine}, {order.deliveryAddress.city}</small><small>{order.deliveryAddress.deliveryMode === 'asap' ? 'Giao sớm nhất' : `${order.deliveryAddress.deliveryDate ?? ''} · ${order.deliveryAddress.deliveryWindow ?? ''}`}</small></span></p>
+          <dl><div><dt>Tiền món</dt><dd>{formatEatCleanMoney(order.subtotal)}</dd></div><div><dt>Phí giao</dt><dd>{formatEatCleanMoney(order.deliveryFee)}</dd></div></dl>
+          <div className="eat-clean-summary__total"><span>Tổng cộng</span><strong>{formatEatCleanMoney(order.total)}</strong></div>
+          {order.status === 'delivered' && !order.consumptionConfirmedAt && <div className="eat-clean-consumption"><label><span>Ước tính phần đã ăn</span><select value={consumedRatio} onChange={(event) => setConsumedRatio(Number(event.target.value) as 25 | 50 | 75 | 100)}><option value={25}>25%</option><option value={50}>50%</option><option value={75}>75%</option><option value={100}>100%</option></select></label><button type="button" className="eat-clean-button eat-clean-button--primary" onClick={() => onConfirmConsumption(order, consumedRatio)} disabled={submitting}><UtensilsCrossed size={18} /> Ghi vào nhật ký</button></div>}
+          {order.consumptionConfirmedAt && <div className="eat-clean-confirmed"><BadgeCheck size={18} /><span>Đã ghi nhận vào nhật ký dinh dưỡng.</span></div>}
+          {order.canCancel && !['delivered', 'cancelled'].includes(order.status) && <button type="button" className="eat-clean-button eat-clean-button--danger" onClick={() => onCancel(order)} disabled={submitting}>Hủy đơn</button>}
+        </aside>
+      </div>
+    </div>
+  )
 }

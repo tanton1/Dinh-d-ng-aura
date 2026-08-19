@@ -1,5 +1,6 @@
 const { initializeApp } = require('firebase-admin/app')
 const { getAuth } = require('firebase-admin/auth')
+const { getDatabase } = require('firebase-admin/database')
 const { FieldValue, getFirestore } = require('firebase-admin/firestore')
 const { getMessaging } = require('firebase-admin/messaging')
 const { getStorage } = require('firebase-admin/storage')
@@ -24,7 +25,19 @@ const db = getFirestore(app, databaseId)
 const auth = getAuth(app)
 const messaging = getMessaging(app)
 const storage = getStorage(app)
-const assignableRoles = new Set(['student', 'coach', 'editor', 'admin', 'super_admin'])
+function configuredRealtimeDatabase() {
+  let databaseUrl = process.env.FIREBASE_DATABASE_URL || ''
+  if (!databaseUrl && process.env.FIREBASE_CONFIG) {
+    try {
+      databaseUrl = JSON.parse(process.env.FIREBASE_CONFIG).databaseURL || ''
+    } catch {
+      databaseUrl = ''
+    }
+  }
+  return databaseUrl ? getDatabase(app, databaseUrl) : null
+}
+const realtimeDb = configuredRealtimeDatabase()
+const assignableRoles = new Set(['student', 'coach', 'editor', 'shipper', 'admin', 'super_admin'])
 const privilegedAdminRoles = new Set(['admin', 'super_admin'])
 const academyStaffRoles = new Set(['editor', 'admin', 'super_admin'])
 const coachingStaffRoles = new Set(['coach', 'admin', 'super_admin'])
@@ -84,7 +97,7 @@ setGlobalOptions({ region: 'asia-southeast1', maxInstances: 3 })
 
 Object.assign(exports, createNutritionFunctions({ app, db }))
 Object.assign(exports, createGenerativeAiFunctions({ db }))
-Object.assign(exports, createEatCleanFunctions({ db, onCall, requireTrustedAdmin, logger }))
+Object.assign(exports, createEatCleanFunctions({ db, realtimeDb, onCall, requireTrustedAdmin, logger }))
 
 // Backend invariant for onboarding profiles. This also protects members who
 // finish onboarding from an older cached PWA bundle that submitted null for

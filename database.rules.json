@@ -1,0 +1,13 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "eatCleanLiveLocations": {
+      "$orderId": {
+        ".read": false,
+        ".write": false,
+        ".indexOn": ["shipperId", "customerId", "updatedAt"]
+      }
+    }
+  }
+}

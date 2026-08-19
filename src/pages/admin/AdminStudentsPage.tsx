@@ -153,7 +153,7 @@ export default function AdminStudentsPage({
   onRetry,
   initialQuery = '',
 }: AdminStudentsPageProps) {
-  const fallbackCandidates = useMemo(() => students.filter((student) => student.role !== 'admin' && student.role !== 'super_admin'), [students])
+  const fallbackCandidates = useMemo(() => students.filter((student) => !['shipper', 'admin', 'super_admin'].includes(student.role)), [students])
   const [directoryClients, setDirectoryClients] = useState<PtClientDirectoryRecord[] | null>(null)
   const [profiles, setProfiles] = useState<Record<string, PtClientProfile>>({})
   const [profilesLoading, setProfilesLoading] = useState(false)

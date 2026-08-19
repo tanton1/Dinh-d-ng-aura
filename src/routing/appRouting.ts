@@ -42,6 +42,7 @@ const validViews: ViewId[] = [
   'progress-photo-studio',
   'profile',
   'workout',
+  'delivery',
   ...adminViews,
 ]
 

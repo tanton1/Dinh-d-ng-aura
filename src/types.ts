@@ -2,7 +2,17 @@ import type { ProgressRecord, Macros } from './types/ptOperations'
 
 export type AppMode = 'student' | 'admin'
 
-export type UserRole = 'student' | 'coach' | 'editor' | 'admin' | 'super_admin' | 'trainer' | 'sales' | 'manager' | 'user'
+export type UserRole =
+  | 'student'
+  | 'coach'
+  | 'trainer'
+  | 'sales'
+  | 'manager'
+  | 'editor'
+  | 'shipper'
+  | 'admin'
+  | 'super_admin'
+  | 'user'
 
 export interface AppUser {
   uid: string
@@ -150,6 +160,7 @@ export type StudentView =
   | 'progress-photo-studio'
   | 'profile'
   | 'workout'
+  | 'delivery'
 
 export type AdminView =
   | 'admin-dashboard'

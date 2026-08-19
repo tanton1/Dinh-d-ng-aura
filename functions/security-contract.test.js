@@ -5,6 +5,7 @@ const { test } = require('node:test')
 
 const repositoryRoot = join(__dirname, '..')
 const rules = readFileSync(join(repositoryRoot, 'firestore.rules'), 'utf8')
+const databaseRules = readFileSync(join(repositoryRoot, 'database.rules.json'), 'utf8')
 const functionsSource = readFileSync(join(__dirname, 'index.js'), 'utf8')
 const authSource = readFileSync(join(repositoryRoot, 'src', 'contexts', 'AuthContext.tsx'), 'utf8')
 const authOriginSource = readFileSync(join(repositoryRoot, 'src', 'services', 'authOriginService.ts'), 'utf8')
@@ -23,10 +24,26 @@ test('profile rules prevent client role and membership changes', () => {
 
 test('privileged rules require matching token and stored roles', () => {
   assert.match(rules, /currentUser\(\)\.get\('role', 'student'\) == authRole\(\)/)
-  assert.match(rules, /match \/system\/\{document=\*\*\}[\s\S]*?allow read, write: if isAdmin\(\)/)
+  assert.match(rules, /match \/system\/\{document\}[\s\S]*?allow read: if isAdmin\(\)/)
+  assert.match(rules, /match \/system\/\{document\}\/\{nested=\*\*\}[\s\S]*?allow read, write: if isAdmin\(\)/)
   assert.doesNotMatch(rules, /match \/system\/\{document=\*\*\}[\s\S]*?allow read, write: if true/)
   assert.match(functionsSource, /function hasTrustedRole\(request, profile, allowedRoles\)/)
   assert.match(functionsSource, /profile\?\.role === tokenRole/)
+})
+
+test('shipper is assignable without receiving admin privileges', () => {
+  assert.match(functionsSource, /assignableRoles = new Set\(\[[^\]]*'shipper'/)
+  assert.doesNotMatch(functionsSource, /privilegedAdminRoles = new Set\(\[[^\]]*'shipper'/)
+  assert.doesNotMatch(functionsSource, /academyStaffRoles = new Set\(\[[^\]]*'shipper'/)
+  assert.match(rules, /match \/eatCleanDeliveries\/\{orderId\}[\s\S]*?allow read, create, update, delete: if false/)
+  assert.match(databaseRules, /"\.read": false/)
+  assert.doesNotMatch(databaseRules, /auth\.token\.role/)
+})
+
+test('Eat Clean config writes cannot bypass callable readiness and revision guards', () => {
+  assert.match(rules, /match \/system\/eat_clean_config[\s\S]*?allow write: if false/)
+  assert.match(rules, /match \/system\/\{document\}[\s\S]*?allow write: if isAdmin\(\) && document != 'eat_clean_config'/)
+  assert.match(rules, /match \/eatCleanQuoteRateLimits\/\{userIdHash\}[\s\S]*?allow read, write: if false/)
 })
 
 test('meal reviews and notifications are owner scoped', () => {
@@ -86,7 +103,7 @@ test('client incident reporting is bounded, validated and rate limited', () => {
 })
 
 test('push admin overview is privileged, aggregate-only and serializes timestamps', () => {
-  const overviewSource = functionsSource.match(/exports\.getPushAdminOverview = onCall[\s\S]*?\n\}\)\n\nexports\.dispatchPushBroadcast/)?.[0] ?? ''
+  const overviewSource = functionsSource.match(/exports\.getPushAdminOverview = onCall[\s\S]*?\r?\n\}\)\r?\n\r?\nexports\.dispatchPushBroadcast/)?.[0] ?? ''
   assert.match(overviewSource, /hasTrustedRole\(request, actorSnapshot\.data\(\), privilegedAdminRoles\)/)
   assert.match(overviewSource, /activeUsers: activeProfiles\.size/)
   assert.match(overviewSource, /webPushAccepted24h/)
@@ -99,7 +116,7 @@ test('push admin overview is privileged, aggregate-only and serializes timestamp
 })
 
 test('all-member push broadcasts exclude staff while explicit targets stay supported', () => {
-  const dispatchSource = functionsSource.match(/exports\.dispatchPushBroadcast = onCall[\s\S]*?\n\}\)\n\nfunction requireDocumentId/)?.[0] ?? ''
+  const dispatchSource = functionsSource.match(/exports\.dispatchPushBroadcast = onCall[\s\S]*?\r?\n\}\)\r?\n\r?\nfunction requireDocumentId/)?.[0] ?? ''
   assert.match(dispatchSource, /invoker:\s*'public'/)
   assert.match(dispatchSource, /const actorId = requireCaller\(request\)/)
   assert.match(dispatchSource, /hasTrustedRole\(request, actor, privilegedAdminRoles\)/)
@@ -111,7 +128,7 @@ test('all-member push broadcasts exclude staff while explicit targets stay suppo
 })
 
 test('push preference bypass is restricted to an admin testing their own device', () => {
-  const dispatchSource = functionsSource.match(/exports\.dispatchPushBroadcast = onCall[\s\S]*?\n\}\)\n\nfunction requireDocumentId/)?.[0] ?? ''
+  const dispatchSource = functionsSource.match(/exports\.dispatchPushBroadcast = onCall[\s\S]*?\r?\n\}\)\r?\n\r?\nfunction requireDocumentId/)?.[0] ?? ''
   assert.match(dispatchSource, /const isSelfDeviceTest = request\.data\?\.respectCategoryPreferences === false/)
   assert.match(dispatchSource, /requestedIds\.length === 1/)
   assert.match(dispatchSource, /requestedIds\[0\] === actorId/)

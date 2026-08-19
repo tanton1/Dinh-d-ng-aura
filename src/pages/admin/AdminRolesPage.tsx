@@ -33,7 +33,18 @@ interface AdminRolesPageProps {
   loading?: boolean
 }
 
-const roles: UserRole[] = ['student', 'coach', 'trainer', 'sales', 'manager', 'editor', 'admin', 'super_admin', 'user']
+const roles: UserRole[] = [
+  'student',
+  'coach',
+  'trainer',
+  'sales',
+  'manager',
+  'editor',
+  'shipper',
+  'admin',
+  'super_admin',
+  'user',
+]
 
 const roleMeta: Record<UserRole, { label: string; scope: string; tone: string }> = {
   student: { label: 'Học viên', scope: 'Truy cập nội dung học tập', tone: '#797988' },
@@ -42,6 +53,7 @@ const roleMeta: Record<UserRole, { label: string; scope: string; tone: string }>
   sales: { label: 'Kinh doanh / Sales', scope: 'Hợp đồng, báo giá & tư vấn', tone: '#f59e0b' },
   manager: { label: 'Quản lý Chi nhánh', scope: 'Vận hành cơ sở & nhân sự', tone: '#8b5cf6' },
   editor: { label: 'Biên tập viên', scope: 'Khóa học, media & thư viện', tone: '#3c80bd' },
+  shipper: { label: 'Shipper Eat Clean', scope: 'Nhận chuyến, cập nhật GPS và giao món', tone: '#ed7a36' },
   admin: { label: 'Administrator', scope: 'Quản trị vận hành', tone: 'var(--aura-pink)' },
   super_admin: { label: 'Super Administrator', scope: 'Toàn quyền hệ thống', tone: 'var(--aura-pink-neon)' },
   user: { label: 'Khách vãng lai', scope: 'Trải nghiệm cơ bản', tone: '#6b7280' },

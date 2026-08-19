@@ -69,6 +69,7 @@ const SchedulePage = lazyWithRetry(() => import('./pages/student/SchedulePage'))
 const WorkoutPage = lazyWithRetry(() => import('./pages/student/WorkoutPage'))
 const EatCleanPage = lazyWithRetry(() => import('./features/eat-clean/EatCleanPage'))
 const AdminEatCleanPage = lazyWithRetry(() => import('./features/eat-clean/admin/AdminEatCleanPage'))
+const DeliveryPage = lazyWithRetry(() => import('./features/delivery/DeliveryPage'))
 
 // Gym PT Operations & Food Database Views
 const AdminPTStudentManagement = lazyWithRetry(() => import('./components/admin/pt/StudentManagement'))
@@ -93,6 +94,7 @@ const roleLabels: Record<UserRole, string> = {
   sales: 'Kinh doanh / Sales',
   manager: 'Quản lý Chi nhánh',
   editor: 'Biên tập viên',
+  shipper: 'Shipper Eat Clean',
   admin: 'Administrator',
   super_admin: 'Super Administrator',
   user: 'Khách hàng',
@@ -153,7 +155,7 @@ function AuraApplication() {
     }
   }, [user?.uid])
 
-  const isOnboardingDone = !forceOnboarding && Boolean(
+  const isOnboardingDone = role === 'shipper' || !forceOnboarding && Boolean(
     profile?.onboardingCompleted ||
     profile?.nutritionProfile ||
     localNutritionProfile ||
@@ -375,7 +377,16 @@ function AuraApplication() {
   useEffect(() => {
     const requiredPermission = adminViewPermissions[view]
     const outsideAdminBoundary = adminViews.includes(view) && !canAccessAdmin
-    if (!loading && (outsideAdminBoundary || (requiredPermission && !hasPermission(role, requiredPermission)))) goTo('home')
+    if (loading) return
+    if (role === 'shipper' && view !== 'delivery') {
+      goTo('delivery')
+      return
+    }
+    if (view === 'delivery' && role !== 'shipper') {
+      goTo('home')
+      return
+    }
+    if (outsideAdminBoundary || (requiredPermission && !hasPermission(role, requiredPermission))) goTo('home')
   }, [canAccessAdmin, loading, role, view])
 
   const studentCourses = useMemo(() => studentCourseData.courses
@@ -786,6 +797,7 @@ function AuraApplication() {
           .map((item) => item.trim())
           .filter(Boolean)
         return <EatCleanPage
+          key={user?.uid ?? 'demo'}
           route={eatCleanRoute}
           onNavigate={navigateEatCleanRoute}
           ownerId={user?.uid ?? 'demo'}
@@ -819,6 +831,7 @@ function AuraApplication() {
           }
         }} />
       }
+      case 'delivery': return <DeliveryPage driverId={user?.uid ?? 'demo-shipper'} displayName={effectiveDisplayName ?? 'Shipper Aura'} onSignOut={signOut} />
       case 'admin-dashboard': return <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
       case 'admin-courses': return <AdminCoursesPage
         courseItems={adminCourseData.courses}

@@ -10,6 +10,7 @@ import {
   ShieldAlert,
   ShoppingBag,
   Sparkles,
+  MapPinned,
   UtensilsCrossed,
   WalletCards,
 } from 'lucide-react'
@@ -35,9 +36,10 @@ import { EatCleanInventoryTab } from './components/EatCleanInventoryTab'
 import { EatCleanMenuTab } from './components/EatCleanMenuTab'
 import { EatCleanOperationsTab } from './components/EatCleanOperationsTab'
 import { EatCleanOrdersTab } from './components/EatCleanOrdersTab'
+import { EatCleanDispatchTab } from './components/EatCleanDispatchTab'
 import './AdminEatCleanPage.css'
 
-export type EatCleanAdminTab = 'orders' | 'menu' | 'inventory' | 'operations'
+export type EatCleanAdminTab = 'dispatch' | 'orders' | 'menu' | 'inventory' | 'operations'
 
 export interface AdminEatCleanPageProps {
   currentRole: UserRole
@@ -46,6 +48,7 @@ export interface AdminEatCleanPageProps {
 }
 
 const TABS: Array<{ id: EatCleanAdminTab; label: string; icon: typeof ShoppingBag }> = [
+  { id: 'dispatch', label: 'Điều phối', icon: MapPinned },
   { id: 'orders', label: 'Đơn hàng', icon: ShoppingBag },
   { id: 'menu', label: 'Thực đơn', icon: UtensilsCrossed },
   { id: 'inventory', label: 'Tồn kho', icon: Boxes },
@@ -56,7 +59,7 @@ function canManageEatClean(role: UserRole): role is Extract<UserRole, 'admin' | 
   return role === 'admin' || role === 'super_admin'
 }
 
-export default function AdminEatCleanPage({ currentRole, initialTab = 'orders', className = '' }: AdminEatCleanPageProps) {
+export default function AdminEatCleanPage({ currentRole, initialTab = 'dispatch', className = '' }: AdminEatCleanPageProps) {
   const [activeTab, setActiveTab] = useState<EatCleanAdminTab>(initialTab)
   const [data, setData] = useState<EatCleanAdminData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -271,6 +274,7 @@ export default function AdminEatCleanPage({ currentRole, initialTab = 'orders', 
           className="eat-clean-tab-panel"
         >
           {activeTab === 'orders' && <EatCleanOrdersTab orders={data.orders} onUpdateOrder={handleUpdateOrder} />}
+          {activeTab === 'dispatch' && <EatCleanDispatchTab />}
           {activeTab === 'menu' && <EatCleanMenuTab meals={data.meals} deliverySlots={data.config.deliverySlots} onSaveMeal={handleSaveMeal} />}
           {activeTab === 'inventory' && <EatCleanInventoryTab inventory={data.inventory} meals={data.meals} onSaveInventory={handleSaveInventory} />}
           {activeTab === 'operations' && <EatCleanOperationsTab config={data.config} onSaveConfig={handleSaveConfig} />}

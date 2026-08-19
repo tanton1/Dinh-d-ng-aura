@@ -1,6 +1,7 @@
-const { createHash } = require('node:crypto')
-const { FieldValue, Timestamp } = require('firebase-admin/firestore')
+const { createHash, createHmac, timingSafeEqual } = require('node:crypto')
+const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
+const { defineSecret } = require('firebase-functions/params')
 
 const CITY_CODE = 'da-nang'
 const CITY_NAME = 'Đà Nẵng'
@@ -8,6 +9,49 @@ const CURRENCY = 'VND'
 const PAYMENT_METHOD = 'COD'
 const SCHEMA_VERSION = 1
 const QUOTE_TTL_MS = 10 * 60 * 1000
+const MAX_SAVED_ADDRESSES = 20
+const LIVE_LOCATION_STALE_MS = 2 * 60 * 1000
+const DELIVERY_PIN_TOLERANCE_METERS = 250
+const QUOTE_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000
+const QUOTE_RATE_LIMIT_MAX = 20
+const DELIVERY_OTP_MAX_ATTEMPTS = 5
+const DELIVERY_OTP_LOCK_MS = 15 * 60 * 1000
+const bindEatCleanSecrets = process.env.BIND_EAT_CLEAN_SECRETS === 'true'
+// Do not register Secret Manager parameters during the compatibility rollout.
+// Firebase CLI prompts for every declared secret even when no callable binds it.
+const googleMapsApiKeySecret = bindEatCleanSecrets ? defineSecret('GOOGLE_MAPS_API_KEY') : null
+const deliveryOtpSecret = bindEatCleanSecrets ? defineSecret('DELIVERY_OTP_SECRET') : null
+const DELIVERY_STATUSES = new Set([
+  'awaiting_kitchen',
+  'awaiting_assignment',
+  'assigned',
+  'accepted',
+  'at_store',
+  'picked_up',
+  'arrived',
+  'delivered',
+  'cancelled',
+])
+const DELIVERY_TRANSITIONS = Object.freeze({
+  awaiting_kitchen: new Set(['awaiting_assignment', 'cancelled']),
+  awaiting_assignment: new Set(['assigned', 'cancelled']),
+  assigned: new Set(['accepted', 'awaiting_assignment', 'cancelled']),
+  accepted: new Set(['at_store', 'cancelled']),
+  at_store: new Set(['picked_up', 'cancelled']),
+  picked_up: new Set(['arrived', 'cancelled']),
+  arrived: new Set(['delivered', 'cancelled']),
+  delivered: new Set(),
+  cancelled: new Set(),
+})
+const ACTIVE_DELIVERY_STATUSES = Object.freeze([
+  'awaiting_kitchen',
+  'awaiting_assignment',
+  'assigned',
+  'accepted',
+  'at_store',
+  'picked_up',
+  'arrived',
+])
 
 const ALLERGEN_IDS = Object.freeze({
   FISH: 'fish',
@@ -91,6 +135,7 @@ const DEFAULT_CONFIG = Object.freeze({
   schemaVersion: SCHEMA_VERSION,
   enabled: false,
   acceptingOrders: false,
+  asapEnabled: false,
   cityCode: CITY_CODE,
   cityName: CITY_NAME,
   currency: CURRENCY,
@@ -105,6 +150,35 @@ const DEFAULT_CONFIG = Object.freeze({
   maxItemQuantity: 20,
   maxOrderQuantity: 40,
   supportPhone: '',
+  store: {
+    label: 'Aura Eat Clean',
+    addressLine: '',
+    placeId: '',
+    latitude: null,
+    longitude: null,
+  },
+  distancePricing: {
+    enabled: false,
+    provider: 'google-routes',
+    maxDistanceMeters: 10000,
+    distanceRoundingMeters: 100,
+    feeRoundingVnd: 1000,
+    feeRuleVersion: 'danang-v1',
+    serviceAreaPolygon: [],
+    tiers: [
+      { upToMeters: 2000, baseFee: 15000, perKm: 0 },
+      { upToMeters: 5000, baseFee: 15000, perKm: 5000 },
+      { upToMeters: 10000, baseFee: 30000, perKm: 6000 },
+    ],
+  },
+  sla: {
+    confirmationMinutes: 3,
+    preparationMinutes: 25,
+    assignmentMinutes: 5,
+    pickupMinutes: 10,
+    travelBufferMinutes: 5,
+    lateGraceMinutes: 5,
+  },
   deliveryZones: [
     { id: 'hai-chau', label: 'Hải Châu', fee: 20000, enabled: true },
     { id: 'thanh-khe', label: 'Thanh Khê', fee: 20000, enabled: true },
@@ -490,6 +564,96 @@ function normalizeSlot(value, index) {
   return { id, label, start, end, enabled: value.enabled !== false }
 }
 
+function nullableCoordinate(value, label, minimum, maximum) {
+  if (value === undefined || value === null || value === '') return null
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum || value > maximum) {
+    throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
+  }
+  return Math.round(value * 1000000) / 1000000
+}
+
+function normalizeLatLng(value, label = 'Tọa độ', { required = true } = {}) {
+  const latitude = nullableCoordinate(value?.latitude ?? value?.lat, `${label} vĩ độ`, -90, 90)
+  const longitude = nullableCoordinate(value?.longitude ?? value?.lng, `${label} kinh độ`, -180, 180)
+  if ((latitude === null) !== (longitude === null) || (required && latitude === null)) {
+    throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
+  }
+  return { latitude, longitude }
+}
+
+function normalizeFeeTier(value, index, previousLimit = 0) {
+  if (!value || typeof value !== 'object') {
+    throw new HttpsError('invalid-argument', `Bậc phí giao hàng ${index + 1} không hợp lệ.`)
+  }
+  const upToMeters = finiteInteger(value.upToMeters, `Giới hạn bậc phí ${index + 1}`, previousLimit + 1, 100000)
+  return {
+    upToMeters,
+    baseFee: finiteInteger(value.baseFee, `Phí nền bậc ${index + 1}`, 0, 1000000),
+    perKm: finiteInteger(value.perKm, `Phí mỗi km bậc ${index + 1}`, 0, 1000000),
+  }
+}
+
+function normalizeDistancePricing(value = {}) {
+  const source = value && typeof value === 'object' ? value : {}
+  const tierSource = source.tiers ?? DEFAULT_CONFIG.distancePricing.tiers
+  if (!Array.isArray(tierSource) || tierSource.length < 1 || tierSource.length > 10) {
+    throw new HttpsError('invalid-argument', 'Bảng phí theo khoảng cách không hợp lệ.')
+  }
+  const tiers = []
+  tierSource.forEach((tier, index) => tiers.push(normalizeFeeTier(tier, index, tiers[index - 1]?.upToMeters || 0)))
+  const maxDistanceMeters = finiteInteger(
+    source.maxDistanceMeters ?? DEFAULT_CONFIG.distancePricing.maxDistanceMeters,
+    'Khoảng cách giao tối đa',
+    500,
+    100000,
+  )
+  if (tiers[tiers.length - 1].upToMeters !== maxDistanceMeters) {
+    throw new HttpsError('invalid-argument', 'Bậc phí cuối phải kết thúc đúng tại khoảng cách giao tối đa.')
+  }
+  const polygonSource = source.serviceAreaPolygon ?? []
+  if (!Array.isArray(polygonSource) || polygonSource.length > 100) {
+    throw new HttpsError('invalid-argument', 'Vùng giao hàng không hợp lệ.')
+  }
+  const serviceAreaPolygon = polygonSource.map((point, index) => normalizeLatLng(point, `Điểm vùng giao ${index + 1}`))
+  if (serviceAreaPolygon.length > 0 && serviceAreaPolygon.length < 3) {
+    throw new HttpsError('invalid-argument', 'Vùng giao hàng cần ít nhất 3 điểm.')
+  }
+  return {
+    enabled: source.enabled === true,
+    provider: 'google-routes',
+    maxDistanceMeters,
+    distanceRoundingMeters: finiteInteger(source.distanceRoundingMeters ?? DEFAULT_CONFIG.distancePricing.distanceRoundingMeters, 'Bước làm tròn khoảng cách', 10, 1000),
+    feeRoundingVnd: finiteInteger(source.feeRoundingVnd ?? DEFAULT_CONFIG.distancePricing.feeRoundingVnd, 'Bước làm tròn phí', 100, 10000),
+    feeRuleVersion: boundedString(source.feeRuleVersion ?? DEFAULT_CONFIG.distancePricing.feeRuleVersion, 'Phiên bản bảng phí', 60),
+    serviceAreaPolygon,
+    tiers,
+  }
+}
+
+function normalizeStoreConfig(value = {}) {
+  const source = value && typeof value === 'object' ? value : {}
+  const coordinates = normalizeLatLng(source, 'Tọa độ bếp', { required: false })
+  return {
+    label: boundedString(source.label ?? DEFAULT_CONFIG.store.label, 'Tên bếp', 100),
+    addressLine: boundedString(source.addressLine ?? '', 'Địa chỉ bếp', 240, { required: false }),
+    placeId: boundedString(source.placeId ?? '', 'Google Place ID của bếp', 240, { required: false }),
+    ...coordinates,
+  }
+}
+
+function normalizeSlaConfig(value = {}) {
+  const source = value && typeof value === 'object' ? value : {}
+  const fallback = DEFAULT_CONFIG.sla
+  return {
+    confirmationMinutes: finiteInteger(source.confirmationMinutes ?? fallback.confirmationMinutes, 'SLA xác nhận', 1, 120),
+    preparationMinutes: finiteInteger(source.preparationMinutes ?? fallback.preparationMinutes, 'SLA chuẩn bị', 1, 240),
+    assignmentMinutes: finiteInteger(source.assignmentMinutes ?? fallback.assignmentMinutes, 'SLA gán shipper', 1, 120),
+    pickupMinutes: finiteInteger(source.pickupMinutes ?? fallback.pickupMinutes, 'SLA lấy món', 1, 120),
+    travelBufferMinutes: finiteInteger(source.travelBufferMinutes ?? fallback.travelBufferMinutes, 'Đệm giao hàng', 0, 120),
+    lateGraceMinutes: finiteInteger(source.lateGraceMinutes ?? fallback.lateGraceMinutes, 'Ngưỡng báo trễ', 0, 120),
+  }
+}
+
 function normalizeEatCleanConfig(value = {}) {
   const zonesSource = value.deliveryZones ?? DEFAULT_CONFIG.deliveryZones
   const slotsSource = value.deliverySlots ?? DEFAULT_CONFIG.deliverySlots
@@ -512,6 +676,7 @@ function normalizeEatCleanConfig(value = {}) {
     schemaVersion: SCHEMA_VERSION,
     enabled: typeof value.enabled === 'boolean' ? value.enabled : DEFAULT_CONFIG.enabled,
     acceptingOrders: typeof value.acceptingOrders === 'boolean' ? value.acceptingOrders : DEFAULT_CONFIG.acceptingOrders,
+    asapEnabled: typeof value.asapEnabled === 'boolean' ? value.asapEnabled : DEFAULT_CONFIG.asapEnabled,
     cityCode: CITY_CODE,
     cityName: CITY_NAME,
     currency: CURRENCY,
@@ -526,6 +691,9 @@ function normalizeEatCleanConfig(value = {}) {
     maxItemQuantity: finiteInteger(value.maxItemQuantity ?? DEFAULT_CONFIG.maxItemQuantity, 'Số lượng tối đa mỗi món', 1, 100),
     maxOrderQuantity: finiteInteger(value.maxOrderQuantity ?? DEFAULT_CONFIG.maxOrderQuantity, 'Tổng số món tối đa', 1, 200),
     supportPhone: boundedString(value.supportPhone ?? DEFAULT_CONFIG.supportPhone, 'Số hỗ trợ', 30, { required: false }),
+    store: normalizeStoreConfig(value.store ?? DEFAULT_CONFIG.store),
+    distancePricing: normalizeDistancePricing(value.distancePricing ?? DEFAULT_CONFIG.distancePricing),
+    sla: normalizeSlaConfig(value.sla ?? DEFAULT_CONFIG.sla),
     deliveryZones,
     deliverySlots,
   }
@@ -571,6 +739,7 @@ function normalizeMealInput(value, fallbackId = '') {
     fat: finiteNumber(value.fat, 'Chất béo', 0, 500),
     fiber: optionalNumber(value.fiber, 'Chất xơ', 0, 200),
     servingGrams: optionalNumber(value.servingGrams, 'Khối lượng khẩu phần', 0, 5000),
+    preparationMinutes: optionalNumber(value.preparationMinutes, 'Thời gian chuẩn bị', 0, 240, DEFAULT_CONFIG.sla.preparationMinutes),
     ingredients: cleanStringList(value.ingredients, 'Nguyên liệu', 60, 120),
     dietaryTags: cleanStringList(value.dietaryTags, 'Nhãn chế độ ăn', 20, 60).map(normalizedKey).filter(Boolean),
     goalTags: cleanStringList(value.goalTags, 'Nhãn mục tiêu', 12, 60).map(normalizedKey).filter(Boolean),
@@ -613,12 +782,19 @@ function normalizeCustomer(value) {
   if (!/^(\+?84|0)\d{9,10}$/.test(phone)) {
     throw new HttpsError('invalid-argument', 'Số điện thoại Việt Nam không hợp lệ.')
   }
+  const coordinates = normalizeLatLng(value, 'Tọa độ giao hàng', { required: false })
   return {
-    name: boundedString(value.name, 'Tên người nhận', 100),
+    name: boundedString(value.name ?? value.fullName, 'Tên người nhận', 100),
     phone,
+    addressId: value.addressId ? documentId(value.addressId, 'Mã địa chỉ') : '',
+    addressLabel: boundedString(value.addressLabel ?? value.label, 'Tên gợi nhớ địa chỉ', 40, { required: false }),
     addressLine: boundedString(value.addressLine, 'Địa chỉ giao hàng', 240),
     ward: boundedString(value.ward, 'Phường/xã', 100, { required: false }),
     districtId: normalizedKey(boundedString(value.districtId || value.district, 'Khu vực giao hàng', 100)),
+    district: boundedString(value.district ?? value.districtId, 'Quận/huyện', 100, { required: false }),
+    placeId: boundedString(value.placeId, 'Google Place ID', 240, { required: false }),
+    deliveryNote: boundedString(value.deliveryNote ?? value.entranceNote, 'Chỉ dẫn giao hàng', 300, { required: false }),
+    ...coordinates,
     cityCode: CITY_CODE,
     cityName: CITY_NAME,
   }
@@ -630,20 +806,34 @@ function normalizeOrderRequest(value, config) {
   if (paymentMethod !== PAYMENT_METHOD) {
     throw new HttpsError('failed-precondition', 'Eat Clean hiện chỉ hỗ trợ thanh toán COD.')
   }
-  const serviceDate = dateKey(value.serviceDate)
-  validateServiceDate(serviceDate, config)
-  const deliverySlotId = normalizedKey(boundedString(value.deliverySlotId, 'Khung giờ giao', 60))
-  const deliverySlot = config.deliverySlots.find((item) => item.id === deliverySlotId && item.enabled)
+  const deliveryMode = value.deliveryMode === 'asap' || value.deliverySlotId === 'asap' ? 'asap' : 'scheduled'
+  if (deliveryMode === 'asap' && !config.asapEnabled) {
+    throw new HttpsError('failed-precondition', 'Bếp hiện chưa nhận đơn giao sớm nhất.')
+  }
+  const serviceDate = deliveryMode === 'asap' ? todayInVietnam() : dateKey(value.serviceDate)
+  if (deliveryMode === 'scheduled') validateServiceDate(serviceDate, config)
+  const deliverySlotId = deliveryMode === 'asap'
+    ? 'asap'
+    : normalizedKey(boundedString(value.deliverySlotId, 'Khung giờ giao', 60))
+  const deliverySlot = deliveryMode === 'asap'
+    ? { id: 'asap', label: 'Giao sớm nhất', start: '', end: '', enabled: true }
+    : config.deliverySlots.find((item) => item.id === deliverySlotId && item.enabled)
   if (!deliverySlot) throw new HttpsError('failed-precondition', 'Khung giờ giao không còn phục vụ.')
-  const customer = normalizeCustomer(value.customer)
+  const customer = normalizeCustomer({ ...(value.deliveryAddress || {}), ...(value.customer || {}) })
   const deliveryZone = config.deliveryZones.find((item) => item.id === customer.districtId && item.enabled)
-  if (!deliveryZone) throw new HttpsError('failed-precondition', 'Địa chỉ nằm ngoài khu vực giao hàng tại Đà Nẵng.')
+  if (!config.distancePricing.enabled && !deliveryZone) {
+    throw new HttpsError('failed-precondition', 'Địa chỉ nằm ngoài khu vực giao hàng tại Đà Nẵng.')
+  }
+  if (config.distancePricing.enabled && (customer.latitude === null || customer.longitude === null)) {
+    throw new HttpsError('failed-precondition', 'Vui lòng xác nhận vị trí giao hàng trên bản đồ trước khi báo giá.')
+  }
   return {
     items: normalizeLineItems(value.items, config),
+    deliveryMode,
     serviceDate,
     deliverySlotId,
     deliverySlot,
-    deliveryZone,
+    deliveryZone: deliveryZone || null,
     customer,
     paymentMethod,
     note: boundedString(value.note, 'Ghi chú', 500, { required: false }),
@@ -663,11 +853,404 @@ function availableInventory(meal, inventory) {
   return Math.max(0, capacity - reserved - sold)
 }
 
-function calculateQuote({ config, request, mealRecords, inventoryRecords }) {
+function normalizeSavedAddress(value, fallbackId = '') {
+  if (!value || typeof value !== 'object') throw new HttpsError('invalid-argument', 'Địa chỉ không hợp lệ.')
+  const customer = normalizeCustomer({
+    ...value,
+    name: value.fullName ?? value.name,
+    districtId: value.districtId ?? value.district,
+  })
+  const coordinates = normalizeLatLng(value, 'Tọa độ địa chỉ')
+  const kind = ['home', 'work', 'other'].includes(value.kind) ? value.kind : 'other'
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: fallbackId ? documentId(fallbackId, 'Mã địa chỉ') : '',
+    kind,
+    label: boundedString(value.label, 'Tên gợi nhớ địa chỉ', 40),
+    fullName: customer.name,
+    phone: customer.phone,
+    addressLine: customer.addressLine,
+    ward: customer.ward,
+    district: customer.district,
+    districtId: customer.districtId,
+    cityCode: CITY_CODE,
+    cityName: CITY_NAME,
+    placeId: boundedString(value.placeId, 'Google Place ID', 240, { required: false }),
+    deliveryNote: boundedString(value.deliveryNote, 'Ghi chú giao hàng', 300, { required: false }),
+    ...coordinates,
+    isDefault: value.isDefault === true,
+  }
+}
+
+function pointInPolygon(point, polygon) {
+  if (!Array.isArray(polygon) || polygon.length < 3) return true
+  let inside = false
+  for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index++) {
+    const currentPoint = polygon[index]
+    const previousPoint = polygon[previous]
+    const crosses = ((currentPoint.latitude > point.latitude) !== (previousPoint.latitude > point.latitude))
+      && (point.longitude < ((previousPoint.longitude - currentPoint.longitude)
+        * (point.latitude - currentPoint.latitude)) / (previousPoint.latitude - currentPoint.latitude)
+        + currentPoint.longitude)
+    if (crosses) inside = !inside
+  }
+  return inside
+}
+
+function distanceBetweenCoordinates(left, right) {
+  const radians = (degrees) => degrees * Math.PI / 180
+  const earthRadiusMeters = 6371000
+  const latitudeDelta = radians(right.latitude - left.latitude)
+  const longitudeDelta = radians(right.longitude - left.longitude)
+  const value = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(radians(left.latitude)) * Math.cos(radians(right.latitude)) * Math.sin(longitudeDelta / 2) ** 2
+  return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value))
+}
+
+function roundedDistance(distanceMeters, roundingMeters = 100) {
+  return Math.ceil(distanceMeters / roundingMeters) * roundingMeters
+}
+
+function calculateDistanceDeliveryFee(distanceMeters, pricing) {
+  const roundedDistanceMeters = roundedDistance(distanceMeters, pricing.distanceRoundingMeters)
+  if (roundedDistanceMeters > pricing.maxDistanceMeters) {
+    throw new HttpsError('out-of-range', `Địa chỉ cách bếp quá ${Math.round(pricing.maxDistanceMeters / 1000)} km.`)
+  }
+  const tier = pricing.tiers.find((item) => roundedDistanceMeters <= item.upToMeters)
+  if (!tier) throw new HttpsError('failed-precondition', 'Không tìm thấy bậc phí phù hợp cho địa chỉ này.')
+  const tierIndex = pricing.tiers.indexOf(tier)
+  const previousLimit = tierIndex > 0 ? pricing.tiers[tierIndex - 1].upToMeters : 0
+  const rawFee = tier.baseFee + Math.max(0, roundedDistanceMeters - previousLimit) / 1000 * tier.perKm
+  const deliveryFee = Math.ceil(rawFee / pricing.feeRoundingVnd) * pricing.feeRoundingVnd
+  return { roundedDistanceMeters, baseDeliveryFee: deliveryFee, feeRuleVersion: pricing.feeRuleVersion }
+}
+
+function durationSeconds(value) {
+  const match = String(value || '').match(/^([0-9]+(?:\.[0-9]+)?)s$/)
+  return match ? Math.ceil(Number(match[1])) : 0
+}
+
+function secretValue(secretParameter, environmentNames) {
+  if (bindEatCleanSecrets) {
+    try {
+      const value = secretParameter.value()
+      if (value) return value
+    } catch {
+      // Feature remains fail-closed below. Legacy checkout never needs this value.
+    }
+  }
+  for (const name of environmentNames) {
+    if (process.env[name]) return process.env[name]
+  }
+  return ''
+}
+
+function mapsApiKey() {
+  return secretValue(googleMapsApiKeySecret, ['GOOGLE_MAPS_API_KEY', 'GOOGLE_MAPS_SERVER_API_KEY'])
+}
+
+function otpSecretValue() {
+  return secretValue(deliveryOtpSecret, ['DELIVERY_OTP_SECRET'])
+}
+
+function deliveryRuntimeReadiness(config, realtimeDb) {
+  const mapsKeyAvailable = mapsApiKey().length > 0
+  const storeCoordinateReady = Number.isFinite(config?.store?.latitude) && Number.isFinite(config?.store?.longitude)
+  const otpKeyAvailable = otpSecretValue().length >= 32
+  return {
+    secretBindingEnabled: bindEatCleanSecrets,
+    mapsKeyAvailable,
+    storeCoordinateReady,
+    distancePricingReady: mapsKeyAvailable && storeCoordinateReady,
+    otpKeyAvailable,
+    realtimeDatabaseReady: Boolean(realtimeDb),
+    dispatchReady: otpKeyAvailable && Boolean(realtimeDb),
+  }
+}
+
+function assertDeliveryConfigCanActivate(config, realtimeDb) {
+  const readiness = deliveryRuntimeReadiness(config, realtimeDb)
+  if (config.distancePricing.enabled && !readiness.distancePricingReady) {
+    throw new HttpsError('failed-precondition', 'Chưa thể bật phí theo km: cần tọa độ bếp và GOOGLE_MAPS_API_KEY hợp lệ.')
+  }
+  return readiness
+}
+
+function googleAddressText(value, maximum = 240) {
+  return typeof value === 'string' ? value.trim().slice(0, maximum) : ''
+}
+
+function googleAddressComponent(components, acceptedTypes) {
+  if (!Array.isArray(components)) return ''
+  const accepted = new Set(acceptedTypes)
+  const match = components.find((component) => Array.isArray(component?.types)
+    && component.types.some((type) => accepted.has(type)))
+  return googleAddressText(match?.longText ?? match?.long_name ?? match?.shortText ?? match?.short_name, 100)
+}
+
+function isDaNangGoogleAddress(components) {
+  if (!Array.isArray(components)) return false
+  const cityTypes = new Set(['administrative_area_level_1', 'locality'])
+  return components.some((component) => {
+    if (!Array.isArray(component?.types) || !component.types.some((type) => cityTypes.has(type))) return false
+    const value = normalizedKey(component.longText ?? component.long_name ?? component.shortText ?? component.short_name)
+    return value === 'da-nang' || value === 'thanh-pho-da-nang'
+  })
+}
+
+function canonicalGoogleDestination(value, provider) {
+  const location = value?.location || value?.geometry?.location || {}
+  const coordinates = normalizeLatLng({
+    latitude: location.latitude ?? location.lat,
+    longitude: location.longitude ?? location.lng,
+  }, 'Tọa độ địa chỉ Google')
+  const components = value?.addressComponents || value?.address_components || []
+  const formattedAddress = googleAddressText(value?.formattedAddress ?? value?.formatted_address)
+  if (!formattedAddress || !isDaNangGoogleAddress(components)) {
+    throw new HttpsError('out-of-range', 'Địa chỉ Google không thuộc khu vực Đà Nẵng.')
+  }
+  return {
+    provider,
+    placeId: googleAddressText(value?.id ?? value?.place_id, 240),
+    formattedAddress,
+    ward: googleAddressComponent(components, [
+      'administrative_area_level_3',
+      'sublocality_level_1',
+      'sublocality',
+    ]),
+    district: googleAddressComponent(components, [
+      'administrative_area_level_2',
+      'sublocality_level_1',
+    ]),
+    ...coordinates,
+  }
+}
+
+function assertSubmittedPinMatches(submitted, canonical, toleranceMeters = DELIVERY_PIN_TOLERANCE_METERS) {
+  const submittedCoordinates = normalizeLatLng(submitted, 'Tọa độ khách đã chọn')
+  const canonicalCoordinates = normalizeLatLng(canonical, 'Tọa độ Google')
+  const differenceMeters = distanceBetweenCoordinates(submittedCoordinates, canonicalCoordinates)
+  if (!Number.isFinite(differenceMeters) || differenceMeters > toleranceMeters) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Vị trí ghim không khớp với địa chỉ Google. Vui lòng chọn lại địa chỉ trên bản đồ.',
+    )
+  }
+  return Math.round(differenceMeters)
+}
+
+function verifiedCustomerFromDestination(customer, destination, now = new Date()) {
+  assertSubmittedPinMatches(customer, destination)
+  const canonicalDistrict = destination.district || customer.district
+  return {
+    ...customer,
+    addressLine: destination.formattedAddress,
+    ward: destination.ward || customer.ward,
+    district: canonicalDistrict,
+    districtId: normalizedKey(canonicalDistrict || customer.districtId),
+    placeId: destination.placeId || customer.placeId,
+    latitude: destination.latitude,
+    longitude: destination.longitude,
+    addressVerifiedAt: now.toISOString(),
+    addressProvider: destination.provider,
+  }
+}
+
+function createGoogleAddressAdapter({ apiKey, apiKeyProvider = mapsApiKey, fetchImpl = globalThis.fetch } = {}) {
+  async function requestJson(url, options, fallbackMessage) {
+    const resolvedApiKey = apiKey === undefined ? apiKeyProvider() : apiKey
+    if (!resolvedApiKey) {
+      throw new HttpsError('failed-precondition', 'Google Address chưa được cấu hình. Admin cần bổ sung GOOGLE_MAPS_API_KEY.')
+    }
+    if (typeof fetchImpl !== 'function') throw new HttpsError('unavailable', 'Dịch vụ xác minh địa chỉ chưa sẵn sàng.')
+    let response
+    try {
+      const resolvedOptions = typeof options === 'function' ? options(resolvedApiKey) : options
+      response = await fetchImpl(url(resolvedApiKey), {
+        ...resolvedOptions,
+        signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+          ? AbortSignal.timeout(8000)
+          : undefined,
+      })
+    } catch {
+      throw new HttpsError('unavailable', fallbackMessage)
+    }
+    if (!response?.ok) throw new HttpsError('unavailable', fallbackMessage)
+    return response.json()
+  }
+
+  return {
+    async resolveDestination(customer) {
+      if (customer.placeId) {
+        const payload = await requestJson(
+          (resolvedApiKey) => `https://places.googleapis.com/v1/places/${encodeURIComponent(customer.placeId)}`,
+          (resolvedApiKey) => ({
+            method: 'GET',
+            headers: {
+              'X-Goog-Api-Key': resolvedApiKey,
+              'X-Goog-FieldMask': 'id,formattedAddress,location,addressComponents',
+            },
+          }),
+          'Không thể xác minh Google Place đã chọn. Vui lòng chọn lại địa chỉ.',
+        )
+        return canonicalGoogleDestination(payload, 'google-places')
+      }
+
+      const addressQuery = [customer.addressLine, customer.ward, customer.district, 'Đà Nẵng', 'Việt Nam']
+        .filter(Boolean)
+        .join(', ')
+      const payload = await requestJson(
+        (resolvedApiKey) => `https://maps.googleapis.com/maps/api/geocode/json?${new URLSearchParams({
+          address: addressQuery,
+          language: 'vi',
+          region: 'vn',
+          key: resolvedApiKey,
+        }).toString()}`,
+        { method: 'GET' },
+        'Không thể xác minh địa chỉ giao hàng. Vui lòng thử lại.',
+      )
+      if (payload?.status !== 'OK' || !Array.isArray(payload.results) || !payload.results.length) {
+        throw new HttpsError('failed-precondition', 'Không tìm thấy địa chỉ giao hàng rõ ràng trên Google Maps.')
+      }
+      const candidates = payload.results
+        .map((result) => {
+          try {
+            const destination = canonicalGoogleDestination(result, 'google-geocoding')
+            return {
+              destination,
+              differenceMeters: distanceBetweenCoordinates(customer, destination),
+            }
+          } catch {
+            return null
+          }
+        })
+        .filter(Boolean)
+        .sort((left, right) => left.differenceMeters - right.differenceMeters)
+      if (!candidates.length) throw new HttpsError('out-of-range', 'Địa chỉ giao hàng không thuộc Đà Nẵng.')
+      const nearbyCandidates = candidates.filter((item) => item.differenceMeters <= DELIVERY_PIN_TOLERANCE_METERS)
+      if (nearbyCandidates.length > 1
+        && distanceBetweenCoordinates(nearbyCandidates[0].destination, nearbyCandidates[1].destination) > 100) {
+        throw new HttpsError('failed-precondition', 'Địa chỉ có nhiều kết quả gần nhau. Vui lòng chọn một gợi ý Google Maps cụ thể.')
+      }
+      return candidates[0].destination
+    },
+  }
+}
+
+function createGoogleRoutesAdapter({ apiKey, apiKeyProvider = mapsApiKey, fetchImpl = globalThis.fetch } = {}) {
+  return {
+    async computeRoute({ origin, destination }) {
+      const resolvedApiKey = apiKey === undefined ? apiKeyProvider() : apiKey
+      if (!resolvedApiKey) {
+        throw new HttpsError('failed-precondition', 'Google Routes chưa được cấu hình. Admin cần bổ sung GOOGLE_MAPS_API_KEY.')
+      }
+      if (typeof fetchImpl !== 'function') throw new HttpsError('unavailable', 'Dịch vụ bản đồ chưa sẵn sàng.')
+      let response
+      try {
+        response = await fetchImpl('https://routes.googleapis.com/directions/v2:computeRoutes', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': resolvedApiKey,
+            'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration,routes.staticDuration',
+          },
+          body: JSON.stringify({
+            origin: { location: { latLng: { latitude: origin.latitude, longitude: origin.longitude } } },
+            destination: { location: { latLng: { latitude: destination.latitude, longitude: destination.longitude } } },
+            travelMode: 'DRIVE',
+            routingPreference: 'TRAFFIC_AWARE',
+            computeAlternativeRoutes: false,
+            languageCode: 'vi',
+            units: 'METRIC',
+          }),
+        })
+      } catch {
+        throw new HttpsError('unavailable', 'Không thể kết nối Google Routes. Vui lòng thử lại.')
+      }
+      if (!response.ok) throw new HttpsError('unavailable', 'Google Routes tạm thời không thể tính tuyến đường.')
+      const payload = await response.json()
+      const route = payload?.routes?.[0]
+      const distanceMeters = Number(route?.distanceMeters)
+      const routeDurationSeconds = durationSeconds(route?.duration || route?.staticDuration)
+      if (!Number.isFinite(distanceMeters) || distanceMeters <= 0 || routeDurationSeconds <= 0) {
+        throw new HttpsError('failed-precondition', 'Không tìm thấy tuyến giao hàng hợp lệ tới địa chỉ này.')
+      }
+      return {
+        provider: 'google-routes',
+        distanceMeters: Math.round(distanceMeters),
+        durationSeconds: routeDurationSeconds,
+      }
+    },
+  }
+}
+
+async function verifyDeliveryCustomer(config, customer, addressAdapter, now = new Date()) {
+  if (!config.distancePricing.enabled) return customer
+  const canonicalDestination = await addressAdapter.resolveDestination(customer)
+  const verifiedCustomer = verifiedCustomerFromDestination(customer, canonicalDestination, now)
+  if (!pointInPolygon(verifiedCustomer, config.distancePricing.serviceAreaPolygon)) {
+    throw new HttpsError('out-of-range', 'Địa chỉ nằm ngoài vùng giao hàng đang phục vụ.')
+  }
+  return verifiedCustomer
+}
+
+async function resolveDeliveryRoute(config, customer, routesAdapter) {
+  if (!config.distancePricing.enabled) return null
+  const origin = normalizeLatLng(config.store, 'Tọa độ bếp')
+  const destination = normalizeLatLng(customer, 'Tọa độ giao hàng')
+  if (!pointInPolygon(destination, config.distancePricing.serviceAreaPolygon)) {
+    throw new HttpsError('out-of-range', 'Địa chỉ nằm ngoài vùng giao hàng đang phục vụ.')
+  }
+  const route = await routesAdapter.computeRoute({ origin, destination })
+  const fee = calculateDistanceDeliveryFee(route.distanceMeters, config.distancePricing)
+  return {
+    ...route,
+    ...fee,
+    calculatedAt: new Date().toISOString(),
+    destinationHash: digest(stableJson({
+      placeId: customer.placeId || '',
+      addressLine: customer.addressLine,
+      latitude: destination.latitude,
+      longitude: destination.longitude,
+      addressProvider: customer.addressProvider || '',
+    })),
+  }
+}
+
+function estimateDeliverySla({ config, items, route, request = null, now = new Date() }) {
+  const preparationMinutes = Math.max(
+    config.sla.preparationMinutes,
+    ...items.map((item) => Number(item.preparationMinutes) || 0),
+  )
+  const routeMinutes = Math.ceil((route?.durationSeconds || 0) / 60)
+  const etaMinutes = config.sla.confirmationMinutes + preparationMinutes + config.sla.assignmentMinutes
+    + config.sla.pickupMinutes + routeMinutes + config.sla.travelBufferMinutes
+  let estimatedDeliveryAt = new Date(now.getTime() + etaMinutes * 60000)
+  let promisedAt = new Date(estimatedDeliveryAt.getTime() + config.sla.lateGraceMinutes * 60000)
+  if (request?.deliveryMode === 'scheduled' && request.serviceDate && request.deliverySlot?.start && request.deliverySlot?.end) {
+    const slotStart = new Date(`${request.serviceDate}T${request.deliverySlot.start}:00+07:00`)
+    const slotEnd = new Date(`${request.serviceDate}T${request.deliverySlot.end}:00+07:00`)
+    if (Number.isFinite(slotStart.getTime()) && Number.isFinite(slotEnd.getTime())) {
+      estimatedDeliveryAt = new Date(Math.min(slotEnd.getTime(), slotStart.getTime() + (routeMinutes + config.sla.travelBufferMinutes) * 60000))
+      promisedAt = new Date(slotEnd.getTime() + config.sla.lateGraceMinutes * 60000)
+    }
+  }
+  return {
+    estimatedDeliveryAt: estimatedDeliveryAt.toISOString(),
+    estimatedArrivalAt: estimatedDeliveryAt.toISOString(),
+    promisedAt: promisedAt.toISOString(),
+    totalMinutes: etaMinutes,
+    preparationMinutes,
+    routeMinutes,
+    policy: { ...config.sla },
+  }
+}
+
+function calculateQuote({ config, request, mealRecords, inventoryRecords, route = null, now = new Date() }) {
   const items = request.items.map(({ mealId, quantity }) => {
     const meal = mealRecords.get(mealId)
     if (!meal || meal.active === false) throw new HttpsError('failed-precondition', `Món ${mealId} hiện không phục vụ.`)
-    if (meal.allowedDeliverySlots?.length && !meal.allowedDeliverySlots.includes(request.deliverySlotId)) {
+    if (request.deliveryMode !== 'asap' && meal.allowedDeliverySlots?.length && !meal.allowedDeliverySlots.includes(request.deliverySlotId)) {
       throw new HttpsError('failed-precondition', `${meal.name} không phục vụ trong khung giờ đã chọn.`)
     }
     const inventoryId = inventoryDocumentId(request.serviceDate, mealId)
@@ -691,6 +1274,7 @@ function calculateQuote({ config, request, mealRecords, inventoryRecords }) {
       carbs: optionalNumber(meal.carbs, 'Tinh bột', 0, 1000) * quantity,
       fat: optionalNumber(meal.fat, 'Chất béo', 0, 500) * quantity,
       fiber: optionalNumber(meal.fiber, 'Chất xơ', 0, 200) * quantity,
+      preparationMinutes: optionalNumber(meal.preparationMinutes, 'Thời gian chuẩn bị', 0, 240, config.sla.preparationMinutes),
       inventoryTracked: meal.inventoryTracked !== false,
     }
   })
@@ -698,9 +1282,16 @@ function calculateQuote({ config, request, mealRecords, inventoryRecords }) {
   if (subtotal < config.minOrderAmount) {
     throw new HttpsError('failed-precondition', `Đơn hàng tối thiểu ${config.minOrderAmount.toLocaleString('vi-VN')}đ.`)
   }
-  const deliveryFee = config.freeDeliveryThreshold > 0 && subtotal >= config.freeDeliveryThreshold
-    ? 0
-    : request.deliveryZone.fee ?? config.defaultDeliveryFee
+  if (config.distancePricing.enabled && !route) {
+    throw new HttpsError('failed-precondition', 'Không thể báo giá khi chưa xác minh tuyến giao hàng.')
+  }
+  const baseDeliveryFee = config.distancePricing.enabled
+    ? route.baseDeliveryFee
+    : request.deliveryZone?.fee ?? config.defaultDeliveryFee
+  const deliveryDiscount = config.freeDeliveryThreshold > 0 && subtotal >= config.freeDeliveryThreshold
+    ? baseDeliveryFee
+    : 0
+  const deliveryFee = Math.max(0, baseDeliveryFee - deliveryDiscount)
   const nutrition = items.reduce((total, item) => ({
     calories: Math.round((total.calories + item.calories) * 10) / 10,
     protein: Math.round((total.protein + item.protein) * 10) / 10,
@@ -708,6 +1299,7 @@ function calculateQuote({ config, request, mealRecords, inventoryRecords }) {
     fat: Math.round((total.fat + item.fat) * 10) / 10,
     fiber: Math.round((total.fiber + item.fiber) * 10) / 10,
   }), { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 })
+  const eta = estimateDeliverySla({ config, items, route, request, now })
   return {
     schemaVersion: SCHEMA_VERSION,
     currency: CURRENCY,
@@ -717,17 +1309,24 @@ function calculateQuote({ config, request, mealRecords, inventoryRecords }) {
     serviceDate: request.serviceDate,
     deliverySlot: request.deliverySlot,
     deliveryZone: request.deliveryZone,
+    deliveryRoute: route,
+    verifiedCustomer: request.customer,
     items,
     subtotal,
+    baseDeliveryFee,
+    deliveryDiscount,
     deliveryFee,
+    feeRuleVersion: config.distancePricing.enabled ? route.feeRuleVersion : 'legacy-district-v1',
     total: subtotal + deliveryFee,
     nutrition,
+    eta,
   }
 }
 
 function canonicalOrderPayload(request) {
   return JSON.stringify({
     items: [...request.items].sort((left, right) => left.mealId.localeCompare(right.mealId)),
+    deliveryMode: request.deliveryMode,
     serviceDate: request.serviceDate,
     deliverySlotId: request.deliverySlotId,
     customer: request.customer,
@@ -756,6 +1355,15 @@ function quoteSnapshot(quote) {
       id: quote.deliveryZone?.id || '',
       fee: Number(quote.deliveryZone?.fee) || 0,
     },
+    deliveryRoute: quote.deliveryRoute ? {
+      provider: quote.deliveryRoute.provider,
+      distanceMeters: quote.deliveryRoute.distanceMeters,
+      roundedDistanceMeters: quote.deliveryRoute.roundedDistanceMeters,
+      durationSeconds: quote.deliveryRoute.durationSeconds,
+      feeRuleVersion: quote.deliveryRoute.feeRuleVersion,
+      destinationHash: quote.deliveryRoute.destinationHash,
+    } : null,
+    verifiedCustomer: quote.verifiedCustomer || null,
     items: [...(quote.items || [])]
       .map((item) => ({
         mealId: item.mealId,
@@ -770,9 +1378,13 @@ function quoteSnapshot(quote) {
       }))
       .sort((left, right) => left.mealId.localeCompare(right.mealId)),
     subtotal: quote.subtotal,
+    baseDeliveryFee: quote.baseDeliveryFee,
+    deliveryDiscount: quote.deliveryDiscount,
     deliveryFee: quote.deliveryFee,
+    feeRuleVersion: quote.feeRuleVersion,
     total: quote.total,
     nutrition: quote.nutrition,
+    eta: quote.eta,
   }
 }
 
@@ -828,6 +1440,7 @@ function rawOrderRequestHash(value) {
   const source = value && typeof value === 'object' ? value : {}
   return digest(stableJson({
     items: source.items,
+    deliveryMode: source.deliveryMode || (source.deliverySlotId === 'asap' ? 'asap' : 'scheduled'),
     serviceDate: source.serviceDate,
     deliverySlotId: source.deliverySlotId,
     customer: source.customer,
@@ -851,6 +1464,22 @@ function serializeValue(value) {
   return value
 }
 
+function publicDeliveryValue(value, id = '') {
+  const serialized = { ...(id ? { id } : {}), ...serializeValue(value || {}) }
+  ;[
+    'userId',
+    'customerId',
+    'assignedBy',
+    'deliveryOtpHash',
+    'deliveryOtpHashVersion',
+    'otpFailedAttempts',
+    'otpLockedUntil',
+    'lastOtpFailureAt',
+  ]
+    .forEach((key) => delete serialized[key])
+  return serialized
+}
+
 function publicConfig(config) {
   const deliveryZones = config.deliveryZones.filter((item) => item.enabled)
   const deliverySlots = config.deliverySlots.filter((item) => item.enabled)
@@ -858,6 +1487,7 @@ function publicConfig(config) {
     schemaVersion: config.schemaVersion,
     enabled: config.enabled,
     acceptingOrders: config.acceptingOrders,
+    asapEnabled: config.asapEnabled,
     orderingEnabled: config.enabled && config.acceptingOrders,
     cityCode: CITY_CODE,
     cityName: CITY_NAME,
@@ -870,6 +1500,15 @@ function publicConfig(config) {
     minimumLeadDays: config.minimumLeadDays,
     maxAdvanceDays: config.maxAdvanceDays,
     supportPhone: config.supportPhone,
+    store: config.store,
+    distancePricing: {
+      enabled: config.distancePricing.enabled,
+      provider: config.distancePricing.provider,
+      maxDistanceMeters: config.distancePricing.maxDistanceMeters,
+      feeRuleVersion: config.distancePricing.feeRuleVersion,
+      tiers: config.distancePricing.tiers,
+    },
+    sla: config.sla,
     deliveryZones,
     districts: deliveryZones.map((item) => ({ id: item.id, name: item.label, active: true })),
     deliverySlots: deliverySlots.map((item) => ({ ...item, active: true })),
@@ -905,6 +1544,7 @@ function publicMeal(meal) {
     fat: meal.fat,
     fiber: meal.fiber || 0,
     servingGrams: meal.servingGrams || 0,
+    preparationMinutes: meal.preparationMinutes || DEFAULT_CONFIG.sla.preparationMinutes,
     ingredients: meal.ingredients || [],
     dietaryTags: meal.dietaryTags || [],
     goalTags: meal.goalTags || [],
@@ -1055,26 +1695,260 @@ async function loadQuoteRecords(db, normalized) {
   return { mealRecords, inventoryRecords }
 }
 
+async function enforceEatCleanQuoteRateLimit(db, userId, now = new Date()) {
+  const reference = db.doc(`eatCleanQuoteRateLimits/${digest(userId)}`)
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(reference)
+    const current = snapshot.data() || {}
+    const previousStartedAt = timestampMillis(current.windowStartedAt)
+    const sameWindow = Number.isFinite(previousStartedAt)
+      && now.getTime() - previousStartedAt < QUOTE_RATE_LIMIT_WINDOW_MS
+    const requestCount = sameWindow ? (Number(current.requestCount) || 0) + 1 : 1
+    if (requestCount > QUOTE_RATE_LIMIT_MAX) {
+      const retryAfterSeconds = Math.max(1, Math.ceil(
+        (previousStartedAt + QUOTE_RATE_LIMIT_WINDOW_MS - now.getTime()) / 1000,
+      ))
+      throw new HttpsError(
+        'resource-exhausted',
+        `Bạn đang yêu cầu báo giá quá nhanh. Vui lòng thử lại sau ${retryAfterSeconds} giây.`,
+      )
+    }
+    transaction.set(reference, {
+      schemaVersion: SCHEMA_VERSION,
+      userId,
+      requestCount,
+      windowStartedAt: Timestamp.fromMillis(sameWindow ? previousStartedAt : now.getTime()),
+      expiresAt: Timestamp.fromMillis(now.getTime() + 24 * 60 * 60 * 1000),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+  })
+}
+
+function normalizeDeliveryCursor(value) {
+  if (value === undefined || value === null || value === '') return null
+  if (!value || typeof value !== 'object') throw new HttpsError('invalid-argument', 'Con trỏ danh sách giao hàng không hợp lệ.')
+  const id = documentId(value.id, 'Mã con trỏ giao hàng')
+  const updatedAt = new Date(boundedString(value.updatedAt, 'Thời gian con trỏ giao hàng', 40))
+  if (!Number.isFinite(updatedAt.getTime())) throw new HttpsError('invalid-argument', 'Thời gian con trỏ giao hàng không hợp lệ.')
+  return { id, updatedAt: Timestamp.fromDate(updatedAt) }
+}
+
+function buildActiveDeliveriesQuery(collection, { shipperId = '', cursor = null, limit = 100 } = {}) {
+  let query = collection
+  if (shipperId) query = query.where('shipperId', '==', documentId(shipperId, 'Mã shipper'))
+  query = query
+    .where('status', 'in', ACTIVE_DELIVERY_STATUSES)
+    .orderBy('updatedAt', 'desc')
+    .orderBy(FieldPath.documentId(), 'desc')
+  if (cursor) query = query.startAfter(cursor.updatedAt, cursor.id)
+  return query.limit(limit)
+}
+
+function nextDeliveryCursor(snapshot, limit) {
+  if (!snapshot || snapshot.empty || snapshot.size < limit) return null
+  const last = snapshot.docs[snapshot.docs.length - 1]
+  const updatedAt = serializeValue(last.data()?.updatedAt)
+  return typeof updatedAt === 'string' && updatedAt
+    ? { id: last.id, updatedAt }
+    : null
+}
+
+async function countActiveDeliveryJobs(collection, shipperId = '') {
+  let query = collection
+  if (shipperId) query = query.where('shipperId', '==', documentId(shipperId, 'Mã shipper'))
+  const snapshot = await query.where('status', 'in', ACTIVE_DELIVERY_STATUSES).count().get()
+  const count = Number(snapshot.data()?.count)
+  return Number.isInteger(count) && count >= 0 ? count : 0
+}
+
+async function bestEffortRealtimeWrite({ realtimeDb, path, write, logger = console, context = {} }) {
+  if (!realtimeDb) return { configured: false, synced: false, warning: 'realtime_not_configured' }
+  try {
+    await write(realtimeDb.ref(path))
+    return { configured: true, synced: true, warning: null }
+  } catch (error) {
+    logger.warn('Eat Clean Realtime Database mirror failed', {
+      ...context,
+      code: typeof error?.code === 'string' ? error.code : 'unknown',
+    })
+    return { configured: true, synced: false, warning: 'realtime_temporarily_unavailable' }
+  }
+}
+
+function trustedRole(request, profile, allowedRoles) {
+  const claimRole = String(request.auth?.token?.role || '')
+  return allowedRoles.has(claimRole)
+    && profile?.role === claimRole
+    && profile?.disabled !== true
+}
+
+function deliveryOtpFor(orderId, userId, secret = otpSecretValue()) {
+  if (typeof secret !== 'string' || secret.length < 32) {
+    throw new HttpsError('failed-precondition', 'DELIVERY_OTP_SECRET chưa được cấu hình an toàn.')
+  }
+  const hexadecimal = createHmac('sha256', secret).update(`${orderId}:${userId}`).digest('hex')
+  return String(Number.parseInt(hexadecimal.slice(0, 8), 16) % 10000).padStart(4, '0')
+}
+
+function otpHash(orderId, otp, secret = otpSecretValue()) {
+  if (typeof secret !== 'string' || secret.length < 32) {
+    throw new HttpsError('failed-precondition', 'DELIVERY_OTP_SECRET chưa được cấu hình an toàn.')
+  }
+  return createHmac('sha256', secret).update(`eat-clean-delivery-hash:${orderId}:${otp}`).digest('hex')
+}
+
+function legacyOtpHash(orderId, otp) {
+  return digest(`eat-clean-delivery:${orderId}:${otp}`)
+}
+
+function safeHashEquals(left, right) {
+  const leftBuffer = Buffer.from(String(left || ''))
+  const rightBuffer = Buffer.from(String(right || ''))
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer)
+}
+
+function canTransitionDelivery(from, to) {
+  return from === to || Boolean(DELIVERY_TRANSITIONS[from]?.has(to))
+}
+
 function createEatCleanFunctions(dependencies) {
   const db = requireFactoryDependency(dependencies?.db, 'db')
   const onCall = requireFactoryDependency(dependencies?.onCall, 'onCall')
   const requireTrustedAdmin = requireFactoryDependency(dependencies?.requireTrustedAdmin, 'requireTrustedAdmin')
   const logger = dependencies?.logger || console
+  const realtimeDb = dependencies?.realtimeDb || null
+  const routesAdapter = dependencies?.routesAdapter || createGoogleRoutesAdapter()
+  const addressAdapter = dependencies?.addressAdapter || createGoogleAddressAdapter()
 
   async function trustedAdminId(request) {
     const result = await requireTrustedAdmin(request)
     return typeof result === 'string' && result ? result : requireUser(request)
   }
 
+  async function trustedShipper(request, { allowAdmin = true } = {}) {
+    const actorId = requireUser(request)
+    const snapshot = await db.doc(`users/${actorId}`).get()
+    const roles = allowAdmin
+      ? new Set(['shipper', 'admin', 'super_admin'])
+      : new Set(['shipper'])
+    if (!snapshot.exists || !trustedRole(request, snapshot.data(), roles)) {
+      throw new HttpsError('permission-denied', 'Tài khoản không có quyền vận hành giao hàng.')
+    }
+    return { actorId, role: snapshot.data().role, profile: snapshot.data() }
+  }
+
   const callableOptions = { cpu: 'gcf_gen1', maxInstances: 3, invoker: 'public' }
   const writeOptions = { cpu: 'gcf_gen1', maxInstances: 2, invoker: 'public' }
+  const mapsCallableOptions = bindEatCleanSecrets
+    ? { ...callableOptions, secrets: [googleMapsApiKeySecret] }
+    : callableOptions
+  const otpCallableOptions = bindEatCleanSecrets
+    ? { ...callableOptions, secrets: [deliveryOtpSecret] }
+    : callableOptions
+  const otpWriteOptions = bindEatCleanSecrets
+    ? { ...writeOptions, secrets: [deliveryOtpSecret] }
+    : writeOptions
+  const mapsWriteOptions = bindEatCleanSecrets
+    ? { ...writeOptions, secrets: [googleMapsApiKeySecret] }
+    : writeOptions
+  const deliveryOperationsCallableOptions = bindEatCleanSecrets
+    ? { ...callableOptions, secrets: [googleMapsApiKeySecret, deliveryOtpSecret] }
+    : callableOptions
+  const deliveryOperationsWriteOptions = bindEatCleanSecrets
+    ? { ...writeOptions, secrets: [googleMapsApiKeySecret, deliveryOtpSecret] }
+    : writeOptions
+
+  const listEatCleanAddresses = onCall(callableOptions, async (request) => {
+    const userId = requireUser(request)
+    const snapshot = await db.collection(`users/${userId}/eatCleanAddresses`).limit(MAX_SAVED_ADDRESSES).get()
+    const addresses = snapshot.docs
+      .map((item) => ({ id: item.id, ...serializeValue(item.data()) }))
+      .sort((left, right) => Number(right.isDefault) - Number(left.isDefault)
+        || String(right.updatedAt || '').localeCompare(String(left.updatedAt || '')))
+    return { schemaVersion: SCHEMA_VERSION, addresses, maximum: MAX_SAVED_ADDRESSES }
+  })
+
+  const saveEatCleanAddress = onCall(writeOptions, async (request) => {
+    const userId = requireUser(request)
+    const requestedId = request.data?.address?.id || request.data?.id
+    const reference = requestedId
+      ? db.doc(`users/${userId}/eatCleanAddresses/${documentId(requestedId, 'Mã địa chỉ')}`)
+      : db.collection(`users/${userId}/eatCleanAddresses`).doc()
+    const input = normalizeSavedAddress(request.data?.address || request.data, reference.id)
+    const collection = db.collection(`users/${userId}/eatCleanAddresses`)
+    const saved = await db.runTransaction(async (transaction) => {
+      const [addressesSnapshot, currentSnapshot] = await Promise.all([
+        transaction.get(collection.limit(MAX_SAVED_ADDRESSES + 1)),
+        transaction.get(reference),
+      ])
+      if (!currentSnapshot.exists && addressesSnapshot.size >= MAX_SAVED_ADDRESSES) {
+        throw new HttpsError('resource-exhausted', `Bạn chỉ có thể lưu tối đa ${MAX_SAVED_ADDRESSES} địa chỉ.`)
+      }
+      if (input.isDefault || addressesSnapshot.empty) {
+        addressesSnapshot.docs.forEach((snapshot) => {
+          if (snapshot.id !== reference.id && snapshot.data().isDefault === true) {
+            transaction.set(snapshot.ref, { isDefault: false, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+          }
+        })
+      }
+      const next = {
+        ...input,
+        isDefault: input.isDefault || addressesSnapshot.empty,
+        createdAt: currentSnapshot.exists ? currentSnapshot.data().createdAt : FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }
+      transaction.set(reference, next)
+      return { ...serializeValue(next), id: reference.id, updatedAt: new Date().toISOString() }
+    })
+    return { address: saved }
+  })
+
+  const deleteEatCleanAddress = onCall(writeOptions, async (request) => {
+    const userId = requireUser(request)
+    const addressId = documentId(request.data?.addressId, 'Mã địa chỉ')
+    const collection = db.collection(`users/${userId}/eatCleanAddresses`)
+    const reference = collection.doc(addressId)
+    await db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference)
+      if (!snapshot.exists) return
+      const addressesSnapshot = snapshot.data().isDefault
+        ? await transaction.get(collection.limit(MAX_SAVED_ADDRESSES))
+        : null
+      transaction.delete(reference)
+      const replacement = addressesSnapshot?.docs.find((item) => item.id !== addressId)
+      if (replacement) transaction.set(replacement.ref, { isDefault: true, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+    })
+    return { deleted: true, addressId }
+  })
+
+  const setDefaultEatCleanAddress = onCall(writeOptions, async (request) => {
+    const userId = requireUser(request)
+    const addressId = documentId(request.data?.addressId, 'Mã địa chỉ')
+    const collection = db.collection(`users/${userId}/eatCleanAddresses`)
+    await db.runTransaction(async (transaction) => {
+      const addressesSnapshot = await transaction.get(collection.limit(MAX_SAVED_ADDRESSES + 1))
+      const target = addressesSnapshot.docs.find((item) => item.id === addressId)
+      if (!target) throw new HttpsError('not-found', 'Không tìm thấy địa chỉ đã lưu.')
+      addressesSnapshot.docs.forEach((snapshot) => transaction.set(snapshot.ref, {
+        isDefault: snapshot.id === addressId,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true }))
+    })
+    return { addressId, isDefault: true }
+  })
 
   const getEatCleanStorefront = onCall(callableOptions, async (request) => {
     const config = await readConfig(db)
-    const requestedDate = request.data?.serviceDate
-      ? dateKey(request.data.serviceDate)
-      : addUtcDays(todayInVietnam(), Math.max(1, config.minimumLeadDays))
-    validateServiceDate(requestedDate, config)
+    const deliveryMode = request.data?.deliveryMode === 'asap' ? 'asap' : 'scheduled'
+    if (deliveryMode === 'asap' && !config.asapEnabled) {
+      throw new HttpsError('failed-precondition', 'Bếp hiện chưa nhận đơn giao sớm nhất.')
+    }
+    const requestedDate = deliveryMode === 'asap'
+      ? todayInVietnam()
+      : request.data?.serviceDate
+        ? dateKey(request.data.serviceDate)
+        : addUtcDays(todayInVietnam(), Math.max(1, config.minimumLeadDays))
+    if (deliveryMode === 'scheduled') validateServiceDate(requestedDate, config)
     const meals = await readMeals(db, { activeOnly: true })
     const inventory = await readInventoryForMeals(db, requestedDate, meals)
     const items = meals
@@ -1091,6 +1965,7 @@ function createEatCleanFunctions(dependencies) {
       schemaVersion: SCHEMA_VERSION,
       serverTime: new Date().toISOString(),
       serviceDate: requestedDate,
+      deliveryMode,
       config: {
         ...publicConfig(config),
         featuredMealIds: items.filter((item) => item.featured).map((item) => item.id),
@@ -1191,31 +2066,42 @@ function createEatCleanFunctions(dependencies) {
     }
   })
 
-  const quoteEatCleanOrder = onCall(callableOptions, async (request) => {
+  const quoteEatCleanOrder = onCall(mapsCallableOptions, async (request) => {
     const userId = requireUser(request)
     const config = await readConfig(db)
     if (!config.enabled || !config.acceptingOrders) {
       throw new HttpsError('failed-precondition', 'Eat Clean hiện chưa nhận đơn mới.')
     }
     const normalized = normalizeOrderRequest(request.data, config)
-    const records = await loadQuoteRecords(db, normalized)
-    const quote = calculateQuote({ config, request: normalized, ...records })
+    const originalRequestHash = canonicalOrderRequestHash(normalized)
     const quotedAt = new Date()
+    if (config.distancePricing.enabled) await enforceEatCleanQuoteRateLimit(db, userId, quotedAt)
+    const verifiedCustomer = await verifyDeliveryCustomer(config, normalized.customer, addressAdapter, quotedAt)
+    const verifiedRequest = { ...normalized, customer: verifiedCustomer }
+    const records = await loadQuoteRecords(db, verifiedRequest)
+    const route = await resolveDeliveryRoute(config, verifiedCustomer, routesAdapter)
+    const quote = calculateQuote({ config, request: verifiedRequest, route, now: quotedAt, ...records })
     const expiresAt = new Date(quotedAt.getTime() + QUOTE_TTL_MS)
     const quoteReference = db.collection('eatCleanQuotes').doc()
     await quoteReference.create({
       schemaVersion: SCHEMA_VERSION,
       userId,
       status: 'active',
-      requestHash: canonicalOrderRequestHash(normalized),
+      requestHash: canonicalOrderRequestHash(verifiedRequest),
+      originalRequestHash,
+      verifiedCustomer,
       quoteHash: quoteSnapshotHash(quote),
-      serviceDate: normalized.serviceDate,
-      itemCount: normalized.items.reduce((sum, item) => sum + item.quantity, 0),
+      serviceDate: verifiedRequest.serviceDate,
+      itemCount: verifiedRequest.items.reduce((sum, item) => sum + item.quantity, 0),
       subtotal: quote.subtotal,
       deliveryFee: quote.deliveryFee,
+      deliveryRoute: quote.deliveryRoute,
+      eta: quote.eta,
+      quoteSnapshot: quote,
       total: quote.total,
       currency: CURRENCY,
       createdAt: FieldValue.serverTimestamp(),
+      quotedAt: Timestamp.fromDate(quotedAt),
       expiresAt: Timestamp.fromDate(expiresAt),
     })
     return {
@@ -1226,7 +2112,7 @@ function createEatCleanFunctions(dependencies) {
     }
   })
 
-  const createEatCleanOrder = onCall(writeOptions, async (request) => {
+  const createEatCleanOrder = onCall(mapsWriteOptions, async (request) => {
     const userId = requireUser(request)
     const quoteId = documentId(request.data?.quoteId, 'Mã báo giá')
     const idempotencyKey = boundedString(request.data?.idempotencyKey, 'Khóa chống gửi trùng', 128)
@@ -1235,6 +2121,7 @@ function createEatCleanFunctions(dependencies) {
     const orderReference = db.collection('eatCleanOrders').doc()
     const markerReference = db.doc(`eatCleanIdempotency/${digest(`${userId}:${idempotencyKey}`)}`)
     const quoteReference = db.doc(`eatCleanQuotes/${quoteId}`)
+    const deliveryReference = db.doc(`eatCleanDeliveries/${orderReference.id}`)
     const now = new Date()
 
     const result = await db.runTransaction(async (transaction) => {
@@ -1253,13 +2140,30 @@ function createEatCleanFunctions(dependencies) {
       }
 
       const quoteRecordSnapshot = await transaction.get(quoteReference)
+      const quoteRecord = quoteRecordSnapshot.exists ? quoteRecordSnapshot.data() : null
       const configReference = db.doc('system/eat_clean_config')
       const configSnapshot = await transaction.get(configReference)
       const config = normalizeStoredConfig(configSnapshot.exists ? configSnapshot.data() : {})
       if (!config.enabled || !config.acceptingOrders) {
         throw new HttpsError('failed-precondition', 'Eat Clean hiện chưa nhận đơn mới.')
       }
-      const normalized = normalizeOrderRequest(request.data, config)
+      const submittedRequest = normalizeOrderRequest(request.data, config)
+      let normalized = submittedRequest
+      if (config.distancePricing.enabled) {
+        const submittedRequestHash = canonicalOrderRequestHash(submittedRequest)
+        if (!quoteRecord?.originalRequestHash || quoteRecord.originalRequestHash !== submittedRequestHash) {
+          throw new HttpsError('failed-precondition', 'Địa chỉ hoặc thông tin đơn hàng đã thay đổi sau khi Google xác minh.')
+        }
+        if (!quoteRecord.verifiedCustomer || typeof quoteRecord.verifiedCustomer !== 'object') {
+          throw new HttpsError('failed-precondition', 'Báo giá chưa có địa chỉ Google đã xác minh.')
+        }
+        const verifiedCustomer = {
+          ...normalizeCustomer(quoteRecord.verifiedCustomer),
+          addressVerifiedAt: boundedString(quoteRecord.verifiedCustomer.addressVerifiedAt, 'Thời gian xác minh địa chỉ', 40),
+          addressProvider: boundedString(quoteRecord.verifiedCustomer.addressProvider, 'Nguồn xác minh địa chỉ', 40),
+        }
+        normalized = { ...submittedRequest, customer: verifiedCustomer }
+      }
       const mealReferences = normalized.items.map((item) => db.doc(`eatCleanMeals/${item.mealId}`))
       const inventoryReferences = normalized.items.map((item) => db.doc(`eatCleanInventory/${inventoryDocumentId(normalized.serviceDate, item.mealId)}`))
       const mealSnapshots = []
@@ -1268,11 +2172,23 @@ function createEatCleanFunctions(dependencies) {
       for (const reference of inventoryReferences) inventorySnapshots.push(await transaction.get(reference))
       const mealRecords = new Map(mealSnapshots.filter((item) => item.exists).map((item) => [item.id, { id: item.id, ...item.data() }]))
       const inventoryRecords = new Map(inventorySnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
-      const quote = calculateQuote({ config, request: normalized, mealRecords, inventoryRecords })
+      const storedRoute = quoteRecord?.deliveryRoute || null
+      if (config.distancePricing.enabled && !storedRoute) {
+        throw new HttpsError('failed-precondition', 'Báo giá chưa có tuyến giao hàng hợp lệ.')
+      }
+      const quotedAtMillis = timestampMillis(quoteRecord?.quotedAt || quoteRecord?.createdAt)
+      const quote = calculateQuote({
+        config,
+        request: normalized,
+        mealRecords,
+        inventoryRecords,
+        route: storedRoute,
+        now: Number.isFinite(quotedAtMillis) ? new Date(quotedAtMillis) : now,
+      })
       const normalizedRequestHash = canonicalOrderRequestHash(normalized)
       const currentQuoteHash = quoteSnapshotHash(quote)
       validateQuoteRecord({
-        quoteRecord: quoteRecordSnapshot.exists ? quoteRecordSnapshot.data() : null,
+        quoteRecord,
         userId,
         requestHash: normalizedRequestHash,
         quoteHash: currentQuoteHash,
@@ -1306,13 +2222,19 @@ function createEatCleanFunctions(dependencies) {
         customer: normalized.customer,
         city: CITY_NAME,
         serviceDate: normalized.serviceDate,
+        deliveryMode: normalized.deliveryMode,
         deliverySlotId: normalized.deliverySlot.id,
         deliverySlotLabel: normalized.deliverySlot.label,
         deliverySlot: normalized.deliverySlot,
         deliveryZone: normalized.deliveryZone,
+        deliveryRoute: quote.deliveryRoute,
+        feeRuleVersion: quote.feeRuleVersion,
+        eta: quote.eta,
         note: normalized.note,
         items: quote.items,
         subtotal: quote.subtotal,
+        baseDeliveryFee: quote.baseDeliveryFee,
+        deliveryDiscount: quote.deliveryDiscount,
         deliveryFee: quote.deliveryFee,
         discount: 0,
         total: quote.total,
@@ -1327,6 +2249,26 @@ function createEatCleanFunctions(dependencies) {
         updatedAt: FieldValue.serverTimestamp(),
       }
       transaction.create(orderReference, storedOrder)
+      transaction.create(deliveryReference, {
+        schemaVersion: SCHEMA_VERSION,
+        id: deliveryReference.id,
+        orderId: orderReference.id,
+        orderCode,
+        userId,
+        status: 'awaiting_kitchen',
+        shipperId: null,
+        pickup: config.store,
+        destination: normalized.customer,
+        route: quote.deliveryRoute,
+        eta: quote.eta,
+        promisedAt: quote.eta?.promisedAt ? Timestamp.fromDate(new Date(quote.eta.promisedAt)) : null,
+        assignedAt: null,
+        acceptedAt: null,
+        pickedUpAt: null,
+        deliveredAt: null,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      })
       transaction.update(quoteReference, {
         status: 'consumed',
         orderId: orderReference.id,
@@ -1358,11 +2300,22 @@ function createEatCleanFunctions(dependencies) {
       .orderBy('createdAt', 'desc')
       .limit(limit)
       .get()
+    const deliverySnapshots = snapshot.empty
+      ? []
+      : await db.getAll(...snapshot.docs.map((item) => db.doc(`eatCleanDeliveries/${item.id}`)))
+    const deliveries = new Map(deliverySnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
     const orders = snapshot.docs.map((item) => {
       const order = { id: item.id, ...serializeValue(item.data()) }
+      const delivery = deliveries.get(item.id)
       return {
         ...order,
         canCancel: ['pending_confirmation', 'confirmed'].includes(order.status),
+        trackingSummary: delivery ? {
+          status: delivery.status,
+          shipperId: delivery.shipperId || null,
+          estimatedDeliveryAt: serializeValue(delivery.eta?.estimatedDeliveryAt || null),
+          promisedAt: serializeValue(delivery.promisedAt || delivery.eta?.promisedAt || null),
+        } : null,
       }
     })
     return { schemaVersion: SCHEMA_VERSION, orders }
@@ -1373,6 +2326,7 @@ function createEatCleanFunctions(dependencies) {
     const orderId = documentId(request.data?.orderId, 'Mã đơn hàng')
     const reason = boundedString(request.data?.reason, 'Lý do hủy', 300, { required: false })
     const orderReference = db.doc(`eatCleanOrders/${orderId}`)
+    const deliveryReference = db.doc(`eatCleanDeliveries/${orderId}`)
     const result = await db.runTransaction(async (transaction) => {
       const orderSnapshot = await transaction.get(orderReference)
       if (!orderSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy đơn Eat Clean.')
@@ -1385,6 +2339,7 @@ function createEatCleanFunctions(dependencies) {
         throw new HttpsError('failed-precondition', 'Đơn hàng không còn trong trạng thái có thể tự hủy.')
       }
       const configSnapshot = await transaction.get(db.doc('system/eat_clean_config'))
+      const deliverySnapshot = await transaction.get(deliveryReference)
       const config = normalizeStoredConfig(configSnapshot.exists ? configSnapshot.data() : {})
       ensureCustomerCancellationWindow(order, config)
       const inventorySnapshots = []
@@ -1408,6 +2363,13 @@ function createEatCleanFunctions(dependencies) {
         cancelledAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       })
+      if (deliverySnapshot.exists && deliverySnapshot.data().status !== 'delivered') {
+        transaction.set(deliveryReference, {
+          status: 'cancelled',
+          cancelledAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true })
+      }
       const nowIso = new Date().toISOString()
       return {
         order: {
@@ -1423,8 +2385,15 @@ function createEatCleanFunctions(dependencies) {
         idempotent: false,
       }
     })
+    const realtimeMirror = await bestEffortRealtimeWrite({
+      realtimeDb,
+      path: `eatCleanLiveLocations/${orderId}`,
+      write: (reference) => reference.update({ active: false, updatedAt: Date.now() }),
+      logger,
+      context: { operation: 'customer_cancel', orderId, userId },
+    })
     logger.info('Eat Clean order cancelled by customer', { orderId, userId, idempotent: result.idempotent })
-    return result
+    return { ...result, realtimeMirror }
   })
 
   const confirmEatCleanConsumption = onCall(writeOptions, async (request) => {
@@ -1632,9 +2601,10 @@ function createEatCleanFunctions(dependencies) {
     return { inventory: result }
   })
 
-  const saveEatCleanConfig = onCall(writeOptions, async (request) => {
+  const saveEatCleanConfig = onCall(deliveryOperationsWriteOptions, async (request) => {
     const actorId = await trustedAdminId(request)
     const input = normalizeEatCleanConfig(request.data?.config || request.data)
+    const readiness = assertDeliveryConfigCanActivate(input, realtimeDb)
     const expectedRevision = finiteInteger(request.data?.expectedRevision ?? request.data?.config?.revision ?? 0, 'Phiên bản cấu hình', 0, 1000000)
     const reference = db.doc('system/eat_clean_config')
     const result = await db.runTransaction(async (transaction) => {
@@ -1654,7 +2624,7 @@ function createEatCleanFunctions(dependencies) {
       transaction.set(reference, next)
       return { ...serializeValue(next), updatedAt: new Date().toISOString() }
     })
-    return { config: result }
+    return { config: result, readiness }
   })
 
   const initializeEatCleanCatalog = onCall(writeOptions, async (request) => {
@@ -1732,6 +2702,622 @@ function createEatCleanFunctions(dependencies) {
     return result
   })
 
+  const setEatCleanShipperAvailability = onCall(writeOptions, async (request) => {
+    const { actorId, profile } = await trustedShipper(request, { allowAdmin: false })
+    const available = request.data?.available === true
+    const reference = db.doc(`eatCleanShippers/${actorId}`)
+    const activeJobCount = await countActiveDeliveryJobs(db.collection('eatCleanDeliveries'), actorId)
+    const next = {
+      schemaVersion: SCHEMA_VERSION,
+      userId: actorId,
+      displayName: boundedString(profile.displayName ?? 'Shipper Aura', 'Tên shipper', 100),
+      available,
+      activeJobCount,
+      lastSeenAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }
+    await reference.set(next, { merge: true })
+    return { shipper: { ...serializeValue(next), updatedAt: new Date().toISOString() } }
+  })
+
+  const saveEatCleanDeliveryConfig = onCall(deliveryOperationsWriteOptions, async (request) => {
+    const actorId = await trustedAdminId(request)
+    const reference = db.doc('system/eat_clean_config')
+    const expectedRevision = finiteInteger(request.data?.expectedRevision ?? 0, 'Phiên bản cấu hình', 0, 1000000)
+    const result = await db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference)
+      const current = snapshot.exists ? snapshot.data() : {}
+      const currentRevision = Number(current.revision) || 0
+      if (currentRevision !== expectedRevision) {
+        throw new HttpsError('aborted', 'Cấu hình giao hàng đã thay đổi. Hãy tải lại trước khi lưu.')
+      }
+      const patch = request.data?.config || request.data || {}
+      const merged = normalizeEatCleanConfig({
+        ...current,
+        asapEnabled: patch.asapEnabled ?? current.asapEnabled,
+        store: patch.store ?? current.store,
+        distancePricing: patch.distancePricing ?? current.distancePricing,
+        sla: patch.sla ?? current.sla,
+        freeDeliveryThreshold: patch.freeDeliveryThreshold ?? current.freeDeliveryThreshold,
+        supportPhone: patch.supportPhone ?? current.supportPhone,
+      })
+      assertDeliveryConfigCanActivate(merged, realtimeDb)
+      const next = {
+        ...merged,
+        revision: currentRevision + 1,
+        createdAt: current.createdAt || FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actorId,
+      }
+      transaction.set(reference, next)
+      return { ...serializeValue(next), updatedAt: new Date().toISOString() }
+    })
+    return { config: result, readiness: deliveryRuntimeReadiness(result, realtimeDb) }
+  })
+
+  const listEatCleanDispatchData = onCall(deliveryOperationsCallableOptions, async (request) => {
+    await trustedAdminId(request)
+    const limit = finiteInteger(request.data?.limit ?? 100, 'Giới hạn dữ liệu', 1, 200)
+    const cursor = normalizeDeliveryCursor(request.data?.cursor)
+    const deliveryCollection = db.collection('eatCleanDeliveries')
+    const deliveriesQuery = buildActiveDeliveriesQuery(deliveryCollection, { cursor, limit })
+    const [deliveriesSnapshot, shipperProfilesSnapshot, availabilitySnapshot, configSnapshot, totalActive] = await Promise.all([
+      deliveriesQuery.get(),
+      db.collection('users').where('role', '==', 'shipper').limit(100).get(),
+      db.collection('eatCleanShippers').limit(100).get(),
+      db.doc('system/eat_clean_config').get(),
+      countActiveDeliveryJobs(deliveryCollection),
+    ])
+    const orderSnapshots = deliveriesSnapshot.empty
+      ? []
+      : await db.getAll(...deliveriesSnapshot.docs.map((item) => db.doc(`eatCleanOrders/${item.id}`)))
+    const orderMap = new Map(orderSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
+    const deliveries = deliveriesSnapshot.docs
+      .map((item) => {
+        const order = orderMap.get(item.id) || {}
+        const itemCount = (order.items || []).reduce((sum, line) => sum + (Number(line.quantity) || 0), 0)
+        return {
+          id: item.id,
+          ...publicDeliveryValue(item.data()),
+          orderStatus: order.status || '',
+          itemCount,
+          cashToCollect: order.paymentStatus === 'paid' || order.payment?.status === 'paid' ? 0 : Number(order.total) || 0,
+          order: {
+            id: item.id,
+            code: order.code || item.data().orderCode || item.id,
+            status: order.status || '',
+            itemCount,
+            total: Number(order.total) || 0,
+            customer: order.customer || item.data().destination || null,
+          },
+        }
+      })
+      .map((item) => Object.fromEntries(Object.entries(item).filter(([, value]) => value !== undefined)))
+    const availabilityMap = new Map(availabilitySnapshot.docs.map((item) => [item.id, item.data()]))
+    const activeShipperProfiles = shipperProfilesSnapshot.docs.filter((item) => item.data().disabled !== true)
+    const activeJobCountEntries = await Promise.all(activeShipperProfiles.map(async (item) => (
+      [item.id, await countActiveDeliveryJobs(deliveryCollection, item.id)]
+    )))
+    const activeJobCounts = new Map(activeJobCountEntries)
+    const shippers = activeShipperProfiles
+      .map((item) => ({
+        id: item.id,
+        userId: item.id,
+        displayName: item.data().displayName || 'Shipper Aura',
+        phone: item.data().phoneNumber || '',
+        photoURL: item.data().photoURL || '',
+        available: availabilityMap.get(item.id)?.available === true,
+        activeJobCount: activeJobCounts.get(item.id) || 0,
+        lastSeenAt: serializeValue(availabilityMap.get(item.id)?.lastSeenAt),
+      }))
+    const summary = deliveries.reduce((result, item) => {
+      result.byStatus[item.status] = (result.byStatus[item.status] || 0) + 1
+      const promisedAt = Date.parse(item.promisedAt || item.eta?.promisedAt || '')
+      if (!['delivered', 'cancelled'].includes(item.status) && Number.isFinite(promisedAt) && promisedAt < Date.now()) result.late += 1
+      return result
+    }, { byStatus: {}, late: 0, totalActive })
+    const config = {
+      ...normalizeStoredConfig(configSnapshot.exists ? configSnapshot.data() : {}),
+      revision: Number(configSnapshot.data()?.revision) || 0,
+      updatedAt: serializeValue(configSnapshot.data()?.updatedAt),
+    }
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      serverTime: new Date().toISOString(),
+      deliveries,
+      shippers,
+      config,
+      summary,
+      page: {
+        limit,
+        nextCursor: nextDeliveryCursor(deliveriesSnapshot, limit),
+        hasMore: deliveriesSnapshot.size === limit,
+      },
+      readiness: deliveryRuntimeReadiness(config, realtimeDb),
+    }
+  })
+
+  const assignEatCleanShipper = onCall(otpWriteOptions, async (request) => {
+    const actorId = await trustedAdminId(request)
+    const orderId = documentId(request.data?.orderId, 'Mã đơn hàng')
+    const shipperId = documentId(request.data?.shipperId, 'Mã shipper')
+    const orderReference = db.doc(`eatCleanOrders/${orderId}`)
+    const deliveryReference = db.doc(`eatCleanDeliveries/${orderId}`)
+    const eventReference = orderReference.collection('events').doc()
+    const result = await db.runTransaction(async (transaction) => {
+      const [orderSnapshot, deliverySnapshot, shipperSnapshot] = await Promise.all([
+        transaction.get(orderReference),
+        transaction.get(deliveryReference),
+        transaction.get(db.doc(`users/${shipperId}`)),
+      ])
+      if (!orderSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy đơn Eat Clean.')
+      if (!shipperSnapshot.exists || shipperSnapshot.data().role !== 'shipper' || shipperSnapshot.data().disabled === true) {
+        throw new HttpsError('failed-precondition', 'Tài khoản được chọn không phải shipper đang hoạt động.')
+      }
+      const order = orderSnapshot.data()
+      if (!['preparing', 'ready'].includes(order.status)) {
+        throw new HttpsError('failed-precondition', 'Chỉ có thể gán shipper khi đơn đang chuẩn bị hoặc đã sẵn sàng.')
+      }
+      const current = deliverySnapshot.data() || {}
+      if (['picked_up', 'arrived', 'delivered'].includes(current.status)) {
+        throw new HttpsError('failed-precondition', 'Không thể đổi shipper sau khi đã lấy món.')
+      }
+      const otp = deliveryOtpFor(orderId, order.userId)
+      const next = {
+        schemaVersion: SCHEMA_VERSION,
+        id: orderId,
+        orderId,
+        orderCode: order.code || orderId,
+        userId: order.userId,
+        pickup: current.pickup || {},
+        destination: current.destination || order.customer,
+        route: current.route || order.deliveryRoute || null,
+        eta: current.eta || order.eta || null,
+        promisedAt: current.promisedAt || (order.eta?.promisedAt ? Timestamp.fromDate(new Date(order.eta.promisedAt)) : null),
+        status: 'assigned',
+        shipperId,
+        shipperName: boundedString(shipperSnapshot.data().displayName ?? 'Shipper Aura', 'Tên shipper', 100),
+        deliveryOtpHash: otpHash(orderId, otp),
+        deliveryOtpHashVersion: 'hmac-v1',
+        otpFailedAttempts: 0,
+        otpLockedUntil: null,
+        assignedAt: FieldValue.serverTimestamp(),
+        assignedBy: actorId,
+        acceptedAt: null,
+        updatedAt: FieldValue.serverTimestamp(),
+        createdAt: deliverySnapshot.exists ? current.createdAt : FieldValue.serverTimestamp(),
+      }
+      transaction.set(deliveryReference, next, { merge: true })
+      transaction.update(orderReference, {
+        deliveryId: orderId,
+        assignedShipperId: shipperId,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      transaction.create(eventReference, {
+        type: 'shipper_assigned',
+        actorId,
+        shipperId,
+        previousShipperId: current.shipperId || null,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      const notificationReference = db.doc(`users/${shipperId}/notifications/eat-clean-job-${orderId}`)
+      transaction.set(notificationReference, {
+        id: notificationReference.id,
+        userId: shipperId,
+        title: 'Đơn giao Eat Clean mới',
+        message: `${order.code || orderId} đã được gán cho bạn.`,
+        type: 'eat_clean_delivery',
+        category: 'system',
+        actionUrl: `#/delivery?screen=job&orderId=${encodeURIComponent(orderId)}`,
+        read: false,
+        createdAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
+      return { orderId, shipperId, customerId: order.userId, status: 'assigned' }
+    })
+    const { customerId, ...publicResult } = result
+    const realtimeMirror = await bestEffortRealtimeWrite({
+      realtimeDb,
+      path: `eatCleanLiveLocations/${orderId}`,
+      write: (reference) => reference.set({
+        orderId,
+        customerId,
+        shipperId,
+        active: false,
+        updatedAt: Date.now(),
+      }),
+      logger,
+      context: { operation: 'assign', orderId, shipperId },
+    })
+    return { delivery: publicResult, realtimeMirror }
+  })
+
+  const acceptEatCleanDelivery = onCall(writeOptions, async (request) => {
+    const { actorId, role } = await trustedShipper(request)
+    const orderId = documentId(request.data?.orderId, 'Mã đơn hàng')
+    const reference = db.doc(`eatCleanDeliveries/${orderId}`)
+    const result = await db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference)
+      if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy nhiệm vụ giao hàng.')
+      const delivery = snapshot.data()
+      if (role === 'shipper' && delivery.shipperId !== actorId) throw new HttpsError('permission-denied', 'Đơn này chưa được gán cho bạn.')
+      if (!canTransitionDelivery(delivery.status, 'accepted')) {
+        throw new HttpsError('failed-precondition', `Không thể nhận đơn ở trạng thái ${delivery.status}.`)
+      }
+      transaction.update(reference, {
+        status: 'accepted',
+        acceptedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      return { orderId, status: 'accepted', acceptedAt: new Date().toISOString() }
+    })
+    const realtimeMirror = await bestEffortRealtimeWrite({
+      realtimeDb,
+      path: `eatCleanLiveLocations/${orderId}/active`,
+      write: (reference) => reference.set(true),
+      logger,
+      context: { operation: 'accept', orderId, actorId },
+    })
+    return { delivery: result, realtimeMirror }
+  })
+
+  const updateEatCleanDeliveryMilestone = onCall(writeOptions, async (request) => {
+    const { actorId, role } = await trustedShipper(request)
+    const orderId = documentId(request.data?.orderId, 'Mã đơn hàng')
+    const milestone = boundedString(request.data?.milestone, 'Mốc giao hàng', 40)
+    const transitions = {
+      arrived_at_store: { from: 'accepted', to: 'at_store', field: 'arrivedAtStoreAt' },
+      picked_up: { from: 'at_store', to: 'picked_up', field: 'pickedUpAt' },
+      arrived_at_customer: { from: 'picked_up', to: 'arrived', field: 'arrivedAtCustomerAt' },
+    }
+    const transition = transitions[milestone]
+    if (!transition) throw new HttpsError('invalid-argument', 'Mốc giao hàng không hợp lệ.')
+    const deliveryReference = db.doc(`eatCleanDeliveries/${orderId}`)
+    const orderReference = db.doc(`eatCleanOrders/${orderId}`)
+    const eventReference = orderReference.collection('events').doc()
+    const result = await db.runTransaction(async (transaction) => {
+      const [deliverySnapshot, orderSnapshot] = await Promise.all([
+        transaction.get(deliveryReference),
+        transaction.get(orderReference),
+      ])
+      if (!deliverySnapshot.exists || !orderSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy đơn giao hàng.')
+      const delivery = deliverySnapshot.data()
+      const order = orderSnapshot.data()
+      if (role === 'shipper' && delivery.shipperId !== actorId) throw new HttpsError('permission-denied', 'Đơn này chưa được gán cho bạn.')
+      if (delivery.status !== transition.from) {
+        throw new HttpsError('failed-precondition', `Mốc ${milestone} không hợp lệ sau trạng thái ${delivery.status}.`)
+      }
+      if (milestone === 'picked_up' && order.status !== 'ready') {
+        throw new HttpsError('failed-precondition', 'Bếp chưa xác nhận đơn sẵn sàng để lấy.')
+      }
+      const deliveryPatch = {
+        status: transition.to,
+        [transition.field]: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }
+      if (milestone === 'picked_up') {
+        const slaPolicy = delivery.eta?.policy || DEFAULT_CONFIG.sla
+        const routeMinutes = Math.ceil((delivery.route?.durationSeconds || 0) / 60)
+        const estimatedDeliveryAt = new Date(Date.now() + (routeMinutes + slaPolicy.travelBufferMinutes) * 60000)
+        const promisedAt = new Date(estimatedDeliveryAt.getTime() + slaPolicy.lateGraceMinutes * 60000)
+        deliveryPatch.eta = {
+          ...(delivery.eta || {}),
+          estimatedDeliveryAt: estimatedDeliveryAt.toISOString(),
+          estimatedArrivalAt: estimatedDeliveryAt.toISOString(),
+          promisedAt: promisedAt.toISOString(),
+          routeMinutes,
+          recalculatedAt: new Date().toISOString(),
+          reason: 'picked_up',
+        }
+        deliveryPatch.promisedAt = Timestamp.fromDate(promisedAt)
+      }
+      transaction.update(deliveryReference, deliveryPatch)
+      if (milestone === 'picked_up') transaction.update(orderReference, {
+        status: 'out_for_delivery',
+        pickedUpAt: FieldValue.serverTimestamp(),
+        eta: deliveryPatch.eta,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      transaction.create(eventReference, {
+        type: 'delivery_milestone',
+        actorId,
+        milestone,
+        from: transition.from,
+        to: transition.to,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      if (milestone === 'picked_up' || milestone === 'arrived_at_customer') {
+        const notificationStatus = milestone === 'picked_up' ? 'out-for-delivery' : 'arrived'
+        const notificationReference = db.doc(`users/${order.userId}/notifications/eat-clean-${orderId}-${notificationStatus}`)
+        transaction.set(notificationReference, {
+          id: notificationReference.id,
+          userId: order.userId,
+          title: milestone === 'picked_up' ? 'Shipper đã lấy món' : 'Shipper đã đến nơi',
+          message: milestone === 'picked_up'
+            ? `${order.code || orderId} đang trên đường giao đến bạn.`
+            : `Shipper của ${order.code || orderId} đã đến. Vui lòng chuẩn bị mã OTP.`,
+          type: 'eat_clean_delivery',
+          category: 'system',
+          actionUrl: `#/eat-clean?screen=order&orderId=${encodeURIComponent(orderId)}`,
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        }, { merge: true })
+      }
+      return { orderId, status: transition.to, milestone, updatedAt: new Date().toISOString() }
+    })
+    return { delivery: result }
+  })
+
+  const updateEatCleanShipperLocation = onCall(writeOptions, async (request) => {
+    const { actorId, role } = await trustedShipper(request)
+    if (!realtimeDb) throw new HttpsError('failed-precondition', 'Realtime Database chưa được cấu hình.')
+    const orderId = documentId(request.data?.orderId, 'Mã đơn hàng')
+    const position = normalizeLatLng(request.data, 'Vị trí shipper')
+    const deliverySnapshot = await db.doc(`eatCleanDeliveries/${orderId}`).get()
+    if (!deliverySnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy nhiệm vụ giao hàng.')
+    const delivery = deliverySnapshot.data()
+    if (role === 'shipper' && delivery.shipperId !== actorId) throw new HttpsError('permission-denied', 'Đơn này chưa được gán cho bạn.')
+    if (!['accepted', 'at_store', 'picked_up', 'arrived'].includes(delivery.status)) {
+      throw new HttpsError('failed-precondition', 'Đơn chưa ở trạng thái cho phép cập nhật vị trí.')
+    }
+    let currentReference
+    let currentSnapshot
+    try {
+      currentReference = realtimeDb.ref(`eatCleanLiveLocations/${orderId}`)
+      currentSnapshot = await currentReference.get()
+    } catch (error) {
+      logger.warn('Unable to read Eat Clean live location before update', {
+        operation: 'location_read_before_update',
+        orderId,
+        actorId,
+        code: typeof error?.code === 'string' ? error.code : 'unknown',
+      })
+      throw new HttpsError('unavailable', 'Theo dõi vị trí tạm thời gián đoạn. Vui lòng thử lại.')
+    }
+    const currentLocation = currentSnapshot.exists() ? currentSnapshot.val() : null
+    const nowMillis = Date.now()
+    if (currentLocation?.latitude != null && currentLocation?.longitude != null) {
+      const elapsedMs = nowMillis - Number(currentLocation.updatedAt || 0)
+      const movedMeters = distanceBetweenCoordinates(currentLocation, position)
+      if (elapsedMs < 10000 && movedMeters < 30) {
+        return { location: currentLocation, throttled: true }
+      }
+    }
+    const payload = {
+      orderId,
+      customerId: delivery.userId,
+      shipperId: delivery.shipperId,
+      latitude: position.latitude,
+      longitude: position.longitude,
+      accuracyMeters: optionalNumber(request.data?.accuracyMeters, 'Độ chính xác GPS', 0, 10000, 0),
+      heading: optionalNumber(request.data?.heading, 'Hướng di chuyển', 0, 360, 0),
+      speedMetersPerSecond: optionalNumber(request.data?.speedMetersPerSecond, 'Tốc độ', 0, 100, 0),
+      active: true,
+      updatedAt: nowMillis,
+    }
+    try {
+      await currentReference.set(payload)
+    } catch (error) {
+      logger.warn('Unable to update Eat Clean live location', {
+        operation: 'location_update',
+        orderId,
+        actorId,
+        code: typeof error?.code === 'string' ? error.code : 'unknown',
+      })
+      throw new HttpsError('unavailable', 'Theo dõi vị trí tạm thời gián đoạn. Vui lòng thử lại.')
+    }
+    return { location: payload }
+  })
+
+  const completeEatCleanDelivery = onCall(otpWriteOptions, async (request) => {
+    const { actorId, role } = await trustedShipper(request)
+    const orderId = documentId(request.data?.orderId, 'Mã đơn hàng')
+    const suppliedOtp = boundedString(request.data?.otp, 'Mã OTP giao hàng', 4)
+    if (!/^\d{4}$/.test(suppliedOtp)) throw new HttpsError('invalid-argument', 'Mã OTP giao hàng phải gồm 4 chữ số.')
+    const deliveryReference = db.doc(`eatCleanDeliveries/${orderId}`)
+    const orderReference = db.doc(`eatCleanOrders/${orderId}`)
+    const result = await db.runTransaction(async (transaction) => {
+      const [deliverySnapshot, orderSnapshot] = await Promise.all([
+        transaction.get(deliveryReference),
+        transaction.get(orderReference),
+      ])
+      if (!deliverySnapshot.exists || !orderSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy đơn giao hàng.')
+      const delivery = deliverySnapshot.data()
+      const order = orderSnapshot.data()
+      if (role === 'shipper' && delivery.shipperId !== actorId) throw new HttpsError('permission-denied', 'Đơn này chưa được gán cho bạn.')
+      if (delivery.status !== 'arrived' || order.status !== 'out_for_delivery') {
+        throw new HttpsError('failed-precondition', 'Shipper cần xác nhận đã đến nơi trước khi hoàn tất.')
+      }
+      const now = new Date()
+      const lockedUntilMillis = timestampMillis(delivery.otpLockedUntil)
+      if (Number.isFinite(lockedUntilMillis) && lockedUntilMillis > now.getTime()) {
+        return { orderId, otpLocked: true, retryAt: new Date(lockedUntilMillis).toISOString() }
+      }
+      const candidateHash = delivery.deliveryOtpHashVersion === 'hmac-v1'
+        ? otpHash(orderId, suppliedOtp)
+        : legacyOtpHash(orderId, suppliedOtp)
+      if (!safeHashEquals(delivery.deliveryOtpHash, candidateHash)) {
+        const otpFailedAttempts = (Number(delivery.otpFailedAttempts) || 0) + 1
+        const otpLockedUntil = otpFailedAttempts >= DELIVERY_OTP_MAX_ATTEMPTS
+          ? Timestamp.fromMillis(now.getTime() + DELIVERY_OTP_LOCK_MS)
+          : null
+        transaction.update(deliveryReference, {
+          otpFailedAttempts,
+          otpLockedUntil,
+          lastOtpFailureAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+        return {
+          orderId,
+          otpRejected: true,
+          remainingAttempts: Math.max(0, DELIVERY_OTP_MAX_ATTEMPTS - otpFailedAttempts),
+          retryAt: otpLockedUntil ? new Date(otpLockedUntil.toMillis()).toISOString() : null,
+        }
+      }
+      const trackedItems = (order.items || []).filter((item) => item.inventoryTracked !== false)
+      const inventorySnapshots = []
+      for (const item of trackedItems) inventorySnapshots.push(await transaction.get(db.doc(`eatCleanInventory/${item.inventoryId}`)))
+      trackedItems.forEach((item, index) => {
+        const snapshot = inventorySnapshots[index]
+        if (!snapshot.exists) throw new HttpsError('failed-precondition', `Thiếu tồn kho cho món ${item.name}.`)
+        const inventory = snapshot.data()
+        transaction.set(snapshot.ref, {
+          reserved: Math.max(0, (inventory.reserved || 0) - item.quantity),
+          sold: (inventory.sold || 0) + item.quantity,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true })
+      })
+      transaction.update(deliveryReference, {
+        status: 'delivered',
+        deliveredAt: FieldValue.serverTimestamp(),
+        deliveryOtpHash: FieldValue.delete(),
+        deliveryOtpHashVersion: FieldValue.delete(),
+        otpFailedAttempts: 0,
+        otpLockedUntil: null,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      transaction.update(orderReference, {
+        status: 'delivered',
+        paymentStatus: 'paid',
+        deliveredAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      const notificationReference = db.doc(`users/${order.userId}/notifications/eat-clean-${orderId}-delivered`)
+      transaction.set(notificationReference, {
+        id: notificationReference.id,
+        userId: order.userId,
+        title: 'Đơn Eat Clean đã giao',
+        message: `${order.code || orderId} đã giao thành công.`,
+        type: 'eat_clean_order',
+        category: 'system',
+        actionUrl: `#/eat-clean?screen=order&orderId=${encodeURIComponent(orderId)}`,
+        read: false,
+        createdAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
+      return { orderId, status: 'delivered', deliveredAt: new Date().toISOString() }
+    })
+    if (result.otpLocked) {
+      throw new HttpsError('resource-exhausted', `Đã tạm khóa nhập OTP. Thử lại sau ${result.retryAt}.`)
+    }
+    if (result.otpRejected) {
+      throw new HttpsError('permission-denied', `Mã OTP không đúng. Còn ${result.remainingAttempts} lần thử.`)
+    }
+    const realtimeMirror = await bestEffortRealtimeWrite({
+      realtimeDb,
+      path: `eatCleanLiveLocations/${orderId}`,
+      write: (reference) => reference.update({ active: false, updatedAt: Date.now() }),
+      logger,
+      context: { operation: 'complete', orderId, actorId },
+    })
+    return { delivery: result, realtimeMirror }
+  })
+
+  const listMyShipperJobs = onCall(deliveryOperationsCallableOptions, async (request) => {
+    const { actorId, role } = await trustedShipper(request)
+    const limit = finiteInteger(request.data?.limit ?? 50, 'Số nhiệm vụ', 1, 100)
+    const cursor = normalizeDeliveryCursor(request.data?.cursor)
+    const deliveryCollection = db.collection('eatCleanDeliveries')
+    const shipperId = role === 'shipper' ? actorId : ''
+    const query = buildActiveDeliveriesQuery(deliveryCollection, { shipperId, cursor, limit })
+    const [snapshot, activeJobCount] = await Promise.all([
+      query.get(),
+      countActiveDeliveryJobs(deliveryCollection, shipperId),
+    ])
+    const orderSnapshots = snapshot.empty
+      ? []
+      : await db.getAll(...snapshot.docs.map((item) => db.doc(`eatCleanOrders/${item.id}`)))
+    const orderMap = new Map(orderSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
+    const [availabilitySnapshot, configSnapshot] = await Promise.all([
+      db.doc(`eatCleanShippers/${actorId}`).get(),
+      db.doc('system/eat_clean_config').get(),
+    ])
+    const config = normalizeStoredConfig(configSnapshot.exists ? configSnapshot.data() : {})
+    const deliveries = snapshot.docs
+      .map((item) => {
+        const order = orderMap.get(item.id) || {}
+        return {
+          id: item.id,
+          ...publicDeliveryValue(item.data()),
+          order: {
+            code: order.code || item.data().orderCode || item.id,
+            status: order.status || '',
+            itemCount: (order.items || []).reduce((sum, line) => sum + (Number(line.quantity) || 0), 0),
+            items: (order.items || []).map((line) => ({ name: line.name, quantity: line.quantity })),
+            total: Number(order.total) || 0,
+            customer: order.customer || item.data().destination || null,
+            note: order.note || '',
+          },
+        }
+      })
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      deliveries,
+      shipper: availabilitySnapshot.exists
+        ? { id: actorId, ...serializeValue(availabilitySnapshot.data()), activeJobCount }
+        : { id: actorId, available: false, activeJobCount },
+      driver: availabilitySnapshot.exists
+        ? { id: actorId, ...serializeValue(availabilitySnapshot.data()), activeJobCount }
+        : { id: actorId, available: false, activeJobCount },
+      page: {
+        limit,
+        nextCursor: nextDeliveryCursor(snapshot, limit),
+        hasMore: snapshot.size === limit,
+      },
+      readiness: deliveryRuntimeReadiness(config, realtimeDb),
+    }
+  })
+
+  const getEatCleanOrderTracking = onCall(otpCallableOptions, async (request) => {
+    const actorId = requireUser(request)
+    const orderId = documentId(request.data?.orderId, 'Mã đơn hàng')
+    const [actorSnapshot, orderSnapshot, deliverySnapshot] = await Promise.all([
+      db.doc(`users/${actorId}`).get(),
+      db.doc(`eatCleanOrders/${orderId}`).get(),
+      db.doc(`eatCleanDeliveries/${orderId}`).get(),
+    ])
+    if (!orderSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy đơn Eat Clean.')
+    const order = orderSnapshot.data()
+    const delivery = deliverySnapshot.data() || null
+    const role = actorSnapshot.data()?.role
+    const isAdmin = trustedRole(request, actorSnapshot.data(), new Set(['admin', 'super_admin']))
+    const isAssignedShipper = role === 'shipper' && trustedRole(request, actorSnapshot.data(), new Set(['shipper']))
+      && delivery?.shipperId === actorId
+    const isOwner = order.userId === actorId
+    if (!isOwner && !isAdmin && !isAssignedShipper) throw new HttpsError('permission-denied', 'Bạn không có quyền xem hành trình đơn này.')
+    let liveLocation = null
+    let realtimeTracking = realtimeDb
+      ? { configured: true, synced: true, warning: null }
+      : { configured: false, synced: false, warning: 'realtime_not_configured' }
+    if (realtimeDb && delivery && !['delivered', 'cancelled'].includes(delivery.status)) {
+      try {
+        const locationSnapshot = await realtimeDb.ref(`eatCleanLiveLocations/${orderId}`).get()
+        if (locationSnapshot.exists()) {
+          liveLocation = locationSnapshot.val()
+          liveLocation.stale = Date.now() - Number(liveLocation.updatedAt || 0) > LIVE_LOCATION_STALE_MS
+        }
+      } catch (error) {
+        logger.warn('Unable to read Eat Clean live location for tracking', {
+          operation: 'tracking_read',
+          orderId,
+          actorId,
+          code: typeof error?.code === 'string' ? error.code : 'unknown',
+        })
+        realtimeTracking = { configured: true, synced: false, warning: 'realtime_temporarily_unavailable' }
+      }
+    }
+    const deliveryOtp = isOwner && delivery?.shipperId && !['delivered', 'cancelled'].includes(delivery.status)
+      ? deliveryOtpFor(orderId, order.userId)
+      : null
+    const publicDelivery = delivery ? publicDeliveryValue(delivery, deliverySnapshot.id) : null
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      order: { id: orderSnapshot.id, ...serializeValue(order) },
+      delivery: publicDelivery,
+      liveLocation,
+      realtimeTracking,
+      deliveryOtp,
+    }
+  })
+
   const updateEatCleanOrder = onCall(writeOptions, async (request) => {
     const actorId = await trustedAdminId(request)
     const orderId = documentId(request.data?.orderId, 'Mã đơn hàng')
@@ -1744,8 +3330,16 @@ function createEatCleanFunctions(dependencies) {
       const snapshot = await transaction.get(reference)
       if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy đơn Eat Clean.')
       const order = snapshot.data()
+      const deliveryReference = db.doc(`eatCleanDeliveries/${orderId}`)
+      const deliverySnapshot = await transaction.get(deliveryReference)
       if (!canTransitionOrder(order.status, nextStatus)) {
         throw new HttpsError('failed-precondition', `Không thể chuyển đơn từ ${order.status} sang ${nextStatus}.`)
+      }
+      if (nextStatus === 'delivered' && deliverySnapshot.exists) {
+        throw new HttpsError('failed-precondition', 'Đơn có shipper phải hoàn tất bằng OTP giao hàng.')
+      }
+      if (nextStatus === 'out_for_delivery' && deliverySnapshot.exists) {
+        throw new HttpsError('failed-precondition', 'Đơn có shipper phải chuyển sang đang giao bằng mốc Đã lấy món.')
       }
       const effect = orderInventoryEffect(order.status, nextStatus)
       const trackedItems = effect === 'none' ? [] : (order.items || []).filter((item) => item.inventoryTracked !== false)
@@ -1783,6 +3377,20 @@ function createEatCleanFunctions(dependencies) {
         patch.cancellationReason = boundedString(request.data?.cancellationReason, 'Lý do hủy', 300, { required: false })
       }
       transaction.update(reference, patch)
+      if (deliverySnapshot.exists && nextStatus === 'ready' && deliverySnapshot.data().status === 'awaiting_kitchen') {
+        transaction.set(deliveryReference, {
+          status: 'awaiting_assignment',
+          readyAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true })
+      }
+      if (deliverySnapshot.exists && nextStatus === 'cancelled' && deliverySnapshot.data().status !== 'delivered') {
+        transaction.set(deliveryReference, {
+          status: 'cancelled',
+          cancelledAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true })
+      }
       if (order.status !== nextStatus) {
         transaction.create(eventReference, {
           type: 'status_changed',
@@ -1811,8 +3419,17 @@ function createEatCleanFunctions(dependencies) {
       }
       return { id: orderId, status: nextStatus, previousStatus: order.status, updatedAt: new Date().toISOString() }
     })
+    const realtimeMirror = nextStatus === 'cancelled'
+      ? await bestEffortRealtimeWrite({
+        realtimeDb,
+        path: `eatCleanLiveLocations/${orderId}`,
+        write: (reference) => reference.update({ active: false, updatedAt: Date.now() }),
+        logger,
+        context: { operation: 'admin_cancel', orderId, actorId },
+      })
+      : null
     logger.info('Eat Clean order updated', { orderId, actorId, from: result.previousStatus, to: result.status })
-    return { order: result }
+    return { order: result, ...(realtimeMirror ? { realtimeMirror } : {}) }
   })
 
   const listEatCleanAdminData = onCall(callableOptions, async (request) => {
@@ -1863,6 +3480,10 @@ function createEatCleanFunctions(dependencies) {
   })
 
   return {
+    listEatCleanAddresses,
+    saveEatCleanAddress,
+    deleteEatCleanAddress,
+    setDefaultEatCleanAddress,
     getEatCleanStorefront,
     recommendEatCleanMeals,
     quoteEatCleanOrder,
@@ -1876,6 +3497,16 @@ function createEatCleanFunctions(dependencies) {
     initializeEatCleanCatalog,
     updateEatCleanOrder,
     listEatCleanAdminData,
+    setEatCleanShipperAvailability,
+    saveEatCleanDeliveryConfig,
+    listEatCleanDispatchData,
+    assignEatCleanShipper,
+    acceptEatCleanDelivery,
+    updateEatCleanDeliveryMilestone,
+    updateEatCleanShipperLocation,
+    completeEatCleanDelivery,
+    listMyShipperJobs,
+    getEatCleanOrderTracking,
   }
 }
 
@@ -1885,7 +3516,10 @@ module.exports = {
   __test: {
     DEFAULT_CONFIG,
     ALLERGEN_IDS,
+    ACTIVE_DELIVERY_STATUSES,
     normalizeEatCleanConfig,
+    normalizeDistancePricing,
+    normalizeSavedAddress,
     normalizeMealInput,
     normalizeLineItems,
     normalizeCustomer,
@@ -1893,6 +3527,20 @@ module.exports = {
     inventoryDocumentId,
     availableInventory,
     calculateQuote,
+    calculateDistanceDeliveryFee,
+    roundedDistance,
+    pointInPolygon,
+    distanceBetweenCoordinates,
+    estimateDeliverySla,
+    createGoogleAddressAdapter,
+    createGoogleRoutesAdapter,
+    assertSubmittedPinMatches,
+    verifiedCustomerFromDestination,
+    verifyDeliveryCustomer,
+    normalizeDeliveryCursor,
+    buildActiveDeliveriesQuery,
+    nextDeliveryCursor,
+    bestEffortRealtimeWrite,
     canonicalOrderPayload,
     canonicalOrderRequestHash,
     quoteSnapshotHash,
@@ -1902,9 +3550,13 @@ module.exports = {
     hasAllergenConflict,
     recommendationScore,
     canTransitionOrder,
+    canTransitionDelivery,
+    deliveryOtpFor,
+    otpHash,
     orderInventoryEffect,
     normalizedConsumedRatio,
     scaledNutrition,
     serializeValue,
+    publicDeliveryValue,
   },
 }

@@ -71,7 +71,7 @@ const demoProfile: UserProfile = {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-const validUserRoles = new Set<UserRole>(['student', 'coach', 'editor', 'admin', 'super_admin'])
+const validUserRoles = new Set<UserRole>(['student', 'coach', 'editor', 'shipper', 'admin', 'super_admin'])
 const demoOtpEnabled = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_OTP === 'true'
 const e2eOtpEnabled = import.meta.env.MODE === 'e2e' && import.meta.env.VITE_ENABLE_DEMO_OTP === 'true'
 const localOtpEnabled = demoOtpEnabled || e2eOtpEnabled

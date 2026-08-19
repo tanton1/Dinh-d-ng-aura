@@ -91,6 +91,9 @@ export interface EatCleanCartLine extends EatCleanCartItem {
 
 export interface EatCleanStorefront {
   source: 'live' | 'demo'
+  deliveryMode: EatCleanDeliveryMode
+  serviceDate?: string
+  asapEnabled: boolean
   meals: EatCleanMeal[]
   categories: EatCleanCategory[]
   featuredMealIds: string[]
@@ -108,14 +111,60 @@ export interface EatCleanCheckoutContact {
   phone: string
 }
 
+export interface EatCleanCoordinate {
+  latitude: number
+  longitude: number
+}
+
+export type EatCleanAddressKind = 'home' | 'work' | 'other'
+
+export interface EatCleanSavedAddress extends EatCleanCoordinate {
+  id: string
+  kind: EatCleanAddressKind
+  label: string
+  contact: EatCleanCheckoutContact
+  addressLine: string
+  formattedAddress?: string
+  ward?: string
+  districtId?: string
+  district?: string
+  city: string
+  placeId?: string
+  entranceNote?: string
+  isDefault: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type EatCleanDeliveryMode = 'asap' | 'scheduled'
+
 export interface EatCleanDeliveryAddress {
+  addressLine: string
+  formattedAddress?: string
+  ward?: string
+  districtId?: string
+  district?: string
+  city: string
+  placeId?: string
+  latitude?: number
+  longitude?: number
+  entranceNote?: string
+  savedAddressId?: string
+  label?: string
+  deliveryMode?: EatCleanDeliveryMode
+  deliveryDate?: string
+  deliveryWindow?: string
+}
+
+export interface EatCleanVerifiedDeliveryAddress extends EatCleanCoordinate {
   addressLine: string
   ward?: string
   districtId?: string
   district?: string
   city: string
-  deliveryDate?: string
-  deliveryWindow?: string
+  placeId?: string
+  provider?: string
+  verifiedAt?: string
 }
 
 export type EatCleanPaymentMethod = 'cod'
@@ -145,6 +194,15 @@ export interface EatCleanOrderQuote {
   expiresAt?: string
   unavailableMealIds?: string[]
   nutrition?: EatCleanNutrition
+  distanceMeters?: number
+  routeDurationSeconds?: number
+  estimatedArrivalAt?: string
+  promisedAt?: string
+  deliveryFeeBeforeDiscount?: number
+  deliveryFeeDiscount?: number
+  feeRuleVersion?: string
+  serviceAreaLabel?: string
+  verifiedDeliveryAddress?: EatCleanVerifiedDeliveryAddress
 }
 
 export interface EatCleanCreateOrderRequest {
@@ -162,7 +220,10 @@ export type EatCleanOrderStatus =
   | 'confirmed'
   | 'preparing'
   | 'ready'
+  | 'assigned'
+  | 'picked-up'
   | 'delivering'
+  | 'arrived'
   | 'delivered'
   | 'cancelled'
 
@@ -192,6 +253,35 @@ export interface EatCleanOrder {
   canCancel?: boolean
   consumptionConfirmedAt?: string
   timeline?: EatCleanOrderTimelineItem[]
+  estimatedArrivalAt?: string
+  promisedAt?: string
+  distanceMeters?: number
+  shipper?: EatCleanShipperSummary
+  tracking?: EatCleanOrderTracking
+}
+
+export interface EatCleanShipperSummary {
+  id?: string
+  displayName: string
+  phone?: string
+  avatarUrl?: string
+  vehicleLabel?: string
+  plateNumber?: string
+}
+
+export interface EatCleanOrderTracking {
+  orderId: string
+  status: EatCleanOrderStatus
+  shipper?: EatCleanShipperSummary
+  shipperLocation?: EatCleanCoordinate
+  destination?: EatCleanCoordinate
+  kitchenLocation?: EatCleanCoordinate
+  routePolyline?: string
+  estimatedArrivalAt?: string
+  promisedAt?: string
+  lastLocationAt?: string
+  stale?: boolean
+  deliveryOtp?: string
 }
 
 export interface EatCleanRecommendationProfile {

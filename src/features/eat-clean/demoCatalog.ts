@@ -150,6 +150,9 @@ export const DEMO_EAT_CLEAN_MEALS: EatCleanMeal[] = [
 
 export const DEMO_EAT_CLEAN_STOREFRONT: EatCleanStorefront = {
   source: 'demo',
+  deliveryMode: 'scheduled',
+  serviceDate: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
+  asapEnabled: true,
   meals: DEMO_EAT_CLEAN_MEALS,
   categories: EAT_CLEAN_CATEGORIES,
   featuredMealIds: ['ec-chicken-brown-rice', 'ec-salmon-pumpkin', 'ec-beef-quinoa'],
@@ -181,6 +184,7 @@ export function createDemoQuote(items: Array<{ mealId: string; quantity: number 
   })
   const subtotal = lines.reduce((total, line) => total + line.lineTotal, 0)
   const deliveryFee = subtotal >= 250000 ? 0 : 20000
+  const estimatedArrivalAt = new Date(Date.now() + 45 * 60 * 1000).toISOString()
   return {
     quoteId: `demo-quote-${Date.now()}`,
     lines,
@@ -189,6 +193,14 @@ export function createDemoQuote(items: Array<{ mealId: string; quantity: number 
     discount: 0,
     total: subtotal + deliveryFee,
     currency: 'VND',
+    distanceMeters: 3400,
+    routeDurationSeconds: 900,
+    estimatedArrivalAt,
+    promisedAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    deliveryFeeBeforeDiscount: 20000,
+    deliveryFeeDiscount: subtotal >= 250000 ? 20000 : 0,
+    feeRuleVersion: 'demo-distance-v1',
+    serviceAreaLabel: 'Nội thành Đà Nẵng',
     unavailableMealIds: items.filter((item) => !lines.some((line) => line.mealId === item.mealId)).map((item) => item.mealId),
   }
 }

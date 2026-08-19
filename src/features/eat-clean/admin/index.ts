@@ -1,6 +1,7 @@
 export { default as AdminEatCleanPage } from './AdminEatCleanPage'
 export type { AdminEatCleanPageProps, EatCleanAdminTab } from './AdminEatCleanPage'
 export * from './types'
+export { EatCleanDispatchTab } from './components/EatCleanDispatchTab'
 export {
   initializeEatCleanCatalog,
   listEatCleanAdminData,

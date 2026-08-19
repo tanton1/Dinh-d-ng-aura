@@ -33,7 +33,6 @@ const forceDemoMode = import.meta.env.VITE_FORCE_DEMO === 'true'
 export const isFirebaseConfigured = !forceDemoMode && Object.values(firebaseConfig).every(
   (value) => typeof value === 'string' && value.trim().length > 0,
 )
-
 export const useFirebaseEmulators =
   import.meta.env.DEV && import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true'
 

@@ -28,6 +28,7 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
   'admin-quotes': () => import('../components/admin/pt/QuoteGenerator'),
   'admin-workout-plans': () => import('../components/admin/pt/WorkoutPlanEditor'),
   'admin-schedule-settings': () => import('../components/admin/pt/ScheduleSettings'),
+  delivery: () => import('../features/delivery/DeliveryPage'),
   'admin-dashboard': () => import('../pages/admin/AdminDashboard'),
   'admin-courses': () => import('../pages/admin/AdminCoursesPage'),
   'admin-course-editor': () => import('../pages/admin/CourseEditorPage'),
