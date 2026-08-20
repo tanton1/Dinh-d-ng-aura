@@ -28,7 +28,7 @@ test('retired food, menu and workout links redirect to active workspaces', async
   const redirects = [
     ['/#/food-database', /#\/nutrition$/],
     ['/#/dish-collection', /#\/nutrition$/],
-    ['/#/meal-plan', /#\/nutrition\?section=catalog$/],
+    ['/#/meal-plan', /#\/nutrition\?section=plan$/],
     ['/#/admin-workout-plans', /#\/admin-programs$/],
     ['/#/admin-meal-plans', /#\/admin-eat-clean$/],
   ] as const
@@ -39,7 +39,7 @@ test('retired food, menu and workout links redirect to active workspaces', async
   }
 })
 
-test('nutrition exposes the canonical food catalog and learner mobile navigation opens the linked student schedule', async ({ page }) => {
+test('nutrition exposes both the goal-based meal plan and full food catalog while learner navigation opens the linked schedule', async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem('aura:nutrition-profile:demo-admin', JSON.stringify({
       goal: 'maintain',
@@ -60,6 +60,11 @@ test('nutrition exposes the canonical food catalog and learner mobile navigation
     }))
   })
   await page.goto('/#/meal-plan')
+  await expect(page).toHaveURL(/#\/nutrition\?section=plan$/)
+  await expect(page.getByRole('heading', { name: /Ăn đúng mà không phải nghĩ nhiều/i })).toBeVisible()
+  await expect(page.getByText(/kcal/).first()).toBeVisible()
+
+  await page.getByRole('button', { name: 'Món ăn' }).click()
   await expect(page).toHaveURL(/#\/nutrition\?section=catalog$/)
   await expect(page.getByRole('heading', { name: /Món ăn & thực phẩm/i })).toBeVisible()
 

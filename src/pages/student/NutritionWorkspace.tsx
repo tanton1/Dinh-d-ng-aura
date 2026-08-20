@@ -129,6 +129,7 @@ const SECTION_ITEMS: Array<{
 }> = [
   { id: 'today', label: 'Hôm nay', icon: Salad },
   { id: 'diary', label: 'Nhật ký', icon: CalendarDays },
+  { id: 'plan', label: 'Thực đơn', icon: ShoppingBasket },
   { id: 'catalog', label: 'Món ăn', icon: Database },
   { id: 'insights', label: 'Tiến độ', icon: BarChart3 },
 ]

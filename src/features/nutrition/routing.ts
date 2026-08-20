@@ -14,7 +14,6 @@ export function nutritionFoodIdFromHash() {
 export function nutritionSectionFromHash(): NutritionRouteSection {
   const query = window.location.hash.split('?')[1] ?? ''
   const rawSection = new URLSearchParams(query).get('section')
-  if (rawSection === 'plan') return 'catalog'
   return nutritionRouteSections.has(rawSection as NutritionRouteSection) ? rawSection as NutritionRouteSection : 'today'
 }
 
