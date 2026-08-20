@@ -47,5 +47,29 @@ jobs:
       - name: Run browser smoke tests
         run: npm run test:e2e -- --project=chromium
 
+      - name: Run mobile browser smoke tests
+        run: npm run test:e2e -- --project=mobile-chromium
+
       - name: Test Firestore Security Rules
         run: npm run test:rules
+
+      - name: Test Storage Security Rules
+        run: npm run test:storage
+
+      - name: Test Realtime Database Security Rules
+        run: npm run test:rtdb
+
+      - name: Validate production configuration contract
+        run: npm run production:gate -- --allow-pending-app-check
+        env:
+          VITE_FIREBASE_API_KEY: ci-placeholder
+          VITE_FIREBASE_AUTH_DOMAIN: ci.example.invalid
+          VITE_FIREBASE_PROJECT_ID: ci-contract
+          VITE_FIREBASE_STORAGE_BUCKET: ci-contract.invalid
+          VITE_FIREBASE_MESSAGING_SENDER_ID: '000000000000'
+          VITE_FIREBASE_APP_ID: ci-contract-app
+          VITE_FIREBASE_DATABASE_ID: ci-contract-db
+          VITE_ENABLE_DEMO_OTP: 'false'
+          VITE_FORCE_DEMO: 'false'
+          ENFORCE_APP_CHECK: 'false'
+          ENFORCE_AI_APP_CHECK: 'false'
