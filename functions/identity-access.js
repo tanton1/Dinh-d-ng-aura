@@ -68,6 +68,10 @@ function legacyIdentity(role) {
   return legacyRoleToAccess[role] || legacyRoleToAccess.student
 }
 
+function comparableLegacyRole(role) {
+  return role === 'user' ? 'student' : role
+}
+
 function compatibilityRole(accessRole, positions) {
   if (accessRole === 'admin' || accessRole === 'super_admin') return accessRole
   if (accessRole === 'student') return 'student'
@@ -136,7 +140,12 @@ async function trustedAccessContext(request, db) {
   }
 
   const tokenLegacyRole = typeof claims.role === 'string' ? claims.role : 'student'
-  if (profile.role !== tokenLegacyRole) {
+  const profileLegacyRole = typeof profile.role === 'string' ? profile.role : 'student'
+  // The migrated learner population used the legacy `user` label while older
+  // Auth records had no custom role claim. Both are non-privileged learner
+  // identities. Only normalize that exact safe pair; staff/admin mismatches
+  // still fail closed.
+  if (comparableLegacyRole(profileLegacyRole) !== comparableLegacyRole(tokenLegacyRole)) {
     throw new HttpsError('permission-denied', 'Quyền tài khoản chưa đồng bộ. Vui lòng đăng nhập lại hoặc liên hệ quản trị viên.')
   }
   const legacy = legacyIdentity(tokenLegacyRole)
@@ -225,6 +234,16 @@ function catalogDetail(snapshot) {
   }
 }
 
+let nutritionCatalogCountCache = { value: 0, expiresAt: 0 }
+
+async function nutritionCatalogTotal(db) {
+  if (nutritionCatalogCountCache.expiresAt > Date.now()) return nutritionCatalogCountCache.value
+  const aggregate = await db.collection('nutritionCatalog').count().get()
+  const value = Number(aggregate.data().count || 0)
+  nutritionCatalogCountCache = { value, expiresAt: Date.now() + 5 * 60 * 1000 }
+  return value
+}
+
 function invitePublicData(snapshot) {
   const value = snapshot.data()
   return {
@@ -250,24 +269,32 @@ function createIdentityAccessFunctions({ db, auth, onCall }) {
     const kind = ['dish', 'food'].includes(request.data?.kind) ? request.data.kind : 'all'
     const requestedLimit = Number(request.data?.limit)
     const limit = Number.isInteger(requestedLimit) ? Math.min(180, Math.max(24, requestedLimit)) : 72
+    const cursorId = request.data?.cursor ? catalogDocumentId(request.data.cursor) : ''
     const requestedIds = Array.isArray(request.data?.ids)
       ? [...new Set(request.data.ids.map(catalogDocumentId))].slice(0, 100)
       : []
+    const totalCount = await nutritionCatalogTotal(db)
 
     if (requestedIds.length) {
       const snapshots = await db.getAll(...requestedIds.map((id) => db.collection('nutritionCatalog').doc(id)))
       const items = snapshots.filter((snapshot) => snapshot.exists).map(catalogItem)
-      return { items, hasMore: false, restricted: true }
+      return { items, hasMore: false, nextCursor: null, totalCount, restricted: true }
     }
 
     const queryToken = query.split(' ').find((token) => token.length >= 2) || ''
-    const fetchLimit = Math.min(500, Math.max(limit * 3, 120))
+    const fetchLimit = limit
     let catalogQuery = db.collection('nutritionCatalog')
     catalogQuery = queryToken
       ? catalogQuery.where('nameTokens', 'array-contains', queryToken)
       : catalogQuery.orderBy('nameAscii')
-    const snapshot = await catalogQuery.limit(fetchLimit).get()
-    const filtered = snapshot.docs
+    if (cursorId) {
+      const cursorSnapshot = await db.collection('nutritionCatalog').doc(cursorId).get()
+      if (!cursorSnapshot.exists) throw new HttpsError('invalid-argument', 'Trang Catalog không còn hợp lệ. Hãy tải lại.')
+      catalogQuery = catalogQuery.startAfter(cursorSnapshot)
+    }
+    const snapshot = await catalogQuery.limit(fetchLimit + 1).get()
+    const pageDocs = snapshot.docs.slice(0, fetchLimit)
+    const filtered = pageDocs
       .map(catalogItem)
       .filter((item) => kind === 'all' || item.kind === kind)
       .filter((item) => !query || normalizeCatalogSearch([
@@ -279,8 +306,10 @@ function createIdentityAccessFunctions({ db, auth, onCall }) {
         item.region?.nameVi,
       ].filter(Boolean).join(' ')).includes(query))
     return {
-      items: filtered.slice(0, limit),
-      hasMore: snapshot.size === fetchLimit && filtered.length > limit,
+      items: filtered,
+      hasMore: snapshot.size > fetchLimit,
+      nextCursor: pageDocs.at(-1)?.id || null,
+      totalCount,
       restricted: true,
     }
   })

@@ -6,11 +6,14 @@ export interface InternalNutritionCatalogQuery {
   kind?: 'all' | 'dish' | 'food'
   limit?: number
   ids?: string[]
+  cursor?: string
 }
 
 export interface InternalNutritionCatalogResponse {
   items: unknown[]
   hasMore: boolean
+  nextCursor: string | null
+  totalCount: number
   restricted: true
 }
 

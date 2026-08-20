@@ -52,19 +52,32 @@ export function normalizeCatalogPayload(payload: unknown): NutritionFoodCatalogI
   }).filter((item): item is NutritionFoodCatalogItem => Boolean(item))
 }
 
-const catalogRequests = new Map<string, Promise<NutritionFoodCatalogItem[]>>()
+export interface NutritionCatalogPage {
+  items: NutritionFoodCatalogItem[]
+  hasMore: boolean
+  nextCursor: string | null
+  totalCount: number
+}
 
-export function loadNutritionCatalog(input: InternalNutritionCatalogQuery = {}) {
+const catalogRequests = new Map<string, Promise<NutritionCatalogPage>>()
+
+export function loadNutritionCatalogPage(input: InternalNutritionCatalogQuery = {}) {
   const key = JSON.stringify({
     query: input.query?.trim() ?? '',
     kind: input.kind ?? 'all',
     limit: input.limit ?? 72,
     ids: input.ids ? [...input.ids].sort() : [],
+    cursor: input.cursor ?? '',
   })
   if (!catalogRequests.has(key)) {
     const request = listInternalNutritionCatalog(input).then((payload) => {
       if (!Array.isArray(payload.items)) throw new Error('catalog_response_invalid')
-      return normalizeCatalogPayload(payload.items)
+      return {
+        items: normalizeCatalogPayload(payload.items),
+        hasMore: payload.hasMore === true,
+        nextCursor: typeof payload.nextCursor === 'string' && payload.nextCursor ? payload.nextCursor : null,
+        totalCount: Number.isInteger(payload.totalCount) && payload.totalCount >= 0 ? payload.totalCount : 0,
+      }
     }).catch((error: unknown) => {
       catalogRequests.delete(key)
       throw error
@@ -72,6 +85,10 @@ export function loadNutritionCatalog(input: InternalNutritionCatalogQuery = {}) 
     catalogRequests.set(key, request)
   }
   return catalogRequests.get(key)!
+}
+
+export function loadNutritionCatalog(input: InternalNutritionCatalogQuery = {}) {
+  return loadNutritionCatalogPage(input).then((page) => page.items)
 }
 
 export function resetNutritionCatalog() {

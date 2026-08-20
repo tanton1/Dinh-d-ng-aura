@@ -82,7 +82,7 @@ const retiredRouteRedirects: Record<string, { view: ViewId; hash: string }> = {
   'schedule-pt': { view: 'schedule', hash: '#/schedule' },
   'food-database': { view: 'nutrition', hash: '#/nutrition' },
   'dish-collection': { view: 'nutrition', hash: '#/nutrition' },
-  'meal-plan': { view: 'nutrition', hash: '#/nutrition?section=plan' },
+  'meal-plan': { view: 'nutrition', hash: '#/nutrition?section=catalog' },
   'admin-workout-plans': { view: 'admin-programs', hash: '#/admin-programs' },
   'admin-meal-plans': { view: 'admin-eat-clean', hash: '#/admin-eat-clean' },
 }

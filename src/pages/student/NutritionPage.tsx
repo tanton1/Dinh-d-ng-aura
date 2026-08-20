@@ -119,6 +119,7 @@ import {
 import {
   detailNutrientValue,
   loadNutritionCatalog,
+  loadNutritionCatalogPage,
   loadNutritionCatalogDetail,
   resetNutritionCatalog,
   scaleOptionalNumber,
@@ -2195,6 +2196,10 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
   const debouncedQuery = useDebounce(query, 300)
   const [items, setItems] = useState<NutritionFoodCatalogItem[]>(catalog?.length ? catalog : [])
   const [catalogState, setCatalogState] = useState<'loading' | 'live' | 'demo' | 'error'>(catalog?.length ? 'live' : 'loading')
+  const [catalogTotalCount, setCatalogTotalCount] = useState(catalog?.length ?? 0)
+  const [catalogNextCursor, setCatalogNextCursor] = useState<string | null>(null)
+  const [catalogHasMore, setCatalogHasMore] = useState(false)
+  const [catalogLoadingMore, setCatalogLoadingMore] = useState(false)
   const [retryToken, setRetryToken] = useState(0)
   const [kindFilter, setKindFilter] = useState<'all' | 'dish' | 'food'>('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
@@ -2239,26 +2244,38 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
   useEffect(() => {
     if (catalog?.length) {
       setItems(catalog)
+      setCatalogTotalCount(catalog.length)
+      setCatalogNextCursor(null)
+      setCatalogHasMore(false)
       setCatalogState('live')
       return
     }
     let active = true
     if (savedOnly && !savedFoodIds?.size) {
       setItems([])
+      setCatalogTotalCount(0)
+      setCatalogNextCursor(null)
+      setCatalogHasMore(false)
       setCatalogState('live')
       return () => { active = false }
     }
     setCatalogState('loading')
+    setCatalogNextCursor(null)
+    setCatalogHasMore(false)
+    setVisibleCount(36)
     const savedIds = savedOnly ? [...(savedFoodIds ?? [])] : undefined
-    loadNutritionCatalog({
+    loadNutritionCatalogPage({
       query: savedIds?.length ? '' : debouncedQuery,
       kind: kindFilter,
       limit: 180,
       ids: savedIds,
     })
-      .then((normalized) => {
+      .then((page) => {
         if (!active) return
-        setItems(normalized)
+        setItems(page.items)
+        setCatalogTotalCount(page.totalCount)
+        setCatalogNextCursor(page.nextCursor)
+        setCatalogHasMore(page.hasMore)
         setCatalogState('live')
       })
       .catch(() => {
@@ -2274,6 +2291,32 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
     setItems([])
     setCatalogState('loading')
     setRetryToken((current) => current + 1)
+  }
+
+  const loadMoreCatalog = async () => {
+    if (!catalogHasMore || !catalogNextCursor || catalogLoadingMore || savedOnly) return
+    setCatalogLoadingMore(true)
+    try {
+      const page = await loadNutritionCatalogPage({
+        query: debouncedQuery,
+        kind: kindFilter,
+        limit: 180,
+        cursor: catalogNextCursor,
+      })
+      setItems((current) => {
+        const byId = new Map(current.map((item) => [item.id, item]))
+        page.items.forEach((item) => byId.set(item.id, item))
+        return [...byId.values()]
+      })
+      setCatalogTotalCount(page.totalCount)
+      setCatalogNextCursor(page.nextCursor)
+      setCatalogHasMore(page.hasMore)
+      setVisibleCount((current) => current + 36)
+    } catch {
+      setCatalogState('error')
+    } finally {
+      setCatalogLoadingMore(false)
+    }
   }
 
   const categories = useMemo(() => [...new Set(items
@@ -2305,7 +2348,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
     <div className={presentation === 'page' ? 'nutrition-route-page nutrition-route-page--catalog' : 'nutrition-modal-backdrop'} role="presentation" onMouseDown={(event) => presentation === 'modal' && event.target === event.currentTarget && onClose()}>
       <section ref={presentation === 'modal' ? dialogRef : undefined} className={`nutrition-catalog-modal ${presentation === 'page' ? 'nutrition-catalog-modal--page' : ''}`} role={presentation === 'modal' ? 'dialog' : 'region'} aria-modal={presentation === 'modal' ? true : undefined} aria-labelledby="nutrition-catalog-title" data-testid="nutrition-food-search-modal">
         <header className="nutrition-scan-modal__header">
-          <div><h2 id="nutrition-catalog-title">Catalog dinh dưỡng</h2>
+          <div><h2 id="nutrition-catalog-title">Món ăn & thực phẩm</h2>
             <div className="nutrition-catalog-verified">
               <ShieldCheck size={16} className="icon-shield" />
               <span>Dữ liệu tham khảo về món ăn và thực phẩm<br />Kcal và dinh dưỡng phụ thuộc khẩu phần thực tế</span>
@@ -2317,7 +2360,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
           <label className="nutrition-catalog-search">
             <Search size={18} />
             <input autoFocus={presentation === 'modal'} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên món, mã, nhóm hoặc nguyên liệu..." data-testid="nutrition-food-search-input" />
-            <span className="search-result-count">{formatNumber(matchingItems.length)} kết quả hiển thị</span>
+            <span className="search-result-count">{formatNumber(matchingItems.length)} đã tải · {formatNumber(catalogTotalCount)} trong Catalog</span>
           </label>
           <div className="nutrition-catalog-filters" aria-label="Lọc danh mục">
             <div className="nutrition-catalog-kind-filter">
@@ -2446,7 +2489,10 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
             })}
             {catalogState !== 'loading' && catalogState !== 'error' && !filteredItems.length && <div className="nutrition-catalog-empty"><Search size={25} /><strong>Không tìm thấy món phù hợp</strong><span>Thử tên ngắn hơn hoặc bỏ dấu tiếng Việt.</span></div>}
           </div>
-          {matchingItems.length > filteredItems.length && <button type="button" className="nutrition-catalog-load-more" onClick={() => setVisibleCount((current) => current + 36)}>Hiển thị thêm {Math.min(36, matchingItems.length - filteredItems.length)} kết quả <ArrowRight size={14} /></button>}
+          {(matchingItems.length > filteredItems.length || catalogHasMore) && <button type="button" className="nutrition-catalog-load-more" disabled={catalogLoadingMore} onClick={() => {
+            if (matchingItems.length > filteredItems.length) setVisibleCount((current) => current + 36)
+            else void loadMoreCatalog()
+          }}>{catalogLoadingMore ? <LoaderCircle className="nutrition-spin" size={14} /> : null} {matchingItems.length > filteredItems.length ? `Hiển thị thêm ${Math.min(36, matchingItems.length - filteredItems.length)} kết quả` : 'Tải thêm món từ Catalog'} <ArrowRight size={14} /></button>}
           <footer className="nutrition-catalog-footer"><Info size={14} /><span>Giá trị dinh dưỡng phụ thuộc khẩu phần và cách chế biến. Hãy kiểm tra lại lượng thực tế trước khi lưu.</span></footer>
         </div>
       </section>

@@ -34,6 +34,14 @@ test('nutrition catalog is served only after authenticated account verification'
   assert.match(identity, /const getInternalNutritionCatalogItem[\s\S]*?trustedAccessContext\(request, db\)/)
   assert.doesNotMatch(identity, /listInternalNutritionCatalog[\s\S]*?requireCapability\(actor, 'nutrition\.catalog\.internal\.view'\)/)
   assert.match(identity, /collection\('nutritionCatalog'\)/)
+  assert.match(identity, /nutritionCatalogTotal\(db\)/)
+  assert.match(identity, /nextCursor/)
+})
+
+test('legacy learner user and student labels normalize without opening staff privileges', () => {
+  assert.match(identity, /function comparableLegacyRole\(role\)/)
+  assert.match(identity, /role === 'user' \? 'student' : role/)
+  assert.match(identity, /comparableLegacyRole\(profileLegacyRole\) !== comparableLegacyRole\(tokenLegacyRole\)/)
 })
 
 test('trainer and sales APIs derive actor scope on the server', () => {
