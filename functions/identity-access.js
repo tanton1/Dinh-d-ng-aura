@@ -1,6 +1,8 @@
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
-const identityContract = require('../shared/identity/identity-contract.json')
+// Firebase deploy packages only the functions/ directory. Keep the deployable
+// copy here and contract-test it against shared/identity in this repository.
+const identityContract = require('./identity-contract.json')
 
 const accessRoles = new Set(identityContract.accessRoles)
 const staffPositions = new Set(identityContract.staffPositions)

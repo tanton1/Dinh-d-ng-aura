@@ -10,6 +10,13 @@ const pt = readFileSync(join(__dirname, 'pt-operations-v2.js'), 'utf8')
 const finance = readFileSync(join(__dirname, 'finance-ledger.js'), 'utf8')
 const sessions = readFileSync(join(__dirname, 'session-operations.js'), 'utf8')
 const payroll = readFileSync(join(__dirname, 'payroll.js'), 'utf8')
+const sharedIdentityContract = JSON.parse(readFileSync(join(root, 'shared', 'identity', 'identity-contract.json'), 'utf8'))
+const functionsIdentityContract = JSON.parse(readFileSync(join(__dirname, 'identity-contract.json'), 'utf8'))
+
+test('Functions package includes the same deployable identity contract as the web app', () => {
+  assert.deepEqual(functionsIdentityContract, sharedIdentityContract)
+  assert.match(identity, /require\('\.\/identity-contract\.json'\)/)
+})
 
 test('Express rejects unverifiable Firebase tokens without unsigned decode fallback', () => {
   assert.match(server, /verifyIdToken\(token, true\)/)
