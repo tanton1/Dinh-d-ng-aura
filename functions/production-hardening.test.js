@@ -5,6 +5,7 @@ const { join } = require('node:path')
 
 const root = join(__dirname, '..')
 const server = readFileSync(join(root, 'server.ts'), 'utf8')
+const functionsIndex = readFileSync(join(__dirname, 'index.js'), 'utf8')
 const identity = readFileSync(join(__dirname, 'identity-access.js'), 'utf8')
 const pt = readFileSync(join(__dirname, 'pt-operations-v2.js'), 'utf8')
 const finance = readFileSync(join(__dirname, 'finance-ledger.js'), 'utf8')
@@ -30,6 +31,7 @@ test('invitation acceptance requires a verified contact match and rolls claims b
 })
 
 test('nutrition catalog is served only after authenticated account verification', () => {
+  assert.match(functionsIndex, /firebaseOnCall\(\{ enforceAppCheck, invoker: 'public' \}, optionsOrHandler\)/)
   assert.match(identity, /const listInternalNutritionCatalog[\s\S]*?trustedAccessContext\(request, db\)/)
   assert.match(identity, /const getInternalNutritionCatalogItem[\s\S]*?trustedAccessContext\(request, db\)/)
   assert.doesNotMatch(identity, /listInternalNutritionCatalog[\s\S]*?requireCapability\(actor, 'nutrition\.catalog\.internal\.view'\)/)

@@ -10,6 +10,7 @@ import { calculateNutritionTargets } from '../../services/nutritionSyncService'
 import NutritionGroupIcon from '../../components/NutritionGroupIcon'
 import NutritionDashboardHome from './NutritionDashboardHome'
 import NutritionProfileEditor from './NutritionProfileEditor'
+import NutritionMenuLibrary from './NutritionMenuLibrary'
 import WorkoutLogSheet from '../../components/workout/WorkoutLogSheet'
 import NutritionWorkspace, {
   NutritionSectionNav,
@@ -3586,6 +3587,12 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
           onOpenMeal={setSelectedLoggedMealId}
           onDeleteMeal={deleteMeal}
           onDeleteActivity={deleteActivity}
+        />}
+        menuContent={<NutritionMenuLibrary
+          dailyCalorieGoal={calorieGoal}
+          profileGoal={profileDraft.goal}
+          onSelectMeal={(food) => { void queueCatalogFood(food, 1, false) }}
+          onOpenCatalog={() => navigateNutrition('catalog')}
         />}
         diary={{
           dateLabel: selectedDateLabel,

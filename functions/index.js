@@ -90,9 +90,13 @@ else logger.warn('Aura App Check policy', appCheckPolicyLog)
 
 function onCall(optionsOrHandler, maybeHandler) {
   if (typeof optionsOrHandler === 'function') {
-    return firebaseOnCall({ enforceAppCheck }, optionsOrHandler)
+    // Callable endpoints must be reachable by the Firebase Web SDK. Identity,
+    // App Check and capability checks still run inside each handler; this only
+    // prevents Cloud Run IAM from rejecting the request before Firebase can
+    // validate those credentials.
+    return firebaseOnCall({ enforceAppCheck, invoker: 'public' }, optionsOrHandler)
   }
-  return firebaseOnCall({ ...optionsOrHandler, enforceAppCheck }, maybeHandler)
+  return firebaseOnCall({ invoker: 'public', ...optionsOrHandler, enforceAppCheck }, maybeHandler)
 }
 
 function boundedIncidentValue(value, maximum) {

@@ -647,6 +647,7 @@ export interface NutritionWorkspaceProps {
   todayContent: ReactNode
   diary: NutritionDiaryPageProps
   plan: NutritionPlanPageProps
+  menuContent?: ReactNode
   insights?: any
   assistant?: AskAuraPanelProps
   onScan: () => void
@@ -666,6 +667,7 @@ function NutritionWorkspace({
   todayContent,
   diary,
   plan,
+  menuContent,
   assistant,
   onScan,
   onOpenCatalog,
@@ -684,7 +686,7 @@ function NutritionWorkspace({
         {assistantIsPage && assistant ? <AskAuraPanel {...assistant} /> : <>
           {activeSection === 'today' && <div id="nutrition-workspace-panel-today">{todayContent}</div>}
           {activeSection === 'diary' && <NutritionDiaryPage {...diary} />}
-          {activeSection === 'plan' && <NutritionPlanPage {...plan} />}
+          {activeSection === 'plan' && (menuContent ?? <NutritionPlanPage {...plan} />)}
           {activeSection === 'insights' && (
             <ProgressPage
               ownerId={ownerId}

@@ -61,7 +61,9 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   })
   await page.goto('/#/meal-plan')
   await expect(page).toHaveURL(/#\/nutrition\?section=plan$/)
-  await expect(page.getByRole('heading', { name: /Ăn đúng mà không phải nghĩ nhiều/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Chọn món đúng mục tiêu/i })).toBeVisible()
+  await expect(page.getByText(/Theo mức năng lượng/i)).toBeVisible()
+  await expect(page.getByText('Theo mục tiêu', { exact: true })).toBeVisible()
   await expect(page.getByText(/kcal/).first()).toBeVisible()
 
   await page.getByRole('button', { name: 'Món ăn' }).click()
