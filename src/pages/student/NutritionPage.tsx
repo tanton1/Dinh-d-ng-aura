@@ -10,7 +10,7 @@ import { calculateNutritionTargets } from '../../services/nutritionSyncService'
 import NutritionGroupIcon from '../../components/NutritionGroupIcon'
 import NutritionDashboardHome from './NutritionDashboardHome'
 import NutritionProfileEditor from './NutritionProfileEditor'
-import NutritionMenuLibrary from './NutritionMenuLibrary'
+import MealPlanPage, { type Recipe as MealPlanRecipe } from './MealPlanPage'
 import WorkoutLogSheet from '../../components/workout/WorkoutLogSheet'
 import NutritionWorkspace, {
   NutritionSectionNav,
@@ -3588,11 +3588,26 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
           onDeleteMeal={deleteMeal}
           onDeleteActivity={deleteActivity}
         />}
-        menuContent={<NutritionMenuLibrary
-          dailyCalorieGoal={calorieGoal}
-          profileGoal={profileDraft.goal}
-          onSelectMeal={(food) => { void queueCatalogFood(food, 1, false) }}
-          onOpenCatalog={() => navigateNutrition('catalog')}
+        menuContent={<MealPlanPage
+          onNavigate={(view) => {
+            window.location.hash = view === 'profile' ? '#/profile' : `#/${view}`
+          }}
+          onLogRecipe={(recipe: MealPlanRecipe) => {
+            void queueCatalogFood({
+              id: `aura-menu:${recipe.id}`,
+              kind: 'dish',
+              name: recipe.name,
+              servingGrams: null,
+              servingLabel: '1 khẩu phần theo công thức',
+              calories: recipe.kcal,
+              protein: recipe.protein,
+              carbs: recipe.carbs,
+              fat: recipe.fat,
+              fiber: recipe.fiber ?? null,
+              source: 'Aura Menu',
+              imageUrl: recipe.image,
+            }, 1, false)
+          }}
         />}
         diary={{
           dateLabel: selectedDateLabel,

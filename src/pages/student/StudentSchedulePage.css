@@ -6,6 +6,50 @@
   padding-bottom: 120px;
 }
 
+/* Khôi phục bố cục lịch tuần cũ, giữ màu nhận diện Aura và dữ liệu liên kết mới. */
+.student-schedule-page--classic .pt-schedule-banner {
+  border-color: #f5d7e2;
+  background: linear-gradient(110deg, #fff1f7, #fff5ec);
+}
+.student-schedule-page--classic .pt-schedule-banner i {
+  color: var(--schedule-pink);
+  background: linear-gradient(145deg, #ffe2ee, #ffeadc);
+}
+.student-schedule-page--classic .week-strip button.active {
+  background: linear-gradient(145deg, var(--schedule-pink), var(--schedule-orange));
+  box-shadow: 0 8px 20px rgba(246, 47, 130, .22);
+}
+.student-schedule-page--classic .week-strip button > i { background: var(--schedule-orange); }
+.student-schedule-page--classic .event-detail {
+  border-color: #f3d7e2;
+  background: linear-gradient(135deg, #fff7fa, #fff8f2);
+}
+.student-schedule-page--classic .event-icon.purple {
+  color: var(--schedule-pink);
+  background: linear-gradient(145deg, #ffe6f0, #ffecdf);
+}
+.student-schedule-page--classic .event-detail span { color: #d92070; }
+.student-schedule-page--classic .event-line i,
+.student-schedule-page--classic .upcoming-date {
+  color: #d92070;
+  background: #fff0f6;
+}
+.student-schedule-page--classic .consistency-icon { color: var(--schedule-orange); background: #fff0e7; }
+.student-schedule-page--classic .consistency-dots span.done { background: linear-gradient(145deg, var(--schedule-pink), var(--schedule-orange)); }
+.student-schedule-page--classic .consistency-dots span.current { color: var(--schedule-pink); border-color: var(--schedule-pink); }
+.student-schedule-page--classic .reschedule-button { color: #d92070; border-color: #f1afc8; background: #fff7fa; }
+.student-classic-match { display: inline-flex; width: max-content; align-items: center; gap: 4px; margin-top: 6px; font-size: 8px; font-weight: 800; }
+.student-classic-match.is-linked { color: #0f8a60; }
+.student-classic-match.needs-review { color: #c76b19; }
+
+@media (max-width: 640px) {
+  .student-schedule-page--classic { padding-inline: 15px; }
+  .student-schedule-page--classic .page-heading { margin-bottom: 4px; }
+  .student-schedule-page--classic .pt-schedule-banner { margin-bottom: 0; }
+  .student-schedule-page--classic .event-detail { grid-template-columns: 38px minmax(0, 1fr); }
+  .student-schedule-page--classic .event-detail p { display: flex; align-items: center; gap: 4px; }
+}
+
 .student-schedule-state {
   min-height: 240px;
   display: flex;
