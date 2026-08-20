@@ -39,7 +39,7 @@ test('retired food, menu and workout links redirect to active workspaces', async
   }
 })
 
-test('nutrition exposes the canonical meal plan and learner mobile navigation opens the personal PT schedule', async ({ page }) => {
+test('nutrition exposes the canonical meal plan and learner mobile navigation opens the linked student schedule', async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem('aura:nutrition-profile:demo-admin', JSON.stringify({
       goal: 'maintain',
@@ -65,9 +65,12 @@ test('nutrition exposes the canonical meal plan and learner mobile navigation op
 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/#/home')
-  await page.locator('.mobile-bottom-nav').getByRole('button', { name: 'Lịch PT' }).click()
+  await page.locator('.mobile-bottom-nav').getByRole('button', { name: 'Lịch học viên' }).click()
   await expect(page).toHaveURL(/#\/schedule$/)
-  await expect(page.getByRole('heading', { name: /Lịch coaching & tập luyện/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Lịch rảnh & lịch tập của bạn/i })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Ma trận thời gian rảnh' })).toBeVisible()
+  const scheduleOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+  expect(scheduleOverflow).toBeLessThanOrEqual(1)
 })
 
 test('Today Flow belongs to Home while nutrition guidance follows the three-slide carousel', async ({ page }) => {

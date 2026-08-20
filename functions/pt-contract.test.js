@@ -9,6 +9,7 @@ const functionsSource = readFileSync(join(__dirname, 'index.js'), 'utf8')
 const rulesSource = readFileSync(join(__dirname, '..', 'firestore.rules'), 'utf8')
 const storageRulesSource = readFileSync(join(__dirname, '..', 'storage.rules'), 'utf8')
 const cycleMigrationSource = readFileSync(join(__dirname, 'scripts', 'backfill-pt-assignment-cycles.js'), 'utf8')
+const operationsV2Source = readFileSync(join(__dirname, 'pt-operations-v2.js'), 'utf8')
 
 test('PT lifecycle is exposed only through the expected atomic callables', () => {
   for (const name of [
@@ -87,6 +88,17 @@ test('PT schedule contract is callable-only for writes and supports optimistic c
   assert.match(functionsSource, /Cần phiên bản updatedAt hiện tại để đổi trạng thái lịch PT an toàn/)
   assert.match(functionsSource, /coachId: relationship\.coachId/)
   assert.match(functionsSource, /existing\.status !== 'planned'/)
+})
+
+test('student Gym schedule is self-scoped and availability writes are revision guarded', () => {
+  const studentScheduleBlock = operationsV2Source.match(/const listMyStudentPtSchedule = onCall[\s\S]*?const listMyAssignedStudents = onCall/)?.[0] ?? ''
+  assert.match(operationsV2Source, /const listMyStudentPtSchedule = onCall/)
+  assert.match(operationsV2Source, /const saveMyStudentAvailability = onCall/)
+  assert.match(operationsV2Source, /actor\.accessRole !== 'student'/)
+  assert.match(studentScheduleBlock, /where\('studentId', '==', profile\.id\)/)
+  assert.match(studentScheduleBlock, /currentRevision !== expectedRevision/)
+  assert.match(studentScheduleBlock, /scheduleNeedsReview: true/)
+  assert.doesNotMatch(studentScheduleBlock, /request\.data\?\.studentId/)
 })
 
 test('assignment-cycle backfill is stable, dry-run by default and non-destructive', () => {

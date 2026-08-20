@@ -3,6 +3,8 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
+const DEFAULT_WORKING_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
+const DEFAULT_WORKING_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
 
 function boundedString(value, label, maximum, required = true) {
   const result = typeof value === 'string' ? value.trim() : ''
@@ -34,6 +36,59 @@ function serialize(value) {
   if (Array.isArray(value)) return value.map(serialize)
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, serialize(item)]))
   return value
+}
+
+function scheduleConfig(value = {}) {
+  const workingDays = Array.isArray(value.workingDays)
+    ? value.workingDays.filter((day) => DEFAULT_WORKING_DAYS.includes(day))
+    : []
+  const workingHours = Array.isArray(value.workingHours)
+    ? value.workingHours.filter((hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23)
+    : []
+  return {
+    workingDays: workingDays.length ? [...new Set(workingDays)] : DEFAULT_WORKING_DAYS,
+    workingHours: workingHours.length ? [...new Set(workingHours)].sort((left, right) => left - right) : DEFAULT_WORKING_HOURS,
+  }
+}
+
+function sessionHour(sessionId, value) {
+  if (Number.isInteger(value) && value >= 0 && value <= 23) return value
+  const parsed = Number(String(sessionId || '').split('-')[1])
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 23 ? parsed : null
+}
+
+function normalizedAvailabilitySlots(value, config, strict = true) {
+  if (!Array.isArray(value) || value.length > 100) {
+    if (strict) throw new HttpsError('invalid-argument', 'Ma trận thời gian rảnh không hợp lệ.')
+    return []
+  }
+  const allowed = new Set(config.workingDays.flatMap((day) => config.workingHours.map((hour) => `${day}-${hour}`)))
+  const candidates = value.map((slot) => typeof slot === 'string' ? slot.trim() : '')
+  if (strict && candidates.some((slot) => !slot || slot.length > 12 || !allowed.has(slot))) {
+    throw new HttpsError('invalid-argument', 'Khung giờ rảnh nằm ngoài lịch hoạt động.')
+  }
+  const slots = [...new Set(candidates.filter((slot) => slot && slot.length <= 12 && allowed.has(slot)))]
+  const dayOrder = new Map(config.workingDays.map((day, index) => [day, index]))
+  return slots.sort((left, right) => {
+    const [leftDay, leftHour] = left.split('-')
+    const [rightDay, rightHour] = right.split('-')
+    return ((dayOrder.get(leftDay) ?? 99) - (dayOrder.get(rightDay) ?? 99)) || Number(leftHour) - Number(rightHour)
+  })
+}
+
+async function studentActor(request, db) {
+  const actor = await trustedAccessContext(request, db)
+  if (actor.accessRole !== 'student') {
+    throw new HttpsError('permission-denied', 'Trang lịch học viên chỉ dành cho tài khoản học viên.')
+  }
+  return actor
+}
+
+async function studentProfileForActor(db, actor) {
+  const candidateIds = [...new Set([actor.legacyStaffId, actor.uid].filter(Boolean))]
+  const snapshots = candidateIds.length ? await db.getAll(...candidateIds.map((id) => db.doc(`students/${id}`))) : []
+  const snapshot = snapshots.find((item) => item.exists)
+  return snapshot ? { id: snapshot.id, reference: snapshot.ref, value: snapshot.data() } : null
 }
 
 async function assertPortalRollout(db, actor, portal) {
@@ -78,6 +133,117 @@ async function assignedContracts(db, actor, limit = 200) {
 }
 
 function createPtOperationsV2Functions({ db, onCall }) {
+  const listMyStudentPtSchedule = onCall(async (request) => {
+    const actor = await studentActor(request, db)
+    const from = dateKey(request.data?.from, 'Ngày bắt đầu')
+    const to = dateKey(request.data?.to, 'Ngày kết thúc')
+    if (from > to || Date.parse(`${to}T00:00:00+07:00`) - Date.parse(`${from}T00:00:00+07:00`) > 366 * 86400000) {
+      throw new HttpsError('invalid-argument', 'Khoảng lịch học viên tối đa là 366 ngày.')
+    }
+    const profile = await studentProfileForActor(db, actor)
+    const configSnapshot = await db.doc('settings/scheduleConfig').get()
+    const config = scheduleConfig(configSnapshot.data())
+    if (!profile) {
+      return { schemaVersion: 1, linked: false, student: null, scheduleConfig: config, sessions: [], contracts: [] }
+    }
+
+    const [sessionsSnapshot, contractsSnapshot] = await Promise.all([
+      db.collection('sessions').where('studentId', '==', profile.id).limit(500).get(),
+      db.collection('contracts').where('studentId', '==', profile.id).limit(50).get(),
+    ])
+    const sessionRecords = sessionsSnapshot.docs
+      .map((item) => {
+        const session = item.data()
+        const hour = sessionHour(item.id, session.hour)
+        return { id: item.id, ...session, hour }
+      })
+      .filter((session) => typeof session.date === 'string' && session.date >= from && session.date <= to)
+      .sort((left, right) => `${left.date}-${String(left.hour ?? 99).padStart(2, '0')}-${left.id}`.localeCompare(`${right.date}-${String(right.hour ?? 99).padStart(2, '0')}-${right.id}`))
+    const trainerIds = [...new Set(sessionRecords.map((item) => item.trainerId).filter(Boolean))]
+    const trainerSnapshots = trainerIds.length ? await db.getAll(...trainerIds.map((id) => db.doc(`trainers/${id}`))) : []
+    const trainerNames = new Map(trainerSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data().name || 'PT Aura']))
+    const sessions = sessionRecords.map((session) => serialize({
+      id: session.id,
+      date: session.date,
+      hour: session.hour,
+      status: session.status || 'scheduled',
+      trainerId: session.trainerId || '',
+      trainerName: trainerNames.get(session.trainerId) || 'PT đã ngừng hoạt động',
+      branchId: session.branchId || '',
+      verifiedByStudent: session.verifiedByStudent === true,
+      scheduleEntryId: session.scheduleEntryId || '',
+      revision: Number(session.revision || 0),
+      timeZone: TIME_ZONE,
+    }))
+    const contracts = contractsSnapshot.docs.map((item) => {
+      const contract = item.data()
+      return serialize({
+        id: item.id,
+        packageName: contract.packageName || 'Gói tập Aura',
+        status: contract.status || 'active',
+        startDate: contract.startDate || '',
+        endDate: contract.endDate || '',
+        totalSessions: Number(contract.totalSessions || 0),
+        usedSessions: Number(contract.usedSessions || 0),
+      })
+    })
+    return {
+      schemaVersion: 1,
+      linked: true,
+      student: serialize({
+        id: profile.id,
+        name: profile.value.name || 'Học viên Aura',
+        branchId: profile.value.branchId || '',
+        sessionsPerWeek: integer(profile.value.sessionsPerWeek, 3, 1, 6),
+        availableSlots: normalizedAvailabilitySlots(profile.value.availableSlots || [], config, false),
+        isScheduleConfirmed: profile.value.isScheduleConfirmed === true,
+        availabilityRevision: Number(profile.value.availabilityRevision || 0),
+      }),
+      scheduleConfig: config,
+      sessions,
+      contracts,
+    }
+  })
+
+  const saveMyStudentAvailability = onCall(async (request) => {
+    const actor = await studentActor(request, db)
+    const profile = await studentProfileForActor(db, actor)
+    if (!profile) throw new HttpsError('not-found', 'Tài khoản chưa được liên kết với hồ sơ học viên PT.')
+    const configSnapshot = await db.doc('settings/scheduleConfig').get()
+    const config = scheduleConfig(configSnapshot.data())
+    const slots = normalizedAvailabilitySlots(request.data?.availableSlots, config)
+    const expectedRevision = integer(request.data?.expectedRevision, 0, 0, 1000000)
+    const requiredSessions = integer(profile.value.sessionsPerWeek, 3, 1, 6)
+    if (slots.length < requiredSessions) {
+      throw new HttpsError('failed-precondition', `Hãy chọn ít nhất ${requiredSessions} khung giờ rảnh để Aura có thể xếp lịch.`)
+    }
+    const nextRevision = await db.runTransaction(async (transaction) => {
+      const current = await transaction.get(profile.reference)
+      if (!current.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ học viên PT.')
+      const currentRevision = Number(current.data().availabilityRevision || 0)
+      if (currentRevision !== expectedRevision) throw new HttpsError('aborted', 'Lịch rảnh đã thay đổi. Hãy tải lại trước khi lưu.')
+      transaction.update(profile.reference, {
+        availableSlots: slots,
+        availabilityRevision: currentRevision + 1,
+        isScheduleConfirmed: true,
+        scheduleNeedsReview: true,
+        availabilityUpdatedBy: actor.uid,
+        availabilityUpdatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
+        action: 'student_availability.updated',
+        actorUid: actor.uid,
+        studentId: profile.id,
+        beforeSlotCount: Array.isArray(current.data().availableSlots) ? current.data().availableSlots.length : 0,
+        afterSlotCount: slots.length,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return currentRevision + 1
+    })
+    return { schemaVersion: 1, availableSlots: slots, availabilityRevision: nextRevision, isScheduleConfirmed: true }
+  })
+
   const listMyAssignedStudents = onCall(async (request) => {
     const actor = await trainerActor(request, db)
     requireCapability(actor, 'pt.students.assigned.view')
@@ -251,7 +417,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     return { approvalId: reference.id, status: 'pending' }
   })
 
-  return { listMyAssignedStudents, listMyTrainerSchedule, getMyTrainerStudentDetail, confirmMySession, submitWorkoutNote, requestSessionChange, listMyQuotes, getMySalesCatalog, createQuote, createStudentDraft, submitContractForApproval }
+  return { listMyStudentPtSchedule, saveMyStudentAvailability, listMyAssignedStudents, listMyTrainerSchedule, getMyTrainerStudentDetail, confirmMySession, submitWorkoutNote, requestSessionChange, listMyQuotes, getMySalesCatalog, createQuote, createStudentDraft, submitContractForApproval }
 }
 
-module.exports = { createPtOperationsV2Functions }
+module.exports = { createPtOperationsV2Functions, normalizedAvailabilitySlots, scheduleConfig, sessionHour }
