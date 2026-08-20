@@ -129,7 +129,14 @@ Object.assign(exports, createNutritionFunctions({ app, db }))
 Object.assign(exports, createGenerativeAiFunctions({ db }))
 Object.assign(exports, createEatCleanFunctions({ db, realtimeDb, onCall, requireTrustedAdmin, logger }))
 Object.assign(exports, createIdentityAccessFunctions({ db, auth, onCall, logger }))
-Object.assign(exports, createPtOperationsV2Functions({ db, onCall, logger }))
+const ptOperationsV2Functions = createPtOperationsV2Functions({ db, onCall, logger })
+Object.assign(exports, ptOperationsV2Functions)
+
+// Keep new callable entry points statically discoverable by the Firebase CLI.
+// The rest of the PT operations factory remains assigned above for backwards
+// compatibility with already deployed functions.
+exports.listMyStudentPtSchedule = ptOperationsV2Functions.listMyStudentPtSchedule
+exports.saveMyStudentAvailability = ptOperationsV2Functions.saveMyStudentAvailability
 Object.assign(exports, createFinanceLedgerFunctions({ db, onCall, logger }))
 Object.assign(exports, createSessionOperationFunctions({ db, onCall, logger }))
 Object.assign(exports, createPayrollFunctions({ db, onCall, logger }))
