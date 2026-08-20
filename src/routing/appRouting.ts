@@ -82,7 +82,7 @@ const eatCleanScreens = new Set<AuraRoute['eatCleanScreen']>(['store', 'meal', '
 const retiredRouteRedirects: Record<string, { view: ViewId; hash: string }> = {
   'food-database': { view: 'nutrition', hash: '#/nutrition' },
   'dish-collection': { view: 'nutrition', hash: '#/nutrition' },
-  'meal-plan': { view: 'nutrition', hash: '#/nutrition' },
+  'meal-plan': { view: 'nutrition', hash: '#/nutrition?section=plan' },
   'admin-workout-plans': { view: 'admin-programs', hash: '#/admin-programs' },
   'admin-meal-plans': { view: 'admin-eat-clean', hash: '#/admin-eat-clean' },
 }

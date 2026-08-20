@@ -28,7 +28,7 @@ test('retired food, menu and workout links redirect to active workspaces', async
   const redirects = [
     ['/#/food-database', /#\/nutrition$/],
     ['/#/dish-collection', /#\/nutrition$/],
-    ['/#/meal-plan', /#\/nutrition$/],
+    ['/#/meal-plan', /#\/nutrition\?section=plan$/],
     ['/#/admin-workout-plans', /#\/admin-programs$/],
     ['/#/admin-meal-plans', /#\/admin-eat-clean$/],
   ] as const
@@ -37,6 +37,37 @@ test('retired food, menu and workout links redirect to active workspaces', async
     await page.goto(legacyPath)
     await expect(page).toHaveURL(expectedUrl)
   }
+})
+
+test('nutrition exposes the canonical meal plan and learner mobile navigation opens the personal PT schedule', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem('aura:nutrition-profile:demo-admin', JSON.stringify({
+      goal: 'maintain',
+      age: 28,
+      biologicalSex: 'female',
+      heightCm: 162,
+      weightKg: 58,
+      activityLevel: 'moderate',
+      trainingSessions: 4,
+      eatingStyle: 'Không giới hạn',
+      allergies: '',
+      mealsPerDay: 3,
+      dislikes: '',
+      budget: 'medium',
+      prepTime: 'medium',
+      favoriteCuisine: 'Đa dạng',
+      reminders: { water: false, breakfast: false, lunch: false, dinner: false },
+    }))
+  })
+  await page.goto('/#/meal-plan')
+  await expect(page).toHaveURL(/#\/nutrition\?section=plan$/)
+  await expect(page.getByRole('heading', { name: /Ăn đúng mà không phải nghĩ nhiều/i })).toBeVisible()
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/#/home')
+  await page.locator('.mobile-bottom-nav').getByRole('button', { name: 'Lịch PT' }).click()
+  await expect(page).toHaveURL(/#\/schedule$/)
+  await expect(page.getByRole('heading', { name: /Lịch coaching & tập luyện/i })).toBeVisible()
 })
 
 test('Today Flow belongs to Home while nutrition guidance follows the three-slide carousel', async ({ page }) => {

@@ -73,8 +73,7 @@ const studentNavSections: ShellNavSection[] = [
   {
     label: 'PT COACHING & GYM',
     items: [
-      { id: 'schedule-pt' as const, label: 'Lịch tập & Ca PT Gym', icon: Dumbbell },
-      { id: 'schedule' as const, label: 'Lịch PT trực tuyến', icon: CalendarDays },
+      { id: 'schedule' as const, label: 'Lịch PT của tôi', icon: CalendarDays },
     ],
   },
   {
@@ -86,7 +85,7 @@ const studentNavSections: ShellNavSection[] = [
 const studentMobileNav: ShellNavItem[] = [
   { id: 'home', label: 'Hôm nay', icon: Home },
   { id: 'courses', label: 'Học', icon: BookOpen },
-  { id: 'schedule-pt', label: 'Lịch PT', icon: Dumbbell },
+  { id: 'schedule', label: 'Lịch PT', icon: Dumbbell },
   { id: 'nutrition', label: 'Dinh dưỡng', icon: Soup },
   { id: 'progress', label: 'Tiến độ', icon: BarChart3 },
   { id: 'profile', label: 'Cá nhân', icon: UserRound },

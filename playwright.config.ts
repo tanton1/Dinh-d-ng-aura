@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 
-const localChromeExecutable = process.platform === 'win32' && !process.env.CI
+const localChromeExecutable = process.platform === 'win32'
   ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
   : undefined
 const previewCommand = process.env.CI
