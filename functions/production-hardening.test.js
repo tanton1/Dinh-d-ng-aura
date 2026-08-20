@@ -22,6 +22,13 @@ test('invitation acceptance requires a verified contact match and rolls claims b
   assert.match(identity, /identityAuditLogs/)
 })
 
+test('nutrition catalog is served only after authenticated account verification', () => {
+  assert.match(identity, /const listInternalNutritionCatalog[\s\S]*?trustedAccessContext\(request, db\)/)
+  assert.match(identity, /const getInternalNutritionCatalogItem[\s\S]*?trustedAccessContext\(request, db\)/)
+  assert.doesNotMatch(identity, /listInternalNutritionCatalog[\s\S]*?requireCapability\(actor, 'nutrition\.catalog\.internal\.view'\)/)
+  assert.match(identity, /collection\('nutritionCatalog'\)/)
+})
+
 test('trainer and sales APIs derive actor scope on the server', () => {
   assert.match(pt, /trustedAccessContext\(request, db\)/)
   assert.doesNotMatch(pt, /request\.data\?\.trainerId/)

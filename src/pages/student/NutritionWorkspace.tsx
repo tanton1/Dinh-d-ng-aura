@@ -117,7 +117,7 @@ export interface NutritionSectionNavProps {
   activeSection: NutritionWorkspaceSection
   onSectionChange: (section: NutritionWorkspaceSection) => void
   onScan: () => void
-  onOpenCatalog: () => void
+  onOpenCatalog?: () => void
   onOpenAskAura: () => void
   className?: string
 }
@@ -129,7 +129,7 @@ const SECTION_ITEMS: Array<{
 }> = [
   { id: 'today', label: 'Hôm nay', icon: Salad },
   { id: 'diary', label: 'Nhật ký', icon: CalendarDays },
-  { id: 'catalog', label: 'Thư viện', icon: Database },
+  { id: 'catalog', label: 'Catalog', icon: Database },
   { id: 'insights', label: 'Tiến độ', icon: BarChart3 },
 ]
 
@@ -169,7 +169,7 @@ export function NutritionSectionNav({
   return (
     <nav className={`nutrition-workspace-nav ${className}`.trim()} aria-label="Điều hướng dinh dưỡng">
       <div className="nutrition-workspace-nav__sections" aria-label="Khu vực dinh dưỡng">
-        {SECTION_ITEMS.map(({ id, label, icon: Icon }) => {
+        {SECTION_ITEMS.filter(({ id }) => id !== 'catalog' || Boolean(onOpenCatalog)).map(({ id, label, icon: Icon }) => {
           const active = activeSection === id
           return (
             <button
@@ -178,7 +178,7 @@ export function NutritionSectionNav({
               className={active ? 'is-active' : ''}
               onClick={() => {
                 if (id === 'catalog') {
-                  onOpenCatalog()
+                  onOpenCatalog?.()
                 } else {
                   onSectionChange(id)
                 }
@@ -365,7 +365,7 @@ export function NutritionDiaryPage({
             <div className="nutrition-workspace-empty">
               <span><Utensils size={23} /></span>
               <h3>Bắt đầu bằng bữa ăn đầu tiên</h3>
-              <p>Chụp ảnh hoặc chọn món từ thư viện để ghi nhanh và chính xác hơn.</p>
+              <p>Chụp ảnh hoặc ghi bữa ăn để theo dõi dinh dưỡng nhất quán hơn.</p>
               <button type="button" onClick={onAddMeal}><Plus size={16} /> Ghi bữa ăn</button>
             </div>
           ) : filteredTimeline.length === 0 ? (
@@ -443,7 +443,7 @@ export function NutritionDiaryPage({
           <span className="nutrition-workspace-eyebrow">GHI NHANH</span>
           <h2>Thêm trong vài giây</h2>
           <p>Mỗi dữ liệu đều có thời gian và có thể chỉnh lại sau.</p>
-          <button type="button" onClick={onAddMeal}><span><Utensils size={18} /></span><div><strong>Bữa ăn</strong><small>Ảnh AI hoặc thư viện</small></div><ChevronRight size={17} /></button>
+          <button type="button" onClick={onAddMeal}><span><Utensils size={18} /></span><div><strong>Bữa ăn</strong><small>Ảnh AI hoặc ghi thủ công</small></div><ChevronRight size={17} /></button>
           <button type="button" onClick={onAddWater}><span><Droplets size={18} /></span><div><strong>Nước</strong><small>250, 500 hoặc 750 ml</small></div><ChevronRight size={17} /></button>
           <button type="button" onClick={onAddExercise}><span><Activity size={18} /></span><div><strong>Luyện tập</strong><small>Giờ, thời lượng, cường độ</small></div><ChevronRight size={17} /></button>
           <div className="nutrition-diary-quick__note"><CircleAlert size={15} /><p>Kcal vận động được theo dõi riêng, không tự cộng vào ngân sách ăn.</p></div>
@@ -617,7 +617,7 @@ export function AskAuraPanel({
             <div><p>{message.content}</p>{message.evidence?.length ? <div className="ask-aura-message__evidence"><strong>Căn cứ</strong>{message.evidence.map((item) => <small key={item}><Check size={12} /> {item}</small>)}</div> : null}{message.confidenceLabel && <em>{message.confidenceLabel}</em>}</div>
           </article>
         )) : (
-          <div className="ask-aura__welcome"><span><MessageCircle size={24} /></span><h3>Bạn muốn hiểu điều gì?</h3><p>Aura phân tích hồ sơ và nhật ký; khi bạn hỏi món ăn, Aura đối chiếu trực tiếp thư viện dinh dưỡng.</p></div>
+          <div className="ask-aura__welcome"><span><MessageCircle size={24} /></span><h3>Bạn muốn hiểu điều gì?</h3><p>Aura phân tích hồ sơ và nhật ký đã ghi để đưa ra gợi ý theo ngữ cảnh của bạn.</p></div>
         )}
         {isLoading && <div className="ask-aura__thinking"><Sparkles size={15} /><span>Aura đang đối chiếu dữ liệu</span><i /><i /><i /></div>}
       </div>
@@ -649,7 +649,7 @@ export interface NutritionWorkspaceProps {
   insights?: any
   assistant?: AskAuraPanelProps
   onScan: () => void
-  onOpenCatalog: () => void
+  onOpenCatalog?: () => void
   onOpenAskAura: () => void
   className?: string
   weightKg?: number

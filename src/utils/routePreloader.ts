@@ -13,7 +13,6 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
   profile: () => import('../pages/student/ProfilePage'),
   workout: () => import('../pages/student/WorkoutPage'),
   'schedule-pt': () => import('../components/schedule/SchedulerWrapper'),
-  'dish-collection': () => import('../components/food/DishCollection'),
   'trainer-portal': () => import('../components/admin/pt/TrainerDashboard'),
   'sales-portal': () => import('../components/admin/pt/QuoteGenerator'),
   'admin-pt-students': () => import('../components/admin/pt/StudentManagement'),

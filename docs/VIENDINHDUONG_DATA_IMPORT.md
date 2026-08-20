@@ -36,8 +36,8 @@ Run `node scripts/scrape-viendinhduong.mjs --help` for all options.
 - `data/nutrition/viendinhduong.records.csv`: one row per food/dish with common macro columns and full nutrient JSON.
 - `data/nutrition/viendinhduong.manifest.json`: source URLs, request settings, robots decisions, counts, caveats, and SHA-256 checksums.
 - Optional `*.raw.json`: only when `--write-raw` is provided.
-- `public/data/nutrition-catalog.json`: lean browser index generated from the
-  normalized JSON.
+- `nutritionCatalog` trong Firestore: bản sao vận hành phía server, chỉ được đọc
+  qua Callable Function sau khi xác thực tài khoản Aura.
 
 Stable IDs have the form `nin:food:<sourceId>` and `nin:dish:<sourceId>`.
 Missing nutrient amounts remain `null`; they must never be interpreted as zero.
@@ -64,15 +64,15 @@ unless image reuse is separately permitted.
 The database is reference material. Values, especially AI-matched portions,
 must be presented as estimates and not as medical advice.
 
-## Build the lean client index
+## Truy cập trong ứng dụng
 
-```powershell
-node scripts/build-nutrition-client-index.mjs
-```
+Catalog không được phát hành dưới dạng file tĩnh trong `public/`. Frontend gọi
+`listInternalNutritionCatalog` và `getInternalNutritionCatalogItem`; backend
+kiểm tra tài khoản đăng nhập trước khi trả dữ liệu. Mọi học viên và nhân viên
+đều thấy tab Catalog trong trang Dinh dưỡng.
 
-The client file omits micronutrient detail and retains names, category, energy,
-macros, basis, image URL, and source attribution. The complete normalized file
-remains the source of truth for server-side nutrient calculations.
+File normalized đầy đủ vẫn là nguồn import/đối soát phía server. Không tạo lại
+client index trong `public/` vì thao tác đó sẽ bỏ qua lớp phân quyền.
 
 ## Optional Firestore seed
 

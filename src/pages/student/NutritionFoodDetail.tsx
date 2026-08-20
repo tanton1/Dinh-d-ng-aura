@@ -135,7 +135,7 @@ export interface NutritionFoodDetailProps {
   item: NutritionFoodDetailSummary
   relatedItems?: NutritionFoodDetailSummary[]
   initialSaved?: boolean
-  detailsBasePath?: string
+  loadRecord?: (id: string) => Promise<NutritionFoodDetailRecord>
   className?: string
   onBack: () => void
   onAdd?: (record: NutritionFoodDetailRecord, serving: NutritionServingSelection) => void
@@ -144,33 +144,10 @@ export interface NutritionFoodDetailProps {
   onSelectRelated?: (item: NutritionFoodDetailSummary) => void
 }
 
-interface NutritionDetailBucket {
-  records?: unknown
-}
-
 const CORE_NUTRIENT_KEYS = new Set(['energy', 'protein', 'fat', 'carbohydrate'])
 const DEFAULT_VISIBLE_NUTRIENTS = 8
 const FOOD_PORTIONS = [50, 100, 150, 200]
 const DISH_PORTIONS = [0.5, 1, 1.5, 2]
-
-function isRecordCandidate(value: unknown): value is NutritionFoodDetailRecord {
-  if (!value || typeof value !== 'object') return false
-  const candidate = value as Partial<NutritionFoodDetailRecord>
-  return typeof candidate.id === 'string' && typeof candidate.nameVi === 'string'
-}
-
-function findRecord(payload: unknown, id: string) {
-  if (Array.isArray(payload)) return payload.find((record) => isRecordCandidate(record) && record.id === id) ?? null
-  if (!payload || typeof payload !== 'object') return null
-
-  const bucket = payload as NutritionDetailBucket & Record<string, unknown>
-  if (Array.isArray(bucket.records)) {
-    return bucket.records.find((record) => isRecordCandidate(record) && record.id === id) ?? null
-  }
-
-  const keyedRecord = bucket[id]
-  return isRecordCandidate(keyedRecord) ? keyedRecord : null
-}
 
 function summaryToRecord(item: NutritionFoodDetailSummary): NutritionFoodDetailRecord {
   const nutrients: NutritionDetailNutrient[] = [
@@ -226,12 +203,6 @@ function getNutrient(record: NutritionFoodDetailRecord, key: string) {
   return record.nutrients?.find((nutrient) => nutrient.key === key) ?? null
 }
 
-function getBucketUrl(basePath: string, bucket: string) {
-  const normalizedBase = basePath.replace(/\/$/, '')
-  const normalizedBucket = bucket.endsWith('.json') ? bucket : `${bucket}.json`
-  return `${normalizedBase}/${encodeURIComponent(normalizedBucket)}`
-}
-
 function getFallbackRecord(item: NutritionFoodDetailSummary) {
   return summaryToRecord(item)
 }
@@ -240,7 +211,7 @@ export default function NutritionFoodDetail({
   item,
   relatedItems = [],
   initialSaved = false,
-  detailsBasePath = `${import.meta.env.BASE_URL}data/nutrition-details`,
+  loadRecord,
   className = '',
   onBack,
   onAdd,
@@ -260,20 +231,18 @@ export default function NutritionFoodDetail({
 
   useEffect(() => {
     const controller = new AbortController()
-    const bucketUrl = getBucketUrl(detailsBasePath, item.detailBucket)
 
     setLoading(true)
     setLoadError(null)
     setDetail(null)
 
-    fetch(bucketUrl, { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Không thể tải dữ liệu (${response.status})`)
-        return response.json() as Promise<unknown>
-      })
-      .then((payload) => {
-        const record = findRecord(payload, item.id)
-        if (!record) throw new Error('Không tìm thấy món trong gói dữ liệu')
+    const detailRequest = loadRecord
+      ? loadRecord(item.id)
+      : Promise.reject(new Error('Catalog dinh dưỡng chưa sẵn sàng'))
+
+    detailRequest
+      .then((record) => {
+        if (controller.signal.aborted) return
         setDetail(record)
       })
       .catch((error: unknown) => {
@@ -285,7 +254,7 @@ export default function NutritionFoodDetail({
       })
 
     return () => controller.abort()
-  }, [detailsBasePath, item.detailBucket, item.id, requestVersion])
+  }, [item.id, loadRecord, requestVersion])
 
   useEffect(() => {
     setPortionGrams(100)

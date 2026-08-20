@@ -157,7 +157,6 @@ export type StudentView =
   | 'eat-clean'
   | 'meal-plan'
   | 'food-database'
-  | 'dish-collection'
   | 'trainer-portal'
   | 'sales-portal'
   | 'progress'

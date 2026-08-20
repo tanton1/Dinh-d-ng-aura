@@ -152,6 +152,77 @@ function requireCapability(context, capability) {
   }
 }
 
+function normalizeCatalogSearch(value) {
+  return boundedString(value, 'Từ khóa catalog', 80, false)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[đĐ]/g, 'd')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function catalogDocumentId(value) {
+  const normalized = boundedString(value, 'Mã catalog', 500)
+  if (normalized.includes('/')) throw new HttpsError('invalid-argument', 'Mã catalog không hợp lệ.')
+  return normalized
+}
+
+function finiteCatalogNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function catalogItem(snapshot) {
+  const value = snapshot.data() || {}
+  const macros = value.macros || {}
+  const basis = value.basis || {}
+  const source = value.source || {}
+  return {
+    id: snapshot.id,
+    kind: value.kind === 'dish' || value.kind === 'food' ? value.kind : null,
+    code: typeof value.code === 'string' ? value.code : null,
+    nameVi: typeof value.nameVi === 'string' ? value.nameVi : '',
+    nameEn: typeof value.nameEn === 'string' ? value.nameEn : null,
+    nameAscii: typeof value.nameAscii === 'string' ? value.nameAscii : '',
+    category: value.category && typeof value.category === 'object' ? value.category : null,
+    region: value.region && typeof value.region === 'object' ? value.region : null,
+    basis: value.basis && typeof value.basis === 'object' ? value.basis : null,
+    energyKcal: finiteCatalogNumber(value.energyKcal),
+    macros: {
+      proteinG: finiteCatalogNumber(macros.proteinG),
+      carbohydrateG: finiteCatalogNumber(macros.carbohydrateG),
+      fatG: finiteCatalogNumber(macros.fatG),
+      fiberG: finiteCatalogNumber(macros.fiberG),
+    },
+    imageUrl: typeof value.imageUrl === 'string' ? value.imageUrl : null,
+    sourceUrl: typeof value.sourceUrl === 'string' ? value.sourceUrl : typeof source.pageUrl === 'string' ? source.pageUrl : null,
+    sourceId: typeof value.sourceId === 'string' ? value.sourceId : typeof source.sourceId === 'string' ? source.sourceId : null,
+    detailBucket: typeof value.detailBucket === 'string' ? value.detailBucket : null,
+  }
+}
+
+function catalogDetail(snapshot) {
+  const value = snapshot.data() || {}
+  return {
+    id: snapshot.id,
+    kind: value.kind === 'dish' || value.kind === 'food' ? value.kind : null,
+    code: typeof value.code === 'string' ? value.code : null,
+    nameVi: typeof value.nameVi === 'string' ? value.nameVi : '',
+    nameEn: typeof value.nameEn === 'string' ? value.nameEn : null,
+    nameAscii: typeof value.nameAscii === 'string' ? value.nameAscii : null,
+    category: value.category && typeof value.category === 'object' ? value.category : null,
+    region: value.region && typeof value.region === 'object' ? value.region : null,
+    basis: value.basis && typeof value.basis === 'object' ? value.basis : null,
+    energyKcal: finiteCatalogNumber(value.energyKcal),
+    nutrients: Array.isArray(value.nutrients) ? value.nutrients.slice(0, 120) : [],
+    recipeComponents: Array.isArray(value.recipeComponents) ? value.recipeComponents.slice(0, 100) : [],
+    imageUrl: typeof value.imageUrl === 'string' ? value.imageUrl : null,
+    description: typeof value.description === 'string' ? value.description.slice(0, 4000) : null,
+    source: value.source && typeof value.source === 'object' ? value.source : null,
+  }
+}
+
 function invitePublicData(snapshot) {
   const value = snapshot.data()
   return {
@@ -170,6 +241,55 @@ function createIdentityAccessFunctions({ db, auth, onCall }) {
   const getMyAccessContext = onCall(async (request) => ({
     accessContext: await trustedAccessContext(request, db),
   }))
+
+  const listInternalNutritionCatalog = onCall(async (request) => {
+    await trustedAccessContext(request, db)
+    const query = normalizeCatalogSearch(request.data?.query)
+    const kind = ['dish', 'food'].includes(request.data?.kind) ? request.data.kind : 'all'
+    const requestedLimit = Number(request.data?.limit)
+    const limit = Number.isInteger(requestedLimit) ? Math.min(180, Math.max(24, requestedLimit)) : 72
+    const requestedIds = Array.isArray(request.data?.ids)
+      ? [...new Set(request.data.ids.map(catalogDocumentId))].slice(0, 100)
+      : []
+
+    if (requestedIds.length) {
+      const snapshots = await db.getAll(...requestedIds.map((id) => db.collection('nutritionCatalog').doc(id)))
+      const items = snapshots.filter((snapshot) => snapshot.exists).map(catalogItem)
+      return { items, hasMore: false, restricted: true }
+    }
+
+    const queryToken = query.split(' ').find((token) => token.length >= 2) || ''
+    const fetchLimit = Math.min(500, Math.max(limit * 3, 120))
+    let catalogQuery = db.collection('nutritionCatalog')
+    catalogQuery = queryToken
+      ? catalogQuery.where('nameTokens', 'array-contains', queryToken)
+      : catalogQuery.orderBy('nameAscii')
+    const snapshot = await catalogQuery.limit(fetchLimit).get()
+    const filtered = snapshot.docs
+      .map(catalogItem)
+      .filter((item) => kind === 'all' || item.kind === kind)
+      .filter((item) => !query || normalizeCatalogSearch([
+        item.nameVi,
+        item.nameEn,
+        item.nameAscii,
+        item.code,
+        item.category?.nameVi,
+        item.region?.nameVi,
+      ].filter(Boolean).join(' ')).includes(query))
+    return {
+      items: filtered.slice(0, limit),
+      hasMore: snapshot.size === fetchLimit && filtered.length > limit,
+      restricted: true,
+    }
+  })
+
+  const getInternalNutritionCatalogItem = onCall(async (request) => {
+    await trustedAccessContext(request, db)
+    const id = catalogDocumentId(request.data?.id)
+    const snapshot = await db.collection('nutritionCatalog').doc(id).get()
+    if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy bản ghi catalog.')
+    return { item: catalogDetail(snapshot), restricted: true }
+  })
 
   const createAccountInvite = onCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
@@ -352,6 +472,8 @@ function createIdentityAccessFunctions({ db, auth, onCall }) {
 
   return {
     getMyAccessContext,
+    listInternalNutritionCatalog,
+    getInternalNutritionCatalogItem,
     createAccountInvite,
     resendAccountInvite,
     revokeAccountInvite,

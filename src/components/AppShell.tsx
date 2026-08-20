@@ -100,16 +100,19 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
     ],
   },
   {
-    label: 'VẬN HÀNH PT GYM & DOANH THU',
+    label: 'KHÁCH HÀNG & LỊCH PT',
     items: [
       { id: 'admin-pt-students' as const, label: 'Học viên PT Gym', icon: Users, permission: 'student.view_assigned' as Permission },
       { id: 'admin-pt-schedule' as const, label: 'Xếp lịch & Ca tập', icon: CalendarDays, permission: 'dashboard.view' as Permission },
+    ],
+  },
+  {
+    label: 'TÀI CHÍNH & ĐỘI NGŨ',
+    items: [
       { id: 'admin-report' as const, label: 'Báo cáo & Thống kê', icon: BarChart3, permission: 'analytics.view_all' as Permission },
       { id: 'admin-finance' as const, label: 'Tài chính & Thu chi', icon: LayoutDashboard, permission: 'analytics.view_all' as Permission },
       { id: 'admin-payroll' as const, label: 'Chấm công PT', icon: ClipboardList, permission: 'analytics.view_assigned' as Permission },
       { id: 'admin-hr' as const, label: 'Nhân sự & Chi nhánh', icon: Users, permission: 'team.view' as Permission },
-      { id: 'admin-packages' as const, label: 'Gói tập PT', icon: Settings, permission: 'dashboard.view' as Permission },
-      { id: 'admin-quotes' as const, label: 'Báo giá & Sales', icon: ShoppingBasket, permission: 'dashboard.view' as Permission },
     ],
   },
   {
@@ -151,7 +154,6 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'course-detail': 'Không gian học',
   nutrition: 'Dinh dưỡng',
   'eat-clean': 'Đặt món Eat Clean',
-  'dish-collection': 'Thư viện món ăn dinh dưỡng',
   'trainer-portal': 'Cổng làm việc HLV',
   'sales-portal': 'Cổng báo giá & Bán hàng',
   progress: 'Tiến độ & ôn tập',

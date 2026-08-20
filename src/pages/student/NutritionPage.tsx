@@ -118,9 +118,8 @@ import {
 } from '../../features/nutrition/routing'
 import {
   detailNutrientValue,
-  findNutritionDetailRecord,
   loadNutritionCatalog,
-  nutritionDetailBucketUrl,
+  loadNutritionCatalogDetail,
   resetNutritionCatalog,
   scaleOptionalNumber,
   toFoodDetailSummary,
@@ -875,14 +874,14 @@ function useAccessibleDialog(onClose: () => void) {
   return dialogRef
 }
 
-function QuickAddSheet({ savedCount, onClose, onScan, onCatalog, onSaved, onWater, onExercise }: { savedCount: number; onClose: () => void; onScan?: () => void; onCatalog: () => void; onSaved: () => void; onWater: () => void; onExercise: () => void }) {
+function QuickAddSheet({ savedCount, onClose, onScan, onCatalog, onSaved, onWater, onExercise }: { savedCount: number; onClose: () => void; onScan?: () => void; onCatalog?: () => void; onSaved?: () => void; onWater: () => void; onExercise: () => void }) {
   const dialogRef = useAccessibleDialog(onClose)
   const actions = [
     ...(onScan ? [{ title: 'Chụp / Quét ảnh món ăn', copy: 'Phân tích calo & dinh dưỡng bằng AI', icon: <Camera size={22} />, action: onScan, primary: true }] : []),
     { title: 'Ghi lượng nước', copy: '250, 500, 750, 1000 ml', icon: <Droplets size={22} />, action: onWater, highlight: true },
-    { title: 'Tìm món ăn', copy: 'Tra 2.103 món & thực phẩm', icon: <Search size={22} />, action: onCatalog },
+    ...(onCatalog ? [{ title: 'Catalog dinh dưỡng', copy: 'Tra cứu món ăn và thực phẩm', icon: <Search size={22} />, action: onCatalog }] : []),
     { title: 'Ghi luyện tập', copy: 'Thời gian & cường độ', icon: <Dumbbell size={22} />, action: onExercise },
-    { title: 'Món đã lưu', copy: savedCount ? `${savedCount} món trong thư viện` : 'Chưa có món đã lưu', icon: <Bookmark size={22} />, action: onSaved },
+    ...(onSaved ? [{ title: 'Món đã lưu', copy: savedCount ? `${savedCount} món trong catalog` : 'Chưa có món đã lưu', icon: <Bookmark size={22} />, action: onSaved }] : []),
   ]
   return (
     <div className="nutrition-sheet-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -1159,7 +1158,7 @@ const MealLogEditorSheet = React.memo(function MealLogEditorSheet({ meal, onClos
 
 
 
-const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose, onOpenCatalog, onSave, onAnalyzeImage, presentation = 'modal' }: { initialDate: string; storageOwnerId: string; allowDemo?: boolean; onClose: () => void; onOpenCatalog: () => void; onSave: (meal: NutritionMealDraft) => void; onAnalyzeImage?: NutritionPageProps['onAnalyzeImage']; presentation?: 'modal' | 'page' }) {
+const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOwnerId, allowDemo = false, onClose, onSave, onAnalyzeImage, presentation = 'modal' }: { initialDate: string; storageOwnerId: string; allowDemo?: boolean; onClose: () => void; onSave: (meal: NutritionMealDraft) => void; onAnalyzeImage?: NutritionPageProps['onAnalyzeImage']; presentation?: 'modal' | 'page' }) {
   const reviewStorageKey = scanReviewSessionKey(storageOwnerId)
   const [restoredReview] = useState(() => {
     const step = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('step')
@@ -1462,7 +1461,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
       }
       if (!normalized) {
         setAnalysisError(response.analysis?.isFood === false
-          ? 'Aura chưa nhận ra món ăn trong ảnh này. Hãy chụp trọn phần ăn ở nơi đủ sáng hoặc tìm món thủ công trong thư viện.'
+          ? 'Aura chưa nhận ra món ăn trong ảnh này. Hãy chụp trọn phần ăn ở nơi đủ sáng hoặc ghi món thủ công.'
           : response.notices?.[0] ?? 'AI chưa trả về kết quả hợp lệ. Aura không thay thế bằng dữ liệu giả; vui lòng thử lại với ảnh rõ hơn.')
         setStage('error')
         return
@@ -2244,7 +2243,19 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
       return
     }
     let active = true
-    loadNutritionCatalog()
+    if (savedOnly && !savedFoodIds?.size) {
+      setItems([])
+      setCatalogState('live')
+      return () => { active = false }
+    }
+    setCatalogState('loading')
+    const savedIds = savedOnly ? [...(savedFoodIds ?? [])] : undefined
+    loadNutritionCatalog({
+      query: savedIds?.length ? '' : debouncedQuery,
+      kind: kindFilter,
+      limit: 180,
+      ids: savedIds,
+    })
       .then((normalized) => {
         if (!active) return
         setItems(normalized)
@@ -2254,9 +2265,9 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
         if (!active) return
         setItems(allowDemo ? DEMO_CATALOG : [])
         setCatalogState(allowDemo ? 'demo' : 'error')
-      })
+    })
     return () => { active = false }
-  }, [allowDemo, catalog, retryToken])
+  }, [allowDemo, catalog, debouncedQuery, kindFilter, retryToken, savedFoodIds, savedOnly])
 
   const retryCatalog = () => {
     resetNutritionCatalog()
@@ -2294,10 +2305,10 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
     <div className={presentation === 'page' ? 'nutrition-route-page nutrition-route-page--catalog' : 'nutrition-modal-backdrop'} role="presentation" onMouseDown={(event) => presentation === 'modal' && event.target === event.currentTarget && onClose()}>
       <section ref={presentation === 'modal' ? dialogRef : undefined} className={`nutrition-catalog-modal ${presentation === 'page' ? 'nutrition-catalog-modal--page' : ''}`} role={presentation === 'modal' ? 'dialog' : 'region'} aria-modal={presentation === 'modal' ? true : undefined} aria-labelledby="nutrition-catalog-title" data-testid="nutrition-food-search-modal">
         <header className="nutrition-scan-modal__header">
-          <div><h2 id="nutrition-catalog-title">Tìm món & thực phẩm</h2>
+          <div><h2 id="nutrition-catalog-title">Catalog dinh dưỡng</h2>
             <div className="nutrition-catalog-verified">
               <ShieldCheck size={16} className="icon-shield" />
-              <span>Hơn 2.100 món ăn đã được Viện Dinh dưỡng<br />Việt Nam kiểm chứng</span>
+              <span>Dữ liệu tham khảo về món ăn và thực phẩm<br />Kcal và dinh dưỡng phụ thuộc khẩu phần thực tế</span>
             </div>
           </div>
           <button type="button" className="nutrition-close-button" onClick={onClose} aria-label={presentation === 'page' ? 'Quay lại trang dinh dưỡng' : 'Đóng'}>{presentation === 'page' ? <ArrowLeft size={20} /> : <X size={20} />}</button>
@@ -2306,7 +2317,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
           <label className="nutrition-catalog-search">
             <Search size={18} />
             <input autoFocus={presentation === 'modal'} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên món, mã, nhóm hoặc nguyên liệu..." data-testid="nutrition-food-search-input" />
-            <span className="search-result-count">{formatNumber(matchingItems.length)} kết quả</span>
+            <span className="search-result-count">{formatNumber(matchingItems.length)} kết quả hiển thị</span>
           </label>
           <div className="nutrition-catalog-filters" aria-label="Lọc danh mục">
             <div className="nutrition-catalog-kind-filter">
@@ -2340,7 +2351,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
           </div>
           <div className={`nutrition-catalog-status nutrition-catalog-status--${catalogState}`}>
             {catalogState === 'loading' ? <LoaderCircle size={15} className="nutrition-spinner" /> : catalogState === 'error' ? <CircleAlert size={15} /> : null}
-            <span>{catalogState === 'loading' ? 'Đang tải dữ liệu dinh dưỡng…' : catalogState === 'error' ? 'Không tải được thư viện. Dữ liệu minh họa không được thay thế cho dữ liệu thật.' : ''}</span>
+            <span>{catalogState === 'loading' ? 'Đang tải Catalog dinh dưỡng…' : catalogState === 'error' ? 'Không tải được Catalog dinh dưỡng. Hãy thử lại sau.' : ''}</span>
             {catalogState === 'error' && <button type="button" onClick={retryCatalog}><RefreshCw size={14} /> Thử lại</button>}
           </div>
           <div className={`nutrition-catalog-list nutrition-catalog-list--${layoutMode}`} data-layout={layoutMode}>
@@ -2780,7 +2791,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         setSelectedFood(knownItem)
         return
       }
-      void loadNutritionCatalog().then((items) => {
+      void loadNutritionCatalog({ ids: [foodId] }).then((items) => {
         if (!active) return
         setCatalogSnapshot(items)
         setSelectedFood(items.find((item) => item.id === foodId) ?? null)
@@ -2951,27 +2962,27 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
             .slice(0, 3)
           const focus = proteinRemaining > 12 ? `ưu tiên đạm vì còn thiếu khoảng ${formatNumber(proteinRemaining)}g` : carbsConsumed < carbGoal * .65 ? 'bổ sung carb vừa phải cùng rau và đạm' : 'giữ khẩu phần cân bằng và dễ duy trì'
           const candidateCopy = hasAllergyConstraint
-            ? ' Hồ sơ có thực phẩm cần tránh, nên Aura chưa nêu tên món khi thư viện chưa xác nhận đầy đủ thành phần.'
+            ? ' Hồ sơ có thực phẩm cần tránh, nên Aura chưa nêu tên món khi Catalog chưa xác nhận đầy đủ thành phần.'
             : candidates.length
-              ? ` Trong thư viện, các lựa chọn gần ngân sách hiện tại gồm ${candidates.map((item) => `${item.name} (${formatNumber(item.calories ?? 0)} kcal theo khẩu phần nguồn)`).join(', ')}.`
+              ? ` Trong Catalog, các lựa chọn gần ngân sách hiện tại gồm ${candidates.map((item) => `${item.name} (${formatNumber(item.calories ?? 0)} kcal theo khẩu phần nguồn)`).join(', ')}.`
               : caloriesRemaining > 0
-                ? ' Chưa có khẩu phần nguồn nào nằm gần ngưỡng kcal này; hãy mở Thư viện và giảm khẩu phần thực tế trước khi ghi.'
+                ? ' Chưa có khẩu phần nguồn nào nằm gần ngưỡng kcal này; hãy mở Catalog và giảm khẩu phần thực tế trước khi ghi.'
                 : ''
           content = caloriesRemaining <= 0
             ? `Bạn đã chạm ngân sách năng lượng tham chiếu. Nếu vẫn đói, hãy chọn một bữa nhẹ, ưu tiên rau và đạm, không cần nhịn bù.${candidateCopy}`
             : `Bữa tiếp theo nên ${focus}; bạn còn khoảng ${formatNumber(caloriesRemaining)} kcal.${candidateCopy}`
           const candidateEvidence = candidates.length
-            ? `${candidates.length} món được xếp hạng từ thư viện`
+            ? `${candidates.length} món được xếp hạng từ Catalog`
             : hasAllergyConstraint
               ? 'Không xếp hạng tên món khi chưa xác nhận thành phần dị ứng'
               : caloriesRemaining <= 0
                 ? 'Không đề xuất thêm món khi đã chạm ngân sách tham chiếu'
-                : availableCatalog.length ? 'Không có khẩu phần nguồn phù hợp ngưỡng kcal còn lại' : 'Chưa tải được thư viện món'
+              : availableCatalog.length ? 'Không có khẩu phần nguồn phù hợp ngưỡng kcal còn lại' : 'Chưa tải được Catalog dinh dưỡng'
           evidence = [`${loggedMeals.length} bữa đã ghi`, `${formatNumber(Math.max(0, caloriesRemaining))} kcal và ${formatNumber(Math.max(0, proteinRemaining))}g đạm còn lại`, candidateEvidence]
           confidenceLabel = candidates.length ? 'Gợi ý theo dữ liệu đã ghi và khẩu phần nguồn' : hasAllergyConstraint ? 'An toàn dị ứng cần kiểm tra thành phần trực tiếp' : 'Gợi ý theo mục tiêu; cần kiểm tra khẩu phần thực tế'
         }
       } else if (intent === 'getting-started') {
-        content = 'Bắt đầu bằng một thao tác: quét ảnh hoặc chọn món trong Thư viện, kiểm tra khẩu phần rồi xác nhận bữa và thời gian. Sau một đến hai bữa, Aura có thể trả lời phần còn thiếu cụ thể hơn.'
+        content = 'Bắt đầu bằng một thao tác: quét ảnh hoặc chọn món trong Catalog, kiểm tra khẩu phần rồi xác nhận bữa và thời gian. Sau một đến hai bữa, Aura có thể trả lời phần còn thiếu cụ thể hơn.'
         evidence = [`${loggedMeals.length} bữa đã ghi trong ngày đã chọn`]
       } else {
         content = await askAiCoach(question, profileDraft)
@@ -3257,11 +3268,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       try {
         let detail = catalogDetailCache.current.get(food.id) ?? null
         if (!detail) {
-          const bucket = toFoodDetailSummary(food).detailBucket
-          const response = await fetch(nutritionDetailBucketUrl(bucket))
-          if (!response.ok) throw new Error(`Nutrition detail ${response.status}`)
-          detail = findNutritionDetailRecord(await response.json(), food.id)
-          if (!detail) throw new Error('Nutrition detail not found')
+          detail = await loadNutritionCatalogDetail(food.id)
           catalogDetailCache.current.set(food.id, detail)
         }
         pending = {
@@ -3386,7 +3393,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     item={selectedFoodSummary}
     relatedItems={relatedFoodSummaries}
     initialSaved={savedFoodIds.has(selectedFood.id)}
-    detailsBasePath={`${import.meta.env.BASE_URL}data/nutrition-details`}
+    loadRecord={loadNutritionCatalogDetail}
     onBack={closeFoodDetail}
     onAdd={addFoodFromDetail}
     onSave={saveFood}
@@ -3468,7 +3475,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       {toastContent}
       <div className="nutrition-workspace">
         <NutritionSectionNav activeSection="today" onSectionChange={(section) => navigateNutrition(section)} onScan={() => navigateNutrition('scan')} onOpenCatalog={() => openCatalog(false)} onOpenAskAura={openAssistant} />
-        <FoodScanModal key={resolvedOwnerId} initialDate={selectedDate} storageOwnerId={resolvedOwnerId} allowDemo={isDemo} presentation="page" onClose={() => navigateNutrition('today')} onOpenCatalog={() => openCatalog(false)} onSave={saveScannedMeal} onAnalyzeImage={onAnalyzeImage} />
+        <FoodScanModal key={resolvedOwnerId} initialDate={selectedDate} storageOwnerId={resolvedOwnerId} allowDemo={isDemo} presentation="page" onClose={() => navigateNutrition('today')} onSave={saveScannedMeal} onAnalyzeImage={onAnalyzeImage} />
       </div>
       {quickSheets}
     </div>
@@ -3567,7 +3574,10 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
           onSelectDay: setPlanSelectedDay,
           onGeneratePlan: () => { setPlanGenerated(true); showMessage('Đã tạo bản nháp 7 ngày; Aura chưa tự lưu hoặc thay đổi mục tiêu của bạn') },
           onAddMeal: () => openCatalog(false),
-          onReplaceMeal: () => { openCatalog(false); showMessage('Chọn món có macro tương đương trong thư viện') },
+          onReplaceMeal: () => {
+            openCatalog(false)
+            showMessage('Chọn món có macro tương đương trong Catalog dinh dưỡng')
+          },
           onCreateShoppingList: () => {
             if (!planGenerated) {
               showMessage('Vui lòng tạo bản nháp trước khi xem danh sách mua sắm')

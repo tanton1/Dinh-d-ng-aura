@@ -26,7 +26,8 @@ test('home route keeps deferred assets out of the initial request path', async (
 
 test('retired food, menu and workout links redirect to active workspaces', async ({ page }) => {
   const redirects = [
-    ['/#/food-database', /#\/nutrition\?section=catalog$/],
+    ['/#/food-database', /#\/nutrition$/],
+    ['/#/dish-collection', /#\/nutrition$/],
     ['/#/meal-plan', /#\/nutrition$/],
     ['/#/admin-workout-plans', /#\/admin-programs$/],
     ['/#/admin-meal-plans', /#\/admin-eat-clean$/],

@@ -1,5 +1,10 @@
 import type { NutritionFoodDetailRecord, NutritionFoodDetailSummary } from '../../pages/student/NutritionFoodDetail'
 import type { NutritionFoodCatalogItem } from './types'
+import {
+  getInternalNutritionCatalogItem,
+  listInternalNutritionCatalog,
+  type InternalNutritionCatalogQuery,
+} from '../../services/internalNutritionCatalogService'
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
@@ -47,27 +52,37 @@ export function normalizeCatalogPayload(payload: unknown): NutritionFoodCatalogI
   }).filter((item): item is NutritionFoodCatalogItem => Boolean(item))
 }
 
-let catalogRequest: Promise<NutritionFoodCatalogItem[]> | null = null
+const catalogRequests = new Map<string, Promise<NutritionFoodCatalogItem[]>>()
 
-export function loadNutritionCatalog() {
-  if (!catalogRequest) {
-    catalogRequest = fetch(`${import.meta.env.BASE_URL}data/nutrition-catalog.json`).then((response) => {
-      if (!response.ok) throw new Error('catalog_unavailable')
-      return response.json() as Promise<unknown>
-    }).then((payload) => {
-      const items = normalizeCatalogPayload(payload)
-      if (!items.length) throw new Error('catalog_empty')
-      return items
+export function loadNutritionCatalog(input: InternalNutritionCatalogQuery = {}) {
+  const key = JSON.stringify({
+    query: input.query?.trim() ?? '',
+    kind: input.kind ?? 'all',
+    limit: input.limit ?? 72,
+    ids: input.ids ? [...input.ids].sort() : [],
+  })
+  if (!catalogRequests.has(key)) {
+    const request = listInternalNutritionCatalog(input).then((payload) => {
+      if (!Array.isArray(payload.items)) throw new Error('catalog_response_invalid')
+      return normalizeCatalogPayload(payload.items)
     }).catch((error: unknown) => {
-      catalogRequest = null
+      catalogRequests.delete(key)
       throw error
     })
+    catalogRequests.set(key, request)
   }
-  return catalogRequest
+  return catalogRequests.get(key)!
 }
 
 export function resetNutritionCatalog() {
-  catalogRequest = null
+  catalogRequests.clear()
+}
+
+export async function loadNutritionCatalogDetail(id: string): Promise<NutritionFoodDetailRecord> {
+  const payload = await getInternalNutritionCatalogItem(id)
+  const record = findNutritionDetailRecord(payload, id)
+  if (!record) throw new Error('catalog_detail_invalid')
+  return record as NutritionFoodDetailRecord
 }
 
 export function toFoodDetailSummary(food: NutritionFoodCatalogItem): NutritionFoodDetailSummary {
@@ -106,10 +121,6 @@ export function findNutritionDetailRecord(payload: unknown, id: string) {
   if (!root) return null
   if (Array.isArray(root.records)) return root.records.find((record) => isNutritionDetailRecord(record) && record.id === id) ?? null
   return isNutritionDetailRecord(root[id]) ? root[id] : null
-}
-
-export function nutritionDetailBucketUrl(bucket: string) {
-  return `${String(import.meta.env.BASE_URL ?? '/').replace(/\/$/, '')}/data/nutrition-details/${encodeURIComponent(bucket.replace(/\.json$/i, ''))}.json`
 }
 
 export function scaleOptionalNumber(value: number | null | undefined, multiplier: number) {

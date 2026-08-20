@@ -81,7 +81,6 @@ const AdminTrainerPayroll = lazyWithRetry(() => import('./components/admin/pt/Tr
 const AdminPackageSettings = lazyWithRetry(() => import('./components/admin/pt/PackageSettings'))
 const AdminQuoteGenerator = lazyWithRetry(() => import('./components/admin/pt/QuoteGenerator'))
 const AdminScheduleSettings = lazyWithRetry(() => import('./components/admin/pt/ScheduleSettings'))
-const DishCollection = lazyWithRetry(() => import('./components/food/DishCollection'))
 const TrainerPortalV2 = lazyWithRetry(() => import('./pages/operations/TrainerPortalV2'))
 const SalesPortalV2 = lazyWithRetry(() => import('./pages/operations/SalesPortalV2'))
 
@@ -893,7 +892,6 @@ function AuraApplication() {
 
       // PT Coaching & Gym Management Views
       case 'schedule-pt': return <AuraOperationsFrame><TrainerPortalV2 initialTab="schedule" /></AuraOperationsFrame>
-      case 'dish-collection': return <AuraOperationsFrame className="aura-operations-page--dish-library"><DishCollection onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
       case 'trainer-portal': return <AuraOperationsFrame><TrainerPortalV2 /></AuraOperationsFrame>
       case 'sales-portal': return <AuraOperationsFrame><SalesPortalV2 /></AuraOperationsFrame>
 

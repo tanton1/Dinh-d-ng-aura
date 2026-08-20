@@ -63,7 +63,6 @@ export function parseAccessContext(value: unknown, expectedUid: string): AccessC
 }
 
 export const routeCapabilities = {
-  'dish-collection': 'nutrition.catalog.internal.view',
   'trainer-portal': 'pt.students.assigned.view',
   'schedule-pt': 'pt.schedule.self.view',
   'sales-portal': 'sales.quotes.self.manage',
