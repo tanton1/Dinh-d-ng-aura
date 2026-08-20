@@ -152,7 +152,6 @@ export type StudentView =
   | 'courses'
   | 'course-detail'
   | 'schedule'
-  | 'schedule-pt'
   | 'nutrition'
   | 'eat-clean'
   | 'meal-plan'

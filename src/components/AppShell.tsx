@@ -157,7 +157,6 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'sales-portal': 'Cổng báo giá & Bán hàng',
   progress: 'Tiến độ & ôn tập',
   schedule: 'Lịch học viên',
-  'schedule-pt': 'Lịch tập & Ca PT Gym',
   profile: 'Cá nhân',
   workout: 'Buổi tập',
   delivery: 'Aura Delivery',

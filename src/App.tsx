@@ -891,7 +891,6 @@ function AuraApplication() {
       case 'admin-eat-clean': return <AdminEatCleanPage currentRole={role} />
 
       // PT Coaching & Gym Management Views
-      case 'schedule-pt': return <AuraOperationsFrame><TrainerPortalV2 initialTab="schedule" /></AuraOperationsFrame>
       case 'trainer-portal': return <AuraOperationsFrame><TrainerPortalV2 /></AuraOperationsFrame>
       case 'sales-portal': return <AuraOperationsFrame><SalesPortalV2 /></AuraOperationsFrame>
 

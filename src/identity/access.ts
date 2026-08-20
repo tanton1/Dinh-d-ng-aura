@@ -64,6 +64,5 @@ export function parseAccessContext(value: unknown, expectedUid: string): AccessC
 
 export const routeCapabilities = {
   'trainer-portal': 'pt.students.assigned.view',
-  'schedule-pt': 'pt.schedule.self.view',
   'sales-portal': 'sales.quotes.self.manage',
 } as const
