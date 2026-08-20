@@ -1,12 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
 import { Trainer, Session, Payroll, Branch, UserProfile, Student, HOURS } from '../../../types';
-import { CheckCircle, XCircle, DollarSign, Calendar, RotateCcw, User as UserIcon, Clock, Filter, Edit2 } from 'lucide-react';
+import { CheckCircle, XCircle, DollarSign, Calendar, RotateCcw, User as UserIcon, Clock, Filter, Edit2, Lock, Send, WalletCards } from 'lucide-react';
 import DateRangeFilter from './DateRangeFilter';
 import { LOGO_URL } from '../../../constants';
 import { useDatabase } from '../../../contexts/DatabaseContext';
 import { OrphanedSessionChecker } from './OrphanedSessionChecker';
 import { cancelSession, confirmSessionAttendance, rescheduleSession, swapSessions } from '../../../services/sessionOperationsService';
+import { createPayrollRun, listPayrollRuns, lockPayrollRun, markPayrollRunPaid, reviewPayrollRun, type PayrollRunSummary } from '../../../services/payrollService';
 
 interface Props {
   user: FirebaseUser | null;
@@ -19,6 +20,13 @@ export default function TrainerPayroll({ user, profile }: Props) {
   const [selectedDay, setSelectedDay] = useState<number | 'all'>('all');
   const [sessionSearch, setSessionSearch] = useState('');
   const [dateRange, setDateRange] = useState<{ start: Date, end: Date } | null>(null);
+  const [payrollRuns, setPayrollRuns] = useState<PayrollRunSummary[]>([]);
+  const [payrollLoading, setPayrollLoading] = useState(false);
+  const [payrollMessage, setPayrollMessage] = useState<string | null>(null);
+  const [payrollPeriod, setPayrollPeriod] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
   
   const isPTUser = profile?.role === 'trainer' || profile?.role === 'coach';
   const currentTrainer = useMemo(() => {
@@ -30,6 +38,41 @@ export default function TrainerPayroll({ user, profile }: Props) {
       setSelectedTrainerId(currentTrainer.id);
     }
   }, [isPTUser, currentTrainer]);
+
+  const refreshPayrollRuns = async () => {
+    if (isPTUser) return;
+    setPayrollLoading(true);
+    try {
+      setPayrollRuns(await listPayrollRuns());
+    } catch (cause) {
+      setPayrollMessage(cause instanceof Error ? cause.message : 'Không thể tải các kỳ lương chính thức.');
+    } finally {
+      setPayrollLoading(false);
+    }
+  };
+
+  useEffect(() => { void refreshPayrollRuns(); }, [isPTUser]);
+
+  const runPayrollAction = async (action: 'create' | 'review' | 'lock' | 'paid', run?: PayrollRunSummary) => {
+    setPayrollLoading(true);
+    setPayrollMessage(null);
+    try {
+      if (action === 'create') await createPayrollRun(payrollPeriod);
+      else if (action === 'review' && run) await reviewPayrollRun(run.id);
+      else if (action === 'lock' && run) await lockPayrollRun(run.id);
+      else if (action === 'paid' && run) {
+        const reference = window.prompt('Nhập mã tham chiếu chuyển khoản/chứng từ trả lương:')?.trim();
+        if (!reference) return;
+        await markPayrollRunPaid(run.id, reference);
+      }
+      await refreshPayrollRuns();
+      setPayrollMessage('Đã cập nhật kỳ lương chính thức.');
+    } catch (cause) {
+      setPayrollMessage(cause instanceof Error ? cause.message : 'Không thể cập nhật kỳ lương.');
+    } finally {
+      setPayrollLoading(false);
+    }
+  };
 
   // Edit Session State
   const [editingSession, setEditingSession] = useState<Session | null>(null);
@@ -62,7 +105,7 @@ export default function TrainerPayroll({ user, profile }: Props) {
   };
 
   const handleEditSession = (session: Session) => {
-    const hour = parseInt(session.id.split('-')[1]) || 6;
+    const hour = Number.isInteger(session.hour) ? Number(session.hour) : parseInt(session.id.split('-')[1]) || 6;
     setEditFormData({
       date: session.date,
       hour: hour,
@@ -86,10 +129,9 @@ export default function TrainerPayroll({ user, profile }: Props) {
     return scheduleConfig.workingHours.map(h => {
       const hourSessions = sessions.filter(s => 
         s.trainerId === editFormData.trainerId && 
-        s.date === editFormData.date && 
-        parseInt(s.id.split('-')[1]) === h &&
-        s.status !== 'cancelled' &&
-        s.status !== 'canceled_by_student' &&
+        s.date.slice(0, 10) === editFormData.date.slice(0, 10) &&
+        (Number.isInteger(s.hour) ? Number(s.hour) : parseInt(s.id.split('-')[1])) === h &&
+        (s.status === 'scheduled' || s.status === 'rescheduled') &&
         s.id !== editingSession?.id
       );
       return { hour: h, count: hourSessions.length, sessions: hourSessions };
@@ -120,7 +162,7 @@ export default function TrainerPayroll({ user, profile }: Props) {
     const suggestions: { sessionB: Session, studentB: Student }[] = [];
 
     selectedHourObj.sessions.forEach(sessionB => {
-      if (sessionB.status !== 'scheduled') return;
+      if (sessionB.status !== 'scheduled' && sessionB.status !== 'rescheduled') return;
       const studentB = students.find(s => s.id === sessionB.studentId);
       if (studentB && studentB.availableSlots.includes(sourceSlotString)) {
         suggestions.push({ sessionB, studentB });
@@ -142,8 +184,8 @@ export default function TrainerPayroll({ user, profile }: Props) {
   };
 
   const filteredSessions = sessions.filter(s => {
-    // Exclude canceled_by_student from normal schedule
-    if (s.status === 'canceled_by_student') return false;
+    // Learner cancellations are shown separately as make-up sessions.
+    if (s.status === 'canceled_by_student' || s.status === 'student_cancelled') return false;
 
     // Filter by PT subtab
     if (selectedTrainerId !== 'all' && s.trainerId !== selectedTrainerId) return false;
@@ -193,14 +235,14 @@ export default function TrainerPayroll({ user, profile }: Props) {
     return sortedDates.map(date => ({
       date,
       sessions: groups[date].sort((a, b) => {
-        const hourA = parseInt(a.id.split('-')[1]) || 0;
-        const hourB = parseInt(b.id.split('-')[1]) || 0;
+        const hourA = Number.isInteger(a.hour) ? Number(a.hour) : parseInt(a.id.split('-')[1]) || 0;
+        const hourB = Number.isInteger(b.hour) ? Number(b.hour) : parseInt(b.id.split('-')[1]) || 0;
         return hourA - hourB;
       })
     }));
   }, [filteredSessions]);
 
-  const canceledSessions = sessions.filter(s => s.status === 'canceled_by_student');
+  const canceledSessions = sessions.filter(s => s.status === 'canceled_by_student' || s.status === 'student_cancelled');
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -214,6 +256,42 @@ export default function TrainerPayroll({ user, profile }: Props) {
           <p className="text-zinc-400 mt-2">Quản lý lịch dạy và chấm công</p>
         </div>
       </div>
+
+      {!isPTUser && (
+        <section className="bg-zinc-900 p-5 md:p-6 rounded-2xl border border-zinc-800" aria-label="Kỳ lương chính thức">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-pink-500">Sổ lương canonical</p>
+              <h2 className="text-xl font-bold text-white mt-1">Kỳ lương chính thức</h2>
+              <p className="text-sm text-zinc-400 mt-1">Tính từ attendance events; kỳ đã khóa không thay đổi theo dữ liệu client.</p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input type="month" value={payrollPeriod} onChange={(event) => setPayrollPeriod(event.target.value)} className="bg-zinc-950 border border-zinc-800 text-white px-3 py-2.5 rounded-xl" />
+              <button type="button" disabled={payrollLoading || !payrollPeriod} onClick={() => void runPayrollAction('create')} className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 to-orange-500 text-white font-bold disabled:opacity-50">
+                Tạo kỳ lương
+              </button>
+            </div>
+          </div>
+          {payrollMessage && <p className="mt-3 rounded-xl border border-pink-500/20 bg-pink-500/10 px-3 py-2 text-sm text-zinc-200" role="status">{payrollMessage}</p>}
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {payrollRuns.map((run) => (
+              <article key={run.id} className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div><strong className="text-white">Kỳ {run.periodId}</strong><p className="text-xs text-zinc-500 mt-1">Policy v{run.policyVersion} · {run.attendanceCount} lượt điểm danh · {run.trainerCount} PT</p></div>
+                  <span className="rounded-full bg-pink-500/10 px-2.5 py-1 text-[11px] font-bold uppercase text-pink-400">{run.status}</span>
+                </div>
+                <div className="mt-3 flex items-end justify-between gap-3"><span className="text-xs text-zinc-500">Tổng chính thức</span><strong className="text-lg text-emerald-400">{run.finalAmount.toLocaleString('vi-VN')}đ</strong></div>
+                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                  {run.status === 'draft' && <button type="button" disabled={payrollLoading} onClick={() => void runPayrollAction('review', run)} className="px-3 py-2 rounded-lg bg-zinc-800 text-zinc-200 text-xs font-bold flex items-center gap-1"><Send size={14} /> Gửi duyệt</button>}
+                  {run.status === 'reviewed' && <button type="button" disabled={payrollLoading} onClick={() => void runPayrollAction('lock', run)} className="px-3 py-2 rounded-lg bg-orange-500 text-white text-xs font-bold flex items-center gap-1"><Lock size={14} /> Khóa kỳ</button>}
+                  {run.status === 'locked' && <button type="button" disabled={payrollLoading} onClick={() => void runPayrollAction('paid', run)} className="px-3 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold flex items-center gap-1"><WalletCards size={14} /> Đã chi trả</button>}
+                </div>
+              </article>
+            ))}
+            {!payrollLoading && payrollRuns.length === 0 && <div className="rounded-2xl border border-dashed border-zinc-800 p-5 text-sm text-zinc-500">Chưa có kỳ lương canonical. Dữ liệu ước tính phía dưới chỉ dùng để đối chiếu.</div>}
+          </div>
+        </section>
+      )}
 
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div className="flex flex-wrap gap-2 w-full lg:w-auto">
@@ -369,7 +447,9 @@ export default function TrainerPayroll({ user, profile }: Props) {
                       const student = students.find(st => st.id === s.studentId);
                       const trainer = trainers.find(t => t.id === s.trainerId);
                       const branch = branches.find(b => b.id === s.branchId);
-                      const hour = s.id.split('-')[1];
+                      const hour = Number.isInteger(s.hour) ? Number(s.hour) : s.id.split('-')[1];
+                      const isTrainerCancelled = s.status === 'cancelled' || s.status === 'trainer_cancelled';
+                      const isStudentCancelled = s.status === 'canceled_by_student' || s.status === 'student_cancelled';
 
                       return (
                         <div key={`group-${s.id}-${idx}`} className="p-3 bg-zinc-950 rounded-xl border border-zinc-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -387,8 +467,8 @@ export default function TrainerPayroll({ user, profile }: Props) {
                                 PT: <span className="text-zinc-400">{trainer?.name}</span> • {branch?.name || 'N/A'}
                               </p>
                               <div className="flex items-center gap-2 mt-1">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${s.status === 'completed' ? 'bg-green-900/50 text-green-400 border border-green-500/20' : s.status === 'cancelled' ? 'bg-red-900/50 text-red-400 border border-red-500/20' : 'bg-zinc-800 text-zinc-400'}`}>
-                                  {s.status === 'completed' ? 'Đã dạy' : s.status === 'cancelled' ? 'Đã hủy' : 'Chưa dạy'}
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${s.status === 'completed' ? 'bg-green-900/50 text-green-400 border border-green-500/20' : isTrainerCancelled ? 'bg-red-900/50 text-red-400 border border-red-500/20' : isStudentCancelled ? 'bg-orange-900/50 text-orange-400 border border-orange-500/20' : 'bg-zinc-800 text-zinc-400'}`}>
+                                  {s.status === 'completed' ? 'Đã dạy' : isTrainerCancelled ? 'Đã hủy' : isStudentCancelled ? 'HV báo nghỉ' : 'Chưa dạy'}
                                 </span>
                                 {s.status === 'completed' && (
                                   <span className={`text-[9px] font-bold uppercase tracking-tight text-emerald-500`}>
@@ -400,7 +480,7 @@ export default function TrainerPayroll({ user, profile }: Props) {
                           </div>
                           
                           <div className="flex gap-1 w-full sm:w-auto justify-end border-t sm:border-t-0 border-zinc-800 pt-3 sm:pt-0 mt-1 sm:mt-0">
-                            {s.status === 'scheduled' ? (
+                            {s.status === 'scheduled' || s.status === 'rescheduled' ? (
                               <>
                                 <button onClick={() => markSession(s.id, 'completed')} className="p-2 text-green-400 hover:text-green-300 bg-green-500/10 rounded-lg transition-colors" title="Hoàn thành"><CheckCircle className="w-4 h-4" /></button>
                                 <button onClick={() => markSession(s.id, 'canceled_by_student')} className="p-2 text-orange-400 hover:text-orange-300 bg-orange-500/10 rounded-lg transition-colors" title="HV Báo nghỉ (Học bù)"><XCircle className="w-4 h-4" /></button>
@@ -435,10 +515,10 @@ export default function TrainerPayroll({ user, profile }: Props) {
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
               <DollarSign className="w-5 h-5 text-green-500" />
-              Chấm công PT
+              Ước tính đối soát PT
             </h3>
             <div className="text-right">
-              <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Tổng chi trả</p>
+              <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Ước tính · chưa khóa sổ</p>
               <p className="text-xl font-black text-white">
                 {trainers
                   .filter(t => t.status === 'active' && (selectedTrainerId === 'all' || t.id === selectedTrainerId))

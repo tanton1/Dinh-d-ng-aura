@@ -77,18 +77,48 @@ function normalizedAvailabilitySlots(value, config, strict = true) {
 }
 
 async function studentActor(request, db) {
-  const actor = await trustedAccessContext(request, db)
+  let actor
+  try {
+    actor = await trustedAccessContext(request, db)
+  } catch (error) {
+    if (error?.code === 'permission-denied') {
+      const accessSyncRequired = String(error?.message || '').includes('chưa đồng bộ')
+      throw new HttpsError('permission-denied', error.message, {
+        issueCode: accessSyncRequired ? 'ACCESS_SYNC_REQUIRED' : 'ACCESS_DENIED',
+        action: accessSyncRequired ? 'refresh_session_or_contact_admin' : 'contact_admin',
+      })
+    }
+    throw error
+  }
   if (actor.accessRole !== 'student') {
-    throw new HttpsError('permission-denied', 'Trang lịch học viên chỉ dành cho tài khoản học viên.')
+    throw new HttpsError('permission-denied', 'Trang lịch học viên chỉ dành cho tài khoản học viên.', {
+      issueCode: 'STUDENT_ROLE_REQUIRED',
+      action: 'contact_admin',
+    })
   }
   return actor
 }
 
 async function studentProfileForActor(db, actor) {
-  const candidateIds = [...new Set([actor.legacyStaffId, actor.uid].filter(Boolean))]
-  const snapshots = candidateIds.length ? await db.getAll(...candidateIds.map((id) => db.doc(`students/${id}`))) : []
-  const snapshot = snapshots.find((item) => item.exists)
-  return snapshot ? { id: snapshot.id, reference: snapshot.ref, value: snapshot.data() } : null
+  const crmProfileId = typeof actor.legacyStaffId === 'string' && actor.legacyStaffId !== actor.uid
+    ? actor.legacyStaffId
+    : ''
+  const candidates = [
+    ...(crmProfileId ? [{ id: crmProfileId, source: 'crm_profile_id' }] : []),
+    { id: actor.uid, source: 'auth_uid' },
+  ]
+  const uniqueCandidates = candidates.filter((candidate, index) => candidates.findIndex((item) => item.id === candidate.id) === index)
+  const snapshots = uniqueCandidates.length
+    ? await db.getAll(...uniqueCandidates.map((candidate) => db.doc(`students/${candidate.id}`)))
+    : []
+  const snapshotIndex = snapshots.findIndex((item) => item.exists)
+  if (snapshotIndex < 0) return { profile: null, crmProfileIdConfigured: Boolean(crmProfileId) }
+  const snapshot = snapshots[snapshotIndex]
+  return {
+    profile: { id: snapshot.id, reference: snapshot.ref, value: snapshot.data() },
+    linkSource: uniqueCandidates[snapshotIndex].source,
+    crmProfileIdConfigured: Boolean(crmProfileId),
+  }
 }
 
 async function assertPortalRollout(db, actor, portal) {
@@ -140,24 +170,44 @@ function createPtOperationsV2Functions({ db, onCall }) {
     if (from > to || Date.parse(`${to}T00:00:00+07:00`) - Date.parse(`${from}T00:00:00+07:00`) > 366 * 86400000) {
       throw new HttpsError('invalid-argument', 'Khoảng lịch học viên tối đa là 366 ngày.')
     }
-    const profile = await studentProfileForActor(db, actor)
+    const profileResolution = await studentProfileForActor(db, actor)
+    const profile = profileResolution.profile
     const configSnapshot = await db.doc('settings/scheduleConfig').get()
     const config = scheduleConfig(configSnapshot.data())
     if (!profile) {
-      return { schemaVersion: 1, linked: false, student: null, scheduleConfig: config, sessions: [], contracts: [] }
+      return {
+        schemaVersion: 2,
+        linked: false,
+        identityLink: {
+          status: 'profile_not_linked',
+          source: null,
+          studentId: null,
+          crmProfileIdConfigured: profileResolution.crmProfileIdConfigured,
+        },
+        student: null,
+        scheduleConfig: config,
+        sessions: [],
+        sessionsTruncated: false,
+        contracts: [],
+      }
     }
 
     const [sessionsSnapshot, contractsSnapshot] = await Promise.all([
-      db.collection('sessions').where('studentId', '==', profile.id).limit(500).get(),
+      db.collection('sessions')
+        .where('studentId', '==', profile.id)
+        .where('date', '>=', from)
+        .where('date', '<=', to)
+        .orderBy('date', 'asc')
+        .limit(1001)
+        .get(),
       db.collection('contracts').where('studentId', '==', profile.id).limit(50).get(),
     ])
-    const sessionRecords = sessionsSnapshot.docs
+    const sessionRecords = sessionsSnapshot.docs.slice(0, 1000)
       .map((item) => {
         const session = item.data()
         const hour = sessionHour(item.id, session.hour)
         return { id: item.id, ...session, hour }
       })
-      .filter((session) => typeof session.date === 'string' && session.date >= from && session.date <= to)
       .sort((left, right) => `${left.date}-${String(left.hour ?? 99).padStart(2, '0')}-${left.id}`.localeCompare(`${right.date}-${String(right.hour ?? 99).padStart(2, '0')}-${right.id}`))
     const trainerIds = [...new Set(sessionRecords.map((item) => item.trainerId).filter(Boolean))]
     const trainerSnapshots = trainerIds.length ? await db.getAll(...trainerIds.map((id) => db.doc(`trainers/${id}`))) : []
@@ -188,8 +238,14 @@ function createPtOperationsV2Functions({ db, onCall }) {
       })
     })
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       linked: true,
+      identityLink: {
+        status: 'linked',
+        source: profileResolution.linkSource,
+        studentId: profile.id,
+        crmProfileIdConfigured: profileResolution.crmProfileIdConfigured,
+      },
       student: serialize({
         id: profile.id,
         name: profile.value.name || 'Học viên Aura',
@@ -201,14 +257,22 @@ function createPtOperationsV2Functions({ db, onCall }) {
       }),
       scheduleConfig: config,
       sessions,
+      sessionsTruncated: sessionsSnapshot.size > 1000,
       contracts,
     }
   })
 
   const saveMyStudentAvailability = onCall(async (request) => {
     const actor = await studentActor(request, db)
-    const profile = await studentProfileForActor(db, actor)
-    if (!profile) throw new HttpsError('not-found', 'Tài khoản chưa được liên kết với hồ sơ học viên PT.')
+    const profileResolution = await studentProfileForActor(db, actor)
+    const profile = profileResolution.profile
+    if (!profile) {
+      throw new HttpsError('not-found', 'Tài khoản chưa được liên kết với hồ sơ học viên PT.', {
+        issueCode: 'PROFILE_NOT_LINKED',
+        action: 'contact_admin',
+        crmProfileIdConfigured: profileResolution.crmProfileIdConfigured,
+      })
+    }
     const configSnapshot = await db.doc('settings/scheduleConfig').get()
     const config = scheduleConfig(configSnapshot.data())
     const slots = normalizedAvailabilitySlots(request.data?.availableSlots, config)
@@ -221,7 +285,13 @@ function createPtOperationsV2Functions({ db, onCall }) {
       const current = await transaction.get(profile.reference)
       if (!current.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ học viên PT.')
       const currentRevision = Number(current.data().availabilityRevision || 0)
-      if (currentRevision !== expectedRevision) throw new HttpsError('aborted', 'Lịch rảnh đã thay đổi. Hãy tải lại trước khi lưu.')
+      if (currentRevision !== expectedRevision) {
+        throw new HttpsError('aborted', 'Lịch rảnh đã thay đổi. Hãy tải lại trước khi lưu.', {
+          issueCode: 'REVISION_CONFLICT',
+          action: 'reload',
+          currentRevision,
+        })
+      }
       transaction.update(profile.reference, {
         availableSlots: slots,
         availabilityRevision: currentRevision + 1,
@@ -241,7 +311,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       })
       return currentRevision + 1
     })
-    return { schemaVersion: 1, availableSlots: slots, availabilityRevision: nextRevision, isScheduleConfirmed: true }
+    return { schemaVersion: 2, availableSlots: slots, availabilityRevision: nextRevision, isScheduleConfirmed: true }
   })
 
   const listMyAssignedStudents = onCall(async (request) => {
@@ -307,7 +377,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       const currentRevision = Number(session.revision || 0)
       if (currentRevision !== expectedRevision) throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại.')
       if (session.status === 'completed' && session.attendanceEventId) return { unchanged: true, revision: currentRevision }
-      if (session.status !== 'scheduled') throw new HttpsError('failed-precondition', 'Chỉ buổi đang lên lịch mới được xác nhận.')
+      if (!['scheduled', 'rescheduled'].includes(session.status)) throw new HttpsError('failed-precondition', 'Chỉ buổi đang lên lịch mới được xác nhận.')
       const contractsSnapshot = await transaction.get(db.collection('contracts').where('studentId', '==', session.studentId).where('status', '==', 'active').limit(10))
       const contractSnapshot = contractsSnapshot.docs.find((item) => contractAssignedTo(item.data(), actor))
       if (!contractSnapshot) throw new HttpsError('failed-precondition', 'Không tìm thấy hợp đồng đang hoạt động phù hợp.')
@@ -346,7 +416,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       throw new HttpsError('invalid-argument', 'Giờ mới không hợp lệ.')
     }
     const reference = db.collection('sessionRequests').doc()
-    await reference.create({ schemaVersion: 1, sessionId, trainerId: session.data().trainerId, studentId: session.data().studentId, contractId: boundedString(request.data?.contractId, 'Mã hợp đồng', 200), type, originalDate: session.data().date, originalHour: session.data().hour || null, newDate: type === 'reschedule' ? dateKey(request.data?.newDate, 'Ngày mới') : null, newHour: type === 'reschedule' ? requestedHour : null, reason: boundedString(request.data?.reason, 'Lý do', 500), status: 'pending', createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() })
+    await reference.create({ schemaVersion: 1, sessionId, trainerId: session.data().trainerId, studentId: session.data().studentId, contractId: boundedString(request.data?.contractId, 'Mã hợp đồng', 200), type, requestedBy: 'trainer', originalDate: session.data().date, originalHour: sessionHour(sessionId, session.data().hour), originalSessionRevision: Number(session.data().revision || 0), newDate: type === 'reschedule' ? dateKey(request.data?.newDate, 'Ngày mới') : null, newHour: type === 'reschedule' ? requestedHour : null, reason: boundedString(request.data?.reason, 'Lý do', 500), status: 'pending', createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() })
     return { requestId: reference.id }
   })
 

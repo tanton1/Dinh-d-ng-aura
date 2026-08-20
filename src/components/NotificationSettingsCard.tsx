@@ -40,6 +40,7 @@ interface NotificationSettingsCardProps {
   settings?: NotificationSettings
   mealReminderTime?: string
   onSave?: (values: { notificationSettings: NotificationSettings; mealReminderTime: string }) => Promise<void>
+  readOnly?: boolean
 }
 
 export default function NotificationSettingsCard({
@@ -47,6 +48,7 @@ export default function NotificationSettingsCard({
   settings,
   mealReminderTime,
   onSave,
+  readOnly = false,
 }: NotificationSettingsCardProps) {
   const [draft, setDraft] = useState(() => mergeSettings(settings, mealReminderTime))
   const [saving, setSaving] = useState(false)
@@ -150,6 +152,8 @@ export default function NotificationSettingsCard({
   return (
     <section
       aria-labelledby="notification-settings-title"
+      aria-disabled={readOnly}
+      inert={readOnly ? true : undefined}
       style={{
         position: 'relative',
         overflow: 'hidden',
@@ -261,7 +265,7 @@ export default function NotificationSettingsCard({
       )}
 
       <div style={{ display: 'grid', gap: 8, marginTop: 16 }}>
-        <button type="button" onClick={handlePrimaryAction} disabled={saving || enablingPush} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 44, padding: '0 16px', border: 0, borderRadius: 13, color: '#fff', background: 'linear-gradient(135deg, #ec4899, #ff873f)', boxShadow: '0 8px 20px rgba(236,72,153,.18)', fontSize: 12, fontWeight: 850, cursor: saving || enablingPush ? 'wait' : 'pointer' }}>
+        <button type="button" onClick={handlePrimaryAction} disabled={readOnly || saving || enablingPush} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 44, padding: '0 16px', border: 0, borderRadius: 13, color: '#fff', background: 'linear-gradient(135deg, #ec4899, #ff873f)', boxShadow: '0 8px 20px rgba(236,72,153,.18)', fontSize: 12, fontWeight: 850, cursor: readOnly ? 'not-allowed' : saving || enablingPush ? 'wait' : 'pointer', opacity: readOnly ? .55 : 1 }}>
           {!notificationsOn ? <Bell size={16} /> : deviceReady ? <ShieldCheck size={16} /> : <Smartphone size={16} />}
           {saving ? 'Đang lưu…' : enablingPush ? 'Đang kết nối thiết bị…' : !notificationsOn ? 'Lưu trạng thái tắt' : deviceReady ? 'Lưu thay đổi' : 'Bật Push và lưu'}
         </button>

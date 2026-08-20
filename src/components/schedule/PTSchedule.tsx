@@ -53,8 +53,7 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
     return students.find(s => s.id === id)?.name || 'Unknown';
   };
 
-  const handleExportExcel = async () => {
-    const XLSX = await import('xlsx');
+  const handleExportExcel = () => {
     const data = [
       ['Giờ', ...scheduleConfig.workingDays],
       ...scheduleConfig.workingHours.map(hour => {
@@ -69,11 +68,14 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
         ];
       })
     ];
-
-    const ws = XLSX.utils.aoa_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Lịch tập');
-    XLSX.writeFile(wb, `Lich_Tap_PT_${new Date().toLocaleDateString('vi-VN').replace(/\//g, '-')}.xlsx`);
+    const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = data.map((row) => row.map(csvCell).join(',')).join('\r\n');
+    const url = URL.createObjectURL(new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `Lich_Tap_PT_${new Date().toLocaleDateString('vi-VN').replace(/\//g, '-')}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleExportPDF = async () => {
@@ -313,7 +315,7 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
               onClick={handleExportExcel}
               className="flex-1 sm:flex-none justify-center bg-emerald-600 text-white px-4 py-3 rounded-xl font-bold hover:bg-emerald-500 transition-all flex items-center gap-2 shadow-sm shrink-0"
             >
-              <Download className="w-4 h-4" /> Excel
+              <Download className="w-4 h-4" /> Excel / CSV
             </button>
             <button
               onClick={handleExportPDF}

@@ -1,785 +1,390 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { motion } from 'motion/react';
-import { 
-  Users, 
-  ArrowUpRight,
+import React, { useEffect, useMemo, useState } from 'react'
+import { motion } from 'motion/react'
+import {
+  AlertTriangle,
   ArrowDownRight,
+  ArrowUpRight,
+  Building2,
   Calendar,
   DollarSign,
-  Building2,
-  Database,
-  AlertTriangle,
-  RefreshCw
-} from 'lucide-react';
-import { 
-  AreaChart, 
-  Area, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  PieChart,
+  RefreshCw,
+  Users,
+} from 'lucide-react'
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Cell,
   Pie,
-  Cell
-} from 'recharts';
-import { Session, Trainer, StudentContract, Student, PaymentRecord, Branch } from '../../../types';
-import { LOGO_URL } from '../../../constants';
-import { useDatabase } from '../../../contexts/DatabaseContext';
-import TrainerDashboard from './TrainerDashboard';
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import { LOGO_URL } from '../../../constants'
+import { useDatabase } from '../../../contexts/DatabaseContext'
+import {
+  emptyFinanceLedgerSummary,
+  listFinanceLedger,
+  type FinanceLedgerEntry,
+  type FinanceLedgerSummary,
+} from '../../../services/financeLedgerService'
+import TrainerDashboard from './TrainerDashboard'
 
-const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#14b8a6'];
+const COLORS = ['#f43f8c', '#fb7185', '#fb923c', '#fbbf24']
+type TimeRange = '7days' | '30days' | 'thisMonth' | 'lastMonth' | 'year'
 
 interface Props {
-  onNavigate?: (screen: string) => void;
+  onNavigate?: (screen: string) => void
+}
+
+interface ReportRange {
+  currentStart: Date
+  currentEnd: Date
+  previousStart: Date
+  previousEnd: Date
+}
+
+function startOfDay(value: Date) {
+  const result = new Date(value)
+  result.setHours(0, 0, 0, 0)
+  return result
+}
+
+function endOfDay(value: Date) {
+  const result = new Date(value)
+  result.setHours(23, 59, 59, 999)
+  return result
+}
+
+function reportRange(value: TimeRange, now = new Date()): ReportRange {
+  let currentStart = startOfDay(now)
+  let currentEnd = endOfDay(now)
+
+  if (value === '7days' || value === '30days') {
+    const days = value === '30days' ? 30 : 7
+    currentStart.setDate(currentStart.getDate() - days + 1)
+    const previousEnd = new Date(currentStart.getTime() - 1)
+    const previousStart = startOfDay(previousEnd)
+    previousStart.setDate(previousStart.getDate() - days + 1)
+    return { currentStart, currentEnd, previousStart, previousEnd }
+  }
+
+  if (value === 'thisMonth') {
+    currentStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    currentEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+    return {
+      currentStart,
+      currentEnd,
+      previousStart: new Date(now.getFullYear(), now.getMonth() - 1, 1),
+      previousEnd: new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999),
+    }
+  }
+
+  if (value === 'lastMonth') {
+    currentStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    currentEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999)
+    return {
+      currentStart,
+      currentEnd,
+      previousStart: new Date(now.getFullYear(), now.getMonth() - 2, 1),
+      previousEnd: new Date(now.getFullYear(), now.getMonth() - 1, 0, 23, 59, 59, 999),
+    }
+  }
+
+  currentStart = new Date(now.getFullYear(), 0, 1)
+  currentEnd = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999)
+  return {
+    currentStart,
+    currentEnd,
+    previousStart: new Date(now.getFullYear() - 1, 0, 1),
+    previousEnd: new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59, 999),
+  }
+}
+
+function growth(current: number, previous: number) {
+  if (previous === 0) return current > 0 ? 100 : 0
+  return ((current - previous) / previous) * 100
+}
+
+function money(value: number) {
+  return `${Math.round(value).toLocaleString('vi-VN')}đ`
+}
+
+function entryLabel(type: FinanceLedgerEntry['type']) {
+  if (type === 'refund') return 'Hoàn tiền'
+  if (type === 'reversal') return 'Đảo bút toán'
+  if (type === 'adjustment') return 'Điều chỉnh'
+  return 'Thu tiền'
 }
 
 export default function AdminReportDashboard({ onNavigate }: Props) {
-  const { sessions, trainers, contracts, students, payments, branches, addPayment, deletePayment } = useDatabase();
-  const [timeRange, setTimeRange] = useState('7days');
-  const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
-  const [activeTab, setActiveTab] = useState<string>('overview');
-  const [selectedTrainerId, setSelectedTrainerId] = useState<string | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const { sessions, trainers, contracts, students, payments, branches } = useDatabase()
+  const [timeRange, setTimeRange] = useState<TimeRange>('7days')
+  const [selectedBranchId, setSelectedBranchId] = useState('all')
+  const [activeTab, setActiveTab] = useState<'overview' | 'pt_report' | 'pt_details'>('overview')
+  const [selectedTrainerId, setSelectedTrainerId] = useState<string | null>(null)
+  const [currentSummary, setCurrentSummary] = useState<FinanceLedgerSummary>(emptyFinanceLedgerSummary)
+  const [previousSummary, setPreviousSummary] = useState<FinanceLedgerSummary>(emptyFinanceLedgerSummary)
+  const [recentEntries, setRecentEntries] = useState<FinanceLedgerEntry[]>([])
+  const [financeLoading, setFinanceLoading] = useState(true)
+  const [financeError, setFinanceError] = useState('')
 
-  // Filter data by branch
-  const filterByBranch = (items: any[]) => {
-    if (selectedBranchId === 'all') return items;
-    if (selectedBranchId === 'none') return items.filter(item => !item.branchId);
-    return items.filter(item => item.branchId === selectedBranchId);
-  };
-
-  const filteredSessions = filterByBranch(sessions);
-  const filteredTrainers = selectedBranchId === 'all' ? trainers : (selectedBranchId === 'none' ? trainers.filter(t => !t.branchId) : trainers.filter(t => t.branchId === selectedBranchId));
-  const filteredContracts = filterByBranch(contracts);
-  const filteredStudents = filterByBranch(students);
-  
-  // Generate missing payments from contracts
-  const allPayments = [...payments];
-  contracts.forEach(c => {
-    const totalPaidForContract = payments
-      .filter(p => p.contractId === c.id)
-      .reduce((sum, p) => sum + p.amount, 0);
-    
-    if (c.paidAmount > totalPaidForContract) {
-      allPayments.push({
-        id: `auto-${c.id}`,
-        contractId: c.id,
-        studentId: c.studentId,
-        amount: c.paidAmount - totalPaidForContract,
-        date: c.startDate ? new Date(c.startDate).toISOString() : new Date().toISOString(),
-        method: 'transfer',
-        note: 'Thanh toán (tự động tạo - phần chênh lệch)'
-      });
-    }
-  });
-
-  const { currentStartDate, currentEndDate, previousStartDate, previousEndDate } = useMemo(() => {
-    const now = new Date();
-    let currentStart = new Date(now);
-    let currentEnd = new Date(now);
-    let prevStart = new Date(now);
-    let prevEnd = new Date(now);
-
-    if (timeRange === '7days') {
-      currentStart.setDate(now.getDate() - 7);
-      prevEnd = new Date(currentStart);
-      prevStart.setDate(prevEnd.getDate() - 7);
-    } else if (timeRange === '30days') {
-      currentStart.setDate(now.getDate() - 30);
-      prevEnd = new Date(currentStart);
-      prevStart.setDate(prevEnd.getDate() - 30);
-    } else if (timeRange === 'thisMonth') {
-      currentStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      currentEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-      prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      prevEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-    } else if (timeRange === 'lastMonth') {
-      currentStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      currentEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-      prevStart = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-      prevEnd = new Date(now.getFullYear(), now.getMonth() - 1, 0, 23, 59, 59, 999);
-    } else if (timeRange === 'year') {
-      currentStart = new Date(now.getFullYear(), 0, 1);
-      prevEnd = new Date(now.getFullYear(), 0, 1);
-      prevEnd.setMilliseconds(-1);
-      prevStart = new Date(now.getFullYear() - 1, 0, 1);
-    }
-    return { currentStartDate: currentStart, currentEndDate: currentEnd, previousStartDate: prevStart, previousEndDate: prevEnd };
-  }, [timeRange]);
-
-  const filteredPayments = allPayments.filter(p => {
-    const contract = contracts.find(c => c.id === p.contractId);
-    const branchId = contract?.branchId || undefined;
-    const selectedId = selectedBranchId === 'none' ? undefined : selectedBranchId;
-    const inBranch = selectedBranchId === 'all' || branchId === selectedId;
-
-    // Use contract.startDate if available, otherwise fallback to p.date
-    const pDate = contract?.startDate ? new Date(contract.startDate) : new Date(p.date);
-    return inBranch && pDate >= currentStartDate && pDate <= currentEndDate;
-  });
-
-  const filteredStudentsForKPI = filteredStudents.filter(s => {
-    if (!s.joinDate) return false;
-    const sDate = new Date(s.joinDate);
-    return sDate >= currentStartDate && sDate <= currentEndDate;
-  });
-
-  const previousPayments = allPayments.filter(p => {
-    const contract = contracts.find(c => c.id === p.contractId);
-    const branchId = contract?.branchId || undefined;
-    const selectedId = selectedBranchId === 'none' ? undefined : selectedBranchId;
-    const inBranch = selectedBranchId === 'all' || branchId === selectedId;
-
-    const pDate = contract?.startDate ? new Date(contract.startDate) : new Date(p.date);
-    return inBranch && pDate >= previousStartDate && pDate <= previousEndDate;
-  });
-
-  const previousStudents = filteredStudents.filter(s => {
-    if (!s.joinDate) return false;
-    const sDate = new Date(s.joinDate);
-    return sDate >= previousStartDate && sDate <= previousEndDate;
-  });
-
-  const currentRevenue = filteredPayments.reduce((sum, p) => sum + p.amount, 0);
-  const previousRevenue = previousPayments.reduce((sum, p) => sum + p.amount, 0);
-  
-  const calculateGrowth = (current: number, previous: number) => {
-    if (previous === 0) return current > 0 ? 100 : 0;
-    return ((current - previous) / previous) * 100;
-  };
-
-  const revenueGrowth = calculateGrowth(currentRevenue, previousRevenue);
-  const studentsGrowth = calculateGrowth(filteredStudentsForKPI.length, previousStudents.length);
-
-  const formatTrend = (growth: number) => {
-    const sign = growth > 0 ? '+' : '';
-    return `${sign}${growth.toFixed(1)}%`;
-  };
+  const range = useMemo(() => reportRange(timeRange), [timeRange])
 
   useEffect(() => {
-    console.log("Payments data:", payments);
-    console.log("Contracts data:", contracts);
-    console.log("All payments (including auto):", allPayments);
-    console.log("Filtered payments:", filteredPayments);
-    console.log("Total revenue:", filteredPayments.reduce((sum, p) => sum + p.amount, 0));
-  }, [payments, contracts, filteredPayments]);
-
-  // PT Sessions Report
-  const ptSessions = filteredTrainers.map(t => {
-    const sessionsInTimeRange = filteredSessions.filter(s => {
-      if (s.trainerId !== t.id || s.status !== 'completed') return false;
-      const sDate = new Date(s.date);
-      return sDate >= currentStartDate && sDate <= currentEndDate;
-    });
-    
-    // Group by date to calculate unique sessions per hour
-    let uniqueSessionsCount = 0;
-    const sessionsByDate: Record<string, Session[]> = {};
-    sessionsInTimeRange.forEach(s => {
-      if (!sessionsByDate[s.date]) sessionsByDate[s.date] = [];
-      sessionsByDate[s.date].push(s);
-    });
-    
-    Object.values(sessionsByDate).forEach(daySessions => {
-      const uniqueHours = new Set(daySessions.map(s => parseInt(s.id.split('-')[1]) || 0));
-      uniqueSessionsCount += uniqueHours.size;
-    });
-
-    return { name: t.name, count: uniqueSessionsCount };
-  });
-
-  // PT Commission Report
-  const ptCommissions = filteredTrainers.map(t => {
-    const sessionsInTimeRange = filteredSessions.filter(s => {
-      if (s.trainerId !== t.id || s.status !== 'completed') return false;
-      const sDate = new Date(s.date);
-      return sDate >= currentStartDate && sDate <= currentEndDate;
-    });
-    
-    const sessionsByDate: Record<string, Session[]> = {};
-    sessionsInTimeRange.forEach(s => {
-      if (!sessionsByDate[s.date]) sessionsByDate[s.date] = [];
-      sessionsByDate[s.date].push(s);
-    });
-
-    let sessionComm = 0;
-    Object.values(sessionsByDate).forEach(daySessions => {
-      // Get unique hours taught in this day
-      const uniqueHours = Array.from(new Set(daySessions.map(s => parseInt(s.id.split('-')[1]) || 0))).sort((a, b) => a - b);
-      
-      let count = 0;
-      uniqueHours.forEach(hour => {
-        count++;
-        if (count > 8) {
-          if (hour >= 20) sessionComm += 80000;
-          else sessionComm += 70000;
-        } else {
-          sessionComm += t.commissionPerSession || 20000;
-        }
-      });
-    });
-    
-    const referralContractsInTimeRange = filteredContracts.filter(c => {
-      if (c.referralCode !== t.employeeCode) return false;
-      const cDate = new Date(c.startDate || new Date());
-      return cDate >= currentStartDate && cDate <= currentEndDate;
-    });
-    const referralComm = referralContractsInTimeRange.reduce((s, c) => s + (c.referralCommission || 0), 0);
-    const baseSalary = t.baseSalary || 0;
-    
-    return { name: t.name, total: baseSalary + sessionComm + referralComm };
-  });
-
-  // Customer Debt Report
-  const totalDebt = filteredContracts.reduce((sum, c) => {
-    const debt = (c.totalPrice - (c.discount || 0)) - c.paidAmount;
-    return debt > 0 ? sum + debt : sum;
-  }, 0);
-  const debtList = filteredContracts
-    .filter(c => (c.totalPrice - (c.discount || 0)) > c.paidAmount)
-    .map(c => ({
-      name: students.find(s => s.id === c.studentId)?.name || 'Học viên ẩn (Đã xóa)',
-      debt: (c.totalPrice - (c.discount || 0)) - c.paidAmount
-    }));
-
-  // Revenue Data based on timeRange
-  const revenueData = useMemo(() => {
-    const now = new Date();
-    
-    // Helper to get the correct date for a payment (contract start date)
-    const getPaymentDate = (p: PaymentRecord) => {
-      const contract = contracts.find(c => c.id === p.contractId);
-      return contract?.startDate ? new Date(contract.startDate) : new Date(p.date);
-    };
-
-    if (timeRange === 'year') {
-      return Array.from({ length: 12 }).map((_, i) => {
-        const month = i;
-        const total = filteredPayments.filter(p => {
-          const d = getPaymentDate(p);
-          return d.getFullYear() === now.getFullYear() && d.getMonth() === month;
-        }).reduce((sum, p) => sum + p.amount, 0);
-        return { name: `T${month + 1}`, total };
-      });
-    } else if (timeRange === 'lastMonth' || timeRange === 'thisMonth') {
-      let focusMonth = now.getMonth();
-      let focusYear = now.getFullYear();
-      if (timeRange === 'lastMonth') {
-        focusMonth = now.getMonth() - 1;
-        if (focusMonth < 0) {
-          focusYear = now.getFullYear() - 1;
-          focusMonth = 11;
-        }
-      }
-      const daysInMonth = new Date(focusYear, focusMonth + 1, 0).getDate();
-      
-      return Array.from({ length: daysInMonth }).map((_, i) => {
-        const d = new Date(focusYear, focusMonth, i + 1);
-        const dateStr = d.toISOString().split('T')[0];
-        const total = filteredPayments
-          .filter(p => {
-            const pd = getPaymentDate(p);
-            return pd.toISOString().split('T')[0] === dateStr;
-          })
-          .reduce((sum, p) => sum + p.amount, 0);
-        return { 
-          name: `${d.getDate()}/${d.getMonth() + 1}`, 
-          total 
-        };
-      });
-    } else {
-      const days = timeRange === '30days' ? 30 : 7;
-      return Array.from({ length: days }).map((_, i) => {
-        const d = new Date();
-        d.setDate(d.getDate() - (days - 1 - i));
-        const dateStr = d.toISOString().split('T')[0];
-        const total = filteredPayments
-          .filter(p => {
-            const pd = getPaymentDate(p);
-            return pd.toISOString().split('T')[0] === dateStr;
-          })
-          .reduce((sum, p) => sum + p.amount, 0);
-        return { 
-          name: days === 7 ? d.toLocaleDateString('vi-VN', { weekday: 'short' }) : `${d.getDate()}/${d.getMonth() + 1}`, 
-          total 
-        };
-      });
-    }
-  }, [timeRange, filteredPayments, contracts]);
-
-  // Package Distribution
-  const packageData = Object.entries(filteredContracts.filter(c => c.status === 'active').reduce((acc, c) => {
-    acc[c.packageName] = (acc[c.packageName] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>)).map(([name, value]) => ({ name, value }));
-
-  // Recent Transactions
-  const recentTransactions = filteredPayments
-    .sort((a, b) => {
-      const contractA = contracts.find(c => c.id === a.contractId);
-      const contractB = contracts.find(c => c.id === b.contractId);
-      const dateA = contractA?.startDate ? new Date(contractA.startDate).getTime() : new Date(a.date).getTime();
-      const dateB = contractB?.startDate ? new Date(contractB.startDate).getTime() : new Date(b.date).getTime();
-      return dateB - dateA;
+    let active = true
+    setFinanceLoading(true)
+    setFinanceError('')
+    const query = { pageSize: 5, branchId: selectedBranchId }
+    void Promise.all([
+      listFinanceLedger({ ...query, startAt: range.currentStart.toISOString(), endAt: range.currentEnd.toISOString() }),
+      listFinanceLedger({ ...query, startAt: range.previousStart.toISOString(), endAt: range.previousEnd.toISOString() }),
+    ]).then(([current, previous]) => {
+      if (!active) return
+      setCurrentSummary(current.summary)
+      setPreviousSummary(previous.summary)
+      setRecentEntries(current.entries)
+    }).catch(() => {
+      if (!active) return
+      setFinanceError('Chưa tải được sổ tài chính canonical. Số liệu legacy không được cộng thay thế để tránh báo cáo sai.')
+      setCurrentSummary(emptyFinanceLedgerSummary)
+      setPreviousSummary(emptyFinanceLedgerSummary)
+      setRecentEntries([])
+    }).finally(() => {
+      if (active) setFinanceLoading(false)
     })
-    .slice(0, 5)
-    .map(p => {
-      const contract = contracts.find(c => c.id === p.contractId);
-      const pDate = contract?.startDate ? new Date(contract.startDate) : new Date(p.date);
-      return {
-        id: p.id,
-        user: students.find(s => s.id === p.studentId)?.name || 'Học viên ẩn (Đã xóa)',
-        package: contract?.packageName || 'N/A',
-        amount: p.amount.toLocaleString('vi-VN') + 'đ',
-        status: 'Thành công',
-        date: pDate.toLocaleString('vi-VN')
-      };
-    });
+    return () => { active = false }
+  }, [range, selectedBranchId])
+
+  const filteredStudents = useMemo(() => students.filter((item) => {
+    if (selectedBranchId === 'all') return true
+    if (selectedBranchId === 'none') return !item.branchId
+    return item.branchId === selectedBranchId
+  }), [selectedBranchId, students])
+
+  const filteredContracts = useMemo(() => contracts.filter((item) => {
+    if (selectedBranchId === 'all') return true
+    if (selectedBranchId === 'none') return !item.branchId
+    return item.branchId === selectedBranchId
+  }), [contracts, selectedBranchId])
+
+  const filteredTrainers = useMemo(() => trainers.filter((item) => {
+    if (selectedBranchId === 'all') return true
+    if (selectedBranchId === 'none') return !item.branchId
+    return item.branchId === selectedBranchId
+  }), [selectedBranchId, trainers])
+
+  const filteredSessions = useMemo(() => sessions.filter((item) => {
+    if (selectedBranchId === 'none' && item.branchId) return false
+    if (selectedBranchId !== 'all' && selectedBranchId !== 'none' && item.branchId !== selectedBranchId) return false
+    const date = new Date(item.date)
+    return date >= range.currentStart && date <= range.currentEnd
+  }), [range, selectedBranchId, sessions])
+
+  const currentStudents = filteredStudents.filter((item) => {
+    if (!item.joinDate) return false
+    const date = new Date(item.joinDate)
+    return date >= range.currentStart && date <= range.currentEnd
+  }).length
+  const previousStudents = filteredStudents.filter((item) => {
+    if (!item.joinDate) return false
+    const date = new Date(item.joinDate)
+    return date >= range.previousStart && date <= range.previousEnd
+  }).length
+
+  const totalDebt = filteredContracts.reduce((sum, contract) => {
+    const debt = Number(contract.totalPrice || 0) - Number(contract.discount || 0) - Number(contract.paidAmount || 0)
+    return debt > 0 ? sum + debt : sum
+  }, 0)
+
+  const ptRows = filteredTrainers.map((trainer) => {
+    const assigned = filteredSessions.filter((session) => session.trainerId === trainer.id)
+    return {
+      id: trainer.id,
+      name: trainer.name,
+      completed: assigned.filter((session) => session.status === 'completed').length,
+      cancelled: assigned.filter((session) => ['cancelled', 'canceled_by_student', 'student_cancelled', 'trainer_cancelled'].includes(session.status)).length,
+      scheduled: assigned.filter((session) => session.status === 'scheduled' || session.status === 'rescheduled').length,
+    }
+  })
+
+  const legacyMismatchCount = useMemo(() => contracts.filter((contract) => {
+    const legacyTotal = payments
+      .filter((payment) => payment.contractId === contract.id)
+      .reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
+    return Math.abs(legacyTotal - Number(contract.paidAmount || 0)) > 1000
+  }).length, [contracts, payments])
+
+  const missingBranchCount = students.filter((item) => !item.branchId).length + contracts.filter((item) => !item.branchId).length
+  const invalidSessionCount = sessions.filter((item) => !item.studentId || !item.trainerId).length
+  const overusedContractCount = contracts.filter((item) => Number(item.usedSessions || 0) > Number(item.totalSessions || 0)).length
+
+  const revenueData = useMemo(() => {
+    if (timeRange !== 'year') return currentSummary.dailySeries.map((item) => ({
+      name: new Date(`${item.date}T00:00:00+07:00`).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }),
+      total: item.total,
+    }))
+    const monthly = new Map<string, number>()
+    currentSummary.dailySeries.forEach((item) => {
+      const month = item.date.slice(0, 7)
+      monthly.set(month, Number(monthly.get(month) || 0) + item.total)
+    })
+    return Array.from(monthly, ([month, total]) => ({ name: `T${Number(month.slice(5, 7))}`, total }))
+  }, [currentSummary.dailySeries, timeRange])
+
+  const packageData = Object.entries(filteredContracts.filter((item) => item.status === 'active').reduce<Record<string, number>>((result, contract) => {
+    result[contract.packageName || 'Không xác định'] = (result[contract.packageName || 'Không xác định'] || 0) + 1
+    return result
+  }, {})).map(([name, value]) => ({ name, value }))
+
+  const revenueGrowth = growth(currentSummary.netRevenue, previousSummary.netRevenue)
+  const studentGrowth = growth(currentStudents, previousStudents)
 
   return (
-    <div className="space-y-6 pb-24">
-      {/* Header */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-        <div className="mb-2 lg:mb-0 flex items-center gap-3">
-          <img src={LOGO_URL} alt="Aura" className="h-10 w-10 object-contain" />
-          <div>
-            <h1 className="text-2xl md:text-3xl lg:text-4xl font-serif font-medium text-pink-500 drop-shadow-[0_0_10px_rgba(236,72,153,0.8)] tracking-tight border-b-4 border-pink-500/30 pb-2 inline-block shadow-[0_6px_0_rgba(236,72,153,0.2)] rounded-2xl">
-              Tổng quan báo cáo
-            </h1>
-            <p className="text-zinc-400 text-xs md:text-sm mt-3">Theo dõi hiệu suất kinh doanh và hoạt động của phòng tập.</p>
-          </div>
-        </div>
-        <div className="flex flex-col items-end gap-3 w-full lg:w-auto">
-          {students.length === 0 && (
-            <button
-              onClick={() => onNavigate && onNavigate('migrate')}
-              className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-sm font-medium flex items-center gap-2 shadow-lg shadow-orange-500/20"
-            >
-              <Database className="w-4 h-4" />
-              Chuyển dữ liệu Database
-            </button>
-          )}
-          <div className="flex w-full sm:w-auto items-center p-1.5 bg-zinc-900/80 backdrop-blur-sm rounded-xl border border-zinc-800/80 shadow-sm">
-            {[
-              { id: 'overview', label: 'Tổng quan' },
-              { id: 'pt_report', label: 'Báo cáo PT' },
-              { id: 'pt_details', label: 'Chi tiết PT' }
-            ].map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  if (tab.id === 'pt_details' && !selectedTrainerId && filteredTrainers.length > 0) {
-                    setSelectedTrainerId(filteredTrainers[0].id);
-                  }
-                }}
-                className={`flex-1 sm:flex-none px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                  activeTab === tab.id 
-                    ? 'bg-zinc-800 text-white shadow-sm' 
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Control Bar: Filters */}
-      <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between bg-zinc-900/40 p-3 sm:p-4 rounded-2xl border border-zinc-800/50 backdrop-blur-sm">
-        <div className="relative w-full lg:w-64">
-          <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-            <Building2 className="w-4 h-4 text-zinc-500" />
-          </div>
-          <select 
-            value={selectedBranchId}
-            onChange={(e) => setSelectedBranchId(e.target.value)}
-            className="w-full pl-9 pr-8 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-sm font-medium text-zinc-300 focus:outline-none focus:border-pink-500/50 transition-colors appearance-none shadow-sm cursor-pointer"
-          >
-            <option value="all">Tất cả chi nhánh</option>
-            <option value="none">Chưa phân chi nhánh</option>
-            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
-          <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none">
-            <svg className="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5 p-1 bg-zinc-950 rounded-xl border border-zinc-800 w-full lg:w-auto overflow-x-auto hide-scrollbar shadow-sm">
-          {['7days', '30days', 'thisMonth', 'lastMonth', 'year'].map((range) => (
-            <button
-              key={range}
-              onClick={() => setTimeRange(range)}
-              className={`flex-1 lg:flex-none whitespace-nowrap px-4 py-2 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all ${
-                timeRange === range 
-                  ? 'bg-zinc-800 text-white shadow-sm ring-1 ring-zinc-700/50' 
-                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50'
-              }`}
-            >
-              {range === '7days' ? '7 Ngày' : range === '30days' ? '30 Ngày' : range === 'thisMonth' ? 'Tháng này' : range === 'lastMonth' ? 'Tháng trước' : 'Năm nay'}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {activeTab === 'overview' ? (
-        <>
-          {/* KPI Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <KPICard 
-              title="Tổng doanh thu" 
-              value={currentRevenue.toLocaleString('vi-VN') + 'đ'}
-              trend={formatTrend(revenueGrowth)} 
-              isPositive={revenueGrowth >= 0} 
-              icon={<DollarSign className="w-5 h-5 text-emerald-500" />} 
-            />
-            <KPICard 
-              title="Học viên mới" 
-              value={filteredStudentsForKPI.length.toString()} 
-              trend={formatTrend(studentsGrowth)} 
-              isPositive={studentsGrowth >= 0} 
-              icon={<Users className="w-5 h-5 text-indigo-500" />} 
-            />
-          </div>
-
-          {/* Customer Debt */}
-          <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-6">
-            <div className="flex flex-col h-full">
-              <h3 className="text-lg font-semibold text-white mb-4">Công nợ khách hàng</h3>
-              <div className="flex-1 space-y-3 overflow-y-auto max-h-[200px]">
-                {debtList.map((debt, idx) => (
-                  <div key={`debt-${idx}`} className="flex justify-between items-center p-3 bg-zinc-950 rounded-xl border border-zinc-800">
-                    <span className="text-zinc-300 text-sm">{debt.name}</span>
-                    <span className="text-red-400 font-bold text-sm">{debt.debt.toLocaleString()}đ</span>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 pt-4 border-t border-zinc-800 flex justify-between items-center">
-                <span className="text-zinc-400">Tổng nợ</span>
-                <span className="text-red-500 font-bold text-xl">{totalDebt.toLocaleString()}đ</span>
-              </div>
+    <div className="space-y-6 pb-28">
+      <header className="rounded-[28px] border border-pink-500/20 bg-gradient-to-br from-zinc-950 via-zinc-950 to-orange-950/40 p-5 shadow-xl shadow-pink-950/20">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3">
+            <img src={LOGO_URL} alt="Aura" className="h-11 w-11 object-contain" />
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-pink-400">Aura Operations</p>
+              <h1 className="mt-1 text-2xl font-bold text-white md:text-3xl">Báo cáo & Thống kê</h1>
+              <p className="mt-1 text-sm text-zinc-400">Doanh thu chỉ lấy từ ledger canonical theo ngày hạch toán thực tế.</p>
             </div>
           </div>
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <select value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="min-h-11 rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-sm text-white">
+              <option value="all">Tất cả chi nhánh</option>
+              <option value="none">Chưa phân chi nhánh</option>
+              {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+            </select>
+            <select value={timeRange} onChange={(event) => setTimeRange(event.target.value as TimeRange)} className="min-h-11 rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-sm text-white">
+              <option value="7days">7 ngày</option>
+              <option value="30days">30 ngày</option>
+              <option value="thisMonth">Tháng này</option>
+              <option value="lastMonth">Tháng trước</option>
+              <option value="year">Năm nay</option>
+            </select>
+          </div>
+        </div>
+      </header>
 
-          {/* Charts Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Main Area Chart */}
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="lg:col-span-2 bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-6"
-            >
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-semibold text-white">Biểu đồ doanh thu</h3>
-                <button className="text-zinc-400 hover:text-white transition-colors">
-                  <Calendar className="w-5 h-5" />
-                </button>
+      {financeError && <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{financeError}</div>}
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KPICard title="Doanh thu thuần" value={financeLoading ? 'Đang tải…' : money(currentSummary.netRevenue)} trend={`${revenueGrowth >= 0 ? '+' : ''}${revenueGrowth.toFixed(1)}%`} isPositive={revenueGrowth >= 0} icon={<DollarSign className="h-5 w-5 text-pink-400" />} />
+        <KPICard title="Học viên mới" value={String(currentStudents)} trend={`${studentGrowth >= 0 ? '+' : ''}${studentGrowth.toFixed(1)}%`} isPositive={studentGrowth >= 0} icon={<Users className="h-5 w-5 text-orange-400" />} />
+        <KPICard title="Buổi hoàn thành" value={String(filteredSessions.filter((item) => item.status === 'completed').length)} trend={`${filteredSessions.length} buổi`} isPositive icon={<Calendar className="h-5 w-5 text-emerald-400" />} />
+        <KPICard title="Công nợ projection" value={money(totalDebt)} trend={`${filteredContracts.length} HĐ`} isPositive={totalDebt === 0} icon={<Building2 className="h-5 w-5 text-amber-400" />} />
+      </div>
+
+      <nav className="grid grid-cols-3 gap-1 rounded-2xl border border-zinc-800 bg-zinc-950 p-1">
+        {[
+          { id: 'overview', label: 'Tổng quan' },
+          { id: 'pt_report', label: 'Vận hành PT' },
+          { id: 'pt_details', label: 'Chi tiết PT' },
+        ].map((tab) => (
+          <button key={tab.id} onClick={() => {
+            const next = tab.id as typeof activeTab
+            setActiveTab(next)
+            if (next === 'pt_details' && !selectedTrainerId) setSelectedTrainerId(filteredTrainers[0]?.id || null)
+          }} className={`min-h-11 rounded-xl px-3 text-sm font-semibold ${activeTab === tab.id ? 'bg-gradient-to-r from-pink-500 to-orange-500 text-white' : 'text-zinc-400'}`}>{tab.label}</button>
+        ))}
+      </nav>
+
+      {activeTab === 'overview' && (
+        <>
+          <div className="grid gap-4 lg:grid-cols-3">
+            <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5 lg:col-span-2">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <h2 className="font-bold text-white">Doanh thu theo ngày hạch toán</h2>
+                  <p className="mt-1 text-xs text-zinc-500">Không dùng ngày bắt đầu hợp đồng.</p>
+                </div>
+                <span className="rounded-full bg-pink-500/10 px-3 py-1 text-xs font-bold text-pink-400">Canonical</span>
               </div>
-              <div className="h-[300px] w-full">
+              <div className="h-[280px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={revenueData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
+                  <AreaChart data={revenueData} margin={{ top: 10, right: 10, left: -18, bottom: 0 }}>
+                    <defs><linearGradient id="reportRevenue" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f43f8c" stopOpacity={0.4} /><stop offset="95%" stopColor="#fb923c" stopOpacity={0} /></linearGradient></defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                    <XAxis dataKey="name" stroke="#71717a" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis stroke="#71717a" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `${value / 1000000}M`} />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '8px' }}
-                      itemStyle={{ color: '#e4e4e7' }}
-                      formatter={(value: any) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(value) || 0)}
-                    />
-                    <Area type="monotone" dataKey="total" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorTotal)" />
+                    <XAxis dataKey="name" stroke="#71717a" fontSize={11} tickLine={false} axisLine={false} />
+                    <YAxis stroke="#71717a" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(value) => `${Number(value) / 1_000_000}M`} />
+                    <Tooltip contentStyle={{ backgroundColor: '#18181b', borderColor: '#3f3f46', borderRadius: 12 }} formatter={(value) => money(Number(value) || 0)} />
+                    <Area type="monotone" dataKey="total" stroke="#f43f8c" strokeWidth={3} fill="url(#reportRevenue)" />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
-            </motion.div>
+            </section>
 
-            {/* Donut Chart */}
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col"
-            >
-              <h3 className="text-base font-bold text-white mb-6">Tỷ trọng doanh thu theo gói</h3>
-              <div className="h-64 flex-1 flex items-center justify-center relative">
+            <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5">
+              <h2 className="font-bold text-white">Hợp đồng đang hoạt động</h2>
+              <p className="mt-1 text-xs text-zinc-500">Phân bố theo gói, không phải doanh thu.</p>
+              <div className="mt-4 h-52">
                 <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={packageData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={80}
-                      paddingAngle={5}
-                      dataKey="value"
-                    >
-                      {packageData.map((_, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '8px' }}
-                      itemStyle={{ color: '#e4e4e7' }}
-                      formatter={(value: any) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(value) || 0)}
-                    />
-                  </PieChart>
+                  <PieChart><Pie data={packageData} innerRadius={55} outerRadius={78} dataKey="value" paddingAngle={4}>{packageData.map((item, index) => <Cell key={item.name} fill={COLORS[index % COLORS.length]} />)}</Pie><Tooltip contentStyle={{ backgroundColor: '#18181b', borderColor: '#3f3f46', borderRadius: 12 }} /></PieChart>
                 </ResponsiveContainer>
               </div>
-              <div className="grid grid-cols-2 gap-2 mt-4">
-                {packageData.map((entry, index) => (
-                  <div key={entry.name} className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
-                    <span className="text-xs text-zinc-400 truncate">{entry.name}</span>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
+              <div className="space-y-2">{packageData.slice(0, 5).map((item, index) => <div key={item.name} className="flex items-center justify-between text-xs"><span className="flex min-w-0 items-center gap-2 text-zinc-400"><i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} /> <span className="truncate">{item.name}</span></span><b className="text-white">{item.value}</b></div>)}</div>
+            </section>
           </div>
 
-          {/* Data Grid / Recent Activity */}
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl overflow-hidden"
-          >
-            <div className="p-6 border-b border-zinc-800/50 flex justify-between items-center">
-              <h3 className="text-lg font-semibold text-white">Giao dịch gần đây</h3>
-              <button onClick={() => onNavigate && onNavigate('students')} className="text-sm text-indigo-400 hover:text-indigo-300 font-medium">Xem tất cả</button>
+          <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <div><h2 className="font-bold text-white">Giao dịch canonical gần đây</h2><p className="mt-1 text-xs text-zinc-500">Payment legacy không được cộng vào bảng này.</p></div>
+              <button onClick={() => onNavigate?.('admin-finance')} className="text-sm font-bold text-pink-400">Mở tài chính</button>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-zinc-900/80 text-zinc-400 text-xs uppercase tracking-wider">
-                    <th className="p-4 font-medium">Học viên</th>
-                    <th className="p-4 font-medium">Gói tập</th>
-                    <th className="p-4 font-medium">Số tiền</th>
-                    <th className="p-4 font-medium">Trạng thái</th>
-                    <th className="p-4 font-medium">Thời gian</th>
-                  </tr>
-                </thead>
-                <tbody className="text-sm divide-y divide-zinc-800/50">
-                  {recentTransactions.map((trx) => (
-                    <tr key={trx.id} className="hover:bg-zinc-800/20 transition-colors">
-                      <td className="p-4 text-white font-medium">{trx.user}</td>
-                      <td className="p-4 text-zinc-400">{trx.package}</td>
-                      <td className="p-4 text-white font-mono">{trx.amount}</td>
-                      <td className="p-4">
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
-                          trx.status === 'Thành công' 
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                            : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                        }`}>
-                          {trx.status}
-                        </span>
-                      </td>
-                      <td className="p-4 text-zinc-500 text-xs">{trx.date}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="space-y-2">
+              {recentEntries.map((entry) => {
+                const studentName = students.find((item) => item.id === entry.studentId)?.name || 'Học viên đã xóa'
+                return <div key={entry.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-white">{studentName}</p><p className="mt-1 text-xs text-zinc-500">{entry.referenceCode} · {entryLabel(entry.type)} · {new Date(entry.effectiveAt).toLocaleString('vi-VN')}</p></div><b className={entry.amount >= 0 ? 'text-emerald-400' : 'text-amber-400'}>{money(entry.amount)}</b></div>
+              })}
+              {!financeLoading && recentEntries.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">Chưa có bút toán canonical trong kỳ.</p>}
             </div>
-          </motion.div>
+          </section>
         </>
-      ) : activeTab === 'pt_report' ? (
-        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Báo cáo hiệu suất PT</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-zinc-900/80 text-zinc-400 text-xs uppercase tracking-wider">
-                  <th className="p-4 font-medium rounded-tl-xl w-1/3">Tên PT</th>
-                  <th className="p-4 font-medium text-center">Số buổi dạy</th>
-                  <th className="p-4 font-medium text-right rounded-tr-xl">Tổng hoa hồng</th>
-                </tr>
-              </thead>
-              <tbody className="text-sm divide-y divide-zinc-800/50">
-                {filteredTrainers.map(t => {
-                  const sessionCount = ptSessions.find(s => s.name === t.name)?.count || 0;
-                  const commission = ptCommissions.find(c => c.name === t.name)?.total || 0;
-                  return (
-                    <tr 
-                      key={t.id} 
-                      className="hover:bg-zinc-800/30 transition-colors cursor-default"
-                    >
-                      <td className="p-4 text-white font-medium transition-colors">{t.name}</td>
-                      <td className="p-4 text-pink-500 font-bold text-center bg-pink-500/5">{sessionCount} buổi</td>
-                      <td className="p-4 text-emerald-500 font-bold text-right">{commission.toLocaleString('vi-VN')}đ</td>
-                    </tr>
-                  );
-                })}
-                {filteredTrainers.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="p-8 text-center text-zinc-500">Không có dữ liệu PT.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : activeTab === 'pt_details' && selectedTrainerId ? (
-        <div className="space-y-4">
-          <div className="flex gap-2 p-1 bg-zinc-900 rounded-xl border border-zinc-800 overflow-x-auto whitespace-nowrap hide-scrollbar">
-            {filteredTrainers.map(t => (
-              <button
-                key={t.id}
-                onClick={() => setSelectedTrainerId(t.id)}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                  selectedTrainerId === t.id 
-                    ? 'bg-zinc-800 text-pink-400 shadow-sm border border-zinc-700/50' 
-                    : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300'
-                }`}
-              >
-                {t.name}
-              </button>
-            ))}
-          </div>
-          <div className="bg-zinc-950 border border-zinc-800/50 rounded-2xl p-2 md:p-4 shadow-lg">
-            <TrainerDashboard trainerId={selectedTrainerId} />
-          </div>
-        </div>
-      ) : null}
+      )}
 
-      {/* System Tools */}
-      <div className="mt-8 pt-6 border-t border-zinc-800/50 flex flex-wrap justify-end gap-3">
-        <button
-          onClick={() => {
-            let errors = [];
-            const studentsNoBranch = students.filter(s => !s.branchId);
-            if (studentsNoBranch.length > 0) {
-              errors.push(`- ${studentsNoBranch.length} học viên thiếu chi nhánh (branchId):\n  ${studentsNoBranch.map(s => s.name).join(', ')}`);
-            }
-            
-            const contractsNoBranch = contracts.filter(c => !c.branchId);
-            if (contractsNoBranch.length > 0) {
-              const details = contractsNoBranch.map(c => `${students.find(s => s.id === c.studentId)?.name || 'Unknown'} (HĐ: ${c.id})`).join(', ');
-              errors.push(`- ${contractsNoBranch.length} hợp đồng thiếu chi nhánh (branchId):\n  ${details}`);
-            }
-            
-            const contractsOverused = contracts.filter(c => c.usedSessions > c.totalSessions);
-            if (contractsOverused.length > 0) {
-              const details = contractsOverused.map(c => `${students.find(s => s.id === c.studentId)?.name || 'Unknown'} (${c.usedSessions}/${c.totalSessions} buổi)`).join(', ');
-              errors.push(`- ${contractsOverused.length} hợp đồng có số buổi đã tập > tổng số buổi:\n  ${details}`);
-            }
-            
-            const sessionsNoTrainer = sessions.filter(s => !s.trainerId);
-            if (sessionsNoTrainer.length > 0) {
-              const details = sessionsNoTrainer.map(s => `${s.date} ${s.hour}h - HV: ${students.find(st => st.id === s.studentId)?.name || 'Unknown'}`).join(', ');
-              errors.push(`- ${sessionsNoTrainer.length} buổi tập thiếu PT (trainerId):\n  ${details}`);
-            }
-            
-            const sessionsNoStudent = sessions.filter(s => !s.studentId);
-            if (sessionsNoStudent.length > 0) {
-              const details = sessionsNoStudent.map(s => `${s.date} ${s.hour}h`).join(', ');
-              errors.push(`- ${sessionsNoStudent.length} buổi tập thiếu học viên (studentId):\n  ${details}`);
-            }
-            
-            // Financial consistency check
-            const financialErrors: string[] = [];
-            contracts.forEach(c => {
-              const totalPaid = payments
-                .filter(p => p.contractId === c.id)
-                .reduce((sum, p) => sum + Number(p.amount || 0), 0);
-              
-              const paidAmount = Number(c.paidAmount || 0);
-              if (Math.abs(totalPaid - paidAmount) > 1000) {
-                financialErrors.push(`- Hợp đồng ${c.id} (Học viên: ${students.find(s => s.id === c.studentId)?.name || 'Unknown'}): Tổng thanh toán (${totalPaid}) lệch với paidAmount (${paidAmount})`);
-              }
-            });
-            
-            if (errors.length > 0 || financialErrors.length > 0) {
-              alert('Phát hiện các lỗi dữ liệu sau:\n' + errors.join('\n') + '\n\nLỗi tài chính:\n' + financialErrors.join('\n'));
-            } else {
-              alert('Dữ liệu hoàn toàn bình thường, không phát hiện lỗi nghiêm trọng nào.');
-            }
-          }}
-          className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 rounded-lg text-xs font-medium flex items-center gap-2 transition-colors"
-        >
-          <AlertTriangle className="w-4 h-4" />
-          Kiểm tra lỗi dữ liệu
-        </button>
-        <button
-          onClick={async () => {
-            if (!confirm('Bạn có chắc chắn muốn đồng bộ lại Sổ quỹ theo Hợp đồng không? Các phiếu thu bị lệch sẽ bị xóa và tạo lại 1 phiếu thu tổng hợp duy nhất.')) return;
-            setIsSyncing(true);
-            try {
-              let syncCount = 0;
-              for (const c of contracts) {
-                const contractPayments = payments.filter(p => p.contractId === c.id);
-                const totalPaid = contractPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
-                const paidAmount = Number(c.paidAmount || 0);
-                
-                if (Math.abs(totalPaid - paidAmount) > 1000) {
-                  // Mismatch found, delete old payments
-                  for (const p of contractPayments) {
-                    await deletePayment(p.id);
-                  }
-                  // Create new single payment if paidAmount > 0
-                  if (paidAmount > 0) {
-                    await addPayment({
-                      id: Date.now().toString() + Math.random().toString(36).substring(7),
-                      studentId: c.studentId,
-                      contractId: c.id,
-                      amount: paidAmount,
-                      date: c.startDate || new Date().toISOString(),
-                      method: 'transfer',
-                      note: 'Phiếu thu tổng hợp do hệ thống tự động đồng bộ'
-                    });
-                  }
-                  syncCount++;
-                }
-              }
-              alert(`Đã đồng bộ thành công Sổ quỹ cho ${syncCount} hợp đồng bị lệch!`);
-            } catch (error) {
-              console.error("Error syncing ledger:", error);
-              alert("Có lỗi xảy ra khi đồng bộ Sổ quỹ.");
-            } finally {
-              setIsSyncing(false);
-            }
-          }}
-          disabled={isSyncing}
-          className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-emerald-400 border border-zinc-800 rounded-lg text-xs font-medium flex items-center gap-2 transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-          {isSyncing ? 'Đang đồng bộ...' : 'Đồng bộ Sổ quỹ'}
-        </button>
-      </div>
+      {activeTab === 'pt_report' && (
+        <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5">
+          <div className="mb-4"><h2 className="font-bold text-white">Vận hành PT</h2><p className="mt-1 text-xs text-zinc-500">Không ước tính hoa hồng ở trình duyệt; lương phải lấy từ payroll run đã duyệt.</p></div>
+          <div className="space-y-2">{ptRows.map((row) => <button key={row.id} onClick={() => { setSelectedTrainerId(row.id); setActiveTab('pt_details') }} className="grid w-full grid-cols-[minmax(0,1fr)_repeat(3,auto)] items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 text-left"><span className="truncate font-semibold text-white">{row.name}</span><span className="text-xs text-emerald-400">{row.completed} xong</span><span className="text-xs text-amber-400">{row.cancelled} hủy</span><span className="text-xs text-zinc-400">{row.scheduled} chờ</span></button>)}</div>
+        </section>
+      )}
+
+      {activeTab === 'pt_details' && (
+        <div className="space-y-3">
+          <div className="flex gap-2 overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-950 p-2">{filteredTrainers.map((trainer) => <button key={trainer.id} onClick={() => setSelectedTrainerId(trainer.id)} className={`min-h-10 shrink-0 rounded-xl px-4 text-sm font-semibold ${selectedTrainerId === trainer.id ? 'bg-gradient-to-r from-pink-500 to-orange-500 text-white' : 'bg-zinc-900 text-zinc-400'}`}>{trainer.name}</button>)}</div>
+          {selectedTrainerId ? <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-2 md:p-4"><TrainerDashboard trainerId={selectedTrainerId} /></div> : <p className="rounded-3xl border border-zinc-800 bg-zinc-950 p-8 text-center text-zinc-500">Không có PT trong phạm vi đã chọn.</p>}
+        </div>
+      )}
+
+      <section className="rounded-3xl border border-amber-500/20 bg-amber-500/5 p-5">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
+          <div className="min-w-0 flex-1">
+            <h2 className="font-bold text-white">Đối soát dữ liệu legacy — chỉ đọc</h2>
+            <p className="mt-1 text-sm text-zinc-400">Không tự tạo payment, không xóa phiếu và không ghi đè paidAmount. Chênh lệch cần được duyệt thành adjustment/reversal riêng.</p>
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <DataQuality label="Phiếu legacy" value={payments.length} />
+              <DataQuality label="HĐ lệch projection" value={legacyMismatchCount} warning={legacyMismatchCount > 0} />
+              <DataQuality label="Thiếu chi nhánh" value={missingBranchCount} warning={missingBranchCount > 0} />
+              <DataQuality label="Session/hợp đồng lỗi" value={invalidSessionCount + overusedContractCount} warning={invalidSessionCount + overusedContractCount > 0} />
+            </div>
+          </div>
+          {financeLoading && <RefreshCw className="h-4 w-4 animate-spin text-pink-400" />}
+        </div>
+      </section>
     </div>
-  );
+  )
 }
 
-// --- Subcomponents ---
+function KPICard({ title, value, trend, isPositive, icon }: { title: string; value: string; trend: string; isPositive: boolean; icon: React.ReactNode }) {
+  return <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-950 p-4"><div className="flex items-start justify-between gap-2"><span className="rounded-xl bg-zinc-900 p-2">{icon}</span><span className={`flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>{isPositive ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}{trend}</span></div><p className="mt-4 truncate text-[11px] font-bold uppercase tracking-wider text-zinc-500">{title}</p><p className="mt-1 truncate text-lg font-bold text-white sm:text-xl">{value}</p></motion.div>
+}
 
-function KPICard({ title, value, trend, isPositive, icon }: { title: string, value: string, trend: string, isPositive: boolean, icon: React.ReactNode }) {
-  return (
-    <motion.div 
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 flex flex-col relative overflow-hidden group hover:border-pink-500/30 transition-all duration-300 shadow-lg"
-    >
-      <div className="absolute top-0 right-0 w-32 h-32 bg-pink-500/5 blur-3xl -z-10 rounded-full group-hover:bg-pink-500/10 transition-all duration-500" />
-      <div className="flex justify-between items-start mb-4 z-10">
-        <div className="p-3 bg-zinc-900 rounded-xl border border-zinc-800 group-hover:bg-zinc-800 transition-colors shadow-sm">
-          {icon}
-        </div>
-        <div className={`flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full ${
-          isPositive ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20' : 'text-rose-400 bg-rose-500/10 border border-rose-500/20'
-        }`}>
-          {isPositive ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
-          {trend}
-        </div>
-      </div>
-      <div className="z-10">
-        <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-2">{title}</h4>
-        <p className="text-3xl font-black text-white tracking-tight drop-shadow-sm">{value}</p>
-      </div>
-    </motion.div>
-  );
+function DataQuality({ label, value, warning = false }: { label: string; value: number; warning?: boolean }) {
+  return <div className="rounded-xl border border-zinc-800 bg-zinc-950/80 p-3"><p className="text-[11px] text-zinc-500">{label}</p><p className={`mt-1 text-lg font-bold ${warning ? 'text-amber-400' : 'text-emerald-400'}`}>{value.toLocaleString('vi-VN')}</p></div>
 }

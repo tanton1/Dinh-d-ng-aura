@@ -15,6 +15,11 @@ interface Props {
   user: FirebaseUser | null;
 }
 
+type HRFormData = Partial<Omit<Trainer, 'status'>>
+  & Partial<Omit<Branch, 'status'>>
+  & Partial<Omit<StaffMember, 'status'>>
+  & { status?: Trainer['status'] | Branch['status'] | StaffMember['status'] };
+
 export default function HRManagement({ user }: Props) {
   const {
     trainers,
@@ -53,14 +58,13 @@ export default function HRManagement({ user }: Props) {
   const [activeSubTab, setActiveSubTab] = useState<'trainers' | 'branches' | 'staff' | 'packages' | 'scheduler'>('trainers');
   const [isAdding, setIsAdding] = useState(false);
   const [editingItem, setEditingItem] = useState<Partial<Trainer | Branch | StaffMember> | null>(null);
-  const [formData, setFormData] = useState<Partial<Trainer & Branch & StaffMember>>({});
+  const [formData, setFormData] = useState<HRFormData>({});
   const [selectedSlots, setSelectedSlots] = useState<Set<string>>(new Set());
   const [weekOffset, setWeekOffset] = useState(0);
   const currentWeekDates = getDatesForWeek(weekOffset);
   const [error, setError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{id: string, type: 'staff' | 'branch'} | null>(null);
-  const [showCleanupConfirm, setShowCleanupConfirm] = useState(false);
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [expandedTrainerId, setExpandedTrainerId] = useState<string | null>(null);
   const [expandedStatsType, setExpandedStatsType] = useState<'main' | 'sub' | 'nutrition'>('main');
@@ -76,7 +80,6 @@ export default function HRManagement({ user }: Props) {
 
   const handleSave = async () => {
     if (!user) return;
-    console.log('Saving...', activeSubTab, formData);
     
     if (activeSubTab === 'trainers') {
       if (editingItem?.id) {
@@ -115,8 +118,22 @@ export default function HRManagement({ user }: Props) {
           return;
         }
       } else {
+        if (!formData.email && !formData.phone) {
+          setError('Cần Email hoặc Số điện thoại để gửi lời mời xác minh cho PT.');
+          return;
+        }
+        const trainerId = `staff_${crypto.randomUUID()}`;
+        const invite = await createAccountInvite({
+          displayName: formData.name || 'PT Aura',
+          phoneNumber: formData.phone,
+          email: formData.email,
+          accessRole: 'staff',
+          positions: ['trainer_pt'],
+          branchIds: formData.branchId ? [formData.branchId] : [],
+          crmProfileId: trainerId,
+        });
         const newTrainer = {
-          id: Date.now().toString(),
+          id: trainerId,
           status: 'active',
           commissionRate: 5,
           commissionPerSession: 20000,
@@ -126,7 +143,8 @@ export default function HRManagement({ user }: Props) {
         } as Trainer;
         try {
           await addTrainer(newTrainer);
-          setAlertMessage('Đã lưu thông tin PT thành công!');
+          await addStaff({ id: trainerId, name: newTrainer.name, email: newTrainer.email || '', phone: newTrainer.phone, role: 'trainer', branchId: newTrainer.branchId, status: 'active' });
+          setAlertMessage(`Đã tạo hồ sơ PT và lời mời OTP ${invite.inviteId}.`);
         } catch (e) {
           console.error("Error saving trainers:", e);
           setError("Lỗi lưu dữ liệu PT: " + (e as Error).message);
@@ -149,7 +167,8 @@ export default function HRManagement({ user }: Props) {
         }
       } else {
         const newBranch = {
-          id: Date.now().toString(),
+          id: `branch_${crypto.randomUUID()}`,
+          status: 'active',
           ...formData
         } as Branch;
         try {
@@ -279,14 +298,14 @@ export default function HRManagement({ user }: Props) {
           await updateTrainer({ ...trainer, status: 'inactive' });
         }
       } else if (type === 'branch') {
-        const hasReferences = students.some((item) => item.branchId === id)
-          || contracts.some((item) => item.branchId === id)
-          || staff.some((item) => item.branchId === id)
-        if (hasReferences) throw new Error('Chi nhánh đang có dữ liệu liên kết và không thể xóa cứng.')
+        const referenceCount = students.filter((item) => item.branchId === id).length
+          + contracts.filter((item) => item.branchId === id).length
+          + staff.filter((item) => item.branchId === id).length;
         await deleteBranch(id);
+        setAlertMessage(`Đã lưu trữ chi nhánh và giữ nguyên ${referenceCount} liên kết lịch sử.`);
       }
       
-      setAlertMessage(type === 'staff' ? 'Đã ngừng hoạt động nhân viên và giữ nguyên lịch sử.' : 'Đã xóa chi nhánh chưa phát sinh dữ liệu.');
+      if (type === 'staff') setAlertMessage('Đã ngừng hoạt động nhân viên và giữ nguyên lịch sử.');
     } catch (e) {
       console.error("Error deleting item:", e);
       setAlertMessage("Lỗi khi xóa: " + (e as Error).message);
@@ -300,11 +319,6 @@ export default function HRManagement({ user }: Props) {
     setShowDeleteConfirm(true);
   };
 
-  const handleRestoreRoles = async () => {
-    setAlertMessage('Khôi phục quyền trực tiếp đã bị khóa. Hãy dùng trang Vai trò & quyền để có kiểm tra claim và audit log.');
-    setTimeout(() => setAlertMessage(null), 4000);
-  };
-
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
       <div className="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -312,17 +326,11 @@ export default function HRManagement({ user }: Props) {
           <img src={LOGO_URL} alt="Aura" className="h-10 w-10 object-contain" />
           <div>
             <h1 className="text-3xl md:text-4xl font-serif font-medium text-white tracking-tight">
-              Cài đặt hệ thống
+              Nhân sự & Chi nhánh
             </h1>
-            <p className="text-zinc-400 mt-2">Quản lý nhân sự, chi nhánh và các gói tập</p>
+            <p className="text-zinc-400 mt-2">Quản lý đội ngũ, phạm vi làm việc và cấu hình vận hành PT</p>
           </div>
         </div>
-        <button
-          onClick={handleRestoreRoles}
-          className="bg-pink-500/10 text-pink-500 hover:bg-pink-500 hover:text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors border border-pink-500/20"
-        >
-          Khôi phục phân quyền
-        </button>
       </div>
 
       <div className="flex p-1 bg-zinc-900 rounded-xl border border-zinc-800 overflow-x-auto hide-scrollbar">
@@ -371,21 +379,6 @@ export default function HRManagement({ user }: Props) {
           <Calendar className="w-4 h-4" />
           Cấu hình Lịch
         </button>
-      </div>
-
-      <div className="bg-zinc-900 p-6 rounded-2xl border border-zinc-800 mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-medium text-white">Công cụ hệ thống</h2>
-            <p className="text-zinc-400 text-sm">Dọn dẹp dữ liệu thừa hoặc bị lỗi trong database</p>
-          </div>
-          <button
-            onClick={() => setShowCleanupConfirm(true)}
-            className="px-4 py-2 bg-zinc-800 text-zinc-300 rounded-xl hover:bg-zinc-700 transition-colors text-sm"
-          >
-            Dọn dẹp dữ liệu
-          </button>
-        </div>
       </div>
 
       {activeSubTab === 'packages' ? (
@@ -777,54 +770,6 @@ export default function HRManagement({ user }: Props) {
                   className="flex-1 py-3 rounded-xl font-medium text-white bg-red-500 hover:bg-red-600 transition-colors shadow-[0_0_15px_rgba(239,68,68,0.4)]"
                 >
                   Đồng ý xóa
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Confirm Cleanup Modal */}
-      <AnimatePresence>
-        {showCleanupConfirm && (
-          <div key="cleanup-confirm" className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-              onClick={() => setShowCleanupConfirm(false)}
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-md bg-zinc-900 rounded-3xl p-6 shadow-2xl border border-red-500/30 text-center"
-            >
-              <div className="w-16 h-16 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                <AlertCircle className="w-8 h-8" />
-              </div>
-              <h3 className="text-xl font-bold text-white mb-2">Xác nhận dọn dẹp</h3>
-              <p className="text-zinc-400 mb-6">
-                Aura sẽ chỉ lập báo cáo đối soát. Dữ liệu nhân viên và PT lịch sử không bị xóa trực tiếp từ trình duyệt.
-              </p>
-              <div className="flex gap-3">
-                <button 
-                  onClick={() => setShowCleanupConfirm(false)}
-                  className="flex-1 py-3 rounded-xl font-medium text-zinc-400 bg-zinc-800 hover:bg-zinc-700 transition-colors"
-                >
-                  Hủy
-                </button>
-                <button 
-                  onClick={async () => {
-                    setShowCleanupConfirm(false);
-                    const duplicateTrainerCount = trainers.length - new Set(trainers.map((item) => item.id)).size;
-                    const duplicateStaffCount = staff.length - new Set(staff.map((item) => item.id)).size;
-                    setAlertMessage(`Đối soát hoàn tất: ${duplicateTrainerCount} PT trùng, ${duplicateStaffCount} nhân viên trùng. Không có dữ liệu bị xóa.`);
-                  }}
-                  className="flex-1 py-3 rounded-xl font-medium text-white bg-red-500 hover:bg-red-600 transition-colors shadow-[0_0_15px_rgba(239,68,68,0.4)]"
-                >
-                  Chạy đối soát
                 </button>
               </div>
             </motion.div>

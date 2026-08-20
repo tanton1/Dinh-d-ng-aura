@@ -16,9 +16,11 @@ import {
 } from 'lucide-react'
 import { PageHeader } from '../../components/ui'
 import {
+  asStudentPtScheduleError,
   listMyStudentPtSchedule,
   saveMyStudentAvailability,
   type StudentPtScheduleData,
+  type StudentPtScheduleServiceError,
   type StudentPtSession,
 } from '../../services/studentPtScheduleService'
 import type { ViewId } from '../../types'
@@ -34,6 +36,33 @@ const statusLabels: Record<string, string> = {
   completed: 'Đã hoàn thành',
   cancelled: 'Đã hủy',
   canceled_by_student: 'Học viên báo nghỉ',
+  student_cancelled: 'Học viên báo nghỉ',
+  trainer_cancelled: 'PT báo nghỉ',
+  no_show: 'Vắng mặt',
+  rescheduled: 'Đã đổi lịch',
+}
+
+function issueCopy(issue: StudentPtScheduleServiceError) {
+  switch (issue.issueCode) {
+    case 'AUTH_REQUIRED':
+      return { title: 'Phiên đăng nhập đã hết hạn', description: 'Vui lòng đăng nhập lại để xem lịch PT của bạn.' }
+    case 'ACCESS_SYNC_REQUIRED':
+      return { title: 'Quyền tài khoản chưa đồng bộ', description: 'Hãy đăng xuất, đăng nhập lại. Nếu vẫn còn lỗi, quản trị viên cần đồng bộ Role Assignment và Auth claims.' }
+    case 'STUDENT_ROLE_REQUIRED':
+      return { title: 'Tài khoản không thuộc nhóm học viên', description: 'Trang này chỉ hiển thị lịch của học viên. Vui lòng liên hệ quản trị viên nếu vai trò đang bị gán sai.' }
+    case 'PROFILE_NOT_LINKED':
+      return { title: 'Chưa liên kết hồ sơ học viên', description: 'Quản trị viên cần liên kết UID đăng nhập với mã hồ sơ CRM trước khi lịch có thể hiển thị.' }
+    case 'ACCESS_DENIED':
+      return { title: 'Không có quyền xem lịch', description: 'Tài khoản đang bị khóa hoặc chưa được cấp quyền truy cập lịch học viên.' }
+    case 'REVISION_CONFLICT':
+      return { title: 'Lịch rảnh vừa được cập nhật ở nơi khác', description: 'Aura đã tải lại phiên bản mới nhất. Hãy kiểm tra và chọn lại các thay đổi cần lưu.' }
+    case 'INVALID_REQUEST':
+      return { title: 'Dữ liệu lịch chưa hợp lệ', description: issue.message }
+    case 'SYNC_UNAVAILABLE':
+      return { title: 'Dịch vụ lịch đang tạm gián đoạn', description: 'Hãy kiểm tra kết nối và thử lại sau ít phút.' }
+    default:
+      return { title: 'Chưa thể đồng bộ lịch học viên', description: issue.message }
+  }
 }
 
 function toIsoDate(date: Date) {
@@ -87,25 +116,29 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
   const [selectedDate, setSelectedDate] = useState(toIsoDate(today))
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [loadIssue, setLoadIssue] = useState<StudentPtScheduleServiceError | null>(null)
+  const [saveIssue, setSaveIssue] = useState<StudentPtScheduleServiceError | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const weekStart = useMemo(() => addDays(startOfWeek(today), weekOffset * 7), [today, weekOffset])
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart])
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError(null)
+    setLoadIssue(null)
+    setSaveIssue(null)
     try {
       if (isDemo) {
         const demo: StudentPtScheduleData = {
-          schemaVersion: 1,
+          schemaVersion: 2,
           linked: true,
+          identityLink: { status: 'linked', source: 'auth_uid', studentId: 'demo-student', crmProfileIdConfigured: false },
           student: { id: 'demo-student', name: 'An Nguyễn', branchId: 'demo-branch', sessionsPerWeek: 3, availableSlots: ['T2-18', 'T3-18', 'T4-19', 'T5-18', 'T6-19'], isScheduleConfirmed: true, availabilityRevision: 1 },
           scheduleConfig: { workingDays: DEFAULT_DAYS, workingHours: DEFAULT_HOURS },
           sessions: [
             { id: 'demo-1', date: toIsoDate(addDays(today, 1)), hour: 18, status: 'scheduled', trainerId: 'demo-trainer', trainerName: 'PT Minh', branchId: 'demo-branch', verifiedByStudent: false, scheduleEntryId: '', revision: 1, timeZone: 'Asia/Ho_Chi_Minh' },
             { id: 'demo-2', date: toIsoDate(addDays(today, 3)), hour: 19, status: 'scheduled', trainerId: 'demo-trainer', trainerName: 'PT Minh', branchId: 'demo-branch', verifiedByStudent: false, scheduleEntryId: '', revision: 1, timeZone: 'Asia/Ho_Chi_Minh' },
           ],
+          sessionsTruncated: false,
           contracts: [{ id: 'demo-contract', packageName: 'PT Personal 24 buổi', status: 'active', startDate: toIsoDate(addDays(today, -30)), endDate: toIsoDate(addDays(today, 90)), totalSessions: 24, usedSessions: 8 }],
         }
         setData(demo)
@@ -116,7 +149,7 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
       setData(response)
       setSelectedSlots(new Set(response.student?.availableSlots ?? []))
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Chưa thể đồng bộ lịch học viên.')
+      setLoadIssue(asStudentPtScheduleError(caught))
     } finally {
       setLoading(false)
     }
@@ -161,6 +194,7 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
   const toggleSlot = (slotId: string) => {
     if (saving) return
     setMessage(null)
+    setSaveIssue(null)
     setSelectedSlots((current) => {
       const next = new Set(current)
       if (next.has(slotId)) next.delete(slotId)
@@ -172,7 +206,7 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
   const save = async () => {
     if (!data?.student || !dirty || saving) return
     setSaving(true)
-    setError(null)
+    setSaveIssue(null)
     setMessage(null)
     try {
       if (isDemo) {
@@ -184,7 +218,9 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
       }
       setMessage('Đã lưu lịch rảnh. Bộ phận vận hành sẽ rà soát các ca cần xếp lại.')
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Không thể lưu lịch rảnh.')
+      const issue = asStudentPtScheduleError(caught)
+      if (issue.issueCode === 'REVISION_CONFLICT') await load()
+      setSaveIssue(issue)
     } finally {
       setSaving(false)
     }
@@ -200,16 +236,21 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
     setWeekOffset(Math.floor((fromIsoDate(session.date).getTime() - startOfWeek(today).getTime()) / (7 * 86_400_000)))
     setSelectedDate(session.date)
   }
+  const loadIssueContent = loadIssue ? issueCopy(loadIssue) : null
+  const saveIssueContent = saveIssue ? issueCopy(saveIssue) : null
+  const missingProfileDescription = data?.identityLink?.crmProfileIdConfigured
+    ? 'Mã hồ sơ CRM đã được cấu hình nhưng không còn khớp dữ liệu học viên. Quản trị viên cần kiểm tra lại liên kết.'
+    : 'Tài khoản này chưa được ghép với hồ sơ PT đã chuyển dữ liệu. Quản trị viên cần bổ sung crmProfileId cho Role Assignment.'
 
   return (
     <div className="page schedule-page pt-schedule-page student-schedule-page student-schedule-page--classic" aria-busy={loading}>
       <PageHeader eyebrow="AURA FITNESS · LỊCH HỌC VIÊN" title="Lịch tập luyện" description="Xem lịch tuần, các buổi PT sắp tới và cập nhật khung giờ bạn có thể tập." />
 
       {loading && <div className="student-schedule-state" role="status"><LoaderCircle className="spin" size={30} /><strong>Đang liên kết lịch học viên</strong><span>Aura đang tải lịch tuần và khung giờ rảnh của bạn.</span></div>}
-      {!loading && error && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={28} /><strong>Chưa thể đồng bộ lịch học viên</strong><span>{error}</span><button type="button" onClick={() => void load()}><RefreshCw size={16} /> Thử lại</button></div>}
-      {!loading && !error && data && !data.linked && <div className="student-schedule-state is-warning"><Link2 size={28} /><strong>Chưa liên kết hồ sơ học viên</strong><span>Tài khoản này chưa được ghép với hồ sơ PT đã chuyển dữ liệu. Vui lòng liên hệ quản trị viên.</span></div>}
+      {!loading && loadIssue && loadIssueContent && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={28} /><strong>{loadIssueContent.title}</strong><span>{loadIssueContent.description}</span><button type="button" onClick={() => void load()}><RefreshCw size={16} /> {loadIssue.retryable ? 'Thử lại' : 'Kiểm tra lại'}</button></div>}
+      {!loading && !loadIssue && data && !data.linked && <div className="student-schedule-state is-warning"><Link2 size={28} /><strong>Chưa liên kết hồ sơ học viên</strong><span>{missingProfileDescription}</span></div>}
 
-      {!loading && !error && data?.student && <>
+      {!loading && !loadIssue && data?.student && <>
         <div className="pt-schedule-banner"><div><i><CalendarCheck size={20} /></i><span><strong>Kế hoạch tuần của bạn</strong><small>{weekSessions.length} buổi · Hoàn thành {weekCompletion}%</small></span></div><small>Lịch được đồng bộ từ bộ phận vận hành và đối chiếu với thời gian rảnh của bạn.</small></div>
 
         <section className="schedule-layout">
@@ -247,6 +288,8 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
 
         {activeContract && <section className="student-contract-strip"><div><small>GÓI TẬP ĐANG LIÊN KẾT</small><strong>{activeContract.packageName}</strong></div><div><span>{activeContract.usedSessions}/{activeContract.totalSessions} buổi</span><div><i style={{ width: `${Math.min(100, activeContract.totalSessions ? activeContract.usedSessions / activeContract.totalSessions * 100 : 0)}%` }} /></div></div></section>}
         {message && <div className="student-schedule-message" role="status"><Check size={17} /> {message}</div>}
+        {data.sessionsTruncated && <div className="student-schedule-state is-warning" role="status"><AlertCircle size={24} /><strong>Khoảng lịch có quá nhiều buổi tập</strong><span>Aura đang hiển thị 1.000 buổi đầu tiên. Hãy chuyển sang khoảng thời gian ngắn hơn để xem đầy đủ.</span></div>}
+        {saveIssue && saveIssueContent && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={24} /><strong>{saveIssueContent.title}</strong><span>{saveIssueContent.description}</span>{saveIssue.retryable && <button type="button" onClick={() => void load()}><RefreshCw size={16} /> Tải lịch mới nhất</button>}</div>}
 
         <section className="student-availability-card">
           <header><div><small>MA TRẬN THỜI GIAN RẢNH</small><h2>Chọn giờ bạn có thể tập hằng tuần</h2><p>Ma trận được giữ lại và liên kết trực tiếp với lịch tập phía trên.</p></div><span>{selectedSlots.size} ô đã chọn</span></header>

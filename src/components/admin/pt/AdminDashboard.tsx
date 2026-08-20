@@ -21,7 +21,7 @@ interface Props {
 }
 
 export default function AdminDashboard({ user, profile, activeTab, onNavigate }: Props) {
-  const { contracts, migrateData, isMigrating, isMigrated } = useDatabase();
+  const { contracts } = useDatabase();
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 

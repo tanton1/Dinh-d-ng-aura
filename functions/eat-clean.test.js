@@ -10,6 +10,8 @@ const {
     DEFAULT_CONFIG,
     ALLERGEN_IDS,
     ACTIVE_DELIVERY_STATUSES,
+    ORDER_CANCELLATION_POLICY,
+    LIVE_LOCATION_RETENTION_MS,
     normalizeEatCleanConfig,
     normalizeDistancePricing,
     normalizeSavedAddress,
@@ -28,6 +30,7 @@ const {
     normalizeDeliveryCursor,
     buildActiveDeliveriesQuery,
     nextDeliveryCursor,
+    liveLocationHealth,
     bestEffortRealtimeWrite,
     canonicalOrderRequestHash,
     quoteSnapshotHash,
@@ -37,6 +40,10 @@ const {
     hasAllergenConflict,
     recommendationScore,
     canTransitionOrder,
+    cancellationPolicyFor,
+    canCustomerCancelOrder,
+    refundJobForOrder,
+    orderStatusTimestampField,
     canTransitionDelivery,
     deliveryOtpFor,
     otpHash,
@@ -506,10 +513,92 @@ test('order status machine includes ready and applies inventory once', () => {
   assert.equal(canTransitionOrder('preparing', 'ready'), true)
   assert.equal(canTransitionOrder('ready', 'out_for_delivery'), true)
   assert.equal(canTransitionOrder('out_for_delivery', 'delivered'), true)
+  assert.equal(canTransitionOrder('out_for_delivery', 'cancelled'), false)
+  assert.equal(canTransitionDelivery('picked_up', 'cancelled'), false)
   assert.equal(canTransitionOrder('delivered', 'cancelled'), false)
   assert.equal(orderInventoryEffect('out_for_delivery', 'delivered'), 'sell')
   assert.equal(orderInventoryEffect('ready', 'cancelled'), 'release')
   assert.equal(orderInventoryEffect('delivered', 'delivered'), 'none')
+})
+
+test('stock reservation and idempotency marker commit in the same order transaction', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'eat-clean.js'), 'utf8')
+  const start = source.indexOf('const createEatCleanOrder = onCall')
+  const end = source.indexOf('const listMyEatCleanOrders = onCall', start)
+  const createOrderSource = source.slice(start, end)
+  assert.ok(start >= 0 && end > start)
+  assert.match(createOrderSource, /db\.runTransaction/)
+  assert.match(createOrderSource, /transaction\.get\(markerReference\)/)
+  assert.match(createOrderSource, /transaction\.set\(inventoryReference/)
+  assert.match(createOrderSource, /transaction\.create\(orderReference/)
+  assert.match(createOrderSource, /transaction\.create\(markerReference/)
+  assert.ok(createOrderSource.indexOf('transaction.get(markerReference)') < createOrderSource.indexOf('transaction.create(markerReference,'))
+})
+
+test('cancellation policy separates customer, kitchen and in-transit incidents', () => {
+  assert.equal(cancellationPolicyFor('pending_confirmation', 'customer').refundMode, 'full')
+  assert.equal(cancellationPolicyFor('confirmed', 'customer').kitchenWasteReview, false)
+  assert.equal(cancellationPolicyFor('preparing', 'admin').kitchenWasteReview, true)
+  assert.throws(
+    () => cancellationPolicyFor('preparing', 'customer'),
+    (error) => error instanceof HttpsError && error.code === 'failed-precondition',
+  )
+  assert.throws(
+    () => cancellationPolicyFor('out_for_delivery', 'admin'),
+    (error) => error instanceof HttpsError && error.code === 'failed-precondition',
+  )
+  const config = normalizeEatCleanConfig({ cancellationCutoffHours: 4 })
+  const order = { status: 'confirmed', serviceDate: '2026-08-22', deliverySlot: { start: '12:00' } }
+  assert.equal(canCustomerCancelOrder(order, config, new Date('2026-08-22T00:59:00.000Z')), true)
+  assert.equal(canCustomerCancelOrder(order, config, new Date('2026-08-22T01:00:00.000Z')), false)
+  assert.equal(ORDER_CANCELLATION_POLICY.ready.refundMode, 'manual_review')
+})
+
+test('refund jobs fail closed without a real provider and keep manual evidence', () => {
+  const job = refundJobForOrder({
+    userId: 'user-a',
+    total: 159000,
+    currency: 'VND',
+    paymentMethod: 'wallet',
+    paymentStatus: 'paid',
+  }, {
+    orderId: 'order-a',
+    reason: 'kitchen_cancelled',
+    requestedBy: 'admin-a',
+    policy: ORDER_CANCELLATION_POLICY.preparing,
+    now: new Date('2026-08-21T04:00:00.000Z'),
+  })
+  assert.equal(job.status, 'manual_review_required')
+  assert.equal(job.manualReviewRequired, true)
+  assert.equal(job.amount, 159000)
+  assert.equal(job.refundMode, 'manual_review')
+  assert.equal(job.requestedAt.toDate().toISOString(), '2026-08-21T04:00:00.000Z')
+  assert.equal(orderStatusTimestampField('preparing'), 'preparingAt')
+  assert.equal(orderStatusTimestampField('ready'), 'readyAt')
+  const preKitchenRefund = refundJobForOrder({
+    userId: 'user-a', total: 159000, paymentMethod: 'wallet', paymentProvider: 'unbound-provider',
+  }, {
+    orderId: 'order-b', reason: 'customer_cancelled', requestedBy: 'user-a',
+    policy: ORDER_CANCELLATION_POLICY.confirmed,
+  })
+  assert.equal(preKitchenRefund.status, 'blocked_provider_not_configured')
+})
+
+test('GPS tracking expires after 24 hours and becomes stale after two minutes', () => {
+  const now = Date.parse('2026-08-21T04:00:00.000Z')
+  assert.equal(LIVE_LOCATION_RETENTION_MS, 24 * 60 * 60 * 1000)
+  assert.deepEqual(liveLocationHealth({
+    updatedAt: now - 30_000,
+    expiresAt: now + 60_000,
+  }, now), { stale: false, expired: false, ageMs: 30_000 })
+  assert.deepEqual(liveLocationHealth({
+    updatedAt: now - 3 * 60_000,
+    expiresAt: now + 60_000,
+  }, now), { stale: true, expired: false, ageMs: 180_000 })
+  assert.equal(liveLocationHealth({
+    updatedAt: now - LIVE_LOCATION_RETENTION_MS,
+    expiresAt: now,
+  }, now).expired, true)
 })
 
 test('consumption accepts ratios and percentages while scaling verified nutrition', () => {
@@ -555,6 +644,8 @@ test('module exposes the complete callable contract and keeps all writes in back
     'createEatCleanOrder',
     'listMyEatCleanOrders',
     'cancelEatCleanOrder',
+    'recordEatCleanRefundOutcome',
+    'reverseEatCleanRefundOutcome',
     'confirmEatCleanConsumption',
     'saveEatCleanMeal',
     'saveEatCleanInventory',
@@ -584,6 +675,8 @@ test('module exposes the complete callable contract and keeps all writes in back
   assert.match(source, /createGoogleAddressAdapter/)
   assert.match(source, /buildActiveDeliveriesQuery/)
   assert.match(source, /countActiveDeliveryJobs/)
+  assert.match(source, /ref\(`eatCleanLiveLocations\/\$\{item\.id\}`\)\.get\(\)/)
+  assert.doesNotMatch(source, /ref\('eatCleanLiveLocations'\)\.get\(\)/)
   assert.match(source, /bestEffortRealtimeWrite/)
   assert.match(source, /realtimeMirror/)
   assert.match(source, /realtimeTracking/)
@@ -591,6 +684,16 @@ test('module exposes the complete callable contract and keeps all writes in back
   assert.match(source, /validateQuoteRecord/)
   assert.match(source, /transaction\.update\(quoteReference/)
   assert.match(source, /const cancelEatCleanOrder[\s\S]*?db\.runTransaction/)
+  assert.match(source, /const recordEatCleanRefundOutcome[\s\S]*?db\.runTransaction/)
+  assert.match(source, /const reverseEatCleanRefundOutcome[\s\S]*?db\.runTransaction/)
+  assert.match(source, /eatCleanPaymentAdjustments/)
+  assert.match(source, /type: 'refund_reversal'/)
+  assert.match(source, /confirmedExternally/)
+  assert.match(source, /commercialSnapshot/)
+  assert.match(source, /eatCleanMealRevisions/)
+  assert.match(source, /nutritionAfter/)
+  assert.match(source, /eatCleanOperationalSignals/)
+  assert.match(source, /LIVE_LOCATION_RETENTION_MS/)
   assert.match(source, /const confirmEatCleanConsumption[\s\S]*?db\.runTransaction/)
   assert.match(source, /const initializeEatCleanCatalog[\s\S]*?createdInventory/)
   assert.match(source, /type: 'eat_clean_order'/)

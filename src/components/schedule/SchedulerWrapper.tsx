@@ -6,7 +6,6 @@ import {
   Warning,
   UserProfile,
   DAYS,
-  HOURS,
   StudentContract,
   Session,
   ScheduleEntry,
@@ -89,10 +88,6 @@ export default function SchedulerWrapper({ user, profile }: Props) {
     updateScheduleSlots,
     updateSessionOverrides,
     updateBulkSessionOverrides,
-    addSession,
-    updateContract,
-    updateSession,
-    deleteSession,
   } = useDatabase();
 
   const [debugData, setDebugData] = useState<any>(null);
@@ -111,13 +106,9 @@ export default function SchedulerWrapper({ user, profile }: Props) {
   >("upcoming");
   const [schedulingBranchId, setSchedulingBranchId] = useState<string>("");
   const [showBulkAdjustMenu, setShowBulkAdjustMenu] = useState(false);
-  const [editingSession, setEditingSession] = useState<Session | null>(null);
-  const [editFormData, setEditFormData] = useState({
-    date: "",
-    hour: 0,
-    trainerId: "",
-  });
   const [isLoaded, setIsLoaded] = useState(false);
+  const deployScheduleUnavailable =
+    "Chưa thể triển khai lịch thành buổi tập an toàn tại đây. Cần quy trình máy chủ kiểm tra hợp đồng, trùng lịch và tạo toàn bộ buổi trong một giao dịch có kiểm toán.";
 
   const isAdmin = profile?.role === "admin";
   const isTrainer = profile?.role === "trainer";
@@ -186,7 +177,7 @@ export default function SchedulerWrapper({ user, profile }: Props) {
         // Count scheduled sessions for this contract
         const scheduledSessions = sessions.filter(s => {
           if (s.studentId !== c.studentId) return false;
-          if (s.status !== 'scheduled') return false;
+          if (s.status !== 'scheduled' && s.status !== 'rescheduled') return false;
           const sDate = new Date(s.date).getTime();
           const contractStart = new Date(c.startDate).getTime();
           const contractEnd = new Date(c.endDate).getTime() + (86400000 * 60);
@@ -471,70 +462,6 @@ export default function SchedulerWrapper({ user, profile }: Props) {
     }
   };
 
-  const handleDeploySchedule = async () => {
-    if (!schedule) {
-      alert("Lịch tập chưa được tải. Vui lòng thử lại.");
-      return;
-    }
-    const targetWeekDates = getDatesForWeek(weekOffset);
-    const weekLabel =
-      weekOffset === 0
-        ? "tuần này"
-        : weekOffset === 1
-          ? "tuần sau"
-          : `tuần +${weekOffset}`;
-
-    if (
-      !confirm(
-        `Triển khai lịch tập ${weekLabel}? Hệ thống sẽ tạo các buổi tập thực tế dựa trên lịch đã xếp.`,
-      )
-    )
-      return;
-
-    const newSessions: Session[] = [];
-
-    Object.entries(schedule).forEach(([slotId, entries]) => {
-      const typedEntries = entries as ScheduleEntry[];
-      const [dayCode, hour] = slotId.split("-");
-      const dateInfo = targetWeekDates[dayCode];
-      if (!dateInfo) return;
-      const dateStr = dateInfo.full;
-
-      typedEntries.forEach((entry) => {
-        const contract = contracts.find(
-          (c) => c.studentId === entry.studentId && c.status === "active",
-        );
-        newSessions.push({
-          id: `${slotId}-${entry.studentId}-${dateStr}`,
-          trainerId: entry.trainerId,
-          studentId: entry.studentId,
-          date: dateStr,
-          hour: parseInt(hour),
-          status: "scheduled",
-          branchId:
-            contract?.branchId ||
-            trainers.find((t) => t.id === entry.trainerId)?.branchId ||
-            undefined,
-          verifiedByStudent: false,
-          scheduleEntryId: `${weekId}-${slotId}-${entry.studentId}`,
-        });
-      });
-    });
-
-    if (user) {
-      // Add new sessions using context
-      for (const session of newSessions) {
-        // Check if session already exists
-        if (!sessions.find((s) => s.id === session.id)) {
-          await addSession(session);
-        }
-      }
-      alert(
-        `Đã triển khai ${newSessions.length} buổi tập vào danh sách chấm công!`,
-      );
-    }
-  };
-
   const currentUserStudent = students.find(
     (s) =>
       s.id === user?.uid ||
@@ -562,23 +489,37 @@ export default function SchedulerWrapper({ user, profile }: Props) {
     return sessions
       .filter((s) => {
         if (s.studentId !== currentUserStudent.id) return false;
+        const status = String(s.status);
         if (studentSessionFilter === "this_week") {
           const range = getWeekRange(0);
           const d = new Date(s.date);
           return d >= range.start && d <= range.end;
         }
         if (studentSessionFilter === "upcoming")
-          return isSameDayOrAfter(s.date, now) && s.status !== "completed";
+          return isSameDayOrAfter(s.date, now) && ["scheduled", "rescheduled"].includes(status);
         if (studentSessionFilter === "history")
-          return (
-            s.status === "completed" ||
-            s.status === "cancelled" ||
-            s.status === "canceled_by_student"
-          );
+          return [
+            "completed",
+            "cancelled",
+            "canceled_by_student",
+            "student_cancelled",
+            "trainer_cancelled",
+          ].includes(status);
         return true;
       })
       .map((s) => {
-        const [day, hour] = s.id.split("-");
+        const [legacyDay, legacyHour] = s.id.split("-");
+        const sessionDateKey = s.date.slice(0, 10);
+        const localSessionDate = new Date(`${sessionDateKey}T00:00:00`);
+        const dayOfWeek = localSessionDate.getDay();
+        const day = Number.isNaN(dayOfWeek)
+          ? legacyDay
+          : dayOfWeek === 0
+            ? "CN"
+            : `T${dayOfWeek + 1}`;
+        const sessionHour = Number.isInteger(s.hour)
+          ? Number(s.hour)
+          : parseInt(legacyHour);
         const trainer = trainers.find((t) => t.id === s.trainerId);
         const activeContract = contracts.find(
           (c) => c.studentId === currentUserStudent.id && c.status === "active",
@@ -587,7 +528,7 @@ export default function SchedulerWrapper({ user, profile }: Props) {
 
         return {
           day,
-          hour: parseInt(hour),
+          hour: sessionHour,
           trainerName: trainer?.name || "Unknown",
           contractId: activeContract?.id,
           dateDisplay:
@@ -598,10 +539,9 @@ export default function SchedulerWrapper({ user, profile }: Props) {
                 })
               : "N/A",
           fullDate: s.date || "",
-          classId: `${day}-${hour}-${s.date}`,
+          legacyClassId: `${legacyDay}-${legacyHour}-${s.date}`,
           sessionId: s.id,
-          status: s.status,
-          originalSession: s,
+          status: String(s.status),
         };
       })
       .sort(
@@ -610,32 +550,6 @@ export default function SchedulerWrapper({ user, profile }: Props) {
           (new Date(a.fullDate).getTime() || 0),
       );
   }, [currentUserStudent, studentSessionFilter, trainers, contracts, sessions]);
-
-  const availableHours = useMemo(() => {
-    if (!editFormData.date || !editFormData.trainerId) return HOURS;
-    return HOURS.filter((h) => {
-      const count = sessions.filter(
-        (s) =>
-          s.trainerId === editFormData.trainerId &&
-          s.date === editFormData.date &&
-          parseInt(s.id.split("-")[1]) === h &&
-          s.status !== "cancelled" &&
-          s.status !== "canceled_by_student" &&
-          s.id !== editingSession?.id,
-      ).length;
-      return count < 2;
-    });
-  }, [editFormData.date, editFormData.trainerId, sessions, editingSession]);
-
-  useEffect(() => {
-    if (
-      editingSession &&
-      availableHours.length > 0 &&
-      !availableHours.includes(editFormData.hour)
-    ) {
-      setEditFormData((prev) => ({ ...prev, hour: availableHours[0] }));
-    }
-  }, [availableHours, editingSession]);
 
   if (!isLoaded) {
     return <div className="p-6 text-white">Đang tải dữ liệu...</div>;
@@ -726,13 +640,17 @@ export default function SchedulerWrapper({ user, profile }: Props) {
               <Calendar className="w-4 h-4" /> Xếp Lịch
             </button>
             <button
-              onClick={handleDeploySchedule}
-              className="bg-emerald-600 text-white px-4 py-2 text-sm rounded-xl font-bold hover:bg-emerald-500 transition-all flex items-center gap-2"
+              type="button"
+              disabled
+              title={deployScheduleUnavailable}
+              className="bg-zinc-800 text-zinc-500 px-4 py-2 text-sm rounded-xl font-bold flex items-center gap-2 border border-zinc-700 cursor-not-allowed"
             >
-              <CheckCircle2 className="w-4 h-4" /> Triển khai
+              <CheckCircle2 className="w-4 h-4" /> Chưa thể triển khai
             </button>
           </div>
         </div>
+
+        <p className="text-xs text-amber-400/90">{deployScheduleUnavailable}</p>
 
 
 
@@ -1134,115 +1052,10 @@ export default function SchedulerWrapper({ user, profile }: Props) {
     });
   };
 
-  const handleConfirmAttendance = async (
-    contractId: string,
-    classId: string,
-  ) => {
-    if (
-      !confirm(
-        "Xác nhận bạn đã hoàn thành buổi tập này? (Sẽ trừ 1 buổi trong gói tập)",
-      )
-    )
-      return;
-
-    const contract = contracts.find((c) => c.id === contractId);
-    if (!contract) return;
-
-    if (getCalculatedUsedSessions(contract, sessions) >= contract.totalSessions) {
-      alert("Gói tập đã hết buổi!");
-      return;
-    }
-
-    if (contract.attendedClasses?.includes(classId)) {
-      alert("Bạn đã xác nhận buổi tập này rồi!");
-      return;
-    }
-
-    const updatedContract = {
-      ...contract,
-      usedSessions: getCalculatedUsedSessions(contract, sessions) + 1,
-      status:
-        getCalculatedUsedSessions(contract, sessions) + 1 >= contract.totalSessions
-          ? "expired"
-          : "active",
-      attendedClasses: [...(contract.attendedClasses || []), classId],
-    } as StudentContract;
-
-    // Also update the session status to verified and completed
-    const sessionToUpdate = sessions.find((s) => {
-      const sessionSlotId = s.id.split("-").slice(0, 2).join("-");
-      const sessionClassId = `${sessionSlotId}-${s.date}`;
-      return (
-        s.studentId === currentUserStudent?.id && sessionClassId === classId
-      );
-    });
-
-    if (user) {
-      await updateContract(updatedContract);
-      if (sessionToUpdate) {
-        await updateSession({
-          ...sessionToUpdate,
-          verifiedByStudent: true,
-          status: "completed",
-        });
-      }
-    }
-  };
-
-  const handleCancelSession = async (sessionId: string) => {
-    if (!confirm("Bạn có chắc chắn muốn báo nghỉ buổi tập này?")) return;
-    const sessionToUpdate = sessions.find((s) => s.id === sessionId);
-    if (!sessionToUpdate) return;
-    try {
-      await updateSession({
-        ...sessionToUpdate,
-        status: "canceled_by_student",
-        verifiedByStudent: false,
-      });
-    } catch (e) {
-      alert("Lỗi khi báo nghỉ: " + (e as Error).message);
-    }
-  };
-
-  const handleEditSession = (session: Session) => {
-    const hour = parseInt(session.id.split("-")[1]) || 6;
-    setEditFormData({
-      date: session.date,
-      hour: hour,
-      trainerId: session.trainerId,
-    });
-    setEditingSession(session);
-  };
-
-  const saveEditedSession = async () => {
-    if (!user || !editingSession) return;
-
-    const dateObj = new Date(editFormData.date);
-    const dayOfWeek = dateObj.getDay();
-    const dayCode = dayOfWeek === 0 ? "CN" : `T${dayOfWeek + 1}`;
-    const newId = `${dayCode}-${editFormData.hour}-${editingSession.studentId}-${editFormData.date}`;
-
-    const updatedSession: Session = {
-      ...editingSession,
-      id: newId,
-      date: editFormData.date,
-      trainerId: editFormData.trainerId,
-      status: "scheduled",
-      verifiedByStudent: false,
-    };
-
-    try {
-      if (editingSession.id !== newId) {
-        await deleteSession(editingSession.id);
-        await addSession(updatedSession);
-      } else {
-        await updateSession(updatedSession);
-      }
-      setEditingSession(null);
-    } catch (e) {
-      alert("Lỗi khi lưu: " + (e as Error).message);
-    }
-  };
+  // The available session lifecycle callables are staff-authorized. Until a
+  // learner-scoped callable exists, do not fall back to direct Firestore writes.
+  const studentSessionActionUnavailable =
+    "Tạm thời chưa thể đổi lịch, báo nghỉ hoặc xác nhận buổi tập tại đây. Vui lòng liên hệ quản trị viên để được xử lý và giữ đầy đủ lịch sử buổi tập.";
 
   const myContracts = contracts.filter(
     (c) => c.studentId === currentUserStudent?.id,
@@ -1503,14 +1316,16 @@ export default function SchedulerWrapper({ user, profile }: Props) {
 
                   {visibleClasses.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                      <p className="col-span-full rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-300">
+                        {studentSessionActionUnavailable}
+                      </p>
                       {visibleClasses.map((cls, idx) => {
                         const activeContract = contracts.find(
                           (c) => c.id === cls.contractId,
                         );
                         const isAttended =
-                          activeContract?.attendedClasses?.includes(
-                            cls.classId,
-                          );
+                          activeContract?.attendedClasses?.includes(cls.sessionId) ||
+                          activeContract?.attendedClasses?.includes(cls.legacyClassId);
 
                         return (
                           <div
@@ -1541,12 +1356,12 @@ export default function SchedulerWrapper({ user, profile }: Props) {
                               </div>
                             </div>
 
-                            {cls.status === "cancelled" ? (
+                            {cls.status === "cancelled" || cls.status === "trainer_cancelled" ? (
                               <div className="w-full sm:w-auto bg-red-500/10 text-red-500 border border-red-500/30 px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-[0_0_10px_rgba(239,68,68,0.1)]">
                                 <XCircle className="w-4 h-4" />
                                 Đã hủy
                               </div>
-                            ) : cls.status === "canceled_by_student" ? (
+                            ) : cls.status === "canceled_by_student" || cls.status === "student_cancelled" ? (
                               <div className="w-full sm:w-auto bg-orange-500/10 text-orange-500 border border-orange-500/30 px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-[0_0_10px_rgba(249,115,22,0.1)]">
                                 <XCircle className="w-4 h-4" />
                                 Đã báo nghỉ
@@ -1559,15 +1374,10 @@ export default function SchedulerWrapper({ user, profile }: Props) {
                             ) : cls.status === "completed" ? (
                               <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                                 <button
-                                  onClick={() =>
-                                    cls.contractId &&
-                                    handleConfirmAttendance(
-                                      cls.contractId,
-                                      cls.classId,
-                                    )
-                                  }
-                                  disabled={!cls.contractId}
-                                  className="w-full sm:w-auto bg-pink-500/10 text-pink-500 border border-pink-500/30 hover:bg-pink-500 hover:text-white px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  type="button"
+                                  disabled
+                                  title={studentSessionActionUnavailable}
+                                  className="w-full sm:w-auto bg-pink-500/10 text-pink-500 border border-pink-500/30 px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 opacity-50 cursor-not-allowed"
                                 >
                                   <CheckCircle className="w-4 h-4" />
                                   Xác nhận đã tập
@@ -1576,33 +1386,28 @@ export default function SchedulerWrapper({ user, profile }: Props) {
                             ) : (
                               <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                                 <button
-                                  onClick={() =>
-                                    handleEditSession(cls.originalSession)
-                                  }
-                                  className="w-full sm:w-auto bg-blue-500/10 text-blue-500 border border-blue-500/30 hover:bg-blue-500 hover:text-white px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95"
+                                  type="button"
+                                  disabled
+                                  title={studentSessionActionUnavailable}
+                                  className="w-full sm:w-auto bg-blue-500/10 text-blue-500 border border-blue-500/30 px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 opacity-50 cursor-not-allowed"
                                 >
                                   <Edit2 className="w-4 h-4" />
                                   Đổi lịch
                                 </button>
                                 <button
-                                  onClick={() =>
-                                    handleCancelSession(cls.originalSession.id)
-                                  }
-                                  className="w-full sm:w-auto bg-orange-500/10 text-orange-500 border border-orange-500/30 hover:bg-orange-500 hover:text-white px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95"
+                                  type="button"
+                                  disabled
+                                  title={studentSessionActionUnavailable}
+                                  className="w-full sm:w-auto bg-orange-500/10 text-orange-500 border border-orange-500/30 px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 opacity-50 cursor-not-allowed"
                                 >
                                   <XCircle className="w-4 h-4" />
                                   Báo nghỉ
                                 </button>
                                 <button
-                                  onClick={() =>
-                                    cls.contractId &&
-                                    handleConfirmAttendance(
-                                      cls.contractId,
-                                      cls.classId,
-                                    )
-                                  }
-                                  disabled={!cls.contractId}
-                                  className="w-full sm:w-auto bg-pink-500/10 text-pink-500 border border-pink-500/30 hover:bg-pink-500 hover:text-white px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  type="button"
+                                  disabled
+                                  title={studentSessionActionUnavailable}
+                                  className="w-full sm:w-auto bg-pink-500/10 text-pink-500 border border-pink-500/30 px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 opacity-50 cursor-not-allowed"
                                 >
                                   <CheckCircle className="w-4 h-4" />
                                   Xác nhận đã tập
@@ -1771,76 +1576,6 @@ export default function SchedulerWrapper({ user, profile }: Props) {
           </AnimatePresence>
         </div>
       )}
-
-      {/* Edit Session Modal */}
-      {editingSession && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-zinc-900 rounded-2xl p-6 w-full max-w-md border border-zinc-800 shadow-2xl">
-            <h3 className="text-xl font-bold text-white mb-6">Đổi lịch tập</h3>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-zinc-400 mb-1">
-                  Ngày tập
-                </label>
-                <input
-                  type="date"
-                  value={editFormData.date}
-                  onChange={(e) =>
-                    setEditFormData({ ...editFormData, date: e.target.value })
-                  }
-                  className="w-full bg-zinc-950 border border-zinc-800 text-white px-4 py-2.5 rounded-xl focus:outline-none focus:border-pink-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-zinc-400 mb-1">
-                  Giờ tập (Chỉ hiển thị giờ PT trống)
-                </label>
-                <select
-                  value={editFormData.hour}
-                  onChange={(e) =>
-                    setEditFormData({
-                      ...editFormData,
-                      hour: parseInt(e.target.value),
-                    })
-                  }
-                  className="w-full bg-zinc-950 border border-zinc-800 text-white px-4 py-2.5 rounded-xl focus:outline-none focus:border-pink-500"
-                >
-                  {availableHours.length > 0 ? (
-                    availableHours.map((h) => (
-                      <option key={h} value={h}>
-                        {h}:00
-                      </option>
-                    ))
-                  ) : (
-                    <option value="" disabled>
-                      Không có giờ trống
-                    </option>
-                  )}
-                </select>
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-8">
-              <button
-                onClick={() => setEditingSession(null)}
-                className="flex-1 px-4 py-2.5 bg-zinc-800 text-white rounded-xl hover:bg-zinc-700 transition-colors font-medium"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={saveEditedSession}
-                disabled={availableHours.length === 0}
-                className="flex-1 px-4 py-2.5 bg-pink-600 text-white rounded-xl hover:bg-pink-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Lưu thay đổi
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
 
     </div>
   );

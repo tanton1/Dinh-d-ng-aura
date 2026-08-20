@@ -1,6 +1,7 @@
 import '../../styles-admin.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Archive,
   ArrowLeft,
   BookOpen,
   Check,
@@ -11,6 +12,9 @@ import {
   FileText,
   FileType,
   GripVertical,
+  GitCompare,
+  History,
+  LoaderCircle,
   Play,
   PlusCircle,
   Plus,
@@ -33,7 +37,17 @@ import {
   toAcademyLessonMemory,
   type AcademyLessonContent,
 } from '../../services/academyLearningService'
-import { loadCourseQuizAnswerKeys, uploadCourseMedia, uploadCourseCover } from '../../services/firebaseService'
+import {
+  getCourseRevisionDiff,
+  getCourseRevisionHistory,
+  loadCourseQuizAnswerKeys,
+  restoreCourseRevisionToDraft,
+  transitionCoursePublicationStatus,
+  uploadCourseMedia,
+  uploadCourseCover,
+  type CourseRevisionDiff,
+  type CourseRevisionSummary,
+} from '../../services/firebaseService'
 import { generateCourseMemory, generateCourseOutline, generateCourseQuiz } from '../../services/generativeAiService'
 import type {
   CourseDraftInput,
@@ -46,7 +60,7 @@ import type {
   ViewId,
 } from '../../types'
 
-type SaveMode = 'draft' | 'review' | 'publish'
+type SaveMode = 'draft' | 'review'
 type CourseSaveResult = { courseId: string; revision: number }
 type CourseUndoState = {
   message: string
@@ -55,7 +69,7 @@ type CourseUndoState = {
 
 interface CourseEditorPageProps {
   onNavigate: (view: ViewId) => void
-  onSave?: (course: CourseDraftInput, publish: boolean) => Promise<void | CourseSaveResult>
+  onSave?: (course: CourseDraftInput) => Promise<void | CourseSaveResult>
   onDirtyChange?: (dirty: boolean) => void
   canPublish?: boolean
   initialCourse?: CourseDraftInput
@@ -198,10 +212,23 @@ function createEditorDraft(initialCourse?: CourseDraftInput): CourseDraftInput {
 const publicationLabels = {
   draft: 'Bản nháp',
   review: 'Đang chờ duyệt',
+  approved: 'Đã duyệt',
   scheduled: 'Đã lên lịch',
   published: 'Đã xuất bản',
   archived: 'Đã lưu trữ',
 } as const
+
+function formatRevisionDiffValue(value: unknown) {
+  if (value === null || value === undefined || value === '') return '—'
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  try {
+    const serialized = JSON.stringify(value)
+    return serialized.length > 240 ? `${serialized.slice(0, 237)}...` : serialized
+  } catch {
+    return '[Dữ liệu phức hợp]'
+  }
+}
 
 export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, canPublish = false, initialCourse, saveTarget = 'firebase' }: CourseEditorPageProps) {
   const [activeStep, setActiveStep] = useState(1)
@@ -222,6 +249,35 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
   const [generatingOutline, setGeneratingOutline] = useState(false)
   const [generatingQuiz, setGeneratingQuiz] = useState(false)
   const [generatingMemory, setGeneratingMemory] = useState(false)
+  const [workflowBusy, setWorkflowBusy] = useState(false)
+  const [revisionHistory, setRevisionHistory] = useState<CourseRevisionSummary[]>([])
+  const [revisionLoading, setRevisionLoading] = useState(false)
+  const [revisionError, setRevisionError] = useState<string | null>(null)
+  const [revisionDiff, setRevisionDiff] = useState<CourseRevisionDiff | null>(null)
+  const [comparingRevision, setComparingRevision] = useState<number | null>(null)
+
+  const isContentLocked = ['approved', 'scheduled', 'published', 'archived'].includes(course.publicationStatus)
+
+  useEffect(() => {
+    if (saveTarget !== 'firebase' || !Number.isInteger(course.revision) || (course.revision ?? 0) < 1) {
+      setRevisionHistory([])
+      return
+    }
+    let active = true
+    setRevisionLoading(true)
+    setRevisionError(null)
+    void getCourseRevisionHistory(course.id)
+      .then((items) => {
+        if (active) setRevisionHistory(items)
+      })
+      .catch((error) => {
+        if (active) setRevisionError(error instanceof Error ? error.message : 'Chưa thể tải lịch sử phiên bản.')
+      })
+      .finally(() => {
+        if (active) setRevisionLoading(false)
+      })
+    return () => { active = false }
+  }, [course.id, course.revision, saveTarget])
 
   const handleGenerateOutline = async () => {
     if (!course.title) {
@@ -341,7 +397,6 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
   }
 
   const isDirty = JSON.stringify(course) !== lastSavedSnapshot.current
-  const isPublished = course.publicationStatus === 'published'
 
   useEffect(() => {
     const nextCourse = createEditorDraft(initialCourse)
@@ -848,7 +903,11 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
   }
 
   const save = async (mode: SaveMode) => {
-    if ((mode === 'review' || mode === 'publish') && !isReady) {
+    if (isContentLocked) {
+      setSaveError('Phiên bản này đã khóa nội dung. Hãy khôi phục một revision thành bản nháp mới nếu cần chỉnh sửa.')
+      return
+    }
+    if (mode === 'review' && !isReady) {
       setValidationRequested(true)
       setActiveStep(4)
       if (contentIssues.length) {
@@ -858,18 +917,11 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
       setSaveError('Hãy hoàn thiện thông tin, kết quả, yêu cầu, thiết lập hoàn thành 50–100% và ít nhất 6 bài học có tiêu đề/thời lượng cụ thể trước khi gửi duyệt hoặc xuất bản. Bạn vẫn có thể lưu bản nháp chưa hoàn thiện.')
       return
     }
-    if (mode === 'publish' && !canPublish) {
-      setSaveError('Vai trò hiện tại chỉ có thể gửi khóa học để duyệt.')
-      return
-    }
-
-    const publicationStatus = mode === 'publish'
-      ? 'published'
-      : mode === 'review'
+    const publicationStatus = mode === 'review'
+      ? 'review'
+      : course.publicationStatus === 'review'
         ? 'review'
-        : course.publicationStatus === 'review' || course.publicationStatus === 'scheduled' || course.publicationStatus === 'archived'
-          ? course.publicationStatus
-          : 'draft'
+        : 'draft'
     const nextCourse: CourseDraftInput = {
       ...course,
       schemaVersion: 2,
@@ -881,7 +933,7 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     try {
       if (saveTarget === 'firebase') {
         if (!onSave) throw new Error('Missing Firebase save handler')
-        const result = await onSave(nextCourse, mode === 'publish')
+        const result = await onSave(nextCourse)
         if (result) Object.assign(nextCourse, { revision: result.revision })
       } else {
         window.localStorage.setItem(`aura-demo-course:${nextCourse.id}`, JSON.stringify(nextCourse))
@@ -899,10 +951,69 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     }
   }
 
+  const changePublicationStatus = async (nextStatus: 'approved' | 'published' | 'archived') => {
+    if (isDirty) {
+      setSaveError('Hãy lưu hoặc bỏ các thay đổi cục bộ trước khi duyệt hay xuất bản.')
+      return
+    }
+    const expectedRevision = course.revision ?? 0
+    if (saveTarget !== 'firebase' || expectedRevision < 1) {
+      setSaveError('Khóa học cần được lưu trên Firebase trước khi đổi trạng thái.')
+      return
+    }
+    setWorkflowBusy(true)
+    setSaveError(null)
+    try {
+      const result = await transitionCoursePublicationStatus(course.id, expectedRevision, nextStatus)
+      setCourse((current) => {
+        const updated = { ...current, publicationStatus: nextStatus, revision: result.revision }
+        lastSavedSnapshot.current = JSON.stringify(updated)
+        return updated
+      })
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Chưa thể đổi trạng thái khóa học.')
+    } finally {
+      setWorkflowBusy(false)
+    }
+  }
+
+  const compareWithCurrentRevision = async (sourceRevision: number) => {
+    const currentRevision = course.revision ?? 0
+    if (sourceRevision === currentRevision || currentRevision < 1) return
+    setComparingRevision(sourceRevision)
+    setRevisionError(null)
+    try {
+      setRevisionDiff(await getCourseRevisionDiff(course.id, sourceRevision, currentRevision))
+    } catch (error) {
+      setRevisionError(error instanceof Error ? error.message : 'Chưa thể so sánh hai phiên bản.')
+    } finally {
+      setComparingRevision(null)
+    }
+  }
+
+  const restoreRevision = async (sourceRevision: number) => {
+    const expectedRevision = course.revision ?? 0
+    if (!canPublish || saveTarget !== 'firebase' || expectedRevision < 1) return
+    if (isDirty) {
+      setSaveError('Hãy xử lý thay đổi cục bộ trước khi khôi phục phiên bản.')
+      return
+    }
+    if (!window.confirm(`Khôi phục revision ${sourceRevision} thành một bản nháp mới? Phiên bản đã xuất bản sẽ không bị sửa.`)) return
+    setWorkflowBusy(true)
+    setRevisionError(null)
+    try {
+      await restoreCourseRevisionToDraft(course.id, sourceRevision, expectedRevision)
+      window.location.reload()
+    } catch (error) {
+      setRevisionError(error instanceof Error ? error.message : 'Chưa thể khôi phục phiên bản.')
+      setWorkflowBusy(false)
+    }
+  }
+
   const navigateBack = () => onNavigate('admin-courses')
 
   const saveFromHeader = () => {
-    void save(isPublished ? 'publish' : 'draft')
+    void save('draft')
   }
 
   const uploadLessonResource = async (
@@ -970,7 +1081,19 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
       <header className="editor-header">
         <button className="back-button" onClick={navigateBack}><ArrowLeft size={18} /> Khóa học</button>
         <div className="editor-title"><span className={`draft-dot ${course.publicationStatus}`} /><div><strong>{course.title || 'Khóa học mới'}</strong><small>{publicationLabels[course.publicationStatus]} · {lessonTotal} bài học</small></div></div>
-        <div className="editor-actions"><button className="outline-button editor-preview-button" aria-label="Kiểm tra khóa học trước khi xuất bản" onClick={() => { setValidationRequested(true); setActiveStep(4) }}><Play size={16} /><span>Kiểm tra</span></button><button className="primary-button" aria-label={saving ? 'Đang lưu khóa học' : 'Lưu khóa học'} onClick={saveFromHeader} disabled={saving || (isPublished && !canPublish)} title={isPublished && !canPublish ? 'Chỉ Administrator có quyền cập nhật trực tiếp khóa học đã xuất bản.' : undefined}>{(isPublished ? savedMode === 'publish' : savedMode === 'draft') ? <Check size={17} /> : <Save size={17} />}{saving ? 'Đang lưu...' : isPublished ? savedMode === 'publish' ? 'Đã cập nhật' : canPublish ? 'Lưu cập nhật' : 'Cần Admin' : savedMode === 'draft' ? saveTarget === 'firebase' ? 'Đã lưu' : 'Đã lưu' : 'Lưu bản nháp'}</button></div>
+        <div className="editor-actions">
+          <button className="outline-button editor-preview-button" aria-label="Kiểm tra khóa học trước khi xuất bản" onClick={() => { setValidationRequested(true); setActiveStep(4) }}><Play size={16} /><span>Kiểm tra</span></button>
+          <button
+            className="primary-button"
+            aria-label={saving ? 'Đang lưu khóa học' : 'Lưu khóa học'}
+            onClick={saveFromHeader}
+            disabled={saving || isContentLocked}
+            title={isContentLocked ? 'Nội dung đã khóa. Khôi phục một revision thành bản nháp mới để chỉnh sửa.' : undefined}
+          >
+            {savedMode === 'draft' ? <Check size={17} /> : <Save size={17} />}
+            {saving ? 'Đang lưu...' : isContentLocked ? 'Nội dung đã khóa' : savedMode === 'draft' ? 'Đã lưu' : 'Lưu bản nháp'}
+          </button>
+        </div>
       </header>
 
       {/* Mobile Step Switcher Bar (visible on screens <= 900px) */}
@@ -1009,6 +1132,13 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
         />
 
         <main className="curriculum-builder">
+          {isContentLocked && (
+            <div className="academy-content-lock" role="status">
+              <ShieldCheck size={19} />
+              <span><strong>Nội dung revision này đã khóa</strong><small>Phiên bản đã duyệt, xuất bản hoặc lưu trữ không được sửa trực tiếp. Có thể khôi phục một revision bên dưới thành bản nháp mới.</small></span>
+            </div>
+          )}
+          <fieldset className="course-editor-content-fieldset" disabled={isContentLocked}>
           {activeStep === 1 && (
             <section className="editor-step-panel">
               <div className="builder-heading"><div><span className="eyebrow">BƯỚC 1 / 4</span><h1>Thông tin cơ bản</h1><p>Định vị khóa học rõ ràng để học viên biết mình sẽ đạt được gì.</p></div></div>
@@ -1250,6 +1380,58 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
               </div>
             </section>
           )}
+          </fieldset>
+
+          {activeStep === 4 && (
+            <>
+              <section className="academy-workflow-card" aria-label="Quy trình xuất bản khóa học">
+                <div className="academy-workflow-heading"><div><span className="eyebrow">QUY TRÌNH SERVER</span><h2>Duyệt và xuất bản</h2><p>Mỗi bước tạo một revision bất biến và audit log riêng.</p></div><span className={`status-badge ${course.publicationStatus}`}>{publicationLabels[course.publicationStatus]}</span></div>
+                <ol className="academy-workflow-steps">
+                  {(['draft', 'review', 'approved', 'scheduled', 'published', 'archived'] as const).map((status) => (
+                    <li key={status} className={course.publicationStatus === status ? 'is-current' : ''}>
+                      <span>{publicationLabels[status]}</span>
+                      {status === 'scheduled' && <small>Chưa bật scheduler</small>}
+                    </li>
+                  ))}
+                </ol>
+                <div className="academy-workflow-actions">
+                  {course.publicationStatus === 'draft' && <button className="primary-button" type="button" disabled={saving || !isReady} onClick={() => void save('review')}><Save size={17} /> Gửi duyệt</button>}
+                  {course.publicationStatus === 'review' && canPublish && <button className="primary-button" type="button" disabled={workflowBusy || isDirty} onClick={() => void changePublicationStatus('approved')}><ShieldCheck size={17} /> Duyệt nội dung</button>}
+                  {course.publicationStatus === 'review' && !canPublish && <p className="academy-workflow-note"><Clock3 size={16} /> Đang chờ Administrator duyệt nội dung.</p>}
+                  {course.publicationStatus === 'approved' && canPublish && <button className="primary-button" type="button" disabled={workflowBusy} onClick={() => void changePublicationStatus('published')}><ShieldCheck size={17} /> Xuất bản thủ công</button>}
+                  {course.publicationStatus === 'approved' && <button className="outline-button" type="button" disabled title="Chưa có scheduler backend"><Clock3 size={16} /> Lên lịch — chưa khả dụng</button>}
+                  {course.publicationStatus === 'scheduled' && canPublish && <button className="primary-button" type="button" disabled={workflowBusy} onClick={() => void changePublicationStatus('published')}><ShieldCheck size={17} /> Xuất bản lịch cũ</button>}
+                  {course.publicationStatus === 'published' && canPublish && <button className="outline-button" type="button" disabled={workflowBusy} onClick={() => void changePublicationStatus('archived')}><Archive size={16} /> Lưu trữ khóa học</button>}
+                  {course.publicationStatus === 'archived' && <p className="academy-workflow-note"><Archive size={16} /> Khóa học đã lưu trữ. Khôi phục revision để tạo bản nháp mới.</p>}
+                  {workflowBusy && <span className="academy-workflow-loading"><LoaderCircle className="spin" size={16} /> Đang xử lý trên server...</span>}
+                </div>
+              </section>
+
+              <section className="academy-revision-card" aria-label="Lịch sử phiên bản khóa học">
+                <div className="academy-workflow-heading"><div><span className="eyebrow">REVISION HISTORY</span><h2>Lịch sử và khôi phục</h2><p>So sánh nội dung hoặc tạo bản nháp mới từ một revision cũ.</p></div><History size={23} /></div>
+                {revisionLoading ? <p className="academy-workflow-loading"><LoaderCircle className="spin" size={16} /> Đang tải lịch sử...</p> : revisionError ? <p className="builder-save-error" role="alert">{revisionError}</p> : revisionHistory.length === 0 ? <p className="academy-workflow-note">Lưu khóa học lần đầu để tạo revision.</p> : (
+                  <div className="academy-revision-list">
+                    {revisionHistory.map((revision) => (
+                      <article key={revision.id} className={revision.revision === course.revision ? 'is-current' : ''}>
+                        <div><strong>Revision {revision.revision}</strong><small>{publicationLabels[revision.status as keyof typeof publicationLabels] ?? revision.status} · {revision.createdAt ? new Date(revision.createdAt).toLocaleString('vi-VN') : 'Chưa có thời gian'}</small>{revision.restoredFromRevision && <small>Khôi phục từ revision {revision.restoredFromRevision}</small>}</div>
+                        <div>
+                          {revision.revision !== course.revision && <button className="outline-button" type="button" disabled={comparingRevision !== null} onClick={() => void compareWithCurrentRevision(revision.revision)}><GitCompare size={15} /> {comparingRevision === revision.revision ? 'Đang so sánh...' : 'So với hiện tại'}</button>}
+                          {canPublish && (revision.revision !== course.revision || isContentLocked) && <button className="outline-button" type="button" disabled={workflowBusy} onClick={() => void restoreRevision(revision.revision)}><Undo2 size={15} /> Tạo bản nháp</button>}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+                {revisionDiff && (
+                  <div className="academy-revision-diff">
+                    <div><h3>Revision {revisionDiff.fromRevision} → {revisionDiff.toRevision}</h3><button type="button" onClick={() => setRevisionDiff(null)} aria-label="Đóng so sánh"><X size={16} /></button></div>
+                    <p>{revisionDiff.summary.changedFields} thay đổi · {revisionDiff.summary.lessonsBefore} → {revisionDiff.summary.lessonsAfter} bài học{revisionDiff.summary.truncated ? ' · Danh sách đã rút gọn' : ''}</p>
+                    {revisionDiff.changes.length === 0 ? <small>Hai phiên bản không khác nội dung công khai.</small> : <ul>{revisionDiff.changes.map((change) => <li key={change.path}><strong>{change.label}</strong><span><del>{formatRevisionDiffValue(change.before)}</del><ins>{formatRevisionDiffValue(change.after)}</ins></span></li>)}</ul>}
+                  </div>
+                )}
+              </section>
+            </>
+          )}
 
           {saveError && <div className="builder-save-error" role="alert">{saveError}</div>}
           {undoState && <div className="course-undo-toast" role="status"><span>{undoState.message}</span><button type="button" onClick={restoreUndo}><Undo2 size={15} /> Hoàn tác</button></div>}
@@ -1258,10 +1440,12 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
             <div>
               {activeStep > 1 && <button className="outline-button editor-nav-back" onClick={() => setActiveStep((step) => step - 1)}>Quay lại</button>}
               {activeStep < 4 && <button className="outline-button editor-review-action" onClick={() => { setValidationRequested(true); setActiveStep(4) }}><Play size={15} /> Kiểm tra</button>}
-              {!isPublished && <button className="outline-button editor-draft-action" onClick={() => void save('draft')} disabled={saving}><Save size={15} /> Lưu nháp</button>}
+              {!isContentLocked && <button className="outline-button editor-draft-action" onClick={() => void save('draft')} disabled={saving}><Save size={15} /> {course.publicationStatus === 'review' ? 'Lưu bản chờ duyệt' : 'Lưu nháp'}</button>}
               {activeStep < 4
                 ? <button className="primary-button editor-nav-next" onClick={() => setActiveStep((step) => step + 1)}>Tiếp tục <ChevronRight size={17} /></button>
-                : <button className="primary-button editor-publish-action" onClick={() => void save(isPublished ? 'publish' : canPublish ? 'publish' : 'review')} disabled={saving || !isReady || (isPublished && !canPublish)}>{isPublished && !canPublish ? <><ShieldCheck size={17} /> Cần Admin cập nhật</> : canPublish ? <><ShieldCheck size={17} /> {isPublished ? 'Cập nhật khóa học' : 'Xuất bản khóa học'}</> : <><Save size={17} /> Gửi duyệt</>}</button>}
+                : !isContentLocked && course.publicationStatus === 'draft'
+                  ? <button className="primary-button editor-publish-action" onClick={() => void save('review')} disabled={saving || !isReady}><Save size={17} /> Gửi duyệt</button>
+                  : <button className="primary-button editor-publish-action" onClick={() => document.querySelector<HTMLElement>('.academy-workflow-card')?.scrollIntoView({ behavior: 'smooth' })}><ShieldCheck size={17} /> Xem quy trình</button>}
             </div>
           </div>
         </main>

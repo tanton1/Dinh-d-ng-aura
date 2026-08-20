@@ -472,7 +472,7 @@ export interface WorkoutProgramWeekDraft {
   sessionsByDay: Record<number, WorkoutProgramSessionDraft>
 }
 
-export type PublicationStatus = 'draft' | 'review' | 'scheduled' | 'published' | 'archived'
+export type PublicationStatus = 'draft' | 'review' | 'approved' | 'scheduled' | 'published' | 'archived'
 export type CourseLessonType = 'Video' | 'Bài đọc' | 'Quiz' | 'Buổi tập'
 
 export type LessonResourceKind = 'slide' | 'video' | 'document'

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import { collection, doc, setDoc, deleteDoc, writeBatch, getDoc, runTransaction, updateDoc, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore'
+import { collection, doc, setDoc, deleteDoc, runTransaction, updateDoc, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore'
 import { db, auth } from '../lib/firebase'
 import type {
   Student,
@@ -19,7 +19,7 @@ import type {
   WorkoutLog,
   SessionRequest,
 } from '../types/ptOperations'
-import { getIdTokenResult, onAuthStateChanged } from 'firebase/auth'
+import { getIdTokenResult, onIdTokenChanged } from 'firebase/auth'
 
 type OperationsSyncStatus = 'idle' | 'loading' | 'ready' | 'forbidden' | 'error'
 
@@ -34,6 +34,37 @@ const DEFAULT_SCHEDULE_CONFIG: ScheduleConfig = {
   workingHours: [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20],
   lockDayOfWeek: 6,
   lockHour: 12,
+}
+
+type LegacyOperationSource =
+  | 'students' | 'contracts' | 'sessions' | 'payments'
+  | 'leaveRequests' | 'workoutLogs' | 'sessionRequests'
+  | 'scheduleConfig' | 'trainers' | 'branches' | 'packages'
+  | 'staff' | 'dailyCheckins' | 'schedules'
+
+// Transitional legacy views must not all subscribe to the same 15 data
+// sources. Keep each surface on the smallest set its current components use;
+// actor-scoped paginated APIs will replace these remaining listeners.
+const LEGACY_OPERATIONS_VIEW_SOURCES = {
+  'admin-pt-students': ['students', 'contracts', 'payments', 'packages', 'trainers', 'branches', 'sessions', 'leaveRequests', 'sessionRequests', 'dailyCheckins', 'workoutLogs'],
+  'admin-pt-schedule': ['students', 'trainers', 'branches', 'contracts', 'sessions', 'schedules', 'scheduleConfig'],
+  'admin-report': ['sessions', 'trainers', 'contracts', 'students', 'payments', 'branches'],
+  'admin-finance': ['branches', 'contracts', 'students', 'payments'],
+  'admin-hr': ['trainers', 'branches', 'staff', 'scheduleConfig', 'contracts', 'students', 'sessions', 'packages'],
+  'admin-payroll': ['trainers', 'sessions', 'students', 'branches', 'contracts', 'scheduleConfig', 'schedules'],
+  'admin-packages': ['packages', 'branches'],
+  'admin-quotes': ['students', 'contracts', 'packages', 'branches'],
+  'admin-schedule-settings': ['scheduleConfig'],
+} as const satisfies Record<string, readonly LegacyOperationSource[]>
+
+type LegacyOperationsView = keyof typeof LEGACY_OPERATIONS_VIEW_SOURCES
+
+function currentLegacyOperationsView(): LegacyOperationsView | null {
+  if (typeof window === 'undefined') return null
+  const view = window.location.hash.replace(/^#\/?/, '').split('?')[0]
+  return Object.prototype.hasOwnProperty.call(LEGACY_OPERATIONS_VIEW_SOURCES, view)
+    ? view as LegacyOperationsView
+    : null
 }
 
 interface DatabaseContextType {
@@ -138,9 +169,10 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   const [sessionRequests, setSessionRequests] = useState<SessionRequest[]>([])
   const [schedules, setSchedules] = useState<{ [weekId: string]: { schedule: Schedule, warnings: Warning[], overriddenSessions?: Record<string, number> } }>({})
   const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig>(DEFAULT_SCHEDULE_CONFIG)
-  const [isMigrating, setIsMigrating] = useState(false)
+  const [isMigrating] = useState(false)
   const [isMigrated, setIsMigrated] = useState(false)
   const [canUseLegacyOperations, setCanUseLegacyOperations] = useState(false)
+  const [operationsView, setOperationsView] = useState<LegacyOperationsView | null>(currentLegacyOperationsView)
   const [operationsSync, setOperationsSync] = useState<OperationsSyncState>({
     status: 'idle',
     lastSyncedAt: null,
@@ -168,11 +200,23 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   }
 
   useEffect(() => {
+    const updateRouteScope = () => setOperationsView(currentLegacyOperationsView())
+    window.addEventListener('hashchange', updateRouteScope)
+    window.addEventListener('popstate', updateRouteScope)
+    return () => {
+      window.removeEventListener('hashchange', updateRouteScope)
+      window.removeEventListener('popstate', updateRouteScope)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!auth) return
     let active = true
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    let authGeneration = 0
+    const unsubscribe = onIdTokenChanged(auth, async (user) => {
+      const generation = ++authGeneration
       if (!user) {
-        if (active) {
+        if (active && generation === authGeneration) {
           setCanUseLegacyOperations(false)
           clearLegacyOperationsData()
           setOperationsSync({ status: 'idle', lastSyncedAt: null, error: null })
@@ -181,19 +225,23 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       }
 
       try {
-        const token = await getIdTokenResult(user, true)
-        if (!active) return
-        const role = typeof token.claims.role === 'string' ? token.claims.role : 'student'
-        const canUse = role === 'admin' || role === 'super_admin'
+        // onIdTokenChanged already fires when claims refresh. Do not force a
+        // second refresh here: it can race a sign-out or a newer token event.
+        const token = await getIdTokenResult(user)
+        if (!active || generation !== authGeneration) return
+        const legacyRole = typeof token.claims.role === 'string' ? token.claims.role : 'student'
+        const accessRole = typeof token.claims.accessRole === 'string' ? token.claims.accessRole : ''
+        const canUse = accessRole === 'admin' || accessRole === 'super_admin'
+          || legacyRole === 'admin' || legacyRole === 'super_admin'
         setCanUseLegacyOperations(canUse)
         if (!canUse) clearLegacyOperationsData()
         setOperationsSync({
-          status: canUse ? 'loading' : 'forbidden',
+          status: canUse && operationsView ? 'loading' : canUse ? 'idle' : 'forbidden',
           lastSyncedAt: null,
           error: canUse ? null : 'Tài khoản này không có quyền truy cập dữ liệu vận hành.',
         })
       } catch (error) {
-        if (!active) return
+        if (!active || generation !== authGeneration) return
         setCanUseLegacyOperations(false)
         clearLegacyOperationsData()
         setOperationsSync({
@@ -207,20 +255,27 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       active = false
       unsubscribe()
     }
-  }, [])
+  }, [operationsView])
 
   useEffect(() => {
-    if (!canUseLegacyOperations || !db) return
+    if (!canUseLegacyOperations || !operationsView || !db) {
+      if (!operationsView) {
+        clearLegacyOperationsData()
+        if (canUseLegacyOperations) setOperationsSync({ status: 'idle', lastSyncedAt: null, error: null })
+      }
+      return
+    }
+
+    // A route change must never leave stale data from a broader legacy view in
+    // memory while the new, narrower subscriptions are loading.
+    clearLegacyOperationsData()
+    setOperationsSync({ status: 'loading', lastSyncedAt: null, error: null })
     
     const unsubs: (() => void)[] = []
-    const expectedInitialSnapshots = new Set([
-      'students', 'contracts', 'sessions', 'payments', 'leaveRequests',
-      'workoutLogs', 'sessionRequests', 'scheduleConfig', 'trainers',
-      'branches', 'packages', 'staff', 'dailyCheckins', 'schedules',
-      'globalSchedule',
-    ])
-    const receivedInitialSnapshots = new Set<string>()
-    const markReady = (source: string) => {
+    const activeSources = new Set<LegacyOperationSource>(LEGACY_OPERATIONS_VIEW_SOURCES[operationsView])
+    const expectedInitialSnapshots = new Set<LegacyOperationSource>(activeSources)
+    const receivedInitialSnapshots = new Set<LegacyOperationSource>()
+    const markReady = (source: LegacyOperationSource) => {
       receivedInitialSnapshots.add(source)
       if (receivedInitialSnapshots.size === expectedInitialSnapshots.size) {
         setOperationsSync({ status: 'ready', lastSyncedAt: new Date().toISOString(), error: null })
@@ -243,12 +298,12 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     }) as T
 
     try {
-      unsubs.push(onSnapshot(collection(db, 'students'), (snapshot) => {
+      if (activeSources.has('students')) unsubs.push(onSnapshot(collection(db, 'students'), (snapshot) => {
         setStudents(snapshot.docs.map(document => withDocumentId<Student>(document)))
         markReady('students')
       }, (err) => listenerError('students', err)))
 
-      unsubs.push(onSnapshot(collection(db, 'contracts'), (snapshot) => {
+      if (activeSources.has('contracts')) unsubs.push(onSnapshot(collection(db, 'contracts'), (snapshot) => {
         setContracts(snapshot.docs.map(document => withDocumentId<StudentContract>(document)))
         markReady('contracts')
       }, (err) => listenerError('contracts', err)))
@@ -264,7 +319,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
         orderBy('date', 'asc'),
         limit(3000),
       )
-      unsubs.push(onSnapshot(sessionsQuery, (snapshot) => {
+      if (activeSources.has('sessions')) unsubs.push(onSnapshot(sessionsQuery, (snapshot) => {
         const parsedSessions = snapshot.docs.map(document => {
           const data = withDocumentId<Session>(document)
           if (data.hour === undefined && data.id) {
@@ -282,27 +337,27 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
         markReady('sessions')
       }, (err) => listenerError('sessions', err)))
 
-      unsubs.push(onSnapshot(collection(db, 'payments'), (snapshot) => {
+      if (activeSources.has('payments')) unsubs.push(onSnapshot(collection(db, 'payments'), (snapshot) => {
         setPayments(snapshot.docs.map(document => withDocumentId<PaymentRecord>(document)))
         markReady('payments')
       }, (err) => listenerError('payments', err)))
 
-      unsubs.push(onSnapshot(collection(db, 'leaveRequests'), (snapshot) => {
+      if (activeSources.has('leaveRequests')) unsubs.push(onSnapshot(collection(db, 'leaveRequests'), (snapshot) => {
         setLeaveRequests(snapshot.docs.map(document => withDocumentId<LeaveRequest>(document)))
         markReady('leaveRequests')
       }, (err) => listenerError('leaveRequests', err)))
 
-      unsubs.push(onSnapshot(collection(db, 'workoutLogs'), (snapshot) => {
+      if (activeSources.has('workoutLogs')) unsubs.push(onSnapshot(collection(db, 'workoutLogs'), (snapshot) => {
         setWorkoutLogs(snapshot.docs.map(document => withDocumentId<WorkoutLog>(document)))
         markReady('workoutLogs')
       }, (err) => listenerError('workoutLogs', err)))
 
-      unsubs.push(onSnapshot(collection(db, 'sessionRequests'), (snapshot) => {
+      if (activeSources.has('sessionRequests')) unsubs.push(onSnapshot(collection(db, 'sessionRequests'), (snapshot) => {
         setSessionRequests(snapshot.docs.map(document => withDocumentId<SessionRequest>(document)))
         markReady('sessionRequests')
       }, (err) => listenerError('sessionRequests', err)))
 
-      unsubs.push(onSnapshot(doc(db, 'settings', 'scheduleConfig'), (docSnap) => {
+      if (activeSources.has('scheduleConfig')) unsubs.push(onSnapshot(doc(db, 'settings', 'scheduleConfig'), (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data() as Partial<ScheduleConfig>
           setScheduleConfig(prev => ({
@@ -313,32 +368,32 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
         markReady('scheduleConfig')
       }, (err) => listenerError('scheduleConfig', err)))
 
-      unsubs.push(onSnapshot(collection(db, 'trainers'), (snapshot) => {
+      if (activeSources.has('trainers')) unsubs.push(onSnapshot(collection(db, 'trainers'), (snapshot) => {
         setTrainers(snapshot.docs.map(document => withDocumentId<Trainer>(document)))
         markReady('trainers')
       }, (err) => listenerError('trainers', err)))
 
-      unsubs.push(onSnapshot(collection(db, 'branches'), (snapshot) => {
+      if (activeSources.has('branches')) unsubs.push(onSnapshot(collection(db, 'branches'), (snapshot) => {
         setBranches(snapshot.docs.map(document => withDocumentId<Branch>(document)))
         markReady('branches')
       }, (err) => listenerError('branches', err)))
 
-      unsubs.push(onSnapshot(collection(db, 'packages'), (snapshot) => {
+      if (activeSources.has('packages')) unsubs.push(onSnapshot(collection(db, 'packages'), (snapshot) => {
         setPackages(snapshot.docs.map(document => withDocumentId<TrainingPackage>(document)))
         markReady('packages')
       }, (err) => listenerError('packages', err)))
 
-      unsubs.push(onSnapshot(collection(db, 'staff'), (snapshot) => {
+      if (activeSources.has('staff')) unsubs.push(onSnapshot(collection(db, 'staff'), (snapshot) => {
         setStaff(snapshot.docs.map(document => withDocumentId<StaffMember>(document)))
         markReady('staff')
       }, (err) => listenerError('staff', err)))
 
-      unsubs.push(onSnapshot(collection(db, 'dailyCheckins'), (snapshot) => {
+      if (activeSources.has('dailyCheckins')) unsubs.push(onSnapshot(collection(db, 'dailyCheckins'), (snapshot) => {
         setDailyCheckins(snapshot.docs.map(document => withDocumentId<DailyCheckin>(document)))
         markReady('dailyCheckins')
       }, (err) => listenerError('dailyCheckins', err)))
 
-      unsubs.push(onSnapshot(collection(db, 'schedules'), (snapshot) => {
+      if (activeSources.has('schedules')) unsubs.push(onSnapshot(collection(db, 'schedules'), (snapshot) => {
         const newSchedules: { [weekId: string]: { schedule: Schedule, warnings: Warning[], overriddenSessions?: Record<string, number> } } = {}
         snapshot.docs.forEach(docSnap => {
           if (docSnap.id === 'global_schedule') return
@@ -353,56 +408,15 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
         markReady('schedules')
       }, (err) => listenerError('schedules', err)))
 
-      unsubs.push(onSnapshot(doc(db, 'schedules', 'global_schedule'), (docSnap) => {
-        if (docSnap.exists()) {
-          setIsMigrated(!!docSnap.data().migrated)
-        }
-        markReady('globalSchedule')
-      }, (err) => listenerError('global schedule', err)))
     } catch (e) {
       console.warn('Failed to set up Firestore listeners', e)
     }
 
     return () => unsubs.forEach(unsub => unsub())
-  }, [canUseLegacyOperations])
+  }, [canUseLegacyOperations, operationsView])
 
   const migrateData = async () => {
-    if (!canUseLegacyOperations || !db) return
-    setIsMigrating(true)
-    try {
-      const globalDoc = await getDoc(doc(db, 'schedules', 'global_schedule'))
-      if (globalDoc.exists()) {
-        const data = globalDoc.data()
-        const batch = writeBatch(db)
-        
-        const migrateCollection = (items: any[], collectionName: string) => {
-          if (items && Array.isArray(items)) {
-            items.forEach(item => {
-              if (item.id) {
-                const docRef = doc(db!, collectionName, item.id)
-                batch.set(docRef, item)
-              }
-            })
-          }
-        }
-
-        migrateCollection(data.students, 'students')
-        migrateCollection(data.contracts, 'contracts')
-        migrateCollection(data.payments, 'payments')
-        migrateCollection(data.sessions, 'sessions')
-        migrateCollection(data.trainers, 'trainers')
-        migrateCollection(data.branches, 'branches')
-        migrateCollection(data.packages, 'packages')
-        migrateCollection(data.staff, 'staff')
-
-        await batch.commit()
-        await setDoc(doc(db, 'schedules', 'global_schedule'), { migrated: true }, { merge: true })
-      }
-    } catch (error) {
-      console.error('Migration failed:', error)
-    } finally {
-      setIsMigrating(false)
-    }
+    throw new Error('Công cụ migration phía trình duyệt đã ngừng hoạt động. Hãy dùng quy trình migration có dry-run, manifest và đối soát phía server.')
   }
 
   const sanitize = (obj: any) => {
@@ -415,78 +429,102 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     return cleanObj
   }
 
+  const assertLegacyWriteAccess = () => {
+    if (!db) throw new Error('Firestore chưa sẵn sàng.')
+    if (!canUseLegacyOperations) {
+      throw new Error('Quyền quản trị dữ liệu vận hành chưa được xác minh.')
+    }
+  }
+
   const addStudent = async (student: Student) => {
+    assertLegacyWriteAccess()
     if (!db) return
     await setDoc(doc(db, 'students', student.id), sanitize(student), { merge: true })
   }
   const updateStudent = async (id: string, updates: Partial<Student>) => {
+    assertLegacyWriteAccess()
     if (!db) return
     await updateDoc(doc(db, 'students', id), sanitize(updates))
   }
   const deleteStudent = async (id: string) => {
+    assertLegacyWriteAccess()
     if (!db) return
-    await deleteDoc(doc(db, 'students', id))
+    await updateDoc(doc(db, 'students', id), { status: 'inactive' })
   }
 
   const addContract = async (contract: StudentContract) => {
+    assertLegacyWriteAccess()
     if (!db) return
     await setDoc(doc(db, 'contracts', contract.id), sanitize(contract))
   }
   const updateContract = async (contract: StudentContract) => {
+    assertLegacyWriteAccess()
     if (!db) return
     await setDoc(doc(db, 'contracts', contract.id), sanitize(contract), { merge: true })
   }
   const deleteContract = async (id: string) => {
+    assertLegacyWriteAccess()
     if (!db) return
-    await deleteDoc(doc(db, 'contracts', id))
+    throw new Error(`Hợp đồng ${id} là chứng từ nghiệp vụ và không thể xóa cứng.`)
   }
 
   const addPayment = async (payment: PaymentRecord) => {
+    assertLegacyWriteAccess()
     if (!db) return
-    await setDoc(doc(db, 'payments', payment.id), sanitize(payment))
+    throw new Error(`Phiếu thu legacy ${payment.id} đang ở chế độ chỉ đọc. Hãy ghi nhận qua Sổ tài chính.`)
   }
   const deletePayment = async (id: string) => {
+    assertLegacyWriteAccess()
     if (!db) return
-    await deleteDoc(doc(db, 'payments', id))
+    throw new Error(`Phiếu thu legacy ${id} không thể xóa. Hãy tạo bút toán đảo.`)
   }
 
   const addSession = async (session: Session) => {
+    assertLegacyWriteAccess()
     if (!db) return
     await setDoc(doc(db, 'sessions', session.id), sanitize(session))
   }
   const updateSession = async (session: Session) => {
+    assertLegacyWriteAccess()
     if (!db) return
     await setDoc(doc(db, 'sessions', session.id), sanitize(session), { merge: true })
   }
   const deleteSession = async (id: string) => {
+    assertLegacyWriteAccess()
     if (!db) return
-    await deleteDoc(doc(db, 'sessions', id))
+    throw new Error(`Buổi tập ${id} không thể xóa cứng. Hãy dùng quy trình hủy hoặc điều chỉnh.`)
   }
 
   const addTrainer = async (trainer: Trainer) => {
+    assertLegacyWriteAccess()
     if (!db) return
     await setDoc(doc(db, 'trainers', trainer.id), sanitize(trainer))
   }
   const updateTrainer = async (trainer: Trainer) => {
+    assertLegacyWriteAccess()
     if (!db) return
     await setDoc(doc(db, 'trainers', trainer.id), sanitize(trainer), { merge: true })
   }
   const deleteTrainer = async (id: string) => {
+    assertLegacyWriteAccess()
     if (!db) return
-    await deleteDoc(doc(db, 'trainers', id))
+    await setDoc(doc(db, 'trainers', id), { status: 'inactive' }, { merge: true })
   }
 
   const addBranch = async (branch: Branch) => {
+    assertLegacyWriteAccess()
     if (!db) return
     await setDoc(doc(db, 'branches', branch.id), sanitize(branch))
   }
   const updateBranch = async (branch: Branch) => {
+    assertLegacyWriteAccess()
     if (!db) return
     await setDoc(doc(db, 'branches', branch.id), sanitize(branch), { merge: true })
   }
   const deleteBranch = async (id: string) => {
+    assertLegacyWriteAccess()
     if (!db) return
-    await deleteDoc(doc(db, 'branches', id))
+    await setDoc(doc(db, 'branches', id), { status: 'archived', archivedAt: new Date().toISOString() }, { merge: true })
   }
 
   const addPackage = async (pkg: TrainingPackage) => {
@@ -503,16 +541,19 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const addStaff = async (staffMember: StaffMember) => {
+    assertLegacyWriteAccess()
     if (!db) return
     await setDoc(doc(db, 'staff', staffMember.id), sanitize(staffMember))
   }
   const updateStaff = async (staffMember: StaffMember) => {
+    assertLegacyWriteAccess()
     if (!db) return
     await setDoc(doc(db, 'staff', staffMember.id), sanitize(staffMember), { merge: true })
   }
   const deleteStaff = async (id: string) => {
+    assertLegacyWriteAccess()
     if (!db) return
-    await deleteDoc(doc(db, 'staff', id))
+    await setDoc(doc(db, 'staff', id), { status: 'inactive' }, { merge: true })
   }
 
   const addDailyCheckin = async (checkin: DailyCheckin) => {
@@ -568,59 +609,23 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const updateScheduleData = async (weekId: string, newSchedule: Schedule, newWarnings: Warning[]) => {
+    assertLegacyWriteAccess()
     if (!db) return
+    const isDeployed = sessions.some(s => s.scheduleEntryId?.startsWith(weekId))
+    if (isDeployed) {
+      throw new Error('Tuần đã triển khai session. Hãy hủy hoặc dời từng buổi bằng quy trình có audit; không thể ghi đè toàn bộ lịch.')
+    }
     await runTransaction(db, async (transaction) => {
       const docRef = doc(db!, 'schedules', weekId)
       transaction.set(docRef, {
         schedule: newSchedule,
         warnings: newWarnings
       }, { merge: true })
-
-      const isDeployed = sessions.some(s => s.scheduleEntryId?.startsWith(weekId))
-      if (isDeployed) {
-        const sessionsToDelete = sessions.filter(s => s.scheduleEntryId?.startsWith(weekId) && s.status === 'scheduled')
-        sessionsToDelete.forEach(s => {
-          transaction.delete(doc(db!, 'sessions', s.id))
-        })
-
-        const mondayStr = weekId.replace('schedule_', '')
-        const [year, month, day] = mondayStr.split('-').map(Number)
-        const dayNames = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
-
-        Object.entries(newSchedule).forEach(([slotId, entries]) => {
-          const [dayCode, hour] = slotId.split('-')
-          const dayIndex = dayNames.indexOf(dayCode)
-          if (dayIndex === -1) return
-          const targetDate = new Date(year, month - 1, day + dayIndex)
-          const dateStr = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`
-
-          entries.forEach(entry => {
-            if (entry.type === 'off') return
-            const sessionId = `${slotId}-${entry.studentId}-${dateStr}`
-            
-            const existingSession = sessions.find(s => s.id === sessionId)
-            if (existingSession && existingSession.status !== 'scheduled') return
-
-            const contract = contracts.find(c => c.studentId === entry.studentId && c.status === 'active')
-            const sessionData: Session = {
-              id: sessionId,
-              trainerId: entry.trainerId,
-              studentId: entry.studentId,
-              date: dateStr,
-              hour: parseInt(hour),
-              status: 'scheduled',
-              branchId: entry.branchId || contract?.branchId || trainers.find(t => t.id === entry.trainerId)?.branchId || undefined,
-              verifiedByStudent: false,
-              scheduleEntryId: `${weekId}-${slotId}-${entry.studentId}`
-            }
-            transaction.set(doc(db!, 'sessions', sessionId), sessionData)
-          })
-        })
-      }
     })
   }
 
   const updateScheduleSlot = async (weekId: string, slotId: string, updater: (currentEntries: ScheduleEntry[]) => ScheduleEntry[]) => {
+    assertLegacyWriteAccess()
     if (!db) return
     const docRef = doc(db, 'schedules', weekId)
     await runTransaction(db, async (transaction) => {
@@ -653,7 +658,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
             const sessionId = `${slotId}-${oldEntry.studentId}-${dateStr}`
             const existingSession = sessions.find(s => s.id === sessionId)
             if (!existingSession || existingSession.status === 'scheduled') {
-              transaction.delete(doc(db!, 'sessions', sessionId))
+              throw new Error('Buổi đã triển khai phải được hủy hoặc dời bằng quy trình session có audit.')
             }
           }
         }
@@ -687,6 +692,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const updateScheduleSlots = async (weekId: string, updater: (currentSchedule: Schedule) => { [slotId: string]: ScheduleEntry[] }) => {
+    assertLegacyWriteAccess()
     if (!db) return
     const docRef = doc(db, 'schedules', weekId)
     await runTransaction(db, async (transaction) => {
@@ -727,7 +733,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
                 const sessionId = `${slotId}-${oldEntry.studentId}-${dateStr}`
                 const existingSession = sessions.find(s => s.id === sessionId)
                 if (!existingSession || existingSession.status === 'scheduled') {
-                  transaction.delete(doc(db!, 'sessions', sessionId))
+                  throw new Error('Buổi đã triển khai phải được hủy hoặc dời bằng quy trình session có audit.')
                 }
               }
             }

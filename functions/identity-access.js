@@ -163,8 +163,8 @@ function requireCapability(context, capability) {
   }
 }
 
-function normalizeCatalogSearch(value) {
-  return boundedString(value, 'Từ khóa catalog', 80, false)
+function foldCatalogText(value) {
+  return String(value || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[đĐ]/g, 'd')
@@ -172,6 +172,10 @@ function normalizeCatalogSearch(value) {
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function normalizeCatalogSearch(value) {
+  return foldCatalogText(boundedString(value, 'Từ khóa catalog', 80, false))
 }
 
 function catalogDocumentId(value) {
@@ -235,6 +239,8 @@ function catalogDetail(snapshot) {
 }
 
 let nutritionCatalogCountCache = { value: 0, expiresAt: 0 }
+let nutritionCatalogIndexCache = { entries: [], catalogVersion: 'unavailable', expiresAt: 0 }
+let nutritionCatalogIndexRequest = null
 
 async function nutritionCatalogTotal(db) {
   if (nutritionCatalogCountCache.expiresAt > Date.now()) return nutritionCatalogCountCache.value
@@ -242,6 +248,89 @@ async function nutritionCatalogTotal(db) {
   const value = Number(aggregate.data().count || 0)
   nutritionCatalogCountCache = { value, expiresAt: Date.now() + 5 * 60 * 1000 }
   return value
+}
+
+function catalogVersionValue(value) {
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  if (value && typeof value.toDate === 'function') return value.toDate().toISOString()
+  if (value instanceof Date) return value.toISOString()
+  return ''
+}
+
+async function nutritionCatalogIndex(db) {
+  if (nutritionCatalogIndexCache.expiresAt > Date.now()) return nutritionCatalogIndexCache
+  if (nutritionCatalogIndexRequest) return nutritionCatalogIndexRequest
+
+  nutritionCatalogIndexRequest = db.collection('nutritionCatalog')
+    .select(
+      'kind', 'code', 'nameVi', 'nameEn', 'nameAscii', 'nameTokens',
+      'category', 'region', 'basis', 'energyKcal', 'macros', 'imageUrl',
+      'sourceUrl', 'sourceId', 'source', 'detailBucket', 'recipeComponents', 'catalogGeneratedAt',
+    )
+    .get()
+    .then((snapshot) => {
+      let catalogVersion = ''
+      const entries = snapshot.docs.map((document) => {
+        const value = document.data() || {}
+        const item = catalogItem(document)
+        const categoryValues = [item.category?.id, item.category?.nameVi, item.category?.nameEn]
+          .filter(Boolean)
+        const recipeSearchValues = Array.isArray(value.recipeComponents)
+          ? value.recipeComponents.slice(0, 100).flatMap((component) => {
+            if (typeof component === 'string') return [component]
+            if (!component || typeof component !== 'object') return []
+            return Object.values(component).filter((field) => typeof field === 'string')
+          })
+          : []
+        const generatedAt = catalogVersionValue(value.catalogGeneratedAt)
+        if (generatedAt > catalogVersion) catalogVersion = generatedAt
+        return {
+          id: document.id,
+          item,
+          sortKey: foldCatalogText(item.nameAscii || item.nameVi),
+          searchText: foldCatalogText([
+            item.nameVi,
+            item.nameEn,
+            item.nameAscii,
+            item.code,
+            ...categoryValues,
+            item.region?.nameVi,
+            ...recipeSearchValues,
+          ].filter(Boolean).join(' ')),
+          categoryKeys: categoryValues.map(foldCatalogText),
+        }
+      }).sort((left, right) => left.sortKey.localeCompare(right.sortKey) || left.id.localeCompare(right.id))
+
+      nutritionCatalogIndexCache = {
+        entries,
+        catalogVersion: catalogVersion || `catalog-${entries.length}`,
+        expiresAt: Date.now() + 10 * 60 * 1000,
+      }
+      return nutritionCatalogIndexCache
+    })
+    .finally(() => {
+      nutritionCatalogIndexRequest = null
+    })
+
+  return nutritionCatalogIndexRequest
+}
+
+function filterNutritionCatalogEntries(entries, { query, kind, category }) {
+  const categoryKey = foldCatalogText(category)
+  const queryTokens = foldCatalogText(query).split(' ').filter(Boolean)
+  return entries.filter((entry) => {
+    if (kind !== 'all' && entry.item.kind !== kind) return false
+    if (queryTokens.length && !queryTokens.every((token) => entry.searchText.includes(token))) return false
+    if (categoryKey && !entry.categoryKeys.includes(categoryKey)) return false
+    return true
+  })
+}
+
+function nutritionCatalogCategories(entries) {
+  return [...new Set(entries
+    .map((entry) => entry.item.category?.nameVi)
+    .filter((value) => typeof value === 'string' && value.trim()))]
+    .sort((left, right) => left.localeCompare(right, 'vi'))
 }
 
 function invitePublicData(snapshot) {
@@ -267,49 +356,65 @@ function createIdentityAccessFunctions({ db, auth, onCall }) {
     await trustedAccessContext(request, db)
     const query = normalizeCatalogSearch(request.data?.query)
     const kind = ['dish', 'food'].includes(request.data?.kind) ? request.data.kind : 'all'
+    const category = boundedString(request.data?.category, 'Nhóm catalog', 160, false)
+    const requestedCatalogVersion = boundedString(request.data?.catalogVersion, 'Phiên bản catalog', 200, false)
     const requestedLimit = Number(request.data?.limit)
-    const limit = Number.isInteger(requestedLimit) ? Math.min(180, Math.max(24, requestedLimit)) : 72
+    const limit = Number.isInteger(requestedLimit) ? Math.min(60, Math.max(12, requestedLimit)) : 60
     const cursorId = request.data?.cursor ? catalogDocumentId(request.data.cursor) : ''
     const requestedIds = Array.isArray(request.data?.ids)
-      ? [...new Set(request.data.ids.map(catalogDocumentId))].slice(0, 100)
+      ? [...new Set(request.data.ids.map(catalogDocumentId))].slice(0, 250)
       : []
-    const totalCount = await nutritionCatalogTotal(db)
+    const [catalogIndex, totalCount] = await Promise.all([
+      nutritionCatalogIndex(db),
+      nutritionCatalogTotal(db),
+    ])
+    if (cursorId && requestedCatalogVersion && requestedCatalogVersion !== catalogIndex.catalogVersion) {
+      throw new HttpsError('failed-precondition', 'Catalog đã được cập nhật. Hãy tải lại từ trang đầu.')
+    }
 
     if (requestedIds.length) {
-      const snapshots = await db.getAll(...requestedIds.map((id) => db.collection('nutritionCatalog').doc(id)))
-      const items = snapshots.filter((snapshot) => snapshot.exists).map(catalogItem)
-      return { items, hasMore: false, nextCursor: null, totalCount, restricted: true }
+      const requestedIdSet = new Set(requestedIds)
+      const selectedFacetEntries = filterNutritionCatalogEntries(
+        catalogIndex.entries.filter((entry) => requestedIdSet.has(entry.id)),
+        { query, kind, category: '' },
+      )
+      const selected = category
+        ? filterNutritionCatalogEntries(selectedFacetEntries, { query: '', kind: 'all', category })
+        : selectedFacetEntries
+      return {
+        items: selected.map((entry) => entry.item),
+        hasMore: false,
+        nextCursor: null,
+        totalCount,
+        catalogTotal: totalCount,
+        filteredCount: selected.length,
+        catalogVersion: catalogIndex.catalogVersion,
+        categories: nutritionCatalogCategories(selectedFacetEntries),
+        restricted: true,
+      }
     }
 
-    const queryToken = query.split(' ').find((token) => token.length >= 2) || ''
-    const fetchLimit = limit
-    let catalogQuery = db.collection('nutritionCatalog')
-    catalogQuery = queryToken
-      ? catalogQuery.where('nameTokens', 'array-contains', queryToken)
-      : catalogQuery.orderBy('nameAscii')
+    const facetEntries = filterNutritionCatalogEntries(catalogIndex.entries, { query, kind, category: '' })
+    const filteredEntries = category
+      ? filterNutritionCatalogEntries(facetEntries, { query: '', kind: 'all', category })
+      : facetEntries
+    let startIndex = 0
     if (cursorId) {
-      const cursorSnapshot = await db.collection('nutritionCatalog').doc(cursorId).get()
-      if (!cursorSnapshot.exists) throw new HttpsError('invalid-argument', 'Trang Catalog không còn hợp lệ. Hãy tải lại.')
-      catalogQuery = catalogQuery.startAfter(cursorSnapshot)
+      const cursorIndex = filteredEntries.findIndex((entry) => entry.id === cursorId)
+      if (cursorIndex < 0) throw new HttpsError('invalid-argument', 'Trang Catalog không còn hợp lệ. Hãy tải lại.')
+      startIndex = cursorIndex + 1
     }
-    const snapshot = await catalogQuery.limit(fetchLimit + 1).get()
-    const pageDocs = snapshot.docs.slice(0, fetchLimit)
-    const filtered = pageDocs
-      .map(catalogItem)
-      .filter((item) => kind === 'all' || item.kind === kind)
-      .filter((item) => !query || normalizeCatalogSearch([
-        item.nameVi,
-        item.nameEn,
-        item.nameAscii,
-        item.code,
-        item.category?.nameVi,
-        item.region?.nameVi,
-      ].filter(Boolean).join(' ')).includes(query))
+    const pageEntries = filteredEntries.slice(startIndex, startIndex + limit)
+    const hasMore = startIndex + pageEntries.length < filteredEntries.length
     return {
-      items: filtered,
-      hasMore: snapshot.size > fetchLimit,
-      nextCursor: pageDocs.at(-1)?.id || null,
+      items: pageEntries.map((entry) => entry.item),
+      hasMore,
+      nextCursor: hasMore ? pageEntries.at(-1)?.id || null : null,
       totalCount,
+      catalogTotal: totalCount,
+      filteredCount: filteredEntries.length,
+      catalogVersion: catalogIndex.catalogVersion,
+      categories: nutritionCatalogCategories(facetEntries),
       restricted: true,
     }
   })

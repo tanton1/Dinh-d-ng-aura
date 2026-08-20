@@ -122,6 +122,13 @@ export function EatCleanDispatchTab() {
   const distancePricingReady = snapshot?.readiness.distancePricingReady === true
   const otpReady = snapshot?.readiness.otpKeyAvailable === true
   const realtimeReady = snapshot?.readiness.realtimeDatabaseReady === true
+  const operationalSignals = snapshot?.signals ?? {
+    mapsErrorsToday: 0,
+    otpRejected: 0,
+    otpLocked: 0,
+    gpsStale: 0,
+    lateOrders: 0,
+  }
   const allCoordinates = [
     ...(snapshot?.config.kitchenCoordinate ? [snapshot.config.kitchenCoordinate] : []),
     ...(snapshot?.drivers.flatMap((driver) => driver.coordinate ? [driver.coordinate] : []) ?? []),
@@ -188,11 +195,19 @@ export function EatCleanDispatchTab() {
       </div>
 
       {!loading && snapshot && (
-        <div className="eat-clean-readiness-grid" aria-label="Tình trạng hạ tầng giao hàng">
-          <article className={distancePricingReady ? 'is-ready' : mapsReady ? 'is-warning' : 'needs-setup'}><span>{distancePricingReady ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}</span><div><strong>Google Maps</strong><small>{distancePricingReady ? 'API và tọa độ bếp sẵn sàng' : mapsReady ? 'API sẵn sàng · chưa có tọa độ bếp' : 'Thiếu GOOGLE_MAPS_API_KEY'}</small></div></article>
-          <article className={otpReady ? 'is-ready' : 'needs-setup'}><span>{otpReady ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}</span><div><strong>OTP giao hàng</strong><small>{otpReady ? 'Có thể gán và hoàn tất đơn' : 'Thiếu DELIVERY_OTP_SECRET · khóa gán shipper'}</small></div></article>
-          <article className={realtimeReady ? 'is-ready' : 'is-warning'}><span>{realtimeReady ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}</span><div><strong>GPS realtime</strong><small>{realtimeReady ? 'Theo dõi vị trí đã sẵn sàng' : 'Chưa có Realtime Database · vẫn gán đơn được'}</small></div></article>
-        </div>
+        <>
+          <div className="eat-clean-readiness-grid" aria-label="Tình trạng hạ tầng giao hàng">
+            <article className={distancePricingReady ? 'is-ready' : mapsReady ? 'is-warning' : 'needs-setup'}><span>{distancePricingReady ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}</span><div><strong>Google Maps</strong><small>{distancePricingReady ? 'API và tọa độ bếp sẵn sàng' : mapsReady ? 'API sẵn sàng · chưa có tọa độ bếp' : 'Thiếu GOOGLE_MAPS_API_KEY'}</small></div></article>
+            <article className={otpReady ? 'is-ready' : 'needs-setup'}><span>{otpReady ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}</span><div><strong>OTP giao hàng</strong><small>{otpReady ? 'Có thể gán và hoàn tất đơn' : 'Thiếu DELIVERY_OTP_SECRET · khóa gán shipper'}</small></div></article>
+            <article className={realtimeReady && !operationalSignals.gpsReadWarning ? 'is-ready' : 'is-warning'}><span>{realtimeReady && !operationalSignals.gpsReadWarning ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}</span><div><strong>GPS realtime</strong><small>{operationalSignals.gpsReadWarning ? 'Đang gián đoạn đọc GPS · kiểm tra RTDB' : realtimeReady ? 'Theo dõi vị trí đã sẵn sàng' : 'Chưa có Realtime Database · vẫn gán đơn được'}</small></div></article>
+          </div>
+          <div className="eat-clean-operations-signals" aria-label="Cảnh báo vận hành hôm nay">
+            <article className={operationalSignals.mapsErrorsToday > 0 ? 'has-alert' : ''}><span>MAPS</span><strong>{operationalSignals.mapsErrorsToday}</strong><small>Lỗi địa chỉ/tuyến hôm nay</small></article>
+            <article className={operationalSignals.otpRejected > 0 ? 'has-alert' : ''}><span>OTP</span><strong>{operationalSignals.otpRejected}</strong><small>Đơn có OTP sai · khóa {operationalSignals.otpLocked}</small></article>
+            <article className={operationalSignals.gpsStale > 0 ? 'has-alert' : ''}><span>GPS</span><strong>{operationalSignals.gpsStale}</strong><small>Chuyến mất tín hiệu &gt; 2 phút</small></article>
+            <article className={operationalSignals.lateOrders > 0 ? 'has-alert' : ''}><span>SLA</span><strong>{operationalSignals.lateOrders}</strong><small>Đơn đã qua giờ cam kết</small></article>
+          </div>
+        </>
       )}
 
       {error && <div className="eat-clean-inline-error" role="alert">{error}</div>}

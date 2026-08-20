@@ -28,6 +28,7 @@ interface CourseEditorSidebarProps {
 const publicationLabels = {
   draft: 'Bản nháp',
   review: 'Đang chờ duyệt',
+  approved: 'Đã duyệt',
   scheduled: 'Đã lên lịch',
   published: 'Đã xuất bản',
   archived: 'Đã lưu trữ',

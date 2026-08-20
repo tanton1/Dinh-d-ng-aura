@@ -15,7 +15,7 @@ interface CourseEditorValidationPanelProps {
 
 export default function CourseEditorValidationPanel({ issues, onSelect }: CourseEditorValidationPanelProps) {
   if (issues.length === 0) {
-    return <section className="course-validation-panel is-ready" role="status"><CheckCircle2 size={20} /><div><strong>Khóa học đã sẵn sàng</strong><p>Checklist bắt buộc đã hoàn tất. Bạn có thể gửi duyệt hoặc xuất bản.</p></div></section>
+    return <section className="course-validation-panel is-ready" role="status"><CheckCircle2 size={20} /><div><strong>Khóa học đã sẵn sàng</strong><p>Checklist bắt buộc đã hoàn tất. Hãy gửi duyệt để Administrator phê duyệt trước khi xuất bản.</p></div></section>
   }
 
   return (

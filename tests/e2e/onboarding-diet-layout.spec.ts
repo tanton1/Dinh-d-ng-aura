@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-test('untouched onboarding defaults are committed when the member skips setup', async ({ page }) => {
+test('untouched onboarding defaults are reflected without creating a legacy raw cache', async ({ page }) => {
   await page.goto('/#/profile')
   await page.getByRole('button', { name: /Cập nhật/i }).first().click()
   await page.getByRole('button', { name: 'Thiết lập hồ sơ' }).click()
@@ -8,13 +8,13 @@ test('untouched onboarding defaults are committed when the member skips setup', 
   await page.getByRole('button', { name: 'Để sau' }).click()
   await expect(page).toHaveURL(/#\/courses$/)
 
-  const saved = await page.evaluate(() => JSON.parse(
-    window.localStorage.getItem('aura:profile:demo-admin') ?? '{}',
-  ))
-  expect(saved.birthYear).toBe(1995)
-  expect(saved.heightCm).toBe(165)
-  expect(saved.weightKg).toBe(60)
-  expect(saved.onboardingData).toMatchObject({ birthYear: 1995, heightCm: 165, weightKg: 60 })
+  await page.getByRole('button', { name: 'Cá nhân' }).last().click()
+  await expect(page.getByText('Chiều cao').locator('..')).toContainText('165cm')
+  await expect(page.getByText('Cân nặng').locator('..')).toContainText('60.0kg')
+  await expect(page.getByText('Tuổi').locator('..')).toContainText(String(new Date().getFullYear() - 1995))
+
+  const legacyCache = await page.evaluate(() => window.localStorage.getItem('aura:profile:demo-admin'))
+  expect(legacyCache).toBeNull()
 })
 
 async function reachDietStep(page: Page) {

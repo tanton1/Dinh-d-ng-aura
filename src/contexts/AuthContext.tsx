@@ -30,6 +30,13 @@ import { unregisterFcmToken } from '../services/fcmService'
 import type { AppUser, UserProfile, UserRole } from '../types'
 import { emptyStudentAccessContext, type AccessContext } from '../identity/access'
 import { getMyAccessContext } from '../services/identityAccessService'
+import {
+  initialProfileSyncState,
+  readProfileCache,
+  resolveProfileRevision,
+  writeProfileCache,
+  type DataSyncState,
+} from '../dataSync/profileSync'
 
 declare global {
   interface Window {
@@ -46,6 +53,7 @@ type AuthContextValue = {
   accessContext: AccessContext | null
   authorizationError: string | null
   authzReady: boolean
+  profileSyncState: DataSyncState
   hasCapability: (capability: string) => boolean
   setPreviewRole: (role: UserRole) => void
   loading: boolean
@@ -60,6 +68,7 @@ type AuthContextValue = {
   sendPhoneOtp: (phoneNumber: string, isSignUp?: boolean) => Promise<{ otpCode: string; message: string }>
   verifyPhoneOtpAndSignIn: (phoneNumber: string, otpCode: string, displayName?: string) => Promise<void>
   resetPassword: (email: string) => Promise<void>
+  saveProfileChanges: (values: Partial<UserProfile>) => Promise<void>
   signOut: () => Promise<void>
 }
 
@@ -209,6 +218,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
   const [authorizationError, setAuthorizationError] = useState<string | null>(null)
   const [authzReady, setAuthzReady] = useState(!isFirebaseConfigured)
+  const [profileSyncState, setProfileSyncState] = useState<DataSyncState>(initialProfileSyncState)
 
   useEffect(() => {
     if (!firebaseAuth) return
@@ -259,6 +269,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAccessContext(null)
         setAuthorizationError(null)
         setAuthzReady(true)
+        setProfileSyncState(initialProfileSyncState)
         setLoading(false)
         return
       }
@@ -303,25 +314,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAuthzReady(true)
       }
 
-      // Load initial cached profile immediately to prevent missing fields during snapshot load or offline/quota
-      const cachedProfileRaw = typeof window !== 'undefined' ? (window.localStorage.getItem(`aura:profile:${firebaseUser.uid}`) || window.localStorage.getItem(`aura:user-profile:${firebaseUser.uid}`)) : null
-      if (cachedProfileRaw) {
-        try {
-          const parsed = JSON.parse(cachedProfileRaw)
-          setProfile({
-            ...parsed,
-            uid: firebaseUser.uid,
-            email: firebaseUser.email ?? '',
-            displayName: firebaseUser.displayName ?? 'Thành viên Aura',
-            role: effectiveRole(tokenRole, parsed.role),
-            membership: parsed.membership ?? 'free',
-          })
-        } catch {}
+      // A cache is display-only. Only a versioned envelope previously written
+      // from a confirmed Firestore snapshot is accepted here.
+      const cachedProfile = readProfileCache(firebaseUser.uid)
+      if (cachedProfile) {
+        setProfile({
+          ...cachedProfile.value,
+          uid: firebaseUser.uid,
+          email: firebaseUser.email ?? '',
+          role: effectiveRole(tokenRole, cachedProfile.value.role),
+        })
+        setProfileSyncState({
+          status: typeof navigator !== 'undefined' && !navigator.onLine ? 'offline-readonly' : 'stale-cache',
+          revision: cachedProfile.revision,
+          cachedAt: cachedProfile.cachedAt,
+        })
       }
 
       unsubscribeProfile = onSnapshot(
         doc(firestoreDb!, 'users', firebaseUser.uid),
-        async (snapshot) => {
+        { includeMetadataChanges: true },
+        (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.data() as UserProfile
             const activeNutritionProfile = data.nutritionProfile || undefined
@@ -337,12 +350,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               targetSpeedPace: data.targetSpeedPace ?? activeNutritionProfile?.targetSpeedPace,
             }
 
-            const isCompleted = Boolean(
-              mergedData.onboardingCompleted ||
-              activeNutritionProfile ||
-              (mergedData.heightCm && mergedData.weightKg) ||
-              (mergedData.goals && mergedData.goals.length > 0)
-            )
+            // Firestore is canonical. Visible nutrition defaults or an old
+            // local cache must never silently complete onboarding.
+            const isCompleted = mergedData.onboardingCompleted === true
 
             const finalProfile: UserProfile = {
               ...mergedData,
@@ -353,18 +363,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
 
             setProfile(finalProfile)
-
-            if (typeof window !== 'undefined') {
-              try {
-                window.localStorage.setItem(`aura:profile:${firebaseUser.uid}`, JSON.stringify(finalProfile))
-                window.localStorage.setItem(`aura:user-profile:${firebaseUser.uid}`, JSON.stringify(finalProfile))
-                if (activeNutritionProfile) {
-                  window.localStorage.setItem(`aura:nutrition-profile:${firebaseUser.uid}`, JSON.stringify(activeNutritionProfile))
-                }
-                if (isCompleted) {
-                  window.localStorage.setItem(`aura:onboarding-completed:${firebaseUser.uid}`, 'true')
-                }
-              } catch {}
+            const revision = resolveProfileRevision(snapshot.data())
+            const lastConfirmed = readProfileCache(firebaseUser.uid)
+            if (snapshot.metadata.hasPendingWrites) {
+              setProfileSyncState({ status: 'pending-local-change', revision, cachedAt: lastConfirmed?.cachedAt ?? null })
+            } else if (snapshot.metadata.fromCache) {
+              setProfileSyncState({
+                status: typeof navigator !== 'undefined' && !navigator.onLine ? 'offline-readonly' : 'stale-cache',
+                revision: lastConfirmed?.revision ?? revision,
+                cachedAt: lastConfirmed?.cachedAt ?? null,
+              })
+            } else if (lastConfirmed && lastConfirmed.revision > revision) {
+              setProfileSyncState({
+                status: 'conflict',
+                revision,
+                cachedAt: lastConfirmed.cachedAt,
+                message: 'Bản máy chủ cũ hơn bản đã xác nhận trước đó. Aura đã khóa chỉnh sửa để tránh ghi đè.',
+              })
+            } else {
+              const cachedAt = new Date().toISOString()
+              writeProfileCache(firebaseUser.uid, finalProfile, revision, cachedAt)
+              setProfileSyncState({ status: 'synced', revision, cachedAt })
             }
           } else {
             const nextProfile: UserProfile = {
@@ -377,43 +396,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               onboardingCompleted: false,
             }
             setProfile(nextProfile)
+            setProfileSyncState({
+              status: 'sync-failed',
+              revision: 0,
+              cachedAt: cachedProfile?.cachedAt ?? null,
+              message: 'Chưa tìm thấy hồ sơ canonical. Vui lòng hoàn tất thiết lập hoặc liên hệ quản trị viên.',
+            })
             setLoading(false)
-            try {
-              await createOrUpdateUserProfile(nextProfile)
-            } catch {
-              // Keep the signed-in experience usable while Firestore is temporarily unavailable.
-            }
             return
           }
           setLoading(false)
         },
         (err) => {
-          console.warn("Firestore user profile subscription error/quota:", err)
           reportClientIssue('firestore', err, { phase: 'profile_subscription', retryable: true })
-          setAuthorizationError((current) => current || 'Đang hiển thị dữ liệu cache ở chế độ chỉ đọc vì chưa đồng bộ được Firestore.')
-          const localOnboarding = typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${firebaseUser.uid}`) === 'true'
-          const localNutRaw = typeof window !== 'undefined' ? window.localStorage.getItem(`aura:nutrition-profile:${firebaseUser.uid}`) : null
-          let localNut = null
-          if (localNutRaw) {
-            try { localNut = JSON.parse(localNutRaw) } catch {}
-          }
-          let localProf: any = {}
-          if (typeof window !== 'undefined') {
-            try {
-              const raw = window.localStorage.getItem(`aura:profile:${firebaseUser.uid}`) || window.localStorage.getItem(`aura:user-profile:${firebaseUser.uid}`)
-              if (raw) localProf = JSON.parse(raw)
-            } catch {}
-          }
-
-          setProfile({
-            ...localProf,
-            uid: firebaseUser.uid,
-            email: firebaseUser.email ?? '',
-            displayName: firebaseUser.displayName ?? 'Thành viên Aura',
-            role: 'student',
-            membership: 'free',
-            onboardingCompleted: localOnboarding || Boolean(localNut) || Boolean(localProf.heightCm),
-            nutritionProfile: localNut || undefined,
+          const fallback = readProfileCache(firebaseUser.uid)
+          if (fallback) setProfile({ ...fallback.value, role: effectiveRole(tokenRole, fallback.value.role) })
+          setProfileSyncState({
+            status: typeof navigator !== 'undefined' && !navigator.onLine && fallback ? 'offline-readonly' : 'sync-failed',
+            revision: fallback?.revision ?? 0,
+            cachedAt: fallback?.cachedAt ?? null,
           })
           setLoading(false)
         },
@@ -434,6 +435,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     accessContext,
     authorizationError,
     authzReady,
+    profileSyncState,
     hasCapability: (capability) => accessContext?.status === 'active' && accessContext.capabilities.includes(capability),
     setPreviewRole: (role) => {
       if (!isFirebaseConfigured) setPreviewRole(role)
@@ -700,13 +702,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // background so a slow Firestore connection cannot trap them on the OTP form.
       setUser({ ...toAppUser(credential.user), displayName: resolvedDisplayName })
       setProfile(nextProfile)
+      setProfileSyncState((current) => ({ ...current, status: 'pending-local-change' }))
       setLoading(false)
-      try {
-        localStorage.setItem(`aura:profile:${credential.user.uid}`, JSON.stringify(nextProfile))
-        localStorage.setItem(`aura:user-profile:${credential.user.uid}`, JSON.stringify(nextProfile))
-      } catch {
-        // Private browsing may make storage unavailable; Firebase Auth is still valid.
-      }
 
       if (!credential.user.displayName && requestedName) {
         void updateProfile(credential.user, { displayName: requestedName })
@@ -715,11 +712,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       void createOrUpdateUserProfile(nextProfile)
-        .catch((error) => reportClientIssue('firestore', error, { phase: 'phone_profile_sync', provider: 'phone', retryable: true }))
+        .catch((error) => {
+          setProfileSyncState((current) => ({
+            ...current,
+            status: typeof navigator !== 'undefined' && !navigator.onLine ? 'offline-readonly' : 'sync-failed',
+          }))
+          reportClientIssue('firestore', error, { phase: 'phone_profile_sync', provider: 'phone', retryable: true })
+        })
     },
     resetPassword: async (email) => {
       if (!firebaseAuth) throw new Error('Firebase chưa được cấu hình.')
       await sendPasswordResetEmail(firebaseAuth, email)
+    },
+    saveProfileChanges: async (values) => {
+      if (!user?.uid) throw new Error('Vui lòng đăng nhập lại trước khi lưu hồ sơ.')
+      if (profileSyncState.status === 'offline-readonly' || profileSyncState.status === 'stale-cache' || profileSyncState.status === 'conflict') {
+        throw new Error('Hồ sơ đang ở chế độ chỉ đọc. Hãy kết nối lại và tải dữ liệu mới nhất trước khi chỉnh sửa.')
+      }
+      const previous = profile
+      setProfile((current) => current ? { ...current, ...values } : current)
+      setProfileSyncState((current) => ({ ...current, status: 'pending-local-change', message: undefined }))
+      try {
+        await updateUserProfile(user.uid, values)
+      } catch (error) {
+        setProfile(previous)
+        setProfileSyncState((current) => ({
+          ...current,
+          status: typeof navigator !== 'undefined' && !navigator.onLine ? 'offline-readonly' : 'sync-failed',
+        }))
+        throw error
+      }
     },
     signOut: async () => {
       if (firebaseAuth) {
@@ -738,7 +760,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (userId) clearUserScopedStorage(userId)
       }
     },
-  }), [accessContext, authorizationError, authzReady, loading, profile, user, previewRole])
+  }), [accessContext, authorizationError, authzReady, loading, profile, profileSyncState, user, previewRole])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

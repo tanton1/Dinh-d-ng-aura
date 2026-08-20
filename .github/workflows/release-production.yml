@@ -1,0 +1,175 @@
+name: Release production
+
+on:
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: Git ref that has already passed CI
+        required: true
+        default: main
+        type: string
+      allow_pending_app_check:
+        description: Compatibility rollout only; keep AI App Check enforcement disabled
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aura-production-release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.git_ref }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - run: npm ci
+      - run: npm --prefix functions ci
+      - run: npm run security:secrets
+      - run: npm run security:audit
+      - run: npm run ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - run: npm run test:rules
+      - run: npm run test:storage
+      - run: npm run test:rtdb
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.git_ref }}
+
+      - name: Resolve immutable release revision
+        id: revision
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Require release credentials
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_DEPLOY_SERVICE_ACCOUNT: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: |
+          test -n "$VERCEL_TOKEN"
+          test -n "$VERCEL_ORG_ID"
+          test -n "$VERCEL_PROJECT_ID"
+          test -n "$GCP_WORKLOAD_IDENTITY_PROVIDER"
+          test -n "$GCP_DEPLOY_SERVICE_ACCOUNT"
+
+      - run: npm ci
+      - run: npm --prefix functions ci
+
+      - name: Authenticate the production deploy identity
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Install Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy Firestore indexes and wait until ready
+        run: |
+          npx --yes firebase-tools@15.9.1 deploy --only firestore:indexes --project gen-lang-client-0815966909 --non-interactive
+          for attempt in $(seq 1 30); do
+            pending="$(gcloud firestore indexes composite list \
+              --project=gen-lang-client-0815966909 \
+              --database=ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7 \
+              --filter='state!=READY' \
+              --format='value(name,state)')"
+            if [ -z "$pending" ]; then
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "Firestore indexes are not ready; frontend promotion is blocked." >&2
+          exit 1
+
+      - name: Deploy backend and Security Rules
+        run: npx --yes firebase-tools@15.9.1 deploy --only functions,firestore:rules,storage,database --project gen-lang-client-0815966909 --non-interactive
+
+      - name: Pull the reviewed production environment
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          npx --yes vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
+          npx --yes vercel@latest env pull .env.production.local --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Validate the exact production configuration
+        env:
+          ALLOW_PENDING_APP_CHECK: ${{ inputs.allow_pending_app_check }}
+        run: |
+          set -a
+          source .env.production.local
+          set +a
+          export VITE_APP_RELEASE="${{ steps.revision.outputs.sha }}"
+          if [ "$ALLOW_PENDING_APP_CHECK" = "true" ]; then
+            npm run production:gate -- --allow-pending-app-check
+          else
+            npm run production:gate
+          fi
+
+      - name: Build immutable Vercel output
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VITE_APP_RELEASE: ${{ steps.revision.outputs.sha }}
+        run: npx --yes vercel@latest build --prod --token="$VERCEL_TOKEN"
+
+      - name: Promote production release
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          DEPLOYMENT_URL="$(npx --yes vercel@latest deploy --prebuilt --prod --token="$VERCEL_TOKEN")"
+          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Post-deploy smoke
+        env:
+          AURA_PROD_URL: ${{ steps.deploy.outputs.url }}
+        run: npm run production:smoke
+
+      - name: Release summary
+        run: |
+          echo "### Aura production release" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Git ref: \`${{ inputs.git_ref }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Git SHA: \`${{ steps.revision.outputs.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Deployment: ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- App Check compatibility rollout: \`${{ inputs.allow_pending_app_check }}\`" >> "$GITHUB_STEP_SUMMARY"

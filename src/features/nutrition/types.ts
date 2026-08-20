@@ -4,6 +4,7 @@ import type {
   FoodAnalysisResponse,
   NutritionCatalogMatch,
 } from '../../services/nutritionService'
+import type { DataSyncState } from '../../dataSync/profileSync'
 
 export type NutritionGoal = 'lose-fat' | 'gain-muscle' | 'maintain'
 
@@ -27,6 +28,7 @@ export interface NutritionProfileDraft {
   prepTime?: 'quick' | 'medium' | 'long'
   favoriteCuisine?: string
   reminders?: { water: boolean; breakfast: boolean; lunch: boolean; dinner: boolean }
+  waterLiters?: number
 }
 
 export interface AiFoodItem {
@@ -142,6 +144,7 @@ export interface NutritionPageProps {
   onAnalyzeImage?: (file: File, options?: AnalyzeFoodPhotoOptions) => Promise<NutritionImageAnalysisResponse>
   foodCatalog?: NutritionFoodCatalogItem[]
   onOpenEatClean?: () => void
+  syncState?: DataSyncState
 }
 
 export interface MealLog {

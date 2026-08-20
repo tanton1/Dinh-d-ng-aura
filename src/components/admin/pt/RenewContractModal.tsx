@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Student, StudentContract, TrainingPackage, Trainer, PaymentRecord } from '../../../types';
-import { X, Calendar, DollarSign, RefreshCw, CheckCircle } from 'lucide-react';
+import { Student, StudentContract, TrainingPackage, Trainer } from '../../../types';
+import { AlertTriangle, X, Calendar, DollarSign, RefreshCw, CheckCircle } from 'lucide-react';
 import { useDatabase } from '../../../contexts/DatabaseContext';
 import TrainerPrioritySelector from './TrainerPrioritySelector';
 
@@ -12,7 +12,7 @@ interface Props {
 }
 
 export default function RenewContractModal({ isOpen, onClose, student, latestContract }: Props) {
-  const { packages, trainers, addContract, updateContract, addPayment } = useDatabase();
+  const { packages, trainers } = useDatabase();
   
   const [selectedPackageId, setSelectedPackageId] = useState('');
   const [customPackageName, setCustomPackageName] = useState('Gói tuỳ chỉnh');
@@ -111,113 +111,8 @@ export default function RenewContractModal({ isOpen, onClose, student, latestCon
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPackage || !startDate) return;
-
-    const initialPaid = Number(paidAmount) || 0;
-    const discountAmount = Number(discount) || 0;
-    const debt = (selectedPackage.price - discountAmount) - initialPaid;
-
-    if (debt > 0) {
-      const sum = installments.reduce((a, b) => a + Number(b.amount), 0);
-      if (sum !== debt) {
-        alert('Tổng số tiền các kỳ phải bằng số tiền còn nợ!');
-        return;
-      }
-      if (installments.some(i => !i.date)) {
-        alert('Vui lòng chọn ngày cho tất cả các kỳ!');
-        return;
-      }
-    }
-
-    setIsSubmitting(true);
-    try {
-      // 1. Calculate End Date
-      const end = new Date(startDate);
-      end.setMonth(end.getMonth() + selectedPackage.durationMonths);
-
-      // 2. Create New Contract
-      const newContractId = Date.now().toString() + '-renew';
-      
-      const pendingInstallments = installments.filter(i => i.amount > 0); // They are all pending from the UI
-      
-      let referralCommissionAmount = null;
-      if (latestContract.referralCode) {
-        const referringPT = trainers.find(t => t.employeeCode === latestContract.referralCode);
-        if (referringPT) {
-          referralCommissionAmount = initialPaid * (referringPT.commissionRate / 100);
-        }
-      }
-      
-      const newContract: StudentContract = {
-        id: newContractId,
-        studentId: student.id,
-        branchId: latestContract.branchId,
-        packageId: selectedPackage.id,
-        packageName: selectedPackage.name,
-        startDate: startDate,
-        endDate: end.toISOString().split('T')[0],
-        totalSessions: newTotalSessions,
-        usedSessions: 0,
-        totalPrice: finalPrice,
-        paidAmount: initialPaid,
-        status: 'active',
-        trainerId: trainerIds[0] || undefined,
-        trainerIds: trainerIds,
-        nutritionPTIds: nutritionPTIds,
-        referralCode: latestContract.referralCode,
-        referralCommission: referralCommissionAmount,
-        installments: [
-          ...(initialPaid > 0 ? [{
-            id: Date.now().toString() + '-inst-init',
-            amount: initialPaid,
-            date: new Date().toISOString(),
-            status: 'paid' as const
-          }] : []),
-          ...pendingInstallments.map((inst, idx) => ({
-            id: Date.now().toString() + `-inst-${idx}`,
-            amount: inst.amount,
-            date: inst.date,
-            status: 'pending' as const
-          }))
-        ],
-        nextPaymentDate: pendingInstallments.length > 0 ? pendingInstallments[0].date : null
-      };
-
-      // 3. Update Old Contract (Mark as expired if carrying over to prevent double counting)
-      if (carryOver && remainingSessions > 0) {
-        await updateContract({
-          ...latestContract,
-          status: 'expired'
-        });
-      }
-
-      // 4. Save New Contract
-      await addContract(newContract);
-
-      // 5. Create Payment Record if paid
-      if (initialPaid > 0) {
-        const initInst = newContract.installments?.find(i => i.status === 'paid');
-        const paymentRecord: PaymentRecord = {
-          id: Date.now().toString() + '-pay',
-          contractId: newContractId,
-          studentId: student.id,
-          amount: initialPaid,
-          date: new Date().toISOString(),
-          method: paymentMethod as 'cash' | 'transfer',
-          note: `Thanh toán gia hạn gói ${selectedPackage.name}`,
-          installmentId: initInst ? initInst.id : undefined
-        };
-        await addPayment(paymentRecord);
-      }
-
-      alert('Gia hạn hợp đồng thành công!');
-      onClose();
-    } catch (error) {
-      console.error("Error renewing contract:", error);
-      alert('Có lỗi xảy ra khi gia hạn hợp đồng.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    // Fail closed until renewal, carry-over and initial payment are committed
+    // by one idempotent backend transaction.
   };
 
   return (
@@ -238,6 +133,13 @@ export default function RenewContractModal({ isOpen, onClose, student, latestCon
 
         <div className="p-6 overflow-y-auto custom-scrollbar">
           <form id="renew-form" onSubmit={handleSubmit} className="space-y-6">
+            <div className="flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100" role="status">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
+              <div>
+                <strong className="block text-amber-300">Gia hạn đang được khóa an toàn</strong>
+                <span>Bản nháp vẫn có thể xem, nhưng chưa thể ghi cho đến khi hợp đồng mới, chuyển buổi và thanh toán đầu kỳ được xử lý nguyên tử trên máy chủ.</span>
+              </div>
+            </div>
             
             {/* Old Contract Info */}
             <div className="bg-zinc-800/50 p-4 rounded-xl border border-zinc-700/50">
@@ -519,20 +421,13 @@ export default function RenewContractModal({ isOpen, onClose, student, latestCon
           <button
             type="submit"
             form="renew-form"
-            disabled={!selectedPackage || isSubmitting}
-            className="px-6 py-2.5 rounded-xl font-bold text-white bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-pink-500/25 transition-all flex items-center gap-2"
+            disabled
+            aria-disabled="true"
+            title="Đang chờ giao dịch gia hạn nguyên tử phía máy chủ"
+            className="cursor-not-allowed px-6 py-2.5 rounded-xl font-bold text-zinc-400 bg-zinc-800 opacity-70 transition-all flex items-center gap-2"
           >
-            {isSubmitting ? (
-              <>
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Đang xử lý...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-5 h-5" />
-                Xác nhận Gia hạn
-              </>
-            )}
+            <AlertTriangle className="w-5 h-5" />
+            Đang nâng cấp an toàn
           </button>
         </div>
       </div>

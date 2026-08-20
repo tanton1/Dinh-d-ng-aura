@@ -14,12 +14,15 @@
     "test:storage": "npx --yes firebase-tools@15.9.1 emulators:exec --only storage --project demo-aura-fitness-storage \"node --test tests/storage.rules.test.mjs\"",
     "test:rtdb": "npx --yes firebase-tools@15.9.1 emulators:exec --only database --project demo-aura-fitness-rtdb \"node --test tests/database.rules.test.mjs\"",
     "test:functions": "npm --prefix functions test",
+    "test:profile-sync": "tsx --test tests/profile-sync.test.ts",
     "test:e2e": "playwright test",
-    "test": "npm run test:functions",
+    "test": "npm run test:profile-sync && npm run test:functions",
     "performance:check": "node scripts/check-performance-budget.mjs",
     "production:gate": "node scripts/production-gate.mjs",
     "production:smoke": "node scripts/production-smoke.mjs",
-    "ci": "npm run typecheck && npm run build && npm run performance:check && npm --prefix functions run check",
+    "security:secrets": "node scripts/check-secrets.mjs",
+    "security:audit": "npm audit --omit=dev --audit-level=high && npm --prefix functions audit --omit=dev --audit-level=high",
+    "ci": "npm run typecheck && npm run test:profile-sync && npm run build && npm run performance:check && npm --prefix functions run check",
     "typecheck": "tsc -b",
     "start": "vite preview --host 0.0.0.0"
   },
@@ -45,7 +48,6 @@
     "recharts": "^3.10.1",
     "tailwind-merge": "^3.6.0",
     "tsx": "^4.23.5",
-    "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {

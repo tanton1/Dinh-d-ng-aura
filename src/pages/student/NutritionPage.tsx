@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useDebounce } from '../../hooks/useDebounce'
 import { useAuth } from '../../contexts/AuthContext'
 import NutritionFoodDetail, {
@@ -83,6 +83,8 @@ import {
 } from 'lucide-react'
 import '../../styles-nutrition.css'
 import '../../styles-nutrition-home.css'
+import DataSyncStatusBanner from '../../components/data/DataSyncStatusBanner'
+import type { DataSyncState } from '../../dataSync/profileSync'
 
 export type { NutritionGoal, NutritionProfileDraft } from '../../features/nutrition/types'
 import type {
@@ -2192,12 +2194,21 @@ function scaleCatalogFood(food: NutritionFoodCatalogItem, multiplier: number): N
   }
 }
 
+function catalogPageNeedsReload(error: unknown) {
+  if (!error || typeof error !== 'object' || !('code' in error)) return false
+  const code = String((error as { code?: unknown }).code ?? '')
+  return code.endsWith('failed-precondition') || code.endsWith('invalid-argument')
+}
+
 const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFoodIds, initialSavedOnly = false, allowDemo = false, onClose, onAdd, onOpenDetail, presentation = 'modal' }: { catalog?: NutritionFoodCatalogItem[]; savedFoodIds?: Set<string>; initialSavedOnly?: boolean; allowDemo?: boolean; onClose: () => void; onAdd: (food: NutritionFoodCatalogItem, multiplier: number) => void | Promise<void>; onOpenDetail: (food: NutritionFoodCatalogItem, catalog: NutritionFoodCatalogItem[]) => void; presentation?: 'modal' | 'page' }) {
   const [query, setQuery] = useState('')
   const debouncedQuery = useDebounce(query, 300)
   const [items, setItems] = useState<NutritionFoodCatalogItem[]>(catalog?.length ? catalog : [])
   const [catalogState, setCatalogState] = useState<'loading' | 'live' | 'demo' | 'error'>(catalog?.length ? 'live' : 'loading')
   const [catalogTotalCount, setCatalogTotalCount] = useState(catalog?.length ?? 0)
+  const [catalogFilteredCount, setCatalogFilteredCount] = useState(catalog?.length ?? 0)
+  const [catalogVersion, setCatalogVersion] = useState('')
+  const [catalogCategories, setCatalogCategories] = useState<string[]>([])
   const [catalogNextCursor, setCatalogNextCursor] = useState<string | null>(null)
   const [catalogHasMore, setCatalogHasMore] = useState(false)
   const [catalogLoadingMore, setCatalogLoadingMore] = useState(false)
@@ -2218,6 +2229,10 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
   const [portionById, setPortionById] = useState<Record<string, number>>({})
   const [addingFoodId, setAddingFoodId] = useState<string | null>(null)
   const dialogRef = useAccessibleDialog(onClose)
+  const catalogListRef = useRef<HTMLDivElement>(null)
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null)
+  const catalogRequestGenerationRef = useRef(0)
+  const catalogLoadingMoreRef = useRef(false)
 
   const setLayout = (layout: 'single' | 'grid') => {
     setLayoutMode(layout)
@@ -2243,49 +2258,65 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
   }
 
   useEffect(() => {
+    const generation = ++catalogRequestGenerationRef.current
     if (catalog?.length) {
       setItems(catalog)
       setCatalogTotalCount(catalog.length)
+      setCatalogFilteredCount(catalog.length)
+      setCatalogVersion(`provided-${catalog.length}`)
+      setCatalogCategories([...new Set(catalog.map((item) => item.category?.nameVi).filter((value): value is string => Boolean(value)))].sort((left, right) => left.localeCompare(right, 'vi')))
       setCatalogNextCursor(null)
       setCatalogHasMore(false)
+      setCatalogLoadingMore(false)
+      catalogLoadingMoreRef.current = false
       setCatalogState('live')
       return
     }
     let active = true
     if (savedOnly && !savedFoodIds?.size) {
       setItems([])
-      setCatalogTotalCount(0)
+      setCatalogFilteredCount(0)
       setCatalogNextCursor(null)
       setCatalogHasMore(false)
+      setCatalogLoadingMore(false)
+      catalogLoadingMoreRef.current = false
       setCatalogState('live')
       return () => { active = false }
     }
     setCatalogState('loading')
     setCatalogNextCursor(null)
     setCatalogHasMore(false)
+    setCatalogLoadingMore(false)
+    catalogLoadingMoreRef.current = false
+    setItems([])
     setVisibleCount(36)
     const savedIds = savedOnly ? [...(savedFoodIds ?? [])] : undefined
     loadNutritionCatalogPage({
       query: savedIds?.length ? '' : debouncedQuery,
       kind: kindFilter,
-      limit: 180,
+      category: categoryFilter === 'all' ? '' : categoryFilter,
+      limit: 60,
       ids: savedIds,
     })
       .then((page) => {
-        if (!active) return
+        if (!active || catalogRequestGenerationRef.current !== generation) return
         setItems(page.items)
-        setCatalogTotalCount(page.totalCount)
+        setCatalogTotalCount(page.catalogTotal)
+        setCatalogFilteredCount(page.filteredCount)
+        setCatalogVersion(page.catalogVersion)
+        setCatalogCategories(page.categories)
         setCatalogNextCursor(page.nextCursor)
         setCatalogHasMore(page.hasMore)
         setCatalogState('live')
       })
       .catch(() => {
-        if (!active) return
+        if (!active || catalogRequestGenerationRef.current !== generation) return
         setItems(allowDemo ? DEMO_CATALOG : [])
+        setCatalogFilteredCount(allowDemo ? DEMO_CATALOG.length : 0)
         setCatalogState(allowDemo ? 'demo' : 'error')
     })
     return () => { active = false }
-  }, [allowDemo, catalog, debouncedQuery, kindFilter, retryToken, savedFoodIds, savedOnly])
+  }, [allowDemo, catalog, categoryFilter, debouncedQuery, kindFilter, retryToken, savedFoodIds, savedOnly])
 
   const retryCatalog = () => {
     resetNutritionCatalog()
@@ -2294,56 +2325,91 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
     setRetryToken((current) => current + 1)
   }
 
-  const loadMoreCatalog = async () => {
-    if (!catalogHasMore || !catalogNextCursor || catalogLoadingMore || savedOnly) return
+  const loadMoreCatalog = useCallback(async () => {
+    if (!catalogHasMore || !catalogNextCursor || catalogLoadingMoreRef.current || savedOnly) return
+    const generation = catalogRequestGenerationRef.current
+    const cursor = catalogNextCursor
+    catalogLoadingMoreRef.current = true
     setCatalogLoadingMore(true)
     try {
       const page = await loadNutritionCatalogPage({
         query: debouncedQuery,
         kind: kindFilter,
-        limit: 180,
-        cursor: catalogNextCursor,
+        category: categoryFilter === 'all' ? '' : categoryFilter,
+        limit: 60,
+        cursor,
+        catalogVersion: catalogVersion || undefined,
       })
+      if (catalogRequestGenerationRef.current !== generation) return
       setItems((current) => {
         const byId = new Map(current.map((item) => [item.id, item]))
         page.items.forEach((item) => byId.set(item.id, item))
         return [...byId.values()]
       })
-      setCatalogTotalCount(page.totalCount)
+      setCatalogTotalCount(page.catalogTotal)
+      setCatalogFilteredCount(page.filteredCount)
+      setCatalogVersion(page.catalogVersion)
+      setCatalogCategories(page.categories)
       setCatalogNextCursor(page.nextCursor)
       setCatalogHasMore(page.hasMore)
       setVisibleCount((current) => current + 36)
-    } catch {
+    } catch (error: unknown) {
+      if (catalogRequestGenerationRef.current !== generation) return
+      if (catalogPageNeedsReload(error)) {
+        resetNutritionCatalog()
+        setItems([])
+        setRetryToken((current) => current + 1)
+        return
+      }
       setCatalogState('error')
     } finally {
-      setCatalogLoadingMore(false)
+      if (catalogRequestGenerationRef.current === generation) {
+        catalogLoadingMoreRef.current = false
+        setCatalogLoadingMore(false)
+      }
     }
-  }
-
-  const categories = useMemo(() => [...new Set(items
-    .filter((item) => (kindFilter === 'all' || item.kind === kindFilter) && (!savedOnly || savedFoodIds?.has(item.id)))
-    .map((item) => item.category?.nameVi)
-    .filter((value): value is string => Boolean(value)))]
-    .sort((left, right) => left.localeCompare(right, 'vi')), [items, kindFilter, savedFoodIds, savedOnly])
+  }, [catalogHasMore, catalogNextCursor, catalogVersion, categoryFilter, debouncedQuery, kindFilter, savedOnly])
 
   useEffect(() => {
-    if (categoryFilter !== 'all' && !categories.includes(categoryFilter)) setCategoryFilter('all')
-  }, [categories, categoryFilter])
+    if (categoryFilter !== 'all' && catalogCategories.length && !catalogCategories.includes(categoryFilter)) setCategoryFilter('all')
+  }, [catalogCategories, categoryFilter])
 
   const matchingItems = useMemo(() => {
     const normalizedQuery = normalizeSearch(debouncedQuery)
+    const queryTokens = normalizedQuery.split(' ').filter(Boolean)
+    const serverFilteredQuery = !catalog?.length && catalogState === 'live'
     return items.filter((item) => {
       if (kindFilter !== 'all' && item.kind !== kindFilter) return false
       if (savedOnly && !savedFoodIds?.has(item.id)) return false
       if (categoryFilter !== 'all' && item.category?.nameVi !== categoryFilter) return false
-      if (!normalizedQuery) return true
-      return normalizeSearch(`${item.name} ${item.nameEn ?? ''} ${item.nameAscii ?? ''} ${item.code ?? ''} ${item.category?.nameVi ?? ''} ${item.region?.nameVi ?? ''}`).includes(normalizedQuery)
+      if (!queryTokens.length || serverFilteredQuery) return true
+      const searchableText = normalizeSearch(`${item.name} ${item.nameEn ?? ''} ${item.nameAscii ?? ''} ${item.code ?? ''} ${item.category?.nameVi ?? ''} ${item.region?.nameVi ?? ''}`)
+      return queryTokens.every((token) => searchableText.includes(token))
     })
-  }, [categoryFilter, items, kindFilter, debouncedQuery, savedFoodIds, savedOnly])
+  }, [catalog, catalogState, categoryFilter, items, kindFilter, debouncedQuery, savedFoodIds, savedOnly])
 
   useEffect(() => setVisibleCount(36), [categoryFilter, kindFilter, debouncedQuery, savedOnly])
 
   const filteredItems = matchingItems.slice(0, visibleCount)
+
+  useEffect(() => {
+    const target = loadMoreSentinelRef.current
+    if (!target || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting) || catalogState === 'loading' || catalogState === 'error') return
+      if (matchingItems.length > filteredItems.length) {
+        setVisibleCount((current) => current + 36)
+      } else if (catalogHasMore && !catalogLoadingMore) {
+        void loadMoreCatalog()
+      }
+    }, {
+      root: presentation === 'modal' ? catalogListRef.current : null,
+      rootMargin: '240px 0px',
+      threshold: 0.01,
+    })
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [catalogHasMore, catalogLoadingMore, catalogState, filteredItems.length, loadMoreCatalog, matchingItems.length, presentation])
 
   return (
     <div className={presentation === 'page' ? 'nutrition-route-page nutrition-route-page--catalog' : 'nutrition-modal-backdrop'} role="presentation" onMouseDown={(event) => presentation === 'modal' && event.target === event.currentTarget && onClose()}>
@@ -2361,7 +2427,9 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
           <label className="nutrition-catalog-search">
             <Search size={18} />
             <input autoFocus={presentation === 'modal'} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên món, mã, nhóm hoặc nguyên liệu..." data-testid="nutrition-food-search-input" />
-            <span className="search-result-count">{formatNumber(matchingItems.length)} đã tải · {formatNumber(catalogTotalCount)} trong Catalog</span>
+            <span className="search-result-count" title={`Phiên bản Catalog: ${catalogVersion || 'chưa xác định'}`}>
+              {formatNumber(items.length)} / {formatNumber(catalogFilteredCount)} đã tải · {formatNumber(catalogTotalCount)} toàn Catalog
+            </span>
           </label>
           <div className="nutrition-catalog-filters" aria-label="Lọc danh mục">
             <div className="nutrition-catalog-kind-filter">
@@ -2383,7 +2451,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
               <div className="dropdown-wrapper">
                 <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
                   <option value="all">Tất cả nhóm</option>
-                  {categories.map((category) => <option value={category} key={category}>{category}</option>)}
+                  {catalogCategories.map((category) => <option value={category} key={category}>{category}</option>)}
                 </select>
                 <ChevronDown size={16} className="dropdown-icon" />
               </div>
@@ -2398,7 +2466,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
             <span>{catalogState === 'loading' ? 'Đang tải Catalog dinh dưỡng…' : catalogState === 'error' ? 'Không tải được Catalog dinh dưỡng. Hãy thử lại sau.' : ''}</span>
             {catalogState === 'error' && <button type="button" onClick={retryCatalog}><RefreshCw size={14} /> Thử lại</button>}
           </div>
-          <div className={`nutrition-catalog-list nutrition-catalog-list--${layoutMode}`} data-layout={layoutMode}>
+          <div ref={catalogListRef} className={`nutrition-catalog-list nutrition-catalog-list--${layoutMode}`} data-layout={layoutMode}>
             {filteredItems.map((food) => {
               const portion = portionById[food.id] ?? 1
               const scaledFood = scaleCatalogFood(food, portion)
@@ -2489,7 +2557,12 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
               )
             })}
             {catalogState !== 'loading' && catalogState !== 'error' && !filteredItems.length && <div className="nutrition-catalog-empty"><Search size={25} /><strong>Không tìm thấy món phù hợp</strong><span>Thử tên ngắn hơn hoặc bỏ dấu tiếng Việt.</span></div>}
+            <div ref={loadMoreSentinelRef} className="nutrition-catalog-load-sentinel" aria-hidden="true" />
           </div>
+          {(catalogLoadingMore || (catalogState === 'live' && (catalogHasMore || matchingItems.length > filteredItems.length))) && <div className="nutrition-catalog-progress" role="status" aria-live="polite">
+            {catalogLoadingMore ? <LoaderCircle className="nutrition-spin" size={14} /> : null}
+            <span>{catalogLoadingMore ? 'Đang tải thêm món…' : 'Cuộn xuống để tải tiếp'}</span>
+          </div>}
           {(matchingItems.length > filteredItems.length || catalogHasMore) && <button type="button" className="nutrition-catalog-load-more" disabled={catalogLoadingMore} onClick={() => {
             if (matchingItems.length > filteredItems.length) setVisibleCount((current) => current + 36)
             else void loadMoreCatalog()
@@ -2501,7 +2574,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
   )
 })
 
-export default function NutritionPage({ displayName = 'Thành viên Aura', isDemo = false, storageOwnerId, hasProfile = true, profile, onProfileComplete, onMealSaved, onAnalyzeImage, foodCatalog, onOpenEatClean }: NutritionPageProps) {
+export default function NutritionPage({ displayName = 'Thành viên Aura', isDemo = false, storageOwnerId, hasProfile = true, profile, onProfileComplete, onMealSaved, onAnalyzeImage, foodCatalog, onOpenEatClean, syncState }: NutritionPageProps) {
   const resolvedOwnerId = storageOwnerId ?? firebaseAuth?.currentUser?.uid ?? 'anonymous'
   const mealStorageKey = `${MEAL_STORAGE_PREFIX}:${resolvedOwnerId}`
   const waterStorageKey = `${WATER_STORAGE_PREFIX}:${resolvedOwnerId}`
@@ -2532,10 +2605,16 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       return new Set()
     }
   })
-  const [meals, setMeals] = useState<MealLog[]>(() => loadPersistedMeals(mealStorageKey, isDemo ? createInitialMeals() : []))
-  const [waterByDate, setWaterByDate] = useState<Record<string, number>>(() => loadPersistedWater(waterStorageKey))
-  const [activities, setActivities] = useState<NutritionActivityLog[]>(() => loadPersistedActivities(activityStorageKey, isDemo ? createInitialActivities() : []))
-  const [waterEntries, setWaterEntries] = useState<NutritionWaterLog[]>(() => loadPersistedWaterEntries(waterEntryStorageKey))
+  const [meals, setMeals] = useState<MealLog[]>(() => isDemo ? loadPersistedMeals(mealStorageKey, createInitialMeals()) : [])
+  const [waterByDate, setWaterByDate] = useState<Record<string, number>>(() => isDemo ? loadPersistedWater(waterStorageKey) : {})
+  const [activities, setActivities] = useState<NutritionActivityLog[]>(() => isDemo ? loadPersistedActivities(activityStorageKey, createInitialActivities()) : [])
+  const [waterEntries, setWaterEntries] = useState<NutritionWaterLog[]>(() => isDemo ? loadPersistedWaterEntries(waterEntryStorageKey) : [])
+  const [nutritionLogSyncState, setNutritionLogSyncState] = useState<DataSyncState>({ status: 'synced', revision: 0, cachedAt: null })
+  const nutritionSyncScopes = useRef<Record<'meals' | 'water' | 'activities', DataSyncState>>({
+    meals: { status: 'synced', revision: 0, cachedAt: null },
+    water: { status: 'synced', revision: 0, cachedAt: null },
+    activities: { status: 'synced', revision: 0, cachedAt: null },
+  })
   const [planGenerated, setPlanGenerated] = useState(isDemo)
   const [assistantMessages, setAssistantMessages] = useState<AuraAssistantMessage[]>([])
   const [assistantLoading, setAssistantLoading] = useState(false)
@@ -2543,6 +2622,19 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   const [toast, setToast] = useState<NutritionToastState | null>(null)
   const messageTimer = useRef<number | null>(null)
   const catalogDetailCache = useRef(new Map<string, NutritionFoodDetailRecord>())
+  const updateNutritionSync = useCallback((scope: 'meals' | 'water' | 'activities', next: DataSyncState) => {
+    nutritionSyncScopes.current[scope] = next
+    const priority: Record<DataSyncState['status'], number> = {
+      conflict: 6,
+      'sync-failed': 5,
+      'offline-readonly': 4,
+      'stale-cache': 3,
+      'pending-local-change': 2,
+      synced: 1,
+    }
+    const combined = Object.values(nutritionSyncScopes.current).sort((left, right) => priority[right.status] - priority[left.status])[0]
+    setNutritionLogSyncState(combined)
+  }, [])
   const days = useMemo(() => getWeekDays(homeWeekStart, todayKey), [homeWeekStart, todayKey])
   const planDays = useMemo(() => getWeekDays(getCalendarStart(dateFromLocalKey(todayKey)), todayKey), [todayKey])
   const loggedDateIds = useMemo(() => new Set([
@@ -2696,66 +2788,31 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   useEffect(() => {
     if (!firestoreDb || resolvedOwnerId === 'anonymous') return
     const unsubscribeMeals = subscribeToUserMealLogs(resolvedOwnerId, (remoteMeals) => {
-      if (Array.isArray(remoteMeals) && remoteMeals.length > 0) {
-        setMeals((current) => {
-          const map = new Map<string, MealLog>()
-          remoteMeals.forEach((item) => {
-            if (item && typeof item === 'object' && item.id) {
-              map.set(item.id, item as MealLog)
-            }
-          })
-          current.forEach((item) => {
-            if (!map.has(item.id)) {
-              map.set(item.id, item)
-            }
-          })
-          return Array.from(map.values())
-        })
-      }
-    })
+      setMeals(Array.isArray(remoteMeals) ? remoteMeals.filter((item): item is MealLog => Boolean(item && typeof item === 'object' && item.id)) : [])
+    }, undefined, (state) => updateNutritionSync('meals', state))
 
     const unsubscribeWater = subscribeToUserWaterLogs(resolvedOwnerId, (remoteWater) => {
-      if (Array.isArray(remoteWater) && remoteWater.length > 0) {
-        setWaterEntries((current) => {
-          const map = new Map<string, NutritionWaterLog>()
-          remoteWater.forEach((item) => {
-            if (item && typeof item === 'object' && item.id) {
-              map.set(item.id, item as NutritionWaterLog)
-            }
-          })
-          current.forEach((item) => {
-            if (!map.has(item.id)) map.set(item.id, item)
-          })
-          return Array.from(map.values())
-        })
-      }
-    })
+      const entries = Array.isArray(remoteWater) ? remoteWater.filter((item): item is NutritionWaterLog => Boolean(item && typeof item === 'object' && item.id)) : []
+      setWaterEntries(entries)
+      setWaterByDate(entries.reduce<Record<string, number>>((result, entry) => {
+        result[entry.date] = (result[entry.date] ?? 0) + Math.max(0, Number(entry.amountMl) || 0)
+        return result
+      }, {}))
+    }, undefined, (state) => updateNutritionSync('water', state))
 
     const unsubscribeActivities = subscribeToUserActivityLogs(resolvedOwnerId, (remoteActivities) => {
-      if (Array.isArray(remoteActivities) && remoteActivities.length > 0) {
-        setActivities((current) => {
-          const map = new Map<string, NutritionActivityLog>()
-          remoteActivities.forEach((item) => {
-            if (item && typeof item === 'object' && item.id) {
-              map.set(item.id, item as NutritionActivityLog)
-            }
-          })
-          current.forEach((item) => {
-            if (!map.has(item.id)) map.set(item.id, item)
-          })
-          return Array.from(map.values())
-        })
-      }
-    })
+      setActivities(Array.isArray(remoteActivities) ? remoteActivities.filter((item): item is NutritionActivityLog => Boolean(item && typeof item === 'object' && item.id)) : [])
+    }, undefined, (state) => updateNutritionSync('activities', state))
 
     return () => {
       unsubscribeMeals()
       unsubscribeWater()
       unsubscribeActivities()
     }
-  }, [resolvedOwnerId])
+  }, [resolvedOwnerId, updateNutritionSync])
 
   useEffect(() => {
+    if (!isDemo) return
     try {
       // Keep full meal objects including images in local storage
       window.localStorage.setItem(mealStorageKey, JSON.stringify(meals))
@@ -2771,31 +2828,34 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         // Fallback for restricted storage environments
       }
     }
-  }, [mealStorageKey, meals])
+  }, [isDemo, mealStorageKey, meals])
 
   useEffect(() => {
+    if (!isDemo) return
     try {
       window.localStorage.setItem(waterStorageKey, JSON.stringify(waterByDate))
     } catch {
       // Keep the current session usable if browser storage is unavailable.
     }
-  }, [waterByDate, waterStorageKey])
+  }, [isDemo, waterByDate, waterStorageKey])
 
   useEffect(() => {
+    if (!isDemo) return
     try {
       window.localStorage.setItem(waterEntryStorageKey, JSON.stringify(waterEntries))
     } catch {
       // Keep the current session usable if browser storage is unavailable.
     }
-  }, [waterEntries, waterEntryStorageKey])
+  }, [isDemo, waterEntries, waterEntryStorageKey])
 
   useEffect(() => {
+    if (!isDemo) return
     try {
       window.localStorage.setItem(activityStorageKey, JSON.stringify(activities))
     } catch {
       // Keep the current session usable if browser storage is unavailable.
     }
-  }, [activities, activityStorageKey])
+  }, [activities, activityStorageKey, isDemo])
 
   useEffect(() => {
     setProfileReady(hasProfile)
@@ -3430,11 +3490,27 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
 
   if (!profileReady) return <NutritionOnboarding onComplete={completeProfile} initialProfile={profileDraft} editing={false} />
 
-  if (activeSection === 'profile') return <NutritionProfileEditor
-    onSave={(nextProfile) => { completeProfile(nextProfile); navigateNutrition('today') }}
-    initialProfile={profileDraft}
-    onCancel={() => navigateNutrition('today')}
-  />
+  const profileReadOnly = Boolean(syncState && syncState.status !== 'synced')
+  const displayedSyncState = syncState && syncState.status !== 'synced' ? syncState : nutritionLogSyncState
+  const profileSyncBanner = <DataSyncStatusBanner state={displayedSyncState} compact={displayedSyncState.status === 'synced'} />
+
+  if (activeSection === 'profile') return profileReadOnly ? (
+    <div className="page nutrition-page nutrition-page--workspace" data-testid="nutrition-profile-readonly">
+      <div className="nutrition-workspace">
+        <NutritionSectionNav activeSection="today" onSectionChange={(section) => navigateNutrition(section)} onScan={() => navigateNutrition('scan')} onOpenCatalog={() => openCatalog(false)} onOpenAskAura={openAssistant} />
+        <div className="nutrition-profile-sync-guard">
+          {profileSyncBanner}
+          <button type="button" className="nutrition-catalog-load-more" onClick={() => navigateNutrition('today')}>Quay lại Hôm nay</button>
+        </div>
+      </div>
+    </div>
+  ) : (
+    <NutritionProfileEditor
+      onSave={(nextProfile) => { completeProfile(nextProfile); navigateNutrition('today') }}
+      initialProfile={profileDraft}
+      onCancel={() => navigateNutrition('today')}
+    />
+  )
 
   if (selectedFood && selectedFoodSummary) return <NutritionFoodDetail
     item={selectedFoodSummary}
@@ -3522,6 +3598,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       {toastContent}
       <div className="nutrition-workspace">
         <NutritionSectionNav activeSection="today" onSectionChange={(section) => navigateNutrition(section)} onScan={() => navigateNutrition('scan')} onOpenCatalog={() => openCatalog(false)} onOpenAskAura={openAssistant} />
+        {profileSyncBanner && <div className="nutrition-sync-banner-wrap">{profileSyncBanner}</div>}
         <FoodScanModal key={resolvedOwnerId} initialDate={selectedDate} storageOwnerId={resolvedOwnerId} allowDemo={isDemo} presentation="page" onClose={() => navigateNutrition('today')} onSave={saveScannedMeal} onAnalyzeImage={onAnalyzeImage} />
       </div>
       {quickSheets}
@@ -3533,6 +3610,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       {toastContent}
       <div className="nutrition-workspace">
         <NutritionSectionNav activeSection="catalog" onSectionChange={(section) => navigateNutrition(section)} onScan={() => navigateNutrition('scan')} onOpenCatalog={() => openCatalog(false)} onOpenAskAura={openAssistant} />
+        {profileSyncBanner && <div className="nutrition-sync-banner-wrap">{profileSyncBanner}</div>}
         <FoodCatalogModal presentation="page" catalog={foodCatalog} savedFoodIds={savedFoodIds} initialSavedOnly={catalogSavedOnly} allowDemo={isDemo} onClose={() => navigateNutrition('today')} onAdd={queueCatalogFood} onOpenDetail={openFoodDetail} />
       </div>
       {quickSheets}
@@ -3552,7 +3630,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         targetWeightDeltaKg={profileDraft.targetWeightDeltaKg}
         targetTimeframeMonths={profileDraft.targetTimeframeMonths}
         ownerId={resolvedOwnerId}
-        todayContent={<NutritionDashboardHome
+        todayContent={<>{profileSyncBanner}<NutritionDashboardHome
           selectedDate={selectedDate}
           days={days}
           loggedDateIds={loggedDateIds}
@@ -3587,7 +3665,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
           onOpenMeal={setSelectedLoggedMealId}
           onDeleteMeal={deleteMeal}
           onDeleteActivity={deleteActivity}
-        />}
+        /></>}
         menuContent={<MealPlanPage
           onNavigate={(view) => {
             window.location.hash = view === 'profile' ? '#/profile' : `#/${view}`

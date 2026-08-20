@@ -20,6 +20,8 @@ import {
   getEatCleanAdminErrorMessage,
   initializeEatCleanCatalog,
   listEatCleanAdminData,
+  recordEatCleanRefundOutcome,
+  reverseEatCleanRefundOutcome,
   saveEatCleanConfig,
   saveEatCleanInventory,
   saveEatCleanMeal,
@@ -175,6 +177,24 @@ export default function AdminEatCleanPage({ currentRole, initialTab = 'dispatch'
     }
   }
 
+  const handleRecordRefundOutcome = async (input: Parameters<typeof recordEatCleanRefundOutcome>[0]) => {
+    try {
+      await recordEatCleanRefundOutcome(input)
+      await loadData(true)
+    } catch (error) {
+      throw new Error(getEatCleanAdminErrorMessage(error))
+    }
+  }
+
+  const handleReverseRefundOutcome = async (input: Parameters<typeof reverseEatCleanRefundOutcome>[0]) => {
+    try {
+      await reverseEatCleanRefundOutcome(input)
+      await loadData(true)
+    } catch (error) {
+      throw new Error(getEatCleanAdminErrorMessage(error))
+    }
+  }
+
   if (!canManageEatClean(currentRole)) {
     return (
       <main className={`page admin-eat-clean-page ${className}`.trim()}>
@@ -273,7 +293,14 @@ export default function AdminEatCleanPage({ currentRole, initialTab = 'dispatch'
           tabIndex={0}
           className="eat-clean-tab-panel"
         >
-          {activeTab === 'orders' && <EatCleanOrdersTab orders={data.orders} onUpdateOrder={handleUpdateOrder} />}
+          {activeTab === 'orders' && (
+            <EatCleanOrdersTab
+              orders={data.orders}
+              onUpdateOrder={handleUpdateOrder}
+              onRecordRefundOutcome={handleRecordRefundOutcome}
+              onReverseRefundOutcome={handleReverseRefundOutcome}
+            />
+          )}
           {activeTab === 'dispatch' && <EatCleanDispatchTab />}
           {activeTab === 'menu' && <EatCleanMenuTab meals={data.meals} deliverySlots={data.config.deliverySlots} onSaveMeal={handleSaveMeal} />}
           {activeTab === 'inventory' && <EatCleanInventoryTab inventory={data.inventory} meals={data.meals} onSaveInventory={handleSaveInventory} />}

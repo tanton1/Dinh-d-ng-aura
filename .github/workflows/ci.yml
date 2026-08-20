@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -37,6 +38,18 @@ jobs:
 
       - name: Install Functions dependencies
         run: npm --prefix functions ci
+
+      - name: Reject committed credentials
+        run: npm run security:secrets
+
+      - name: Audit production dependencies
+        run: npm run security:audit
+
+      - name: Review dependency changes
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
 
       - name: Typecheck, build, and test Functions
         run: npm run ci

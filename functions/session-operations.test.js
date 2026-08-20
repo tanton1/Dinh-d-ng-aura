@@ -1,0 +1,284 @@
+const { test } = require('node:test')
+const assert = require('node:assert/strict')
+const { readFileSync } = require('node:fs')
+const { join } = require('node:path')
+const { createSessionOperationFunctions } = require('./session-operations')
+
+const root = join(__dirname, '..')
+const source = readFileSync(join(__dirname, 'session-operations.js'), 'utf8')
+const service = readFileSync(join(root, 'src', 'services', 'sessionOperationsService.ts'), 'utf8')
+const requestApprovals = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'SessionRequestApprovals.tsx'), 'utf8')
+const leaveApprovals = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'LeaveApprovals.tsx'), 'utf8')
+const orphanChecker = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'OrphanedSessionChecker.tsx'), 'utf8')
+const scheduler = readFileSync(join(root, 'src', 'components', 'schedule', 'SchedulerWrapper.tsx'), 'utf8')
+const studentDetail = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'StudentDetail.tsx'), 'utf8')
+const trainerOperations = readFileSync(join(__dirname, 'pt-operations-v2.js'), 'utf8')
+
+function clone(value) {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
+}
+
+function fakeDatabase(seed) {
+  const documents = new Map(Object.entries(seed).map(([path, data]) => [path, clone(data)]))
+  let nextId = 0
+
+  const reference = (path) => ({ kind: 'document', path, id: path.split('/').at(-1) })
+  const query = (path, filters = [], maximum = Number.POSITIVE_INFINITY) => ({
+    kind: 'query',
+    path,
+    filters,
+    maximum,
+    where(field, operator, value) {
+      return query(path, [...filters, { field, operator, value }], maximum)
+    },
+    limit(value) {
+      return query(path, filters, value)
+    },
+  })
+  const collection = (path) => ({
+    ...query(path),
+    doc(documentId = `auto-${++nextId}`) {
+      return reference(`${path}/${documentId}`)
+    },
+  })
+  const matches = (data, filter) => {
+    if (filter.operator === '==') return data[filter.field] === filter.value
+    if (filter.operator === '>=') return data[filter.field] >= filter.value
+    if (filter.operator === '<') return data[filter.field] < filter.value
+    throw new Error(`Unsupported fake query operator: ${filter.operator}`)
+  }
+  const snapshotFor = (target) => {
+    if (target.kind === 'document') {
+      const data = documents.get(target.path)
+      return { exists: data !== undefined, id: target.id, ref: target, data: () => clone(data) }
+    }
+    const prefix = `${target.path}/`
+    const docs = [...documents.entries()]
+      .filter(([path]) => path.startsWith(prefix) && !path.slice(prefix.length).includes('/'))
+      .filter(([, data]) => target.filters.every((filter) => matches(data, filter)))
+      .slice(0, target.maximum)
+      .map(([path, data]) => {
+        const ref = reference(path)
+        return { id: ref.id, ref, data: () => clone(data) }
+      })
+    return { docs, size: docs.length }
+  }
+  const db = {
+    doc: reference,
+    collection,
+    async runTransaction(handler) {
+      const writes = []
+      const transaction = {
+        async get(target) {
+          return snapshotFor(target)
+        },
+        update(ref, patch) {
+          writes.push({ type: 'update', ref, data: patch })
+        },
+        create(ref, data) {
+          writes.push({ type: 'create', ref, data })
+        },
+      }
+      const result = await handler(transaction)
+      for (const write of writes) {
+        if (write.type === 'create' && documents.has(write.ref.path)) throw new Error(`Document already exists: ${write.ref.path}`)
+        const previous = documents.get(write.ref.path) || {}
+        documents.set(write.ref.path, { ...previous, ...write.data })
+      }
+      return result
+    },
+  }
+  return { db, read: (path) => documents.get(path), paths: () => [...documents.keys()] }
+}
+
+function operationsFor(seed, authorizeAdmin = async () => ({ uid: 'admin-1' })) {
+  const state = fakeDatabase(seed)
+  const operations = createSessionOperationFunctions({ db: state.db, onCall: (handler) => handler, authorizeAdmin })
+  return { ...state, ...operations }
+}
+
+test('session request approval updates the session, request, optional extension, and audit in one transaction', () => {
+  const approval = source.match(/const approveSessionRequest[\s\S]*?\n  return \{ confirmSessionAttendance/)?.[0] ?? ''
+  assert.match(approval, /runTransaction/)
+  assert.match(approval, /sessionRequests\/\$\{requestId\}/)
+  assert.match(approval, /status: 'approved'/)
+  assert.match(approval, /processedSessionRevision/)
+  assert.match(approval, /collection\('sessionEvents'\)/)
+  assert.match(approval, /FieldValue\.arrayUnion\(\{[\s\S]*?session-request-/)
+  assert.match(approval, /currentDate !== originalDate \|\| currentHour !== originalHour/)
+  assert.match(approval, /originalSessionRevision/)
+  assert.match(approval, /where\('status', '==', 'active'\)/)
+  assert.match(approval, /coveringContracts\.length !== 1 \|\| coveringContracts\[0\]\.id !== contractId/)
+  assert.match(approval, /requestedBy === 'trainer'/)
+  assert.match(approval, /status: cancellationType/)
+})
+
+test('collision checks cover trainer capacity, student double booking, legacy ISO dates, and bounded query overflow', () => {
+  assert.match(source, /const DAILY_SESSION_QUERY_LIMIT = 200/)
+  assert.match(source, /function dailySessionsQuery/)
+  assert.match(source, /\.where\('date', '>=', targetDate\)/)
+  assert.match(source, /\.where\('date', '<', nextDateKey\(targetDate\)\)/)
+  assert.match(source, /dailySessionsQuery\(db, 'trainerId'/)
+  assert.match(source, /dailySessionsQuery\(db, 'studentId'/)
+  assert.match(source, /snapshot\.size >= DAILY_SESSION_QUERY_LIMIT/)
+  assert.match(source, /activeHourDocuments\(trainerDay, newHour, \[sessionId\]\)\.length >= 2/)
+  assert.match(source, /activeHourDocuments\(studentDay, newHour, \[sessionId\]\)\.length > 0/)
+  assert.match(source, /firstTargetStudentDay/)
+  assert.match(source, /secondTargetStudentDay/)
+})
+
+test('trainer-created requests carry immutable origin and session revision provenance', () => {
+  const creation = trainerOperations.match(/const requestSessionChange[\s\S]*?\n  const listMyQuotes/)?.[0] ?? ''
+  assert.match(creation, /requestedBy: 'trainer'/)
+  assert.match(creation, /originalSessionRevision: Number\(session\.data\(\)\.revision \|\| 0\)/)
+  assert.match(creation, /originalHour: sessionHour\(sessionId, session\.data\(\)\.hour\)/)
+})
+
+test('approval commits cancellation, request audit, and contract extension together and retries idempotently', async () => {
+  const state = operationsFor({
+    'sessionRequests/request-1': { status: 'pending', type: 'cancel', sessionId: 'session-1', studentId: 'student-1', contractId: 'contract-1', requestedBy: 'student', originalDate: '2026-08-20', originalHour: 8, originalSessionRevision: 2, reason: 'Bận' },
+    'sessions/session-1': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', date: '2026-08-20', hour: 8, revision: 2 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', startDate: '2026-08-01', endDate: '2026-08-31' },
+  })
+  const first = await state.approveSessionRequest({ data: { requestId: 'request-1', expectedSessionRevision: 2, extensionDays: 2 } })
+  assert.equal(first.unchanged, false)
+  assert.equal(state.read('sessions/session-1').status, 'student_cancelled')
+  assert.equal(state.read('sessions/session-1').revision, 3)
+  assert.equal(state.read('sessionRequests/request-1').status, 'approved')
+  assert.equal(state.read('contracts/contract-1').endDate, '2026-09-02T00:00:00.000Z')
+  assert.ok(state.paths().some((path) => path.startsWith('sessionEvents/')))
+
+  const retry = await state.approveSessionRequest({ data: { requestId: 'request-1', expectedSessionRevision: 2, extensionDays: 2 } })
+  assert.equal(retry.unchanged, true)
+  assert.equal(state.read('sessions/session-1').revision, 3)
+})
+
+test('trainer cancellation keeps its provenance and cannot extend a learner contract', async () => {
+  const seed = {
+    'sessionRequests/request-2': { status: 'pending', type: 'cancel', sessionId: 'session-2', studentId: 'student-2', contractId: 'contract-2', trainerId: 'trainer-2', requestedBy: 'trainer', originalDate: '2026-08-21', originalHour: 9, originalSessionRevision: 0, reason: 'HLV nghỉ' },
+    'sessions/session-2': { status: 'scheduled', studentId: 'student-2', trainerId: 'trainer-2', date: '2026-08-21', hour: 9, revision: 0 },
+    'contracts/contract-2': { status: 'active', studentId: 'student-2', startDate: '2026-08-01', endDate: '2026-08-31' },
+  }
+  const denied = operationsFor(seed)
+  await assert.rejects(
+    denied.approveSessionRequest({ data: { requestId: 'request-2', expectedSessionRevision: 0, extensionDays: 1 } }),
+    (error) => error.code === 'invalid-argument',
+  )
+  assert.equal(denied.read('sessionRequests/request-2').status, 'pending')
+  assert.equal(denied.read('sessions/session-2').status, 'scheduled')
+
+  const approved = operationsFor(seed)
+  await approved.approveSessionRequest({ data: { requestId: 'request-2', expectedSessionRevision: 0, extensionDays: 0 } })
+  assert.equal(approved.read('sessions/session-2').status, 'trainer_cancelled')
+  assert.equal(approved.read('sessionRequests/request-2').requestedBy, 'trainer')
+})
+
+test('reschedule collision rejects atomically for a legacy ISO-date student booking', async () => {
+  const state = operationsFor({
+    'sessionRequests/request-3': { status: 'pending', type: 'reschedule', sessionId: 'session-3', studentId: 'student-3', originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 4, newDate: '2026-08-25', newHour: 10 },
+    'sessions/session-3': { status: 'scheduled', studentId: 'student-3', trainerId: 'trainer-3', date: '2026-08-22', hour: 7, revision: 4 },
+    'sessions/conflict': { status: 'scheduled', studentId: 'student-3', trainerId: 'trainer-4', date: '2026-08-25T00:00:00.000Z', hour: 10, revision: 0 },
+  })
+  await assert.rejects(
+    state.approveSessionRequest({ data: { requestId: 'request-3', expectedSessionRevision: 4 } }),
+    (error) => error.code === 'already-exists',
+  )
+  assert.equal(state.read('sessionRequests/request-3').status, 'pending')
+  assert.equal(state.read('sessions/session-3').date, '2026-08-22')
+  assert.equal(state.paths().filter((path) => path.startsWith('sessionEvents/')).length, 0)
+})
+
+test('stale request revision and inactive compensation contract fail without partial writes', async () => {
+  const stale = operationsFor({
+    'sessionRequests/request-4': { status: 'pending', type: 'cancel', sessionId: 'session-4', studentId: 'student-4', contractId: 'contract-4', originalDate: '2026-08-23', originalHour: 11, originalSessionRevision: 1 },
+    'sessions/session-4': { status: 'scheduled', studentId: 'student-4', trainerId: 'trainer-4', date: '2026-08-23', hour: 11, revision: 2 },
+    'contracts/contract-4': { status: 'active', studentId: 'student-4', startDate: '2026-08-01', endDate: '2026-08-31' },
+  })
+  await assert.rejects(
+    stale.approveSessionRequest({ data: { requestId: 'request-4', expectedSessionRevision: 2 } }),
+    (error) => error.code === 'aborted',
+  )
+  assert.equal(stale.read('sessionRequests/request-4').status, 'pending')
+  assert.equal(stale.read('sessions/session-4').status, 'scheduled')
+
+  const inactive = operationsFor({
+    'sessionRequests/request-5': { status: 'pending', type: 'cancel', sessionId: 'session-5', studentId: 'student-5', contractId: 'contract-5', originalDate: '2026-08-24', originalHour: 12, originalSessionRevision: 0 },
+    'sessions/session-5': { status: 'scheduled', studentId: 'student-5', trainerId: 'trainer-5', date: '2026-08-24', hour: 12, revision: 0 },
+    'contracts/contract-5': { status: 'expired', studentId: 'student-5', startDate: '2026-08-01', endDate: '2026-08-31' },
+  })
+  await assert.rejects(
+    inactive.approveSessionRequest({ data: { requestId: 'request-5', expectedSessionRevision: 0, extensionDays: 2 } }),
+    (error) => error.code === 'failed-precondition',
+  )
+  assert.equal(inactive.read('sessionRequests/request-5').status, 'pending')
+  assert.equal(inactive.read('sessions/session-5').status, 'scheduled')
+
+  const overlapping = operationsFor({
+    'sessionRequests/request-5b': { status: 'pending', type: 'cancel', sessionId: 'session-5b', studentId: 'student-5b', contractId: 'contract-5b-a', originalDate: '2026-08-24', originalHour: 12, originalSessionRevision: 0 },
+    'sessions/session-5b': { status: 'scheduled', studentId: 'student-5b', trainerId: 'trainer-5', date: '2026-08-24', hour: 12, revision: 0 },
+    'contracts/contract-5b-a': { status: 'active', studentId: 'student-5b', startDate: '2026-08-01', endDate: '2026-08-31' },
+    'contracts/contract-5b-b': { status: 'active', studentId: 'student-5b', startDate: '2026-08-15', endDate: '2026-09-15' },
+  })
+  await assert.rejects(
+    overlapping.approveSessionRequest({ data: { requestId: 'request-5b', expectedSessionRevision: 0, extensionDays: 2 } }),
+    (error) => error.code === 'failed-precondition',
+  )
+  assert.equal(overlapping.read('sessionRequests/request-5b').status, 'pending')
+  assert.equal(overlapping.read('sessions/session-5b').status, 'scheduled')
+})
+
+test('rejection is transactional and admin authorization is enforced before lifecycle writes', async () => {
+  const state = operationsFor({
+    'sessionRequests/request-6': { status: 'pending', type: 'cancel', sessionId: 'session-6', studentId: 'student-6' },
+    'sessions/session-6': { status: 'scheduled', studentId: 'student-6', trainerId: 'trainer-6', date: '2026-08-25', hour: 13, revision: 0 },
+  })
+  const first = await state.rejectSessionRequest({ data: { requestId: 'request-6', reason: 'Không đủ điều kiện' } })
+  assert.equal(first.unchanged, false)
+  assert.equal(state.read('sessionRequests/request-6').status, 'rejected')
+  assert.ok(state.paths().some((path) => path.startsWith('sessionRequestEvents/')))
+  const retry = await state.rejectSessionRequest({ data: { requestId: 'request-6', reason: 'Không đủ điều kiện' } })
+  assert.equal(retry.unchanged, true)
+
+  const unauthorized = operationsFor({
+    'sessions/session-7': { status: 'scheduled', studentId: 'student-7', trainerId: 'trainer-7', date: '2026-08-25', hour: 14, revision: 0 },
+  }, async () => {
+    const error = new Error('permission denied')
+    error.code = 'permission-denied'
+    throw error
+  })
+  await assert.rejects(
+    unauthorized.cancelSession({ data: { sessionId: 'session-7', expectedRevision: 0, type: 'student_cancelled', reason: 'test' } }),
+    (error) => error.code === 'permission-denied',
+  )
+  assert.equal(unauthorized.read('sessions/session-7').status, 'scheduled')
+})
+
+test('rescheduling preserves an active operational status and an audited history', () => {
+  assert.match(source, /function isActiveSessionStatus/)
+  assert.match(source, /type: 'rescheduled'/)
+  assert.match(source, /previousSchedule: FieldValue\.arrayUnion/)
+  assert.doesNotMatch(source, /status:\s*'rescheduled'/)
+})
+
+test('admin request approval uses only the atomic callable for lifecycle changes', () => {
+  assert.match(service, /export function approveSessionRequest/)
+  assert.match(service, /export function rejectSessionRequest/)
+  assert.match(requestApprovals, /await approveSessionRequest\(/)
+  assert.match(requestApprovals, /await rejectSessionRequest\(/)
+  assert.doesNotMatch(requestApprovals, /updateSessionRequest\s*\(/)
+  assert.doesNotMatch(requestApprovals, /\b(?:updateSession|deleteSession|cancelSession|rescheduleSession)\s*\(/)
+  assert.doesNotMatch(requestApprovals, /await updateContract\(/)
+})
+
+test('unsafe leave, orphan, and learner lifecycle actions are visibly disabled', () => {
+  assert.match(leaveApprovals, /Chưa thể duyệt đơn nghỉ an toàn/)
+  assert.doesNotMatch(leaveApprovals, /\b(?:updateSession|deleteSession|cancelSession|rescheduleSession)\s*\(/)
+  assert.match(orphanChecker, /Không thể xóa trực tiếp buổi tập/)
+  assert.doesNotMatch(orphanChecker, /deleteSession\s*\(/)
+  assert.match(scheduler, /studentSessionActionUnavailable/)
+  assert.doesNotMatch(scheduler, /\b(?:updateSession|deleteSession)\s*\(/)
+  assert.match(scheduler, /deployScheduleUnavailable/)
+  assert.doesNotMatch(scheduler, /\baddSession\s*\(/)
+  assert.match(studentDetail, /manualAttendanceUnavailable/)
+  assert.doesNotMatch(studentDetail, /\baddSession\s*\(/)
+})

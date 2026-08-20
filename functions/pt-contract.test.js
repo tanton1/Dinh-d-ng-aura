@@ -10,6 +10,8 @@ const rulesSource = readFileSync(join(__dirname, '..', 'firestore.rules'), 'utf8
 const storageRulesSource = readFileSync(join(__dirname, '..', 'storage.rules'), 'utf8')
 const cycleMigrationSource = readFileSync(join(__dirname, 'scripts', 'backfill-pt-assignment-cycles.js'), 'utf8')
 const operationsV2Source = readFileSync(join(__dirname, 'pt-operations-v2.js'), 'utf8')
+const studentScheduleServiceSource = readFileSync(join(__dirname, '..', 'src', 'services', 'studentPtScheduleService.ts'), 'utf8')
+const studentSchedulePageSource = readFileSync(join(__dirname, '..', 'src', 'pages', 'student', 'SchedulePage.tsx'), 'utf8')
 
 test('PT lifecycle is exposed only through the expected atomic callables', () => {
   for (const name of [
@@ -96,9 +98,39 @@ test('student Gym schedule is self-scoped and availability writes are revision g
   assert.match(operationsV2Source, /const saveMyStudentAvailability = onCall/)
   assert.match(operationsV2Source, /actor\.accessRole !== 'student'/)
   assert.match(studentScheduleBlock, /where\('studentId', '==', profile\.id\)/)
+  assert.match(studentScheduleBlock, /where\('date', '>=', from\)/)
+  assert.match(studentScheduleBlock, /where\('date', '<=', to\)/)
+  assert.match(studentScheduleBlock, /orderBy\('date', 'asc'\)/)
+  assert.match(studentScheduleBlock, /sessionsSnapshot\.docs\.slice\(0, 1000\)/)
+  assert.doesNotMatch(studentScheduleBlock, /where\('studentId', '==', profile\.id\)\.limit\(500\)/)
+  assert.match(operationsV2Source, /source: 'crm_profile_id'/)
+  assert.match(operationsV2Source, /source: 'auth_uid'/)
+  assert.match(studentScheduleBlock, /status: 'profile_not_linked'/)
+  assert.match(studentScheduleBlock, /status: 'linked'/)
+  assert.match(studentScheduleBlock, /sessionsTruncated:/)
   assert.match(studentScheduleBlock, /currentRevision !== expectedRevision/)
+  assert.match(studentScheduleBlock, /issueCode: 'REVISION_CONFLICT'/)
   assert.match(studentScheduleBlock, /scheduleNeedsReview: true/)
   assert.doesNotMatch(studentScheduleBlock, /request\.data\?\.studentId/)
+})
+
+test('student schedule client maps callable failures to actionable structured states', () => {
+  for (const issueCode of [
+    'AUTH_REQUIRED',
+    'ACCESS_SYNC_REQUIRED',
+    'ACCESS_DENIED',
+    'STUDENT_ROLE_REQUIRED',
+    'PROFILE_NOT_LINKED',
+    'REVISION_CONFLICT',
+    'SYNC_UNAVAILABLE',
+  ]) {
+    assert.match(studentScheduleServiceSource, new RegExp(`'${issueCode}'`))
+  }
+  assert.match(studentScheduleServiceSource, /details\.issueCode/)
+  assert.match(studentScheduleServiceSource, /replace\(\/\^functions\\\//)
+  assert.match(studentSchedulePageSource, /issue\.issueCode/)
+  assert.match(studentSchedulePageSource, /crmProfileIdConfigured/)
+  assert.match(studentSchedulePageSource, /if \(issue\.issueCode === 'REVISION_CONFLICT'\) await load\(\)/)
 })
 
 test('assignment-cycle backfill is stable, dry-run by default and non-destructive', () => {

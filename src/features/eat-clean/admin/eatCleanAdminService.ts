@@ -16,6 +16,8 @@ import {
   type EatCleanOrderPatch,
   type EatCleanOrderStatus,
   type EatCleanPaymentStatus,
+  type EatCleanRefundJob,
+  type EatCleanRefundStatus,
   type SaveEatCleanConfigInput,
   type SaveEatCleanMealInput,
   type UpdateEatCleanOrderInput,
@@ -53,6 +55,12 @@ function stringArray(value: unknown) {
 const MEAL_CATEGORIES = new Set<EatCleanMealCategory>(['breakfast', 'lunch', 'dinner', 'snack'])
 const ORDER_STATUSES = new Set<EatCleanOrderStatus>(['pending_confirmation', 'confirmed', 'preparing', 'ready', 'out_for_delivery', 'delivered', 'cancelled'])
 const PAYMENT_STATUSES = new Set<EatCleanPaymentStatus>(['unpaid', 'paid', 'refunded'])
+const REFUND_STATUSES = new Set<EatCleanRefundStatus>([
+  'blocked_provider_not_configured',
+  'manual_review_required',
+  'refunded',
+  'rejected',
+])
 
 function normalizeSlot(value: unknown, index: number): EatCleanDeliverySlot {
   const source = asRecord(value)
@@ -181,6 +189,29 @@ function normalizeOrderLine(value: unknown, index: number): EatCleanOrderLine {
   }
 }
 
+function normalizeRefund(value: unknown): EatCleanRefundJob | null {
+  const source = asRecord(value)
+  const orderId = text(source.orderId)
+  const rawStatus = text(source.status) as EatCleanRefundStatus
+  if (!orderId || !REFUND_STATUSES.has(rawStatus)) return null
+  return {
+    id: text(source.id, orderId),
+    orderId,
+    amount: integer(source.amount),
+    currency: text(source.currency, 'VND'),
+    paymentMethod: text(source.paymentMethod, 'COD'),
+    paymentProvider: source.paymentProvider == null ? null : text(source.paymentProvider),
+    status: rawStatus,
+    reason: text(source.reason) || undefined,
+    refundMode: source.refundMode === 'full' || source.refundMode === 'manual_review' ? source.refundMode : undefined,
+    adjustmentId: text(source.adjustmentId) || undefined,
+    reversalAdjustmentId: text(source.reversalAdjustmentId) || undefined,
+    externalReference: text(source.externalReference) || undefined,
+    requestedAt: source.requestedAt,
+    resolvedAt: source.resolvedAt,
+  }
+}
+
 function normalizeOrder(value: unknown, index: number): EatCleanOrder {
   const source = asRecord(value)
   const customer = asRecord(source.customer)
@@ -211,6 +242,7 @@ function normalizeOrder(value: unknown, index: number): EatCleanOrder {
     paymentMethod: text(source.paymentMethod) || undefined,
     note: text(source.note) || undefined,
     adminNote: text(source.adminNote) || undefined,
+    refund: normalizeRefund(source.refund),
     createdAt: source.createdAt,
     updatedAt: source.updatedAt,
   }
@@ -231,6 +263,7 @@ function normalizeAdminData(value: unknown): EatCleanAdminData {
     ...EMPTY_EAT_CLEAN_SUMMARY,
     totalOrders: integer(rawSummary.totalOrders, orders.length),
     deliveredRevenue: integer(rawSummary.deliveredRevenue),
+    pendingRefunds: integer(rawSummary.pendingRefunds),
     byStatus,
   }
   const seeded = typeof source.seeded === 'boolean'
@@ -276,6 +309,39 @@ export async function saveEatCleanConfig(input: SaveEatCleanConfigInput): Promis
 export async function updateEatCleanOrder(input: UpdateEatCleanOrderInput): Promise<EatCleanOrderPatch> {
   const callable = httpsCallable<UpdateEatCleanOrderInput, { order: EatCleanOrderPatch }>(functionsClient(), 'updateEatCleanOrder')
   return (await callable(input)).data.order
+}
+
+export async function recordEatCleanRefundOutcome(input: {
+  orderId: string
+  outcome: 'refunded' | 'rejected'
+  idempotencyKey: string
+  externalReference?: string
+  note?: string
+  confirmedExternally?: boolean
+}): Promise<{ orderId: string; outcome: 'refunded' | 'rejected'; adjustmentId: string; idempotent: boolean }> {
+  const callable = httpsCallable<typeof input, {
+    orderId: string
+    outcome: 'refunded' | 'rejected'
+    adjustmentId: string
+    idempotent: boolean
+  }>(functionsClient(), 'recordEatCleanRefundOutcome')
+  return (await callable(input)).data
+}
+
+export async function reverseEatCleanRefundOutcome(input: {
+  orderId: string
+  adjustmentId: string
+  idempotencyKey: string
+  externalReference: string
+  reason: string
+  confirmedExternally: true
+}): Promise<{ orderId: string; adjustmentId: string; idempotent: boolean }> {
+  const callable = httpsCallable<typeof input, {
+    orderId: string
+    adjustmentId: string
+    idempotent: boolean
+  }>(functionsClient(), 'reverseEatCleanRefundOutcome')
+  return (await callable(input)).data
 }
 
 export function getEatCleanAdminErrorMessage(error: unknown): string {

@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict')
-const { existsSync, readFileSync } = require('node:fs')
+const { existsSync, readFileSync, readdirSync } = require('node:fs')
 const { join } = require('node:path')
 const { test } = require('node:test')
 
@@ -13,6 +13,28 @@ const mealDetailSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'stud
 const firebaseServiceSource = readFileSync(join(repositoryRoot, 'src', 'services', 'firebaseService.ts'), 'utf8')
 const notificationServiceSource = readFileSync(join(repositoryRoot, 'src', 'services', 'notificationService.ts'), 'utf8')
 const typesSource = readFileSync(join(repositoryRoot, 'src', 'types.ts'), 'utf8')
+const serverSource = readFileSync(join(repositoryRoot, 'server.ts'), 'utf8')
+const packageManifest = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8'))
+const databaseContextSource = readFileSync(join(repositoryRoot, 'src', 'contexts', 'DatabaseContext.tsx'), 'utf8')
+const addSessionsModalSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'AddSessionsModal.tsx'), 'utf8')
+const renewContractModalSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'RenewContractModal.tsx'), 'utf8')
+const adminRolesSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'admin', 'AdminRolesPage.tsx'), 'utf8')
+const accessRouteSource = readFileSync(join(repositoryRoot, 'src', 'identity', 'access.ts'), 'utf8')
+const studentIdentityLinkSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-student-identity-link.cjs'), 'utf8')
+
+function readRuntimeSources(directory) {
+  return readdirSync(directory, { withFileTypes: true })
+    .flatMap((entry) => {
+      const absolutePath = join(directory, entry.name)
+      if (entry.isDirectory()) return readRuntimeSources(absolutePath)
+      if (!/\.(?:ts|tsx)$/.test(entry.name)) return []
+      return [`\n/* ${absolutePath} */\n${readFileSync(absolutePath, 'utf8')}`]
+    })
+    .join('\n')
+}
+
+const runtimeSource = readRuntimeSources(join(repositoryRoot, 'src'))
+const adminRuntimeSource = readRuntimeSources(join(repositoryRoot, 'src', 'components', 'admin'))
 
 test('profile rules prevent client role and membership changes', () => {
   assert.match(rules, /function hasOnlySafeUserChanges\(\)/)
@@ -72,6 +94,166 @@ test('production auth has no email role bootstrap or unconditional demo OTP', ()
   assert.match(authSource, /import\.meta\.env\.MODE === 'e2e' && import\.meta\.env\.VITE_ENABLE_DEMO_OTP === 'true'/)
   assert.equal(existsSync(join(repositoryRoot, 'deleteRecreate.mjs')), false)
   assert.equal(existsSync(join(repositoryRoot, 'import-client.mjs')), false)
+})
+
+test('legacy Express authentication never accepts an unsigned JWT payload', () => {
+  const requireAuthSource = serverSource.match(/async function requireAuth[\s\S]*?\n  const aiRateLimiter/)?.[0] ?? ''
+
+  assert.match(requireAuthSource, /verifyIdToken\(token, true\)/)
+  assert.match(requireAuthSource, /return res\.status\(401\)\.json\(\{[\s\S]*?UNAUTHENTICATED/)
+  assert.doesNotMatch(requireAuthSource, /token\.split\(['"]\.['"]\)/)
+  assert.doesNotMatch(requireAuthSource, /Buffer\.from/)
+  assert.doesNotMatch(requireAuthSource, /atob\(/)
+  assert.doesNotMatch(requireAuthSource, /JSON\.parse\([^)]*(?:payload|token)/i)
+})
+
+test('production scripts serve only the Vite static frontend', () => {
+  const scripts = packageManifest.scripts ?? {}
+  assert.match(String(scripts.start ?? ''), /^vite preview\b/)
+  assert.match(String(scripts.dev ?? ''), /^vite\b/)
+
+  for (const [name, command] of Object.entries(scripts)) {
+    assert.doesNotMatch(String(command), /(?:tsx|node|nodemon|ts-node)\s+(?:\.\/)?server\.ts\b/, `${name} must not start legacy server.ts`)
+  }
+})
+
+test('browser runtime has no dependency on retired same-origin /api routes', () => {
+  assert.doesNotMatch(runtimeSource, /fetch\s*\(\s*['"`]\/api(?:\/|['"`])/)
+  assert.doesNotMatch(runtimeSource, /(?:axios|ky)(?:\.[a-z]+)?\s*\(\s*['"`]\/api(?:\/|['"`])/)
+  assert.doesNotMatch(runtimeSource, /httpsCallable[^\n]+['"`]\/api\//)
+})
+
+test('admin browser code cannot provision Firebase Auth users or use phone numbers as passwords', () => {
+  assert.doesNotMatch(adminRuntimeSource, /createUserWithEmailAndPassword/)
+  assert.doesNotMatch(adminRuntimeSource, /\bgetAuth\s*\(/)
+  assert.doesNotMatch(adminRuntimeSource, /\binitializeApp\s*\(/)
+  assert.doesNotMatch(adminRuntimeSource, /password\s*[:=][^\n]*(?:phone|phoneNumber|student\.phone)/i)
+  assert.match(adminRuntimeSource, /createAccountInvite/)
+})
+
+test('legacy finance and session delete entry points fail closed', () => {
+  const deleteContractSource = databaseContextSource.match(/const deleteContract[\s\S]*?\n  const addPayment/)?.[0] ?? ''
+  const addPaymentSource = databaseContextSource.match(/const addPayment[\s\S]*?\n  const deletePayment/)?.[0] ?? ''
+  const deletePaymentSource = databaseContextSource.match(/const deletePayment[\s\S]*?\n  const addSession/)?.[0] ?? ''
+  const deleteSessionSource = databaseContextSource.match(/const deleteSession[\s\S]*?\n  const addTrainer/)?.[0] ?? ''
+
+  assert.match(deleteContractSource, /throw new Error/)
+  assert.match(addPaymentSource, /throw new Error/)
+  assert.match(deletePaymentSource, /throw new Error/)
+  assert.match(deleteSessionSource, /throw new Error/)
+  assert.doesNotMatch(deleteContractSource, /deleteDoc|transaction\.delete|batch\.delete/)
+  assert.doesNotMatch(addPaymentSource, /setDoc|addDoc|transaction\.set|batch\.set/)
+  assert.doesNotMatch(deletePaymentSource, /deleteDoc|transaction\.delete|batch\.delete/)
+  assert.doesNotMatch(deleteSessionSource, /deleteDoc|transaction\.delete|batch\.delete/)
+})
+
+test('Firestore rules deny hard-delete of legacy contracts, payments, and sessions', () => {
+  for (const collectionName of ['contracts', 'payments', 'sessions']) {
+    const block = rules.match(new RegExp(`match \/${collectionName}\\/\\{documentId\\} \\{[\\s\\S]*?\\n    \\}`))?.[0] ?? ''
+    assert.match(block, /allow read, create, update: if isAdmin\(\)/, `${collectionName} must remain admin-readable during migration`)
+    assert.match(block, /allow delete: if false/, `${collectionName} hard-delete must be denied to every browser client`)
+    assert.doesNotMatch(block, /allow[^;]*delete[^;]*if isAdmin\(\)/)
+  }
+})
+
+test('unsafe purchase and renewal forms cannot partially mutate contracts or payments', () => {
+  const purchaseSubmit = addSessionsModalSource.match(/const handleSubmit[\s\S]*?\n  \};/)?.[0] ?? ''
+  const renewalSubmit = renewContractModalSource.match(/const handleSubmit[\s\S]*?\n  \};/)?.[0] ?? ''
+
+  assert.doesNotMatch(purchaseSubmit, /onSave|addPayment|addContract|updateContract|setDoc|updateDoc/)
+  assert.doesNotMatch(renewalSubmit, /addPayment|addContract|updateContract|setDoc|updateDoc/)
+  assert.match(addSessionsModalSource, /Tạm khóa để bảo vệ sổ tài chính/)
+  assert.match(renewContractModalSource, /Gia hạn đang được khóa an toàn/)
+  assert.match(addSessionsModalSource, /type="submit"[\s\S]*?disabled[\s\S]*?Đang nâng cấp an toàn/)
+  assert.match(renewContractModalSource, /type="submit"[\s\S]*?disabled[\s\S]*?Đang nâng cấp an toàn/)
+})
+
+test('legacy role editor does not assign scoped staff positions or let normal admin manage admin roles', () => {
+  const roleChoices = adminRolesSource.match(/const roles: UserRole\[\] = \[[\s\S]*?\n\]/)?.[0] ?? ''
+  const roleChange = adminRolesSource.match(/const changeRole[\s\S]*?\n  \}/)?.[0] ?? ''
+  const legacyRoleCallable = functionsSource.match(/exports\.updateUserRole = onCall[\s\S]*?function requireCaller/)?.[0] ?? ''
+
+  assert.doesNotMatch(roleChoices, /'trainer'|'sales'|'manager'/)
+  assert.match(adminRolesSource, /staffPositionRoles\.has\(user\.role\)/)
+  assert.match(roleChange, /nextRole === 'admin'/)
+  assert.match(roleChange, /nextRole === 'super_admin'/)
+  assert.match(adminRolesSource, /Mở quản lý nhân sự/)
+  assert.match(legacyRoleCallable, /protectedAdminRoles = new Set\(\['admin', 'super_admin'\]\)/)
+  assert.match(legacyRoleCallable, /actorRole !== 'super_admin'/)
+  assert.match(legacyRoleCallable, /protectedAdminRoles\.has\(nextRole\)/)
+})
+
+test('sensitive operations routes require Identity v2 capabilities in addition to legacy UI roles', () => {
+  const expectedRoutes = {
+    'admin-dashboard': 'pt.operations.manage',
+    'admin-pt-students': 'pt.operations.manage',
+    'admin-pt-schedule': 'pt.operations.manage',
+    'admin-report': 'pt.operations.manage',
+    'admin-finance': 'finance.operations.manage',
+    'admin-hr': 'identity.staff_position.manage',
+    'admin-payroll': 'payroll.operations.manage',
+    'admin-roles': 'identity.staff_position.manage',
+  }
+  for (const [route, capability] of Object.entries(expectedRoutes)) {
+    assert.ok(
+      accessRouteSource.includes(`'${route}': '${capability}'`),
+      `${route} must require ${capability}`,
+    )
+  }
+})
+
+test('legacy operations listeners are route scoped and never load the admin dashboard', () => {
+  const viewScope = databaseContextSource.match(/const LEGACY_OPERATIONS_VIEW_SOURCES = \{[\s\S]*?\n\} as const satisfies/)?.[0] ?? ''
+
+  assert.doesNotMatch(viewScope, /['"]admin-dashboard['"]/, 'the dashboard must use aggregate APIs, not legacy listeners')
+  assert.match(viewScope, /'admin-finance': \['branches', 'contracts', 'students', 'payments'\]/)
+  assert.match(viewScope, /'admin-schedule-settings': \['scheduleConfig'\]/)
+  assert.match(databaseContextSource, /const activeSources = new Set<LegacyOperationSource>\(LEGACY_OPERATIONS_VIEW_SOURCES\[operationsView\]\)/)
+  assert.match(databaseContextSource, /const expectedInitialSnapshots = new Set<LegacyOperationSource>\(activeSources\)/)
+
+  const scopedListenerCalls = databaseContextSource.match(/if \(activeSources\.has\('[^']+'\)\) unsubs\.push\(onSnapshot/g) ?? []
+  const allListenerCalls = databaseContextSource.match(/unsubs\.push\(onSnapshot/g) ?? []
+  assert.equal(
+    scopedListenerCalls.length,
+    allListenerCalls.length,
+    'every legacy realtime listener must be guarded by its active route source',
+  )
+
+  for (const source of [
+    'students', 'contracts', 'sessions', 'payments', 'leaveRequests',
+    'workoutLogs', 'sessionRequests', 'scheduleConfig', 'trainers',
+    'branches', 'packages', 'staff', 'dailyCheckins', 'schedules',
+  ]) {
+    assert.match(
+      databaseContextSource,
+      new RegExp(`activeSources\\.has\\('${source}'\\)`),
+      `${source} listener must be guarded by the active route scope`,
+    )
+  }
+
+  assert.doesNotMatch(databaseContextSource, /markReady\(['"]globalSchedule['"]\)/)
+  assert.doesNotMatch(databaseContextSource, /onSnapshot\(doc\(db, ['"]schedules['"], ['"]global_schedule['"]\)/)
+})
+
+test('student identity linking is target-only, digest-gated, scoped to learners, and PII-safe', () => {
+  assert.match(studentIdentityLinkSource, /const TARGET_PROJECT = 'gen-lang-client-0815966909'/)
+  assert.match(studentIdentityLinkSource, /const TARGET_DATABASE = 'ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7'/)
+  assert.doesNotMatch(studentIdentityLinkSource, /gen-lang-client-0246058381|aura-fitness-db/)
+  assert.match(studentIdentityLinkSource, /suppliedDigest !== actualDigest/)
+  assert.match(studentIdentityLinkSource, /dryRun\.report\.planDigest !== plan\.planDigest/)
+  assert.match(studentIdentityLinkSource, /confirmation !== APPLY_CONFIRMATION/)
+  assert.match(studentIdentityLinkSource, /accessRole: 'student'/)
+  assert.match(studentIdentityLinkSource, /crmProfileId: item\.student\.id/)
+  assert.match(studentIdentityLinkSource, /staff_record_match/)
+  assert.match(studentIdentityLinkSource, /auth_matches_multiple_crm_profiles/)
+  assert.match(studentIdentityLinkSource, /UIDs and CRM IDs are SHA-256 hashed/)
+  assert.doesNotMatch(studentIdentityLinkSource, /console\.(?:log|error)\([^)]*(?:email|phone|displayName)/)
+
+  const applyCandidateSource = studentIdentityLinkSource.match(/async function applyCandidate[\s\S]*?\n\}/)?.[0] ?? ''
+  assert.ok(
+    applyCandidateSource.indexOf('writeIdentityDocuments') < applyCandidateSource.indexOf('setCustomUserClaims'),
+    'the assignment must become fail-closed before Auth claims are coordinated',
+  )
 })
 
 test('production authentication stays on the authorized Vercel application origin', () => {

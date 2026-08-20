@@ -3,9 +3,10 @@ import { defineConfig, devices } from '@playwright/test'
 const localChromeExecutable = process.platform === 'win32'
   ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
   : undefined
-const previewCommand = process.env.CI
-  ? 'npx vite build --mode e2e && npm run preview -- --host 127.0.0.1 --port 4173'
-  : 'npm run preview -- --host 127.0.0.1 --port 4173'
+// Always create the deterministic E2E bundle before starting the preview.
+// Reusing an arbitrary production `dist` locally makes every protected route
+// redirect to Auth and produces a large set of false-negative UI failures.
+const previewCommand = 'npx vite build --mode e2e && npm run preview -- --host 127.0.0.1 --port 4173'
 
 export default defineConfig({
   testDir: './tests/e2e',

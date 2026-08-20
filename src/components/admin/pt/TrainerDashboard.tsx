@@ -68,7 +68,7 @@ export default function TrainerDashboard({ profile, user, trainerId: propTrainer
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const todaySessions = sessions
-    .filter(s => s.trainerId === trainerId && s.date === todayStr && s.status === 'scheduled')
+    .filter(s => s.trainerId === trainerId && s.date.slice(0, 10) === todayStr && (s.status === 'scheduled' || s.status === 'rescheduled'))
     .sort((a, b) => (a.hour || 0) - (b.hour || 0));
 
   const scheduleBySlot = useMemo(() => {

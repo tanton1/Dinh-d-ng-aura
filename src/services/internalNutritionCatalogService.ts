@@ -4,9 +4,11 @@ import { firebaseFunctions } from '../lib/firebase'
 export interface InternalNutritionCatalogQuery {
   query?: string
   kind?: 'all' | 'dish' | 'food'
+  category?: string
   limit?: number
   ids?: string[]
   cursor?: string
+  catalogVersion?: string
 }
 
 export interface InternalNutritionCatalogResponse {
@@ -14,6 +16,10 @@ export interface InternalNutritionCatalogResponse {
   hasMore: boolean
   nextCursor: string | null
   totalCount: number
+  catalogTotal?: number
+  filteredCount?: number
+  catalogVersion?: string
+  categories?: string[]
   restricted: true
 }
 

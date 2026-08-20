@@ -193,8 +193,9 @@ exports.updateUserRole = onCall(async (request) => {
 
   const targetUser = await auth.getUser(targetUid)
   const previousRole = targetUser.customClaims?.role ?? 'student'
-  if (actorRole !== 'super_admin' && (previousRole === 'super_admin' || nextRole === 'super_admin')) {
-    throw new HttpsError('permission-denied', 'Chỉ Super Administrator được quản lý vai trò cao nhất.')
+  const protectedAdminRoles = new Set(['admin', 'super_admin'])
+  if (actorRole !== 'super_admin' && (protectedAdminRoles.has(previousRole) || protectedAdminRoles.has(nextRole))) {
+    throw new HttpsError('permission-denied', 'Chỉ Super Administrator được cấp, hạ hoặc thay đổi quyền quản trị.')
   }
 
   const nextClaims = { ...(targetUser.customClaims ?? {}), role: nextRole }
@@ -1129,7 +1130,10 @@ exports.getMyMealPlan = onCall(async (request) => {
   return { mealPlan: serializeAdminContent(planSnapshot) }
 })
 
-const coursePublicationStatuses = new Set(['draft', 'review', 'scheduled', 'published', 'archived'])
+const coursePublicationStatuses = new Set(['draft', 'review', 'approved', 'scheduled', 'published', 'archived'])
+// There is no deployed Academy scheduler yet. Keep this fail-closed until a
+// backend job that atomically promotes due courses is implemented and tested.
+const academyCoursePublishingSchedulerAvailable = false
 const courseLessonTypes = new Set(['Video', 'Bài đọc', 'Quiz'])
 const courseResourceKinds = new Set(['slide', 'video', 'document'])
 const courseCompletionModes = new Set(['manual', 'media-progress', 'quiz-pass'])
@@ -1217,11 +1221,11 @@ function normalizeCourseAssetReference(value, courseIdentifier, lessonIdentifier
 function normalizeCourseDraftInput(value) {
   if (!isPlainObject(value)) throw new HttpsError('invalid-argument', 'Dữ liệu khóa học không hợp lệ.')
   const identifier = courseId(value.id, 'Mã khóa học')
-  const requestedStatus = value.publish === true ? 'published' : value.publicationStatus
+  const requestedStatus = value.publicationStatus
   if (!coursePublicationStatuses.has(requestedStatus)) {
     throw new HttpsError('invalid-argument', 'Trạng thái xuất bản không hợp lệ.')
   }
-  if (requestedStatus === 'scheduled') {
+  if (requestedStatus === 'scheduled' && !academyCoursePublishingSchedulerAvailable) {
     throw new HttpsError(
       'failed-precondition',
       'Tính năng lên lịch xuất bản chưa được kích hoạt. Hãy gửi duyệt hoặc xuất bản trực tiếp.',
@@ -1458,23 +1462,21 @@ function normalizeCourseDraftInput(value) {
   }
 }
 
-function assertCourseStatusTransition(currentStatus, nextStatus, role, exists) {
-  if (role === 'editor') {
-    if (!['draft', 'review'].includes(nextStatus)
-        || (exists && !['draft', 'review'].includes(currentStatus))) {
-      throw new HttpsError('permission-denied', 'Biên tập viên chỉ được lưu bản nháp hoặc gửi duyệt.')
-    }
-    return
+function assertCourseContentSaveStatus(currentStatus, nextStatus, role, exists) {
+  if (!['draft', 'review'].includes(nextStatus)) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Nội dung chỉ được chỉnh ở bản nháp hoặc bản đang chờ duyệt. Hãy dùng quy trình duyệt để đổi trạng thái.',
+    )
   }
-  const transitions = {
-    draft: new Set(['draft', 'review', 'published', 'archived']),
-    review: new Set(['draft', 'review', 'scheduled', 'published', 'archived']),
-    scheduled: new Set(['draft', 'review', 'scheduled', 'published', 'archived']),
-    published: new Set(['draft', 'published', 'archived']),
-    archived: new Set(['draft', 'archived']),
+  if (exists && !['draft', 'review'].includes(currentStatus)) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Phiên bản đã duyệt, xuất bản hoặc lưu trữ là bất biến. Hãy khôi phục một revision thành bản nháp mới để chỉnh sửa.',
+    )
   }
-  if (exists && (!transitions[currentStatus] || !transitions[currentStatus].has(nextStatus))) {
-    throw new HttpsError('failed-precondition', `Không thể chuyển khóa học từ ${currentStatus} sang ${nextStatus}.`)
+  if (role === 'editor' && !['draft', 'review'].includes(nextStatus)) {
+    throw new HttpsError('permission-denied', 'Biên tập viên chỉ được lưu bản nháp hoặc gửi duyệt.')
   }
 }
 
@@ -1585,7 +1587,7 @@ exports.saveCourseDraftAtomic = onCall({ cpu: 'gcf_gen1', maxInstances: 3 }, asy
         { expectedRevision, currentRevision },
       )
     }
-    assertCourseStatusTransition(existingCourse.status ?? 'draft', normalized.requestedStatus, actor.role, courseSnapshot.exists)
+    assertCourseContentSaveStatus(existingCourse.status ?? 'draft', normalized.requestedStatus, actor.role, courseSnapshot.exists)
     const existingKeys = new Map(quizKeySnapshot.docs.map((snapshot) => [snapshot.id, snapshot.data()]))
     const quizDocuments = new Map()
     for (const [lessonId, quiz] of normalized.quizDefinitions) {
@@ -1609,14 +1611,11 @@ exports.saveCourseDraftAtomic = onCall({ cpu: 'gcf_gen1', maxInstances: 3 }, asy
         contentHash,
       })
     }
-    if (normalized.requestedStatus === 'review' || normalized.requestedStatus === 'published') {
+    if (normalized.requestedStatus === 'review') {
       assertCourseReadyToPublish(normalized.course, quizDocuments)
     }
 
     savedRevision = currentRevision + 1
-    const firstPublishedAt = normalized.requestedStatus === 'published'
-      ? existingCourse.publishedAt ?? FieldValue.serverTimestamp()
-      : existingCourse.publishedAt
     const nextCourse = {
       ...normalized.course,
       revision: savedRevision,
@@ -1626,7 +1625,7 @@ exports.saveCourseDraftAtomic = onCall({ cpu: 'gcf_gen1', maxInstances: 3 }, asy
       updatedBy: actor.actorId,
       revisionUpdatedAt: FieldValue.serverTimestamp(),
       revisionUpdatedBy: actor.actorId,
-      ...(firstPublishedAt ? { publishedAt: firstPublishedAt } : {}),
+      ...(existingCourse.publishedAt ? { publishedAt: existingCourse.publishedAt } : {}),
     }
     const revisionId = `${normalized.identifier}_${String(savedRevision).padStart(6, '0')}`
     const revisionCourse = { ...normalized.course, revision: savedRevision }
@@ -1677,6 +1676,210 @@ exports.saveCourseDraftAtomic = onCall({ cpu: 'gcf_gen1', maxInstances: 3 }, asy
   return { courseId: normalized.identifier, revision: savedRevision, status: normalized.requestedStatus }
 })
 
+function immutableCourseRevisionSnapshot(value, status, revision) {
+  const {
+    createdAt: _createdAt,
+    createdBy: _createdBy,
+    updatedAt: _updatedAt,
+    updatedBy: _updatedBy,
+    revisionUpdatedAt: _revisionUpdatedAt,
+    revisionUpdatedBy: _revisionUpdatedBy,
+    approvedAt: _approvedAt,
+    approvedBy: _approvedBy,
+    publishedAt: _publishedAt,
+    publishedBy: _publishedBy,
+    archivedAt: _archivedAt,
+    archivedBy: _archivedBy,
+    ...content
+  } = value
+  return { ...content, status, revision }
+}
+
+function immutableQuizRevisionSnapshot(snapshot) {
+  const value = snapshot.data()
+  return {
+    quizId: typeof value.quizId === 'string' ? value.quizId : snapshot.id,
+    passPercent: Number.isInteger(value.passPercent) ? value.passPercent : 0,
+    answers: isPlainObject(value.answers) ? value.answers : {},
+    questionCount: Number.isInteger(value.questionCount) ? value.questionCount : 0,
+    contentHash: typeof value.contentHash === 'string' ? value.contentHash : '',
+  }
+}
+
+/**
+ * Moves a saved course through the server-owned publication workflow.
+ * Content editing and publication are intentionally separate operations so an
+ * editor cannot smuggle an approval status inside a content save.
+ */
+exports.transitionCoursePublicationStatus = onCall({ cpu: 'gcf_gen1', maxInstances: 3 }, async (request) => {
+  const actor = await requireTrustedAcademyStaffContext(request)
+  if (!privilegedAdminRoles.has(actor.role)) {
+    throw new HttpsError('permission-denied', 'Chỉ Administrator được duyệt, xuất bản hoặc lưu trữ khóa học.')
+  }
+  const targetCourseId = courseId(request.data?.courseId, 'Mã khóa học')
+  const expectedRevision = Number(request.data?.expectedRevision)
+  const nextStatus = request.data?.nextStatus
+  if (!Number.isInteger(expectedRevision) || expectedRevision < 1 || !coursePublicationStatuses.has(nextStatus)) {
+    throw new HttpsError('invalid-argument', 'Yêu cầu chuyển trạng thái khóa học không hợp lệ.')
+  }
+  if (nextStatus === 'scheduled' && !academyCoursePublishingSchedulerAvailable) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Lên lịch xuất bản đang khóa vì chưa có scheduler backend. Hãy xuất bản thủ công sau khi nội dung được duyệt.',
+    )
+  }
+
+  const allowedTransitions = {
+    review: new Set(['approved']),
+    approved: new Set(academyCoursePublishingSchedulerAvailable ? ['scheduled', 'published'] : ['published']),
+    scheduled: new Set(['published']),
+    published: new Set(['archived']),
+  }
+  const courseReference = db.doc(`courses/${targetCourseId}`)
+  let nextRevision = 0
+  await db.runTransaction(async (transaction) => {
+    const [courseSnapshot, quizKeySnapshot] = await Promise.all([
+      transaction.get(courseReference),
+      transaction.get(courseReference.collection('quizKeys')),
+    ])
+    if (!courseSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy khóa học.')
+    const current = courseSnapshot.data()
+    const currentStatus = current.status ?? 'draft'
+    const currentRevision = Number(current.revision) || 0
+    if (currentRevision !== expectedRevision) {
+      throw new HttpsError(
+        'aborted',
+        'Khóa học đã thay đổi ở một phiên khác. Hãy tải lại trước khi duyệt hoặc xuất bản.',
+        { expectedRevision, currentRevision },
+      )
+    }
+    if (!allowedTransitions[currentStatus]?.has(nextStatus)) {
+      throw new HttpsError('failed-precondition', `Không thể chuyển khóa học từ ${currentStatus} sang ${nextStatus}.`)
+    }
+
+    const quizDocuments = new Map(quizKeySnapshot.docs.map((item) => [item.id, immutableQuizRevisionSnapshot(item)]))
+    if (nextStatus === 'approved' || nextStatus === 'published' || nextStatus === 'scheduled') {
+      assertCourseReadyToPublish(current, quizDocuments)
+    }
+    nextRevision = currentRevision + 1
+    const revisionCourse = immutableCourseRevisionSnapshot(current, nextStatus, nextRevision)
+    const revisionQuizKeys = Object.fromEntries(quizDocuments)
+    const revisionPayload = JSON.stringify({ course: revisionCourse, quizKeys: revisionQuizKeys })
+    if (Buffer.byteLength(revisionPayload, 'utf8') > 750 * 1024) {
+      throw new HttpsError('resource-exhausted', 'Khóa học đã vượt giới hạn an toàn của một phiên bản.')
+    }
+    const lifecycleFields = nextStatus === 'approved'
+      ? { approvedAt: FieldValue.serverTimestamp(), approvedBy: actor.actorId }
+      : nextStatus === 'published'
+        ? {
+            publishedAt: current.publishedAt ?? FieldValue.serverTimestamp(),
+            publishedBy: actor.actorId,
+          }
+        : nextStatus === 'archived'
+          ? { archivedAt: FieldValue.serverTimestamp(), archivedBy: actor.actorId }
+          : {}
+
+    transaction.update(courseReference, {
+      status: nextStatus,
+      revision: nextRevision,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actor.actorId,
+      revisionUpdatedAt: FieldValue.serverTimestamp(),
+      revisionUpdatedBy: actor.actorId,
+      ...lifecycleFields,
+    })
+    transaction.create(db.doc(`courseRevisions/${targetCourseId}_${String(nextRevision).padStart(6, '0')}`), {
+      courseId: targetCourseId,
+      revision: nextRevision,
+      transition: { from: currentStatus, to: nextStatus },
+      contentHash: createHash('sha256').update(revisionPayload).digest('hex'),
+      course: revisionCourse,
+      quizKeys: revisionQuizKeys,
+      createdBy: actor.actorId,
+      createdAt: FieldValue.serverTimestamp(),
+    })
+    transaction.set(db.collection('auditLogs').doc(), {
+      action: 'course.status.changed',
+      actorUid: actor.actorId,
+      targetId: targetCourseId,
+      previousStatus: currentStatus,
+      status: nextStatus,
+      revision: nextRevision,
+      createdAt: FieldValue.serverTimestamp(),
+    })
+  })
+  return { courseId: targetCourseId, revision: nextRevision, status: nextStatus }
+})
+
+function academyDiffValue(value) {
+  if (value === undefined) return null
+  if (typeof value === 'string') return value.length > 500 ? `${value.slice(0, 497)}...` : value
+  if (typeof value === 'number' || typeof value === 'boolean' || value === null) return value
+  try {
+    const serialized = JSON.stringify(value)
+    return serialized.length > 500 ? `${serialized.slice(0, 497)}...` : serialized
+  } catch {
+    return '[Dữ liệu phức hợp]'
+  }
+}
+
+function buildCourseRevisionDiff(fromCourse, toCourse) {
+  const changes = []
+  const addChange = (path, label, before, after) => {
+    if (JSON.stringify(before) === JSON.stringify(after) || changes.length >= 200) return
+    changes.push({ path, label, before: academyDiffValue(before), after: academyDiffValue(after) })
+  }
+  const scalarFields = [
+    ['title', 'Tên khóa học'], ['slug', 'Đường dẫn'], ['description', 'Mô tả'],
+    ['category', 'Danh mục'], ['level', 'Trình độ'], ['coach', 'Giảng viên'],
+    ['duration', 'Thời lượng'], ['outcomes', 'Kết quả học tập'], ['requirements', 'Yêu cầu đầu vào'],
+    ['coverUrl', 'Ảnh bìa'], ['status', 'Trạng thái'],
+  ]
+  for (const [field, label] of scalarFields) addChange(field, label, fromCourse[field], toCourse[field])
+  for (const field of ['accessTier', 'visibility', 'completionPercent', 'certificateEnabled', 'dripSchedule']) {
+    addChange(`settings.${field}`, `Thiết lập · ${field}`, fromCourse.settings?.[field], toCourse.settings?.[field])
+  }
+
+  const fromModules = new Map((Array.isArray(fromCourse.modules) ? fromCourse.modules : []).map((item) => [item.id, item]))
+  const toModules = new Map((Array.isArray(toCourse.modules) ? toCourse.modules : []).map((item) => [item.id, item]))
+  const moduleIds = new Set([...fromModules.keys(), ...toModules.keys()])
+  for (const moduleId of moduleIds) {
+    const beforeModule = fromModules.get(moduleId)
+    const afterModule = toModules.get(moduleId)
+    if (!beforeModule || !afterModule) {
+      addChange(`modules.${moduleId}`, `Chương · ${beforeModule?.title ?? afterModule?.title ?? moduleId}`, beforeModule ? 'Có' : 'Không', afterModule ? 'Có' : 'Không')
+      continue
+    }
+    addChange(`modules.${moduleId}.title`, `Tên chương · ${beforeModule.title || afterModule.title}`, beforeModule.title, afterModule.title)
+    addChange(`modules.${moduleId}.order`, `Thứ tự chương · ${beforeModule.title || afterModule.title}`, beforeModule.order, afterModule.order)
+    const beforeLessons = new Map((Array.isArray(beforeModule.lessons) ? beforeModule.lessons : []).map((item) => [item.id, item]))
+    const afterLessons = new Map((Array.isArray(afterModule.lessons) ? afterModule.lessons : []).map((item) => [item.id, item]))
+    for (const lessonId of new Set([...beforeLessons.keys(), ...afterLessons.keys()])) {
+      const beforeLesson = beforeLessons.get(lessonId)
+      const afterLesson = afterLessons.get(lessonId)
+      const lessonLabel = beforeLesson?.title ?? afterLesson?.title ?? lessonId
+      if (!beforeLesson || !afterLesson) {
+        addChange(`modules.${moduleId}.lessons.${lessonId}`, `Bài học · ${lessonLabel}`, beforeLesson ? 'Có' : 'Không', afterLesson ? 'Có' : 'Không')
+        continue
+      }
+      for (const field of ['title', 'type', 'duration', 'preview', 'summary', 'resources', 'tags', 'coachNotes', 'memory', 'quiz', 'primaryContent', 'completionPolicy']) {
+        addChange(`modules.${moduleId}.lessons.${lessonId}.${field}`, `Bài “${lessonLabel}” · ${field}`, beforeLesson[field], afterLesson[field])
+      }
+    }
+  }
+  return {
+    changes,
+    summary: {
+      changedFields: changes.length,
+      truncated: changes.length >= 200,
+      modulesBefore: fromModules.size,
+      modulesAfter: toModules.size,
+      lessonsBefore: [...fromModules.values()].reduce((sum, module) => sum + (module.lessons?.length ?? 0), 0),
+      lessonsAfter: [...toModules.values()].reduce((sum, module) => sum + (module.lessons?.length ?? 0), 0),
+    },
+  }
+}
+
 /** Returns immutable revision metadata without exposing private quiz answers. */
 exports.getCourseRevisionHistory = onCall(async (request) => {
   await requireTrustedAcademyStaffContext(request)
@@ -1694,7 +1897,46 @@ exports.getCourseRevisionHistory = onCall(async (request) => {
     createdAt: item.data().createdAt?.toDate?.().toISOString?.() || '',
     status: item.data().course?.status || 'draft',
     title: item.data().course?.title || '',
+    restoredFromRevision: Number.isInteger(item.data().restoredFromRevision)
+      ? item.data().restoredFromRevision
+      : null,
   })) }
+})
+
+/** Returns a bounded, answer-key-free field diff between two immutable revisions. */
+exports.getCourseRevisionDiff = onCall(async (request) => {
+  await requireTrustedAcademyStaffContext(request)
+  const targetCourseId = courseId(request.data?.courseId, 'Mã khóa học')
+  const fromRevision = Number(request.data?.fromRevision)
+  const toRevision = Number(request.data?.toRevision)
+  if (!Number.isInteger(fromRevision) || fromRevision < 1
+      || !Number.isInteger(toRevision) || toRevision < 1
+      || fromRevision === toRevision) {
+    throw new HttpsError('invalid-argument', 'Cần chọn hai phiên bản khác nhau để so sánh.')
+  }
+  const revisionReference = (revision) => db.doc(
+    `courseRevisions/${targetCourseId}_${String(revision).padStart(6, '0')}`,
+  )
+  const [fromSnapshot, toSnapshot] = await Promise.all([
+    revisionReference(fromRevision).get(),
+    revisionReference(toRevision).get(),
+  ])
+  if (!fromSnapshot.exists || !toSnapshot.exists
+      || fromSnapshot.data().courseId !== targetCourseId
+      || toSnapshot.data().courseId !== targetCourseId) {
+    throw new HttpsError('not-found', 'Không tìm thấy một trong hai phiên bản cần so sánh.')
+  }
+  const fromCourse = fromSnapshot.data().course
+  const toCourse = toSnapshot.data().course
+  if (!isPlainObject(fromCourse) || !isPlainObject(toCourse)) {
+    throw new HttpsError('failed-precondition', 'Dữ liệu phiên bản khóa học không hợp lệ.')
+  }
+  return {
+    courseId: targetCourseId,
+    fromRevision,
+    toRevision,
+    ...buildCourseRevisionDiff(fromCourse, toCourse),
+  }
 })
 
 /** Restores an immutable revision as a new draft; published history is never edited. */
@@ -1719,9 +1961,11 @@ exports.restoreCourseRevisionToDraft = onCall(async (request) => {
     if (currentRevision !== expectedRevision) throw new HttpsError('aborted', 'Khóa học đã thay đổi. Hãy tải lại trước khi khôi phục.')
     const sourceCourse = source.data().course
     const sourceQuizKeys = isPlainObject(source.data().quizKeys) ? source.data().quizKeys : {}
-    if (!isPlainObject(sourceCourse) || sourceCourse.id !== targetCourseId) throw new HttpsError('failed-precondition', 'Nội dung phiên bản lưu trữ không hợp lệ.')
+    if (!isPlainObject(sourceCourse) || source.data().courseId !== targetCourseId) {
+      throw new HttpsError('failed-precondition', 'Nội dung phiên bản lưu trữ không hợp lệ.')
+    }
     nextRevision = currentRevision + 1
-    const draftCourse = { ...sourceCourse, status: 'draft', publicationStatus: 'draft', revision: nextRevision }
+    const draftCourse = { ...sourceCourse, status: 'draft', revision: nextRevision }
     transaction.set(courseReference, { ...draftCourse, createdAt: current.data().createdAt, createdBy: current.data().createdBy, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.actorId, revisionUpdatedAt: FieldValue.serverTimestamp(), revisionUpdatedBy: actor.actorId })
     for (const item of currentQuizKeys.docs) transaction.delete(item.ref)
     for (const [lessonId, quizKey] of Object.entries(sourceQuizKeys)) transaction.set(courseReference.collection('quizKeys').doc(lessonId), { ...quizKey, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.actorId })

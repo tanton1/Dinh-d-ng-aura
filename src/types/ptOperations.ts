@@ -91,6 +91,8 @@ export interface Branch {
   id: string
   name: string
   address: string
+  status?: 'active' | 'archived'
+  archivedAt?: string
 }
 
 export interface Student {
@@ -129,6 +131,9 @@ export interface SessionRequest {
   studentId: string
   contractId: string
   sessionId?: string
+  trainerId?: string
+  requestedBy?: 'student' | 'trainer'
+  originalSessionRevision?: number
   originalDate: string
   originalHour?: number 
   type: 'cancel' | 'reschedule'
@@ -260,10 +265,11 @@ export interface Session {
   studentId: string
   date: string
   hour?: number
-  status: 'scheduled' | 'completed' | 'cancelled' | 'canceled_by_student'
+  status: 'scheduled' | 'rescheduled' | 'completed' | 'cancelled' | 'canceled_by_student' | 'student_cancelled' | 'trainer_cancelled'
   branchId?: string
   verifiedByStudent?: boolean
   scheduleEntryId?: string
+  revision?: number
 }
 
 export interface Payroll {

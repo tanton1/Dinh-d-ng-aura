@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Student, StudentContract, TrainingPackage, Installment, Trainer, Branch, Session, DailyCheckin } from '../../../types';
 import { ArrowLeft, CheckCircle, Plus, Activity, History, FileText, CreditCard, Calendar as CalendarIcon, AlertCircle, TrendingUp, Package, ClipboardCheck, Droplets, Moon, Smile, Zap, RefreshCw, Edit, User as UserIcon, CalendarClock, Dumbbell, Trash2, Utensils, Bot, ImagePlus, UploadCloud, X, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -15,6 +15,7 @@ import WorkoutLoggerModal from '../../schedule/WorkoutLoggerModal';
 import { useDatabase } from '../../../contexts/DatabaseContext';
 import { formatDate, isSameDayOrAfter } from '../../../utils/dateUtils';
 import { getActiveContract } from '../../../utils/scheduler';
+import { recordContractPayment, recordRefund } from '../../../services/financeLedgerService';
 
 interface Props {
   student: Student;
@@ -25,7 +26,7 @@ interface Props {
   branches: Branch[];
   sessions: Session[];
   onBack: () => void;
-  onSaveContract: (contract: StudentContract) => void;
+  onSaveContract: (contract: StudentContract) => Promise<void>;
   onUpdateContract: (contract: StudentContract, skipPayment?: boolean) => void;
 }
 
@@ -33,8 +34,11 @@ import TrainerPrioritySelector from './TrainerPrioritySelector';
 
 export default function StudentDetail({ student, profile, contracts, packages, trainers, branches, sessions, onBack, onSaveContract, onUpdateContract }: Props) {
   const isTrainer = (profile as any)?.role === 'trainer';
-  const { dailyCheckins: allDailyCheckins, payments, addPayment, deletePayment, sessionRequests, leaveRequests, workoutLogs, deleteWorkoutLog, addSession } = useDatabase();
+  const { dailyCheckins: allDailyCheckins, sessionRequests, leaveRequests, workoutLogs, deleteWorkoutLog } = useDatabase();
+  const manualAttendanceUnavailable = 'Chưa thể điểm danh thủ công an toàn vì tạo buổi tập và trừ buổi hợp đồng cần một giao dịch máy chủ duy nhất. Vui lòng dùng quy trình chấm công đã kiểm toán.';
   const [isAddingPackage, setIsAddingPackage] = useState(false);
+  const [isSavingPackage, setIsSavingPackage] = useState(false);
+  const packageDraftContractId = useRef<string | null>(null);
   const [selectedPackageId, setSelectedPackageId] = useState('');
   const [selectedTrainerIds, setSelectedTrainerIds] = useState<string[]>([]);
   const [nutritionPTIds, setNutritionPTIds] = useState<string[]>([]);
@@ -57,7 +61,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
   const [addingSessionsContract, setAddingSessionsContract] = useState<StudentContract | null>(null);
   const [isManagingDebt, setIsManagingDebt] = useState(false);
   const [payingInstallmentId, setPayingInstallmentId] = useState<string | null>(null);
-  const [confirmAction, setConfirmAction] = useState<{title: string, message: string, onConfirm: () => void} | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{title: string, message: string, onConfirm: () => void | Promise<void>} | null>(null);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [referralCode, setReferralCode] = useState('');
   const [activeTab, setActiveTab] = useState<'info' | 'progress' | 'history' | 'checkin' | 'requests' | 'workout_logs' | 'nutrition'>(isTrainer ? 'progress' : 'info');
@@ -128,9 +132,9 @@ export default function StudentDetail({ student, profile, contracts, packages, t
         return d >= range.start && d <= range.end;
       });
     } else if (sessionFilter === 'upcoming') {
-      return studentSessions.filter(s => isSameDayOrAfter(s.date, now) && s.status === 'scheduled');
+      return studentSessions.filter(s => isSameDayOrAfter(s.date, now) && (s.status === 'scheduled' || s.status === 'rescheduled'));
     } else {
-      return studentSessions.filter(s => s.status !== 'scheduled');
+      return studentSessions.filter(s => s.status !== 'scheduled' && s.status !== 'rescheduled');
     }
   }, [studentSessions, sessionFilter]);
 
@@ -222,58 +226,15 @@ export default function StudentDetail({ student, profile, contracts, packages, t
     setInstallments(newInsts);
   };
 
-  const handleCheckIn = async () => {
-    if (!activeContract) return;
-    if (activeContract.status === 'frozen') {
-      alert('Hợp đồng đang bảo lưu, không thể điểm danh!');
-      return;
-    }
-    if (activeContract.usedSessions >= activeContract.totalSessions) {
-      alert('Gói tập đã hết buổi!');
-      return;
-    }
-    
-    // Create a manual session record
-    const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
-    const hour = now.getHours();
-    
-    // Fallback to first trainer if exists, else 'none'
-    const sessionTrainerId = activeContract.trainerIds?.[0] || activeContract.trainerId || 'none';
-    const newSessionId = `manual-${Date.now()}`;
-    const classId = `${newSessionId}-${dateStr}`;
-
-    const newSession = {
-      id: newSessionId,
-      trainerId: sessionTrainerId,
-      studentId: student.id,
-      date: dateStr,
-      hour: hour,
-      status: 'completed',
-      branchId: activeContract.branchId,
-      verifiedByStudent: true, // Manual check-in counts as verified
-    } as any; // Cast as any because Session might require other fields, but we have what we need.
-
-    try {
-      if (addSession) {
-         await addSession(newSession);
-      }
-      
-      const updated = {
-        ...activeContract,
-        usedSessions: activeContract.usedSessions + 1,
-        status: (activeContract.usedSessions + 1) >= activeContract.totalSessions ? 'expired' : 'active',
-        attendedClasses: [...(activeContract.attendedClasses || []), classId]
-      } as StudentContract;
-      
-      onUpdateContract(updated);
-    } catch (err) {
-      console.error(err);
-      alert('Lỗi khi điểm danh, vui lòng thử lại.');
-    }
+  const closePackageModal = () => {
+    if (isSavingPackage) return;
+    setIsAddingPackage(false);
+    packageDraftContractId.current = null;
   };
 
-  const handleRegisterPackage = () => {
+  const handleRegisterPackage = async () => {
+    if (isSavingPackage) return;
+
     let pkgPrice = 0;
     let pkgTotalSessions = 0;
     let pkgName = '';
@@ -295,7 +256,19 @@ export default function StudentDetail({ student, profile, contracts, packages, t
 
     const amountPaid = Number(paidAmount) || 0;
     const discountAmount = Number(discount) || 0;
-    const debt = (pkgPrice - discountAmount) - amountPaid;
+    const totalDue = pkgPrice - discountAmount;
+    if (discountAmount < 0 || totalDue < 0) {
+      setNotification({ message: 'Mức giảm giá không hợp lệ.', type: 'error' });
+      return;
+    }
+    if (amountPaid < 0 || amountPaid > totalDue) {
+      setNotification({ message: 'Số tiền thu lần đầu không được vượt số tiền phải thanh toán.', type: 'error' });
+      return;
+    }
+
+    const debt = totalDue - amountPaid;
+    const contractId = packageDraftContractId.current || crypto.randomUUID();
+    packageDraftContractId.current = contractId;
     let finalInstallments: Installment[] = [];
 
     // Calculate referral commission if code is valid
@@ -310,7 +283,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
 
     if (amountPaid > 0) {
       finalInstallments.push({
-        id: Date.now().toString() + '-init',
+        id: `${contractId}-initial`,
         amount: amountPaid,
         date: new Date().toISOString(),
         status: 'paid'
@@ -330,7 +303,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
       finalInstallments = [
         ...finalInstallments,
         ...installments.map((inst, idx) => ({
-          id: Date.now().toString() + '-' + idx,
+          id: `${contractId}-installment-${idx + 1}`,
           amount: inst.amount,
           date: inst.date,
           status: 'pending' as const
@@ -339,13 +312,13 @@ export default function StudentDetail({ student, profile, contracts, packages, t
     }
 
     const newContract: StudentContract = {
-      id: Date.now().toString(),
+      id: contractId,
       studentId: student.id,
       trainerId: selectedTrainerIds[0] || undefined,
       trainerIds: selectedTrainerIds,
       nutritionPTIds: nutritionPTIds,
       branchId: selectedBranchId,
-      packageId: selectedPackageId === 'custom' ? `custom-${Date.now()}` : selectedPackageId,
+      packageId: selectedPackageId === 'custom' ? `custom-${contractId}` : selectedPackageId,
       packageName: pkgName,
       startDate: startDate,
       endDate: endDate,
@@ -365,18 +338,31 @@ export default function StudentDetail({ student, profile, contracts, packages, t
       newContract.nextPaymentDate = pendingInstallments[0].date;
     }
 
-    onSaveContract(newContract);
-    setIsAddingPackage(false);
-    setSelectedPackageId('');
-    setSelectedTrainerIds([]);
-    setSelectedBranchId('');
-    setReferralCode('');
-    setStartDate(new Date().toISOString().split('T')[0]);
-    setEndDate('');
-    setPaidAmount('');
-    setDiscount('');
-    setInstallmentCount(1);
-    setInstallments([]);
+    setIsSavingPackage(true);
+    try {
+      await onSaveContract(newContract);
+      setIsAddingPackage(false);
+      packageDraftContractId.current = null;
+      setSelectedPackageId('');
+      setSelectedTrainerIds([]);
+      setNutritionPTIds([]);
+      setSelectedBranchId('');
+      setReferralCode('');
+      setStartDate(new Date().toISOString().split('T')[0]);
+      setEndDate('');
+      setPaidAmount('');
+      setDiscount('');
+      setInstallmentCount(1);
+      setInstallments([]);
+      setNotification({ message: 'Đã tạo hợp đồng và ghi nhận khoản thu ban đầu.', type: 'success' });
+    } catch (error) {
+      setNotification({
+        message: error instanceof Error ? error.message : 'Không thể tạo hợp đồng. Dữ liệu đã nhập được giữ lại để thử lại.',
+        type: 'error',
+      });
+    } finally {
+      setIsSavingPackage(false);
+    }
   };
 
   const handlePayInstallment = (contractId: string, installmentId: string) => {
@@ -385,53 +371,40 @@ export default function StudentDetail({ student, profile, contracts, packages, t
 
     const installmentToPay = contract.installments.find(i => i.id === installmentId);
     if (!installmentToPay) return;
+    if (installmentToPay.status !== 'pending') {
+      setNotification({ message: 'Kỳ trả góp này đã được xử lý hoặc không còn hiệu lực.', type: 'error' });
+      return;
+    }
+
+    const idempotencyKey = crypto.randomUUID();
+    const effectiveAt = new Date().toISOString();
 
     setConfirmAction({
       title: 'Xác nhận thu tiền',
       message: `Xác nhận thu tiền kỳ này: ${installmentToPay.amount.toLocaleString('vi-VN')}đ?`,
-      onConfirm: () => {
-        const updatedInstallments = contract.installments!.map(inst => 
-          inst.id === installmentId ? { ...inst, status: 'paid' as const } : inst
-        );
-
-        const newPaidAmount = contract.paidAmount + installmentToPay.amount;
-        
-        let referralCommissionAmount = contract.referralCommission || null;
-        if (contract.referralCode) {
-          const referringPT = trainers.find(t => t.employeeCode === contract.referralCode);
-          if (referringPT) {
-            referralCommissionAmount = newPaidAmount * (referringPT.commissionRate / 100);
-          }
+      onConfirm: async () => {
+        setPayingInstallmentId(installmentId);
+        try {
+          await recordContractPayment({
+            contractId: contract.id,
+            amount: installmentToPay.amount,
+            effectiveAt,
+            paymentMethod: 'transfer',
+            installmentId,
+            idempotencyKey,
+            note: `Thu kỳ trả góp ${installmentId}`,
+          });
+          setConfirmAction(null);
+          setNotification({ message: 'Đã thu tiền và ghi sổ tài chính thành công.', type: 'success' });
+        } catch (error) {
+          setNotification({
+            message: error instanceof Error ? error.message : 'Không thể ghi nhận khoản thu. Hãy tải lại và thử lại.',
+            type: 'error',
+          });
+          throw error;
+        } finally {
+          setPayingInstallmentId(null);
         }
-        
-        // Find next pending installment date
-        const nextPending = updatedInstallments.find(i => i.status === 'pending');
-
-        const updatedContract = {
-          ...contract,
-          installments: updatedInstallments,
-          paidAmount: newPaidAmount,
-          referralCommission: referralCommissionAmount,
-          nextPaymentDate: nextPending ? nextPending.date : null
-        };
-
-        onUpdateContract(updatedContract, true);
-        
-        // Create a payment record
-        addPayment({
-          id: Date.now().toString(),
-          studentId: student.id,
-          contractId: contract.id,
-          amount: installmentToPay.amount,
-          date: new Date().toISOString(),
-          method: 'transfer', // Default method
-          note: `Thanh toán trả góp hợp đồng ${contract.id}`,
-          previousInstallments: contract.installments,
-          installmentId: installmentId
-        });
-
-        setConfirmAction(null);
-        setNotification({message: 'Đã thu tiền thành công!', type: 'success'});
       }
     });
   };
@@ -442,46 +415,40 @@ export default function StudentDetail({ student, profile, contracts, packages, t
 
     const installmentToUndo = contract.installments.find(i => i.id === installmentId);
     if (!installmentToUndo) return;
+    if (installmentToUndo.status !== 'paid') {
+      setNotification({ message: 'Chỉ có thể hoàn khoản thu của kỳ đã thanh toán.', type: 'error' });
+      return;
+    }
+
+    const idempotencyKey = crypto.randomUUID();
+    const effectiveAt = new Date().toISOString();
 
     setConfirmAction({
       title: 'Xác nhận hoàn tác',
-      message: `Xác nhận hoàn tác thu tiền kỳ này: ${installmentToUndo.amount.toLocaleString('vi-VN')}đ? Số tiền đã thu sẽ bị trừ đi và phiếu thu tương ứng sẽ bị xóa.`,
-      onConfirm: () => {
-        const updatedInstallments = contract.installments!.map(inst => 
-          inst.id === installmentId ? { ...inst, status: 'pending' as const } : inst
-        );
-
-        const newPaidAmount = Math.max(0, contract.paidAmount - installmentToUndo.amount);
-        
-        let referralCommissionAmount = contract.referralCommission || null;
-        if (contract.referralCode) {
-          const referringPT = trainers.find(t => t.employeeCode === contract.referralCode);
-          if (referringPT) {
-            referralCommissionAmount = newPaidAmount * (referringPT.commissionRate / 100);
-          }
+      message: `Xác nhận hoàn khoản thu kỳ này: ${installmentToUndo.amount.toLocaleString('vi-VN')}đ? Hệ thống sẽ tạo bút toán hoàn tiền, không xóa chứng từ cũ.`,
+      onConfirm: async () => {
+        setPayingInstallmentId(installmentId);
+        try {
+          await recordRefund({
+            contractId: contract.id,
+            amount: installmentToUndo.amount,
+            effectiveAt,
+            paymentMethod: 'transfer',
+            installmentId,
+            idempotencyKey,
+            reason: `Hoàn khoản thu kỳ trả góp ${installmentId}`,
+          });
+          setConfirmAction(null);
+          setNotification({ message: 'Đã tạo bút toán hoàn tiền và mở lại kỳ thanh toán.', type: 'success' });
+        } catch (error) {
+          setNotification({
+            message: error instanceof Error ? error.message : 'Không thể hoàn khoản thu. Hãy tải lại và thử lại.',
+            type: 'error',
+          });
+          throw error;
+        } finally {
+          setPayingInstallmentId(null);
         }
-        
-        // Find next pending installment date
-        const nextPending = updatedInstallments.find(i => i.status === 'pending');
-
-        const updatedContract = {
-          ...contract,
-          installments: updatedInstallments,
-          paidAmount: newPaidAmount,
-          referralCommission: referralCommissionAmount,
-          nextPaymentDate: nextPending ? nextPending.date : null
-        };
-
-        onUpdateContract(updatedContract, true);
-        
-        // Find and delete the associated payment record
-        const paymentToDelete = payments.find(p => p.contractId === contract.id && p.installmentId === installmentId);
-        if (paymentToDelete) {
-          deletePayment(paymentToDelete.id);
-        }
-
-        setConfirmAction(null);
-        setNotification({message: 'Đã hoàn tác thu tiền thành công!', type: 'success'});
       }
     });
   };
@@ -946,10 +913,10 @@ export default function StudentDetail({ student, profile, contracts, packages, t
                   </div>
                   <span className={`text-xs font-medium px-2 py-1 rounded-md ${
                     s.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500' :
-                    s.status === 'cancelled' ? 'bg-red-500/10 text-red-500' : 
-                    s.status === 'canceled_by_student' ? 'bg-orange-500/10 text-orange-500' : 'bg-zinc-800 text-zinc-400'
+                    s.status === 'cancelled' || s.status === 'trainer_cancelled' ? 'bg-red-500/10 text-red-500' :
+                    s.status === 'canceled_by_student' || s.status === 'student_cancelled' ? 'bg-orange-500/10 text-orange-500' : 'bg-zinc-800 text-zinc-400'
                   }`}>
-                    {s.status === 'completed' ? 'Đã hoàn thành' : s.status === 'cancelled' ? 'Đã hủy' : s.status === 'canceled_by_student' ? 'Đã báo nghỉ' : 'Đã lên lịch'}
+                    {s.status === 'completed' ? 'Đã hoàn thành' : s.status === 'cancelled' || s.status === 'trainer_cancelled' ? 'Đã hủy' : s.status === 'canceled_by_student' || s.status === 'student_cancelled' ? 'Đã báo nghỉ' : 'Đã lên lịch'}
                   </span>
                 </div>
               );
@@ -1180,19 +1147,25 @@ export default function StudentDetail({ student, profile, contracts, packages, t
                               {isManagingDebt && (
                                 <button 
                                   onClick={() => handleUndoInstallment(activeContract.id, inst.id)}
-                                  className="text-xs font-bold bg-zinc-800 text-zinc-400 px-3 py-1.5 rounded-lg hover:bg-zinc-700 hover:text-white transition-colors shadow-sm"
+                                  disabled={payingInstallmentId === inst.id}
+                                  className="text-xs font-bold bg-zinc-800 text-zinc-400 px-3 py-1.5 rounded-lg hover:bg-zinc-700 hover:text-white transition-colors shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
                                   title="Hoàn tác thu tiền"
                                 >
-                                  Hoàn tác
+                                  {payingInstallmentId === inst.id ? 'Đang xử lý…' : 'Hoàn tác'}
                                 </button>
                               )}
                             </div>
+                          ) : inst.status === 'cancelled' ? (
+                            <span className="text-xs font-medium text-zinc-500 bg-zinc-800 px-2 py-1 rounded-md">
+                              Đã hủy
+                            </span>
                           ) : isManagingDebt ? (
                             <button 
                               onClick={() => handlePayInstallment(activeContract.id, inst.id)}
-                              className="text-xs font-bold bg-pink-500 text-white px-3 py-1.5 rounded-lg hover:bg-pink-600 transition-colors shadow-sm"
+                              disabled={payingInstallmentId === inst.id}
+                              className="text-xs font-bold bg-pink-500 text-white px-3 py-1.5 rounded-lg hover:bg-pink-600 transition-colors shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              Thu tiền
+                              {payingInstallmentId === inst.id ? 'Đang xử lý…' : 'Thu tiền'}
                             </button>
                           ) : isOverdue ? (
                             <span className="flex items-center gap-1 text-xs font-bold text-red-500 bg-red-500/10 px-2 py-1 rounded-md">
@@ -1211,13 +1184,16 @@ export default function StudentDetail({ student, profile, contracts, packages, t
               </div>
             )}
 
-            <button 
-              onClick={handleCheckIn}
-              className="w-full mt-2 bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 hover:bg-emerald-500 hover:text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-[0_0_15px_rgba(16,185,129,0.1)] hover:shadow-[0_0_20px_rgba(16,185,129,0.3)]"
+            <button
+              type="button"
+              disabled
+              title={manualAttendanceUnavailable}
+              className="w-full mt-2 bg-zinc-800/70 text-zinc-500 border border-zinc-700 py-4 rounded-xl font-bold flex items-center justify-center gap-2 cursor-not-allowed"
             >
               <CheckCircle className="w-6 h-6" />
-              Điểm danh (Trừ 1 buổi)
+              Chưa thể điểm danh thủ công
             </button>
+            <p className="mt-2 text-xs text-amber-400/90">{manualAttendanceUnavailable}</p>
           </div>
         ) : (
           <div className="text-center py-8 relative z-10">
@@ -1302,7 +1278,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-              onClick={() => setIsAddingPackage(false)}
+              onClick={closePackageModal}
             />
             <motion.div 
               initial={{ opacity: 0, y: '100%' }}
@@ -1534,17 +1510,18 @@ export default function StudentDetail({ student, profile, contracts, packages, t
 
                 <div className="pt-4 flex gap-3">
                   <button 
-                    onClick={() => setIsAddingPackage(false)}
+                    onClick={closePackageModal}
+                    disabled={isSavingPackage}
                     className="flex-1 py-3 rounded-xl font-medium text-zinc-400 bg-zinc-800 hover:bg-zinc-700 transition-colors"
                   >
                     Hủy
                   </button>
                   <button 
-                    onClick={handleRegisterPackage}
-                    disabled={!selectedPackageId}
+                    onClick={() => void handleRegisterPackage()}
+                    disabled={!selectedPackageId || isSavingPackage}
                     className="flex-1 py-3 rounded-xl font-medium text-white bg-pink-500 hover:bg-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-[0_0_15px_rgba(255,0,127,0.4)]"
                   >
-                    Xác nhận
+                    {isSavingPackage ? 'Đang ghi nhận…' : 'Xác nhận'}
                   </button>
                 </div>
               </div>
@@ -1587,17 +1564,6 @@ export default function StudentDetail({ student, profile, contracts, packages, t
             onUpdateContract(updatedContract, skipPayment);
             setAddingSessionsContract(null);
           }}
-        />
-      )}
-
-      {/* Confirmation Modal */}
-      {confirmAction && (
-        <ConfirmationModal
-          isOpen={!!confirmAction}
-          title={confirmAction.title}
-          message={confirmAction.message}
-          onConfirm={confirmAction.onConfirm}
-          onCancel={() => setConfirmAction(null)}
         />
       )}
 

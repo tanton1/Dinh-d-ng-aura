@@ -3,9 +3,11 @@ import { useDatabase } from '../../../contexts/DatabaseContext';
 import { Session } from '../../../types';
 
 export const OrphanedSessionChecker: React.FC = () => {
-  const { sessions, schedules, deleteSession } = useDatabase();
+  const { sessions, schedules } = useDatabase();
   const [orphans, setOrphans] = useState<Session[]>([]);
   const [isScanning, setIsScanning] = useState(false);
+
+  const archivalUnavailableMessage = 'Không thể xóa trực tiếp buổi tập. Chưa có quy trình lưu trữ có kiểm toán cho dữ liệu mồ côi; vui lòng báo quản trị hệ thống để xử lý mà không làm mất lịch sử.';
 
   const findOrphans = () => {
     setIsScanning(true);
@@ -14,8 +16,9 @@ export const OrphanedSessionChecker: React.FC = () => {
     today.setHours(0, 0, 0, 0);
 
     const found = sessions.filter(s => {
-      // Chỉ quét các buổi tập chưa diễn ra (scheduled)
-      if (s.status !== 'scheduled') return false;
+      // Chỉ quét các buổi tập chưa diễn ra; rescheduled là trạng thái
+      // hoạt động legacy và vẫn cần được kiểm tra.
+      if (!['scheduled', 'rescheduled'].includes(s.status)) return false;
       
       // BỎ QUA các buổi tập đã qua (chỉ quét từ hôm nay trở đi)
       const sessionDate = new Date(s.date);
@@ -51,23 +54,12 @@ export const OrphanedSessionChecker: React.FC = () => {
     setIsScanning(false);
   };
 
-  const handleFixAll = async () => {
-    if (!confirm(`Bạn có chắc chắn muốn xóa ${orphans.length} buổi tập mồ côi này không?`)) return;
-    
-    for (const orphan of orphans) {
-      await deleteSession(orphan.id);
-    }
-    
-    alert('Đã dọn dẹp xong!');
-    findOrphans(); // Quét lại
-  };
-
   return (
     <div className="p-4 bg-zinc-900/50 rounded-xl border border-zinc-800 mb-6">
       <div className="flex justify-between items-center mb-4">
         <div>
-          <h2 className="text-white font-bold text-lg">Công cụ dọn dẹp dữ liệu lịch tập</h2>
-          <p className="text-sm text-zinc-400">Quét và xóa các buổi tập bị lỗi đồng bộ (có ở Lương nhưng không có ở Ma trận xếp lịch).</p>
+          <h2 className="text-white font-bold text-lg">Công cụ kiểm tra dữ liệu lịch tập</h2>
+          <p className="text-sm text-zinc-400">Phát hiện các buổi tập bị lỗi đồng bộ (có ở Lương nhưng không có ở Ma trận xếp lịch). Công cụ không xóa dữ liệu lịch sử.</p>
         </div>
         <button 
           onClick={findOrphans} 
@@ -83,12 +75,17 @@ export const OrphanedSessionChecker: React.FC = () => {
           <div className="flex justify-between items-center mb-2">
             <span className="text-red-400 font-medium">Phát hiện {orphans.length} buổi tập mồ côi:</span>
             <button 
-              onClick={handleFixAll}
-              className="bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+              type="button"
+              disabled
+              title={archivalUnavailableMessage}
+              className="bg-zinc-800 text-zinc-500 px-3 py-1.5 rounded-lg text-sm font-medium cursor-not-allowed"
             >
-              Xóa tất cả lỗi
+              Chưa thể lưu trữ
             </button>
           </div>
+          <p className="mb-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-300">
+            {archivalUnavailableMessage}
+          </p>
           <div className="max-h-40 overflow-y-auto bg-zinc-950 rounded-lg border border-zinc-800 p-2">
             {orphans.map(o => (
               <div key={o.id} className="flex justify-between items-center p-2 border-b border-zinc-800/50 last:border-0 text-sm">
@@ -97,10 +94,12 @@ export const OrphanedSessionChecker: React.FC = () => {
                   Học viên ID: {o.studentId}
                 </span>
                 <button 
-                  onClick={() => deleteSession(o.id).then(findOrphans)} 
-                  className="text-red-500 hover:text-red-400 px-2 py-1"
+                  type="button"
+                  disabled
+                  title={archivalUnavailableMessage}
+                  className="text-zinc-600 px-2 py-1 cursor-not-allowed"
                 >
-                  Xóa
+                  Giữ lại
                 </button>
               </div>
             ))}

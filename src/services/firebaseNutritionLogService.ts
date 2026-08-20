@@ -1,6 +1,7 @@
 import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc, type Unsubscribe } from 'firebase/firestore'
 import { firestoreDb } from '../lib/firebase'
-import { safeLocalStorageSet } from '../lib/safeStorage'
+import { readVersionedCache, writeVersionedCache } from '../dataSync/versionedCache'
+import type { DataSyncState } from '../dataSync/profileSync'
 
 function requireDb() {
   if (!firestoreDb) throw new Error('Firebase chưa được cấu hình. Hãy kiểm tra file .env.local.')
@@ -17,17 +18,12 @@ function withoutUndefined<T>(value: T): T {
   return value
 }
 
-function cached<T>(key: string, fallback: T): T {
-  try {
-    const raw = typeof window !== 'undefined' ? window.localStorage.getItem(`aura:cache:${key}`) : null
-    return raw ? JSON.parse(raw) as T : fallback
-  } catch {
-    return fallback
-  }
+function nutritionCacheKey(cacheName: string, userId: string) {
+  return `aura:nutrition-cache:v2:${cacheName}:${userId}`
 }
 
-function cache(key: string, value: unknown) {
-  safeLocalStorageSet(`aura:cache:${key}`, JSON.stringify(value))
+function isLogArray(value: unknown): value is Record<string, unknown>[] {
+  return Array.isArray(value) && value.length <= 2_000 && value.every((item) => Boolean(item) && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string')
 }
 
 export function compressBase64Image(dataUrl: string, maxDimension = 600, quality = 0.6): Promise<string> {
@@ -81,13 +77,33 @@ async function saveUserLog(collectionName: 'mealLogs' | 'waterLogs' | 'activityL
   await setDoc(reference, withoutUndefined({ ...value, updatedAt: serverTimestamp(), createdAt: value.createdAt ?? serverTimestamp() }), { merge: true })
 }
 
-function subscribeToUserLog(collectionName: 'mealLogs' | 'waterLogs' | 'activityLogs', cacheName: string, userId: string, onData: (items: any[]) => void, onError?: (error: Error) => void): Unsubscribe {
-  return onSnapshot(collection(requireDb(), 'users', userId, collectionName), (snapshot) => {
+function subscribeToUserLog(collectionName: 'mealLogs' | 'waterLogs' | 'activityLogs', cacheName: string, userId: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void): Unsubscribe {
+  const key = nutritionCacheKey(cacheName, userId)
+  const confirmedCache = () => readVersionedCache(key, userId, cacheName, isLogArray)
+  return onSnapshot(collection(requireDb(), 'users', userId, collectionName), { includeMetadataChanges: true }, (snapshot) => {
     const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-    cache(`${cacheName}:${userId}`, items)
     onData(items)
+    const previous = confirmedCache()
+    if (snapshot.metadata.hasPendingWrites) {
+      onSync?.({ status: 'pending-local-change', revision: previous?.revision ?? 0, cachedAt: previous?.cachedAt ?? null })
+    } else if (snapshot.metadata.fromCache) {
+      onSync?.({
+        status: typeof navigator !== 'undefined' && !navigator.onLine ? 'offline-readonly' : 'stale-cache',
+        revision: previous?.revision ?? 0,
+        cachedAt: previous?.cachedAt ?? null,
+      })
+    } else {
+      const written = writeVersionedCache(key, userId, cacheName, items)
+      onSync?.({ status: 'synced', revision: written?.revision ?? Date.now(), cachedAt: written?.cachedAt ?? null })
+    }
   }, (error) => {
-    onData(cached(`${cacheName}:${userId}`, []))
+    const fallback = confirmedCache()
+    onData(fallback?.value ?? [])
+    onSync?.({
+      status: typeof navigator !== 'undefined' && !navigator.onLine && fallback ? 'offline-readonly' : 'sync-failed',
+      revision: fallback?.revision ?? 0,
+      cachedAt: fallback?.cachedAt ?? null,
+    })
     onError?.(error)
   })
 }
@@ -96,12 +112,12 @@ export async function saveUserMealLog(userId: string, meal: Record<string, unkno
   return saveUserLog('mealLogs', userId, await cleanMealForStorage(meal))
 }
 export async function deleteUserMealLog(userId: string, mealId: string) { await deleteDoc(doc(requireDb(), 'users', userId, 'mealLogs', mealId)) }
-export function subscribeToUserMealLogs(userId: string, onData: (items: any[]) => void, onError?: (error: Error) => void) { return subscribeToUserLog('mealLogs', 'user_meal_logs', userId, onData, onError) }
+export function subscribeToUserMealLogs(userId: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) { return subscribeToUserLog('mealLogs', 'user_meal_logs', userId, onData, onError, onSync) }
 
 export async function saveUserWaterLog(userId: string, entry: Record<string, unknown> & { id: string }) { return saveUserLog('waterLogs', userId, entry) }
 export async function deleteUserWaterLog(userId: string, entryId: string) { await deleteDoc(doc(requireDb(), 'users', userId, 'waterLogs', entryId)) }
-export function subscribeToUserWaterLogs(userId: string, onData: (items: any[]) => void, onError?: (error: Error) => void) { return subscribeToUserLog('waterLogs', 'user_water_logs', userId, onData, onError) }
+export function subscribeToUserWaterLogs(userId: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) { return subscribeToUserLog('waterLogs', 'user_water_logs', userId, onData, onError, onSync) }
 
 export async function saveUserActivityLog(userId: string, activity: Record<string, unknown> & { id: string }) { return saveUserLog('activityLogs', userId, activity) }
 export async function deleteUserActivityLog(userId: string, activityId: string) { await deleteDoc(doc(requireDb(), 'users', userId, 'activityLogs', activityId)) }
-export function subscribeToUserActivityLogs(userId: string, onData: (items: any[]) => void, onError?: (error: Error) => void) { return subscribeToUserLog('activityLogs', 'user_activity_logs', userId, onData, onError) }
+export function subscribeToUserActivityLogs(userId: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) { return subscribeToUserLog('activityLogs', 'user_activity_logs', userId, onData, onError, onSync) }

@@ -6,6 +6,9 @@ import { PageHeader } from '../../components/ui';
 import AccountConnectionsCard from '../../components/account/AccountConnectionsCard';
 import NotificationSettingsCard from '../../components/NotificationSettingsCard';
 import type { NotificationSettings } from '../../types';
+import type { OnboardingProfile } from '../../onboarding/types';
+import type { DataSyncState } from '../../dataSync/profileSync';
+import DataSyncStatusBanner from '../../components/data/DataSyncStatusBanner';
 
 
 export interface ProfileNotificationSettings extends NotificationSettings {}
@@ -20,6 +23,8 @@ export interface ProfileUpdateInput {
   targetSpeedPace?: 'slow' | 'standard' | 'fast' | null
   notificationSettings?: ProfileNotificationSettings
   mealReminderTime?: string
+  birthYear?: number | null
+  onboardingData?: Partial<OnboardingProfile>
 }
 
 export interface ProfilePageProps {
@@ -39,9 +44,10 @@ export interface ProfilePageProps {
   userId?: string;
   onSignOut?: () => void | Promise<void>;
   onEditProfile?: () => void;
+  syncState?: DataSyncState;
 }
 
-export default function ProfilePage({ fullProfile, displayName, email, membership, notificationSettings, mealReminderTime, userId, onSave, onSignOut, onEditProfile }: ProfilePageProps) {
+export default function ProfilePage({ fullProfile, displayName, email, membership, notificationSettings, mealReminderTime, userId, onSave, onSignOut, onEditProfile, syncState }: ProfilePageProps) {
   const data = { ...(fullProfile || {}), ...(fullProfile?.onboardingData || {}) };
   const nutrition = fullProfile?.nutritionProfile || {};
   
@@ -72,6 +78,7 @@ export default function ProfilePage({ fullProfile, displayName, email, membershi
     high_protein: 'Giàu protein',
     none: 'Không cụ thể'
   };
+  const profileReadOnly = Boolean(syncState && syncState.status !== 'synced');
 
   return (
     <div className="page profile-page">
@@ -79,6 +86,7 @@ export default function ProfilePage({ fullProfile, displayName, email, membershi
             
       
       <div style={{ maxWidth: '600px', margin: '0 auto', padding: '0 20px 40px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        {syncState && <DataSyncStatusBanner state={syncState} compact={syncState.status === 'synced'} />}
         
         
         {/* User Identity - Hero Style */}
@@ -97,7 +105,7 @@ export default function ProfilePage({ fullProfile, displayName, email, membershi
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: membership === 'pro' ? 'linear-gradient(135deg, #3b82f6, #60a5fa)' : 'rgba(255,255,255,0.1)', color: 'white', padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: 700 }}>
                   {membership === 'pro' ? <><ShieldCheck size={14}/> PRO</> : 'Gói Cơ Bản'}
                 </div>
-                <button onClick={onEditProfile} style={{ background: 'linear-gradient(135deg, #ff8a38, #ff3f7d)', color: 'white', border: 'none', borderRadius: '999px', padding: '6px 14px', fontSize: '12px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(255, 63, 125, 0.3)' }}>
+                <button onClick={onEditProfile} disabled={profileReadOnly} title={profileReadOnly ? 'Hồ sơ đang hiển thị dữ liệu cache ở chế độ chỉ đọc' : undefined} style={{ background: 'linear-gradient(135deg, #ff8a38, #ff3f7d)', color: 'white', border: 'none', borderRadius: '999px', padding: '6px 14px', fontSize: '12px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: profileReadOnly ? 'not-allowed' : 'pointer', opacity: profileReadOnly ? .55 : 1, boxShadow: '0 4px 12px rgba(255, 63, 125, 0.3)' }}>
                   <Pencil size={12} /> Cập nhật
                 </button>
               </div>
@@ -255,7 +263,8 @@ export default function ProfilePage({ fullProfile, displayName, email, membershi
           userId={userId}
           settings={(notificationSettings ?? fullProfile?.notificationSettings) as NotificationSettings | undefined}
           mealReminderTime={mealReminderTime ?? fullProfile?.mealReminderTime}
-          onSave={onSave}
+          onSave={profileReadOnly ? undefined : onSave}
+          readOnly={profileReadOnly}
         />
         {/* Actions */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

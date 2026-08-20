@@ -64,6 +64,7 @@ type CourseAdminRow = {
 const statusLabels: Record<PublicationStatus, string> = {
   draft: 'Bản nháp',
   review: 'Chờ duyệt',
+  approved: 'Đã duyệt',
   scheduled: 'Đã lên lịch',
   published: 'Đã xuất bản',
   archived: 'Lưu trữ',
@@ -74,6 +75,7 @@ const statusTabs: Array<{ key: CourseTab; label: string }> = [
   { key: 'attention', label: 'Cần xử lý' },
   { key: 'draft', label: statusLabels.draft },
   { key: 'review', label: statusLabels.review },
+  { key: 'approved', label: statusLabels.approved },
   { key: 'scheduled', label: statusLabels.scheduled },
   { key: 'published', label: statusLabels.published },
   { key: 'archived', label: statusLabels.archived },
@@ -119,6 +121,7 @@ function getAttentionReason(course: CourseAdminRow) {
   if (!course.title.trim() || !course.coach.trim()) return 'Thiếu thông tin khóa học hoặc giảng viên'
   if (course.lessons === 0) return 'Chưa có bài học'
   if (course.status === 'review') return 'Đang chờ người có quyền duyệt'
+  if (course.status === 'approved') return 'Đã duyệt, chờ xuất bản thủ công'
   return null
 }
 
@@ -160,6 +163,7 @@ export default function AdminCoursesPage({
       || !course.coach.trim()
       || course.lessons === 0
       || publicationStatus === 'review'
+      || publicationStatus === 'approved'
 
     return {
       id: courseId,

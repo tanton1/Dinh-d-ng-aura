@@ -11,6 +11,7 @@ const SCHEMA_VERSION = 1
 const QUOTE_TTL_MS = 10 * 60 * 1000
 const MAX_SAVED_ADDRESSES = 20
 const LIVE_LOCATION_STALE_MS = 2 * 60 * 1000
+const LIVE_LOCATION_RETENTION_MS = 24 * 60 * 60 * 1000
 const DELIVERY_PIN_TOLERANCE_METERS = 250
 const QUOTE_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000
 const QUOTE_RATE_LIMIT_MAX = 20
@@ -38,8 +39,10 @@ const DELIVERY_TRANSITIONS = Object.freeze({
   assigned: new Set(['accepted', 'awaiting_assignment', 'cancelled']),
   accepted: new Set(['at_store', 'cancelled']),
   at_store: new Set(['picked_up', 'cancelled']),
-  picked_up: new Set(['arrived', 'cancelled']),
-  arrived: new Set(['delivered', 'cancelled']),
+  // Once food has left the kitchen, cancellation must be handled as a
+  // delivery/payment incident instead of silently releasing inventory.
+  picked_up: new Set(['arrived']),
+  arrived: new Set(['delivered']),
   delivered: new Set(),
   cancelled: new Set(),
 })
@@ -126,9 +129,24 @@ const ORDER_TRANSITIONS = Object.freeze({
   confirmed: new Set(['preparing', 'cancelled']),
   preparing: new Set(['ready', 'cancelled']),
   ready: new Set(['out_for_delivery', 'cancelled']),
-  out_for_delivery: new Set(['delivered', 'cancelled']),
+  out_for_delivery: new Set(['delivered']),
   delivered: new Set(),
   cancelled: new Set(),
+})
+
+const ORDER_CANCELLATION_POLICY = Object.freeze({
+  pending_confirmation: Object.freeze({ customer: true, admin: true, refundMode: 'full', kitchenWasteReview: false }),
+  confirmed: Object.freeze({ customer: true, admin: true, refundMode: 'full', kitchenWasteReview: false }),
+  preparing: Object.freeze({ customer: false, admin: true, refundMode: 'manual_review', kitchenWasteReview: true }),
+  ready: Object.freeze({ customer: false, admin: true, refundMode: 'manual_review', kitchenWasteReview: true }),
+  out_for_delivery: Object.freeze({ customer: false, admin: false, refundMode: 'manual_review', kitchenWasteReview: true }),
+  delivered: Object.freeze({ customer: false, admin: false, refundMode: 'none', kitchenWasteReview: false }),
+  cancelled: Object.freeze({ customer: false, admin: false, refundMode: 'none', kitchenWasteReview: false }),
+})
+
+const REFUND_JOB_STATUSES = Object.freeze({
+  BLOCKED_PROVIDER: 'blocked_provider_not_configured',
+  MANUAL_REVIEW: 'manual_review_required',
 })
 
 const DEFAULT_CONFIG = Object.freeze({
@@ -1633,6 +1651,88 @@ function canTransitionOrder(from, to) {
   return from === to || Boolean(ORDER_TRANSITIONS[from]?.has(to))
 }
 
+function cancellationPolicyFor(status, actorType = 'customer') {
+  const policy = ORDER_CANCELLATION_POLICY[status]
+  if (!policy || policy[actorType] !== true) {
+    throw new HttpsError(
+      'failed-precondition',
+      actorType === 'customer'
+        ? 'Đơn hàng không còn trong trạng thái có thể tự hủy. Vui lòng liên hệ Aura để được hỗ trợ.'
+        : 'Không thể hủy đơn sau khi shipper đã lấy món hoặc đơn đã hoàn tất.',
+    )
+  }
+  return policy
+}
+
+function paidOrder(order) {
+  return order?.paymentStatus === 'paid' || order?.payment?.status === 'paid'
+}
+
+function refundJobForOrder(order, { orderId, reason, requestedBy, policy, now = new Date() }) {
+  const method = String(order?.paymentMethod || order?.payment?.method || PAYMENT_METHOD).toUpperCase()
+  const provider = String(order?.paymentProvider || order?.payment?.provider || '').trim()
+  // A provider name stored on an order is not proof that a refund adapter is
+  // installed. Until a real provider callback exists, full refunds remain
+  // blocked and kitchen-stage cancellations require explicit manual review.
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    orderId,
+    userId: typeof order?.userId === 'string' ? order.userId : '',
+    amount: Math.max(0, Number(order?.total || order?.pricing?.totalAmount || 0)),
+    currency: order?.currency || CURRENCY,
+    paymentMethod: method,
+    paymentProvider: provider || null,
+    status: policy?.refundMode === 'manual_review'
+      ? REFUND_JOB_STATUSES.MANUAL_REVIEW
+      : REFUND_JOB_STATUSES.BLOCKED_PROVIDER,
+    reason: reason || 'order_cancelled',
+    refundMode: policy?.refundMode || 'manual_review',
+    manualReviewRequired: true,
+    requestedBy,
+    requestedAt: Timestamp.fromDate(now),
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  }
+}
+
+function orderStatusTimestampField(status) {
+  return ({
+    confirmed: 'confirmedAt',
+    preparing: 'preparingAt',
+    ready: 'readyAt',
+    out_for_delivery: 'outForDeliveryAt',
+    delivered: 'deliveredAt',
+    cancelled: 'cancelledAt',
+  })[status] || ''
+}
+
+function operationalSignalDocumentId(now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(now)
+}
+
+async function recordOperationalSignal(db, signal, logger = console, context = {}) {
+  const allowed = new Set(['maps_error', 'address_error', 'route_error'])
+  if (!allowed.has(signal)) return
+  try {
+    await db.doc(`eatCleanOperationalSignals/${operationalSignalDocumentId()}`).set({
+      schemaVersion: SCHEMA_VERSION,
+      counts: { [signal]: FieldValue.increment(1) },
+      lastSignal: signal,
+      lastOccurredAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true })
+  } catch (error) {
+    logger.warn('Unable to persist Eat Clean operational signal', {
+      operation: 'operational_signal',
+      signal,
+      code: typeof error?.code === 'string' ? error.code : 'unknown',
+      ...context,
+    })
+  }
+}
+
 function orderInventoryEffect(from, to) {
   if (from === to) return 'none'
   if (to === 'cancelled' && !['delivered', 'cancelled'].includes(from)) return 'release'
@@ -1678,6 +1778,14 @@ function ensureCustomerCancellationWindow(order, config, now = new Date()) {
   if (now.getTime() >= cutoff) {
     throw new HttpsError('failed-precondition', 'Đơn đã qua hạn tự hủy. Vui lòng liên hệ Aura để được hỗ trợ.')
   }
+}
+
+function canCustomerCancelOrder(order, config, now = new Date()) {
+  if (ORDER_CANCELLATION_POLICY[order?.status]?.customer !== true) return false
+  const startsAt = deliveryStartAt(order)
+  if (!startsAt) return true
+  const cutoff = startsAt.getTime() - config.cancellationCutoffHours * 60 * 60 * 1000
+  return now.getTime() < cutoff
 }
 
 async function loadQuoteRecords(db, normalized) {
@@ -1751,6 +1859,18 @@ function nextDeliveryCursor(snapshot, limit) {
   return typeof updatedAt === 'string' && updatedAt
     ? { id: last.id, updatedAt }
     : null
+}
+
+function liveLocationHealth(value, nowMillis = Date.now()) {
+  if (!value || typeof value !== 'object') return { stale: false, expired: false, ageMs: null }
+  const updatedAt = Number(value.updatedAt || 0)
+  const expiresAt = Number(value.expiresAt || (updatedAt > 0 ? updatedAt + LIVE_LOCATION_RETENTION_MS : 0))
+  const ageMs = updatedAt > 0 ? Math.max(0, nowMillis - updatedAt) : null
+  return {
+    stale: ageMs === null || ageMs > LIVE_LOCATION_STALE_MS,
+    expired: expiresAt > 0 && expiresAt <= nowMillis,
+    ageMs,
+  }
 }
 
 async function countActiveDeliveryJobs(collection, shipperId = '') {
@@ -2076,10 +2196,26 @@ function createEatCleanFunctions(dependencies) {
     const originalRequestHash = canonicalOrderRequestHash(normalized)
     const quotedAt = new Date()
     if (config.distancePricing.enabled) await enforceEatCleanQuoteRateLimit(db, userId, quotedAt)
-    const verifiedCustomer = await verifyDeliveryCustomer(config, normalized.customer, addressAdapter, quotedAt)
+    let verifiedCustomer
+    try {
+      verifiedCustomer = await verifyDeliveryCustomer(config, normalized.customer, addressAdapter, quotedAt)
+    } catch (error) {
+      if (config.distancePricing.enabled) {
+        await recordOperationalSignal(db, 'address_error', logger, { code: typeof error?.code === 'string' ? error.code : 'unknown' })
+      }
+      throw error
+    }
     const verifiedRequest = { ...normalized, customer: verifiedCustomer }
     const records = await loadQuoteRecords(db, verifiedRequest)
-    const route = await resolveDeliveryRoute(config, verifiedCustomer, routesAdapter)
+    let route
+    try {
+      route = await resolveDeliveryRoute(config, verifiedCustomer, routesAdapter)
+    } catch (error) {
+      if (config.distancePricing.enabled) {
+        await recordOperationalSignal(db, 'route_error', logger, { code: typeof error?.code === 'string' ? error.code : 'unknown' })
+      }
+      throw error
+    }
     const quote = calculateQuote({ config, request: verifiedRequest, route, now: quotedAt, ...records })
     const expiresAt = new Date(quotedAt.getTime() + QUOTE_TTL_MS)
     const quoteReference = db.collection('eatCleanQuotes').doc()
@@ -2240,6 +2376,31 @@ function createEatCleanFunctions(dependencies) {
         total: quote.total,
         currency: CURRENCY,
         nutrition: quote.nutrition,
+        commercialSnapshot: {
+          schemaVersion: SCHEMA_VERSION,
+          items: quote.items.map((item) => ({
+            mealId: item.mealId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            lineTotal: item.lineTotal,
+            calories: item.calories,
+            protein: item.protein,
+            carbs: item.carbs,
+            fat: item.fat,
+            fiber: item.fiber,
+          })),
+          pricing: {
+            subtotal: quote.subtotal,
+            baseDeliveryFee: quote.baseDeliveryFee,
+            deliveryDiscount: quote.deliveryDiscount,
+            deliveryFee: quote.deliveryFee,
+            total: quote.total,
+            currency: CURRENCY,
+          },
+          nutrition: quote.nutrition,
+          quoteHash: currentQuoteHash,
+          capturedAt: Timestamp.fromDate(now),
+        },
         quoteId,
         quoteHash: currentQuoteHash,
         consumedItemIds: [],
@@ -2295,11 +2456,14 @@ function createEatCleanFunctions(dependencies) {
   const listMyEatCleanOrders = onCall(callableOptions, async (request) => {
     const userId = requireUser(request)
     const limit = finiteInteger(request.data?.limit ?? 30, 'Số đơn cần tải', 1, 50)
-    const snapshot = await db.collection('eatCleanOrders')
-      .where('userId', '==', userId)
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .get()
+    const [snapshot, config] = await Promise.all([
+      db.collection('eatCleanOrders')
+        .where('userId', '==', userId)
+        .orderBy('createdAt', 'desc')
+        .limit(limit)
+        .get(),
+      readConfig(db),
+    ])
     const deliverySnapshots = snapshot.empty
       ? []
       : await db.getAll(...snapshot.docs.map((item) => db.doc(`eatCleanDeliveries/${item.id}`)))
@@ -2309,7 +2473,8 @@ function createEatCleanFunctions(dependencies) {
       const delivery = deliveries.get(item.id)
       return {
         ...order,
-        canCancel: ['pending_confirmation', 'confirmed'].includes(order.status),
+        canCancel: canCustomerCancelOrder(order, config),
+        cancellationPolicy: ORDER_CANCELLATION_POLICY[order.status] || null,
         trackingSummary: delivery ? {
           status: delivery.status,
           shipperId: delivery.shipperId || null,
@@ -2335,9 +2500,7 @@ function createEatCleanFunctions(dependencies) {
       if (order.status === 'cancelled') {
         return { order: { id: orderId, ...serializeValue(order), canCancel: false }, idempotent: true }
       }
-      if (!['pending_confirmation', 'confirmed'].includes(order.status)) {
-        throw new HttpsError('failed-precondition', 'Đơn hàng không còn trong trạng thái có thể tự hủy.')
-      }
+      const cancellationPolicy = cancellationPolicyFor(order.status, 'customer')
       const configSnapshot = await transaction.get(db.doc('system/eat_clean_config'))
       const deliverySnapshot = await transaction.get(deliveryReference)
       const config = normalizeStoredConfig(configSnapshot.exists ? configSnapshot.data() : {})
@@ -2347,6 +2510,8 @@ function createEatCleanFunctions(dependencies) {
       for (const item of trackedItems) {
         inventorySnapshots.push(await transaction.get(db.doc(`eatCleanInventory/${item.inventoryId}`)))
       }
+      const refundReference = paidOrder(order) ? db.doc(`eatCleanRefundJobs/${orderId}`) : null
+      const refundSnapshot = refundReference ? await transaction.get(refundReference) : null
       trackedItems.forEach((item, index) => {
         const snapshot = inventorySnapshots[index]
         if (!snapshot.exists) return
@@ -2359,21 +2524,23 @@ function createEatCleanFunctions(dependencies) {
       transaction.update(orderReference, {
         status: 'cancelled',
         cancellationReason: reason,
+        cancellationPolicy: {
+          actorType: 'customer',
+          refundMode: cancellationPolicy.refundMode,
+          kitchenWasteReview: cancellationPolicy.kitchenWasteReview,
+        },
         cancelledBy: userId,
         cancelledAt: FieldValue.serverTimestamp(),
+        refundStatus: refundReference ? 'review_required' : 'not_applicable',
         updatedAt: FieldValue.serverTimestamp(),
       })
-      if (order.paymentStatus === 'paid' || order.payment?.status === 'paid') {
-        transaction.set(db.doc(`eatCleanRefundJobs/${orderId}`), {
-          schemaVersion: SCHEMA_VERSION,
+      if (refundReference && !refundSnapshot?.exists) {
+        transaction.create(refundReference, refundJobForOrder(order, {
           orderId,
-          userId,
-          amount: Number(order.total || order.pricing?.totalAmount || 0),
-          status: 'pending',
           reason: reason || 'customer_cancelled',
-          createdAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-        }, { merge: true })
+          requestedBy: userId,
+          policy: cancellationPolicy,
+        }))
       }
       if (deliverySnapshot.exists && deliverySnapshot.data().status !== 'delivered') {
         transaction.set(deliveryReference, {
@@ -2389,8 +2556,14 @@ function createEatCleanFunctions(dependencies) {
           ...serializeValue(order),
           status: 'cancelled',
           cancellationReason: reason,
+          cancellationPolicy: {
+            actorType: 'customer',
+            refundMode: cancellationPolicy.refundMode,
+            kitchenWasteReview: cancellationPolicy.kitchenWasteReview,
+          },
           cancelledBy: userId,
           cancelledAt: nowIso,
+          refundStatus: refundReference ? 'review_required' : 'not_applicable',
           updatedAt: nowIso,
           canCancel: false,
         },
@@ -2406,6 +2579,183 @@ function createEatCleanFunctions(dependencies) {
     })
     logger.info('Eat Clean order cancelled by customer', { orderId, userId, idempotent: result.idempotent })
     return { ...result, realtimeMirror }
+  })
+
+  // This callable never talks to a payment provider. It only records an
+  // externally verified/manual resolution with an immutable idempotent event.
+  // Online payment remains fail-closed until a real provider adapter exists.
+  const recordEatCleanRefundOutcome = onCall(writeOptions, async (request) => {
+    const actorId = await trustedAdminId(request)
+    const orderId = documentId(request.data?.orderId, 'Mã đơn hàng')
+    const outcome = request.data?.outcome === 'refunded' ? 'refunded'
+      : request.data?.outcome === 'rejected' ? 'rejected'
+        : ''
+    if (!outcome) throw new HttpsError('invalid-argument', 'Kết quả hoàn tiền không hợp lệ.')
+    const idempotencyKey = boundedString(request.data?.idempotencyKey, 'Khóa chống ghi trùng', 128)
+    if (idempotencyKey.length < 8) throw new HttpsError('invalid-argument', 'Khóa chống ghi trùng quá ngắn.')
+    const externalReference = boundedString(request.data?.externalReference, 'Mã đối soát ngoài hệ thống', 160, { required: false })
+    const note = boundedString(request.data?.note, 'Ghi chú hoàn tiền', 500, { required: false })
+    if (outcome === 'refunded' && (request.data?.confirmedExternally !== true || externalReference.length < 4)) {
+      throw new HttpsError('failed-precondition', 'Chỉ ghi nhận đã hoàn tiền sau khi có mã đối soát và xác nhận giao dịch ngoài hệ thống.')
+    }
+    if (outcome === 'rejected' && note.length < 4) {
+      throw new HttpsError('invalid-argument', 'Cần ghi rõ lý do từ chối hoàn tiền.')
+    }
+    const orderReference = db.doc(`eatCleanOrders/${orderId}`)
+    const refundReference = db.doc(`eatCleanRefundJobs/${orderId}`)
+    const adjustmentReference = db.doc(`eatCleanPaymentAdjustments/${digest(`${orderId}:${idempotencyKey}`)}`)
+    const result = await db.runTransaction(async (transaction) => {
+      const [orderSnapshot, refundSnapshot, adjustmentSnapshot] = await Promise.all([
+        transaction.get(orderReference),
+        transaction.get(refundReference),
+        transaction.get(adjustmentReference),
+      ])
+      if (!orderSnapshot.exists || !refundSnapshot.exists) {
+        throw new HttpsError('not-found', 'Không tìm thấy yêu cầu hoàn tiền của đơn này.')
+      }
+      const order = orderSnapshot.data()
+      const refund = refundSnapshot.data()
+      if (order.status !== 'cancelled') throw new HttpsError('failed-precondition', 'Chỉ xử lý hoàn tiền cho đơn đã hủy.')
+      if (adjustmentSnapshot.exists) {
+        const existing = adjustmentSnapshot.data()
+        if (existing.orderId !== orderId || existing.outcome !== outcome || (existing.externalReference || '') !== externalReference) {
+          throw new HttpsError('already-exists', 'Khóa chống ghi trùng đã được dùng cho kết quả khác.')
+        }
+        return { idempotent: true, orderId, outcome, adjustmentId: adjustmentReference.id }
+      }
+      if (refund.status === 'refunded' || refund.status === 'rejected') {
+        throw new HttpsError('failed-precondition', 'Yêu cầu hoàn tiền đã được chốt trước đó.')
+      }
+      const amount = Math.max(0, Number(refund.amount || order.total || 0))
+      transaction.create(adjustmentReference, {
+        schemaVersion: SCHEMA_VERSION,
+        type: outcome === 'refunded' ? 'refund_recorded' : 'refund_rejected',
+        outcome,
+        orderId,
+        userId: order.userId || '',
+        amount,
+        currency: order.currency || CURRENCY,
+        paymentMethod: refund.paymentMethod || order.paymentMethod || PAYMENT_METHOD,
+        paymentProvider: refund.paymentProvider || null,
+        externalReference: externalReference || null,
+        note,
+        idempotencyHash: adjustmentReference.id,
+        recordedBy: actorId,
+        recordedAt: FieldValue.serverTimestamp(),
+      })
+      transaction.update(refundReference, {
+        status: outcome,
+        adjustmentId: adjustmentReference.id,
+        externalReference: externalReference || null,
+        resolutionNote: note,
+        resolvedBy: actorId,
+        resolvedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      transaction.update(orderReference, {
+        refundStatus: outcome === 'refunded' ? 'completed' : 'rejected',
+        ...(outcome === 'refunded' ? { paymentStatus: 'refunded' } : {}),
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actorId,
+      })
+      transaction.create(orderReference.collection('events').doc(), {
+        type: 'refund_resolved',
+        actorId,
+        outcome,
+        amount,
+        adjustmentId: adjustmentReference.id,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return { idempotent: false, orderId, outcome, adjustmentId: adjustmentReference.id }
+    })
+    logger.info('Eat Clean refund outcome recorded', { orderId, actorId, outcome, idempotent: result.idempotent })
+    return result
+  })
+
+  const reverseEatCleanRefundOutcome = onCall(writeOptions, async (request) => {
+    const actorId = await trustedAdminId(request)
+    const orderId = documentId(request.data?.orderId, 'Mã đơn hàng')
+    const originalAdjustmentId = documentId(request.data?.adjustmentId, 'Mã bút toán hoàn tiền')
+    const idempotencyKey = boundedString(request.data?.idempotencyKey, 'Khóa chống ghi trùng', 128)
+    const externalReference = boundedString(request.data?.externalReference, 'Mã đối soát đảo giao dịch', 160)
+    const reason = boundedString(request.data?.reason, 'Lý do đảo hoàn tiền', 500)
+    if (idempotencyKey.length < 8) throw new HttpsError('invalid-argument', 'Khóa chống ghi trùng quá ngắn.')
+    if (externalReference.length < 4 || request.data?.confirmedExternally !== true) {
+      throw new HttpsError('failed-precondition', 'Chỉ ghi nhận đảo hoàn tiền sau khi có mã đối soát và xác nhận ngoài hệ thống.')
+    }
+    const orderReference = db.doc(`eatCleanOrders/${orderId}`)
+    const refundReference = db.doc(`eatCleanRefundJobs/${orderId}`)
+    const originalReference = db.doc(`eatCleanPaymentAdjustments/${originalAdjustmentId}`)
+    const reversalReference = db.doc(`eatCleanPaymentAdjustments/${digest(`${orderId}:reversal:${idempotencyKey}`)}`)
+    const result = await db.runTransaction(async (transaction) => {
+      const [orderSnapshot, refundSnapshot, originalSnapshot, reversalSnapshot] = await Promise.all([
+        transaction.get(orderReference),
+        transaction.get(refundReference),
+        transaction.get(originalReference),
+        transaction.get(reversalReference),
+      ])
+      if (!orderSnapshot.exists || !refundSnapshot.exists || !originalSnapshot.exists) {
+        throw new HttpsError('not-found', 'Không tìm thấy giao dịch hoàn tiền cần đảo.')
+      }
+      const original = originalSnapshot.data()
+      if (original.orderId !== orderId || original.type !== 'refund_recorded') {
+        throw new HttpsError('failed-precondition', 'Bút toán được chọn không phải hoàn tiền của đơn này.')
+      }
+      if (reversalSnapshot.exists) {
+        const existing = reversalSnapshot.data()
+        if (existing.reversedAdjustmentId !== originalAdjustmentId || existing.externalReference !== externalReference) {
+          throw new HttpsError('already-exists', 'Khóa chống ghi trùng đã được dùng cho giao dịch đảo khác.')
+        }
+        return { idempotent: true, orderId, adjustmentId: reversalReference.id }
+      }
+      const priorReversalSnapshot = await transaction.get(
+        db.collection('eatCleanPaymentAdjustments')
+          .where('reversedAdjustmentId', '==', originalAdjustmentId)
+          .limit(1),
+      )
+      if (!priorReversalSnapshot.empty) throw new HttpsError('failed-precondition', 'Bút toán hoàn tiền đã được đảo trước đó.')
+      transaction.create(reversalReference, {
+        schemaVersion: SCHEMA_VERSION,
+        type: 'refund_reversal',
+        outcome: 'reversed',
+        orderId,
+        userId: original.userId || orderSnapshot.data().userId || '',
+        amount: Math.max(0, Number(original.amount) || 0),
+        currency: original.currency || CURRENCY,
+        paymentMethod: original.paymentMethod || null,
+        paymentProvider: original.paymentProvider || null,
+        externalReference,
+        reason,
+        reversedAdjustmentId: originalAdjustmentId,
+        idempotencyHash: reversalReference.id,
+        recordedBy: actorId,
+        recordedAt: FieldValue.serverTimestamp(),
+      })
+      transaction.update(refundReference, {
+        status: REFUND_JOB_STATUSES.MANUAL_REVIEW,
+        reversalAdjustmentId: reversalReference.id,
+        reversalReason: reason,
+        reversedAt: FieldValue.serverTimestamp(),
+        reversedBy: actorId,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      transaction.update(orderReference, {
+        paymentStatus: 'paid',
+        refundStatus: 'reversal_recorded',
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actorId,
+      })
+      transaction.create(orderReference.collection('events').doc(), {
+        type: 'refund_reversed',
+        actorId,
+        adjustmentId: reversalReference.id,
+        reversedAdjustmentId: originalAdjustmentId,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return { idempotent: false, orderId, adjustmentId: reversalReference.id }
+    })
+    logger.info('Eat Clean refund reversal recorded', { orderId, actorId, idempotent: result.idempotent })
+    return result
   })
 
   const confirmEatCleanConsumption = onCall(writeOptions, async (request) => {
@@ -2568,15 +2918,31 @@ function createEatCleanFunctions(dependencies) {
         updatedBy: actorId,
       }
       transaction.set(reference, next)
-      const commercialSnapshot = JSON.stringify({ basePrice: input.basePrice, nutrition: input.nutrition })
-      const previousCommercialSnapshot = JSON.stringify({ basePrice: current.basePrice, nutrition: current.nutrition })
+      const nutritionAfter = {
+        calories: input.calories,
+        protein: input.protein,
+        carbs: input.carbs,
+        fat: input.fat,
+        fiber: input.fiber,
+        servingGrams: input.servingGrams,
+      }
+      const nutritionBefore = {
+        calories: current.calories ?? null,
+        protein: current.protein ?? null,
+        carbs: current.carbs ?? null,
+        fat: current.fat ?? null,
+        fiber: current.fiber ?? null,
+        servingGrams: current.servingGrams ?? null,
+      }
+      const commercialSnapshot = JSON.stringify({ basePrice: input.basePrice, nutrition: nutritionAfter })
+      const previousCommercialSnapshot = JSON.stringify({ basePrice: current.basePrice ?? null, nutrition: nutritionBefore })
       if (!snapshot.exists || commercialSnapshot !== previousCommercialSnapshot) {
         transaction.create(db.collection('eatCleanMealRevisions').doc(), {
           schemaVersion: SCHEMA_VERSION,
           mealId: input.id,
           revision: currentRevision + 1,
-          before: snapshot.exists ? { basePrice: current.basePrice ?? null, nutrition: current.nutrition ?? null } : null,
-          after: { basePrice: input.basePrice, nutrition: input.nutrition },
+          before: snapshot.exists ? { basePrice: current.basePrice ?? null, nutrition: nutritionBefore } : null,
+          after: { basePrice: input.basePrice, nutrition: nutritionAfter },
           changedBy: actorId,
           changedAt: FieldValue.serverTimestamp(),
         })
@@ -2786,27 +3152,70 @@ function createEatCleanFunctions(dependencies) {
     const cursor = normalizeDeliveryCursor(request.data?.cursor)
     const deliveryCollection = db.collection('eatCleanDeliveries')
     const deliveriesQuery = buildActiveDeliveriesQuery(deliveryCollection, { cursor, limit })
-    const [deliveriesSnapshot, shipperProfilesSnapshot, availabilitySnapshot, configSnapshot, totalActive] = await Promise.all([
+    const [deliveriesSnapshot, shipperProfilesSnapshot, availabilitySnapshot, configSnapshot, operationalSignalSnapshot, totalActive] = await Promise.all([
       deliveriesQuery.get(),
       db.collection('users').where('role', '==', 'shipper').limit(100).get(),
       db.collection('eatCleanShippers').limit(100).get(),
       db.doc('system/eat_clean_config').get(),
+      db.doc(`eatCleanOperationalSignals/${operationalSignalDocumentId()}`).get(),
       countActiveDeliveryJobs(deliveryCollection),
     ])
     const orderSnapshots = deliveriesSnapshot.empty
       ? []
       : await db.getAll(...deliveriesSnapshot.docs.map((item) => db.doc(`eatCleanOrders/${item.id}`)))
     const orderMap = new Map(orderSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
+    let liveLocations = new Map()
+    let gpsReadWarning = null
+    if (realtimeDb && !deliveriesSnapshot.empty) {
+      try {
+        // Never download the full GPS tree for the dispatch dashboard. It can
+        // contain locations from other pages/cursors until the retention job
+        // removes them. Read only the bounded set of active deliveries shown
+        // in this response.
+        const locationEntries = await Promise.all(deliveriesSnapshot.docs.map(async (item) => {
+          const snapshot = await realtimeDb.ref(`eatCleanLiveLocations/${item.id}`).get()
+          return [item.id, snapshot.exists() ? snapshot.val() : null]
+        }))
+        liveLocations = new Map(locationEntries.filter(([, value]) => value && typeof value === 'object'))
+      } catch (error) {
+        gpsReadWarning = 'realtime_temporarily_unavailable'
+        logger.warn('Unable to load Eat Clean GPS signals for dispatch', {
+          operation: 'dispatch_gps_read',
+          code: typeof error?.code === 'string' ? error.code : 'unknown',
+        })
+      }
+    }
+    const nowMillis = Date.now()
+    const gpsExpectedStatuses = new Set(['accepted', 'at_store', 'picked_up', 'arrived'])
     const deliveries = deliveriesSnapshot.docs
       .map((item) => {
         const order = orderMap.get(item.id) || {}
         const itemCount = (order.items || []).reduce((sum, line) => sum + (Number(line.quantity) || 0), 0)
+        const rawDelivery = item.data()
+        const rawLocation = liveLocations.get(item.id)
+        const locationHealth = liveLocationHealth(rawLocation, nowMillis)
+        const hasLiveCoordinate = Number.isFinite(Number(rawLocation?.latitude))
+          && Number.isFinite(Number(rawLocation?.longitude))
+        const gpsExpected = gpsExpectedStatuses.has(rawDelivery.status)
+        const gpsStale = gpsExpected && (!hasLiveCoordinate || locationHealth.stale || locationHealth.expired)
+        const otpLockedUntil = timestampMillis(rawDelivery.otpLockedUntil)
         return {
           id: item.id,
-          ...publicDeliveryValue(item.data()),
+          ...publicDeliveryValue(rawDelivery),
           orderStatus: order.status || '',
           itemCount,
           cashToCollect: order.paymentStatus === 'paid' || order.payment?.status === 'paid' ? 0 : Number(order.total) || 0,
+          gpsStale,
+          lastLocationAt: rawLocation && !locationHealth.expired && Number(rawLocation.updatedAt) > 0
+            ? new Date(Number(rawLocation.updatedAt)).toISOString()
+            : null,
+          liveLocation: hasLiveCoordinate && !locationHealth.expired ? {
+            latitude: Number(rawLocation.latitude),
+            longitude: Number(rawLocation.longitude),
+            updatedAt: Number(rawLocation.updatedAt) || 0,
+          } : null,
+          otpFailureCount: Math.max(0, Number(rawDelivery.otpFailedAttempts) || 0),
+          otpLocked: Number.isFinite(otpLockedUntil) && otpLockedUntil > nowMillis,
           order: {
             id: item.id,
             code: order.code || item.data().orderCode || item.id,
@@ -2824,6 +3233,14 @@ function createEatCleanFunctions(dependencies) {
       [item.id, await countActiveDeliveryJobs(deliveryCollection, item.id)]
     )))
     const activeJobCounts = new Map(activeJobCountEntries)
+    const latestLocationByShipper = new Map()
+    deliveries.forEach((delivery) => {
+      if (!delivery.shipperId || !delivery.liveLocation) return
+      const current = latestLocationByShipper.get(delivery.shipperId)
+      if (!current || delivery.liveLocation.updatedAt > current.updatedAt) {
+        latestLocationByShipper.set(delivery.shipperId, delivery.liveLocation)
+      }
+    })
     const shippers = activeShipperProfiles
       .map((item) => ({
         id: item.id,
@@ -2834,13 +3251,23 @@ function createEatCleanFunctions(dependencies) {
         available: availabilityMap.get(item.id)?.available === true,
         activeJobCount: activeJobCounts.get(item.id) || 0,
         lastSeenAt: serializeValue(availabilityMap.get(item.id)?.lastSeenAt),
+        location: latestLocationByShipper.get(item.id) || null,
       }))
     const summary = deliveries.reduce((result, item) => {
       result.byStatus[item.status] = (result.byStatus[item.status] || 0) + 1
       const promisedAt = Date.parse(item.promisedAt || item.eta?.promisedAt || '')
       if (!['delivered', 'cancelled'].includes(item.status) && Number.isFinite(promisedAt) && promisedAt < Date.now()) result.late += 1
+      if (item.gpsStale) result.gpsStale += 1
+      if (item.otpFailureCount > 0) result.otpRejected += 1
+      if (item.otpLocked) result.otpLocked += 1
       return result
-    }, { byStatus: {}, late: 0, totalActive })
+    }, { byStatus: {}, late: 0, gpsStale: 0, otpRejected: 0, otpLocked: 0, totalActive })
+    const operationalCounts = operationalSignalSnapshot.data()?.counts || {}
+    summary.mapsErrorsToday = Math.max(0,
+      (Number(operationalCounts.address_error) || 0)
+      + (Number(operationalCounts.route_error) || 0)
+      + (Number(operationalCounts.maps_error) || 0),
+    )
     const config = {
       ...normalizeStoredConfig(configSnapshot.exists ? configSnapshot.data() : {}),
       revision: Number(configSnapshot.data()?.revision) || 0,
@@ -2853,6 +3280,14 @@ function createEatCleanFunctions(dependencies) {
       shippers,
       config,
       summary,
+      signals: {
+        mapsErrorsToday: summary.mapsErrorsToday,
+        otpRejected: summary.otpRejected,
+        otpLocked: summary.otpLocked,
+        gpsStale: summary.gpsStale,
+        lateOrders: summary.late,
+        gpsReadWarning,
+      },
       page: {
         limit,
         nextCursor: nextDeliveryCursor(deliveriesSnapshot, limit),
@@ -2949,6 +3384,7 @@ function createEatCleanFunctions(dependencies) {
         shipperId,
         active: false,
         updatedAt: Date.now(),
+        expiresAt: Date.now() + LIVE_LOCATION_RETENTION_MS,
       }),
       logger,
       context: { operation: 'assign', orderId, shipperId },
@@ -3118,6 +3554,7 @@ function createEatCleanFunctions(dependencies) {
       speedMetersPerSecond: optionalNumber(request.data?.speedMetersPerSecond, 'Tốc độ', 0, 100, 0),
       active: true,
       updatedAt: nowMillis,
+      expiresAt: nowMillis + LIVE_LOCATION_RETENTION_MS,
     }
     try {
       await currentReference.set(payload)
@@ -3317,7 +3754,14 @@ function createEatCleanFunctions(dependencies) {
         const locationSnapshot = await realtimeDb.ref(`eatCleanLiveLocations/${orderId}`).get()
         if (locationSnapshot.exists()) {
           liveLocation = locationSnapshot.val()
-          liveLocation.stale = Date.now() - Number(liveLocation.updatedAt || 0) > LIVE_LOCATION_STALE_MS
+          const health = liveLocationHealth(liveLocation)
+          if (health.expired) {
+            liveLocation = null
+            realtimeTracking = { configured: true, synced: true, warning: 'location_expired' }
+          } else {
+            liveLocation.stale = health.stale
+            liveLocation.expiresAt = Number(liveLocation.expiresAt || (Number(liveLocation.updatedAt || 0) + LIVE_LOCATION_RETENTION_MS))
+          }
         }
       } catch (error) {
         logger.warn('Unable to read Eat Clean live location for tracking', {
@@ -3360,6 +3804,8 @@ function createEatCleanFunctions(dependencies) {
       if (!canTransitionOrder(order.status, nextStatus)) {
         throw new HttpsError('failed-precondition', `Không thể chuyển đơn từ ${order.status} sang ${nextStatus}.`)
       }
+      const isNewCancellation = nextStatus === 'cancelled' && order.status !== 'cancelled'
+      const cancellationPolicy = isNewCancellation ? cancellationPolicyFor(order.status, 'admin') : null
       if (nextStatus === 'delivered' && deliverySnapshot.exists) {
         throw new HttpsError('failed-precondition', 'Đơn có shipper phải hoàn tất bằng OTP giao hàng.')
       }
@@ -3372,6 +3818,10 @@ function createEatCleanFunctions(dependencies) {
       for (const item of trackedItems) {
         inventorySnapshots.push(await transaction.get(db.doc(`eatCleanInventory/${item.inventoryId}`)))
       }
+      const refundReference = isNewCancellation && paidOrder(order)
+        ? db.doc(`eatCleanRefundJobs/${orderId}`)
+        : null
+      const refundSnapshot = refundReference ? await transaction.get(refundReference) : null
       trackedItems.forEach((item, index) => {
         const inventorySnapshot = inventorySnapshots[index]
         if (!inventorySnapshot.exists) {
@@ -3391,15 +3841,21 @@ function createEatCleanFunctions(dependencies) {
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: actorId,
       }
-      if (nextStatus === 'confirmed' && order.status !== nextStatus) patch.confirmedAt = FieldValue.serverTimestamp()
+      const statusTimestampField = order.status !== nextStatus ? orderStatusTimestampField(nextStatus) : ''
+      if (statusTimestampField) patch[statusTimestampField] = FieldValue.serverTimestamp()
       if (nextStatus === 'delivered' && order.status !== nextStatus) {
-        patch.deliveredAt = FieldValue.serverTimestamp()
         patch.paymentStatus = request.data?.paymentStatus === 'unpaid' ? 'unpaid' : 'paid'
       }
-      if (nextStatus === 'cancelled' && order.status !== nextStatus) {
-        patch.cancelledAt = FieldValue.serverTimestamp()
+      if (isNewCancellation) {
         patch.cancelledBy = actorId
         patch.cancellationReason = boundedString(request.data?.cancellationReason, 'Lý do hủy', 300, { required: false })
+        patch.cancellationPolicy = {
+          actorType: 'admin',
+          refundMode: cancellationPolicy.refundMode,
+          kitchenWasteReview: cancellationPolicy.kitchenWasteReview,
+        }
+        patch.kitchenWasteReviewRequired = cancellationPolicy.kitchenWasteReview
+        patch.refundStatus = refundReference ? 'review_required' : 'not_applicable'
       }
       transaction.update(reference, patch)
       if (deliverySnapshot.exists && nextStatus === 'ready' && deliverySnapshot.data().status === 'awaiting_kitchen') {
@@ -3442,17 +3898,13 @@ function createEatCleanFunctions(dependencies) {
           }, { merge: true })
         }
       }
-      if (nextStatus === 'cancelled' && (order.paymentStatus === 'paid' || order.payment?.status === 'paid')) {
-        transaction.set(db.doc(`eatCleanRefundJobs/${orderId}`), {
-          schemaVersion: SCHEMA_VERSION,
+      if (refundReference && !refundSnapshot?.exists) {
+        transaction.create(refundReference, refundJobForOrder(order, {
           orderId,
-          userId: order.userId || '',
-          amount: Number(order.total || order.pricing?.totalAmount || 0),
-          status: 'pending',
           reason: patch.cancellationReason || 'admin_cancelled',
-          createdAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-        }, { merge: true })
+          requestedBy: actorId,
+          policy: cancellationPolicy,
+        }))
       }
       return { id: orderId, status: nextStatus, previousStatus: order.status, updatedAt: new Date().toISOString() }
     })
@@ -3495,16 +3947,30 @@ function createEatCleanFunctions(dependencies) {
       const item = { id: snapshot.id, ...serializeValue(snapshot.data()) }
       return { ...item, available: Math.max(0, (item.capacity || 0) - (item.reserved || 0) - (item.sold || 0)) }
     })
+    const refundJobSnapshots = ordersSnapshot.empty
+      ? []
+      : await db.getAll(...ordersSnapshot.docs.map((snapshot) => db.doc(`eatCleanRefundJobs/${snapshot.id}`)))
+    const refundsByOrderId = new Map(refundJobSnapshots
+      .filter((snapshot) => snapshot.exists)
+      .map((snapshot) => [
+        snapshot.data().orderId || snapshot.id,
+        { id: snapshot.id, ...serializeValue(snapshot.data()) },
+      ]))
     const orders = ordersSnapshot.docs
-      .map((snapshot) => ({ id: snapshot.id, ...serializeValue(snapshot.data()) }))
+      .map((snapshot) => ({
+        id: snapshot.id,
+        ...serializeValue(snapshot.data()),
+        refund: refundsByOrderId.get(snapshot.id) || null,
+      }))
       .filter((order) => !status || order.status === status)
       .filter((order) => !serviceDate || order.serviceDate === serviceDate)
     const summary = orders.reduce((value, order) => {
       value.totalOrders += 1
       value.byStatus[order.status] = (value.byStatus[order.status] || 0) + 1
       if (order.status === 'delivered') value.deliveredRevenue += order.total || 0
+      if (order.refund && !['refunded', 'rejected'].includes(order.refund.status)) value.pendingRefunds += 1
       return value
-    }, { totalOrders: 0, deliveredRevenue: 0, byStatus: {} })
+    }, { totalOrders: 0, deliveredRevenue: 0, pendingRefunds: 0, byStatus: {} })
     return {
       schemaVersion: SCHEMA_VERSION,
       seeded: configSnapshot.exists || meals.length > 0 || inventory.length > 0,
@@ -3527,6 +3993,8 @@ function createEatCleanFunctions(dependencies) {
     createEatCleanOrder,
     listMyEatCleanOrders,
     cancelEatCleanOrder,
+    recordEatCleanRefundOutcome,
+    reverseEatCleanRefundOutcome,
     confirmEatCleanConsumption,
     saveEatCleanMeal,
     saveEatCleanInventory,
@@ -3554,6 +4022,8 @@ module.exports = {
     DEFAULT_CONFIG,
     ALLERGEN_IDS,
     ACTIVE_DELIVERY_STATUSES,
+    ORDER_CANCELLATION_POLICY,
+    LIVE_LOCATION_RETENTION_MS,
     normalizeEatCleanConfig,
     normalizeDistancePricing,
     normalizeSavedAddress,
@@ -3577,6 +4047,7 @@ module.exports = {
     normalizeDeliveryCursor,
     buildActiveDeliveriesQuery,
     nextDeliveryCursor,
+    liveLocationHealth,
     bestEffortRealtimeWrite,
     canonicalOrderPayload,
     canonicalOrderRequestHash,
@@ -3587,6 +4058,10 @@ module.exports = {
     hasAllergenConflict,
     recommendationScore,
     canTransitionOrder,
+    cancellationPolicyFor,
+    canCustomerCancelOrder,
+    refundJobForOrder,
+    orderStatusTimestampField,
     canTransitionDelivery,
     deliveryOtpFor,
     otpHash,

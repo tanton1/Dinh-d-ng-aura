@@ -34,7 +34,7 @@ function getSessionsLeft(contract: StudentContract, allSessions: import("../type
   // Add scheduled sessions
   const scheduledCount = allSessions.filter(s => {
     if (s.studentId !== contract.studentId) return false;
-    if (s.status !== 'scheduled') return false;
+    if (s.status !== 'scheduled' && s.status !== 'rescheduled') return false;
     const sDate = new Date(s.date).getTime();
     const startDate = new Date(contract.startDate).getTime();
     const endDate = new Date(contract.endDate).getTime() + (86400000 * 60);

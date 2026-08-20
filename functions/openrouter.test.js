@@ -223,8 +223,9 @@ test('OpenRouter retries malformed or incomplete structured output once', async 
 })
 
 test('OpenRouter diagnostics redact API keys', () => {
+  const syntheticOpenRouterKey = ['sk', 'or', 'v1', 'abcdefghijklmnopqrstuvwxyz123456'].join('-')
   const message = sanitizeProviderMessage(
-    'Bearer sk-or-v1-abcdefghijklmnopqrstuvwxyz123456 and AIzaABCDEFGHIJKLMNOPQRSTUV',
+    `Bearer ${syntheticOpenRouterKey} and AIzaABCDEFGHIJKLMNOPQRSTUV`,
   )
   assert.doesNotMatch(message, /sk-or-v1|AIza/)
   assert.match(message, /redacted/)

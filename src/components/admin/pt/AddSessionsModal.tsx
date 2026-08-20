@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { StudentContract, PaymentRecord } from '../../../types';
-import { X } from 'lucide-react';
+import { StudentContract } from '../../../types';
+import { AlertTriangle, X } from 'lucide-react';
 import { motion } from 'motion/react';
-import { useDatabase } from '../../../contexts/DatabaseContext';
 
 interface Props {
   isOpen: boolean;
@@ -11,13 +10,11 @@ interface Props {
   onSave: (updatedContract: StudentContract, skipPayment?: boolean) => void;
 }
 
-export default function AddSessionsModal({ isOpen, onClose, contract, onSave }: Props) {
-  const { addPayment, trainers } = useDatabase();
+export default function AddSessionsModal({ isOpen, onClose, contract }: Props) {
   const [extraSessions, setExtraSessions] = useState(0);
   const [extraDurationMonths, setExtraDurationMonths] = useState(0);
   const [extraPrice, setExtraPrice] = useState(0);
   const [paidAmount, setPaidAmount] = useState(0);
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer' | 'card'>('transfer');
 
   const [newTotalSessions, setNewTotalSessions] = useState(contract.totalSessions);
   const [newEndDate, setNewEndDate] = useState(contract.endDate);
@@ -41,54 +38,8 @@ export default function AddSessionsModal({ isOpen, onClose, contract, onSave }: 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (extraSessions < 0 || extraPrice < 0 || extraDurationMonths < 0) {
-      alert('Vui lòng nhập giá trị hợp lệ');
-      return;
-    }
-
-    const newPaidAmount = contract.paidAmount + paidAmount;
-    
-    let referralCommissionAmount = contract.referralCommission || null;
-    if (contract.referralCode) {
-      const referringPT = trainers.find(t => t.employeeCode === contract.referralCode);
-      if (referringPT) {
-        referralCommissionAmount = newPaidAmount * (referringPT.commissionRate / 100);
-      }
-    }
-
-    const updatedContract = {
-      ...contract,
-      status: contract.status === 'expired' ? 'active' : contract.status,
-      totalSessions: newTotalSessions,
-      endDate: newEndDate,
-      totalPrice: newTotalPrice,
-      paidAmount: newPaidAmount,
-      referralCommission: referralCommissionAmount,
-    };
-
-    try {
-      // Pass skipPayment=true because we handle the payment here to be specific about "Thanh toán mua thêm buổi"
-      await onSave(updatedContract, true);
-
-      if (paidAmount > 0) {
-        const paymentRecord: PaymentRecord = {
-          id: Date.now().toString() + '-add-sessions',
-          contractId: contract.id,
-          studentId: contract.studentId,
-          amount: paidAmount,
-          date: new Date().toISOString(),
-          method: paymentMethod as 'cash' | 'transfer',
-          note: `Thanh toán mua thêm ${extraSessions} buổi`,
-        };
-        await addPayment(paymentRecord);
-      }
-
-      alert('Thêm buổi thành công!');
-      onClose();
-    } catch (err) {
-      console.error(err);
-      alert('Có lỗi xảy ra');
-    }
+    // Fail closed until the backend can update the contract projection and
+    // post the matching ledger entry in one idempotent transaction.
   };
 
   return (
@@ -107,6 +58,13 @@ export default function AddSessionsModal({ isOpen, onClose, contract, onSave }: 
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100" role="status">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
+            <div>
+              <strong className="block text-amber-300">Tạm khóa để bảo vệ sổ tài chính</strong>
+              <span>Chức năng mua thêm buổi sẽ mở lại khi hợp đồng và bút toán thu tiền được ghi trong cùng một giao dịch máy chủ.</span>
+            </div>
+          </div>
           <div>
             <label className="block text-sm font-medium text-zinc-400 mb-1">Số buổi mua thêm</label>
             <input
@@ -180,9 +138,12 @@ export default function AddSessionsModal({ isOpen, onClose, contract, onSave }: 
             </button>
             <button
               type="submit"
-              className="px-6 py-2.5 rounded-xl font-medium text-white bg-pink-500 hover:bg-pink-600 transition-colors shadow-lg shadow-pink-500/20"
+              disabled
+              aria-disabled="true"
+              title="Đang chờ quy trình giao dịch máy chủ an toàn"
+              className="cursor-not-allowed px-6 py-2.5 rounded-xl font-medium text-zinc-400 bg-zinc-800 opacity-70"
             >
-              Cập nhật hợp đồng
+              Đang nâng cấp an toàn
             </button>
           </div>
         </form>

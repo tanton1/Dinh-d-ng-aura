@@ -57,34 +57,57 @@ export interface NutritionCatalogPage {
   hasMore: boolean
   nextCursor: string | null
   totalCount: number
+  catalogTotal: number
+  filteredCount: number
+  catalogVersion: string
+  categories: string[]
 }
 
-const catalogRequests = new Map<string, Promise<NutritionCatalogPage>>()
+const CATALOG_PAGE_CACHE_MS = 2 * 60 * 1000
+const catalogRequests = new Map<string, { expiresAt: number; request: Promise<NutritionCatalogPage> }>()
 
 export function loadNutritionCatalogPage(input: InternalNutritionCatalogQuery = {}) {
   const key = JSON.stringify({
     query: input.query?.trim() ?? '',
     kind: input.kind ?? 'all',
-    limit: input.limit ?? 72,
+    category: input.category?.trim() ?? '',
+    limit: input.limit ?? 60,
     ids: input.ids ? [...input.ids].sort() : [],
     cursor: input.cursor ?? '',
+    catalogVersion: input.catalogVersion ?? '',
   })
+  const cached = catalogRequests.get(key)
+  if (cached && cached.expiresAt > Date.now()) return cached.request
+  if (cached) catalogRequests.delete(key)
   if (!catalogRequests.has(key)) {
     const request = listInternalNutritionCatalog(input).then((payload) => {
       if (!Array.isArray(payload.items)) throw new Error('catalog_response_invalid')
+      const legacyTotal = Number.isInteger(payload.totalCount) && payload.totalCount >= 0 ? payload.totalCount : 0
+      const catalogTotal = typeof payload.catalogTotal === 'number' && Number.isInteger(payload.catalogTotal) && payload.catalogTotal >= 0
+        ? payload.catalogTotal
+        : legacyTotal
+      const filteredCount = typeof payload.filteredCount === 'number' && Number.isInteger(payload.filteredCount) && payload.filteredCount >= 0
+        ? payload.filteredCount
+        : legacyTotal
       return {
         items: normalizeCatalogPayload(payload.items),
         hasMore: payload.hasMore === true,
         nextCursor: typeof payload.nextCursor === 'string' && payload.nextCursor ? payload.nextCursor : null,
-        totalCount: Number.isInteger(payload.totalCount) && payload.totalCount >= 0 ? payload.totalCount : 0,
+        totalCount: legacyTotal,
+        catalogTotal,
+        filteredCount,
+        catalogVersion: typeof payload.catalogVersion === 'string' && payload.catalogVersion ? payload.catalogVersion : `legacy-${legacyTotal}`,
+        categories: Array.isArray(payload.categories)
+          ? payload.categories.filter((category): category is string => typeof category === 'string' && Boolean(category.trim()))
+          : [],
       }
     }).catch((error: unknown) => {
       catalogRequests.delete(key)
       throw error
     })
-    catalogRequests.set(key, request)
+    catalogRequests.set(key, { expiresAt: Date.now() + CATALOG_PAGE_CACHE_MS, request })
   }
-  return catalogRequests.get(key)!
+  return catalogRequests.get(key)!.request
 }
 
 export function loadNutritionCatalog(input: InternalNutritionCatalogQuery = {}) {

@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Student, UserProfile, StudentContract, TrainingPackage, Trainer, Branch, Session, PaymentRecord } from '../../../types';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
+import { Student, UserProfile, StudentContract, TrainingPackage, Trainer, Branch, Session } from '../../../types';
 import { User } from 'firebase/auth';
 import { db } from '../../../lib/firebase';
 import { Search, Plus, Edit2, Trash2, Phone, Mail, Calendar, CheckCircle, XCircle, AlertCircle, User as UserIcon, Package, RefreshCw } from 'lucide-react';
@@ -9,7 +9,9 @@ import DateRangeFilter from './DateRangeFilter';
 import RenewContractModal from './RenewContractModal';
 import { LOGO_URL } from '../../../constants';
 import { useDatabase } from '../../../contexts/DatabaseContext';
+import { useAuth } from '../../../contexts/AuthContext';
 import { createAccountInvite } from '../../../services/identityAccessService';
+import { recordContractPayment } from '../../../services/financeLedgerService';
 
 interface Props {
   user: User | null;
@@ -20,13 +22,14 @@ import LeaveApprovals from './LeaveApprovals';
 import SessionRequestApprovals from './SessionRequestApprovals';
 
 export default function StudentManagement({ user, profile }: Props) {
+  const { authzReady, hasCapability } = useAuth();
   const { 
     students, contracts, payments, packages, trainers, branches, sessions, leaveRequests, sessionRequests,
     addStudent, updateStudent, deleteStudent,
     addContract, updateContract, deleteContract,
-    addPayment, deletePayment, deleteSession,
     updateUserProfile
   } = useDatabase();
+  const canManageSessionLifecycle = authzReady && hasCapability('pt.operations.manage');
   
   const getCalculatedUsedSessions = (contract: any, allSessions: Session[]) => {
     if (!contract) return 0;
@@ -57,6 +60,8 @@ export default function StudentManagement({ user, profile }: Props) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
+  const contractCreationPromises = useRef(new Map<string, Promise<void>>());
+  const [studentPage, setStudentPage] = useState(1);
   const [renewingStudent, setRenewingStudent] = useState<{ student: Student, contract: StudentContract } | null>(null);
   const [formData, setFormData] = useState<Partial<Student>>({
     name: '',
@@ -241,75 +246,87 @@ export default function StudentManagement({ user, profile }: Props) {
     return filtered;
   }, [students, searchTerm, dateRange, selectedBranchId, profile, contracts, contractFilter, selectedTrainerId, selectedNutritionPTId, trainers, user]);
 
+  const studentPageSize = 30;
+  const studentPageCount = Math.max(1, Math.ceil(filteredStudents.length / studentPageSize));
+  const visibleStudents = useMemo(
+    () => filteredStudents.slice((studentPage - 1) * studentPageSize, studentPage * studentPageSize),
+    [filteredStudents, studentPage],
+  );
+
+  useEffect(() => setStudentPage(1), [searchTerm, dateRange, selectedBranchId, contractFilter, selectedTrainerId, selectedNutritionPTId]);
+  useEffect(() => setStudentPage((current) => Math.min(current, studentPageCount)), [studentPageCount]);
+
   const handleSaveContract = async (newContract: StudentContract) => {
     try {
-      if (newContract.trainerId) {
-        const trainer = trainers.find(t => t.id === newContract.trainerId);
-        if (trainer) {
-          const commission = newContract.totalPrice * (trainer.commissionRate / 100);
-          console.log(`Commission for ${trainer.name}: ${commission}`);
-        }
-      }
-
       const student = students.find(s => s.id === newContract.studentId);
       if (student && student.status !== 'active') {
         await updateStudent(student.id, { status: 'active' });
       }
 
-      await addContract(newContract);
+      // The contract projection starts at zero. Any money collected is posted
+      // through the immutable ledger, which updates paidAmount atomically.
+      const initialPaidAmount = Math.max(0, Number(newContract.paidAmount || 0));
+      const initialInstallment = initialPaidAmount > 0
+        ? newContract.installments?.find((item) => item.status === 'paid' && Number(item.amount || 0) === initialPaidAmount)
+        : undefined;
+      const contractToPersist: StudentContract = {
+        ...newContract,
+        paidAmount: 0,
+        installments: newContract.installments?.map((item) => (
+          item.id === initialInstallment?.id ? { ...item, status: 'pending' as const } : item
+        )),
+      };
+      const persistedPending = contractToPersist.installments
+        ?.filter((item) => item.status === 'pending' && item.date)
+        .sort((left, right) => left.date.localeCompare(right.date))[0];
+      contractToPersist.nextPaymentDate = persistedPending?.date || null;
 
-      if (newContract.paidAmount > 0) {
-        const initInst = newContract.installments?.find(i => i.status === 'paid');
-        const payment: PaymentRecord = {
-          id: Date.now().toString() + '-p',
-          contractId: newContract.id,
-          studentId: newContract.studentId,
-          amount: newContract.paidAmount,
-          date: new Date().toISOString(),
-          method: 'transfer',
-          note: 'Thanh toán lần đầu khi đăng ký gói',
-          installmentId: initInst ? initInst.id : undefined
-        };
-        await addPayment(payment);
+      const existingContract = contracts.find((contract) => contract.id === newContract.id);
+      if (existingContract && existingContract.studentId !== newContract.studentId) {
+        throw new Error('Mã hợp đồng đã thuộc về một học viên khác.');
       }
+      if (!existingContract) {
+        let creation = contractCreationPromises.current.get(newContract.id);
+        if (!creation) {
+          creation = addContract(contractToPersist).catch((error) => {
+            contractCreationPromises.current.delete(newContract.id);
+            throw error;
+          });
+          contractCreationPromises.current.set(newContract.id, creation);
+        }
+        await creation;
+      }
+
+      if (initialPaidAmount > 0) {
+        await recordContractPayment({
+          contractId: newContract.id,
+          amount: initialPaidAmount,
+          effectiveAt: new Date().toISOString(),
+          paymentMethod: 'transfer',
+          idempotencyKey: `initial-payment:${newContract.id}`,
+          note: 'Thanh toán lần đầu khi đăng ký gói',
+          installmentId: initialInstallment?.id,
+        });
+      }
+      contractCreationPromises.current.delete(newContract.id);
     } catch (e) {
-      console.error("Error saving contract:", e);
       setAlertMessage("Lỗi lưu hợp đồng: " + (e as Error).message);
+      throw e;
     }
   };
 
   const handleUpdateContract = async (updatedContract: StudentContract, skipPayment?: boolean) => {
     try {
       const oldContract = contracts.find(c => c.id === updatedContract.id);
-      await updateContract(updatedContract);
-      
-      if (!skipPayment) {
-        if (oldContract && updatedContract.paidAmount > oldContract.paidAmount) {
-          const diff = updatedContract.paidAmount - oldContract.paidAmount;
-          const payment: PaymentRecord = {
-            id: Date.now().toString() + '-p',
-            contractId: updatedContract.id,
-            studentId: updatedContract.studentId,
-            amount: diff,
-            date: new Date().toISOString(),
-            method: 'transfer',
-            note: 'Thanh toán thêm (cập nhật hợp đồng)'
-          };
-          await addPayment(payment);
-        } else if (oldContract && updatedContract.paidAmount < oldContract.paidAmount) {
-          const diff = oldContract.paidAmount - updatedContract.paidAmount;
-          // Find the most recent payment for this contract with the exact amount
-          const contractPayments = payments.filter(p => p.contractId === updatedContract.id && p.amount === diff);
-          if (contractPayments.length > 0) {
-            // Sort by date descending to get the most recent one
-            contractPayments.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            const paymentToRemove = contractPayments[0];
-            await deletePayment(paymentToRemove.id);
-          }
-        }
+      const previousPaidAmount = Number(oldContract?.paidAmount || 0);
+      const requestedPaidAmount = Number(updatedContract.paidAmount || 0);
+      if (!skipPayment && oldContract && requestedPaidAmount !== previousPaidAmount) {
+        throw new Error('Tiền đã thu là projection của sổ giao dịch. Hãy dùng trang Tài chính để ghi nhận khoản thu, hoàn tiền hoặc bút toán điều chỉnh.');
       }
+      // paidAmount is a backend-maintained projection and must never be set by
+      // a browser write. Save all other contract fields with the current value.
+      await updateContract({ ...updatedContract, paidAmount: previousPaidAmount });
     } catch (e) {
-      console.error("Error updating contract:", e);
       setAlertMessage("Lỗi cập nhật hợp đồng: " + (e as Error).message);
     }
   };
@@ -574,15 +591,17 @@ export default function StudentManagement({ user, profile }: Props) {
         students={allowedStudents}
         contracts={contracts}
         sessions={sessions}
+        canManage={canManageSessionLifecycle}
       />
       <LeaveApprovals 
         leaveRequests={leaveRequests || []} 
         students={allowedStudents} 
-        contracts={contracts} 
+        contracts={contracts}
+        canManage={canManageSessionLifecycle}
       />
 
       <div className="space-y-3">
-            {filteredStudents.map(student => {
+            {visibleStudents.map(student => {
               const hasOverdueDebt = contracts.some(c => {
                 if (c.studentId !== student.id || c.status === 'frozen') return false;
                 const pending = c.installments?.filter(i => i.status === 'pending') || [];
@@ -793,6 +812,16 @@ export default function StudentManagement({ user, profile }: Props) {
               </div>
             )}
           </div>
+
+          {filteredStudents.length > studentPageSize && (
+            <nav className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-900 px-4 py-3" aria-label="Phân trang học viên">
+              <span className="text-xs text-zinc-500">Trang {studentPage}/{studentPageCount} · {filteredStudents.length} học viên</span>
+              <div className="flex gap-2">
+                <button type="button" disabled={studentPage === 1} onClick={() => setStudentPage((current) => Math.max(1, current - 1))} className="rounded-lg bg-zinc-800 px-3 py-2 text-xs font-bold text-zinc-200 disabled:opacity-40">Trước</button>
+                <button type="button" disabled={studentPage === studentPageCount} onClick={() => setStudentPage((current) => Math.min(studentPageCount, current + 1))} className="rounded-lg bg-gradient-to-r from-pink-500 to-orange-500 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">Tiếp</button>
+              </div>
+            </nav>
+          )}
 
       {/* Add/Edit Modal */}
       <AnimatePresence>

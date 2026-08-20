@@ -131,6 +131,10 @@
 .eat-clean-status--out_of_stock { color: var(--ec-danger); background: var(--ec-danger-soft); }
 .eat-clean-status--inactive { color: #756671; background: #f5eef2; }
 .eat-clean-status--low_stock { color: #9b5a18; background: #fff4df; }
+.eat-clean-status--blocked_provider_not_configured,
+.eat-clean-status--manual_review_required { color: #9b5a18; background: #fff4df; }
+.eat-clean-status--refunded { color: var(--ec-success-dark); background: var(--ec-success-soft); }
+.eat-clean-status--rejected { color: var(--ec-danger); background: var(--ec-danger-soft); }
 
 .eat-clean-empty,
 .eat-clean-loading,
@@ -186,6 +190,18 @@
 .eat-clean-order-lines > div { min-width: 0; display: flex; justify-content: space-between; gap: 12px; color: #695966; font-size: 12px; }
 .eat-clean-order-lines span { min-width: 0; overflow-wrap: anywhere; }
 .eat-clean-order-lines strong { flex: 0 0 auto; color: var(--ec-ink); }
+.eat-clean-refund-card { display: flex; flex-direction: column; gap: 12px; border-color: #ffd1df; background: linear-gradient(145deg, #fff8fb, #fff4ef); }
+.eat-clean-refund-card__heading { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.eat-clean-refund-card__heading > div { min-width: 0; }
+.eat-clean-refund-card__heading h3 { margin-bottom: 3px; }
+.eat-clean-refund-card__heading .eat-clean-status { flex: 0 0 auto; max-width: 48%; white-space: normal; text-align: center; }
+.eat-clean-refund-facts { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin: 0; }
+.eat-clean-refund-facts > div { min-width: 0; padding: 9px; border: 1px solid var(--ec-line); border-radius: 10px; background: #fff; }
+.eat-clean-refund-facts dt { color: var(--ec-muted); font-size: 9px; font-weight: 800; }
+.eat-clean-refund-facts dd { margin: 4px 0 0; color: var(--ec-ink); font-size: 11px; font-weight: 900; overflow-wrap: anywhere; }
+.eat-clean-refund-confirmation { min-width: 0; display: flex; align-items: flex-start; gap: 8px; padding: 10px; border: 1px solid #f0d9e3; border-radius: 10px; color: #695967; background: #fff; cursor: pointer; font-size: 10px; font-weight: 700; line-height: 1.45; }
+.eat-clean-refund-confirmation input { width: 18px; height: 18px; flex: 0 0 18px; margin: 0; accent-color: var(--ec-green); }
+.eat-clean-refund-actions { min-width: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 
 .eat-clean-field { min-width: 0; display: flex; flex-direction: column; gap: 6px; color: #695967; font-size: 11px; font-weight: 800; }
 .eat-clean-field input,
@@ -341,6 +357,9 @@
   .eat-clean-sheet__body { padding: 16px; }
   .eat-clean-sheet__footer { padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); }
   .eat-clean-sheet__footer > * { min-width: 0; flex: 1 1 0; }
+  .eat-clean-refund-card__heading { align-items: stretch; flex-direction: column; }
+  .eat-clean-refund-card__heading .eat-clean-status { max-width: 100%; align-self: flex-start; }
+  .eat-clean-refund-actions > * { min-width: 0; flex: 1 1 150px; }
 }
 
 @media (max-width: 380px) {
@@ -364,6 +383,7 @@
   .eat-clean-slot-row > .eat-clean-field { grid-column: 1 / -1; }
   .eat-clean-slot-row .eat-clean-slot-enabled { grid-column: 1; }
   .eat-clean-operation-preview dl { grid-template-columns: 1fr; }
+  .eat-clean-refund-facts { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -396,6 +416,13 @@
 .eat-clean-dispatch-metrics article.needs-attention > span { color: #ad641e; background: #fff0dc; }
 .eat-clean-dispatch-metrics article.is-danger { border-color: #f0c5cb; background: #fff7f8; }
 .eat-clean-dispatch-metrics article.is-danger > span { color: var(--ec-danger); background: var(--ec-danger-soft); }
+.eat-clean-operations-signals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+.eat-clean-operations-signals article { min-width: 0; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 2px 9px; padding: 11px 12px; border: 1px solid var(--ec-line); border-radius: 14px; background: rgba(255,255,255,.92); }
+.eat-clean-operations-signals article > span { grid-row: 1 / 3; min-width: 38px; min-height: 32px; display: grid; place-items: center; padding: 0 6px; border-radius: 10px; color: var(--ec-green-dark); background: var(--ec-green-soft); font-size: 8px; font-weight: 900; letter-spacing: .08em; }
+.eat-clean-operations-signals strong { font-size: 17px; line-height: 1; }
+.eat-clean-operations-signals small { min-width: 0; overflow: hidden; color: var(--ec-muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.eat-clean-operations-signals article.has-alert { border-color: #f0c5cb; background: #fff7f8; }
+.eat-clean-operations-signals article.has-alert > span { color: var(--ec-danger); background: var(--ec-danger-soft); }
 .eat-clean-dispatch-grid { min-width: 0; display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(280px, .55fr); gap: 12px; }
 .eat-clean-dispatch-map, .eat-clean-dispatch-queue, .eat-clean-driver-strip { min-width: 0; overflow: hidden; border: 1px solid var(--ec-line); border-radius: 18px; background: #fff; }
 .eat-clean-dispatch-map > header, .eat-clean-dispatch-queue > header, .eat-clean-driver-strip > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px; }
@@ -452,10 +479,12 @@
   .eat-clean-dispatch-switch { width: 100%; }
   .eat-clean-dispatch-switch button { padding-inline: 6px; }
   .eat-clean-dispatch-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .eat-clean-operations-signals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .eat-clean-readiness-grid { grid-template-columns: 1fr; }
   .eat-clean-dispatch-metrics article { align-items: flex-start; flex-direction: column; }
   .eat-clean-dispatch-map__canvas { height: 260px; }
   .eat-clean-driver-strip > div { grid-template-columns: 1fr; }
+  .eat-clean-operations-signals article { grid-template-columns: auto minmax(0, 1fr); }
   .eat-clean-dispatch-dialog-backdrop { place-items: end center; padding: 0; }
   .eat-clean-dispatch-dialog-backdrop > section { width: 100%; padding: 17px; border-radius: 20px 20px 0 0; padding-bottom: calc(17px + env(safe-area-inset-bottom, 0px)); }
 }

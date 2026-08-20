@@ -43,6 +43,10 @@ export interface EatCleanDeliveryJob {
   acceptedAt?: string
   pickedUpAt?: string
   completedAt?: string
+  lastLocationAt?: string
+  gpsStale?: boolean
+  otpFailureCount?: number
+  otpLocked?: boolean
   customerDeliveryOtpRequired: boolean
   isLate: boolean
 }
@@ -116,6 +120,14 @@ export interface EatCleanDispatchSnapshot {
   drivers: EatCleanDriverProfile[]
   config: EatCleanDeliveryOperationsConfig
   readiness: EatCleanDeliveryRuntimeReadiness
+  signals: {
+    mapsErrorsToday: number
+    otpRejected: number
+    otpLocked: number
+    gpsStale: number
+    lateOrders: number
+    gpsReadWarning?: string
+  }
   serverTime?: string
 }
 

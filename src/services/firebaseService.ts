@@ -434,7 +434,7 @@ export async function createOrUpdateUserProfile(profile: UserProfile) {
 }
 
 /** Saves course content, private quiz keys, revision and audit atomically on the server. */
-export async function saveCourseDraft(input: CourseDraftInput & { publish?: boolean }) {
+export async function saveCourseDraft(input: CourseDraftInput) {
   const normalizedCourseId = requireDocumentId(input.id, 'Mã khóa học')
   const expectedRevision = Number.isInteger(input.revision) && (input.revision ?? 0) >= 0
     ? input.revision ?? 0
@@ -472,6 +472,29 @@ export interface CourseRevisionSummary {
   createdAt: string
   status: string
   title: string
+  restoredFromRevision: number | null
+}
+
+export interface CourseRevisionDiffChange {
+  path: string
+  label: string
+  before: unknown
+  after: unknown
+}
+
+export interface CourseRevisionDiff {
+  courseId: string
+  fromRevision: number
+  toRevision: number
+  changes: CourseRevisionDiffChange[]
+  summary: {
+    changedFields: number
+    truncated: boolean
+    modulesBefore: number
+    modulesAfter: number
+    lessonsBefore: number
+    lessonsAfter: number
+  }
 }
 
 export async function getCourseRevisionHistory(courseId: string) {
@@ -480,10 +503,53 @@ export async function getCourseRevisionHistory(courseId: string) {
   return (await callable({ courseId: normalizedCourseId })).data.revisions
 }
 
+export async function getCourseRevisionDiff(courseId: string, fromRevision: number, toRevision: number) {
+  const input = {
+    courseId: requireDocumentId(courseId, 'Mã khóa học'),
+    fromRevision,
+    toRevision,
+  }
+  const callable = httpsCallable<typeof input, CourseRevisionDiff>(requireFunctions(), 'getCourseRevisionDiff')
+  return (await callable(input)).data
+}
+
+export async function transitionCoursePublicationStatus(
+  courseId: string,
+  expectedRevision: number,
+  nextStatus: 'approved' | 'scheduled' | 'published' | 'archived',
+) {
+  const input = {
+    courseId: requireDocumentId(courseId, 'Mã khóa học'),
+    expectedRevision,
+    nextStatus,
+  }
+  const callable = httpsCallable<typeof input, { courseId: string; revision: number; status: string }>(
+    requireFunctions(),
+    'transitionCoursePublicationStatus',
+  )
+  try {
+    return (await callable(input)).data
+  } catch (error) {
+    const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : ''
+    if (code === 'functions/aborted' || code === 'aborted') {
+      throw new Error('Khóa học đã được chỉnh sửa ở phiên khác. Hãy tải lại trước khi đổi trạng thái.')
+    }
+    throw error
+  }
+}
+
 export async function restoreCourseRevisionToDraft(courseId: string, revision: number, expectedRevision: number) {
   const input = { courseId: requireDocumentId(courseId, 'Mã khóa học'), revision, expectedRevision }
   const callable = httpsCallable<typeof input, { courseId: string; revision: number; status: 'draft'; restoredFromRevision: number }>(requireFunctions(), 'restoreCourseRevisionToDraft')
-  return (await callable(input)).data
+  try {
+    return (await callable(input)).data
+  } catch (error) {
+    const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : ''
+    if (code === 'functions/aborted' || code === 'aborted') {
+      throw new Error('Khóa học đã được chỉnh sửa ở phiên khác. Hãy tải lại trước khi khôi phục.')
+    }
+    throw error
+  }
 }
 
 export async function loadCourseQuizAnswerKeys(courseId: string): Promise<CourseQuizAnswerKeys> {
@@ -782,21 +848,9 @@ export async function updateUserProfile(userId: string, values: Partial<UserProf
   const db = requireDb()
   const reference = doc(db, 'users', userId)
   const cleanValues = clientMutableProfileValues(values)
-  // Persist remotely before updating the local cache. This prevents a failed
-  // Firestore write from looking successful after the next page refresh.
+  // Firestore is canonical. AuthContext persists a versioned display-only
+  // cache only after receiving a server-confirmed snapshot.
   await setDoc(reference, { ...cleanValues, updatedAt: serverTimestamp() }, { merge: true })
-  safeSetCache(`user_profile:${userId}`, cleanValues)
-  if (typeof window !== 'undefined') {
-    try {
-      const raw1 = window.localStorage.getItem(`aura:user-profile:${userId}`)
-      const raw2 = window.localStorage.getItem(`aura:profile:${userId}`)
-      const p1 = raw1 ? JSON.parse(raw1) : {}
-      const p2 = raw2 ? JSON.parse(raw2) : {}
-      const merged = { ...p1, ...p2, ...cleanValues }
-      window.localStorage.setItem(`aura:user-profile:${userId}`, JSON.stringify(merged))
-      window.localStorage.setItem(`aura:profile:${userId}`, JSON.stringify(merged))
-    } catch {}
-  }
 }
 
 export function subscribeToAdminUsers(
@@ -837,11 +891,13 @@ export async function updateUserRole(userId: string, role: UserRole) {
   await updateRole({ uid: userId, role })
 }
 
-export async function seedAuraFoundationCourse(publish = true) {
+export async function seedAuraFoundationCourse(publish = false) {
+  if (publish) {
+    throw new Error('Dữ liệu mẫu phải đi qua quy trình gửi duyệt và xuất bản phía server.')
+  }
   return saveCourseDraft({
     ...auraFoundationCourse,
-    publicationStatus: publish ? 'published' : 'draft',
-    publish,
+    publicationStatus: 'draft',
   })
 }
 

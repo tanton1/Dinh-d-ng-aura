@@ -2628,3 +2628,127 @@
 .admin-push-tabs::-webkit-scrollbar {
   display: none;
 }
+/* Academy publication workflow and immutable revision tools */
+.course-editor-content-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.course-editor-content-fieldset:disabled {
+  opacity: .78;
+}
+
+.academy-content-lock,
+.academy-workflow-card,
+.academy-revision-card {
+  border: 1px solid rgba(244, 63, 123, .16);
+  border-radius: 22px;
+  background: linear-gradient(145deg, rgba(255,255,255,.98), rgba(255,244,239,.95));
+  box-shadow: 0 14px 36px rgba(45, 25, 51, .07);
+}
+
+.academy-content-lock {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  color: #9b2b58;
+}
+
+.academy-content-lock span { display: grid; gap: 3px; }
+.academy-content-lock small { color: #6f6570; line-height: 1.45; }
+
+.academy-workflow-card,
+.academy-revision-card {
+  margin-top: 18px;
+  padding: 20px;
+}
+
+.academy-workflow-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.academy-workflow-heading h2 { margin: 3px 0 5px; font-size: 21px; }
+.academy-workflow-heading p { margin: 0; color: #756d77; font-size: 13px; }
+
+.academy-workflow-steps {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: 18px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.academy-workflow-steps li {
+  display: grid;
+  align-content: center;
+  min-height: 56px;
+  padding: 9px;
+  border: 1px solid #eee7eb;
+  border-radius: 13px;
+  background: #fff;
+  color: #766d76;
+  font-size: 11px;
+  font-weight: 750;
+  text-align: center;
+}
+
+.academy-workflow-steps li.is-current {
+  border-color: transparent;
+  background: linear-gradient(135deg, #f5368c, #ff965f);
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(245, 54, 140, .19);
+}
+
+.academy-workflow-steps small { margin-top: 2px; font-size: 9px; font-weight: 600; opacity: .75; }
+.academy-workflow-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.academy-workflow-note,
+.academy-workflow-loading { display: inline-flex; align-items: center; gap: 7px; margin: 0; color: #756d77; font-size: 13px; }
+
+.academy-revision-list { display: grid; gap: 10px; margin-top: 16px; }
+.academy-revision-list article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid #eee7eb;
+  border-radius: 15px;
+  background: rgba(255,255,255,.85);
+}
+.academy-revision-list article.is-current { border-color: rgba(245,54,140,.45); background: #fff5f8; }
+.academy-revision-list article > div:first-child { display: grid; gap: 3px; }
+.academy-revision-list article small { color: #7c737c; font-size: 11px; }
+.academy-revision-list article > div:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.academy-revision-list .outline-button { min-height: 36px; padding: 7px 10px; font-size: 11px; }
+
+.academy-revision-diff { margin-top: 16px; padding: 15px; border-radius: 16px; background: #2a1735; color: #fff; }
+.academy-revision-diff > div { display: flex; justify-content: space-between; gap: 12px; }
+.academy-revision-diff h3,
+.academy-revision-diff p { margin: 0 0 8px; }
+.academy-revision-diff button { border: 0; background: transparent; color: #fff; }
+.academy-revision-diff ul { display: grid; gap: 9px; max-height: 360px; margin: 12px 0 0; padding: 0; overflow: auto; list-style: none; }
+.academy-revision-diff li { display: grid; gap: 5px; padding: 10px; border-radius: 11px; background: rgba(255,255,255,.08); }
+.academy-revision-diff li > span { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px; line-height: 1.4; }
+.academy-revision-diff del,
+.academy-revision-diff ins { padding: 7px; border-radius: 8px; overflow-wrap: anywhere; text-decoration: none; }
+.academy-revision-diff del { background: rgba(255,100,120,.14); }
+.academy-revision-diff ins { background: rgba(72,220,160,.14); }
+
+@media (max-width: 760px) {
+  .academy-workflow-card,
+  .academy-revision-card { padding: 16px; border-radius: 18px; }
+  .academy-workflow-steps { display: flex; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x proximity; }
+  .academy-workflow-steps li { min-width: 104px; scroll-snap-align: start; }
+  .academy-revision-list article { align-items: flex-start; flex-direction: column; }
+  .academy-revision-list article > div:last-child { width: 100%; justify-content: stretch; }
+  .academy-revision-list article > div:last-child button { flex: 1; }
+  .academy-revision-diff li > span { grid-template-columns: 1fr; }
+}

@@ -30,15 +30,16 @@ interface AdminRolesPageProps {
   currentRole: UserRole
   currentUserUid?: string
   onRoleChange: (uid: string, nextRole: UserRole) => Promise<void> | void
+  onOpenStaffAccess?: () => void
   loading?: boolean
 }
 
+// PT, Sales and Branch Manager are staff positions in Identity v2. They need
+// an assignment scope (branch/CRM profile), so they must never be sent to the
+// legacy updateUserRole callable from this screen.
 const roles: UserRole[] = [
   'student',
   'coach',
-  'trainer',
-  'sales',
-  'manager',
   'editor',
   'shipper',
   'admin',
@@ -70,7 +71,9 @@ function initials(name: string, email: string) {
   return source.split(/\s+/).map((part) => part[0]).slice(-2).join('').toUpperCase()
 }
 
-export default function AdminRolesPage({ users, currentRole, currentUserUid, onRoleChange, loading = false }: AdminRolesPageProps) {
+const staffPositionRoles = new Set<UserRole>(['trainer', 'sales', 'manager'])
+
+export default function AdminRolesPage({ users, currentRole, currentUserUid, onRoleChange, onOpenStaffAccess, loading = false }: AdminRolesPageProps) {
   const [query, setQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState<'all' | UserRole>('all')
   const [savingUid, setSavingUid] = useState<string | null>(null)
@@ -100,7 +103,8 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
 
   const changeRole = async (user: AdminRoleUser, nextRole: UserRole) => {
     if (!canAssignRole || user.role === nextRole) return
-    if ((user.role === 'super_admin' || nextRole === 'super_admin') && !canAssignSuperAdmin) return
+    if (staffPositionRoles.has(user.role) || staffPositionRoles.has(nextRole)) return
+    if ((user.role === 'admin' || user.role === 'super_admin' || nextRole === 'admin' || nextRole === 'super_admin') && !canAssignSuperAdmin) return
     if (user.uid === currentUserUid) return
     if (!window.confirm(`Đổi vai trò của ${user.displayName || user.email} thành ${roleMeta[nextRole].label}?`)) return
 
@@ -157,6 +161,14 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
         </div>
       )}
 
+      <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 15, padding: '12px 15px', color: '#6c6975', fontSize: 12 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <UserCog size={18} color="var(--aura-pink)" />
+          PT, Sales và Quản lý chi nhánh được cấp dưới dạng chức danh kèm phạm vi tại Nhân sự &amp; Chi nhánh.
+        </span>
+        {onOpenStaffAccess && <button type="button" className="outline-button" onClick={onOpenStaffAccess}>Mở quản lý nhân sự</button>}
+      </div>
+
       {error && (
         <div className="builder-save-error" role="alert" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
           <AlertCircle size={17} /> {error}
@@ -211,10 +223,12 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
           const status = statusMeta[user.status ?? 'active']
           const userRoleData = roleMeta[user.role] || roleMeta.student
           const isSaving = savingUid === user.uid
+          const managedAsStaffPosition = staffPositionRoles.has(user.role)
           const roleLocked = !canAssignRole
             || Boolean(savingUid)
             || user.uid === currentUserUid
-            || (user.role === 'super_admin' && !canAssignSuperAdmin)
+            || managedAsStaffPosition
+            || ((user.role === 'admin' || user.role === 'super_admin') && !canAssignSuperAdmin)
 
           return (
             <article className="student-row" key={user.uid}>
@@ -236,8 +250,11 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
                     borderRadius: 8, color: userRoleData.tone, background: '#fff', fontSize: 11, fontWeight: 750,
                   }}
                 >
+                  {managedAsStaffPosition && (
+                    <option value={user.role}>{roleMeta[user.role].label} · quản lý tại Nhân sự</option>
+                  )}
                   {roles.map((role) => (
-                    <option key={role} value={role} disabled={role === 'super_admin' && !canAssignSuperAdmin}>
+                    <option key={role} value={role} disabled={(role === 'admin' || role === 'super_admin') && !canAssignSuperAdmin}>
                       {roleMeta[role].label}
                     </option>
                   ))}

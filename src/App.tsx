@@ -22,7 +22,6 @@ import {
   subscribeToAllEnrollments,
   subscribeToAllStudentProgress,
   subscribeToAdminUsers,
-  updateUserProfile,
   updateUserRole,
 } from './services/firebaseService'
 import { savePtWorkoutProgram } from './services/ptCoachingProgramService'
@@ -99,7 +98,7 @@ const roleLabels: Record<UserRole, string> = {
 }
 
 function AuraApplication() {
-  const { user, profile, role, setPreviewRole, loading, backendMode, signOut, hasCapability, authorizationError, authzReady } = useAuth()
+  const { user, profile, role, setPreviewRole, loading, backendMode, signOut, hasCapability, authorizationError, authzReady, profileSyncState, saveProfileChanges } = useAuth()
   const canAccessAdmin = hasPermission(role, 'dashboard.view')
   const canManageAcademy = canAccessAdmin && hasPermission(role, 'course.view')
   const canManageCoaching = canAccessAdmin && hasPermission(role, 'program.view')
@@ -134,40 +133,23 @@ function AuraApplication() {
   )
 
   useEffect(() => {
-    const profileKey = `aura:nutrition-profile:${user?.uid ?? 'demo'}`
+    if (backendMode !== 'demo') {
+      setLocalNutritionProfile(null)
+      return
+    }
+    // Demo/E2E fixtures are intentionally isolated from the production
+    // profile cache contract and are never written back to Firestore.
     try {
-      const savedProfile = window.localStorage.getItem(profileKey)
-      setLocalNutritionProfile(savedProfile ? JSON.parse(savedProfile) as NutritionProfileDraft : null)
+      const raw = window.localStorage.getItem(`aura:nutrition-profile:${user?.uid ?? 'demo'}`)
+      setLocalNutritionProfile(raw ? JSON.parse(raw) as NutritionProfileDraft : null)
     } catch {
       setLocalNutritionProfile(null)
     }
-  }, [user?.uid])
+  }, [backendMode, user?.uid])
 
-  useEffect(() => {
-    const profileKey = `aura:profile:${user?.uid ?? 'demo'}`
-    try {
-      const savedProfile = window.localStorage.getItem(profileKey)
-      setLocalProfile(savedProfile ? JSON.parse(savedProfile) as ProfileUpdateInput : null)
-    } catch {
-      setLocalProfile(null)
-    }
-  }, [user?.uid])
-
-  const isOnboardingDone = role === 'shipper' || !forceOnboarding && Boolean(
-    profile?.onboardingCompleted ||
-    profile?.nutritionProfile ||
-    localNutritionProfile ||
-    (profile?.heightCm && profile?.weightKg) ||
-    (profile?.goals && profile.goals.length > 0) ||
-    (user?.uid && typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${user.uid}`) === 'true') ||
-    (typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${user?.uid ?? 'demo'}`) === 'true')
-  )
-
-  useEffect(() => {
-    if (user && backendMode === 'firebase' && isOnboardingDone && profile && !profile.onboardingCompleted) {
-      updateUserProfile(user.uid, { onboardingCompleted: true }).catch(() => {})
-    }
-  }, [user, backendMode, isOnboardingDone, profile])
+  const isOnboardingDone = role === 'shipper' || !forceOnboarding && (backendMode === 'firebase'
+    ? profile?.onboardingCompleted === true
+    : Boolean(profile?.onboardingCompleted || localNutritionProfile || (profile?.heightCm && profile?.weightKg)))
 
   const saveProfile = async (values: ProfileUpdateInput) => {
     // Recalculate targets based on new values
@@ -200,18 +182,16 @@ function AuraApplication() {
       steps: newTargets.stepsPerDay
     } as any;
 
-    if (user?.uid) {
-      try {
-        window.localStorage.setItem(`aura:onboarding-completed:${user.uid}`, 'true')
-        window.localStorage.setItem(`aura:profile:${user.uid}`, JSON.stringify(values))
-        window.localStorage.setItem(`aura:user-profile:${user.uid}`, JSON.stringify(values))
-        window.localStorage.setItem(`aura:nutrition-profile:${user.uid}`, JSON.stringify(nextNutritionProfile))
-      } catch {
-        // Storage unavailable
-      }
+    if (backendMode === 'firebase' && user) {
+      await saveProfileChanges({
+        ...values,
+        nutritionProfile: nextNutritionProfile,
+        onboardingCompleted: true,
+      })
+      return
     }
-    
-    setLocalProfile((current: any) => {
+
+    setLocalProfile((current) => {
       const next: ProfileUpdateInput = {
         ...current,
         ...values,
@@ -219,29 +199,10 @@ function AuraApplication() {
           ? { ...current?.notificationSettings, ...values.notificationSettings }
           : current?.notificationSettings,
       }
-      try {
-        window.localStorage.setItem(`aura:profile:${user?.uid ?? 'demo'}`, JSON.stringify(next))
-        window.localStorage.setItem(`aura:user-profile:${user?.uid ?? 'demo'}`, JSON.stringify(next))
-      } catch {
-        // The in-memory profile remains editable when storage is unavailable.
-      }
       return next
     })
 
-    setLocalNutritionProfile(nextNutritionProfile as any)
-
-    if (backendMode === 'firebase' && user) {
-      try {
-        await updateUserProfile(user.uid, {
-          ...values,
-          nutritionProfile: nextNutritionProfile,
-          onboardingCompleted: true,
-        })
-      } catch (err) {
-        console.warn("Could not save profile to Firebase (network or quota limit):", err)
-      }
-      return
-    }
+    setLocalNutritionProfile(nextNutritionProfile)
   }
 
   useEffect(() => {
@@ -730,22 +691,10 @@ function AuraApplication() {
         storageOwnerId={user?.uid ?? 'demo'}
         hasProfile={!forceOnboarding && Boolean(profile?.nutritionProfile || localNutritionProfile)}
         profile={profile?.nutritionProfile ?? localNutritionProfile ?? undefined}
+        syncState={profileSyncState}
         onProfileComplete={async (nutritionProfile) => {
-          setLocalNutritionProfile(nutritionProfile)
-          try {
-            window.localStorage.setItem(`aura:nutrition-profile:${user?.uid ?? 'demo'}`, JSON.stringify(nutritionProfile))
-          } catch {
-            // Ignore quota error
-          }
-          if (user?.uid) {
-            try {
-              window.localStorage.setItem(`aura:onboarding-completed:${user.uid}`, 'true')
-            } catch {
-              // Ignore
-            }
-          }
           if (backendMode === 'firebase' && user) {
-            await updateUserProfile(user.uid, {
+            await saveProfileChanges({
               nutritionProfile,
               heightCm: nutritionProfile.heightCm,
               weightKg: nutritionProfile.weightKg,
@@ -755,7 +704,9 @@ function AuraApplication() {
               goals: [nutritionProfile.goal],
               onboardingCompleted: true,
             })
+            return
           }
+          setLocalNutritionProfile(nutritionProfile)
         }}
         onAnalyzeImage={async (file, options) => {
           const p: any = profile?.nutritionProfile ?? localNutritionProfile
@@ -828,8 +779,8 @@ function AuraApplication() {
         />
       }
       case 'progress-photo-studio': return <ProgressPhotoStudio onNavigate={navigate} ownerId={user?.uid ?? 'demo'} />
-      case 'progress': return <ProgressPage ownerId={user?.uid ?? 'demo'} courseItems={studentCourses} progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error || learningData.error} onOpenCourse={openCourse} onNavigate={navigate} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} heightCm={effectiveHeight} />
-      case 'profile': return <ProfilePage userId={user?.uid} fullProfile={profile} displayName={effectiveDisplayName} email={profile?.email} membership={profile?.membership} goals={effectiveGoals} heightCm={effectiveHeight} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} targetSpeedPace={effectiveTargetSpeedPace} notificationSettings={effectiveNotifications} mealReminderTime={profile?.mealReminderTime} onSave={saveProfile} onSignOut={signOut} onEditProfile={() => setForceOnboarding(true)} />
+      case 'progress': return <ProgressPage ownerId={user?.uid ?? 'demo'} courseItems={studentCourses} progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error || learningData.error} onOpenCourse={openCourse} onNavigate={navigate} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} heightCm={effectiveHeight} nutritionProfile={effectiveNutritionProfile} />
+      case 'profile': return <ProfilePage userId={user?.uid} fullProfile={backendMode === 'demo' ? { ...profile, ...localProfile } : profile} displayName={effectiveDisplayName} email={profile?.email} membership={profile?.membership} goals={effectiveGoals} heightCm={effectiveHeight} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} targetSpeedPace={effectiveTargetSpeedPace} notificationSettings={effectiveNotifications} mealReminderTime={profile?.mealReminderTime} syncState={profileSyncState} onSave={saveProfile} onSignOut={signOut} onEditProfile={() => setForceOnboarding(true)} />
       case 'workout': {
         return <WorkoutPage key="pt-coaching-workout" onNavigate={navigate} onSave={async (log) => {
           if (backendMode === 'firebase' && user) {
@@ -862,9 +813,9 @@ function AuraApplication() {
         if (editingCourseId && adminCourseData.loading) return <div className="course-detail-state"><BookOpenIcon /><h1>Đang tải giáo án</h1><p>Aura đang lấy phiên bản mới nhất từ Firebase.</p></div>
         if (editingCourseId && adminCourseData.error) return <div className="course-detail-state"><BookOpenIcon /><h1>Chưa thể tải giáo án</h1><p>{adminCourseData.error}</p><button className="primary-button" onClick={() => navigate('admin-courses')}>Thử lại từ danh sách</button></div>
         if (editingCourseId && !editingCourse) return <div className="course-detail-state"><BookOpenIcon /><h1>Không tìm thấy giáo án</h1><p>Giáo án có thể đã bị xóa hoặc bạn không có quyền truy cập.</p><button className="primary-button" onClick={() => navigate('admin-courses')}>Về danh sách</button></div>
-        return <CourseEditorPage key={editingCourseId ?? 'new-course'} initialCourse={editingCourse ? toCourseDraft(editingCourse) : undefined} onNavigate={navigate} onDirtyChange={setEditorDirty} canPublish={hasPermission(role, 'course.publish')} saveTarget={backendMode === 'firebase' ? 'firebase' : 'demo'} onSave={async (course, publish) => {
+        return <CourseEditorPage key={editingCourseId ?? 'new-course'} initialCourse={editingCourse ? toCourseDraft(editingCourse) : undefined} onNavigate={navigate} onDirtyChange={setEditorDirty} canPublish={hasPermission(role, 'course.publish')} saveTarget={backendMode === 'firebase' ? 'firebase' : 'demo'} onSave={async (course) => {
           if (backendMode === 'firebase') {
-            const result = await saveCourseDraft({ ...course, publish })
+            const result = await saveCourseDraft(course)
             if (!editingCourseId) window.history.replaceState(null, '', routeHash('admin-course-editor', result.courseId))
             return result
           }
@@ -885,7 +836,7 @@ function AuraApplication() {
           window.location.reload()
         }}
       />
-      case 'admin-roles': return <AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} />
+      case 'admin-roles': return <AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} onOpenStaffAccess={() => navigate('admin-hr')} />
       case 'admin-nutrition-reviews': return <AdminNutritionReviewsPage onNavigate={navigate} />
       case 'admin-notifications': return <AdminNotificationsPage onNavigate={navigate} users={adminUsers} currentUserUid={user?.uid} />
       case 'admin-eat-clean': return <AdminEatCleanPage currentRole={role} />
@@ -929,7 +880,6 @@ function AuraApplication() {
           })()
         }
         onSkip={async (skippedProfile) => {
-          const uid = user?.uid ?? 'demo';
           const persistedDefaults = normalizeOnboardingProfile(skippedProfile);
           const skippedProfileUpdate = {
             onboardingCompleted: true,
@@ -940,29 +890,20 @@ function AuraApplication() {
           };
 
           if (backendMode === 'firebase' && user) {
-            await updateUserProfile(user.uid, skippedProfileUpdate as any);
+            await saveProfileChanges(skippedProfileUpdate as any);
           }
-
-          try {
-            window.localStorage.setItem(`aura:onboarding-completed:${uid}`, 'true');
-            const cachedProfile = JSON.parse(window.localStorage.getItem(`aura:profile:${uid}`) ?? '{}');
-            const nextCachedProfile = { ...cachedProfile, ...skippedProfileUpdate };
-            window.localStorage.setItem(`aura:profile:${uid}`, JSON.stringify(nextCachedProfile));
-            window.localStorage.setItem(`aura:user-profile:${uid}`, JSON.stringify(nextCachedProfile));
-          } catch (e) {
-            console.error('LocalStorage error:', e);
-          }
-          setLocalProfile((current) => ({
+          if (backendMode === 'demo') setLocalProfile((current) => ({
             ...current,
+            birthYear: persistedDefaults.birthYear,
             heightCm: persistedDefaults.heightCm,
             weightKg: persistedDefaults.weightKg,
+            onboardingData: persistedDefaults,
           }));
           setForceOnboarding(false);
 
           navigate('courses');
         }}
         onComplete={async (profile, plan) => {
-          const uid = user?.uid ?? 'demo';
           // Numeric controls display 165 cm / 60 kg before the member touches
           // them. Persist the hydrated draft so Firestore never receives null
           // for values the member actually saw and accepted.
@@ -1002,17 +943,10 @@ function AuraApplication() {
           // onboarding as completed until the complete normalized profile has
           // actually been persisted successfully.
           if (backendMode === 'firebase' && user) {
-            await updateUserProfile(user.uid, profileUpdate as any);
+            await saveProfileChanges(profileUpdate as any);
           }
 
-          try {
-            window.localStorage.setItem(`aura:onboarding-completed:${uid}`, 'true');
-            window.localStorage.setItem(`aura:nutrition-profile:${uid}`, JSON.stringify(nutritionProfile));
-          } catch (e) {
-            console.error('LocalStorage error:', e);
-          }
-
-          setLocalNutritionProfile(nutritionProfile);
+          if (backendMode === 'demo') setLocalNutritionProfile(nutritionProfile);
           setForceOnboarding(false);
 
           navigate('nutrition');

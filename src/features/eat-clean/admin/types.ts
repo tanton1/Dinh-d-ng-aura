@@ -13,6 +13,29 @@ export type EatCleanOrderStatus =
 
 export type EatCleanPaymentStatus = 'unpaid' | 'paid' | 'refunded'
 
+export type EatCleanRefundStatus =
+  | 'blocked_provider_not_configured'
+  | 'manual_review_required'
+  | 'refunded'
+  | 'rejected'
+
+export interface EatCleanRefundJob {
+  id: string
+  orderId: string
+  amount: number
+  currency: string
+  paymentMethod: string
+  paymentProvider?: string | null
+  status: EatCleanRefundStatus
+  reason?: string
+  refundMode?: 'full' | 'manual_review'
+  adjustmentId?: string
+  reversalAdjustmentId?: string
+  externalReference?: string
+  requestedAt?: unknown
+  resolvedAt?: unknown
+}
+
 export type EatCleanMealCategory = 'breakfast' | 'lunch' | 'dinner' | 'snack'
 
 export type EatCleanInventoryStatus = 'in_stock' | 'low_stock' | 'out_of_stock'
@@ -77,6 +100,7 @@ export interface EatCleanOrder {
   paymentMethod?: string
   note?: string
   adminNote?: string
+  refund?: EatCleanRefundJob | null
   createdAt?: unknown
   updatedAt?: unknown
 }
@@ -152,6 +176,7 @@ export interface EatCleanConfig {
 export interface EatCleanAdminSummary {
   totalOrders: number
   deliveredRevenue: number
+  pendingRefunds: number
   byStatus: Partial<Record<EatCleanOrderStatus, number>>
 }
 
@@ -217,5 +242,6 @@ export const DEFAULT_EAT_CLEAN_CONFIG: EatCleanConfig = {
 export const EMPTY_EAT_CLEAN_SUMMARY: EatCleanAdminSummary = {
   totalOrders: 0,
   deliveredRevenue: 0,
+  pendingRefunds: 0,
   byStatus: {},
 }

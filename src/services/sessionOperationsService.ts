@@ -21,3 +21,11 @@ export function rescheduleSession(input: { sessionId: string; expectedRevision: 
 export function swapSessions(input: { firstSessionId: string; secondSessionId: string; firstExpectedRevision: number; secondExpectedRevision: number }) {
   return call<typeof input, { firstRevision: number; secondRevision: number }>('swapSessions', input)
 }
+
+export function approveSessionRequest(input: { requestId: string; expectedSessionRevision: number; extensionDays?: number }) {
+  return call<typeof input, { unchanged: boolean; status: 'approved'; type: 'cancel' | 'reschedule'; revision: number }>('approveSessionRequest', input)
+}
+
+export function rejectSessionRequest(input: { requestId: string; reason: string }) {
+  return call<typeof input, { unchanged: boolean; status: 'rejected' }>('rejectSessionRequest', input)
+}

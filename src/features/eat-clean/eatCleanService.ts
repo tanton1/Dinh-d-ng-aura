@@ -531,12 +531,15 @@ export async function getEatCleanOrderTracking(orderId: string): Promise<EatClea
   const shipperId = textValue(raw.shipperId)
   const eta = recordOf(raw.eta)
   const route = recordOf(raw.route)
+  const rawDeliveryStatus = textValue(raw.status)
   const coordinate = (value: Record<string, unknown> | null) => {
     if (!value) return undefined
     const latitude = numberValue(value.latitude ?? value.lat, Number.NaN)
     const longitude = numberValue(value.longitude ?? value.lng, Number.NaN)
     return Number.isFinite(latitude) && Number.isFinite(longitude) ? { latitude, longitude } : undefined
   }
+  const shipperCoordinate = coordinate(location)
+  const gpsExpected = ['accepted', 'at_store', 'picked_up', 'arrived'].includes(rawDeliveryStatus)
   return {
     orderId,
     status: normalizeStatus(raw.status || order?.status),
@@ -548,14 +551,14 @@ export async function getEatCleanOrderTracking(orderId: string): Promise<EatClea
       vehicleLabel: textValue(shipper?.vehicleLabel || shipper?.vehicle) || undefined,
       plateNumber: textValue(shipper?.plateNumber) || undefined,
     } : undefined,
-    shipperLocation: coordinate(location),
+    shipperLocation: shipperCoordinate,
     destination: coordinate(destination),
     kitchenLocation: coordinate(kitchen),
     routePolyline: textValue(raw.routePolyline || raw.encodedPolyline || route?.routePolyline || route?.encodedPolyline) || undefined,
     estimatedArrivalAt: isoValue(raw.estimatedArrivalAt || raw.estimatedDeliveryAt || eta?.estimatedArrivalAt || eta?.estimatedDeliveryAt),
     promisedAt: isoValue(raw.promisedAt || eta?.promisedAt),
     lastLocationAt: isoValue(liveLocation?.recordedAt || liveLocation?.updatedAt || raw.lastLocationAt || raw.updatedAt),
-    stale: raw.stale === true || liveLocation?.stale === true,
+    stale: raw.stale === true || liveLocation?.stale === true || (gpsExpected && !shipperCoordinate),
     deliveryOtp: textValue(data?.deliveryOtp) || undefined,
   }
 }

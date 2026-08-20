@@ -5,7 +5,7 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
+import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
 
 const projectId = 'demo-aura-fitness'
 const rulesPath = new URL('../firestore.rules', import.meta.url)
@@ -118,6 +118,22 @@ async function seedPtSecurityFixtures() {
       setDoc(doc(db, 'students', 'legacy-student-1'), {
         id: 'legacy-student-1',
         name: 'Học viên legacy',
+      }),
+      setDoc(doc(db, 'contracts', 'legacy-contract-1'), {
+        id: 'legacy-contract-1',
+        studentId: 'legacy-student-1',
+        status: 'active',
+      }),
+      setDoc(doc(db, 'payments', 'legacy-payment-1'), {
+        id: 'legacy-payment-1',
+        contractId: 'legacy-contract-1',
+        amount: 100000,
+      }),
+      setDoc(doc(db, 'sessions', 'legacy-session-1'), {
+        id: 'legacy-session-1',
+        studentId: 'legacy-student-1',
+        trainerId: 'legacy-trainer-1',
+        status: 'completed',
       }),
       setDoc(doc(db, 'staff', 'legacy-staff-1'), {
         id: 'legacy-staff-1',
@@ -308,6 +324,23 @@ describe('Aura PT Firestore rules', () => {
     }
   })
 
+  test('Eat Clean audit, refund, and operational records are admin-readable but callable-only', async () => {
+    const ownerDb = authenticatedDb('client-1', 'student')
+    const adminDb = authenticatedDb('admin-1', 'admin')
+    const auditDocuments = [
+      ['eatCleanMealRevisions', 'revision-1'],
+      ['eatCleanRefundJobs', 'order-client-1'],
+      ['eatCleanPaymentAdjustments', 'adjustment-1'],
+      ['eatCleanOperationalSignals', '2026-08-21'],
+    ]
+
+    for (const documentPath of auditDocuments) {
+      await assertFails(getDoc(doc(ownerDb, ...documentPath)))
+      await assertSucceeds(getDoc(doc(adminDb, ...documentPath)))
+      await assertFails(setDoc(doc(adminDb, ...documentPath), { forged: true }))
+    }
+  })
+
   test('Eat Clean favorites are private and can only reference their document id', async () => {
     const ownerDb = authenticatedDb('client-1', 'student')
     const otherDb = authenticatedDb('other-client', 'student')
@@ -358,6 +391,17 @@ describe('Aura PT Firestore rules', () => {
     await assertFails(updateDoc(doc(studentDb, 'staff', 'legacy-staff-1'), {
       status: 'inactive',
     }))
+  })
+
+  test('legacy business records reject browser hard-delete including admin clients', async () => {
+    const adminDb = authenticatedDb('admin-1', 'admin')
+    for (const [collectionName, documentId] of [
+      ['contracts', 'legacy-contract-1'],
+      ['payments', 'legacy-payment-1'],
+      ['sessions', 'legacy-session-1'],
+    ]) {
+      await assertFails(deleteDoc(doc(adminDb, collectionName, documentId)))
+    }
   })
 
   test('meal reviews are private and only the assigned coach or admin can moderate', async () => {

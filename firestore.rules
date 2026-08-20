@@ -785,15 +785,24 @@ service cloud.firestore {
     }
 
     match /contracts/{documentId} {
-      allow read, create, update, delete: if isAdmin();
+      allow read, create, update: if isAdmin();
+      // Contracts are business records. Corrections must be represented by a
+      // server-side status transition/audit entry, never a browser hard-delete.
+      allow delete: if false;
     }
 
     match /payments/{documentId} {
-      allow read, create, update, delete: if isAdmin();
+      allow read, create, update: if isAdmin();
+      // Legacy payments remain readable during reconciliation, but financial
+      // history is immutable. Reversals are written to the canonical ledger.
+      allow delete: if false;
     }
 
     match /sessions/{documentId} {
-      allow read, create, update, delete: if isAdmin();
+      allow read, create, update: if isAdmin();
+      // Session lifecycle changes go through audited callable transactions.
+      // Denying direct deletes also protects historical attendance/payroll.
+      allow delete: if false;
     }
 
     match /trainers/{documentId} {
@@ -926,6 +935,16 @@ service cloud.firestore {
     }
 
     match /eatCleanRefundJobs/{jobId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /eatCleanPaymentAdjustments/{adjustmentId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /eatCleanOperationalSignals/{signalId} {
       allow read: if isAdmin();
       allow write: if false;
     }

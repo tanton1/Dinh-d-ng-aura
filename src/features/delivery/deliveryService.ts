@@ -100,6 +100,10 @@ function normalizeJob(value: unknown, index: number): EatCleanDeliveryJob {
     acceptedAt: text(source.acceptedAt) || undefined,
     pickedUpAt: text(source.pickedUpAt) || undefined,
     completedAt: text(source.completedAt) || undefined,
+    lastLocationAt: text(source.lastLocationAt) || undefined,
+    gpsStale: source.gpsStale === true,
+    otpFailureCount: Math.max(0, Math.round(finiteNumber(source.otpFailureCount))),
+    otpLocked: source.otpLocked === true,
     customerDeliveryOtpRequired: source.customerDeliveryOtpRequired !== false,
     isLate: source.isLate === true || Boolean(promisedAt && Number.isFinite(Date.parse(promisedAt)) && Date.parse(promisedAt) < Date.now() && !['completed', 'cancelled'].includes(status)),
   }
@@ -131,6 +135,18 @@ function normalizeReadiness(value: unknown): EatCleanDeliveryRuntimeReadiness {
     realtimeDatabaseReady: source.realtimeDatabaseReady === true,
     otpKeyAvailable: source.otpKeyAvailable === true,
     dispatchReady: source.dispatchReady === true,
+  }
+}
+
+function normalizeSignals(value: unknown): EatCleanDispatchSnapshot['signals'] {
+  const source = recordOf(value)
+  return {
+    mapsErrorsToday: Math.max(0, Math.round(finiteNumber(source.mapsErrorsToday))),
+    otpRejected: Math.max(0, Math.round(finiteNumber(source.otpRejected))),
+    otpLocked: Math.max(0, Math.round(finiteNumber(source.otpLocked))),
+    gpsStale: Math.max(0, Math.round(finiteNumber(source.gpsStale))),
+    lateOrders: Math.max(0, Math.round(finiteNumber(source.lateOrders))),
+    gpsReadWarning: text(source.gpsReadWarning) || undefined,
   }
 }
 
@@ -271,6 +287,7 @@ export async function listEatCleanDispatchSnapshot(): Promise<EatCleanDispatchSn
       drivers: (Array.isArray(source.drivers) ? source.drivers : Array.isArray(source.shippers) ? source.shippers : []).map(normalizeDriver),
       config: normalizeConfig(source.config ?? adminSource.config),
       readiness: normalizeReadiness(source.readiness),
+      signals: normalizeSignals(source.signals ?? source.summary),
       serverTime: text(source.serverTime) || undefined,
     }
   } catch (error) {
@@ -284,6 +301,7 @@ export async function listEatCleanDispatchSnapshot(): Promise<EatCleanDispatchSn
       drivers: [],
       config: DEFAULT_DELIVERY_OPERATIONS_CONFIG,
       readiness: normalizeReadiness(source.readiness),
+      signals: normalizeSignals(source.signals ?? source.summary),
     }
   }
 }

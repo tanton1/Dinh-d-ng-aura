@@ -6,11 +6,11 @@
     "node": "22"
   },
   "scripts": {
-    "check": "node --check index.js && node --check identity-access.js && node --check pt-operations-v2.js && node --check finance-ledger.js && node --check session-operations.js && node --check payroll.js && node --check nutrition.js && node --check nutrition-scan-policy.js && node --check nutrition-scan-cache.js && node --check openrouter.js && node --check generative-ai.js && node --check profile-defaults.js && node --check eat-clean.js && node --test production-hardening.test.js nutrition.test.js nutrition-optimization.test.js generative-ai.test.js openrouter.test.js profile-defaults.test.js pt-contract.test.js security-contract.test.js academy-contract.test.js eat-clean.test.js",
-    "test": "node --test production-hardening.test.js nutrition.test.js nutrition-optimization.test.js generative-ai.test.js openrouter.test.js profile-defaults.test.js pt-contract.test.js security-contract.test.js academy-contract.test.js eat-clean.test.js"
+    "check": "node --check index.js && node --check identity-access.js && node --check pt-operations-v2.js && node --check finance-ledger.js && node --check session-operations.js && node --check payroll.js && node --check nutrition.js && node --check nutrition-scan-policy.js && node --check nutrition-scan-cache.js && node --check openrouter.js && node --check generative-ai.js && node --check profile-defaults.js && node --check eat-clean.js && node --test production-hardening.test.js nutrition.test.js nutrition-optimization.test.js generative-ai.test.js openrouter.test.js profile-defaults.test.js pt-contract.test.js payroll.test.js finance-ledger.test.js session-operations.test.js security-contract.test.js academy-contract.test.js eat-clean.test.js",
+    "test": "node --test production-hardening.test.js nutrition.test.js nutrition-optimization.test.js generative-ai.test.js openrouter.test.js profile-defaults.test.js pt-contract.test.js payroll.test.js finance-ledger.test.js session-operations.test.js security-contract.test.js academy-contract.test.js eat-clean.test.js"
   },
   "dependencies": {
-    "firebase-admin": "^14.2.0",
+    "firebase-admin": "^14.3.0",
     "firebase-functions": "^7.3.2"
   }
 }

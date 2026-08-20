@@ -1,0 +1,64 @@
+.data-sync-status {
+  align-items: flex-start;
+  background: linear-gradient(135deg, rgba(255, 247, 250, .98), rgba(255, 244, 235, .98));
+  border: 1px solid rgba(247, 83, 131, .2);
+  border-radius: 18px;
+  color: #5b2740;
+  display: flex;
+  gap: 11px;
+  margin: 0 auto 14px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 12px 14px;
+  width: 100%;
+}
+
+.data-sync-status__icon {
+  align-items: center;
+  background: linear-gradient(135deg, #f73684, #ff8b4d);
+  border-radius: 12px;
+  color: #fff;
+  display: inline-flex;
+  flex: 0 0 36px;
+  height: 36px;
+  justify-content: center;
+}
+
+.data-sync-status__copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.data-sync-status__copy strong,
+.data-sync-status__copy small,
+.data-sync-status__copy em {
+  overflow-wrap: anywhere;
+}
+
+.data-sync-status__copy strong { font-size: 13px; line-height: 1.35; }
+.data-sync-status__copy small { color: #765b68; font-size: 12px; line-height: 1.45; margin-top: 2px; }
+.data-sync-status__copy em { color: #937381; font-size: 10px; font-style: normal; margin-top: 4px; }
+
+.data-sync-status--synced {
+  background: linear-gradient(135deg, rgba(236, 253, 245, .96), rgba(240, 253, 250, .96));
+  border-color: rgba(16, 185, 129, .22);
+  color: #116149;
+}
+
+.data-sync-status--synced .data-sync-status__icon { background: linear-gradient(135deg, #10b981, #14b8a6); }
+.data-sync-status--sync-failed,
+.data-sync-status--conflict { background: linear-gradient(135deg, #fff1f2, #fff7ed); color: #9f263c; }
+.data-sync-status--pending-local-change .data-sync-status__icon { animation: data-sync-pulse 1.2s ease-in-out infinite; }
+
+@keyframes data-sync-pulse { 50% { opacity: .62; transform: scale(.96); } }
+
+@media (max-width: 430px) {
+  .data-sync-status { border-radius: 16px; padding: 11px 12px; }
+  .data-sync-status__icon { flex-basis: 32px; height: 32px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .data-sync-status--pending-local-change .data-sync-status__icon { animation: none; }
+}

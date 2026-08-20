@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LeaveRequest, Student, StudentContract, Session } from '../../../types';
+import { LeaveRequest, Student, StudentContract } from '../../../types';
 import { useDatabase } from '../../../contexts/DatabaseContext';
 import { Check, X, Calendar as CalendarIcon, Clock } from 'lucide-react';
 
@@ -7,66 +7,24 @@ interface Props {
   leaveRequests: LeaveRequest[];
   students: Student[];
   contracts: StudentContract[];
+  canManage: boolean;
 }
 
-export default function LeaveApprovals({ leaveRequests, students, contracts }: Props) {
-  const { updateLeaveRequest, updateContract, deleteSession, sessions } = useDatabase();
+export default function LeaveApprovals({ leaveRequests, students, contracts, canManage }: Props) {
+  const { updateLeaveRequest } = useDatabase();
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const approvalUnavailableMessage = 'Chưa thể duyệt đơn nghỉ an toàn vì gia hạn hợp đồng, hủy các buổi trùng và cập nhật đơn cần một giao dịch máy chủ duy nhất. Vui lòng liên hệ quản trị hệ thống.';
+  const permissionMessage = 'Bạn chỉ có quyền xem đơn nghỉ. Chỉ quản trị viên vận hành mới có thể xử lý yêu cầu này.';
 
   const pendingRequests = leaveRequests.filter(r => r.status === 'pending' && students.some(s => s.id === r.studentId));
 
   if (pendingRequests.length === 0) return null;
 
-  const handleApprove = async (request: LeaveRequest) => {
-    if (!confirm('Bạn có chắc chắn muốn duyệt đơn xin nghỉ này? Hệ thống sẽ tự gia hạn hợp đồng và xoá lịch tập trùng.')) return;
-    setProcessingId(request.id);
-
-    try {
-      const contract = contracts.find(c => c.id === request.contractId);
-      if (contract) {
-        // Calculate days to extend
-        const start = new Date(request.startDate);
-        const end = new Date(request.endDate);
-        const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 3600 * 24)) + 1;
-
-        if (daysDiff > 0) {
-          const currentEndDate = new Date(contract.endDate);
-          currentEndDate.setDate(currentEndDate.getDate() + daysDiff);
-
-          await updateContract({
-            ...contract,
-            endDate: currentEndDate.toISOString()
-          });
-
-          // Find overlapping scheduled sessions and cancel/delete them
-          const overlappingSessions = sessions.filter(
-            s => s.studentId === request.studentId &&
-            s.status === 'scheduled' &&
-            new Date(s.date) >= start &&
-            new Date(s.date) <= end
-          );
-
-          for (const session of overlappingSessions) {
-            await deleteSession(session.id);
-          }
-        }
-      }
-
-      await updateLeaveRequest({
-        ...request,
-        status: 'approved',
-        approvedAt: new Date().toISOString()
-      });
-      alert('Đã duyệt xin nghỉ thành công');
-    } catch (e) {
-      console.error(e);
-      alert('Có lỗi xảy ra khi duyệt: ' + (e as Error).message);
-    } finally {
-      setProcessingId(null);
-    }
-  };
-
   const handleReject = async (request: LeaveRequest) => {
+    if (!canManage) {
+      alert(permissionMessage);
+      return;
+    }
     const reason = prompt('Lý do từ chối:');
     if (reason === null) return;
     
@@ -134,20 +92,24 @@ export default function LeaveApprovals({ leaveRequests, students, contracts }: P
 
               <div className="flex gap-2">
                 <button
-                  onClick={() => handleApprove(request)}
-                  disabled={processingId === request.id}
-                  className="flex-1 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-colors py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-1"
+                  type="button"
+                  disabled
+                  title={approvalUnavailableMessage}
+                  className="flex-1 bg-emerald-500/10 text-emerald-500 py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-1 opacity-50 cursor-not-allowed"
                 >
-                  <Check className="w-4 h-4" /> Duyệt
+                  <Check className="w-4 h-4" /> Chưa thể duyệt
                 </button>
                 <button
                   onClick={() => handleReject(request)}
-                  disabled={processingId === request.id}
-                  className="flex-1 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-colors py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-1"
+                  disabled={processingId === request.id || !canManage}
+                  title={!canManage ? permissionMessage : undefined}
+                  className="flex-1 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-colors py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <X className="w-4 h-4" /> Từ chối
                 </button>
               </div>
+              <p className="mt-2 text-xs text-amber-400">{approvalUnavailableMessage}</p>
+              {!canManage && <p className="mt-1 text-xs text-zinc-500">{permissionMessage}</p>}
             </div>
           );
         })}

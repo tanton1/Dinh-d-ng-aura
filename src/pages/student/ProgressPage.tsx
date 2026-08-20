@@ -25,6 +25,7 @@ import { BodyMeasurementsModal } from '../../components/progress/BodyMeasurement
 import { firebaseAuth } from '../../lib/firebase'
 import { AiCoachBottomSheet } from '../../components/progress/AiCoachBottomSheet'
 import { calculateProgressScore, defaultProgressInputSample } from '../../utils/progressScoreCalculator'
+import type { NutritionProfileDraft } from '../../features/nutrition/types'
 import {
   saveUserWeightLog,
   subscribeToUserWeightLogs,
@@ -48,6 +49,7 @@ interface ProgressPageProps {
   targetWeightDeltaKg?: number | null
   targetTimeframeMonths?: number | null
   heightCm?: number | null
+  nutritionProfile?: NutritionProfileDraft | null
 }
 
 export default function ProgressPage({
@@ -62,6 +64,7 @@ export default function ProgressPage({
   targetWeightDeltaKg,
   targetTimeframeMonths,
   heightCm,
+  nutritionProfile = null,
 }: ProgressPageProps) {
   const [period, setPeriod] = useState<ProgressPeriod>('7-days')
   const [category, setCategory] = useState<ProgressCategory>('overview')
@@ -383,15 +386,7 @@ export default function ProgressPage({
     }
   }
 
-  const userProfile = useMemo(() => {
-    try {
-      const raw = localStorage.getItem(`aura:nutrition-profile:${resolvedOwnerId}`)
-      return raw ? JSON.parse(raw) : null
-    } catch (e) {
-      console.error(e)
-      return null
-    }
-  }, [resolvedOwnerId])
+  const userProfile = nutritionProfile
 
   // Get actual weight in the last 30 days based on weight history of this user
   const actual30DayWeight = useMemo(() => {
@@ -552,7 +547,7 @@ export default function ProgressPage({
     const fatGoal = Math.max(45, Math.round(w * 0.8))
     const carbGoal = Math.max(80, Math.round((calorieGoal - proteinGoal * 4 - fatGoal * 9) / 4))
     const fiberGoal = 30
-    const waterGoal = userProfile?.waterTargetMl || 2000
+    const waterGoal = userProfile?.waterLiters ? Math.round(userProfile.waterLiters * 1000) : 2000
 
     const isMealLogged = (m: any) => !m.status || m.status === 'logged'
     const periodMeals = allMeals.filter((m: any) => isMealLogged(m) && dateKeys.includes(m.date))

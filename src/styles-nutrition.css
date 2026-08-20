@@ -1148,6 +1148,9 @@
 .nutrition-catalog-saved-filter,
 .nutrition-catalog-row__actions > button,
 .nutrition-catalog-load-more { min-width: 44px; min-height: 44px; }
+.nutrition-catalog-load-sentinel { grid-column: 1 / -1; width: 100%; height: 2px; pointer-events: none; }
+.nutrition-catalog-progress { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; align-self: center; margin-top: 8px; padding: 7px 12px; border-radius: 999px; color: #b72f68; background: linear-gradient(90deg, #fdf2f8, #fff3ed); font-size: 11px; font-weight: 750; }
+.nutrition-catalog-progress svg { flex: 0 0 auto; }
 
 .nutrition-route-page .nutrition-catalog-body { min-height: 0; padding: 24px 26px 22px; }
 .nutrition-route-page .nutrition-catalog-list { max-height: none; overflow: visible; }
@@ -2543,4 +2546,35 @@
   .nutrition-scan-result__calories { width: 100%; min-height: 72px; }
   .nutrition-scan-result__ingredient-main { flex-direction: column; }
   .nutrition-scan-result__gram-stepper { width: 100%; flex-basis: auto; }
+}
+
+@media (max-width: 600px) {
+  .nutrition-route-page--catalog .nutrition-catalog-search,
+  .nutrition-catalog-modal:not(.nutrition-catalog-modal--page) .nutrition-catalog-search { flex-wrap: wrap; height: auto; min-height: 52px; padding: 6px 12px; }
+  .nutrition-route-page--catalog .nutrition-catalog-search .search-result-count,
+  .nutrition-catalog-modal:not(.nutrition-catalog-modal--page) .nutrition-catalog-search .search-result-count { width: 100%; order: 3; margin: 0 0 3px; text-align: center; white-space: normal; }
+}
+
+.nutrition-sync-banner-wrap,
+.nutrition-profile-sync-guard {
+  box-sizing: border-box;
+  margin: 0 auto;
+  max-width: 720px;
+  padding: 14px 16px 0;
+  width: 100%;
+}
+
+.nutrition-profile-sync-guard {
+  min-height: 45dvh;
+  padding-bottom: 120px;
+}
+
+.nutrition-profile-sync-guard .nutrition-catalog-load-more {
+  margin: 4px 0 0;
+  max-width: 100%;
+}
+
+@media (max-width: 430px) {
+  .nutrition-sync-banner-wrap,
+  .nutrition-profile-sync-guard { padding-left: 12px; padding-right: 12px; }
 }
