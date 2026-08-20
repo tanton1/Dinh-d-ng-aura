@@ -65,43 +65,23 @@ async function startServer() {
       
       const token = authorization.substring(7);
       
-      if (admin?.apps && admin.apps.length > 0) {
-        try {
-          const auth = getAuth();
-          const decodedToken = await auth.verifyIdToken(token);
-          if (decodedToken?.uid) {
-            req.user = {
-              uid: decodedToken.uid,
-              email: decodedToken.email,
-            };
-            return next();
-          }
-        } catch (verifyError) {
-          console.warn("verifyIdToken warning:", verifyError);
-        }
+      if (!admin?.apps || admin.apps.length === 0) {
+        return res.status(503).json({
+          error: "AUTH_SERVICE_UNAVAILABLE",
+          message: "Authentication service is unavailable",
+        });
       }
 
-      // Fallback JWT payload decoder if verifyIdToken failed or service account certs unavailable
       try {
-        const parts = token.split('.');
-        if (parts.length === 3) {
-          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
-          if (payload && (payload.uid || payload.user_id || payload.sub)) {
-            req.user = {
-              uid: payload.uid || payload.user_id || payload.sub,
-              email: payload.email,
-            };
-            return next();
-          }
-        }
-      } catch (e) {
-        console.error("Token decode fallback error:", e);
+        const decodedToken = await getAuth().verifyIdToken(token, true);
+        req.user = { uid: decodedToken.uid, email: decodedToken.email };
+        return next();
+      } catch {
+        return res.status(401).json({
+          error: "UNAUTHENTICATED",
+          message: "Invalid or expired authentication token",
+        });
       }
-
-      return res.status(401).json({
-        error: "INVALID_TOKEN",
-        message: "Invalid or expired authentication token",
-      });
     } catch (error) {
       console.error("Authentication failed:", error);
       return res.status(401).json({

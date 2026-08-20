@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "accessRoles": ["student", "staff", "admin", "super_admin"],
+  "staffPositions": [
+    "coach_online",
+    "trainer_pt",
+    "sales",
+    "branch_manager",
+    "academy_editor",
+    "shipper"
+  ],
+  "positionCapabilities": {
+    "coach_online": [
+      "dashboard.view",
+      "coaching.clients.assigned.view",
+      "coaching.programs.manage",
+      "coaching.analytics.assigned.view",
+      "nutrition.catalog.internal.view"
+    ],
+    "trainer_pt": [
+      "dashboard.view",
+      "pt.students.assigned.view",
+      "pt.schedule.self.view",
+      "pt.session.self.manage",
+      "pt.workout_note.create"
+    ],
+    "sales": [
+      "dashboard.view",
+      "sales.leads.branch.view",
+      "sales.quotes.self.manage",
+      "sales.student_draft.create",
+      "sales.contract.submit"
+    ],
+    "branch_manager": [
+      "dashboard.view",
+      "branch.operations.view",
+      "branch.students.manage",
+      "branch.finance.view",
+      "branch.team.view"
+    ],
+    "academy_editor": [
+      "dashboard.view",
+      "academy.course.view",
+      "academy.course.edit",
+      "academy.course.submit"
+    ],
+    "shipper": ["eat_clean.delivery.self.manage"]
+  },
+  "adminCapabilities": [
+    "dashboard.view",
+    "identity.invite.manage",
+    "identity.staff_position.manage",
+    "pt.operations.manage",
+    "sales.operations.manage",
+    "finance.operations.manage",
+    "payroll.operations.manage",
+    "academy.operations.manage",
+    "eat_clean.operations.manage",
+    "nutrition.catalog.internal.view"
+  ],
+  "superAdminCapabilities": ["identity.admin_role.manage", "system.manage"]
+}

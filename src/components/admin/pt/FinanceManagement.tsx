@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Student, StudentContract, PaymentRecord, Installment, UserProfile, Branch } from '../../../types';
+import { Student, StudentContract, UserProfile, Branch } from '../../../types';
 import { User } from 'firebase/auth';
-import { DollarSign, TrendingUp, AlertCircle, Plus, CheckCircle, Clock, Calendar as CalendarIcon, X, Trash2, Undo2 } from 'lucide-react';
+import { DollarSign, TrendingUp, AlertCircle, Plus, CheckCircle, Clock, Calendar as CalendarIcon, X, Undo2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import DateRangeFilter from './DateRangeFilter';
 import { LOGO_URL } from '../../../constants';
 import { useDatabase } from '../../../contexts/DatabaseContext';
+import { listFinanceLedger, recordContractPayment, recordRefund, reverseContractPayment, type FinanceLedgerEntry } from '../../../services/financeLedgerService';
 
 interface Props {
   user: User | null;
@@ -17,14 +18,7 @@ export default function FinanceManagement({ user, profile }: Props) {
     branches, 
     contracts, 
     students, 
-    payments, 
-    sessions, 
-    updateContract, 
-    addPayment, 
-    deletePayment,
-    deleteContract,
-    trainers,
-    deleteSession,
+    payments,
     isMigrating
   } = useDatabase();
 
@@ -34,37 +28,19 @@ export default function FinanceManagement({ user, profile }: Props) {
   const [showPaymentHistory, setShowPaymentHistory] = useState(false);
   const [selectedContract, setSelectedContract] = useState<StudentContract | null>(null);
   const [payAmount, setPayAmount] = useState('');
-  const [installmentCount, setInstallmentCount] = useState(1);
-  const [installments, setInstallments] = useState<{date: string, amount: number}[]>([]);
   const [showCleanupConfirm, setShowCleanupConfirm] = useState(false);
   const [paymentToDelete, setPaymentToDelete] = useState<string | null>(null);
   const [debtFilter, setDebtFilter] = useState<string>('all');
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [ledgerEntries, setLedgerEntries] = useState<FinanceLedgerEntry[]>([]);
 
-  useEffect(() => {
-    if (!selectedContract || !isPaying) {
-      setInstallments([]);
-      return;
-    }
-    const remainingDebt = (selectedContract.totalPrice - (selectedContract.discount || 0)) - selectedContract.paidAmount - (Number(payAmount) || 0);
-    if (remainingDebt > 0) {
-      const base = Math.floor(remainingDebt / installmentCount);
-      const rem = remainingDebt % installmentCount;
-      setInstallments(prev => Array.from({ length: installmentCount }).map((_, i) => ({
-        date: prev[i]?.date || '',
-        amount: i === 0 ? base + rem : base
-      })));
-    } else {
-      setInstallments([]);
-    }
-  }, [payAmount, installmentCount, selectedContract, isPaying]);
-
-  const handleInstallmentChange = (index: number, field: 'date' | 'amount', value: string | number) => {
-    const newInsts = [...installments];
-    newInsts[index] = { ...newInsts[index], [field]: value };
-    setInstallments(newInsts);
+  const refreshLedger = async () => {
+    try { setLedgerEntries(await listFinanceLedger()); }
+    catch { setAlertMessage('Không thể tải sổ tài chính canonical. Dữ liệu legacy vẫn được giữ nguyên.'); }
   };
+
+  useEffect(() => { void refreshLedger(); }, []);
 
   const filteredContracts = useMemo(() => {
     let filtered = contracts;
@@ -78,27 +54,16 @@ export default function FinanceManagement({ user, profile }: Props) {
   }, [contracts, profile, selectedBranchId]);
 
   const filteredPayments = useMemo(() => {
-    // Generate missing payments from contracts
-    const allPayments = [...payments];
-    contracts.forEach(c => {
-      const totalPaidForContract = payments
-        .filter(p => p.contractId === c.id)
-        .reduce((sum, p) => sum + p.amount, 0);
-      
-      if (c.paidAmount > totalPaidForContract) {
-        allPayments.push({
-          id: `auto-${c.id}`,
-          contractId: c.id,
-          studentId: c.studentId,
-          amount: c.paidAmount - totalPaidForContract,
-          date: c.startDate ? new Date(c.startDate).toISOString() : new Date().toISOString(),
-          method: 'transfer',
-          note: 'Thanh toán (tự động tạo - phần chênh lệch)'
-        });
-      }
-    });
-
-    let filtered = allPayments;
+    const canonical = ledgerEntries.map((entry) => ({
+      id: `ledger-${entry.id}`,
+      contractId: entry.contractId,
+      studentId: entry.studentId,
+      amount: entry.amount,
+      date: entry.effectiveAt,
+      method: entry.paymentMethod,
+      note: `${entry.referenceCode} · ${entry.type}`,
+    }));
+    let filtered = [...payments, ...canonical];
     if (profile?.branchId && profile.role !== 'admin') {
       filtered = filtered.filter(p => {
         const contract = contracts.find(c => c.id === p.contractId);
@@ -114,13 +79,12 @@ export default function FinanceManagement({ user, profile }: Props) {
     }
     if (dateRange) {
       filtered = filtered.filter(p => {
-        const contract = contracts.find(c => c.id === p.contractId);
-        const pDate = contract?.startDate ? new Date(contract.startDate) : new Date(p.date);
+        const pDate = new Date(p.date);
         return pDate >= dateRange.start && pDate <= dateRange.end;
       });
     }
     return filtered;
-  }, [payments, contracts, dateRange, profile, selectedBranchId]);
+  }, [payments, ledgerEntries, contracts, dateRange, profile, selectedBranchId]);
 
   const totalRevenue = filteredPayments.reduce((sum, p) => sum + p.amount, 0);
   const totalDebt = filteredContracts.reduce((sum, c) => {
@@ -178,27 +142,7 @@ export default function FinanceManagement({ user, profile }: Props) {
 
   const confirmCleanup = async () => {
     setShowCleanupConfirm(false);
-    
-    const validStudentIds = new Set(students.map(s => s.id).filter(Boolean));
-    const validContractIds = new Set(contracts.map(c => c.id).filter(Boolean));
-    
-    const orphanedContracts = contracts.filter(c => !c.studentId || !validStudentIds.has(c.studentId));
-    const orphanedPayments = payments.filter(p => !p.studentId || !validStudentIds.has(p.studentId) || !p.contractId || !validContractIds.has(p.contractId));
-    const orphanedSessions = sessions.filter(s => !s.studentId || !validStudentIds.has(s.studentId));
-    
-    if (user) {
-      try {
-        await Promise.all([
-          ...orphanedContracts.map(c => deleteContract(c.id)),
-          ...orphanedPayments.map(p => deletePayment(p.id)),
-          ...orphanedSessions.map(s => deleteSession(s.id))
-        ]);
-        setAlertMessage('Đã dọn dẹp dữ liệu mồ côi thành công!');
-      } catch (e) {
-        console.error("Error cleaning up data:", e);
-        setAlertMessage("Có lỗi khi dọn dẹp dữ liệu!");
-      }
-    }
+    setAlertMessage('Dữ liệu mồ côi đang được bảo toàn để đối soát. Không có bản ghi nào bị xóa.');
   };
 
   const cleanUpOrphanedData = () => {
@@ -207,78 +151,18 @@ export default function FinanceManagement({ user, profile }: Props) {
 
   const executeDeletePayment = async () => {
     if (!user || !paymentToDelete) return;
-    
-    const payment = payments.find(p => p.id === paymentToDelete);
-    if (!payment) {
+    if (!paymentToDelete.startsWith('ledger-')) {
+      setAlertMessage('Phiếu thu legacy được khóa để đối soát; không thể xóa hoặc hoàn tác trực tiếp.');
       setPaymentToDelete(null);
       return;
     }
-
-    const contract = contracts.find(c => c.id === payment.contractId);
-    
-    if (contract) {
-      const newPaidAmount = Math.max(0, contract.paidAmount - payment.amount);
-      let newInstallments = payment.previousInstallments || [...(contract.installments || [])];
-      
-      if (!payment.previousInstallments) {
-        let amountToRevert = payment.amount;
-        let exactMatchIndex = -1;
-        for (let i = newInstallments.length - 1; i >= 0; i--) {
-          if (newInstallments[i].status === 'paid' && newInstallments[i].amount === amountToRevert) {
-            exactMatchIndex = i;
-            break;
-          }
-        }
-        
-        if (exactMatchIndex >= 0) {
-          newInstallments[exactMatchIndex] = { ...newInstallments[exactMatchIndex], status: 'pending' };
-        } else {
-          newInstallments.push({
-            id: Date.now().toString(),
-            amount: amountToRevert,
-            date: new Date().toISOString().split('T')[0],
-            status: 'pending'
-          });
-        }
-      }
-
-      const pendingInstallments = newInstallments.filter(i => i.status === 'pending');
-      pendingInstallments.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-      let referralCommissionAmount = contract.referralCommission || null;
-      if (contract.referralCode) {
-        const referringPT = trainers.find(t => t.employeeCode === contract.referralCode);
-        if (referringPT) {
-          referralCommissionAmount = newPaidAmount * (referringPT.commissionRate / 100);
-        }
-      }
-
-      const updatedContract = {
-        ...contract,
-        paidAmount: newPaidAmount,
-        installments: newInstallments,
-        referralCommission: referralCommissionAmount,
-        nextPaymentDate: pendingInstallments.length > 0 ? pendingInstallments[0].date : null
-      };
-
-      try {
-        await updateContract(updatedContract);
-        await deletePayment(paymentToDelete);
-        setAlertMessage('Đã hoàn tác phiếu thu và khôi phục công nợ thành công!');
-      } catch (e) {
-        console.error("Error deleting payment:", e);
-        setAlertMessage("Có lỗi khi hoàn tác phiếu thu!");
-      }
-    } else {
-      try {
-        await deletePayment(paymentToDelete);
-        setAlertMessage('Đã xóa phiếu thu thành công!');
-      } catch (e) {
-        console.error("Error deleting payment:", e);
-        setAlertMessage("Có lỗi khi xóa phiếu thu!");
-      }
+    try {
+      await reverseContractPayment(paymentToDelete.slice('ledger-'.length), 'Hoàn tác từ trang tài chính');
+      await refreshLedger();
+      setAlertMessage('Đã tạo bút toán đảo; chứng từ gốc vẫn được giữ nguyên.');
+    } catch (cause) {
+      setAlertMessage(cause instanceof Error ? cause.message : 'Không thể tạo bút toán đảo.');
     }
-    
     setPaymentToDelete(null);
   };
 
@@ -286,116 +170,22 @@ export default function FinanceManagement({ user, profile }: Props) {
     if (!selectedContract || !payAmount || isSubmitting) return;
     setIsSubmitting(true);
     const amount = Number(payAmount);
-    if (amount === 0) {
+    if (!Number.isSafeInteger(amount) || amount === 0) {
       setIsSubmitting(false);
       return;
     }
-    
-    const remainingDebt = (selectedContract.totalPrice - (selectedContract.discount || 0)) - selectedContract.paidAmount - amount;
-    
-    let finalInstallments: Installment[] = selectedContract.installments ? [...selectedContract.installments] : [];
-    
-    // Check if the payment exactly matches a pending installment
-    const matchingInstallmentIndex = finalInstallments.findIndex(i => i.status === 'pending' && i.amount === amount);
-    let matchedInstallmentId: string | undefined;
-    
-    if (matchingInstallmentIndex !== -1) {
-      // Exact match found, just mark it as paid
-      matchedInstallmentId = finalInstallments[matchingInstallmentIndex].id;
-      finalInstallments[matchingInstallmentIndex] = {
-        ...finalInstallments[matchingInstallmentIndex],
-        status: 'paid'
-      };
-    } else {
-      // No exact match, recreate the installment plan
-      // Preserve existing paid installments
-      const existingPaidInstallments = finalInstallments.filter(i => i.status === 'paid');
-      
-      // Create a new paid installment for the current payment
-      const newPaidInstallment: Installment = {
-        id: Date.now().toString() + '-paid',
-        amount: amount,
-        date: new Date().toISOString().split('T')[0],
-        status: 'paid'
-      };
-      matchedInstallmentId = newPaidInstallment.id;
-
-      finalInstallments = [...existingPaidInstallments, newPaidInstallment];
-      
-      if (remainingDebt > 0) {
-        const sum = installments.reduce((a, b) => a + b.amount, 0);
-        if (sum !== remainingDebt) {
-          setAlertMessage('Tổng số tiền các kỳ phải bằng số tiền còn nợ!');
-          setIsSubmitting(false);
-          return;
-        }
-        if (installments.some(i => !i.date)) {
-          setAlertMessage('Vui lòng chọn ngày hẹn trả cho tất cả các kỳ!');
-          setIsSubmitting(false);
-          return;
-        }
-        const newPendingInstallments = installments.map((inst, idx) => ({
-          id: Date.now().toString() + '-' + idx,
-          amount: inst.amount,
-          date: inst.date,
-          status: 'pending' as const
-        }));
-        finalInstallments = [...finalInstallments, ...newPendingInstallments];
-      }
-    }
-
-    const newPayment: PaymentRecord = {
-      id: Date.now().toString(),
-      contractId: selectedContract.id,
-      studentId: selectedContract.studentId,
-      amount: amount,
-      date: new Date().toISOString(),
-      method: 'transfer',
-      note: amount < 0 ? 'Hoàn tiền nợ/dư' : 'Thanh toán công nợ',
-      previousInstallments: selectedContract.installments || [],
-      installmentId: matchedInstallmentId
-    };
-
-    const newPaidAmount = selectedContract.paidAmount + amount;
-    let referralCommissionAmount = selectedContract.referralCommission || null;
-    if (selectedContract.referralCode) {
-      const referringPT = trainers.find(t => t.employeeCode === selectedContract.referralCode);
-      if (referringPT) {
-        referralCommissionAmount = newPaidAmount * (referringPT.commissionRate / 100);
-      }
-    }
-
-    const updatedContract = {
-      ...selectedContract,
-      paidAmount: newPaidAmount,
-      installments: finalInstallments,
-      referralCommission: referralCommissionAmount,
-    };
-    
-    const pendingInstallments = finalInstallments.filter(i => i.status === 'pending');
-    pendingInstallments.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    
-    if (pendingInstallments.length > 0) {
-      updatedContract.nextPaymentDate = pendingInstallments[0].date;
-    } else {
-      updatedContract.nextPaymentDate = null;
-    }
-
-    if (user) {
-      try {
-        await updateContract(updatedContract);
-        await addPayment(newPayment);
-      } catch (e) {
-        console.error("Error saving payment:", e);
-        setAlertMessage("Có lỗi khi lưu phiếu thu!");
-      }
+    try {
+      if (amount > 0) await recordContractPayment({ contractId: selectedContract.id, amount, effectiveAt: new Date().toISOString(), paymentMethod: 'transfer', idempotencyKey: crypto.randomUUID(), note: 'Thanh toán công nợ' });
+      else await recordRefund({ contractId: selectedContract.id, amount: Math.abs(amount), effectiveAt: new Date().toISOString(), paymentMethod: 'transfer', reason: 'Hoàn tiền từ trang tài chính' });
+      await refreshLedger();
+      setAlertMessage(amount > 0 ? 'Đã ghi nhận khoản thu vào sổ bất biến.' : 'Đã ghi nhận khoản hoàn tiền vào sổ bất biến.');
+    } catch (cause) {
+      setAlertMessage(cause instanceof Error ? cause.message : 'Không thể ghi sổ tài chính.');
     }
 
     setIsPaying(false);
     setSelectedContract(null);
     setPayAmount('');
-    setInstallmentCount(1);
-    setInstallments([]);
     setIsSubmitting(false);
   };
 
@@ -420,7 +210,7 @@ export default function FinanceManagement({ user, profile }: Props) {
             onClick={cleanUpOrphanedData}
             className="bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors border border-red-500/20"
           >
-            Dọn dẹp dữ liệu mồ côi
+            Kiểm tra dữ liệu mồ côi
           </button>
         )}
       </div>
@@ -625,7 +415,7 @@ export default function FinanceManagement({ user, profile }: Props) {
                       </div>
                       <div className="flex items-center gap-3">
                         <p className="text-emerald-400 font-bold">{p.amount.toLocaleString('vi-VN')}đ</p>
-                        {!p.id.startsWith('auto-') && (
+                        {p.id.startsWith('ledger-') && (
                           <button 
                             onClick={() => setPaymentToDelete(p.id)}
                             className="p-2 text-zinc-500 hover:text-amber-400 hover:bg-amber-400/10 rounded-lg transition-colors flex items-center gap-1"
@@ -717,60 +507,6 @@ export default function FinanceManagement({ user, profile }: Props) {
                   />
                 </div>
 
-                {Number(payAmount) > 0 && Number(payAmount) < ((selectedContract.totalPrice - (selectedContract.discount || 0)) - selectedContract.paidAmount) && 
-                 (!selectedContract.installments || !selectedContract.installments.some(i => i.status === 'pending' && i.amount === Number(payAmount))) && (
-                  <motion.div 
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    className="bg-red-500/5 border border-red-500/20 p-4 rounded-xl space-y-4"
-                  >
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-zinc-400">Số tiền còn nợ sau khi trả:</span>
-                      <span className="text-red-400 font-bold">
-                        {(((selectedContract.totalPrice - (selectedContract.discount || 0)) - selectedContract.paidAmount) - Number(payAmount)).toLocaleString('vi-VN')}đ
-                      </span>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-zinc-400 mb-1">Số kỳ thanh toán</label>
-                      <select 
-                        value={installmentCount}
-                        onChange={e => setInstallmentCount(Number(e.target.value))}
-                        className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-red-500"
-                      >
-                        {[1, 2, 3, 4, 5, 6].map(n => (
-                          <option key={n} value={n}>{n} kỳ</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-3">
-                      {installments.map((inst, idx) => (
-                        <div key={`inst-finance-${idx}`} className="flex gap-2 items-center">
-                          <div className="flex-1">
-                            <label className="block text-xs text-zinc-500 mb-1">Hẹn trả kỳ {idx + 1}</label>
-                            <input 
-                              type="date" 
-                              value={inst.date}
-                              onChange={e => handleInstallmentChange(idx, 'date', e.target.value)}
-                              className="w-full p-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-red-500 text-sm" 
-                            />
-                          </div>
-                          <div className="flex-1">
-                            <label className="block text-xs text-zinc-500 mb-1">Số tiền (VNĐ)</label>
-                            <input 
-                              type="number" 
-                              value={inst.amount}
-                              onChange={e => handleInstallmentChange(idx, 'amount', Number(e.target.value))}
-                              className="w-full p-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-red-500 text-sm" 
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-
                 <div className="pt-4 flex gap-3">
                   <button 
                     onClick={() => setIsPaying(false)}
@@ -816,9 +552,9 @@ export default function FinanceManagement({ user, profile }: Props) {
               <div className="w-16 h-16 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
                 <AlertCircle className="w-8 h-8" />
               </div>
-              <h3 className="text-xl font-bold text-white mb-2">Xác nhận dọn dẹp</h3>
+              <h3 className="text-xl font-bold text-white mb-2">Kiểm tra dữ liệu mồ côi</h3>
               <p className="text-zinc-400 mb-6">
-                Bạn có chắc chắn muốn xóa toàn bộ hợp đồng, lịch sử thanh toán và buổi tập của những học viên đã bị xóa? Thao tác này sẽ làm thay đổi báo cáo doanh thu và công nợ.
+                Aura sẽ giữ nguyên hợp đồng, chứng từ và buổi tập lịch sử. Thao tác này chỉ xác nhận chính sách đối soát, không xóa dữ liệu.
               </p>
               <div className="flex gap-3">
                 <button 
@@ -831,7 +567,7 @@ export default function FinanceManagement({ user, profile }: Props) {
                   onClick={confirmCleanup}
                   className="flex-1 py-3 rounded-xl font-medium text-white bg-red-500 hover:bg-red-600 transition-colors shadow-[0_0_15px_rgba(239,68,68,0.4)]"
                 >
-                  Đồng ý xóa
+                  Giữ dữ liệu & đối soát
                 </button>
               </div>
             </motion.div>

@@ -14,6 +14,11 @@ const { createGenerativeAiFunctions } = require('./generative-ai')
 const { createNutritionFunctions } = require('./nutrition')
 const { createEatCleanFunctions } = require('./eat-clean')
 const { buildCompletedOnboardingDefaultsPatch } = require('./profile-defaults')
+const { createIdentityAccessFunctions } = require('./identity-access')
+const { createPtOperationsV2Functions } = require('./pt-operations-v2')
+const { createFinanceLedgerFunctions } = require('./finance-ledger')
+const { createSessionOperationFunctions } = require('./session-operations')
+const { createPayrollFunctions } = require('./payroll')
 
 const app = initializeApp()
 // Keep callable writes on the same named database used by the production web app.
@@ -37,6 +42,24 @@ function configuredRealtimeDatabase() {
   return databaseUrl ? getDatabase(app, databaseUrl) : null
 }
 const realtimeDb = configuredRealtimeDatabase()
+
+exports.cleanupEatCleanLiveLocations = onSchedule({
+  schedule: 'every 60 minutes',
+  region: 'asia-southeast1',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  retryCount: 1,
+}, async () => {
+  if (!realtimeDb) {
+    logger.warn('Eat Clean GPS cleanup skipped because Realtime Database is not configured.')
+    return
+  }
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000
+  const snapshot = await realtimeDb.ref('eatCleanLiveLocations').orderByChild('updatedAt').endAt(cutoff).limitToFirst(500).get()
+  const updates = {}
+  snapshot.forEach((item) => { updates[item.key] = null })
+  if (Object.keys(updates).length) await realtimeDb.ref('eatCleanLiveLocations').update(updates)
+  logger.info('Eat Clean stale GPS cleanup completed', { deletedLocations: Object.keys(updates).length })
+})
 const assignableRoles = new Set(['student', 'coach', 'editor', 'shipper', 'admin', 'super_admin'])
 const privilegedAdminRoles = new Set(['admin', 'super_admin'])
 const academyStaffRoles = new Set(['editor', 'admin', 'super_admin'])
@@ -98,6 +121,11 @@ setGlobalOptions({ region: 'asia-southeast1', maxInstances: 3 })
 Object.assign(exports, createNutritionFunctions({ app, db }))
 Object.assign(exports, createGenerativeAiFunctions({ db }))
 Object.assign(exports, createEatCleanFunctions({ db, realtimeDb, onCall, requireTrustedAdmin, logger }))
+Object.assign(exports, createIdentityAccessFunctions({ db, auth, onCall, logger }))
+Object.assign(exports, createPtOperationsV2Functions({ db, onCall, logger }))
+Object.assign(exports, createFinanceLedgerFunctions({ db, onCall, logger }))
+Object.assign(exports, createSessionOperationFunctions({ db, onCall, logger }))
+Object.assign(exports, createPayrollFunctions({ db, onCall, logger }))
 
 // Backend invariant for onboarding profiles. This also protects members who
 // finish onboarding from an older cached PWA bundle that submitted null for
@@ -1629,6 +1657,61 @@ exports.saveCourseDraftAtomic = onCall({ cpu: 'gcf_gen1', maxInstances: 3 }, asy
     })
   })
   return { courseId: normalized.identifier, revision: savedRevision, status: normalized.requestedStatus }
+})
+
+/** Returns immutable revision metadata without exposing private quiz answers. */
+exports.getCourseRevisionHistory = onCall(async (request) => {
+  await requireTrustedAcademyStaffContext(request)
+  const targetCourseId = courseId(request.data?.courseId, 'Mã khóa học')
+  const snapshot = await db.collection('courseRevisions')
+    .where('courseId', '==', targetCourseId)
+    .orderBy('revision', 'desc')
+    .limit(50)
+    .get()
+  return { revisions: snapshot.docs.map((item) => ({
+    id: item.id,
+    revision: Number(item.data().revision || 0),
+    contentHash: item.data().contentHash || '',
+    createdBy: item.data().createdBy || '',
+    createdAt: item.data().createdAt?.toDate?.().toISOString?.() || '',
+    status: item.data().course?.status || 'draft',
+    title: item.data().course?.title || '',
+  })) }
+})
+
+/** Restores an immutable revision as a new draft; published history is never edited. */
+exports.restoreCourseRevisionToDraft = onCall(async (request) => {
+  const actor = await requireTrustedAcademyStaffContext(request)
+  if (actor.role === 'editor') throw new HttpsError('permission-denied', 'Biên tập viên không có quyền khôi phục phiên bản.')
+  const targetCourseId = courseId(request.data?.courseId, 'Mã khóa học')
+  const sourceRevision = Number(request.data?.revision)
+  const expectedRevision = Number(request.data?.expectedRevision)
+  if (!Number.isInteger(sourceRevision) || sourceRevision < 1 || !Number.isInteger(expectedRevision) || expectedRevision < 0) {
+    throw new HttpsError('invalid-argument', 'Phiên bản khôi phục không hợp lệ.')
+  }
+  const courseReference = db.doc(`courses/${targetCourseId}`)
+  const revisionReference = db.doc(`courseRevisions/${targetCourseId}_${String(sourceRevision).padStart(6, '0')}`)
+  let nextRevision = 0
+  await db.runTransaction(async (transaction) => {
+    const [current, source, currentQuizKeys] = await Promise.all([
+      transaction.get(courseReference), transaction.get(revisionReference), transaction.get(courseReference.collection('quizKeys')),
+    ])
+    if (!current.exists || !source.exists) throw new HttpsError('not-found', 'Không tìm thấy khóa học hoặc phiên bản cần khôi phục.')
+    const currentRevision = Number(current.data().revision || 0)
+    if (currentRevision !== expectedRevision) throw new HttpsError('aborted', 'Khóa học đã thay đổi. Hãy tải lại trước khi khôi phục.')
+    const sourceCourse = source.data().course
+    const sourceQuizKeys = isPlainObject(source.data().quizKeys) ? source.data().quizKeys : {}
+    if (!isPlainObject(sourceCourse) || sourceCourse.id !== targetCourseId) throw new HttpsError('failed-precondition', 'Nội dung phiên bản lưu trữ không hợp lệ.')
+    nextRevision = currentRevision + 1
+    const draftCourse = { ...sourceCourse, status: 'draft', publicationStatus: 'draft', revision: nextRevision }
+    transaction.set(courseReference, { ...draftCourse, createdAt: current.data().createdAt, createdBy: current.data().createdBy, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.actorId, revisionUpdatedAt: FieldValue.serverTimestamp(), revisionUpdatedBy: actor.actorId })
+    for (const item of currentQuizKeys.docs) transaction.delete(item.ref)
+    for (const [lessonId, quizKey] of Object.entries(sourceQuizKeys)) transaction.set(courseReference.collection('quizKeys').doc(lessonId), { ...quizKey, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.actorId })
+    const payload = JSON.stringify({ course: draftCourse, quizKeys: sourceQuizKeys })
+    transaction.create(db.doc(`courseRevisions/${targetCourseId}_${String(nextRevision).padStart(6, '0')}`), { courseId: targetCourseId, revision: nextRevision, restoredFromRevision: sourceRevision, contentHash: createHash('sha256').update(payload).digest('hex'), course: draftCourse, quizKeys: sourceQuizKeys, createdBy: actor.actorId, createdAt: FieldValue.serverTimestamp() })
+    transaction.set(db.collection('auditLogs').doc(), { action: 'course.revision.restored', actorUid: actor.actorId, targetId: targetCourseId, fromRevision: sourceRevision, revision: nextRevision, createdAt: FieldValue.serverTimestamp() })
+  })
+  return { courseId: targetCourseId, revision: nextRevision, status: 'draft', restoredFromRevision: sourceRevision }
 })
 
 exports.recordCourseRevision = onCall(async (request) => {

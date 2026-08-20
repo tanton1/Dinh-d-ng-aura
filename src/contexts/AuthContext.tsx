@@ -25,10 +25,11 @@ import {
 import { doc, onSnapshot } from 'firebase/firestore'
 import { firebaseAuth, firestoreDb, isFirebaseConfigured } from '../lib/firebase'
 import { createOrUpdateUserProfile, updateUserProfile } from '../services/firebaseService'
-import { ONBOARDING_DEFAULTS } from '../onboarding/defaults'
 import { reportClientIssue } from '../services/clientTelemetryService'
 import { unregisterFcmToken } from '../services/fcmService'
 import type { AppUser, UserProfile, UserRole } from '../types'
+import { emptyStudentAccessContext, type AccessContext } from '../identity/access'
+import { getMyAccessContext } from '../services/identityAccessService'
 
 declare global {
   interface Window {
@@ -42,6 +43,10 @@ type AuthContextValue = {
   user: AppUser | null
   profile: UserProfile | null
   role: UserRole
+  accessContext: AccessContext | null
+  authorizationError: string | null
+  authzReady: boolean
+  hasCapability: (capability: string) => boolean
   setPreviewRole: (role: UserRole) => void
   loading: boolean
   backendMode: 'demo' | 'firebase'
@@ -71,15 +76,13 @@ const demoProfile: UserProfile = {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-const validUserRoles = new Set<UserRole>(['student', 'coach', 'editor', 'shipper', 'admin', 'super_admin'])
+const validUserRoles = new Set<UserRole>([
+  'student', 'user', 'coach', 'trainer', 'sales', 'manager',
+  'editor', 'shipper', 'admin', 'super_admin',
+])
 const demoOtpEnabled = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_OTP === 'true'
 const e2eOtpEnabled = import.meta.env.MODE === 'e2e' && import.meta.env.VITE_ENABLE_DEMO_OTP === 'true'
 const localOtpEnabled = demoOtpEnabled || e2eOtpEnabled
-const repairedLegacyOnboardingProfiles = new Set<string>()
-
-function isMeasurement(value: unknown, min: number, max: number): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max
-}
 const recaptchaContainerId = 'aura-recaptcha-container'
 let pendingGoogleCredential: AuthCredential | null = null
 
@@ -201,6 +204,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(isFirebaseConfigured ? null : demoProfile)
   const [previewRole, setPreviewRole] = useState<UserRole | null>(null)
   const [loading, setLoading] = useState(isFirebaseConfigured)
+  const [accessContext, setAccessContext] = useState<AccessContext | null>(
+    isFirebaseConfigured ? null : { ...emptyStudentAccessContext(demoProfile.uid), accessRole: 'admin', capabilities: ['system.manage'] },
+  )
+  const [authorizationError, setAuthorizationError] = useState<string | null>(null)
+  const [authzReady, setAuthzReady] = useState(!isFirebaseConfigured)
 
   useEffect(() => {
     if (!firebaseAuth) return
@@ -248,6 +256,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!firebaseUser) {
         setUser(null)
         setProfile(null)
+        setAccessContext(null)
+        setAuthorizationError(null)
+        setAuthzReady(true)
         setLoading(false)
         return
       }
@@ -264,6 +275,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         onboardingCompleted: false,
       }
       setProfile(provisionalProfile)
+      setAuthorizationError(null)
+      setAuthzReady(false)
       // Firebase Auth is the login boundary. Do not keep the whole app blocked
       // while the ID-token claims or Firestore profile are still synchronising.
       setLoading(false)
@@ -273,6 +286,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         tokenRole = tokenRoleFromClaims(tokenResult.claims.role)
       } catch {
         // Fail closed to the learner role while token refresh is unavailable.
+      }
+      try {
+        const nextAccessContext = await getMyAccessContext(firebaseUser.uid)
+        setAccessContext(nextAccessContext)
+        if (nextAccessContext.status !== 'active') {
+          setAuthorizationError('Tài khoản đang bị tạm khóa hoặc chưa hoàn tất lời mời.')
+        }
+      } catch (error) {
+        setAccessContext(emptyStudentAccessContext(firebaseUser.uid))
+        setAuthorizationError(error instanceof Error && error.message.includes('Quyền tài khoản chưa đồng bộ')
+          ? 'Quyền tài khoản chưa đồng bộ. Vui lòng đăng nhập lại hoặc liên hệ quản trị viên.'
+          : 'Chưa thể xác minh phạm vi quyền. Các chức năng nhân viên đang được khóa an toàn.')
+        reportClientIssue('auth', error, { phase: 'access_context_sync', retryable: true })
+      } finally {
+        setAuthzReady(true)
       }
 
       // Load initial cached profile immediately to prevent missing fields during snapshot load or offline/quota
@@ -296,38 +324,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         async (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.data() as UserProfile
-            const localOnboarding = typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${firebaseUser.uid}`) === 'true'
-            const localNutRaw = typeof window !== 'undefined' ? window.localStorage.getItem(`aura:nutrition-profile:${firebaseUser.uid}`) : null
-            let localNut = null
-            if (localNutRaw) {
-              try { localNut = JSON.parse(localNutRaw) } catch {}
-            }
-            const activeNutritionProfile = data.nutritionProfile || localNut || undefined
-
-            let localProf: any = {}
-            if (typeof window !== 'undefined') {
-              try {
-                const raw = window.localStorage.getItem(`aura:profile:${firebaseUser.uid}`) || window.localStorage.getItem(`aura:user-profile:${firebaseUser.uid}`)
-                if (raw) localProf = JSON.parse(raw)
-              } catch {}
-            }
+            const activeNutritionProfile = data.nutritionProfile || undefined
 
             const mergedData: UserProfile = {
-              ...localProf,
               ...data,
               nutritionProfile: activeNutritionProfile,
-              heightCm: data.heightCm ?? localProf.heightCm ?? activeNutritionProfile?.heightCm,
-              weightKg: data.weightKg ?? localProf.weightKg ?? activeNutritionProfile?.weightKg,
-              goals: (data.goals && data.goals.length > 0) ? data.goals : (localProf.goals && localProf.goals.length > 0) ? localProf.goals : (activeNutritionProfile?.goal ? [activeNutritionProfile.goal] : undefined),
-              targetWeightDeltaKg: data.targetWeightDeltaKg ?? localProf.targetWeightDeltaKg ?? activeNutritionProfile?.targetWeightDeltaKg,
-              targetTimeframeMonths: data.targetTimeframeMonths ?? localProf.targetTimeframeMonths ?? activeNutritionProfile?.targetTimeframeMonths,
-              targetSpeedPace: data.targetSpeedPace ?? localProf.targetSpeedPace ?? activeNutritionProfile?.targetSpeedPace,
+              heightCm: data.heightCm ?? activeNutritionProfile?.heightCm,
+              weightKg: data.weightKg ?? activeNutritionProfile?.weightKg,
+              goals: (data.goals && data.goals.length > 0) ? data.goals : (activeNutritionProfile?.goal ? [activeNutritionProfile.goal] : undefined),
+              targetWeightDeltaKg: data.targetWeightDeltaKg ?? activeNutritionProfile?.targetWeightDeltaKg,
+              targetTimeframeMonths: data.targetTimeframeMonths ?? activeNutritionProfile?.targetTimeframeMonths,
+              targetSpeedPace: data.targetSpeedPace ?? activeNutritionProfile?.targetSpeedPace,
             }
 
             const isCompleted = Boolean(
               mergedData.onboardingCompleted ||
               activeNutritionProfile ||
-              localOnboarding ||
               (mergedData.heightCm && mergedData.weightKg) ||
               (mergedData.goals && mergedData.goals.length > 0)
             )
@@ -342,88 +354,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
             setProfile(finalProfile)
 
-            // Older onboarding documents could contain valid measurements only
-            // inside onboardingData/nutritionProfile while the top-level fields
-            // stayed null. Repair those documents once on the next authenticated
-            // snapshot without ever replacing a valid value chosen by the member.
-            const onboardingSource = data.onboardingData && typeof data.onboardingData === 'object'
-              ? data.onboardingData
-              : null
-            const canonicalHeight = isMeasurement(data.heightCm, 100, 220)
-              ? data.heightCm
-              : isMeasurement(activeNutritionProfile?.heightCm, 100, 220)
-                ? activeNutritionProfile.heightCm
-                : isMeasurement(onboardingSource?.heightCm, 100, 220)
-                  ? onboardingSource.heightCm
-                  : ONBOARDING_DEFAULTS.heightCm
-            const canonicalWeight = isMeasurement(data.weightKg, 30, 150)
-              ? data.weightKg
-              : isMeasurement(activeNutritionProfile?.weightKg, 30, 150)
-                ? activeNutritionProfile.weightKg
-                : isMeasurement(onboardingSource?.weightKg, 30, 150)
-                  ? onboardingSource.weightKg
-                  : ONBOARDING_DEFAULTS.weightKg
-            const currentYear = new Date().getFullYear()
-            const canonicalBirthYear = isMeasurement(data.birthYear, 1940, currentYear - 10)
-              ? data.birthYear
-              : isMeasurement(onboardingSource?.birthYear, 1940, currentYear - 10)
-                ? onboardingSource.birthYear
-                : isMeasurement(activeNutritionProfile?.age, 10, 100)
-                  ? currentYear - activeNutritionProfile.age
-                  : ONBOARDING_DEFAULTS.birthYear
-
-            const topLevelNeedsRepair = !isMeasurement(data.heightCm, 100, 220)
-              || !isMeasurement(data.weightKg, 30, 150)
-              || !isMeasurement(data.birthYear, 1940, currentYear - 10)
-            const onboardingNeedsRepair = !onboardingSource
-              || !isMeasurement(onboardingSource.heightCm, 100, 220)
-              || !isMeasurement(onboardingSource.weightKg, 30, 150)
-              || !isMeasurement(onboardingSource.birthYear, 1940, currentYear - 10)
-            const nutritionNeedsRepair = Boolean(activeNutritionProfile) && (
-              !isMeasurement(activeNutritionProfile?.heightCm, 100, 220)
-              || !isMeasurement(activeNutritionProfile?.weightKg, 30, 150)
-            )
-
-            if (
-              isCompleted
-              && canonicalHeight
-              && canonicalWeight
-              && canonicalBirthYear
-              && (topLevelNeedsRepair || onboardingNeedsRepair || nutritionNeedsRepair)
-              && !repairedLegacyOnboardingProfiles.has(firebaseUser.uid)
-            ) {
-              repairedLegacyOnboardingProfiles.add(firebaseUser.uid)
-              const repair: Partial<UserProfile> = {}
-              if (topLevelNeedsRepair) {
-                repair.heightCm = canonicalHeight
-                repair.weightKg = canonicalWeight
-                repair.birthYear = canonicalBirthYear
-              }
-              if (onboardingNeedsRepair) {
-                repair.onboardingData = {
-                  ...(onboardingSource ?? {}),
-                  heightCm: canonicalHeight,
-                  weightKg: canonicalWeight,
-                  birthYear: canonicalBirthYear,
-                }
-              }
-              if (nutritionNeedsRepair && activeNutritionProfile) {
-                repair.nutritionProfile = {
-                  ...activeNutritionProfile,
-                  heightCm: canonicalHeight,
-                  weightKg: canonicalWeight,
-                }
-              }
-
-              void updateUserProfile(firebaseUser.uid, repair).catch((error) => {
-                repairedLegacyOnboardingProfiles.delete(firebaseUser.uid)
-                reportClientIssue('firestore', error, {
-                  phase: 'legacy_onboarding_profile_repair',
-                  retryable: true,
-                })
-              })
-            }
-
             if (typeof window !== 'undefined') {
               try {
                 window.localStorage.setItem(`aura:profile:${firebaseUser.uid}`, JSON.stringify(finalProfile))
@@ -437,25 +367,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               } catch {}
             }
           } else {
-            const localOnboarding = typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${firebaseUser.uid}`) === 'true'
-            const localNut = typeof window !== 'undefined' && window.localStorage.getItem(`aura:nutrition-profile:${firebaseUser.uid}`)
-            let localProf: any = {}
-            if (typeof window !== 'undefined') {
-              try {
-                const raw = window.localStorage.getItem(`aura:profile:${firebaseUser.uid}`) || window.localStorage.getItem(`aura:user-profile:${firebaseUser.uid}`)
-                if (raw) localProf = JSON.parse(raw)
-              } catch {}
-            }
-
             const nextProfile: UserProfile = {
-              ...localProf,
               uid: firebaseUser.uid,
               email: firebaseUser.email ?? '',
               displayName: firebaseUser.displayName ?? 'Thành viên Aura',
               photoURL: firebaseUser.photoURL,
               role: 'student',
               membership: 'free',
-              onboardingCompleted: localOnboarding || Boolean(localNut) || Boolean(localProf.heightCm),
+              onboardingCompleted: false,
             }
             setProfile(nextProfile)
             setLoading(false)
@@ -471,6 +390,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         (err) => {
           console.warn("Firestore user profile subscription error/quota:", err)
           reportClientIssue('firestore', err, { phase: 'profile_subscription', retryable: true })
+          setAuthorizationError((current) => current || 'Đang hiển thị dữ liệu cache ở chế độ chỉ đọc vì chưa đồng bộ được Firestore.')
           const localOnboarding = typeof window !== 'undefined' && window.localStorage.getItem(`aura:onboarding-completed:${firebaseUser.uid}`) === 'true'
           const localNutRaw = typeof window !== 'undefined' ? window.localStorage.getItem(`aura:nutrition-profile:${firebaseUser.uid}`) : null
           let localNut = null
@@ -511,6 +431,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     profile,
     role: isFirebaseConfigured ? (profile?.role ?? 'student') : (previewRole ?? profile?.role ?? 'student'),
+    accessContext,
+    authorizationError,
+    authzReady,
+    hasCapability: (capability) => accessContext?.status === 'active' && accessContext.capabilities.includes(capability),
     setPreviewRole: (role) => {
       if (!isFirebaseConfigured) setPreviewRole(role)
     },
@@ -814,7 +738,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (userId) clearUserScopedStorage(userId)
       }
     },
-  }), [loading, profile, user, previewRole])
+  }), [accessContext, authorizationError, authzReady, loading, profile, user, previewRole])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

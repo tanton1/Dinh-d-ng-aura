@@ -1,4 +1,5 @@
 import type { ProgressRecord, Macros } from './types/ptOperations'
+import type { AccessRole, StaffPosition } from './identity/access'
 
 export type AppMode = 'student' | 'admin'
 
@@ -32,6 +33,9 @@ export interface UserProfile {
   name?: string
   photoURL?: string | null
   role: UserRole
+  accessRole?: AccessRole
+  positions?: StaffPosition[]
+  authzVersion?: number
   membership: 'free' | 'pro' | 'coach'
   branchId?: string
   history?: ProgressRecord[]

@@ -841,6 +841,95 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Identity v2 is mutated only by audited Callable Functions. Staff scope
+    // and invitations must never be client-authored, even by an admin browser.
+    match /roleAssignments/{userId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /accountInvites/{inviteId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /identityAuditLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Canonical operations written by actor-scoped Functions only. Admin UI
+    // may inspect them, but no browser can forge attendance, leads or approval.
+    match /attendanceEvents/{eventId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /sessionEvents/{eventId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /salesLeads/{leadId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /quotes/{quoteId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /contractApprovals/{approvalId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /ledgerEntries/{entryId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /financePeriods/{periodId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /reconciliationRuns/{runId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /payrollPolicies/{policyId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /payrollRuns/{runId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /payrollRunItems/{itemId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /payrollAdjustments/{adjustmentId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /eatCleanMealRevisions/{revisionId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /eatCleanRefundJobs/{jobId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     match /mealReviews/{reviewId} {
       allow read: if signedIn()
                   && (resource.data.userId == request.auth.uid

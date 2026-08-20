@@ -2363,6 +2363,18 @@ function createEatCleanFunctions(dependencies) {
         cancelledAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       })
+      if (order.paymentStatus === 'paid' || order.payment?.status === 'paid') {
+        transaction.set(db.doc(`eatCleanRefundJobs/${orderId}`), {
+          schemaVersion: SCHEMA_VERSION,
+          orderId,
+          userId,
+          amount: Number(order.total || order.pricing?.totalAmount || 0),
+          status: 'pending',
+          reason: reason || 'customer_cancelled',
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true })
+      }
       if (deliverySnapshot.exists && deliverySnapshot.data().status !== 'delivered') {
         transaction.set(deliveryReference, {
           status: 'cancelled',
@@ -2556,6 +2568,19 @@ function createEatCleanFunctions(dependencies) {
         updatedBy: actorId,
       }
       transaction.set(reference, next)
+      const commercialSnapshot = JSON.stringify({ basePrice: input.basePrice, nutrition: input.nutrition })
+      const previousCommercialSnapshot = JSON.stringify({ basePrice: current.basePrice, nutrition: current.nutrition })
+      if (!snapshot.exists || commercialSnapshot !== previousCommercialSnapshot) {
+        transaction.create(db.collection('eatCleanMealRevisions').doc(), {
+          schemaVersion: SCHEMA_VERSION,
+          mealId: input.id,
+          revision: currentRevision + 1,
+          before: snapshot.exists ? { basePrice: current.basePrice ?? null, nutrition: current.nutrition ?? null } : null,
+          after: { basePrice: input.basePrice, nutrition: input.nutrition },
+          changedBy: actorId,
+          changedAt: FieldValue.serverTimestamp(),
+        })
+      }
       return { ...serializeValue(next), createdAt: serializeValue(current.createdAt) || new Date().toISOString(), updatedAt: new Date().toISOString() }
     })
     return { meal: saved }
@@ -3416,6 +3441,18 @@ function createEatCleanFunctions(dependencies) {
             createdAt: FieldValue.serverTimestamp(),
           }, { merge: true })
         }
+      }
+      if (nextStatus === 'cancelled' && (order.paymentStatus === 'paid' || order.payment?.status === 'paid')) {
+        transaction.set(db.doc(`eatCleanRefundJobs/${orderId}`), {
+          schemaVersion: SCHEMA_VERSION,
+          orderId,
+          userId: order.userId || '',
+          amount: Number(order.total || order.pricing?.totalAmount || 0),
+          status: 'pending',
+          reason: patch.cancellationReason || 'admin_cancelled',
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true })
       }
       return { id: orderId, status: nextStatus, previousStatus: order.status, updatedAt: new Date().toISOString() }
     })

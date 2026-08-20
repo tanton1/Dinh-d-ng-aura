@@ -44,6 +44,7 @@ import type {
 import { flattenCourseLessons, getInitialDemoCompletedLessonIds } from './utils/courseContent'
 import ChunkErrorBoundary, { lazyWithRetry } from './components/ChunkErrorBoundary'
 import { adminViewPermissions, adminViews, canonicalRouteHash, eatCleanRouteHash, getCurrentRoute, isSameRoute, resolveSupportedView, routeHash, type AuraRoute } from './routing/appRouting'
+import { routeCapabilities } from './identity/access'
 import { toCourseDraft } from './utils/courseDraft'
 import { DatabaseProvider } from './contexts/DatabaseContext'
 
@@ -81,7 +82,8 @@ const AdminPackageSettings = lazyWithRetry(() => import('./components/admin/pt/P
 const AdminQuoteGenerator = lazyWithRetry(() => import('./components/admin/pt/QuoteGenerator'))
 const AdminScheduleSettings = lazyWithRetry(() => import('./components/admin/pt/ScheduleSettings'))
 const DishCollection = lazyWithRetry(() => import('./components/food/DishCollection'))
-const TrainerDashboard = lazyWithRetry(() => import('./components/admin/pt/TrainerDashboard'))
+const TrainerPortalV2 = lazyWithRetry(() => import('./pages/operations/TrainerPortalV2'))
+const SalesPortalV2 = lazyWithRetry(() => import('./pages/operations/SalesPortalV2'))
 
 
 const roleLabels: Record<UserRole, string> = {
@@ -98,7 +100,7 @@ const roleLabels: Record<UserRole, string> = {
 }
 
 function AuraApplication() {
-  const { user, profile, role, setPreviewRole, loading, backendMode, signOut } = useAuth()
+  const { user, profile, role, setPreviewRole, loading, backendMode, signOut, hasCapability, authorizationError, authzReady } = useAuth()
   const canAccessAdmin = hasPermission(role, 'dashboard.view')
   const canManageAcademy = canAccessAdmin && hasPermission(role, 'course.view')
   const canManageCoaching = canAccessAdmin && hasPermission(role, 'program.view')
@@ -317,6 +319,8 @@ function AuraApplication() {
 
   const goTo = (next: ViewId, courseId?: string | null, lessonId?: string | null) => {
     const supportedNext = resolveSupportedView(next)
+    const capability = routeCapabilities[supportedNext as keyof typeof routeCapabilities]
+    if (backendMode === 'firebase' && capability && (!authzReady || !hasCapability(capability))) return
     if (adminViews.includes(supportedNext) && !canAccessAdmin) return
     const requiredPermission = adminViewPermissions[supportedNext]
     if (requiredPermission && !hasPermission(role, requiredPermission)) return
@@ -388,8 +392,10 @@ function AuraApplication() {
       goTo('home')
       return
     }
-    if (outsideAdminBoundary || (requiredPermission && !hasPermission(role, requiredPermission))) goTo('home')
-  }, [backendMode, canAccessAdmin, loading, role, user, view])
+    const capability = routeCapabilities[view as keyof typeof routeCapabilities]
+    const outsideCapabilityBoundary = backendMode === 'firebase' && Boolean(capability) && authzReady && !hasCapability(capability)
+    if (outsideAdminBoundary || outsideCapabilityBoundary || (requiredPermission && !hasPermission(role, requiredPermission))) goTo('home')
+  }, [authzReady, backendMode, canAccessAdmin, hasCapability, loading, role, user, view])
 
   const studentCourses = useMemo(() => studentCourseData.courses
     .filter((course) => {
@@ -886,10 +892,10 @@ function AuraApplication() {
       case 'admin-eat-clean': return <AdminEatCleanPage currentRole={role} />
 
       // PT Coaching & Gym Management Views
-      case 'schedule-pt': return <AuraOperationsFrame><SchedulerWrapper user={user as any} profile={profile} onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
+      case 'schedule-pt': return <AuraOperationsFrame><TrainerPortalV2 initialTab="schedule" /></AuraOperationsFrame>
       case 'dish-collection': return <AuraOperationsFrame className="aura-operations-page--dish-library"><DishCollection onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
-      case 'trainer-portal': return <AuraOperationsFrame><TrainerDashboard user={user as any} profile={profile} explicitTrainerId={user?.uid} onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
-      case 'sales-portal': return <AuraOperationsFrame><AdminQuoteGenerator user={user as any} profile={profile} onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
+      case 'trainer-portal': return <AuraOperationsFrame><TrainerPortalV2 /></AuraOperationsFrame>
+      case 'sales-portal': return <AuraOperationsFrame><SalesPortalV2 /></AuraOperationsFrame>
 
       case 'admin-pt-students': return <AuraOperationsFrame><AdminPTStudentManagement user={user as any} profile={profile} /></AuraOperationsFrame>
       case 'admin-pt-schedule': return <AuraOperationsFrame><SchedulerWrapper user={user as any} profile={profile} onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
@@ -1045,6 +1051,11 @@ function AuraApplication() {
           ? 'admin-students'
           : 'admin-courses')
       }}
+      canNavigate={(nextView) => {
+        const capability = routeCapabilities[nextView as keyof typeof routeCapabilities]
+        return backendMode !== 'firebase' || !capability || (authzReady && hasCapability(capability))
+      }}
+      authorizationError={authorizationError}
     >
       <ChunkErrorBoundary>
         <Suspense fallback={<RouteLoadingFallback />}>

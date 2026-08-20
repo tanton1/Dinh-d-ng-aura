@@ -1,11 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Student, UserProfile, StudentContract, TrainingPackage, Trainer, Branch, Session, PaymentRecord } from '../../../types';
 import { User } from 'firebase/auth';
-import { doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
-import { db, firebaseConfig } from '../../../lib/firebase';
-import { initializeApp, getApps, getApp } from 'firebase/app';
-// Force reload: 2026-03-29
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { db } from '../../../lib/firebase';
 import { Search, Plus, Edit2, Trash2, Phone, Mail, Calendar, CheckCircle, XCircle, AlertCircle, User as UserIcon, Package, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import StudentDetail from './StudentDetail';
@@ -13,6 +9,7 @@ import DateRangeFilter from './DateRangeFilter';
 import RenewContractModal from './RenewContractModal';
 import { LOGO_URL } from '../../../constants';
 import { useDatabase } from '../../../contexts/DatabaseContext';
+import { createAccountInvite } from '../../../services/identityAccessService';
 
 interface Props {
   user: User | null;
@@ -367,9 +364,6 @@ export default function StudentManagement({ user, profile }: Props) {
     };
 
     if (editingStudent) {
-      console.log("Editing student:", editingStudent.id);
-      console.log("Form data:", formData);
-      
       // CHỈ CẬP NHẬT CÁC TRƯỜNG CÓ TRONG FORM, BỎ QUA availableSlots ĐỂ TRÁNH LƯU ĐÈ
       const updates: Partial<Student> = {
         name: formData.name,
@@ -382,12 +376,8 @@ export default function StudentManagement({ user, profile }: Props) {
         nutritionNote: formData.nutritionNote,
       };
 
-      const updatedStudent = sanitize({ ...editingStudent, ...updates }) as Student;
-      console.log("Updated student:", updatedStudent);
-      
       // Send only the updates to Firestore to avoid overwriting fields like availableSlots
       await updateStudent(editingStudent.id, sanitize(updates));
-      console.log("Student updated in Firestore");
       
       // Update User Profile in Firestore if it exists
       try {
@@ -395,64 +385,29 @@ export default function StudentManagement({ user, profile }: Props) {
           name: formData.name,
           branchId: formData.branchId || profile?.branchId || '',
         });
-        console.log("User profile updated");
-        
-        // Update Auth credentials if email or phone (password) changed
-        if (formData.email !== editingStudent.email || formData.phone !== editingStudent.phone) {
-          if (formData.phone && formData.phone.length < 6) {
-            throw new Error("Mật khẩu (số điện thoại) phải có ít nhất 6 ký tự.");
-          }
-          console.log("Updating auth credentials...");
-          const response = await fetch('/api/update-user', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              uid: editingStudent.id,
-              email: formData.email,
-              password: formData.phone
-            })
-          });
-          if (!response.ok) {
-            throw new Error(`Failed to update auth: ${await response.text()}`);
-          }
-          console.log("Auth credentials updated");
-        }
       } catch (e) {
-        console.error("Error updating user profile or auth:", e);
+        console.error("Error updating linked user profile:", e);
       }
     } else {
-      let studentId = Date.now().toString();
-      let authCreated = false;
-      if (formData.phone) {
-        try {
-          const email = formData.email || `${formData.phone}@aurafitness.com`;
-          const password = formData.phone;
-          
-          if (password.length < 6) {
-            console.warn("Phone number too short for password, skipping auth creation");
-          } else {
-            const secondaryApp = getApps().length > 1 ? getApp("Secondary") : initializeApp(firebaseConfig, "Secondary");
-            const secondaryAuth = getAuth(secondaryApp);
-            const userCred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
-            studentId = userCred.user.uid;
-            authCreated = true;
-            await secondaryAuth.signOut();
-          }
-        } catch (e: any) {
-          console.error("Error creating auth user:", e);
-          if (e.code === 'auth/email-already-in-use') {
-            setError("Email hoặc số điện thoại này đã được sử dụng cho một tài khoản khác.");
-            setIsSaving(false);
-            return;
-          }
-        }
+      if (!formData.phone && !formData.email) {
+        setError('Cần số điện thoại hoặc email để gửi lời mời xác minh.');
+        setIsSaving(false);
+        return;
       }
+      const studentId = `student_${crypto.randomUUID()}`;
+      const invite = await createAccountInvite({
+        displayName: formData.name,
+        phoneNumber: formData.phone,
+        email: formData.email,
+        accessRole: 'student',
+        crmProfileId: studentId,
+      });
 
       const newStudent: Student = {
         id: studentId,
         name: formData.name,
         phone: formData.phone || '',
-        email: formData.email || (formData.phone ? `${formData.phone}@aurafitness.com` : ''),
+        email: formData.email || '',
         dob: formData.dob || '',
         sessionsPerWeek: formData.sessionsPerWeek || 3,
         availableSlots: formData.availableSlots || [],
@@ -469,6 +424,7 @@ export default function StudentManagement({ user, profile }: Props) {
       };
       
       await addStudent(newStudent);
+      setAlertMessage(`Đã tạo hồ sơ và lời mời OTP ${invite.inviteId}.`);
     }
 
     setIsAdding(false);
@@ -490,40 +446,9 @@ export default function StudentManagement({ user, profile }: Props) {
       return;
     }
     if (!studentToDelete || !db) return;
-    
-    const id = studentToDelete;
-    
     try {
-      const batch = writeBatch(db);
-
-      // Delete associated sessions
-      const studentSessions = sessions.filter(s => s.studentId === id);
-      for (const s of studentSessions) {
-        batch.delete(doc(db, 'sessions', s.id));
-      }
-
-      // Delete associated payments
-      const studentPayments = payments.filter(p => p.studentId === id);
-      for (const p of studentPayments) {
-        batch.delete(doc(db, 'payments', p.id));
-      }
-
-      // Delete associated contracts
-      const studentContracts = contracts.filter(c => c.studentId === id);
-      for (const c of studentContracts) {
-        batch.delete(doc(db, 'contracts', c.id));
-      }
-
-      // Delete auth user doc (if exists in 'users' collection)
-      batch.delete(doc(db, 'users', id));
-
-      // Finally, delete the student document
-      batch.delete(doc(db, 'students', id));
-      
-      // Commit the batch atomically
-      await batch.commit();
-
-      setAlertMessage("Đã xóa học viên thành công!");
+      await updateStudent(studentToDelete, { status: 'inactive' });
+      setAlertMessage('Đã lưu trữ học viên. Hợp đồng, chứng từ và lịch sử buổi tập được giữ nguyên.');
     } catch (e) {
       console.error("Error deleting student data:", e);
       setAlertMessage("Lỗi xóa dữ liệu học viên: " + (e as Error).message);

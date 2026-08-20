@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import { collection, doc, setDoc, deleteDoc, writeBatch, getDoc, runTransaction, updateDoc, onSnapshot } from 'firebase/firestore'
+import { collection, doc, setDoc, deleteDoc, writeBatch, getDoc, runTransaction, updateDoc, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore'
 import { db, auth } from '../lib/firebase'
 import type {
   Student,
@@ -253,7 +253,18 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
         markReady('contracts')
       }, (err) => listenerError('contracts', err)))
 
-      unsubs.push(onSnapshot(collection(db, 'sessions'), (snapshot) => {
+      // Transitional legacy adapter: never open a realtime listener over all
+      // 9k+ historical sessions. Pages that need older history must use a
+      // cursor API; the shared context carries only the operational window.
+      const sessionWindowStart = new Date()
+      sessionWindowStart.setDate(sessionWindowStart.getDate() - 180)
+      const sessionsQuery = query(
+        collection(db, 'sessions'),
+        where('date', '>=', sessionWindowStart.toISOString().slice(0, 10)),
+        orderBy('date', 'asc'),
+        limit(3000),
+      )
+      unsubs.push(onSnapshot(sessionsQuery, (snapshot) => {
         const parsedSessions = snapshot.docs.map(document => {
           const data = withDocumentId<Session>(document)
           if (data.hour === undefined && data.id) {

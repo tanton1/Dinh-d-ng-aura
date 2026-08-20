@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { db, firebaseConfig } from '../../../lib/firebase';
-import { initializeApp, getApps, getApp } from 'firebase/app';
+import { db } from '../../../lib/firebase';
 import { getDatesForWeek } from '../../../utils/dateUtils';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { User as UserIcon, Building, Plus, Trash2, Edit2, ShieldCheck, Users, Package, AlertCircle, Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User as FirebaseUser } from 'firebase/auth';
@@ -12,6 +9,7 @@ import PackageSettings from './PackageSettings';
 import ScheduleSettings from './ScheduleSettings';
 import { LOGO_URL } from '../../../constants';
 import { useDatabase } from '../../../contexts/DatabaseContext';
+import { createAccountInvite } from '../../../services/identityAccessService';
 
 interface Props {
   user: FirebaseUser | null;
@@ -27,13 +25,11 @@ export default function HRManagement({ user }: Props) {
     students,
     addTrainer,
     updateTrainer,
-    deleteTrainer,
     addBranch,
     updateBranch,
     deleteBranch,
     addStaff,
     updateStaff,
-    deleteStaff,
     updateUserProfile,
     sessions
   } = useDatabase();
@@ -172,37 +168,27 @@ export default function HRManagement({ user }: Props) {
       let staffUid = (editingItem as StaffMember)?.id;
 
       if (!editingItem?.id) {
-        // Create Firebase Auth user
-        if (formData.email && formData.phone) {
-          if (formData.phone.length < 6) {
-            setError("Số điện thoại (dùng làm mật khẩu) phải có ít nhất 6 ký tự.");
-            return;
-          }
-          try {
-            const secondaryApp = getApps().length > 1 ? getApp("Secondary") : initializeApp(firebaseConfig, "Secondary");
-            const secondaryAuth = getAuth(secondaryApp);
-            const userCred = await createUserWithEmailAndPassword(secondaryAuth, formData.email, formData.phone);
-            staffUid = userCred.user.uid;
-            await secondaryAuth.signOut();
-          } catch (e: any) {
-            console.error("Error creating auth user:", e);
-            setError("Lỗi tạo tài khoản: " + (e.message || "Email đã tồn tại hoặc không hợp lệ."));
-            return;
-          }
-        } else {
-          setError("Vui lòng nhập Email và Số điện thoại.");
+        if (!formData.email && !formData.phone) {
+          setError('Cần Email hoặc Số điện thoại để gửi lời mời xác minh.');
           return;
         }
+        staffUid = `staff_${crypto.randomUUID()}`;
+        const role = (formData as StaffMember).role || 'trainer';
+        const position = role === 'sales' ? 'sales' : role === 'manager' ? 'branch_manager' : 'trainer_pt';
+        const invite = await createAccountInvite({
+          displayName: formData.name || 'Nhân viên Aura',
+          phoneNumber: formData.phone,
+          email: formData.email,
+          accessRole: 'staff',
+          positions: [position],
+          branchIds: (formData as StaffMember).branchId ? [(formData as StaffMember).branchId!] : [],
+          crmProfileId: staffUid,
+        });
+        setAlertMessage(`Đã tạo lời mời nhân viên ${invite.inviteId}. Không có mật khẩu mặc định.`);
       }
 
       if (staffUid && db) {
         const role = (formData as StaffMember).role || 'trainer';
-        // Update User Profile in Firestore
-        await setDoc(doc(db, 'users', staffUid), {
-          name: formData.name,
-          role: role,
-          branchId: (formData as StaffMember).branchId || '', // Empty means all branches
-        }, { merge: true });
 
         const sanitize = (obj: any) => {
           const newObj = { ...obj };
@@ -286,24 +272,21 @@ export default function HRManagement({ user }: Props) {
 
     try {
       if (type === 'staff') {
-        await deleteStaff(id);
+        const staffMember = staff.find((item) => item.id === id);
+        if (staffMember) await updateStaff({ ...staffMember, status: 'inactive' });
         const trainer = trainers.find(t => t.id === id);
         if (trainer) {
-          await deleteTrainer(id);
-        }
-        
-        if (db) {
-          try {
-            await deleteDoc(doc(db, 'users', id));
-          } catch (e) {
-            console.error("Error deleting user doc:", e);
-          }
+          await updateTrainer({ ...trainer, status: 'inactive' });
         }
       } else if (type === 'branch') {
+        const hasReferences = students.some((item) => item.branchId === id)
+          || contracts.some((item) => item.branchId === id)
+          || staff.some((item) => item.branchId === id)
+        if (hasReferences) throw new Error('Chi nhánh đang có dữ liệu liên kết và không thể xóa cứng.')
         await deleteBranch(id);
       }
       
-      setAlertMessage('Đã xóa thành công!');
+      setAlertMessage(type === 'staff' ? 'Đã ngừng hoạt động nhân viên và giữ nguyên lịch sử.' : 'Đã xóa chi nhánh chưa phát sinh dữ liệu.');
     } catch (e) {
       console.error("Error deleting item:", e);
       setAlertMessage("Lỗi khi xóa: " + (e as Error).message);
@@ -318,22 +301,8 @@ export default function HRManagement({ user }: Props) {
   };
 
   const handleRestoreRoles = async () => {
-    if (!user || !db) return;
-    try {
-      setAlertMessage('Đang khôi phục phân quyền...');
-      let count = 0;
-      for (const s of staff) {
-        if (s.id && s.role) {
-          await setDoc(doc(db, 'users', s.id), { role: s.role }, { merge: true });
-          count++;
-        }
-      }
-      setAlertMessage(`Đã khôi phục phân quyền cho ${count} tài khoản thành công!`);
-      setTimeout(() => setAlertMessage(null), 3000);
-    } catch (error) {
-      console.error("Error restoring roles:", error);
-      setError("Lỗi khi khôi phục phân quyền.");
-    }
+    setAlertMessage('Khôi phục quyền trực tiếp đã bị khóa. Hãy dùng trang Vai trò & quyền để có kiểm tra claim và audit log.');
+    setTimeout(() => setAlertMessage(null), 4000);
   };
 
   return (
@@ -740,7 +709,7 @@ export default function HRManagement({ user }: Props) {
               ) : activeSubTab === 'staff' ? (
                 <>
                   <input type="email" placeholder="Email (Tài khoản đăng nhập)" value={formData.email || ''} className="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-white" onChange={e => setFormData({...formData, email: e.target.value})} />
-                  <input type="tel" placeholder="SĐT (Mật khẩu mặc định)" value={formData.phone || ''} className="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-white" onChange={e => setFormData({...formData, phone: e.target.value})} />
+                  <input type="tel" placeholder="SĐT nhận OTP" value={formData.phone || ''} className="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-white" onChange={e => setFormData({...formData, phone: e.target.value})} />
               <select 
                 value={(formData as StaffMember).role || 'trainer'}
                 onChange={e => setFormData({...formData, role: e.target.value as StaffMember['role']})}
@@ -837,7 +806,7 @@ export default function HRManagement({ user }: Props) {
               </div>
               <h3 className="text-xl font-bold text-white mb-2">Xác nhận dọn dẹp</h3>
               <p className="text-zinc-400 mb-6">
-                Bạn có muốn dọn dẹp dữ liệu PT và nhân viên bị thừa? Hệ thống sẽ xóa các mục trùng lặp hoặc không hợp lệ.
+                Aura sẽ chỉ lập báo cáo đối soát. Dữ liệu nhân viên và PT lịch sử không bị xóa trực tiếp từ trình duyệt.
               </p>
               <div className="flex gap-3">
                 <button 
@@ -849,32 +818,13 @@ export default function HRManagement({ user }: Props) {
                 <button 
                   onClick={async () => {
                     setShowCleanupConfirm(false);
-                    
-                    // Remove duplicates and invalid entries
-                    const cleanTrainers = trainers.filter((t, index, self) => 
-                      t.id && self.findIndex(s => s.id === t.id) === index
-                    );
-                    const cleanStaff = staff.filter((s, index, self) => 
-                      s.id && self.findIndex(item => item.id === s.id) === index
-                    );
-                    
-                    try {
-                      // We don't have a bulk update in DatabaseContext, so we'll just delete the duplicates
-                      const duplicateTrainers = trainers.filter(t => !cleanTrainers.includes(t));
-                      const duplicateStaff = staff.filter(s => !cleanStaff.includes(s));
-                      
-                      await Promise.all([
-                        ...duplicateTrainers.map(t => deleteTrainer(t.id)),
-                        ...duplicateStaff.map(s => deleteStaff(s.id))
-                      ]);
-                      setAlertMessage('Đã dọn dẹp dữ liệu thành công!');
-                    } catch (e) {
-                      setAlertMessage('Lỗi khi dọn dẹp: ' + (e as Error).message);
-                    }
+                    const duplicateTrainerCount = trainers.length - new Set(trainers.map((item) => item.id)).size;
+                    const duplicateStaffCount = staff.length - new Set(staff.map((item) => item.id)).size;
+                    setAlertMessage(`Đối soát hoàn tất: ${duplicateTrainerCount} PT trùng, ${duplicateStaffCount} nhân viên trùng. Không có dữ liệu bị xóa.`);
                   }}
                   className="flex-1 py-3 rounded-xl font-medium text-white bg-red-500 hover:bg-red-600 transition-colors shadow-[0_0_15px_rgba(239,68,68,0.4)]"
                 >
-                  Đồng ý dọn dẹp
+                  Chạy đối soát
                 </button>
               </div>
             </motion.div>

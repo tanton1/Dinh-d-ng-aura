@@ -188,10 +188,8 @@ export default function AdminStudentsPage({
   const [createName, setCreateName] = useState('')
   const [createPhone, setCreatePhone] = useState('')
   const [createEmail, setCreateEmail] = useState('')
-  const [createPassword, setCreatePassword] = useState('')
   const [createGoal, setCreateGoal] = useState('')
   const [createCustomEmailEdited, setCreateCustomEmailEdited] = useState(false)
-  const [createCustomPasswordEdited, setCreateCustomPasswordEdited] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [createdAccountResult, setCreatedAccountResult] = useState<CreatedStudentAccountResult | null>(null)
@@ -200,12 +198,7 @@ export default function AdminStudentsPage({
   const handlePhoneChange = (val: string) => {
     setCreatePhone(val)
     const phone = val.trim().replace(/\s+/g, '')
-    if (!createCustomEmailEdited) {
-      setCreateEmail(phone ? `${phone}@aurafitness.com` : '')
-    }
-    if (!createCustomPasswordEdited) {
-      setCreatePassword(phone || '')
-    }
+    if (!createCustomEmailEdited) setCreateEmail('')
   }
 
   const handleCreateStudent = async () => {
@@ -220,7 +213,6 @@ export default function AdminStudentsPage({
         displayName: createName.trim(),
         phoneNumber: createPhone.trim(),
         email: createEmail.trim(),
-        password: createPassword.trim(),
         goal: createGoal.trim(),
       })
       setCreatedAccountResult(result)
@@ -238,7 +230,7 @@ export default function AdminStudentsPage({
   const copyCreatedAccountInfo = async () => {
     if (!createdAccountResult) return
     const appUrl = window.location.origin
-    const text = `Xin chào ${createdAccountResult.displayName}!\nTài khoản học viên Aura Fitness của bạn đã được khởi tạo:\n\n🌐 Đăng nhập tại: ${appUrl}\n📧 Email đăng nhập: ${createdAccountResult.email}\n🔑 Mật khẩu ban đầu: ${createdAccountResult.password}\n📱 SĐT: ${createdAccountResult.phoneNumber}\n\nHãy đăng nhập ngay để xem giáo án tập luyện và theo dõi tiến độ cùng HLV!`
+    const text = `Xin chào ${createdAccountResult.displayName}!\nAura Fitness đã tạo lời mời tài khoản cho bạn.\n\n🌐 Mở ứng dụng: ${appUrl}\n📱 Xác minh OTP bằng: ${createdAccountResult.phoneNumber}${createdAccountResult.email ? `\n📧 Email dự phòng: ${createdAccountResult.email}` : ''}\n🆔 Mã lời mời: ${createdAccountResult.inviteId}\n\nAura không sử dụng mật khẩu mặc định. Hãy đăng nhập bằng OTP rồi chấp nhận lời mời trong vòng 72 giờ.`
     await navigator.clipboard.writeText(text)
     setCopiedAccountInfo(true)
     window.setTimeout(() => setCopiedAccountInfo(false), 2200)
@@ -250,10 +242,8 @@ export default function AdminStudentsPage({
     setCreateName('')
     setCreatePhone('')
     setCreateEmail('')
-    setCreatePassword('')
     setCreateGoal('')
     setCreateCustomEmailEdited(false)
-    setCreateCustomPasswordEdited(false)
     setCreateError(null)
     setCreatedAccountResult(null)
     setCopiedAccountInfo(false)
@@ -772,7 +762,7 @@ export default function AdminStudentsPage({
                   <div className="success-account-card">
                     <div className="success-account-card__head">
                       <CheckCircle2 size={20} />
-                      <span>Đã tạo tài khoản học viên thành công!</span>
+                      <span>Đã tạo lời mời học viên an toàn!</span>
                     </div>
 
                     <div className="success-account-details">
@@ -785,12 +775,12 @@ export default function AdminStudentsPage({
                         <strong>{createdAccountResult.phoneNumber}</strong>
                       </div>
                       <div className="success-account-details-item" style={{ gridColumn: 'span 2' }}>
-                        <small>Email đăng nhập</small>
-                        <code className="pink-code">{createdAccountResult.email}</code>
+                        <small>Email dự phòng</small>
+                        <code className="pink-code">{createdAccountResult.email || 'Chưa cung cấp'}</code>
                       </div>
                       <div className="success-account-details-item" style={{ gridColumn: 'span 2' }}>
-                        <small>Mật khẩu khởi tạo</small>
-                        <code className="pink-code">{createdAccountResult.password}</code>
+                        <small>Mã lời mời · hiệu lực 72 giờ</small>
+                        <code className="pink-code">{createdAccountResult.inviteId}</code>
                       </div>
                     </div>
 
@@ -814,10 +804,8 @@ export default function AdminStudentsPage({
                             setCreateName('')
                             setCreatePhone('')
                             setCreateEmail('')
-                            setCreatePassword('')
                             setCreateGoal('')
                             setCreateCustomEmailEdited(false)
-                            setCreateCustomPasswordEdited(false)
                           }}
                         >
                           Tạo tiếp tài khoản khác
@@ -864,7 +852,7 @@ export default function AdminStudentsPage({
                         placeholder="Ví dụ: 0912345678"
                       />
                       <small style={{ color: '#e11d48', fontWeight: 600, marginTop: '2px', background: '#fff1f2', padding: '6px 10px', borderRadius: '8px', border: '1px solid #fecdd3' }}>
-                        💡 Mặc định email đăng nhập: <strong>{createPhone.trim() ? `${createPhone.trim()}@aurafitness.com` : 'sđt@aurafitness.com'}</strong> · Mật khẩu: <strong>{createPhone.trim() ? createPhone.trim() : 'sđt'}</strong>
+                        Aura sẽ gửi OTP tới số điện thoại. Không tạo email giả hoặc mật khẩu mặc định.
                       </small>
                     </label>
 
@@ -877,20 +865,7 @@ export default function AdminStudentsPage({
                           setCreateEmail(e.target.value)
                           setCreateCustomEmailEdited(true)
                         }}
-                        placeholder="sdt@aurafitness.com"
-                      />
-                    </label>
-
-                    <label>
-                      <span>Mật khẩu khởi tạo</span>
-                      <input
-                        type="text"
-                        value={createPassword}
-                        onChange={(e) => {
-                          setCreatePassword(e.target.value)
-                          setCreateCustomPasswordEdited(true)
-                        }}
-                        placeholder="Mật khẩu khởi tạo (mặc định là số điện thoại)"
+                        placeholder="Email dự phòng (không bắt buộc)"
                       />
                     </label>
 
@@ -915,7 +890,7 @@ export default function AdminStudentsPage({
                         disabled={!createPhone.trim() || createSaving}
                       >
                         {createSaving ? <Activity className="spin" size={16} /> : <UserPlus size={16} />}
-                        {createSaving ? 'Đang tạo...' : 'Tạo tài khoản học viên'}
+                        {createSaving ? 'Đang tạo...' : 'Tạo lời mời OTP'}
                       </button>
                     </div>
                   </>

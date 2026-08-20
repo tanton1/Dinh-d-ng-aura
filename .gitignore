@@ -1,5 +1,9 @@
 node_modules/
 dist/
+.env
+.env.*
+!.env.example
+!.env.e2e
 *.local
 functions/.env
 functions/.env.*
@@ -18,3 +22,4 @@ ui-debug.log
 test-results/
 playwright-report/
 .migration-private/
+.vercel

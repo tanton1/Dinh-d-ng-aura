@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Utensils, ImagePlus, X, Bot, Loader2, Send } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { Student } from '../../../types';
+import { analyzeFoodPhoto, askAiCoach } from '../../../services/nutritionService';
 
 interface Props {
   student: Student;
@@ -11,6 +12,7 @@ export default function MealAnalysis({ student }: Props) {
   const [mealDescription, setMealDescription] = useState('');
   const [currentGoal, setCurrentGoal] = useState('');
   const [image, setImage] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -20,6 +22,7 @@ export default function MealAnalysis({ student }: Props) {
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setImageFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
         setImage(reader.result as string);
@@ -30,6 +33,7 @@ export default function MealAnalysis({ student }: Props) {
 
   const removeImage = () => {
     setImage(null);
+    setImageFile(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -46,31 +50,29 @@ export default function MealAnalysis({ student }: Props) {
     setAnalysisResult(null);
 
     try {
-      const response = await fetch('/api/analyze-meal', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          mealDescription,
-          imageUrl: image,
-          currentGoal: currentGoal || student.nutritionNote || 'Giảm mỡ, tăng cơ',
-          studentInfo: `Tên: ${student.name}, SĐT: ${student.phone || ''}`
-        }),
-      });
-
-      let data;
-      try {
-        data = await response.json();
-      } catch (parseError) {
-        throw new Error('Dữ liệu trả về không hợp lệ (Có thể ảnh quá lớn, vượt quá giới hạn 50MB)');
+      const goal = currentGoal || student.nutritionNote || 'Giảm mỡ, tăng cơ';
+      if (imageFile) {
+        const response = await analyzeFoodPhoto(imageFile, {
+          notes: mealDescription,
+          userGoal: goal,
+          userCondition: 'Học viên PT Aura Fitness',
+          retainImage: false,
+        });
+        const analysis = response.analysis;
+        if (!analysis) throw new Error('AI chưa trả về nội dung phân tích hợp lệ. Vui lòng thử lại ảnh khác.');
+        setAnalysisResult([
+          `## ${analysis.dishNameVi}`,
+          `**Năng lượng:** ${analysis.totals.calories} kcal`,
+          `**Macro:** ${analysis.totals.proteinG}g protein · ${analysis.totals.carbsG}g carb · ${analysis.totals.fatG}g chất béo`,
+          analysis.quantityAndCookingAnalysis,
+          analysis.goalAlignmentAssessment,
+          analysis.calorieOptimizationTip,
+          analysis.macroBalanceAssessment,
+        ].filter(Boolean).join('\n\n'));
+      } else {
+        const prompt = `Phân tích bữa ăn theo mục tiêu ${goal}. Mô tả: ${mealDescription}. Không suy đoán thông tin cá nhân; trả lời ngắn gọn về kcal, macro và cách tối ưu.`;
+        setAnalysisResult(await askAiCoach(prompt, { goal }));
       }
-
-      if (!response.ok) {
-        throw new Error(data.details || data.error || 'Có lỗi xảy ra khi phân tích');
-      }
-
-      setAnalysisResult(data.analysis);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

@@ -48,6 +48,8 @@ interface AppShellProps {
   canAccessAdmin: boolean
   onSignOut: () => void
   onSearch?: (query: string) => void
+  canNavigate?: (view: ViewId) => boolean
+  authorizationError?: string | null
 }
 
 type ShellNavItem = { id: ViewId; label: string; icon: LucideIcon }
@@ -65,7 +67,6 @@ const studentNavSections: ShellNavSection[] = [
       { id: 'courses' as const, label: 'Học chuyên sâu', icon: BookOpen },
       { id: 'nutrition' as const, label: 'Dinh dưỡng', icon: Soup },
       { id: 'eat-clean' as const, label: 'Đặt món Eat Clean', icon: ShoppingBasket },
-      { id: 'dish-collection' as const, label: 'Thư viện món ăn', icon: Soup },
       { id: 'progress' as const, label: 'Tiến độ & ôn tập', icon: BarChart3 },
     ],
   },
@@ -189,9 +190,11 @@ function isNavigationActive(view: ViewId, itemId: ViewId, mobile = false) {
   return false
 }
 
-export default function AppShell({ children, mode, view, onNavigate, onModeChange, mobileMenu, setMobileMenu, userName, userRole, role, setPreviewRole, userPhoto, backendMode, canAccessAdmin, onSignOut, onSearch }: AppShellProps) {
+export default function AppShell({ children, mode, view, onNavigate, onModeChange, mobileMenu, setMobileMenu, userName, userRole, role, setPreviewRole, userPhoto, backendMode, canAccessAdmin, onSignOut, onSearch, canNavigate = () => true, authorizationError }: AppShellProps) {
   const navSections: ShellNavSection[] = mode === 'student'
     ? studentNavSections
+      .map((section) => ({ ...section, items: section.items.filter((item) => canNavigate(item.id)) }))
+      .filter((section) => section.items.length > 0)
     : adminNavSections
       .map((section) => ({
         ...section,
@@ -400,12 +403,13 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
         )}
 
         {!online && <div className="offline-banner" role="status"><Cloud size={15} /> Bạn đang ngoại tuyến. Aura sẽ dùng nội dung đã lưu và đồng bộ lại khi có mạng.</div>}
+        {authorizationError && <div className="offline-banner" role="alert"><ShieldCheck size={15} /> {authorizationError}</div>}
         {shellMessage && <div className="shell-toast" role="status">{shellMessage}<button aria-label="Đóng thông báo" onClick={() => setShellMessage(null)}><X size={15} /></button></div>}
         <main id="main-content" className="page-content" tabIndex={-1}>{children}</main>
 
         {mode === 'student' ? (
           <nav className="mobile-bottom-nav" aria-label="Điều hướng học viên">
-            {studentMobileNav.map((item) => {
+            {studentMobileNav.filter((item) => canNavigate(item.id)).map((item) => {
               const Icon = item.icon
               const active = isNavigationActive(view, item.id, true)
               return (

@@ -273,8 +273,6 @@ const acceptedImageTypes = new Map<string, string>([
   ['image/webp', 'webp'],
 ])
 const acceptedMealTypes = new Set<MealType>(['breakfast', 'lunch', 'dinner', 'snack', 'other'])
-const useLegacyAiHttpApi = import.meta.env.DEV
-  && import.meta.env.VITE_USE_LEGACY_AI_HTTP_API === 'true'
 
 function requireNutritionFirebase() {
   if (!firebaseAuth || !firebaseFunctions || !firebaseStorage) {
@@ -659,140 +657,6 @@ export async function analyzeFoodPhoto(
   options: AnalyzeFoodPhotoOptions = {},
 ): Promise<FoodAnalysisResponse> {
   assertImage(image)
-  if (useLegacyAiHttpApi) {
-    try {
-      const optimizedImage = await optimizeNutritionImageForUpload(image)
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onloadend = () => resolve(reader.result as string)
-        reader.onerror = reject
-        reader.readAsDataURL(optimizedImage)
-      })
-
-    let cacheKey = '';
-    try {
-      const msgBuffer = new TextEncoder().encode(base64 + (options.notes || '') + (options.userGoal || '') + (options.userCondition || ''));
-      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      cacheKey = 'meal_analysis_v3_' + hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) {
-        return JSON.parse(cached) as FoodAnalysisResponse;
-      }
-    } catch (e) {
-      console.warn('Cache check failed', e);
-    }
-
-    const token = await firebaseAuth?.currentUser?.getIdToken();
-    const res = await fetch('/api/ai/analyze-meal', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({
-        imageBase64: base64,
-        studentNote: options.notes,
-        studentGoal: options.userGoal || 'Giảm mỡ thâm hụt calo / Tăng cơ nạc',
-        studentCondition: options.userCondition || 'Học viên Aura Fitness',
-      }),
-    })
-
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      if (
-        errData.error === 'Thiếu OPENROUTER_API_KEY trên server.'
-        || errData.error === 'Thiếu GEMINI_API_KEY trên server.'
-      ) {
-        throw new Error('MISSING_AI_API_KEY');
-      }
-      throw new Error(errData.error || 'Lỗi từ máy chủ AI');
-    }
-    if (res.ok) {
-      const data = await res.json()
-      if (data.success && data.analysis) {
-        const a = data.analysis
-        const finalResponse: FoodAnalysisResponse = {
-          scanId: `scan-${Date.now()}`,
-          status: 'completed',
-          mode: 'live',
-          provider: 'gemini',
-          model: 'gemini-flash-latest',
-          providerRequestId: null,
-          notices: [],
-          imageRetained: false,
-          analyzedAt: new Date().toISOString(),
-          analysis: {
-            isFood: true,
-            dishNameVi: a.dishName || a.items?.[0]?.name || 'Bữa ăn dinh dưỡng',
-            dishNameEn: 'Nutritional Meal',
-            portionSummary: '1 đĩa phần ăn tiêu chuẩn',
-            confidence: 0.92,
-            calorieRange: {
-              low: Math.max(100, Math.round((a.totalKcal || 350) * 0.9)),
-              high: Math.round((a.totalKcal || 350) * 1.1),
-            },
-            totals: {
-              calories: a.totalKcal || 350,
-              proteinG: a.totalProtein || 30,
-              carbsG: Math.round((a.totalKcal || 350) * 0.4 / 4),
-              fatG: Math.round((a.totalKcal || 350) * 0.2 / 9),
-              fiberG: 2,
-              sugarG: 1,
-              sodiumMg: 350,
-            },
-            catalogMatch: null,
-            catalogCandidates: [],
-            quantityAndCookingAnalysis: getUsableFoodAnalysisText(a.quantityAndCookingAnalysis),
-            portionAndCalorieRationale: getUsableFoodAnalysisText(a.portionAndCalorieRationale),
-            goalAlignmentAssessment: getUsableFoodAnalysisText(a.goalAlignmentAssessment),
-            calorieOptimizationTip: getUsableFoodAnalysisText(a.calorieOptimizationTip),
-            macroBalanceAssessment: getUsableFoodAnalysisText(a.macroBalanceAssessment),
-            coachFeedbackSuggestion: getUsableFoodAnalysisText(a.coachFeedbackSuggestion),
-            items: (a.items || []).map((item: any, idx: number) => ({
-              id: `item-${idx}`,
-              nameVi: item.name,
-              nameEn: item.name,
-              searchNameAscii: item.name,
-              estimatedGrams: item.weight || 100,
-              gramRange: { low: Math.round((item.weight || 100) * 0.9), high: Math.round((item.weight || 100) * 1.1) },
-              cookingMethod: 'Nấu chín',
-              nutrition: {
-                calories: item.kcal || 0,
-                proteinG: item.protein || 0,
-                carbsG: Math.round((item.kcal || 0) * 0.4 / 4),
-                fatG: Math.round((item.kcal || 0) * 0.2 / 9),
-                fiberG: 1,
-                sugarG: 0,
-                sodiumMg: 150,
-              },
-              confidence: 0.92,
-              assumptions: [],
-              catalogMatch: null,
-              catalogCandidates: [],
-            })),
-            warnings: [],
-            databaseNotices: [],
-            questions: [],
-          },
-        }
-        
-        try {
-          if (cacheKey) {
-            localStorage.setItem(cacheKey, JSON.stringify(finalResponse))
-          }
-        } catch (e) {
-          console.warn('Failed to cache analysis', e)
-        }
-
-        return finalResponse
-      }
-    }
-    } catch (e: any) {
-      console.warn('Local AI HTTP endpoint failed; using Firebase callable instead:', e)
-    }
-  }
-
   validateAnalyzeOptions(options)
   try {
     const upload = await uploadFoodPhoto(image)
@@ -803,36 +667,6 @@ export async function analyzeFoodPhoto(
   }
 }
 export async function generateMealReview(meal: any, userProfile: any): Promise<string> {
-  if (useLegacyAiHttpApi) {
-    try {
-    const token = await firebaseAuth?.currentUser?.getIdToken();
-    const response = await fetch('/api/generateMealReview', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ meal, userProfile })
-    });
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      if (
-        errData.error === 'Thiếu OPENROUTER_API_KEY trên server.'
-        || errData.error === 'Thiếu GEMINI_API_KEY trên server.'
-      ) {
-        throw new Error('MISSING_AI_API_KEY');
-      }
-      throw new Error(errData.error || 'Lỗi từ máy chủ AI');
-    }
-    if (response.ok) {
-      const data = await response.json();
-      return data.review || 'Lỗi khi kết nối với máy chủ để phân tích bữa ăn.';
-    }
-    } catch (error) {
-      console.warn('Local meal-review endpoint failed; using Firebase callable instead:', error)
-    }
-  }
-
   try {
     const firebase = requireNutritionFirebase();
     const callable = httpsCallable<{ meal: any, userProfile: any }, { review: string }>(
@@ -849,36 +683,6 @@ export async function generateMealReview(meal: any, userProfile: any): Promise<s
 }
 
 export async function askAiCoach(message: string, userProfile: any): Promise<string> {
-  if (useLegacyAiHttpApi) {
-    try {
-    const token = await firebaseAuth?.currentUser?.getIdToken();
-    const response = await fetch('/api/ai/coach-chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ message, userProfile })
-    });
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      if (
-        errData.error === 'Thiếu OPENROUTER_API_KEY trên server.'
-        || errData.error === 'Thiếu GEMINI_API_KEY trên server.'
-      ) {
-        throw new Error('MISSING_AI_API_KEY');
-      }
-      throw new Error(errData.error || 'Lỗi từ máy chủ AI');
-    }
-    if (response.ok) {
-      const data = await response.json();
-      return data.text || 'AI Coach chưa có phản hồi.';
-    }
-    } catch (error) {
-      console.warn('Local AI Coach endpoint failed; using Firebase callable instead:', error)
-    }
-  }
-
   try {
     const firebase = requireNutritionFirebase();
     const callable = httpsCallable<{ message: string, userProfile: any }, { text: string }>(

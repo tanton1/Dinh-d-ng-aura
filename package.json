@@ -4,15 +4,16 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "vite",
     "lint": "tsc -b",
-    "build": "tsc -b && vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "tsc -b && vite build",
     "nutrition:index": "node scripts/build-nutrition-client-index.mjs",
-    "build:gh-pages": "tsc -b && vite build --base /aura-fitness-elearning-/ && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build:gh-pages": "tsc -b && vite build --base /aura-fitness-elearning-/",
     "deploy:gh-pages": "npm run build:gh-pages && npx --yes gh-pages -d dist -r https://github.com/tanton1/aura-fitness-elearning-.git",
     "preview": "vite preview",
     "test:rules": "npx --yes firebase-tools@15.9.1 emulators:exec --only firestore --project demo-aura-fitness \"node --test tests/firestore.rules.test.mjs\"",
     "test:storage": "npx --yes firebase-tools@15.9.1 emulators:exec --only storage --project demo-aura-fitness-storage \"node --test tests/storage.rules.test.mjs\"",
+    "test:rtdb": "npx --yes firebase-tools@15.9.1 emulators:exec --only database --project demo-aura-fitness-rtdb \"node --test tests/database.rules.test.mjs\"",
     "test:functions": "npm --prefix functions test",
     "test:e2e": "playwright test",
     "test": "npm run test:functions",
@@ -21,7 +22,7 @@
     "production:smoke": "node scripts/production-smoke.mjs",
     "ci": "npm run typecheck && npm run build && npm run performance:check && npm --prefix functions run check",
     "typecheck": "tsc -b",
-    "start": "node dist/server.cjs"
+    "start": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
     "@google/genai": "^2.15.0",

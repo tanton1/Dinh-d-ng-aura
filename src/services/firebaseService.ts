@@ -464,6 +464,28 @@ export async function saveCourseDraft(input: CourseDraftInput & { publish?: bool
   }
 }
 
+export interface CourseRevisionSummary {
+  id: string
+  revision: number
+  contentHash: string
+  createdBy: string
+  createdAt: string
+  status: string
+  title: string
+}
+
+export async function getCourseRevisionHistory(courseId: string) {
+  const normalizedCourseId = requireDocumentId(courseId, 'Mã khóa học')
+  const callable = httpsCallable<{ courseId: string }, { revisions: CourseRevisionSummary[] }>(requireFunctions(), 'getCourseRevisionHistory')
+  return (await callable({ courseId: normalizedCourseId })).data.revisions
+}
+
+export async function restoreCourseRevisionToDraft(courseId: string, revision: number, expectedRevision: number) {
+  const input = { courseId: requireDocumentId(courseId, 'Mã khóa học'), revision, expectedRevision }
+  const callable = httpsCallable<typeof input, { courseId: string; revision: number; status: 'draft'; restoredFromRevision: number }>(requireFunctions(), 'restoreCourseRevisionToDraft')
+  return (await callable(input)).data
+}
+
 export async function loadCourseQuizAnswerKeys(courseId: string): Promise<CourseQuizAnswerKeys> {
   const db = requireDb()
   const normalizedCourseId = requireDocumentId(courseId, 'MÃ£ khÃ³a há»c')

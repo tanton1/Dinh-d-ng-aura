@@ -1,8 +1,7 @@
-import { initializeApp, getApps } from 'firebase/app'
-import { getAuth, createUserWithEmailAndPassword, updateProfile, signOut } from 'firebase/auth'
-import { doc, getDoc, setDoc, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
-import { firebaseApp, firebaseFunctions, firestoreDb } from '../lib/firebase'
+import { firebaseFunctions, firestoreDb } from '../lib/firebase'
+import { createAccountInvite } from './identityAccessService'
 
 export type PtCoachingStatus = 'active' | 'onboarding' | 'paused' | 'completed'
 
@@ -209,17 +208,16 @@ export interface CreateStudentAccountInput {
   displayName: string
   phoneNumber: string
   email?: string
-  password?: string
   goal?: string
 }
 
 export interface CreatedStudentAccountResult {
-  uid: string
+  inviteId: string
   displayName: string
   phoneNumber: string
   email: string
-  password: string
   goal: string
+  expiresAt: string
 }
 
 export async function createStudentAccount(input: CreateStudentAccountInput): Promise<CreatedStudentAccountResult> {
@@ -228,90 +226,22 @@ export async function createStudentAccount(input: CreateStudentAccountInput): Pr
     throw new Error('Vui lòng nhập số điện thoại của học viên.')
   }
 
-  if (firestoreDb) {
-    const usersRef = collection(firestoreDb, 'users')
-    const q = query(usersRef, where('phoneNumber', '==', phone))
-    const snapshot = await getDocs(q)
-    if (!snapshot.empty) {
-      throw new Error(`Số điện thoại ${phone} đã được tạo tài khoản trước đó. Vui lòng kiểm tra lại.`)
-    }
-  }
-
-  const email = (input.email?.trim() || `${phone}@aurafitness.com`).toLowerCase()
-  const password = input.password?.trim() || phone
+  const email = input.email?.trim().toLowerCase() || ''
   const displayName = input.displayName.trim() || `Học viên ${phone}`
-
-  if (password.length < 6) {
-    throw new Error('Mật khẩu tối thiểu phải từ 6 ký tự trở lên.')
-  }
-
-  let uid = `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
-
-  // 1. Firebase Auth user creation via secondary auth app
-  if (firebaseApp) {
-    try {
-      const secondaryAppName = 'SecondaryAuthAdminApp'
-      let secondaryApp = getApps().find((app) => app.name === secondaryAppName)
-      if (!secondaryApp) {
-        secondaryApp = initializeApp(firebaseApp.options, secondaryAppName)
-      }
-      const secondaryAuth = getAuth(secondaryApp)
-      const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password)
-      uid = cred.user.uid
-      await updateProfile(cred.user, { displayName })
-      await signOut(secondaryAuth)
-    } catch (caught: any) {
-      if (caught?.code === 'auth/email-already-in-use') {
-        throw new Error(`Email ${email} hoặc SĐT ${phone} đã được tạo tài khoản trước đó trong hệ thống.`)
-      }
-      console.warn('Firebase Auth user creation warning:', caught)
-    }
-  }
-
-  // 2. Write User profile document in Firestore 'users'
-  if (firestoreDb) {
-    const userRef = doc(firestoreDb, 'users', uid)
-    await setDoc(userRef, {
-      uid,
-      displayName,
-      email,
-      phoneNumber: phone,
-      role: 'student',
-      membership: 'free',
-      status: 'active',
-      goal: input.goal || '',
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    }, { merge: true })
-
-    // Write coachClients document for PT Coaching CRM
-    const coachClientRef = doc(firestoreDb, 'coachClients', uid)
-    await setDoc(coachClientRef, {
-      clientId: uid,
-      goal: input.goal || '',
-      coachingStatus: 'onboarding',
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    }, { merge: true })
-  }
-
-  // Write to local storage fallback for demo
-  const initialLocalProfile: PtClientProfile = {
-    ...emptyProfile(uid),
-    clientId: uid,
-    goal: input.goal || '',
-    coachingStatus: 'onboarding',
-    lastCheckInAt: new Date().toISOString(),
-  }
-  writeLocalProfile(initialLocalProfile)
-
-  return {
-    uid,
+  const invite = await createAccountInvite({
     displayName,
     phoneNumber: phone,
     email,
-    password,
+    accessRole: 'student',
+  })
+
+  return {
+    inviteId: invite.inviteId,
+    displayName,
+    phoneNumber: phone,
+    email,
     goal: input.goal || '',
+    expiresAt: invite.expiresAt,
   }
 }
 

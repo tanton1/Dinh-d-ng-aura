@@ -1,11 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
-import { Trainer, Session, Payroll, Branch, StudentContract, UserProfile, Student, HOURS } from '../../../types';
-import { CheckCircle, XCircle, DollarSign, Calendar, Trash2, RotateCcw, User as UserIcon, Clock, Filter, Edit2 } from 'lucide-react';
+import { Trainer, Session, Payroll, Branch, UserProfile, Student, HOURS } from '../../../types';
+import { CheckCircle, XCircle, DollarSign, Calendar, RotateCcw, User as UserIcon, Clock, Filter, Edit2 } from 'lucide-react';
 import DateRangeFilter from './DateRangeFilter';
 import { LOGO_URL } from '../../../constants';
 import { useDatabase } from '../../../contexts/DatabaseContext';
 import { OrphanedSessionChecker } from './OrphanedSessionChecker';
+import { cancelSession, confirmSessionAttendance, rescheduleSession, swapSessions } from '../../../services/sessionOperationsService';
 
 interface Props {
   user: FirebaseUser | null;
@@ -13,7 +14,7 @@ interface Props {
 }
 
 export default function TrainerPayroll({ user, profile }: Props) {
-  const { trainers, sessions, students, branches, contracts, scheduleConfig, updateSession, deleteSession, addSession, updateContract } = useDatabase();
+  const { trainers, sessions, students, branches, contracts, scheduleConfig } = useDatabase();
   const [selectedTrainerId, setSelectedTrainerId] = useState<string>('all');
   const [selectedDay, setSelectedDay] = useState<number | 'all'>('all');
   const [sessionSearch, setSessionSearch] = useState('');
@@ -36,47 +37,13 @@ export default function TrainerPayroll({ user, profile }: Props) {
 
   const handleUpdateStatus = async (session: Session, status: 'completed' | 'cancelled' | 'scheduled' | 'canceled_by_student') => {
     if (!user) return;
-    
-    let contractToUpdate: StudentContract | null = null;
-    const classId = `${session.id.split('-').slice(0, 2).join('-')}-${session.date}`;
-    
-    if (session.verifiedByStudent && status !== 'completed') {
-      const contract = contracts.find(c => c.studentId === session.studentId && c.attendedClasses?.includes(classId));
-      if (contract) {
-        const newUsedSessions = Math.max(0, contract.usedSessions - 1);
-        contractToUpdate = { 
-          ...contract, 
-          usedSessions: newUsedSessions,
-          status: newUsedSessions < contract.totalSessions ? 'active' : contract.status,
-          attendedClasses: (contract.attendedClasses || []).filter(id => id !== classId)
-        };
-      }
-    } else if (!session.verifiedByStudent && status === 'completed') {
-      const contract = contracts.find(c => c.studentId === session.studentId && c.status === 'active');
-      if (contract && !contract.attendedClasses?.includes(classId)) {
-        const newUsedSessions = contract.usedSessions + 1;
-        contractToUpdate = {
-          ...contract,
-          usedSessions: newUsedSessions,
-          status: newUsedSessions >= contract.totalSessions ? 'expired' : 'active',
-          attendedClasses: [...(contract.attendedClasses || []), classId]
-        };
-      }
-    }
-
-    const updatedSession: Session = { 
-      ...session, 
-      status, 
-      verifiedByStudent: status === 'completed' ? true : (status === 'scheduled' || status === 'canceled_by_student' ? false : session.verifiedByStudent)
-    };
-    
     try {
-      await updateSession(updatedSession);
-      if (contractToUpdate) {
-        await updateContract(contractToUpdate);
-      }
+      const revision = Number((session as Session & { revision?: number }).revision || 0);
+      if (status === 'completed') await confirmSessionAttendance(session.id, revision);
+      else if (status === 'cancelled' || status === 'canceled_by_student') await cancelSession({ sessionId: session.id, expectedRevision: revision, type: status === 'cancelled' ? 'trainer_cancelled' : 'student_cancelled', reason: 'Cập nhật từ quản trị lương' });
+      else alert('Khôi phục buổi đã hủy cần quy trình correction; thao tác trực tiếp đã bị khóa.');
     } catch (e) {
-      console.error(e);
+      alert((e as Error).message);
     }
   };
 
@@ -88,34 +55,10 @@ export default function TrainerPayroll({ user, profile }: Props) {
   };
 
   const handleDeleteSession = async (sessionId: string) => {
-    if (!user || !confirm('Bạn có chắc chắn muốn xóa buổi tập này?')) return;
-    
     const session = sessions.find(s => s.id === sessionId);
-    if (!session) return;
-
-    let contractToUpdate = null;
-    if (session.verifiedByStudent) {
-      const classIdToRemove = `${session.id.split('-').slice(0, 2).join('-')}-${session.date}`;
-      const contract = contracts.find(c => c.studentId === session.studentId && c.attendedClasses?.includes(classIdToRemove));
-      if (contract) {
-        const newUsedSessions = Math.max(0, contract.usedSessions - 1);
-        contractToUpdate = { 
-          ...contract, 
-          usedSessions: newUsedSessions,
-          status: newUsedSessions < contract.totalSessions ? 'active' : contract.status,
-          attendedClasses: (contract.attendedClasses || []).filter(id => id !== classIdToRemove)
-        };
-      }
-    }
-
-    try {
-      await deleteSession(sessionId);
-      if (contractToUpdate) {
-        await updateContract(contractToUpdate);
-      }
-    } catch (e) {
-      console.error(e);
-    }
+    if (!user || !session || !confirm('Buổi tập sẽ được đánh dấu hủy và vẫn giữ lịch sử. Tiếp tục?')) return;
+    try { await cancelSession({ sessionId, expectedRevision: Number((session as Session & { revision?: number }).revision || 0), type: 'trainer_cancelled', reason: 'Hủy từ quản trị lương' }); }
+    catch (e) { alert((e as Error).message); }
   };
 
   const handleEditSession = (session: Session) => {
@@ -130,28 +73,8 @@ export default function TrainerPayroll({ user, profile }: Props) {
 
   const saveEditedSession = async () => {
     if (!user || !editingSession) return;
-    
-    const dateObj = new Date(editFormData.date);
-    const dayOfWeek = dateObj.getDay();
-    const dayCode = dayOfWeek === 0 ? 'CN' : `T${dayOfWeek + 1}`;
-    const newId = `${dayCode}-${editFormData.hour}-${editingSession.studentId}-${editFormData.date}`;
-
-    const updatedSession: Session = {
-      ...editingSession,
-      id: newId,
-      date: editFormData.date,
-      trainerId: editFormData.trainerId,
-      status: 'scheduled', // Reset status if it was canceled_by_student
-      verifiedByStudent: false
-    };
-
     try {
-      if (editingSession.id !== newId) {
-        await deleteSession(editingSession.id);
-        await addSession(updatedSession);
-      } else {
-        await updateSession(updatedSession);
-      }
+      await rescheduleSession({ sessionId: editingSession.id, expectedRevision: Number((editingSession as Session & { revision?: number }).revision || 0), newDate: editFormData.date, newHour: editFormData.hour, trainerId: editFormData.trainerId });
       setEditingSession(null);
     } catch (e) {
       alert('Lỗi khi lưu: ' + (e as Error).message);
@@ -209,51 +132,8 @@ export default function TrainerPayroll({ user, profile }: Props) {
 
   const handleSwapSession = async (sessionB: Session) => {
     if (!user || !editingSession) return;
-    
-    const sourceDate = editingSession.date;
-    const sourceHour = parseInt(editingSession.id.split('-')[1]) || 6;
-    const sourceTrainerId = editingSession.trainerId;
-    
-    const targetDate = editFormData.date;
-    const targetHour = editFormData.hour;
-    const targetTrainerId = editFormData.trainerId;
-
-    const getDayCode = (dateStr: string) => {
-      const d = new Date(dateStr).getDay();
-      return d === 0 ? 'CN' : `T${d + 1}`;
-    };
-
-    const sourceDayCode = getDayCode(sourceDate);
-    const targetDayCode = getDayCode(targetDate);
-
-    const newSessionAId = `${targetDayCode}-${targetHour}-${editingSession.studentId}-${targetDate}`;
-    const newSessionBId = `${sourceDayCode}-${sourceHour}-${sessionB.studentId}-${sourceDate}`;
-
-    const updatedSessionA: Session = {
-      ...editingSession,
-      id: newSessionAId,
-      date: targetDate,
-      trainerId: targetTrainerId,
-      status: 'scheduled',
-      verifiedByStudent: false
-    };
-
-    const updatedSessionB: Session = {
-      ...sessionB,
-      id: newSessionBId,
-      date: sourceDate,
-      trainerId: sourceTrainerId,
-      status: 'scheduled',
-      verifiedByStudent: false
-    };
-
     try {
-      if (editingSession.id !== newSessionAId) await deleteSession(editingSession.id);
-      if (sessionB.id !== newSessionBId) await deleteSession(sessionB.id);
-      
-      await addSession(updatedSessionA);
-      await addSession(updatedSessionB);
-      
+      await swapSessions({ firstSessionId: editingSession.id, secondSessionId: sessionB.id, firstExpectedRevision: Number((editingSession as Session & { revision?: number }).revision || 0), secondExpectedRevision: Number((sessionB as Session & { revision?: number }).revision || 0) });
       setEditingSession(null);
       alert('Đổi chéo thành công!');
     } catch (e) {
@@ -296,62 +176,7 @@ export default function TrainerPayroll({ user, profile }: Props) {
   });
 
   const handleAutoConfirm = async () => {
-    if (!user) return;
-    if (!confirm('Xác nhận TẤT CẢ các ca dạy (đã qua thời gian thực tế) trên toàn hệ thống thành Đã hoàn thành và ĐỒNG BỘ trừ các buổi tập vào hợp đồng học viên?')) return;
-    
-    const now = new Date();
-    
-    const toUpdate = sessions.filter(s => {
-      // 1. Chốt các ca 'scheduled' đã qua giờ
-      if (s.status === 'scheduled') {
-        const hour = parseInt(s.id.split('-')[1]) || 0;
-        const [year, month, day] = s.date.split('-').map(Number);
-        const sessionTime = new Date(year, month - 1, day, hour + 1, 0, 0); 
-        if (sessionTime < now) return true;
-      }
-      
-      // 2. Đồng bộ các ca đã click hoàn thành trước đó nhưng chưa được trừ điểm danh (chưa verified)
-      if (s.status === 'completed' && !s.verifiedByStudent) {
-        return true;
-      }
-      
-      return false;
-    });
-
-    if (toUpdate.length === 0) {
-      alert('Không có ca dạy nào chưa xác nhận đã qua thời gian thực tế.');
-      return;
-    }
-
-    try {
-      const contractsMap = new Map();
-
-      for (const session of toUpdate) {
-        const classId = `${session.id.split('-').slice(0, 2).join('-')}-${session.date}`;
-        let contract = contractsMap.get(session.studentId) || contracts.find(c => c.studentId === session.studentId && c.status === 'active');
-        
-        if (!session.verifiedByStudent && contract && !contract.attendedClasses?.includes(classId)) {
-          const newUsedSessions = contract.usedSessions + 1;
-          contract = {
-            ...contract,
-            usedSessions: newUsedSessions,
-            status: newUsedSessions >= contract.totalSessions ? 'expired' : 'active',
-            attendedClasses: [...(contract.attendedClasses || []), classId]
-          };
-          contractsMap.set(session.studentId, contract);
-        }
-        
-        await updateSession({ ...session, status: 'completed', verifiedByStudent: true });
-      }
-
-      for (const contract of Array.from(contractsMap.values())) {
-        await updateContract(contract);
-      }
-
-      alert(`Đã tự động xác nhận ${toUpdate.length} học viên / ca tập thành công!`);
-    } catch (e) {
-      alert('Có lỗi xảy ra: ' + (e as Error).message);
-    }
+    alert('Tự động xác nhận toàn hệ thống đã được khóa. Hãy xác nhận từng buổi qua transaction hoặc dùng scheduler backend sau khi được nghiệm thu.');
   };
 
   const groupedSessions = React.useMemo(() => {
@@ -586,7 +411,7 @@ export default function TrainerPayroll({ user, profile }: Props) {
                               <button onClick={() => markSession(s.id, 'scheduled')} className="p-2 text-zinc-400 hover:text-white bg-zinc-800 rounded-lg transition-colors" title="Hoàn tác"><RotateCcw className="w-4 h-4" /></button>
                             )}
                             {!isPTUser && (
-                              <button onClick={() => handleDeleteSession(s.id)} className="p-2 text-zinc-600 hover:text-red-400 transition-colors" title="Xóa vĩnh viễn"><Trash2 className="w-4 h-4" /></button>
+                              <button onClick={() => handleDeleteSession(s.id)} className="p-2 text-zinc-600 hover:text-red-400 transition-colors" title="Hủy và giữ lịch sử"><XCircle className="w-4 h-4" /></button>
                             )}
                           </div>
                         </div>
