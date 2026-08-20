@@ -116,7 +116,14 @@ function allowClientIncident(request) {
   return count <= 20
 }
 
-setGlobalOptions({ region: 'asia-southeast1', maxInstances: 3 })
+// This label is an auditable release marker and also ensures every Gen 2
+// service receives the same packaged dependency graph when shared modules
+// change outside its entrypoint declaration.
+setGlobalOptions({
+  region: 'asia-southeast1',
+  maxInstances: 3,
+  labels: { 'aura-release': '386371f' },
+})
 
 Object.assign(exports, createNutritionFunctions({ app, db }))
 Object.assign(exports, createGenerativeAiFunctions({ db }))
