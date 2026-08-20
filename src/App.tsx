@@ -43,7 +43,6 @@ import type {
 } from './types'
 import { flattenCourseLessons, getInitialDemoCompletedLessonIds } from './utils/courseContent'
 import ChunkErrorBoundary, { lazyWithRetry } from './components/ChunkErrorBoundary'
-import AuraOperationsFrame from './components/AuraOperationsFrame'
 import { adminViewPermissions, adminViews, canonicalRouteHash, eatCleanRouteHash, getCurrentRoute, isSameRoute, resolveSupportedView, routeHash, type AuraRoute } from './routing/appRouting'
 import { toCourseDraft } from './utils/courseDraft'
 import { DatabaseProvider } from './contexts/DatabaseContext'
@@ -69,6 +68,7 @@ const WorkoutPage = lazyWithRetry(() => import('./pages/student/WorkoutPage'))
 const EatCleanPage = lazyWithRetry(() => import('./features/eat-clean/EatCleanPage'))
 const AdminEatCleanPage = lazyWithRetry(() => import('./features/eat-clean/admin/AdminEatCleanPage'))
 const DeliveryPage = lazyWithRetry(() => import('./features/delivery/DeliveryPage'))
+const AuraOperationsFrame = lazyWithRetry(() => import('./components/AuraOperationsFrame'))
 
 // Gym PT Operations & Food Database Views
 const AdminPTStudentManagement = lazyWithRetry(() => import('./components/admin/pt/StudentManagement'))

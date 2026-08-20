@@ -19,7 +19,22 @@ import type {
   WorkoutLog,
   SessionRequest,
 } from '../types/ptOperations'
-import { onAuthStateChanged } from 'firebase/auth'
+import { getIdTokenResult, onAuthStateChanged } from 'firebase/auth'
+
+type OperationsSyncStatus = 'idle' | 'loading' | 'ready' | 'forbidden' | 'error'
+
+interface OperationsSyncState {
+  status: OperationsSyncStatus
+  lastSyncedAt: string | null
+  error: string | null
+}
+
+const DEFAULT_SCHEDULE_CONFIG: ScheduleConfig = {
+  workingDays: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'],
+  workingHours: [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20],
+  lockDayOfWeek: 6,
+  lockHour: 12,
+}
 
 interface DatabaseContextType {
   students: Student[]
@@ -36,6 +51,7 @@ interface DatabaseContextType {
   sessionRequests: SessionRequest[]
   schedules: { [weekId: string]: { schedule: Schedule, warnings: Warning[], overriddenSessions?: Record<string, number> } }
   scheduleConfig: ScheduleConfig
+  operationsSync: OperationsSyncState
   
   addStudent: (student: Student) => Promise<void>
   updateStudent: (id: string, updates: Partial<Student>) => Promise<void>
@@ -121,43 +137,125 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([])
   const [sessionRequests, setSessionRequests] = useState<SessionRequest[]>([])
   const [schedules, setSchedules] = useState<{ [weekId: string]: { schedule: Schedule, warnings: Warning[], overriddenSessions?: Record<string, number> } }>({})
-  const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig>({
-    workingDays: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'],
-    workingHours: [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20],
-    lockDayOfWeek: 6,
-    lockHour: 12
-  })
+  const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig>(DEFAULT_SCHEDULE_CONFIG)
   const [isMigrating, setIsMigrating] = useState(false)
   const [isMigrated, setIsMigrated] = useState(false)
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [canUseLegacyOperations, setCanUseLegacyOperations] = useState(false)
+  const [operationsSync, setOperationsSync] = useState<OperationsSyncState>({
+    status: 'idle',
+    lastSyncedAt: null,
+    error: null,
+  })
 
   const refreshData = async () => {}
 
+  const clearLegacyOperationsData = () => {
+    setStudents([])
+    setContracts([])
+    setPayments([])
+    setSessions([])
+    setTrainers([])
+    setBranches([])
+    setPackages([])
+    setStaff([])
+    setDailyCheckins([])
+    setWorkoutLogs([])
+    setLeaveRequests([])
+    setSessionRequests([])
+    setSchedules({})
+    setScheduleConfig(DEFAULT_SCHEDULE_CONFIG)
+    setIsMigrated(false)
+  }
+
   useEffect(() => {
     if (!auth) return
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setIsAuthenticated(!!user)
+    let active = true
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        if (active) {
+          setCanUseLegacyOperations(false)
+          clearLegacyOperationsData()
+          setOperationsSync({ status: 'idle', lastSyncedAt: null, error: null })
+        }
+        return
+      }
+
+      try {
+        const token = await getIdTokenResult(user, true)
+        if (!active) return
+        const role = typeof token.claims.role === 'string' ? token.claims.role : 'student'
+        const canUse = role === 'admin' || role === 'super_admin'
+        setCanUseLegacyOperations(canUse)
+        if (!canUse) clearLegacyOperationsData()
+        setOperationsSync({
+          status: canUse ? 'loading' : 'forbidden',
+          lastSyncedAt: null,
+          error: canUse ? null : 'Tài khoản này không có quyền truy cập dữ liệu vận hành.',
+        })
+      } catch (error) {
+        if (!active) return
+        setCanUseLegacyOperations(false)
+        clearLegacyOperationsData()
+        setOperationsSync({
+          status: 'error',
+          lastSyncedAt: null,
+          error: error instanceof Error ? error.message : 'Không thể xác minh quyền truy cập dữ liệu vận hành.',
+        })
+      }
     })
-    return () => unsubscribe()
+    return () => {
+      active = false
+      unsubscribe()
+    }
   }, [])
 
   useEffect(() => {
-    if (!isAuthenticated || !db) return
+    if (!canUseLegacyOperations || !db) return
     
     const unsubs: (() => void)[] = []
+    const expectedInitialSnapshots = new Set([
+      'students', 'contracts', 'sessions', 'payments', 'leaveRequests',
+      'workoutLogs', 'sessionRequests', 'scheduleConfig', 'trainers',
+      'branches', 'packages', 'staff', 'dailyCheckins', 'schedules',
+      'globalSchedule',
+    ])
+    const receivedInitialSnapshots = new Set<string>()
+    const markReady = (source: string) => {
+      receivedInitialSnapshots.add(source)
+      if (receivedInitialSnapshots.size === expectedInitialSnapshots.size) {
+        setOperationsSync({ status: 'ready', lastSyncedAt: new Date().toISOString(), error: null })
+      }
+    }
+    const listenerError = (source: string, error: unknown) => {
+      const code = typeof error === 'object' && error && 'code' in error
+        ? String((error as { code?: unknown }).code || '')
+        : ''
+      const message = code === 'permission-denied'
+        ? 'Firestore đang từ chối quyền đọc dữ liệu vận hành. Hãy đăng xuất và đăng nhập lại tài khoản admin.'
+        : `Không thể đồng bộ ${source}.`
+      setOperationsSync({ status: 'error', lastSyncedAt: null, error: message })
+      console.warn(`${source} listener error`, error)
+    }
+
+    const withDocumentId = <T extends { id: string }>(snapshot: { id: string; data: () => unknown }): T => ({
+      ...(snapshot.data() as Omit<T, 'id'>),
+      id: snapshot.id,
+    }) as T
 
     try {
       unsubs.push(onSnapshot(collection(db, 'students'), (snapshot) => {
-        setStudents(snapshot.docs.map(doc => doc.data() as Student))
-      }, (err) => console.warn('students listener error', err)))
+        setStudents(snapshot.docs.map(document => withDocumentId<Student>(document)))
+        markReady('students')
+      }, (err) => listenerError('students', err)))
 
       unsubs.push(onSnapshot(collection(db, 'contracts'), (snapshot) => {
-        setContracts(snapshot.docs.map(doc => doc.data() as StudentContract))
-      }, (err) => console.warn('contracts listener error', err)))
+        setContracts(snapshot.docs.map(document => withDocumentId<StudentContract>(document)))
+        markReady('contracts')
+      }, (err) => listenerError('contracts', err)))
 
       unsubs.push(onSnapshot(collection(db, 'sessions'), (snapshot) => {
-        const parsedSessions = snapshot.docs.map(doc => {
-          const data = doc.data() as Session
+        const parsedSessions = snapshot.docs.map(document => {
+          const data = withDocumentId<Session>(document)
           if (data.hour === undefined && data.id) {
             const parts = data.id.split('-')
             if (parts.length >= 2) {
@@ -170,23 +268,28 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
           return data
         })
         setSessions(parsedSessions)
-      }, (err) => console.warn('sessions listener error', err)))
+        markReady('sessions')
+      }, (err) => listenerError('sessions', err)))
 
       unsubs.push(onSnapshot(collection(db, 'payments'), (snapshot) => {
-        setPayments(snapshot.docs.map(doc => doc.data() as PaymentRecord))
-      }, (err) => console.warn('payments listener error', err)))
+        setPayments(snapshot.docs.map(document => withDocumentId<PaymentRecord>(document)))
+        markReady('payments')
+      }, (err) => listenerError('payments', err)))
 
       unsubs.push(onSnapshot(collection(db, 'leaveRequests'), (snapshot) => {
-        setLeaveRequests(snapshot.docs.map(doc => doc.data() as LeaveRequest))
-      }, (err) => console.warn('leaveRequests listener error', err)))
+        setLeaveRequests(snapshot.docs.map(document => withDocumentId<LeaveRequest>(document)))
+        markReady('leaveRequests')
+      }, (err) => listenerError('leaveRequests', err)))
 
       unsubs.push(onSnapshot(collection(db, 'workoutLogs'), (snapshot) => {
-        setWorkoutLogs(snapshot.docs.map(doc => doc.data() as WorkoutLog))
-      }, (err) => console.warn('workoutLogs listener error', err)))
+        setWorkoutLogs(snapshot.docs.map(document => withDocumentId<WorkoutLog>(document)))
+        markReady('workoutLogs')
+      }, (err) => listenerError('workoutLogs', err)))
 
       unsubs.push(onSnapshot(collection(db, 'sessionRequests'), (snapshot) => {
-        setSessionRequests(snapshot.docs.map(doc => doc.data() as SessionRequest))
-      }, (err) => console.warn('sessionRequests listener error', err)))
+        setSessionRequests(snapshot.docs.map(document => withDocumentId<SessionRequest>(document)))
+        markReady('sessionRequests')
+      }, (err) => listenerError('sessionRequests', err)))
 
       unsubs.push(onSnapshot(doc(db, 'settings', 'scheduleConfig'), (docSnap) => {
         if (docSnap.exists()) {
@@ -196,27 +299,33 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
             ...data
           }))
         }
-      }, (err) => console.warn('scheduleConfig listener error', err)))
+        markReady('scheduleConfig')
+      }, (err) => listenerError('scheduleConfig', err)))
 
       unsubs.push(onSnapshot(collection(db, 'trainers'), (snapshot) => {
-        setTrainers(snapshot.docs.map(doc => doc.data() as Trainer))
-      }, (err) => console.warn('trainers listener error', err)))
+        setTrainers(snapshot.docs.map(document => withDocumentId<Trainer>(document)))
+        markReady('trainers')
+      }, (err) => listenerError('trainers', err)))
 
       unsubs.push(onSnapshot(collection(db, 'branches'), (snapshot) => {
-        setBranches(snapshot.docs.map(doc => doc.data() as Branch))
-      }, (err) => console.warn('branches listener error', err)))
+        setBranches(snapshot.docs.map(document => withDocumentId<Branch>(document)))
+        markReady('branches')
+      }, (err) => listenerError('branches', err)))
 
       unsubs.push(onSnapshot(collection(db, 'packages'), (snapshot) => {
-        setPackages(snapshot.docs.map(doc => doc.data() as TrainingPackage))
-      }, (err) => console.warn('packages listener error', err)))
+        setPackages(snapshot.docs.map(document => withDocumentId<TrainingPackage>(document)))
+        markReady('packages')
+      }, (err) => listenerError('packages', err)))
 
       unsubs.push(onSnapshot(collection(db, 'staff'), (snapshot) => {
-        setStaff(snapshot.docs.map(doc => doc.data() as StaffMember))
-      }, (err) => console.warn('staff listener error', err)))
+        setStaff(snapshot.docs.map(document => withDocumentId<StaffMember>(document)))
+        markReady('staff')
+      }, (err) => listenerError('staff', err)))
 
       unsubs.push(onSnapshot(collection(db, 'dailyCheckins'), (snapshot) => {
-        setDailyCheckins(snapshot.docs.map(doc => doc.data() as DailyCheckin))
-      }, (err) => console.warn('dailyCheckins listener error', err)))
+        setDailyCheckins(snapshot.docs.map(document => withDocumentId<DailyCheckin>(document)))
+        markReady('dailyCheckins')
+      }, (err) => listenerError('dailyCheckins', err)))
 
       unsubs.push(onSnapshot(collection(db, 'schedules'), (snapshot) => {
         const newSchedules: { [weekId: string]: { schedule: Schedule, warnings: Warning[], overriddenSessions?: Record<string, number> } } = {}
@@ -230,22 +339,24 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
           }
         })
         setSchedules(newSchedules)
-      }, (err) => console.warn('schedules listener error', err)))
+        markReady('schedules')
+      }, (err) => listenerError('schedules', err)))
 
       unsubs.push(onSnapshot(doc(db, 'schedules', 'global_schedule'), (docSnap) => {
         if (docSnap.exists()) {
           setIsMigrated(!!docSnap.data().migrated)
         }
-      }, (err) => console.warn('global_schedule listener error', err)))
+        markReady('globalSchedule')
+      }, (err) => listenerError('global schedule', err)))
     } catch (e) {
       console.warn('Failed to set up Firestore listeners', e)
     }
 
     return () => unsubs.forEach(unsub => unsub())
-  }, [isAuthenticated])
+  }, [canUseLegacyOperations])
 
   const migrateData = async () => {
-    if (!isAuthenticated || !db) return
+    if (!canUseLegacyOperations || !db) return
     setIsMigrating(true)
     try {
       const globalDoc = await getDoc(doc(db, 'schedules', 'global_schedule'))
@@ -683,7 +794,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       addWorkoutLog, updateWorkoutLog, deleteWorkoutLog,
       addLeaveRequest, updateLeaveRequest, deleteLeaveRequest,
       addSessionRequest, updateSessionRequest, deleteSessionRequest,
-      schedules, scheduleConfig,
+      schedules, scheduleConfig, operationsSync,
       updateScheduleData, updateScheduleSlot, updateScheduleSlots, updateSessionOverrides, updateBulkSessionOverrides, updateScheduleConfig,
       updateUserProfile,
       refreshData,

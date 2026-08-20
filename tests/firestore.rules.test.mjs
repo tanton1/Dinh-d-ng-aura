@@ -115,6 +115,23 @@ async function seedPtSecurityFixtures() {
         orderCode: 'EC-TEST-001',
         orderStatus: 'pending',
       }),
+      setDoc(doc(db, 'students', 'legacy-student-1'), {
+        id: 'legacy-student-1',
+        name: 'Học viên legacy',
+      }),
+      setDoc(doc(db, 'staff', 'legacy-staff-1'), {
+        id: 'legacy-staff-1',
+        name: 'Nhân viên legacy',
+        role: 'manager',
+      }),
+      setDoc(doc(db, 'schedules', 'schedule_2026-08-17'), {
+        schedule: {},
+        warnings: [],
+      }),
+      setDoc(doc(db, 'settings', 'scheduleConfig'), {
+        workingDays: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'],
+        workingHours: [6, 7, 8],
+      }),
     ])
   })
 }
@@ -314,6 +331,33 @@ describe('Aura PT Firestore rules', () => {
     await assertFails(getDoc(doc(authenticatedDb('client-1', 'student'), ...systemPath)))
     await assertFails(getDoc(doc(authenticatedDb('coach-1', 'admin'), ...systemPath)))
     await assertFails(getDoc(doc(testEnvironment.unauthenticatedContext().firestore(), ...systemPath)))
+  })
+
+  test('migrated PT operations are admin-only and remain editable by the admin console', async () => {
+    const adminDb = authenticatedDb('admin-1', 'admin')
+    const studentDb = authenticatedDb('client-1', 'student')
+    const coachDb = authenticatedDb('coach-1', 'coach')
+    const mismatchedAdminDb = authenticatedDb('coach-1', 'admin')
+    const protectedPaths = [
+      ['students', 'legacy-student-1'],
+      ['staff', 'legacy-staff-1'],
+      ['schedules', 'schedule_2026-08-17'],
+      ['settings', 'scheduleConfig'],
+    ]
+
+    for (const documentPath of protectedPaths) {
+      await assertSucceeds(getDoc(doc(adminDb, ...documentPath)))
+      await assertFails(getDoc(doc(studentDb, ...documentPath)))
+      await assertFails(getDoc(doc(coachDb, ...documentPath)))
+      await assertFails(getDoc(doc(mismatchedAdminDb, ...documentPath)))
+    }
+
+    await assertSucceeds(updateDoc(doc(adminDb, 'staff', 'legacy-staff-1'), {
+      status: 'active',
+    }))
+    await assertFails(updateDoc(doc(studentDb, 'staff', 'legacy-staff-1'), {
+      status: 'inactive',
+    }))
   })
 
   test('meal reviews are private and only the assigned coach or admin can moderate', async () => {

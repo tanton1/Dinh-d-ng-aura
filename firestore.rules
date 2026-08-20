@@ -776,6 +776,66 @@ service cloud.firestore {
       allow create, delete: if false;
     }
 
+    // Legacy PT/Gym operations were migrated from aura-fitness-db. These
+    // collections contain member, employee, payroll and timetable data, so
+    // direct browser access is deliberately limited to a verified admin whose
+    // Auth claim matches the role stored in users/{uid}.
+    match /students/{documentId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /contracts/{documentId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /payments/{documentId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /sessions/{documentId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /trainers/{documentId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /branches/{documentId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /packages/{documentId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /staff/{documentId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /dailyCheckins/{documentId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /workoutLogs/{documentId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /leaveRequests/{documentId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /sessionRequests/{documentId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /schedules/{documentId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /settings/scheduleConfig {
+      allow read, create, update, delete: if isAdmin();
+    }
+
     match /auditLogs/{logId} {
       allow read: if isAdmin();
       allow write: if false;
