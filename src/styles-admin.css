@@ -2848,6 +2848,7 @@
 .identity-staff-card__actions { display:flex; gap:8px; flex-wrap:wrap; }
 .identity-staff-card__actions .outline-button { flex:1 1 120px; justify-content:center; min-height:40px; }
 .identity-staff-card__archive { color:#a13d54; border-color:#f2cad5; background:#fff7f8; }
+.identity-staff-card__delete { color:#b4233f; border-color:#f5b9c8; background:#fff1f4; }
 .identity-staff-slots { margin-top:15px; padding:13px; border:1px solid #f0dfe6; border-radius:14px; background:#fff9fb; }.identity-staff-slots strong,.identity-staff-slots small { display:block; }.identity-staff-slots strong { color:var(--ink); font-size:13px; }.identity-staff-slots small { margin-top:3px; color:var(--muted); font-size:11px; }.identity-staff-slots>div { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:6px; margin-top:11px; }.identity-staff-slots button { min-height:32px; border:1px solid #f0dfe6; border-radius:8px; color:#746d75; background:#fff; font-size:10px; font-weight:700; }.identity-staff-slots button.active { color:#fff; border-color:transparent; background:linear-gradient(135deg,var(--aura-pink),#ff8651); }
 
 @media (max-width: 760px) {

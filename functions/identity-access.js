@@ -860,6 +860,77 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     return { uid: targetUid, suspended: true }
   })
 
+  // A hard delete is intentionally limited to a just-created, unused staff
+  // account. Once an account is referenced by PT, finance or coaching data,
+  // it must be archived instead so historical records stay auditable.
+  const deleteUnusedStaffAccount = onCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    requireCapability(actor, 'identity.staff_position.manage')
+    const targetUid = documentId(request.data?.uid, 'UID')
+    if (targetUid === actor.uid) throw new HttpsError('failed-precondition', 'Không thể tự xóa tài khoản của chính mình.')
+    const [target, userSnapshot, assignmentSnapshot] = await Promise.all([
+      auth.getUser(targetUid),
+      db.doc(`users/${targetUid}`).get(),
+      db.doc(`roleAssignments/${targetUid}`).get(),
+    ])
+    if (!userSnapshot.exists || !assignmentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ nhân viên.')
+    const profile = userSnapshot.data() || {}
+    const assignment = assignmentSnapshot.data() || {}
+    const claims = target.customClaims || {}
+    const elevated = ['admin', 'super_admin'].includes(profile.accessRole) || ['admin', 'super_admin'].includes(profile.role)
+      || ['admin', 'super_admin'].includes(claims.accessRole) || ['admin', 'super_admin'].includes(claims.role)
+    if (elevated) throw new HttpsError('permission-denied', 'Không thể xóa tài khoản quản trị.')
+    if (assignment.accessRole !== 'staff') throw new HttpsError('failed-precondition', 'Chỉ có thể xóa tài khoản nhân viên chưa dùng.')
+    if (assignment.createdBy !== actor.uid && actor.accessRole !== 'super_admin') {
+      throw new HttpsError('permission-denied', 'Chỉ người đã tạo hoặc Super Admin mới được xóa tài khoản mới.')
+    }
+    const createdAtMillis = typeof assignment.createdAt?.toMillis === 'function' ? assignment.createdAt.toMillis() : 0
+    if (!createdAtMillis || Date.now() - createdAtMillis > 24 * 60 * 60 * 1000) {
+      throw new HttpsError('failed-precondition', 'Tài khoản đã quá thời hạn xóa an toàn. Hãy dùng Khóa & lưu trữ để bảo toàn lịch sử.')
+    }
+    const [sessions, mainContracts, assignedContracts, nutritionContracts, workoutLogs, ledgerEntries] = await Promise.all([
+      db.collection('sessions').where('trainerId', '==', targetUid).limit(1).get(),
+      db.collection('contracts').where('trainerId', '==', targetUid).limit(1).get(),
+      db.collection('contracts').where('trainerIds', 'array-contains', targetUid).limit(1).get(),
+      db.collection('contracts').where('nutritionPTIds', 'array-contains', targetUid).limit(1).get(),
+      db.collection('workoutLogs').where('trainerId', '==', targetUid).limit(1).get(),
+      db.collection('ledgerEntries').where('createdBy', '==', targetUid).limit(1).get(),
+    ])
+    if ([sessions, mainContracts, assignedContracts, nutritionContracts, workoutLogs, ledgerEntries].some((snapshot) => !snapshot.empty)) {
+      throw new HttpsError('failed-precondition', 'Tài khoản đã phát sinh lịch sử vận hành. Hãy dùng Khóa & lưu trữ thay vì xóa.')
+    }
+    await auth.updateUser(targetUid, { disabled: true })
+    try {
+      await db.runTransaction(async (transaction) => {
+        const [currentUser, currentAssignment] = await Promise.all([
+          transaction.get(db.doc(`users/${targetUid}`)),
+          transaction.get(db.doc(`roleAssignments/${targetUid}`)),
+        ])
+        if (!currentUser.exists || !currentAssignment.exists || currentAssignment.data()?.createdBy !== assignment.createdBy) {
+          throw new HttpsError('aborted', 'Tài khoản đã thay đổi. Hãy tải lại trước khi xóa.')
+        }
+        transaction.delete(db.doc(`users/${targetUid}`))
+        transaction.delete(db.doc(`roleAssignments/${targetUid}`))
+        transaction.delete(db.doc(`staff/${targetUid}`))
+        transaction.delete(db.doc(`trainers/${targetUid}`))
+        transaction.create(db.collection('identityAuditLogs').doc(), {
+          action: 'staff_account.deleted_unused', actorUid: actor.uid, targetUid,
+          createdAt: FieldValue.serverTimestamp(),
+        })
+      })
+    } catch (error) {
+      try { await auth.updateUser(targetUid, { disabled: false }) } catch (rollbackError) { logger?.error?.('staff_delete_reenable_failed', { uid: targetUid, code: rollbackError?.code || 'unknown' }) }
+      throw error
+    }
+    try {
+      await auth.deleteUser(targetUid)
+    } catch (error) {
+      logger?.error?.('staff_delete_auth_failed_after_data_delete', { uid: targetUid, code: error?.code || 'unknown' })
+      throw new HttpsError('internal', 'Tài khoản đã bị khóa nhưng chưa thể xóa hoàn toàn. Hãy thử lại hoặc liên hệ quản trị hệ thống.')
+    }
+    return { uid: targetUid, deleted: true }
+  })
+
   const saveStaffOperationsProfile = onCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
     requireCapability(actor, 'identity.staff_position.manage')
@@ -954,6 +1025,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     acceptAccountInvite,
     assignStaffPositions,
     suspendAccountAccess,
+    deleteUnusedStaffAccount,
     saveStaffOperationsProfile,
   }
 }

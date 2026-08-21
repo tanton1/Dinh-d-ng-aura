@@ -143,6 +143,7 @@ exports.provisionStudentAccount = identityAccessFunctions.provisionStudentAccoun
 exports.provisionStaffAccount = identityAccessFunctions.provisionStaffAccount
 exports.createAccountInvite = identityAccessFunctions.createAccountInvite
 exports.suspendAccountAccess = identityAccessFunctions.suspendAccountAccess
+exports.deleteUnusedStaffAccount = identityAccessFunctions.deleteUnusedStaffAccount
 exports.saveStaffOperationsProfile = identityAccessFunctions.saveStaffOperationsProfile
 Object.assign(exports, createOperationsDashboardFunctions({ db, onCall }))
 Object.assign(exports, createCashbookFunctions({ db, onCall }))
