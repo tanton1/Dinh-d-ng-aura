@@ -127,8 +127,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "accountId", "order": "ASCENDING" },
-        { "fieldPath": "effectiveAt", "order": "DESCENDING" },
-        { "fieldPath": "__name__", "order": "DESCENDING" }
+        { "fieldPath": "effectiveAt", "order": "DESCENDING" }
       ]
     }
   ],
