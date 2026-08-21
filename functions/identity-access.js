@@ -477,7 +477,8 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
   })
 
   const createAccountInvite = onCall(async (request) => {
-    const actor = await trustedAccessContext(request, db)
+    const action = 'account_invite.create'
+    const actor = await identityProvisionStep(logger, action, 'xác minh quyền', () => trustedAccessContext(request, db))
     requireCapability(actor, 'identity.invite.manage')
     const displayName = boundedString(request.data?.displayName, 'Họ và tên', 160)
     const phoneNumber = normalizedPhone(request.data?.phoneNumber)
@@ -500,11 +501,11 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     const duplicateQueries = []
     if (phoneNumber) duplicateQueries.push(db.collection('accountInvites').where('phoneNumber', '==', phoneNumber).limit(25).get())
     if (email) duplicateQueries.push(db.collection('accountInvites').where('email', '==', email).limit(25).get())
-    const duplicates = await Promise.all(duplicateQueries)
+    const duplicates = await identityProvisionStep(logger, action, 'kiểm tra lời mời trùng', () => Promise.all(duplicateQueries))
     const hasPendingDuplicate = duplicates.some((snapshot) => snapshot.docs.some((item) => item.data().status === 'pending'))
     if (hasPendingDuplicate) throw new HttpsError('already-exists', 'Đã có lời mời đang chờ cho thông tin này.')
 
-    await reference.create({
+    await identityProvisionStep(logger, action, 'lưu lời mời', () => reference.create({
       schemaVersion: 1,
       displayName,
       phoneNumber,
@@ -519,12 +520,12 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
       expiresAt,
-    })
-    await db.collection('identityAuditLogs').add({
+    }))
+    await identityProvisionStep(logger, action, 'ghi nhật ký lời mời', () => db.collection('identityAuditLogs').add({
       action: 'account_invite.created', actorUid: actor.uid, targetId: reference.id,
       after: { accessRole, positions, branchIds }, createdAt: FieldValue.serverTimestamp(),
-    })
-    return invitePublicData(await reference.get())
+    }))
+    return invitePublicData(await identityProvisionStep(logger, action, 'xác nhận lời mời', () => reference.get()))
   })
 
   // Student provisioning is deliberately server-side. The browser never gets
@@ -532,9 +533,9 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
   // returned. Firebase supports passwords on the email provider, so a real
   // email is mandatory while the verified phone stays linked to the account.
   const provisionStudentAccount = onCall(async (request) => {
-    const actor = await trustedAccessContext(request, db)
-    requireCapability(actor, 'identity.invite.manage')
     const action = 'student_account.provision'
+    const actor = await identityProvisionStep(logger, action, 'xác minh quyền', () => trustedAccessContext(request, db))
+    requireCapability(actor, 'identity.invite.manage')
     const displayName = boundedString(request.data?.displayName, 'Họ và tên', 160)
     const phoneNumber = normalizedPhone(request.data?.phoneNumber)
     const email = normalizedEmail(request.data?.email)
@@ -607,9 +608,9 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
   // learners.  Staff are created with a scoped position and optional branch
   // scope; no browser-side Auth SDK or invitation acceptance is involved.
   const provisionStaffAccount = onCall(async (request) => {
-    const actor = await trustedAccessContext(request, db)
-    requireCapability(actor, 'identity.staff_position.manage')
     const action = 'staff_account.provision'
+    const actor = await identityProvisionStep(logger, action, 'xác minh quyền', () => trustedAccessContext(request, db))
+    requireCapability(actor, 'identity.staff_position.manage')
     const displayName = boundedString(request.data?.displayName, 'Họ và tên', 160)
     const phoneNumber = normalizedPhone(request.data?.phoneNumber)
     const email = normalizedEmail(request.data?.email)
