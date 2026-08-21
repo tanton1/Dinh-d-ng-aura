@@ -103,28 +103,14 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
 
-      - name: Install Google Cloud CLI
-        uses: google-github-actions/setup-gcloud@v2
+      - name: Deploy backend Functions
+        run: npx --yes firebase-tools@15.9.1 deploy --only functions --project gen-lang-client-0815966909 --non-interactive
 
       - name: Deploy Firestore indexes and wait until ready
-        run: |
-          npx --yes firebase-tools@15.9.1 deploy --only firestore:indexes --project gen-lang-client-0815966909 --non-interactive
-          for attempt in $(seq 1 30); do
-            pending="$(gcloud firestore indexes composite list \
-              --project=gen-lang-client-0815966909 \
-              --database=ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7 \
-              --filter='state!=READY' \
-              --format='value(name,state)')"
-            if [ -z "$pending" ]; then
-              exit 0
-            fi
-            sleep 20
-          done
-          echo "Firestore indexes are not ready; frontend promotion is blocked." >&2
-          exit 1
+        run: node scripts/firebase-firestore-index-deploy.cjs apply --confirm=projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7:create-missing-indexes
 
-      - name: Deploy backend and Security Rules
-        run: npx --yes firebase-tools@15.9.1 deploy --only functions,firestore:rules,storage,database --project gen-lang-client-0815966909 --non-interactive
+      - name: Deploy Security Rules
+        run: npx --yes firebase-tools@15.9.1 deploy --only firestore:rules,storage --project gen-lang-client-0815966909 --non-interactive
 
       - name: Pull the reviewed production environment
         env:
