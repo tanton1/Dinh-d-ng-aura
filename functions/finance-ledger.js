@@ -47,6 +47,22 @@ function referenceCode(prefix, reference) {
   return `${prefix}-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${reference.id.slice(0, 7).toUpperCase()}`
 }
 
+async function cashAccountForMovement(transaction, db, cashAccountId, signedAmount) {
+  if (!cashAccountId) return null
+  const reference = db.doc(`cashAccounts/${cashAccountId}`)
+  const snapshot = await transaction.get(reference)
+  if (!snapshot.exists || snapshot.data().status !== 'active') throw new HttpsError('failed-precondition', 'Tài khoản quỹ không hoạt động.')
+  if (signedAmount < 0 && Number(snapshot.data().balance || 0) < Math.abs(signedAmount)) throw new HttpsError('failed-precondition', 'Số dư quỹ không đủ để hoàn/đảo khoản tiền này.')
+  return { reference, data: snapshot.data() }
+}
+
+function createCashMovement(transaction, db, ledgerReference, account, signedAmount, effectiveAt, actorUid, category) {
+  if (!account) return
+  const movementReference = db.doc(`cashTransactions/ledger_${ledgerReference.id}`)
+  transaction.update(account.reference, { balance: FieldValue.increment(signedAmount), updatedAt: FieldValue.serverTimestamp() })
+  transaction.create(movementReference, { schemaVersion: 1, accountId: account.reference.id, branchId: account.data.branchId || '', type: signedAmount >= 0 ? 'income' : 'expense', category, amount: signedAmount, effectiveAt, status: 'posted', referenceCode: `LED-${ledgerReference.id.slice(0, 8).toUpperCase()}`, ledgerEntryId: ledgerReference.id, createdAt: FieldValue.serverTimestamp(), createdBy: actorUid })
+}
+
 function vietnamDateKey(value) {
   const date = new Date(timestampMillis(value))
   if (Number.isNaN(date.getTime())) return ''
@@ -275,6 +291,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
     const idempotencyKey = text(request.data?.idempotencyKey, 'Khóa chống trùng', 100)
     const effectiveAt = effectiveTimestamp(request.data?.effectiveAt)
     const paymentMethod = text(request.data?.paymentMethod, 'Phương thức thanh toán', 50)
+    const cashAccountId = optionalText(request.data?.cashAccountId, 'Tài khoản quỹ', 200)
     const installmentId = optionalText(request.data?.installmentId, 'Kỳ trả góp', 100)
     const contractReference = db.doc(`contracts/${contractId}`)
     const ledgerReference = db.collection('ledgerEntries').doc()
@@ -286,14 +303,16 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       if (!contract.exists) throw new HttpsError('not-found', 'Không tìm thấy hợp đồng.')
       if (!duplicate.empty) return { entryId: duplicate.docs[0].id, unchanged: true, referenceCode: duplicate.docs[0].data().referenceCode }
       await assertFinancePeriodOpen(transaction, db, effectiveAt)
+      const cashAccount = await cashAccountForMovement(transaction, db, cashAccountId, amount)
       const data = contract.data()
       const totalDue = Number(data.totalPrice || 0) - Number(data.discount || 0)
       const nextPaid = Number(data.paidAmount || 0) + amount
       if (nextPaid > totalDue) throw new HttpsError('failed-precondition', 'Khoản thu vượt số tiền hợp đồng còn lại.')
       const installmentPatch = updatedInstallments(data, installmentId, 'paid', amount)
       const code = referenceCode('THU', ledgerReference)
-      transaction.create(ledgerReference, { schemaVersion: 1, type: 'payment', contractId, studentId: data.studentId || '', branchId: data.branchId || '', installmentId: installmentId || null, amount, effectiveAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod, referenceCode: code, idempotencyKey, status: 'posted', note: typeof request.data?.note === 'string' ? request.data.note.trim().slice(0, 500) : '' })
+      transaction.create(ledgerReference, { schemaVersion: 1, type: 'payment', contractId, studentId: data.studentId || '', branchId: data.branchId || '', installmentId: installmentId || null, cashAccountId: cashAccountId || null, amount, effectiveAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod, referenceCode: code, idempotencyKey, status: 'posted', note: typeof request.data?.note === 'string' ? request.data.note.trim().slice(0, 500) : '' })
       transaction.update(contractReference, { paidAmount: nextPaid, ...(installmentPatch || {}), financeProjectionUpdatedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+      createCashMovement(transaction, db, ledgerReference, cashAccount, amount, effectiveAt, actor.uid, 'contract_payment')
       return { entryId: ledgerReference.id, unchanged: false, referenceCode: code }
     })
   })
@@ -312,6 +331,8 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       if (!duplicate.empty) return { entryId: duplicate.docs[0].id, unchanged: true }
       if (original.data().status === 'reversed') throw new HttpsError('already-exists', 'Khoản thu đã được hoàn tác.')
       await assertFinancePeriodOpen(transaction, db, reversalEffectiveAt)
+      const originalCashAccountId = optionalText(original.data().cashAccountId, 'Tài khoản quỹ', 200)
+      const cashAccount = await cashAccountForMovement(transaction, db, originalCashAccountId, -positiveAmount(original.data().amount))
       const contractReference = db.doc(`contracts/${original.data().contractId}`)
       const contract = await transaction.get(contractReference)
       if (!contract.exists) throw new HttpsError('failed-precondition', 'Hợp đồng nguồn không còn tồn tại.')
@@ -320,6 +341,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       transaction.create(reversalReference, { ...original.data(), type: 'reversal', amount: -amount, effectiveAt: reversalEffectiveAt, reversedEntryId: entryId, referenceCode: referenceCode('DAO', reversalReference), idempotencyKey, reason, status: 'posted', createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
       transaction.update(originalReference, { status: 'reversed', reversedAt: FieldValue.serverTimestamp(), reversedBy: actor.uid, reversalEntryId: reversalReference.id })
       transaction.update(contractReference, { paidAmount: Math.max(0, Number(contract.data().paidAmount || 0) - amount), ...(installmentPatch || {}), financeProjectionUpdatedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+      createCashMovement(transaction, db, reversalReference, cashAccount, -amount, reversalEffectiveAt, actor.uid, 'contract_payment_reversal')
       return { entryId: reversalReference.id, unchanged: false }
     })
   })
@@ -332,6 +354,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
     const reason = text(request.data?.reason, 'Lý do', 500)
     const effectiveAt = effectiveTimestamp(request.data?.effectiveAt)
     const installmentId = optionalText(request.data?.installmentId, 'Kỳ trả góp', 100)
+    const cashAccountId = optionalText(request.data?.cashAccountId, 'Tài khoản quỹ', 200)
     const reference = db.collection('ledgerEntries').doc()
     const contractReference = db.doc(`contracts/${contractId}`)
     return db.runTransaction(async (transaction) => {
@@ -339,10 +362,12 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       if (!contract.exists) throw new HttpsError('not-found', 'Không tìm thấy hợp đồng.')
       if (!duplicate.empty) return { entryId: duplicate.docs[0].id, unchanged: true }
       await assertFinancePeriodOpen(transaction, db, effectiveAt)
+      const cashAccount = await cashAccountForMovement(transaction, db, cashAccountId, -amount)
       if (amount > Number(contract.data().paidAmount || 0)) throw new HttpsError('failed-precondition', 'Khoản hoàn vượt tổng tiền đã thu.')
       const installmentPatch = updatedInstallments(contract.data(), installmentId, 'pending', amount)
-      transaction.create(reference, { schemaVersion: 1, type: 'refund', contractId, studentId: contract.data().studentId || '', branchId: contract.data().branchId || '', installmentId: installmentId || null, amount: -amount, effectiveAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod: text(request.data?.paymentMethod || 'transfer', 'Phương thức hoàn'), referenceCode: referenceCode('HOAN', reference), idempotencyKey, reason, status: 'posted' })
+      transaction.create(reference, { schemaVersion: 1, type: 'refund', contractId, studentId: contract.data().studentId || '', branchId: contract.data().branchId || '', installmentId: installmentId || null, cashAccountId: cashAccountId || null, amount: -amount, effectiveAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod: text(request.data?.paymentMethod || 'transfer', 'Phương thức hoàn'), referenceCode: referenceCode('HOAN', reference), idempotencyKey, reason, status: 'posted' })
       transaction.update(contractReference, { paidAmount: Number(contract.data().paidAmount || 0) - amount, ...(installmentPatch || {}), financeProjectionUpdatedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+      createCashMovement(transaction, db, reference, cashAccount, -amount, effectiveAt, actor.uid, 'contract_refund')
       return { entryId: reference.id, unchanged: false }
     })
   })

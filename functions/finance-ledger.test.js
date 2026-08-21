@@ -91,3 +91,10 @@ test('finance mutations guard locked periods and keep installment state in the l
   assert.match(ledgerSource, /reversalEffectiveAt = Timestamp\.now\(\)/)
   assert.doesNotMatch(ledgerSource, /transaction\.delete\(/)
 })
+
+test('selected cash accounts move balances in the same immutable ledger transaction', () => {
+  assert.match(ledgerSource, /cashAccountForMovement\(transaction, db, cashAccountId, amount\)/)
+  assert.match(ledgerSource, /createCashMovement\(transaction, db, ledgerReference, cashAccount, amount/)
+  assert.match(ledgerSource, /FieldValue\.increment\(signedAmount\)/)
+  assert.match(ledgerSource, /cashTransactions\/ledger_\$\{ledgerReference\.id\}/)
+})

@@ -81,6 +81,7 @@ export async function recordContractPayment(input: {
   idempotencyKey: string
   note?: string
   installmentId?: string
+  cashAccountId?: string
 }) {
   return (await callable<typeof input, { entryId: string; unchanged: boolean; referenceCode: string }>('recordContractPayment')(input)).data
 }
@@ -96,6 +97,7 @@ export async function recordRefund(input: {
   paymentMethod: string
   reason: string
   installmentId?: string
+  cashAccountId?: string
   idempotencyKey?: string
 }) {
   const idempotencyKey = input.idempotencyKey || crypto.randomUUID()

@@ -15,6 +15,7 @@ import {
   type FinanceLedgerSummary,
 } from '../../../services/financeLedgerService'
 import DateRangeFilter from './DateRangeFilter'
+import { listCashAccounts, type CashAccount } from '../../../services/cashbookService'
 
 interface Props {
   user: User | null
@@ -53,6 +54,8 @@ export default function FinanceManagement({ profile }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [entryToReverse, setEntryToReverse] = useState<FinanceLedgerEntry | null>(null)
   const [alertMessage, setAlertMessage] = useState<string | null>(null)
+  const [cashAccounts, setCashAccounts] = useState<CashAccount[]>([])
+  const [selectedCashAccountId, setSelectedCashAccountId] = useState('')
   const requestSequence = useRef(0)
 
   const effectiveBranchId = profile?.branchId && profile.role !== 'admin' && profile.role !== 'super_admin'
@@ -98,6 +101,12 @@ export default function FinanceManagement({ profile }: Props) {
     // ledgerCursor is intentionally excluded: a new cursor must not automatically fetch the next page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateRange, effectiveBranchId])
+
+  useEffect(() => {
+    let active = true
+    void listCashAccounts().then((result) => { if (active) setCashAccounts(result.accounts.filter((item) => item.status === 'active')) }).catch(() => { if (active) setCashAccounts([]) })
+    return () => { active = false }
+  }, [])
 
   const filteredContracts = useMemo(() => contracts.filter((contract) => {
     if (effectiveBranchId === 'all') return true
@@ -160,6 +169,7 @@ export default function FinanceManagement({ profile }: Props) {
     setSelectedContract(contract)
     setSelectedInstallmentId(null)
     setPayAmount(String(Math.max(0, debt)))
+    setSelectedCashAccountId(cashAccounts.find((item) => !contract.branchId || item.branchId === contract.branchId)?.id || '')
   }
 
   const submitPayment = async () => {
@@ -178,6 +188,7 @@ export default function FinanceManagement({ profile }: Props) {
           effectiveAt: new Date().toISOString(),
           paymentMethod: 'transfer',
           idempotencyKey: crypto.randomUUID(),
+          cashAccountId: selectedCashAccountId || undefined,
           installmentId: selectedInstallmentId || undefined,
           note: selectedInstallmentId ? 'Thanh toán kỳ trả góp' : 'Thanh toán công nợ',
         })
@@ -188,6 +199,7 @@ export default function FinanceManagement({ profile }: Props) {
           effectiveAt: new Date().toISOString(),
           paymentMethod: 'transfer',
           installmentId: selectedInstallmentId || undefined,
+          cashAccountId: selectedCashAccountId || undefined,
           reason: selectedInstallmentId ? 'Hoàn tiền kỳ trả góp' : 'Hoàn tiền từ trang tài chính',
         })
       }
@@ -300,6 +312,9 @@ export default function FinanceManagement({ profile }: Props) {
           {(selectedContract.installments || []).some((item) => item.status === 'pending') && <div className="mt-4"><p className="mb-2 text-xs font-bold text-zinc-500">Chọn nhanh kỳ trả góp</p><div className="flex flex-wrap gap-2">{selectedContract.installments?.filter((item) => item.status === 'pending').map((item) => <button key={item.id} onClick={() => { setSelectedInstallmentId(item.id); setPayAmount(String(item.amount)) }} className={`rounded-lg border px-3 py-2 text-xs ${selectedInstallmentId === item.id ? 'border-pink-500 bg-pink-500/10 text-pink-300' : 'border-zinc-700 bg-zinc-900 text-zinc-300'}`}>{new Date(item.date).toLocaleDateString('vi-VN')} · {money(item.amount)}</button>)}</div></div>}
           <label className="mt-4 block text-xs font-bold text-zinc-500">Số tiền; nhập số âm để hoàn tiền</label>
           <input type="number" value={payAmount} onChange={(event) => { setPayAmount(event.target.value); setSelectedInstallmentId(null) }} className="mt-2 min-h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 text-lg font-bold text-white" />
+          <label className="mt-4 block text-xs font-bold text-zinc-500">Quỹ nhận/chi</label>
+          <select value={selectedCashAccountId} onChange={(event) => setSelectedCashAccountId(event.target.value)} className="mt-2 min-h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 text-sm font-bold text-white"><option value="">Chưa phản ánh vào sổ quỹ</option>{cashAccounts.map((item) => <option key={item.id} value={item.id}>{item.name} · {money(item.balance)}</option>)}</select>
+          {!cashAccounts.length && <p className="mt-2 text-xs text-amber-400">Chưa có quỹ. Mở Sổ quỹ và nhập số dư đầu kỳ đã kiểm kê trước khi thu/hoàn.</p>}
           <button onClick={() => void submitPayment()} disabled={isSubmitting || !payAmount || Number(payAmount) === 0} className="mt-4 min-h-12 w-full rounded-xl bg-gradient-to-r from-pink-500 to-orange-500 font-bold text-white disabled:opacity-50">{isSubmitting ? 'Đang ghi sổ…' : Number(payAmount) < 0 ? 'Ghi khoản hoàn tiền' : 'Ghi khoản thu'}</button>
         </Modal>}
 
