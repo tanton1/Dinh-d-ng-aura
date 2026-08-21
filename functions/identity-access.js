@@ -52,6 +52,13 @@ function normalizedPhone(value) {
   return `+84${digits}`
 }
 
+function initialPasswordFromPhone(phoneNumber) {
+  const digits = String(phoneNumber || '').replace(/\D/g, '')
+  const localPhone = digits.startsWith('84') ? `0${digits.slice(2)}` : digits
+  if (localPhone.length < 6) throw new HttpsError('invalid-argument', 'Số điện thoại không đủ để tạo mật khẩu ban đầu.')
+  return localPhone
+}
+
 function normalizedPositions(value) {
   if (!Array.isArray(value)) return []
   const positions = [...new Set(value.filter((item) => staffPositions.has(item)))]
@@ -478,6 +485,88 @@ function createIdentityAccessFunctions({ db, auth, onCall }) {
     return invitePublicData(await reference.get())
   })
 
+  // Student provisioning is deliberately server-side. The browser never gets
+  // Firebase Admin privileges and the initial password is never persisted or
+  // returned. Firebase supports passwords on the email provider, so a real
+  // email is mandatory while the verified phone stays linked to the account.
+  const provisionStudentAccount = onCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    requireCapability(actor, 'identity.invite.manage')
+    const displayName = boundedString(request.data?.displayName, 'Họ và tên', 160)
+    const phoneNumber = normalizedPhone(request.data?.phoneNumber)
+    const email = normalizedEmail(request.data?.email)
+    if (!phoneNumber || !email) throw new HttpsError('invalid-argument', 'Cần email đăng nhập và số điện thoại thật để tạo tài khoản học viên.')
+    const crmProfileId = request.data?.crmProfileId ? documentId(request.data.crmProfileId, 'Mã hồ sơ CRM') : ''
+    const goal = boundedString(request.data?.goal, 'Mục tiêu coaching', 500, false)
+    const legacyStudent = request.data?.legacyStudent && crmProfileId ? {
+      id: crmProfileId,
+      name: displayName,
+      phone: phoneNumber,
+      email,
+      dob: boundedString(request.data.legacyStudent.dob, 'Ngày sinh', 32, false),
+      sessionsPerWeek: Math.max(1, Math.min(14, Number(request.data.legacyStudent.sessionsPerWeek) || 3)),
+      availableSlots: Array.isArray(request.data.legacyStudent.availableSlots) ? request.data.legacyStudent.availableSlots.filter((item) => typeof item === 'string').slice(0, 100) : [],
+      status: ['active', 'inactive', 'paused'].includes(request.data.legacyStudent.status) ? request.data.legacyStudent.status : 'active',
+      joinDate: boundedString(request.data.legacyStudent.joinDate, 'Ngày tham gia', 32, false),
+      branchId: request.data.legacyStudent.branchId ? documentId(request.data.legacyStudent.branchId, 'Mã chi nhánh') : '',
+      nutritionNote: boundedString(request.data.legacyStudent.nutritionNote, 'Ghi chú dinh dưỡng', 1000, false),
+    } : null
+
+    const [emailLookup, phoneLookup] = await Promise.allSettled([
+      auth.getUserByEmail(email),
+      auth.getUserByPhoneNumber(phoneNumber),
+    ])
+    const existing = [emailLookup, phoneLookup].find((lookup) => lookup.status === 'fulfilled')
+    if (existing) throw new HttpsError('already-exists', 'Email hoặc số điện thoại này đã có tài khoản Aura.')
+    for (const lookup of [emailLookup, phoneLookup]) {
+      if (lookup.status === 'rejected' && lookup.reason?.code !== 'auth/user-not-found') throw lookup.reason
+    }
+
+    const initialPassword = initialPasswordFromPhone(phoneNumber)
+    let createdUser = null
+    try {
+      createdUser = await auth.createUser({ email, password: initialPassword, phoneNumber, displayName, disabled: false, emailVerified: false })
+      const uid = createdUser.uid
+      const claims = { accessRole: 'student', authzVersion: 1, role: 'student' }
+      await auth.setCustomUserClaims(uid, claims)
+      await db.runTransaction(async (transaction) => {
+        const userRef = db.doc(`users/${uid}`)
+        const assignmentRef = db.doc(`roleAssignments/${uid}`)
+        const clientRef = db.doc(`coachClients/${uid}`)
+        const legacyStudentRef = legacyStudent ? db.doc(`students/${crmProfileId}`) : null
+        if ((await transaction.get(userRef)).exists) throw new HttpsError('already-exists', 'Hồ sơ Aura đã tồn tại.')
+        if (legacyStudentRef && (await transaction.get(legacyStudentRef)).exists) throw new HttpsError('already-exists', 'Hồ sơ học viên PT đã tồn tại.')
+        transaction.create(userRef, {
+          uid, displayName, name: displayName, email, phoneNumber,
+          role: 'student', accessRole: 'student', authzVersion: 1,
+          membership: 'free', onboardingCompleted: false, disabled: false,
+          mustChangePassword: true, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+        })
+        transaction.create(assignmentRef, {
+          schemaVersion: 1, uid, accessRole: 'student', positions: [], branchIds: [],
+          capabilities: computedCapabilities('student', [], []), authzVersion: 1, status: 'active',
+          crmProfileId: crmProfileId || uid, createdBy: actor.uid,
+          createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+        })
+        transaction.create(clientRef, {
+          clientId: uid, displayName, email, phoneNumber, coachingStatus: 'onboarding', goal,
+          createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+        })
+        if (legacyStudentRef) transaction.create(legacyStudentRef, { ...legacyStudent, accountUid: uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+        transaction.create(db.collection('identityAuditLogs').doc(), {
+          action: 'student_account.provisioned', actorUid: actor.uid, targetUid: uid,
+          after: { accessRole: 'student', crmProfileId: crmProfileId || uid }, createdAt: FieldValue.serverTimestamp(),
+        })
+      })
+      return { uid, displayName, phoneNumber, email, passwordChangeRequired: true, crmProfileId: crmProfileId || uid }
+    } catch (error) {
+      if (createdUser) {
+        try { await auth.deleteUser(createdUser.uid) } catch (rollbackError) { logger?.error?.('student_provision_rollback_failed', { uid: createdUser.uid, code: rollbackError?.code || 'unknown' }) }
+      }
+      throw error
+    }
+  })
+
   const resendAccountInvite = onCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
     requireCapability(actor, 'identity.invite.manage')
@@ -629,16 +718,69 @@ function createIdentityAccessFunctions({ db, auth, onCall }) {
     return { uid: targetUid, suspended: true }
   })
 
+  const saveStaffOperationsProfile = onCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    requireCapability(actor, 'identity.staff_position.manage')
+    const targetUid = documentId(request.data?.uid, 'Tài khoản nhân viên')
+    const availabilitySlots = Array.isArray(request.data?.availabilitySlots)
+      ? [...new Set(request.data.availabilitySlots.filter((slot) => typeof slot === 'string' && slot.length <= 80))].slice(0, 168)
+      : []
+    const money = (value, label, maximum = 2_000_000_000) => {
+      const parsed = Number(value || 0)
+      if (!Number.isFinite(parsed) || parsed < 0 || parsed > maximum) throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
+      return Math.round(parsed)
+    }
+    const compensation = {
+      baseSalary: money(request.data?.compensation?.baseSalary, 'Lương cơ bản'),
+      bonusMonthly: money(request.data?.compensation?.bonusMonthly, 'Thưởng tháng'),
+      commissionPerSession: money(request.data?.compensation?.commissionPerSession, 'Hoa hồng mỗi buổi'),
+      commissionRate: Math.min(100, Number(request.data?.compensation?.commissionRate || 0)),
+    }
+    if (!Number.isFinite(compensation.commissionRate) || compensation.commissionRate < 0) throw new HttpsError('invalid-argument', 'Tỷ lệ hoa hồng không hợp lệ.')
+    const assignmentRef = db.doc(`roleAssignments/${targetUid}`)
+    const userRef = db.doc(`users/${targetUid}`)
+    const staffRef = db.doc(`staff/${targetUid}`)
+    const trainerRef = db.doc(`trainers/${targetUid}`)
+    await db.runTransaction(async (transaction) => {
+      const [assignmentSnapshot, userSnapshot] = await Promise.all([transaction.get(assignmentRef), transaction.get(userRef)])
+      if (!userSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy tài khoản nhân viên.')
+      const profile = userSnapshot.data() || {}
+      const existing = assignmentSnapshot.exists ? assignmentSnapshot.data() || {} : null
+      const legacy = legacyIdentity(typeof profile.role === 'string' ? profile.role : 'student')
+      const positions = existing?.accessRole === 'staff' ? normalizedPositions(existing.positions || []) : legacy.positions
+      if (!positions.length) throw new HttpsError('failed-precondition', 'Tài khoản này chưa được cấp chức danh nhân viên.')
+      const branchIds = existing?.accessRole === 'staff' ? normalizedBranchIds(existing.branchIds || []) : (profile.branchId ? [documentId(profile.branchId, 'Mã chi nhánh')] : [])
+      transaction.set(staffRef, {
+        id: targetUid, name: profile.displayName || profile.name || '', email: profile.email || '', phone: profile.phoneNumber || '',
+        role: positions.includes('trainer_pt') ? 'trainer' : positions[0], branchId: branchIds[0] || '', status: 'active',
+        positions, branchIds, availableSlots: availabilitySlots, ...compensation,
+        updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
+      if (positions.includes('trainer_pt')) transaction.set(trainerRef, {
+        id: targetUid, name: profile.displayName || profile.name || '', email: profile.email || '', phone: profile.phoneNumber || '',
+        branchId: branchIds[0] || '', status: 'active', availableSlots: availabilitySlots, ...compensation,
+        updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
+      transaction.set(db.collection('identityAuditLogs').doc(), {
+        action: 'staff_operations_profile.saved', actorUid: actor.uid, targetUid,
+        after: { availabilitySlots: availabilitySlots.length, compensation }, createdAt: FieldValue.serverTimestamp(),
+      })
+    })
+    return { uid: targetUid, availabilitySlots, compensation }
+  })
+
   return {
     getMyAccessContext,
     listInternalNutritionCatalog,
     getInternalNutritionCatalogItem,
     createAccountInvite,
+    provisionStudentAccount,
     resendAccountInvite,
     revokeAccountInvite,
     acceptAccountInvite,
     assignStaffPositions,
     suspendAccountAccess,
+    saveStaffOperationsProfile,
   }
 }
 

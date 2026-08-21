@@ -115,7 +115,7 @@
   padding:
     max(12px, env(safe-area-inset-top))
     max(12px, env(safe-area-inset-right))
-    max(12px, env(safe-area-inset-bottom))
+    max(92px, calc(80px + env(safe-area-inset-bottom)))
     max(12px, env(safe-area-inset-left)) !important;
 }
 
@@ -184,7 +184,7 @@
   .student-management__overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .student-management__overview article { min-height: 83px; padding: 13px; }
   .student-management__filter-grid { grid-template-columns: minmax(0, 1fr); }
-  .student-management__dialog { border-radius: 22px 22px 18px 18px !important; }
+  .student-management__dialog { max-height: calc(100dvh - 104px) !important; border-radius: 22px 22px 18px 18px !important; }
   .student-management__two-columns { grid-template-columns: minmax(0, 1fr); }
   .student-management__form-actions { flex-direction: column-reverse; }
   .student-management__form-actions > button { width: 100%; min-height: 48px; }

@@ -189,7 +189,6 @@ export default function AdminStudentsPage({
   const [createPhone, setCreatePhone] = useState('')
   const [createEmail, setCreateEmail] = useState('')
   const [createGoal, setCreateGoal] = useState('')
-  const [createCustomEmailEdited, setCreateCustomEmailEdited] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [createdAccountResult, setCreatedAccountResult] = useState<CreatedStudentAccountResult | null>(null)
@@ -197,13 +196,11 @@ export default function AdminStudentsPage({
 
   const handlePhoneChange = (val: string) => {
     setCreatePhone(val)
-    const phone = val.trim().replace(/\s+/g, '')
-    if (!createCustomEmailEdited) setCreateEmail('')
   }
 
   const handleCreateStudent = async () => {
-    if (!createPhone.trim()) {
-      setCreateError('Vui lòng nhập số điện thoại của học viên.')
+    if (!createName.trim() || !createPhone.trim() || !createEmail.trim()) {
+      setCreateError('Vui lòng nhập họ tên, số điện thoại và email đăng nhập của học viên.')
       return
     }
     setCreateSaving(true)
@@ -230,7 +227,7 @@ export default function AdminStudentsPage({
   const copyCreatedAccountInfo = async () => {
     if (!createdAccountResult) return
     const appUrl = window.location.origin
-    const text = `Xin chào ${createdAccountResult.displayName}!\nAura Fitness đã tạo lời mời tài khoản cho bạn.\n\n🌐 Mở ứng dụng: ${appUrl}\n📱 Xác minh OTP bằng: ${createdAccountResult.phoneNumber}${createdAccountResult.email ? `\n📧 Email dự phòng: ${createdAccountResult.email}` : ''}\n🆔 Mã lời mời: ${createdAccountResult.inviteId}\n\nAura không sử dụng mật khẩu mặc định. Hãy đăng nhập bằng OTP rồi chấp nhận lời mời trong vòng 72 giờ.`
+    const text = `Xin chào ${createdAccountResult.displayName}!\nAura Fitness đã tạo tài khoản cho bạn.\n\n🌐 Mở ứng dụng: ${appUrl}\n📧 Email đăng nhập: ${createdAccountResult.email}\n🔐 Mật khẩu ban đầu: số điện thoại ${createdAccountResult.phoneNumber}\n\nSau khi đăng nhập, hãy vào Hồ sơ cá nhân > Bảo mật để đổi mật khẩu ngay.`
     await navigator.clipboard.writeText(text)
     setCopiedAccountInfo(true)
     window.setTimeout(() => setCopiedAccountInfo(false), 2200)
@@ -243,7 +240,6 @@ export default function AdminStudentsPage({
     setCreatePhone('')
     setCreateEmail('')
     setCreateGoal('')
-    setCreateCustomEmailEdited(false)
     setCreateError(null)
     setCreatedAccountResult(null)
     setCopiedAccountInfo(false)
@@ -731,8 +727,8 @@ export default function AdminStudentsPage({
             <header>
               <div>
                 <span className="eyebrow">QUẢN LÝ HỌC VIÊN PT</span>
-                <h2 id="add-student-title">Mời học viên vào Aura</h2>
-                <p>Tạo lời mời xác minh an toàn hoặc liên kết một tài khoản Aura đã có.</p>
+                <h2 id="add-student-title">Tạo tài khoản học viên</h2>
+                <p>Tạo tài khoản Aura trực tiếp, đồng bộ hồ sơ coaching và thông tin đăng nhập trong một lần.</p>
               </div>
               <button className="icon-button close-btn" aria-label="Đóng" onClick={resetAddModal} style={{ color: '#ffffff', background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
                 <X size={18} />
@@ -745,7 +741,7 @@ export default function AdminStudentsPage({
                 className={addMode === 'create' ? 'active' : ''}
                 onClick={() => { setAddMode('create'); setCreateError(null); }}
               >
-                <Sparkles size={15} /> Tạo lời mời mới
+                <Sparkles size={15} /> Tạo tài khoản mới
               </button>
               <button
                 type="button"
@@ -762,7 +758,7 @@ export default function AdminStudentsPage({
                   <div className="success-account-card">
                     <div className="success-account-card__head">
                       <CheckCircle2 size={20} />
-                    <span>Đã tạo lời mời học viên an toàn</span>
+                    <span>Đã tạo tài khoản học viên</span>
                     </div>
 
                     <div className="success-account-details">
@@ -775,12 +771,12 @@ export default function AdminStudentsPage({
                         <strong>{createdAccountResult.phoneNumber}</strong>
                       </div>
                       <div className="success-account-details-item" style={{ gridColumn: 'span 2' }}>
-                        <small>Email dự phòng</small>
-                        <code className="pink-code">{createdAccountResult.email || 'Chưa cung cấp'}</code>
+                        <small>Email đăng nhập</small>
+                        <code className="pink-code">{createdAccountResult.email}</code>
                       </div>
                       <div className="success-account-details-item" style={{ gridColumn: 'span 2' }}>
-                        <small>Mã lời mời · hiệu lực 72 giờ</small>
-                        <code className="pink-code">{createdAccountResult.inviteId}</code>
+                        <small>Mật khẩu ban đầu</small>
+                        <code className="pink-code">Chính là số điện thoại ở trên</code>
                       </div>
                     </div>
 
@@ -805,10 +801,9 @@ export default function AdminStudentsPage({
                             setCreatePhone('')
                             setCreateEmail('')
                             setCreateGoal('')
-                            setCreateCustomEmailEdited(false)
                           }}
                         >
-                          Tạo lời mời khác
+                          Tạo tài khoản khác
                         </button>
                         <button
                           type="button"
@@ -852,20 +847,19 @@ export default function AdminStudentsPage({
                         placeholder="Ví dụ: 0912345678"
                       />
                       <small style={{ color: '#e11d48', fontWeight: 600, marginTop: '2px', background: '#fff1f2', padding: '6px 10px', borderRadius: '8px', border: '1px solid #fecdd3' }}>
-                        Aura sẽ gửi OTP tới số điện thoại. Không tạo email giả hoặc mật khẩu mặc định.
+                        Số này được liên kết với tài khoản và cũng là mật khẩu ban đầu. Học viên đổi mật khẩu ngay sau lần đăng nhập đầu tiên.
                       </small>
                     </label>
 
                     <label>
-                      <span>Email đăng nhập</span>
+                      <span>Email đăng nhập <small style={{ color: '#f43f5e', fontWeight: 700 }}>* (Bắt buộc)</small></span>
                       <input
                         type="email"
                         value={createEmail}
                         onChange={(e) => {
                           setCreateEmail(e.target.value)
-                          setCreateCustomEmailEdited(true)
                         }}
-                        placeholder="Email dự phòng (không bắt buộc)"
+                        placeholder="Ví dụ: hocvien@email.com"
                       />
                     </label>
 
@@ -887,10 +881,10 @@ export default function AdminStudentsPage({
                         type="button"
                         className="pink-orange-button"
                         onClick={() => void handleCreateStudent()}
-                        disabled={!createPhone.trim() || createSaving}
+                        disabled={!createName.trim() || !createPhone.trim() || !createEmail.trim() || createSaving}
                       >
                         {createSaving ? <Activity className="spin" size={16} /> : <UserPlus size={16} />}
-                        {createSaving ? 'Đang tạo...' : 'Tạo lời mời OTP'}
+                        {createSaving ? 'Đang tạo...' : 'Tạo tài khoản'}
                       </button>
                     </div>
                   </>

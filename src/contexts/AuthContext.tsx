@@ -16,6 +16,8 @@ import {
   signInWithPopup,
   signInWithRedirect,
   signOut as firebaseSignOut,
+  reauthenticateWithCredential,
+  updatePassword,
   updateProfile,
   RecaptchaVerifier,
   signInWithPhoneNumber,
@@ -68,6 +70,7 @@ type AuthContextValue = {
   sendPhoneOtp: (phoneNumber: string, isSignUp?: boolean) => Promise<{ otpCode: string; message: string }>
   verifyPhoneOtpAndSignIn: (phoneNumber: string, otpCode: string, displayName?: string) => Promise<void>
   resetPassword: (email: string) => Promise<void>
+  changePassword: (currentPassword: string, nextPassword: string) => Promise<void>
   saveProfileChanges: (values: Partial<UserProfile>) => Promise<void>
   signOut: () => Promise<void>
 }
@@ -723,6 +726,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     resetPassword: async (email) => {
       if (!firebaseAuth) throw new Error('Firebase chưa được cấu hình.')
       await sendPasswordResetEmail(firebaseAuth, email)
+    },
+    changePassword: async (currentPassword, nextPassword) => {
+      const currentUser = firebaseAuth?.currentUser
+      if (!currentUser?.email) throw new Error('Tài khoản này chưa có email để đổi mật khẩu. Hãy liên hệ Aura để được hỗ trợ.')
+      if (nextPassword.length < 6) throw new Error('Mật khẩu mới cần có ít nhất 6 ký tự.')
+      await reauthenticateWithCredential(currentUser, EmailAuthProvider.credential(currentUser.email, currentPassword))
+      await updatePassword(currentUser, nextPassword)
+      setProfile((current) => current ? { ...current, mustChangePassword: false } : current)
     },
     saveProfileChanges: async (values) => {
       if (!user?.uid) throw new Error('Vui lòng đăng nhập lại trước khi lưu hồ sơ.')

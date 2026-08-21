@@ -95,7 +95,7 @@ const roleLabels: Record<UserRole, string> = {
 }
 
 function AuraApplication() {
-  const { user, profile, role, setPreviewRole, loading, backendMode, signOut, hasCapability, authorizationError, authzReady, profileSyncState, saveProfileChanges } = useAuth()
+  const { user, profile, role, setPreviewRole, loading, backendMode, signOut, changePassword, hasCapability, authorizationError, authzReady, profileSyncState, saveProfileChanges } = useAuth()
   const canAccessAdmin = hasPermission(role, 'dashboard.view')
   const canManageAcademy = canAccessAdmin && hasPermission(role, 'course.view')
   const canManageCoaching = canAccessAdmin && hasPermission(role, 'program.view')
@@ -777,7 +777,7 @@ function AuraApplication() {
       }
       case 'progress-photo-studio': return <ProgressPhotoStudio onNavigate={navigate} ownerId={user?.uid ?? 'demo'} />
       case 'progress': return <ProgressPage ownerId={user?.uid ?? 'demo'} courseItems={studentCourses} progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error || learningData.error} onOpenCourse={openCourse} onNavigate={navigate} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} heightCm={effectiveHeight} nutritionProfile={effectiveNutritionProfile} />
-      case 'profile': return <ProfilePage userId={user?.uid} fullProfile={backendMode === 'demo' ? { ...profile, ...localProfile } : profile} displayName={effectiveDisplayName} email={profile?.email} membership={profile?.membership} goals={effectiveGoals} heightCm={effectiveHeight} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} targetSpeedPace={effectiveTargetSpeedPace} notificationSettings={effectiveNotifications} mealReminderTime={profile?.mealReminderTime} syncState={profileSyncState} onSave={saveProfile} onSignOut={signOut} onEditProfile={() => setForceOnboarding(true)} />
+      case 'profile': return <ProfilePage userId={user?.uid} fullProfile={backendMode === 'demo' ? { ...profile, ...localProfile } : profile} displayName={effectiveDisplayName} email={profile?.email} membership={profile?.membership} goals={effectiveGoals} heightCm={effectiveHeight} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} targetSpeedPace={effectiveTargetSpeedPace} notificationSettings={effectiveNotifications} mealReminderTime={profile?.mealReminderTime} syncState={profileSyncState} onSave={saveProfile} onSignOut={signOut} onChangePassword={changePassword} onEditProfile={() => setForceOnboarding(true)} />
       case 'workout': {
         return <WorkoutPage key="pt-coaching-workout" onNavigate={navigate} onSave={async (log) => {
           if (backendMode === 'firebase' && user) {

@@ -710,12 +710,12 @@
     padding:
       max(10px, env(safe-area-inset-top))
       max(10px, env(safe-area-inset-right))
-      max(10px, env(safe-area-inset-bottom))
+      max(92px, calc(80px + env(safe-area-inset-bottom)))
       max(10px, env(safe-area-inset-left));
   }
   .create-student-modal {
     width: min(100%, 540px);
-    max-height: calc(100dvh - 20px);
+    max-height: calc(100dvh - 102px);
     border-radius: 22px;
   }
   .create-student-modal header { padding: 18px; }
@@ -723,7 +723,7 @@
   .create-student-modal header p { line-height: 1.45; }
   .modal-segmented-control { margin: 12px 16px 0; }
   .modal-segmented-control button { min-width: 0; padding: 9px 7px; font-size: 11px; }
-  .modal-body-form { padding: 16px; }
+  .modal-body-form { padding: 16px 16px max(24px, env(safe-area-inset-bottom)); }
   .modal-body-form input,
   .modal-body-form textarea,
   .modal-body-form select { min-height: 44px; }

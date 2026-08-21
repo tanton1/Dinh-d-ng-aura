@@ -28,23 +28,58 @@ export interface AccountInviteResult {
   status: 'pending'
 }
 
+export interface ProvisionStudentAccountInput {
+  displayName: string
+  phoneNumber: string
+  email: string
+  goal?: string
+  crmProfileId?: string
+  legacyStudent?: {
+    dob?: string
+    sessionsPerWeek?: number
+    availableSlots?: string[]
+    status?: string
+    joinDate?: string
+    branchId?: string
+    nutritionNote?: string
+  }
+}
+
+export interface ProvisionStudentAccountResult {
+  uid: string
+  displayName: string
+  phoneNumber: string
+  email: string
+  passwordChangeRequired: boolean
+  crmProfileId: string
+}
+
 function presentInviteError(error: unknown): Error {
   const source = error && typeof error === 'object' ? error as { code?: unknown; message?: unknown } : {}
   const code = typeof source.code === 'string' ? source.code.replace(/^functions\//, '') : ''
   const message = typeof source.message === 'string' ? source.message.trim() : ''
 
-  if (code === 'already-exists') return new Error('Số điện thoại hoặc email này đang có lời mời chờ xác minh. Bạn có thể gửi lại hoặc thu hồi lời mời cũ.')
-  if (code === 'permission-denied') return new Error(message || 'Quyền tài khoản chưa đồng bộ. Hãy đăng nhập lại rồi thử tạo lời mời.')
-  if (code === 'unauthenticated') return new Error('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại rồi thử tạo lời mời.')
-  if (code === 'invalid-argument' || code === 'failed-precondition') return new Error(message || 'Thông tin lời mời chưa hợp lệ.')
+  if (code === 'already-exists') return new Error('Số điện thoại hoặc email này đã có lời mời hoặc tài khoản Aura. Hãy tìm và dùng tài khoản hiện có.')
+  if (code === 'permission-denied') return new Error(message || 'Quyền tài khoản chưa đồng bộ. Hãy đăng nhập lại rồi thử lại.')
+  if (code === 'unauthenticated') return new Error('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại rồi thử lại.')
+  if (code === 'invalid-argument' || code === 'failed-precondition') return new Error(message || 'Thông tin tài khoản chưa hợp lệ.')
   if (code === 'internal' || code === 'unavailable' || code === 'deadline-exceeded') {
-    return new Error('Dịch vụ tạo lời mời đang chưa phản hồi. Không có tài khoản hay mật khẩu nào được tạo. Hãy thử lại sau ít phút.')
+    return new Error('Dịch vụ tạo tài khoản đang chưa phản hồi. Chưa có tài khoản hoặc mật khẩu nào được tạo. Hãy thử lại sau ít phút.')
   }
-  return error instanceof Error ? error : new Error('Chưa thể tạo lời mời học viên. Vui lòng thử lại.')
+  return error instanceof Error ? error : new Error('Chưa thể tạo tài khoản Aura. Vui lòng thử lại.')
 }
 
 export async function createAccountInvite(input: AccountInviteInput): Promise<AccountInviteResult> {
   const callable = httpsCallable<AccountInviteInput, AccountInviteResult>(requireFunctions(), 'createAccountInvite')
+  try {
+    return (await callable(input)).data
+  } catch (error) {
+    throw presentInviteError(error)
+  }
+}
+
+export async function provisionStudentAccount(input: ProvisionStudentAccountInput): Promise<ProvisionStudentAccountResult> {
+  const callable = httpsCallable<ProvisionStudentAccountInput, ProvisionStudentAccountResult>(requireFunctions(), 'provisionStudentAccount')
   try {
     return (await callable(input)).data
   } catch (error) {
@@ -98,4 +133,14 @@ export async function assignStaffPositions(input: AssignStaffPositionsInput): Pr
   const callable = httpsCallable<AssignStaffPositionsInput, AssignStaffPositionsResult>(requireFunctions(), 'assignStaffPositions')
   const response = await callable(input)
   return parseAccessContext(response.data.accessContext, input.uid)
+}
+
+export interface StaffOperationsProfileInput {
+  uid: string
+  availabilitySlots: string[]
+  compensation: { baseSalary: number; bonusMonthly: number; commissionRate: number; commissionPerSession: number }
+}
+export async function saveStaffOperationsProfile(input: StaffOperationsProfileInput) {
+  const callable = httpsCallable<StaffOperationsProfileInput, { uid: string; availabilitySlots: string[]; compensation: StaffOperationsProfileInput['compensation'] }>(requireFunctions(), 'saveStaffOperationsProfile')
+  try { return (await callable(input)).data } catch (error) { throw presentInviteError(error) }
 }

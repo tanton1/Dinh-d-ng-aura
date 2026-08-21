@@ -1,7 +1,7 @@
 import { doc, getDoc } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions, firestoreDb } from '../lib/firebase'
-import { createAccountInvite } from './identityAccessService'
+import { provisionStudentAccount } from './identityAccessService'
 
 export type PtCoachingStatus = 'active' | 'onboarding' | 'paused' | 'completed'
 
@@ -212,12 +212,12 @@ export interface CreateStudentAccountInput {
 }
 
 export interface CreatedStudentAccountResult {
-  inviteId: string
+  uid: string
   displayName: string
   phoneNumber: string
   email: string
   goal: string
-  expiresAt: string
+  passwordChangeRequired: boolean
 }
 
 export async function createStudentAccount(input: CreateStudentAccountInput): Promise<CreatedStudentAccountResult> {
@@ -227,21 +227,24 @@ export async function createStudentAccount(input: CreateStudentAccountInput): Pr
   }
 
   const email = input.email?.trim().toLowerCase() || ''
+  if (!email) {
+    throw new Error('Cần email đăng nhập thật để tạo mật khẩu ban đầu bằng số điện thoại.')
+  }
   const displayName = input.displayName.trim() || `Học viên ${phone}`
-  const invite = await createAccountInvite({
-    displayName,
-    phoneNumber: phone,
-    email,
-    accessRole: 'student',
-  })
-
-  return {
-    inviteId: invite.inviteId,
+  const account = await provisionStudentAccount({
     displayName,
     phoneNumber: phone,
     email,
     goal: input.goal || '',
-    expiresAt: invite.expiresAt,
+  })
+
+  return {
+    uid: account.uid,
+    displayName,
+    phoneNumber: phone,
+    email,
+    goal: input.goal || '',
+    passwordChangeRequired: account.passwordChangeRequired,
   }
 }
 

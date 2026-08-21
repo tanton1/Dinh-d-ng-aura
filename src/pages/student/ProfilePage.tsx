@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { UserRound, Ruler, Scale, Calendar, Target, Activity,
-  Moon, Coffee, Heart, Pencil, LogOut, ShieldCheck, Zap
+  Moon, Coffee, Heart, Pencil, LogOut, ShieldCheck, Zap, KeyRound, CheckCircle2
 } from 'lucide-react';
 import { PageHeader } from '../../components/ui';
 import AccountConnectionsCard from '../../components/account/AccountConnectionsCard';
@@ -44,10 +44,11 @@ export interface ProfilePageProps {
   userId?: string;
   onSignOut?: () => void | Promise<void>;
   onEditProfile?: () => void;
+  onChangePassword?: (currentPassword: string, nextPassword: string) => Promise<void>;
   syncState?: DataSyncState;
 }
 
-export default function ProfilePage({ fullProfile, displayName, email, membership, notificationSettings, mealReminderTime, userId, onSave, onSignOut, onEditProfile, syncState }: ProfilePageProps) {
+export default function ProfilePage({ fullProfile, displayName, email, membership, notificationSettings, mealReminderTime, userId, onSave, onSignOut, onEditProfile, onChangePassword, syncState }: ProfilePageProps) {
   const data = { ...(fullProfile || {}), ...(fullProfile?.onboardingData || {}) };
   const nutrition = fullProfile?.nutritionProfile || {};
   
@@ -79,6 +80,18 @@ export default function ProfilePage({ fullProfile, displayName, email, membershi
     none: 'Không cụ thể'
   };
   const profileReadOnly = Boolean(syncState && syncState.status !== 'synced');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [nextPassword, setNextPassword] = useState('');
+  const [passwordFeedback, setPasswordFeedback] = useState<string | null>(null);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const submitPasswordChange = async () => {
+    if (!onChangePassword) return;
+    if (!currentPassword || !nextPassword) { setPasswordFeedback('Vui lòng nhập mật khẩu hiện tại và mật khẩu mới.'); return; }
+    setPasswordSaving(true); setPasswordFeedback(null);
+    try { await onChangePassword(currentPassword, nextPassword); setCurrentPassword(''); setNextPassword(''); setPasswordFeedback('Đã đổi mật khẩu thành công.'); }
+    catch (error) { setPasswordFeedback(error instanceof Error ? error.message : 'Chưa thể đổi mật khẩu.'); }
+    finally { setPasswordSaving(false); }
+  };
 
   return (
     <div className="page profile-page">
@@ -266,6 +279,18 @@ export default function ProfilePage({ fullProfile, displayName, email, membershi
           onSave={profileReadOnly ? undefined : onSave}
           readOnly={profileReadOnly}
         />
+        {onChangePassword && (
+          <section style={{ background: 'linear-gradient(135deg, #fff8fb, #fff7f0)', padding: '20px', borderRadius: '22px', border: '1px solid #f3dce6' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}><KeyRound size={20} color="#f62f82" /><h3 style={{ margin: 0, fontSize: '17px' }}>Bảo mật tài khoản</h3></div>
+            <p style={{ margin: '0 0 14px', color: 'var(--aura-muted)', fontSize: '13px', lineHeight: 1.5 }}>Mật khẩu ban đầu của tài khoản do Aura tạo là số điện thoại. Hãy thay bằng mật khẩu riêng của bạn.</p>
+            <div style={{ display: 'grid', gap: '10px' }}>
+              <input aria-label="Mật khẩu hiện tại" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder="Mật khẩu hiện tại" style={{ minHeight: 46, borderRadius: 12, border: '1px solid #f0dfe6', padding: '0 13px', background: '#fff' }} />
+              <input aria-label="Mật khẩu mới" type="password" autoComplete="new-password" value={nextPassword} onChange={(event) => setNextPassword(event.target.value)} placeholder="Mật khẩu mới (ít nhất 6 ký tự)" style={{ minHeight: 46, borderRadius: 12, border: '1px solid #f0dfe6', padding: '0 13px', background: '#fff' }} />
+              {passwordFeedback && <small style={{ color: passwordFeedback.startsWith('Đã ') ? '#16864a' : '#c1275a', fontWeight: 650 }}>{passwordFeedback}</small>}
+              <button type="button" onClick={() => void submitPasswordChange()} disabled={passwordSaving || profileReadOnly} style={{ minHeight: 46, border: 0, borderRadius: 13, background: 'linear-gradient(135deg, #f62f82, #ff8751)', color: '#fff', fontWeight: 750, cursor: passwordSaving || profileReadOnly ? 'not-allowed' : 'pointer', opacity: passwordSaving || profileReadOnly ? .6 : 1 }}>{passwordSaving ? 'Đang cập nhật…' : 'Đổi mật khẩu'} {passwordFeedback?.startsWith('Đã ') && <CheckCircle2 size={15} style={{ verticalAlign: 'middle', marginLeft: 5 }} />}</button>
+            </div>
+          </section>
+        )}
         {/* Actions */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <button style={{ width: '100%', padding: '16px', background: 'white', border: '1px solid var(--aura-border)', borderRadius: '16px', color: '#ef4444', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer' }} onClick={onSignOut}>

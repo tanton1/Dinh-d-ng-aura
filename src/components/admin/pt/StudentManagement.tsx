@@ -10,7 +10,7 @@ import RenewContractModal from './RenewContractModal';
 import { LOGO_URL } from '../../../constants';
 import { useDatabase } from '../../../contexts/DatabaseContext';
 import { useAuth } from '../../../contexts/AuthContext';
-import { createAccountInvite } from '../../../services/identityAccessService';
+import { provisionStudentAccount } from '../../../services/identityAccessService';
 import { recordContractPayment } from '../../../services/financeLedgerService';
 import './StudentManagement.css';
 
@@ -26,7 +26,7 @@ export default function StudentManagement({ user, profile }: Props) {
   const { authzReady, hasCapability } = useAuth();
   const { 
     students, contracts, payments, packages, trainers, branches, sessions, leaveRequests, sessionRequests,
-    addStudent, updateStudent, deleteStudent,
+    updateStudent, deleteStudent,
     addContract, updateContract, deleteContract,
     updateUserProfile
   } = useDatabase();
@@ -438,20 +438,12 @@ export default function StudentManagement({ user, profile }: Props) {
         console.error("Error updating linked user profile:", e);
       }
     } else {
-      if (!formData.phone && !formData.email) {
-        setError('Cần số điện thoại hoặc email để gửi lời mời xác minh.');
+      if (!formData.phone || !formData.email) {
+        setError('Cần số điện thoại và email đăng nhập thật để tạo tài khoản học viên.');
         setIsSaving(false);
         return;
       }
       const studentId = `student_${crypto.randomUUID()}`;
-      const invite = await createAccountInvite({
-        displayName: formData.name,
-        phoneNumber: formData.phone,
-        email: formData.email,
-        accessRole: 'student',
-        crmProfileId: studentId,
-      });
-
       const newStudent: Student = {
         id: studentId,
         name: formData.name,
@@ -471,9 +463,14 @@ export default function StudentManagement({ user, profile }: Props) {
         branchId: formData.branchId || profile?.branchId || '',
         nutritionNote: formData.nutritionNote || '',
       };
-      
-      await addStudent(newStudent);
-      setAlertMessage(`Đã tạo hồ sơ và lời mời OTP ${invite.inviteId}.`);
+      await provisionStudentAccount({
+        displayName: formData.name,
+        phoneNumber: formData.phone,
+        email: formData.email,
+        crmProfileId: studentId,
+        legacyStudent: newStudent,
+      });
+      setAlertMessage('Đã tạo hồ sơ Aura. Mật khẩu ban đầu là số điện thoại của học viên; học viên có thể đổi trong Hồ sơ cá nhân.');
     }
 
     setIsAdding(false);
@@ -893,7 +890,7 @@ export default function StudentManagement({ user, profile }: Props) {
                   <h3 id="student-form-title" className="text-xl font-bold text-white mb-1">
                 {editingStudent ? 'Sửa thông tin học viên' : 'Thêm học viên mới'}
                   </h3>
-                  {!editingStudent && <p className="text-zinc-400 text-sm">Hồ sơ được tạo trước, sau đó học viên nhận lời mời xác minh OTP hoặc email.</p>}
+                  {!editingStudent && <p className="text-zinc-400 text-sm">Tạo hồ sơ và tài khoản Aura cùng lúc. Mật khẩu ban đầu là số điện thoại, học viên đổi sau khi đăng nhập.</p>}
                 </div>
                 <button type="button" onClick={() => setIsAdding(false)} className="student-management__close" aria-label="Đóng biểu mẫu">×</button>
               </div>
@@ -918,7 +915,7 @@ export default function StudentManagement({ user, profile }: Props) {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-1">Số điện thoại</label>
+                  <label className="block text-sm font-medium text-zinc-400 mb-1">Số điện thoại *</label>
                   <input 
                     type="tel" 
                     value={formData.phone}
@@ -929,7 +926,7 @@ export default function StudentManagement({ user, profile }: Props) {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-1">Email</label>
+                  <label className="block text-sm font-medium text-zinc-400 mb-1">Email đăng nhập *</label>
                   <input 
                     type="email" 
                     value={formData.email}
