@@ -19,6 +19,8 @@ const { createPtOperationsV2Functions } = require('./pt-operations-v2')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
 const { createSessionOperationFunctions } = require('./session-operations')
 const { createPayrollFunctions } = require('./payroll')
+const { createOperationsDashboardFunctions } = require('./operations-dashboard')
+const { createCashbookFunctions } = require('./cashbook')
 
 const app = initializeApp()
 // Keep callable writes on the same named database used by the production web app.
@@ -133,6 +135,8 @@ Object.assign(exports, createNutritionFunctions({ app, db }))
 Object.assign(exports, createGenerativeAiFunctions({ db }))
 Object.assign(exports, createEatCleanFunctions({ db, realtimeDb, onCall, requireTrustedAdmin, logger }))
 Object.assign(exports, createIdentityAccessFunctions({ db, auth, onCall, logger }))
+Object.assign(exports, createOperationsDashboardFunctions({ db, onCall }))
+Object.assign(exports, createCashbookFunctions({ db, onCall }))
 const ptOperationsV2Functions = createPtOperationsV2Functions({ db, onCall, logger })
 Object.assign(exports, ptOperationsV2Functions)
 

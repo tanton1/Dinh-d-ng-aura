@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../../lib/firebase';
 import { getDatesForWeek } from '../../../utils/dateUtils';
-import { User as UserIcon, Building, Plus, Trash2, Edit2, ShieldCheck, Users, Package, AlertCircle, Calendar } from 'lucide-react';
+import { User as UserIcon, Building, Plus, Trash2, Edit2, ShieldCheck, Users, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User as FirebaseUser } from 'firebase/auth';
 import { Trainer, Branch, StaffMember, StudentContract, Session } from '../../../types';
-import PackageSettings from './PackageSettings';
-import ScheduleSettings from './ScheduleSettings';
 import { LOGO_URL } from '../../../constants';
 import { useDatabase } from '../../../contexts/DatabaseContext';
 import { createAccountInvite } from '../../../services/identityAccessService';
@@ -55,7 +53,7 @@ export default function HRManagement({ user }: Props) {
     return uniqueClassIds.size;
   };
 
-  const [activeSubTab, setActiveSubTab] = useState<'trainers' | 'branches' | 'staff' | 'packages' | 'scheduler'>('trainers');
+  const [activeSubTab, setActiveSubTab] = useState<'trainers' | 'branches' | 'staff'>('trainers');
   const [isAdding, setIsAdding] = useState(false);
   const [editingItem, setEditingItem] = useState<Partial<Trainer | Branch | StaffMember> | null>(null);
   const [formData, setFormData] = useState<HRFormData>({});
@@ -361,31 +359,9 @@ export default function HRManagement({ user }: Props) {
           <Building className="w-4 h-4" />
           Chi nhánh
         </button>
-        <button
-          onClick={() => setActiveSubTab('packages')}
-          className={`flex-1 min-w-max flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-            activeSubTab === 'packages' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
-          }`}
-        >
-          <Package className="w-4 h-4" />
-          Gói tập
-        </button>
-        <button
-          onClick={() => setActiveSubTab('scheduler')}
-          className={`flex-1 min-w-max flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-            activeSubTab === 'scheduler' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
-          }`}
-        >
-          <Calendar className="w-4 h-4" />
-          Cấu hình Lịch
-        </button>
       </div>
 
-      {activeSubTab === 'packages' ? (
-        <PackageSettings user={user} />
-      ) : activeSubTab === 'scheduler' ? (
-        <ScheduleSettings />
-      ) : (
+      {(
         <div className="bg-zinc-900 p-6 rounded-2xl border border-zinc-800">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-bold text-pink-500 drop-shadow-[0_0_10px_rgba(236,72,153,0.8)] border-b-2 border-pink-500/30 pb-2 inline-block shadow-[0_4px_0_rgba(236,72,153,0.2)]">

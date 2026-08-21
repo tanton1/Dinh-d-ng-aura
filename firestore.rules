@@ -899,6 +899,21 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Multi-account cashbook is mutated only by finance callables. Direct
+    // browser access stays closed so balances and immutable entries cannot be
+    // forged by a modified admin client.
+    match /cashAccounts/{accountId} {
+      allow read, write: if false;
+    }
+
+    match /cashTransactions/{transactionId} {
+      allow read, write: if false;
+    }
+
+    match /expenseRequests/{requestId} {
+      allow read, write: if false;
+    }
+
     match /financePeriods/{periodId} {
       allow read: if isAdmin();
       allow write: if false;

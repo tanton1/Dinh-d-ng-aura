@@ -121,6 +121,15 @@
         { "fieldPath": "courseId", "order": "ASCENDING" },
         { "fieldPath": "revision", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "cashTransactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "accountId", "order": "ASCENDING" },
+        { "fieldPath": "effectiveAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

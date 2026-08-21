@@ -95,7 +95,7 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
   {
     label: 'HỆ THỐNG',
     items: [
-      { id: 'admin-dashboard' as const, label: 'Tổng quan', icon: LayoutDashboard, permission: 'dashboard.view' as Permission },
+      { id: 'admin-dashboard' as const, label: 'Trung tâm điều hành', icon: LayoutDashboard, permission: 'dashboard.view' as Permission },
     ],
   },
   {
@@ -106,12 +106,10 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
     ],
   },
   {
-    label: 'TÀI CHÍNH & ĐỘI NGŨ',
+    label: 'VẬN HÀNH NỘI BỘ',
     items: [
-      { id: 'admin-report' as const, label: 'Báo cáo & Thống kê', icon: BarChart3, permission: 'analytics.view_all' as Permission },
-      { id: 'admin-finance' as const, label: 'Tài chính & Thu chi', icon: LayoutDashboard, permission: 'analytics.view_all' as Permission },
-      { id: 'admin-payroll' as const, label: 'Chấm công PT', icon: ClipboardList, permission: 'analytics.view_assigned' as Permission },
-      { id: 'admin-hr' as const, label: 'Nhân sự & Chi nhánh', icon: Users, permission: 'team.view' as Permission },
+      { id: 'admin-finance' as const, label: 'Tài chính · Quỹ · Lương', icon: LayoutDashboard, permission: 'analytics.view_all' as Permission },
+      { id: 'admin-hr' as const, label: 'Đội ngũ · Chi nhánh · Quyền', icon: Users, permission: 'team.view' as Permission },
     ],
   },
   {
@@ -133,7 +131,6 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
   {
     label: 'QUẢN TRỊ',
     items: [
-      { id: 'admin-roles' as const, label: 'Vai trò & quyền', icon: ShieldCheck, permission: 'team.view' as Permission },
       { id: 'admin-notifications' as const, label: 'Push Notifications & Cài đặt', icon: Bell, permission: 'team.view' as Permission },
     ],
   },
@@ -143,7 +140,7 @@ const adminMobileNav: ShellAdminNavItem[] = [
   { id: 'admin-dashboard', label: 'Tổng quan', icon: LayoutDashboard, permission: 'dashboard.view' },
   { id: 'admin-pt-students', label: 'Học viên PT', icon: Users, permission: 'student.view_assigned' },
   { id: 'admin-pt-schedule', label: 'Lịch PT', icon: CalendarDays, permission: 'dashboard.view' },
-  { id: 'admin-report', label: 'Báo cáo', icon: BarChart3, permission: 'analytics.view_all' },
+  { id: 'admin-finance', label: 'Tài chính', icon: BarChart3, permission: 'analytics.view_all' },
   { id: 'admin-courses', label: 'Academy', icon: GraduationCap, permission: 'course.view' },
 ]
 
@@ -160,13 +157,13 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   profile: 'Cá nhân',
   workout: 'Buổi tập',
   delivery: 'Aura Delivery',
-  'admin-dashboard': 'Tổng quan vận hành',
+  'admin-dashboard': 'Trung tâm điều hành',
   'admin-pt-students': 'Quản lý Học viên PT Gym',
   'admin-pt-schedule': 'Xếp lịch & Ca tập Gym',
   'admin-report': 'Báo cáo & Thống kê Gym',
-  'admin-finance': 'Tài chính & Thu chi Gym',
+  'admin-finance': 'Tài chính · Sổ quỹ · Lương',
   'admin-payroll': 'Chấm công & Lương PT',
-  'admin-hr': 'Nhân sự & Chi nhánh',
+  'admin-hr': 'Đội ngũ · Chi nhánh · Quyền',
   'admin-packages': 'Gói tập & Dịch vụ Gym',
   'admin-quotes': 'Báo giá & Chốt hợp đồng',
   'admin-schedule-settings': 'Cấu hình lịch & Ca làm việc',
