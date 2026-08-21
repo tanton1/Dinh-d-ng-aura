@@ -112,44 +112,22 @@ jobs:
       - name: Deploy Security Rules
         run: npx --yes firebase-tools@15.9.1 deploy --only firestore:rules,storage --project gen-lang-client-0815966909 --non-interactive
 
-      - name: Pull the reviewed production environment
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          npx --yes vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
-          npx --yes vercel@latest env pull .env.production.local --yes --environment=production --token="$VERCEL_TOKEN"
-
-      - name: Validate the exact production configuration
-        env:
-          ALLOW_PENDING_APP_CHECK: ${{ inputs.allow_pending_app_check }}
-        run: |
-          set -a
-          source .env.production.local
-          set +a
-          export VITE_APP_RELEASE="${{ steps.revision.outputs.sha }}"
-          if [ "$ALLOW_PENDING_APP_CHECK" = "true" ]; then
-            npm run production:gate -- --allow-pending-app-check
-          else
-            npm run production:gate
-          fi
-
-      - name: Build immutable Vercel output
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VITE_APP_RELEASE: ${{ steps.revision.outputs.sha }}
-        run: npx --yes vercel@latest build --prod --token="$VERCEL_TOKEN"
-
-      - name: Promote production release
+      # Sensitive Vercel variables are deliberately returned as [SENSITIVE] by
+      # `vercel env pull`. A local prebuilt deployment would compile those
+      # placeholders into the client bundle. Always build remotely so Vercel
+      # resolves the real production values inside its protected environment.
+      - name: Build and promote production on Vercel
         id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          DEPLOYMENT_URL="$(npx --yes vercel@latest deploy --prebuilt --prod --token="$VERCEL_TOKEN")"
+          DEPLOYMENT_URL="$(npx --yes vercel@latest deploy --prod --yes --token="$VERCEL_TOKEN" --build-env VITE_APP_RELEASE=${{ steps.revision.outputs.sha }})"
           echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
 
       - name: Post-deploy smoke
         env:
           AURA_PROD_URL: ${{ steps.deploy.outputs.url }}
+          AURA_EXPECTED_RELEASE_SHA: ${{ steps.revision.outputs.sha }}
         run: npm run production:smoke
 
       - name: Release summary
