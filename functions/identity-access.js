@@ -200,16 +200,26 @@ async function identityProvisionStep(logger, action, stage, operation, timeoutMs
   }
 }
 
-async function assertUniqueDirectAccount({ auth, email, phoneNumber, logger, action }) {
-  const [emailLookup, phoneLookup] = await identityProvisionStep(logger, action, 'kiểm tra tài khoản trùng', () => Promise.allSettled([
-    auth.getUserByEmail(email),
-    auth.getUserByPhoneNumber(phoneNumber),
-  ]))
-  const existing = [emailLookup, phoneLookup].find((lookup) => lookup.status === 'fulfilled')
-  if (existing) throw new HttpsError('already-exists', 'Email hoặc số điện thoại này đã có tài khoản Aura.')
-  for (const lookup of [emailLookup, phoneLookup]) {
-    if (lookup.status === 'rejected' && lookup.reason?.code !== 'auth/user-not-found') throw lookup.reason
+async function assertUniqueDirectAccount({ auth, email, logger, action }) {
+  // Avoid a second Identity Toolkit lookup by phone number.  The Admin SDK
+  // enforces phone uniqueness atomically in createUser; on the affected
+  // production service that preliminary lookup could keep the callable open
+  // until its deadline.  Email remains a quick, user-friendly preflight.
+  const lookup = await identityProvisionStep(logger, action, 'kiểm tra email đăng nhập', () => auth.getUserByEmail(email).then(
+    () => ({ exists: true }),
+    (error) => {
+      if (error?.code === 'auth/user-not-found') return { exists: false }
+      throw error
+    },
+  ))
+  if (lookup.exists) throw new HttpsError('already-exists', 'Email hoặc số điện thoại này đã có tài khoản Aura.')
+}
+
+function normalizeDuplicateAuthError(error) {
+  if (error?.code === 'auth/email-already-exists' || error?.code === 'auth/phone-number-already-exists') {
+    return new HttpsError('already-exists', 'Email hoặc số điện thoại này đã có tài khoản Aura.')
   }
+  return error
 }
 
 function foldCatalogText(value) {
@@ -556,7 +566,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       nutritionNote: boundedString(request.data.legacyStudent.nutritionNote, 'Ghi chú dinh dưỡng', 1000, false),
     } : null
 
-    await assertUniqueDirectAccount({ auth, email, phoneNumber, logger, action })
+    await assertUniqueDirectAccount({ auth, email, logger, action })
 
     const initialPassword = initialPasswordFromPhone(phoneNumber)
     let createdUser = null
@@ -600,7 +610,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       if (createdUser) {
         try { await identityProvisionStep(logger, action, 'hoàn tác đăng nhập', () => auth.deleteUser(createdUser.uid), 12_000) } catch (rollbackError) { logger?.error?.('student_provision_rollback_failed', { uid: createdUser.uid, code: rollbackError?.code || 'unknown' }) }
       }
-      throw error
+      throw normalizeDuplicateAuthError(error)
     }
   })
 
@@ -619,7 +629,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     if (!positions.length) throw new HttpsError('invalid-argument', 'Chọn tối thiểu một chức danh cho nhân viên.')
     const branchIds = normalizedBranchIds(request.data?.branchIds || [])
     const initialPassword = initialPasswordFromPhone(phoneNumber)
-    await assertUniqueDirectAccount({ auth, email, phoneNumber, logger, action })
+    await assertUniqueDirectAccount({ auth, email, logger, action })
 
     let createdUser = null
     try {
@@ -667,7 +677,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       if (createdUser) {
         try { await identityProvisionStep(logger, action, 'hoàn tác đăng nhập', () => auth.deleteUser(createdUser.uid), 12_000) } catch (rollbackError) { logger?.error?.('staff_provision_rollback_failed', { uid: createdUser.uid, code: rollbackError?.code || 'unknown' }) }
       }
-      throw error
+      throw normalizeDuplicateAuthError(error)
     }
   })
 
