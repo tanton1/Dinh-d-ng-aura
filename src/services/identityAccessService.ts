@@ -54,6 +54,24 @@ export interface ProvisionStudentAccountResult {
   crmProfileId: string
 }
 
+export interface ProvisionStaffAccountInput {
+  displayName: string
+  phoneNumber: string
+  email: string
+  positions: StaffPosition[]
+  branchIds: string[]
+}
+
+export interface ProvisionStaffAccountResult {
+  uid: string
+  displayName: string
+  phoneNumber: string
+  email: string
+  positions: StaffPosition[]
+  branchIds: string[]
+  passwordChangeRequired: boolean
+}
+
 function presentInviteError(error: unknown): Error {
   const source = error && typeof error === 'object' ? error as { code?: unknown; message?: unknown } : {}
   const code = typeof source.code === 'string' ? source.code.replace(/^functions\//, '') : ''
@@ -63,8 +81,11 @@ function presentInviteError(error: unknown): Error {
   if (code === 'permission-denied') return new Error(message || 'Quyền tài khoản chưa đồng bộ. Hãy đăng nhập lại rồi thử lại.')
   if (code === 'unauthenticated') return new Error('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại rồi thử lại.')
   if (code === 'invalid-argument' || code === 'failed-precondition') return new Error(message || 'Thông tin tài khoản chưa hợp lệ.')
-  if (code === 'internal' || code === 'unavailable' || code === 'deadline-exceeded') {
-    return new Error('Dịch vụ tạo tài khoản đang chưa phản hồi. Chưa có tài khoản hoặc mật khẩu nào được tạo. Hãy thử lại sau ít phút.')
+  if (code === 'deadline-exceeded') {
+    return new Error(message || 'Dịch vụ tạo tài khoản đang quá thời gian phản hồi. Chưa có tài khoản hoặc mật khẩu nào được tạo.')
+  }
+  if (code === 'internal' || code === 'unavailable') {
+    return new Error(message || 'Dịch vụ tạo tài khoản chưa phản hồi. Chưa có tài khoản hoặc mật khẩu nào được tạo. Hãy thử lại sau ít phút.')
   }
   return error instanceof Error ? error : new Error('Chưa thể tạo tài khoản Aura. Vui lòng thử lại.')
 }
@@ -79,7 +100,16 @@ export async function createAccountInvite(input: AccountInviteInput): Promise<Ac
 }
 
 export async function provisionStudentAccount(input: ProvisionStudentAccountInput): Promise<ProvisionStudentAccountResult> {
-  const callable = httpsCallable<ProvisionStudentAccountInput, ProvisionStudentAccountResult>(requireFunctions(), 'provisionStudentAccount')
+  const callable = httpsCallable<ProvisionStudentAccountInput, ProvisionStudentAccountResult>(requireFunctions(), 'provisionStudentAccount', { timeout: 30_000 })
+  try {
+    return (await callable(input)).data
+  } catch (error) {
+    throw presentInviteError(error)
+  }
+}
+
+export async function provisionStaffAccount(input: ProvisionStaffAccountInput): Promise<ProvisionStaffAccountResult> {
+  const callable = httpsCallable<ProvisionStaffAccountInput, ProvisionStaffAccountResult>(requireFunctions(), 'provisionStaffAccount', { timeout: 30_000 })
   try {
     return (await callable(input)).data
   } catch (error) {
@@ -143,4 +173,9 @@ export interface StaffOperationsProfileInput {
 export async function saveStaffOperationsProfile(input: StaffOperationsProfileInput) {
   const callable = httpsCallable<StaffOperationsProfileInput, { uid: string; availabilitySlots: string[]; compensation: StaffOperationsProfileInput['compensation'] }>(requireFunctions(), 'saveStaffOperationsProfile')
   try { return (await callable(input)).data } catch (error) { throw presentInviteError(error) }
+}
+
+export async function suspendAccountAccess(uid: string) {
+  const callable = httpsCallable<{ uid: string }, { uid: string; suspended: boolean }>(requireFunctions(), 'suspendAccountAccess')
+  try { return (await callable({ uid })).data } catch (error) { throw presentInviteError(error) }
 }

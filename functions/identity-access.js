@@ -170,6 +170,48 @@ function requireCapability(context, capability) {
   }
 }
 
+// Account provisioning touches both Identity Toolkit and Firestore.  A single
+// upstream call that stalls used to leave the browser with a generic
+// "internal" message after the callable deadline.  Bound each remote step,
+// log only the stage (never phone/email/password), and fail before any later
+// write is attempted.
+async function identityProvisionStep(logger, action, stage, operation, timeoutMs = 18_000) {
+  let timeoutId
+  try {
+    logger?.info?.('identity_provision_stage', { action, stage })
+    const timeout = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new HttpsError(
+        'deadline-exceeded',
+        `Dịch vụ tài khoản đang quá thời gian phản hồi ở bước ${stage}. Chưa tạo tài khoản. Vui lòng thử lại sau ít phút.`,
+      )), timeoutMs)
+    })
+    const result = await Promise.race([Promise.resolve().then(operation), timeout])
+    logger?.info?.('identity_provision_stage', { action, stage, outcome: 'ok' })
+    return result
+  } catch (error) {
+    logger?.error?.('identity_provision_stage_failed', {
+      action,
+      stage,
+      code: error?.code || 'unknown',
+    })
+    throw error
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
+}
+
+async function assertUniqueDirectAccount({ auth, email, phoneNumber, logger, action }) {
+  const [emailLookup, phoneLookup] = await identityProvisionStep(logger, action, 'kiểm tra tài khoản trùng', () => Promise.allSettled([
+    auth.getUserByEmail(email),
+    auth.getUserByPhoneNumber(phoneNumber),
+  ]))
+  const existing = [emailLookup, phoneLookup].find((lookup) => lookup.status === 'fulfilled')
+  if (existing) throw new HttpsError('already-exists', 'Email hoặc số điện thoại này đã có tài khoản Aura.')
+  for (const lookup of [emailLookup, phoneLookup]) {
+    if (lookup.status === 'rejected' && lookup.reason?.code !== 'auth/user-not-found') throw lookup.reason
+  }
+}
+
 function foldCatalogText(value) {
   return String(value || '')
     .normalize('NFD')
@@ -354,7 +396,7 @@ function invitePublicData(snapshot) {
   }
 }
 
-function createIdentityAccessFunctions({ db, auth, onCall }) {
+function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
   const getMyAccessContext = onCall(async (request) => ({
     accessContext: await trustedAccessContext(request, db),
   }))
@@ -492,6 +534,7 @@ function createIdentityAccessFunctions({ db, auth, onCall }) {
   const provisionStudentAccount = onCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
     requireCapability(actor, 'identity.invite.manage')
+    const action = 'student_account.provision'
     const displayName = boundedString(request.data?.displayName, 'Họ và tên', 160)
     const phoneNumber = normalizedPhone(request.data?.phoneNumber)
     const email = normalizedEmail(request.data?.email)
@@ -512,24 +555,16 @@ function createIdentityAccessFunctions({ db, auth, onCall }) {
       nutritionNote: boundedString(request.data.legacyStudent.nutritionNote, 'Ghi chú dinh dưỡng', 1000, false),
     } : null
 
-    const [emailLookup, phoneLookup] = await Promise.allSettled([
-      auth.getUserByEmail(email),
-      auth.getUserByPhoneNumber(phoneNumber),
-    ])
-    const existing = [emailLookup, phoneLookup].find((lookup) => lookup.status === 'fulfilled')
-    if (existing) throw new HttpsError('already-exists', 'Email hoặc số điện thoại này đã có tài khoản Aura.')
-    for (const lookup of [emailLookup, phoneLookup]) {
-      if (lookup.status === 'rejected' && lookup.reason?.code !== 'auth/user-not-found') throw lookup.reason
-    }
+    await assertUniqueDirectAccount({ auth, email, phoneNumber, logger, action })
 
     const initialPassword = initialPasswordFromPhone(phoneNumber)
     let createdUser = null
     try {
-      createdUser = await auth.createUser({ email, password: initialPassword, phoneNumber, displayName, disabled: false, emailVerified: false })
+      createdUser = await identityProvisionStep(logger, action, 'tạo đăng nhập', () => auth.createUser({ email, password: initialPassword, phoneNumber, displayName, disabled: false, emailVerified: false }))
       const uid = createdUser.uid
       const claims = { accessRole: 'student', authzVersion: 1, role: 'student' }
-      await auth.setCustomUserClaims(uid, claims)
-      await db.runTransaction(async (transaction) => {
+      await identityProvisionStep(logger, action, 'gán quyền đăng nhập', () => auth.setCustomUserClaims(uid, claims))
+      await identityProvisionStep(logger, action, 'lưu hồ sơ Aura', () => db.runTransaction(async (transaction) => {
         const userRef = db.doc(`users/${uid}`)
         const assignmentRef = db.doc(`roleAssignments/${uid}`)
         const clientRef = db.doc(`coachClients/${uid}`)
@@ -557,11 +592,79 @@ function createIdentityAccessFunctions({ db, auth, onCall }) {
           action: 'student_account.provisioned', actorUid: actor.uid, targetUid: uid,
           after: { accessRole: 'student', crmProfileId: crmProfileId || uid }, createdAt: FieldValue.serverTimestamp(),
         })
-      })
+      }))
+      logger?.info?.('identity_provision_completed', { action, targetUid: uid })
       return { uid, displayName, phoneNumber, email, passwordChangeRequired: true, crmProfileId: crmProfileId || uid }
     } catch (error) {
       if (createdUser) {
-        try { await auth.deleteUser(createdUser.uid) } catch (rollbackError) { logger?.error?.('student_provision_rollback_failed', { uid: createdUser.uid, code: rollbackError?.code || 'unknown' }) }
+        try { await identityProvisionStep(logger, action, 'hoàn tác đăng nhập', () => auth.deleteUser(createdUser.uid), 12_000) } catch (rollbackError) { logger?.error?.('student_provision_rollback_failed', { uid: createdUser.uid, code: rollbackError?.code || 'unknown' }) }
+      }
+      throw error
+    }
+  })
+
+  // Direct staff accounts follow the same server-side identity path as
+  // learners.  Staff are created with a scoped position and optional branch
+  // scope; no browser-side Auth SDK or invitation acceptance is involved.
+  const provisionStaffAccount = onCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    requireCapability(actor, 'identity.staff_position.manage')
+    const action = 'staff_account.provision'
+    const displayName = boundedString(request.data?.displayName, 'Họ và tên', 160)
+    const phoneNumber = normalizedPhone(request.data?.phoneNumber)
+    const email = normalizedEmail(request.data?.email)
+    if (!phoneNumber || !email) throw new HttpsError('invalid-argument', 'Cần email đăng nhập và số điện thoại thật để tạo tài khoản nhân viên.')
+    const positions = normalizedPositions(request.data?.positions || [])
+    if (!positions.length) throw new HttpsError('invalid-argument', 'Chọn tối thiểu một chức danh cho nhân viên.')
+    const branchIds = normalizedBranchIds(request.data?.branchIds || [])
+    const initialPassword = initialPasswordFromPhone(phoneNumber)
+    await assertUniqueDirectAccount({ auth, email, phoneNumber, logger, action })
+
+    let createdUser = null
+    try {
+      createdUser = await identityProvisionStep(logger, action, 'tạo đăng nhập', () => auth.createUser({ email, password: initialPassword, phoneNumber, displayName, disabled: false, emailVerified: false }))
+      const uid = createdUser.uid
+      const claims = { accessRole: 'staff', authzVersion: 1, role: compatibilityRole('staff', positions) }
+      await identityProvisionStep(logger, action, 'gán quyền đăng nhập', () => auth.setCustomUserClaims(uid, claims))
+      await identityProvisionStep(logger, action, 'lưu hồ sơ nhân viên', () => db.runTransaction(async (transaction) => {
+        const userRef = db.doc(`users/${uid}`)
+        const assignmentRef = db.doc(`roleAssignments/${uid}`)
+        const staffRef = db.doc(`staff/${uid}`)
+        const trainerRef = db.doc(`trainers/${uid}`)
+        transaction.create(userRef, {
+          uid, displayName, name: displayName, email, phoneNumber,
+          role: claims.role, accessRole: 'staff', authzVersion: 1,
+          membership: 'staff', onboardingCompleted: true, disabled: false,
+          mustChangePassword: true, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+        })
+        transaction.create(assignmentRef, {
+          schemaVersion: 1, uid, accessRole: 'staff', positions, branchIds,
+          capabilities: computedCapabilities('staff', positions), authzVersion: 1, status: 'active',
+          createdBy: actor.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+        })
+        transaction.create(staffRef, {
+          id: uid, name: displayName, email, phone: phoneNumber,
+          role: claims.role, branchId: branchIds[0] || '', status: 'active',
+          positions, branchIds, availableSlots: [], baseSalary: 0, bonusMonthly: 0,
+          commissionPerSession: 0, commissionRate: 0,
+          createdBy: actor.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+        })
+        if (positions.includes('trainer_pt')) transaction.create(trainerRef, {
+          id: uid, name: displayName, email, phone: phoneNumber,
+          branchId: branchIds[0] || '', status: 'active', availableSlots: [],
+          baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0,
+          createdBy: actor.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+        })
+        transaction.create(db.collection('identityAuditLogs').doc(), {
+          action: 'staff_account.provisioned', actorUid: actor.uid, targetUid: uid,
+          after: { positions, branchIds }, createdAt: FieldValue.serverTimestamp(),
+        })
+      }))
+      logger?.info?.('identity_provision_completed', { action, targetUid: uid })
+      return { uid, displayName, phoneNumber, email, positions, branchIds, passwordChangeRequired: true }
+    } catch (error) {
+      if (createdUser) {
+        try { await identityProvisionStep(logger, action, 'hoàn tác đăng nhập', () => auth.deleteUser(createdUser.uid), 12_000) } catch (rollbackError) { logger?.error?.('staff_provision_rollback_failed', { uid: createdUser.uid, code: rollbackError?.code || 'unknown' }) }
       }
       throw error
     }
@@ -708,12 +811,40 @@ function createIdentityAccessFunctions({ db, auth, onCall }) {
     const targetUid = documentId(request.data?.uid, 'UID')
     if (targetUid === actor.uid) throw new HttpsError('failed-precondition', 'Không thể tự khóa tài khoản của chính mình.')
     const reference = db.doc(`roleAssignments/${targetUid}`)
+    const userRef = db.doc(`users/${targetUid}`)
+    const target = await auth.getUser(targetUid)
+    const targetClaims = target.customClaims || {}
+    const targetProfile = await userRef.get()
+    const targetData = targetProfile.exists ? targetProfile.data() || {} : {}
+    const targetIsElevated = ['admin', 'super_admin'].includes(targetClaims.accessRole)
+      || ['admin', 'super_admin'].includes(targetClaims.role)
+      || ['admin', 'super_admin'].includes(targetData.accessRole)
+      || ['admin', 'super_admin'].includes(targetData.role)
+    if (targetIsElevated && actor.accessRole !== 'super_admin') {
+      throw new HttpsError('permission-denied', 'Chỉ Super Admin được khóa tài khoản quản trị.')
+    }
     await db.runTransaction(async (transaction) => {
-      const snapshot = await transaction.get(reference)
-      if (!snapshot.exists) throw new HttpsError('not-found', 'Chưa có phân quyền mới cho tài khoản này.')
-      transaction.update(reference, { status: 'suspended', authzVersion: FieldValue.increment(1), updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() })
-      transaction.set(db.collection('identityAuditLogs').doc(), { action: 'account_access.suspended', actorUid: actor.uid, targetUid, createdAt: FieldValue.serverTimestamp() })
+      const [snapshot, profileSnapshot] = await Promise.all([transaction.get(reference), transaction.get(userRef)])
+      if (!profileSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ tài khoản.')
+      const profile = profileSnapshot.data() || {}
+      const legacy = legacyIdentity(typeof profile.role === 'string' ? profile.role : 'student')
+      const current = snapshot.exists ? snapshot.data() || {} : null
+      const accessRole = current?.accessRole || legacy.accessRole
+      const positions = current?.accessRole === 'staff' ? normalizedPositions(current.positions || []) : legacy.positions
+      const branchIds = current?.accessRole === 'staff' ? normalizedBranchIds(current.branchIds || []) : (profile.branchId ? [documentId(profile.branchId, 'Mã chi nhánh')] : [])
+      const authzVersion = Math.max(1, Number(current?.authzVersion || profile.authzVersion || 0) + 1)
+      transaction.set(reference, {
+        schemaVersion: 1, uid: targetUid, accessRole, positions, branchIds,
+        capabilities: computedCapabilities(accessRole, positions), authzVersion, status: 'suspended',
+        updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
+      transaction.set(userRef, { disabled: true, authzVersion, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+      transaction.set(db.collection('identityAuditLogs').doc(), {
+        action: 'account_access.suspended', actorUid: actor.uid, targetUid,
+        before: { accessRole, positions, branchIds }, createdAt: FieldValue.serverTimestamp(),
+      })
     })
+    await auth.updateUser(targetUid, { disabled: true })
     await auth.revokeRefreshTokens(targetUid)
     return { uid: targetUid, suspended: true }
   })
@@ -775,6 +906,7 @@ function createIdentityAccessFunctions({ db, auth, onCall }) {
     getInternalNutritionCatalogItem,
     createAccountInvite,
     provisionStudentAccount,
+    provisionStaffAccount,
     resendAccountInvite,
     revokeAccountInvite,
     acceptAccountInvite,

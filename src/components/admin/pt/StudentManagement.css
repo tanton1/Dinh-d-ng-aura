@@ -189,3 +189,63 @@
   .student-management__form-actions { flex-direction: column-reverse; }
   .student-management__form-actions > button { width: 100%; min-height: 48px; }
 }
+
+/* New package registration is rendered from StudentDetail.  These scoped
+ * styles replace uncompiled utility classes and keep the action surface above
+ * the operations dock on narrow phones. */
+.student-package-modal {
+  position: fixed;
+  z-index: 250;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: max(18px, env(safe-area-inset-top)) 18px max(92px, calc(80px + env(safe-area-inset-bottom)));
+}
+.student-package-modal__backdrop { position:absolute; inset:0; border:0; background:rgba(38,16,32,.5); backdrop-filter:blur(6px); }
+.student-package-modal__dialog {
+  position:relative;
+  width:min(100%, 640px);
+  max-height:calc(100dvh - 112px);
+  overflow:auto;
+  box-sizing:border-box;
+  padding:clamp(18px,4vw,28px);
+  border:1px solid rgba(246,47,130,.2);
+  border-radius:26px;
+  color:#291827;
+  background:
+    radial-gradient(circle at 100% 0, rgba(255,140,86,.2), transparent 32%),
+    linear-gradient(145deg,#fff,#fff6f8 62%,#fff3ea);
+  box-shadow:0 28px 80px rgba(40,17,34,.28);
+  -webkit-overflow-scrolling:touch;
+}
+.student-package-modal__title { margin:0 0 20px; color:#241724; font-size:clamp(1.25rem,4.8vw,1.6rem); line-height:1.16; }
+.student-package-modal__content,.student-package-modal__selected,.student-package-modal__custom,.student-package-modal__debt,.student-package-modal__installments { display:grid; gap:14px; }
+.student-package-modal__custom { padding:14px; border:1px solid rgba(246,47,130,.16); border-radius:17px; background:rgba(255,255,255,.76); }
+.student-package-modal__field { display:grid; gap:6px; min-width:0; }
+.student-package-modal__field label { color:#4d3e4b; font-size:.78rem; font-weight:780; }
+.student-package-modal__field label small { color:#8d818b; font-weight:650; }
+.student-package-modal__input { width:100%; min-width:0; min-height:46px; box-sizing:border-box; padding:10px 12px; border:1px solid #efdae3; border-radius:13px; outline:0; color:#291827; background:#fff; font:inherit; font-size:.9rem; }
+.student-package-modal__input:focus { border-color:#f62f82; box-shadow:0 0 0 3px rgba(246,47,130,.12); }
+.student-package-modal__input--disabled { color:#887b85; background:#fbf5f7; }
+.student-package-modal__two-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.student-package-modal__choices { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; max-height:165px; overflow:auto; padding:8px; border:1px solid #efdae3; border-radius:13px; background:#fff; }
+.student-package-modal__choices label { display:flex; align-items:center; gap:8px; min-width:0; padding:8px; border-radius:9px; color:#423640; font-size:.8rem; cursor:pointer; }
+.student-package-modal__choices label:hover { background:#fff1f6; }
+.student-package-modal__checkbox { accent-color:#f62f82; }
+.student-package-modal__hint { margin:0; color:#857984; font-size:.72rem; line-height:1.4; }
+.student-package-modal__debt { padding:14px; border:1px solid rgba(227,87,91,.22); border-radius:17px; background:linear-gradient(135deg,#fff7f6,#fff9f5); }
+.student-package-modal__debt-total { display:flex; align-items:center; justify-content:space-between; gap:10px; color:#80636b; font-size:.85rem; }
+.student-package-modal__debt-total strong { color:#d83f67; font-size:1rem; }
+.student-package-modal__actions { position:sticky; bottom:-28px; z-index:2; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:4px; padding:15px 0 max(2px, env(safe-area-inset-bottom)); background:linear-gradient(180deg,rgba(255,255,255,0),#fff9fa 28%); }
+.student-package-modal__actions button { min-height:48px; border-radius:14px; font:inherit; font-size:.9rem; font-weight:780; }
+.student-package-modal__cancel { border:1px solid #ecdde4; color:#725c6b; background:#fff; }
+.student-package-modal__confirm { border:0; color:#fff; background:linear-gradient(100deg,#f62f82,#ff8751); box-shadow:0 12px 24px rgba(246,47,130,.22); }
+.student-package-modal__confirm:disabled { opacity:.55; cursor:not-allowed; box-shadow:none; }
+
+@media (max-width:640px) {
+  .student-package-modal { align-items:end; padding:0 0 max(80px, env(safe-area-inset-bottom)); }
+  .student-package-modal__dialog { width:100%; max-height:calc(100dvh - 92px); padding:18px 16px; border-radius:24px 24px 0 0; }
+  .student-package-modal__two-columns,.student-package-modal__choices { grid-template-columns:minmax(0,1fr); }
+  .student-package-modal__actions { bottom:-18px; grid-template-columns:minmax(0,1fr); }
+}

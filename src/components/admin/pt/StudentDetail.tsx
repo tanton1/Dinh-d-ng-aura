@@ -16,6 +16,7 @@ import { useDatabase } from '../../../contexts/DatabaseContext';
 import { formatDate, isSameDayOrAfter } from '../../../utils/dateUtils';
 import { getActiveContract } from '../../../utils/scheduler';
 import { recordContractPayment, recordRefund } from '../../../services/financeLedgerService';
+import './StudentManagement.css';
 
 interface Props {
   student: Student;
@@ -1272,29 +1273,29 @@ export default function StudentDetail({ student, profile, contracts, packages, t
       {/* Add Package Modal */}
       <AnimatePresence>
         {isAddingPackage && (
-          <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center p-4">
+          <div className="student-package-modal" role="dialog" aria-modal="true" aria-labelledby="student-package-modal-title">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              className="student-package-modal__backdrop"
               onClick={closePackageModal}
             />
             <motion.div 
               initial={{ opacity: 0, y: '100%' }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: '100%' }}
-              className="relative w-full max-w-md bg-zinc-900 rounded-3xl p-6 shadow-2xl border border-zinc-800"
+              className="student-package-modal__dialog"
             >
-              <h3 className="text-xl font-bold text-white mb-6">Đăng ký gói tập mới</h3>
+              <h3 id="student-package-modal-title" className="student-package-modal__title">Đăng ký gói tập mới</h3>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-1">Chọn gói tập</label>
+              <div className="student-package-modal__content">
+                <div className="student-package-modal__field">
+                  <label>Chọn gói tập</label>
                   <select 
                     value={selectedPackageId}
                     onChange={e => setSelectedPackageId(e.target.value)}
-                    className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500"
+                    className="student-package-modal__input"
                   >
                     <option value="">-- Chọn gói --</option>
                     <option value="custom">Gói tuỳ chỉnh (Nhập tay)</option>
@@ -1305,57 +1306,57 @@ export default function StudentDetail({ student, profile, contracts, packages, t
                 </div>
 
                 {selectedPackageId === 'custom' && (
-                  <div className="bg-zinc-950/50 p-4 rounded-xl border border-zinc-800 space-y-3">
-                    <div>
-                      <label className="block text-sm font-medium text-zinc-400 mb-1">Tên gói tập</label>
+                  <div className="student-package-modal__custom">
+                    <div className="student-package-modal__field">
+                      <label>Tên gói tập</label>
                       <input 
                         type="text" 
                         value={customPackageName}
                         onChange={e => setCustomPackageName(e.target.value)}
-                        className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500" 
+                        className="student-package-modal__input"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-zinc-400 mb-1">Số buổi</label>
+                    <div className="student-package-modal__two-columns">
+                      <div className="student-package-modal__field">
+                        <label>Số buổi</label>
                         <input 
                           type="number" 
                           min="1"
                           value={customTotalSessions}
                           onChange={e => setCustomTotalSessions(Number(e.target.value))}
-                          className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500" 
+                          className="student-package-modal__input"
                         />
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-zinc-400 mb-1">Thời hạn (Tháng)</label>
+                      <div className="student-package-modal__field">
+                        <label>Thời hạn (Tháng)</label>
                         <input 
                           type="number" 
                           min="1"
                           value={customDurationMonths}
                           onChange={e => setCustomDurationMonths(Number(e.target.value))}
-                          className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500" 
+                          className="student-package-modal__input"
                         />
                       </div>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-zinc-400 mb-1">Giá gói (VNĐ)</label>
+                    <div className="student-package-modal__field">
+                      <label>Giá gói (VNĐ)</label>
                       <input 
                         type="number" 
                         min="0"
                         value={customPrice}
                         onChange={e => setCustomPrice(Number(e.target.value))}
-                        className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500" 
+                        className="student-package-modal__input"
                       />
                     </div>
                   </div>
                 )}
 
-                <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-1">Chọn cơ sở (Không bắt buộc)</label>
+                <div className="student-package-modal__field">
+                  <label>Chọn cơ sở <small>(không bắt buộc)</small></label>
                   <select 
                     value={selectedBranchId}
                     onChange={e => setSelectedBranchId(e.target.value)}
-                    className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500"
+                    className="student-package-modal__input"
                   >
                     <option value="">-- Tất cả cơ sở --</option>
                     {branches.map(b => (
@@ -1364,8 +1365,8 @@ export default function StudentDetail({ student, profile, contracts, packages, t
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-2">Chọn PT</label>
+                <div className="student-package-modal__field">
+                  <label>Chọn PT</label>
                   <TrainerPrioritySelector
                     trainers={trainers}
                     selectedTrainerIds={selectedTrainerIds}
@@ -1373,11 +1374,11 @@ export default function StudentDetail({ student, profile, contracts, packages, t
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-2">Chọn PT Dinh Dưỡng</label>
-                  <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-2 border border-zinc-800 rounded-xl bg-zinc-950">
+                <div className="student-package-modal__field">
+                  <label>Chọn PT Dinh Dưỡng</label>
+                  <div className="student-package-modal__choices">
                     {trainers.filter(t => t.status === 'active').map(t => (
-                      <label key={`nutri-${t.id}`} className="flex items-center gap-2 text-white cursor-pointer hover:bg-zinc-900 p-2 rounded-lg">
+                      <label key={`nutri-${t.id}`}>
                         <input
                           type="checkbox"
                           checked={nutritionPTIds.includes(t.id)}
@@ -1388,90 +1389,90 @@ export default function StudentDetail({ student, profile, contracts, packages, t
                               setNutritionPTIds([...nutritionPTIds, t.id]);
                             }
                           }}
-                          className="rounded border-zinc-700 bg-zinc-900 text-pink-500 focus:ring-pink-500"
+                          className="student-package-modal__checkbox"
                         />
-                        <span className="text-sm">{t.name}</span>
+                        <span>{t.name}</span>
                       </label>
                     ))}
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-1">Mã người giới thiệu (Nếu có)</label>
+                <div className="student-package-modal__field">
+                  <label>Mã người giới thiệu <small>(nếu có)</small></label>
                   <input 
                     type="text" 
                     value={referralCode}
                     onChange={e => setReferralCode(e.target.value)}
                     placeholder="VD: PT001"
-                    className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500" 
+                    className="student-package-modal__input"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-1">Giảm giá (VNĐ)</label>
+                <div className="student-package-modal__field">
+                  <label>Giảm giá (VNĐ)</label>
                   <input 
                     type="number" 
                     value={discount}
                     onChange={e => setDiscount(e.target.value)}
-                    className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500" 
+                    className="student-package-modal__input"
                     placeholder="VD: 500000"
                   />
                 </div>
 
                 {selectedPackageId && (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-zinc-400 mb-1">Ngày bắt đầu</label>
+                  <div className="student-package-modal__selected">
+                    <div className="student-package-modal__two-columns">
+                      <div className="student-package-modal__field">
+                        <label>Ngày bắt đầu</label>
                         <input 
                           type="date" 
                           value={startDate}
                           onChange={e => setStartDate(e.target.value)}
-                          className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500" 
+                          className="student-package-modal__input"
                         />
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-zinc-400 mb-1">Ngày kết thúc</label>
+                      <div className="student-package-modal__field">
+                        <label>Ngày kết thúc</label>
                         <input 
                           type="date" 
                           value={endDate}
                           disabled
-                          className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-500 cursor-not-allowed" 
+                          className="student-package-modal__input student-package-modal__input--disabled"
                         />
                       </div>
                     </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-zinc-400 mb-1">Số tiền thanh toán trước (VNĐ)</label>
+                    <div className="student-package-modal__field">
+                      <label>Số tiền thanh toán trước (VNĐ)</label>
                       <input 
                         type="number" 
                         value={paidAmount}
                         onChange={e => setPaidAmount(e.target.value)}
-                        className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500" 
+                        className="student-package-modal__input"
                         placeholder="VD: 1000000"
                       />
-                      <p className="text-xs text-zinc-500 mt-1">Có thể thanh toán một phần hoặc toàn bộ.</p>
+                      <p className="student-package-modal__hint">Có thể thanh toán một phần hoặc toàn bộ.</p>
                     </div>
 
                     {Number(paidAmount) < ((packages.find(p => p.id === selectedPackageId)?.price || 0) - (Number(discount) || 0)) && (
                       <motion.div 
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
-                        className="bg-red-500/5 border border-red-500/20 p-4 rounded-xl space-y-4"
+                        className="student-package-modal__debt"
                       >
-                        <div className="flex justify-between items-center text-sm">
-                          <span className="text-zinc-400">Số tiền còn nợ:</span>
-                          <span className="text-red-400 font-bold">
+                        <div className="student-package-modal__debt-total">
+                          <span>Số tiền còn nợ:</span>
+                          <strong>
                             {((packages.find(p => p.id === selectedPackageId)?.price || 0) - (Number(discount) || 0) - Number(paidAmount)).toLocaleString('vi-VN')}đ
-                          </span>
+                          </strong>
                         </div>
                         
-                        <div>
-                          <label className="block text-sm font-medium text-zinc-400 mb-1">Số kỳ thanh toán</label>
+                        <div className="student-package-modal__field">
+                          <label>Số kỳ thanh toán</label>
                           <select 
                             value={installmentCount}
                             onChange={e => setInstallmentCount(Number(e.target.value))}
-                            className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-red-500"
+                            className="student-package-modal__input"
                           >
                             {[1, 2, 3, 4, 5, 6].map(n => (
                               <option key={n} value={n}>{n} kỳ</option>
@@ -1479,25 +1480,25 @@ export default function StudentDetail({ student, profile, contracts, packages, t
                           </select>
                         </div>
 
-                        <div className="space-y-3">
+                        <div className="student-package-modal__installments">
                           {installments.map((inst, idx) => (
-                            <div key={`inst-edit-${idx}`} className="flex gap-2 items-center">
-                              <div className="flex-1">
-                                <label className="block text-xs text-zinc-500 mb-1">Hẹn trả kỳ {idx + 1}</label>
+                            <div key={`inst-edit-${idx}`} className="student-package-modal__two-columns">
+                              <div className="student-package-modal__field">
+                                <label>Hẹn trả kỳ {idx + 1}</label>
                                 <input 
                                   type="date" 
                                   value={inst.date}
                                   onChange={e => handleInstallmentChange(idx, 'date', e.target.value)}
-                                  className="w-full p-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-red-500 text-sm" 
+                                  className="student-package-modal__input"
                                 />
                               </div>
-                              <div className="flex-1">
-                                <label className="block text-xs text-zinc-500 mb-1">Số tiền (VNĐ)</label>
+                              <div className="student-package-modal__field">
+                                <label>Số tiền (VNĐ)</label>
                                 <input 
                                   type="number" 
                                   value={inst.amount}
                                   onChange={e => handleInstallmentChange(idx, 'amount', Number(e.target.value))}
-                                  className="w-full p-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-red-500 text-sm" 
+                                  className="student-package-modal__input"
                                 />
                               </div>
                             </div>
@@ -1508,18 +1509,18 @@ export default function StudentDetail({ student, profile, contracts, packages, t
                   </div>
                 )}
 
-                <div className="pt-4 flex gap-3">
+                <div className="student-package-modal__actions">
                   <button 
                     onClick={closePackageModal}
                     disabled={isSavingPackage}
-                    className="flex-1 py-3 rounded-xl font-medium text-zinc-400 bg-zinc-800 hover:bg-zinc-700 transition-colors"
+                    className="student-package-modal__cancel"
                   >
                     Hủy
                   </button>
                   <button 
                     onClick={() => void handleRegisterPackage()}
                     disabled={!selectedPackageId || isSavingPackage}
-                    className="flex-1 py-3 rounded-xl font-medium text-white bg-pink-500 hover:bg-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-[0_0_15px_rgba(255,0,127,0.4)]"
+                    className="student-package-modal__confirm"
                   >
                     {isSavingPackage ? 'Đang ghi nhận…' : 'Xác nhận'}
                   </button>

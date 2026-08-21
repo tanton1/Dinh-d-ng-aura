@@ -134,7 +134,16 @@ setGlobalOptions({
 Object.assign(exports, createNutritionFunctions({ app, db }))
 Object.assign(exports, createGenerativeAiFunctions({ db }))
 Object.assign(exports, createEatCleanFunctions({ db, realtimeDb, onCall, requireTrustedAdmin, logger }))
-Object.assign(exports, createIdentityAccessFunctions({ db, auth, onCall, logger }))
+const identityAccessFunctions = createIdentityAccessFunctions({ db, auth, onCall, logger })
+Object.assign(exports, identityAccessFunctions)
+// The Firebase CLI can selectively deploy these public account endpoints only
+// when it can discover them as static exports.  Keeping the factory assignment
+// preserves existing exports while avoiding a quota-heavy full Functions deploy.
+exports.provisionStudentAccount = identityAccessFunctions.provisionStudentAccount
+exports.provisionStaffAccount = identityAccessFunctions.provisionStaffAccount
+exports.createAccountInvite = identityAccessFunctions.createAccountInvite
+exports.suspendAccountAccess = identityAccessFunctions.suspendAccountAccess
+exports.saveStaffOperationsProfile = identityAccessFunctions.saveStaffOperationsProfile
 Object.assign(exports, createOperationsDashboardFunctions({ db, onCall }))
 Object.assign(exports, createCashbookFunctions({ db, onCall }))
 const ptOperationsV2Functions = createPtOperationsV2Functions({ db, onCall, logger })
