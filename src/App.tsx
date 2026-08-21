@@ -74,7 +74,6 @@ const AuraOperationsFrame = lazyWithRetry(() => import('./components/AuraOperati
 const AdminPTStudentManagement = lazyWithRetry(() => import('./components/admin/pt/StudentManagement'))
 const SchedulerWrapper = lazyWithRetry(() => import('./components/schedule/SchedulerWrapper'))
 const AdminFinanceHub = lazyWithRetry(() => import('./components/admin/pt/AdminFinanceHub'))
-const AdminTeamHub = lazyWithRetry(() => import('./components/admin/pt/AdminTeamHub'))
 const AdminPackageSettings = lazyWithRetry(() => import('./components/admin/pt/PackageSettings'))
 const AdminQuoteGenerator = lazyWithRetry(() => import('./components/admin/pt/QuoteGenerator'))
 const AdminScheduleSettings = lazyWithRetry(() => import('./components/admin/pt/ScheduleSettings'))
@@ -834,7 +833,7 @@ function AuraApplication() {
           window.location.reload()
         }}
       />
-      case 'admin-roles': return <AuraOperationsFrame><AdminTeamHub user={user as any} initialTab="access" accessPanel={<AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} onOpenStaffAccess={() => navigate('admin-hr')} />} /></AuraOperationsFrame>
+      case 'admin-roles': return <AuraOperationsFrame><AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} /></AuraOperationsFrame>
       case 'admin-nutrition-reviews': return <AdminNutritionReviewsPage onNavigate={navigate} />
       case 'admin-notifications': return <AdminNotificationsPage onNavigate={navigate} users={adminUsers} currentUserUid={user?.uid} />
       case 'admin-eat-clean': return <AdminEatCleanPage currentRole={role} />
@@ -847,7 +846,7 @@ function AuraApplication() {
       case 'admin-pt-schedule': return <AuraOperationsFrame><SchedulerWrapper user={user as any} profile={profile} onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
       case 'admin-report': return <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
       case 'admin-finance': return <AuraOperationsFrame><AdminFinanceHub user={user as any} profile={profile} /></AuraOperationsFrame>
-      case 'admin-hr': return <AuraOperationsFrame><AdminTeamHub user={user as any} accessPanel={<AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} onOpenStaffAccess={() => navigate('admin-hr')} />} /></AuraOperationsFrame>
+      case 'admin-hr': return <AuraOperationsFrame><AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} /></AuraOperationsFrame>
       case 'admin-payroll': return <AuraOperationsFrame><AdminFinanceHub user={user as any} profile={profile} initialTab="payroll" /></AuraOperationsFrame>
       case 'admin-packages': return <AuraOperationsFrame><div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6"><AdminPackageSettings user={user as any} profile={profile} /></div></AuraOperationsFrame>
       case 'admin-quotes': return <AuraOperationsFrame><AdminQuoteGenerator user={user as any} profile={profile} onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>

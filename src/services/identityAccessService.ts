@@ -28,9 +28,28 @@ export interface AccountInviteResult {
   status: 'pending'
 }
 
+function presentInviteError(error: unknown): Error {
+  const source = error && typeof error === 'object' ? error as { code?: unknown; message?: unknown } : {}
+  const code = typeof source.code === 'string' ? source.code.replace(/^functions\//, '') : ''
+  const message = typeof source.message === 'string' ? source.message.trim() : ''
+
+  if (code === 'already-exists') return new Error('Số điện thoại hoặc email này đang có lời mời chờ xác minh. Bạn có thể gửi lại hoặc thu hồi lời mời cũ.')
+  if (code === 'permission-denied') return new Error(message || 'Quyền tài khoản chưa đồng bộ. Hãy đăng nhập lại rồi thử tạo lời mời.')
+  if (code === 'unauthenticated') return new Error('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại rồi thử tạo lời mời.')
+  if (code === 'invalid-argument' || code === 'failed-precondition') return new Error(message || 'Thông tin lời mời chưa hợp lệ.')
+  if (code === 'internal' || code === 'unavailable' || code === 'deadline-exceeded') {
+    return new Error('Dịch vụ tạo lời mời đang chưa phản hồi. Không có tài khoản hay mật khẩu nào được tạo. Hãy thử lại sau ít phút.')
+  }
+  return error instanceof Error ? error : new Error('Chưa thể tạo lời mời học viên. Vui lòng thử lại.')
+}
+
 export async function createAccountInvite(input: AccountInviteInput): Promise<AccountInviteResult> {
   const callable = httpsCallable<AccountInviteInput, AccountInviteResult>(requireFunctions(), 'createAccountInvite')
-  return (await callable(input)).data
+  try {
+    return (await callable(input)).data
+  } catch (error) {
+    throw presentInviteError(error)
+  }
 }
 
 export async function acceptAccountInvite(inviteId: string): Promise<AccessContext> {

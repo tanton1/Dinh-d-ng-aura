@@ -59,7 +59,7 @@ export default function AdminDashboard({ user, profile, activeTab, onNavigate }:
         {activeTab === 'finance' && <FinanceManagement user={user} profile={profile} />}
         {activeTab === 'packages' && <PackageSettings user={user} profile={profile} />}
         {activeTab === 'renewals' && <ContractRenewals user={user} profile={profile} onNavigate={onNavigate} />}
-        {activeTab === 'hr' && <HRManagement user={user} />}
+        {activeTab === 'hr' && <HRManagement user={user} manageIdentity={false} />}
         {activeTab === 'payroll' && <TrainerPayroll user={user} profile={profile} />}
         {activeTab === 'settings' && <ScheduleSettings />}
         {activeTab === 'workout_plans' && <WorkoutPlanManager />}

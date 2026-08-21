@@ -86,6 +86,8 @@ export interface AdminUserRecord {
   uid: string
   displayName: string
   email: string
+  /** Verified phone number when the member has added one to their Aura profile. */
+  phoneNumber?: string
   role: UserRole
   photoURL?: string | null
   membership?: UserProfile['membership']

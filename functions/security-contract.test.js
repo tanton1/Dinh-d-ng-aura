@@ -132,6 +132,15 @@ test('admin browser code cannot provision Firebase Auth users or use phone numbe
   assert.match(adminRuntimeSource, /createAccountInvite/)
 })
 
+test('account invitation duplicate checks do not depend on an undeployed compound index', () => {
+  const inviteHandler = identityAccessSource.match(/const createAccountInvite = onCall\([\s\S]*?\n  \}\)/)?.[0] ?? ''
+
+  assert.match(inviteHandler, /where\('phoneNumber', '==', phoneNumber\)\.limit\(25\)/)
+  assert.match(inviteHandler, /where\('email', '==', email\)\.limit\(25\)/)
+  assert.doesNotMatch(inviteHandler, /where\('(?:phoneNumber|email)', '==',[\s\S]{0,120}where\('status'/)
+  assert.match(inviteHandler, /item\.data\(\)\.status === 'pending'/)
+})
+
 test('legacy finance and session delete entry points fail closed', () => {
   const deleteContractSource = databaseContextSource.match(/const deleteContract[\s\S]*?\n  const addPayment/)?.[0] ?? ''
   const addPaymentSource = databaseContextSource.match(/const addPayment[\s\S]*?\n  const deletePayment/)?.[0] ?? ''
@@ -178,7 +187,9 @@ test('legacy role editor does not assign scoped staff positions or let normal ad
   assert.match(adminRolesSource, /staffPositionRoles\.has\(user\.role\)/)
   assert.match(roleChange, /nextRole === 'admin'/)
   assert.match(roleChange, /nextRole === 'super_admin'/)
-  assert.match(adminRolesSource, /Mở quản lý nhân sự/)
+  assert.match(adminRolesSource, /Tạo tài khoản/)
+  assert.match(adminRolesSource, /Tạo chi nhánh/)
+  assert.match(adminRolesSource, /Chức danh & phạm vi/)
   assert.match(legacyRoleCallable, /protectedAdminRoles = new Set\(\['admin', 'super_admin'\]\)/)
   assert.match(legacyRoleCallable, /actorRole !== 'super_admin'/)
   assert.match(legacyRoleCallable, /protectedAdminRoles\.has\(nextRole\)/)

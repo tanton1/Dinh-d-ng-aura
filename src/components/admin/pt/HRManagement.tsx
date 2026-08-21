@@ -11,6 +11,8 @@ import { createAccountInvite } from '../../../services/identityAccessService';
 
 interface Props {
   user: FirebaseUser | null;
+  /** Account, role and branch creation now lives in Vai trò & quyền. */
+  manageIdentity?: boolean;
 }
 
 type HRFormData = Partial<Omit<Trainer, 'status'>>
@@ -18,7 +20,7 @@ type HRFormData = Partial<Omit<Trainer, 'status'>>
   & Partial<Omit<StaffMember, 'status'>>
   & { status?: Trainer['status'] | Branch['status'] | StaffMember['status'] };
 
-export default function HRManagement({ user }: Props) {
+export default function HRManagement({ user, manageIdentity = true }: Props) {
   const {
     trainers,
     branches,
@@ -331,6 +333,7 @@ export default function HRManagement({ user }: Props) {
         </div>
       </div>
 
+      {!manageIdentity && <div className="mb-5 rounded-xl border border-pink-500/20 bg-pink-500/10 p-4 text-sm text-zinc-300"><strong className="text-pink-300">Hồ sơ PT lịch sử.</strong> Tạo tài khoản, cấp chức danh và quản lý chi nhánh đã được gom về <strong>Vai trò &amp; quyền</strong> để tránh cấp quyền chồng chéo.</div>}
       <div className="flex p-1 bg-zinc-900 rounded-xl border border-zinc-800 overflow-x-auto hide-scrollbar">
         <button
           onClick={() => setActiveSubTab('trainers')}
@@ -341,7 +344,7 @@ export default function HRManagement({ user }: Props) {
           <UserIcon className="w-4 h-4" />
           Nhân sự PT
         </button>
-        <button
+        {manageIdentity && <button
           onClick={() => setActiveSubTab('staff')}
           className={`flex-1 min-w-max flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
             activeSubTab === 'staff' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
@@ -349,8 +352,8 @@ export default function HRManagement({ user }: Props) {
         >
           <ShieldCheck className="w-4 h-4" />
           Tài Khoản
-        </button>
-        <button
+        </button>}
+        {manageIdentity && <button
           onClick={() => setActiveSubTab('branches')}
           className={`flex-1 min-w-max flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
             activeSubTab === 'branches' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
@@ -358,7 +361,7 @@ export default function HRManagement({ user }: Props) {
         >
           <Building className="w-4 h-4" />
           Chi nhánh
-        </button>
+        </button>}
       </div>
 
       {(
@@ -368,7 +371,7 @@ export default function HRManagement({ user }: Props) {
               {activeSubTab === 'trainers' ? 'Danh sách PT (Hoa hồng)' : 
                activeSubTab === 'staff' ? 'Tài khoản nhân viên' : 'Danh sách chi nhánh'}
             </h2>
-          {activeSubTab !== 'trainers' && (
+          {manageIdentity && activeSubTab !== 'trainers' && (
             <button 
               onClick={() => {
                 setEditingItem(null);

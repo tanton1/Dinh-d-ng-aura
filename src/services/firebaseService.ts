@@ -864,8 +864,12 @@ export function subscribeToAdminUsers(
       const data = item.data() as Partial<UserProfile> & { disabled?: boolean }
       return {
         uid: item.id,
-        displayName: data.displayName ?? 'Thành viên Aura',
+        // Do not invent a member name. The access directory must make an
+        // incomplete profile visible to admins instead of disguising it as a
+        // generic "Thành viên Aura" account.
+        displayName: data.displayName ?? data.name ?? '',
         email: data.email ?? '',
+        phoneNumber: data.phoneNumber ?? '',
         role: data.role ?? 'student',
         photoURL: data.photoURL,
         membership: data.membership,

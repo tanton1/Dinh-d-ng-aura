@@ -19,7 +19,7 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
   'admin-report': () => import('../components/admin/pt/AdminReportDashboard'),
   'admin-finance': () => import('../components/admin/pt/FinanceManagement'),
   'admin-payroll': () => import('../components/admin/pt/TrainerPayroll'),
-  'admin-hr': () => import('../components/admin/pt/HRManagement'),
+  'admin-hr': () => import('../pages/admin/AdminRolesPage'),
   'admin-packages': () => import('../components/admin/pt/PackageSettings'),
   'admin-quotes': () => import('../components/admin/pt/QuoteGenerator'),
   'admin-schedule-settings': () => import('../components/admin/pt/ScheduleSettings'),

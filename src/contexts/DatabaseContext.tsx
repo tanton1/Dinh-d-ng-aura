@@ -50,7 +50,9 @@ const LEGACY_OPERATIONS_VIEW_SOURCES = {
   'admin-pt-schedule': ['students', 'trainers', 'branches', 'contracts', 'sessions', 'schedules', 'scheduleConfig'],
   'admin-report': ['sessions', 'trainers', 'contracts', 'students', 'payments', 'branches'],
   'admin-finance': ['branches', 'contracts', 'students', 'payments'],
-  'admin-hr': ['trainers', 'branches', 'staff', 'scheduleConfig', 'contracts', 'students', 'sessions', 'packages'],
+  // Nhân sự & Chi nhánh now renders the identity workspace. It only needs
+  // branch labels for scoped assignment; PT legacy history is not loaded here.
+  'admin-hr': ['branches'],
   'admin-payroll': ['trainers', 'sessions', 'students', 'branches', 'contracts', 'scheduleConfig', 'schedules'],
   'admin-packages': ['packages', 'branches'],
   'admin-quotes': ['students', 'contracts', 'packages', 'branches'],

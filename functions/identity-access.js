@@ -442,11 +442,18 @@ function createIdentityAccessFunctions({ db, auth, onCall }) {
     const reference = db.collection('accountInvites').doc()
     const expiresAt = Timestamp.fromMillis(Date.now() + 72 * 60 * 60 * 1000)
 
+    // Keep this lookup on a single equality field.  The first rollout of this
+    // callable failed as a generic `internal` error when a production index
+    // was still building for the compound `contact + status` query.  The
+    // status check below is performed in trusted server code and works with
+    // Firestore's automatic single-field indexes as well as the composite
+    // indexes that are now part of the deployment manifest.
     const duplicateQueries = []
-    if (phoneNumber) duplicateQueries.push(db.collection('accountInvites').where('phoneNumber', '==', phoneNumber).where('status', '==', 'pending').limit(1).get())
-    if (email) duplicateQueries.push(db.collection('accountInvites').where('email', '==', email).where('status', '==', 'pending').limit(1).get())
+    if (phoneNumber) duplicateQueries.push(db.collection('accountInvites').where('phoneNumber', '==', phoneNumber).limit(25).get())
+    if (email) duplicateQueries.push(db.collection('accountInvites').where('email', '==', email).limit(25).get())
     const duplicates = await Promise.all(duplicateQueries)
-    if (duplicates.some((snapshot) => !snapshot.empty)) throw new HttpsError('already-exists', 'Đã có lời mời đang chờ cho thông tin này.')
+    const hasPendingDuplicate = duplicates.some((snapshot) => snapshot.docs.some((item) => item.data().status === 'pending'))
+    if (hasPendingDuplicate) throw new HttpsError('already-exists', 'Đã có lời mời đang chờ cho thông tin này.')
 
     await reference.create({
       schemaVersion: 1,
