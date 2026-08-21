@@ -864,6 +864,14 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     const actor = await trustedAccessContext(request, db)
     requireCapability(actor, 'identity.staff_position.manage')
     const targetUid = documentId(request.data?.uid, 'Tài khoản nhân viên')
+    const userRef = db.doc(`users/${targetUid}`)
+    const initialProfileSnapshot = await userRef.get()
+    if (!initialProfileSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy tài khoản nhân viên.')
+    const initialProfile = initialProfileSnapshot.data() || {}
+    const displayName = boundedString(request.data?.displayName ?? initialProfile.displayName ?? initialProfile.name, 'Họ và tên', 160)
+    const email = normalizedEmail(request.data?.email ?? initialProfile.email)
+    const phoneNumber = normalizedPhone(request.data?.phoneNumber ?? initialProfile.phoneNumber ?? initialProfile.phone)
+    if (!email || !phoneNumber) throw new HttpsError('invalid-argument', 'Nhân viên cần email đăng nhập và số điện thoại thật.')
     const availabilitySlots = Array.isArray(request.data?.availabilitySlots)
       ? [...new Set(request.data.availabilitySlots.filter((slot) => typeof slot === 'string' && slot.length <= 80))].slice(0, 168)
       : []
@@ -880,10 +888,26 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     }
     if (!Number.isFinite(compensation.commissionRate) || compensation.commissionRate < 0) throw new HttpsError('invalid-argument', 'Tỷ lệ hoa hồng không hợp lệ.')
     const assignmentRef = db.doc(`roleAssignments/${targetUid}`)
-    const userRef = db.doc(`users/${targetUid}`)
     const staffRef = db.doc(`staff/${targetUid}`)
     const trainerRef = db.doc(`trainers/${targetUid}`)
-    await db.runTransaction(async (transaction) => {
+    const authUser = await auth.getUser(targetUid)
+    const previousAuth = {
+      displayName: authUser.displayName || undefined,
+      email: authUser.email || undefined,
+      phoneNumber: authUser.phoneNumber || undefined,
+      emailVerified: Boolean(authUser.emailVerified),
+    }
+    const contactChanged = previousAuth.displayName !== displayName || previousAuth.email !== email || previousAuth.phoneNumber !== phoneNumber
+    try {
+      if (contactChanged) {
+        await auth.updateUser(targetUid, {
+          displayName,
+          email,
+          phoneNumber,
+          emailVerified: previousAuth.email === email ? previousAuth.emailVerified : false,
+        })
+      }
+      await db.runTransaction(async (transaction) => {
       const [assignmentSnapshot, userSnapshot] = await Promise.all([transaction.get(assignmentRef), transaction.get(userRef)])
       if (!userSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy tài khoản nhân viên.')
       const profile = userSnapshot.data() || {}
@@ -893,22 +917,29 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       if (!positions.length) throw new HttpsError('failed-precondition', 'Tài khoản này chưa được cấp chức danh nhân viên.')
       const branchIds = existing?.accessRole === 'staff' ? normalizedBranchIds(existing.branchIds || []) : (profile.branchId ? [documentId(profile.branchId, 'Mã chi nhánh')] : [])
       transaction.set(staffRef, {
-        id: targetUid, name: profile.displayName || profile.name || '', email: profile.email || '', phone: profile.phoneNumber || '',
+        id: targetUid, name: displayName, email, phone: phoneNumber,
         role: positions.includes('trainer_pt') ? 'trainer' : positions[0], branchId: branchIds[0] || '', status: 'active',
         positions, branchIds, availableSlots: availabilitySlots, ...compensation,
         updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
       if (positions.includes('trainer_pt')) transaction.set(trainerRef, {
-        id: targetUid, name: profile.displayName || profile.name || '', email: profile.email || '', phone: profile.phoneNumber || '',
+        id: targetUid, name: displayName, email, phone: phoneNumber,
         branchId: branchIds[0] || '', status: 'active', availableSlots: availabilitySlots, ...compensation,
         updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.set(db.collection('identityAuditLogs').doc(), {
         action: 'staff_operations_profile.saved', actorUid: actor.uid, targetUid,
-        after: { availabilitySlots: availabilitySlots.length, compensation }, createdAt: FieldValue.serverTimestamp(),
+        after: { availabilitySlots: availabilitySlots.length, compensation, contactChanged }, createdAt: FieldValue.serverTimestamp(),
       })
-    })
-    return { uid: targetUid, availabilitySlots, compensation }
+      transaction.set(userRef, { displayName, name: displayName, email, phoneNumber, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+      })
+    } catch (error) {
+      if (contactChanged) {
+        try { await auth.updateUser(targetUid, previousAuth) } catch (rollbackError) { logger?.error?.('staff_contact_rollback_failed', { uid: targetUid, code: rollbackError?.code || 'unknown' }) }
+      }
+      throw normalizeDuplicateAuthError(error)
+    }
+    return { uid: targetUid, displayName, email, phoneNumber, availabilitySlots, compensation }
   })
 
   return {

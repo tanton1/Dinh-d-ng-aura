@@ -167,11 +167,14 @@ export async function assignStaffPositions(input: AssignStaffPositionsInput): Pr
 
 export interface StaffOperationsProfileInput {
   uid: string
+  displayName?: string
+  email?: string
+  phoneNumber?: string
   availabilitySlots: string[]
   compensation: { baseSalary: number; bonusMonthly: number; commissionRate: number; commissionPerSession: number }
 }
 export async function saveStaffOperationsProfile(input: StaffOperationsProfileInput) {
-  const callable = httpsCallable<StaffOperationsProfileInput, { uid: string; availabilitySlots: string[]; compensation: StaffOperationsProfileInput['compensation'] }>(requireFunctions(), 'saveStaffOperationsProfile')
+  const callable = httpsCallable<StaffOperationsProfileInput, { uid: string; displayName: string; email: string; phoneNumber: string; availabilitySlots: string[]; compensation: StaffOperationsProfileInput['compensation'] }>(requireFunctions(), 'saveStaffOperationsProfile')
   try { return (await callable(input)).data } catch (error) { throw presentInviteError(error) }
 }
 
