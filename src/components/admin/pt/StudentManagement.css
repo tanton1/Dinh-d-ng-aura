@@ -1,0 +1,191 @@
+/*
+ * Student CRM is a legacy Operations module. These styles intentionally use
+ * stable, scoped Aura classes instead of uncompiled utility classes so the
+ * workflow remains usable at 360–430px widths.
+ */
+.student-management {
+  min-width: 0;
+  color: var(--ops-ink, #211720);
+}
+
+.student-management__hero {
+  position: relative;
+  overflow: hidden;
+  padding: clamp(18px, 3vw, 28px);
+  border: 1px solid rgba(246, 47, 130, .15);
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 92% 5%, rgba(255, 148, 97, .34), transparent 31%),
+    linear-gradient(135deg, rgba(255, 247, 250, .98), rgba(255, 244, 237, .96));
+  box-shadow: 0 16px 34px rgba(63, 31, 48, .08);
+}
+
+.student-management__brand {
+  flex: 0 0 auto;
+  border-radius: 15px;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(246, 47, 130, .14);
+}
+
+.student-management__eyebrow {
+  margin: 0 0 5px;
+  color: #cf1d67;
+  font-size: .69rem;
+  font-weight: 800;
+  letter-spacing: .11em;
+  line-height: 1.3;
+}
+
+.student-management__title {
+  margin: 0;
+  color: #211720 !important;
+  font-size: clamp(1.55rem, 5vw, 2.25rem) !important;
+  line-height: 1.08;
+}
+
+.student-management__subtitle { max-width: 44rem; }
+
+.student-management__primary-action {
+  min-height: 48px;
+  min-width: 212px;
+  border: 0;
+  border-radius: 16px;
+  box-shadow: 0 13px 26px rgba(246, 47, 130, .24) !important;
+}
+
+.student-management__overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.student-management__overview article {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid var(--ops-line, #f0dfe6);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .88);
+  box-shadow: 0 8px 20px rgba(61, 34, 49, .05);
+}
+
+.student-management__overview strong {
+  color: #211720;
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.student-management__overview span {
+  color: var(--ops-muted, #746c76);
+  font-size: .75rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.student-management__overview .student-management__metric--attention {
+  border-color: rgba(246, 47, 130, .26);
+  background: linear-gradient(135deg, #fff7f9, #fff3ea);
+}
+
+.student-management__metric--attention strong { color: #d62c6f; }
+
+.student-management__filters {
+  position: relative;
+  overflow: visible;
+  border-color: rgba(246, 47, 130, .14) !important;
+  background: rgba(255, 255, 255, .9) !important;
+}
+
+.student-management__filter-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.student-management__filter-grid > * { min-width: 0; }
+
+.student-management__card {
+  min-width: 0;
+  border-color: var(--ops-line, #f0dfe6) !important;
+  background: rgba(255, 255, 255, .95) !important;
+  box-shadow: 0 10px 26px rgba(61, 34, 49, .055) !important;
+}
+
+.student-management__modal {
+  z-index: 210 !important;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding:
+    max(12px, env(safe-area-inset-top))
+    max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left)) !important;
+}
+
+.student-management__modal-backdrop { position: fixed !important; }
+
+.student-management__dialog {
+  box-sizing: border-box;
+  width: min(100%, 640px) !important;
+  max-width: min(100%, 640px) !important;
+  max-height: calc(100dvh - 24px) !important;
+  min-width: 0;
+  margin: auto;
+  padding: clamp(18px, 5vw, 28px) !important;
+  border-color: rgba(246, 47, 130, .18) !important;
+  border-radius: 24px !important;
+  background: #fff !important;
+  color: var(--ops-ink, #211720) !important;
+  overflow: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+.student-management__dialog-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.student-management__dialog-heading h3 { color: #211720 !important; }
+
+.student-management__close {
+  display: grid;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid #f0dfe6;
+  border-radius: 50%;
+  color: #a13d72;
+  background: #fff5f8;
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+.student-management__form { min-width: 0; }
+.student-management__form :is(input, select, textarea) { width: 100%; max-width: 100%; min-width: 0; }
+.student-management__two-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.student-management__form-actions {
+  position: sticky;
+  bottom: -18px;
+  z-index: 2;
+  margin: 0 -2px;
+  padding: 14px 2px max(2px, env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, rgba(255,255,255,0), #fff 22%);
+}
+
+@media (max-width: 1040px) {
+  .student-management__filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .student-management__hero { align-items: stretch !important; }
+  .student-management__primary-action { width: 100%; min-width: 0; }
+  .student-management__overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .student-management__overview article { min-height: 83px; padding: 13px; }
+  .student-management__filter-grid { grid-template-columns: minmax(0, 1fr); }
+  .student-management__dialog { border-radius: 22px 22px 18px 18px !important; }
+  .student-management__two-columns { grid-template-columns: minmax(0, 1fr); }
+  .student-management__form-actions { flex-direction: column-reverse; }
+  .student-management__form-actions > button { width: 100%; min-height: 48px; }
+}

@@ -21,6 +21,7 @@ const renewContractModalSource = readFileSync(join(repositoryRoot, 'src', 'compo
 const adminRolesSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'admin', 'AdminRolesPage.tsx'), 'utf8')
 const accessRouteSource = readFileSync(join(repositoryRoot, 'src', 'identity', 'access.ts'), 'utf8')
 const studentIdentityLinkSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-student-identity-link.cjs'), 'utf8')
+const identityAccessSource = readFileSync(join(__dirname, 'identity-access.js'), 'utf8')
 
 function readRuntimeSources(directory) {
   return readdirSync(directory, { withFileTypes: true })
@@ -181,6 +182,15 @@ test('legacy role editor does not assign scoped staff positions or let normal ad
   assert.match(legacyRoleCallable, /protectedAdminRoles = new Set\(\['admin', 'super_admin'\]\)/)
   assert.match(legacyRoleCallable, /actorRole !== 'super_admin'/)
   assert.match(legacyRoleCallable, /protectedAdminRoles\.has\(nextRole\)/)
+})
+
+test('scoped staff assignment cannot silently alter an elevated account for a normal admin', () => {
+  assert.match(identityAccessSource, /const assignStaffPositions = onCall/)
+  assert.match(identityAccessSource, /targetIsElevated/)
+  assert.match(identityAccessSource, /actor\.accessRole !== 'super_admin'/)
+  assert.match(identityAccessSource, /Chỉ Super Admin được thay đổi quyền/)
+  assert.match(adminRolesSource, /assignStaffPositions/)
+  assert.match(adminRolesSource, /Chức danh & phạm vi vận hành/)
 })
 
 test('sensitive operations routes require Identity v2 capabilities in addition to legacy UI roles', () => {

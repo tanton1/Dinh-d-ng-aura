@@ -571,7 +571,23 @@ function createIdentityAccessFunctions({ db, auth, onCall }) {
     const positions = accessRole === 'staff' ? normalizedPositions(request.data?.positions || []) : []
     if (accessRole === 'staff' && positions.length === 0) throw new HttpsError('invalid-argument', 'Nhân viên cần ít nhất một chức danh.')
     const branchIds = accessRole === 'staff' ? normalizedBranchIds(request.data?.branchIds || []) : []
-    const target = await auth.getUser(targetUid)
+    const [target, targetProfileSnapshot] = await Promise.all([
+      auth.getUser(targetUid),
+      db.doc(`users/${targetUid}`).get(),
+    ])
+    // A normal administrator may assign scoped staff positions, but must not
+    // silently demote an existing administrator/super administrator through
+    // this seemingly lower-risk endpoint. Elevated access remains a
+    // super-admin-only operation with its own audit path.
+    const targetClaims = target.customClaims || {}
+    const targetProfile = targetProfileSnapshot.exists ? targetProfileSnapshot.data() || {} : {}
+    const targetIsElevated = ['admin', 'super_admin'].includes(targetClaims.accessRole)
+      || ['admin', 'super_admin'].includes(targetClaims.role)
+      || ['admin', 'super_admin'].includes(targetProfile.accessRole)
+      || ['admin', 'super_admin'].includes(targetProfile.role)
+    if (targetIsElevated && actor.accessRole !== 'super_admin') {
+      throw new HttpsError('permission-denied', 'Chỉ Super Admin được thay đổi quyền của tài khoản quản trị.')
+    }
     const assignmentReference = db.doc(`roleAssignments/${targetUid}`)
     const previous = await assignmentReference.get()
     const authzVersion = Math.max(1, Number(previous.data()?.authzVersion || 0) + 1)

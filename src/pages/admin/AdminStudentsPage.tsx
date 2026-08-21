@@ -731,8 +731,8 @@ export default function AdminStudentsPage({
             <header>
               <div>
                 <span className="eyebrow">QUẢN LÝ HỌC VIÊN PT</span>
-                <h2 id="add-student-title">Tạo & Thêm Học Viên</h2>
-                <p>Tạo mới tài khoản đăng nhập cho học viên hoặc liên kết bằng email sẵn có.</p>
+                <h2 id="add-student-title">Mời học viên vào Aura</h2>
+                <p>Tạo lời mời xác minh an toàn hoặc liên kết một tài khoản Aura đã có.</p>
               </div>
               <button className="icon-button close-btn" aria-label="Đóng" onClick={resetAddModal} style={{ color: '#ffffff', background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
                 <X size={18} />
@@ -745,7 +745,7 @@ export default function AdminStudentsPage({
                 className={addMode === 'create' ? 'active' : ''}
                 onClick={() => { setAddMode('create'); setCreateError(null); }}
               >
-                <Sparkles size={15} /> Tạo tài khoản mới
+                <Sparkles size={15} /> Tạo lời mời mới
               </button>
               <button
                 type="button"
@@ -762,7 +762,7 @@ export default function AdminStudentsPage({
                   <div className="success-account-card">
                     <div className="success-account-card__head">
                       <CheckCircle2 size={20} />
-                      <span>Đã tạo lời mời học viên an toàn!</span>
+                    <span>Đã tạo lời mời học viên an toàn</span>
                     </div>
 
                     <div className="success-account-details">
@@ -808,7 +808,7 @@ export default function AdminStudentsPage({
                             setCreateCustomEmailEdited(false)
                           }}
                         >
-                          Tạo tiếp tài khoản khác
+                          Tạo lời mời khác
                         </button>
                         <button
                           type="button"

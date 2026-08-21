@@ -12,6 +12,7 @@ import { useDatabase } from '../../../contexts/DatabaseContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { createAccountInvite } from '../../../services/identityAccessService';
 import { recordContractPayment } from '../../../services/financeLedgerService';
+import './StudentManagement.css';
 
 interface Props {
   user: User | null;
@@ -30,6 +31,8 @@ export default function StudentManagement({ user, profile }: Props) {
     updateUserProfile
   } = useDatabase();
   const canManageSessionLifecycle = authzReady && hasCapability('pt.operations.manage');
+  const canManageStudents = authzReady && hasCapability('pt.operations.manage');
+  const canInviteStudents = authzReady && hasCapability('identity.invite.manage');
   
   const getCalculatedUsedSessions = (contract: any, allSessions: Session[]) => {
     if (!contract) return 0;
@@ -253,6 +256,36 @@ export default function StudentManagement({ user, profile }: Props) {
     [filteredStudents, studentPage],
   );
 
+  const studentOverview = useMemo(() => {
+    const now = new Date();
+    const activeStudentIds = new Set<string>();
+    const expiringStudentIds = new Set<string>();
+    const unassignedStudentIds = new Set<string>();
+
+    allowedStudents.forEach((student) => {
+      const studentContracts = contracts
+        .filter((contract) => contract.studentId === student.id)
+        .sort((left, right) => right.startDate.localeCompare(left.startDate));
+      const activeContract = studentContracts.find((contract) => contract.status === 'active');
+      if (!activeContract) {
+        if (student.status === 'active') unassignedStudentIds.add(student.id);
+        return;
+      }
+      activeStudentIds.add(student.id);
+      const sessionsLeft = activeContract.totalSessions - getCalculatedUsedSessions(activeContract, sessions);
+      const daysLeft = Math.ceil((new Date(activeContract.endDate).getTime() - now.getTime()) / 86_400_000);
+      if (daysLeft <= 7 || sessionsLeft <= 2) expiringStudentIds.add(student.id);
+      if (!activeContract.trainerId && !(activeContract.trainerIds || []).length) unassignedStudentIds.add(student.id);
+    });
+
+    return {
+      total: allowedStudents.length,
+      active: activeStudentIds.size,
+      expiring: expiringStudentIds.size,
+      unassigned: unassignedStudentIds.size,
+    };
+  }, [allowedStudents, contracts, sessions]);
+
   useEffect(() => setStudentPage(1), [searchTerm, dateRange, selectedBranchId, contractFilter, selectedTrainerId, selectedNutritionPTId]);
   useEffect(() => setStudentPage((current) => Math.min(current, studentPageCount)), [studentPageCount]);
 
@@ -335,13 +368,14 @@ export default function StudentManagement({ user, profile }: Props) {
 
   // ... (inside handleSave)
   const handleSave = async () => {
-    if (profile?.role !== 'admin') {
+    if (!canManageStudents) {
       setAlertMessage("Bạn không có quyền thực hiện thao tác này.");
       return;
     }
     if (!formData.name) return;
     setError(null);
     setIsSaving(true);
+    try {
 
     const sanitizePhone = (phone: string) => {
       let p = phone.replace(/\D/g, '');
@@ -361,12 +395,10 @@ export default function StudentManagement({ user, profile }: Props) {
 
     if (isDuplicatePhone) {
       setError("Số điện thoại này đã tồn tại trong hệ thống.");
-      setIsSaving(false);
       return;
     }
     if (isDuplicateEmail) {
       setError("Email này đã tồn tại trong hệ thống.");
-      setIsSaving(false);
       return;
     }
 
@@ -448,7 +480,11 @@ export default function StudentManagement({ user, profile }: Props) {
     setEditingStudent(null);
     setFormData({ name: '', phone: '', email: '', dob: '', sessionsPerWeek: 3, availableSlots: [], status: 'active', branchId: '', nutritionNote: '' });
     setError(null);
-    setIsSaving(false);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Chưa thể lưu hồ sơ học viên. Vui lòng thử lại.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleDelete = (id: string) => {
@@ -457,8 +493,8 @@ export default function StudentManagement({ user, profile }: Props) {
   };
 
   const executeDelete = async () => {
-    if (profile?.role !== 'admin') {
-      setAlertMessage("Bạn không có quyền thực hiện thao tác này.");
+    if (!canManageStudents) {
+      setAlertMessage("Tài khoản này chưa có quyền lưu trữ hồ sơ học viên.");
       setShowDeleteConfirm(false);
       return;
     }
@@ -496,21 +532,22 @@ export default function StudentManagement({ user, profile }: Props) {
   }
 
   return (
-    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
-      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="student-management space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
+      <div className="student-management__hero mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <img src={LOGO_URL} alt="Aura" className="h-10 w-10 object-contain" />
+          <img src={LOGO_URL} alt="Aura" className="student-management__brand h-10 w-10 object-contain" />
           <div>
-            <h1 className="text-3xl md:text-4xl font-serif font-medium text-pink-500 drop-shadow-[0_0_10px_rgba(236,72,153,0.8)] tracking-tight border-b-4 border-pink-500/30 pb-2 inline-block shadow-[0_6px_0_rgba(236,72,153,0.2)] rounded-2xl">
-              Học viên ({filteredStudents.length})
+            <p className="student-management__eyebrow">AURA OPERATIONS · CRM PT</p>
+            <h1 className="student-management__title text-3xl md:text-4xl font-serif font-medium text-pink-500 tracking-tight">
+              Học viên PT
             </h1>
-            <p className="text-zinc-400 mt-2 text-sm">Quản lý danh sách học viên và hợp đồng</p>
+            <p className="student-management__subtitle text-zinc-400 mt-2 text-sm">Hồ sơ, hợp đồng, lịch và lời mời tài khoản trong một nơi.</p>
           </div>
         </div>
         <button
           onClick={() => {
-            if (profile?.role !== 'admin') {
-              setAlertMessage("Bạn không có quyền thực hiện thao tác này.");
+            if (!canInviteStudents) {
+              setAlertMessage("Tài khoản này chưa có quyền tạo lời mời học viên.");
               return;
             }
             setEditingStudent(null);
@@ -518,14 +555,22 @@ export default function StudentManagement({ user, profile }: Props) {
             setError(null);
             setIsAdding(true);
           }}
-          className={`bg-pink-500 text-white px-5 py-2.5 rounded-xl transition-colors flex items-center justify-center shadow-[0_0_15px_rgba(255,0,127,0.4)] ${profile?.role !== 'admin' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-pink-600'}`}
+          className={`student-management__primary-action bg-pink-500 text-white px-5 py-2.5 rounded-xl transition-colors flex items-center justify-center ${!canInviteStudents ? 'opacity-50 cursor-not-allowed' : 'hover:bg-pink-600'}`}
+          disabled={!canInviteStudents}
         >
           <Plus className="w-5 h-5 mr-2" />
-          <span className="font-medium">Thêm học viên</span>
+          <span className="font-medium">Tạo hồ sơ & lời mời</span>
         </button>
       </div>
 
-      <div className="bg-zinc-900/50 p-4 rounded-2xl border border-zinc-800 space-y-4 mb-6">
+      <section className="student-management__overview" aria-label="Tổng quan học viên">
+        <article><strong>{studentOverview.total}</strong><span>Học viên trong phạm vi</span></article>
+        <article><strong>{studentOverview.active}</strong><span>Hợp đồng đang hoạt động</span></article>
+        <article className={studentOverview.expiring > 0 ? 'student-management__metric--attention' : ''}><strong>{studentOverview.expiring}</strong><span>Sắp hết hạn trong 7 ngày</span></article>
+        <article className={studentOverview.unassigned > 0 ? 'student-management__metric--attention' : ''}><strong>{studentOverview.unassigned}</strong><span>Chưa gán PT hoặc hợp đồng</span></article>
+      </section>
+
+      <div className="student-management__filters bg-zinc-900/50 p-4 rounded-2xl border border-zinc-800 space-y-4 mb-6">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
           <input
@@ -537,7 +582,7 @@ export default function StudentManagement({ user, profile }: Props) {
           />
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="student-management__filter-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           {profile?.role !== 'trainer' && (
             <select 
               value={selectedTrainerId}
@@ -642,7 +687,7 @@ export default function StudentManagement({ user, profile }: Props) {
               })();
 
               return (
-              <div key={student.id} className={`bg-zinc-900 border rounded-2xl p-4 shadow-sm transition-colors ${hasOverdueDebt ? 'border-red-500/30' : isExpired ? 'border-red-500/30' : (isExpiringThisMonth || isExpiringThisWeek) ? 'border-amber-500/30' : 'border-zinc-800'}`}>
+              <div key={student.id} className={`student-management__card bg-zinc-900 border rounded-2xl p-4 shadow-sm transition-colors ${hasOverdueDebt ? 'border-red-500/30' : isExpired ? 'border-red-500/30' : (isExpiringThisMonth || isExpiringThisWeek) ? 'border-amber-500/30' : 'border-zinc-800'}`}>
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <h3 className="text-lg font-medium text-white flex items-center gap-2 flex-wrap">
@@ -746,7 +791,7 @@ export default function StudentManagement({ user, profile }: Props) {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    {(isExpired || isExpiringThisMonth || isExpiringThisWeek) && profile?.role === 'admin' && (
+                    {(isExpired || isExpiringThisMonth || isExpiringThisWeek) && canManageStudents && (
                       <button
                         onClick={() => {
                           const studentContracts = contracts.filter(c => c.studentId === student.id);
@@ -763,8 +808,8 @@ export default function StudentManagement({ user, profile }: Props) {
                     )}
                     <button
                       onClick={() => {
-                        if (profile?.role !== 'admin') {
-                          setAlertMessage("Bạn không có quyền thực hiện thao tác này.");
+                        if (!canManageStudents) {
+                          setAlertMessage("Tài khoản này chưa có quyền sửa hồ sơ học viên.");
                           return;
                         }
                         setEditingStudent(student);
@@ -772,19 +817,21 @@ export default function StudentManagement({ user, profile }: Props) {
                         setError(null);
                         setIsAdding(true);
                       }}
-                      className={`p-2 rounded-lg transition-colors ${profile?.role !== 'admin' ? 'text-zinc-600 bg-zinc-800/50 cursor-not-allowed' : 'text-zinc-400 hover:text-white bg-zinc-800'}`}
+                      className={`p-2 rounded-lg transition-colors ${!canManageStudents ? 'text-zinc-600 bg-zinc-800/50 cursor-not-allowed' : 'text-zinc-400 hover:text-white bg-zinc-800'}`}
+                      disabled={!canManageStudents}
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => {
-                        if (profile?.role !== 'admin') {
-                          setAlertMessage("Bạn không có quyền thực hiện thao tác này.");
+                        if (!canManageStudents) {
+                          setAlertMessage("Tài khoản này chưa có quyền lưu trữ hồ sơ học viên.");
                           return;
                         }
                         handleDelete(student.id);
                       }}
-                      className={`p-2 rounded-lg transition-colors ${profile?.role !== 'admin' ? 'text-red-900 bg-red-900/10 cursor-not-allowed' : 'text-red-400 hover:text-red-300 bg-red-500/10'}`}
+                      className={`p-2 rounded-lg transition-colors ${!canManageStudents ? 'text-red-900 bg-red-900/10 cursor-not-allowed' : 'text-red-400 hover:text-red-300 bg-red-500/10'}`}
+                      disabled={!canManageStudents}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -826,23 +873,30 @@ export default function StudentManagement({ user, profile }: Props) {
       {/* Add/Edit Modal */}
       <AnimatePresence>
         {isAdding && (
-          <div key="add-edit-modal" className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center p-4">
+          <div key="add-edit-modal" className="student-management__modal fixed inset-0 z-[60] flex items-end justify-center sm:items-center p-4" role="dialog" aria-modal="true" aria-labelledby="student-form-title">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              className="student-management__modal-backdrop absolute inset-0 bg-black/80 backdrop-blur-sm"
               onClick={() => setIsAdding(false)}
             />
             <motion.div 
               initial={{ opacity: 0, y: '100%' }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: '100%' }}
-              className="relative w-full max-w-md bg-zinc-900 rounded-3xl p-6 shadow-2xl border border-zinc-800 max-h-[90vh] overflow-y-auto"
+              className="student-management__dialog relative w-full max-w-md bg-zinc-900 rounded-3xl p-6 shadow-2xl border border-zinc-800 max-h-[90vh] overflow-y-auto"
             >
-              <h3 className="text-xl font-bold text-white mb-6">
+              <div className="student-management__dialog-heading">
+                <div>
+                  <p className="student-management__eyebrow">HỒ SƠ HỌC VIÊN</p>
+                  <h3 id="student-form-title" className="text-xl font-bold text-white mb-1">
                 {editingStudent ? 'Sửa thông tin học viên' : 'Thêm học viên mới'}
-              </h3>
+                  </h3>
+                  {!editingStudent && <p className="text-zinc-400 text-sm">Hồ sơ được tạo trước, sau đó học viên nhận lời mời xác minh OTP hoặc email.</p>}
+                </div>
+                <button type="button" onClick={() => setIsAdding(false)} className="student-management__close" aria-label="Đóng biểu mẫu">×</button>
+              </div>
 
               {error && (
                 <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm flex items-center gap-2">
@@ -851,7 +905,7 @@ export default function StudentManagement({ user, profile }: Props) {
                 </div>
               )}
 
-              <div className="space-y-4">
+              <div className="student-management__form space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-zinc-400 mb-1">Tên học viên *</label>
                   <input 
@@ -909,7 +963,7 @@ export default function StudentManagement({ user, profile }: Props) {
                   </select>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="student-management__two-columns grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-zinc-400 mb-1">Số buổi/tuần</label>
                     <input 
@@ -943,7 +997,7 @@ export default function StudentManagement({ user, profile }: Props) {
                   />
                 </div>
 
-                <div className="pt-4 flex gap-3">
+                <div className="student-management__form-actions pt-4 flex gap-3">
                   <button 
                     onClick={() => setIsAdding(false)}
                     className="flex-1 py-3 rounded-xl font-medium text-zinc-400 bg-zinc-800 hover:bg-zinc-700 transition-colors"
@@ -952,7 +1006,7 @@ export default function StudentManagement({ user, profile }: Props) {
                   </button>
                   <button 
                     onClick={handleSave}
-                    disabled={!formData.name || isSaving}
+                    disabled={!formData.name || isSaving || (!editingStudent && !canInviteStudents) || (Boolean(editingStudent) && !canManageStudents)}
                     className="flex-1 py-3 rounded-xl font-medium text-white bg-pink-500 hover:bg-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-[0_0_15px_rgba(255,0,127,0.4)]"
                   >
                     {isSaving ? 'Đang lưu...' : 'Lưu thông tin'}
@@ -995,7 +1049,7 @@ export default function StudentManagement({ user, profile }: Props) {
               </div>
               <h3 className="text-xl font-bold text-white mb-2">Xác nhận xóa</h3>
               <p className="text-zinc-400 mb-6">
-                Bạn có chắc chắn muốn xóa học viên này? Thao tác này sẽ xóa toàn bộ hợp đồng, lịch sử thanh toán và buổi tập của học viên.
+                Hồ sơ sẽ được lưu trữ và ngừng hiển thị trong danh sách đang tập. Hợp đồng, chứng từ và lịch sử buổi tập vẫn được giữ nguyên.
               </p>
               <div className="flex gap-3">
                 <button 

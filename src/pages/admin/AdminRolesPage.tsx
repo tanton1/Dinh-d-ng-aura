@@ -10,9 +10,13 @@ import {
   SlidersHorizontal,
   UserCog,
   Users,
+  X,
 } from 'lucide-react'
 import { PageHeader } from '../../components/ui'
 import { hasPermission } from '../../config/permissions'
+import { useDatabase } from '../../contexts/DatabaseContext'
+import { assignStaffPositions } from '../../services/identityAccessService'
+import type { StaffPosition } from '../../identity/access'
 import type { UserRole } from '../../types'
 
 export interface AdminRoleUser {
@@ -71,14 +75,41 @@ function initials(name: string, email: string) {
   return source.split(/\s+/).map((part) => part[0]).slice(-2).join('').toUpperCase()
 }
 
-const staffPositionRoles = new Set<UserRole>(['trainer', 'sales', 'manager'])
+const staffPositionRoles = new Set<UserRole>(['coach', 'trainer', 'sales', 'manager', 'editor', 'shipper'])
+
+const positionOptions: Array<{ id: StaffPosition; label: string; description: string }> = [
+  { id: 'coach_online', label: 'Coach online', description: 'Học viên coaching được gán và giáo án online' },
+  { id: 'trainer_pt', label: 'HLV PT Gym', description: 'Lịch PT, buổi tập và ghi chú của học viên được giao' },
+  { id: 'sales', label: 'Sales', description: 'Lead, báo giá và hợp đồng trong phạm vi chi nhánh' },
+  { id: 'branch_manager', label: 'Quản lý chi nhánh', description: 'Vận hành cơ sở và đội ngũ trong phạm vi được cấp' },
+  { id: 'academy_editor', label: 'Biên tập Academy', description: 'Soạn và gửi duyệt nội dung Academy' },
+  { id: 'shipper', label: 'Shipper Eat Clean', description: 'Đơn giao được phân công và GPS giao hàng' },
+]
+
+function defaultPositionForRole(role: UserRole): StaffPosition | null {
+  switch (role) {
+    case 'coach': return 'coach_online'
+    case 'trainer': return 'trainer_pt'
+    case 'sales': return 'sales'
+    case 'manager': return 'branch_manager'
+    case 'editor': return 'academy_editor'
+    case 'shipper': return 'shipper'
+    default: return null
+  }
+}
 
 export default function AdminRolesPage({ users, currentRole, currentUserUid, onRoleChange, onOpenStaffAccess, loading = false }: AdminRolesPageProps) {
+  const { branches } = useDatabase()
   const [query, setQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState<'all' | UserRole>('all')
   const [savingUid, setSavingUid] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [accessEditorUid, setAccessEditorUid] = useState<string | null>(null)
+  const [accessRoleDraft, setAccessRoleDraft] = useState<'student' | 'staff'>('student')
+  const [positionDraft, setPositionDraft] = useState<StaffPosition[]>([])
+  const [branchDraft, setBranchDraft] = useState<string[]>([])
+  const [accessSaving, setAccessSaving] = useState(false)
 
   const canAssignRole = hasPermission(currentRole, 'role.assign')
   const canAssignSuperAdmin = hasPermission(currentRole, 'role.assign_super_admin')
@@ -118,6 +149,53 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       setError(`Không thể cập nhật quyền cho ${user.displayName || user.email}. Vui lòng thử lại.`)
     } finally {
       setSavingUid(null)
+    }
+  }
+
+  const openAccessEditor = (user: AdminRoleUser) => {
+    const defaultPosition = defaultPositionForRole(user.role)
+    setAccessEditorUid(user.uid)
+    setAccessRoleDraft(defaultPosition ? 'staff' : 'student')
+    setPositionDraft(defaultPosition ? [defaultPosition] : [])
+    setBranchDraft([])
+    setError(null)
+    setSuccess(null)
+  }
+
+  const togglePosition = (position: StaffPosition) => {
+    setPositionDraft((current) => current.includes(position)
+      ? current.filter((item) => item !== position)
+      : [...current, position])
+  }
+
+  const toggleBranch = (branchId: string) => {
+    setBranchDraft((current) => current.includes(branchId)
+      ? current.filter((item) => item !== branchId)
+      : [...current, branchId])
+  }
+
+  const saveScopedAccess = async (user: AdminRoleUser) => {
+    if (!canAssignRole || user.uid === currentUserUid) return
+    if (accessRoleDraft === 'staff' && !positionDraft.length) {
+      setError('Nhân viên cần tối thiểu một chức danh trước khi cấp quyền.')
+      return
+    }
+    setAccessSaving(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      await assignStaffPositions({
+        uid: user.uid,
+        accessRole: accessRoleDraft,
+        positions: accessRoleDraft === 'staff' ? positionDraft : [],
+        branchIds: accessRoleDraft === 'staff' ? branchDraft : [],
+      })
+      setAccessEditorUid(null)
+      setSuccess(`Đã cập nhật quyền có phạm vi cho ${user.displayName || user.email}. Người dùng cần đăng nhập lại để nhận token mới.`)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : `Không thể cập nhật quyền cho ${user.displayName || user.email}.`)
+    } finally {
+      setAccessSaving(false)
     }
   }
 
@@ -230,8 +308,14 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
             || managedAsStaffPosition
             || ((user.role === 'admin' || user.role === 'super_admin') && !canAssignSuperAdmin)
 
+          const canEditScopedAccess = canAssignRole
+            && user.uid !== currentUserUid
+            && user.role !== 'admin'
+            && user.role !== 'super_admin'
+
           return (
-            <article className="student-row" key={user.uid}>
+            <div key={user.uid}>
+            <article className="student-row">
               <span className="student-identity">
                 {user.photoURL
                   ? <img src={user.photoURL} alt="" className="avatar avatar-photo" referrerPolicy="no-referrer" />
@@ -267,9 +351,39 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
               <span className="row-actions" aria-live="polite">
                 {isSaving
                   ? <LoaderCircle size={18} className="spin" color="var(--aura-pink)" />
-                  : <CheckCircle2 size={18} color="#7fcb36" />}
+                  : <>
+                    {canEditScopedAccess && <button type="button" className="icon-button" aria-label={`Cấp chức danh và phạm vi cho ${user.displayName || user.email}`} title="Chức danh & phạm vi" onClick={() => openAccessEditor(user)}><UserCog size={17} /></button>}
+                    <CheckCircle2 size={18} color="#7fcb36" />
+                  </>}
               </span>
             </article>
+            {accessEditorUid === user.uid && (
+              <section className="identity-access-editor" aria-label={`Chức danh và phạm vi của ${user.displayName || user.email}`}>
+                <div className="identity-access-editor__heading">
+                  <span><ShieldCheck size={18} /><span><strong>Chức danh & phạm vi vận hành</strong><small>Quyền được tính ở backend; trình duyệt không thể tự cấp quyền.</small></span></span>
+                  <button type="button" className="icon-button" aria-label="Đóng" onClick={() => setAccessEditorUid(null)}><X size={17} /></button>
+                </div>
+                <div className="identity-access-editor__role" role="radiogroup" aria-label="Loại tài khoản">
+                  <button type="button" className={accessRoleDraft === 'student' ? 'active' : ''} onClick={() => { setAccessRoleDraft('student'); setPositionDraft([]); setBranchDraft([]) }}>Học viên</button>
+                  <button type="button" className={accessRoleDraft === 'staff' ? 'active' : ''} onClick={() => setAccessRoleDraft('staff')}>Nhân viên</button>
+                </div>
+                {accessRoleDraft === 'staff' && <>
+                  <div className="identity-access-editor__options" aria-label="Chức danh">
+                    {positionOptions.map((position) => <label key={position.id}><input type="checkbox" checked={positionDraft.includes(position.id)} onChange={() => togglePosition(position.id)} /><span><strong>{position.label}</strong><small>{position.description}</small></span></label>)}
+                  </div>
+                  <div className="identity-access-editor__branches">
+                    <strong>Phạm vi chi nhánh</strong>
+                    <small>Để trống khi chức danh không bị giới hạn theo chi nhánh. Với Sales/Quản lý nên chọn ít nhất một chi nhánh.</small>
+                    {branches.length ? <div>{branches.filter((branch) => branch.status !== 'archived').map((branch) => <label key={branch.id}><input type="checkbox" checked={branchDraft.includes(branch.id)} onChange={() => toggleBranch(branch.id)} /> {branch.name}</label>)}</div> : <em>Chưa tải được danh sách chi nhánh. Bạn có thể cấp chức danh trước và bổ sung phạm vi sau.</em>}
+                  </div>
+                </>}
+                <div className="identity-access-editor__actions">
+                  <button type="button" className="outline-button" onClick={() => setAccessEditorUid(null)}>Hủy</button>
+                  <button type="button" className="pink-orange-button" onClick={() => void saveScopedAccess(user)} disabled={accessSaving || (accessRoleDraft === 'staff' && !positionDraft.length)}>{accessSaving ? 'Đang cấp quyền...' : 'Lưu quyền & yêu cầu đăng nhập lại'}</button>
+                </div>
+              </section>
+            )}
+            </div>
           )
         })}
 

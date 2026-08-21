@@ -57,3 +57,26 @@ export async function revokeAccountInvite(inviteId: string) {
   const callable = httpsCallable<{ inviteId: string }, { inviteId: string; revoked: boolean }>(requireFunctions(), 'revokeAccountInvite')
   return (await callable({ inviteId })).data
 }
+
+export interface AssignStaffPositionsInput {
+  uid: string
+  accessRole: 'student' | 'staff'
+  positions: StaffPosition[]
+  branchIds: string[]
+}
+
+export interface AssignStaffPositionsResult {
+  accessContext: unknown
+  tokenRefreshRequired: boolean
+}
+
+/**
+ * Change an existing account's scoped staff assignment. The callable writes
+ * both the audited Firestore assignment and Firebase custom claims; browsers
+ * must never write either identity surface themselves.
+ */
+export async function assignStaffPositions(input: AssignStaffPositionsInput): Promise<AccessContext> {
+  const callable = httpsCallable<AssignStaffPositionsInput, AssignStaffPositionsResult>(requireFunctions(), 'assignStaffPositions')
+  const response = await callable(input)
+  return parseAccessContext(response.data.accessContext, input.uid)
+}

@@ -2742,6 +2742,45 @@
 .academy-revision-diff del { background: rgba(255,100,120,.14); }
 .academy-revision-diff ins { background: rgba(72,220,160,.14); }
 
+/* Identity v2 editor: scoped positions are assigned through a callable and
+   kept visually separate from the legacy one-dimensional role select. */
+.identity-access-editor {
+  display: grid;
+  gap: 14px;
+  margin: 0 12px 14px;
+  padding: 16px;
+  border: 1px solid rgba(246, 47, 130, .22);
+  border-radius: 16px;
+  background: linear-gradient(135deg, #fff8fb, #fff6ef);
+}
+.identity-access-editor__heading,
+.identity-access-editor__heading>span,
+.identity-access-editor__actions { display: flex; align-items: center; }
+.identity-access-editor__heading { justify-content: space-between; gap: 12px; }
+.identity-access-editor__heading>span { gap: 10px; color: var(--aura-pink); }
+.identity-access-editor__heading strong,
+.identity-access-editor__heading small { display: block; }
+.identity-access-editor__heading strong { color: var(--ink); font-size: 13px; }
+.identity-access-editor__heading small { margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.identity-access-editor__role { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 5px; border: 1px solid #f0dfe6; border-radius: 12px; background: #fff; }
+.identity-access-editor__role button { min-height: 38px; border: 0; border-radius: 9px; color: #756d76; background: transparent; font-size: 12px; font-weight: 750; }
+.identity-access-editor__role button.active { color: #fff; background: linear-gradient(135deg, var(--aura-pink), #ff8651); box-shadow: 0 7px 16px rgba(246,47,130,.2); }
+.identity-access-editor__options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.identity-access-editor__options label { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 8px; padding: 10px; border: 1px solid #f0dfe6; border-radius: 12px; background: #fff; cursor: pointer; }
+.identity-access-editor__options input,
+.identity-access-editor__branches input { accent-color: var(--aura-pink); }
+.identity-access-editor__options strong,
+.identity-access-editor__options small { display: block; }
+.identity-access-editor__options strong { color: var(--ink); font-size: 11px; }
+.identity-access-editor__options small { margin-top: 3px; color: var(--muted); font-size: 10px; line-height: 1.35; }
+.identity-access-editor__branches { display: grid; gap: 6px; }
+.identity-access-editor__branches>strong { color: var(--ink); font-size: 12px; }
+.identity-access-editor__branches>small,
+.identity-access-editor__branches>em { color: var(--muted); font-size: 10px; font-style: normal; line-height: 1.45; }
+.identity-access-editor__branches>div { display: flex; flex-wrap: wrap; gap: 7px; }
+.identity-access-editor__branches label { display: inline-flex; align-items: center; gap: 6px; min-height: 33px; padding: 6px 9px; border: 1px solid #f0dfe6; border-radius: 9px; color: #514a53; background: #fff; font-size: 11px; font-weight: 650; }
+.identity-access-editor__actions { justify-content: flex-end; gap: 9px; }
+
 @media (max-width: 760px) {
   .academy-workflow-card,
   .academy-revision-card { padding: 16px; border-radius: 18px; }
@@ -2751,4 +2790,8 @@
   .academy-revision-list article > div:last-child { width: 100%; justify-content: stretch; }
   .academy-revision-list article > div:last-child button { flex: 1; }
   .academy-revision-diff li > span { grid-template-columns: 1fr; }
+  .identity-access-editor { margin-right: 0; margin-left: 0; padding: 13px; }
+  .identity-access-editor__options { grid-template-columns: minmax(0, 1fr); }
+  .identity-access-editor__actions { align-items: stretch; flex-direction: column-reverse; }
+  .identity-access-editor__actions button { width: 100%; min-height: 44px; }
 }
