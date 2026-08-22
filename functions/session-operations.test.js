@@ -134,6 +134,97 @@ test('trainer-created requests carry immutable origin and session revision prove
   assert.match(creation, /originalHour: sessionHour\(sessionId, session\.data\(\)\.hour\)/)
 })
 
+test('attendance uses the session contract link and a deterministic event id', async () => {
+  const state = operationsFor({
+    'sessions/session-attendance-1': {
+      status: 'scheduled',
+      studentId: 'student-1',
+      trainerId: 'trainer-1',
+      contractId: 'contract-1',
+      date: '2026-08-20',
+      hour: 8,
+      revision: 0,
+    },
+    'contracts/contract-1': {
+      status: 'active',
+      studentId: 'student-1',
+      startDate: '2026-08-01',
+      endDate: '2026-08-31',
+      totalSessions: 12,
+      usedSessions: 0,
+      totalPrice: 1200000,
+    },
+  })
+
+  const first = await state.confirmSessionAttendance({
+    data: { sessionId: 'session-attendance-1', expectedRevision: 0 },
+  })
+  assert.equal(first.unchanged, false)
+  assert.equal(first.attendanceEventId, 'session-attendance-1')
+  assert.equal(state.read('sessions/session-attendance-1').status, 'completed')
+  assert.equal(state.read('sessions/session-attendance-1').attendanceEventId, 'session-attendance-1')
+  assert.equal(state.read('attendanceEvents/session-attendance-1').contractId, 'contract-1')
+
+  const retry = await state.confirmSessionAttendance({
+    data: { sessionId: 'session-attendance-1', expectedRevision: 0 },
+  })
+  assert.equal(retry.unchanged, true)
+  assert.equal(retry.attendanceEventId, 'session-attendance-1')
+  assert.equal(state.paths().filter((path) => path === 'attendanceEvents/session-attendance-1').length, 1)
+})
+
+test('attendance fails closed when contractId is missing, mismatched, or outside its term', async () => {
+  const missing = operationsFor({
+    'sessions/session-missing-contract': {
+      status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', date: '2026-08-20', revision: 0,
+    },
+    'contracts/unrelated-active-contract': {
+      status: 'active', studentId: 'student-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 0,
+    },
+  })
+  await assert.rejects(
+    missing.confirmSessionAttendance({ data: { sessionId: 'session-missing-contract', expectedRevision: 0 } }),
+    (error) => error.code === 'failed-precondition' && error.details?.issueCode === 'SESSION_CONTRACT_LINK_REQUIRED',
+  )
+  assert.equal(missing.read('sessions/session-missing-contract').status, 'scheduled')
+
+  const mismatched = operationsFor({
+    'sessions/session-mismatch': {
+      status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-other', date: '2026-08-20', revision: 0,
+    },
+    'contracts/contract-other': {
+      status: 'active', studentId: 'student-2', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 0,
+    },
+  })
+  await assert.rejects(
+    mismatched.confirmSessionAttendance({ data: { sessionId: 'session-mismatch', expectedRevision: 0 } }),
+    (error) => error.code === 'failed-precondition',
+  )
+  assert.equal(mismatched.paths().some((path) => path.startsWith('attendanceEvents/')), false)
+
+  const outsideTerm = operationsFor({
+    'sessions/session-outside-term': {
+      status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-09-01', revision: 0,
+    },
+    'contracts/contract-1': {
+      status: 'active', studentId: 'student-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 0,
+    },
+  })
+  await assert.rejects(
+    outsideTerm.confirmSessionAttendance({ data: { sessionId: 'session-outside-term', expectedRevision: 0 } }),
+    (error) => error.code === 'failed-precondition',
+  )
+  assert.equal(outsideTerm.read('sessions/session-outside-term').status, 'scheduled')
+})
+
+test('trainer attendance delegates to the same contract-linked transaction', () => {
+  const trainerConfirmation = trainerOperations.match(/const confirmMySession[\s\S]*?\n  const submitWorkoutNote/)?.[0] ?? ''
+  assert.match(trainerConfirmation, /completeSessionAttendanceTransaction/)
+  assert.match(trainerConfirmation, /assertSessionScope/)
+  assert.doesNotMatch(trainerConfirmation, /collection\('contracts'\)/)
+  assert.doesNotMatch(trainerConfirmation, /collection\('attendanceEvents'\)\.doc\(\)/)
+})
+
 test('approval commits cancellation, request audit, and contract extension together and retries idempotently', async () => {
   const state = operationsFor({
     'sessionRequests/request-1': { status: 'pending', type: 'cancel', sessionId: 'session-1', studentId: 'student-1', contractId: 'contract-1', requestedBy: 'student', originalDate: '2026-08-20', originalHour: 8, originalSessionRevision: 2, reason: 'Bận' },
@@ -277,7 +368,8 @@ test('unsafe leave, orphan, and learner lifecycle actions are visibly disabled',
   assert.doesNotMatch(orphanChecker, /deleteSession\s*\(/)
   assert.match(scheduler, /studentSessionActionUnavailable/)
   assert.doesNotMatch(scheduler, /\b(?:updateSession|deleteSession)\s*\(/)
-  assert.match(scheduler, /deployScheduleUnavailable/)
+  assert.match(scheduler, /validatePtScheduleDraft/)
+  assert.match(scheduler, /publishPtSchedule/)
   assert.doesNotMatch(scheduler, /\baddSession\s*\(/)
   assert.match(studentDetail, /manualAttendanceUnavailable/)
   assert.doesNotMatch(studentDetail, /\baddSession\s*\(/)

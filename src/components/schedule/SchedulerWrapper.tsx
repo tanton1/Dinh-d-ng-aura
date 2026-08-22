@@ -49,25 +49,41 @@ import {
 } from "../../utils/dateUtils";
 import { useDatabase } from "../../contexts/DatabaseContext";
 import DebugInfo from "./DebugInfo";
+import type { AccessContext } from "../../identity/access";
+import { resolveLegacyPtScheduleWorkspace } from "../../domain/pt/access";
+import {
+  publishPtSchedule,
+  validatePtScheduleDraft,
+  listPtScheduleVersions,
+  restorePtScheduleVersionToDraft,
+  type PtSchedulePublishResult,
+  type PtScheduleVersionListResult,
+  type PtScheduleVersionSummary,
+  asPtSchedulePublishError,
+  ptScheduleConflictLabel,
+} from "../../services/ptSchedulePublishService";
 
 interface Props {
   user?: User | null;
   profile?: UserProfile | null;
+  accessContext?: AccessContext | null;
+  backendMode?: "demo" | "firebase";
   onNavigate?: (screen: string) => void;
 }
 
-export default function SchedulerWrapper({ user, profile }: Props) {
+export default function SchedulerWrapper({ user, profile, accessContext, backendMode = "firebase" }: Props) {
   const getCalculatedUsedSessions = (contract: any, allSessions: Session[]) => {
     if (!contract) return 0;
     const contractSessions = allSessions.filter(s => {
       if (s.studentId !== contract.studentId) return false;
       if (s.status !== 'completed') return false; 
+      if (s.contractId) return s.contractId === contract.id;
       const sDate = new Date(s.date).getTime();
       const startDate = new Date(contract.startDate).getTime();
-      const endDate = new Date(contract.endDate).getTime() + (86400000 * 60);
+      const endDate = new Date(contract.endDate).getTime() + 86400000 - 1;
       return sDate >= startDate && sDate <= endDate;
     });
-    const uniqueClassIds = new Set(contractSessions.map(s => `${s.id.split('-').slice(0,2).join('-')}-${s.date}`));
+    const uniqueClassIds = new Set(contractSessions.map(s => s.id));
     const currentAttendedClasses = contract.attendedClasses || [];
     currentAttendedClasses.forEach((id: string) => uniqueClassIds.add(id));
     return uniqueClassIds.size;
@@ -80,6 +96,7 @@ export default function SchedulerWrapper({ user, profile }: Props) {
     contracts,
     sessions,
     schedules,
+    ptAvailability,
     scheduleConfig,
     addStudent,
     updateStudent,
@@ -107,11 +124,17 @@ export default function SchedulerWrapper({ user, profile }: Props) {
   const [schedulingBranchId, setSchedulingBranchId] = useState<string>("");
   const [showBulkAdjustMenu, setShowBulkAdjustMenu] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
-  const deployScheduleUnavailable =
-    "Chưa thể triển khai lịch thành buổi tập an toàn tại đây. Cần quy trình máy chủ kiểm tra hợp đồng, trùng lịch và tạo toàn bộ buổi trong một giao dịch có kiểm toán.";
+  const [publishPreview, setPublishPreview] = useState<PtSchedulePublishResult | null>(null);
+  const [publishBusy, setPublishBusy] = useState<"validate" | "publish" | null>(null);
+  const [publishError, setPublishError] = useState<{ message: string; conflicts: string[] } | null>(null);
+  const [versionHistory, setVersionHistory] = useState<PtScheduleVersionListResult | null>(null);
+  const [versionHistoryBusy, setVersionHistoryBusy] = useState(false);
+  const [restoreCandidate, setRestoreCandidate] = useState<PtScheduleVersionSummary | null>(null);
+  const [restoreBusy, setRestoreBusy] = useState(false);
 
-  const isAdmin = profile?.role === "admin";
-  const isTrainer = profile?.role === "trainer";
+  const workspaceMode = resolveLegacyPtScheduleWorkspace(profile, accessContext, backendMode);
+  const isAdmin = workspaceMode === "admin";
+  const isTrainer = workspaceMode === "trainer";
 
   useEffect(() => {
     if (students && trainers && contracts && sessions && schedules) {
@@ -142,6 +165,136 @@ export default function SchedulerWrapper({ user, profile }: Props) {
   };
   const schedule = scheduleData.schedule || {};
   const overriddenSessions = scheduleData.overriddenSessions || {};
+  const draftRevision = Number(scheduleData.draftRevision || 0);
+  const publishedVersion = schedulingBranchId
+    ? Number(scheduleData.publishedVersions?.[schedulingBranchId] || 0)
+    : 0;
+  const publishedRevision = schedulingBranchId
+    ? Number(scheduleData.publishedRevisions?.[schedulingBranchId] ?? -1)
+    : -1;
+  const targetAvailabilityWeekId = getDatesForWeek(weekOffset)["T2"].full;
+  const studentsForTargetWeek = useMemo(() => {
+    const weekly = new Map(
+      ptAvailability
+        .filter((item) => item.weekId === targetAvailabilityWeekId)
+        .map((item) => [item.studentId, item]),
+    );
+    return students.map((student) => {
+      const availability = weekly.get(student.id);
+      if (!availability) return student;
+      return {
+        ...student,
+        availableSlots: availability.slots,
+        isScheduleConfirmed: availability.status === "submitted" || availability.status === "locked",
+      };
+    });
+  }, [ptAvailability, students, targetAvailabilityWeekId]);
+
+  useEffect(() => {
+    setPublishPreview(null);
+    setPublishError(null);
+    setVersionHistory(null);
+    setRestoreCandidate(null);
+  }, [weekId, schedulingBranchId, draftRevision]);
+
+  const handleValidatePublish = async () => {
+    if (!schedulingBranchId) {
+      setPublishError({ message: "Hãy chọn một cơ sở cụ thể trước khi kiểm tra lịch.", conflicts: [] });
+      return;
+    }
+    setPublishBusy("validate");
+    setPublishError(null);
+    try {
+      const targetWeek = getDatesForWeek(weekOffset)["T2"].full;
+      const preview = await validatePtScheduleDraft({
+        weekId: targetWeek,
+        branchId: schedulingBranchId,
+        expectedDraftRevision: draftRevision,
+      });
+      setPublishPreview(preview);
+    } catch (error) {
+      const normalized = asPtSchedulePublishError(error);
+      setPublishError({ message: normalized.message, conflicts: normalized.conflicts });
+    } finally {
+      setPublishBusy(null);
+    }
+  };
+
+  const handlePublishSchedule = async () => {
+    if (!schedulingBranchId || !publishPreview) return;
+    setPublishBusy("publish");
+    setPublishError(null);
+    try {
+      const targetWeek = getDatesForWeek(weekOffset)["T2"].full;
+      const result = await publishPtSchedule({
+        weekId: targetWeek,
+        branchId: schedulingBranchId,
+        expectedDraftRevision: publishPreview.draftRevision,
+      });
+      setPublishPreview(null);
+      setDebugData({
+        success: true,
+        message: result.unchanged
+          ? `Lịch cơ sở đã ở phiên bản v${result.version}.`
+          : `Đã publish lịch v${result.version} an toàn.`,
+        publishDiff: result.diff,
+      });
+    } catch (error) {
+      const normalized = asPtSchedulePublishError(error);
+      setPublishError({ message: normalized.message, conflicts: normalized.conflicts });
+      if (normalized.issueCode === "REVISION_CONFLICT") setPublishPreview(null);
+    } finally {
+      setPublishBusy(null);
+    }
+  };
+
+  const handleOpenVersionHistory = async () => {
+    if (!schedulingBranchId) {
+      setPublishError({ message: "Hãy chọn một cơ sở cụ thể để xem lịch sử.", conflicts: [] });
+      return;
+    }
+    setVersionHistoryBusy(true);
+    setPublishError(null);
+    try {
+      const targetWeek = getDatesForWeek(weekOffset)["T2"].full;
+      setVersionHistory(await listPtScheduleVersions({ weekId: targetWeek, branchId: schedulingBranchId }));
+    } catch (error) {
+      const normalized = asPtSchedulePublishError(error);
+      setPublishError({ message: normalized.message, conflicts: normalized.conflicts });
+    } finally {
+      setVersionHistoryBusy(false);
+    }
+  };
+
+  const handleRestoreVersion = async () => {
+    if (!schedulingBranchId || !restoreCandidate || !versionHistory) return;
+    setRestoreBusy(true);
+    setPublishError(null);
+    try {
+      const targetWeek = getDatesForWeek(weekOffset)["T2"].full;
+      const result = await restorePtScheduleVersionToDraft({
+        weekId: targetWeek,
+        branchId: schedulingBranchId,
+        version: restoreCandidate.version,
+        expectedDraftRevision: versionHistory.currentDraftRevision,
+      });
+      setRestoreCandidate(null);
+      setVersionHistory(null);
+      setDebugData({
+        success: true,
+        message: `Đã sao chép lịch v${result.version} thành draft r${result.draftRevision}. Hãy kiểm tra lại trước khi publish.`,
+      });
+    } catch (error) {
+      const normalized = asPtSchedulePublishError(error);
+      setPublishError({ message: normalized.message, conflicts: normalized.conflicts });
+      if (normalized.issueCode === "REVISION_CONFLICT") {
+        setRestoreCandidate(null);
+        setVersionHistory(null);
+      }
+    } finally {
+      setRestoreBusy(false);
+    }
+  };
 
   const studentContracts = useMemo(() => {
     const map = new Map<string, StudentContract>();
@@ -155,7 +308,6 @@ export default function SchedulerWrapper({ user, profile }: Props) {
         new Date(b.startDate).getTime() - new Date(a.startDate).getTime(),
     );
 
-    const skipReasons: string[] = [];
     sortedContracts.forEach((c) => {
       if (c.status === "active" && !map.has(c.studentId)) {
         let startDate = new Date(c.startDate || 0);
@@ -178,9 +330,10 @@ export default function SchedulerWrapper({ user, profile }: Props) {
         const scheduledSessions = sessions.filter(s => {
           if (s.studentId !== c.studentId) return false;
           if (s.status !== 'scheduled' && s.status !== 'rescheduled') return false;
+          if (s.contractId) return s.contractId === c.id;
           const sDate = new Date(s.date).getTime();
           const contractStart = new Date(c.startDate).getTime();
-          const contractEnd = new Date(c.endDate).getTime() + (86400000 * 60);
+          const contractEnd = new Date(c.endDate).getTime() + 86400000 - 1;
           return sDate >= contractStart && sDate <= contractEnd;
         }).length;
         
@@ -192,24 +345,17 @@ export default function SchedulerWrapper({ user, profile }: Props) {
           startDate.getTime() <= endOfTargetWeek.getTime()
         ) {
           map.set(c.studentId, c);
-        } else {
-          skipReasons.push(`Contract ${c.studentId}: daysLeft=${daysLeft}, sessionsLeft=${sessionsLeft}, startDate=${startDate.getTime()}, endOfWeek=${endOfTargetWeek.getTime()}`);
         }
       }
     });
     
-    // Store it somewhere or log it
-    console.log("SchedulerWrapper Contract Skips:", skipReasons);
-    // You could put it on window for debugging:
-    (window as any).__schedulerSkipReasons = skipReasons;
-    
     return map;
-  }, [contracts, weekOffset]);
+  }, [contracts, sessions, weekOffset]);
 
   const warnings = useMemo(() => {
     if (!isLoaded) return [];
     // Only calculate for students with active contracts
-    const activeStudents = students.filter((s) => studentContracts.has(s.id));
+    const activeStudents = studentsForTargetWeek.filter((s) => studentContracts.has(s.id));
     return calculateWarnings(
       activeStudents,
       trainers,
@@ -219,7 +365,7 @@ export default function SchedulerWrapper({ user, profile }: Props) {
     );
   }, [
     isLoaded,
-    students,
+    studentsForTargetWeek,
     trainers,
     schedule,
     studentContracts,
@@ -228,7 +374,7 @@ export default function SchedulerWrapper({ user, profile }: Props) {
   ]);
 
   const handleBulkAdjustSessions = (adjustment: number) => {
-    const activeStudents = students.filter((s) => studentContracts.has(s.id));
+    const activeStudents = studentsForTargetWeek.filter((s) => studentContracts.has(s.id));
     const newOverrides = { ...overriddenSessions };
     let totalAdjusted = 0;
 
@@ -287,7 +433,7 @@ export default function SchedulerWrapper({ user, profile }: Props) {
         );
     }
 
-    const activeStudents = students.filter((s) => studentContracts.has(s.id));
+    const activeStudents = studentsForTargetWeek.filter((s) => studentContracts.has(s.id));
     const warnings = calculateWarnings(
       activeStudents,
       trainers,
@@ -298,7 +444,7 @@ export default function SchedulerWrapper({ user, profile }: Props) {
     updateScheduleData(weekId, copiedSchedule, warnings);
   };
 
-  const filteredStudents = (students || []).filter(
+  const filteredStudents = studentsForTargetWeek.filter(
     (s) =>
       (selectedBranchId === "all" ||
         (selectedBranchId === "none"
@@ -341,7 +487,7 @@ export default function SchedulerWrapper({ user, profile }: Props) {
       }
     }
     
-    const activeStudents = students.filter((s) => studentContracts.has(s.id));
+    const activeStudents = studentsForTargetWeek.filter((s) => studentContracts.has(s.id));
     const newWarnings = calculateWarnings(
       activeStudents,
       trainers,
@@ -356,13 +502,13 @@ export default function SchedulerWrapper({ user, profile }: Props) {
   const handleGenerate = () => {
     // 1. Filter students to schedule based on branch
     const branchStudents = schedulingBranchId
-      ? students.filter((s) => {
+      ? studentsForTargetWeek.filter((s) => {
           const c = contracts.find(
             (ct) => ct.studentId === s.id && ct.status === "active",
           );
           return (c?.branchId || s.branchId) === schedulingBranchId;
         })
-      : students;
+      : studentsForTargetWeek;
 
     const activeStudentList = branchStudents.filter((s) =>
       studentContracts.has(s.id),
@@ -446,10 +592,6 @@ export default function SchedulerWrapper({ user, profile }: Props) {
       const debugLogs = result.debugSteps?.length ? `\nChi tiết Log (vài dòng đầu):\n${result.debugSteps.slice(0, 15).join('\n')}` : '';
       alert(
         `Chưa có thay đổi nào được tạo ra (hoặc không còn chỗ để xếp).\n- Số HV có HĐ active hợp lệ: ${activeStudentList.length}/${branchStudents.length}\n${debugLogs}`,
-      );
-      console.log(
-        "DEBUG SCHEDULER: generatedCount === previousCount",
-        result.debugSteps,
       );
     } else {
       setDebugData({ success: true, generatedCount, previousCount, debugSteps: result.debugSteps });
@@ -555,6 +697,27 @@ export default function SchedulerWrapper({ user, profile }: Props) {
     return <div className="p-6 text-white">Đang tải dữ liệu...</div>;
   }
 
+  if (workspaceMode === "forbidden") {
+    return (
+      <section
+        role="alert"
+        style={{
+          margin: "clamp(12px, 3vw, 28px)",
+          padding: "clamp(20px, 4vw, 32px)",
+          border: "1px solid rgba(246, 47, 130, 0.2)",
+          borderRadius: 24,
+          background: "linear-gradient(135deg, rgba(246,47,130,.08), rgba(255,135,81,.12))",
+          color: "#251a27",
+        }}
+      >
+        <strong style={{ display: "block", fontSize: 20, marginBottom: 8 }}>Không thể mở dữ liệu lịch legacy</strong>
+        <span style={{ lineHeight: 1.55 }}>
+          Trang này chỉ dành cho quản trị vận hành đã được xác minh. PT và học viên sử dụng lịch cá nhân được lọc qua API an toàn.
+        </span>
+      </section>
+    );
+  }
+
   if (isAdmin) {
     const targetWeekDates = getDatesForWeek(weekOffset);
     return (
@@ -641,16 +804,120 @@ export default function SchedulerWrapper({ user, profile }: Props) {
             </button>
             <button
               type="button"
-              disabled
-              title={deployScheduleUnavailable}
-              className="bg-zinc-800 text-zinc-500 px-4 py-2 text-sm rounded-xl font-bold flex items-center gap-2 border border-zinc-700 cursor-not-allowed"
+              disabled={!schedulingBranchId || versionHistoryBusy || publishBusy !== null}
+              onClick={handleOpenVersionHistory}
+              title={!schedulingBranchId ? "Chọn một cơ sở cụ thể để xem lịch sử." : "Xem các phiên bản đã publish."}
+              className="schedule-history-trigger px-4 py-2 text-sm rounded-xl font-bold flex items-center gap-2 disabled:cursor-not-allowed"
             >
-              <CheckCircle2 className="w-4 h-4" /> Chưa thể triển khai
+              <Clock className="w-4 h-4" />
+              {versionHistoryBusy ? "Đang tải…" : "Lịch sử"}
+            </button>
+            <button
+              type="button"
+              disabled={!schedulingBranchId || publishBusy !== null}
+              onClick={handleValidatePublish}
+              title={!schedulingBranchId ? "Chọn một cơ sở cụ thể để publish." : "Kiểm tra xung đột và xem trước thay đổi."}
+              className="schedule-publish-trigger px-4 py-2 text-sm rounded-xl font-bold flex items-center gap-2 disabled:cursor-not-allowed"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              {publishBusy === "validate" ? "Đang kiểm tra…" : "Kiểm tra & Publish"}
             </button>
           </div>
         </div>
 
-        <p className="text-xs text-amber-400/90">{deployScheduleUnavailable}</p>
+        <div className="schedule-publish-state" aria-live="polite">
+          <span>Draft r{draftRevision}</span>
+          <span>{schedulingBranchId ? `Published v${publishedVersion}` : "Chưa chọn cơ sở"}</span>
+          {schedulingBranchId && publishedRevision === draftRevision && <strong>Đã đồng bộ</strong>}
+          {schedulingBranchId && publishedRevision !== draftRevision && <strong>Có thay đổi chưa publish</strong>}
+        </div>
+        {publishError && (
+          <div className="schedule-publish-error" role="alert">
+            <strong>{publishError.message}</strong>
+            {publishError.conflicts.length > 0 && (
+              <ul>{publishError.conflicts.map((item) => <li key={item}>{ptScheduleConflictLabel(item)}</li>)}</ul>
+            )}
+          </div>
+        )}
+
+        {publishPreview && (
+          <div className="schedule-publish-backdrop" role="presentation">
+            <section className="schedule-publish-dialog" role="dialog" aria-modal="true" aria-labelledby="schedule-publish-title">
+              <div className="schedule-publish-dialog__accent" />
+              <p className="schedule-publish-dialog__eyebrow">AURA PT · KIỂM TRA LỊCH</p>
+              <h2 id="schedule-publish-title">Publish lịch cơ sở?</h2>
+              <p>
+                Hệ thống đã kiểm tra hợp đồng, lịch rảnh, sức chứa PT, trùng ngày và bảo vệ các buổi đã hoàn thành.
+              </p>
+              <div className="schedule-publish-diff">
+                <div><strong>{publishPreview.diff.create}</strong><span>Tạo mới</span></div>
+                <div><strong>{publishPreview.diff.update}</strong><span>Điều chỉnh</span></div>
+                <div><strong>{publishPreview.diff.cancel}</strong><span>Hủy lịch</span></div>
+                <div><strong>{publishPreview.diff.unchanged}</strong><span>Giữ nguyên</span></div>
+              </div>
+              {publishPreview.warnings.length > 0 && (
+                <div className="schedule-publish-warning">
+                  {publishPreview.warnings.map((warning) => <span key={warning}>{ptScheduleConflictLabel(warning)}</span>)}
+                </div>
+              )}
+              <div className="schedule-publish-dialog__actions">
+                <button type="button" onClick={() => setPublishPreview(null)} disabled={publishBusy !== null}>Quay lại chỉnh</button>
+                <button type="button" onClick={handlePublishSchedule} disabled={publishBusy !== null}>
+                  {publishBusy === "publish" ? "Đang publish…" : `Publish phiên bản v${publishPreview.version}`}
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {versionHistory && (
+          <div className="schedule-publish-backdrop" role="presentation">
+            <section className="schedule-publish-dialog schedule-version-dialog" role="dialog" aria-modal="true" aria-labelledby="schedule-version-title">
+              <div className="schedule-publish-dialog__accent" />
+              <p className="schedule-publish-dialog__eyebrow">AURA PT · LỊCH SỬ PHIÊN BẢN</p>
+              <h2 id="schedule-version-title">Lịch đã publish</h2>
+              <p>Khôi phục chỉ tạo một draft mới. Session hiện hành và phiên bản đã publish không bị sửa hoặc xóa.</p>
+              {versionHistory.versions.length === 0 ? (
+                <div className="schedule-version-empty">Chi nhánh này chưa có phiên bản publish.</div>
+              ) : (
+                <div className="schedule-version-list">
+                  {versionHistory.versions.map((version) => (
+                    <article key={version.version} className={version.version === versionHistory.currentVersion ? "is-current" : ""}>
+                      <div>
+                        <strong>Phiên bản v{version.version}</strong>
+                        <span>{version.entryCount} buổi · nguồn draft r{version.sourceDraftRevision}</span>
+                        <small>{version.publishedAt ? new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(version.publishedAt)) : "Chưa có thời gian"}</small>
+                      </div>
+                      <button type="button" onClick={() => setRestoreCandidate(version)} disabled={restoreBusy}>
+                        <RotateCcw className="w-4 h-4" /> Khôi phục draft
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              )}
+              <div className="schedule-publish-dialog__actions schedule-version-dialog__actions">
+                <button type="button" onClick={() => setVersionHistory(null)} disabled={restoreBusy}>Đóng</button>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {restoreCandidate && versionHistory && (
+          <div className="schedule-publish-backdrop schedule-restore-confirm" role="presentation">
+            <section className="schedule-publish-dialog" role="alertdialog" aria-modal="true" aria-labelledby="schedule-restore-title">
+              <div className="schedule-publish-dialog__accent" />
+              <p className="schedule-publish-dialog__eyebrow">XÁC NHẬN KHÔI PHỤC AN TOÀN</p>
+              <h2 id="schedule-restore-title">Dùng lịch v{restoreCandidate.version} làm draft?</h2>
+              <p>Draft hiện tại sẽ được thay bằng nội dung phiên bản này cho đúng chi nhánh. Bạn vẫn phải kiểm tra và publish lại để áp dụng vào lịch tập.</p>
+              <div className="schedule-publish-dialog__actions">
+                <button type="button" onClick={() => setRestoreCandidate(null)} disabled={restoreBusy}>Quay lại</button>
+                <button type="button" onClick={handleRestoreVersion} disabled={restoreBusy}>
+                  {restoreBusy ? "Đang khôi phục…" : `Tạo draft từ v${restoreCandidate.version}`}
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
 
 
 
@@ -691,7 +958,7 @@ export default function SchedulerWrapper({ user, profile }: Props) {
                   onCancelEdit={() => setEditingStudent(null)}
                   isAvailabilityOnly={true}
                   scheduleConfig={activeScheduleConfig}
-                  isAdmin={profile?.role === "admin"}
+                  isAdmin={isAdmin}
                 />
               )}
 
@@ -779,11 +1046,11 @@ export default function SchedulerWrapper({ user, profile }: Props) {
           {activeSubTab === "schedule" && (
             <PTSchedule
               schedule={schedule}
-              students={students}
+              students={studentsForTargetWeek}
               trainers={trainers}
               contracts={contracts}
               weekOffset={weekOffset}
-              selectedBranchId={selectedBranchId}
+              selectedBranchId={schedulingBranchId}
               scheduleConfig={activeScheduleConfig}
               onUpdateSlot={(slotId, updater) => {
                 updateScheduleSlot(weekId, slotId, updater);
@@ -1014,9 +1281,6 @@ export default function SchedulerWrapper({ user, profile }: Props) {
             selectedBranchId={profile?.branchId || "all"}
             weekOffset={weekOffset}
             scheduleConfig={activeScheduleConfig}
-            onUpdateSlot={(slotId, updater) => {
-              updateScheduleSlot(weekId, slotId, updater);
-            }}
           />
         )}
       </div>
@@ -1086,7 +1350,7 @@ export default function SchedulerWrapper({ user, profile }: Props) {
               availableSlots: [],
             }}
             scheduleConfig={activeScheduleConfig}
-            isAdmin={profile?.role === "admin"}
+            isAdmin={isAdmin}
           />
         </div>
       ) : (
@@ -1460,7 +1724,7 @@ export default function SchedulerWrapper({ user, profile }: Props) {
                             : undefined
                         }
                         scheduleConfig={activeScheduleConfig}
-                        isAdmin={profile?.role === "admin"}
+                        isAdmin={isAdmin}
                       />
                     </div>
                   ) : (

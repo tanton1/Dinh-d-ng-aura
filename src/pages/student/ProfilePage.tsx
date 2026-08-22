@@ -282,7 +282,7 @@ export default function ProfilePage({ fullProfile, displayName, email, membershi
         {onChangePassword && (
           <section style={{ background: 'linear-gradient(135deg, #fff8fb, #fff7f0)', padding: '20px', borderRadius: '22px', border: '1px solid #f3dce6' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}><KeyRound size={20} color="#f62f82" /><h3 style={{ margin: 0, fontSize: '17px' }}>Bảo mật tài khoản</h3></div>
-            <p style={{ margin: '0 0 14px', color: 'var(--aura-muted)', fontSize: '13px', lineHeight: 1.5 }}>Mật khẩu ban đầu của tài khoản do Aura tạo là số điện thoại. Hãy thay bằng mật khẩu riêng của bạn.</p>
+            <p style={{ margin: '0 0 14px', color: 'var(--aura-muted)', fontSize: '13px', lineHeight: 1.5 }}>Mật khẩu ban đầu của tài khoản do Aura tạo là số điện thoại. Bạn có thể đổi sang mật khẩu riêng bất cứ lúc nào.</p>
             <div style={{ display: 'grid', gap: '10px' }}>
               <input aria-label="Mật khẩu hiện tại" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder="Mật khẩu hiện tại" style={{ minHeight: 46, borderRadius: 12, border: '1px solid #f0dfe6', padding: '0 13px', background: '#fff' }} />
               <input aria-label="Mật khẩu mới" type="password" autoComplete="new-password" value={nextPassword} onChange={(event) => setNextPassword(event.target.value)} placeholder="Mật khẩu mới (ít nhất 6 ký tự)" style={{ minHeight: 46, borderRadius: 12, border: '1px solid #f0dfe6', padding: '0 13px', background: '#fff' }} />

@@ -227,7 +227,8 @@ export default function AdminStudentsPage({
   const copyCreatedAccountInfo = async () => {
     if (!createdAccountResult) return
     const appUrl = window.location.origin
-    const text = `Xin chào ${createdAccountResult.displayName}!\nAura Fitness đã tạo tài khoản cho bạn.\n\n🌐 Mở ứng dụng: ${appUrl}\n📧 Email đăng nhập: ${createdAccountResult.email}\n🔐 Mật khẩu ban đầu: số điện thoại ${createdAccountResult.phoneNumber}\n\nSau khi đăng nhập, hãy vào Hồ sơ cá nhân > Bảo mật để đổi mật khẩu ngay.`
+    const passwordPhone = createdAccountResult.phoneNumber.replace(/^\+84/, '0').replace(/\D/g, '')
+    const text = `Xin chào ${createdAccountResult.displayName}!\nAura Fitness đã tạo tài khoản cho bạn.\n\n🌐 Mở ứng dụng: ${appUrl}\n📧 Email đăng nhập: ${createdAccountResult.email}\n🔐 Mật khẩu ban đầu: ${passwordPhone}\n\nSau khi đăng nhập, bạn có thể vào Hồ sơ cá nhân > Bảo mật nếu muốn đổi mật khẩu.`
     await navigator.clipboard.writeText(text)
     setCopiedAccountInfo(true)
     window.setTimeout(() => setCopiedAccountInfo(false), 2200)
@@ -776,7 +777,7 @@ export default function AdminStudentsPage({
                       </div>
                       <div className="success-account-details-item" style={{ gridColumn: 'span 2' }}>
                         <small>Mật khẩu ban đầu</small>
-                        <code className="pink-code">Chính là số điện thoại ở trên</code>
+                        <code className="pink-code">{createdAccountResult.phoneNumber.replace(/^\+84/, '0').replace(/\D/g, '')}</code>
                       </div>
                     </div>
 
@@ -847,7 +848,7 @@ export default function AdminStudentsPage({
                         placeholder="Ví dụ: 0912345678"
                       />
                       <small style={{ color: '#e11d48', fontWeight: 600, marginTop: '2px', background: '#fff1f2', padding: '6px 10px', borderRadius: '8px', border: '1px solid #fecdd3' }}>
-                        Số này được liên kết với tài khoản và cũng là mật khẩu ban đầu. Học viên đổi mật khẩu ngay sau lần đăng nhập đầu tiên.
+                        Số này được liên kết với tài khoản và cũng là mật khẩu ban đầu. Học viên có thể đổi sau khi đăng nhập nếu muốn.
                       </small>
                     </label>
 

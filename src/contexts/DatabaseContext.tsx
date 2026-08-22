@@ -36,18 +36,42 @@ const DEFAULT_SCHEDULE_CONFIG: ScheduleConfig = {
   lockHour: 12,
 }
 
+export interface ScheduleDocumentState {
+  schedule: Schedule
+  warnings: Warning[]
+  overriddenSessions?: Record<string, number>
+  draftRevision?: number
+  publishedVersions?: Record<string, number>
+  publishedRevisions?: Record<string, number>
+  publishStatusByBranch?: Record<string, 'draft' | 'published'>
+}
+
+export interface PtAvailabilityDocument {
+  id: string
+  studentId: string
+  weekId: string
+  slots: string[]
+  requiredSessions: number
+  minimumSlots: number
+  status: 'draft' | 'submitted' | 'locked'
+  revision: number
+}
+
 type LegacyOperationSource =
   | 'students' | 'contracts' | 'sessions' | 'payments'
   | 'leaveRequests' | 'workoutLogs' | 'sessionRequests'
   | 'scheduleConfig' | 'trainers' | 'branches' | 'packages'
-  | 'staff' | 'dailyCheckins' | 'schedules'
+  | 'staff' | 'dailyCheckins' | 'schedules' | 'ptAvailability'
 
 // Transitional legacy views must not all subscribe to the same 15 data
 // sources. Keep each surface on the smallest set its current components use;
 // actor-scoped paginated APIs will replace these remaining listeners.
 const LEGACY_OPERATIONS_VIEW_SOURCES = {
-  'admin-pt-students': ['students', 'contracts', 'payments', 'packages', 'trainers', 'branches', 'sessions', 'leaveRequests', 'sessionRequests', 'dailyCheckins', 'workoutLogs'],
-  'admin-pt-schedule': ['students', 'trainers', 'branches', 'contracts', 'sessions', 'schedules', 'scheduleConfig'],
+  'admin-pt-students': ['students', 'contracts', 'payments', 'packages', 'trainers', 'branches', 'sessions', 'leaveRequests', 'sessionRequests', 'dailyCheckins', 'workoutLogs', 'ptAvailability'],
+  'admin-pt-schedule': ['students', 'trainers', 'branches', 'contracts', 'sessions', 'schedules', 'scheduleConfig', 'ptAvailability'],
+  // The history workspace resolves the selected subject locally, while all
+  // historical sessions are fetched cursor-first from a callable API.
+  'admin-training-history': ['students', 'trainers'],
   'admin-report': ['sessions', 'trainers', 'contracts', 'students', 'payments', 'branches'],
   'admin-finance': ['branches', 'contracts', 'students', 'payments'],
   // Nhân sự & Chi nhánh now renders the identity workspace. It only needs
@@ -85,7 +109,8 @@ interface DatabaseContextType {
   workoutLogs: WorkoutLog[]
   leaveRequests: LeaveRequest[]
   sessionRequests: SessionRequest[]
-  schedules: { [weekId: string]: { schedule: Schedule, warnings: Warning[], overriddenSessions?: Record<string, number> } }
+  schedules: { [weekId: string]: ScheduleDocumentState }
+  ptAvailability: PtAvailabilityDocument[]
   scheduleConfig: ScheduleConfig
   operationsSync: OperationsSyncState
   
@@ -172,7 +197,8 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   const [workoutLogs, setWorkoutLogs] = useState<WorkoutLog[]>([])
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([])
   const [sessionRequests, setSessionRequests] = useState<SessionRequest[]>([])
-  const [schedules, setSchedules] = useState<{ [weekId: string]: { schedule: Schedule, warnings: Warning[], overriddenSessions?: Record<string, number> } }>({})
+  const [schedules, setSchedules] = useState<{ [weekId: string]: ScheduleDocumentState }>({})
+  const [ptAvailability, setPtAvailability] = useState<PtAvailabilityDocument[]>([])
   const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig>(DEFAULT_SCHEDULE_CONFIG)
   const [isMigrating] = useState(false)
   const [isMigrated, setIsMigrated] = useState(false)
@@ -200,6 +226,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     setLeaveRequests([])
     setSessionRequests([])
     setSchedules({})
+    setPtAvailability([])
     setScheduleConfig(DEFAULT_SCHEDULE_CONFIG)
     setIsMigrated(false)
   }
@@ -324,6 +351,15 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
         orderBy('date', 'asc'),
         limit(3000),
       )
+      const availabilityStart = new Date()
+      const availabilityWeekday = availabilityStart.getDay()
+      availabilityStart.setDate(availabilityStart.getDate() - (availabilityWeekday === 0 ? 6 : availabilityWeekday - 1))
+      const availabilityQuery = query(
+        collection(db, 'ptAvailability'),
+        where('weekId', '>=', availabilityStart.toISOString().slice(0, 10)),
+        orderBy('weekId', 'asc'),
+        limit(1000),
+      )
       if (activeSources.has('sessions')) unsubs.push(onSnapshot(sessionsQuery, (snapshot) => {
         const parsedSessions = snapshot.docs.map(document => {
           const data = withDocumentId<Session>(document)
@@ -399,19 +435,28 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       }, (err) => listenerError('dailyCheckins', err)))
 
       if (activeSources.has('schedules')) unsubs.push(onSnapshot(collection(db, 'schedules'), (snapshot) => {
-        const newSchedules: { [weekId: string]: { schedule: Schedule, warnings: Warning[], overriddenSessions?: Record<string, number> } } = {}
+        const newSchedules: { [weekId: string]: ScheduleDocumentState } = {}
         snapshot.docs.forEach(docSnap => {
           if (docSnap.id === 'global_schedule') return
           const data = docSnap.data()
           newSchedules[docSnap.id] = {
             schedule: data.schedule || {},
             warnings: data.warnings || [],
-            overriddenSessions: data.overriddenSessions || {}
+            overriddenSessions: data.overriddenSessions || {},
+            draftRevision: Number(data.draftRevision || 0),
+            publishedVersions: data.publishedVersions || {},
+            publishedRevisions: data.publishedRevisions || {},
+            publishStatusByBranch: data.publishStatusByBranch || {},
           }
         })
         setSchedules(newSchedules)
         markReady('schedules')
       }, (err) => listenerError('schedules', err)))
+
+      if (activeSources.has('ptAvailability')) unsubs.push(onSnapshot(availabilityQuery, (snapshot) => {
+        setPtAvailability(snapshot.docs.map(document => withDocumentId<PtAvailabilityDocument>(document)))
+        markReady('ptAvailability')
+      }, (err) => listenerError('ptAvailability', err)))
 
     } catch (e) {
       console.warn('Failed to set up Firestore listeners', e)
@@ -487,12 +532,12 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   const addSession = async (session: Session) => {
     assertLegacyWriteAccess()
     if (!db) return
-    await setDoc(doc(db, 'sessions', session.id), sanitize(session))
+    throw new Error(`Buổi tập ${session.id} chỉ được tạo qua quy trình máy chủ có kiểm tra hợp đồng và xung đột lịch.`)
   }
   const updateSession = async (session: Session) => {
     assertLegacyWriteAccess()
     if (!db) return
-    await setDoc(doc(db, 'sessions', session.id), sanitize(session), { merge: true })
+    throw new Error(`Buổi tập ${session.id} chỉ được cập nhật qua quy trình máy chủ có kiểm toán.`)
   }
   const deleteSession = async (id: string) => {
     assertLegacyWriteAccess()
@@ -616,15 +661,15 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   const updateScheduleData = async (weekId: string, newSchedule: Schedule, newWarnings: Warning[]) => {
     assertLegacyWriteAccess()
     if (!db) return
-    const isDeployed = sessions.some(s => s.scheduleEntryId?.startsWith(weekId))
-    if (isDeployed) {
-      throw new Error('Tuần đã triển khai session. Hãy hủy hoặc dời từng buổi bằng quy trình có audit; không thể ghi đè toàn bộ lịch.')
-    }
     await runTransaction(db, async (transaction) => {
       const docRef = doc(db!, 'schedules', weekId)
+      const docSnap = await transaction.get(docRef)
+      const currentRevision = docSnap.exists() ? Number(docSnap.data().draftRevision || 0) : 0
       transaction.set(docRef, {
         schedule: newSchedule,
-        warnings: newWarnings
+        warnings: newWarnings,
+        draftRevision: currentRevision + 1,
+        updatedAt: new Date().toISOString(),
       }, { merge: true })
     })
   }
@@ -642,57 +687,10 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       const newEntries = updater(currentEntries)
       
       transaction.update(docRef, {
-        [`schedule.${slotId}`]: newEntries
+        [`schedule.${slotId}`]: newEntries,
+        draftRevision: Number(docSnap.data().draftRevision || 0) + 1,
+        updatedAt: new Date().toISOString(),
       })
-
-      const isDeployed = sessions.some(s => s.scheduleEntryId?.startsWith(weekId))
-      if (isDeployed) {
-        const [dayCode, hour] = slotId.split('-')
-        const mondayStr = weekId.replace('schedule_', '')
-        const [year, month, day] = mondayStr.split('-').map(Number)
-        const dayNames = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
-        const dayIndex = dayNames.indexOf(dayCode)
-        if (dayIndex === -1) return
-        const targetDate = new Date(year, month - 1, day + dayIndex)
-        const dateStr = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`
-
-        for (const oldEntry of currentEntries) {
-          if (oldEntry.type === 'off') continue
-          const isStillInSlot = newEntries.some(e => e.studentId === oldEntry.studentId && e.trainerId === oldEntry.trainerId && e.type !== 'off')
-          if (!isStillInSlot) {
-            const sessionId = `${slotId}-${oldEntry.studentId}-${dateStr}`
-            const existingSession = sessions.find(s => s.id === sessionId)
-            if (!existingSession || existingSession.status === 'scheduled') {
-              throw new Error('Buổi đã triển khai phải được hủy hoặc dời bằng quy trình session có audit.')
-            }
-          }
-        }
-
-        for (const newEntry of newEntries) {
-          if (newEntry.type === 'off') continue
-          const sessionId = `${slotId}-${newEntry.studentId}-${dateStr}`
-          
-          const existingSession = sessions.find(s => s.id === sessionId)
-          if (existingSession && existingSession.status !== 'scheduled') {
-            continue
-          }
-
-          const contract = contracts.find(c => c.studentId === newEntry.studentId && c.status === 'active')
-          
-          const sessionData: Session = {
-            id: sessionId,
-            trainerId: newEntry.trainerId,
-            studentId: newEntry.studentId,
-            date: dateStr,
-            hour: parseInt(hour),
-            status: 'scheduled',
-            branchId: newEntry.branchId || contract?.branchId || trainers.find(t => t.id === newEntry.trainerId)?.branchId || undefined,
-            verifiedByStudent: false,
-            scheduleEntryId: `${weekId}-${slotId}-${newEntry.studentId}`
-          }
-          transaction.set(doc(db!, 'sessions', sessionId), sessionData, { merge: true })
-        }
-      }
     })
   }
 
@@ -713,62 +711,9 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       })
       
       if (Object.keys(updateData).length > 0) {
+        updateData.draftRevision = Number(docSnap.data().draftRevision || 0) + 1
+        updateData.updatedAt = new Date().toISOString()
         transaction.update(docRef, updateData)
-
-        const isDeployed = sessions.some(s => s.scheduleEntryId?.startsWith(weekId))
-        if (isDeployed) {
-          const mondayStr = weekId.replace('schedule_', '')
-          const [year, month, day] = mondayStr.split('-').map(Number)
-          const dayNames = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
-
-          Object.keys(updatedSlots).forEach(slotId => {
-            const [dayCode, hour] = slotId.split('-')
-            const dayIndex = dayNames.indexOf(dayCode)
-            if (dayIndex === -1) return
-            const targetDate = new Date(year, month - 1, day + dayIndex)
-            const dateStr = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`
-
-            const currentEntries = currentSchedule[slotId] || []
-            const newEntries = updatedSlots[slotId]
-
-            for (const oldEntry of currentEntries) {
-              if (oldEntry.type === 'off') continue
-              const isStillInSlot = newEntries.some(e => e.studentId === oldEntry.studentId && e.trainerId === oldEntry.trainerId && e.type !== 'off')
-              if (!isStillInSlot) {
-                const sessionId = `${slotId}-${oldEntry.studentId}-${dateStr}`
-                const existingSession = sessions.find(s => s.id === sessionId)
-                if (!existingSession || existingSession.status === 'scheduled') {
-                  throw new Error('Buổi đã triển khai phải được hủy hoặc dời bằng quy trình session có audit.')
-                }
-              }
-            }
-
-            for (const newEntry of newEntries) {
-              if (newEntry.type === 'off') continue
-              const sessionId = `${slotId}-${newEntry.studentId}-${dateStr}`
-              
-              const existingSession = sessions.find(s => s.id === sessionId)
-              if (existingSession && existingSession.status !== 'scheduled') {
-                continue
-              }
-
-              const contract = contracts.find(c => c.studentId === newEntry.studentId && c.status === 'active')
-              
-              const sessionData: Session = {
-                id: sessionId,
-                trainerId: newEntry.trainerId,
-                studentId: newEntry.studentId,
-                date: dateStr,
-                hour: parseInt(hour),
-                status: 'scheduled',
-                branchId: newEntry.branchId || contract?.branchId || trainers.find(t => t.id === newEntry.trainerId)?.branchId || undefined,
-                verifiedByStudent: false,
-                scheduleEntryId: `${weekId}-${slotId}-${newEntry.studentId}`
-              }
-              transaction.set(doc(db!, 'sessions', sessionId), sessionData, { merge: true })
-            }
-          })
-        }
       }
     })
   }
@@ -816,7 +761,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       addWorkoutLog, updateWorkoutLog, deleteWorkoutLog,
       addLeaveRequest, updateLeaveRequest, deleteLeaveRequest,
       addSessionRequest, updateSessionRequest, deleteSessionRequest,
-      schedules, scheduleConfig, operationsSync,
+      schedules, ptAvailability, scheduleConfig, operationsSync,
       updateScheduleData, updateScheduleSlot, updateScheduleSlots, updateSessionOverrides, updateBulkSessionOverrides, updateScheduleConfig,
       updateUserProfile,
       refreshData,

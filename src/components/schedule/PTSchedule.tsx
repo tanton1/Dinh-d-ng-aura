@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Student, Trainer, Schedule, ScheduleEntry, StudentContract, ScheduleConfig } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Calendar, User, Clock, Info, Download, X, Lock, Unlock, Plus, Trash2, Search } from 'lucide-react';
@@ -46,6 +46,17 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
   const [slotStudents, setSlotStudents] = useState<{ id: string, isLocked: boolean }[]>([]);
   const [newStudentId, setNewStudentId] = useState<string>('');
   const [studentSearchTerm, setStudentSearchTerm] = useState('');
+  const selectedTrainer = trainers.find((trainer) => trainer.id === selectedTrainerId);
+  const selectedTrainerCapacity = Number.isInteger(selectedTrainer?.slotCapacity)
+    ? Math.max(1, Math.min(4, Number(selectedTrainer?.slotCapacity)))
+    : 2;
+
+  useEffect(() => {
+    const candidates = trainers.filter((trainer) => !selectedBranchId || selectedBranchId === 'all' || trainer.branchId === selectedBranchId);
+    if (!candidates.some((trainer) => trainer.id === selectedTrainerId)) {
+      setSelectedTrainerId(currentTrainerId && candidates.some((trainer) => trainer.id === currentTrainerId) ? currentTrainerId : candidates[0]?.id || '');
+    }
+  }, [currentTrainerId, selectedBranchId, selectedTrainerId, trainers]);
   
   const currentWeekDates = useMemo(() => getDatesForWeek(weekOffset), [weekOffset]);
 
@@ -164,6 +175,7 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
   };
 
   const openSlotEditor = (day: string, hour: number) => {
+    if (!onUpdateSlot || !selectedTrainerId || !selectedBranchId || selectedBranchId === 'all') return;
     const slotId = `${day}-${hour}`;
     const slotEntries = schedule[slotId] || [];
     const trainerEntries = slotEntries.filter(e => e.trainerId === selectedTrainerId);
@@ -197,7 +209,7 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
   };
 
   const handleSaveSlot = () => {
-    if (!editingSlot || !onUpdateSlot) return;
+    if (!editingSlot || !onUpdateSlot || !selectedBranchId || selectedBranchId === 'all') return;
     
     const slotId = editingSlot.id;
     
@@ -220,7 +232,7 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
   };
 
   const handleAddStudentToSlot = () => {
-    if (!newStudentId || slotStudents.length >= 2) return;
+    if (!newStudentId || slotStudents.length >= selectedTrainerCapacity) return;
     if (slotStudents.some(s => s.id === newStudentId)) return; // Already in slot
     
     setSlotStudents([...slotStudents, { id: newStudentId, isLocked: true }]);
@@ -301,7 +313,9 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
                 onChange={(e) => setSelectedTrainerId(e.target.value)}
                 className="w-full bg-zinc-950 border border-zinc-800 text-white pl-10 pr-10 py-3 rounded-xl outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent font-medium appearance-none transition-all shadow-sm"
               >
-                {trainers.map(t => (
+                {trainers
+                  .filter((trainer) => !selectedBranchId || selectedBranchId === 'all' || trainer.branchId === selectedBranchId)
+                  .map(t => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
@@ -547,7 +561,7 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
                   </button>
                 </div>
 
-                {slotStudents.length < 2 && (
+                {slotStudents.length < selectedTrainerCapacity && (
                   <div className="space-y-3">
                     <label className="block text-sm font-medium text-zinc-400">Thêm học viên</label>
                     <div className="relative">

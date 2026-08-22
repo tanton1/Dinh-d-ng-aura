@@ -85,15 +85,21 @@ function createCashbookFunctions({ db, onCall }) {
     const at = effectiveAt(request.data?.effectiveAt)
     const idempotencyKey = clean(request.data?.idempotencyKey, 'Khóa chống trùng', 120)
     const reference = db.doc(`cashTransactions/expense_${idempotencyKey}`)
+    const ledgerReference = db.doc(`ledgerEntries/cash_expense_${idempotencyKey}`)
     await db.runTransaction(async (transaction) => {
-      const [duplicate, account] = await Promise.all([transaction.get(reference), transaction.get(db.doc(`cashAccounts/${accountId}`))])
-      if (duplicate.exists) return
+      const [duplicate, ledgerDuplicate, account] = await Promise.all([
+        transaction.get(reference),
+        transaction.get(ledgerReference),
+        transaction.get(db.doc(`cashAccounts/${accountId}`)),
+      ])
+      if (duplicate.exists || ledgerDuplicate.exists) return
       if (!account.exists || account.data().status !== 'active') throw new HttpsError('failed-precondition', 'Tài khoản quỹ không hoạt động.')
       if (Number(account.data().balance || 0) < expenseAmount) throw new HttpsError('failed-precondition', 'Số dư quỹ không đủ.')
       transaction.update(account.ref, { balance: FieldValue.increment(-expenseAmount), updatedAt: FieldValue.serverTimestamp() })
-      transaction.create(reference, { schemaVersion: 1, accountId, branchId: account.data().branchId || '', type: 'expense', category, amount: -expenseAmount, effectiveAt: at, note, status: 'posted', referenceCode: `EXP-${reference.id.slice(-8).toUpperCase()}`, idempotencyKey, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
+      transaction.create(ledgerReference, { schemaVersion: 2, type: 'expense', eventClass: 'operating_expense', source: 'other', expenseCategory: category, cashAccountId: accountId, branchId: account.data().branchId || '', amount: -expenseAmount, cashImpact: -expenseAmount, revenueImpact: 0, expenseImpact: expenseAmount, receivableImpact: 0, deferredRevenueImpact: 0, effectiveAt: at, note, status: 'posted', referenceCode: `EXP-${reference.id.slice(-8).toUpperCase()}`, idempotencyKey: `cash-expense:${idempotencyKey}`, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
+      transaction.create(reference, { schemaVersion: 2, accountId, branchId: account.data().branchId || '', type: 'expense', category, amount: -expenseAmount, effectiveAt: at, note, status: 'posted', referenceCode: `EXP-${reference.id.slice(-8).toUpperCase()}`, idempotencyKey, ledgerEntryId: ledgerReference.id, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
     })
-    return { transactionId: reference.id }
+    return { transactionId: reference.id, ledgerEntryId: ledgerReference.id }
   })
 
   const transferCash = onCall(async (request) => {

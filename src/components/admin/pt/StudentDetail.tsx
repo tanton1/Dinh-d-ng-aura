@@ -13,9 +13,10 @@ import MealAnalysis from './MealAnalysis';
 import ConfirmationModal from '../../schedule/ConfirmationModal';
 import WorkoutLoggerModal from '../../schedule/WorkoutLoggerModal';
 import { useDatabase } from '../../../contexts/DatabaseContext';
-import { formatDate, isSameDayOrAfter } from '../../../utils/dateUtils';
+import { addCalendarMonthsDateOnly, formatDate, isSameDayOrAfter } from '../../../utils/dateUtils';
 import { getActiveContract } from '../../../utils/scheduler';
 import { recordContractPayment, recordRefund } from '../../../services/financeLedgerService';
+import TrainingHistoryPanel from './TrainingHistoryPanel';
 import './StudentManagement.css';
 
 interface Props {
@@ -68,7 +69,6 @@ export default function StudentDetail({ student, profile, contracts, packages, t
   const [activeTab, setActiveTab] = useState<'info' | 'progress' | 'history' | 'checkin' | 'requests' | 'workout_logs' | 'nutrition'>(isTrainer ? 'progress' : 'info');
   const [dailyCheckins, setDailyCheckins] = useState<DailyCheckin[]>([]);
   const [loadingCheckins, setLoadingCheckins] = useState(false);
-  const [sessionFilter, setSessionFilter] = useState<'upcoming' | 'history' | 'this_week'>('upcoming');
 
   useEffect(() => {
     if (notification) {
@@ -80,21 +80,6 @@ export default function StudentDetail({ student, profile, contracts, packages, t
   const activeContract = getActiveContract(student.id, contracts);
   const historyContracts = contracts.filter(c => c.studentId === student.id && c.id !== activeContract?.id);
   const studentSessions = sessions.filter(s => s.studentId === student.id);
-
-  const getWeekRange = (weekOffset: number = 0) => {
-    const now = new Date();
-    const currentDay = now.getDay();
-    const diff = currentDay === 0 ? -6 : 1 - currentDay; // Monday is 1, Sunday is 0
-    const monday = new Date(now);
-    monday.setDate(now.getDate() + diff + weekOffset * 7);
-    monday.setHours(0, 0, 0, 0);
-
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
-    sunday.setHours(23, 59, 59, 999);
-
-    return { start: monday, end: sunday };
-  };
 
   const mySessionRequests = React.useMemo(() => sessionRequests?.filter(r => r.studentId === student.id) || [], [sessionRequests, student.id]);
   const myLeaveRequests = React.useMemo(() => leaveRequests?.filter(r => r.studentId === student.id) || [], [leaveRequests, student.id]);
@@ -121,24 +106,6 @@ export default function StudentDetail({ student, profile, contracts, packages, t
     return combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [mySessionRequests, myLeaveRequests]);
 
-  const filteredSessions = React.useMemo(() => {
-    const now = new Date();
-    
-    if (sessionFilter === 'this_week') {
-      const range = getWeekRange(0);
-      return studentSessions.filter(s => {
-        if (!s.date) return false;
-        const [year, month, day] = s.date.split('T')[0].split('-').map(Number);
-        const d = new Date(year, month - 1, day);
-        return d >= range.start && d <= range.end;
-      });
-    } else if (sessionFilter === 'upcoming') {
-      return studentSessions.filter(s => isSameDayOrAfter(s.date, now) && (s.status === 'scheduled' || s.status === 'rescheduled'));
-    } else {
-      return studentSessions.filter(s => s.status !== 'scheduled' && s.status !== 'rescheduled');
-    }
-  }, [studentSessions, sessionFilter]);
-
   useEffect(() => {
     if (activeTab === 'checkin') {
       setLoadingCheckins(true);
@@ -153,9 +120,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
   useEffect(() => {
     if (selectedPackageId === 'custom') {
       if (startDate) {
-        const start = new Date(startDate);
-        const end = new Date(start.getTime() + customDurationMonths * 30 * 24 * 60 * 60 * 1000);
-        setEndDate(end.toISOString().split('T')[0]);
+        setEndDate(addCalendarMonthsDateOnly(startDate, customDurationMonths));
       }
       return;
     }
@@ -167,9 +132,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
     }
     
     if (startDate) {
-      const start = new Date(startDate);
-      const end = new Date(start.getTime() + pkg.durationMonths * 30 * 24 * 60 * 60 * 1000);
-      setEndDate(end.toISOString().split('T')[0]);
+      setEndDate(addCalendarMonthsDateOnly(startDate, pkg.durationMonths));
     }
   }, [selectedPackageId, packages, startDate, customDurationMonths]);
 
@@ -482,15 +445,15 @@ export default function StudentDetail({ student, profile, contracts, packages, t
     if (!contract) return 0;
     const contractSessions = studentSessions.filter(s => {
       if (s.status !== 'completed') return false; 
-      
-      const sDate = new Date(s.date).getTime();
+      if (s.contractId) return s.contractId === contract.id;
+      const sDate = new Date(`${s.date}T12:00:00`).getTime();
       const startDate = new Date(contract.startDate).getTime();
-      const endDate = new Date(contract.endDate).getTime() + (86400000 * 60); // buffer
+      const endDate = new Date(contract.endDate).getTime() + 86400000 - 1;
       
       return sDate >= startDate && sDate <= endDate;
     });
 
-    const uniqueClassIds = new Set(contractSessions.map(s => `${s.id.split('-').slice(0,2).join('-')}-${s.date}`));
+    const uniqueClassIds = new Set(contractSessions.map(s => s.id));
     const currentAttendedClasses = contract.attendedClasses || [];
     currentAttendedClasses.forEach(id => uniqueClassIds.add(id));
     
@@ -498,32 +461,17 @@ export default function StudentDetail({ student, profile, contracts, packages, t
   };
 
   const actualUsed = getCalculatedUsedSessions(activeContract);
-
-  const handleSyncSessions = () => {
-    if (!activeContract) return;
-    
-    if (actualUsed !== activeContract.usedSessions) {
-      if (confirm(`Phát hiện sai lệch!\nSố buổi đang lưu: ${activeContract.usedSessions}\nSố buổi thực tế (đã tập): ${actualUsed}\n\nBạn có muốn cập nhật lại số buổi đã tập thành ${actualUsed}?`)) {
-        onUpdateContract({
-          ...activeContract,
-          usedSessions: actualUsed,
-          attendedClasses: Array.from(new Set([
-             ...(activeContract.attendedClasses || []),
-             ...studentSessions
-               .filter(s => s.status === 'completed' && new Date(s.date).getTime() >= new Date(activeContract.startDate).getTime() && new Date(s.date).getTime() <= new Date(activeContract.endDate).getTime() + (86400000 * 60))
-               .map(s => `${s.id.split('-').slice(0,2).join('-')}-${s.date}`)
-          ])),
-          status: actualUsed >= activeContract.totalSessions ? 'expired' : activeContract.status
-        });
-      }
-    } else {
-      alert('Số buổi đã tập đang khớp hoàn toàn với lịch sử thực tế của gói tập hiện tại.');
-    }
-  };
+  const todayId = new Date().toISOString().slice(0, 10);
+  const nextStudentSession = studentSessions
+    .filter((session) => (session.status === 'scheduled' || session.status === 'rescheduled') && session.date >= todayId)
+    .sort((left, right) => left.date.localeCompare(right.date) || Number(left.hour || 0) - Number(right.hour || 0))[0];
+  const contractDebt = activeContract
+    ? Math.max(0, Number(activeContract.totalPrice || 0) - Number(activeContract.discount || 0) - Number(activeContract.paidAmount || 0))
+    : 0;
 
   return (
-    <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
-      <button onClick={onBack} className="flex items-center gap-2 text-zinc-400 hover:text-white mb-2 transition-colors">
+    <div className="student-detail space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
+      <button onClick={onBack} className="student-detail__back flex items-center gap-2 text-zinc-400 hover:text-white mb-2 transition-colors">
         <ArrowLeft className="w-5 h-5" /> Quay lại danh sách
       </button>
       
@@ -544,11 +492,17 @@ export default function StudentDetail({ student, profile, contracts, packages, t
       )}
 
       {/* Student Info */}
-      <div className="bg-zinc-900 p-5 rounded-2xl border border-zinc-800 shadow-sm">
+      <div className="student-detail__hero bg-zinc-900 p-5 rounded-2xl border border-zinc-800 shadow-sm">
         <h2 className="text-2xl font-bold text-white mb-1">{student.name}</h2>
         <p className="text-zinc-400 text-sm mb-2">
           {student.phone || 'Chưa có SĐT'} • {student.email || 'Chưa có Email'}
         </p>
+        <section className="student-detail__kpis" aria-label="Tóm tắt vận hành học viên">
+          <article><small>Còn lại</small><strong>{activeContract ? `${Math.max(0, activeContract.totalSessions - actualUsed)} buổi` : 'Chưa có gói'}</strong></article>
+          <article><small>Buổi tiếp theo</small><strong>{nextStudentSession ? `${formatDate(nextStudentSession.date)} · ${String(nextStudentSession.hour ?? 0).padStart(2, '0')}:00` : 'Chưa xếp lịch'}</strong></article>
+          <article><small>Hết hạn</small><strong>{activeContract ? formatDate(activeContract.endDate) : '—'}</strong></article>
+          <article className={contractDebt > 0 ? 'student-detail__kpi--attention' : ''}><small>Công nợ</small><strong>{contractDebt.toLocaleString('vi-VN')}đ</strong></article>
+        </section>
         {(student.availableSlots && student.availableSlots.length > 0) && (
           <div className="text-sm bg-indigo-500/10 text-indigo-400 px-3 py-2 rounded-xl border border-indigo-500/20 mb-3 inline-block">
             <span className="font-bold flex items-center gap-1"><CalendarIcon className="w-4 h-4"/> Lịch rảnh:</span> {student.availableSlots.join(', ')}
@@ -562,7 +516,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
       </div>
 
       {/* Tabs */}
-      <div className="flex p-1 bg-zinc-900 rounded-xl border border-zinc-800 flex-wrap sm:flex-nowrap">
+      <div className="student-detail__tabs flex p-1 bg-zinc-900 rounded-xl border border-zinc-800 flex-wrap sm:flex-nowrap">
         <button
           onClick={() => setActiveTab('info')}
           className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-2 rounded-lg text-sm font-medium transition-all ${
@@ -596,8 +550,8 @@ export default function StudentDetail({ student, profile, contracts, packages, t
           }`}
         >
           <History className="w-4 h-4" />
-          <span className="hidden sm:inline">Lịch tập</span>
-          <span className="sm:hidden">Lịch tập</span>
+          <span className="hidden sm:inline">Lịch sử tập</span>
+          <span className="sm:hidden">Lịch sử</span>
         </button>
         <button
           onClick={() => setActiveTab('checkin')}
@@ -852,80 +806,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
           </div>
         </div>
       ) : activeTab === 'history' ? (
-        <div className="bg-zinc-900 p-5 rounded-2xl border border-zinc-800 shadow-sm">
-          <div className="flex flex-col gap-4 mb-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <History className="w-5 h-5 text-pink-500" />
-                Lịch tập luyện
-              </h3>
-            </div>
-
-            {/* Filter Selector */}
-            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-              {[
-                { id: 'this_week', label: 'Tuần này' },
-                { id: 'upcoming', label: 'Sắp tới' },
-                { id: 'history', label: 'Lịch sử' }
-              ].map(f => (
-                <button
-                  key={f.id}
-                  onClick={() => setSessionFilter(f.id as any)}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider whitespace-nowrap transition-all border ${
-                    sessionFilter === f.id 
-                      ? 'bg-pink-500 text-white border-pink-500 shadow-[0_0_10px_rgba(255,0,127,0.3)]' 
-                      : 'bg-zinc-800 text-zinc-500 border-zinc-700 hover:text-zinc-300'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          
-          <div className="space-y-3">
-            {sessionFilter === 'history' && (
-              <div className="bg-blue-500/10 border border-blue-500/20 p-3 rounded-xl mb-4">
-                <p className="text-xs text-blue-400">
-                  <span className="font-bold">Lưu ý:</span> Lịch sử bao gồm cả các buổi <b>Đã hoàn thành</b>, <b>Đã báo nghỉ</b> và <b>Đã hủy</b>. Chỉ những buổi <b>Đã hoàn thành</b> mới bị trừ vào số buổi của gói tập.
-                  <br/>
-                  (Thực tế đã hoàn thành: <span className="font-bold text-white">{studentSessions.filter(s => s.status === 'completed').length}</span> buổi trong lịch sử)
-                </p>
-              </div>
-            )}
-            {filteredSessions.length > 0 ? [...filteredSessions].sort((a, b) => {
-              const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
-              if (dateDiff === 0) {
-                return sessionFilter === 'upcoming' 
-                  ? (a.hour || 0) - (b.hour || 0)
-                  : (b.hour || 0) - (a.hour || 0);
-              }
-              return sessionFilter === 'upcoming' ? dateDiff : -dateDiff;
-            }).map(s => {
-              const trainer = trainers.find(t => t.id === s.trainerId);
-              return (
-                <div key={s.id} className="flex justify-between items-center p-3 bg-zinc-950 rounded-xl border border-zinc-800/50">
-                  <div>
-                    <p className="text-zinc-300 font-medium">
-                      {formatDate(s.date)}
-                      {s.hour !== undefined ? ` - ${s.hour}:00` : ''}
-                    </p>
-                    <p className="text-xs text-zinc-500">PT: {trainer?.name || 'Không xác định'}</p>
-                  </div>
-                  <span className={`text-xs font-medium px-2 py-1 rounded-md ${
-                    s.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500' :
-                    s.status === 'cancelled' || s.status === 'trainer_cancelled' ? 'bg-red-500/10 text-red-500' :
-                    s.status === 'canceled_by_student' || s.status === 'student_cancelled' ? 'bg-orange-500/10 text-orange-500' : 'bg-zinc-800 text-zinc-400'
-                  }`}>
-                    {s.status === 'completed' ? 'Đã hoàn thành' : s.status === 'cancelled' || s.status === 'trainer_cancelled' ? 'Đã hủy' : s.status === 'canceled_by_student' || s.status === 'student_cancelled' ? 'Đã báo nghỉ' : 'Đã lên lịch'}
-                  </span>
-                </div>
-              );
-            }) : (
-              <p className="text-zinc-500 text-center py-4">Chưa có lịch tập luyện.</p>
-            )}
-          </div>
-        </div>
+        <TrainingHistoryPanel subject="student" subjectId={student.id} subjectName={student.name || 'Học viên Aura'} />
       ) : (
         <>
           {/* Active Package */}
@@ -1029,9 +910,9 @@ export default function StudentDetail({ student, profile, contracts, packages, t
                 <span className="text-pink-500 font-bold text-xl">{actualUsed} / {activeContract.totalSessions}</span>
                 {actualUsed !== activeContract.usedSessions && (
                   <button 
-                    onClick={handleSyncSessions} 
-                    className="p-1.5 bg-pink-500/10 text-pink-500 hover:bg-pink-500 hover:text-white rounded-lg transition-colors border border-pink-500/50" 
-                    title="Đồng bộ lại số buổi theo lịch sử thực tế"
+                    disabled
+                    className="p-1.5 bg-pink-500/10 text-pink-500 rounded-lg border border-pink-500/50 cursor-not-allowed opacity-70"
+                    title="Sai lệch chỉ được xử lý bằng quy trình đối soát máy chủ có audit"
                   >
                     <RefreshCw className="w-4 h-4" />
                   </button>

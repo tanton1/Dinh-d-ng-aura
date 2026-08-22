@@ -349,6 +349,129 @@
 .aura-operations-page .fixed.inset-0 { z-index: 110; }
 .aura-operations-page .fixed.inset-0 > :is(.bg-black\/90, .bg-black\/80, .bg-black\/60) { background: rgba(41, 22, 35, .46) !important; }
 
+.aura-operations-page .schedule-publish-trigger {
+  border: 0;
+  color: #fff;
+  background: linear-gradient(115deg, var(--ops-pink), var(--ops-orange));
+  box-shadow: 0 10px 24px rgba(246, 47, 130, .22);
+}
+.aura-operations-page .schedule-publish-trigger:disabled { opacity: .48; box-shadow: none; }
+.aura-operations-page .schedule-history-trigger {
+  border: 1px solid rgba(246,47,130,.2);
+  color: var(--ops-pink);
+  background: linear-gradient(145deg, #fff, #fff3f7);
+}
+.aura-operations-page .schedule-history-trigger:disabled { opacity: .48; }
+.aura-operations-page .schedule-publish-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--ops-line);
+  border-radius: 16px;
+  background: rgba(255,255,255,.78);
+  color: var(--ops-muted);
+  font-size: .75rem;
+}
+.aura-operations-page .schedule-publish-state span,
+.aura-operations-page .schedule-publish-state strong {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--ops-soft);
+}
+.aura-operations-page .schedule-publish-state strong { color: var(--ops-pink); }
+.aura-operations-page .schedule-publish-error {
+  padding: 12px 14px;
+  border: 1px solid rgba(209, 53, 80, .24);
+  border-radius: 16px;
+  background: #fff2f4;
+  color: #9e233b;
+  font-size: .8rem;
+}
+.aura-operations-page .schedule-publish-error ul { margin: 8px 0 0; padding-left: 18px; }
+.schedule-publish-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(38, 20, 33, .52);
+  backdrop-filter: blur(8px);
+}
+.schedule-publish-dialog {
+  position: relative;
+  width: min(540px, 100%);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  padding: 28px;
+  border: 1px solid rgba(246,47,130,.18);
+  border-radius: 28px;
+  background: #fff;
+  color: #251a27;
+  box-shadow: 0 28px 80px rgba(45, 22, 37, .25);
+}
+.schedule-publish-dialog__accent {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 6px;
+  background: linear-gradient(90deg, var(--ops-pink), var(--ops-orange));
+}
+.schedule-publish-dialog__eyebrow { margin: 0 0 8px; color: var(--ops-pink); font-size: .72rem; font-weight: 900; letter-spacing: .12em; }
+.schedule-publish-dialog h2 { margin: 0; font-size: clamp(1.45rem, 4vw, 2rem); }
+.schedule-publish-dialog > p:not(.schedule-publish-dialog__eyebrow) { color: var(--ops-muted); line-height: 1.6; }
+.schedule-publish-diff { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; margin: 22px 0; }
+.schedule-publish-diff div { padding: 14px 8px; border-radius: 18px; background: linear-gradient(145deg, #fff4f8, #fff5ec); text-align: center; }
+.schedule-publish-diff strong { display: block; color: var(--ops-pink); font-size: 1.45rem; }
+.schedule-publish-diff span { display: block; margin-top: 4px; color: var(--ops-muted); font-size: .7rem; }
+.schedule-publish-warning { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+.schedule-publish-warning span { padding: 6px 9px; border-radius: 999px; background: #fff5d9; color: #8a6111; font-size: .72rem; }
+.schedule-publish-dialog__actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; }
+.schedule-publish-dialog__actions button { min-height: 48px; border-radius: 15px; border: 1px solid var(--ops-line); background: #fff; font-weight: 800; }
+.schedule-publish-dialog__actions button:last-child { border: 0; color: #fff; background: linear-gradient(110deg, var(--ops-pink), var(--ops-orange)); box-shadow: 0 10px 22px rgba(246,47,130,.2); }
+.schedule-publish-dialog__actions button:disabled { opacity: .55; }
+.schedule-version-dialog { width: min(620px, 100%); }
+.schedule-version-empty {
+  margin: 18px 0;
+  padding: 24px;
+  border-radius: 18px;
+  background: var(--ops-soft);
+  color: var(--ops-muted);
+  text-align: center;
+}
+.schedule-version-list { display: grid; gap: 10px; margin: 18px 0; }
+.schedule-version-list article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--ops-line);
+  border-radius: 18px;
+  background: #fff;
+}
+.schedule-version-list article.is-current { border-color: rgba(246,47,130,.38); background: linear-gradient(145deg, #fff7fa, #fff8f1); }
+.schedule-version-list article > div { display: grid; gap: 3px; min-width: 0; }
+.schedule-version-list article strong { color: #2d1e2a; }
+.schedule-version-list article span,
+.schedule-version-list article small { color: var(--ops-muted); }
+.schedule-version-list article button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 13px;
+  color: #fff;
+  background: linear-gradient(110deg, var(--ops-pink), var(--ops-orange));
+  font-weight: 800;
+}
+.schedule-version-dialog__actions { grid-template-columns: 1fr; }
+.schedule-restore-confirm { z-index: 160; }
+
 @media (min-width: 640px) {
   .aura-operations-page .sm\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .aura-operations-page .sm\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -391,4 +514,10 @@
     font-size: .7rem;
   }
   .aura-operations-page .scheduler-action-row > button:last-child { grid-column: 1 / -1; }
+  .schedule-publish-backdrop { align-items: end; padding: 10px 10px max(10px, env(safe-area-inset-bottom)); }
+  .schedule-publish-dialog { max-height: calc(100dvh - 20px - env(safe-area-inset-bottom)); padding: 24px 18px 20px; border-radius: 26px; }
+  .schedule-publish-diff { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .schedule-publish-dialog__actions { grid-template-columns: 1fr; }
+  .schedule-version-list article { align-items: stretch; flex-direction: column; }
+  .schedule-version-list article button { justify-content: center; width: 100%; }
 }

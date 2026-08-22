@@ -21,7 +21,11 @@ const renewContractModalSource = readFileSync(join(repositoryRoot, 'src', 'compo
 const adminRolesSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'admin', 'AdminRolesPage.tsx'), 'utf8')
 const accessRouteSource = readFileSync(join(repositoryRoot, 'src', 'identity', 'access.ts'), 'utf8')
 const studentIdentityLinkSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-student-identity-link.cjs'), 'utf8')
+const sessionContractLinkSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-session-contract-link.cjs'), 'utf8')
 const identityAccessSource = readFileSync(join(__dirname, 'identity-access.js'), 'utf8')
+const ptSchedulePublishSource = readFileSync(join(__dirname, 'pt-schedule-publish.js'), 'utf8')
+const appSource = readFileSync(join(repositoryRoot, 'src', 'App.tsx'), 'utf8')
+const branchScheduleWorkspaceSource = readFileSync(join(repositoryRoot, 'src', 'components', 'schedule', 'BranchScheduleWorkspace.tsx'), 'utf8')
 
 function readRuntimeSources(directory) {
   return readdirSync(directory, { withFileTypes: true })
@@ -141,29 +145,39 @@ test('account invitation duplicate checks do not depend on an undeployed compoun
   assert.match(inviteHandler, /item\.data\(\)\.status === 'pending'/)
 })
 
-test('legacy finance and session delete entry points fail closed', () => {
+test('legacy finance deletes and every direct session write entry point fail closed', () => {
   const deleteContractSource = databaseContextSource.match(/const deleteContract[\s\S]*?\n  const addPayment/)?.[0] ?? ''
   const addPaymentSource = databaseContextSource.match(/const addPayment[\s\S]*?\n  const deletePayment/)?.[0] ?? ''
   const deletePaymentSource = databaseContextSource.match(/const deletePayment[\s\S]*?\n  const addSession/)?.[0] ?? ''
+  const addSessionSource = databaseContextSource.match(/const addSession[\s\S]*?\n  const updateSession/)?.[0] ?? ''
+  const updateSessionSource = databaseContextSource.match(/const updateSession[\s\S]*?\n  const deleteSession/)?.[0] ?? ''
   const deleteSessionSource = databaseContextSource.match(/const deleteSession[\s\S]*?\n  const addTrainer/)?.[0] ?? ''
 
   assert.match(deleteContractSource, /throw new Error/)
   assert.match(addPaymentSource, /throw new Error/)
   assert.match(deletePaymentSource, /throw new Error/)
+  assert.match(addSessionSource, /throw new Error/)
+  assert.match(updateSessionSource, /throw new Error/)
   assert.match(deleteSessionSource, /throw new Error/)
   assert.doesNotMatch(deleteContractSource, /deleteDoc|transaction\.delete|batch\.delete/)
   assert.doesNotMatch(addPaymentSource, /setDoc|addDoc|transaction\.set|batch\.set/)
   assert.doesNotMatch(deletePaymentSource, /deleteDoc|transaction\.delete|batch\.delete/)
+  assert.doesNotMatch(addSessionSource, /setDoc|addDoc|transaction\.set|batch\.set/)
+  assert.doesNotMatch(updateSessionSource, /setDoc|updateDoc|transaction\.update|batch\.update/)
   assert.doesNotMatch(deleteSessionSource, /deleteDoc|transaction\.delete|batch\.delete/)
 })
 
-test('Firestore rules deny hard-delete of legacy contracts, payments, and sessions', () => {
-  for (const collectionName of ['contracts', 'payments', 'sessions']) {
+test('Firestore rules deny hard-delete of legacy finance and all browser session writes', () => {
+  for (const collectionName of ['contracts', 'payments']) {
     const block = rules.match(new RegExp(`match \/${collectionName}\\/\\{documentId\\} \\{[\\s\\S]*?\\n    \\}`))?.[0] ?? ''
     assert.match(block, /allow read, create, update: if isAdmin\(\)/, `${collectionName} must remain admin-readable during migration`)
     assert.match(block, /allow delete: if false/, `${collectionName} hard-delete must be denied to every browser client`)
     assert.doesNotMatch(block, /allow[^;]*delete[^;]*if isAdmin\(\)/)
   }
+  const sessionsBlock = rules.match(/match \/sessions\/\{documentId\} \{[\s\S]*?\n    \}/)?.[0] ?? ''
+  assert.match(sessionsBlock, /allow read: if isAdmin\(\)/)
+  assert.match(sessionsBlock, /allow create, update, delete: if false/)
+  assert.doesNotMatch(sessionsBlock, /allow[^;]*(?:create|update|delete)[^;]*if isAdmin\(\)/)
 })
 
 test('unsafe purchase and renewal forms cannot partially mutate contracts or payments', () => {
@@ -208,7 +222,7 @@ test('sensitive operations routes require Identity v2 capabilities in addition t
   const expectedRoutes = {
     'admin-dashboard': 'pt.operations.manage',
     'admin-pt-students': 'pt.operations.manage',
-    'admin-pt-schedule': 'pt.operations.manage',
+    'admin-pt-schedule': 'pt.schedule.branch.publish',
     'admin-report': 'pt.operations.manage',
     'admin-finance': 'finance.operations.manage',
     'admin-hr': 'identity.staff_position.manage',
@@ -221,6 +235,9 @@ test('sensitive operations routes require Identity v2 capabilities in addition t
       `${route} must require ${capability}`,
     )
   }
+  assert.match(appSource, /accessContext\?\.accessRole === 'staff'[\s\S]*?BranchScheduleWorkspace/)
+  assert.match(branchScheduleWorkspaceSource, /getMyBranchScheduleWorkspace/)
+  assert.match(branchScheduleWorkspaceSource, /saveMyBranchScheduleDraft/)
 })
 
 test('legacy operations listeners are route scoped and never load the admin dashboard', () => {
@@ -244,6 +261,7 @@ test('legacy operations listeners are route scoped and never load the admin dash
     'students', 'contracts', 'sessions', 'payments', 'leaveRequests',
     'workoutLogs', 'sessionRequests', 'scheduleConfig', 'trainers',
     'branches', 'packages', 'staff', 'dailyCheckins', 'schedules',
+    'ptAvailability',
   ]) {
     assert.match(
       databaseContextSource,
@@ -275,6 +293,38 @@ test('student identity linking is target-only, digest-gated, scoped to learners,
     applyCandidateSource.indexOf('writeIdentityDocuments') < applyCandidateSource.indexOf('setCustomUserClaims'),
     'the assignment must become fail-closed before Auth claims are coordinated',
   )
+})
+
+test('session contract linking is target-only, date-exact, digest-gated, and PII-safe', () => {
+  assert.match(sessionContractLinkSource, /projectId: 'gen-lang-client-0815966909'/)
+  assert.match(sessionContractLinkSource, /databaseId: 'ai-studio-aurafitnesselear-/)
+  assert.match(sessionContractLinkSource, /mode: 'dry-run'/)
+  assert.match(sessionContractLinkSource, /APPLY_SESSION_CONTRACT_LINK_V1/)
+  assert.match(sessionContractLinkSource, /currentDocument: \{ updateTime: item\.updateTime \}/)
+  assert.match(sessionContractLinkSource, /candidates\.length > 1/)
+  assert.match(sessionContractLinkSource, /contract\.startDate <= sessionDate && contract\.endDate >= sessionDate/)
+  assert.doesNotMatch(sessionContractLinkSource, /86400000\s*\*\s*60|60\s*\*\s*86400000/)
+  assert.doesNotMatch(sessionContractLinkSource, /console\.(?:log|error)\([^)]*(?:studentId|sessionId|contractId|email|phone|name)/)
+})
+
+test('PT schedule publish is actor-scoped, revisioned, transactional, and immutable', () => {
+  assert.match(functionsSource, /exports\.validatePtScheduleDraft = ptSchedulePublishFunctions\.validatePtScheduleDraft/)
+  assert.match(functionsSource, /exports\.publishPtSchedule = ptSchedulePublishFunctions\.publishPtSchedule/)
+  assert.match(functionsSource, /exports\.listPtScheduleVersions = ptSchedulePublishFunctions\.listPtScheduleVersions/)
+  assert.match(functionsSource, /exports\.restorePtScheduleVersionToDraft = ptSchedulePublishFunctions\.restorePtScheduleVersionToDraft/)
+  assert.match(functionsSource, /exports\.getMyBranchScheduleWorkspace = ptSchedulePublishFunctions\.getMyBranchScheduleWorkspace/)
+  assert.match(functionsSource, /exports\.saveMyBranchScheduleDraft = ptSchedulePublishFunctions\.saveMyBranchScheduleDraft/)
+  assert.match(ptSchedulePublishSource, /requireCapability\(actor, 'pt\.schedule\.branch\.publish'\)/)
+  assert.match(ptSchedulePublishSource, /actor\.branchIds\.includes\(branchId\)/)
+  assert.match(ptSchedulePublishSource, /draftRevision !== expectedDraftRevision/)
+  assert.match(ptSchedulePublishSource, /transaction\.create\(versionReference/)
+  assert.match(ptSchedulePublishSource, /pt_schedule\.version_restored_to_draft/)
+  assert.match(ptSchedulePublishSource, /nextDraftRevision = draftRevision \+ 1/)
+  assert.match(ptSchedulePublishSource, /saveMyBranchScheduleDraft/)
+  assert.match(ptSchedulePublishSource, /mergeRestoredBranchSchedule\(currentData\.schedule \|\| \{\}, scopedSchedule, branchId/)
+  assert.match(ptSchedulePublishSource, /COMPLETED_SESSION_IMMUTABLE/)
+  assert.match(ptSchedulePublishSource, /contractId: contract\.id/)
+  assert.match(rules, /match \/ptScheduleVersions\/\{versionId\}[\s\S]*?allow write: if false/)
 })
 
 test('production authentication stays on the authorized Vercel application origin', () => {

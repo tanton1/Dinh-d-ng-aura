@@ -1,0 +1,9 @@
+{
+  "firestore": [
+    {
+      "database": "aura-migration-staging-20260819",
+      "rules": "firestore.rules",
+      "indexes": "firestore.indexes.json"
+    }
+  ]
+}

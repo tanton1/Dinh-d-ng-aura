@@ -1,6 +1,7 @@
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
+const { completeSessionAttendanceTransaction } = require('./session-operations')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const DEFAULT_WORKING_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -36,6 +37,35 @@ function serialize(value) {
   if (Array.isArray(value)) return value.map(serialize)
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, serialize(item)]))
   return value
+}
+
+function availabilityWeekId(value) {
+  const result = dateKey(value, 'Tuần lịch rảnh')
+  const parsed = new Date(`${result}T00:00:00.000Z`)
+  if (parsed.getUTCDay() !== 1) throw new HttpsError('invalid-argument', 'Tuần lịch rảnh phải bắt đầu vào thứ Hai.')
+  return result
+}
+
+function availabilityCutoff(weekId) {
+  const monday = Date.parse(`${weekId}T00:00:00+07:00`)
+  return new Date(monday - 12 * 60 * 60 * 1000)
+}
+
+function availabilityState(weekId, value, now = new Date()) {
+  const cutoff = availabilityCutoff(weekId)
+  const locked = now.getTime() >= cutoff.getTime()
+  return {
+    weekId,
+    slots: Array.isArray(value?.slots) ? value.slots : [],
+    minimumSlots: Math.max(5, Number(value?.minimumSlots || 5)),
+    requiredSessions: Math.max(1, Number(value?.requiredSessions || 1)),
+    revision: Math.max(0, Number(value?.revision || 0)),
+    status: locked ? 'locked' : (value?.status === 'submitted' ? 'submitted' : 'draft'),
+    locked,
+    cutoffAt: cutoff.toISOString(),
+    submittedAt: value?.submittedAt || null,
+    source: value?.source || 'weekly',
+  }
 }
 
 function scheduleConfig(value = {}) {
@@ -167,6 +197,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const actor = await studentActor(request, db)
     const from = dateKey(request.data?.from, 'Ngày bắt đầu')
     const to = dateKey(request.data?.to, 'Ngày kết thúc')
+    const requestedAvailabilityWeekId = availabilityWeekId(request.data?.availabilityWeekId)
     if (from > to || Date.parse(`${to}T00:00:00+07:00`) - Date.parse(`${from}T00:00:00+07:00`) > 366 * 86400000) {
       throw new HttpsError('invalid-argument', 'Khoảng lịch học viên tối đa là 366 ngày.')
     }
@@ -192,7 +223,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
       }
     }
 
-    const [sessionsSnapshot, contractsSnapshot] = await Promise.all([
+    const availabilityReference = db.doc(`ptAvailability/${profile.id}_${requestedAvailabilityWeekId}`)
+    const [sessionsSnapshot, contractsSnapshot, availabilitySnapshot] = await Promise.all([
       db.collection('sessions')
         .where('studentId', '==', profile.id)
         .where('date', '>=', from)
@@ -201,6 +233,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
         .limit(1001)
         .get(),
       db.collection('contracts').where('studentId', '==', profile.id).limit(50).get(),
+      availabilityReference.get(),
     ])
     const sessionRecords = sessionsSnapshot.docs.slice(0, 1000)
       .map((item) => {
@@ -237,8 +270,24 @@ function createPtOperationsV2Functions({ db, onCall }) {
         usedSessions: Number(contract.usedSessions || 0),
       })
     })
+    const requiredSessions = integer(profile.value.sessionsPerWeek, 3, 1, 6)
+    const legacySlots = normalizedAvailabilitySlots(profile.value.availableSlots || [], config, false)
+    const storedAvailability = availabilitySnapshot.exists
+      ? availabilitySnapshot.data()
+      : {
+          slots: legacySlots,
+          minimumSlots: Math.max(5, requiredSessions),
+          requiredSessions,
+          revision: 0,
+          status: 'draft',
+          source: legacySlots.length ? 'legacy_default' : 'weekly',
+        }
+    const availability = availabilityState(requestedAvailabilityWeekId, {
+      ...storedAvailability,
+      slots: normalizedAvailabilitySlots(storedAvailability.slots || [], config, false),
+    })
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
       linked: true,
       identityLink: {
         status: 'linked',
@@ -250,10 +299,11 @@ function createPtOperationsV2Functions({ db, onCall }) {
         id: profile.id,
         name: profile.value.name || 'Học viên Aura',
         branchId: profile.value.branchId || '',
-        sessionsPerWeek: integer(profile.value.sessionsPerWeek, 3, 1, 6),
-        availableSlots: normalizedAvailabilitySlots(profile.value.availableSlots || [], config, false),
-        isScheduleConfirmed: profile.value.isScheduleConfirmed === true,
-        availabilityRevision: Number(profile.value.availabilityRevision || 0),
+        sessionsPerWeek: requiredSessions,
+        availableSlots: availability.slots,
+        isScheduleConfirmed: availability.status === 'submitted' || availability.status === 'locked',
+        availabilityRevision: availability.revision,
+        availability: serialize(availability),
       }),
       scheduleConfig: config,
       sessions,
@@ -275,16 +325,30 @@ function createPtOperationsV2Functions({ db, onCall }) {
     }
     const configSnapshot = await db.doc('settings/scheduleConfig').get()
     const config = scheduleConfig(configSnapshot.data())
+    const weekId = availabilityWeekId(request.data?.weekId)
     const slots = normalizedAvailabilitySlots(request.data?.availableSlots, config)
     const expectedRevision = integer(request.data?.expectedRevision, 0, 0, 1000000)
     const requiredSessions = integer(profile.value.sessionsPerWeek, 3, 1, 6)
-    if (slots.length < requiredSessions) {
-      throw new HttpsError('failed-precondition', `Hãy chọn ít nhất ${requiredSessions} khung giờ rảnh để Aura có thể xếp lịch.`)
+    const minimumSlots = Math.max(5, requiredSessions)
+    const cutoffAt = availabilityCutoff(weekId)
+    if (Date.now() >= cutoffAt.getTime()) {
+      throw new HttpsError('failed-precondition', 'Lịch rảnh của tuần này đã khóa lúc 12:00 Chủ nhật.', {
+        issueCode: 'AVAILABILITY_LOCKED',
+        action: 'contact_admin',
+        cutoffAt: cutoffAt.toISOString(),
+      })
     }
+    if (slots.length < minimumSlots) {
+      throw new HttpsError('failed-precondition', `Hãy chọn ít nhất ${minimumSlots} khung giờ rảnh để Aura có thể xếp lịch.`)
+    }
+    const availabilityReference = db.doc(`ptAvailability/${profile.id}_${weekId}`)
     const nextRevision = await db.runTransaction(async (transaction) => {
-      const current = await transaction.get(profile.reference)
-      if (!current.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ học viên PT.')
-      const currentRevision = Number(current.data().availabilityRevision || 0)
+      const [currentProfile, currentAvailability] = await Promise.all([
+        transaction.get(profile.reference),
+        transaction.get(availabilityReference),
+      ])
+      if (!currentProfile.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ học viên PT.')
+      const currentRevision = Number(currentAvailability.data()?.revision || 0)
       if (currentRevision !== expectedRevision) {
         throw new HttpsError('aborted', 'Lịch rảnh đã thay đổi. Hãy tải lại trước khi lưu.', {
           issueCode: 'REVISION_CONFLICT',
@@ -292,26 +356,47 @@ function createPtOperationsV2Functions({ db, onCall }) {
           currentRevision,
         })
       }
-      transaction.update(profile.reference, {
-        availableSlots: slots,
-        availabilityRevision: currentRevision + 1,
-        isScheduleConfirmed: true,
-        scheduleNeedsReview: true,
-        availabilityUpdatedBy: actor.uid,
-        availabilityUpdatedAt: FieldValue.serverTimestamp(),
+      const next = {
+        schemaVersion: 1,
+        studentId: profile.id,
+        accountUid: actor.uid,
+        weekId,
+        slots,
+        requiredSessions,
+        minimumSlots,
+        status: 'submitted',
+        revision: currentRevision + 1,
+        submittedAt: FieldValue.serverTimestamp(),
+        updatedBy: actor.uid,
         updatedAt: FieldValue.serverTimestamp(),
-      })
+      }
+      if (currentAvailability.exists) transaction.update(availabilityReference, next)
+      else transaction.create(availabilityReference, { ...next, createdAt: FieldValue.serverTimestamp() })
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
         action: 'student_availability.updated',
         actorUid: actor.uid,
         studentId: profile.id,
-        beforeSlotCount: Array.isArray(current.data().availableSlots) ? current.data().availableSlots.length : 0,
+        weekId,
+        beforeSlotCount: Array.isArray(currentAvailability.data()?.slots) ? currentAvailability.data().slots.length : 0,
         afterSlotCount: slots.length,
         createdAt: FieldValue.serverTimestamp(),
       })
       return currentRevision + 1
     })
-    return { schemaVersion: 2, availableSlots: slots, availabilityRevision: nextRevision, isScheduleConfirmed: true }
+    return {
+      schemaVersion: 3,
+      availableSlots: slots,
+      availabilityRevision: nextRevision,
+      isScheduleConfirmed: true,
+      availability: serialize(availabilityState(weekId, {
+        slots,
+        minimumSlots,
+        requiredSessions,
+        revision: nextRevision,
+        status: 'submitted',
+        submittedAt: new Date().toISOString(),
+      })),
+    }
   })
 
   const listMyAssignedStudents = onCall(async (request) => {
@@ -368,28 +453,17 @@ function createPtOperationsV2Functions({ db, onCall }) {
     requireCapability(actor, 'pt.session.self.manage')
     const sessionId = documentId(request.data?.sessionId, 'Mã buổi tập')
     const expectedRevision = integer(request.data?.expectedRevision, 0, 0, 1000000)
-    const sessionReference = db.doc(`sessions/${sessionId}`)
-    return db.runTransaction(async (transaction) => {
-      const sessionSnapshot = await transaction.get(sessionReference)
-      if (!sessionSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy buổi tập.')
-      const session = sessionSnapshot.data()
-      if (![actor.uid, actor.legacyStaffId].includes(session.trainerId)) throw new HttpsError('permission-denied', 'Buổi tập không thuộc lịch của bạn.')
-      const currentRevision = Number(session.revision || 0)
-      if (currentRevision !== expectedRevision) throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại.')
-      if (session.status === 'completed' && session.attendanceEventId) return { unchanged: true, revision: currentRevision }
-      if (!['scheduled', 'rescheduled'].includes(session.status)) throw new HttpsError('failed-precondition', 'Chỉ buổi đang lên lịch mới được xác nhận.')
-      const contractsSnapshot = await transaction.get(db.collection('contracts').where('studentId', '==', session.studentId).where('status', '==', 'active').limit(10))
-      const contractSnapshot = contractsSnapshot.docs.find((item) => contractAssignedTo(item.data(), actor))
-      if (!contractSnapshot) throw new HttpsError('failed-precondition', 'Không tìm thấy hợp đồng đang hoạt động phù hợp.')
-      const contract = contractSnapshot.data()
-      const attendedClasses = Array.isArray(contract.attendedClasses) ? contract.attendedClasses : []
-      if (attendedClasses.includes(sessionId)) throw new HttpsError('already-exists', 'Buổi tập đã được tính trước đó.')
-      if (Number(contract.usedSessions || 0) >= Number(contract.totalSessions || 0)) throw new HttpsError('failed-precondition', 'Hợp đồng đã sử dụng hết số buổi.')
-      const attendanceReference = db.collection('attendanceEvents').doc()
-      transaction.create(attendanceReference, { schemaVersion: 1, sessionId, studentId: session.studentId, trainerId: session.trainerId, contractId: contractSnapshot.id, type: 'attended', occurredAt: FieldValue.serverTimestamp(), createdBy: actor.uid, createdAt: FieldValue.serverTimestamp(), timeZone: TIME_ZONE })
-      transaction.update(sessionReference, { status: 'completed', revision: currentRevision + 1, attendanceEventId: attendanceReference.id, completedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() })
-      transaction.update(contractSnapshot.ref, { usedSessions: FieldValue.increment(1), attendedClasses: FieldValue.arrayUnion(sessionId), updatedAt: FieldValue.serverTimestamp() })
-      return { unchanged: false, revision: currentRevision + 1, attendanceEventId: attendanceReference.id }
+    return completeSessionAttendanceTransaction({
+      db,
+      sessionId,
+      expectedRevision,
+      actorUid: actor.uid,
+      timeZone: TIME_ZONE,
+      assertSessionScope: (session) => {
+        if (![actor.uid, actor.legacyStaffId].includes(session.trainerId)) {
+          throw new HttpsError('permission-denied', 'Buổi tập không thuộc lịch của bạn.')
+        }
+      },
     })
   })
 

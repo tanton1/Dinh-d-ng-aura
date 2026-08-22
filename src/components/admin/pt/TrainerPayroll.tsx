@@ -8,6 +8,9 @@ import { useDatabase } from '../../../contexts/DatabaseContext';
 import { OrphanedSessionChecker } from './OrphanedSessionChecker';
 import { cancelSession, confirmSessionAttendance, rescheduleSession, swapSessions } from '../../../services/sessionOperationsService';
 import { createPayrollRun, listPayrollRuns, lockPayrollRun, markPayrollRunPaid, reviewPayrollRun, type PayrollRunSummary } from '../../../services/payrollService';
+import { listCashAccounts, type CashAccount } from '../../../services/cashbookService';
+import TrainingHistoryPanel from './TrainingHistoryPanel';
+import '../../../styles-payroll-canonical.css';
 
 interface Props {
   user: FirebaseUser | null;
@@ -23,10 +26,14 @@ export default function TrainerPayroll({ user, profile }: Props) {
   const [payrollRuns, setPayrollRuns] = useState<PayrollRunSummary[]>([]);
   const [payrollLoading, setPayrollLoading] = useState(false);
   const [payrollMessage, setPayrollMessage] = useState<string | null>(null);
+  const [payrollCashAccounts, setPayrollCashAccounts] = useState<CashAccount[]>([]);
+  const [payrollCashAccountId, setPayrollCashAccountId] = useState('');
+  const [payrollPaymentReference, setPayrollPaymentReference] = useState('');
   const [payrollPeriod, setPayrollPeriod] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [showTeachingHistory, setShowTeachingHistory] = useState(false);
   
   const isPTUser = profile?.role === 'trainer' || profile?.role === 'coach';
   const currentTrainer = useMemo(() => {
@@ -53,6 +60,27 @@ export default function TrainerPayroll({ user, profile }: Props) {
 
   useEffect(() => { void refreshPayrollRuns(); }, [isPTUser]);
 
+  useEffect(() => {
+    if (isPTUser) {
+      setPayrollCashAccounts([]);
+      setPayrollCashAccountId('');
+      return;
+    }
+    let active = true;
+    void listCashAccounts()
+      .then(({ accounts }) => {
+        if (!active) return;
+        const availableAccounts = accounts.filter((account) => account.status === 'active');
+        setPayrollCashAccounts(availableAccounts);
+        setPayrollCashAccountId((current) => current || availableAccounts[0]?.id || '');
+      })
+      .catch((cause) => {
+        if (!active) return;
+        setPayrollMessage(cause instanceof Error ? cause.message : 'Không thể tải danh sách quỹ chi lương.');
+      });
+    return () => { active = false; };
+  }, [isPTUser]);
+
   const runPayrollAction = async (action: 'create' | 'review' | 'lock' | 'paid', run?: PayrollRunSummary) => {
     setPayrollLoading(true);
     setPayrollMessage(null);
@@ -61,9 +89,16 @@ export default function TrainerPayroll({ user, profile }: Props) {
       else if (action === 'review' && run) await reviewPayrollRun(run.id);
       else if (action === 'lock' && run) await lockPayrollRun(run.id);
       else if (action === 'paid' && run) {
-        const reference = window.prompt('Nhập mã tham chiếu chuyển khoản/chứng từ trả lương:')?.trim();
-        if (!reference) return;
-        await markPayrollRunPaid(run.id, reference);
+        if (!payrollCashAccountId || !payrollPaymentReference.trim()) {
+          setPayrollMessage('Chọn quỹ chi và nhập mã chứng từ trước khi ghi nhận chi trả.');
+          return;
+        }
+        await markPayrollRunPaid({
+          runId: run.id,
+          cashAccountId: payrollCashAccountId,
+          paymentReference: payrollPaymentReference.trim(),
+        });
+        setPayrollPaymentReference('');
       }
       await refreshPayrollRuns();
       setPayrollMessage('Đã cập nhật kỳ lương chính thức.');
@@ -245,7 +280,7 @@ export default function TrainerPayroll({ user, profile }: Props) {
   const canceledSessions = sessions.filter(s => s.status === 'canceled_by_student' || s.status === 'student_cancelled');
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+    <div className="trainer-payroll space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
       <OrphanedSessionChecker />
       <div className="mb-8 flex items-center gap-3">
         <img src={LOGO_URL} alt="Aura" className="h-10 w-10 object-contain" />
@@ -258,21 +293,35 @@ export default function TrainerPayroll({ user, profile }: Props) {
       </div>
 
       {!isPTUser && (
-        <section className="bg-zinc-900 p-5 md:p-6 rounded-2xl border border-zinc-800" aria-label="Kỳ lương chính thức">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <section className="payroll-canonical bg-zinc-900 p-5 md:p-6 rounded-2xl border border-zinc-800" aria-label="Kỳ lương chính thức">
+          <div className="payroll-canonical__head flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-widest text-pink-500">Sổ lương canonical</p>
               <h2 className="text-xl font-bold text-white mt-1">Kỳ lương chính thức</h2>
               <p className="text-sm text-zinc-400 mt-1">Tính từ attendance events; kỳ đã khóa không thay đổi theo dữ liệu client.</p>
             </div>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input type="month" value={payrollPeriod} onChange={(event) => setPayrollPeriod(event.target.value)} className="bg-zinc-950 border border-zinc-800 text-white px-3 py-2.5 rounded-xl" />
+            <div className="payroll-canonical__create flex flex-col sm:flex-row gap-2">
+              <input aria-label="Kỳ lương" type="month" value={payrollPeriod} onChange={(event) => setPayrollPeriod(event.target.value)} className="bg-zinc-950 border border-zinc-800 text-white px-3 py-2.5 rounded-xl" />
               <button type="button" disabled={payrollLoading || !payrollPeriod} onClick={() => void runPayrollAction('create')} className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 to-orange-500 text-white font-bold disabled:opacity-50">
                 Tạo kỳ lương
               </button>
             </div>
           </div>
           {payrollMessage && <p className="mt-3 rounded-xl border border-pink-500/20 bg-pink-500/10 px-3 py-2 text-sm text-zinc-200" role="status">{payrollMessage}</p>}
+          <div className="payroll-canonical__payout" aria-label="Thông tin chi lương">
+            <label>
+              <span>Quỹ chi lương</span>
+              <select aria-label="Quỹ chi lương" value={payrollCashAccountId} onChange={(event) => setPayrollCashAccountId(event.target.value)}>
+                <option value="">Chọn quỹ chi</option>
+                {payrollCashAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.balance.toLocaleString('vi-VN')}đ</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Mã chứng từ / chuyển khoản</span>
+              <input aria-label="Mã chứng từ chi lương" value={payrollPaymentReference} onChange={(event) => setPayrollPaymentReference(event.target.value)} maxLength={200} placeholder="VD: UNC-202608-001" />
+            </label>
+            <p>{payrollCashAccounts.length ? 'Chi trả sẽ đồng thời tạo bút toán quỹ và sổ cái bất biến.' : 'Chưa có quỹ hoạt động. Hãy tạo quỹ trước khi ghi nhận chi trả.'}</p>
+          </div>
           <div className="mt-4 grid gap-3 lg:grid-cols-2">
             {payrollRuns.map((run) => (
               <article key={run.id} className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4">
@@ -284,7 +333,7 @@ export default function TrainerPayroll({ user, profile }: Props) {
                 <div className="mt-3 flex flex-wrap justify-end gap-2">
                   {run.status === 'draft' && <button type="button" disabled={payrollLoading} onClick={() => void runPayrollAction('review', run)} className="px-3 py-2 rounded-lg bg-zinc-800 text-zinc-200 text-xs font-bold flex items-center gap-1"><Send size={14} /> Gửi duyệt</button>}
                   {run.status === 'reviewed' && <button type="button" disabled={payrollLoading} onClick={() => void runPayrollAction('lock', run)} className="px-3 py-2 rounded-lg bg-orange-500 text-white text-xs font-bold flex items-center gap-1"><Lock size={14} /> Khóa kỳ</button>}
-                  {run.status === 'locked' && <button type="button" disabled={payrollLoading} onClick={() => void runPayrollAction('paid', run)} className="px-3 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold flex items-center gap-1"><WalletCards size={14} /> Đã chi trả</button>}
+                  {run.status === 'locked' && <button type="button" disabled={payrollLoading || !payrollCashAccountId || !payrollPaymentReference.trim()} onClick={() => void runPayrollAction('paid', run)} className="payroll-canonical__pay-button px-3 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold flex items-center gap-1"><WalletCards size={14} /> Ghi nhận chi trả</button>}
                 </div>
               </article>
             ))}
@@ -364,6 +413,16 @@ export default function TrainerPayroll({ user, profile }: Props) {
           </button>
         ))}
       </div>
+
+      {selectedTrainerId !== 'all' && (
+        <section className="rounded-2xl border border-pink-500/20 bg-zinc-900 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div><p className="text-xs font-bold uppercase tracking-wider text-pink-400">Lịch sử đã kiểm toán</p><h3 className="mt-1 text-base font-bold text-white">{trainers.find((trainer) => trainer.id === selectedTrainerId)?.name || 'PT Aura'}</h3><p className="mt-1 text-xs text-zinc-500">Tải theo khoảng thời gian; không còn phụ thuộc vào toàn bộ session đang mở trong trình duyệt.</p></div>
+            <button type="button" onClick={() => setShowTeachingHistory((value) => !value)} className="min-h-10 rounded-xl bg-gradient-to-r from-pink-500 to-orange-500 px-4 text-sm font-bold text-white">{showTeachingHistory ? 'Ẩn lịch sử' : 'Xem lịch sử dạy'}</button>
+          </div>
+          {showTeachingHistory && <div className="mt-4"><TrainingHistoryPanel subject="trainer" subjectId={selectedTrainerId} subjectName={trainers.find((trainer) => trainer.id === selectedTrainerId)?.name || 'PT Aura'} /></div>}
+        </section>
+      )}
       
       {/* Các buổi cần học bù */}
       {canceledSessions.length > 0 && (

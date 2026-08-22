@@ -1,0 +1,109 @@
+import { useCallback, useEffect, useState } from 'react'
+import { CalendarDays, CheckCircle2, ChevronDown, CircleAlert, Clock3, RefreshCw, UserRound } from 'lucide-react'
+import { listStudentTrainingHistory, listTrainerTeachingHistory, type TrainingHistoryPage, type TrainingHistoryStatus } from '../../../services/businessReportingService'
+import '../../../styles-training-history.css'
+
+type Props = {
+  subject: 'student' | 'trainer'
+  subjectId: string
+  subjectName: string
+}
+
+function vietnamDateKey(value = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(value)
+  const part = (type: string) => parts.find((item) => item.type === type)?.value || ''
+  return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+function todayKey() {
+  return vietnamDateKey()
+}
+
+function daysAgoKey(days: number) {
+  const date = new Date()
+  date.setDate(date.getDate() - days)
+  return vietnamDateKey(date)
+}
+
+const statusOptions: Array<{ value: TrainingHistoryStatus; label: string }> = [
+  { value: 'all', label: 'Tất cả trạng thái' },
+  { value: 'scheduled', label: 'Đã lên lịch' },
+  { value: 'completed', label: 'Đã hoàn thành' },
+  { value: 'student_cancelled', label: 'HV báo nghỉ' },
+  { value: 'trainer_cancelled', label: 'PT hủy' },
+  { value: 'no_show', label: 'Vắng mặt' },
+]
+
+function statusLabel(status: string) {
+  const found = statusOptions.find((item) => item.value === status)
+  if (found) return found.label
+  if (status === 'rescheduled') return 'Đã đổi lịch'
+  if (status === 'attended') return 'Đã hoàn thành'
+  if (status === 'corrected') return 'Đã điều chỉnh'
+  return status || 'Không xác định'
+}
+
+function formatDate(value: string) {
+  if (!value) return 'Chưa xác định ngày'
+  const parsed = new Date(`${value.slice(0, 10)}T12:00:00+07:00`)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+export default function TrainingHistoryPanel({ subject, subjectId, subjectName }: Props) {
+  const [startDate, setStartDate] = useState(() => daysAgoKey(89))
+  const [endDate, setEndDate] = useState(todayKey)
+  const [status, setStatus] = useState<TrainingHistoryStatus>('all')
+  const [page, setPage] = useState<TrainingHistoryPage | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async (append = false) => {
+    if (!subjectId) return
+    setLoading(true)
+    setError('')
+    try {
+      const query = { startDate, endDate, status, pageSize: 50, cursor: append ? page?.nextCursor : null }
+      const response = subject === 'student'
+        ? await listStudentTrainingHistory(subjectId, query)
+        : await listTrainerTeachingHistory(subjectId, query)
+      setPage((current) => append && current ? { ...response, records: [...current.records, ...response.records] } : response)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không thể tải lịch sử buổi tập.')
+      if (!append) setPage(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [endDate, page?.nextCursor, startDate, status, subject, subjectId])
+
+  useEffect(() => { void load(false) }, [subjectId, startDate, endDate, status]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setPreset = (days: number) => {
+    setStartDate(daysAgoKey(days - 1))
+    setEndDate(todayKey())
+  }
+
+  const counterpartLabel = subject === 'student' ? 'PT phụ trách' : 'Học viên'
+  return <section className="training-history" aria-busy={loading}>
+    <header className="training-history__header">
+      <div><span><CalendarDays size={15} /> Nhật ký vận hành</span><h3>{subject === 'student' ? 'Lịch sử tập của học viên' : 'Lịch dạy của PT'}</h3><p>{subjectName || 'Hồ sơ Aura'} · dữ liệu tải phân trang, có sự kiện điểm danh và thay đổi lịch.</p></div>
+      <button type="button" onClick={() => void load(false)} disabled={loading}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /> Làm mới</button>
+    </header>
+    <div className="training-history__filters">
+      <div className="training-history__presets"><button type="button" onClick={() => setPreset(30)}>30 ngày</button><button type="button" onClick={() => setPreset(90)}>90 ngày</button><button type="button" onClick={() => setPreset(180)}>6 tháng</button></div>
+      <label><span>Từ ngày</span><input type="date" value={startDate} max={endDate} onChange={(event) => setStartDate(event.target.value)} /></label>
+      <label><span>Đến ngày</span><input type="date" value={endDate} min={startDate} max={todayKey()} onChange={(event) => setEndDate(event.target.value)} /></label>
+      <label><span>Trạng thái</span><select value={status} onChange={(event) => setStatus(event.target.value as TrainingHistoryStatus)}>{statusOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+    </div>
+    {error && <div className="training-history__notice"><CircleAlert size={18} /> {error}</div>}
+    {page && <div className="training-history__summary"><div><strong>{page.summary.total}</strong><span>Buổi trong bộ lọc</span></div><div><strong>{page.summary.completed}</strong><span>Đã hoàn thành</span></div><div><strong>{page.summary.cancelled}</strong><span>Đã hủy / báo nghỉ</span></div><div><strong>{page.summary.noShow}</strong><span>Vắng mặt</span></div></div>}
+    <div className="training-history__records">
+      {loading && !page ? <div className="training-history__empty">Đang tải lịch sử an toàn…</div> : null}
+      {!loading && !error && page && page.records.length === 0 ? <div className="training-history__empty">Không có buổi tập nào trong bộ lọc này.</div> : null}
+      {page?.records.map((record) => <article className="training-history__record" key={record.id}><div className="training-history__date"><strong>{record.date.slice(8) || '—'}</strong><span>{record.date.slice(5, 7) || '—'}</span></div><div className="training-history__record-main"><div className="training-history__record-title"><strong>{formatDate(record.date)} {record.hour !== null ? `· ${String(record.hour).padStart(2, '0')}:00` : ''}</strong><span className={`training-history__status training-history__status--${record.status}`}>{statusLabel(record.status)}</span></div><p><UserRound size={14} /> {counterpartLabel}: <b>{record.counterpartName}</b></p><small>Mã buổi {record.id.slice(-10)} · HĐ {record.contractId ? record.contractId.slice(-10) : 'chưa liên kết'}</small>{record.events.length ? <details><summary><ChevronDown size={14} /> {record.events.length} sự kiện thay đổi</summary><ul>{record.events.map((event) => <li key={event.id}><b>{statusLabel(event.type)}</b>{event.reason ? ` · ${event.reason}` : ''}</li>)}</ul></details> : null}</div><div className="training-history__attendance">{record.attendance ? <><CheckCircle2 size={18} /><span>Đã điểm danh</span></> : <><Clock3 size={18} /><span>Chưa có điểm danh</span></>}</div></article>)}
+    </div>
+    {page?.summary.truncated ? <p className="training-history__truncated">Tóm tắt bị giới hạn để bảo vệ hiệu năng. Hãy thu hẹp khoảng thời gian để xem số liệu đầy đủ.</p> : null}
+    {page?.hasMore ? <button type="button" className="training-history__more" disabled={loading} onClick={() => void load(true)}>{loading ? 'Đang tải…' : 'Tải thêm lịch sử'}</button> : null}
+  </section>
+}

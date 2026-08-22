@@ -29,6 +29,27 @@ function iso(value) {
   return value?.toDate?.().toISOString?.() || ''
 }
 
+function payrollEffectiveAt(periodId) {
+  const { end } = periodBounds(periodId)
+  // The payroll expense belongs to the last instant of its Vietnam business
+  // period, rather than the later button-click time.
+  return Timestamp.fromMillis(end.toMillis() - 1)
+}
+
+function payrollPaymentReference(value) {
+  const result = typeof value === 'string' ? value.trim().slice(0, 200) : ''
+  if (!result) throw new HttpsError('invalid-argument', 'Cần nhập mã chứng từ hoặc tham chiếu chi lương.')
+  return result
+}
+
+function payrollCashAccountId(value) {
+  const result = typeof value === 'string' ? value.trim() : ''
+  if (!/^[A-Za-z0-9_-]{1,200}$/.test(result)) {
+    throw new HttpsError('invalid-argument', 'Tài khoản quỹ chi lương không hợp lệ.')
+  }
+  return result
+}
+
 function createPayrollFunctions({ db, onCall }) {
   const listPayrollRuns = onCall(async (request) => {
     await payrollActor(request, db)
@@ -125,8 +146,151 @@ function createPayrollFunctions({ db, onCall }) {
   }
 
   const reviewPayrollRun = onCall((request) => transition(request, 'draft', 'reviewed'))
-  const lockPayrollRun = onCall((request) => transition(request, 'reviewed', 'locked'))
-  const markPayrollRunPaid = onCall((request) => transition(request, 'locked', 'paid', { paymentReference: typeof request.data?.paymentReference === 'string' ? request.data.paymentReference.trim().slice(0, 200) : '' }))
+  const lockPayrollRun = onCall(async (request) => {
+    const actor = await payrollActor(request, db)
+    const runId = typeof request.data?.runId === 'string' ? request.data.runId.trim() : ''
+    if (!runId) throw new HttpsError('invalid-argument', 'Mã kỳ lương không hợp lệ.')
+    const runReference = db.doc(`payrollRuns/${runId}`)
+    const ledgerReference = db.doc(`ledgerEntries/payroll_${runId}`)
+    await db.runTransaction(async (transaction) => {
+      const [run, existingLedger] = await Promise.all([transaction.get(runReference), transaction.get(ledgerReference)])
+      if (!run.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
+      if (run.data().status === 'locked') return
+      if (run.data().status !== 'reviewed') throw new HttpsError('failed-precondition', 'Kỳ lương phải ở trạng thái reviewed.')
+      const periodId = period(run.data().periodId)
+      const finalAmount = Math.max(0, Number(run.data().finalAmount || run.data().grossAmount || 0))
+      transaction.update(runReference, { status: 'locked', lockedAt: FieldValue.serverTimestamp(), lockedBy: actor.uid, ledgerEntryId: ledgerReference.id, updatedAt: FieldValue.serverTimestamp() })
+      if (!existingLedger.exists) {
+        transaction.create(ledgerReference, {
+          schemaVersion: 2,
+          type: 'payroll',
+          eventClass: 'payroll_accrual',
+          source: 'payroll',
+          payrollRunId: runId,
+          periodId,
+          branchId: run.data().branchId || '',
+          amount: -finalAmount,
+          cashImpact: 0,
+          revenueImpact: 0,
+          expenseImpact: finalAmount,
+          receivableImpact: 0,
+          deferredRevenueImpact: 0,
+          effectiveAt: payrollEffectiveAt(periodId),
+          idempotencyKey: `payroll-accrual:${runId}`,
+          status: 'posted',
+          createdAt: FieldValue.serverTimestamp(),
+          createdBy: actor.uid,
+        })
+      }
+      transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 2, runId, action: 'payroll.locked', actorUid: actor.uid, fromStatus: 'reviewed', toStatus: 'locked', ledgerEntryId: ledgerReference.id, createdAt: FieldValue.serverTimestamp() })
+    })
+    return { runId, status: 'locked' }
+  })
+  const markPayrollRunPaid = onCall(async (request) => {
+    const actor = await payrollActor(request, db)
+    const runId = typeof request.data?.runId === 'string' ? request.data.runId.trim() : ''
+    if (!runId) throw new HttpsError('invalid-argument', 'Mã kỳ lương không hợp lệ.')
+    const paymentReference = payrollPaymentReference(request.data?.paymentReference)
+    const cashAccountId = payrollCashAccountId(request.data?.cashAccountId)
+    const runReference = db.doc(`payrollRuns/${runId}`)
+    const accrualReference = db.doc(`ledgerEntries/payroll_${runId}`)
+    const paymentLedgerReference = db.doc(`ledgerEntries/payroll_payment_${runId}`)
+    const cashTransactionReference = db.doc(`cashTransactions/payroll_${runId}`)
+    const accountReference = db.doc(`cashAccounts/${cashAccountId}`)
+
+    return db.runTransaction(async (transaction) => {
+      const [run, accrual, existingPayment, account] = await Promise.all([
+        transaction.get(runReference),
+        transaction.get(accrualReference),
+        transaction.get(paymentLedgerReference),
+        transaction.get(accountReference),
+      ])
+      if (!run.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
+      if (run.data().status === 'paid') {
+        return { runId, status: 'paid', unchanged: true, paymentLedgerEntryId: run.data().paymentLedgerEntryId || paymentLedgerReference.id }
+      }
+      if (run.data().status !== 'locked') throw new HttpsError('failed-precondition', 'Kỳ lương phải được khóa trước khi ghi nhận chi trả.')
+      if (!accrual.exists || accrual.data().status !== 'posted') {
+        throw new HttpsError('failed-precondition', 'Không tìm thấy bút toán chi phí của kỳ lương đã khóa.')
+      }
+      if (!account.exists || account.data().status !== 'active') {
+        throw new HttpsError('failed-precondition', 'Tài khoản quỹ chi lương không hoạt động.')
+      }
+      const finalAmount = Math.max(0, Number(run.data().finalAmount || run.data().grossAmount || 0))
+      if (!Number.isSafeInteger(finalAmount) || finalAmount <= 0) {
+        throw new HttpsError('failed-precondition', 'Kỳ lương không có số tiền hợp lệ để chi trả.')
+      }
+      if (Number(account.data().balance || 0) < finalAmount) {
+        throw new HttpsError('failed-precondition', 'Số dư quỹ không đủ để chi trả kỳ lương này.')
+      }
+      const paidAt = Timestamp.now()
+      if (!existingPayment.exists) {
+        transaction.create(paymentLedgerReference, {
+          schemaVersion: 2,
+          type: 'payroll',
+          eventClass: 'payroll_payment',
+          source: 'payroll',
+          payrollRunId: runId,
+          periodId: run.data().periodId || '',
+          branchId: run.data().branchId || account.data().branchId || '',
+          cashAccountId,
+          amount: -finalAmount,
+          cashImpact: -finalAmount,
+          revenueImpact: 0,
+          expenseImpact: 0,
+          receivableImpact: 0,
+          deferredRevenueImpact: 0,
+          effectiveAt: paidAt,
+          paymentReference,
+          idempotencyKey: `payroll-payment:${runId}`,
+          status: 'posted',
+          createdAt: FieldValue.serverTimestamp(),
+          createdBy: actor.uid,
+        })
+        transaction.create(cashTransactionReference, {
+          schemaVersion: 2,
+          accountId: cashAccountId,
+          branchId: account.data().branchId || run.data().branchId || '',
+          type: 'expense',
+          category: 'payroll_payment',
+          amount: -finalAmount,
+          effectiveAt: paidAt,
+          status: 'posted',
+          referenceCode: `PAY-${runId.slice(-8).toUpperCase()}`,
+          paymentReference,
+          ledgerEntryId: paymentLedgerReference.id,
+          idempotencyKey: `payroll-cash:${runId}`,
+          createdAt: FieldValue.serverTimestamp(),
+          createdBy: actor.uid,
+        })
+        transaction.update(accountReference, {
+          balance: FieldValue.increment(-finalAmount),
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+      }
+      transaction.update(runReference, {
+        status: 'paid',
+        paidAt: FieldValue.serverTimestamp(),
+        paidBy: actor.uid,
+        paymentReference,
+        cashAccountId,
+        paymentLedgerEntryId: paymentLedgerReference.id,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      transaction.create(db.collection('payrollAuditLogs').doc(), {
+        schemaVersion: 2,
+        runId,
+        action: 'payroll.paid',
+        actorUid: actor.uid,
+        fromStatus: 'locked',
+        toStatus: 'paid',
+        cashAccountId,
+        paymentLedgerEntryId: paymentLedgerReference.id,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return { runId, status: 'paid', unchanged: false, paymentLedgerEntryId: paymentLedgerReference.id }
+    })
+  })
 
   return { listPayrollRuns, getPayrollRun, createPayrollRun, reviewPayrollRun, lockPayrollRun, markPayrollRunPaid }
 }

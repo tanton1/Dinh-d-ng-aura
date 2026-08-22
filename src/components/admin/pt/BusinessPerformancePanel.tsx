@@ -1,0 +1,140 @@
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { BarChart3, Building2, CalendarDays, CircleAlert, Coins, Landmark, RefreshCw, TrendingDown, TrendingUp, WalletCards } from 'lucide-react'
+import { useDatabase } from '../../../contexts/DatabaseContext'
+import { listBusinessPerformance, type BusinessPerformanceReport, type BusinessSource } from '../../../services/businessReportingService'
+import '../../../styles-business-performance.css'
+
+function vietnamDateKey(value = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(value)
+  const part = (type: string) => parts.find((item) => item.type === type)?.value || ''
+  return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+function todayKey() {
+  return vietnamDateKey()
+}
+
+function daysAgoKey(days: number) {
+  const date = new Date()
+  date.setDate(date.getDate() - days)
+  return vietnamDateKey(date)
+}
+
+function money(value: number) {
+  return `${Math.round(value || 0).toLocaleString('vi-VN')}đ`
+}
+
+const sourceLabels: Record<BusinessSource, string> = {
+  all: 'Tất cả nguồn',
+  pt_gym: 'PT Gym',
+  online_coaching: 'Coaching online',
+  nutrition_coaching: 'Dinh dưỡng',
+  academy: 'Aura Academy',
+  eat_clean: 'Eat Clean',
+  delivery_fee: 'Phí giao hàng',
+  payroll: 'Lương & hoa hồng',
+  other: 'Khác',
+  legacy_unclassified: 'Legacy chưa phân loại',
+}
+
+type Props = { compact?: boolean }
+
+export default function BusinessPerformancePanel({ compact = false }: Props) {
+  const { branches } = useDatabase()
+  const [startDate, setStartDate] = useState(() => daysAgoKey(29))
+  const [endDate, setEndDate] = useState(todayKey)
+  const [branchId, setBranchId] = useState('all')
+  const [source, setSource] = useState<BusinessSource>('all')
+  const [report, setReport] = useState<BusinessPerformanceReport | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const next = await listBusinessPerformance({ startDate, endDate, branchId: branchId === 'all' ? undefined : branchId, source })
+      setReport(next)
+    } catch (cause) {
+      setReport(null)
+      setError(cause instanceof Error ? cause.message : 'Không thể tải báo cáo kết quả kinh doanh.')
+    } finally {
+      setLoading(false)
+    }
+  }, [branchId, endDate, source, startDate])
+
+  useEffect(() => { void load() }, [load])
+
+  const days = useMemo(() => report?.dailySeries.slice(-14) || [], [report])
+  const peak = Math.max(1, ...days.map((item) => Math.max(Math.abs(item.cashNet), Math.abs(item.recognisedRevenue), Math.abs(item.operatingResult))))
+  const applyPreset = (days: number) => {
+    setStartDate(daysAgoKey(days - 1))
+    setEndDate(todayKey())
+  }
+
+  return <section className={`business-performance ${compact ? 'business-performance--compact' : ''}`} aria-busy={loading}>
+    <header className="business-performance__hero">
+      <div>
+        <span className="business-performance__eyebrow"><BarChart3 size={15} /> Aura Finance Intelligence</span>
+        <h1>Tổng quan & kết quả kinh doanh</h1>
+        <p>Phân biệt rõ dòng tiền thực thu, doanh thu đã thực hiện và chi phí vận hành — không dùng số liệu legacy để suy diễn.</p>
+      </div>
+      <button type="button" onClick={() => void load()} className="business-performance__refresh" disabled={loading}>
+        <RefreshCw size={17} className={loading ? 'is-spinning' : ''} /> {loading ? 'Đang cập nhật' : 'Làm mới'}
+      </button>
+    </header>
+
+    <section className="business-performance__filters" aria-label="Bộ lọc báo cáo">
+      <div className="business-performance__preset-row">
+        {[{ label: '7 ngày', days: 7 }, { label: '30 ngày', days: 30 }, { label: '90 ngày', days: 90 }].map((preset) => (
+          <button key={preset.days} type="button" onClick={() => applyPreset(preset.days)}>{preset.label}</button>
+        ))}
+      </div>
+      <label><CalendarDays size={16} /><span>Từ ngày</span><input type="date" value={startDate} max={endDate} onChange={(event) => setStartDate(event.target.value)} /></label>
+      <label><CalendarDays size={16} /><span>Đến ngày</span><input type="date" value={endDate} min={startDate} max={todayKey()} onChange={(event) => setEndDate(event.target.value)} /></label>
+      <label><Building2 size={16} /><span>Chi nhánh</span><select value={branchId} onChange={(event) => setBranchId(event.target.value)}><option value="all">Toàn hệ thống</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+      <label><Coins size={16} /><span>Nguồn</span><select value={source} onChange={(event) => setSource(event.target.value as BusinessSource)}>{Object.entries(sourceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+    </section>
+
+    {error && <div className="business-performance__notice business-performance__notice--error"><CircleAlert size={19} /><span>{error}</span></div>}
+    {!error && report?.dataQuality && <div className="business-performance__notice"><CircleAlert size={19} /><span>{report.dataQuality.message}</span></div>}
+
+    <div className="business-performance__kpis">
+      <Metric icon={<WalletCards size={20} />} label="Dòng tiền ròng" value={money(report?.cashFlow.cashNet || 0)} detail={`Thu ${money(report?.cashFlow.cashIn || 0)} · Chi ${money(report?.cashFlow.cashOut || 0)}`} tone="cash" loading={loading} />
+      <Metric icon={<TrendingUp size={20} />} label="Doanh thu đã thực hiện" value={money(report?.managementPnl.recognisedRevenue || 0)} detail="Ghi nhận theo dịch vụ đã hoàn thành" tone="revenue" loading={loading} />
+      <Metric icon={<TrendingDown size={20} />} label="Chi phí vận hành" value={money(report?.managementPnl.operatingExpense || 0)} detail="Sổ cái quản trị đã hạch toán" tone="expense" loading={loading} />
+      <Metric icon={<Landmark size={20} />} label="Kết quả vận hành" value={money(report?.managementPnl.operatingResult || 0)} detail={`Phải thu Δ ${money(report?.balanceMovement.receivableMovement || 0)}`} tone="profit" loading={loading} />
+    </div>
+
+    <div className="business-performance__grid">
+      <article className="business-performance__card business-performance__card--sources">
+        <div className="business-performance__card-heading"><div><span>Nguồn thu & chi</span><h2>Hiệu quả theo nguồn</h2></div><small>{report?.sourceRows.reduce((total, row) => total + row.entryCount, 0).toLocaleString('vi-VN') || '0'} bút toán</small></div>
+        <div className="business-performance__table" role="table">
+          <div className="business-performance__table-head" role="row"><span>Nguồn</span><span>Thu tiền</span><span>DT thực hiện</span><span>Chi phí</span><span>Kết quả</span></div>
+          {loading && !report ? <div className="business-performance__empty">Đang tổng hợp báo cáo…</div> : report?.sourceRows.length ? report.sourceRows.map((row) => <div key={row.source} className="business-performance__table-row" role="row"><strong>{sourceLabels[row.source] || row.source}</strong><span data-label="Thu tiền">{money(row.cashNet)}</span><span data-label="Doanh thu">{money(row.recognisedRevenue)}</span><span data-label="Chi phí">{money(row.operatingExpense)}</span><b className={row.operatingResult >= 0 ? 'is-positive' : 'is-negative'} data-label="Kết quả">{money(row.operatingResult)}</b></div>) : <div className="business-performance__empty">Chưa có bút toán quản trị phù hợp với bộ lọc.</div>}
+        </div>
+      </article>
+      <article className="business-performance__card business-performance__card--trend">
+        <div className="business-performance__card-heading"><div><span>Xu hướng 14 ngày</span><h2>Dòng tiền & kết quả</h2></div></div>
+        {days.length ? <div className="business-performance__bars">{days.map((item) => <div className="business-performance__bar-column" key={item.date}><div className="business-performance__bars-stack" title={`${item.date}: dòng tiền ${money(item.cashNet)}, kết quả ${money(item.operatingResult)}`}><i className="business-performance__bar business-performance__bar--cash" style={{ height: `${Math.max(5, Math.round(Math.abs(item.cashNet) / peak * 100))}%` }} /><i className="business-performance__bar business-performance__bar--profit" style={{ height: `${Math.max(5, Math.round(Math.abs(item.operatingResult) / peak * 100))}%` }} /></div><small>{item.date.slice(8)}</small></div>)}</div> : <div className="business-performance__empty">Khi có bút toán quản trị, xu hướng ngày sẽ hiện ở đây.</div>}
+      </article>
+    </div>
+
+    <article className="business-performance__quality">
+      <div><span>Kiểm soát dữ liệu</span><h2>Không che giấu số chưa sẵn sàng</h2></div>
+      <dl>
+        <div><dt>Legacy chưa phân loại</dt><dd>{report?.dataQuality.legacyUnclassifiedEntries || 0} bút toán</dd></div>
+        <div><dt>Sổ quỹ chưa liên kết</dt><dd>{money(report?.dataQuality.unlinkedCashTransactions || 0)}</dd></div>
+        <div><dt>Lương đã trả ngoài ledger</dt><dd>{money(report?.dataQuality.payrollPaidOutsideLedger || 0)}</dd></div>
+        <div><dt>Nguồn chờ tích hợp</dt><dd>{report?.dataQuality.missingSourceIntegrations.length || 0} nguồn</dd></div>
+      </dl>
+      {report?.dataQuality.missingSourceIntegrations.length ? <p>Chưa tự động đưa vào P&L: {report.dataQuality.missingSourceIntegrations.map((item) => sourceLabels[item as BusinessSource] || item).join(', ')}.</p> : null}
+    </article>
+  </section>
+}
+
+function Metric({ icon, label, value, detail, tone, loading }: { icon: ReactNode; label: string; value: string; detail: string; tone: string; loading: boolean }) {
+  return <article className={`business-performance__metric business-performance__metric--${tone}`}><span className="business-performance__metric-icon">{icon}</span><div><p>{label}</p><strong>{loading ? '—' : value}</strong><small>{detail}</small></div></article>
+}

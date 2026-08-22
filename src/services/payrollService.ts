@@ -39,4 +39,26 @@ async function transition(name: string, runId: string, paymentReference?: string
 
 export const reviewPayrollRun = (runId: string) => transition('reviewPayrollRun', runId)
 export const lockPayrollRun = (runId: string) => transition('lockPayrollRun', runId)
-export const markPayrollRunPaid = (runId: string, paymentReference: string) => transition('markPayrollRunPaid', runId, paymentReference)
+
+export interface PayrollPayoutInput {
+  runId: string
+  cashAccountId: string
+  paymentReference: string
+}
+
+export interface PayrollPayoutResult {
+  runId: string
+  status: PayrollRunStatus
+  unchanged: boolean
+  paymentLedgerEntryId: string
+}
+
+/**
+ * Payroll payout is deliberately separate from the payroll accrual. The
+ * backend creates the cash-book transaction and the immutable payout ledger
+ * entry in the same transaction before it marks the run as paid.
+ */
+export async function markPayrollRunPaid(input: PayrollPayoutInput) {
+  const result = await callable<PayrollPayoutInput, PayrollPayoutResult>('markPayrollRunPaid')(input)
+  return result.data
+}

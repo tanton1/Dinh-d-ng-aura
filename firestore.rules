@@ -799,10 +799,11 @@ service cloud.firestore {
     }
 
     match /sessions/{documentId} {
-      allow read, create, update: if isAdmin();
-      // Session lifecycle changes go through audited callable transactions.
-      // Denying direct deletes also protects historical attendance/payroll.
-      allow delete: if false;
+      allow read: if isAdmin();
+      // Creation and every lifecycle change go through audited callable
+      // transactions. Admin SDK Functions bypass rules after checking actor,
+      // contract, quota and revision; no browser may forge a session write.
+      allow create, update, delete: if false;
     }
 
     match /trainers/{documentId} {
@@ -875,6 +876,19 @@ service cloud.firestore {
     }
 
     match /sessionEvents/{eventId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /ptAvailability/{availabilityId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Immutable snapshots created by the server whenever a branch schedule
+    // is published. Browsers may inspect versions only through trusted admin
+    // surfaces and can never forge or overwrite a published timetable.
+    match /ptScheduleVersions/{versionId} {
       allow read: if isAdmin();
       allow write: if false;
     }

@@ -94,3 +94,24 @@ export const formatDate = (dateStr: string | undefined | null): string => {
   const d = new Date(dateStr);
   return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString('vi-VN');
 };
+
+/** Add calendar months to a date-only value and clamp end-of-month dates. */
+export const addCalendarMonthsDateOnly = (dateStr: string, months: number): string => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!match || !Number.isInteger(months)) return '';
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const source = new Date(year, monthIndex, day);
+  if (
+    Number.isNaN(source.getTime())
+    || source.getFullYear() !== year
+    || source.getMonth() !== monthIndex
+    || source.getDate() !== day
+  ) return '';
+
+  const firstOfTarget = new Date(year, monthIndex + months, 1);
+  const lastDay = new Date(firstOfTarget.getFullYear(), firstOfTarget.getMonth() + 1, 0).getDate();
+  const target = new Date(firstOfTarget.getFullYear(), firstOfTarget.getMonth(), Math.min(day, lastDay));
+  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+};

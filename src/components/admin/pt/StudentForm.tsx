@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Student, ScheduleConfig } from '../../../types';
 import { Save, X } from 'lucide-react';
-import { getDatesForWeek } from '../../../utils/dateUtils';
 
 interface Props {
   onSave: (student: Student) => void;
@@ -16,9 +15,6 @@ export default function StudentForm({ onSave, initialData, onCancelEdit, isAvail
   const [name, setName] = useState('');
   const [sessions, setSessions] = useState(3);
   const [selectedSlots, setSelectedSlots] = useState<Set<string>>(new Set());
-  const [weekOffset, setWeekOffset] = useState(0);
-  
-  const currentWeekDates = useMemo(() => getDatesForWeek(weekOffset), [weekOffset]);
 
   useEffect(() => {
     if (initialData) {
@@ -67,10 +63,12 @@ export default function StudentForm({ onSave, initialData, onCancelEdit, isAvail
         <div>
           <h2 className="text-xl md:text-2xl font-black text-pink-500 drop-shadow-[0_0_10px_rgba(236,72,153,0.8)] uppercase tracking-wide flex items-center gap-3 border-b-2 border-pink-500/30 pb-2 inline-block shadow-[0_4px_0_rgba(236,72,153,0.2)] rounded-xl">
             <span className="w-2 h-8 bg-pink-500 rounded-full shadow-[0_0_10px_rgba(236,72,153,0.8)]"></span>
-            {isAvailabilityOnly ? `Cập nhật lịch rảnh: ${name}` : (initialData ? 'Thông Tin Học Viên' : 'Thêm Học Viên Mới')}
+            {isAvailabilityOnly ? `Lịch rảnh mặc định: ${name}` : (initialData ? 'Thông Tin Học Viên' : 'Thêm Học Viên Mới')}
           </h2>
           <p className="text-zinc-400 mt-2">
-            {isAvailabilityOnly ? 'Chọn các khung giờ học viên có thể tập.' : 'Nhập thông tin và chọn các khung giờ học viên có thể tập.'}
+            {isAvailabilityOnly
+              ? 'Đây là lịch fallback. Lịch chính thức từng tuần do học viên gửi tại trang Lịch học viên.'
+              : 'Nhập thông tin và thiết lập lịch fallback; lịch theo tuần được quản lý riêng.'}
           </p>
         </div>
         {initialData && onCancelEdit && (
@@ -129,25 +127,8 @@ export default function StudentForm({ onSave, initialData, onCancelEdit, isAvail
         <div className="space-y-4">
           <div className="flex justify-between items-end">
             <label className="block text-sm font-bold text-zinc-300 uppercase tracking-wider">
-              Ma trận thời gian rảnh
+              Lịch rảnh mặc định (fallback)
             </label>
-            <div className="flex items-center gap-2">
-              <button 
-                type="button"
-                onClick={() => setWeekOffset(prev => prev - 1)}
-                className="p-1 rounded bg-zinc-800 text-zinc-400 hover:text-white"
-              >
-                &lt;
-              </button>
-              <span className="text-xs text-zinc-400 font-medium">Tuần {weekOffset === 0 ? 'này' : weekOffset}</span>
-              <button 
-                type="button"
-                onClick={() => setWeekOffset(prev => prev + 1)}
-                className="p-1 rounded bg-zinc-800 text-zinc-400 hover:text-white"
-              >
-                &gt;
-              </button>
-            </div>
             <span className="text-xs text-pink-400 font-medium bg-pink-500/10 px-3 py-1 rounded-full border border-pink-500/20">
               Đã chọn: {selectedSlots.size} slots
             </span>
@@ -163,7 +144,7 @@ export default function StudentForm({ onSave, initialData, onCancelEdit, isAvail
                     <th key={day} className="border-b border-r border-zinc-800 p-1 md:p-2 bg-zinc-900 text-center font-bold text-zinc-300 uppercase tracking-wider">
                       <div className="flex flex-col items-center justify-center">
                         <span>{day}</span>
-                        <span className="text-[9px] md:text-[10px] text-zinc-500 font-normal mt-0.5">{currentWeekDates[day]?.display}</span>
+                        <span className="text-[9px] md:text-[10px] text-zinc-500 font-normal mt-0.5">Hàng tuần</span>
                       </div>
                     </th>
                   ))}
@@ -208,7 +189,7 @@ export default function StudentForm({ onSave, initialData, onCancelEdit, isAvail
             className="w-full md:w-auto flex items-center justify-center gap-2 bg-zinc-100 text-zinc-900 px-8 py-3.5 md:py-3 rounded-xl font-bold hover:bg-white hover:shadow-[0_0_20px_rgba(255,255,255,0.3)] transition-all active:scale-95 uppercase tracking-wider"
           >
             <Save size={20} />
-            Lưu Học Viên
+            {isAvailabilityOnly ? 'Lưu lịch mặc định' : 'Lưu Học Viên'}
           </button>
         </div>
       </form>

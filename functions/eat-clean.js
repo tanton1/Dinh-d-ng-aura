@@ -2,6 +2,7 @@ const { createHash, createHmac, timingSafeEqual } = require('node:crypto')
 const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { defineSecret } = require('firebase-functions/params')
+const { eatCleanRevenueRecognitionWrites } = require('./finance-recognition')
 
 const CITY_CODE = 'da-nang'
 const CITY_NAME = 'Đà Nẵng'
@@ -3618,6 +3619,9 @@ function createEatCleanFunctions(dependencies) {
       const trackedItems = (order.items || []).filter((item) => item.inventoryTracked !== false)
       const inventorySnapshots = []
       for (const item of trackedItems) inventorySnapshots.push(await transaction.get(db.doc(`eatCleanInventory/${item.inventoryId}`)))
+      const revenueWrites = eatCleanRevenueRecognitionWrites({ orderId, order, actorUid: actorId })
+      const revenueSnapshots = []
+      for (const item of revenueWrites) revenueSnapshots.push(await transaction.get(db.doc(`ledgerEntries/${item.id}`)))
       trackedItems.forEach((item, index) => {
         const snapshot = inventorySnapshots[index]
         if (!snapshot.exists) throw new HttpsError('failed-precondition', `Thiếu tồn kho cho món ${item.name}.`)
@@ -3642,6 +3646,9 @@ function createEatCleanFunctions(dependencies) {
         paymentStatus: 'paid',
         deliveredAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
+      })
+      revenueWrites.forEach((item, index) => {
+        if (!revenueSnapshots[index].exists) transaction.create(db.doc(`ledgerEntries/${item.id}`), item.value)
       })
       const notificationReference = db.doc(`users/${order.userId}/notifications/eat-clean-${orderId}-delivered`)
       transaction.set(notificationReference, {
@@ -3822,6 +3829,11 @@ function createEatCleanFunctions(dependencies) {
         ? db.doc(`eatCleanRefundJobs/${orderId}`)
         : null
       const refundSnapshot = refundReference ? await transaction.get(refundReference) : null
+      const revenueWrites = nextStatus === 'delivered' && order.status !== 'delivered'
+        ? eatCleanRevenueRecognitionWrites({ orderId, order, actorUid: actorId })
+        : []
+      const revenueSnapshots = []
+      for (const item of revenueWrites) revenueSnapshots.push(await transaction.get(db.doc(`ledgerEntries/${item.id}`)))
       trackedItems.forEach((item, index) => {
         const inventorySnapshot = inventorySnapshots[index]
         if (!inventorySnapshot.exists) {
@@ -3858,6 +3870,9 @@ function createEatCleanFunctions(dependencies) {
         patch.refundStatus = refundReference ? 'review_required' : 'not_applicable'
       }
       transaction.update(reference, patch)
+      revenueWrites.forEach((item, index) => {
+        if (!revenueSnapshots[index].exists) transaction.create(db.doc(`ledgerEntries/${item.id}`), item.value)
+      })
       if (deliverySnapshot.exists && nextStatus === 'ready' && deliverySnapshot.data().status === 'awaiting_kitchen') {
         transaction.set(deliveryReference, {
           status: 'awaiting_assignment',

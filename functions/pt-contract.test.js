@@ -110,7 +110,12 @@ test('student Gym schedule is self-scoped and availability writes are revision g
   assert.match(studentScheduleBlock, /sessionsTruncated:/)
   assert.match(studentScheduleBlock, /currentRevision !== expectedRevision/)
   assert.match(studentScheduleBlock, /issueCode: 'REVISION_CONFLICT'/)
-  assert.match(studentScheduleBlock, /scheduleNeedsReview: true/)
+  assert.match(studentScheduleBlock, /ptAvailability\/\$\{profile\.id\}_\$\{weekId\}/)
+  assert.match(studentScheduleBlock, /const minimumSlots = Math\.max\(5, requiredSessions\)/)
+  assert.match(studentScheduleBlock, /availabilityCutoff\(weekId\)/)
+  assert.match(studentScheduleBlock, /issueCode: 'AVAILABILITY_LOCKED'/)
+  assert.match(studentScheduleBlock, /currentAvailability\.data\(\)\?\.revision/)
+  assert.match(studentScheduleBlock, /status: 'submitted'/)
   assert.doesNotMatch(studentScheduleBlock, /request\.data\?\.studentId/)
 })
 
@@ -122,6 +127,7 @@ test('student schedule client maps callable failures to actionable structured st
     'STUDENT_ROLE_REQUIRED',
     'PROFILE_NOT_LINKED',
     'REVISION_CONFLICT',
+    'AVAILABILITY_LOCKED',
     'SYNC_UNAVAILABLE',
   ]) {
     assert.match(studentScheduleServiceSource, new RegExp(`'${issueCode}'`))

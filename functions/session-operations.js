@@ -1,6 +1,7 @@
 const { FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
+const { ptRevenueRecognitionWrite } = require('./finance-recognition')
 
 const DAILY_SESSION_QUERY_LIMIT = 200
 
@@ -74,6 +75,125 @@ function activeHourDocuments(snapshot, targetHour, excludedIds = []) {
   ))
 }
 
+function storedContractDate(value, label) {
+  const raw = value && typeof value.toDate === 'function'
+    ? value.toDate().toISOString()
+    : value instanceof Date
+      ? value.toISOString()
+      : typeof value === 'string'
+        ? value
+        : ''
+  const result = raw.slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(result)) {
+    throw new HttpsError('failed-precondition', `${label} của hợp đồng không hợp lệ.`)
+  }
+  return result
+}
+
+function linkedContractId(session) {
+  const result = typeof session?.contractId === 'string' ? session.contractId.trim() : ''
+  if (!result || !/^[A-Za-z0-9_-]+$/.test(result)) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Buổi tập chưa liên kết hợp đồng. Hãy chạy đối soát contractId trước khi điểm danh.',
+      { issueCode: 'SESSION_CONTRACT_LINK_REQUIRED' },
+    )
+  }
+  return result
+}
+
+async function completeSessionAttendanceTransaction({
+  db,
+  sessionId,
+  expectedRevision,
+  actorUid,
+  assertSessionScope = () => {},
+  timeZone = 'Asia/Ho_Chi_Minh',
+}) {
+  const sessionReference = db.doc(`sessions/${sessionId}`)
+  return db.runTransaction(async (transaction) => {
+    const sessionSnapshot = await transaction.get(sessionReference)
+    if (!sessionSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy buổi tập.')
+    const session = sessionSnapshot.data()
+    await assertSessionScope(session)
+    const revision = Number(session.revision || 0)
+
+    // A retry after a successful transaction is safe even when it carries the
+    // previous revision. The completed session itself is the idempotency gate.
+    if (session.status === 'completed' && session.attendanceEventId) {
+      return { unchanged: true, revision, attendanceEventId: session.attendanceEventId }
+    }
+    if (revision !== expectedRevision) throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại.')
+    if (!isActiveSessionStatus(session.status)) throw new HttpsError('failed-precondition', 'Chỉ buổi đang lên lịch mới được xác nhận.')
+
+    const contractId = linkedContractId(session)
+    const contractReference = db.doc(`contracts/${contractId}`)
+    const attendanceReference = db.doc(`attendanceEvents/${sessionId}`)
+    const recognitionReference = db.doc(`ledgerEntries/pt_session_${sessionId}`)
+    const contractSnapshot = await transaction.get(contractReference)
+    const attendanceSnapshot = await transaction.get(attendanceReference)
+    const recognitionSnapshot = await transaction.get(recognitionReference)
+
+    if (!contractSnapshot.exists) throw new HttpsError('failed-precondition', 'Hợp đồng liên kết không tồn tại.')
+    const contract = contractSnapshot.data()
+    if (contract.studentId !== session.studentId) throw new HttpsError('failed-precondition', 'Hợp đồng không thuộc học viên của buổi tập.')
+    if (contract.status !== 'active') throw new HttpsError('failed-precondition', 'Hợp đồng liên kết không ở trạng thái hoạt động.')
+    const sessionDate = storedDateKey(session.date, 'Ngày của buổi tập')
+    const contractStart = storedContractDate(contract.startDate, 'Ngày bắt đầu')
+    const contractEnd = storedContractDate(contract.endDate, 'Ngày kết thúc')
+    if (sessionDate < contractStart || sessionDate > contractEnd) {
+      throw new HttpsError('failed-precondition', 'Ngày tập nằm ngoài thời hạn hợp đồng liên kết.')
+    }
+    if (attendanceSnapshot.exists) {
+      throw new HttpsError('already-exists', 'Sự kiện điểm danh đã tồn tại nhưng buổi tập chưa đồng bộ. Cần đối soát trước khi thử lại.')
+    }
+    const attendedClasses = Array.isArray(contract.attendedClasses) ? contract.attendedClasses : []
+    if (attendedClasses.includes(sessionId)) throw new HttpsError('already-exists', 'Buổi tập đã được tính trong hợp đồng.')
+    if (Number(contract.usedSessions || 0) >= Number(contract.totalSessions || 0)) throw new HttpsError('failed-precondition', 'Hợp đồng đã hết buổi.')
+
+    const recognition = ptRevenueRecognitionWrite({
+      sessionId,
+      session,
+      contractId,
+      contract,
+      attendanceEventId: attendanceReference.id,
+      actorUid,
+    })
+    transaction.create(attendanceReference, {
+      schemaVersion: 1,
+      type: 'attended',
+      sessionId,
+      studentId: session.studentId,
+      trainerId: session.trainerId,
+      contractId,
+      occurredAt: FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
+      createdBy: actorUid,
+      timeZone,
+    })
+    transaction.update(sessionReference, {
+      status: 'completed',
+      attendanceEventId: attendanceReference.id,
+      completedAt: FieldValue.serverTimestamp(),
+      revision: revision + 1,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actorUid,
+    })
+    transaction.update(contractReference, {
+      usedSessions: FieldValue.increment(1),
+      attendedClasses: FieldValue.arrayUnion(sessionId),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    if (recognition && !recognitionSnapshot.exists) transaction.create(recognitionReference, recognition)
+    return {
+      unchanged: false,
+      revision: revision + 1,
+      attendanceEventId: attendanceReference.id,
+      recognitionEntryId: recognition && !recognitionSnapshot.exists ? recognitionReference.id : null,
+    }
+  })
+}
+
 async function adminActor(request, db) {
   const actor = await trustedAccessContext(request, db)
   requireCapability(actor, 'pt.operations.manage')
@@ -85,26 +205,11 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
     const actor = await authorizeAdmin(request, db)
     const sessionId = id(request.data?.sessionId, 'Mã buổi tập')
     const expectedRevision = sessionRevision(request.data?.expectedRevision)
-    const sessionReference = db.doc(`sessions/${sessionId}`)
-    return db.runTransaction(async (transaction) => {
-      const sessionSnapshot = await transaction.get(sessionReference)
-      if (!sessionSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy buổi tập.')
-      const session = sessionSnapshot.data()
-      const revision = Number(session.revision || 0)
-      if (revision !== expectedRevision) throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại.')
-      if (session.status === 'completed' && session.attendanceEventId) return { unchanged: true, revision }
-      if (!isActiveSessionStatus(session.status)) throw new HttpsError('failed-precondition', 'Chỉ buổi đang lên lịch mới được xác nhận.')
-      const contracts = await transaction.get(db.collection('contracts').where('studentId', '==', session.studentId).where('status', '==', 'active').limit(5))
-      const contract = contracts.docs[0]
-      if (!contract) throw new HttpsError('failed-precondition', 'Không có hợp đồng hoạt động.')
-      const contractData = contract.data()
-      if (Number(contractData.usedSessions || 0) >= Number(contractData.totalSessions || 0)) throw new HttpsError('failed-precondition', 'Hợp đồng đã hết buổi.')
-      if (Array.isArray(contractData.attendedClasses) && contractData.attendedClasses.includes(sessionId)) throw new HttpsError('already-exists', 'Buổi tập đã được tính.')
-      const eventReference = db.collection('attendanceEvents').doc()
-      transaction.create(eventReference, { schemaVersion: 1, type: 'attended', sessionId, studentId: session.studentId, trainerId: session.trainerId, contractId: contract.id, occurredAt: FieldValue.serverTimestamp(), createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
-      transaction.update(sessionReference, { status: 'completed', verifiedByStudent: true, attendanceEventId: eventReference.id, revision: revision + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
-      transaction.update(contract.ref, { usedSessions: FieldValue.increment(1), attendedClasses: FieldValue.arrayUnion(sessionId), updatedAt: FieldValue.serverTimestamp() })
-      return { unchanged: false, revision: revision + 1 }
+    return completeSessionAttendanceTransaction({
+      db,
+      sessionId,
+      expectedRevision,
+      actorUid: actor.uid,
     })
   })
 
@@ -381,4 +486,4 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
   return { confirmSessionAttendance, cancelSession, rescheduleSession, swapSessions, approveSessionRequest, rejectSessionRequest }
 }
 
-module.exports = { createSessionOperationFunctions }
+module.exports = { completeSessionAttendanceTransaction, createSessionOperationFunctions }

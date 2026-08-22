@@ -1,7 +1,6 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Utensils, Flame, Dumbbell, HeartPulse } from 'lucide-react'
 import AppShell from './components/AppShell'
-import Onboarding from './onboarding/Onboarding'
 import { normalizeOnboardingProfile } from './onboarding/defaults'
 import { hasPermission, type Permission } from './config/permissions'
 import { calculateNutritionTargets } from './services/nutritionSyncService'
@@ -48,6 +47,7 @@ import { toCourseDraft } from './utils/courseDraft'
 import { DatabaseProvider } from './contexts/DatabaseContext'
 
 const AdminAcademyStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminAcademyStudentsPage'))
+const Onboarding = lazyWithRetry(() => import('./onboarding/Onboarding'))
 const HomePage = lazyWithRetry(() => import('./pages/student/HomePage'))
 const AdminCoursesPage = lazyWithRetry(() => import('./pages/admin/AdminCoursesPage'))
 const AdminDashboard = lazyWithRetry(() => import('./pages/admin/AdminDashboard'))
@@ -73,6 +73,8 @@ const AuraOperationsFrame = lazyWithRetry(() => import('./components/AuraOperati
 // Gym PT Operations & Food Database Views
 const AdminPTStudentManagement = lazyWithRetry(() => import('./components/admin/pt/StudentManagement'))
 const SchedulerWrapper = lazyWithRetry(() => import('./components/schedule/SchedulerWrapper'))
+const BranchScheduleWorkspace = lazyWithRetry(() => import('./components/schedule/BranchScheduleWorkspace'))
+const TrainingHistoryWorkspace = lazyWithRetry(() => import('./components/admin/pt/TrainingHistoryWorkspace'))
 const AdminFinanceHub = lazyWithRetry(() => import('./components/admin/pt/AdminFinanceHub'))
 const AdminPackageSettings = lazyWithRetry(() => import('./components/admin/pt/PackageSettings'))
 const AdminQuoteGenerator = lazyWithRetry(() => import('./components/admin/pt/QuoteGenerator'))
@@ -95,7 +97,7 @@ const roleLabels: Record<UserRole, string> = {
 }
 
 function AuraApplication() {
-  const { user, profile, role, setPreviewRole, loading, backendMode, signOut, changePassword, hasCapability, authorizationError, authzReady, profileSyncState, saveProfileChanges } = useAuth()
+  const { user, profile, role, accessContext, setPreviewRole, loading, backendMode, signOut, changePassword, hasCapability, authorizationError, authzReady, profileSyncState, saveProfileChanges } = useAuth()
   const canAccessAdmin = hasPermission(role, 'dashboard.view')
   const canManageAcademy = canAccessAdmin && hasPermission(role, 'course.view')
   const canManageCoaching = canAccessAdmin && hasPermission(role, 'program.view')
@@ -843,7 +845,10 @@ function AuraApplication() {
       case 'sales-portal': return <AuraOperationsFrame><SalesPortalV2 /></AuraOperationsFrame>
 
       case 'admin-pt-students': return <AuraOperationsFrame><AdminPTStudentManagement user={user as any} profile={profile} /></AuraOperationsFrame>
-      case 'admin-pt-schedule': return <AuraOperationsFrame><SchedulerWrapper user={user as any} profile={profile} onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
+      case 'admin-pt-schedule': return <AuraOperationsFrame>{backendMode === 'firebase' && accessContext?.accessRole === 'staff' && accessContext.capabilities.includes('pt.schedule.branch.publish')
+        ? <BranchScheduleWorkspace accessContext={accessContext} />
+        : <SchedulerWrapper user={user as any} profile={profile} accessContext={accessContext} backendMode={backendMode} onNavigate={(view) => navigate(view as ViewId)} />}</AuraOperationsFrame>
+      case 'admin-training-history': return <AuraOperationsFrame><TrainingHistoryWorkspace /></AuraOperationsFrame>
       case 'admin-report': return <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
       case 'admin-finance': return <AuraOperationsFrame><AdminFinanceHub user={user as any} profile={profile} /></AuraOperationsFrame>
       case 'admin-hr': return <AuraOperationsFrame><AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} /></AuraOperationsFrame>
@@ -869,13 +874,14 @@ function AuraApplication() {
 
   if ((user || backendMode === 'demo') && !isOnboardingDone) {
     return (
-      <Onboarding 
-        initialProfile={
-          (() => {
-            const src = profile?.onboardingData || profile || {};
-            return Object.fromEntries(Object.entries(src).filter(([_, v]) => v !== undefined));
-          })()
-        }
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <Onboarding
+          initialProfile={
+            (() => {
+              const src = profile?.onboardingData || profile || {};
+              return Object.fromEntries(Object.entries(src).filter(([_, v]) => v !== undefined));
+            })()
+          }
         onSkip={async (skippedProfile) => {
           const persistedDefaults = normalizeOnboardingProfile(skippedProfile);
           const skippedProfileUpdate = {
@@ -948,7 +954,8 @@ function AuraApplication() {
 
           navigate('nutrition');
         }} 
-      />
+        />
+      </Suspense>
     )
   }
 

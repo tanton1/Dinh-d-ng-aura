@@ -12,7 +12,10 @@ function getDayIndex(day: string, config: ScheduleConfig): number {
   return config.workingDays.indexOf(day as any);
 }
 
-const MAX_STUDENTS_PER_PT = 2;
+function trainerSlotCapacity(trainer: Trainer): number {
+  const configured = Number(trainer.slotCapacity);
+  return Number.isInteger(configured) && configured >= 1 && configured <= 4 ? configured : 2;
+}
 
 export function getStudentSessionsPerWeek(
   student: Student,
@@ -35,9 +38,10 @@ function getSessionsLeft(contract: StudentContract, allSessions: import("../type
   const scheduledCount = allSessions.filter(s => {
     if (s.studentId !== contract.studentId) return false;
     if (s.status !== 'scheduled' && s.status !== 'rescheduled') return false;
+    if (s.contractId) return s.contractId === contract.id;
     const sDate = new Date(s.date).getTime();
     const startDate = new Date(contract.startDate).getTime();
-    const endDate = new Date(contract.endDate).getTime() + (86400000 * 60);
+    const endDate = new Date(contract.endDate).getTime() + 86400000 - 1;
     return sDate >= startDate && sDate <= endDate;
   }).length;
   
@@ -417,7 +421,7 @@ function scheduleStudentWithTrainer(
     const isOff = trainerEntries.some(
       (e) => e.type === "off" || e.studentId === "OFF",
     );
-    if (!isOff && trainerEntries.length < MAX_STUDENTS_PER_PT) {
+    if (!isOff && trainerEntries.length < trainerSlotCapacity(trainer)) {
       if (!slotsByDay[day]) slotsByDay[day] = [];
       slotsByDay[day].push(slot);
     }
@@ -557,6 +561,7 @@ function scheduleStudentWithTrainer(
       schedule[slot].push({
         studentId: student.id,
         trainerId: trainer.id,
+        branchId: student.branchId || trainer.branchId,
         type: "training",
       });
       scheduledDays.add(day);
@@ -604,10 +609,11 @@ function getSuggestions(
         );
         if (isOff) continue;
 
-        capacity += MAX_STUDENTS_PER_PT;
+        const trainerCapacity = trainerSlotCapacity(t);
+        capacity += trainerCapacity;
         const count = trainerEntries.length;
         currentStudents += count;
-        if (count === 1) hasHalfFullPT = true;
+        if (count > 0 && count < trainerCapacity) hasHalfFullPT = true;
       }
 
       if (currentStudents < capacity) {

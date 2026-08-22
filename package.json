@@ -14,7 +14,7 @@
     "test:storage": "npx --yes firebase-tools@15.9.1 emulators:exec --only storage --project demo-aura-fitness-storage \"node --test tests/storage.rules.test.mjs\"",
     "test:rtdb": "npx --yes firebase-tools@15.9.1 emulators:exec --only database --project demo-aura-fitness-rtdb \"node --test tests/database.rules.test.mjs\"",
     "test:functions": "npm --prefix functions test",
-    "test:profile-sync": "tsx --test tests/profile-sync.test.ts",
+    "test:profile-sync": "tsx --test tests/profile-sync.test.ts tests/date-utils.test.ts",
     "test:e2e": "playwright test",
     "test": "npm run test:profile-sync && npm run test:functions",
     "performance:check": "node scripts/check-performance-budget.mjs",

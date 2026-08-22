@@ -6,17 +6,24 @@ function callable<Input, Output>(name: string) {
   return httpsCallable<Input, Output>(firebaseFunctions, name)
 }
 
-export type FinanceLedgerType = 'payment' | 'refund' | 'adjustment' | 'reversal'
+export type FinanceLedgerType = 'payment' | 'refund' | 'adjustment' | 'reversal' | 'revenue_recognition' | 'expense' | 'payroll'
 export type FinanceLedgerStatus = 'pending' | 'posted' | 'reversed'
 
 export interface FinanceLedgerEntry {
   id: string
   type: FinanceLedgerType
+  eventClass: string
+  source: string
   contractId: string
   studentId: string
   branchId: string
   installmentId: string
   amount: number
+  cashImpact: number | null
+  revenueImpact: number | null
+  expenseImpact: number | null
+  receivableImpact: number | null
+  deferredRevenueImpact: number | null
   effectiveAt: string
   paymentMethod: string
   referenceCode: string

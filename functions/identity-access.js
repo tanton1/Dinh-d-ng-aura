@@ -586,7 +586,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
           uid, displayName, name: displayName, email, phoneNumber,
           role: 'student', accessRole: 'student', authzVersion: 1,
           membership: 'free', onboardingCompleted: false, disabled: false,
-          mustChangePassword: true, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+          mustChangePassword: false, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
         transaction.create(assignmentRef, {
           schemaVersion: 1, uid, accessRole: 'student', positions: [], branchIds: [],
@@ -605,7 +605,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
         })
       }))
       logger?.info?.('identity_provision_completed', { action, targetUid: uid })
-      return { uid, displayName, phoneNumber, email, passwordChangeRequired: true, crmProfileId: crmProfileId || uid }
+      return { uid, displayName, phoneNumber, email, passwordChangeRequired: false, crmProfileId: crmProfileId || uid }
     } catch (error) {
       if (createdUser) {
         try { await identityProvisionStep(logger, action, 'hoàn tác đăng nhập', () => auth.deleteUser(createdUser.uid), 12_000) } catch (rollbackError) { logger?.error?.('student_provision_rollback_failed', { uid: createdUser.uid, code: rollbackError?.code || 'unknown' }) }
@@ -646,7 +646,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
           uid, displayName, name: displayName, email, phoneNumber,
           role: claims.role, accessRole: 'staff', authzVersion: 1,
           membership: 'staff', onboardingCompleted: true, disabled: false,
-          mustChangePassword: true, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+          mustChangePassword: false, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
         transaction.create(assignmentRef, {
           schemaVersion: 1, uid, accessRole: 'staff', positions, branchIds,
@@ -672,7 +672,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
         })
       }))
       logger?.info?.('identity_provision_completed', { action, targetUid: uid })
-      return { uid, displayName, phoneNumber, email, positions, branchIds, passwordChangeRequired: true }
+      return { uid, displayName, phoneNumber, email, positions, branchIds, passwordChangeRequired: false }
     } catch (error) {
       if (createdUser) {
         try { await identityProvisionStep(logger, action, 'hoàn tác đăng nhập', () => auth.deleteUser(createdUser.uid), 12_000) } catch (rollbackError) { logger?.error?.('staff_provision_rollback_failed', { uid: createdUser.uid, code: rollbackError?.code || 'unknown' }) }
@@ -946,6 +946,10 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     const availabilitySlots = Array.isArray(request.data?.availabilitySlots)
       ? [...new Set(request.data.availabilitySlots.filter((slot) => typeof slot === 'string' && slot.length <= 80))].slice(0, 168)
       : []
+    const slotCapacity = Number(request.data?.slotCapacity ?? 2)
+    if (!Number.isInteger(slotCapacity) || slotCapacity < 1 || slotCapacity > 4) {
+      throw new HttpsError('invalid-argument', 'Sức chứa mỗi ca của PT phải từ 1 đến 4 học viên.')
+    }
     const money = (value, label, maximum = 2_000_000_000) => {
       const parsed = Number(value || 0)
       if (!Number.isFinite(parsed) || parsed < 0 || parsed > maximum) throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
@@ -990,17 +994,17 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       transaction.set(staffRef, {
         id: targetUid, name: displayName, email, phone: phoneNumber,
         role: positions.includes('trainer_pt') ? 'trainer' : positions[0], branchId: branchIds[0] || '', status: 'active',
-        positions, branchIds, availableSlots: availabilitySlots, ...compensation,
+        positions, branchIds, availableSlots: availabilitySlots, slotCapacity, ...compensation,
         updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
       if (positions.includes('trainer_pt')) transaction.set(trainerRef, {
         id: targetUid, name: displayName, email, phone: phoneNumber,
-        branchId: branchIds[0] || '', status: 'active', availableSlots: availabilitySlots, ...compensation,
+        branchId: branchIds[0] || '', status: 'active', availableSlots: availabilitySlots, slotCapacity, ...compensation,
         updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.set(db.collection('identityAuditLogs').doc(), {
         action: 'staff_operations_profile.saved', actorUid: actor.uid, targetUid,
-        after: { availabilitySlots: availabilitySlots.length, compensation, contactChanged }, createdAt: FieldValue.serverTimestamp(),
+        after: { availabilitySlots: availabilitySlots.length, slotCapacity, compensation, contactChanged }, createdAt: FieldValue.serverTimestamp(),
       })
       transaction.set(userRef, { displayName, name: displayName, email, phoneNumber, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
       })
@@ -1010,7 +1014,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       }
       throw normalizeDuplicateAuthError(error)
     }
-    return { uid: targetUid, displayName, email, phoneNumber, availabilitySlots, compensation }
+    return { uid: targetUid, displayName, email, phoneNumber, availabilitySlots, slotCapacity, compensation }
   })
 
   return {

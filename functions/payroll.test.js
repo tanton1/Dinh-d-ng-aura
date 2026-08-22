@@ -29,3 +29,33 @@ test('payroll creation is one deterministic transaction per period', () => {
   assert.match(createBlock, /payrollRunItems\/\$\{periodId\}_\$\{trainerId\}/)
   assert.doesNotMatch(createBlock, /db\.collection\('payrollRuns'\)\.doc\(\)/)
 })
+
+test('locking a payroll run records an immutable management expense', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
+  const lockBlock = source.match(/const lockPayrollRun[\s\S]*?\n  const markPayrollRunPaid/)?.[0] || ''
+  assert.match(lockBlock, /ledgerEntries\/payroll_\$\{runId\}/)
+  assert.match(lockBlock, /type: 'payroll'/)
+  assert.match(lockBlock, /eventClass: 'payroll_accrual'/)
+  assert.match(lockBlock, /expenseImpact: finalAmount/)
+  assert.match(lockBlock, /cashImpact: 0/)
+  assert.match(lockBlock, /db\.runTransaction/)
+})
+
+test('payroll payout creates the cash-book and ledger entries atomically', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
+  const payoutStart = source.indexOf('const markPayrollRunPaid = onCall')
+  const payoutEnd = source.indexOf('return { listPayrollRuns', payoutStart)
+  const payoutBlock = payoutStart >= 0 && payoutEnd > payoutStart
+    ? source.slice(payoutStart, payoutEnd)
+    : ''
+
+  assert.match(payoutBlock, /ledgerEntries\/payroll_payment_\$\{runId\}/)
+  assert.match(payoutBlock, /cashTransactions\/payroll_\$\{runId\}/)
+  assert.match(payoutBlock, /cashAccounts\/\$\{cashAccountId\}/)
+  assert.match(payoutBlock, /eventClass: 'payroll_payment'/)
+  assert.match(payoutBlock, /cashImpact: -finalAmount/)
+  assert.match(payoutBlock, /expenseImpact: 0/)
+  assert.match(payoutBlock, /FieldValue\.increment\(-finalAmount\)/)
+  assert.match(payoutBlock, /status !== 'locked'/)
+  assert.match(payoutBlock, /db\.runTransaction/)
+})

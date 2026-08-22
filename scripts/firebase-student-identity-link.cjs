@@ -450,6 +450,11 @@ function buildPlan(state) {
     }
     const desiredProfile = {
       uid: item.uid,
+      displayName: typeof item.student.name === 'string' ? item.student.name.trim() : '',
+      name: typeof item.student.name === 'string' ? item.student.name.trim() : '',
+      email: typeof item.student.email === 'string' ? item.student.email.trim().toLowerCase() : '',
+      phoneNumber: typeof item.student.phone === 'string' ? item.student.phone.trim() : '',
+      crmProfileId: item.student.id,
       role: 'student',
       accessRole: 'student',
       authzVersion,

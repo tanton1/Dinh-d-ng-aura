@@ -24,7 +24,7 @@ export default function ContractRenewals({ user, profile, onNavigate }: Props) {
       if (s.status !== 'completed') return false; 
       const sDate = new Date(s.date).getTime();
       const startDate = new Date(contract.startDate).getTime();
-      const endDate = new Date(contract.endDate).getTime() + (86400000 * 60);
+      const endDate = new Date(contract.endDate).getTime() + 86400000 - 1;
       return sDate >= startDate && sDate <= endDate;
     });
     const uniqueClassIds = new Set(contractSessions.map(s => `${s.id.split('-').slice(0,2).join('-')}-${s.date}`));

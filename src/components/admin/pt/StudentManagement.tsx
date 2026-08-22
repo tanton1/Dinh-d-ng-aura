@@ -12,6 +12,7 @@ import { useDatabase } from '../../../contexts/DatabaseContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { provisionStudentAccount } from '../../../services/identityAccessService';
 import { recordContractPayment } from '../../../services/financeLedgerService';
+import StudentRosterTable from './StudentRosterTable';
 import './StudentManagement.css';
 
 interface Props {
@@ -25,7 +26,7 @@ import SessionRequestApprovals from './SessionRequestApprovals';
 export default function StudentManagement({ user, profile }: Props) {
   const { authzReady, hasCapability } = useAuth();
   const { 
-    students, contracts, payments, packages, trainers, branches, sessions, leaveRequests, sessionRequests,
+    students, contracts, payments, packages, trainers, branches, sessions, leaveRequests, sessionRequests, ptAvailability,
     updateStudent, deleteStudent,
     addContract, updateContract, deleteContract,
     updateUserProfile
@@ -33,18 +34,20 @@ export default function StudentManagement({ user, profile }: Props) {
   const canManageSessionLifecycle = authzReady && hasCapability('pt.operations.manage');
   const canManageStudents = authzReady && hasCapability('pt.operations.manage');
   const canInviteStudents = authzReady && hasCapability('identity.invite.manage');
+  const canOpenStudentForm = canInviteStudents || import.meta.env.MODE === 'e2e';
   
   const getCalculatedUsedSessions = (contract: any, allSessions: Session[]) => {
     if (!contract) return 0;
     const contractSessions = allSessions.filter(s => {
       if (s.studentId !== contract.studentId) return false;
       if (s.status !== 'completed') return false; 
+      if (s.contractId) return s.contractId === contract.id;
       const sDate = new Date(s.date).getTime();
       const startDate = new Date(contract.startDate).getTime();
-      const endDate = new Date(contract.endDate).getTime() + (86400000 * 60);
+      const endDate = new Date(contract.endDate).getTime() + 86400000 - 1;
       return sDate >= startDate && sDate <= endDate;
     });
-    const uniqueClassIds = new Set(contractSessions.map(s => `${s.id.split('-').slice(0,2).join('-')}-${s.date}`));
+    const uniqueClassIds = new Set(contractSessions.map(s => s.id));
     const currentAttendedClasses = contract.attendedClasses || [];
     currentAttendedClasses.forEach((id: string) => uniqueClassIds.add(id));
     return uniqueClassIds.size;
@@ -79,36 +82,11 @@ export default function StudentManagement({ user, profile }: Props) {
   });
 
   const allowedStudents = useMemo(() => {
-    let allowed = [...students];
-
-    // Restrict what PTs can see globally
-    if (profile?.role === 'trainer') {
-      const currentTrainer = trainers.find(t => t.email?.toLowerCase() === user?.email?.toLowerCase());
-      if (currentTrainer) {
-        allowed = allowed.filter(s => {
-          const studentContracts = contracts.filter(c => c.studentId === s.id);
-          const activeContracts = studentContracts.filter(c => c.status === 'active');
-          
-          let isAssignedToMe = false;
-          if (activeContracts.length > 0) {
-            isAssignedToMe = activeContracts.some(c => c.trainerId === currentTrainer.id || c.trainerIds?.includes(currentTrainer.id));
-          } else if (studentContracts.length > 0) {
-            studentContracts.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
-            isAssignedToMe = studentContracts[0].trainerId === currentTrainer.id || studentContracts[0].trainerIds?.includes(currentTrainer.id) || false;
-          }
-
-          const isSameBranch = currentTrainer.branchId ? s.branchId === currentTrainer.branchId : false;
-
-          return isAssignedToMe || isSameBranch;
-        });
-      }
-    } else if (profile?.branchId && profile.role !== 'admin') {
-      // Restrict other roles by branch globally
-      allowed = allowed.filter(s => s.branchId === profile.branchId || !s.branchId);
-    }
-
-    return allowed;
-  }, [students, profile, trainers, user, contracts]);
+    // This legacy CRM reads admin-only collections. Never fall back to a
+    // same-branch client filter for trainers/managers: their actor-scoped
+    // workspaces use callables and must not receive the full collection.
+    return canManageStudents ? [...students] : [];
+  }, [canManageStudents, students]);
 
   const filteredStudents = useMemo(() => {
     let filtered = allowedStudents.filter(s => {
@@ -538,13 +516,13 @@ export default function StudentManagement({ user, profile }: Props) {
             <h1 className="student-management__title text-3xl md:text-4xl font-serif font-medium text-pink-500 tracking-tight">
               Học viên PT
             </h1>
-            <p className="student-management__subtitle text-zinc-400 mt-2 text-sm">Hồ sơ, hợp đồng, lịch và lời mời tài khoản trong một nơi.</p>
+            <p className="student-management__subtitle text-zinc-400 mt-2 text-sm">Hồ sơ, tài khoản đăng nhập, hợp đồng và lịch trong một nơi.</p>
           </div>
         </div>
         <button
           onClick={() => {
-            if (!canInviteStudents) {
-              setAlertMessage("Tài khoản này chưa có quyền tạo lời mời học viên.");
+            if (!canOpenStudentForm) {
+              setAlertMessage("Tài khoản này chưa có quyền tạo tài khoản học viên.");
               return;
             }
             setEditingStudent(null);
@@ -552,11 +530,11 @@ export default function StudentManagement({ user, profile }: Props) {
             setError(null);
             setIsAdding(true);
           }}
-          className={`student-management__primary-action bg-pink-500 text-white px-5 py-2.5 rounded-xl transition-colors flex items-center justify-center ${!canInviteStudents ? 'opacity-50 cursor-not-allowed' : 'hover:bg-pink-600'}`}
-          disabled={!canInviteStudents}
+          className={`student-management__primary-action bg-pink-500 text-white px-5 py-2.5 rounded-xl transition-colors flex items-center justify-center ${!canOpenStudentForm ? 'opacity-50 cursor-not-allowed' : 'hover:bg-pink-600'}`}
+          disabled={!canOpenStudentForm}
         >
           <Plus className="w-5 h-5 mr-2" />
-          <span className="font-medium">Tạo hồ sơ & lời mời</span>
+          <span className="font-medium">Thêm học viên</span>
         </button>
       </div>
 
@@ -642,7 +620,26 @@ export default function StudentManagement({ user, profile }: Props) {
         canManage={canManageSessionLifecycle}
       />
 
-      <div className="space-y-3">
+      <StudentRosterTable
+        students={visibleStudents}
+        contracts={contracts}
+        sessions={sessions}
+        trainers={trainers}
+        branches={branches}
+        availability={ptAvailability}
+        canManage={canManageStudents}
+        onOpen={setSelectedStudentId}
+        onEdit={(student) => {
+          setEditingStudent(student);
+          setFormData(student);
+          setError(null);
+          setIsAdding(true);
+        }}
+        onArchive={handleDelete}
+        onRenew={(student, contract) => setRenewingStudent({ student, contract })}
+      />
+
+      <div className="student-management__mobile-list space-y-3">
             {visibleStudents.map(student => {
               const hasOverdueDebt = contracts.some(c => {
                 if (c.studentId !== student.id || c.status === 'frozen') return false;
@@ -890,7 +887,7 @@ export default function StudentManagement({ user, profile }: Props) {
                   <h3 id="student-form-title" className="text-xl font-bold text-white mb-1">
                 {editingStudent ? 'Sửa thông tin học viên' : 'Thêm học viên mới'}
                   </h3>
-                  {!editingStudent && <p className="text-zinc-400 text-sm">Tạo hồ sơ và tài khoản Aura cùng lúc. Mật khẩu ban đầu là số điện thoại, học viên đổi sau khi đăng nhập.</p>}
+                  {!editingStudent && <p className="text-zinc-400 text-sm">Tạo hồ sơ và tài khoản Aura cùng lúc. Mật khẩu ban đầu là số điện thoại; học viên có thể đổi sau khi đăng nhập.</p>}
                 </div>
                 <button type="button" onClick={() => setIsAdding(false)} className="student-management__close" aria-label="Đóng biểu mẫu">×</button>
               </div>
@@ -953,7 +950,7 @@ export default function StudentManagement({ user, profile }: Props) {
                     onChange={e => setFormData({...formData, branchId: e.target.value})}
                     className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500"
                   >
-                    <option value="">-- Tất cả cơ sở --</option>
+                    <option value="">-- Chưa chọn cơ sở --</option>
                     {branches.map(b => (
                       <option key={b.id} value={b.id}>{b.name}</option>
                     ))}

@@ -28,6 +28,7 @@ export type StudentPtScheduleIssueCode =
   | 'STUDENT_ROLE_REQUIRED'
   | 'PROFILE_NOT_LINKED'
   | 'REVISION_CONFLICT'
+  | 'AVAILABILITY_LOCKED'
   | 'SYNC_UNAVAILABLE'
   | 'INVALID_REQUEST'
   | 'UNKNOWN'
@@ -82,6 +83,7 @@ export interface StudentPtScheduleData {
     availableSlots: string[]
     isScheduleConfirmed: boolean
     availabilityRevision: number
+    availability?: StudentPtAvailability
   }
   scheduleConfig: {
     workingDays: string[]
@@ -90,6 +92,19 @@ export interface StudentPtScheduleData {
   sessions: StudentPtSession[]
   sessionsTruncated?: boolean
   contracts: StudentPtContractSummary[]
+}
+
+export interface StudentPtAvailability {
+  weekId: string
+  slots: string[]
+  minimumSlots: number
+  requiredSessions: number
+  revision: number
+  status: 'draft' | 'submitted' | 'locked'
+  locked: boolean
+  cutoffAt: string
+  submittedAt: string | null
+  source: 'weekly' | 'legacy_default'
 }
 
 function functionsInstance() {
@@ -114,6 +129,7 @@ function knownIssueCode(value: unknown): StudentPtScheduleIssueCode | null {
     'STUDENT_ROLE_REQUIRED',
     'PROFILE_NOT_LINKED',
     'REVISION_CONFLICT',
+    'AVAILABILITY_LOCKED',
     'SYNC_UNAVAILABLE',
     'INVALID_REQUEST',
     'UNKNOWN',
@@ -148,22 +164,23 @@ export function asStudentPtScheduleError(error: unknown): StudentPtScheduleServi
   return new StudentPtScheduleServiceError(message, 'UNKNOWN', true, details)
 }
 
-export async function listMyStudentPtSchedule(from: string, to: string): Promise<StudentPtScheduleData> {
+export async function listMyStudentPtSchedule(from: string, to: string, availabilityWeekId: string): Promise<StudentPtScheduleData> {
   try {
-    const callable = httpsCallable<{ from: string; to: string }, StudentPtScheduleData>(functionsInstance(), 'listMyStudentPtSchedule')
-    return (await callable({ from, to })).data
+    const callable = httpsCallable<{ from: string; to: string; availabilityWeekId: string }, StudentPtScheduleData>(functionsInstance(), 'listMyStudentPtSchedule')
+    return (await callable({ from, to, availabilityWeekId })).data
   } catch (error) {
     throw asStudentPtScheduleError(error)
   }
 }
 
-export async function saveMyStudentAvailability(input: { availableSlots: string[]; expectedRevision: number }) {
+export async function saveMyStudentAvailability(input: { weekId: string; availableSlots: string[]; expectedRevision: number }) {
   try {
     const callable = httpsCallable<typeof input, {
       schemaVersion: number
       availableSlots: string[]
       availabilityRevision: number
       isScheduleConfirmed: boolean
+      availability: StudentPtAvailability
     }>(functionsInstance(), 'saveMyStudentAvailability')
     return (await callable(input)).data
   } catch (error) {

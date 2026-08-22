@@ -16,11 +16,13 @@ const { createEatCleanFunctions } = require('./eat-clean')
 const { buildCompletedOnboardingDefaultsPatch } = require('./profile-defaults')
 const { createIdentityAccessFunctions } = require('./identity-access')
 const { createPtOperationsV2Functions } = require('./pt-operations-v2')
+const { createPtSchedulePublishFunctions } = require('./pt-schedule-publish')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
 const { createSessionOperationFunctions } = require('./session-operations')
 const { createPayrollFunctions } = require('./payroll')
 const { createOperationsDashboardFunctions } = require('./operations-dashboard')
 const { createCashbookFunctions } = require('./cashbook')
+const { createBusinessReportingFunctions } = require('./business-reporting')
 
 const app = initializeApp()
 // Keep callable writes on the same named database used by the production web app.
@@ -155,9 +157,24 @@ Object.assign(exports, ptOperationsV2Functions)
 // compatibility with already deployed functions.
 exports.listMyStudentPtSchedule = ptOperationsV2Functions.listMyStudentPtSchedule
 exports.saveMyStudentAvailability = ptOperationsV2Functions.saveMyStudentAvailability
+const ptSchedulePublishFunctions = createPtSchedulePublishFunctions({ db, onCall })
+Object.assign(exports, ptSchedulePublishFunctions)
+// Static exports keep the two rollout endpoints selectable with --only.
+exports.validatePtScheduleDraft = ptSchedulePublishFunctions.validatePtScheduleDraft
+exports.publishPtSchedule = ptSchedulePublishFunctions.publishPtSchedule
+exports.listPtScheduleVersions = ptSchedulePublishFunctions.listPtScheduleVersions
+exports.restorePtScheduleVersionToDraft = ptSchedulePublishFunctions.restorePtScheduleVersionToDraft
+exports.getMyBranchScheduleWorkspace = ptSchedulePublishFunctions.getMyBranchScheduleWorkspace
+exports.saveMyBranchScheduleDraft = ptSchedulePublishFunctions.saveMyBranchScheduleDraft
 Object.assign(exports, createFinanceLedgerFunctions({ db, onCall, logger }))
 Object.assign(exports, createSessionOperationFunctions({ db, onCall, logger }))
 Object.assign(exports, createPayrollFunctions({ db, onCall, logger }))
+const businessReportingFunctions = createBusinessReportingFunctions({ db, onCall })
+Object.assign(exports, businessReportingFunctions)
+// Static exports make the three endpoints selectable in a safe rollout.
+exports.listBusinessPerformance = businessReportingFunctions.listBusinessPerformance
+exports.listStudentTrainingHistory = businessReportingFunctions.listStudentTrainingHistory
+exports.listTrainerTeachingHistory = businessReportingFunctions.listTrainerTeachingHistory
 
 // Backend invariant for onboarding profiles. This also protects members who
 // finish onboarding from an older cached PWA bundle that submitted null for

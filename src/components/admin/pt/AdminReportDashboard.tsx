@@ -251,7 +251,7 @@ export default function AdminReportDashboard({ onNavigate }: Props) {
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-pink-400">Aura Operations</p>
               <h1 className="mt-1 text-2xl font-bold text-white md:text-3xl">Báo cáo & Thống kê</h1>
-              <p className="mt-1 text-sm text-zinc-400">Doanh thu chỉ lấy từ ledger canonical theo ngày hạch toán thực tế.</p>
+              <p className="mt-1 text-sm text-zinc-400">Tổng quan vận hành dùng dòng tiền canonical; kết quả kinh doanh được tách riêng theo doanh thu đã thực hiện.</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:flex">
@@ -274,7 +274,7 @@ export default function AdminReportDashboard({ onNavigate }: Props) {
       {financeError && <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{financeError}</div>}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KPICard title="Doanh thu thuần" value={financeLoading ? 'Đang tải…' : money(currentSummary.netRevenue)} trend={`${revenueGrowth >= 0 ? '+' : ''}${revenueGrowth.toFixed(1)}%`} isPositive={revenueGrowth >= 0} icon={<DollarSign className="h-5 w-5 text-pink-400" />} />
+        <KPICard title="Dòng tiền ròng" value={financeLoading ? 'Đang tải…' : money(currentSummary.netRevenue)} trend={`${revenueGrowth >= 0 ? '+' : ''}${revenueGrowth.toFixed(1)}%`} isPositive={revenueGrowth >= 0} icon={<DollarSign className="h-5 w-5 text-pink-400" />} />
         <KPICard title="Học viên mới" value={String(currentStudents)} trend={`${studentGrowth >= 0 ? '+' : ''}${studentGrowth.toFixed(1)}%`} isPositive={studentGrowth >= 0} icon={<Users className="h-5 w-5 text-orange-400" />} />
         <KPICard title="Buổi hoàn thành" value={String(filteredSessions.filter((item) => item.status === 'completed').length)} trend={`${filteredSessions.length} buổi`} isPositive icon={<Calendar className="h-5 w-5 text-emerald-400" />} />
         <KPICard title="Công nợ projection" value={money(totalDebt)} trend={`${filteredContracts.length} HĐ`} isPositive={totalDebt === 0} icon={<Building2 className="h-5 w-5 text-amber-400" />} />
@@ -300,8 +300,8 @@ export default function AdminReportDashboard({ onNavigate }: Props) {
             <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5 lg:col-span-2">
               <div className="mb-5 flex items-center justify-between">
                 <div>
-                  <h2 className="font-bold text-white">Doanh thu theo ngày hạch toán</h2>
-                  <p className="mt-1 text-xs text-zinc-500">Không dùng ngày bắt đầu hợp đồng.</p>
+                  <h2 className="font-bold text-white">Dòng tiền theo ngày hạch toán</h2>
+                  <p className="mt-1 text-xs text-zinc-500">Không dùng ngày bắt đầu hợp đồng. P&L xem tại Tài chính.</p>
                 </div>
                 <span className="rounded-full bg-pink-500/10 px-3 py-1 text-xs font-bold text-pink-400">Canonical</span>
               </div>
@@ -334,7 +334,7 @@ export default function AdminReportDashboard({ onNavigate }: Props) {
           <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5">
             <div className="mb-4 flex items-center justify-between">
               <div><h2 className="font-bold text-white">Giao dịch canonical gần đây</h2><p className="mt-1 text-xs text-zinc-500">Payment legacy không được cộng vào bảng này.</p></div>
-              <button onClick={() => onNavigate?.('admin-finance')} className="text-sm font-bold text-pink-400">Mở tài chính</button>
+              <button onClick={() => onNavigate?.('admin-finance')} className="text-sm font-bold text-pink-400">Mở kết quả kinh doanh</button>
             </div>
             <div className="space-y-2">
               {recentEntries.map((entry) => {

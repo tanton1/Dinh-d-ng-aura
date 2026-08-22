@@ -1,0 +1,98 @@
+import { httpsCallable } from 'firebase/functions'
+import { firebaseFunctions } from '../lib/firebase'
+
+function callable<Input, Output>(name: string) {
+  if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
+  return httpsCallable<Input, Output>(firebaseFunctions, name)
+}
+
+export type BusinessSource = 'all' | 'pt_gym' | 'online_coaching' | 'nutrition_coaching' | 'academy' | 'eat_clean' | 'delivery_fee' | 'payroll' | 'other' | 'legacy_unclassified'
+
+export interface BusinessPerformanceQuery {
+  startDate: string
+  endDate: string
+  branchId?: string
+  source?: BusinessSource
+}
+
+export interface BusinessSourceRow {
+  source: Exclude<BusinessSource, 'all'>
+  cashIn: number
+  cashOut: number
+  cashNet: number
+  recognisedRevenue: number
+  operatingExpense: number
+  operatingResult: number
+  entryCount: number
+}
+
+export interface BusinessPerformanceReport {
+  schemaVersion: 2
+  range: { startDate: string; endDate: string; timeZone: string }
+  branchId: string
+  source: BusinessSource
+  managementPnl: { recognisedRevenue: number; operatingExpense: number; operatingResult: number }
+  cashFlow: { cashIn: number; cashOut: number; cashNet: number }
+  balanceMovement: { receivableMovement: number; deferredRevenueMovement: number }
+  sourceRows: BusinessSourceRow[]
+  dailySeries: Array<{ date: string; cashNet: number; recognisedRevenue: number; operatingExpense: number; operatingResult: number }>
+  dataQuality: {
+    scannedLedgerEntries: number
+    ledgerTruncated: boolean
+    legacyUnclassifiedEntries: number
+    unlinkedCashTransactions: number
+    payrollPaidOutsideLedger: number
+    missingSourceIntegrations: string[]
+    message: string
+  }
+}
+
+export async function listBusinessPerformance(input: BusinessPerformanceQuery): Promise<BusinessPerformanceReport> {
+  return (await callable<BusinessPerformanceQuery, BusinessPerformanceReport>('listBusinessPerformance')(input)).data
+}
+
+export type TrainingHistorySubject = 'student' | 'trainer'
+export type TrainingHistoryStatus = 'all' | 'scheduled' | 'rescheduled' | 'completed' | 'attended' | 'no_show' | 'student_cancelled' | 'trainer_cancelled' | 'corrected'
+
+export interface TrainingHistoryRecord {
+  id: string
+  date: string
+  hour: number | null
+  status: string
+  studentId: string
+  trainerId: string
+  branchId: string
+  contractId: string
+  counterpartId: string
+  counterpartName: string
+  attendance: { id: string; type: string; occurredAt: string; createdAt: string } | null
+  events: Array<{ id: string; type: string; reason: string; createdAt: string }>
+  revision: number
+}
+
+export interface TrainingHistoryPage {
+  schemaVersion: 2
+  subjectType: TrainingHistorySubject
+  subjectId: string
+  records: TrainingHistoryRecord[]
+  summary: { total: number; completed: number; noShow: number; cancelled: number; byStatus: Record<string, number>; truncated: boolean }
+  hasMore: boolean
+  nextCursor: string | null
+  filters: { startDate: string; endDate: string; status: TrainingHistoryStatus }
+}
+
+export interface TrainingHistoryQuery {
+  startDate: string
+  endDate: string
+  status?: TrainingHistoryStatus
+  pageSize?: number
+  cursor?: string | null
+}
+
+export async function listStudentTrainingHistory(studentId: string, query: TrainingHistoryQuery): Promise<TrainingHistoryPage> {
+  return (await callable<{ studentId: string } & TrainingHistoryQuery, TrainingHistoryPage>('listStudentTrainingHistory')({ studentId, ...query })).data
+}
+
+export async function listTrainerTeachingHistory(trainerId: string, query: TrainingHistoryQuery): Promise<TrainingHistoryPage> {
+  return (await callable<{ trainerId: string } & TrainingHistoryQuery, TrainingHistoryPage>('listTrainerTeachingHistory')({ trainerId, ...query })).data
+}

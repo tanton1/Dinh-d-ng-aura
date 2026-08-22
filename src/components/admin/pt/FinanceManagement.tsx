@@ -16,6 +16,7 @@ import {
 } from '../../../services/financeLedgerService'
 import DateRangeFilter from './DateRangeFilter'
 import { listCashAccounts, type CashAccount } from '../../../services/cashbookService'
+import '../../../styles-finance-management.css'
 
 interface Props {
   user: User | null
@@ -32,6 +33,9 @@ function entryLabel(type: FinanceLedgerEntry['type']) {
   if (type === 'refund') return 'Hoàn tiền'
   if (type === 'reversal') return 'Đảo bút toán'
   if (type === 'adjustment') return 'Điều chỉnh'
+  if (type === 'revenue_recognition') return 'Doanh thu thực hiện'
+  if (type === 'expense') return 'Chi phí vận hành'
+  if (type === 'payroll') return 'Chi phí lương'
   return 'Thu tiền'
 }
 
@@ -231,8 +235,8 @@ export default function FinanceManagement({ profile }: Props) {
   }
 
   return (
-    <div className="space-y-6 pb-28">
-      <header className="rounded-[28px] border border-pink-500/20 bg-gradient-to-br from-zinc-950 via-zinc-950 to-orange-950/40 p-5 shadow-xl shadow-pink-950/20">
+    <div className="finance-management space-y-6 pb-28">
+      <header className="finance-management__hero rounded-[28px] border border-pink-500/20 bg-gradient-to-br from-zinc-950 via-zinc-950 to-orange-950/40 p-5 shadow-xl shadow-pink-950/20">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
             <img src={LOGO_URL} alt="Aura" className="h-11 w-11 object-contain" />
@@ -248,7 +252,7 @@ export default function FinanceManagement({ profile }: Props) {
 
       {ledgerError && <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{ledgerError}</div>}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="finance-management__filters flex flex-wrap items-center gap-2">
         <DateRangeFilter onFilter={(start, end) => setDateRange({ start, end })} />
         {(!profile?.branchId || profile.role === 'admin' || profile.role === 'super_admin') && (
           <select value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="min-h-11 rounded-xl border border-zinc-800 bg-zinc-950 px-4 text-sm font-medium text-zinc-300">
@@ -260,15 +264,15 @@ export default function FinanceManagement({ profile }: Props) {
         <button onClick={() => void loadLedger(false)} disabled={ledgerLoading} className="flex min-h-11 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-950 px-4 text-sm font-semibold text-zinc-300 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${ledgerLoading ? 'animate-spin' : ''}`} /> Làm mới</button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <button onClick={() => setShowHistory(true)} className="rounded-2xl border border-emerald-500/20 bg-zinc-950 p-4 text-left"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-zinc-500"><TrendingUp className="h-4 w-4 text-emerald-400" /> Doanh thu thuần</div><p className="mt-3 truncate text-xl font-bold text-white">{ledgerLoading && ledgerEntries.length === 0 ? 'Đang tải…' : money(ledgerSummary.netRevenue)}</p></button>
+      <div className="finance-management__metrics grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <button onClick={() => setShowHistory(true)} className="rounded-2xl border border-emerald-500/20 bg-zinc-950 p-4 text-left"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-zinc-500"><TrendingUp className="h-4 w-4 text-emerald-400" /> Dòng tiền ròng</div><p className="mt-3 truncate text-xl font-bold text-white">{ledgerLoading && ledgerEntries.length === 0 ? 'Đang tải…' : money(ledgerSummary.netRevenue)}</p></button>
         <MetricCard label="Đã thu" value={money(ledgerSummary.collectedAmount)} color="text-emerald-400" />
         <MetricCard label="Hoàn/đảo" value={money(ledgerSummary.refundedAmount + ledgerSummary.reversedAmount)} color="text-amber-400" />
         <MetricCard label="Công nợ projection" value={money(totalDebt)} color="text-rose-400" />
       </div>
 
-      <section>
-        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <section className="finance-management__receivables">
+        <div className="finance-management__section-head mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div><h2 className="flex items-center gap-2 text-lg font-bold text-white"><DollarSign className="h-5 w-5 text-pink-400" /> Danh sách cần thu</h2><p className="mt-1 text-xs text-zinc-500">Projection công nợ từ hợp đồng; mọi khoản thu mới đi qua transaction.</p></div>
           <div className="flex flex-wrap gap-2">{[
             { id: 'all', label: 'Tất cả' },
@@ -278,7 +282,7 @@ export default function FinanceManagement({ profile }: Props) {
             { id: 'overpaid', label: 'Thanh toán dư' },
           ].map((filter) => <button key={filter.id} onClick={() => setDebtFilter(filter.id as DebtFilter)} className={`min-h-9 rounded-lg px-3 text-xs font-semibold ${debtFilter === filter.id ? 'bg-gradient-to-r from-pink-500 to-orange-500 text-white' : 'bg-zinc-900 text-zinc-400'}`}>{filter.label}</button>)}</div>
         </div>
-        <div className="space-y-3">
+        <div className="finance-management__receivables-list space-y-3">
           {contractsWithDebt.map((contract) => {
             const debt = Number(contract.totalPrice || 0) - Number(contract.discount || 0) - Number(contract.paidAmount || 0)
             const nextInstallment = [...(contract.installments || [])].filter((item) => item.status === 'pending').sort((a, b) => String(a.date).localeCompare(String(b.date)))[0]
@@ -334,5 +338,5 @@ function MetricCard({ label, value, color }: { label: string; value: string; col
 }
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
-  return <div className="fixed inset-0 z-[80] flex items-end justify-center p-3 sm:items-center"><motion.button type="button" aria-label="Đóng" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-black/80 backdrop-blur-sm" /><motion.section initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 40 }} className="relative max-h-[calc(100dvh-32px)] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-zinc-800 bg-zinc-900 p-5 pb-[max(20px,env(safe-area-inset-bottom))] shadow-2xl sm:rounded-3xl"><div className="mb-5 flex items-center justify-between gap-3"><h2 className="text-xl font-bold text-white">{title}</h2><button onClick={onClose} className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800 text-zinc-400"><X className="h-5 w-5" /></button></div>{children}</motion.section></div>
+  return <div className="finance-modal-layer fixed inset-0 z-[80] flex items-end justify-center p-3 sm:items-center"><motion.button type="button" aria-label="Đóng" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="finance-modal__backdrop absolute inset-0 bg-black/80 backdrop-blur-sm" /><motion.section initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 40 }} className="finance-modal relative max-h-[calc(100dvh-32px)] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-zinc-800 bg-zinc-900 p-5 pb-[max(20px,env(safe-area-inset-bottom))] shadow-2xl sm:rounded-3xl"><div className="finance-modal__head mb-5 flex items-center justify-between gap-3"><h2 className="text-xl font-bold text-white">{title}</h2><button onClick={onClose} className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800 text-zinc-400"><X className="h-5 w-5" /></button></div>{children}</motion.section></div>
 }

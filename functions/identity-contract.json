@@ -34,6 +34,7 @@
       "dashboard.view",
       "branch.operations.view",
       "branch.students.manage",
+      "pt.schedule.branch.publish",
       "branch.finance.view",
       "branch.team.view"
     ],
@@ -50,6 +51,7 @@
     "identity.invite.manage",
     "identity.staff_position.manage",
     "pt.operations.manage",
+    "pt.schedule.branch.publish",
     "sales.operations.manage",
     "finance.operations.manage",
     "payroll.operations.manage",

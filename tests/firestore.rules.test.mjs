@@ -375,6 +375,7 @@ describe('Aura PT Firestore rules', () => {
       ['students', 'legacy-student-1'],
       ['staff', 'legacy-staff-1'],
       ['schedules', 'schedule_2026-08-17'],
+      ['ptScheduleVersions', 'schedule_2026-08-17_branch-a_v1'],
       ['settings', 'scheduleConfig'],
     ]
 
@@ -402,6 +403,29 @@ describe('Aura PT Firestore rules', () => {
     ]) {
       await assertFails(deleteDoc(doc(adminDb, collectionName, documentId)))
     }
+  })
+
+  test('session lifecycle is callable-only even for an authenticated admin browser', async () => {
+    const adminDb = authenticatedDb('admin-1', 'admin')
+    const reference = doc(adminDb, 'sessions', 'legacy-session-1')
+    await assertSucceeds(getDoc(reference))
+    await assertFails(updateDoc(reference, { status: 'completed' }))
+    await assertFails(setDoc(doc(adminDb, 'sessions', 'forged-session'), {
+      studentId: 'legacy-student-1',
+      trainerId: 'legacy-trainer-1',
+      contractId: 'legacy-contract-1',
+      date: '2026-08-20',
+      status: 'scheduled',
+    }))
+  })
+
+  test('published PT schedule versions are server-owned and immutable to browsers', async () => {
+    const adminDb = authenticatedDb('admin-1', 'admin')
+    const studentDb = authenticatedDb('client-1', 'student')
+    const reference = doc(adminDb, 'ptScheduleVersions', 'schedule_2026-08-17_branch-a_v1')
+    await assertSucceeds(getDoc(reference))
+    await assertFails(getDoc(doc(studentDb, 'ptScheduleVersions', 'schedule_2026-08-17_branch-a_v1')))
+    await assertFails(setDoc(reference, { version: 999 }))
   })
 
   test('meal reviews are private and only the assigned coach or admin can moderate', async () => {

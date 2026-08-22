@@ -85,6 +85,8 @@ export interface Trainer {
   status: 'active' | 'inactive'
   priority?: number
   availableSlots?: string[]
+  /** Number of learners this trainer can safely serve in one time slot. */
+  slotCapacity?: number
 }
 
 export interface Branch {
@@ -263,6 +265,7 @@ export interface Session {
   id: string
   trainerId: string
   studentId: string
+  contractId: string
   date: string
   hour?: number
   status: 'scheduled' | 'rescheduled' | 'completed' | 'cancelled' | 'canceled_by_student' | 'student_cancelled' | 'trainer_cancelled'

@@ -1,0 +1,68 @@
+.branch-schedule {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  padding: clamp(12px, 2.4vw, 24px) clamp(8px, 1.8vw, 20px) calc(96px + env(safe-area-inset-bottom));
+  color: #251923;
+  background: linear-gradient(180deg, #fff9fb, #fff7f1 50%, #fff);
+}
+.branch-schedule__hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  overflow: hidden;
+  padding: clamp(18px, 3vw, 28px);
+  border: 1px solid rgba(246,47,130,.15);
+  border-radius: 26px;
+  background: radial-gradient(circle at 92% 0, rgba(255,135,81,.3), transparent 33%), linear-gradient(135deg,#fff,#fff1f6 60%,#fff4e9);
+  box-shadow: 0 16px 38px rgba(72,32,53,.08);
+}
+.branch-schedule__hero > div:first-child > span { display:flex; align-items:center; gap:7px; color:#d4236d; font-size:.72rem; font-weight:900; letter-spacing:.1em; }
+.branch-schedule__hero h1 { margin:7px 0 5px; font-size:clamp(1.65rem,4vw,2.45rem); line-height:1.05; }
+.branch-schedule__hero p { max-width:640px; margin:0; color:#7c6f78; line-height:1.5; }
+.branch-schedule__hero-controls { display:flex; flex:0 0 auto; align-items:end; gap:10px; }
+.branch-schedule__hero-controls label { display:grid; gap:5px; }
+.branch-schedule__hero-controls label > span,.branch-schedule__week span { color:#8a7884; font-size:.68rem; font-weight:800; text-transform:uppercase; }
+.branch-schedule__hero-controls select { min-height:46px; max-width:220px; border:1px solid #efdce4; border-radius:14px; padding:0 12px; color:#34242f; background:#fff; font:inherit; font-weight:750; }
+.branch-schedule__week { display:grid; grid-template-columns:42px minmax(130px,1fr) 42px; align-items:center; min-height:46px; border:1px solid #efdce4; border-radius:14px; background:#fff; }
+.branch-schedule__week button { height:42px; border:0; color:#d4236d; background:transparent; }
+.branch-schedule__week div { display:grid; gap:2px; text-align:center; }
+.branch-schedule__week strong { font-size:.82rem; }
+.branch-schedule__metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+.branch-schedule__metrics article { display:flex; align-items:center; gap:11px; min-width:0; padding:14px; border:1px solid #f0dfe6; border-radius:18px; background:rgba(255,255,255,.9); }
+.branch-schedule__metrics svg { flex:0 0 auto; color:#f33a7f; }
+.branch-schedule__metrics article div { display:grid; min-width:0; }
+.branch-schedule__metrics strong { font-size:1.25rem; }
+.branch-schedule__metrics span { overflow:hidden; color:#80747d; font-size:.72rem; text-overflow:ellipsis; white-space:nowrap; }
+.branch-schedule__toolbar { display:flex; flex-wrap:wrap; gap:8px; padding:12px; border:1px solid #f0dfe6; border-radius:20px; background:#fff; }
+.branch-schedule__toolbar button { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:44px; padding:0 13px; border:1px solid #efdce4; border-radius:14px; color:#5b4654; background:#fff; font:inherit; font-size:.78rem; font-weight:800; }
+.branch-schedule__toolbar button.is-save { color:#d4236d; background:#fff4f8; }
+.branch-schedule__toolbar button.is-publish { border:0; color:#fff; background:linear-gradient(105deg,#f62f82,#ff8751); box-shadow:0 10px 22px rgba(246,47,130,.2); }
+.branch-schedule__toolbar button:disabled { opacity:.45; box-shadow:none; }
+.branch-schedule__notice,.branch-schedule__error,.branch-schedule__loading { padding:12px 14px; border-radius:16px; font-size:.82rem; font-weight:700; }
+.branch-schedule__notice { border:1px solid #bfe8d2; color:#167147; background:#effbf5; }
+.branch-schedule__error { border:1px solid #f2c6d1; color:#a3284b; background:#fff2f5; }
+.branch-schedule__loading { display:flex; align-items:center; gap:8px; color:#8a6074; background:#fff5f8; }
+.branch-schedule__matrix { min-width:0; overflow:hidden; border:1px solid #f0dfe6; border-radius:24px; background:#fff; }
+.branch-schedule__blocked { min-height:50vh; place-content:center; justify-items:center; padding:30px; text-align:center; }
+.branch-schedule__blocked svg { color:#f62f82; }
+.branch-schedule__blocked h1 { margin:10px 0 4px; }
+.branch-schedule__blocked p { max-width:520px; margin:0; color:#7c6f78; }
+.branch-schedule .is-spinning { animation:branch-schedule-spin .8s linear infinite; }
+@keyframes branch-schedule-spin { to { transform:rotate(360deg); } }
+
+@media (max-width: 760px) {
+  .branch-schedule { padding:10px 0 calc(92px + env(safe-area-inset-bottom)); }
+  .branch-schedule__hero { align-items:stretch; flex-direction:column; margin:0 8px; padding:18px 16px; border-radius:22px; }
+  .branch-schedule__hero-controls { align-items:stretch; flex-direction:column; }
+  .branch-schedule__hero-controls select { width:100%; max-width:none; }
+  .branch-schedule__metrics { grid-template-columns:repeat(2,minmax(0,1fr)); padding:0 8px; }
+  .branch-schedule__metrics article { padding:12px 10px; }
+  .branch-schedule__toolbar { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); margin:0 8px; padding:9px; }
+  .branch-schedule__toolbar button { min-width:0; padding:0 8px; font-size:.7rem; }
+  .branch-schedule__toolbar button.is-publish { grid-column:1 / -1; }
+  .branch-schedule__notice,.branch-schedule__error,.branch-schedule__loading { margin:0 8px; }
+  .branch-schedule__matrix { border-right:0; border-left:0; border-radius:0; }
+}
