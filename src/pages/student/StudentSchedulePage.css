@@ -180,3 +180,125 @@
   .student-session-history article strong { grid-column: 1; }
   .student-session-history article em { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
 }
+
+/* Full-width schedule hierarchy: remove decorative card nesting and reserve
+   rounded corners for interactive controls only. */
+.student-schedule-page--classic {
+  gap: 0;
+  padding: 0 0 120px;
+  background: transparent;
+}
+.student-schedule-page--classic > .page-heading { margin:0; padding:24px clamp(16px,3vw,34px) 18px; }
+.student-schedule-page--classic > .pt-schedule-banner {
+  margin:0;
+  padding:13px clamp(16px,3vw,34px);
+  border-width:1px 0;
+  border-radius:0;
+  box-shadow:none;
+}
+.student-schedule-page--classic .schedule-layout {
+  gap:0;
+  margin:0;
+  border-bottom:1px solid #eedfe5;
+  background:rgba(255,255,255,.76);
+}
+.student-schedule-page--classic .calendar-panel.card {
+  padding:18px clamp(14px,2.4vw,28px);
+  border-width:0 1px 0 0;
+  border-radius:0;
+  background:rgba(255,255,255,.88);
+  box-shadow:none;
+}
+.student-schedule-page--classic .schedule-side { gap:0; background:rgba(255,250,246,.74); }
+.student-schedule-page--classic .schedule-side .card {
+  padding:16px clamp(14px,2vw,22px);
+  border-width:0 0 1px;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+.student-schedule-page--classic .week-strip { margin:16px 0; border-radius:8px; background:rgba(249,241,245,.86); }
+.student-schedule-page--classic .week-strip button { border-radius:6px; }
+.student-schedule-page--classic .event-detail { border-radius:6px; box-shadow:none; }
+.student-schedule-page--classic .reschedule-button { margin:12px 14px; border-radius:7px; }
+
+.student-schedule-page--classic .student-contract-strip {
+  margin:0;
+  padding:16px clamp(16px,3vw,34px);
+  border-radius:0;
+  box-shadow:none;
+}
+.student-schedule-page--classic .student-schedule-state,
+.student-schedule-page--classic .student-schedule-message {
+  margin:0;
+  border-width:0 0 1px;
+  border-radius:0;
+  box-shadow:none;
+}
+.student-schedule-page--classic .student-schedule-summary {
+  gap:0;
+  border-bottom:1px solid #eedfe5;
+  background:rgba(255,255,255,.8);
+}
+.student-schedule-page--classic .student-schedule-summary article {
+  padding:13px clamp(12px,2vw,20px);
+  border-width:0 1px 0 0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+.student-schedule-page--classic :is(.student-availability-card,.student-linked-sessions,.student-session-history) {
+  margin:0;
+  border-width:0 0 1px;
+  border-radius:0;
+  background:rgba(255,255,255,.88);
+  box-shadow:none;
+}
+.student-schedule-page--classic :is(.student-availability-card,.student-linked-sessions) > header { padding:18px clamp(16px,3vw,34px) 13px; }
+.student-schedule-page--classic .student-schedule-legend { padding:0 clamp(16px,3vw,34px) 12px; }
+.student-schedule-page--classic .student-schedule-matrix-scroll {
+  margin:0;
+  border-width:1px 0;
+  border-radius:0;
+  background:rgba(255,250,252,.9);
+}
+.student-schedule-page--classic .student-schedule-matrix {
+  min-width:670px;
+  border-spacing:3px;
+  padding:5px clamp(8px,1.5vw,18px);
+}
+.student-schedule-page--classic .student-schedule-matrix td button { border-radius:5px; box-shadow:none; }
+.student-schedule-page--classic .student-availability-card > footer {
+  margin:0;
+  padding:13px clamp(14px,3vw,30px) calc(13px + env(safe-area-inset-bottom,0px));
+  background:rgba(255,250,252,.96);
+}
+.student-schedule-page--classic .student-availability-card footer button { border-radius:8px; }
+.student-schedule-page--classic .student-session-list { gap:0; padding:0 clamp(12px,2vw,24px) 16px; }
+.student-schedule-page--classic .student-session-list article {
+  border-width:0 0 1px;
+  border-radius:0;
+  background:transparent;
+}
+.student-schedule-page--classic .student-session-history { padding:18px clamp(16px,3vw,34px); }
+
+@media (max-width:820px) {
+  .student-schedule-page--classic .schedule-layout { grid-template-columns:1fr; }
+  .student-schedule-page--classic .calendar-panel.card { border-width:0 0 1px; }
+}
+
+@media (max-width:640px) {
+  .student-schedule-page--classic { width:100%; padding-inline:0; padding-bottom:104px; }
+  .student-schedule-page--classic > .page-heading { padding:16px 13px 12px; }
+  .student-schedule-page--classic > .pt-schedule-banner { padding:11px 13px; }
+  .student-schedule-page--classic .calendar-panel.card { padding:13px 10px; }
+  .student-schedule-page--classic .student-contract-strip { padding:14px 13px; }
+  .student-schedule-page--classic :is(.student-availability-card,.student-linked-sessions) > header { padding:16px 13px 11px; }
+  .student-schedule-page--classic .student-schedule-legend { padding:0 13px 11px; }
+  .student-schedule-page--classic .student-schedule-matrix-scroll { margin:0; }
+  .student-schedule-page--classic .student-availability-card > footer {
+    bottom:calc(80px + env(safe-area-inset-bottom,0px));
+    padding:10px 11px;
+  }
+  .student-schedule-page--classic .student-session-history { padding:16px 13px; }
+}

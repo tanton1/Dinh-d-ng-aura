@@ -10,6 +10,45 @@ test('demo dashboard loads without a fatal runtime error', async ({ page }) => {
   expect(pageErrors).toEqual([])
 })
 
+test('student mobile dock keeps six Aura tabs ordered and full-width safe', async ({ page }) => {
+  for (const width of [360, 390, 430]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto('/#/home')
+
+    const dock = page.getByRole('navigation', { name: 'Điều hướng học viên' })
+    await expect(dock).toBeVisible()
+    await expect(dock.getByRole('button')).toHaveCount(6)
+    expect(await dock.getByRole('button').allTextContents()).toEqual([
+      'Hôm nay',
+      'Dinh dưỡng',
+      'Lịch học viên',
+      'Tiến độ',
+      'Học',
+      'Cá nhân',
+    ])
+
+    const box = await dock.boundingBox()
+    expect(box).not.toBeNull()
+    expect(box!.x).toBeGreaterThanOrEqual(5)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width - 5)
+
+    const appearance = await dock.evaluate((element) => {
+      const active = element.querySelector('button.active')
+      return {
+        radius: Number.parseFloat(getComputedStyle(element).borderRadius),
+        background: active ? getComputedStyle(active, '::before').backgroundImage : '',
+        color: active ? getComputedStyle(active).color : '',
+      }
+    })
+    expect(appearance.radius).toBeGreaterThanOrEqual(24)
+    expect(appearance.background).toContain('linear-gradient')
+    expect(appearance.color).toBe('rgb(17, 13, 20)')
+
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+    expect(overflow).toBeLessThanOrEqual(1)
+  }
+})
+
 test('home route keeps deferred assets out of the initial request path', async ({ page }) => {
   await page.goto('/#/home')
   await expect(page.locator('#root')).not.toBeEmpty()
@@ -76,8 +115,21 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   await expect(page).toHaveURL(/#\/schedule$/)
   await expect(page.getByRole('heading', { name: /^Lịch tập luyện$/i })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Ma trận thời gian rảnh' })).toBeVisible()
-  const scheduleOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
-  expect(scheduleOverflow).toBeLessThanOrEqual(1)
+  const scheduleLayout = await page.evaluate(() => {
+    const schedulePage = document.querySelector<HTMLElement>('.student-schedule-page')!
+    const matrix = document.querySelector<HTMLElement>('.student-schedule-matrix-scroll')!
+    const content = document.querySelector<HTMLElement>('.page-content')!
+    return {
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      matrixEdgeDelta: Math.abs(matrix.getBoundingClientRect().left - schedulePage.getBoundingClientRect().left),
+      matrixRadius: getComputedStyle(matrix).borderRadius,
+      contentBackground: getComputedStyle(content).backgroundImage,
+    }
+  })
+  expect(scheduleLayout.overflow).toBeLessThanOrEqual(1)
+  expect(scheduleLayout.matrixEdgeDelta).toBeLessThanOrEqual(1)
+  expect(scheduleLayout.matrixRadius).toBe('0px')
+  expect(scheduleLayout.contentBackground).toContain('linear-gradient')
 })
 
 test('Today Flow belongs to Home while nutrition guidance follows the three-slide carousel', async ({ page }) => {

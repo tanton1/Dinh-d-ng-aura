@@ -844,8 +844,8 @@ function AuraApplication() {
       case 'trainer-portal': return <AuraOperationsFrame><TrainerPortalV2 /></AuraOperationsFrame>
       case 'sales-portal': return <AuraOperationsFrame><SalesPortalV2 /></AuraOperationsFrame>
 
-      case 'admin-pt-students': return <AuraOperationsFrame><AdminPTStudentManagement user={user as any} profile={profile} /></AuraOperationsFrame>
-      case 'admin-pt-schedule': return <AuraOperationsFrame>{backendMode === 'firebase' && accessContext?.accessRole === 'staff' && accessContext.capabilities.includes('pt.schedule.branch.publish')
+      case 'admin-pt-students': return <AuraOperationsFrame className="aura-operations-page--students"><AdminPTStudentManagement user={user as any} profile={profile} /></AuraOperationsFrame>
+      case 'admin-pt-schedule': return <AuraOperationsFrame className="aura-operations-page--schedule">{backendMode === 'firebase' && accessContext?.accessRole === 'staff' && accessContext.capabilities.includes('pt.schedule.branch.publish')
         ? <BranchScheduleWorkspace accessContext={accessContext} />
         : <SchedulerWrapper user={user as any} profile={profile} accessContext={accessContext} backendMode={backendMode} onNavigate={(view) => navigate(view as ViewId)} />}</AuraOperationsFrame>
       case 'admin-training-history': return <AuraOperationsFrame><TrainingHistoryWorkspace /></AuraOperationsFrame>

@@ -249,7 +249,7 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
 
   if (trainers.length === 0) {
     return (
-      <div className="bg-zinc-900 p-8 rounded-2xl text-center text-zinc-400 border border-zinc-800 flex flex-col items-center justify-center min-h-[300px]">
+      <div className="pt-schedule-matrix-empty bg-zinc-900 p-8 rounded-2xl text-center text-zinc-400 border border-zinc-800 flex flex-col items-center justify-center min-h-[300px]">
         <Info className="w-12 h-12 text-zinc-600 mb-4" />
         <p className="text-lg font-medium text-zinc-300">Chưa có Huấn luyện viên</p>
         <p className="text-sm mt-2">Vui lòng thêm Huấn luyện viên trước khi xem lịch.</p>
@@ -258,10 +258,10 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
   }
 
   return (
-    <div className="bg-zinc-900 md:p-6 rounded-2xl shadow-xl border border-zinc-800 flex flex-col h-full overflow-hidden relative">
+    <div className="pt-schedule-matrix-workspace bg-zinc-900 md:p-6 rounded-2xl shadow-xl border border-zinc-800 flex flex-col h-full overflow-hidden relative">
       {/* Header Section */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center p-4 md:p-0 mb-4 gap-4">
-        <div className="w-full md:w-auto">
+      <div className="pt-schedule-matrix__header flex flex-col md:flex-row justify-between items-start md:items-center p-4 md:p-0 mb-4 gap-4">
+        <div className="pt-schedule-matrix__intro w-full md:w-auto">
           <h2 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight flex items-center gap-3">
             <div className="p-2 bg-pink-500/10 rounded-xl border border-pink-500/20">
               <Calendar className="w-6 h-6 text-pink-500" />
@@ -302,7 +302,7 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
           </AnimatePresence>
         </div>
         
-        <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto shrink-0">
+        <div className="pt-schedule-matrix__actions flex flex-col sm:flex-row gap-2 w-full md:w-auto shrink-0">
           {!currentTrainerId && (
             <div className="relative w-full sm:w-64 shrink-0">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -342,7 +342,7 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
       </div>
 
       {/* Mobile Day Selector */}
-      <div className="md:hidden flex overflow-x-auto gap-2 px-4 mb-4 pb-2">
+      <div className="pt-schedule-matrix__day-tabs md:hidden flex overflow-x-auto gap-2 px-4 mb-4 pb-2">
         {scheduleConfig.workingDays.map(day => (
           <button
             key={day}
@@ -359,7 +359,7 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
       </div>
       
       {/* Schedule Table */}
-      <div className="flex-1 overflow-hidden flex flex-col bg-zinc-950 border-y md:border md:rounded-xl border-zinc-800 shadow-inner -mx-px md:mx-0" ref={scheduleRef}>
+      <div className="pt-schedule-matrix__table-shell flex-1 overflow-hidden flex flex-col bg-zinc-950 border-y md:border md:rounded-xl border-zinc-800 shadow-inner -mx-px md:mx-0" ref={scheduleRef}>
         <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1">
           <div className="min-w-[300px] md:min-w-[800px] w-full">
             <table className="w-full text-sm text-left border-collapse table-fixed">
@@ -464,7 +464,7 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
       </div>
       
       {/* Legend */}
-      <div className="mt-4 mx-4 md:mx-0 flex flex-wrap gap-4 text-xs md:text-sm font-medium bg-zinc-950 p-3 md:p-4 rounded-xl border border-zinc-800">
+      <div className="pt-schedule-matrix__legend mt-4 mx-4 md:mx-0 flex flex-wrap gap-4 text-xs md:text-sm font-medium bg-zinc-950 p-3 md:p-4 rounded-xl border border-zinc-800">
         <div className="flex items-center gap-2 md:gap-3">
           <div className="w-5 h-5 bg-zinc-800 border border-zinc-700 rounded-md flex items-center justify-center shadow-sm">
              <div className="w-1.5 h-1.5 rounded-full bg-pink-500" />

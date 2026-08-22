@@ -85,10 +85,10 @@ const studentNavSections: ShellNavSection[] = [
 
 const studentMobileNav: ShellNavItem[] = [
   { id: 'home', label: 'Hôm nay', icon: Home },
-  { id: 'courses', label: 'Học', icon: BookOpen },
-  { id: 'schedule', label: 'Lịch học viên', icon: Dumbbell },
   { id: 'nutrition', label: 'Dinh dưỡng', icon: Soup },
+  { id: 'schedule', label: 'Lịch học viên', icon: Dumbbell },
   { id: 'progress', label: 'Tiến độ', icon: BarChart3 },
+  { id: 'courses', label: 'Học', icon: BookOpen },
   { id: 'profile', label: 'Cá nhân', icon: UserRound },
 ]
 
@@ -408,7 +408,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
         <main id="main-content" className="page-content" tabIndex={-1}>{children}</main>
 
         {mode === 'student' ? (
-          <nav className="mobile-bottom-nav" aria-label="Điều hướng học viên">
+          <nav className="mobile-bottom-nav student-mobile-nav" aria-label="Điều hướng học viên">
             {studentMobileNav.filter((item) => canNavigate(item.id)).map((item) => {
               const Icon = item.icon
               const active = isNavigationActive(view, item.id, true)

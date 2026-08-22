@@ -721,14 +721,14 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
   if (isAdmin) {
     const targetWeekDates = getDatesForWeek(weekOffset);
     return (
-      <div className="p-6 space-y-6 pb-24">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
+      <div className="schedule-workspace schedule-workspace--admin p-6 space-y-6 pb-24">
+        <div className="schedule-workspace__header flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="schedule-workspace__heading">
             <h1 className="text-3xl font-black text-white uppercase tracking-wider">
               Xếp Lịch Tập
             </h1>
-            <div className="flex items-center gap-2 mt-2">
-              <div className="flex bg-zinc-900 p-1 rounded-xl border border-zinc-800">
+            <div className="schedule-workspace__week-controls flex items-center gap-2 mt-2">
+              <div className="schedule-workspace__week-shortcuts flex bg-zinc-900 p-1 rounded-xl border border-zinc-800">
                 <button
                   onClick={() => setWeekOffset(0)}
                   className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${
@@ -922,7 +922,7 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
 
 
         {/* Sub-tabs */}
-        <div className="flex p-1 bg-zinc-900 rounded-xl border border-zinc-800 mb-6">
+        <div className="schedule-workspace__tabs flex p-1 bg-zinc-900 rounded-xl border border-zinc-800 mb-6">
           {[
             { id: "schedule", label: "Lịch PT", icon: Calendar },
             { id: "students", label: "Học viên", icon: Users },
@@ -942,7 +942,7 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
           ))}
         </div>
 
-        <div className="mt-6">
+        <div className="schedule-workspace__body mt-6">
           {activeSubTab === "students" && (
             <div className="space-y-8">
               {editingStudent && (
@@ -1089,7 +1089,7 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
     );
 
     return (
-      <div className="p-6 space-y-8 pb-24">
+      <div className="schedule-workspace schedule-workspace--trainer p-6 space-y-8 pb-24">
         {!currentTrainer && (
           <div className="bg-yellow-500/10 border border-yellow-500/50 text-yellow-500 p-4 rounded-xl flex items-start gap-3">
             <Info className="w-5 h-5 flex-shrink-0 mt-0.5" />
@@ -1326,7 +1326,7 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
   );
 
   return (
-    <div className="p-2 md:p-6 space-y-6 pb-24 w-full">
+    <div className="schedule-workspace schedule-workspace--legacy-student p-2 md:p-6 space-y-6 pb-24 w-full">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-wider">
           Lịch Tập Của Tôi

@@ -113,6 +113,20 @@ body.shell-overlay-open { overflow: hidden; }
     var(--aura-canvas);
 }
 
+/* Learner surfaces use the softer Aura pink-orange canvas. The PT directory
+   shares the same canvas so moving between operations and learner profiles
+   does not feel like switching products. */
+.app-shell.student .page-content,
+.app-shell.admin[data-view="admin-pt-students"] .page-content {
+  background:
+    radial-gradient(circle at 0 0, rgba(246, 47, 130, .11), transparent 30rem),
+    radial-gradient(circle at 100% 10%, rgba(255, 135, 81, .18), transparent 32rem),
+    linear-gradient(135deg, #fff8fb 0%, #fffaf6 54%, #fff3eb 100%);
+}
+
+.app-shell.student[data-view="schedule"] .page-content { overflow-x: clip; }
+.app-shell.student[data-view="schedule"] .student-schedule-page { width:100%; max-width:none; }
+
 .page {
   width: min(var(--content-max), 100%);
   padding: 36px 36px 64px;
@@ -718,6 +732,87 @@ body.shell-overlay-open { overflow: hidden; }
     box-shadow: 0 0 14px rgba(255, 45, 145, 0.9);
   }
 
+  /* Student dock: floating six-way navigation inspired by a native social-app
+     tab bar. Admin keeps the dense operations dock above. */
+  .app-shell.student .student-mobile-nav {
+    right: auto;
+    bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    width: min(calc(100vw - 18px), 560px);
+    height: 72px;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 2px;
+    padding: 6px;
+    border: 1px solid rgba(16, 14, 20, .1);
+    border-radius: 30px;
+    background: rgba(255, 255, 255, .96);
+    box-shadow:
+      0 18px 46px rgba(17, 12, 21, .2),
+      0 3px 12px rgba(17, 12, 21, .08),
+      inset 0 1px 0 rgba(255, 255, 255, .92);
+    transform: translateX(-50%);
+    isolation: isolate;
+    backdrop-filter: blur(22px) saturate(155%);
+  }
+
+  .app-shell.student .student-mobile-nav button {
+    min-height: 60px;
+    gap: 3px;
+    padding: 6px 1px 5px;
+    border-radius: 24px;
+    color: rgba(15, 12, 20, .72);
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -.18px;
+    transition: color .18s ease, transform .18s ease;
+  }
+
+  .app-shell.student .student-mobile-nav button::before {
+    content: none;
+  }
+
+  .app-shell.student .student-mobile-nav button svg,
+  .app-shell.student .student-mobile-nav button span {
+    position: relative;
+    z-index: 1;
+  }
+
+  .app-shell.student .student-mobile-nav button svg {
+    width: 23px;
+    height: 23px;
+    stroke-width: 2.35;
+    transition: filter .18s ease, transform .18s ease;
+  }
+
+  .app-shell.student .student-mobile-nav button.active {
+    color: #110d14;
+    transform: translateY(-1px);
+  }
+
+  .app-shell.student .student-mobile-nav button.active::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    width: auto;
+    height: auto;
+    border-radius: 24px;
+    background: linear-gradient(135deg, #ff2d91 0%, #ff4f78 48%, #ff8751 100%);
+    box-shadow:
+      0 9px 20px rgba(255, 62, 126, .28),
+      inset 0 1px 0 rgba(255, 255, 255, .38);
+  }
+
+  .app-shell.student .student-mobile-nav button.active svg {
+    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, .28));
+    transform: scale(1.05);
+  }
+
+  .app-shell.student .student-mobile-nav button:focus-visible {
+    outline: 2px solid #111015;
+    outline-offset: 2px;
+  }
+
   .app-shell[data-view="course-detail"] .mobile-bottom-nav { display: none; }
   .app-shell[data-view="course-detail"] .shell-toast { bottom: 14px; }
 
@@ -775,6 +870,20 @@ body.shell-overlay-open { overflow: hidden; }
 @media (max-width: 420px) {
   .mobile-bottom-nav button { font-size: 10px; }
   .mobile-bottom-nav button svg { width: 20px; height: 20px; }
+  .app-shell.student .student-mobile-nav {
+    width: calc(100vw - 12px);
+    gap: 0;
+    padding: 5px;
+  }
+  .app-shell.student .student-mobile-nav button {
+    min-height: 62px;
+    font-size: 8px;
+    letter-spacing: -.28px;
+  }
+  .app-shell.student .student-mobile-nav button svg {
+    width: 22px;
+    height: 22px;
+  }
   .page-heading h1,
   .welcome-row h1 { font-size: 26px; }
 }
