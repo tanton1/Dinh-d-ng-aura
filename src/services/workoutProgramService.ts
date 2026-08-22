@@ -11,6 +11,9 @@ export interface RuntimeWorkoutExercise {
   rpe: number
   tags: string[]
   notes: string
+  catalogExerciseId?: string
+  catalogRevision?: number
+  exerciseSnapshot?: import('../types').ExerciseCatalogSnapshot
 }
 
 export interface RuntimeWorkoutSession {
@@ -58,6 +61,8 @@ function stringList(value: unknown) {
 
 function parseExercise(value: unknown, index: number): RuntimeWorkoutExercise {
   if (!isRecord(value)) throw new Error(`Bài tập số ${index + 1} không hợp lệ.`)
+  const snapshot = isRecord(value.exerciseSnapshot) ? value.exerciseSnapshot : null
+  const media = isRecord(snapshot?.media) ? snapshot.media : null
   return {
     id: requiredString(value.id, `mã bài tập số ${index + 1}`),
     name: requiredString(value.name, `tên bài tập số ${index + 1}`),
@@ -69,6 +74,26 @@ function parseExercise(value: unknown, index: number): RuntimeWorkoutExercise {
       : 7,
     tags: stringList(value.tags),
     notes: typeof value.notes === 'string' ? value.notes.trim().slice(0, 4_000) : '',
+    catalogExerciseId: typeof value.catalogExerciseId === 'string' ? value.catalogExerciseId : undefined,
+    catalogRevision: typeof value.catalogRevision === 'number' ? Math.max(1, Math.round(value.catalogRevision)) : undefined,
+    exerciseSnapshot: snapshot ? {
+      nameVi: typeof snapshot.nameVi === 'string' ? snapshot.nameVi.trim() : requiredString(value.name, `tên bài tập số ${index + 1}`),
+      nameEn: typeof snapshot.nameEn === 'string' ? snapshot.nameEn.trim() : undefined,
+      targetMuscles: stringList(snapshot.targetMuscles),
+      instructionsVi: stringList(snapshot.instructionsVi),
+      cuesVi: stringList(snapshot.cuesVi),
+      commonMistakesVi: stringList(snapshot.commonMistakesVi),
+      breathingVi: typeof snapshot.breathingVi === 'string' ? snapshot.breathingVi.trim() : undefined,
+      media: {
+        startImageUrl: typeof media?.startImageUrl === 'string' ? media.startImageUrl : undefined,
+        endImageUrl: typeof media?.endImageUrl === 'string' ? media.endImageUrl : undefined,
+        posterUrl: typeof media?.posterUrl === 'string' ? media.posterUrl : undefined,
+        animationUrl: typeof media?.animationUrl === 'string' ? media.animationUrl : undefined,
+        mimeType: typeof media?.mimeType === 'string' ? media.mimeType : undefined,
+        checksum: typeof media?.checksum === 'string' ? media.checksum : undefined,
+      },
+      sourceAttribution: typeof snapshot.sourceAttribution === 'string' ? snapshot.sourceAttribution : undefined,
+    } : undefined,
   }
 }
 

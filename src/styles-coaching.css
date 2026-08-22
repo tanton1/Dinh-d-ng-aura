@@ -732,3 +732,15 @@
   .modal-body-form > div[style*="justify-content"] { align-items: stretch; flex-wrap: wrap; }
   .modal-body-form > div[style*="justify-content"] > button { min-height: 44px; }
 }
+.exercise-media-animation{width:100%;height:100%;object-fit:contain;background:linear-gradient(145deg,#fff6fa,#fff1e9)}
+.exercise-pose-pair{display:grid;grid-template-columns:1fr 1fr;width:100%;height:100%;background:linear-gradient(145deg,#fff8fb,#fff1e9)}
+.exercise-pose-pair figure{position:relative;display:flex;align-items:center;justify-content:center;min-width:0;margin:0;padding:24px 12px 34px}
+.exercise-pose-pair figure+figure{border-left:1px solid rgba(246,47,130,.13)}
+.exercise-pose-pair img{width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 14px 22px rgba(71,35,51,.12))}
+.exercise-pose-pair figcaption{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);padding:5px 10px;border-radius:999px;color:#9d315d;background:#fff;font-size:11px;font-weight:800;box-shadow:0 5px 16px rgba(68,32,45,.1)}
+.exercise-coaching-cues,.exercise-common-mistakes{margin-top:12px;padding:12px 14px;border-radius:14px;background:#fff7fa}
+.exercise-coaching-cues strong,.exercise-common-mistakes strong{font-size:12px;color:#d52b72}
+.exercise-coaching-cues p{margin:5px 0 0;color:#555;line-height:1.5}
+.exercise-common-mistakes ul{margin:7px 0 0;padding-left:18px;color:#66545c;line-height:1.55}
+.exercise-breathing{display:flex;align-items:center;gap:8px;margin-top:10px;padding:10px 12px;border:1px solid #ffd6c9;border-radius:12px;color:#984c36;background:#fff8f3;font-size:12px}
+@media (max-width:600px){.exercise-pose-pair figure{padding:14px 6px 30px}.exercise-pose-pair figcaption{font-size:9px}.exercise-coaching-cues,.exercise-common-mistakes{padding:10px 11px}}

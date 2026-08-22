@@ -30,6 +30,7 @@ import '../../styles-admin.css'
 import ExercisePrescriptionFields from '../../components/coaching/ExercisePrescriptionFields'
 import { PageHeader } from '../../components/ui'
 import { workoutExercises } from '../../data'
+import { exerciseCatalogSnapshot, listExerciseCatalog } from '../../services/exerciseCatalogService'
 import { listManagedPtPrograms, loadManagedPtProgram, readPtExercisePrescription, visibleExerciseTags, type ManagedPtProgramSummary } from '../../services/ptCoachingProgramService'
 import '../../styles-coaching.css'
 import type {
@@ -40,6 +41,7 @@ import type {
   WorkoutProgramDraftInput,
   WorkoutProgramExerciseDraft,
   WorkoutProgramSessionDraft,
+  ExerciseCatalogItem,
 } from '../../types'
 
 interface AdminProgramsPageProps {
@@ -56,7 +58,7 @@ const exerciseResourceKinds = [
   { kind: 'document' as const, label: 'Tài liệu', icon: FileText },
 ]
 
-const muscleFilters = ['Tất cả', 'Toàn thân', 'Lưng', 'Core'] as const
+const muscleFilters = ['Tất cả', 'Mông', 'Đùi', 'Eo/Core', 'Lưng', 'Toàn thân'] as const
 type MuscleFilter = typeof muscleFilters[number]
 
 function createExerciseDraft(base?: Partial<WorkoutProgramExerciseDraft>): WorkoutProgramExerciseDraft {
@@ -180,6 +182,9 @@ export default function AdminProgramsPage({ initialProgram, onSave, onRetry, can
   const [managedPrograms, setManagedPrograms] = useState<ManagedPtProgramSummary[]>([])
   const [programListLoading, setProgramListLoading] = useState(Boolean(onSave))
   const [programLoading, setProgramLoading] = useState(false)
+  const [catalogItems, setCatalogItems] = useState<ExerciseCatalogItem[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(true)
+  const [catalogError, setCatalogError] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -191,6 +196,16 @@ export default function AdminProgramsPage({ initialProgram, onSave, onRetry, can
       .then((items) => { if (active) setManagedPrograms(items) })
       .catch((caught: unknown) => { if (active) setError(caught instanceof Error ? caught.message : 'Không thể tải danh sách giáo án.') })
       .finally(() => { if (active) setProgramListLoading(false) })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    setCatalogLoading(true)
+    listExerciseCatalog({ includeReview: true })
+      .then((items) => { if (active) setCatalogItems(items) })
+      .catch(() => { if (active) setCatalogError('Chưa thể đồng bộ catalog; đang dùng thư viện dự phòng.') })
+      .finally(() => { if (active) setCatalogLoading(false) })
     return () => { active = false }
   }, [])
 
@@ -207,13 +222,26 @@ export default function AdminProgramsPage({ initialProgram, onSave, onRetry, can
 
   const resourcesFiltered = useMemo(() => {
     const normalized = exerciseQuery.trim().toLowerCase()
-    return workoutExercises.filter((item) => {
-      const searchMatch = item.name.toLowerCase().includes(normalized) || item.target.toLowerCase().includes(normalized)
+    const source = catalogItems.length ? catalogItems : workoutExercises.map((item) => ({
+      id: `legacy-${item.id}`,
+      nameVi: item.name,
+      nameEn: item.name,
+      targetMuscles: item.target.split(' · '),
+      bodyParts: item.target.split(' · '),
+      media: { startImageUrl: undefined },
+      defaultPrescription: { sets: item.sets, reps: item.reps, restSeconds: item.rest, rpe: 7 },
+      status: 'published',
+    }))
+    return source.filter((item) => {
+      const target = [...item.targetMuscles, ...item.bodyParts].join(' · ')
+      const searchMatch = item.nameVi.toLowerCase().includes(normalized) || (item.nameEn || '').toLowerCase().includes(normalized) || target.toLowerCase().includes(normalized)
       if (!searchMatch || muscleFilter === 'Tất cả') return searchMatch
       if (muscleFilter === 'Toàn thân') return true
-      return item.target.toLocaleLowerCase('vi').includes(muscleFilter.toLocaleLowerCase('vi'))
+      const normalizedTarget = target.toLocaleLowerCase('vi')
+      if (muscleFilter === 'Eo/Core') return normalizedTarget.includes('core') || normalizedTarget.includes('abdominal') || normalizedTarget.includes('eo')
+      return normalizedTarget.includes(muscleFilter.toLocaleLowerCase('vi'))
     })
-  }, [exerciseQuery, muscleFilter])
+  }, [catalogItems, exerciseQuery, muscleFilter])
 
   const updateSession = (updater: (value: WorkoutProgramSessionDraft) => WorkoutProgramSessionDraft) => {
     setProgram((current) => {
@@ -344,18 +372,23 @@ export default function AdminProgramsPage({ initialProgram, onSave, onRetry, can
     setError(null)
   }
 
-  const addExercise = (name: string) => {
-    const matched = workoutExercises.find((item) => item.name === name)
+  const addExercise = (item: (typeof resourcesFiltered)[number]) => {
+    const catalogItem = catalogItems.find((candidate) => candidate.id === item.id)
     updateSession((session) => ({
       ...session,
       exercises: [
         ...session.exercises,
         createExerciseDraft({
-          name,
-          sets: 4,
-          reps: '10',
-          rest: 60,
-          notes: matched ? matched.target : '',
+          name: item.nameVi,
+          origin: catalogItem ? 'catalog' : 'custom',
+          catalogExerciseId: catalogItem?.id,
+          catalogRevision: catalogItem?.revision,
+          exerciseSnapshot: catalogItem ? exerciseCatalogSnapshot(catalogItem) : undefined,
+          sets: item.defaultPrescription.sets,
+          reps: item.defaultPrescription.reps,
+          rest: item.defaultPrescription.restSeconds,
+          rpe: item.defaultPrescription.rpe,
+          notes: item.targetMuscles.join(' · '),
         }),
       ],
     }))
@@ -730,23 +763,26 @@ export default function AdminProgramsPage({ initialProgram, onSave, onRetry, can
       <section className="program-builder-layout">
         <aside className="exercise-library card">
           <div className="library-heading">
-            <div><h2>Thư viện bài tập</h2><span>{workoutExercises.length} bài tập</span></div>
-            <button title="Nạp lại" onClick={onRetry ?? (() => setExerciseQuery(''))}><Upload size={17} /></button>
+            <div><h2>Kho bài tập Aura</h2><span>{catalogLoading ? 'Đang tải…' : `${catalogItems.length || workoutExercises.length} bài tập`}</span></div>
+            <button title="Nạp lại" onClick={() => window.location.reload()}><Upload size={17} /></button>
           </div>
           <div className="library-search"><Search size={17} /><input value={exerciseQuery} onChange={(event) => setExerciseQuery(event.target.value)} placeholder="Tìm bài tập..." /></div>
           <div className="muscle-pills">
             {muscleFilters.map((filter) => <button key={filter} className={muscleFilter === filter ? 'active' : ''} onClick={() => setMuscleFilter(filter)}>{filter}</button>)}
           </div>
           <div className="library-list">
+            {catalogError && <p className="catalog-inline-state" role="status">{catalogError}</p>}
             {resourcesFiltered.map((item) => (
-              <button className="library-exercise" key={item.id} onClick={() => addExercise(item.name)}>
-                <span className={`library-thumb ${item.color}`}><Play size={15} /></span>
-                <span><strong>{item.name}</strong><small>{item.target}</small></span>
+              <button className="library-exercise" key={item.id} onClick={() => addExercise(item)}>
+                <span className="library-thumb catalog-thumb">
+                  {item.media.startImageUrl ? <img src={item.media.startImageUrl} alt="" loading="lazy" /> : <Play size={15} />}
+                </span>
+                <span><strong>{item.nameVi}</strong><small>{item.targetMuscles.join(' · ') || item.nameEn}</small></span>
                 <Plus size={17} />
               </button>
             ))}
           </div>
-          <button className="create-exercise" onClick={() => addExercise('Bài tập mới')}><Plus size={16} /> Tạo bài tập mới</button>
+          <button className="create-exercise" onClick={() => updateSession((session) => ({ ...session, exercises: [...session.exercises, createExerciseDraft({ name: 'Bài tập mới', origin: 'custom' })] }))}><Plus size={16} /> Tạo bài tập riêng</button>
         </aside>
 
         <main className="plan-canvas">

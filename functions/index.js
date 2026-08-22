@@ -23,6 +23,7 @@ const { createPayrollFunctions } = require('./payroll')
 const { createOperationsDashboardFunctions } = require('./operations-dashboard')
 const { createCashbookFunctions } = require('./cashbook')
 const { createBusinessReportingFunctions } = require('./business-reporting')
+const { createExerciseCatalogFunctions } = require('./exercise-catalog')
 
 const app = initializeApp()
 // Keep callable writes on the same named database used by the production web app.
@@ -175,6 +176,12 @@ Object.assign(exports, businessReportingFunctions)
 exports.listBusinessPerformance = businessReportingFunctions.listBusinessPerformance
 exports.listStudentTrainingHistory = businessReportingFunctions.listStudentTrainingHistory
 exports.listTrainerTeachingHistory = businessReportingFunctions.listTrainerTeachingHistory
+const exerciseCatalogFunctions = createExerciseCatalogFunctions({ db, onCall })
+Object.assign(exports, exerciseCatalogFunctions)
+exports.listExerciseCatalog = exerciseCatalogFunctions.listExerciseCatalog
+exports.getExerciseCatalogItem = exerciseCatalogFunctions.getExerciseCatalogItem
+exports.saveExerciseCatalogDraft = exerciseCatalogFunctions.saveExerciseCatalogDraft
+exports.publishExerciseCatalogItem = exerciseCatalogFunctions.publishExerciseCatalogItem
 
 // Backend invariant for onboarding profiles. This also protects members who
 // finish onboarding from an older cached PWA bundle that submitted null for

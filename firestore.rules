@@ -745,8 +745,13 @@ service cloud.firestore {
     }
 
     match /exercises/{exerciseId} {
-      allow read, create, update: if isCoachingStaff();
-      allow delete: if isAdmin();
+      // Catalog publication and revision writes are server-only. Learners and
+      // staff receive bounded, status-filtered payloads through callables.
+      allow read, create, update, delete: if false;
+
+      match /revisions/{revisionId} {
+        allow read, create, update, delete: if false;
+      }
     }
 
     match /enrollments/{enrollmentId} {

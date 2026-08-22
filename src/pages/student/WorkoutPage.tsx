@@ -394,6 +394,7 @@ function WorkoutSessionPlayer({
   const [painNote, setPainNote] = useState(initialDraft?.painNote ?? '')
 
   const exercise = exercises[exerciseIndex]
+  const exerciseMedia = exercise.exerciseSnapshot?.media
   const prescription = readPtExercisePrescription(exercise.tags)
   const exerciseLabels = visibleExerciseTags(exercise.tags)
   const currentCompletedSets = completedSets[exercise.id] ?? []
@@ -415,6 +416,7 @@ function WorkoutSessionPlayer({
     [flattenedSets],
   )
   const techniqueTips = useMemo(() => {
+    if (exercise.exerciseSnapshot?.instructionsVi.length) return exercise.exerciseSnapshot.instructionsVi.slice(0, 6)
     const fromExercise = exercise.notes
       .split(/\r?\n/)
       .map((item) => item.replace(/^[-•]\s*/, '').trim())
@@ -425,7 +427,7 @@ function WorkoutSessionPlayer({
       'Hít vào ở pha hạ, thở ra khi tạo lực; duy trì nhịp độ có kiểm soát.',
       'Dừng ngay nếu có cảm giác đau nhói hoặc kỹ thuật mất ổn định.',
     ]
-  }, [exercise.notes])
+  }, [exercise.exerciseSnapshot?.instructionsVi, exercise.notes])
 
   useEffect(() => {
     if (!preflightComplete || paused || finished || elapsed >= MAX_WORKOUT_SECONDS) return
@@ -630,11 +632,19 @@ function WorkoutSessionPlayer({
 
         <main className="current-exercise">
           <div className={`exercise-video ${videoExpanded ? 'is-expanded' : ''}`}>
-            <div className="exercise-video__bg" aria-hidden="true"><span /><i /><b /></div>
-            <div className="exercise-silhouette" aria-hidden="true"><i className="head"/><i className="body"/><i className="arm left"/><i className="arm right"/><i className="leg left"/><i className="leg right"/></div>
-            <button type="button" className="video-sound" aria-label={muted ? 'Bật âm thanh minh họa' : 'Tắt âm thanh minh họa'} aria-pressed={!muted} onClick={() => setMuted((value) => !value)}>{muted ? <VolumeX size={18} /> : <Volume2 size={18} />}</button>
+            {exerciseMedia?.animationUrl ? (
+              <video className="exercise-media-animation" src={exerciseMedia.animationUrl} poster={exerciseMedia.posterUrl || exerciseMedia.startImageUrl} autoPlay loop playsInline muted={muted} />
+            ) : exerciseMedia?.startImageUrl ? (
+              <div className="exercise-pose-pair">
+                <figure><img src={exerciseMedia.startImageUrl} alt={`Tư thế bắt đầu của ${exercise.name}`} /><figcaption>Bắt đầu</figcaption></figure>
+                <figure><img src={exerciseMedia.endImageUrl || exerciseMedia.startImageUrl} alt={`Tư thế kết thúc của ${exercise.name}`} /><figcaption>Kết thúc</figcaption></figure>
+              </div>
+            ) : (
+              <><div className="exercise-video__bg" aria-hidden="true"><span /><i /><b /></div><div className="exercise-silhouette" aria-hidden="true"><i className="head"/><i className="body"/><i className="arm left"/><i className="arm right"/><i className="leg left"/><i className="leg right"/></div></>
+            )}
+            {exerciseMedia?.animationUrl && <button type="button" className="video-sound" aria-label={muted ? 'Bật âm thanh minh họa' : 'Tắt âm thanh minh họa'} aria-pressed={!muted} onClick={() => setMuted((value) => !value)}>{muted ? <VolumeX size={18} /> : <Volume2 size={18} />}</button>}
             <button type="button" className="video-expand" aria-label={videoExpanded ? 'Thu nhỏ minh họa' : 'Phóng to minh họa'} aria-pressed={videoExpanded} onClick={() => setVideoExpanded((value) => !value)}>{videoExpanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button>
-            <span className="loop-label"><RotateCcw size={13} /> Minh họa kỹ thuật</span>
+            <span className="loop-label"><RotateCcw size={13} /> {exerciseMedia?.animationUrl ? 'Video kỹ thuật Aura' : exerciseMedia?.startImageUrl ? 'Hai tư thế kỹ thuật' : 'Minh họa kỹ thuật'}</span>
           </div>
 
           <div className="exercise-copy">
@@ -651,6 +661,9 @@ function WorkoutSessionPlayer({
               <div><Sparkles size={20} /><span><strong>Chỉ dẫn kỹ thuật từ PT</strong><small>Tuân thủ mức nỗ lực và tempo trước khi tăng mức tạ.</small></span></div>
               <div className="pt-technique-metrics"><span>RPE {exercise.rpe}/10</span><span>RIR {prescription.rir}</span><span>Tempo {prescription.tempo}</span><span>Nghỉ {exercise.rest}s</span></div>
               <ol>{techniqueTips.map((tip) => <li key={tip}>{tip}</li>)}</ol>
+              {exercise.exerciseSnapshot?.cuesVi.length ? <div className="exercise-coaching-cues"><strong>Cues từ PT</strong><p>{exercise.exerciseSnapshot.cuesVi.join(' · ')}</p></div> : null}
+              {exercise.exerciseSnapshot?.commonMistakesVi.length ? <div className="exercise-common-mistakes"><strong>Lỗi thường gặp</strong><ul>{exercise.exerciseSnapshot.commonMistakesVi.map((item) => <li key={item}>{item}</li>)}</ul></div> : null}
+              {exercise.exerciseSnapshot?.breathingVi && <div className="exercise-breathing"><HeartPulse size={15} /><span>{exercise.exerciseSnapshot.breathingVi}</span></div>}
               {prescription.substitute && <div className="pt-substitute-note"><RotateCcw size={15} /><span>Nếu không phù hợp, dùng bài thay thế: <strong>{prescription.substitute}</strong></span></div>}
             </section>
           )}

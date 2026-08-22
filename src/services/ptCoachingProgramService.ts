@@ -47,6 +47,12 @@ function draftSession(value: unknown, fallbackId: string): WorkoutProgramSession
     return [{
       id: typeof exercise.id === 'string' && exercise.id ? exercise.id : `${id}-exercise-${index + 1}`,
       name,
+      catalogExerciseId: typeof exercise.catalogExerciseId === 'string' ? exercise.catalogExerciseId : undefined,
+      catalogRevision: typeof exercise.catalogRevision === 'number' ? exercise.catalogRevision : undefined,
+      origin: exercise.origin === 'catalog' ? 'catalog' as const : 'custom' as const,
+      exerciseSnapshot: exercise.exerciseSnapshot && typeof exercise.exerciseSnapshot === 'object'
+        ? structuredClone(exercise.exerciseSnapshot) as WorkoutProgramExerciseDraft['exerciseSnapshot']
+        : undefined,
       sets: typeof exercise.sets === 'number' ? Math.max(1, Math.round(exercise.sets)) : 1,
       reps: typeof exercise.reps === 'string' ? exercise.reps : '10',
       rest: typeof exercise.rest === 'number' ? Math.max(0, Math.round(exercise.rest)) : 60,
@@ -152,6 +158,10 @@ function coachingSessionForWrite(session: WorkoutProgramSessionDraft) {
     exercises: session.exercises.map((exercise) => ({
       id: exercise.id,
       name: exercise.name,
+      origin: exercise.origin ?? (exercise.catalogExerciseId ? 'catalog' : 'custom'),
+      ...(exercise.catalogExerciseId ? { catalogExerciseId: exercise.catalogExerciseId } : {}),
+      ...(exercise.catalogRevision ? { catalogRevision: exercise.catalogRevision } : {}),
+      ...(exercise.exerciseSnapshot ? { exerciseSnapshot: structuredClone(exercise.exerciseSnapshot) } : {}),
       sets: exercise.sets,
       reps: exercise.reps,
       rest: exercise.rest,

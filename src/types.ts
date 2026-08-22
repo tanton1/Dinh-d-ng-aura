@@ -433,12 +433,64 @@ export interface ProgramQuizDraft {
 export interface WorkoutProgramExerciseDraft {
   id: string
   name: string
+  /** Stable reference to Aura's curated exercise catalog. Legacy/custom exercises omit it. */
+  catalogExerciseId?: string
+  catalogRevision?: number
+  origin?: 'catalog' | 'custom'
+  exerciseSnapshot?: ExerciseCatalogSnapshot
   sets: number
   reps: string
   rest: number
   rpe: number
   tags: string[]
   notes: string
+}
+
+export interface ExerciseCatalogMedia {
+  startImageUrl?: string
+  endImageUrl?: string
+  posterUrl?: string
+  animationUrl?: string
+  mimeType?: string
+  checksum?: string
+}
+
+export interface ExerciseCatalogSnapshot {
+  nameVi: string
+  nameEn?: string
+  targetMuscles: string[]
+  instructionsVi: string[]
+  cuesVi: string[]
+  commonMistakesVi: string[]
+  breathingVi?: string
+  media: ExerciseCatalogMedia
+  sourceAttribution?: string
+}
+
+export interface ExerciseCatalogItem extends ExerciseCatalogSnapshot {
+  id: string
+  schemaVersion: 1
+  revision: number
+  status: 'draft' | 'review' | 'published' | 'archived'
+  aliasesVi: string[]
+  bodyParts: string[]
+  secondaryMuscles: string[]
+  equipment: string[]
+  environment: Array<'gym' | 'home'>
+  difficulty: 'beginner' | 'intermediate' | 'advanced'
+  goals: string[]
+  defaultPrescription: {
+    sets: number
+    reps: string
+    restSeconds: number
+    rpe: number
+  }
+  source: {
+    provider: 'free-exercise-db' | 'aura'
+    sourceExerciseId: string
+    sourceVersion: string
+    license: 'Unlicense' | 'Aura-owned'
+  }
 }
 
 export interface WorkoutProgramSessionDraft {
