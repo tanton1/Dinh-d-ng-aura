@@ -734,6 +734,8 @@ body.shell-overlay-open { overflow: hidden; }
 
   /* Student dock: floating six-way navigation inspired by a native social-app
      tab bar. Admin keeps the dense operations dock above. */
+  .app-shell.student { --shell-mobile-dock-height: 80px; }
+
   .app-shell.student .student-mobile-nav {
     right: auto;
     bottom: max(8px, env(safe-area-inset-bottom, 0px));
