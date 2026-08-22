@@ -208,7 +208,9 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [online, setOnline] = useState(navigator.onLine)
   const [shellMessage, setShellMessage] = useState<string | null>(null)
+  const [mobileDockHidden, setMobileDockHidden] = useState(false)
   const mobileSearchInputRef = useRef<HTMLInputElement>(null)
+  const lastScrollYRef = useRef(0)
   const currentMonth = new Intl.DateTimeFormat('vi-VN', { month: 'numeric' }).format(new Date())
 
   useEffect(() => {
@@ -227,6 +229,32 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
     const timeoutId = window.setTimeout(() => setShellMessage(null), 4200)
     return () => window.clearTimeout(timeoutId)
   }, [shellMessage])
+
+  useEffect(() => {
+    setMobileDockHidden(false)
+    lastScrollYRef.current = Math.max(0, window.scrollY)
+  }, [view])
+
+  useEffect(() => {
+    let frame = 0
+    const handleScroll = () => {
+      if (frame) return
+      frame = window.requestAnimationFrame(() => {
+        frame = 0
+        const current = Math.max(0, window.scrollY)
+        const delta = current - lastScrollYRef.current
+        if (current < 56) setMobileDockHidden(false)
+        else if (delta > 7) setMobileDockHidden(true)
+        else if (delta < -5) setMobileDockHidden(false)
+        lastScrollYRef.current = current
+      })
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', handleScroll)
+      if (frame) window.cancelAnimationFrame(frame)
+    }
+  }, [])
 
   useEffect(() => {
     if (!mobileSearchOpen) return
@@ -408,7 +436,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
         <main id="main-content" className="page-content" tabIndex={-1}>{children}</main>
 
         {mode === 'student' ? (
-          <nav className="mobile-bottom-nav student-mobile-nav" aria-label="Điều hướng học viên">
+          <nav className={`mobile-bottom-nav student-mobile-nav${mobileDockHidden ? ' is-scroll-hidden' : ''}`} aria-label="Điều hướng học viên">
             {studentMobileNav.filter((item) => canNavigate(item.id)).map((item) => {
               const Icon = item.icon
               const active = isNavigationActive(view, item.id, true)
@@ -427,7 +455,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
             })}
           </nav>
         ) : (
-          <nav className="mobile-bottom-nav admin-mobile-nav" aria-label="Điều hướng quản trị">
+          <nav className={`mobile-bottom-nav admin-mobile-nav${mobileDockHidden ? ' is-scroll-hidden' : ''}`} aria-label="Điều hướng quản trị">
             {mobileAdminItems.map((item) => {
               const Icon = item.icon
               const active = isNavigationActive(view, item.id, true)

@@ -2565,7 +2565,7 @@
     padding-bottom: calc(150px + env(safe-area-inset-bottom, 0px)) !important;
   }
   .course-editor-page .editor-footer {
-    bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
+    bottom: calc(var(--shell-mobile-dock-height, 80px) + env(safe-area-inset-bottom, 0px)) !important;
     padding-bottom: 10px !important;
   }
   .course-editor-page .course-undo-toast {
