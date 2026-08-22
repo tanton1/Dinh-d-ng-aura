@@ -36,6 +36,15 @@ const DEFAULT_SCHEDULE_CONFIG: ScheduleConfig = {
   lockHour: 12,
 }
 
+// Deterministic browser-layout fixtures only. Production starts empty and
+// receives canonical operations data exclusively from Firestore.
+const E2E_PT_BRANCHES: Branch[] = import.meta.env.MODE === 'e2e'
+  ? [{ id: 'e2e-branch', name: 'Aura Test', address: 'Đà Nẵng', status: 'active' }]
+  : []
+const E2E_PT_TRAINERS: Trainer[] = import.meta.env.MODE === 'e2e'
+  ? [{ id: 'e2e-trainer', name: 'PT Aura', branchId: 'e2e-branch', commissionRate: 0, status: 'active', slotCapacity: 2 }]
+  : []
+
 export interface ScheduleDocumentState {
   schedule: Schedule
   warnings: Warning[]
@@ -189,8 +198,8 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   const [contracts, setContracts] = useState<StudentContract[]>([])
   const [payments, setPayments] = useState<PaymentRecord[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
-  const [trainers, setTrainers] = useState<Trainer[]>([])
-  const [branches, setBranches] = useState<Branch[]>([])
+  const [trainers, setTrainers] = useState<Trainer[]>(E2E_PT_TRAINERS)
+  const [branches, setBranches] = useState<Branch[]>(E2E_PT_BRANCHES)
   const [packages, setPackages] = useState<TrainingPackage[]>([])
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [dailyCheckins, setDailyCheckins] = useState<DailyCheckin[]>([])

@@ -16,9 +16,10 @@ interface Props {
   onEdit: (student: Student) => void;
   onToggleConfirm?: (id: string) => void;
   onToggleLockSchedule?: (id: string) => void;
+  showWarningsPanel?: boolean;
 }
 
-export default function StudentList({ students, schedule, warnings, branches, contracts = [], trainers = [], activeStudentIds, overriddenSessions = {}, onUpdateSessionOverride, onDelete, onEdit, onToggleConfirm, onToggleLockSchedule }: Props) {
+export default function StudentList({ students, schedule, warnings, branches, contracts = [], trainers = [], activeStudentIds, overriddenSessions = {}, onUpdateSessionOverride, onDelete, onEdit, onToggleConfirm, onToggleLockSchedule, showWarningsPanel = true }: Props) {
   const [expandedStudentId, setExpandedStudentId] = React.useState<string | null>(null);
   const [filterTab, setFilterTab] = React.useState<'all' | 'no_slots' | 'not_enough_days' | 'low_slots' | 'no_contract'>('all');
   const [filterBranch, setFilterBranch] = React.useState<string>('all');
@@ -112,7 +113,7 @@ export default function StudentList({ students, schedule, warnings, branches, co
 
   return (
     <div className="space-y-6">
-      {warnings.length > 0 && (
+      {showWarningsPanel && warnings.length > 0 && (
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-5 space-y-4">
           <h3 className="text-amber-400 font-bold uppercase tracking-wide flex items-center gap-2 text-sm">
             <AlertTriangle size={18} />

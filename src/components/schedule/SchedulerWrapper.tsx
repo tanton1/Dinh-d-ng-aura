@@ -14,6 +14,7 @@ import {
 import { generateSchedule, calculateWarnings } from "../../utils/scheduler";
 import StudentForm from "../admin/pt/StudentForm";
 import StudentList from "./StudentList";
+import ScheduleWarningsPanel from "./ScheduleWarningsPanel";
 import PTSchedule from "./PTSchedule";
 import { WorkScheduleMatrix } from "./WorkScheduleMatrix";
 import {
@@ -35,6 +36,7 @@ import {
   Edit2,
   Search,
   Info,
+  AlertTriangle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { User } from "firebase/auth";
@@ -109,7 +111,7 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
 
   const [debugData, setDebugData] = useState<any>(null);
   const [weekOffset, setWeekOffset] = useState(0);
-  const [activeSubTab, setActiveSubTab] = useState<"schedule" | "students">(
+  const [activeSubTab, setActiveSubTab] = useState<"schedule" | "students" | "warnings">(
     "schedule",
   );
   const [studentTab, setStudentTab] = useState<
@@ -722,106 +724,48 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
     const targetWeekDates = getDatesForWeek(weekOffset);
     return (
       <div className="schedule-workspace schedule-workspace--admin p-6 space-y-6 pb-24">
-        <div className="schedule-workspace__header flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="schedule-workspace__header">
           <div className="schedule-workspace__heading">
-            <h1 className="text-3xl font-black text-white uppercase tracking-wider">
-              Xếp Lịch Tập
-            </h1>
-            <div className="schedule-workspace__week-controls flex items-center gap-2 mt-2">
-              <div className="schedule-workspace__week-shortcuts flex bg-zinc-900 p-1 rounded-xl border border-zinc-800">
-                <button
-                  onClick={() => setWeekOffset(0)}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${
-                    weekOffset === 0
-                      ? "bg-pink-500 text-white shadow-[0_0_10px_rgba(255,0,127,0.3)]"
-                      : "text-zinc-500 hover:text-zinc-300"
-                  }`}
-                >
-                  Tuần này
-                </button>
-                <button
-                  onClick={() => setWeekOffset(1)}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${
-                    weekOffset === 1
-                      ? "bg-pink-500 text-white shadow-[0_0_10px_rgba(255,0,127,0.3)]"
-                      : "text-zinc-500 hover:text-zinc-300"
-                  }`}
-                >
-                  Tuần sau
-                </button>
-              </div>
-
-              <div className="flex items-center gap-1 ml-2">
-                <button
-                  onClick={() => setWeekOffset((prev) => Math.max(0, prev - 1))}
-                  className="p-1 hover:bg-zinc-800 rounded text-zinc-400 hover:text-white transition-colors"
-                  title="Tuần trước"
-                >
-                  <ChevronRight className="w-5 h-5 rotate-180" />
-                </button>
-                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-2">
-                  {weekOffset > 1 ? `Tuần +${weekOffset}` : ""}
-                  <span className="ml-1 opacity-50">
-                    ({targetWeekDates["T2"].display} -{" "}
-                    {targetWeekDates["T7"].display})
-                  </span>
-                </span>
-                <button
-                  onClick={() => setWeekOffset((prev) => prev + 1)}
-                  className="p-1 hover:bg-zinc-800 rounded text-zinc-400 hover:text-white transition-colors"
-                  title="Tuần sau"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
+            <span>AURA PT OPERATIONS</span>
+            <h1>Xếp lịch tập</h1>
+            <p>Điều phối lịch rảnh, ca PT và phiên bản publish trong một workspace.</p>
           </div>
 
-          <div className="flex gap-2 scheduler-action-row">
+          <div className="schedule-workspace__controlbar">
+            <div className="schedule-workspace__week-picker" aria-label="Chọn tuần làm việc">
+              <button type="button" onClick={() => setWeekOffset((prev) => Math.max(0, prev - 1))} aria-label="Tuần trước">
+                <ChevronRight className="rotate-180" />
+              </button>
+              <button type="button" className={weekOffset === 0 ? "is-current" : ""} onClick={() => setWeekOffset(0)}>
+                <span>{weekOffset === 0 ? "Tuần này" : `Tuần +${weekOffset}`}</span>
+                <strong>{targetWeekDates["T2"].display} – {targetWeekDates["T7"].display}</strong>
+              </button>
+              <button type="button" onClick={() => setWeekOffset((prev) => prev + 1)} aria-label="Tuần sau">
+                <ChevronRight />
+              </button>
+            </div>
             <select
+              aria-label="Chọn cơ sở xếp lịch"
               value={schedulingBranchId}
               onChange={(e) => setSchedulingBranchId(e.target.value)}
-              className="bg-zinc-800 text-white px-3 py-2 text-sm rounded-xl font-medium border border-zinc-700 focus:outline-none focus:border-pink-500 max-w-[120px] md:max-w-[150px]"
             >
-              <option value="">Tất cả cơ sở</option>
+              <option value="">Chọn cơ sở</option>
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}
                 </option>
               ))}
             </select>
-            <button
-              onClick={handleResetSchedule}
-              className="bg-zinc-800 text-zinc-300 px-4 py-2 text-sm rounded-xl font-bold hover:bg-zinc-700 hover:text-white transition-all flex items-center gap-2 border border-zinc-700"
-            >
-              <RotateCcw className="w-4 h-4" /> Reset Lịch
-            </button>
-            <button
-              onClick={handleGenerate}
-              className="bg-pink-600 text-white px-4 py-2 text-sm rounded-xl font-bold hover:bg-pink-500 transition-all flex items-center gap-2"
-            >
-              <Calendar className="w-4 h-4" /> Xếp Lịch
-            </button>
-            <button
-              type="button"
-              disabled={!schedulingBranchId || versionHistoryBusy || publishBusy !== null}
-              onClick={handleOpenVersionHistory}
-              title={!schedulingBranchId ? "Chọn một cơ sở cụ thể để xem lịch sử." : "Xem các phiên bản đã publish."}
-              className="schedule-history-trigger px-4 py-2 text-sm rounded-xl font-bold flex items-center gap-2 disabled:cursor-not-allowed"
-            >
-              <Clock className="w-4 h-4" />
-              {versionHistoryBusy ? "Đang tải…" : "Lịch sử"}
-            </button>
-            <button
-              type="button"
-              disabled={!schedulingBranchId || publishBusy !== null}
-              onClick={handleValidatePublish}
-              title={!schedulingBranchId ? "Chọn một cơ sở cụ thể để publish." : "Kiểm tra xung đột và xem trước thay đổi."}
-              className="schedule-publish-trigger px-4 py-2 text-sm rounded-xl font-bold flex items-center gap-2 disabled:cursor-not-allowed"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              {publishBusy === "validate" ? "Đang kiểm tra…" : "Kiểm tra & Publish"}
-            </button>
+            <div className="scheduler-action-row">
+              <button type="button" onClick={handleResetSchedule} title="Đặt lại lịch nháp"><RotateCcw /> <span>Đặt lại</span></button>
+              <button type="button" className="is-generate" onClick={handleGenerate}><Calendar /> <span>Xếp lịch</span></button>
+              <button type="button" disabled={!schedulingBranchId || versionHistoryBusy || publishBusy !== null} onClick={handleOpenVersionHistory} title={!schedulingBranchId ? "Chọn một cơ sở cụ thể để xem lịch sử." : "Xem các phiên bản đã publish."} className="schedule-history-trigger disabled:cursor-not-allowed">
+                <Clock /> <span>{versionHistoryBusy ? "Đang tải…" : "Lịch sử"}</span>
+              </button>
+              <button type="button" disabled={!schedulingBranchId || publishBusy !== null} onClick={handleValidatePublish} title={!schedulingBranchId ? "Chọn một cơ sở cụ thể để publish." : "Kiểm tra xung đột và xem trước thay đổi."} className="schedule-publish-trigger disabled:cursor-not-allowed">
+                <CheckCircle2 /> <span>{publishBusy === "validate" ? "Đang kiểm tra…" : "Publish"}</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -926,10 +870,11 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
           {[
             { id: "schedule", label: "Lịch PT", icon: Calendar },
             { id: "students", label: "Học viên", icon: Users },
+            { id: "warnings", label: "Cảnh báo", icon: AlertTriangle, count: filteredWarnings.length },
           ].map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveSubTab(tab.id as any)}
+              onClick={() => setActiveSubTab(tab.id as "schedule" | "students" | "warnings")}
               className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 activeSubTab === tab.id
                   ? "bg-zinc-800 text-white shadow-sm"
@@ -938,6 +883,7 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
             >
               <tab.icon className="w-4 h-4" />
               {tab.label}
+              {'count' in tab && Number(tab.count || 0) > 0 ? <span className="schedule-workspace__tab-count">{tab.count}</span> : null}
             </button>
           ))}
         </div>
@@ -962,11 +908,20 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
                 />
               )}
 
-              <div className="mb-4 flex gap-4">
+              <div className="schedule-student-filters">
+                <label>
+                  <Search />
+                  <input
+                    type="text"
+                    placeholder="Tìm tên hoặc SĐT..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </label>
                 <select
+                  aria-label="Lọc học viên theo chi nhánh"
                   value={selectedBranchId}
                   onChange={(e) => setSelectedBranchId(e.target.value)}
-                  className="bg-zinc-900 border border-zinc-800 text-zinc-300 px-4 py-2 rounded-xl focus:outline-none focus:border-pink-500"
                 >
                   <option value="all">Tất cả chi nhánh</option>
                   <option value="none">Chưa xác định</option>
@@ -976,19 +931,13 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
                     </option>
                   ))}
                 </select>
-                <input
-                  type="text"
-                  placeholder="Tìm kiếm tên hoặc SĐT..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="bg-zinc-900 border border-zinc-800 text-zinc-300 px-4 py-2 rounded-xl focus:outline-none focus:border-pink-500 flex-grow"
-                />
               </div>
 
               <StudentList
                 students={filteredStudents}
                 schedule={schedule}
                 warnings={filteredWarnings}
+                showWarningsPanel={false}
                 branches={branches}
                 contracts={contracts}
                 trainers={trainers}
@@ -1041,6 +990,18 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
                 }}
               />
             </div>
+          )}
+
+          {activeSubTab === "warnings" && (
+            <ScheduleWarningsPanel
+              warnings={filteredWarnings}
+              students={filteredStudents}
+              branches={branches}
+              onReviewStudent={(student) => {
+                setEditingStudent(student);
+                setActiveSubTab("students");
+              }}
+            />
           )}
 
           {activeSubTab === "schedule" && (

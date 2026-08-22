@@ -697,7 +697,7 @@ body.shell-overlay-open { overflow: hidden; }
     backdrop-filter: blur(20px) saturate(140%);
   }
 
-  .mobile-bottom-nav.admin-mobile-nav { grid-template-columns: repeat(auto-fit, minmax(56px, 1fr)); }
+  .mobile-bottom-nav.admin-mobile-nav { grid-template-columns: repeat(auto-fit, minmax(44px, 1fr)); }
   .mobile-bottom-nav button {
     position: relative;
     min-width: 0;
@@ -732,17 +732,17 @@ body.shell-overlay-open { overflow: hidden; }
     box-shadow: 0 0 14px rgba(255, 45, 145, 0.9);
   }
 
-  /* Student dock: floating six-way navigation inspired by a native social-app
-     tab bar. Admin keeps the dense operations dock above. */
-  .app-shell.student { --shell-mobile-dock-height: 80px; }
+  /* Shared Aura dock for learners and operations staff. The number of columns
+     adapts to the capabilities available to the signed-in account. */
+  .app-shell:is(.student, .admin) { --shell-mobile-dock-height: 80px; }
 
-  .app-shell.student .student-mobile-nav {
+  .app-shell:is(.student, .admin) :is(.student-mobile-nav, .admin-mobile-nav) {
     right: auto;
     bottom: max(8px, env(safe-area-inset-bottom, 0px));
     left: 50%;
     width: min(calc(100vw - 18px), 560px);
     height: 72px;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
     gap: 2px;
     padding: 6px;
     border: 1px solid rgba(16, 14, 20, .1);
@@ -757,7 +757,7 @@ body.shell-overlay-open { overflow: hidden; }
     backdrop-filter: blur(22px) saturate(155%);
   }
 
-  .app-shell.student .student-mobile-nav button {
+  .app-shell:is(.student, .admin) :is(.student-mobile-nav, .admin-mobile-nav) button {
     min-height: 60px;
     gap: 3px;
     padding: 6px 1px 5px;
@@ -770,29 +770,29 @@ body.shell-overlay-open { overflow: hidden; }
     transition: color .18s ease, transform .18s ease;
   }
 
-  .app-shell.student .student-mobile-nav button::before {
+  .app-shell:is(.student, .admin) :is(.student-mobile-nav, .admin-mobile-nav) button::before {
     content: none;
   }
 
-  .app-shell.student .student-mobile-nav button svg,
-  .app-shell.student .student-mobile-nav button span {
+  .app-shell:is(.student, .admin) :is(.student-mobile-nav, .admin-mobile-nav) button svg,
+  .app-shell:is(.student, .admin) :is(.student-mobile-nav, .admin-mobile-nav) button span {
     position: relative;
     z-index: 1;
   }
 
-  .app-shell.student .student-mobile-nav button svg {
+  .app-shell:is(.student, .admin) :is(.student-mobile-nav, .admin-mobile-nav) button svg {
     width: 23px;
     height: 23px;
     stroke-width: 2.35;
     transition: filter .18s ease, transform .18s ease;
   }
 
-  .app-shell.student .student-mobile-nav button.active {
+  .app-shell:is(.student, .admin) :is(.student-mobile-nav, .admin-mobile-nav) button.active {
     color: #110d14;
     transform: translateY(-1px);
   }
 
-  .app-shell.student .student-mobile-nav button.active::before {
+  .app-shell:is(.student, .admin) :is(.student-mobile-nav, .admin-mobile-nav) button.active::before {
     content: "";
     position: absolute;
     inset: 0;
@@ -805,12 +805,12 @@ body.shell-overlay-open { overflow: hidden; }
       inset 0 1px 0 rgba(255, 255, 255, .38);
   }
 
-  .app-shell.student .student-mobile-nav button.active svg {
+  .app-shell:is(.student, .admin) :is(.student-mobile-nav, .admin-mobile-nav) button.active svg {
     filter: drop-shadow(0 1px 0 rgba(255, 255, 255, .28));
     transform: scale(1.05);
   }
 
-  .app-shell.student .student-mobile-nav button:focus-visible {
+  .app-shell:is(.student, .admin) :is(.student-mobile-nav, .admin-mobile-nav) button:focus-visible {
     outline: 2px solid #111015;
     outline-offset: 2px;
   }
@@ -872,17 +872,17 @@ body.shell-overlay-open { overflow: hidden; }
 @media (max-width: 420px) {
   .mobile-bottom-nav button { font-size: 10px; }
   .mobile-bottom-nav button svg { width: 20px; height: 20px; }
-  .app-shell.student .student-mobile-nav {
+  .app-shell:is(.student, .admin) :is(.student-mobile-nav, .admin-mobile-nav) {
     width: calc(100vw - 12px);
     gap: 0;
     padding: 5px;
   }
-  .app-shell.student .student-mobile-nav button {
+  .app-shell:is(.student, .admin) :is(.student-mobile-nav, .admin-mobile-nav) button {
     min-height: 62px;
     font-size: 8px;
     letter-spacing: -.28px;
   }
-  .app-shell.student .student-mobile-nav button svg {
+  .app-shell:is(.student, .admin) :is(.student-mobile-nav, .admin-mobile-nav) button svg {
     width: 22px;
     height: 22px;
   }

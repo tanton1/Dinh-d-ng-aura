@@ -67,7 +67,7 @@
 .branch-schedule__notice { color:#167147; background:#effbf5; }
 .branch-schedule__error { color:#a3284b; background:#fff2f5; }
 .branch-schedule__loading { display:flex; align-items:center; gap:8px; color:#8a6074; background:#fff5f8; }
-.branch-schedule__matrix { min-width:0; overflow:hidden; border:0; border-radius:0; background:rgba(255,255,255,.78); }
+.branch-schedule__matrix { min-width:0; overflow:visible; padding:12px clamp(8px,1.5vw,18px) 18px; border:0; background:transparent; }
 .branch-schedule__blocked { min-height:50vh; place-content:center; justify-items:center; padding:30px; text-align:center; }
 .branch-schedule__blocked svg { color:var(--branch-pink); }
 .branch-schedule__blocked h1 { margin:10px 0 4px; }
@@ -76,13 +76,13 @@
 @keyframes branch-schedule-spin { to { transform:rotate(360deg); } }
 
 .branch-schedule .pt-schedule-matrix-workspace,
-.branch-schedule .pt-schedule-matrix-empty { border:0 !important; border-radius:0 !important; background:transparent !important; box-shadow:none !important; }
+.branch-schedule .pt-schedule-matrix-empty { border:0 !important; border-radius:24px !important; background:transparent !important; box-shadow:none !important; }
 .branch-schedule .pt-schedule-matrix-workspace { padding:0 !important; }
 .branch-schedule .pt-schedule-matrix__header { margin:0 !important; padding:10px clamp(12px,1.7vw,22px) !important; border-bottom:1px solid var(--branch-line); background:rgba(255,255,255,.78); }
 .branch-schedule .pt-schedule-matrix__intro { display:none; }
 .branch-schedule .pt-schedule-matrix__actions { margin-left:auto; }
 .branch-schedule .pt-schedule-matrix__actions button { min-height:38px; padding-top:0 !important; padding-bottom:0 !important; border-radius:7px !important; }
-.branch-schedule .pt-schedule-matrix__table-shell { margin:0 !important; border:0 !important; border-radius:0 !important; box-shadow:none !important; }
+.branch-schedule .pt-schedule-matrix__table-shell { margin:0 !important; border:1px solid rgba(95,64,81,.13) !important; border-radius:24px !important; box-shadow:0 22px 48px rgba(69,37,55,.14),0 4px 12px rgba(69,37,55,.07) !important; }
 .branch-schedule .pt-schedule-matrix__legend { margin:0 !important; padding:12px clamp(14px,2vw,24px) !important; border:0 !important; border-top:1px solid var(--branch-line) !important; border-radius:0 !important; background:rgba(255,255,255,.82) !important; }
 
 @media (max-width:760px) {
@@ -103,4 +103,6 @@
   .branch-schedule .pt-schedule-matrix__actions > div:first-child { grid-column:1 / -1; width:100% !important; }
   .branch-schedule .pt-schedule-matrix__actions select { width:100% !important; }
   .branch-schedule .pt-schedule-matrix__day-tabs { margin:0 !important; padding:8px !important; border-bottom:1px solid var(--branch-line); }
+  .branch-schedule__matrix { padding:8px 6px 18px; }
+  .branch-schedule .pt-schedule-matrix__table-shell { border-radius:20px !important; }
 }

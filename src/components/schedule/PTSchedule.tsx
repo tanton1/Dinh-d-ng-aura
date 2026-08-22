@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Student, Trainer, Schedule, ScheduleEntry, StudentContract, ScheduleConfig } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Calendar, User, Clock, Info, Download, X, Lock, Unlock, Plus, Trash2, Search } from 'lucide-react';
+import { Calendar, User, Clock, Info, Download, X, Lock, Unlock, Plus, Trash2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getDatesForCurrentWeek, getDatesForWeek } from '../../utils/dateUtils';
 
 
@@ -23,7 +23,7 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
   const [selectedTrainerId, setSelectedTrainerId] = useState<string>(currentTrainerId || trainers[0]?.id || '');
   const [highlightedStudentId, setHighlightedStudentId] = useState<string | null>(null);
   const [hoveredStudentId, setHoveredStudentId] = useState<string | null>(null);
-  const [selectedDay, setSelectedDay] = useState<string>(scheduleConfig.workingDays[0]);
+  const [mobileDayPage, setMobileDayPage] = useState(0);
   const scheduleRef = useRef<HTMLDivElement>(null);
   
   const activeStudents = useMemo(() => {
@@ -59,6 +59,18 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
   }, [currentTrainerId, selectedBranchId, selectedTrainerId, trainers]);
   
   const currentWeekDates = useMemo(() => getDatesForWeek(weekOffset), [weekOffset]);
+  const mobileDayGroups = useMemo(() => {
+    const groups: string[][] = [];
+    for (let index = 0; index < scheduleConfig.workingDays.length; index += 2) {
+      groups.push(scheduleConfig.workingDays.slice(index, index + 2));
+    }
+    return groups;
+  }, [scheduleConfig.workingDays]);
+  const mobileVisibleDays = mobileDayGroups[mobileDayPage] || mobileDayGroups[0] || [];
+
+  useEffect(() => {
+    setMobileDayPage((current) => Math.min(current, Math.max(0, mobileDayGroups.length - 1)));
+  }, [mobileDayGroups.length]);
 
   const getStudentName = (id: string) => {
     return students.find(s => s.id === id)?.name || 'Unknown';
@@ -341,27 +353,27 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
         </div>
       </div>
 
-      {/* Mobile Day Selector */}
-      <div className="pt-schedule-matrix__day-tabs md:hidden flex overflow-x-auto gap-2 px-4 mb-4 pb-2">
-        {scheduleConfig.workingDays.map(day => (
-          <button
-            key={day}
-            onClick={() => setSelectedDay(day)}
-            className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap border transition-all ${
-              selectedDay === day
-                ? 'bg-pink-500 text-white border-pink-500'
-                : 'bg-zinc-900 text-zinc-400 border-zinc-800'
-            }`}
-          >
-            {day}
-          </button>
-        ))}
+      {/* Mobile shows two days per page; desktop always renders the whole week. */}
+      <div className="pt-schedule-matrix__day-tabs" aria-label="Chọn cặp ngày hiển thị">
+        <button type="button" aria-label="Hai ngày trước" disabled={mobileDayPage === 0} onClick={() => setMobileDayPage((page) => Math.max(0, page - 1))}>
+          <ChevronLeft />
+        </button>
+        <div>
+          {mobileDayGroups.map((days, page) => (
+            <button key={days.join('-')} type="button" className={mobileDayPage === page ? 'is-active' : ''} aria-current={mobileDayPage === page ? 'page' : undefined} onClick={() => setMobileDayPage(page)}>
+              {days.join(' – ')}
+            </button>
+          ))}
+        </div>
+        <button type="button" aria-label="Hai ngày sau" disabled={mobileDayPage >= mobileDayGroups.length - 1} onClick={() => setMobileDayPage((page) => Math.min(mobileDayGroups.length - 1, page + 1))}>
+          <ChevronRight />
+        </button>
       </div>
       
       {/* Schedule Table */}
       <div className="pt-schedule-matrix__table-shell flex-1 overflow-hidden flex flex-col bg-zinc-950 border-y md:border md:rounded-xl border-zinc-800 shadow-inner -mx-px md:mx-0" ref={scheduleRef}>
         <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1">
-          <div className="min-w-[300px] md:min-w-[800px] w-full">
+          <div key={`mobile-days-${mobileDayPage}`} className="pt-schedule-matrix__grid">
             <table className="w-full text-sm text-left border-collapse table-fixed">
               <thead className="sticky top-0 z-30">
                 <tr>
@@ -370,7 +382,7 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
                     Giờ
                   </th>
                   {scheduleConfig.workingDays.map(day => (
-                    <th key={day} className={`border-b border-r border-zinc-800 p-2 bg-zinc-900 text-center font-bold text-zinc-200 uppercase tracking-wider ${selectedDay !== day ? 'hidden md:table-cell' : ''}`}>
+                    <th key={day} className={`border-b border-r border-zinc-800 p-2 bg-zinc-900 text-center font-bold text-zinc-200 uppercase tracking-wider ${!mobileVisibleDays.includes(day) ? 'is-mobile-day-hidden' : ''}`}>
                       <div className="flex flex-col items-center justify-center">
                         <span>{day}</span>
                         <span className="text-[10px] text-zinc-500 font-normal mt-0.5">{currentWeekDates[day]?.display}</span>
@@ -402,7 +414,7 @@ export default function PTSchedule({ schedule, students, trainers, contracts, cu
                           key={slotId}
                           onClick={() => openSlotEditor(day, hour)}
                           className={`border-b border-r border-zinc-800/50 p-1 md:p-1.5 text-center transition-all duration-300 align-top relative ${!currentTrainerId ? 'cursor-pointer' : ''} ${
-                            selectedDay !== day ? 'hidden md:table-cell' : ''
+                            !mobileVisibleDays.includes(day) ? 'is-mobile-day-hidden' : ''
                           } ${
                             isOff
                               ? 'bg-zinc-950 text-zinc-600'
