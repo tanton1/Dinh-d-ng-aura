@@ -15,6 +15,8 @@ import {
   UserRound,
 } from 'lucide-react'
 import { PageHeader } from '../../components/ui'
+import LeaveRequestModal from '../../components/schedule/LeaveRequestModal'
+import SessionRequestModal from '../../components/schedule/SessionRequestModal'
 import {
   asStudentPtScheduleError,
   listMyStudentPtSchedule,
@@ -57,7 +59,7 @@ function issueCopy(issue: StudentPtScheduleServiceError) {
     case 'REVISION_CONFLICT':
       return { title: 'Lịch rảnh vừa được cập nhật ở nơi khác', description: 'Aura đã tải lại phiên bản mới nhất. Hãy kiểm tra và chọn lại các thay đổi cần lưu.' }
     case 'AVAILABILITY_LOCKED':
-      return { title: 'Lịch rảnh của tuần đã khóa', description: 'Hạn gửi là 12:00 Chủ nhật trước tuần tập. Hãy chọn tuần kế tiếp hoặc liên hệ vận hành khi cần điều chỉnh.' }
+      return { title: 'Lịch rảnh của tuần đã khóa', description: 'Hạn gửi là 10:00 Chủ nhật trước tuần tập. Hãy chọn tuần kế tiếp hoặc liên hệ vận hành khi cần điều chỉnh.' }
     case 'INVALID_REQUEST':
       return { title: 'Dữ liệu lịch chưa hợp lệ', description: issue.message }
     case 'SYNC_UNAVAILABLE':
@@ -105,6 +107,12 @@ function formatSessionDate(value: string) {
     .format(new Date(`${value}T00:00:00+07:00`))
 }
 
+function canRequestSessionChange(session: StudentPtSession) {
+  if (session.hour === null || session.status !== 'scheduled') return false
+  const startsAt = Date.parse(`${session.date}T${String(session.hour).padStart(2, '0')}:00:00+07:00`)
+  return Number.isFinite(startsAt) && startsAt - Date.now() >= 12 * 60 * 60 * 1000
+}
+
 function sameSlots(left: Iterable<string>, right: Iterable<string>) {
   return [...left].sort().join('|') === [...right].sort().join('|')
 }
@@ -121,6 +129,8 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
   const [loadIssue, setLoadIssue] = useState<StudentPtScheduleServiceError | null>(null)
   const [saveIssue, setSaveIssue] = useState<StudentPtScheduleServiceError | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [requestSession, setRequestSession] = useState<StudentPtSession | null>(null)
+  const [showPauseRequest, setShowPauseRequest] = useState(false)
   const weekStart = useMemo(() => addDays(startOfWeek(today), weekOffset * 7), [today, weekOffset])
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart])
   const availabilityWeekId = useMemo(() => toIsoDate(weekStart), [weekStart])
@@ -284,7 +294,7 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
               const matched = selectedSlots.has(slotIdForSession(session))
               return <article className={`timeline-event featured ${session.status}`} key={session.id}>
                 <div className="event-time"><strong>{session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}</strong><span>Buổi PT</span></div><div className="event-line"><i /></div>
-                <div className="event-detail"><div className="event-icon purple"><Dumbbell size={22} /></div><div><span>HUẤN LUYỆN CÁ NHÂN</span><h3>Buổi tập PT</h3><p><UserRound size={13} /> {session.trainerName}</p><em className={`pt-activity-status ${session.status}`}>{statusLabels[session.status] ?? session.status}</em><small className={matched ? 'student-classic-match is-linked' : 'student-classic-match needs-review'}>{matched ? <><Link2 size={12} /> Khớp lịch rảnh</> : <><AlertCircle size={12} /> Cần rà soát lịch rảnh</>}</small></div></div>
+                <div className="event-detail"><div className="event-icon purple"><Dumbbell size={22} /></div><div><span>HUẤN LUYỆN CÁ NHÂN</span><h3>Buổi tập PT</h3><p><UserRound size={13} /> {session.trainerName}</p><em className={`pt-activity-status ${session.status}`}>{statusLabels[session.status] ?? session.status}</em><small className={matched ? 'student-classic-match is-linked' : 'student-classic-match needs-review'}>{matched ? <><Link2 size={12} /> Khớp lịch rảnh</> : <><AlertCircle size={12} /> Cần rà soát lịch rảnh</>}</small>{session.status === 'scheduled' && <button type="button" disabled={!canRequestSessionChange(session)} title={!canRequestSessionChange(session) ? 'Đã qua hạn gửi trước 12 giờ' : undefined} className="student-session-policy-action" onClick={() => setRequestSession(session)}>{canRequestSessionChange(session) ? 'Đổi / hủy buổi' : 'Đã qua hạn 12 giờ'}</button>}</div></div>
               </article>
             }) : <div className="schedule-empty-inline"><CalendarDays size={28} /><h3>Chưa có lịch trong ngày này</h3><p>Khi vận hành xếp lịch, buổi tập sẽ xuất hiện tại đây.</p></div>}
           </div>
@@ -303,13 +313,13 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
           </aside>
         </section>
 
-        {activeContract && <section className="student-contract-strip"><div><small>GÓI TẬP ĐANG LIÊN KẾT</small><strong>{activeContract.packageName}</strong></div><div><span>{activeContract.usedSessions}/{activeContract.totalSessions} buổi</span><div><i style={{ width: `${Math.min(100, activeContract.totalSessions ? activeContract.usedSessions / activeContract.totalSessions * 100 : 0)}%` }} /></div></div></section>}
+        {activeContract && <section className="student-contract-strip"><div><small>GÓI TẬP ĐANG LIÊN KẾT</small><strong>{activeContract.packageName}</strong></div><div><span>{activeContract.usedSessions}/{activeContract.totalSessions} buổi</span><div><i style={{ width: `${Math.min(100, activeContract.totalSessions ? activeContract.usedSessions / activeContract.totalSessions * 100 : 0)}%` }} /></div></div><button type="button" onClick={() => setShowPauseRequest(true)}>Đăng ký OFF / Bảo lưu</button></section>}
         {message && <div className="student-schedule-message" role="status"><Check size={17} /> {message}</div>}
         {data.sessionsTruncated && <div className="student-schedule-state is-warning" role="status"><AlertCircle size={24} /><strong>Khoảng lịch có quá nhiều buổi tập</strong><span>Aura đang hiển thị 1.000 buổi đầu tiên. Hãy chuyển sang khoảng thời gian ngắn hơn để xem đầy đủ.</span></div>}
         {saveIssue && saveIssueContent && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={24} /><strong>{saveIssueContent.title}</strong><span>{saveIssueContent.description}</span>{saveIssue.retryable && <button type="button" onClick={() => void load()}><RefreshCw size={16} /> Tải lịch mới nhất</button>}</div>}
 
         <section className="student-availability-card">
-          <header><div><small>MA TRẬN THỜI GIAN RẢNH · TUẦN {availabilityWeekId}</small><h2>Chọn giờ bạn có thể tập trong tuần này</h2><p>Chọn tối thiểu {minimumSlots} khung giờ. Lịch khóa lúc 12:00 Chủ nhật trước tuần tập.</p></div><span>{selectedSlots.size}/{minimumSlots} ô tối thiểu</span></header>
+          <header><div><small>MA TRẬN THỜI GIAN RẢNH · TUẦN {availabilityWeekId}</small><h2>Chọn giờ bạn có thể tập trong tuần này</h2><p>Chọn tối thiểu {minimumSlots} khung giờ. Lịch khóa lúc 10:00 Chủ nhật trước tuần tập.</p></div><span>{selectedSlots.size}/{minimumSlots} ô tối thiểu</span></header>
           {availabilityLocked && <div className="student-schedule-state is-warning" role="status"><AlertCircle size={22} /><strong>Tuần này đã khóa lịch rảnh</strong><span>Hãy chuyển sang tuần kế tiếp để gửi lịch mới hoặc liên hệ vận hành nếu cần điều chỉnh.</span></div>}
           <div className="student-schedule-legend"><span><i className="is-available" /> Có thể tập</span><span><i className="is-booked" /> Đã xếp ca</span><span><i className="is-linked" /> Đã liên kết</span></div>
           <div className="student-schedule-matrix-scroll" role="region" aria-label="Ma trận thời gian rảnh" tabIndex={0}>
@@ -325,6 +335,8 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
         </section>
 
         {historySessions.length > 0 && <section className="student-session-history"><h2>Lịch sử gần đây</h2><div>{historySessions.map((session) => <article key={session.id}><span>{formatSessionDate(session.date)} · {session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}</span><strong>{session.trainerName}</strong><em>{statusLabels[session.status] ?? session.status}</em></article>)}</div></section>}
+        {requestSession && <SessionRequestModal session={requestSession} onClose={() => setRequestSession(null)} onCreated={setMessage} />}
+        {showPauseRequest && activeContract && <LeaveRequestModal contractId={activeContract.id} onClose={() => setShowPauseRequest(false)} onCreated={setMessage} />}
       </>}
     </div>
   )

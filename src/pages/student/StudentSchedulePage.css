@@ -78,13 +78,16 @@
 .student-schedule-summary small { color: #857c88; font-size: 11px; }
 .student-schedule-summary strong { margin-top: 4px; color: #211827; font-size: 15px; }
 
-.student-contract-strip { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, .8fr); align-items: center; gap: 20px; padding: 18px 20px; border-radius: 22px; color: #fff; background: linear-gradient(120deg, #ed2476, #ff8950); box-shadow: 0 14px 32px rgba(246, 47, 130, .2); }
+.student-contract-strip { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, .65fr) auto; align-items: center; gap: 20px; padding: 18px 20px; border-radius: 22px; color: #fff; background: linear-gradient(120deg, #ed2476, #ff8950); box-shadow: 0 14px 32px rgba(246, 47, 130, .2); }
 .student-contract-strip small, .student-contract-strip strong { display: block; }
 .student-contract-strip small { font-size: 10px; letter-spacing: .12em; opacity: .84; }
 .student-contract-strip strong { margin-top: 5px; font-size: 19px; }
-.student-contract-strip > div:last-child > span { display: block; margin-bottom: 7px; text-align: right; font-size: 12px; font-weight: 800; }
-.student-contract-strip > div:last-child > div { height: 8px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.25); }
+.student-contract-strip > div:nth-child(2) > span { display: block; margin-bottom: 7px; text-align: right; font-size: 12px; font-weight: 800; }
+.student-contract-strip > div:nth-child(2) > div { height: 8px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.25); }
 .student-contract-strip i { display: block; height: 100%; border-radius: inherit; background: #fff; }
+.student-contract-strip > button { min-height: 42px; padding: 0 16px; border: 1px solid rgba(255,255,255,.66); border-radius: 13px; color: #d92070; background: #fff; font-weight: 800; cursor: pointer; }
+.student-session-policy-action { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; margin-top: 9px; padding: 0 12px; border: 1px solid #f2b8cb; border-radius: 10px; color: #d92070; background: #fff7fa; font-size: 12px; font-weight: 800; cursor: pointer; }
+.student-session-policy-action:disabled { border-color: #e8e1e4; color: #9b8e94; background: #f6f3f4; cursor: not-allowed; }
 .student-schedule-message { display: flex; align-items: center; gap: 8px; padding: 13px 16px; border: 1px solid #a7f3d0; border-radius: 16px; color: #087654; background: #ecfdf5; font-weight: 700; }
 
 .student-availability-card, .student-linked-sessions, .student-session-history { overflow: hidden; border: 1px solid #eedfe5; border-radius: 26px; background: #fff; box-shadow: 0 12px 34px rgba(58, 27, 43, .07); }
@@ -149,7 +152,7 @@
 @media (max-width: 820px) {
   .student-schedule-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .student-contract-strip { grid-template-columns: 1fr; }
-  .student-contract-strip > div:last-child > span { text-align: left; }
+  .student-contract-strip > div:nth-child(2) > span { text-align: left; }
   .student-session-list article { grid-template-columns: 105px 38px minmax(0,1fr); }
   .student-session-list article > em { grid-column: 3; justify-self: start; }
 }
@@ -301,4 +304,50 @@
     padding:10px 11px;
   }
   .student-schedule-page--classic .student-session-history { padding:16px 13px; }
+}
+
+.student-policy-modal { position: fixed; inset: 0; z-index: 240; display: grid; place-items: end center; }
+.student-policy-modal__backdrop { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(24,16,29,.58); backdrop-filter: blur(7px); }
+.student-policy-sheet { position: relative; width: min(100%, 520px); max-height: min(88dvh, 760px); overflow: auto; padding: 10px 18px calc(20px + env(safe-area-inset-bottom,0px)); border: 1px solid rgba(246,47,130,.16); border-radius: 28px 28px 0 0; color: #251923; background: linear-gradient(155deg,#fff 0%,#fff8fb 58%,#fff4ec 100%); box-shadow: 0 -20px 60px rgba(34,17,30,.24); }
+.student-policy-sheet::before { content: ''; display: block; width: 44px; height: 5px; margin: 0 auto 12px; border-radius: 99px; background: #e3d8de; }
+.student-policy-sheet > header { display: grid; grid-template-columns: 42px minmax(0,1fr) 40px; align-items: center; gap: 10px; }
+.student-policy-sheet > header > span { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 14px; color: #fff; background: linear-gradient(135deg,#f62f82,#ff8751); box-shadow: 0 8px 20px rgba(246,47,130,.2); }
+.student-policy-sheet > header small { display: block; color: #e52b76; font-size: 10px; font-weight: 900; letter-spacing: .11em; }
+.student-policy-sheet > header h2 { margin: 3px 0 0; font-size: 21px; line-height: 1.18; }
+.student-policy-sheet > header > button { display: grid; width: 40px; height: 40px; place-items: center; border: 0; border-radius: 13px; color: #6a5a63; background: #f5edf1; cursor: pointer; }
+.student-policy-note { display: flex; align-items: flex-start; gap: 9px; margin-top: 14px; padding: 12px; border: 1px solid #f4cad9; border-radius: 15px; color: #693d4e; background: #fff1f6; font-size: 12px; line-height: 1.5; }
+.student-policy-note svg { flex: 0 0 auto; margin-top: 1px; color: #e52b76; }
+.student-policy-note p { margin: 0; }
+.student-policy-note.is-success { border-color: #f6d8be; color: #674536; background: #fff6eb; }
+.student-policy-note.is-success svg { color: #e86d32; }
+.student-policy-current,.student-policy-duration { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 11px 12px; border-radius: 14px; background: #fff; box-shadow: inset 0 0 0 1px #eee3e8; }
+.student-policy-current small,.student-policy-duration span { color: #8b7982; font-size: 10px; font-weight: 800; letter-spacing: .08em; }
+.student-policy-current strong,.student-policy-duration strong { color: #d92070; font-size: 13px; }
+.student-policy-sheet form { margin-top: 14px; }
+.student-policy-segment { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px; padding: 4px; border-radius: 14px; background: #f5edf1; }
+.student-policy-segment button { min-height: 42px; border: 0; border-radius: 11px; color: #76656e; background: transparent; font-weight: 800; cursor: pointer; }
+.student-policy-segment button.active { color: #fff; background: linear-gradient(120deg,#f62f82,#ff8751); box-shadow: 0 7px 18px rgba(246,47,130,.19); }
+.student-policy-fields { display: grid; gap: 10px; margin-top: 13px; }
+.student-policy-fields.two-columns { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.student-policy-fields label,.student-policy-reason { display: grid; gap: 6px; }
+.student-policy-fields label > span,.student-policy-reason > span { color: #594950; font-size: 12px; font-weight: 800; }
+.student-policy-fields :is(input,select),.student-policy-reason textarea { box-sizing: border-box; width: 100%; min-height: 46px; padding: 0 12px; border: 1px solid #e8dce2; border-radius: 12px; color: #2c2026; background: #fff; font: inherit; outline: none; }
+.student-policy-fields :is(input,select):focus,.student-policy-reason textarea:focus { border-color: #f14b88; box-shadow: 0 0 0 3px rgba(246,47,130,.1); }
+.student-policy-reason { margin-top: 13px; }
+.student-policy-reason textarea { min-height: 88px; padding-block: 11px; resize: vertical; }
+.student-policy-error { margin: 10px 0 0; padding: 9px 11px; border-radius: 11px; color: #a22543; background: #ffedf0; font-size: 12px; font-weight: 700; }
+.student-policy-sheet form > footer { position: sticky; bottom: -20px; display: grid; grid-template-columns: .7fr 1.3fr; gap: 9px; margin: 15px -2px 0; padding: 10px 2px calc(2px + env(safe-area-inset-bottom,0px)); background: linear-gradient(0deg,#fff8f7 72%,rgba(255,248,247,0)); }
+.student-policy-sheet form > footer button { min-height: 48px; border: 0; border-radius: 14px; color: #fff; background: linear-gradient(120deg,#f62f82,#ff8751); font-weight: 900; cursor: pointer; }
+.student-policy-sheet form > footer button.secondary { border: 1px solid #eadde3; color: #66545e; background: #fff; }
+.student-policy-sheet form > footer button:disabled { opacity: .55; cursor: wait; }
+
+@media (min-width: 641px) {
+  .student-policy-modal { place-items: center; padding: 24px; }
+  .student-policy-sheet { border-radius: 28px; }
+}
+
+@media (max-width: 420px) {
+  .student-policy-sheet { padding-inline: 13px; }
+  .student-policy-fields.two-columns { grid-template-columns: 1fr; }
+  .student-contract-strip > button { width: 100%; }
 }

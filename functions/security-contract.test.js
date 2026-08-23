@@ -152,6 +152,8 @@ test('legacy finance deletes and every direct session write entry point fail clo
   const addSessionSource = databaseContextSource.match(/const addSession[\s\S]*?\n  const updateSession/)?.[0] ?? ''
   const updateSessionSource = databaseContextSource.match(/const updateSession[\s\S]*?\n  const deleteSession/)?.[0] ?? ''
   const deleteSessionSource = databaseContextSource.match(/const deleteSession[\s\S]*?\n  const addTrainer/)?.[0] ?? ''
+  const leaveRequestSource = databaseContextSource.match(/const addLeaveRequest[\s\S]*?\n  const addSessionRequest/)?.[0] ?? ''
+  const sessionRequestSource = databaseContextSource.match(/const addSessionRequest[\s\S]*?\n  const updateScheduleData/)?.[0] ?? ''
 
   assert.match(deleteContractSource, /throw new Error/)
   assert.match(addPaymentSource, /throw new Error/)
@@ -159,12 +161,16 @@ test('legacy finance deletes and every direct session write entry point fail clo
   assert.match(addSessionSource, /throw new Error/)
   assert.match(updateSessionSource, /throw new Error/)
   assert.match(deleteSessionSource, /throw new Error/)
+  assert.match(leaveRequestSource, /throw new Error/)
+  assert.match(sessionRequestSource, /throw new Error/)
   assert.doesNotMatch(deleteContractSource, /deleteDoc|transaction\.delete|batch\.delete/)
   assert.doesNotMatch(addPaymentSource, /setDoc|addDoc|transaction\.set|batch\.set/)
   assert.doesNotMatch(deletePaymentSource, /deleteDoc|transaction\.delete|batch\.delete/)
   assert.doesNotMatch(addSessionSource, /setDoc|addDoc|transaction\.set|batch\.set/)
   assert.doesNotMatch(updateSessionSource, /setDoc|updateDoc|transaction\.update|batch\.update/)
   assert.doesNotMatch(deleteSessionSource, /deleteDoc|transaction\.delete|batch\.delete/)
+  assert.doesNotMatch(leaveRequestSource, /setDoc|updateDoc|deleteDoc|transaction\.(?:set|update|delete)/)
+  assert.doesNotMatch(sessionRequestSource, /setDoc|updateDoc|deleteDoc|transaction\.(?:set|update|delete)/)
 })
 
 test('Firestore rules deny hard-delete of legacy finance and all browser session writes', () => {

@@ -2,6 +2,7 @@ const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { completeSessionAttendanceTransaction } = require('./session-operations')
+const { assertSessionChangeDeadline } = require('./pt-policy')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const DEFAULT_WORKING_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -48,7 +49,8 @@ function availabilityWeekId(value) {
 
 function availabilityCutoff(weekId) {
   const monday = Date.parse(`${weekId}T00:00:00+07:00`)
-  return new Date(monday - 12 * 60 * 60 * 1000)
+  // 10:00 Sunday in Asia/Ho_Chi_Minh, fourteen hours before Monday 00:00.
+  return new Date(monday - 14 * 60 * 60 * 1000)
 }
 
 function availabilityState(weekId, value, now = new Date()) {
@@ -332,7 +334,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const minimumSlots = Math.max(5, requiredSessions)
     const cutoffAt = availabilityCutoff(weekId)
     if (Date.now() >= cutoffAt.getTime()) {
-      throw new HttpsError('failed-precondition', 'Lịch rảnh của tuần này đã khóa lúc 12:00 Chủ nhật.', {
+      throw new HttpsError('failed-precondition', 'Lịch rảnh của tuần này đã khóa lúc 10:00 Chủ nhật.', {
         issueCode: 'AVAILABILITY_LOCKED',
         action: 'contact_admin',
         cutoffAt: cutoffAt.toISOString(),
@@ -489,8 +491,15 @@ function createPtOperationsV2Functions({ db, onCall }) {
     if (type === 'reschedule' && (!Number.isInteger(requestedHour) || requestedHour < 0 || requestedHour > 23)) {
       throw new HttpsError('invalid-argument', 'Giờ mới không hợp lệ.')
     }
+    const originalHour = sessionHour(sessionId, session.data().hour)
+    if (originalHour === null) throw new HttpsError('failed-precondition', 'Buổi tập chưa có giờ hợp lệ.')
+    try {
+      assertSessionChangeDeadline(dateKey(session.data().date, 'Ngày buổi tập'), originalHour, new Date())
+    } catch (error) {
+      throw new HttpsError('failed-precondition', error.message, { issueCode: error.issueCode || 'SESSION_CHANGE_DEADLINE_PASSED', deadlineAt: error.deadlineAt || null })
+    }
     const reference = db.collection('sessionRequests').doc()
-    await reference.create({ schemaVersion: 1, sessionId, trainerId: session.data().trainerId, studentId: session.data().studentId, contractId: boundedString(request.data?.contractId, 'Mã hợp đồng', 200), type, requestedBy: 'trainer', originalDate: session.data().date, originalHour: sessionHour(sessionId, session.data().hour), originalSessionRevision: Number(session.data().revision || 0), newDate: type === 'reschedule' ? dateKey(request.data?.newDate, 'Ngày mới') : null, newHour: type === 'reschedule' ? requestedHour : null, reason: boundedString(request.data?.reason, 'Lý do', 500), status: 'pending', createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() })
+    await reference.create({ schemaVersion: 2, policyVersion: 'pt-change-cancel-v1', sessionId, trainerId: session.data().trainerId, studentId: session.data().studentId, contractId: boundedString(request.data?.contractId, 'Mã hợp đồng', 200), type, requestedBy: 'trainer', originalDate: session.data().date, originalHour, originalSessionRevision: Number(session.data().revision || 0), newDate: type === 'reschedule' ? dateKey(request.data?.newDate, 'Ngày mới') : null, newHour: type === 'reschedule' ? requestedHour : null, reason: boundedString(request.data?.reason, 'Lý do', 500), status: 'pending', deadlineHours: 12, submittedAtIso: new Date().toISOString(), createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() })
     return { requestId: reference.id }
   })
 

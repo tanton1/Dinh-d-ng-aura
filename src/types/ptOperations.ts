@@ -145,6 +145,14 @@ export interface SessionRequest {
   status: 'pending' | 'approved' | 'rejected'
   adminNote?: string
   createdAt: string
+  submittedAtIso?: string
+  deadlineAt?: string
+  policyMonth?: string
+  policySequence?: number
+  complimentary?: boolean
+  countsTowardContract?: boolean
+  expectedPolicySequence?: number
+  expectedCountsTowardContract?: boolean
 }
 
 export interface ContractExtension {
@@ -163,10 +171,19 @@ export interface LeaveRequest {
   startDate: string
   endDate: string
   reason: string
+  type?: 'off' | 'preservation'
+  durationDays?: number
+  contractDurationMonths?: number
+  offLimit?: number
+  offUsedOrPending?: number
+  offSequence?: number
+  cutoffAt?: string | null
   status: 'pending' | 'approved' | 'rejected'
   adminNote?: string
   createdAt: string
   approvedAt?: string
+  newContractEndDate?: string
+  cancelledSessionCount?: number
 }
 
 export interface StudentContract {
@@ -193,6 +210,14 @@ export interface StudentContract {
   referralCode?: string | null
   referralCommission?: number | null
   extensions?: ContractExtension[]
+  pausePeriods?: Array<{
+    requestId: string
+    type: 'off' | 'preservation'
+    startDate: string
+    endDate: string
+    durationDays: number
+  }>
+  revision?: number
   note?: string
 }
 

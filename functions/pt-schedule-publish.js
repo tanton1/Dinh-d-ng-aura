@@ -270,6 +270,15 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         continue
       }
       const contract = contractCandidates[0]
+      const pauses = Array.isArray(contract.pausePeriods) ? contract.pausePeriods : []
+      if (pauses.some((period) => {
+        const pauseStart = storedDate(period?.startDate)
+        const pauseEnd = storedDate(period?.endDate)
+        return pauseStart && pauseEnd && date >= pauseStart && date <= pauseEnd
+      })) {
+        errors.push('CONTRACT_PAUSED')
+        continue
+      }
       const key = entryKey(scheduleId, slotId, studentId)
       if (desired.has(key)) {
         errors.push('DUPLICATE_SCHEDULE_ENTRY')

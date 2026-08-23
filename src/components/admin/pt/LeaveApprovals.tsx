@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { LeaveRequest, Student, StudentContract } from '../../../types';
-import { useDatabase } from '../../../contexts/DatabaseContext';
 import { Check, X, Calendar as CalendarIcon, Clock } from 'lucide-react';
+import { approveContractPauseRequest, rejectContractPauseRequest } from '../../../services/sessionOperationsService';
 
 interface Props {
   leaveRequests: LeaveRequest[];
@@ -11,14 +11,35 @@ interface Props {
 }
 
 export default function LeaveApprovals({ leaveRequests, students, contracts, canManage }: Props) {
-  const { updateLeaveRequest } = useDatabase();
   const [processingId, setProcessingId] = useState<string | null>(null);
-  const approvalUnavailableMessage = 'Chưa thể duyệt đơn nghỉ an toàn vì gia hạn hợp đồng, hủy các buổi trùng và cập nhật đơn cần một giao dịch máy chủ duy nhất. Vui lòng liên hệ quản trị hệ thống.';
   const permissionMessage = 'Bạn chỉ có quyền xem đơn nghỉ. Chỉ quản trị viên vận hành mới có thể xử lý yêu cầu này.';
 
   const pendingRequests = leaveRequests.filter(r => r.status === 'pending' && students.some(s => s.id === r.studentId));
 
+  const requestDurationDays = (request: LeaveRequest) => Math.max(
+    1,
+    Math.ceil((new Date(request.endDate).getTime() - new Date(request.startDate).getTime()) / (1000 * 3600 * 24)) + 1,
+  );
+  const requestKind = (request: LeaveRequest) => request.type === 'preservation' || (!request.type && requestDurationDays(request) > 14)
+    ? 'preservation'
+    : 'off';
+
   if (pendingRequests.length === 0) return null;
+
+  const handleApprove = async (request: LeaveRequest) => {
+    if (!canManage) return alert(permissionMessage);
+    const label = requestKind(request) === 'preservation' ? 'bảo lưu' : 'OFF';
+    if (!confirm(`Duyệt ${label} từ ${request.startDate} đến ${request.endDate}? Hệ thống sẽ hủy miễn tính buổi các ca trùng và cộng số ngày vào hạn hợp đồng.`)) return;
+    setProcessingId(request.id);
+    try {
+      const result = await approveContractPauseRequest(request.id);
+      alert(`Đã duyệt ${label} ${result.durationDays} ngày, cộng hạn hợp đồng đến ${new Date(result.newEndDate).toLocaleDateString('vi-VN')} và xử lý ${result.cancelledSessionCount} ca trùng.`);
+    } catch (caught) {
+      alert('Chưa thể duyệt: ' + (caught instanceof Error ? caught.message : 'Lỗi không xác định'));
+    } finally {
+      setProcessingId(null);
+    }
+  };
 
   const handleReject = async (request: LeaveRequest) => {
     if (!canManage) {
@@ -30,11 +51,7 @@ export default function LeaveApprovals({ leaveRequests, students, contracts, can
     
     setProcessingId(request.id);
     try {
-      await updateLeaveRequest({
-        ...request,
-        status: 'rejected',
-        adminNote: reason
-      });
+      await rejectContractPauseRequest(request.id, reason || 'Không đáp ứng chính sách vận hành');
       alert('Đã từ chối đơn xin nghỉ.');
     } catch (e) {
       console.error(e);
@@ -66,6 +83,7 @@ export default function LeaveApprovals({ leaveRequests, students, contracts, can
                     <CalendarIcon className="w-3 h-3" />
                     Gói: {contract?.packageName || 'Không xác định'}
                   </p>
+                  <span className="inline-block mt-2 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full bg-orange-500/15 text-orange-400">{requestKind(request) === 'preservation' ? 'Bảo lưu' : 'OFF'}</span>
                 </div>
               </div>
 
@@ -81,7 +99,7 @@ export default function LeaveApprovals({ leaveRequests, students, contracts, can
                 <div className="flex justify-between items-center mb-0">
                   <span className="text-xs text-zinc-500">Số ngày bù:</span>
                   <span className="text-sm font-bold text-orange-400">
-                    +{Math.max(1, Math.ceil((new Date(request.endDate).getTime() - new Date(request.startDate).getTime()) / (1000 * 3600 * 24)) + 1)} ngày
+                    +{requestDurationDays(request)} ngày
                   </span>
                 </div>
                 <div className="mt-2 pt-2 border-t border-zinc-800">
@@ -93,11 +111,12 @@ export default function LeaveApprovals({ leaveRequests, students, contracts, can
               <div className="flex gap-2">
                 <button
                   type="button"
-                  disabled
-                  title={approvalUnavailableMessage}
-                  className="flex-1 bg-emerald-500/10 text-emerald-500 py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-1 opacity-50 cursor-not-allowed"
+                  onClick={() => handleApprove(request)}
+                  disabled={processingId === request.id || !canManage}
+                  title={!canManage ? permissionMessage : undefined}
+                  className="flex-1 bg-emerald-500/10 text-emerald-500 py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Check className="w-4 h-4" /> Chưa thể duyệt
+                  <Check className="w-4 h-4" /> Duyệt
                 </button>
                 <button
                   onClick={() => handleReject(request)}
@@ -108,7 +127,6 @@ export default function LeaveApprovals({ leaveRequests, students, contracts, can
                   <X className="w-4 h-4" /> Từ chối
                 </button>
               </div>
-              <p className="mt-2 text-xs text-amber-400">{approvalUnavailableMessage}</p>
               {!canManage && <p className="mt-1 text-xs text-zinc-500">{permissionMessage}</p>}
             </div>
           );

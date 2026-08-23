@@ -1,108 +1,73 @@
-import React, { useState } from 'react';
-import { motion } from 'motion/react';
-import { X, Calendar } from 'lucide-react';
-import { useDatabase } from '../../contexts/DatabaseContext';
+import { useMemo, useRef, useState } from 'react'
+import { CalendarRange, CircleAlert, ShieldCheck, X } from 'lucide-react'
+import { createMyContractPauseRequest } from '../../services/sessionOperationsService'
 
 interface Props {
-  onClose: () => void;
-  studentId: string;
-  contractId: string;
+  onClose: () => void
+  onCreated?: (message: string) => void
+  contractId: string
 }
 
-export default function LeaveRequestModal({ onClose, studentId, contractId }: Props) {
-  const { addLeaveRequest } = useDatabase();
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [reason, setReason] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+function newKey() {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!startDate || !endDate || !reason) return;
+function duration(startDate: string, endDate: string) {
+  if (!startDate || !endDate) return 0
+  const start = Date.parse(`${startDate}T00:00:00+07:00`)
+  const end = Date.parse(`${endDate}T00:00:00+07:00`)
+  return Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round((end - start) / 86_400_000) + 1 : 0
+}
 
-    setIsSubmitting(true);
+export default function LeaveRequestModal({ onClose, onCreated, contractId }: Props) {
+  const [type, setType] = useState<'off' | 'preservation'>('off')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [reason, setReason] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const idempotencyKey = useRef(newKey())
+  const durationDays = useMemo(() => duration(startDate, endDate), [startDate, endDate])
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (isSubmitting) return
+    setError('')
+    if (!durationDays) return setError('Khoảng ngày chưa hợp lệ.')
+    if (type === 'off' && durationDays > 14) return setError('OFF tối đa 14 ngày. Hãy chuyển sang Bảo lưu.')
+    if (type === 'preservation' && durationDays <= 14) return setError('Khoảng nghỉ từ 14 ngày trở xuống dùng chế độ OFF.')
+    if (reason.trim().length < 3) return setError('Vui lòng nhập lý do từ 3 ký tự.')
+    setIsSubmitting(true)
     try {
-      await addLeaveRequest({
-        id: Date.now().toString() + Math.random().toString(36).substring(7),
-        studentId,
-        contractId,
-        startDate,
-        endDate,
-        reason,
-        status: 'pending',
-        createdAt: new Date().toISOString()
-      });
-      alert('Đã gửi yêu cầu xin nghỉ thành công! Admin sẽ duyệt và báo lại.');
-      onClose();
-    } catch (error) {
-      console.error(error);
-      alert('Có lỗi xảy ra.');
+      const result = await createMyContractPauseRequest({ contractId, type, startDate, endDate, reason: reason.trim(), idempotencyKey: idempotencyKey.current })
+      const allowance = type === 'off' ? ` Lượt OFF đang dùng/chờ duyệt: ${result.offUsedOrPending}/${result.offLimit}.` : ''
+      onCreated?.(`Đã gửi yêu cầu ${type === 'off' ? 'OFF' : 'bảo lưu'} ${result.durationDays} ngày.${allowance} Khi được duyệt, ngày hết hạn hợp đồng sẽ được cộng tương ứng.`)
+      onClose()
+    } catch (caught) {
+      setError((caught instanceof Error ? caught.message : 'Chưa thể gửi yêu cầu.').replace(/^Firebase:\s*/i, ''))
     } finally {
-      setIsSubmitting(false);
+      setIsSubmitting(false)
     }
-  };
+  }
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-[60] flex items-end justify-center p-4">
-      <motion.div 
-        initial={{ y: '100%' }}
-        animate={{ y: 0 }}
-        className="bg-zinc-900 w-full max-w-md rounded-3xl p-6 border border-zinc-800 relative"
-      >
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-lg font-medium text-white flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-pink-500" />
-            Xin nghỉ / Bảo lưu
-          </h3>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1">Từ ngày</label>
-              <input
-                type="date"
-                required
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-pink-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1">Đến khi nào đi tập lại?</label>
-              <input
-                type="date"
-                required
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-pink-500"
-              />
-            </div>
-          </div>
-          
-          <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">Lý do xin nghỉ</label>
-            <textarea
-              required
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Ốm đau, công tác, du lịch..."
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-pink-500 min-h-[100px]"
-            />
-          </div>
-          
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full bg-pink-600 hover:bg-pink-500 text-white font-bold py-3 rounded-xl transition-colors disabled:opacity-50"
-          >
-            {isSubmitting ? 'Đang gửi...' : 'Gửi yêu cầu'}
-          </button>
+    <div className="student-policy-modal" role="dialog" aria-modal="true" aria-labelledby="pause-policy-title">
+      <button className="student-policy-modal__backdrop" type="button" aria-label="Đóng" onClick={onClose} />
+      <section className="student-policy-sheet">
+        <header><span><CalendarRange size={21} /></span><div><small>AURA · HỢP ĐỒNG</small><h2 id="pause-policy-title">Đăng ký OFF / Bảo lưu</h2></div><button type="button" aria-label="Đóng" onClick={onClose}><X size={20} /></button></header>
+        <div className="student-policy-note"><CircleAlert size={18} /><p><strong>OFF tối đa 14 ngày/lần</strong> và gửi trước 10:00 Chủ nhật của tuần nghỉ. Trên 14 ngày phải chọn Bảo lưu.</p></div>
+        <div className="student-policy-note is-success"><ShieldCheck size={18} /><p>Hợp đồng 3 tháng có 1 lượt OFF, 6 tháng có 3 lượt, 12 tháng có 6 lượt. Thời gian được duyệt sẽ cộng vào ngày hết hạn.</p></div>
+        <form onSubmit={handleSubmit}>
+          <div className="student-policy-segment"><button type="button" className={type === 'off' ? 'active' : ''} onClick={() => setType('off')}>OFF ≤ 14 ngày</button><button type="button" className={type === 'preservation' ? 'active' : ''} onClick={() => setType('preservation')}>Bảo lưu &gt; 14 ngày</button></div>
+          <div className="student-policy-fields two-columns"><label><span>Từ ngày</span><input type="date" required value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label><span>Đến ngày</span><input type="date" required value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label></div>
+          {durationDays > 0 && <div className="student-policy-duration"><span>Thời gian đề nghị</span><strong>{durationDays} ngày</strong></div>}
+          <label className="student-policy-reason"><span>Lý do</span><textarea required maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Công tác, du lịch, sức khỏe…" /></label>
+          {error && <p className="student-policy-error" role="alert">{error}</p>}
+          <footer><button type="button" className="secondary" onClick={onClose}>Để sau</button><button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Đang gửi…' : 'Gửi yêu cầu'}</button></footer>
         </form>
-      </motion.div>
+      </section>
     </div>
-  );
+  )
 }

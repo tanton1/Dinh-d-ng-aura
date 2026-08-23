@@ -641,30 +641,24 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     await deleteDoc(doc(db, 'workoutLogs', id))
   }
 
-  const addLeaveRequest = async (request: LeaveRequest) => {
-    if (!db) return
-    await setDoc(doc(db, 'leaveRequests', request.id), sanitize(request))
+  const addLeaveRequest = async (_request: LeaveRequest) => {
+    throw new Error('OFF và bảo lưu chỉ được tạo qua quy trình máy chủ có kiểm tra chính sách.')
   }
-  const updateLeaveRequest = async (request: LeaveRequest) => {
-    if (!db) return
-    await setDoc(doc(db, 'leaveRequests', request.id), sanitize(request), { merge: true })
+  const updateLeaveRequest = async (_request: LeaveRequest) => {
+    throw new Error('OFF và bảo lưu chỉ được duyệt qua quy trình máy chủ có audit.')
   }
-  const deleteLeaveRequest = async (id: string) => {
-    if (!db) return
-    await deleteDoc(doc(db, 'leaveRequests', id))
+  const deleteLeaveRequest = async (_id: string) => {
+    throw new Error('Không thể xóa trực tiếp lịch sử OFF hoặc bảo lưu.')
   }
 
-  const addSessionRequest = async (request: SessionRequest) => {
-    if (!db) return
-    await setDoc(doc(db, 'sessionRequests', request.id), sanitize(request))
+  const addSessionRequest = async (_request: SessionRequest) => {
+    throw new Error('Yêu cầu đổi hoặc hủy lịch chỉ được tạo qua quy trình máy chủ.')
   }
-  const updateSessionRequest = async (request: SessionRequest) => {
-    if (!db) return
-    await setDoc(doc(db, 'sessionRequests', request.id), sanitize(request), { merge: true })
+  const updateSessionRequest = async (_request: SessionRequest) => {
+    throw new Error('Yêu cầu đổi hoặc hủy lịch chỉ được duyệt qua quy trình máy chủ có audit.')
   }
-  const deleteSessionRequest = async (id: string) => {
-    if (!db) return
-    await deleteDoc(doc(db, 'sessionRequests', id))
+  const deleteSessionRequest = async (_id: string) => {
+    throw new Error('Không thể xóa trực tiếp lịch sử đổi hoặc hủy lịch.')
   }
 
   const updateScheduleData = async (weekId: string, newSchedule: Schedule, newWarnings: Warning[]) => {

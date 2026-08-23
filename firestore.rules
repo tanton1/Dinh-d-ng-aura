@@ -836,11 +836,23 @@ service cloud.firestore {
     }
 
     match /leaveRequests/{documentId} {
-      allow read, create, update, delete: if isAdmin();
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
     }
 
     match /sessionRequests/{documentId} {
-      allow read, create, update, delete: if isAdmin();
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /ptPolicyUsage/{documentId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /contractPauseEvents/{documentId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
     }
 
     match /schedules/{documentId} {

@@ -131,7 +131,7 @@ function allowClientIncident(request) {
 setGlobalOptions({
   region: 'asia-southeast1',
   maxInstances: 3,
-  labels: { 'aura-release': '386371f' },
+  labels: { 'aura-release': 'pt-policy-v1-20260823' },
 })
 
 Object.assign(exports, createNutritionFunctions({ app, db }))
@@ -168,7 +168,14 @@ exports.restorePtScheduleVersionToDraft = ptSchedulePublishFunctions.restorePtSc
 exports.getMyBranchScheduleWorkspace = ptSchedulePublishFunctions.getMyBranchScheduleWorkspace
 exports.saveMyBranchScheduleDraft = ptSchedulePublishFunctions.saveMyBranchScheduleDraft
 Object.assign(exports, createFinanceLedgerFunctions({ db, onCall, logger }))
-Object.assign(exports, createSessionOperationFunctions({ db, onCall, logger }))
+const sessionOperationFunctions = createSessionOperationFunctions({ db, onCall, logger })
+Object.assign(exports, sessionOperationFunctions)
+exports.createMySessionRequest = sessionOperationFunctions.createMySessionRequest
+exports.approveSessionRequest = sessionOperationFunctions.approveSessionRequest
+exports.rejectSessionRequest = sessionOperationFunctions.rejectSessionRequest
+exports.createMyContractPauseRequest = sessionOperationFunctions.createMyContractPauseRequest
+exports.approveContractPauseRequest = sessionOperationFunctions.approveContractPauseRequest
+exports.rejectContractPauseRequest = sessionOperationFunctions.rejectContractPauseRequest
 Object.assign(exports, createPayrollFunctions({ db, onCall, logger }))
 const businessReportingFunctions = createBusinessReportingFunctions({ db, onCall })
 Object.assign(exports, businessReportingFunctions)

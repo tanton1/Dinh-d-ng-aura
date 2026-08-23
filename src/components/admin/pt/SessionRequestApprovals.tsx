@@ -31,19 +31,6 @@ export default function SessionRequestApprovals({ students, sessions, canManage 
     const requestedByTrainer = isTrainerRequest(request);
     if (!confirm(`Xác nhận duyệt yêu cầu đổi/huỷ lịch do ${requestedByTrainer ? 'HLV' : 'học viên'} tạo? Hệ thống sẽ cập nhật buổi tập qua quy trình có lưu lịch sử.`)) return;
     
-    // Check auto extend contract
-    let daysToExtend = 0;
-    if (request.type === 'cancel' && !requestedByTrainer) {
-      const daysStr = prompt('Tính năng Tự Động Gia Hạn Hợp Đồng:\n\nHọc viên huỷ 1 buổi tập, bạn có muốn cộng thêm vài ngày vào hạn hợp đồng để bù không?\n\nNhập số ngày muốn cộng thêm (ví dụ 2 hoặc 3).\nNhập 0 nếu KHÔNG muốn cộng.', '2');
-      if (daysStr === null) return;
-      const parsedDays = Number(daysStr);
-      if (!Number.isInteger(parsedDays) || parsedDays < 0 || parsedDays > 365) {
-        alert('Số ngày gia hạn phải là số nguyên từ 0 đến 365.');
-        return;
-      }
-      daysToExtend = parsedDays;
-    }
-
     setProcessingId(request.id);
 
     try {
@@ -57,12 +44,15 @@ export default function SessionRequestApprovals({ students, sessions, canManage 
         expectedSessionRevision = Number(sessionSnapshot.data().revision || 0);
       }
 
-      await approveSessionRequest({
+      const result = await approveSessionRequest({
         requestId: request.id,
         expectedSessionRevision,
-        extensionDays: request.type === 'cancel' ? daysToExtend : 0,
       });
-      alert('Đã duyệt thành công!');
+      alert(result.countsTowardContract
+        ? `Đã duyệt. Đây là lượt ${result.policySequence ?? 2} trong tháng nên buổi đã xếp được tính vào gói tập.`
+        : requestedByTrainer
+          ? 'Đã duyệt thay đổi do PT đề nghị; học viên không bị tính buổi.'
+          : 'Đã duyệt lượt miễn tính buổi trong tháng.');
     } catch (e) {
       console.error(e);
       alert('Có lỗi xảy ra khi duyệt: ' + (e as Error).message);
@@ -142,6 +132,11 @@ export default function SessionRequestApprovals({ students, sessions, canManage 
                   <span className="text-xs text-zinc-500 block mb-1">Lý do:</span>
                   <p className="text-sm text-zinc-300">{request.reason}</p>
                 </div>
+                {!requestedByTrainer && <div className="mt-2 pt-2 border-t border-zinc-800 text-xs text-zinc-400">
+                  Chính sách dự kiến: {request.expectedCountsTowardContract
+                    ? `lượt ${request.expectedPolicySequence ?? 2}, có tính buổi`
+                    : 'lượt miễn tính buổi của tháng'}
+                </div>}
               </div>
 
               <div className="flex gap-2">

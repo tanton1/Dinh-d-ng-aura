@@ -419,6 +419,22 @@ describe('Aura PT Firestore rules', () => {
     }))
   })
 
+  test('PT change, OFF and preservation policy records are callable-only', async () => {
+    const adminDb = authenticatedDb('admin-1', 'admin')
+    const studentDb = authenticatedDb('client-1', 'student')
+    for (const [collectionName, documentId] of [
+      ['sessionRequests', 'request-1'],
+      ['leaveRequests', 'leave-1'],
+      ['ptPolicyUsage', 'client-1_2026-08'],
+      ['contractPauseEvents', 'pause-1'],
+    ]) {
+      await assertSucceeds(getDoc(doc(adminDb, collectionName, documentId)))
+      await assertFails(getDoc(doc(studentDb, collectionName, documentId)))
+      await assertFails(setDoc(doc(adminDb, collectionName, `${documentId}-forged`), { forged: true }))
+      await assertFails(setDoc(doc(studentDb, collectionName, `${documentId}-student`), { forged: true }))
+    }
+  })
+
   test('published PT schedule versions are server-owned and immutable to browsers', async () => {
     const adminDb = authenticatedDb('admin-1', 'admin')
     const studentDb = authenticatedDb('client-1', 'student')

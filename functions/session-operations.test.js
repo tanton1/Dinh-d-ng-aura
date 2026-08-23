@@ -91,24 +91,32 @@ function fakeDatabase(seed) {
   return { db, read: (path) => documents.get(path), paths: () => [...documents.keys()] }
 }
 
-function operationsFor(seed, authorizeAdmin = async () => ({ uid: 'admin-1' })) {
+function operationsFor(seed, authorizeAdmin = async () => ({ uid: 'admin-1' }), options = {}) {
   const state = fakeDatabase(seed)
-  const operations = createSessionOperationFunctions({ db: state.db, onCall: (handler) => handler, authorizeAdmin })
+  const operations = createSessionOperationFunctions({
+    db: state.db,
+    onCall: (handler) => handler,
+    authorizeAdmin,
+    authorizeStudent: options.authorizeStudent || (async () => ({ uid: 'student-account', legacyStaffId: 'student-1', accessRole: 'student' })),
+    now: options.now || (() => new Date('2026-08-19T00:00:00.000Z')),
+  })
   return { ...state, ...operations }
 }
 
-test('session request approval updates the session, request, optional extension, and audit in one transaction', () => {
-  const approval = source.match(/const approveSessionRequest[\s\S]*?\n  return \{ confirmSessionAttendance/)?.[0] ?? ''
+test('session request approval updates policy usage, session, contract charge and audit in one transaction', () => {
+  const approval = source.match(/const approveSessionRequest[\s\S]*?\n  const createMyContractPauseRequest/)?.[0] ?? ''
   assert.match(approval, /runTransaction/)
   assert.match(approval, /sessionRequests\/\$\{requestId\}/)
   assert.match(approval, /status: 'approved'/)
   assert.match(approval, /processedSessionRevision/)
   assert.match(approval, /collection\('sessionEvents'\)/)
-  assert.match(approval, /FieldValue\.arrayUnion\(\{[\s\S]*?session-request-/)
+  assert.match(source, /ptPolicyUsage/)
+  assert.match(approval, /charged_cancellation/)
+  assert.match(approval, /charged_reschedule/)
+  assert.match(approval, /usedSessions: FieldValue\.increment\(1\)/)
   assert.match(approval, /currentDate !== originalDate \|\| currentHour !== originalHour/)
   assert.match(approval, /originalSessionRevision/)
-  assert.match(approval, /where\('status', '==', 'active'\)/)
-  assert.match(approval, /coveringContracts\.length !== 1 \|\| coveringContracts\[0\]\.id !== contractId/)
+  assert.match(approval, /assertSessionChangeDeadline/)
   assert.match(approval, /requestedBy === 'trainer'/)
   assert.match(approval, /status: cancellationType/)
 })
@@ -131,7 +139,8 @@ test('trainer-created requests carry immutable origin and session revision prove
   const creation = trainerOperations.match(/const requestSessionChange[\s\S]*?\n  const listMyQuotes/)?.[0] ?? ''
   assert.match(creation, /requestedBy: 'trainer'/)
   assert.match(creation, /originalSessionRevision: Number\(session\.data\(\)\.revision \|\| 0\)/)
-  assert.match(creation, /originalHour: sessionHour\(sessionId, session\.data\(\)\.hour\)/)
+  assert.match(creation, /originalHour/)
+  assert.match(creation, /assertSessionChangeDeadline/)
 })
 
 test('attendance uses the session contract link and a deterministic event id', async () => {
@@ -225,49 +234,110 @@ test('trainer attendance delegates to the same contract-linked transaction', () 
   assert.doesNotMatch(trainerConfirmation, /collection\('attendanceEvents'\)\.doc\(\)/)
 })
 
-test('approval commits cancellation, request audit, and contract extension together and retries idempotently', async () => {
+test('first approved student cancellation is complimentary and retries idempotently', async () => {
   const state = operationsFor({
-    'sessionRequests/request-1': { status: 'pending', type: 'cancel', sessionId: 'session-1', studentId: 'student-1', contractId: 'contract-1', requestedBy: 'student', originalDate: '2026-08-20', originalHour: 8, originalSessionRevision: 2, reason: 'Bận' },
-    'sessions/session-1': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', date: '2026-08-20', hour: 8, revision: 2 },
-    'contracts/contract-1': { status: 'active', studentId: 'student-1', startDate: '2026-08-01', endDate: '2026-08-31' },
+    'sessionRequests/request-1': { status: 'pending', type: 'cancel', sessionId: 'session-1', studentId: 'student-1', contractId: 'contract-1', requestedBy: 'student', originalDate: '2026-08-20', originalHour: 8, originalSessionRevision: 2, reason: 'Bận', submittedAtIso: '2026-08-19T00:00:00.000Z', policyMonth: '2026-08' },
+    'sessions/session-1': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-08-20', hour: 8, revision: 2 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 0 },
   })
-  const first = await state.approveSessionRequest({ data: { requestId: 'request-1', expectedSessionRevision: 2, extensionDays: 2 } })
+  const first = await state.approveSessionRequest({ data: { requestId: 'request-1', expectedSessionRevision: 2 } })
   assert.equal(first.unchanged, false)
+  assert.equal(first.complimentary, true)
+  assert.equal(first.countsTowardContract, false)
   assert.equal(state.read('sessions/session-1').status, 'student_cancelled')
   assert.equal(state.read('sessions/session-1').revision, 3)
   assert.equal(state.read('sessionRequests/request-1').status, 'approved')
-  assert.equal(state.read('contracts/contract-1').endDate, '2026-09-02T00:00:00.000Z')
+  assert.equal(state.read('contracts/contract-1').endDate, '2026-08-31')
   assert.ok(state.paths().some((path) => path.startsWith('sessionEvents/')))
 
-  const retry = await state.approveSessionRequest({ data: { requestId: 'request-1', expectedSessionRevision: 2, extensionDays: 2 } })
+  const retry = await state.approveSessionRequest({ data: { requestId: 'request-1', expectedSessionRevision: 2 } })
   assert.equal(retry.unchanged, true)
   assert.equal(state.read('sessions/session-1').revision, 3)
 })
 
-test('trainer cancellation keeps its provenance and cannot extend a learner contract', async () => {
+test('second approved change in a calendar month creates one immutable policy charge', async () => {
+  const state = operationsFor({
+    'ptPolicyUsage/student-1_2026-08': { studentId: 'student-1', monthKey: '2026-08', approvedChangeCancelCount: 1 },
+    'sessionRequests/request-charge': { status: 'pending', type: 'cancel', sessionId: 'session-charge', studentId: 'student-1', contractId: 'contract-1', requestedBy: 'student', originalDate: '2026-08-20', originalHour: 18, originalSessionRevision: 0, reason: 'Bận công tác', submittedAtIso: '2026-08-19T00:00:00.000Z', policyMonth: '2026-08' },
+    'sessions/session-charge': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-08-20', hour: 18, revision: 0 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 1, totalPrice: 1200000 },
+  })
+  const result = await state.approveSessionRequest({ data: { requestId: 'request-charge', expectedSessionRevision: 0 } })
+  assert.equal(result.policySequence, 2)
+  assert.equal(result.complimentary, false)
+  assert.equal(result.countsTowardContract, true)
+  assert.equal(state.read('attendanceEvents/policy_request-charge').type, 'charged_cancellation')
+  assert.equal(state.read('sessionRequests/request-charge').countsTowardContract, true)
+  assert.equal(state.paths().filter((path) => path === 'attendanceEvents/policy_request-charge').length, 1)
+})
+
+test('approved OFF cancels overlapping scheduled sessions without charging and extends the contract atomically', async () => {
+  const state = operationsFor({
+    'leaveRequests/off-request-1': { status: 'pending', type: 'off', studentId: 'student-1', contractId: 'contract-1', startDate: '2026-08-24', endDate: '2026-08-30', durationDays: 7, reason: 'Đi công tác', submittedAtIso: '2026-08-19T00:00:00.000Z', revision: 0 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', packageId: 'package-3m', startDate: '2026-08-01', endDate: '2026-10-31', totalSessions: 36, usedSessions: 3, revision: 0 },
+    'packages/package-3m': { durationMonths: 3 },
+    'sessions/off-session-1': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-08-25', hour: 18, revision: 1 },
+    'sessions/outside-off': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-09-01', hour: 18, revision: 0 },
+  })
+  const result = await state.approveContractPauseRequest({ data: { requestId: 'off-request-1' } })
+  assert.equal(result.durationDays, 7)
+  assert.equal(result.newEndDate, '2026-11-07')
+  assert.equal(result.cancelledSessionCount, 1)
+  assert.equal(state.read('sessions/off-session-1').status, 'student_cancelled')
+  assert.equal(state.read('sessions/off-session-1').countsTowardContract, false)
+  assert.equal(state.read('sessions/outside-off').status, 'scheduled')
+  assert.equal(state.read('contracts/contract-1').endDate, '2026-11-07')
+  assert.equal(state.read('contractPauseEvents/off-request-1').durationDays, 7)
+})
+
+test('legacy approved leave without a type still consumes the three-month OFF allowance', async () => {
+  const state = operationsFor({
+    'leaveRequests/legacy-off': { status: 'approved', studentId: 'student-1', contractId: 'contract-1', startDate: '2026-08-01', endDate: '2026-08-05', reason: 'Nghỉ theo lịch cũ' },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', packageId: 'package-3m', startDate: '2026-08-01', endDate: '2026-10-31', totalSessions: 36, usedSessions: 3 },
+    'packages/package-3m': { durationMonths: 3 },
+  })
+
+  await assert.rejects(
+    state.createMyContractPauseRequest({ data: { contractId: 'contract-1', type: 'off', startDate: '2026-08-24', endDate: '2026-08-25', reason: 'Đi công tác', idempotencyKey: 'legacy-allowance-check' } }),
+    (error) => error.code === 'failed-precondition' && error.details?.issueCode === 'OFF_ALLOWANCE_EXHAUSTED',
+  )
+  assert.equal(state.read('leaveRequests/student-student-account-legacy-allowance-check'), undefined)
+})
+
+test('admin approval rechecks the Sunday 10:00 OFF submission cutoff', async () => {
+  const state = operationsFor({
+    'leaveRequests/late-off': { status: 'pending', type: 'off', studentId: 'student-1', contractId: 'contract-1', startDate: '2026-08-24', endDate: '2026-08-25', reason: 'Gửi trễ', submittedAtIso: '2026-08-23T03:00:00.000Z', revision: 0 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', packageId: 'package-3m', startDate: '2026-08-01', endDate: '2026-10-31', totalSessions: 36, usedSessions: 3 },
+    'packages/package-3m': { durationMonths: 3 },
+  })
+
+  await assert.rejects(
+    state.approveContractPauseRequest({ data: { requestId: 'late-off' } }),
+    (error) => error.code === 'failed-precondition' && error.details?.issueCode === 'OFF_REGISTRATION_DEADLINE_PASSED',
+  )
+  assert.equal(state.read('leaveRequests/late-off').status, 'pending')
+  assert.equal(state.read('contracts/contract-1').endDate, '2026-10-31')
+})
+
+test('trainer cancellation keeps its provenance and never consumes the learner monthly allowance', async () => {
   const seed = {
     'sessionRequests/request-2': { status: 'pending', type: 'cancel', sessionId: 'session-2', studentId: 'student-2', contractId: 'contract-2', trainerId: 'trainer-2', requestedBy: 'trainer', originalDate: '2026-08-21', originalHour: 9, originalSessionRevision: 0, reason: 'HLV nghỉ' },
-    'sessions/session-2': { status: 'scheduled', studentId: 'student-2', trainerId: 'trainer-2', date: '2026-08-21', hour: 9, revision: 0 },
-    'contracts/contract-2': { status: 'active', studentId: 'student-2', startDate: '2026-08-01', endDate: '2026-08-31' },
+    'sessions/session-2': { status: 'scheduled', studentId: 'student-2', trainerId: 'trainer-2', contractId: 'contract-2', date: '2026-08-21', hour: 9, revision: 0 },
+    'contracts/contract-2': { status: 'active', studentId: 'student-2', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 0 },
   }
-  const denied = operationsFor(seed)
-  await assert.rejects(
-    denied.approveSessionRequest({ data: { requestId: 'request-2', expectedSessionRevision: 0, extensionDays: 1 } }),
-    (error) => error.code === 'invalid-argument',
-  )
-  assert.equal(denied.read('sessionRequests/request-2').status, 'pending')
-  assert.equal(denied.read('sessions/session-2').status, 'scheduled')
-
   const approved = operationsFor(seed)
-  await approved.approveSessionRequest({ data: { requestId: 'request-2', expectedSessionRevision: 0, extensionDays: 0 } })
+  const result = await approved.approveSessionRequest({ data: { requestId: 'request-2', expectedSessionRevision: 0 } })
   assert.equal(approved.read('sessions/session-2').status, 'trainer_cancelled')
   assert.equal(approved.read('sessionRequests/request-2').requestedBy, 'trainer')
+  assert.equal(result.countsTowardContract, false)
+  assert.equal(approved.paths().some((path) => path.startsWith('ptPolicyUsage/')), false)
 })
 
 test('reschedule collision rejects atomically for a legacy ISO-date student booking', async () => {
   const state = operationsFor({
-    'sessionRequests/request-3': { status: 'pending', type: 'reschedule', sessionId: 'session-3', studentId: 'student-3', originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 4, newDate: '2026-08-25', newHour: 10 },
-    'sessions/session-3': { status: 'scheduled', studentId: 'student-3', trainerId: 'trainer-3', date: '2026-08-22', hour: 7, revision: 4 },
+    'sessionRequests/request-3': { status: 'pending', type: 'reschedule', sessionId: 'session-3', studentId: 'student-3', contractId: 'contract-3', originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 4, newDate: '2026-08-25', newHour: 10, submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08' },
+    'sessions/session-3': { status: 'scheduled', studentId: 'student-3', trainerId: 'trainer-3', contractId: 'contract-3', date: '2026-08-22', hour: 7, revision: 4 },
+    'contracts/contract-3': { status: 'active', studentId: 'student-3', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 0 },
     'sessions/conflict': { status: 'scheduled', studentId: 'student-3', trainerId: 'trainer-4', date: '2026-08-25T00:00:00.000Z', hour: 10, revision: 0 },
   })
   await assert.rejects(
@@ -361,8 +431,9 @@ test('admin request approval uses only the atomic callable for lifecycle changes
   assert.doesNotMatch(requestApprovals, /await updateContract\(/)
 })
 
-test('unsafe leave, orphan, and learner lifecycle actions are visibly disabled', () => {
-  assert.match(leaveApprovals, /Chưa thể duyệt đơn nghỉ an toàn/)
+test('leave approval and session requests use server transactions while remaining unsafe lifecycle actions stay disabled', () => {
+  assert.match(leaveApprovals, /approveContractPauseRequest/)
+  assert.match(leaveApprovals, /rejectContractPauseRequest/)
   assert.doesNotMatch(leaveApprovals, /\b(?:updateSession|deleteSession|cancelSession|rescheduleSession)\s*\(/)
   assert.match(orphanChecker, /Không thể xóa trực tiếp buổi tập/)
   assert.doesNotMatch(orphanChecker, /deleteSession\s*\(/)
