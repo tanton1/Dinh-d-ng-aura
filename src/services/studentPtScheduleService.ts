@@ -61,6 +61,37 @@ export interface StudentPtSession {
   timeZone: string
 }
 
+export interface StudentPtSessionRequestSummary {
+  id: string
+  type: 'cancel' | 'reschedule'
+  status: 'pending' | 'approved' | 'rejected'
+  originalDate: string
+  originalHour?: number
+  newDate?: string | null
+  newHour?: number | null
+  reason: string
+  requestedBy?: 'student' | 'trainer'
+  policySequence?: number
+  expectedPolicySequence?: number
+  countsTowardContract?: boolean
+  expectedCountsTowardContract?: boolean
+  submittedAtIso?: string
+  createdAt?: string
+}
+
+export interface StudentPtPauseRequestSummary {
+  id: string
+  type?: 'off' | 'preservation'
+  status: 'pending' | 'approved' | 'rejected'
+  startDate: string
+  endDate: string
+  durationDays?: number
+  reason: string
+  newContractEndDate?: string
+  submittedAtIso?: string
+  createdAt?: string
+}
+
 export interface StudentPtContractSummary {
   id: string
   packageName: string
@@ -92,6 +123,8 @@ export interface StudentPtScheduleData {
   sessions: StudentPtSession[]
   sessionsTruncated?: boolean
   contracts: StudentPtContractSummary[]
+  sessionRequests: StudentPtSessionRequestSummary[]
+  pauseRequests: StudentPtPauseRequestSummary[]
 }
 
 export interface StudentPtAvailability {

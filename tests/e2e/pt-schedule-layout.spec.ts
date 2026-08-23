@@ -13,6 +13,8 @@ for (const width of [360, 390, 430]) {
     const tabs = page.locator('.schedule-workspace__tabs')
     await expect(tabs.getByRole('button', { name: /^Lịch PT$/i })).toBeVisible()
     await expect(tabs.getByRole('button', { name: /^Học viên$/i })).toBeVisible()
+    await expect(tabs.getByRole('button', { name: /^Đổi \/ Hủy/i })).toBeVisible()
+    await expect(tabs.getByRole('button', { name: /^OFF \/ Bảo lưu/i })).toBeVisible()
     await expect(tabs.getByRole('button', { name: /^Cảnh báo/i })).toBeVisible()
 
     const dockStyle = await page.evaluate(() => {

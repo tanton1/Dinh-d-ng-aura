@@ -114,6 +114,13 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   await page.locator('.mobile-bottom-nav').getByRole('button', { name: 'Lịch học viên' }).click()
   await expect(page).toHaveURL(/#\/schedule$/)
   await expect(page.getByRole('heading', { name: /^Lịch tập luyện$/i })).toBeVisible()
+  const studentScheduleTabs = page.getByRole('navigation', { name: 'Nội dung lịch học viên' })
+  await expect(studentScheduleTabs).toBeVisible()
+  await expect(studentScheduleTabs.getByRole('button', { name: 'Tuần này' })).toBeVisible()
+  await expect(studentScheduleTabs.getByRole('button', { name: 'Tuần sau' })).toBeVisible()
+  await expect(studentScheduleTabs.getByRole('button', { name: 'Yêu cầu' })).toBeVisible()
+  await expect(studentScheduleTabs.getByRole('button', { name: 'Lịch sử' })).toBeVisible()
+  await studentScheduleTabs.getByRole('button', { name: 'Lịch rảnh' }).click()
   await expect(page.getByRole('region', { name: 'Ma trận thời gian rảnh' })).toBeVisible()
   const scheduleLayout = await page.evaluate(() => {
     const schedulePage = document.querySelector<HTMLElement>('.student-schedule-page')!

@@ -222,11 +222,13 @@ function createPtOperationsV2Functions({ db, onCall }) {
         sessions: [],
         sessionsTruncated: false,
         contracts: [],
+        sessionRequests: [],
+        pauseRequests: [],
       }
     }
 
     const availabilityReference = db.doc(`ptAvailability/${profile.id}_${requestedAvailabilityWeekId}`)
-    const [sessionsSnapshot, contractsSnapshot, availabilitySnapshot] = await Promise.all([
+    const [sessionsSnapshot, contractsSnapshot, availabilitySnapshot, sessionRequestsSnapshot, pauseRequestsSnapshot] = await Promise.all([
       db.collection('sessions')
         .where('studentId', '==', profile.id)
         .where('date', '>=', from)
@@ -236,6 +238,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
         .get(),
       db.collection('contracts').where('studentId', '==', profile.id).limit(50).get(),
       availabilityReference.get(),
+      db.collection('sessionRequests').where('studentId', '==', profile.id).limit(100).get(),
+      db.collection('leaveRequests').where('studentId', '==', profile.id).limit(100).get(),
     ])
     const sessionRecords = sessionsSnapshot.docs.slice(0, 1000)
       .map((item) => {
@@ -272,6 +276,42 @@ function createPtOperationsV2Functions({ db, onCall }) {
         usedSessions: Number(contract.usedSessions || 0),
       })
     })
+    const sessionRequests = sessionRequestsSnapshot.docs
+      .map((item) => {
+        const value = item.data()
+        return serialize({
+          id: item.id,
+          type: value.type,
+          status: value.status,
+          originalDate: value.originalDate,
+          originalHour: value.originalHour,
+          newDate: value.newDate || null,
+          newHour: value.newHour ?? null,
+          reason: value.reason || '',
+          countsTowardContract: value.countsTowardContract === true,
+          expectedCountsTowardContract: value.expectedCountsTowardContract === true,
+          submittedAtIso: value.submittedAtIso || null,
+          decidedAtIso: value.decidedAtIso || null,
+        })
+      })
+      .sort((left, right) => String(right.submittedAtIso || right.createdAt || '').localeCompare(String(left.submittedAtIso || left.createdAt || '')))
+    const pauseRequests = pauseRequestsSnapshot.docs
+      .map((item) => {
+        const value = item.data()
+        return serialize({
+          id: item.id,
+          type: value.type || 'off',
+          status: value.status,
+          startDate: value.startDate,
+          endDate: value.endDate,
+          durationDays: value.durationDays || null,
+          reason: value.reason || '',
+          newContractEndDate: value.newContractEndDate || null,
+          submittedAtIso: value.submittedAtIso || null,
+          decidedAtIso: value.decidedAtIso || null,
+        })
+      })
+      .sort((left, right) => String(right.submittedAtIso || right.createdAt || '').localeCompare(String(left.submittedAtIso || left.createdAt || '')))
     const requiredSessions = integer(profile.value.sessionsPerWeek, 3, 1, 6)
     const legacySlots = normalizedAvailabilitySlots(profile.value.availableSlots || [], config, false)
     const storedAvailability = availabilitySnapshot.exists
@@ -311,6 +351,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
       sessions,
       sessionsTruncated: sessionsSnapshot.size > 1000,
       contracts,
+      sessionRequests,
+      pauseRequests,
     }
   })
 
@@ -430,10 +472,36 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const limit = integer(request.data?.limit, 300, 1, 500)
     const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
     const snapshots = []
-    for (const actorId of actorIds) snapshots.push(await db.collection('sessions').where('trainerId', '==', actorId).where('date', '>=', from).where('date', '<=', to).limit(limit).get())
+    const requestSnapshots = []
+    for (const actorId of actorIds) {
+      snapshots.push(await db.collection('sessions').where('trainerId', '==', actorId).where('date', '>=', from).where('date', '<=', to).limit(limit).get())
+      requestSnapshots.push(await db.collection('sessionRequests').where('trainerId', '==', actorId).limit(100).get())
+    }
     const sessions = new Map()
     snapshots.forEach((snapshot) => snapshot.docs.forEach((doc) => sessions.set(doc.id, serialize({ id: doc.id, ...doc.data(), timeZone: TIME_ZONE }))))
-    return { schemaVersion: 1, sessions: [...sessions.values()].sort((a, b) => `${a.date}-${a.hour || 0}`.localeCompare(`${b.date}-${b.hour || 0}`)) }
+    const requests = new Map()
+    requestSnapshots.forEach((snapshot) => snapshot.docs.forEach((doc) => {
+      const value = doc.data()
+      if (value.requestedBy === 'trainer') requests.set(doc.id, serialize({
+        id: doc.id,
+        sessionId: value.sessionId,
+        studentId: value.studentId,
+        type: value.type,
+        status: value.status,
+        originalDate: value.originalDate,
+        originalHour: value.originalHour,
+        newDate: value.newDate || null,
+        newHour: value.newHour ?? null,
+        reason: value.reason || '',
+        submittedAtIso: value.submittedAtIso || null,
+        decidedAtIso: value.decidedAtIso || null,
+      }))
+    }))
+    return {
+      schemaVersion: 2,
+      sessions: [...sessions.values()].sort((a, b) => `${a.date}-${a.hour || 0}`.localeCompare(`${b.date}-${b.hour || 0}`)),
+      requests: [...requests.values()].sort((a, b) => String(b.submittedAtIso || b.createdAt || '').localeCompare(String(a.submittedAtIso || a.createdAt || ''))),
+    }
   })
 
   const getMyTrainerStudentDetail = onCall(async (request) => {

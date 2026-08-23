@@ -75,6 +75,7 @@ const studentNavSections: ShellNavSection[] = [
     label: 'PT COACHING & GYM',
     items: [
       { id: 'schedule' as const, label: 'Lịch học viên', icon: CalendarDays },
+      { id: 'trainer-portal' as const, label: 'Cổng HLV & yêu cầu', icon: Dumbbell },
     ],
   },
   {
@@ -103,7 +104,7 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
     label: 'KHÁCH HÀNG & LỊCH PT',
     items: [
       { id: 'admin-pt-students' as const, label: 'Học viên PT Gym', icon: Users, permission: 'student.view_assigned' as Permission },
-      { id: 'admin-pt-schedule' as const, label: 'Xếp lịch & Ca tập', icon: CalendarDays, permission: 'dashboard.view' as Permission },
+      { id: 'admin-pt-schedule' as const, label: 'Lịch PT & Yêu cầu', icon: CalendarDays, permission: 'dashboard.view' as Permission },
       { id: 'admin-training-history' as const, label: 'Lịch sử tập & lịch dạy', icon: History, permission: 'analytics.view_all' as Permission },
     ],
   },
@@ -141,7 +142,7 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
 const adminMobileNav: ShellAdminNavItem[] = [
   { id: 'admin-dashboard', label: 'Tổng quan', icon: LayoutDashboard, permission: 'dashboard.view' },
   { id: 'admin-pt-students', label: 'Học viên PT', icon: Users, permission: 'student.view_assigned' },
-  { id: 'admin-pt-schedule', label: 'Lịch PT', icon: CalendarDays, permission: 'dashboard.view' },
+  { id: 'admin-pt-schedule', label: 'Lịch & YC', icon: CalendarDays, permission: 'dashboard.view' },
   { id: 'admin-finance', label: 'Tài chính', icon: BarChart3, permission: 'analytics.view_all' },
   { id: 'admin-courses', label: 'Academy', icon: GraduationCap, permission: 'course.view' },
 ]
@@ -161,7 +162,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   delivery: 'Aura Delivery',
   'admin-dashboard': 'Trung tâm điều hành',
   'admin-pt-students': 'Quản lý Học viên PT Gym',
-  'admin-pt-schedule': 'Xếp lịch & Ca tập Gym',
+  'admin-pt-schedule': 'Lịch PT & Hộp yêu cầu',
   'admin-training-history': 'Lịch sử tập & lịch dạy',
   'admin-report': 'Tổng quan vận hành Gym',
   'admin-finance': 'Tài chính · KQKD · Sổ quỹ',

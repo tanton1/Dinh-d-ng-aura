@@ -35,8 +35,25 @@ export interface TrainerSessionSummary {
   date: string
   hour?: number
   status: string
+  contractId?: string
   revision?: number
   timeZone: string
+}
+
+export interface TrainerSessionRequestSummary {
+  id: string
+  sessionId: string
+  studentId: string
+  contractId: string
+  type: 'cancel' | 'reschedule'
+  status: 'pending' | 'approved' | 'rejected'
+  originalDate: string
+  originalHour?: number
+  newDate?: string | null
+  newHour?: number | null
+  reason: string
+  submittedAtIso?: string
+  createdAt?: string
 }
 
 export interface SalesQuoteSummary {
@@ -60,7 +77,7 @@ export async function listMyAssignedStudents(limit = 100) {
 }
 
 export async function listMyTrainerSchedule(from: string, to: string, limit = 300) {
-  return call<{ from: string; to: string; limit: number }, { sessions: TrainerSessionSummary[] }>('listMyTrainerSchedule', { from, to, limit })
+  return call<{ from: string; to: string; limit: number }, { sessions: TrainerSessionSummary[]; requests: TrainerSessionRequestSummary[] }>('listMyTrainerSchedule', { from, to, limit })
 }
 
 export async function confirmMySession(sessionId: string, expectedRevision: number) {

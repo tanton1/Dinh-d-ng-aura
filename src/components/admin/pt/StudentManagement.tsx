@@ -20,18 +20,14 @@ interface Props {
   profile: UserProfile | null;
 }
 
-import LeaveApprovals from './LeaveApprovals';
-import SessionRequestApprovals from './SessionRequestApprovals';
-
 export default function StudentManagement({ user, profile }: Props) {
   const { authzReady, hasCapability } = useAuth();
   const { 
-    students, contracts, payments, packages, trainers, branches, sessions, leaveRequests, sessionRequests, ptAvailability,
+    students, contracts, packages, trainers, branches, sessions, ptAvailability,
     updateStudent, deleteStudent,
     addContract, updateContract, deleteContract,
     updateUserProfile
   } = useDatabase();
-  const canManageSessionLifecycle = authzReady && hasCapability('pt.operations.manage');
   const canManageStudents = authzReady && hasCapability('pt.operations.manage');
   const canInviteStudents = authzReady && hasCapability('identity.invite.manage');
   const canOpenStudentForm = canInviteStudents || import.meta.env.MODE === 'e2e';
@@ -606,19 +602,6 @@ export default function StudentManagement({ user, profile }: Props) {
           <DateRangeFilter onFilter={(start, end) => setDateRange({ start, end })} />
         </div>
       </div>
-
-      <SessionRequestApprovals
-        students={allowedStudents}
-        contracts={contracts}
-        sessions={sessions}
-        canManage={canManageSessionLifecycle}
-      />
-      <LeaveApprovals 
-        leaveRequests={leaveRequests || []} 
-        students={allowedStudents} 
-        contracts={contracts}
-        canManage={canManageSessionLifecycle}
-      />
 
       <StudentRosterTable
         students={visibleStudents}

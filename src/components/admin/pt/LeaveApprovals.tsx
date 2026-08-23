@@ -1,137 +1,68 @@
-import React, { useState } from 'react';
-import { LeaveRequest, Student, StudentContract } from '../../../types';
-import { Check, X, Calendar as CalendarIcon, Clock } from 'lucide-react';
-import { approveContractPauseRequest, rejectContractPauseRequest } from '../../../services/sessionOperationsService';
+import { useState } from 'react'
+import { CalendarRange, Check, Clock3, Package, X } from 'lucide-react'
+import type { LeaveRequest, Student, StudentContract } from '../../../types'
+import { approveContractPauseRequest, rejectContractPauseRequest } from '../../../services/sessionOperationsService'
 
 interface Props {
-  leaveRequests: LeaveRequest[];
-  students: Student[];
-  contracts: StudentContract[];
-  canManage: boolean;
+  leaveRequests: LeaveRequest[]
+  students: Student[]
+  contracts: StudentContract[]
+  canManage: boolean
+}
+
+function requestDurationDays(request: LeaveRequest) {
+  return Math.max(1, Math.ceil((new Date(request.endDate).getTime() - new Date(request.startDate).getTime()) / 86_400_000) + 1)
+}
+
+function requestKind(request: LeaveRequest): 'off' | 'preservation' {
+  return request.type === 'preservation' || (!request.type && requestDurationDays(request) > 14) ? 'preservation' : 'off'
 }
 
 export default function LeaveApprovals({ leaveRequests, students, contracts, canManage }: Props) {
-  const [processingId, setProcessingId] = useState<string | null>(null);
-  const permissionMessage = 'Bạn chỉ có quyền xem đơn nghỉ. Chỉ quản trị viên vận hành mới có thể xử lý yêu cầu này.';
-
-  const pendingRequests = leaveRequests.filter(r => r.status === 'pending' && students.some(s => s.id === r.studentId));
-
-  const requestDurationDays = (request: LeaveRequest) => Math.max(
-    1,
-    Math.ceil((new Date(request.endDate).getTime() - new Date(request.startDate).getTime()) / (1000 * 3600 * 24)) + 1,
-  );
-  const requestKind = (request: LeaveRequest) => request.type === 'preservation' || (!request.type && requestDurationDays(request) > 14)
-    ? 'preservation'
-    : 'off';
-
-  if (pendingRequests.length === 0) return null;
+  const [processingId, setProcessingId] = useState<string | null>(null)
+  const permissionMessage = 'Chỉ quản trị viên vận hành được xử lý OFF hoặc bảo lưu.'
+  const pendingRequests = leaveRequests.filter((request) => request.status === 'pending' && students.some((student) => student.id === request.studentId))
 
   const handleApprove = async (request: LeaveRequest) => {
-    if (!canManage) return alert(permissionMessage);
-    const label = requestKind(request) === 'preservation' ? 'bảo lưu' : 'OFF';
-    if (!confirm(`Duyệt ${label} từ ${request.startDate} đến ${request.endDate}? Hệ thống sẽ hủy miễn tính buổi các ca trùng và cộng số ngày vào hạn hợp đồng.`)) return;
-    setProcessingId(request.id);
+    if (!canManage) return alert(permissionMessage)
+    const label = requestKind(request) === 'preservation' ? 'bảo lưu' : 'OFF'
+    if (!confirm(`Duyệt ${label} từ ${request.startDate} đến ${request.endDate}? Các ca trùng sẽ được hủy miễn tính buổi và ngày hợp đồng được cộng tương ứng.`)) return
+    setProcessingId(request.id)
     try {
-      const result = await approveContractPauseRequest(request.id);
-      alert(`Đã duyệt ${label} ${result.durationDays} ngày, cộng hạn hợp đồng đến ${new Date(result.newEndDate).toLocaleDateString('vi-VN')} và xử lý ${result.cancelledSessionCount} ca trùng.`);
-    } catch (caught) {
-      alert('Chưa thể duyệt: ' + (caught instanceof Error ? caught.message : 'Lỗi không xác định'));
-    } finally {
-      setProcessingId(null);
-    }
-  };
+      const result = await approveContractPauseRequest(request.id)
+      alert(`Đã duyệt ${label} ${result.durationDays} ngày, cộng hạn hợp đồng đến ${new Date(result.newEndDate).toLocaleDateString('vi-VN')} và xử lý ${result.cancelledSessionCount} ca trùng.`)
+    } catch (caught) { alert('Chưa thể duyệt: ' + (caught instanceof Error ? caught.message : 'Lỗi không xác định')) }
+    finally { setProcessingId(null) }
+  }
 
   const handleReject = async (request: LeaveRequest) => {
-    if (!canManage) {
-      alert(permissionMessage);
-      return;
-    }
-    const reason = prompt('Lý do từ chối:');
-    if (reason === null) return;
-    
-    setProcessingId(request.id);
-    try {
-      await rejectContractPauseRequest(request.id, reason || 'Không đáp ứng chính sách vận hành');
-      alert('Đã từ chối đơn xin nghỉ.');
-    } catch (e) {
-      console.error(e);
-      alert('Có lỗi xảy ra: ' + (e as Error).message);
-    } finally {
-      setProcessingId(null);
-    }
-  };
+    if (!canManage) return alert(permissionMessage)
+    const reason = prompt('Lý do từ chối:')
+    if (reason === null) return
+    setProcessingId(request.id)
+    try { await rejectContractPauseRequest(request.id, reason.trim() || 'Không đáp ứng chính sách vận hành'); alert('Đã từ chối yêu cầu.') }
+    catch (caught) { alert('Chưa thể từ chối: ' + (caught instanceof Error ? caught.message : 'Lỗi không xác định')) }
+    finally { setProcessingId(null) }
+  }
 
-  return (
-    <div className="mb-8">
-      <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-        <Clock className="w-5 h-5 text-orange-500" />
-        Đơn xin nghỉ chờ duyệt ({pendingRequests.length})
-      </h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {pendingRequests.map(request => {
-          const student = students.find(s => s.id === request.studentId);
-          const contract = contracts.find(c => c.id === request.contractId);
-          
-          return (
-            <div key={request.id} className="bg-zinc-900 border border-orange-500/30 rounded-2xl p-4 shadow-sm relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-16 h-16 bg-orange-500/10 rounded-bl-full -z-10" />
-              
-              <div className="flex justify-between items-start mb-3">
-                <div>
-                  <h3 className="text-white font-medium">{student?.name || 'Học viên không xác định'}</h3>
-                  <p className="text-xs text-zinc-400 mt-1 flex items-center gap-1">
-                    <CalendarIcon className="w-3 h-3" />
-                    Gói: {contract?.packageName || 'Không xác định'}
-                  </p>
-                  <span className="inline-block mt-2 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full bg-orange-500/15 text-orange-400">{requestKind(request) === 'preservation' ? 'Bảo lưu' : 'OFF'}</span>
-                </div>
-              </div>
+  if (!pendingRequests.length) return <div className="schedule-request-empty"><CalendarRange size={28} /><strong>Không có OFF/Bảo lưu chờ duyệt</strong><span>Yêu cầu mới của học viên sẽ xuất hiện tại đây.</span></div>
 
-              <div className="bg-zinc-950 rounded-xl p-3 mb-4 border border-zinc-800">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs text-zinc-500">Từ</span>
-                  <span className="text-sm text-zinc-300 font-medium">{new Date(request.startDate).toLocaleDateString('vi-VN')}</span>
-                </div>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs text-zinc-500">Đến</span>
-                  <span className="text-sm text-zinc-300 font-medium">{new Date(request.endDate).toLocaleDateString('vi-VN')}</span>
-                </div>
-                <div className="flex justify-between items-center mb-0">
-                  <span className="text-xs text-zinc-500">Số ngày bù:</span>
-                  <span className="text-sm font-bold text-orange-400">
-                    +{requestDurationDays(request)} ngày
-                  </span>
-                </div>
-                <div className="mt-2 pt-2 border-t border-zinc-800">
-                  <span className="text-xs text-zinc-500 block mb-1">Lý do:</span>
-                  <p className="text-sm text-zinc-300">{request.reason}</p>
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleApprove(request)}
-                  disabled={processingId === request.id || !canManage}
-                  title={!canManage ? permissionMessage : undefined}
-                  className="flex-1 bg-emerald-500/10 text-emerald-500 py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Check className="w-4 h-4" /> Duyệt
-                </button>
-                <button
-                  onClick={() => handleReject(request)}
-                  disabled={processingId === request.id || !canManage}
-                  title={!canManage ? permissionMessage : undefined}
-                  className="flex-1 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-colors py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <X className="w-4 h-4" /> Từ chối
-                </button>
-              </div>
-              {!canManage && <p className="mt-1 text-xs text-zinc-500">{permissionMessage}</p>}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+  return <div className="schedule-request-list">
+    {pendingRequests.map((request) => {
+      const student = students.find((item) => item.id === request.studentId)
+      const contract = contracts.find((item) => item.id === request.contractId)
+      const kind = requestKind(request)
+      const duration = requestDurationDays(request)
+      const isBusy = processingId === request.id
+      return <article className="schedule-request-card" key={request.id}>
+        <header><span className={`schedule-request-kind is-${kind}`}>{kind === 'preservation' ? 'Bảo lưu' : 'OFF'}</span><span className="schedule-request-source"><Clock3 size={13} /> {duration} ngày</span></header>
+        <h3>{student?.name || 'Học viên chưa xác định'}</h3>
+        <p className="schedule-request-package"><Package size={14} /> {contract?.packageName || 'Hợp đồng chưa xác định'}</p>
+        <div className="schedule-request-slots"><span><CalendarRange size={15} /><small>Từ ngày</small><strong>{new Date(`${request.startDate}T00:00:00+07:00`).toLocaleDateString('vi-VN')}</strong></span><span className="is-new"><CalendarRange size={15} /><small>Đến ngày</small><strong>{new Date(`${request.endDate}T00:00:00+07:00`).toLocaleDateString('vi-VN')}</strong></span></div>
+        <p>{request.reason}</p>
+        <aside>Được duyệt sẽ cộng +{duration} ngày vào hạn hợp đồng và không trừ các ca trùng.</aside>
+        <footer><button type="button" className="is-approve" disabled={isBusy || !canManage} onClick={() => void handleApprove(request)}><Check size={16} /> Duyệt</button><button type="button" className="is-reject" disabled={isBusy || !canManage} onClick={() => void handleReject(request)}><X size={16} /> Từ chối</button></footer>
+      </article>
+    })}
+  </div>
 }

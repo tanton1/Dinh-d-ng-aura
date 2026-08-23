@@ -3,15 +3,19 @@ import {
   AlertCircle,
   CalendarCheck,
   CalendarDays,
+  CalendarRange,
   Check,
+  Clock3,
   ChevronLeft,
   ChevronRight,
   Dumbbell,
+  History,
   Link2,
   LoaderCircle,
   RefreshCw,
   RotateCcw,
   Save,
+  ScrollText,
   UserRound,
 } from 'lucide-react'
 import { PageHeader } from '../../components/ui'
@@ -32,6 +36,7 @@ import './StudentSchedulePage.css'
 const DEFAULT_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 const DEFAULT_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
 const DAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
+type StudentScheduleTab = 'this-week' | 'next-week' | 'availability' | 'requests' | 'history'
 
 const statusLabels: Record<string, string> = {
   scheduled: 'Đã xếp lịch',
@@ -119,8 +124,9 @@ function sameSlots(left: Iterable<string>, right: Iterable<string>) {
 
 export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }: { onNavigate: (view: ViewId) => void; isDemo?: boolean; ownerId?: string }) {
   const today = useMemo(() => new Date(), [])
-  const range = useMemo(() => ({ from: toIsoDate(addDays(today, -30)), to: toIsoDate(addDays(today, 180)) }), [today])
+  const range = useMemo(() => ({ from: toIsoDate(addDays(today, -180)), to: toIsoDate(addDays(today, 180)) }), [today])
   const [data, setData] = useState<StudentPtScheduleData | null>(null)
+  const [activeTab, setActiveTab] = useState<StudentScheduleTab>('this-week')
   const [selectedSlots, setSelectedSlots] = useState<Set<string>>(new Set())
   const [weekOffset, setWeekOffset] = useState(0)
   const [selectedDate, setSelectedDate] = useState(toIsoDate(today))
@@ -157,6 +163,8 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
           ],
           sessionsTruncated: false,
           contracts: [{ id: 'demo-contract', packageName: 'PT Personal 24 buổi', status: 'active', startDate: toIsoDate(addDays(today, -30)), endDate: toIsoDate(addDays(today, 90)), totalSessions: 24, usedSessions: 8 }],
+          sessionRequests: [],
+          pauseRequests: [],
         }
         setData(demo)
         setSelectedSlots(new Set(demo.student?.availableSlots ?? []))
@@ -186,8 +194,10 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
     .sort((left, right) => `${left.date}-${left.hour ?? 99}`.localeCompare(`${right.date}-${right.hour ?? 99}`)), [data?.sessions, today])
   const historySessions = useMemo(() => (data?.sessions ?? [])
     .filter((session) => session.status !== 'scheduled' || session.date < toIsoDate(today))
-    .sort((left, right) => `${right.date}-${right.hour ?? 99}`.localeCompare(`${left.date}-${left.hour ?? 99}`))
-    .slice(0, 8), [data?.sessions, today])
+    .sort((left, right) => `${right.date}-${right.hour ?? 99}`.localeCompare(`${left.date}-${left.hour ?? 99}`)), [data?.sessions, today])
+  const scheduleRequests = data?.sessionRequests ?? []
+  const pauseRequests = data?.pauseRequests ?? []
+  const pendingRequestCount = scheduleRequests.filter((request) => request.status === 'pending').length + pauseRequests.filter((request) => request.status === 'pending').length
   const sessionsBySlot = useMemo(() => {
     const result = new Map<string, StudentPtSession[]>()
     upcomingSessions.forEach((session) => {
@@ -253,14 +263,21 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
     }
   }
 
-  const goToday = () => { setWeekOffset(0); setSelectedDate(toIsoDate(today)) }
-  const moveWeek = (amount: number) => {
-    const nextOffset = weekOffset + amount
-    setWeekOffset(nextOffset)
-    setSelectedDate(toIsoDate(addDays(startOfWeek(today), nextOffset * 7)))
+  const selectWeek = (offset: 0 | 1) => {
+    setWeekOffset(offset)
+    setSelectedDate(offset === 0 ? toIsoDate(today) : toIsoDate(addDays(startOfWeek(today), 7)))
+    setActiveTab(offset === 0 ? 'this-week' : 'next-week')
+  }
+  const goToday = () => selectWeek(0)
+  const selectAvailabilityWeek = (offset: 0 | 1) => {
+    setWeekOffset(offset)
+    setSelectedDate(toIsoDate(addDays(startOfWeek(today), offset * 7)))
+    setActiveTab('availability')
   }
   const selectUpcoming = (session: StudentPtSession) => {
-    setWeekOffset(Math.floor((fromIsoDate(session.date).getTime() - startOfWeek(today).getTime()) / (7 * 86_400_000)))
+    const targetOffset = Math.floor((fromIsoDate(session.date).getTime() - startOfWeek(today).getTime()) / (7 * 86_400_000))
+    setWeekOffset(targetOffset > 0 ? 1 : 0)
+    setActiveTab(targetOffset > 0 ? 'next-week' : 'this-week')
     setSelectedDate(session.date)
   }
   const loadIssueContent = loadIssue ? issueCopy(loadIssue) : null
@@ -280,9 +297,19 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
       {!loading && !loadIssue && data?.student && <>
         <div className="pt-schedule-banner"><div><i><CalendarCheck size={20} /></i><span><strong>Kế hoạch tuần của bạn</strong><small>{weekSessions.length} buổi · Hoàn thành {weekCompletion}%</small></span></div><small>Lịch được đồng bộ từ bộ phận vận hành và đối chiếu với thời gian rảnh của bạn.</small></div>
 
-        <section className="schedule-layout">
+        <nav className="student-schedule-tabs" aria-label="Nội dung lịch học viên">
+          <button type="button" className={activeTab === 'this-week' ? 'active' : ''} onClick={() => selectWeek(0)}><CalendarCheck size={16} /><span>Tuần này</span></button>
+          <button type="button" className={activeTab === 'next-week' ? 'active' : ''} onClick={() => selectWeek(1)}><CalendarDays size={16} /><span>Tuần sau</span></button>
+          <button type="button" className={activeTab === 'availability' ? 'active' : ''} onClick={() => selectAvailabilityWeek(weekOffset > 0 ? 1 : 0)}><CalendarRange size={16} /><span>Lịch rảnh</span></button>
+          <button type="button" className={activeTab === 'requests' ? 'active' : ''} onClick={() => setActiveTab('requests')}><ScrollText size={16} /><span>Yêu cầu</span>{pendingRequestCount > 0 && <i>{pendingRequestCount}</i>}</button>
+          <button type="button" className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}><History size={16} /><span>Lịch sử</span></button>
+        </nav>
+
+        {activeContract && <section className="student-contract-strip"><div><small>GÓI TẬP ĐANG LIÊN KẾT</small><strong>{activeContract.packageName}</strong></div><div><span>{activeContract.usedSessions}/{activeContract.totalSessions} buổi</span><div><i style={{ width: `${Math.min(100, activeContract.totalSessions ? activeContract.usedSessions / activeContract.totalSessions * 100 : 0)}%` }} /></div></div><button type="button" onClick={() => setShowPauseRequest(true)}>Đăng ký OFF / Bảo lưu</button></section>}
+
+        {(activeTab === 'this-week' || activeTab === 'next-week') && <section className="schedule-layout">
           <div className="calendar-panel card">
-            <div className="calendar-header"><button type="button" aria-label="Tuần trước" onClick={() => moveWeek(-1)}><ChevronLeft size={19} /></button><div><strong>{weekLabel}</strong><button type="button" onClick={goToday}>Hôm nay</button></div><button type="button" aria-label="Tuần sau" onClick={() => moveWeek(1)}><ChevronRight size={19} /></button></div>
+            <div className="calendar-header"><button type="button" aria-label="Tuần trước" disabled={weekOffset === 0} onClick={() => selectWeek(0)}><ChevronLeft size={19} /></button><div><strong>{weekLabel}</strong><button type="button" onClick={goToday}>Hôm nay</button></div><button type="button" aria-label="Tuần sau" disabled={weekOffset === 1} onClick={() => selectWeek(1)}><ChevronRight size={19} /></button></div>
             <div className="week-strip">{weekDays.map((date) => {
               const iso = toIsoDate(date)
               const session = (data.sessions ?? []).find((item) => item.date === iso && item.status !== 'cancelled')
@@ -311,15 +338,14 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
             })}</div></article>
             <button type="button" className="reschedule-button" onClick={goToday}><RotateCcw size={17} /> Quay về tuần hiện tại</button>
           </aside>
-        </section>
-
-        {activeContract && <section className="student-contract-strip"><div><small>GÓI TẬP ĐANG LIÊN KẾT</small><strong>{activeContract.packageName}</strong></div><div><span>{activeContract.usedSessions}/{activeContract.totalSessions} buổi</span><div><i style={{ width: `${Math.min(100, activeContract.totalSessions ? activeContract.usedSessions / activeContract.totalSessions * 100 : 0)}%` }} /></div></div><button type="button" onClick={() => setShowPauseRequest(true)}>Đăng ký OFF / Bảo lưu</button></section>}
+        </section>}
         {message && <div className="student-schedule-message" role="status"><Check size={17} /> {message}</div>}
         {data.sessionsTruncated && <div className="student-schedule-state is-warning" role="status"><AlertCircle size={24} /><strong>Khoảng lịch có quá nhiều buổi tập</strong><span>Aura đang hiển thị 1.000 buổi đầu tiên. Hãy chuyển sang khoảng thời gian ngắn hơn để xem đầy đủ.</span></div>}
         {saveIssue && saveIssueContent && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={24} /><strong>{saveIssueContent.title}</strong><span>{saveIssueContent.description}</span>{saveIssue.retryable && <button type="button" onClick={() => void load()}><RefreshCw size={16} /> Tải lịch mới nhất</button>}</div>}
 
-        <section className="student-availability-card">
-          <header><div><small>MA TRẬN THỜI GIAN RẢNH · TUẦN {availabilityWeekId}</small><h2>Chọn giờ bạn có thể tập trong tuần này</h2><p>Chọn tối thiểu {minimumSlots} khung giờ. Lịch khóa lúc 10:00 Chủ nhật trước tuần tập.</p></div><span>{selectedSlots.size}/{minimumSlots} ô tối thiểu</span></header>
+        {activeTab === 'availability' && <section className="student-availability-card">
+          <header><div><small>MA TRẬN THỜI GIAN RẢNH · TUẦN {availabilityWeekId}</small><h2>Đăng ký thời gian có thể tập</h2><p>Chọn tối thiểu {minimumSlots} khung giờ. Lịch khóa lúc 10:00 Chủ nhật trước tuần tập.</p></div><span>{selectedSlots.size}/{minimumSlots} ô tối thiểu</span></header>
+          <div className="student-availability-week-switch"><button type="button" className={weekOffset === 0 ? 'active' : ''} onClick={() => selectAvailabilityWeek(0)}>Tuần này</button><button type="button" className={weekOffset === 1 ? 'active' : ''} onClick={() => selectAvailabilityWeek(1)}>Tuần sau</button></div>
           {availabilityLocked && <div className="student-schedule-state is-warning" role="status"><AlertCircle size={22} /><strong>Tuần này đã khóa lịch rảnh</strong><span>Hãy chuyển sang tuần kế tiếp để gửi lịch mới hoặc liên hệ vận hành nếu cần điều chỉnh.</span></div>}
           <div className="student-schedule-legend"><span><i className="is-available" /> Có thể tập</span><span><i className="is-booked" /> Đã xếp ca</span><span><i className="is-linked" /> Đã liên kết</span></div>
           <div className="student-schedule-matrix-scroll" role="region" aria-label="Ma trận thời gian rảnh" tabIndex={0}>
@@ -332,11 +358,21 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
             })}</tr>)}</tbody></table>
           </div>
           <footer><div><strong>{availabilityLocked ? 'Đã khóa' : dirty ? 'Có thay đổi chưa lưu' : 'Dữ liệu đã đồng bộ'}</strong><span>Phiên bản tuần #{availability?.revision ?? data.student.availabilityRevision}</span></div><button type="button" disabled={!dirty || saving || availabilityLocked || selectedSlots.size < minimumSlots} onClick={() => void save()}>{saving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}{saving ? 'Đang lưu...' : availabilityLocked ? 'Tuần đã khóa' : 'Gửi lịch rảnh'}</button></footer>
-        </section>
+        </section>}
 
-        {historySessions.length > 0 && <section className="student-session-history"><h2>Lịch sử gần đây</h2><div>{historySessions.map((session) => <article key={session.id}><span>{formatSessionDate(session.date)} · {session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}</span><strong>{session.trainerName}</strong><em>{statusLabels[session.status] ?? session.status}</em></article>)}</div></section>}
-        {requestSession && <SessionRequestModal session={requestSession} onClose={() => setRequestSession(null)} onCreated={setMessage} />}
-        {showPauseRequest && activeContract && <LeaveRequestModal contractId={activeContract.id} onClose={() => setShowPauseRequest(false)} onCreated={setMessage} />}
+        {activeTab === 'requests' && <section className="student-request-center">
+          <header><div><small>AURA · YÊU CẦU LỊCH</small><h2>Đổi, hủy, OFF và bảo lưu</h2><p>Theo dõi toàn bộ yêu cầu và kết quả xử lý trong một nơi.</p></div><button type="button" onClick={() => selectWeek(0)}>Chọn buổi để đổi/hủy</button></header>
+          <div className="student-request-policy-grid"><article><Clock3 size={18} /><strong>Đổi/Hủy buổi</strong><span>Gửi trước 12 giờ. Mỗi tháng có 1 lượt không tính buổi.</span></article><article><CalendarRange size={18} /><strong>OFF/Bảo lưu</strong><span>OFF tối đa 14 ngày; dài hơn chuyển sang bảo lưu.</span><button type="button" disabled={!activeContract} onClick={() => setShowPauseRequest(true)}>Tạo yêu cầu</button></article></div>
+          <div className="student-request-history-list">
+            {[...scheduleRequests.map((request) => ({ id: request.id, kind: request.type === 'cancel' ? 'Hủy buổi' : 'Đổi lịch', status: request.status, date: request.originalDate, detail: request.type === 'reschedule' && request.newDate ? `Đề xuất ${request.newDate} · ${String(request.newHour ?? '--').padStart(2, '0')}:00` : request.reason, charged: request.countsTowardContract ?? request.expectedCountsTowardContract })), ...pauseRequests.map((request) => ({ id: request.id, kind: request.type === 'preservation' ? 'Bảo lưu hợp đồng' : 'OFF hợp đồng', status: request.status, date: `${request.startDate} → ${request.endDate}`, detail: request.newContractEndDate ? `Hạn mới: ${request.newContractEndDate}` : request.reason, charged: false }))]
+              .map((request) => <article key={request.id}><span className={`student-request-status is-${request.status}`}>{request.status === 'approved' ? 'Đã duyệt' : request.status === 'rejected' ? 'Từ chối' : 'Chờ duyệt'}</span><div><strong>{request.kind}</strong><small>{request.date}</small><p>{request.detail}</p></div>{request.charged && <em>Có tính buổi</em>}</article>)}
+            {!scheduleRequests.length && !pauseRequests.length && <div className="student-session-empty"><ScrollText size={28} /><strong>Chưa có yêu cầu nào</strong><span>Chọn một buổi trong Tuần này/Tuần sau hoặc tạo OFF/Bảo lưu tại đây.</span></div>}
+          </div>
+        </section>}
+
+        {activeTab === 'history' && <section className="student-session-history"><header><div><small>AURA · NHẬT KÝ TẬP LUYỆN</small><h2>Lịch sử buổi tập</h2><p>Hiển thị tối đa 180 ngày gần nhất, gồm buổi hoàn thành, đổi, hủy và vắng.</p></div><span>{historySessions.length} buổi</span></header>{historySessions.length > 0 ? <div>{historySessions.map((session) => <article key={session.id}><span>{formatSessionDate(session.date)} · {session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}</span><strong>{session.trainerName}</strong><em>{statusLabels[session.status] ?? session.status}</em></article>)}</div> : <div className="student-session-empty"><History size={28} /><strong>Chưa có lịch sử tập luyện</strong><span>Các buổi đã hoàn thành hoặc được điều chỉnh sẽ xuất hiện tại đây.</span></div>}</section>}
+        {requestSession && <SessionRequestModal session={requestSession} onClose={() => setRequestSession(null)} onCreated={(value) => { setMessage(value); setActiveTab('requests'); void load() }} />}
+        {showPauseRequest && activeContract && <LeaveRequestModal contractId={activeContract.id} onClose={() => setShowPauseRequest(false)} onCreated={(value) => { setMessage(value); setActiveTab('requests'); void load() }} />}
       </>}
     </div>
   )

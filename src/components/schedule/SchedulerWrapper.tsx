@@ -17,6 +17,8 @@ import StudentList from "./StudentList";
 import ScheduleWarningsPanel from "./ScheduleWarningsPanel";
 import PTSchedule from "./PTSchedule";
 import { WorkScheduleMatrix } from "./WorkScheduleMatrix";
+import SessionRequestApprovals from "../admin/pt/SessionRequestApprovals";
+import LeaveApprovals from "../admin/pt/LeaveApprovals";
 import {
   Calendar,
   Users,
@@ -97,6 +99,8 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
     branches,
     contracts,
     sessions,
+    leaveRequests,
+    sessionRequests,
     schedules,
     ptAvailability,
     scheduleConfig,
@@ -111,7 +115,7 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
 
   const [debugData, setDebugData] = useState<any>(null);
   const [weekOffset, setWeekOffset] = useState(0);
-  const [activeSubTab, setActiveSubTab] = useState<"schedule" | "students" | "warnings">(
+  const [activeSubTab, setActiveSubTab] = useState<"schedule" | "students" | "changes" | "pauses" | "warnings">(
     "schedule",
   );
   const [studentTab, setStudentTab] = useState<
@@ -866,27 +870,26 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
 
 
         {/* Sub-tabs */}
-        <div className="schedule-workspace__tabs flex p-1 bg-zinc-900 rounded-xl border border-zinc-800 mb-6">
+        <nav className="schedule-workspace__tabs" aria-label="Quản lý lịch PT">
           {[
             { id: "schedule", label: "Lịch PT", icon: Calendar },
             { id: "students", label: "Học viên", icon: Users },
+            { id: "changes", label: "Đổi / Hủy", icon: Clock, count: sessionRequests.filter((item) => item.status === "pending").length },
+            { id: "pauses", label: "OFF / Bảo lưu", icon: XCircle, count: leaveRequests.filter((item) => item.status === "pending").length },
             { id: "warnings", label: "Cảnh báo", icon: AlertTriangle, count: filteredWarnings.length },
           ].map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveSubTab(tab.id as "schedule" | "students" | "warnings")}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                activeSubTab === tab.id
-                  ? "bg-zinc-800 text-white shadow-sm"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
+              onClick={() => setActiveSubTab(tab.id as "schedule" | "students" | "changes" | "pauses" | "warnings")}
+              className={activeSubTab === tab.id ? "is-active" : ""}
+              aria-current={activeSubTab === tab.id ? "page" : undefined}
             >
-              <tab.icon className="w-4 h-4" />
+              <tab.icon />
               {tab.label}
               {'count' in tab && Number(tab.count || 0) > 0 ? <span className="schedule-workspace__tab-count">{tab.count}</span> : null}
             </button>
           ))}
-        </div>
+        </nav>
 
         <div className="schedule-workspace__body mt-6">
           {activeSubTab === "students" && (
@@ -1002,6 +1005,20 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
                 setActiveSubTab("students");
               }}
             />
+          )}
+
+          {activeSubTab === "changes" && (
+            <section className="schedule-request-workspace">
+              <header><span>AURA PT · HỘP YÊU CẦU</span><h2>Đổi hoặc hủy buổi tập</h2><p>Gồm yêu cầu từ học viên và PT. Hệ thống kiểm tra hạn 12 giờ, quota tháng và cập nhật session bằng transaction.</p></header>
+              <SessionRequestApprovals students={students} contracts={contracts} sessions={sessions} canManage={isAdmin} />
+            </section>
+          )}
+
+          {activeSubTab === "pauses" && (
+            <section className="schedule-request-workspace">
+              <header><span>AURA PT · HỢP ĐỒNG HỌC VIÊN</span><h2>OFF và bảo lưu</h2><p>OFF/Bảo lưu thuộc hợp đồng học viên. Nghỉ ca của PT được xử lý từ Cổng HLV và đánh dấu PT OFF trên ma trận lịch.</p></header>
+              <LeaveApprovals leaveRequests={leaveRequests} students={students} contracts={contracts} canManage={isAdmin} />
+            </section>
           )}
 
           {activeSubTab === "schedule" && (

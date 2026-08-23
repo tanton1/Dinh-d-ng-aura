@@ -77,7 +77,7 @@ type LegacyOperationSource =
 // actor-scoped paginated APIs will replace these remaining listeners.
 const LEGACY_OPERATIONS_VIEW_SOURCES = {
   'admin-pt-students': ['students', 'contracts', 'payments', 'packages', 'trainers', 'branches', 'sessions', 'leaveRequests', 'sessionRequests', 'dailyCheckins', 'workoutLogs', 'ptAvailability'],
-  'admin-pt-schedule': ['students', 'trainers', 'branches', 'contracts', 'sessions', 'schedules', 'scheduleConfig', 'ptAvailability'],
+  'admin-pt-schedule': ['students', 'trainers', 'branches', 'contracts', 'sessions', 'schedules', 'scheduleConfig', 'ptAvailability', 'leaveRequests', 'sessionRequests'],
   // The history workspace resolves the selected subject locally, while all
   // historical sessions are fetched cursor-first from a callable API.
   'admin-training-history': ['students', 'trainers'],
