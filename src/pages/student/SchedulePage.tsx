@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   CalendarCheck,
@@ -18,7 +18,6 @@ import {
   ScrollText,
   UserRound,
 } from 'lucide-react'
-import { PageHeader } from '../../components/ui'
 import LeaveRequestModal from '../../components/schedule/LeaveRequestModal'
 import SessionRequestModal from '../../components/schedule/SessionRequestModal'
 import {
@@ -137,6 +136,8 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
   const [message, setMessage] = useState<string | null>(null)
   const [requestSession, setRequestSession] = useState<StudentPtSession | null>(null)
   const [showPauseRequest, setShowPauseRequest] = useState(false)
+  const [heroSlide, setHeroSlide] = useState(0)
+  const heroTrackRef = useRef<HTMLDivElement>(null)
   const weekStart = useMemo(() => addDays(startOfWeek(today), weekOffset * 7), [today, weekOffset])
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart])
   const availabilityWeekId = useMemo(() => toIsoDate(weekStart), [weekStart])
@@ -280,6 +281,12 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
     setActiveTab(targetOffset > 0 ? 'next-week' : 'this-week')
     setSelectedDate(session.date)
   }
+  const selectHeroSlide = (index: number) => {
+    const normalizedIndex = Math.min(2, Math.max(0, index))
+    setHeroSlide(normalizedIndex)
+    const track = heroTrackRef.current
+    if (track) track.scrollTo({ left: track.clientWidth * normalizedIndex, behavior: 'smooth' })
+  }
   const loadIssueContent = loadIssue ? issueCopy(loadIssue) : null
   const saveIssueContent = saveIssue ? issueCopy(saveIssue) : null
   const missingProfileDescription = data?.identityLink?.crmProfileIdConfigured
@@ -288,14 +295,41 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
 
   return (
     <div className="page schedule-page pt-schedule-page student-schedule-page student-schedule-page--classic" aria-busy={loading}>
-      <PageHeader eyebrow="AURA FITNESS · LỊCH HỌC VIÊN" title="Lịch tập luyện" description="Xem lịch tuần, các buổi PT sắp tới và cập nhật khung giờ bạn có thể tập." />
-
       {loading && <div className="student-schedule-state" role="status"><LoaderCircle className="spin" size={30} /><strong>Đang liên kết lịch học viên</strong><span>Aura đang tải lịch tuần và khung giờ rảnh của bạn.</span></div>}
       {!loading && loadIssue && loadIssueContent && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={28} /><strong>{loadIssueContent.title}</strong><span>{loadIssueContent.description}</span><button type="button" onClick={() => void load()}><RefreshCw size={16} /> {loadIssue.retryable ? 'Thử lại' : 'Kiểm tra lại'}</button></div>}
       {!loading && !loadIssue && data && !data.linked && <div className="student-schedule-state is-warning"><Link2 size={28} /><strong>Chưa liên kết hồ sơ học viên</strong><span>{missingProfileDescription}</span></div>}
 
       {!loading && !loadIssue && data?.student && <>
-        <div className="pt-schedule-banner"><div><i><CalendarCheck size={20} /></i><span><strong>Kế hoạch tuần của bạn</strong><small>{weekSessions.length} buổi · Hoàn thành {weekCompletion}%</small></span></div><small>Lịch được đồng bộ từ bộ phận vận hành và đối chiếu với thời gian rảnh của bạn.</small></div>
+        <section className="student-schedule-hero" aria-roledescription="carousel" aria-label="Tổng quan lịch học viên">
+          <div
+            ref={heroTrackRef}
+            className="student-schedule-hero__track"
+            onScroll={(event) => {
+              const track = event.currentTarget
+              if (track.clientWidth > 0) setHeroSlide(Math.min(2, Math.max(0, Math.round(track.scrollLeft / track.clientWidth))))
+            }}
+          >
+            <article className="student-schedule-hero__slide is-welcome" aria-label="Giới thiệu lịch học viên">
+              <div><small>AURA FITNESS · LỊCH HỌC VIÊN</small><h1>Lịch tập luyện</h1><p>Xem lịch tuần, các buổi PT sắp tới và cập nhật khung giờ bạn có thể tập.</p></div>
+              <span className="student-schedule-hero__icon"><CalendarCheck size={30} /></span>
+              <button type="button" onClick={() => selectHeroSlide(1)}>Xem kế hoạch tuần <ChevronRight size={16} /></button>
+            </article>
+            <article className="student-schedule-hero__slide is-week" aria-label="Kế hoạch tuần">
+              <div><small>KẾ HOẠCH TUẦN CỦA BẠN</small><h2>{weekSessions.length} buổi tập</h2><p>{weekLabel} · Lịch được đối chiếu với thời gian rảnh đã đăng ký.</p></div>
+              <div className="student-schedule-hero__metric"><strong>{weekCompletion}%</strong><span>Hoàn thành</span></div>
+              <div className="student-schedule-hero__progress"><i style={{ width: `${weekCompletion}%` }} /></div>
+            </article>
+            <article className="student-schedule-hero__slide is-contract" aria-label="Gói tập đang liên kết">
+              <div><small>GÓI TẬP ĐANG LIÊN KẾT</small><h2>{activeContract?.packageName ?? 'Chưa có gói tập'}</h2><p>{activeContract ? `Hiệu lực đến ${activeContract.endDate}` : 'Liên hệ vận hành để liên kết hợp đồng PT.'}</p></div>
+              {activeContract && <><div className="student-schedule-hero__metric"><strong>{activeContract.usedSessions}/{activeContract.totalSessions}</strong><span>Buổi đã dùng</span></div><div className="student-schedule-hero__progress"><i style={{ width: `${Math.min(100, activeContract.totalSessions ? activeContract.usedSessions / activeContract.totalSessions * 100 : 0)}%` }} /></div><button type="button" onClick={() => setShowPauseRequest(true)}>Đăng ký OFF / Bảo lưu</button></>}
+            </article>
+          </div>
+          <footer className="student-schedule-hero__controls">
+            <span>{heroSlide + 1}/3</span>
+            <div>{[0, 1, 2].map((index) => <button type="button" key={index} className={heroSlide === index ? 'active' : ''} aria-label={`Xem slide ${index + 1}`} aria-current={heroSlide === index ? 'true' : undefined} onClick={() => selectHeroSlide(index)} />)}</div>
+            <button type="button" aria-label={heroSlide === 2 ? 'Quay lại slide đầu' : 'Slide tiếp theo'} onClick={() => selectHeroSlide(heroSlide === 2 ? 0 : heroSlide + 1)}><ChevronRight size={17} /></button>
+          </footer>
+        </section>
 
         <nav className="student-schedule-tabs" aria-label="Nội dung lịch học viên">
           <button type="button" className={activeTab === 'this-week' ? 'active' : ''} onClick={() => selectWeek(0)}><CalendarCheck size={16} /><span>Tuần này</span></button>
@@ -304,8 +338,6 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
           <button type="button" className={activeTab === 'requests' ? 'active' : ''} onClick={() => setActiveTab('requests')}><ScrollText size={16} /><span>Yêu cầu</span>{pendingRequestCount > 0 && <i>{pendingRequestCount}</i>}</button>
           <button type="button" className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}><History size={16} /><span>Lịch sử</span></button>
         </nav>
-
-        {activeContract && <section className="student-contract-strip"><div><small>GÓI TẬP ĐANG LIÊN KẾT</small><strong>{activeContract.packageName}</strong></div><div><span>{activeContract.usedSessions}/{activeContract.totalSessions} buổi</span><div><i style={{ width: `${Math.min(100, activeContract.totalSessions ? activeContract.usedSessions / activeContract.totalSessions * 100 : 0)}%` }} /></div></div><button type="button" onClick={() => setShowPauseRequest(true)}>Đăng ký OFF / Bảo lưu</button></section>}
 
         {(activeTab === 'this-week' || activeTab === 'next-week') && <section className="schedule-layout">
           <div className="calendar-panel card">
@@ -354,7 +386,7 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
               const selected = selectedSlots.has(slotId)
               const linkedSessions = sessionsBySlot.get(slotId) ?? []
               const booked = linkedSessions.length > 0
-              return <td key={slotId}><button type="button" disabled={availabilityLocked} className={`${selected ? 'is-available' : ''} ${booked ? 'is-booked' : ''} ${selected && booked ? 'is-linked' : ''}`} aria-pressed={selected} aria-label={`${day} ${hour} giờ, ${selected ? 'đã chọn' : 'chưa chọn'}${booked ? `, có ${linkedSessions.length} ca đã xếp` : ''}`} onClick={() => toggleSlot(slotId)}>{selected && booked ? <Link2 size={16} /> : booked ? <Dumbbell size={16} /> : selected ? <Check size={16} /> : <span>+</span>}{booked && <small>{linkedSessions.length}</small>}</button></td>
+              return <td key={slotId}><button type="button" disabled={availabilityLocked} className={`${selected ? 'is-available' : ''} ${booked ? 'is-booked' : ''} ${selected && booked ? 'is-linked' : ''}`} aria-pressed={selected} aria-label={`${day} ${hour} giờ, ${selected ? 'đã chọn' : 'chưa chọn'}${booked ? `, có ${linkedSessions.length} ca đã xếp` : ''}`} onClick={() => toggleSlot(slotId)}>{selected && booked ? <Link2 size={16} /> : booked ? <Dumbbell size={16} /> : selected ? <Check size={16} /> : null}{booked && <small>{linkedSessions.length}</small>}</button></td>
             })}</tr>)}</tbody></table>
           </div>
           <footer><div><strong>{availabilityLocked ? 'Đã khóa' : dirty ? 'Có thay đổi chưa lưu' : 'Dữ liệu đã đồng bộ'}</strong><span>Phiên bản tuần #{availability?.revision ?? data.student.availabilityRevision}</span></div><button type="button" disabled={!dirty || saving || availabilityLocked || selectedSlots.size < minimumSlots} onClick={() => void save()}>{saving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}{saving ? 'Đang lưu...' : availabilityLocked ? 'Tuần đã khóa' : 'Gửi lịch rảnh'}</button></footer>

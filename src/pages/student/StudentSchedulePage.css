@@ -50,6 +50,127 @@
   .student-schedule-page--classic .event-detail p { display: flex; align-items: center; gap: 4px; }
 }
 
+/* One compact, swipeable overview replaces the former heading, weekly banner
+   and separate contract strip. */
+.student-schedule-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  margin: 16px clamp(13px, 3vw, 34px) 0;
+  border: 1px solid rgba(255,255,255,.7);
+  border-radius: 28px;
+  background: #2a1824;
+  box-shadow: 0 22px 48px rgba(81,30,56,.2), 0 8px 18px rgba(246,47,130,.13), inset 0 1px 0 rgba(255,255,255,.44);
+  transform: translateZ(0);
+}
+.student-schedule-hero::after {
+  content: '';
+  position: absolute;
+  inset: auto 9% -24px;
+  z-index: -1;
+  height: 45px;
+  border-radius: 50%;
+  background: rgba(211,37,112,.28);
+  filter: blur(20px);
+}
+.student-schedule-hero__track {
+  display: flex;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.student-schedule-hero__track::-webkit-scrollbar { display: none; }
+.student-schedule-hero__slide {
+  position: relative;
+  display: grid;
+  flex: 0 0 100%;
+  min-width: 0;
+  min-height: 202px;
+  box-sizing: border-box;
+  align-content: center;
+  overflow: hidden;
+  padding: 22px clamp(20px, 4vw, 34px) 62px;
+  color: #fff;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+.student-schedule-hero__slide::before,
+.student-schedule-hero__slide::after {
+  content: '';
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+}
+.student-schedule-hero__slide::before { top: -86px; right: -48px; width: 220px; height: 220px; border: 1px solid rgba(255,255,255,.2); }
+.student-schedule-hero__slide::after { right: 9%; bottom: -80px; width: 180px; height: 180px; background: rgba(255,255,255,.1); filter: blur(4px); }
+.student-schedule-hero__slide.is-welcome { background: radial-gradient(circle at 83% 28%,rgba(255,116,158,.38),transparent 28%),linear-gradient(125deg,#171219 0%,#4b1e38 50%,#ef2c79 100%); }
+.student-schedule-hero__slide.is-week { background: radial-gradient(circle at 82% 14%,rgba(255,255,255,.24),transparent 27%),linear-gradient(125deg,#e62272 0%,#f9467d 48%,#ff8a50 100%); }
+.student-schedule-hero__slide.is-contract { background: radial-gradient(circle at 88% 24%,rgba(255,135,81,.34),transparent 30%),linear-gradient(125deg,#211720 0%,#6b284c 54%,#f66a53 100%); }
+.student-schedule-hero__slide > div:first-child { position: relative; z-index: 2; max-width: min(76%, 560px); }
+.student-schedule-hero__slide small { display: block; color: rgba(255,255,255,.82); font-size: 9px; font-weight: 900; letter-spacing: .14em; }
+.student-schedule-hero__slide :is(h1,h2) { margin: 7px 0 6px; color: #fff; font-size: clamp(25px, 4vw, 34px); line-height: 1.05; letter-spacing: -.035em; }
+.student-schedule-hero__slide p { max-width: 520px; margin: 0; color: rgba(255,255,255,.84); font-size: 12px; line-height: 1.5; }
+.student-schedule-hero__icon {
+  position: absolute;
+  top: 25px;
+  right: clamp(20px,4vw,34px);
+  display: grid;
+  width: 58px;
+  height: 58px;
+  z-index: 2;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.32);
+  border-radius: 20px;
+  color: #fff;
+  background: rgba(255,255,255,.13);
+  box-shadow: 0 14px 26px rgba(12,7,12,.2), inset 0 1px 0 rgba(255,255,255,.3);
+  backdrop-filter: blur(8px);
+}
+.student-schedule-hero__slide > button {
+  position: relative;
+  z-index: 3;
+  display: inline-flex;
+  width: max-content;
+  min-height: 36px;
+  align-items: center;
+  gap: 5px;
+  margin-top: 14px;
+  padding: 0 12px;
+  border: 1px solid rgba(255,255,255,.48);
+  border-radius: 12px;
+  color: #33202c;
+  background: rgba(255,255,255,.94);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.student-schedule-hero__metric { position: absolute; top: 29px; right: clamp(20px,4vw,34px); z-index: 2; text-align: right; }
+.student-schedule-hero__metric strong,.student-schedule-hero__metric span { display: block; }
+.student-schedule-hero__metric strong { color: #fff; font-size: clamp(24px,4vw,34px); line-height: 1; }
+.student-schedule-hero__metric span { margin-top: 5px; color: rgba(255,255,255,.78); font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.student-schedule-hero__progress { position: absolute; right: clamp(20px,4vw,34px); bottom: 64px; left: clamp(20px,4vw,34px); z-index: 2; height: 7px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.22); }
+.student-schedule-hero__progress i { display: block; min-width: 0; height: 100%; border-radius: inherit; background: #fff; box-shadow: 0 0 14px rgba(255,255,255,.45); }
+.student-schedule-hero__controls {
+  position: absolute;
+  right: 13px;
+  bottom: 11px;
+  left: 13px;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: 34px 1fr 34px;
+  align-items: center;
+  pointer-events: none;
+}
+.student-schedule-hero__controls > span { color: rgba(255,255,255,.75); font-size: 9px; font-weight: 850; }
+.student-schedule-hero__controls > div { display: flex; justify-content: center; gap: 5px; }
+.student-schedule-hero__controls button { pointer-events: auto; cursor: pointer; }
+.student-schedule-hero__controls > div button { width: 6px; height: 6px; padding: 0; border: 0; border-radius: 99px; background: rgba(255,255,255,.42); transition: width .2s ease,background .2s ease; }
+.student-schedule-hero__controls > div button.active { width: 20px; background: #fff; }
+.student-schedule-hero__controls > button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid rgba(255,255,255,.32); border-radius: 11px; color: #fff; background: rgba(17,10,16,.2); }
+
 .student-schedule-state {
   min-height: 240px;
   display: flex;
@@ -111,6 +232,8 @@
 .student-schedule-matrix tbody th { width: 64px; color: #352b38; font-variant-numeric: tabular-nums; }
 .student-schedule-matrix td { height: 45px; padding: 0; }
 .student-schedule-matrix td button { position: relative; display: grid; place-items: center; width: 100%; height: 41px; border: 1px solid #eee5e9; border-radius: 11px; color: #c8bcc2; background: #fff; cursor: pointer; transition: transform .15s ease, border-color .15s ease, background .15s ease; }
+.student-schedule-matrix td button:empty { border-color: transparent; background: rgba(249,241,245,.58); }
+.student-schedule-matrix td button:empty:hover { border-color: #f4c3d4; background: #fff3f7; }
 .student-schedule-matrix td button:hover { transform: translateY(-1px); border-color: #f6a9c8; }
 .student-schedule-matrix td button.is-available { color: #e32272; border-color: #f79abc; background: #fff0f6; }
 .student-schedule-matrix td button.is-booked { color: #e96625; border-color: #ffb288; background: #fff3eb; }
@@ -480,6 +603,16 @@
 
 @media (max-width:640px) {
   .student-schedule-page--classic { width:100%; padding-inline:0; padding-bottom:104px; }
+  .student-schedule-hero { margin: 11px 10px 0; border-radius: 23px; box-shadow: 0 17px 34px rgba(81,30,56,.19),0 6px 14px rgba(246,47,130,.12); }
+  .student-schedule-hero__slide { min-height: 194px; padding: 19px 17px 58px; }
+  .student-schedule-hero__slide > div:first-child { max-width: 75%; }
+  .student-schedule-hero__slide :is(h1,h2) { font-size: 25px; }
+  .student-schedule-hero__slide p { font-size: 11px; }
+  .student-schedule-hero__icon { top: 18px; right: 17px; width: 49px; height: 49px; border-radius: 17px; }
+  .student-schedule-hero__metric { top: 23px; right: 17px; }
+  .student-schedule-hero__metric strong { font-size: 25px; }
+  .student-schedule-hero__progress { right: 17px; bottom: 58px; left: 17px; }
+  .student-schedule-hero__controls { right: 11px; bottom: 9px; left: 11px; }
   .student-schedule-page--classic > .page-heading { padding:16px 13px 12px; }
   .student-schedule-page--classic > .pt-schedule-banner { padding:11px 13px; }
   .student-schedule-page--classic .calendar-panel.card { padding:13px 10px; }

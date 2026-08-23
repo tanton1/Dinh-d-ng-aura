@@ -114,6 +114,13 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   await page.locator('.mobile-bottom-nav').getByRole('button', { name: 'Lịch học viên' }).click()
   await expect(page).toHaveURL(/#\/schedule$/)
   await expect(page.getByRole('heading', { name: /^Lịch tập luyện$/i })).toBeVisible()
+  const scheduleHero = page.getByRole('region', { name: 'Tổng quan lịch học viên' })
+  await expect(scheduleHero).toBeVisible()
+  await expect(scheduleHero.locator('.student-schedule-hero__slide')).toHaveCount(3)
+  await scheduleHero.getByRole('button', { name: 'Xem slide 2' }).click()
+  await expect(scheduleHero.getByRole('heading', { name: /buổi tập$/i })).toBeVisible()
+  await scheduleHero.getByRole('button', { name: 'Xem slide 3' }).click()
+  await expect(scheduleHero.getByText('GÓI TẬP ĐANG LIÊN KẾT')).toBeVisible()
   const studentScheduleTabs = page.getByRole('navigation', { name: 'Nội dung lịch học viên' })
   await expect(studentScheduleTabs).toBeVisible()
   await expect(studentScheduleTabs.getByRole('button', { name: 'Tuần này' })).toBeVisible()
@@ -122,6 +129,7 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   await expect(studentScheduleTabs.getByRole('button', { name: 'Lịch sử' })).toBeVisible()
   await studentScheduleTabs.getByRole('button', { name: 'Lịch rảnh' }).click()
   await expect(page.getByRole('region', { name: 'Ma trận thời gian rảnh' })).toBeVisible()
+  await expect(page.locator('.student-schedule-matrix td button').filter({ hasText: '+' })).toHaveCount(0)
   const scheduleLayout = await page.evaluate(() => {
     const schedulePage = document.querySelector<HTMLElement>('.student-schedule-page')!
     const matrix = document.querySelector<HTMLElement>('.student-schedule-matrix-scroll')!
