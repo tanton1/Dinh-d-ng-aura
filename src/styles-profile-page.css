@@ -1,0 +1,20 @@
+.profile-avatar-upload__button {
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(135deg, #f62f82, #ff8751);
+  box-shadow: 0 6px 15px rgba(246,47,130,.3);
+  cursor: pointer;
+}
+.profile-avatar-upload__button:disabled { cursor: not-allowed; opacity: .55; }
+.profile-avatar-upload__feedback { display: block; margin-top: 8px; color: #f8c4d7; font-size: 11px; font-weight: 650; line-height: 1.35; }
+.profile-avatar-upload__feedback.is-success { color: #9fe2be; }
+.profile-avatar-upload__feedback.is-error { color: #ffc0c0; }

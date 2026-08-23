@@ -1,5 +1,4 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { Utensils, Flame, Dumbbell, HeartPulse } from 'lucide-react'
 import AppShell from './components/AppShell'
 import { normalizeOnboardingProfile } from './onboarding/defaults'
 import { hasPermission, type Permission } from './config/permissions'
@@ -21,6 +20,7 @@ import {
   subscribeToAllEnrollments,
   subscribeToAllStudentProgress,
   subscribeToAdminUsers,
+  uploadUserAvatar,
   updateUserRole,
 } from './services/firebaseService'
 import { savePtWorkoutProgram } from './services/ptCoachingProgramService'
@@ -547,53 +547,14 @@ function AuraApplication() {
   )
   if (loading) {
     return (
-      <div className="aura-loading-container">
-        <div className="aura-loading-overlay"></div>
-        
+      <div className="aura-loading-container" role="status" aria-live="polite">
+        <div className="aura-loading-orb aura-loading-orb--pink" />
+        <div className="aura-loading-orb aura-loading-orb--orange" />
         <div className="aura-loading-center">
-           <div className="aura-loading-logo-group">
-              <div className="aura-loading-img-wrapper">
-                <img src="/aura-onboarding.webp" alt="Aura Fitness Loading" className="aura-loading-brand-img" decoding="async" fetchPriority="high" />
-              </div>
-              <h1 className="aura-loading-h1">AURA</h1>
-              <h2 className="aura-loading-h2">FITNESS & NUTRITION</h2>
-           </div>
-        </div>
-
-        <div className="aura-loading-features">
-            <div className="aura-loading-feature">
-                <div className="aura-loading-icon-circle">
-                    <Utensils />
-                </div>
-                <span className="aura-loading-feature-text">Dinh dưỡng<br/>khoa học</span>
-            </div>
-            <div className="aura-loading-feature">
-                <div className="aura-loading-icon-circle">
-                    <Flame />
-                </div>
-                <span className="aura-loading-feature-text">Đốt mỡ<br/>hiệu quả</span>
-            </div>
-            <div className="aura-loading-feature">
-                <div className="aura-loading-icon-circle">
-                    <Dumbbell />
-                </div>
-                <span className="aura-loading-feature-text">Tập luyện<br/>thông minh</span>
-            </div>
-            <div className="aura-loading-feature">
-                <div className="aura-loading-icon-circle">
-                    <HeartPulse />
-                </div>
-                <span className="aura-loading-feature-text">Sức khỏe<br/>bền vững</span>
-            </div>
-        </div>
-
-        <div className="aura-loading-footer">
-          <div className="aura-loading-slogan-group">
-              <div className="aura-loading-line"></div>
-              <p className="aura-loading-slogan">Your Body - Your Aura</p>
-              <div className="aura-loading-line"></div>
-          </div>
-          <small className="aura-loading-status">Đồng bộ hồ sơ và tiến độ từ Firebase...</small>
+          <div className="aura-loading-mark">A<span /></div>
+          <h1 className="aura-loading-title">AURA FITNESS</h1>
+          <p className="aura-loading-copy">Đang đồng bộ không gian của bạn…</p>
+          <span className="aura-loading-progress"><i /></span>
         </div>
       </div>
     )
@@ -691,6 +652,7 @@ function AuraApplication() {
         hasProfile={!forceOnboarding && Boolean(profile?.nutritionProfile || localNutritionProfile)}
         profile={profile?.nutritionProfile ?? localNutritionProfile ?? undefined}
         syncState={profileSyncState}
+        onStartOnboarding={() => setForceOnboarding(true)}
         onProfileComplete={async (nutritionProfile) => {
           if (backendMode === 'firebase' && user) {
             await saveProfileChanges({
@@ -779,7 +741,22 @@ function AuraApplication() {
       }
       case 'progress-photo-studio': return <ProgressPhotoStudio onNavigate={navigate} ownerId={user?.uid ?? 'demo'} />
       case 'progress': return <ProgressPage ownerId={user?.uid ?? 'demo'} courseItems={studentCourses} progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error || learningData.error} onOpenCourse={openCourse} onNavigate={navigate} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} heightCm={effectiveHeight} nutritionProfile={effectiveNutritionProfile} />
-      case 'profile': return <ProfilePage userId={user?.uid} fullProfile={backendMode === 'demo' ? { ...profile, ...localProfile } : profile} displayName={effectiveDisplayName} email={profile?.email} membership={profile?.membership} goals={effectiveGoals} heightCm={effectiveHeight} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} targetSpeedPace={effectiveTargetSpeedPace} notificationSettings={effectiveNotifications} mealReminderTime={profile?.mealReminderTime} syncState={profileSyncState} onSave={saveProfile} onSignOut={signOut} onChangePassword={changePassword} onEditProfile={() => setForceOnboarding(true)} />
+      case 'profile': return <ProfilePage userId={user?.uid} fullProfile={backendMode === 'demo' ? { ...profile, ...localProfile } : profile} displayName={effectiveDisplayName} email={profile?.email} membership={profile?.membership} goals={effectiveGoals} heightCm={effectiveHeight} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} targetSpeedPace={effectiveTargetSpeedPace} notificationSettings={effectiveNotifications} mealReminderTime={profile?.mealReminderTime} syncState={profileSyncState} onSave={saveProfile} onSignOut={signOut} onChangePassword={changePassword} onEditProfile={() => setForceOnboarding(true)} onUploadAvatar={async (file, onProgress) => {
+        if (backendMode === 'firebase' && user) {
+          const photoURL = await uploadUserAvatar(user.uid, file, onProgress)
+          await saveProfileChanges({ photoURL })
+          return photoURL
+        }
+        const photoURL = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Không thể đọc ảnh đã chọn.'))
+          reader.onerror = () => reject(new Error('Không thể đọc ảnh đã chọn.'))
+          reader.readAsDataURL(file)
+        })
+        setLocalProfile((current) => ({ ...current, photoURL }))
+        onProgress?.(100)
+        return photoURL
+      }} />
       case 'workout': {
         return <WorkoutPage key="pt-coaching-workout" onNavigate={navigate} onSave={async (log) => {
           if (backendMode === 'firebase' && user) {
@@ -1004,9 +981,9 @@ function AuraApplication() {
 function RouteLoadingFallback() {
   return (
     <div className="aura-route-fallback-card" role="status" aria-live="polite">
-      <img src="/aura-onboarding.webp" alt="Aura Loading" className="aura-route-fallback-img" decoding="async" />
-      <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a', margin: '0 0 6px 0' }}>Đang tải không gian Aura...</h1>
-      <p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>Nội dung đang được đồng bộ và tối ưu hiển thị mượt mà.</p>
+      <span className="aura-route-fallback-mark">A<i /></span>
+      <h1>Đang tải không gian Aura…</h1>
+      <p>Nội dung đang được đồng bộ.</p>
     </div>
   )
 }

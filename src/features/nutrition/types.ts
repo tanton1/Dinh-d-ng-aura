@@ -140,6 +140,7 @@ export interface NutritionPageProps {
   hasProfile?: boolean
   profile?: NutritionProfileDraft
   onProfileComplete?: (profile: NutritionProfileDraft) => void
+  onStartOnboarding?: () => void
   onMealSaved?: (meal: NutritionMealDraft) => void
   onAnalyzeImage?: (file: File, options?: AnalyzeFoodPhotoOptions) => Promise<NutritionImageAnalysisResponse>
   foodCatalog?: NutritionFoodCatalogItem[]

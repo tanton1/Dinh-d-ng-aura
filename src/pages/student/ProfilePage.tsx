@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { UserRound, Ruler, Scale, Calendar, Target, Activity,
-  Moon, Coffee, Heart, Pencil, LogOut, ShieldCheck, Zap, KeyRound, CheckCircle2
+  Moon, Coffee, Heart, Pencil, LogOut, ShieldCheck, Zap, KeyRound, CheckCircle2, ImagePlus, LoaderCircle
 } from 'lucide-react';
 import { PageHeader } from '../../components/ui';
 import AccountConnectionsCard from '../../components/account/AccountConnectionsCard';
@@ -9,12 +9,14 @@ import type { NotificationSettings } from '../../types';
 import type { OnboardingProfile } from '../../onboarding/types';
 import type { DataSyncState } from '../../dataSync/profileSync';
 import DataSyncStatusBanner from '../../components/data/DataSyncStatusBanner';
+import '../../styles-profile-page.css';
 
 
 export interface ProfileNotificationSettings extends NotificationSettings {}
 
 export interface ProfileUpdateInput {
   displayName?: string
+  photoURL?: string | null
   goals?: string[]
   heightCm?: number | null
   weightKg?: number | null
@@ -45,10 +47,11 @@ export interface ProfilePageProps {
   onSignOut?: () => void | Promise<void>;
   onEditProfile?: () => void;
   onChangePassword?: (currentPassword: string, nextPassword: string) => Promise<void>;
+  onUploadAvatar?: (file: File, onProgress?: (percent: number) => void) => Promise<string>;
   syncState?: DataSyncState;
 }
 
-export default function ProfilePage({ fullProfile, displayName, email, membership, notificationSettings, mealReminderTime, userId, onSave, onSignOut, onEditProfile, onChangePassword, syncState }: ProfilePageProps) {
+export default function ProfilePage({ fullProfile, displayName, email, membership, notificationSettings, mealReminderTime, userId, onSave, onSignOut, onEditProfile, onChangePassword, onUploadAvatar, syncState }: ProfilePageProps) {
   const data = { ...(fullProfile || {}), ...(fullProfile?.onboardingData || {}) };
   const nutrition = fullProfile?.nutritionProfile || {};
   
@@ -84,6 +87,32 @@ export default function ProfilePage({ fullProfile, displayName, email, membershi
   const [nextPassword, setNextPassword] = useState('');
   const [passwordFeedback, setPasswordFeedback] = useState<string | null>(null);
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string>(typeof fullProfile?.photoURL === 'string' ? fullProfile.photoURL : '');
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const [avatarProgress, setAvatarProgress] = useState(0);
+  const [avatarFeedback, setAvatarFeedback] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    setAvatarUrl(typeof fullProfile?.photoURL === 'string' ? fullProfile.photoURL : '');
+  }, [fullProfile?.photoURL]);
+
+  const selectAvatar = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !onUploadAvatar) return;
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) { setAvatarFeedback('Vui lòng chọn ảnh JPG, PNG hoặc WEBP.'); return; }
+    if (file.size > 5 * 1024 * 1024) { setAvatarFeedback('Ảnh đại diện phải nhỏ hơn 5 MB.'); return; }
+    setAvatarSaving(true); setAvatarProgress(0); setAvatarFeedback(null);
+    try {
+      const nextUrl = await onUploadAvatar(file, setAvatarProgress);
+      setAvatarUrl(nextUrl);
+      setAvatarFeedback('Đã cập nhật ảnh đại diện.');
+    } catch (error) {
+      setAvatarFeedback(error instanceof Error ? error.message : 'Chưa thể cập nhật ảnh đại diện.');
+    } finally {
+      setAvatarSaving(false);
+    }
+  };
   const submitPasswordChange = async () => {
     if (!onChangePassword) return;
     if (!currentPassword || !nextPassword) { setPasswordFeedback('Vui lòng nhập mật khẩu hiện tại và mật khẩu mới.'); return; }
@@ -106,10 +135,14 @@ export default function ProfilePage({ fullProfile, displayName, email, membershi
         <div style={{ position: 'relative', padding: '32px 24px', background: 'linear-gradient(135deg, #1e293b, #0f172a)', borderRadius: '24px', overflow: 'hidden', color: 'white', boxShadow: '0 10px 30px rgba(0,0,0,0.1)' }}>
           <div style={{ position: 'absolute', top: '-50%', left: '-20%', width: '150%', height: '150%', background: 'radial-gradient(circle, rgba(255, 63, 125, 0.15) 0%, rgba(0,0,0,0) 60%)', pointerEvents: 'none' }}></div>
           <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: '20px' }}>
-            <div style={{ width: '80px', height: '80px', borderRadius: '40px', background: 'linear-gradient(135deg, #ff8a38, #ff3f7d)', padding: '2px' }}>
-              <div style={{ width: '100%', height: '100%', borderRadius: '40px', background: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <UserRound size={40} color="#ff3f7d" />
+            <div className="profile-avatar-upload" style={{ width: '80px', height: '80px', borderRadius: '40px', background: 'linear-gradient(135deg, #ff8a38, #ff3f7d)', padding: '2px', position: 'relative', flex: '0 0 auto' }}>
+              <div style={{ width: '100%', height: '100%', overflow: 'hidden', borderRadius: '40px', background: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {avatarUrl ? <img src={avatarUrl} alt="Ảnh đại diện" referrerPolicy="no-referrer" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <UserRound size={40} color="#ff3f7d" />}
               </div>
+              <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(event) => void selectAvatar(event)} />
+              <button type="button" className="profile-avatar-upload__button" aria-label="Tải ảnh đại diện" title="Tải ảnh đại diện JPG, PNG hoặc WEBP" disabled={avatarSaving || profileReadOnly || !onUploadAvatar} onClick={() => avatarInputRef.current?.click()}>
+                {avatarSaving ? <LoaderCircle className="spin" size={15} /> : <ImagePlus size={15} />}
+              </button>
             </div>
             <div style={{ flex: 1 }}>
               <h2 style={{ fontSize: '24px', fontWeight: 800, margin: '0 0 4px', color: 'white' }}>{displayName || 'Thành viên Aura'}</h2>
@@ -122,6 +155,8 @@ export default function ProfilePage({ fullProfile, displayName, email, membershi
                   <Pencil size={12} /> Cập nhật
                 </button>
               </div>
+              {avatarSaving && <small className="profile-avatar-upload__feedback">Đang tải ảnh… {avatarProgress}%</small>}
+              {!avatarSaving && avatarFeedback && <small className={`profile-avatar-upload__feedback ${avatarFeedback.startsWith('Đã ') ? 'is-success' : 'is-error'}`}>{avatarFeedback}</small>}
             </div>
           </div>
         </div>

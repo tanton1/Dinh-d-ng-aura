@@ -67,7 +67,6 @@ img {
 
 .aura-app-shell,
 .aura-app-shell__mobile-dock,
-.aura-loading-img-wrapper,
 .primary-button,
 .card,
 .modal-overlay {
@@ -935,12 +934,6 @@ body.shell-overlay-open { overflow: hidden; }
   background: linear-gradient(to bottom, #e0004d, #f55a00);
 }
 
-.aura-loading-overlay {
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.1);
-}
-
 .aura-loading-center {
   position: relative;
   z-index: 10;
@@ -950,37 +943,6 @@ body.shell-overlay-open { overflow: hidden; }
   align-items: center;
   justify-content: center;
   width: 100%;
-}
-
-.aura-loading-logo-group {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  filter: drop-shadow(0 0 15px rgba(255,255,255,0.8));
-}
-
-.aura-loading-img-wrapper {
-  width: 140px;
-  height: 140px;
-  border-radius: 28px;
-  overflow: hidden;
-  margin-bottom: 1rem;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25), 0 0 20px rgba(255, 255, 255, 0.4);
-  border: 3px solid rgba(255, 255, 255, 0.8);
-  animation: auraPulse 2.4s ease-in-out infinite;
-  background: white;
-}
-
-.aura-loading-brand-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-@keyframes auraPulse {
-  0% { transform: scale(0.97); opacity: 0.9; }
-  50% { transform: scale(1.03); opacity: 1; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35), 0 0 30px rgba(255, 255, 255, 0.7); }
-  100% { transform: scale(0.97); opacity: 0.9; }
 }
 
 .aura-route-fallback-card {
@@ -993,116 +955,40 @@ body.shell-overlay-open { overflow: hidden; }
   min-height: 280px;
 }
 
-.aura-route-fallback-img {
-  width: 90px;
-  height: 90px;
-  border-radius: 22px;
-  object-fit: cover;
-  margin-bottom: 16px;
-  box-shadow: 0 8px 24px rgba(255, 63, 125, 0.25);
-  animation: auraPulse 2s ease-in-out infinite;
+/* One consistent, image-free loading identity. The onboarding artwork is only
+   rendered when the member intentionally enters onboarding. */
+.aura-loading-container {
+  min-height: 100dvh;
+  justify-content: center;
+  overflow: hidden;
+  padding: 24px;
+  background: linear-gradient(145deg, #f62f82 0%, #ff8751 68%, #17131a 128%);
 }
-
-.aura-loading-h1 {
-  font-size: 3.75rem;
-  font-weight: 900;
-  font-style: italic;
-  letter-spacing: 0.1em;
-  color: transparent;
-  -webkit-text-stroke: 2px white;
-  margin: 0;
-  line-height: 1;
-}
-
-.aura-loading-h2 {
-  font-size: 1.5rem;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  color: white;
-  margin-top: 0.25rem;
-  margin-bottom: 0;
-  line-height: 1;
-}
-
-.aura-loading-features {
+.aura-loading-orb { position: absolute; width: min(72vw, 580px); aspect-ratio: 1; border-radius: 50%; filter: blur(18px); opacity: .22; }
+.aura-loading-orb--pink { top: -42%; left: -30%; background: #fff; }
+.aura-loading-orb--orange { right: -38%; bottom: -45%; background: #17131a; }
+.aura-loading-center { flex: 0 0 auto; }
+.aura-loading-mark,
+.aura-route-fallback-mark {
   position: relative;
-  z-index: 10;
-  width: 100%;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  max-width: 24rem;
-  margin: 0 auto 3rem auto;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgba(20,15,20,.17);
+  border: 2px solid rgba(255,255,255,.76);
+  box-shadow: 0 20px 48px rgba(45,15,28,.2);
+  font-weight: 950;
 }
-
-.aura-loading-feature {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 25%;
-}
-
-.aura-loading-icon-circle {
-  width: 3.5rem;
-  height: 3.5rem;
-  border-radius: 9999px;
-  background: rgba(255,255,255,0.1);
-  border: 1px solid rgba(255,255,255,0.2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 0.75rem;
-  color: white;
-}
-
-.aura-loading-icon-circle svg {
-  width: 1.5rem;
-  height: 1.5rem;
-}
-
-.aura-loading-feature-text {
-  color: white;
-  font-size: 0.625rem;
-  font-weight: 600;
-  text-align: center;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  line-height: 1.25;
-}
-
-.aura-loading-footer {
-  position: relative;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-}
-
-.aura-loading-slogan-group {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.aura-loading-line {
-  width: 2rem;
-  height: 1px;
-  background: rgba(255,255,255,0.5);
-}
-
-.aura-loading-slogan {
-  color: white;
-  font-size: 1.125rem;
-  font-style: italic;
-  font-family: cursive;
-  margin: 0;
-}
-
-.aura-loading-status {
-  color: rgba(255,255,255,0.6);
-  font-size: 0.75rem;
-}
+.aura-loading-mark { width: 78px; height: 78px; border-radius: 24px; font-size: 43px; }
+.aura-loading-mark span,
+.aura-route-fallback-mark i { position: absolute; right: 13px; bottom: 13px; width: 9px; height: 9px; border-radius: 50%; background: #bdf65b; box-shadow: 0 0 0 4px rgba(189,246,91,.18); }
+.aura-loading-title { margin: 20px 0 5px; color: #fff; font-size: 17px; font-weight: 900; letter-spacing: .18em; }
+.aura-loading-copy { margin: 0; color: rgba(255,255,255,.78); font-size: 12px; font-weight: 650; }
+.aura-loading-progress { width: 132px; height: 4px; overflow: hidden; margin-top: 21px; border-radius: 99px; background: rgba(255,255,255,.24); }
+.aura-loading-progress i { display: block; width: 52%; height: 100%; border-radius: inherit; background: #fff; animation: aura-loading-slide 1.1s ease-in-out infinite alternate; }
+@keyframes aura-loading-slide { from { transform: translateX(-18%); } to { transform: translateX(110%); } }
+.aura-route-fallback-card { min-height: 260px; padding: 38px 22px; }
+.aura-route-fallback-mark { width: 54px; height: 54px; margin-bottom: 16px; border-radius: 18px; border-color: rgba(246,47,130,.28); color: #f62f82; background: linear-gradient(145deg,#fff5f9,#fff6ee); box-shadow: 0 12px 26px rgba(246,47,130,.13); font-size: 29px; font-style: normal; }
+.aura-route-fallback-mark i { right: 8px; bottom: 8px; width: 7px; height: 7px; }
+.aura-route-fallback-card h1 { margin: 0 0 6px; color: #17131a; font-size: 18px; font-weight: 800; }
+.aura-route-fallback-card p { margin: 0; color: #80747d; font-size: 13px; }

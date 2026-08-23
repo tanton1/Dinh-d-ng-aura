@@ -593,6 +593,30 @@ function createInitialActivities(): NutritionActivityLog[] {
   }]
 }
 
+function NutritionSetupPrompt({ onStart }: { onStart?: () => void }) {
+  return (
+    <div className="page nutrition-page nutrition-page--workspace nutrition-setup-page" data-testid="nutrition-setup-prompt">
+      <section className="nutrition-setup-card" aria-labelledby="nutrition-setup-title">
+        <div className="nutrition-setup-card__glow nutrition-setup-card__glow--pink" />
+        <div className="nutrition-setup-card__glow nutrition-setup-card__glow--orange" />
+        <span className="nutrition-setup-card__mark"><Target size={25} /></span>
+        <span className="nutrition-kicker">AURA NUTRITION</span>
+        <h1 id="nutrition-setup-title">Thiết lập mục tiêu dinh dưỡng</h1>
+        <p>Hoàn thành onboarding Aura một lần để tính mục tiêu năng lượng, macro và gợi ý phù hợp với cơ thể của bạn.</p>
+        <div className="nutrition-setup-card__facts">
+          <span><CheckCircle2 size={16} /> Chỉ số cơ thể</span>
+          <span><CheckCircle2 size={16} /> Mục tiêu cá nhân</span>
+          <span><CheckCircle2 size={16} /> Nhịp sống & ăn uống</span>
+        </div>
+        <button type="button" className="nutrition-setup-card__button" onClick={onStart} disabled={!onStart}>
+          <Sparkles size={18} /> Thiết lập mục tiêu <ChevronRight size={18} />
+        </button>
+        <small>Bạn có thể cập nhật lại mục tiêu bất cứ lúc nào trong trang Cá nhân.</small>
+      </section>
+    </div>
+  )
+}
+
 function NutritionOnboarding({ onComplete, initialProfile = DEFAULT_PROFILE, onCancel, editing = false }: { onComplete: (profile: NutritionProfileDraft) => void; initialProfile?: NutritionProfileDraft; onCancel?: () => void; editing?: boolean }) {
   const [step, setStep] = useState(1)
   const [profile, setProfile] = useState<NutritionProfileDraft>(initialProfile)
@@ -2574,7 +2598,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
   )
 })
 
-export default function NutritionPage({ displayName = 'Thành viên Aura', isDemo = false, storageOwnerId, hasProfile = true, profile, onProfileComplete, onMealSaved, onAnalyzeImage, foodCatalog, onOpenEatClean, syncState }: NutritionPageProps) {
+export default function NutritionPage({ displayName = 'Thành viên Aura', isDemo = false, storageOwnerId, hasProfile = true, profile, onProfileComplete, onStartOnboarding, onMealSaved, onAnalyzeImage, foodCatalog, onOpenEatClean, syncState }: NutritionPageProps) {
   const resolvedOwnerId = storageOwnerId ?? firebaseAuth?.currentUser?.uid ?? 'anonymous'
   const mealStorageKey = `${MEAL_STORAGE_PREFIX}:${resolvedOwnerId}`
   const waterStorageKey = `${WATER_STORAGE_PREFIX}:${resolvedOwnerId}`
@@ -3488,7 +3512,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     navigateNutrition('scan')
   }
 
-  if (!profileReady) return <NutritionOnboarding onComplete={completeProfile} initialProfile={profileDraft} editing={false} />
+  if (!profileReady) return <NutritionSetupPrompt onStart={onStartOnboarding} />
 
   const profileReadOnly = Boolean(syncState && syncState.status !== 'synced')
   const displayedSyncState = syncState && syncState.status !== 'synced' ? syncState : nutritionLogSyncState

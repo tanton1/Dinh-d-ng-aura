@@ -853,6 +853,50 @@ export async function updateUserProfile(userId: string, values: Partial<UserProf
   await setDoc(reference, { ...cleanValues, updatedAt: serverTimestamp() }, { merge: true })
 }
 
+export function uploadUserAvatar(
+  userId: string,
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<string> {
+  const currentUser = firebaseAuth?.currentUser
+  if (!firebaseStorage || !currentUser || currentUser.uid !== userId) {
+    return Promise.reject(new Error('Bạn cần đăng nhập đúng tài khoản để thay ảnh đại diện.'))
+  }
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(userId)) {
+    return Promise.reject(new Error('Tài khoản không hợp lệ để tải ảnh đại diện.'))
+  }
+  if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
+    return Promise.reject(new Error('Vui lòng chọn ảnh JPG, PNG hoặc WEBP.'))
+  }
+  if (file.size < 1 || file.size > 5 * 1024 * 1024) {
+    return Promise.reject(new Error('Ảnh đại diện phải nhỏ hơn 5 MB.'))
+  }
+
+  const extension = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg'
+  const avatarId = crypto.randomUUID()
+  const task = uploadBytesResumable(
+    storageRef(firebaseStorage, `avatars/${userId}/${avatarId}.${extension}`),
+    file,
+    { contentType: file.type, customMetadata: { ownerUid: userId, resourceKind: 'avatar' } },
+  )
+
+  return new Promise((resolve, reject) => {
+    task.on(
+      'state_changed',
+      (snapshot) => onProgress?.(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)),
+      () => reject(new Error('Không thể tải ảnh đại diện. Hãy kiểm tra kết nối và thử lại.')),
+      async () => {
+        try {
+          const photoURL = await getDownloadURL(task.snapshot.ref)
+          resolve(photoURL)
+        } catch {
+          reject(new Error('Ảnh đã tải lên nhưng chưa thể tạo liên kết hiển thị. Hãy thử lại.'))
+        }
+      },
+    )
+  })
+}
+
 export function subscribeToAdminUsers(
   onData: (items: AdminUserRecord[]) => void,
   onError: (error: Error) => void,
