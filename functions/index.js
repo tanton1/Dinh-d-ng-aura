@@ -158,6 +158,7 @@ Object.assign(exports, ptOperationsV2Functions)
 // compatibility with already deployed functions.
 exports.listMyStudentPtSchedule = ptOperationsV2Functions.listMyStudentPtSchedule
 exports.saveMyStudentAvailability = ptOperationsV2Functions.saveMyStudentAvailability
+exports.listMyTrainerSchedule = ptOperationsV2Functions.listMyTrainerSchedule
 const ptSchedulePublishFunctions = createPtSchedulePublishFunctions({ db, onCall })
 Object.assign(exports, ptSchedulePublishFunctions)
 // Static exports keep the two rollout endpoints selectable with --only.
