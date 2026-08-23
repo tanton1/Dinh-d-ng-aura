@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Student, StudentContract, TrainingPackage, Installment, Trainer, Branch, Session, DailyCheckin } from '../../../types';
-import { ArrowLeft, CheckCircle, Plus, Activity, History, FileText, CreditCard, Calendar as CalendarIcon, AlertCircle, TrendingUp, Package, ClipboardCheck, Droplets, Moon, Smile, Zap, RefreshCw, Edit, User as UserIcon, CalendarClock, Dumbbell, Trash2, Utensils, Bot, ImagePlus, UploadCloud, X, Loader2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Plus, Activity, History, FileText, CreditCard, Calendar as CalendarIcon, AlertCircle, TrendingUp, Package, ClipboardCheck, Droplets, Moon, Smile, Zap, RefreshCw, Edit, User as UserIcon, CalendarClock, Dumbbell, Trash2, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ContractInvoice from './ContractInvoice';
 import EditContractModal from './EditContractModal';
@@ -9,7 +9,6 @@ import AddSessionsModal from './AddSessionsModal';
 import RenewContractModal from './RenewContractModal';
 import CancelContractModal from './CancelContractModal';
 import StudentProgressAdmin from './StudentProgressAdmin';
-import MealAnalysis from './MealAnalysis';
 import ConfirmationModal from '../../schedule/ConfirmationModal';
 import WorkoutLoggerModal from '../../schedule/WorkoutLoggerModal';
 import { useDatabase } from '../../../contexts/DatabaseContext';
@@ -31,6 +30,8 @@ interface Props {
   onSaveContract: (contract: StudentContract) => Promise<void>;
   onUpdateContract: (contract: StudentContract, skipPayment?: boolean) => void;
 }
+
+type StudentDetailTab = 'info' | 'progress' | 'history' | 'checkin' | 'requests' | 'workout_logs';
 
 import TrainerPrioritySelector from './TrainerPrioritySelector';
 
@@ -66,7 +67,9 @@ export default function StudentDetail({ student, profile, contracts, packages, t
   const [confirmAction, setConfirmAction] = useState<{title: string, message: string, onConfirm: () => void | Promise<void>} | null>(null);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [referralCode, setReferralCode] = useState('');
-  const [activeTab, setActiveTab] = useState<'info' | 'progress' | 'history' | 'checkin' | 'requests' | 'workout_logs' | 'nutrition'>(isTrainer ? 'progress' : 'info');
+  const [activeTab, setActiveTab] = useState<StudentDetailTab>(isTrainer ? 'progress' : 'info');
+  const [detailSlide, setDetailSlide] = useState(0);
+  const detailTrackRef = useRef<HTMLDivElement>(null);
   const [dailyCheckins, setDailyCheckins] = useState<DailyCheckin[]>([]);
   const [loadingCheckins, setLoadingCheckins] = useState(false);
 
@@ -105,6 +108,19 @@ export default function StudentDetail({ student, profile, contracts, packages, t
     ];
     return combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [mySessionRequests, myLeaveRequests]);
+
+  const linkedTabs = React.useMemo(() => [
+    { id: 'info' as const, label: 'Gói tập', shortLabel: 'Gói tập', icon: Package, visible: true },
+    { id: 'progress' as const, label: 'Tiến độ cơ thể', shortLabel: 'Tiến độ', icon: TrendingUp, visible: true },
+    { id: 'history' as const, label: 'Lịch sử tập', shortLabel: 'Lịch sử', icon: History, visible: studentSessions.length > 0 },
+    { id: 'checkin' as const, label: 'Check-in', shortLabel: 'Check-in', icon: ClipboardCheck, visible: allDailyCheckins.some((item) => item.studentId === student.id) },
+    { id: 'requests' as const, label: 'Yêu cầu', shortLabel: 'Yêu cầu', icon: CalendarClock, visible: allRequests.length > 0 },
+    { id: 'workout_logs' as const, label: 'Nhật ký tạ', shortLabel: 'Tạ', icon: Dumbbell, visible: studentWorkoutLogs.length > 0 },
+  ].filter((tab) => tab.visible), [allDailyCheckins, allRequests.length, student.id, studentSessions.length, studentWorkoutLogs.length]);
+
+  useEffect(() => {
+    if (!linkedTabs.some((tab) => tab.id === activeTab)) setActiveTab(isTrainer ? 'progress' : 'info');
+  }, [activeTab, isTrainer, linkedTabs]);
 
   useEffect(() => {
     if (activeTab === 'checkin') {
@@ -468,6 +484,14 @@ export default function StudentDetail({ student, profile, contracts, packages, t
   const contractDebt = activeContract
     ? Math.max(0, Number(activeContract.totalPrice || 0) - Number(activeContract.discount || 0) - Number(activeContract.paidAmount || 0))
     : 0;
+  const primaryTrainerId = activeContract?.trainerIds?.[0] || activeContract?.trainerId;
+  const primaryTrainer = primaryTrainerId ? trainers.find((trainer) => trainer.id === primaryTrainerId) : undefined;
+  const selectDetailSlide = (index: number) => {
+    const normalizedIndex = Math.min(2, Math.max(0, index));
+    setDetailSlide(normalizedIndex);
+    const track = detailTrackRef.current;
+    if (track) track.scrollTo({ left: track.clientWidth * normalizedIndex, behavior: 'smooth' });
+  };
 
   return (
     <div className="student-detail space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
@@ -491,114 +515,42 @@ export default function StudentDetail({ student, profile, contracts, packages, t
         </div>
       )}
 
-      {/* Student Info */}
-      <div className="student-detail__hero bg-zinc-900 p-5 rounded-2xl border border-zinc-800 shadow-sm">
-        <h2 className="text-2xl font-bold text-white mb-1">{student.name}</h2>
-        <p className="text-zinc-400 text-sm mb-2">
-          {student.phone || 'Chưa có SĐT'} • {student.email || 'Chưa có Email'}
-        </p>
-        <section className="student-detail__kpis" aria-label="Tóm tắt vận hành học viên">
-          <article><small>Còn lại</small><strong>{activeContract ? `${Math.max(0, activeContract.totalSessions - actualUsed)} buổi` : 'Chưa có gói'}</strong></article>
-          <article><small>Buổi tiếp theo</small><strong>{nextStudentSession ? `${formatDate(nextStudentSession.date)} · ${String(nextStudentSession.hour ?? 0).padStart(2, '0')}:00` : 'Chưa xếp lịch'}</strong></article>
-          <article><small>Hết hạn</small><strong>{activeContract ? formatDate(activeContract.endDate) : '—'}</strong></article>
-          <article className={contractDebt > 0 ? 'student-detail__kpi--attention' : ''}><small>Công nợ</small><strong>{contractDebt.toLocaleString('vi-VN')}đ</strong></article>
-        </section>
-        {(student.availableSlots && student.availableSlots.length > 0) && (
-          <div className="text-sm bg-indigo-500/10 text-indigo-400 px-3 py-2 rounded-xl border border-indigo-500/20 mb-3 inline-block">
-            <span className="font-bold flex items-center gap-1"><CalendarIcon className="w-4 h-4"/> Lịch rảnh:</span> {student.availableSlots.join(', ')}
-          </div>
-        )}
-        {student.nutritionNote && (
-          <div className="text-sm bg-pink-500/10 text-pink-400 p-3 rounded-xl border border-pink-500/20">
-            <span className="font-bold">PT dinh dưỡng:</span> {student.nutritionNote}
-          </div>
-        )}
-      </div>
+      <section className="student-detail__carousel" aria-roledescription="carousel" aria-label="Tóm tắt hồ sơ và gói tập">
+        <div
+          ref={detailTrackRef}
+          className="student-detail__carousel-track"
+          onScroll={(event) => {
+            const track = event.currentTarget;
+            if (track.clientWidth > 0) setDetailSlide(Math.min(2, Math.max(0, Math.round(track.scrollLeft / track.clientWidth))));
+          }}
+        >
+          <article className="student-detail__carousel-slide is-profile">
+            <div><small>HỒ SƠ HỌC VIÊN</small><h2>{student.name}</h2><p>{student.phone || 'Chưa có SĐT'} · {student.email || 'Chưa có email'}</p></div>
+            <span className="student-detail__carousel-badge">{student.status === 'active' ? 'Đang hoạt động' : 'Đã lưu trữ'}</span>
+          </article>
+          <article className="student-detail__carousel-slide is-package">
+            <div><small>GÓI TẬP ĐANG LIÊN KẾT</small><h2>{activeContract?.packageName || 'Chưa có gói tập'}</h2><p>{activeContract ? `Hết hạn ${formatDate(activeContract.endDate)}` : 'Đăng ký gói để bắt đầu quản lý lịch và số buổi.'}</p></div>
+            <div className="student-detail__carousel-metric"><strong>{activeContract ? Math.max(0, activeContract.totalSessions - actualUsed) : 0}</strong><span>Buổi còn lại</span></div>
+            {activeContract && <div className="student-detail__carousel-progress"><i style={{ width: `${Math.min(100, activeContract.totalSessions ? actualUsed / activeContract.totalSessions * 100 : 0)}%` }} /></div>}
+          </article>
+          <article className="student-detail__carousel-slide is-operations">
+            <div><small>LỊCH & TÀI CHÍNH</small><h2>{nextStudentSession ? `${formatDate(nextStudentSession.date)} · ${String(nextStudentSession.hour ?? 0).padStart(2, '0')}:00` : 'Chưa xếp lịch'}</h2><p>PT chính: {primaryTrainer?.name || 'Chưa phân công'}</p></div>
+            <div className={`student-detail__carousel-metric ${contractDebt > 0 ? 'is-debt' : ''}`}><strong>{contractDebt.toLocaleString('vi-VN')}đ</strong><span>Công nợ</span></div>
+          </article>
+        </div>
+        <footer className="student-detail__carousel-controls">
+          <span>{detailSlide + 1}/3</span>
+          <div>{[0, 1, 2].map((index) => <button type="button" key={index} className={detailSlide === index ? 'active' : ''} aria-label={`Xem thông tin học viên ${index + 1}`} aria-current={detailSlide === index ? 'true' : undefined} onClick={() => selectDetailSlide(index)} />)}</div>
+          <button type="button" aria-label="Slide thông tin tiếp theo" onClick={() => selectDetailSlide(detailSlide === 2 ? 0 : detailSlide + 1)}><ChevronRight size={17} /></button>
+        </footer>
+      </section>
 
       {/* Tabs */}
-      <div className="student-detail__tabs flex p-1 bg-zinc-900 rounded-xl border border-zinc-800 flex-wrap sm:flex-nowrap">
-        <button
-          onClick={() => setActiveTab('info')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-2 rounded-lg text-sm font-medium transition-all ${
-            activeTab === 'info' 
-              ? 'bg-zinc-800 text-white shadow-sm' 
-              : 'text-zinc-500 hover:text-zinc-300'
-          }`}
-        >
-          <Package className="w-4 h-4" />
-          <span className="hidden sm:inline">Thông tin & Gói tập</span>
-          <span className="sm:hidden">Thông tin</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('progress')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-2 rounded-lg text-sm font-medium transition-all ${
-            activeTab === 'progress' 
-              ? 'bg-zinc-800 text-white shadow-sm' 
-              : 'text-zinc-500 hover:text-zinc-300'
-          }`}
-        >
-          <TrendingUp className="w-4 h-4" />
-          <span className="hidden sm:inline">Tiến độ cơ thể</span>
-          <span className="sm:hidden">Tiến độ</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('history')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-2 rounded-lg text-sm font-medium transition-all ${
-            activeTab === 'history' 
-              ? 'bg-zinc-800 text-white shadow-sm' 
-              : 'text-zinc-500 hover:text-zinc-300'
-          }`}
-        >
-          <History className="w-4 h-4" />
-          <span className="hidden sm:inline">Lịch sử tập</span>
-          <span className="sm:hidden">Lịch sử</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('checkin')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-2 rounded-lg text-sm font-medium transition-all ${
-            activeTab === 'checkin' 
-              ? 'bg-zinc-800 text-white shadow-sm' 
-              : 'text-zinc-500 hover:text-zinc-300'
-          }`}
-        >
-          <ClipboardCheck className="w-4 h-4" />
-          Check-in
-        </button>
-        <button
-          onClick={() => setActiveTab('requests')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-2 rounded-lg text-sm font-medium transition-all ${
-            activeTab === 'requests' 
-              ? 'bg-zinc-800 text-white shadow-sm' 
-              : 'text-zinc-500 hover:text-zinc-300'
-          }`}
-        >
-          <CalendarClock className="w-4 h-4" />
-          Yêu cầu
-        </button>
-        <button
-          onClick={() => setActiveTab('workout_logs')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-2 rounded-lg text-sm font-medium transition-all ${
-            activeTab === 'workout_logs' 
-              ? 'bg-zinc-800 text-white shadow-sm' 
-              : 'text-zinc-500 hover:text-zinc-300'
-          }`}
-        >
-          <Dumbbell className="w-4 h-4" />
-          <span className="hidden sm:inline">Nhật ký tạ</span>
-          <span className="sm:hidden">Tạ</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('nutrition')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-2 rounded-lg text-sm font-medium transition-all ${
-            activeTab === 'nutrition' 
-              ? 'bg-zinc-800 text-white shadow-sm' 
-              : 'text-zinc-500 hover:text-zinc-300'
-          }`}
-        >
-          <Utensils className="w-4 h-4" />
-          <span className="hidden sm:inline">Dinh dưỡng (AI)</span>
-          <span className="sm:hidden">Bữa ăn</span>
-        </button>
+      <div className="student-detail__tabs" role="tablist" aria-label="Nội dung hồ sơ học viên">
+        {linkedTabs.map((tab) => {
+          const Icon = tab.icon;
+          return <button key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id} onClick={() => setActiveTab(tab.id)} className={activeTab === tab.id ? 'active' : ''}><Icon size={16} /><span className="student-detail__tab-label-full">{tab.label}</span><span className="student-detail__tab-label-short">{tab.shortLabel}</span></button>;
+        })}
       </div>
 
       {activeTab === 'progress' ? (
@@ -750,8 +702,6 @@ export default function StudentDetail({ student, profile, contracts, packages, t
             )}
           </div>
         </div>
-      ) : activeTab === 'nutrition' ? (
-        <MealAnalysis student={student} />
       ) : activeTab === 'requests' ? (
         <div className="bg-zinc-900 p-5 rounded-2xl border border-zinc-800 shadow-sm">
           <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">

@@ -4,6 +4,13 @@ for (const width of [360, 390, 430]) {
   test(`PT student form remains reachable and mobile-safe at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
     await page.goto('/#/admin-pt-students')
+    const overview = page.getByRole('region', { name: 'Tổng quan vận hành học viên' })
+    await expect(overview).toBeVisible()
+    await expect(overview.locator('.student-management__carousel-slide')).toHaveCount(3)
+    const filterToggle = page.getByRole('button', { name: 'Bộ lọc' })
+    await expect(filterToggle).toBeVisible()
+    await filterToggle.click()
+    await expect(page.locator('.student-management__filter-grid')).toHaveClass(/is-open/)
     const openButton = page.getByRole('button', { name: 'Thêm học viên' })
     await expect(openButton).toBeVisible()
     await openButton.click()
@@ -50,4 +57,19 @@ test('PT student roster uses a desktop table without leaking horizontal overflow
   }))
   expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1)
   expect(dimensions.rosterRight).toBeLessThanOrEqual(dimensions.viewport)
+})
+
+test('PT student detail groups important data into three slides and hides unlinked tabs', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/#/admin-pt-students')
+  const studentCard = page.locator('.student-management__card').first()
+  await expect(studentCard).toBeVisible()
+  await studentCard.getByRole('button', { name: /Xem chi tiết/i }).click()
+
+  const detailCarousel = page.getByRole('region', { name: 'Tóm tắt hồ sơ và gói tập' })
+  await expect(detailCarousel).toBeVisible()
+  await expect(detailCarousel.locator('.student-detail__carousel-slide')).toHaveCount(3)
+  const tabs = page.getByRole('tablist', { name: 'Nội dung hồ sơ học viên' })
+  await expect(tabs).toBeVisible()
+  await expect(tabs.getByRole('tab', { name: /Dinh dưỡng|Bữa ăn/i })).toHaveCount(0)
 })

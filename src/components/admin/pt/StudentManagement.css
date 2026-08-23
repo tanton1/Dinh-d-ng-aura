@@ -8,16 +8,12 @@
   color: var(--ops-ink, #211720);
 }
 
-.student-management__hero {
-  position: relative;
-  overflow: hidden;
-  padding: clamp(18px, 3vw, 28px);
-  border: 1px solid rgba(246, 47, 130, .15);
-  border-radius: 26px;
-  background:
-    radial-gradient(circle at 92% 5%, rgba(255, 148, 97, .34), transparent 31%),
-    linear-gradient(135deg, rgba(255, 247, 250, .98), rgba(255, 244, 237, .96));
-  box-shadow: 0 16px 34px rgba(63, 31, 48, .08);
+.student-management__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 2px 4px;
 }
 
 .student-management__brand {
@@ -46,12 +42,124 @@
 .student-management__subtitle { max-width: 44rem; }
 
 .student-management__primary-action {
-  min-height: 48px;
-  min-width: 212px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 14px;
   border: 0;
-  border-radius: 16px;
-  box-shadow: 0 13px 26px rgba(246, 47, 130, .24) !important;
+  border-radius: 13px;
+  color: #fff;
+  background: linear-gradient(135deg, #f62f82, #ff8751);
+  box-shadow: 0 9px 20px rgba(246, 47, 130, .22) !important;
+  font-size: .78rem;
+  font-weight: 850;
 }
+
+.student-management__carousel {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(246, 47, 130, .2);
+  border-radius: 27px;
+  background: #211720;
+  box-shadow: 0 18px 38px rgba(64, 28, 48, .2), 0 5px 14px rgba(246, 47, 130, .12), inset 0 1px rgba(255,255,255,.16);
+}
+
+.student-management__carousel-track {
+  display: flex;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.student-management__carousel-track::-webkit-scrollbar { display: none; }
+
+.student-management__carousel-slide {
+  position: relative;
+  display: flex;
+  flex: 0 0 100%;
+  align-items: flex-start;
+  justify-content: space-between;
+  box-sizing: border-box;
+  min-width: 100%;
+  min-height: 192px;
+  padding: 24px clamp(22px, 4vw, 34px) 60px;
+  overflow: hidden;
+  color: #fff;
+  scroll-snap-align: start;
+}
+
+.student-management__carousel-slide::after {
+  position: absolute;
+  right: -46px;
+  bottom: -92px;
+  width: 230px;
+  height: 230px;
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: 50%;
+  content: '';
+}
+
+.student-management__carousel-slide.is-overview { background: radial-gradient(circle at 88% 16%,rgba(246,47,130,.4),transparent 28%),linear-gradient(128deg,#171218,#4f213c 54%,#ed3278); }
+.student-management__carousel-slide.is-alerts { background: radial-gradient(circle at 86% 18%,rgba(255,255,255,.22),transparent 27%),linear-gradient(128deg,#e92772,#f74d77 53%,#ff8b50); }
+.student-management__carousel-slide.is-results { background: radial-gradient(circle at 88% 15%,rgba(255,135,81,.34),transparent 29%),linear-gradient(128deg,#211720,#722b50 55%,#ef6d54); }
+.student-management__carousel-slide > div:first-child { position: relative; z-index: 1; max-width: min(64%, 580px); }
+.student-management__carousel-slide small { color: rgba(255,255,255,.78); font-size: .62rem; font-weight: 900; letter-spacing: .13em; }
+.student-management__carousel-slide h2 { margin: 8px 0 7px; color: #fff; font-size: clamp(1.65rem, 4vw, 2.35rem); line-height: 1; letter-spacing: -.035em; }
+.student-management__carousel-slide p { margin: 0; color: rgba(255,255,255,.82); font-size: .78rem; line-height: 1.5; }
+.student-management__carousel-slide > button {
+  position: absolute;
+  z-index: 2;
+  right: clamp(22px,4vw,34px);
+  bottom: 65px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 13px;
+  color: #fff;
+  background: rgba(35,17,28,.2);
+  backdrop-filter: blur(9px);
+  font-size: .7rem;
+  font-weight: 800;
+}
+
+.student-management__carousel-metrics { position: relative; z-index: 1; display: flex; gap: 9px; }
+.student-management__carousel-metrics span { display: grid; min-width: 94px; gap: 4px; padding: 11px 13px; border: 1px solid rgba(255,255,255,.18); border-radius: 16px; color: rgba(255,255,255,.75); background: rgba(255,255,255,.1); font-size: .62rem; font-weight: 750; backdrop-filter: blur(8px); }
+.student-management__carousel-metrics strong { color: #fff; font-size: 1.35rem; line-height: 1; }
+.student-management__carousel-controls,
+.student-detail__carousel-controls {
+  position: absolute;
+  z-index: 4;
+  right: 14px;
+  bottom: 11px;
+  left: 14px;
+  display: grid;
+  grid-template-columns: 36px 1fr 36px;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 5px 0 11px;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 14px;
+  background: rgba(17,10,16,.22);
+  backdrop-filter: blur(10px);
+}
+.student-management__carousel-controls > span,
+.student-detail__carousel-controls > span { color: rgba(255,255,255,.72); font-size: .62rem; font-weight: 850; }
+.student-management__carousel-controls > div,
+.student-detail__carousel-controls > div { display: flex; justify-content: center; gap: 5px; }
+.student-management__carousel-controls button,
+.student-detail__carousel-controls button { cursor: pointer; }
+.student-management__carousel-controls > div button,
+.student-detail__carousel-controls > div button { width: 6px; height: 6px; padding: 0; border: 0; border-radius: 99px; background: rgba(255,255,255,.42); transition: width .2s ease; }
+.student-management__carousel-controls > div button.active,
+.student-detail__carousel-controls > div button.active { width: 21px; background: #fff; }
+.student-management__carousel-controls > button,
+.student-detail__carousel-controls > button { display: grid; width: 31px; height: 31px; place-items: center; border: 1px solid rgba(255,255,255,.25); border-radius: 10px; color: #fff; background: rgba(255,255,255,.08); }
 
 .student-management__overview {
   display: grid;
@@ -93,12 +201,23 @@
 .student-management__filters {
   position: relative;
   overflow: visible;
-  border-color: rgba(246, 47, 130, .14) !important;
-  background: rgba(255, 255, 255, .9) !important;
+  padding: 10px;
+  border: 1px solid rgba(246, 47, 130, .14);
+  border-radius: 19px;
+  background: rgba(255, 255, 255, .92);
+  box-shadow: 0 9px 24px rgba(61,34,49,.05);
 }
 
-.student-management__filter-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.student-management__filter-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.student-management__search { min-width: 0; }
+.student-management__search input { min-height: 42px; border: 1px solid #efdee6 !important; color: #342731 !important; background: #fff !important; }
+.student-management__filter-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 42px; padding: 0 13px; border: 1px solid #efdee6; border-radius: 13px; color: #8c3868; background: #fff7fa; font-size: .74rem; font-weight: 850; }
+.student-management__filter-toggle small { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; color: #fff; background: linear-gradient(135deg,#f62f82,#ff8751); font-size: .62rem; }
+.student-management__filter-grid { display: none; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 9px; }
+.student-management__filter-grid.is-open { display: grid; }
 .student-management__filter-grid > * { min-width: 0; }
+.student-management__filter-grid select,
+.student-management__filter-grid > div > button { min-height: 40px; border-color: #efdee6 !important; color: #665862 !important; background: #fff !important; }
 
 .student-management__card {
   min-width: 0;
@@ -297,11 +416,23 @@
 }
 
 @media (max-width: 640px) {
-  .student-management__hero { align-items: stretch !important; }
-  .student-management__primary-action { width: 100%; min-width: 0; }
+  .student-management__heading { align-items: flex-start; padding: 0 2px; }
+  .student-management__heading .student-management__subtitle { display: none; }
+  .student-management__brand { width: 35px !important; height: 35px !important; }
+  .student-management__primary-action { min-height: 36px; padding-inline: 11px; }
+  .student-management__carousel { border-radius: 23px; }
+  .student-management__carousel-slide { min-height: 188px; padding: 20px 17px 58px; }
+  .student-management__carousel-slide > div:first-child { max-width: 68%; }
+  .student-management__carousel-slide h2 { font-size: 1.65rem; }
+  .student-management__carousel-slide p { font-size: .7rem; }
+  .student-management__carousel-metrics { gap: 6px; }
+  .student-management__carousel-metrics { flex-direction: column; }
+  .student-management__carousel-metrics span { min-width: 76px; padding: 8px 9px; }
+  .student-management__carousel-slide > button { right: 17px; bottom: 61px; max-width: 145px; }
   .student-management__overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .student-management__overview article { min-height: 83px; padding: 13px; }
   .student-management__filter-grid { grid-template-columns: minmax(0, 1fr); }
+  .student-management__filter-toggle span { display: none; }
   .student-management__dialog { max-height: calc(100dvh - 104px) !important; border-radius: 22px 22px 18px 18px !important; }
   .student-management__two-columns { grid-template-columns: minmax(0, 1fr); }
   .student-management__form-actions { flex-direction: column-reverse; }
@@ -310,39 +441,71 @@
 
 .student-detail { min-width: 0; padding-bottom: max(24px, env(safe-area-inset-bottom)); }
 .student-detail__back { min-height: 42px; border: 0; background: transparent; }
-.student-detail__hero {
-  display: grid;
-  gap: 14px;
-  border-color: rgba(246, 47, 130, .16) !important;
-  background:
-    radial-gradient(circle at 92% 0, rgba(255, 135, 81, .25), transparent 32%),
-    linear-gradient(135deg, #fff, #fff6f9 62%, #fff4ec) !important;
-  box-shadow: 0 15px 34px rgba(61, 34, 49, .08) !important;
+.student-detail__carousel {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(246,47,130,.2);
+  border-radius: 27px;
+  background: #211720;
+  box-shadow: 0 18px 38px rgba(64,28,48,.2), 0 5px 14px rgba(246,47,130,.12), inset 0 1px rgba(255,255,255,.16);
 }
-.student-detail__hero h2 { color: #251923 !important; }
-.student-detail__hero > p { color: #7f727d !important; }
-.student-detail__kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
-.student-detail__kpis article { display: grid; gap: 4px; min-width: 0; padding: 12px; border: 1px solid #f0dfe6; border-radius: 15px; background: rgba(255,255,255,.82); }
-.student-detail__kpis small { color: #857985; font-size: .66rem; font-weight: 750; }
-.student-detail__kpis strong { overflow: hidden; color: #2e222c; font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
-.student-detail__kpi--attention { border-color: rgba(246, 47, 130, .28) !important; background: #fff1f5 !important; }
-.student-detail__kpi--attention strong { color: #ca2d69; }
+.student-detail__carousel-track { display: flex; overflow-x: auto; scroll-behavior: smooth; scroll-snap-type: x mandatory; scrollbar-width: none; }
+.student-detail__carousel-track::-webkit-scrollbar { display: none; }
+.student-detail__carousel-slide {
+  position: relative;
+  display: flex;
+  flex: 0 0 100%;
+  justify-content: space-between;
+  box-sizing: border-box;
+  min-width: 100%;
+  min-height: 202px;
+  padding: 25px clamp(22px,4vw,34px) 62px;
+  overflow: hidden;
+  color: #fff;
+  scroll-snap-align: start;
+}
+.student-detail__carousel-slide::after { position: absolute; right: -45px; bottom: -95px; width: 230px; height: 230px; border: 1px solid rgba(255,255,255,.15); border-radius: 50%; content: ''; }
+.student-detail__carousel-slide.is-profile { background: radial-gradient(circle at 88% 14%,rgba(246,47,130,.4),transparent 29%),linear-gradient(128deg,#171218,#4f213c 54%,#ed3278); }
+.student-detail__carousel-slide.is-package { background: radial-gradient(circle at 86% 15%,rgba(255,255,255,.22),transparent 28%),linear-gradient(128deg,#e92772,#f74d77 53%,#ff8b50); }
+.student-detail__carousel-slide.is-operations { background: radial-gradient(circle at 88% 16%,rgba(255,135,81,.34),transparent 30%),linear-gradient(128deg,#211720,#722b50 55%,#ef6d54); }
+.student-detail__carousel-slide > div:first-child { position: relative; z-index: 1; max-width: min(64%,580px); }
+.student-detail__carousel-slide small { color: rgba(255,255,255,.78); font-size: .62rem; font-weight: 900; letter-spacing: .13em; }
+.student-detail__carousel-slide h2 { margin: 8px 0 7px; color: #fff; font-size: clamp(1.55rem,4vw,2.25rem); line-height: 1.05; letter-spacing: -.035em; }
+.student-detail__carousel-slide p { margin: 0; color: rgba(255,255,255,.82); font-size: .76rem; line-height: 1.5; }
+.student-detail__carousel-badge { position: relative; z-index: 1; height: fit-content; padding: 7px 10px; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; color: #fff; background: rgba(255,255,255,.1); font-size: .65rem; font-weight: 800; backdrop-filter: blur(8px); }
+.student-detail__carousel-metric { position: relative; z-index: 1; display: grid; align-content: start; gap: 5px; text-align: right; }
+.student-detail__carousel-metric strong { color: #fff; font-size: clamp(1.45rem,4vw,2.1rem); line-height: 1; }
+.student-detail__carousel-metric span { color: rgba(255,255,255,.72); font-size: .62rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.student-detail__carousel-metric.is-debt strong { color: #fff3d8; }
+.student-detail__carousel-progress { position: absolute; z-index: 2; right: clamp(22px,4vw,34px); bottom: 65px; left: clamp(22px,4vw,34px); height: 7px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.2); }
+.student-detail__carousel-progress i { display: block; height: 100%; border-radius: inherit; background: #fff; box-shadow: 0 0 14px rgba(255,255,255,.45); }
 .student-detail__tabs {
-  flex-wrap: nowrap !important;
+  display: flex;
+  flex-wrap: nowrap;
   gap: 4px;
   overflow-x: auto;
-  border-color: #eedde5 !important;
-  background: rgba(255,255,255,.94) !important;
+  padding: 5px;
+  border: 1px solid #eedde5;
+  border-radius: 15px;
+  background: rgba(255,255,255,.94);
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
 }
 .student-detail__tabs::-webkit-scrollbar { display: none; }
-.student-detail__tabs > button { flex: 0 0 auto !important; min-width: max-content; min-height: 44px; }
+.student-detail__tabs > button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 7px; min-width: max-content; min-height: 40px; padding: 0 12px; border: 0; border-radius: 11px; color: #81737e; background: transparent; font-size: .72rem; font-weight: 800; }
+.student-detail__tabs > button.active { color: #fff; background: linear-gradient(135deg,#f62f82,#ff8751); box-shadow: 0 7px 16px rgba(246,47,130,.2); }
+.student-detail__tab-label-short { display: none; }
 
 @media (max-width: 760px) {
-  .student-detail__kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .student-detail__hero { padding: 17px !important; border-radius: 21px !important; }
+  .student-detail__carousel { border-radius: 23px; }
+  .student-detail__carousel-slide { min-height: 194px; padding: 20px 17px 58px; }
+  .student-detail__carousel-slide > div:first-child { max-width: 68%; }
+  .student-detail__carousel-slide h2 { font-size: 1.55rem; }
+  .student-detail__carousel-slide p { font-size: .69rem; }
+  .student-detail__carousel-progress { right: 17px; bottom: 61px; left: 17px; }
   .student-detail__tabs { margin-inline: -4px; padding: 5px !important; }
+  .student-detail__tab-label-full { display: none; }
+  .student-detail__tab-label-short { display: inline; }
 }
 
 /* New package registration is rendered from StudentDetail.  These scoped

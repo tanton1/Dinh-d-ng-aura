@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Student, UserProfile, StudentContract, TrainingPackage, Trainer, Branch, Session } from '../../../types';
 import { User } from 'firebase/auth';
 import { db } from '../../../lib/firebase';
-import { Search, Plus, Edit2, Trash2, Phone, Mail, Calendar, CheckCircle, XCircle, AlertCircle, User as UserIcon, Package, RefreshCw } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Phone, Mail, Calendar, CheckCircle, XCircle, AlertCircle, User as UserIcon, Package, RefreshCw, SlidersHorizontal, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import StudentDetail from './StudentDetail';
 import DateRangeFilter from './DateRangeFilter';
@@ -64,6 +64,9 @@ export default function StudentManagement({ user, profile }: Props) {
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const contractCreationPromises = useRef(new Map<string, Promise<void>>());
   const [studentPage, setStudentPage] = useState(1);
+  const [overviewSlide, setOverviewSlide] = useState(0);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const overviewTrackRef = useRef<HTMLDivElement>(null);
   const [renewingStudent, setRenewingStudent] = useState<{ student: Student, contract: StudentContract } | null>(null);
   const [formData, setFormData] = useState<Partial<Student>>({
     name: '',
@@ -259,6 +262,21 @@ export default function StudentManagement({ user, profile }: Props) {
       unassigned: unassignedStudentIds.size,
     };
   }, [allowedStudents, contracts, sessions]);
+
+  const activeFilterCount = [
+    selectedBranchId !== 'all',
+    selectedTrainerId !== 'all',
+    selectedNutritionPTId !== 'all',
+    contractFilter !== 'all',
+    Boolean(dateRange && dateRange.start.getTime() !== 0),
+  ].filter(Boolean).length;
+
+  const selectOverviewSlide = (index: number) => {
+    const normalizedIndex = Math.min(2, Math.max(0, index));
+    setOverviewSlide(normalizedIndex);
+    const track = overviewTrackRef.current;
+    if (track) track.scrollTo({ left: track.clientWidth * normalizedIndex, behavior: 'smooth' });
+  };
 
   useEffect(() => setStudentPage(1), [searchTerm, dateRange, selectedBranchId, contractFilter, selectedTrainerId, selectedNutritionPTId]);
   useEffect(() => setStudentPage((current) => Math.min(current, studentPageCount)), [studentPageCount]);
@@ -504,7 +522,7 @@ export default function StudentManagement({ user, profile }: Props) {
 
   return (
     <div className="student-management space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
-      <div className="student-management__hero mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="student-management__heading">
         <div className="flex items-center gap-3">
           <img src={LOGO_URL} alt="Aura" className="student-management__brand h-10 w-10 object-contain" />
           <div>
@@ -516,6 +534,7 @@ export default function StudentManagement({ user, profile }: Props) {
           </div>
         </div>
         <button
+          aria-label="Thêm học viên"
           onClick={() => {
             if (!canOpenStudentForm) {
               setAlertMessage("Tài khoản này chưa có quyền tạo tài khoản học viên.");
@@ -526,23 +545,46 @@ export default function StudentManagement({ user, profile }: Props) {
             setError(null);
             setIsAdding(true);
           }}
-          className={`student-management__primary-action bg-pink-500 text-white px-5 py-2.5 rounded-xl transition-colors flex items-center justify-center ${!canOpenStudentForm ? 'opacity-50 cursor-not-allowed' : 'hover:bg-pink-600'}`}
+          className={`student-management__primary-action transition-colors ${!canOpenStudentForm ? 'opacity-50 cursor-not-allowed' : ''}`}
           disabled={!canOpenStudentForm}
         >
-          <Plus className="w-5 h-5 mr-2" />
-          <span className="font-medium">Thêm học viên</span>
+          <Plus className="w-4 h-4" />
+          <span>Thêm</span>
         </button>
       </div>
 
-      <section className="student-management__overview" aria-label="Tổng quan học viên">
-        <article><strong>{studentOverview.total}</strong><span>Học viên trong phạm vi</span></article>
-        <article><strong>{studentOverview.active}</strong><span>Hợp đồng đang hoạt động</span></article>
-        <article className={studentOverview.expiring > 0 ? 'student-management__metric--attention' : ''}><strong>{studentOverview.expiring}</strong><span>Sắp hết hạn trong 7 ngày</span></article>
-        <article className={studentOverview.unassigned > 0 ? 'student-management__metric--attention' : ''}><strong>{studentOverview.unassigned}</strong><span>Chưa gán PT hoặc hợp đồng</span></article>
+      <section className="student-management__carousel" aria-roledescription="carousel" aria-label="Tổng quan vận hành học viên">
+        <div
+          ref={overviewTrackRef}
+          className="student-management__carousel-track"
+          onScroll={(event) => {
+            const track = event.currentTarget;
+            if (track.clientWidth > 0) setOverviewSlide(Math.min(2, Math.max(0, Math.round(track.scrollLeft / track.clientWidth))));
+          }}
+        >
+          <article className="student-management__carousel-slide is-overview">
+            <div><small>AURA CRM · TỔNG QUAN</small><h2>{studentOverview.total} học viên</h2><p>Toàn bộ hồ sơ trong phạm vi vận hành hiện tại.</p></div>
+            <div className="student-management__carousel-metrics"><span><strong>{studentOverview.active}</strong>Đang tập</span><span><strong>{studentOverview.unassigned}</strong>Chưa phân công</span></div>
+          </article>
+          <article className="student-management__carousel-slide is-alerts">
+            <div><small>CẦN XỬ LÝ SỚM</small><h2>{studentOverview.expiring} hồ sơ</h2><p>Sắp hết hạn hoặc chỉ còn tối đa hai buổi tập.</p></div>
+            <button type="button" onClick={() => { setContractFilter('expiring_week'); setStudentPage(1); }}>Lọc danh sách cảnh báo <ChevronRight size={16} /></button>
+          </article>
+          <article className="student-management__carousel-slide is-results">
+            <div><small>KẾT QUẢ ĐANG HIỂN THỊ</small><h2>{filteredStudents.length} học viên</h2><p>{activeFilterCount ? `${activeFilterCount} điều kiện lọc đang áp dụng.` : 'Chưa áp dụng bộ lọc nâng cao.'}</p></div>
+            <div className="student-management__carousel-metrics"><span><strong>{studentPage}</strong>Trang hiện tại</span><span><strong>{studentPageCount}</strong>Tổng số trang</span></div>
+          </article>
+        </div>
+        <footer className="student-management__carousel-controls">
+          <span>{overviewSlide + 1}/3</span>
+          <div>{[0, 1, 2].map((index) => <button type="button" key={index} className={overviewSlide === index ? 'active' : ''} aria-label={`Xem tổng quan ${index + 1}`} aria-current={overviewSlide === index ? 'true' : undefined} onClick={() => selectOverviewSlide(index)} />)}</div>
+          <button type="button" aria-label="Slide tổng quan tiếp theo" onClick={() => selectOverviewSlide(overviewSlide === 2 ? 0 : overviewSlide + 1)}><ChevronRight size={17} /></button>
+        </footer>
       </section>
 
-      <div className="student-management__filters bg-zinc-900/50 p-4 rounded-2xl border border-zinc-800 space-y-4 mb-6">
-        <div className="relative">
+      <div className="student-management__filters">
+        <div className="student-management__filter-toolbar">
+          <div className="student-management__search relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
           <input
             type="text"
@@ -551,9 +593,13 @@ export default function StudentManagement({ user, profile }: Props) {
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-pink-500 transition-colors"
           />
+          </div>
+          <button type="button" className="student-management__filter-toggle" aria-expanded={showAdvancedFilters} onClick={() => setShowAdvancedFilters((current) => !current)}>
+            <SlidersHorizontal size={17} /><span>Bộ lọc</span>{activeFilterCount > 0 && <small>{activeFilterCount}</small>}
+          </button>
         </div>
         
-        <div className="student-management__filter-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className={`student-management__filter-grid ${showAdvancedFilters ? 'is-open' : ''}`}>
           {profile?.role !== 'trainer' && (
             <select 
               value={selectedTrainerId}
