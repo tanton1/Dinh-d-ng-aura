@@ -305,10 +305,15 @@
 
 /* Nutrition profile setup */
 .nutrition-setup-page {
-  min-height: calc(100dvh - 150px);
+  position: fixed;
+  z-index: 240;
+  inset: 0;
+  width: 100vw;
+  min-height: 100dvh;
+  overflow-y: auto;
   display: grid;
   place-items: center;
-  padding: clamp(18px, 5vw, 52px) clamp(14px, 4vw, 28px) calc(110px + env(safe-area-inset-bottom));
+  padding: max(18px, env(safe-area-inset-top)) clamp(14px, 4vw, 28px) max(18px, env(safe-area-inset-bottom));
   background: linear-gradient(155deg, #fff7fb 0%, #fff8f2 52%, #fff 100%);
 }
 .nutrition-setup-card {
@@ -576,8 +581,8 @@
 
 @media (max-width: 680px) {
   .nutrition-page { padding-bottom: 148px; }
-  .nutrition-setup-page { min-height:calc(100dvh - 132px); padding:16px 14px calc(105px + env(safe-area-inset-bottom)); }
-  .nutrition-setup-card { border-radius:25px; }
+  .nutrition-setup-page { padding:0; }
+  .nutrition-setup-card { width:100%; min-height:100dvh; display:flex; flex-direction:column; justify-content:center; padding:calc(28px + env(safe-area-inset-top)) 20px calc(28px + env(safe-area-inset-bottom)); border:0; border-radius:0; background:transparent; box-shadow:none; }
   .nutrition-setup-card__facts { grid-template-columns:1fr; }
   .nutrition-setup-card__facts span { justify-content:flex-start; padding-inline:14px; }
   .nutrition-page__header { align-items: flex-start; margin-bottom: 17px; }

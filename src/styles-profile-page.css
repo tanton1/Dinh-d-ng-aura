@@ -1,3 +1,17 @@
+.profile-page {
+  width: 100%;
+  max-width: none;
+}
+
+.profile-page__content {
+  display: flex;
+  width: min(1180px, 100%);
+  flex-direction: column;
+  gap: 24px;
+  margin: 0 auto;
+  padding: 0 clamp(10px, 2vw, 24px) calc(112px + env(safe-area-inset-bottom, 0px));
+}
+
 .profile-avatar-upload__button {
   position: absolute;
   right: -4px;
@@ -18,3 +32,22 @@
 .profile-avatar-upload__feedback { display: block; margin-top: 8px; color: #f8c4d7; font-size: 11px; font-weight: 650; line-height: 1.35; }
 .profile-avatar-upload__feedback.is-success { color: #9fe2be; }
 .profile-avatar-upload__feedback.is-error { color: #ffc0c0; }
+
+@media (max-width: 680px) {
+  .profile-page {
+    padding-right: 0 !important;
+    padding-left: 0 !important;
+  }
+
+  .profile-page > .page-heading {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .profile-page__content {
+    width: 100%;
+    gap: 14px;
+    padding-right: 7px;
+    padding-left: 7px;
+  }
+}

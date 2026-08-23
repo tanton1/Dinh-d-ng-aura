@@ -127,7 +127,7 @@ export default function ProfilePage({ fullProfile, displayName, email, membershi
       <PageHeader title="Hồ sơ cá nhân" description="Thông tin và chỉ số cơ thể của bạn" />
             
       
-      <div style={{ maxWidth: '600px', margin: '0 auto', padding: '0 20px 40px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <div className="profile-page__content">
         {syncState && <DataSyncStatusBanner state={syncState} compact={syncState.status === 'synced'} />}
         
         

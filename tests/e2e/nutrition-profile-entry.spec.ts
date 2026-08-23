@@ -1,11 +1,18 @@
 import { expect, test } from '@playwright/test'
 
 test('nutrition setup launches the canonical Aura onboarding', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/#/nutrition?section=today')
 
-  await expect(page.getByTestId('nutrition-setup-prompt')).toBeVisible()
+  const setupPrompt = page.getByTestId('nutrition-setup-prompt')
+  await expect(setupPrompt).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Thiết lập mục tiêu dinh dưỡng' })).toBeVisible()
   await expect(page.getByText(/Bước 1 \/ 4/)).toHaveCount(0)
+  const setupBounds = await setupPrompt.boundingBox()
+  expect(setupBounds?.x).toBeLessThanOrEqual(1)
+  expect(setupBounds?.y).toBeLessThanOrEqual(1)
+  expect(setupBounds?.width).toBeGreaterThanOrEqual(389)
+  expect(setupBounds?.height).toBeGreaterThanOrEqual(843)
 
   await page.getByRole('button', { name: 'Thiết lập mục tiêu' }).click()
   await expect(page.getByRole('button', { name: 'Thiết lập hồ sơ' })).toBeVisible()
@@ -24,6 +31,9 @@ test('profile accepts a mobile-friendly avatar upload', async ({ page }) => {
 
   await expect(page.getByText('Đã cập nhật ảnh đại diện.')).toBeVisible()
   await expect(page.getByRole('img', { name: 'Ảnh đại diện' })).toHaveAttribute('src', /^data:image\/png;base64,/)
+  const profileContentBounds = await page.locator('.profile-page__content').boundingBox()
+  expect(profileContentBounds?.x).toBeLessThanOrEqual(8)
+  expect(profileContentBounds?.width).toBeGreaterThanOrEqual(382)
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   expect(overflow).toBeLessThanOrEqual(1)
 })
