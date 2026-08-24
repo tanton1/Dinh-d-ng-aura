@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebase'
+import { firebaseAuth, firebaseFunctions } from '../lib/firebase'
 
 function functionsInstance() {
   if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
@@ -38,6 +38,39 @@ async function call<Input, Output>(name: string, input: Input): Promise<Output> 
     }
   }
   throw new Error('Không thể kết nối không gian làm việc Staff.')
+}
+
+type ReadCacheEntry = { expiresAt: number; value?: unknown; promise?: Promise<unknown> }
+const readCache = new Map<string, ReadCacheEntry>()
+
+function readCacheKey(name: string, input: unknown) {
+  return `${firebaseAuth?.currentUser?.uid || 'anonymous'}:${name}:${JSON.stringify(input)}`
+}
+
+async function cachedCall<Input, Output>(name: string, input: Input, ttlMs: number): Promise<Output> {
+  const key = readCacheKey(name, input)
+  const now = Date.now()
+  const cached = readCache.get(key)
+  if (cached?.value !== undefined && cached.expiresAt > now) return cached.value as Output
+  if (cached?.promise) return cached.promise as Promise<Output>
+  const promise = call<Input, Output>(name, input)
+    .then((value) => {
+      readCache.set(key, { value, expiresAt: Date.now() + ttlMs })
+      return value
+    })
+    .catch((error) => {
+      readCache.delete(key)
+      throw error
+    })
+  readCache.set(key, { promise, expiresAt: now + ttlMs })
+  return promise
+}
+
+function invalidateReadCache(...names: string[]) {
+  const uidPrefix = `${firebaseAuth?.currentUser?.uid || 'anonymous'}:`
+  for (const key of readCache.keys()) {
+    if (key.startsWith(uidPrefix) && names.some((name) => key.startsWith(`${uidPrefix}${name}:`))) readCache.delete(key)
+  }
 }
 
 export interface TrainerStudentSummary {
@@ -91,6 +124,15 @@ export interface CoachWorkspaceScope {
   }
 }
 
+export interface TrainerWorkspaceBootstrap {
+  schemaVersion: number
+  scope: CoachWorkspaceScope
+  students: TrainerStudentSummary[]
+  sessions: TrainerSessionSummary[]
+  requests: TrainerSessionRequestSummary[]
+  hasMore: boolean
+}
+
 export interface TrainerSessionRequestSummary {
   id: string
   sessionId: string
@@ -124,19 +166,39 @@ export interface SalesCatalog {
 }
 
 export async function listMyAssignedStudents(limit = 100) {
-  return call<{ limit: number }, { students: TrainerStudentSummary[]; hasMore: boolean }>('listMyAssignedStudents', { limit })
+  return cachedCall<{ limit: number }, { students: TrainerStudentSummary[]; hasMore: boolean }>('listMyAssignedStudents', { limit }, 30_000)
 }
 
 export async function listMyTrainerSchedule(from: string, to: string, limit = 300) {
-  return call<{ from: string; to: string; limit: number }, { sessions: TrainerSessionSummary[]; requests: TrainerSessionRequestSummary[] }>('listMyTrainerSchedule', { from, to, limit })
+  return cachedCall<{ from: string; to: string; limit: number }, { sessions: TrainerSessionSummary[]; requests: TrainerSessionRequestSummary[] }>('listMyTrainerSchedule', { from, to, limit }, 15_000)
+}
+
+export interface SalesWorkspace {
+  schemaVersion: number
+  quotes: SalesQuoteSummary[]
+  catalog: SalesCatalog
 }
 
 export async function getMyCoachWorkspaceScope() {
-  return call<Record<string, never>, CoachWorkspaceScope>('getMyCoachWorkspaceScope', {})
+  return cachedCall<Record<string, never>, CoachWorkspaceScope>('getMyCoachWorkspaceScope', {}, 90_000)
+}
+
+export async function getMyTrainerWorkspace(
+  section: 'students' | 'schedule' | 'requests',
+  from: string,
+  to: string,
+  limit = section === 'students' ? 100 : 300,
+) {
+  return cachedCall<
+    { section: 'students' | 'schedule' | 'requests'; from: string; to: string; limit: number },
+    TrainerWorkspaceBootstrap
+  >('getMyTrainerWorkspace', { section, from, to, limit }, 30_000)
 }
 
 export async function confirmMySession(sessionId: string, expectedRevision: number) {
-  return call<{ sessionId: string; expectedRevision: number }, { unchanged: boolean; revision: number }>('confirmMySession', { sessionId, expectedRevision })
+  const result = await call<{ sessionId: string; expectedRevision: number }, { unchanged: boolean; revision: number }>('confirmMySession', { sessionId, expectedRevision })
+  invalidateReadCache('getMyCoachWorkspaceScope', 'getMyTrainerWorkspace', 'listMyTrainerSchedule')
+  return result
 }
 
 export async function requestSessionChange(input: {
@@ -147,7 +209,9 @@ export async function requestSessionChange(input: {
   newDate?: string
   newHour?: number
 }) {
-  return call<typeof input, { requestId: string }>('requestSessionChange', input)
+  const result = await call<typeof input, { requestId: string }>('requestSessionChange', input)
+  invalidateReadCache('getMyCoachWorkspaceScope', 'getMyTrainerWorkspace', 'listMyTrainerSchedule')
+  return result
 }
 
 export async function listMyQuotes(limit = 100) {
@@ -158,6 +222,10 @@ export async function getMySalesCatalog() {
   return call<Record<string, never>, SalesCatalog>('getMySalesCatalog', {})
 }
 
+export async function getMySalesWorkspace(limit = 100) {
+  return cachedCall<{ limit: number }, SalesWorkspace>('getMySalesWorkspace', { limit }, 30_000)
+}
+
 export async function createQuote(input: {
   customerName: string
   customerPhone: string
@@ -165,7 +233,9 @@ export async function createQuote(input: {
   packageId: string
   discount: number
 }) {
-  return call<typeof input, { quoteId: string; code: string; finalPrice: number }>('createQuote', input)
+  const result = await call<typeof input, { quoteId: string; code: string; finalPrice: number }>('createQuote', input)
+  invalidateReadCache('getMySalesWorkspace', 'listMyQuotes')
+  return result
 }
 
 export async function createStudentDraft(input: {

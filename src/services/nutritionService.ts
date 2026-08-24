@@ -1,6 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
 import { deleteObject, ref, uploadBytes } from 'firebase/storage'
-import { firebaseAuth, firebaseFunctions, firebaseStorage } from '../lib/firebase'
+import { firebaseAuth, firebaseFunctions, firebaseStorage, initializeFirebaseAppCheck } from '../lib/firebase'
 import { reportClientIssue } from './clientTelemetryService'
 import { optimizeNutritionImageForUpload } from './nutritionImageOptimizer'
 
@@ -659,6 +659,7 @@ export async function analyzeFoodPhoto(
   assertImage(image)
   validateAnalyzeOptions(options)
   try {
+    await initializeFirebaseAppCheck()
     const upload = await uploadFoodPhoto(image)
     return await analyzeUploadedFoodPhoto(upload, options)
   } catch (error) {
@@ -668,6 +669,7 @@ export async function analyzeFoodPhoto(
 }
 export async function generateMealReview(meal: any, userProfile: any): Promise<string> {
   try {
+    await initializeFirebaseAppCheck()
     const firebase = requireNutritionFirebase();
     const callable = httpsCallable<{ meal: any, userProfile: any }, { review: string }>(
       firebase.functions,
@@ -684,6 +686,7 @@ export async function generateMealReview(meal: any, userProfile: any): Promise<s
 
 export async function askAiCoach(message: string, userProfile: any): Promise<string> {
   try {
+    await initializeFirebaseAppCheck()
     const firebase = requireNutritionFirebase();
     const callable = httpsCallable<{ message: string, userProfile: any }, { text: string }>(
       firebase.functions,

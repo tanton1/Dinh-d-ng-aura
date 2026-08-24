@@ -2,9 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, CircleAlert, RefreshCw, X } from 'lucide-react'
 import {
   confirmMySession,
-  getMyCoachWorkspaceScope,
-  listMyAssignedStudents,
-  listMyTrainerSchedule,
+  getMyTrainerWorkspace,
   requestSessionChange,
   type TrainerSessionRequestSummary,
   type TrainerSessionSummary,
@@ -73,37 +71,20 @@ export default function TrainerPortalV2({ section = 'students' }: { section?: Tr
     ...students.map((student) => [student.id, student.name] as const),
     ...sessions.filter((session) => session.studentName).map((session) => [session.studentId, session.studentName as string] as const),
   ]), [sessions, students])
-  const loadScope = useCallback(async () => {
-    setScopeLoading(true)
-    setScopeError('')
-    try {
-      setWorkspace(await getMyCoachWorkspaceScope())
-    } catch (cause) {
-      setScopeError(cause instanceof Error ? cause.message : 'Không thể xác minh phân công HLV.')
-    } finally {
-      setScopeLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadScope()
-  }, [loadScope])
-
   const load = useCallback(async () => {
-    if (!workspace) { setLoading(false); return }
-    setLoading(true); setError('')
+    setScopeLoading(true); setLoading(true); setScopeError(''); setError('')
     try {
-      if (section === 'students' && canViewStudents) {
-        const result = await listMyAssignedStudents()
-        setStudents(result.students)
-      } else if ((section === 'schedule' || section === 'requests') && canViewSchedule) {
-        const result = await listMyTrainerSchedule(from, to)
-        setSessions(result.sessions)
-        setRequests(result.requests ?? [])
-      }
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu được phân công.') }
-    finally { setLoading(false) }
-  }, [canViewSchedule, canViewStudents, from, section, to, workspace])
+      const result = await getMyTrainerWorkspace(section, from, to)
+      setWorkspace(result.scope)
+      setStudents(result.students)
+      setSessions(result.sessions)
+      setRequests(result.requests ?? [])
+    } catch (cause) {
+      setScopeError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu được phân công.')
+    } finally {
+      setScopeLoading(false); setLoading(false)
+    }
+  }, [from, section, to])
   useEffect(() => { void load() }, [load])
 
   const confirm = async (session: TrainerSessionSummary) => {
@@ -146,7 +127,7 @@ export default function TrainerPortalV2({ section = 'students' }: { section?: Tr
   return <section className="opv2-page">
     <section className="opv2-hero"><p className="opv2-kicker">Aura Staff · Công việc</p><h1>{sectionCopy[section].title}</h1><p>{sectionCopy[section].description}</p></section>
     {scopeLoading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đối chiếu phân công trong Học viên PT Gym…</div>}
-    {!scopeLoading && scopeError && <div className="opv2-state is-error">{scopeError}<button className="opv2-action" onClick={() => void loadScope()}>Kết nối lại</button></div>}
+    {!scopeLoading && scopeError && <div className="opv2-state is-error">{scopeError}<button className="opv2-action" onClick={() => void load()}>Kết nối lại</button></div>}
     {!scopeLoading && workspace && !canOpenSection && <section className="opv2-guidance"><CircleAlert size={20} /><div><strong>Chưa có dữ liệu được phân công</strong><p>Trang này chỉ hiển thị dữ liệu gắn trực tiếp với tài khoản Staff của bạn. Quản trị viên có thể cập nhật PT chính, PT phụ hoặc lịch dạy tại hồ sơ học viên.</p></div></section>}
     {!scopeLoading && workspace && canOpenSection && <>
     <section className="opv2-summary"><div className="opv2-stat"><strong>{workspace.counts.primaryStudents}</strong><span>học viên PT chính</span></div><div className="opv2-stat"><strong>{workspace.counts.secondaryStudents}</strong><span>học viên PT phụ</span></div><div className="opv2-stat"><strong>{workspace.counts.teachingSessions}</strong><span>buổi được phân công</span></div></section>

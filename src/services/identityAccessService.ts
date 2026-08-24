@@ -130,7 +130,7 @@ export async function getMyAccessContext(uid: string): Promise<AccessContext> {
   const callable = httpsCallable<Record<string, never>, { accessContext: unknown }>(
     requireFunctions(),
     'getMyAccessContext',
-    { timeout: 20_000 },
+    { timeout: 10_000 },
   )
   const transientCodes = new Set([
     'internal',
@@ -139,7 +139,7 @@ export async function getMyAccessContext(uid: string): Promise<AccessContext> {
     'deadline-exceeded',
   ])
   let lastError: unknown
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const response = await callable({})
       return parseAccessContext(response.data.accessContext, uid)
@@ -147,7 +147,7 @@ export async function getMyAccessContext(uid: string): Promise<AccessContext> {
       lastError = error
       const source = error && typeof error === 'object' ? error as { code?: unknown } : {}
       const code = typeof source.code === 'string' ? source.code.replace(/^functions\//, '') : ''
-      if (!transientCodes.has(code) || attempt === 2) throw error
+      if (!transientCodes.has(code) || attempt === 1) throw error
       await new Promise((resolve) => window.setTimeout(resolve, 400 * (attempt + 1)))
     }
   }

@@ -169,7 +169,9 @@ Object.assign(exports, ptOperationsV2Functions)
 exports.listMyStudentPtSchedule = ptOperationsV2Functions.listMyStudentPtSchedule
 exports.saveMyStudentAvailability = ptOperationsV2Functions.saveMyStudentAvailability
 exports.getMyCoachWorkspaceScope = ptOperationsV2Functions.getMyCoachWorkspaceScope
+exports.getMyTrainerWorkspace = ptOperationsV2Functions.getMyTrainerWorkspace
 exports.listMyTrainerSchedule = ptOperationsV2Functions.listMyTrainerSchedule
+exports.getMySalesWorkspace = ptOperationsV2Functions.getMySalesWorkspace
 const ptSchedulePublishFunctions = createPtSchedulePublishFunctions({ db, onCall })
 Object.assign(exports, ptSchedulePublishFunctions)
 // Static exports keep the two rollout endpoints selectable with --only.

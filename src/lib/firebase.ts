@@ -1,5 +1,5 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app'
-import { initializeAppCheck, ReCaptchaEnterpriseProvider, type AppCheck } from 'firebase/app-check'
+import type { AppCheck } from 'firebase/app-check'
 import { connectAuthEmulator, getAuth, type Auth } from 'firebase/auth'
 import {
   connectFirestoreEmulator,
@@ -38,13 +38,55 @@ export const useFirebaseEmulators =
 
 export let firebaseApp: FirebaseApp | null = null
 export let firebaseAppCheck: AppCheck | null = null
-export type FirebaseAppCheckStatus = 'disabled' | 'enabled' | 'missing_site_key' | 'initialization_error' | 'emulator'
+export type FirebaseAppCheckStatus = 'disabled' | 'initializing' | 'enabled' | 'missing_site_key' | 'initialization_error' | 'emulator'
 export let firebaseAppCheckStatus: FirebaseAppCheckStatus = 'disabled'
 export let firebaseAuth: Auth | null = null
 export let firestoreDb: Firestore | null = null
 export let firebaseStorage: FirebaseStorage | null = null
 export let firebaseFunctions: Functions | null = null
 let firebaseMessagingPromise: Promise<Messaging | null> | null = null
+let firebaseAppCheckPromise: Promise<AppCheck | null> | null = null
+
+export function initializeFirebaseAppCheck(): Promise<AppCheck | null> {
+  if (!firebaseApp || !appCheckSiteKey || useFirebaseEmulators) return Promise.resolve(null)
+  if (firebaseAppCheck) return Promise.resolve(firebaseAppCheck)
+  if (!firebaseAppCheckPromise) {
+    firebaseAppCheckStatus = 'initializing'
+    firebaseAppCheckPromise = import('firebase/app-check')
+      .then(({ initializeAppCheck, ReCaptchaEnterpriseProvider }) => {
+        firebaseAppCheck = initializeAppCheck(firebaseApp!, {
+          provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
+          isTokenAutoRefreshEnabled: true,
+        })
+        firebaseAppCheckStatus = 'enabled'
+        return firebaseAppCheck
+      })
+      .catch((error) => {
+        firebaseAppCheckStatus = 'initialization_error'
+        if (import.meta.env.DEV) console.warn('Firebase App Check failed to initialize', error)
+        return null
+      })
+  }
+  return firebaseAppCheckPromise
+}
+
+function scheduleFirebaseAppCheck() {
+  const start = () => { void initializeFirebaseAppCheck() }
+  if (import.meta.env.VITE_APP_CHECK_INITIALIZATION === 'immediate') {
+    start()
+    return
+  }
+  const schedule = () => {
+    const idleWindow = window as Window & { requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number }
+    if (typeof idleWindow.requestIdleCallback === 'function') {
+      idleWindow.requestIdleCallback(start, { timeout: 1_500 })
+    } else {
+      globalThis.setTimeout(start, 800)
+    }
+  }
+  if (document.readyState === 'complete') schedule()
+  else window.addEventListener('load', schedule, { once: true })
+}
 
 export function getFirebaseMessaging(): Promise<Messaging | null> {
   if (!firebaseApp || typeof window === 'undefined' || !('serviceWorker' in navigator)) {
@@ -72,16 +114,8 @@ if (isFirebaseConfigured) {
   firebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig)
 
   if (appCheckSiteKey && !useFirebaseEmulators) {
-    try {
-      firebaseAppCheck = initializeAppCheck(firebaseApp, {
-        provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
-        isTokenAutoRefreshEnabled: true,
-      })
-      firebaseAppCheckStatus = 'enabled'
-    } catch (error) {
-      firebaseAppCheckStatus = 'initialization_error'
-      if (import.meta.env.DEV) console.warn('Firebase App Check failed to initialize', error)
-    }
+    firebaseAppCheckStatus = 'initializing'
+    scheduleFirebaseAppCheck()
   } else if (useFirebaseEmulators) {
     firebaseAppCheckStatus = 'emulator'
   } else {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { courses as demoCourses } from '../data'
 import { isFirebaseConfigured } from '../lib/firebase'
 import { academyDemoFallbackEnabled, subscribeToCourses } from '../services/firebaseService'
@@ -12,10 +12,16 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
   const [loading, setLoading] = useState(isFirebaseConfigured)
   const [error, setError] = useState<string | null>(null)
   const [refreshNonce, setRefreshNonce] = useState(0)
+  const lastAutoRefreshAt = useRef(0)
 
   useEffect(() => {
     if (!enabled || includeDrafts) return
-    const refresh = () => setRefreshNonce((value) => value + 1)
+    const refresh = () => {
+      const now = Date.now()
+      if (now - lastAutoRefreshAt.current < 60_000) return
+      lastAutoRefreshAt.current = now
+      setRefreshNonce((value) => value + 1)
+    }
     const onVisibility = () => { if (document.visibilityState === 'visible') refresh() }
     window.addEventListener('online', refresh)
     window.addEventListener('focus', refresh)
@@ -38,6 +44,7 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
     }
 
     setLoading(true)
+    lastAutoRefreshAt.current = Date.now()
     return subscribeToCourses(
       includeDrafts,
       (firebaseCourses) => {

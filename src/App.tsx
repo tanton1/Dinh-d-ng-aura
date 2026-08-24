@@ -98,6 +98,11 @@ const roleLabels: Record<UserRole, string> = {
   user: 'Khách hàng',
 }
 
+const learnerAcademyViews = new Set<ViewId>(['home', 'courses', 'course-detail', 'progress'])
+const adminAcademyViews = new Set<ViewId>(['admin-courses', 'admin-course-editor', 'admin-academy-students', 'admin-students'])
+const adminDirectoryViews = new Set<ViewId>(['admin-academy-students', 'admin-students', 'admin-roles', 'admin-hr', 'admin-notifications'])
+const adminAcademyAnalyticsViews = new Set<ViewId>(['admin-courses', 'admin-academy-students', 'admin-students'])
+
 function AuraApplication() {
   const { user, profile, role, accessContext, setPreviewRole, loading, backendMode, signOut, changePassword, hasCapability, authorizationError, authzReady, profileSyncState, saveProfileChanges } = useAuth()
   const canAccessAdmin = hasPermission(role, 'dashboard.view')
@@ -106,6 +111,7 @@ function AuraApplication() {
   const isStaffWorkspace = accessContext?.accessRole === 'staff'
     || ['coach', 'trainer', 'sales', 'manager', 'editor'].includes(role)
   const [route, setRoute] = useState<AuraRoute>(getCurrentRoute)
+  const view = route.view
   const routeRef = useRef(route)
   const [adminPreviewCourseId, setAdminPreviewCourseId] = useState<string | null>(null)
   const [editorDirty, setEditorDirty] = useState(false)
@@ -122,11 +128,19 @@ function AuraApplication() {
   const [localProfile, setLocalProfile] = useState<ProfileUpdateInput | null>(null)
   const [localEnrollmentIds, setLocalEnrollmentIds] = useState<Set<string>>(() => new Set())
   const [demoProgressByCourseId, setDemoProgressByCourseId] = useState<Map<string, CourseProgress>>(() => new Map())
-  const learningData = useLearningProgress(user?.uid, backendMode === 'firebase' && Boolean(user))
+  const learnerAcademyEnabled = Boolean(user) && learnerAcademyViews.has(view)
+  const adminAcademyEnabled = Boolean(user) && canManageAcademy && (
+    adminAcademyViews.has(view) || (view === 'course-detail' && adminPreviewCourseId !== null)
+  )
+  const adminDirectoryEnabled = Boolean(user) && adminDirectoryViews.has(view)
+  const adminAcademyAnalyticsEnabled = Boolean(user) && adminAcademyAnalyticsViews.has(view)
+  const learningData = useLearningProgress(
+    user?.uid,
+    backendMode === 'firebase' && learnerAcademyEnabled,
+  )
   const academyAccessRevision = `${profile?.membership ?? 'free'}:${[...learningData.enrollmentByCourseId.entries()].map(([courseId, enrollment]) => `${courseId}:${enrollment.status}`).sort().join('|')}:${[...localEnrollmentIds].sort().join('|')}`
-  const studentCourseData = useCourses(Boolean(user), false, academyAccessRevision)
-  const adminCourseData = useCourses(Boolean(user) && canManageAcademy, true)
-  const view = route.view
+  const studentCourseData = useCourses(learnerAcademyEnabled, false, academyAccessRevision)
+  const adminCourseData = useCourses(adminAcademyEnabled, true)
   const mode: AppMode = adminViews.includes(view) ? 'admin' : 'student'
   const effectiveNutritionProfile = profile?.nutritionProfile ?? localNutritionProfile
   const dailyNutrition = useDailyNutritionSummary(
@@ -210,7 +224,10 @@ function AuraApplication() {
   }
 
   useEffect(() => {
-    if (!user || backendMode !== 'firebase' || !hasPermission(role, 'team.view')) return
+    if (!adminDirectoryEnabled || backendMode !== 'firebase' || !hasPermission(role, 'team.view')) {
+      setAdminUsersLoading(false)
+      return
+    }
     setAdminUsersLoading(true)
     return subscribeToAdminUsers(
       (items) => {
@@ -219,10 +236,10 @@ function AuraApplication() {
       },
       () => setAdminUsersLoading(false),
     )
-  }, [backendMode, role, user])
+  }, [adminDirectoryEnabled, backendMode, role])
 
   useEffect(() => {
-    if (!user || backendMode !== 'firebase' || !hasPermission(role, 'analytics.view_all')) return
+    if (!adminAcademyAnalyticsEnabled || backendMode !== 'firebase' || !hasPermission(role, 'analytics.view_all')) return
     return (() => {
       const unsubEnrollments = subscribeToAllEnrollments(
         (items) => setAdminEnrollments(items),
@@ -237,7 +254,7 @@ function AuraApplication() {
         unsubProgress()
       }
     })()
-  }, [backendMode, role, user])
+  }, [adminAcademyAnalyticsEnabled, backendMode, role])
 
   useEffect(() => {
     if (!user || backendMode !== 'firebase') return

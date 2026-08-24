@@ -262,7 +262,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, 2500)
 
     let unsubscribeProfile: (() => void) | undefined
+    let authGeneration = 0
     const unsubscribeAuth = onIdTokenChanged(firebaseAuth, async (firebaseUser) => {
+      const generation = ++authGeneration
+      const isCurrent = () => generation === authGeneration
       clearTimeout(safetyTimeout)
       unsubscribeProfile?.()
 
@@ -294,28 +297,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Firebase Auth is the login boundary. Do not keep the whole app blocked
       // while the ID-token claims or Firestore profile are still synchronising.
       setLoading(false)
+
+      // Resolve the capability scope in parallel with the locally cached ID
+      // token. Previously this request started only after token decoding and
+      // blocked profile hydration/listeners for the full callable cold start.
+      void getMyAccessContext(firebaseUser.uid)
+        .then((nextAccessContext) => {
+          if (!isCurrent()) return
+          setAccessContext(nextAccessContext)
+          if (nextAccessContext.status !== 'active') {
+            setAuthorizationError('Tài khoản đang bị tạm khóa hoặc chưa hoàn tất lời mời.')
+          }
+        })
+        .catch((error) => {
+          if (!isCurrent()) return
+          setAccessContext(emptyStudentAccessContext(firebaseUser.uid))
+          setAuthorizationError(error instanceof Error && error.message.includes('Quyền tài khoản chưa đồng bộ')
+            ? 'Quyền tài khoản chưa đồng bộ. Vui lòng đăng nhập lại hoặc liên hệ quản trị viên.'
+            : 'Chưa thể xác minh phạm vi quyền. Các chức năng nhân viên đang được khóa an toàn.')
+          reportClientIssue('auth', error, { phase: 'access_context_sync', retryable: true })
+        })
+        .finally(() => {
+          if (isCurrent()) setAuthzReady(true)
+        })
+
       let tokenRole: UserRole = 'student'
       try {
         const tokenResult = await getIdTokenResult(firebaseUser)
+        if (!isCurrent()) return
         tokenRole = tokenRoleFromClaims(tokenResult.claims.role)
       } catch {
         // Fail closed to the learner role while token refresh is unavailable.
       }
-      try {
-        const nextAccessContext = await getMyAccessContext(firebaseUser.uid)
-        setAccessContext(nextAccessContext)
-        if (nextAccessContext.status !== 'active') {
-          setAuthorizationError('Tài khoản đang bị tạm khóa hoặc chưa hoàn tất lời mời.')
-        }
-      } catch (error) {
-        setAccessContext(emptyStudentAccessContext(firebaseUser.uid))
-        setAuthorizationError(error instanceof Error && error.message.includes('Quyền tài khoản chưa đồng bộ')
-          ? 'Quyền tài khoản chưa đồng bộ. Vui lòng đăng nhập lại hoặc liên hệ quản trị viên.'
-          : 'Chưa thể xác minh phạm vi quyền. Các chức năng nhân viên đang được khóa an toàn.')
-        reportClientIssue('auth', error, { phase: 'access_context_sync', retryable: true })
-      } finally {
-        setAuthzReady(true)
-      }
+      if (!isCurrent()) return
 
       // A cache is display-only. Only a versioned envelope previously written
       // from a confirmed Firestore snapshot is accepted here.
@@ -338,6 +352,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         doc(firestoreDb!, 'users', firebaseUser.uid),
         { includeMetadataChanges: true },
         (snapshot) => {
+          if (!isCurrent()) return
           if (snapshot.exists()) {
             const data = snapshot.data() as UserProfile
             const activeNutritionProfile = data.nutritionProfile || undefined
@@ -411,6 +426,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setLoading(false)
         },
         (err) => {
+          if (!isCurrent()) return
           reportClientIssue('firestore', err, { phase: 'profile_subscription', retryable: true })
           const fallback = readProfileCache(firebaseUser.uid)
           if (fallback) setProfile({ ...fallback.value, role: effectiveRole(tokenRole, fallback.value.role) })
@@ -425,6 +441,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
 
     return () => {
+      authGeneration += 1
       unsubscribeProfile?.()
       unsubscribeAuth()
       clearRecaptchaVerifier()

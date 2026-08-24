@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
   CheckCircle2,
@@ -72,7 +72,7 @@ export function NutritionReviewWorkspace({
   const [status, setStatus] = useState<StatusFilter>('pending')
   const [coachId, setCoachId] = useState('all')
   const [query, setQuery] = useState('')
-  const deferredQuery = useDeferredValue(query)
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [selectedId, setSelectedId] = useState('')
   const [detailSlide, setDetailSlide] = useState(0)
   const [feedback, setFeedback] = useState('')
@@ -81,6 +81,11 @@ export function NutritionReviewWorkspace({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => setDebouncedQuery(query.trim()), 320)
+    return () => window.clearTimeout(timeoutId)
+  }, [query])
 
   const requestPage = useCallback(async (cursor: string | null, append: boolean) => {
     if (append) setLoadingMore(true)
@@ -92,7 +97,7 @@ export function NutritionReviewWorkspace({
         limit: 30,
         cursor,
         coachId,
-        query: deferredQuery,
+        query: debouncedQuery,
       })
       setReviews((current) => append
         ? [...new Map([...current, ...result.reviews].map((item) => [item.id, item])).values()]
@@ -114,7 +119,7 @@ export function NutritionReviewWorkspace({
       if (append) setLoadingMore(false)
       else setLoading(false)
     }
-  }, [coachId, deferredQuery, status])
+  }, [coachId, debouncedQuery, status])
 
   const load = useCallback(() => requestPage(null, false), [requestPage])
 

@@ -100,7 +100,7 @@ export function initializeClientTelemetry() {
   window.addEventListener('error', onWindowError)
   window.addEventListener('unhandledrejection', onUnhandledRejection)
 
-  if (isFirebaseConfigured && !useFirebaseEmulators && firebaseAppCheckStatus !== 'enabled') {
+  if (isFirebaseConfigured && !useFirebaseEmulators && !['enabled', 'initializing'].includes(firebaseAppCheckStatus)) {
     let shouldReportAppCheck = true
     try {
       shouldReportAppCheck = window.sessionStorage.getItem('aura:app-check-telemetry') !== 'reported'

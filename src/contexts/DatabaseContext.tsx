@@ -81,7 +81,8 @@ const LEGACY_OPERATIONS_VIEW_SOURCES = {
   // The history workspace resolves the selected subject locally, while all
   // historical sessions are fetched cursor-first from a callable API.
   'admin-training-history': ['students', 'trainers'],
-  'admin-report': ['sessions', 'trainers', 'contracts', 'students', 'payments', 'branches'],
+  // The report dashboard uses one bounded aggregate callable. It must not also
+  // subscribe to thousands of PT legacy documents in the background.
   'admin-finance': ['branches', 'contracts', 'students', 'payments'],
   // Nhân sự & Chi nhánh now renders the identity workspace. It only needs
   // branch labels for scoped assignment; PT legacy history is not loaded here.

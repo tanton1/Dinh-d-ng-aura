@@ -119,6 +119,23 @@ test('learner and staff personal Gym schedule is self-scoped and availability wr
   assert.doesNotMatch(studentScheduleBlock, /request\.data\?\.studentId/)
 })
 
+test('Sales workspace bootstraps quotes and catalog through one actor-scoped callable', () => {
+  assert.match(operationsV2Source, /const getMySalesWorkspace = staffCall/)
+  assert.match(operationsV2Source, /const actor = await salesActor\(request, db\)/)
+  assert.match(operationsV2Source, /requireCapability\(actor, 'sales\.quotes\.self\.manage'\)/)
+  assert.match(operationsV2Source, /Promise\.all\(\[\s*salesQuotesForActor\(db, actor, limit\),\s*salesCatalogForActor\(db, actor\)/)
+  assert.match(functionsSource, /exports\.getMySalesWorkspace = ptOperationsV2Functions\.getMySalesWorkspace/)
+})
+
+test('Trainer pages keep separate sections while sharing one actor-scoped bootstrap callable', () => {
+  assert.match(operationsV2Source, /const getMyTrainerWorkspace = staffCall/)
+  assert.match(operationsV2Source, /const actor = await trainerActor\(request, db\)/)
+  assert.match(operationsV2Source, /coachWorkspaceScopeForActor\(db, actor\)/)
+  assert.match(operationsV2Source, /assignedStudentsForActor\(db, actor, limit\)/)
+  assert.match(operationsV2Source, /trainerScheduleForActor\(db, actor, from, to, limit\)/)
+  assert.match(functionsSource, /exports\.getMyTrainerWorkspace = ptOperationsV2Functions\.getMyTrainerWorkspace/)
+})
+
 test('student schedule client maps callable failures to actionable structured states', () => {
   for (const issueCode of [
     'AUTH_REQUIRED',

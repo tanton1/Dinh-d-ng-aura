@@ -29,6 +29,9 @@ const appSource = readFileSync(join(repositoryRoot, 'src', 'App.tsx'), 'utf8')
 const appShellSource = readFileSync(join(repositoryRoot, 'src', 'components', 'AppShell.tsx'), 'utf8')
 const ptOperationsClientSource = readFileSync(join(repositoryRoot, 'src', 'services', 'ptOperationsV2Service.ts'), 'utf8')
 const branchScheduleWorkspaceSource = readFileSync(join(repositoryRoot, 'src', 'components', 'schedule', 'BranchScheduleWorkspace.tsx'), 'utf8')
+const firebaseClientSource = readFileSync(join(repositoryRoot, 'src', 'lib', 'firebase.ts'), 'utf8')
+const indexHtmlSource = readFileSync(join(repositoryRoot, 'index.html'), 'utf8')
+const vercelConfig = JSON.parse(readFileSync(join(repositoryRoot, 'vercel.json'), 'utf8'))
 
 function readRuntimeSources(directory) {
   return readdirSync(directory, { withFileTypes: true })
@@ -312,7 +315,8 @@ test('staff keeps learner navigation while every work capability has a separate 
 test('access context retries transient infrastructure failures without retrying authorization failures', () => {
   const identityClient = readFileSync(join(repositoryRoot, 'src', 'services', 'identityAccessService.ts'), 'utf8')
   const accessMethod = identityClient.match(/export async function getMyAccessContext[\s\S]*?\n}/)?.[0] || ''
-  assert.match(accessMethod, /attempt < 3/)
+  assert.match(accessMethod, /timeout: 10_000/)
+  assert.match(accessMethod, /attempt < 2/)
   assert.match(accessMethod, /resource-exhausted/)
   assert.match(accessMethod, /deadline-exceeded/)
   assert.match(accessMethod, /if \(!transientCodes\.has\(code\)/)
@@ -323,6 +327,7 @@ test('legacy operations listeners are route scoped and never load the admin dash
   const viewScope = databaseContextSource.match(/const LEGACY_OPERATIONS_VIEW_SOURCES = \{[\s\S]*?\n\} as const satisfies/)?.[0] ?? ''
 
   assert.doesNotMatch(viewScope, /['"]admin-dashboard['"]/, 'the dashboard must use aggregate APIs, not legacy listeners')
+  assert.doesNotMatch(viewScope, /['"]admin-report['"]/, 'the report must use aggregate APIs, not legacy listeners')
   assert.match(viewScope, /'admin-finance': \['branches', 'contracts', 'students', 'payments'\]/)
   assert.match(viewScope, /'admin-schedule-settings': \['scheduleConfig'\]/)
   assert.match(databaseContextSource, /const activeSources = new Set<LegacyOperationSource>\(LEGACY_OPERATIONS_VIEW_SOURCES\[operationsView\]\)/)
@@ -351,6 +356,18 @@ test('legacy operations listeners are route scoped and never load the admin dash
 
   assert.doesNotMatch(databaseContextSource, /markReady\(['"]globalSchedule['"]\)/)
   assert.doesNotMatch(databaseContextSource, /onSnapshot\(doc\(db, ['"]schedules['"], ['"]global_schedule['"]\)/)
+})
+
+test('startup defers non-critical providers and ships immutable hashed assets', () => {
+  assert.match(firebaseClientSource, /import\('firebase\/app-check'\)/)
+  assert.match(firebaseClientSource, /requestIdleCallback/)
+  assert.match(indexHtmlSource, /href="\/icons\/aura-icon-192\.png"/)
+  assert.doesNotMatch(indexHtmlSource, /LogoAura_Update_final2|preconnect" href="https:\/\/www\.(?:google|gstatic)\.com/)
+
+  const assetPolicy = vercelConfig.headers.find((entry) => entry.source === '/assets/(.*)')
+  const rootPolicy = vercelConfig.headers.find((entry) => entry.source === '/')
+  assert.equal(assetPolicy?.headers?.find((header) => header.key === 'Cache-Control')?.value, 'public, max-age=31536000, immutable')
+  assert.equal(rootPolicy?.headers?.find((header) => header.key === 'Cache-Control')?.value, 'public, max-age=0, must-revalidate')
 })
 
 test('student identity linking is target-only, digest-gated, scoped to learners, and PII-safe', () => {

@@ -212,6 +212,144 @@ async function assignedContracts(db, actor, relation = 'training', limit = 200) 
   return [...result.values()].filter((contract) => owns(contract, actor)).slice(0, limit)
 }
 
+async function salesQuotesForActor(db, actor, limit) {
+  const quoteQueries = [
+    db.collection('quotes').where('assignedSalesId', '==', actor.uid).limit(limit).get(),
+    ...actor.branchIds.map((branchId) => db.collection('quotes').where('branchId', '==', branchId).limit(limit).get()),
+  ]
+  const snapshots = await Promise.all(quoteQueries)
+  const quotes = new Map()
+  snapshots.forEach((snapshot) => snapshot.docs.forEach((document) => {
+    const quote = document.data()
+    if (quote.assignedSalesId === actor.uid || actor.branchIds.includes(quote.branchId)) {
+      quotes.set(document.id, serialize({ id: document.id, ...quote }))
+    }
+  }))
+  return [...quotes.values()].slice(0, limit)
+}
+
+async function salesCatalogForActor(db, actor) {
+  const [branchSnapshots, packageSnapshot] = await Promise.all([
+    actor.branchIds.length ? db.getAll(...actor.branchIds.map((id) => db.doc(`branches/${id}`))) : [],
+    db.collection('packages').limit(100).get(),
+  ])
+  const branches = branchSnapshots
+    .filter((item) => item.exists)
+    .map((item) => ({ id: item.id, name: item.data().name || item.id }))
+  const packages = packageSnapshot.docs
+    .filter((item) => item.data().status !== 'inactive')
+    .map((item) => ({ id: item.id, name: item.data().name || item.id, price: Number(item.data().price || 0), branchId: item.data().branchId || '' }))
+    .filter((item) => !item.branchId || actor.branchIds.includes(item.branchId))
+  return { branches, packages }
+}
+
+async function coachWorkspaceScopeForActor(db, actor) {
+  const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
+  const [trainingContracts, nutritionContracts, sessionSnapshots, requestSnapshots] = await Promise.all([
+    assignedContracts(db, actor, 'training', 300),
+    assignedContracts(db, actor, 'nutrition', 300),
+    Promise.all(actorIds.map((actorId) => db.collection('sessions').where('trainerId', '==', actorId).limit(200).get())),
+    Promise.all(actorIds.map((actorId) => db.collection('sessionRequests').where('trainerId', '==', actorId).limit(100).get())),
+  ])
+  const activeTraining = trainingContracts.filter(activeAssignmentContract)
+  const activeNutrition = nutritionContracts.filter(activeAssignmentContract)
+  const teachingSessions = new Map()
+  sessionSnapshots.forEach((snapshot) => snapshot.docs.forEach((document) => teachingSessions.set(document.id, document.data())))
+  const pendingRequests = new Map()
+  requestSnapshots.forEach((snapshot) => snapshot.docs.forEach((document) => {
+    const value = document.data() || {}
+    if (value.requestedBy === 'trainer' && value.status === 'pending') pendingRequests.set(document.id, value)
+  }))
+  const trainingStudentIds = new Set(activeTraining.map((contract) => contract.studentId).filter(Boolean))
+  const nutritionStudentIds = new Set(activeNutrition.map((contract) => contract.studentId).filter(Boolean))
+  const actorAssignmentIds = [actor.uid, actor.legacyStaffId].filter(Boolean)
+  const primaryStudentIds = new Set(activeTraining.filter((contract) => {
+    const trainerIds = Array.isArray(contract.trainerIds) ? contract.trainerIds : []
+    return actorAssignmentIds.some((id) => contract.trainerId === id || trainerIds[0] === id)
+  }).map((contract) => contract.studentId).filter(Boolean))
+  const secondaryStudentIds = new Set(activeTraining.filter((contract) => {
+    const trainerIds = Array.isArray(contract.trainerIds) ? contract.trainerIds.slice(1) : []
+    return actorAssignmentIds.some((id) => trainerIds.includes(id))
+  }).map((contract) => contract.studentId).filter((studentId) => studentId && !primaryStudentIds.has(studentId)))
+  const hasTeachingWork = trainingStudentIds.size > 0 || teachingSessions.size > 0
+  return {
+    schemaVersion: 1,
+    source: 'pt_contract_assignments',
+    staffId: actor.legacyStaffId || actor.uid,
+    tabs: {
+      students: trainingStudentIds.size > 0,
+      schedule: hasTeachingWork,
+      requests: hasTeachingWork,
+      nutrition: nutritionStudentIds.size > 0,
+    },
+    counts: {
+      primaryStudents: primaryStudentIds.size,
+      secondaryStudents: secondaryStudentIds.size,
+      nutritionStudents: nutritionStudentIds.size,
+      teachingSessions: teachingSessions.size,
+      pendingRequests: pendingRequests.size,
+    },
+  }
+}
+
+async function assignedStudentsForActor(db, actor, limit) {
+  const contracts = await assignedContracts(db, actor, 'training', limit)
+  const studentIds = [...new Set(contracts.map((item) => item.studentId).filter(Boolean))]
+  const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : []
+  const activeContractByStudent = new Map(contracts.filter((item) => item.status === 'active').map((item) => [item.studentId, item]))
+  const students = studentSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => {
+    const student = snapshot.data()
+    const contract = activeContractByStudent.get(snapshot.id) || contracts.find((item) => item.studentId === snapshot.id)
+    return serialize({
+      id: snapshot.id, name: student.name || 'Học viên Aura', phone: student.phone || '', email: student.email || '',
+      branchId: student.branchId || contract?.branchId || '', status: student.status || 'active', sessionsPerWeek: student.sessionsPerWeek || 0,
+      assignmentRole: contract ? (() => {
+        const actorIds = [actor.uid, actor.legacyStaffId].filter(Boolean)
+        const trainerIds = Array.isArray(contract.trainerIds) ? contract.trainerIds : []
+        return actorIds.some((id) => contract.trainerId === id || trainerIds[0] === id) ? 'primary' : 'secondary'
+      })() : 'secondary',
+      contract: contract ? { id: contract.id, status: contract.status, startDate: contract.startDate, endDate: contract.endDate, totalSessions: contract.totalSessions || 0, usedSessions: contract.usedSessions || 0 } : null,
+    })
+  })
+  return { schemaVersion: 1, students, hasMore: contracts.length >= limit }
+}
+
+async function trainerScheduleForActor(db, actor, from, to, limit) {
+  const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
+  const [snapshots, requestSnapshots] = await Promise.all([
+    Promise.all(actorIds.map((actorId) => db.collection('sessions').where('trainerId', '==', actorId).where('date', '>=', from).where('date', '<=', to).limit(limit).get())),
+    Promise.all(actorIds.map((actorId) => db.collection('sessionRequests').where('trainerId', '==', actorId).limit(100).get())),
+  ])
+  const sessions = new Map()
+  snapshots.forEach((snapshot) => snapshot.docs.forEach((document) => sessions.set(document.id, serialize({ id: document.id, ...document.data(), timeZone: TIME_ZONE }))))
+  const studentIds = [...new Set([...sessions.values()].map((session) => session.studentId).filter(Boolean))]
+  const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : []
+  const studentNames = new Map(studentSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, snapshot.data().name || 'Học viên Aura']))
+  const requests = new Map()
+  requestSnapshots.forEach((snapshot) => snapshot.docs.forEach((document) => {
+    const value = document.data()
+    if (value.requestedBy === 'trainer') requests.set(document.id, serialize({
+      id: document.id,
+      sessionId: value.sessionId,
+      studentId: value.studentId,
+      type: value.type,
+      status: value.status,
+      originalDate: value.originalDate,
+      originalHour: value.originalHour,
+      newDate: value.newDate || null,
+      newHour: value.newHour ?? null,
+      reason: value.reason || '',
+      submittedAtIso: value.submittedAtIso || null,
+      decidedAtIso: value.decidedAtIso || null,
+    }))
+  }))
+  return {
+    schemaVersion: 2,
+    sessions: [...sessions.values()].map((session) => ({ ...session, studentName: studentNames.get(session.studentId) || 'Học viên Aura' })).sort((a, b) => `${a.date}-${a.hour || 0}`.localeCompare(`${b.date}-${b.hour || 0}`)),
+    requests: [...requests.values()].sort((a, b) => String(b.submittedAtIso || b.createdAt || '').localeCompare(String(a.submittedAtIso || a.createdAt || ''))),
+  }
+}
+
 function createPtOperationsV2Functions({ db, onCall }) {
   // PT/Sales endpoints are lightweight, Firestore-bound requests. Using the
   // Gen 1 CPU profile prevents a burst of separate callable services from
@@ -220,52 +358,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
 
   const getMyCoachWorkspaceScope = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
-    const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
-    const [trainingContracts, nutritionContracts, sessionSnapshots, requestSnapshots] = await Promise.all([
-      assignedContracts(db, actor, 'training', 300),
-      assignedContracts(db, actor, 'nutrition', 300),
-      Promise.all(actorIds.map((actorId) => db.collection('sessions').where('trainerId', '==', actorId).limit(200).get())),
-      Promise.all(actorIds.map((actorId) => db.collection('sessionRequests').where('trainerId', '==', actorId).limit(100).get())),
-    ])
-    const activeTraining = trainingContracts.filter(activeAssignmentContract)
-    const activeNutrition = nutritionContracts.filter(activeAssignmentContract)
-    const teachingSessions = new Map()
-    sessionSnapshots.forEach((snapshot) => snapshot.docs.forEach((document) => teachingSessions.set(document.id, document.data())))
-    const pendingRequests = new Map()
-    requestSnapshots.forEach((snapshot) => snapshot.docs.forEach((document) => {
-      const value = document.data() || {}
-      if (value.requestedBy === 'trainer' && value.status === 'pending') pendingRequests.set(document.id, value)
-    }))
-    const trainingStudentIds = new Set(activeTraining.map((contract) => contract.studentId).filter(Boolean))
-    const nutritionStudentIds = new Set(activeNutrition.map((contract) => contract.studentId).filter(Boolean))
-    const actorAssignmentIds = [actor.uid, actor.legacyStaffId].filter(Boolean)
-    const primaryStudentIds = new Set(activeTraining.filter((contract) => {
-      const trainerIds = Array.isArray(contract.trainerIds) ? contract.trainerIds : []
-      return actorAssignmentIds.some((id) => contract.trainerId === id || trainerIds[0] === id)
-    }).map((contract) => contract.studentId).filter(Boolean))
-    const secondaryStudentIds = new Set(activeTraining.filter((contract) => {
-      const trainerIds = Array.isArray(contract.trainerIds) ? contract.trainerIds.slice(1) : []
-      return actorAssignmentIds.some((id) => trainerIds.includes(id))
-    }).map((contract) => contract.studentId).filter((studentId) => studentId && !primaryStudentIds.has(studentId)))
-    const hasTeachingWork = trainingStudentIds.size > 0 || teachingSessions.size > 0
-    return {
-      schemaVersion: 1,
-      source: 'pt_contract_assignments',
-      staffId: actor.legacyStaffId || actor.uid,
-      tabs: {
-        students: trainingStudentIds.size > 0,
-        schedule: hasTeachingWork,
-        requests: hasTeachingWork,
-        nutrition: nutritionStudentIds.size > 0,
-      },
-      counts: {
-        primaryStudents: primaryStudentIds.size,
-        secondaryStudents: secondaryStudentIds.size,
-        nutritionStudents: nutritionStudentIds.size,
-        teachingSessions: teachingSessions.size,
-        pendingRequests: pendingRequests.size,
-      },
-    }
+    return coachWorkspaceScopeForActor(db, actor)
   })
 
   const listMyStudentPtSchedule = staffCall(async (request) => {
@@ -519,25 +612,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
   const listMyAssignedStudents = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
     const limit = integer(request.data?.limit, 100, 1, 200)
-    const contracts = await assignedContracts(db, actor, 'training', limit)
-    const studentIds = [...new Set(contracts.map((item) => item.studentId).filter(Boolean))]
-    const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : []
-    const activeContractByStudent = new Map(contracts.filter((item) => item.status === 'active').map((item) => [item.studentId, item]))
-    const students = studentSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => {
-      const student = snapshot.data()
-      const contract = activeContractByStudent.get(snapshot.id) || contracts.find((item) => item.studentId === snapshot.id)
-      return serialize({
-        id: snapshot.id, name: student.name || 'Học viên Aura', phone: student.phone || '', email: student.email || '',
-        branchId: student.branchId || contract?.branchId || '', status: student.status || 'active', sessionsPerWeek: student.sessionsPerWeek || 0,
-        assignmentRole: contract ? (() => {
-          const actorIds = [actor.uid, actor.legacyStaffId].filter(Boolean)
-          const trainerIds = Array.isArray(contract.trainerIds) ? contract.trainerIds : []
-          return actorIds.some((id) => contract.trainerId === id || trainerIds[0] === id) ? 'primary' : 'secondary'
-        })() : 'secondary',
-        contract: contract ? { id: contract.id, status: contract.status, startDate: contract.startDate, endDate: contract.endDate, totalSessions: contract.totalSessions || 0, usedSessions: contract.usedSessions || 0 } : null,
-      })
-    })
-    return { schemaVersion: 1, students, hasMore: contracts.length >= limit }
+    return assignedStudentsForActor(db, actor, limit)
   })
 
   const listMyTrainerSchedule = staffCall(async (request) => {
@@ -546,41 +621,26 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const to = dateKey(request.data?.to, 'Ngày kết thúc')
     if (from > to || Date.parse(`${to}T00:00:00+07:00`) - Date.parse(`${from}T00:00:00+07:00`) > 62 * 86400000) throw new HttpsError('invalid-argument', 'Khoảng lịch tối đa là 62 ngày.')
     const limit = integer(request.data?.limit, 300, 1, 500)
-    const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
-    const snapshots = []
-    const requestSnapshots = []
-    for (const actorId of actorIds) {
-      snapshots.push(await db.collection('sessions').where('trainerId', '==', actorId).where('date', '>=', from).where('date', '<=', to).limit(limit).get())
-      requestSnapshots.push(await db.collection('sessionRequests').where('trainerId', '==', actorId).limit(100).get())
+    return trainerScheduleForActor(db, actor, from, to, limit)
+  })
+
+  // Every Staff tab remains a separate page in the UI, while its initial
+  // scope and page payload share one verified backend invocation/cold start.
+  const getMyTrainerWorkspace = staffCall(async (request) => {
+    const actor = await trainerActor(request, db)
+    const section = ['students', 'schedule', 'requests'].includes(request.data?.section) ? request.data.section : 'students'
+    const scopePromise = coachWorkspaceScopeForActor(db, actor)
+    if (section === 'students') {
+      const limit = integer(request.data?.limit, 100, 1, 200)
+      const [scope, data] = await Promise.all([scopePromise, assignedStudentsForActor(db, actor, limit)])
+      return { schemaVersion: 1, scope, students: data.students, sessions: [], requests: [], hasMore: data.hasMore }
     }
-    const sessions = new Map()
-    snapshots.forEach((snapshot) => snapshot.docs.forEach((doc) => sessions.set(doc.id, serialize({ id: doc.id, ...doc.data(), timeZone: TIME_ZONE }))))
-    const studentIds = [...new Set([...sessions.values()].map((session) => session.studentId).filter(Boolean))]
-    const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : []
-    const studentNames = new Map(studentSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, snapshot.data().name || 'Học viên Aura']))
-    const requests = new Map()
-    requestSnapshots.forEach((snapshot) => snapshot.docs.forEach((doc) => {
-      const value = doc.data()
-      if (value.requestedBy === 'trainer') requests.set(doc.id, serialize({
-        id: doc.id,
-        sessionId: value.sessionId,
-        studentId: value.studentId,
-        type: value.type,
-        status: value.status,
-        originalDate: value.originalDate,
-        originalHour: value.originalHour,
-        newDate: value.newDate || null,
-        newHour: value.newHour ?? null,
-        reason: value.reason || '',
-        submittedAtIso: value.submittedAtIso || null,
-        decidedAtIso: value.decidedAtIso || null,
-      }))
-    }))
-    return {
-      schemaVersion: 2,
-      sessions: [...sessions.values()].map((session) => ({ ...session, studentName: studentNames.get(session.studentId) || 'Học viên Aura' })).sort((a, b) => `${a.date}-${a.hour || 0}`.localeCompare(`${b.date}-${b.hour || 0}`)),
-      requests: [...requests.values()].sort((a, b) => String(b.submittedAtIso || b.createdAt || '').localeCompare(String(a.submittedAtIso || a.createdAt || ''))),
-    }
+    const from = dateKey(request.data?.from, 'Ngày bắt đầu')
+    const to = dateKey(request.data?.to, 'Ngày kết thúc')
+    if (from > to || Date.parse(`${to}T00:00:00+07:00`) - Date.parse(`${from}T00:00:00+07:00`) > 62 * 86400000) throw new HttpsError('invalid-argument', 'Khoảng lịch tối đa là 62 ngày.')
+    const limit = integer(request.data?.limit, 300, 1, 500)
+    const [scope, data] = await Promise.all([scopePromise, trainerScheduleForActor(db, actor, from, to, limit)])
+    return { schemaVersion: 1, scope, students: [], sessions: data.sessions, requests: data.requests, hasMore: false }
   })
 
   const getMyTrainerStudentDetail = staffCall(async (request) => {
@@ -650,29 +710,27 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const actor = await salesActor(request, db)
     requireCapability(actor, 'sales.quotes.self.manage')
     const limit = integer(request.data?.limit, 100, 1, 200)
-    const snapshots = [await db.collection('quotes').where('assignedSalesId', '==', actor.uid).limit(limit).get()]
-    for (const branchId of actor.branchIds) snapshots.push(await db.collection('quotes').where('branchId', '==', branchId).limit(limit).get())
-    const quotes = new Map()
-    snapshots.forEach((snapshot) => snapshot.docs.forEach((doc) => {
-      const quote = doc.data()
-      if (quote.assignedSalesId === actor.uid || actor.branchIds.includes(quote.branchId)) quotes.set(doc.id, serialize({ id: doc.id, ...quote }))
-    }))
-    return { schemaVersion: 1, quotes: [...quotes.values()].slice(0, limit) }
+    return { schemaVersion: 1, quotes: await salesQuotesForActor(db, actor, limit) }
   })
 
   const getMySalesCatalog = staffCall(async (request) => {
     const actor = await salesActor(request, db)
     requireCapability(actor, 'sales.quotes.self.manage')
-    const [branchSnapshots, packageSnapshot] = await Promise.all([
-      actor.branchIds.length ? db.getAll(...actor.branchIds.map((id) => db.doc(`branches/${id}`))) : [],
-      db.collection('packages').limit(100).get(),
+    return { schemaVersion: 1, ...await salesCatalogForActor(db, actor) }
+  })
+
+  // One bootstrap callable avoids two independent Cloud Run cold starts when a
+  // Sales user opens the page. Scope is still derived from the verified actor;
+  // the browser never supplies an employee or branch identity.
+  const getMySalesWorkspace = staffCall(async (request) => {
+    const actor = await salesActor(request, db)
+    requireCapability(actor, 'sales.quotes.self.manage')
+    const limit = integer(request.data?.limit, 100, 1, 200)
+    const [quotes, catalog] = await Promise.all([
+      salesQuotesForActor(db, actor, limit),
+      salesCatalogForActor(db, actor),
     ])
-    const branches = branchSnapshots.filter((item) => item.exists).map((item) => ({ id: item.id, name: item.data().name || item.id }))
-    const packages = packageSnapshot.docs
-      .filter((item) => item.data().status !== 'inactive')
-      .map((item) => ({ id: item.id, name: item.data().name || item.id, price: Number(item.data().price || 0), branchId: item.data().branchId || '' }))
-      .filter((item) => !item.branchId || actor.branchIds.includes(item.branchId))
-    return { schemaVersion: 1, branches, packages }
+    return { schemaVersion: 2, quotes, catalog }
   })
 
   const createQuote = staffCall(async (request) => {
@@ -713,7 +771,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     return { approvalId: reference.id, status: 'pending' }
   })
 
-  return { getMyCoachWorkspaceScope, listMyStudentPtSchedule, saveMyStudentAvailability, listMyAssignedStudents, listMyTrainerSchedule, getMyTrainerStudentDetail, confirmMySession, submitWorkoutNote, requestSessionChange, listMyQuotes, getMySalesCatalog, createQuote, createStudentDraft, submitContractForApproval }
+  return { getMyCoachWorkspaceScope, getMyTrainerWorkspace, listMyStudentPtSchedule, saveMyStudentAvailability, listMyAssignedStudents, listMyTrainerSchedule, getMyTrainerStudentDetail, confirmMySession, submitWorkoutNote, requestSessionChange, listMyQuotes, getMySalesCatalog, getMySalesWorkspace, createQuote, createStudentDraft, submitContractForApproval }
 }
 
 module.exports = { createPtOperationsV2Functions, normalizedAvailabilitySlots, scheduleConfig, sessionHour }
