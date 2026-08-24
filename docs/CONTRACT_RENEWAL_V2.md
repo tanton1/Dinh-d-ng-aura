@@ -63,7 +63,7 @@ Khóa idempotency được kiểm tra trước revision để retry cùng yêu c
 ## Rollout
 
 1. Chạy Functions tests, TypeScript, build và performance budget.
-2. Deploy callable/scheduled Functions.
+2. Deploy `getMyAccessContext` cùng callable/scheduled Functions để capability frontend và backend dùng cùng một identity contract.
 3. Deploy composite indexes và chờ trạng thái `READY`.
 4. Deploy Firestore Rules callable-only.
 5. Gọi `refreshContractRenewalQueue` với `apply=false` để xem số lượng dự kiến.

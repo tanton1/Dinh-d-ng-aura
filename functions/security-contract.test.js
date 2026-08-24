@@ -250,6 +250,16 @@ test('sensitive operations routes require Identity v2 capabilities in addition t
   assert.match(branchScheduleWorkspaceSource, /saveMyBranchScheduleDraft/)
 })
 
+test('access context retries transient infrastructure failures without retrying authorization failures', () => {
+  const identityClient = readFileSync(join(repositoryRoot, 'src', 'services', 'identityAccessService.ts'), 'utf8')
+  const accessMethod = identityClient.match(/export async function getMyAccessContext[\s\S]*?\n}/)?.[0] || ''
+  assert.match(accessMethod, /attempt < 3/)
+  assert.match(accessMethod, /resource-exhausted/)
+  assert.match(accessMethod, /deadline-exceeded/)
+  assert.match(accessMethod, /if \(!transientCodes\.has\(code\)/)
+  assert.doesNotMatch(accessMethod, /permission-denied/)
+})
+
 test('legacy operations listeners are route scoped and never load the admin dashboard', () => {
   const viewScope = databaseContextSource.match(/const LEGACY_OPERATIONS_VIEW_SOURCES = \{[\s\S]*?\n\} as const satisfies/)?.[0] ?? ''
 

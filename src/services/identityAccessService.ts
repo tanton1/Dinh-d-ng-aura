@@ -127,9 +127,31 @@ export async function acceptAccountInvite(inviteId: string): Promise<AccessConte
 }
 
 export async function getMyAccessContext(uid: string): Promise<AccessContext> {
-  const callable = httpsCallable<Record<string, never>, { accessContext: unknown }>(requireFunctions(), 'getMyAccessContext')
-  const response = await callable({})
-  return parseAccessContext(response.data.accessContext, uid)
+  const callable = httpsCallable<Record<string, never>, { accessContext: unknown }>(
+    requireFunctions(),
+    'getMyAccessContext',
+    { timeout: 20_000 },
+  )
+  const transientCodes = new Set([
+    'internal',
+    'unavailable',
+    'resource-exhausted',
+    'deadline-exceeded',
+  ])
+  let lastError: unknown
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await callable({})
+      return parseAccessContext(response.data.accessContext, uid)
+    } catch (error) {
+      lastError = error
+      const source = error && typeof error === 'object' ? error as { code?: unknown } : {}
+      const code = typeof source.code === 'string' ? source.code.replace(/^functions\//, '') : ''
+      if (!transientCodes.has(code) || attempt === 2) throw error
+      await new Promise((resolve) => window.setTimeout(resolve, 400 * (attempt + 1)))
+    }
+  }
+  throw lastError
 }
 
 export async function resendAccountInvite(inviteId: string) {
