@@ -6,6 +6,7 @@ export type RenewalStage = 'uncontacted' | 'contacted' | 'interested' | 'quote_s
 export type RenewalSlaStatus = 'overdue' | 'due_today' | 'upcoming' | 'done'
 export type RenewalSegment = 'expiring_30d' | 'exhausted_active' | 'expired_last_30d' | 'in_care'
 export type RenewalScope = 'self' | 'branch' | 'system'
+export type RenewalAudience = 'trainer' | 'sales' | 'operations'
 export type RenewalActivityType = 'call' | 'zalo' | 'meeting' | 'note' | 'stage_change'
 export type RenewalActivityOutcome = 'connected' | 'no_answer' | 'interested' | 'not_interested' | 'quote_requested' | 'other'
 
@@ -108,6 +109,16 @@ export interface RenewalPipelineResponse {
   }
   packages: RenewalPackageOption[]
   scope: RenewalScope
+  audience: RenewalAudience
+  permissions: {
+    canRecordActivity: boolean
+    canCreateQuote: boolean
+    canRenewContract: boolean
+    canViewFinancials: boolean
+    canViewAnalytics: boolean
+    canAssign: boolean
+    canApprove: boolean
+  }
   actorUid: string
   truncated: boolean
 }

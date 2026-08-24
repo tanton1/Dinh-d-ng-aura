@@ -11,6 +11,8 @@ test('identity contracts expose one staff workspace while student relationships 
   assert.ok(deployable.staffCapabilities.includes('coach.workspace.view'))
   assert.ok(!deployable.positionCapabilities.coach_online.includes('nutrition.meals.assigned.review'))
   assert.ok(!deployable.positionCapabilities.trainer_pt.includes('nutrition.meals.assigned.review'))
+  assert.ok(deployable.positionCapabilities.trainer_pt.includes('renewals.workspace.view'))
+  assert.ok(deployable.positionCapabilities.trainer_pt.includes('renewals.case.assigned_student.support'))
   assert.ok(deployable.adminCapabilities.includes('nutrition.meals.all.review'))
 })
 

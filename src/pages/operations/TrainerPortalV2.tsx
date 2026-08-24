@@ -135,7 +135,7 @@ export default function TrainerPortalV2({ initialTab = 'students' }: { initialTa
   }
 
   return <main className="opv2-page">
-    <section className="opv2-hero"><p className="opv2-kicker">Aura Coach · Phạm vi cá nhân</p><h1>Trang làm việc HLV</h1><p>Một tài khoản nhân viên; các tab tự mở theo phân công PT chính, PT phụ và HLV dinh dưỡng trong hợp đồng học viên.</p></section>
+    <section className="opv2-hero"><p className="opv2-kicker">Aura Coach · Phạm vi cá nhân</p><h1>Trang làm việc HLV</h1><p>Một tài khoản nhân viên; các tab tự mở theo phân công PT chính, PT phụ và HLV dinh dưỡng trong hợp đồng học viên.</p><button type="button" className="opv2-hero-action" onClick={() => { window.location.hash = '#/admin-renewals' }}><RefreshCw size={16} /> Chăm sóc tái ký</button></section>
     {scopeLoading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đối chiếu phân công trong Học viên PT Gym…</div>}
     {!scopeLoading && !workspace && error && <div className="opv2-state is-error">{error}<button className="opv2-action" onClick={() => window.location.reload()}>Thử lại</button></div>}
     {!scopeLoading && workspace && !canViewStudents && !canViewSchedule && !canReviewNutrition && <section className="opv2-guidance"><CircleAlert size={20} /><div><strong>Chưa có học viên được phân công</strong><p>Quản trị viên cần gán bạn làm PT chính, PT phụ hoặc HLV dinh dưỡng tại Học viên PT Gym → Hợp đồng. Không cần cấp thêm role HLV riêng.</p></div></section>}

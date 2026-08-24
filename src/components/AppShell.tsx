@@ -145,6 +145,7 @@ const adminMobileNav: ShellAdminNavItem[] = [
   { id: 'admin-dashboard', label: 'Tổng quan', icon: LayoutDashboard, permission: 'dashboard.view' },
   { id: 'admin-pt-students', label: 'Học viên PT', icon: Users, permission: 'student.view_assigned' },
   { id: 'admin-pt-schedule', label: 'Lịch & YC', icon: CalendarDays, permission: 'dashboard.view' },
+  { id: 'admin-renewals', label: 'Tái ký', icon: RefreshCw, permission: 'dashboard.view' },
   { id: 'admin-finance', label: 'Tài chính', icon: BarChart3, permission: 'analytics.view_all' },
   { id: 'admin-courses', label: 'Academy', icon: GraduationCap, permission: 'course.view' },
 ]
@@ -205,7 +206,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
         items: section.items.filter((item) => hasPermission(role, item.permission)),
       }))
       .filter((section) => section.items.length > 0)
-  const mobileAdminItems = adminMobileNav.filter((item) => hasPermission(role, item.permission))
+  const mobileAdminItems = adminMobileNav.filter((item) => hasPermission(role, item.permission) && canNavigate(item.id))
   const isImmersive = view === 'workout' || view === 'delivery'
   const [searchQuery, setSearchQuery] = useState('')
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)

@@ -23,7 +23,9 @@
       "pt.students.assigned.view",
       "pt.schedule.self.view",
       "pt.session.self.manage",
-      "pt.workout_note.create"
+      "pt.workout_note.create",
+      "renewals.workspace.view",
+      "renewals.case.assigned_student.support"
     ],
     "sales": [
       "dashboard.view",

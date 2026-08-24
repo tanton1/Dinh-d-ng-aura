@@ -200,16 +200,42 @@ function hasCapability(actor, capability) {
 async function renewalActor(request, db) {
   const actor = await trustedAccessContext(request, db)
   requireCapability(actor, 'renewals.workspace.view')
-  if (hasCapability(actor, 'renewals.system.manage')) return { ...actor, renewalScope: 'system' }
-  if (hasCapability(actor, 'renewals.branch.manage')) return { ...actor, renewalScope: 'branch' }
-  if (hasCapability(actor, 'renewals.case.self.manage')) return { ...actor, renewalScope: 'self' }
+  if (hasCapability(actor, 'renewals.system.manage')) return {
+    ...actor, renewalScope: 'system', renewalAudience: 'operations', renewalCanSell: true,
+    renewalCanViewSalesCases: true, renewalCanViewTrainerCases: true,
+  }
+  if (hasCapability(actor, 'renewals.branch.manage')) return {
+    ...actor, renewalScope: 'branch', renewalAudience: 'operations', renewalCanSell: true,
+    renewalCanViewSalesCases: true, renewalCanViewTrainerCases: true,
+  }
+  const renewalCanViewSalesCases = hasCapability(actor, 'renewals.case.self.manage')
+  const renewalCanViewTrainerCases = hasCapability(actor, 'renewals.case.assigned_student.support')
+  if (renewalCanViewSalesCases || renewalCanViewTrainerCases) return {
+    ...actor, renewalScope: 'self', renewalAudience: renewalCanViewSalesCases ? 'sales' : 'trainer',
+    renewalCanSell: renewalCanViewSalesCases, renewalCanViewSalesCases, renewalCanViewTrainerCases,
+  }
   throw new HttpsError('permission-denied', 'Bạn chưa được cấp phạm vi vận hành tái ký.')
+}
+
+function renewalCaseTrainerIds(value) {
+  const contract = value?.contractSnapshot || {}
+  return new Set([
+    contract.trainerId,
+    ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : []),
+    ...(Array.isArray(contract.nutritionPTIds) ? contract.nutritionPTIds : []),
+  ].filter(Boolean))
+}
+
+function caseAssignedToTrainer(actor, value) {
+  const trainerIds = renewalCaseTrainerIds(value)
+  return [actor?.uid, actor?.legacyStaffId].filter(Boolean).some((actorId) => trainerIds.has(actorId))
 }
 
 function canViewCase(actor, value) {
   if (actor.renewalScope === 'system') return true
   if (actor.renewalScope === 'branch') return actor.branchIds.includes(value.branchId)
-  return value.assignedSalesId === actor.uid
+  return (actor.renewalCanViewSalesCases && value.assignedSalesId === actor.uid)
+    || (actor.renewalCanViewTrainerCases && caseAssignedToTrainer(actor, value))
 }
 
 function assertCaseScope(actor, value) {
@@ -218,6 +244,25 @@ function assertCaseScope(actor, value) {
 
 function canApproveCase(actor, value) {
   return hasCapability(actor, 'renewals.approval.manage') && (actor.renewalScope === 'system' || actor.branchIds.includes(value.branchId))
+}
+
+function renewalPermissions(actor) {
+  const canAssign = ['system', 'branch'].includes(actor.renewalScope)
+  return {
+    canRecordActivity: true,
+    canCreateQuote: actor.renewalCanSell === true,
+    canRenewContract: actor.renewalCanSell === true,
+    canViewFinancials: actor.renewalCanSell === true,
+    canViewAnalytics: actor.renewalCanSell === true,
+    canAssign,
+    canApprove: hasCapability(actor, 'renewals.approval.manage'),
+  }
+}
+
+function requireRenewalSalesAction(actor) {
+  if (actor.renewalCanSell !== true) {
+    throw new HttpsError('permission-denied', 'HLV được chăm sóc học viên đã phân công nhưng không được tạo báo giá, hợp đồng hoặc giao dịch tài chính.')
+  }
 }
 
 function caseSort(left, right) {
@@ -241,22 +286,26 @@ function decodeCursor(value) {
   }
 }
 
-function publicCase(value) {
+function publicCase(value, actor = { renewalCanSell: true }) {
   const stage = renewalStages.has(value.stage) ? value.stage : 'uncontacted'
   const student = value.studentSnapshot || { id: value.studentId || '', name: 'Chưa cập nhật tên', phone: '', email: '' }
-  const contract = value.contractSnapshot || {}
+  const sourceContract = value.contractSnapshot || {}
+  const contract = actor.renewalCanSell === true
+    ? sourceContract
+    : { ...sourceContract, totalPrice: 0, paidAmount: 0, discount: 0 }
   return {
     id: value.id, caseId: value.id, schemaVersion: 2, sourceContractId: value.sourceContractId || value.id,
     student, contract, branchId: value.branchId || '', branchName: value.branchName || 'Chưa phân chi nhánh',
     assignedSalesId: value.assignedSalesId || '', assignedSalesName: value.assignedSalesName || 'Chưa phân công',
     stage, probability: Number(value.probability ?? probabilityByStage[stage]),
     risk: { category: value.riskCategory || 'early', daysLeft: Number(value.daysLeft || 0), sessionsLeft: Number(value.sessionsLeft || 0) },
-    expectedValue: Number(value.expectedValue || 0), priorityScore: Number(value.priorityScore || 0),
+    expectedValue: actor.renewalCanSell === true ? Number(value.expectedValue || 0) : 0, priorityScore: Number(value.priorityScore || 0),
     slaDueAt: value.slaDueAt || null, slaStatus: slaStatus(value), nextActionAt: value.nextActionAt || null,
     nextFollowUpAt: value.nextActionAt || null, lastContactAt: serializeTimestamp(value.lastContactAt),
-    note: typeof value.note === 'string' ? value.note.slice(0, 500) : '', quoteId: value.quoteId || null,
-    approvalId: value.approvalId || null, renewedContractId: value.renewedContractId || null,
-    approvalStatus: value.approvalStatus || null,
+    note: typeof value.note === 'string' ? value.note.slice(0, 500) : '', quoteId: actor.renewalCanSell === true ? value.quoteId || null : null,
+    approvalId: actor.renewalCanSell === true ? value.approvalId || null : null,
+    renewedContractId: actor.renewalCanSell === true ? value.renewedContractId || null : null,
+    approvalStatus: actor.renewalCanSell === true ? value.approvalStatus || null : null,
     lostReason: value.lostReason || null, revision: Number(value.revision || 0), caseRevision: Number(value.revision || 0),
     active: value.active !== false,
   }
@@ -265,7 +314,17 @@ function publicCase(value) {
 async function scopedCaseDocuments(db, actor, includeClosed = false) {
   const snapshots = []
   if (actor.renewalScope === 'system') snapshots.push(await db.collection('contractRenewalCases').limit(maximumCases + 1).get())
-  else if (actor.renewalScope === 'self') snapshots.push(await db.collection('contractRenewalCases').where('assignedSalesId', '==', actor.uid).limit(maximumCases + 1).get())
+  else if (actor.renewalScope === 'self') {
+    if (actor.renewalCanViewSalesCases) snapshots.push(await db.collection('contractRenewalCases').where('assignedSalesId', '==', actor.uid).limit(maximumCases + 1).get())
+    if (actor.renewalCanViewTrainerCases) {
+      const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
+      for (const actorId of actorIds) {
+        snapshots.push(await db.collection('contractRenewalCases').where('contractSnapshot.trainerId', '==', actorId).limit(maximumCases + 1).get())
+        snapshots.push(await db.collection('contractRenewalCases').where('contractSnapshot.trainerIds', 'array-contains', actorId).limit(maximumCases + 1).get())
+        snapshots.push(await db.collection('contractRenewalCases').where('contractSnapshot.nutritionPTIds', 'array-contains', actorId).limit(maximumCases + 1).get())
+      }
+    }
+  }
   else for (const branchId of actor.branchIds.slice(0, 20)) snapshots.push(await db.collection('contractRenewalCases').where('branchId', '==', branchId).limit(maximumCases + 1).get())
   const documents = new Map()
   snapshots.forEach((snapshot) => snapshot.docs.forEach((item) => {
@@ -345,6 +404,13 @@ function renewalStats(values) {
   return { total: values.filter((item) => item.active !== false).length, pipelineValue, weightedPipelineValue, pendingApprovals, stageCounts, riskCounts, slaCounts, segmentCounts }
 }
 
+function renewalStatsForActor(values, actor) {
+  const stats = renewalStats(values)
+  return actor.renewalCanSell === true
+    ? stats
+    : { ...stats, pipelineValue: 0, weightedPipelineValue: 0, pendingApprovals: 0 }
+}
+
 const renewalQueueFingerprintFields = [
   'schemaVersion', 'sourceContractId', 'studentId', 'branchId', 'branchName',
   'assignedSalesId', 'assignedSalesName', 'stage', 'probability', 'active',
@@ -368,6 +434,15 @@ function renewalQueueFingerprint(value) {
 }
 
 async function renewalOptions(db, actor) {
+  if (actor.renewalCanSell !== true) {
+    const branchesSnapshot = await db.collection('branches').limit(100).get()
+    return {
+      packages: [], cashAccounts: [], assignees: [],
+      branches: branchesSnapshot.docs
+        .map((item) => ({ id: item.id, name: item.data().name || item.id }))
+        .filter((item) => !actor.branchIds.length || actor.branchIds.includes(item.id)),
+    }
+  }
   const [packagesSnapshot, branchesSnapshot, accountsSnapshot, assignmentsSnapshot] = await Promise.all([
     db.collection('packages').limit(500).get(), db.collection('branches').limit(100).get(),
     db.collection('cashAccounts').where('status', '==', 'active').limit(200).get(), db.collection('roleAssignments').limit(500).get(),
@@ -503,8 +578,14 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
       values = values.slice(cursorIndex + 1)
     }
     const selected = values.slice(0, input.pageSize)
-    const stats = renewalStats(documents)
-    return { schemaVersion: 2, generatedAt: new Date().toISOString(), today: vietnamDateKey(), rows: selected.map(publicCase), hasMore: values.length > input.pageSize, nextCursor: values.length > input.pageSize && selected.length ? encodeCursor(selected[selected.length - 1]) : null, stats, options, packages: options.packages, scope: actor.renewalScope, actorUid: actor.uid, truncated }
+    const stats = renewalStatsForActor(documents, actor)
+    return {
+      schemaVersion: 2, generatedAt: new Date().toISOString(), today: vietnamDateKey(),
+      rows: selected.map((item) => publicCase(item, actor)), hasMore: values.length > input.pageSize,
+      nextCursor: values.length > input.pageSize && selected.length ? encodeCursor(selected[selected.length - 1]) : null,
+      stats, options, packages: options.packages, scope: actor.renewalScope, audience: actor.renewalAudience,
+      permissions: renewalPermissions(actor), actorUid: actor.uid, truncated,
+    }
   }
   const listContractRenewalCases = onCall(listHandler)
   const listContractRenewalPipeline = onCall(listHandler)
@@ -526,12 +607,24 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
       db.collection('contracts').where('studentId', '==', studentId).limit(50).get(),
       db.collection('contractRenewalActivities').where('caseId', '==', caseId).orderBy('createdAt', 'desc').limit(100).get(),
       db.collection('sessions').where('studentId', '==', studentId).where('date', '>=', vietnamDateKey()).orderBy('date').limit(10).get(),
-      value.quoteId ? db.doc(`quotes/${value.quoteId}`).get() : null,
-      value.approvalId ? db.doc(`contractRenewalApprovals/${value.approvalId}`).get() : null,
+      value.quoteId && actor.renewalCanSell ? db.doc(`quotes/${value.quoteId}`).get() : null,
+      value.approvalId && actor.renewalCanSell ? db.doc(`contractRenewalApprovals/${value.approvalId}`).get() : null,
     ])
+    const safeContractHistory = contracts.docs.map((item) => {
+      const source = { id: item.id, ...item.data(), createdAt: serializeTimestamp(item.data().createdAt), updatedAt: serializeTimestamp(item.data().updatedAt) }
+      if (actor.renewalCanSell) return source
+      return {
+        id: source.id, packageId: source.packageId || '', packageName: source.packageName || 'Gói tập Aura',
+        startDate: source.startDate || '', endDate: source.endDate || '', status: source.status || '',
+        totalSessions: Number(source.totalSessions || 0), usedSessions: Number(source.usedSessions || 0),
+        trainerId: source.trainerId || '', trainerIds: Array.isArray(source.trainerIds) ? source.trainerIds : [],
+        nutritionPTIds: Array.isArray(source.nutritionPTIds) ? source.nutritionPTIds : [], branchId: source.branchId || '',
+        revision: Number(source.revision || 0), createdAt: source.createdAt, updatedAt: source.updatedAt,
+      }
+    })
     return {
-      case: publicCase(value),
-      contractHistory: contracts.docs.map((item) => ({ id: item.id, ...item.data(), createdAt: serializeTimestamp(item.data().createdAt), updatedAt: serializeTimestamp(item.data().updatedAt) })),
+      case: publicCase(value, actor),
+      contractHistory: safeContractHistory,
       activities: activities.docs.map((item) => ({ id: item.id, ...item.data(), createdAt: serializeTimestamp(item.data().createdAt) })),
       upcomingSessions: sessions.docs.map((item) => ({ id: item.id, date: item.data().date || '', hour: Number(item.data().hour || 0), trainerId: item.data().trainerId || '', status: item.data().status || '' })),
       quote: quote?.exists ? { id: quote.id, ...quote.data(), createdAt: serializeTimestamp(quote.data().createdAt) } : null,
@@ -551,6 +644,9 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     const note = boundedString(request.data?.note, 'Ghi chú', 500, false)
     const requestedStage = request.data?.stage ? boundedString(request.data.stage, 'Giai đoạn', 30) : ''
     if (requestedStage && (!renewalStages.has(requestedStage) || requestedStage === 'won')) throw new HttpsError('invalid-argument', 'Giai đoạn không hợp lệ.')
+    if (!actor.renewalCanSell && requestedStage && !['uncontacted', 'contacted', 'interested', 'follow_up'].includes(requestedStage)) {
+      throw new HttpsError('permission-denied', 'HLV chỉ được ghi nhận liên hệ, mức quan tâm và lịch chăm sóc tiếp theo.')
+    }
     const lostReason = requestedStage === 'lost' ? boundedString(request.data?.lostReason || note, 'Lý do không tái ký', 200) : null
     const caseReference = db.doc(`contractRenewalCases/${caseId}`)
     const activityReference = db.collection('contractRenewalActivities').doc()
@@ -654,6 +750,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
 
   const createRenewalQuote = onCall({ cpu: 'gcf_gen1', maxInstances: 3 }, async (request) => {
     const actor = await renewalActor(request, db)
+    requireRenewalSalesAction(actor)
     const caseId = documentId(request.data?.caseId, 'Hồ sơ tái ký')
     const packageId = documentId(request.data?.packageId, 'Gói tập')
     const expectedRevision = safeInteger(request.data?.expectedRevision ?? 0, 'Phiên bản hồ sơ', 0, 1_000_000)
@@ -682,6 +779,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
 
   const submitRenewalApproval = onCall(async (request) => {
     const actor = await renewalActor(request, db)
+    requireRenewalSalesAction(actor)
     const caseId = documentId(request.data?.caseId, 'Hồ sơ tái ký')
     const quoteId = documentId(request.data?.quoteId, 'Báo giá')
     const expectedRevision = safeInteger(request.data?.expectedRevision ?? 0, 'Phiên bản hồ sơ', 0, 1_000_000)
@@ -733,6 +831,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
 
   const renewPtContract = onCall(async (request) => {
     const actor = await renewalActor(request, db)
+    requireRenewalSalesAction(actor)
     const caseId = documentId(request.data?.caseId || request.data?.sourceContractId, 'Hồ sơ tái ký')
     const sourceContractId = documentId(request.data?.sourceContractId, 'Hợp đồng nguồn')
     const packageId = documentId(request.data?.packageId, 'Gói tập')
@@ -834,11 +933,12 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     const to = dateKey(request.data?.to || addDaysDateKey(from, 30), 'Đến ngày')
     if (dateOrdinal(to) - dateOrdinal(from) > 92) throw new HttpsError('invalid-argument', 'Khoảng lịch tối đa 92 ngày.')
     const { documents, truncated } = await scopedCaseDocuments(db, actor)
-    return { from, to, items: documents.filter((item) => item.nextActionAt >= from && item.nextActionAt <= to).sort((a, b) => String(a.nextActionAt).localeCompare(String(b.nextActionAt))).slice(0, 500).map(publicCase), truncated }
+    return { from, to, items: documents.filter((item) => item.nextActionAt >= from && item.nextActionAt <= to).sort((a, b) => String(a.nextActionAt).localeCompare(String(b.nextActionAt))).slice(0, 500).map((item) => publicCase(item, actor)), truncated }
   })
 
   const getRenewalAnalytics = onCall(async (request) => {
     const actor = await renewalActor(request, db)
+    requireRenewalSalesAction(actor)
     const from = dateKey(request.data?.from || addDaysDateKey(vietnamDateKey(), -30), 'Từ ngày')
     const to = dateKey(request.data?.to || vietnamDateKey(), 'Đến ngày')
     if (dateOrdinal(to) - dateOrdinal(from) > 366) throw new HttpsError('invalid-argument', 'Khoảng báo cáo tối đa 366 ngày.')
@@ -884,4 +984,4 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
   }
 }
 
-module.exports = { createContractRenewalFunctions, refreshRenewalQueueCore, createRenewalInternalReminders, addMonthsDateKey, normalizeInstallments, renewalRisk, latestContractsByStudent, priorityScore, slaStatus, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates }
+module.exports = { createContractRenewalFunctions, refreshRenewalQueueCore, createRenewalInternalReminders, addMonthsDateKey, normalizeInstallments, renewalRisk, latestContractsByStudent, priorityScore, slaStatus, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase }

@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { addMonthsDateKey, normalizeInstallments, renewalRisk, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates } = require('./contract-renewals')
+const { addMonthsDateKey, normalizeInstallments, renewalRisk, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase } = require('./contract-renewals')
 
 test('renewal calendar uses real months and clamps month-end dates', () => {
   assert.equal(addMonthsDateKey('2026-01-31', 1), '2026-02-28')
@@ -119,4 +119,35 @@ test('daily queue refresh ignores timestamps and revision when business data is 
     updatedAt: { toMillis: () => 1_777_777_777_000 },
   }))
   assert.notEqual(renewalQueueFingerprint(baseline), renewalQueueFingerprint({ ...baseline, riskCategory: 'expired' }))
+})
+
+test('trainer renewal scope includes only primary, secondary or nutrition assignments', () => {
+  const actor = {
+    uid: 'auth-trainer', legacyStaffId: 'trainer-legacy', renewalScope: 'self',
+    renewalCanViewSalesCases: false, renewalCanViewTrainerCases: true,
+  }
+  assert.equal(caseAssignedToTrainer(actor, { contractSnapshot: { trainerId: 'trainer-legacy' } }), true)
+  assert.equal(caseAssignedToTrainer(actor, { contractSnapshot: { trainerIds: ['other', 'auth-trainer'] } }), true)
+  assert.equal(caseAssignedToTrainer(actor, { contractSnapshot: { nutritionPTIds: ['trainer-legacy'] } }), true)
+  assert.equal(canViewCase(actor, { assignedSalesId: 'auth-trainer', contractSnapshot: { trainerId: 'other' } }), false)
+  assert.equal(canViewCase(actor, { assignedSalesId: 'other', contractSnapshot: { trainerId: 'trainer-legacy' } }), true)
+  assert.equal(canViewCase(actor, { assignedSalesId: 'other', contractSnapshot: { trainerId: 'unrelated' } }), false)
+})
+
+test('sales renewal scope remains limited to personally assigned cases', () => {
+  const actor = {
+    uid: 'sales-1', renewalScope: 'self',
+    renewalCanViewSalesCases: true, renewalCanViewTrainerCases: false,
+  }
+  assert.equal(canViewCase(actor, { assignedSalesId: 'sales-1', contractSnapshot: { trainerId: 'trainer-1' } }), true)
+  assert.equal(canViewCase(actor, { assignedSalesId: 'sales-2', contractSnapshot: { trainerId: 'sales-1' } }), false)
+})
+
+test('trainer renewal API is financially redacted and sales-only mutations fail closed', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'contract-renewals.js'), 'utf8')
+  assert.match(source, /contractSnapshot\.trainerIds', 'array-contains'/)
+  assert.match(source, /contractSnapshot\.nutritionPTIds', 'array-contains'/)
+  assert.match(source, /expectedValue: actor\.renewalCanSell === true \? Number\(value\.expectedValue \|\| 0\) : 0/)
+  assert.match(source, /const createRenewalQuote = onCall[\s\S]*?requireRenewalSalesAction\(actor\)/)
+  assert.match(source, /const renewPtContract = onCall[\s\S]*?requireRenewalSalesAction\(actor\)/)
 })

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { RefreshCw } from 'lucide-react'
 import { createQuote, getMySalesCatalog, listMyQuotes, type SalesCatalog, type SalesQuoteSummary } from '../../services/ptOperationsV2Service'
 import './OperationsPortalV2.css'
 
@@ -31,7 +32,7 @@ export default function SalesPortalV2() {
   }
 
   return <main className="opv2-page">
-    <section className="opv2-hero"><p className="opv2-kicker">Aura Sales · Branch scoped</p><h1>Báo giá & khách hàng</h1><p>Dữ liệu được backend giới hạn theo nhân viên phụ trách và chi nhánh được cấp.</p></section>
+    <section className="opv2-hero"><p className="opv2-kicker">Aura Sales · Branch scoped</p><h1>Báo giá & khách hàng</h1><p>Dữ liệu được backend giới hạn theo nhân viên phụ trách và chi nhánh được cấp.</p><button type="button" className="opv2-hero-action" onClick={() => { window.location.hash = '#/admin-renewals' }}><RefreshCw size={16} /> Mở pipeline tái ký</button></section>
     <section className="opv2-summary"><div className="opv2-stat"><strong>{quotes.length}</strong><span>báo giá trong phạm vi</span></div><div className="opv2-stat"><strong>{catalog.branches.length}</strong><span>chi nhánh được cấp</span></div></section>
     {error && <div className="opv2-state is-error">{error}</div>}
     <h2 className="opv2-section-title">Tạo báo giá an toàn</h2>
