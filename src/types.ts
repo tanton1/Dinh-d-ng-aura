@@ -176,6 +176,7 @@ export type AdminView =
   | 'admin-pt-students'
   | 'admin-pt-schedule'
   | 'admin-training-history'
+  | 'admin-renewals'
   | 'admin-report'
   | 'admin-finance'
   | 'admin-hr'

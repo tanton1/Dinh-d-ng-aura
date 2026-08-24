@@ -75,6 +75,7 @@ const AdminPTStudentManagement = lazyWithRetry(() => import('./components/admin/
 const SchedulerWrapper = lazyWithRetry(() => import('./components/schedule/SchedulerWrapper'))
 const BranchScheduleWorkspace = lazyWithRetry(() => import('./components/schedule/BranchScheduleWorkspace'))
 const TrainingHistoryWorkspace = lazyWithRetry(() => import('./components/admin/pt/TrainingHistoryWorkspace'))
+const ContractRenewals = lazyWithRetry(() => import('./components/admin/pt/ContractRenewals'))
 const AdminFinanceHub = lazyWithRetry(() => import('./components/admin/pt/AdminFinanceHub'))
 const AdminPackageSettings = lazyWithRetry(() => import('./components/admin/pt/PackageSettings'))
 const AdminQuoteGenerator = lazyWithRetry(() => import('./components/admin/pt/QuoteGenerator'))
@@ -826,6 +827,7 @@ function AuraApplication() {
         ? <BranchScheduleWorkspace accessContext={accessContext} />
         : <SchedulerWrapper user={user as any} profile={profile} accessContext={accessContext} backendMode={backendMode} onNavigate={(view) => navigate(view as ViewId)} />}</AuraOperationsFrame>
       case 'admin-training-history': return <AuraOperationsFrame><TrainingHistoryWorkspace /></AuraOperationsFrame>
+      case 'admin-renewals': return <AuraOperationsFrame><ContractRenewals onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
       case 'admin-report': return <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
       case 'admin-finance': return <AuraOperationsFrame><AdminFinanceHub user={user as any} profile={profile} /></AuraOperationsFrame>
       case 'admin-hr': return <AuraOperationsFrame><AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} /></AuraOperationsFrame>

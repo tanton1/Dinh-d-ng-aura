@@ -25,6 +25,7 @@ const { createCashbookFunctions } = require('./cashbook')
 const { createBusinessReportingFunctions } = require('./business-reporting')
 const { createExerciseCatalogFunctions } = require('./exercise-catalog')
 const { createNutritionReviewFunctions } = require('./nutrition-reviews')
+const { createContractRenewalFunctions } = require('./contract-renewals')
 
 const app = initializeApp()
 // Keep callable writes on the same named database used by the production web app.
@@ -177,6 +178,11 @@ exports.restorePtScheduleVersionToDraft = ptSchedulePublishFunctions.restorePtSc
 exports.getMyBranchScheduleWorkspace = ptSchedulePublishFunctions.getMyBranchScheduleWorkspace
 exports.saveMyBranchScheduleDraft = ptSchedulePublishFunctions.saveMyBranchScheduleDraft
 Object.assign(exports, createFinanceLedgerFunctions({ db, onCall, logger }))
+const contractRenewalFunctions = createContractRenewalFunctions({ db, onCall, logger })
+Object.assign(exports, contractRenewalFunctions)
+exports.listContractRenewalPipeline = contractRenewalFunctions.listContractRenewalPipeline
+exports.updateContractRenewalCase = contractRenewalFunctions.updateContractRenewalCase
+exports.renewPtContract = contractRenewalFunctions.renewPtContract
 const sessionOperationFunctions = createSessionOperationFunctions({ db, onCall, logger })
 Object.assign(exports, sessionOperationFunctions)
 exports.createMySessionRequest = sessionOperationFunctions.createMySessionRequest

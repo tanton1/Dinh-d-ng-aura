@@ -18,6 +18,7 @@ import {
   Soup,
   LogOut,
   Menu,
+  RefreshCw,
   Search,
   Settings,
   ShieldCheck,
@@ -106,6 +107,7 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
       { id: 'admin-pt-students' as const, label: 'Học viên PT Gym', icon: Users, permission: 'student.view_assigned' as Permission },
       { id: 'admin-pt-schedule' as const, label: 'Lịch PT & Yêu cầu', icon: CalendarDays, permission: 'dashboard.view' as Permission },
       { id: 'admin-training-history' as const, label: 'Lịch sử tập & lịch dạy', icon: History, permission: 'analytics.view_all' as Permission },
+      { id: 'admin-renewals' as const, label: 'Tái ký & gia hạn', icon: RefreshCw, permission: 'student.manage' as Permission },
     ],
   },
   {
@@ -164,6 +166,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'admin-pt-students': 'Quản lý Học viên PT Gym',
   'admin-pt-schedule': 'Lịch PT & Hộp yêu cầu',
   'admin-training-history': 'Lịch sử tập & lịch dạy',
+  'admin-renewals': 'Tái ký & chăm sóc hợp đồng',
   'admin-report': 'Tổng quan vận hành Gym',
   'admin-finance': 'Tài chính · KQKD · Sổ quỹ',
   'admin-payroll': 'Chấm công & Lương PT',

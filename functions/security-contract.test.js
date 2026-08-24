@@ -18,6 +18,7 @@ const packageManifest = JSON.parse(readFileSync(join(repositoryRoot, 'package.js
 const databaseContextSource = readFileSync(join(repositoryRoot, 'src', 'contexts', 'DatabaseContext.tsx'), 'utf8')
 const addSessionsModalSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'AddSessionsModal.tsx'), 'utf8')
 const renewContractModalSource = readFileSync(join(repositoryRoot, 'src', 'components', 'admin', 'pt', 'RenewContractModal.tsx'), 'utf8')
+const contractRenewalSource = readFileSync(join(__dirname, 'contract-renewals.js'), 'utf8')
 const adminRolesSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'admin', 'AdminRolesPage.tsx'), 'utf8')
 const accessRouteSource = readFileSync(join(repositoryRoot, 'src', 'identity', 'access.ts'), 'utf8')
 const studentIdentityLinkSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-student-identity-link.cjs'), 'utf8')
@@ -186,16 +187,19 @@ test('Firestore rules deny hard-delete of legacy finance and all browser session
   assert.doesNotMatch(sessionsBlock, /allow[^;]*(?:create|update|delete)[^;]*if isAdmin\(\)/)
 })
 
-test('unsafe purchase and renewal forms cannot partially mutate contracts or payments', () => {
+test('unsafe purchase stays locked while contract renewal uses one server transaction', () => {
   const purchaseSubmit = addSessionsModalSource.match(/const handleSubmit[\s\S]*?\n  \};/)?.[0] ?? ''
-  const renewalSubmit = renewContractModalSource.match(/const handleSubmit[\s\S]*?\n  \};/)?.[0] ?? ''
 
   assert.doesNotMatch(purchaseSubmit, /onSave|addPayment|addContract|updateContract|setDoc|updateDoc/)
-  assert.doesNotMatch(renewalSubmit, /addPayment|addContract|updateContract|setDoc|updateDoc/)
   assert.match(addSessionsModalSource, /Tạm khóa để bảo vệ sổ tài chính/)
-  assert.match(renewContractModalSource, /Gia hạn đang được khóa an toàn/)
   assert.match(addSessionsModalSource, /type="submit"[\s\S]*?disabled[\s\S]*?Đang nâng cấp an toàn/)
-  assert.match(renewContractModalSource, /type="submit"[\s\S]*?disabled[\s\S]*?Đang nâng cấp an toàn/)
+  assert.match(renewContractModalSource, /await renewPtContract\(/)
+  assert.doesNotMatch(renewContractModalSource, /addPayment|addContract|updateContract|setDoc|updateDoc/)
+  const renewalCallable = contractRenewalSource.match(/const renewPtContract = onCall[\s\S]*?\n  \}\)/)?.[0] ?? ''
+  assert.match(renewalCallable, /db\.runTransaction/)
+  assert.match(renewalCallable, /transaction\.create\(newContractReference/)
+  assert.match(renewalCallable, /transaction\.update\(sourceReference/)
+  assert.match(renewalCallable, /renewalIdempotencyKey/)
 })
 
 test('legacy role editor does not assign scoped staff positions or let normal admin manage admin roles', () => {
