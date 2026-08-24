@@ -18,11 +18,11 @@ const QUOTE_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000
 const QUOTE_RATE_LIMIT_MAX = 20
 const DELIVERY_OTP_MAX_ATTEMPTS = 5
 const DELIVERY_OTP_LOCK_MS = 15 * 60 * 1000
-const bindEatCleanSecrets = process.env.BIND_EAT_CLEAN_SECRETS === 'true'
-// Do not register Secret Manager parameters during the compatibility rollout.
-// Firebase CLI prompts for every declared secret even when no callable binds it.
-const googleMapsApiKeySecret = bindEatCleanSecrets ? defineSecret('GOOGLE_MAPS_API_KEY') : null
-const deliveryOtpSecret = bindEatCleanSecrets ? defineSecret('DELIVERY_OTP_SECRET') : null
+// Secret bindings must be declared unconditionally so every deployed revision
+// receives the Secret Manager values it needs. Runtime environment flags are
+// evaluated too late for Firebase's function manifest discovery.
+const googleMapsApiKeySecret = defineSecret('GOOGLE_MAPS_API_KEY')
+const deliveryOtpSecret = defineSecret('DELIVERY_OTP_SECRET')
 const DELIVERY_STATUSES = new Set([
   'awaiting_kitchen',
   'awaiting_assignment',
@@ -950,13 +950,12 @@ function durationSeconds(value) {
 }
 
 function secretValue(secretParameter, environmentNames) {
-  if (bindEatCleanSecrets) {
-    try {
-      const value = secretParameter.value()
-      if (value) return value
-    } catch {
-      // Feature remains fail-closed below. Legacy checkout never needs this value.
-    }
+  try {
+    const value = secretParameter.value()
+    if (value) return value
+  } catch {
+    // Local tests may use the environment fallback below. Production features
+    // remain fail-closed when the bound secret is unavailable.
   }
   for (const name of environmentNames) {
     if (process.env[name]) return process.env[name]
@@ -977,7 +976,7 @@ function deliveryRuntimeReadiness(config, realtimeDb) {
   const storeCoordinateReady = Number.isFinite(config?.store?.latitude) && Number.isFinite(config?.store?.longitude)
   const otpKeyAvailable = otpSecretValue().length >= 32
   return {
-    secretBindingEnabled: bindEatCleanSecrets,
+    secretBindingEnabled: true,
     mapsKeyAvailable,
     storeCoordinateReady,
     distancePricingReady: mapsKeyAvailable && storeCoordinateReady,
@@ -1960,24 +1959,18 @@ function createEatCleanFunctions(dependencies) {
 
   const callableOptions = { cpu: 'gcf_gen1', maxInstances: 3, invoker: 'public' }
   const writeOptions = { cpu: 'gcf_gen1', maxInstances: 2, invoker: 'public' }
-  const mapsCallableOptions = bindEatCleanSecrets
-    ? { ...callableOptions, secrets: [googleMapsApiKeySecret] }
-    : callableOptions
-  const otpCallableOptions = bindEatCleanSecrets
-    ? { ...callableOptions, secrets: [deliveryOtpSecret] }
-    : callableOptions
-  const otpWriteOptions = bindEatCleanSecrets
-    ? { ...writeOptions, secrets: [deliveryOtpSecret] }
-    : writeOptions
-  const mapsWriteOptions = bindEatCleanSecrets
-    ? { ...writeOptions, secrets: [googleMapsApiKeySecret] }
-    : writeOptions
-  const deliveryOperationsCallableOptions = bindEatCleanSecrets
-    ? { ...callableOptions, secrets: [googleMapsApiKeySecret, deliveryOtpSecret] }
-    : callableOptions
-  const deliveryOperationsWriteOptions = bindEatCleanSecrets
-    ? { ...writeOptions, secrets: [googleMapsApiKeySecret, deliveryOtpSecret] }
-    : writeOptions
+  const mapsCallableOptions = { ...callableOptions, secrets: [googleMapsApiKeySecret] }
+  const otpCallableOptions = { ...callableOptions, secrets: [deliveryOtpSecret] }
+  const otpWriteOptions = { ...writeOptions, secrets: [deliveryOtpSecret] }
+  const mapsWriteOptions = { ...writeOptions, secrets: [googleMapsApiKeySecret] }
+  const deliveryOperationsCallableOptions = {
+    ...callableOptions,
+    secrets: [googleMapsApiKeySecret, deliveryOtpSecret],
+  }
+  const deliveryOperationsWriteOptions = {
+    ...writeOptions,
+    secrets: [googleMapsApiKeySecret, deliveryOtpSecret],
+  }
 
   const listEatCleanAddresses = onCall(callableOptions, async (request) => {
     const userId = requireUser(request)
