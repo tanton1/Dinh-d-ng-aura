@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { addMonthsDateKey, normalizeInstallments, renewalRisk, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint } = require('./contract-renewals')
+const { addMonthsDateKey, normalizeInstallments, renewalRisk, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates } = require('./contract-renewals')
 
 test('renewal calendar uses real months and clamps month-end dates', () => {
   assert.equal(addMonthsDateKey('2026-01-31', 1), '2026-02-28')
@@ -13,6 +13,44 @@ test('renewal risk prioritises exhausted, expired and near-expiry contracts', ()
   assert.equal(renewalRisk({ endDate: '2026-08-20', totalSessions: 10, usedSessions: 5 }, '2026-08-24').category, 'expired')
   assert.equal(renewalRisk({ endDate: '2026-08-30', totalSessions: 10, usedSessions: 5 }, '2026-08-24').category, 'critical')
   assert.equal(renewalRisk({ endDate: '2026-09-15', totalSessions: 10, usedSessions: 5 }, '2026-08-24').category, 'upcoming')
+})
+
+test('renewal carousel segments and counts share exact non-overlapping expiry rules', () => {
+  const expiring = { id: 'expiring', active: true, stage: 'uncontacted', daysLeft: 30, sessionsLeft: 2 }
+  const exhausted = { id: 'exhausted', active: true, stage: 'uncontacted', daysLeft: 10, sessionsLeft: 0 }
+  const expired = { id: 'expired', active: true, stage: 'uncontacted', daysLeft: -30, sessionsLeft: 4 }
+  const care = { id: 'care', active: true, stage: 'follow_up', daysLeft: 60, sessionsLeft: 5 }
+  const closed = { id: 'closed', active: false, stage: 'won', daysLeft: 5, sessionsLeft: 0 }
+
+  assert.equal(matchesRenewalSegment(expiring, 'expiring_30d'), true)
+  assert.equal(matchesRenewalSegment({ ...expiring, daysLeft: 31 }, 'expiring_30d'), false)
+  assert.equal(matchesRenewalSegment(exhausted, 'exhausted_active'), true)
+  assert.equal(matchesRenewalSegment({ ...exhausted, daysLeft: 0 }, 'exhausted_active'), false)
+  assert.equal(matchesRenewalSegment(expired, 'expired_last_30d'), true)
+  assert.equal(matchesRenewalSegment({ ...expired, daysLeft: -31 }, 'expired_last_30d'), false)
+  assert.equal(matchesRenewalSegment(care, 'in_care'), true)
+  assert.equal(matchesRenewalSegment(closed, 'exhausted_active'), false)
+
+  const stats = renewalStats([expiring, exhausted, expired, care, closed])
+  assert.deepEqual(stats.segmentCounts, { expiring_30d: 1, exhausted_active: 1, expired_last_30d: 1, in_care: 1 })
+})
+
+test('renewal workspace ships a complete Vietnamese message playbook', () => {
+  assert.equal(renewalMessageTemplates.length, 8)
+  assert.equal(new Set(renewalMessageTemplates.map((item) => item.id)).size, renewalMessageTemplates.length)
+  assert.ok(renewalMessageTemplates.some((item) => item.recommendedSegments.includes('expiring_30d')))
+  assert.ok(renewalMessageTemplates.some((item) => item.recommendedSegments.includes('exhausted_active')))
+  assert.ok(renewalMessageTemplates.some((item) => item.recommendedSegments.includes('expired_last_30d')))
+  assert.ok(renewalMessageTemplates.every((item) => item.body.includes('{{studentName}}')))
+})
+
+test('bulk renewal handoff is branch-scoped, revisioned and audited atomically', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'contract-renewals.js'), 'utf8')
+  assert.match(source, /const transferRenewalCases = onCall/)
+  assert.match(source, /request\.data\.cases\.length > 20/)
+  assert.match(source, /Nhân viên nhận bàn giao không phụ trách đủ các chi nhánh đã chọn/)
+  assert.match(source, /Một hồ sơ đã được cập nhật\. Hãy tải lại danh sách/)
+  assert.match(source, /beforeAssignedSalesId: value\.assignedSalesId \|\| ''/)
 })
 
 test('installment schedule must exactly match remaining contract balance', () => {

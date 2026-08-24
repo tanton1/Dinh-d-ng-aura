@@ -5,6 +5,8 @@ const { cashAccountForMovement, createCashMovement, assertFinancePeriodOpen } = 
 
 const renewalStages = new Set(['uncontacted', 'contacted', 'interested', 'quote_sent', 'follow_up', 'won', 'lost'])
 const closedStages = new Set(['won', 'lost'])
+const renewalSegments = new Set(['expiring_30d', 'exhausted_active', 'expired_last_30d', 'in_care'])
+const careStages = new Set(['contacted', 'interested', 'quote_sent', 'follow_up'])
 const activeContractStatuses = new Set(['active', 'future', 'frozen', 'expired'])
 const activityTypes = new Set(['call', 'zalo', 'meeting', 'note', 'stage_change'])
 const activityOutcomes = new Set(['connected', 'no_answer', 'interested', 'not_interested', 'callback', 'quote_requested', 'other'])
@@ -13,6 +15,48 @@ const maximumContracts = 5000
 const maximumCases = 5000
 const approvalDiscountRate = 0.1
 const approvalCarryOverSessions = 3
+const renewalMessageTemplates = Object.freeze([
+  {
+    id: 'expiring_intro', name: 'Sắp hết hạn · Mở đầu', channel: 'zalo', category: 'first_contact',
+    recommendedSegments: ['expiring_30d'], recommendedStages: ['uncontacted'],
+    body: 'Aura Fitness xin chào {{studentName}}. Gói {{packageName}} của bạn còn {{daysLeft}} ngày và {{sessionsLeft}} buổi. Aura muốn cùng bạn chuẩn bị lộ trình tiếp theo để việc tập luyện không bị gián đoạn. Bạn thuận tiện để {{staffName}} tư vấn vào thời gian nào?',
+  },
+  {
+    id: 'exhausted_sessions', name: 'Hết buổi · Nối tiếp lộ trình', channel: 'zalo', category: 'first_contact',
+    recommendedSegments: ['exhausted_active'], recommendedStages: ['uncontacted', 'contacted'],
+    body: 'Chào {{studentName}}, gói {{packageName}} của bạn đã hoàn thành đủ số buổi nhưng vẫn còn thời hạn đến {{endDate}}. Aura đề xuất mình trao đổi sớm về gói nối tiếp để giữ nhịp tập và mục tiêu hiện tại. Khi nào bạn tiện để {{staffName}} liên hệ?',
+  },
+  {
+    id: 'recently_expired', name: 'Vừa hết hạn · Kết nối lại', channel: 'zalo', category: 'win_back',
+    recommendedSegments: ['expired_last_30d'], recommendedStages: ['uncontacted', 'contacted'],
+    body: 'Aura Fitness chào {{studentName}}. Gói {{packageName}} của bạn vừa kết thúc ngày {{endDate}}. Aura rất mong được tiếp tục đồng hành và đã chuẩn bị một số phương án phù hợp với lịch tập hiện tại của bạn. Bạn muốn Aura gửi thông tin tham khảo ngay tại đây không?',
+  },
+  {
+    id: 'no_answer_follow_up', name: 'Không nghe máy · Xin lịch hẹn', channel: 'zalo', category: 'follow_up',
+    recommendedSegments: ['in_care'], recommendedStages: ['contacted', 'follow_up'],
+    body: 'Chào {{studentName}}, {{staffName}} từ Aura Fitness vừa liên hệ nhưng chưa gặp được bạn. Mình muốn trao đổi ngắn về lộ trình tiếp theo của gói {{packageName}}. Bạn cho Aura xin khung giờ thuận tiện để gọi lại nhé.',
+  },
+  {
+    id: 'quote_sent_follow_up', name: 'Đã gửi báo giá · Nhắc nhẹ', channel: 'zalo', category: 'quote',
+    recommendedSegments: ['in_care'], recommendedStages: ['quote_sent', 'follow_up'],
+    body: 'Chào {{studentName}}, Aura đã gửi phương án tái ký cho gói {{packageName}}. Bạn đã xem qua chưa ạ? Nếu cần điều chỉnh lịch, số buổi hoặc phương án thanh toán, {{staffName}} sẽ hỗ trợ ngay.',
+  },
+  {
+    id: 'appointment_confirm', name: 'Xác nhận lịch tư vấn', channel: 'zalo', category: 'appointment',
+    recommendedSegments: ['in_care'], recommendedStages: ['interested', 'follow_up'],
+    body: 'Aura xác nhận lịch trao đổi cùng {{studentName}} về lộ trình {{packageName}} vào {{nextActionDate}}. Nếu cần đổi thời gian, bạn nhắn lại để {{staffName}} hỗ trợ nhé.',
+  },
+  {
+    id: 'renewal_thank_you', name: 'Tái ký thành công · Cảm ơn', channel: 'zalo', category: 'success',
+    recommendedSegments: [], recommendedStages: ['won'],
+    body: 'Cảm ơn {{studentName}} đã tiếp tục đồng hành cùng Aura Fitness. Đội ngũ Aura sẽ phối hợp để lộ trình mới được bắt đầu thuận lợi và sát mục tiêu của bạn. Chúc bạn luôn giữ nhịp tập thật tốt!',
+  },
+  {
+    id: 'lost_feedback', name: 'Chưa tái ký · Xin phản hồi', channel: 'zalo', category: 'feedback',
+    recommendedSegments: [], recommendedStages: ['lost'],
+    body: 'Aura cảm ơn {{studentName}} đã đồng hành trong thời gian qua. Nếu thuận tiện, bạn có thể chia sẻ ngắn lý do chưa tiếp tục gói tập để Aura cải thiện dịch vụ tốt hơn. Mọi phản hồi của bạn đều được trân trọng.',
+  },
+])
 
 function requiresRenewalApproval(discount, originalPrice, carryOverSessions) {
   return Number(originalPrice || 0) > 0 && Number(discount || 0) / Number(originalPrice) > approvalDiscountRate
@@ -239,20 +283,35 @@ function listInput(value = {}) {
   const risk = value.risk && value.risk !== 'all' ? boundedString(value.risk, 'Mức cảnh báo', 30) : ''
   const sla = value.sla && value.sla !== 'all' ? boundedString(value.sla, 'SLA', 30) : ''
   const approval = value.approval && value.approval !== 'all' ? boundedString(value.approval, 'Trạng thái phê duyệt', 30) : ''
+  const segment = value.segment && value.segment !== 'all' ? boundedString(value.segment, 'Nhóm tái ký', 30) : ''
   if (stage && !renewalStages.has(stage)) throw new HttpsError('invalid-argument', 'Giai đoạn không hợp lệ.')
   if (risk && !allowedRisks.has(risk)) throw new HttpsError('invalid-argument', 'Mức cảnh báo không hợp lệ.')
   if (sla && !allowedSla.has(sla)) throw new HttpsError('invalid-argument', 'SLA không hợp lệ.')
   if (approval && !allowedApproval.has(approval)) throw new HttpsError('invalid-argument', 'Trạng thái phê duyệt không hợp lệ.')
+  if (segment && !renewalSegments.has(segment)) throw new HttpsError('invalid-argument', 'Nhóm tái ký không hợp lệ.')
   return {
     pageSize: safeInteger(value.pageSize ?? 30, 'Kích thước trang', 1, 50), cursor: decodeCursor(value.cursor),
     search: boundedString(value.search, 'Từ khóa', 120, false).toLocaleLowerCase('vi'),
     branchId: value.branchId && value.branchId !== 'all' ? documentId(value.branchId, 'Chi nhánh') : '',
     assignedSalesId: value.assignedSalesId && value.assignedSalesId !== 'all' ? documentId(value.assignedSalesId, 'Nhân viên phụ trách') : '',
-    stage, risk, sla, approval, sort: ['priority', 'value', 'follow_up'].includes(value.sort) ? value.sort : 'priority',
+    stage, risk, sla, approval, segment, sort: ['priority', 'value', 'follow_up'].includes(value.sort) ? value.sort : 'priority',
   }
 }
 
+function matchesRenewalSegment(value, segment) {
+  if (!segment) return true
+  if (value.active === false || closedStages.has(value.stage)) return false
+  const daysLeft = Number(value.daysLeft ?? value.risk?.daysLeft ?? 0)
+  const sessionsLeft = Number(value.sessionsLeft ?? value.risk?.sessionsLeft ?? 0)
+  if (segment === 'expiring_30d') return daysLeft >= 0 && daysLeft <= 30 && sessionsLeft > 0
+  if (segment === 'exhausted_active') return sessionsLeft <= 0 && daysLeft > 0
+  if (segment === 'expired_last_30d') return daysLeft < 0 && daysLeft >= -30
+  if (segment === 'in_care') return careStages.has(value.stage)
+  return false
+}
+
 function matchesListInput(value, input) {
+  if (!matchesRenewalSegment(value, input.segment)) return false
   if (input.branchId && value.branchId !== input.branchId) return false
   if (input.assignedSalesId && value.assignedSalesId !== input.assignedSalesId) return false
   if (input.stage && value.stage !== input.stage) return false
@@ -268,10 +327,12 @@ function renewalStats(values) {
   const stageCounts = Object.fromEntries([...renewalStages].map((stage) => [stage, 0]))
   const riskCounts = { expired: 0, exhausted: 0, critical: 0, upcoming: 0, early: 0 }
   const slaCounts = { overdue: 0, due_today: 0, upcoming: 0, done: 0 }
+  const segmentCounts = Object.fromEntries([...renewalSegments].map((segment) => [segment, 0]))
   let pipelineValue = 0
   let weightedPipelineValue = 0
   let pendingApprovals = 0
   for (const value of values) {
+    for (const segment of renewalSegments) if (matchesRenewalSegment(value, segment)) segmentCounts[segment] += 1
     stageCounts[value.stage] = (stageCounts[value.stage] || 0) + 1
     if (value.active !== false && riskCounts[value.riskCategory] !== undefined) riskCounts[value.riskCategory] += 1
     slaCounts[slaStatus(value)] += 1
@@ -281,7 +342,7 @@ function renewalStats(values) {
       weightedPipelineValue += Math.round(Number(value.expectedValue || 0) * Number(value.probability ?? probabilityByStage[value.stage] ?? 0.1))
     }
   }
-  return { total: values.filter((item) => item.active !== false).length, pipelineValue, weightedPipelineValue, pendingApprovals, stageCounts, riskCounts, slaCounts }
+  return { total: values.filter((item) => item.active !== false).length, pipelineValue, weightedPipelineValue, pendingApprovals, stageCounts, riskCounts, slaCounts, segmentCounts }
 }
 
 const renewalQueueFingerprintFields = [
@@ -448,6 +509,11 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
   const listContractRenewalCases = onCall(listHandler)
   const listContractRenewalPipeline = onCall(listHandler)
 
+  const listRenewalMessageTemplates = onCall(async (request) => {
+    await renewalActor(request, db)
+    return { schemaVersion: 1, templates: renewalMessageTemplates }
+  })
+
   const detailHandler = async (request) => {
     const actor = await renewalActor(request, db)
     const caseId = documentId(request.data?.caseId, 'Hồ sơ tái ký')
@@ -513,21 +579,77 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     const actor = await renewalActor(request, db)
     if (!['system', 'branch'].includes(actor.renewalScope)) throw new HttpsError('permission-denied', 'Bạn không có quyền phân công hồ sơ.')
     const caseId = documentId(request.data?.caseId, 'Hồ sơ tái ký')
-    const assignedSalesId = documentId(request.data?.assignedSalesId, 'Nhân viên phụ trách')
+    const rawAssignedSalesId = boundedString(request.data?.assignedSalesId, 'Nhân viên phụ trách', 200, false)
+    const assignedSalesId = rawAssignedSalesId ? documentId(rawAssignedSalesId, 'Nhân viên phụ trách') : ''
     const expectedRevision = safeInteger(request.data?.expectedRevision ?? 0, 'Phiên bản hồ sơ', 0, 1_000_000)
     const caseReference = db.doc(`contractRenewalCases/${caseId}`)
     await db.runTransaction(async (transaction) => {
-      const [caseSnapshot, assignment, user] = await Promise.all([transaction.get(caseReference), transaction.get(db.doc(`roleAssignments/${assignedSalesId}`)), transaction.get(db.doc(`users/${assignedSalesId}`))])
+      const [caseSnapshot, assignment, user] = await Promise.all([
+        transaction.get(caseReference),
+        assignedSalesId ? transaction.get(db.doc(`roleAssignments/${assignedSalesId}`)) : Promise.resolve(null),
+        assignedSalesId ? transaction.get(db.doc(`users/${assignedSalesId}`)) : Promise.resolve(null),
+      ])
       if (!caseSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ tái ký.')
       const value = caseSnapshot.data()
       assertCaseScope(actor, value)
       if (Number(value.revision || 0) !== expectedRevision) throw new HttpsError('aborted', 'Hồ sơ đã được cập nhật. Hãy tải lại.')
-      if (!assignment.exists || assignment.data().status !== 'active' || !(assignment.data().positions || []).includes('sales') || !(assignment.data().branchIds || []).includes(value.branchId)) throw new HttpsError('failed-precondition', 'Nhân viên không phụ trách chi nhánh của hồ sơ.')
-      const name = user.exists ? user.data().displayName || user.data().name || 'Nhân viên Aura' : 'Nhân viên Aura'
+      if (assignedSalesId && (!assignment?.exists || assignment.data().status !== 'active' || !(assignment.data().positions || []).includes('sales') || !(assignment.data().branchIds || []).includes(value.branchId))) throw new HttpsError('failed-precondition', 'Nhân viên không phụ trách chi nhánh của hồ sơ.')
+      const name = assignedSalesId && user?.exists ? user.data().displayName || user.data().name || 'Nhân viên Aura' : ''
       transaction.update(caseReference, { assignedSalesId, assignedSalesName: name, revision: expectedRevision + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
       transaction.create(db.collection('contractRenewalActivities').doc(), { schemaVersion: 1, caseId, sourceContractId: value.sourceContractId || caseId, studentId: value.studentId || '', branchId: value.branchId || '', type: 'assignment', outcome: 'other', beforeAssignedSalesId: value.assignedSalesId || '', assignedSalesId, actorUid: actor.uid, createdAt: FieldValue.serverTimestamp() })
     })
     return { caseId, assignedSalesId, revision: expectedRevision + 1 }
+  })
+
+  const transferRenewalCases = onCall(async (request) => {
+    const actor = await renewalActor(request, db)
+    if (!['system', 'branch'].includes(actor.renewalScope)) throw new HttpsError('permission-denied', 'Bạn không có quyền bàn giao hồ sơ.')
+    const assignedSalesId = documentId(request.data?.assignedSalesId, 'Nhân viên nhận bàn giao')
+    const reason = boundedString(request.data?.reason, 'Lý do bàn giao', 300)
+    const nextActionAt = optionalDateKey(request.data?.nextActionAt, 'Ngày xử lý tiếp theo')
+    if (!Array.isArray(request.data?.cases) || request.data.cases.length < 1 || request.data.cases.length > 20) throw new HttpsError('invalid-argument', 'Chọn từ 1 đến 20 hồ sơ để bàn giao.')
+    const cases = request.data.cases.map((item) => ({
+      caseId: documentId(item?.caseId, 'Hồ sơ tái ký'),
+      expectedRevision: safeInteger(item?.expectedRevision ?? 0, 'Phiên bản hồ sơ', 0, 1_000_000),
+    }))
+    if (new Set(cases.map((item) => item.caseId)).size !== cases.length) throw new HttpsError('invalid-argument', 'Danh sách bàn giao có hồ sơ trùng lặp.')
+    const targetAssignmentReference = db.doc(`roleAssignments/${assignedSalesId}`)
+    const targetUserReference = db.doc(`users/${assignedSalesId}`)
+    const caseReferences = cases.map((item) => db.doc(`contractRenewalCases/${item.caseId}`))
+    await db.runTransaction(async (transaction) => {
+      const [assignment, user, ...caseSnapshots] = await Promise.all([
+        transaction.get(targetAssignmentReference), transaction.get(targetUserReference),
+        ...caseReferences.map((reference) => transaction.get(reference)),
+      ])
+      if (!assignment.exists || assignment.data().status !== 'active' || !(assignment.data().positions || []).includes('sales')) throw new HttpsError('failed-precondition', 'Tài khoản nhận bàn giao chưa có chức danh Sales đang hoạt động.')
+      const targetBranches = assignment.data().branchIds || []
+      const assignedSalesName = user.exists ? user.data().displayName || user.data().name || 'Nhân viên Aura' : 'Nhân viên Aura'
+      caseSnapshots.forEach((snapshot, index) => {
+        if (!snapshot.exists) throw new HttpsError('not-found', 'Có hồ sơ tái ký không còn tồn tại.')
+        const value = snapshot.data()
+        assertCaseScope(actor, value)
+        if (value.active === false || closedStages.has(value.stage)) throw new HttpsError('failed-precondition', 'Không thể bàn giao hồ sơ đã kết thúc.')
+        if (Number(value.revision || 0) !== cases[index].expectedRevision) throw new HttpsError('aborted', 'Một hồ sơ đã được cập nhật. Hãy tải lại danh sách.')
+        if (!targetBranches.includes(value.branchId)) throw new HttpsError('failed-precondition', 'Nhân viên nhận bàn giao không phụ trách đủ các chi nhánh đã chọn.')
+      })
+      caseSnapshots.forEach((snapshot, index) => {
+        const value = snapshot.data()
+        const caseId = cases[index].caseId
+        transaction.update(caseReferences[index], {
+          assignedSalesId, assignedSalesName,
+          ...(nextActionAt ? { nextActionAt } : {}),
+          revision: cases[index].expectedRevision + 1,
+          updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid,
+        })
+        transaction.create(db.collection('contractRenewalActivities').doc(), {
+          schemaVersion: 1, caseId, sourceContractId: value.sourceContractId || caseId,
+          studentId: value.studentId || '', branchId: value.branchId || '', type: 'assignment', outcome: 'other',
+          beforeAssignedSalesId: value.assignedSalesId || '', assignedSalesId, assignedSalesName,
+          reason, nextActionAt, actorUid: actor.uid, createdAt: FieldValue.serverTimestamp(),
+        })
+      })
+    })
+    return { assignedSalesId, transferred: cases.length }
   })
 
   const createRenewalQuote = onCall(async (request) => {
@@ -754,12 +876,12 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
   }) : null
 
   return {
-    listContractRenewalCases, listContractRenewalPipeline, getContractRenewalCaseDetail,
-    recordContractRenewalActivity, updateContractRenewalCase, assignContractRenewalCase,
+    listContractRenewalCases, listContractRenewalPipeline, listRenewalMessageTemplates, getContractRenewalCaseDetail,
+    recordContractRenewalActivity, updateContractRenewalCase, assignContractRenewalCase, transferRenewalCases,
     createRenewalQuote, submitRenewalApproval, decideRenewalApproval, renewPtContract,
     listRenewalCalendar, getRenewalAnalytics, refreshContractRenewalQueue,
     ...(scheduled ? { refreshContractRenewalQueueScheduled: scheduled } : {}),
   }
 }
 
-module.exports = { createContractRenewalFunctions, refreshRenewalQueueCore, createRenewalInternalReminders, addMonthsDateKey, normalizeInstallments, renewalRisk, latestContractsByStudent, priorityScore, slaStatus, requiresRenewalApproval, renewalQueueFingerprint }
+module.exports = { createContractRenewalFunctions, refreshRenewalQueueCore, createRenewalInternalReminders, addMonthsDateKey, normalizeInstallments, renewalRisk, latestContractsByStudent, priorityScore, slaStatus, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates }

@@ -4,9 +4,20 @@ import { firebaseFunctions } from '../lib/firebase'
 export type RenewalRiskCategory = 'expired' | 'exhausted' | 'critical' | 'upcoming' | 'early'
 export type RenewalStage = 'uncontacted' | 'contacted' | 'interested' | 'quote_sent' | 'follow_up' | 'won' | 'lost'
 export type RenewalSlaStatus = 'overdue' | 'due_today' | 'upcoming' | 'done'
+export type RenewalSegment = 'expiring_30d' | 'exhausted_active' | 'expired_last_30d' | 'in_care'
 export type RenewalScope = 'self' | 'branch' | 'system'
 export type RenewalActivityType = 'call' | 'zalo' | 'meeting' | 'note' | 'stage_change'
 export type RenewalActivityOutcome = 'connected' | 'no_answer' | 'interested' | 'not_interested' | 'quote_requested' | 'other'
+
+export interface RenewalMessageTemplate {
+  id: string
+  name: string
+  channel: 'zalo'
+  category: 'first_contact' | 'win_back' | 'follow_up' | 'quote' | 'appointment' | 'success' | 'feedback'
+  recommendedSegments: RenewalSegment[]
+  recommendedStages: RenewalStage[]
+  body: string
+}
 
 export interface RenewalPipelineRow {
   id: string
@@ -78,6 +89,7 @@ export interface RenewalStats {
   stageCounts: Record<RenewalStage, number>
   riskCounts: Record<RenewalRiskCategory, number>
   slaCounts: Record<RenewalSlaStatus, number>
+  segmentCounts: Record<RenewalSegment, number>
 }
 
 export interface RenewalPipelineResponse {
@@ -159,6 +171,7 @@ export interface RenewalListInput {
   risk?: RenewalRiskCategory | 'all'
   sla?: RenewalSlaStatus | 'all'
   approval?: 'all' | 'pending' | 'approved' | 'rejected' | 'consumed' | 'none'
+  segment?: RenewalSegment | 'all'
   sort?: 'priority' | 'value' | 'follow_up'
 }
 
@@ -204,6 +217,19 @@ export async function updateContractRenewalCase(input: {
 
 export async function assignContractRenewalCase(input: { caseId: string; assignedSalesId: string; expectedRevision: number }) {
   return (await callable<typeof input, { caseId: string; assignedSalesId: string; revision: number }>('assignContractRenewalCase')(input)).data
+}
+
+export async function transferRenewalCases(input: {
+  cases: Array<{ caseId: string; expectedRevision: number }>
+  assignedSalesId: string
+  reason: string
+  nextActionAt?: string | null
+}) {
+  return (await callable<typeof input, { assignedSalesId: string; transferred: number }>('transferRenewalCases')(input)).data
+}
+
+export async function listRenewalMessageTemplates() {
+  return (await callable<Record<string, never>, { schemaVersion: 1; templates: RenewalMessageTemplate[] }>('listRenewalMessageTemplates')({})).data
 }
 
 export async function createRenewalQuote(input: {
