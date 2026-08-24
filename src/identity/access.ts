@@ -65,6 +65,12 @@ export function parseAccessContext(value: unknown, expectedUid: string): AccessC
 export const routeCapabilities = {
   'trainer-portal': 'coach.workspace.view',
   'sales-portal': 'sales.quotes.self.manage',
+  'staff-students': 'coach.workspace.view',
+  'staff-schedule': 'coach.workspace.view',
+  'staff-requests': 'coach.workspace.view',
+  'staff-nutrition-reviews': 'coach.workspace.view',
+  'staff-quotes': 'sales.quotes.self.manage',
+  'staff-renewals': 'renewals.workspace.view',
   // Legacy operations pages still read admin-only collections while their
   // actor-scoped replacements are being rolled out. Bind every such route to
   // the Identity v2 access context so a legacy UI role alone cannot open it.

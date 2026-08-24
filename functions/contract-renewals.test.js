@@ -46,16 +46,17 @@ test('renewal workspace ships a complete Vietnamese message playbook', () => {
 
 test('bulk renewal handoff is branch-scoped, revisioned and audited atomically', () => {
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'contract-renewals.js'), 'utf8')
-  assert.match(source, /const transferRenewalCases = onCall/)
+  assert.match(source, /const transferRenewalCases = renewalCall/)
   assert.match(source, /request\.data\.cases\.length > 20/)
   assert.match(source, /Nhân viên nhận bàn giao không phụ trách đủ các chi nhánh đã chọn/)
   assert.match(source, /Một hồ sơ đã được cập nhật\. Hãy tải lại danh sách/)
   assert.match(source, /beforeAssignedSalesId: value\.assignedSalesId \|\| ''/)
 })
 
-test('renewal quote and scheduler use bounded low-CPU production settings', () => {
+test('renewal callables and scheduler use bounded low-CPU production settings', () => {
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'contract-renewals.js'), 'utf8')
-  assert.match(source, /createRenewalQuote = onCall\(\{ cpu: 'gcf_gen1', maxInstances: 3 \}/)
+  assert.match(source, /const renewalCall[\s\S]*?cpu: 'gcf_gen1', maxInstances: 6, invoker: 'public'/)
+  assert.match(source, /createRenewalQuote = renewalCall/)
   assert.match(source, /retryCount: 1, cpu: 'gcf_gen1', maxInstances: 1/)
 })
 
@@ -148,6 +149,6 @@ test('trainer renewal API is financially redacted and sales-only mutations fail 
   assert.match(source, /contractSnapshot\.trainerIds', 'array-contains'/)
   assert.match(source, /contractSnapshot\.nutritionPTIds', 'array-contains'/)
   assert.match(source, /expectedValue: actor\.renewalCanSell === true \? Number\(value\.expectedValue \|\| 0\) : 0/)
-  assert.match(source, /const createRenewalQuote = onCall[\s\S]*?requireRenewalSalesAction\(actor\)/)
-  assert.match(source, /const renewPtContract = onCall[\s\S]*?requireRenewalSalesAction\(actor\)/)
+  assert.match(source, /const createRenewalQuote = renewalCall[\s\S]*?requireRenewalSalesAction\(actor\)/)
+  assert.match(source, /const renewPtContract = renewalCall[\s\S]*?requireRenewalSalesAction\(actor\)/)
 })

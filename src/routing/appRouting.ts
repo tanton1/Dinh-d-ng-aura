@@ -34,6 +34,12 @@ const validViews: ViewId[] = [
   'eat-clean',
   'trainer-portal',
   'sales-portal',
+  'staff-students',
+  'staff-schedule',
+  'staff-requests',
+  'staff-nutrition-reviews',
+  'staff-quotes',
+  'staff-renewals',
   'progress',
   'progress-photo-studio',
   'profile',
@@ -83,6 +89,8 @@ const eatCleanScreens = new Set<AuraRoute['eatCleanScreen']>(['store', 'meal', '
  * intact; only duplicate surfaces were removed.
  */
 const retiredRouteRedirects: Record<string, { view: ViewId; hash: string }> = {
+  'trainer-portal': { view: 'staff-students', hash: '#/staff-students' },
+  'sales-portal': { view: 'staff-quotes', hash: '#/staff-quotes' },
   'schedule-pt': { view: 'schedule', hash: '#/schedule' },
   'food-database': { view: 'nutrition', hash: '#/nutrition' },
   'dish-collection': { view: 'nutrition', hash: '#/nutrition' },

@@ -92,11 +92,11 @@ test('PT schedule contract is callable-only for writes and supports optimistic c
   assert.match(functionsSource, /existing\.status !== 'planned'/)
 })
 
-test('student Gym schedule is self-scoped and availability writes are revision guarded', () => {
+test('learner and staff personal Gym schedule is self-scoped and availability writes are revision guarded', () => {
   const studentScheduleBlock = operationsV2Source.match(/const listMyStudentPtSchedule = staffCall[\s\S]*?const listMyAssignedStudents = staffCall/)?.[0] ?? ''
   assert.match(operationsV2Source, /const listMyStudentPtSchedule = staffCall/)
   assert.match(operationsV2Source, /const saveMyStudentAvailability = staffCall/)
-  assert.match(operationsV2Source, /actor\.accessRole !== 'student'/)
+  assert.match(operationsV2Source, /!\['student', 'staff'\]\.includes\(actor\.accessRole\)/)
   assert.match(studentScheduleBlock, /where\('studentId', '==', profile\.id\)/)
   assert.match(studentScheduleBlock, /where\('date', '>=', from\)/)
   assert.match(studentScheduleBlock, /where\('date', '<=', to\)/)

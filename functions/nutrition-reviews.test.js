@@ -71,6 +71,8 @@ test('pending reviews expose SLA state and prioritise the oldest overdue meal', 
 
 test('nutrition review callables are actor-scoped and transaction-backed', () => {
   const source = fs.readFileSync(path.join(__dirname, 'nutrition-reviews.js'), 'utf8')
+  assert.match(source, /const reviewCall = \(handler\) => onCall\(\{ cpu: 'gcf_gen1', maxInstances: 6, invoker: 'public' \}, handler\)/)
+  assert.match(source, /const listNutritionMealReviews = reviewCall/)
   assert.match(source, /trustedAccessContext\(request, db\)/)
   assert.match(source, /where\('nutritionPTIds', 'array-contains', coachId\)/)
   assert.match(source, /where\('crmProfileId', 'in', chunk\)/)

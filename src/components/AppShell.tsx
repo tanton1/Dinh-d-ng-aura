@@ -72,10 +72,7 @@ const studentNavSections: ShellNavSection[] = [
   },
   {
     label: 'PT COACHING & GYM',
-    items: [
-      { id: 'schedule' as const, label: 'Lịch học viên', icon: CalendarDays },
-      { id: 'trainer-portal' as const, label: 'Trang làm việc HLV', icon: Dumbbell },
-    ],
+    items: [{ id: 'schedule' as const, label: 'Lịch học viên', icon: CalendarDays }],
   },
   {
     label: 'TÀI KHOẢN',
@@ -94,8 +91,26 @@ const studentMobileNav: ShellNavItem[] = [
 
 const staffNavSections: ShellNavSection[] = [
   {
-    label: 'KHÔNG GIAN STAFF',
-    items: [{ id: 'trainer-portal' as const, label: 'Công việc', icon: Dumbbell }],
+    label: 'CÁ NHÂN AURA',
+    items: [
+      { id: 'home' as const, label: 'Hôm nay', icon: Home },
+      { id: 'nutrition' as const, label: 'Dinh dưỡng', icon: Soup },
+      { id: 'schedule' as const, label: 'Lịch học viên', icon: CalendarDays },
+      { id: 'progress' as const, label: 'Tiến độ', icon: BarChart3 },
+      { id: 'courses' as const, label: 'Học', icon: BookOpen },
+      { id: 'eat-clean' as const, label: 'Đặt món Eat Clean', icon: ShoppingBasket },
+    ],
+  },
+  {
+    label: 'CÔNG VIỆC',
+    items: [
+      { id: 'staff-students' as const, label: 'Học viên phụ trách', icon: Users },
+      { id: 'staff-schedule' as const, label: 'Lịch dạy', icon: Dumbbell },
+      { id: 'staff-requests' as const, label: 'Yêu cầu lịch', icon: History },
+      { id: 'staff-nutrition-reviews' as const, label: 'Duyệt món', icon: Check },
+      { id: 'staff-quotes' as const, label: 'Báo giá', icon: ClipboardList },
+      { id: 'staff-renewals' as const, label: 'Tái ký', icon: RefreshCw },
+    ],
   },
   {
     label: 'TÀI KHOẢN',
@@ -104,7 +119,11 @@ const staffNavSections: ShellNavSection[] = [
 ]
 
 const staffMobileNav: ShellNavItem[] = [
-  { id: 'trainer-portal', label: 'Công việc', icon: Dumbbell },
+  { id: 'home', label: 'Hôm nay', icon: Home },
+  { id: 'nutrition', label: 'Dinh dưỡng', icon: Soup },
+  { id: 'schedule', label: 'Lịch học viên', icon: Dumbbell },
+  { id: 'progress', label: 'Tiến độ', icon: BarChart3 },
+  { id: 'courses', label: 'Học', icon: BookOpen },
   { id: 'profile', label: 'Cá nhân', icon: UserRound },
 ]
 
@@ -172,6 +191,12 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'eat-clean': 'Đặt món Eat Clean',
   'trainer-portal': 'Cổng làm việc HLV',
   'sales-portal': 'Cổng báo giá & Bán hàng',
+  'staff-students': 'Học viên phụ trách',
+  'staff-schedule': 'Lịch dạy của tôi',
+  'staff-requests': 'Yêu cầu đổi và hủy lịch',
+  'staff-nutrition-reviews': 'Duyệt món học viên',
+  'staff-quotes': 'Báo giá',
+  'staff-renewals': 'Tái ký và gia hạn',
   progress: 'Tiến độ & ôn tập',
   schedule: 'Lịch học viên',
   profile: 'Cá nhân',
@@ -301,7 +326,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
     <div className={`app-shell ${mode}`} data-view={view}>
       <a className="skip-link" href="#main-content">Bỏ qua điều hướng</a>
       <aside id="app-sidebar" className={`sidebar ${mobileMenu ? 'open' : ''}`}>
-        <button className="brand" type="button" aria-label="Về trang chính" onClick={() => { onNavigate(isStaffWorkspace ? 'trainer-portal' : mode === 'student' ? 'home' : 'admin-dashboard'); setMobileMenu(false) }}>
+        <button className="brand" type="button" aria-label="Về trang chính" onClick={() => { onNavigate(mode === 'student' || isStaffWorkspace ? 'home' : 'admin-dashboard'); setMobileMenu(false) }}>
           <div className="brand-mark">A<span /></div>
           <div><strong>AURA</strong><small>FITNESS</small></div>
         </button>
@@ -360,13 +385,13 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
             <small>{isStaffWorkspace ? 'AURA STAFF' : mode === 'student' ? 'AURA FITNESS' : 'AURA OPERATIONS'}</small>
             <strong>{viewTitles[view] ?? 'Aura Fitness'}</strong>
           </div>
-          {!isStaffWorkspace && <form className="topbar-search" onSubmit={submitSearch}>
+          <form className="topbar-search" onSubmit={submitSearch}>
             <button type="submit" aria-label="Tìm"><Search size={19} /></button>
             <input aria-label="Tìm kiếm" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={mode === 'student' ? 'Tìm trong Aura Academy...' : 'Tìm nội dung hoặc khách hàng...'} />
             <kbd>Enter</kbd>
-          </form>}
+          </form>
           <div className="topbar-actions">
-            {!isStaffWorkspace && <button className="mobile-search-button" aria-label="Mở tìm kiếm" aria-expanded={mobileSearchOpen} onClick={() => setMobileSearchOpen(true)}><Search size={20} /></button>}
+            <button className="mobile-search-button" aria-label="Mở tìm kiếm" aria-expanded={mobileSearchOpen} onClick={() => setMobileSearchOpen(true)}><Search size={20} /></button>
             <span className={`backend-indicator ${backendMode}`} title={backendMode === 'firebase' ? 'Dữ liệu đã được đồng bộ' : 'Đang dùng dữ liệu xem trước'}><Cloud size={14} />{backendMode === 'firebase' ? 'Đã đồng bộ' : 'Xem trước'}</span>
             <NotificationCenter />
             <div style={{ position: 'relative' }}>

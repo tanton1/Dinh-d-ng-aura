@@ -122,8 +122,8 @@ async function studentActor(request, db) {
     }
     throw error
   }
-  if (actor.accessRole !== 'student') {
-    throw new HttpsError('permission-denied', 'Trang lịch học viên chỉ dành cho tài khoản học viên.', {
+  if (!['student', 'staff'].includes(actor.accessRole)) {
+    throw new HttpsError('permission-denied', 'Lịch cá nhân chỉ dành cho học viên hoặc Staff có hồ sơ học viên được liên kết.', {
       issueCode: 'STUDENT_ROLE_REQUIRED',
       action: 'contact_admin',
     })
@@ -156,8 +156,12 @@ async function studentProfileForActor(db, actor) {
 async function assertPortalRollout(db, actor, portal) {
   if (['admin', 'super_admin'].includes(actor.accessRole)) return
   const snapshot = await db.doc('system/feature_flags').get()
+  // Capability + branch scope remain the authorization boundary. The optional
+  // flag is an emergency kill switch, not a hidden prerequisite: a missing
+  // config document must never make a valid Staff page fail with HTTP 400.
+  if (!snapshot.exists) return
   const flags = snapshot.data() || {}
-  const enabled = portal === 'trainer' ? flags.trainerPortalEnabled === true : flags.salesPortalEnabled === true
+  const enabled = portal === 'trainer' ? flags.trainerPortalEnabled !== false : flags.salesPortalEnabled !== false
   const canary = Array.isArray(flags.trainerSalesCanaryUids) && flags.trainerSalesCanaryUids.includes(actor.uid)
   if (!enabled && !canary) throw new HttpsError('failed-precondition', 'Portal đang được mở theo nhóm canary. Tài khoản của bạn chưa được kích hoạt.')
 }

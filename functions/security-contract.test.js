@@ -197,7 +197,7 @@ test('unsafe purchase stays locked while contract renewal uses one server transa
   assert.match(addSessionsModalSource, /type="submit"[\s\S]*?disabled[\s\S]*?Đang nâng cấp an toàn/)
   assert.match(renewContractModalSource, /await renewPtContract\(/)
   assert.doesNotMatch(renewContractModalSource, /addPayment|addContract|updateContract|setDoc|updateDoc/)
-  const renewalCallable = contractRenewalSource.match(/const renewPtContract = onCall[\s\S]*?\n  \}\)/)?.[0] ?? ''
+  const renewalCallable = contractRenewalSource.match(/const renewPtContract = renewalCall[\s\S]*?\n  \}\)/)?.[0] ?? ''
   assert.match(renewalCallable, /db\.runTransaction/)
   assert.match(renewalCallable, /transaction\.create\(newContractReference/)
   assert.match(renewalCallable, /transaction\.update\(sourceReference/)
@@ -283,10 +283,24 @@ test('sensitive operations routes require Identity v2 capabilities in addition t
   assert.match(branchScheduleWorkspaceSource, /saveMyBranchScheduleDraft/)
 })
 
-test('staff uses one capability-scoped workspace without placeholder or admin navigation', () => {
-  assert.match(appSource, /<TrainerPortalV2 canUseSales=\{canUseSalesWorkspace\} canUseRenewals=\{canUseRenewalsWorkspace\}/)
-  assert.match(appSource, /<TrainerPortalV2 initialTab="sales" canUseSales=\{canUseSalesWorkspace\}/)
-  assert.match(appShellSource, /const staffNavSections[\s\S]*?'trainer-portal'[\s\S]*?'profile'/)
+test('staff keeps learner navigation while every work capability has a separate page', () => {
+  for (const [view, section] of Object.entries({
+    'staff-students': 'students',
+    'staff-schedule': 'schedule',
+    'staff-requests': 'requests',
+  })) {
+    assert.match(appSource, new RegExp(`case '${view}'[\\s\\S]*?<TrainerPortalV2 section="${section}"`))
+  }
+  assert.match(appSource, /case 'staff-nutrition-reviews':[\s\S]*?<StaffNutritionReviewsPage/)
+  assert.match(appSource, /case 'staff-quotes':[\s\S]*?<SalesPortalV2/)
+  assert.match(appSource, /case 'staff-renewals':[\s\S]*?<ContractRenewals/)
+  assert.doesNotMatch(appSource, /view === 'home'[\s\S]{0,200}trainer-portal/)
+  assert.match(appShellSource, /const staffNavSections[\s\S]*?label: 'CÔNG VIỆC'[\s\S]*?'staff-students'[\s\S]*?'staff-schedule'[\s\S]*?'staff-requests'[\s\S]*?'staff-nutrition-reviews'[\s\S]*?'staff-quotes'[\s\S]*?'staff-renewals'/)
+  assert.match(appShellSource, /const staffMobileNav[\s\S]*?'home'[\s\S]*?'nutrition'[\s\S]*?'schedule'[\s\S]*?'progress'[\s\S]*?'courses'[\s\S]*?'profile'/)
+  assert.match(accessRouteSource, /'staff-students': 'coach\.workspace\.view'/)
+  assert.match(accessRouteSource, /'staff-nutrition-reviews': 'coach\.workspace\.view'/)
+  assert.match(accessRouteSource, /'staff-quotes': 'sales\.quotes\.self\.manage'/)
+  assert.match(accessRouteSource, /'staff-renewals': 'renewals\.workspace\.view'/)
   assert.match(appShellSource, /role === 'admin' \|\| role === 'super_admin'/)
   assert.doesNotMatch(appShellSource, /Trung tâm trợ giúp đang được hoàn thiện/)
   assert.doesNotMatch(appShellSource, /<HelpCircle|<Settings/)

@@ -55,7 +55,7 @@ function issueCopy(issue: StudentPtScheduleServiceError) {
     case 'ACCESS_SYNC_REQUIRED':
       return { title: 'Quyền tài khoản chưa đồng bộ', description: 'Hãy đăng xuất, đăng nhập lại. Nếu vẫn còn lỗi, quản trị viên cần đồng bộ Role Assignment và Auth claims.' }
     case 'STUDENT_ROLE_REQUIRED':
-      return { title: 'Tài khoản không thuộc nhóm học viên', description: 'Trang này chỉ hiển thị lịch của học viên. Vui lòng liên hệ quản trị viên nếu vai trò đang bị gán sai.' }
+      return { title: 'Tài khoản chưa có lịch cá nhân', description: 'Trang này dành cho học viên hoặc Staff đã liên kết hồ sơ học viên. Vui lòng liên hệ quản trị viên nếu bạn cần dùng lịch cá nhân.' }
     case 'PROFILE_NOT_LINKED':
       return { title: 'Chưa liên kết hồ sơ học viên', description: 'Quản trị viên cần liên kết UID đăng nhập với mã hồ sơ CRM trước khi lịch có thể hiển thị.' }
     case 'ACCESS_DENIED':

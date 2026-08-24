@@ -286,7 +286,11 @@ async function availableNutritionCoaches(db) {
 }
 
 function createNutritionReviewFunctions({ db, onCall }) {
-  const listNutritionMealReviews = onCall(async (request) => {
+  // These callables are Firestore-bound. The Gen 1 CPU profile prevents the
+  // separate Cloud Run services from exhausting regional CPU allocation.
+  const reviewCall = (handler) => onCall({ cpu: 'gcf_gen1', maxInstances: 6, invoker: 'public' }, handler)
+
+  const listNutritionMealReviews = reviewCall(async (request) => {
     const context = await trustedAccessContext(request, db)
     const allScope = canReviewAll(context)
     if (!allScope && !canReviewAssigned(context)) {
@@ -350,13 +354,13 @@ function createNutritionReviewFunctions({ db, onCall }) {
     }
   })
 
-  const assignNutritionCoach = onCall(async (request) => {
+  const assignNutritionCoach = reviewCall(async (request) => {
     const context = await trustedAccessContext(request, db)
     if (!canReviewAll(context)) throw new HttpsError('permission-denied', 'Bạn không có quyền phân HLV dinh dưỡng.')
     throw new HttpsError('failed-precondition', 'HLV dinh dưỡng được phân trong Học viên PT Gym → Hợp đồng. Trang duyệt món chỉ đọc phân công canonical này.')
   })
 
-  const reviewNutritionMeal = onCall(async (request) => {
+  const reviewNutritionMeal = reviewCall(async (request) => {
     const context = await trustedAccessContext(request, db)
     const allScope = canReviewAll(context)
     if (!allScope && !canReviewAssigned(context)) {

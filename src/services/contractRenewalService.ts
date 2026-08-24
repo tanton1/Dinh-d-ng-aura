@@ -188,7 +188,21 @@ export interface RenewalListInput {
 
 function callable<Input, Output>(name: string) {
   if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
-  return httpsCallable<Input, Output>(firebaseFunctions, name)
+  const invoke = httpsCallable<Input, Output>(firebaseFunctions, name)
+  return async (input: Input) => {
+    try {
+      return await invoke(input)
+    } catch (cause) {
+      const error = cause && typeof cause === 'object' ? cause as { code?: unknown; message?: unknown } : {}
+      const code = typeof error.code === 'string' ? error.code.replace(/^functions\//, '') : ''
+      const message = typeof error.message === 'string' ? error.message.trim() : ''
+      if (['internal', 'resource-exhausted', 'unavailable', 'deadline-exceeded'].includes(code)) {
+        throw new Error('Dịch vụ tái ký đang bận. Aura chưa thay đổi dữ liệu; vui lòng thử lại sau ít phút.')
+      }
+      if (code === 'unauthenticated') throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.')
+      throw new Error(message || 'Không thể xử lý nghiệp vụ tái ký.')
+    }
+  }
 }
 
 export async function listContractRenewalCases(input: RenewalListInput = {}) {

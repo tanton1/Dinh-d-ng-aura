@@ -14,6 +14,12 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
   workout: () => import('../pages/student/WorkoutPage'),
   'trainer-portal': () => import('../pages/operations/TrainerPortalV2'),
   'sales-portal': () => import('../pages/operations/SalesPortalV2'),
+  'staff-students': () => import('../pages/operations/TrainerPortalV2'),
+  'staff-schedule': () => import('../pages/operations/TrainerPortalV2'),
+  'staff-requests': () => import('../pages/operations/TrainerPortalV2'),
+  'staff-nutrition-reviews': () => import('../features/nutrition-review/NutritionReviewWorkspace'),
+  'staff-quotes': () => import('../pages/operations/SalesPortalV2'),
+  'staff-renewals': () => import('../components/admin/pt/ContractRenewals'),
   'admin-pt-students': () => import('../components/admin/pt/StudentManagement'),
   'admin-pt-schedule': () => Promise.all([
     import('../components/schedule/SchedulerWrapper'),

@@ -74,6 +74,17 @@ function functionsOrThrow() {
   return firebaseFunctions
 }
 
+function reviewError(cause: unknown) {
+  const error = cause && typeof cause === 'object' ? cause as { code?: unknown; message?: unknown } : {}
+  const code = typeof error.code === 'string' ? error.code.replace(/^functions\//, '') : ''
+  const message = typeof error.message === 'string' ? error.message.trim() : ''
+  if (['internal', 'resource-exhausted', 'unavailable', 'deadline-exceeded'].includes(code)) {
+    return new Error('Dịch vụ duyệt món đang bận. Aura chưa thay đổi dữ liệu; vui lòng thử lại sau ít phút.')
+  }
+  if (code === 'unauthenticated') return new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.')
+  return new Error(message || 'Không thể xử lý danh sách duyệt món.')
+}
+
 export async function listNutritionMealReviews(
   input: {
     status?: NutritionReviewStatus | 'all'
@@ -93,13 +104,17 @@ export async function listNutritionMealReviews(
     },
     NutritionReviewListResult
   >(functionsOrThrow(), 'listNutritionMealReviews')
-  return (await callable({
-    status: input.status || 'all',
-    limit: input.limit || 24,
-    cursor: input.cursor,
-    coachId: input.coachId,
-    query: input.query,
-  })).data
+  try {
+    return (await callable({
+      status: input.status || 'all',
+      limit: input.limit || 24,
+      cursor: input.cursor,
+      coachId: input.coachId,
+      query: input.query,
+    })).data
+  } catch (cause) {
+    throw reviewError(cause)
+  }
 }
 
 export async function reviewNutritionMeal(input: {
@@ -114,5 +129,9 @@ export async function reviewNutritionMeal(input: {
     revision: number
     reviewedAt: number
   }>(functionsOrThrow(), 'reviewNutritionMeal')
-  return (await callable(input)).data
+  try {
+    return (await callable(input)).data
+  } catch (cause) {
+    throw reviewError(cause)
+  }
 }

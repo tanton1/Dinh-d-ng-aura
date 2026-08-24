@@ -564,6 +564,12 @@ async function createRenewalInternalReminders(db, today = vietnamDateKey()) {
 }
 
 function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
+  // Renewal endpoints spend their time in bounded Firestore reads and
+  // transactions. A fractional CPU profile avoids Cloud Run's regional
+  // cpu_allocation quota rejecting cold starts before the handler can run.
+  const renewalCall = (optionsOrHandler, maybeHandler) => typeof optionsOrHandler === 'function'
+    ? onCall({ cpu: 'gcf_gen1', maxInstances: 6, invoker: 'public' }, optionsOrHandler)
+    : onCall({ cpu: 'gcf_gen1', maxInstances: 6, invoker: 'public', ...optionsOrHandler }, maybeHandler)
   const listHandler = async (request) => {
     const actor = await renewalActor(request, db)
     const input = listInput(request.data || {})
@@ -587,10 +593,10 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
       permissions: renewalPermissions(actor), actorUid: actor.uid, truncated,
     }
   }
-  const listContractRenewalCases = onCall(listHandler)
-  const listContractRenewalPipeline = onCall(listHandler)
+  const listContractRenewalCases = renewalCall(listHandler)
+  const listContractRenewalPipeline = renewalCall(listHandler)
 
-  const listRenewalMessageTemplates = onCall(async (request) => {
+  const listRenewalMessageTemplates = renewalCall(async (request) => {
     await renewalActor(request, db)
     return { schemaVersion: 1, templates: renewalMessageTemplates }
   })
@@ -631,7 +637,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
       approval: approval?.exists ? { id: approval.id, ...approval.data(), createdAt: serializeTimestamp(approval.data().createdAt), decidedAt: serializeTimestamp(approval.data().decidedAt) } : null,
     }
   }
-  const getContractRenewalCaseDetail = onCall(detailHandler)
+  const getContractRenewalCaseDetail = renewalCall(detailHandler)
 
   const activityHandler = async (request) => {
     const actor = await renewalActor(request, db)
@@ -668,10 +674,10 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     })
     return { caseId, activityId: activityReference.id, revision: expectedRevision + 1 }
   }
-  const recordContractRenewalActivity = onCall(activityHandler)
-  const updateContractRenewalCase = onCall((request) => activityHandler({ ...request, data: { caseId: request.data?.sourceContractId, expectedRevision: request.data?.expectedRevision, type: 'stage_change', outcome: request.data?.stage === 'lost' ? 'not_interested' : 'other', stage: request.data?.stage, nextActionAt: request.data?.nextFollowUpAt || null, note: request.data?.note || '', lostReason: request.data?.stage === 'lost' ? request.data?.note || '' : null } }))
+  const recordContractRenewalActivity = renewalCall(activityHandler)
+  const updateContractRenewalCase = renewalCall((request) => activityHandler({ ...request, data: { caseId: request.data?.sourceContractId, expectedRevision: request.data?.expectedRevision, type: 'stage_change', outcome: request.data?.stage === 'lost' ? 'not_interested' : 'other', stage: request.data?.stage, nextActionAt: request.data?.nextFollowUpAt || null, note: request.data?.note || '', lostReason: request.data?.stage === 'lost' ? request.data?.note || '' : null } }))
 
-  const assignContractRenewalCase = onCall(async (request) => {
+  const assignContractRenewalCase = renewalCall(async (request) => {
     const actor = await renewalActor(request, db)
     if (!['system', 'branch'].includes(actor.renewalScope)) throw new HttpsError('permission-denied', 'Bạn không có quyền phân công hồ sơ.')
     const caseId = documentId(request.data?.caseId, 'Hồ sơ tái ký')
@@ -697,7 +703,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     return { caseId, assignedSalesId, revision: expectedRevision + 1 }
   })
 
-  const transferRenewalCases = onCall(async (request) => {
+  const transferRenewalCases = renewalCall(async (request) => {
     const actor = await renewalActor(request, db)
     if (!['system', 'branch'].includes(actor.renewalScope)) throw new HttpsError('permission-denied', 'Bạn không có quyền bàn giao hồ sơ.')
     const assignedSalesId = documentId(request.data?.assignedSalesId, 'Nhân viên nhận bàn giao')
@@ -748,7 +754,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     return { assignedSalesId, transferred: cases.length }
   })
 
-  const createRenewalQuote = onCall({ cpu: 'gcf_gen1', maxInstances: 3 }, async (request) => {
+  const createRenewalQuote = renewalCall(async (request) => {
     const actor = await renewalActor(request, db)
     requireRenewalSalesAction(actor)
     const caseId = documentId(request.data?.caseId, 'Hồ sơ tái ký')
@@ -777,7 +783,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     return { quoteId: quoteReference.id, revision: expectedRevision + 1 }
   })
 
-  const submitRenewalApproval = onCall(async (request) => {
+  const submitRenewalApproval = renewalCall(async (request) => {
     const actor = await renewalActor(request, db)
     requireRenewalSalesAction(actor)
     const caseId = documentId(request.data?.caseId, 'Hồ sơ tái ký')
@@ -802,7 +808,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     return { approvalId: approvalReference.id, status: 'pending', revision: expectedRevision + 1 }
   })
 
-  const decideRenewalApproval = onCall(async (request) => {
+  const decideRenewalApproval = renewalCall(async (request) => {
     const actor = await renewalActor(request, db)
     requireCapability(actor, 'renewals.approval.manage')
     const approvalId = documentId(request.data?.approvalId, 'Yêu cầu phê duyệt')
@@ -829,7 +835,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     return { approvalId, status: decision }
   })
 
-  const renewPtContract = onCall(async (request) => {
+  const renewPtContract = renewalCall(async (request) => {
     const actor = await renewalActor(request, db)
     requireRenewalSalesAction(actor)
     const caseId = documentId(request.data?.caseId || request.data?.sourceContractId, 'Hồ sơ tái ký')
@@ -927,7 +933,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     })
   })
 
-  const listRenewalCalendar = onCall(async (request) => {
+  const listRenewalCalendar = renewalCall(async (request) => {
     const actor = await renewalActor(request, db)
     const from = dateKey(request.data?.from || vietnamDateKey(), 'Từ ngày')
     const to = dateKey(request.data?.to || addDaysDateKey(from, 30), 'Đến ngày')
@@ -936,7 +942,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     return { from, to, items: documents.filter((item) => item.nextActionAt >= from && item.nextActionAt <= to).sort((a, b) => String(a.nextActionAt).localeCompare(String(b.nextActionAt))).slice(0, 500).map((item) => publicCase(item, actor)), truncated }
   })
 
-  const getRenewalAnalytics = onCall(async (request) => {
+  const getRenewalAnalytics = renewalCall(async (request) => {
     const actor = await renewalActor(request, db)
     requireRenewalSalesAction(actor)
     const from = dateKey(request.data?.from || addDaysDateKey(vietnamDateKey(), -30), 'Từ ngày')
@@ -963,7 +969,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     return { from, to, conversionRate: won.length + lost.length ? won.length / (won.length + lost.length) : 0, wonCases: won.length, lostCases: lost.length, wonValue: won.reduce((sum, item) => sum + Number(item.wonValue || 0), 0), collectedValue: won.reduce((sum, item) => sum + Number(item.collectedValue || 0), 0), weightedPipelineValue: stats.weightedPipelineValue, overdueCases: stats.slaCounts.overdue, stageCounts: stats.stageCounts, lostReasons, assignees: [...assignee.values()].sort((a, b) => b.value - a.value), truncated }
   })
 
-  const refreshContractRenewalQueue = onCall(async (request) => {
+  const refreshContractRenewalQueue = renewalCall(async (request) => {
     const actor = await renewalActor(request, db)
     if (actor.renewalScope !== 'system') throw new HttpsError('permission-denied', 'Chỉ quản trị hệ thống được đồng bộ hàng đợi.')
     return refreshRenewalQueueCore({ db, dryRun: request.data?.apply !== true, actorUid: actor.uid })
