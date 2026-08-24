@@ -243,6 +243,7 @@ function normalizeOrder(value: unknown, index: number): EatCleanOrder {
     note: text(source.note) || undefined,
     adminNote: text(source.adminNote) || undefined,
     refund: normalizeRefund(source.refund),
+    deliveryRecordMissing: source.deliveryRecordMissing === true,
     createdAt: source.createdAt,
     updatedAt: source.updatedAt,
   }
@@ -264,6 +265,7 @@ function normalizeAdminData(value: unknown): EatCleanAdminData {
     totalOrders: integer(rawSummary.totalOrders, orders.length),
     deliveredRevenue: integer(rawSummary.deliveredRevenue),
     pendingRefunds: integer(rawSummary.pendingRefunds),
+    missingDeliveryRecords: integer(rawSummary.missingDeliveryRecords),
     byStatus,
   }
   const seeded = typeof source.seeded === 'boolean'

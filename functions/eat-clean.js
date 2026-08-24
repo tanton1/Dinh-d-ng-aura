@@ -3962,20 +3962,25 @@ function createEatCleanFunctions(dependencies) {
       const item = { id: snapshot.id, ...serializeValue(snapshot.data()) }
       return { ...item, available: Math.max(0, (item.capacity || 0) - (item.reserved || 0) - (item.sold || 0)) }
     })
-    const refundJobSnapshots = ordersSnapshot.empty
-      ? []
-      : await db.getAll(...ordersSnapshot.docs.map((snapshot) => db.doc(`eatCleanRefundJobs/${snapshot.id}`)))
+    const [refundJobSnapshots, deliverySnapshots] = ordersSnapshot.empty
+      ? [[], []]
+      : await Promise.all([
+          db.getAll(...ordersSnapshot.docs.map((snapshot) => db.doc(`eatCleanRefundJobs/${snapshot.id}`))),
+          db.getAll(...ordersSnapshot.docs.map((snapshot) => db.doc(`eatCleanDeliveries/${snapshot.id}`))),
+        ])
     const refundsByOrderId = new Map(refundJobSnapshots
       .filter((snapshot) => snapshot.exists)
       .map((snapshot) => [
         snapshot.data().orderId || snapshot.id,
         { id: snapshot.id, ...serializeValue(snapshot.data()) },
       ]))
+    const deliveryIds = new Set(deliverySnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => snapshot.id))
     const orders = ordersSnapshot.docs
       .map((snapshot) => ({
         id: snapshot.id,
         ...serializeValue(snapshot.data()),
         refund: refundsByOrderId.get(snapshot.id) || null,
+        deliveryRecordMissing: !deliveryIds.has(snapshot.id),
       }))
       .filter((order) => !status || order.status === status)
       .filter((order) => !serviceDate || order.serviceDate === serviceDate)
@@ -3984,8 +3989,9 @@ function createEatCleanFunctions(dependencies) {
       value.byStatus[order.status] = (value.byStatus[order.status] || 0) + 1
       if (order.status === 'delivered') value.deliveredRevenue += order.total || 0
       if (order.refund && !['refunded', 'rejected'].includes(order.refund.status)) value.pendingRefunds += 1
+      if (order.deliveryRecordMissing) value.missingDeliveryRecords += 1
       return value
-    }, { totalOrders: 0, deliveredRevenue: 0, pendingRefunds: 0, byStatus: {} })
+    }, { totalOrders: 0, deliveredRevenue: 0, pendingRefunds: 0, missingDeliveryRecords: 0, byStatus: {} })
     return {
       schemaVersion: SCHEMA_VERSION,
       seeded: configSnapshot.exists || meals.length > 0 || inventory.length > 0,

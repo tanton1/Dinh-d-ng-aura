@@ -101,6 +101,7 @@ export interface EatCleanOrder {
   note?: string
   adminNote?: string
   refund?: EatCleanRefundJob | null
+  deliveryRecordMissing?: boolean
   createdAt?: unknown
   updatedAt?: unknown
 }
@@ -177,6 +178,7 @@ export interface EatCleanAdminSummary {
   totalOrders: number
   deliveredRevenue: number
   pendingRefunds: number
+  missingDeliveryRecords: number
   byStatus: Partial<Record<EatCleanOrderStatus, number>>
 }
 
@@ -243,5 +245,6 @@ export const EMPTY_EAT_CLEAN_SUMMARY: EatCleanAdminSummary = {
   totalOrders: 0,
   deliveredRevenue: 0,
   pendingRefunds: 0,
+  missingDeliveryRecords: 0,
   byStatus: {},
 }

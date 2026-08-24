@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import {
   AlertCircle,
+  AlertTriangle,
   Boxes,
   ChefHat,
   ClipboardList,
@@ -232,6 +233,17 @@ export default function AdminEatCleanPage({ currentRole, initialTab = 'dispatch'
           <article><span><PackageCheck size={19} /></span><div><strong>{summary.preparingOrders}</strong><small>Đang chuẩn bị</small></div></article>
           <article><span><WalletCards size={19} /></span><div><strong>{formatCurrency(summary.todayRevenue)}</strong><small>Doanh thu đã giao</small></div></article>
           <article><span><AlertCircle size={19} /></span><div><strong>{summary.lowStockItems}</strong><small>Nguyên liệu cần chú ý</small></div></article>
+        </section>
+      )}
+
+      {!loading && data && data.summary.missingDeliveryRecords > 0 && (
+        <section className="eat-clean-integrity-alert" role="alert">
+          <span><AlertTriangle size={20} /></span>
+          <div>
+            <strong>{data.summary.missingDeliveryRecords} đơn cần đối soát giao hàng</strong>
+            <p>Đơn lịch sử đang thiếu bản ghi delivery. Hệ thống không tự đoán đã giao hay đã hủy để tránh làm sai doanh thu và tồn kho.</p>
+          </div>
+          <button type="button" onClick={() => setActiveTab('orders')}>Mở đơn hàng</button>
         </section>
       )}
 

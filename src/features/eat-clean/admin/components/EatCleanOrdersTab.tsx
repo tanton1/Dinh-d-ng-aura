@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { BadgeCheck, ChevronRight, ClipboardList, MapPin, RotateCcw, Search, ShieldCheck, Truck } from 'lucide-react'
+import { AlertTriangle, BadgeCheck, ChevronRight, ClipboardList, MapPin, RotateCcw, Search, ShieldCheck, Truck } from 'lucide-react'
 import {
   ORDER_STATUS_LABELS,
   PAYMENT_STATUS_LABELS,
@@ -264,6 +264,7 @@ export function EatCleanOrdersTab({
                     </td>
                     <td>
                       <span className={`eat-clean-status eat-clean-status--${order.status}`}>{ORDER_STATUS_LABELS[order.status] ?? order.status}</span>
+                      {order.deliveryRecordMissing && <small className="eat-clean-integrity-text">Thiếu hồ sơ giao hàng</small>}
                       {order.refund && <small>{REFUND_STATUS_LABELS[order.refund.status]}</small>}
                     </td>
                     <td>
@@ -294,6 +295,7 @@ export function EatCleanOrdersTab({
                 <p><Truck size={15} /> {order.serviceDate || 'Chưa chọn ngày'} · {order.deliverySlot?.label || 'Chưa chọn giờ'}</p>
                 {order.customer.addressLine && <p><MapPin size={15} /> {order.customer.addressLine}</p>}
                 {order.refund && <p><ShieldCheck size={15} /> {REFUND_STATUS_LABELS[order.refund.status]}</p>}
+                {order.deliveryRecordMissing && <p className="eat-clean-integrity-text"><AlertTriangle size={15} /> Cần đối soát hồ sơ giao hàng</p>}
                 <button type="button" className="eat-clean-secondary-button" onClick={() => openOrder(order)}>
                   Xem và cập nhật <ChevronRight size={16} />
                 </button>
