@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import test from 'node:test'
 import type { UserProfile } from '../src/types'
 import {
@@ -28,6 +29,13 @@ const profile: UserProfile = {
   membership: 'free',
   onboardingCompleted: true,
 }
+
+test('missing profile data never opens onboarding during application loading', () => {
+  const application = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  assert.match(application, /const showOnboarding = forceOnboarding && role !== 'shipper'/)
+  assert.match(application, /&& showOnboarding\)/)
+  assert.doesNotMatch(application, /!isOnboardingDone/)
+})
 
 function installWindow() {
   const localStorage = new MemoryStorage()

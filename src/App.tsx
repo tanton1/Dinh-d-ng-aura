@@ -146,9 +146,10 @@ function AuraApplication() {
     }
   }, [backendMode, user?.uid])
 
-  const isOnboardingDone = role === 'shipper' || !forceOnboarding && (backendMode === 'firebase'
-    ? profile?.onboardingCompleted === true
-    : Boolean(profile?.onboardingCompleted || localNutritionProfile || (profile?.heightCm && profile?.weightKg)))
+  // Onboarding is an explicit full-screen editor launched from Nutrition or
+  // Profile. A missing/legacy profile must not replace the app loading screen
+  // with the onboarding welcome page during sign-in.
+  const showOnboarding = forceOnboarding && role !== 'shipper'
 
   const saveProfile = async (values: ProfileUpdateInput) => {
     // Recalculate targets based on new values
@@ -848,7 +849,7 @@ function AuraApplication() {
     }
   }
 
-  if ((user || backendMode === 'demo') && !isOnboardingDone) {
+  if ((user || backendMode === 'demo') && showOnboarding) {
     return (
       <Suspense fallback={<RouteLoadingFallback />}>
         <Onboarding
@@ -980,9 +981,9 @@ function AuraApplication() {
 function RouteLoadingFallback() {
   return (
     <div className="aura-route-fallback-card" role="status" aria-live="polite">
-      <img src="/aura-onboarding.webp" alt="" className="aura-route-fallback-image" decoding="async" />
       <h1>Chào mừng bạn đến với Aura Fitness</h1>
       <p>Nội dung đang được đồng bộ.</p>
+      <span className="aura-loading-progress"><i /></span>
     </div>
   )
 }
