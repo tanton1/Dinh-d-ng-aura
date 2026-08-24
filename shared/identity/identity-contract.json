@@ -9,23 +9,21 @@
     "academy_editor",
     "shipper"
   ],
+  "staffCapabilities": [
+    "dashboard.view",
+    "coach.workspace.view"
+  ],
   "positionCapabilities": {
     "coach_online": [
-      "dashboard.view",
-      "coach.workspace.view",
       "coaching.clients.assigned.view",
       "coaching.programs.manage",
-      "coaching.analytics.assigned.view",
-      "nutrition.meals.assigned.review"
+      "coaching.analytics.assigned.view"
     ],
     "trainer_pt": [
-      "dashboard.view",
-      "coach.workspace.view",
       "pt.students.assigned.view",
       "pt.schedule.self.view",
       "pt.session.self.manage",
-      "pt.workout_note.create",
-      "nutrition.meals.assigned.review"
+      "pt.workout_note.create"
     ],
     "sales": [
       "dashboard.view",

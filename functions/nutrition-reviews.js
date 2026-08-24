@@ -2,7 +2,6 @@ const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext } = require('./identity-access')
 
-const ASSIGNED_REVIEW_CAPABILITY = 'nutrition.meals.assigned.review'
 const ALL_REVIEW_CAPABILITY = 'nutrition.meals.all.review'
 
 function boundedString(value, maximum = 500, required = false) {
@@ -75,6 +74,7 @@ function reviewRecord(snapshot, profile = {}, assignment = {}, coachName = '') {
     studentGoal: shortText(value.studentGoal || meal.studentGoal || meal.userGoal, 300),
     studentCondition: shortText(value.studentCondition || meal.studentCondition || meal.userCondition, 500),
     assignedCoachId: typeof assignment.coachId === 'string' ? assignment.coachId : '',
+    assignedCoachIds: Array.isArray(assignment.coachIds) ? assignment.coachIds.slice(0, 10) : [],
     assignedCoachName: shortText(coachName, 160),
     createdAt,
     time: shortText(meal.mealDate || meal.date || meal.time || '', 80),
@@ -115,66 +115,91 @@ function canReviewAll(context) {
 }
 
 function canReviewAssigned(context) {
-  return context.capabilities.includes(ASSIGNED_REVIEW_CAPABILITY)
+  return context.accessRole === 'staff' && context.status === 'active'
 }
 
 async function assignedClientIds(db, context) {
   const coachIds = [...new Set([context.uid, context.legacyStaffId].filter(Boolean))]
-  const [relationshipSnapshots, contractSnapshots] = await Promise.all([
-    Promise.all(coachIds.map((coachId) => (
-      db.collection('coachClients').where('coachId', '==', coachId).limit(200).get()
-    ))),
-    Promise.all(coachIds.map((coachId) => (
+  const contractSnapshots = await Promise.all(coachIds.map((coachId) => (
       db.collection('contracts').where('nutritionPTIds', 'array-contains', coachId).limit(200).get()
-    ))),
-  ])
-  const relationshipClients = relationshipSnapshots.flatMap((snapshot) => snapshot.docs.map((item) => item.id))
+  )))
   const contractClients = contractSnapshots.flatMap((snapshot) => snapshot.docs
     .filter((item) => ['active', 'future', 'frozen'].includes(item.data()?.status || 'active'))
     .map((item) => item.data()?.studentId)
     .filter((value) => typeof value === 'string'))
-  return [...new Set([...relationshipClients, ...contractClients])].slice(0, 200)
+  const crmIds = [...new Set(contractClients)].slice(0, 200)
+  const linkedAccounts = []
+  for (let index = 0; index < crmIds.length; index += 30) {
+    const chunk = crmIds.slice(index, index + 30)
+    if (!chunk.length) continue
+    const snapshot = await db.collection('roleAssignments').where('crmProfileId', 'in', chunk).get()
+    snapshot.docs.forEach((item) => linkedAccounts.push(item.id))
+  }
+  return [...new Set([...crmIds, ...linkedAccounts])].slice(0, 400)
 }
 
 async function hydrateReviews(db, documents, context) {
   const clientIds = [...new Set(documents.map((item) => item.data()?.userId).filter((value) => typeof value === 'string'))]
-  const [profiles, assignments] = await Promise.all([
+  const [profiles, identityAssignments] = await Promise.all([
     clientIds.length ? db.getAll(...clientIds.map((id) => db.doc(`users/${id}`))) : [],
-    clientIds.length ? db.getAll(...clientIds.map((id) => db.doc(`coachClients/${id}`))) : [],
+    clientIds.length ? db.getAll(...clientIds.map((id) => db.doc(`roleAssignments/${id}`))) : [],
   ])
   const profileMap = new Map(profiles.map((item) => [item.id, item.exists ? item.data() || {} : {}]))
-  const assignmentMap = new Map(assignments.map((item) => [item.id, item.exists ? item.data() || {} : {}]))
-  const coachIds = [...new Set(assignments.map((item) => item.data()?.coachId).filter((value) => typeof value === 'string'))]
-  const coachProfiles = coachIds.length ? await db.getAll(...coachIds.map((id) => db.doc(`users/${id}`))) : []
-  const coachNames = new Map(coachProfiles.map((item) => {
+  const crmIdByClientId = new Map(identityAssignments.map((item) => {
     const value = item.exists ? item.data() || {} : {}
-    return [item.id, value.displayName || value.name || (item.id === context.uid ? 'Bạn' : 'HLV Aura')]
+    return [item.id, typeof value.crmProfileId === 'string' && value.crmProfileId ? value.crmProfileId : item.id]
   }))
+  clientIds.forEach((id) => { if (!crmIdByClientId.has(id)) crmIdByClientId.set(id, id) })
+  const crmIds = [...new Set(crmIdByClientId.values())]
+  const contracts = []
+  for (let index = 0; index < crmIds.length; index += 30) {
+    const chunk = crmIds.slice(index, index + 30)
+    if (!chunk.length) continue
+    const snapshot = await db.collection('contracts').where('studentId', 'in', chunk).get()
+    snapshot.docs.forEach((item) => {
+      const value = item.data() || {}
+      if (['active', 'future', 'frozen'].includes(value.status || 'active')) contracts.push({ id: item.id, ...value })
+    })
+  }
+  const contractByStudentId = new Map()
+  contracts.forEach((contract) => {
+    const current = contractByStudentId.get(contract.studentId)
+    if (!current || String(contract.endDate || '') > String(current.endDate || '')) contractByStudentId.set(contract.studentId, contract)
+  })
+  const coachIds = [...new Set(contracts.flatMap((contract) => Array.isArray(contract.nutritionPTIds) ? contract.nutritionPTIds : []))]
+  const [coachProfiles, trainerProfiles] = await Promise.all([
+    coachIds.length ? db.getAll(...coachIds.map((id) => db.doc(`users/${id}`))) : [],
+    coachIds.length ? db.getAll(...coachIds.map((id) => db.doc(`trainers/${id}`))) : [],
+  ])
+  const coachNames = new Map()
+  trainerProfiles.forEach((item) => {
+    const value = item.exists ? item.data() || {} : {}
+    if (item.exists) coachNames.set(item.id, value.name || value.displayName || 'HLV Aura')
+  })
+  coachProfiles.forEach((item) => {
+    const value = item.exists ? item.data() || {} : {}
+    if (item.exists) coachNames.set(item.id, value.displayName || value.name || coachNames.get(item.id) || 'HLV Aura')
+  })
   return documents.map((item) => {
     const userId = item.data()?.userId
-    const assignment = assignmentMap.get(userId) || {}
-    return reviewRecord(item, profileMap.get(userId), assignment, coachNames.get(assignment.coachId) || '')
+    const contract = contractByStudentId.get(crmIdByClientId.get(userId)) || {}
+    const assignedCoachIds = Array.isArray(contract.nutritionPTIds) ? contract.nutritionPTIds : []
+    const assignment = { coachId: assignedCoachIds[0] || '', coachIds: assignedCoachIds }
+    const assignedCoachName = assignedCoachIds.map((id) => coachNames.get(id) || (id === context.legacyStaffId || id === context.uid ? 'Bạn' : 'HLV Aura')).join(' · ')
+    return reviewRecord(item, profileMap.get(userId), assignment, assignedCoachName)
   })
 }
 
 async function availableNutritionCoaches(db) {
-  const assignmentSnapshot = await db.collection('roleAssignments').where('accessRole', '==', 'staff').limit(100).get()
-  const candidates = assignmentSnapshot.docs.filter((item) => {
-    const value = item.data() || {}
-    return value.status === 'active'
-      && Array.isArray(value.positions)
-      && value.positions.some((position) => ['coach_online', 'trainer_pt'].includes(position))
-  })
-  const profiles = candidates.length ? await db.getAll(...candidates.map((item) => db.doc(`users/${item.id}`))) : []
-  const profileMap = new Map(profiles.map((item) => [item.id, item.exists ? item.data() || {} : {}]))
+  const trainerSnapshot = await db.collection('trainers').limit(100).get()
+  const candidates = trainerSnapshot.docs.filter((item) => item.data()?.status !== 'inactive')
   return candidates.map((item) => {
-    const assignment = item.data() || {}
-    const profile = profileMap.get(item.id) || {}
+    const profile = item.data() || {}
     return {
       id: item.id,
-      name: shortText(profile.displayName || profile.name || 'HLV Aura', 160),
-      positions: assignment.positions.filter((position) => ['coach_online', 'trainer_pt'].includes(position)),
-      branchIds: Array.isArray(assignment.branchIds) ? assignment.branchIds.slice(0, 20) : [],
+      name: shortText(profile.name || profile.displayName || 'HLV Aura', 160),
+      positions: [],
+      branchIds: profile.branchId ? [profile.branchId] : [],
     }
   }).sort((left, right) => left.name.localeCompare(right.name, 'vi'))
 }
@@ -219,46 +244,7 @@ function createNutritionReviewFunctions({ db, onCall }) {
   const assignNutritionCoach = onCall(async (request) => {
     const context = await trustedAccessContext(request, db)
     if (!canReviewAll(context)) throw new HttpsError('permission-denied', 'Bạn không có quyền phân HLV dinh dưỡng.')
-    const userId = documentId(request.data?.userId)
-    const coachUid = documentId(request.data?.coachUid)
-    const relationshipRef = db.doc(`coachClients/${userId}`)
-    await db.runTransaction(async (transaction) => {
-      const [studentSnapshot, coachSnapshot, assignmentSnapshot, previousRelationship] = await Promise.all([
-        transaction.get(db.doc(`users/${userId}`)),
-        transaction.get(db.doc(`users/${coachUid}`)),
-        transaction.get(db.doc(`roleAssignments/${coachUid}`)),
-        transaction.get(relationshipRef),
-      ])
-      if (!studentSnapshot.exists || studentSnapshot.data()?.disabled === true) {
-        throw new HttpsError('failed-precondition', 'Học viên không còn hoạt động.')
-      }
-      const assignment = assignmentSnapshot.exists ? assignmentSnapshot.data() || {} : {}
-      const validPosition = assignment.accessRole === 'staff'
-        && assignment.status === 'active'
-        && Array.isArray(assignment.positions)
-        && assignment.positions.some((position) => ['coach_online', 'trainer_pt'].includes(position))
-      if (!coachSnapshot.exists || coachSnapshot.data()?.disabled === true || !validPosition) {
-        throw new HttpsError('failed-precondition', 'Tài khoản được chọn chưa có chức danh HLV phù hợp.')
-      }
-      transaction.set(relationshipRef, {
-        schemaVersion: 2,
-        clientId: userId,
-        coachId: coachUid,
-        status: 'active',
-        assignedBy: context.uid,
-        assignedAt: previousRelationship.exists ? previousRelationship.data()?.assignedAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      }, { merge: true })
-      transaction.create(db.collection('identityAuditLogs').doc(), {
-        action: 'nutrition_coach.assigned',
-        actorUid: context.uid,
-        targetUid: userId,
-        beforeCoachUid: previousRelationship.data()?.coachId || null,
-        afterCoachUid: coachUid,
-        createdAt: FieldValue.serverTimestamp(),
-      })
-    })
-    return { userId, coachUid, assigned: true }
+    throw new HttpsError('failed-precondition', 'HLV dinh dưỡng được phân trong Học viên PT Gym → Hợp đồng. Trang duyệt món chỉ đọc phân công canonical này.')
   })
 
   const reviewNutritionMeal = onCall(async (request) => {
@@ -284,17 +270,16 @@ function createNutritionReviewFunctions({ db, onCall }) {
         throw new HttpsError('aborted', 'Bản duyệt đã được cập nhật. Hãy tải lại trước khi thao tác.')
       }
       if (!allScope) {
-        const assignment = await transaction.get(db.doc(`coachClients/${userId}`))
-        const coachId = assignment.data()?.coachId
-        let ownsNutritionCare = assignment.exists && [context.uid, context.legacyStaffId].includes(coachId)
-        if (!ownsNutritionCare) {
-          const contractSnapshot = await transaction.get(db.collection('contracts').where('studentId', '==', userId).limit(20))
-          ownsNutritionCare = contractSnapshot.docs.some((item) => {
-            const nutritionCoachIds = Array.isArray(item.data()?.nutritionPTIds) ? item.data().nutritionPTIds : []
-            return ['active', 'future', 'frozen'].includes(item.data()?.status || 'active')
-              && [context.uid, context.legacyStaffId].some((actorId) => nutritionCoachIds.includes(actorId))
-          })
-        }
+        const identityAssignment = await transaction.get(db.doc(`roleAssignments/${userId}`))
+        const crmProfileId = identityAssignment.exists && typeof identityAssignment.data()?.crmProfileId === 'string'
+          ? identityAssignment.data().crmProfileId
+          : userId
+        const contractSnapshot = await transaction.get(db.collection('contracts').where('studentId', 'in', [...new Set([userId, crmProfileId])]).limit(20))
+        const ownsNutritionCare = contractSnapshot.docs.some((item) => {
+          const nutritionCoachIds = Array.isArray(item.data()?.nutritionPTIds) ? item.data().nutritionPTIds : []
+          return ['active', 'future', 'frozen'].includes(item.data()?.status || 'active')
+            && [context.uid, context.legacyStaffId].some((actorId) => nutritionCoachIds.includes(actorId))
+        })
         if (!ownsNutritionCare) {
           throw new HttpsError('permission-denied', 'Học viên này không thuộc phạm vi chăm sóc dinh dưỡng của bạn.')
         }
@@ -352,6 +337,5 @@ function createNutritionReviewFunctions({ db, onCall }) {
 module.exports = {
   createNutritionReviewFunctions,
   reviewRecord,
-  ASSIGNED_REVIEW_CAPABILITY,
   ALL_REVIEW_CAPABILITY,
 }

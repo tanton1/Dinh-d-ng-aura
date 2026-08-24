@@ -296,7 +296,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
           {navSections.map((section, sectionIdx) => (
             <div className="sidebar-nav__section" key={section.label || `section-${sectionIdx}`}>
               {section.label ? <p>{section.label}</p> : null}
-              {section.items.map((item) => {
+              {section.items.filter((item) => canNavigate(item.id)).map((item) => {
                 const Icon = item.icon
                 const active = isNavigationActive(view, item.id)
                 return (

@@ -164,7 +164,9 @@ async function assertPortalRollout(db, actor, portal) {
 
 async function trainerActor(request, db) {
   const actor = await trustedAccessContext(request, db)
-  await assertPortalRollout(db, actor, 'trainer')
+  if (!['staff', 'admin', 'super_admin'].includes(actor.accessRole)) {
+    throw new HttpsError('permission-denied', 'Trang làm việc HLV chỉ dành cho tài khoản nhân viên đang hoạt động.')
+  }
   return actor
 }
 
@@ -174,27 +176,89 @@ async function salesActor(request, db) {
   return actor
 }
 
-function contractAssignedTo(contract, actor) {
+function trainingContractAssignedTo(contract, actor) {
   const ids = new Set([actor.uid, actor.legacyStaffId].filter(Boolean))
   return ids.has(contract.trainerId)
     || (Array.isArray(contract.trainerIds) && contract.trainerIds.some((id) => ids.has(id)))
-    || (Array.isArray(contract.nutritionPTIds) && contract.nutritionPTIds.some((id) => ids.has(id)))
 }
 
-async function assignedContracts(db, actor, limit = 200) {
+function nutritionContractAssignedTo(contract, actor) {
+  const ids = new Set([actor.uid, actor.legacyStaffId].filter(Boolean))
+  return Array.isArray(contract.nutritionPTIds) && contract.nutritionPTIds.some((id) => ids.has(id))
+}
+
+function activeAssignmentContract(contract) {
+  return ['active', 'future', 'frozen'].includes(contract.status || 'active')
+}
+
+async function assignedContracts(db, actor, relation = 'training', limit = 200) {
   const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
   const snapshots = []
   for (const actorId of actorIds) {
-    snapshots.push(await db.collection('contracts').where('trainerId', '==', actorId).limit(limit).get())
-    snapshots.push(await db.collection('contracts').where('trainerIds', 'array-contains', actorId).limit(limit).get())
-    snapshots.push(await db.collection('contracts').where('nutritionPTIds', 'array-contains', actorId).limit(limit).get())
+    if (relation === 'nutrition') {
+      snapshots.push(await db.collection('contracts').where('nutritionPTIds', 'array-contains', actorId).limit(limit).get())
+    } else {
+      snapshots.push(await db.collection('contracts').where('trainerId', '==', actorId).limit(limit).get())
+      snapshots.push(await db.collection('contracts').where('trainerIds', 'array-contains', actorId).limit(limit).get())
+    }
   }
   const result = new Map()
   snapshots.forEach((snapshot) => snapshot.docs.forEach((doc) => result.set(doc.id, { id: doc.id, ...doc.data() })))
-  return [...result.values()].filter((contract) => contractAssignedTo(contract, actor)).slice(0, limit)
+  const owns = relation === 'nutrition' ? nutritionContractAssignedTo : trainingContractAssignedTo
+  return [...result.values()].filter((contract) => owns(contract, actor)).slice(0, limit)
 }
 
 function createPtOperationsV2Functions({ db, onCall }) {
+  const getMyCoachWorkspaceScope = onCall(async (request) => {
+    const actor = await trainerActor(request, db)
+    const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
+    const [trainingContracts, nutritionContracts, sessionSnapshots, requestSnapshots] = await Promise.all([
+      assignedContracts(db, actor, 'training', 300),
+      assignedContracts(db, actor, 'nutrition', 300),
+      Promise.all(actorIds.map((actorId) => db.collection('sessions').where('trainerId', '==', actorId).limit(200).get())),
+      Promise.all(actorIds.map((actorId) => db.collection('sessionRequests').where('trainerId', '==', actorId).limit(100).get())),
+    ])
+    const activeTraining = trainingContracts.filter(activeAssignmentContract)
+    const activeNutrition = nutritionContracts.filter(activeAssignmentContract)
+    const teachingSessions = new Map()
+    sessionSnapshots.forEach((snapshot) => snapshot.docs.forEach((document) => teachingSessions.set(document.id, document.data())))
+    const pendingRequests = new Map()
+    requestSnapshots.forEach((snapshot) => snapshot.docs.forEach((document) => {
+      const value = document.data() || {}
+      if (value.requestedBy === 'trainer' && value.status === 'pending') pendingRequests.set(document.id, value)
+    }))
+    const trainingStudentIds = new Set(activeTraining.map((contract) => contract.studentId).filter(Boolean))
+    const nutritionStudentIds = new Set(activeNutrition.map((contract) => contract.studentId).filter(Boolean))
+    const actorAssignmentIds = [actor.uid, actor.legacyStaffId].filter(Boolean)
+    const primaryStudentIds = new Set(activeTraining.filter((contract) => {
+      const trainerIds = Array.isArray(contract.trainerIds) ? contract.trainerIds : []
+      return actorAssignmentIds.some((id) => contract.trainerId === id || trainerIds[0] === id)
+    }).map((contract) => contract.studentId).filter(Boolean))
+    const secondaryStudentIds = new Set(activeTraining.filter((contract) => {
+      const trainerIds = Array.isArray(contract.trainerIds) ? contract.trainerIds.slice(1) : []
+      return actorAssignmentIds.some((id) => trainerIds.includes(id))
+    }).map((contract) => contract.studentId).filter((studentId) => studentId && !primaryStudentIds.has(studentId)))
+    const hasTeachingWork = trainingStudentIds.size > 0 || teachingSessions.size > 0
+    return {
+      schemaVersion: 1,
+      source: 'pt_contract_assignments',
+      staffId: actor.legacyStaffId || actor.uid,
+      tabs: {
+        students: trainingStudentIds.size > 0,
+        schedule: hasTeachingWork,
+        requests: hasTeachingWork,
+        nutrition: nutritionStudentIds.size > 0,
+      },
+      counts: {
+        primaryStudents: primaryStudentIds.size,
+        secondaryStudents: secondaryStudentIds.size,
+        nutritionStudents: nutritionStudentIds.size,
+        teachingSessions: teachingSessions.size,
+        pendingRequests: pendingRequests.size,
+      },
+    }
+  })
+
   const listMyStudentPtSchedule = onCall(async (request) => {
     const actor = await studentActor(request, db)
     const from = dateKey(request.data?.from, 'Ngày bắt đầu')
@@ -445,9 +509,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
 
   const listMyAssignedStudents = onCall(async (request) => {
     const actor = await trainerActor(request, db)
-    requireCapability(actor, 'pt.students.assigned.view')
     const limit = integer(request.data?.limit, 100, 1, 200)
-    const contracts = await assignedContracts(db, actor, limit)
+    const contracts = await assignedContracts(db, actor, 'training', limit)
     const studentIds = [...new Set(contracts.map((item) => item.studentId).filter(Boolean))]
     const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : []
     const activeContractByStudent = new Map(contracts.filter((item) => item.status === 'active').map((item) => [item.studentId, item]))
@@ -457,6 +520,11 @@ function createPtOperationsV2Functions({ db, onCall }) {
       return serialize({
         id: snapshot.id, name: student.name || 'Học viên Aura', phone: student.phone || '', email: student.email || '',
         branchId: student.branchId || contract?.branchId || '', status: student.status || 'active', sessionsPerWeek: student.sessionsPerWeek || 0,
+        assignmentRole: contract ? (() => {
+          const actorIds = [actor.uid, actor.legacyStaffId].filter(Boolean)
+          const trainerIds = Array.isArray(contract.trainerIds) ? contract.trainerIds : []
+          return actorIds.some((id) => contract.trainerId === id || trainerIds[0] === id) ? 'primary' : 'secondary'
+        })() : 'secondary',
         contract: contract ? { id: contract.id, status: contract.status, startDate: contract.startDate, endDate: contract.endDate, totalSessions: contract.totalSessions || 0, usedSessions: contract.usedSessions || 0 } : null,
       })
     })
@@ -465,7 +533,6 @@ function createPtOperationsV2Functions({ db, onCall }) {
 
   const listMyTrainerSchedule = onCall(async (request) => {
     const actor = await trainerActor(request, db)
-    requireCapability(actor, 'pt.schedule.self.view')
     const from = dateKey(request.data?.from, 'Ngày bắt đầu')
     const to = dateKey(request.data?.to, 'Ngày kết thúc')
     if (from > to || Date.parse(`${to}T00:00:00+07:00`) - Date.parse(`${from}T00:00:00+07:00`) > 62 * 86400000) throw new HttpsError('invalid-argument', 'Khoảng lịch tối đa là 62 ngày.')
@@ -479,6 +546,9 @@ function createPtOperationsV2Functions({ db, onCall }) {
     }
     const sessions = new Map()
     snapshots.forEach((snapshot) => snapshot.docs.forEach((doc) => sessions.set(doc.id, serialize({ id: doc.id, ...doc.data(), timeZone: TIME_ZONE }))))
+    const studentIds = [...new Set([...sessions.values()].map((session) => session.studentId).filter(Boolean))]
+    const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : []
+    const studentNames = new Map(studentSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, snapshot.data().name || 'Học viên Aura']))
     const requests = new Map()
     requestSnapshots.forEach((snapshot) => snapshot.docs.forEach((doc) => {
       const value = doc.data()
@@ -499,16 +569,15 @@ function createPtOperationsV2Functions({ db, onCall }) {
     }))
     return {
       schemaVersion: 2,
-      sessions: [...sessions.values()].sort((a, b) => `${a.date}-${a.hour || 0}`.localeCompare(`${b.date}-${b.hour || 0}`)),
+      sessions: [...sessions.values()].map((session) => ({ ...session, studentName: studentNames.get(session.studentId) || 'Học viên Aura' })).sort((a, b) => `${a.date}-${a.hour || 0}`.localeCompare(`${b.date}-${b.hour || 0}`)),
       requests: [...requests.values()].sort((a, b) => String(b.submittedAtIso || b.createdAt || '').localeCompare(String(a.submittedAtIso || a.createdAt || ''))),
     }
   })
 
   const getMyTrainerStudentDetail = onCall(async (request) => {
     const actor = await trainerActor(request, db)
-    requireCapability(actor, 'pt.students.assigned.view')
     const studentId = documentId(request.data?.studentId, 'Mã học viên')
-    const contracts = await assignedContracts(db, actor, 300)
+    const contracts = await assignedContracts(db, actor, 'training', 300)
     const studentContracts = contracts.filter((item) => item.studentId === studentId)
     if (!studentContracts.length) throw new HttpsError('permission-denied', 'Học viên không thuộc phạm vi được giao.')
     const [studentSnapshot, logsSnapshot] = await Promise.all([
@@ -520,7 +589,6 @@ function createPtOperationsV2Functions({ db, onCall }) {
 
   const confirmMySession = onCall(async (request) => {
     const actor = await trainerActor(request, db)
-    requireCapability(actor, 'pt.session.self.manage')
     const sessionId = documentId(request.data?.sessionId, 'Mã buổi tập')
     const expectedRevision = integer(request.data?.expectedRevision, 0, 0, 1000000)
     return completeSessionAttendanceTransaction({
@@ -539,9 +607,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
 
   const submitWorkoutNote = onCall(async (request) => {
     const actor = await trainerActor(request, db)
-    requireCapability(actor, 'pt.workout_note.create')
     const studentId = documentId(request.data?.studentId, 'Mã học viên')
-    const contracts = await assignedContracts(db, actor, 300)
+    const contracts = await assignedContracts(db, actor, 'training', 300)
     if (!contracts.some((item) => item.studentId === studentId)) throw new HttpsError('permission-denied', 'Học viên không thuộc phạm vi được giao.')
     const reference = db.collection('workoutLogs').doc()
     await reference.create({ schemaVersion: 1, studentId, trainerId: actor.legacyStaffId || actor.uid, sessionId: request.data?.sessionId ? documentId(request.data.sessionId, 'Mã buổi tập') : '', exerciseName: boundedString(request.data?.exerciseName, 'Bài tập', 160), note: boundedString(request.data?.note, 'Ghi chú', 2000, false), date: dateKey(request.data?.date), sets: Array.isArray(request.data?.sets) ? request.data.sets.slice(0, 30) : [], createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() })
@@ -550,7 +617,6 @@ function createPtOperationsV2Functions({ db, onCall }) {
 
   const requestSessionChange = onCall(async (request) => {
     const actor = await trainerActor(request, db)
-    requireCapability(actor, 'pt.session.self.manage')
     const sessionId = documentId(request.data?.sessionId, 'Mã buổi tập')
     const session = await db.doc(`sessions/${sessionId}`).get()
     if (!session.exists || ![actor.uid, actor.legacyStaffId].includes(session.data().trainerId)) throw new HttpsError('permission-denied', 'Buổi tập không thuộc lịch của bạn.')
@@ -638,7 +704,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     return { approvalId: reference.id, status: 'pending' }
   })
 
-  return { listMyStudentPtSchedule, saveMyStudentAvailability, listMyAssignedStudents, listMyTrainerSchedule, getMyTrainerStudentDetail, confirmMySession, submitWorkoutNote, requestSessionChange, listMyQuotes, getMySalesCatalog, createQuote, createStudentDraft, submitContractForApproval }
+  return { getMyCoachWorkspaceScope, listMyStudentPtSchedule, saveMyStudentAvailability, listMyAssignedStudents, listMyTrainerSchedule, getMyTrainerStudentDetail, confirmMySession, submitWorkoutNote, requestSessionChange, listMyQuotes, getMySalesCatalog, createQuote, createStudentDraft, submitContractForApproval }
 }
 
 module.exports = { createPtOperationsV2Functions, normalizedAvailabilitySlots, scheduleConfig, sessionHour }

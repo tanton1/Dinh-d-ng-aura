@@ -14,7 +14,6 @@ import {
   XCircle,
 } from 'lucide-react'
 import {
-  assignNutritionCoach,
   listNutritionMealReviews,
   reviewNutritionMeal,
   type NutritionMealReview,
@@ -90,8 +89,8 @@ export function NutritionReviewWorkspace({
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('vi')
     return reviews.filter((item) => {
-      if (coachId === 'unassigned' && item.assignedCoachId) return false
-      if (coachId !== 'all' && coachId !== 'unassigned' && item.assignedCoachId !== coachId) return false
+      if (coachId === 'unassigned' && item.assignedCoachIds.length) return false
+      if (coachId !== 'all' && coachId !== 'unassigned' && !item.assignedCoachIds.includes(coachId)) return false
       if (!normalized) return true
       return [item.studentName, item.note, item.mealType, item.assignedCoachName]
         .some((value) => value.toLocaleLowerCase('vi').includes(normalized))
@@ -125,21 +124,6 @@ export function NutritionReviewWorkspace({
       await load()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể cập nhật bản duyệt.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const assignCoach = async (coachUid: string) => {
-    if (!selected || !coachUid || submitting) return
-    setSubmitting(true)
-    setError('')
-    try {
-      await assignNutritionCoach(selected.userId, coachUid)
-      setNotice('Đã phân HLV chăm dinh dưỡng. Bữa ăn sẽ xuất hiện trong đúng trang làm việc HLV.')
-      await load()
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không thể phân HLV dinh dưỡng.')
     } finally {
       setSubmitting(false)
     }
@@ -208,7 +192,7 @@ export function NutritionReviewWorkspace({
 
       {selected && <article className="nrw-detail">
         <div className="nrw-detail-top">
-          <div className="nrw-detail-identity"><small>HỒ SƠ DUYỆT · {selected.revision + 1}</small><h2>{selected.studentName}</h2><p>{selected.studentGoal || 'Chưa cập nhật mục tiêu dinh dưỡng'}</p>{scope === 'all' && <label className="nrw-assign-coach"><UsersRound size={15} /><span>HLV dinh dưỡng</span><select value={selected.assignedCoachId || ''} onChange={(event) => void assignCoach(event.target.value)} disabled={submitting}><option value="" disabled>Chọn HLV phụ trách</option>{availableCoaches.map((coach) => <option key={coach.id} value={coach.id}>{coach.name}</option>)}</select></label>}</div>
+          <div className="nrw-detail-identity"><small>HỒ SƠ DUYỆT · {selected.revision + 1}</small><h2>{selected.studentName}</h2><p>{selected.studentGoal || 'Chưa cập nhật mục tiêu dinh dưỡng'}</p>{scope === 'all' && <div className="nrw-assign-coach"><UsersRound size={15} /><span>HLV dinh dưỡng: {selected.assignedCoachName || 'Chưa phân công'}<small>Thiết lập tại Học viên PT Gym → Hợp đồng.</small></span></div>}</div>
           <div className="nrw-slide-control"><button onClick={() => setDetailSlide((value) => Math.max(0, value - 1))} disabled={detailSlide === 0} aria-label="Slide trước"><ChevronLeft /></button><span>{detailSlide + 1}/3</span><button onClick={() => setDetailSlide((value) => Math.min(2, value + 1))} disabled={detailSlide === 2} aria-label="Slide sau"><ChevronRight /></button></div>
         </div>
         <div className="nrw-detail-window">

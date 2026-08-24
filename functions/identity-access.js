@@ -92,6 +92,9 @@ function compatibilityRole(accessRole, positions) {
 
 function computedCapabilities(accessRole, positions) {
   const capabilities = new Set()
+  if (accessRole === 'staff') {
+    ;(identityContract.staffCapabilities || []).forEach((capability) => capabilities.add(capability))
+  }
   positions.forEach((position) => {
     const items = identityContract.positionCapabilities[position] || []
     items.forEach((capability) => capabilities.add(capability))

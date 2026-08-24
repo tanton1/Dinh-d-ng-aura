@@ -10,6 +10,7 @@ export interface NutritionMealReview {
   studentGoal: string
   studentCondition: string
   assignedCoachId: string
+  assignedCoachIds: string[]
   assignedCoachName: string
   createdAt: number
   time: string
@@ -49,15 +50,6 @@ export interface NutritionReviewListResult {
   scope: 'all' | 'assigned'
   assignmentCount: number
   hasMore: boolean
-}
-
-export async function assignNutritionCoach(userId: string, coachUid: string) {
-  const callable = httpsCallable<{ userId: string; coachUid: string }, {
-    userId: string
-    coachUid: string
-    assigned: boolean
-  }>(functionsOrThrow(), 'assignNutritionCoach')
-  return (await callable({ userId, coachUid })).data
 }
 
 function functionsOrThrow() {

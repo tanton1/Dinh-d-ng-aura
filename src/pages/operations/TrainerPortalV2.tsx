@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CalendarClock, CheckCircle2, CircleAlert, Clock3, RefreshCw, Soup, UsersRound, X } from 'lucide-react'
-import { useAuth } from '../../contexts/AuthContext'
 import { NutritionReviewWorkspace } from '../../features/nutrition-review/NutritionReviewWorkspace'
 import {
   confirmMySession,
+  getMyCoachWorkspaceScope,
   listMyAssignedStudents,
   listMyTrainerSchedule,
   requestSessionChange,
   type TrainerSessionRequestSummary,
   type TrainerSessionSummary,
   type TrainerStudentSummary,
+  type CoachWorkspaceScope,
 } from '../../services/ptOperationsV2Service'
 import './OperationsPortalV2.css'
 
@@ -29,16 +30,14 @@ function requestStatus(status: string) {
 }
 
 export default function TrainerPortalV2({ initialTab = 'students' }: { initialTab?: TrainerTab }) {
-  const { hasCapability } = useAuth()
-  const canViewStudents = hasCapability('pt.students.assigned.view')
-  const canViewSchedule = hasCapability('pt.schedule.self.view')
-  const canReviewNutrition = hasCapability('nutrition.meals.assigned.review')
+  const [workspace, setWorkspace] = useState<CoachWorkspaceScope | null>(null)
+  const [scopeLoading, setScopeLoading] = useState(true)
   const [tab, setTab] = useState<TrainerTab>(initialTab)
   const [students, setStudents] = useState<TrainerStudentSummary[]>([])
   const [sessions, setSessions] = useState<TrainerSessionSummary[]>([])
   const [requests, setRequests] = useState<TrainerSessionRequestSummary[]>([])
   const [from, setFrom] = useState(dateString(new Date()))
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [requestTarget, setRequestTarget] = useState<TrainerSessionSummary | null>(null)
@@ -47,9 +46,29 @@ export default function TrainerPortalV2({ initialTab = 'students' }: { initialTa
   const [requestDate, setRequestDate] = useState('')
   const [requestHour, setRequestHour] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const canViewStudents = workspace?.tabs.students === true
+  const canViewSchedule = workspace?.tabs.schedule === true
+  const canViewRequests = workspace?.tabs.requests === true
+  const canReviewNutrition = workspace?.tabs.nutrition === true
   const to = useMemo(() => { const date = new Date(`${from}T00:00:00`); date.setDate(date.getDate() + 14); return dateString(date) }, [from])
-  const studentNames = useMemo(() => new Map(students.map((student) => [student.id, student.name])), [students])
-  const pendingCount = requests.filter((request) => request.status === 'pending').length
+  const studentNames = useMemo(() => new Map([
+    ...students.map((student) => [student.id, student.name] as const),
+    ...sessions.filter((session) => session.studentName).map((session) => [session.studentId, session.studentName as string] as const),
+  ]), [sessions, students])
+  const pendingCount = requests.length
+    ? requests.filter((request) => request.status === 'pending').length
+    : workspace?.counts.pendingRequests || 0
+
+  useEffect(() => {
+    let active = true
+    setScopeLoading(true)
+    setError('')
+    void getMyCoachWorkspaceScope()
+      .then((result) => { if (active) setWorkspace(result) })
+      .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'Không thể xác minh phân công HLV.') })
+      .finally(() => { if (active) setScopeLoading(false) })
+    return () => { active = false }
+  }, [])
 
   useEffect(() => {
     const available: TrainerTab[] = [
@@ -57,22 +76,24 @@ export default function TrainerPortalV2({ initialTab = 'students' }: { initialTa
       ...(canViewStudents ? ['students'] as TrainerTab[] : []),
       ...(canReviewNutrition ? ['nutrition'] as TrainerTab[] : []),
     ]
-    if (!available.includes(tab)) setTab(available[0] || 'nutrition')
+    if (workspace && available.length && !available.includes(tab)) setTab(available[0])
   }, [canReviewNutrition, canViewSchedule, canViewStudents, tab])
 
   const load = useCallback(async () => {
+    if (!workspace || tab === 'nutrition') { setLoading(false); return }
     setLoading(true); setError('')
     try {
-      const [studentResult, scheduleResult] = await Promise.all([
-        canViewStudents ? listMyAssignedStudents() : Promise.resolve({ students: [] }),
-        canViewSchedule ? listMyTrainerSchedule(from, to) : Promise.resolve({ sessions: [], requests: [] }),
-      ])
-      setStudents(studentResult.students)
-      setSessions(scheduleResult.sessions)
-      setRequests(scheduleResult.requests ?? [])
+      if (tab === 'students' && canViewStudents) {
+        const result = await listMyAssignedStudents()
+        setStudents(result.students)
+      } else if ((tab === 'schedule' || tab === 'requests') && canViewSchedule) {
+        const result = await listMyTrainerSchedule(from, to)
+        setSessions(result.sessions)
+        setRequests(result.requests ?? [])
+      }
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu được phân công.') }
     finally { setLoading(false) }
-  }, [canViewSchedule, canViewStudents, from, to])
+  }, [canViewSchedule, canViewStudents, from, tab, to, workspace])
   useEffect(() => { void load() }, [load])
 
   const confirm = async (session: TrainerSessionSummary) => {
@@ -114,21 +135,25 @@ export default function TrainerPortalV2({ initialTab = 'students' }: { initialTa
   }
 
   return <main className="opv2-page">
-    <section className="opv2-hero"><p className="opv2-kicker">Aura Coach · Phạm vi cá nhân</p><h1>Trang làm việc HLV</h1><p>Lịch dạy, học viên được giao và bữa ăn cần duyệt được tách theo đúng chức danh của bạn.</p></section>
+    <section className="opv2-hero"><p className="opv2-kicker">Aura Coach · Phạm vi cá nhân</p><h1>Trang làm việc HLV</h1><p>Một tài khoản nhân viên; các tab tự mở theo phân công PT chính, PT phụ và HLV dinh dưỡng trong hợp đồng học viên.</p></section>
+    {scopeLoading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đối chiếu phân công trong Học viên PT Gym…</div>}
+    {!scopeLoading && !workspace && error && <div className="opv2-state is-error">{error}<button className="opv2-action" onClick={() => window.location.reload()}>Thử lại</button></div>}
+    {!scopeLoading && workspace && !canViewStudents && !canViewSchedule && !canReviewNutrition && <section className="opv2-guidance"><CircleAlert size={20} /><div><strong>Chưa có học viên được phân công</strong><p>Quản trị viên cần gán bạn làm PT chính, PT phụ hoặc HLV dinh dưỡng tại Học viên PT Gym → Hợp đồng. Không cần cấp thêm role HLV riêng.</p></div></section>}
+    {!scopeLoading && workspace && (canViewStudents || canViewSchedule || canReviewNutrition) && <>
     <nav className="opv2-tabs" aria-label="Khu vực làm việc HLV">
       {canViewSchedule && <button className={`opv2-tab ${tab === 'schedule' ? 'is-active' : ''}`} onClick={() => setTab('schedule')}><CalendarClock size={16} /> Lịch 14 ngày</button>}
       {canViewStudents && <button className={`opv2-tab ${tab === 'students' ? 'is-active' : ''}`} onClick={() => setTab('students')}><UsersRound size={16} /> Học viên PT</button>}
-      {canViewSchedule && <button className={`opv2-tab ${tab === 'requests' ? 'is-active' : ''}`} onClick={() => setTab('requests')}><Clock3 size={16} /> Yêu cầu {pendingCount > 0 && <i>{pendingCount}</i>}</button>}
+      {canViewRequests && <button className={`opv2-tab ${tab === 'requests' ? 'is-active' : ''}`} onClick={() => setTab('requests')}><Clock3 size={16} /> Yêu cầu {pendingCount > 0 && <i>{pendingCount}</i>}</button>}
       {canReviewNutrition && <button className={`opv2-tab ${tab === 'nutrition' ? 'is-active' : ''}`} onClick={() => setTab('nutrition')}><Soup size={16} /> Duyệt món ăn</button>}
     </nav>
-    {tab !== 'nutrition' && <section className="opv2-summary"><div className="opv2-stat"><strong>{students.length}</strong><span>học viên được giao</span></div><div className="opv2-stat"><strong>{sessions.length}</strong><span>buổi trong 14 ngày</span></div><div className="opv2-stat"><strong>{pendingCount}</strong><span>yêu cầu chờ duyệt</span></div></section>}
+    {tab !== 'nutrition' && <section className="opv2-summary"><div className="opv2-stat"><strong>{workspace.counts.primaryStudents}</strong><span>học viên PT chính</span></div><div className="opv2-stat"><strong>{workspace.counts.secondaryStudents}</strong><span>học viên PT phụ</span></div><div className="opv2-stat"><strong>{workspace.counts.teachingSessions}</strong><span>buổi được phân công</span></div></section>}
     {notice && <div className="opv2-notice"><CheckCircle2 size={18} /> {notice}</div>}
     {loading && tab !== 'nutrition' && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đồng bộ phạm vi làm việc…</div>}
     {error && tab !== 'nutrition' && !requestTarget && <div className="opv2-state is-error">{error}<button className="opv2-action" onClick={() => void load()}>Thử lại</button></div>}
 
     {tab === 'nutrition' && canReviewNutrition && <NutritionReviewWorkspace compact title="Bữa ăn học viên tôi phụ trách" />}
 
-    {!loading && !error && tab === 'students' && <><h2 className="opv2-section-title">Học viên được phân công</h2><div className="opv2-list">{students.map((student) => <article className="opv2-card" key={student.id}><div className="opv2-card-head"><div><h3>{student.name}</h3><p>{student.phone || 'Chưa có số điện thoại'}</p></div><span className="opv2-badge">{student.status}</span></div><p>Hợp đồng: {student.contract ? `${student.contract.usedSessions}/${student.contract.totalSessions} buổi` : 'Chưa có'}</p></article>)}{students.length === 0 && <div className="opv2-state">Chưa có học viên được phân công.</div>}</div></>}
+    {!loading && !error && tab === 'students' && <><h2 className="opv2-section-title">Học viên được phân công</h2><div className="opv2-list">{students.map((student) => <article className="opv2-card" key={student.id}><div className="opv2-card-head"><div><h3>{student.name}</h3><p>{student.phone || 'Chưa có số điện thoại'}</p></div><span className="opv2-badge">{student.assignmentRole === 'primary' ? 'PT chính' : 'PT phụ'}</span></div><p>Hợp đồng: {student.contract ? `${student.contract.usedSessions}/${student.contract.totalSessions} buổi` : 'Chưa có'}</p></article>)}{students.length === 0 && <div className="opv2-state">Chưa có học viên PT được phân công.</div>}</div></>}
 
     {!loading && !error && tab === 'schedule' && <><div className="opv2-toolbar"><div><h2 className="opv2-section-title">Lịch dạy sắp tới</h2><p>Đổi/hủy phải gửi trước giờ tập ít nhất 12 giờ.</p></div><input className="opv2-date" type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></div><div className="opv2-list">{sessions.map((session) => {
       const requestable = ['scheduled', 'rescheduled'].includes(session.status) && Boolean(session.contractId) && sessionStartsAt(session) - Date.now() >= 12 * 60 * 60 * 1000
@@ -142,5 +167,6 @@ export default function TrainerPortalV2({ initialTab = 'students' }: { initialTa
     </>}
 
     {requestTarget && <div className="opv2-sheet-layer" role="presentation"><button type="button" className="opv2-sheet-backdrop" aria-label="Đóng" onClick={() => setRequestTarget(null)} /><section className="opv2-sheet" role="dialog" aria-modal="true" aria-labelledby="trainer-request-title"><header><div><small>AURA PT · YÊU CẦU CA DẠY</small><h2 id="trainer-request-title">Đổi hoặc hủy lịch</h2></div><button type="button" aria-label="Đóng" onClick={() => setRequestTarget(null)}><X size={19} /></button></header><p className="opv2-sheet-current">Buổi {requestTarget.date} · {String(requestTarget.hour ?? '--').padStart(2, '0')}:00</p><form onSubmit={submitRequest}><div className="opv2-sheet-segment"><button type="button" className={requestType === 'cancel' ? 'active' : ''} onClick={() => setRequestType('cancel')}>Hủy ca</button><button type="button" className={requestType === 'reschedule' ? 'active' : ''} onClick={() => setRequestType('reschedule')}>Đổi ca</button></div>{requestType === 'reschedule' && <div className="opv2-sheet-fields"><label>Ngày mới<input type="date" value={requestDate} onChange={(event) => setRequestDate(event.target.value)} /></label><label>Giờ mới<select value={requestHour} onChange={(event) => setRequestHour(event.target.value)}><option value="">Chọn giờ</option>{[6,7,8,9,10,11,14,15,16,17,18,19,20].map((hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}</select></label></div>}<label>Lý do<textarea maxLength={500} value={requestReason} onChange={(event) => setRequestReason(event.target.value)} placeholder="Nêu rõ lý do để quản lý xử lý…" /></label>{error && <p className="opv2-form-error">{error}</p>}<footer><button type="button" onClick={() => setRequestTarget(null)}>Để sau</button><button type="submit" disabled={submitting}>{submitting ? 'Đang gửi…' : 'Gửi yêu cầu'}</button></footer></form></section></div>}
+    </>}
   </main>
 }

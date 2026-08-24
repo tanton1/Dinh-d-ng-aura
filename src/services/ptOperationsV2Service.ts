@@ -18,6 +18,7 @@ export interface TrainerStudentSummary {
   branchId: string
   status: string
   sessionsPerWeek: number
+  assignmentRole: 'primary' | 'secondary'
   contract: null | {
     id: string
     status: string
@@ -32,12 +33,32 @@ export interface TrainerSessionSummary {
   id: string
   studentId: string
   trainerId: string
+  studentName?: string
   date: string
   hour?: number
   status: string
   contractId?: string
   revision?: number
   timeZone: string
+}
+
+export interface CoachWorkspaceScope {
+  schemaVersion: number
+  source: 'pt_contract_assignments'
+  staffId: string
+  tabs: {
+    students: boolean
+    schedule: boolean
+    requests: boolean
+    nutrition: boolean
+  }
+  counts: {
+    primaryStudents: number
+    secondaryStudents: number
+    nutritionStudents: number
+    teachingSessions: number
+    pendingRequests: number
+  }
 }
 
 export interface TrainerSessionRequestSummary {
@@ -78,6 +99,10 @@ export async function listMyAssignedStudents(limit = 100) {
 
 export async function listMyTrainerSchedule(from: string, to: string, limit = 300) {
   return call<{ from: string; to: string; limit: number }, { sessions: TrainerSessionSummary[]; requests: TrainerSessionRequestSummary[] }>('listMyTrainerSchedule', { from, to, limit })
+}
+
+export async function getMyCoachWorkspaceScope() {
+  return call<Record<string, never>, CoachWorkspaceScope>('getMyCoachWorkspaceScope', {})
 }
 
 export async function confirmMySession(sessionId: string, expectedRevision: number) {
