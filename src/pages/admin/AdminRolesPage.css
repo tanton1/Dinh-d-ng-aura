@@ -183,6 +183,9 @@
 .identity-member-card .identity-member-role select { width: 100%; min-height: 36px; padding: 0 9px; border: 1px solid var(--team-line); border-radius: 9px; background: #fff; font-size: 11px; font-weight: 750; }
 .identity-member-access { display: inline-flex; min-height: 34px; align-items: center; justify-content: center; gap: 6px; padding: 0 9px; border: 1px solid #f2c6d7; border-radius: 10px; color: #d92772; background: #fff4f8; font-size: 10px; font-weight: 850; }
 .identity-member-access span { display: none; }
+.identity-member-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.identity-member-delete { display: inline-grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border: 1px solid #f1c9d2; border-radius: 10px; color: #c52f50; background: #fff6f7; }
+.identity-member-delete:hover { border-color: #e99daf; background: #ffeaee; }
 
 .identity-staff { padding: 0 !important; }
 .identity-staff-toolbar { border-bottom: 1px solid var(--team-line); }
@@ -225,6 +228,17 @@
 .identity-admin-page .identity-modal { width: min(100%, 690px); border-radius: 26px; }
 .identity-admin-page .identity-modal--staff { width: min(100%, 940px); }
 .identity-admin-page .identity-modal--access { width: min(100%, 760px); }
+.identity-admin-page .identity-modal--delete { width: min(100%, 520px); }
+.identity-delete-warning { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 14px; border: 1px solid #f0bdc8; border-radius: 16px; color: #bd2d4d; background: linear-gradient(135deg, #fff1f5, #fff7f1); }
+.identity-delete-warning svg { flex: 0 0 auto; margin-top: 1px; }
+.identity-delete-warning strong,
+.identity-delete-warning small { display: block; }
+.identity-delete-warning strong { color: #8f243c; font-size: 12px; }
+.identity-delete-warning small { margin-top: 4px; color: #75555d; font-size: 10px; line-height: 1.5; }
+.identity-delete-confirm { display: grid; gap: 7px; margin-top: 14px; color: var(--team-ink); font-size: 11px; }
+.identity-delete-confirm input { min-height: 46px; padding: 0 13px; border: 1px solid #eebac6; border-radius: 13px; color: #9e2542; background: #fffafb; font-size: 15px; font-weight: 900; letter-spacing: .08em; }
+.identity-danger-button { min-height: 42px; padding: 0 15px; border: 0; border-radius: 12px; color: #fff; background: linear-gradient(125deg, #d92d55, #f1634f); box-shadow: 0 9px 20px rgba(190,42,75,.18); font-size: 11px; font-weight: 900; }
+.identity-danger-button:disabled { cursor: not-allowed; filter: grayscale(.35); opacity: .48; box-shadow: none; }
 .identity-form-section { margin-top: 15px; padding: 14px; border: 1px solid var(--team-line); border-radius: 17px; background: #fffafb; }
 .identity-form-section > h3 { margin: 0 0 11px; color: var(--team-ink); font-size: 13px; }
 .identity-form-grid--compensation { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -318,7 +332,8 @@
   .identity-member-card .identity-scope-cell { grid-column: 1 / -1; }
   .identity-member-card .identity-member-status { justify-items: start; }
   .identity-member-card .row-actions { grid-column: 1 / -1; justify-content: stretch; }
-  .identity-member-access { width: 100%; min-height: 41px; }
+  .identity-member-access { width: auto; min-height: 41px; flex: 1 1 auto; }
+  .identity-member-delete { width: 42px; height: 41px; }
   .identity-member-access span { display: inline; }
 
   .identity-staff-toolbar { border-bottom: 0; }

@@ -5,13 +5,13 @@ import {
   AlertCircle, Building2, CheckCircle2, Columns3, LoaderCircle,
   ArrowRight, BriefcaseBusiness, CalendarClock, Check, KeyRound, Mail, MapPin,
   Phone, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, UserCog, Users,
-  WalletCards, X,
+  Trash2, WalletCards, X,
 } from 'lucide-react'
 import { collection, onSnapshot } from 'firebase/firestore'
 import { hasPermission } from '../../config/permissions'
 import { useDatabase } from '../../contexts/DatabaseContext'
 import { firestoreDb } from '../../lib/firebase'
-import { assignStaffPositions, deleteUnusedStaffAccount, provisionStaffAccount, provisionStudentAccount, saveStaffOperationsProfile, suspendAccountAccess } from '../../services/identityAccessService'
+import { assignStaffPositions, deleteMemberAccount, deleteUnusedStaffAccount, provisionStaffAccount, provisionStudentAccount, saveStaffOperationsProfile, suspendAccountAccess } from '../../services/identityAccessService'
 import type { StaffPosition } from '../../identity/access'
 import type { Branch, UserRole } from '../../types'
 
@@ -53,7 +53,7 @@ type RoleAssignmentSummary = {
 type StaffOperationsRecord = {
   availableSlots?: string[]; baseSalary?: number; bonusMonthly?: number; commissionRate?: number; commissionPerSession?: number
   slotCapacity?: number
-  name?: string; email?: string; phone?: string; role?: string
+  name?: string; email?: string; phone?: string; role?: string; status?: string
 }
 type StaffEditorState = {
   uid: string
@@ -195,6 +195,8 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const [legacyContracts, setLegacyContracts] = useState<Array<Record<string, unknown>>>([])
   const [staffEditor, setStaffEditor] = useState<StaffEditorState | null>(null)
   const [staffSaving, setStaffSaving] = useState(false)
+  const [memberDeleteTarget, setMemberDeleteTarget] = useState<AdminRoleUser | null>(null)
+  const [memberDeleteConfirmation, setMemberDeleteConfirmation] = useState('')
 
   const workingDays = scheduleConfig.workingDays?.length ? scheduleConfig.workingDays : fallbackStaffDays
   const workingHours = scheduleConfig.workingHours?.length ? scheduleConfig.workingHours : fallbackStaffHours
@@ -283,7 +285,9 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const staffRows = useMemo(() => {
     const byUid = new Map(directoryUsers.map((user) => [user.uid, user]))
     const ids = new Set([
-      ...Object.keys(staffOperations),
+      ...Object.entries(staffOperations)
+        .filter(([, record]) => record.status !== 'inactive' && record.status !== 'archived')
+        .map(([uid]) => uid),
       ...directoryUsers
         .filter((user) => assignments[user.uid]?.accessRole === 'staff' || staffPositionRoles.has(user.role) || user.role === 'admin' || user.role === 'super_admin')
         .map((user) => user.uid),
@@ -345,7 +349,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
     if (visibleColumns.scope) widths.push('minmax(190px, 1fr)')
     if (visibleColumns.activity) widths.push('minmax(135px, .68fr)')
     if (visibleColumns.status) widths.push('minmax(115px, .62fr)')
-    widths.push('48px')
+    widths.push('116px')
     return { gridTemplateColumns: widths.join(' ') } satisfies CSSProperties
   }, [visibleColumns])
 
@@ -377,7 +381,13 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
     if (accessRoleDraft === 'staff' && !positionDraft.length) { setError('Nhân viên cần tối thiểu một chức danh trước khi cấp quyền.'); return }
     setAccessSaving(true); setError(null); setSuccess(null)
     try {
-      await assignStaffPositions({ uid: user.uid, accessRole: accessRoleDraft, positions: accessRoleDraft === 'staff' ? positionDraft : [], branchIds: accessRoleDraft === 'staff' ? branchDraft : [] })
+      const accessContext = await assignStaffPositions({ uid: user.uid, accessRole: accessRoleDraft, positions: accessRoleDraft === 'staff' ? positionDraft : [], branchIds: accessRoleDraft === 'staff' ? branchDraft : [] })
+      setAssignments((current) => ({ ...current, [user.uid]: {
+        accessRole: accessRoleDraft,
+        positions: accessContext.positions,
+        branchIds: accessContext.branchIds,
+        status: accessContext.status,
+      } }))
       setAccessEditorUid(null); setSuccess(`Đã cập nhật chức danh và phạm vi cho ${user.displayName || user.email || user.uid}. Người dùng cần đăng nhập lại để nhận token mới.`)
     } catch (caught) { setError(caught instanceof Error ? caught.message : `Không thể cập nhật quyền cho ${user.displayName || user.email || user.uid}.`) }
     finally { setAccessSaving(false) }
@@ -417,6 +427,24 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       setSuccess(`Đã xóa tài khoản mới tạo ${member.displayName || member.email || member.uid}.`)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Không thể xóa tài khoản nhân viên.')
+    } finally { setSavingUid(null) }
+  }
+  const openMemberDelete = (member: AdminRoleUser) => {
+    if (!canAssignRole || member.uid === currentUserUid || member.role === 'admin' || member.role === 'super_admin') return
+    setMemberDeleteTarget(member); setMemberDeleteConfirmation(''); setError(null); setSuccess(null)
+  }
+  const confirmMemberDelete = async () => {
+    if (!memberDeleteTarget || memberDeleteConfirmation.trim().toLocaleUpperCase('vi') !== 'XÓA') return
+    const target = memberDeleteTarget
+    setSavingUid(target.uid); setError(null); setSuccess(null)
+    try {
+      const result = await deleteMemberAccount(target.uid)
+      setMemberDeleteTarget(null); setMemberDeleteConfirmation('')
+      setSuccess(result.preservedOperationalHistory
+        ? `Đã xóa tài khoản đăng nhập của ${target.displayName || target.email || target.uid}. Hồ sơ PT, hợp đồng, lịch tập và tài chính vẫn được giữ để đối soát.`
+        : `Đã xóa tài khoản thành viên ${target.displayName || target.email || target.uid}.`)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Không thể xóa tài khoản thành viên.')
     } finally { setSavingUid(null) }
   }
   const saveBranch = async () => {
@@ -493,7 +521,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       <div className="students-table roles-directory identity-members-list" aria-busy={loading}>
         <div className="students-head" style={tableGridStyle}><span>THÀNH VIÊN</span>{visibleColumns.phone && <span>SỐ ĐIỆN THOẠI</span>}{visibleColumns.email && <span>EMAIL ĐĂNG NHẬP</span>}<span>LOẠI TÀI KHOẢN</span>{visibleColumns.scope && <span>QUYỀN & PHẠM VI</span>}{visibleColumns.activity && <span>HOẠT ĐỘNG</span>}{visibleColumns.status && <span>TRẠNG THÁI</span>}<span /></div>
         {loading && <div className="empty-state"><LoaderCircle size={30} className="spin" /><h3>Đang tải thành viên</h3><p>Dữ liệu tài khoản đang được đồng bộ.</p></div>}
-        {!loading && filteredUsers.map((user, index) => <RoleDirectoryRow key={user.uid} user={user} assignment={assignments[user.uid]} index={index} tableGridStyle={tableGridStyle} visibleColumns={visibleColumns} currentUserUid={currentUserUid} canAssignRole={canAssignRole} canAssignSuperAdmin={canAssignSuperAdmin} isSaving={savingUid === user.uid} branches={branches} onChangeRole={changeRole} onOpenAccessEditor={openAccessEditor} />)}
+        {!loading && filteredUsers.map((user, index) => <RoleDirectoryRow key={user.uid} user={user} assignment={assignments[user.uid]} index={index} tableGridStyle={tableGridStyle} visibleColumns={visibleColumns} currentUserUid={currentUserUid} canAssignRole={canAssignRole} canAssignSuperAdmin={canAssignSuperAdmin} isSaving={savingUid === user.uid} branches={branches} onChangeRole={changeRole} onOpenAccessEditor={openAccessEditor} onDeleteMember={openMemberDelete} />)}
         {!loading && filteredUsers.length === 0 && <div className="empty-state"><Users size={30} /><h3>Không tìm thấy thành viên</h3><p>Thử đổi từ khóa hoặc bộ lọc tài khoản.</p></div>}
       </div>
     </section>}
@@ -528,6 +556,15 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       <div className="identity-section__heading"><span><Building2 size={20} /><span><strong>Chi nhánh Aura</strong><small>Tạo cơ sở và dùng làm phạm vi dữ liệu cho Sales, PT hoặc Quản lý chi nhánh.</small></span></span>{canAssignRole && <button type="button" className="pink-orange-button" onClick={() => { setBranchEditor({ name: '', address: '' }); setError(null) }}><Plus size={17} />Thêm chi nhánh</button>}</div>
       <div className="identity-branch-list">{branches.length ? branches.map((branch) => <article key={branch.id} className={branch.status === 'archived' ? 'archived' : ''}><span><i><Building2 size={18} /></i><span><strong>{branch.name}</strong><small>{branch.address}</small></span></span><span className="identity-branch-list__actions"><i className={`status-badge ${branch.status === 'archived' ? 'draft' : 'published'}`}>{branch.status === 'archived' ? 'Đã lưu trữ' : 'Đang hoạt động'}</i>{canAssignRole && <><button type="button" className="outline-button" onClick={() => setBranchEditor({ id: branch.id, name: branch.name, address: branch.address })}>Chỉnh sửa</button>{branch.status !== 'archived' && <button type="button" className="outline-button" onClick={() => void archiveBranch(branch)}>Lưu trữ</button>}</>}</span></article>) : <div className="empty-state"><Building2 size={30} /><h3>Chưa có chi nhánh</h3><p>Tạo chi nhánh đầu tiên để cấp phạm vi cho đội ngũ.</p></div>}</div>
     </section>}
+    {memberDeleteTarget && <section className="identity-overlay" role="dialog" aria-modal="true" aria-labelledby="member-delete-title">
+      <button className="identity-overlay__backdrop" type="button" aria-label="Đóng" onClick={() => setMemberDeleteTarget(null)} />
+      <div className="identity-modal identity-modal--compact identity-modal--delete">
+        <ModalHeader id="member-delete-title" title="Xóa tài khoản thành viên" detail={memberDeleteTarget.displayName || memberDeleteTarget.email || memberDeleteTarget.uid} icon={<Trash2 size={21} />} onClose={() => setMemberDeleteTarget(null)} />
+        <div className="identity-delete-warning"><AlertCircle size={21} /><span><strong>Tài khoản đăng nhập sẽ bị xóa vĩnh viễn.</strong><small>Hồ sơ PT, hợp đồng, buổi tập, thanh toán và lịch sử học vẫn được giữ để đối soát. Tài khoản nhân viên hoặc quản trị không thể xóa tại đây.</small></span></div>
+        <label className="identity-delete-confirm"><span>Nhập <strong>XÓA</strong> để xác nhận</span><input autoFocus value={memberDeleteConfirmation} onChange={(event) => setMemberDeleteConfirmation(event.target.value)} aria-label="Nhập XÓA để xác nhận" placeholder="XÓA" autoComplete="off" /></label>
+        <div className="identity-modal__actions"><button type="button" className="outline-button" onClick={() => setMemberDeleteTarget(null)}>Giữ tài khoản</button><button type="button" className="identity-danger-button" onClick={() => void confirmMemberDelete()} disabled={savingUid === memberDeleteTarget.uid || memberDeleteConfirmation.trim().toLocaleUpperCase('vi') !== 'XÓA'}>{savingUid === memberDeleteTarget.uid ? 'Đang xóa...' : 'Xóa tài khoản'}</button></div>
+      </div>
+    </section>}
     {accessEditorUser && <section className="identity-overlay" role="dialog" aria-modal="true" aria-labelledby="access-title"><button className="identity-overlay__backdrop" type="button" aria-label="Đóng" onClick={() => setAccessEditorUid(null)} /><div className="identity-modal identity-modal--access"><ModalHeader id="access-title" title={`Quyền của ${accessEditorUser.displayName || accessEditorUser.email || 'tài khoản'}`} detail="Chọn một hoặc nhiều chức danh và phạm vi chi nhánh. Backend sẽ tính capability và cập nhật token đăng nhập." icon={<KeyRound size={21} />} onClose={() => setAccessEditorUid(null)} /><AccessRoleChooser value={accessRoleDraft} onChange={(role) => { setAccessRoleDraft(role); if (role === 'student') { setPositionDraft([]); setBranchDraft([]) } }} />{accessRoleDraft === 'staff' && <ScopedAssignmentFields positions={positionDraft} branchIds={branchDraft} branches={branches} onTogglePosition={(position) => togglePosition(position, 'access')} onToggleBranch={(branchId) => toggleBranch(branchId, 'access')} onApplyPreset={setPositionDraft} />}<div className="identity-modal__actions"><button type="button" className="outline-button" onClick={() => setAccessEditorUid(null)}>Hủy</button><button type="button" className="pink-orange-button" onClick={() => void saveScopedAccess(accessEditorUser)} disabled={accessSaving || (accessRoleDraft === 'staff' && !positionDraft.length)}>{accessSaving ? 'Đang cập nhật...' : 'Lưu quyền & đăng nhập lại'}</button></div></div></section>}
     {inviteOpen && <section className="identity-overlay" role="dialog" aria-modal="true" aria-labelledby="invite-title"><button className="identity-overlay__backdrop" type="button" aria-label="Đóng" onClick={() => setInviteOpen(false)} /><div className="identity-modal"><ModalHeader id="invite-title" title={inviteDraft.accessRole === 'staff' ? 'Thêm nhân viên' : 'Thêm thành viên'} detail="Tài khoản được tạo trực tiếp. Mật khẩu ban đầu là số điện thoại và có thể đổi trong Hồ sơ cá nhân." icon={<UserCog size={21} />} onClose={() => setInviteOpen(false)} /><div className="identity-form-grid"><label><span>Họ và tên</span><input value={inviteDraft.displayName} onChange={(event) => setInviteDraft((current) => ({ ...current, displayName: event.target.value }))} placeholder="Ví dụ: Nguyễn Minh Anh" /></label><label><span>Số điện thoại / mật khẩu ban đầu</span><input type="tel" value={inviteDraft.phoneNumber} onChange={(event) => setInviteDraft((current) => ({ ...current, phoneNumber: event.target.value }))} placeholder="090…" /></label><label className="identity-form-grid__span"><span>Email đăng nhập</span><input type="email" value={inviteDraft.email} onChange={(event) => setInviteDraft((current) => ({ ...current, email: event.target.value }))} placeholder="ten@aurafitness.vn" /></label></div><AccessRoleChooser value={inviteDraft.accessRole} onChange={(role) => setInviteDraft((current) => ({ ...current, accessRole: role, positions: role === 'student' ? [] : current.positions, branchIds: role === 'student' ? [] : current.branchIds }))} />{inviteDraft.accessRole === 'staff' && <ScopedAssignmentFields positions={inviteDraft.positions} branchIds={inviteDraft.branchIds} branches={branches} onTogglePosition={(position) => togglePosition(position, 'invite')} onToggleBranch={(branchId) => toggleBranch(branchId, 'invite')} onApplyPreset={(positions) => setInviteDraft((current) => ({ ...current, positions }))} />}<div className="identity-modal__actions"><button type="button" className="outline-button" onClick={() => setInviteOpen(false)}>Hủy</button><button type="button" className="pink-orange-button" onClick={() => void submitInvite()} disabled={inviteSaving}>{inviteSaving ? 'Đang tạo tài khoản...' : 'Tạo tài khoản'}</button></div></div></section>}
     {branchEditor && <section className="identity-overlay" role="dialog" aria-modal="true" aria-labelledby="branch-title"><button className="identity-overlay__backdrop" type="button" aria-label="Đóng" onClick={() => setBranchEditor(null)} /><div className="identity-modal identity-modal--compact"><ModalHeader id="branch-title" title={branchEditor.id ? 'Chỉnh sửa chi nhánh' : 'Tạo chi nhánh'} detail="Chi nhánh này sẽ là phạm vi cấp quyền cho đội ngũ." icon={<Building2 size={21} />} onClose={() => setBranchEditor(null)} /><div className="identity-form-grid"><label className="identity-form-grid__span"><span>Tên chi nhánh</span><input value={branchEditor.name} onChange={(event) => setBranchEditor((current) => current ? { ...current, name: event.target.value } : current)} placeholder="Aura Fitness Quận 7" /></label><label className="identity-form-grid__span"><span>Địa chỉ</span><input value={branchEditor.address} onChange={(event) => setBranchEditor((current) => current ? { ...current, address: event.target.value } : current)} placeholder="Địa chỉ vận hành" /></label></div><div className="identity-modal__actions"><button type="button" className="outline-button" onClick={() => setBranchEditor(null)}>Hủy</button><button type="button" className="pink-orange-button" onClick={() => void saveBranch()} disabled={branchSaving}>{branchSaving ? 'Đang lưu...' : 'Lưu chi nhánh'}</button></div></div></section>}
@@ -548,8 +585,8 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   </div>
 }
 
-function RoleDirectoryRow({ user, assignment, index, tableGridStyle, visibleColumns, currentUserUid, canAssignRole, canAssignSuperAdmin, isSaving, branches, onChangeRole, onOpenAccessEditor }: {
-  user: AdminRoleUser; assignment?: RoleAssignmentSummary; index: number; tableGridStyle: CSSProperties; visibleColumns: Record<DirectoryColumn, boolean>; currentUserUid?: string; canAssignRole: boolean; canAssignSuperAdmin: boolean; isSaving: boolean; branches: Branch[]; onChangeRole: (user: AdminRoleUser, nextRole: UserRole) => Promise<void>; onOpenAccessEditor: (user: AdminRoleUser, assignment?: RoleAssignmentSummary) => void
+function RoleDirectoryRow({ user, assignment, index, tableGridStyle, visibleColumns, currentUserUid, canAssignRole, canAssignSuperAdmin, isSaving, branches, onChangeRole, onOpenAccessEditor, onDeleteMember }: {
+  user: AdminRoleUser; assignment?: RoleAssignmentSummary; index: number; tableGridStyle: CSSProperties; visibleColumns: Record<DirectoryColumn, boolean>; currentUserUid?: string; canAssignRole: boolean; canAssignSuperAdmin: boolean; isSaving: boolean; branches: Branch[]; onChangeRole: (user: AdminRoleUser, nextRole: UserRole) => Promise<void>; onOpenAccessEditor: (user: AdminRoleUser, assignment?: RoleAssignmentSummary) => void; onDeleteMember: (user: AdminRoleUser) => void
 }) {
   const status = statusMeta[assignment?.status === 'suspended' ? 'disabled' : user.status ?? 'active']; const userRoleData = roleMeta[user.role] || roleMeta.student
   const managedAsStaffPosition = staffPositionRoles.has(user.role)
@@ -566,7 +603,7 @@ function RoleDirectoryRow({ user, assignment, index, tableGridStyle, visibleColu
     {visibleColumns.scope && <span className="program-name identity-scope-cell" data-label="Quyền & phạm vi">{scope}</span>}
     {visibleColumns.activity && <span className="student-streak" data-label="Hoạt động">{user.lastActive ?? 'Chưa có dữ liệu'}</span>}
     {visibleColumns.status && <span className="identity-member-status" data-label="Trạng thái"><i className={`status-badge ${status.className}`}>{status.label}</i></span>}
-    <span className="row-actions" aria-live="polite">{isSaving ? <LoaderCircle size={18} className="spin" color="var(--aura-pink)" /> : canEditScopedAccess ? <button type="button" className="identity-member-access" aria-label={`Cập nhật quyền cho ${user.displayName || user.email || user.uid}`} onClick={() => onOpenAccessEditor(user, assignment)}><UserCog size={17} /><span>Cập nhật quyền</span></button> : <CheckCircle2 size={18} color="#7fcb36" />}</span>
+    <span className="row-actions identity-member-actions" aria-live="polite">{isSaving ? <LoaderCircle size={18} className="spin" color="var(--aura-pink)" /> : <>{canEditScopedAccess && <button type="button" className="identity-member-access" aria-label={`Cập nhật quyền cho ${user.displayName || user.email || user.uid}`} onClick={() => onOpenAccessEditor(user, assignment)}><UserCog size={17} /><span>Cập nhật quyền</span></button>}{canEditScopedAccess && <button type="button" className="identity-member-delete" aria-label={`Xóa tài khoản ${user.displayName || user.email || user.uid}`} onClick={() => onDeleteMember(user)}><Trash2 size={16} /></button>}{!canEditScopedAccess && <CheckCircle2 size={18} color="#7fcb36" />}</>}</span>
   </article>
 }
 

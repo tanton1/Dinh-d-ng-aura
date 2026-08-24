@@ -182,9 +182,17 @@ export interface AssignStaffPositionsResult {
  * must never write either identity surface themselves.
  */
 export async function assignStaffPositions(input: AssignStaffPositionsInput): Promise<AccessContext> {
-  const callable = httpsCallable<AssignStaffPositionsInput, AssignStaffPositionsResult>(requireFunctions(), 'assignStaffPositions')
-  const response = await callable(input)
-  return parseAccessContext(response.data.accessContext, input.uid)
+  const callable = httpsCallable<AssignStaffPositionsInput, AssignStaffPositionsResult>(
+    requireFunctions(),
+    'assignStaffPositions',
+    { timeout: 30_000 },
+  )
+  try {
+    const response = await callable(input)
+    return parseAccessContext(response.data.accessContext, input.uid)
+  } catch (error) {
+    throw presentInviteError(error)
+  }
 }
 
 export interface StaffOperationsProfileInput {
@@ -209,4 +217,28 @@ export async function suspendAccountAccess(uid: string) {
 export async function deleteUnusedStaffAccount(uid: string) {
   const callable = httpsCallable<{ uid: string }, { uid: string; deleted: boolean }>(requireFunctions(), 'deleteUnusedStaffAccount')
   try { return (await callable({ uid })).data } catch (error) { throw presentInviteError(error) }
+}
+
+export interface DeleteMemberAccountResult {
+  uid: string
+  deleted: boolean
+  preservedOperationalHistory: boolean
+  detachedCrmProfiles: number
+}
+
+/**
+ * Permanently removes a learner's sign-in identity while preserving contracts,
+ * sessions and finance records for audit. The server validates the target is a
+ * non-privileged member and detaches any linked PT CRM profile.
+ */
+export async function deleteMemberAccount(uid: string): Promise<DeleteMemberAccountResult> {
+  const callable = httpsCallable<
+    { uid: string; confirmUid: string },
+    DeleteMemberAccountResult
+  >(requireFunctions(), 'deleteMemberAccount', { timeout: 30_000 })
+  try {
+    return (await callable({ uid, confirmUid: uid })).data
+  } catch (error) {
+    throw presentInviteError(error)
+  }
 }

@@ -42,4 +42,15 @@ test('Đội ngũ Aura keeps four summary slides on desktop', async ({ page }) =
   const columns = await page.locator('.identity-carousel > button').evaluateAll((items) => items.map((item) => item.getBoundingClientRect().width))
   expect(Math.min(...columns)).toBeGreaterThan(220)
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+
+  const deleteMember = page.locator('button[aria-label^="Xóa tài khoản "]').first()
+  if (await deleteMember.isVisible()) {
+    await deleteMember.click()
+    const dialog = page.getByRole('dialog', { name: 'Xóa tài khoản thành viên' })
+    await expect(dialog).toBeVisible()
+    const confirmButton = dialog.getByRole('button', { name: 'Xóa tài khoản' })
+    await expect(confirmButton).toBeDisabled()
+    await dialog.getByLabel('Nhập XÓA để xác nhận').fill('XÓA')
+    await expect(confirmButton).toBeEnabled()
+  }
 })

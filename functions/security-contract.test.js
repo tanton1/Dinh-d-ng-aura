@@ -225,7 +225,38 @@ test('scoped staff assignment cannot silently alter an elevated account for a no
   assert.match(identityAccessSource, /actor\.accessRole !== 'super_admin'/)
   assert.match(identityAccessSource, /Chỉ Super Admin được thay đổi quyền/)
   assert.match(adminRolesSource, /assignStaffPositions/)
-  assert.match(adminRolesSource, /Chức danh & phạm vi vận hành/)
+  assert.match(adminRolesSource, /Chức danh & phạm vi/)
+})
+
+test('scoped staff assignment is deployable and synchronizes its operational projections', () => {
+  const assignmentHandler = identityAccessSource.match(/const assignStaffPositions = onCall[\s\S]*?\n  const suspendAccountAccess/)?.[0] ?? ''
+
+  assert.match(functionsSource, /exports\.assignStaffPositions = identityAccessFunctions\.assignStaffPositions/)
+  assert.match(assignmentHandler, /capabilities = computedCapabilities\(accessRole, positions\)/)
+  assert.match(assignmentHandler, /staffReference = db\.doc\(`staff\/\$\{targetUid\}`\)/)
+  assert.match(assignmentHandler, /trainerReference = db\.doc\(`trainers\/\$\{targetUid\}`\)/)
+  assert.match(assignmentHandler, /positions\.includes\('trainer_pt'\)/)
+  assert.match(assignmentHandler, /status: 'inactive'/)
+  assert.match(assignmentHandler, /createdBy: actor\.uid/)
+})
+
+test('member account deletion removes identity only and preserves operational history', () => {
+  const deleteHandler = identityAccessSource.match(/const deleteMemberAccount = onCall[\s\S]*?\n  const saveStaffOperationsProfile/)?.[0] ?? ''
+
+  assert.match(functionsSource, /exports\.deleteMemberAccount = identityAccessFunctions\.deleteMemberAccount/)
+  assert.match(deleteHandler, /requireCapability\(actor, 'identity\.invite\.manage'\)/)
+  assert.match(deleteHandler, /confirmUid !== targetUid/)
+  assert.match(deleteHandler, /Không thể tự xóa tài khoản/)
+  assert.match(deleteHandler, /Không thể xóa tài khoản quản trị/)
+  assert.match(deleteHandler, /Đây là tài khoản nhân viên/)
+  assert.match(deleteHandler, /accountUid: FieldValue\.delete\(\)/)
+  assert.match(deleteHandler, /transaction\.delete\(userReference\)/)
+  assert.match(deleteHandler, /transaction\.delete\(assignmentReference\)/)
+  assert.match(deleteHandler, /action: 'member_account\.deleted'/)
+  assert.match(deleteHandler, /await auth\.deleteUser\(targetUid\)/)
+  assert.doesNotMatch(deleteHandler, /transaction\.delete\(db\.doc\(`(?:contracts|sessions|payments|ledgerEntries)\//)
+  assert.match(adminRolesSource, /Nhập <strong>XÓA<\/strong> để xác nhận/)
+  assert.match(adminRolesSource, /deleteMemberAccount/)
 })
 
 test('sensitive operations routes require Identity v2 capabilities in addition to legacy UI roles', () => {

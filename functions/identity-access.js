@@ -788,6 +788,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       auth.getUser(targetUid),
       db.doc(`users/${targetUid}`).get(),
     ])
+    if (!targetProfileSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ tài khoản cần cập nhật.')
     // A normal administrator may assign scoped staff positions, but must not
     // silently demote an existing administrator/super administrator through
     // this seemingly lower-risk endpoint. Elevated access remains a
@@ -805,11 +806,52 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     const previous = await assignmentReference.get()
     const authzVersion = Math.max(1, Number(previous.data()?.authzVersion || 0) + 1)
     const nextClaims = { ...(target.customClaims || {}), accessRole, authzVersion, role: compatibilityRole(accessRole, positions) }
+    const capabilities = computedCapabilities(accessRole, positions)
+    const staffReference = db.doc(`staff/${targetUid}`)
+    const trainerReference = db.doc(`trainers/${targetUid}`)
+    const profileName = boundedString(targetProfile.displayName ?? targetProfile.name ?? target.displayName, 'Họ và tên', 160, false)
+      || `Tài khoản ${targetUid.slice(0, 8)}`
+    const profileEmail = normalizedEmail(targetProfile.email ?? target.email)
+    const profilePhone = normalizedPhone(targetProfile.phoneNumber ?? targetProfile.phone ?? target.phoneNumber)
     await auth.setCustomUserClaims(targetUid, nextClaims)
     try {
       await db.runTransaction(async (transaction) => {
-        transaction.set(assignmentReference, { schemaVersion: 1, uid: targetUid, accessRole, positions, branchIds, authzVersion, status: 'active', updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
-        transaction.set(db.doc(`users/${targetUid}`), { role: nextClaims.role, accessRole, authzVersion, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+        const [currentAssignment, currentStaff, currentTrainer] = await Promise.all([
+          transaction.get(assignmentReference),
+          transaction.get(staffReference),
+          transaction.get(trainerReference),
+        ])
+        transaction.set(assignmentReference, {
+          schemaVersion: 1, uid: targetUid, accessRole, positions, branchIds,
+          capabilities, authzVersion, status: 'active', updatedBy: actor.uid,
+          ...(!currentAssignment.exists ? { createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true })
+        transaction.set(db.doc(`users/${targetUid}`), {
+          role: nextClaims.role, accessRole, authzVersion, disabled: false,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true })
+        if (accessRole === 'staff') {
+          transaction.set(staffReference, {
+            id: targetUid, name: profileName, email: profileEmail, phone: profilePhone,
+            role: nextClaims.role, branchId: branchIds[0] || '', positions, branchIds,
+            status: 'active', updatedBy: actor.uid,
+            ...(!currentStaff.exists ? { availableSlots: [], baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0, createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
+            updatedAt: FieldValue.serverTimestamp(),
+          }, { merge: true })
+        } else if (currentStaff.exists) {
+          transaction.set(staffReference, { status: 'inactive', positions: [], branchIds: [], updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+        }
+        if (accessRole === 'staff' && positions.includes('trainer_pt')) {
+          transaction.set(trainerReference, {
+            id: targetUid, name: profileName, email: profileEmail, phone: profilePhone,
+            branchId: branchIds[0] || '', positions, branchIds, status: 'active', updatedBy: actor.uid,
+            ...(!currentTrainer.exists ? { availableSlots: [], baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0, createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
+            updatedAt: FieldValue.serverTimestamp(),
+          }, { merge: true })
+        } else if (currentTrainer.exists) {
+          transaction.set(trainerReference, { status: 'inactive', positions, branchIds, updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+        }
         transaction.set(db.collection('identityAuditLogs').doc(), { action: 'staff_positions.updated', actorUid: actor.uid, targetUid, before: previous.exists ? previous.data() : null, after: { accessRole, positions, branchIds, authzVersion }, createdAt: FieldValue.serverTimestamp() })
       })
     } catch (error) {
@@ -934,6 +976,104 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     return { uid: targetUid, deleted: true }
   })
 
+  // Removing a member account revokes the Firebase Auth identity and removes
+  // only the access-directory documents. PT CRM, contracts, sessions, ledger
+  // entries and learning history remain untouched and auditable. A linked CRM
+  // profile is detached from the deleted login instead of being hard-deleted.
+  const deleteMemberAccount = onCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    requireCapability(actor, 'identity.invite.manage')
+    const targetUid = documentId(request.data?.uid, 'UID')
+    const confirmUid = documentId(request.data?.confirmUid, 'UID xác nhận')
+    if (confirmUid !== targetUid) throw new HttpsError('invalid-argument', 'Xác nhận xóa tài khoản không khớp.')
+    if (targetUid === actor.uid) throw new HttpsError('failed-precondition', 'Không thể tự xóa tài khoản của chính mình.')
+
+    const userReference = db.doc(`users/${targetUid}`)
+    const assignmentReference = db.doc(`roleAssignments/${targetUid}`)
+    const [userSnapshot, assignmentSnapshot] = await Promise.all([
+      userReference.get(),
+      assignmentReference.get(),
+    ])
+    let target = null
+    try {
+      target = await auth.getUser(targetUid)
+    } catch (error) {
+      if (error?.code !== 'auth/user-not-found') throw error
+    }
+    if (!target && !userSnapshot.exists && !assignmentSnapshot.exists) {
+      throw new HttpsError('not-found', 'Tài khoản thành viên không còn tồn tại.')
+    }
+
+    const profile = userSnapshot.exists ? userSnapshot.data() || {} : {}
+    const assignment = assignmentSnapshot.exists ? assignmentSnapshot.data() || {} : {}
+    const claims = target?.customClaims || {}
+    const elevated = [profile.accessRole, profile.role, assignment.accessRole, claims.accessRole, claims.role]
+      .some((value) => value === 'admin' || value === 'super_admin')
+    if (elevated) throw new HttpsError('permission-denied', 'Không thể xóa tài khoản quản trị tại danh sách thành viên.')
+    const staffIdentity = assignment.accessRole === 'staff'
+      || profile.accessRole === 'staff'
+      || claims.accessRole === 'staff'
+      || ['coach', 'trainer', 'sales', 'manager', 'editor', 'shipper'].includes(profile.role)
+      || ['coach', 'trainer', 'sales', 'manager', 'editor', 'shipper'].includes(claims.role)
+    if (staffIdentity) throw new HttpsError('failed-precondition', 'Đây là tài khoản nhân viên. Hãy chuyển sang tab Nhân viên để khóa hoặc xóa đúng quy trình.')
+
+    const crmProfileId = typeof assignment.crmProfileId === 'string' && assignment.crmProfileId
+      ? documentId(assignment.crmProfileId, 'Mã hồ sơ CRM')
+      : targetUid
+    const linkedStudentSnapshot = await db.collection('students').where('accountUid', '==', targetUid).limit(20).get()
+    const studentReferences = new Map(linkedStudentSnapshot.docs.map((item) => [item.id, item.ref]))
+    studentReferences.set(crmProfileId, db.doc(`students/${crmProfileId}`))
+    const clientReference = db.doc(`coachClients/${targetUid}`)
+
+    if (target) {
+      await auth.updateUser(targetUid, { disabled: true })
+      await auth.revokeRefreshTokens(targetUid)
+    }
+
+    let detachedCrmProfiles = 0
+    let preservedOperationalHistory = false
+    await db.runTransaction(async (transaction) => {
+      const studentSnapshots = await Promise.all([...studentReferences.values()].map((reference) => transaction.get(reference)))
+      const clientSnapshot = await transaction.get(clientReference)
+      for (const snapshot of studentSnapshots) {
+        if (!snapshot.exists) continue
+        detachedCrmProfiles += 1
+        preservedOperationalHistory = true
+        transaction.update(snapshot.ref, {
+          accountUid: FieldValue.delete(),
+          accountStatus: 'deleted',
+          accountDeletedAt: FieldValue.serverTimestamp(),
+          accountDeletedBy: actor.uid,
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+      }
+      if (clientSnapshot.exists) {
+        preservedOperationalHistory = true
+        transaction.set(clientReference, {
+          coachingStatus: 'archived', authAccountDeleted: true,
+          accountDeletedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true })
+      }
+      transaction.delete(userReference)
+      transaction.delete(assignmentReference)
+      transaction.create(db.collection('identityAuditLogs').doc(), {
+        action: 'member_account.deleted', actorUid: actor.uid, targetUid,
+        after: { detachedCrmProfiles: studentSnapshots.filter((snapshot) => snapshot.exists).length, preservedOperationalHistory: studentSnapshots.some((snapshot) => snapshot.exists) || clientSnapshot.exists },
+        createdAt: FieldValue.serverTimestamp(),
+      })
+    })
+
+    if (target) {
+      try {
+        await auth.deleteUser(targetUid)
+      } catch (error) {
+        logger?.error?.('member_delete_auth_failed_after_access_revoked', { uid: targetUid, code: error?.code || 'unknown' })
+        throw new HttpsError('internal', 'Quyền truy cập đã được thu hồi nhưng Auth chưa xóa hoàn toàn. Hãy thử lại để hoàn tất.')
+      }
+    }
+    return { uid: targetUid, deleted: true, preservedOperationalHistory, detachedCrmProfiles }
+  })
+
   const saveStaffOperationsProfile = onCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
     requireCapability(actor, 'identity.staff_position.manage')
@@ -1033,6 +1173,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     assignStaffPositions,
     suspendAccountAccess,
     deleteUnusedStaffAccount,
+    deleteMemberAccount,
     saveStaffOperationsProfile,
   }
 }
