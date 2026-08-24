@@ -81,7 +81,6 @@ const AdminPackageSettings = lazyWithRetry(() => import('./components/admin/pt/P
 const AdminQuoteGenerator = lazyWithRetry(() => import('./components/admin/pt/QuoteGenerator'))
 const AdminScheduleSettings = lazyWithRetry(() => import('./components/admin/pt/ScheduleSettings'))
 const TrainerPortalV2 = lazyWithRetry(() => import('./pages/operations/TrainerPortalV2'))
-const SalesPortalV2 = lazyWithRetry(() => import('./pages/operations/SalesPortalV2'))
 
 
 const roleLabels: Record<UserRole, string> = {
@@ -102,6 +101,10 @@ function AuraApplication() {
   const canAccessAdmin = hasPermission(role, 'dashboard.view')
   const canManageAcademy = canAccessAdmin && hasPermission(role, 'course.view')
   const canManageCoaching = canAccessAdmin && hasPermission(role, 'program.view')
+  const isStaffWorkspace = accessContext?.accessRole === 'staff'
+    || ['coach', 'trainer', 'sales', 'manager', 'editor'].includes(role)
+  const canUseSalesWorkspace = hasCapability('sales.quotes.self.manage')
+  const canUseRenewalsWorkspace = hasCapability('renewals.workspace.view')
   const [route, setRoute] = useState<AuraRoute>(getCurrentRoute)
   const routeRef = useRef(route)
   const [adminPreviewCourseId, setAdminPreviewCourseId] = useState<string | null>(null)
@@ -345,6 +348,10 @@ function AuraApplication() {
     // a valid user continue to the requested workspace after authentication,
     // instead of being silently sent to Home before sign-in completes.
     if (backendMode === 'firebase' && !user) return
+    if (isStaffWorkspace && authzReady && view === 'home') {
+      goTo('trainer-portal')
+      return
+    }
     if (role === 'shipper' && view !== 'delivery') {
       goTo('delivery')
       return
@@ -356,7 +363,7 @@ function AuraApplication() {
     const capability = routeCapabilities[view as keyof typeof routeCapabilities]
     const outsideCapabilityBoundary = backendMode === 'firebase' && Boolean(capability) && authzReady && !hasCapability(capability)
     if (outsideAdminBoundary || outsideCapabilityBoundary || (requiredPermission && !hasPermission(role, requiredPermission))) goTo('home')
-  }, [authzReady, backendMode, canAccessAdmin, hasCapability, loading, role, user, view])
+  }, [authzReady, backendMode, canAccessAdmin, hasCapability, isStaffWorkspace, loading, role, user, view])
 
   const studentCourses = useMemo(() => studentCourseData.courses
     .filter((course) => {
@@ -819,8 +826,8 @@ function AuraApplication() {
       case 'admin-eat-clean': return <AdminEatCleanPage currentRole={role} />
 
       // PT Coaching & Gym Management Views
-      case 'trainer-portal': return <AuraOperationsFrame><TrainerPortalV2 /></AuraOperationsFrame>
-      case 'sales-portal': return <AuraOperationsFrame><SalesPortalV2 /></AuraOperationsFrame>
+      case 'trainer-portal': return <AuraOperationsFrame><TrainerPortalV2 canUseSales={canUseSalesWorkspace} canUseRenewals={canUseRenewalsWorkspace} /></AuraOperationsFrame>
+      case 'sales-portal': return <AuraOperationsFrame><TrainerPortalV2 initialTab="sales" canUseSales={canUseSalesWorkspace} canUseRenewals={canUseRenewalsWorkspace} /></AuraOperationsFrame>
 
       case 'admin-pt-students': return <AuraOperationsFrame className="aura-operations-page--students"><AdminPTStudentManagement user={user as any} profile={profile} /></AuraOperationsFrame>
       case 'admin-pt-schedule': return <AuraOperationsFrame className="aura-operations-page--schedule">{backendMode === 'firebase' && accessContext?.accessRole === 'staff' && accessContext.capabilities.includes('pt.schedule.branch.publish')
@@ -952,7 +959,7 @@ function AuraApplication() {
       setPreviewRole={setPreviewRole}
       userPhoto={profile?.photoURL ?? user?.photoURL}
       backendMode={backendMode}
-      canAccessAdmin={canAccessAdmin}
+      isStaffWorkspace={isStaffWorkspace}
       onSignOut={signOut}
       onSearch={(query) => {
         setGlobalSearchQuery(query)

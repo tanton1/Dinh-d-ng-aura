@@ -209,7 +209,12 @@ async function assignedContracts(db, actor, relation = 'training', limit = 200) 
 }
 
 function createPtOperationsV2Functions({ db, onCall }) {
-  const getMyCoachWorkspaceScope = onCall(async (request) => {
+  // PT/Sales endpoints are lightweight, Firestore-bound requests. Using the
+  // Gen 1 CPU profile prevents a burst of separate callable services from
+  // exhausting the regional Cloud Run CPU quota and surfacing as HTTP 429.
+  const staffCall = (handler) => onCall({ cpu: 'gcf_gen1', maxInstances: 6 }, handler)
+
+  const getMyCoachWorkspaceScope = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
     const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
     const [trainingContracts, nutritionContracts, sessionSnapshots, requestSnapshots] = await Promise.all([
@@ -259,7 +264,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     }
   })
 
-  const listMyStudentPtSchedule = onCall(async (request) => {
+  const listMyStudentPtSchedule = staffCall(async (request) => {
     const actor = await studentActor(request, db)
     const from = dateKey(request.data?.from, 'Ngày bắt đầu')
     const to = dateKey(request.data?.to, 'Ngày kết thúc')
@@ -420,7 +425,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     }
   })
 
-  const saveMyStudentAvailability = onCall(async (request) => {
+  const saveMyStudentAvailability = staffCall(async (request) => {
     const actor = await studentActor(request, db)
     const profileResolution = await studentProfileForActor(db, actor)
     const profile = profileResolution.profile
@@ -507,7 +512,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     }
   })
 
-  const listMyAssignedStudents = onCall(async (request) => {
+  const listMyAssignedStudents = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
     const limit = integer(request.data?.limit, 100, 1, 200)
     const contracts = await assignedContracts(db, actor, 'training', limit)
@@ -531,7 +536,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     return { schemaVersion: 1, students, hasMore: contracts.length >= limit }
   })
 
-  const listMyTrainerSchedule = onCall(async (request) => {
+  const listMyTrainerSchedule = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
     const from = dateKey(request.data?.from, 'Ngày bắt đầu')
     const to = dateKey(request.data?.to, 'Ngày kết thúc')
@@ -574,7 +579,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     }
   })
 
-  const getMyTrainerStudentDetail = onCall(async (request) => {
+  const getMyTrainerStudentDetail = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
     const studentId = documentId(request.data?.studentId, 'Mã học viên')
     const contracts = await assignedContracts(db, actor, 'training', 300)
@@ -587,7 +592,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     return { schemaVersion: 1, student: serialize({ id: studentId, ...studentSnapshot.data() }), contracts: serialize(studentContracts), workoutLogs: logsSnapshot.docs.map((doc) => serialize({ id: doc.id, ...doc.data() })) }
   })
 
-  const confirmMySession = onCall(async (request) => {
+  const confirmMySession = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
     const sessionId = documentId(request.data?.sessionId, 'Mã buổi tập')
     const expectedRevision = integer(request.data?.expectedRevision, 0, 0, 1000000)
@@ -605,7 +610,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     })
   })
 
-  const submitWorkoutNote = onCall(async (request) => {
+  const submitWorkoutNote = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
     const studentId = documentId(request.data?.studentId, 'Mã học viên')
     const contracts = await assignedContracts(db, actor, 'training', 300)
@@ -615,7 +620,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     return { logId: reference.id }
   })
 
-  const requestSessionChange = onCall(async (request) => {
+  const requestSessionChange = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
     const sessionId = documentId(request.data?.sessionId, 'Mã buổi tập')
     const session = await db.doc(`sessions/${sessionId}`).get()
@@ -637,7 +642,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     return { requestId: reference.id }
   })
 
-  const listMyQuotes = onCall(async (request) => {
+  const listMyQuotes = staffCall(async (request) => {
     const actor = await salesActor(request, db)
     requireCapability(actor, 'sales.quotes.self.manage')
     const limit = integer(request.data?.limit, 100, 1, 200)
@@ -651,7 +656,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     return { schemaVersion: 1, quotes: [...quotes.values()].slice(0, limit) }
   })
 
-  const getMySalesCatalog = onCall(async (request) => {
+  const getMySalesCatalog = staffCall(async (request) => {
     const actor = await salesActor(request, db)
     requireCapability(actor, 'sales.quotes.self.manage')
     const [branchSnapshots, packageSnapshot] = await Promise.all([
@@ -666,7 +671,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     return { schemaVersion: 1, branches, packages }
   })
 
-  const createQuote = onCall(async (request) => {
+  const createQuote = staffCall(async (request) => {
     const actor = await salesActor(request, db)
     requireCapability(actor, 'sales.quotes.self.manage')
     const packageId = documentId(request.data?.packageId, 'Mã gói tập')
@@ -682,7 +687,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     return { quoteId: reference.id, code, finalPrice: originalPrice - discount }
   })
 
-  const createStudentDraft = onCall(async (request) => {
+  const createStudentDraft = staffCall(async (request) => {
     const actor = await salesActor(request, db)
     requireCapability(actor, 'sales.student_draft.create')
     const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
@@ -692,7 +697,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     return { leadId: reference.id }
   })
 
-  const submitContractForApproval = onCall(async (request) => {
+  const submitContractForApproval = staffCall(async (request) => {
     const actor = await salesActor(request, db)
     requireCapability(actor, 'sales.contract.submit')
     const leadId = documentId(request.data?.leadId, 'Mã khách hàng nháp')

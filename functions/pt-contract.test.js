@@ -93,9 +93,9 @@ test('PT schedule contract is callable-only for writes and supports optimistic c
 })
 
 test('student Gym schedule is self-scoped and availability writes are revision guarded', () => {
-  const studentScheduleBlock = operationsV2Source.match(/const listMyStudentPtSchedule = onCall[\s\S]*?const listMyAssignedStudents = onCall/)?.[0] ?? ''
-  assert.match(operationsV2Source, /const listMyStudentPtSchedule = onCall/)
-  assert.match(operationsV2Source, /const saveMyStudentAvailability = onCall/)
+  const studentScheduleBlock = operationsV2Source.match(/const listMyStudentPtSchedule = staffCall[\s\S]*?const listMyAssignedStudents = staffCall/)?.[0] ?? ''
+  assert.match(operationsV2Source, /const listMyStudentPtSchedule = staffCall/)
+  assert.match(operationsV2Source, /const saveMyStudentAvailability = staffCall/)
   assert.match(operationsV2Source, /actor\.accessRole !== 'student'/)
   assert.match(studentScheduleBlock, /where\('studentId', '==', profile\.id\)/)
   assert.match(studentScheduleBlock, /where\('date', '>=', from\)/)

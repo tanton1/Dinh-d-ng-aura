@@ -11,7 +11,6 @@ import {
   Cloud,
   Dumbbell,
   GraduationCap,
-  HelpCircle,
   History,
   Home,
   LayoutDashboard,
@@ -20,7 +19,6 @@ import {
   Menu,
   RefreshCw,
   Search,
-  Settings,
   ShieldCheck,
   ShoppingBasket,
   Sparkles,
@@ -47,7 +45,7 @@ interface AppShellProps {
   setPreviewRole?: (role: UserRole) => void
   userPhoto?: string | null
   backendMode: 'demo' | 'firebase'
-  canAccessAdmin: boolean
+  isStaffWorkspace?: boolean
   onSignOut: () => void
   onSearch?: (query: string) => void
   canNavigate?: (view: ViewId) => boolean
@@ -91,6 +89,22 @@ const studentMobileNav: ShellNavItem[] = [
   { id: 'schedule', label: 'Lịch học viên', icon: Dumbbell },
   { id: 'progress', label: 'Tiến độ', icon: BarChart3 },
   { id: 'courses', label: 'Học', icon: BookOpen },
+  { id: 'profile', label: 'Cá nhân', icon: UserRound },
+]
+
+const staffNavSections: ShellNavSection[] = [
+  {
+    label: 'KHÔNG GIAN STAFF',
+    items: [{ id: 'trainer-portal' as const, label: 'Công việc', icon: Dumbbell }],
+  },
+  {
+    label: 'TÀI KHOẢN',
+    items: [{ id: 'profile' as const, label: 'Cá nhân', icon: UserRound }],
+  },
+]
+
+const staffMobileNav: ShellNavItem[] = [
+  { id: 'trainer-portal', label: 'Công việc', icon: Dumbbell },
   { id: 'profile', label: 'Cá nhân', icon: UserRound },
 ]
 
@@ -195,11 +209,15 @@ function isNavigationActive(view: ViewId, itemId: ViewId, mobile = false) {
   return false
 }
 
-export default function AppShell({ children, mode, view, onNavigate, onModeChange, mobileMenu, setMobileMenu, userName, userRole, role, setPreviewRole, userPhoto, backendMode, canAccessAdmin, onSignOut, onSearch, canNavigate = () => true, authorizationError }: AppShellProps) {
-  const navSections: ShellNavSection[] = mode === 'student'
-    ? studentNavSections
+export default function AppShell({ children, mode, view, onNavigate, onModeChange, mobileMenu, setMobileMenu, userName, userRole, role, setPreviewRole, userPhoto, backendMode, isStaffWorkspace = false, onSignOut, onSearch, canNavigate = () => true, authorizationError }: AppShellProps) {
+  const navSections: ShellNavSection[] = isStaffWorkspace
+    ? staffNavSections
       .map((section) => ({ ...section, items: section.items.filter((item) => canNavigate(item.id)) }))
       .filter((section) => section.items.length > 0)
+    : mode === 'student'
+      ? studentNavSections
+        .map((section) => ({ ...section, items: section.items.filter((item) => canNavigate(item.id)) }))
+        .filter((section) => section.items.length > 0)
     : adminNavSections
       .map((section) => ({
         ...section,
@@ -212,7 +230,6 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [online, setOnline] = useState(navigator.onLine)
-  const [shellMessage, setShellMessage] = useState<string | null>(null)
   const [mobileDockHidden, setMobileDockHidden] = useState(false)
   const mobileSearchInputRef = useRef<HTMLInputElement>(null)
   const lastScrollYRef = useRef(0)
@@ -228,12 +245,6 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
       window.removeEventListener('offline', handleOffline)
     }
   }, [])
-
-  useEffect(() => {
-    if (!shellMessage) return
-    const timeoutId = window.setTimeout(() => setShellMessage(null), 4200)
-    return () => window.clearTimeout(timeoutId)
-  }, [shellMessage])
 
   useEffect(() => {
     setMobileDockHidden(false)
@@ -290,7 +301,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
     <div className={`app-shell ${mode}`} data-view={view}>
       <a className="skip-link" href="#main-content">Bỏ qua điều hướng</a>
       <aside id="app-sidebar" className={`sidebar ${mobileMenu ? 'open' : ''}`}>
-        <button className="brand" type="button" aria-label="Về trang Hôm nay" onClick={() => { onNavigate(mode === 'student' ? 'home' : 'admin-dashboard'); setMobileMenu(false) }}>
+        <button className="brand" type="button" aria-label="Về trang chính" onClick={() => { onNavigate(isStaffWorkspace ? 'trainer-portal' : mode === 'student' ? 'home' : 'admin-dashboard'); setMobileMenu(false) }}>
           <div className="brand-mark">A<span /></div>
           <div><strong>AURA</strong><small>FITNESS</small></div>
         </button>
@@ -321,7 +332,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
           ))}
         </nav>
 
-        {mode === 'student' && backendMode === 'demo' && (
+        {mode === 'student' && !isStaffWorkspace && backendMode === 'demo' && (
           <div className="sidebar-challenge">
             <div className="challenge-icon"><Sparkles size={19} /></div>
             <strong>Mục tiêu mẫu tháng {currentMonth}</strong>
@@ -332,9 +343,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
         )}
 
         <div className="sidebar-bottom">
-          <button onClick={() => setShellMessage('Trung tâm trợ giúp đang được hoàn thiện. Bạn vẫn có thể quản lý tài khoản trong trang Cá nhân.')}><HelpCircle size={19} /><span>Trợ giúp</span></button>
-          <button onClick={() => onNavigate('profile')}><Settings size={19} /><span>Cài đặt</span></button>
-          {(mode === 'admin' || canAccessAdmin) && <button className="mode-switch" onClick={() => onModeChange(mode === 'student' ? 'admin' : 'student')}>
+          {(role === 'admin' || role === 'super_admin') && <button className="mode-switch" onClick={() => onModeChange(mode === 'student' ? 'admin' : 'student')}>
               {mode === 'student' ? <LayoutDashboard size={18} /> : <UserRound size={18} />}
               <span>{mode === 'student' ? 'Mở trang quản trị' : 'Xem trang học viên'}</span>
             </button>}
@@ -348,16 +357,16 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
         <header className="topbar">
           <button className="mobile-menu-button" aria-label="Mở menu" aria-controls="app-sidebar" aria-expanded={mobileMenu} onClick={() => setMobileMenu(true)}><Menu size={23} /></button>
           <div className="mobile-page-context">
-            <small>{mode === 'student' ? 'AURA FITNESS' : 'AURA OPERATIONS'}</small>
+            <small>{isStaffWorkspace ? 'AURA STAFF' : mode === 'student' ? 'AURA FITNESS' : 'AURA OPERATIONS'}</small>
             <strong>{viewTitles[view] ?? 'Aura Fitness'}</strong>
           </div>
-          <form className="topbar-search" onSubmit={submitSearch}>
+          {!isStaffWorkspace && <form className="topbar-search" onSubmit={submitSearch}>
             <button type="submit" aria-label="Tìm"><Search size={19} /></button>
             <input aria-label="Tìm kiếm" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={mode === 'student' ? 'Tìm trong Aura Academy...' : 'Tìm nội dung hoặc khách hàng...'} />
             <kbd>Enter</kbd>
-          </form>
+          </form>}
           <div className="topbar-actions">
-            <button className="mobile-search-button" aria-label="Mở tìm kiếm" aria-expanded={mobileSearchOpen} onClick={() => setMobileSearchOpen(true)}><Search size={20} /></button>
+            {!isStaffWorkspace && <button className="mobile-search-button" aria-label="Mở tìm kiếm" aria-expanded={mobileSearchOpen} onClick={() => setMobileSearchOpen(true)}><Search size={20} /></button>}
             <span className={`backend-indicator ${backendMode}`} title={backendMode === 'firebase' ? 'Dữ liệu đã được đồng bộ' : 'Đang dùng dữ liệu xem trước'}><Cloud size={14} />{backendMode === 'firebase' ? 'Đã đồng bộ' : 'Xem trước'}</span>
             <NotificationCenter />
             <div style={{ position: 'relative' }}>
@@ -437,12 +446,11 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
 
         {!online && <div className="offline-banner" role="status"><Cloud size={15} /> Bạn đang ngoại tuyến. Aura sẽ dùng nội dung đã lưu và đồng bộ lại khi có mạng.</div>}
         {authorizationError && <div className="offline-banner" role="alert"><ShieldCheck size={15} /> {authorizationError}</div>}
-        {shellMessage && <div className="shell-toast" role="status">{shellMessage}<button aria-label="Đóng thông báo" onClick={() => setShellMessage(null)}><X size={15} /></button></div>}
         <main id="main-content" className="page-content" tabIndex={-1}>{children}</main>
 
-        {mode === 'student' ? (
-          <nav className={`mobile-bottom-nav student-mobile-nav${mobileDockHidden ? ' is-scroll-hidden' : ''}`} aria-label="Điều hướng học viên">
-            {studentMobileNav.filter((item) => canNavigate(item.id)).map((item) => {
+        {mode === 'student' || isStaffWorkspace ? (
+          <nav className={`mobile-bottom-nav student-mobile-nav${isStaffWorkspace ? ' staff-mobile-nav' : ''}${mobileDockHidden ? ' is-scroll-hidden' : ''}`} aria-label={isStaffWorkspace ? 'Điều hướng Staff' : 'Điều hướng học viên'}>
+            {(isStaffWorkspace ? staffMobileNav : studentMobileNav).filter((item) => canNavigate(item.id)).map((item) => {
               const Icon = item.icon
               const active = isNavigationActive(view, item.id, true)
               return (

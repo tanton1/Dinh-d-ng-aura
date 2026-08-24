@@ -26,6 +26,8 @@ const sessionContractLinkSource = readFileSync(join(repositoryRoot, 'scripts', '
 const identityAccessSource = readFileSync(join(__dirname, 'identity-access.js'), 'utf8')
 const ptSchedulePublishSource = readFileSync(join(__dirname, 'pt-schedule-publish.js'), 'utf8')
 const appSource = readFileSync(join(repositoryRoot, 'src', 'App.tsx'), 'utf8')
+const appShellSource = readFileSync(join(repositoryRoot, 'src', 'components', 'AppShell.tsx'), 'utf8')
+const ptOperationsClientSource = readFileSync(join(repositoryRoot, 'src', 'services', 'ptOperationsV2Service.ts'), 'utf8')
 const branchScheduleWorkspaceSource = readFileSync(join(repositoryRoot, 'src', 'components', 'schedule', 'BranchScheduleWorkspace.tsx'), 'utf8')
 
 function readRuntimeSources(directory) {
@@ -279,6 +281,18 @@ test('sensitive operations routes require Identity v2 capabilities in addition t
   assert.match(appSource, /accessContext\?\.accessRole === 'staff'[\s\S]*?BranchScheduleWorkspace/)
   assert.match(branchScheduleWorkspaceSource, /getMyBranchScheduleWorkspace/)
   assert.match(branchScheduleWorkspaceSource, /saveMyBranchScheduleDraft/)
+})
+
+test('staff uses one capability-scoped workspace without placeholder or admin navigation', () => {
+  assert.match(appSource, /<TrainerPortalV2 canUseSales=\{canUseSalesWorkspace\} canUseRenewals=\{canUseRenewalsWorkspace\}/)
+  assert.match(appSource, /<TrainerPortalV2 initialTab="sales" canUseSales=\{canUseSalesWorkspace\}/)
+  assert.match(appShellSource, /const staffNavSections[\s\S]*?'trainer-portal'[\s\S]*?'profile'/)
+  assert.match(appShellSource, /role === 'admin' \|\| role === 'super_admin'/)
+  assert.doesNotMatch(appShellSource, /Trung tâm trợ giúp đang được hoàn thiện/)
+  assert.doesNotMatch(appShellSource, /<HelpCircle|<Settings/)
+  assert.match(ptOperationsClientSource, /attempt < 3/)
+  assert.match(ptOperationsClientSource, /functions\/deadline-exceeded/)
+  assert.match(ptOperationsClientSource, /Dịch vụ làm việc Staff đang bận/)
 })
 
 test('access context retries transient infrastructure failures without retrying authorization failures', () => {

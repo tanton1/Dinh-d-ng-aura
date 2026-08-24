@@ -6,8 +6,38 @@ function functionsInstance() {
   return firebaseFunctions
 }
 
+function callableErrorCode(error: unknown) {
+  if (!error || typeof error !== 'object' || !('code' in error)) return ''
+  return typeof error.code === 'string' ? error.code : ''
+}
+
+function retryDelay(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+}
+
 async function call<Input, Output>(name: string, input: Input): Promise<Output> {
-  return (await httpsCallable<Input, Output>(functionsInstance(), name)(input)).data
+  const invoke = httpsCallable<Input, Output>(functionsInstance(), name)
+  const retryableCodes = new Set([
+    'functions/internal',
+    'functions/resource-exhausted',
+    'functions/unavailable',
+    'functions/deadline-exceeded',
+  ])
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return (await invoke(input)).data
+    } catch (error) {
+      const code = callableErrorCode(error)
+      if (!retryableCodes.has(code) || attempt === 2) {
+        if (retryableCodes.has(code)) {
+          throw new Error('Dịch vụ làm việc Staff đang bận. Aura đã thử kết nối lại nhưng chưa thành công; vui lòng thử lại sau ít phút.')
+        }
+        throw error
+      }
+      await retryDelay(350 * (2 ** attempt))
+    }
+  }
+  throw new Error('Không thể kết nối không gian làm việc Staff.')
 }
 
 export interface TrainerStudentSummary {
