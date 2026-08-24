@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { addMonthsDateKey, normalizeInstallments, renewalRisk, latestContractsByStudent } = require('./contract-renewals')
+const { addMonthsDateKey, normalizeInstallments, renewalRisk, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint } = require('./contract-renewals')
 
 test('renewal calendar uses real months and clamps month-end dates', () => {
   assert.equal(addMonthsDateKey('2026-01-31', 1), '2026-02-28')
@@ -32,4 +32,47 @@ test('pipeline keeps only the latest non-cancelled contract per student', () => 
   ])
   assert.equal(latest.get('s1').id, 'new')
   assert.equal(latest.has('s2'), false)
+})
+
+test('renewal approval threshold is strict and applies to every actor', () => {
+  assert.equal(requiresRenewalApproval(1_000_000, 10_000_000, 3), false)
+  assert.equal(requiresRenewalApproval(1_000_001, 10_000_000, 0), true)
+  assert.equal(requiresRenewalApproval(0, 10_000_000, 4), true)
+  assert.equal(requiresRenewalApproval(0, 10_000_000, 3), false)
+})
+
+test('renewal transaction requires a quote, approval evidence and checks idempotency before revision', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'contract-renewals.js'), 'utf8')
+  assert.match(source, /else throw new HttpsError\('failed-precondition', 'Cần tạo báo giá trước khi tái ký\.'/)
+  assert.match(source, /if \(needsApproval\) \{/)
+  assert.doesNotMatch(source, /needsApproval && actor\.renewalScope !== 'system'/)
+  assert.ok(source.indexOf("source.renewalIdempotencyKey === idempotencyKey") < source.indexOf("Number(source.revision || 0) !== expectedSourceRevision"))
+})
+
+test('daily renewal reminders are internal, deterministic and never auto-send externally', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'contract-renewals.js'), 'utf8')
+  assert.match(source, /notifications\/renewal_\$\{today\}_\$\{item\.id\}/)
+  assert.match(source, /type: 'renewal_reminder', category: 'operations'/)
+  assert.doesNotMatch(source, /sendEachForMulticast|sendMulticast|deliverScheduledPushes/)
+})
+
+test('daily queue refresh ignores timestamps and revision when business data is unchanged', () => {
+  const baseline = {
+    schemaVersion: 2,
+    sourceContractId: 'contract-1',
+    studentId: 'student-1',
+    stage: 'contacted',
+    active: true,
+    riskCategory: 'critical',
+    studentSnapshot: { phone: '0900000000', name: 'Aura Member' },
+    revision: 7,
+    updatedBy: 'staff-1',
+  }
+  assert.equal(renewalQueueFingerprint(baseline), renewalQueueFingerprint({
+    ...baseline,
+    revision: 99,
+    updatedBy: 'scheduler',
+    updatedAt: { toMillis: () => 1_777_777_777_000 },
+  }))
+  assert.notEqual(renewalQueueFingerprint(baseline), renewalQueueFingerprint({ ...baseline, riskCategory: 'expired' }))
 })

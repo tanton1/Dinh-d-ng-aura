@@ -920,6 +920,21 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Renewal workspaces are actor-scoped by callable Functions. Even an
+    // administrator browser cannot bypass assignment, branch, revision,
+    // approval, ledger, or cashbook checks with a direct SDK write.
+    match /contractRenewalCases/{caseId} {
+      allow read, write: if false;
+    }
+
+    match /contractRenewalActivities/{activityId} {
+      allow read, write: if false;
+    }
+
+    match /contractRenewalApprovals/{approvalId} {
+      allow read, write: if false;
+    }
+
     match /contractApprovals/{approvalId} {
       allow read: if isAdmin();
       allow write: if false;

@@ -47,7 +47,7 @@ export const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
   'admin-pt-students': 'student.view_assigned',
   'admin-pt-schedule': 'dashboard.view',
   'admin-training-history': 'analytics.view_all',
-  'admin-renewals': 'student.manage',
+  'admin-renewals': 'dashboard.view',
   'admin-report': 'analytics.view_all',
   'admin-finance': 'analytics.view_all',
   'admin-hr': 'team.view',

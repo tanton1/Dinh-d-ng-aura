@@ -178,11 +178,22 @@ exports.restorePtScheduleVersionToDraft = ptSchedulePublishFunctions.restorePtSc
 exports.getMyBranchScheduleWorkspace = ptSchedulePublishFunctions.getMyBranchScheduleWorkspace
 exports.saveMyBranchScheduleDraft = ptSchedulePublishFunctions.saveMyBranchScheduleDraft
 Object.assign(exports, createFinanceLedgerFunctions({ db, onCall, logger }))
-const contractRenewalFunctions = createContractRenewalFunctions({ db, onCall, logger })
+const contractRenewalFunctions = createContractRenewalFunctions({ db, onCall, onSchedule, logger })
 Object.assign(exports, contractRenewalFunctions)
+exports.listContractRenewalCases = contractRenewalFunctions.listContractRenewalCases
 exports.listContractRenewalPipeline = contractRenewalFunctions.listContractRenewalPipeline
 exports.updateContractRenewalCase = contractRenewalFunctions.updateContractRenewalCase
+exports.getContractRenewalCaseDetail = contractRenewalFunctions.getContractRenewalCaseDetail
+exports.recordContractRenewalActivity = contractRenewalFunctions.recordContractRenewalActivity
+exports.assignContractRenewalCase = contractRenewalFunctions.assignContractRenewalCase
+exports.createRenewalQuote = contractRenewalFunctions.createRenewalQuote
+exports.submitRenewalApproval = contractRenewalFunctions.submitRenewalApproval
+exports.decideRenewalApproval = contractRenewalFunctions.decideRenewalApproval
 exports.renewPtContract = contractRenewalFunctions.renewPtContract
+exports.listRenewalCalendar = contractRenewalFunctions.listRenewalCalendar
+exports.getRenewalAnalytics = contractRenewalFunctions.getRenewalAnalytics
+exports.refreshContractRenewalQueue = contractRenewalFunctions.refreshContractRenewalQueue
+exports.refreshContractRenewalQueueScheduled = contractRenewalFunctions.refreshContractRenewalQueueScheduled
 const sessionOperationFunctions = createSessionOperationFunctions({ db, onCall, logger })
 Object.assign(exports, sessionOperationFunctions)
 exports.createMySessionRequest = sessionOperationFunctions.createMySessionRequest

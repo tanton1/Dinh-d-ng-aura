@@ -324,6 +324,22 @@ describe('Aura PT Firestore rules', () => {
     }
   })
 
+  test('renewal cases, activities and approvals are callable-only for every browser role', async () => {
+    const studentDb = authenticatedDb('client-1', 'student')
+    const adminDb = authenticatedDb('admin-1', 'admin')
+    const serverOnlyDocuments = [
+      ['contractRenewalCases', 'contract-1'],
+      ['contractRenewalActivities', 'activity-1'],
+      ['contractRenewalApprovals', 'approval-1'],
+    ]
+
+    for (const documentPath of serverOnlyDocuments) {
+      await assertFails(getDoc(doc(studentDb, ...documentPath)))
+      await assertFails(getDoc(doc(adminDb, ...documentPath)))
+      await assertFails(setDoc(doc(adminDb, ...documentPath), { forged: true }))
+    }
+  })
+
   test('Eat Clean audit, refund, and operational records are admin-readable but callable-only', async () => {
     const ownerDb = authenticatedDb('client-1', 'student')
     const adminDb = authenticatedDb('admin-1', 'admin')
