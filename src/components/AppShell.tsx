@@ -114,7 +114,7 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
     label: 'VẬN HÀNH NỘI BỘ',
     items: [
       { id: 'admin-finance' as const, label: 'Tài chính · KQKD · Sổ quỹ', icon: LayoutDashboard, permission: 'analytics.view_all' as Permission },
-      { id: 'admin-hr' as const, label: 'Đội ngũ · Chi nhánh · Quyền', icon: Users, permission: 'team.view' as Permission },
+      { id: 'admin-hr' as const, label: 'Đội ngũ Aura', icon: Users, permission: 'team.view' as Permission },
     ],
   },
   {
@@ -170,7 +170,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'admin-report': 'Tổng quan vận hành Gym',
   'admin-finance': 'Tài chính · KQKD · Sổ quỹ',
   'admin-payroll': 'Chấm công & Lương PT',
-  'admin-hr': 'Đội ngũ · Chi nhánh · Quyền',
+  'admin-hr': 'Đội ngũ Aura',
   'admin-packages': 'Gói tập & Dịch vụ Gym',
   'admin-quotes': 'Báo giá & Chốt hợp đồng',
   'admin-schedule-settings': 'Cấu hình lịch & Ca làm việc',
@@ -179,7 +179,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'admin-academy-students': 'Học viên Academy',
   'admin-programs': 'Kho giáo án PT Online',
   'admin-students': 'Khách hàng PT Online',
-  'admin-roles': 'Đội ngũ & quyền',
+  'admin-roles': 'Đội ngũ Aura',
   'admin-nutrition-reviews': 'Duyệt ăn',
   'admin-eat-clean': 'Vận hành Eat Clean',
   'admin-notifications': 'Cài đặt Push Notifications',
