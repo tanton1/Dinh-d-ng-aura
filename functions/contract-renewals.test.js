@@ -53,6 +53,12 @@ test('bulk renewal handoff is branch-scoped, revisioned and audited atomically',
   assert.match(source, /beforeAssignedSalesId: value\.assignedSalesId \|\| ''/)
 })
 
+test('renewal quote and scheduler use bounded low-CPU production settings', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'contract-renewals.js'), 'utf8')
+  assert.match(source, /createRenewalQuote = onCall\(\{ cpu: 'gcf_gen1', maxInstances: 3 \}/)
+  assert.match(source, /retryCount: 1, cpu: 'gcf_gen1', maxInstances: 1/)
+})
+
 test('installment schedule must exactly match remaining contract balance', () => {
   const result = normalizeInstallments([
     { id: 'a', date: '2026-09-01', amount: 400_000 },

@@ -652,7 +652,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     return { assignedSalesId, transferred: cases.length }
   })
 
-  const createRenewalQuote = onCall(async (request) => {
+  const createRenewalQuote = onCall({ cpu: 'gcf_gen1', maxInstances: 3 }, async (request) => {
     const actor = await renewalActor(request, db)
     const caseId = documentId(request.data?.caseId, 'Hồ sơ tái ký')
     const packageId = documentId(request.data?.packageId, 'Gói tập')
@@ -869,7 +869,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     return refreshRenewalQueueCore({ db, dryRun: request.data?.apply !== true, actorUid: actor.uid })
   })
 
-  const scheduled = onSchedule ? onSchedule({ schedule: '0 6 * * *', region: 'asia-southeast1', timeZone: 'Asia/Ho_Chi_Minh', retryCount: 1 }, async () => {
+  const scheduled = onSchedule ? onSchedule({ schedule: '0 6 * * *', region: 'asia-southeast1', timeZone: 'Asia/Ho_Chi_Minh', retryCount: 1, cpu: 'gcf_gen1', maxInstances: 1 }, async () => {
     const result = await refreshRenewalQueueCore({ db, dryRun: false, actorUid: 'scheduler:contract-renewals' })
     const reminders = await createRenewalInternalReminders(db)
     logger?.info?.('contract_renewal_queue_refreshed', { ...result, reminders })
