@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
   CheckCircle2,
@@ -22,6 +22,16 @@ import {
 import './NutritionReviewWorkspace.css'
 
 type StatusFilter = NutritionReviewStatus | 'all'
+
+const emptySummary = {
+  total: 0,
+  pending: 0,
+  approved: 0,
+  rejected: 0,
+  overdue: 0,
+  highPriority: 0,
+  students: 0,
+}
 
 const quickFeedback = [
   'Bữa ăn khá cân bằng. Em duy trì khẩu phần này và bổ sung thêm rau xanh nhé.',
@@ -54,48 +64,63 @@ export function NutritionReviewWorkspace({
   const [assignmentCount, setAssignmentCount] = useState(0)
   const [availableCoaches, setAvailableCoaches] = useState<Array<{ id: string; name: string; positions: string[]; branchIds: string[] }>>([])
   const [hasMore, setHasMore] = useState(false)
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [filteredCount, setFilteredCount] = useState(0)
+  const [summary, setSummary] = useState(emptySummary)
+  const [summaryTruncated, setSummaryTruncated] = useState(false)
+  const [slaMinutes, setSlaMinutes] = useState(120)
   const [status, setStatus] = useState<StatusFilter>('pending')
   const [coachId, setCoachId] = useState('all')
   const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
   const [selectedId, setSelectedId] = useState('')
   const [detailSlide, setDetailSlide] = useState(0)
   const [feedback, setFeedback] = useState('')
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const requestPage = useCallback(async (cursor: string | null, append: boolean) => {
+    if (append) setLoadingMore(true)
+    else setLoading(true)
     setError('')
     try {
-      const result = await listNutritionMealReviews(status, 24)
-      setReviews(result.reviews)
+      const result = await listNutritionMealReviews({
+        status,
+        limit: 30,
+        cursor,
+        coachId,
+        query: deferredQuery,
+      })
+      setReviews((current) => append
+        ? [...new Map([...current, ...result.reviews].map((item) => [item.id, item])).values()]
+        : result.reviews)
       setScope(result.scope)
       setAssignmentCount(result.assignmentCount)
       setAvailableCoaches(result.coaches || [])
       setHasMore(result.hasMore)
-      setSelectedId((current) => result.reviews.some((item) => item.id === current) ? current : result.reviews[0]?.id || '')
+      setNextCursor(result.nextCursor)
+      setFilteredCount(result.filteredCount)
+      setSummary(result.summary || emptySummary)
+      setSummaryTruncated(Boolean(result.summaryTruncated))
+      setSlaMinutes(result.slaMinutes || 120)
+      setSelectedId((current) => append || result.reviews.some((item) => item.id === current) ? current : result.reviews[0]?.id || '')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể tải danh sách bữa ăn được phân công.')
-      setReviews([])
+      if (!append) setReviews([])
     } finally {
-      setLoading(false)
+      if (append) setLoadingMore(false)
+      else setLoading(false)
     }
-  }, [status])
+  }, [coachId, deferredQuery, status])
+
+  const load = useCallback(() => requestPage(null, false), [requestPage])
 
   useEffect(() => { void load() }, [load])
 
-  const filtered = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase('vi')
-    return reviews.filter((item) => {
-      if (coachId === 'unassigned' && item.assignedCoachIds.length) return false
-      if (coachId !== 'all' && coachId !== 'unassigned' && !item.assignedCoachIds.includes(coachId)) return false
-      if (!normalized) return true
-      return [item.studentName, item.note, item.mealType, item.assignedCoachName]
-        .some((value) => value.toLocaleLowerCase('vi').includes(normalized))
-    })
-  }, [coachId, query, reviews])
+  const filtered = reviews
 
   const selected = filtered.find((item) => item.id === selectedId) || filtered[0] || null
   useEffect(() => {
@@ -129,11 +154,12 @@ export function NutritionReviewWorkspace({
     }
   }
 
-  const counts = useMemo(() => ({
-    pending: reviews.filter((item) => item.status === 'pending').length,
-    high: reviews.filter((item) => item.priority === 'high').length,
-    students: new Set(reviews.map((item) => item.userId)).size,
-  }), [reviews])
+  const statusCount = useMemo<Record<StatusFilter, number>>(() => ({
+    pending: summary.pending,
+    approved: summary.approved,
+    rejected: summary.rejected,
+    all: summary.total,
+  }), [summary])
 
   return <section className={`nrw-page ${compact ? 'is-compact' : ''}`}>
     <header className="nrw-hero">
@@ -144,9 +170,9 @@ export function NutritionReviewWorkspace({
       </div>
       <div className="nrw-hero-orb"><CheckCircle2 size={34} /></div>
       <div className="nrw-kpis" aria-label="Tổng quan duyệt món">
-        <article><strong>{counts.pending}</strong><span>chờ duyệt</span></article>
-        <article><strong>{counts.students}</strong><span>học viên</span></article>
-        <article><strong>{counts.high}</strong><span>ưu tiên</span></article>
+        <article><strong>{summary.pending}</strong><span>chờ duyệt</span></article>
+        <article className={summary.overdue ? 'is-alert' : ''}><strong>{summary.overdue}</strong><span>quá SLA {slaMinutes} phút</span></article>
+        <article><strong>{summary.students}</strong><span>học viên</span></article>
       </div>
     </header>
 
@@ -157,7 +183,7 @@ export function NutritionReviewWorkspace({
           key={item}
           className={status === item ? 'is-active' : ''}
           onClick={() => setStatus(item)}
-        >{item === 'all' ? 'Tất cả' : statusLabel(item)}</button>)}
+        >{item === 'all' ? 'Tất cả' : statusLabel(item)} <b>{statusCount[item]}</b></button>)}
       </div>
       <label className="nrw-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm học viên hoặc món ăn" /></label>
       {scope === 'all' && <select value={coachId} onChange={(event) => setCoachId(event.target.value)} aria-label="Lọc HLV chăm dinh dưỡng">
@@ -176,12 +202,12 @@ export function NutritionReviewWorkspace({
         {filtered.map((item) => <button
           type="button"
           key={item.id}
-          className={`nrw-review-card ${selected?.id === item.id ? 'is-selected' : ''}`}
+          className={`nrw-review-card ${selected?.id === item.id ? 'is-selected' : ''} ${item.isOverdue ? 'is-overdue' : ''}`}
           onClick={() => setSelectedId(item.id)}
         >
           <div className="nrw-card-image">{item.image ? <img src={item.image} alt="Bữa ăn học viên gửi" /> : <Sparkles size={30} />}</div>
           <div className="nrw-card-body">
-            <span className={`nrw-state is-${item.status}`}>{statusLabel(item.status)}</span>
+            <span className={`nrw-state is-${item.status}`}>{item.isOverdue ? `Quá SLA ${item.overdueMinutes} phút` : statusLabel(item.status)}</span>
             <strong>{item.studentName}</strong>
             <small>{item.mealType} · {dateTime(item.createdAt)}</small>
             <p><Flame size={14} /> {Math.round(item.totalKcal)} kcal · {Math.round(item.totalProtein)}g đạm</p>
@@ -224,7 +250,11 @@ export function NutritionReviewWorkspace({
         </div>
         <div className="nrw-dots" aria-label="Chọn slide chi tiết">{[0, 1, 2].map((value) => <button key={value} onClick={() => setDetailSlide(value)} className={detailSlide === value ? 'is-active' : ''} aria-label={`Slide ${value + 1}`} />)}</div>
       </article>}
-      {hasMore && <p className="nrw-limit-note"><UsersRound size={16} /> Đang hiển thị 24 bản gần nhất. Dùng bộ lọc để thu hẹp danh sách.</p>}
+      <div className="nrw-pagination-note">
+        <p className="nrw-limit-note"><UsersRound size={16} /> Đang hiển thị {reviews.length}/{filteredCount} bản trong bộ lọc. Bữa quá SLA luôn được xếp trước.</p>
+        {hasMore && <button type="button" onClick={() => void requestPage(nextCursor, true)} disabled={loadingMore || !nextCursor}>{loadingMore ? 'Đang tải…' : 'Tải thêm bữa ăn'}</button>}
+      </div>
+      {summaryTruncated && <div className="nrw-message is-error"><AlertCircle size={18} />Phạm vi có trên 1.000 bản duyệt. Hãy lọc theo trạng thái/HLV; quản trị viên cần lên kế hoạch lưu trữ lịch sử cũ.</div>}
     </>}
   </section>
 }

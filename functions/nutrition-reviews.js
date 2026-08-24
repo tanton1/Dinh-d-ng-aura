@@ -3,6 +3,9 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext } = require('./identity-access')
 
 const ALL_REVIEW_CAPABILITY = 'nutrition.meals.all.review'
+const DEFAULT_REVIEW_SLA_MINUTES = 120
+const MAX_REVIEW_SLA_MINUTES = 1440
+const MAX_SCOPE_REVIEWS = 1000
 
 function boundedString(value, maximum = 500, required = false) {
   const normalized = typeof value === 'string' ? value.trim() : ''
@@ -57,13 +60,20 @@ function compactAnalysis(value) {
   }
 }
 
-function reviewRecord(snapshot, profile = {}, assignment = {}, coachName = '') {
+function reviewRecord(snapshot, profile = {}, assignment = {}, coachName = '', options = {}) {
   const value = snapshot.data() || {}
   const meal = value.meal && typeof value.meal === 'object' ? value.meal : {}
   const totals = meal.totals && typeof meal.totals === 'object' ? meal.totals : {}
   const analysis = value.analysisSnapshot || meal.analysisSnapshot || meal.aiAnalysis || value.aiAnalysis || {}
   const createdAt = timestampMillis(value.createdAt) || timestampMillis(meal.createdAt)
   const status = ['pending', 'approved', 'rejected'].includes(value.status) ? value.status : 'pending'
+  const now = Number.isFinite(options.now) ? options.now : Date.now()
+  const slaMinutes = Number.isFinite(options.slaMinutes) ? options.slaMinutes : DEFAULT_REVIEW_SLA_MINUTES
+  const slaDueAt = createdAt ? createdAt + slaMinutes * 60_000 : 0
+  const waitMinutes = createdAt ? Math.max(0, Math.floor((now - createdAt) / 60_000)) : 0
+  const overdueMinutes = status === 'pending' && slaDueAt && now > slaDueAt
+    ? Math.max(1, Math.floor((now - slaDueAt) / 60_000))
+    : 0
   const rawItems = Array.isArray(meal.items) ? meal.items : Array.isArray(analysis.items) ? analysis.items : []
   const rawSuggestions = Array.isArray(meal.aiSuggestions) ? meal.aiSuggestions : []
   const image = meal.image || meal.imageUrl || meal.img || meal.fileName || value.image || value.img
@@ -77,6 +87,10 @@ function reviewRecord(snapshot, profile = {}, assignment = {}, coachName = '') {
     assignedCoachIds: Array.isArray(assignment.coachIds) ? assignment.coachIds.slice(0, 10) : [],
     assignedCoachName: shortText(coachName, 160),
     createdAt,
+    slaDueAt,
+    waitMinutes,
+    overdueMinutes,
+    isOverdue: overdueMinutes > 0,
     time: shortText(meal.mealDate || meal.date || meal.time || '', 80),
     image: safeImage(image),
     note: shortText(meal.description || meal.note || value.note || meal.dishName || meal.title, 1000),
@@ -138,7 +152,7 @@ async function assignedClientIds(db, context) {
   return [...new Set([...crmIds, ...linkedAccounts])].slice(0, 400)
 }
 
-async function hydrateReviews(db, documents, context) {
+async function hydrateReviews(db, documents, context, options = {}) {
   const clientIds = [...new Set(documents.map((item) => item.data()?.userId).filter((value) => typeof value === 'string'))]
   const [profiles, identityAssignments] = await Promise.all([
     clientIds.length ? db.getAll(...clientIds.map((id) => db.doc(`users/${id}`))) : [],
@@ -186,8 +200,75 @@ async function hydrateReviews(db, documents, context) {
     const assignedCoachIds = Array.isArray(contract.nutritionPTIds) ? contract.nutritionPTIds : []
     const assignment = { coachId: assignedCoachIds[0] || '', coachIds: assignedCoachIds }
     const assignedCoachName = assignedCoachIds.map((id) => coachNames.get(id) || (id === context.legacyStaffId || id === context.uid ? 'Bạn' : 'HLV Aura')).join(' · ')
-    return reviewRecord(item, profileMap.get(userId), assignment, assignedCoachName)
+    return reviewRecord(item, profileMap.get(userId), assignment, assignedCoachName, options)
   })
+}
+
+function normalizeReviewSlaMinutes(value) {
+  const minutes = Math.trunc(finite(value, DEFAULT_REVIEW_SLA_MINUTES))
+  return Math.min(MAX_REVIEW_SLA_MINUTES, Math.max(30, minutes))
+}
+
+function reviewSummary(reviews) {
+  return reviews.reduce((summary, item) => {
+    summary.total += 1
+    summary[item.status] += 1
+    if (item.isOverdue) summary.overdue += 1
+    if (item.priority === 'high') summary.highPriority += 1
+    if (item.userId) summary.studentIds.add(item.userId)
+    return summary
+  }, {
+    total: 0,
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    overdue: 0,
+    highPriority: 0,
+    studentIds: new Set(),
+  })
+}
+
+function publicReviewSummary(summary) {
+  return {
+    total: summary.total,
+    pending: summary.pending,
+    approved: summary.approved,
+    rejected: summary.rejected,
+    overdue: summary.overdue,
+    highPriority: summary.highPriority,
+    students: summary.studentIds.size,
+  }
+}
+
+function reviewPriority(left, right) {
+  const bucket = (item) => {
+    if (item.status === 'pending' && item.isOverdue) return 0
+    if (item.status === 'pending' && item.priority === 'high') return 1
+    if (item.status === 'pending') return 2
+    return 3
+  }
+  const bucketDifference = bucket(left) - bucket(right)
+  if (bucketDifference) return bucketDifference
+  if (left.status === 'pending' && right.status === 'pending') {
+    return left.createdAt - right.createdAt || left.id.localeCompare(right.id)
+  }
+  return right.createdAt - left.createdAt || left.id.localeCompare(right.id)
+}
+
+function pageOffset(cursor) {
+  if (!cursor) return 0
+  try {
+    const parsed = JSON.parse(Buffer.from(String(cursor), 'base64url').toString('utf8'))
+    const offset = Number(parsed.offset)
+    if (parsed.version !== 1 || !Number.isInteger(offset) || offset < 0 || offset > MAX_SCOPE_REVIEWS) throw new Error('invalid')
+    return offset
+  } catch {
+    throw new HttpsError('invalid-argument', 'Con trỏ danh sách duyệt món không hợp lệ.')
+  }
+}
+
+function nextPageCursor(offset) {
+  return Buffer.from(JSON.stringify({ version: 1, offset }), 'utf8').toString('base64url')
 }
 
 async function availableNutritionCoaches(db) {
@@ -213,12 +294,19 @@ function createNutritionReviewFunctions({ db, onCall }) {
     }
     const requestedLimit = Number(request.data?.limit)
     const limit = Number.isInteger(requestedLimit) ? Math.min(30, Math.max(6, requestedLimit)) : 24
+    const offset = pageOffset(request.data?.cursor)
     const requestedStatus = request.data?.status
     const status = ['pending', 'approved', 'rejected'].includes(requestedStatus) ? requestedStatus : 'all'
+    const coachId = typeof request.data?.coachId === 'string' && request.data.coachId.trim()
+      ? request.data.coachId.trim().slice(0, 200)
+      : 'all'
+    const query = typeof request.data?.query === 'string' ? request.data.query.trim().toLocaleLowerCase('vi').slice(0, 120) : ''
     let documents = []
     let assignmentCount = 0
+    const [settingsSnapshot] = await Promise.all([db.doc('system/nutrition_review_settings').get()])
+    const slaMinutes = normalizeReviewSlaMinutes(settingsSnapshot.exists ? settingsSnapshot.data()?.slaMinutes : undefined)
     if (allScope) {
-      const snapshot = await db.collection('mealReviews').orderBy('createdAt', 'desc').limit(limit * 3 + 1).get()
+      const snapshot = await db.collection('mealReviews').limit(MAX_SCOPE_REVIEWS + 1).get()
       documents = snapshot.docs
     } else {
       const clientIds = await assignedClientIds(db, context)
@@ -226,19 +314,40 @@ function createNutritionReviewFunctions({ db, onCall }) {
       const chunks = []
       for (let index = 0; index < clientIds.length; index += 30) chunks.push(clientIds.slice(index, index + 30))
       const snapshots = await Promise.all(chunks.map((ids) => (
-        db.collection('mealReviews').where('userId', 'in', ids).limit(limit + 1).get()
+        db.collection('mealReviews').where('userId', 'in', ids).limit(MAX_SCOPE_REVIEWS + 1).get()
       )))
       documents = snapshots.flatMap((snapshot) => snapshot.docs)
     }
-    const unique = [...new Map(documents.map((item) => [item.id, item])).values()]
-      .filter((item) => status === 'all' || (item.data()?.status || 'pending') === status)
-      .sort((left, right) => timestampMillis(right.data()?.createdAt) - timestampMillis(left.data()?.createdAt))
-    const hasMore = unique.length > limit
-    const [reviews, coaches] = await Promise.all([
-      hydrateReviews(db, unique.slice(0, limit), context),
+    const uniqueDocuments = [...new Map(documents.map((item) => [item.id, item])).values()]
+    const summaryTruncated = uniqueDocuments.length > MAX_SCOPE_REVIEWS
+    const [hydrated, coaches] = await Promise.all([
+      hydrateReviews(db, uniqueDocuments.slice(0, MAX_SCOPE_REVIEWS), context, { now: Date.now(), slaMinutes }),
       allScope ? availableNutritionCoaches(db) : Promise.resolve([]),
     ])
-    return { reviews, coaches, scope: allScope ? 'all' : 'assigned', assignmentCount, hasMore }
+    const summary = publicReviewSummary(reviewSummary(hydrated))
+    const filtered = hydrated.filter((item) => {
+      if (status !== 'all' && item.status !== status) return false
+      if (coachId === 'unassigned' && item.assignedCoachIds.length) return false
+      if (coachId !== 'all' && coachId !== 'unassigned' && !item.assignedCoachIds.includes(coachId)) return false
+      if (!query) return true
+      return [item.studentName, item.note, item.mealType, item.assignedCoachName]
+        .some((value) => String(value || '').toLocaleLowerCase('vi').includes(query))
+    }).sort(reviewPriority)
+    const reviews = filtered.slice(offset, offset + limit)
+    const nextOffset = offset + reviews.length
+    const hasMore = nextOffset < filtered.length
+    return {
+      reviews,
+      coaches,
+      scope: allScope ? 'all' : 'assigned',
+      assignmentCount,
+      hasMore,
+      nextCursor: hasMore ? nextPageCursor(nextOffset) : null,
+      filteredCount: filtered.length,
+      summary,
+      summaryTruncated,
+      slaMinutes,
+    }
   })
 
   const assignNutritionCoach = onCall(async (request) => {
@@ -337,5 +446,8 @@ function createNutritionReviewFunctions({ db, onCall }) {
 module.exports = {
   createNutritionReviewFunctions,
   reviewRecord,
+  reviewPriority,
+  reviewSummary,
   ALL_REVIEW_CAPABILITY,
+  DEFAULT_REVIEW_SLA_MINUTES,
 }

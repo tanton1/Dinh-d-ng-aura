@@ -2,7 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const test = require('node:test')
-const { reviewRecord } = require('./nutrition-reviews')
+const { reviewPriority, reviewRecord, reviewSummary } = require('./nutrition-reviews')
 
 test('identity contracts expose one staff workspace while student relationships scope each HLV tab', () => {
   const deployable = require('./identity-contract.json')
@@ -42,6 +42,31 @@ test('public review record keeps explicit nutrition values and coach assignment'
   assert.equal(result.revision, 2)
 })
 
+test('pending reviews expose SLA state and prioritise the oldest overdue meal', () => {
+  const now = Date.UTC(2026, 7, 24, 12, 0, 0)
+  const snapshot = (id, ageMinutes, priority = 'normal') => ({
+    id,
+    data: () => ({
+      userId: `student-${id}`,
+      status: 'pending',
+      priority,
+      createdAt: now - ageMinutes * 60_000,
+      meal: {},
+    }),
+  })
+  const recent = reviewRecord(snapshot('recent', 40, 'high'), {}, {}, '', { now, slaMinutes: 120 })
+  const overdue = reviewRecord(snapshot('overdue', 180), {}, {}, '', { now, slaMinutes: 120 })
+  const oldest = reviewRecord(snapshot('oldest', 260), {}, {}, '', { now, slaMinutes: 120 })
+  assert.equal(recent.isOverdue, false)
+  assert.equal(overdue.overdueMinutes, 60)
+  assert.deepEqual([recent, overdue, oldest].sort(reviewPriority).map((item) => item.id), ['oldest', 'overdue', 'recent'])
+  const summary = reviewSummary([recent, overdue, oldest])
+  assert.equal(summary.pending, 3)
+  assert.equal(summary.overdue, 2)
+  assert.equal(summary.highPriority, 1)
+  assert.equal(summary.studentIds.size, 3)
+})
+
 test('nutrition review callables are actor-scoped and transaction-backed', () => {
   const source = fs.readFileSync(path.join(__dirname, 'nutrition-reviews.js'), 'utf8')
   assert.match(source, /trustedAccessContext\(request, db\)/)
@@ -53,7 +78,9 @@ test('nutrition review callables are actor-scoped and transaction-backed', () =>
   assert.match(source, /db\.runTransaction/)
   assert.match(source, /users\/\$\{userId\}\/mealLogs/)
   assert.match(source, /nutritionReviewAuditLogs/)
-  assert.doesNotMatch(source, /request\.data\?\.coachId/)
+  assert.match(source, /assignedCoachIds\.includes\(coachId\)/)
+  assert.match(source, /nutrition_review_settings/)
+  assert.match(source, /reviewPriority/)
 })
 
 test('coach workspace resolves tabs from primary, secondary and nutrition assignments', () => {

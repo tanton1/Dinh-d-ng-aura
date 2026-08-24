@@ -13,6 +13,10 @@ export interface NutritionMealReview {
   assignedCoachIds: string[]
   assignedCoachName: string
   createdAt: number
+  slaDueAt: number
+  waitMinutes: number
+  overdueMinutes: number
+  isOverdue: boolean
   time: string
   image: string
   note: string
@@ -50,6 +54,19 @@ export interface NutritionReviewListResult {
   scope: 'all' | 'assigned'
   assignmentCount: number
   hasMore: boolean
+  nextCursor: string | null
+  filteredCount: number
+  summary: {
+    total: number
+    pending: number
+    approved: number
+    rejected: number
+    overdue: number
+    highPriority: number
+    students: number
+  }
+  summaryTruncated: boolean
+  slaMinutes: number
 }
 
 function functionsOrThrow() {
@@ -58,14 +75,31 @@ function functionsOrThrow() {
 }
 
 export async function listNutritionMealReviews(
-  status: NutritionReviewStatus | 'all' = 'all',
-  limit = 24,
+  input: {
+    status?: NutritionReviewStatus | 'all'
+    limit?: number
+    cursor?: string | null
+    coachId?: string
+    query?: string
+  } = {},
 ) {
   const callable = httpsCallable<
-    { status: NutritionReviewStatus | 'all'; limit: number },
+    {
+      status: NutritionReviewStatus | 'all'
+      limit: number
+      cursor?: string | null
+      coachId?: string
+      query?: string
+    },
     NutritionReviewListResult
   >(functionsOrThrow(), 'listNutritionMealReviews')
-  return (await callable({ status, limit })).data
+  return (await callable({
+    status: input.status || 'all',
+    limit: input.limit || 24,
+    cursor: input.cursor,
+    coachId: input.coachId,
+    query: input.query,
+  })).data
 }
 
 export async function reviewNutritionMeal(input: {

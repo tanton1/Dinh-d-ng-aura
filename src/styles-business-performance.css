@@ -71,7 +71,7 @@
 .business-performance__bar--profit { background: linear-gradient(180deg, #f9bed4, #eb3f7d); }
 .business-performance__bar-column small { color: #9c8290; font-size: 10px; }
 .business-performance__quality { display: grid; grid-template-columns: minmax(190px,.65fr) minmax(0,1.35fr); gap: 16px; background: linear-gradient(120deg, #fff8fa, #fffaf5); }
-.business-performance__quality dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.business-performance__quality dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
 .business-performance__quality dl div { min-width: 0; padding: 11px; border: 1px solid #f3dfe7; border-radius: 14px; background: rgba(255,255,255,.72); }
 .business-performance__quality dt { overflow: hidden; color: #967989; font-size: 10px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
 .business-performance__quality dd { overflow: hidden; margin: 6px 0 0; color: #453240; font-size: 12px; font-weight: 900; text-overflow: ellipsis; white-space: nowrap; }

@@ -4,6 +4,7 @@ const { trustedAccessContext, requireCapability } = require('./identity-access')
 
 const MAX_RANGE_DAYS = 366
 const MAX_LEDGER_DOCUMENTS = 10000
+const MAX_ATTENDANCE_DOCUMENTS = 10000
 const MAX_HISTORY_PAGE = 100
 const DEFAULT_HISTORY_PAGE = 50
 const validHistoryStatuses = new Set([
@@ -323,10 +324,12 @@ function createBusinessReportingFunctions({ db, onCall }) {
     }
     const start = utcDateAtVietnamStart(input.startDate)
     const end = utcDateAtVietnamStart(input.nextEndDate)
-    const [ledgerSnapshot, cashSnapshot, payrollSnapshot] = await Promise.all([
+    const [ledgerSnapshot, cashSnapshot, payrollSnapshot, attendanceSnapshot, cashAccountSnapshot] = await Promise.all([
       db.collection('ledgerEntries').where('effectiveAt', '>=', start).where('effectiveAt', '<', end).limit(MAX_LEDGER_DOCUMENTS + 1).get(),
       db.collection('cashTransactions').where('effectiveAt', '>=', start).where('effectiveAt', '<', end).limit(MAX_LEDGER_DOCUMENTS + 1).get(),
       db.collection('payrollRuns').where('paidAt', '>=', start).where('paidAt', '<', end).limit(500).get(),
+      db.collection('attendanceEvents').where('occurredAt', '>=', start).where('occurredAt', '<', end).limit(MAX_ATTENDANCE_DOCUMENTS + 1).get(),
+      db.collection('cashAccounts').limit(201).get(),
     ])
     const ledgerEntries = ledgerSnapshot.docs.slice(0, MAX_LEDGER_DOCUMENTS).map((item) => item.data())
     const summary = summaryFromLedger(ledgerEntries, input)
@@ -340,8 +343,23 @@ function createBusinessReportingFunctions({ db, onCall }) {
       .filter((item) => input.branchId === 'all' || !item.branchId || item.branchId === input.branchId)
       .filter((item) => !item.ledgerEntryId)
       .reduce((result, item) => result + Math.max(0, number(item.finalAmount)), 0)
+    const recognisedSessionIds = new Set(ledgerEntries
+      .filter((item) => item.type === 'revenue_recognition' && item.source === 'pt_gym' && item.status === 'posted')
+      .map((item) => item.sessionId)
+      .filter(Boolean))
+    const attendanceSessionIds = new Set(attendanceSnapshot.docs
+      .slice(0, MAX_ATTENDANCE_DOCUMENTS)
+      .map((item) => item.data()?.sessionId)
+      .filter(Boolean))
+    const recognisedAttendanceEvents = [...attendanceSessionIds].filter((sessionId) => recognisedSessionIds.has(sessionId)).length
+    const unrecognisedAttendanceEvents = Math.max(0, attendanceSessionIds.size - recognisedAttendanceEvents)
+    const qualityMessages = []
+    if (unrecognisedAttendanceEvents) qualityMessages.push(`${unrecognisedAttendanceEvents.toLocaleString('vi-VN')} buổi đã chấm công chưa có bút toán doanh thu thực hiện`)
+    if (cashAccountSnapshot.empty) qualityMessages.push('sổ quỹ chưa có tài khoản tiền mặt/ngân hàng/ví')
+    if (unlinkedCashTransactions) qualityMessages.push('còn giao dịch sổ quỹ chưa liên kết ledger')
+    if (payrollPaidOutsideLedger) qualityMessages.push('còn bảng lương đã trả ngoài ledger')
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
       range: { startDate: input.startDate, endDate: input.endDate, timeZone: 'Asia/Ho_Chi_Minh' },
       branchId: input.branchId,
       source: input.source,
@@ -363,8 +381,16 @@ function createBusinessReportingFunctions({ db, onCall }) {
         legacyUnclassifiedEntries: summary.legacyUnclassifiedEntries,
         unlinkedCashTransactions,
         payrollPaidOutsideLedger,
+        attendanceEvents: attendanceSessionIds.size,
+        recognisedAttendanceEvents,
+        unrecognisedAttendanceEvents,
+        attendanceTruncated: attendanceSnapshot.size > MAX_ATTENDANCE_DOCUMENTS,
+        cashAccounts: cashAccountSnapshot.size,
+        cashAccountsReady: !cashAccountSnapshot.empty,
         missingSourceIntegrations: ['online_coaching', 'nutrition_coaching', 'academy'],
-        message: 'Báo cáo P&L chỉ ghi nhận nguồn đã có bút toán quản trị. Dòng tiền legacy và các nguồn chưa tích hợp được tách riêng, không tự suy diễn thành doanh thu.',
+        message: qualityMessages.length
+          ? `Cần đối soát: ${qualityMessages.join('; ')}. Aura không tự suy diễn số còn thiếu.`
+          : 'Dữ liệu trong phạm vi đã đối chiếu giữa ledger, sổ quỹ, payroll và chấm công.',
       },
     }
   })

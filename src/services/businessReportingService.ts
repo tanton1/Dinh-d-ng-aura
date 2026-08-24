@@ -27,7 +27,7 @@ export interface BusinessSourceRow {
 }
 
 export interface BusinessPerformanceReport {
-  schemaVersion: 2
+  schemaVersion: 3
   range: { startDate: string; endDate: string; timeZone: string }
   branchId: string
   source: BusinessSource
@@ -42,6 +42,12 @@ export interface BusinessPerformanceReport {
     legacyUnclassifiedEntries: number
     unlinkedCashTransactions: number
     payrollPaidOutsideLedger: number
+    attendanceEvents: number
+    recognisedAttendanceEvents: number
+    unrecognisedAttendanceEvents: number
+    attendanceTruncated: boolean
+    cashAccounts: number
+    cashAccountsReady: boolean
     missingSourceIntegrations: string[]
     message: string
   }

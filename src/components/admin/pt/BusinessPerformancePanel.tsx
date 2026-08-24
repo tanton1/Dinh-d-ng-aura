@@ -128,6 +128,10 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
         <div><dt>Legacy chưa phân loại</dt><dd>{report?.dataQuality.legacyUnclassifiedEntries || 0} bút toán</dd></div>
         <div><dt>Sổ quỹ chưa liên kết</dt><dd>{money(report?.dataQuality.unlinkedCashTransactions || 0)}</dd></div>
         <div><dt>Lương đã trả ngoài ledger</dt><dd>{money(report?.dataQuality.payrollPaidOutsideLedger || 0)}</dd></div>
+        <div><dt>Buổi đã chấm công</dt><dd>{(report?.dataQuality.attendanceEvents || 0).toLocaleString('vi-VN')} buổi</dd></div>
+        <div><dt>Đã ghi nhận doanh thu</dt><dd>{(report?.dataQuality.recognisedAttendanceEvents || 0).toLocaleString('vi-VN')} buổi</dd></div>
+        <div><dt>Chờ đối soát doanh thu</dt><dd>{(report?.dataQuality.unrecognisedAttendanceEvents || 0).toLocaleString('vi-VN')} buổi</dd></div>
+        <div><dt>Tài khoản sổ quỹ</dt><dd>{report?.dataQuality.cashAccounts || 0} tài khoản</dd></div>
         <div><dt>Nguồn chờ tích hợp</dt><dd>{report?.dataQuality.missingSourceIntegrations.length || 0} nguồn</dd></div>
       </dl>
       {report?.dataQuality.missingSourceIntegrations.length ? <p>Chưa tự động đưa vào P&L: {report.dataQuality.missingSourceIntegrations.map((item) => sourceLabels[item as BusinessSource] || item).join(', ')}.</p> : null}

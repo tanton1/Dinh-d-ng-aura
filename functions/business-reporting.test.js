@@ -37,4 +37,7 @@ test('business report and training history retain bounded filters and actor-scop
   assert.match(source, /where\(ownerField, '==', subjectId\)/)
   assert.match(source, /orderBy\('date', 'desc'\).*orderBy\(FieldPath\.documentId\(\), 'desc'\)/s)
   assert.match(source, /MAX_HISTORY_PAGE = 100/)
+  assert.match(source, /MAX_ATTENDANCE_DOCUMENTS = 10000/)
+  assert.match(source, /unrecognisedAttendanceEvents/)
+  assert.match(source, /Aura không tự suy diễn số còn thiếu/)
 })
