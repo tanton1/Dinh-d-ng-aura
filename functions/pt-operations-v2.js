@@ -212,7 +212,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
   // PT/Sales endpoints are lightweight, Firestore-bound requests. Using the
   // Gen 1 CPU profile prevents a burst of separate callable services from
   // exhausting the regional Cloud Run CPU quota and surfacing as HTTP 429.
-  const staffCall = (handler) => onCall({ cpu: 'gcf_gen1', maxInstances: 6 }, handler)
+  const staffCall = (handler) => onCall({ cpu: 'gcf_gen1', maxInstances: 6, invoker: 'public' }, handler)
 
   const getMyCoachWorkspaceScope = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
