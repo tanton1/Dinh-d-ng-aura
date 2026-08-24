@@ -63,7 +63,7 @@ export function parseAccessContext(value: unknown, expectedUid: string): AccessC
 }
 
 export const routeCapabilities = {
-  'trainer-portal': 'pt.students.assigned.view',
+  'trainer-portal': 'coach.workspace.view',
   'sales-portal': 'sales.quotes.self.manage',
   // Legacy operations pages still read admin-only collections while their
   // actor-scoped replacements are being rolled out. Bind every such route to
@@ -82,7 +82,7 @@ export const routeCapabilities = {
   'admin-quotes': 'sales.operations.manage',
   'admin-schedule-settings': 'pt.operations.manage',
   'admin-roles': 'identity.staff_position.manage',
-  'admin-nutrition-reviews': 'pt.operations.manage',
+  'admin-nutrition-reviews': 'nutrition.meals.all.review',
   'admin-eat-clean': 'eat_clean.operations.manage',
   'admin-notifications': 'identity.staff_position.manage',
 } as const

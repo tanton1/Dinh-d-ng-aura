@@ -39,7 +39,7 @@
           height: 4px;
           overflow: hidden;
           border-radius: 99px;
-          background: rgba(255,255,255,.25);
+          background: rgba(246,47,130,.16);
         }
         .app-loader-image {
           position: absolute;
@@ -48,11 +48,14 @@
           height: 100%;
           object-fit: contain;
           object-position: center;
+          will-change: filter, opacity, transform;
+          animation: aura-image-focus 1.15s cubic-bezier(.22,.8,.26,1) both;
         }
         .app-loader-overlay {
           position: absolute;
           inset: 0;
           background: linear-gradient(180deg, rgba(255,255,255,.02) 48%, rgba(35,13,24,.58) 100%);
+          animation: aura-overlay-in .8s ease-out both;
         }
         .app-loader-spinner::after {
           content: "";
@@ -60,11 +63,17 @@
           width: 52%;
           height: 100%;
           border-radius: inherit;
-          background: #fff;
+          background: linear-gradient(90deg, #f62f82, #ff8751);
           animation: aura-load 1.1s ease-in-out infinite alternate;
         }
-        .app-loader-content { position: absolute; z-index: 2; right: 24px; bottom: max(32px, env(safe-area-inset-bottom)); left: 24px; display: flex; flex-direction: column; align-items: center; }
-        .app-loader-copy { margin: 0 0 18px; color: #fff; text-shadow: 0 2px 16px rgba(35,13,24,.4); font-size: 13px; font-weight: 850; letter-spacing: .16em; }
+        .app-loader-content { position: absolute; z-index: 2; right: 18px; bottom: max(22px, env(safe-area-inset-bottom)); left: 18px; display: flex; flex-direction: column; align-items: center; padding: 17px 18px 18px; border: 1px solid rgba(255,255,255,.7); border-radius: 24px; background: rgba(255,255,255,.76); box-shadow: 0 18px 48px rgba(58,21,38,.18); backdrop-filter: blur(18px) saturate(145%); -webkit-backdrop-filter: blur(18px) saturate(145%); animation: aura-content-rise .72s .12s cubic-bezier(.22,.8,.26,1) both; }
+        .app-loader-copy { margin: 0 0 13px; color: transparent; background: linear-gradient(90deg, #f62f82 0%, #ff4f78 50%, #ff8751 100%); background-clip: text; -webkit-background-clip: text; font-size: clamp(15px, 4vw, 19px); font-weight: 900; line-height: 1.25; letter-spacing: -.02em; text-align: center; }
+        @keyframes aura-image-focus { from { opacity: .38; filter: blur(15px); transform: scale(1.045); } to { opacity: 1; filter: blur(0); transform: scale(1); } }
+        @keyframes aura-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes aura-content-rise { from { opacity: 0; transform: translateY(18px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @media (prefers-reduced-motion: reduce) {
+          .app-loader-image, .app-loader-overlay, .app-loader-content, .app-loader-spinner::after { animation: none !important; filter: none !important; transform: none !important; }
+        }
         @keyframes aura-load {
           from { transform: translateX(-15%); }
           to { transform: translateX(108%); }
@@ -74,7 +83,7 @@
         <img src="/aura-onboarding.webp" alt="" class="app-loader-image" fetchpriority="high" />
         <div class="app-loader-overlay"></div>
         <div class="app-loader-content">
-          <p class="app-loader-copy">AURA FITNESS</p>
+          <p class="app-loader-copy">Chào mừng bạn đến với Aura Fitness</p>
           <div class="app-loader-spinner" aria-label="Đang tải ứng dụng"></div>
         </div>
       </div>

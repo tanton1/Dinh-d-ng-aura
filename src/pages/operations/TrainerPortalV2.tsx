@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CalendarClock, CheckCircle2, CircleAlert, Clock3, RefreshCw, UsersRound, X } from 'lucide-react'
+import { CalendarClock, CheckCircle2, CircleAlert, Clock3, RefreshCw, Soup, UsersRound, X } from 'lucide-react'
+import { useAuth } from '../../contexts/AuthContext'
+import { NutritionReviewWorkspace } from '../../features/nutrition-review/NutritionReviewWorkspace'
 import {
   confirmMySession,
   listMyAssignedStudents,
@@ -11,7 +13,7 @@ import {
 } from '../../services/ptOperationsV2Service'
 import './OperationsPortalV2.css'
 
-type TrainerTab = 'students' | 'schedule' | 'requests'
+type TrainerTab = 'students' | 'schedule' | 'requests' | 'nutrition'
 
 function dateString(date: Date) { return date.toISOString().slice(0, 10) }
 
@@ -27,6 +29,10 @@ function requestStatus(status: string) {
 }
 
 export default function TrainerPortalV2({ initialTab = 'students' }: { initialTab?: TrainerTab }) {
+  const { hasCapability } = useAuth()
+  const canViewStudents = hasCapability('pt.students.assigned.view')
+  const canViewSchedule = hasCapability('pt.schedule.self.view')
+  const canReviewNutrition = hasCapability('nutrition.meals.assigned.review')
   const [tab, setTab] = useState<TrainerTab>(initialTab)
   const [students, setStudents] = useState<TrainerStudentSummary[]>([])
   const [sessions, setSessions] = useState<TrainerSessionSummary[]>([])
@@ -45,16 +51,28 @@ export default function TrainerPortalV2({ initialTab = 'students' }: { initialTa
   const studentNames = useMemo(() => new Map(students.map((student) => [student.id, student.name])), [students])
   const pendingCount = requests.filter((request) => request.status === 'pending').length
 
+  useEffect(() => {
+    const available: TrainerTab[] = [
+      ...(canViewSchedule ? ['schedule', 'requests'] as TrainerTab[] : []),
+      ...(canViewStudents ? ['students'] as TrainerTab[] : []),
+      ...(canReviewNutrition ? ['nutrition'] as TrainerTab[] : []),
+    ]
+    if (!available.includes(tab)) setTab(available[0] || 'nutrition')
+  }, [canReviewNutrition, canViewSchedule, canViewStudents, tab])
+
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const [studentResult, scheduleResult] = await Promise.all([listMyAssignedStudents(), listMyTrainerSchedule(from, to)])
+      const [studentResult, scheduleResult] = await Promise.all([
+        canViewStudents ? listMyAssignedStudents() : Promise.resolve({ students: [] }),
+        canViewSchedule ? listMyTrainerSchedule(from, to) : Promise.resolve({ sessions: [], requests: [] }),
+      ])
       setStudents(studentResult.students)
       setSessions(scheduleResult.sessions)
       setRequests(scheduleResult.requests ?? [])
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu được phân công.') }
     finally { setLoading(false) }
-  }, [from, to])
+  }, [canViewSchedule, canViewStudents, from, to])
   useEffect(() => { void load() }, [load])
 
   const confirm = async (session: TrainerSessionSummary) => {
@@ -96,16 +114,19 @@ export default function TrainerPortalV2({ initialTab = 'students' }: { initialTa
   }
 
   return <main className="opv2-page">
-    <section className="opv2-hero"><p className="opv2-kicker">Aura PT · Phạm vi cá nhân</p><h1>Cổng làm việc HLV</h1><p>Lịch dạy, học viên được giao và yêu cầu đổi/hủy ca được quản lý trong cùng một nơi.</p></section>
+    <section className="opv2-hero"><p className="opv2-kicker">Aura Coach · Phạm vi cá nhân</p><h1>Trang làm việc HLV</h1><p>Lịch dạy, học viên được giao và bữa ăn cần duyệt được tách theo đúng chức danh của bạn.</p></section>
     <nav className="opv2-tabs" aria-label="Khu vực làm việc HLV">
-      <button className={`opv2-tab ${tab === 'schedule' ? 'is-active' : ''}`} onClick={() => setTab('schedule')}><CalendarClock size={16} /> Lịch 14 ngày</button>
-      <button className={`opv2-tab ${tab === 'students' ? 'is-active' : ''}`} onClick={() => setTab('students')}><UsersRound size={16} /> Học viên của tôi</button>
-      <button className={`opv2-tab ${tab === 'requests' ? 'is-active' : ''}`} onClick={() => setTab('requests')}><Clock3 size={16} /> Yêu cầu của tôi {pendingCount > 0 && <i>{pendingCount}</i>}</button>
+      {canViewSchedule && <button className={`opv2-tab ${tab === 'schedule' ? 'is-active' : ''}`} onClick={() => setTab('schedule')}><CalendarClock size={16} /> Lịch 14 ngày</button>}
+      {canViewStudents && <button className={`opv2-tab ${tab === 'students' ? 'is-active' : ''}`} onClick={() => setTab('students')}><UsersRound size={16} /> Học viên PT</button>}
+      {canViewSchedule && <button className={`opv2-tab ${tab === 'requests' ? 'is-active' : ''}`} onClick={() => setTab('requests')}><Clock3 size={16} /> Yêu cầu {pendingCount > 0 && <i>{pendingCount}</i>}</button>}
+      {canReviewNutrition && <button className={`opv2-tab ${tab === 'nutrition' ? 'is-active' : ''}`} onClick={() => setTab('nutrition')}><Soup size={16} /> Duyệt món ăn</button>}
     </nav>
-    <section className="opv2-summary"><div className="opv2-stat"><strong>{students.length}</strong><span>học viên được giao</span></div><div className="opv2-stat"><strong>{sessions.length}</strong><span>buổi trong 14 ngày</span></div><div className="opv2-stat"><strong>{pendingCount}</strong><span>yêu cầu chờ duyệt</span></div></section>
+    {tab !== 'nutrition' && <section className="opv2-summary"><div className="opv2-stat"><strong>{students.length}</strong><span>học viên được giao</span></div><div className="opv2-stat"><strong>{sessions.length}</strong><span>buổi trong 14 ngày</span></div><div className="opv2-stat"><strong>{pendingCount}</strong><span>yêu cầu chờ duyệt</span></div></section>}
     {notice && <div className="opv2-notice"><CheckCircle2 size={18} /> {notice}</div>}
-    {loading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đồng bộ phạm vi làm việc…</div>}
-    {error && !requestTarget && <div className="opv2-state is-error">{error}<button className="opv2-action" onClick={() => void load()}>Thử lại</button></div>}
+    {loading && tab !== 'nutrition' && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đồng bộ phạm vi làm việc…</div>}
+    {error && tab !== 'nutrition' && !requestTarget && <div className="opv2-state is-error">{error}<button className="opv2-action" onClick={() => void load()}>Thử lại</button></div>}
+
+    {tab === 'nutrition' && canReviewNutrition && <NutritionReviewWorkspace compact title="Bữa ăn học viên tôi phụ trách" />}
 
     {!loading && !error && tab === 'students' && <><h2 className="opv2-section-title">Học viên được phân công</h2><div className="opv2-list">{students.map((student) => <article className="opv2-card" key={student.id}><div className="opv2-card-head"><div><h3>{student.name}</h3><p>{student.phone || 'Chưa có số điện thoại'}</p></div><span className="opv2-badge">{student.status}</span></div><p>Hợp đồng: {student.contract ? `${student.contract.usedSessions}/${student.contract.totalSessions} buổi` : 'Chưa có'}</p></article>)}{students.length === 0 && <div className="opv2-state">Chưa có học viên được phân công.</div>}</div></>}
 

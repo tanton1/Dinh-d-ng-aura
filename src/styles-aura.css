@@ -921,30 +921,6 @@ body.shell-overlay-open { overflow: hidden; }
   }
 }
 
-/* App Loading Screen Styles */
-.aura-loading-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 100vh;
-  padding: 2rem;
-  text-align: center;
-  position: relative;
-  background: linear-gradient(to bottom, #e0004d, #f55a00);
-}
-
-.aura-loading-center {
-  position: relative;
-  z-index: 10;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-}
-
 .aura-route-fallback-card {
   display: flex;
   flex-direction: column;
@@ -958,21 +934,41 @@ body.shell-overlay-open { overflow: hidden; }
 /* Every loading layer reuses the same optimized artwork from public so the
    visual never flashes between multiple identities during startup. */
 .aura-loading-container {
+  position: relative;
   min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
   overflow: hidden;
   padding: 0;
   background: #f8d7df;
+  text-align: center;
 }
-.aura-loading-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; object-position: center; }
-.aura-loading-overlay { position: absolute; z-index: 1; inset: 0; background: linear-gradient(180deg, rgba(255,255,255,.01) 48%, rgba(35,13,24,.62) 100%); }
-.aura-loading-center { position: absolute; z-index: 2; right: 24px; bottom: max(32px, env(safe-area-inset-bottom)); left: 24px; width: auto; flex: 0 0 auto; }
-.aura-loading-title { margin: 0 0 5px; color: #fff; text-shadow: 0 2px 16px rgba(35,13,24,.4); font-size: 17px; font-weight: 900; letter-spacing: .18em; }
-.aura-loading-copy { margin: 0; color: rgba(255,255,255,.88); text-shadow: 0 2px 14px rgba(35,13,24,.42); font-size: 12px; font-weight: 700; }
-.aura-loading-progress { width: 132px; height: 4px; overflow: hidden; margin-top: 21px; border-radius: 99px; background: rgba(255,255,255,.24); }
-.aura-loading-progress i { display: block; width: 52%; height: 100%; border-radius: inherit; background: #fff; animation: aura-loading-slide 1.1s ease-in-out infinite alternate; }
+.aura-loading-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; object-position: center; will-change: filter, opacity, transform; animation: aura-image-focus 1.15s cubic-bezier(.22,.8,.26,1) both; }
+.aura-loading-overlay { position: absolute; z-index: 1; inset: 0; background: linear-gradient(180deg, rgba(255,255,255,.01) 48%, rgba(35,13,24,.6) 100%); animation: aura-overlay-in .8s ease-out both; }
+.aura-loading-center { position: absolute; z-index: 2; right: 18px; bottom: max(22px, env(safe-area-inset-bottom)); left: 18px; width: auto; display: flex; flex-direction: column; align-items: center; padding: 17px 18px 18px; border: 1px solid rgba(255,255,255,.7); border-radius: 24px; background: rgba(255,255,255,.76); box-shadow: 0 18px 48px rgba(58,21,38,.18); backdrop-filter: blur(18px) saturate(145%); animation: aura-content-rise .72s .12s cubic-bezier(.22,.8,.26,1) both; }
+.aura-loading-title { margin: 0 0 4px; color: transparent; background: linear-gradient(90deg,#f62f82 0%,#ff4f78 50%,#ff8751 100%); background-clip: text; -webkit-background-clip: text; font-size: clamp(15px,4vw,19px); font-weight: 900; line-height: 1.25; letter-spacing: -.02em; }
+.aura-loading-copy { margin: 0; color: #78646e; font-size: 11px; font-weight: 700; }
+.aura-loading-progress { width: 132px; height: 4px; overflow: hidden; margin-top: 15px; border-radius: 99px; background: rgba(246,47,130,.16); }
+.aura-loading-progress i { display: block; width: 52%; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#f62f82,#ff8751); animation: aura-loading-slide 1.1s ease-in-out infinite alternate; }
+@keyframes aura-image-focus { from { opacity: .38; filter: blur(15px); transform: scale(1.045); } to { opacity: 1; filter: blur(0); transform: scale(1); } }
+@keyframes aura-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes aura-content-rise { from { opacity: 0; transform: translateY(18px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes aura-loading-slide { from { transform: translateX(-18%); } to { transform: translateX(110%); } }
 .aura-route-fallback-card { min-height: 260px; padding: 38px 22px; }
-.aura-route-fallback-image { width: 82px; height: 108px; margin-bottom: 16px; border: 3px solid #fff; border-radius: 22px; object-fit: cover; object-position: center 34%; box-shadow: 0 14px 30px rgba(246,47,130,.18); }
-.aura-route-fallback-card h1 { margin: 0 0 6px; color: #17131a; font-size: 18px; font-weight: 800; }
+.aura-route-fallback-image { width: 82px; height: 108px; margin-bottom: 16px; border: 3px solid #fff; border-radius: 22px; object-fit: cover; object-position: center 34%; box-shadow: 0 14px 30px rgba(246,47,130,.18); animation: aura-image-focus .72s ease-out both; }
+.aura-route-fallback-card h1 { margin: 0 0 6px; color: transparent; background: linear-gradient(90deg,#f62f82,#ff8751); background-clip: text; -webkit-background-clip: text; font-size: 18px; font-weight: 850; }
 .aura-route-fallback-card p { margin: 0; color: #80747d; font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-loading-image,
+  .aura-loading-overlay,
+  .aura-loading-center,
+  .aura-loading-progress i,
+  .aura-route-fallback-image {
+    animation: none !important;
+    filter: none !important;
+    transform: none !important;
+  }
+}

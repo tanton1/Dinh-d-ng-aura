@@ -551,7 +551,7 @@ function AuraApplication() {
         <img src="/aura-onboarding.webp" alt="" className="aura-loading-image" decoding="async" fetchPriority="high" />
         <div className="aura-loading-overlay" />
         <div className="aura-loading-center">
-          <h1 className="aura-loading-title">AURA FITNESS</h1>
+          <h1 className="aura-loading-title">Chào mừng bạn đến với Aura Fitness</h1>
           <p className="aura-loading-copy">Đang đồng bộ không gian của bạn…</p>
           <span className="aura-loading-progress"><i /></span>
         </div>
@@ -981,7 +981,7 @@ function RouteLoadingFallback() {
   return (
     <div className="aura-route-fallback-card" role="status" aria-live="polite">
       <img src="/aura-onboarding.webp" alt="" className="aura-route-fallback-image" decoding="async" />
-      <h1>Đang tải không gian Aura…</h1>
+      <h1>Chào mừng bạn đến với Aura Fitness</h1>
       <p>Nội dung đang được đồng bộ.</p>
     </div>
   )

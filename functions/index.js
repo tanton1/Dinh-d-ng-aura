@@ -24,6 +24,7 @@ const { createOperationsDashboardFunctions } = require('./operations-dashboard')
 const { createCashbookFunctions } = require('./cashbook')
 const { createBusinessReportingFunctions } = require('./business-reporting')
 const { createExerciseCatalogFunctions } = require('./exercise-catalog')
+const { createNutritionReviewFunctions } = require('./nutrition-reviews')
 
 const app = initializeApp()
 // Keep callable writes on the same named database used by the production web app.
@@ -139,6 +140,7 @@ Object.assign(exports, createGenerativeAiFunctions({ db }))
 Object.assign(exports, createEatCleanFunctions({ db, realtimeDb, onCall, requireTrustedAdmin, logger }))
 const identityAccessFunctions = createIdentityAccessFunctions({ db, auth, onCall, logger })
 Object.assign(exports, identityAccessFunctions)
+exports.getMyAccessContext = identityAccessFunctions.getMyAccessContext
 // The Firebase CLI can selectively deploy these public account endpoints only
 // when it can discover them as static exports.  Keeping the factory assignment
 // preserves existing exports while avoiding a quota-heavy full Functions deploy.
@@ -148,6 +150,11 @@ exports.createAccountInvite = identityAccessFunctions.createAccountInvite
 exports.suspendAccountAccess = identityAccessFunctions.suspendAccountAccess
 exports.deleteUnusedStaffAccount = identityAccessFunctions.deleteUnusedStaffAccount
 exports.saveStaffOperationsProfile = identityAccessFunctions.saveStaffOperationsProfile
+const nutritionReviewFunctions = createNutritionReviewFunctions({ db, onCall })
+Object.assign(exports, nutritionReviewFunctions)
+exports.listNutritionMealReviews = nutritionReviewFunctions.listNutritionMealReviews
+exports.assignNutritionCoach = nutritionReviewFunctions.assignNutritionCoach
+exports.reviewNutritionMeal = nutritionReviewFunctions.reviewNutritionMeal
 Object.assign(exports, createOperationsDashboardFunctions({ db, onCall }))
 Object.assign(exports, createCashbookFunctions({ db, onCall }))
 const ptOperationsV2Functions = createPtOperationsV2Functions({ db, onCall, logger })

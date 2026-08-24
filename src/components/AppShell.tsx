@@ -75,7 +75,7 @@ const studentNavSections: ShellNavSection[] = [
     label: 'PT COACHING & GYM',
     items: [
       { id: 'schedule' as const, label: 'Lịch học viên', icon: CalendarDays },
-      { id: 'trainer-portal' as const, label: 'Cổng HLV & yêu cầu', icon: Dumbbell },
+      { id: 'trainer-portal' as const, label: 'Trang làm việc HLV', icon: Dumbbell },
     ],
   },
   {

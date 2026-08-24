@@ -12,16 +12,20 @@
   "positionCapabilities": {
     "coach_online": [
       "dashboard.view",
+      "coach.workspace.view",
       "coaching.clients.assigned.view",
       "coaching.programs.manage",
-      "coaching.analytics.assigned.view"
+      "coaching.analytics.assigned.view",
+      "nutrition.meals.assigned.review"
     ],
     "trainer_pt": [
       "dashboard.view",
+      "coach.workspace.view",
       "pt.students.assigned.view",
       "pt.schedule.self.view",
       "pt.session.self.manage",
-      "pt.workout_note.create"
+      "pt.workout_note.create",
+      "nutrition.meals.assigned.review"
     ],
     "sales": [
       "dashboard.view",
@@ -50,6 +54,7 @@
     "dashboard.view",
     "identity.invite.manage",
     "identity.staff_position.manage",
+    "nutrition.meals.all.review",
     "pt.operations.manage",
     "pt.schedule.branch.publish",
     "sales.operations.manage",

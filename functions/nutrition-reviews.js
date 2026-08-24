@@ -1,0 +1,357 @@
+const { FieldValue, Timestamp } = require('firebase-admin/firestore')
+const { HttpsError } = require('firebase-functions/v2/https')
+const { trustedAccessContext } = require('./identity-access')
+
+const ASSIGNED_REVIEW_CAPABILITY = 'nutrition.meals.assigned.review'
+const ALL_REVIEW_CAPABILITY = 'nutrition.meals.all.review'
+
+function boundedString(value, maximum = 500, required = false) {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if ((required && !normalized) || normalized.length > maximum) {
+    throw new HttpsError('invalid-argument', 'Dữ liệu duyệt món ăn không hợp lệ.')
+  }
+  return normalized
+}
+
+function documentId(value) {
+  const normalized = boundedString(value, 200, true)
+  if (!/^[A-Za-z0-9_-]+$/.test(normalized)) {
+    throw new HttpsError('invalid-argument', 'Mã bản duyệt không hợp lệ.')
+  }
+  return normalized
+}
+
+function finite(value, fallback = 0) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
+
+function timestampMillis(value) {
+  if (value instanceof Timestamp) return value.toMillis()
+  if (typeof value?.toMillis === 'function') return value.toMillis()
+  if (value instanceof Date) return value.getTime()
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  return 0
+}
+
+function shortText(value, maximum = 1600) {
+  return typeof value === 'string' ? value.trim().slice(0, maximum) : ''
+}
+
+function safeImage(value) {
+  if (typeof value !== 'string') return ''
+  if (value.startsWith('data:image') && value.length > 450_000) return ''
+  return value.slice(0, 500_000)
+}
+
+function compactAnalysis(value) {
+  const source = value && typeof value === 'object' ? value : {}
+  return {
+    quantityAndCookingAnalysis: shortText(source.quantityAndCookingAnalysis),
+    portionAndCalorieRationale: shortText(source.portionAndCalorieRationale),
+    goalAlignmentAssessment: shortText(source.goalAlignmentAssessment),
+    calorieOptimizationTip: shortText(source.calorieOptimizationTip),
+    macroBalanceAssessment: shortText(source.macroBalanceAssessment),
+    aiSuggestion: shortText(source.aiSuggestion),
+    aiFeedback: shortText(source.aiFeedback),
+    coachFeedbackSuggestion: shortText(source.coachFeedbackSuggestion),
+  }
+}
+
+function reviewRecord(snapshot, profile = {}, assignment = {}, coachName = '') {
+  const value = snapshot.data() || {}
+  const meal = value.meal && typeof value.meal === 'object' ? value.meal : {}
+  const totals = meal.totals && typeof meal.totals === 'object' ? meal.totals : {}
+  const analysis = value.analysisSnapshot || meal.analysisSnapshot || meal.aiAnalysis || value.aiAnalysis || {}
+  const createdAt = timestampMillis(value.createdAt) || timestampMillis(meal.createdAt)
+  const status = ['pending', 'approved', 'rejected'].includes(value.status) ? value.status : 'pending'
+  const rawItems = Array.isArray(meal.items) ? meal.items : Array.isArray(analysis.items) ? analysis.items : []
+  const rawSuggestions = Array.isArray(meal.aiSuggestions) ? meal.aiSuggestions : []
+  const image = meal.image || meal.imageUrl || meal.img || meal.fileName || value.image || value.img
+  return {
+    id: snapshot.id,
+    userId: typeof value.userId === 'string' ? value.userId : '',
+    studentName: shortText(value.userName || meal.userName || profile.displayName || profile.name || 'Học viên Aura', 160),
+    studentGoal: shortText(value.studentGoal || meal.studentGoal || meal.userGoal, 300),
+    studentCondition: shortText(value.studentCondition || meal.studentCondition || meal.userCondition, 500),
+    assignedCoachId: typeof assignment.coachId === 'string' ? assignment.coachId : '',
+    assignedCoachName: shortText(coachName, 160),
+    createdAt,
+    time: shortText(meal.mealDate || meal.date || meal.time || '', 80),
+    image: safeImage(image),
+    note: shortText(meal.description || meal.note || value.note || meal.dishName || meal.title, 1000),
+    mealType: shortText(value.mealType || meal.mealType || 'Bữa ăn', 80),
+    totalKcal: finite(meal.calories ?? meal.totalKcal ?? totals.calories ?? value.totalKcal),
+    totalProtein: finite(meal.protein ?? meal.totalProtein ?? totals.protein ?? value.totalProtein),
+    totalCarb: finite(meal.carb ?? meal.totalCarb ?? totals.carb ?? value.totalCarb),
+    totalFat: finite(meal.fat ?? meal.totalFat ?? totals.fat ?? value.totalFat),
+    fiber: finite(value.fiber ?? meal.fiber),
+    targetKcal: finite(value.targetKcal ?? meal.targetKcal),
+    targetProtein: finite(value.targetProtein ?? meal.targetProtein),
+    status,
+    priority: value.priority === 'high' || meal.priority === 'high' ? 'high' : 'normal',
+    aiScore: finite(value.aiScore ?? meal.aiScore),
+    confidence: ['low', 'medium', 'high'].includes(value.confidence || meal.confidence)
+      ? value.confidence || meal.confidence
+      : 'medium',
+    coachFeedback: shortText(value.coachFeedback, 2000),
+    revision: Math.max(0, Math.trunc(finite(value.revision))),
+    items: rawItems.slice(0, 30).map((item) => ({
+      name: shortText(item?.name, 160),
+      weight: finite(item?.weight),
+      kcal: finite(item?.kcal),
+      protein: finite(item?.protein),
+    })),
+    suggestions: rawSuggestions.slice(0, 12).map((item) => ({
+      type: item?.type === 'pass' ? 'pass' : 'warn',
+      text: shortText(item?.text, 400),
+    })).filter((item) => item.text),
+    analysis: compactAnalysis(analysis),
+  }
+}
+
+function canReviewAll(context) {
+  return context.capabilities.includes(ALL_REVIEW_CAPABILITY)
+}
+
+function canReviewAssigned(context) {
+  return context.capabilities.includes(ASSIGNED_REVIEW_CAPABILITY)
+}
+
+async function assignedClientIds(db, context) {
+  const coachIds = [...new Set([context.uid, context.legacyStaffId].filter(Boolean))]
+  const [relationshipSnapshots, contractSnapshots] = await Promise.all([
+    Promise.all(coachIds.map((coachId) => (
+      db.collection('coachClients').where('coachId', '==', coachId).limit(200).get()
+    ))),
+    Promise.all(coachIds.map((coachId) => (
+      db.collection('contracts').where('nutritionPTIds', 'array-contains', coachId).limit(200).get()
+    ))),
+  ])
+  const relationshipClients = relationshipSnapshots.flatMap((snapshot) => snapshot.docs.map((item) => item.id))
+  const contractClients = contractSnapshots.flatMap((snapshot) => snapshot.docs
+    .filter((item) => ['active', 'future', 'frozen'].includes(item.data()?.status || 'active'))
+    .map((item) => item.data()?.studentId)
+    .filter((value) => typeof value === 'string'))
+  return [...new Set([...relationshipClients, ...contractClients])].slice(0, 200)
+}
+
+async function hydrateReviews(db, documents, context) {
+  const clientIds = [...new Set(documents.map((item) => item.data()?.userId).filter((value) => typeof value === 'string'))]
+  const [profiles, assignments] = await Promise.all([
+    clientIds.length ? db.getAll(...clientIds.map((id) => db.doc(`users/${id}`))) : [],
+    clientIds.length ? db.getAll(...clientIds.map((id) => db.doc(`coachClients/${id}`))) : [],
+  ])
+  const profileMap = new Map(profiles.map((item) => [item.id, item.exists ? item.data() || {} : {}]))
+  const assignmentMap = new Map(assignments.map((item) => [item.id, item.exists ? item.data() || {} : {}]))
+  const coachIds = [...new Set(assignments.map((item) => item.data()?.coachId).filter((value) => typeof value === 'string'))]
+  const coachProfiles = coachIds.length ? await db.getAll(...coachIds.map((id) => db.doc(`users/${id}`))) : []
+  const coachNames = new Map(coachProfiles.map((item) => {
+    const value = item.exists ? item.data() || {} : {}
+    return [item.id, value.displayName || value.name || (item.id === context.uid ? 'Bạn' : 'HLV Aura')]
+  }))
+  return documents.map((item) => {
+    const userId = item.data()?.userId
+    const assignment = assignmentMap.get(userId) || {}
+    return reviewRecord(item, profileMap.get(userId), assignment, coachNames.get(assignment.coachId) || '')
+  })
+}
+
+async function availableNutritionCoaches(db) {
+  const assignmentSnapshot = await db.collection('roleAssignments').where('accessRole', '==', 'staff').limit(100).get()
+  const candidates = assignmentSnapshot.docs.filter((item) => {
+    const value = item.data() || {}
+    return value.status === 'active'
+      && Array.isArray(value.positions)
+      && value.positions.some((position) => ['coach_online', 'trainer_pt'].includes(position))
+  })
+  const profiles = candidates.length ? await db.getAll(...candidates.map((item) => db.doc(`users/${item.id}`))) : []
+  const profileMap = new Map(profiles.map((item) => [item.id, item.exists ? item.data() || {} : {}]))
+  return candidates.map((item) => {
+    const assignment = item.data() || {}
+    const profile = profileMap.get(item.id) || {}
+    return {
+      id: item.id,
+      name: shortText(profile.displayName || profile.name || 'HLV Aura', 160),
+      positions: assignment.positions.filter((position) => ['coach_online', 'trainer_pt'].includes(position)),
+      branchIds: Array.isArray(assignment.branchIds) ? assignment.branchIds.slice(0, 20) : [],
+    }
+  }).sort((left, right) => left.name.localeCompare(right.name, 'vi'))
+}
+
+function createNutritionReviewFunctions({ db, onCall }) {
+  const listNutritionMealReviews = onCall(async (request) => {
+    const context = await trustedAccessContext(request, db)
+    const allScope = canReviewAll(context)
+    if (!allScope && !canReviewAssigned(context)) {
+      throw new HttpsError('permission-denied', 'Bạn chưa được phân quyền chăm sóc dinh dưỡng.')
+    }
+    const requestedLimit = Number(request.data?.limit)
+    const limit = Number.isInteger(requestedLimit) ? Math.min(30, Math.max(6, requestedLimit)) : 24
+    const requestedStatus = request.data?.status
+    const status = ['pending', 'approved', 'rejected'].includes(requestedStatus) ? requestedStatus : 'all'
+    let documents = []
+    let assignmentCount = 0
+    if (allScope) {
+      const snapshot = await db.collection('mealReviews').orderBy('createdAt', 'desc').limit(limit * 3 + 1).get()
+      documents = snapshot.docs
+    } else {
+      const clientIds = await assignedClientIds(db, context)
+      assignmentCount = clientIds.length
+      const chunks = []
+      for (let index = 0; index < clientIds.length; index += 30) chunks.push(clientIds.slice(index, index + 30))
+      const snapshots = await Promise.all(chunks.map((ids) => (
+        db.collection('mealReviews').where('userId', 'in', ids).limit(limit + 1).get()
+      )))
+      documents = snapshots.flatMap((snapshot) => snapshot.docs)
+    }
+    const unique = [...new Map(documents.map((item) => [item.id, item])).values()]
+      .filter((item) => status === 'all' || (item.data()?.status || 'pending') === status)
+      .sort((left, right) => timestampMillis(right.data()?.createdAt) - timestampMillis(left.data()?.createdAt))
+    const hasMore = unique.length > limit
+    const [reviews, coaches] = await Promise.all([
+      hydrateReviews(db, unique.slice(0, limit), context),
+      allScope ? availableNutritionCoaches(db) : Promise.resolve([]),
+    ])
+    return { reviews, coaches, scope: allScope ? 'all' : 'assigned', assignmentCount, hasMore }
+  })
+
+  const assignNutritionCoach = onCall(async (request) => {
+    const context = await trustedAccessContext(request, db)
+    if (!canReviewAll(context)) throw new HttpsError('permission-denied', 'Bạn không có quyền phân HLV dinh dưỡng.')
+    const userId = documentId(request.data?.userId)
+    const coachUid = documentId(request.data?.coachUid)
+    const relationshipRef = db.doc(`coachClients/${userId}`)
+    await db.runTransaction(async (transaction) => {
+      const [studentSnapshot, coachSnapshot, assignmentSnapshot, previousRelationship] = await Promise.all([
+        transaction.get(db.doc(`users/${userId}`)),
+        transaction.get(db.doc(`users/${coachUid}`)),
+        transaction.get(db.doc(`roleAssignments/${coachUid}`)),
+        transaction.get(relationshipRef),
+      ])
+      if (!studentSnapshot.exists || studentSnapshot.data()?.disabled === true) {
+        throw new HttpsError('failed-precondition', 'Học viên không còn hoạt động.')
+      }
+      const assignment = assignmentSnapshot.exists ? assignmentSnapshot.data() || {} : {}
+      const validPosition = assignment.accessRole === 'staff'
+        && assignment.status === 'active'
+        && Array.isArray(assignment.positions)
+        && assignment.positions.some((position) => ['coach_online', 'trainer_pt'].includes(position))
+      if (!coachSnapshot.exists || coachSnapshot.data()?.disabled === true || !validPosition) {
+        throw new HttpsError('failed-precondition', 'Tài khoản được chọn chưa có chức danh HLV phù hợp.')
+      }
+      transaction.set(relationshipRef, {
+        schemaVersion: 2,
+        clientId: userId,
+        coachId: coachUid,
+        status: 'active',
+        assignedBy: context.uid,
+        assignedAt: previousRelationship.exists ? previousRelationship.data()?.assignedAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
+      transaction.create(db.collection('identityAuditLogs').doc(), {
+        action: 'nutrition_coach.assigned',
+        actorUid: context.uid,
+        targetUid: userId,
+        beforeCoachUid: previousRelationship.data()?.coachId || null,
+        afterCoachUid: coachUid,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+    })
+    return { userId, coachUid, assigned: true }
+  })
+
+  const reviewNutritionMeal = onCall(async (request) => {
+    const context = await trustedAccessContext(request, db)
+    const allScope = canReviewAll(context)
+    if (!allScope && !canReviewAssigned(context)) {
+      throw new HttpsError('permission-denied', 'Bạn chưa được phân quyền chăm sóc dinh dưỡng.')
+    }
+    const reviewId = documentId(request.data?.reviewId)
+    const action = ['approve', 'reject', 'feedback'].includes(request.data?.action) ? request.data.action : ''
+    if (!action) throw new HttpsError('invalid-argument', 'Thao tác duyệt không hợp lệ.')
+    const feedback = boundedString(request.data?.feedback, 2000, action !== 'reject')
+    const expectedRevision = Math.max(0, Math.trunc(finite(request.data?.expectedRevision)))
+    const reviewRef = db.doc(`mealReviews/${reviewId}`)
+    let result
+    await db.runTransaction(async (transaction) => {
+      const reviewSnapshot = await transaction.get(reviewRef)
+      if (!reviewSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy bữa ăn cần duyệt.')
+      const review = reviewSnapshot.data() || {}
+      const userId = documentId(review.userId)
+      const currentRevision = Math.max(0, Math.trunc(finite(review.revision)))
+      if (currentRevision !== expectedRevision) {
+        throw new HttpsError('aborted', 'Bản duyệt đã được cập nhật. Hãy tải lại trước khi thao tác.')
+      }
+      if (!allScope) {
+        const assignment = await transaction.get(db.doc(`coachClients/${userId}`))
+        const coachId = assignment.data()?.coachId
+        let ownsNutritionCare = assignment.exists && [context.uid, context.legacyStaffId].includes(coachId)
+        if (!ownsNutritionCare) {
+          const contractSnapshot = await transaction.get(db.collection('contracts').where('studentId', '==', userId).limit(20))
+          ownsNutritionCare = contractSnapshot.docs.some((item) => {
+            const nutritionCoachIds = Array.isArray(item.data()?.nutritionPTIds) ? item.data().nutritionPTIds : []
+            return ['active', 'future', 'frozen'].includes(item.data()?.status || 'active')
+              && [context.uid, context.legacyStaffId].some((actorId) => nutritionCoachIds.includes(actorId))
+          })
+        }
+        if (!ownsNutritionCare) {
+          throw new HttpsError('permission-denied', 'Học viên này không thuộc phạm vi chăm sóc dinh dưỡng của bạn.')
+        }
+      }
+      const meal = review.meal && typeof review.meal === 'object' ? review.meal : {}
+      const mealId = typeof meal.id === 'string' && /^[A-Za-z0-9_-]+$/.test(meal.id) ? meal.id : reviewId
+      const mealLogRef = db.doc(`users/${userId}/mealLogs/${mealId}`)
+      const mealLogSnapshot = await transaction.get(mealLogRef)
+      const nextStatus = action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : (review.status || 'pending')
+      const nextRevision = currentRevision + 1
+      const now = Date.now()
+      const reviewPatch = {
+        status: nextStatus,
+        coachFeedback: feedback,
+        reviewedBy: context.uid,
+        reviewedScope: allScope ? 'all' : 'assigned',
+        revision: nextRevision,
+        updatedAt: FieldValue.serverTimestamp(),
+      }
+      if (action === 'approve') {
+        reviewPatch.approvedAtTimestamp = now
+        reviewPatch.approvedAt = FieldValue.serverTimestamp()
+      }
+      transaction.update(reviewRef, reviewPatch)
+      const logData = mealLogSnapshot.exists ? mealLogSnapshot.data() || {} : {}
+      const logPatch = {
+        coachFeedback: feedback,
+        reviewStatus: nextStatus,
+        reviewedBy: context.uid,
+        reviewRevision: nextRevision,
+        updatedAt: FieldValue.serverTimestamp(),
+      }
+      const snapshotAnalysis = review.analysisSnapshot || meal.analysisSnapshot || meal.aiAnalysis || review.aiAnalysis
+      if (!logData.aiAnalysis && snapshotAnalysis && typeof snapshotAnalysis === 'object') logPatch.aiAnalysis = snapshotAnalysis
+      transaction.set(mealLogRef, logPatch, { merge: true })
+      transaction.create(db.collection('nutritionReviewAuditLogs').doc(), {
+        action: `meal_review.${action}`,
+        actorUid: context.uid,
+        targetReviewId: reviewId,
+        targetUserId: userId,
+        beforeStatus: review.status || 'pending',
+        afterStatus: nextStatus,
+        revision: nextRevision,
+        scope: allScope ? 'all' : 'assigned',
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      result = { reviewId, status: nextStatus, revision: nextRevision, reviewedAt: now }
+    })
+    return result
+  })
+
+  return { listNutritionMealReviews, assignNutritionCoach, reviewNutritionMeal }
+}
+
+module.exports = {
+  createNutritionReviewFunctions,
+  reviewRecord,
+  ASSIGNED_REVIEW_CAPABILITY,
+  ALL_REVIEW_CAPABILITY,
+}
