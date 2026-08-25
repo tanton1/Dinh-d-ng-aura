@@ -150,8 +150,27 @@ export interface StaffAttendanceRow {
   unpaidDays: number
   pendingDays: number
   baseSalaryEarned: number
+  teachingPayAmount: number
+  commissionAmount: number
+  bonusAmount: number
+  grossAmount: number
+  finalAmount: number
+  policyName: string
+  policyConfigured: boolean
   reviewRequired: boolean
   calendarApproved: boolean
+}
+
+export interface StaffPayrollLiveSummary {
+  activeStaffCount: number
+  teachingSlotCount: number
+  baseSalaryAmount: number
+  teachingPayAmount: number
+  commissionAmount: number
+  bonusAmount: number
+  estimatedTotal: number
+  reviewRequiredCount: number
+  unconfiguredPolicyCount: number
 }
 
 type UnknownRecord = Record<string, unknown>
@@ -372,7 +391,7 @@ export async function getMyStaffPayroll(periodId: string): Promise<MyStaffPayrol
 }
 
 export async function listStaffPayrollAttendance(periodId: string, branchId = '') {
-  const result = await callable<{ periodId: string; branchId?: string }, { periodId?: unknown; rows?: unknown[]; truncated?: unknown }>('listStaffPayrollAttendance')({ periodId, branchId })
+  const result = await callable<{ periodId: string; branchId?: string }, { periodId?: unknown; asOfDate?: unknown; rows?: unknown[]; summary?: unknown; truncated?: unknown }>('listStaffPayrollAttendance')({ periodId, branchId })
   const rows: StaffAttendanceRow[] = Array.isArray(result.data.rows) ? result.data.rows.flatMap((rowValue) => {
     const raw = object(rowValue)
     const staffId = text(raw.staffId)
@@ -392,11 +411,36 @@ export async function listStaffPayrollAttendance(periodId: string, branchId = ''
       unpaidDays: integer(raw.unpaidDays),
       pendingDays: integer(raw.pendingDays),
       baseSalaryEarned: number(raw.baseSalaryEarned),
+      teachingPayAmount: number(raw.teachingPayAmount),
+      commissionAmount: number(raw.commissionAmount),
+      bonusAmount: number(raw.bonusAmount),
+      grossAmount: number(raw.grossAmount),
+      finalAmount: number(raw.finalAmount),
+      policyName: text(raw.policyName),
+      policyConfigured: raw.policyConfigured !== false,
       reviewRequired: raw.reviewRequired === true,
       calendarApproved: raw.calendarApproved === true,
     }]
   }) : []
-  return { periodId: text(result.data.periodId) || periodId, rows, truncated: result.data.truncated === true }
+  const rawSummary = object(result.data.summary)
+  const summary: StaffPayrollLiveSummary = {
+    activeStaffCount: integer(rawSummary.activeStaffCount),
+    teachingSlotCount: integer(rawSummary.teachingSlotCount),
+    baseSalaryAmount: number(rawSummary.baseSalaryAmount),
+    teachingPayAmount: number(rawSummary.teachingPayAmount),
+    commissionAmount: number(rawSummary.commissionAmount),
+    bonusAmount: number(rawSummary.bonusAmount),
+    estimatedTotal: number(rawSummary.estimatedTotal),
+    reviewRequiredCount: integer(rawSummary.reviewRequiredCount),
+    unconfiguredPolicyCount: integer(rawSummary.unconfiguredPolicyCount),
+  }
+  return {
+    periodId: text(result.data.periodId) || periodId,
+    asOfDate: text(result.data.asOfDate),
+    rows,
+    summary,
+    truncated: result.data.truncated === true,
+  }
 }
 
 export async function getStaffPayrollAttendanceDetail(periodId: string, staffId: string) {

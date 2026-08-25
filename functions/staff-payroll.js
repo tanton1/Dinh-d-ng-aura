@@ -505,12 +505,13 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
     await payrollActorForAdmin(request, db)
     const periodId = payrollPeriod(request.data?.periodId)
     const branchFilter = typeof request.data?.branchId === 'string' ? request.data.branchId.trim() : ''
-    const [staffSnapshot, assignmentSnapshot, attendanceSnapshot, calendarSnapshot, teachingEvidence] = await Promise.all([
+    const [staffSnapshot, assignmentSnapshot, attendanceSnapshot, calendarSnapshot, teachingEvidence, policySnapshot] = await Promise.all([
       db.collection('staff').limit(450).get(),
       db.collection('roleAssignments').where('accessRole', '==', 'staff').limit(450).get(),
       db.collection('staffAttendanceDays').where('periodId', '==', periodId).limit(5000).get(),
       db.collection('workCalendars').where('periodId', '==', periodId).limit(100).get(),
       loadTeachingEvidence(db, periodId),
+      db.collection('payrollPolicies').orderBy('effectiveFrom', 'desc').limit(100).get(),
     ])
     const attendanceByStaff = new Map()
     attendanceSnapshot.docs.forEach((item) => {
@@ -521,6 +522,17 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
     })
     const calendars = new Map(calendarSnapshot.docs.map((item) => [item.data().branchId || 'global', item.data()]))
     const globalCalendar = calendars.get('global') || {}
+    const policies = policySnapshot.docs.map((snapshot) => {
+      const data = snapshot.data() || {}
+      return {
+        id: snapshot.id,
+        name: data.name || 'Chính sách lương PT',
+        status: data.status === 'inactive' ? 'inactive' : 'active',
+        effectiveDate: optionalDateKey(data.effectiveFrom),
+        eligibleProfiles: payrollPolicyProfiles(data.eligibleProfiles, data.audience),
+        configuration: data,
+      }
+    }).filter((policy) => policy.status === 'active' && policy.effectiveDate && policy.effectiveDate <= `${periodId}-31`)
     const staffById = new Map(staffSnapshot.docs
       .map((item) => ({ id: item.id, userId: item.id, ...item.data() }))
       .map((staff) => [staff.id, staff]))
@@ -548,7 +560,28 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
         const user = userByStaffId.get(staff.id) || {}
         const calendar = mergeWorkCalendar(periodId, globalCalendar, calendars.get(staff.branchId) || {})
         const teachingSlots = teachingEvidence.byStaff.get(staff.id) || []
-        const workdays = calculateWorkdayPayroll({ periodId, calendar, attendance: attendanceByStaff.get(staff.id) || [], teachingSlots, staff })
+        const profile = payrollProfile(staff)
+        const eligiblePolicies = policies.filter((policy) => policySupportsProfile(policy, profile))
+        const assignedPolicy = eligiblePolicies.find((policy) => policy.id === staff.payrollPolicyId)
+        let policyConfigured = teachingSlots.length === 0 || eligiblePolicies.length > 0
+        let pricedTeachingSlots = []
+        if (teachingSlots.length && eligiblePolicies.length && typeof priceTeachingSlots === 'function') {
+          try {
+            pricedTeachingSlots = priceTeachingSlots(teachingSlots, (slot) => {
+              if (assignedPolicy?.effectiveDate <= slot.date) return assignedPolicy
+              return eligiblePolicies.find((policy) => policy.effectiveDate <= slot.date)
+            })
+          } catch {
+            policyConfigured = false
+            pricedTeachingSlots = []
+          }
+        }
+        const workdays = calculateWorkdayPayroll({ periodId, calendar, attendance: attendanceByStaff.get(staff.id) || [], teachingSlots: pricedTeachingSlots, staff })
+        const commissionPerSession = workdays.employmentType === 'collaborator' ? 0 : safeMoney(staff.commissionPerSession, 10_000_000)
+        const amounts = payrollAmounts(workdays, {
+          teachingPayAmount: pricedTeachingSlots.reduce((total, slot) => total + safeMoney(slot.rate, 10_000_000), 0),
+          commissionAmount: Math.min(5_000_000_000, pricedTeachingSlots.length * commissionPerSession),
+        })
         return {
           staffId: staff.id,
           name: staff.name || staff.fullName || staff.displayName || user.name || user.fullName || user.displayName || 'Chưa cập nhật tên',
@@ -564,11 +597,46 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
           unpaidDays: workdays.unpaidDays,
           pendingDays: workdays.pendingDays + workdays.benefitReviewDays,
           baseSalaryEarned: workdays.baseSalaryEarned,
+          teachingPayAmount: amounts.teachingPayAmount,
+          commissionAmount: amounts.commissionAmount,
+          bonusAmount: amounts.bonusAmount,
+          grossAmount: amounts.grossAmount,
+          finalAmount: amounts.finalAmount,
+          policyName: assignedPolicy?.name || eligiblePolicies[0]?.name || '',
+          policyConfigured,
           reviewRequired: workdays.reviewRequired,
           calendarApproved: calendar.approved,
         }
       })
-    return { periodId, rows, truncated: staffSnapshot.size >= 450 || assignmentSnapshot.size >= 450 || attendanceSnapshot.size >= 5000 || teachingEvidence.truncated }
+    const summary = rows.reduce((result, row) => {
+      result.activeStaffCount += 1
+      result.teachingSlotCount += row.teachingSlotCount
+      result.baseSalaryAmount += row.baseSalaryEarned
+      result.teachingPayAmount += row.teachingPayAmount
+      result.commissionAmount += row.commissionAmount
+      result.bonusAmount += row.bonusAmount
+      result.estimatedTotal += row.finalAmount
+      if (row.reviewRequired) result.reviewRequiredCount += 1
+      if (!row.policyConfigured) result.unconfiguredPolicyCount += 1
+      return result
+    }, {
+      activeStaffCount: 0,
+      teachingSlotCount: 0,
+      baseSalaryAmount: 0,
+      teachingPayAmount: 0,
+      commissionAmount: 0,
+      bonusAmount: 0,
+      estimatedTotal: 0,
+      reviewRequiredCount: 0,
+      unconfiguredPolicyCount: 0,
+    })
+    return {
+      periodId,
+      asOfDate: dateKey(new Date()),
+      rows,
+      summary,
+      truncated: staffSnapshot.size >= 450 || assignmentSnapshot.size >= 450 || attendanceSnapshot.size >= 5000 || teachingEvidence.truncated || policySnapshot.size >= 100,
+    }
   })
 
   const getStaffPayrollAttendanceDetail = observedCall('getStaffPayrollAttendanceDetail', async (request) => {

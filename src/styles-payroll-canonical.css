@@ -225,11 +225,17 @@
 .payroll-page__skeleton { min-height: 210px; border-radius: 17px; background: linear-gradient(90deg, #fff3f7 25%, #fff 40%, #fff3f7 65%); background-size: 300% 100%; animation: payroll-shimmer 1.2s infinite; }
 @keyframes payroll-shimmer { to { background-position: -100% 0; } }
 
-.payroll-policy { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr); gap: 14px; }
+.payroll-policy { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .payroll-policy__fields { display: grid; grid-template-columns: minmax(180px, 1.3fr) minmax(150px, .8fr) minmax(150px, .8fr); gap: 10px; }
-.payroll-policy__fields .payroll-page__primary { grid-column: 1 / -1; justify-self: end; }
+.payroll-policy__form { order: 2; }
+.payroll-policy__history { order: 1; }
+.payroll-policy__form-actions { display: flex; grid-column: 1 / -1; justify-content: flex-end; gap: 8px; }
+.payroll-policy__form-actions button { min-width: 132px; }
 .payroll-policy__scope { margin: 14px 0 0; border-radius: 14px; padding: 12px; background: #fff4f7; color: #806875; font-size: 12px; line-height: 1.55; }
 .payroll-policy__history { display: flex; flex-direction: column; }
+.payroll-policy__heading-actions { display: flex !important; align-items: center; justify-content: flex-end; gap: 7px !important; }
+.payroll-policy__create { display: inline-flex; min-height: 36px; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 11px; padding: 0 12px; background: linear-gradient(110deg, var(--payroll-pink), var(--payroll-orange)); box-shadow: 0 8px 18px rgba(246,47,130,.18); color: #fff; font-size: 10px; font-weight: 900; white-space: nowrap; }
+.payroll-policy__close { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid #eadce3; border-radius: 50%; background: #fff; color: #725d69; }
 .payroll-policy__history > article { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #f1e5e9; padding: 13px 2px; }
 .payroll-policy__history > article > div { min-width: 0; }
 .payroll-policy__history > article.is-inactive { opacity: .72; background: #faf7f8; }
@@ -387,7 +393,9 @@
   .payroll-page__run-grid { grid-template-columns: 1fr; }
   .payroll-run-card__head strong { font-size: 21px; }
   .payroll-policy__fields { grid-template-columns: 1fr; }
-  .payroll-policy__fields .payroll-page__primary { grid-column: 1; width: 100%; }
+  .payroll-policy__form-actions { grid-column: 1; }
+  .payroll-policy__form-actions button { flex: 1; min-width: 0; }
+  .payroll-policy__heading-actions { align-items: flex-end; flex-direction: column; }
   .payroll-policy__history > article { align-items: stretch; flex-direction: column; }
   .payroll-policy__identity { width: 100%; }
   .payroll-policy__rates { grid-template-columns: repeat(3, minmax(0, 1fr)); }

@@ -47,6 +47,10 @@ import {
 import { listCashAccounts, type CashAccount } from '../../../services/cashbookService'
 import '../../../styles-payroll-canonical.css'
 import StaffWorkdayPayrollPanel from './StaffWorkdayPayrollPanel'
+import {
+  listStaffPayrollAttendance,
+  type StaffPayrollLiveSummary,
+} from '../../../services/staffPayrollService'
 
 interface Props {
   user: FirebaseUser | null
@@ -93,6 +97,18 @@ function dateLabel(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('vi-VN')
 }
 
+const emptyLiveSummary: StaffPayrollLiveSummary = {
+  activeStaffCount: 0,
+  teachingSlotCount: 0,
+  baseSalaryAmount: 0,
+  teachingPayAmount: 0,
+  commissionAmount: 0,
+  bonusAmount: 0,
+  estimatedTotal: 0,
+  reviewRequiredCount: 0,
+  unconfiguredPolicyCount: 0,
+}
+
 function teachingTierLabel(tier: 'standard' | 'after_threshold' | 'after_threshold_evening') {
   if (tier === 'after_threshold_evening') return 'Tăng ca tối'
   if (tier === 'after_threshold') return 'Từ ca thứ 9'
@@ -133,6 +149,9 @@ export default function TrainerPayroll({ profile }: Props) {
   const [payoutAccountId, setPayoutAccountId] = useState('')
   const [payoutReference, setPayoutReference] = useState('')
   const [showRunSetup, setShowRunSetup] = useState(false)
+  const [showPolicyForm, setShowPolicyForm] = useState(false)
+  const [liveSummary, setLiveSummary] = useState<StaffPayrollLiveSummary>(emptyLiveSummary)
+  const [liveAsOfDate, setLiveAsOfDate] = useState('')
   const [selectedPolicyIds, setSelectedPolicyIds] = useState<string[]>([])
   const [defaultPolicyId, setDefaultPolicyId] = useState('')
   const [policyApplicationMode, setPolicyApplicationMode] = useState<PolicyApplicationMode>('trainer_assignment')
@@ -156,10 +175,11 @@ export default function TrainerPayroll({ profile }: Props) {
   const refresh = useCallback(async () => {
     setLoading(true)
     setError('')
-    const [runsResult, policiesResult, accountsResult] = await Promise.allSettled([
+    const [runsResult, policiesResult, accountsResult, liveResult] = await Promise.allSettled([
       listPayrollRuns(36),
       listPayrollPolicies(),
       listCashAccounts(),
+      listStaffPayrollAttendance(periodId),
     ])
     if (runsResult.status === 'fulfilled') setRuns(runsResult.value)
     if (policiesResult.status === 'fulfilled') setPolicies(policiesResult.value)
@@ -168,10 +188,17 @@ export default function TrainerPayroll({ profile }: Props) {
       setCashAccounts(activeAccounts)
       setPayoutAccountId((current) => current || activeAccounts[0]?.id || '')
     }
-    const failure = [runsResult, policiesResult, accountsResult].find((result) => result.status === 'rejected')
+    if (liveResult.status === 'fulfilled') {
+      setLiveSummary(liveResult.value.summary)
+      setLiveAsOfDate(liveResult.value.asOfDate)
+    } else {
+      setLiveSummary(emptyLiveSummary)
+      setLiveAsOfDate('')
+    }
+    const failure = [runsResult, policiesResult, accountsResult, liveResult].find((result) => result.status === 'rejected')
     if (failure?.status === 'rejected') setError(friendlyError(failure.reason))
     setLoading(false)
-  }, [])
+  }, [periodId])
 
   useEffect(() => { void refresh() }, [refresh])
 
@@ -211,6 +238,7 @@ export default function TrainerPayroll({ profile }: Props) {
   const openRunSetup = () => {
     if (!activePolicies.length) {
       setView('policies')
+      setShowPolicyForm(true)
       setError('Hãy tạo hoặc mở lại ít nhất một chính sách trước khi lập kỳ lương.')
       return
     }
@@ -365,6 +393,7 @@ export default function TrainerPayroll({ profile }: Props) {
         rateAfterDailyThresholdEvening,
       })
       setMessage(result.unchanged ? 'Chính sách này đã tồn tại.' : 'Đã lưu phiên bản chính sách mới; kỳ cũ không bị thay đổi.')
+      setShowPolicyForm(false)
       await refresh()
     } catch (cause) {
       setError(friendlyError(cause))
@@ -373,19 +402,11 @@ export default function TrainerPayroll({ profile }: Props) {
     }
   }
 
-  const selectedPeriodRun = runs.find((run) => run.periodId === periodId) || runs[0]
-  const waitingRuns = runs.filter((run) => run.status === 'draft' || run.status === 'reviewed')
-  const lockedAmount = runs.filter((run) => run.status === 'locked').reduce((sum, run) => sum + run.finalAmount, 0)
-  const paidAmount = runs.filter((run) => run.status === 'paid').reduce((sum, run) => sum + run.finalAmount, 0)
-  const adjustmentAmount = runs.reduce((sum, run) => sum + Math.abs(run.adjustmentAmount), 0)
-  const availableCash = cashAccounts.reduce((sum, account) => sum + Number(account.balance || 0), 0)
-
   const slides: AuraMetricSlide[] = [
-    { id: 'period-total', eyebrow: selectedPeriodRun ? periodLabel(selectedPeriodRun.periodId) : periodLabel(periodId), value: money(selectedPeriodRun?.finalAmount || 0), detail: selectedPeriodRun ? `${selectedPeriodRun.staffCount} nhân viên · ${selectedPeriodRun.teachingSlotCount} ca dạy` : 'Chưa lập kỳ lương chính thức', icon: <Banknote size={20} />, tone: 'pink', actionLabel: selectedPeriodRun ? 'Mở kỳ lương' : 'Thiết lập kỳ', onSelect: () => selectedPeriodRun ? void openRun(selectedPeriodRun.id) : setView(policies.length ? 'runs' : 'policies') },
-    { id: 'waiting', eyebrow: 'Chờ xử lý', value: `${waitingRuns.length}`, detail: 'Kỳ nháp hoặc đang chờ khóa', icon: <Clock3 size={20} />, tone: 'orange', actionLabel: 'Lọc danh sách', onSelect: () => { setView('runs'); setStatusFilter(waitingRuns.some((run) => run.status === 'reviewed') ? 'reviewed' : 'draft') } },
-    { id: 'locked', eyebrow: 'Đã khóa · chưa chi', value: money(lockedAmount), detail: 'Chi phí đã ghi nhận, chưa giảm số dư quỹ', icon: <LockKeyhole size={20} />, tone: 'sunset', actionLabel: 'Xem kỳ cần chi', onSelect: () => { setView('runs'); setStatusFilter('locked') } },
-    { id: 'adjustments', eyebrow: 'Điều chỉnh', value: money(adjustmentAmount), detail: 'Thưởng, khấu trừ và correction đã duyệt', icon: <Settings2 size={20} />, tone: 'ink' },
-    { id: 'cash', eyebrow: 'Quỹ có thể chi', value: money(availableCash), detail: `${cashAccounts.length} quỹ hoạt động · đã chi ${money(paidAmount)}`, icon: <WalletCards size={20} />, tone: 'pink' },
+    { id: 'live-total', eyebrow: `Tạm tính đến ${liveAsOfDate ? dateLabel(liveAsOfDate) : 'hiện tại'}`, value: money(liveSummary.estimatedTotal), detail: `${liveSummary.activeStaffCount} staff đang hoạt động · ${liveSummary.teachingSlotCount} ca đã ghi nhận`, icon: <Banknote size={20} />, tone: 'pink', actionLabel: 'Xem ngày công', onSelect: () => setView('workdays') },
+    { id: 'live-base', eyebrow: 'Lương cơ bản tạm tính', value: money(liveSummary.baseSalaryAmount), detail: 'Tính theo ngày công đến hiện tại, trừ ngày nghỉ không lương', icon: <CalendarCheck2 size={20} />, tone: 'orange', actionLabel: 'Đối chiếu công', onSelect: () => setView('workdays') },
+    { id: 'live-variable', eyebrow: 'Ca dạy & hoa hồng', value: money(liveSummary.teachingPayAmount + liveSummary.commissionAmount + liveSummary.bonusAmount), detail: `${money(liveSummary.teachingPayAmount)} tiền ca · ${money(liveSummary.commissionAmount)} hoa hồng`, icon: <WalletCards size={20} />, tone: 'sunset', actionLabel: 'Xem chính sách', onSelect: () => setView('policies') },
+    { id: 'live-review', eyebrow: 'Cần đối soát', value: `${liveSummary.reviewRequiredCount}`, detail: liveSummary.unconfiguredPolicyCount ? `${liveSummary.unconfiguredPolicyCount} staff chưa có chính sách phù hợp` : 'Ngày công và chính sách cần kiểm tra trước khi khóa kỳ', icon: <AlertTriangle size={20} />, tone: 'ink', actionLabel: 'Mở ngày công', onSelect: () => setView('workdays') },
   ]
 
   const visibleRuns = useMemo(() => {
@@ -443,9 +464,23 @@ export default function TrainerPayroll({ profile }: Props) {
           </article>)}
         </div> : <div className="payroll-page__empty"><UsersRound size={34} /><strong>Chưa có kỳ lương phù hợp</strong><p>Chọn kỳ khác hoặc tạo bản nháp từ dữ liệu điểm danh chính thức.</p></div>}
       </section>
-    </> : <section className="payroll-policy" aria-label="Chính sách lương">
-      <div className="payroll-policy__form">
-        <div className="payroll-page__section-title"><div><span>Phiên bản mới</span><strong>Chính sách lương PT</strong></div><AuraHelpPopover title="Nguyên tắc phiên bản" label="Nguyên tắc phiên bản"><p>Có thể tạo nhiều chính sách. Khi lập kỳ, chọn một chính sách, phân chính sách theo từng HLV hoặc áp theo ngày hiệu lực. Kỳ cũ luôn giữ snapshot riêng.</p></AuraHelpPopover></div>
+    </> : <section className={`payroll-policy ${showPolicyForm ? 'is-creating' : ''}`} aria-label="Chính sách lương">
+      <div className="payroll-policy__history">
+        <div className="payroll-page__section-title">
+          <div><span>Chính sách đang có</span><strong>{policies.length} phiên bản</strong></div>
+          <div className="payroll-policy__heading-actions">
+            <AuraHelpPopover title="Nguyên tắc phiên bản" label="Nguyên tắc phiên bản"><p>Có thể tạo nhiều chính sách. Khi lập kỳ, chọn theo hồ sơ nhân viên, từng HLV hoặc ngày hiệu lực. Kỳ cũ luôn giữ snapshot riêng.</p></AuraHelpPopover>
+            <button className="payroll-policy__create" type="button" disabled={!canManage || !!busyAction} onClick={() => setShowPolicyForm(true)}><Plus size={15} /> Tạo chính sách</button>
+          </div>
+        </div>
+        {policies.length ? policies.map((policy) => <article className={policy.status === 'inactive' ? 'is-inactive' : ''} key={policy.id}>
+          <div className="payroll-policy__identity"><div><strong>{policy.name}</strong><span>{policy.eligibleProfiles.map(payrollProfileLabel).join(' · ')} · Hiệu lực {dateLabel(policy.effectiveFrom)} · {policy.status === 'active' ? 'Đang dùng' : 'Đã ẩn'} · {policy.usageCount} kỳ</span></div><div className="payroll-policy__actions">{policy.status === 'active' ? <button type="button" onClick={() => setPendingConfirmation({ kind: 'policy', id: policy.id, label: policy.name, action: 'hide' })}><EyeOff size={14} /> Ẩn</button> : <button type="button" onClick={() => setPendingConfirmation({ kind: 'policy', id: policy.id, label: policy.name, action: 'restore' })}><Eye size={14} /> Mở lại</button>}{policy.canDelete && <button className="is-danger" type="button" onClick={() => setPendingConfirmation({ kind: 'policy', id: policy.id, label: policy.name, action: 'delete' })}><Trash2 size={14} /> Xóa</button>}</div></div>
+          <div className="payroll-policy__rates"><span><small>Ca 1–{policy.dailySessionThreshold}</small><b>{money(policy.ratePerSession)}</b></span><span><small>Từ ca {policy.dailySessionThreshold + 1}</small><b>{money(policy.rateAfterDailyThreshold)}</b></span><span><small>Sau {policy.eveningStartHour}h</small><b>{money(policy.rateAfterDailyThresholdEvening)}</b></span></div>
+        </article>) : <div className="payroll-page__empty"><Settings2 size={30} /><strong>Chưa có chính sách</strong><p>Dùng nút “Tạo chính sách” để thiết lập phiên bản đầu tiên.</p></div>}
+      </div>
+
+      {showPolicyForm && <div className="payroll-policy__form">
+        <div className="payroll-page__section-title"><div><span>Phiên bản mới</span><strong>Thiết lập chính sách</strong></div><button className="payroll-policy__close" type="button" aria-label="Đóng bảng tạo chính sách" onClick={() => setShowPolicyForm(false)}><X size={17} /></button></div>
         <div className="payroll-policy__fields">
           <label><span>Tên chính sách</span><input value={policyForm.name} maxLength={100} onChange={(event) => setPolicyForm((current) => ({ ...current, name: event.target.value }))} /></label>
           <div className="payroll-policy__profiles"><span>Nhóm nhân viên áp dụng</span><div>{(['probation', 'official', 'senior', 'part_time', 'collaborator'] as PayrollProfile[]).map((profile) => <button key={profile} type="button" className={policyForm.eligibleProfiles.includes(profile) ? 'is-active' : ''} onClick={() => togglePolicyProfile(profile)}>{payrollProfileLabel(profile)}</button>)}</div></div>
@@ -453,11 +488,10 @@ export default function TrainerPayroll({ profile }: Props) {
           <label><span>Đơn giá ca 1–8</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.ratePerSession} onChange={(event) => setPolicyForm((current) => ({ ...current, ratePerSession: event.target.value }))} /></label>
           <label><span>Từ ca thứ 9</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.rateAfterDailyThreshold} onChange={(event) => setPolicyForm((current) => ({ ...current, rateAfterDailyThreshold: event.target.value }))} /></label>
           <label><span>Từ ca thứ 9 · sau 20h</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.rateAfterDailyThresholdEvening} onChange={(event) => setPolicyForm((current) => ({ ...current, rateAfterDailyThresholdEvening: event.target.value }))} /></label>
-          <button className="payroll-page__primary" type="button" disabled={!canManage || !!busyAction} onClick={() => void submitPolicy()}><ShieldCheck size={17} /> Lưu phiên bản</button>
+          <div className="payroll-policy__form-actions"><button className="payroll-page__secondary" type="button" onClick={() => setShowPolicyForm(false)}>Hủy</button><button className="payroll-page__primary" type="button" disabled={!canManage || !!busyAction} onClick={() => void submitPolicy()}><ShieldCheck size={17} /> Lưu phiên bản</button></div>
         </div>
         <p className="payroll-policy__scope">Áp dụng cho: {policyForm.eligibleProfiles.map(payrollProfileLabel).join(' · ')}. {policyForm.eligibleProfiles.includes('collaborator') ? 'Chính sách có CTV phải dùng đơn giá 50.000–100.000đ/ca.' : 'Nhân viên hưởng lương cơ bản theo ngày công và tiền ca theo chính sách.'} Một khung giờ có hai học viên vẫn chỉ tính một ca.</p>
-      </div>
-      <div className="payroll-policy__history"><div className="payroll-page__section-title"><div><span>Lịch sử</span><strong>{policies.length} phiên bản</strong></div><small>Không ghi đè</small></div>{policies.length ? policies.map((policy) => <article className={policy.status === 'inactive' ? 'is-inactive' : ''} key={policy.id}><div className="payroll-policy__identity"><div><strong>{policy.name}</strong><span>{policy.eligibleProfiles.map(payrollProfileLabel).join(' · ')} · Hiệu lực {dateLabel(policy.effectiveFrom)} · {policy.status === 'active' ? 'Đang dùng' : 'Đã ẩn'} · {policy.usageCount} kỳ</span></div><div className="payroll-policy__actions">{policy.status === 'active' ? <button type="button" onClick={() => setPendingConfirmation({ kind: 'policy', id: policy.id, label: policy.name, action: 'hide' })}><EyeOff size={14} /> Ẩn</button> : <button type="button" onClick={() => setPendingConfirmation({ kind: 'policy', id: policy.id, label: policy.name, action: 'restore' })}><Eye size={14} /> Mở lại</button>}{policy.canDelete && <button className="is-danger" type="button" onClick={() => setPendingConfirmation({ kind: 'policy', id: policy.id, label: policy.name, action: 'delete' })}><Trash2 size={14} /> Xóa</button>}</div></div><div className="payroll-policy__rates"><span><small>Ca 1–{policy.dailySessionThreshold}</small><b>{money(policy.ratePerSession)}</b></span><span><small>Từ ca {policy.dailySessionThreshold + 1}</small><b>{money(policy.rateAfterDailyThreshold)}</b></span><span><small>Sau {policy.eveningStartHour}h</small><b>{money(policy.rateAfterDailyThresholdEvening)}</b></span></div></article>) : <div className="payroll-page__empty"><Settings2 size={30} /><strong>Chưa có chính sách</strong><p>Hãy tạo phiên bản đầu tiên để lập kỳ lương.</p></div>}</div>
+      </div>}
     </section>}
 
     {showRunSetup && <div className="payroll-modal" role="region" aria-label="Thiết lập kỳ lương">
