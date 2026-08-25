@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebase'
+import { reportClientIssue } from './clientTelemetryService'
 
 export type StaffAttendanceStatus =
   | 'present'
@@ -157,7 +158,34 @@ type UnknownRecord = Record<string, unknown>
 
 function callable<Input, Output>(name: string) {
   if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
-  return httpsCallable<Input, Output>(firebaseFunctions, name)
+  const invoke = httpsCallable<Input, Output>(firebaseFunctions, name, { timeout: 30_000 })
+  return async (input: Input) => {
+    const retryableCodes = new Set([
+      'functions/internal',
+      'functions/resource-exhausted',
+      'functions/unavailable',
+      'functions/deadline-exceeded',
+    ])
+    let lastError: unknown
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await invoke(input)
+      } catch (error) {
+        lastError = error
+        const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+          ? error.code
+          : ''
+        reportClientIssue('firestore', error, {
+          phase: `payroll_callable_${name}`,
+          route: window.location.hash,
+          retryable: retryableCodes.has(code),
+        })
+        if (!retryableCodes.has(code) || attempt === 2) throw error
+        await new Promise((resolve) => window.setTimeout(resolve, 400 * (2 ** attempt)))
+      }
+    }
+    throw lastError
+  }
 }
 
 function object(value: unknown): UnknownRecord {

@@ -31,8 +31,22 @@ if ('serviceWorker' in navigator) {
 
     navigator.serviceWorker.register('/sw.js')
       .then((reg) => {
-        console.log('FCM Service Worker registered:', reg.scope)
+        if (reg.waiting && hadActiveController) reg.waiting.postMessage({ type: 'SKIP_WAITING' })
+        reg.addEventListener('updatefound', () => {
+          const installing = reg.installing
+          if (!installing) return
+          installing.addEventListener('statechange', () => {
+            if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+              installing.postMessage({ type: 'SKIP_WAITING' })
+            }
+          })
+        })
         void reg.update()
+        const updateWhenVisible = () => {
+          if (document.visibilityState === 'visible') void reg.update()
+        }
+        document.addEventListener('visibilitychange', updateWhenVisible)
+        window.setInterval(updateWhenVisible, 5 * 60_000)
       })
       .catch((err) => {
         console.error('FCM Service Worker registration failed:', err)

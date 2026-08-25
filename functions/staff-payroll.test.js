@@ -146,6 +146,7 @@ test('base salary, teaching pay, bonus and deductions remain separate in payroll
 
 test('staff payroll callables are actor-scoped and browser writes never calculate salary', () => {
   const source = fs.readFileSync(path.join(__dirname, 'staff-payroll.js'), 'utf8')
+  const clientSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'staffPayrollService.ts'), 'utf8')
   assert.match(source, /trustedAccessContext/)
   assert.match(source, /requireSelfPayroll/)
   assert.match(source, /payroll\.self\.view/)
@@ -156,6 +157,13 @@ test('staff payroll callables are actor-scoped and browser writes never calculat
   assert.match(source, /collection\('roleAssignments'\)\.where\('accessRole', '==', 'staff'\)/)
   assert.match(source, /fillMissingStaffAttendanceDays/)
   assert.match(source, /if \(current\[index\]\.exists\) return/)
+  assert.match(source, /staff_payroll_internal_error/)
+  assert.match(source, /incidentId/)
+  assert.match(source, /knownCallableCodes/)
+  assert.doesNotMatch(source, /staff_payroll_internal_error[\s\S]{0,500}(?:email|phoneNumber|displayName)/)
+  assert.match(clientSource, /payroll_callable_\$\{name\}/)
+  assert.match(clientSource, /attempt < 3/)
+  assert.match(clientSource, /functions\/internal/)
   assert.doesNotMatch(source, /allow read|allow write/)
 })
 

@@ -371,7 +371,7 @@ test('startup defers non-critical providers and ships immutable hashed assets', 
   const assetPolicy = vercelConfig.headers.find((entry) => entry.source === '/assets/(.*)')
   const rootPolicy = vercelConfig.headers.find((entry) => entry.source === '/')
   assert.equal(assetPolicy?.headers?.find((header) => header.key === 'Cache-Control')?.value, 'public, max-age=31536000, immutable')
-  assert.equal(rootPolicy?.headers?.find((header) => header.key === 'Cache-Control')?.value, 'public, max-age=0, must-revalidate')
+  assert.equal(rootPolicy?.headers?.find((header) => header.key === 'Cache-Control')?.value, 'no-store, max-age=0')
 })
 
 test('student identity linking is target-only, digest-gated, scoped to learners, and PII-safe', () => {

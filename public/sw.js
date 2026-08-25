@@ -1,6 +1,6 @@
 // Bump the shell whenever production Firebase bootstrap configuration changes.
 // Activation removes every older Aura cache before the client reloads.
-const CACHE_VERSION = 'aura-shell-v7-20260825-auth'
+const CACHE_VERSION = 'aura-shell-v8-20260826-staff'
 const APP_SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -19,6 +19,10 @@ self.addEventListener('activate', (event) => {
       .then((names) => Promise.all(names.filter((name) => name !== CACHE_VERSION).map((name) => caches.delete(name))))
       .then(() => self.clients.claim()),
   )
+})
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
 })
 
 self.addEventListener('push', (event) => {

@@ -1,5 +1,6 @@
 const { FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
+const { randomUUID } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 
 const PAID_ATTENDANCE_STATUSES = new Set([
@@ -374,8 +375,41 @@ function payrollAmounts(workdays, payrollItem = {}) {
   }
 }
 
-function createStaffPayrollFunctions({ db, onCall, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile }) {
-  const getMyStaffPayroll = onCall(async (request) => {
+function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile }) {
+  const knownCallableCodes = new Set([
+    'aborted',
+    'already-exists',
+    'deadline-exceeded',
+    'failed-precondition',
+    'invalid-argument',
+    'not-found',
+    'permission-denied',
+    'resource-exhausted',
+    'unauthenticated',
+    'unavailable',
+  ])
+  const observedCall = (operation, handler) => onCall(async (request) => {
+    try {
+      return await handler(request)
+    } catch (error) {
+      const code = String(error?.code || '').replace(/^functions\//, '')
+      if (knownCallableCodes.has(code)) throw error
+      const incidentId = `PAY-${randomUUID().slice(0, 8).toUpperCase()}`
+      logger?.error?.('staff_payroll_internal_error', {
+        operation,
+        incidentId,
+        errorName: typeof error?.name === 'string' ? error.name.slice(0, 80) : 'unknown',
+        schemaVersion: 1,
+      })
+      throw new HttpsError(
+        'internal',
+        `Dịch vụ lương chưa hoàn tất yêu cầu. Mã đối soát ${incidentId}.`,
+        { incidentId },
+      )
+    }
+  })
+
+  const getMyStaffPayroll = observedCall('getMyStaffPayroll', async (request) => {
     const actor = await trustedAccessContext(request, db)
     requireSelfPayroll(actor)
     const periodId = payrollPeriod(request.data?.periodId)
@@ -467,7 +501,7 @@ function createStaffPayrollFunctions({ db, onCall, priceTeachingSlots, payrollPo
     }
   })
 
-  const listStaffPayrollAttendance = onCall(async (request) => {
+  const listStaffPayrollAttendance = observedCall('listStaffPayrollAttendance', async (request) => {
     await payrollActorForAdmin(request, db)
     const periodId = payrollPeriod(request.data?.periodId)
     const branchFilter = typeof request.data?.branchId === 'string' ? request.data.branchId.trim() : ''
@@ -537,7 +571,7 @@ function createStaffPayrollFunctions({ db, onCall, priceTeachingSlots, payrollPo
     return { periodId, rows, truncated: staffSnapshot.size >= 450 || assignmentSnapshot.size >= 450 || attendanceSnapshot.size >= 5000 || teachingEvidence.truncated }
   })
 
-  const getStaffPayrollAttendanceDetail = onCall(async (request) => {
+  const getStaffPayrollAttendanceDetail = observedCall('getStaffPayrollAttendanceDetail', async (request) => {
     await payrollActorForAdmin(request, db)
     const periodId = payrollPeriod(request.data?.periodId)
     const staffId = staffDocumentId(request.data?.staffId)
@@ -560,7 +594,7 @@ function createStaffPayrollFunctions({ db, onCall, priceTeachingSlots, payrollPo
     }
   })
 
-  const saveStaffAttendanceDay = onCall(async (request) => {
+  const saveStaffAttendanceDay = observedCall('saveStaffAttendanceDay', async (request) => {
     const actor = await payrollActorForAdmin(request, db)
     const staffId = staffDocumentId(request.data?.staffId)
     const date = dateKey(request.data?.date)
@@ -603,7 +637,7 @@ function createStaffPayrollFunctions({ db, onCall, priceTeachingSlots, payrollPo
     })
   })
 
-  const fillMissingStaffAttendanceDays = onCall(async (request) => {
+  const fillMissingStaffAttendanceDays = observedCall('fillMissingStaffAttendanceDays', async (request) => {
     const actor = await payrollActorForAdmin(request, db)
     const staffId = staffDocumentId(request.data?.staffId)
     const periodId = payrollPeriod(request.data?.periodId)
@@ -658,7 +692,7 @@ function createStaffPayrollFunctions({ db, onCall, priceTeachingSlots, payrollPo
     })
   })
 
-  const saveWorkCalendar = onCall(async (request) => {
+  const saveWorkCalendar = observedCall('saveWorkCalendar', async (request) => {
     const actor = await payrollActorForAdmin(request, db)
     const periodId = payrollPeriod(request.data?.periodId)
     const branchId = request.data?.branchId ? staffDocumentId(request.data.branchId) : 'global'
@@ -699,7 +733,7 @@ function createStaffPayrollFunctions({ db, onCall, priceTeachingSlots, payrollPo
     })
   })
 
-  const submitMyPayrollInquiry = onCall(async (request) => {
+  const submitMyPayrollInquiry = observedCall('submitMyPayrollInquiry', async (request) => {
     const actor = await trustedAccessContext(request, db)
     requireSelfPayroll(actor)
     const periodId = payrollPeriod(request.data?.periodId)
