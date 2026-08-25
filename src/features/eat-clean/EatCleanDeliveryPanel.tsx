@@ -169,12 +169,15 @@ export function EatCleanDeliveryPanel({
     if (!host || !googleMapsConfigured()) return
     let autocomplete: HTMLElement | undefined
     let selectListener: ((event: Event) => void) | undefined
+    let errorListener: (() => void) | undefined
     let active = true
     void loadGoogleMaps()
       .then(async (maps) => {
-        if (!active || !maps || !searchRef.current) return
+        if (!active || !searchRef.current) return
+        if (!maps) throw new Error('Google Maps JavaScript API unavailable')
         const { PlaceAutocompleteElement } = await maps.importLibrary('places')
-        if (!active || !searchRef.current || !PlaceAutocompleteElement) return
+        if (!active || !searchRef.current) return
+        if (!PlaceAutocompleteElement) throw new Error('Google Places autocomplete unavailable')
         const element = new PlaceAutocompleteElement({
           includedRegionCodes: ['vn'],
           locationBias: { radius: 30_000, center: { lat: DEFAULT_DA_NANG.latitude, lng: DEFAULT_DA_NANG.longitude } },
@@ -184,12 +187,18 @@ export function EatCleanDeliveryPanel({
         element.placeholder = 'Tìm tên đường, tòa nhà, địa điểm…'
         selectListener = (event: Event) => {
           const place = placeFromAutocompleteEvent(event)
-          if (!place?.fetchFields) return
+          if (!place?.fetchFields) {
+            setMessage('Chưa nhận được địa điểm đã chọn. Hãy thử lại hoặc nhập địa chỉ bên dưới.')
+            return
+          }
           void place.fetchFields({ fields: ['id', 'formattedAddress', 'addressComponents', 'location'] })
             .then(() => {
               if (!active) return
               const result = deliveryAddressFromPlace(place)
-              if (!result) return
+              if (!result) {
+                setMessage('Địa điểm này chưa có tọa độ rõ ràng. Hãy chọn một gợi ý khác.')
+                return
+              }
               const current = latestAddressRef.current
               onAddressChangeRef.current({
                 ...current,
@@ -202,7 +211,11 @@ export function EatCleanDeliveryPanel({
             })
             .catch(() => { if (active) setMessage('Chưa lấy được chi tiết địa chỉ. Hãy chọn lại một gợi ý Google Maps.') })
         }
+        errorListener = () => {
+          if (active) setMessage('Tìm kiếm Google Maps đang quá tải. Hãy thử lại sau hoặc dùng Vị trí hiện tại / Chọn trên bản đồ.')
+        }
         element.addEventListener('gmp-select', selectListener)
+        element.addEventListener('gmp-error', errorListener)
         autocomplete = element
         searchRef.current.replaceChildren(element)
       })
@@ -210,6 +223,7 @@ export function EatCleanDeliveryPanel({
     return () => {
       active = false
       if (autocomplete && selectListener) autocomplete.removeEventListener('gmp-select', selectListener)
+      if (autocomplete && errorListener) autocomplete.removeEventListener('gmp-error', errorListener)
       autocomplete?.remove()
     }
   }, [])

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BarChart3, Building2, CalendarDays, CircleAlert, Coins, Landmark, RefreshCw, TrendingDown, TrendingUp, WalletCards } from 'lucide-react'
 import { useDatabase } from '../../../contexts/DatabaseContext'
 import { listBusinessPerformance, type BusinessPerformanceReport, type BusinessSource } from '../../../services/businessReportingService'
+import AuraMetricCarousel, { type AuraMetricSlide } from './AuraMetricCarousel'
 import '../../../styles-business-performance.css'
 
 function vietnamDateKey(value = new Date()) {
@@ -50,6 +51,7 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
   const [report, setReport] = useState<BusinessPerformanceReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [activePreset, setActivePreset] = useState<7 | 30 | 90 | 'custom'>(30)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -70,9 +72,45 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
   const days = useMemo(() => report?.dailySeries.slice(-14) || [], [report])
   const peak = Math.max(1, ...days.map((item) => Math.max(Math.abs(item.cashNet), Math.abs(item.recognisedRevenue), Math.abs(item.operatingResult))))
   const applyPreset = (days: number) => {
+    setActivePreset(days as 7 | 30 | 90)
     setStartDate(daysAgoKey(days - 1))
     setEndDate(todayKey())
   }
+
+  const metricSlides = useMemo<AuraMetricSlide[]>(() => [
+    {
+      id: 'cash-flow',
+      eyebrow: 'Dòng tiền ròng',
+      value: money(report?.cashFlow.cashNet || 0),
+      detail: `Thu ${money(report?.cashFlow.cashIn || 0)} · Chi ${money(report?.cashFlow.cashOut || 0)}`,
+      icon: <WalletCards size={20} />,
+      tone: 'pink',
+    },
+    {
+      id: 'recognised-revenue',
+      eyebrow: 'Doanh thu thực hiện',
+      value: money(report?.managementPnl.recognisedRevenue || 0),
+      detail: 'Chỉ ghi nhận dịch vụ đã hoàn thành',
+      icon: <TrendingUp size={20} />,
+      tone: 'orange',
+    },
+    {
+      id: 'operating-expense',
+      eyebrow: 'Chi phí vận hành',
+      value: money(report?.managementPnl.operatingExpense || 0),
+      detail: 'Chi phí đã hạch toán trong kỳ',
+      icon: <TrendingDown size={20} />,
+      tone: 'sunset',
+    },
+    {
+      id: 'operating-result',
+      eyebrow: 'Kết quả vận hành',
+      value: money(report?.managementPnl.operatingResult || 0),
+      detail: `Biến động phải thu ${money(report?.balanceMovement.receivableMovement || 0)}`,
+      icon: <Landmark size={20} />,
+      tone: 'ink',
+    },
+  ], [report])
 
   return <section className={`business-performance ${compact ? 'business-performance--compact' : ''}`} aria-busy={loading}>
     <header className="business-performance__hero">
@@ -89,11 +127,11 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
     <section className="business-performance__filters" aria-label="Bộ lọc báo cáo">
       <div className="business-performance__preset-row">
         {[{ label: '7 ngày', days: 7 }, { label: '30 ngày', days: 30 }, { label: '90 ngày', days: 90 }].map((preset) => (
-          <button key={preset.days} type="button" onClick={() => applyPreset(preset.days)}>{preset.label}</button>
+          <button key={preset.days} type="button" className={activePreset === preset.days ? 'is-active' : ''} aria-pressed={activePreset === preset.days} onClick={() => applyPreset(preset.days)}>{preset.label}</button>
         ))}
       </div>
-      <label><CalendarDays size={16} /><span>Từ ngày</span><input type="date" value={startDate} max={endDate} onChange={(event) => setStartDate(event.target.value)} /></label>
-      <label><CalendarDays size={16} /><span>Đến ngày</span><input type="date" value={endDate} min={startDate} max={todayKey()} onChange={(event) => setEndDate(event.target.value)} /></label>
+      <label><CalendarDays size={16} /><span>Từ ngày</span><input type="date" value={startDate} max={endDate} onChange={(event) => { setActivePreset('custom'); setStartDate(event.target.value) }} /></label>
+      <label><CalendarDays size={16} /><span>Đến ngày</span><input type="date" value={endDate} min={startDate} max={todayKey()} onChange={(event) => { setActivePreset('custom'); setEndDate(event.target.value) }} /></label>
       <label><Building2 size={16} /><span>Chi nhánh</span><select value={branchId} onChange={(event) => setBranchId(event.target.value)}><option value="all">Toàn hệ thống</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
       <label><Coins size={16} /><span>Nguồn</span><select value={source} onChange={(event) => setSource(event.target.value as BusinessSource)}>{Object.entries(sourceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
     </section>
@@ -101,12 +139,7 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
     {error && <div className="business-performance__notice business-performance__notice--error"><CircleAlert size={19} /><span>{error}</span></div>}
     {!error && report?.dataQuality && <div className="business-performance__notice"><CircleAlert size={19} /><span>{report.dataQuality.message}</span></div>}
 
-    <div className="business-performance__kpis">
-      <Metric icon={<WalletCards size={20} />} label="Dòng tiền ròng" value={money(report?.cashFlow.cashNet || 0)} detail={`Thu ${money(report?.cashFlow.cashIn || 0)} · Chi ${money(report?.cashFlow.cashOut || 0)}`} tone="cash" loading={loading} />
-      <Metric icon={<TrendingUp size={20} />} label="Doanh thu đã thực hiện" value={money(report?.managementPnl.recognisedRevenue || 0)} detail="Ghi nhận theo dịch vụ đã hoàn thành" tone="revenue" loading={loading} />
-      <Metric icon={<TrendingDown size={20} />} label="Chi phí vận hành" value={money(report?.managementPnl.operatingExpense || 0)} detail="Sổ cái quản trị đã hạch toán" tone="expense" loading={loading} />
-      <Metric icon={<Landmark size={20} />} label="Kết quả vận hành" value={money(report?.managementPnl.operatingResult || 0)} detail={`Phải thu Δ ${money(report?.balanceMovement.receivableMovement || 0)}`} tone="profit" loading={loading} />
-    </div>
+    <AuraMetricCarousel slides={metricSlides} label="Các chỉ số kết quả kinh doanh" loading={loading} />
 
     <div className="business-performance__grid">
       <article className="business-performance__card business-performance__card--sources">
@@ -137,8 +170,4 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
       {report?.dataQuality.missingSourceIntegrations.length ? <p>Chưa tự động đưa vào P&L: {report.dataQuality.missingSourceIntegrations.map((item) => sourceLabels[item as BusinessSource] || item).join(', ')}.</p> : null}
     </article>
   </section>
-}
-
-function Metric({ icon, label, value, detail, tone, loading }: { icon: ReactNode; label: string; value: string; detail: string; tone: string; loading: boolean }) {
-  return <article className={`business-performance__metric business-performance__metric--${tone}`}><span className="business-performance__metric-icon">{icon}</span><div><p>{label}</p><strong>{loading ? '—' : value}</strong><small>{detail}</small></div></article>
 }

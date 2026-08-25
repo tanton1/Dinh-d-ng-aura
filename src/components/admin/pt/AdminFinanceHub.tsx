@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { User } from 'firebase/auth'
 import type { UserProfile } from '../../../types'
+import { BarChart3, CircleDollarSign, Users, WalletCards } from 'lucide-react'
 import { useDatabase } from '../../../contexts/DatabaseContext'
 import FinanceManagement from './FinanceManagement'
 import TrainerPayroll from './TrainerPayroll'
@@ -13,13 +14,20 @@ type FinanceTab = 'overview' | 'ledger' | 'cashbook' | 'payroll'
 export default function AdminFinanceHub({ user, profile, initialTab = 'overview' }: { user: User | null; profile: UserProfile | null; initialTab?: FinanceTab }) {
   const [tab, setTab] = useState<FinanceTab>(initialTab)
   const { branches } = useDatabase()
+  const tabs: Array<{ id: FinanceTab; label: string; shortLabel: string; detail: string; icon: typeof BarChart3 }> = [
+    { id: 'overview', label: 'Tổng quan & KQKD', shortLabel: 'Tổng quan', detail: 'Hiệu quả theo nguồn', icon: BarChart3 },
+    { id: 'ledger', label: 'Thu chi & Công nợ', shortLabel: 'Thu chi', detail: 'Ledger & khoản phải thu', icon: CircleDollarSign },
+    { id: 'cashbook', label: 'Sổ quỹ', shortLabel: 'Sổ quỹ', detail: 'Tiền mặt & ngân hàng', icon: WalletCards },
+    { id: 'payroll', label: 'Chấm công & Lương PT', shortLabel: 'Lương PT', detail: 'Công, lương & hoa hồng', icon: Users },
+  ]
   return <div className="operations-hub">
-    <div className="admin-tabs admin-operations-tabs" role="tablist">
-      <button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>Tổng quan & KQKD</button>
-      <button className={tab === 'ledger' ? 'active' : ''} onClick={() => setTab('ledger')}>Thu chi & Công nợ</button>
-      <button className={tab === 'cashbook' ? 'active' : ''} onClick={() => setTab('cashbook')}>Sổ quỹ</button>
-      <button className={tab === 'payroll' ? 'active' : ''} onClick={() => setTab('payroll')}>Chấm công & Lương PT</button>
-    </div>
+    <nav className="finance-hub__tabs" role="tablist" aria-label="Phân hệ tài chính">
+      {tabs.map((item) => {
+        const Icon = item.icon
+        const active = tab === item.id
+        return <button key={item.id} type="button" role="tab" aria-selected={active} className={active ? 'is-active' : ''} onClick={() => setTab(item.id)}><Icon size={18} /><span><strong><span className="finance-hub__long-label">{item.label}</span><span className="finance-hub__short-label">{item.shortLabel}</span></strong><small>{item.detail}</small></span></button>
+      })}
+    </nav>
     {tab === 'overview' && <BusinessPerformancePanel />}
     {tab === 'ledger' && <FinanceManagement user={user} profile={profile} />}
     {tab === 'cashbook' && <CashbookPanel branches={branches} />}
