@@ -20,6 +20,7 @@ const { createPtSchedulePublishFunctions } = require('./pt-schedule-publish')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
 const { createSessionOperationFunctions } = require('./session-operations')
 const { createPayrollFunctions } = require('./payroll')
+const { createStaffPayrollFunctions } = require('./staff-payroll')
 const { createOperationsDashboardFunctions } = require('./operations-dashboard')
 const { createCashbookFunctions } = require('./cashbook')
 const { createBusinessReportingFunctions } = require('./business-reporting')
@@ -209,6 +210,15 @@ exports.createMyContractPauseRequest = sessionOperationFunctions.createMyContrac
 exports.approveContractPauseRequest = sessionOperationFunctions.approveContractPauseRequest
 exports.rejectContractPauseRequest = sessionOperationFunctions.rejectContractPauseRequest
 Object.assign(exports, createPayrollFunctions({ db, onCall, logger }))
+const staffPayrollFunctions = createStaffPayrollFunctions({ db, onCall, logger })
+Object.assign(exports, staffPayrollFunctions)
+exports.getMyStaffPayroll = staffPayrollFunctions.getMyStaffPayroll
+exports.listStaffPayrollAttendance = staffPayrollFunctions.listStaffPayrollAttendance
+exports.getStaffPayrollAttendanceDetail = staffPayrollFunctions.getStaffPayrollAttendanceDetail
+exports.saveStaffAttendanceDay = staffPayrollFunctions.saveStaffAttendanceDay
+exports.fillMissingStaffAttendanceDays = staffPayrollFunctions.fillMissingStaffAttendanceDays
+exports.saveWorkCalendar = staffPayrollFunctions.saveWorkCalendar
+exports.submitMyPayrollInquiry = staffPayrollFunctions.submitMyPayrollInquiry
 const businessReportingFunctions = createBusinessReportingFunctions({ db, onCall })
 Object.assign(exports, businessReportingFunctions)
 // Static exports make the three endpoints selectable in a safe rollout.

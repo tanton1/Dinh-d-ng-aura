@@ -2,6 +2,7 @@ const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { createHash } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
+const { calculateWorkdayPayroll, mergeWorkCalendar, payrollAmounts } = require('./staff-payroll')
 
 async function payrollActor(request, db) {
   const actor = await trustedAccessContext(request, db)
@@ -553,11 +554,19 @@ function createPayrollFunctions({ db, onCall }) {
           policyIds: Array.isArray(data.policyIds) ? data.policyIds : data.policyId ? [data.policyId] : [],
           policyApplicationMode: data.policyApplicationMode || 'single',
           status: data.status || 'draft',
-          requiresRebuild: Number(data.schemaVersion || 0) < 4,
+          requiresRebuild: Number(data.schemaVersion || 0) < 5,
           attendanceCount: Number(data.teachingSlotCount ?? data.attendanceCount ?? 0),
           teachingSlotCount: Number(data.teachingSlotCount ?? data.attendanceCount ?? 0),
           attendanceEventCount: Number(data.attendanceEventCount ?? data.attendanceCount ?? 0),
           trainerCount: Number(data.trainerCount || 0),
+          staffCount: Number(data.staffCount || data.trainerCount || 0),
+          workdayStaffCount: Number(data.workdayStaffCount || 0),
+          attendanceReviewRequiredCount: Number(data.attendanceReviewRequiredCount || 0),
+          calendarReviewRequiredCount: Number(data.calendarReviewRequiredCount || 0),
+          attendanceReviewRequired: data.attendanceReviewRequired === true,
+          baseSalaryAmount: Number(data.baseSalaryAmount || 0),
+          teachingPayAmount: Number(data.teachingPayAmount || 0),
+          bonusAmount: Number(data.bonusAmount || 0),
           grossAmount: Number(data.grossAmount || 0),
           adjustmentAmount: Number(data.adjustmentAmount || 0),
           finalAmount: Number(data.finalAmount || data.grossAmount || 0),
@@ -579,7 +588,7 @@ function createPayrollFunctions({ db, onCall }) {
     if (!run.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
     const runData = run.data()
     const itemValues = items.docs.map((item) => ({ id: item.id, ...item.data() }))
-    const requiresRebuild = Number(runData.schemaVersion || 0) < 4 || itemValues.some((item) => !Array.isArray(item.teachingSlots))
+    const requiresRebuild = Number(runData.schemaVersion || 0) < 5 || itemValues.some((item) => !Array.isArray(item.teachingSlots))
     let responseItems = itemValues
     let previewSummary = null
     if (requiresRebuild && runData.status === 'draft') {
@@ -614,6 +623,15 @@ function createPayrollFunctions({ db, onCall }) {
           teachingSlots: Array.isArray(data.teachingSlots) ? data.teachingSlots : [],
           tierSummary: data.tierSummary && typeof data.tierSummary === 'object' ? data.tierSummary : {},
           ratePerSession: Number(data.ratePerSession || 0),
+          baseSalaryAmount: Number(data.baseSalaryAmount || 0),
+          teachingPayAmount: Number(data.teachingPayAmount ?? data.grossAmount ?? 0),
+          commissionAmount: Number(data.commissionAmount || 0),
+          bonusAmount: Number(data.bonusAmount || 0),
+          deductionAmount: Number(data.deductionAmount || 0),
+          workdaySummary: data.workdaySummary && typeof data.workdaySummary === 'object' ? data.workdaySummary : {},
+          workdayDays: Array.isArray(data.workdayDays) ? data.workdayDays : [],
+          attendanceReviewRequired: data.attendanceReviewRequired === true,
+          calendarReviewRequired: data.calendarReviewRequired === true,
           grossAmount: Number(data.grossAmount || 0),
           adjustmentAmount: Number(data.adjustmentAmount || 0),
           finalAmount: Number(data.finalAmount || data.grossAmount || 0),
@@ -635,7 +653,16 @@ function createPayrollFunctions({ db, onCall }) {
       const existing = await transaction.get(runReference)
       if (existing.exists) return { runId: existing.id, unchanged: true, status: existing.data().status }
 
-      const attendance = await transaction.get(db.collection('attendanceEvents').where('occurredAt', '>=', start).where('occurredAt', '<', end))
+      const [attendance, staffSnapshot, assignmentSnapshot, workdayAttendanceSnapshot, calendarSnapshot] = await Promise.all([
+        transaction.get(db.collection('attendanceEvents').where('occurredAt', '>=', start).where('occurredAt', '<', end)),
+        transaction.get(db.collection('staff').limit(451)),
+        transaction.get(db.collection('roleAssignments').where('accessRole', '==', 'staff').limit(451)),
+        transaction.get(db.collection('staffAttendanceDays').where('periodId', '==', periodId).limit(5001)),
+        transaction.get(db.collection('workCalendars').where('periodId', '==', periodId).limit(101)),
+      ])
+      if (staffSnapshot.size > 450 || assignmentSnapshot.size > 450 || workdayAttendanceSnapshot.size > 5000 || calendarSnapshot.size > 100) {
+        throw new HttpsError('resource-exhausted', 'Dữ liệu ngày công của kỳ quá lớn để khóa an toàn trong một giao dịch.')
+      }
       let policyDocuments
       if (requestedPlan.selectedPolicyIds.length) {
         policyDocuments = await Promise.all(requestedPlan.selectedPolicyIds.map((policyId) => transaction.get(db.doc(`payrollPolicies/${policyId}`))))
@@ -667,29 +694,82 @@ function createPayrollFunctions({ db, onCall }) {
       const sessionById = new Map(sessionSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, snapshot.data()]))
       const groupedTeaching = teachingSlotsFromAttendance(eligibleAttendance, sessionById, selectedPolicies[0].configuration)
       const teaching = applyPayrollPolicyPlan(groupedTeaching, policyPlan, selectedPolicies)
-      if (teaching.trainers.size > 450) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều nhân sự để khóa trong một giao dịch.')
-      const trainerIds = [...teaching.trainers.keys()]
-      const identitySnapshots = await Promise.all(trainerIds.flatMap((trainerId) => [
-        transaction.get(db.doc(`trainers/${trainerId}`)),
-        transaction.get(db.doc(`staff/${trainerId}`)),
-        transaction.get(db.doc(`users/${trainerId}`)),
-      ]))
-      const trainerById = new Map()
-      trainerIds.forEach((trainerId, index) => {
-        const trainer = identitySnapshots[index * 3]?.exists ? identitySnapshots[index * 3].data() : {}
-        const staff = identitySnapshots[index * 3 + 1]?.exists ? identitySnapshots[index * 3 + 1].data() : {}
-        const user = identitySnapshots[index * 3 + 2]?.exists ? identitySnapshots[index * 3 + 2].data() : {}
-        trainerById.set(trainerId, {
-          name: trainer.name || trainer.fullName || trainer.displayName || staff.name || staff.fullName || user.name || user.fullName || user.displayName || '',
-          branchId: trainer.branchId || staff.branchId || user.branchId || '',
+      const staffRecordById = new Map(staffSnapshot.docs
+        .map((item) => ({ id: item.id, userId: item.id, ...item.data() }))
+        .filter((item) => item.status !== 'inactive')
+        .map((item) => [item.id, item]))
+      assignmentSnapshot.docs.forEach((item) => {
+        const assignment = item.data()
+        if (assignment.status === 'suspended' || assignment.status === 'invited') return
+        const operationalId = typeof assignment.crmProfileId === 'string' && assignment.crmProfileId ? assignment.crmProfileId : item.id
+        const existing = staffRecordById.get(operationalId) || {}
+        staffRecordById.set(operationalId, {
+          ...existing,
+          id: operationalId,
+          userId: item.id,
+          branchId: existing.branchId || assignment.branchIds?.[0] || '',
+          status: existing.status || 'active',
         })
       })
-      const grossAmount = [...teaching.trainers.values()].flat().reduce((total, slot) => total + slot.rate, 0)
+      const activeStaff = [...staffRecordById.values()]
+      const staffIds = [...new Set([...activeStaff.map((item) => item.id), ...teaching.trainers.keys()])]
+      if (staffIds.length > 450) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều nhân sự để khóa trong một giao dịch.')
+      const identitySnapshots = await Promise.all(staffIds.flatMap((staffId) => [
+        transaction.get(db.doc(`trainers/${staffId}`)),
+        transaction.get(db.doc(`users/${staffRecordById.get(staffId)?.userId || staffId}`)),
+      ]))
+      const identityById = new Map()
+      staffIds.forEach((staffId, index) => {
+        const trainer = identitySnapshots[index * 2]?.exists ? identitySnapshots[index * 2].data() : {}
+        const staff = staffRecordById.get(staffId) || {}
+        const user = identitySnapshots[index * 2 + 1]?.exists ? identitySnapshots[index * 2 + 1].data() : {}
+        identityById.set(staffId, {
+          name: staff.name || staff.fullName || staff.displayName || trainer.name || trainer.fullName || trainer.displayName || user.name || user.fullName || user.displayName || '',
+          employeeCode: staff.employeeCode || trainer.employeeCode || '',
+          branchId: staff.branchId || trainer.branchId || user.branchId || '',
+        })
+      })
+      const workdayAttendanceByStaff = new Map()
+      workdayAttendanceSnapshot.docs.forEach((item) => {
+        const value = item.data()
+        const current = workdayAttendanceByStaff.get(value.staffId) || []
+        current.push({ id: item.id, ...value })
+        workdayAttendanceByStaff.set(value.staffId, current)
+      })
+      const calendars = new Map(calendarSnapshot.docs.map((item) => [item.data().branchId || 'global', item.data()]))
+      const globalCalendar = calendars.get('global') || {}
       const defaultPolicy = selectedPolicies.find((policy) => policy.id === defaultPolicyId) || selectedPolicies[0]
       const policySnapshots = selectedPolicies.map(payrollPolicySnapshot)
       const policyName = selectedPolicies.length === 1 ? selectedPolicies[0].name : `${selectedPolicies.length} chính sách linh hoạt`
+      const itemRecords = staffIds.map((staffId) => {
+        const staff = staffRecordById.get(staffId) || {}
+        const identity = identityById.get(staffId) || {}
+        const calendar = mergeWorkCalendar(periodId, globalCalendar, calendars.get(identity.branchId) || {})
+        const workdays = calculateWorkdayPayroll({
+          periodId,
+          calendar,
+          attendance: workdayAttendanceByStaff.get(staffId) || [],
+          staff,
+          today: vietnamDateKey(new Date()),
+        })
+        const teachingSlots = teaching.trainers.get(staffId) || []
+        const teachingPayAmount = teachingSlots.reduce((total, slot) => total + slot.rate, 0)
+        const configuredCommission = Number(staff.commissionPerSession || 0)
+        const commissionPerSession = Number.isSafeInteger(configuredCommission) && configuredCommission >= 0 && configuredCommission <= 10_000_000
+          ? configuredCommission
+          : 0
+        const commissionAmount = Math.min(5_000_000_000, teachingSlots.length * commissionPerSession)
+        const amounts = payrollAmounts(workdays, { grossAmount: teachingPayAmount, commissionAmount })
+        const itemPolicyIds = [...new Set(teachingSlots.map((slot) => slot.policyId).filter(Boolean))]
+        return { staffId, staff, identity, calendar, workdays, teachingSlots, amounts, itemPolicyIds }
+      })
+      const grossAmount = itemRecords.reduce((total, item) => total + item.amounts.grossAmount, 0)
+      const finalAmount = itemRecords.reduce((total, item) => total + item.amounts.finalAmount, 0)
+      const workdayStaffCount = itemRecords.filter((item) => item.workdays.workdayEnabled).length
+      const attendanceReviewRequiredCount = itemRecords.filter((item) => item.workdays.attendanceReviewRequired).length
+      const calendarReviewRequiredCount = itemRecords.filter((item) => item.workdays.calendarReviewRequired).length
       transaction.create(runReference, {
-        schemaVersion: 4,
+        schemaVersion: 5,
         revision: 1,
         periodId,
         policyId: defaultPolicy.id,
@@ -705,19 +785,25 @@ function createPayrollFunctions({ db, onCall }) {
         teachingSlotCount: teaching.teachingSlotCount,
         attendanceEventCount: teaching.attendanceEventCount,
         trainerCount: teaching.trainers.size,
+        staffCount: itemRecords.length,
+        workdayStaffCount,
+        attendanceReviewRequired: attendanceReviewRequiredCount > 0 || calendarReviewRequiredCount > 0,
+        attendanceReviewRequiredCount,
+        calendarReviewRequiredCount,
+        baseSalaryAmount: itemRecords.reduce((total, item) => total + item.amounts.baseSalaryAmount, 0),
+        teachingPayAmount: itemRecords.reduce((total, item) => total + item.amounts.teachingPayAmount, 0),
+        bonusAmount: itemRecords.reduce((total, item) => total + item.amounts.bonusAmount, 0),
         grossAmount,
         adjustmentAmount: 0,
-        finalAmount: grossAmount,
+        finalAmount,
         timeZone: 'Asia/Ho_Chi_Minh',
         createdAt: FieldValue.serverTimestamp(),
         createdBy: actor.uid,
         updatedAt: FieldValue.serverTimestamp(),
       })
-      for (const [trainerId, teachingSlots] of teaching.trainers) {
-        const itemReference = db.doc(`payrollRunItems/${periodId}_${trainerId}`)
-        const trainer = trainerById.get(trainerId) || {}
-        const itemGrossAmount = teachingSlots.reduce((total, slot) => total + slot.rate, 0)
-        const itemPolicyIds = [...new Set(teachingSlots.map((slot) => slot.policyId).filter(Boolean))]
+      for (const item of itemRecords) {
+        const { staffId, identity, calendar, workdays, teachingSlots, amounts, itemPolicyIds } = item
+        const itemReference = db.doc(`payrollRunItems/${periodId}_${staffId}`)
         const tierSummary = teachingSlots.reduce((result, slot) => {
           if (slot.tier === 'standard') { result.standardCount += 1; result.standardAmount += slot.rate }
           else if (slot.tier === 'after_threshold') { result.afterThresholdCount += 1; result.afterThresholdAmount += slot.rate }
@@ -725,11 +811,13 @@ function createPayrollFunctions({ db, onCall }) {
           return result
         }, { standardCount: 0, standardAmount: 0, afterThresholdCount: 0, afterThresholdAmount: 0, afterThresholdEveningCount: 0, afterThresholdEveningAmount: 0 })
         transaction.create(itemReference, {
-          schemaVersion: 4,
+          schemaVersion: 5,
           runId: runReference.id,
           periodId,
-          trainerId,
-          trainerSnapshot: { name: trainer.name || 'Chưa cập nhật tên HLV', branchId: trainer.branchId || '' },
+          staffId,
+          trainerId: staffId,
+          staffSnapshot: { name: identity.name || 'Chưa cập nhật tên', employeeCode: identity.employeeCode || '', branchId: identity.branchId || '' },
+          trainerSnapshot: { name: identity.name || 'Chưa cập nhật tên', branchId: identity.branchId || '' },
           policyIds: itemPolicyIds,
           policySnapshots: policySnapshots.filter((policy) => itemPolicyIds.includes(policy.id)),
           sessionCount: teachingSlots.length,
@@ -738,15 +826,34 @@ function createPayrollFunctions({ db, onCall }) {
           teachingSlots,
           tierSummary,
           ratePerSession: defaultPolicy.configuration.ratePerSession,
-          grossAmount: itemGrossAmount,
+          baseSalarySnapshot: { monthlyAmount: workdays.baseSalary, dailyRate: workdays.dailyRate },
+          workCalendarSnapshot: { periodId, branchId: identity.branchId || '', weeklyRestDays: calendar.weeklyRestDays, holidays: calendar.holidays, revision: calendar.revision, approved: calendar.approved },
+          workdaySummary: {
+            standardWorkdays: workdays.standardWorkdays,
+            eligibleWorkdays: workdays.eligibleWorkdays,
+            paidDays: workdays.paidDays,
+            unpaidDays: workdays.unpaidDays,
+            pendingDays: workdays.pendingDays,
+            benefitReviewDays: workdays.benefitReviewDays,
+            estimatedPaidDays: workdays.estimatedPaidDays,
+          },
+          workdayDays: workdays.days.filter((day) => day.eligible || day.status === 'paid_holiday'),
+          attendanceReviewRequired: workdays.attendanceReviewRequired,
+          calendarReviewRequired: workdays.calendarReviewRequired,
+          baseSalaryAmount: amounts.baseSalaryAmount,
+          teachingPayAmount: amounts.teachingPayAmount,
+          commissionAmount: amounts.commissionAmount,
+          bonusAmount: amounts.bonusAmount,
+          deductionAmount: amounts.deductionAmount,
+          grossAmount: amounts.grossAmount,
           adjustmentAmount: 0,
-          finalAmount: itemGrossAmount,
+          finalAmount: amounts.finalAmount,
           status: 'draft',
-          evidenceSource: 'attendanceEvents+sessions',
+          evidenceSource: workdays.workdayEnabled ? 'staffAttendanceDays+attendanceEvents+sessions' : 'attendanceEvents+sessions',
           createdAt: FieldValue.serverTimestamp(),
         })
       }
-      transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 4, runId: runReference.id, action: 'payroll.created', actorUid: actor.uid, toStatus: 'draft', policyIds, policyApplicationMode: selectedPolicies.length === 1 ? 'single' : policyPlan.applicationMode, createdAt: FieldValue.serverTimestamp() })
+      transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 5, runId: runReference.id, action: 'payroll.created', actorUid: actor.uid, toStatus: 'draft', policyIds, policyApplicationMode: selectedPolicies.length === 1 ? 'single' : policyPlan.applicationMode, staffCount: itemRecords.length, workdayStaffCount, attendanceReviewRequiredCount, calendarReviewRequiredCount, createdAt: FieldValue.serverTimestamp() })
       return { runId: runReference.id, unchanged: false, status: 'draft' }
     })
   })
@@ -789,8 +896,11 @@ function createPayrollFunctions({ db, onCall }) {
       if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
       if (snapshot.data().status === to) return
       if (snapshot.data().status !== from) throw new HttpsError('failed-precondition', `Kỳ lương phải ở trạng thái ${from}.`)
-      if (to === 'reviewed' && Number(snapshot.data().schemaVersion || 0) < 4) {
-        throw new HttpsError('failed-precondition', 'Kỳ lương nháp cũ cần được xóa và lập lại để chốt đúng tên HLV, số ca và chính sách mới.')
+      if (to === 'reviewed' && Number(snapshot.data().schemaVersion || 0) < 5) {
+        throw new HttpsError('failed-precondition', 'Kỳ lương nháp cũ cần được xóa và lập lại để chốt đúng ngày công, tên nhân viên, số ca và chính sách mới.')
+      }
+      if (to === 'reviewed' && snapshot.data().attendanceReviewRequired === true) {
+        throw new HttpsError('failed-precondition', 'Ngày công hoặc lịch làm việc của kỳ chưa được đối soát đầy đủ.')
       }
       transaction.update(reference, { status: to, ...fields, [`${to}At`]: FieldValue.serverTimestamp(), [`${to}By`]: actor.uid, updatedAt: FieldValue.serverTimestamp() })
       transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 1, runId, action: `payroll.${to}`, actorUid: actor.uid, fromStatus: from, toStatus: to, createdAt: FieldValue.serverTimestamp() })

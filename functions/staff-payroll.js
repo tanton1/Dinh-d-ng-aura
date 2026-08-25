@@ -1,0 +1,590 @@
+const { FieldValue } = require('firebase-admin/firestore')
+const { HttpsError } = require('firebase-functions/v2/https')
+const { trustedAccessContext, requireCapability } = require('./identity-access')
+
+const PAID_ATTENDANCE_STATUSES = new Set([
+  'present',
+  'remote',
+  'business_trip',
+  'training',
+  'paid_leave',
+])
+const UNPAID_ATTENDANCE_STATUSES = new Set(['unpaid_leave', 'unexcused_absence'])
+const REVIEW_ATTENDANCE_STATUSES = new Set(['pending', 'sick_leave', 'maternity_leave'])
+const ATTENDANCE_STATUSES = new Set([
+  ...PAID_ATTENDANCE_STATUSES,
+  ...UNPAID_ATTENDANCE_STATUSES,
+  ...REVIEW_ATTENDANCE_STATUSES,
+])
+
+function payrollPeriod(value) {
+  const result = typeof value === 'string' ? value.trim() : ''
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(result)) {
+    throw new HttpsError('invalid-argument', 'Kỳ lương phải có dạng YYYY-MM.')
+  }
+  return result
+}
+
+function dateKey(value, label = 'Ngày') {
+  let result = ''
+  if (typeof value === 'string') result = value.trim().slice(0, 10)
+  else if (value?.toDate || value instanceof Date) {
+    const date = value?.toDate ? value.toDate() : value
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date)
+    const get = (type) => parts.find((part) => part.type === type)?.value || ''
+    result = `${get('year')}-${get('month')}-${get('day')}`
+  }
+  if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(result)) {
+    throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
+  }
+  const [year, month, day] = result.split('-').map(Number)
+  if (new Date(Date.UTC(year, month - 1, day)).getUTCDate() !== day) {
+    throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
+  }
+  return result
+}
+
+function optionalDateKey(value) {
+  if (!value) return ''
+  try { return dateKey(value) } catch { return '' }
+}
+
+function monthDateKeys(periodId) {
+  const [year, month] = payrollPeriod(periodId).split('-').map(Number)
+  const count = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  return Array.from({ length: count }, (_, index) => `${periodId}-${String(index + 1).padStart(2, '0')}`)
+}
+
+function weekday(date) {
+  const [year, month, day] = dateKey(date).split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+}
+
+function safeMoney(value, maximum = 5_000_000_000) {
+  const result = Number(value || 0)
+  return Number.isSafeInteger(result) && result >= 0 && result <= maximum ? result : 0
+}
+
+function attendanceStatus(value) {
+  const result = typeof value === 'string' ? value.trim() : ''
+  if (!ATTENDANCE_STATUSES.has(result)) {
+    throw new HttpsError('invalid-argument', 'Trạng thái ngày công không hợp lệ.')
+  }
+  return result
+}
+
+function normalizedWeeklyRestDays(value) {
+  if (!Array.isArray(value) || !value.length) return [0]
+  const result = [...new Set(value.map(Number))]
+  if (result.some((day) => !Number.isInteger(day) || day < 0 || day > 6) || result.length > 6) {
+    throw new HttpsError('invalid-argument', 'Ngày nghỉ hằng tuần không hợp lệ.')
+  }
+  return result.sort((left, right) => left - right)
+}
+
+function normalizedHolidays(value, periodId) {
+  if (!Array.isArray(value)) return []
+  if (value.length > 20) throw new HttpsError('invalid-argument', 'Lịch nghỉ lễ trong tháng quá lớn.')
+  const seen = new Set()
+  return value.map((holiday) => {
+    const date = dateKey(holiday?.date, 'Ngày nghỉ lễ')
+    if (!date.startsWith(`${periodId}-`)) throw new HttpsError('invalid-argument', 'Ngày nghỉ lễ phải thuộc kỳ đang cấu hình.')
+    if (seen.has(date)) throw new HttpsError('invalid-argument', 'Lịch nghỉ lễ bị trùng ngày.')
+    seen.add(date)
+    const name = typeof holiday?.name === 'string' ? holiday.name.trim().replace(/\s+/g, ' ').slice(0, 100) : ''
+    if (name.length < 2) throw new HttpsError('invalid-argument', 'Tên ngày nghỉ lễ không hợp lệ.')
+    return { date, name, paid: holiday?.paid !== false }
+  }).sort((left, right) => left.date.localeCompare(right.date))
+}
+
+function mergeWorkCalendar(periodId, globalValue = {}, branchValue = {}) {
+  const branchConfigured = branchValue && Object.keys(branchValue).length > 0
+  const selected = branchConfigured ? branchValue : globalValue
+  const weeklyRestDays = normalizedWeeklyRestDays(selected.weeklyRestDays)
+  const globalHolidays = normalizedHolidays(globalValue.holidays, periodId)
+  const branchHolidays = branchConfigured ? normalizedHolidays(branchValue.holidays, periodId) : []
+  const holidayMap = new Map(globalHolidays.map((holiday) => [holiday.date, holiday]))
+  branchHolidays.forEach((holiday) => holidayMap.set(holiday.date, holiday))
+  const configured = Object.keys(selected).length > 0
+  return {
+    periodId,
+    branchId: typeof selected.branchId === 'string' ? selected.branchId : '',
+    weeklyRestDays,
+    holidays: [...holidayMap.values()].sort((left, right) => left.date.localeCompare(right.date)),
+    status: selected.status === 'approved' ? 'approved' : 'provisional',
+    revision: Number.isSafeInteger(selected.revision) ? selected.revision : 0,
+    source: configured ? (branchConfigured ? 'branch_calendar' : 'global_calendar') : 'default_sunday_calendar',
+    approved: configured && selected.status === 'approved',
+  }
+}
+
+function employmentWindow(staff = {}) {
+  return {
+    start: optionalDateKey(staff.employmentStartDate || staff.startDate || staff.joinDate || staff.createdAt),
+    end: optionalDateKey(staff.employmentEndDate || staff.terminationDate || staff.endDate),
+  }
+}
+
+function calculateWorkdayPayroll({ periodId, calendar, attendance = [], staff = {}, today }) {
+  const normalizedPeriod = payrollPeriod(periodId)
+  const effectiveToday = today ? dateKey(today, 'Ngày đối soát') : dateKey(new Date(), 'Ngày đối soát')
+  const holidayMap = new Map((calendar.holidays || []).map((holiday) => [holiday.date, holiday]))
+  const weeklyRestDays = normalizedWeeklyRestDays(calendar.weeklyRestDays)
+  const attendanceByDate = new Map()
+  attendance.forEach((record) => {
+    const date = dateKey(record.date)
+    if (!date.startsWith(`${normalizedPeriod}-`)) return
+    const currentRevision = Number(attendanceByDate.get(date)?.revision || 0)
+    const nextRevision = Number(record.revision || 0)
+    if (!attendanceByDate.has(date) || nextRevision >= currentRevision) attendanceByDate.set(date, { ...record, date })
+  })
+  const employment = employmentWindow(staff)
+  const baseSalary = safeMoney(staff.baseSalary)
+  const fixedBonus = safeMoney(staff.bonusMonthly)
+  const standardDates = monthDateKeys(normalizedPeriod).filter((date) => !weeklyRestDays.includes(weekday(date)) && !holidayMap.has(date))
+  const eligibleDates = standardDates.filter((date) => (!employment.start || date >= employment.start) && (!employment.end || date <= employment.end))
+  const eligibleSet = new Set(eligibleDates)
+  let paidDays = 0
+  let unpaidDays = 0
+  let pendingDays = 0
+  let benefitReviewDays = 0
+  const days = monthDateKeys(normalizedPeriod).map((date) => {
+    const restDay = weeklyRestDays.includes(weekday(date))
+    const holiday = holidayMap.get(date)
+    const eligible = eligibleSet.has(date)
+    const record = attendanceByDate.get(date)
+    let status = restDay ? 'weekly_rest' : holiday ? 'paid_holiday' : eligible ? (record?.status || (date > effectiveToday ? 'upcoming' : 'pending')) : 'outside_employment'
+    if (record && eligible) status = ATTENDANCE_STATUSES.has(record.status) ? record.status : 'pending'
+    if (eligible) {
+      if (PAID_ATTENDANCE_STATUSES.has(status)) paidDays += 1
+      else if (UNPAID_ATTENDANCE_STATUSES.has(status)) unpaidDays += 1
+      else if (status === 'pending') pendingDays += 1
+      else if (status === 'sick_leave' || status === 'maternity_leave') benefitReviewDays += 1
+    }
+    return {
+      date,
+      weekday: weekday(date),
+      status,
+      eligible,
+      holidayName: holiday?.name || '',
+      note: typeof record?.note === 'string' ? record.note : '',
+      revision: Number(record?.revision || 0),
+    }
+  })
+  const standardWorkdays = standardDates.length
+  const eligibleWorkdays = eligibleDates.length
+  const estimatedPaidDays = Math.max(0, eligibleWorkdays - unpaidDays - benefitReviewDays)
+  const dailyRate = standardWorkdays ? baseSalary / standardWorkdays : 0
+  const baseSalaryEarned = Math.round(dailyRate * estimatedPaidDays)
+  const workdayEnabled = baseSalary > 0
+  const calendarReviewRequired = workdayEnabled && calendar.approved !== true
+  const attendanceReviewRequired = workdayEnabled && (pendingDays > 0 || benefitReviewDays > 0)
+  return {
+    standardWorkdays,
+    eligibleWorkdays,
+    paidDays,
+    unpaidDays,
+    pendingDays,
+    benefitReviewDays,
+    estimatedPaidDays,
+    dailyRate: Math.round(dailyRate),
+    baseSalary,
+    baseSalaryEarned,
+    fixedBonus,
+    workdayEnabled,
+    calendarReviewRequired,
+    attendanceReviewRequired,
+    reviewRequired: calendarReviewRequired || attendanceReviewRequired,
+    employment,
+    days,
+  }
+}
+
+function iso(value) {
+  return value?.toDate?.().toISOString?.() || ''
+}
+
+function publicIdentity(staff = {}, trainer = {}, user = {}) {
+  return {
+    name: staff.name || staff.fullName || staff.displayName || trainer.name || trainer.fullName || user.name || user.fullName || user.displayName || 'Chưa cập nhật tên',
+    employeeCode: staff.employeeCode || trainer.employeeCode || '',
+    branchId: staff.branchId || trainer.branchId || user.branchId || '',
+    photoURL: staff.photoURL || trainer.photoURL || user.photoURL || '',
+  }
+}
+
+function requireSelfPayroll(actor) {
+  if (!actor.capabilities.includes('payroll.self.view') && !actor.capabilities.includes('payroll.operations.manage')) {
+    throw new HttpsError('permission-denied', 'Bạn chưa có quyền xem bảng lương cá nhân.')
+  }
+}
+
+function staffDocumentId(value) {
+  const result = typeof value === 'string' ? value.trim() : ''
+  if (!/^[A-Za-z0-9_-]{1,200}$/.test(result)) throw new HttpsError('invalid-argument', 'Mã nhân viên không hợp lệ.')
+  return result
+}
+
+async function loadIdentity(db, staffId, uid = staffId) {
+  const [staffSnapshot, trainerSnapshot, userSnapshot] = await Promise.all([
+    db.doc(`staff/${staffId}`).get(),
+    db.doc(`trainers/${staffId}`).get(),
+    db.doc(`users/${uid}`).get(),
+  ])
+  const staff = staffSnapshot.exists ? staffSnapshot.data() : {}
+  const trainer = trainerSnapshot.exists ? trainerSnapshot.data() : {}
+  const user = userSnapshot.exists ? userSnapshot.data() : {}
+  return { staff: { ...trainer, ...staff }, identity: publicIdentity(staff, trainer, user) }
+}
+
+async function loadCalendar(db, periodId, branchId) {
+  const [globalSnapshot, branchSnapshot] = await Promise.all([
+    db.doc(`workCalendars/global_${periodId}`).get(),
+    branchId ? db.doc(`workCalendars/${branchId}_${periodId}`).get() : Promise.resolve(null),
+  ])
+  return mergeWorkCalendar(
+    periodId,
+    globalSnapshot?.exists ? globalSnapshot.data() : {},
+    branchSnapshot?.exists ? branchSnapshot.data() : {},
+  )
+}
+
+async function loadAttendance(db, staffId, periodId) {
+  const snapshot = await db.collection('staffAttendanceDays')
+    .where('staffId', '==', staffId)
+    .where('periodId', '==', periodId)
+    .limit(40)
+    .get()
+  return snapshot.docs.map((item) => ({ id: item.id, ...item.data(), updatedAt: iso(item.data().updatedAt) }))
+}
+
+function payrollAmounts(workdays, payrollItem = {}) {
+  const teachingPay = safeMoney(payrollItem.teachingPayAmount ?? payrollItem.grossAmount)
+  const commissions = safeMoney(payrollItem.commissionAmount)
+  const fixedBonus = workdays.fixedBonus
+  const adjustment = Number.isSafeInteger(Number(payrollItem.adjustmentAmount)) ? Number(payrollItem.adjustmentAmount) : 0
+  const deductions = safeMoney(payrollItem.deductionAmount)
+  const grossAmount = workdays.baseSalaryEarned + teachingPay + commissions + fixedBonus
+  return {
+    baseSalaryAmount: workdays.baseSalaryEarned,
+    teachingPayAmount: teachingPay,
+    commissionAmount: commissions,
+    bonusAmount: fixedBonus,
+    adjustmentAmount: adjustment,
+    deductionAmount: deductions,
+    grossAmount,
+    finalAmount: Math.max(0, grossAmount + adjustment - deductions),
+  }
+}
+
+function createStaffPayrollFunctions({ db, onCall }) {
+  const getMyStaffPayroll = onCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    requireSelfPayroll(actor)
+    const periodId = payrollPeriod(request.data?.periodId)
+    const staffId = staffDocumentId(actor.legacyStaffId || actor.uid)
+    const { staff, identity } = await loadIdentity(db, staffId, actor.uid)
+    const branchId = identity.branchId || actor.branchIds[0] || ''
+    const [calendar, attendance, runSnapshot, itemSnapshot] = await Promise.all([
+      loadCalendar(db, periodId, branchId),
+      loadAttendance(db, staffId, periodId),
+      db.doc(`payrollRuns/${periodId}`).get(),
+      db.doc(`payrollRunItems/${periodId}_${staffId}`).get(),
+    ])
+    const workdays = calculateWorkdayPayroll({ periodId, calendar, attendance, staff })
+    const payrollItem = itemSnapshot.exists ? itemSnapshot.data() : {}
+    const amounts = payrollAmounts(workdays, payrollItem)
+    const run = runSnapshot.exists ? runSnapshot.data() : {}
+    const official = ['locked', 'paid'].includes(run.status) && Number(run.schemaVersion || 0) >= 5
+    return {
+      schemaVersion: 1,
+      periodId,
+      identity,
+      calendar,
+      workdays,
+      amounts: official ? {
+        ...amounts,
+        baseSalaryAmount: safeMoney(payrollItem.baseSalaryAmount ?? amounts.baseSalaryAmount),
+        teachingPayAmount: safeMoney(payrollItem.teachingPayAmount ?? amounts.teachingPayAmount),
+        commissionAmount: safeMoney(payrollItem.commissionAmount ?? amounts.commissionAmount),
+        bonusAmount: safeMoney(payrollItem.bonusAmount ?? amounts.bonusAmount),
+        deductionAmount: safeMoney(payrollItem.deductionAmount ?? amounts.deductionAmount),
+        grossAmount: safeMoney(payrollItem.grossAmount ?? amounts.grossAmount),
+        finalAmount: safeMoney(payrollItem.finalAmount ?? amounts.finalAmount),
+      } : amounts,
+      teachingSlots: Array.isArray(payrollItem.teachingSlots) ? payrollItem.teachingSlots : [],
+      tierSummary: payrollItem.tierSummary && typeof payrollItem.tierSummary === 'object' ? payrollItem.tierSummary : {},
+      run: {
+        exists: runSnapshot.exists,
+        status: run.status || 'estimating',
+        official,
+        updatedAt: iso(run.updatedAt),
+        paidAt: iso(run.paidAt),
+      },
+      generatedAt: new Date().toISOString(),
+    }
+  })
+
+  const listStaffPayrollAttendance = onCall(async (request) => {
+    await payrollActorForAdmin(request, db)
+    const periodId = payrollPeriod(request.data?.periodId)
+    const branchFilter = typeof request.data?.branchId === 'string' ? request.data.branchId.trim() : ''
+    const [staffSnapshot, assignmentSnapshot, attendanceSnapshot, calendarSnapshot] = await Promise.all([
+      db.collection('staff').limit(450).get(),
+      db.collection('roleAssignments').where('accessRole', '==', 'staff').limit(450).get(),
+      db.collection('staffAttendanceDays').where('periodId', '==', periodId).limit(5000).get(),
+      db.collection('workCalendars').where('periodId', '==', periodId).limit(100).get(),
+    ])
+    const attendanceByStaff = new Map()
+    attendanceSnapshot.docs.forEach((item) => {
+      const value = item.data()
+      const current = attendanceByStaff.get(value.staffId) || []
+      current.push(value)
+      attendanceByStaff.set(value.staffId, current)
+    })
+    const calendars = new Map(calendarSnapshot.docs.map((item) => [item.data().branchId || 'global', item.data()]))
+    const globalCalendar = calendars.get('global') || {}
+    const staffById = new Map(staffSnapshot.docs
+      .map((item) => ({ id: item.id, userId: item.id, ...item.data() }))
+      .map((staff) => [staff.id, staff]))
+    assignmentSnapshot.docs.forEach((item) => {
+      const assignment = item.data()
+      if (assignment.status === 'suspended' || assignment.status === 'invited') return
+      const operationalId = typeof assignment.crmProfileId === 'string' && assignment.crmProfileId ? assignment.crmProfileId : item.id
+      const existing = staffById.get(operationalId) || {}
+      staffById.set(operationalId, {
+        ...existing,
+        id: operationalId,
+        userId: item.id,
+        branchId: existing.branchId || assignment.branchIds?.[0] || '',
+        status: existing.status || 'active',
+      })
+    })
+    const staffValues = [...staffById.values()]
+    const userSnapshots = staffValues.length
+      ? await db.getAll(...staffValues.map((staff) => db.doc(`users/${staff.userId || staff.id}`)))
+      : []
+    const userByStaffId = new Map(staffValues.map((staff, index) => [staff.id, userSnapshots[index]?.exists ? userSnapshots[index].data() : {}]))
+    const rows = staffValues
+      .filter((staff) => staff.status !== 'inactive' && (!branchFilter || staff.branchId === branchFilter))
+      .map((staff) => {
+        const user = userByStaffId.get(staff.id) || {}
+        const calendar = mergeWorkCalendar(periodId, globalCalendar, calendars.get(staff.branchId) || {})
+        const workdays = calculateWorkdayPayroll({ periodId, calendar, attendance: attendanceByStaff.get(staff.id) || [], staff })
+        return {
+          staffId: staff.id,
+          name: staff.name || staff.fullName || staff.displayName || user.name || user.fullName || user.displayName || 'Chưa cập nhật tên',
+          branchId: staff.branchId || '',
+          baseSalary: workdays.baseSalary,
+          standardWorkdays: workdays.standardWorkdays,
+          eligibleWorkdays: workdays.eligibleWorkdays,
+          paidDays: workdays.paidDays,
+          estimatedPaidDays: workdays.estimatedPaidDays,
+          unpaidDays: workdays.unpaidDays,
+          pendingDays: workdays.pendingDays + workdays.benefitReviewDays,
+          baseSalaryEarned: workdays.baseSalaryEarned,
+          reviewRequired: workdays.reviewRequired,
+          calendarApproved: calendar.approved,
+        }
+      })
+    return { periodId, rows, truncated: staffSnapshot.size >= 450 || assignmentSnapshot.size >= 450 || attendanceSnapshot.size >= 5000 }
+  })
+
+  const getStaffPayrollAttendanceDetail = onCall(async (request) => {
+    await payrollActorForAdmin(request, db)
+    const periodId = payrollPeriod(request.data?.periodId)
+    const staffId = staffDocumentId(request.data?.staffId)
+    const assignmentSnapshot = await db.collection('roleAssignments').where('crmProfileId', '==', staffId).limit(2).get()
+    const userId = assignmentSnapshot.size === 1 ? assignmentSnapshot.docs[0].id : staffId
+    const { staff, identity } = await loadIdentity(db, staffId, userId)
+    const calendar = await loadCalendar(db, periodId, identity.branchId)
+    const attendance = await loadAttendance(db, staffId, periodId)
+    return { periodId, staffId, identity, calendar, workdays: calculateWorkdayPayroll({ periodId, calendar, attendance, staff }) }
+  })
+
+  const saveStaffAttendanceDay = onCall(async (request) => {
+    const actor = await payrollActorForAdmin(request, db)
+    const staffId = staffDocumentId(request.data?.staffId)
+    const date = dateKey(request.data?.date)
+    const periodId = payrollPeriod(date.slice(0, 7))
+    const status = attendanceStatus(request.data?.status)
+    const note = typeof request.data?.note === 'string' ? request.data.note.trim().slice(0, 300) : ''
+    const reference = db.doc(`staffAttendanceDays/${staffId}_${date.replaceAll('-', '')}`)
+    return db.runTransaction(async (transaction) => {
+      const [staffSnapshot, current] = await Promise.all([
+        transaction.get(db.doc(`staff/${staffId}`)),
+        transaction.get(reference),
+      ])
+      if (!staffSnapshot.exists || staffSnapshot.data().status === 'inactive') {
+        throw new HttpsError('not-found', 'Không tìm thấy nhân viên đang hoạt động.')
+      }
+      const revision = Number(current.data()?.revision || 0) + 1
+      transaction.set(reference, {
+        schemaVersion: 1,
+        staffId,
+        periodId,
+        date,
+        status,
+        note,
+        revision,
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actor.uid,
+        ...(!current.exists ? { createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid } : {}),
+      }, { merge: true })
+      transaction.create(db.collection('payrollAuditLogs').doc(), {
+        schemaVersion: 1,
+        action: 'staff_attendance.updated',
+        staffId,
+        date,
+        before: current.exists ? { status: current.data().status || '', revision: Number(current.data().revision || 0) } : null,
+        after: { status, revision },
+        actorUid: actor.uid,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return { staffId, date, status, revision }
+    })
+  })
+
+  const fillMissingStaffAttendanceDays = onCall(async (request) => {
+    const actor = await payrollActorForAdmin(request, db)
+    const staffId = staffDocumentId(request.data?.staffId)
+    const periodId = payrollPeriod(request.data?.periodId)
+    const { staff, identity } = await loadIdentity(db, staffId)
+    if (!Object.keys(staff).length || staff.status === 'inactive') throw new HttpsError('not-found', 'Không tìm thấy nhân viên đang hoạt động.')
+    const [calendar, attendance] = await Promise.all([
+      loadCalendar(db, periodId, identity.branchId),
+      loadAttendance(db, staffId, periodId),
+    ])
+    const workdays = calculateWorkdayPayroll({ periodId, calendar, attendance, staff })
+    const targetDates = workdays.days
+      .filter((day) => day.eligible && day.status === 'pending')
+      .map((day) => day.date)
+    if (!targetDates.length) return { staffId, periodId, createdCount: 0, unchanged: true }
+    return db.runTransaction(async (transaction) => {
+      const references = targetDates.map((date) => db.doc(`staffAttendanceDays/${staffId}_${date.replaceAll('-', '')}`))
+      const current = await Promise.all(references.map((reference) => transaction.get(reference)))
+      let createdCount = 0
+      references.forEach((reference, index) => {
+        if (current[index].exists) return
+        const date = targetDates[index]
+        transaction.create(reference, {
+          schemaVersion: 1,
+          staffId,
+          periodId,
+          date,
+          status: 'present',
+          note: 'Chốt ngày công còn thiếu bởi quản trị',
+          revision: 1,
+          createdAt: FieldValue.serverTimestamp(),
+          createdBy: actor.uid,
+          updatedAt: FieldValue.serverTimestamp(),
+          updatedBy: actor.uid,
+        })
+        createdCount += 1
+      })
+      if (createdCount) transaction.create(db.collection('payrollAuditLogs').doc(), {
+        schemaVersion: 1,
+        action: 'staff_attendance.missing_days_filled',
+        staffId,
+        periodId,
+        createdCount,
+        actorUid: actor.uid,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return { staffId, periodId, createdCount, unchanged: createdCount === 0 }
+    })
+  })
+
+  const saveWorkCalendar = onCall(async (request) => {
+    const actor = await payrollActorForAdmin(request, db)
+    const periodId = payrollPeriod(request.data?.periodId)
+    const branchId = request.data?.branchId ? staffDocumentId(request.data.branchId) : 'global'
+    const weeklyRestDays = normalizedWeeklyRestDays(request.data?.weeklyRestDays)
+    const holidays = normalizedHolidays(request.data?.holidays, periodId)
+    const expectedRevision = Number(request.data?.expectedRevision || 0)
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new HttpsError('invalid-argument', 'Phiên bản lịch làm việc không hợp lệ.')
+    const reference = db.doc(`workCalendars/${branchId}_${periodId}`)
+    return db.runTransaction(async (transaction) => {
+      const current = await transaction.get(reference)
+      const currentRevision = Number(current.data()?.revision || 0)
+      if (currentRevision !== expectedRevision) throw new HttpsError('aborted', 'Lịch làm việc đã thay đổi. Hãy tải lại trước khi lưu.')
+      const revision = currentRevision + 1
+      transaction.set(reference, {
+        schemaVersion: 1,
+        periodId,
+        branchId,
+        weeklyRestDays,
+        holidays,
+        status: 'approved',
+        revision,
+        approvedAt: FieldValue.serverTimestamp(),
+        approvedBy: actor.uid,
+        updatedAt: FieldValue.serverTimestamp(),
+        ...(!current.exists ? { createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid } : {}),
+      }, { merge: true })
+      transaction.create(db.collection('payrollAuditLogs').doc(), {
+        schemaVersion: 1,
+        action: 'work_calendar.approved',
+        periodId,
+        branchId,
+        revision,
+        holidayCount: holidays.length,
+        actorUid: actor.uid,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return { periodId, branchId, revision, status: 'approved' }
+    })
+  })
+
+  const submitMyPayrollInquiry = onCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    requireSelfPayroll(actor)
+    const periodId = payrollPeriod(request.data?.periodId)
+    const category = ['attendance', 'teaching', 'commission', 'deduction', 'other'].includes(request.data?.category) ? request.data.category : 'other'
+    const message = typeof request.data?.message === 'string' ? request.data.message.trim().replace(/\s+/g, ' ').slice(0, 1000) : ''
+    if (message.length < 10) throw new HttpsError('invalid-argument', 'Nội dung phản hồi cần tối thiểu 10 ký tự.')
+    const reference = db.collection('staffPayrollInquiries').doc()
+    await reference.set({
+      schemaVersion: 1,
+      staffId: actor.legacyStaffId || actor.uid,
+      userId: actor.uid,
+      periodId,
+      category,
+      message,
+      status: 'open',
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    return { inquiryId: reference.id, status: 'open' }
+  })
+
+  return {
+    getMyStaffPayroll,
+    listStaffPayrollAttendance,
+    getStaffPayrollAttendanceDetail,
+    saveStaffAttendanceDay,
+    fillMissingStaffAttendanceDays,
+    saveWorkCalendar,
+    submitMyPayrollInquiry,
+  }
+}
+
+async function payrollActorForAdmin(request, db) {
+  const actor = await trustedAccessContext(request, db)
+  requireCapability(actor, 'payroll.operations.manage')
+  return actor
+}
+
+module.exports = {
+  createStaffPayrollFunctions,
+  payrollPeriod,
+  monthDateKeys,
+  mergeWorkCalendar,
+  calculateWorkdayPayroll,
+  payrollAmounts,
+}

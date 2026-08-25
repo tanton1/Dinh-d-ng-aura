@@ -16,6 +16,43 @@
 .payroll-page button { cursor: pointer; }
 .payroll-page button:disabled { cursor: not-allowed; opacity: .48; }
 
+.payroll-trainer-item__components {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 7px;
+  margin-bottom: 10px;
+}
+
+.payroll-trainer-item__components > span {
+  display: grid;
+  gap: 3px;
+  border-radius: 11px;
+  padding: 9px;
+  background: #fff6fa;
+  color: #806d79;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.payroll-trainer-item__components b { color: #e92f77; font-size: 12px; }
+
+.payroll-trainer-item__review {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 10px;
+  border-radius: 11px;
+  padding: 9px 11px;
+  background: #fff6df;
+  color: #94590f;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+@media (max-width: 640px) {
+  .payroll-trainer-item__components { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 .payroll-page__nav {
   display: flex;
   align-items: center;

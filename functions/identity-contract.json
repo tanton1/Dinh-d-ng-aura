@@ -11,7 +11,9 @@
   ],
   "staffCapabilities": [
     "dashboard.view",
-    "coach.workspace.view"
+    "coach.workspace.view",
+    "attendance.self.view",
+    "payroll.self.view"
   ],
   "positionCapabilities": {
     "coach_online": [
@@ -68,6 +70,8 @@
     "renewals.approval.manage",
     "finance.operations.manage",
     "payroll.operations.manage",
+    "attendance.self.view",
+    "payroll.self.view",
     "academy.operations.manage",
     "eat_clean.operations.manage"
   ],

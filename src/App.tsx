@@ -83,6 +83,7 @@ const AdminScheduleSettings = lazyWithRetry(() => import('./components/admin/pt/
 const TrainerPortalV2 = lazyWithRetry(() => import('./pages/operations/TrainerPortalV2'))
 const SalesPortalV2 = lazyWithRetry(() => import('./pages/operations/SalesPortalV2'))
 const StaffNutritionReviewsPage = lazyWithRetry(() => import('./pages/operations/StaffNutritionReviewsPage'))
+const StaffPayrollPage = lazyWithRetry(() => import('./pages/operations/StaffPayrollPage'))
 
 
 const roleLabels: Record<UserRole, string> = {
@@ -847,6 +848,7 @@ function AuraApplication() {
       case 'sales-portal':
       case 'staff-quotes': return <AuraOperationsFrame><SalesPortalV2 /></AuraOperationsFrame>
       case 'staff-renewals': return <AuraOperationsFrame><ContractRenewals onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
+      case 'staff-payroll': return <AuraOperationsFrame><StaffPayrollPage /></AuraOperationsFrame>
 
       case 'admin-pt-students': return <AuraOperationsFrame className="aura-operations-page--students"><AdminPTStudentManagement user={user as any} profile={profile} /></AuraOperationsFrame>
       case 'admin-pt-schedule': return <AuraOperationsFrame className="aura-operations-page--schedule">{backendMode === 'firebase' && accessContext?.accessRole === 'staff' && accessContext.capabilities.includes('pt.schedule.branch.publish')

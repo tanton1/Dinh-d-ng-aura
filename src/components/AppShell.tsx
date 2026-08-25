@@ -24,6 +24,7 @@ import {
   Sparkles,
   UserRound,
   Users,
+  WalletCards,
   X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -110,6 +111,7 @@ const staffNavSections: ShellNavSection[] = [
       { id: 'staff-nutrition-reviews' as const, label: 'Duyệt món', icon: Check },
       { id: 'staff-quotes' as const, label: 'Báo giá', icon: ClipboardList },
       { id: 'staff-renewals' as const, label: 'Tái ký', icon: RefreshCw },
+      { id: 'staff-payroll' as const, label: 'Lương của tôi', icon: WalletCards },
     ],
   },
   {
@@ -197,6 +199,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'staff-nutrition-reviews': 'Duyệt món học viên',
   'staff-quotes': 'Báo giá',
   'staff-renewals': 'Tái ký và gia hạn',
+  'staff-payroll': 'Lương của tôi',
   progress: 'Tiến độ & ôn tập',
   schedule: 'Lịch học viên',
   profile: 'Cá nhân',

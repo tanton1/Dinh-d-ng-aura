@@ -990,6 +990,25 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Work calendars, daily attendance and payroll inquiries are exposed only
+    // through actor-scoped callables. This keeps salary evidence and employee
+    // messages private even when a browser session is modified.
+    match /workCalendars/{calendarId} {
+      allow read, write: if false;
+    }
+
+    match /staffAttendanceDays/{attendanceId} {
+      allow read, write: if false;
+    }
+
+    match /staffPayrollInquiries/{inquiryId} {
+      allow read, write: if false;
+    }
+
+    match /staffEarningEvents/{eventId} {
+      allow read, write: if false;
+    }
+
     match /eatCleanMealRevisions/{revisionId} {
       allow read: if isAdmin();
       allow write: if false;

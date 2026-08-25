@@ -88,7 +88,7 @@ test('payroll creation is one deterministic transaction per period', () => {
   assert.match(createBlock, /db\.doc\(`payrollRuns\/\$\{periodId\}`\)/)
   assert.match(createBlock, /db\.runTransaction/)
   assert.match(createBlock, /transaction\.create\(runReference/)
-  assert.match(createBlock, /payrollRunItems\/\$\{periodId\}_\$\{trainerId\}/)
+  assert.match(createBlock, /payrollRunItems\/\$\{periodId\}_\$\{staffId\}/)
   assert.doesNotMatch(createBlock, /db\.collection\('payrollRuns'\)\.doc\(\)/)
 })
 
@@ -194,7 +194,7 @@ test('payroll items snapshot trainer identity and attendance evidence source', (
   const createBlock = source.match(/const createPayrollRun[\s\S]*?\n  async function transition/)?.[0] || ''
 
   assert.match(createBlock, /trainerSnapshot:/)
-  assert.match(createBlock, /evidenceSource: 'attendanceEvents\+sessions'/)
+  assert.match(createBlock, /evidenceSource: workdays\.workdayEnabled/)
   assert.match(createBlock, /policySnapshot: payrollPolicySnapshot\(defaultPolicy\)/)
   assert.match(createBlock, /policySnapshots/)
   assert.match(createBlock, /teachingSlots/)
@@ -234,7 +234,7 @@ test('payroll UI uses canonical runs and cannot edit teaching sessions', () => {
 
   assert.match(source, /getPayrollRun/)
   assert.match(source, /listPayrollPolicies/)
-  assert.match(source, /Nguồn: ca dạy đã điểm danh/)
+  assert.match(source, /Nguồn: ngày công \+ ca dạy đã điểm danh/)
   assert.match(source, /Đơn giá ca 1–8/)
   assert.match(source, /Từ ca thứ 9/)
   assert.match(source, /deleteDraftPayrollRun/)

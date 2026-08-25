@@ -18,6 +18,14 @@ export interface PayrollRunSummary {
   teachingSlotCount: number
   attendanceEventCount: number
   trainerCount: number
+  staffCount: number
+  workdayStaffCount: number
+  attendanceReviewRequiredCount: number
+  calendarReviewRequiredCount: number
+  attendanceReviewRequired: boolean
+  baseSalaryAmount: number
+  teachingPayAmount: number
+  bonusAmount: number
   grossAmount: number
   adjustmentAmount: number
   finalAmount: number
@@ -71,6 +79,12 @@ export interface PayrollRunItem {
   runId: string
   periodId: string
   trainerId: string
+  staffId: string
+  staffSnapshot?: {
+    name?: string
+    employeeCode?: string
+    branchId?: string
+  }
   trainerSnapshot?: {
     name?: string
     employeeCode?: string
@@ -82,6 +96,22 @@ export interface PayrollRunItem {
   teachingSlots: PayrollTeachingSlot[]
   tierSummary: PayrollTierSummary
   ratePerSession: number
+  baseSalaryAmount: number
+  teachingPayAmount: number
+  commissionAmount: number
+  bonusAmount: number
+  deductionAmount: number
+  workdaySummary: {
+    standardWorkdays: number
+    eligibleWorkdays: number
+    paidDays: number
+    unpaidDays: number
+    pendingDays: number
+    benefitReviewDays: number
+    estimatedPaidDays: number
+  }
+  attendanceReviewRequired: boolean
+  calendarReviewRequired: boolean
   grossAmount: number
   adjustmentAmount: number
   finalAmount: number
@@ -140,6 +170,14 @@ function normaliseRun(value: unknown): PayrollRunSummary {
     teachingSlotCount,
     attendanceEventCount: Math.max(0, Math.trunc(amount(raw.attendanceEventCount ?? raw.attendanceCount))),
     trainerCount: Math.max(0, Math.trunc(amount(raw.trainerCount))),
+    staffCount: Math.max(0, Math.trunc(amount(raw.staffCount ?? raw.trainerCount))),
+    workdayStaffCount: Math.max(0, Math.trunc(amount(raw.workdayStaffCount))),
+    attendanceReviewRequiredCount: Math.max(0, Math.trunc(amount(raw.attendanceReviewRequiredCount))),
+    calendarReviewRequiredCount: Math.max(0, Math.trunc(amount(raw.calendarReviewRequiredCount))),
+    attendanceReviewRequired: raw.attendanceReviewRequired === true,
+    baseSalaryAmount: amount(raw.baseSalaryAmount),
+    teachingPayAmount: amount(raw.teachingPayAmount ?? raw.grossAmount),
+    bonusAmount: amount(raw.bonusAmount),
     grossAmount: amount(raw.grossAmount),
     adjustmentAmount: amount(raw.adjustmentAmount),
     finalAmount: amount(raw.finalAmount || raw.grossAmount),
@@ -171,6 +209,14 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
       employeeCode: typeof rawTrainerSnapshot.employeeCode === 'string' ? rawTrainerSnapshot.employeeCode : undefined,
       branchId: typeof rawTrainerSnapshot.branchId === 'string' ? rawTrainerSnapshot.branchId : undefined,
     } : undefined
+    const rawStaffSnapshot = raw.staffSnapshot && typeof raw.staffSnapshot === 'object'
+      ? raw.staffSnapshot as Record<string, unknown>
+      : rawTrainerSnapshot
+    const staffSnapshot = rawStaffSnapshot ? {
+      name: typeof rawStaffSnapshot.name === 'string' ? rawStaffSnapshot.name : undefined,
+      employeeCode: typeof rawStaffSnapshot.employeeCode === 'string' ? rawStaffSnapshot.employeeCode : undefined,
+      branchId: typeof rawStaffSnapshot.branchId === 'string' ? rawStaffSnapshot.branchId : undefined,
+    } : undefined
     const teachingSlots: PayrollTeachingSlot[] = Array.isArray(raw.teachingSlots) ? raw.teachingSlots.flatMap((slotValue) => {
       if (!slotValue || typeof slotValue !== 'object') return []
       const slot = slotValue as Record<string, unknown>
@@ -192,11 +238,14 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
       }]
     }) : []
     const tier = raw.tierSummary && typeof raw.tierSummary === 'object' ? raw.tierSummary as Record<string, unknown> : {}
+    const rawWorkdaySummary = raw.workdaySummary && typeof raw.workdaySummary === 'object' ? raw.workdaySummary as Record<string, unknown> : {}
     return [{
       id: typeof raw.id === 'string' ? raw.id : '',
       runId: typeof raw.runId === 'string' ? raw.runId : runId,
       periodId: typeof raw.periodId === 'string' ? raw.periodId : '',
       trainerId: typeof raw.trainerId === 'string' ? raw.trainerId : '',
+      staffId: typeof raw.staffId === 'string' ? raw.staffId : typeof raw.trainerId === 'string' ? raw.trainerId : '',
+      staffSnapshot,
       trainerSnapshot,
       sessionCount: teachingSlots.length || Math.max(0, Math.trunc(amount(raw.sessionCount))),
       attendanceEventCount: Math.max(0, Math.trunc(amount(raw.attendanceEventCount ?? raw.sessionCount))),
@@ -211,6 +260,22 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
         afterThresholdEveningAmount: amount(tier.afterThresholdEveningAmount),
       },
       ratePerSession: amount(raw.ratePerSession),
+      baseSalaryAmount: amount(raw.baseSalaryAmount),
+      teachingPayAmount: amount(raw.teachingPayAmount ?? raw.grossAmount),
+      commissionAmount: amount(raw.commissionAmount),
+      bonusAmount: amount(raw.bonusAmount),
+      deductionAmount: amount(raw.deductionAmount),
+      workdaySummary: {
+        standardWorkdays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.standardWorkdays))),
+        eligibleWorkdays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.eligibleWorkdays))),
+        paidDays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.paidDays))),
+        unpaidDays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.unpaidDays))),
+        pendingDays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.pendingDays))),
+        benefitReviewDays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.benefitReviewDays))),
+        estimatedPaidDays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.estimatedPaidDays))),
+      },
+      attendanceReviewRequired: raw.attendanceReviewRequired === true,
+      calendarReviewRequired: raw.calendarReviewRequired === true,
       grossAmount: amount(raw.grossAmount),
       adjustmentAmount: amount(raw.adjustmentAmount),
       finalAmount: amount(raw.finalAmount || raw.grossAmount),

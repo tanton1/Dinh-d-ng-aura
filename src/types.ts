@@ -166,6 +166,7 @@ export type StudentView =
   | 'staff-nutrition-reviews'
   | 'staff-quotes'
   | 'staff-renewals'
+  | 'staff-payroll'
   | 'progress'
   | 'progress-photo-studio'
   | 'profile'

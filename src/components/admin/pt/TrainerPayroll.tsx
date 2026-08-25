@@ -3,6 +3,7 @@ import type { User as FirebaseUser } from 'firebase/auth'
 import {
   AlertTriangle,
   Banknote,
+  CalendarCheck2,
   CheckCircle2,
   ChevronRight,
   Clock3,
@@ -44,13 +45,14 @@ import {
 } from '../../../services/payrollService'
 import { listCashAccounts, type CashAccount } from '../../../services/cashbookService'
 import '../../../styles-payroll-canonical.css'
+import StaffWorkdayPayrollPanel from './StaffWorkdayPayrollPanel'
 
 interface Props {
   user: FirebaseUser | null
   profile: UserProfile | null
 }
 
-type PayrollView = 'runs' | 'policies'
+type PayrollView = 'runs' | 'workdays' | 'policies'
 type RunStatusFilter = 'all' | PayrollRunStatus
 type PolicyApplicationMode = Exclude<PayrollPolicyApplicationMode, 'single'>
 type PendingConfirmation =
@@ -176,6 +178,14 @@ export default function TrainerPayroll({ profile }: Props) {
         teachingSlotCount: loaded.run.teachingSlotCount,
         attendanceCount: loaded.run.teachingSlotCount,
         attendanceEventCount: loaded.run.attendanceEventCount,
+        staffCount: loaded.run.staffCount,
+        workdayStaffCount: loaded.run.workdayStaffCount,
+        attendanceReviewRequiredCount: loaded.run.attendanceReviewRequiredCount,
+        calendarReviewRequiredCount: loaded.run.calendarReviewRequiredCount,
+        attendanceReviewRequired: loaded.run.attendanceReviewRequired,
+        baseSalaryAmount: loaded.run.baseSalaryAmount,
+        teachingPayAmount: loaded.run.teachingPayAmount,
+        bonusAmount: loaded.run.bonusAmount,
         grossAmount: loaded.run.grossAmount,
         adjustmentAmount: loaded.run.adjustmentAmount,
         finalAmount: loaded.run.finalAmount,
@@ -335,7 +345,7 @@ export default function TrainerPayroll({ profile }: Props) {
   const availableCash = cashAccounts.reduce((sum, account) => sum + Number(account.balance || 0), 0)
 
   const slides: AuraMetricSlide[] = [
-    { id: 'period-total', eyebrow: selectedPeriodRun ? periodLabel(selectedPeriodRun.periodId) : periodLabel(periodId), value: money(selectedPeriodRun?.finalAmount || 0), detail: selectedPeriodRun ? `${selectedPeriodRun.trainerCount} HLV · ${selectedPeriodRun.teachingSlotCount} ca dạy · ${selectedPeriodRun.attendanceEventCount} lượt HV` : 'Chưa lập kỳ lương chính thức', icon: <Banknote size={20} />, tone: 'pink', actionLabel: selectedPeriodRun ? 'Mở kỳ lương' : 'Thiết lập kỳ', onSelect: () => selectedPeriodRun ? void openRun(selectedPeriodRun.id) : setView(policies.length ? 'runs' : 'policies') },
+    { id: 'period-total', eyebrow: selectedPeriodRun ? periodLabel(selectedPeriodRun.periodId) : periodLabel(periodId), value: money(selectedPeriodRun?.finalAmount || 0), detail: selectedPeriodRun ? `${selectedPeriodRun.staffCount} nhân viên · ${selectedPeriodRun.teachingSlotCount} ca dạy` : 'Chưa lập kỳ lương chính thức', icon: <Banknote size={20} />, tone: 'pink', actionLabel: selectedPeriodRun ? 'Mở kỳ lương' : 'Thiết lập kỳ', onSelect: () => selectedPeriodRun ? void openRun(selectedPeriodRun.id) : setView(policies.length ? 'runs' : 'policies') },
     { id: 'waiting', eyebrow: 'Chờ xử lý', value: `${waitingRuns.length}`, detail: 'Kỳ nháp hoặc đang chờ khóa', icon: <Clock3 size={20} />, tone: 'orange', actionLabel: 'Lọc danh sách', onSelect: () => { setView('runs'); setStatusFilter(waitingRuns.some((run) => run.status === 'reviewed') ? 'reviewed' : 'draft') } },
     { id: 'locked', eyebrow: 'Đã khóa · chưa chi', value: money(lockedAmount), detail: 'Chi phí đã ghi nhận, chưa giảm số dư quỹ', icon: <LockKeyhole size={20} />, tone: 'sunset', actionLabel: 'Xem kỳ cần chi', onSelect: () => { setView('runs'); setStatusFilter('locked') } },
     { id: 'adjustments', eyebrow: 'Điều chỉnh', value: money(adjustmentAmount), detail: 'Thưởng, khấu trừ và correction đã duyệt', icon: <Settings2 size={20} />, tone: 'ink' },
@@ -355,6 +365,7 @@ export default function TrainerPayroll({ profile }: Props) {
 
     <div className="payroll-page__nav" role="tablist" aria-label="Quản lý lương">
       <button type="button" role="tab" aria-selected={view === 'runs'} className={view === 'runs' ? 'is-active' : ''} onClick={() => setView('runs')}><FileCheck2 size={17} /> Kỳ lương</button>
+      <button type="button" role="tab" aria-selected={view === 'workdays'} className={view === 'workdays' ? 'is-active' : ''} onClick={() => setView('workdays')}><CalendarCheck2 size={17} /> Ngày công</button>
       <button type="button" role="tab" aria-selected={view === 'policies'} className={view === 'policies' ? 'is-active' : ''} onClick={() => setView('policies')}><Settings2 size={17} /> Chính sách</button>
       <AuraHelpPopover title="Cách tính lương" label="Cách tính lương"><p>Lương chỉ lấy từ ca đã điểm danh. Hai học viên tập cùng HLV, cùng ngày và cùng giờ được tính là một ca dạy. Sau ca thứ 8 trong ngày, hệ thống áp dụng đơn giá tăng ca của phiên bản chính sách.</p></AuraHelpPopover>
     </div>
@@ -365,7 +376,7 @@ export default function TrainerPayroll({ profile }: Props) {
       <button type="button" aria-label="Đóng thông báo" onClick={() => { setError(''); setMessage('') }}><X size={16} /></button>
     </div>}
 
-    {view === 'runs' ? <>
+    {view === 'workdays' ? <StaffWorkdayPayrollPanel branches={branches} /> : view === 'runs' ? <>
       <section className="payroll-page__toolbar" aria-label="Bộ lọc kỳ lương">
         <label><span>Kỳ</span><input aria-label="Kỳ lương" type="month" value={periodId} onChange={(event) => setPeriodId(event.target.value)} /></label>
         <label><span>Trạng thái</span><select aria-label="Lọc trạng thái kỳ lương" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as RunStatusFilter)}><option value="all">Tất cả</option>{Object.entries(statusMeta).map(([id, meta]) => <option key={id} value={id}>{meta.label}</option>)}</select></label>
@@ -377,16 +388,16 @@ export default function TrainerPayroll({ profile }: Props) {
       {!policies.length && !loading && <section className="payroll-page__setup"><ShieldCheck size={28} /><div><strong>Chưa có chính sách lương hiệu lực</strong><p>Tạo chính sách trước; Aura sẽ không tự đoán đơn giá hoặc dùng phép tính trong trình duyệt.</p></div><button type="button" onClick={() => setView('policies')}>Thiết lập ngay</button></section>}
 
       <section className="payroll-page__runs" aria-label="Danh sách kỳ lương">
-        <div className="payroll-page__section-title"><div><span>Kỳ lương chính thức</span><strong>{visibleRuns.length} kỳ</strong></div><small>Nguồn: ca dạy đã điểm danh</small></div>
+        <div className="payroll-page__section-title"><div><span>Kỳ lương chính thức</span><strong>{visibleRuns.length} kỳ</strong></div><small>Nguồn: ngày công + ca dạy đã điểm danh</small></div>
         {loading && !runs.length ? <div className="payroll-page__skeleton" aria-label="Đang tải kỳ lương" /> : visibleRuns.length ? <div className="payroll-page__run-grid">
           {visibleRuns.map((run) => <article className="payroll-run-card" key={run.id}>
             <button className="payroll-run-card__open" type="button" onClick={() => void openRun(run.id)} aria-label={`Mở ${periodLabel(run.periodId)}`}>
               <div className="payroll-run-card__head"><div><span>{periodLabel(run.periodId)}</span><strong>{money(run.finalAmount)}</strong></div><em className={`is-${run.status}`}>{run.requiresRebuild ? 'Cần lập lại' : statusMeta[run.status].label}</em></div>
-              <div className="payroll-run-card__metrics"><span><b>{run.trainerCount}</b> HLV</span><span><b>{run.teachingSlotCount}</b> ca dạy</span><span><b>{run.attendanceEventCount}</b> lượt HV</span></div>
+              <div className="payroll-run-card__metrics"><span><b>{run.staffCount}</b> nhân viên</span><span><b>{run.teachingSlotCount}</b> ca dạy</span><span><b>{run.attendanceReviewRequiredCount + run.calendarReviewRequiredCount}</b> cần đối soát</span></div>
               <p>{run.policyName || `Chính sách v${run.policyVersion}`}<ChevronRight size={17} /></p>
             </button>
             <div className="payroll-run-card__actions">
-              {run.status === 'draft' && <><button className="is-danger-ghost" type="button" disabled={!!busyAction} onClick={() => setPendingConfirmation({ kind: 'delete-run', id: run.id, label: periodLabel(run.periodId) })}><Trash2 size={15} /> Xóa nháp</button><button type="button" disabled={!!busyAction || run.requiresRebuild} title={run.requiresRebuild ? 'Xóa kỳ nháp cũ và tạo lại trước khi gửi duyệt' : undefined} onClick={() => void runAction('review', run)}><FileCheck2 size={15} /> {run.requiresRebuild ? 'Cần tạo lại' : 'Gửi duyệt'}</button></>}
+              {run.status === 'draft' && <><button className="is-danger-ghost" type="button" disabled={!!busyAction} onClick={() => setPendingConfirmation({ kind: 'delete-run', id: run.id, label: periodLabel(run.periodId) })}><Trash2 size={15} /> Xóa nháp</button><button type="button" disabled={!!busyAction || run.requiresRebuild || run.attendanceReviewRequired} title={run.requiresRebuild ? 'Xóa kỳ nháp cũ và tạo lại trước khi gửi duyệt' : run.attendanceReviewRequired ? 'Chốt đủ ngày công và lịch chuẩn trước khi gửi duyệt' : undefined} onClick={() => void runAction('review', run)}><FileCheck2 size={15} /> {run.requiresRebuild ? 'Cần tạo lại' : run.attendanceReviewRequired ? 'Chờ ngày công' : 'Gửi duyệt'}</button></>}
               {run.status === 'reviewed' && <button type="button" disabled={!!busyAction} onClick={() => void runAction('lock', run)}><LockKeyhole size={15} /> Khóa kỳ</button>}
               {run.status === 'locked' && <button type="button" onClick={() => void openRun(run.id)}><WalletCards size={15} /> Chi lương</button>}
               {run.status === 'paid' && <span><CheckCircle2 size={15} /> Đã hoàn tất</span>}
@@ -447,32 +458,34 @@ export default function TrainerPayroll({ profile }: Props) {
         {detailLoading && !detail ? <div className="payroll-page__skeleton" /> : detail && <>
           <div className="payroll-drawer__summary">
             <div><span>Thực nhận</span><strong>{money(detail.run.finalAmount)}</strong></div>
-            <div><span>Ca dạy</span><strong>{detail.run.teachingSlotCount}</strong></div>
-            <div><span>Lượt học viên</span><strong>{detail.run.attendanceEventCount}</strong></div>
+            <div><span>Lương cơ bản</span><strong>{money(detail.run.baseSalaryAmount)}</strong></div>
+            <div><span>Tiền ca dạy</span><strong>{money(detail.run.teachingPayAmount)}</strong></div>
             <div><span>Trạng thái</span><strong>{statusMeta[detail.run.status].label}</strong></div>
           </div>
           <p className="payroll-drawer__status"><ShieldCheck size={17} /> {statusMeta[detail.run.status].hint}</p>
           {detail.run.requiresRebuild && <div className="payroll-drawer__legacy-warning"><AlertTriangle size={20} /><div><strong>Kỳ nháp cũ đã được dựng lại để đối chiếu</strong><p>Aura đã nối tên HLV và gom đúng các lượt cùng HLV, ngày, giờ thành một ca. Số liệu dưới đây là preview chuẩn; hãy xóa kỳ nháp và lập lại để lưu snapshot mới trước khi duyệt.</p>{detail.run.storedTeachingSlotCount !== detail.run.teachingSlotCount && <small>Dữ liệu cũ: {detail.run.storedTeachingSlotCount || 0} lượt · Preview chuẩn: {detail.run.teachingSlotCount} ca.</small>}</div><button type="button" onClick={() => { setPendingConfirmation({ kind: 'delete-run', id: detail.run.id, label: periodLabel(detail.run.periodId) }); setDetail(null) }}><Trash2 size={15} /> Lập lại kỳ</button></div>}
           <div className="payroll-drawer__items">
-            <div className="payroll-page__section-title"><div><span>Chi tiết theo HLV</span><strong>{detail.items.length} HLV</strong></div><small>Bấm tên để xem từng ca</small></div>
+            <div className="payroll-page__section-title"><div><span>Chi tiết theo nhân viên</span><strong>{detail.items.length} người</strong></div><small>Bấm tên để xem ngày công và ca dạy</small></div>
             {detail.items.map((item) => {
               const trainer = trainerById.get(item.trainerId)
-              const name = item.trainerSnapshot?.name || trainer?.name || 'Chưa cập nhật tên HLV'
-              const branchId = item.trainerSnapshot?.branchId || trainer?.branchId || ''
+              const name = item.staffSnapshot?.name || item.trainerSnapshot?.name || trainer?.name || 'Chưa cập nhật tên nhân viên'
+              const branchId = item.staffSnapshot?.branchId || item.trainerSnapshot?.branchId || trainer?.branchId || ''
               const expanded = expandedTrainerId === item.id
               return <article className={`payroll-trainer-item ${expanded ? 'is-expanded' : ''}`} key={item.id}>
                 <button type="button" className="payroll-trainer-item__trigger" aria-expanded={expanded} onClick={() => setExpandedTrainerId((current) => current === item.id ? '' : item.id)}>
                   <div className="payroll-drawer__person"><span>{name.slice(0, 1).toUpperCase()}</span><div><strong>{name}</strong><small>{branchById.get(branchId)?.name || 'Chưa gắn chi nhánh'} · {item.teachingDayCount || new Set(item.teachingSlots.map((slot) => slot.date)).size} ngày dạy</small></div></div>
-                  <div className="payroll-drawer__numbers"><span>{item.sessionCount} ca · {item.attendanceEventCount} lượt HV</span><strong>{money(item.finalAmount)}</strong></div>
+                  <div className="payroll-drawer__numbers"><span>{item.workdaySummary.estimatedPaidDays}/{item.workdaySummary.eligibleWorkdays} công · {item.sessionCount} ca</span><strong>{money(item.finalAmount)}</strong></div>
                   <ChevronRight className="payroll-trainer-item__chevron" size={18} />
                 </button>
                 {expanded && <div className="payroll-trainer-item__detail">
+                  <div className="payroll-trainer-item__components"><span>Lương cơ bản <b>{money(item.baseSalaryAmount)}</b></span><span>Ca dạy <b>{money(item.teachingPayAmount)}</b></span><span>Hoa hồng <b>{money(item.commissionAmount)}</b></span><span>Thưởng <b>{money(item.bonusAmount)}</b></span><span>Khấu trừ <b>{money(item.deductionAmount)}</b></span></div>
+                  {(item.attendanceReviewRequired || item.calendarReviewRequired) && <p className="payroll-trainer-item__review"><AlertTriangle size={15} /> {item.calendarReviewRequired ? 'Lịch làm việc chưa duyệt. ' : ''}{item.attendanceReviewRequired ? 'Ngày công còn thiếu hoặc cần xác minh.' : ''}</p>}
                   <div className="payroll-trainer-item__tiers"><span>Ca 1–8 <b>{item.tierSummary.standardCount}</b><small>{money(item.tierSummary.standardAmount)}</small></span><span>Từ ca 9 <b>{item.tierSummary.afterThresholdCount}</b><small>{money(item.tierSummary.afterThresholdAmount)}</small></span><span>Ca tối <b>{item.tierSummary.afterThresholdEveningCount}</b><small>{money(item.tierSummary.afterThresholdEveningAmount)}</small></span></div>
                   {item.teachingSlots.length ? <div className="payroll-teaching-slots">{item.teachingSlots.map((slot) => <div key={slot.key} className="payroll-teaching-slot"><time>{dateLabel(slot.date)} · {String(slot.hour).padStart(2, '0')}:00</time><span>Ca #{slot.dailyPosition} · {slot.studentCount} học viên{slot.policyName ? ` · ${slot.policyName}` : ''}</span><em>{teachingTierLabel(slot.tier)}</em><strong>{money(slot.rate)}</strong></div>)}</div> : <p className="payroll-trainer-item__legacy">Kỳ cũ chưa lưu snapshot từng ca. Tạo kỳ mới để xem chi tiết ngày, giờ và số học viên.</p>}
                 </div>}
               </article>
             })}
-            {!detail.items.length && <div className="payroll-page__empty"><UsersRound size={30} /><strong>Không có ca dạy</strong><p>Kỳ này chưa phát sinh ca PT đã điểm danh.</p></div>}
+            {!detail.items.length && <div className="payroll-page__empty"><UsersRound size={30} /><strong>Không có nhân viên trong kỳ</strong><p>Kiểm tra hồ sơ đội ngũ, ngày công và ca dạy đã điểm danh.</p></div>}
           </div>
           {detail.run.status === 'locked' && <div className="payroll-drawer__payout"><div><strong>Ghi nhận chi lương</strong><p>Thao tác này giảm quỹ đúng một lần và lưu tham chiếu thanh toán.</p></div><label><span>Quỹ chi</span><select value={payoutAccountId} onChange={(event) => setPayoutAccountId(event.target.value)}><option value="">Chọn quỹ</option>{cashAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {money(account.balance)}</option>)}</select></label><label><span>Mã chứng từ</span><input value={payoutReference} maxLength={200} placeholder="VD: UNC-202608-001" onChange={(event) => setPayoutReference(event.target.value)} /></label><button className="payroll-page__primary" type="button" disabled={!!busyAction || !payoutAccountId || !payoutReference.trim()} onClick={() => void runAction('pay', detail.run)}><WalletCards size={17} /> Xác nhận chi</button></div>}
         </>}

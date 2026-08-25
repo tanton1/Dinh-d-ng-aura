@@ -24,7 +24,7 @@ test('staff keeps the learner dock and opens work tools as separate sidebar page
   await page.getByRole('button', { name: 'Mở menu' }).click()
   const sidebar = page.locator('#app-sidebar')
   await expect(sidebar.getByText('CÔNG VIỆC', { exact: true })).toBeVisible()
-  for (const label of ['Học viên phụ trách', 'Lịch dạy', 'Yêu cầu lịch', 'Duyệt món', 'Báo giá', 'Tái ký']) {
+  for (const label of ['Học viên phụ trách', 'Lịch dạy', 'Yêu cầu lịch', 'Duyệt món', 'Báo giá', 'Tái ký', 'Lương của tôi']) {
     await expect(sidebar.getByRole('button', { name: new RegExp(label) })).toBeVisible()
   }
 
