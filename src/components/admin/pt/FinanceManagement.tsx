@@ -30,6 +30,14 @@ function money(value: number) {
   return `${Math.round(value).toLocaleString('vi-VN')}đ`
 }
 
+function currentMonthRange() {
+  const now = new Date()
+  return {
+    start: new Date(now.getFullYear(), now.getMonth(), 1),
+    end: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999),
+  }
+}
+
 function searchKey(value: unknown) {
   return String(value || '')
     .normalize('NFD')
@@ -52,7 +60,7 @@ function entryLabel(type: FinanceLedgerEntry['type']) {
 export default function FinanceManagement({ profile }: Props) {
   const { branches, contracts, students, payments } = useDatabase()
   const [selectedBranchId, setSelectedBranchId] = useState('all')
-  const [dateRange, setDateRange] = useState<{ start: Date; end: Date } | null>(null)
+  const [dateRange, setDateRange] = useState<{ start: Date; end: Date }>(currentMonthRange)
   const [debtFilter, setDebtFilter] = useState<DebtFilter>('all')
   const [ledgerEntries, setLedgerEntries] = useState<FinanceLedgerEntry[]>([])
   const [ledgerSummary, setLedgerSummary] = useState<FinanceLedgerSummary>(emptyFinanceLedgerSummary)
@@ -79,6 +87,12 @@ export default function FinanceManagement({ profile }: Props) {
     ? profile.branchId
     : selectedBranchId
 
+  const updateDateRange = useCallback((start: Date, end: Date) => {
+    setDateRange((current) => current.start.getTime() === start.getTime() && current.end.getTime() === end.getTime()
+      ? current
+      : { start, end })
+  }, [])
+
   const loadLedger = useCallback(async (append = false) => {
     const sequence = ++requestSequence.current
     setLedgerLoading(true)
@@ -88,8 +102,8 @@ export default function FinanceManagement({ profile }: Props) {
         pageSize: 50,
         cursor: append ? ledgerCursor : null,
         branchId: effectiveBranchId,
-        startAt: dateRange && dateRange.start.getTime() > 0 ? dateRange.start.toISOString() : undefined,
-        endAt: dateRange && dateRange.end.getFullYear() <= 9999 ? dateRange.end.toISOString() : undefined,
+        startAt: dateRange.start.getTime() > 0 ? dateRange.start.toISOString() : undefined,
+        endAt: dateRange.end.getFullYear() <= 9999 ? dateRange.end.toISOString() : undefined,
       })
       if (sequence !== requestSequence.current) return
       setLedgerEntries((current) => {
@@ -288,8 +302,8 @@ export default function FinanceManagement({ profile }: Props) {
     {
       id: 'net-cash',
       eyebrow: 'Dòng tiền ròng',
-      value: money(ledgerSummary.netRevenue),
-      detail: `${ledgerSummary.transactionCount.toLocaleString('vi-VN')} bút toán canonical trong bộ lọc`,
+      value: money(ledgerSummary.cashNet),
+      detail: `${money(ledgerSummary.cashIn)} vào · ${money(ledgerSummary.cashOut)} ra`,
       icon: <TrendingUp size={20} />,
       tone: 'pink',
       actionLabel: 'Xem lịch sử',
@@ -303,6 +317,16 @@ export default function FinanceManagement({ profile }: Props) {
       icon: <WalletCards size={20} />,
       tone: 'orange',
       actionLabel: 'Mở bút toán',
+      onSelect: () => setShowHistory(true),
+    },
+    {
+      id: 'recognised-revenue',
+      eyebrow: 'Doanh thu thực hiện',
+      value: money(ledgerSummary.recognisedRevenue),
+      detail: 'Giá trị dịch vụ đã cung cấp, không cộng vào tiền mặt',
+      icon: <CheckCircle size={20} />,
+      tone: 'sunset',
+      actionLabel: 'Xem bút toán',
       onSelect: () => setShowHistory(true),
     },
     {
@@ -345,7 +369,7 @@ export default function FinanceManagement({ profile }: Props) {
       {ledgerError && <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{ledgerError}</div>}
 
       <div className="finance-management__filters">
-        <DateRangeFilter compact excludeFuture onFilter={(start, end) => setDateRange({ start, end })} />
+        <DateRangeFilter compact excludeFuture initialRange="Tháng này" onFilter={updateDateRange} />
         {(!profile?.branchId || profile.role === 'admin' || profile.role === 'super_admin') && (
           <select aria-label="Lọc chi nhánh công nợ" value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)}>
             <option value="all">Tất cả chi nhánh</option>

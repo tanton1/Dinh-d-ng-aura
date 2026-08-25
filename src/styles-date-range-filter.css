@@ -1,0 +1,147 @@
+.date-range-filter {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.date-range-filter__trigger {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 13px;
+  border: 1px solid #ecdde4;
+  border-radius: 13px;
+  outline: none;
+  background: #fff;
+  color: #735466;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+
+.date-range-filter__trigger:hover,
+.date-range-filter__trigger[aria-expanded='true'] {
+  border-color: #f26399;
+  background: #fff9fb;
+  box-shadow: 0 0 0 4px rgba(246, 47, 130, .09);
+}
+
+.date-range-filter__trigger-label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.date-range-filter__trigger-label svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  color: #ef3d7c;
+}
+
+.date-range-filter__trigger-label span {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.date-range-filter__trigger > svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  color: #a77c8f;
+  transition: transform .18s ease;
+}
+
+.date-range-filter__trigger > svg.is-open { transform: rotate(180deg); }
+
+.date-range-filter__portal-menu {
+  position: fixed;
+  z-index: 1400;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid #f0dce4;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .985);
+  color: #503945;
+  box-shadow: 0 22px 54px rgba(55, 28, 44, .24);
+  backdrop-filter: blur(18px);
+  overscroll-behavior: contain;
+}
+
+.date-range-filter__presets {
+  display: grid;
+  gap: 3px;
+}
+
+.date-range-filter__presets button {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #654d59;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  text-align: left;
+  cursor: pointer;
+}
+
+.date-range-filter__presets button:hover { background: #fff1f5; color: #c83e72; }
+.date-range-filter__presets button.is-active { background: linear-gradient(100deg, #f62f82, #ff8751); color: #fff; }
+
+.date-range-filter__custom {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+  padding-top: 9px;
+  border-top: 1px solid #f1e2e8;
+}
+
+.date-range-filter__custom label { display: grid; gap: 4px; }
+.date-range-filter__custom label span { color: #927485; font-size: 10px; font-weight: 800; }
+.date-range-filter__custom input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 9px;
+  border: 1px solid #ead9e1;
+  border-radius: 10px;
+  outline: none;
+  background: #fffafa;
+  color: #3e2c36;
+  font: inherit;
+  font-size: 12px;
+}
+.date-range-filter__custom input:focus { border-color: #f26399; box-shadow: 0 0 0 3px rgba(246, 47, 130, .09); }
+.date-range-filter__custom > button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 11px;
+  background: linear-gradient(100deg, #f62f82, #ff8751);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.date-range-filter__custom > button:disabled { cursor: not-allowed; opacity: .45; }
+
+.date-range-filter__portal-menu--compact { padding: 7px; border-radius: 14px; }
+.date-range-filter__portal-menu--compact .date-range-filter__presets button { min-height: 34px; font-size: 11px; }
+
+@media (max-width: 680px) {
+  .date-range-filter__portal-menu { border-radius: 15px; box-shadow: 0 18px 45px rgba(55, 28, 44, .26); }
+  .date-range-filter__trigger { min-height: 40px; padding-inline: 9px; }
+  .date-range-filter__trigger-label { gap: 6px; }
+  .date-range-filter__trigger-label span { font-size: 11px; }
+}

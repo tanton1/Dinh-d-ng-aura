@@ -38,6 +38,13 @@ export interface FinanceLedgerSummary {
   refundedAmount: number
   reversedAmount: number
   adjustmentAmount: number
+  cashIn: number
+  cashOut: number
+  cashNet: number
+  recognisedRevenue: number
+  operatingExpense: number
+  operatingResult: number
+  /** Compatibility alias returned for older clients. Prefer cashNet. */
   netRevenue: number
   transactionCount: number
   dailySeries: Array<{ date: string; total: number }>
@@ -67,6 +74,12 @@ export const emptyFinanceLedgerSummary: FinanceLedgerSummary = {
   refundedAmount: 0,
   reversedAmount: 0,
   adjustmentAmount: 0,
+  cashIn: 0,
+  cashOut: 0,
+  cashNet: 0,
+  recognisedRevenue: 0,
+  operatingExpense: 0,
+  operatingResult: 0,
   netRevenue: 0,
   transactionCount: 0,
   dailySeries: [],

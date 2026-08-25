@@ -168,12 +168,42 @@ function serializeLedgerDocument(item) {
   }
 }
 
+function ledgerCashImpact(data) {
+  if (data.cashImpact !== undefined && data.cashImpact !== null && Number.isFinite(Number(data.cashImpact))) {
+    return Number(data.cashImpact)
+  }
+  if (['payment', 'refund', 'reversal', 'adjustment'].includes(data.type)) return Number(data.amount || 0)
+  return 0
+}
+
+function ledgerRevenueImpact(data) {
+  if (data.revenueImpact !== undefined && data.revenueImpact !== null && Number.isFinite(Number(data.revenueImpact))) {
+    return Number(data.revenueImpact)
+  }
+  return data.type === 'revenue_recognition' ? Number(data.amount || 0) : 0
+}
+
+function ledgerExpenseImpact(data) {
+  if (data.expenseImpact !== undefined && data.expenseImpact !== null && Number.isFinite(Number(data.expenseImpact))) {
+    return Math.abs(Number(data.expenseImpact))
+  }
+  return ['expense', 'payroll'].includes(data.type) ? Math.abs(Number(data.amount || 0)) : 0
+}
+
 function summarizeLedgerDocuments(documents, input) {
   const summary = {
     collectedAmount: 0,
     refundedAmount: 0,
     reversedAmount: 0,
     adjustmentAmount: 0,
+    cashIn: 0,
+    cashOut: 0,
+    cashNet: 0,
+    recognisedRevenue: 0,
+    operatingExpense: 0,
+    operatingResult: 0,
+    // Compatibility field for an older deployed frontend. It now means cash net,
+    // never revenue recognition.
     netRevenue: 0,
     transactionCount: 0,
     dailySeries: [],
@@ -185,15 +215,24 @@ function summarizeLedgerDocuments(documents, input) {
     if (!['posted', 'reversed'].includes(data.status)) continue
     const amount = Number(data.amount || 0)
     if (!Number.isFinite(amount)) continue
+    const cash = ledgerCashImpact(data)
+    const revenue = ledgerRevenueImpact(data)
+    const expense = ledgerExpenseImpact(data)
     summary.transactionCount += 1
-    summary.netRevenue += amount
+    summary.cashIn += Math.max(0, cash)
+    summary.cashOut += Math.abs(Math.min(0, cash))
+    summary.cashNet += cash
+    summary.recognisedRevenue += revenue
+    summary.operatingExpense += expense
     if (data.type === 'payment' && amount > 0) summary.collectedAmount += amount
     if (data.type === 'refund' && amount < 0) summary.refundedAmount += Math.abs(amount)
     if (data.type === 'reversal' && amount < 0) summary.reversedAmount += Math.abs(amount)
     if (data.type === 'adjustment') summary.adjustmentAmount += amount
     const date = vietnamDateKey(data.effectiveAt)
-    if (date) dailyTotals.set(date, Number(dailyTotals.get(date) || 0) + amount)
+    if (date) dailyTotals.set(date, Number(dailyTotals.get(date) || 0) + cash)
   }
+  summary.netRevenue = summary.cashNet
+  summary.operatingResult = summary.recognisedRevenue - summary.operatingExpense
   summary.dailySeries = Array.from(dailyTotals, ([date, total]) => ({ date, total })).sort((a, b) => a.date.localeCompare(b.date))
   return summary
 }
@@ -285,7 +324,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
     const input = normalizeLedgerListInput(request.data || {})
     const [page, summarySnapshot] = await Promise.all([
       listLedgerPage(db, input),
-      ledgerBaseQuery(db, input).select('amount', 'type', 'status', 'branchId', 'effectiveAt').get(),
+      ledgerBaseQuery(db, input).select('amount', 'cashImpact', 'revenueImpact', 'expenseImpact', 'type', 'status', 'branchId', 'effectiveAt').get(),
     ])
     return {
       ...page,
@@ -418,6 +457,9 @@ module.exports = {
   createFinanceLedgerFunctions,
   normalizeLedgerListInput,
   summarizeLedgerDocuments,
+  ledgerCashImpact,
+  ledgerRevenueImpact,
+  ledgerExpenseImpact,
   updatedInstallments,
   cashAccountForMovement,
   createCashMovement,

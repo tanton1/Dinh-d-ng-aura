@@ -53,9 +53,32 @@ test('canonical summary uses effective entries and a reversal offsets its origin
   assert.equal(summary.collectedAmount, 800_000)
   assert.equal(summary.reversedAmount, 500_000)
   assert.equal(summary.refundedAmount, 50_000)
+  assert.equal(summary.cashIn, 800_000)
+  assert.equal(summary.cashOut, 550_000)
+  assert.equal(summary.cashNet, 250_000)
   assert.equal(summary.netRevenue, 250_000)
+  assert.equal(summary.recognisedRevenue, 0)
   assert.equal(summary.transactionCount, 4)
   assert.deepEqual(summary.dailySeries, [{ date: '2026-08-20', total: 250_000 }])
+})
+
+test('revenue recognition never increases collected cash or cash net', () => {
+  const effectiveAt = new Date('2026-08-20T02:00:00.000Z')
+  const summary = summarizeLedgerDocuments([
+    { type: 'payment', status: 'posted', amount: 1_000_000, cashImpact: 1_000_000, revenueImpact: 0, branchId: 'a', effectiveAt },
+    { type: 'revenue_recognition', status: 'posted', amount: 200_000, cashImpact: 0, revenueImpact: 200_000, branchId: 'a', effectiveAt },
+    { type: 'expense', status: 'posted', amount: -50_000, cashImpact: -50_000, expenseImpact: 50_000, branchId: 'a', effectiveAt },
+  ], summaryInput({ branchId: 'a' }))
+
+  assert.equal(summary.collectedAmount, 1_000_000)
+  assert.equal(summary.cashIn, 1_000_000)
+  assert.equal(summary.cashOut, 50_000)
+  assert.equal(summary.cashNet, 950_000)
+  assert.equal(summary.netRevenue, 950_000)
+  assert.equal(summary.recognisedRevenue, 200_000)
+  assert.equal(summary.operatingExpense, 50_000)
+  assert.equal(summary.operatingResult, 150_000)
+  assert.deepEqual(summary.dailySeries, [{ date: '2026-08-20', total: 950_000 }])
 })
 
 test('installment transition is atomic-ready and advances the next due date', () => {
@@ -81,7 +104,9 @@ test('admin reporting cannot fabricate or destructively synchronize legacy payme
   assert.doesNotMatch(reportSource, /addPayment|deletePayment|Đồng bộ Sổ quỹ/)
   assert.doesNotMatch(reportSource, /console\.(?:log|error|warn)/)
   assert.doesNotMatch(financeSource, /\[\.\.\.payments,\s*\.\.\.canonical\]/)
-  assert.match(financeSource, /Đối soát legacy — chỉ đọc/)
+  assert.match(financeSource, /Không có thao tác sửa dữ liệu tại đây/)
+  assert.match(financeSource, /ledgerSummary\.cashNet/)
+  assert.match(financeSource, /ledgerSummary\.recognisedRevenue/)
 })
 
 test('finance mutations guard locked periods and keep installment state in the ledger transaction', () => {

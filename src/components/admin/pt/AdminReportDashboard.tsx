@@ -239,7 +239,7 @@ export default function AdminReportDashboard({ onNavigate }: Props) {
     return result
   }, {})).map(([name, value]) => ({ name, value }))
 
-  const revenueGrowth = growth(currentSummary.netRevenue, previousSummary.netRevenue)
+  const revenueGrowth = growth(currentSummary.cashNet, previousSummary.cashNet)
   const studentGrowth = growth(currentStudents, previousStudents)
 
   return (
@@ -274,7 +274,7 @@ export default function AdminReportDashboard({ onNavigate }: Props) {
       {financeError && <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{financeError}</div>}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KPICard title="Dòng tiền ròng" value={financeLoading ? 'Đang tải…' : money(currentSummary.netRevenue)} trend={`${revenueGrowth >= 0 ? '+' : ''}${revenueGrowth.toFixed(1)}%`} isPositive={revenueGrowth >= 0} icon={<DollarSign className="h-5 w-5 text-pink-400" />} />
+        <KPICard title="Dòng tiền ròng" value={financeLoading ? 'Đang tải…' : money(currentSummary.cashNet)} trend={`${revenueGrowth >= 0 ? '+' : ''}${revenueGrowth.toFixed(1)}%`} isPositive={revenueGrowth >= 0} icon={<DollarSign className="h-5 w-5 text-pink-400" />} />
         <KPICard title="Học viên mới" value={String(currentStudents)} trend={`${studentGrowth >= 0 ? '+' : ''}${studentGrowth.toFixed(1)}%`} isPositive={studentGrowth >= 0} icon={<Users className="h-5 w-5 text-orange-400" />} />
         <KPICard title="Buổi hoàn thành" value={String(filteredSessions.filter((item) => item.status === 'completed').length)} trend={`${filteredSessions.length} buổi`} isPositive icon={<Calendar className="h-5 w-5 text-emerald-400" />} />
         <KPICard title="Công nợ projection" value={money(totalDebt)} trend={`${filteredContracts.length} HĐ`} isPositive={totalDebt === 0} icon={<Building2 className="h-5 w-5 text-amber-400" />} />
