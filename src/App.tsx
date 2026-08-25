@@ -77,6 +77,7 @@ const BranchScheduleWorkspace = lazyWithRetry(() => import('./components/schedul
 const TrainingHistoryWorkspace = lazyWithRetry(() => import('./components/admin/pt/TrainingHistoryWorkspace'))
 const ContractRenewals = lazyWithRetry(() => import('./components/admin/pt/ContractRenewals'))
 const AdminFinanceHub = lazyWithRetry(() => import('./components/admin/pt/AdminFinanceHub'))
+const AdminPayroll = lazyWithRetry(() => import('./components/admin/pt/TrainerPayroll'))
 const AdminPackageSettings = lazyWithRetry(() => import('./components/admin/pt/PackageSettings'))
 const AdminQuoteGenerator = lazyWithRetry(() => import('./components/admin/pt/QuoteGenerator'))
 const AdminScheduleSettings = lazyWithRetry(() => import('./components/admin/pt/ScheduleSettings'))
@@ -859,7 +860,7 @@ function AuraApplication() {
       case 'admin-report': return <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
       case 'admin-finance': return <AuraOperationsFrame><AdminFinanceHub user={user as any} profile={profile} /></AuraOperationsFrame>
       case 'admin-hr': return <AuraOperationsFrame><AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} /></AuraOperationsFrame>
-      case 'admin-payroll': return <AuraOperationsFrame><AdminFinanceHub user={user as any} profile={profile} initialTab="payroll" /></AuraOperationsFrame>
+      case 'admin-payroll': return <AuraOperationsFrame><AdminPayroll user={user as any} profile={profile} /></AuraOperationsFrame>
       case 'admin-packages': return <AuraOperationsFrame><div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6"><AdminPackageSettings user={user as any} profile={profile} /></div></AuraOperationsFrame>
       case 'admin-quotes': return <AuraOperationsFrame><AdminQuoteGenerator user={user as any} profile={profile} onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
       case 'admin-schedule-settings': return <AuraOperationsFrame><div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6"><AdminScheduleSettings /></div></AuraOperationsFrame>

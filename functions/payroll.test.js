@@ -149,7 +149,7 @@ test('used payroll policies can only be hidden while unused policies may be dele
   assert.match(block, /transaction\.delete\(reference\)/)
 })
 
-test('payroll can apply selected policies by trainer or by effective date', () => {
+test('payroll can apply selected policies by trainer, effective date or staff profile', () => {
   const policies = [
     { id: 'policy-a', name: 'A', effectiveDate: '2026-08-01', configuration: payrollPolicyConfiguration({ ratePerSession: 20_000, dailySessionThreshold: 8, rateAfterDailyThreshold: 70_000, eveningStartHour: 20, rateAfterDailyThresholdEvening: 80_000 }) },
     { id: 'policy-b', name: 'B', effectiveDate: '2026-08-16', configuration: payrollPolicyConfiguration({ ratePerSession: 30_000, dailySessionThreshold: 8, rateAfterDailyThreshold: 90_000, eveningStartHour: 20, rateAfterDailyThresholdEvening: 100_000 }) },
@@ -176,6 +176,19 @@ test('payroll can apply selected policies by trainer or by effective date', () =
   const datePriced = applyPayrollPolicyPlan(teaching, datePlan, policies)
   assert.equal(datePriced.trainers.get('trainer-a')[0].policyId, 'policy-a')
   assert.equal(datePriced.trainers.get('trainer-b')[0].policyId, 'policy-b')
+
+  const profilePolicies = [
+    { ...policies[0], eligibleProfiles: ['official'] },
+    { ...policies[1], effectiveDate: '2026-08-01', eligibleProfiles: ['senior'] },
+  ]
+  const profilePlan = {
+    ...payrollRunPolicyPlan({ policyIds: ['policy-a', 'policy-b'], defaultPolicyId: 'policy-a', policyApplicationMode: 'staff_profile' }),
+    staffProfiles: new Map([['trainer-a', 'official'], ['trainer-b', 'senior']]),
+    staffPolicyAssignments: new Map([['trainer-b', 'policy-b']]),
+  }
+  const profilePriced = applyPayrollPolicyPlan(teaching, profilePlan, profilePolicies)
+  assert.equal(profilePriced.trainers.get('trainer-a')[0].policyId, 'policy-a')
+  assert.equal(profilePriced.trainers.get('trainer-b')[0].policyId, 'policy-b')
 })
 
 test('only a draft payroll run can be deleted and its items are removed atomically', () => {
@@ -241,6 +254,7 @@ test('payroll UI uses canonical runs and cannot edit teaching sessions', () => {
   assert.match(source, /managePayrollPolicy/)
   assert.match(source, /Theo từng HLV/)
   assert.match(source, /Theo ngày hiệu lực/)
+  assert.match(source, /Theo hồ sơ nhân viên/)
   assert.doesNotMatch(source, /commissionPerSession\s*\|\|\s*20000/)
   assert.doesNotMatch(source, /confirmSessionAttendance|cancelSession|rescheduleSession|swapSessions/)
   assert.doesNotMatch(source, /Ước tính đối soát PT/)

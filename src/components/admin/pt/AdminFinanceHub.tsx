@@ -1,15 +1,14 @@
 import { useState } from 'react'
 import type { User } from 'firebase/auth'
 import type { UserProfile } from '../../../types'
-import { BarChart3, CircleDollarSign, Users, WalletCards } from 'lucide-react'
+import { BarChart3, CircleDollarSign, WalletCards } from 'lucide-react'
 import { useDatabase } from '../../../contexts/DatabaseContext'
 import FinanceManagement from './FinanceManagement'
-import TrainerPayroll from './TrainerPayroll'
 import CashbookPanel from './CashbookPanel'
 import BusinessPerformancePanel from './BusinessPerformancePanel'
 import '../../../styles-operations-hub.css'
 
-type FinanceTab = 'overview' | 'ledger' | 'cashbook' | 'payroll'
+type FinanceTab = 'overview' | 'ledger' | 'cashbook'
 
 export default function AdminFinanceHub({ user, profile, initialTab = 'overview' }: { user: User | null; profile: UserProfile | null; initialTab?: FinanceTab }) {
   const [tab, setTab] = useState<FinanceTab>(initialTab)
@@ -18,7 +17,6 @@ export default function AdminFinanceHub({ user, profile, initialTab = 'overview'
     { id: 'overview', label: 'Tổng quan', icon: BarChart3 },
     { id: 'ledger', label: 'Trả góp', icon: CircleDollarSign },
     { id: 'cashbook', label: 'Sổ quỹ', icon: WalletCards },
-    { id: 'payroll', label: 'Lương PT', icon: Users },
   ]
   return <div className="operations-hub">
     <nav className="finance-hub__tabs" role="tablist" aria-label="Phân hệ tài chính">
@@ -31,6 +29,5 @@ export default function AdminFinanceHub({ user, profile, initialTab = 'overview'
     {tab === 'overview' && <BusinessPerformancePanel />}
     {tab === 'ledger' && <FinanceManagement user={user} profile={profile} />}
     {tab === 'cashbook' && <CashbookPanel branches={branches} />}
-    {tab === 'payroll' && <TrainerPayroll user={user} profile={profile} />}
   </div>
 }

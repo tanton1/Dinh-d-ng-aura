@@ -225,10 +225,43 @@
 .identity-forbidden p { margin: 0; }
 
 .identity-admin-page .identity-overlay { z-index: 140; }
+.identity-admin-page--subpage > :not(.identity-overlay):not(.identity-message) { display: none !important; }
+.identity-admin-page--subpage .identity-overlay {
+  position: relative;
+  inset: auto;
+  display: block;
+  width: 100%;
+  min-height: 70vh;
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+.identity-admin-page--subpage .identity-overlay__backdrop { display: none; }
+.identity-admin-page--subpage .identity-modal,
+.identity-admin-page--subpage .identity-modal--staff,
+.identity-admin-page--subpage .identity-modal--access,
+.identity-admin-page--subpage .identity-modal--delete {
+  width: 100%;
+  max-height: none;
+  overflow: visible;
+  margin: 0;
+  padding: clamp(16px, 2.4vw, 28px);
+  border: 1px solid var(--team-line);
+  border-radius: 24px;
+  background: linear-gradient(145deg, #fff, #fff8f3);
+  box-shadow: 0 18px 45px rgba(118, 52, 79, .11);
+}
 .identity-admin-page .identity-modal { width: min(100%, 690px); border-radius: 26px; }
 .identity-admin-page .identity-modal--staff { width: min(100%, 940px); }
 .identity-admin-page .identity-modal--access { width: min(100%, 760px); }
 .identity-admin-page .identity-modal--delete { width: min(100%, 520px); }
+.identity-admin-page .identity-modal--confirmation { width: min(100%, 590px); }
+.identity-confirmation-card { display: flex; align-items: flex-start; gap: 12px; margin-top: 16px; padding: 17px; border: 1px solid rgba(246,47,130,.18); border-radius: 18px; color: var(--team-pink); background: linear-gradient(135deg, #fff2f8, #fff7ef); }
+.identity-confirmation-card.is-danger { color: #b42c4d; border-color: rgba(210,47,82,.2); background: linear-gradient(135deg, #fff0f4, #fff7f0); }
+.identity-confirmation-card > svg { flex: 0 0 auto; margin-top: 1px; }
+.identity-confirmation-card strong, .identity-confirmation-card small { display: block; }
+.identity-confirmation-card strong { color: var(--team-ink); font-size: 14px; line-height: 1.45; }
+.identity-confirmation-card small { margin-top: 6px; color: var(--team-muted); font-size: 11px; line-height: 1.55; }
 .identity-delete-warning { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 14px; border: 1px solid #f0bdc8; border-radius: 16px; color: #bd2d4d; background: linear-gradient(135deg, #fff1f5, #fff7f1); }
 .identity-delete-warning svg { flex: 0 0 auto; margin-top: 1px; }
 .identity-delete-warning strong,
@@ -246,6 +279,9 @@
 .identity-employment-type button { min-height: 40px; border: 0; border-radius: 10px; color: #746b74; background: transparent; font-size: 12px; font-weight: 800; }
 .identity-employment-type button.active { color: #fff; background: linear-gradient(135deg, var(--aura-pink), #ff8651); box-shadow: 0 8px 18px rgba(246,47,130,.2); }
 .identity-employment-note { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; color: #8b4661; background: linear-gradient(135deg, #fff0f6, #fff5ed); font-size: 12px; line-height: 1.55; }
+.identity-policy-select { display: grid; gap: 6px; margin: 10px 0 14px; color: var(--team-ink); font-size: 12px; font-weight: 800; }
+.identity-policy-select select { width: 100%; min-height: 45px; padding: 0 38px 0 12px; border: 1px solid #efdae4; border-radius: 12px; color: #4e404c; background: #fff; font: inherit; }
+.identity-policy-select small { color: var(--team-muted); font-size: 10px; font-weight: 600; line-height: 1.45; }
 .identity-form-grid input:disabled { color: #a99fa4; background: #f4f1f3; cursor: not-allowed; }
 .identity-form-grid label > small { margin-top: 4px; color: var(--team-muted); font-size: 9px; line-height: 1.35; }
 
@@ -354,8 +390,8 @@
   .identity-branch-list__actions .status-badge { grid-column: 1 / -1; justify-self: start; }
   .identity-branch-list__actions button { width: 100%; justify-content: center; }
 
-  .identity-admin-page .identity-overlay { align-items: end; padding: 0 0 calc(88px + env(safe-area-inset-bottom, 0px)); }
-  .identity-admin-page .identity-modal { max-height: calc(100dvh - 92px - env(safe-area-inset-bottom, 0px)); padding: 16px 13px 0; border-width: 1px 0 0; border-radius: 25px 25px 0 0; }
+  .identity-admin-page .identity-overlay { align-items: stretch; padding: 0 10px calc(112px + env(safe-area-inset-bottom, 0px)); }
+  .identity-admin-page .identity-modal { max-height: none; padding: 16px 13px 0; border: 1px solid var(--team-line); border-radius: 22px; }
   .identity-admin-page .identity-modal__actions { bottom: 0; margin-right: -13px; margin-left: -13px; padding: 12px 13px calc(12px + env(safe-area-inset-bottom, 0px)); }
   .identity-admin-page .identity-modal__actions button { flex: 1; min-height: 44px; }
   .identity-form-section { padding: 12px; }

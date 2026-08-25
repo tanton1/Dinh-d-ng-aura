@@ -19,7 +19,7 @@ const { createPtOperationsV2Functions } = require('./pt-operations-v2')
 const { createPtSchedulePublishFunctions } = require('./pt-schedule-publish')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
 const { createSessionOperationFunctions } = require('./session-operations')
-const { createPayrollFunctions } = require('./payroll')
+const { createPayrollFunctions, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile } = require('./payroll')
 const { createStaffPayrollFunctions } = require('./staff-payroll')
 const { createOperationsDashboardFunctions } = require('./operations-dashboard')
 const { createCashbookFunctions } = require('./cashbook')
@@ -210,7 +210,7 @@ exports.createMyContractPauseRequest = sessionOperationFunctions.createMyContrac
 exports.approveContractPauseRequest = sessionOperationFunctions.approveContractPauseRequest
 exports.rejectContractPauseRequest = sessionOperationFunctions.rejectContractPauseRequest
 Object.assign(exports, createPayrollFunctions({ db, onCall, logger }))
-const staffPayrollFunctions = createStaffPayrollFunctions({ db, onCall, logger })
+const staffPayrollFunctions = createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile })
 Object.assign(exports, staffPayrollFunctions)
 exports.getMyStaffPayroll = staffPayrollFunctions.getMyStaffPayroll
 exports.listStaffPayrollAttendance = staffPayrollFunctions.listStaffPayrollAttendance

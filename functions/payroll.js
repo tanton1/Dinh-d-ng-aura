@@ -83,6 +83,36 @@ function policyAudience(value) {
   return value === 'collaborator' || value === 'all' ? value : 'employee'
 }
 
+const PAYROLL_PROFILES = new Set(['probation', 'official', 'senior', 'part_time', 'collaborator'])
+
+function payrollProfile(value = {}) {
+  if (value.employmentType === 'collaborator') return 'collaborator'
+  if (value.employmentType === 'part_time') return 'part_time'
+  return value.employmentLevel === 'probation' || value.employmentLevel === 'senior'
+    ? value.employmentLevel
+    : 'official'
+}
+
+function payrollPolicyProfiles(value, audience = 'employee') {
+  if (Array.isArray(value)) {
+    const profiles = [...new Set(value.filter((item) => PAYROLL_PROFILES.has(item)))]
+    if (profiles.length) return profiles
+  }
+  if (audience === 'collaborator') return ['collaborator']
+  if (audience === 'all') return [...PAYROLL_PROFILES]
+  return ['probation', 'official', 'senior', 'part_time']
+}
+
+function policyAudienceFromProfiles(profiles) {
+  const includesCollaborator = profiles.includes('collaborator')
+  const includesEmployee = profiles.some((profile) => profile !== 'collaborator')
+  return includesCollaborator && includesEmployee ? 'all' : includesCollaborator ? 'collaborator' : 'employee'
+}
+
+function policySupportsProfile(policy, profile) {
+  return payrollPolicyProfiles(policy.eligibleProfiles, policy.audience).includes(profile)
+}
+
 function boundedInteger(value, label, minimum, maximum, fallback) {
   const parsed = value === undefined || value === null || value === '' ? fallback : Number(value)
   if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
@@ -237,7 +267,7 @@ function payrollRunPolicyPlan(value = {}) {
     : []
   const applicationMode = value.policyApplicationMode === 'effective_date'
     ? 'effective_date'
-    : 'trainer_assignment'
+    : value.policyApplicationMode === 'staff_profile' ? 'staff_profile' : 'trainer_assignment'
   const defaultPolicyId = value.defaultPolicyId
     ? payrollDocumentId(value.defaultPolicyId, 'Chính sách mặc định')
     : selectedPolicyIds[0] || ''
@@ -265,6 +295,7 @@ function payrollPolicyRecord(snapshot) {
     effectiveDate: vietnamDateKey(data.effectiveFrom),
     status: data.status === 'inactive' ? 'inactive' : 'active',
     audience: policyAudience(data.audience),
+    eligibleProfiles: payrollPolicyProfiles(data.eligibleProfiles, policyAudience(data.audience)),
     configuration: payrollPolicyConfiguration(data),
   }
 }
@@ -276,6 +307,7 @@ function payrollPolicySnapshot(policy) {
     version: policy.version,
     effectiveDate: policy.effectiveDate,
     audience: policy.audience,
+    eligibleProfiles: policy.eligibleProfiles,
     ...policy.configuration,
   }
 }
@@ -287,8 +319,25 @@ function applyPayrollPolicyPlan(teaching, plan, policies) {
   const effectivePolicies = [...policies].sort((left, right) => left.effectiveDate.localeCompare(right.effectiveDate))
   const trainers = new Map()
   for (const [trainerId, slots] of teaching.trainers) {
-    const assignedPolicy = policiesById.get(plan.trainerAssignments.get(trainerId)) || defaultPolicy
+    const profile = plan.staffProfiles?.get(trainerId) || 'official'
+    const profilePolicyId = plan.staffPolicyAssignments?.get(trainerId) || ''
+    const profilePolicy = policiesById.get(profilePolicyId)
+    const assignedPolicy = plan.applicationMode === 'staff_profile'
+      ? profilePolicy
+      : policiesById.get(plan.trainerAssignments.get(trainerId)) || defaultPolicy
     trainers.set(trainerId, priceTeachingSlots(slots, (slot) => {
+      if (plan.applicationMode === 'staff_profile') {
+        if (assignedPolicy && policySupportsProfile(assignedPolicy, profile) && assignedPolicy.effectiveDate <= slot.date) {
+          return assignedPolicy
+        }
+        const matching = effectivePolicies
+          .filter((policy) => policySupportsProfile(policy, profile) && policy.effectiveDate <= slot.date)
+          .at(-1)
+        if (!matching) {
+          throw new HttpsError('failed-precondition', `Chưa có chính sách phù hợp nhóm lương ${profile} cho ca ngày ${slot.date}.`)
+        }
+        return matching
+      }
       if (plan.applicationMode === 'effective_date' && policies.length > 1) {
         const matching = effectivePolicies.filter((policy) => policy.effectiveDate <= slot.date).at(-1)
         if (!matching) {
@@ -442,6 +491,7 @@ function createPayrollFunctions({ db, onCall }) {
           eveningStartHour: Number(data.eveningStartHour ?? 20),
           rateAfterDailyThresholdEvening: Number(data.rateAfterDailyThresholdEvening || data.rateAfterDailyThreshold || data.ratePerSession || 0),
           audience: policyAudience(data.audience),
+          eligibleProfiles: payrollPolicyProfiles(data.eligibleProfiles, policyAudience(data.audience)),
           status: data.status === 'inactive' ? 'inactive' : 'active',
           usageCount,
           canDelete: usageCount === 0 && !usageInventoryTruncated,
@@ -456,15 +506,17 @@ function createPayrollFunctions({ db, onCall }) {
     const effective = policyEffectiveDate(request.data?.effectiveFrom)
     const rates = payrollPolicyConfiguration(request.data || {})
     const name = policyName(request.data?.name)
-    const audience = policyAudience(request.data?.audience)
-    if (audience === 'collaborator') {
+    const requestedAudience = policyAudience(request.data?.audience)
+    const eligibleProfiles = payrollPolicyProfiles(request.data?.eligibleProfiles, requestedAudience)
+    const audience = policyAudienceFromProfiles(eligibleProfiles)
+    if (eligibleProfiles.includes('collaborator')) {
       const collaboratorRates = [rates.ratePerSession, rates.rateAfterDailyThreshold, rates.rateAfterDailyThresholdEvening]
       if (collaboratorRates.some((rate) => rate < 50_000 || rate > 100_000)) {
         throw new HttpsError('invalid-argument', 'Chính sách CTV phải có đơn giá từ 50.000đ đến 100.000đ mỗi ca.')
       }
     }
     const fingerprint = createHash('sha256')
-      .update(JSON.stringify({ name, audience, effectiveFrom: effective.value, ...rates }))
+      .update(JSON.stringify({ name, audience, eligibleProfiles, effectiveFrom: effective.value, ...rates }))
       .digest('hex')
       .slice(0, 16)
     const policyId = `policy_${effective.value.replaceAll('-', '')}_${fingerprint}`
@@ -475,6 +527,7 @@ function createPayrollFunctions({ db, onCall }) {
         const data = existing.data()
         if (data.name === name
           && policyAudience(data.audience) === audience
+          && JSON.stringify(payrollPolicyProfiles(data.eligibleProfiles, policyAudience(data.audience))) === JSON.stringify(eligibleProfiles)
           && Number(data.ratePerSession || 0) === rates.ratePerSession
           && Number(data.dailySessionThreshold || 8) === rates.dailySessionThreshold
           && Number(data.rateAfterDailyThreshold || data.ratePerSession || 0) === rates.rateAfterDailyThreshold
@@ -487,9 +540,10 @@ function createPayrollFunctions({ db, onCall }) {
       }
       const version = Number(effective.value.replaceAll('-', ''))
       transaction.create(reference, {
-        schemaVersion: 4,
+        schemaVersion: 5,
         scope: 'global',
         audience,
+        eligibleProfiles,
         name,
         version,
         effectiveFrom: effective.timestamp,
@@ -500,11 +554,11 @@ function createPayrollFunctions({ db, onCall }) {
         updatedAt: FieldValue.serverTimestamp(),
       })
       transaction.create(db.collection('payrollAuditLogs').doc(), {
-        schemaVersion: 4,
+        schemaVersion: 5,
         policyId,
         action: 'payroll.policy.created',
         actorUid: actor.uid,
-        snapshot: { name, audience, version, effectiveFrom: effective.value, ...rates },
+        snapshot: { name, audience, eligibleProfiles, version, effectiveFrom: effective.value, ...rates },
         createdAt: FieldValue.serverTimestamp(),
       })
       return { policyId, unchanged: false }
@@ -679,37 +733,6 @@ function createPayrollFunctions({ db, onCall }) {
       if (staffSnapshot.size > 450 || assignmentSnapshot.size > 450 || workdayAttendanceSnapshot.size > 5000 || calendarSnapshot.size > 100) {
         throw new HttpsError('resource-exhausted', 'Dữ liệu ngày công của kỳ quá lớn để khóa an toàn trong một giao dịch.')
       }
-      let policyDocuments
-      if (requestedPlan.selectedPolicyIds.length) {
-        policyDocuments = await Promise.all(requestedPlan.selectedPolicyIds.map((policyId) => transaction.get(db.doc(`payrollPolicies/${policyId}`))))
-      } else {
-        const fallback = await transaction.get(db.collection('payrollPolicies').where('effectiveFrom', '<=', start).orderBy('effectiveFrom', 'desc').limit(20))
-        policyDocuments = fallback.docs.filter((item) => item.data().status !== 'inactive').slice(0, 1)
-      }
-      const selectedPolicies = policyDocuments.map(payrollPolicyRecord)
-      if (!selectedPolicies.length) throw new HttpsError('failed-precondition', 'Chưa có chính sách lương hiệu lực cho kỳ này.')
-      if (selectedPolicies.some((policy) => policy.status !== 'active')) {
-        throw new HttpsError('failed-precondition', 'Một chính sách đã chọn đang bị ẩn. Hãy chọn lại chính sách hoạt động.')
-      }
-      const policyIds = selectedPolicies.map((policy) => policy.id)
-      const defaultPolicyId = requestedPlan.defaultPolicyId || policyIds[0]
-      if (!policyIds.includes(defaultPolicyId)) {
-        throw new HttpsError('invalid-argument', 'Chính sách mặc định phải nằm trong danh sách đã chọn.')
-      }
-      for (const policyId of requestedPlan.trainerAssignments.values()) {
-        if (!policyIds.includes(policyId)) throw new HttpsError('invalid-argument', 'Phân chính sách HLV nằm ngoài danh sách đã chọn.')
-      }
-      if (requestedPlan.applicationMode === 'effective_date' && new Set(selectedPolicies.map((policy) => policy.effectiveDate)).size !== selectedPolicies.length) {
-        throw new HttpsError('invalid-argument', 'Các chính sách áp theo ngày phải có ngày hiệu lực khác nhau.')
-      }
-      const policyPlan = { ...requestedPlan, defaultPolicyId }
-      const eligibleAttendance = attendance.docs.filter((item) => !item.data().type || item.data().type === 'attended')
-      const sessionIds = [...new Set(eligibleAttendance.map((item) => item.data().sessionId || item.id).filter(Boolean))]
-      if (sessionIds.length > 3000) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều ca dạy. Hãy liên hệ quản trị để chia kỳ đối soát.')
-      const sessionSnapshots = await Promise.all(sessionIds.map((sessionId) => transaction.get(db.doc(`sessions/${sessionId}`))))
-      const sessionById = new Map(sessionSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, snapshot.data()]))
-      const groupedTeaching = teachingSlotsFromAttendance(eligibleAttendance, sessionById, selectedPolicies[0].configuration)
-      const teaching = applyPayrollPolicyPlan(groupedTeaching, policyPlan, selectedPolicies)
       const staffRecordById = new Map(staffSnapshot.docs
         .map((item) => ({ id: item.id, userId: item.id, ...item.data() }))
         .filter((item) => item.status !== 'inactive')
@@ -727,6 +750,59 @@ function createPayrollFunctions({ db, onCall }) {
           status: existing.status || 'active',
         })
       })
+      let policyDocuments
+      if (requestedPlan.selectedPolicyIds.length) {
+        policyDocuments = await Promise.all(requestedPlan.selectedPolicyIds.map((policyId) => transaction.get(db.doc(`payrollPolicies/${policyId}`))))
+      } else if (requestedPlan.applicationMode === 'staff_profile') {
+        const compatible = await transaction.get(db.collection('payrollPolicies').where('effectiveFrom', '<', end).orderBy('effectiveFrom', 'desc').limit(100))
+        policyDocuments = compatible.docs.filter((item) => item.data().status !== 'inactive')
+      } else {
+        const fallback = await transaction.get(db.collection('payrollPolicies').where('effectiveFrom', '<=', start).orderBy('effectiveFrom', 'desc').limit(20))
+        policyDocuments = fallback.docs.filter((item) => item.data().status !== 'inactive').slice(0, 1)
+      }
+      const selectedPolicies = policyDocuments.map(payrollPolicyRecord)
+      if (!selectedPolicies.length) throw new HttpsError('failed-precondition', 'Chưa có chính sách lương hiệu lực cho kỳ này.')
+      if (selectedPolicies.some((policy) => policy.status !== 'active')) {
+        throw new HttpsError('failed-precondition', 'Một chính sách đã chọn đang bị ẩn. Hãy chọn lại chính sách hoạt động.')
+      }
+      const staffWithoutCompatiblePolicy = [...staffRecordById.entries()].find(([, staff]) => {
+        const profile = payrollProfile(staff)
+        return !selectedPolicies.some((policy) => policySupportsProfile(policy, profile))
+      })
+      if (staffWithoutCompatiblePolicy) {
+        const [staffId, staff] = staffWithoutCompatiblePolicy
+        const profile = payrollProfile(staff)
+        if (profile === 'collaborator') {
+          throw new HttpsError('failed-precondition', `CTV ${staff.name || staff.displayName || staffId} cần được gán chính sách CTV trước khi lập kỳ lương.`)
+        }
+        throw new HttpsError('failed-precondition', `Nhân viên ${staff.name || staff.displayName || staffId} chưa có chính sách phù hợp với hồ sơ ${profile}.`)
+      }
+      const policyIds = selectedPolicies.map((policy) => policy.id)
+      const defaultPolicyId = requestedPlan.defaultPolicyId || policyIds[0]
+      if (!policyIds.includes(defaultPolicyId)) {
+        throw new HttpsError('invalid-argument', 'Chính sách mặc định phải nằm trong danh sách đã chọn.')
+      }
+      for (const policyId of requestedPlan.trainerAssignments.values()) {
+        if (!policyIds.includes(policyId)) throw new HttpsError('invalid-argument', 'Phân chính sách HLV nằm ngoài danh sách đã chọn.')
+      }
+      if (requestedPlan.applicationMode === 'effective_date' && new Set(selectedPolicies.map((policy) => policy.effectiveDate)).size !== selectedPolicies.length) {
+        throw new HttpsError('invalid-argument', 'Các chính sách áp theo ngày phải có ngày hiệu lực khác nhau.')
+      }
+      const policyPlan = {
+        ...requestedPlan,
+        defaultPolicyId,
+        staffProfiles: new Map([...staffRecordById].map(([staffId, staff]) => [staffId, payrollProfile(staff)])),
+        staffPolicyAssignments: new Map([...staffRecordById]
+          .filter(([, staff]) => typeof staff.payrollPolicyId === 'string' && staff.payrollPolicyId)
+          .map(([staffId, staff]) => [staffId, staff.payrollPolicyId])),
+      }
+      const eligibleAttendance = attendance.docs.filter((item) => !item.data().type || item.data().type === 'attended')
+      const sessionIds = [...new Set(eligibleAttendance.map((item) => item.data().sessionId || item.id).filter(Boolean))]
+      if (sessionIds.length > 3000) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều ca dạy. Hãy liên hệ quản trị để chia kỳ đối soát.')
+      const sessionSnapshots = await Promise.all(sessionIds.map((sessionId) => transaction.get(db.doc(`sessions/${sessionId}`))))
+      const sessionById = new Map(sessionSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, snapshot.data()]))
+      const groupedTeaching = teachingSlotsFromAttendance(eligibleAttendance, sessionById, selectedPolicies[0].configuration)
+      const teaching = applyPayrollPolicyPlan(groupedTeaching, policyPlan, selectedPolicies)
       const activeStaff = [...staffRecordById.values()]
       const staffIds = [...new Set([...activeStaff.map((item) => item.id), ...teaching.trainers.keys()])]
       if (staffIds.length > 450) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều nhân sự để khóa trong một giao dịch.')
@@ -779,14 +855,14 @@ function createPayrollFunctions({ db, onCall }) {
         const commissionAmount = Math.min(5_000_000_000, teachingSlots.length * commissionPerSession)
         const amounts = payrollAmounts(workdays, { grossAmount: teachingPayAmount, commissionAmount })
         const itemPolicyIds = [...new Set(teachingSlots.map((slot) => slot.policyId).filter(Boolean))]
-        const usedPolicyAudiences = itemPolicyIds.map((policyId) => selectedPolicyById.get(policyId)?.audience || 'employee')
-        if (workdays.employmentType === 'collaborator' && usedPolicyAudiences.some((audience) => audience === 'employee')) {
-          throw new HttpsError('failed-precondition', `CTV ${identity.name || staffId} cần được gán chính sách CTV 50.000–100.000đ/ca.`)
+        const staffPayrollProfile = payrollProfile(staff)
+        const unsupportedPolicy = itemPolicyIds
+          .map((policyId) => selectedPolicyById.get(policyId))
+          .find((policy) => policy && !policySupportsProfile(policy, staffPayrollProfile))
+        if (unsupportedPolicy) {
+          throw new HttpsError('failed-precondition', `Chính sách ${unsupportedPolicy.name} không áp dụng cho nhóm lương của ${identity.name || staffId}.`)
         }
-        if (workdays.employmentType !== 'collaborator' && usedPolicyAudiences.some((audience) => audience === 'collaborator')) {
-          throw new HttpsError('failed-precondition', `Nhân viên ${identity.name || staffId} không thể dùng chính sách chỉ dành cho CTV.`)
-        }
-        return { staffId, staff, identity, calendar, workdays, teachingSlots, amounts, itemPolicyIds }
+        return { staffId, staff, identity, calendar, workdays, teachingSlots, amounts, itemPolicyIds, staffPayrollProfile }
       })
       const grossAmount = itemRecords.reduce((total, item) => total + item.amounts.grossAmount, 0)
       const finalAmount = itemRecords.reduce((total, item) => total + item.amounts.finalAmount, 0)
@@ -794,7 +870,7 @@ function createPayrollFunctions({ db, onCall }) {
       const attendanceReviewRequiredCount = itemRecords.filter((item) => item.workdays.attendanceReviewRequired).length
       const calendarReviewRequiredCount = itemRecords.filter((item) => item.workdays.calendarReviewRequired).length
       transaction.create(runReference, {
-        schemaVersion: 5,
+        schemaVersion: 6,
         revision: 1,
         periodId,
         policyId: defaultPolicy.id,
@@ -827,7 +903,7 @@ function createPayrollFunctions({ db, onCall }) {
         updatedAt: FieldValue.serverTimestamp(),
       })
       for (const item of itemRecords) {
-        const { staffId, identity, calendar, workdays, teachingSlots, amounts, itemPolicyIds } = item
+        const { staffId, identity, calendar, workdays, teachingSlots, amounts, itemPolicyIds, staffPayrollProfile } = item
         const itemReference = db.doc(`payrollRunItems/${periodId}_${staffId}`)
         const tierSummary = teachingSlots.reduce((result, slot) => {
           if (slot.tier === 'standard') { result.standardCount += 1; result.standardAmount += slot.rate }
@@ -836,7 +912,7 @@ function createPayrollFunctions({ db, onCall }) {
           return result
         }, { standardCount: 0, standardAmount: 0, afterThresholdCount: 0, afterThresholdAmount: 0, afterThresholdEveningCount: 0, afterThresholdEveningAmount: 0 })
         transaction.create(itemReference, {
-          schemaVersion: 5,
+          schemaVersion: 6,
           runId: runReference.id,
           periodId,
           staffId,
@@ -844,6 +920,9 @@ function createPayrollFunctions({ db, onCall }) {
           staffSnapshot: { name: identity.name || 'Chưa cập nhật tên', employeeCode: identity.employeeCode || '', branchId: identity.branchId || '' },
           trainerSnapshot: { name: identity.name || 'Chưa cập nhật tên', branchId: identity.branchId || '' },
           employmentType: workdays.employmentType,
+          employmentLevel: staffPayrollProfile === 'probation' || staffPayrollProfile === 'senior' ? staffPayrollProfile : 'official',
+          payrollProfile: staffPayrollProfile,
+          assignedPayrollPolicyId: typeof item.staff.payrollPolicyId === 'string' ? item.staff.payrollPolicyId : '',
           policyIds: itemPolicyIds,
           policySnapshots: policySnapshots.filter((policy) => itemPolicyIds.includes(policy.id)),
           sessionCount: teachingSlots.length,
@@ -851,7 +930,7 @@ function createPayrollFunctions({ db, onCall }) {
           teachingDayCount: new Set(teachingSlots.map((slot) => slot.date)).size,
           teachingSlots,
           tierSummary,
-          ratePerSession: defaultPolicy.configuration.ratePerSession,
+          ratePerSession: teachingSlots[0]?.rate || defaultPolicy.configuration.ratePerSession,
           baseSalarySnapshot: { monthlyAmount: workdays.baseSalary, dailyRate: workdays.dailyRate },
           workCalendarSnapshot: { periodId, branchId: identity.branchId || '', weeklyRestDays: calendar.weeklyRestDays, holidays: calendar.holidays, revision: calendar.revision, approved: calendar.approved },
           workdaySummary: {
@@ -1103,6 +1182,9 @@ module.exports = {
   policyEffectiveDate,
   policyRate,
   payrollPolicyConfiguration,
+  payrollPolicyProfiles,
+  payrollProfile,
+  policySupportsProfile,
   teachingSlotsFromAttendance,
   payrollRunPolicyPlan,
   applyPayrollPolicyPlan,

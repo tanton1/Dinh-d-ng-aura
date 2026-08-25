@@ -2,7 +2,8 @@ import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebase'
 
 export type PayrollRunStatus = 'draft' | 'reviewed' | 'locked' | 'paid'
-export type PayrollPolicyApplicationMode = 'single' | 'trainer_assignment' | 'effective_date'
+export type PayrollPolicyApplicationMode = 'single' | 'staff_profile' | 'trainer_assignment' | 'effective_date'
+export type PayrollProfile = 'probation' | 'official' | 'senior' | 'part_time' | 'collaborator'
 
 export interface PayrollRunSummary {
   id: string
@@ -37,6 +38,7 @@ export interface PayrollPolicy {
   id: string
   name: string
   audience: 'employee' | 'collaborator' | 'all'
+  eligibleProfiles: PayrollProfile[]
   version: number
   effectiveFrom: string
   ratePerSession: number
@@ -164,7 +166,7 @@ function normaliseRun(value: unknown): PayrollRunSummary {
     policyIds: Array.isArray(raw.policyIds)
       ? raw.policyIds.filter((id): id is string => typeof id === 'string')
       : typeof raw.policyId === 'string' ? [raw.policyId] : [],
-    policyApplicationMode: raw.policyApplicationMode === 'trainer_assignment' || raw.policyApplicationMode === 'effective_date'
+    policyApplicationMode: raw.policyApplicationMode === 'staff_profile' || raw.policyApplicationMode === 'trainer_assignment' || raw.policyApplicationMode === 'effective_date'
       ? raw.policyApplicationMode
       : 'single',
     status: status(raw.status),
@@ -315,6 +317,9 @@ export async function listPayrollPolicies(): Promise<PayrollPolicy[]> {
       id,
       name: typeof raw.name === 'string' ? raw.name : 'Chính sách lương PT',
       audience: raw.audience === 'collaborator' || raw.audience === 'all' ? raw.audience : 'employee',
+      eligibleProfiles: Array.isArray(raw.eligibleProfiles)
+        ? raw.eligibleProfiles.filter((profile): profile is PayrollProfile => typeof profile === 'string' && ['probation', 'official', 'senior', 'part_time', 'collaborator'].includes(profile))
+        : raw.audience === 'collaborator' ? ['collaborator'] : raw.audience === 'all' ? ['probation', 'official', 'senior', 'part_time', 'collaborator'] : ['probation', 'official', 'senior', 'part_time'],
       version: amount(raw.version) || 1,
       effectiveFrom: typeof raw.effectiveFrom === 'string' ? raw.effectiveFrom : '',
       ratePerSession: amount(raw.ratePerSession),
@@ -333,6 +338,7 @@ export async function listPayrollPolicies(): Promise<PayrollPolicy[]> {
 export async function savePayrollPolicy(input: {
   name: string
   audience: 'employee' | 'collaborator' | 'all'
+  eligibleProfiles: PayrollProfile[]
   effectiveFrom: string
   ratePerSession: number
   dailySessionThreshold: number

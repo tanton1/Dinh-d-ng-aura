@@ -12,6 +12,7 @@ import { hasPermission } from '../../config/permissions'
 import { useDatabase } from '../../contexts/DatabaseContext'
 import { firestoreDb } from '../../lib/firebase'
 import { assignStaffPositions, deleteMemberAccount, deleteUnusedStaffAccount, provisionStaffAccount, provisionStudentAccount, saveStaffOperationsProfile, suspendAccountAccess } from '../../services/identityAccessService'
+import { listPayrollPolicies, type PayrollPolicy, type PayrollProfile } from '../../services/payrollService'
 import type { StaffPosition } from '../../identity/access'
 import type { Branch, UserRole } from '../../types'
 
@@ -37,6 +38,7 @@ interface AdminRolesPageProps {
 type DirectoryColumn = 'phone' | 'email' | 'scope' | 'activity' | 'status'
 type RolesSection = 'accounts' | 'branches' | 'staff'
 type EmploymentType = 'full_time' | 'part_time' | 'collaborator'
+type EmploymentLevel = 'probation' | 'official' | 'senior'
 type InviteDraft = {
   displayName: string
   phoneNumber: string
@@ -45,6 +47,8 @@ type InviteDraft = {
   positions: StaffPosition[]
   branchIds: string[]
   employmentType: EmploymentType
+  employmentLevel: EmploymentLevel
+  payrollPolicyId: string
 }
 type RoleAssignmentSummary = {
   accessRole: 'student' | 'staff' | 'admin' | 'super_admin'
@@ -57,6 +61,8 @@ type StaffOperationsRecord = {
   slotCapacity?: number
   name?: string; email?: string; phone?: string; role?: string; status?: string
   employmentType?: EmploymentType
+  employmentLevel?: EmploymentLevel
+  payrollPolicyId?: string
 }
 type StaffEditorState = {
   uid: string
@@ -66,8 +72,15 @@ type StaffEditorState = {
   slots: string[]
   slotCapacity: number
   employmentType: EmploymentType
+  employmentLevel: EmploymentLevel
+  payrollPolicyId: string
   compensation: Required<Pick<StaffOperationsRecord, 'baseSalary' | 'bonusMonthly' | 'commissionRate' | 'commissionPerSession'>>
 }
+type TeamConfirmation =
+  | { kind: 'change_role'; user: AdminRoleUser; nextRole: UserRole }
+  | { kind: 'suspend_staff'; member: AdminRoleUser }
+  | { kind: 'delete_staff'; member: AdminRoleUser }
+  | { kind: 'archive_branch'; branch: Branch }
 
 const directoryColumnMeta: Record<DirectoryColumn, string> = {
   phone: 'Số điện thoại', email: 'Email đăng nhập', scope: 'Chức danh & phạm vi',
@@ -150,13 +163,57 @@ function defaultPositionForRole(role: UserRole): StaffPosition | null {
   }
 }
 function emptyInviteDraft(): InviteDraft {
-  return { displayName: '', phoneNumber: '', email: '', accessRole: 'student' as const, positions: [] as StaffPosition[], branchIds: [] as string[], employmentType: 'full_time' }
+  return { displayName: '', phoneNumber: '', email: '', accessRole: 'student' as const, positions: [] as StaffPosition[], branchIds: [] as string[], employmentType: 'full_time', employmentLevel: 'official', payrollPolicyId: '' }
 }
 
 function employmentTypeLabel(value: EmploymentType | undefined) {
   if (value === 'collaborator') return 'Cộng tác viên'
   if (value === 'part_time') return 'Bán thời gian'
   return 'Toàn thời gian'
+}
+function employmentLevelLabel(value: EmploymentLevel | undefined) {
+  if (value === 'probation') return 'Thử việc'
+  if (value === 'senior') return 'Senior'
+  return 'Chính thức'
+}
+function staffPayrollProfile(employmentType: EmploymentType, employmentLevel: EmploymentLevel): PayrollProfile {
+  if (employmentType === 'collaborator') return 'collaborator'
+  if (employmentType === 'part_time') return 'part_time'
+  return employmentLevel
+}
+function teamConfirmationCopy(action: TeamConfirmation) {
+  if (action.kind === 'change_role') return {
+    title: 'Xác nhận đổi vai trò',
+    subject: action.user.displayName || action.user.email || action.user.uid,
+    detail: `Vai trò đăng nhập sẽ chuyển từ ${roleMeta[action.user.role].label} sang ${roleMeta[action.nextRole].label}.`,
+    note: 'Người dùng phải đăng nhập lại để nhận token quyền mới. Chức danh PT, Sales và phạm vi chi nhánh vẫn được quản lý tại hồ sơ nhân viên.',
+    confirmLabel: 'Đổi vai trò',
+    danger: false,
+  }
+  if (action.kind === 'suspend_staff') return {
+    title: 'Khóa tài khoản nhân viên',
+    subject: action.member.displayName || action.member.email || action.member.uid,
+    detail: 'Tài khoản sẽ không thể đăng nhập hoặc nhận công việc mới.',
+    note: 'Dữ liệu lịch sử, ca dạy, ngày công và bảng lương vẫn được giữ nguyên để đối soát.',
+    confirmLabel: 'Khóa tài khoản',
+    danger: true,
+  }
+  if (action.kind === 'delete_staff') return {
+    title: 'Xóa tài khoản mới tạo',
+    subject: action.member.displayName || action.member.email || action.member.uid,
+    detail: 'Chỉ tài khoản chưa phát sinh dữ liệu vận hành mới có thể xóa.',
+    note: 'Backend sẽ từ chối nếu nhân viên đã có ca dạy, học viên phụ trách, ngày công, lương hoặc lịch sử nghiệp vụ.',
+    confirmLabel: 'Xóa tài khoản',
+    danger: true,
+  }
+  return {
+    title: 'Lưu trữ chi nhánh',
+    subject: action.branch.name,
+    detail: 'Chi nhánh sẽ ẩn khỏi danh sách vận hành mặc định.',
+    note: 'Tài khoản đang được cấp phạm vi tại chi nhánh này cần được rà soát và chuyển phạm vi trước khi tiếp tục làm việc.',
+    confirmLabel: 'Lưu trữ chi nhánh',
+    danger: true,
+  }
 }
 function assignmentPositionLabel(position: StaffPosition) {
   return positionOptions.find((option) => option.id === position)?.label ?? position
@@ -201,17 +258,22 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const [branchSaving, setBranchSaving] = useState(false)
   const [assignments, setAssignments] = useState<Record<string, RoleAssignmentSummary>>({})
   const [staffOperations, setStaffOperations] = useState<Record<string, StaffOperationsRecord>>({})
+  const [payrollPolicies, setPayrollPolicies] = useState<PayrollPolicy[]>([])
   const [directorySnapshot, setDirectorySnapshot] = useState<Record<string, AdminRoleUser>>({})
   const [legacyContracts, setLegacyContracts] = useState<Array<Record<string, unknown>>>([])
   const [staffEditor, setStaffEditor] = useState<StaffEditorState | null>(null)
   const [staffSaving, setStaffSaving] = useState(false)
   const [memberDeleteTarget, setMemberDeleteTarget] = useState<AdminRoleUser | null>(null)
   const [memberDeleteConfirmation, setMemberDeleteConfirmation] = useState('')
+  const [teamConfirmation, setTeamConfirmation] = useState<TeamConfirmation | null>(null)
+  const [teamActionSaving, setTeamActionSaving] = useState(false)
 
   const workingDays = scheduleConfig.workingDays?.length ? scheduleConfig.workingDays : fallbackStaffDays
   const workingHours = scheduleConfig.workingHours?.length ? scheduleConfig.workingHours : fallbackStaffHours
+  const hasEditorPage = inviteOpen || Boolean(branchEditor) || Boolean(staffEditor) || Boolean(accessEditorUid) || Boolean(memberDeleteTarget) || Boolean(teamConfirmation)
 
   useEffect(() => { window.localStorage.setItem(directoryColumnsStorageKey, JSON.stringify(visibleColumns)) }, [visibleColumns])
+  useEffect(() => { if (hasEditorPage) window.scrollTo({ top: 0, behavior: 'smooth' }) }, [hasEditorPage])
 
   const canAssignRole = hasPermission(currentRole, 'role.assign')
   const canAssignSuperAdmin = hasPermission(currentRole, 'role.assign_super_admin')
@@ -265,6 +327,14 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
     const stopContracts = onSnapshot(collection(firestoreDb, 'contracts'), (snapshot) => setLegacyContracts(snapshot.docs.map((item) => item.data() as Record<string, unknown>)), () => setLegacyContracts([]))
     return () => { stopStaff(); stopTrainers(); stopContracts() }
   }, [section, canViewTeam])
+  useEffect(() => {
+    if (!canViewTeam) return
+    let active = true
+    void listPayrollPolicies()
+      .then((items) => { if (active) setPayrollPolicies(items.filter((item) => item.status === 'active')) })
+      .catch(() => { if (active) setPayrollPolicies([]) })
+    return () => { active = false }
+  }, [canViewTeam])
   const directoryUsers = useMemo(() => {
     const next = new Map(users.map((user) => [user.uid, user]))
     Object.values(directorySnapshot).forEach((user) => {
@@ -341,6 +411,8 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       slots: Array.isArray(record.availableSlots) ? [...new Set(record.availableSlots.map(normalizeStaffSlot))] : [],
       slotCapacity: Number.isInteger(record.slotCapacity) ? Number(record.slotCapacity) : 2,
       employmentType: record.employmentType === 'collaborator' || record.employmentType === 'part_time' ? record.employmentType : 'full_time',
+      employmentLevel: record.employmentLevel === 'probation' || record.employmentLevel === 'senior' ? record.employmentLevel : 'official',
+      payrollPolicyId: typeof record.payrollPolicyId === 'string' ? record.payrollPolicyId : '',
       compensation: { baseSalary: Number(record.baseSalary || 0), bonusMonthly: Number(record.bonusMonthly || 0), commissionRate: Number(record.commissionRate || 0), commissionPerSession: Number(record.commissionPerSession || 0) },
     })
   }
@@ -348,7 +420,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const saveStaffProfile = async () => {
     if (!staffEditor) return
     setStaffSaving(true); setError(null)
-    try { await saveStaffOperationsProfile({ uid: staffEditor.uid, displayName: staffEditor.displayName, email: staffEditor.email, phoneNumber: staffEditor.phoneNumber, employmentType: staffEditor.employmentType, availabilitySlots: staffEditor.slots, slotCapacity: staffEditor.slotCapacity, compensation: staffEditor.compensation }); setStaffEditor(null); setSuccess('Đã lưu loại hợp tác, lịch rảnh và cơ chế thu nhập của nhân viên.') }
+    try { await saveStaffOperationsProfile({ uid: staffEditor.uid, displayName: staffEditor.displayName, email: staffEditor.email, phoneNumber: staffEditor.phoneNumber, employmentType: staffEditor.employmentType, employmentLevel: staffEditor.employmentLevel, payrollPolicyId: staffEditor.payrollPolicyId, availabilitySlots: staffEditor.slots, slotCapacity: staffEditor.slotCapacity, compensation: staffEditor.compensation }); setStaffEditor(null); setSuccess('Đã lưu cấp bậc, chính sách lương, lịch rảnh và cơ chế thu nhập của nhân viên.') }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể lưu hồ sơ vận hành nhân viên.') }
     finally { setStaffSaving(false) }
   }
@@ -368,11 +440,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const changeRole = async (user: AdminRoleUser, nextRole: UserRole) => {
     if (!canAssignRole || user.role === nextRole || staffPositionRoles.has(user.role) || staffPositionRoles.has(nextRole) || user.uid === currentUserUid) return
     if ((user.role === 'admin' || user.role === 'super_admin' || nextRole === 'admin' || nextRole === 'super_admin') && !canAssignSuperAdmin) return
-    if (!window.confirm(`Đổi vai trò của ${user.displayName || user.email || user.uid} thành ${roleMeta[nextRole].label}?`)) return
-    setSavingUid(user.uid); setError(null); setSuccess(null)
-    try { await onRoleChange(user.uid, nextRole); setSuccess(`Đã cập nhật ${user.displayName || user.email || user.uid}. Người dùng cần đăng nhập lại để nhận quyền mới.`) }
-    catch { setError(`Không thể cập nhật quyền cho ${user.displayName || user.email || user.uid}. Vui lòng thử lại.`) }
-    finally { setSavingUid(null) }
+    setTeamConfirmation({ kind: 'change_role', user, nextRole }); setError(null); setSuccess(null)
   }
   const openAccessEditor = (user: AdminRoleUser, assignment?: RoleAssignmentSummary) => {
     const defaultPosition = defaultPositionForRole(user.role)
@@ -412,7 +480,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
     try {
       const common = { displayName: inviteDraft.displayName.trim(), phoneNumber: inviteDraft.phoneNumber.trim(), email: inviteDraft.email.trim() }
       const result = inviteDraft.accessRole === 'staff'
-        ? await provisionStaffAccount({ ...common, positions: inviteDraft.positions, branchIds: inviteDraft.branchIds, employmentType: inviteDraft.employmentType })
+        ? await provisionStaffAccount({ ...common, positions: inviteDraft.positions, branchIds: inviteDraft.branchIds, employmentType: inviteDraft.employmentType, employmentLevel: inviteDraft.employmentLevel, payrollPolicyId: inviteDraft.payrollPolicyId })
         : await provisionStudentAccount(common)
       setInviteOpen(false); setInviteDraft(emptyInviteDraft()); setSuccess(`Đã tạo tài khoản cho ${result.displayName}. Mật khẩu ban đầu là số điện thoại; người dùng có thể đổi trong Hồ sơ cá nhân nếu muốn.`)
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể tạo tài khoản.') }
@@ -420,25 +488,11 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   }
   const suspendStaff = async (member: AdminRoleUser) => {
     if (!canAssignRole || member.uid === currentUserUid) return
-    if (!window.confirm(`Khóa và lưu trữ tài khoản ${member.displayName || member.email || member.uid}? Dữ liệu lịch sử, lương và chấm công vẫn được giữ để đối soát.`)) return
-    setSavingUid(member.uid); setError(null); setSuccess(null)
-    try {
-      await suspendAccountAccess(member.uid)
-      setSuccess(`Đã khóa và lưu trữ ${member.displayName || member.email || member.uid}. Không xóa lịch sử vận hành.`)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Không thể khóa tài khoản nhân viên.')
-    } finally { setSavingUid(null) }
+    setTeamConfirmation({ kind: 'suspend_staff', member }); setError(null); setSuccess(null)
   }
   const deleteStaff = async (member: AdminRoleUser) => {
     if (!canAssignRole || member.uid === currentUserUid) return
-    if (!window.confirm(`Xóa hẳn tài khoản mới tạo của ${member.displayName || member.email || member.uid}? Thao tác chỉ thành công khi tài khoản chưa phát sinh dữ liệu vận hành.`)) return
-    setSavingUid(member.uid); setError(null); setSuccess(null)
-    try {
-      await deleteUnusedStaffAccount(member.uid)
-      setSuccess(`Đã xóa tài khoản mới tạo ${member.displayName || member.email || member.uid}.`)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Không thể xóa tài khoản nhân viên.')
-    } finally { setSavingUid(null) }
+    setTeamConfirmation({ kind: 'delete_staff', member }); setError(null); setSuccess(null)
   }
   const openMemberDelete = (member: AdminRoleUser) => {
     if (!canAssignRole || member.uid === currentUserUid || member.role === 'admin' || member.role === 'super_admin') return
@@ -471,15 +525,51 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
     finally { setBranchSaving(false) }
   }
   const archiveBranch = async (branch: Branch) => {
-    if (!canAssignRole || !window.confirm(`Lưu trữ chi nhánh ${branch.name}? Những phân quyền đang dùng chi nhánh này sẽ cần được rà soát.`)) return
-    setError(null)
-    try { await deleteBranch(branch.id); setSuccess(`Đã lưu trữ chi nhánh ${branch.name}.`) }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể lưu trữ chi nhánh.') }
+    if (!canAssignRole) return
+    setTeamConfirmation({ kind: 'archive_branch', branch }); setError(null); setSuccess(null)
+  }
+
+  const confirmTeamAction = async () => {
+    if (!teamConfirmation || teamActionSaving) return
+    setTeamActionSaving(true); setError(null); setSuccess(null)
+    try {
+      if (teamConfirmation.kind === 'change_role') {
+        const { user, nextRole } = teamConfirmation
+        setSavingUid(user.uid)
+        await onRoleChange(user.uid, nextRole)
+        setSuccess(`Đã cập nhật ${user.displayName || user.email || user.uid}. Người dùng cần đăng nhập lại để nhận quyền mới.`)
+      } else if (teamConfirmation.kind === 'suspend_staff') {
+        const { member } = teamConfirmation
+        setSavingUid(member.uid)
+        await suspendAccountAccess(member.uid)
+        setSuccess(`Đã khóa và lưu trữ ${member.displayName || member.email || member.uid}. Không xóa lịch sử vận hành.`)
+      } else if (teamConfirmation.kind === 'delete_staff') {
+        const { member } = teamConfirmation
+        setSavingUid(member.uid)
+        await deleteUnusedStaffAccount(member.uid)
+        setSuccess(`Đã xóa tài khoản mới tạo ${member.displayName || member.email || member.uid}.`)
+      } else {
+        await deleteBranch(teamConfirmation.branch.id)
+        setSuccess(`Đã lưu trữ chi nhánh ${teamConfirmation.branch.name}.`)
+      }
+      setTeamConfirmation(null)
+    } catch (caught) {
+      const fallback = teamConfirmation.kind === 'change_role'
+        ? 'Không thể cập nhật vai trò.'
+        : teamConfirmation.kind === 'suspend_staff'
+          ? 'Không thể khóa tài khoản nhân viên.'
+          : teamConfirmation.kind === 'delete_staff'
+            ? 'Không thể xóa tài khoản nhân viên.'
+            : 'Không thể lưu trữ chi nhánh.'
+      setError(caught instanceof Error ? caught.message : fallback)
+    } finally {
+      setSavingUid(null); setTeamActionSaving(false)
+    }
   }
 
   if (!canViewTeam) return <div className="page admin-students-page identity-admin-page"><div className="identity-forbidden"><ShieldCheck size={38} /><h3>Bạn chưa có quyền xem đội ngũ</h3><p>Liên hệ quản trị viên để được cấp quyền phù hợp.</p></div></div>
 
-  return <div className="page admin-students-page identity-admin-page">
+  return <div className={`page admin-students-page identity-admin-page ${hasEditorPage ? 'identity-admin-page--subpage' : ''}`}>
     <header className="identity-hero">
       <span className="identity-hero__glow" aria-hidden="true" />
       <div className="identity-hero__copy">
@@ -557,7 +647,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
           <div className="identity-staff-card__head"><span className="identity-staff-card__person"><i>{initials(member.displayName, member.email)}</i><span><strong>{member.displayName || 'Chưa cập nhật tên'}</strong><small>{member.email || member.phoneNumber || 'Chưa cập nhật liên hệ'}</small></span></span><i className={`status-badge ${isSuspended ? 'attention' : 'published'}`}>{isSuspended ? 'Đã khóa' : 'Hoạt động'}</i></div>
           <div className="identity-staff-card__scope"><strong>{positions}</strong><span><MapPin size={13} />{assignedBranches.length ? assignedBranches.join(' · ') : 'Toàn hệ thống'}</span></div>
           <div className="identity-staff-card__metrics"><span><small>PT chính</small><strong>{countManagedClients(member.uid, 'main')}</strong></span><span><small>Phối hợp</small><strong>{countManagedClients(member.uid, 'secondary')}</strong></span><span><small>Dinh dưỡng</small><strong>{countManagedClients(member.uid, 'nutrition')}</strong></span></div>
-          <div className="identity-staff-card__facts"><p><WalletCards size={15} />{employmentTypeLabel(record.employmentType)} · {record.employmentType === 'collaborator' ? 'Không lương cơ bản' : `Lương ${Number(record.baseSalary || 0).toLocaleString('vi-VN')}đ`} · Thưởng {Number(record.bonusMonthly || 0).toLocaleString('vi-VN')}đ</p><p><CalendarClock size={15} />{Array.isArray(record.availableSlots) && record.availableSlots.length ? `${record.availableSlots.length} khung giờ rảnh` : 'Chưa thiết lập lịch rảnh'}</p></div>
+          <div className="identity-staff-card__facts"><p><WalletCards size={15} />{employmentTypeLabel(record.employmentType)} · {record.employmentType === 'full_time' ? employmentLevelLabel(record.employmentLevel) : record.employmentType === 'part_time' ? 'Part-time' : 'CTV'} · {record.employmentType === 'collaborator' ? 'Không lương cơ bản' : `Lương ${Number(record.baseSalary || 0).toLocaleString('vi-VN')}đ`}</p><p><ShieldCheck size={15} />{payrollPolicies.find((policy) => policy.id === record.payrollPolicyId)?.name || 'Chưa gán chính sách lương'} · Thưởng {Number(record.bonusMonthly || 0).toLocaleString('vi-VN')}đ</p><p><CalendarClock size={15} />{Array.isArray(record.availableSlots) && record.availableSlots.length ? `${record.availableSlots.length} khung giờ rảnh` : 'Chưa thiết lập lịch rảnh'}</p></div>
           {canAssignRole && <div className="identity-staff-card__actions">{canEditAccess && <button type="button" className="identity-staff-card__primary" onClick={() => openAccessEditor(member, assignment)}><KeyRound size={15} />Quyền & phạm vi</button>}<button type="button" className="outline-button" onClick={() => openStaffEditor(member)}><CalendarClock size={15} />Hồ sơ & lịch rảnh</button>{!isSuspended && member.uid !== currentUserUid && <><button type="button" className="outline-button identity-staff-card__archive" onClick={() => void suspendStaff(member)} disabled={savingUid === member.uid}>Khóa</button><button type="button" className="outline-button identity-staff-card__delete" onClick={() => void deleteStaff(member)} disabled={savingUid === member.uid}>Xóa</button></>}</div>}
         </article>
       })}{!filteredStaffRows.length && <div className="empty-state"><Users size={30} /><h3>Không tìm thấy nhân viên</h3><p>Thử đổi từ khóa, chức danh hoặc tạo tài khoản nhân viên mới.</p></div>}</div>
@@ -567,8 +657,14 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       <div className="identity-section__heading"><span><Building2 size={20} /><span><strong>Chi nhánh Aura</strong><small>Tạo cơ sở và dùng làm phạm vi dữ liệu cho Sales, PT hoặc Quản lý chi nhánh.</small></span></span>{canAssignRole && <button type="button" className="pink-orange-button" onClick={() => { setBranchEditor({ name: '', address: '' }); setError(null) }}><Plus size={17} />Thêm chi nhánh</button>}</div>
       <div className="identity-branch-list">{branches.length ? branches.map((branch) => <article key={branch.id} className={branch.status === 'archived' ? 'archived' : ''}><span><i><Building2 size={18} /></i><span><strong>{branch.name}</strong><small>{branch.address}</small></span></span><span className="identity-branch-list__actions"><i className={`status-badge ${branch.status === 'archived' ? 'draft' : 'published'}`}>{branch.status === 'archived' ? 'Đã lưu trữ' : 'Đang hoạt động'}</i>{canAssignRole && <><button type="button" className="outline-button" onClick={() => setBranchEditor({ id: branch.id, name: branch.name, address: branch.address })}>Chỉnh sửa</button>{branch.status !== 'archived' && <button type="button" className="outline-button" onClick={() => void archiveBranch(branch)}>Lưu trữ</button>}</>}</span></article>) : <div className="empty-state"><Building2 size={30} /><h3>Chưa có chi nhánh</h3><p>Tạo chi nhánh đầu tiên để cấp phạm vi cho đội ngũ.</p></div>}</div>
     </section>}
-    {memberDeleteTarget && <section className="identity-overlay" role="dialog" aria-modal="true" aria-labelledby="member-delete-title">
-      <button className="identity-overlay__backdrop" type="button" aria-label="Đóng" onClick={() => setMemberDeleteTarget(null)} />
+    {teamConfirmation && (() => { const copy = teamConfirmationCopy(teamConfirmation); return <section className="identity-overlay" role="region" aria-labelledby="team-confirmation-title">
+      <div className="identity-modal identity-modal--compact identity-modal--confirmation">
+        <ModalHeader id="team-confirmation-title" title={copy.title} detail={copy.subject} icon={<AlertCircle size={21} />} onClose={() => setTeamConfirmation(null)} />
+        <div className={`identity-confirmation-card ${copy.danger ? 'is-danger' : ''}`}><ShieldCheck size={24} /><span><strong>{copy.detail}</strong><small>{copy.note}</small></span></div>
+        <div className="identity-modal__actions"><button type="button" className="outline-button" onClick={() => setTeamConfirmation(null)} disabled={teamActionSaving}>Quay lại</button><button type="button" className={copy.danger ? 'identity-danger-button' : 'pink-orange-button'} onClick={() => void confirmTeamAction()} disabled={teamActionSaving}>{teamActionSaving ? 'Đang xử lý...' : copy.confirmLabel}</button></div>
+      </div>
+    </section> })()}
+    {memberDeleteTarget && <section className="identity-overlay" role="region" aria-labelledby="member-delete-title">
       <div className="identity-modal identity-modal--compact identity-modal--delete">
         <ModalHeader id="member-delete-title" title="Xóa tài khoản thành viên" detail={memberDeleteTarget.displayName || memberDeleteTarget.email || memberDeleteTarget.uid} icon={<Trash2 size={21} />} onClose={() => setMemberDeleteTarget(null)} />
         <div className="identity-delete-warning"><AlertCircle size={21} /><span><strong>Tài khoản đăng nhập sẽ bị xóa vĩnh viễn.</strong><small>Hồ sơ PT, hợp đồng, buổi tập, thanh toán và lịch sử học vẫn được giữ để đối soát. Tài khoản nhân viên hoặc quản trị không thể xóa tại đây.</small></span></div>
@@ -576,19 +672,20 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
         <div className="identity-modal__actions"><button type="button" className="outline-button" onClick={() => setMemberDeleteTarget(null)}>Giữ tài khoản</button><button type="button" className="identity-danger-button" onClick={() => void confirmMemberDelete()} disabled={savingUid === memberDeleteTarget.uid || memberDeleteConfirmation.trim().toLocaleUpperCase('vi') !== 'XÓA'}>{savingUid === memberDeleteTarget.uid ? 'Đang xóa...' : 'Xóa tài khoản'}</button></div>
       </div>
     </section>}
-    {accessEditorUser && <section className="identity-overlay" role="dialog" aria-modal="true" aria-labelledby="access-title"><button className="identity-overlay__backdrop" type="button" aria-label="Đóng" onClick={() => setAccessEditorUid(null)} /><div className="identity-modal identity-modal--access"><ModalHeader id="access-title" title={`Quyền của ${accessEditorUser.displayName || accessEditorUser.email || 'tài khoản'}`} detail="Chọn một hoặc nhiều chức danh và phạm vi chi nhánh. Backend sẽ tính capability và cập nhật token đăng nhập." icon={<KeyRound size={21} />} onClose={() => setAccessEditorUid(null)} /><AccessRoleChooser value={accessRoleDraft} onChange={(role) => { setAccessRoleDraft(role); if (role === 'student') { setPositionDraft([]); setBranchDraft([]) } }} />{accessRoleDraft === 'staff' && <ScopedAssignmentFields positions={positionDraft} branchIds={branchDraft} branches={branches} onTogglePosition={(position) => togglePosition(position, 'access')} onToggleBranch={(branchId) => toggleBranch(branchId, 'access')} onApplyPreset={setPositionDraft} />}<div className="identity-modal__actions"><button type="button" className="outline-button" onClick={() => setAccessEditorUid(null)}>Hủy</button><button type="button" className="pink-orange-button" onClick={() => void saveScopedAccess(accessEditorUser)} disabled={accessSaving || (accessRoleDraft === 'staff' && !positionDraft.length)}>{accessSaving ? 'Đang cập nhật...' : 'Lưu quyền & đăng nhập lại'}</button></div></div></section>}
-    {inviteOpen && <section className="identity-overlay" role="dialog" aria-modal="true" aria-labelledby="invite-title"><button className="identity-overlay__backdrop" type="button" aria-label="Đóng" onClick={() => setInviteOpen(false)} /><div className="identity-modal"><ModalHeader id="invite-title" title={inviteDraft.accessRole === 'staff' ? 'Thêm nhân viên' : 'Thêm thành viên'} detail="Tài khoản được tạo trực tiếp. Mật khẩu ban đầu là số điện thoại và có thể đổi trong Hồ sơ cá nhân." icon={<UserCog size={21} />} onClose={() => setInviteOpen(false)} /><div className="identity-form-grid"><label><span>Họ và tên</span><input value={inviteDraft.displayName} onChange={(event) => setInviteDraft((current) => ({ ...current, displayName: event.target.value }))} placeholder="Ví dụ: Nguyễn Minh Anh" /></label><label><span>Số điện thoại / mật khẩu ban đầu</span><input type="tel" value={inviteDraft.phoneNumber} onChange={(event) => setInviteDraft((current) => ({ ...current, phoneNumber: event.target.value }))} placeholder="090…" /></label><label className="identity-form-grid__span"><span>Email đăng nhập</span><input type="email" value={inviteDraft.email} onChange={(event) => setInviteDraft((current) => ({ ...current, email: event.target.value }))} placeholder="ten@aurafitness.vn" /></label></div><AccessRoleChooser value={inviteDraft.accessRole} onChange={(role) => setInviteDraft((current) => ({ ...current, accessRole: role, positions: role === 'student' ? [] : current.positions, branchIds: role === 'student' ? [] : current.branchIds }))} />{inviteDraft.accessRole === 'staff' && <><div className="identity-employment-type" role="radiogroup" aria-label="Loại hợp tác"><button type="button" className={inviteDraft.employmentType === 'full_time' ? 'active' : ''} onClick={() => setInviteDraft((current) => ({ ...current, employmentType: 'full_time' }))}>Toàn thời gian</button><button type="button" className={inviteDraft.employmentType === 'part_time' ? 'active' : ''} onClick={() => setInviteDraft((current) => ({ ...current, employmentType: 'part_time' }))}>Bán thời gian</button><button type="button" className={inviteDraft.employmentType === 'collaborator' ? 'active' : ''} onClick={() => setInviteDraft((current) => ({ ...current, employmentType: 'collaborator' }))}>Cộng tác viên</button></div><ScopedAssignmentFields positions={inviteDraft.positions} branchIds={inviteDraft.branchIds} branches={branches} onTogglePosition={(position) => togglePosition(position, 'invite')} onToggleBranch={(branchId) => toggleBranch(branchId, 'invite')} onApplyPreset={(positions) => setInviteDraft((current) => ({ ...current, positions }))} /></>}<div className="identity-modal__actions"><button type="button" className="outline-button" onClick={() => setInviteOpen(false)}>Hủy</button><button type="button" className="pink-orange-button" onClick={() => void submitInvite()} disabled={inviteSaving}>{inviteSaving ? 'Đang tạo tài khoản...' : 'Tạo tài khoản'}</button></div></div></section>}
-    {branchEditor && <section className="identity-overlay" role="dialog" aria-modal="true" aria-labelledby="branch-title"><button className="identity-overlay__backdrop" type="button" aria-label="Đóng" onClick={() => setBranchEditor(null)} /><div className="identity-modal identity-modal--compact"><ModalHeader id="branch-title" title={branchEditor.id ? 'Chỉnh sửa chi nhánh' : 'Tạo chi nhánh'} detail="Chi nhánh này sẽ là phạm vi cấp quyền cho đội ngũ." icon={<Building2 size={21} />} onClose={() => setBranchEditor(null)} /><div className="identity-form-grid"><label className="identity-form-grid__span"><span>Tên chi nhánh</span><input value={branchEditor.name} onChange={(event) => setBranchEditor((current) => current ? { ...current, name: event.target.value } : current)} placeholder="Aura Fitness Quận 7" /></label><label className="identity-form-grid__span"><span>Địa chỉ</span><input value={branchEditor.address} onChange={(event) => setBranchEditor((current) => current ? { ...current, address: event.target.value } : current)} placeholder="Địa chỉ vận hành" /></label></div><div className="identity-modal__actions"><button type="button" className="outline-button" onClick={() => setBranchEditor(null)}>Hủy</button><button type="button" className="pink-orange-button" onClick={() => void saveBranch()} disabled={branchSaving}>{branchSaving ? 'Đang lưu...' : 'Lưu chi nhánh'}</button></div></div></section>}
-    {staffEditor && <section className="identity-overlay" role="dialog" aria-modal="true" aria-labelledby="staff-operations-title">
-      <button className="identity-overlay__backdrop" type="button" aria-label="Đóng" onClick={() => setStaffEditor(null)} />
+    {accessEditorUser && <section className="identity-overlay" role="region" aria-labelledby="access-title"><div className="identity-modal identity-modal--access"><ModalHeader id="access-title" title={`Quyền của ${accessEditorUser.displayName || accessEditorUser.email || 'tài khoản'}`} detail="Chọn một hoặc nhiều chức danh và phạm vi chi nhánh. Backend sẽ tính capability và cập nhật token đăng nhập." icon={<KeyRound size={21} />} onClose={() => setAccessEditorUid(null)} /><AccessRoleChooser value={accessRoleDraft} onChange={(role) => { setAccessRoleDraft(role); if (role === 'student') { setPositionDraft([]); setBranchDraft([]) } }} />{accessRoleDraft === 'staff' && <ScopedAssignmentFields positions={positionDraft} branchIds={branchDraft} branches={branches} onTogglePosition={(position) => togglePosition(position, 'access')} onToggleBranch={(branchId) => toggleBranch(branchId, 'access')} onApplyPreset={setPositionDraft} />}<div className="identity-modal__actions"><button type="button" className="outline-button" onClick={() => setAccessEditorUid(null)}>Hủy</button><button type="button" className="pink-orange-button" onClick={() => void saveScopedAccess(accessEditorUser)} disabled={accessSaving || (accessRoleDraft === 'staff' && !positionDraft.length)}>{accessSaving ? 'Đang cập nhật...' : 'Lưu quyền & đăng nhập lại'}</button></div></div></section>}
+    {inviteOpen && <section className="identity-overlay" role="region" aria-labelledby="invite-title"><div className="identity-modal"><ModalHeader id="invite-title" title={inviteDraft.accessRole === 'staff' ? 'Thêm nhân viên' : 'Thêm thành viên'} detail="Tài khoản được tạo trực tiếp. Mật khẩu ban đầu là số điện thoại và có thể đổi trong Hồ sơ cá nhân." icon={<UserCog size={21} />} onClose={() => setInviteOpen(false)} /><div className="identity-form-grid"><label><span>Họ và tên</span><input value={inviteDraft.displayName} onChange={(event) => setInviteDraft((current) => ({ ...current, displayName: event.target.value }))} placeholder="Ví dụ: Nguyễn Minh Anh" /></label><label><span>Số điện thoại / mật khẩu ban đầu</span><input type="tel" value={inviteDraft.phoneNumber} onChange={(event) => setInviteDraft((current) => ({ ...current, phoneNumber: event.target.value }))} placeholder="090…" /></label><label className="identity-form-grid__span"><span>Email đăng nhập</span><input type="email" value={inviteDraft.email} onChange={(event) => setInviteDraft((current) => ({ ...current, email: event.target.value }))} placeholder="ten@aurafitness.vn" /></label></div><AccessRoleChooser value={inviteDraft.accessRole} onChange={(role) => setInviteDraft((current) => ({ ...current, accessRole: role, positions: role === 'student' ? [] : current.positions, branchIds: role === 'student' ? [] : current.branchIds }))} />{inviteDraft.accessRole === 'staff' && <><div className="identity-employment-type" role="radiogroup" aria-label="Loại hợp tác"><button type="button" className={inviteDraft.employmentType === 'full_time' ? 'active' : ''} onClick={() => setInviteDraft((current) => ({ ...current, employmentType: 'full_time', payrollPolicyId: '' }))}>Toàn thời gian</button><button type="button" className={inviteDraft.employmentType === 'part_time' ? 'active' : ''} onClick={() => setInviteDraft((current) => ({ ...current, employmentType: 'part_time', payrollPolicyId: '' }))}>Bán thời gian</button><button type="button" className={inviteDraft.employmentType === 'collaborator' ? 'active' : ''} onClick={() => setInviteDraft((current) => ({ ...current, employmentType: 'collaborator', payrollPolicyId: '' }))}>Cộng tác viên</button></div>{inviteDraft.employmentType === 'full_time' && <div className="identity-employment-type" role="radiogroup" aria-label="Cấp bậc"><button type="button" className={inviteDraft.employmentLevel === 'probation' ? 'active' : ''} onClick={() => setInviteDraft((current) => ({ ...current, employmentLevel: 'probation', payrollPolicyId: '' }))}>Thử việc</button><button type="button" className={inviteDraft.employmentLevel === 'official' ? 'active' : ''} onClick={() => setInviteDraft((current) => ({ ...current, employmentLevel: 'official', payrollPolicyId: '' }))}>Chính thức</button><button type="button" className={inviteDraft.employmentLevel === 'senior' ? 'active' : ''} onClick={() => setInviteDraft((current) => ({ ...current, employmentLevel: 'senior', payrollPolicyId: '' }))}>Senior</button></div>}<label className="identity-policy-select"><span>Chính sách lương</span><select value={inviteDraft.payrollPolicyId} onChange={(event) => setInviteDraft((current) => ({ ...current, payrollPolicyId: event.target.value }))}><option value="">Gán sau</option>{payrollPolicies.filter((policy) => policy.eligibleProfiles.includes(staffPayrollProfile(inviteDraft.employmentType, inviteDraft.employmentLevel))).map((policy) => <option key={policy.id} value={policy.id}>{policy.name}</option>)}</select></label><ScopedAssignmentFields positions={inviteDraft.positions} branchIds={inviteDraft.branchIds} branches={branches} onTogglePosition={(position) => togglePosition(position, 'invite')} onToggleBranch={(branchId) => toggleBranch(branchId, 'invite')} onApplyPreset={(positions) => setInviteDraft((current) => ({ ...current, positions }))} /></>}<div className="identity-modal__actions"><button type="button" className="outline-button" onClick={() => setInviteOpen(false)}>Hủy</button><button type="button" className="pink-orange-button" onClick={() => void submitInvite()} disabled={inviteSaving}>{inviteSaving ? 'Đang tạo tài khoản...' : 'Tạo tài khoản'}</button></div></div></section>}
+    {branchEditor && <section className="identity-overlay" role="region" aria-labelledby="branch-title"><div className="identity-modal identity-modal--compact"><ModalHeader id="branch-title" title={branchEditor.id ? 'Chỉnh sửa chi nhánh' : 'Tạo chi nhánh'} detail="Chi nhánh này sẽ là phạm vi cấp quyền cho đội ngũ." icon={<Building2 size={21} />} onClose={() => setBranchEditor(null)} /><div className="identity-form-grid"><label className="identity-form-grid__span"><span>Tên chi nhánh</span><input value={branchEditor.name} onChange={(event) => setBranchEditor((current) => current ? { ...current, name: event.target.value } : current)} placeholder="Aura Fitness Quận 7" /></label><label className="identity-form-grid__span"><span>Địa chỉ</span><input value={branchEditor.address} onChange={(event) => setBranchEditor((current) => current ? { ...current, address: event.target.value } : current)} placeholder="Địa chỉ vận hành" /></label></div><div className="identity-modal__actions"><button type="button" className="outline-button" onClick={() => setBranchEditor(null)}>Hủy</button><button type="button" className="pink-orange-button" onClick={() => void saveBranch()} disabled={branchSaving}>{branchSaving ? 'Đang lưu...' : 'Lưu chi nhánh'}</button></div></div></section>}
+    {staffEditor && <section className="identity-overlay" role="region" aria-labelledby="staff-operations-title">
       <div className="identity-modal identity-modal--staff">
         <ModalHeader id="staff-operations-title" title="Hồ sơ & lịch rảnh" detail="Thông tin nhân viên, chính sách thu nhập và ma trận nhận ca dùng chung với lịch học viên." icon={<WalletCards size={21} />} onClose={() => setStaffEditor(null)} />
         <section className="identity-form-section"><h3>Thông tin nhân viên</h3><div className="identity-form-grid"><label className="identity-form-grid__span"><span>Họ và tên</span><input value={staffEditor.displayName} onChange={(event) => setStaffEditor((current) => current ? { ...current, displayName: event.target.value } : current)} placeholder="Họ và tên nhân viên" /></label><label><span>Email đăng nhập</span><input type="email" value={staffEditor.email} onChange={(event) => setStaffEditor((current) => current ? { ...current, email: event.target.value } : current)} placeholder="ten@aurafitness.vn" /></label><label><span>Số điện thoại</span><input type="tel" value={staffEditor.phoneNumber} onChange={(event) => setStaffEditor((current) => current ? { ...current, phoneNumber: event.target.value } : current)} placeholder="090…" /></label></div></section>
         <section className="identity-form-section">
           <h3>Loại hợp tác & thu nhập</h3>
           <div className="identity-employment-type" role="radiogroup" aria-label="Loại hợp tác nhân viên">
-            {(['full_time', 'part_time', 'collaborator'] as EmploymentType[]).map((type) => <button key={type} type="button" className={staffEditor.employmentType === type ? 'active' : ''} onClick={() => setStaffEditor((current) => current ? { ...current, employmentType: type, compensation: type === 'collaborator' ? { ...current.compensation, baseSalary: 0, commissionPerSession: 0 } : current.compensation } : current)}>{employmentTypeLabel(type)}</button>)}
+            {(['full_time', 'part_time', 'collaborator'] as EmploymentType[]).map((type) => <button key={type} type="button" className={staffEditor.employmentType === type ? 'active' : ''} onClick={() => setStaffEditor((current) => current ? { ...current, employmentType: type, payrollPolicyId: '', compensation: type === 'collaborator' ? { ...current.compensation, baseSalary: 0, commissionPerSession: 0 } : current.compensation } : current)}>{employmentTypeLabel(type)}</button>)}
           </div>
+          {staffEditor.employmentType === 'full_time' && <><h3>Cấp bậc</h3><div className="identity-employment-type" role="radiogroup" aria-label="Cấp bậc nhân viên">{(['probation', 'official', 'senior'] as EmploymentLevel[]).map((level) => <button key={level} type="button" className={staffEditor.employmentLevel === level ? 'active' : ''} onClick={() => setStaffEditor((current) => current ? { ...current, employmentLevel: level, payrollPolicyId: '' } : current)}>{employmentLevelLabel(level)}</button>)}</div></>}
+          <label className="identity-policy-select"><span>Chính sách lương áp dụng</span><select value={staffEditor.payrollPolicyId} onChange={(event) => setStaffEditor((current) => current ? { ...current, payrollPolicyId: event.target.value } : current)}><option value="">Tự chọn theo nhóm khi lập kỳ</option>{payrollPolicies.filter((policy) => policy.eligibleProfiles.includes(staffPayrollProfile(staffEditor.employmentType, staffEditor.employmentLevel))).map((policy) => <option key={policy.id} value={policy.id}>{policy.name} · {Number(policy.ratePerSession).toLocaleString('vi-VN')}đ/ca</option>)}</select><small>Nhóm hiện tại: {staffEditor.employmentType === 'full_time' ? employmentLevelLabel(staffEditor.employmentLevel) : employmentTypeLabel(staffEditor.employmentType)}. Staff sẽ thấy hoa hồng tạm tính theo chính sách này.</small></label>
           {staffEditor.employmentType === 'collaborator' && <p className="identity-employment-note">CTV không có lương cơ bản. Đơn giá 50.000–100.000đ/ca được chọn bằng chính sách CTV khi lập kỳ lương; Aura không cộng thêm hoa hồng/buổi lần hai.</p>}
           <div className="identity-form-grid identity-form-grid--compensation"><label><span>Lương cơ bản / tháng</span><input type="number" min="0" value={staffEditor.compensation.baseSalary} disabled={staffEditor.employmentType === 'collaborator'} onChange={(event) => setStaffEditor((current) => current ? { ...current, compensation: { ...current.compensation, baseSalary: Number(event.target.value) } } : current)} /></label><label><span>Thưởng tháng</span><input type="number" min="0" value={staffEditor.compensation.bonusMonthly} onChange={(event) => setStaffEditor((current) => current ? { ...current, compensation: { ...current.compensation, bonusMonthly: Number(event.target.value) } } : current)} /></label><label><span>Phụ cấp thêm / buổi</span><input type="number" min="0" value={staffEditor.compensation.commissionPerSession} disabled={staffEditor.employmentType === 'collaborator'} onChange={(event) => setStaffEditor((current) => current ? { ...current, compensation: { ...current.compensation, commissionPerSession: Number(event.target.value) } } : current)} /></label><label><span>Hoa hồng doanh thu (%)</span><input type="number" min="0" max="100" value={staffEditor.compensation.commissionRate} onChange={(event) => setStaffEditor((current) => current ? { ...current, compensation: { ...current.compensation, commissionRate: Number(event.target.value) } } : current)} /></label><label><span>Sức chứa mỗi ca PT</span><input type="number" min="1" max="4" value={staffEditor.slotCapacity} onChange={(event) => setStaffEditor((current) => current ? { ...current, slotCapacity: Math.max(1, Math.min(4, Number(event.target.value) || 1)) } : current)} /><small>Mặc định 2, tối đa 4 học viên.</small></label></div>
         </section>

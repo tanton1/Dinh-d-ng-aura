@@ -38,6 +38,7 @@ import {
   reviewPayrollRun,
   savePayrollPolicy,
   type PayrollPolicy,
+  type PayrollProfile,
   type PayrollPolicyApplicationMode,
   type PayrollRunDetail,
   type PayrollRunStatus,
@@ -98,6 +99,14 @@ function teachingTierLabel(tier: 'standard' | 'after_threshold' | 'after_thresho
   return 'Ca tiêu chuẩn'
 }
 
+function payrollProfileLabel(profile: PayrollProfile) {
+  if (profile === 'probation') return 'Thử việc'
+  if (profile === 'senior') return 'Senior'
+  if (profile === 'part_time') return 'Part-time'
+  if (profile === 'collaborator') return 'CTV'
+  return 'Chính thức'
+}
+
 function friendlyError(cause: unknown) {
   const message = cause instanceof Error ? cause.message : ''
   if (/permission|unauth|quyền/i.test(message)) return 'Tài khoản chưa có quyền quản lý bảng lương.'
@@ -132,6 +141,7 @@ export default function TrainerPayroll({ profile }: Props) {
   const [policyForm, setPolicyForm] = useState({
     name: 'Chính sách lương PT',
     audience: 'employee' as 'employee' | 'collaborator' | 'all',
+    eligibleProfiles: ['official'] as PayrollProfile[],
     effectiveFrom: currentDateOnly(),
     ratePerSession: '20000',
     rateAfterDailyThreshold: '70000',
@@ -205,9 +215,9 @@ export default function TrainerPayroll({ profile }: Props) {
       return
     }
     const initial = activePolicies[0]
-    setSelectedPolicyIds([initial.id])
+    setSelectedPolicyIds(activePolicies.map((policy) => policy.id))
     setDefaultPolicyId(initial.id)
-    setPolicyApplicationMode('trainer_assignment')
+    setPolicyApplicationMode('staff_profile')
     setTrainerPolicyAssignments({})
     setError('')
     setShowRunSetup(true)
@@ -220,6 +230,25 @@ export default function TrainerPayroll({ profile }: Props) {
       if (!next.includes(defaultPolicyId)) setDefaultPolicyId(next[0])
       setTrainerPolicyAssignments((assignments) => Object.fromEntries(Object.entries(assignments).filter(([, id]) => next.includes(id))))
       return next
+    })
+  }
+
+  const togglePolicyProfile = (profile: PayrollProfile) => {
+    setPolicyForm((current) => {
+      const eligibleProfiles = current.eligibleProfiles.includes(profile)
+        ? current.eligibleProfiles.filter((item) => item !== profile)
+        : [...current.eligibleProfiles, profile]
+      if (!eligibleProfiles.length) return current
+      const includesCollaborator = eligibleProfiles.includes('collaborator')
+      const includesEmployee = eligibleProfiles.some((item) => item !== 'collaborator')
+      return {
+        ...current,
+        eligibleProfiles,
+        audience: includesCollaborator && includesEmployee ? 'all' : includesCollaborator ? 'collaborator' : 'employee',
+        ...(includesCollaborator && !current.eligibleProfiles.includes('collaborator')
+          ? { ratePerSession: '50000', rateAfterDailyThreshold: '75000', rateAfterDailyThresholdEvening: '100000' }
+          : {}),
+      }
     })
   }
 
@@ -316,7 +345,7 @@ export default function TrainerPayroll({ profile }: Props) {
       setError('Các đơn giá ca dạy phải là số nguyên từ 1.000đ.')
       return
     }
-    if (policyForm.audience === 'collaborator' && [ratePerSession, rateAfterDailyThreshold, rateAfterDailyThresholdEvening].some((rate) => rate < 50_000 || rate > 100_000)) {
+    if (policyForm.eligibleProfiles.includes('collaborator') && [ratePerSession, rateAfterDailyThreshold, rateAfterDailyThresholdEvening].some((rate) => rate < 50_000 || rate > 100_000)) {
       setError('Chính sách CTV cần đơn giá từ 50.000đ đến 100.000đ mỗi ca.')
       return
     }
@@ -327,6 +356,7 @@ export default function TrainerPayroll({ profile }: Props) {
       const result = await savePayrollPolicy({
         name: policyForm.name,
         audience: policyForm.audience,
+        eligibleProfiles: policyForm.eligibleProfiles,
         effectiveFrom: policyForm.effectiveFrom,
         ratePerSession,
         dailySessionThreshold: 8,
@@ -365,8 +395,10 @@ export default function TrainerPayroll({ profile }: Props) {
       return !query || `${run.periodId} ${run.policyName} ${statusMeta[run.status].label}`.toLowerCase().includes(query)
     })
   }, [runs, search, statusFilter])
+  const subpageActive = showRunSetup || Boolean(pendingConfirmation) || Boolean(detail) || detailLoading
+  useEffect(() => { if (subpageActive) window.scrollTo({ top: 0, behavior: 'smooth' }) }, [subpageActive])
 
-  return <div className="payroll-page">
+  return <div className={`payroll-page ${subpageActive ? 'payroll-page--subpage' : ''}`}>
     <AuraMetricCarousel slides={slides} label="Tổng quan bảng lương" loading={loading && runs.length === 0} />
 
     <div className="payroll-page__nav" role="tablist" aria-label="Quản lý lương">
@@ -416,24 +448,19 @@ export default function TrainerPayroll({ profile }: Props) {
         <div className="payroll-page__section-title"><div><span>Phiên bản mới</span><strong>Chính sách lương PT</strong></div><AuraHelpPopover title="Nguyên tắc phiên bản" label="Nguyên tắc phiên bản"><p>Có thể tạo nhiều chính sách. Khi lập kỳ, chọn một chính sách, phân chính sách theo từng HLV hoặc áp theo ngày hiệu lực. Kỳ cũ luôn giữ snapshot riêng.</p></AuraHelpPopover></div>
         <div className="payroll-policy__fields">
           <label><span>Tên chính sách</span><input value={policyForm.name} maxLength={100} onChange={(event) => setPolicyForm((current) => ({ ...current, name: event.target.value }))} /></label>
-          <label><span>Áp dụng cho</span><select value={policyForm.audience} onChange={(event) => {
-            const audience = event.target.value as typeof policyForm.audience
-            setPolicyForm((current) => audience === 'collaborator'
-              ? { ...current, audience, name: current.name === 'Chính sách lương PT' ? 'Chính sách CTV' : current.name, ratePerSession: '50000', rateAfterDailyThreshold: '75000', rateAfterDailyThresholdEvening: '100000' }
-              : { ...current, audience })
-          }}><option value="employee">Nhân viên</option><option value="collaborator">Cộng tác viên</option><option value="all">Dùng chung</option></select></label>
+          <div className="payroll-policy__profiles"><span>Nhóm nhân viên áp dụng</span><div>{(['probation', 'official', 'senior', 'part_time', 'collaborator'] as PayrollProfile[]).map((profile) => <button key={profile} type="button" className={policyForm.eligibleProfiles.includes(profile) ? 'is-active' : ''} onClick={() => togglePolicyProfile(profile)}>{payrollProfileLabel(profile)}</button>)}</div></div>
           <label><span>Hiệu lực từ</span><input type="date" value={policyForm.effectiveFrom} onChange={(event) => setPolicyForm((current) => ({ ...current, effectiveFrom: event.target.value }))} /></label>
           <label><span>Đơn giá ca 1–8</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.ratePerSession} onChange={(event) => setPolicyForm((current) => ({ ...current, ratePerSession: event.target.value }))} /></label>
           <label><span>Từ ca thứ 9</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.rateAfterDailyThreshold} onChange={(event) => setPolicyForm((current) => ({ ...current, rateAfterDailyThreshold: event.target.value }))} /></label>
           <label><span>Từ ca thứ 9 · sau 20h</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.rateAfterDailyThresholdEvening} onChange={(event) => setPolicyForm((current) => ({ ...current, rateAfterDailyThresholdEvening: event.target.value }))} /></label>
           <button className="payroll-page__primary" type="button" disabled={!canManage || !!busyAction} onClick={() => void submitPolicy()}><ShieldCheck size={17} /> Lưu phiên bản</button>
         </div>
-        <p className="payroll-policy__scope">{policyForm.audience === 'collaborator' ? 'CTV không có lương cơ bản; đơn giá mỗi ca phải trong khoảng 50.000–100.000đ.' : 'Nhân viên hưởng lương cơ bản theo ngày công và tiền ca theo chính sách.'} Một khung giờ có hai học viên vẫn chỉ tính một ca.</p>
+        <p className="payroll-policy__scope">Áp dụng cho: {policyForm.eligibleProfiles.map(payrollProfileLabel).join(' · ')}. {policyForm.eligibleProfiles.includes('collaborator') ? 'Chính sách có CTV phải dùng đơn giá 50.000–100.000đ/ca.' : 'Nhân viên hưởng lương cơ bản theo ngày công và tiền ca theo chính sách.'} Một khung giờ có hai học viên vẫn chỉ tính một ca.</p>
       </div>
-      <div className="payroll-policy__history"><div className="payroll-page__section-title"><div><span>Lịch sử</span><strong>{policies.length} phiên bản</strong></div><small>Không ghi đè</small></div>{policies.length ? policies.map((policy) => <article className={policy.status === 'inactive' ? 'is-inactive' : ''} key={policy.id}><div className="payroll-policy__identity"><div><strong>{policy.name}</strong><span>Hiệu lực {dateLabel(policy.effectiveFrom)} · {policy.status === 'active' ? 'Đang dùng' : 'Đã ẩn'} · {policy.usageCount} kỳ</span></div><div className="payroll-policy__actions">{policy.status === 'active' ? <button type="button" onClick={() => setPendingConfirmation({ kind: 'policy', id: policy.id, label: policy.name, action: 'hide' })}><EyeOff size={14} /> Ẩn</button> : <button type="button" onClick={() => setPendingConfirmation({ kind: 'policy', id: policy.id, label: policy.name, action: 'restore' })}><Eye size={14} /> Mở lại</button>}{policy.canDelete && <button className="is-danger" type="button" onClick={() => setPendingConfirmation({ kind: 'policy', id: policy.id, label: policy.name, action: 'delete' })}><Trash2 size={14} /> Xóa</button>}</div></div><div className="payroll-policy__rates"><span><small>Ca 1–{policy.dailySessionThreshold}</small><b>{money(policy.ratePerSession)}</b></span><span><small>Từ ca {policy.dailySessionThreshold + 1}</small><b>{money(policy.rateAfterDailyThreshold)}</b></span><span><small>Sau {policy.eveningStartHour}h</small><b>{money(policy.rateAfterDailyThresholdEvening)}</b></span></div></article>) : <div className="payroll-page__empty"><Settings2 size={30} /><strong>Chưa có chính sách</strong><p>Hãy tạo phiên bản đầu tiên để lập kỳ lương.</p></div>}</div>
+      <div className="payroll-policy__history"><div className="payroll-page__section-title"><div><span>Lịch sử</span><strong>{policies.length} phiên bản</strong></div><small>Không ghi đè</small></div>{policies.length ? policies.map((policy) => <article className={policy.status === 'inactive' ? 'is-inactive' : ''} key={policy.id}><div className="payroll-policy__identity"><div><strong>{policy.name}</strong><span>{policy.eligibleProfiles.map(payrollProfileLabel).join(' · ')} · Hiệu lực {dateLabel(policy.effectiveFrom)} · {policy.status === 'active' ? 'Đang dùng' : 'Đã ẩn'} · {policy.usageCount} kỳ</span></div><div className="payroll-policy__actions">{policy.status === 'active' ? <button type="button" onClick={() => setPendingConfirmation({ kind: 'policy', id: policy.id, label: policy.name, action: 'hide' })}><EyeOff size={14} /> Ẩn</button> : <button type="button" onClick={() => setPendingConfirmation({ kind: 'policy', id: policy.id, label: policy.name, action: 'restore' })}><Eye size={14} /> Mở lại</button>}{policy.canDelete && <button className="is-danger" type="button" onClick={() => setPendingConfirmation({ kind: 'policy', id: policy.id, label: policy.name, action: 'delete' })}><Trash2 size={14} /> Xóa</button>}</div></div><div className="payroll-policy__rates"><span><small>Ca 1–{policy.dailySessionThreshold}</small><b>{money(policy.ratePerSession)}</b></span><span><small>Từ ca {policy.dailySessionThreshold + 1}</small><b>{money(policy.rateAfterDailyThreshold)}</b></span><span><small>Sau {policy.eveningStartHour}h</small><b>{money(policy.rateAfterDailyThresholdEvening)}</b></span></div></article>) : <div className="payroll-page__empty"><Settings2 size={30} /><strong>Chưa có chính sách</strong><p>Hãy tạo phiên bản đầu tiên để lập kỳ lương.</p></div>}</div>
     </section>}
 
-    {showRunSetup && <div className="payroll-modal" role="dialog" aria-modal="true" aria-label="Thiết lập kỳ lương" onMouseDown={(event) => { if (event.target === event.currentTarget && !busyAction) setShowRunSetup(false) }}>
+    {showRunSetup && <div className="payroll-modal" role="region" aria-label="Thiết lập kỳ lương">
       <section className="payroll-run-setup">
         <header><div><span>Lập kỳ {periodLabel(periodId)}</span><strong>Chọn chính sách áp dụng</strong></div><button type="button" aria-label="Đóng" onClick={() => setShowRunSetup(false)} disabled={!!busyAction}><X size={20} /></button></header>
         <p className="payroll-run-setup__lead">Kỳ nháp lưu snapshot chính sách. Bạn có thể xóa kỳ nháp và lập lại; kỳ đã duyệt không thể xóa.</p>
@@ -442,7 +469,7 @@ export default function TrainerPayroll({ profile }: Props) {
             const selected = selectedPolicyIds.includes(policy.id)
             return <label className={selected ? 'is-selected' : ''} key={policy.id}>
               <input type="checkbox" checked={selected} onChange={() => toggleRunPolicy(policy.id)} />
-              <span><strong>{policy.name}</strong><small>{policy.audience === 'collaborator' ? 'CTV' : policy.audience === 'all' ? 'Dùng chung' : 'Nhân viên'} · Hiệu lực {dateLabel(policy.effectiveFrom)}</small></span>
+              <span><strong>{policy.name}</strong><small>{policy.eligibleProfiles.map(payrollProfileLabel).join(' · ')} · Hiệu lực {dateLabel(policy.effectiveFrom)}</small></span>
               <b>{money(policy.ratePerSession)}<small>/ca chuẩn</small></b>
             </label>
           })}
@@ -450,21 +477,22 @@ export default function TrainerPayroll({ profile }: Props) {
         <label className="payroll-run-setup__default"><span>Chính sách mặc định</span><select value={defaultPolicyId} onChange={(event) => setDefaultPolicyId(event.target.value)}>{activePolicies.filter((policy) => selectedPolicyIds.includes(policy.id)).map((policy) => <option key={policy.id} value={policy.id}>{policy.name}</option>)}</select></label>
         {selectedPolicyIds.length > 1 && <>
           <div className="payroll-run-setup__modes" role="radiogroup" aria-label="Cách áp chính sách">
+            <button className={policyApplicationMode === 'staff_profile' ? 'is-active' : ''} type="button" role="radio" aria-checked={policyApplicationMode === 'staff_profile'} onClick={() => setPolicyApplicationMode('staff_profile')}><ShieldCheck size={17} /><span><strong>Theo hồ sơ nhân viên</strong><small>Tự chọn theo cấp bậc đã cài</small></span></button>
             <button className={policyApplicationMode === 'trainer_assignment' ? 'is-active' : ''} type="button" role="radio" aria-checked={policyApplicationMode === 'trainer_assignment'} onClick={() => setPolicyApplicationMode('trainer_assignment')}><UsersRound size={17} /><span><strong>Theo từng HLV</strong><small>Chọn A/B cho từng người</small></span></button>
             <button className={policyApplicationMode === 'effective_date' ? 'is-active' : ''} type="button" role="radio" aria-checked={policyApplicationMode === 'effective_date'} onClick={() => setPolicyApplicationMode('effective_date')}><Clock3 size={17} /><span><strong>Theo ngày hiệu lực</strong><small>Tự đổi chính sách theo ngày ca dạy</small></span></button>
           </div>
           {policyApplicationMode === 'trainer_assignment' ? <div className="payroll-run-setup__trainers">
             <div><SlidersHorizontal size={16} /><span><strong>Phân chính sách cho HLV</strong><small>Không chọn riêng sẽ dùng chính sách mặc định.</small></span></div>
             {trainers.map((trainer) => <label key={trainer.id}><span>{trainer.name || 'Chưa cập nhật tên HLV'}</span><select value={trainerPolicyAssignments[trainer.id] || ''} onChange={(event) => setTrainerPolicyAssignments((current) => ({ ...current, [trainer.id]: event.target.value }))}><option value="">Mặc định</option>{activePolicies.filter((policy) => selectedPolicyIds.includes(policy.id)).map((policy) => <option key={policy.id} value={policy.id}>{policy.name}</option>)}</select></label>)}
-          </div> : <p className="payroll-run-setup__rule"><Clock3 size={17} /> Mỗi ca dạy dùng chính sách có ngày hiệu lực gần nhất nhưng không sau ngày của ca. Các chính sách cần có ngày hiệu lực khác nhau.</p>}
+          </div> : policyApplicationMode === 'staff_profile' ? <p className="payroll-run-setup__rule"><ShieldCheck size={17} /> Aura ưu tiên chính sách đã gán trong hồ sơ nhân viên; nếu chưa gán, hệ thống chọn phiên bản mới nhất phù hợp Thử việc, Chính thức, Senior, Part-time hoặc CTV.</p> : <p className="payroll-run-setup__rule"><Clock3 size={17} /> Mỗi ca dạy dùng chính sách có ngày hiệu lực gần nhất nhưng không sau ngày của ca. Các chính sách cần có ngày hiệu lực khác nhau.</p>}
         </>}
         <footer><button className="payroll-page__secondary" type="button" disabled={!!busyAction} onClick={() => setShowRunSetup(false)}>Hủy</button><button className="payroll-page__primary" type="button" disabled={!!busyAction || !selectedPolicyIds.length || !defaultPolicyId} onClick={() => void createConfiguredRun()}><FileCheck2 size={17} /> {busyAction.startsWith('create:') ? 'Đang tạo…' : 'Tạo kỳ nháp'}</button></footer>
       </section>
     </div>}
 
-    {pendingConfirmation && <div className="payroll-confirm" role="dialog" aria-modal="true" aria-label="Xác nhận thao tác" onMouseDown={(event) => { if (event.target === event.currentTarget && !busyAction) setPendingConfirmation(null) }}><section><span className="payroll-confirm__icon"><AlertTriangle size={24} /></span><strong>{pendingConfirmation.kind === 'delete-run' ? 'Xóa kỳ lương nháp?' : pendingConfirmation.action === 'delete' ? 'Xóa chính sách?' : pendingConfirmation.action === 'hide' ? 'Ẩn chính sách?' : 'Mở lại chính sách?'}</strong><p>{pendingConfirmation.kind === 'delete-run' ? `${pendingConfirmation.label} chưa duyệt sẽ bị xóa cùng các dòng tính lương để bạn lập lại theo chính sách mới.` : pendingConfirmation.action === 'delete' ? `${pendingConfirmation.label} chưa được kỳ lương nào sử dụng và sẽ bị xóa.` : pendingConfirmation.action === 'hide' ? `${pendingConfirmation.label} sẽ không còn xuất hiện khi lập kỳ mới; các kỳ cũ không thay đổi.` : `${pendingConfirmation.label} sẽ lại xuất hiện trong danh sách chính sách có thể chọn.`}</p><div><button type="button" disabled={!!busyAction} onClick={() => setPendingConfirmation(null)}>Giữ lại</button><button className={pendingConfirmation.kind === 'delete-run' || pendingConfirmation.action === 'delete' ? 'is-danger' : ''} type="button" disabled={!!busyAction} onClick={() => void confirmDestructiveAction()}>{busyAction ? 'Đang xử lý…' : 'Xác nhận'}</button></div></section></div>}
+    {pendingConfirmation && <div className="payroll-confirm" role="region" aria-label="Xác nhận thao tác"><section><span className="payroll-confirm__icon"><AlertTriangle size={24} /></span><strong>{pendingConfirmation.kind === 'delete-run' ? 'Xóa kỳ lương nháp?' : pendingConfirmation.action === 'delete' ? 'Xóa chính sách?' : pendingConfirmation.action === 'hide' ? 'Ẩn chính sách?' : 'Mở lại chính sách?'}</strong><p>{pendingConfirmation.kind === 'delete-run' ? `${pendingConfirmation.label} chưa duyệt sẽ bị xóa cùng các dòng tính lương để bạn lập lại theo chính sách mới.` : pendingConfirmation.action === 'delete' ? `${pendingConfirmation.label} chưa được kỳ lương nào sử dụng và sẽ bị xóa.` : pendingConfirmation.action === 'hide' ? `${pendingConfirmation.label} sẽ không còn xuất hiện khi lập kỳ mới; các kỳ cũ không thay đổi.` : `${pendingConfirmation.label} sẽ lại xuất hiện trong danh sách chính sách có thể chọn.`}</p><div><button type="button" disabled={!!busyAction} onClick={() => setPendingConfirmation(null)}>Giữ lại</button><button className={pendingConfirmation.kind === 'delete-run' || pendingConfirmation.action === 'delete' ? 'is-danger' : ''} type="button" disabled={!!busyAction} onClick={() => void confirmDestructiveAction()}>{busyAction ? 'Đang xử lý…' : 'Xác nhận'}</button></div></section></div>}
 
-    {(detail || detailLoading) && <div className="payroll-drawer" role="dialog" aria-modal="true" aria-label="Chi tiết kỳ lương" onMouseDown={(event) => { if (event.target === event.currentTarget) setDetail(null) }}>
+    {(detail || detailLoading) && <div className="payroll-drawer" role="region" aria-label="Chi tiết kỳ lương">
       <section>
         <header><div><span>Chi tiết kỳ lương</span><strong>{detail ? periodLabel(detail.run.periodId) : 'Đang tải…'}</strong></div><button type="button" aria-label="Đóng" onClick={() => setDetail(null)}><X size={21} /></button></header>
         {detailLoading && !detail ? <div className="payroll-page__skeleton" /> : detail && <>

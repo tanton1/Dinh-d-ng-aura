@@ -149,6 +149,7 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
     label: 'VẬN HÀNH NỘI BỘ',
     items: [
       { id: 'admin-finance' as const, label: 'Tài chính', icon: LayoutDashboard, permission: 'analytics.view_all' as Permission },
+      { id: 'admin-payroll' as const, label: 'Bảng lương', icon: WalletCards, permission: 'analytics.view_assigned' as Permission },
       { id: 'admin-hr' as const, label: 'Đội ngũ Aura', icon: Users, permission: 'team.view' as Permission },
     ],
   },
@@ -212,7 +213,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'admin-renewals': 'Tái ký & chăm sóc hợp đồng',
   'admin-report': 'Tổng quan vận hành Gym',
   'admin-finance': 'Tài chính',
-  'admin-payroll': 'Lương PT',
+  'admin-payroll': 'Bảng lương',
   'admin-hr': 'Đội ngũ Aura',
   'admin-packages': 'Gói tập & Dịch vụ Gym',
   'admin-quotes': 'Báo giá & Chốt hợp đồng',

@@ -61,6 +61,8 @@ export interface ProvisionStaffAccountInput {
   positions: StaffPosition[]
   branchIds: string[]
   employmentType?: 'full_time' | 'part_time' | 'collaborator'
+  employmentLevel?: 'probation' | 'official' | 'senior'
+  payrollPolicyId?: string
 }
 
 export interface ProvisionStaffAccountResult {
@@ -71,6 +73,9 @@ export interface ProvisionStaffAccountResult {
   positions: StaffPosition[]
   branchIds: string[]
   employmentType: 'full_time' | 'part_time' | 'collaborator'
+  employmentLevel: 'probation' | 'official' | 'senior'
+  payrollProfile: 'probation' | 'official' | 'senior' | 'part_time' | 'collaborator'
+  payrollPolicyId: string
   passwordChangeRequired: boolean
 }
 
@@ -205,10 +210,12 @@ export interface StaffOperationsProfileInput {
   availabilitySlots: string[]
   slotCapacity: number
   employmentType: 'full_time' | 'part_time' | 'collaborator'
+  employmentLevel: 'probation' | 'official' | 'senior'
+  payrollPolicyId: string
   compensation: { baseSalary: number; bonusMonthly: number; commissionRate: number; commissionPerSession: number }
 }
 export async function saveStaffOperationsProfile(input: StaffOperationsProfileInput) {
-  const callable = httpsCallable<StaffOperationsProfileInput, { uid: string; displayName: string; email: string; phoneNumber: string; employmentType: StaffOperationsProfileInput['employmentType']; availabilitySlots: string[]; slotCapacity: number; compensation: StaffOperationsProfileInput['compensation'] }>(requireFunctions(), 'saveStaffOperationsProfile')
+  const callable = httpsCallable<StaffOperationsProfileInput, { uid: string; displayName: string; email: string; phoneNumber: string; employmentType: StaffOperationsProfileInput['employmentType']; employmentLevel: StaffOperationsProfileInput['employmentLevel']; payrollPolicyId: string; availabilitySlots: string[]; slotCapacity: number; compensation: StaffOperationsProfileInput['compensation'] }>(requireFunctions(), 'saveStaffOperationsProfile')
   try { return (await callable(input)).data } catch (error) { throw presentInviteError(error) }
 }
 

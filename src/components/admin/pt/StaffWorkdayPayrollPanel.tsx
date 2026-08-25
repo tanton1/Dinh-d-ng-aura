@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
+  ArrowLeft,
   CalendarCheck2,
   CheckCircle2,
   ChevronRight,
@@ -199,7 +200,7 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
     }
   }
 
-  return <section className="staff-workdays" aria-label="Quản lý ngày công nhân viên">
+  return <section className={`staff-workdays ${detail || detailLoading && selectedId ? 'is-detail-page' : ''}`} aria-label="Quản lý ngày công nhân viên">
     <div className="staff-workdays__summary">
       <article><span>Nhân sự</span><strong>{summary.total}</strong><small>trong phạm vi lọc</small></article>
       <article className={summary.review ? 'is-warning' : ''}><span>Cần đối soát</span><strong>{summary.review}</strong><small>thiếu công hoặc quyền lợi</small></article>
@@ -217,7 +218,7 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
     {error && <div className="staff-workdays__notice is-error"><AlertCircle size={19} /><span>{error}</span></div>}
     {notice && <div className="staff-workdays__notice"><CheckCircle2 size={19} /><span>{notice}</span><button type="button" aria-label="Đóng thông báo" onClick={() => setNotice('')}><X size={15} /></button></div>}
 
-    <div className="staff-workdays__layout">
+    <div className={`staff-workdays__layout ${detail || detailLoading && selectedId ? 'is-detail-page' : ''}`}>
       <div className="staff-workdays__people">
         <header><div><span>Danh sách nhân sự</span><strong>{visibleRows.length} người</strong></div><small>Bấm để chốt công</small></header>
         {loading && !rows.length ? <div className="staff-workdays__skeleton" /> : visibleRows.length ? visibleRows.map((row) => <button type="button" key={row.staffId} className={selectedId === row.staffId ? 'is-active' : ''} onClick={() => void loadDetail(row.staffId)}>
@@ -230,7 +231,7 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
 
       <div className="staff-workdays__detail">
         {detailLoading && !detail ? <div className="staff-workdays__skeleton" /> : detail ? <>
-          <header className="staff-workdays__detail-head"><div><span>{detail.identity.employeeCode || 'NHÂN VIÊN AURA'}</span><strong>{detail.identity.name}</strong><small>{detail.workdays.employmentType === 'collaborator' ? 'CTV · không lương cơ bản' : `Lương cơ bản ${money(detail.workdays.baseSalary)} · ${money(detail.workdays.dailyRate)}/ngày chuẩn`} · Tự tính {detail.workdays.autoPaidDays} ngày</small></div><div><b>{detail.workdays.estimatedPaidDays}/{detail.workdays.eligibleWorkdays}</b><small>ngày hưởng lương</small>{detail.workdays.workdayEnabled && detail.workdays.pendingDays > 0 && <button type="button" disabled={fillBusy} onClick={() => void fillMissingDays()}>{fillBusy ? 'Đang chốt…' : `Chốt ${detail.workdays.pendingDays} ngày thiếu`}</button>}</div></header>
+          <button className="staff-workdays__back" type="button" onClick={() => { setDetail(null); setSelectedId('') }}><ArrowLeft size={18} /> Danh sách ngày công</button><header className="staff-workdays__detail-head"><div><span>{detail.identity.employeeCode || 'NHÂN VIÊN AURA'}</span><strong>{detail.identity.name}</strong><small>{detail.workdays.employmentType === 'collaborator' ? 'CTV · không lương cơ bản' : `${detail.workdays.employmentType === 'part_time' ? 'Part-time' : detail.workdays.employmentLevel === 'senior' ? 'Senior' : detail.workdays.employmentLevel === 'probation' ? 'Thử việc' : 'Chính thức'} · Lương cơ bản ${money(detail.workdays.baseSalary)} · ${money(detail.workdays.dailyRate)}/ngày chuẩn`} · Tự tính {detail.workdays.autoPaidDays} ngày</small></div><div><b>{detail.workdays.estimatedPaidDays}/{detail.workdays.eligibleWorkdays}</b><small>ngày hưởng lương</small>{detail.workdays.workdayEnabled && detail.workdays.pendingDays > 0 && <button type="button" disabled={fillBusy} onClick={() => void fillMissingDays()}>{fillBusy ? 'Đang chốt…' : `Chốt ${detail.workdays.pendingDays} ngày thiếu`}</button>}</div></header>
 
           <div className="staff-workdays__calendar-card">
             <div className="staff-workdays__calendar-title"><div><CalendarCheck2 size={18} /><span><strong>Lịch ngày công</strong><small>Chọn trạng thái trực tiếp trên từng ngày làm việc</small></span></div>{detail.workdays.reviewRequired && <em>Cần đối soát</em>}</div>

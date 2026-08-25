@@ -76,6 +76,10 @@ function normalizedEmploymentType(value) {
   return 'full_time'
 }
 
+function normalizedEmploymentLevel(value) {
+  return value === 'probation' || value === 'senior' ? value : 'official'
+}
+
 function attendanceStatus(value) {
   const result = typeof value === 'string' ? value.trim() : ''
   if (!ATTENDANCE_STATUSES.has(result)) {
@@ -162,6 +166,7 @@ function calculateWorkdayPayroll({ periodId, calendar, attendance = [], teaching
   })
   const employment = employmentWindow(staff)
   const employmentType = normalizedEmploymentType(staff.employmentType)
+  const employmentLevel = normalizedEmploymentLevel(staff.employmentLevel)
   const baseSalary = employmentType === 'collaborator' ? 0 : safeMoney(staff.baseSalary)
   const fixedBonus = safeMoney(staff.bonusMonthly)
   const standardDates = monthDateKeys(normalizedPeriod).filter((date) => !weeklyRestDays.includes(weekday(date)) && !holidayMap.has(date))
@@ -223,6 +228,7 @@ function calculateWorkdayPayroll({ periodId, calendar, attendance = [], teaching
     baseSalaryEarned,
     fixedBonus,
     employmentType,
+    employmentLevel,
     workdayEnabled,
     autoPaidDays,
     autoFullDayTeachingSlotThreshold: AUTO_FULL_DAY_TEACHING_SLOT_THRESHOLD,
@@ -245,6 +251,8 @@ function publicIdentity(staff = {}, trainer = {}, user = {}) {
     branchId: staff.branchId || trainer.branchId || user.branchId || '',
     photoURL: staff.photoURL || trainer.photoURL || user.photoURL || '',
     employmentType: normalizedEmploymentType(staff.employmentType || trainer.employmentType),
+    employmentLevel: normalizedEmploymentLevel(staff.employmentLevel || trainer.employmentLevel),
+    payrollPolicyId: typeof (staff.payrollPolicyId || trainer.payrollPolicyId) === 'string' ? (staff.payrollPolicyId || trainer.payrollPolicyId) : '',
   }
 }
 
@@ -366,7 +374,7 @@ function payrollAmounts(workdays, payrollItem = {}) {
   }
 }
 
-function createStaffPayrollFunctions({ db, onCall }) {
+function createStaffPayrollFunctions({ db, onCall, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile }) {
   const getMyStaffPayroll = onCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
     requireSelfPayroll(actor)
@@ -374,19 +382,45 @@ function createStaffPayrollFunctions({ db, onCall }) {
     const staffId = staffDocumentId(actor.legacyStaffId || actor.uid)
     const { staff, identity } = await loadIdentity(db, staffId, actor.uid)
     const branchId = identity.branchId || actor.branchIds[0] || ''
-    const [calendar, attendance, runSnapshot, itemSnapshot, teachingEvidence] = await Promise.all([
+    const [calendar, attendance, runSnapshot, itemSnapshot, teachingEvidence, policySnapshot] = await Promise.all([
       loadCalendar(db, periodId, branchId),
       loadAttendance(db, staffId, periodId),
       db.doc(`payrollRuns/${periodId}`).get(),
       db.doc(`payrollRunItems/${periodId}_${staffId}`).get(),
       loadTeachingEvidence(db, periodId, staffId),
+      db.collection('payrollPolicies').orderBy('effectiveFrom', 'desc').limit(100).get(),
     ])
     const payrollItem = itemSnapshot.exists ? itemSnapshot.data() : {}
-    const teachingSlots = Array.isArray(payrollItem.teachingSlots) && payrollItem.teachingSlots.length
+    const storedTeachingSlots = Array.isArray(payrollItem.teachingSlots) && payrollItem.teachingSlots.length
       ? payrollItem.teachingSlots
       : (teachingEvidence.byStaff.get(staffId) || [])
+    const profile = payrollProfile(staff)
+    const policies = policySnapshot.docs
+      .map((snapshot) => {
+        const data = snapshot.data() || {}
+        return {
+          id: snapshot.id,
+          name: data.name || 'Chính sách lương PT',
+          audience: data.audience === 'collaborator' || data.audience === 'all' ? data.audience : 'employee',
+          eligibleProfiles: payrollPolicyProfiles(data.eligibleProfiles, data.audience),
+          effectiveDate: optionalDateKey(data.effectiveFrom),
+          status: data.status === 'inactive' ? 'inactive' : 'active',
+          configuration: data,
+        }
+      })
+      .filter((policy) => policy.status === 'active' && policy.effectiveDate && policy.effectiveDate <= `${periodId}-31` && policySupportsProfile(policy, profile))
+    const assignedPolicy = policies.find((policy) => policy.id === staff.payrollPolicyId)
+    const previewPolicy = assignedPolicy || policies[0]
+    const teachingSlots = itemSnapshot.exists || !previewPolicy || typeof priceTeachingSlots !== 'function'
+      ? storedTeachingSlots
+      : priceTeachingSlots(storedTeachingSlots, () => previewPolicy)
     const workdays = calculateWorkdayPayroll({ periodId, calendar, attendance, teachingSlots, staff })
-    const amounts = payrollAmounts(workdays, payrollItem)
+    const previewCommissionPerSession = workdays.employmentType === 'collaborator' ? 0 : safeMoney(staff.commissionPerSession, 10_000_000)
+    const amountSource = itemSnapshot.exists ? payrollItem : {
+      teachingPayAmount: teachingSlots.reduce((total, slot) => total + safeMoney(slot.rate, 10_000_000), 0),
+      commissionAmount: Math.min(5_000_000_000, teachingSlots.length * previewCommissionPerSession),
+    }
+    const amounts = payrollAmounts(workdays, amountSource)
     const run = runSnapshot.exists ? runSnapshot.data() : {}
     const official = ['locked', 'paid'].includes(run.status) && Number(run.schemaVersion || 0) >= 5
     return {
@@ -409,7 +443,17 @@ function createStaffPayrollFunctions({ db, onCall }) {
       teachingEvidence: {
         slotCount: teachingSlots.length,
         truncated: teachingEvidence.truncated,
-        source: Array.isArray(payrollItem.teachingSlots) && payrollItem.teachingSlots.length ? 'payroll_run' : 'attendance_sessions',
+        source: Array.isArray(payrollItem.teachingSlots) && payrollItem.teachingSlots.length ? 'payroll_run' : previewPolicy ? 'attendance_sessions+assigned_policy' : 'attendance_sessions',
+      },
+      compensationPolicy: previewPolicy ? {
+        id: previewPolicy.id,
+        name: previewPolicy.name,
+        eligibleProfiles: previewPolicy.eligibleProfiles,
+        payrollProfile: profile,
+        assigned: previewPolicy.id === staff.payrollPolicyId,
+        estimated: !itemSnapshot.exists,
+      } : {
+        id: '', name: 'Chưa gán chính sách', eligibleProfiles: [], payrollProfile: profile, assigned: false, estimated: true,
       },
       tierSummary: payrollItem.tierSummary && typeof payrollItem.tierSummary === 'object' ? payrollItem.tierSummary : {},
       run: {

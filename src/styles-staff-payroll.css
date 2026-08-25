@@ -39,6 +39,17 @@
 .staff-payroll__state.is-error { border-color: rgba(208, 56, 88, .2); background: #fff2f5; color: #9d2744; }
 .staff-payroll__state.is-estimate { border-color: rgba(242, 137, 63, .22); background: #fff8ef; color: #914d1d; }
 
+.staff-payroll__policy { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 13px; border: 1px solid rgba(246,47,130,.16); border-radius: 20px; padding: 15px 16px; background: linear-gradient(120deg, #fff0f7, #fff8f2 72%, #fff); box-shadow: 0 13px 30px rgba(108,43,74,.07); }
+.staff-payroll__policy-icon { display: grid; width: 43px; height: 43px; place-items: center; border-radius: 15px; color: #fff; background: linear-gradient(135deg, var(--sp-pink), var(--sp-orange)); box-shadow: 0 9px 20px rgba(246,47,130,.2); }
+.staff-payroll__policy > div { min-width: 0; }
+.staff-payroll__policy small, .staff-payroll__policy strong, .staff-payroll__policy p { display: block; margin: 0; }
+.staff-payroll__policy small { color: #df2f75; font-size: 9px; font-weight: 900; letter-spacing: .1em; }
+.staff-payroll__policy strong { margin-top: 4px; color: #3c2936; font-size: 14px; }
+.staff-payroll__policy p { margin-top: 4px; color: #786773; font-size: 11px; line-height: 1.5; }
+.staff-payroll__policy-status { justify-self: end; border-radius: 999px; padding: 7px 10px; font-size: 10px; font-weight: 900; white-space: nowrap; }
+.staff-payroll__policy-status.is-ready { color: #187147; background: #e9f8f1; }
+.staff-payroll__policy-status.is-missing { color: #a33a50; background: #ffeaf0; }
+
 .staff-payroll__breakdown, .staff-payroll__calendar, .staff-payroll__teaching, .staff-payroll__inquiry { border: 1px solid rgba(226, 97, 145, .14); border-radius: 22px; padding: 16px; background: rgba(255,255,255,.94); box-shadow: 0 14px 34px rgba(87, 39, 62, .07); }
 .staff-payroll__section-title { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
 .staff-payroll__section-title > div { display: grid; gap: 2px; }
@@ -101,6 +112,8 @@
   .staff-payroll > .aura-metric-carousel { padding-inline: 14px; }
   .staff-payroll__breakdown, .staff-payroll__calendar, .staff-payroll__teaching, .staff-payroll__inquiry { border-inline: 0; border-radius: 0; padding: 15px 14px; box-shadow: 0 8px 24px rgba(87, 39, 62, .06); }
   .staff-payroll__state { margin-inline: 14px; }
+  .staff-payroll__policy { grid-template-columns: auto minmax(0, 1fr); margin-inline: 14px; border-radius: 18px; padding: 13px; }
+  .staff-payroll__policy-status { grid-column: 2; justify-self: start; margin-top: 2px; }
   .staff-payroll__money-grid { gap: 8px; }.staff-payroll__money-grid article { grid-template-columns: 1fr; padding: 11px; }.staff-payroll__money-grid article > span { width: 31px; height: 31px; }
   .staff-payroll__days article, .staff-payroll__days > i { min-height: 48px; border-radius: 10px; }.staff-payroll__days { gap: 4px; }.staff-payroll__days article { padding: 5px; }
   .staff-payroll__teaching-list article { grid-template-columns: 84px minmax(0, 1fr) auto; gap: 8px; padding: 10px; }

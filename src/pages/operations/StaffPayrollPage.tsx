@@ -63,6 +63,14 @@ function dateLabel(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('vi-VN')
 }
 
+function payrollProfileLabel(value: MyStaffPayroll['compensationPolicy']['payrollProfile'] | undefined) {
+  if (value === 'probation') return 'Nhân viên thử việc'
+  if (value === 'senior') return 'Nhân viên Senior'
+  if (value === 'part_time') return 'Nhân viên Part-time'
+  if (value === 'collaborator') return 'Cộng tác viên'
+  return 'Nhân viên chính thức'
+}
+
 function friendlyError(cause: unknown) {
   const message = cause instanceof Error ? cause.message : ''
   if (/permission|quyền|unauth/i.test(message)) return 'Tài khoản chưa được cấp quyền xem bảng lương cá nhân.'
@@ -157,6 +165,18 @@ export default function StaffPayrollPage() {
     {notice && <section className="staff-payroll__state"><CheckCircle2 size={20} /><p>{notice}</p></section>}
     {data && !data.run.official && <section className="staff-payroll__state is-estimate"><ShieldCheck size={20} /><div><strong>Số liệu đang tạm tính</strong><p>Chỉ số chuyển thành chính thức sau khi admin chốt ngày công và khóa kỳ lương.</p></div></section>}
 
+    {data && <section className="staff-payroll__policy" aria-label="Chính sách thu nhập đang áp dụng">
+      <span className="staff-payroll__policy-icon"><ShieldCheck size={21} /></span>
+      <div>
+        <small>HỒ SƠ & CHÍNH SÁCH THU NHẬP</small>
+        <strong>{payrollProfileLabel(data.compensationPolicy.payrollProfile)} · {data.compensationPolicy.name}</strong>
+        <p>{data.compensationPolicy.id
+          ? `${data.compensationPolicy.assigned ? 'Chính sách được gán trực tiếp trong hồ sơ nhân viên.' : 'Aura đang chọn tự động chính sách mới nhất phù hợp với cấp bậc.'} Hoa hồng và tiền ca bên dưới đã được tạm tính đến thời điểm hiện tại.`
+          : 'Hồ sơ chưa có chính sách lương phù hợp. Tiền ca và hoa hồng có thể bằng 0 cho đến khi quản lý hoàn tất thiết lập.'}</p>
+      </div>
+      <span className={`staff-payroll__policy-status ${data.compensationPolicy.id ? 'is-ready' : 'is-missing'}`}>{data.compensationPolicy.id ? 'Đang áp dụng' : 'Cần thiết lập'}</span>
+    </section>}
+
     {showInquiry && <section className="staff-payroll__inquiry">
       <header><div><span>Gửi phản hồi</span><strong>Yêu cầu đối soát kỳ {periodLabel(periodId)}</strong></div></header>
       <div className="staff-payroll__inquiry-fields">
@@ -171,7 +191,7 @@ export default function StaffPayrollPage() {
       <div className="staff-payroll__money-grid">
         <article><span className="is-pink"><Banknote size={18} /></span><div><small>{workdays?.employmentType === 'collaborator' ? 'CTV · không lương cơ bản' : 'Lương cơ bản theo công'}</small><strong>{money(amounts?.baseSalaryAmount)}</strong><p>{workdays?.employmentType === 'collaborator' ? 'Thu nhập theo chính sách ca dạy CTV' : `${workdays?.estimatedPaidDays || 0}/${workdays?.eligibleWorkdays || 0} ngày đủ điều kiện`}</p></div></article>
         <article><span className="is-orange"><Dumbbell size={18} /></span><div><small>Tiền ca dạy</small><strong>{money(amounts?.teachingPayAmount)}</strong><p>{data?.teachingSlots.length || 0} ca đã ghi nhận</p></div></article>
-        <article><span className="is-sunset"><CircleDollarSign size={18} /></span><div><small>Hoa hồng</small><strong>{money(amounts?.commissionAmount)}</strong><p>Theo số liệu nghiệp vụ đã duyệt</p></div></article>
+        <article><span className="is-sunset"><CircleDollarSign size={18} /></span><div><small>Hoa hồng tạm tính</small><strong>{money(amounts?.commissionAmount)}</strong><p>{data?.run.official ? 'Đã khóa theo kỳ lương' : 'Cập nhật theo ca và chính sách hiện tại'}</p></div></article>
         <article><span className="is-ink"><Gift size={18} /></span><div><small>Thưởng & điều chỉnh</small><strong>{money((amounts?.bonusAmount || 0) + (amounts?.adjustmentAmount || 0))}</strong><p>Khấu trừ {money(amounts?.deductionAmount)}</p></div></article>
       </div>
       <footer><span>Tổng thực nhận</span><strong>{money(amounts?.finalAmount)}</strong></footer>

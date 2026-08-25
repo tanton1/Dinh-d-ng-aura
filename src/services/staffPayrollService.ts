@@ -62,6 +62,7 @@ export interface StaffWorkdaySummary {
   baseSalaryEarned: number
   fixedBonus: number
   employmentType: 'full_time' | 'part_time' | 'collaborator'
+  employmentLevel: 'probation' | 'official' | 'senior'
   workdayEnabled: boolean
   autoPaidDays: number
   autoFullDayTeachingSlotThreshold: number
@@ -89,6 +90,8 @@ export interface StaffPayrollIdentity {
   branchId: string
   photoURL: string
   employmentType: 'full_time' | 'part_time' | 'collaborator'
+  employmentLevel: 'probation' | 'official' | 'senior'
+  payrollPolicyId: string
 }
 
 export interface StaffTeachingSlot {
@@ -113,6 +116,14 @@ export interface MyStaffPayroll {
   amounts: StaffPayrollAmounts
   teachingSlots: StaffTeachingSlot[]
   teachingEvidence?: { slotCount: number; truncated: boolean; source: string }
+  compensationPolicy: {
+    id: string
+    name: string
+    eligibleProfiles: string[]
+    payrollProfile: 'probation' | 'official' | 'senior' | 'part_time' | 'collaborator'
+    assigned: boolean
+    estimated: boolean
+  }
   run: {
     exists: boolean
     status: 'estimating' | 'draft' | 'reviewed' | 'locked' | 'paid'
@@ -213,6 +224,7 @@ function normalizeWorkdays(value: unknown): StaffWorkdaySummary {
     baseSalaryEarned: number(raw.baseSalaryEarned),
     fixedBonus: number(raw.fixedBonus),
     employmentType: raw.employmentType === 'collaborator' || raw.employmentType === 'part_time' ? raw.employmentType : 'full_time',
+    employmentLevel: raw.employmentLevel === 'probation' || raw.employmentLevel === 'senior' ? raw.employmentLevel : 'official',
     workdayEnabled: raw.workdayEnabled === true,
     autoPaidDays: integer(raw.autoPaidDays),
     autoFullDayTeachingSlotThreshold: Math.max(1, integer(raw.autoFullDayTeachingSlotThreshold) || 5),
@@ -260,6 +272,8 @@ function normalizeIdentity(value: unknown): StaffPayrollIdentity {
     branchId: text(raw.branchId),
     photoURL: text(raw.photoURL),
     employmentType: raw.employmentType === 'collaborator' || raw.employmentType === 'part_time' ? raw.employmentType : 'full_time',
+    employmentLevel: raw.employmentLevel === 'probation' || raw.employmentLevel === 'senior' ? raw.employmentLevel : 'official',
+    payrollPolicyId: text(raw.payrollPolicyId),
   }
 }
 
@@ -306,6 +320,18 @@ export async function getMyStaffPayroll(periodId: string): Promise<MyStaffPayrol
       truncated: object(raw.teachingEvidence).truncated === true,
       source: text(object(raw.teachingEvidence).source),
     } : undefined,
+    compensationPolicy: {
+      id: text(object(raw.compensationPolicy).id),
+      name: text(object(raw.compensationPolicy).name) || 'Chưa gán chính sách',
+      eligibleProfiles: Array.isArray(object(raw.compensationPolicy).eligibleProfiles)
+        ? (object(raw.compensationPolicy).eligibleProfiles as unknown[]).filter((value): value is string => typeof value === 'string')
+        : [],
+      payrollProfile: ['probation', 'official', 'senior', 'part_time', 'collaborator'].includes(text(object(raw.compensationPolicy).payrollProfile))
+        ? text(object(raw.compensationPolicy).payrollProfile) as MyStaffPayroll['compensationPolicy']['payrollProfile']
+        : 'official',
+      assigned: object(raw.compensationPolicy).assigned === true,
+      estimated: object(raw.compensationPolicy).estimated !== false,
+    },
     run: {
       exists: run.exists === true,
       status: runStatus,

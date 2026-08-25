@@ -80,6 +80,40 @@ function normalizedEmploymentType(value) {
   return 'full_time'
 }
 
+function normalizedEmploymentLevel(value) {
+  return value === 'probation' || value === 'senior' ? value : 'official'
+}
+
+function staffPayrollProfile(employmentType, employmentLevel) {
+  if (employmentType === 'collaborator') return 'collaborator'
+  if (employmentType === 'part_time') return 'part_time'
+  return normalizedEmploymentLevel(employmentLevel)
+}
+
+function policyProfiles(data = {}) {
+  const allowed = new Set(['probation', 'official', 'senior', 'part_time', 'collaborator'])
+  if (Array.isArray(data.eligibleProfiles)) {
+    const values = [...new Set(data.eligibleProfiles.filter((item) => allowed.has(item)))]
+    if (values.length) return values
+  }
+  if (data.audience === 'collaborator') return ['collaborator']
+  if (data.audience === 'all') return [...allowed]
+  return ['probation', 'official', 'senior', 'part_time']
+}
+
+async function validatePayrollPolicyAssignment(db, payrollPolicyId, payrollProfile) {
+  if (!payrollPolicyId) return ''
+  const id = documentId(payrollPolicyId, 'Chính sách lương')
+  const snapshot = await db.doc(`payrollPolicies/${id}`).get()
+  if (!snapshot.exists || snapshot.data().status === 'inactive') {
+    throw new HttpsError('failed-precondition', 'Chính sách lương đã chọn không còn hoạt động.')
+  }
+  if (!policyProfiles(snapshot.data()).includes(payrollProfile)) {
+    throw new HttpsError('failed-precondition', 'Chính sách lương không phù hợp loại hợp tác hoặc cấp bậc nhân viên.')
+  }
+  return id
+}
+
 function comparableLegacyRole(role) {
   return role === 'user' ? 'student' : role
 }
@@ -637,6 +671,9 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     if (!positions.length) throw new HttpsError('invalid-argument', 'Chọn tối thiểu một chức danh cho nhân viên.')
     const branchIds = normalizedBranchIds(request.data?.branchIds || [])
     const employmentType = normalizedEmploymentType(request.data?.employmentType)
+    const employmentLevel = normalizedEmploymentLevel(request.data?.employmentLevel)
+    const payrollProfile = staffPayrollProfile(employmentType, employmentLevel)
+    const payrollPolicyId = await validatePayrollPolicyAssignment(db, request.data?.payrollPolicyId || '', payrollProfile)
     const initialPassword = initialPasswordFromPhone(phoneNumber)
     await assertUniqueDirectAccount({ auth, email, logger, action })
 
@@ -665,23 +702,23 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
         transaction.create(staffRef, {
           id: uid, name: displayName, email, phone: phoneNumber,
           role: claims.role, branchId: branchIds[0] || '', status: 'active',
-          positions, branchIds, employmentType, availableSlots: [], baseSalary: 0, bonusMonthly: 0,
+          positions, branchIds, employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: [], baseSalary: 0, bonusMonthly: 0,
           commissionPerSession: 0, commissionRate: 0,
           createdBy: actor.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
         if (positions.includes('trainer_pt')) transaction.create(trainerRef, {
           id: uid, name: displayName, email, phone: phoneNumber,
-          branchId: branchIds[0] || '', status: 'active', employmentType, availableSlots: [],
+          branchId: branchIds[0] || '', status: 'active', employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: [],
           baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0,
           createdBy: actor.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
         transaction.create(db.collection('identityAuditLogs').doc(), {
           action: 'staff_account.provisioned', actorUid: actor.uid, targetUid: uid,
-          after: { positions, branchIds, employmentType }, createdAt: FieldValue.serverTimestamp(),
+          after: { positions, branchIds, employmentType, employmentLevel, payrollProfile, payrollPolicyId }, createdAt: FieldValue.serverTimestamp(),
         })
       }))
       logger?.info?.('identity_provision_completed', { action, targetUid: uid })
-      return { uid, displayName, phoneNumber, email, positions, branchIds, employmentType, passwordChangeRequired: false }
+      return { uid, displayName, phoneNumber, email, positions, branchIds, employmentType, employmentLevel, payrollProfile, payrollPolicyId, passwordChangeRequired: false }
     } catch (error) {
       if (createdUser) {
         try { await identityProvisionStep(logger, action, 'hoàn tác đăng nhập', () => auth.deleteUser(createdUser.uid), 12_000) } catch (rollbackError) { logger?.error?.('staff_provision_rollback_failed', { uid: createdUser.uid, code: rollbackError?.code || 'unknown' }) }
@@ -1108,6 +1145,15 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     const employmentType = request.data?.employmentType === undefined
       ? normalizedEmploymentType(initialStaffSnapshot.data()?.employmentType)
       : normalizedEmploymentType(request.data.employmentType)
+    const employmentLevel = request.data?.employmentLevel === undefined
+      ? normalizedEmploymentLevel(initialStaffSnapshot.data()?.employmentLevel)
+      : normalizedEmploymentLevel(request.data.employmentLevel)
+    const payrollProfile = staffPayrollProfile(employmentType, employmentLevel)
+    const payrollPolicyId = await validatePayrollPolicyAssignment(
+      db,
+      request.data?.payrollPolicyId === undefined ? initialStaffSnapshot.data()?.payrollPolicyId || '' : request.data.payrollPolicyId,
+      payrollProfile,
+    )
     const compensation = {
       baseSalary: employmentType === 'collaborator' ? 0 : money(request.data?.compensation?.baseSalary, 'Lương cơ bản'),
       bonusMonthly: money(request.data?.compensation?.bonusMonthly, 'Thưởng tháng'),
@@ -1151,17 +1197,17 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       transaction.set(staffRef, {
         id: targetUid, name: displayName, email, phone: phoneNumber,
         role: positions.includes('trainer_pt') ? 'trainer' : positions[0], branchId: branchIds[0] || '', status: 'active',
-        positions, branchIds, employmentType, availableSlots: availabilitySlots, slotCapacity, ...compensation,
+        positions, branchIds, employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: availabilitySlots, slotCapacity, ...compensation,
         updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
       if (positions.includes('trainer_pt')) transaction.set(trainerRef, {
         id: targetUid, name: displayName, email, phone: phoneNumber,
-        branchId: branchIds[0] || '', status: 'active', employmentType, availableSlots: availabilitySlots, slotCapacity, ...compensation,
+        branchId: branchIds[0] || '', status: 'active', employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: availabilitySlots, slotCapacity, ...compensation,
         updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.set(db.collection('identityAuditLogs').doc(), {
         action: 'staff_operations_profile.saved', actorUid: actor.uid, targetUid,
-        after: { employmentType, availabilitySlots: availabilitySlots.length, slotCapacity, compensation, contactChanged }, createdAt: FieldValue.serverTimestamp(),
+        after: { employmentType, employmentLevel, payrollProfile, payrollPolicyId, availabilitySlots: availabilitySlots.length, slotCapacity, compensation, contactChanged }, createdAt: FieldValue.serverTimestamp(),
       })
       transaction.set(userRef, { displayName, name: displayName, email, phoneNumber, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
       })
@@ -1171,7 +1217,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       }
       throw normalizeDuplicateAuthError(error)
     }
-    return { uid: targetUid, displayName, email, phoneNumber, employmentType, availabilitySlots, slotCapacity, compensation }
+    return { uid: targetUid, displayName, email, phoneNumber, employmentType, employmentLevel, payrollProfile, payrollPolicyId, availabilitySlots, slotCapacity, compensation }
   })
 
   return {

@@ -23,14 +23,16 @@ for (const width of [360, 390, 430]) {
     const createButton = page.getByRole('button', { name: 'Thêm nhân viên' })
     if (await createButton.isVisible()) {
       await createButton.click()
-      const dialog = page.getByRole('dialog', { name: 'Thêm nhân viên' })
-      await expect(dialog).toBeVisible()
+      const editorPage = page.getByRole('region', { name: 'Thêm nhân viên' })
+      await expect(editorPage).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Đội ngũ Aura' })).toBeHidden()
       const geometry = await page.evaluate(() => {
-        const modal = document.querySelector('.identity-modal')?.getBoundingClientRect()
-        const dock = document.querySelector('.admin-mobile-nav')?.getBoundingClientRect()
-        return { modalBottom: modal?.bottom ?? 0, dockTop: dock?.top ?? innerHeight }
+        const editor = document.querySelector('.identity-modal')?.getBoundingClientRect()
+        return { editorLeft: editor?.left ?? 0, editorRight: editor?.right ?? 0, viewportWidth: innerWidth, pageWidth: document.documentElement.scrollWidth }
       })
-      expect(geometry.modalBottom).toBeLessThanOrEqual(geometry.dockTop + 1)
+      expect(geometry.editorLeft).toBeGreaterThanOrEqual(-1)
+      expect(geometry.editorRight).toBeLessThanOrEqual(geometry.viewportWidth + 1)
+      expect(geometry.pageWidth).toBeLessThanOrEqual(geometry.viewportWidth + 1)
     }
   })
 }
@@ -46,11 +48,11 @@ test('Đội ngũ Aura keeps four summary slides on desktop', async ({ page }) =
   const deleteMember = page.locator('button[aria-label^="Xóa tài khoản "]').first()
   if (await deleteMember.isVisible()) {
     await deleteMember.click()
-    const dialog = page.getByRole('dialog', { name: 'Xóa tài khoản thành viên' })
-    await expect(dialog).toBeVisible()
-    const confirmButton = dialog.getByRole('button', { name: 'Xóa tài khoản' })
+    const deletePage = page.getByRole('region', { name: 'Xóa tài khoản thành viên' })
+    await expect(deletePage).toBeVisible()
+    const confirmButton = deletePage.getByRole('button', { name: 'Xóa tài khoản' })
     await expect(confirmButton).toBeDisabled()
-    await dialog.getByLabel('Nhập XÓA để xác nhận').fill('XÓA')
+    await deletePage.getByLabel('Nhập XÓA để xác nhận').fill('XÓA')
     await expect(confirmButton).toBeEnabled()
   }
 })
