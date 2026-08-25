@@ -16,9 +16,10 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
 
     const workspace = page.locator('.business-performance')
     await expect(workspace).toBeVisible()
-    await expect(workspace.getByRole('heading', { name: 'Tổng quan & kết quả kinh doanh' })).toBeVisible()
+    await expect(workspace.locator('.business-performance__hero')).toHaveCount(0)
+    await expect(workspace.locator(':scope > .aura-metric-carousel').first()).toBeVisible()
     await expect(workspace.locator('.aura-metric-carousel__slide')).toHaveCount(4)
-    await expect(workspace.locator('.business-performance__filters input, .business-performance__filters select')).toHaveCount(4)
+    await expect(workspace.locator('.business-performance__toolbar input, .business-performance__toolbar select')).toHaveCount(4)
 
     const metrics = workspace.locator('.aura-metric-carousel__slide')
     const metricBounds = await metrics.evaluateAll((items) => items.map((item) => {
@@ -36,9 +37,11 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
       await page.setViewportSize({ width, height: 844 })
       await page.goto('/#/admin-finance')
 
-      await page.getByRole('tab', { name: /^Thu chi/i }).click()
+      await page.getByRole('tab', { name: 'Thu chi', exact: true }).click()
       const workspace = page.locator('.finance-management')
       await expect(workspace).toBeVisible()
+      await expect(workspace.locator('.finance-management__hero')).toHaveCount(0)
+      await expect(workspace.locator(':scope > .aura-metric-carousel').first()).toBeVisible()
       await expect(workspace.locator('.aura-metric-carousel__slide')).toHaveCount(4)
       const debtSearch = workspace.getByLabel('Tìm công nợ')
       await expect(debtSearch).toBeVisible()

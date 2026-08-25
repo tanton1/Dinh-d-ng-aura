@@ -146,7 +146,7 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
   {
     label: 'VẬN HÀNH NỘI BỘ',
     items: [
-      { id: 'admin-finance' as const, label: 'Tài chính · KQKD · Sổ quỹ', icon: LayoutDashboard, permission: 'analytics.view_all' as Permission },
+      { id: 'admin-finance' as const, label: 'Tài chính', icon: LayoutDashboard, permission: 'analytics.view_all' as Permission },
       { id: 'admin-hr' as const, label: 'Đội ngũ Aura', icon: Users, permission: 'team.view' as Permission },
     ],
   },
@@ -208,8 +208,8 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'admin-training-history': 'Lịch sử tập & lịch dạy',
   'admin-renewals': 'Tái ký & chăm sóc hợp đồng',
   'admin-report': 'Tổng quan vận hành Gym',
-  'admin-finance': 'Tài chính · KQKD · Sổ quỹ',
-  'admin-payroll': 'Chấm công & Lương PT',
+  'admin-finance': 'Tài chính',
+  'admin-payroll': 'Lương PT',
   'admin-hr': 'Đội ngũ Aura',
   'admin-packages': 'Gói tập & Dịch vụ Gym',
   'admin-quotes': 'Báo giá & Chốt hợp đồng',

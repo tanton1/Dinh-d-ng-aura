@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BarChart3, Building2, CalendarDays, CircleAlert, Coins, Landmark, RefreshCw, TrendingDown, TrendingUp, WalletCards } from 'lucide-react'
+import { Building2, CalendarDays, CircleAlert, Coins, Landmark, RefreshCw, TrendingDown, TrendingUp, WalletCards } from 'lucide-react'
 import { useDatabase } from '../../../contexts/DatabaseContext'
 import { listBusinessPerformance, type BusinessPerformanceReport, type BusinessSource } from '../../../services/businessReportingService'
 import AuraMetricCarousel, { type AuraMetricSlide } from './AuraMetricCarousel'
+import AuraHelpPopover from './AuraHelpPopover'
 import '../../../styles-business-performance.css'
 
 function vietnamDateKey(value = new Date()) {
@@ -113,50 +114,50 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
   ], [report])
 
   return <section className={`business-performance ${compact ? 'business-performance--compact' : ''}`} aria-busy={loading}>
-    <header className="business-performance__hero">
-      <div>
-        <span className="business-performance__eyebrow"><BarChart3 size={15} /> Aura Finance Intelligence</span>
-        <h1>Tổng quan & kết quả kinh doanh</h1>
-        <p>Phân biệt rõ dòng tiền thực thu, doanh thu đã thực hiện và chi phí vận hành — không dùng số liệu legacy để suy diễn.</p>
-      </div>
-      <button type="button" onClick={() => void load()} className="business-performance__refresh" disabled={loading}>
-        <RefreshCw size={17} className={loading ? 'is-spinning' : ''} /> {loading ? 'Đang cập nhật' : 'Làm mới'}
-      </button>
-    </header>
+    <AuraMetricCarousel slides={metricSlides} label="Các chỉ số kinh doanh" loading={loading} />
 
-    <section className="business-performance__filters" aria-label="Bộ lọc báo cáo">
+    <section className="business-performance__toolbar" aria-label="Bộ lọc báo cáo">
       <div className="business-performance__preset-row">
         {[{ label: '7 ngày', days: 7 }, { label: '30 ngày', days: 30 }, { label: '90 ngày', days: 90 }].map((preset) => (
           <button key={preset.days} type="button" className={activePreset === preset.days ? 'is-active' : ''} aria-pressed={activePreset === preset.days} onClick={() => applyPreset(preset.days)}>{preset.label}</button>
         ))}
       </div>
-      <label><CalendarDays size={16} /><span>Từ ngày</span><input type="date" value={startDate} max={endDate} onChange={(event) => { setActivePreset('custom'); setStartDate(event.target.value) }} /></label>
-      <label><CalendarDays size={16} /><span>Đến ngày</span><input type="date" value={endDate} min={startDate} max={todayKey()} onChange={(event) => { setActivePreset('custom'); setEndDate(event.target.value) }} /></label>
-      <label><Building2 size={16} /><span>Chi nhánh</span><select value={branchId} onChange={(event) => setBranchId(event.target.value)}><option value="all">Toàn hệ thống</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
-      <label><Coins size={16} /><span>Nguồn</span><select value={source} onChange={(event) => setSource(event.target.value as BusinessSource)}>{Object.entries(sourceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      <label className="business-performance__select"><Building2 size={16} /><select aria-label="Lọc chi nhánh" value={branchId} onChange={(event) => setBranchId(event.target.value)}><option value="all">Toàn hệ thống</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+      <label className="business-performance__select"><Coins size={16} /><select aria-label="Lọc nguồn kinh doanh" value={source} onChange={(event) => setSource(event.target.value as BusinessSource)}>{Object.entries(sourceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      <details className="business-performance__date-picker">
+        <summary title="Chọn khoảng ngày"><CalendarDays size={16} /><span>{activePreset === 'custom' ? 'Tùy chỉnh' : 'Ngày'}</span></summary>
+        <div className="business-performance__date-panel">
+          <label><span>Từ ngày</span><input type="date" value={startDate} max={endDate} onChange={(event) => { setActivePreset('custom'); setStartDate(event.target.value) }} /></label>
+          <label><span>Đến ngày</span><input type="date" value={endDate} min={startDate} max={todayKey()} onChange={(event) => { setActivePreset('custom'); setEndDate(event.target.value) }} /></label>
+        </div>
+      </details>
+      <button type="button" onClick={() => void load()} className="business-performance__refresh" disabled={loading} aria-label="Làm mới báo cáo" title="Làm mới">
+        <RefreshCw size={17} className={loading ? 'is-spinning' : ''} />
+      </button>
+      <AuraHelpPopover title="Cách đọc báo cáo">
+        <p>Dòng tiền là số tiền thực thu/chi; doanh thu chỉ ghi nhận phần dịch vụ đã hoàn thành.</p>
+        {report?.dataQuality?.message ? <p>{report.dataQuality.message}</p> : null}
+      </AuraHelpPopover>
     </section>
 
     {error && <div className="business-performance__notice business-performance__notice--error"><CircleAlert size={19} /><span>{error}</span></div>}
-    {!error && report?.dataQuality && <div className="business-performance__notice"><CircleAlert size={19} /><span>{report.dataQuality.message}</span></div>}
-
-    <AuraMetricCarousel slides={metricSlides} label="Các chỉ số kết quả kinh doanh" loading={loading} />
 
     <div className="business-performance__grid">
       <article className="business-performance__card business-performance__card--sources">
-        <div className="business-performance__card-heading"><div><span>Nguồn thu & chi</span><h2>Hiệu quả theo nguồn</h2></div><small>{report?.sourceRows.reduce((total, row) => total + row.entryCount, 0).toLocaleString('vi-VN') || '0'} bút toán</small></div>
+        <div className="business-performance__card-heading"><div><h2>Nguồn kinh doanh</h2></div><small>{report?.sourceRows.reduce((total, row) => total + row.entryCount, 0).toLocaleString('vi-VN') ?? '0'} bút toán</small></div>
         <div className="business-performance__table" role="table">
           <div className="business-performance__table-head" role="row"><span>Nguồn</span><span>Thu tiền</span><span>DT thực hiện</span><span>Chi phí</span><span>Kết quả</span></div>
           {loading && !report ? <div className="business-performance__empty">Đang tổng hợp báo cáo…</div> : report?.sourceRows.length ? report.sourceRows.map((row) => <div key={row.source} className="business-performance__table-row" role="row"><strong>{sourceLabels[row.source] || row.source}</strong><span data-label="Thu tiền">{money(row.cashNet)}</span><span data-label="Doanh thu">{money(row.recognisedRevenue)}</span><span data-label="Chi phí">{money(row.operatingExpense)}</span><b className={row.operatingResult >= 0 ? 'is-positive' : 'is-negative'} data-label="Kết quả">{money(row.operatingResult)}</b></div>) : <div className="business-performance__empty">Chưa có bút toán quản trị phù hợp với bộ lọc.</div>}
         </div>
       </article>
       <article className="business-performance__card business-performance__card--trend">
-        <div className="business-performance__card-heading"><div><span>Xu hướng 14 ngày</span><h2>Dòng tiền & kết quả</h2></div></div>
+        <div className="business-performance__card-heading"><div><h2>Xu hướng 14 ngày</h2></div></div>
         {days.length ? <div className="business-performance__bars">{days.map((item) => <div className="business-performance__bar-column" key={item.date}><div className="business-performance__bars-stack" title={`${item.date}: dòng tiền ${money(item.cashNet)}, kết quả ${money(item.operatingResult)}`}><i className="business-performance__bar business-performance__bar--cash" style={{ height: `${Math.max(5, Math.round(Math.abs(item.cashNet) / peak * 100))}%` }} /><i className="business-performance__bar business-performance__bar--profit" style={{ height: `${Math.max(5, Math.round(Math.abs(item.operatingResult) / peak * 100))}%` }} /></div><small>{item.date.slice(8)}</small></div>)}</div> : <div className="business-performance__empty">Khi có bút toán quản trị, xu hướng ngày sẽ hiện ở đây.</div>}
       </article>
     </div>
 
     <article className="business-performance__quality">
-      <div><span>Kiểm soát dữ liệu</span><h2>Không che giấu số chưa sẵn sàng</h2></div>
+      <div className="business-performance__quality-heading"><h2>Đối soát dữ liệu</h2><AuraHelpPopover title="Thông tin đối soát"><p>Các mục này giúp phát hiện dữ liệu cũ hoặc nguồn chưa liên kết; chúng không tự được cộng vào kết quả kinh doanh.</p></AuraHelpPopover></div>
       <dl>
         <div><dt>Legacy chưa phân loại</dt><dd>{report?.dataQuality.legacyUnclassifiedEntries || 0} bút toán</dd></div>
         <div><dt>Sổ quỹ chưa liên kết</dt><dd>{money(report?.dataQuality.unlinkedCashTransactions || 0)}</dd></div>
@@ -167,7 +168,7 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
         <div><dt>Tài khoản sổ quỹ</dt><dd>{report?.dataQuality.cashAccounts || 0} tài khoản</dd></div>
         <div><dt>Nguồn chờ tích hợp</dt><dd>{report?.dataQuality.missingSourceIntegrations.length || 0} nguồn</dd></div>
       </dl>
-      {report?.dataQuality.missingSourceIntegrations.length ? <p>Chưa tự động đưa vào P&L: {report.dataQuality.missingSourceIntegrations.map((item) => sourceLabels[item as BusinessSource] || item).join(', ')}.</p> : null}
+      {report?.dataQuality.missingSourceIntegrations.length ? <p>Nguồn chờ tích hợp: {report.dataQuality.missingSourceIntegrations.map((item) => sourceLabels[item as BusinessSource] || item).join(', ')}.</p> : null}
     </article>
   </section>
 }

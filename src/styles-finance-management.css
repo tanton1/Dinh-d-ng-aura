@@ -52,40 +52,32 @@
 .finance-management .text-right { text-align: right; }
 .finance-management .text-center { text-align: center; }
 
-.finance-management__hero {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid rgba(246, 47, 130, 0.18) !important;
-  border-radius: 28px !important;
-  background: linear-gradient(122deg, #ee297b 0%, #fb5d83 47%, #ff9c62 100%) !important;
-  box-shadow: 0 18px 40px rgba(214, 49, 113, 0.20) !important;
-}
-.finance-management__hero::after { content: ''; position: absolute; right: -58px; bottom: -108px; width: 255px; height: 255px; border: 1px solid rgba(255,255,255,.32); border-radius: 50%; box-shadow: 0 0 0 42px rgba(255,255,255,.09), 0 0 0 83px rgba(255,255,255,.06); }
-.finance-management__hero > div { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.finance-management__hero .text-white { color: #fff !important; }
-.finance-management__hero .text-zinc-400, .finance-management__hero .text-pink-400 { color: rgba(255,255,255,.86) !important; }
-.finance-management__hero .border-amber-500\/30 { border-color: rgba(255,255,255,.45) !important; }
-.finance-management__hero .bg-amber-500\/10 { background: rgba(255,255,255,.16) !important; }
-.finance-management__hero .text-amber-300 { color: #fff !important; }
-
 .finance-management button, .finance-management select, .finance-management input { font: inherit; }
 .finance-management button { cursor: pointer; }
 .finance-management button:disabled { cursor: not-allowed; opacity: .52; }
 .finance-management select, .finance-management input { min-height: 44px; padding-inline: 12px; border: 1px solid #ecdde4; border-radius: 13px; outline: 0; background: #fff; color: #342535; }
 .finance-management select:focus, .finance-management input:focus { border-color: var(--fm-pink); box-shadow: 0 0 0 4px rgba(246,47,130,.11); }
 
-.finance-management__filters { align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--fm-line); border-radius: 19px; background: #fff; box-shadow: 0 8px 20px rgba(87, 39, 64, .05); }
-.finance-management__filters > * { min-height: 44px; }
-.finance-management__filters select { min-width: 205px; padding-inline: 13px; }
-.finance-management__filters button { display: inline-flex; align-items: center; gap: 7px; padding: 0 14px; border: 1px solid #f1d5e0; border-radius: 13px; background: #fff6f8; color: #c83e72; font-size: 13px; font-weight: 800; }
+.finance-management__filters { display: flex; min-width: 0; align-items: center; gap: 7px; padding: 8px; border: 1px solid var(--fm-line); border-radius: 17px; background: #fff; box-shadow: 0 8px 20px rgba(87,39,64,.045); }
+.finance-management__filters > .date-range-filter { position: relative; width: auto; min-width: 125px; flex: 0 1 155px; }
+.finance-management__filters select { min-width: 170px; min-height: 38px; flex: 1 1 190px; padding-inline: 10px; border-radius: 11px; font-size: 11px; font-weight: 750; }
+.finance-management .date-range-filter--compact .date-range-filter__trigger { min-height: 38px; padding: 0 10px; border: 1px solid #eadde4; border-radius: 11px; background: #fff; color: #9a6d80; }
+.finance-management .date-range-filter--compact .date-range-filter__menu { width: 230px; padding: 7px; border: 1px solid #f0dce4; background: #fff; color: #5b4652; box-shadow: 0 16px 34px rgba(55,28,44,.14); }
+.finance-management .date-range-filter--compact .date-range-filter__menu > button { display: block; width: 100%; min-height: 34px; padding: 0 9px; border: 0; border-radius: 9px; background: transparent; color: #604b57; font-size: 11px; text-align: left; }
+.finance-management .date-range-filter--compact .date-range-filter__menu > button:hover { background: #fff2f6; color: #c83e72; }
+.finance-management .date-range-filter--compact .date-range-filter__menu > div { margin-top: 6px; padding-top: 7px; border-top: 1px solid #f1e2e8; }
+.finance-management .date-range-filter--compact .date-range-filter__menu input { width: 100%; min-height: 38px; margin-bottom: 5px; padding: 0 8px; border-radius: 9px; font-size: 11px; }
+.finance-management .date-range-filter--compact .date-range-filter__menu > div button { width: 100%; min-height: 36px; border: 0; border-radius: 9px; background: linear-gradient(100deg, var(--fm-pink), var(--fm-orange)); color: #fff; font-size: 11px; font-weight: 850; }
+.finance-management__tool-button { position: relative; display: inline-grid !important; width: 38px; height: 38px; min-height: 38px; flex: 0 0 38px; padding: 0 !important; place-items: center; border: 1px solid #f0d9e3 !important; border-radius: 12px !important; background: #fff7fa !important; color: #d83d75 !important; }
+.finance-management__tool-button b { position: absolute; top: -5px; right: -5px; display: grid; min-width: 18px; height: 18px; padding: 0 4px; place-items: center; border-radius: 999px; background: #ed3a75; color: #fff; font-size: 8px; }
 
 .finance-management__receivables { display: grid; gap: 13px; scroll-margin-top: 90px; }
-.finance-management__section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.finance-management__section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .finance-management__section-head > div { min-width: 0; }
-.finance-management__section-eyebrow { display: block; margin-bottom: 5px; color: #dd3c75; font-size: 10px; font-weight: 900; letter-spacing: .11em; text-transform: uppercase; }
 .finance-management__section-head h2 { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--fm-ink); font-size: 21px; letter-spacing: -.025em; }
 .finance-management__section-head h2 svg { color: var(--fm-pink); }
-.finance-management__section-head p { margin: 5px 0 0; color: var(--fm-muted); font-size: 11px; line-height: 1.45; }
+.finance-management__section-title { display: flex; align-items: center; gap: 8px; }
+.finance-management__section-title .aura-help-popover summary { width: 32px; height: 32px; border-radius: 10px; }
 .finance-management__section-head > strong { flex: 0 0 auto; padding: 7px 10px; border-radius: 999px; background: #fff0f5; color: #c64171; font-size: 11px; }
 .finance-management__debt-tools { display: grid; grid-template-columns: minmax(250px, .7fr) minmax(0, 1.3fr); gap: 9px; padding: 9px; border: 1px solid var(--fm-line); border-radius: 18px; background: #fff; box-shadow: 0 9px 22px rgba(87,39,64,.045); }
 .finance-management__debt-search { display: grid; grid-template-columns: 18px minmax(0,1fr) auto; align-items: center; gap: 8px; min-width: 0; min-height: 45px; padding: 0 11px; border: 1px solid #ecdde4; border-radius: 13px; background: #fffafa; color: #db4278; }
@@ -101,19 +93,19 @@
 .finance-management__debt-filters button.is-active b { background: rgba(255,255,255,.2); color: #fff; }
 .finance-management__receivables-list article { padding: 15px; border: 1px solid var(--fm-line); border-radius: 19px; background: #fff; box-shadow: 0 8px 18px rgba(87,39,64,.04); }
 .finance-management__receivables-list article.is-overdue { border-color: #ffc3d3; background: linear-gradient(110deg, #fff, #fff8fa); }
-.finance-management__debt-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(128px,auto) auto; align-items: center; gap: 15px; }
+.finance-management__debt-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(150px,auto); align-items: center; gap: 12px; }
 .finance-management__debt-name { display: flex; min-width: 0; align-items: center; gap: 7px; }
 .finance-management__debt-name h3 { overflow: hidden; margin: 0; color: var(--fm-ink); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .finance-management__debt-name span { flex: 0 0 auto; padding: 4px 7px; border-radius: 999px; background: #ef3d76; color: #fff; font-size: 8px; font-weight: 900; text-transform: uppercase; }
 .finance-management__debt-name span.is-frozen { background: #fff0d8; color: #a96a17; }
 .finance-management__debt-row p { overflow: hidden; margin: 5px 0 0; color: #806f78; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.finance-management__debt-row > div:first-child > small { display: block; overflow: hidden; margin-top: 4px; color: #ae9ba4; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .finance-management__debt-amount { display: grid; justify-items: end; gap: 3px; text-align: right; }
 .finance-management__debt-amount b { color: #cf3e6e; font-size: 16px; }
 .finance-management__debt-amount b.is-credit { color: #16885a; }
-.finance-management__debt-amount > span { color: #9a818d; font-size: 9px; font-weight: 800; text-transform: uppercase; }
-.finance-management__debt-amount small { display: inline-flex; align-items: center; gap: 4px; color: #8f7783; font-size: 10px; }
-.finance-management__collect-button { display: inline-flex; min-width: 104px; min-height: 43px; align-items: center; justify-content: center; gap: 6px; padding: 0 13px; border: 0; border-radius: 13px; background: linear-gradient(100deg, var(--fm-pink), var(--fm-orange)); color: #fff; box-shadow: 0 9px 18px rgba(246,47,130,.19); font-size: 11px; font-weight: 900; }
+.finance-management__debt-meta { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.finance-management__debt-meta > span { color: #9a818d; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.finance-management__debt-meta small { display: inline-flex; align-items: center; gap: 3px; color: #8f7783; font-size: 9px; }
+.finance-management__collect-button { display: inline-flex; min-width: 57px; min-height: 30px; align-items: center; justify-content: center; gap: 3px; padding: 0 8px; border: 0; border-radius: 9px; background: linear-gradient(100deg, var(--fm-pink), var(--fm-orange)); color: #fff; box-shadow: 0 6px 13px rgba(246,47,130,.17); font-size: 10px; font-weight: 900; }
 .finance-management__empty { display: grid; min-height: 150px; place-items: center; align-content: center; gap: 10px; padding: 24px; border: 1px dashed #eddae2; border-radius: 19px; background: #fffafa; color: #b06a84; text-align: center; }
 .finance-management__empty p { margin: 0; color: #8f7582; font-size: 12px; }
 .finance-management__load-more { min-height: 45px; border: 1px solid #f0d8e1; border-radius: 14px; background: #fff5f8; color: #c43c70; font-size: 12px; font-weight: 900; }
@@ -134,19 +126,22 @@
 @media (min-width: 1024px) { .finance-modal-layer { align-items: center; } .finance-modal { border-radius: 26px !important; } }
 @media (max-width: 680px) {
   .finance-management { gap: 14px; padding-bottom: max(126px, env(safe-area-inset-bottom)); }
-  .finance-management__hero { margin-inline: -12px; padding: 20px 16px !important; border-radius: 0 0 25px 25px !important; }
-  .finance-management__hero > div { align-items: stretch; flex-direction: column; }
-  .finance-management__hero > div > button { width: 100%; min-height: 42px; }
-  .finance-management__filters { display: grid; grid-template-columns: 1fr; gap: 7px; padding: 9px; border-radius: 16px; }
-  .finance-management__filters > *, .finance-management__filters select { width: 100%; min-width: 0; }
-  .finance-management__section-head { align-items: flex-start; }
+  .finance-management__filters { flex-wrap: nowrap; gap: 5px; padding: 6px; border-radius: 15px; }
+  .finance-management__filters > .date-range-filter { min-width: 88px; flex: 0 1 96px; }
+  .finance-management__filters select { width: 0; min-width: 82px; flex: 1 1 auto; padding-inline: 7px; }
+  .finance-management__tool-button { width: 34px; height: 34px; min-height: 34px; flex-basis: 34px; border-radius: 10px !important; }
+  .finance-management__filters > .aura-help-popover summary { width: 34px; height: 34px; border-radius: 10px; }
+  .finance-management .date-range-filter--compact .date-range-filter__trigger { min-height: 34px; padding-inline: 7px; }
+  .finance-management__section-head { align-items: center; }
   .finance-management__section-head h2 { font-size: 19px; }
   .finance-management__debt-tools { grid-template-columns: 1fr; gap: 7px; padding: 8px; border-radius: 16px; }
   .finance-management__debt-search { min-height: 43px; }
   .finance-management__debt-filters { margin-inline: -1px; }
-  .finance-management__debt-row { grid-template-columns: minmax(0,1fr) auto; gap: 10px; }
+  .finance-management__debt-row { grid-template-columns: minmax(0,1fr) minmax(116px,auto); gap: 9px; }
   .finance-management__debt-amount { align-self: start; }
-  .finance-management__collect-button { grid-column: 1 / -1; width: 100%; min-height: 42px; }
+  .finance-management__debt-meta { gap: 5px; }
+  .finance-management__debt-meta > span { display: none; }
+  .finance-management__collect-button { min-width: 53px; min-height: 29px; padding-inline: 7px; }
   .finance-management__receivables-list article { padding: 13px; border-radius: 16px; }
   .finance-modal-layer { padding: 0; align-items: flex-end; }
   .finance-modal { width: 100%; max-height: min(88dvh, calc(100dvh - 12px)); padding: 18px 15px; border-radius: 23px 23px 0 0 !important; }

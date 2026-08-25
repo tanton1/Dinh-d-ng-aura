@@ -3,7 +3,6 @@ import type { User } from 'firebase/auth'
 import { AnimatePresence, motion } from 'motion/react'
 import { AlertCircle, CheckCircle, Clock, DollarSign, Plus, RefreshCw, Search, TrendingUp, Undo2, WalletCards, X } from 'lucide-react'
 import type { StudentContract, UserProfile } from '../../../types'
-import { LOGO_URL } from '../../../constants'
 import { useDatabase } from '../../../contexts/DatabaseContext'
 import {
   emptyFinanceLedgerSummary,
@@ -16,6 +15,7 @@ import {
 } from '../../../services/financeLedgerService'
 import DateRangeFilter from './DateRangeFilter'
 import AuraMetricCarousel, { type AuraMetricSlide } from './AuraMetricCarousel'
+import AuraHelpPopover from './AuraHelpPopover'
 import { listCashAccounts, type CashAccount } from '../../../services/cashbookService'
 import '../../../styles-finance-management.css'
 
@@ -340,45 +340,33 @@ export default function FinanceManagement({ profile }: Props) {
 
   return (
     <div className="finance-management space-y-6 pb-28">
-      <header className="finance-management__hero rounded-[28px] border border-pink-500/20 bg-gradient-to-br from-zinc-950 via-zinc-950 to-orange-950/40 p-5 shadow-xl shadow-pink-950/20">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-3">
-            <img src={LOGO_URL} alt="Aura" className="h-11 w-11 object-contain" />
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-pink-400">Aura Finance</p>
-              <h1 className="mt-1 text-2xl font-bold text-white md:text-3xl">Tài chính & Công nợ</h1>
-              <p className="mt-1 text-sm text-zinc-400">Ledger canonical bất biến; dữ liệu legacy chỉ dùng đối soát.</p>
-            </div>
-          </div>
-          <button onClick={() => setShowLegacyReconciliation(true)} className="min-h-11 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 text-sm font-bold text-amber-300">Đối soát legacy · {legacyReconciliation.rows.length}</button>
-        </div>
-      </header>
+      <AuraMetricCarousel slides={financeSlides} label="Tổng quan thu chi" loading={ledgerLoading && ledgerEntries.length === 0} />
 
       {ledgerError && <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{ledgerError}</div>}
 
-      <div className="finance-management__filters flex flex-wrap items-center gap-2">
-        <DateRangeFilter onFilter={(start, end) => setDateRange({ start, end })} />
+      <div className="finance-management__filters">
+        <DateRangeFilter compact excludeFuture onFilter={(start, end) => setDateRange({ start, end })} />
         {(!profile?.branchId || profile.role === 'admin' || profile.role === 'super_admin') && (
-          <select value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="min-h-11 rounded-xl border border-zinc-800 bg-zinc-950 px-4 text-sm font-medium text-zinc-300">
+          <select aria-label="Lọc chi nhánh công nợ" value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)}>
             <option value="all">Tất cả chi nhánh</option>
             <option value="none">Chưa phân chi nhánh</option>
             {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
           </select>
         )}
-        <button onClick={() => void loadLedger(false)} disabled={ledgerLoading} className="flex min-h-11 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-950 px-4 text-sm font-semibold text-zinc-300 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${ledgerLoading ? 'animate-spin' : ''}`} /> Làm mới</button>
+        <button type="button" onClick={() => void loadLedger(false)} disabled={ledgerLoading} className="finance-management__tool-button" aria-label="Làm mới thu chi" title="Làm mới"><RefreshCw size={17} className={ledgerLoading ? 'animate-spin' : ''} /></button>
+        <button type="button" onClick={() => setShowLegacyReconciliation(true)} className="finance-management__tool-button" aria-label={`Đối soát ${legacyReconciliation.rows.length} dữ liệu cũ`} title="Đối soát dữ liệu cũ"><AlertCircle size={17} />{legacyReconciliation.rows.length > 0 && <b>{legacyReconciliation.rows.length}</b>}</button>
+        <AuraHelpPopover title="Thu chi & công nợ"><p>Mọi khoản thu, hoàn tiền và đảo bút toán đều được ghi an toàn qua backend. Dữ liệu cũ chỉ dùng để đối soát.</p></AuraHelpPopover>
       </div>
-
-      <AuraMetricCarousel slides={financeSlides} label="Tổng quan thu chi và công nợ" loading={ledgerLoading && ledgerEntries.length === 0} />
 
       <section ref={receivablesRef} className="finance-management__receivables">
         <div className="finance-management__section-head">
-          <div><span className="finance-management__section-eyebrow">Ưu tiên thu hồi</span><h2><DollarSign size={20} /> Công nợ hợp đồng</h2><p>Projection từ hợp đồng; mọi khoản thu, hoàn và đảo đều đi qua transaction backend.</p></div>
+          <div className="finance-management__section-title"><h2><DollarSign size={20} /> Công nợ</h2><AuraHelpPopover title="Danh sách công nợ"><p>Số dư lấy từ hợp đồng. Lọc Quá hạn để ưu tiên thu hồi; Thanh toán dư là khoản khách đã nộp vượt số phải thu.</p></AuraHelpPopover></div>
           <strong>{searchedContractsWithDebt.length.toLocaleString('vi-VN')} hồ sơ</strong>
         </div>
         <div className="finance-management__debt-tools">
           <label className="finance-management__debt-search">
             <Search size={17} />
-            <input value={debtSearch} onChange={(event) => setDebtSearch(event.target.value)} placeholder="Tìm tên, SĐT, email, gói hoặc mã HĐ" aria-label="Tìm công nợ" />
+            <input value={debtSearch} onChange={(event) => setDebtSearch(event.target.value)} placeholder="Tên, SĐT, email, gói…" aria-label="Tìm công nợ" />
             {debtSearch && <button type="button" onClick={() => setDebtSearch('')} aria-label="Xóa từ khóa"><X size={15} /></button>}
           </label>
           <div className="finance-management__debt-filters" aria-label="Nhóm công nợ">
@@ -392,7 +380,7 @@ export default function FinanceManagement({ profile }: Props) {
             const dueDate = nextInstallment?.date || contract.nextPaymentDate
             const overdue = contract.status !== 'frozen' && debt > 0 && Boolean(dueDate && new Date(dueDate) < new Date())
             const student = studentById.get(contract.studentId)
-            return <article key={contract.id} className={overdue ? 'is-overdue' : ''}><div className="finance-management__debt-row"><div className="min-w-0"><div className="finance-management__debt-name"><h3>{studentName(contract.studentId)}</h3>{overdue && <span>Quá hạn</span>}{contract.status === 'frozen' && <span className="is-frozen">Đang bảo lưu</span>}</div><p>{student?.phone || 'Chưa có SĐT'} · {contract.packageName}</p><small>HĐ {contract.id}</small></div><div className="finance-management__debt-amount"><b className={debt >= 0 ? 'is-debt' : 'is-credit'}>{debt >= 0 ? money(debt) : `+${money(Math.abs(debt))}`}</b><span>{debt >= 0 ? 'Còn phải thu' : 'Thanh toán dư'}</span>{dueDate && debt > 0 && <small><Clock size={13} /> {new Date(dueDate).toLocaleDateString('vi-VN')}</small>}</div>{debt > 0 && <button onClick={() => openPayment(contract)} className="finance-management__collect-button" aria-label={`Ghi khoản thu cho ${studentName(contract.studentId)}`}><Plus size={19} /><span>Thu tiền</span></button>}</div></article>
+            return <article key={contract.id} className={overdue ? 'is-overdue' : ''} title={`Hợp đồng ${contract.id}`}><div className="finance-management__debt-row"><div className="min-w-0"><div className="finance-management__debt-name"><h3>{studentName(contract.studentId)}</h3>{overdue && <span>Quá hạn</span>}{contract.status === 'frozen' && <span className="is-frozen">Bảo lưu</span>}</div><p>{student?.phone || 'Chưa có SĐT'} · {contract.packageName}</p></div><div className="finance-management__debt-amount"><b className={debt >= 0 ? 'is-debt' : 'is-credit'}>{debt >= 0 ? money(debt) : `+${money(Math.abs(debt))}`}</b><div className="finance-management__debt-meta"><span>{debt >= 0 ? 'Phải thu' : 'Dư'}</span>{dueDate && debt > 0 && <small><Clock size={12} /> {new Date(dueDate).toLocaleDateString('vi-VN')}</small>}{debt > 0 && <button onClick={() => openPayment(contract)} className="finance-management__collect-button" aria-label={`Thu tiền của ${studentName(contract.studentId)}`}><Plus size={14} /><span>Thu</span></button>}</div></div></div></article>
           })}
           {searchedContractsWithDebt.length === 0 && <div className="finance-management__empty"><CheckCircle size={36} /><p>{debtSearch ? 'Không tìm thấy hồ sơ phù hợp.' : 'Không có hợp đồng trong nhóm này.'}</p></div>}
         </div>
@@ -400,14 +388,14 @@ export default function FinanceManagement({ profile }: Props) {
       </section>
 
       <AnimatePresence>
-        {showHistory && <Modal onClose={() => setShowHistory(false)} title="Ledger canonical">
+        {showHistory && <Modal onClose={() => setShowHistory(false)} title="Sổ giao dịch">
           <p className="mb-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-200">{ledgerSummary.transactionCount.toLocaleString('vi-VN')} bút toán trong bộ lọc. Payment legacy không xuất hiện ở đây.</p>
           <div className="space-y-2">{ledgerEntries.map((entry) => <div key={entry.id} className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-white">{studentName(entry.studentId)}</p><p className="mt-1 text-xs text-zinc-500">{entry.referenceCode} · {entryLabel(entry.type)}</p><p className="mt-1 text-xs text-zinc-600">{new Date(entry.effectiveAt).toLocaleString('vi-VN')}</p></div><div className="text-right"><b className={entry.amount >= 0 ? 'text-emerald-400' : 'text-amber-400'}>{money(entry.amount)}</b>{entry.type === 'payment' && entry.status === 'posted' && <button onClick={() => setEntryToReverse(entry)} className="mt-2 flex items-center gap-1 text-xs font-semibold text-amber-400"><Undo2 className="h-3.5 w-3.5" /> Tạo bút toán đảo</button>}</div></div></div>)}</div>
           {ledgerHasMore && <button onClick={() => void loadLedger(true)} disabled={ledgerLoading} className="mt-4 min-h-11 w-full rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-white disabled:opacity-50">{ledgerLoading ? 'Đang tải…' : 'Tải thêm giao dịch'}</button>}
           {!ledgerLoading && ledgerEntries.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">Chưa có bút toán canonical.</p>}
         </Modal>}
 
-        {showLegacyReconciliation && <Modal onClose={() => setShowLegacyReconciliation(false)} title="Đối soát legacy — chỉ đọc">
+        {showLegacyReconciliation && <Modal onClose={() => setShowLegacyReconciliation(false)} title="Đối soát cũ">
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-100">Aura không tự xóa, tạo phiếu tổng hợp hoặc cộng payment legacy vào doanh thu canonical.</div>
           <div className="mt-4 grid grid-cols-2 gap-2"><MetricCard label="Phiếu legacy" value={legacyReconciliation.legacyPaymentCount.toLocaleString('vi-VN')} color="text-white" /><MetricCard label="Tổng legacy" value={money(legacyReconciliation.legacyTotal)} color="text-amber-400" /></div>
           <h3 className="mt-5 text-sm font-bold text-white">{legacyReconciliation.rows.length} hợp đồng lệch projection</h3>
@@ -415,7 +403,7 @@ export default function FinanceManagement({ profile }: Props) {
           {legacyReconciliation.rows.length > 50 && <p className="mt-3 text-center text-xs text-zinc-500">Chỉ hiển thị 50 bản ghi đầu. Không có thao tác sửa dữ liệu tại đây.</p>}
         </Modal>}
 
-        {selectedContract && <Modal onClose={() => { setSelectedContract(null); setSelectedInstallmentId(null) }} title="Ghi sổ công nợ">
+        {selectedContract && <Modal onClose={() => { setSelectedContract(null); setSelectedInstallmentId(null) }} title="Thu công nợ">
           <p className="text-sm text-zinc-400">Học viên: <b className="text-white">{studentName(selectedContract.studentId)}</b></p>
           <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-sm"><div className="flex justify-between text-zinc-500"><span>Tổng hợp đồng</span><span className="text-zinc-300">{money(Number(selectedContract.totalPrice || 0) - Number(selectedContract.discount || 0))}</span></div><div className="mt-2 flex justify-between text-zinc-500"><span>Đã thanh toán</span><span className="text-zinc-300">{money(Number(selectedContract.paidAmount || 0))}</span></div></div>
           {(selectedContract.installments || []).some((item) => item.status === 'pending') && <div className="mt-4"><p className="mb-2 text-xs font-bold text-zinc-500">Chọn nhanh kỳ trả góp</p><div className="flex flex-wrap gap-2">{selectedContract.installments?.filter((item) => item.status === 'pending').map((item) => <button key={item.id} onClick={() => { setSelectedInstallmentId(item.id); setPayAmount(String(item.amount)) }} className={`rounded-lg border px-3 py-2 text-xs ${selectedInstallmentId === item.id ? 'border-pink-500 bg-pink-500/10 text-pink-300' : 'border-zinc-700 bg-zinc-900 text-zinc-300'}`}>{new Date(item.date).toLocaleDateString('vi-VN')} · {money(item.amount)}</button>)}</div></div>}
@@ -427,7 +415,7 @@ export default function FinanceManagement({ profile }: Props) {
           <button onClick={() => void submitPayment()} disabled={isSubmitting || !payAmount || Number(payAmount) === 0} className="mt-4 min-h-12 w-full rounded-xl bg-gradient-to-r from-pink-500 to-orange-500 font-bold text-white disabled:opacity-50">{isSubmitting ? 'Đang ghi sổ…' : Number(payAmount) < 0 ? 'Ghi khoản hoàn tiền' : 'Ghi khoản thu'}</button>
         </Modal>}
 
-        {entryToReverse && <Modal onClose={() => setEntryToReverse(null)} title="Tạo bút toán đảo">
+        {entryToReverse && <Modal onClose={() => setEntryToReverse(null)} title="Đảo bút toán">
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-zinc-300">Chứng từ <b className="text-white">{entryToReverse.referenceCode}</b> sẽ không bị xóa. Hệ thống tạo một bút toán âm ở kỳ hiện tại và cập nhật projection hợp đồng trong cùng transaction.</div>
           <button onClick={() => void submitReversal()} disabled={isSubmitting} className="mt-4 min-h-12 w-full rounded-xl bg-amber-500 font-bold text-zinc-950 disabled:opacity-50">{isSubmitting ? 'Đang xử lý…' : 'Xác nhận tạo bút toán đảo'}</button>
         </Modal>}

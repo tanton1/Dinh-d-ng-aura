@@ -1,0 +1,47 @@
+.aura-help-popover {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.aura-help-popover summary {
+  display: inline-grid;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #f0d9e3;
+  border-radius: 12px;
+  background: #fff7fa;
+  color: #d83d75;
+  cursor: pointer;
+  list-style: none;
+}
+
+.aura-help-popover summary::-webkit-details-marker { display: none; }
+.aura-help-popover summary:focus-visible { outline: 3px solid rgba(246, 47, 130, .18); outline-offset: 2px; }
+.aura-help-popover[open] summary { border-color: transparent; background: linear-gradient(105deg, #f62f82, #ff8751); color: #fff; }
+
+.aura-help-popover__panel {
+  position: absolute;
+  z-index: 75;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(310px, calc(100vw - 32px));
+  padding: 14px;
+  border: 1px solid #f1d9e3;
+  border-radius: 17px;
+  background: rgba(255, 255, 255, .98);
+  color: #695563;
+  box-shadow: 0 18px 42px rgba(62, 30, 49, .17);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.aura-help-popover__panel strong { display: block; margin-bottom: 6px; color: #2d202a; font-size: 13px; }
+.aura-help-popover__panel p { margin: 0; }
+.aura-help-popover__panel p + p { margin-top: 7px; }
+
+@media (max-width: 430px) {
+  .aura-help-popover summary { width: 36px; height: 36px; }
+  .aura-help-popover__panel { position: fixed; top: auto; right: 12px; bottom: calc(92px + env(safe-area-inset-bottom)); left: 12px; width: auto; }
+}

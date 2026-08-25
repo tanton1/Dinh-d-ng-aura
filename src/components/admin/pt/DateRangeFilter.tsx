@@ -4,9 +4,10 @@ import { Calendar } from 'lucide-react';
 interface Props {
   onFilter: (start: Date, end: Date) => void;
   excludeFuture?: boolean;
+  compact?: boolean;
 }
 
-export default function DateRangeFilter({ onFilter, excludeFuture }: Props) {
+export default function DateRangeFilter({ onFilter, excludeFuture, compact = false }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [range, setRange] = useState('Tất cả');
   const [customStart, setCustomStart] = useState('');
@@ -72,8 +73,8 @@ export default function DateRangeFilter({ onFilter, excludeFuture }: Props) {
   }
 
   return (
-    <div className="relative w-full">
-      <button onClick={() => setIsOpen(!isOpen)} className="w-full flex items-center justify-between gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-colors whitespace-nowrap">
+    <div className={`date-range-filter relative w-full ${compact ? 'date-range-filter--compact' : ''}`}>
+      <button type="button" onClick={() => setIsOpen(!isOpen)} aria-expanded={isOpen} className="date-range-filter__trigger w-full flex items-center justify-between gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-colors whitespace-nowrap">
         <div className="flex items-center gap-2 truncate">
           <Calendar className="w-4 h-4 shrink-0" />
           <span className="truncate text-sm">{range}</span>
@@ -81,7 +82,7 @@ export default function DateRangeFilter({ onFilter, excludeFuture }: Props) {
         <div className="shrink-0 text-xs text-zinc-500">▾</div>
       </button>
       {isOpen && (
-        <div className="absolute top-full left-0 mt-2 bg-zinc-900 border border-zinc-800 rounded-xl p-2 shadow-xl z-[60] w-64 sm:w-48">
+        <div className="date-range-filter__menu absolute top-full left-0 mt-2 bg-zinc-900 border border-zinc-800 rounded-xl p-2 shadow-xl z-[60] w-64 sm:w-48">
           {options.map(r => (
             <button key={r} onClick={() => { setRange(r); applyFilter(r); setIsOpen(false); }} className="block w-full text-left px-4 py-2 text-zinc-300 hover:bg-zinc-800 rounded-lg text-sm">
               {r}
