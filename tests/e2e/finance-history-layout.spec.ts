@@ -82,15 +82,20 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
     await expectNoHorizontalOverflow(page)
   })
 
-  test('uses an in-page cash-account control before payroll can be marked paid', async ({ page }) => {
+  test('keeps the canonical payroll workflow usable on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/#/admin-payroll')
 
-    const payroll = page.locator('.payroll-canonical')
+    const payroll = page.locator('.payroll-page')
     await expect(payroll).toBeVisible()
-    await expect(payroll.getByLabel('Quỹ chi lương')).toBeVisible()
-    await expect(payroll.getByLabel('Mã chứng từ chi lương')).toBeVisible()
-    await expect(payroll.locator('.payroll-canonical__payout p')).toBeVisible()
+    await expect(payroll.locator(':scope > .aura-metric-carousel').first()).toBeVisible()
+    await expect(payroll.locator('.aura-metric-carousel__slide')).toHaveCount(5)
+    await expect(payroll.getByRole('tab', { name: 'Kỳ lương' })).toBeVisible()
+    await expect(payroll.getByRole('textbox', { name: 'Kỳ lương', exact: true })).toBeVisible()
+    await expect(payroll.getByLabel('Lọc trạng thái kỳ lương')).toBeVisible()
+    await payroll.getByRole('tab', { name: 'Chính sách' }).click()
+    await expect(payroll.getByText('Phiên bản mới')).toBeVisible()
+    await expect(payroll.getByText('Đơn giá / buổi')).toBeVisible()
     await expectNoHorizontalOverflow(page)
   })
 })

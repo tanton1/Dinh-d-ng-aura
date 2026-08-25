@@ -50,7 +50,94 @@ function payrollCashAccountId(value) {
   return result
 }
 
+function policyEffectiveDate(value) {
+  const result = typeof value === 'string' ? value.trim() : ''
+  if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(result)) {
+    throw new HttpsError('invalid-argument', 'Ngày hiệu lực chính sách không hợp lệ.')
+  }
+  const [year, month, day] = result.split('-').map(Number)
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  if (day > daysInMonth) throw new HttpsError('invalid-argument', 'Ngày hiệu lực chính sách không hợp lệ.')
+  const timestamp = Timestamp.fromDate(new Date(`${result}T00:00:00+07:00`))
+  if (Number.isNaN(timestamp.toDate().getTime())) throw new HttpsError('invalid-argument', 'Ngày hiệu lực chính sách không hợp lệ.')
+  return { value: result, timestamp }
+}
+
+function policyRate(value) {
+  const result = Number(value)
+  if (!Number.isSafeInteger(result) || result < 1_000 || result > 10_000_000) {
+    throw new HttpsError('invalid-argument', 'Đơn giá buổi tập phải từ 1.000đ đến 10.000.000đ.')
+  }
+  return result
+}
+
+function policyName(value) {
+  const result = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, 100) : ''
+  if (result.length < 2) throw new HttpsError('invalid-argument', 'Tên chính sách lương chưa hợp lệ.')
+  return result
+}
+
 function createPayrollFunctions({ db, onCall }) {
+  const listPayrollPolicies = onCall(async (request) => {
+    await payrollActor(request, db)
+    const snapshot = await db.collection('payrollPolicies').orderBy('effectiveFrom', 'desc').limit(36).get()
+    return {
+      policies: snapshot.docs.map((item) => {
+        const data = item.data()
+        return {
+          id: item.id,
+          name: data.name || 'Chính sách lương PT',
+          version: Number(data.version || 1),
+          effectiveFrom: iso(data.effectiveFrom),
+          ratePerSession: Number(data.ratePerSession || 0),
+          status: data.status === 'inactive' ? 'inactive' : 'active',
+          createdAt: iso(data.createdAt),
+        }
+      }),
+    }
+  })
+
+  const savePayrollPolicy = onCall(async (request) => {
+    const actor = await payrollActor(request, db)
+    const effective = policyEffectiveDate(request.data?.effectiveFrom)
+    const ratePerSession = policyRate(request.data?.ratePerSession)
+    const name = policyName(request.data?.name)
+    const policyId = `global_${effective.value.replaceAll('-', '')}`
+    const reference = db.doc(`payrollPolicies/${policyId}`)
+    return db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(reference)
+      if (existing.exists) {
+        const data = existing.data()
+        if (data.name === name && Number(data.ratePerSession || 0) === ratePerSession && data.status !== 'inactive') {
+          return { policyId, unchanged: true }
+        }
+        throw new HttpsError('already-exists', 'Ngày hiệu lực này đã có chính sách. Hãy chọn ngày mới để giữ lịch sử phiên bản.')
+      }
+      const version = Number(effective.value.replaceAll('-', ''))
+      transaction.create(reference, {
+        schemaVersion: 2,
+        scope: 'global',
+        name,
+        version,
+        effectiveFrom: effective.timestamp,
+        ratePerSession,
+        status: 'active',
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: actor.uid,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      transaction.create(db.collection('payrollAuditLogs').doc(), {
+        schemaVersion: 2,
+        policyId,
+        action: 'payroll.policy.created',
+        actorUid: actor.uid,
+        snapshot: { name, version, effectiveFrom: effective.value, ratePerSession },
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return { policyId, unchanged: false }
+    })
+  })
+
   const listPayrollRuns = onCall(async (request) => {
     await payrollActor(request, db)
     const limit = Math.min(36, Math.max(1, Number.isInteger(request.data?.limit) ? request.data.limit : 18))
@@ -62,6 +149,7 @@ function createPayrollFunctions({ db, onCall }) {
           id: item.id,
           periodId: data.periodId || '',
           policyVersion: Number(data.policyVersion || 1),
+          policyName: data.policySnapshot?.name || '',
           status: data.status || 'draft',
           attendanceCount: Number(data.attendanceCount || 0),
           trainerCount: Number(data.trainerCount || 0),
@@ -86,7 +174,19 @@ function createPayrollFunctions({ db, onCall }) {
     if (!run.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
     return {
       run: { id: run.id, ...run.data(), createdAt: iso(run.data().createdAt), updatedAt: iso(run.data().updatedAt) },
-      items: items.docs.map((item) => ({ id: item.id, ...item.data(), createdAt: iso(item.data().createdAt) })),
+      items: items.docs.map((item) => {
+        const data = item.data()
+        return {
+          id: item.id,
+          ...data,
+          sessionCount: Number(data.sessionCount || 0),
+          ratePerSession: Number(data.ratePerSession || 0),
+          grossAmount: Number(data.grossAmount || 0),
+          adjustmentAmount: Number(data.adjustmentAmount || 0),
+          finalAmount: Number(data.finalAmount || data.grossAmount || 0),
+          createdAt: iso(data.createdAt),
+        }
+      }),
     }
   })
 
@@ -118,11 +218,15 @@ function createPayrollFunctions({ db, onCall }) {
         if (trainerId) counts.set(trainerId, Number(counts.get(trainerId) || 0) + 1)
       })
       if (counts.size > 450) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều nhân sự để khóa trong một giao dịch.')
+      const trainerIds = [...counts.keys()]
+      const trainerSnapshots = await Promise.all(trainerIds.map((trainerId) => transaction.get(db.doc(`trainers/${trainerId}`))))
+      const trainerById = new Map(trainerSnapshots.map((snapshot) => [snapshot.id, snapshot.exists ? snapshot.data() : {}]))
       const grossAmount = [...counts.values()].reduce((total, sessionCount) => total + Number(sessionCount) * ratePerSession, 0)
-      transaction.create(runReference, { schemaVersion: 1, periodId, policyId: policySnapshot.id, policyVersion: Number(policy.version || 1), policySnapshot: { ratePerSession }, status: 'draft', attendanceCount: attendance.size, trainerCount: counts.size, grossAmount, adjustmentAmount: 0, finalAmount: grossAmount, timeZone: 'Asia/Ho_Chi_Minh', createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, updatedAt: FieldValue.serverTimestamp() })
+      transaction.create(runReference, { schemaVersion: 2, revision: 1, periodId, policyId: policySnapshot.id, policyVersion: Number(policy.version || 1), policySnapshot: { name: policy.name || 'Chính sách lương PT', ratePerSession }, status: 'draft', attendanceCount: attendance.size, trainerCount: counts.size, grossAmount, adjustmentAmount: 0, finalAmount: grossAmount, timeZone: 'Asia/Ho_Chi_Minh', createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, updatedAt: FieldValue.serverTimestamp() })
       for (const [trainerId, sessionCount] of counts) {
         const itemReference = db.doc(`payrollRunItems/${periodId}_${trainerId}`)
-        transaction.create(itemReference, { schemaVersion: 1, runId: runReference.id, periodId, trainerId, sessionCount, ratePerSession, grossAmount: sessionCount * ratePerSession, adjustmentAmount: 0, finalAmount: sessionCount * ratePerSession, status: 'draft', createdAt: FieldValue.serverTimestamp() })
+        const trainer = trainerById.get(trainerId) || {}
+        transaction.create(itemReference, { schemaVersion: 2, runId: runReference.id, periodId, trainerId, trainerSnapshot: { name: trainer.name || trainer.fullName || trainer.displayName || '', employeeCode: trainer.employeeCode || '', branchId: trainer.branchId || '' }, sessionCount, ratePerSession, grossAmount: sessionCount * ratePerSession, adjustmentAmount: 0, finalAmount: sessionCount * ratePerSession, status: 'draft', evidenceSource: 'attendanceEvents', createdAt: FieldValue.serverTimestamp() })
       }
       transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 1, runId: runReference.id, action: 'payroll.created', actorUid: actor.uid, toStatus: 'draft', createdAt: FieldValue.serverTimestamp() })
       return { runId: runReference.id, unchanged: false, status: 'draft' }
@@ -292,7 +396,7 @@ function createPayrollFunctions({ db, onCall }) {
     })
   })
 
-  return { listPayrollRuns, getPayrollRun, createPayrollRun, reviewPayrollRun, lockPayrollRun, markPayrollRunPaid }
+  return { listPayrollPolicies, savePayrollPolicy, listPayrollRuns, getPayrollRun, createPayrollRun, reviewPayrollRun, lockPayrollRun, markPayrollRunPaid }
 }
 
-module.exports = { createPayrollFunctions, periodBounds }
+module.exports = { createPayrollFunctions, periodBounds, policyEffectiveDate, policyRate }

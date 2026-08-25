@@ -1,5 +1,7 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebase'
+import { normalizeFinanceLedgerPage } from '../utils/financeLedgerNormalization'
+export { normalizeFinanceLedgerSummary } from '../utils/financeLedgerNormalization'
 
 function callable<Input, Output>(name: string) {
   if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
@@ -86,11 +88,12 @@ export const emptyFinanceLedgerSummary: FinanceLedgerSummary = {
 }
 
 export async function listFinanceLedger(query: FinanceLedgerQuery = {}): Promise<FinanceLedgerPage> {
-  return (await callable<FinanceLedgerQuery, FinanceLedgerPage>('listFinanceLedger')({
+  const result = await callable<FinanceLedgerQuery, unknown>('listFinanceLedger')({
     pageSize: 50,
     status: 'all',
     ...query,
-  })).data
+  })
+  return normalizeFinanceLedgerPage(result.data)
 }
 
 export async function recordContractPayment(input: {

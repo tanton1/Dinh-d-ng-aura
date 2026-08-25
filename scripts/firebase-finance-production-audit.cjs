@@ -70,12 +70,14 @@ function sourceOf(item) {
 
 async function main() {
   const token = await accessToken()
-  const [ledger, cashAccounts, cashTransactions, attendance, payrollRuns] = await Promise.all([
+  const [ledger, cashAccounts, cashTransactions, attendance, payrollRuns, payrollPolicies, payrollRunItems] = await Promise.all([
     listCollection(token, 'ledgerEntries'),
     listCollection(token, 'cashAccounts'),
     listCollection(token, 'cashTransactions'),
     listCollection(token, 'attendanceEvents'),
     listCollection(token, 'payrollRuns'),
+    listCollection(token, 'payrollPolicies'),
+    listCollection(token, 'payrollRunItems'),
   ])
   const postedLedger = ledger.filter((item) => item.status === 'posted')
   const revenueEntries = postedLedger.filter((item) => item.type === 'revenue_recognition')
@@ -105,6 +107,8 @@ async function main() {
       attendanceEvents: attendance.length,
       uniqueAttendanceSessions: attendanceSessionIds.size,
       payrollRuns: payrollRuns.length,
+      payrollPolicies: payrollPolicies.length,
+      payrollRunItems: payrollRunItems.length,
     },
     totals: {
       cashImpact: postedLedger.reduce((total, item) => total + cashImpact(item), 0),

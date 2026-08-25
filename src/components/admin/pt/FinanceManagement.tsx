@@ -27,7 +27,8 @@ interface Props {
 type DebtFilter = 'all' | 'overdue' | 'this-week' | 'this-month' | 'overpaid'
 
 function money(value: number) {
-  return `${Math.round(value).toLocaleString('vi-VN')}đ`
+  const amount = Number(value)
+  return `${Math.round(Number.isFinite(amount) ? amount : 0).toLocaleString('vi-VN')}đ`
 }
 
 function currentMonthRange() {
