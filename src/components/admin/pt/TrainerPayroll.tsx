@@ -167,7 +167,19 @@ export default function TrainerPayroll({ profile }: Props) {
     setExpandedTrainerId('')
     setError('')
     try {
-      setDetail(await getPayrollRun(runId))
+      const loaded = await getPayrollRun(runId)
+      setDetail(loaded)
+      setRuns((current) => current.map((run) => run.id === runId ? {
+        ...run,
+        requiresRebuild: loaded.run.requiresRebuild,
+        trainerCount: loaded.run.trainerCount,
+        teachingSlotCount: loaded.run.teachingSlotCount,
+        attendanceCount: loaded.run.teachingSlotCount,
+        attendanceEventCount: loaded.run.attendanceEventCount,
+        grossAmount: loaded.run.grossAmount,
+        adjustmentAmount: loaded.run.adjustmentAmount,
+        finalAmount: loaded.run.finalAmount,
+      } : run))
     } catch (cause) {
       setError(friendlyError(cause))
     } finally {
@@ -228,6 +240,10 @@ export default function TrainerPayroll({ profile }: Props) {
 
   const runAction = async (action: 'review' | 'lock' | 'pay', run: PayrollRunSummary) => {
     if (busyAction) return
+    if (action === 'review' && run.requiresRebuild) {
+      setError('Kỳ nháp cũ cần được xóa và lập lại để lưu đúng tên HLV, số ca và chính sách hiện hành.')
+      return
+    }
     const key = `${action}:${run?.id || periodId}`
     setBusyAction(key)
     setMessage('')
@@ -365,12 +381,12 @@ export default function TrainerPayroll({ profile }: Props) {
         {loading && !runs.length ? <div className="payroll-page__skeleton" aria-label="Đang tải kỳ lương" /> : visibleRuns.length ? <div className="payroll-page__run-grid">
           {visibleRuns.map((run) => <article className="payroll-run-card" key={run.id}>
             <button className="payroll-run-card__open" type="button" onClick={() => void openRun(run.id)} aria-label={`Mở ${periodLabel(run.periodId)}`}>
-              <div className="payroll-run-card__head"><div><span>{periodLabel(run.periodId)}</span><strong>{money(run.finalAmount)}</strong></div><em className={`is-${run.status}`}>{statusMeta[run.status].label}</em></div>
+              <div className="payroll-run-card__head"><div><span>{periodLabel(run.periodId)}</span><strong>{money(run.finalAmount)}</strong></div><em className={`is-${run.status}`}>{run.requiresRebuild ? 'Cần lập lại' : statusMeta[run.status].label}</em></div>
               <div className="payroll-run-card__metrics"><span><b>{run.trainerCount}</b> HLV</span><span><b>{run.teachingSlotCount}</b> ca dạy</span><span><b>{run.attendanceEventCount}</b> lượt HV</span></div>
               <p>{run.policyName || `Chính sách v${run.policyVersion}`}<ChevronRight size={17} /></p>
             </button>
             <div className="payroll-run-card__actions">
-              {run.status === 'draft' && <><button className="is-danger-ghost" type="button" disabled={!!busyAction} onClick={() => setPendingConfirmation({ kind: 'delete-run', id: run.id, label: periodLabel(run.periodId) })}><Trash2 size={15} /> Xóa nháp</button><button type="button" disabled={!!busyAction} onClick={() => void runAction('review', run)}><FileCheck2 size={15} /> Gửi duyệt</button></>}
+              {run.status === 'draft' && <><button className="is-danger-ghost" type="button" disabled={!!busyAction} onClick={() => setPendingConfirmation({ kind: 'delete-run', id: run.id, label: periodLabel(run.periodId) })}><Trash2 size={15} /> Xóa nháp</button><button type="button" disabled={!!busyAction || run.requiresRebuild} title={run.requiresRebuild ? 'Xóa kỳ nháp cũ và tạo lại trước khi gửi duyệt' : undefined} onClick={() => void runAction('review', run)}><FileCheck2 size={15} /> {run.requiresRebuild ? 'Cần tạo lại' : 'Gửi duyệt'}</button></>}
               {run.status === 'reviewed' && <button type="button" disabled={!!busyAction} onClick={() => void runAction('lock', run)}><LockKeyhole size={15} /> Khóa kỳ</button>}
               {run.status === 'locked' && <button type="button" onClick={() => void openRun(run.id)}><WalletCards size={15} /> Chi lương</button>}
               {run.status === 'paid' && <span><CheckCircle2 size={15} /> Đã hoàn tất</span>}
@@ -436,6 +452,7 @@ export default function TrainerPayroll({ profile }: Props) {
             <div><span>Trạng thái</span><strong>{statusMeta[detail.run.status].label}</strong></div>
           </div>
           <p className="payroll-drawer__status"><ShieldCheck size={17} /> {statusMeta[detail.run.status].hint}</p>
+          {detail.run.requiresRebuild && <div className="payroll-drawer__legacy-warning"><AlertTriangle size={20} /><div><strong>Kỳ nháp cũ đã được dựng lại để đối chiếu</strong><p>Aura đã nối tên HLV và gom đúng các lượt cùng HLV, ngày, giờ thành một ca. Số liệu dưới đây là preview chuẩn; hãy xóa kỳ nháp và lập lại để lưu snapshot mới trước khi duyệt.</p>{detail.run.storedTeachingSlotCount !== detail.run.teachingSlotCount && <small>Dữ liệu cũ: {detail.run.storedTeachingSlotCount || 0} lượt · Preview chuẩn: {detail.run.teachingSlotCount} ca.</small>}</div><button type="button" onClick={() => { setPendingConfirmation({ kind: 'delete-run', id: detail.run.id, label: periodLabel(detail.run.periodId) }); setDetail(null) }}><Trash2 size={15} /> Lập lại kỳ</button></div>}
           <div className="payroll-drawer__items">
             <div className="payroll-page__section-title"><div><span>Chi tiết theo HLV</span><strong>{detail.items.length} HLV</strong></div><small>Bấm tên để xem từng ca</small></div>
             {detail.items.map((item) => {

@@ -28,7 +28,7 @@ export default function AdminDashboard({ onNavigate, onSeed, adminName = 'Admin 
   const metricSlides = useMemo<AuraMetricSlide[]>(() => {
     const business: AuraMetricSlide[] = [
       { id: 'sales', eyebrow: 'DOANH SỐ HỢP ĐỒNG', value: money(data?.finance.contractSales || 0), detail: 'Giá trị hợp đồng ký trong kỳ', icon: <TrendingUp size={20} />, tone: 'pink', actionLabel: 'Mở báo cáo', onSelect: () => onNavigate('admin-report') },
-      { id: 'cash', eyebrow: 'TIỀN THỰC THU', value: money(data?.finance.cashCollected || 0), detail: 'Tiền đã đi vào quỹ từ ledger canonical', icon: <WalletCards size={20} />, tone: 'orange', actionLabel: 'Mở Thu chi', onSelect: () => onNavigate('admin-finance') },
+      { id: 'cash', eyebrow: 'TIỀN THỰC THU', value: money(data?.finance.cashCollected || 0), detail: 'Tiền đã đi vào quỹ từ ledger canonical', icon: <WalletCards size={20} />, tone: 'orange', actionLabel: 'Mở tài chính', onSelect: () => onNavigate('admin-finance') },
       { id: 'net-cash', eyebrow: 'DÒNG TIỀN THUẦN', value: money(data?.finance.netCash || 0), detail: 'Tiền vào trừ tiền ra trong kỳ', icon: <DollarSign size={20} />, tone: 'sunset', actionLabel: 'Đối chiếu', onSelect: () => onNavigate('admin-finance') },
       { id: 'receivables', eyebrow: 'CÔNG NỢ', value: money(data?.finance.receivables || 0), detail: 'Số tiền còn phải thu theo hợp đồng', icon: <AlertCircle size={20} />, tone: 'ink', actionLabel: 'Xem công nợ', onSelect: () => onNavigate('admin-finance') },
     ]

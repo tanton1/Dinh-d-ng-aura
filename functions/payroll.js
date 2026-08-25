@@ -298,6 +298,112 @@ function applyPayrollPolicyPlan(teaching, plan, policies) {
   return { ...teaching, trainers }
 }
 
+function payrollIdentityName(value = {}) {
+  return value.name || value.fullName || value.displayName || ''
+}
+
+function payrollIdentitySnapshot(trainer = {}, staff = {}, user = {}) {
+  return {
+    name: payrollIdentityName(trainer) || payrollIdentityName(staff) || payrollIdentityName(user) || 'Chưa cập nhật tên HLV',
+    employeeCode: trainer.employeeCode || staff.employeeCode || '',
+    branchId: trainer.branchId || staff.branchId || user.branchId || '',
+  }
+}
+
+async function getAllDocumentsInBatches(db, references, batchSize = 400) {
+  const snapshots = []
+  for (let offset = 0; offset < references.length; offset += batchSize) {
+    snapshots.push(...await db.getAll(...references.slice(offset, offset + batchSize)))
+  }
+  return snapshots
+}
+
+function legacyPayrollPolicyConfiguration(runData = {}, itemValues = []) {
+  const snapshot = runData.policySnapshot && typeof runData.policySnapshot === 'object' ? runData.policySnapshot : {}
+  const fallbackRate = Number(snapshot.ratePerSession || itemValues.find((item) => Number(item.ratePerSession || 0) > 0)?.ratePerSession || 0)
+  return payrollPolicyConfiguration({
+    ratePerSession: fallbackRate,
+    dailySessionThreshold: Number(snapshot.dailySessionThreshold || 8),
+    rateAfterDailyThreshold: Number(snapshot.rateAfterDailyThreshold || fallbackRate),
+    eveningStartHour: Number(snapshot.eveningStartHour ?? 20),
+    rateAfterDailyThresholdEvening: Number(snapshot.rateAfterDailyThresholdEvening || snapshot.rateAfterDailyThreshold || fallbackRate),
+  })
+}
+
+function payrollTierSummary(teachingSlots) {
+  return teachingSlots.reduce((result, slot) => {
+    if (slot.tier === 'standard') { result.standardCount += 1; result.standardAmount += slot.rate }
+    else if (slot.tier === 'after_threshold') { result.afterThresholdCount += 1; result.afterThresholdAmount += slot.rate }
+    else { result.afterThresholdEveningCount += 1; result.afterThresholdEveningAmount += slot.rate }
+    return result
+  }, { standardCount: 0, standardAmount: 0, afterThresholdCount: 0, afterThresholdAmount: 0, afterThresholdEveningCount: 0, afterThresholdEveningAmount: 0 })
+}
+
+async function payrollIdentityByTrainerId(db, trainerIds) {
+  const snapshots = await getAllDocumentsInBatches(db, trainerIds.flatMap((trainerId) => [
+    db.doc(`trainers/${trainerId}`),
+    db.doc(`staff/${trainerId}`),
+    db.doc(`users/${trainerId}`),
+  ]))
+  const result = new Map()
+  trainerIds.forEach((trainerId, index) => {
+    const trainer = snapshots[index * 3]?.exists ? snapshots[index * 3].data() : {}
+    const staff = snapshots[index * 3 + 1]?.exists ? snapshots[index * 3 + 1].data() : {}
+    const user = snapshots[index * 3 + 2]?.exists ? snapshots[index * 3 + 2].data() : {}
+    result.set(trainerId, payrollIdentitySnapshot(trainer, staff, user))
+  })
+  return result
+}
+
+async function legacyPayrollPreview(db, runData, itemValues) {
+  const { start, end } = periodBounds(runData.periodId)
+  const attendance = await db.collection('attendanceEvents').where('occurredAt', '>=', start).where('occurredAt', '<', end).get()
+  const eligibleAttendance = attendance.docs.filter((item) => !item.data().type || item.data().type === 'attended')
+  const sessionIds = [...new Set(eligibleAttendance.map((item) => item.data().sessionId || item.id).filter(Boolean))]
+  if (sessionIds.length > 3000) throw new HttpsError('resource-exhausted', 'Kỳ lương cũ có quá nhiều ca để dựng lại chi tiết an toàn.')
+  const sessionSnapshots = await getAllDocumentsInBatches(db, sessionIds.map((sessionId) => db.doc(`sessions/${sessionId}`)))
+  const sessionById = new Map(sessionSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, snapshot.data()]))
+  const teaching = teachingSlotsFromAttendance(eligibleAttendance, sessionById, legacyPayrollPolicyConfiguration(runData, itemValues))
+  const trainerIds = [...new Set([...itemValues.map((item) => item.trainerId).filter(Boolean), ...teaching.trainers.keys()])]
+  const identities = await payrollIdentityByTrainerId(db, trainerIds)
+  const itemByTrainerId = new Map(itemValues.map((item) => [item.trainerId, item]))
+  const items = trainerIds.map((trainerId) => {
+    const stored = itemByTrainerId.get(trainerId) || {}
+    const teachingSlots = teaching.trainers.get(trainerId) || []
+    const grossAmount = teachingSlots.reduce((total, slot) => total + slot.rate, 0)
+    const adjustmentAmount = Number(stored.adjustmentAmount || 0)
+    return {
+      ...stored,
+      trainerId,
+      trainerSnapshot: identities.get(trainerId),
+      sessionCount: teachingSlots.length,
+      attendanceEventCount: teachingSlots.reduce((total, slot) => total + slot.attendanceEventIds.length, 0),
+      teachingDayCount: new Set(teachingSlots.map((slot) => slot.date)).size,
+      teachingSlots,
+      tierSummary: payrollTierSummary(teachingSlots),
+      grossAmount,
+      adjustmentAmount,
+      finalAmount: grossAmount + adjustmentAmount,
+      requiresRebuild: true,
+      storedSessionCount: Number(stored.sessionCount || 0),
+      evidenceSource: 'attendanceEvents+sessions:legacy-preview',
+    }
+  })
+  const grossAmount = items.reduce((total, item) => total + item.grossAmount, 0)
+  const adjustmentAmount = items.reduce((total, item) => total + item.adjustmentAmount, 0)
+  return {
+    items,
+    summary: {
+      trainerCount: items.length,
+      attendanceEventCount: items.reduce((total, item) => total + item.attendanceEventCount, 0),
+      teachingSlotCount: items.reduce((total, item) => total + item.sessionCount, 0),
+      grossAmount,
+      adjustmentAmount,
+      finalAmount: grossAmount + adjustmentAmount,
+    },
+  }
+}
+
 function createPayrollFunctions({ db, onCall }) {
   const listPayrollPolicies = onCall(async (request) => {
     await payrollActor(request, db)
@@ -447,6 +553,7 @@ function createPayrollFunctions({ db, onCall }) {
           policyIds: Array.isArray(data.policyIds) ? data.policyIds : data.policyId ? [data.policyId] : [],
           policyApplicationMode: data.policyApplicationMode || 'single',
           status: data.status || 'draft',
+          requiresRebuild: Number(data.schemaVersion || 0) < 4,
           attendanceCount: Number(data.teachingSlotCount ?? data.attendanceCount ?? 0),
           teachingSlotCount: Number(data.teachingSlotCount ?? data.attendanceCount ?? 0),
           attendanceEventCount: Number(data.attendanceEventCount ?? data.attendanceCount ?? 0),
@@ -470,12 +577,37 @@ function createPayrollFunctions({ db, onCall }) {
       db.collection('payrollRunItems').where('runId', '==', runId).limit(500).get(),
     ])
     if (!run.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
+    const runData = run.data()
+    const itemValues = items.docs.map((item) => ({ id: item.id, ...item.data() }))
+    const requiresRebuild = Number(runData.schemaVersion || 0) < 4 || itemValues.some((item) => !Array.isArray(item.teachingSlots))
+    let responseItems = itemValues
+    let previewSummary = null
+    if (requiresRebuild && runData.status === 'draft') {
+      const preview = await legacyPayrollPreview(db, runData, itemValues)
+      responseItems = preview.items
+      previewSummary = preview.summary
+    } else {
+      const trainerIds = [...new Set(itemValues.map((item) => item.trainerId).filter(Boolean))]
+      const identities = await payrollIdentityByTrainerId(db, trainerIds)
+      responseItems = itemValues.map((item) => ({
+        ...item,
+        trainerSnapshot: payrollIdentityName(item.trainerSnapshot) ? item.trainerSnapshot : identities.get(item.trainerId),
+      }))
+    }
     return {
-      run: { id: run.id, ...run.data(), createdAt: iso(run.data().createdAt), updatedAt: iso(run.data().updatedAt) },
-      items: items.docs.map((item) => {
-        const data = item.data()
+      run: {
+        id: run.id,
+        ...runData,
+        ...(previewSummary || {}),
+        attendanceCount: previewSummary?.teachingSlotCount ?? Number(runData.teachingSlotCount ?? runData.attendanceCount ?? 0),
+        requiresRebuild,
+        storedTeachingSlotCount: Number(runData.teachingSlotCount ?? runData.attendanceCount ?? 0),
+        createdAt: iso(runData.createdAt),
+        updatedAt: iso(runData.updatedAt),
+      },
+      items: responseItems.map((data) => {
         return {
-          id: item.id,
+          id: data.id,
           ...data,
           sessionCount: Number(data.sessionCount || 0),
           attendanceEventCount: Number(data.attendanceEventCount || data.sessionCount || 0),
@@ -657,6 +789,9 @@ function createPayrollFunctions({ db, onCall }) {
       if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
       if (snapshot.data().status === to) return
       if (snapshot.data().status !== from) throw new HttpsError('failed-precondition', `Kỳ lương phải ở trạng thái ${from}.`)
+      if (to === 'reviewed' && Number(snapshot.data().schemaVersion || 0) < 4) {
+        throw new HttpsError('failed-precondition', 'Kỳ lương nháp cũ cần được xóa và lập lại để chốt đúng tên HLV, số ca và chính sách mới.')
+      }
       transaction.update(reference, { status: to, ...fields, [`${to}At`]: FieldValue.serverTimestamp(), [`${to}By`]: actor.uid, updatedAt: FieldValue.serverTimestamp() })
       transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 1, runId, action: `payroll.${to}`, actorUid: actor.uid, fromStatus: from, toStatus: to, createdAt: FieldValue.serverTimestamp() })
     })

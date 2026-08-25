@@ -12,6 +12,8 @@ export interface PayrollRunSummary {
   policyIds: string[]
   policyApplicationMode: PayrollPolicyApplicationMode
   status: PayrollRunStatus
+  requiresRebuild: boolean
+  storedTeachingSlotCount?: number
   attendanceCount: number
   teachingSlotCount: number
   attendanceEventCount: number
@@ -84,6 +86,8 @@ export interface PayrollRunItem {
   adjustmentAmount: number
   finalAmount: number
   status: PayrollRunStatus
+  requiresRebuild?: boolean
+  storedSessionCount?: number
   evidenceSource?: string
   createdAt: string
 }
@@ -130,6 +134,8 @@ function normaliseRun(value: unknown): PayrollRunSummary {
       ? raw.policyApplicationMode
       : 'single',
     status: status(raw.status),
+    requiresRebuild: raw.requiresRebuild === true,
+    storedTeachingSlotCount: Math.max(0, Math.trunc(amount(raw.storedTeachingSlotCount))),
     attendanceCount: teachingSlotCount,
     teachingSlotCount,
     attendanceEventCount: Math.max(0, Math.trunc(amount(raw.attendanceEventCount ?? raw.attendanceCount))),
@@ -153,9 +159,18 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
   const items = Array.isArray(result.data.items) ? result.data.items.flatMap((value) => {
     if (!value || typeof value !== 'object') return []
     const raw = value as Record<string, unknown>
-    const trainerSnapshot = raw.trainerSnapshot && typeof raw.trainerSnapshot === 'object'
-      ? raw.trainerSnapshot as PayrollRunItem['trainerSnapshot']
+    const rawTrainerSnapshot = raw.trainerSnapshot && typeof raw.trainerSnapshot === 'object'
+      ? raw.trainerSnapshot as Record<string, unknown>
       : undefined
+    const trainerSnapshot = rawTrainerSnapshot ? {
+      name: typeof rawTrainerSnapshot.name === 'string'
+        ? rawTrainerSnapshot.name
+        : typeof rawTrainerSnapshot.fullName === 'string'
+          ? rawTrainerSnapshot.fullName
+          : typeof rawTrainerSnapshot.displayName === 'string' ? rawTrainerSnapshot.displayName : undefined,
+      employeeCode: typeof rawTrainerSnapshot.employeeCode === 'string' ? rawTrainerSnapshot.employeeCode : undefined,
+      branchId: typeof rawTrainerSnapshot.branchId === 'string' ? rawTrainerSnapshot.branchId : undefined,
+    } : undefined
     const teachingSlots: PayrollTeachingSlot[] = Array.isArray(raw.teachingSlots) ? raw.teachingSlots.flatMap((slotValue) => {
       if (!slotValue || typeof slotValue !== 'object') return []
       const slot = slotValue as Record<string, unknown>
@@ -183,7 +198,7 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
       periodId: typeof raw.periodId === 'string' ? raw.periodId : '',
       trainerId: typeof raw.trainerId === 'string' ? raw.trainerId : '',
       trainerSnapshot,
-      sessionCount: Math.max(0, Math.trunc(amount(raw.sessionCount))),
+      sessionCount: teachingSlots.length || Math.max(0, Math.trunc(amount(raw.sessionCount))),
       attendanceEventCount: Math.max(0, Math.trunc(amount(raw.attendanceEventCount ?? raw.sessionCount))),
       teachingDayCount: Math.max(0, Math.trunc(amount(raw.teachingDayCount))),
       teachingSlots,
@@ -200,6 +215,8 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
       adjustmentAmount: amount(raw.adjustmentAmount),
       finalAmount: amount(raw.finalAmount || raw.grossAmount),
       status: status(raw.status),
+      requiresRebuild: raw.requiresRebuild === true,
+      storedSessionCount: Math.max(0, Math.trunc(amount(raw.storedSessionCount))),
       evidenceSource: typeof raw.evidenceSource === 'string' ? raw.evidenceSource : undefined,
       createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
     } satisfies PayrollRunItem]

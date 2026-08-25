@@ -16,7 +16,7 @@ export default function AdminFinanceHub({ user, profile, initialTab = 'overview'
   const { branches } = useDatabase()
   const tabs: Array<{ id: FinanceTab; label: string; icon: typeof BarChart3 }> = [
     { id: 'overview', label: 'Tổng quan', icon: BarChart3 },
-    { id: 'ledger', label: 'Thu chi', icon: CircleDollarSign },
+    { id: 'ledger', label: 'Trả góp', icon: CircleDollarSign },
     { id: 'cashbook', label: 'Sổ quỹ', icon: WalletCards },
     { id: 'payroll', label: 'Lương PT', icon: Users },
   ]

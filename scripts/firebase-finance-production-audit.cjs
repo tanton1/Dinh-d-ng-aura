@@ -1,5 +1,6 @@
 const fs = require('node:fs')
 const path = require('node:path')
+const { teachingSlotsFromAttendance } = require('../functions/payroll')
 
 const TARGET = Object.freeze({
   projectId: 'gen-lang-client-0815966909',
@@ -70,7 +71,7 @@ function sourceOf(item) {
 
 async function main() {
   const token = await accessToken()
-  const [ledger, cashAccounts, cashTransactions, attendance, payrollRuns, payrollPolicies, payrollRunItems] = await Promise.all([
+  const [ledger, cashAccounts, cashTransactions, attendance, payrollRuns, payrollPolicies, payrollRunItems, trainers, staff, users, sessions] = await Promise.all([
     listCollection(token, 'ledgerEntries'),
     listCollection(token, 'cashAccounts'),
     listCollection(token, 'cashTransactions'),
@@ -78,6 +79,10 @@ async function main() {
     listCollection(token, 'payrollRuns'),
     listCollection(token, 'payrollPolicies'),
     listCollection(token, 'payrollRunItems'),
+    listCollection(token, 'trainers'),
+    listCollection(token, 'staff'),
+    listCollection(token, 'users'),
+    listCollection(token, 'sessions'),
   ])
   const postedLedger = ledger.filter((item) => item.status === 'posted')
   const revenueEntries = postedLedger.filter((item) => item.type === 'revenue_recognition')
@@ -94,6 +99,63 @@ async function main() {
     current.expenseImpact += Number(item.expenseImpact || 0)
     bySource[source] = current
   })
+  const trainerById = new Map(trainers.map((item) => [item.id, item]))
+  const staffById = new Map(staff.map((item) => [item.id, item]))
+  const userById = new Map(users.map((item) => [item.id, item]))
+  const identityName = (item) => item?.name || item?.fullName || item?.displayName || ''
+  const payrollQuality = payrollRunItems.reduce((result, item) => {
+    const teachingSlots = Array.isArray(item.teachingSlots) ? item.teachingSlots : []
+    const storedCount = Number(item.sessionCount || 0)
+    const exactIdentityName = identityName(trainerById.get(item.trainerId)) || identityName(staffById.get(item.trainerId)) || identityName(userById.get(item.trainerId))
+    result.storedTeachingSlots += storedCount
+    result.snapshotTeachingSlots += teachingSlots.length
+    result.attendanceEvents += Number(item.attendanceEventCount || storedCount || 0)
+    if (!identityName(item.trainerSnapshot)) result.missingSnapshotName += 1
+    if (!exactIdentityName) result.missingExactIdentityName += 1
+    if (!teachingSlots.length) result.itemsWithoutTeachingSlotDetails += 1
+    if (teachingSlots.length && teachingSlots.length !== storedCount) result.slotCountMismatches += 1
+    return result
+  }, {
+    storedTeachingSlots: 0,
+    snapshotTeachingSlots: 0,
+    attendanceEvents: 0,
+    missingSnapshotName: 0,
+    missingExactIdentityName: 0,
+    itemsWithoutTeachingSlotDetails: 0,
+    slotCountMismatches: 0,
+  })
+  const sessionById = new Map(sessions.map((item) => [item.id, item]))
+  const legacyDraftPreviews = payrollRuns
+    .filter((run) => run.status === 'draft' && Number(run.schemaVersion || 0) < 4 && /^\d{4}-\d{2}$/.test(run.periodId || ''))
+    .map((run) => {
+      const [year, month] = run.periodId.split('-').map(Number)
+      const start = new Date(`${run.periodId}-01T00:00:00+07:00`)
+      const end = new Date(`${month === 12 ? year + 1 : year}-${String(month === 12 ? 1 : month + 1).padStart(2, '0')}-01T00:00:00+07:00`)
+      const runAttendance = attendance.filter((item) => {
+        const occurredAt = new Date(item.occurredAt || '')
+        return !Number.isNaN(occurredAt.getTime()) && occurredAt >= start && occurredAt < end
+      })
+      const runItems = payrollRunItems.filter((item) => item.runId === run.id)
+      const rate = Number(run.policySnapshot?.ratePerSession || runItems.find((item) => Number(item.ratePerSession || 0) > 0)?.ratePerSession || 0)
+      try {
+        const preview = teachingSlotsFromAttendance(runAttendance, sessionById, {
+          ratePerSession: rate,
+          dailySessionThreshold: 8,
+          rateAfterDailyThreshold: rate,
+          eveningStartHour: 20,
+          rateAfterDailyThresholdEvening: rate,
+        })
+        return {
+          periodId: run.periodId,
+          attendanceEvents: preview.attendanceEventCount,
+          teachingSlots: preview.teachingSlotCount,
+          trainers: preview.trainers.size,
+          compression: preview.attendanceEventCount - preview.teachingSlotCount,
+        }
+      } catch (error) {
+        return { periodId: run.periodId, errorCode: error?.code || 'preview_failed' }
+      }
+    })
   const report = {
     generatedAt: new Date().toISOString(),
     mode: 'read-only',
@@ -109,6 +171,7 @@ async function main() {
       payrollRuns: payrollRuns.length,
       payrollPolicies: payrollPolicies.length,
       payrollRunItems: payrollRunItems.length,
+      sessions: sessions.length,
     },
     totals: {
       cashImpact: postedLedger.reduce((total, item) => total + cashImpact(item), 0),
@@ -122,6 +185,23 @@ async function main() {
       attendanceSessionsWithoutRecognition: Math.max(0, attendanceSessionIds.size - recognisedAttendance),
       unlinkedCashTransactions: cashTransactions.filter((item) => !item.ledgerEntryId && !['opening_balance', 'transfer_in', 'transfer_out'].includes(item.type)).length,
       paidPayrollRunsOutsideLedger: payrollRuns.filter((item) => item.status === 'paid' && !item.ledgerEntryId).length,
+    },
+    payrollQuality: {
+      ...payrollQuality,
+      runStatuses: payrollRuns.reduce((result, item) => {
+        const key = typeof item.status === 'string' && item.status ? item.status : 'unknown'
+        result[key] = (result[key] || 0) + 1
+        return result
+      }, {}),
+      trainerDocuments: trainers.length,
+      staffDocuments: staff.length,
+      userDocuments: users.length,
+      runSchemaVersions: [...new Set(payrollRuns.map((item) => Number(item.schemaVersion || 0)))].sort((left, right) => left - right),
+      itemSchemaVersions: [...new Set(payrollRunItems.map((item) => Number(item.schemaVersion || 0)))].sort((left, right) => left - right),
+      runFieldNames: [...new Set(payrollRuns.flatMap((item) => Object.keys(item)))].sort(),
+      itemFieldNames: [...new Set(payrollRunItems.flatMap((item) => Object.keys(item)))].sort(),
+      policySnapshotFieldNames: [...new Set(payrollRuns.flatMap((item) => item.policySnapshot && typeof item.policySnapshot === 'object' ? Object.keys(item.policySnapshot) : []))].sort(),
+      legacyDraftPreviews,
     },
     bySource,
   }

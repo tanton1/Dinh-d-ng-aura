@@ -220,6 +220,12 @@
 .payroll-drawer__summary span { color: #8d7783; font-size: 10px; }
 .payroll-drawer__summary strong { color: #3a2733; font-size: 16px; }
 .payroll-drawer__status { display: flex; align-items: center; gap: 7px; border-radius: 13px; padding: 11px; background: linear-gradient(105deg, rgba(246,47,130,.08), rgba(255,135,81,.1)); color: #934061; font-size: 12px; font-weight: 700; }
+.payroll-drawer__legacy-warning { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 12px; margin: 0 18px 16px; padding: 14px; border: 1px solid rgba(246,47,130,.22); border-radius: 18px; background: linear-gradient(135deg, rgba(246,47,130,.1), rgba(255,135,81,.12)); color: #be185d; }
+.payroll-drawer__legacy-warning div { min-width: 0; }
+.payroll-drawer__legacy-warning strong { display: block; color: #4a1730; font-size: 14px; }
+.payroll-drawer__legacy-warning p { margin: 4px 0 0; color: #7a4059; font-size: 12px; line-height: 1.55; }
+.payroll-drawer__legacy-warning small { display: block; margin-top: 6px; color: #9d174d; font-weight: 800; }
+.payroll-drawer__legacy-warning button { display: inline-flex; min-height: 38px; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 12px; padding: 0 12px; background: linear-gradient(135deg, #f62f82, #ff8751); color: #fff; font-size: 12px; font-weight: 850; white-space: nowrap; }
 .payroll-drawer__items { margin-top: 18px; }
 .payroll-drawer__items > article { border-bottom: 1px solid #f1e4e9; padding: 8px 0; }
 .payroll-drawer__person { display: flex; min-width: 0; align-items: center; gap: 10px; }
@@ -323,6 +329,8 @@
 }
 
 @media (max-width: 640px) {
+  .payroll-drawer__legacy-warning { grid-template-columns: auto minmax(0, 1fr); margin-inline: 12px; }
+  .payroll-drawer__legacy-warning button { grid-column: 1 / -1; width: 100%; }
   .payroll-page { gap: 12px; margin-inline: -10px; padding-bottom: max(138px, env(safe-area-inset-bottom)); }
   .payroll-page > .aura-metric-carousel { margin-inline: 0; }
   .payroll-page__nav { margin-inline: 10px; border-radius: 15px; }

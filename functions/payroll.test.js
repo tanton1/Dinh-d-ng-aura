@@ -201,6 +201,34 @@ test('payroll items snapshot trainer identity and attendance evidence source', (
   assert.match(createBlock, /teachingSlotCount/)
 })
 
+test('legacy draft payroll is enriched for review but cannot be approved before rebuilding', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
+  const getStart = source.indexOf('const getPayrollRun = onCall')
+  const getEnd = source.indexOf('const createPayrollRun = onCall', getStart)
+  const getBlock = getStart >= 0 && getEnd > getStart ? source.slice(getStart, getEnd) : ''
+  const transitionStart = source.indexOf('async function transition')
+  const transitionEnd = source.indexOf('const reviewPayrollRun', transitionStart)
+  const transitionBlock = transitionStart >= 0 && transitionEnd > transitionStart ? source.slice(transitionStart, transitionEnd) : ''
+
+  assert.match(getBlock, /legacyPayrollPreview/)
+  assert.match(getBlock, /payrollIdentityByTrainerId/)
+  assert.match(getBlock, /requiresRebuild/)
+  assert.match(getBlock, /storedTeachingSlotCount/)
+  assert.match(transitionBlock, /schemaVersion/)
+  assert.match(transitionBlock, /cần được xóa và lập lại/)
+})
+
+test('payroll UI surfaces trainer names, teaching-slot evidence and legacy rebuild state', () => {
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'admin', 'pt', 'TrainerPayroll.tsx'), 'utf8')
+  const service = fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'payrollService.ts'), 'utf8')
+
+  assert.match(ui, /item\.trainerSnapshot\?\.name/)
+  assert.match(ui, /item\.teachingSlots\.map/)
+  assert.match(ui, /Dữ liệu cũ:/)
+  assert.match(ui, /Preview chuẩn:/)
+  assert.match(service, /sessionCount: teachingSlots\.length \|\|/)
+})
+
 test('payroll UI uses canonical runs and cannot edit teaching sessions', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'admin', 'pt', 'TrainerPayroll.tsx'), 'utf8')
 
