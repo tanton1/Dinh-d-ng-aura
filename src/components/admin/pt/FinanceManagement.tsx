@@ -57,6 +57,22 @@ function entryLabel(type: FinanceLedgerEntry['type']) {
   return 'Thu tiền'
 }
 
+function callableErrorDetails(cause: unknown) {
+  const raw = cause && typeof cause === 'object' ? cause as { code?: unknown; message?: unknown } : {}
+  return {
+    code: typeof raw.code === 'string' ? raw.code : '',
+    message: typeof raw.message === 'string' ? raw.message : cause instanceof Error ? cause.message : '',
+  }
+}
+
+function ledgerErrorMessage(cause: unknown) {
+  const { code, message } = callableErrorDetails(cause)
+  if (/permission-denied|unauthenticated/i.test(code)) return 'Tài khoản chưa có quyền đọc sổ cái tài chính.'
+  if (/invalid-argument/i.test(code)) return 'Bộ lọc sổ cái chưa tương thích. Aura đã giữ nguyên dữ liệu và không dùng payment cũ thay thế.'
+  if (/unavailable|deadline-exceeded/i.test(code)) return 'Dịch vụ sổ cái đang bận. Hãy thử tải lại sau ít phút.'
+  return message || 'Không thể tải ledger canonical. Aura không dùng payment legacy thay thế để tránh cộng trùng doanh thu.'
+}
+
 export default function FinanceManagement({ profile }: Props) {
   const { branches, contracts, students } = useDatabase()
   const [selectedBranchId, setSelectedBranchId] = useState('all')
@@ -97,16 +113,32 @@ export default function FinanceManagement({ profile }: Props) {
     setLedgerLoading(true)
     setLedgerError('')
     try {
-      const page = await listFinanceLedger({
+      const query = {
         pageSize: 50,
         cursor: append ? ledgerCursor : null,
         branchId: effectiveBranchId,
         // Thu chi is a cash workspace. Revenue recognition remains available
         // in the management report and must not be mixed into this screen.
-        types: ['payment', 'refund', 'adjustment', 'reversal', 'expense', 'payroll'],
+        types: ['payment', 'refund', 'adjustment', 'reversal', 'expense', 'payroll'] as FinanceLedgerEntry['type'][],
         startAt: dateRange.start.getTime() > 0 ? dateRange.start.toISOString() : undefined,
         endAt: dateRange.end.getFullYear() <= 9999 ? dateRange.end.toISOString() : undefined,
-      })
+      }
+      let page
+      try {
+        page = await listFinanceLedger(query)
+      } catch (cause) {
+        const { code, message } = callableErrorDetails(cause)
+        // Keep the cash workspace compatible while Functions and Vercel are
+        // promoted in sequence. An older callable may reject newer type
+        // filters; retrying without `types` remains canonical-only and the UI
+        // still filters entries by their explicit cash impact.
+        if (/invalid-argument/i.test(code) && /loại bút toán|entry type|ledger type/i.test(message)) {
+          const { types: _types, ...compatibleQuery } = query
+          page = await listFinanceLedger(compatibleQuery)
+        } else {
+          throw cause
+        }
+      }
       if (sequence !== requestSequence.current) return
       setLedgerEntries((current) => {
         if (!append) return page.entries
@@ -117,9 +149,9 @@ export default function FinanceManagement({ profile }: Props) {
       setLedgerSummary(page.summary)
       setLedgerCursor(page.nextCursor)
       setLedgerHasMore(page.hasMore)
-    } catch {
+    } catch (cause) {
       if (sequence !== requestSequence.current) return
-      setLedgerError('Không thể tải ledger canonical. Aura không dùng payment legacy thay thế để tránh cộng trùng doanh thu.')
+      setLedgerError(ledgerErrorMessage(cause))
       if (!append) {
         setLedgerEntries([])
         setLedgerSummary(emptyFinanceLedgerSummary)

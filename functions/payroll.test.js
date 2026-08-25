@@ -3,7 +3,13 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 
-const { periodBounds, payrollPolicyConfiguration, teachingSlotsFromAttendance } = require('./payroll')
+const {
+  applyPayrollPolicyPlan,
+  payrollRunPolicyPlan,
+  periodBounds,
+  payrollPolicyConfiguration,
+  teachingSlotsFromAttendance,
+} = require('./payroll')
 
 test('payroll period uses Asia/Ho_Chi_Minh calendar boundaries', () => {
   const bounds = periodBounds('2026-08')
@@ -100,7 +106,7 @@ test('locking a payroll run records an immutable management expense', () => {
 test('payroll payout creates the cash-book and ledger entries atomically', () => {
   const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
   const payoutStart = source.indexOf('const markPayrollRunPaid = onCall')
-  const payoutEnd = source.indexOf('return { listPayrollPolicies', payoutStart)
+  const payoutEnd = source.indexOf('\n  return {\n    listPayrollPolicies', payoutStart)
   const payoutBlock = payoutStart >= 0 && payoutEnd > payoutStart
     ? source.slice(payoutStart, payoutEnd)
     : ''
@@ -116,17 +122,71 @@ test('payroll payout creates the cash-book and ledger entries atomically', () =>
   assert.match(payoutBlock, /db\.runTransaction/)
 })
 
-test('payroll policy is immutable by effective date and audited', () => {
+test('payroll policy versions are immutable, independently selectable and audited', () => {
   const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
   const start = source.indexOf('const savePayrollPolicy = onCall')
-  const end = source.indexOf('const listPayrollRuns = onCall', start)
+  const end = source.indexOf('const managePayrollPolicy = onCall', start)
   const block = start >= 0 && end > start ? source.slice(start, end) : ''
 
   assert.match(block, /payrollPolicies\/\$\{policyId\}/)
+  assert.match(block, /createHash\('sha256'\)/)
   assert.match(block, /transaction\.create\(reference/)
   assert.match(block, /already-exists/)
   assert.match(block, /payroll\.policy\.created/)
   assert.doesNotMatch(block, /transaction\.update\(reference/)
+})
+
+test('used payroll policies can only be hidden while unused policies may be deleted', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
+  const start = source.indexOf('const managePayrollPolicy = onCall')
+  const end = source.indexOf('const listPayrollRuns = onCall', start)
+  const block = start >= 0 && end > start ? source.slice(start, end) : ''
+
+  assert.match(block, /where\('policyId', '==', policyId\)/)
+  assert.match(block, /where\('policyIds', 'array-contains', policyId\)/)
+  assert.match(block, /if \(used\)/)
+  assert.match(block, /chỉ có thể ẩn/)
+  assert.match(block, /transaction\.delete\(reference\)/)
+})
+
+test('payroll can apply selected policies by trainer or by effective date', () => {
+  const policies = [
+    { id: 'policy-a', name: 'A', effectiveDate: '2026-08-01', configuration: payrollPolicyConfiguration({ ratePerSession: 20_000, dailySessionThreshold: 8, rateAfterDailyThreshold: 70_000, eveningStartHour: 20, rateAfterDailyThresholdEvening: 80_000 }) },
+    { id: 'policy-b', name: 'B', effectiveDate: '2026-08-16', configuration: payrollPolicyConfiguration({ ratePerSession: 30_000, dailySessionThreshold: 8, rateAfterDailyThreshold: 90_000, eveningStartHour: 20, rateAfterDailyThresholdEvening: 100_000 }) },
+  ]
+  const teaching = {
+    trainers: new Map([
+      ['trainer-a', [{ key: 'a-1', date: '2026-08-10', hour: 6, studentCount: 1, sessionIds: [], attendanceEventIds: [] }]],
+      ['trainer-b', [{ key: 'b-1', date: '2026-08-20', hour: 6, studentCount: 1, sessionIds: [], attendanceEventIds: [] }]],
+    ]),
+    attendanceEventCount: 2,
+    teachingSlotCount: 2,
+  }
+  const trainerPlan = payrollRunPolicyPlan({
+    policyIds: ['policy-a', 'policy-b'],
+    defaultPolicyId: 'policy-a',
+    policyApplicationMode: 'trainer_assignment',
+    trainerPolicyAssignments: [{ trainerId: 'trainer-b', policyId: 'policy-b' }],
+  })
+  const trainerPriced = applyPayrollPolicyPlan(teaching, trainerPlan, policies)
+  assert.equal(trainerPriced.trainers.get('trainer-a')[0].rate, 20_000)
+  assert.equal(trainerPriced.trainers.get('trainer-b')[0].rate, 30_000)
+
+  const datePlan = payrollRunPolicyPlan({ policyIds: ['policy-a', 'policy-b'], defaultPolicyId: 'policy-a', policyApplicationMode: 'effective_date' })
+  const datePriced = applyPayrollPolicyPlan(teaching, datePlan, policies)
+  assert.equal(datePriced.trainers.get('trainer-a')[0].policyId, 'policy-a')
+  assert.equal(datePriced.trainers.get('trainer-b')[0].policyId, 'policy-b')
+})
+
+test('only a draft payroll run can be deleted and its items are removed atomically', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
+  const start = source.indexOf('const deleteDraftPayrollRun = onCall')
+  const end = source.indexOf('async function transition', start)
+  const block = start >= 0 && end > start ? source.slice(start, end) : ''
+  assert.match(block, /status !== 'draft'/)
+  assert.match(block, /items\.docs\.forEach\(\(item\) => transaction\.delete\(item\.ref\)\)/)
+  assert.match(block, /transaction\.delete\(runReference\)/)
+  assert.match(block, /payroll\.draft\.deleted/)
 })
 
 test('payroll items snapshot trainer identity and attendance evidence source', () => {
@@ -135,7 +195,8 @@ test('payroll items snapshot trainer identity and attendance evidence source', (
 
   assert.match(createBlock, /trainerSnapshot:/)
   assert.match(createBlock, /evidenceSource: 'attendanceEvents\+sessions'/)
-  assert.match(createBlock, /policySnapshot: \{ name:/)
+  assert.match(createBlock, /policySnapshot: payrollPolicySnapshot\(defaultPolicy\)/)
+  assert.match(createBlock, /policySnapshots/)
   assert.match(createBlock, /teachingSlots/)
   assert.match(createBlock, /teachingSlotCount/)
 })
@@ -148,6 +209,10 @@ test('payroll UI uses canonical runs and cannot edit teaching sessions', () => {
   assert.match(source, /Nguồn: ca dạy đã điểm danh/)
   assert.match(source, /Đơn giá ca 1–8/)
   assert.match(source, /Từ ca thứ 9/)
+  assert.match(source, /deleteDraftPayrollRun/)
+  assert.match(source, /managePayrollPolicy/)
+  assert.match(source, /Theo từng HLV/)
+  assert.match(source, /Theo ngày hiệu lực/)
   assert.doesNotMatch(source, /commissionPerSession\s*\|\|\s*20000/)
   assert.doesNotMatch(source, /confirmSessionAttendance|cancelSession|rescheduleSession|swapSessions/)
   assert.doesNotMatch(source, /Ước tính đối soát PT/)

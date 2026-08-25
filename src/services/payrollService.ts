@@ -2,12 +2,15 @@ import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebase'
 
 export type PayrollRunStatus = 'draft' | 'reviewed' | 'locked' | 'paid'
+export type PayrollPolicyApplicationMode = 'single' | 'trainer_assignment' | 'effective_date'
 
 export interface PayrollRunSummary {
   id: string
   periodId: string
   policyVersion: number
   policyName: string
+  policyIds: string[]
+  policyApplicationMode: PayrollPolicyApplicationMode
   status: PayrollRunStatus
   attendanceCount: number
   teachingSlotCount: number
@@ -31,6 +34,8 @@ export interface PayrollPolicy {
   eveningStartHour: number
   rateAfterDailyThresholdEvening: number
   status: 'active' | 'inactive'
+  usageCount: number
+  canDelete: boolean
   createdAt: string
 }
 
@@ -44,6 +49,8 @@ export interface PayrollTeachingSlot {
   dailyPosition: number
   tier: PayrollTeachingTier
   rate: number
+  policyId: string
+  policyName: string
   studentCount: number
   sessionIds: string[]
 }
@@ -116,6 +123,12 @@ function normaliseRun(value: unknown): PayrollRunSummary {
       : typeof (raw.policySnapshot as { name?: unknown } | undefined)?.name === 'string'
         ? String((raw.policySnapshot as { name: string }).name)
         : '',
+    policyIds: Array.isArray(raw.policyIds)
+      ? raw.policyIds.filter((id): id is string => typeof id === 'string')
+      : typeof raw.policyId === 'string' ? [raw.policyId] : [],
+    policyApplicationMode: raw.policyApplicationMode === 'trainer_assignment' || raw.policyApplicationMode === 'effective_date'
+      ? raw.policyApplicationMode
+      : 'single',
     status: status(raw.status),
     attendanceCount: teachingSlotCount,
     teachingSlotCount,
@@ -157,6 +170,8 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
         dailyPosition: Math.max(1, Math.trunc(amount(slot.dailyPosition)) || 1),
         tier,
         rate: amount(slot.rate),
+        policyId: typeof slot.policyId === 'string' ? slot.policyId : '',
+        policyName: typeof slot.policyName === 'string' ? slot.policyName : '',
         studentCount: Math.max(1, Math.trunc(amount(slot.studentCount)) || 1),
         sessionIds: Array.isArray(slot.sessionIds) ? slot.sessionIds.filter((id): id is string => typeof id === 'string') : [],
       }]
@@ -218,6 +233,8 @@ export async function listPayrollPolicies(): Promise<PayrollPolicy[]> {
       eveningStartHour: Math.max(0, Math.min(23, Math.trunc(amount(raw.eveningStartHour ?? 20)))),
       rateAfterDailyThresholdEvening: amount(raw.rateAfterDailyThresholdEvening ?? raw.rateAfterDailyThreshold ?? raw.ratePerSession),
       status: raw.status === 'inactive' ? 'inactive' : 'active',
+      usageCount: Math.max(0, Math.trunc(amount(raw.usageCount))),
+      canDelete: raw.canDelete === true,
       createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
     } satisfies PayrollPolicy]
   }) : []
@@ -236,8 +253,26 @@ export async function savePayrollPolicy(input: {
   return result.data
 }
 
-export async function createPayrollRun(periodId: string) {
-  const result = await callable<{ periodId: string }, { runId: string; unchanged: boolean; status: PayrollRunStatus }>('createPayrollRun')({ periodId })
+export interface CreatePayrollRunInput {
+  periodId: string
+  policyIds: string[]
+  defaultPolicyId: string
+  policyApplicationMode: Exclude<PayrollPolicyApplicationMode, 'single'>
+  trainerPolicyAssignments: Array<{ trainerId: string; policyId: string }>
+}
+
+export async function createPayrollRun(input: CreatePayrollRunInput) {
+  const result = await callable<CreatePayrollRunInput, { runId: string; unchanged: boolean; status: PayrollRunStatus }>('createPayrollRun')(input)
+  return result.data
+}
+
+export async function managePayrollPolicy(policyId: string, action: 'hide' | 'restore' | 'delete') {
+  const result = await callable<{ policyId: string; action: 'hide' | 'restore' | 'delete' }, { policyId: string; action: string; unchanged: boolean }>('managePayrollPolicy')({ policyId, action })
+  return result.data
+}
+
+export async function deleteDraftPayrollRun(runId: string) {
+  const result = await callable<{ runId: string }, { runId: string; unchanged: boolean }>('deleteDraftPayrollRun')({ runId })
   return result.data
 }
 
