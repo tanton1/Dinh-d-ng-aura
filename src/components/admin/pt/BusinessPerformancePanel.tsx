@@ -143,18 +143,19 @@ export default function BusinessPerformancePanel({ compact = false }: Props) {
     {error && <div className="business-performance__notice business-performance__notice--error"><CircleAlert size={19} /><span>{error}</span></div>}
 
     <div className="business-performance__grid">
-      <article className="business-performance__card business-performance__card--sources">
-        <div className="business-performance__card-heading"><div><h2>Nguồn kinh doanh</h2></div><small>{report?.sourceRows.reduce((total, row) => total + row.entryCount, 0).toLocaleString('vi-VN') ?? '0'} bút toán</small></div>
-        <div className="business-performance__table" role="table">
-          <div className="business-performance__table-head" role="row"><span>Nguồn</span><span>Thu tiền</span><span>DT thực hiện</span><span>Chi phí</span><span>Kết quả</span></div>
-          {loading && !report ? <div className="business-performance__empty">Đang tổng hợp báo cáo…</div> : report?.sourceRows.length ? report.sourceRows.map((row) => <div key={row.source} className="business-performance__table-row" role="row"><strong>{sourceLabels[row.source] || row.source}</strong><span data-label="Thu tiền">{money(row.cashNet)}</span><span data-label="Doanh thu">{money(row.recognisedRevenue)}</span><span data-label="Chi phí">{money(row.operatingExpense)}</span><b className={row.operatingResult >= 0 ? 'is-positive' : 'is-negative'} data-label="Kết quả">{money(row.operatingResult)}</b></div>) : <div className="business-performance__empty">Chưa có bút toán quản trị phù hợp với bộ lọc.</div>}
-        </div>
-      </article>
-      <article className="business-performance__card business-performance__card--trend">
+      <article className="business-performance__card business-performance__card--trend business-performance__card--wide">
         <div className="business-performance__card-heading"><div><h2>Xu hướng 14 ngày</h2></div></div>
         {days.length ? <div className="business-performance__bars">{days.map((item) => <div className="business-performance__bar-column" key={item.date}><div className="business-performance__bars-stack" title={`${item.date}: dòng tiền ${money(item.cashNet)}, kết quả ${money(item.operatingResult)}`}><i className="business-performance__bar business-performance__bar--cash" style={{ height: `${Math.max(5, Math.round(Math.abs(item.cashNet) / peak * 100))}%` }} /><i className="business-performance__bar business-performance__bar--profit" style={{ height: `${Math.max(5, Math.round(Math.abs(item.operatingResult) / peak * 100))}%` }} /></div><small>{item.date.slice(8)}</small></div>)}</div> : <div className="business-performance__empty">Khi có bút toán quản trị, xu hướng ngày sẽ hiện ở đây.</div>}
       </article>
     </div>
+
+    <details className="business-performance__source-details">
+      <summary><span>Chi tiết theo nguồn</span><small>{report?.sourceRows.reduce((total, row) => total + row.entryCount, 0).toLocaleString('vi-VN') ?? '0'} bút toán · bấm để mở</small></summary>
+      <div className="business-performance__table" role="table">
+        <div className="business-performance__table-head" role="row"><span>Nguồn</span><span>Thu tiền</span><span>DT thực hiện</span><span>Chi phí</span><span>Kết quả</span></div>
+        {loading && !report ? <div className="business-performance__empty">Đang tổng hợp báo cáo…</div> : report?.sourceRows.length ? report.sourceRows.map((row) => <div key={row.source} className="business-performance__table-row" role="row"><strong>{sourceLabels[row.source] || row.source}</strong><span data-label="Thu tiền">{money(row.cashNet)}</span><span data-label="Doanh thu">{money(row.recognisedRevenue)}</span><span data-label="Chi phí">{money(row.operatingExpense)}</span><b className={row.operatingResult >= 0 ? 'is-positive' : 'is-negative'} data-label="Kết quả">{money(row.operatingResult)}</b></div>) : <div className="business-performance__empty">Chưa có bút toán quản trị phù hợp với bộ lọc.</div>}
+      </div>
+    </details>
 
     <article className="business-performance__quality">
       <div className="business-performance__quality-heading"><h2>Đối soát dữ liệu</h2><AuraHelpPopover title="Thông tin đối soát"><p>Các mục này giúp phát hiện dữ liệu cũ hoặc nguồn chưa liên kết; chúng không tự được cộng vào kết quả kinh doanh.</p></AuraHelpPopover></div>

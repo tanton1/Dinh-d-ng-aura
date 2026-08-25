@@ -10,6 +10,8 @@ export interface PayrollRunSummary {
   policyName: string
   status: PayrollRunStatus
   attendanceCount: number
+  teachingSlotCount: number
+  attendanceEventCount: number
   trainerCount: number
   grossAmount: number
   adjustmentAmount: number
@@ -24,8 +26,35 @@ export interface PayrollPolicy {
   version: number
   effectiveFrom: string
   ratePerSession: number
+  dailySessionThreshold: number
+  rateAfterDailyThreshold: number
+  eveningStartHour: number
+  rateAfterDailyThresholdEvening: number
   status: 'active' | 'inactive'
   createdAt: string
+}
+
+export type PayrollTeachingTier = 'standard' | 'after_threshold' | 'after_threshold_evening'
+
+export interface PayrollTeachingSlot {
+  key: string
+  date: string
+  hour: number
+  branchId: string
+  dailyPosition: number
+  tier: PayrollTeachingTier
+  rate: number
+  studentCount: number
+  sessionIds: string[]
+}
+
+export interface PayrollTierSummary {
+  standardCount: number
+  standardAmount: number
+  afterThresholdCount: number
+  afterThresholdAmount: number
+  afterThresholdEveningCount: number
+  afterThresholdEveningAmount: number
 }
 
 export interface PayrollRunItem {
@@ -39,6 +68,10 @@ export interface PayrollRunItem {
     branchId?: string
   }
   sessionCount: number
+  attendanceEventCount: number
+  teachingDayCount: number
+  teachingSlots: PayrollTeachingSlot[]
+  tierSummary: PayrollTierSummary
   ratePerSession: number
   grossAmount: number
   adjustmentAmount: number
@@ -73,6 +106,7 @@ function status(value: unknown): PayrollRunStatus {
 
 function normaliseRun(value: unknown): PayrollRunSummary {
   const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const teachingSlotCount = Math.max(0, Math.trunc(amount(raw.teachingSlotCount ?? raw.attendanceCount)))
   return {
     id: typeof raw.id === 'string' ? raw.id : '',
     periodId: typeof raw.periodId === 'string' ? raw.periodId : '',
@@ -83,7 +117,9 @@ function normaliseRun(value: unknown): PayrollRunSummary {
         ? String((raw.policySnapshot as { name: string }).name)
         : '',
     status: status(raw.status),
-    attendanceCount: Math.max(0, Math.trunc(amount(raw.attendanceCount))),
+    attendanceCount: teachingSlotCount,
+    teachingSlotCount,
+    attendanceEventCount: Math.max(0, Math.trunc(amount(raw.attendanceEventCount ?? raw.attendanceCount))),
     trainerCount: Math.max(0, Math.trunc(amount(raw.trainerCount))),
     grossAmount: amount(raw.grossAmount),
     adjustmentAmount: amount(raw.adjustmentAmount),
@@ -107,6 +143,25 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
     const trainerSnapshot = raw.trainerSnapshot && typeof raw.trainerSnapshot === 'object'
       ? raw.trainerSnapshot as PayrollRunItem['trainerSnapshot']
       : undefined
+    const teachingSlots: PayrollTeachingSlot[] = Array.isArray(raw.teachingSlots) ? raw.teachingSlots.flatMap((slotValue) => {
+      if (!slotValue || typeof slotValue !== 'object') return []
+      const slot = slotValue as Record<string, unknown>
+      const tier: PayrollTeachingTier = slot.tier === 'after_threshold_evening'
+        ? 'after_threshold_evening'
+        : slot.tier === 'after_threshold' ? 'after_threshold' : 'standard'
+      return [{
+        key: typeof slot.key === 'string' ? slot.key : '',
+        date: typeof slot.date === 'string' ? slot.date : '',
+        hour: Math.max(0, Math.min(23, Math.trunc(amount(slot.hour)))),
+        branchId: typeof slot.branchId === 'string' ? slot.branchId : '',
+        dailyPosition: Math.max(1, Math.trunc(amount(slot.dailyPosition)) || 1),
+        tier,
+        rate: amount(slot.rate),
+        studentCount: Math.max(1, Math.trunc(amount(slot.studentCount)) || 1),
+        sessionIds: Array.isArray(slot.sessionIds) ? slot.sessionIds.filter((id): id is string => typeof id === 'string') : [],
+      }]
+    }) : []
+    const tier = raw.tierSummary && typeof raw.tierSummary === 'object' ? raw.tierSummary as Record<string, unknown> : {}
     return [{
       id: typeof raw.id === 'string' ? raw.id : '',
       runId: typeof raw.runId === 'string' ? raw.runId : runId,
@@ -114,6 +169,17 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
       trainerId: typeof raw.trainerId === 'string' ? raw.trainerId : '',
       trainerSnapshot,
       sessionCount: Math.max(0, Math.trunc(amount(raw.sessionCount))),
+      attendanceEventCount: Math.max(0, Math.trunc(amount(raw.attendanceEventCount ?? raw.sessionCount))),
+      teachingDayCount: Math.max(0, Math.trunc(amount(raw.teachingDayCount))),
+      teachingSlots,
+      tierSummary: {
+        standardCount: Math.max(0, Math.trunc(amount(tier.standardCount))),
+        standardAmount: amount(tier.standardAmount),
+        afterThresholdCount: Math.max(0, Math.trunc(amount(tier.afterThresholdCount))),
+        afterThresholdAmount: amount(tier.afterThresholdAmount),
+        afterThresholdEveningCount: Math.max(0, Math.trunc(amount(tier.afterThresholdEveningCount))),
+        afterThresholdEveningAmount: amount(tier.afterThresholdEveningAmount),
+      },
       ratePerSession: amount(raw.ratePerSession),
       grossAmount: amount(raw.grossAmount),
       adjustmentAmount: amount(raw.adjustmentAmount),
@@ -147,13 +213,25 @@ export async function listPayrollPolicies(): Promise<PayrollPolicy[]> {
       version: amount(raw.version) || 1,
       effectiveFrom: typeof raw.effectiveFrom === 'string' ? raw.effectiveFrom : '',
       ratePerSession: amount(raw.ratePerSession),
+      dailySessionThreshold: Math.max(1, Math.trunc(amount(raw.dailySessionThreshold)) || 8),
+      rateAfterDailyThreshold: amount(raw.rateAfterDailyThreshold ?? raw.ratePerSession),
+      eveningStartHour: Math.max(0, Math.min(23, Math.trunc(amount(raw.eveningStartHour ?? 20)))),
+      rateAfterDailyThresholdEvening: amount(raw.rateAfterDailyThresholdEvening ?? raw.rateAfterDailyThreshold ?? raw.ratePerSession),
       status: raw.status === 'inactive' ? 'inactive' : 'active',
       createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
     } satisfies PayrollPolicy]
   }) : []
 }
 
-export async function savePayrollPolicy(input: { name: string; effectiveFrom: string; ratePerSession: number }) {
+export async function savePayrollPolicy(input: {
+  name: string
+  effectiveFrom: string
+  ratePerSession: number
+  dailySessionThreshold: number
+  rateAfterDailyThreshold: number
+  eveningStartHour: number
+  rateAfterDailyThresholdEvening: number
+}) {
   const result = await callable<typeof input, { policyId: string; unchanged: boolean }>('savePayrollPolicy')(input)
   return result.data
 }

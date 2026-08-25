@@ -83,11 +83,14 @@ const LEGACY_OPERATIONS_VIEW_SOURCES = {
   'admin-training-history': ['students', 'trainers'],
   // The report dashboard uses one bounded aggregate callable. It must not also
   // subscribe to thousands of PT legacy documents in the background.
-  'admin-finance': ['branches', 'contracts', 'students', 'payments'],
+  'admin-finance': ['branches', 'contracts', 'students'],
   // Nhân sự & Chi nhánh now renders the identity workspace. It only needs
   // branch labels for scoped assignment; PT legacy history is not loaded here.
   'admin-hr': ['branches'],
-  'admin-payroll': ['trainers', 'sessions', 'students', 'branches', 'contracts', 'scheduleConfig', 'schedules'],
+  // Payroll details are immutable server snapshots. Loading every student,
+  // contract and session here both duplicated the callable and made the page
+  // unnecessarily slow on mobile.
+  'admin-payroll': ['trainers', 'branches'],
   'admin-packages': ['packages', 'branches'],
   'admin-quotes': ['students', 'contracts', 'packages', 'branches'],
   'admin-schedule-settings': ['scheduleConfig'],

@@ -52,14 +52,13 @@ function entryLabel(type: FinanceLedgerEntry['type']) {
   if (type === 'refund') return 'Hoàn tiền'
   if (type === 'reversal') return 'Đảo bút toán'
   if (type === 'adjustment') return 'Điều chỉnh'
-  if (type === 'revenue_recognition') return 'Doanh thu thực hiện'
   if (type === 'expense') return 'Chi phí vận hành'
   if (type === 'payroll') return 'Chi phí lương'
   return 'Thu tiền'
 }
 
 export default function FinanceManagement({ profile }: Props) {
-  const { branches, contracts, students, payments } = useDatabase()
+  const { branches, contracts, students } = useDatabase()
   const [selectedBranchId, setSelectedBranchId] = useState('all')
   const [dateRange, setDateRange] = useState<{ start: Date; end: Date }>(currentMonthRange)
   const [debtFilter, setDebtFilter] = useState<DebtFilter>('all')
@@ -70,7 +69,6 @@ export default function FinanceManagement({ profile }: Props) {
   const [ledgerLoading, setLedgerLoading] = useState(false)
   const [ledgerError, setLedgerError] = useState('')
   const [showHistory, setShowHistory] = useState(false)
-  const [showLegacyReconciliation, setShowLegacyReconciliation] = useState(false)
   const [selectedContract, setSelectedContract] = useState<StudentContract | null>(null)
   const [selectedInstallmentId, setSelectedInstallmentId] = useState<string | null>(null)
   const [payAmount, setPayAmount] = useState('')
@@ -103,6 +101,9 @@ export default function FinanceManagement({ profile }: Props) {
         pageSize: 50,
         cursor: append ? ledgerCursor : null,
         branchId: effectiveBranchId,
+        // Thu chi is a cash workspace. Revenue recognition remains available
+        // in the management report and must not be mixed into this screen.
+        types: ['payment', 'refund', 'adjustment', 'reversal', 'expense', 'payroll'],
         startAt: dateRange.start.getTime() > 0 ? dateRange.start.toISOString() : undefined,
         endAt: dateRange.end.getFullYear() <= 9999 ? dateRange.end.toISOString() : undefined,
       })
@@ -216,20 +217,10 @@ export default function FinanceManagement({ profile }: Props) {
 
   useEffect(() => setVisibleDebtCount(20), [debtFilter, debtSearch, effectiveBranchId])
 
-  const legacyReconciliation = useMemo(() => {
-    const rows = contracts.map((contract) => {
-      const legacyTotal = payments
-        .filter((payment) => payment.contractId === contract.id)
-        .reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
-      const projection = Number(contract.paidAmount || 0)
-      return { contractId: contract.id, legacyTotal, projection, difference: projection - legacyTotal }
-    }).filter((row) => Math.abs(row.difference) > 1000)
-    return {
-      rows,
-      legacyPaymentCount: payments.length,
-      legacyTotal: payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
-    }
-  }, [contracts, payments])
+  const cashEntries = useMemo(() => ledgerEntries.filter((entry) => {
+    if (entry.cashImpact !== null && Number.isFinite(entry.cashImpact)) return entry.cashImpact !== 0
+    return ['payment', 'refund', 'adjustment', 'reversal'].includes(entry.type)
+  }), [ledgerEntries])
 
   const studentName = (studentId: string) => studentById.get(studentId)?.name || 'Học viên đã xóa'
 
@@ -301,43 +292,33 @@ export default function FinanceManagement({ profile }: Props) {
 
   const financeSlides: AuraMetricSlide[] = [
     {
-      id: 'net-cash',
-      eyebrow: 'Dòng tiền ròng',
-      value: money(ledgerSummary.cashNet),
-      detail: `${money(ledgerSummary.cashIn)} vào · ${money(ledgerSummary.cashOut)} ra`,
-      icon: <TrendingUp size={20} />,
+      id: 'cash-in',
+      eyebrow: 'Dòng tiền thu',
+      value: money(ledgerSummary.cashIn),
+      detail: 'Tổng tiền thực tế đi vào quỹ trong kỳ',
+      icon: <WalletCards size={20} />,
       tone: 'pink',
       actionLabel: 'Xem lịch sử',
       onSelect: () => setShowHistory(true),
     },
     {
-      id: 'collected',
-      eyebrow: 'Tiền đã thu',
-      value: money(ledgerSummary.collectedAmount),
-      detail: 'Khoản thu đã ghi nhận theo ngày hiệu lực',
-      icon: <WalletCards size={20} />,
-      tone: 'orange',
-      actionLabel: 'Mở bút toán',
-      onSelect: () => setShowHistory(true),
-    },
-    {
-      id: 'recognised-revenue',
-      eyebrow: 'Doanh thu thực hiện',
-      value: money(ledgerSummary.recognisedRevenue),
-      detail: 'Giá trị dịch vụ đã cung cấp, không cộng vào tiền mặt',
-      icon: <CheckCircle size={20} />,
-      tone: 'sunset',
-      actionLabel: 'Xem bút toán',
-      onSelect: () => setShowHistory(true),
-    },
-    {
-      id: 'refunds',
-      eyebrow: 'Hoàn tiền & đảo',
-      value: money(ledgerSummary.refundedAmount + ledgerSummary.reversedAmount),
-      detail: 'Giữ nguyên chứng từ gốc để truy vết',
+      id: 'cash-out',
+      eyebrow: 'Dòng tiền chi',
+      value: money(ledgerSummary.cashOut),
+      detail: 'Hoàn tiền, chi phí và chi lương đã xuất quỹ',
       icon: <Undo2 size={20} />,
+      tone: 'orange',
+      actionLabel: 'Xem khoản chi',
+      onSelect: () => setShowHistory(true),
+    },
+    {
+      id: 'net-cash',
+      eyebrow: 'Dòng tiền ròng',
+      value: money(ledgerSummary.cashNet),
+      detail: `${money(ledgerSummary.cashIn)} thu · ${money(ledgerSummary.cashOut)} chi`,
+      icon: <TrendingUp size={20} />,
       tone: 'sunset',
-      actionLabel: 'Kiểm tra lịch sử',
+      actionLabel: 'Đối chiếu dòng tiền',
       onSelect: () => setShowHistory(true),
     },
     {
@@ -379,7 +360,6 @@ export default function FinanceManagement({ profile }: Props) {
           </select>
         )}
         <button type="button" onClick={() => void loadLedger(false)} disabled={ledgerLoading} className="finance-management__tool-button" aria-label="Làm mới thu chi" title="Làm mới"><RefreshCw size={17} className={ledgerLoading ? 'animate-spin' : ''} /></button>
-        <button type="button" onClick={() => setShowLegacyReconciliation(true)} className="finance-management__tool-button" aria-label={`Đối soát ${legacyReconciliation.rows.length} dữ liệu cũ`} title="Đối soát dữ liệu cũ"><AlertCircle size={17} />{legacyReconciliation.rows.length > 0 && <b>{legacyReconciliation.rows.length}</b>}</button>
         <AuraHelpPopover title="Thu chi & công nợ"><p>Mọi khoản thu, hoàn tiền và đảo bút toán đều được ghi an toàn qua backend. Dữ liệu cũ chỉ dùng để đối soát.</p></AuraHelpPopover>
       </div>
 
@@ -414,18 +394,10 @@ export default function FinanceManagement({ profile }: Props) {
 
       <AnimatePresence>
         {showHistory && <Modal onClose={() => setShowHistory(false)} title="Sổ giao dịch">
-          <p className="mb-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-200">{ledgerSummary.transactionCount.toLocaleString('vi-VN')} bút toán trong bộ lọc. Payment legacy không xuất hiện ở đây.</p>
-          <div className="space-y-2">{ledgerEntries.map((entry) => <div key={entry.id} className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-white">{studentName(entry.studentId)}</p><p className="mt-1 text-xs text-zinc-500">{entry.referenceCode} · {entryLabel(entry.type)}</p><p className="mt-1 text-xs text-zinc-600">{new Date(entry.effectiveAt).toLocaleString('vi-VN')}</p></div><div className="text-right"><b className={entry.amount >= 0 ? 'text-emerald-400' : 'text-amber-400'}>{money(entry.amount)}</b>{entry.type === 'payment' && entry.status === 'posted' && <button onClick={() => setEntryToReverse(entry)} className="mt-2 flex items-center gap-1 text-xs font-semibold text-amber-400"><Undo2 className="h-3.5 w-3.5" /> Tạo bút toán đảo</button>}</div></div></div>)}</div>
+          <p className="mb-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-200">{cashEntries.length.toLocaleString('vi-VN')} giao dịch tiền đã tải. Bút toán doanh thu thực hiện không hiển thị ở trang Thu chi.</p>
+          <div className="space-y-2">{cashEntries.map((entry) => <div key={entry.id} className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-white">{studentName(entry.studentId)}</p><p className="mt-1 text-xs text-zinc-500">{entry.referenceCode} · {entryLabel(entry.type)}</p><p className="mt-1 text-xs text-zinc-600">{new Date(entry.effectiveAt).toLocaleString('vi-VN')}</p></div><div className="text-right"><b className={(entry.cashImpact ?? entry.amount) >= 0 ? 'text-emerald-400' : 'text-amber-400'}>{money(entry.cashImpact ?? entry.amount)}</b>{entry.type === 'payment' && entry.status === 'posted' && <button onClick={() => setEntryToReverse(entry)} className="mt-2 flex items-center gap-1 text-xs font-semibold text-amber-400"><Undo2 className="h-3.5 w-3.5" /> Tạo bút toán đảo</button>}</div></div></div>)}</div>
           {ledgerHasMore && <button onClick={() => void loadLedger(true)} disabled={ledgerLoading} className="mt-4 min-h-11 w-full rounded-xl border border-zinc-700 bg-zinc-800 text-sm font-bold text-white disabled:opacity-50">{ledgerLoading ? 'Đang tải…' : 'Tải thêm giao dịch'}</button>}
-          {!ledgerLoading && ledgerEntries.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">Chưa có bút toán canonical.</p>}
-        </Modal>}
-
-        {showLegacyReconciliation && <Modal onClose={() => setShowLegacyReconciliation(false)} title="Đối soát cũ">
-          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-100">Aura không tự xóa, tạo phiếu tổng hợp hoặc cộng payment legacy vào doanh thu canonical.</div>
-          <div className="mt-4 grid grid-cols-2 gap-2"><MetricCard label="Phiếu legacy" value={legacyReconciliation.legacyPaymentCount.toLocaleString('vi-VN')} color="text-white" /><MetricCard label="Tổng legacy" value={money(legacyReconciliation.legacyTotal)} color="text-amber-400" /></div>
-          <h3 className="mt-5 text-sm font-bold text-white">{legacyReconciliation.rows.length} hợp đồng lệch projection</h3>
-          <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">{legacyReconciliation.rows.slice(0, 50).map((row) => <div key={row.contractId} className="rounded-xl border border-zinc-800 bg-zinc-950 p-3 text-xs"><p className="font-mono text-zinc-300">{row.contractId}</p><div className="mt-2 flex justify-between gap-3 text-zinc-500"><span>Legacy {money(row.legacyTotal)}</span><span>Projection {money(row.projection)}</span><b className="text-amber-400">Lệch {money(row.difference)}</b></div></div>)}</div>
-          {legacyReconciliation.rows.length > 50 && <p className="mt-3 text-center text-xs text-zinc-500">Chỉ hiển thị 50 bản ghi đầu. Không có thao tác sửa dữ liệu tại đây.</p>}
+          {!ledgerLoading && cashEntries.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">Chưa có dòng tiền trong bộ lọc.</p>}
         </Modal>}
 
         {selectedContract && <Modal onClose={() => { setSelectedContract(null); setSelectedInstallmentId(null) }} title="Thu công nợ">
@@ -449,10 +421,6 @@ export default function FinanceManagement({ profile }: Props) {
       </AnimatePresence>
     </div>
   )
-}
-
-function MetricCard({ label, value, color }: { label: string; value: string; color: string }) {
-  return <div className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-950 p-4"><p className="truncate text-[11px] font-bold uppercase tracking-wider text-zinc-500">{label}</p><p className={`mt-3 truncate text-lg font-bold sm:text-xl ${color}`}>{value}</p></div>
 }
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {

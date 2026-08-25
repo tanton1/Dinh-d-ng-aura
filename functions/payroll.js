@@ -77,6 +77,134 @@ function policyName(value) {
   return result
 }
 
+function boundedInteger(value, label, minimum, maximum, fallback) {
+  const parsed = value === undefined || value === null || value === '' ? fallback : Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new HttpsError('invalid-argument', `${label} phải từ ${minimum} đến ${maximum}.`)
+  }
+  return parsed
+}
+
+function payrollPolicyConfiguration(value = {}) {
+  const ratePerSession = policyRate(value.ratePerSession)
+  const dailySessionThreshold = boundedInteger(value.dailySessionThreshold, 'Số ca tiêu chuẩn mỗi ngày', 1, 24, 8)
+  const rateAfterDailyThreshold = policyRate(value.rateAfterDailyThreshold ?? ratePerSession)
+  const eveningStartHour = boundedInteger(value.eveningStartHour, 'Giờ bắt đầu ca tối', 0, 23, 20)
+  const rateAfterDailyThresholdEvening = policyRate(value.rateAfterDailyThresholdEvening ?? rateAfterDailyThreshold)
+  return {
+    ratePerSession,
+    dailySessionThreshold,
+    rateAfterDailyThreshold,
+    eveningStartHour,
+    rateAfterDailyThresholdEvening,
+  }
+}
+
+function vietnamDateKey(value) {
+  if (typeof value === 'string') {
+    const candidate = value.trim().slice(0, 10)
+    if (/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(candidate)) return candidate
+  }
+  const date = value?.toDate?.() || (value instanceof Date ? value : null)
+  if (date instanceof Date && !Number.isNaN(date.getTime())) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date)
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+    return `${values.year}-${values.month}-${values.day}`
+  }
+  throw new HttpsError('failed-precondition', 'Buổi dạy thiếu ngày hợp lệ để tính lương.')
+}
+
+function teachingHour(value, sessionId) {
+  const direct = Number(value)
+  if (Number.isInteger(direct) && direct >= 0 && direct <= 23) return direct
+  const legacy = Number(String(sessionId || '').split('-')[1])
+  if (Number.isInteger(legacy) && legacy >= 0 && legacy <= 23) return legacy
+  throw new HttpsError('failed-precondition', 'Buổi dạy thiếu giờ hợp lệ để tính lương.')
+}
+
+function teachingSlotsFromAttendance(attendanceDocuments, sessionsById, policyValue) {
+  const policy = payrollPolicyConfiguration(policyValue)
+  const slotMap = new Map()
+  let attendanceEventCount = 0
+
+  for (const item of attendanceDocuments) {
+    const attendance = typeof item?.data === 'function' ? item.data() : item || {}
+    // A charged cancellation consumes the learner contract but is not a class
+    // taught by the trainer, therefore it never creates payroll.
+    if (attendance.type && attendance.type !== 'attended') continue
+    const sessionId = typeof attendance.sessionId === 'string' && attendance.sessionId.trim()
+      ? attendance.sessionId.trim()
+      : typeof item?.id === 'string' ? item.id : ''
+    const session = sessionsById.get(sessionId)
+    if (!sessionId || !session) {
+      throw new HttpsError('failed-precondition', 'Có điểm danh không liên kết được với ca dạy. Hãy đối soát trước khi lập lương.')
+    }
+    const trainerId = typeof session.trainerId === 'string' && session.trainerId.trim()
+      ? session.trainerId.trim()
+      : typeof attendance.trainerId === 'string' ? attendance.trainerId.trim() : ''
+    if (!trainerId) throw new HttpsError('failed-precondition', 'Ca dạy chưa có HLV phụ trách.')
+    const date = vietnamDateKey(session.date || attendance.scheduledFor || attendance.occurredAt)
+    const hour = teachingHour(session.hour, sessionId)
+    const key = `${trainerId}|${date}|${hour}`
+    let slot = slotMap.get(key)
+    if (!slot) {
+      slot = {
+        key,
+        trainerId,
+        date,
+        hour,
+        branchId: session.branchId || '',
+        sessionIds: new Set(),
+        studentIds: new Set(),
+        attendanceEventIds: new Set(),
+      }
+      slotMap.set(key, slot)
+    }
+    slot.sessionIds.add(sessionId)
+    slot.studentIds.add(attendance.studentId || session.studentId || `unknown_${item?.id || sessionId}`)
+    slot.attendanceEventIds.add(item?.id || sessionId)
+    attendanceEventCount += 1
+  }
+
+  const trainers = new Map()
+  for (const slot of slotMap.values()) {
+    const current = trainers.get(slot.trainerId) || []
+    current.push(slot)
+    trainers.set(slot.trainerId, current)
+  }
+  for (const [trainerId, slots] of trainers) {
+    const dailyPosition = new Map()
+    slots.sort((left, right) => left.date.localeCompare(right.date) || left.hour - right.hour || left.key.localeCompare(right.key))
+    trainers.set(trainerId, slots.map((slot) => {
+      const position = Number(dailyPosition.get(slot.date) || 0) + 1
+      dailyPosition.set(slot.date, position)
+      const afterThreshold = position > policy.dailySessionThreshold
+      const evening = afterThreshold && slot.hour >= policy.eveningStartHour
+      const rate = evening
+        ? policy.rateAfterDailyThresholdEvening
+        : afterThreshold ? policy.rateAfterDailyThreshold : policy.ratePerSession
+      return {
+        key: slot.key,
+        date: slot.date,
+        hour: slot.hour,
+        branchId: slot.branchId,
+        dailyPosition: position,
+        tier: evening ? 'after_threshold_evening' : afterThreshold ? 'after_threshold' : 'standard',
+        rate,
+        studentCount: slot.studentIds.size,
+        sessionIds: [...slot.sessionIds],
+        attendanceEventIds: [...slot.attendanceEventIds],
+      }
+    }))
+  }
+  return { trainers, attendanceEventCount, teachingSlotCount: slotMap.size, policy }
+}
+
 function createPayrollFunctions({ db, onCall }) {
   const listPayrollPolicies = onCall(async (request) => {
     await payrollActor(request, db)
@@ -90,6 +218,10 @@ function createPayrollFunctions({ db, onCall }) {
           version: Number(data.version || 1),
           effectiveFrom: iso(data.effectiveFrom),
           ratePerSession: Number(data.ratePerSession || 0),
+          dailySessionThreshold: Number(data.dailySessionThreshold || 8),
+          rateAfterDailyThreshold: Number(data.rateAfterDailyThreshold || data.ratePerSession || 0),
+          eveningStartHour: Number(data.eveningStartHour ?? 20),
+          rateAfterDailyThresholdEvening: Number(data.rateAfterDailyThresholdEvening || data.rateAfterDailyThreshold || data.ratePerSession || 0),
           status: data.status === 'inactive' ? 'inactive' : 'active',
           createdAt: iso(data.createdAt),
         }
@@ -100,7 +232,7 @@ function createPayrollFunctions({ db, onCall }) {
   const savePayrollPolicy = onCall(async (request) => {
     const actor = await payrollActor(request, db)
     const effective = policyEffectiveDate(request.data?.effectiveFrom)
-    const ratePerSession = policyRate(request.data?.ratePerSession)
+    const rates = payrollPolicyConfiguration(request.data || {})
     const name = policyName(request.data?.name)
     const policyId = `global_${effective.value.replaceAll('-', '')}`
     const reference = db.doc(`payrollPolicies/${policyId}`)
@@ -108,30 +240,36 @@ function createPayrollFunctions({ db, onCall }) {
       const existing = await transaction.get(reference)
       if (existing.exists) {
         const data = existing.data()
-        if (data.name === name && Number(data.ratePerSession || 0) === ratePerSession && data.status !== 'inactive') {
+        if (data.name === name
+          && Number(data.ratePerSession || 0) === rates.ratePerSession
+          && Number(data.dailySessionThreshold || 8) === rates.dailySessionThreshold
+          && Number(data.rateAfterDailyThreshold || data.ratePerSession || 0) === rates.rateAfterDailyThreshold
+          && Number(data.eveningStartHour ?? 20) === rates.eveningStartHour
+          && Number(data.rateAfterDailyThresholdEvening || data.rateAfterDailyThreshold || data.ratePerSession || 0) === rates.rateAfterDailyThresholdEvening
+          && data.status !== 'inactive') {
           return { policyId, unchanged: true }
         }
         throw new HttpsError('already-exists', 'Ngày hiệu lực này đã có chính sách. Hãy chọn ngày mới để giữ lịch sử phiên bản.')
       }
       const version = Number(effective.value.replaceAll('-', ''))
       transaction.create(reference, {
-        schemaVersion: 2,
+        schemaVersion: 3,
         scope: 'global',
         name,
         version,
         effectiveFrom: effective.timestamp,
-        ratePerSession,
+        ...rates,
         status: 'active',
         createdAt: FieldValue.serverTimestamp(),
         createdBy: actor.uid,
         updatedAt: FieldValue.serverTimestamp(),
       })
       transaction.create(db.collection('payrollAuditLogs').doc(), {
-        schemaVersion: 2,
+        schemaVersion: 3,
         policyId,
         action: 'payroll.policy.created',
         actorUid: actor.uid,
-        snapshot: { name, version, effectiveFrom: effective.value, ratePerSession },
+        snapshot: { name, version, effectiveFrom: effective.value, ...rates },
         createdAt: FieldValue.serverTimestamp(),
       })
       return { policyId, unchanged: false }
@@ -151,7 +289,9 @@ function createPayrollFunctions({ db, onCall }) {
           policyVersion: Number(data.policyVersion || 1),
           policyName: data.policySnapshot?.name || '',
           status: data.status || 'draft',
-          attendanceCount: Number(data.attendanceCount || 0),
+          attendanceCount: Number(data.teachingSlotCount ?? data.attendanceCount ?? 0),
+          teachingSlotCount: Number(data.teachingSlotCount ?? data.attendanceCount ?? 0),
+          attendanceEventCount: Number(data.attendanceEventCount ?? data.attendanceCount ?? 0),
           trainerCount: Number(data.trainerCount || 0),
           grossAmount: Number(data.grossAmount || 0),
           adjustmentAmount: Number(data.adjustmentAmount || 0),
@@ -180,6 +320,9 @@ function createPayrollFunctions({ db, onCall }) {
           id: item.id,
           ...data,
           sessionCount: Number(data.sessionCount || 0),
+          attendanceEventCount: Number(data.attendanceEventCount || data.sessionCount || 0),
+          teachingSlots: Array.isArray(data.teachingSlots) ? data.teachingSlots : [],
+          tierSummary: data.tierSummary && typeof data.tierSummary === 'object' ? data.tierSummary : {},
           ratePerSession: Number(data.ratePerSession || 0),
           grossAmount: Number(data.grossAmount || 0),
           adjustmentAmount: Number(data.adjustmentAmount || 0),
@@ -208,25 +351,80 @@ function createPayrollFunctions({ db, onCall }) {
       const policySnapshot = policies.docs[0]
       if (!policySnapshot) throw new HttpsError('failed-precondition', 'Chưa có chính sách lương hiệu lực cho kỳ này.')
       const policy = policySnapshot.data()
-      const ratePerSession = Number(policy.ratePerSession || 0)
-      if (!Number.isSafeInteger(ratePerSession) || ratePerSession <= 0) {
-        throw new HttpsError('failed-precondition', 'Đơn giá buổi tập trong chính sách lương không hợp lệ.')
-      }
-      const counts = new Map()
-      attendance.docs.forEach((item) => {
-        const trainerId = item.data().trainerId
-        if (trainerId) counts.set(trainerId, Number(counts.get(trainerId) || 0) + 1)
+      const policyConfiguration = payrollPolicyConfiguration(policy)
+      const eligibleAttendance = attendance.docs.filter((item) => !item.data().type || item.data().type === 'attended')
+      const sessionIds = [...new Set(eligibleAttendance.map((item) => item.data().sessionId || item.id).filter(Boolean))]
+      if (sessionIds.length > 3000) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều ca dạy. Hãy liên hệ quản trị để chia kỳ đối soát.')
+      const sessionSnapshots = await Promise.all(sessionIds.map((sessionId) => transaction.get(db.doc(`sessions/${sessionId}`))))
+      const sessionById = new Map(sessionSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, snapshot.data()]))
+      const teaching = teachingSlotsFromAttendance(eligibleAttendance, sessionById, policyConfiguration)
+      if (teaching.trainers.size > 450) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều nhân sự để khóa trong một giao dịch.')
+      const trainerIds = [...teaching.trainers.keys()]
+      const identitySnapshots = await Promise.all(trainerIds.flatMap((trainerId) => [
+        transaction.get(db.doc(`trainers/${trainerId}`)),
+        transaction.get(db.doc(`staff/${trainerId}`)),
+        transaction.get(db.doc(`users/${trainerId}`)),
+      ]))
+      const trainerById = new Map()
+      trainerIds.forEach((trainerId, index) => {
+        const trainer = identitySnapshots[index * 3]?.exists ? identitySnapshots[index * 3].data() : {}
+        const staff = identitySnapshots[index * 3 + 1]?.exists ? identitySnapshots[index * 3 + 1].data() : {}
+        const user = identitySnapshots[index * 3 + 2]?.exists ? identitySnapshots[index * 3 + 2].data() : {}
+        trainerById.set(trainerId, {
+          name: trainer.name || trainer.fullName || trainer.displayName || staff.name || staff.fullName || user.name || user.fullName || user.displayName || '',
+          branchId: trainer.branchId || staff.branchId || user.branchId || '',
+        })
       })
-      if (counts.size > 450) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều nhân sự để khóa trong một giao dịch.')
-      const trainerIds = [...counts.keys()]
-      const trainerSnapshots = await Promise.all(trainerIds.map((trainerId) => transaction.get(db.doc(`trainers/${trainerId}`))))
-      const trainerById = new Map(trainerSnapshots.map((snapshot) => [snapshot.id, snapshot.exists ? snapshot.data() : {}]))
-      const grossAmount = [...counts.values()].reduce((total, sessionCount) => total + Number(sessionCount) * ratePerSession, 0)
-      transaction.create(runReference, { schemaVersion: 2, revision: 1, periodId, policyId: policySnapshot.id, policyVersion: Number(policy.version || 1), policySnapshot: { name: policy.name || 'Chính sách lương PT', ratePerSession }, status: 'draft', attendanceCount: attendance.size, trainerCount: counts.size, grossAmount, adjustmentAmount: 0, finalAmount: grossAmount, timeZone: 'Asia/Ho_Chi_Minh', createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, updatedAt: FieldValue.serverTimestamp() })
-      for (const [trainerId, sessionCount] of counts) {
+      const grossAmount = [...teaching.trainers.values()].flat().reduce((total, slot) => total + slot.rate, 0)
+      transaction.create(runReference, {
+        schemaVersion: 3,
+        revision: 1,
+        periodId,
+        policyId: policySnapshot.id,
+        policyVersion: Number(policy.version || 1),
+        policySnapshot: { name: policy.name || 'Chính sách lương PT', ...policyConfiguration },
+        status: 'draft',
+        attendanceCount: teaching.teachingSlotCount,
+        teachingSlotCount: teaching.teachingSlotCount,
+        attendanceEventCount: teaching.attendanceEventCount,
+        trainerCount: teaching.trainers.size,
+        grossAmount,
+        adjustmentAmount: 0,
+        finalAmount: grossAmount,
+        timeZone: 'Asia/Ho_Chi_Minh',
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: actor.uid,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      for (const [trainerId, teachingSlots] of teaching.trainers) {
         const itemReference = db.doc(`payrollRunItems/${periodId}_${trainerId}`)
         const trainer = trainerById.get(trainerId) || {}
-        transaction.create(itemReference, { schemaVersion: 2, runId: runReference.id, periodId, trainerId, trainerSnapshot: { name: trainer.name || trainer.fullName || trainer.displayName || '', employeeCode: trainer.employeeCode || '', branchId: trainer.branchId || '' }, sessionCount, ratePerSession, grossAmount: sessionCount * ratePerSession, adjustmentAmount: 0, finalAmount: sessionCount * ratePerSession, status: 'draft', evidenceSource: 'attendanceEvents', createdAt: FieldValue.serverTimestamp() })
+        const itemGrossAmount = teachingSlots.reduce((total, slot) => total + slot.rate, 0)
+        const tierSummary = teachingSlots.reduce((result, slot) => {
+          if (slot.tier === 'standard') { result.standardCount += 1; result.standardAmount += slot.rate }
+          else if (slot.tier === 'after_threshold') { result.afterThresholdCount += 1; result.afterThresholdAmount += slot.rate }
+          else { result.afterThresholdEveningCount += 1; result.afterThresholdEveningAmount += slot.rate }
+          return result
+        }, { standardCount: 0, standardAmount: 0, afterThresholdCount: 0, afterThresholdAmount: 0, afterThresholdEveningCount: 0, afterThresholdEveningAmount: 0 })
+        transaction.create(itemReference, {
+          schemaVersion: 3,
+          runId: runReference.id,
+          periodId,
+          trainerId,
+          trainerSnapshot: { name: trainer.name || 'Chưa cập nhật tên HLV', branchId: trainer.branchId || '' },
+          sessionCount: teachingSlots.length,
+          attendanceEventCount: teachingSlots.reduce((total, slot) => total + slot.attendanceEventIds.length, 0),
+          teachingDayCount: new Set(teachingSlots.map((slot) => slot.date)).size,
+          teachingSlots,
+          tierSummary,
+          ratePerSession: policyConfiguration.ratePerSession,
+          grossAmount: itemGrossAmount,
+          adjustmentAmount: 0,
+          finalAmount: itemGrossAmount,
+          status: 'draft',
+          evidenceSource: 'attendanceEvents+sessions',
+          createdAt: FieldValue.serverTimestamp(),
+        })
       }
       transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 1, runId: runReference.id, action: 'payroll.created', actorUid: actor.uid, toStatus: 'draft', createdAt: FieldValue.serverTimestamp() })
       return { runId: runReference.id, unchanged: false, status: 'draft' }
@@ -399,4 +597,11 @@ function createPayrollFunctions({ db, onCall }) {
   return { listPayrollPolicies, savePayrollPolicy, listPayrollRuns, getPayrollRun, createPayrollRun, reviewPayrollRun, lockPayrollRun, markPayrollRunPaid }
 }
 
-module.exports = { createPayrollFunctions, periodBounds, policyEffectiveDate, policyRate }
+module.exports = {
+  createPayrollFunctions,
+  periodBounds,
+  policyEffectiveDate,
+  policyRate,
+  payrollPolicyConfiguration,
+  teachingSlotsFromAttendance,
+}

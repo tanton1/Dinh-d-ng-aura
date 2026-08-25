@@ -104,9 +104,12 @@ test('admin reporting cannot fabricate or destructively synchronize legacy payme
   assert.doesNotMatch(reportSource, /addPayment|deletePayment|Đồng bộ Sổ quỹ/)
   assert.doesNotMatch(reportSource, /console\.(?:log|error|warn)/)
   assert.doesNotMatch(financeSource, /\[\.\.\.payments,\s*\.\.\.canonical\]/)
-  assert.match(financeSource, /Không có thao tác sửa dữ liệu tại đây/)
+  assert.doesNotMatch(financeSource, /legacyReconciliation|showLegacyReconciliation/)
+  assert.match(financeSource, /ledgerSummary\.cashIn/)
+  assert.match(financeSource, /ledgerSummary\.cashOut/)
   assert.match(financeSource, /ledgerSummary\.cashNet/)
-  assert.match(financeSource, /ledgerSummary\.recognisedRevenue/)
+  assert.doesNotMatch(financeSource, /ledgerSummary\.recognisedRevenue/)
+  assert.match(financeSource, /Công nợ phải thu/)
 })
 
 test('finance mutations guard locked periods and keep installment state in the ledger transaction', () => {

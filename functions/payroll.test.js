@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 
-const { periodBounds } = require('./payroll')
+const { periodBounds, payrollPolicyConfiguration, teachingSlotsFromAttendance } = require('./payroll')
 
 test('payroll period uses Asia/Ho_Chi_Minh calendar boundaries', () => {
   const bounds = periodBounds('2026-08')
@@ -26,6 +26,53 @@ test('payroll policy rejects impossible dates and unsafe rates', () => {
   assert.throws(() => policyRate(999), /Đơn giá/)
   assert.equal(policyEffectiveDate('2026-08-01').timestamp.toDate().toISOString(), '2026-07-31T17:00:00.000Z')
   assert.equal(policyRate(20_000), 20_000)
+  assert.deepEqual(payrollPolicyConfiguration({
+    ratePerSession: 20_000,
+    dailySessionThreshold: 8,
+    rateAfterDailyThreshold: 70_000,
+    eveningStartHour: 20,
+    rateAfterDailyThresholdEvening: 80_000,
+  }), {
+    ratePerSession: 20_000,
+    dailySessionThreshold: 8,
+    rateAfterDailyThreshold: 70_000,
+    eveningStartHour: 20,
+    rateAfterDailyThresholdEvening: 80_000,
+  })
+})
+
+test('two learners in the same trainer slot count as one paid class and daily tiers start after class eight', () => {
+  const sessions = new Map()
+  const attendance = []
+  const hours = [6, 7, 8, 9, 10, 11, 12, 13, 14, 20]
+  hours.forEach((hour, index) => {
+    const sessionId = `session-${hour}-student-${index}`
+    sessions.set(sessionId, { trainerId: 'trainer-a', studentId: `student-${index}`, date: '2026-08-25', hour })
+    attendance.push({ id: `attendance-${index}`, type: 'attended', sessionId, studentId: `student-${index}`, trainerId: 'trainer-a' })
+  })
+  sessions.set('session-6-student-b', { trainerId: 'trainer-a', studentId: 'student-b', date: '2026-08-25', hour: 6 })
+  attendance.push({ id: 'attendance-b', type: 'attended', sessionId: 'session-6-student-b', studentId: 'student-b', trainerId: 'trainer-a' })
+  attendance.push({ id: 'policy-charge', type: 'charged_cancellation', sessionId: 'missing-policy-session', trainerId: 'trainer-a' })
+
+  const result = teachingSlotsFromAttendance(attendance, sessions, {
+    ratePerSession: 20_000,
+    dailySessionThreshold: 8,
+    rateAfterDailyThreshold: 70_000,
+    eveningStartHour: 20,
+    rateAfterDailyThresholdEvening: 80_000,
+  })
+  const slots = result.trainers.get('trainer-a')
+
+  assert.equal(result.attendanceEventCount, 11)
+  assert.equal(result.teachingSlotCount, 10)
+  assert.equal(slots.length, 10)
+  assert.equal(slots[0].studentCount, 2)
+  assert.equal(slots[0].rate, 20_000)
+  assert.equal(slots[8].dailyPosition, 9)
+  assert.equal(slots[8].rate, 70_000)
+  assert.equal(slots[9].dailyPosition, 10)
+  assert.equal(slots[9].rate, 80_000)
+  assert.equal(slots.reduce((sum, slot) => sum + slot.rate, 0), 310_000)
 })
 
 test('payroll creation is one deterministic transaction per period', () => {
@@ -87,8 +134,10 @@ test('payroll items snapshot trainer identity and attendance evidence source', (
   const createBlock = source.match(/const createPayrollRun[\s\S]*?\n  async function transition/)?.[0] || ''
 
   assert.match(createBlock, /trainerSnapshot:/)
-  assert.match(createBlock, /evidenceSource: 'attendanceEvents'/)
+  assert.match(createBlock, /evidenceSource: 'attendanceEvents\+sessions'/)
   assert.match(createBlock, /policySnapshot: \{ name:/)
+  assert.match(createBlock, /teachingSlots/)
+  assert.match(createBlock, /teachingSlotCount/)
 })
 
 test('payroll UI uses canonical runs and cannot edit teaching sessions', () => {
@@ -96,7 +145,9 @@ test('payroll UI uses canonical runs and cannot edit teaching sessions', () => {
 
   assert.match(source, /getPayrollRun/)
   assert.match(source, /listPayrollPolicies/)
-  assert.match(source, /Nguồn: attendanceEvents/)
+  assert.match(source, /Nguồn: ca dạy đã điểm danh/)
+  assert.match(source, /Đơn giá ca 1–8/)
+  assert.match(source, /Từ ca thứ 9/)
   assert.doesNotMatch(source, /commissionPerSession\s*\|\|\s*20000/)
   assert.doesNotMatch(source, /confirmSessionAttendance|cancelSession|rescheduleSession|swapSessions/)
   assert.doesNotMatch(source, /Ước tính đối soát PT/)

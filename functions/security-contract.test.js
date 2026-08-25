@@ -328,7 +328,8 @@ test('legacy operations listeners are route scoped and never load the admin dash
 
   assert.doesNotMatch(viewScope, /['"]admin-dashboard['"]/, 'the dashboard must use aggregate APIs, not legacy listeners')
   assert.doesNotMatch(viewScope, /['"]admin-report['"]/, 'the report must use aggregate APIs, not legacy listeners')
-  assert.match(viewScope, /'admin-finance': \['branches', 'contracts', 'students', 'payments'\]/)
+  assert.match(viewScope, /'admin-finance': \['branches', 'contracts', 'students'\]/)
+  assert.match(viewScope, /'admin-payroll': \['trainers', 'branches'\]/)
   assert.match(viewScope, /'admin-schedule-settings': \['scheduleConfig'\]/)
   assert.match(databaseContextSource, /const activeSources = new Set<LegacyOperationSource>\(LEGACY_OPERATIONS_VIEW_SOURCES\[operationsView\]\)/)
   assert.match(databaseContextSource, /const expectedInitialSnapshots = new Set<LegacyOperationSource>\(activeSources\)/)
