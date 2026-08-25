@@ -310,7 +310,9 @@ test('staff keeps learner navigation while every work capability has a separate 
   assert.doesNotMatch(appShellSource, /<HelpCircle|<Settings/)
   assert.match(ptOperationsClientSource, /attempt < 3/)
   assert.match(ptOperationsClientSource, /functions\/deadline-exceeded/)
-  assert.match(ptOperationsClientSource, /Dịch vụ làm việc Staff đang bận/)
+  assert.match(ptOperationsClientSource, /reportClientIssue\('firestore'/)
+  assert.match(ptOperationsClientSource, /Không gian Staff đang có nhiều lượt truy cập/)
+  assert.match(ptOperationsClientSource, /Kết nối tới dịch vụ Staff tạm gián đoạn/)
 })
 
 test('access context retries transient infrastructure failures without retrying authorization failures', () => {

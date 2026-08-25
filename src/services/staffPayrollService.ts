@@ -14,6 +14,7 @@ export type StaffAttendanceStatus =
   | 'pending'
 
 export type WorkdayDisplayStatus = StaffAttendanceStatus
+  | 'auto_present_teaching'
   | 'weekly_rest'
   | 'paid_holiday'
   | 'outside_employment'
@@ -44,6 +45,8 @@ export interface StaffWorkday {
   holidayName: string
   note: string
   revision: number
+  teachingSlotCount: number
+  source: 'admin_override' | 'teaching_slots' | 'calendar'
 }
 
 export interface StaffWorkdaySummary {
@@ -58,7 +61,10 @@ export interface StaffWorkdaySummary {
   baseSalary: number
   baseSalaryEarned: number
   fixedBonus: number
+  employmentType: 'full_time' | 'part_time' | 'collaborator'
   workdayEnabled: boolean
+  autoPaidDays: number
+  autoFullDayTeachingSlotThreshold: number
   calendarReviewRequired: boolean
   attendanceReviewRequired: boolean
   reviewRequired: boolean
@@ -82,6 +88,7 @@ export interface StaffPayrollIdentity {
   employeeCode: string
   branchId: string
   photoURL: string
+  employmentType: 'full_time' | 'part_time' | 'collaborator'
 }
 
 export interface StaffTeachingSlot {
@@ -105,6 +112,7 @@ export interface MyStaffPayroll {
   workdays: StaffWorkdaySummary
   amounts: StaffPayrollAmounts
   teachingSlots: StaffTeachingSlot[]
+  teachingEvidence?: { slotCount: number; truncated: boolean; source: string }
   run: {
     exists: boolean
     status: 'estimating' | 'draft' | 'reviewed' | 'locked' | 'paid'
@@ -119,10 +127,13 @@ export interface StaffAttendanceRow {
   staffId: string
   name: string
   branchId: string
+  employmentType: 'full_time' | 'part_time' | 'collaborator'
   baseSalary: number
   standardWorkdays: number
   eligibleWorkdays: number
   paidDays: number
+  autoPaidDays: number
+  teachingSlotCount: number
   estimatedPaidDays: number
   unpaidDays: number
   pendingDays: number
@@ -159,7 +170,7 @@ function attendanceStatus(value: unknown): WorkdayDisplayStatus {
   const accepted = new Set<WorkdayDisplayStatus>([
     'present', 'remote', 'business_trip', 'training', 'paid_leave',
     'unpaid_leave', 'unexcused_absence', 'sick_leave', 'maternity_leave',
-    'pending', 'weekly_rest', 'paid_holiday', 'outside_employment', 'upcoming',
+    'pending', 'auto_present_teaching', 'weekly_rest', 'paid_holiday', 'outside_employment', 'upcoming',
   ])
   return accepted.has(value as WorkdayDisplayStatus) ? value as WorkdayDisplayStatus : 'pending'
 }
@@ -201,7 +212,10 @@ function normalizeWorkdays(value: unknown): StaffWorkdaySummary {
     baseSalary: number(raw.baseSalary),
     baseSalaryEarned: number(raw.baseSalaryEarned),
     fixedBonus: number(raw.fixedBonus),
+    employmentType: raw.employmentType === 'collaborator' || raw.employmentType === 'part_time' ? raw.employmentType : 'full_time',
     workdayEnabled: raw.workdayEnabled === true,
+    autoPaidDays: integer(raw.autoPaidDays),
+    autoFullDayTeachingSlotThreshold: Math.max(1, integer(raw.autoFullDayTeachingSlotThreshold) || 5),
     calendarReviewRequired: raw.calendarReviewRequired === true,
     attendanceReviewRequired: raw.attendanceReviewRequired === true,
     reviewRequired: raw.reviewRequired === true,
@@ -217,6 +231,8 @@ function normalizeWorkdays(value: unknown): StaffWorkdaySummary {
         holidayName: text(day.holidayName),
         note: text(day.note),
         revision: integer(day.revision),
+        teachingSlotCount: integer(day.teachingSlotCount),
+        source: day.source === 'admin_override' || day.source === 'teaching_slots' ? day.source : 'calendar',
       }] : []
     }) : [],
   }
@@ -243,6 +259,7 @@ function normalizeIdentity(value: unknown): StaffPayrollIdentity {
     employeeCode: text(raw.employeeCode),
     branchId: text(raw.branchId),
     photoURL: text(raw.photoURL),
+    employmentType: raw.employmentType === 'collaborator' || raw.employmentType === 'part_time' ? raw.employmentType : 'full_time',
   }
 }
 
@@ -284,6 +301,11 @@ export async function getMyStaffPayroll(periodId: string): Promise<MyStaffPayrol
     workdays: normalizeWorkdays(raw.workdays),
     amounts: normalizeAmounts(raw.amounts),
     teachingSlots: normalizeTeachingSlots(raw.teachingSlots),
+    teachingEvidence: raw.teachingEvidence && typeof raw.teachingEvidence === 'object' ? {
+      slotCount: integer(object(raw.teachingEvidence).slotCount),
+      truncated: object(raw.teachingEvidence).truncated === true,
+      source: text(object(raw.teachingEvidence).source),
+    } : undefined,
     run: {
       exists: run.exists === true,
       status: runStatus,
@@ -305,10 +327,13 @@ export async function listStaffPayrollAttendance(periodId: string, branchId = ''
       staffId,
       name: text(raw.name) || 'Chưa cập nhật tên',
       branchId: text(raw.branchId),
+      employmentType: raw.employmentType === 'collaborator' || raw.employmentType === 'part_time' ? raw.employmentType : 'full_time',
       baseSalary: number(raw.baseSalary),
       standardWorkdays: integer(raw.standardWorkdays),
       eligibleWorkdays: integer(raw.eligibleWorkdays),
       paidDays: integer(raw.paidDays),
+      autoPaidDays: integer(raw.autoPaidDays),
+      teachingSlotCount: integer(raw.teachingSlotCount),
       estimatedPaidDays: integer(raw.estimatedPaidDays),
       unpaidDays: integer(raw.unpaidDays),
       pendingDays: integer(raw.pendingDays),

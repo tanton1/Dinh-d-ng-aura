@@ -89,6 +89,42 @@ test('employment starting mid-month prorates salary against full-month standard 
   assert.equal(result.baseSalaryEarned, Math.round(13_000_000 / 26 * result.eligibleWorkdays))
 })
 
+test('five unique teaching slots auto-confirm a workday while four still require review', () => {
+  const calendar = mergeWorkCalendar('2026-08', {
+    periodId: '2026-08', weeklyRestDays: [0], holidays: [], status: 'approved', revision: 1,
+  })
+  const result = calculateWorkdayPayroll({
+    periodId: '2026-08',
+    calendar,
+    attendance: [],
+    teachingSlots: [6, 7, 8, 9, 10, 10].map((hour, index) => ({ key: `slot-${index < 5 ? hour : 10}`, date: '2026-08-03', hour })),
+    staff: { baseSalary: 12_000_000, employmentType: 'full_time' },
+    today: '2026-08-04',
+  })
+  const autoDay = result.days.find((item) => item.date === '2026-08-03')
+  const pendingDay = result.days.find((item) => item.date === '2026-08-04')
+  assert.equal(autoDay.status, 'auto_present_teaching')
+  assert.equal(autoDay.teachingSlotCount, 5)
+  assert.equal(result.autoPaidDays, 1)
+  assert.equal(pendingDay.status, 'pending')
+})
+
+test('collaborator has no base salary and does not require workday approval', () => {
+  const calendar = mergeWorkCalendar('2026-08', {
+    periodId: '2026-08', weeklyRestDays: [0], holidays: [], status: 'approved', revision: 1,
+  })
+  const result = calculateWorkdayPayroll({
+    periodId: '2026-08', calendar, attendance: [],
+    staff: { baseSalary: 20_000_000, employmentType: 'collaborator' },
+    today: '2026-08-31',
+  })
+  assert.equal(result.employmentType, 'collaborator')
+  assert.equal(result.baseSalary, 0)
+  assert.equal(result.baseSalaryEarned, 0)
+  assert.equal(result.workdayEnabled, false)
+  assert.equal(result.reviewRequired, false)
+})
+
 test('base salary, teaching pay, bonus and deductions remain separate in payroll totals', () => {
   const amounts = payrollAmounts({ baseSalaryEarned: 11_000_000, fixedBonus: 500_000 }, {
     grossAmount: 3_000_000,
@@ -129,4 +165,6 @@ test('payroll run includes every active Identity v2 staff account and explicit p
   assert.match(source, /assignment\.crmProfileId/)
   assert.match(source, /commissionPerSession/)
   assert.match(source, /commissionAmount/)
+  assert.match(source, /employmentType !== 'collaborator'/)
+  assert.match(source, /CTV .*cần được gán chính sách CTV/)
 })

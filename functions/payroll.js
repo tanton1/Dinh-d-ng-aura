@@ -79,6 +79,10 @@ function policyName(value) {
   return result
 }
 
+function policyAudience(value) {
+  return value === 'collaborator' || value === 'all' ? value : 'employee'
+}
+
 function boundedInteger(value, label, minimum, maximum, fallback) {
   const parsed = value === undefined || value === null || value === '' ? fallback : Number(value)
   if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
@@ -260,6 +264,7 @@ function payrollPolicyRecord(snapshot) {
     version: Number(data.version || 1),
     effectiveDate: vietnamDateKey(data.effectiveFrom),
     status: data.status === 'inactive' ? 'inactive' : 'active',
+    audience: policyAudience(data.audience),
     configuration: payrollPolicyConfiguration(data),
   }
 }
@@ -270,6 +275,7 @@ function payrollPolicySnapshot(policy) {
     name: policy.name,
     version: policy.version,
     effectiveDate: policy.effectiveDate,
+    audience: policy.audience,
     ...policy.configuration,
   }
 }
@@ -435,6 +441,7 @@ function createPayrollFunctions({ db, onCall }) {
           rateAfterDailyThreshold: Number(data.rateAfterDailyThreshold || data.ratePerSession || 0),
           eveningStartHour: Number(data.eveningStartHour ?? 20),
           rateAfterDailyThresholdEvening: Number(data.rateAfterDailyThresholdEvening || data.rateAfterDailyThreshold || data.ratePerSession || 0),
+          audience: policyAudience(data.audience),
           status: data.status === 'inactive' ? 'inactive' : 'active',
           usageCount,
           canDelete: usageCount === 0 && !usageInventoryTruncated,
@@ -449,8 +456,15 @@ function createPayrollFunctions({ db, onCall }) {
     const effective = policyEffectiveDate(request.data?.effectiveFrom)
     const rates = payrollPolicyConfiguration(request.data || {})
     const name = policyName(request.data?.name)
+    const audience = policyAudience(request.data?.audience)
+    if (audience === 'collaborator') {
+      const collaboratorRates = [rates.ratePerSession, rates.rateAfterDailyThreshold, rates.rateAfterDailyThresholdEvening]
+      if (collaboratorRates.some((rate) => rate < 50_000 || rate > 100_000)) {
+        throw new HttpsError('invalid-argument', 'Chính sách CTV phải có đơn giá từ 50.000đ đến 100.000đ mỗi ca.')
+      }
+    }
     const fingerprint = createHash('sha256')
-      .update(JSON.stringify({ name, effectiveFrom: effective.value, ...rates }))
+      .update(JSON.stringify({ name, audience, effectiveFrom: effective.value, ...rates }))
       .digest('hex')
       .slice(0, 16)
     const policyId = `policy_${effective.value.replaceAll('-', '')}_${fingerprint}`
@@ -460,6 +474,7 @@ function createPayrollFunctions({ db, onCall }) {
       if (existing.exists) {
         const data = existing.data()
         if (data.name === name
+          && policyAudience(data.audience) === audience
           && Number(data.ratePerSession || 0) === rates.ratePerSession
           && Number(data.dailySessionThreshold || 8) === rates.dailySessionThreshold
           && Number(data.rateAfterDailyThreshold || data.ratePerSession || 0) === rates.rateAfterDailyThreshold
@@ -472,8 +487,9 @@ function createPayrollFunctions({ db, onCall }) {
       }
       const version = Number(effective.value.replaceAll('-', ''))
       transaction.create(reference, {
-        schemaVersion: 3,
+        schemaVersion: 4,
         scope: 'global',
+        audience,
         name,
         version,
         effectiveFrom: effective.timestamp,
@@ -484,11 +500,11 @@ function createPayrollFunctions({ db, onCall }) {
         updatedAt: FieldValue.serverTimestamp(),
       })
       transaction.create(db.collection('payrollAuditLogs').doc(), {
-        schemaVersion: 3,
+        schemaVersion: 4,
         policyId,
         action: 'payroll.policy.created',
         actorUid: actor.uid,
-        snapshot: { name, version, effectiveFrom: effective.value, ...rates },
+        snapshot: { name, audience, version, effectiveFrom: effective.value, ...rates },
         createdAt: FieldValue.serverTimestamp(),
       })
       return { policyId, unchanged: false }
@@ -739,28 +755,37 @@ function createPayrollFunctions({ db, onCall }) {
       const calendars = new Map(calendarSnapshot.docs.map((item) => [item.data().branchId || 'global', item.data()]))
       const globalCalendar = calendars.get('global') || {}
       const defaultPolicy = selectedPolicies.find((policy) => policy.id === defaultPolicyId) || selectedPolicies[0]
+      const selectedPolicyById = new Map(selectedPolicies.map((policy) => [policy.id, policy]))
       const policySnapshots = selectedPolicies.map(payrollPolicySnapshot)
       const policyName = selectedPolicies.length === 1 ? selectedPolicies[0].name : `${selectedPolicies.length} chính sách linh hoạt`
       const itemRecords = staffIds.map((staffId) => {
         const staff = staffRecordById.get(staffId) || {}
         const identity = identityById.get(staffId) || {}
         const calendar = mergeWorkCalendar(periodId, globalCalendar, calendars.get(identity.branchId) || {})
+        const teachingSlots = teaching.trainers.get(staffId) || []
         const workdays = calculateWorkdayPayroll({
           periodId,
           calendar,
           attendance: workdayAttendanceByStaff.get(staffId) || [],
+          teachingSlots,
           staff,
           today: vietnamDateKey(new Date()),
         })
-        const teachingSlots = teaching.trainers.get(staffId) || []
         const teachingPayAmount = teachingSlots.reduce((total, slot) => total + slot.rate, 0)
         const configuredCommission = Number(staff.commissionPerSession || 0)
-        const commissionPerSession = Number.isSafeInteger(configuredCommission) && configuredCommission >= 0 && configuredCommission <= 10_000_000
+        const commissionPerSession = workdays.employmentType !== 'collaborator' && Number.isSafeInteger(configuredCommission) && configuredCommission >= 0 && configuredCommission <= 10_000_000
           ? configuredCommission
           : 0
         const commissionAmount = Math.min(5_000_000_000, teachingSlots.length * commissionPerSession)
         const amounts = payrollAmounts(workdays, { grossAmount: teachingPayAmount, commissionAmount })
         const itemPolicyIds = [...new Set(teachingSlots.map((slot) => slot.policyId).filter(Boolean))]
+        const usedPolicyAudiences = itemPolicyIds.map((policyId) => selectedPolicyById.get(policyId)?.audience || 'employee')
+        if (workdays.employmentType === 'collaborator' && usedPolicyAudiences.some((audience) => audience === 'employee')) {
+          throw new HttpsError('failed-precondition', `CTV ${identity.name || staffId} cần được gán chính sách CTV 50.000–100.000đ/ca.`)
+        }
+        if (workdays.employmentType !== 'collaborator' && usedPolicyAudiences.some((audience) => audience === 'collaborator')) {
+          throw new HttpsError('failed-precondition', `Nhân viên ${identity.name || staffId} không thể dùng chính sách chỉ dành cho CTV.`)
+        }
         return { staffId, staff, identity, calendar, workdays, teachingSlots, amounts, itemPolicyIds }
       })
       const grossAmount = itemRecords.reduce((total, item) => total + item.amounts.grossAmount, 0)
@@ -818,6 +843,7 @@ function createPayrollFunctions({ db, onCall }) {
           trainerId: staffId,
           staffSnapshot: { name: identity.name || 'Chưa cập nhật tên', employeeCode: identity.employeeCode || '', branchId: identity.branchId || '' },
           trainerSnapshot: { name: identity.name || 'Chưa cập nhật tên', branchId: identity.branchId || '' },
+          employmentType: workdays.employmentType,
           policyIds: itemPolicyIds,
           policySnapshots: policySnapshots.filter((policy) => itemPolicyIds.includes(policy.id)),
           sessionCount: teachingSlots.length,
@@ -829,9 +855,11 @@ function createPayrollFunctions({ db, onCall }) {
           baseSalarySnapshot: { monthlyAmount: workdays.baseSalary, dailyRate: workdays.dailyRate },
           workCalendarSnapshot: { periodId, branchId: identity.branchId || '', weeklyRestDays: calendar.weeklyRestDays, holidays: calendar.holidays, revision: calendar.revision, approved: calendar.approved },
           workdaySummary: {
+            employmentType: workdays.employmentType,
             standardWorkdays: workdays.standardWorkdays,
             eligibleWorkdays: workdays.eligibleWorkdays,
             paidDays: workdays.paidDays,
+            autoPaidDays: workdays.autoPaidDays,
             unpaidDays: workdays.unpaidDays,
             pendingDays: workdays.pendingDays,
             benefitReviewDays: workdays.benefitReviewDays,

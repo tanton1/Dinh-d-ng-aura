@@ -23,6 +23,7 @@ import {
 import '../../styles-staff-payroll.css'
 
 const statusMeta: Record<WorkdayDisplayStatus, { short: string; label: string; tone: string }> = {
+  auto_present_teaching: { short: 'TC', label: 'Tự tính đủ công từ ca dạy', tone: 'paid' },
   present: { short: 'Đủ', label: 'Có mặt', tone: 'paid' },
   remote: { short: 'Xa', label: 'Làm từ xa', tone: 'paid' },
   business_trip: { short: 'CT', label: 'Công tác', tone: 'paid' },
@@ -107,7 +108,7 @@ export default function StaffPayrollPage() {
     {
       id: 'workdays', eyebrow: 'Ngày công hưởng lương',
       value: `${workdays?.estimatedPaidDays || 0}/${workdays?.eligibleWorkdays || 0}`,
-      detail: `${workdays?.unpaidDays || 0} ngày không lương · ${workdays?.pendingDays || 0} ngày chờ chốt`,
+      detail: `${workdays?.autoPaidDays || 0} ngày tự tính từ ≥5 ca · ${workdays?.pendingDays || 0} ngày chờ chốt`,
       icon: <CalendarCheck2 size={20} />, tone: 'orange',
     },
     {
@@ -168,7 +169,7 @@ export default function StaffPayrollPage() {
     <section className="staff-payroll__breakdown" aria-label="Chi tiết thu nhập">
       <div className="staff-payroll__section-title"><div><span>Cấu phần lương</span><strong>{periodLabel(periodId)}</strong></div><small>{data?.run.official ? 'Số liệu chính thức' : 'Số liệu tạm tính'}</small></div>
       <div className="staff-payroll__money-grid">
-        <article><span className="is-pink"><Banknote size={18} /></span><div><small>Lương cơ bản theo công</small><strong>{money(amounts?.baseSalaryAmount)}</strong><p>{workdays?.estimatedPaidDays || 0}/{workdays?.eligibleWorkdays || 0} ngày đủ điều kiện</p></div></article>
+        <article><span className="is-pink"><Banknote size={18} /></span><div><small>{workdays?.employmentType === 'collaborator' ? 'CTV · không lương cơ bản' : 'Lương cơ bản theo công'}</small><strong>{money(amounts?.baseSalaryAmount)}</strong><p>{workdays?.employmentType === 'collaborator' ? 'Thu nhập theo chính sách ca dạy CTV' : `${workdays?.estimatedPaidDays || 0}/${workdays?.eligibleWorkdays || 0} ngày đủ điều kiện`}</p></div></article>
         <article><span className="is-orange"><Dumbbell size={18} /></span><div><small>Tiền ca dạy</small><strong>{money(amounts?.teachingPayAmount)}</strong><p>{data?.teachingSlots.length || 0} ca đã ghi nhận</p></div></article>
         <article><span className="is-sunset"><CircleDollarSign size={18} /></span><div><small>Hoa hồng</small><strong>{money(amounts?.commissionAmount)}</strong><p>Theo số liệu nghiệp vụ đã duyệt</p></div></article>
         <article><span className="is-ink"><Gift size={18} /></span><div><small>Thưởng & điều chỉnh</small><strong>{money((amounts?.bonusAmount || 0) + (amounts?.adjustmentAmount || 0))}</strong><p>Khấu trừ {money(amounts?.deductionAmount)}</p></div></article>
@@ -177,7 +178,7 @@ export default function StaffPayrollPage() {
     </section>
 
     <section className="staff-payroll__calendar" aria-label="Lịch ngày công">
-      <div className="staff-payroll__section-title"><div><span>Ngày công</span><strong>{workdays?.paidDays || 0} ngày đã chốt</strong></div><small>{data?.calendar.approved ? 'Lịch làm việc đã duyệt' : 'Lịch mặc định, chờ admin duyệt'}</small></div>
+      <div className="staff-payroll__section-title"><div><span>Ngày công</span><strong>{workdays?.paidDays || 0} ngày đã chốt</strong></div><small>{workdays?.employmentType === 'collaborator' ? 'CTV không áp dụng lương cơ bản theo công' : `${workdays?.autoPaidDays || 0} ngày tự tính từ ca dạy`}</small></div>
       <div className="staff-payroll__weekday"><span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span></div>
       <div className="staff-payroll__days">
         {Array.from({ length: data?.workdays.days[0] ? (data.workdays.days[0].weekday + 6) % 7 : 0 }, (_, index) => <i key={`empty-${index}`} aria-hidden="true" />)}

@@ -70,6 +70,7 @@ export interface StaffMember {
   role: 'admin' | 'trainer' | 'sales' | 'manager'
   branchId?: string
   status: 'active' | 'inactive'
+  employmentType?: 'full_time' | 'part_time' | 'collaborator'
 }
 
 export interface Trainer {
@@ -83,6 +84,7 @@ export interface Trainer {
   commissionPerSession?: number
   baseSalary?: number
   status: 'active' | 'inactive'
+  employmentType?: 'full_time' | 'part_time' | 'collaborator'
   priority?: number
   availableSlots?: string[]
   /** Number of learners this trainer can safely serve in one time slot. */

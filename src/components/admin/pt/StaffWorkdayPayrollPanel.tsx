@@ -54,6 +54,7 @@ function money(value: unknown) {
 }
 
 function statusLabel(day: StaffWorkday) {
+  if (day.status === 'auto_present_teaching') return `Tự tính đủ công · ${day.teachingSlotCount} ca dạy`
   if (day.status === 'weekly_rest') return 'Nghỉ tuần'
   if (day.status === 'paid_holiday') return day.holidayName || 'Nghỉ lễ'
   if (day.status === 'outside_employment') return 'Ngoài thời gian làm việc'
@@ -221,7 +222,7 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
         <header><div><span>Danh sách nhân sự</span><strong>{visibleRows.length} người</strong></div><small>Bấm để chốt công</small></header>
         {loading && !rows.length ? <div className="staff-workdays__skeleton" /> : visibleRows.length ? visibleRows.map((row) => <button type="button" key={row.staffId} className={selectedId === row.staffId ? 'is-active' : ''} onClick={() => void loadDetail(row.staffId)}>
           <span className="staff-workdays__avatar">{row.name.slice(0, 1).toUpperCase()}</span>
-          <span className="staff-workdays__person"><strong>{row.name}</strong><small>{branches.find((branch) => branch.id === row.branchId)?.name || 'Chưa gắn chi nhánh'}</small></span>
+          <span className="staff-workdays__person"><strong>{row.name}</strong><small>{row.employmentType === 'collaborator' ? 'CTV' : 'Nhân viên'} · {branches.find((branch) => branch.id === row.branchId)?.name || 'Chưa gắn chi nhánh'}</small></span>
           <span className="staff-workdays__numbers"><b>{row.estimatedPaidDays ?? row.paidDays}/{row.eligibleWorkdays}</b><small>{money(row.baseSalaryEarned)}</small></span>
           {row.reviewRequired && <em>!</em>}<ChevronRight size={17} />
         </button>) : <div className="staff-workdays__empty"><UserRoundCheck size={27} /><strong>Không có nhân sự phù hợp</strong><p>Đổi bộ lọc hoặc kiểm tra hồ sơ đội ngũ.</p></div>}
@@ -229,14 +230,14 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
 
       <div className="staff-workdays__detail">
         {detailLoading && !detail ? <div className="staff-workdays__skeleton" /> : detail ? <>
-          <header className="staff-workdays__detail-head"><div><span>{detail.identity.employeeCode || 'NHÂN VIÊN AURA'}</span><strong>{detail.identity.name}</strong><small>Lương cơ bản {money(detail.workdays.baseSalary)} · {money(detail.workdays.dailyRate)}/ngày chuẩn</small></div><div><b>{detail.workdays.estimatedPaidDays}/{detail.workdays.eligibleWorkdays}</b><small>ngày hưởng lương</small>{detail.workdays.pendingDays > 0 && <button type="button" disabled={fillBusy} onClick={() => void fillMissingDays()}>{fillBusy ? 'Đang chốt…' : `Chốt ${detail.workdays.pendingDays} ngày thiếu`}</button>}</div></header>
+          <header className="staff-workdays__detail-head"><div><span>{detail.identity.employeeCode || 'NHÂN VIÊN AURA'}</span><strong>{detail.identity.name}</strong><small>{detail.workdays.employmentType === 'collaborator' ? 'CTV · không lương cơ bản' : `Lương cơ bản ${money(detail.workdays.baseSalary)} · ${money(detail.workdays.dailyRate)}/ngày chuẩn`} · Tự tính {detail.workdays.autoPaidDays} ngày</small></div><div><b>{detail.workdays.estimatedPaidDays}/{detail.workdays.eligibleWorkdays}</b><small>ngày hưởng lương</small>{detail.workdays.workdayEnabled && detail.workdays.pendingDays > 0 && <button type="button" disabled={fillBusy} onClick={() => void fillMissingDays()}>{fillBusy ? 'Đang chốt…' : `Chốt ${detail.workdays.pendingDays} ngày thiếu`}</button>}</div></header>
 
           <div className="staff-workdays__calendar-card">
             <div className="staff-workdays__calendar-title"><div><CalendarCheck2 size={18} /><span><strong>Lịch ngày công</strong><small>Chọn trạng thái trực tiếp trên từng ngày làm việc</small></span></div>{detail.workdays.reviewRequired && <em>Cần đối soát</em>}</div>
             <div className="staff-workdays__days">
               {detail.workdays.days.map((day) => <label key={day.date} className={`is-${day.status} ${day.eligible ? '' : 'is-readonly'}`} title={statusLabel(day)}>
                 <time>{Number(day.date.slice(-2))}<small>{weekdayLabels[day.weekday]}</small></time>
-                {day.eligible ? <select aria-label={`Ngày ${day.date}`} value={editableStatuses.some((item) => item.id === day.status) ? day.status : 'pending'} disabled={busyDay === day.date} onChange={(event) => void updateDay(day, event.target.value as StaffAttendanceStatus)}>{editableStatuses.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select> : <span>{statusLabel(day)}</span>}
+                {day.eligible ? <select aria-label={`Ngày ${day.date}`} value={day.status === 'auto_present_teaching' ? day.status : editableStatuses.some((item) => item.id === day.status) ? day.status : 'pending'} disabled={busyDay === day.date} onChange={(event) => void updateDay(day, event.target.value as StaffAttendanceStatus)}>{day.status === 'auto_present_teaching' && <option value="auto_present_teaching" disabled>Tự tính · {day.teachingSlotCount} ca</option>}{editableStatuses.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select> : <span>{statusLabel(day)}</span>}
               </label>)}
             </div>
           </div>

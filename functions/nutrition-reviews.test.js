@@ -89,7 +89,7 @@ test('nutrition review callables are actor-scoped and transaction-backed', () =>
 
 test('coach workspace resolves tabs from primary, secondary and nutrition assignments', () => {
   const source = fs.readFileSync(path.join(__dirname, 'pt-operations-v2.js'), 'utf8')
-  assert.match(source, /const staffCall = \(handler\) => onCall\(\{ cpu: 'gcf_gen1', maxInstances: 6, invoker: 'public' \}, handler\)/)
+  assert.match(source, /const staffCall = \(handler\) => onCall\(\{ cpu: 1, concurrency: 24, maxInstances: 6, invoker: 'public' \}, handler\)/)
   assert.match(source, /const getMyCoachWorkspaceScope = staffCall/)
   assert.equal((source.match(/= staffCall\(/g) ?? []).length, 16)
   assert.match(source, /assignedContracts\(db, actor, 'training'/)

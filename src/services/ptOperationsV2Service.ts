@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseAuth, firebaseFunctions } from '../lib/firebase'
+import { reportClientIssue } from './clientTelemetryService'
 
 function functionsInstance() {
   if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
@@ -28,9 +29,23 @@ async function call<Input, Output>(name: string, input: Input): Promise<Output> 
       return (await invoke(input)).data
     } catch (error) {
       const code = callableErrorCode(error)
+      reportClientIssue('firestore', error, {
+        phase: `staff_callable_${name}`,
+        route: window.location.hash,
+        retryable: retryableCodes.has(code),
+      })
       if (!retryableCodes.has(code) || attempt === 2) {
         if (retryableCodes.has(code)) {
-          throw new Error('Dịch vụ làm việc Staff đang bận. Aura đã thử kết nối lại nhưng chưa thành công; vui lòng thử lại sau ít phút.')
+          if (code === 'functions/resource-exhausted') {
+            throw new Error('Không gian Staff đang có nhiều lượt truy cập. Aura đã thử lại nhưng chưa có phiên xử lý trống.')
+          }
+          if (code === 'functions/deadline-exceeded') {
+            throw new Error('Dữ liệu Staff phản hồi quá thời gian. Hãy thử tải lại trang.')
+          }
+          if (code === 'functions/unavailable') {
+            throw new Error('Kết nối tới dịch vụ Staff tạm gián đoạn. Hãy kiểm tra mạng và thử lại.')
+          }
+          throw new Error('Dịch vụ Staff gặp lỗi máy chủ. Mã lỗi đã được gửi để Aura đối soát.')
         }
         throw error
       }

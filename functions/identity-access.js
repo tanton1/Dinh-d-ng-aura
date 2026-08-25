@@ -75,6 +75,11 @@ function legacyIdentity(role) {
   return legacyRoleToAccess[role] || legacyRoleToAccess.student
 }
 
+function normalizedEmploymentType(value) {
+  if (value === 'part_time' || value === 'collaborator') return value
+  return 'full_time'
+}
+
 function comparableLegacyRole(role) {
   return role === 'user' ? 'student' : role
 }
@@ -631,6 +636,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     const positions = normalizedPositions(request.data?.positions || [])
     if (!positions.length) throw new HttpsError('invalid-argument', 'Chọn tối thiểu một chức danh cho nhân viên.')
     const branchIds = normalizedBranchIds(request.data?.branchIds || [])
+    const employmentType = normalizedEmploymentType(request.data?.employmentType)
     const initialPassword = initialPasswordFromPhone(phoneNumber)
     await assertUniqueDirectAccount({ auth, email, logger, action })
 
@@ -659,23 +665,23 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
         transaction.create(staffRef, {
           id: uid, name: displayName, email, phone: phoneNumber,
           role: claims.role, branchId: branchIds[0] || '', status: 'active',
-          positions, branchIds, availableSlots: [], baseSalary: 0, bonusMonthly: 0,
+          positions, branchIds, employmentType, availableSlots: [], baseSalary: 0, bonusMonthly: 0,
           commissionPerSession: 0, commissionRate: 0,
           createdBy: actor.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
         if (positions.includes('trainer_pt')) transaction.create(trainerRef, {
           id: uid, name: displayName, email, phone: phoneNumber,
-          branchId: branchIds[0] || '', status: 'active', availableSlots: [],
+          branchId: branchIds[0] || '', status: 'active', employmentType, availableSlots: [],
           baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0,
           createdBy: actor.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
         transaction.create(db.collection('identityAuditLogs').doc(), {
           action: 'staff_account.provisioned', actorUid: actor.uid, targetUid: uid,
-          after: { positions, branchIds }, createdAt: FieldValue.serverTimestamp(),
+          after: { positions, branchIds, employmentType }, createdAt: FieldValue.serverTimestamp(),
         })
       }))
       logger?.info?.('identity_provision_completed', { action, targetUid: uid })
-      return { uid, displayName, phoneNumber, email, positions, branchIds, passwordChangeRequired: false }
+      return { uid, displayName, phoneNumber, email, positions, branchIds, employmentType, passwordChangeRequired: false }
     } catch (error) {
       if (createdUser) {
         try { await identityProvisionStep(logger, action, 'hoàn tác đăng nhập', () => auth.deleteUser(createdUser.uid), 12_000) } catch (rollbackError) { logger?.error?.('staff_provision_rollback_failed', { uid: createdUser.uid, code: rollbackError?.code || 'unknown' }) }
@@ -836,7 +842,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
             id: targetUid, name: profileName, email: profileEmail, phone: profilePhone,
             role: nextClaims.role, branchId: branchIds[0] || '', positions, branchIds,
             status: 'active', updatedBy: actor.uid,
-            ...(!currentStaff.exists ? { availableSlots: [], baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0, createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
+            ...(!currentStaff.exists ? { employmentType: 'full_time', availableSlots: [], baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0, createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
             updatedAt: FieldValue.serverTimestamp(),
           }, { merge: true })
         } else if (currentStaff.exists) {
@@ -846,7 +852,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
           transaction.set(trainerReference, {
             id: targetUid, name: profileName, email: profileEmail, phone: profilePhone,
             branchId: branchIds[0] || '', positions, branchIds, status: 'active', updatedBy: actor.uid,
-            ...(!currentTrainer.exists ? { availableSlots: [], baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0, createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
+            ...(!currentTrainer.exists ? { employmentType: 'full_time', availableSlots: [], baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0, createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
             updatedAt: FieldValue.serverTimestamp(),
           }, { merge: true })
         } else if (currentTrainer.exists) {
@@ -1079,7 +1085,8 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     requireCapability(actor, 'identity.staff_position.manage')
     const targetUid = documentId(request.data?.uid, 'Tài khoản nhân viên')
     const userRef = db.doc(`users/${targetUid}`)
-    const initialProfileSnapshot = await userRef.get()
+    const staffRef = db.doc(`staff/${targetUid}`)
+    const [initialProfileSnapshot, initialStaffSnapshot] = await Promise.all([userRef.get(), staffRef.get()])
     if (!initialProfileSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy tài khoản nhân viên.')
     const initialProfile = initialProfileSnapshot.data() || {}
     const displayName = boundedString(request.data?.displayName ?? initialProfile.displayName ?? initialProfile.name, 'Họ và tên', 160)
@@ -1098,15 +1105,22 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       if (!Number.isFinite(parsed) || parsed < 0 || parsed > maximum) throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
       return Math.round(parsed)
     }
+    const employmentType = request.data?.employmentType === undefined
+      ? normalizedEmploymentType(initialStaffSnapshot.data()?.employmentType)
+      : normalizedEmploymentType(request.data.employmentType)
     const compensation = {
-      baseSalary: money(request.data?.compensation?.baseSalary, 'Lương cơ bản'),
+      baseSalary: employmentType === 'collaborator' ? 0 : money(request.data?.compensation?.baseSalary, 'Lương cơ bản'),
       bonusMonthly: money(request.data?.compensation?.bonusMonthly, 'Thưởng tháng'),
-      commissionPerSession: money(request.data?.compensation?.commissionPerSession, 'Hoa hồng mỗi buổi'),
+      // Collaborator teaching compensation is selected from a versioned
+      // payroll policy. Keeping this legacy field at zero prevents the same
+      // class from being paid once as teaching pay and again as commission.
+      commissionPerSession: employmentType === 'collaborator'
+        ? 0
+        : money(request.data?.compensation?.commissionPerSession, 'Hoa hồng mỗi buổi'),
       commissionRate: Math.min(100, Number(request.data?.compensation?.commissionRate || 0)),
     }
     if (!Number.isFinite(compensation.commissionRate) || compensation.commissionRate < 0) throw new HttpsError('invalid-argument', 'Tỷ lệ hoa hồng không hợp lệ.')
     const assignmentRef = db.doc(`roleAssignments/${targetUid}`)
-    const staffRef = db.doc(`staff/${targetUid}`)
     const trainerRef = db.doc(`trainers/${targetUid}`)
     const authUser = await auth.getUser(targetUid)
     const previousAuth = {
@@ -1137,17 +1151,17 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       transaction.set(staffRef, {
         id: targetUid, name: displayName, email, phone: phoneNumber,
         role: positions.includes('trainer_pt') ? 'trainer' : positions[0], branchId: branchIds[0] || '', status: 'active',
-        positions, branchIds, availableSlots: availabilitySlots, slotCapacity, ...compensation,
+        positions, branchIds, employmentType, availableSlots: availabilitySlots, slotCapacity, ...compensation,
         updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
       if (positions.includes('trainer_pt')) transaction.set(trainerRef, {
         id: targetUid, name: displayName, email, phone: phoneNumber,
-        branchId: branchIds[0] || '', status: 'active', availableSlots: availabilitySlots, slotCapacity, ...compensation,
+        branchId: branchIds[0] || '', status: 'active', employmentType, availableSlots: availabilitySlots, slotCapacity, ...compensation,
         updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.set(db.collection('identityAuditLogs').doc(), {
         action: 'staff_operations_profile.saved', actorUid: actor.uid, targetUid,
-        after: { availabilitySlots: availabilitySlots.length, slotCapacity, compensation, contactChanged }, createdAt: FieldValue.serverTimestamp(),
+        after: { employmentType, availabilitySlots: availabilitySlots.length, slotCapacity, compensation, contactChanged }, createdAt: FieldValue.serverTimestamp(),
       })
       transaction.set(userRef, { displayName, name: displayName, email, phoneNumber, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
       })
@@ -1157,7 +1171,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       }
       throw normalizeDuplicateAuthError(error)
     }
-    return { uid: targetUid, displayName, email, phoneNumber, availabilitySlots, slotCapacity, compensation }
+    return { uid: targetUid, displayName, email, phoneNumber, employmentType, availabilitySlots, slotCapacity, compensation }
   })
 
   return {

@@ -351,10 +351,11 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
 }
 
 function createPtOperationsV2Functions({ db, onCall }) {
-  // PT/Sales endpoints are lightweight, Firestore-bound requests. Using the
-  // Gen 1 CPU profile prevents a burst of separate callable services from
-  // exhausting the regional Cloud Run CPU quota and surfacing as HTTP 429.
-  const staffCall = (handler) => onCall({ cpu: 'gcf_gen1', maxInstances: 6, invoker: 'public' }, handler)
+  // Staff pages issue several Firestore-bound reads during the first render.
+  // A concurrency of one made harmless navigation bursts exhaust all six
+  // instances and the browser surfaced a generic "service busy" message.
+  // Keep the fleet bounded, but let each warm instance serve concurrent I/O.
+  const staffCall = (handler) => onCall({ cpu: 1, concurrency: 24, maxInstances: 6, invoker: 'public' }, handler)
 
   const getMyCoachWorkspaceScope = staffCall(async (request) => {
     const actor = await trainerActor(request, db)

@@ -11,6 +11,7 @@ const PAID_ATTENDANCE_STATUSES = new Set([
 ])
 const UNPAID_ATTENDANCE_STATUSES = new Set(['unpaid_leave', 'unexcused_absence'])
 const REVIEW_ATTENDANCE_STATUSES = new Set(['pending', 'sick_leave', 'maternity_leave'])
+const AUTO_FULL_DAY_TEACHING_SLOT_THRESHOLD = 5
 const ATTENDANCE_STATUSES = new Set([
   ...PAID_ATTENDANCE_STATUSES,
   ...UNPAID_ATTENDANCE_STATUSES,
@@ -68,6 +69,11 @@ function weekday(date) {
 function safeMoney(value, maximum = 5_000_000_000) {
   const result = Number(value || 0)
   return Number.isSafeInteger(result) && result >= 0 && result <= maximum ? result : 0
+}
+
+function normalizedEmploymentType(value) {
+  if (value === 'part_time' || value === 'collaborator') return value
+  return 'full_time'
 }
 
 function attendanceStatus(value) {
@@ -130,7 +136,7 @@ function employmentWindow(staff = {}) {
   }
 }
 
-function calculateWorkdayPayroll({ periodId, calendar, attendance = [], staff = {}, today }) {
+function calculateWorkdayPayroll({ periodId, calendar, attendance = [], teachingSlots = [], staff = {}, today }) {
   const normalizedPeriod = payrollPeriod(periodId)
   const effectiveToday = today ? dateKey(today, 'Ngày đối soát') : dateKey(new Date(), 'Ngày đối soát')
   const holidayMap = new Map((calendar.holidays || []).map((holiday) => [holiday.date, holiday]))
@@ -143,8 +149,20 @@ function calculateWorkdayPayroll({ periodId, calendar, attendance = [], staff = 
     const nextRevision = Number(record.revision || 0)
     if (!attendanceByDate.has(date) || nextRevision >= currentRevision) attendanceByDate.set(date, { ...record, date })
   })
+  const teachingSlotsByDate = new Map()
+  teachingSlots.forEach((slot) => {
+    const date = optionalDateKey(slot?.date)
+    if (!date || !date.startsWith(`${normalizedPeriod}-`)) return
+    const key = typeof slot?.key === 'string' && slot.key
+      ? slot.key
+      : `${date}-${Number(slot?.hour ?? -1)}`
+    const current = teachingSlotsByDate.get(date) || new Set()
+    current.add(key)
+    teachingSlotsByDate.set(date, current)
+  })
   const employment = employmentWindow(staff)
-  const baseSalary = safeMoney(staff.baseSalary)
+  const employmentType = normalizedEmploymentType(staff.employmentType)
+  const baseSalary = employmentType === 'collaborator' ? 0 : safeMoney(staff.baseSalary)
   const fixedBonus = safeMoney(staff.bonusMonthly)
   const standardDates = monthDateKeys(normalizedPeriod).filter((date) => !weeklyRestDays.includes(weekday(date)) && !holidayMap.has(date))
   const eligibleDates = standardDates.filter((date) => (!employment.start || date >= employment.start) && (!employment.end || date <= employment.end))
@@ -153,15 +171,21 @@ function calculateWorkdayPayroll({ periodId, calendar, attendance = [], staff = 
   let unpaidDays = 0
   let pendingDays = 0
   let benefitReviewDays = 0
+  let autoPaidDays = 0
   const days = monthDateKeys(normalizedPeriod).map((date) => {
     const restDay = weeklyRestDays.includes(weekday(date))
     const holiday = holidayMap.get(date)
     const eligible = eligibleSet.has(date)
     const record = attendanceByDate.get(date)
+    const teachingSlotCount = teachingSlotsByDate.get(date)?.size || 0
     let status = restDay ? 'weekly_rest' : holiday ? 'paid_holiday' : eligible ? (record?.status || (date > effectiveToday ? 'upcoming' : 'pending')) : 'outside_employment'
+    if (!record && eligible && date <= effectiveToday && teachingSlotCount >= AUTO_FULL_DAY_TEACHING_SLOT_THRESHOLD) {
+      status = 'auto_present_teaching'
+      autoPaidDays += 1
+    }
     if (record && eligible) status = ATTENDANCE_STATUSES.has(record.status) ? record.status : 'pending'
     if (eligible) {
-      if (PAID_ATTENDANCE_STATUSES.has(status)) paidDays += 1
+      if (PAID_ATTENDANCE_STATUSES.has(status) || status === 'auto_present_teaching') paidDays += 1
       else if (UNPAID_ATTENDANCE_STATUSES.has(status)) unpaidDays += 1
       else if (status === 'pending') pendingDays += 1
       else if (status === 'sick_leave' || status === 'maternity_leave') benefitReviewDays += 1
@@ -174,6 +198,8 @@ function calculateWorkdayPayroll({ periodId, calendar, attendance = [], staff = 
       holidayName: holiday?.name || '',
       note: typeof record?.note === 'string' ? record.note : '',
       revision: Number(record?.revision || 0),
+      teachingSlotCount,
+      source: record ? 'admin_override' : status === 'auto_present_teaching' ? 'teaching_slots' : 'calendar',
     }
   })
   const standardWorkdays = standardDates.length
@@ -196,7 +222,10 @@ function calculateWorkdayPayroll({ periodId, calendar, attendance = [], staff = 
     baseSalary,
     baseSalaryEarned,
     fixedBonus,
+    employmentType,
     workdayEnabled,
+    autoPaidDays,
+    autoFullDayTeachingSlotThreshold: AUTO_FULL_DAY_TEACHING_SLOT_THRESHOLD,
     calendarReviewRequired,
     attendanceReviewRequired,
     reviewRequired: calendarReviewRequired || attendanceReviewRequired,
@@ -215,6 +244,7 @@ function publicIdentity(staff = {}, trainer = {}, user = {}) {
     employeeCode: staff.employeeCode || trainer.employeeCode || '',
     branchId: staff.branchId || trainer.branchId || user.branchId || '',
     photoURL: staff.photoURL || trainer.photoURL || user.photoURL || '',
+    employmentType: normalizedEmploymentType(staff.employmentType || trainer.employmentType),
   }
 }
 
@@ -263,6 +293,60 @@ async function loadAttendance(db, staffId, periodId) {
   return snapshot.docs.map((item) => ({ id: item.id, ...item.data(), updatedAt: iso(item.data().updatedAt) }))
 }
 
+function sessionTeachingHour(value, sessionId) {
+  const direct = Number(value)
+  if (Number.isInteger(direct) && direct >= 0 && direct <= 23) return direct
+  const legacy = Number(String(sessionId || '').split('-')[1])
+  return Number.isInteger(legacy) && legacy >= 0 && legacy <= 23 ? legacy : -1
+}
+
+async function loadTeachingEvidence(db, periodId, staffId = '') {
+  const lastDate = monthDateKeys(periodId).at(-1)
+  let query = db.collection('sessions')
+    .where('date', '>=', `${periodId}-01`)
+    .where('date', '<=', lastDate)
+  if (staffId) query = query.where('trainerId', '==', staffId)
+  const snapshot = await query.limit(5001).get()
+  const byStaff = new Map()
+  snapshot.docs.slice(0, 5000).forEach((item) => {
+    const session = item.data() || {}
+    if (!['completed', 'attended'].includes(session.status)) return
+    const trainerId = typeof session.trainerId === 'string' ? session.trainerId : ''
+    const date = optionalDateKey(session.date)
+    const hour = sessionTeachingHour(session.hour, item.id)
+    if (!trainerId || !date || hour < 0) return
+    const key = `${trainerId}-${date}-${hour}`
+    const current = byStaff.get(trainerId) || new Map()
+    const slot = current.get(key) || {
+      key, date, hour, branchId: session.branchId || '',
+      studentIds: new Set(), sessionIds: new Set(),
+    }
+    if (session.studentId) slot.studentIds.add(session.studentId)
+    slot.sessionIds.add(item.id)
+    current.set(key, slot)
+    byStaff.set(trainerId, current)
+  })
+  const publicSlots = (slots) => {
+    const dailyPositions = new Map()
+    return [...slots.values()]
+      .sort((left, right) => left.date.localeCompare(right.date) || left.hour - right.hour)
+      .map((slot) => {
+        const dailyPosition = Number(dailyPositions.get(slot.date) || 0) + 1
+        dailyPositions.set(slot.date, dailyPosition)
+        return {
+          key: slot.key, date: slot.date, hour: slot.hour, branchId: slot.branchId,
+          dailyPosition, tier: 'standard', rate: 0, policyId: '',
+          policyName: 'Chờ lập kỳ lương', studentCount: slot.studentIds.size,
+          sessionIds: [...slot.sessionIds],
+        }
+      })
+  }
+  return {
+    byStaff: new Map([...byStaff.entries()].map(([id, slots]) => [id, publicSlots(slots)])),
+    truncated: snapshot.size > 5000,
+  }
+}
+
 function payrollAmounts(workdays, payrollItem = {}) {
   const teachingPay = safeMoney(payrollItem.teachingPayAmount ?? payrollItem.grossAmount)
   const commissions = safeMoney(payrollItem.commissionAmount)
@@ -290,14 +374,18 @@ function createStaffPayrollFunctions({ db, onCall }) {
     const staffId = staffDocumentId(actor.legacyStaffId || actor.uid)
     const { staff, identity } = await loadIdentity(db, staffId, actor.uid)
     const branchId = identity.branchId || actor.branchIds[0] || ''
-    const [calendar, attendance, runSnapshot, itemSnapshot] = await Promise.all([
+    const [calendar, attendance, runSnapshot, itemSnapshot, teachingEvidence] = await Promise.all([
       loadCalendar(db, periodId, branchId),
       loadAttendance(db, staffId, periodId),
       db.doc(`payrollRuns/${periodId}`).get(),
       db.doc(`payrollRunItems/${periodId}_${staffId}`).get(),
+      loadTeachingEvidence(db, periodId, staffId),
     ])
-    const workdays = calculateWorkdayPayroll({ periodId, calendar, attendance, staff })
     const payrollItem = itemSnapshot.exists ? itemSnapshot.data() : {}
+    const teachingSlots = Array.isArray(payrollItem.teachingSlots) && payrollItem.teachingSlots.length
+      ? payrollItem.teachingSlots
+      : (teachingEvidence.byStaff.get(staffId) || [])
+    const workdays = calculateWorkdayPayroll({ periodId, calendar, attendance, teachingSlots, staff })
     const amounts = payrollAmounts(workdays, payrollItem)
     const run = runSnapshot.exists ? runSnapshot.data() : {}
     const official = ['locked', 'paid'].includes(run.status) && Number(run.schemaVersion || 0) >= 5
@@ -317,7 +405,12 @@ function createStaffPayrollFunctions({ db, onCall }) {
         grossAmount: safeMoney(payrollItem.grossAmount ?? amounts.grossAmount),
         finalAmount: safeMoney(payrollItem.finalAmount ?? amounts.finalAmount),
       } : amounts,
-      teachingSlots: Array.isArray(payrollItem.teachingSlots) ? payrollItem.teachingSlots : [],
+      teachingSlots,
+      teachingEvidence: {
+        slotCount: teachingSlots.length,
+        truncated: teachingEvidence.truncated,
+        source: Array.isArray(payrollItem.teachingSlots) && payrollItem.teachingSlots.length ? 'payroll_run' : 'attendance_sessions',
+      },
       tierSummary: payrollItem.tierSummary && typeof payrollItem.tierSummary === 'object' ? payrollItem.tierSummary : {},
       run: {
         exists: runSnapshot.exists,
@@ -334,11 +427,12 @@ function createStaffPayrollFunctions({ db, onCall }) {
     await payrollActorForAdmin(request, db)
     const periodId = payrollPeriod(request.data?.periodId)
     const branchFilter = typeof request.data?.branchId === 'string' ? request.data.branchId.trim() : ''
-    const [staffSnapshot, assignmentSnapshot, attendanceSnapshot, calendarSnapshot] = await Promise.all([
+    const [staffSnapshot, assignmentSnapshot, attendanceSnapshot, calendarSnapshot, teachingEvidence] = await Promise.all([
       db.collection('staff').limit(450).get(),
       db.collection('roleAssignments').where('accessRole', '==', 'staff').limit(450).get(),
       db.collection('staffAttendanceDays').where('periodId', '==', periodId).limit(5000).get(),
       db.collection('workCalendars').where('periodId', '==', periodId).limit(100).get(),
+      loadTeachingEvidence(db, periodId),
     ])
     const attendanceByStaff = new Map()
     attendanceSnapshot.docs.forEach((item) => {
@@ -375,15 +469,19 @@ function createStaffPayrollFunctions({ db, onCall }) {
       .map((staff) => {
         const user = userByStaffId.get(staff.id) || {}
         const calendar = mergeWorkCalendar(periodId, globalCalendar, calendars.get(staff.branchId) || {})
-        const workdays = calculateWorkdayPayroll({ periodId, calendar, attendance: attendanceByStaff.get(staff.id) || [], staff })
+        const teachingSlots = teachingEvidence.byStaff.get(staff.id) || []
+        const workdays = calculateWorkdayPayroll({ periodId, calendar, attendance: attendanceByStaff.get(staff.id) || [], teachingSlots, staff })
         return {
           staffId: staff.id,
           name: staff.name || staff.fullName || staff.displayName || user.name || user.fullName || user.displayName || 'Chưa cập nhật tên',
           branchId: staff.branchId || '',
+          employmentType: workdays.employmentType,
           baseSalary: workdays.baseSalary,
           standardWorkdays: workdays.standardWorkdays,
           eligibleWorkdays: workdays.eligibleWorkdays,
           paidDays: workdays.paidDays,
+          autoPaidDays: workdays.autoPaidDays,
+          teachingSlotCount: teachingSlots.length,
           estimatedPaidDays: workdays.estimatedPaidDays,
           unpaidDays: workdays.unpaidDays,
           pendingDays: workdays.pendingDays + workdays.benefitReviewDays,
@@ -392,7 +490,7 @@ function createStaffPayrollFunctions({ db, onCall }) {
           calendarApproved: calendar.approved,
         }
       })
-    return { periodId, rows, truncated: staffSnapshot.size >= 450 || assignmentSnapshot.size >= 450 || attendanceSnapshot.size >= 5000 }
+    return { periodId, rows, truncated: staffSnapshot.size >= 450 || assignmentSnapshot.size >= 450 || attendanceSnapshot.size >= 5000 || teachingEvidence.truncated }
   })
 
   const getStaffPayrollAttendanceDetail = onCall(async (request) => {
@@ -403,8 +501,19 @@ function createStaffPayrollFunctions({ db, onCall }) {
     const userId = assignmentSnapshot.size === 1 ? assignmentSnapshot.docs[0].id : staffId
     const { staff, identity } = await loadIdentity(db, staffId, userId)
     const calendar = await loadCalendar(db, periodId, identity.branchId)
-    const attendance = await loadAttendance(db, staffId, periodId)
-    return { periodId, staffId, identity, calendar, workdays: calculateWorkdayPayroll({ periodId, calendar, attendance, staff }) }
+    const [attendance, teachingEvidence] = await Promise.all([
+      loadAttendance(db, staffId, periodId),
+      loadTeachingEvidence(db, periodId, staffId),
+    ])
+    const teachingSlots = teachingEvidence.byStaff.get(staffId) || []
+    return {
+      periodId,
+      staffId,
+      identity,
+      calendar,
+      workdays: calculateWorkdayPayroll({ periodId, calendar, attendance, teachingSlots, staff }),
+      teachingEvidence: { slotCount: teachingSlots.length, truncated: teachingEvidence.truncated },
+    }
   })
 
   const saveStaffAttendanceDay = onCall(async (request) => {
@@ -456,11 +565,16 @@ function createStaffPayrollFunctions({ db, onCall }) {
     const periodId = payrollPeriod(request.data?.periodId)
     const { staff, identity } = await loadIdentity(db, staffId)
     if (!Object.keys(staff).length || staff.status === 'inactive') throw new HttpsError('not-found', 'Không tìm thấy nhân viên đang hoạt động.')
-    const [calendar, attendance] = await Promise.all([
+    const [calendar, attendance, teachingEvidence] = await Promise.all([
       loadCalendar(db, periodId, identity.branchId),
       loadAttendance(db, staffId, periodId),
+      loadTeachingEvidence(db, periodId, staffId),
     ])
-    const workdays = calculateWorkdayPayroll({ periodId, calendar, attendance, staff })
+    const teachingSlots = teachingEvidence.byStaff.get(staffId) || []
+    const workdays = calculateWorkdayPayroll({ periodId, calendar, attendance, teachingSlots, staff })
+    if (!workdays.workdayEnabled) {
+      return { staffId, periodId, createdCount: 0, unchanged: true, reason: 'workday_salary_disabled' }
+    }
     const targetDates = workdays.days
       .filter((day) => day.eligible && day.status === 'pending')
       .map((day) => day.date)

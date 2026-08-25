@@ -60,6 +60,7 @@ export interface ProvisionStaffAccountInput {
   email: string
   positions: StaffPosition[]
   branchIds: string[]
+  employmentType?: 'full_time' | 'part_time' | 'collaborator'
 }
 
 export interface ProvisionStaffAccountResult {
@@ -69,6 +70,7 @@ export interface ProvisionStaffAccountResult {
   email: string
   positions: StaffPosition[]
   branchIds: string[]
+  employmentType: 'full_time' | 'part_time' | 'collaborator'
   passwordChangeRequired: boolean
 }
 
@@ -202,10 +204,11 @@ export interface StaffOperationsProfileInput {
   phoneNumber?: string
   availabilitySlots: string[]
   slotCapacity: number
+  employmentType: 'full_time' | 'part_time' | 'collaborator'
   compensation: { baseSalary: number; bonusMonthly: number; commissionRate: number; commissionPerSession: number }
 }
 export async function saveStaffOperationsProfile(input: StaffOperationsProfileInput) {
-  const callable = httpsCallable<StaffOperationsProfileInput, { uid: string; displayName: string; email: string; phoneNumber: string; availabilitySlots: string[]; slotCapacity: number; compensation: StaffOperationsProfileInput['compensation'] }>(requireFunctions(), 'saveStaffOperationsProfile')
+  const callable = httpsCallable<StaffOperationsProfileInput, { uid: string; displayName: string; email: string; phoneNumber: string; employmentType: StaffOperationsProfileInput['employmentType']; availabilitySlots: string[]; slotCapacity: number; compensation: StaffOperationsProfileInput['compensation'] }>(requireFunctions(), 'saveStaffOperationsProfile')
   try { return (await callable(input)).data } catch (error) { throw presentInviteError(error) }
 }
 

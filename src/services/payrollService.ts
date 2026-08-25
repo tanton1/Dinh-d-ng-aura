@@ -36,6 +36,7 @@ export interface PayrollRunSummary {
 export interface PayrollPolicy {
   id: string
   name: string
+  audience: 'employee' | 'collaborator' | 'all'
   version: number
   effectiveFrom: string
   ratePerSession: number
@@ -80,6 +81,7 @@ export interface PayrollRunItem {
   periodId: string
   trainerId: string
   staffId: string
+  employmentType: 'full_time' | 'part_time' | 'collaborator'
   staffSnapshot?: {
     name?: string
     employeeCode?: string
@@ -102,9 +104,11 @@ export interface PayrollRunItem {
   bonusAmount: number
   deductionAmount: number
   workdaySummary: {
+    employmentType: 'full_time' | 'part_time' | 'collaborator'
     standardWorkdays: number
     eligibleWorkdays: number
     paidDays: number
+    autoPaidDays: number
     unpaidDays: number
     pendingDays: number
     benefitReviewDays: number
@@ -245,6 +249,7 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
       periodId: typeof raw.periodId === 'string' ? raw.periodId : '',
       trainerId: typeof raw.trainerId === 'string' ? raw.trainerId : '',
       staffId: typeof raw.staffId === 'string' ? raw.staffId : typeof raw.trainerId === 'string' ? raw.trainerId : '',
+      employmentType: raw.employmentType === 'collaborator' || raw.employmentType === 'part_time' ? raw.employmentType : 'full_time',
       staffSnapshot,
       trainerSnapshot,
       sessionCount: teachingSlots.length || Math.max(0, Math.trunc(amount(raw.sessionCount))),
@@ -266,9 +271,11 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
       bonusAmount: amount(raw.bonusAmount),
       deductionAmount: amount(raw.deductionAmount),
       workdaySummary: {
+        employmentType: rawWorkdaySummary.employmentType === 'collaborator' || rawWorkdaySummary.employmentType === 'part_time' ? rawWorkdaySummary.employmentType : 'full_time',
         standardWorkdays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.standardWorkdays))),
         eligibleWorkdays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.eligibleWorkdays))),
         paidDays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.paidDays))),
+        autoPaidDays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.autoPaidDays))),
         unpaidDays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.unpaidDays))),
         pendingDays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.pendingDays))),
         benefitReviewDays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.benefitReviewDays))),
@@ -307,6 +314,7 @@ export async function listPayrollPolicies(): Promise<PayrollPolicy[]> {
     return [{
       id,
       name: typeof raw.name === 'string' ? raw.name : 'Chính sách lương PT',
+      audience: raw.audience === 'collaborator' || raw.audience === 'all' ? raw.audience : 'employee',
       version: amount(raw.version) || 1,
       effectiveFrom: typeof raw.effectiveFrom === 'string' ? raw.effectiveFrom : '',
       ratePerSession: amount(raw.ratePerSession),
@@ -324,6 +332,7 @@ export async function listPayrollPolicies(): Promise<PayrollPolicy[]> {
 
 export async function savePayrollPolicy(input: {
   name: string
+  audience: 'employee' | 'collaborator' | 'all'
   effectiveFrom: string
   ratePerSession: number
   dailySessionThreshold: number
