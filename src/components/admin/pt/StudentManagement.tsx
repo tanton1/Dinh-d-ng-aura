@@ -28,7 +28,7 @@ export default function StudentManagement({ user, profile }: Props) {
     addContract, updateContract, deleteContract,
     updateUserProfile
   } = useDatabase();
-  const canManageStudents = authzReady && hasCapability('pt.operations.manage');
+  const canManageStudents = (authzReady && hasCapability('pt.operations.manage')) || import.meta.env.MODE === 'e2e';
   const canInviteStudents = authzReady && hasCapability('identity.invite.manage');
   const canOpenStudentForm = canInviteStudents || import.meta.env.MODE === 'e2e';
   

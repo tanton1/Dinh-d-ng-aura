@@ -44,6 +44,12 @@ const E2E_PT_BRANCHES: Branch[] = import.meta.env.MODE === 'e2e'
 const E2E_PT_TRAINERS: Trainer[] = import.meta.env.MODE === 'e2e'
   ? [{ id: 'e2e-trainer', name: 'PT Aura', branchId: 'e2e-branch', commissionRate: 0, status: 'active', slotCapacity: 2 }]
   : []
+const E2E_PT_STUDENTS: Student[] = import.meta.env.MODE === 'e2e'
+  ? [{ id: 'e2e-student', name: 'Học viên Aura', phone: '0900000000', email: 'student@aura.test', sessionsPerWeek: 3, availableSlots: [], status: 'active', branchId: 'e2e-branch' }]
+  : []
+const E2E_PT_PACKAGES: TrainingPackage[] = import.meta.env.MODE === 'e2e'
+  ? [{ id: 'e2e-package', name: 'Gói PT Aura', totalSessions: 24, price: 12_000_000, durationMonths: 3, branchId: 'e2e-branch' }]
+  : []
 
 export interface ScheduleDocumentState {
   schedule: Schedule
@@ -198,13 +204,13 @@ export const useDatabase = () => {
 }
 
 export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
-  const [students, setStudents] = useState<Student[]>([])
+  const [students, setStudents] = useState<Student[]>(E2E_PT_STUDENTS)
   const [contracts, setContracts] = useState<StudentContract[]>([])
   const [payments, setPayments] = useState<PaymentRecord[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
   const [trainers, setTrainers] = useState<Trainer[]>(E2E_PT_TRAINERS)
   const [branches, setBranches] = useState<Branch[]>(E2E_PT_BRANCHES)
-  const [packages, setPackages] = useState<TrainingPackage[]>([])
+  const [packages, setPackages] = useState<TrainingPackage[]>(E2E_PT_PACKAGES)
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [dailyCheckins, setDailyCheckins] = useState<DailyCheckin[]>([])
   const [workoutLogs, setWorkoutLogs] = useState<WorkoutLog[]>([])
@@ -226,13 +232,13 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   const refreshData = async () => {}
 
   const clearLegacyOperationsData = () => {
-    setStudents([])
+    setStudents(E2E_PT_STUDENTS)
     setContracts([])
     setPayments([])
     setSessions([])
-    setTrainers([])
-    setBranches([])
-    setPackages([])
+    setTrainers(E2E_PT_TRAINERS)
+    setBranches(E2E_PT_BRANCHES)
+    setPackages(E2E_PT_PACKAGES)
     setStaff([])
     setDailyCheckins([])
     setWorkoutLogs([])
@@ -303,6 +309,12 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   }, [operationsView])
 
   useEffect(() => {
+    // Browser layout tests use deterministic, non-sensitive PT fixtures. Do
+    // not replace them with an empty emulator snapshot while a form is open.
+    if (import.meta.env.MODE === 'e2e') {
+      setOperationsSync({ status: 'ready', lastSyncedAt: new Date().toISOString(), error: null })
+      return
+    }
     if (!canUseLegacyOperations || !operationsView || !db) {
       if (!operationsView) {
         clearLegacyOperationsData()

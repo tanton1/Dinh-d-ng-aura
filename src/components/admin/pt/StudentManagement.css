@@ -347,6 +347,9 @@
 .student-management__modal {
   z-index: 210 !important;
   box-sizing: border-box;
+  width: 100%;
+  max-width: 100dvw;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding:
@@ -364,13 +367,16 @@
   max-width: min(100%, 640px) !important;
   max-height: calc(100dvh - 24px) !important;
   min-width: 0;
+  max-inline-size: 100%;
   margin: auto;
   padding: clamp(18px, 5vw, 28px) !important;
   border-color: rgba(246, 47, 130, .18) !important;
   border-radius: 24px !important;
   background: #fff !important;
   color: var(--ops-ink, #211720) !important;
-  overflow: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -398,8 +404,30 @@
   line-height: 1;
 }
 
-.student-management__form { min-width: 0; }
-.student-management__form :is(input, select, textarea) { width: 100%; max-width: 100%; min-width: 0; }
+.student-management__form { min-width: 0; max-width: 100%; }
+.student-management__form > div { min-width: 0; max-width: 100%; }
+.student-management__form :is(input, select, textarea) {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.student-management__form input[type="date"] {
+  inline-size: 100%;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+.student-management__form input[type="date"]::-webkit-date-and-time-value {
+  min-width: 0;
+  text-align: left;
+}
+.student-management__form input[type="date"]::-webkit-calendar-picker-indicator {
+  flex: 0 0 auto;
+  margin: 0;
+}
 .student-management__two-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 .student-management__form-actions {
@@ -518,6 +546,9 @@
   display: grid;
   place-items: center;
   box-sizing: border-box;
+  width: 100%;
+  max-width: 100dvw;
+  overflow-x: hidden;
   padding: max(18px, env(safe-area-inset-top)) 18px max(92px, calc(80px + env(safe-area-inset-bottom)));
 }
 .student-package-modal__backdrop { position:absolute; inset:0; border:0; background:rgba(38,16,32,.5); backdrop-filter:blur(6px); }
@@ -525,7 +556,8 @@
   position:relative;
   width:min(100%, 640px);
   max-height:calc(100dvh - 112px);
-  overflow:auto;
+  overflow-x:hidden;
+  overflow-y:auto;
   box-sizing:border-box;
   padding:clamp(18px,4vw,28px);
   border:1px solid rgba(246,47,130,.2);
@@ -536,14 +568,18 @@
     linear-gradient(145deg,#fff,#fff6f8 62%,#fff3ea);
   box-shadow:0 28px 80px rgba(40,17,34,.28);
   -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;
 }
 .student-package-modal__title { margin:0 0 20px; color:#241724; font-size:clamp(1.25rem,4.8vw,1.6rem); line-height:1.16; }
-.student-package-modal__content,.student-package-modal__selected,.student-package-modal__custom,.student-package-modal__debt,.student-package-modal__installments { display:grid; gap:14px; }
+.student-package-modal__content,.student-package-modal__selected,.student-package-modal__custom,.student-package-modal__debt,.student-package-modal__installments { display:grid; min-width:0; max-width:100%; gap:14px; }
 .student-package-modal__custom { padding:14px; border:1px solid rgba(246,47,130,.16); border-radius:17px; background:rgba(255,255,255,.76); }
 .student-package-modal__field { display:grid; gap:6px; min-width:0; }
 .student-package-modal__field label { color:#4d3e4b; font-size:.78rem; font-weight:780; }
 .student-package-modal__field label small { color:#8d818b; font-weight:650; }
-.student-package-modal__input { width:100%; min-width:0; min-height:46px; box-sizing:border-box; padding:10px 12px; border:1px solid #efdae3; border-radius:13px; outline:0; color:#291827; background:#fff; font:inherit; font-size:.9rem; }
+.student-package-modal__input { display:block; width:100%; max-width:100%; min-width:0; min-height:46px; box-sizing:border-box; padding:10px 12px; border:1px solid #efdae3; border-radius:13px; outline:0; color:#291827; background:#fff; font:inherit; font-size:.9rem; }
+.student-package-modal__input[type="date"] { inline-size:100%; min-inline-size:0; max-inline-size:100%; overflow:hidden; font-variant-numeric:tabular-nums; }
+.student-package-modal__input[type="date"]::-webkit-date-and-time-value { min-width:0; text-align:left; }
+.student-package-modal__input[type="date"]::-webkit-calendar-picker-indicator { flex:0 0 auto; margin:0; }
 .student-package-modal__input:focus { border-color:#f62f82; box-shadow:0 0 0 3px rgba(246,47,130,.12); }
 .student-package-modal__input--disabled { color:#887b85; background:#fbf5f7; }
 .student-package-modal__two-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
@@ -563,7 +599,7 @@
 
 @media (max-width:640px) {
   .student-package-modal { align-items:end; padding:0 0 max(80px, env(safe-area-inset-bottom)); }
-  .student-package-modal__dialog { width:100%; max-height:calc(100dvh - 92px); padding:18px 16px; border-radius:24px 24px 0 0; }
+  .student-package-modal__dialog { width:100%; max-width:100dvw; max-height:calc(100dvh - 92px); padding:18px max(14px, env(safe-area-inset-right)) 18px max(14px, env(safe-area-inset-left)); border-radius:24px 24px 0 0; }
   .student-package-modal__two-columns,.student-package-modal__choices { grid-template-columns:minmax(0,1fr); }
   .student-package-modal__actions { bottom:-18px; grid-template-columns:minmax(0,1fr); }
 }
