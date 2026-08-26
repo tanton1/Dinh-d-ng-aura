@@ -405,7 +405,7 @@
 .eat-clean-dispatch-switch { display: inline-grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-bottom: 16px; padding: 4px; border-radius: 14px; background: #fff0f6; }
 .eat-clean-dispatch-switch button { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 14px; border-radius: 11px; color: var(--ec-muted); background: transparent; font-size: 11px; font-weight: 850; }
 .eat-clean-dispatch-switch button.active { color: var(--ec-green-dark); background: #fff; box-shadow: 0 5px 14px rgba(192, 37, 97, .10); }
-.eat-clean-readiness-grid { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+.eat-clean-readiness-grid { min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
 .eat-clean-readiness-grid article { min-width: 0; min-height: 64px; display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid var(--ec-line); border-radius: 14px; background: #fff; }
 .eat-clean-readiness-grid article > span { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border-radius: 11px; }
 .eat-clean-readiness-grid article > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -482,6 +482,7 @@
 @media (max-width: 900px) {
   .eat-clean-dispatch-grid { grid-template-columns: 1fr; }
   .eat-clean-driver-strip > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .eat-clean-readiness-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {

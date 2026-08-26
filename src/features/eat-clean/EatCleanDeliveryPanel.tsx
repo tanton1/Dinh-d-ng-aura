@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  AlertTriangle,
   BriefcaseBusiness,
   Check,
   Crosshair,
@@ -10,6 +11,7 @@ import {
   MapPin,
   Navigation,
   Plus,
+  RefreshCw,
   Search,
   Star,
   Trash2,
@@ -25,8 +27,11 @@ import {
 } from './eatCleanService'
 import {
   deliveryAddressFromPlace,
+  getGoogleMapsClientHealth,
   googleMapsConfigured,
+  googleMapsClientMessage,
   loadGoogleMaps,
+  loadGooglePlaces,
   placeFromAutocompleteEvent,
   reverseGeocodeCoordinate,
 } from './googleMapsLoader'
@@ -117,7 +122,6 @@ export function EatCleanDeliveryPanel({
   const [saveLabel, setSaveLabel] = useState('Nhà')
   const [saveDefault, setSaveDefault] = useState(false)
   const [message, setMessage] = useState('')
-  const searchRef = useRef<HTMLSpanElement>(null)
   const defaultAppliedRef = useRef(false)
   const latestAddressRef = useRef(address)
   const onContactChangeRef = useRef(onContactChange)
@@ -162,73 +166,6 @@ export function EatCleanDeliveryPanel({
       .finally(() => { if (active) setLoadingAddresses(false) })
     return () => { active = false }
   }, [ownerId])
-
-  useEffect(() => {
-    const host = searchRef.current
-    if (!host || !googleMapsConfigured()) return
-    let autocomplete: HTMLElement | undefined
-    let selectListener: ((event: Event) => void) | undefined
-    let errorListener: (() => void) | undefined
-    let active = true
-    void loadGoogleMaps()
-      .then(async (maps) => {
-        if (!active || !searchRef.current) return
-        if (!maps) throw new Error('Google Maps JavaScript API unavailable')
-        const { PlaceAutocompleteElement } = await maps.importLibrary('places')
-        if (!active || !searchRef.current) return
-        if (!PlaceAutocompleteElement) throw new Error('Google Places autocomplete unavailable')
-        const element = new PlaceAutocompleteElement({
-          includedRegionCodes: ['vn'],
-          locationBias: { radius: 30_000, center: { lat: DEFAULT_DA_NANG.latitude, lng: DEFAULT_DA_NANG.longitude } },
-        })
-        element.includedRegionCodes = ['vn']
-        element.locationBias = { radius: 30_000, center: { lat: DEFAULT_DA_NANG.latitude, lng: DEFAULT_DA_NANG.longitude } }
-        element.placeholder = 'Tìm tên đường, tòa nhà, địa điểm…'
-        selectListener = (event: Event) => {
-          const place = placeFromAutocompleteEvent(event)
-          if (!place?.fetchFields) {
-            setMessage('Chưa nhận được địa điểm đã chọn. Hãy thử lại hoặc nhập địa chỉ bên dưới.')
-            return
-          }
-          void place.fetchFields({ fields: ['id', 'formattedAddress', 'addressComponents', 'location'] })
-            .then(() => {
-              if (!active) return
-              const result = deliveryAddressFromPlace(place)
-              if (!result) {
-                setMessage('Địa điểm này chưa có tọa độ rõ ràng. Hãy chọn một gợi ý khác.')
-                return
-              }
-              const current = latestAddressRef.current
-              onAddressChangeRef.current({
-                ...current,
-                ...result,
-                districtId: districtIdFromGoogle(result.district, districtsRef.current, current.districtId),
-                savedAddressId: undefined,
-                label: undefined,
-              })
-              setMessage('Đã chọn địa chỉ Google và ghim đúng vị trí.')
-              element.blur()
-              if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
-              window.requestAnimationFrame(() => setMapMode('manual'))
-            })
-            .catch(() => { if (active) setMessage('Chưa lấy được chi tiết địa chỉ. Hãy chọn lại một gợi ý Google Maps.') })
-        }
-        errorListener = () => {
-          if (active) setMessage('Tìm kiếm Google Maps đang quá tải. Hãy thử lại sau hoặc dùng Vị trí hiện tại / Chọn trên bản đồ.')
-        }
-        element.addEventListener('gmp-select', selectListener)
-        element.addEventListener('gmp-error', errorListener)
-        autocomplete = element
-        searchRef.current.replaceChildren(element)
-      })
-      .catch(() => { if (active) setMessage('Tìm kiếm Google Maps chưa sẵn sàng. Bạn có thể nhập địa chỉ thủ công.') })
-    return () => {
-      active = false
-      if (autocomplete && selectListener) autocomplete.removeEventListener('gmp-select', selectListener)
-      if (autocomplete && errorListener) autocomplete.removeEventListener('gmp-error', errorListener)
-      autocomplete?.remove()
-    }
-  }, [])
 
   const selectAddress = (saved: EatCleanSavedAddress) => {
     onContactChange(saved.contact)
@@ -335,7 +272,7 @@ export function EatCleanDeliveryPanel({
         <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setMapMode('manual') }}><Map size={18} /><span><strong>Chọn trên bản đồ</strong><small>{googleMapsConfigured() ? 'Kéo ghim đến cửa nhận hàng' : 'Nhập tay khi Maps chưa cấu hình'}</small></span></button>
       </div>
 
-      <div className="eat-clean-map-search"><Search size={18} />{googleMapsConfigured() ? <span ref={searchRef} className="eat-clean-map-search__host" /> : <input value="" placeholder="Google Maps chưa cấu hình — nhập địa chỉ bên dưới" disabled readOnly />}</div>
+      {!googleMapsConfigured() && <div className="eat-clean-maps-fallback-note"><AlertTriangle size={18} /><span><strong>Tìm kiếm bản đồ chưa được cấu hình</strong><small>Bạn vẫn có thể nhập địa chỉ bên dưới hoặc dùng GPS để ghim tọa độ.</small></span><button type="button" onClick={() => setMapMode('manual')}>Kiểm tra</button></div>}
 
       <div className="eat-clean-form-grid">
         <label><span>Họ và tên</span><input value={contact.fullName} onChange={(event) => onContactChange({ ...contact, fullName: event.target.value })} autoComplete="name" /></label>
@@ -371,7 +308,9 @@ export function EatCleanDeliveryPanel({
 }
 
 function AddressMapPicker({ address, districts, locateOnOpen, onChange, onClose }: { address: EatCleanDeliveryAddress; districts: EatCleanDistrict[]; locateOnOpen: boolean; onChange: (value: EatCleanDeliveryAddress) => void; onClose: () => void }) {
+  const sheetRef = useRef<HTMLElement>(null)
   const mapElement = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLSpanElement>(null)
   const mapRef = useRef<{ panTo: (position: { lat: number; lng: number }) => void; setZoom: (zoom: number) => void } | null>(null)
   const markerRef = useRef<{ setPosition: (position: { lat: number; lng: number }) => void; setMap: (map: unknown) => void } | null>(null)
   const autoLocateRequestedRef = useRef(false)
@@ -379,16 +318,29 @@ function AddressMapPicker({ address, districts, locateOnOpen, onChange, onClose 
   const [coordinate, setCoordinate] = useState<EatCleanCoordinate>(() => initialCoordinate ?? DEFAULT_DA_NANG)
   const coordinateRef = useRef(coordinate)
   const [pointConfirmed, setPointConfirmed] = useState(Boolean(initialCoordinate) && !locateOnOpen)
+  const [selectedDetails, setSelectedDetails] = useState<Partial<EatCleanDeliveryAddress> | null>(() => address.addressLine ? {
+    addressLine: address.addressLine,
+    formattedAddress: address.formattedAddress,
+    ward: address.ward,
+    district: address.district,
+    city: address.city,
+    placeId: address.placeId,
+  } : null)
   const [mapsReady, setMapsReady] = useState<boolean | null>(null)
+  const [searchReady, setSearchReady] = useState(false)
+  const [searchIssue, setSearchIssue] = useState('')
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [resolving, setResolving] = useState(false)
   const [locating, setLocating] = useState(false)
   const [mapMessage, setMapMessage] = useState(locateOnOpen ? 'Đang xin quyền truy cập vị trí…' : '')
+  const [clientHealth, setClientHealth] = useState(getGoogleMapsClientHealth)
   const canUseMaps = googleMapsConfigured()
   coordinateRef.current = coordinate
 
-  const selectCoordinate = (next: EatCleanCoordinate) => {
+  const selectCoordinate = (next: EatCleanCoordinate, details: Partial<EatCleanDeliveryAddress> | null = null) => {
     coordinateRef.current = next
     setCoordinate(next)
+    setSelectedDetails(details)
     setPointConfirmed(true)
     const position = { lat: next.latitude, lng: next.longitude }
     markerRef.current?.setPosition(position)
@@ -398,7 +350,7 @@ function AddressMapPicker({ address, districts, locateOnOpen, onChange, onClose 
 
   const locateCurrent = () => {
     if (!navigator.geolocation) {
-      setMapMessage('Trình duyệt không hỗ trợ định vị. Hãy chạm vào bản đồ để chọn điểm nhận hàng.')
+      setMapMessage('Trình duyệt không hỗ trợ định vị. Hãy nhập địa chỉ thủ công để tiếp tục.')
       return
     }
     setLocating(true)
@@ -411,20 +363,38 @@ function AddressMapPicker({ address, districts, locateOnOpen, onChange, onClose 
       },
       () => {
         setLocating(false)
-        setMapMessage('Không lấy được vị trí. Hãy bật quyền định vị hoặc chạm trực tiếp vào bản đồ.')
+        setMapMessage('Không lấy được vị trí. Hãy bật quyền định vị hoặc nhập địa chỉ thủ công.')
       },
       { enableHighAccuracy: true, timeout: 12_000, maximumAge: 60_000 },
     )
   }
 
+  const retryLoad = () => {
+    setMapsReady(null)
+    setSearchReady(false)
+    setSearchIssue('')
+    setMapMessage('Đang thử tải lại Google Maps…')
+    setLoadAttempt((current) => current + 1)
+  }
+
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
+    const visualViewport = window.visualViewport
+    const syncViewportHeight = () => {
+      const viewportHeight = Math.round(visualViewport?.height ?? window.innerHeight)
+      sheetRef.current?.style.setProperty('--eat-clean-map-viewport-height', `${viewportHeight}px`)
+    }
     const handleKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    syncViewportHeight()
     window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('resize', syncViewportHeight)
+    visualViewport?.addEventListener('resize', syncViewportHeight)
     return () => {
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('resize', syncViewportHeight)
+      visualViewport?.removeEventListener('resize', syncViewportHeight)
     }
   }, [onClose])
 
@@ -442,10 +412,13 @@ function AddressMapPicker({ address, districts, locateOnOpen, onChange, onClose 
     let marker: { setMap: (map: unknown) => void } | undefined
     let markerListener: { remove: () => void } | undefined
     let mapListener: { remove: () => void } | undefined
-    void loadGoogleMaps().then((maps) => {
+    setMapsReady(null)
+    void loadGoogleMaps({ retry: loadAttempt > 0 }).then((maps) => {
       if (!active) return
+      setClientHealth(getGoogleMapsClientHealth())
       setMapsReady(Boolean(maps))
       if (!maps || !mapElement.current) return
+      mapElement.current.replaceChildren()
       const currentCoordinate = coordinateRef.current
       const center = { lat: currentCoordinate.latitude, lng: currentCoordinate.longitude }
       const map = new maps.Map(mapElement.current, { center, zoom: 16, mapTypeControl: false, streetViewControl: false, fullscreenControl: false, clickableIcons: false, gestureHandling: 'greedy' })
@@ -455,12 +428,15 @@ function AddressMapPicker({ address, districts, locateOnOpen, onChange, onClose 
       markerRef.current = nextMarker
       markerListener = nextMarker.addListener('dragend', () => {
         const position = nextMarker.getPosition()
-        if (position) selectCoordinate({ latitude: position.lat(), longitude: position.lng() })
+        if (position) {
+          selectCoordinate({ latitude: position.lat(), longitude: position.lng() })
+          setMapMessage('Đã cập nhật điểm ghim. Bấm xác nhận để lấy địa chỉ mới.')
+        }
       })
       mapListener = map.addListener('click', (event) => {
         if (!event.latLng) return
-        const next = { latitude: event.latLng.lat(), longitude: event.latLng.lng() }
-        selectCoordinate(next)
+        selectCoordinate({ latitude: event.latLng.lat(), longitude: event.latLng.lng() })
+        setMapMessage('Đã chọn điểm trên bản đồ. Bấm xác nhận để lấy địa chỉ.')
       })
     })
     return () => {
@@ -471,15 +447,90 @@ function AddressMapPicker({ address, districts, locateOnOpen, onChange, onClose 
       mapRef.current = null
       markerRef.current = null
     }
-    // Bản đồ chỉ cần khởi tạo một lần cho mỗi lần mở sheet.
+    // Khởi tạo lại khi người dùng chủ động thử tải lại.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [loadAttempt])
+
+  useEffect(() => {
+    const host = searchRef.current
+    if (!host || !canUseMaps) {
+      setSearchIssue(googleMapsClientMessage(getGoogleMapsClientHealth()))
+      return
+    }
+    host.replaceChildren()
+    let autocomplete: HTMLElement | undefined
+    let selectListener: ((event: Event) => void) | undefined
+    let errorListener: (() => void) | undefined
+    let active = true
+    setSearchReady(false)
+    void loadGooglePlaces()
+      .then((places) => {
+        if (!active || !searchRef.current) return
+        setClientHealth(getGoogleMapsClientHealth())
+        if (!places?.PlaceAutocompleteElement) {
+          setSearchIssue(googleMapsClientMessage(getGoogleMapsClientHealth()))
+          return
+        }
+        const element = new places.PlaceAutocompleteElement({
+          includedRegionCodes: ['vn'],
+          locationBias: { radius: 30_000, center: { lat: DEFAULT_DA_NANG.latitude, lng: DEFAULT_DA_NANG.longitude } },
+        })
+        element.includedRegionCodes = ['vn']
+        element.locationBias = { radius: 30_000, center: { lat: DEFAULT_DA_NANG.latitude, lng: DEFAULT_DA_NANG.longitude } }
+        element.placeholder = 'Tìm số nhà, tên đường hoặc địa điểm…'
+        selectListener = (event: Event) => {
+          const place = placeFromAutocompleteEvent(event)
+          if (!place?.fetchFields) {
+            setSearchIssue('Không đọc được địa điểm đã chọn. Hãy thử một gợi ý khác.')
+            return
+          }
+          void place.fetchFields({ fields: ['id', 'formattedAddress', 'addressComponents', 'location'] })
+            .then(() => {
+              if (!active) return
+              const result = deliveryAddressFromPlace(place)
+              const latitude = Number(result?.latitude)
+              const longitude = Number(result?.longitude)
+              if (!result || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+                setSearchIssue('Địa điểm này chưa có tọa độ rõ ràng. Hãy chọn một gợi ý khác.')
+                return
+              }
+              selectCoordinate({ latitude, longitude }, result)
+              setMapMessage('Đã tìm thấy địa chỉ. Kiểm tra ghim rồi bấm xác nhận.')
+              setSearchIssue('')
+              element.blur()
+              if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+            })
+            .catch(() => { if (active) setSearchIssue('Chưa lấy được chi tiết địa chỉ. Hãy chọn lại một gợi ý Google Maps.') })
+        }
+        errorListener = () => { if (active) setSearchIssue('Google Places đang gián đoạn. Bạn có thể dùng GPS hoặc nhập tay.') }
+        element.addEventListener('gmp-select', selectListener)
+        element.addEventListener('gmp-error', errorListener)
+        autocomplete = element
+        searchRef.current.replaceChildren(element)
+        setSearchReady(true)
+        setSearchIssue('')
+      })
+      .catch(() => {
+        if (!active) return
+        setClientHealth(getGoogleMapsClientHealth())
+        setSearchIssue(googleMapsClientMessage(getGoogleMapsClientHealth()))
+      })
+    return () => {
+      active = false
+      if (autocomplete && selectListener) autocomplete.removeEventListener('gmp-select', selectListener)
+      if (autocomplete && errorListener) autocomplete.removeEventListener('gmp-error', errorListener)
+      autocomplete?.remove()
+    }
+    // Places dùng chung lần retry với bản đồ.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canUseMaps, loadAttempt])
 
   const confirm = async () => {
     if (!pointConfirmed) return
     setResolving(true)
     try {
-      const details = await reverseGeocodeCoordinate(coordinate)
+      const geocodedDetails = await reverseGeocodeCoordinate(coordinate)
+      const details = geocodedDetails ?? selectedDetails
       onChange({
         ...address,
         ...details,
@@ -488,31 +539,49 @@ function AddressMapPicker({ address, districts, locateOnOpen, onChange, onClose 
         savedAddressId: undefined,
         label: undefined,
       })
-      onClose()
-    } finally {
       setResolving(false)
+      onClose()
+    } catch {
+      setResolving(false)
+      setMapMessage('Không đọc được địa chỉ từ điểm ghim. Tọa độ vẫn được giữ để bạn nhập địa chỉ thủ công.')
     }
   }
 
+  const previewTitle = selectedDetails?.addressLine || address.addressLine || (pointConfirmed ? 'Đã chọn tọa độ nhận hàng' : 'Chưa chọn điểm nhận hàng')
+  const previewSubtitle = selectedDetails?.formattedAddress || [selectedDetails?.ward, selectedDetails?.district, selectedDetails?.city].filter(Boolean).join(', ') || `${coordinate.latitude.toFixed(6)}, ${coordinate.longitude.toFixed(6)}`
+  const mapUnavailable = !canUseMaps || mapsReady === false
+
   return (
     <div className="eat-clean-sheet-backdrop" role="presentation">
-      <section className="eat-clean-sheet eat-clean-map-sheet" role="dialog" aria-modal="true" aria-label="Chọn vị trí nhận hàng">
-        <header><div><small>ĐIỂM NHẬN HÀNG</small><h2>Ghim đúng cửa giao món</h2></div><button type="button" onClick={onClose} aria-label="Đóng"><X size={20} /></button></header>
+      <section ref={sheetRef} className="eat-clean-sheet eat-clean-map-sheet" role="dialog" aria-modal="true" aria-label="Chọn vị trí nhận hàng">
+        <header><div><small>ĐỊA CHỈ NHẬN HÀNG</small><h2>Tìm và kiểm tra điểm giao</h2></div><button type="button" onClick={onClose} aria-label="Đóng"><X size={20} /></button></header>
         <div className="eat-clean-map-sheet__body">
+          <div className={`eat-clean-map-sheet-search ${searchReady ? 'is-ready' : 'is-pending'}`}>
+            <Search size={19} />
+            {canUseMaps ? <span ref={searchRef} className="eat-clean-map-search__host" /> : <input value="" placeholder="Tìm kiếm Google Maps chưa được cấu hình" disabled readOnly />}
+            {canUseMaps && !searchReady && <span className="eat-clean-map-search-status">{searchIssue || 'Đang mở tìm kiếm địa chỉ…'}</span>}
+          </div>
+          {searchIssue && searchReady && <p className="eat-clean-map-search-error" role="status"><AlertTriangle size={15} /><span>{searchIssue}</span><button type="button" onClick={retryLoad}><RefreshCw size={14} /> Thử lại</button></p>}
+
           <div className="eat-clean-map-picker-actions">
-            <span><strong>Chạm hoặc kéo ghim</strong><small>Bản đồ sẽ giữ mức zoom vừa đủ để bạn kiểm tra khu vực xung quanh.</small></span>
+            <span><strong>Chạm hoặc kéo ghim</strong><small>Chọn đúng cửa nhận hàng để shipper dễ tìm.</small></span>
             <button type="button" onClick={locateCurrent} disabled={locating}>{locating ? <LoaderCircle className="eat-clean-spin" size={17} /> : <LocateFixed size={17} />} Vị trí hiện tại</button>
           </div>
-          <div className={`eat-clean-map-canvas ${!canUseMaps || mapsReady === false ? 'is-fallback' : ''}`}>
+
+          <div className={`eat-clean-map-canvas ${mapUnavailable ? 'is-fallback' : ''}`}>
             <div ref={mapElement} className="eat-clean-map-surface" />
-            {(!canUseMaps || mapsReady === false) && <div className="eat-clean-map-placeholder"><MapPin size={29} /><strong>Google Maps chưa sẵn sàng</strong><span>Bạn vẫn có thể nhập địa chỉ thủ công. Tọa độ GPS sẽ được giữ nếu đã định vị.</span></div>}
-            {mapsReady === null && canUseMaps && <div className="eat-clean-map-placeholder"><LoaderCircle className="eat-clean-spin" size={25} /><span>Đang tải bản đồ…</span></div>}
+            {mapsReady === null && canUseMaps && <div className="eat-clean-map-placeholder"><LoaderCircle className="eat-clean-spin" size={25} /><strong>Đang tải Google Maps</strong><span>Quá trình này có thể mất vài giây trên mạng di động.</span></div>}
+            {mapUnavailable && <div className="eat-clean-map-placeholder"><AlertTriangle size={29} /><strong>Bản đồ chưa sẵn sàng</strong><span>{googleMapsClientMessage(clientHealth)} Bạn vẫn có thể dùng GPS hoặc nhập địa chỉ thủ công.</span><div className="eat-clean-map-placeholder__actions">{canUseMaps && <button type="button" onClick={retryLoad}><RefreshCw size={15} /> Thử tải lại</button>}<button type="button" onClick={onClose}>Nhập địa chỉ thủ công</button></div></div>}
           </div>
-          <p className="eat-clean-map-coordinate"><Crosshair size={16} /> {coordinate.latitude.toFixed(6)}, {coordinate.longitude.toFixed(6)}</p>
+
+          <div className={`eat-clean-map-selection ${pointConfirmed ? 'is-ready' : ''}`}>
+            <MapPin size={20} />
+            <span><small>ĐỊA CHỈ ĐANG CHỌN</small><strong>{previewTitle}</strong><em>{previewSubtitle}</em></span>
+          </div>
           {mapMessage && <p className="eat-clean-inline-message" role="status">{mapMessage}</p>}
-          {!pointConfirmed && !mapMessage && <p className="eat-clean-inline-message">Hãy chạm vào bản đồ, kéo ghim hoặc dùng “Vị trí hiện tại” trước khi xác nhận.</p>}
+          {!pointConfirmed && !mapMessage && <p className="eat-clean-inline-message">Tìm địa chỉ, chạm vào bản đồ hoặc dùng “Vị trí hiện tại” trước khi xác nhận.</p>}
         </div>
-        <footer className="eat-clean-map-sheet__footer"><button type="button" className="eat-clean-button eat-clean-button--primary" onClick={() => void confirm()} disabled={resolving || !pointConfirmed}>{resolving ? <LoaderCircle className="eat-clean-spin" size={18} /> : <MapPin size={18} />} Xác nhận điểm này</button></footer>
+        <footer className="eat-clean-map-sheet__footer"><button type="button" className="eat-clean-button eat-clean-button--secondary" onClick={onClose}>Nhập tay</button><button type="button" className="eat-clean-button eat-clean-button--primary" onClick={() => void confirm()} disabled={resolving || !pointConfirmed}>{resolving ? <LoaderCircle className="eat-clean-spin" size={18} /> : <Check size={18} />} Xác nhận địa chỉ này</button></footer>
       </section>
     </div>
   )

@@ -1,3 +1,4 @@
+import { importLibrary as importGoogleLibrary, setOptions } from '@googlemaps/js-api-loader'
 import type { EatCleanCoordinate, EatCleanDeliveryAddress } from './types'
 
 type MapsListener = { remove: () => void }
@@ -33,9 +34,6 @@ interface AuraPlacePredictionSelectEvent extends Event {
 }
 
 export interface AuraGoogleMapsApi {
-  importLibrary: (library: 'places') => Promise<{
-    PlaceAutocompleteElement: new (options?: Record<string, unknown>) => AuraPlaceAutocompleteElement
-  }>
   Map: new (element: HTMLElement, options: Record<string, unknown>) => {
     addListener: (event: string, callback: (event: { latLng?: { lat: () => number; lng: () => number } }) => void) => MapsListener
     panTo: (position: { lat: number; lng: number }) => void
@@ -55,48 +53,151 @@ export interface AuraGoogleMapsApi {
   }
 }
 
+export type GoogleMapsClientStatus =
+  | 'idle'
+  | 'loading'
+  | 'ready'
+  | 'config-missing'
+  | 'auth-failed'
+  | 'network-error'
+  | 'api-error'
+  | 'places-unavailable'
+
+export interface GoogleMapsClientHealth {
+  status: GoogleMapsClientStatus
+  configured: boolean
+  errorCode?: string
+  detail?: string
+}
+
 declare global {
   interface Window {
     google?: { maps?: AuraGoogleMapsApi }
-    __auraGoogleMapsReady?: () => void
+    gm_authFailure?: () => void
   }
 }
 
 let mapsPromise: Promise<AuraGoogleMapsApi | null> | null = null
+let placesPromise: Promise<{ PlaceAutocompleteElement: new (options?: Record<string, unknown>) => AuraPlaceAutocompleteElement } | null> | null = null
+let loaderConfigured = false
+let authFailureHookInstalled = false
+let clientHealth: GoogleMapsClientHealth = {
+  status: googleMapsConfigured() ? 'idle' : 'config-missing',
+  configured: googleMapsConfigured(),
+}
 
 export function googleMapsConfigured() {
   return Boolean(import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim())
 }
 
-export function loadGoogleMaps(): Promise<AuraGoogleMapsApi | null> {
-  if (window.google?.maps) return Promise.resolve(window.google.maps)
+export function getGoogleMapsClientHealth(): GoogleMapsClientHealth {
+  return { ...clientHealth }
+}
+
+export function googleMapsClientMessage(health = clientHealth) {
+  switch (health.status) {
+    case 'config-missing': return 'Thiếu VITE_GOOGLE_MAPS_API_KEY trong bản build frontend.'
+    case 'auth-failed': return 'Google Maps từ chối API key. Hãy kiểm tra billing và HTTP referrer.'
+    case 'places-unavailable': return 'Bản đồ đã tải nhưng Places API (New) chưa sẵn sàng.'
+    case 'network-error': return 'Không kết nối được tới Google Maps. Hãy kiểm tra mạng rồi thử lại.'
+    case 'api-error': return 'Google Maps chưa khởi tạo được. Hãy kiểm tra API đã bật và restriction của key.'
+    case 'loading': return 'Đang tải Google Maps…'
+    case 'ready': return 'Google Maps và tìm kiếm địa chỉ đã sẵn sàng.'
+    default: return 'Google Maps chưa được khởi tạo.'
+  }
+}
+
+function setClientHealth(status: GoogleMapsClientStatus, detail?: string, errorCode?: string) {
+  clientHealth = { status, configured: googleMapsConfigured(), detail, errorCode }
+}
+
+function configureGoogleMapsLoader() {
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim()
-  if (!apiKey) return Promise.resolve(null)
+  if (!apiKey) {
+    setClientHealth('config-missing', 'VITE_GOOGLE_MAPS_API_KEY is empty', 'CONFIG_MISSING')
+    return false
+  }
+  if (!authFailureHookInstalled) {
+    authFailureHookInstalled = true
+    const previousAuthFailure = window.gm_authFailure
+    window.gm_authFailure = () => {
+      setClientHealth('auth-failed', 'gm_authFailure', 'AUTH_FAILED')
+      previousAuthFailure?.()
+    }
+  }
+  if (!loaderConfigured) {
+    setOptions({ key: apiKey, v: 'weekly', language: 'vi', region: 'VN', authReferrerPolicy: 'origin' })
+    loaderConfigured = true
+  }
+  return true
+}
+
+function timeout<T>(promise: Promise<T>, durationMs: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => window.setTimeout(() => reject(new Error('GOOGLE_MAPS_TIMEOUT')), durationMs)),
+  ])
+}
+
+function classifyLoadError(error: unknown) {
+  const detail = error instanceof Error ? error.message : String(error)
+  if (clientHealth.status === 'auth-failed') return
+  if (/timeout|could not load|network|fetch/i.test(detail)) setClientHealth('network-error', detail, 'NETWORK_ERROR')
+  else setClientHealth('api-error', detail, 'API_ERROR')
+}
+
+export function loadGoogleMaps(options: { retry?: boolean } = {}): Promise<AuraGoogleMapsApi | null> {
+  if (!configureGoogleMapsLoader()) return Promise.resolve(null)
+  if (clientHealth.status === 'auth-failed') return Promise.resolve(null)
+  if (window.google?.maps?.Map && window.google.maps.Geocoder) {
+    setClientHealth('ready')
+    return Promise.resolve(window.google.maps)
+  }
+  if (options.retry) mapsPromise = null
   if (mapsPromise) return mapsPromise
 
-  mapsPromise = new Promise((resolve) => {
-    const callbackName = '__auraGoogleMapsReady'
-    const existing = document.querySelector<HTMLScriptElement>('script[data-aura-google-maps]')
-    const finish = () => resolve(window.google?.maps ?? null)
-    window[callbackName] = finish
-
-    if (existing) {
-      existing.addEventListener('load', finish, { once: true })
-      existing.addEventListener('error', () => resolve(null), { once: true })
-      window.setTimeout(finish, 8_000)
-      return
-    }
-
-    const script = document.createElement('script')
-    script.dataset.auraGoogleMaps = 'true'
-    script.async = true
-    script.defer = true
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&loading=async&language=vi&region=VN&callback=${callbackName}`
-    script.addEventListener('error', () => resolve(null), { once: true })
-    document.head.appendChild(script)
-    window.setTimeout(finish, 10_000)
-  })
+  setClientHealth('loading')
+  mapsPromise = timeout(Promise.all([
+    importGoogleLibrary('maps'),
+    importGoogleLibrary('marker'),
+    importGoogleLibrary('geocoding'),
+  ]), 12_000)
+    .then(() => {
+      if (clientHealth.status === 'auth-failed') return null
+      const maps = window.google?.maps ?? null
+      if (!maps?.Map || !maps.Geocoder) throw new Error('GOOGLE_MAPS_NAMESPACE_INCOMPLETE')
+      setClientHealth('ready')
+      return maps
+    })
+    .catch((error) => {
+      classifyLoadError(error)
+      mapsPromise = null
+      return null
+    })
   return mapsPromise
+}
+
+export function loadGooglePlaces(options: { retry?: boolean } = {}) {
+  if (!configureGoogleMapsLoader()) return Promise.resolve(null)
+  if (options.retry) placesPromise = null
+  if (placesPromise) return placesPromise
+  placesPromise = loadGoogleMaps(options)
+    .then(async (maps) => {
+      if (!maps) return null
+      setClientHealth('loading')
+      const places = await timeout(importGoogleLibrary('places'), 12_000)
+      const typedPlaces = places as unknown as { PlaceAutocompleteElement: new (options?: Record<string, unknown>) => AuraPlaceAutocompleteElement }
+      if (!typedPlaces.PlaceAutocompleteElement) throw new Error('PLACE_AUTOCOMPLETE_UNAVAILABLE')
+      setClientHealth('ready')
+      return typedPlaces
+    })
+    .catch((error) => {
+      const detail = error instanceof Error ? error.message : String(error)
+      if (clientHealth.status !== 'auth-failed') setClientHealth('places-unavailable', detail, 'PLACES_UNAVAILABLE')
+      placesPromise = null
+      return null
+    })
+  return placesPromise
 }
 
 function component(place: AuraGooglePlace, ...types: string[]) {

@@ -25,8 +25,15 @@ import {
   type EatCleanDeliveryOperationsConfig,
   type EatCleanDispatchSnapshot,
 } from '../../../delivery/types'
+import {
+  getGoogleMapsClientHealth,
+  googleMapsClientMessage,
+  googleMapsConfigured,
+  loadGooglePlaces,
+} from '../../googleMapsLoader'
 
 type DispatchSection = 'live' | 'settings'
+type ClientMapsProbe = { status: 'checking' | 'ready' | 'missing' | 'error'; message: string }
 
 function time(value?: string) {
   if (!value) return '—'
@@ -92,6 +99,9 @@ export function EatCleanDispatchTab() {
   const [assigningJob, setAssigningJob] = useState<EatCleanDeliveryJob | null>(null)
   const [shipperId, setShipperId] = useState('')
   const [saving, setSaving] = useState(false)
+  const [clientMapsProbe, setClientMapsProbe] = useState<ClientMapsProbe>(() => googleMapsConfigured()
+    ? { status: 'checking', message: 'Đang kiểm tra Maps và Places trên trình duyệt…' }
+    : { status: 'missing', message: 'Thiếu VITE_GOOGLE_MAPS_API_KEY trong bản build frontend' })
 
   const load = useCallback(async (background = false) => {
     background ? setRefreshing(true) : setLoading(true)
@@ -113,6 +123,19 @@ export function EatCleanDispatchTab() {
     const timer = window.setInterval(() => void load(true), 30_000)
     return () => window.clearInterval(timer)
   }, [load])
+
+  useEffect(() => {
+    if (!googleMapsConfigured()) return
+    let active = true
+    void loadGooglePlaces().then((places) => {
+      if (!active) return
+      const health = getGoogleMapsClientHealth()
+      setClientMapsProbe(places?.PlaceAutocompleteElement
+        ? { status: 'ready', message: 'Maps JavaScript và Places Search sẵn sàng' }
+        : { status: 'error', message: googleMapsClientMessage(health) })
+    })
+    return () => { active = false }
+  }, [])
 
   const activeJobs = useMemo(() => snapshot?.jobs.filter((job) => !['completed', 'cancelled'].includes(job.status)) ?? [], [snapshot?.jobs])
   const unassignedJobs = activeJobs.filter((job) => job.canAssign)
@@ -197,7 +220,8 @@ export function EatCleanDispatchTab() {
       {!loading && snapshot && (
         <>
           <div className="eat-clean-readiness-grid" aria-label="Tình trạng hạ tầng giao hàng">
-            <article className={distancePricingReady ? 'is-ready' : mapsReady ? 'is-warning' : 'needs-setup'}><span>{distancePricingReady ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}</span><div><strong>Google Maps</strong><small>{distancePricingReady ? 'API và tọa độ bếp sẵn sàng' : mapsReady ? 'API sẵn sàng · chưa có tọa độ bếp' : 'Thiếu GOOGLE_MAPS_API_KEY'}</small></div></article>
+            <article className={clientMapsProbe.status === 'ready' ? 'is-ready' : clientMapsProbe.status === 'checking' ? 'is-warning' : 'needs-setup'}><span>{clientMapsProbe.status === 'ready' ? <CheckCircle2 size={18} /> : clientMapsProbe.status === 'checking' ? <RefreshCw size={18} className="is-spinning" /> : <AlertTriangle size={18} />}</span><div><strong>Maps & Search</strong><small>{clientMapsProbe.message}</small></div></article>
+            <article className={distancePricingReady ? 'is-ready' : mapsReady ? 'is-warning' : 'needs-setup'}><span>{distancePricingReady ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}</span><div><strong>Routes backend</strong><small>{distancePricingReady ? 'Key server và tọa độ bếp sẵn sàng' : mapsReady ? 'Key server có sẵn · chưa có tọa độ bếp' : 'Thiếu GOOGLE_MAPS_API_KEY phía máy chủ'}</small></div></article>
             <article className={otpReady ? 'is-ready' : 'needs-setup'}><span>{otpReady ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}</span><div><strong>OTP giao hàng</strong><small>{otpReady ? 'Có thể gán và hoàn tất đơn' : 'Thiếu DELIVERY_OTP_SECRET · khóa gán shipper'}</small></div></article>
             <article className={realtimeReady && !operationalSignals.gpsReadWarning ? 'is-ready' : 'is-warning'}><span>{realtimeReady && !operationalSignals.gpsReadWarning ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}</span><div><strong>GPS realtime</strong><small>{operationalSignals.gpsReadWarning ? 'Đang gián đoạn đọc GPS · kiểm tra RTDB' : realtimeReady ? 'Theo dõi vị trí đã sẵn sàng' : 'Chưa có Realtime Database · vẫn gán đơn được'}</small></div></article>
           </div>
