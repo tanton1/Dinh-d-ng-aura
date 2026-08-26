@@ -1,35 +1,30 @@
 import { Component, lazy, type ComponentType, type ReactNode } from 'react'
 import { reportClientIssue } from '../services/clientTelemetryService'
+import {
+  clearStaleReleaseRecoveryMarker,
+  isStaleReleaseError,
+  recoverFromStaleRelease,
+} from '../utils/appReleaseRecovery'
 
 export function lazyWithRetry<T extends ComponentType<any>>(
   factory: () => Promise<{ default: T }>,
 ) {
   return lazy(async () => {
-    let pageHasBeenRefreshed = false
-    try {
-      pageHasBeenRefreshed = sessionStorage.getItem('aura_page_refreshed_for_chunk') === 'true'
-    } catch {
-      // Continue without session storage.
-    }
-
     try {
       const component = await factory()
-      try { sessionStorage.removeItem('aura_page_refreshed_for_chunk') } catch {}
+      clearStaleReleaseRecoveryMarker()
       return component
     } catch {
       try {
         await new Promise((resolve) => setTimeout(resolve, 500))
         const retryComponent = await factory()
-        try { sessionStorage.removeItem('aura_page_refreshed_for_chunk') } catch {}
+        clearStaleReleaseRecoveryMarker()
         return retryComponent
       } catch (error) {
         reportClientIssue('ui', error, { phase: 'lazy_chunk_load', retryable: true })
-        if (!pageHasBeenRefreshed) {
-          try { sessionStorage.setItem('aura_page_refreshed_for_chunk', 'true') } catch {}
-          window.location.reload()
+        if (isStaleReleaseError(error) && await recoverFromStaleRelease()) {
           return new Promise<{ default: T }>(() => {})
         }
-        try { sessionStorage.removeItem('aura_page_refreshed_for_chunk') } catch {}
         throw error
       }
     }
@@ -39,28 +34,45 @@ export function lazyWithRetry<T extends ComponentType<any>>(
 interface ChunkErrorBoundaryState {
   hasError: boolean
   error: Error | null
+  recovering: boolean
 }
 
 export default class ChunkErrorBoundary extends Component<{ children: ReactNode }, ChunkErrorBoundaryState> {
-  state: ChunkErrorBoundaryState = { hasError: false, error: null }
+  state: ChunkErrorBoundaryState = { hasError: false, error: null, recovering: false }
 
   static getDerivedStateFromError(error: Error): ChunkErrorBoundaryState {
-    return { hasError: true, error }
+    return { hasError: true, error, recovering: false }
   }
 
   componentDidCatch(error: Error) {
     reportClientIssue('ui', error, { phase: 'chunk_error_boundary', retryable: true })
   }
 
+  recover = async () => {
+    this.setState({ recovering: true })
+    if (isStaleReleaseError(this.state.error)) {
+      await recoverFromStaleRelease({ force: true })
+      return
+    }
+    window.location.reload()
+  }
+
   render() {
     if (!this.state.hasError) return this.props.children
+    const staleRelease = isStaleReleaseError(this.state.error)
     return (
       <div className="course-detail-state" role="alert" style={{ padding: '40px 20px', textAlign: 'center' }}>
         <span className="brand-mark compact" aria-hidden="true">A<span /></span>
-        <h1 style={{ fontSize: '20px', margin: '16px 0 8px' }}>Giao diện đang được cập nhật</h1>
-        <p style={{ color: '#666', marginBottom: '20px' }}>Một số tập tin vừa được đổi mới. Vui lòng tải lại ứng dụng.</p>
-        <button type="button" className="primary-button" onClick={() => window.location.reload()}>
-          Tải lại ứng dụng
+        <h1 style={{ fontSize: '20px', margin: '16px 0 8px' }}>
+          {staleRelease ? 'Aura đang hoàn tất cập nhật' : 'Trang chưa thể hiển thị'}
+        </h1>
+        <p style={{ color: '#666', marginBottom: '20px' }}>
+          {staleRelease
+            ? 'Ứng dụng sẽ tải lại bộ giao diện mới nhất và giữ nguyên phiên đăng nhập của bạn.'
+            : 'Dữ liệu của bạn vẫn an toàn. Hãy tải lại trang để thử kết nối lần nữa.'}
+        </p>
+        <button type="button" className="primary-button" onClick={() => void this.recover()} disabled={this.state.recovering}>
+          {this.state.recovering ? 'Đang làm mới…' : 'Tải lại trang'}
         </button>
       </div>
     )

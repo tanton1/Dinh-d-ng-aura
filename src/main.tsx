@@ -3,10 +3,16 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { GlobalErrorBoundary } from './GlobalErrorBoundary'
 import { initializeClientTelemetry } from './services/clientTelemetryService'
+import { recoverFromStaleRelease } from './utils/appReleaseRecovery'
 import './styles.css'
 import './styles-aura.css'
 
 initializeClientTelemetry()
+
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault()
+  void recoverFromStaleRelease()
+})
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

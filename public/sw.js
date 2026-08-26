@@ -1,6 +1,6 @@
 // Bump the shell whenever production Firebase bootstrap configuration changes.
 // Activation removes every older Aura cache before the client reloads.
-const CACHE_VERSION = 'aura-shell-v8-20260826-staff'
+const CACHE_VERSION = 'aura-shell-v9-20260826-recovery'
 const APP_SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -16,7 +16,9 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((names) => Promise.all(names.filter((name) => name !== CACHE_VERSION).map((name) => caches.delete(name))))
+      .then((names) => Promise.all(names
+        .filter((name) => name.startsWith('aura-shell-') && name !== CACHE_VERSION)
+        .map((name) => caches.delete(name))))
       .then(() => self.clients.claim()),
   )
 })
@@ -77,7 +79,7 @@ self.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: 'no-store' })
         .then((response) => {
           if (response.ok) caches.open(CACHE_VERSION).then((cache) => cache.put('/', response.clone()))
           return response
@@ -98,7 +100,9 @@ self.addEventListener('fetch', (event) => {
         if (response.ok) caches.open(CACHE_VERSION).then((cache) => cache.put(request, response.clone()))
         return response
       })
-      return cached || refreshed
+      if (!cached) return refreshed
+      void refreshed.catch(() => undefined)
+      return cached
     }),
   )
 })
