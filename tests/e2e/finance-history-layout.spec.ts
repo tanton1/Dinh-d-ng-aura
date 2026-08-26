@@ -127,9 +127,10 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
       await expect(dashboard).toBeVisible()
       await expect(dashboard.locator(':scope > .aura-metric-carousel').first()).toBeVisible()
       await expect(dashboard.locator(':scope > .page-header')).toHaveCount(0)
-      await expect(dashboard.locator('.admin-dashboard__commandbar')).toBeVisible()
-      await expect(dashboard.getByRole('button', { name: 'Tổng quan' })).toBeVisible()
-      await dashboard.getByRole('button', { name: 'Vận hành PT' }).click()
+      await expect(dashboard.locator('.admin-dashboard__syncbar')).toBeVisible()
+      await expect(dashboard.getByRole('heading', { name: 'Hôm nay cần làm' })).toBeVisible()
+      await expect(dashboard.getByRole('heading', { name: 'Vận hành hiện tại' })).toBeVisible()
+      await expect(dashboard.getByRole('tab')).toHaveCount(0)
       await expect(dashboard.locator('.aura-metric-carousel__slide')).toHaveCount(4)
       await expectNoHorizontalOverflow(page)
     }

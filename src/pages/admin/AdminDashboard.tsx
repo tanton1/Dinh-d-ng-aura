@@ -1,70 +1,259 @@
 import '../../styles-admin.css'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertCircle, ArrowRight, BookOpen, CheckCircle2, DollarSign, Dumbbell, GraduationCap, Plus, RefreshCw, TrendingUp, Users, WalletCards } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  AlertCircle,
+  ArrowRight,
+  BookOpen,
+  CalendarClock,
+  CheckCircle2,
+  CircleDollarSign,
+  CircleHelp,
+  ClipboardCheck,
+  Dumbbell,
+  GraduationCap,
+  RefreshCw,
+  Salad,
+  Users,
+  WalletCards,
+} from 'lucide-react'
 import type { ViewId } from '../../types'
-import { getOperationsDashboard, type OperationsDashboardData } from '../../services/operationsDashboardService'
+import {
+  getOperationsDashboard,
+  type DashboardActionMetric,
+  type OperationsDashboardData,
+} from '../../services/operationsDashboardService'
 import AuraMetricCarousel, { type AuraMetricSlide } from '../../components/admin/pt/AuraMetricCarousel'
 
-function money(value: number) { return `${Math.round(value).toLocaleString('vi-VN')}đ` }
-function startOfMonth() { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1).toISOString() }
+function money(value: number) {
+  const amount = Number(value)
+  return `${Math.round(Number.isFinite(amount) ? amount : 0).toLocaleString('vi-VN')}đ`
+}
 
-export default function AdminDashboard({ onNavigate, onSeed, adminName = 'Admin Aura', canCreate = false, canManageAcademy = false, canManageCoaching = false, canManageEnrollments = false }: { onNavigate: (view: ViewId) => void; onSeed?: () => Promise<void>; adminName?: string; canCreate?: boolean; canManageAcademy?: boolean; canManageCoaching?: boolean; canManageEnrollments?: boolean }) {
-  const [seedState, setSeedState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+function startOfMonth() {
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+}
+
+function focusedHash(view: ViewId, focus?: string) {
+  const params = new URLSearchParams()
+  if (focus) params.set('focus', focus)
+  const query = params.toString()
+  return `#/${view}${query ? `?${query}` : ''}`
+}
+
+type ActionTone = AuraMetricSlide['tone']
+type ActionSeverity = 'critical' | 'warning' | 'normal'
+
+interface DashboardAction {
+  id: string
+  label: string
+  value: string
+  detail: string
+  taskDetail: string
+  metric: DashboardActionMetric
+  icon: ReactNode
+  tone: ActionTone
+  severity: ActionSeverity
+  view: ViewId
+  focus: string
+}
+
+interface Props {
+  onNavigate: (view: ViewId) => void
+  adminName?: string
+  canCreate?: boolean
+  canManageAcademy?: boolean
+  canManageCoaching?: boolean
+  canManageEnrollments?: boolean
+}
+
+export default function AdminDashboard({
+  onNavigate,
+  adminName = 'Admin Aura',
+  canCreate = false,
+  canManageAcademy = false,
+  canManageCoaching = false,
+  canManageEnrollments = false,
+}: Props) {
   const [data, setData] = useState<OperationsDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
-  const [activeTab, setActiveTab] = useState<'overview' | 'business' | 'pt' | 'quality'>('overview')
-  const showDevelopmentSeedTool = import.meta.env.DEV && Boolean(onSeed)
-  const load = useCallback(async () => {
-    setLoading(true); setError('')
-    try { setData(await getOperationsDashboard({ startAt: startOfMonth(), endAt: new Date().toISOString(), branchId: 'all' })) }
-    catch { setError('Không thể tải dữ liệu điều hành. Hãy kiểm tra quyền tài khoản hoặc kết nối Firebase.') }
-    finally { setLoading(false) }
+
+  const load = useCallback(async (forceRefresh = false) => {
+    forceRefresh ? setRefreshing(true) : setLoading(true)
+    setError('')
+    try {
+      const result = await getOperationsDashboard({
+        startAt: startOfMonth(),
+        endAt: new Date().toISOString(),
+        branchId: 'all',
+        forceRefresh,
+      })
+      setData(result)
+    } catch {
+      setError('Chưa thể tải dữ liệu điều hành. Aura vẫn giữ số liệu đồng bộ gần nhất nếu có.')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
   }, [])
+
   useEffect(() => { void load() }, [load])
-  const seed = async () => { if (!import.meta.env.DEV || !onSeed) return; setSeedState('loading'); try { await onSeed(); setSeedState('done') } catch { setSeedState('error') } }
-  const completionRate = useMemo(() => !data?.operations.sessions ? 0 : Math.round(((data.operations.sessionStatus.completed || 0) + (data.operations.sessionStatus.attended || 0)) / data.operations.sessions * 100), [data])
+
+  const goTo = useCallback((view: ViewId, focus?: string) => {
+    if (focus) {
+      window.location.hash = focusedHash(view, focus)
+      return
+    }
+    onNavigate(view)
+  }, [onNavigate])
+
+  const actions = useMemo<DashboardAction[]>(() => {
+    if (!data) return []
+    const receivables = data.actionSummary.overdueReceivables
+    const renewals = data.actionSummary.dueRenewals
+    const schedule = data.actionSummary.pendingScheduleRequests
+    const nutrition = data.actionSummary.overdueMealReviews
+    const values: DashboardAction[] = [
+      {
+        id: 'receivables', label: 'Công nợ đến hạn',
+        value: receivables.actionCount ? money(receivables.amount) : 'Đúng hạn',
+        detail: `${receivables.overdueCount} quá hạn · ${receivables.dueTodayCount} đến hạn hôm nay`,
+        taskDetail: `${receivables.actionCount} hợp đồng cần thu · ${money(receivables.amount)}`,
+        metric: receivables, icon: <CircleDollarSign size={20} />, tone: 'ink',
+        severity: receivables.overdueCount ? 'critical' : receivables.dueTodayCount ? 'warning' : 'normal',
+        view: 'admin-finance', focus: 'overdue',
+      },
+      {
+        id: 'renewals', label: 'Tái ký đến hạn', value: `${renewals.actionCount.toLocaleString('vi-VN')} hồ sơ`,
+        detail: `${renewals.overdueCount} quá SLA · ${renewals.dueTodayCount} cần chăm hôm nay`,
+        taskDetail: `${renewals.overdueCount} quá SLA · ${renewals.dueTodayCount} đến hạn hôm nay`,
+        metric: renewals, icon: <Users size={20} />, tone: 'pink',
+        severity: renewals.overdueCount ? 'critical' : renewals.dueTodayCount ? 'warning' : 'normal',
+        view: 'admin-renewals', focus: 'overdue',
+      },
+      {
+        id: 'schedule', label: 'Lịch cần xử lý', value: `${schedule.actionCount.toLocaleString('vi-VN')} việc`,
+        detail: `${schedule.totalCount} yêu cầu · ${schedule.warningCount} lịch nháp`,
+        taskDetail: `${schedule.totalCount} yêu cầu đổi, hủy hoặc off · ${schedule.warningCount} lịch nháp`,
+        metric: schedule, icon: <CalendarClock size={20} />, tone: 'sunset',
+        severity: schedule.overdueCount ? 'critical' : schedule.actionCount ? 'warning' : 'normal',
+        view: 'admin-pt-schedule', focus: 'requests',
+      },
+      {
+        id: 'nutrition', label: 'Duyệt bữa ăn', value: `${nutrition.actionCount.toLocaleString('vi-VN')} bữa`,
+        detail: `${nutrition.overdueCount} quá SLA · ưu tiên cũ nhất trước`,
+        taskDetail: `${nutrition.overdueCount} quá SLA trong ${nutrition.totalCount} bữa chờ duyệt`,
+        metric: nutrition, icon: <Salad size={20} />, tone: 'orange',
+        severity: nutrition.overdueCount ? 'critical' : nutrition.actionCount ? 'warning' : 'normal',
+        view: 'admin-nutrition-reviews', focus: 'overdue',
+      },
+    ]
+    return values
+      .filter((item) => item.metric.available)
+      .sort((left, right) => {
+        const severity = { critical: 0, warning: 1, normal: 2 }
+        return severity[left.severity] - severity[right.severity]
+          || right.metric.overdueCount - left.metric.overdueCount
+          || right.metric.actionCount - left.metric.actionCount
+      })
+  }, [data])
+
   const metricSlides = useMemo<AuraMetricSlide[]>(() => {
-    const business: AuraMetricSlide[] = [
-      { id: 'sales', eyebrow: 'DOANH SỐ HỢP ĐỒNG', value: money(data?.finance.contractSales || 0), detail: 'Giá trị hợp đồng ký trong kỳ', icon: <TrendingUp size={20} />, tone: 'pink', actionLabel: 'Mở báo cáo', onSelect: () => onNavigate('admin-report') },
-      { id: 'cash', eyebrow: 'TIỀN THỰC THU', value: money(data?.finance.cashCollected || 0), detail: 'Tiền đã đi vào quỹ từ ledger canonical', icon: <WalletCards size={20} />, tone: 'orange', actionLabel: 'Mở tài chính', onSelect: () => onNavigate('admin-finance') },
-      { id: 'net-cash', eyebrow: 'DÒNG TIỀN THUẦN', value: money(data?.finance.netCash || 0), detail: 'Tiền vào trừ tiền ra trong kỳ', icon: <DollarSign size={20} />, tone: 'sunset', actionLabel: 'Đối chiếu', onSelect: () => onNavigate('admin-finance') },
-      { id: 'receivables', eyebrow: 'CÔNG NỢ', value: money(data?.finance.receivables || 0), detail: 'Số tiền còn phải thu theo hợp đồng', icon: <AlertCircle size={20} />, tone: 'ink', actionLabel: 'Xem công nợ', onSelect: () => onNavigate('admin-finance') },
-    ]
-    const operations: AuraMetricSlide[] = [
-      { id: 'students', eyebrow: 'HỌC VIÊN HOẠT ĐỘNG', value: (data?.clients.active || 0).toLocaleString('vi-VN'), detail: `${data?.clients.newInRange || 0} học viên mới trong kỳ`, icon: <Users size={20} />, tone: 'pink', actionLabel: 'Mở học viên', onSelect: () => onNavigate('admin-pt-students') },
-      { id: 'completion', eyebrow: 'HOÀN THÀNH BUỔI TẬP', value: `${completionRate}%`, detail: `${data?.operations.attendanceEvents || 0} sự kiện điểm danh chuẩn`, icon: <TrendingUp size={20} />, tone: 'orange', actionLabel: 'Xem nhật ký', onSelect: () => onNavigate('admin-training-history') },
-      { id: 'sessions', eyebrow: 'BUỔI TẬP TRONG KỲ', value: (data?.operations.sessions || 0).toLocaleString('vi-VN'), detail: `${data?.clients.activeContracts || 0} hợp đồng hoạt động`, icon: <BookOpen size={20} />, tone: 'sunset', actionLabel: 'Mở lịch PT', onSelect: () => onNavigate('admin-pt-schedule') },
-      { id: 'team', eyebrow: 'ĐỘI NGŨ PT', value: String(data?.operations.activeTrainers || 0), detail: `${data?.operations.activeStaff || 0} nhân sự · ${data?.operations.branches || 0} chi nhánh`, icon: <Dumbbell size={20} />, tone: 'ink', actionLabel: 'Mở đội ngũ', onSelect: () => onNavigate('admin-hr') },
-    ]
-    const quality: AuraMetricSlide[] = [
-      { id: 'quality-status', eyebrow: 'ĐỘ TIN CẬY DỮ LIỆU', value: data?.quality.completeness === 'complete' ? 'Đã đối soát' : 'Cần kiểm tra', detail: 'Tài chính từ ledger canonical · điểm danh từ attendanceEvents', icon: <CheckCircle2 size={20} />, tone: 'pink' },
-      { id: 'quality-contracts', eyebrow: 'HỢP ĐỒNG THIẾU NGÀY KÝ', value: String(data?.quality.missingContractEffectiveDate || 0), detail: 'Không tự suy doanh thu từ ngày bắt đầu gói', icon: <AlertCircle size={20} />, tone: 'orange', actionLabel: 'Mở báo cáo', onSelect: () => onNavigate('admin-report') },
-      { id: 'quality-scan', eyebrow: 'GIỚI HẠN TRUY VẤN', value: data?.quality.truncated ? 'Đã chạm ngưỡng' : 'Trong ngưỡng', detail: 'Mọi truy vấn tổng quan đều có giới hạn an toàn', icon: <BookOpen size={20} />, tone: 'sunset' },
-      { id: 'quality-sync', eyebrow: 'ĐỒNG BỘ GẦN NHẤT', value: data?.generatedAt ? new Date(data.generatedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '—', detail: data?.generatedAt ? new Date(data.generatedAt).toLocaleDateString('vi-VN') : 'Chưa có dữ liệu', icon: <RefreshCw size={20} />, tone: 'ink', actionLabel: 'Làm mới', onSelect: () => void load() },
-    ]
-    if (activeTab === 'business') return business
-    if (activeTab === 'pt') return operations
-    if (activeTab === 'quality') return quality
-    return [business[1], business[3], operations[0], operations[1]]
-  }, [activeTab, completionRate, data, load, onNavigate])
+    if (!data) {
+      return [
+        { id: 'loading-1', eyebrow: 'CÔNG NỢ ĐẾN HẠN', value: '—', detail: 'Đang đối chiếu ledger canonical', icon: <CircleDollarSign size={20} />, tone: 'ink' },
+        { id: 'loading-2', eyebrow: 'TÁI KÝ ĐẾN HẠN', value: '—', detail: 'Đang tải hàng đợi chăm sóc', icon: <Users size={20} />, tone: 'pink' },
+        { id: 'loading-3', eyebrow: 'LỊCH CẦN XỬ LÝ', value: '—', detail: 'Đang kiểm tra lịch và yêu cầu', icon: <CalendarClock size={20} />, tone: 'sunset' },
+        { id: 'loading-4', eyebrow: 'DUYỆT BỮA ĂN', value: '—', detail: 'Đang đối chiếu SLA dinh dưỡng', icon: <Salad size={20} />, tone: 'orange' },
+      ]
+    }
+    const actionable = actions.filter((item) => item.metric.actionCount > 0)
+    if (!actionable.length) {
+      return [{
+        id: 'healthy', eyebrow: 'AURA · VẬN HÀNH HÔM NAY', value: 'Đang ổn định',
+        detail: 'Không có hồ sơ quá hạn hoặc công việc đến hạn trong phạm vi của bạn.',
+        icon: <CheckCircle2 size={20} />, tone: 'pink',
+      }]
+    }
+    return actionable.slice(0, 4).map((item) => ({
+      id: item.id, eyebrow: item.label, value: item.value, detail: item.detail,
+      icon: item.icon, tone: item.tone, actionLabel: 'Xử lý ngay',
+      onSelect: () => goTo(item.view, item.focus),
+    }))
+  }, [actions, data, goTo])
 
-  return <div className="page admin-dashboard">
-    <AuraMetricCarousel slides={metricSlides} label={`Chỉ số ${activeTab === 'business' ? 'kinh doanh' : activeTab === 'pt' ? 'vận hành PT' : activeTab === 'quality' ? 'chất lượng dữ liệu' : 'điều hành'}`} loading={loading} />
-    <section className="admin-dashboard__commandbar" aria-label="Điều khiển tổng quan">
-      <div className="admin-dashboard__identity"><small>AURA · TRUNG TÂM ĐIỀU HÀNH</small><strong>Chào {adminName}</strong><span>{data?.generatedAt ? `Đồng bộ ${new Date(data.generatedAt).toLocaleString('vi-VN')}` : 'Đang kết nối dữ liệu vận hành'}</span></div>
-      <div className="admin-dashboard__actions"><button className="outline-button" onClick={() => void load()} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={17} /> {loading ? 'Đang tải' : 'Làm mới'}</button>{showDevelopmentSeedTool && <button className="outline-button" onClick={seed}>{seedState === 'done' && <CheckCircle2 size={17} />} Nạp mẫu</button>}{canCreate && <button className="primary-button" onClick={() => onNavigate('admin-course-editor')}><Plus size={17} /> Tạo khóa học</button>}</div>
+  const taskItems = useMemo(() => {
+    const items = [...actions.filter((item) => item.metric.actionCount > 0)]
+    const missingDates = data?.actionSummary.missingContractEffectiveDate
+    if (missingDates?.available && missingDates.actionCount > 0) {
+      items.push({
+        id: 'contract-quality', label: 'Hợp đồng thiếu ngày ký', value: `${missingDates.actionCount} hồ sơ`,
+        detail: 'Cần đối soát dữ liệu', taskDetail: `${missingDates.actionCount} hợp đồng chưa có ngày ghi nhận doanh số hợp lệ`,
+        metric: missingDates, icon: <ClipboardCheck size={20} />, tone: 'orange', severity: 'warning',
+        view: 'admin-pt-students', focus: 'contract-quality',
+      })
+    }
+    return items.slice(0, 5)
+  }, [actions, data])
+
+  const quickMetrics = useMemo(() => {
+    if (!data) return []
+    return [
+      data.permissions.finance && { id: 'cash', label: 'Thực thu tháng', value: money(data.finance.cashCollected), detail: 'Ledger đã ghi nhận', icon: <WalletCards size={19} /> },
+      data.permissions.finance && { id: 'debt', label: 'Tổng công nợ', value: money(data.finance.receivables), detail: `${data.actionSummary.overdueReceivables.totalCount} hợp đồng còn nợ`, icon: <CircleDollarSign size={19} /> },
+      data.permissions.clients && { id: 'clients', label: 'Học viên hoạt động', value: data.clients.active.toLocaleString('vi-VN'), detail: `${data.clients.newInRange} học viên mới tháng này`, icon: <Users size={19} /> },
+      data.permissions.operations && { id: 'today', label: 'Buổi tập hôm nay', value: `${data.today.completedSessions}/${data.today.scheduledSessions}`, detail: `Hoàn thành kỳ này ${data.operations.completionRate}%`, icon: <Dumbbell size={19} /> },
+    ].filter(Boolean) as Array<{ id: string; label: string; value: string; detail: string; icon: ReactNode }>
+  }, [data])
+
+  const shortcuts = useMemo(() => {
+    if (!data) return []
+    return [
+      data.permissions.clients && { id: 'students', label: 'Học viên', view: 'admin-pt-students' as ViewId, icon: <Users size={20} /> },
+      data.permissions.schedule && { id: 'schedule', label: 'Xếp lịch', view: 'admin-pt-schedule' as ViewId, icon: <CalendarClock size={20} /> },
+      data.permissions.finance && { id: 'finance', label: 'Trả góp', view: 'admin-finance' as ViewId, icon: <WalletCards size={20} /> },
+      data.permissions.renewals && { id: 'renewals', label: 'Tái ký', view: 'admin-renewals' as ViewId, icon: <ClipboardCheck size={20} /> },
+      data.permissions.payroll && { id: 'payroll', label: 'Lương', view: 'admin-payroll' as ViewId, icon: <CircleDollarSign size={20} /> },
+      data.permissions.nutritionReviews && { id: 'reviews', label: 'Duyệt món', view: 'admin-nutrition-reviews' as ViewId, icon: <Salad size={20} /> },
+      data.permissions.academy && canManageAcademy && { id: 'academy', label: 'Khóa học', view: 'admin-courses' as ViewId, icon: <GraduationCap size={20} /> },
+      data.permissions.operations && canManageCoaching && { id: 'history', label: 'Lịch sử tập', view: 'admin-training-history' as ViewId, icon: <BookOpen size={20} /> },
+      data.permissions.academy && canManageEnrollments && { id: 'academy-students', label: 'Học viên Academy', view: 'admin-academy-students' as ViewId, icon: <Users size={20} /> },
+      data.permissions.academy && canCreate && { id: 'create-course', label: 'Tạo khóa học', view: 'admin-course-editor' as ViewId, icon: <GraduationCap size={20} /> },
+    ].filter(Boolean) as Array<{ id: string; label: string; view: ViewId; icon: ReactNode }>
+  }, [canCreate, canManageAcademy, canManageCoaching, canManageEnrollments, data])
+
+  return <div className="page admin-dashboard admin-dashboard--v2">
+    <AuraMetricCarousel slides={metricSlides} label="Các việc cần xử lý" loading={loading && !data} />
+
+    <section className="admin-dashboard__syncbar" aria-label="Trạng thái tổng quan">
+      <div><small>AURA · TỔNG QUAN</small><strong>Chào {adminName}</strong><span>{data?.generatedAt ? `Đồng bộ ${new Date(data.generatedAt).toLocaleString('vi-VN')}${data.cache.hit ? ' · dữ liệu đệm' : ''}` : 'Đang kết nối dữ liệu vận hành'}</span></div>
+      <div className="admin-dashboard__sync-actions">
+        <details className="admin-dashboard__help"><summary aria-label="Giải thích số liệu"><CircleHelp size={18} /></summary><div><b>Nguồn số liệu</b><span>Tiền thu lấy từ ledger canonical. Buổi tập lấy từ sessions và attendanceEvents. Dashboard không dùng payment legacy thay thế.</span></div></details>
+        <button type="button" onClick={() => void load(true)} disabled={refreshing} aria-label="Làm mới tổng quan"><RefreshCw className={refreshing ? 'spin' : ''} size={18} /><span>{refreshing ? 'Đang tải' : 'Làm mới'}</span></button>
+      </div>
     </section>
-    <div className="admin-tabs admin-operations-tabs" role="tablist">{([['overview','Tổng quan'],['business','Kinh doanh'],['pt','Vận hành PT'],['quality','Chất lượng dữ liệu']] as const).map(([id,label]) => <button key={id} className={activeTab === id ? 'active' : ''} onClick={() => setActiveTab(id)}>{label}</button>)}</div>
-    {error && <div className="admin-data-warning"><AlertCircle size={18} /><span>{error}</span><button onClick={() => void load()}>Thử lại</button></div>}
-    {!error && data?.quality.completeness === 'partial' && <div className="admin-data-warning"><AlertCircle size={18} /><span>Số liệu đang ở trạng thái một phần: {data.quality.missingContractEffectiveDate} hợp đồng thiếu ngày ký hợp lệ. Aura không tự gán doanh thu vào ngày bắt đầu gói.</span></div>}
 
-    {activeTab === 'quality' && <section className="card admin-quality-card"><h2>Độ tin cậy số liệu</h2><p>Tài chính: <b>{data?.quality.canonicalFinanceSource || 'ledgerEntries'}</b>. Chấm công: <b>{data?.quality.canonicalAttendanceSource || 'attendanceEvents'}</b>.</p><p>Trạng thái: <b>{data?.quality.completeness === 'complete' ? 'Đầy đủ trong phạm vi truy vấn' : 'Cần đối soát'}</b>. Dashboard không tạo payment ảo, không suy ngày doanh thu từ ngày bắt đầu hợp đồng.</p><small>Cập nhật gần nhất: {data?.generatedAt ? new Date(data.generatedAt).toLocaleString('vi-VN') : '—'}</small></section>}
-    {activeTab === 'overview' && <section className="admin-workspace-grid">
-      {canManageAcademy && <article className="admin-workspace-card academy"><span><GraduationCap size={23} /></span><div><small>AURA ACADEMY</small><h2>Đào tạo dinh dưỡng</h2><p>Quản lý nội dung, review, publish và tiến độ học tập.</p><div className="admin-workspace-actions"><button className="text-button" onClick={() => onNavigate('admin-courses')}>Khóa học <ArrowRight size={15} /></button>{canManageEnrollments && <button className="text-button" onClick={() => onNavigate('admin-academy-students')}>Học viên <ArrowRight size={15} /></button>}</div></div></article>}
-      {canManageCoaching && <article className="admin-workspace-card coaching"><span><Dumbbell size={23} /></span><div><small>AURA OPERATIONS</small><h2>PT & Khách hàng</h2><p>Học viên, lịch, đội ngũ và tài chính trong cùng hệ điều hành.</p><div className="admin-workspace-actions"><button className="text-button" onClick={() => onNavigate('admin-pt-students')}>Học viên <ArrowRight size={15} /></button><button className="text-button" onClick={() => onNavigate('admin-renewals')}>Tái ký <ArrowRight size={15} /></button><button className="text-button" onClick={() => onNavigate('admin-training-history')}>Nhật ký PT <ArrowRight size={15} /></button><button className="text-button" onClick={() => onNavigate('admin-finance')}>Tài chính <ArrowRight size={15} /></button><button className="text-button" onClick={() => onNavigate('admin-hr')}>Đội ngũ <ArrowRight size={15} /></button></div></div></article>}
-    </section>}
-    {activeTab === 'business' && <section className="admin-dashboard__quick-grid" aria-label="Lối tắt kinh doanh"><button onClick={() => onNavigate('admin-report')}><TrendingUp size={20} /><span><strong>Báo cáo kinh doanh</strong><small>Doanh số, doanh thu và nguồn thu</small></span><ArrowRight size={17} /></button><button onClick={() => onNavigate('admin-finance')}><WalletCards size={20} /><span><strong>Trả góp & công nợ</strong><small>Khoản phải thu, quá hạn và dòng tiền</small></span><ArrowRight size={17} /></button><button onClick={() => onNavigate('admin-renewals')}><Users size={20} /><span><strong>Tái ký học viên</strong><small>Hợp đồng sắp hết hạn hoặc hết buổi</small></span><ArrowRight size={17} /></button></section>}
-    {activeTab === 'pt' && <section className="admin-dashboard__quick-grid" aria-label="Lối tắt vận hành PT"><button onClick={() => onNavigate('admin-pt-students')}><Users size={20} /><span><strong>Học viên PT</strong><small>Hồ sơ, hợp đồng và cảnh báo vận hành</small></span><ArrowRight size={17} /></button><button onClick={() => onNavigate('admin-pt-schedule')}><BookOpen size={20} /><span><strong>Lịch & yêu cầu</strong><small>Xếp lịch, đổi/hủy và nghỉ tuần</small></span><ArrowRight size={17} /></button><button onClick={() => onNavigate('admin-training-history')}><Dumbbell size={20} /><span><strong>Lịch sử tập</strong><small>Ca dạy HLV và buổi tập học viên</small></span><ArrowRight size={17} /></button></section>}
+    {error && <div className="admin-data-warning"><AlertCircle size={18} /><span>{error}</span><button type="button" onClick={() => void load(true)}>Thử lại</button></div>}
+    {!error && data?.quality.completeness === 'partial' && <div className="admin-data-warning"><AlertCircle size={18} /><span>Một phần dữ liệu cần đối soát. Các số tiền hiển thị vẫn chỉ lấy từ nguồn canonical.</span></div>}
+
+    <div className="admin-dashboard__main-grid">
+      <section className="admin-dashboard__tasks" aria-labelledby="dashboard-tasks-title">
+        <header><div><small>ƯU TIÊN THEO SLA</small><h2 id="dashboard-tasks-title">Hôm nay cần làm</h2></div><span>{taskItems.length}</span></header>
+        {loading && !data
+          ? <div className="admin-dashboard__task-skeleton" aria-label="Đang tải công việc"><i /><i /><i /></div>
+          : taskItems.length
+            ? <div className="admin-dashboard__task-list">{taskItems.map((item) => <button key={item.id} type="button" className={`is-${item.severity}`} onClick={() => goTo(item.view, item.focus)}><span className="admin-dashboard__task-icon">{item.icon}</span><span><strong>{item.label}</strong><small>{item.taskDetail}</small></span><ArrowRight size={17} /></button>)}</div>
+            : <div className="admin-dashboard__healthy"><CheckCircle2 size={24} /><div><strong>Không có việc quá hạn</strong><span>Các hàng đợi trong phạm vi của bạn đang được xử lý đúng SLA.</span></div></div>}
+      </section>
+
+      <section className="admin-dashboard__glance" aria-labelledby="dashboard-glance-title">
+        <header><small>NHÌN NHANH</small><h2 id="dashboard-glance-title">Vận hành hiện tại</h2></header>
+        <div>{quickMetrics.map((item) => <article key={item.id}><span>{item.icon}</span><small>{item.label}</small><strong>{item.value}</strong><p>{item.detail}</p></article>)}</div>
+      </section>
+    </div>
+
+    {shortcuts.length > 0 && <section className="admin-dashboard__shortcuts" aria-label="Lối tắt công việc"><header><small>LỐI TẮT</small><strong>Mở nhanh công việc</strong></header><div>{shortcuts.map((item) => <button key={item.id} type="button" onClick={() => onNavigate(item.view)}>{item.icon}<span>{item.label}</span></button>)}</div></section>}
   </div>
 }

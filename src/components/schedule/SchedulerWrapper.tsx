@@ -75,6 +75,14 @@ interface Props {
   onNavigate?: (screen: string) => void;
 }
 
+function initialOperationsTab(): "schedule" | "students" | "changes" | "pauses" | "warnings" {
+  const focus = new URLSearchParams(window.location.hash.split('?')[1] || '').get('focus');
+  if (focus === 'requests') return 'changes';
+  if (focus === 'pauses') return 'pauses';
+  if (focus === 'warnings') return 'warnings';
+  return 'schedule';
+}
+
 export default function SchedulerWrapper({ user, profile, accessContext, backendMode = "firebase" }: Props) {
   const getCalculatedUsedSessions = (contract: any, allSessions: Session[]) => {
     if (!contract) return 0;
@@ -116,7 +124,7 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
   const [debugData, setDebugData] = useState<any>(null);
   const [weekOffset, setWeekOffset] = useState(0);
   const [activeSubTab, setActiveSubTab] = useState<"schedule" | "students" | "changes" | "pauses" | "warnings">(
-    "schedule",
+    initialOperationsTab,
   );
   const [studentTab, setStudentTab] = useState<
     "overview" | "schedule" | "profile"

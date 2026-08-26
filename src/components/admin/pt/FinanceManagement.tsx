@@ -24,6 +24,11 @@ interface Props {
 
 type DebtFilter = 'all' | 'overdue' | 'this-week' | 'this-month' | 'overpaid'
 
+function initialDebtFilter(): DebtFilter {
+  const focus = new URLSearchParams(window.location.hash.split('?')[1] || '').get('focus')
+  return focus === 'overdue' ? 'overdue' : focus === 'this-week' ? 'this-week' : focus === 'this-month' ? 'this-month' : 'all'
+}
+
 function money(value: number) {
   const amount = Number(value)
   return `${Math.round(Number.isFinite(amount) ? amount : 0).toLocaleString('vi-VN')}đ`
@@ -128,7 +133,7 @@ export default function FinanceManagement({ profile }: Props) {
   const { branches, contracts, students } = useDatabase()
   const [selectedBranchId, setSelectedBranchId] = useState('all')
   const [dateRange, setDateRange] = useState<{ start: Date; end: Date }>(currentMonthRange)
-  const [debtFilter, setDebtFilter] = useState<DebtFilter>('all')
+  const [debtFilter, setDebtFilter] = useState<DebtFilter>(initialDebtFilter)
   const [ledgerEntries, setLedgerEntries] = useState<FinanceLedgerEntry[]>([])
   const [ledgerCursor, setLedgerCursor] = useState<string | null>(null)
   const [ledgerHasMore, setLedgerHasMore] = useState(false)

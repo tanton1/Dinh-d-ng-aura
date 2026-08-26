@@ -71,6 +71,11 @@ const addDays = (dateKey: string, days: number) => {
   return date.toISOString().slice(0, 10)
 }
 
+function initialRenewalSla(): 'all' | RenewalSlaStatus {
+  const focus = new URLSearchParams(window.location.hash.split('?')[1] || '').get('focus')
+  return focus === 'overdue' ? 'overdue' : focus === 'due-today' ? 'due_today' : 'all'
+}
+
 function messageFor(row: RenewalPipelineRow) {
   return `Aura Fitness xin chào ${row.student.name}. Gói ${row.contract.packageName} của bạn ${row.risk.daysLeft < 0 ? 'đã hết hạn' : `còn ${row.risk.daysLeft} ngày`}. Aura muốn đồng hành cùng bạn trong lộ trình tiếp theo. Bạn thuận tiện để Aura tư vấn vào thời gian nào?`
 }
@@ -93,7 +98,7 @@ export default function ContractRenewals({ onNavigate }: Props) {
   const [search, setSearch] = useState('')
   const [risk, setRisk] = useState<'all' | RenewalRiskCategory>('all')
   const [stage, setStage] = useState<'all' | RenewalStage>('all')
-  const [sla, setSla] = useState<'all' | RenewalSlaStatus>('all')
+  const [sla, setSla] = useState<'all' | RenewalSlaStatus>(initialRenewalSla)
   const [approval, setApproval] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'consumed' | 'none'>('all')
   const [branchId, setBranchId] = useState('all')
   const [assigneeId, setAssigneeId] = useState('all')
