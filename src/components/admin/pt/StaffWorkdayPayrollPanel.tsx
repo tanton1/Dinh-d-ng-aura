@@ -225,7 +225,7 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
         {loading && !rows.length ? <div className="staff-workdays__skeleton" /> : visibleRows.length ? visibleRows.map((row) => <button type="button" key={row.staffId} className={selectedId === row.staffId ? 'is-active' : ''} onClick={() => void loadDetail(row.staffId)}>
           <span className="staff-workdays__avatar">{row.name.slice(0, 1).toUpperCase()}</span>
           <span className="staff-workdays__person"><strong>{row.name}</strong><small>{row.employmentType === 'collaborator' ? 'CTV' : 'Nhân viên'} · {branches.find((branch) => branch.id === row.branchId)?.name || 'Chưa gắn chi nhánh'}</small></span>
-          <span className="staff-workdays__numbers"><b>{row.estimatedPaidDays ?? row.paidDays}/{row.eligibleWorkdays}</b><small>{money(row.baseSalaryEarned)}</small></span>
+          <span className="staff-workdays__numbers"><b>{row.estimatedPaidDays ?? row.paidDays}/{row.eligibleWorkdays}</b><small>{money(row.finalAmount)} tạm tính</small></span>
           {row.reviewRequired && <em>!</em>}<ChevronRight size={17} />
         </button>) : <div className="staff-workdays__empty"><UserRoundCheck size={27} /><strong>Không có nhân sự phù hợp</strong><p>Đổi bộ lọc hoặc kiểm tra hồ sơ đội ngũ.</p></div>}
       </div>}

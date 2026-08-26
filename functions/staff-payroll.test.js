@@ -171,12 +171,14 @@ test('staff payroll callables are actor-scoped and browser writes never calculat
   assert.doesNotMatch(source, /allow read|allow write/)
 })
 
-test('payroll run includes every active Identity v2 staff account and explicit per-session commission', () => {
+test('payroll run includes every active Identity v2 staff account and cash-based referral commission', () => {
   const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
   assert.match(source, /collection\('roleAssignments'\)\.where\('accessRole', '==', 'staff'\)/)
   assert.match(source, /assignment\.crmProfileId/)
-  assert.match(source, /commissionPerSession/)
+  assert.match(source, /calculateReferralCommissions/)
+  assert.match(source, /referralLedgerSnapshot/)
+  assert.match(source, /referralCommission/)
   assert.match(source, /commissionAmount/)
-  assert.match(source, /employmentType !== 'collaborator'/)
+  assert.doesNotMatch(source, /teachingSlots\.length \* commissionPerSession/)
   assert.match(source, /CTV .*cần được gán chính sách CTV/)
 })

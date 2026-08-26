@@ -1157,15 +1157,15 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     const compensation = {
       baseSalary: employmentType === 'collaborator' ? 0 : money(request.data?.compensation?.baseSalary, 'Lương cơ bản'),
       bonusMonthly: money(request.data?.compensation?.bonusMonthly, 'Thưởng tháng'),
-      // Collaborator teaching compensation is selected from a versioned
-      // payroll policy. Keeping this legacy field at zero prevents the same
-      // class from being paid once as teaching pay and again as commission.
-      commissionPerSession: employmentType === 'collaborator'
-        ? 0
-        : money(request.data?.compensation?.commissionPerSession, 'Hoa hồng mỗi buổi'),
-      commissionRate: Math.min(100, Number(request.data?.compensation?.commissionRate || 0)),
+      // Teaching pay belongs exclusively to the versioned payroll policy.
+      // Referral commission belongs exclusively to collected contract cash.
+      // The legacy per-session commission is therefore always retired.
+      commissionPerSession: 0,
+      commissionRate: Number(request.data?.compensation?.commissionRate || 0),
     }
-    if (!Number.isFinite(compensation.commissionRate) || compensation.commissionRate < 0) throw new HttpsError('invalid-argument', 'Tỷ lệ hoa hồng không hợp lệ.')
+    if (!Number.isFinite(compensation.commissionRate) || compensation.commissionRate < 0 || compensation.commissionRate > 10 || (compensation.commissionRate > 0 && compensation.commissionRate < 2)) {
+      throw new HttpsError('invalid-argument', 'Hoa hồng giới thiệu phải bằng 0 hoặc nằm trong khoảng 2–10%.')
+    }
     const assignmentRef = db.doc(`roleAssignments/${targetUid}`)
     const trainerRef = db.doc(`trainers/${targetUid}`)
     const authUser = await auth.getUser(targetUid)

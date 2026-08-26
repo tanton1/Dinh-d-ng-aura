@@ -136,7 +136,9 @@ export default function HRManagement({ user, manageIdentity = true }: Props) {
           id: trainerId,
           status: 'active',
           commissionRate: 5,
-          commissionPerSession: 20000,
+          // Legacy field is kept at zero. Teaching pay comes from a payroll
+          // policy; referral commission is calculated from posted cash flow.
+          commissionPerSession: 0,
           baseSalary: 0,
           availableSlots: Array.from(selectedSlots),
           ...formData
@@ -247,7 +249,7 @@ export default function HRManagement({ user, manageIdentity = true }: Props) {
               status: newMember.status,
               // Preserve commission fields and employee code if they exist
               commissionRate: formData.commissionRate ?? existingTrainer.commissionRate ?? 5,
-              commissionPerSession: formData.commissionPerSession ?? existingTrainer.commissionPerSession ?? 20000,
+              commissionPerSession: 0,
               baseSalary: formData.baseSalary ?? existingTrainer.baseSalary ?? 0,
               employeeCode: formData.employeeCode ?? existingTrainer.employeeCode ?? ''
             });
@@ -261,7 +263,7 @@ export default function HRManagement({ user, manageIdentity = true }: Props) {
               branchId: newMember.branchId,
               status: newMember.status,
               commissionRate: formData.commissionRate ?? 5,
-              commissionPerSession: formData.commissionPerSession ?? 20000,
+              commissionPerSession: 0,
               baseSalary: formData.baseSalary ?? 0,
               employeeCode: formData.employeeCode ?? ''
             });
@@ -404,7 +406,9 @@ export default function HRManagement({ user, manageIdentity = true }: Props) {
                 <div className="p-4 flex justify-between items-center bg-zinc-900/30">
                   <div>
                     <h3 className="text-white font-medium">{t.name} {t.employeeCode && <span className="text-zinc-500 text-xs">({t.employeeCode})</span>} {t.status === 'inactive' && <span className="text-red-500 text-xs ml-2">(Ngưng HĐ)</span>}</h3>
-                    <p className="text-zinc-500 text-sm mb-3">{t.email} - {t.commissionRate}% - {(t.commissionPerSession || 0).toLocaleString()}đ/buổi</p>
+                    <p className="text-zinc-500 text-sm mb-3">
+                      {t.email} · Hoa hồng giới thiệu {t.commissionRate || 0}% tiền thực thu
+                    </p>
                     
                     <div className="flex flex-wrap gap-2">
                       <button 
@@ -597,11 +601,23 @@ export default function HRManagement({ user, manageIdentity = true }: Props) {
                   <label className="block text-sm font-medium text-zinc-400 mb-1 mt-3">Lương cơ bản (VNĐ)</label>
                   <input type="number" placeholder="Lương cơ bản (VNĐ)" value={formData.baseSalary || 0} className="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-white" onChange={e => setFormData({...formData, baseSalary: Number(e.target.value)})} />
                   
-                  <label className="block text-sm font-medium text-zinc-400 mb-1 mt-3">Hoa hồng giới thiệu (%)</label>
-                  <input type="number" placeholder="Hoa hồng giới thiệu (%)" value={formData.commissionRate || 0} className="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-white" onChange={e => setFormData({...formData, commissionRate: Number(e.target.value)})} />
-                  
-                  <label className="block text-sm font-medium text-zinc-400 mb-1 mt-3">Hoa hồng/buổi (VNĐ) (Thường)</label>
-                  <input type="number" placeholder="Hoa hồng/buổi (VNĐ)" value={formData.commissionPerSession || 0} className="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-white" onChange={e => setFormData({...formData, commissionPerSession: Number(e.target.value)})} />
+                  <label className="block text-sm font-medium text-zinc-400 mb-1 mt-3">Hoa hồng giới thiệu (2–10%)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="10"
+                    step="0.5"
+                    placeholder="0 để tắt, hoặc 2–10%"
+                    value={formData.commissionRate || 0}
+                    className="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-white"
+                    onChange={e => {
+                      const nextRate = Number(e.target.value);
+                      setFormData({ ...formData, commissionRate: Math.min(10, Math.max(0, nextRate)), commissionPerSession: 0 });
+                    }}
+                  />
+                  <p className="mt-1.5 text-xs leading-5 text-zinc-500">
+                    Chỉ tính khi hợp đồng có mã giới thiệu PT và theo dòng tiền thực thu đã ghi sổ. Tiền ca dạy được tính riêng theo chính sách lương.
+                  </p>
 
                   <div className="mt-6 border-t border-zinc-800 pt-6">
                     <div className="flex justify-between items-end mb-4">

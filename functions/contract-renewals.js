@@ -914,6 +914,9 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
         startDate, endDate, originalEndDate: endDate, totalSessions: packageSessions + carriedOverSessions, packageSessions, carriedOverSessions,
         usedSessions: 0, totalPrice: packagePrice, discount, paidAmount: initialPayment, status: startDate > today ? 'future' : 'active',
         installments, nextPaymentDate: installments[0]?.date || null, sourceContractId, renewalCaseId: caseId,
+        referralCode: source.referralCode || null,
+        referralStaffId: source.referralStaffId || null,
+        referralCommissionRate: Number(source.referralCommissionRate || 0) >= 2 && Number(source.referralCommissionRate || 0) <= 10 ? Number(source.referralCommissionRate) : null,
         renewalQuoteId: quoteId || null, renewalApprovalId: approvalId || null, renewalType: 'renewal', revision: 0, note,
         createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }
@@ -921,7 +924,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
       let paymentEntryId = null
       if (initialPayment > 0) {
         paymentEntryId = paymentReference.id
-        transaction.create(paymentReference, { schemaVersion: 2, type: 'payment', eventClass: 'cash_collection', source: 'pt_gym', renewalCaseId: caseId, contractId: newContractReference.id, studentId: source.studentId || '', branchId: newContract.branchId || '', installmentId: null, cashAccountId, amount: initialPayment, cashImpact: initialPayment, revenueImpact: 0, expenseImpact: 0, receivableImpact: 0, deferredRevenueImpact: initialPayment, effectiveAt: paymentAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod, referenceCode: `THU-${paymentReference.id.slice(0, 8).toUpperCase()}`, idempotencyKey: `renewal-payment:${idempotencyKey}`, status: 'posted', note: `Thu đầu kỳ hợp đồng tái ký ${newContractReference.id}` })
+        transaction.create(paymentReference, { schemaVersion: 3, type: 'payment', eventClass: 'cash_collection', source: 'pt_gym', renewalCaseId: caseId, contractId: newContractReference.id, studentId: source.studentId || '', branchId: newContract.branchId || '', installmentId: null, cashAccountId, referralCode: newContract.referralCode, referralStaffId: newContract.referralStaffId, referralCommissionRate: newContract.referralCommissionRate, amount: initialPayment, cashImpact: initialPayment, revenueImpact: 0, expenseImpact: 0, receivableImpact: 0, deferredRevenueImpact: initialPayment, effectiveAt: paymentAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod, referenceCode: `THU-${paymentReference.id.slice(0, 8).toUpperCase()}`, idempotencyKey: `renewal-payment:${idempotencyKey}`, status: 'posted', note: `Thu đầu kỳ hợp đồng tái ký ${newContractReference.id}` })
         createCashMovement(transaction, db, paymentReference, cashAccount, initialPayment, paymentAt, actor.uid, 'contract_renewal_payment')
       }
       transaction.update(sourceReference, { ...(source.endDate < today || Number(source.usedSessions || 0) >= Number(source.totalSessions || 0) ? { status: 'expired' } : {}), renewalIdempotencyKey: idempotencyKey, renewedByContractId: newContractReference.id, renewalPaymentEntryId: paymentEntryId, renewedAt: FieldValue.serverTimestamp(), renewedBy: actor.uid, revision: expectedSourceRevision + 1, updatedAt: FieldValue.serverTimestamp() })

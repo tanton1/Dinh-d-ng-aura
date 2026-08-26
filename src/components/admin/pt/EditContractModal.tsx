@@ -33,18 +33,28 @@ export default function EditContractModal({ contract, packages, trainers, branch
     
     const nextPending = installments.find(i => i.status === 'pending');
     
-    let referralCommissionAmount = formData.referralCommission || null;
+    let referringPT: Trainer | undefined;
     if (formData.referralCode) {
-      const referringPT = trainers.find(t => t.employeeCode === formData.referralCode);
-      if (referringPT) {
-        referralCommissionAmount = formData.paidAmount * (referringPT.commissionRate / 100);
+      const normalizedCode = formData.referralCode.trim().replace(/\s+/g, '').toUpperCase();
+      referringPT = trainers.find(t => (t.employeeCode || '').trim().replace(/\s+/g, '').toUpperCase() === normalizedCode);
+      if (!referringPT) {
+        alert('Mã giới thiệu PT không tồn tại hoặc chưa được gắn cho nhân viên.');
+        setIsSubmitting(false);
+        return;
+      }
+      if (!Number.isFinite(referringPT.commissionRate) || referringPT.commissionRate < 2 || referringPT.commissionRate > 10) {
+        alert('PT giới thiệu chưa được thiết lập hoa hồng hợp lệ từ 2–10%.');
+        setIsSubmitting(false);
+        return;
       }
     }
     
     onSave({ 
       ...formData, 
       installments,
-      referralCommission: referralCommissionAmount,
+      referralStaffId: referringPT?.id || null,
+      referralCommissionRate: referringPT?.commissionRate || null,
+      referralCommission: null,
       nextPaymentDate: nextPending ? nextPending.date : null
     });
     // Let the parent modal closing handle everything else

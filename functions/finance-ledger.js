@@ -51,6 +51,14 @@ function referenceCode(prefix, reference) {
   return `${prefix}-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${reference.id.slice(0, 7).toUpperCase()}`
 }
 
+function referralSnapshot(contract = {}) {
+  const referralCode = typeof contract.referralCode === 'string' ? contract.referralCode.trim().slice(0, 100) : ''
+  const referralStaffId = typeof contract.referralStaffId === 'string' ? contract.referralStaffId.trim().slice(0, 200) : ''
+  const requestedRate = Number(contract.referralCommissionRate || 0)
+  const referralCommissionRate = Number.isFinite(requestedRate) && requestedRate >= 2 && requestedRate <= 10 ? requestedRate : null
+  return referralCode || referralStaffId ? { referralCode: referralCode || null, referralStaffId: referralStaffId || null, referralCommissionRate } : {}
+}
+
 async function cashAccountForMovement(transaction, db, cashAccountId, signedAmount) {
   if (!cashAccountId) return null
   const reference = db.doc(`cashAccounts/${cashAccountId}`)
@@ -364,7 +372,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       const code = referenceCode('THU', ledgerReference)
       const recognisedToDate = recognitionThrough(data, Number(data.usedSessions || 0))
       const receivableSettlement = Math.min(amount, Math.max(0, recognisedToDate - Number(data.paidAmount || 0)))
-      transaction.create(ledgerReference, { schemaVersion: 2, type: 'payment', eventClass: 'cash_collection', source: 'pt_gym', renewalCaseId: data.renewalCaseId || null, contractId, studentId: data.studentId || '', branchId: data.branchId || '', installmentId: installmentId || null, cashAccountId: cashAccountId || null, amount, cashImpact: amount, revenueImpact: 0, expenseImpact: 0, receivableImpact: -receivableSettlement, deferredRevenueImpact: amount - receivableSettlement, effectiveAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod, referenceCode: code, idempotencyKey, status: 'posted', note: typeof request.data?.note === 'string' ? request.data.note.trim().slice(0, 500) : '' })
+      transaction.create(ledgerReference, { schemaVersion: 3, type: 'payment', eventClass: 'cash_collection', source: 'pt_gym', renewalCaseId: data.renewalCaseId || null, contractId, studentId: data.studentId || '', branchId: data.branchId || '', installmentId: installmentId || null, cashAccountId: cashAccountId || null, ...referralSnapshot(data), amount, cashImpact: amount, revenueImpact: 0, expenseImpact: 0, receivableImpact: -receivableSettlement, deferredRevenueImpact: amount - receivableSettlement, effectiveAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod, referenceCode: code, idempotencyKey, status: 'posted', note: typeof request.data?.note === 'string' ? request.data.note.trim().slice(0, 500) : '' })
       transaction.update(contractReference, { paidAmount: nextPaid, ...(installmentPatch || {}), financeProjectionUpdatedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
       if (renewalCase?.exists) transaction.update(renewalCaseReference, { collectedValue: FieldValue.increment(amount), updatedAt: FieldValue.serverTimestamp() })
       createCashMovement(transaction, db, ledgerReference, cashAccount, amount, effectiveAt, actor.uid, 'contract_payment')
@@ -397,7 +405,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       const deferredReduction = Math.min(amount, Math.max(0, Number(contract.data().paidAmount || 0) - recognisedToDate))
       const renewalCaseReference = original.data().renewalCaseId ? db.doc(`contractRenewalCases/${original.data().renewalCaseId}`) : null
       const renewalCase = renewalCaseReference ? await transaction.get(renewalCaseReference) : null
-      transaction.create(reversalReference, { ...original.data(), schemaVersion: 2, type: 'reversal', eventClass: 'cash_reversal', source: original.data().source || 'pt_gym', amount: -amount, cashImpact: -amount, revenueImpact: 0, expenseImpact: 0, receivableImpact: amount - deferredReduction, deferredRevenueImpact: -deferredReduction, effectiveAt: reversalEffectiveAt, reversedEntryId: entryId, referenceCode: referenceCode('DAO', reversalReference), idempotencyKey, reason, status: 'posted', createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
+      transaction.create(reversalReference, { ...original.data(), schemaVersion: 3, type: 'reversal', eventClass: 'cash_reversal', source: original.data().source || 'pt_gym', amount: -amount, cashImpact: -amount, revenueImpact: 0, expenseImpact: 0, receivableImpact: amount - deferredReduction, deferredRevenueImpact: -deferredReduction, effectiveAt: reversalEffectiveAt, reversedEntryId: entryId, referenceCode: referenceCode('DAO', reversalReference), idempotencyKey, reason, status: 'posted', createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
       transaction.update(originalReference, { status: 'reversed', reversedAt: FieldValue.serverTimestamp(), reversedBy: actor.uid, reversalEntryId: reversalReference.id })
       transaction.update(contractReference, { paidAmount: Math.max(0, Number(contract.data().paidAmount || 0) - amount), ...(installmentPatch || {}), financeProjectionUpdatedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
       if (renewalCase?.exists) transaction.update(renewalCaseReference, { collectedValue: FieldValue.increment(-amount), updatedAt: FieldValue.serverTimestamp() })
@@ -429,7 +437,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       const deferredReduction = Math.min(amount, Math.max(0, Number(contract.data().paidAmount || 0) - recognisedToDate))
       const renewalCaseReference = contract.data().renewalCaseId ? db.doc(`contractRenewalCases/${contract.data().renewalCaseId}`) : null
       const renewalCase = renewalCaseReference ? await transaction.get(renewalCaseReference) : null
-      transaction.create(reference, { schemaVersion: 2, type: 'refund', eventClass: 'cash_refund', source: 'pt_gym', renewalCaseId: contract.data().renewalCaseId || null, contractId, studentId: contract.data().studentId || '', branchId: contract.data().branchId || '', installmentId: installmentId || null, cashAccountId: cashAccountId || null, amount: -amount, cashImpact: -amount, revenueImpact: 0, expenseImpact: 0, receivableImpact: amount - deferredReduction, deferredRevenueImpact: -deferredReduction, reconciliationRequired: amount > deferredReduction, effectiveAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod: text(request.data?.paymentMethod || 'transfer', 'Phương thức hoàn'), referenceCode: referenceCode('HOAN', reference), idempotencyKey, reason, status: 'posted' })
+      transaction.create(reference, { schemaVersion: 3, type: 'refund', eventClass: 'cash_refund', source: 'pt_gym', renewalCaseId: contract.data().renewalCaseId || null, contractId, studentId: contract.data().studentId || '', branchId: contract.data().branchId || '', installmentId: installmentId || null, cashAccountId: cashAccountId || null, ...referralSnapshot(contract.data()), amount: -amount, cashImpact: -amount, revenueImpact: 0, expenseImpact: 0, receivableImpact: amount - deferredReduction, deferredRevenueImpact: -deferredReduction, reconciliationRequired: amount > deferredReduction, effectiveAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod: text(request.data?.paymentMethod || 'transfer', 'Phương thức hoàn'), referenceCode: referenceCode('HOAN', reference), idempotencyKey, reason, status: 'posted' })
       transaction.update(contractReference, { paidAmount: Number(contract.data().paidAmount || 0) - amount, ...(installmentPatch || {}), financeProjectionUpdatedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
       if (renewalCase?.exists) transaction.update(renewalCaseReference, { collectedValue: FieldValue.increment(-amount), updatedAt: FieldValue.serverTimestamp() })
       createCashMovement(transaction, db, reference, cashAccount, -amount, effectiveAt, actor.uid, 'contract_refund')

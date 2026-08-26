@@ -1,7 +1,8 @@
-const { FieldValue } = require('firebase-admin/firestore')
+const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { randomUUID } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
+const { calculateReferralCommissions } = require('./referral-commission')
 
 const PAID_ATTENDANCE_STATUSES = new Set([
   'present',
@@ -60,6 +61,30 @@ function monthDateKeys(periodId) {
   const [year, month] = payrollPeriod(periodId).split('-').map(Number)
   const count = new Date(Date.UTC(year, month, 0)).getUTCDate()
   return Array.from({ length: count }, (_, index) => `${periodId}-${String(index + 1).padStart(2, '0')}`)
+}
+
+function payrollPeriodBounds(periodId) {
+  const [year, month] = payrollPeriod(periodId).split('-').map(Number)
+  const nextYear = month === 12 ? year + 1 : year
+  const nextMonth = month === 12 ? 1 : month + 1
+  return {
+    start: Timestamp.fromDate(new Date(`${year}-${String(month).padStart(2, '0')}-01T00:00:00+07:00`)),
+    end: Timestamp.fromDate(new Date(`${nextYear}-${String(nextMonth).padStart(2, '0')}-01T00:00:00+07:00`)),
+  }
+}
+
+async function getAllInBatches(db, references, batchSize = 300) {
+  const snapshots = []
+  for (let offset = 0; offset < references.length; offset += batchSize) {
+    snapshots.push(...await db.getAll(...references.slice(offset, offset + batchSize)))
+  }
+  return snapshots
+}
+
+async function referralContractsForLedger(db, ledgerDocuments) {
+  const contractIds = [...new Set(ledgerDocuments.map((item) => String(item.data()?.contractId || '')).filter(Boolean))]
+  if (contractIds.length > 1000) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều hợp đồng giới thiệu để đối soát an toàn.')
+  return getAllInBatches(db, contractIds.map((contractId) => db.doc(`contracts/${contractId}`)))
 }
 
 function weekday(date) {
@@ -416,14 +441,27 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
     const staffId = staffDocumentId(actor.legacyStaffId || actor.uid)
     const { staff, identity } = await loadIdentity(db, staffId, actor.uid)
     const branchId = identity.branchId || actor.branchIds[0] || ''
-    const [calendar, attendance, runSnapshot, itemSnapshot, teachingEvidence, policySnapshot] = await Promise.all([
+    const { start, end } = payrollPeriodBounds(periodId)
+    const [calendar, attendance, runSnapshot, itemSnapshot, teachingEvidence, policySnapshot, referralLedgerSnapshot] = await Promise.all([
       loadCalendar(db, periodId, branchId),
       loadAttendance(db, staffId, periodId),
       db.doc(`payrollRuns/${periodId}`).get(),
       db.doc(`payrollRunItems/${periodId}_${staffId}`).get(),
       loadTeachingEvidence(db, periodId, staffId),
       db.collection('payrollPolicies').orderBy('effectiveFrom', 'desc').limit(100).get(),
+      db.collection('ledgerEntries').where('effectiveAt', '>=', start).where('effectiveAt', '<', end).limit(5001).get(),
     ])
+    if (referralLedgerSnapshot.size > 5000) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều dòng tiền để đối soát hoa hồng an toàn.')
+    const referralContracts = await referralContractsForLedger(db, referralLedgerSnapshot.docs)
+    const referralEvidence = calculateReferralCommissions({
+      ledgerEntries: referralLedgerSnapshot.docs,
+      contracts: referralContracts,
+      staffRecords: [{ id: staffId, ...staff, employeeCode: identity.employeeCode || staff.employeeCode }],
+    })
+    const referral = referralEvidence.byStaff.get(staffId) || {
+      cashCollectedAmount: 0, cashReversedAmount: 0, netCashAmount: 0,
+      commissionAmount: 0, reversalAmount: 0, contractCount: 0, evidence: [], rate: 0,
+    }
     const payrollItem = itemSnapshot.exists ? itemSnapshot.data() : {}
     const storedTeachingSlots = Array.isArray(payrollItem.teachingSlots) && payrollItem.teachingSlots.length
       ? payrollItem.teachingSlots
@@ -449,10 +487,10 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
       ? storedTeachingSlots
       : priceTeachingSlots(storedTeachingSlots, () => previewPolicy)
     const workdays = calculateWorkdayPayroll({ periodId, calendar, attendance, teachingSlots, staff })
-    const previewCommissionPerSession = workdays.employmentType === 'collaborator' ? 0 : safeMoney(staff.commissionPerSession, 10_000_000)
     const amountSource = itemSnapshot.exists ? payrollItem : {
       teachingPayAmount: teachingSlots.reduce((total, slot) => total + safeMoney(slot.rate, 10_000_000), 0),
-      commissionAmount: Math.min(5_000_000_000, teachingSlots.length * previewCommissionPerSession),
+      commissionAmount: referral.commissionAmount,
+      deductionAmount: referral.reversalAmount,
     }
     const amounts = payrollAmounts(workdays, amountSource)
     const run = runSnapshot.exists ? runSnapshot.data() : {}
@@ -478,6 +516,19 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
         slotCount: teachingSlots.length,
         truncated: teachingEvidence.truncated,
         source: Array.isArray(payrollItem.teachingSlots) && payrollItem.teachingSlots.length ? 'payroll_run' : previewPolicy ? 'attendance_sessions+assigned_policy' : 'attendance_sessions',
+      },
+      referralCommission: {
+        rate: referral.rate || 0,
+        contractCount: referral.contractCount || 0,
+        cashCollectedAmount: referral.cashCollectedAmount || 0,
+        cashReversedAmount: referral.cashReversedAmount || 0,
+        netCashAmount: referral.netCashAmount || 0,
+        commissionAmount: referral.commissionAmount || 0,
+        reversalAmount: referral.reversalAmount || 0,
+        evidence: referral.evidence || [],
+        unresolvedEntryCount: referralEvidence.unresolvedEntryCount,
+        ambiguousCodeEntryCount: referralEvidence.ambiguousCodeEntryCount,
+        invalidRateEntryCount: referralEvidence.invalidRateEntryCount,
       },
       compensationPolicy: previewPolicy ? {
         id: previewPolicy.id,
@@ -505,14 +556,18 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
     await payrollActorForAdmin(request, db)
     const periodId = payrollPeriod(request.data?.periodId)
     const branchFilter = typeof request.data?.branchId === 'string' ? request.data.branchId.trim() : ''
-    const [staffSnapshot, assignmentSnapshot, attendanceSnapshot, calendarSnapshot, teachingEvidence, policySnapshot] = await Promise.all([
+    const { start, end } = payrollPeriodBounds(periodId)
+    const [staffSnapshot, trainerSnapshot, assignmentSnapshot, attendanceSnapshot, calendarSnapshot, teachingEvidence, policySnapshot, referralLedgerSnapshot] = await Promise.all([
       db.collection('staff').limit(450).get(),
+      db.collection('trainers').limit(450).get(),
       db.collection('roleAssignments').where('accessRole', '==', 'staff').limit(450).get(),
       db.collection('staffAttendanceDays').where('periodId', '==', periodId).limit(5000).get(),
       db.collection('workCalendars').where('periodId', '==', periodId).limit(100).get(),
       loadTeachingEvidence(db, periodId),
       db.collection('payrollPolicies').orderBy('effectiveFrom', 'desc').limit(100).get(),
+      db.collection('ledgerEntries').where('effectiveAt', '>=', start).where('effectiveAt', '<', end).limit(5001).get(),
     ])
+    if (referralLedgerSnapshot.size > 5000) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều dòng tiền để đối soát hoa hồng an toàn.')
     const attendanceByStaff = new Map()
     attendanceSnapshot.docs.forEach((item) => {
       const value = item.data()
@@ -536,6 +591,11 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
     const staffById = new Map(staffSnapshot.docs
       .map((item) => ({ id: item.id, userId: item.id, ...item.data() }))
       .map((staff) => [staff.id, staff]))
+    trainerSnapshot.docs.forEach((item) => {
+      const trainer = item.data() || {}
+      const existing = staffById.get(item.id) || {}
+      staffById.set(item.id, { ...trainer, ...existing, id: item.id, userId: existing.userId || item.id })
+    })
     assignmentSnapshot.docs.forEach((item) => {
       const assignment = item.data()
       if (assignment.status === 'suspended' || assignment.status === 'invited') return
@@ -554,6 +614,12 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
       ? await db.getAll(...staffValues.map((staff) => db.doc(`users/${staff.userId || staff.id}`)))
       : []
     const userByStaffId = new Map(staffValues.map((staff, index) => [staff.id, userSnapshots[index]?.exists ? userSnapshots[index].data() : {}]))
+    const referralContracts = await referralContractsForLedger(db, referralLedgerSnapshot.docs)
+    const referralEvidence = calculateReferralCommissions({
+      ledgerEntries: referralLedgerSnapshot.docs,
+      contracts: referralContracts,
+      staffRecords: staffValues,
+    })
     const rows = staffValues
       .filter((staff) => staff.status !== 'inactive' && (!branchFilter || staff.branchId === branchFilter))
       .map((staff) => {
@@ -577,10 +643,14 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
           }
         }
         const workdays = calculateWorkdayPayroll({ periodId, calendar, attendance: attendanceByStaff.get(staff.id) || [], teachingSlots: pricedTeachingSlots, staff })
-        const commissionPerSession = workdays.employmentType === 'collaborator' ? 0 : safeMoney(staff.commissionPerSession, 10_000_000)
+        const referral = referralEvidence.byStaff.get(staff.id) || {
+          cashCollectedAmount: 0, cashReversedAmount: 0, netCashAmount: 0,
+          commissionAmount: 0, reversalAmount: 0, contractCount: 0, evidence: [], rate: 0,
+        }
         const amounts = payrollAmounts(workdays, {
           teachingPayAmount: pricedTeachingSlots.reduce((total, slot) => total + safeMoney(slot.rate, 10_000_000), 0),
-          commissionAmount: Math.min(5_000_000_000, pricedTeachingSlots.length * commissionPerSession),
+          commissionAmount: referral.commissionAmount,
+          deductionAmount: referral.reversalAmount,
         })
         return {
           staffId: staff.id,
@@ -600,10 +670,17 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
           teachingPayAmount: amounts.teachingPayAmount,
           commissionAmount: amounts.commissionAmount,
           bonusAmount: amounts.bonusAmount,
+          deductionAmount: amounts.deductionAmount,
           grossAmount: amounts.grossAmount,
           finalAmount: amounts.finalAmount,
           policyName: assignedPolicy?.name || eligiblePolicies[0]?.name || '',
           policyConfigured,
+          referralCommissionRate: referral.rate || 0,
+          referralContractCount: referral.contractCount || 0,
+          referralCashCollectedAmount: referral.cashCollectedAmount || 0,
+          referralCashReversedAmount: referral.cashReversedAmount || 0,
+          referralNetCashAmount: referral.netCashAmount || 0,
+          referralCommissionReversalAmount: referral.reversalAmount || 0,
           reviewRequired: workdays.reviewRequired,
           calendarApproved: calendar.approved,
         }
@@ -615,6 +692,7 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
       result.teachingPayAmount += row.teachingPayAmount
       result.commissionAmount += row.commissionAmount
       result.bonusAmount += row.bonusAmount
+      result.deductionAmount += row.deductionAmount
       result.estimatedTotal += row.finalAmount
       if (row.reviewRequired) result.reviewRequiredCount += 1
       if (!row.policyConfigured) result.unconfiguredPolicyCount += 1
@@ -626,6 +704,7 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
       teachingPayAmount: 0,
       commissionAmount: 0,
       bonusAmount: 0,
+      deductionAmount: 0,
       estimatedTotal: 0,
       reviewRequiredCount: 0,
       unconfiguredPolicyCount: 0,
@@ -635,7 +714,12 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
       asOfDate: dateKey(new Date()),
       rows,
       summary,
-      truncated: staffSnapshot.size >= 450 || assignmentSnapshot.size >= 450 || attendanceSnapshot.size >= 5000 || teachingEvidence.truncated || policySnapshot.size >= 100,
+      referralDiagnostics: {
+        unresolvedEntryCount: referralEvidence.unresolvedEntryCount,
+        ambiguousCodeEntryCount: referralEvidence.ambiguousCodeEntryCount,
+        invalidRateEntryCount: referralEvidence.invalidRateEntryCount,
+      },
+      truncated: staffSnapshot.size >= 450 || trainerSnapshot.size >= 450 || assignmentSnapshot.size >= 450 || attendanceSnapshot.size >= 5000 || teachingEvidence.truncated || policySnapshot.size >= 100 || referralLedgerSnapshot.size >= 5001,
     }
   })
 

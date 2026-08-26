@@ -120,10 +120,16 @@ export default function StaffPayrollPage() {
       icon: <CalendarCheck2 size={20} />, tone: 'orange',
     },
     {
-      id: 'teaching', eyebrow: 'Ca dạy & hoa hồng',
-      value: money((amounts?.teachingPayAmount || 0) + (amounts?.commissionAmount || 0)),
+      id: 'teaching', eyebrow: 'Tiền ca dạy',
+      value: money(amounts?.teachingPayAmount),
       detail: `${data?.teachingSlots.length || 0} ca dạy · Một khung hai học viên vẫn tính một ca`,
       icon: <Dumbbell size={20} />, tone: 'sunset',
+    },
+    {
+      id: 'commission', eyebrow: 'Hoa hồng giới thiệu',
+      value: money(amounts?.commissionAmount),
+      detail: `${data?.referralCommission.rate || 0}% · ${money(data?.referralCommission.netCashAmount)} dòng tiền thực thu · ${data?.referralCommission.contractCount || 0} hợp đồng`,
+      icon: <CircleDollarSign size={20} />, tone: 'pink',
     },
     {
       id: 'status', eyebrow: workdays?.reviewRequired ? 'Cần đối soát' : 'Trạng thái kỳ',
@@ -171,8 +177,8 @@ export default function StaffPayrollPage() {
         <small>HỒ SƠ & CHÍNH SÁCH THU NHẬP</small>
         <strong>{payrollProfileLabel(data.compensationPolicy.payrollProfile)} · {data.compensationPolicy.name}</strong>
         <p>{data.compensationPolicy.id
-          ? `${data.compensationPolicy.assigned ? 'Chính sách được gán trực tiếp trong hồ sơ nhân viên.' : 'Aura đang chọn tự động chính sách mới nhất phù hợp với cấp bậc.'} Hoa hồng và tiền ca bên dưới đã được tạm tính đến thời điểm hiện tại.`
-          : 'Hồ sơ chưa có chính sách lương phù hợp. Tiền ca và hoa hồng có thể bằng 0 cho đến khi quản lý hoàn tất thiết lập.'}</p>
+          ? `${data.compensationPolicy.assigned ? 'Chính sách tiền ca được gán trực tiếp trong hồ sơ nhân viên.' : 'Aura đang chọn tự động chính sách tiền ca mới nhất phù hợp với cấp bậc.'} Hoa hồng được tách riêng và chỉ tính trên tiền hợp đồng thực thu có mã giới thiệu.`
+          : 'Hồ sơ chưa có chính sách tiền ca phù hợp. Hoa hồng giới thiệu vẫn chỉ được ghi nhận khi mã PT và dòng tiền hợp đồng hợp lệ.'}</p>
       </div>
       <span className={`staff-payroll__policy-status ${data.compensationPolicy.id ? 'is-ready' : 'is-missing'}`}>{data.compensationPolicy.id ? 'Đang áp dụng' : 'Cần thiết lập'}</span>
     </section>}
@@ -191,7 +197,7 @@ export default function StaffPayrollPage() {
       <div className="staff-payroll__money-grid">
         <article><span className="is-pink"><Banknote size={18} /></span><div><small>{workdays?.employmentType === 'collaborator' ? 'CTV · không lương cơ bản' : 'Lương cơ bản theo công'}</small><strong>{money(amounts?.baseSalaryAmount)}</strong><p>{workdays?.employmentType === 'collaborator' ? 'Thu nhập theo chính sách ca dạy CTV' : `${workdays?.estimatedPaidDays || 0}/${workdays?.eligibleWorkdays || 0} ngày đủ điều kiện`}</p></div></article>
         <article><span className="is-orange"><Dumbbell size={18} /></span><div><small>Tiền ca dạy</small><strong>{money(amounts?.teachingPayAmount)}</strong><p>{data?.teachingSlots.length || 0} ca đã ghi nhận</p></div></article>
-        <article><span className="is-sunset"><CircleDollarSign size={18} /></span><div><small>Hoa hồng tạm tính</small><strong>{money(amounts?.commissionAmount)}</strong><p>{data?.run.official ? 'Đã khóa theo kỳ lương' : 'Cập nhật theo ca và chính sách hiện tại'}</p></div></article>
+        <article><span className="is-sunset"><CircleDollarSign size={18} /></span><div><small>Hoa hồng giới thiệu</small><strong>{money(amounts?.commissionAmount)}</strong><p>{data?.referralCommission.rate || 0}% trên {money(data?.referralCommission.netCashAmount)} thực thu · {data?.referralCommission.contractCount || 0} hợp đồng</p></div></article>
         <article><span className="is-ink"><Gift size={18} /></span><div><small>Thưởng & điều chỉnh</small><strong>{money((amounts?.bonusAmount || 0) + (amounts?.adjustmentAmount || 0))}</strong><p>Khấu trừ {money(amounts?.deductionAmount)}</p></div></article>
       </div>
       <footer><span>Tổng thực nhận</span><strong>{money(amounts?.finalAmount)}</strong></footer>

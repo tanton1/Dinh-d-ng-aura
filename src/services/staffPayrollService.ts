@@ -117,6 +117,19 @@ export interface MyStaffPayroll {
   amounts: StaffPayrollAmounts
   teachingSlots: StaffTeachingSlot[]
   teachingEvidence?: { slotCount: number; truncated: boolean; source: string }
+  referralCommission: {
+    rate: number
+    contractCount: number
+    cashCollectedAmount: number
+    cashReversedAmount: number
+    netCashAmount: number
+    commissionAmount: number
+    reversalAmount: number
+    evidence: Array<{ ledgerEntryId: string; contractId: string; cashImpact: number; rate: number; commissionImpact: number }>
+    unresolvedEntryCount: number
+    ambiguousCodeEntryCount: number
+    invalidRateEntryCount: number
+  }
   compensationPolicy: {
     id: string
     name: string
@@ -153,10 +166,17 @@ export interface StaffAttendanceRow {
   teachingPayAmount: number
   commissionAmount: number
   bonusAmount: number
+  deductionAmount: number
   grossAmount: number
   finalAmount: number
   policyName: string
   policyConfigured: boolean
+  referralCommissionRate: number
+  referralContractCount: number
+  referralCashCollectedAmount: number
+  referralCashReversedAmount: number
+  referralNetCashAmount: number
+  referralCommissionReversalAmount: number
   reviewRequired: boolean
   calendarApproved: boolean
 }
@@ -168,6 +188,7 @@ export interface StaffPayrollLiveSummary {
   teachingPayAmount: number
   commissionAmount: number
   bonusAmount: number
+  deductionAmount: number
   estimatedTotal: number
   reviewRequiredCount: number
   unconfiguredPolicyCount: number
@@ -367,6 +388,29 @@ export async function getMyStaffPayroll(periodId: string): Promise<MyStaffPayrol
       truncated: object(raw.teachingEvidence).truncated === true,
       source: text(object(raw.teachingEvidence).source),
     } : undefined,
+    referralCommission: {
+      rate: number(object(raw.referralCommission).rate),
+      contractCount: integer(object(raw.referralCommission).contractCount),
+      cashCollectedAmount: number(object(raw.referralCommission).cashCollectedAmount),
+      cashReversedAmount: number(object(raw.referralCommission).cashReversedAmount),
+      netCashAmount: number(object(raw.referralCommission).netCashAmount),
+      commissionAmount: number(object(raw.referralCommission).commissionAmount),
+      reversalAmount: number(object(raw.referralCommission).reversalAmount),
+      evidence: Array.isArray(object(raw.referralCommission).evidence) ? (object(raw.referralCommission).evidence as unknown[]).flatMap((value) => {
+        const item = object(value)
+        const ledgerEntryId = text(item.ledgerEntryId)
+        return ledgerEntryId ? [{
+          ledgerEntryId,
+          contractId: text(item.contractId),
+          cashImpact: number(item.cashImpact),
+          rate: number(item.rate),
+          commissionImpact: number(item.commissionImpact),
+        }] : []
+      }) : [],
+      unresolvedEntryCount: integer(object(raw.referralCommission).unresolvedEntryCount),
+      ambiguousCodeEntryCount: integer(object(raw.referralCommission).ambiguousCodeEntryCount),
+      invalidRateEntryCount: integer(object(raw.referralCommission).invalidRateEntryCount),
+    },
     compensationPolicy: {
       id: text(object(raw.compensationPolicy).id),
       name: text(object(raw.compensationPolicy).name) || 'Chưa gán chính sách',
@@ -391,7 +435,7 @@ export async function getMyStaffPayroll(periodId: string): Promise<MyStaffPayrol
 }
 
 export async function listStaffPayrollAttendance(periodId: string, branchId = '') {
-  const result = await callable<{ periodId: string; branchId?: string }, { periodId?: unknown; asOfDate?: unknown; rows?: unknown[]; summary?: unknown; truncated?: unknown }>('listStaffPayrollAttendance')({ periodId, branchId })
+  const result = await callable<{ periodId: string; branchId?: string }, { periodId?: unknown; asOfDate?: unknown; rows?: unknown[]; summary?: unknown; referralDiagnostics?: unknown; truncated?: unknown }>('listStaffPayrollAttendance')({ periodId, branchId })
   const rows: StaffAttendanceRow[] = Array.isArray(result.data.rows) ? result.data.rows.flatMap((rowValue) => {
     const raw = object(rowValue)
     const staffId = text(raw.staffId)
@@ -414,10 +458,17 @@ export async function listStaffPayrollAttendance(periodId: string, branchId = ''
       teachingPayAmount: number(raw.teachingPayAmount),
       commissionAmount: number(raw.commissionAmount),
       bonusAmount: number(raw.bonusAmount),
+      deductionAmount: number(raw.deductionAmount),
       grossAmount: number(raw.grossAmount),
       finalAmount: number(raw.finalAmount),
       policyName: text(raw.policyName),
       policyConfigured: raw.policyConfigured !== false,
+      referralCommissionRate: number(raw.referralCommissionRate),
+      referralContractCount: integer(raw.referralContractCount),
+      referralCashCollectedAmount: number(raw.referralCashCollectedAmount),
+      referralCashReversedAmount: number(raw.referralCashReversedAmount),
+      referralNetCashAmount: number(raw.referralNetCashAmount),
+      referralCommissionReversalAmount: number(raw.referralCommissionReversalAmount),
       reviewRequired: raw.reviewRequired === true,
       calendarApproved: raw.calendarApproved === true,
     }]
@@ -430,6 +481,7 @@ export async function listStaffPayrollAttendance(periodId: string, branchId = ''
     teachingPayAmount: number(rawSummary.teachingPayAmount),
     commissionAmount: number(rawSummary.commissionAmount),
     bonusAmount: number(rawSummary.bonusAmount),
+    deductionAmount: number(rawSummary.deductionAmount),
     estimatedTotal: number(rawSummary.estimatedTotal),
     reviewRequiredCount: integer(rawSummary.reviewRequiredCount),
     unconfiguredPolicyCount: integer(rawSummary.unconfiguredPolicyCount),
@@ -439,6 +491,11 @@ export async function listStaffPayrollAttendance(periodId: string, branchId = ''
     asOfDate: text(result.data.asOfDate),
     rows,
     summary,
+    referralDiagnostics: {
+      unresolvedEntryCount: integer(object(result.data.referralDiagnostics).unresolvedEntryCount),
+      ambiguousCodeEntryCount: integer(object(result.data.referralDiagnostics).ambiguousCodeEntryCount),
+      invalidRateEntryCount: integer(object(result.data.referralDiagnostics).invalidRateEntryCount),
+    },
     truncated: result.data.truncated === true,
   }
 }

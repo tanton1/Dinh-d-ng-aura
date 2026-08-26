@@ -3,6 +3,7 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { createHash } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { calculateWorkdayPayroll, mergeWorkCalendar, payrollAmounts } = require('./staff-payroll')
+const { calculateReferralCommissions } = require('./referral-commission')
 
 async function payrollActor(request, db) {
   const actor = await trustedAccessContext(request, db)
@@ -624,7 +625,7 @@ function createPayrollFunctions({ db, onCall }) {
           policyIds: Array.isArray(data.policyIds) ? data.policyIds : data.policyId ? [data.policyId] : [],
           policyApplicationMode: data.policyApplicationMode || 'single',
           status: data.status || 'draft',
-          requiresRebuild: Number(data.schemaVersion || 0) < 5,
+          requiresRebuild: Number(data.schemaVersion || 0) < 7 || Number(data.commissionFormulaVersion || 0) < 2,
           attendanceCount: Number(data.teachingSlotCount ?? data.attendanceCount ?? 0),
           teachingSlotCount: Number(data.teachingSlotCount ?? data.attendanceCount ?? 0),
           attendanceEventCount: Number(data.attendanceEventCount ?? data.attendanceCount ?? 0),
@@ -636,7 +637,9 @@ function createPayrollFunctions({ db, onCall }) {
           attendanceReviewRequired: data.attendanceReviewRequired === true,
           baseSalaryAmount: Number(data.baseSalaryAmount || 0),
           teachingPayAmount: Number(data.teachingPayAmount || 0),
+          commissionAmount: Number(data.commissionAmount || 0),
           bonusAmount: Number(data.bonusAmount || 0),
+          deductionAmount: Number(data.deductionAmount || 0),
           grossAmount: Number(data.grossAmount || 0),
           adjustmentAmount: Number(data.adjustmentAmount || 0),
           finalAmount: Number(data.finalAmount || data.grossAmount || 0),
@@ -658,10 +661,11 @@ function createPayrollFunctions({ db, onCall }) {
     if (!run.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
     const runData = run.data()
     const itemValues = items.docs.map((item) => ({ id: item.id, ...item.data() }))
-    const requiresRebuild = Number(runData.schemaVersion || 0) < 5 || itemValues.some((item) => !Array.isArray(item.teachingSlots))
+    const teachingRequiresRebuild = Number(runData.schemaVersion || 0) < 5 || itemValues.some((item) => !Array.isArray(item.teachingSlots))
+    const requiresRebuild = teachingRequiresRebuild || Number(runData.schemaVersion || 0) < 7 || Number(runData.commissionFormulaVersion || 0) < 2
     let responseItems = itemValues
     let previewSummary = null
-    if (requiresRebuild && runData.status === 'draft') {
+    if (teachingRequiresRebuild && runData.status === 'draft') {
       const preview = await legacyPayrollPreview(db, runData, itemValues)
       responseItems = preview.items
       previewSummary = preview.summary
@@ -723,18 +727,21 @@ function createPayrollFunctions({ db, onCall }) {
       const existing = await transaction.get(runReference)
       if (existing.exists) return { runId: existing.id, unchanged: true, status: existing.data().status }
 
-      const [attendance, staffSnapshot, assignmentSnapshot, workdayAttendanceSnapshot, calendarSnapshot] = await Promise.all([
+      const [attendance, staffSnapshot, trainerRecordsSnapshot, assignmentSnapshot, workdayAttendanceSnapshot, calendarSnapshot, referralLedgerSnapshot] = await Promise.all([
         transaction.get(db.collection('attendanceEvents').where('occurredAt', '>=', start).where('occurredAt', '<', end)),
         transaction.get(db.collection('staff').limit(451)),
+        transaction.get(db.collection('trainers').limit(451)),
         transaction.get(db.collection('roleAssignments').where('accessRole', '==', 'staff').limit(451)),
         transaction.get(db.collection('staffAttendanceDays').where('periodId', '==', periodId).limit(5001)),
         transaction.get(db.collection('workCalendars').where('periodId', '==', periodId).limit(101)),
+        transaction.get(db.collection('ledgerEntries').where('effectiveAt', '>=', start).where('effectiveAt', '<', end).limit(5001)),
       ])
-      if (staffSnapshot.size > 450 || assignmentSnapshot.size > 450 || workdayAttendanceSnapshot.size > 5000 || calendarSnapshot.size > 100) {
+      if (staffSnapshot.size > 450 || trainerRecordsSnapshot.size > 450 || assignmentSnapshot.size > 450 || workdayAttendanceSnapshot.size > 5000 || calendarSnapshot.size > 100 || referralLedgerSnapshot.size > 5000) {
         throw new HttpsError('resource-exhausted', 'Dữ liệu ngày công của kỳ quá lớn để khóa an toàn trong một giao dịch.')
       }
+      const trainerRecordById = new Map(trainerRecordsSnapshot.docs.map((item) => [item.id, item.data() || {}]))
       const staffRecordById = new Map(staffSnapshot.docs
-        .map((item) => ({ id: item.id, userId: item.id, ...item.data() }))
+        .map((item) => ({ id: item.id, userId: item.id, ...(trainerRecordById.get(item.id) || {}), ...item.data() }))
         .filter((item) => item.status !== 'inactive')
         .map((item) => [item.id, item]))
       assignmentSnapshot.docs.forEach((item) => {
@@ -743,12 +750,21 @@ function createPayrollFunctions({ db, onCall }) {
         const operationalId = typeof assignment.crmProfileId === 'string' && assignment.crmProfileId ? assignment.crmProfileId : item.id
         const existing = staffRecordById.get(operationalId) || {}
         staffRecordById.set(operationalId, {
+          ...(trainerRecordById.get(operationalId) || {}),
           ...existing,
           id: operationalId,
           userId: item.id,
           branchId: existing.branchId || assignment.branchIds?.[0] || '',
           status: existing.status || 'active',
         })
+      })
+      const referralContractIds = [...new Set(referralLedgerSnapshot.docs.map((item) => String(item.data()?.contractId || '')).filter(Boolean))]
+      if (referralContractIds.length > 450) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều hợp đồng giới thiệu để khóa trong một giao dịch.')
+      const referralContractSnapshots = await Promise.all(referralContractIds.map((contractId) => transaction.get(db.doc(`contracts/${contractId}`))))
+      const referralEvidence = calculateReferralCommissions({
+        ledgerEntries: referralLedgerSnapshot.docs,
+        contracts: referralContractSnapshots,
+        staffRecords: [...staffRecordById.values()],
       })
       let policyDocuments
       if (requestedPlan.selectedPolicyIds.length) {
@@ -835,7 +851,7 @@ function createPayrollFunctions({ db, onCall }) {
       const policySnapshots = selectedPolicies.map(payrollPolicySnapshot)
       const policyName = selectedPolicies.length === 1 ? selectedPolicies[0].name : `${selectedPolicies.length} chính sách linh hoạt`
       const itemRecords = staffIds.map((staffId) => {
-        const staff = staffRecordById.get(staffId) || {}
+        const staff = { ...(trainerRecordById.get(staffId) || {}), ...(staffRecordById.get(staffId) || {}) }
         const identity = identityById.get(staffId) || {}
         const calendar = mergeWorkCalendar(periodId, globalCalendar, calendars.get(identity.branchId) || {})
         const teachingSlots = teaching.trainers.get(staffId) || []
@@ -848,12 +864,15 @@ function createPayrollFunctions({ db, onCall }) {
           today: vietnamDateKey(new Date()),
         })
         const teachingPayAmount = teachingSlots.reduce((total, slot) => total + slot.rate, 0)
-        const configuredCommission = Number(staff.commissionPerSession || 0)
-        const commissionPerSession = workdays.employmentType !== 'collaborator' && Number.isSafeInteger(configuredCommission) && configuredCommission >= 0 && configuredCommission <= 10_000_000
-          ? configuredCommission
-          : 0
-        const commissionAmount = Math.min(5_000_000_000, teachingSlots.length * commissionPerSession)
-        const amounts = payrollAmounts(workdays, { grossAmount: teachingPayAmount, commissionAmount })
+        const referral = referralEvidence.byStaff.get(staffId) || {
+          cashCollectedAmount: 0, cashReversedAmount: 0, netCashAmount: 0,
+          commissionAmount: 0, reversalAmount: 0, contractCount: 0, evidence: [], rate: 0,
+        }
+        const amounts = payrollAmounts(workdays, {
+          grossAmount: teachingPayAmount,
+          commissionAmount: referral.commissionAmount,
+          deductionAmount: referral.reversalAmount,
+        })
         const itemPolicyIds = [...new Set(teachingSlots.map((slot) => slot.policyId).filter(Boolean))]
         const staffPayrollProfile = payrollProfile(staff)
         const unsupportedPolicy = itemPolicyIds
@@ -862,7 +881,7 @@ function createPayrollFunctions({ db, onCall }) {
         if (unsupportedPolicy) {
           throw new HttpsError('failed-precondition', `Chính sách ${unsupportedPolicy.name} không áp dụng cho nhóm lương của ${identity.name || staffId}.`)
         }
-        return { staffId, staff, identity, calendar, workdays, teachingSlots, amounts, itemPolicyIds, staffPayrollProfile }
+        return { staffId, staff, identity, calendar, workdays, teachingSlots, amounts, referral, itemPolicyIds, staffPayrollProfile }
       })
       const grossAmount = itemRecords.reduce((total, item) => total + item.amounts.grossAmount, 0)
       const finalAmount = itemRecords.reduce((total, item) => total + item.amounts.finalAmount, 0)
@@ -870,7 +889,8 @@ function createPayrollFunctions({ db, onCall }) {
       const attendanceReviewRequiredCount = itemRecords.filter((item) => item.workdays.attendanceReviewRequired).length
       const calendarReviewRequiredCount = itemRecords.filter((item) => item.workdays.calendarReviewRequired).length
       transaction.create(runReference, {
-        schemaVersion: 6,
+        schemaVersion: 7,
+        commissionFormulaVersion: 2,
         revision: 1,
         periodId,
         policyId: defaultPolicy.id,
@@ -893,7 +913,14 @@ function createPayrollFunctions({ db, onCall }) {
         calendarReviewRequiredCount,
         baseSalaryAmount: itemRecords.reduce((total, item) => total + item.amounts.baseSalaryAmount, 0),
         teachingPayAmount: itemRecords.reduce((total, item) => total + item.amounts.teachingPayAmount, 0),
+        commissionAmount: itemRecords.reduce((total, item) => total + item.amounts.commissionAmount, 0),
         bonusAmount: itemRecords.reduce((total, item) => total + item.amounts.bonusAmount, 0),
+        deductionAmount: itemRecords.reduce((total, item) => total + item.amounts.deductionAmount, 0),
+        referralDiagnostics: {
+          unresolvedEntryCount: referralEvidence.unresolvedEntryCount,
+          ambiguousCodeEntryCount: referralEvidence.ambiguousCodeEntryCount,
+          invalidRateEntryCount: referralEvidence.invalidRateEntryCount,
+        },
         grossAmount,
         adjustmentAmount: 0,
         finalAmount,
@@ -903,7 +930,7 @@ function createPayrollFunctions({ db, onCall }) {
         updatedAt: FieldValue.serverTimestamp(),
       })
       for (const item of itemRecords) {
-        const { staffId, identity, calendar, workdays, teachingSlots, amounts, itemPolicyIds, staffPayrollProfile } = item
+        const { staffId, identity, calendar, workdays, teachingSlots, amounts, referral, itemPolicyIds, staffPayrollProfile } = item
         const itemReference = db.doc(`payrollRunItems/${periodId}_${staffId}`)
         const tierSummary = teachingSlots.reduce((result, slot) => {
           if (slot.tier === 'standard') { result.standardCount += 1; result.standardAmount += slot.rate }
@@ -912,7 +939,8 @@ function createPayrollFunctions({ db, onCall }) {
           return result
         }, { standardCount: 0, standardAmount: 0, afterThresholdCount: 0, afterThresholdAmount: 0, afterThresholdEveningCount: 0, afterThresholdEveningAmount: 0 })
         transaction.create(itemReference, {
-          schemaVersion: 6,
+          schemaVersion: 7,
+          commissionFormulaVersion: 2,
           runId: runReference.id,
           periodId,
           staffId,
@@ -950,13 +978,23 @@ function createPayrollFunctions({ db, onCall }) {
           baseSalaryAmount: amounts.baseSalaryAmount,
           teachingPayAmount: amounts.teachingPayAmount,
           commissionAmount: amounts.commissionAmount,
+          referralCommission: {
+            rate: referral.rate || 0,
+            contractCount: referral.contractCount || 0,
+            cashCollectedAmount: referral.cashCollectedAmount || 0,
+            cashReversedAmount: referral.cashReversedAmount || 0,
+            netCashAmount: referral.netCashAmount || 0,
+            commissionAmount: referral.commissionAmount || 0,
+            reversalAmount: referral.reversalAmount || 0,
+            evidence: referral.evidence || [],
+          },
           bonusAmount: amounts.bonusAmount,
           deductionAmount: amounts.deductionAmount,
           grossAmount: amounts.grossAmount,
           adjustmentAmount: 0,
           finalAmount: amounts.finalAmount,
           status: 'draft',
-          evidenceSource: workdays.workdayEnabled ? 'staffAttendanceDays+attendanceEvents+sessions' : 'attendanceEvents+sessions',
+          evidenceSource: workdays.workdayEnabled ? 'staffAttendanceDays+attendanceEvents+sessions+ledgerEntries+contracts' : 'attendanceEvents+sessions+ledgerEntries+contracts',
           createdAt: FieldValue.serverTimestamp(),
         })
       }
@@ -1003,8 +1041,8 @@ function createPayrollFunctions({ db, onCall }) {
       if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
       if (snapshot.data().status === to) return
       if (snapshot.data().status !== from) throw new HttpsError('failed-precondition', `Kỳ lương phải ở trạng thái ${from}.`)
-      if (to === 'reviewed' && Number(snapshot.data().schemaVersion || 0) < 5) {
-        throw new HttpsError('failed-precondition', 'Kỳ lương nháp cũ cần được xóa và lập lại để chốt đúng ngày công, tên nhân viên, số ca và chính sách mới.')
+      if (to === 'reviewed' && (Number(snapshot.data().schemaVersion || 0) < 7 || Number(snapshot.data().commissionFormulaVersion || 0) < 2)) {
+        throw new HttpsError('failed-precondition', 'Kỳ lương nháp cũ cần được xóa và lập lại để chốt đúng ngày công, tiền ca và hoa hồng giới thiệu theo dòng tiền.')
       }
       if (to === 'reviewed' && snapshot.data().attendanceReviewRequired === true) {
         throw new HttpsError('failed-precondition', 'Ngày công hoặc lịch làm việc của kỳ chưa được đối soát đầy đủ.')

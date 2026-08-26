@@ -210,6 +210,9 @@ export interface StudentContract {
   installments?: Installment[]
   attendedClasses?: string[]
   referralCode?: string | null
+  referralStaffId?: string | null
+  referralCommissionRate?: number | null
+  /** @deprecated Legacy cached amount; payroll now derives commission from canonical cash ledger entries. */
   referralCommission?: number | null
   extensions?: ContractExtension[]
   pausePeriods?: Array<{

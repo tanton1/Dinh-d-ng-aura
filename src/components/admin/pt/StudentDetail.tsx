@@ -251,13 +251,17 @@ export default function StudentDetail({ student, profile, contracts, packages, t
     packageDraftContractId.current = contractId;
     let finalInstallments: Installment[] = [];
 
-    // Calculate referral commission if code is valid
-    let referralCommissionAmount = 0;
+    let referringPT: Trainer | undefined;
     if (referralCode) {
-      const referringPT = trainers.find(t => t.employeeCode === referralCode);
-      if (referringPT) {
-        // Commission calculated dynamically based on amountPaid, not pkgPrice
-        referralCommissionAmount = amountPaid * (referringPT.commissionRate / 100);
+      const normalizedCode = referralCode.trim().replace(/\s+/g, '').toUpperCase();
+      referringPT = trainers.find(t => (t.employeeCode || '').trim().replace(/\s+/g, '').toUpperCase() === normalizedCode);
+      if (!referringPT) {
+        setNotification({ message: 'Mã giới thiệu PT không tồn tại hoặc chưa được gắn cho nhân viên.', type: 'error' });
+        return;
+      }
+      if (!Number.isFinite(referringPT.commissionRate) || referringPT.commissionRate < 2 || referringPT.commissionRate > 10) {
+        setNotification({ message: 'PT giới thiệu chưa được thiết lập hoa hồng hợp lệ từ 2–10%.', type: 'error' });
+        return;
       }
     }
 
@@ -310,7 +314,9 @@ export default function StudentDetail({ student, profile, contracts, packages, t
       status: 'active',
       installments: finalInstallments,
       referralCode: referralCode || null,
-      referralCommission: referralCommissionAmount || null,
+      referralStaffId: referringPT?.id || null,
+      referralCommissionRate: referringPT?.commissionRate || null,
+      referralCommission: null,
     };
     
     const pendingInstallments = finalInstallments.filter(i => i.status === 'pending');

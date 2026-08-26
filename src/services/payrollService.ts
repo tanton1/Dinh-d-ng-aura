@@ -26,7 +26,9 @@ export interface PayrollRunSummary {
   attendanceReviewRequired: boolean
   baseSalaryAmount: number
   teachingPayAmount: number
+  commissionAmount: number
   bonusAmount: number
+  deductionAmount: number
   grossAmount: number
   adjustmentAmount: number
   finalAmount: number
@@ -103,6 +105,15 @@ export interface PayrollRunItem {
   baseSalaryAmount: number
   teachingPayAmount: number
   commissionAmount: number
+  referralCommission?: {
+    rate: number
+    contractCount: number
+    cashCollectedAmount: number
+    cashReversedAmount: number
+    netCashAmount: number
+    commissionAmount: number
+    reversalAmount: number
+  }
   bonusAmount: number
   deductionAmount: number
   workdaySummary: {
@@ -183,7 +194,9 @@ function normaliseRun(value: unknown): PayrollRunSummary {
     attendanceReviewRequired: raw.attendanceReviewRequired === true,
     baseSalaryAmount: amount(raw.baseSalaryAmount),
     teachingPayAmount: amount(raw.teachingPayAmount ?? raw.grossAmount),
+    commissionAmount: amount(raw.commissionAmount),
     bonusAmount: amount(raw.bonusAmount),
+    deductionAmount: amount(raw.deductionAmount),
     grossAmount: amount(raw.grossAmount),
     adjustmentAmount: amount(raw.adjustmentAmount),
     finalAmount: amount(raw.finalAmount || raw.grossAmount),
@@ -270,6 +283,15 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
       baseSalaryAmount: amount(raw.baseSalaryAmount),
       teachingPayAmount: amount(raw.teachingPayAmount ?? raw.grossAmount),
       commissionAmount: amount(raw.commissionAmount),
+      referralCommission: raw.referralCommission && typeof raw.referralCommission === 'object' ? {
+        rate: amount((raw.referralCommission as Record<string, unknown>).rate),
+        contractCount: Math.max(0, Math.trunc(amount((raw.referralCommission as Record<string, unknown>).contractCount))),
+        cashCollectedAmount: amount((raw.referralCommission as Record<string, unknown>).cashCollectedAmount),
+        cashReversedAmount: amount((raw.referralCommission as Record<string, unknown>).cashReversedAmount),
+        netCashAmount: amount((raw.referralCommission as Record<string, unknown>).netCashAmount),
+        commissionAmount: amount((raw.referralCommission as Record<string, unknown>).commissionAmount),
+        reversalAmount: amount((raw.referralCommission as Record<string, unknown>).reversalAmount),
+      } : undefined,
       bonusAmount: amount(raw.bonusAmount),
       deductionAmount: amount(raw.deductionAmount),
       workdaySummary: {

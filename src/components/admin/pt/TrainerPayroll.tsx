@@ -49,7 +49,7 @@ import '../../../styles-payroll-canonical.css'
 import StaffWorkdayPayrollPanel from './StaffWorkdayPayrollPanel'
 import {
   listStaffPayrollAttendance,
-  type StaffPayrollLiveSummary,
+  type StaffAttendanceRow,
 } from '../../../services/staffPayrollService'
 
 interface Props {
@@ -97,18 +97,6 @@ function dateLabel(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('vi-VN')
 }
 
-const emptyLiveSummary: StaffPayrollLiveSummary = {
-  activeStaffCount: 0,
-  teachingSlotCount: 0,
-  baseSalaryAmount: 0,
-  teachingPayAmount: 0,
-  commissionAmount: 0,
-  bonusAmount: 0,
-  estimatedTotal: 0,
-  reviewRequiredCount: 0,
-  unconfiguredPolicyCount: 0,
-}
-
 function teachingTierLabel(tier: 'standard' | 'after_threshold' | 'after_threshold_evening') {
   if (tier === 'after_threshold_evening') return 'Tăng ca tối'
   if (tier === 'after_threshold') return 'Từ ca thứ 9'
@@ -150,7 +138,7 @@ export default function TrainerPayroll({ profile }: Props) {
   const [payoutReference, setPayoutReference] = useState('')
   const [showRunSetup, setShowRunSetup] = useState(false)
   const [showPolicyForm, setShowPolicyForm] = useState(false)
-  const [liveSummary, setLiveSummary] = useState<StaffPayrollLiveSummary>(emptyLiveSummary)
+  const [liveRows, setLiveRows] = useState<StaffAttendanceRow[]>([])
   const [liveAsOfDate, setLiveAsOfDate] = useState('')
   const [selectedPolicyIds, setSelectedPolicyIds] = useState<string[]>([])
   const [defaultPolicyId, setDefaultPolicyId] = useState('')
@@ -189,10 +177,10 @@ export default function TrainerPayroll({ profile }: Props) {
       setPayoutAccountId((current) => current || activeAccounts[0]?.id || '')
     }
     if (liveResult.status === 'fulfilled') {
-      setLiveSummary(liveResult.value.summary)
+      setLiveRows([...liveResult.value.rows].sort((left, right) => left.name.localeCompare(right.name, 'vi')))
       setLiveAsOfDate(liveResult.value.asOfDate)
     } else {
-      setLiveSummary(emptyLiveSummary)
+      setLiveRows([])
       setLiveAsOfDate('')
     }
     const failure = [runsResult, policiesResult, accountsResult, liveResult].find((result) => result.status === 'rejected')
@@ -309,7 +297,7 @@ export default function TrainerPayroll({ profile }: Props) {
   const runAction = async (action: 'review' | 'lock' | 'pay', run: PayrollRunSummary) => {
     if (busyAction) return
     if (action === 'review' && run.requiresRebuild) {
-      setError('Kỳ nháp cũ cần được xóa và lập lại để lưu đúng tên HLV, số ca và chính sách hiện hành.')
+      setError('Kỳ nháp cũ cần được xóa và lập lại để lưu đúng ngày công, tiền ca và hoa hồng giới thiệu theo dòng tiền.')
       return
     }
     const key = `${action}:${run?.id || periodId}`
@@ -402,12 +390,20 @@ export default function TrainerPayroll({ profile }: Props) {
     }
   }
 
-  const slides: AuraMetricSlide[] = [
-    { id: 'live-total', eyebrow: `Tạm tính đến ${liveAsOfDate ? dateLabel(liveAsOfDate) : 'hiện tại'}`, value: money(liveSummary.estimatedTotal), detail: `${liveSummary.activeStaffCount} staff đang hoạt động · ${liveSummary.teachingSlotCount} ca đã ghi nhận`, icon: <Banknote size={20} />, tone: 'pink', actionLabel: 'Xem ngày công', onSelect: () => setView('workdays') },
-    { id: 'live-base', eyebrow: 'Lương cơ bản tạm tính', value: money(liveSummary.baseSalaryAmount), detail: 'Tính theo ngày công đến hiện tại, trừ ngày nghỉ không lương', icon: <CalendarCheck2 size={20} />, tone: 'orange', actionLabel: 'Đối chiếu công', onSelect: () => setView('workdays') },
-    { id: 'live-variable', eyebrow: 'Ca dạy & hoa hồng', value: money(liveSummary.teachingPayAmount + liveSummary.commissionAmount + liveSummary.bonusAmount), detail: `${money(liveSummary.teachingPayAmount)} tiền ca · ${money(liveSummary.commissionAmount)} hoa hồng`, icon: <WalletCards size={20} />, tone: 'sunset', actionLabel: 'Xem chính sách', onSelect: () => setView('policies') },
-    { id: 'live-review', eyebrow: 'Cần đối soát', value: `${liveSummary.reviewRequiredCount}`, detail: liveSummary.unconfiguredPolicyCount ? `${liveSummary.unconfiguredPolicyCount} staff chưa có chính sách phù hợp` : 'Ngày công và chính sách cần kiểm tra trước khi khóa kỳ', icon: <AlertTriangle size={20} />, tone: 'ink', actionLabel: 'Mở ngày công', onSelect: () => setView('workdays') },
-  ]
+  const slides: AuraMetricSlide[] = liveRows.length ? liveRows.map((row, index) => ({
+    id: `staff-${row.staffId}`,
+    eyebrow: `${row.name} · ${periodLabel(periodId)}`,
+    value: money(row.finalAmount),
+    detail: `${money(row.baseSalaryEarned)} cơ bản · ${money(row.teachingPayAmount)} ca dạy · ${money(row.commissionAmount)} HH ${row.referralCommissionRate ? `${row.referralCommissionRate}%` : ''}`,
+    icon: <Banknote size={20} />,
+    tone: (['pink', 'orange', 'sunset', 'ink'] as const)[index % 4],
+    actionLabel: row.reviewRequired || !row.policyConfigured ? 'Cần đối soát' : `Tạm tính đến ${liveAsOfDate ? dateLabel(liveAsOfDate) : 'hiện tại'}`,
+    onSelect: () => setView('workdays'),
+  })) : [{
+    id: 'staff-empty', eyebrow: periodLabel(periodId), value: 'Chưa có số liệu',
+    detail: 'Chưa tìm thấy staff đang hoạt động trong phạm vi kỳ lương này.',
+    icon: <UsersRound size={20} />, tone: 'pink', actionLabel: 'Kiểm tra ngày công', onSelect: () => setView('workdays'),
+  }]
 
   const visibleRuns = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -420,13 +416,13 @@ export default function TrainerPayroll({ profile }: Props) {
   useEffect(() => { if (subpageActive) window.scrollTo({ top: 0, behavior: 'smooth' }) }, [subpageActive])
 
   return <div className={`payroll-page ${subpageActive ? 'payroll-page--subpage' : ''}`}>
-    <AuraMetricCarousel slides={slides} label="Tổng quan bảng lương" loading={loading && runs.length === 0} />
+    <AuraMetricCarousel slides={slides} label="Lương tạm tính từng nhân viên" loading={loading && liveRows.length === 0} />
 
     <div className="payroll-page__nav" role="tablist" aria-label="Quản lý lương">
       <button type="button" role="tab" aria-selected={view === 'runs'} className={view === 'runs' ? 'is-active' : ''} onClick={() => setView('runs')}><FileCheck2 size={17} /> Kỳ lương</button>
       <button type="button" role="tab" aria-selected={view === 'workdays'} className={view === 'workdays' ? 'is-active' : ''} onClick={() => setView('workdays')}><CalendarCheck2 size={17} /> Ngày công</button>
       <button type="button" role="tab" aria-selected={view === 'policies'} className={view === 'policies' ? 'is-active' : ''} onClick={() => setView('policies')}><Settings2 size={17} /> Chính sách</button>
-      <AuraHelpPopover title="Cách tính lương" label="Cách tính lương"><p>Lương chỉ lấy từ ca đã điểm danh. Hai học viên tập cùng HLV, cùng ngày và cùng giờ được tính là một ca dạy. Sau ca thứ 8 trong ngày, hệ thống áp dụng đơn giá tăng ca của phiên bản chính sách.</p></AuraHelpPopover>
+      <AuraHelpPopover title="Cách tính lương" label="Cách tính lương"><p>Tiền ca chỉ lấy từ ca đã điểm danh; hai học viên cùng HLV, ngày và giờ vẫn là một ca. Hoa hồng tách riêng, chỉ bằng 2–10% dòng tiền thực thu trong kỳ của hợp đồng có mã giới thiệu PT; khoản hoàn hoặc đảo thu làm giảm hoa hồng.</p></AuraHelpPopover>
     </div>
 
     {(message || error) && <div className={`payroll-page__notice ${error ? 'is-error' : 'is-success'}`} role="status">
@@ -537,7 +533,7 @@ export default function TrainerPayroll({ profile }: Props) {
             <div><span>Trạng thái</span><strong>{statusMeta[detail.run.status].label}</strong></div>
           </div>
           <p className="payroll-drawer__status"><ShieldCheck size={17} /> {statusMeta[detail.run.status].hint}</p>
-          {detail.run.requiresRebuild && <div className="payroll-drawer__legacy-warning"><AlertTriangle size={20} /><div><strong>Kỳ nháp cũ đã được dựng lại để đối chiếu</strong><p>Aura đã nối tên HLV và gom đúng các lượt cùng HLV, ngày, giờ thành một ca. Số liệu dưới đây là preview chuẩn; hãy xóa kỳ nháp và lập lại để lưu snapshot mới trước khi duyệt.</p>{detail.run.storedTeachingSlotCount !== detail.run.teachingSlotCount && <small>Dữ liệu cũ: {detail.run.storedTeachingSlotCount || 0} lượt · Preview chuẩn: {detail.run.teachingSlotCount} ca.</small>}</div><button type="button" onClick={() => { setPendingConfirmation({ kind: 'delete-run', id: detail.run.id, label: periodLabel(detail.run.periodId) }); setDetail(null) }}><Trash2 size={15} /> Lập lại kỳ</button></div>}
+          {detail.run.requiresRebuild && <div className="payroll-drawer__legacy-warning"><AlertTriangle size={20} /><div><strong>Kỳ lương dùng công thức cũ</strong><p>{detail.run.status === 'draft' ? 'Hãy lập lại kỳ để tiền ca không bị cộng chồng và hoa hồng chỉ lấy 2–10% từ dòng tiền thực thu của hợp đồng có mã giới thiệu PT.' : 'Kỳ đã duyệt hoặc khóa được giữ nguyên để bảo toàn chứng từ. Chỉ các kỳ mới dùng công thức hoa hồng theo dòng tiền.'}</p>{detail.run.storedTeachingSlotCount !== detail.run.teachingSlotCount && <small>Dữ liệu cũ: {detail.run.storedTeachingSlotCount || 0} lượt · Preview chuẩn: {detail.run.teachingSlotCount} ca.</small>}</div>{detail.run.status === 'draft' && <button type="button" onClick={() => { setPendingConfirmation({ kind: 'delete-run', id: detail.run.id, label: periodLabel(detail.run.periodId) }); setDetail(null) }}><Trash2 size={15} /> Lập lại kỳ</button>}</div>}
           <div className="payroll-drawer__items">
             <div className="payroll-page__section-title"><div><span>Chi tiết theo nhân viên</span><strong>{detail.items.length} người</strong></div><small>Bấm tên để xem ngày công và ca dạy</small></div>
             {detail.items.map((item) => {
@@ -552,7 +548,7 @@ export default function TrainerPayroll({ profile }: Props) {
                   <ChevronRight className="payroll-trainer-item__chevron" size={18} />
                 </button>
                 {expanded && <div className="payroll-trainer-item__detail">
-                  <div className="payroll-trainer-item__components"><span>Lương cơ bản <b>{money(item.baseSalaryAmount)}</b></span><span>Ca dạy <b>{money(item.teachingPayAmount)}</b></span><span>Hoa hồng <b>{money(item.commissionAmount)}</b></span><span>Thưởng <b>{money(item.bonusAmount)}</b></span><span>Khấu trừ <b>{money(item.deductionAmount)}</b></span></div>
+                  <div className="payroll-trainer-item__components"><span>Lương cơ bản <b>{money(item.baseSalaryAmount)}</b></span><span>Ca dạy <b>{money(item.teachingPayAmount)}</b></span><span>Hoa hồng GT <b>{money(item.commissionAmount)}</b><small>{item.referralCommission ? `${item.referralCommission.rate}% trên ${money(item.referralCommission.netCashAmount)} thực thu` : 'Kỳ cũ chưa có bằng chứng dòng tiền'}</small></span><span>Thưởng <b>{money(item.bonusAmount)}</b></span><span>Khấu trừ <b>{money(item.deductionAmount)}</b></span></div>
                   {(item.attendanceReviewRequired || item.calendarReviewRequired) && <p className="payroll-trainer-item__review"><AlertTriangle size={15} /> {item.calendarReviewRequired ? 'Lịch làm việc chưa duyệt. ' : ''}{item.attendanceReviewRequired ? 'Ngày công còn thiếu hoặc cần xác minh.' : ''}</p>}
                   <div className="payroll-trainer-item__tiers"><span>Ca 1–8 <b>{item.tierSummary.standardCount}</b><small>{money(item.tierSummary.standardAmount)}</small></span><span>Từ ca 9 <b>{item.tierSummary.afterThresholdCount}</b><small>{money(item.tierSummary.afterThresholdAmount)}</small></span><span>Ca tối <b>{item.tierSummary.afterThresholdEveningCount}</b><small>{money(item.tierSummary.afterThresholdEveningAmount)}</small></span></div>
                   {item.teachingSlots.length ? <div className="payroll-teaching-slots">{item.teachingSlots.map((slot) => <div key={slot.key} className="payroll-teaching-slot"><time>{dateLabel(slot.date)} · {String(slot.hour).padStart(2, '0')}:00</time><span>Ca #{slot.dailyPosition} · {slot.studentCount} học viên{slot.policyName ? ` · ${slot.policyName}` : ''}</span><em>{teachingTierLabel(slot.tier)}</em><strong>{money(slot.rate)}</strong></div>)}</div> : <p className="payroll-trainer-item__legacy">Kỳ cũ chưa lưu snapshot từng ca. Tạo kỳ mới để xem chi tiết ngày, giờ và số học viên.</p>}

@@ -212,6 +212,10 @@ test('payroll items snapshot trainer identity and attendance evidence source', (
   assert.match(createBlock, /policySnapshots/)
   assert.match(createBlock, /teachingSlots/)
   assert.match(createBlock, /teachingSlotCount/)
+  assert.match(createBlock, /calculateReferralCommissions/)
+  assert.match(createBlock, /ledgerEntries/)
+  assert.match(createBlock, /referralCommission/)
+  assert.doesNotMatch(createBlock, /teachingSlots\.length \* commissionPerSession/)
 })
 
 test('legacy draft payroll is enriched for review but cannot be approved before rebuilding', () => {
