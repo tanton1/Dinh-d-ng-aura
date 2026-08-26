@@ -47,8 +47,11 @@ import {
 import { listCashAccounts, type CashAccount } from '../../../services/cashbookService'
 import '../../../styles-payroll-canonical.css'
 import StaffWorkdayPayrollPanel from './StaffWorkdayPayrollPanel'
+import StaffPayrollStatementPanel from './StaffPayrollStatementPanel'
 import {
+  getStaffPayrollStatement,
   listStaffPayrollAttendance,
+  type MyStaffPayroll,
   type StaffAttendanceRow,
 } from '../../../services/staffPayrollService'
 
@@ -140,6 +143,10 @@ export default function TrainerPayroll({ profile }: Props) {
   const [showPolicyForm, setShowPolicyForm] = useState(false)
   const [liveRows, setLiveRows] = useState<StaffAttendanceRow[]>([])
   const [liveAsOfDate, setLiveAsOfDate] = useState('')
+  const [staffStatementId, setStaffStatementId] = useState('')
+  const [staffStatement, setStaffStatement] = useState<MyStaffPayroll | null>(null)
+  const [staffStatementLoading, setStaffStatementLoading] = useState(false)
+  const [staffStatementError, setStaffStatementError] = useState('')
   const [selectedPolicyIds, setSelectedPolicyIds] = useState<string[]>([])
   const [defaultPolicyId, setDefaultPolicyId] = useState('')
   const [policyApplicationMode, setPolicyApplicationMode] = useState<PolicyApplicationMode>('trainer_assignment')
@@ -189,6 +196,21 @@ export default function TrainerPayroll({ profile }: Props) {
   }, [periodId])
 
   useEffect(() => { void refresh() }, [refresh])
+
+  const openStaffStatement = useCallback(async (staffId: string) => {
+    setStaffStatementId(staffId)
+    setStaffStatement(null)
+    setStaffStatementError('')
+    setStaffStatementLoading(true)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    try {
+      setStaffStatement(await getStaffPayrollStatement(periodId, staffId))
+    } catch (cause) {
+      setStaffStatementError(friendlyError(cause))
+    } finally {
+      setStaffStatementLoading(false)
+    }
+  }, [periodId])
 
   const openRun = useCallback(async (runId: string) => {
     setDetailLoading(true)
@@ -398,7 +420,7 @@ export default function TrainerPayroll({ profile }: Props) {
     icon: <Banknote size={20} />,
     tone: (['pink', 'orange', 'sunset', 'ink'] as const)[index % 4],
     actionLabel: row.reviewRequired || !row.policyConfigured ? 'Cần đối soát' : `Tạm tính đến ${liveAsOfDate ? dateLabel(liveAsOfDate) : 'hiện tại'}`,
-    onSelect: () => setView('workdays'),
+    onSelect: () => void openStaffStatement(row.staffId),
   })) : [{
     id: 'staff-empty', eyebrow: periodLabel(periodId), value: 'Chưa có số liệu',
     detail: 'Chưa tìm thấy staff đang hoạt động trong phạm vi kỳ lương này.',
@@ -414,6 +436,15 @@ export default function TrainerPayroll({ profile }: Props) {
   }, [runs, search, statusFilter])
   const subpageActive = showRunSetup || Boolean(pendingConfirmation) || Boolean(detail) || detailLoading
   useEffect(() => { if (subpageActive) window.scrollTo({ top: 0, behavior: 'smooth' }) }, [subpageActive])
+
+  if (staffStatementId) return <StaffPayrollStatementPanel
+    data={staffStatement}
+    periodId={periodId}
+    loading={staffStatementLoading}
+    error={staffStatementError}
+    onBack={() => { setStaffStatementId(''); setStaffStatement(null); setStaffStatementError('') }}
+    onRetry={() => void openStaffStatement(staffStatementId)}
+  />
 
   return <div className={`payroll-page ${subpageActive ? 'payroll-page--subpage' : ''}`}>
     <AuraMetricCarousel slides={slides} label="Lương tạm tính từng nhân viên" loading={loading && liveRows.length === 0} />

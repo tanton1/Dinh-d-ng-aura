@@ -213,6 +213,7 @@ Object.assign(exports, createPayrollFunctions({ db, onCall, logger }))
 const staffPayrollFunctions = createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile })
 Object.assign(exports, staffPayrollFunctions)
 exports.getMyStaffPayroll = staffPayrollFunctions.getMyStaffPayroll
+exports.getStaffPayrollStatement = staffPayrollFunctions.getStaffPayrollStatement
 exports.listStaffPayrollAttendance = staffPayrollFunctions.listStaffPayrollAttendance
 exports.getStaffPayrollAttendanceDetail = staffPayrollFunctions.getStaffPayrollAttendanceDetail
 exports.saveStaffAttendanceDay = staffPayrollFunctions.saveStaffAttendanceDay

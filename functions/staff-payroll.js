@@ -434,13 +434,9 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
     }
   })
 
-  const getMyStaffPayroll = observedCall('getMyStaffPayroll', async (request) => {
-    const actor = await trustedAccessContext(request, db)
-    requireSelfPayroll(actor)
-    const periodId = payrollPeriod(request.data?.periodId)
-    const staffId = staffDocumentId(actor.legacyStaffId || actor.uid)
-    const { staff, identity } = await loadIdentity(db, staffId, actor.uid)
-    const branchId = identity.branchId || actor.branchIds[0] || ''
+  const buildStaffPayrollStatement = async ({ periodId, staffId, userId, fallbackBranchIds = [] }) => {
+    const { staff, identity } = await loadIdentity(db, staffId, userId)
+    const branchId = identity.branchId || fallbackBranchIds[0] || ''
     const { start, end } = payrollPeriodBounds(periodId)
     const [calendar, attendance, runSnapshot, itemSnapshot, teachingEvidence, policySnapshot, referralLedgerSnapshot] = await Promise.all([
       loadCalendar(db, periodId, branchId),
@@ -495,9 +491,23 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
     const amounts = payrollAmounts(workdays, amountSource)
     const run = runSnapshot.exists ? runSnapshot.data() : {}
     const official = ['locked', 'paid'].includes(run.status) && Number(run.schemaVersion || 0) >= 5
+    const storedReferral = payrollItem.referralCommission && typeof payrollItem.referralCommission === 'object'
+      ? payrollItem.referralCommission
+      : null
+    const statementReferral = official && storedReferral ? {
+      rate: Number(storedReferral.rate || 0),
+      contractCount: Number(storedReferral.contractCount || 0),
+      cashCollectedAmount: safeMoney(storedReferral.cashCollectedAmount),
+      cashReversedAmount: safeMoney(storedReferral.cashReversedAmount),
+      netCashAmount: Number.isSafeInteger(Number(storedReferral.netCashAmount)) ? Number(storedReferral.netCashAmount) : 0,
+      commissionAmount: safeMoney(storedReferral.commissionAmount),
+      reversalAmount: safeMoney(storedReferral.reversalAmount),
+      evidence: Array.isArray(storedReferral.evidence) ? storedReferral.evidence.slice(0, 200) : [],
+    } : referral
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       periodId,
+      staffId,
       identity,
       calendar,
       workdays,
@@ -518,17 +528,17 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
         source: Array.isArray(payrollItem.teachingSlots) && payrollItem.teachingSlots.length ? 'payroll_run' : previewPolicy ? 'attendance_sessions+assigned_policy' : 'attendance_sessions',
       },
       referralCommission: {
-        rate: referral.rate || 0,
-        contractCount: referral.contractCount || 0,
-        cashCollectedAmount: referral.cashCollectedAmount || 0,
-        cashReversedAmount: referral.cashReversedAmount || 0,
-        netCashAmount: referral.netCashAmount || 0,
-        commissionAmount: referral.commissionAmount || 0,
-        reversalAmount: referral.reversalAmount || 0,
-        evidence: referral.evidence || [],
-        unresolvedEntryCount: referralEvidence.unresolvedEntryCount,
-        ambiguousCodeEntryCount: referralEvidence.ambiguousCodeEntryCount,
-        invalidRateEntryCount: referralEvidence.invalidRateEntryCount,
+        rate: statementReferral.rate || 0,
+        contractCount: statementReferral.contractCount || 0,
+        cashCollectedAmount: statementReferral.cashCollectedAmount || 0,
+        cashReversedAmount: statementReferral.cashReversedAmount || 0,
+        netCashAmount: statementReferral.netCashAmount || 0,
+        commissionAmount: statementReferral.commissionAmount || 0,
+        reversalAmount: statementReferral.reversalAmount || 0,
+        evidence: statementReferral.evidence || [],
+        unresolvedEntryCount: official && storedReferral ? 0 : referralEvidence.unresolvedEntryCount,
+        ambiguousCodeEntryCount: official && storedReferral ? 0 : referralEvidence.ambiguousCodeEntryCount,
+        invalidRateEntryCount: official && storedReferral ? 0 : referralEvidence.invalidRateEntryCount,
       },
       compensationPolicy: previewPolicy ? {
         id: previewPolicy.id,
@@ -550,6 +560,24 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
       },
       generatedAt: new Date().toISOString(),
     }
+  }
+
+  const getMyStaffPayroll = observedCall('getMyStaffPayroll', async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    requireSelfPayroll(actor)
+    const periodId = payrollPeriod(request.data?.periodId)
+    const staffId = staffDocumentId(actor.legacyStaffId || actor.uid)
+    return buildStaffPayrollStatement({ periodId, staffId, userId: actor.uid, fallbackBranchIds: actor.branchIds })
+  })
+
+  const getStaffPayrollStatement = observedCall('getStaffPayrollStatement', async (request) => {
+    await payrollActorForAdmin(request, db)
+    const periodId = payrollPeriod(request.data?.periodId)
+    const staffId = staffDocumentId(request.data?.staffId)
+    const assignmentSnapshot = await db.collection('roleAssignments').where('crmProfileId', '==', staffId).limit(2).get()
+    if (assignmentSnapshot.size > 1) throw new HttpsError('failed-precondition', 'Hồ sơ nhân viên đang liên kết nhiều tài khoản. Hãy đối soát quyền trước khi xem lương.')
+    const userId = assignmentSnapshot.size === 1 ? assignmentSnapshot.docs[0].id : staffId
+    return buildStaffPayrollStatement({ periodId, staffId, userId })
   })
 
   const listStaffPayrollAttendance = observedCall('listStaffPayrollAttendance', async (request) => {
@@ -909,6 +937,7 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
 
   return {
     getMyStaffPayroll,
+    getStaffPayrollStatement,
     listStaffPayrollAttendance,
     getStaffPayrollAttendanceDetail,
     saveStaffAttendanceDay,

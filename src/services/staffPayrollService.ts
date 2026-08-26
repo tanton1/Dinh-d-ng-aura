@@ -110,6 +110,7 @@ export interface StaffTeachingSlot {
 }
 
 export interface MyStaffPayroll {
+  staffId: string
   periodId: string
   identity: StaffPayrollIdentity
   calendar: WorkCalendar
@@ -369,14 +370,14 @@ function normalizeTeachingSlots(value: unknown): StaffTeachingSlot[] {
   }) : []
 }
 
-export async function getMyStaffPayroll(periodId: string): Promise<MyStaffPayroll> {
-  const result = await callable<{ periodId: string }, UnknownRecord>('getMyStaffPayroll')({ periodId })
-  const raw = object(result.data)
+function normalizeStaffPayrollStatement(rawValue: unknown, periodId: string, staffId = ''): MyStaffPayroll {
+  const raw = object(rawValue)
   const run = object(raw.run)
   const runStatus = run.status === 'draft' || run.status === 'reviewed' || run.status === 'locked' || run.status === 'paid'
     ? run.status
     : 'estimating'
   return {
+    staffId: text(raw.staffId) || staffId,
     periodId: text(raw.periodId) || periodId,
     identity: normalizeIdentity(raw.identity),
     calendar: normalizeCalendar(raw.calendar),
@@ -432,6 +433,16 @@ export async function getMyStaffPayroll(periodId: string): Promise<MyStaffPayrol
     },
     generatedAt: text(raw.generatedAt),
   }
+}
+
+export async function getMyStaffPayroll(periodId: string): Promise<MyStaffPayroll> {
+  const result = await callable<{ periodId: string }, UnknownRecord>('getMyStaffPayroll')({ periodId })
+  return normalizeStaffPayrollStatement(result.data, periodId)
+}
+
+export async function getStaffPayrollStatement(periodId: string, staffId: string): Promise<MyStaffPayroll> {
+  const result = await callable<{ periodId: string; staffId: string }, UnknownRecord>('getStaffPayrollStatement')({ periodId, staffId })
+  return normalizeStaffPayrollStatement(result.data, periodId, staffId)
 }
 
 export async function listStaffPayrollAttendance(periodId: string, branchId = '') {
