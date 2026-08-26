@@ -110,8 +110,7 @@ export function EatCleanDeliveryPanel({
 }) {
   const [addresses, setAddresses] = useState<EatCleanSavedAddress[]>(() => readCachedEatCleanAddresses(ownerId))
   const [loadingAddresses, setLoadingAddresses] = useState(false)
-  const [locating, setLocating] = useState(false)
-  const [mapOpen, setMapOpen] = useState(false)
+  const [mapMode, setMapMode] = useState<'manual' | 'current' | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveOpen, setSaveOpen] = useState(false)
   const [saveKind, setSaveKind] = useState<EatCleanAddressKind>('home')
@@ -208,6 +207,9 @@ export function EatCleanDeliveryPanel({
                 label: undefined,
               })
               setMessage('Đã chọn địa chỉ Google và ghim đúng vị trí.')
+              element.blur()
+              if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+              window.requestAnimationFrame(() => setMapMode('manual'))
             })
             .catch(() => { if (active) setMessage('Chưa lấy được chi tiết địa chỉ. Hãy chọn lại một gợi ý Google Maps.') })
         }
@@ -238,39 +240,6 @@ export function EatCleanDeliveryPanel({
       deliveryMode: address.deliveryMode,
     })
     setMessage(`Đã chọn ${saved.label}.`)
-  }
-
-  const locate = () => {
-    if (!navigator.geolocation) {
-      setMessage('Trình duyệt không hỗ trợ định vị. Bạn vẫn có thể nhập địa chỉ hoặc tìm trên bản đồ.')
-      return
-    }
-    setLocating(true)
-    setMessage('')
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const nextCoordinate = { latitude: position.coords.latitude, longitude: position.coords.longitude }
-        void reverseGeocodeCoordinate(nextCoordinate)
-          .then((details) => {
-            const current = latestAddressRef.current
-            onAddressChangeRef.current({
-              ...current,
-              ...details,
-              ...nextCoordinate,
-              districtId: districtIdFromGoogle(details?.district, districtsRef.current, current.districtId),
-              savedAddressId: undefined,
-              label: undefined,
-            })
-            setMessage(details ? 'Đã tìm thấy vị trí hiện tại. Hãy kiểm tra lại số nhà.' : 'Đã ghim tọa độ. Hãy nhập địa chỉ chi tiết để shipper dễ tìm.')
-          })
-          .finally(() => setLocating(false))
-      },
-      () => {
-        setLocating(false)
-        setMessage('Không lấy được vị trí. Hãy bật quyền định vị hoặc nhập địa chỉ thủ công.')
-      },
-      { enableHighAccuracy: true, timeout: 12_000, maximumAge: 60_000 },
-    )
   }
 
   const openSave = () => {
@@ -362,8 +331,8 @@ export function EatCleanDeliveryPanel({
       )}
 
       <div className="eat-clean-location-actions">
-        <button type="button" onClick={locate} disabled={locating}>{locating ? <LoaderCircle className="eat-clean-spin" size={18} /> : <LocateFixed size={18} />}<span><strong>Vị trí hiện tại</strong><small>Định vị nhanh bằng GPS</small></span></button>
-        <button type="button" onClick={() => setMapOpen(true)}><Map size={18} /><span><strong>Chọn trên bản đồ</strong><small>{googleMapsConfigured() ? 'Kéo ghim đến cửa nhận hàng' : 'Nhập tay khi Maps chưa cấu hình'}</small></span></button>
+        <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setMapMode('current') }}><LocateFixed size={18} /><span><strong>Vị trí hiện tại</strong><small>Mở bản đồ và định vị bằng GPS</small></span></button>
+        <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setMapMode('manual') }}><Map size={18} /><span><strong>Chọn trên bản đồ</strong><small>{googleMapsConfigured() ? 'Kéo ghim đến cửa nhận hàng' : 'Nhập tay khi Maps chưa cấu hình'}</small></span></button>
       </div>
 
       <div className="eat-clean-map-search"><Search size={18} />{googleMapsConfigured() ? <span ref={searchRef} className="eat-clean-map-search__host" /> : <input value="" placeholder="Google Maps chưa cấu hình — nhập địa chỉ bên dưới" disabled readOnly />}</div>
@@ -383,7 +352,7 @@ export function EatCleanDeliveryPanel({
       </div>
       {message && <p className="eat-clean-inline-message" role="status">{message}</p>}
 
-      {mapOpen && <AddressMapPicker address={address} districts={districts} onChange={onAddressChange} onClose={() => setMapOpen(false)} />}
+      {mapMode && <AddressMapPicker address={address} districts={districts} locateOnOpen={mapMode === 'current'} onChange={onAddressChange} onClose={() => setMapMode(null)} />}
       {saveOpen && (
         <div className="eat-clean-sheet-backdrop" role="presentation">
           <section className="eat-clean-sheet" role="dialog" aria-modal="true" aria-label="Lưu địa chỉ">
@@ -401,42 +370,107 @@ export function EatCleanDeliveryPanel({
   )
 }
 
-function AddressMapPicker({ address, districts, onChange, onClose }: { address: EatCleanDeliveryAddress; districts: EatCleanDistrict[]; onChange: (value: EatCleanDeliveryAddress) => void; onClose: () => void }) {
+function AddressMapPicker({ address, districts, locateOnOpen, onChange, onClose }: { address: EatCleanDeliveryAddress; districts: EatCleanDistrict[]; locateOnOpen: boolean; onChange: (value: EatCleanDeliveryAddress) => void; onClose: () => void }) {
   const mapElement = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<{ panTo: (position: { lat: number; lng: number }) => void; setZoom: (zoom: number) => void } | null>(null)
+  const markerRef = useRef<{ setPosition: (position: { lat: number; lng: number }) => void; setMap: (map: unknown) => void } | null>(null)
+  const autoLocateRequestedRef = useRef(false)
   const initialCoordinate = coordinatesOf(address)
   const [coordinate, setCoordinate] = useState<EatCleanCoordinate>(() => initialCoordinate ?? DEFAULT_DA_NANG)
-  const [pointConfirmed, setPointConfirmed] = useState(Boolean(initialCoordinate))
+  const coordinateRef = useRef(coordinate)
+  const [pointConfirmed, setPointConfirmed] = useState(Boolean(initialCoordinate) && !locateOnOpen)
   const [mapsReady, setMapsReady] = useState<boolean | null>(null)
   const [resolving, setResolving] = useState(false)
+  const [locating, setLocating] = useState(false)
+  const [mapMessage, setMapMessage] = useState(locateOnOpen ? 'Đang xin quyền truy cập vị trí…' : '')
   const canUseMaps = googleMapsConfigured()
+  coordinateRef.current = coordinate
+
+  const selectCoordinate = (next: EatCleanCoordinate) => {
+    coordinateRef.current = next
+    setCoordinate(next)
+    setPointConfirmed(true)
+    const position = { lat: next.latitude, lng: next.longitude }
+    markerRef.current?.setPosition(position)
+    mapRef.current?.panTo(position)
+    mapRef.current?.setZoom(16)
+  }
+
+  const locateCurrent = () => {
+    if (!navigator.geolocation) {
+      setMapMessage('Trình duyệt không hỗ trợ định vị. Hãy chạm vào bản đồ để chọn điểm nhận hàng.')
+      return
+    }
+    setLocating(true)
+    setMapMessage('Đang xác định vị trí hiện tại…')
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        selectCoordinate({ latitude: position.coords.latitude, longitude: position.coords.longitude })
+        setLocating(false)
+        setMapMessage('Đã ghim vị trí hiện tại. Bạn có thể kéo ghim để chỉnh chính xác hơn.')
+      },
+      () => {
+        setLocating(false)
+        setMapMessage('Không lấy được vị trí. Hãy bật quyền định vị hoặc chạm trực tiếp vào bản đồ.')
+      },
+      { enableHighAccuracy: true, timeout: 12_000, maximumAge: 60_000 },
+    )
+  }
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [onClose])
+
+  useEffect(() => {
+    if (locateOnOpen && !autoLocateRequestedRef.current) {
+      autoLocateRequestedRef.current = true
+      locateCurrent()
+    }
+    // Chỉ tự định vị một lần khi sheet vừa mở.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     let active = true
+    let marker: { setMap: (map: unknown) => void } | undefined
     let markerListener: { remove: () => void } | undefined
     let mapListener: { remove: () => void } | undefined
     void loadGoogleMaps().then((maps) => {
       if (!active) return
       setMapsReady(Boolean(maps))
       if (!maps || !mapElement.current) return
-      const center = { lat: coordinate.latitude, lng: coordinate.longitude }
-      const map = new maps.Map(mapElement.current, { center, zoom: 17, mapTypeControl: false, streetViewControl: false, fullscreenControl: false })
-      const marker = new maps.Marker({ map, position: center, draggable: true, title: 'Điểm nhận hàng' })
-      markerListener = marker.addListener('dragend', () => {
-        const position = marker.getPosition()
-        if (position) {
-          setCoordinate({ latitude: position.lat(), longitude: position.lng() })
-          setPointConfirmed(true)
-        }
+      const currentCoordinate = coordinateRef.current
+      const center = { lat: currentCoordinate.latitude, lng: currentCoordinate.longitude }
+      const map = new maps.Map(mapElement.current, { center, zoom: 16, mapTypeControl: false, streetViewControl: false, fullscreenControl: false, clickableIcons: false, gestureHandling: 'greedy' })
+      const nextMarker = new maps.Marker({ map, position: center, draggable: true, title: 'Điểm nhận hàng' })
+      marker = nextMarker
+      mapRef.current = map
+      markerRef.current = nextMarker
+      markerListener = nextMarker.addListener('dragend', () => {
+        const position = nextMarker.getPosition()
+        if (position) selectCoordinate({ latitude: position.lat(), longitude: position.lng() })
       })
       mapListener = map.addListener('click', (event) => {
         if (!event.latLng) return
         const next = { latitude: event.latLng.lat(), longitude: event.latLng.lng() }
-        marker.setPosition({ lat: next.latitude, lng: next.longitude })
-        setCoordinate(next)
-        setPointConfirmed(true)
+        selectCoordinate(next)
       })
     })
-    return () => { active = false; markerListener?.remove(); mapListener?.remove() }
+    return () => {
+      active = false
+      markerListener?.remove()
+      mapListener?.remove()
+      marker?.setMap(null)
+      mapRef.current = null
+      markerRef.current = null
+    }
     // Bản đồ chỉ cần khởi tạo một lần cho mỗi lần mở sheet.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -444,30 +478,41 @@ function AddressMapPicker({ address, districts, onChange, onClose }: { address: 
   const confirm = async () => {
     if (!pointConfirmed) return
     setResolving(true)
-    const details = await reverseGeocodeCoordinate(coordinate)
-    onChange({
-      ...address,
-      ...details,
-      ...coordinate,
-      districtId: districtIdFromGoogle(details?.district, districts, address.districtId),
-      savedAddressId: undefined,
-      label: undefined,
-    })
-    setResolving(false)
-    onClose()
+    try {
+      const details = await reverseGeocodeCoordinate(coordinate)
+      onChange({
+        ...address,
+        ...details,
+        ...coordinate,
+        districtId: districtIdFromGoogle(details?.district, districts, address.districtId),
+        savedAddressId: undefined,
+        label: undefined,
+      })
+      onClose()
+    } finally {
+      setResolving(false)
+    }
   }
 
   return (
     <div className="eat-clean-sheet-backdrop" role="presentation">
       <section className="eat-clean-sheet eat-clean-map-sheet" role="dialog" aria-modal="true" aria-label="Chọn vị trí nhận hàng">
         <header><div><small>ĐIỂM NHẬN HÀNG</small><h2>Ghim đúng cửa giao món</h2></div><button type="button" onClick={onClose} aria-label="Đóng"><X size={20} /></button></header>
-        <div ref={mapElement} className={`eat-clean-map-canvas ${!canUseMaps || mapsReady === false ? 'is-fallback' : ''}`}>
-          {(!canUseMaps || mapsReady === false) && <div><MapPin size={29} /><strong>Google Maps chưa sẵn sàng</strong><span>Bạn vẫn có thể nhập địa chỉ thủ công. Tọa độ hiện tại sẽ được giữ nếu đã định vị bằng GPS.</span></div>}
-          {mapsReady === null && canUseMaps && <div><LoaderCircle className="eat-clean-spin" size={25} /><span>Đang tải bản đồ…</span></div>}
+        <div className="eat-clean-map-sheet__body">
+          <div className="eat-clean-map-picker-actions">
+            <span><strong>Chạm hoặc kéo ghim</strong><small>Bản đồ sẽ giữ mức zoom vừa đủ để bạn kiểm tra khu vực xung quanh.</small></span>
+            <button type="button" onClick={locateCurrent} disabled={locating}>{locating ? <LoaderCircle className="eat-clean-spin" size={17} /> : <LocateFixed size={17} />} Vị trí hiện tại</button>
+          </div>
+          <div className={`eat-clean-map-canvas ${!canUseMaps || mapsReady === false ? 'is-fallback' : ''}`}>
+            <div ref={mapElement} className="eat-clean-map-surface" />
+            {(!canUseMaps || mapsReady === false) && <div className="eat-clean-map-placeholder"><MapPin size={29} /><strong>Google Maps chưa sẵn sàng</strong><span>Bạn vẫn có thể nhập địa chỉ thủ công. Tọa độ GPS sẽ được giữ nếu đã định vị.</span></div>}
+            {mapsReady === null && canUseMaps && <div className="eat-clean-map-placeholder"><LoaderCircle className="eat-clean-spin" size={25} /><span>Đang tải bản đồ…</span></div>}
+          </div>
+          <p className="eat-clean-map-coordinate"><Crosshair size={16} /> {coordinate.latitude.toFixed(6)}, {coordinate.longitude.toFixed(6)}</p>
+          {mapMessage && <p className="eat-clean-inline-message" role="status">{mapMessage}</p>}
+          {!pointConfirmed && !mapMessage && <p className="eat-clean-inline-message">Hãy chạm vào bản đồ, kéo ghim hoặc dùng “Vị trí hiện tại” trước khi xác nhận.</p>}
         </div>
-        <p className="eat-clean-map-coordinate"><Crosshair size={16} /> {coordinate.latitude.toFixed(6)}, {coordinate.longitude.toFixed(6)}</p>
-        {!pointConfirmed && <p className="eat-clean-inline-message">Hãy chạm vào bản đồ, kéo ghim hoặc dùng “Vị trí hiện tại” trước khi xác nhận.</p>}
-        <button type="button" className="eat-clean-button eat-clean-button--primary" onClick={() => void confirm()} disabled={resolving || !pointConfirmed}>{resolving ? <LoaderCircle className="eat-clean-spin" size={18} /> : <MapPin size={18} />} Xác nhận điểm này</button>
+        <footer className="eat-clean-map-sheet__footer"><button type="button" className="eat-clean-button eat-clean-button--primary" onClick={() => void confirm()} disabled={resolving || !pointConfirmed}>{resolving ? <LoaderCircle className="eat-clean-spin" size={18} /> : <MapPin size={18} />} Xác nhận điểm này</button></footer>
       </section>
     </div>
   )

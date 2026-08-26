@@ -39,6 +39,7 @@ export interface AuraGoogleMapsApi {
   Map: new (element: HTMLElement, options: Record<string, unknown>) => {
     addListener: (event: string, callback: (event: { latLng?: { lat: () => number; lng: () => number } }) => void) => MapsListener
     panTo: (position: { lat: number; lng: number }) => void
+    setZoom: (zoom: number) => void
   }
   Marker: new (options: Record<string, unknown>) => {
     addListener: (event: string, callback: () => void) => MapsListener
