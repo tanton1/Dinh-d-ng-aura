@@ -13,7 +13,7 @@
 .identity-hero {
   position: relative;
   display: flex;
-  min-height: 180px;
+  min-height: 142px;
   align-items: flex-end;
   justify-content: space-between;
   gap: 24px;
@@ -133,6 +133,7 @@
 .identity-section__heading strong,
 .identity-section__heading small { display: block; }
 .identity-section__heading strong { color: var(--team-ink); font-size: 16px; }
+.identity-section__count { display: inline-grid; min-width: 25px; height: 25px; margin: 4px 0 0; place-items: center; border-radius: 999px; color: #d92972; background: #ffeaf3; font-size: 10px; font-style: normal; font-weight: 900; }
 .identity-section__heading small { margin-top: 4px; color: var(--team-muted); font-size: 11px; line-height: 1.45; }
 .identity-section__heading .pink-orange-button { display: inline-flex; flex: 0 0 auto; min-height: 42px; align-items: center; justify-content: center; gap: 7px; border: 0; color: #fff; background: linear-gradient(125deg, var(--team-pink), var(--team-orange)); box-shadow: 0 10px 22px rgba(246,47,130,.2); }
 
@@ -180,6 +181,7 @@
 .identity-members-list { overflow-x: auto; margin: 0 16px 17px; border: 1px solid var(--team-line); border-radius: 19px; background: #fff; }
 .identity-members-list .students-head { border-radius: 0; background: #fff7fa; }
 .identity-members-list .student-row { border-radius: 0; }
+.identity-member-card__mobile-contact { display: none !important; }
 .identity-member-card .identity-member-role select { width: 100%; min-height: 36px; padding: 0 9px; border: 1px solid var(--team-line); border-radius: 9px; background: #fff; font-size: 11px; font-weight: 750; }
 .identity-member-access { display: inline-flex; min-height: 34px; align-items: center; justify-content: center; gap: 6px; padding: 0 9px; border: 1px solid #f2c6d7; border-radius: 10px; color: #d92772; background: #fff4f8; font-size: 10px; font-weight: 850; }
 .identity-member-access span { display: none; }
@@ -207,12 +209,14 @@
 .identity-staff-card__scope { display: grid; gap: 5px; padding: 10px 12px; border: 1px solid #f1dfe7; border-radius: 14px; background: rgba(255,255,255,.8); }
 .identity-staff-card__scope strong { color: #d92772; font-size: 11px; line-height: 1.4; }
 .identity-staff-card__scope span { display: flex; align-items: center; gap: 5px; color: var(--team-muted); font-size: 10px; }
-.identity-staff-card__facts { display: grid; gap: 7px; }
-.identity-staff-card__facts p { display: flex; align-items: flex-start; gap: 7px; margin: 0; color: #655b65; font-size: 11px; line-height: 1.45; }
+.identity-staff-card__facts { display: flex; flex-wrap: wrap; gap: 6px; }
+.identity-staff-card__facts span { display: inline-flex; min-width: 0; align-items: center; gap: 5px; padding: 6px 8px; border: 1px solid #f1dfe7; border-radius: 999px; color: #655b65; background: rgba(255,255,255,.82); font-size: 9px; line-height: 1.2; }
 .identity-staff-card__facts svg { flex: 0 0 auto; color: var(--team-pink); }
-.identity-staff-card__actions { position: relative; z-index: 1; }
+.identity-staff-card__actions { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 7px; }
 .identity-staff-card__actions button { display: inline-flex; align-items: center; gap: 6px; }
 .identity-staff-card__primary { flex: 1 1 145px; justify-content: center; min-height: 40px; border: 0; border-radius: 12px; color: #fff; background: linear-gradient(125deg, var(--team-pink), var(--team-orange)); box-shadow: 0 9px 20px rgba(246,47,130,.18); font-size: 11px; font-weight: 850; }
+.identity-staff-card__actions > .outline-button { flex: 1 1 110px; justify-content: center; min-height: 40px; padding: 0 11px; border-radius: 12px; font-size: 10px; }
+.identity-staff-card__actions > .identity-staff-card__icon-action { width: 40px; flex: 0 0 40px; padding: 0; }
 
 .identity-branches { padding: 0 !important; }
 .identity-branch-list { margin: 0; padding: 16px; }
@@ -253,6 +257,7 @@
 }
 .identity-admin-page .identity-modal { width: min(100%, 690px); border-radius: 26px; }
 .identity-admin-page .identity-modal--staff { width: min(100%, 940px); }
+.identity-admin-page .identity-modal--staff-create { width: min(100%, 840px); }
 .identity-admin-page .identity-modal--access { width: min(100%, 760px); }
 .identity-admin-page .identity-modal--delete { width: min(100%, 520px); }
 .identity-admin-page .identity-modal--confirmation { width: min(100%, 590px); }
@@ -272,8 +277,10 @@
 .identity-delete-confirm input { min-height: 46px; padding: 0 13px; border: 1px solid #eebac6; border-radius: 13px; color: #9e2542; background: #fffafb; font-size: 15px; font-weight: 900; letter-spacing: .08em; }
 .identity-danger-button { min-height: 42px; padding: 0 15px; border: 0; border-radius: 12px; color: #fff; background: linear-gradient(125deg, #d92d55, #f1634f); box-shadow: 0 9px 20px rgba(190,42,75,.18); font-size: 11px; font-weight: 900; }
 .identity-danger-button:disabled { cursor: not-allowed; filter: grayscale(.35); opacity: .48; box-shadow: none; }
-.identity-form-section { margin-top: 15px; padding: 14px; border: 1px solid var(--team-line); border-radius: 17px; background: #fffafb; }
+.identity-form-section { margin-top: 13px; padding: 14px; border: 1px solid var(--team-line); border-radius: 17px; background: #fffafb; }
 .identity-form-section > h3 { margin: 0 0 11px; color: var(--team-ink); font-size: 13px; }
+.identity-form-section--account { background: linear-gradient(145deg, #fffafd, #fff8f2); }
+.identity-form-section--access .identity-access-presets { margin-top: 2px; }
 .identity-form-grid--compensation { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .identity-employment-type { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin: 10px 0 12px; padding: 5px; border: 1px solid #f0dfe6; border-radius: 14px; background: #fff; }
 .identity-employment-type button { min-height: 40px; border: 0; border-radius: 10px; color: #746b74; background: transparent; font-size: 12px; font-weight: 800; }
@@ -303,7 +310,8 @@
 .identity-staff-availability td button:hover { border-color: #f0aac5; background: #fff0f6; }
 .identity-staff-availability td button.active { border-color: transparent; background: linear-gradient(135deg, var(--team-pink), var(--team-orange)); box-shadow: 0 6px 14px rgba(246,47,130,.22); }
 
-.identity-admin-page .identity-modal__actions { position: sticky; z-index: 5; bottom: -19px; margin-right: -19px; margin-left: -19px; padding: 14px 19px calc(14px + env(safe-area-inset-bottom, 0px)); background: rgba(255,255,255,.96); box-shadow: 0 -9px 24px rgba(64,37,52,.07); backdrop-filter: blur(14px); }
+.identity-admin-page .identity-modal__actions { position: sticky; z-index: 5; bottom: -19px; display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px; margin-right: -19px; margin-left: -19px; padding: 12px 19px calc(12px + env(safe-area-inset-bottom, 0px)); background: rgba(255,255,255,.96); box-shadow: 0 -9px 24px rgba(64,37,52,.07); backdrop-filter: blur(14px); }
+.identity-admin-page .identity-modal__actions button { min-height: 40px; padding-inline: 15px; }
 .identity-access-presets { display: grid; gap: 7px; }
 .identity-access-presets > strong { color: var(--team-ink); font-size: 12px; }
 .identity-access-presets > div { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -329,19 +337,19 @@
     margin: -14px -12px 0;
     padding: 0 0 calc(112px + env(safe-area-inset-bottom, 0px));
   }
-  .identity-hero { min-height: 190px; align-items: flex-start; flex-direction: column; justify-content: space-between; gap: 18px; padding: 24px 17px 19px; border-width: 0 0 1px; border-radius: 0 0 28px 28px; }
+  .identity-hero { min-height: 132px; align-items: flex-start; flex-direction: row; justify-content: space-between; gap: 14px; padding: 22px 16px 17px; border-width: 0 0 1px; border-radius: 0 0 26px 26px; }
   .identity-hero__copy h1 { font-size: 34px; }
   .identity-hero__copy p { font-size: 12px; }
-  .identity-hero__actions { width: 100%; align-items: stretch; flex-direction: row; }
+  .identity-hero__actions { width: auto; align-items: flex-end; flex-direction: row; }
   .identity-hero__actions > span,
-  .identity-hero__actions > button { flex: 1; padding-inline: 10px; }
+  .identity-hero__actions > button { flex: 0 0 auto; min-height: 38px; padding-inline: 10px; }
   .identity-carousel { grid-auto-columns: minmax(238px, 78vw); margin: 13px 0 10px; padding: 3px 12px 12px; }
   .identity-carousel > button { min-height: 132px; }
   .identity-admin-page .identity-admin-tabs { top: 4px; width: calc(100% - 24px); margin: 0 12px 12px; }
   .identity-readonly,
   .identity-message { margin-right: 12px; margin-left: 12px; }
   .identity-section { border-width: 1px 0; border-radius: 0; box-shadow: none; }
-  .identity-section__heading { align-items: stretch; flex-direction: column; padding: 16px 13px 13px; }
+  .identity-section__heading { align-items: center; flex-direction: row; padding: 13px 12px; }
   .identity-section__heading .pink-orange-button { align-self: flex-start; width: auto; min-height: 38px; padding-inline: 13px; }
   .identity-admin-page .identity-admin-note { margin: 11px 11px 0; }
   .identity-toolbar { align-items: stretch; flex-wrap: wrap; padding: 11px; }
@@ -356,33 +364,38 @@
   .identity-members-list .students-head { display: none; }
   .identity-members-list .identity-member-card {
     display: grid !important;
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    gap: 11px 12px;
-    margin: 0 10px 10px;
-    padding: 14px;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 8px 10px;
+    margin: 0 9px 9px;
+    padding: 11px 12px;
     border: 1px solid rgba(106,67,88,.12);
-    border-radius: 20px;
+    border-radius: 17px;
     background: linear-gradient(145deg, #fff, #fff9f4);
     box-shadow: 0 11px 26px rgba(64,34,51,.07);
   }
-  .identity-member-card .student-identity { grid-column: 1 / -1; padding-bottom: 10px; border-bottom: 1px solid var(--team-line); }
+  .identity-member-card .student-identity { grid-column: 1 / -1; padding-bottom: 5px; border-bottom: 0; }
+  .identity-member-card .student-identity > i,
+  .identity-member-card .student-identity > img { width: 38px; height: 38px; }
+  .identity-member-card__mobile-contact { display: block !important; max-width: min(70vw, 260px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .identity-member-card [data-label] { display: grid; align-content: start; gap: 4px; min-width: 0; }
   .identity-member-card [data-label]::before { content: attr(data-label); color: #a1788c; font-size: 8px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
-  .identity-member-card .identity-contact-cell { display: grid; grid-template-columns: 15px minmax(0,1fr); align-items: center; }
+  .identity-member-card .identity-contact-cell { display: none; }
   .identity-member-card .identity-contact-cell::before { grid-column: 1 / -1; }
-  .identity-member-card .identity-scope-cell { grid-column: 1 / -1; }
+  .identity-member-card .identity-scope-cell,
+  .identity-member-card .student-streak { display: none; }
+  .identity-member-card .identity-member-role { grid-column: 1; }
   .identity-member-card .identity-member-status { justify-items: start; }
-  .identity-member-card .row-actions { grid-column: 1 / -1; justify-content: stretch; }
-  .identity-member-access { width: auto; min-height: 41px; flex: 1 1 auto; }
-  .identity-member-delete { width: 42px; height: 41px; }
+  .identity-member-card .row-actions { grid-column: 1 / -1; justify-content: flex-end; padding-top: 2px; }
+  .identity-member-access { width: auto; min-height: 36px; flex: 0 1 auto; padding-inline: 11px; }
+  .identity-member-delete { width: 38px; height: 36px; }
   .identity-member-access span { display: inline; }
 
   .identity-staff-toolbar { border-bottom: 0; }
   .identity-admin-page .identity-staff-grid { grid-template-columns: minmax(0, 1fr); padding: 0 10px 12px; }
   .identity-admin-page .identity-staff-grid > article { border-radius: 20px; }
-  .identity-staff-card__actions > button { flex: 1 1 calc(50% - 5px); justify-content: center; min-height: 42px; }
+  .identity-staff-card__actions > button { flex: 1 1 calc(50% - 5px); justify-content: center; min-height: 40px; }
   .identity-staff-card__actions .identity-staff-card__archive,
-  .identity-staff-card__actions .identity-staff-card__delete { flex-basis: calc(50% - 5px); }
+  .identity-staff-card__actions .identity-staff-card__delete { flex: 0 0 40px; }
 
   .identity-branch-list { padding: 10px; }
   .identity-admin-page .identity-branch-list article { align-items: stretch; flex-direction: column; border-radius: 19px; }
@@ -393,7 +406,7 @@
   .identity-admin-page .identity-overlay { align-items: stretch; padding: 0 10px calc(112px + env(safe-area-inset-bottom, 0px)); }
   .identity-admin-page .identity-modal { max-height: none; padding: 16px 13px 0; border: 1px solid var(--team-line); border-radius: 22px; }
   .identity-admin-page .identity-modal__actions { bottom: 0; margin-right: -13px; margin-left: -13px; padding: 12px 13px calc(12px + env(safe-area-inset-bottom, 0px)); }
-  .identity-admin-page .identity-modal__actions button { flex: 1; min-height: 44px; }
+  .identity-admin-page .identity-modal__actions button { flex: 0 1 50%; min-height: 42px; }
   .identity-form-section { padding: 12px; }
   .identity-form-grid--compensation { grid-template-columns: minmax(0, 1fr); }
   .identity-employment-type { grid-template-columns: minmax(0, 1fr); }
@@ -404,9 +417,8 @@
 }
 
 @media (max-width: 390px) {
-  .identity-hero__actions > span { display: none; }
+  .identity-hero__actions > span { min-height: 36px; padding-inline: 9px; font-size: 10px; }
   .identity-carousel { grid-auto-columns: 84vw; }
-  .identity-member-card .identity-contact-cell { grid-column: 1 / -1; }
   .identity-staff-card__head { align-items: stretch; flex-direction: column; }
   .identity-staff-card__head > .status-badge { align-self: flex-start; }
   .identity-staff-card__metrics { gap: 5px; }

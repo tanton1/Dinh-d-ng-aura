@@ -8,6 +8,8 @@ for (const width of [360, 390, 430]) {
     await expect(page.getByRole('heading', { name: 'Đội ngũ Aura' })).toBeVisible()
     await expect(page.locator('.identity-carousel > button')).toHaveCount(4)
     await expect(page.getByRole('tab', { name: 'Thành viên' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('button', { name: 'Thêm thành viên' })).toHaveCount(1)
+    await expect(page.getByText('Chuyển học viên thành nhân viên ngay tại nút')).toHaveCount(0)
 
     const layout = await page.evaluate(() => ({
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -25,6 +27,9 @@ for (const width of [360, 390, 430]) {
       await createButton.click()
       const editorPage = page.getByRole('region', { name: 'Thêm nhân viên' })
       await expect(editorPage).toBeVisible()
+      await expect(editorPage.getByRole('heading', { name: 'Thông tin đăng nhập' })).toBeVisible()
+      await expect(editorPage.getByRole('heading', { name: 'Loại hợp tác' })).toBeVisible()
+      await expect(editorPage.getByRole('heading', { name: 'Chức danh & phạm vi' })).toBeVisible()
       await expect(page.getByRole('heading', { name: 'Đội ngũ Aura' })).toBeHidden()
       const geometry = await page.evaluate(() => {
         const editor = document.querySelector('.identity-modal')?.getBoundingClientRect()
