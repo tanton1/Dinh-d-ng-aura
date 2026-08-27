@@ -1094,6 +1094,12 @@
     radial-gradient(circle at 96% 18%,rgba(255,135,81,.11),transparent 25rem),
     linear-gradient(180deg,rgba(255,246,250,.74),rgba(255,255,255,0) 35rem);
 }
+.admin-dashboard.admin-dashboard--v2{
+  width:100%;
+  max-width:none;
+  margin:0;
+  padding:18px clamp(10px,1.15vw,18px) max(120px,env(safe-area-inset-bottom));
+}
 .admin-dashboard *,.admin-dashboard *::before,.admin-dashboard *::after{box-sizing:border-box}
 .admin-dashboard>.aura-metric-carousel{min-width:0}
 .admin-dashboard__syncbar{display:flex;min-width:0;align-items:center;justify-content:space-between;gap:12px;padding:2px 2px 0}
@@ -1143,8 +1149,9 @@
 .admin-dashboard__shortcuts button:hover{border-color:#f2b4cc;background:#fff7fa}
 @media(max-width:900px){.admin-dashboard__main-grid{grid-template-columns:1fr}.admin-dashboard__glance>div{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:680px){
-  .admin-dashboard{gap:10px;margin-inline:-10px;padding-bottom:max(138px,env(safe-area-inset-bottom))}
+  .admin-dashboard.admin-dashboard--v2{gap:10px;margin:0;padding:12px 0 max(138px,env(safe-area-inset-bottom))}
   .admin-dashboard>:not(.aura-metric-carousel){margin-inline:10px}.admin-dashboard>.aura-metric-carousel{margin-inline:0}
+  .admin-dashboard>.aura-metric-carousel .aura-metric-carousel__viewport{margin-inline:0}
   .admin-dashboard__syncbar{padding-inline:2px}.admin-dashboard__syncbar strong{font-size:14px}.admin-dashboard__sync-actions>button span{display:none}.admin-dashboard__sync-actions>button{width:36px;padding:0}
   .admin-dashboard__tasks,.admin-dashboard__glance,.admin-dashboard__shortcuts{border-radius:18px;padding:12px}
   .admin-dashboard__glance>div{grid-template-columns:repeat(2,minmax(0,1fr))}

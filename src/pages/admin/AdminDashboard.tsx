@@ -236,7 +236,6 @@ export default function AdminDashboard({
     </section>
 
     {error && <div className="admin-data-warning"><AlertCircle size={18} /><span>{error}</span><button type="button" onClick={() => void load(true)}>Thử lại</button></div>}
-    {!error && data?.quality.completeness === 'partial' && <div className="admin-data-warning"><AlertCircle size={18} /><span>Một phần dữ liệu cần đối soát. Các số tiền hiển thị vẫn chỉ lấy từ nguồn canonical.</span></div>}
 
     <div className="admin-dashboard__main-grid">
       <section className="admin-dashboard__tasks" aria-labelledby="dashboard-tasks-title">
