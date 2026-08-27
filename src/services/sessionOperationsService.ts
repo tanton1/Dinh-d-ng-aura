@@ -51,8 +51,13 @@ export interface PtSessionOperationsRequest extends PtOperationsRequestBase {
   originalHour: number | null
   newDate: string | null
   newHour: number | null
+  newTrainerId: string | null
+  newTrainerName: string | null
+  suggestionRank: number | null
+  pairsExistingSession: boolean
   policyMonth: string | null
   policySequence: number | null
+  complimentaryLimit: number
   countsTowardContract: boolean
 }
 
@@ -106,6 +111,8 @@ export interface CreateMySessionRequestInput {
   type: 'cancel' | 'reschedule'
   newDate?: string
   newHour?: number
+  newTrainerId?: string
+  candidateId?: string
   reason: string
   idempotencyKey: string
 }
@@ -117,7 +124,47 @@ export interface SessionRequestPolicyResult {
   policyMonth: string
   expectedSequence: number
   expectedCountsTowardContract: boolean
+  complimentaryLimit: number
   deadlineAt?: string
+}
+
+export interface SessionChangeSuggestion {
+  candidateId: string
+  date: string
+  hour: number
+  trainerId: string
+  trainerName: string
+  occupancy: number
+  capacity: number
+  pairsExistingSession: boolean
+  isAssignedTrainer: boolean
+  isCurrentTrainer: boolean
+  employmentType: 'full_time' | 'part_time' | 'collaborator'
+  dailyLoad: number
+  dailyTarget: number
+  createsThreeConsecutiveDays: boolean
+  rank: number
+}
+
+export interface SessionChangeSuggestionPage {
+  schemaVersion: number
+  sessionId: string
+  revision: number
+  policyMonth: string
+  policy: {
+    complimentaryChangeCancelPerMonth: number
+    sessionChangeDeadlineHours: number
+    offMaxDaysPerRequest: number
+    offRegistrationCutoffHour: number
+    approvedChangeCancelCount: number
+    complimentaryRemaining: number
+  }
+  suggestions: SessionChangeSuggestion[]
+  issueCodes: string[]
+}
+
+export function getMySessionChangeSuggestions(sessionId: string, expectedRevision: number) {
+  return call<{ sessionId: string; expectedRevision: number }, SessionChangeSuggestionPage>('getMySessionChangeSuggestions', { sessionId, expectedRevision })
 }
 
 export function createMySessionRequest(input: CreateMySessionRequestInput) {
@@ -125,7 +172,7 @@ export function createMySessionRequest(input: CreateMySessionRequestInput) {
 }
 
 export function approveSessionRequest(input: { requestId: string; expectedSessionRevision: number }) {
-  return call<typeof input, { unchanged: boolean; status: 'approved'; type: 'cancel' | 'reschedule'; revision: number; policyMonth: string | null; policySequence: number | null; complimentary: boolean; countsTowardContract: boolean }>('approveSessionRequest', input)
+  return call<typeof input, { unchanged: boolean; status: 'approved'; type: 'cancel' | 'reschedule'; revision: number; policyMonth: string | null; policySequence: number | null; complimentary: boolean; complimentaryLimit: number; countsTowardContract: boolean }>('approveSessionRequest', input)
 }
 
 export function rejectSessionRequest(input: { requestId: string; reason: string }) {

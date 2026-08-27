@@ -130,6 +130,34 @@ test('session request approval updates policy usage, session, contract charge an
   assert.match(approval, /status: cancellationType/)
 })
 
+test('learner receives pairing-first change suggestions and a two-request Aura policy snapshot', async () => {
+  const state = operationsFor({
+    'settings/scheduleConfig': { complimentaryChangeCancelPerMonth: 2, sessionChangeDeadlineHours: 12 },
+    'sessions/source-session': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-22', hour: 7, revision: 3 },
+    'sessions/open-pair': { status: 'scheduled', studentId: 'student-2', trainerId: 'trainer-1', contractId: 'contract-2', branchId: 'branch-1', date: '2026-08-21', hour: 10, revision: 0 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', trainerIds: ['trainer-1'], branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 24, usedSessions: 2 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T6-10'] },
+    'trainers/trainer-1': { status: 'active', name: 'PT Chính', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-10'], slotCapacity: 2, dailySessionTarget: 8, schedulingPriority: 1 },
+    'ptPolicyUsage/student-1_2026-08': { approvedChangeCancelCount: 1 },
+  })
+  const page = await state.getMySessionChangeSuggestions({ data: { sessionId: 'source-session', expectedRevision: 3 } })
+  assert.equal(page.policy.complimentaryChangeCancelPerMonth, 2)
+  assert.equal(page.policy.complimentaryRemaining, 1)
+  assert.equal(page.suggestions[0].pairsExistingSession, true)
+  assert.equal(page.suggestions[0].occupancy, 1)
+
+  const result = await state.createMySessionRequest({ data: {
+    sessionId: 'source-session', expectedRevision: 3, type: 'reschedule', reason: 'Đổi lịch cá nhân', idempotencyKey: 'suggestion-request', candidateId: page.suggestions[0].candidateId,
+  } })
+  assert.equal(result.expectedSequence, 2)
+  assert.equal(result.expectedCountsTowardContract, false)
+  assert.equal(result.complimentaryLimit, 2)
+  const saved = state.read('sessionRequests/student-student-account-suggestion-request')
+  assert.equal(saved.newTrainerId, 'trainer-1')
+  assert.equal(saved.pairsExistingSession, true)
+  assert.equal(saved.policyVersion, 'pt-change-cancel-v2')
+})
+
 test('collision checks cover trainer capacity, student double booking, legacy ISO dates, and bounded query overflow', () => {
   assert.match(source, /const DAILY_SESSION_QUERY_LIMIT = 200/)
   assert.match(source, /function dailySessionsQuery/)
@@ -397,6 +425,8 @@ test('reschedule collision rejects atomically for a legacy ISO-date student book
     'sessionRequests/request-3': { status: 'pending', type: 'reschedule', sessionId: 'session-3', studentId: 'student-3', contractId: 'contract-3', originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 4, newDate: '2026-08-25', newHour: 10, submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08' },
     'sessions/session-3': { status: 'scheduled', studentId: 'student-3', trainerId: 'trainer-3', contractId: 'contract-3', date: '2026-08-22', hour: 7, revision: 4 },
     'contracts/contract-3': { status: 'active', studentId: 'student-3', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 0 },
+    'trainers/trainer-3': { status: 'active', availableSlots: ['T3-10'] },
+    'students/student-3': { status: 'active', isScheduleConfirmed: true, availableSlots: ['T3-10'] },
     'sessions/conflict': { status: 'scheduled', studentId: 'student-3', trainerId: 'trainer-4', date: '2026-08-25T00:00:00.000Z', hour: 10, revision: 0 },
   })
   await assert.rejects(

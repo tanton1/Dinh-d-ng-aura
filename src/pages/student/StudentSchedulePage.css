@@ -703,6 +703,27 @@
 .student-policy-sheet form > footer button { min-height: 48px; border: 0; border-radius: 14px; color: #fff; background: linear-gradient(120deg,#f62f82,#ff8751); font-weight: 900; cursor: pointer; }
 .student-policy-sheet form > footer button.secondary { border: 1px solid #eadde3; color: #66545e; background: #fff; }
 .student-policy-sheet form > footer button:disabled { opacity: .55; cursor: wait; }
+.student-change-suggestions { display:grid; gap:10px; margin-top:13px; }
+.student-change-suggestions > header { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.student-change-suggestions > header div { display:grid; gap:3px; }
+.student-change-suggestions > header strong { color:#46323e; font-size:13px; }
+.student-change-suggestions > header span { color:#8a7681; font-size:10px; line-height:1.45; }
+.student-change-suggestions > header button { display:grid; width:36px; height:36px; flex:0 0 auto; place-items:center; border:1px solid #eadce2; border-radius:11px; color:#da2c71; background:#fff; }
+.student-change-suggestions .is-spinning { animation:student-change-spin .8s linear infinite; }
+@keyframes student-change-spin { to { transform:rotate(360deg); } }
+.student-change-suggestions__empty { display:flex; min-height:82px; align-items:center; justify-content:center; gap:8px; padding:13px; border:1px dashed #efcdda; border-radius:14px; color:#806a76; background:#fff9fb; font-size:11px; line-height:1.5; text-align:center; }
+.student-change-suggestions__rail { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(220px,82%); gap:8px; overflow-x:auto; padding:2px 2px 7px; scroll-snap-type:x mandatory; overscroll-behavior-x:contain; scrollbar-width:none; }
+.student-change-suggestions__rail::-webkit-scrollbar { display:none; }
+.student-change-suggestions__rail > button { position:relative; display:grid; gap:4px; min-width:0; padding:13px 12px 11px 42px; border:1px solid #ecdde3; border-radius:16px; color:#4b3742; background:#fff; box-shadow:0 8px 18px rgba(55,28,43,.05); text-align:left; scroll-snap-align:start; cursor:pointer; }
+.student-change-suggestions__rail > button.is-selected { border-color:#f64b89; background:linear-gradient(145deg,#fff8fb,#fff4ed); box-shadow:0 10px 25px rgba(241,51,123,.13); }
+.student-change-suggestion__check { position:absolute; top:12px; left:11px; display:grid; width:23px; height:23px; place-items:center; border-radius:8px; color:#d82d72; background:#fff0f5; font-size:10px; font-weight:900; }
+.student-change-suggestions__rail > button.is-selected .student-change-suggestion__check { color:#fff; background:linear-gradient(135deg,#f62f82,#ff8751); }
+.student-change-suggestions__rail strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.student-change-suggestions__rail > button > span:not(.student-change-suggestion__check) { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#6f5965; font-size:11px; }
+.student-change-suggestions__rail small { display:flex; align-items:center; gap:5px; color:#8c7782; font-size:10px; }
+.student-change-suggestions__rail em,.student-change-suggestions__rail i { width:max-content; max-width:100%; padding:4px 7px; border-radius:99px; font-size:9px; font-style:normal; font-weight:850; }
+.student-change-suggestions__rail em { color:#d12b6d; background:#fff0f5; }
+.student-change-suggestions__rail i { color:#a3591f; background:#fff2df; }
 
 @media (min-width: 641px) {
   .student-policy-modal { place-items: center; padding: 24px; }

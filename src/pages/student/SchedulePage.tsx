@@ -112,10 +112,10 @@ function formatSessionDate(value: string) {
     .format(new Date(`${value}T00:00:00+07:00`))
 }
 
-function canRequestSessionChange(session: StudentPtSession) {
+function canRequestSessionChange(session: StudentPtSession, deadlineHours = 12) {
   if (session.hour === null || session.status !== 'scheduled') return false
   const startsAt = Date.parse(`${session.date}T${String(session.hour).padStart(2, '0')}:00:00+07:00`)
-  return Number.isFinite(startsAt) && startsAt - Date.now() >= 12 * 60 * 60 * 1000
+  return Number.isFinite(startsAt) && startsAt - Date.now() >= deadlineHours * 60 * 60 * 1000
 }
 
 function sameSlots(left: Iterable<string>, right: Iterable<string>) {
@@ -186,6 +186,9 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
 
   const workingDays = data?.scheduleConfig.workingDays?.length ? data.scheduleConfig.workingDays : DEFAULT_DAYS
   const workingHours = data?.scheduleConfig.workingHours?.length ? data.scheduleConfig.workingHours : DEFAULT_HOURS
+  const changeDeadlineHours = data?.scheduleConfig.sessionChangeDeadlineHours ?? 12
+  const complimentaryChangeCancelPerMonth = data?.scheduleConfig.complimentaryChangeCancelPerMonth ?? 1
+  const offMaxDaysPerRequest = data?.scheduleConfig.offMaxDaysPerRequest ?? 14
   const availability = data?.student?.availability
   const originalSlots = availability?.slots ?? data?.student?.availableSlots ?? []
   const availabilityLocked = availability?.locked === true
@@ -359,7 +362,7 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
               const matched = selectedSlots.has(slotIdForSession(session))
               return <article className={`timeline-event featured ${session.status}`} key={session.id}>
                 <div className="event-time"><strong>{session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}</strong><span>Buổi PT</span></div><div className="event-line"><i /></div>
-                <div className="event-detail"><div className="event-icon purple"><Dumbbell size={22} /></div><div><span>HUẤN LUYỆN CÁ NHÂN</span><h3>Buổi tập PT</h3><p><UserRound size={13} /> {session.trainerName}</p><em className={`pt-activity-status ${session.status}`}>{statusLabels[session.status] ?? session.status}</em><small className={matched ? 'student-classic-match is-linked' : 'student-classic-match needs-review'}>{matched ? <><Link2 size={12} /> Khớp lịch rảnh</> : <><AlertCircle size={12} /> Cần rà soát lịch rảnh</>}</small>{session.status === 'scheduled' && <button type="button" disabled={!canRequestSessionChange(session)} title={!canRequestSessionChange(session) ? 'Đã qua hạn gửi trước 12 giờ' : undefined} className="student-session-policy-action" onClick={() => setRequestSession(session)}>{canRequestSessionChange(session) ? 'Đổi / hủy buổi' : 'Đã qua hạn 12 giờ'}</button>}</div></div>
+                <div className="event-detail"><div className="event-icon purple"><Dumbbell size={22} /></div><div><span>HUẤN LUYỆN CÁ NHÂN</span><h3>Buổi tập PT</h3><p><UserRound size={13} /> {session.trainerName}</p><em className={`pt-activity-status ${session.status}`}>{statusLabels[session.status] ?? session.status}</em><small className={matched ? 'student-classic-match is-linked' : 'student-classic-match needs-review'}>{matched ? <><Link2 size={12} /> Khớp lịch rảnh</> : <><AlertCircle size={12} /> Cần rà soát lịch rảnh</>}</small>{session.status === 'scheduled' && <button type="button" disabled={!canRequestSessionChange(session, changeDeadlineHours)} title={!canRequestSessionChange(session, changeDeadlineHours) ? `Đã qua hạn gửi trước ${changeDeadlineHours} giờ` : undefined} className="student-session-policy-action" onClick={() => setRequestSession(session)}>{canRequestSessionChange(session, changeDeadlineHours) ? 'Đổi / hủy buổi' : `Đã qua hạn ${changeDeadlineHours} giờ`}</button>}</div></div>
               </article>
             }) : <div className="schedule-empty-inline"><CalendarDays size={28} /><h3>Chưa có lịch trong ngày này</h3><p>Khi vận hành xếp lịch, buổi tập sẽ xuất hiện tại đây.</p></div>}
           </div>
@@ -400,7 +403,7 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
 
         {activeTab === 'requests' && <section className="student-request-center">
           <header><div><small>AURA · YÊU CẦU LỊCH</small><h2>Đổi, hủy, OFF và bảo lưu</h2><p>Theo dõi toàn bộ yêu cầu và kết quả xử lý trong một nơi.</p></div><button type="button" onClick={() => selectWeek(0)}>Chọn buổi để đổi/hủy</button></header>
-          <div className="student-request-policy-grid"><article><Clock3 size={18} /><strong>Đổi/Hủy buổi</strong><span>Gửi trước 12 giờ. Mỗi tháng có 1 lượt không tính buổi.</span></article><article><CalendarRange size={18} /><strong>OFF/Bảo lưu</strong><span>OFF tối đa 14 ngày; dài hơn chuyển sang bảo lưu.</span><button type="button" disabled={!activeContract} onClick={() => setShowPauseRequest(true)}>Tạo yêu cầu</button></article></div>
+          <div className="student-request-policy-grid"><article><Clock3 size={18} /><strong>Đổi/Hủy buổi</strong><span>Gửi trước {changeDeadlineHours} giờ. Mỗi tháng có {complimentaryChangeCancelPerMonth} lượt không tính buổi.</span></article><article><CalendarRange size={18} /><strong>OFF/Bảo lưu</strong><span>OFF tối đa {offMaxDaysPerRequest} ngày; dài hơn chuyển sang bảo lưu.</span><button type="button" disabled={!activeContract} onClick={() => setShowPauseRequest(true)}>Tạo yêu cầu</button></article></div>
           <div className="student-request-history-list">
             {[...scheduleRequests.map((request) => ({ id: request.id, kind: request.type === 'cancel' ? 'Hủy buổi' : 'Đổi lịch', status: request.status, date: request.originalDate, detail: request.type === 'reschedule' && request.newDate ? `Đề xuất ${request.newDate} · ${String(request.newHour ?? '--').padStart(2, '0')}:00` : request.reason, charged: request.countsTowardContract ?? request.expectedCountsTowardContract })), ...pauseRequests.map((request) => ({ id: request.id, kind: request.type === 'preservation' ? 'Bảo lưu hợp đồng' : 'OFF hợp đồng', status: request.status, date: `${request.startDate} → ${request.endDate}`, detail: request.newContractEndDate ? `Hạn mới: ${request.newContractEndDate}` : request.reason, charged: false }))]
               .map((request) => <article key={request.id}><span className={`student-request-status is-${request.status}`}>{request.status === 'approved' ? 'Đã duyệt' : request.status === 'rejected' ? 'Từ chối' : 'Chờ duyệt'}</span><div><strong>{request.kind}</strong><small>{request.date}</small><p>{request.detail}</p></div>{request.charged && <em>Có tính buổi</em>}</article>)}
@@ -410,7 +413,7 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
 
         {activeTab === 'history' && <section className="student-session-history"><header><div><small>AURA · NHẬT KÝ TẬP LUYỆN</small><h2>Lịch sử buổi tập</h2><p>Hiển thị tối đa 180 ngày gần nhất, gồm buổi hoàn thành, đổi, hủy và vắng.</p></div><span>{historySessions.length} buổi</span></header>{historySessions.length > 0 ? <div>{historySessions.map((session) => <article key={session.id}><span>{formatSessionDate(session.date)} · {session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}</span><strong>{session.trainerName}</strong><em>{statusLabels[session.status] ?? session.status}</em></article>)}</div> : <div className="student-session-empty"><History size={28} /><strong>Chưa có lịch sử tập luyện</strong><span>Các buổi đã hoàn thành hoặc được điều chỉnh sẽ xuất hiện tại đây.</span></div>}</section>}
         {requestSession && <SessionRequestModal session={requestSession} onClose={() => setRequestSession(null)} onCreated={(value) => { setMessage(value); setActiveTab('requests'); void load() }} />}
-        {showPauseRequest && activeContract && <LeaveRequestModal contractId={activeContract.id} onClose={() => setShowPauseRequest(false)} onCreated={(value) => { setMessage(value); setActiveTab('requests'); void load() }} />}
+        {showPauseRequest && activeContract && <LeaveRequestModal contractId={activeContract.id} policy={data.scheduleConfig} onClose={() => setShowPauseRequest(false)} onCreated={(value) => { setMessage(value); setActiveTab('requests'); void load() }} />}
       </>}
     </div>
   )

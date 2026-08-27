@@ -34,6 +34,11 @@ const DEFAULT_SCHEDULE_CONFIG: ScheduleConfig = {
   workingHours: [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20],
   lockDayOfWeek: 6,
   lockHour: 12,
+  complimentaryChangeCancelPerMonth: 1,
+  sessionChangeDeadlineHours: 12,
+  offMaxDaysPerRequest: 14,
+  offRegistrationCutoffHour: 10,
+  offLimitsByDuration: { threeMonths: 1, sixMonths: 3, twelveMonths: 6 },
 }
 
 // Deterministic browser-layout fixtures only. Production starts empty and
@@ -95,7 +100,7 @@ const LEGACY_OPERATIONS_VIEW_SOURCES = {
   'admin-finance': ['branches', 'contracts', 'students'],
   // Nhân sự & Chi nhánh now renders the identity workspace. It only needs
   // branch labels for scoped assignment; PT legacy history is not loaded here.
-  'admin-hr': ['branches'],
+  'admin-hr': ['branches', 'scheduleConfig'],
   // Payroll details are immutable server snapshots. Loading every student,
   // contract and session here both duplicated the callable and made the page
   // unnecessarily slow on mobile.
@@ -105,7 +110,7 @@ const LEGACY_OPERATIONS_VIEW_SOURCES = {
   'admin-schedule-settings': ['scheduleConfig'],
   // Identity v2 assignment editor only needs branch labels; it must not
   // revive the former whole-operations listener set on the roles route.
-  'admin-roles': ['branches'],
+  'admin-roles': ['branches', 'scheduleConfig'],
 } as const satisfies Record<string, readonly LegacyOperationSource[]>
 
 type LegacyOperationsView = keyof typeof LEGACY_OPERATIONS_VIEW_SOURCES
@@ -760,7 +765,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
 
   const updateScheduleConfig = async (config: ScheduleConfig) => {
     if (!db) return
-    await setDoc(doc(db, 'settings', 'scheduleConfig'), sanitize(config))
+    await setDoc(doc(db, 'settings', 'scheduleConfig'), sanitize(config), { merge: true })
   }
 
   const updateUserProfile = async (uid: string, data: any) => {

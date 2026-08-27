@@ -119,6 +119,11 @@ export interface StudentPtScheduleData {
   scheduleConfig: {
     workingDays: string[]
     workingHours: number[]
+    complimentaryChangeCancelPerMonth?: 1 | 2
+    sessionChangeDeadlineHours?: number
+    offMaxDaysPerRequest?: number
+    offRegistrationCutoffHour?: number
+    offLimitsByDuration?: { threeMonths: number; sixMonths: number; twelveMonths: number }
   }
   sessions: StudentPtSession[]
   sessionsTruncated?: boolean

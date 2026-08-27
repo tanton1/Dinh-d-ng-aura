@@ -15,6 +15,7 @@ import { applyDefaultTrainerSchedulingPolicy, assignStaffPositions, deleteMember
 import { listPayrollPolicies, type PayrollPolicy, type PayrollProfile } from '../../services/payrollService'
 import type { StaffPosition } from '../../identity/access'
 import type { Branch, UserRole } from '../../types'
+import AuraTeamPolicySettings from '../../components/admin/pt/AuraTeamPolicySettings'
 
 export interface AdminRoleUser {
   uid: string
@@ -36,7 +37,7 @@ interface AdminRolesPageProps {
 }
 
 type DirectoryColumn = 'phone' | 'email' | 'scope' | 'activity' | 'status'
-type RolesSection = 'accounts' | 'branches' | 'staff'
+type RolesSection = 'accounts' | 'branches' | 'staff' | 'policy'
 type EmploymentType = 'full_time' | 'part_time' | 'collaborator'
 type EmploymentLevel = 'probation' | 'official' | 'senior'
 type InviteDraft = {
@@ -619,15 +620,16 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       <button type="button" className={section === 'branches' ? 'active' : ''} onClick={() => setSection('branches')}>
         <span><Building2 /></span><small>CHI NHÁNH</small><strong>{stats.branches}</strong><em>Cơ sở đang hoạt động</em><ArrowRight size={17} />
       </button>
-      <button type="button" className={section === 'staff' ? 'active' : ''} onClick={() => setSection('staff')}>
-        <span><KeyRound /></span><small>ĐÃ CẤP QUYỀN</small><strong>{stats.scopedAssignments}</strong><em>Hồ sơ có chức danh</em><ArrowRight size={17} />
+      <button type="button" className={section === 'policy' ? 'active' : ''} onClick={() => setSection('policy')}>
+        <span><KeyRound /></span><small>CHÍNH SÁCH</small><strong>{scheduleConfig.complimentaryChangeCancelPerMonth ?? 1}</strong><em>Lượt đổi/hủy miễn mỗi tháng</em><ArrowRight size={17} />
       </button>
     </div>
 
-    <nav className="identity-admin-tabs identity-admin-tabs--three" role="tablist" aria-label="Đội ngũ Aura">
+    <nav className="identity-admin-tabs identity-admin-tabs--four" role="tablist" aria-label="Đội ngũ Aura">
       <button type="button" className={section === 'accounts' ? 'active' : ''} onClick={() => setSection('accounts')} role="tab" aria-selected={section === 'accounts'}><Users size={17} />Thành viên</button>
       <button type="button" className={section === 'staff' ? 'active' : ''} onClick={() => setSection('staff')} role="tab" aria-selected={section === 'staff'}><UserCog size={17} />Nhân viên</button>
       <button type="button" className={section === 'branches' ? 'active' : ''} onClick={() => setSection('branches')} role="tab" aria-selected={section === 'branches'}><Building2 size={17} />Chi nhánh</button>
+      <button type="button" className={section === 'policy' ? 'active' : ''} onClick={() => setSection('policy')} role="tab" aria-selected={section === 'policy'}><ShieldCheck size={17} />Chính sách</button>
     </nav>
 
     {!canAssignRole && <div className="identity-readonly"><ShieldCheck size={18} />Bạn đang xem ở chế độ chỉ đọc. Chỉ quản trị viên được thay đổi tài khoản, chức danh và chi nhánh.</div>}
@@ -682,6 +684,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       <div className="identity-section__heading"><span><Building2 size={20} /><span><strong>Chi nhánh Aura</strong><small>Tạo cơ sở và dùng làm phạm vi dữ liệu cho Sales, PT hoặc Quản lý chi nhánh.</small></span></span>{canAssignRole && <button type="button" className="pink-orange-button" onClick={() => { setBranchEditor({ name: '', address: '' }); setError(null) }}><Plus size={17} />Thêm chi nhánh</button>}</div>
       <div className="identity-branch-list">{branches.length ? branches.map((branch) => <article key={branch.id} className={branch.status === 'archived' ? 'archived' : ''}><span><i><Building2 size={18} /></i><span><strong>{branch.name}</strong><small>{branch.address}</small></span></span><span className="identity-branch-list__actions"><i className={`status-badge ${branch.status === 'archived' ? 'draft' : 'published'}`}>{branch.status === 'archived' ? 'Đã lưu trữ' : 'Đang hoạt động'}</i>{canAssignRole && <><button type="button" className="outline-button" onClick={() => setBranchEditor({ id: branch.id, name: branch.name, address: branch.address })}>Chỉnh sửa</button>{branch.status !== 'archived' && <button type="button" className="outline-button" onClick={() => void archiveBranch(branch)}>Lưu trữ</button>}</>}</span></article>) : <div className="empty-state"><Building2 size={30} /><h3>Chưa có chi nhánh</h3><p>Tạo chi nhánh đầu tiên để cấp phạm vi cho đội ngũ.</p></div>}</div>
     </section>}
+    {section === 'policy' && <AuraTeamPolicySettings canEdit={canAssignRole} />}
     {teamConfirmation && (() => { const copy = teamConfirmationCopy(teamConfirmation); return <section className="identity-overlay" role="region" aria-labelledby="team-confirmation-title">
       <div className="identity-modal identity-modal--compact identity-modal--confirmation">
         <ModalHeader id="team-confirmation-title" title={copy.title} detail={copy.subject} icon={<AlertCircle size={21} />} onClose={() => setTeamConfirmation(null)} />

@@ -30,14 +30,38 @@ function sessionStartTime(dateValue, hour) {
   return new Date(`${sessionDate}T${String(hour).padStart(2, '0')}:00:00+07:00`)
 }
 
-function sessionChangeDeadline(dateValue, hour) {
-  return new Date(sessionStartTime(dateValue, hour).getTime() - 12 * HOUR_MS)
+function boundedInteger(value, fallback, minimum, maximum) {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : fallback
 }
 
-function assertSessionChangeDeadline(dateValue, hour, now = new Date()) {
-  const deadline = sessionChangeDeadline(dateValue, hour)
+function normalizedPtOperationsPolicy(value = {}) {
+  const offLimits = value && typeof value.offLimitsByDuration === 'object' && !Array.isArray(value.offLimitsByDuration)
+    ? value.offLimitsByDuration
+    : {}
+  return {
+    complimentaryChangeCancelPerMonth: boundedInteger(value.complimentaryChangeCancelPerMonth, 1, 1, 2),
+    sessionChangeDeadlineHours: boundedInteger(value.sessionChangeDeadlineHours, 12, 1, 72),
+    offMaxDaysPerRequest: boundedInteger(value.offMaxDaysPerRequest, 14, 1, 31),
+    offRegistrationCutoffHour: boundedInteger(value.offRegistrationCutoffHour, 10, 0, 23),
+    offLimitsByDuration: {
+      threeMonths: boundedInteger(offLimits.threeMonths, 1, 0, 12),
+      sixMonths: boundedInteger(offLimits.sixMonths, 3, 0, 24),
+      twelveMonths: boundedInteger(offLimits.twelveMonths, 6, 0, 48),
+    },
+  }
+}
+
+function sessionChangeDeadline(dateValue, hour, deadlineHours = 12) {
+  const normalizedHours = boundedInteger(deadlineHours, 12, 1, 72)
+  return new Date(sessionStartTime(dateValue, hour).getTime() - normalizedHours * HOUR_MS)
+}
+
+function assertSessionChangeDeadline(dateValue, hour, now = new Date(), deadlineHours = 12) {
+  const normalizedHours = boundedInteger(deadlineHours, 12, 1, 72)
+  const deadline = sessionChangeDeadline(dateValue, hour, normalizedHours)
   if (now.getTime() > deadline.getTime()) {
-    const error = new Error('Yêu cầu đổi hoặc hủy lịch phải được gửi trước giờ tập ít nhất 12 giờ.')
+    const error = new Error(`Yêu cầu đổi hoặc hủy lịch phải được gửi trước giờ tập ít nhất ${normalizedHours} giờ.`)
     error.issueCode = 'SESSION_CHANGE_DEADLINE_PASSED'
     error.deadlineAt = deadline.toISOString()
     throw error
@@ -68,16 +92,18 @@ function mondayOfWeek(dateValue) {
   return parsed.toISOString().slice(0, 10)
 }
 
-function weeklyOffDeadline(startValue) {
+function weeklyOffDeadline(startValue, cutoffHour = 10) {
+  const normalizedHour = boundedInteger(cutoffHour, 10, 0, 23)
   const monday = mondayOfWeek(startValue)
   const sunday = addDateDays(monday, -1)
-  return new Date(`${sunday}T10:00:00+07:00`)
+  return new Date(`${sunday}T${String(normalizedHour).padStart(2, '0')}:00:00+07:00`)
 }
 
-function assertWeeklyOffDeadline(startValue, now = new Date()) {
-  const deadline = weeklyOffDeadline(startValue)
+function assertWeeklyOffDeadline(startValue, now = new Date(), cutoffHour = 10) {
+  const normalizedHour = boundedInteger(cutoffHour, 10, 0, 23)
+  const deadline = weeklyOffDeadline(startValue, normalizedHour)
   if (now.getTime() >= deadline.getTime()) {
-    const error = new Error('Đăng ký OFF phải hoàn tất trước 10:00 Chủ nhật của tuần tập.')
+    const error = new Error(`Đăng ký OFF phải hoàn tất trước ${String(normalizedHour).padStart(2, '0')}:00 Chủ nhật của tuần tập.`)
     error.issueCode = 'OFF_REGISTRATION_DEADLINE_PASSED'
     error.deadlineAt = deadline.toISOString()
     throw error
@@ -104,19 +130,22 @@ function contractDurationMonths(contract = {}, trainingPackage = {}) {
   return 12
 }
 
-function offRegistrationLimit(durationMonths) {
+function offRegistrationLimit(durationMonths, policyValue = {}) {
+  const policy = normalizedPtOperationsPolicy(policyValue)
   if (!Number.isFinite(durationMonths) || durationMonths <= 0) return 0
-  if (durationMonths <= 3) return 1
-  if (durationMonths <= 6) return 3
-  return 6
+  if (durationMonths <= 3) return policy.offLimitsByDuration.threeMonths
+  if (durationMonths <= 6) return policy.offLimitsByDuration.sixMonths
+  return policy.offLimitsByDuration.twelveMonths
 }
 
-function policyUsageDecision(approvedCount) {
+function policyUsageDecision(approvedCount, complimentaryLimit = 1) {
   const count = Number.isInteger(approvedCount) && approvedCount >= 0 ? approvedCount : 0
+  const limit = boundedInteger(complimentaryLimit, 1, 1, 2)
   return {
     sequence: count + 1,
-    complimentary: count < 1,
-    countsTowardContract: count >= 1,
+    complimentary: count < limit,
+    countsTowardContract: count >= limit,
+    complimentaryLimit: limit,
   }
 }
 
@@ -135,6 +164,7 @@ module.exports = {
   contractDurationMonths,
   dateKey,
   inclusiveDateDays,
+  normalizedPtOperationsPolicy,
   offRegistrationLimit,
   policyUsageDecision,
   sessionChangeDeadline,

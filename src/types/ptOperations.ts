@@ -304,6 +304,15 @@ export interface ScheduleConfig {
   lockDayOfWeek?: number
   lockHour?: number
   holidays?: string[]
+  complimentaryChangeCancelPerMonth?: 1 | 2
+  sessionChangeDeadlineHours?: number
+  offMaxDaysPerRequest?: number
+  offRegistrationCutoffHour?: number
+  offLimitsByDuration?: {
+    threeMonths: number
+    sixMonths: number
+    twelveMonths: number
+  }
 }
 
 export interface Session {

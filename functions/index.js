@@ -218,6 +218,7 @@ exports.refreshContractRenewalQueueScheduled = contractRenewalFunctions.refreshC
 const sessionOperationFunctions = createSessionOperationFunctions({ db, onCall, logger })
 Object.assign(exports, sessionOperationFunctions)
 exports.listPtOperationsRequests = sessionOperationFunctions.listPtOperationsRequests
+exports.getMySessionChangeSuggestions = sessionOperationFunctions.getMySessionChangeSuggestions
 exports.createMySessionRequest = sessionOperationFunctions.createMySessionRequest
 exports.confirmSessionAttendance = sessionOperationFunctions.confirmSessionAttendance
 exports.recordSessionAttendance = sessionOperationFunctions.recordSessionAttendance

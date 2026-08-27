@@ -6,7 +6,7 @@ const {
   completeSessionAttendanceTransaction,
   recordSessionAttendanceTransaction,
 } = require('./session-operations')
-const { assertSessionChangeDeadline } = require('./pt-policy')
+const { assertSessionChangeDeadline, normalizedPtOperationsPolicy } = require('./pt-policy')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const DEFAULT_WORKING_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -84,6 +84,7 @@ function scheduleConfig(value = {}) {
   return {
     workingDays: workingDays.length ? [...new Set(workingDays)] : DEFAULT_WORKING_DAYS,
     workingHours: workingHours.length ? [...new Set(workingHours)].sort((left, right) => left - right) : DEFAULT_WORKING_HOURS,
+    ...normalizedPtOperationsPolicy(value),
   }
 }
 
