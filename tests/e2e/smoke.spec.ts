@@ -138,12 +138,21 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       matrixEdgeDelta: Math.abs(matrix.getBoundingClientRect().left - schedulePage.getBoundingClientRect().left),
       matrixRadius: getComputedStyle(matrix).borderRadius,
+      matrixOverflow: matrix.scrollWidth - matrix.clientWidth,
+      visibleDayHeaders: Array.from(matrix.querySelectorAll('thead th')).filter((element) => {
+        const style = getComputedStyle(element)
+        return style.display !== 'none' && element.getBoundingClientRect().width > 0
+      }).map((element) => element.textContent?.trim()),
+      heroRadius: getComputedStyle(document.querySelector<HTMLElement>('.student-schedule-hero')!).borderRadius,
       contentBackground: getComputedStyle(content).backgroundImage,
     }
   })
   expect(scheduleLayout.overflow).toBeLessThanOrEqual(1)
   expect(scheduleLayout.matrixEdgeDelta).toBeLessThanOrEqual(1)
   expect(scheduleLayout.matrixRadius).toBe('0px')
+  expect(scheduleLayout.matrixOverflow).toBeLessThanOrEqual(1)
+  expect(scheduleLayout.visibleDayHeaders).toEqual(['Giờ', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'])
+  expect(scheduleLayout.heroRadius).toBe('0px')
   expect(scheduleLayout.contentBackground).toContain('linear-gradient')
 })
 

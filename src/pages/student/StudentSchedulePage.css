@@ -333,7 +333,7 @@
 
 .student-availability-week-switch {
   display: inline-grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   margin: 0 clamp(16px, 3vw, 34px) 14px;
   padding: 4px;
@@ -356,6 +356,11 @@
   color: #fff;
   background: linear-gradient(120deg, var(--schedule-pink), var(--schedule-orange));
 }
+.student-availability-lock-note { min-height:0; flex-direction:row; justify-content:flex-start; gap:13px; padding:14px clamp(13px,3vw,34px); text-align:left; }
+.student-availability-lock-note > div { display:grid; min-width:0; gap:3px; }
+.student-availability-lock-note > div strong { font-size:14px; }
+.student-availability-lock-note > div span { font-size:11px; line-height:1.45; }
+.student-availability-lock-note > button { flex:0 0 auto; margin-left:auto; white-space:nowrap; }
 
 .student-request-center {
   margin: 0;
@@ -511,6 +516,13 @@
   padding: 0 0 120px;
   background: transparent;
 }
+.student-schedule-page--classic .student-schedule-hero {
+  margin:0;
+  border-width:0 0 1px;
+  border-radius:0;
+  box-shadow:none;
+}
+.student-schedule-page--classic .student-schedule-hero::after { display:none; }
 .student-schedule-page--classic > .page-heading { margin:0; padding:24px clamp(16px,3vw,34px) 18px; }
 .student-schedule-page--classic > .pt-schedule-banner {
   margin:0;
@@ -612,7 +624,7 @@
 
 @media (max-width:640px) {
   .student-schedule-page--classic { width:100%; padding-inline:0; padding-bottom:104px; }
-  .student-schedule-hero { margin: 11px 10px 0; border-radius: 23px; box-shadow: 0 17px 34px rgba(81,30,56,.19),0 6px 14px rgba(246,47,130,.12); }
+  .student-schedule-page--classic .student-schedule-hero { margin:0; border-radius:0; box-shadow:none; }
   .student-schedule-hero__slide { min-height: 194px; padding: 19px 17px 58px; }
   .student-schedule-hero__slide > div:first-child { max-width: 75%; }
   .student-schedule-hero__slide :is(h1,h2) { font-size: 25px; }
@@ -629,6 +641,13 @@
   .student-schedule-page--classic :is(.student-availability-card,.student-linked-sessions) > header { padding:16px 13px 11px; }
   .student-schedule-page--classic .student-schedule-legend { padding:0 13px 11px; }
   .student-schedule-page--classic .student-schedule-matrix-scroll { margin:0; }
+  .student-schedule-page--classic .student-schedule-matrix { width:100%; min-width:0; border-spacing:1px; padding:4px 2px; }
+  .student-schedule-page--classic .student-schedule-matrix th { padding:6px 1px; font-size:9px; }
+  .student-schedule-page--classic .student-schedule-matrix thead th:first-child,
+  .student-schedule-page--classic .student-schedule-matrix tbody th { width:38px; font-size:8px; }
+  .student-schedule-page--classic .student-schedule-matrix td { height:35px; }
+  .student-schedule-page--classic .student-schedule-matrix td button { height:32px; border-radius:4px; }
+  .student-schedule-page--classic .student-schedule-matrix td button svg { width:13px; height:13px; }
   .student-schedule-page--classic .student-availability-card > footer {
     bottom:calc(80px + env(safe-area-inset-bottom,0px));
     padding:10px 11px;
@@ -637,6 +656,9 @@
   .student-schedule-tabs { padding: 9px 10px; }
   .student-schedule-tabs button { min-height: 40px; padding: 0 12px; border-radius: 12px; }
   .student-availability-week-switch { display: grid; margin: 0 13px 12px; }
+  .student-availability-week-switch button { min-width:0; padding:0 7px; font-size:10px; }
+  .student-availability-lock-note { align-items:flex-start; padding:12px 13px; }
+  .student-availability-lock-note > button { width:auto; min-height:38px; margin-left:0; padding:9px 11px; font-size:10px; }
   .student-request-center { padding: 16px 13px 110px; }
   .student-request-center > header,
   .student-session-history > header { align-items: stretch; flex-direction: column; }
