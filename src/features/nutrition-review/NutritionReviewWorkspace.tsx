@@ -19,7 +19,7 @@ import {
   type NutritionMealReview,
   type NutritionReviewStatus,
 } from '../../services/nutritionReviewService'
-import { durationLabel } from './nutritionReviewDisplay'
+import { durationLabel, mealImageShape, type MealImageShape } from './nutritionReviewDisplay'
 import './NutritionReviewWorkspace.css'
 
 type StatusFilter = NutritionReviewStatus | 'all'
@@ -55,11 +55,20 @@ function statusLabel(value: NutritionReviewStatus) {
 
 function ReviewPhoto({ source, alt, kind }: { source: string; alt: string; kind: 'card' | 'detail' }) {
   const [failedSource, setFailedSource] = useState('')
+  const [shape, setShape] = useState<MealImageShape>('square')
   const usable = Boolean(source) && failedSource !== source
-  const className = `${kind === 'card' ? 'nrw-card-image' : 'nrw-main-photo'} ${usable ? '' : 'is-empty'}`
+  const displayedShape = kind === 'card' ? 'square' : shape
+  const className = `${kind === 'card' ? 'nrw-card-image' : 'nrw-main-photo'} is-${displayedShape} ${usable ? '' : 'is-empty'}`
   return <div className={className}>
     {usable
-      ? <img src={source} alt={alt} onError={() => setFailedSource(source)} />
+      ? <img
+        src={source}
+        alt={alt}
+        loading={kind === 'card' ? 'lazy' : 'eager'}
+        decoding="async"
+        onLoad={(event) => setShape(mealImageShape(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight))}
+        onError={() => setFailedSource(source)}
+      />
       : <span className="nrw-image-fallback"><Sparkles size={kind === 'card' ? 27 : 34} /><small>Không có ảnh gốc</small></span>}
   </div>
 }

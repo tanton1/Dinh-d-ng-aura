@@ -12,3 +12,12 @@ export function durationLabel(value: number) {
   const remainingHours = hours % 24
   return `${days} ngày${remainingHours ? ` ${remainingHours} giờ` : ''}`
 }
+
+export type MealImageShape = 'square' | 'portrait'
+
+export function mealImageShape(width: number, height: number): MealImageShape {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return 'square'
+  }
+  return height / width >= 1.2 ? 'portrait' : 'square'
+}
