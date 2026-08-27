@@ -144,3 +144,22 @@ test('training history keeps reports compact and advanced filters collapsed on m
   expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1)
   expect(dimensions.historyRight).toBeLessThanOrEqual(dimensions.viewport)
 })
+
+test('training history exposes request archives as separate mobile-safe tabs', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/#/admin-training-history')
+  const tabs = page.getByRole('tablist', { name: 'Nhật ký và yêu cầu PT' })
+  await expect(tabs).toBeVisible()
+  await expect(tabs.getByRole('tab')).toHaveCount(4)
+  await tabs.getByRole('tab', { name: 'Đổi / Hủy' }).click()
+  await expect(page.getByRole('heading', { name: 'Đổi và hủy lịch' })).toBeVisible()
+  await tabs.getByRole('tab', { name: 'OFF / Bảo lưu' }).click()
+  await expect(page.getByRole('heading', { name: 'OFF và bảo lưu' })).toBeVisible()
+  const dimensions = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    document: document.documentElement.scrollWidth,
+    requestRight: document.querySelector<HTMLElement>('.operations-requests')?.getBoundingClientRect().right ?? 0,
+  }))
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1)
+  expect(dimensions.requestRight).toBeLessThanOrEqual(dimensions.viewport)
+})

@@ -17,8 +17,6 @@ import StudentList from "./StudentList";
 import ScheduleWarningsPanel from "./ScheduleWarningsPanel";
 import PTSchedule from "./PTSchedule";
 import { WorkScheduleMatrix } from "./WorkScheduleMatrix";
-import SessionRequestApprovals from "../admin/pt/SessionRequestApprovals";
-import LeaveApprovals from "../admin/pt/LeaveApprovals";
 import {
   Calendar,
   Users,
@@ -75,10 +73,8 @@ interface Props {
   onNavigate?: (screen: string) => void;
 }
 
-function initialOperationsTab(): "schedule" | "students" | "changes" | "pauses" | "warnings" {
+function initialOperationsTab(): "schedule" | "students" | "warnings" {
   const focus = new URLSearchParams(window.location.hash.split('?')[1] || '').get('focus');
-  if (focus === 'requests') return 'changes';
-  if (focus === 'pauses') return 'pauses';
   if (focus === 'warnings') return 'warnings';
   return 'schedule';
 }
@@ -94,8 +90,6 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
     branches,
     contracts,
     sessions,
-    leaveRequests,
-    sessionRequests,
     schedules,
     ptAvailability,
     scheduleConfig,
@@ -110,7 +104,7 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
 
   const [debugData, setDebugData] = useState<any>(null);
   const [weekOffset, setWeekOffset] = useState(0);
-  const [activeSubTab, setActiveSubTab] = useState<"schedule" | "students" | "changes" | "pauses" | "warnings">(
+  const [activeSubTab, setActiveSubTab] = useState<"schedule" | "students" | "warnings">(
     initialOperationsTab,
   );
   const [studentTab, setStudentTab] = useState<
@@ -869,13 +863,11 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
           {[
             { id: "schedule", label: "Lịch PT", icon: Calendar },
             { id: "students", label: "Học viên", icon: Users },
-            { id: "changes", label: "Đổi / Hủy", icon: Clock, count: sessionRequests.filter((item) => item.status === "pending").length },
-            { id: "pauses", label: "OFF / Bảo lưu", icon: XCircle, count: leaveRequests.filter((item) => item.status === "pending").length },
             { id: "warnings", label: "Cảnh báo", icon: AlertTriangle, count: filteredWarnings.length },
           ].map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveSubTab(tab.id as "schedule" | "students" | "changes" | "pauses" | "warnings")}
+              onClick={() => setActiveSubTab(tab.id as "schedule" | "students" | "warnings")}
               className={activeSubTab === tab.id ? "is-active" : ""}
               aria-current={activeSubTab === tab.id ? "page" : undefined}
             >
@@ -1000,20 +992,6 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
                 setActiveSubTab("students");
               }}
             />
-          )}
-
-          {activeSubTab === "changes" && (
-            <section className="schedule-request-workspace">
-              <header><span>AURA PT · HỘP YÊU CẦU</span><h2>Đổi hoặc hủy buổi tập</h2><p>Gồm yêu cầu từ học viên và PT. Hệ thống kiểm tra hạn 12 giờ, quota tháng và cập nhật session bằng transaction.</p></header>
-              <SessionRequestApprovals students={students} contracts={contracts} sessions={sessions} canManage={isAdmin} />
-            </section>
-          )}
-
-          {activeSubTab === "pauses" && (
-            <section className="schedule-request-workspace">
-              <header><span>AURA PT · HỢP ĐỒNG HỌC VIÊN</span><h2>OFF và bảo lưu</h2><p>OFF/Bảo lưu thuộc hợp đồng học viên. Nghỉ ca của PT được xử lý từ Cổng HLV và đánh dấu PT OFF trên ma trận lịch.</p></header>
-              <LeaveApprovals leaveRequests={leaveRequests} students={students} contracts={contracts} canManage={isAdmin} />
-            </section>
           )}
 
           {activeSubTab === "schedule" && (

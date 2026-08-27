@@ -111,16 +111,47 @@
 .schedule-cell em { display: flex; align-items: center; justify-content: space-between; gap: 3px; overflow: hidden; color: #392830; font-size: .66rem; font-style: normal; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
 .schedule-cell small { align-self: center; justify-self: center; color: #b6a6af; font-size: .61rem; }
 
+.branch-schedule__students-page,
 .branch-schedule__warning-page,
 .branch-schedule__history-page { padding: clamp(16px, 3vw, 34px); }
+.branch-schedule__students-page > header,
 .branch-schedule__warning-page > header,
 .branch-schedule__history-page > header { max-width: 760px; margin-bottom: 18px; }
+.branch-schedule__students-page header p,
 .branch-schedule__warning-page header p,
 .branch-schedule__history-page header p { margin: 0 0 4px; color: #d4236d; font-size: .67rem; font-weight: 900; letter-spacing: .12em; }
+.branch-schedule__students-page h2,
 .branch-schedule__warning-page h2,
 .branch-schedule__history-page h2 { margin: 0 0 4px; font-size: clamp(1.25rem,3vw,1.75rem); }
+.branch-schedule__students-page header span,
 .branch-schedule__warning-page header span,
 .branch-schedule__history-page header span { color: var(--branch-muted); font-size: .8rem; line-height: 1.5; }
+.branch-schedule__students-page > header { display: flex; max-width: none; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.branch-schedule__students-page > header > div { max-width: 760px; }
+.branch-schedule__students-page > header > button { display: inline-flex; min-height: 38px; flex: 0 0 auto; align-items: center; gap: 6px; border: 0; border-radius: 10px; padding: 0 12px; color: #fff; background: linear-gradient(110deg,var(--branch-pink),var(--branch-orange)); font-size: .7rem; font-weight: 850; }
+.branch-schedule__student-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.branch-schedule__student-tools > label { display: flex; width: min(430px,100%); min-height: 41px; align-items: center; gap: 8px; padding: 0 11px; border: 1px solid #ecd9e1; border-radius: 11px; color: #ad8194; background: #fff; }
+.branch-schedule__student-tools input { min-width: 0; flex: 1; border: 0; outline: 0; color: #3b2a34; background: transparent; font-size: .75rem; }
+.branch-schedule__student-tools > div { display: flex; gap: 5px; }
+.branch-schedule__student-tools button { min-height: 36px; border: 1px solid #ead9e0; border-radius: 9px; padding: 0 10px; color: #765d6b; background: #fff; font-size: .66rem; font-weight: 800; }
+.branch-schedule__student-tools button.is-active { border-color: transparent; color: #fff; background: linear-gradient(110deg,var(--branch-pink),var(--branch-orange)); }
+.branch-schedule__student-list { display: grid; gap: 7px; }
+.branch-schedule__student-list > article { display: grid; grid-template-columns:minmax(190px,1.2fr) minmax(200px,1.2fr) minmax(180px,1fr) minmax(130px,.7fr); align-items: center; gap: 12px; min-width: 0; padding: 12px 14px; border: 1px solid #efdee5; border-radius: 16px; background: #fff; box-shadow: 0 9px 22px rgba(50,29,42,.05); }
+.branch-schedule__student-list > article.is-missing { border-left: 4px solid #ff7e4e; }
+.branch-schedule__student-list > article.is-ready { border-left: 4px solid #31a56e; }
+.branch-schedule__student-person { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.branch-schedule__student-person > span { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border-radius: 12px; color: #ef3679; background: #fff0f5; }
+.branch-schedule__student-person > div,.branch-schedule__student-contract,.branch-schedule__student-trainer,.branch-schedule__student-progress { display: grid; min-width: 0; gap: 3px; }
+.branch-schedule__student-list strong,.branch-schedule__student-list small,.branch-schedule__student-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.branch-schedule__student-person strong { font-size: .78rem; }
+.branch-schedule__student-list small { color: #9a8490; font-size: .57rem; font-weight: 850; text-transform: uppercase; }
+.branch-schedule__student-list span { color: #836e7a; font-size: .65rem; }
+.branch-schedule__student-contract strong,.branch-schedule__student-trainer strong { font-size: .7rem; }
+.branch-schedule__student-trainer span.is-submitted,.branch-schedule__student-trainer span.is-locked,.branch-schedule__student-trainer span.is-recurring { color: #168051; }
+.branch-schedule__student-progress { justify-items: end; }
+.branch-schedule__student-progress strong { color: #d52a70; font-size: .95rem; }
+.branch-schedule__student-progress i { width: 100%; height: 5px; overflow: hidden; border-radius: 99px; background: #f4e9ed; }
+.branch-schedule__student-progress i b { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg,var(--branch-pink),var(--branch-orange)); }
 .schedule-warning-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
 .schedule-warning-grid article { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 14px; border: 1px solid #f0dce5; border-radius: 16px; background: rgba(255,255,255,.9); }
 .schedule-warning-grid article.is-blocking { border-color: #ffd7c2; background: #fff8f3; }
@@ -195,7 +226,7 @@
   .branch-schedule__metrics article:nth-child(-n+2) { border-bottom: 1px solid var(--branch-line); }
   .branch-schedule__metrics article { padding: 9px 10px; }
   .branch-schedule__toolbar { top: var(--shell-mobile-topbar-height,56px); align-items: stretch; flex-direction: column; padding: 7px 6px; }
-  .branch-schedule__tabs,
+  .branch-schedule__tabs { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); width: 100%; }
   .branch-schedule__actions { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); width: 100%; }
   .branch-schedule__toolbar button { min-width: 0; padding: 0 5px; font-size: .65rem; }
   .branch-schedule__workspace { padding: 8px 4px 20px; }
@@ -219,8 +250,18 @@
   .schedule-cell { min-height: 66px; padding: 5px; }
   .schedule-cell em { font-size: .62rem; }
   .schedule-warning-grid { grid-template-columns: 1fr; }
+  .branch-schedule__students-page,
   .branch-schedule__warning-page,
   .branch-schedule__history-page { padding: 17px 10px; }
+  .branch-schedule__students-page > header { align-items: stretch; flex-direction: column; }
+  .branch-schedule__students-page > header > button { align-self: flex-start; }
+  .branch-schedule__student-tools { align-items: stretch; flex-direction: column; }
+  .branch-schedule__student-tools > label { width: 100%; }
+  .branch-schedule__student-tools > div { overflow-x: auto; padding-bottom: 3px; }
+  .branch-schedule__student-tools button { flex: 0 0 auto; }
+  .branch-schedule__student-list > article { grid-template-columns:1fr 1fr; gap: 10px; padding: 12px; }
+  .branch-schedule__student-person { grid-column: 1/-1; }
+  .branch-schedule__student-progress { justify-items: start; }
   .schedule-inspector-backdrop { align-items: flex-end; }
   .schedule-inspector { width: 100%; height: min(88dvh, 780px); border-radius: 24px 24px 0 0; padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
   .schedule-inspector > header { border-radius: 24px 24px 0 0; padding: 15px; }

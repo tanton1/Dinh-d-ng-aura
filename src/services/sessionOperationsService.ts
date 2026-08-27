@@ -22,6 +22,66 @@ export function swapSessions(input: { firstSessionId: string; secondSessionId: s
   return call<typeof input, { firstRevision: number; secondRevision: number }>('swapSessions', input)
 }
 
+export type PtOperationsRequestStatus = 'pending' | 'approved' | 'rejected'
+
+interface PtOperationsRequestBase {
+  id: string
+  kind: 'session' | 'pause'
+  status: PtOperationsRequestStatus
+  studentId: string
+  studentName: string
+  studentPhone: string
+  contractId: string
+  packageName: string
+  reason: string
+  adminNote: string
+  createdAt: string | null
+  processedAt: string | null
+}
+
+export interface PtSessionOperationsRequest extends PtOperationsRequestBase {
+  kind: 'session'
+  type: 'cancel' | 'reschedule'
+  sessionId: string
+  sessionRevision: number
+  trainerId: string
+  trainerName: string
+  requestedBy: 'student' | 'trainer'
+  originalDate: string
+  originalHour: number | null
+  newDate: string | null
+  newHour: number | null
+  policyMonth: string | null
+  policySequence: number | null
+  countsTowardContract: boolean
+}
+
+export interface PtPauseOperationsRequest extends PtOperationsRequestBase {
+  kind: 'pause'
+  type: 'off' | 'preservation'
+  startDate: string
+  endDate: string
+  durationDays: number
+  offSequence: number | null
+  offLimit: number | null
+  newContractEndDate: string | null
+  cancelledSessionCount: number
+}
+
+export type PtOperationsRequest = PtSessionOperationsRequest | PtPauseOperationsRequest
+
+export interface PtOperationsRequestPage {
+  schemaVersion: number
+  kind: 'session' | 'pause'
+  summary: { total: number; pending: number; approved: number; rejected: number }
+  records: PtOperationsRequest[]
+  truncated: boolean
+}
+
+export function listPtOperationsRequests(kind: 'session' | 'pause') {
+  return call<{ kind: 'session' | 'pause' }, PtOperationsRequestPage>('listPtOperationsRequests', { kind })
+}
+
 export function recordSessionAttendance(input: {
   sessionId: string
   expectedRevision: number

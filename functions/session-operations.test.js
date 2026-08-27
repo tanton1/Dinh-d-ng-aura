@@ -13,6 +13,9 @@ const orphanChecker = readFileSync(join(root, 'src', 'components', 'admin', 'pt'
 const scheduler = readFileSync(join(root, 'src', 'components', 'schedule', 'SchedulerWrapper.tsx'), 'utf8')
 const studentDetail = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'StudentDetail.tsx'), 'utf8')
 const trainerOperations = readFileSync(join(__dirname, 'pt-operations-v2.js'), 'utf8')
+const requestCenter = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'OperationsRequestCenter.tsx'), 'utf8')
+const historyWorkspace = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'TrainingHistoryWorkspace.tsx'), 'utf8')
+const branchScheduleWorkspace = readFileSync(join(root, 'src', 'components', 'schedule', 'BranchScheduleWorkspace.tsx'), 'utf8')
 
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
@@ -33,6 +36,9 @@ function fakeDatabase(seed) {
     },
     limit(value) {
       return query(path, filters, value)
+    },
+    async get() {
+      return snapshotFor({ kind: 'query', path, filters, maximum })
     },
   })
   const collection = (path) => ({
@@ -66,6 +72,9 @@ function fakeDatabase(seed) {
   const db = {
     doc: reference,
     collection,
+    async getAll(...references) {
+      return references.map((item) => snapshotFor(item))
+    },
     async runTransaction(handler) {
       const writes = []
       const transaction = {
@@ -494,4 +503,59 @@ test('leave approval and session requests use server transactions while remainin
   assert.doesNotMatch(scheduler, /\baddSession\s*\(/)
   assert.match(studentDetail, /manualAttendanceUnavailable/)
   assert.doesNotMatch(studentDetail, /\baddSession\s*\(/)
+})
+
+test('request history is bounded, admin-scoped and moved into the unified training history workspace', () => {
+  const listing = source.match(/const listPtOperationsRequests[\s\S]*?\n  const createMySessionRequest/)?.[0] ?? ''
+  assert.match(source, /const OPERATIONS_REQUEST_HISTORY_LIMIT = 500/)
+  assert.match(listing, /await authorizeAdmin\(request, db\)/)
+  assert.match(listing, /sessionRevision/)
+  assert.match(listing, /studentName/)
+  assert.match(listing, /packageName/)
+  assert.match(listing, /adminNote/)
+  assert.match(requestCenter, /listPtOperationsRequests/)
+  assert.match(requestCenter, /approveSessionRequest/)
+  assert.match(requestCenter, /approveContractPauseRequest/)
+  assert.match(historyWorkspace, /Lịch sử học viên/)
+  assert.match(historyWorkspace, /Lịch dạy PT/)
+  assert.match(historyWorkspace, /Đổi \/ Hủy/)
+  assert.match(historyWorkspace, /OFF \/ Bảo lưu/)
+})
+
+test('request history resolves operational identities and current session revision without exposing mutable documents', async () => {
+  const state = operationsFor({
+    'students/student-history': { name: 'Lan Aura', phone: '0900000000' },
+    'trainers/trainer-history': { name: 'PT Mai' },
+    'contracts/contract-history': { packageName: 'Gói 3 Tháng' },
+    'sessions/session-history': { trainerId: 'trainer-history', revision: 7, hour: 10 },
+    'sessionRequests/request-history': {
+      studentId: 'student-history',
+      trainerId: 'trainer-history',
+      contractId: 'contract-history',
+      sessionId: 'session-history',
+      type: 'reschedule',
+      status: 'pending',
+      originalDate: '2026-08-27',
+      originalHour: 10,
+      newDate: '2026-08-28',
+      newHour: 11,
+      requestedBy: 'student',
+      reason: 'Đổi lịch công việc',
+      createdAt: '2026-08-26T03:00:00.000Z',
+    },
+  })
+  const result = await state.listPtOperationsRequests({ data: { kind: 'session' } })
+  assert.equal(result.summary.pending, 1)
+  assert.equal(result.records[0].studentName, 'Lan Aura')
+  assert.equal(result.records[0].trainerName, 'PT Mai')
+  assert.equal(result.records[0].packageName, 'Gói 3 Tháng')
+  assert.equal(result.records[0].sessionRevision, 7)
+  assert.equal(result.records[0].newHour, 11)
+})
+
+test('new branch schedule keeps learners in a dedicated operational tab without restoring request tabs', () => {
+  assert.match(branchScheduleWorkspace, /WorkspaceTab = 'matrix' \| 'students' \| 'warnings' \| 'history'/)
+  assert.match(branchScheduleWorkspace, /Hồ sơ cần xếp lịch/)
+  assert.match(branchScheduleWorkspace, /Thiếu lịch rảnh/)
+  assert.doesNotMatch(branchScheduleWorkspace, /SessionRequestApprovals|LeaveApprovals/)
 })

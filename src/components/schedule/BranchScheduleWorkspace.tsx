@@ -43,9 +43,11 @@ import '../../styles-branch-schedule.css'
 
 interface Props {
   accessContext: AccessContext
+  onNavigate?: (view: 'admin-pt-students' | 'admin-training-history') => void
 }
 
-type WorkspaceTab = 'matrix' | 'warnings' | 'history'
+type WorkspaceTab = 'matrix' | 'students' | 'warnings' | 'history'
+type StudentFilter = 'all' | 'missing' | 'availability' | 'ready'
 
 const DAY_LABELS: Record<string, string> = {
   T2: 'Thứ 2',
@@ -71,7 +73,7 @@ function commandKey() {
     : `schedule-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-export default function BranchScheduleWorkspace({ accessContext }: Props) {
+export default function BranchScheduleWorkspace({ accessContext, onNavigate }: Props) {
   const [branches, setBranches] = useState<PtScheduleBranchOption[]>([])
   const [branchId, setBranchId] = useState(accessContext.branchIds[0] || '')
   const [weekOffset, setWeekOffset] = useState(0)
@@ -91,6 +93,8 @@ export default function BranchScheduleWorkspace({ accessContext }: Props) {
   const [candidates, setCandidates] = useState<PtScheduleSlotCandidate[]>([])
   const [candidateLoading, setCandidateLoading] = useState(false)
   const [offConfirmation, setOffConfirmation] = useState(false)
+  const [studentSearch, setStudentSearch] = useState('')
+  const [studentFilter, setStudentFilter] = useState<StudentFilter>('all')
 
   const weekDates = useMemo(() => getDatesForWeek(weekOffset), [weekOffset])
   const currentWeekId = weekDates.T2.full
@@ -172,6 +176,28 @@ export default function BranchScheduleWorkspace({ accessContext }: Props) {
     missing: Math.max(0, student.sessionsPerWeek - (scheduledByStudent.get(student.id) || 0)),
   })).filter((item) => item.missing > 0 || !['submitted', 'locked', 'recurring'].includes(item.student.availabilityStatus)), [scheduledByStudent, workspace])
   const missingSessions = studentWarnings.reduce((total, item) => total + item.missing, 0)
+  const studentRows = useMemo(() => {
+    if (!workspace) return []
+    const needle = studentSearch.trim().toLocaleLowerCase('vi-VN')
+    return workspace.students.map((student) => {
+      const scheduled = scheduledByStudent.get(student.id) || 0
+      const missing = Math.max(0, Number(student.sessionsPerWeek || 0) - scheduled)
+      const contracts = workspace.contracts
+        .filter((contract) => contract.studentId === student.id && contract.branchId === branchId && contract.status !== 'cancelled')
+        .sort((left, right) => String(right.endDate || '').localeCompare(String(left.endDate || '')))
+      const contract = contracts.find((item) => item.startDate <= weekDates.CN.full && item.endDate >= weekDates.T2.full) || contracts[0] || null
+      const trainerIds = [...new Set([contract?.trainerId, ...(contract?.trainerIds || [])].filter((value): value is string => Boolean(value)))]
+      const trainerNames = trainerIds.map((id) => workspace.trainers.find((trainer) => trainer.id === id)?.name).filter(Boolean).join(', ')
+      return { student, scheduled, missing, contract, trainerNames }
+    }).filter((row) => {
+      if (studentFilter === 'missing' && row.missing < 1) return false
+      if (studentFilter === 'availability' && ['submitted', 'locked', 'recurring'].includes(row.student.availabilityStatus)) return false
+      if (studentFilter === 'ready' && (row.missing > 0 || !['submitted', 'locked', 'recurring'].includes(row.student.availabilityStatus))) return false
+      if (!needle) return true
+      return [row.student.name, row.student.phone, row.contract?.packageName, row.trainerNames]
+        .some((value) => String(value || '').toLocaleLowerCase('vi-VN').includes(needle))
+    }).sort((left, right) => right.missing - left.missing || (left.student.name || '').localeCompare(right.student.name || '', 'vi'))
+  }, [branchId, scheduledByStudent, studentFilter, studentSearch, weekDates.CN.full, weekDates.T2.full, workspace])
 
   useEffect(() => {
     if (!workspace || !inspectorSlotId || !selectedTrainerId) {
@@ -370,6 +396,7 @@ export default function BranchScheduleWorkspace({ accessContext }: Props) {
       <section className="branch-schedule__toolbar">
         <div className="branch-schedule__tabs" role="tablist">
           <button type="button" className={tab === 'matrix' ? 'is-active' : ''} onClick={() => setTab('matrix')}>Ma trận</button>
+          <button type="button" className={tab === 'students' ? 'is-active' : ''} onClick={() => setTab('students')}>Học viên <b>{workspace?.students.length || 0}</b></button>
           <button type="button" className={tab === 'warnings' ? 'is-active' : ''} onClick={() => setTab('warnings')}>Cảnh báo <b>{studentWarnings.length + (workspace?.summary.unconfiguredTrainers || 0)}</b></button>
           <button type="button" className={tab === 'history' ? 'is-active' : ''} onClick={() => void openHistory()}>Phiên bản</button>
         </div>
@@ -408,6 +435,32 @@ export default function BranchScheduleWorkspace({ accessContext }: Props) {
                 return <td key={slotId} className={selectedDays.includes(day) ? 'is-mobile-visible' : ''}><button type="button" className={`schedule-cell${isOff ? ' is-off' : ''}${entries.length ? ' has-entry' : ''}`} onClick={() => { setInspectorSlotId(slotId); setCandidateSearch(''); setOffConfirmation(false) }} disabled={!selectedTrainerId}><span className="schedule-cell__count">{isOff ? 'OFF' : `${entries.length}/${selectedTrainer?.slotCapacity || 2}`}</span>{isOff ? <CalendarOff /> : entries.length ? entries.filter((entry) => entry.type !== 'off').map((entry) => <em key={`${entry.studentId}-${entry.trainerId}`}>{studentName(entry.studentId)}{entry.isLocked && <Lock size={11} />}</em>) : <small>Chạm để xếp</small>}</button></td>
               })}</tr>)}</tbody>
             </table>
+          </div>
+        </main>
+      )}
+
+      {workspace && tab === 'students' && (
+        <main className="branch-schedule__students-page">
+          <header><div><p>AURA PT · HỌC VIÊN TRONG TUẦN</p><h2>Hồ sơ cần xếp lịch</h2><span>Đối chiếu gói tập, PT phụ trách, lịch rảnh và số buổi còn thiếu ngay trong phạm vi chi nhánh.</span></div>{onNavigate && <button type="button" onClick={() => onNavigate('admin-pt-students')}><UserPlus size={16} /> Mở hồ sơ học viên</button>}</header>
+          <div className="branch-schedule__student-tools">
+            <label><Search size={17} /><input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="Tên, SĐT, gói tập hoặc PT" /></label>
+            <div role="group" aria-label="Lọc học viên theo trạng thái">
+              {([
+                ['all', 'Tất cả'],
+                ['missing', 'Còn thiếu'],
+                ['availability', 'Thiếu lịch rảnh'],
+                ['ready', 'Đã đủ'],
+              ] as Array<[StudentFilter, string]>).map(([value, label]) => <button type="button" key={value} className={studentFilter === value ? 'is-active' : ''} onClick={() => setStudentFilter(value)}>{label}</button>)}
+            </div>
+          </div>
+          <div className="branch-schedule__student-list">
+            {studentRows.map(({ student, scheduled, missing, contract, trainerNames }) => <article key={student.id} className={missing > 0 ? 'is-missing' : 'is-ready'}>
+              <div className="branch-schedule__student-person"><span><UsersRound size={17} /></span><div><strong>{student.name || 'Chưa cập nhật tên'}</strong><small>{student.phone || `Mã ${student.id.slice(-8)}`}</small></div></div>
+              <div className="branch-schedule__student-contract"><small>Gói tập</small><strong>{contract?.packageName || 'Chưa có hợp đồng phù hợp tuần'}</strong><span>{contract ? `${Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))} buổi còn lại · đến ${contract.endDate}` : 'Cần đối soát hợp đồng'}</span></div>
+              <div className="branch-schedule__student-trainer"><small>PT phụ trách</small><strong>{trainerNames || 'Chưa phân PT'}</strong><span className={`is-${student.availabilityStatus}`}>{['submitted', 'locked'].includes(student.availabilityStatus) ? 'Lịch rảnh tuần đã gửi' : student.availabilityStatus === 'recurring' ? 'Dùng lịch rảnh cố định' : 'Chưa gửi lịch rảnh'}</span></div>
+              <div className="branch-schedule__student-progress"><strong>{scheduled}/{student.sessionsPerWeek}</strong><span>{missing > 0 ? `Còn thiếu ${missing} buổi` : 'Đã xếp đủ tuần'}</span><i><b style={{ width: `${Math.min(100, student.sessionsPerWeek ? scheduled / student.sessionsPerWeek * 100 : 100)}%` }} /></i></div>
+            </article>)}
+            {!studentRows.length && <div className="schedule-warning-empty"><CheckCircle2 /> Không có học viên phù hợp bộ lọc.</div>}
           </div>
         </main>
       )}

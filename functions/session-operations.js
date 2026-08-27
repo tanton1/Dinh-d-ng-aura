@@ -21,6 +21,7 @@ const PAUSE_SESSION_QUERY_LIMIT = 200
 const AUTOMATIC_CHARGE_QUERY_LIMIT = 2000
 const BULK_ATTENDANCE_LIMIT = 30
 const NO_SHOW_GRACE_MINUTES = 15
+const OPERATIONS_REQUEST_HISTORY_LIMIT = 500
 const ATTENDANCE_STATUSES = new Set(['present', 'late', 'no_show'])
 const NO_SHOW_REASONS = new Set(['', 'busy', 'sick', 'forgot', 'unreachable', 'other'])
 
@@ -138,6 +139,33 @@ function requestInstant(value, fallbackValue) {
   if (value && typeof value.toDate === 'function') return value.toDate()
   const candidate = value instanceof Date ? value : new Date(value || fallbackValue || '')
   return Number.isNaN(candidate.getTime()) ? null : candidate
+}
+
+function optionalText(value, maximum = 500) {
+  return typeof value === 'string' ? value.trim().slice(0, maximum) : ''
+}
+
+function storedInstantIso(value) {
+  const instant = requestInstant(value)
+  return instant ? instant.toISOString() : null
+}
+
+async function documentsById(db, collectionName, values) {
+  const ids = [...new Set(values.filter((value) => typeof value === 'string' && /^[A-Za-z0-9_-]+$/.test(value)))]
+  const result = new Map()
+  for (let offset = 0; offset < ids.length; offset += 100) {
+    const references = ids.slice(offset, offset + 100).map((documentId) => db.doc(`${collectionName}/${documentId}`))
+    if (!references.length) continue
+    const snapshots = await db.getAll(...references)
+    snapshots.forEach((snapshot) => {
+      if (snapshot.exists) result.set(snapshot.id, snapshot.data())
+    })
+  }
+  return result
+}
+
+function requestStatus(value) {
+  return value === 'approved' || value === 'rejected' ? value : 'pending'
 }
 
 function linkedStudentId(actor) {
@@ -589,6 +617,95 @@ async function adminActor(request, db) {
 }
 
 function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminActor, authorizeStudent = studentActor, now = () => new Date() }) {
+  const listPtOperationsRequests = onCall(async (request) => {
+    await authorizeAdmin(request, db)
+    const kind = request.data?.kind === 'pause' ? 'pause' : request.data?.kind === 'session' ? 'session' : ''
+    if (!kind) throw new HttpsError('invalid-argument', 'Nhóm yêu cầu không hợp lệ.')
+
+    const collectionName = kind === 'pause' ? 'leaveRequests' : 'sessionRequests'
+    const snapshot = await db.collection(collectionName).limit(OPERATIONS_REQUEST_HISTORY_LIMIT + 1).get()
+    const truncated = snapshot.size > OPERATIONS_REQUEST_HISTORY_LIMIT
+    const documents = snapshot.docs.slice(0, OPERATIONS_REQUEST_HISTORY_LIMIT).map((item) => ({ id: item.id, ...item.data() }))
+    const studentIds = documents.map((item) => item.studentId)
+    const contractIds = documents.map((item) => item.contractId)
+    const sessionIds = kind === 'session' ? documents.map((item) => item.sessionId) : []
+    const [students, contracts, sessions] = await Promise.all([
+      documentsById(db, 'students', studentIds),
+      documentsById(db, 'contracts', contractIds),
+      documentsById(db, 'sessions', sessionIds),
+    ])
+    const trainerIds = documents.flatMap((item) => {
+      const session = sessions.get(item.sessionId) || {}
+      return [item.trainerId, session.trainerId]
+    })
+    const trainers = await documentsById(db, 'trainers', trainerIds)
+
+    const records = documents.map((item) => {
+      const student = students.get(item.studentId) || {}
+      const contract = contracts.get(item.contractId) || {}
+      const session = sessions.get(item.sessionId) || {}
+      const trainerId = optionalText(item.trainerId || session.trainerId, 128)
+      const trainer = trainers.get(trainerId) || {}
+      const createdAt = storedInstantIso(item.createdAt || item.submittedAtIso)
+      const processedAt = storedInstantIso(item.approvedAt || item.rejectedAt || item.processedAt)
+      const common = {
+        id: item.id,
+        kind,
+        status: requestStatus(item.status),
+        studentId: optionalText(item.studentId, 128),
+        studentName: optionalText(student.name, 160) || 'Học viên chưa cập nhật tên',
+        studentPhone: optionalText(student.phone, 40),
+        contractId: optionalText(item.contractId, 128),
+        packageName: optionalText(contract.packageName, 160) || 'Hợp đồng chưa cập nhật gói',
+        reason: optionalText(item.reason),
+        adminNote: optionalText(item.adminNote),
+        createdAt,
+        processedAt,
+      }
+      if (kind === 'pause') {
+        let durationDays = Number(item.durationDays || 0)
+        if (!Number.isFinite(durationDays) || durationDays < 1) {
+          try { durationDays = inclusiveDateDays(item.startDate, item.endDate) } catch { durationDays = 0 }
+        }
+        const type = item.type === 'preservation' || (!item.type && durationDays > 14) ? 'preservation' : 'off'
+        return {
+          ...common,
+          type,
+          startDate: optionalText(item.startDate, 10),
+          endDate: optionalText(item.endDate, 10),
+          durationDays,
+          offSequence: Number(item.offSequence || 0) || null,
+          offLimit: Number(item.offLimit || 0) || null,
+          newContractEndDate: optionalText(item.newContractEndDate, 10) || null,
+          cancelledSessionCount: Number(item.cancelledSessionCount || 0),
+        }
+      }
+      return {
+        ...common,
+        type: item.type === 'cancel' ? 'cancel' : 'reschedule',
+        sessionId: optionalText(item.sessionId, 128),
+        sessionRevision: Number(session.revision || 0),
+        trainerId,
+        trainerName: optionalText(trainer.name, 160) || 'PT chưa xác định',
+        requestedBy: item.requestedBy === 'trainer' ? 'trainer' : 'student',
+        originalDate: optionalText(item.originalDate, 10),
+        originalHour: Number.isInteger(item.originalHour) ? item.originalHour : Number.isInteger(session.hour) ? session.hour : null,
+        newDate: optionalText(item.newDate, 10) || null,
+        newHour: Number.isInteger(item.newHour) ? item.newHour : null,
+        policyMonth: optionalText(item.policyMonth, 7) || null,
+        policySequence: Number(item.policySequence || item.expectedPolicySequence || 0) || null,
+        countsTowardContract: item.countsTowardContract === true || item.expectedCountsTowardContract === true,
+      }
+    }).sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')) || right.id.localeCompare(left.id))
+
+    const summary = records.reduce((result, item) => {
+      result.total += 1
+      result[item.status] += 1
+      return result
+    }, { total: 0, pending: 0, approved: 0, rejected: 0 })
+    return { schemaVersion: 1, kind, summary, records, truncated }
+  })
+
   const createMySessionRequest = onCall(async (request) => {
     const actor = await authorizeStudent(request, db)
     const studentId = linkedStudentId(actor)
@@ -1398,6 +1515,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
   })
 
   return {
+    listPtOperationsRequests,
     createMySessionRequest,
     confirmSessionAttendance,
     recordSessionAttendance,
