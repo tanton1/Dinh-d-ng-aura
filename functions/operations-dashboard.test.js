@@ -57,6 +57,12 @@ test('staff dashboard scope fails closed for branch data but keeps explicitly as
 test('dashboard UI is one action-first page without legacy dashboard tabs', () => {
   assert.match(dashboard, /Hôm nay cần làm/)
   assert.match(dashboard, /Vận hành hiện tại/)
+  assert.match(dashboard, /Đã tính buổi/)
+  assert.match(dashboard, /Có tập/)
+  assert.match(dashboard, /Đi trễ/)
+  assert.match(dashboard, /Không đến/)
+  assert.match(dashboard, /Chờ PT/)
+  assert.match(dashboard, /Xem lịch sử tập/)
   assert.match(dashboard, /Các việc cần xử lý/)
   assert.doesNotMatch(dashboard, /activeTab/)
   assert.doesNotMatch(dashboard, /admin-operations-tabs/)

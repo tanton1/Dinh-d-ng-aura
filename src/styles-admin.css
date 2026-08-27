@@ -1117,7 +1117,7 @@
 .admin-dashboard__help>div b{font-size:11px}.admin-dashboard__help>div span{font-size:10px;line-height:1.55}
 .admin-dashboard .admin-data-warning{display:flex;align-items:flex-start;gap:8px;border:1px solid rgba(246,47,130,.18);border-radius:14px;padding:10px 12px;background:linear-gradient(115deg,#fff0f6,#fff6ed);color:#93425f;font-size:10px;line-height:1.5}
 .admin-dashboard .admin-data-warning button{margin-left:auto;border:0;border-radius:9px;padding:6px 9px;background:#fff;color:var(--dashboard-pink);font-weight:850}
-.admin-dashboard__main-grid{display:grid;min-width:0;grid-template-columns:minmax(0,1.22fr) minmax(300px,.78fr);gap:12px}
+.admin-dashboard__main-grid{display:grid;min-width:0;grid-template-columns:minmax(0,.92fr) minmax(430px,1.08fr);gap:12px}
 .admin-dashboard__tasks,.admin-dashboard__glance,.admin-dashboard__shortcuts{min-width:0;border:1px solid rgba(246,47,130,.12);border-radius:21px;padding:15px;background:rgba(255,255,255,.9);box-shadow:0 13px 34px rgba(91,39,64,.065);backdrop-filter:blur(12px)}
 .admin-dashboard__tasks>header,.admin-dashboard__glance>header,.admin-dashboard__shortcuts>header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:11px}
 .admin-dashboard__tasks header>div,.admin-dashboard__glance>header{min-width:0}
@@ -1135,26 +1135,48 @@
 .admin-dashboard__healthy>div{display:grid;gap:3px}.admin-dashboard__healthy strong{color:var(--dashboard-ink);font-size:13px}.admin-dashboard__healthy span{font-size:10px;line-height:1.45;color:var(--dashboard-muted)}
 .admin-dashboard__task-skeleton{display:grid;gap:8px}.admin-dashboard__task-skeleton i{height:56px;border-radius:14px;background:linear-gradient(90deg,#fff4f8,#fff,#fff4f8);background-size:200% 100%;animation:dashboard-skeleton 1.2s linear infinite}
 @keyframes dashboard-skeleton{to{background-position:-200% 0}}
-.admin-dashboard__glance>header{display:grid;justify-content:stretch}
-.admin-dashboard__glance>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.admin-dashboard__glance article{position:relative;display:grid;min-width:0;gap:3px;border-radius:15px;padding:12px;background:linear-gradient(145deg,#fff8fb,#fff6ef);overflow:hidden}
-.admin-dashboard__glance article>span{display:grid;width:31px;height:31px;place-items:center;margin-bottom:4px;border-radius:10px;background:#fff;color:var(--dashboard-pink);box-shadow:0 6px 16px rgba(110,45,73,.08)}
-.admin-dashboard__glance article>small{overflow:hidden;color:var(--dashboard-muted);font-size:9px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}
-.admin-dashboard__glance article>strong{overflow:hidden;font-size:15px;letter-spacing:-.03em;text-overflow:ellipsis;white-space:nowrap}
-.admin-dashboard__glance article>p{overflow:hidden;margin:0;color:#a08c97;font-size:8.5px;text-overflow:ellipsis;white-space:nowrap}
+.admin-dashboard__glance>header{display:grid;justify-content:stretch;gap:2px}
+.admin-dashboard__glance>header p{margin:0;color:var(--dashboard-muted);font-size:9.5px}
+.admin-dashboard__glance>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.admin-dashboard__metric-card{position:relative;display:grid;min-width:0;align-content:start;gap:7px;border:1px solid rgba(246,47,130,.09);border-radius:16px;padding:12px;background:linear-gradient(145deg,#fff9fc,#fff6ef);box-shadow:0 8px 21px rgba(100,42,68,.045)}
+.admin-dashboard__metric-card>header{display:grid;min-width:0;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:7px}
+.admin-dashboard__metric-icon{display:grid;width:31px;height:31px;place-items:center;border-radius:10px;background:#fff;color:var(--dashboard-pink);box-shadow:0 6px 16px rgba(110,45,73,.08)}
+.admin-dashboard__metric-card>header>small{overflow:hidden;color:var(--dashboard-muted);font-size:9px;font-weight:850;text-overflow:ellipsis;white-space:nowrap}
+.admin-dashboard__metric-card>strong{overflow:hidden;font-size:17px;letter-spacing:-.035em;text-overflow:ellipsis;white-space:nowrap}
+.admin-dashboard__metric-detail{min-height:26px;margin:0;color:#907c87;font-size:9px;line-height:1.45}
+.admin-dashboard__metric-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+.admin-dashboard__metric-facts>span{display:grid;min-width:0;gap:1px;border-radius:10px;padding:7px;background:rgba(255,255,255,.82)}
+.admin-dashboard__metric-facts small{overflow:hidden;color:#a18c97;font-size:7.5px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}
+.admin-dashboard__metric-facts b{overflow:hidden;color:#4b3542;font-size:10px;text-overflow:ellipsis;white-space:nowrap}
+.admin-dashboard__metric-card>button{display:flex;min-height:30px;align-items:center;justify-content:space-between;gap:6px;border:0;border-radius:9px;padding:0 9px;background:linear-gradient(110deg,rgba(246,47,130,.09),rgba(255,135,81,.11));color:#b63d6c;font-size:8.5px;font-weight:900;cursor:pointer}
+.admin-dashboard__metric-card>button:hover{background:linear-gradient(110deg,rgba(246,47,130,.15),rgba(255,135,81,.17))}
+.admin-dashboard__metric-help{position:relative}
+.admin-dashboard__metric-help>summary{display:grid;width:26px;height:26px;place-items:center;border-radius:9px;color:#a78e9a;cursor:pointer;list-style:none}
+.admin-dashboard__metric-help>summary::-webkit-details-marker{display:none}
+.admin-dashboard__metric-help[open]{grid-column:1/-1;width:100%}
+.admin-dashboard__metric-help[open]>summary{margin-left:auto}
+.admin-dashboard__metric-help>p{width:100%;margin:4px 0 0;border:1px solid #f1dbe5;border-radius:12px;padding:9px;background:#fff;color:#705d68;font-size:9px;line-height:1.5;box-shadow:0 10px 24px rgba(54,26,43,.1)}
+.admin-dashboard__metric-card.is-today{background:linear-gradient(145deg,#fff3f8,#fff2e8)}
+.admin-dashboard__metric-card.is-loading{min-height:205px;align-content:start;gap:12px;overflow:hidden}
+.admin-dashboard__metric-card.is-loading i{height:24px;border-radius:9px;background:linear-gradient(90deg,#fff1f6,#fff,#fff1f6);background-size:200% 100%;animation:dashboard-skeleton 1.2s linear infinite}
+.admin-dashboard__metric-card.is-loading i:nth-child(2){height:42px}.admin-dashboard__metric-card.is-loading i:nth-child(3){height:82px}
 .admin-dashboard__shortcuts{padding:13px 15px}
 .admin-dashboard__shortcuts>header{justify-content:flex-start;margin-bottom:8px}.admin-dashboard__shortcuts>header{display:grid;gap:2px}.admin-dashboard__shortcuts>header strong{font-size:13px}
 .admin-dashboard__shortcuts>div{display:flex;gap:7px;overflow-x:auto;padding:2px 1px 5px;scrollbar-width:none}.admin-dashboard__shortcuts>div::-webkit-scrollbar{display:none}
 .admin-dashboard__shortcuts button{display:grid;min-width:78px;min-height:66px;flex:0 0 auto;place-items:center;gap:5px;border:1px solid #f1dfe7;border-radius:14px;padding:9px;background:#fff;color:var(--dashboard-pink);font-size:9.5px;font-weight:850;white-space:nowrap}
 .admin-dashboard__shortcuts button:hover{border-color:#f2b4cc;background:#fff7fa}
-@media(max-width:900px){.admin-dashboard__main-grid{grid-template-columns:1fr}.admin-dashboard__glance>div{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:900px){.admin-dashboard__main-grid{grid-template-columns:1fr}.admin-dashboard__glance>div{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:680px){
   .admin-dashboard.admin-dashboard--v2{gap:10px;margin:0;padding:12px 0 max(138px,env(safe-area-inset-bottom))}
   .admin-dashboard>:not(.aura-metric-carousel){margin-inline:10px}.admin-dashboard>.aura-metric-carousel{margin-inline:0}
   .admin-dashboard>.aura-metric-carousel .aura-metric-carousel__viewport{margin-inline:0}
   .admin-dashboard__syncbar{padding-inline:2px}.admin-dashboard__syncbar strong{font-size:14px}.admin-dashboard__sync-actions>button span{display:none}.admin-dashboard__sync-actions>button{width:36px;padding:0}
   .admin-dashboard__tasks,.admin-dashboard__glance,.admin-dashboard__shortcuts{border-radius:18px;padding:12px}
-  .admin-dashboard__glance>div{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .admin-dashboard__glance{margin-right:0!important;border-radius:18px 0 0 18px;border-right:0;padding-right:0}
+  .admin-dashboard__glance>header{padding-right:12px}
+  .admin-dashboard__glance>div{display:flex;gap:9px;overflow-x:auto;padding-right:12px;padding-bottom:5px;scroll-snap-type:x mandatory;scrollbar-width:none}
+  .admin-dashboard__glance>div::-webkit-scrollbar{display:none}
+  .admin-dashboard__metric-card{width:min(82vw,310px);min-width:min(82vw,310px);scroll-snap-align:start}
   .admin-dashboard__task-list>button{padding:9px}.admin-dashboard__task-list small{white-space:normal;line-height:1.35}
   .admin-dashboard__shortcuts{margin-right:0!important;border-radius:18px 0 0 18px;border-right:0;padding-right:0}.admin-dashboard__shortcuts>div{padding-right:12px}
 }

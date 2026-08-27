@@ -200,19 +200,73 @@ export default function AdminDashboard({
 
   const quickMetrics = useMemo(() => {
     if (!data) return []
+    const attendanceDenominator = data.today.attendance.charged || data.today.scheduledSessions
     return [
-      data.permissions.finance && { id: 'cash', label: 'Thực thu tháng', value: money(data.finance.cashCollected), detail: 'Ledger đã ghi nhận', icon: <WalletCards size={19} /> },
-      data.permissions.finance && { id: 'debt', label: 'Tổng công nợ', value: money(data.finance.receivables), detail: `${data.actionSummary.overdueReceivables.totalCount} hợp đồng còn nợ`, icon: <CircleDollarSign size={19} /> },
-      data.permissions.clients && { id: 'clients', label: 'Học viên hoạt động', value: data.clients.active.toLocaleString('vi-VN'), detail: `${data.clients.newInRange} học viên mới tháng này`, icon: <Users size={19} /> },
+      data.permissions.finance && {
+        id: 'cash', label: 'Thực thu tháng', value: money(data.finance.cashCollected),
+        detail: 'Tiền thực nhận từ ledger trong tháng', icon: <WalletCards size={19} />,
+        help: 'Thực thu là tiền đã nhận. Thu ròng đã trừ hoàn tiền và bút toán đảo; không đồng nhất với doanh số hợp đồng.',
+        facts: [
+          { label: 'Doanh số', value: money(data.finance.contractSales) },
+          { label: 'Thu ròng', value: money(data.finance.netCash) },
+          { label: 'Hoàn tiền', value: money(data.finance.refunds) },
+          { label: 'Điều chỉnh', value: money(data.finance.adjustments) },
+        ],
+        actionLabel: 'Mở tài chính', onSelect: () => goTo('admin-finance'),
+      },
+      data.permissions.finance && {
+        id: 'debt', label: 'Tổng công nợ', value: money(data.finance.receivables),
+        detail: `${data.actionSummary.overdueReceivables.totalCount} hợp đồng còn dư nợ`, icon: <CircleDollarSign size={19} />,
+        help: 'Tổng công nợ là số tiền chưa thu của các hợp đồng. Cần thu chỉ gồm các kỳ đã quá hạn hoặc đến hạn hôm nay.',
+        facts: [
+          { label: 'HĐ còn nợ', value: data.actionSummary.overdueReceivables.totalCount.toLocaleString('vi-VN') },
+          { label: 'Quá hạn', value: data.actionSummary.overdueReceivables.overdueCount.toLocaleString('vi-VN') },
+          { label: 'Đến hạn nay', value: data.actionSummary.overdueReceivables.dueTodayCount.toLocaleString('vi-VN') },
+          { label: 'Cần thu', value: money(data.actionSummary.overdueReceivables.amount) },
+        ],
+        actionLabel: 'Xem trả góp', onSelect: () => goTo('admin-finance', 'overdue'),
+      },
+      data.permissions.clients && {
+        id: 'clients', label: 'Học viên hoạt động', value: data.clients.active.toLocaleString('vi-VN'),
+        detail: `${data.clients.newInRange} học viên mới trong tháng`, icon: <Users size={19} />,
+        help: 'Học viên hoạt động là hồ sơ chưa ngừng hoặc lưu trữ. Hợp đồng hiệu lực được tính riêng để tránh nhầm giữa trạng thái hồ sơ và gói tập.',
+        facts: [
+          { label: 'Tổng hồ sơ', value: data.clients.total.toLocaleString('vi-VN') },
+          { label: 'HĐ hiệu lực', value: data.clients.activeContracts.toLocaleString('vi-VN') },
+          { label: 'Mới tháng này', value: data.clients.newInRange.toLocaleString('vi-VN') },
+          { label: 'Chưa hoạt động', value: Math.max(0, data.clients.total - data.clients.active).toLocaleString('vi-VN') },
+        ],
+        actionLabel: 'Mở học viên', onSelect: () => goTo('admin-pt-students'),
+      },
       data.permissions.operations && {
         id: 'today',
         label: 'Hiện diện hôm nay',
-        value: `${data.today.attendance.confirmed}/${data.today.attendance.charged || data.today.scheduledSessions}`,
-        detail: `${data.today.attendance.present} có tập · ${data.today.attendance.late} trễ · ${data.today.attendance.noShow} no-show · ${data.today.attendance.pendingConfirmation} chờ PT`,
+        value: `${data.today.attendance.confirmed}/${attendanceDenominator}`,
+        detail: `${data.today.attendance.attendanceRate}% tham gia · ${data.today.attendance.confirmationRate}% PT đã xác nhận`,
         icon: <Dumbbell size={19} />,
+        help: 'Hệ thống tự tính buổi khi đến giờ. PT chỉ xác nhận thực tế có tập, đi trễ hoặc không đến; xác nhận không trừ buổi thêm lần nữa.',
+        facts: [
+          { label: 'Lịch hôm nay', value: data.today.scheduledSessions.toLocaleString('vi-VN') },
+          { label: 'Đã tính buổi', value: data.today.attendance.charged.toLocaleString('vi-VN') },
+          { label: 'Có tập', value: data.today.attendance.present.toLocaleString('vi-VN') },
+          { label: 'Đi trễ', value: data.today.attendance.late.toLocaleString('vi-VN') },
+          { label: 'Không đến', value: data.today.attendance.noShow.toLocaleString('vi-VN') },
+          { label: 'Chờ PT', value: data.today.attendance.pendingConfirmation.toLocaleString('vi-VN') },
+        ],
+        actionLabel: 'Xem lịch sử tập', onSelect: () => goTo('admin-training-history'),
       },
-    ].filter(Boolean) as Array<{ id: string; label: string; value: string; detail: string; icon: ReactNode }>
-  }, [data])
+    ].filter(Boolean) as Array<{
+      id: string
+      label: string
+      value: string
+      detail: string
+      icon: ReactNode
+      help: string
+      facts: Array<{ label: string; value: string }>
+      actionLabel: string
+      onSelect: () => void
+    }>
+  }, [data, goTo])
 
   const shortcuts = useMemo(() => {
     if (!data) return []
@@ -254,8 +308,26 @@ export default function AdminDashboard({
       </section>
 
       <section className="admin-dashboard__glance" aria-labelledby="dashboard-glance-title">
-        <header><small>NHÌN NHANH</small><h2 id="dashboard-glance-title">Vận hành hiện tại</h2></header>
-        <div>{quickMetrics.map((item) => <article key={item.id}><span>{item.icon}</span><small>{item.label}</small><strong>{item.value}</strong><p>{item.detail}</p></article>)}</div>
+        <header><small>CHỈ SỐ ĐIỀU HÀNH</small><h2 id="dashboard-glance-title">Vận hành hiện tại</h2><p>Chạm từng nhóm để mở dữ liệu chi tiết.</p></header>
+        <div>
+          {loading && !data ? Array.from({ length: 4 }, (_, index) => <article className="admin-dashboard__metric-card is-loading" key={index} aria-label="Đang tải chỉ số"><i /><i /><i /></article>) : null}
+          {quickMetrics.map((item) => <article className={`admin-dashboard__metric-card is-${item.id}`} key={item.id}>
+            <header>
+              <span className="admin-dashboard__metric-icon">{item.icon}</span>
+              <small>{item.label}</small>
+              <details className="admin-dashboard__metric-help">
+                <summary aria-label={`Giải thích ${item.label}`}><CircleHelp size={15} /></summary>
+                <p>{item.help}</p>
+              </details>
+            </header>
+            <strong>{item.value}</strong>
+            <p className="admin-dashboard__metric-detail">{item.detail}</p>
+            <div className="admin-dashboard__metric-facts">
+              {item.facts.map((fact) => <span key={fact.label}><small>{fact.label}</small><b>{fact.value}</b></span>)}
+            </div>
+            <button type="button" onClick={item.onSelect}>{item.actionLabel}<ArrowRight size={15} /></button>
+          </article>)}
+        </div>
       </section>
     </div>
 
