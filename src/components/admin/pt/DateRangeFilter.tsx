@@ -19,6 +19,7 @@ interface Props {
   excludeFuture?: boolean
   compact?: boolean
   initialRange?: DateRangePreset
+  allowAll?: boolean
 }
 
 interface MenuPosition {
@@ -31,7 +32,11 @@ interface MenuPosition {
 const pastOptions: DateRangePreset[] = ['Tất cả', 'Hôm nay', 'Hôm qua', 'Tuần này', 'Tháng này', 'Tháng trước']
 const allOptions: DateRangePreset[] = ['Tất cả', 'Hôm nay', 'Ngày mai', 'Hôm qua', 'Tuần này', 'Tuần sau', 'Tháng này', 'Tháng trước']
 
-export default function DateRangeFilter({ onFilter, excludeFuture = false, compact = false, initialRange = 'Tất cả' }: Props) {
+function localDateKey(value = new Date()) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+}
+
+export default function DateRangeFilter({ onFilter, excludeFuture = false, compact = false, initialRange = 'Tất cả', allowAll = true }: Props) {
   const [isOpen, setIsOpen] = useState(false)
   const [range, setRange] = useState<DateRangePreset>(initialRange)
   const [customStart, setCustomStart] = useState('')
@@ -102,8 +107,9 @@ export default function DateRangeFilter({ onFilter, excludeFuture = false, compa
       case 'Tùy chỉnh':
         break
     }
+    if (excludeFuture && last.getTime() > now.getTime()) last = now
     onFilterRef.current(first, last)
-  }, [])
+  }, [excludeFuture])
 
   useEffect(() => { applyFilter(initialRange) }, [applyFilter, initialRange])
 
@@ -194,15 +200,15 @@ export default function DateRangeFilter({ onFilter, excludeFuture = false, compa
         style={{ top: menuPosition.top, left: menuPosition.left, width: menuPosition.width, maxHeight: menuPosition.maxHeight }}
       >
         <div className="date-range-filter__presets" role="listbox" aria-label="Khoảng thời gian nhanh">
-          {(excludeFuture ? pastOptions : allOptions).map((preset) => (
+          {(excludeFuture ? pastOptions : allOptions).filter((preset) => allowAll || preset !== 'Tất cả').map((preset) => (
             <button key={preset} type="button" role="option" aria-selected={range === preset} className={range === preset ? 'is-active' : ''} onClick={() => choosePreset(preset)}>
               {preset}
             </button>
           ))}
         </div>
         <div className="date-range-filter__custom">
-          <label><span>Từ ngày</span><input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label>
-          <label><span>Đến ngày</span><input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label>
+          <label><span>Từ ngày</span><input type="date" max={excludeFuture ? localDateKey() : undefined} value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label>
+          <label><span>Đến ngày</span><input type="date" max={excludeFuture ? localDateKey() : undefined} value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label>
           <button type="button" disabled={!customStart || !customEnd || customStart > customEnd} onClick={applyCustomRange}>Áp dụng</button>
         </div>
       </div>,

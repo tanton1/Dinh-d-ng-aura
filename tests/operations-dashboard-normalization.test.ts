@@ -21,7 +21,7 @@ test('dashboard accepts the previous callable schema during a rolling deployment
     generatedAt: '2026-08-26T08:00:00.000Z',
   })
 
-  assert.equal(dashboard.schemaVersion, 2)
+  assert.equal(dashboard.schemaVersion, 3)
   assert.equal(dashboard.finance.cashCollected, 125_000_000)
   assert.equal(dashboard.clients.active, 280)
   assert.equal(dashboard.operations.completionRate, 72)
@@ -30,6 +30,24 @@ test('dashboard accepts the previous callable schema during a rolling deployment
   assert.equal(dashboard.actionSummary.dueRenewals.available, false)
   assert.equal(dashboard.quality.completeness, 'partial')
   assert.deepEqual(dashboard.cache, { hit: false, ttlSeconds: 0 })
+  assert.deepEqual(dashboard.analytics.revenue.points, [])
+  assert.equal(dashboard.analytics.packages.totalActive, 0)
+  assert.equal(dashboard.analytics.off.rate, 0)
+})
+
+test('dashboard bounds chart payloads and preserves signed canonical cash values', () => {
+  const dashboard = normalizeOperationsDashboardData({
+    schemaVersion: 3,
+    analytics: {
+      revenue: { granularity: 'week', points: [{ key: '2026-08-24', label: '24/08', contractSales: '1000000', grossCash: 700000, netCash: -50000 }] },
+      packages: { totalActive: 2, items: [{ id: 'p1', name: 'PT 3 tháng', count: 2, percent: 100 }] },
+      off: { activeContracts: 2, approvedContracts: 1, activeWithoutOff: 1, approvedRequests: 1, pendingRequests: 2, preservationRequests: 0, rate: 50 },
+    },
+  })
+  assert.equal(dashboard.analytics.revenue.granularity, 'week')
+  assert.equal(dashboard.analytics.revenue.points[0].netCash, -50000)
+  assert.equal(dashboard.analytics.packages.items[0].percent, 100)
+  assert.equal(dashboard.analytics.off.rate, 50)
 })
 
 test('dashboard normalizes malformed numeric fields instead of rendering NaN', () => {

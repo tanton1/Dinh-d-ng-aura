@@ -10,7 +10,7 @@ export interface DashboardActionMetric {
 }
 
 export interface OperationsDashboardData {
-  schemaVersion: 2
+  schemaVersion: 3
   range: { startAt: string; endAt: string; timeZone: string }
   branchId: string
   scope: { branchId: string; branchIds: string[]; unrestricted: boolean }
@@ -49,6 +49,25 @@ export interface OperationsDashboardData {
   }
   finance: { contractSales: number; cashCollected: number; refunds: number; reversals: number; adjustments: number; netCash: number; receivables: number }
   clients: { total: number; active: number; newInRange: number; activeContracts: number }
+  analytics: {
+    revenue: {
+      granularity: 'day' | 'week' | 'month'
+      points: Array<{ key: string; label: string; contractSales: number; grossCash: number; netCash: number }>
+    }
+    packages: {
+      totalActive: number
+      items: Array<{ id: string; name: string; count: number; percent: number }>
+    }
+    off: {
+      activeContracts: number
+      approvedContracts: number
+      activeWithoutOff: number
+      approvedRequests: number
+      pendingRequests: number
+      preservationRequests: number
+      rate: number
+    }
+  }
   operations: { sessions: number; attendanceEvents: number; sessionStatus: Record<string, number>; completionRate: number; activeTrainers: number; activeStaff: number; branches: number }
   quality: { completeness: 'complete' | 'partial'; missingContractEffectiveDate: number; truncated: boolean; canonicalFinanceSource: string; canonicalAttendanceSource: string }
   generatedAt: string
@@ -107,6 +126,10 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
   const todayAttendance = record(today.attendance)
   const finance = record(source.finance)
   const clients = record(source.clients)
+  const analytics = record(source.analytics)
+  const revenue = record(analytics.revenue)
+  const packages = record(analytics.packages)
+  const off = record(analytics.off)
   const operations = record(source.operations)
   const sessionStatusSource = record(operations.sessionStatus)
   const quality = record(source.quality)
@@ -120,7 +143,7 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
   const compatibilityPermission = (domainValue: unknown) => schemaVersion < 2 && Object.keys(record(domainValue)).length > 0
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     range: {
       startAt: text(range.startAt),
       endAt: text(range.endAt),
@@ -179,6 +202,42 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
       active: nonNegativeNumber(clients.active),
       newInRange: nonNegativeNumber(clients.newInRange),
       activeContracts: nonNegativeNumber(clients.activeContracts),
+    },
+    analytics: {
+      revenue: {
+        granularity: revenue.granularity === 'week' || revenue.granularity === 'month' ? revenue.granularity : 'day',
+        points: Array.isArray(revenue.points) ? revenue.points.slice(0, 60).map((item) => {
+          const value = record(item)
+          return {
+            key: text(value.key),
+            label: text(value.label),
+            contractSales: finiteNumber(value.contractSales),
+            grossCash: finiteNumber(value.grossCash),
+            netCash: finiteNumber(value.netCash),
+          }
+        }).filter((item) => item.key) : [],
+      },
+      packages: {
+        totalActive: nonNegativeNumber(packages.totalActive),
+        items: Array.isArray(packages.items) ? packages.items.slice(0, 6).map((item) => {
+          const value = record(item)
+          return {
+            id: text(value.id),
+            name: text(value.name, 'Chưa xác định gói'),
+            count: nonNegativeNumber(value.count),
+            percent: Math.max(0, Math.min(100, finiteNumber(value.percent))),
+          }
+        }).filter((item) => item.id) : [],
+      },
+      off: {
+        activeContracts: nonNegativeNumber(off.activeContracts),
+        approvedContracts: nonNegativeNumber(off.approvedContracts),
+        activeWithoutOff: nonNegativeNumber(off.activeWithoutOff),
+        approvedRequests: nonNegativeNumber(off.approvedRequests),
+        pendingRequests: nonNegativeNumber(off.pendingRequests),
+        preservationRequests: nonNegativeNumber(off.preservationRequests),
+        rate: Math.max(0, Math.min(100, finiteNumber(off.rate))),
+      },
     },
     operations: {
       sessions: sessionCount,

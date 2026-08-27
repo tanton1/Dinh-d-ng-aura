@@ -46,7 +46,7 @@ function dashboardPermissions(actor) {
     clients: administrator || hasCapability(actor, 'pt.operations.manage') || hasCapability(actor, 'branch.operations.view'),
     operations: administrator || hasCapability(actor, 'pt.operations.manage') || hasCapability(actor, 'branch.operations.view') || hasCapability(actor, 'pt.schedule.self.view'),
     schedule: administrator || hasCapability(actor, 'pt.schedule.branch.publish') || hasCapability(actor, 'pt.schedule.self.view') || hasCapability(actor, 'pt.session.self.manage'),
-    renewals: hasCapability(actor, 'renewals.workspace.view'),
+    renewals: administrator || hasCapability(actor, 'renewals.workspace.view'),
     nutritionReviews: administrator || (actor.accessRole === 'staff' && actor.positions.some((position) => ['coach_online', 'trainer_pt'].includes(position))),
     academy: administrator || hasCapability(actor, 'academy.course.view') || hasCapability(actor, 'academy.operations.manage'),
     payroll: administrator || hasCapability(actor, 'payroll.operations.manage') || hasCapability(actor, 'payroll.self.view'),
@@ -98,6 +98,112 @@ function contractAmount(value) {
 
 function contractDebt(value) {
   return Math.max(0, contractAmount(value) - Math.max(0, Number(value.paidAmount || 0)))
+}
+
+function ledgerReceiptImpact(value) {
+  if (!['payment', 'refund', 'reversal', 'adjustment'].includes(value.type)) return 0
+  if (value.cashImpact !== undefined && value.cashImpact !== null && Number.isFinite(Number(value.cashImpact))) {
+    return Number(value.cashImpact)
+  }
+  const amount = Number(value.amount || 0)
+  return Number.isFinite(amount) ? amount : 0
+}
+
+function storedDateKey(value) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10)
+  const time = milliseconds(value)
+  return time ? dateKey(new Date(time)) : ''
+}
+
+function isEffectiveContract(value, referenceDate) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(referenceDate)) return false
+  if (['cancelled', 'expired', 'inactive', 'archived'].includes(value.status)) return false
+  const startDate = storedDateKey(value.startDate)
+  const endDate = storedDateKey(value.endDate)
+  const totalSessions = Math.max(0, Number(value.totalSessions || 0))
+  const usedSessions = Math.max(0, Number(value.usedSessions || 0))
+  return Boolean(startDate && endDate && startDate <= referenceDate && endDate >= referenceDate && totalSessions > usedSessions)
+}
+
+function reportGranularity(start, end) {
+  const dayCount = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000) + 1)
+  if (dayCount <= 45) return 'day'
+  if (dayCount <= 180) return 'week'
+  return 'month'
+}
+
+function reportBucket(value, granularity) {
+  const time = milliseconds(value)
+  if (!time) return null
+  const key = dateKey(new Date(time))
+  if (granularity === 'month') return { key: key.slice(0, 7), label: `T${Number(key.slice(5, 7))}/${key.slice(2, 4)}` }
+  if (granularity === 'week') {
+    const monday = weekMonday(key)
+    return { key: monday, label: `${monday.slice(8, 10)}/${monday.slice(5, 7)}` }
+  }
+  return { key, label: `${key.slice(8, 10)}/${key.slice(5, 7)}` }
+}
+
+function dashboardAnalytics({ ledgerValues, contractValues, offValues, start, end, referenceDate }) {
+  const granularity = reportGranularity(start, end)
+  const points = new Map()
+  const point = (bucket) => {
+    const current = points.get(bucket.key) || { key: bucket.key, label: bucket.label, contractSales: 0, grossCash: 0, netCash: 0 }
+    points.set(bucket.key, current)
+    return current
+  }
+  for (const value of contractValues) {
+    const effectiveAt = contractEffectiveDate(value)
+    if (!effectiveAt || !inRange(effectiveAt, start, end)) continue
+    const bucket = reportBucket(effectiveAt, granularity)
+    if (bucket) point(bucket).contractSales += contractAmount(value)
+  }
+  for (const value of ledgerValues) {
+    const bucket = reportBucket(value.effectiveAt, granularity)
+    if (!bucket) continue
+    const amount = ledgerReceiptImpact(value)
+    const current = point(bucket)
+    if (value.type === 'payment' && amount > 0) current.grossCash += amount
+    current.netCash += amount
+  }
+
+  const effectiveContracts = contractValues.filter((value) => isEffectiveContract(value, referenceDate))
+  const packages = new Map()
+  for (const contract of effectiveContracts) {
+    const id = contract.packageId || contract.packageName || 'unknown'
+    const current = packages.get(id) || { id, name: contract.packageName || 'Chưa xác định gói', count: 0, percent: 0 }
+    current.count += 1
+    packages.set(id, current)
+  }
+  const packageItems = [...packages.values()].sort((left, right) => right.count - left.count || left.name.localeCompare(right.name, 'vi'))
+  const visiblePackages = packageItems.slice(0, 5)
+  if (packageItems.length > 5) {
+    visiblePackages.push({ id: 'other', name: 'Gói khác', count: packageItems.slice(5).reduce((total, item) => total + item.count, 0), percent: 0 })
+  }
+  for (const item of visiblePackages) item.percent = effectiveContracts.length ? Math.round(item.count / effectiveContracts.length * 1000) / 10 : 0
+
+  const effectiveContractIds = new Set(effectiveContracts.map((value) => value.id).filter(Boolean))
+  const offRequests = offValues.filter((value) => {
+    const inferredType = value.type || (Number(value.durationDays || 0) > 0 && Number(value.durationDays || 0) <= 14 ? 'off' : '')
+    return inferredType === 'off' && effectiveContractIds.has(value.contractId)
+  })
+  const approvedContractIds = new Set(offRequests.filter((value) => value.status === 'approved').map((value) => value.contractId))
+  const pendingRequests = offRequests.filter((value) => value.status === 'pending').length
+  const preservationRequests = offValues.filter((value) => value.type === 'preservation' && ['pending', 'approved'].includes(value.status) && effectiveContractIds.has(value.contractId)).length
+
+  return {
+    revenue: { granularity, points: [...points.values()].sort((left, right) => left.key.localeCompare(right.key)).slice(-60) },
+    packages: { totalActive: effectiveContracts.length, items: visiblePackages },
+    off: {
+      activeContracts: effectiveContracts.length,
+      approvedContracts: approvedContractIds.size,
+      activeWithoutOff: Math.max(0, effectiveContracts.length - approvedContractIds.size),
+      approvedRequests: offRequests.filter((value) => value.status === 'approved').length,
+      pendingRequests,
+      preservationRequests,
+      rate: effectiveContracts.length ? Math.round(approvedContractIds.size / effectiveContracts.length * 1000) / 10 : 0,
+    },
+  }
 }
 
 function pendingInstallments(value) {
@@ -310,7 +416,7 @@ function createOperationsDashboardFunctions({ db, onCall }) {
     const confirmedSessionRangeQuery = db.collection('sessions').where('status', 'in', ['completed', 'attended', 'no_show']).where('date', '>=', startDate).where('date', '<=', endDate)
     const attendanceRangeQuery = db.collection('attendanceEvents').where('occurredAt', '>=', startTimestamp).where('occurredAt', '<=', endTimestamp)
     const canAggregateOperations = permissions.operations && scope.unrestricted
-    const [ledger, sessionRange, confirmedSessionRange, attendanceRange, todaySessions, contracts, students, trainers, staff, branches, renewalAction, scheduleAction, nutritionAction] = await Promise.all([
+    const [ledger, sessionRange, confirmedSessionRange, attendanceRange, todaySessions, contracts, students, trainers, staff, branches, offRequests, renewalAction, scheduleAction, nutritionAction] = await Promise.all([
       permissions.finance ? db.collection('ledgerEntries').where('effectiveAt', '>=', startTimestamp).where('effectiveAt', '<=', endTimestamp).limit(MAX_SCANNED_DOCUMENTS).get() : null,
       permissions.operations ? (canAggregateOperations ? sessionRangeQuery.count().get() : sessionRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
       permissions.operations ? (canAggregateOperations ? confirmedSessionRangeQuery.count().get() : confirmedSessionRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
@@ -321,13 +427,14 @@ function createOperationsDashboardFunctions({ db, onCall }) {
       permissions.operations ? db.collection('trainers').limit(500).get() : null,
       permissions.operations ? db.collection('staff').limit(500).get() : null,
       permissions.operations ? db.collection('branches').limit(100).get() : null,
+      (permissions.operations || permissions.clients) ? db.collection('leaveRequests').where('startDate', '>=', startDate).where('startDate', '<=', endDate).limit(MAX_ACTION_DOCUMENTS + 1).get() : null,
       loadRenewalAction(db, actor, scope, today, permissions.renewals),
       loadScheduleAction(db, actor, scope, today, permissions.schedule),
       loadNutritionAction(db, actor, today, permissions.nutritionReviews),
     ])
 
     const ledgerValues = ledger ? ledger.docs.map((item) => item.data()).filter((value) => scopeMatches(value, scope) && ['posted', 'reversed'].includes(value.status)) : []
-    const contractValues = contracts ? contracts.docs.map((item) => item.data()).filter((value) => scopeMatches(value, scope)) : []
+    const contractValues = contracts ? contracts.docs.map((item) => ({ id: item.id, ...item.data() })).filter((value) => scopeMatches(value, scope)) : []
     const studentValues = students ? students.docs.map((item) => item.data()).filter((value) => scopeMatches(value, scope)) : []
     const trainerValues = trainers ? trainers.docs.map((item) => item.data()).filter((value) => scopeMatches(value, scope)) : []
     const staffValues = staff ? staff.docs.map((item) => item.data()).filter((value) => scopeMatches(value, scope)) : []
@@ -339,9 +446,11 @@ function createOperationsDashboardFunctions({ db, onCall }) {
     const confirmedSessionCount = canAggregateOperations ? Number(confirmedSessionRange?.data().count || 0) : confirmedSessionValues.length
     const attendanceCount = canAggregateOperations ? Number(attendanceRange?.data().count || 0) : attendanceValues.length
     const todayValues = todaySessions ? todaySessions.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
+    const contractIds = new Set(contractValues.map((value) => value.id))
+    const offValues = offRequests ? offRequests.docs.slice(0, MAX_ACTION_DOCUMENTS).map((item) => ({ id: item.id, ...item.data() })).filter((value) => contractIds.has(value.contractId)) : []
 
     const finance = ledgerValues.reduce((result, value) => {
-      const amount = Number(value.amount || 0)
+      const amount = ledgerReceiptImpact(value)
       if (value.type === 'payment' && amount > 0) result.cashCollected += amount
       if (value.type === 'refund' && amount < 0) result.refunds += Math.abs(amount)
       if (value.type === 'reversal' && amount < 0) result.reversals += Math.abs(amount)
@@ -386,10 +495,13 @@ function createOperationsDashboardFunctions({ db, onCall }) {
       || (!canAggregateOperations && sessionRange?.size >= MAX_SCANNED_DOCUMENTS)
       || (!canAggregateOperations && confirmedSessionRange?.size >= MAX_SCANNED_DOCUMENTS)
       || (!canAggregateOperations && attendanceRange?.size >= MAX_SCANNED_DOCUMENTS)
+      || (offRequests && offRequests.size > MAX_ACTION_DOCUMENTS)
       || renewalAction.truncated || scheduleAction.truncated || nutritionAction.truncated,
     )
+    const referenceDate = dateKey(new Date(Math.min(end.getTime(), now.getTime())))
+    const analytics = dashboardAnalytics({ ledgerValues, contractValues, offValues, start, end, referenceDate })
     const result = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       range: { startAt: start.toISOString(), endAt: end.toISOString(), timeZone: 'Asia/Ho_Chi_Minh' },
       branchId,
       scope: { branchId, branchIds: scope.branchIds, unrestricted: scope.unrestricted },
@@ -417,8 +529,9 @@ function createOperationsDashboardFunctions({ db, onCall }) {
         total: studentValues.length,
         active: studentValues.filter((value) => !['inactive', 'cancelled', 'archived'].includes(value.status)).length,
         newInRange: studentValues.filter((value) => inRange(value.joinDate || value.createdAt, start, end)).length,
-        activeContracts: contractValues.filter((value) => value.status === 'active').length,
+        activeContracts: analytics.packages.totalActive,
       },
+      analytics,
       operations: {
         sessions: sessionCount,
         attendanceEvents: attendanceCount,
@@ -472,4 +585,7 @@ module.exports = {
   dashboardPermissions,
   renewalCaseMatches,
   summarizeReceivables,
+  isEffectiveContract,
+  ledgerReceiptImpact,
+  dashboardAnalytics,
 }
