@@ -31,7 +31,7 @@ for (const width of [360, 390, 430]) {
   })
 }
 
-test('nutrition review photos use square thumbnails and bounded 9:16 detail frames', async ({ page }) => {
+test('nutrition review photos fill the mobile width and detail slides scroll natively', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/#/admin-nutrition-reviews')
   await expect(page.locator('.nrw-toolbar')).toBeVisible()
@@ -45,6 +45,11 @@ test('nutrition review photos use square thumbnails and bounded 9:16 detail fram
       '<div class="nrw-main-photo is-square"></div>',
       '<div class="nrw-main-photo is-portrait"></div>',
       '<div class="nrw-main-photo is-square is-empty"></div>',
+      '<div class="nrw-detail-window" data-photo-carousel><div class="nrw-detail-track">',
+      '<section class="nrw-slide">Tổng quan</section>',
+      '<section class="nrw-slide">Phân tích</section>',
+      '<section class="nrw-slide">Phản hồi</section>',
+      '</div></div>',
     ].join('')
     document.body.appendChild(fixture)
   })
@@ -61,6 +66,15 @@ test('nutrition review photos use square thumbnails and bounded 9:16 detail fram
   expect(Math.abs(thumbnail!.width - thumbnail!.height)).toBeLessThanOrEqual(1)
   expect(Math.abs(square!.width - square!.height)).toBeLessThanOrEqual(1)
   expect(Math.abs(portrait!.width / portrait!.height - 9 / 16)).toBeLessThan(0.01)
-  expect(portrait!.height).toBeLessThanOrEqual(500)
+  expect(Math.abs(portrait!.width - 350)).toBeLessThanOrEqual(1)
   expect(empty!.height).toBe(112)
+
+  const carousel = fixture.locator('[data-photo-carousel]')
+  const carouselMetrics = await carousel.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }))
+  expect(carouselMetrics.scrollWidth).toBeGreaterThanOrEqual(carouselMetrics.clientWidth * 3 - 2)
+  await carousel.evaluate((element) => element.scrollTo({ left: element.clientWidth, behavior: 'auto' }))
+  await expect.poll(() => carousel.evaluate((element) => element.scrollLeft)).toBeGreaterThanOrEqual(carouselMetrics.clientWidth - 2)
 })

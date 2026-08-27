@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   CheckCircle2,
@@ -19,7 +19,7 @@ import {
   type NutritionMealReview,
   type NutritionReviewStatus,
 } from '../../services/nutritionReviewService'
-import { durationLabel, mealImageShape, type MealImageShape } from './nutritionReviewDisplay'
+import { detailSlideIndex, durationLabel, mealImageShape, type MealImageShape } from './nutritionReviewDisplay'
 import './NutritionReviewWorkspace.css'
 
 type StatusFilter = NutritionReviewStatus | 'all'
@@ -102,6 +102,7 @@ export function NutritionReviewWorkspace({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const detailWindowRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => setDebouncedQuery(query.trim()), 320)
@@ -149,17 +150,57 @@ export function NutritionReviewWorkspace({
   const filtered = reviews
 
   const selected = filtered.find((item) => item.id === selectedId) || filtered[0] || null
+  const goToDetailSlide = useCallback((value: number, behavior: ScrollBehavior = 'smooth') => {
+    const target = Math.min(2, Math.max(0, Math.trunc(value)))
+    setDetailSlide(target)
+    const viewport = detailWindowRef.current
+    if (!viewport) return
+    const overflowX = window.getComputedStyle(viewport).overflowX
+    if (overflowX === 'auto' || overflowX === 'scroll') {
+      viewport.scrollTo({ left: viewport.clientWidth * target, behavior })
+    }
+  }, [])
+
+  const handleDetailScroll = useCallback(() => {
+    const viewport = detailWindowRef.current
+    if (!viewport) return
+    setDetailSlide(detailSlideIndex(viewport.scrollLeft, viewport.clientWidth))
+  }, [])
+
   useEffect(() => {
     if (!selected) return
     setFeedback(selected.coachFeedback || selected.analysis.coachFeedbackSuggestion || '')
     setDetailSlide(0)
+    detailWindowRef.current?.scrollTo({ left: 0, behavior: 'auto' })
   }, [selected?.id])
+
+  useEffect(() => {
+    const viewport = detailWindowRef.current
+    if (!viewport) return
+    const slides = viewport.querySelectorAll<HTMLElement>('.nrw-slide')
+    const activeSlide = slides[detailSlide]
+    if (!activeSlide) return
+    const syncHeight = () => {
+      const overflowX = window.getComputedStyle(viewport).overflowX
+      viewport.style.height = overflowX === 'auto' || overflowX === 'scroll'
+        ? `${activeSlide.scrollHeight}px`
+        : ''
+    }
+    syncHeight()
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(syncHeight) : null
+    observer?.observe(activeSlide)
+    window.addEventListener('resize', syncHeight)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', syncHeight)
+    }
+  }, [detailSlide, selected?.id])
 
   const submit = async (action: 'approve' | 'reject' | 'feedback') => {
     if (!selected || submitting) return
     if (action !== 'reject' && feedback.trim().length < 3) {
       setError('Vui lòng nhập nhận xét từ 3 ký tự trước khi gửi.')
-      setDetailSlide(2)
+      goToDetailSlide(2)
       return
     }
     setSubmitting(true)
@@ -245,9 +286,9 @@ export function NutritionReviewWorkspace({
       {selected && <article className="nrw-detail">
         <div className="nrw-detail-top">
           <div className="nrw-detail-identity"><small>HỒ SƠ DUYỆT · {selected.revision + 1}</small><h2>{selected.studentName}</h2><p>{selected.studentGoal || 'Chưa cập nhật mục tiêu dinh dưỡng'}</p>{scope === 'all' && <div className="nrw-assign-coach"><UsersRound size={15} /><span>HLV dinh dưỡng: {selected.assignedCoachName || 'Chưa phân công'}<small>Gán tại hồ sơ Học viên PT.</small></span></div>}</div>
-          <div className="nrw-slide-control"><button onClick={() => setDetailSlide((value) => Math.max(0, value - 1))} disabled={detailSlide === 0} aria-label="Slide trước"><ChevronLeft /></button><span>{detailSlide + 1}/3</span><button onClick={() => setDetailSlide((value) => Math.min(2, value + 1))} disabled={detailSlide === 2} aria-label="Slide sau"><ChevronRight /></button></div>
+          <div className="nrw-slide-control"><button onClick={() => goToDetailSlide(detailSlide - 1)} disabled={detailSlide === 0} aria-label="Slide trước"><ChevronLeft /></button><span>{detailSlide + 1}/3</span><button onClick={() => goToDetailSlide(detailSlide + 1)} disabled={detailSlide === 2} aria-label="Slide sau"><ChevronRight /></button></div>
         </div>
-        <div className="nrw-detail-window">
+        <div className="nrw-detail-window" ref={detailWindowRef} onScroll={handleDetailScroll} aria-label="Chi tiết bữa ăn, vuốt ngang để chuyển slide">
           <div className={`nrw-detail-track is-slide-${detailSlide}`} style={{ transform: `translateX(-${detailSlide * 100}%)` }}>
             <section className="nrw-slide nrw-overview-slide">
               <ReviewPhoto source={selected.image} alt="Bữa ăn đang duyệt" kind="detail" />
@@ -274,7 +315,7 @@ export function NutritionReviewWorkspace({
             </section>
           </div>
         </div>
-        <div className="nrw-dots" aria-label="Chọn slide chi tiết">{[0, 1, 2].map((value) => <button key={value} onClick={() => setDetailSlide(value)} className={detailSlide === value ? 'is-active' : ''} aria-label={`Slide ${value + 1}`} />)}</div>
+        <div className="nrw-dots" aria-label="Chọn slide chi tiết">{[0, 1, 2].map((value) => <button key={value} onClick={() => goToDetailSlide(value)} className={detailSlide === value ? 'is-active' : ''} aria-label={`Slide ${value + 1}`} />)}</div>
       </article>}
       <div className="nrw-pagination-note">
         <p className="nrw-limit-note"><UsersRound size={16} /> Đang hiển thị {reviews.length}/{filteredCount} bản trong bộ lọc. Bữa quá SLA luôn được xếp trước.</p>

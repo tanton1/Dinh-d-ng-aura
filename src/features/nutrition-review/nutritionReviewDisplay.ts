@@ -21,3 +21,9 @@ export function mealImageShape(width: number, height: number): MealImageShape {
   }
   return height / width >= 1.2 ? 'portrait' : 'square'
 }
+
+export function detailSlideIndex(scrollLeft: number, viewportWidth: number, slideCount = 3) {
+  if (!Number.isFinite(scrollLeft) || !Number.isFinite(viewportWidth) || viewportWidth <= 0) return 0
+  const maximum = Math.max(0, Math.trunc(slideCount) - 1)
+  return Math.min(maximum, Math.max(0, Math.round(scrollLeft / viewportWidth)))
+}

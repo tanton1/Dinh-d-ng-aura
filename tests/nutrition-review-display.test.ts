@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { durationLabel, mealImageShape } from '../src/features/nutrition-review/nutritionReviewDisplay'
+import { detailSlideIndex, durationLabel, mealImageShape } from '../src/features/nutrition-review/nutritionReviewDisplay'
 
 test('nutrition review wait time uses readable minute, hour and day labels', () => {
   assert.equal(durationLabel(0), '0 phút')
@@ -23,4 +23,13 @@ test('meal review images choose a stable square or portrait frame from natural d
   assert.equal(mealImageShape(900, 1_200), 'portrait')
   assert.equal(mealImageShape(1_080, 1_920), 'portrait')
   assert.equal(mealImageShape(0, 1_920), 'square')
+})
+
+test('swipe position resolves to the nearest bounded detail slide', () => {
+  assert.equal(detailSlideIndex(0, 390), 0)
+  assert.equal(detailSlideIndex(210, 390), 1)
+  assert.equal(detailSlideIndex(390, 390), 1)
+  assert.equal(detailSlideIndex(780, 390), 2)
+  assert.equal(detailSlideIndex(2_000, 390), 2)
+  assert.equal(detailSlideIndex(Number.NaN, 390), 0)
 })
