@@ -231,6 +231,9 @@
 .schedule-warning-student > button > div { display: grid; gap: 3px; }
 .schedule-warning-student__title { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--branch-ink) !important; }
 .schedule-warning-student__title b { flex: 0 0 auto; padding: 3px 7px; border-radius: 999px; color: #fff; background: linear-gradient(110deg,var(--branch-pink),var(--branch-orange)); font-size: .58rem; }
+.schedule-warning-student > button i { font-style: normal; font-weight: 850; }
+.schedule-warning-student > button i.has-availability { color: #15825a; }
+.schedule-warning-student > button i.no-availability { color: #cf5f22; }
 .schedule-warning-student > button > svg:last-child { color: #c6859f; transition: transform .18s ease; }
 .schedule-warning-student.is-expanded > button > svg:last-child { transform: rotate(90deg); }
 .schedule-warning-detail { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; padding: 0 12px 12px 41px; }
@@ -242,6 +245,7 @@
 .schedule-warning-detail section span { padding: 4px 7px; border-radius: 8px; color: #8c4566; background: #fff; font-size: .61rem; font-weight: 800; }
 .schedule-warning-detail section span b { display: block; margin-top: 2px; color: #a6778c; font-size: .54rem; }
 .schedule-warning-detail section.is-suggestion { background: linear-gradient(135deg,#fff1f7,#fff6ee); }
+.schedule-warning-detail section.is-missing-availability { border: 1px solid #ffd9c4; background: #fff7ef; }
 .schedule-warning-detail em { color: #a18b96; font-size: .65rem; font-style: normal; }
 .schedule-warning-empty { display: flex; align-items: center; gap: 8px; padding: 18px; border: 1px dashed #e7d2dc; border-radius: 16px; color: #39795e; background: #f5fbf8; font-size: .8rem; font-weight: 750; }
 .schedule-version-list { display: grid; gap: 8px; }
@@ -310,8 +314,9 @@
   .branch-schedule__metrics article { min-width: min(44vw,168px); flex: 0 0 min(44vw,168px); padding: 11px; border: 1px solid rgba(231,207,218,.9); border-radius: 16px; background: rgba(255,255,255,.9); box-shadow: 0 8px 18px rgba(72,38,54,.055); scroll-snap-align: start; }
   .branch-schedule__toolbar { top: var(--shell-mobile-topbar-height,56px); align-items: stretch; flex-direction: column; padding: 7px 6px; }
   .branch-schedule__tabs { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); width: 100%; }
-  .branch-schedule__actions { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); width: 100%; }
+  .branch-schedule__actions { display: grid; grid-template-columns: 1.2fr 1.35fr .9fr 38px; width: 100%; }
   .branch-schedule__toolbar button { min-width: 0; padding: 0 5px; font-size: .65rem; }
+  .branch-schedule__actions .is-reload { padding: 0; }
   .branch-schedule__workspace { padding: 8px 4px 20px; }
   .branch-schedule__matrix-toolbar { align-items: stretch; flex-wrap: wrap; padding: 0 3px; }
   .branch-schedule__matrix-toolbar label { width: 100%; }

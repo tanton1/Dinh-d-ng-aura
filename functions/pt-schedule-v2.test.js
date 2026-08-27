@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_DRAFT_ENTRIES, candidateForSlot, generateSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, studentWeekEligibility, weeklyTargetForStudent } = require('./pt-schedule-v2')
+const { MAX_DRAFT_ENTRIES, candidateForSlot, generateSchedule, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, studentWeekEligibility, weeklyTargetForStudent } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
@@ -305,6 +305,47 @@ test('pairing an existing class is preferred over opening another trainer slot',
   const generated = generateSchedule(data)
   const entry = generated.schedule['T2-6'].find((item) => item.studentId === 'student-a')
   assert.equal(entry.trainerId, 'trainer-a')
+})
+
+test('optimizer avoids three consecutive learner training days when a spaced slot exists', () => {
+  const data = fixture()
+  data.students[0].sessionsPerWeek = 3
+  data.students[0].maxWeeklySessions = 3
+  data.students[0].availableSlots = ['T2-6', 'T3-6', 'T4-6', 'T5-6']
+  data.trainers[0].availableSlots = [...data.students[0].availableSlots]
+  const generated = generateSchedule(data)
+  const days = Object.entries(generated.schedule)
+    .filter(([, entries]) => entries.some((entry) => entry.studentId === 'student-a'))
+    .map(([slotId]) => slotId.split('-')[0])
+    .sort()
+  assert.equal(days.length, 3)
+  const dayIndex = new Set(days.map((day) => Number(day.slice(1))))
+  assert.equal([...dayIndex].some((day) => dayIndex.has(day + 1) && dayIndex.has(day + 2)), false)
+})
+
+test('three consecutive days remain allowed when they are the only way to fulfil the learner target', () => {
+  const data = fixture()
+  data.students[0].sessionsPerWeek = 3
+  data.students[0].maxWeeklySessions = 3
+  data.students[0].availableSlots = ['T2-6', 'T3-6', 'T4-6']
+  data.trainers[0].availableSlots = [...data.students[0].availableSlots]
+  const generated = generateSchedule(data)
+  assert.equal(Object.values(generated.schedule).flat().filter((entry) => entry.studentId === 'student-a').length, 3)
+  assert.equal(generated.unassignedEntries.length, 0)
+})
+
+test('reset draft removes only mutable draft sessions and preserves OFF, locks and published sessions', () => {
+  const data = fixture()
+  const reset = resetDraftSchedule({ ...data, weekId: WEEK }, {
+    'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'auto_v3' }],
+    'T3-6': [{ studentId: 'locked', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'manual_v2', isLocked: true }],
+    'T4-6': [{ studentId: 'OFF', trainerId: 'trainer-a', branchId: BRANCH, type: 'off', source: 'manual_v2', isLocked: true }],
+    'T5-6': [{ studentId: 'published', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'published_existing' }],
+  })
+  assert.equal(reset['T2-6'], undefined)
+  assert.equal(reset['T3-6'][0].studentId, 'locked')
+  assert.equal(reset['T4-6'][0].type, 'off')
+  assert.equal(reset['T5-6'][0].source, 'published_existing')
 })
 
 test('collaborator is never auto-scheduled outside explicitly registered availability', () => {

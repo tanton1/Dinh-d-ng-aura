@@ -201,6 +201,7 @@ export type PtScheduleDraftCommand =
   | 'lock_entry'
   | 'unlock_entry'
   | 'set_student_weekly_target'
+  | 'reset_draft'
 
 export class PtSchedulePublishError extends Error {
   readonly issueCode: string
@@ -250,6 +251,7 @@ const conflictLabels: Record<string, string> = {
   WEEKLY_TARGET_EXCEEDS_QUOTA: 'Mục tiêu tuần vượt quota hợp đồng còn lại.',
   WEEKLY_TARGET_BELOW_SCHEDULED: 'Mục tiêu tuần thấp hơn số buổi đã có trong draft.',
   STUDENT_UNSCHEDULED: 'Chưa tìm được đủ ca hợp lệ cho học viên.',
+  DRAFT_RESET: 'Lịch nháp vừa được đặt lại; học viên đang chờ xếp lại.',
   NO_AVAILABLE_SLOT: 'Không còn khung giờ rảnh chung giữa học viên và PT.',
   STUDENT_AVAILABILITY_MISSING: 'Học viên chưa có lịch rảnh để xếp tự động.',
   TRAINER_DAILY_TARGET_REACHED: 'Các PT phù hợp đã đạt mục tiêu ca trong ngày.',

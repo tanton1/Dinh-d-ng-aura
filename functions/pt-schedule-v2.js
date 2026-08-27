@@ -434,6 +434,13 @@ function schedulingTier(candidate) {
   return 4
 }
 
+function createsThreeConsecutiveTrainingDays(existingDays, candidateDay) {
+  const indexes = new Set([...(existingDays || []), candidateDay]
+    .map((day) => DAY_ORDER.get(day))
+    .filter((value) => Number.isInteger(value)))
+  return [...indexes].some((index) => indexes.has(index + 1) && indexes.has(index + 2))
+}
+
 function buildSchedulingState(schedule) {
   const state = {
     studentDays: new Map(),
@@ -514,6 +521,7 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
   const currentDailyLoad = state.trainerSlotsByDay.get(`${trainer.id}|${day}`)?.size || 0
   const opensTeachingSlot = trainerCount === 0
   const projectedDailyLoad = currentDailyLoad + (opensTeachingSlot ? 1 : 0)
+  const consecutiveDayPenalty = createsThreeConsecutiveTrainingDays(state.studentDays.get(student.id), day) ? 1 : 0
   return {
     eligible: reasons.length === 0,
     reasons: [...new Set(reasons)],
@@ -522,6 +530,7 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
     currentDailyLoad,
     projectedDailyLoad,
     opensTeachingSlot,
+    consecutiveDayPenalty,
     ...policy,
   }
 }
@@ -549,6 +558,9 @@ function compareSlots(left, right) {
 }
 
 function compareCandidates(left, right) {
+  // Spacing is a soft preference: avoid three consecutive training days when
+  // another valid slot exists, but never reject the only feasible option.
+  if (left.consecutiveDayPenalty !== right.consecutiveDayPenalty) return left.consecutiveDayPenalty - right.consecutiveDayPenalty
   if (left.assignmentOrder !== right.assignmentOrder) return left.assignmentOrder - right.assignmentOrder
   // Filling the second learner into an existing PT slot has zero additional
   // teaching-load cost and therefore wins before opening another class.
@@ -747,6 +759,7 @@ function generateSchedule(data) {
           employmentType: result.employmentType,
           employmentLevel: result.employmentLevel,
           opensTeachingSlot: result.opensTeachingSlot,
+          consecutiveDayPenalty: result.consecutiveDayPenalty,
         })
       }
     }
@@ -815,10 +828,21 @@ function commandReceiptId(actorUid, branchId, week, idempotencyKey) {
 }
 
 function commandInput(value) {
-  const supported = new Set(['add_student', 'remove_student', 'move_student', 'set_trainer_off', 'clear_trainer_off', 'lock_entry', 'unlock_entry', 'set_student_weekly_target'])
+  const supported = new Set(['add_student', 'remove_student', 'move_student', 'set_trainer_off', 'clear_trainer_off', 'lock_entry', 'unlock_entry', 'set_student_weekly_target', 'reset_draft'])
   const command = typeof value === 'string' ? value : ''
   if (!supported.has(command)) throw new HttpsError('invalid-argument', 'Lệnh chỉnh lịch không hợp lệ.')
   return command
+}
+
+function resetDraftSchedule(data, currentSchedule) {
+  const schedule = {}
+  for (const [slotId, entries] of Object.entries(safeSchedule(currentSchedule))) {
+    const retained = entries.filter((entry) => entry.type === 'off' || entry.isLocked === true || entry.source === 'published_existing')
+    if (retained.length) schedule[slotId] = retained
+  }
+  // Rehydrate every real published session even when the draft predates V2.
+  mergePublishedSessions(data, schedule, [])
+  return schedule
 }
 
 function createPtScheduleV2Functions({ db, onCall }) {
@@ -1024,9 +1048,10 @@ function createPtScheduleV2Functions({ db, onCall }) {
     const slotId = typeof payload.slotId === 'string' ? payload.slotId : ''
     const fromSlotId = typeof payload.fromSlotId === 'string' ? payload.fromSlotId : ''
     const slotPattern = /^(T[2-7]|CN)-(?:[0-9]|1[0-9]|2[0-3])$/
-    if (command !== 'set_student_weekly_target' && !slotPattern.test(slotId)) throw new HttpsError('invalid-argument', 'Ô lịch không hợp lệ.')
+    const commandWithoutSlot = command === 'set_student_weekly_target' || command === 'reset_draft'
+    if (!commandWithoutSlot && !slotPattern.test(slotId)) throw new HttpsError('invalid-argument', 'Ô lịch không hợp lệ.')
     if (command === 'move_student' && !slotPattern.test(fromSlotId)) throw new HttpsError('invalid-argument', 'Ô lịch nguồn không hợp lệ.')
-    const trainerId = command === 'set_student_weekly_target' ? '' : documentId(payload.trainerId, 'Mã PT')
+    const trainerId = commandWithoutSlot ? '' : documentId(payload.trainerId, 'Mã PT')
     const studentId = command.includes('student') || command.includes('entry') ? documentId(payload.studentId, 'Mã học viên') : ''
     const targetStudent = command === 'set_student_weekly_target'
       ? data.students.find((item) => item.id === studentId)
@@ -1062,6 +1087,10 @@ function createPtScheduleV2Functions({ db, onCall }) {
       const revision = Number(current.exists ? current.data()?.revision || 0 : data.draft.revision)
       if (revision !== expectedRevision) throw new HttpsError('aborted', 'Draft đã thay đổi. Hãy tải lại trước khi chỉnh.')
       schedule = safeSchedule(current.exists ? current.data().schedule : data.schedule)
+      const resetRemovedEntries = command === 'reset_draft'
+        ? Object.values(schedule).flat().filter((entry) => entry.type !== 'off' && entry.isLocked !== true && entry.source !== 'published_existing')
+        : []
+      if (command === 'reset_draft') schedule = resetDraftSchedule({ ...data, weekId: week }, schedule)
       const values = Array.isArray(schedule[slotId]) ? [...schedule[slotId]] : []
       const currentWeeklyTargets = safeWeeklySessionTargets(current.exists ? current.data()?.weeklySessionTargets : {}, new Set(data.students.map((item) => item.id)))
       if (command === 'set_student_weekly_target') {
@@ -1102,7 +1131,10 @@ function createPtScheduleV2Functions({ db, onCall }) {
       const result = { draftRevision: nextRevision, schedule, weeklySessionTargets: currentWeeklyTargets }
       // Generated missing-session diagnostics become stale after any manual
       // mutation. Retain only entries requeued by this command.
-      const unassignedEntries = requeuedEntries.slice(-200)
+      const resetStudentIds = [...new Set(resetRemovedEntries.map((entry) => entry.studentId).filter(Boolean))]
+      const unassignedEntries = command === 'reset_draft'
+        ? resetStudentIds.slice(0, MAX_STUDENTS).map((removedStudentId) => ({ studentId: removedStudentId, missingSessions: 1, reasonCodes: ['DRAFT_RESET'], suggestedSlots: [] }))
+        : requeuedEntries.slice(-200)
       transaction.set(reference, {
         schemaVersion: 2,
         branchId,
@@ -1118,7 +1150,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, idempotencyKey, result, createdAt: FieldValue.serverTimestamp() })
-      transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.${command}`, actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, affectedStudentCount: command === 'set_student_weekly_target' ? 1 : requeuedEntries.length, studentId: command === 'set_student_weekly_target' ? studentId : null, weeklyTarget: command === 'set_student_weekly_target' ? (resetWeeklyTarget ? null : weeklyTarget) : null, reason: typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 300) : '', createdAt: FieldValue.serverTimestamp() })
+      transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.${command}`, actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, affectedStudentCount: command === 'set_student_weekly_target' ? 1 : command === 'reset_draft' ? resetStudentIds.length : requeuedEntries.length, studentId: command === 'set_student_weekly_target' ? studentId : null, weeklyTarget: command === 'set_student_weekly_target' ? (resetWeeklyTarget ? null : weeklyTarget) : null, reason: typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 300) : '', createdAt: FieldValue.serverTimestamp() })
       return result
     })
   })
@@ -1132,7 +1164,9 @@ module.exports = {
   MAX_DRAFT_ENTRIES,
   createPtScheduleV2Functions,
   candidateForSlot,
+  createsThreeConsecutiveTrainingDays,
   generateSchedule,
+  resetDraftSchedule,
   resolveContract,
   safeSchedule,
   safeWeeklySessionTargets,

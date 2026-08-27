@@ -160,6 +160,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [availabilityDraft, setAvailabilityDraft] = useState<Set<string>>(new Set())
   const [availabilityBusy, setAvailabilityBusy] = useState(false)
   const [availabilityError, setAvailabilityError] = useState('')
+  const [resetDraftOpen, setResetDraftOpen] = useState(false)
 
   const weekDates = useMemo(() => getDatesForWeek(weekOffset), [weekOffset])
   const currentWeekId = weekDates.T2.full
@@ -393,6 +394,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       ...unassignedEntries.map((entry) => entry.studentId),
       ...studentWarnings.map((row) => row.student.id),
       ...ineligibleDraftRows.map((row) => row.student.id),
+      ...workspace.students.filter((student) => student.eligibilityReasons.includes('CONTRACT_PAUSED')).map((student) => student.id),
     ])
     return [...affectedIds].map((studentId) => {
       const student = workspace.students.find((item) => item.id === studentId)
@@ -419,6 +421,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       ])
       if (!['submitted', 'locked', 'recurring'].includes(student.availabilityStatus)) reasonCodes.add('AVAILABILITY_NOT_SUBMITTED')
       if ((row?.missing || unassigned?.missingSessions || 0) > 0 && !reasonCodes.size) reasonCodes.add('STUDENT_UNSCHEDULED')
+      const hasConfirmedAvailability = ['submitted', 'locked', 'recurring'].includes(student.availabilityStatus)
+        && student.availableSlots.length > 0
       return {
         student,
         contract,
@@ -427,11 +431,39 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         missingSessions: Math.max(0, row?.missing || unassigned?.missingSessions || 0),
         reasonCodes: [...reasonCodes],
         suggestedSlots: unassigned?.suggestedSlots || [],
+        hasConfirmedAvailability,
+        offState: reasonCodes.has('CONTRACT_PAUSED')
+          ? 'student'
+          : reasonCodes.has('TRAINER_ON_LEAVE')
+            ? 'trainer'
+            : null,
       }
     }).filter((profile): profile is NonNullable<typeof profile> => Boolean(profile))
-      .sort((left, right) => right.missingSessions - left.missingSessions
-        || left.student.name.localeCompare(right.student.name, 'vi'))
+      .sort((left, right) => {
+        const priority = (profile: typeof left) => profile.hasConfirmedAvailability && profile.scheduledEntries.length === 0 && profile.missingSessions > 0
+          ? 0
+          : profile.hasConfirmedAvailability && profile.missingSessions > 0
+            ? 1
+            : profile.offState
+              ? 2
+              : profile.hasConfirmedAvailability
+                ? 3
+                : 4
+        return priority(left) - priority(right)
+          || right.missingSessions - left.missingSessions
+          || left.student.name.localeCompare(right.student.name, 'vi')
+      })
   }, [ineligibleDraftRows, operationalStudentRows, scheduledEntriesByStudent, studentWarnings, unassignedEntries, workspace])
+
+  const draftResetSummary = useMemo(() => {
+    const entries = Object.values(workspace?.schedule || {}).flat()
+    const resettable = entries.filter((entry) => entry.type !== 'off' && entry.isLocked !== true && entry.source !== 'published_existing')
+    return {
+      resettableEntries: resettable.length,
+      affectedStudents: new Set(resettable.map((entry) => entry.studentId)).size,
+      protectedEntries: entries.length - resettable.length,
+    }
+  }, [workspace?.schedule])
 
   const selectedTrainerLoads = useMemo(() => trainerLoads.filter((load) => load.trainerId === selectedTrainerId), [selectedTrainerId, trainerLoads])
   const warningCount = useMemo(() => {
@@ -512,6 +544,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     await runCommand('set_student_weekly_target', targetSessions === null
       ? { studentId, resetToDefault: true }
       : { studentId, targetSessions }, targetSessions === null ? 'Khôi phục định mức hồ sơ' : 'Điều chỉnh mục tiêu riêng cho tuần')
+  }
+
+  const resetDraft = async () => {
+    if (!workspace || draftResetSummary.resettableEntries < 1) return
+    await runCommand('reset_draft', {}, 'Đặt lại lịch nháp chưa publish')
+    setResetDraftOpen(false)
+    setTab('warnings')
   }
 
   const openAvailabilityEditor = (student: PtScheduleWorkspaceV2Result['students'][number]) => {
@@ -702,7 +741,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         <div className="branch-schedule__actions">
           <button type="button" onClick={() => void autoArrange()} disabled={!workspace || busy}><Sparkles size={16} /> Xếp lịch tối ưu</button>
           <button type="button" className="is-publish" onClick={() => void validatePublish()} disabled={!workspace || busy}><CheckCircle2 size={16} /> Kiểm tra & Publish</button>
-          <button type="button" aria-label="Tải lại" onClick={() => void loadWorkspace()} disabled={loading || busy}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /></button>
+          <button type="button" className="is-reset-draft" aria-label="Đặt lại lịch nháp" title="Đặt lại lịch nháp" onClick={() => setResetDraftOpen(true)} disabled={!workspace || busy || draftResetSummary.resettableEntries < 1}><RotateCcw size={16} /> Đặt lại</button>
+          <button type="button" className="is-reload" aria-label="Tải lại dữ liệu" title="Tải lại dữ liệu" onClick={() => void loadWorkspace()} disabled={loading || busy}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /></button>
         </div>
       </section>
 
@@ -801,18 +841,18 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           </section>
           <section className="schedule-warning-grid">
             {workspace.trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').map((trainer) => <article key={trainer.id} className="schedule-warning-trainer is-blocking"><Clock3 /><div><strong>{trainer.name}</strong><span>{trainerEmploymentLabel(trainer.employmentType)} · chưa đăng ký lịch nhận ca nên không được xếp tự động.</span><small>Hạng #{trainer.schedulingPriority || 100} · mục tiêu {trainer.dailySessionTarget || 8} ca/ngày</small></div></article>)}
-            {warningProfiles.map(({ student, missingSessions: missing, trainerNames, contract, scheduledEntries, reasonCodes, suggestedSlots }) => {
+            {warningProfiles.map(({ student, missingSessions: missing, trainerNames, contract, scheduledEntries, reasonCodes, suggestedSlots, hasConfirmedAvailability, offState }) => {
               const expanded = expandedWarningStudentId === student.id
               const remainingSessions = contract ? Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0)) : 0
               return <article key={student.id} className={`schedule-warning-student${student.eligibleForWeek ? '' : ' is-blocking'}${expanded ? ' is-expanded' : ''}`}>
                 <button type="button" onClick={() => setExpandedWarningStudentId(expanded ? null : student.id)} aria-expanded={expanded}>
-                  <AlertTriangle /><div><span className="schedule-warning-student__title"><strong>{student.name}</strong>{missing > 0 && <b>Thiếu {missing}</b>}</span><span>{student.phone || `Mã ${student.id.slice(-8)}`} · {reasonCodes.slice(0, 2).map(ptScheduleConflictLabel).join(' · ')}</span></div><ChevronRight />
+                  <AlertTriangle /><div><span className="schedule-warning-student__title"><strong>{student.name}</strong>{missing > 0 && <b>Thiếu {missing}</b>}</span><span>{student.phone || `Mã ${student.id.slice(-8)}`} · <i className={hasConfirmedAvailability ? 'has-availability' : 'no-availability'}>{hasConfirmedAvailability ? `${student.availableSlots.length} khung lịch rảnh` : 'Chưa có lịch rảnh'}</i>{offState === 'trainer' ? ' · PT xin OFF, đang chờ xếp lại' : offState === 'student' ? ' · Học viên đang OFF/bảo lưu' : ''}</span></div><ChevronRight />
                 </button>
                 {expanded && <div className="schedule-warning-detail">
                   <section><small>Gói tập</small><strong>{contract?.packageName || 'Chưa có hợp đồng phù hợp'}</strong><em>{contract ? `${remainingSessions} buổi còn lại · ${String(contract.startDate || '').slice(0, 10)} → ${String(contract.endDate || '').slice(0, 10)}` : 'Cần đối soát hợp đồng'}</em></section>
                   <section><small>PT phụ trách</small><strong>{trainerNames || 'Chưa phân PT'}</strong><em>{trainerNames ? 'Theo hợp đồng và lịch hiện tại' : 'Sẽ xếp theo hạng PT'}</em></section>
                   <section className="is-wide"><small>Nguyên nhân cần xử lý</small><div>{reasonCodes.length ? reasonCodes.map((code) => <span key={code}>{ptScheduleConflictLabel(code)}</span>) : <em>Chưa tìm được phương án tối ưu</em>}</div></section>
-                  <section className="is-wide"><small>Lịch rảnh · {student.availabilityStatus}</small><div>{student.availableSlots.length ? student.availableSlots.map((slot) => <span key={slot}>{availabilitySlotLabel(slot)}</span>) : <em>Chưa có lịch rảnh</em>}</div></section>
+                  <section className={`is-wide${hasConfirmedAvailability ? '' : ' is-missing-availability'}`}><small>{hasConfirmedAvailability ? `Lịch rảnh đã xác nhận · ${student.availableSlots.length} khung` : 'Chưa có lịch rảnh'}</small><div>{hasConfirmedAvailability ? student.availableSlots.map((slot) => <span key={slot}>{availabilitySlotLabel(slot)}</span>) : <em>Học viên chưa gửi hoặc đã xóa lịch rảnh của tuần này; hệ thống không tự suy đoán khung giờ.</em>}</div></section>
                   <section className="is-wide"><small>Lịch đã xếp</small><div>{scheduledEntries.length ? scheduledEntries.map((entry) => <span key={`${entry.slotId}-${entry.trainerId}`}>{entry.label}<b>{workspace.trainers.find((trainer) => trainer.id === entry.trainerId)?.name || 'PT chưa cập nhật'}</b></span>) : <em>Chưa có buổi nào trong tuần</em>}</div></section>
                   <section className="is-wide is-suggestion"><small>Ca hệ thống còn đề xuất</small><div>{suggestedSlots.length ? suggestedSlots.map((slot) => <span key={slot}>{availabilitySlotLabel(slot)}</span>) : <em>Không còn ca chung hợp lệ; cần bổ sung lịch rảnh hoặc PT.</em>}</div></section>
                 </div>}
@@ -850,6 +890,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       )}
 
       {publishPreview && <div className="schedule-publish-backdrop"><section className="schedule-publish-dialog" role="dialog" aria-modal="true" aria-labelledby="branch-publish-title"><div className="schedule-publish-dialog__accent" /><p className="schedule-publish-dialog__eyebrow">AURA PT · XÁC NHẬN</p><h2 id="branch-publish-title">Publish v{publishPreview.version}?</h2><p>Session đã tính buổi hoặc xác nhận được khóa bất biến. Toàn bộ diff còn lại chạy trong một transaction.</p><div className="schedule-publish-diff"><div><strong>{publishPreview.diff.create}</strong><span>Tạo mới</span></div><div><strong>{publishPreview.diff.update}</strong><span>Điều chỉnh</span></div><div><strong>{publishPreview.diff.cancel}</strong><span>Hủy</span></div><div><strong>{publishPreview.diff.unchanged}</strong><span>Giữ nguyên</span></div></div><div className="schedule-publish-dialog__actions"><button type="button" onClick={() => setPublishPreview(null)}>Quay lại</button><button type="button" onClick={() => void confirmPublish()} disabled={busy}>{busy ? 'Đang publish…' : `Publish v${publishPreview.version}`}</button></div></section></div>}
+
+      {resetDraftOpen && <div className="schedule-publish-backdrop"><section className="schedule-publish-dialog" role="alertdialog" aria-modal="true" aria-labelledby="branch-reset-title"><div className="schedule-publish-dialog__accent" /><p className="schedule-publish-dialog__eyebrow">AURA PT · ĐẶT LẠI DRAFT</p><h2 id="branch-reset-title">Xếp lại từ đầu tuần này?</h2><p>Gỡ {draftResetSummary.resettableEntries} buổi nháp của {draftResetSummary.affectedStudents} học viên. {draftResetSummary.protectedEntries} ca OFF, ca khóa hoặc session đã publish vẫn được giữ nguyên.</p><div className="schedule-publish-dialog__actions"><button type="button" onClick={() => setResetDraftOpen(false)}>Quay lại</button><button type="button" onClick={() => void resetDraft()} disabled={busy}>{busy ? 'Đang đặt lại…' : 'Đặt lại draft'}</button></div></section></div>}
 
       {restoreCandidate && history && <div className="schedule-publish-backdrop"><section className="schedule-publish-dialog" role="alertdialog" aria-modal="true" aria-labelledby="branch-restore-title"><div className="schedule-publish-dialog__accent" /><p className="schedule-publish-dialog__eyebrow">KHÔI PHỤC AN TOÀN</p><h2 id="branch-restore-title">Tạo draft từ v{restoreCandidate.version}?</h2><p>Phiên bản đã publish vẫn bất biến. Lịch được sao chép thành draft revision mới để kiểm tra lại.</p><div className="schedule-publish-dialog__actions"><button type="button" onClick={() => setRestoreCandidate(null)}>Quay lại</button><button type="button" onClick={() => void restoreVersion()} disabled={busy}>Tạo draft mới</button></div></section></div>}
     </div>
