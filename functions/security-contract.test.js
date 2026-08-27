@@ -23,8 +23,10 @@ const adminRolesSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'admi
 const accessRouteSource = readFileSync(join(repositoryRoot, 'src', 'identity', 'access.ts'), 'utf8')
 const studentIdentityLinkSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-student-identity-link.cjs'), 'utf8')
 const sessionContractLinkSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-session-contract-link.cjs'), 'utf8')
+const ptScheduleMigrationSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-schedule-v2-migration.cjs'), 'utf8')
 const identityAccessSource = readFileSync(join(__dirname, 'identity-access.js'), 'utf8')
 const ptSchedulePublishSource = readFileSync(join(__dirname, 'pt-schedule-publish.js'), 'utf8')
+const ptScheduleV2Source = readFileSync(join(__dirname, 'pt-schedule-v2.js'), 'utf8')
 const appSource = readFileSync(join(repositoryRoot, 'src', 'App.tsx'), 'utf8')
 const appShellSource = readFileSync(join(repositoryRoot, 'src', 'components', 'AppShell.tsx'), 'utf8')
 const ptOperationsClientSource = readFileSync(join(repositoryRoot, 'src', 'services', 'ptOperationsV2Service.ts'), 'utf8')
@@ -281,9 +283,10 @@ test('sensitive operations routes require Identity v2 capabilities in addition t
       `${route} must require ${capability}`,
     )
   }
-  assert.match(appSource, /accessContext\?\.accessRole === 'staff'[\s\S]*?BranchScheduleWorkspace/)
-  assert.match(branchScheduleWorkspaceSource, /getMyBranchScheduleWorkspace/)
-  assert.match(branchScheduleWorkspaceSource, /saveMyBranchScheduleDraft/)
+  assert.match(appSource, /accessContext\?\.capabilities\.includes\('pt\.schedule\.branch\.publish'\)[\s\S]*?BranchScheduleWorkspace/)
+  assert.match(branchScheduleWorkspaceSource, /getPtScheduleWorkspace/)
+  assert.match(branchScheduleWorkspaceSource, /applyPtScheduleDraftCommand/)
+  assert.match(branchScheduleWorkspaceSource, /generatePtScheduleDraft/)
 })
 
 test('staff keeps learner navigation while every work capability has a separate page', () => {
@@ -426,6 +429,39 @@ test('PT schedule publish is actor-scoped, revisioned, transactional, and immuta
   assert.match(ptSchedulePublishSource, /value\.billingStatus === 'charged'/)
   assert.match(ptSchedulePublishSource, /contractId: contract\.id/)
   assert.match(rules, /match \/ptScheduleVersions\/\{versionId\}[\s\S]*?allow write: if false/)
+})
+
+test('PT schedule V2 is actor-scoped, date-exact, branch-owned and command revisioned', () => {
+  for (const endpoint of [
+    'listPtScheduleBranches',
+    'getPtScheduleWorkspace',
+    'generatePtScheduleDraft',
+    'getPtScheduleSlotCandidates',
+    'applyPtScheduleDraftCommand',
+  ]) assert.match(functionsSource, new RegExp(`exports\\.${endpoint} = ptScheduleV2Functions\\.${endpoint}`))
+
+  assert.match(ptScheduleV2Source, /requireCapability\(actor, 'pt\.schedule\.branch\.publish'\)/)
+  assert.match(ptScheduleV2Source, /actor\.branchIds\.includes\(branchId\)/)
+  assert.match(ptScheduleV2Source, /storedDate\(contract\.startDate\) <= date/)
+  assert.match(ptScheduleV2Source, /storedDate\(contract\.endDate\) >= date/)
+  assert.match(ptScheduleV2Source, /AMBIGUOUS_ACTIVE_CONTRACT/)
+  assert.match(ptScheduleV2Source, /TRAINER_AVAILABILITY_UNCONFIGURED/)
+  assert.match(ptScheduleV2Source, /revision !== expectedRevision/)
+  assert.match(ptScheduleV2Source, /transaction\.create\(receipt/)
+  assert.match(ptScheduleV2Source, /unassignedEntries/)
+  assert.match(rules, /match \/ptScheduleDrafts\/\{draftId\}[\s\S]*?allow write: if false/)
+  assert.match(rules, /match \/ptScheduleCommandReceipts\/\{receiptId\}[\s\S]*?allow read, write: if false/)
+})
+
+test('PT schedule migration is target-only, digest-gated, create-only for drafts and preserves sessions', () => {
+  assert.match(ptScheduleMigrationSource, /projectId: 'gen-lang-client-0815966909'/)
+  assert.match(ptScheduleMigrationSource, /databaseId: 'ai-studio-aurafitnesselear-/)
+  assert.match(ptScheduleMigrationSource, /APPLY_PT_SCHEDULE_V2/)
+  assert.match(ptScheduleMigrationSource, /before\.plan\.digest !== args\.digest/)
+  assert.match(ptScheduleMigrationSource, /currentDocument: \{ exists: false \}/)
+  assert.match(ptScheduleMigrationSource, /currentDocument: \{ updateTime: item\.updateTime \}/)
+  assert.match(ptScheduleMigrationSource, /preservedCollections: \['sessions', 'contracts', 'payments', 'ledgerEntries'\]/)
+  assert.doesNotMatch(ptScheduleMigrationSource, /documents\/sessions\//)
 })
 
 test('production authentication stays on the authorized Vercel application origin', () => {

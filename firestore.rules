@@ -922,6 +922,23 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Drafts are branch-scoped and mutated only through revision-checked
+    // Callable Functions. Admin may inspect them for incident response; staff
+    // receives a bounded actor-scoped projection from the backend.
+    match /ptScheduleDrafts/{draftId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /ptScheduleCommandReceipts/{receiptId} {
+      allow read, write: if false;
+    }
+
+    match /ptOperationsAuditLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     match /salesLeads/{leadId} {
       allow read: if isAdmin();
       allow write: if false;

@@ -349,6 +349,21 @@ describe('Aura PT Firestore rules', () => {
     }
   })
 
+  test('PT schedule drafts are admin-readable but every browser write remains blocked', async () => {
+    const studentDb = authenticatedDb('client-1', 'student')
+    const coachDb = authenticatedDb('coach-1', 'coach')
+    const adminDb = authenticatedDb('admin-1', 'admin')
+    const draftPath = ['ptScheduleDrafts', 'branch-a_2026-08-24']
+    const receiptPath = ['ptScheduleCommandReceipts', 'receipt-a']
+
+    await assertFails(getDoc(doc(studentDb, ...draftPath)))
+    await assertFails(getDoc(doc(coachDb, ...draftPath)))
+    await assertSucceeds(getDoc(doc(adminDb, ...draftPath)))
+    await assertFails(setDoc(doc(adminDb, ...draftPath), { revision: 999 }))
+    await assertFails(getDoc(doc(adminDb, ...receiptPath)))
+    await assertFails(setDoc(doc(adminDb, ...receiptPath), { forged: true }))
+  })
+
   test('automatic session billing and attendance corrections are admin-readable but callable-only', async () => {
     const studentDb = authenticatedDb('client-1', 'student')
     const coachDb = authenticatedDb('coach-1', 'coach')

@@ -17,6 +17,7 @@ const { buildCompletedOnboardingDefaultsPatch } = require('./profile-defaults')
 const { createIdentityAccessFunctions } = require('./identity-access')
 const { createPtOperationsV2Functions } = require('./pt-operations-v2')
 const { createPtSchedulePublishFunctions } = require('./pt-schedule-publish')
+const { createPtScheduleV2Functions } = require('./pt-schedule-v2')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
 const { chargeDuePtSessions, createSessionOperationFunctions, remindUnconfirmedPtAttendance } = require('./session-operations')
 const { createPayrollFunctions, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile } = require('./payroll')
@@ -184,6 +185,13 @@ exports.listPtScheduleVersions = ptSchedulePublishFunctions.listPtScheduleVersio
 exports.restorePtScheduleVersionToDraft = ptSchedulePublishFunctions.restorePtScheduleVersionToDraft
 exports.getMyBranchScheduleWorkspace = ptSchedulePublishFunctions.getMyBranchScheduleWorkspace
 exports.saveMyBranchScheduleDraft = ptSchedulePublishFunctions.saveMyBranchScheduleDraft
+const ptScheduleV2Functions = createPtScheduleV2Functions({ db, onCall })
+Object.assign(exports, ptScheduleV2Functions)
+exports.listPtScheduleBranches = ptScheduleV2Functions.listPtScheduleBranches
+exports.getPtScheduleWorkspace = ptScheduleV2Functions.getPtScheduleWorkspace
+exports.generatePtScheduleDraft = ptScheduleV2Functions.generatePtScheduleDraft
+exports.getPtScheduleSlotCandidates = ptScheduleV2Functions.getPtScheduleSlotCandidates
+exports.applyPtScheduleDraftCommand = ptScheduleV2Functions.applyPtScheduleDraftCommand
 Object.assign(exports, createFinanceLedgerFunctions({ db, onCall, logger }))
 const contractRenewalFunctions = createContractRenewalFunctions({ db, onCall, onSchedule, logger })
 Object.assign(exports, contractRenewalFunctions)

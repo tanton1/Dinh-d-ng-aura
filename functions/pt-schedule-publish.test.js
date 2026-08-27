@@ -17,7 +17,7 @@ function baseFixture() {
       'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', type: 'training' }],
     },
     trainers: new Map([
-      ['trainer-a', { status: 'active', branchId: BRANCH_ID }],
+      ['trainer-a', { status: 'active', branchId: BRANCH_ID, availabilityMode: 'configured', availableSlots: ['T2-6', 'T2-7'] }],
     ]),
     students: new Map([
       ['student-a', { status: 'active', branchId: BRANCH_ID }],
@@ -26,6 +26,7 @@ function baseFixture() {
       id: 'contract-a',
       studentId: 'student-a',
       branchId: BRANCH_ID,
+      trainerId: 'trainer-a',
       status: 'active',
       startDate: '2026-08-01',
       endDate: '2026-12-31',
@@ -76,7 +77,7 @@ test('uses a configurable PT slot capacity and defaults to two learners', () => 
   const defaultResult = desiredEntries(fixture)
   assert.ok(defaultResult.errors.includes('TRAINER_CAPACITY_EXCEEDED'))
 
-  fixture.trainers.set('trainer-a', { status: 'active', branchId: BRANCH_ID, slotCapacity: 3 })
+  fixture.trainers.set('trainer-a', { status: 'active', branchId: BRANCH_ID, availabilityMode: 'configured', availableSlots: ['T2-6', 'T2-7'], slotCapacity: 3 })
   const configuredResult = desiredEntries(fixture)
   assert.ok(!configuredResult.errors.includes('TRAINER_CAPACITY_EXCEEDED'))
 })

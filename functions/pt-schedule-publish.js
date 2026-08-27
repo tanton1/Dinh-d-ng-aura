@@ -69,6 +69,29 @@ function normalizedCapacity(value) {
   return Number.isInteger(result) && result >= 1 && result <= 4 ? result : 2
 }
 
+function trainerAvailabilityMode(value = {}) {
+  if (value?.availabilityMode === 'unrestricted') return 'unrestricted'
+  if (value?.availabilityMode === 'configured') return 'configured'
+  if (Array.isArray(value?.availableSlots) && value.availableSlots.length > 0) return 'configured'
+  return 'unconfigured'
+}
+
+function trainerIsAvailable(value, slotId) {
+  const mode = trainerAvailabilityMode(value)
+  if (mode === 'unrestricted') return true
+  if (mode !== 'configured') return false
+  return Array.isArray(value?.availableSlots) && value.availableSlots.includes(slotId)
+}
+
+function trainerIsOnLeave(trainerId, date, trainerLeaves = []) {
+  return trainerLeaves.some((leave) => {
+    if (leave?.trainerId !== trainerId || leave?.status !== 'approved') return false
+    const start = storedDate(leave.startDate)
+    const end = storedDate(leave.endDate || leave.startDate)
+    return Boolean(start && end && date >= start && date <= end)
+  })
+}
+
 function scheduleError(code, message, details = {}) {
   return new HttpsError('failed-precondition', message, { issueCode: code, ...details })
 }
@@ -189,7 +212,7 @@ async function publisherActor(request, db, branchId) {
   return actor
 }
 
-function desiredEntries({ scheduleId, week, branchId, schedule, trainers, students, contracts, availability, config }) {
+function desiredEntries({ scheduleId, week, branchId, schedule, trainers, students, contracts, availability, config, trainerLeaves = [] }) {
   const desired = new Map()
   const errors = []
   const warnings = []
@@ -253,6 +276,10 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       if (!student || student.status === 'inactive') errors.push('STUDENT_NOT_ACTIVE')
       if (trainer?.branchId && trainer.branchId !== branchId) errors.push('TRAINER_BRANCH_MISMATCH')
       if (student?.branchId && student.branchId !== branchId) errors.push('STUDENT_BRANCH_MISMATCH')
+      const availabilityMode = trainerAvailabilityMode(trainer)
+      if (availabilityMode === 'unconfigured') errors.push('TRAINER_AVAILABILITY_UNCONFIGURED')
+      else if (!trainerIsAvailable(trainer, slotId)) errors.push('OUTSIDE_TRAINER_AVAILABILITY')
+      if (trainerIsOnLeave(trainerId, date, trainerLeaves)) errors.push('TRAINER_ON_LEAVE')
 
       const studentDay = `${studentId}|${date}`
       if (studentDays.has(studentDay)) errors.push('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
@@ -265,16 +292,24 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       if (!weekly) warnings.push('LEGACY_AVAILABILITY_FALLBACK')
       else if (!['submitted', 'locked'].includes(weekly.status)) errors.push('AVAILABILITY_NOT_SUBMITTED')
 
-      const contractCandidates = contracts.filter((contract) => contract.studentId === studentId
+      const dateCandidates = contracts.filter((contract) => contract.studentId === studentId
         && contract.status === 'active'
         && storedDate(contract.startDate) <= date
-        && storedDate(contract.endDate) >= date
-        && (!contract.branchId || contract.branchId === branchId))
+        && storedDate(contract.endDate) >= date)
+      if (dateCandidates.some((contract) => !contract.branchId)) errors.push('CONTRACT_BRANCH_REQUIRED')
+      const contractCandidates = dateCandidates.filter((contract) => contract.branchId === branchId)
       if (contractCandidates.length !== 1) {
         errors.push(contractCandidates.length ? 'AMBIGUOUS_ACTIVE_CONTRACT' : 'ACTIVE_CONTRACT_NOT_FOUND')
         continue
       }
       const contract = contractCandidates[0]
+      const assignedTrainerIds = Array.isArray(contract.trainerIds) && contract.trainerIds.length
+        ? contract.trainerIds
+        : contract.trainerId ? [contract.trainerId] : []
+      if (assignedTrainerIds.length && !assignedTrainerIds.includes(trainerId)) {
+        errors.push('TRAINER_ASSIGNMENT_MISMATCH')
+        continue
+      }
       const pauses = Array.isArray(contract.pausePeriods) ? contract.pausePeriods : []
       if (pauses.some((period) => {
         const pauseStart = storedDate(period?.startDate)
@@ -326,11 +361,13 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
     const actor = await publisherActor(request, db, branchId)
     const scheduleId = `schedule_${week}`
     const scheduleReference = db.doc(`schedules/${scheduleId}`)
+    const v2DraftReference = db.doc(`ptScheduleDrafts/${branchId}_${week}`)
     const branchReference = db.doc(`branches/${branchId}`)
 
     return db.runTransaction(async (transaction) => {
-      const [scheduleSnapshot, branchSnapshot, contractsSnapshot, studentsSnapshot, trainersSnapshot, availabilitySnapshot, weekSessionsSnapshot, activeSessionsSnapshot, configSnapshot] = await Promise.all([
+      const [scheduleSnapshot, v2DraftSnapshot, branchSnapshot, contractsSnapshot, studentsSnapshot, trainersSnapshot, availabilitySnapshot, weekSessionsSnapshot, activeSessionsSnapshot, configSnapshot, trainerLeavesSnapshot] = await Promise.all([
         transaction.get(scheduleReference),
+        transaction.get(v2DraftReference),
         transaction.get(branchReference),
         transaction.get(db.collection('contracts').limit(1000)),
         transaction.get(db.collection('students').limit(1000)),
@@ -339,23 +376,41 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
         transaction.get(db.collection('sessions').where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001)),
         transaction.get(db.collection('sessions').where('status', 'in', ['scheduled', 'rescheduled']).limit(3001)),
         transaction.get(db.doc('settings/scheduleConfig')),
+        transaction.get(db.collection('leaveRequests').where('status', '==', 'approved').limit(1001)),
       ])
-      if (!scheduleSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy lịch nháp của tuần.')
+      if (!scheduleSnapshot.exists && !v2DraftSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy lịch nháp của tuần.')
       if (!branchSnapshot.exists || branchSnapshot.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
-      if (weekSessionsSnapshot.size > 1000 || activeSessionsSnapshot.size > 3000) throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn kiểm tra an toàn.')
-      const scheduleData = scheduleSnapshot.data()
-      const draftRevision = Number(scheduleData.draftRevision || 0)
+      if (weekSessionsSnapshot.size > 1000 || activeSessionsSnapshot.size > 3000 || trainerLeavesSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn kiểm tra an toàn.')
+      const scheduleData = scheduleSnapshot.exists ? scheduleSnapshot.data() : {}
+      const activeDraftData = v2DraftSnapshot.exists ? v2DraftSnapshot.data() : scheduleData
+      const draftRevision = Number(v2DraftSnapshot.exists ? activeDraftData.revision : scheduleData.draftRevision || 0)
       if (draftRevision !== expectedDraftRevision) throw new HttpsError('aborted', 'Lịch nháp đã thay đổi. Hãy tải lại trước khi publish.')
-      const publishedRevisions = scheduleData.publishedRevisions || {}
-      if (!validateOnly && Number(publishedRevisions[branchId]) === draftRevision) {
-        return { unchanged: true, draftRevision, version: Number(scheduleData.publishedVersions?.[branchId] || 0), diff: { create: 0, update: 0, cancel: 0, unchanged: 0 }, warnings: [] }
+      const publishedRevision = v2DraftSnapshot.exists
+        ? Number(activeDraftData.publishedRevision ?? -1)
+        : Number(scheduleData.publishedRevisions?.[branchId] ?? -1)
+      const currentPublishedVersion = v2DraftSnapshot.exists
+        ? Number(activeDraftData.publishedVersion || scheduleData.publishedVersions?.[branchId] || 0)
+        : Number(scheduleData.publishedVersions?.[branchId] || 0)
+      if (!validateOnly && publishedRevision === draftRevision) {
+        return { unchanged: true, draftRevision, version: currentPublishedVersion, diff: { create: 0, update: 0, cancel: 0, unchanged: 0 }, warnings: [] }
       }
 
       const contracts = contractsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
       const students = new Map(studentsSnapshot.docs.map((item) => [item.id, item.data()]))
       const trainers = new Map(trainersSnapshot.docs.map((item) => [item.id, item.data()]))
       const availability = new Map(availabilitySnapshot.docs.map((item) => [item.data().studentId, item.data()]))
-      const prepared = desiredEntries({ scheduleId, week, branchId, schedule: scheduleData.schedule, trainers, students, contracts, availability, config: configSnapshot.data() || {} })
+      const prepared = desiredEntries({
+        scheduleId,
+        week,
+        branchId,
+        schedule: activeDraftData.schedule,
+        trainers,
+        students,
+        contracts,
+        availability,
+        config: configSnapshot.data() || {},
+        trainerLeaves: trainerLeavesSnapshot.docs.map((item) => item.data()),
+      })
       if (prepared.errors.length) throw scheduleError('SCHEDULE_VALIDATION_FAILED', 'Lịch nháp còn xung đột và chưa thể publish.', { errors: prepared.errors })
 
       const existingScoped = weekSessionsSnapshot.docs.filter((item) => {
@@ -412,7 +467,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
         }
       }
 
-      const currentVersion = Number(scheduleData.publishedVersions?.[branchId] || 0)
+      const currentVersion = currentPublishedVersion
       const nextVersion = currentVersion + 1
       const creates = []
       const updates = []
@@ -434,7 +489,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       const diff = { create: creates.length, update: updates.length, cancel: cancellations.length, unchanged: unchanged.length }
       if (validateOnly) return { unchanged: false, validateOnly: true, draftRevision, version: nextVersion, diff, warnings: prepared.warnings }
 
-      const writeCount = creates.length + updates.length + cancellations.length + 3
+      const writeCount = creates.length + updates.length + cancellations.length + (v2DraftSnapshot.exists ? 4 : 3)
       if (writeCount > MAX_TRANSACTION_WRITES) throw new HttpsError('resource-exhausted', 'Lịch có quá nhiều thay đổi để publish trong một giao dịch.')
       for (const desired of creates) {
         transaction.create(db.doc(`sessions/${desired.id}`), {
@@ -487,18 +542,28 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
         version: nextVersion,
         sourceDraftRevision: draftRevision,
         entries: desiredValues,
-        branchSchedule: branchScheduleSnapshot(scheduleData.schedule, branchId, students, trainers),
+        branchSchedule: branchScheduleSnapshot(activeDraftData.schedule, branchId, students, trainers),
         diff,
         warnings: prepared.warnings,
         publishedAt: FieldValue.serverTimestamp(),
         publishedBy: actor.uid,
       })
-      transaction.update(scheduleReference, {
+      transaction.set(scheduleReference, {
         [`publishedVersions.${branchId}`]: nextVersion,
         [`publishedRevisions.${branchId}`]: draftRevision,
         [`publishStatusByBranch.${branchId}`]: 'published',
         updatedAt: FieldValue.serverTimestamp(),
-      })
+      }, { merge: true })
+      if (v2DraftSnapshot.exists) {
+        transaction.update(v2DraftReference, {
+          status: 'published',
+          publishedVersion: nextVersion,
+          publishedRevision: draftRevision,
+          publishedAt: FieldValue.serverTimestamp(),
+          publishedBy: actor.uid,
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+      }
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
         schemaVersion: 1,
         action: 'pt_schedule.published',
@@ -519,10 +584,14 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
     const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
     await publisherActor(request, db, branchId)
     const scheduleId = `schedule_${week}`
-    const scheduleSnapshot = await db.doc(`schedules/${scheduleId}`).get()
-    if (!scheduleSnapshot.exists) return { currentDraftRevision: 0, currentVersion: 0, versions: [] }
-    const scheduleData = scheduleSnapshot.data()
-    const currentVersion = Number(scheduleData.publishedVersions?.[branchId] || 0)
+    const [scheduleSnapshot, v2DraftSnapshot] = await Promise.all([
+      db.doc(`schedules/${scheduleId}`).get(),
+      db.doc(`ptScheduleDrafts/${branchId}_${week}`).get(),
+    ])
+    if (!scheduleSnapshot.exists && !v2DraftSnapshot.exists) return { currentDraftRevision: 0, currentVersion: 0, versions: [] }
+    const scheduleData = scheduleSnapshot.exists ? scheduleSnapshot.data() : {}
+    const v2DraftData = v2DraftSnapshot.exists ? v2DraftSnapshot.data() : null
+    const currentVersion = Number(v2DraftData?.publishedVersion || scheduleData.publishedVersions?.[branchId] || 0)
     const minimumVersion = Math.max(1, currentVersion - 19)
     const references = []
     for (let version = currentVersion; version >= minimumVersion; version -= 1) {
@@ -530,7 +599,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
     }
     const snapshots = references.length ? await db.getAll(...references) : []
     return {
-      currentDraftRevision: Number(scheduleData.draftRevision || 0),
+      currentDraftRevision: Number(v2DraftData?.revision ?? scheduleData.draftRevision ?? 0),
       currentVersion,
       versions: snapshots.filter((snapshot) => snapshot.exists).map((snapshot) => {
         const data = snapshot.data()
@@ -557,39 +626,53 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
     const actor = await publisherActor(request, db, branchId)
     const scheduleId = `schedule_${week}`
     const scheduleReference = db.doc(`schedules/${scheduleId}`)
+    const v2DraftReference = db.doc(`ptScheduleDrafts/${branchId}_${week}`)
     const versionReference = db.doc(`ptScheduleVersions/${scheduleId}_${branchId}_v${version}`)
 
     return db.runTransaction(async (transaction) => {
-      const [scheduleSnapshot, versionSnapshot, studentsSnapshot, trainersSnapshot] = await Promise.all([
+      const [scheduleSnapshot, v2DraftSnapshot, versionSnapshot, studentsSnapshot, trainersSnapshot] = await Promise.all([
         transaction.get(scheduleReference),
+        transaction.get(v2DraftReference),
         transaction.get(versionReference),
         transaction.get(db.collection('students').limit(1000)),
         transaction.get(db.collection('trainers').limit(500)),
       ])
-      if (!scheduleSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy lịch nháp của tuần.')
+      if (!scheduleSnapshot.exists && !v2DraftSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy lịch nháp của tuần.')
       if (!versionSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy phiên bản lịch đã chọn.')
-      const scheduleData = scheduleSnapshot.data()
+      const scheduleData = scheduleSnapshot.exists ? scheduleSnapshot.data() : {}
+      const v2DraftData = v2DraftSnapshot.exists ? v2DraftSnapshot.data() : null
       const versionData = versionSnapshot.data()
       if (versionData.weekId !== week || versionData.branchId !== branchId || Number(versionData.version) !== version) {
         throw new HttpsError('failed-precondition', 'Phiên bản lịch không thuộc tuần hoặc chi nhánh này.')
       }
-      const draftRevision = Number(scheduleData.draftRevision || 0)
+      const draftRevision = Number(v2DraftData?.revision ?? scheduleData.draftRevision ?? 0)
       if (draftRevision !== expectedDraftRevision) throw new HttpsError('aborted', 'Lịch nháp đã thay đổi. Hãy tải lại lịch sử trước khi khôi phục.')
       const students = new Map(studentsSnapshot.docs.map((item) => [item.id, item.data()]))
       const trainers = new Map(trainersSnapshot.docs.map((item) => [item.id, item.data()]))
       const restoredBranchSchedule = versionData.branchSchedule && typeof versionData.branchSchedule === 'object'
         ? versionData.branchSchedule
         : legacyBranchScheduleFromSessions(versionData.entries, branchId)
-      const restoredSchedule = mergeRestoredBranchSchedule(scheduleData.schedule || {}, restoredBranchSchedule, branchId, students, trainers)
       const nextDraftRevision = draftRevision + 1
-      transaction.update(scheduleReference, {
-        schedule: restoredSchedule,
-        draftRevision: nextDraftRevision,
-        [`publishStatusByBranch.${branchId}`]: 'draft',
-        [`restoredFromVersionByBranch.${branchId}`]: version,
-        updatedAt: FieldValue.serverTimestamp(),
-        updatedBy: actor.uid,
-      })
+      if (v2DraftSnapshot.exists) {
+        transaction.update(v2DraftReference, {
+          schedule: normalizedDraftSchedule(restoredBranchSchedule, branchId),
+          revision: nextDraftRevision,
+          status: 'draft',
+          restoredFromVersion: version,
+          updatedAt: FieldValue.serverTimestamp(),
+          updatedBy: actor.uid,
+        })
+      } else {
+        const restoredSchedule = mergeRestoredBranchSchedule(scheduleData.schedule || {}, restoredBranchSchedule, branchId, students, trainers)
+        transaction.update(scheduleReference, {
+          schedule: restoredSchedule,
+          draftRevision: nextDraftRevision,
+          [`publishStatusByBranch.${branchId}`]: 'draft',
+          [`restoredFromVersionByBranch.${branchId}`]: version,
+          updatedAt: FieldValue.serverTimestamp(),
+          updatedBy: actor.uid,
+        })
+      }
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
         schemaVersion: 1,
         action: 'pt_schedule.version_restored_to_draft',
@@ -790,4 +873,12 @@ module.exports = {
   branchScheduleSnapshot,
   mergeRestoredBranchSchedule,
   normalizedDraftSchedule,
+  documentId,
+  weekId,
+  nextWeek,
+  dateForSlot,
+  storedDate,
+  normalizedCapacity,
+  trainerAvailabilityMode,
+  trainerIsAvailable,
 }

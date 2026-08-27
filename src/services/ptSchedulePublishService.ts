@@ -54,6 +54,58 @@ export interface BranchScheduleWorkspaceResult {
   scheduleConfig: ScheduleConfig
 }
 
+export interface PtScheduleBranchOption {
+  id: string
+  name: string
+  status: string
+}
+
+export interface PtScheduleV2Student extends Student {
+  availabilityStatus: string
+}
+
+export interface PtScheduleV2Trainer extends Trainer {
+  availabilityMode: 'configured' | 'unrestricted' | 'unconfigured'
+  availabilityRevision: number
+  slotCapacity: number
+}
+
+export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspaceResult, 'students' | 'trainers'> {
+  draftStatus: 'draft' | 'published'
+  updatedAt: string | null
+  updatedBy: string | null
+  students: PtScheduleV2Student[]
+  trainers: PtScheduleV2Trainer[]
+  summary: {
+    eligibleStudents: number
+    trainers: number
+    unconfiguredTrainers: number
+    scheduledEntries: number
+    missingSessions: number
+    unassignedEntries: number
+  }
+  warnings: Array<{ code: string; studentId?: string; missingSessions?: number }>
+}
+
+export interface PtScheduleSlotCandidate {
+  studentId: string
+  name: string
+  phone: string
+  eligible: boolean
+  reasons: string[]
+  contractId: string | null
+  date: string
+}
+
+export type PtScheduleDraftCommand =
+  | 'add_student'
+  | 'remove_student'
+  | 'move_student'
+  | 'set_trainer_off'
+  | 'clear_trainer_off'
+  | 'lock_entry'
+  | 'unlock_entry'
+
 export class PtSchedulePublishError extends Error {
   readonly issueCode: string
   readonly conflicts: string[]
@@ -73,6 +125,9 @@ const conflictLabels: Record<string, string> = {
   OUTSIDE_WORKING_CALENDAR: 'Có ca nằm ngoài ngày hoặc giờ hoạt động.',
   TRAINER_REQUIRED: 'Có ca chưa chọn PT.',
   TRAINER_NOT_ACTIVE: 'Có PT không còn hoạt động.',
+  TRAINER_AVAILABILITY_UNCONFIGURED: 'PT chưa thiết lập lịch rảnh hoặc chưa được đánh dấu không giới hạn.',
+  OUTSIDE_TRAINER_AVAILABILITY: 'Ca nằm ngoài lịch rảnh đã xác nhận của PT.',
+  TRAINER_ON_LEAVE: 'PT đang có lịch nghỉ được duyệt trong ngày này.',
   STUDENT_REQUIRED: 'Có ca chưa chọn học viên.',
   STUDENT_NOT_ACTIVE: 'Có học viên không còn hoạt động.',
   ENTRY_BRANCH_REQUIRED: 'Có ca chưa xác định được chi nhánh.',
@@ -83,6 +138,9 @@ const conflictLabels: Record<string, string> = {
   AVAILABILITY_NOT_SUBMITTED: 'Có học viên chưa gửi lịch rảnh của tuần.',
   ACTIVE_CONTRACT_NOT_FOUND: 'Có học viên không có hợp đồng hiệu lực trong ngày tập.',
   AMBIGUOUS_ACTIVE_CONTRACT: 'Có học viên có nhiều hợp đồng cùng hiệu lực.',
+  CONTRACT_BRANCH_REQUIRED: 'Hợp đồng chưa xác định chi nhánh canonical.',
+  CONTRACT_PAUSED: 'Hợp đồng đang OFF hoặc bảo lưu trong ngày tập.',
+  TRAINER_ASSIGNMENT_MISMATCH: 'PT chưa được phân công cho hợp đồng này.',
   DUPLICATE_SCHEDULE_ENTRY: 'Một học viên bị lặp trong cùng ô lịch.',
   TRAINER_OFF_CONFLICT: 'Có học viên nằm trong ca PT đã đánh dấu nghỉ.',
   TRAINER_CAPACITY_EXCEEDED: 'Có ca vượt sức chứa được cấu hình cho PT.',
@@ -168,4 +226,43 @@ export function saveMyBranchScheduleDraft(input: {
   schedule: Schedule
 }) {
   return invoke<typeof input, { draftRevision: number }>('saveMyBranchScheduleDraft', input)
+}
+
+export function listPtScheduleBranches() {
+  return invoke<Record<string, never>, { schemaVersion: number; branches: PtScheduleBranchOption[] }>('listPtScheduleBranches', {})
+}
+
+export function getPtScheduleWorkspace(input: { weekId: string; branchId: string }) {
+  return invoke<typeof input, PtScheduleWorkspaceV2Result>('getPtScheduleWorkspace', input)
+}
+
+export function generatePtScheduleDraft(input: { weekId: string; branchId: string; expectedDraftRevision: number }) {
+  return invoke<typeof input, {
+    draftRevision: number
+    schedule: Schedule
+    warnings: Array<{ code: string; studentId?: string; missingSessions?: number }>
+    generatorVersion: string
+  }>('generatePtScheduleDraft', input)
+}
+
+export function getPtScheduleSlotCandidates(input: {
+  weekId: string
+  branchId: string
+  trainerId: string
+  slotId: string
+  search?: string
+}) {
+  return invoke<typeof input, { schemaVersion: number; candidates: PtScheduleSlotCandidate[] }>('getPtScheduleSlotCandidates', input)
+}
+
+export function applyPtScheduleDraftCommand(input: {
+  weekId: string
+  branchId: string
+  expectedDraftRevision: number
+  command: PtScheduleDraftCommand
+  idempotencyKey: string
+  reason?: string
+  payload: Record<string, unknown>
+}) {
+  return invoke<typeof input, { draftRevision: number; schedule: Schedule }>('applyPtScheduleDraftCommand', input)
 }
