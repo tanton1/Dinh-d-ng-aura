@@ -24,3 +24,14 @@ test('student active filter follows the same week, branch, quota and pause rules
 test('current-week filter excludes a contract whose valid days are already in the past', () => {
   assert.equal(studentEligibilityForWeek(student, [{ ...contract, endDate: '2026-08-25' }], '2026-08-24', '2026-08-27').eligible, false)
 })
+
+test('a future renewal is eligible on the concrete days it becomes effective', () => {
+  const result = studentEligibilityForWeek(student, [{
+    ...contract,
+    status: 'future',
+    startDate: '2026-08-29',
+    endDate: '2026-11-29',
+  }], '2026-08-24', '2026-08-27')
+  assert.equal(result.eligible, true)
+  assert.deepEqual(result.validDates, ['2026-08-29', '2026-08-30'])
+})

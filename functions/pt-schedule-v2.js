@@ -47,6 +47,23 @@ function safeWeeklySessionTargets(value, allowedStudentIds = null) {
     .map(([studentId, target]) => [studentId, Number(target)]))
 }
 
+function weeklyTargetForStudent(defaultValue, overrideValue, eligibility) {
+  const defaultSessionsPerWeek = Math.max(0, Math.min(7, Number(defaultValue || 0)))
+  const weeklySessionTargetOverride = overrideValue === null || overrideValue === undefined
+    ? null
+    : Math.max(0, Math.min(7, Number(overrideValue || 0)))
+  const maxWeeklySessions = Math.max(0, Math.min(7, Number(eligibility?.remainingSessions || 0)))
+  const requestedSessions = weeklySessionTargetOverride ?? defaultSessionsPerWeek
+  return {
+    defaultSessionsPerWeek,
+    weeklySessionTargetOverride,
+    weeklySessionTargetOverridden: weeklySessionTargetOverride !== null,
+    maxWeeklySessions,
+    schedulableSessionsThisWeek: Math.max(0, Math.min(maxWeeklySessions, Array.isArray(eligibility?.validDates) ? eligibility.validDates.length : 0)),
+    sessionsPerWeek: Math.min(requestedSessions, maxWeeklySessions),
+  }
+}
+
 function activeAdministrator(actor) {
   return actor.accessRole === 'admin' || actor.accessRole === 'super_admin'
 }
@@ -93,9 +110,11 @@ function splitChunks(values, size = 30) {
 
 async function contractsForStudents(db, studentIds) {
   if (!studentIds.length) return []
+  // Load the complete bounded contract chain for each learner. A renewal that
+  // starts later in the selected week is normally stored as `future`; hiding
+  // it here creates an artificial gap between the source and next contract.
   const snapshots = await Promise.all(splitChunks(studentIds).map((ids) => db.collection('contracts')
     .where('studentId', 'in', ids)
-    .where('status', '==', 'active')
     .get()))
   const unique = new Map()
   snapshots.flatMap((snapshot) => snapshot.docs).forEach((item) => unique.set(item.id, { id: item.id, ...item.data() }))
@@ -152,6 +171,13 @@ async function loadBranchData(db, branchId, week) {
     pausePeriods: Array.isArray(contract.pausePeriods) ? contract.pausePeriods.slice(0, 20) : [],
     totalSessions: Number(contract.totalSessions || 0),
     usedSessions: Number(contract.usedSessions || 0),
+    packageSessions: Number(contract.packageSessions || 0),
+    plannedCarryOverSessions: Number(contract.plannedCarryOverSessions || 0),
+    carriedOverSessions: Number(contract.carriedOverSessions || 0),
+    carryOverRequested: contract.carryOverRequested === true,
+    carryOverPending: contract.carryOverPending === true,
+    sourceContractId: contract.sourceContractId || '',
+    renewedByContractId: contract.renewedByContractId || '',
   }))
   const mappedStudents = students.docs.map((item) => {
     const data = item.data()
@@ -161,13 +187,14 @@ async function loadBranchData(db, branchId, week) {
     const availabilityStatus = weekly?.status || (recurringConfirmed ? 'recurring' : 'missing')
     const eligibility = studentWeekEligibility(mappedContracts, item.id, branchId, week)
     const studentInactive = ['inactive', 'archived', 'deleted'].includes(String(data.status || '').toLowerCase())
-    const defaultSessionsPerWeek = Math.max(0, Math.min(7, Number(data.sessionsPerWeek || 0)))
     const weeklySessionTargetOverride = Object.prototype.hasOwnProperty.call(weeklySessionTargets, item.id)
       ? weeklySessionTargets[item.id]
       : null
-    const maxWeeklySessions = Math.max(0, Math.min(7, eligibility.validDates.length, eligibility.remainingSessions))
-    const requestedSessions = weeklySessionTargetOverride ?? defaultSessionsPerWeek
-    const effectiveSessionsPerWeek = Math.min(requestedSessions, maxWeeklySessions)
+    // Weekly demand is a learner/profile setting. Do not silently shrink it
+    // just because the current week has fewer future calendar days left.
+    // Scheduling capacity is exposed separately so the UI can explain why a
+    // target cannot yet be fulfilled.
+    const target = weeklyTargetForStudent(data.sessionsPerWeek, weeklySessionTargetOverride, eligibility)
     return {
       id: item.id,
       name: data.name || 'Chưa cập nhật tên',
@@ -175,11 +202,12 @@ async function loadBranchData(db, branchId, week) {
       email: data.email || '',
       status: data.status || 'active',
       branchId,
-      sessionsPerWeek: effectiveSessionsPerWeek,
-      defaultSessionsPerWeek,
-      weeklySessionTargetOverride,
-      weeklySessionTargetOverridden: weeklySessionTargetOverride !== null,
-      maxWeeklySessions,
+      sessionsPerWeek: target.sessionsPerWeek,
+      defaultSessionsPerWeek: target.defaultSessionsPerWeek,
+      weeklySessionTargetOverride: target.weeklySessionTargetOverride,
+      weeklySessionTargetOverridden: target.weeklySessionTargetOverridden,
+      maxWeeklySessions: target.maxWeeklySessions,
+      schedulableSessionsThisWeek: target.schedulableSessionsThisWeek,
       availableSlots: Array.isArray(weekly?.slots) ? weekly.slots.slice(0, 100) : recurringSlots,
       availabilityStatus,
       availabilitySource: weekly ? 'weekly' : recurringConfirmed ? 'legacy_recurring' : 'none',
@@ -258,12 +286,19 @@ function todayInHoChiMinh() {
   return `${values.year}-${values.month}-${values.day}`
 }
 
+function contractCanServeScheduledDate(contract, date) {
+  const status = String(contract?.status || 'active').toLowerCase()
+  if (!['active', 'future'].includes(status)) return false
+  return storedDate(contract.startDate) <= date && storedDate(contract.endDate) >= date
+}
+
 function studentWeekEligibility(contracts, studentId, branchId, week, referenceDate = todayInHoChiMinh()) {
   const reasons = new Set()
-  const activeContracts = contracts.filter((contract) => contract.studentId === studentId && contract.status === 'active')
-  if (!activeContracts.length) reasons.add('ACTIVE_CONTRACT_NOT_FOUND')
+  const operationalContracts = contracts.filter((contract) => contract.studentId === studentId
+    && ['active', 'future'].includes(String(contract.status || 'active').toLowerCase()))
+  if (!operationalContracts.length) reasons.add('ACTIVE_CONTRACT_NOT_FOUND')
 
-  const branchContracts = activeContracts.filter((contract) => {
+  const branchContracts = operationalContracts.filter((contract) => {
     if (!contract.branchId) {
       reasons.add('CONTRACT_BRANCH_REQUIRED')
       return false
@@ -328,9 +363,7 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
 
 function resolveContract(data, studentId, trainerId, date) {
   const dateCandidates = data.contracts.filter((contract) => contract.studentId === studentId
-    && contract.status === 'active'
-    && storedDate(contract.startDate) <= date
-    && storedDate(contract.endDate) >= date)
+    && contractCanServeScheduledDate(contract, date))
   if (dateCandidates.some((contract) => !contract.branchId)) return { contract: null, reasons: ['CONTRACT_BRANCH_REQUIRED'] }
   const candidates = dateCandidates.filter((contract) => contract.branchId === data.branch.id)
   if (!candidates.length) return { contract: null, reasons: ['ACTIVE_CONTRACT_NOT_FOUND'] }
@@ -596,7 +629,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
       throw new HttpsError('invalid-argument', 'Mục tiêu tuần phải từ 0 đến 7 buổi.')
     }
     if (command === 'set_student_weekly_target' && !resetWeeklyTarget && weeklyTarget > targetStudent.maxWeeklySessions) {
-      throw new HttpsError('failed-precondition', `Tuần này chỉ có thể xếp tối đa ${targetStudent.maxWeeklySessions} buổi theo thời hạn và quota hợp đồng.`, { issueCode: 'WEEKLY_TARGET_EXCEEDS_QUOTA' })
+      throw new HttpsError('failed-precondition', `Mục tiêu tuần không thể vượt ${targetStudent.maxWeeklySessions} buổi còn lại theo quota hợp đồng.`, { issueCode: 'WEEKLY_TARGET_EXCEEDS_QUOTA' })
     }
     const reference = draftReference(db, branchId, week)
     const receipt = db.doc(`ptScheduleCommandReceipts/${commandReceiptId(actor.uid, branchId, week, idempotencyKey)}`)
@@ -691,4 +724,5 @@ module.exports = {
   safeSchedule,
   safeWeeklySessionTargets,
   studentWeekEligibility,
+  weeklyTargetForStudent,
 }

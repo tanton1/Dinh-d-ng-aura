@@ -72,7 +72,7 @@ export function studentEligibilityForWeek(
   let remainingSessions = 0
 
   for (const contract of contracts) {
-    if (contract.studentId !== student.id || contract.status !== 'active' || contract.branchId !== student.branchId) continue
+    if (contract.studentId !== student.id || !['active', 'future'].includes(contract.status) || contract.branchId !== student.branchId) continue
     const start = normalizedDateId(contract.startDate)
     const end = normalizedDateId(contract.endDate)
     const remaining = Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))

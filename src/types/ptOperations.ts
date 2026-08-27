@@ -202,10 +202,17 @@ export interface StudentContract {
   frozenAt?: string
   totalSessions: number
   usedSessions: number
+  packageSessions?: number
+  plannedCarryOverSessions?: number
+  carriedOverSessions?: number
+  carryOverRequested?: boolean
+  carryOverPending?: boolean
+  sourceContractId?: string
+  renewedByContractId?: string
   totalPrice: number
   paidAmount: number
   discount?: number
-  status: 'active' | 'expired' | 'cancelled' | 'frozen'
+  status: 'active' | 'future' | 'expired' | 'cancelled' | 'frozen'
   nextPaymentDate?: string | null
   installments?: Installment[]
   attendedClasses?: string[]

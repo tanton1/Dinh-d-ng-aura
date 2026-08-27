@@ -73,8 +73,10 @@ export interface PtScheduleV2Student extends Student {
   /** Override chỉ thuộc draft tuần/chi nhánh hiện tại; null nghĩa là dùng mặc định. */
   weeklySessionTargetOverride: number | null
   weeklySessionTargetOverridden: boolean
-  /** Mục tiêu hiệu lực sau khi giới hạn theo ngày hợp đồng và quota còn lại. */
+  /** Giới hạn mục tiêu theo quota hợp đồng còn lại, không co theo ngày còn lại của tuần. */
   maxWeeklySessions: number
+  /** Số ngày hợp đồng còn cho phép tạo thêm buổi trong phần còn lại của tuần. */
+  schedulableSessionsThisWeek: number
 }
 
 export interface PtScheduleV2Trainer extends Trainer {
@@ -165,7 +167,7 @@ const conflictLabels: Record<string, string> = {
   SCHEDULE_TOO_LARGE: 'Lịch vượt giới hạn publish an toàn trong một lần.',
   DRAFT_CAPACITY_REACHED: 'Draft đã đạt giới hạn một lần publish; các hồ sơ còn lại được đưa vào cảnh báo.',
   LEGACY_AVAILABILITY_FALLBACK: 'Một số học viên đang dùng lịch rảnh legacy; nên xác nhận lại lịch tuần.',
-  WEEKLY_TARGET_EXCEEDS_QUOTA: 'Mục tiêu tuần vượt số ngày hoặc quota hợp đồng còn có thể xếp.',
+  WEEKLY_TARGET_EXCEEDS_QUOTA: 'Mục tiêu tuần vượt quota hợp đồng còn lại.',
   WEEKLY_TARGET_BELOW_SCHEDULED: 'Mục tiêu tuần thấp hơn số buổi đã có trong draft.',
 }
 

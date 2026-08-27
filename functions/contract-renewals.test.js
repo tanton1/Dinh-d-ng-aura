@@ -1,11 +1,30 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { addMonthsDateKey, normalizeInstallments, renewalRisk, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase } = require('./contract-renewals')
+const { addMonthsDateKey, normalizeInstallments, renewalRisk, renewalHandoverProjection, latestContractsByStudent, requiresRenewalApproval, renewalQueueFingerprint, matchesRenewalSegment, renewalStats, renewalMessageTemplates, caseAssignedToTrainer, canViewCase } = require('./contract-renewals')
 
 test('renewal calendar uses real months and clamps month-end dates', () => {
   assert.equal(addMonthsDateKey('2026-01-31', 1), '2026-02-28')
   assert.equal(addMonthsDateKey('2024-01-31', 1), '2024-02-29')
   assert.equal(addMonthsDateKey('2026-11-30', 3), '2027-02-28')
+})
+
+test('future renewal transfers the exact remaining quota only on its handover date', () => {
+  const source = { totalSessions: 36, usedSessions: 33 }
+  const next = { startDate: '2026-08-29', packageSessions: 36, carryOverRequested: true, carryOverPending: true }
+  assert.deepEqual(renewalHandoverProjection(source, next, '2026-08-27'), {
+    handoverDue: false,
+    packageSessions: 36,
+    plannedCarryOverSessions: 3,
+    carriedOverSessions: 0,
+    totalSessions: 36,
+  })
+  assert.deepEqual(renewalHandoverProjection({ ...source, usedSessions: 35 }, next, '2026-08-29'), {
+    handoverDue: true,
+    packageSessions: 36,
+    plannedCarryOverSessions: 1,
+    carriedOverSessions: 1,
+    totalSessions: 37,
+  })
 })
 
 test('renewal risk prioritises exhausted, expired and near-expiry contracts', () => {
@@ -58,6 +77,8 @@ test('renewal callables and scheduler use bounded low-CPU production settings', 
   assert.match(source, /const renewalCall[\s\S]*?cpu: 'gcf_gen1', maxInstances: 6, invoker: 'public'/)
   assert.match(source, /createRenewalQuote = renewalCall/)
   assert.match(source, /retryCount: 1, cpu: 'gcf_gen1', maxInstances: 1/)
+  assert.match(source, /schedule: '5 0 \* \* \*'/)
+  assert.match(source, /activateDueRenewalContractsCore\(\{ db \}\)/)
 })
 
 test('installment schedule must exactly match remaining contract balance', () => {
@@ -92,6 +113,8 @@ test('renewal transaction requires a quote, approval evidence and checks idempot
   assert.match(source, /if \(needsApproval\) \{/)
   assert.doesNotMatch(source, /needsApproval && actor\.renewalScope !== 'system'/)
   assert.ok(source.indexOf("source.renewalIdempotencyKey === idempotencyKey") < source.indexOf("Number(source.revision || 0) !== expectedSourceRevision"))
+  assert.match(source, /plannedCarryOverSessions: carriedOverSessions/)
+  assert.match(source, /carryOverPending/)
 })
 
 test('daily renewal reminders are internal, deterministic and never auto-send externally', () => {

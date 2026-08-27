@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_DRAFT_ENTRIES, candidateForSlot, generateSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, studentWeekEligibility } = require('./pt-schedule-v2')
+const { MAX_DRAFT_ENTRIES, candidateForSlot, generateSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, studentWeekEligibility, weeklyTargetForStudent } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
@@ -88,6 +88,24 @@ test('current week excludes contract days that already ended before today', () =
   const contract = fixture().contracts[0]
   const result = studentWeekEligibility([{ ...contract, endDate: '2026-08-25' }], 'student-a', BRANCH, WEEK, '2026-08-27')
   assert.equal(result.eligible, false)
+})
+
+test('weekly target remains the profile demand while remaining dates are reported separately', () => {
+  const result = weeklyTargetForStudent(6, null, {
+    remainingSessions: 55,
+    validDates: ['2026-08-27', '2026-08-28', '2026-08-29', '2026-08-30'],
+  })
+  assert.equal(result.sessionsPerWeek, 6)
+  assert.equal(result.maxWeeklySessions, 7)
+  assert.equal(result.schedulableSessionsThisWeek, 4)
+})
+
+test('future renewal contract is usable only from its concrete start date', () => {
+  const data = fixture()
+  data.contracts[0].status = 'future'
+  data.contracts[0].startDate = '2026-08-29'
+  assert.deepEqual(resolveContract(data, 'student-a', 'trainer-a', '2026-08-28').reasons, ['ACTIVE_CONTRACT_NOT_FOUND'])
+  assert.equal(resolveContract(data, 'student-a', 'trainer-a', '2026-08-29').contract.id, 'contract-a')
 })
 
 test('weekly targets are bounded, scoped and do not mutate the profile default', () => {

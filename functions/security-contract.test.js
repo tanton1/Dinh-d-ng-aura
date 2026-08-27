@@ -25,6 +25,7 @@ const studentIdentityLinkSource = readFileSync(join(repositoryRoot, 'scripts', '
 const sessionContractLinkSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-session-contract-link.cjs'), 'utf8')
 const ptContractUsageReconcileSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-contract-usage-reconcile.cjs'), 'utf8')
 const ptScheduleMigrationSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-schedule-v2-migration.cjs'), 'utf8')
+const renewalContinuitySource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-renewal-continuity-reconcile.cjs'), 'utf8')
 const identityAccessSource = readFileSync(join(__dirname, 'identity-access.js'), 'utf8')
 const ptSchedulePublishSource = readFileSync(join(__dirname, 'pt-schedule-publish.js'), 'utf8')
 const ptScheduleV2Source = readFileSync(join(__dirname, 'pt-schedule-v2.js'), 'utf8')
@@ -478,6 +479,16 @@ test('PT schedule migration is target-only, digest-gated, create-only for drafts
   assert.match(ptScheduleMigrationSource, /currentDocument: \{ updateTime: item\.updateTime \}/)
   assert.match(ptScheduleMigrationSource, /preservedCollections: \['sessions', 'contracts', 'payments', 'ledgerEntries'\]/)
   assert.doesNotMatch(ptScheduleMigrationSource, /documents\/sessions\//)
+})
+
+test('renewal continuity reconciliation is target-only, digest-gated and refuses ambiguous entitlement', () => {
+  assert.match(renewalContinuitySource, /projectId: 'gen-lang-client-0815966909'/)
+  assert.match(renewalContinuitySource, /databaseId: 'ai-studio-aurafitnesselear-/)
+  assert.match(renewalContinuitySource, /reconcile-renewal-continuity/)
+  assert.match(renewalContinuitySource, /args\.digest !== plan\.planDigest/)
+  assert.match(renewalContinuitySource, /currentDocument: \{ updateTime \}/)
+  assert.match(renewalContinuitySource, /ENTITLEMENT_NOT_EXACTLY_PROVABLE/)
+  assert.doesNotMatch(renewalContinuitySource, /gen-lang-client-0246058381/)
 })
 
 test('production authentication stays on the authorized Vercel application origin', () => {
