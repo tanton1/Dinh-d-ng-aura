@@ -136,6 +136,8 @@
 .identity-section__count { display: inline-grid; min-width: 25px; height: 25px; margin: 4px 0 0; place-items: center; border-radius: 999px; color: #d92972; background: #ffeaf3; font-size: 10px; font-style: normal; font-weight: 900; }
 .identity-section__heading small { margin-top: 4px; color: var(--team-muted); font-size: 11px; line-height: 1.45; }
 .identity-section__heading .pink-orange-button { display: inline-flex; flex: 0 0 auto; min-height: 42px; align-items: center; justify-content: center; gap: 7px; border: 0; color: #fff; background: linear-gradient(125deg, var(--team-pink), var(--team-orange)); box-shadow: 0 10px 22px rgba(246,47,130,.2); }
+.identity-section__actions { display: flex; flex: 0 0 auto; align-items: center; gap: 7px; }
+.identity-section__actions .outline-button { display: inline-flex; min-height: 42px; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
 
 .identity-admin-page .identity-admin-note {
   display: flex;
@@ -282,6 +284,16 @@
 .identity-form-section--account { background: linear-gradient(145deg, #fffafd, #fff8f2); }
 .identity-form-section--access .identity-access-presets { margin-top: 2px; }
 .identity-form-grid--compensation { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.identity-form-grid--scheduling { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.identity-form-grid--scheduling label small { color: var(--team-muted); font-size: 9px; line-height: 1.35; }
+.identity-scheduling-policy { background: linear-gradient(145deg, rgba(255,241,247,.96), rgba(255,247,239,.98)); }
+.identity-scheduling-policy > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.identity-scheduling-policy > header span { min-width: 0; }
+.identity-scheduling-policy > header strong,
+.identity-scheduling-policy > header small { display: block; }
+.identity-scheduling-policy > header strong { color: var(--team-ink); font-size: 13px; }
+.identity-scheduling-policy > header small { margin-top: 3px; color: var(--team-muted); font-size: 9px; line-height: 1.4; }
+.identity-scheduling-policy > header button { flex: 0 0 auto; min-height: 32px; padding: 0 11px; border: 1px solid #f3bfd1; border-radius: 11px; color: #c72d6d; background: rgba(255,255,255,.9); font-size: 10px; font-weight: 900; }
 .identity-employment-type { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin: 10px 0 12px; padding: 5px; border: 1px solid #f0dfe6; border-radius: 14px; background: #fff; }
 .identity-employment-type button { min-height: 40px; border: 0; border-radius: 10px; color: #746b74; background: transparent; font-size: 12px; font-weight: 800; }
 .identity-employment-type button.active { color: #fff; background: linear-gradient(135deg, var(--aura-pink), #ff8651); box-shadow: 0 8px 18px rgba(246,47,130,.2); }
@@ -329,6 +341,7 @@
   .identity-carousel { grid-auto-flow: column; grid-auto-columns: minmax(235px, 42%); grid-template-columns: none; overflow-x: auto; padding: 2px 2px 11px; scroll-snap-type: x mandatory; scrollbar-width: none; }
   .identity-carousel::-webkit-scrollbar { display: none; }
   .identity-form-grid--compensation { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .identity-form-grid--scheduling { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {
@@ -351,6 +364,8 @@
   .identity-section { border-width: 1px 0; border-radius: 0; box-shadow: none; }
   .identity-section__heading { align-items: center; flex-direction: row; padding: 13px 12px; }
   .identity-section__heading .pink-orange-button { align-self: flex-start; width: auto; min-height: 38px; padding-inline: 13px; }
+  .identity-section__actions { align-items: stretch; flex-direction: column-reverse; }
+  .identity-section__actions .outline-button { min-height: 34px; padding-inline: 10px; font-size: 10px; }
   .identity-admin-page .identity-admin-note { margin: 11px 11px 0; }
   .identity-toolbar { align-items: stretch; flex-wrap: wrap; padding: 11px; }
   .identity-search { flex-basis: 100%; }
@@ -409,6 +424,8 @@
   .identity-admin-page .identity-modal__actions button { flex: 0 1 50%; min-height: 42px; }
   .identity-form-section { padding: 12px; }
   .identity-form-grid--compensation { grid-template-columns: minmax(0, 1fr); }
+  .identity-form-grid--scheduling { grid-template-columns: minmax(0, 1fr); }
+  .identity-scheduling-policy > header { align-items: center; }
   .identity-employment-type { grid-template-columns: minmax(0, 1fr); }
   .identity-staff-availability { border-radius: 16px; }
   .identity-staff-availability > header { flex-direction: column; }

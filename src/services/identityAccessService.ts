@@ -209,14 +209,35 @@ export interface StaffOperationsProfileInput {
   phoneNumber?: string
   availabilitySlots: string[]
   slotCapacity: number
+  schedulingPriority: number
+  dailySessionTarget: number
+  dailySessionLimit: number
   employmentType: 'full_time' | 'part_time' | 'collaborator'
   employmentLevel: 'probation' | 'official' | 'senior'
   payrollPolicyId: string
   compensation: { baseSalary: number; bonusMonthly: number; commissionRate: number; commissionPerSession: number }
 }
+export interface StaffOperationsProfileResult extends StaffOperationsProfileInput {
+  displayName: string
+  email: string
+  phoneNumber: string
+  payrollProfile: 'probation' | 'official' | 'senior' | 'part_time' | 'collaborator'
+}
 export async function saveStaffOperationsProfile(input: StaffOperationsProfileInput) {
-  const callable = httpsCallable<StaffOperationsProfileInput, { uid: string; displayName: string; email: string; phoneNumber: string; employmentType: StaffOperationsProfileInput['employmentType']; employmentLevel: StaffOperationsProfileInput['employmentLevel']; payrollPolicyId: string; availabilitySlots: string[]; slotCapacity: number; compensation: StaffOperationsProfileInput['compensation'] }>(requireFunctions(), 'saveStaffOperationsProfile')
+  const callable = httpsCallable<StaffOperationsProfileInput, StaffOperationsProfileResult>(requireFunctions(), 'saveStaffOperationsProfile')
   try { return (await callable(input)).data } catch (error) { throw presentInviteError(error) }
+}
+
+export async function applyDefaultTrainerSchedulingPolicy() {
+  const callable = httpsCallable<
+    { dailySessionTarget: number; dailySessionLimit: number },
+    { updated: number; dailySessionTarget: number; dailySessionLimit: number }
+  >(requireFunctions(), 'applyDefaultTrainerSchedulingPolicy', { timeout: 30_000 })
+  try {
+    return (await callable({ dailySessionTarget: 8, dailySessionLimit: 10 })).data
+  } catch (error) {
+    throw presentInviteError(error)
+  }
 }
 
 export async function suspendAccountAccess(uid: string) {

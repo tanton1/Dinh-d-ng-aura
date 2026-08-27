@@ -155,6 +155,7 @@ exports.suspendAccountAccess = identityAccessFunctions.suspendAccountAccess
 exports.deleteUnusedStaffAccount = identityAccessFunctions.deleteUnusedStaffAccount
 exports.deleteMemberAccount = identityAccessFunctions.deleteMemberAccount
 exports.saveStaffOperationsProfile = identityAccessFunctions.saveStaffOperationsProfile
+exports.applyDefaultTrainerSchedulingPolicy = identityAccessFunctions.applyDefaultTrainerSchedulingPolicy
 const nutritionReviewFunctions = createNutritionReviewFunctions({ db, onCall })
 Object.assign(exports, nutritionReviewFunctions)
 exports.listNutritionMealReviews = nutritionReviewFunctions.listNutritionMealReviews

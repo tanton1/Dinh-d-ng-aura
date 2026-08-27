@@ -21,8 +21,10 @@ const MAX_TRAINERS = 100
 // Keep the whole publish diff below Firestore's 500-write transaction limit.
 // Real Aura branches currently contain more than 180 entries per week, so the
 // previous guard rejected valid migrated drafts before the workspace loaded.
-const MAX_DRAFT_ENTRIES = 400
+const MAX_DRAFT_ENTRIES = 440
 const MAX_ENTRIES_PER_SLOT = 100
+const DEFAULT_DAILY_SESSION_TARGET = 8
+const DEFAULT_DAILY_SESSION_LIMIT = 10
 const DAY_ORDER = new Map([['T2', 0], ['T3', 1], ['T4', 2], ['T5', 3], ['T6', 4], ['T7', 5], ['CN', 6]])
 
 function draftId(branchId, week) {
@@ -236,6 +238,9 @@ async function loadBranchData(db, branchId, week) {
   })
   const mappedTrainers = trainers.docs.map((item) => {
     const data = item.data()
+    const schedulingPriority = Math.max(1, Math.min(999, Math.trunc(Number(data.schedulingPriority ?? data.priority ?? 100) || 100)))
+    const dailySessionTarget = Math.max(1, Math.min(12, Math.trunc(Number(data.dailySessionTarget ?? DEFAULT_DAILY_SESSION_TARGET) || DEFAULT_DAILY_SESSION_TARGET)))
+    const dailySessionLimit = Math.max(dailySessionTarget, Math.min(16, Math.trunc(Number(data.dailySessionLimit ?? DEFAULT_DAILY_SESSION_LIMIT) || DEFAULT_DAILY_SESSION_LIMIT)))
     return {
       id: item.id,
       name: data.name || 'PT chưa cập nhật tên',
@@ -247,6 +252,9 @@ async function loadBranchData(db, branchId, week) {
       availabilityMode: trainerAvailabilityMode(data),
       availabilityRevision: Number(data.availabilityRevision || 0),
       slotCapacity: normalizedCapacity(data.slotCapacity),
+      schedulingPriority,
+      dailySessionTarget,
+      dailySessionLimit,
     }
   })
   return {
@@ -383,7 +391,7 @@ function resolveContract(data, studentId, trainerId, date) {
   if (candidates.length > 1) return { contract: null, reasons: ['AMBIGUOUS_ACTIVE_CONTRACT'] }
   const contract = candidates[0]
   if (contractPaused(contract, date)) return { contract: null, reasons: ['CONTRACT_PAUSED'] }
-  const assigned = contract.trainerIds.length ? contract.trainerIds : contract.trainerId ? [contract.trainerId] : []
+  const assigned = assignedTrainerIds(contract)
   if (assigned.length && !assigned.includes(trainerId)) return { contract: null, reasons: ['TRAINER_ASSIGNMENT_MISMATCH'] }
   const activeForContract = data.sessions.filter((session) => session.contractId === contract.id
     && ['scheduled', 'rescheduled'].includes(session.status)
@@ -392,10 +400,68 @@ function resolveContract(data, studentId, trainerId, date) {
   return { contract, reasons: [] }
 }
 
-function candidateForSlot(data, { student, trainer, slotId, schedule }) {
+function assignedTrainerIds(contract) {
+  return [...new Set([
+    contract?.trainerId,
+    ...(Array.isArray(contract?.trainerIds) ? contract.trainerIds : []),
+  ].filter(Boolean))]
+}
+
+function trainerSchedulingPolicy(trainer) {
+  const schedulingPriority = Math.max(1, Math.min(999, Math.trunc(Number(trainer?.schedulingPriority ?? trainer?.priority ?? 100) || 100)))
+  const dailySessionTarget = Math.max(1, Math.min(12, Math.trunc(Number(trainer?.dailySessionTarget ?? DEFAULT_DAILY_SESSION_TARGET) || DEFAULT_DAILY_SESSION_TARGET)))
+  const dailySessionLimit = Math.max(dailySessionTarget, Math.min(16, Math.trunc(Number(trainer?.dailySessionLimit ?? DEFAULT_DAILY_SESSION_LIMIT) || DEFAULT_DAILY_SESSION_LIMIT)))
+  return { schedulingPriority, dailySessionTarget, dailySessionLimit }
+}
+
+function buildSchedulingState(schedule) {
+  const state = {
+    studentDays: new Map(),
+    trainerSlotsByDay: new Map(),
+    trainerSlotCounts: new Map(),
+    trainerStudentSessions: new Map(),
+    trainerStudentSessionsByDay: new Map(),
+    offTrainerSlots: new Set(),
+  }
+  for (const [slotId, entries] of Object.entries(schedule || {})) {
+    const [day] = slotId.split('-')
+    for (const entry of Array.isArray(entries) ? entries : []) {
+      const trainerSlotKey = `${entry.trainerId}|${slotId}`
+      if (entry.type === 'off') {
+        state.offTrainerSlots.add(trainerSlotKey)
+        continue
+      }
+      if (!state.studentDays.has(entry.studentId)) state.studentDays.set(entry.studentId, new Set())
+      state.studentDays.get(entry.studentId).add(day)
+      const trainerDayKey = `${entry.trainerId}|${day}`
+      if (!state.trainerSlotsByDay.has(trainerDayKey)) state.trainerSlotsByDay.set(trainerDayKey, new Set())
+      state.trainerSlotsByDay.get(trainerDayKey).add(slotId)
+      state.trainerSlotCounts.set(trainerSlotKey, (state.trainerSlotCounts.get(trainerSlotKey) || 0) + 1)
+      state.trainerStudentSessions.set(entry.trainerId, (state.trainerStudentSessions.get(entry.trainerId) || 0) + 1)
+      state.trainerStudentSessionsByDay.set(trainerDayKey, (state.trainerStudentSessionsByDay.get(trainerDayKey) || 0) + 1)
+    }
+  }
+  return state
+}
+
+function addEntryToSchedulingState(state, slotId, entry) {
+  const [day] = slotId.split('-')
+  if (!state.studentDays.has(entry.studentId)) state.studentDays.set(entry.studentId, new Set())
+  state.studentDays.get(entry.studentId).add(day)
+  const trainerDayKey = `${entry.trainerId}|${day}`
+  if (!state.trainerSlotsByDay.has(trainerDayKey)) state.trainerSlotsByDay.set(trainerDayKey, new Set())
+  state.trainerSlotsByDay.get(trainerDayKey).add(slotId)
+  const trainerSlotKey = `${entry.trainerId}|${slotId}`
+  state.trainerSlotCounts.set(trainerSlotKey, (state.trainerSlotCounts.get(trainerSlotKey) || 0) + 1)
+  state.trainerStudentSessions.set(entry.trainerId, (state.trainerStudentSessions.get(entry.trainerId) || 0) + 1)
+  state.trainerStudentSessionsByDay.set(trainerDayKey, (state.trainerStudentSessionsByDay.get(trainerDayKey) || 0) + 1)
+}
+
+function candidateForSlot(data, { student, trainer, slotId, schedule, schedulingState = null, contractCache = null }) {
   const [day] = slotId.split('-')
   const date = dateForSlot(data.weekId, day)
   const reasons = []
+  const state = schedulingState || buildSchedulingState(schedule)
   if (student.eligibleForWeek === false) {
     reasons.push(...(Array.isArray(student.eligibilityReasons) && student.eligibilityReasons.length
       ? student.eligibilityReasons
@@ -410,31 +476,204 @@ function candidateForSlot(data, { student, trainer, slotId, schedule }) {
   if (data.leaves.some((leave) => leaveCovers(leave, trainer.id, date))) reasons.push('TRAINER_ON_LEAVE')
   if (!['submitted', 'locked', 'recurring'].includes(student.availabilityStatus)) reasons.push('AVAILABILITY_NOT_SUBMITTED')
   else if (!student.availableSlots.includes(slotId)) reasons.push('OUTSIDE_STUDENT_AVAILABILITY')
-  const contractResult = resolveContract(data, student.id, trainer.id, date)
+  const contractCacheKey = `${student.id}|${trainer.id}|${date}`
+  const contractResult = contractCache?.has(contractCacheKey)
+    ? contractCache.get(contractCacheKey)
+    : resolveContract(data, student.id, trainer.id, date)
+  if (contractCache && !contractCache.has(contractCacheKey)) contractCache.set(contractCacheKey, contractResult)
   reasons.push(...contractResult.reasons)
-  const entries = Object.entries(schedule || {})
-  if (entries.some(([candidateSlot, values]) => candidateSlot.startsWith(day) && values.some((entry) => entry.type !== 'off' && entry.studentId === student.id))) reasons.push('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
-  const slotEntries = Array.isArray(schedule?.[slotId]) ? schedule[slotId] : []
-  if (slotEntries.some((entry) => entry.type === 'off' && entry.trainerId === trainer.id)) reasons.push('TRAINER_OFF_CONFLICT')
-  const trainerCount = slotEntries.filter((entry) => entry.type !== 'off' && entry.trainerId === trainer.id).length
+  if (state.studentDays.get(student.id)?.has(day)) reasons.push('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
+  const trainerSlotKey = `${trainer.id}|${slotId}`
+  if (state.offTrainerSlots.has(trainerSlotKey)) reasons.push('TRAINER_OFF_CONFLICT')
+  const trainerCount = state.trainerSlotCounts.get(trainerSlotKey) || 0
   if (trainerCount >= trainer.slotCapacity) reasons.push('TRAINER_CAPACITY_EXCEEDED')
-  return { eligible: reasons.length === 0, reasons: [...new Set(reasons)], contractId: contractResult.contract?.id || null, date }
+  const policy = trainerSchedulingPolicy(trainer)
+  const currentDailyLoad = state.trainerSlotsByDay.get(`${trainer.id}|${day}`)?.size || 0
+  const opensTeachingSlot = trainerCount === 0
+  const projectedDailyLoad = currentDailyLoad + (opensTeachingSlot ? 1 : 0)
+  if (projectedDailyLoad > policy.dailySessionLimit) reasons.push('TRAINER_DAILY_SESSION_LIMIT_EXCEEDED')
+  return {
+    eligible: reasons.length === 0,
+    reasons: [...new Set(reasons)],
+    contractId: contractResult.contract?.id || null,
+    date,
+    currentDailyLoad,
+    projectedDailyLoad,
+    opensTeachingSlot,
+    ...policy,
+  }
 }
 
 function scheduleEntryCount(schedule) {
   return Object.values(schedule || {}).reduce((total, entries) => total + (Array.isArray(entries) ? entries.length : 0), 0)
 }
 
-function generationScore({ student, trainer, contract, slotId, schedule, targetDate }) {
+function generationScore({ student, contract, targetDate }) {
   const end = Date.parse(`${storedDate(contract?.endDate)}T00:00:00Z`)
   const reference = Date.parse(`${targetDate}T00:00:00Z`)
   const urgency = Number.isFinite(end) && Number.isFinite(reference)
     ? Math.max(0, 365 - Math.floor((end - reference) / 86400000))
     : 0
   const scarcity = Math.max(0, 100 - student.availableSlots.length * 8)
-  const assigned = contract?.trainerIds?.[0] === trainer.id || contract?.trainerId === trainer.id ? 80 : 0
-  const load = (schedule[slotId] || []).filter((entry) => entry.trainerId === trainer.id && entry.type !== 'off').length
-  return urgency + scarcity + assigned - load * 15
+  return urgency + scarcity
+}
+
+function compareSlots(left, right) {
+  const [leftDay, leftHour] = left.split('-')
+  const [rightDay, rightHour] = right.split('-')
+  return (DAY_ORDER.get(leftDay) ?? 99) - (DAY_ORDER.get(rightDay) ?? 99)
+    || Number(leftHour) - Number(rightHour)
+    || left.localeCompare(right)
+}
+
+function compareCandidates(left, right) {
+  if (left.assignmentOrder !== right.assignmentOrder) return left.assignmentOrder - right.assignmentOrder
+  const ratioComparison = left.projectedDailyLoad * right.dailySessionTarget - right.projectedDailyLoad * left.dailySessionTarget
+  if (ratioComparison !== 0) return ratioComparison
+  if (left.unassignedContract && right.unassignedContract && left.schedulingPriority !== right.schedulingPriority) {
+    return left.schedulingPriority - right.schedulingPriority
+  }
+  if (left.opensTeachingSlot !== right.opensTeachingSlot) return Number(left.opensTeachingSlot) - Number(right.opensTeachingSlot)
+  if (left.score !== right.score) return right.score - left.score
+  return compareSlots(left.slotId, right.slotId) || left.trainer.id.localeCompare(right.trainer.id)
+}
+
+function scheduleStudentCounts(schedule) {
+  const counts = new Map()
+  for (const entry of Object.values(schedule || {}).flat()) {
+    if (entry.type === 'off') continue
+    counts.set(entry.studentId, (counts.get(entry.studentId) || 0) + 1)
+  }
+  return counts
+}
+
+function trainerLoadsForSchedule(data, schedule, schedulingState = null) {
+  const state = schedulingState || buildSchedulingState(schedule)
+  const workingDays = Array.isArray(data.config?.workingDays) && data.config.workingDays.length
+    ? [...new Set(data.config.workingDays)].filter((day) => DAY_ORDER.has(day)).sort((left, right) => (DAY_ORDER.get(left) ?? 99) - (DAY_ORDER.get(right) ?? 99))
+    : [...DAY_ORDER.keys()]
+  return [...data.trainers]
+    .sort((left, right) => trainerSchedulingPolicy(left).schedulingPriority - trainerSchedulingPolicy(right).schedulingPriority || left.id.localeCompare(right.id))
+    .flatMap((trainer) => {
+      const policy = trainerSchedulingPolicy(trainer)
+      return workingDays.map((day) => {
+        const teachingSlots = state.trainerSlotsByDay.get(`${trainer.id}|${day}`)?.size || 0
+        return {
+          trainerId: trainer.id,
+          trainerName: trainer.name,
+          schedulingPriority: policy.schedulingPriority,
+          day,
+          date: dateForSlot(data.weekId, day),
+          teachingSlots,
+          sessionCount: teachingSlots,
+          studentSessions: state.trainerStudentSessionsByDay.get(`${trainer.id}|${day}`) || 0,
+          target: policy.dailySessionTarget,
+          limit: policy.dailySessionLimit,
+          dailySessionTarget: policy.dailySessionTarget,
+          dailySessionLimit: policy.dailySessionLimit,
+          remainingToTarget: Math.max(0, policy.dailySessionTarget - teachingSlots),
+          status: teachingSlots >= policy.dailySessionLimit
+            ? 'at_limit'
+            : teachingSlots > policy.dailySessionTarget
+              ? 'over_target'
+              : teachingSlots === policy.dailySessionTarget
+                ? 'target'
+                : 'under_target',
+        }
+      })
+    })
+}
+
+function studentCoverageForSchedule(data, schedule) {
+  const counts = scheduleStudentCounts(schedule)
+  const targetStudents = data.students.filter((student) => student.status !== 'inactive' && student.eligibleForWeek !== false && student.sessionsPerWeek > 0)
+  const eligibleStudents = targetStudents.length
+  const studentsWithAtLeastOne = targetStudents.filter((student) => (counts.get(student.id) || 0) > 0).length
+  const fullyScheduledStudents = targetStudents.filter((student) => (counts.get(student.id) || 0) >= student.sessionsPerWeek).length
+  const totalTargetSessions = targetStudents.reduce((total, student) => total + student.sessionsPerWeek, 0)
+  const scheduledEntries = targetStudents.reduce((total, student) => total + Math.min(student.sessionsPerWeek, counts.get(student.id) || 0), 0)
+  return {
+    eligibleStudents,
+    studentsWithAtLeastOne,
+    fullyScheduledStudents,
+    totalTargetSessions,
+    scheduledEntries,
+    missingSessions: Math.max(0, totalTargetSessions - scheduledEntries),
+  }
+}
+
+function blockersForStudent(data, student, schedule, schedulingState, contractCache, capacityReached) {
+  const reasons = new Set()
+  const suggestedSlots = new Set()
+  if (!Array.isArray(student.availableSlots) || !student.availableSlots.length) {
+    reasons.add('AVAILABILITY_NOT_SUBMITTED')
+  } else {
+    for (const slotId of [...student.availableSlots].sort(compareSlots)) {
+      for (const trainer of [...data.trainers].sort((left, right) => left.id.localeCompare(right.id))) {
+        const result = candidateForSlot(data, { student, trainer, slotId, schedule, schedulingState, contractCache })
+        if (result.eligible) suggestedSlots.add(slotId)
+        else result.reasons.forEach((reason) => reasons.add(reason))
+      }
+    }
+  }
+  if (capacityReached) reasons.add('DRAFT_CAPACITY_REACHED')
+  return {
+    reasonCodes: [...reasons].sort(),
+    suggestedSlots: [...suggestedSlots].sort(compareSlots).slice(0, 5),
+  }
+}
+
+function publishedSessionSlotId(week, session) {
+  const date = storedDate(session?.date)
+  const storedSessionHour = Number(session?.hour)
+  const legacyIdHour = Number(String(session?.id || '').split('-')[1])
+  const hour = Number.isInteger(storedSessionHour) && storedSessionHour >= 0 && storedSessionHour <= 23
+    ? storedSessionHour
+    : legacyIdHour
+  if (!date || !Number.isInteger(hour) || hour < 0 || hour > 23) return null
+  const start = Date.parse(`${week}T00:00:00.000Z`)
+  const target = Date.parse(`${date}T00:00:00.000Z`)
+  const dayIndex = Math.floor((target - start) / 86400000)
+  const day = [...DAY_ORDER.keys()][dayIndex]
+  return day && dateForSlot(week, day) === date ? `${day}-${hour}` : null
+}
+
+function mergePublishedSessions(data, schedule, warnings) {
+  const retainedStatuses = new Set(['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'])
+  for (const session of [...(data.sessions || [])].sort((left, right) => String(left.id || '').localeCompare(String(right.id || '')))) {
+    if (!retainedStatuses.has(String(session.status || '').toLowerCase()) && session.billingStatus !== 'charged') continue
+    const slotId = publishedSessionSlotId(data.weekId, session)
+    if (!slotId || !session.studentId || !session.trainerId) continue
+    const values = schedule[slotId] || []
+    if (values.some((entry) => entry.type !== 'off' && entry.studentId === session.studentId)) continue
+    let contractId = session.contractId || ''
+    if (!contractId) {
+      const date = storedDate(session.date)
+      const matches = data.contracts.filter((contract) => contract.studentId === session.studentId
+        && contract.branchId === data.branch.id
+        && contractCanServeScheduledDate(contract, date)
+        && !contractPaused(contract, date)
+        && (!assignedTrainerIds(contract).length || assignedTrainerIds(contract).includes(session.trainerId)))
+      if (matches.length === 1) contractId = matches[0].id
+    }
+    if (!contractId) {
+      warnings.push({ code: 'PUBLISHED_SESSION_CONTRACT_REQUIRED', sessionId: session.id, studentId: session.studentId })
+      continue
+    }
+    if (scheduleEntryCount(schedule) >= MAX_DRAFT_ENTRIES) {
+      warnings.push({ code: 'DRAFT_CAPACITY_REACHED', entryCount: scheduleEntryCount(schedule), maxEntries: MAX_DRAFT_ENTRIES })
+      break
+    }
+    schedule[slotId] = [...values, {
+      studentId: session.studentId,
+      trainerId: session.trainerId,
+      contractId,
+      branchId: data.branch.id,
+      type: 'training',
+      source: 'published_existing',
+      ...((session.billingStatus === 'charged' || ['completed', 'attended', 'no_show'].includes(session.status)) ? { isLocked: true } : {}),
+    }]
+  }
 }
 
 function generateSchedule(data) {
@@ -446,50 +685,102 @@ function generateSchedule(data) {
   const warnings = data.trainers
     .filter((trainer) => trainer.availabilityMode === 'unconfigured')
     .map((trainer) => ({ code: 'TRAINER_AVAILABILITY_UNCONFIGURED', trainerId: trainer.id }))
+  // A previously published learner session is real workload. Keep it in the
+  // next draft so it contributes once to coverage and to the PT's unique
+  // trainer/date/hour load instead of being silently replaced or double-counted.
+  mergePublishedSessions(data, schedule, warnings)
   let entryCount = scheduleEntryCount(schedule)
   let capacityReached = entryCount >= MAX_DRAFT_ENTRIES
-  const students = [...data.students].sort((left, right) => left.availableSlots.length - right.availableSlots.length || left.name.localeCompare(right.name, 'vi'))
+  const schedulingState = buildSchedulingState(schedule)
+  const contractCache = new Map()
+  const scheduledCounts = scheduleStudentCounts(schedule)
+  const students = [...data.students]
+    .filter((student) => student.status !== 'inactive' && student.eligibleForWeek !== false && student.sessionsPerWeek > 0)
+    .sort((left, right) => left.availableSlots.length - right.availableSlots.length || left.name.localeCompare(right.name, 'vi') || left.id.localeCompare(right.id))
+  const remainingByStudent = new Map(students.map((student) => [student.id, Math.max(0, student.sessionsPerWeek - (scheduledCounts.get(student.id) || 0))]))
+
+  const assignOne = (student) => {
+    if ((remainingByStudent.get(student.id) || 0) < 1 || entryCount >= MAX_DRAFT_ENTRIES) return false
+    const candidates = []
+    for (const slotId of [...student.availableSlots].sort(compareSlots)) {
+      for (const trainer of [...data.trainers].sort((left, right) => left.id.localeCompare(right.id))) {
+        const result = candidateForSlot(data, { student, trainer, slotId, schedule, schedulingState, contractCache })
+        if (!result.eligible) continue
+        const contract = data.contracts.find((item) => item.id === result.contractId)
+        const assigned = assignedTrainerIds(contract)
+        const assignmentIndex = assigned.indexOf(trainer.id)
+        candidates.push({
+          slotId,
+          trainer,
+          contractId: result.contractId,
+          assignmentOrder: assignmentIndex >= 0 ? assignmentIndex : 1000,
+          unassignedContract: assigned.length === 0,
+          score: generationScore({ student, contract, targetDate: result.date }),
+          projectedDailyLoad: result.projectedDailyLoad,
+          dailySessionTarget: result.dailySessionTarget,
+          schedulingPriority: result.schedulingPriority,
+          opensTeachingSlot: result.opensTeachingSlot,
+        })
+      }
+    }
+    candidates.sort(compareCandidates)
+    const selected = candidates[0]
+    if (!selected) return false
+    const entry = {
+      studentId: student.id,
+      trainerId: selected.trainer.id,
+      contractId: selected.contractId,
+      branchId: data.branch.id,
+      type: 'training',
+      source: 'auto_v3',
+    }
+    schedule[selected.slotId] = [...(schedule[selected.slotId] || []), entry]
+    addEntryToSchedulingState(schedulingState, selected.slotId, entry)
+    scheduledCounts.set(student.id, (scheduledCounts.get(student.id) || 0) + 1)
+    remainingByStudent.set(student.id, Math.max(0, (remainingByStudent.get(student.id) || 0) - 1))
+    entryCount += 1
+    return true
+  }
+
+  // Coverage pass: learners without a retained session receive one feasible
+  // session before anyone receives another generated session.
   for (const student of students) {
-    if (student.status === 'inactive' || student.eligibleForWeek === false) continue
-    const existing = Object.values(schedule).flat().filter((entry) => entry.type !== 'off' && entry.studentId === student.id).length
-    let remaining = Math.max(0, student.sessionsPerWeek - existing)
-    while (remaining > 0) {
+    if ((scheduledCounts.get(student.id) || 0) === 0) assignOne(student)
+    if (entryCount >= MAX_DRAFT_ENTRIES) {
+      capacityReached = true
+      break
+    }
+  }
+
+  // Fulfilment pass: allocate at most one session per learner per round. This
+  // keeps the result fair while still allowing larger weekly targets.
+  let progress = true
+  while (!capacityReached && progress) {
+    progress = false
+    for (const student of students) {
+      if (assignOne(student)) progress = true
       if (entryCount >= MAX_DRAFT_ENTRIES) {
         capacityReached = true
         break
       }
-      const candidates = []
-      for (const slotId of student.availableSlots) {
-        for (const trainer of data.trainers) {
-          const result = candidateForSlot(data, { student, trainer, slotId, schedule })
-          if (!result.eligible) continue
-          const contract = data.contracts.find((item) => item.id === result.contractId)
-          candidates.push({
-            slotId,
-            trainer,
-            contractId: result.contractId,
-            score: generationScore({ student, trainer, contract, slotId, schedule, targetDate: result.date }),
-          })
-        }
-      }
-      candidates.sort((left, right) => right.score - left.score || left.slotId.localeCompare(right.slotId) || left.trainer.id.localeCompare(right.trainer.id))
-      const selected = candidates[0]
-      if (!selected) break
-      schedule[selected.slotId] = [...(schedule[selected.slotId] || []), {
-        studentId: student.id,
-        trainerId: selected.trainer.id,
-        contractId: selected.contractId,
-        branchId: data.branch.id,
-        type: 'training',
-        source: 'auto_v2',
-      }]
-      entryCount += 1
-      remaining -= 1
     }
-    if (remaining > 0) warnings.push({ code: 'STUDENT_UNSCHEDULED', studentId: student.id, missingSessions: remaining })
+  }
+
+  const unassignedEntries = []
+  for (const student of students) {
+    const missingSessions = remainingByStudent.get(student.id) || 0
+    if (missingSessions < 1) continue
+    const blockers = blockersForStudent(data, student, schedule, schedulingState, contractCache, capacityReached)
+    const unassigned = { studentId: student.id, studentName: student.name, missingSessions, ...blockers }
+    unassignedEntries.push(unassigned)
+    warnings.push({ code: 'STUDENT_UNSCHEDULED', ...unassigned })
   }
   if (capacityReached) warnings.unshift({ code: 'DRAFT_CAPACITY_REACHED', entryCount, maxEntries: MAX_DRAFT_ENTRIES })
-  return { schedule, warnings }
+  const optimizationSummary = {
+    studentCoverage: studentCoverageForSchedule(data, schedule),
+    trainerLoads: trainerLoadsForSchedule(data, schedule, schedulingState),
+  }
+  return { schedule, warnings, optimizationSummary, unassignedEntries }
 }
 
 function commandReceiptId(actorUid, branchId, week, idempotencyKey) {
@@ -530,6 +821,12 @@ function createPtScheduleV2Functions({ db, onCall }) {
     const missingSessions = eligibleStudents.reduce((total, student) => total + Math.max(0, student.sessionsPerWeek - (scheduledByStudent.get(student.id) || 0)), 0)
     const draftSnapshot = await draftReference(db, branchId, week).get()
     const draftData = draftSnapshot.exists ? draftSnapshot.data() : {}
+    const workloadSchedule = safeSchedule(data.schedule)
+    mergePublishedSessions({ ...data, weekId: week }, workloadSchedule, [])
+    const calculatedOptimizationSummary = {
+      studentCoverage: studentCoverageForSchedule({ ...data, weekId: week }, workloadSchedule),
+      trainerLoads: trainerLoadsForSchedule({ ...data, weekId: week }, workloadSchedule),
+    }
     return {
       schemaVersion: 2,
       branch: data.branch,
@@ -547,6 +844,10 @@ function createPtScheduleV2Functions({ db, onCall }) {
       sessions: data.sessions,
       scheduleConfig: data.config,
       warnings: Array.isArray(draftData.warnings) ? draftData.warnings.slice(0, 100) : [],
+      // Always derive live workload from the current draft and current trainer
+      // policy. Stored summaries are audit snapshots and may predate a policy edit.
+      optimizationSummary: calculatedOptimizationSummary,
+      unassignedEntries: Array.isArray(draftData.unassignedEntries) ? draftData.unassignedEntries.slice(0, MAX_STUDENTS) : [],
       summary: {
         eligibleStudents: eligibleStudents.length,
         trainers: data.trainers.length,
@@ -579,14 +880,16 @@ function createPtScheduleV2Functions({ db, onCall }) {
         schedule: generated.schedule,
         revision: nextRevision,
         status: 'draft',
-        generatorVersion: 'greedy-v2',
+        generatorVersion: 'optimizer-v3',
         warnings: generated.warnings,
+        optimizationSummary: generated.optimizationSummary,
+        unassignedEntries: generated.unassignedEntries,
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: actor.uid,
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
       }, { merge: true })
-      transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: 'pt_schedule.generated', actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, entryCount: scheduleEntryCount(generated.schedule), warnings: generated.warnings.slice(0, 100), createdAt: FieldValue.serverTimestamp() })
-      return { draftRevision: nextRevision, schedule: generated.schedule, warnings: generated.warnings, generatorVersion: 'greedy-v2' }
+      transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: 'pt_schedule.generated', actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, entryCount: scheduleEntryCount(generated.schedule), studentCoverage: generated.optimizationSummary.studentCoverage, unassignedCount: generated.unassignedEntries.length, warnings: generated.warnings.slice(0, 100), createdAt: FieldValue.serverTimestamp() })
+      return { draftRevision: nextRevision, schedule: generated.schedule, warnings: generated.warnings, optimizationSummary: generated.optimizationSummary, unassignedEntries: generated.unassignedEntries, generatorVersion: 'optimizer-v3' }
     })
   })
 
@@ -770,8 +1073,9 @@ function createPtScheduleV2Functions({ db, onCall }) {
       if (scheduleEntryCount(schedule) > MAX_DRAFT_ENTRIES) throw new HttpsError('resource-exhausted', 'Draft vượt giới hạn an toàn.')
       const nextRevision = revision + 1
       const result = { draftRevision: nextRevision, schedule, weeklySessionTargets: currentWeeklyTargets }
-      const currentUnassigned = Array.isArray(current.data()?.unassignedEntries) ? current.data().unassignedEntries : []
-      const unassignedEntries = [...currentUnassigned, ...requeuedEntries].slice(-200)
+      // Generated missing-session diagnostics become stale after any manual
+      // mutation. Retain only entries requeued by this command.
+      const unassignedEntries = requeuedEntries.slice(-200)
       transaction.set(reference, {
         schemaVersion: 2,
         branchId,
@@ -781,6 +1085,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         status: 'draft',
         unassignedEntries,
         weeklySessionTargets: currentWeeklyTargets,
+        optimizationSummary: FieldValue.delete(),
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: actor.uid,
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
@@ -795,6 +1100,8 @@ function createPtScheduleV2Functions({ db, onCall }) {
 }
 
 module.exports = {
+  DEFAULT_DAILY_SESSION_LIMIT,
+  DEFAULT_DAILY_SESSION_TARGET,
   MAX_DRAFT_ENTRIES,
   createPtScheduleV2Functions,
   candidateForSlot,
@@ -803,5 +1110,7 @@ module.exports = {
   safeSchedule,
   safeWeeklySessionTargets,
   studentWeekEligibility,
+  trainerLoadsForSchedule,
+  trainerSchedulingPolicy,
   weeklyTargetForStudent,
 }

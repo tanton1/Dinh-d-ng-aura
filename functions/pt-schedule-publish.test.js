@@ -82,6 +82,52 @@ test('uses a configurable PT slot capacity and defaults to two learners', () => 
   assert.ok(!configuredResult.errors.includes('TRAINER_CAPACITY_EXCEEDED'))
 })
 
+test('counts a paired session as one teaching slot for the PT daily limit', () => {
+  const fixture = baseFixture()
+  fixture.trainers.set('trainer-a', {
+    status: 'active',
+    branchId: BRANCH_ID,
+    availabilityMode: 'configured',
+    availableSlots: ['T2-6'],
+    slotCapacity: 2,
+    dailySessionLimit: 1,
+  })
+  fixture.students.set('student-b', { status: 'active', branchId: BRANCH_ID })
+  fixture.contracts.push({ ...fixture.contracts[0], id: 'contract-b', studentId: 'student-b' })
+  fixture.availability.set('student-b', { studentId: 'student-b', status: 'submitted', slots: ['T2-6'] })
+  fixture.schedule['T2-6'].push({ studentId: 'student-b', trainerId: 'trainer-a', type: 'training' })
+
+  const result = desiredEntries(fixture)
+  assert.ok(!result.errors.includes('TRAINER_DAILY_SESSION_LIMIT_EXCEEDED'))
+})
+
+test('rejects more unique teaching slots than the PT daily limit', () => {
+  const fixture = baseFixture()
+  fixture.trainers.set('trainer-a', {
+    status: 'active',
+    branchId: BRANCH_ID,
+    availabilityMode: 'configured',
+    availableSlots: ['T2-6', 'T2-7'],
+    dailySessionLimit: 1,
+  })
+  fixture.students.set('student-b', { status: 'active', branchId: BRANCH_ID })
+  fixture.contracts.push({ ...fixture.contracts[0], id: 'contract-b', studentId: 'student-b' })
+  fixture.availability.set('student-b', { studentId: 'student-b', status: 'submitted', slots: ['T2-7'] })
+  fixture.schedule['T2-7'] = [{ studentId: 'student-b', trainerId: 'trainer-a', type: 'training' }]
+
+  const result = desiredEntries(fixture)
+  assert.ok(result.errors.includes('TRAINER_DAILY_SESSION_LIMIT_EXCEEDED'))
+})
+
+test('accepts a future renewal only on or after its concrete start date', () => {
+  const fixture = baseFixture()
+  fixture.contracts[0].status = 'future'
+  fixture.contracts[0].startDate = WEEK
+  const result = desiredEntries(fixture)
+  assert.deepEqual(result.errors, [])
+  assert.equal([...result.desired.values()][0].contractId, 'contract-a')
+})
+
 test('rejects entries outside submitted weekly availability', () => {
   const fixture = baseFixture()
   fixture.availability.set('student-a', { studentId: 'student-a', status: 'submitted', slots: ['T3-6'] })

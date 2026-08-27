@@ -84,6 +84,43 @@ function normalizedEmploymentLevel(value) {
   return value === 'probation' || value === 'senior' ? value : 'official'
 }
 
+function normalizedTrainerSchedulingPolicy(value = {}, fallback = {}) {
+  const integer = (candidate, fallbackValue, label, minimum, maximum) => {
+    const parsed = candidate === undefined || candidate === null || candidate === ''
+      ? Number(fallbackValue)
+      : Number(candidate)
+    if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+      throw new HttpsError('invalid-argument', `${label} phải từ ${minimum} đến ${maximum}.`)
+    }
+    return parsed
+  }
+  const schedulingPriority = integer(
+    value.schedulingPriority,
+    fallback.schedulingPriority ?? fallback.priority ?? 100,
+    'Thứ tự ưu tiên xếp lịch',
+    1,
+    999,
+  )
+  const dailySessionTarget = integer(
+    value.dailySessionTarget,
+    fallback.dailySessionTarget ?? 8,
+    'Mục tiêu ca mỗi ngày',
+    1,
+    12,
+  )
+  const dailySessionLimit = integer(
+    value.dailySessionLimit,
+    fallback.dailySessionLimit ?? 10,
+    'Giới hạn ca mỗi ngày',
+    1,
+    16,
+  )
+  if (dailySessionLimit < dailySessionTarget) {
+    throw new HttpsError('invalid-argument', 'Giới hạn ca mỗi ngày không được thấp hơn mục tiêu ca.')
+  }
+  return { schedulingPriority, dailySessionTarget, dailySessionLimit }
+}
+
 function staffPayrollProfile(employmentType, employmentLevel) {
   if (employmentType === 'collaborator') return 'collaborator'
   if (employmentType === 'part_time') return 'part_time'
@@ -702,13 +739,15 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
         transaction.create(staffRef, {
           id: uid, name: displayName, email, phone: phoneNumber,
           role: claims.role, branchId: branchIds[0] || '', status: 'active',
-          positions, branchIds, employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: [], baseSalary: 0, bonusMonthly: 0,
+          positions, branchIds, employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: [], slotCapacity: 2,
+          schedulingPriority: 100, priority: 100, dailySessionTarget: 8, dailySessionLimit: 10, baseSalary: 0, bonusMonthly: 0,
           commissionPerSession: 0, commissionRate: 0,
           createdBy: actor.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
         if (positions.includes('trainer_pt')) transaction.create(trainerRef, {
           id: uid, name: displayName, email, phone: phoneNumber,
-          branchId: branchIds[0] || '', status: 'active', employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: [],
+          branchId: branchIds[0] || '', status: 'active', employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: [], slotCapacity: 2,
+          schedulingPriority: 100, priority: 100, dailySessionTarget: 8, dailySessionLimit: 10,
           baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0,
           createdBy: actor.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
@@ -879,7 +918,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
             id: targetUid, name: profileName, email: profileEmail, phone: profilePhone,
             role: nextClaims.role, branchId: branchIds[0] || '', positions, branchIds,
             status: 'active', updatedBy: actor.uid,
-            ...(!currentStaff.exists ? { employmentType: 'full_time', availableSlots: [], baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0, createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
+            ...(!currentStaff.exists ? { employmentType: 'full_time', availableSlots: [], slotCapacity: 2, schedulingPriority: 100, priority: 100, dailySessionTarget: 8, dailySessionLimit: 10, baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0, createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
             updatedAt: FieldValue.serverTimestamp(),
           }, { merge: true })
         } else if (currentStaff.exists) {
@@ -889,7 +928,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
           transaction.set(trainerReference, {
             id: targetUid, name: profileName, email: profileEmail, phone: profilePhone,
             branchId: branchIds[0] || '', positions, branchIds, status: 'active', updatedBy: actor.uid,
-            ...(!currentTrainer.exists ? { employmentType: 'full_time', availableSlots: [], baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0, createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
+            ...(!currentTrainer.exists ? { employmentType: 'full_time', availableSlots: [], slotCapacity: 2, schedulingPriority: 100, priority: 100, dailySessionTarget: 8, dailySessionLimit: 10, baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0, createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
             updatedAt: FieldValue.serverTimestamp(),
           }, { merge: true })
         } else if (currentTrainer.exists) {
@@ -1123,7 +1162,8 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     const targetUid = documentId(request.data?.uid, 'Tài khoản nhân viên')
     const userRef = db.doc(`users/${targetUid}`)
     const staffRef = db.doc(`staff/${targetUid}`)
-    const [initialProfileSnapshot, initialStaffSnapshot] = await Promise.all([userRef.get(), staffRef.get()])
+    const trainerRef = db.doc(`trainers/${targetUid}`)
+    const [initialProfileSnapshot, initialStaffSnapshot, initialTrainerSnapshot] = await Promise.all([userRef.get(), staffRef.get(), trainerRef.get()])
     if (!initialProfileSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy tài khoản nhân viên.')
     const initialProfile = initialProfileSnapshot.data() || {}
     const displayName = boundedString(request.data?.displayName ?? initialProfile.displayName ?? initialProfile.name, 'Họ và tên', 160)
@@ -1137,6 +1177,11 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     if (!Number.isInteger(slotCapacity) || slotCapacity < 1 || slotCapacity > 4) {
       throw new HttpsError('invalid-argument', 'Sức chứa mỗi ca của PT phải từ 1 đến 4 học viên.')
     }
+    const initialSchedulingPolicy = {
+      ...(initialTrainerSnapshot.exists ? initialTrainerSnapshot.data() || {} : {}),
+      ...(initialStaffSnapshot.exists ? initialStaffSnapshot.data() || {} : {}),
+    }
+    const schedulingPolicy = normalizedTrainerSchedulingPolicy(request.data || {}, initialSchedulingPolicy)
     const money = (value, label, maximum = 2_000_000_000) => {
       const parsed = Number(value || 0)
       if (!Number.isFinite(parsed) || parsed < 0 || parsed > maximum) throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
@@ -1167,7 +1212,6 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       throw new HttpsError('invalid-argument', 'Hoa hồng giới thiệu phải bằng 0 hoặc nằm trong khoảng 2–10%.')
     }
     const assignmentRef = db.doc(`roleAssignments/${targetUid}`)
-    const trainerRef = db.doc(`trainers/${targetUid}`)
     const authUser = await auth.getUser(targetUid)
     const previousAuth = {
       displayName: authUser.displayName || undefined,
@@ -1186,7 +1230,9 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
         })
       }
       await db.runTransaction(async (transaction) => {
-      const [assignmentSnapshot, userSnapshot] = await Promise.all([transaction.get(assignmentRef), transaction.get(userRef)])
+      const [assignmentSnapshot, userSnapshot, staffSnapshot, trainerSnapshot] = await Promise.all([
+        transaction.get(assignmentRef), transaction.get(userRef), transaction.get(staffRef), transaction.get(trainerRef),
+      ])
       if (!userSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy tài khoản nhân viên.')
       const profile = userSnapshot.data() || {}
       const existing = assignmentSnapshot.exists ? assignmentSnapshot.data() || {} : null
@@ -1194,20 +1240,47 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       const positions = existing?.accessRole === 'staff' ? normalizedPositions(existing.positions || []) : legacy.positions
       if (!positions.length) throw new HttpsError('failed-precondition', 'Tài khoản này chưa được cấp chức danh nhân viên.')
       const branchIds = existing?.accessRole === 'staff' ? normalizedBranchIds(existing.branchIds || []) : (profile.branchId ? [documentId(profile.branchId, 'Mã chi nhánh')] : [])
+      const previousStaff = staffSnapshot.exists ? staffSnapshot.data() || {} : {}
+      const previousTrainer = trainerSnapshot.exists ? trainerSnapshot.data() || {} : {}
+      const previousSchedulingPolicy = {
+        schedulingPriority: Number.isInteger(previousStaff.schedulingPriority ?? previousTrainer.schedulingPriority ?? previousStaff.priority ?? previousTrainer.priority)
+          ? Number(previousStaff.schedulingPriority ?? previousTrainer.schedulingPriority ?? previousStaff.priority ?? previousTrainer.priority)
+          : 100,
+        dailySessionTarget: Number.isInteger(previousStaff.dailySessionTarget ?? previousTrainer.dailySessionTarget)
+          ? Number(previousStaff.dailySessionTarget ?? previousTrainer.dailySessionTarget)
+          : 8,
+        dailySessionLimit: Number.isInteger(previousStaff.dailySessionLimit ?? previousTrainer.dailySessionLimit)
+          ? Number(previousStaff.dailySessionLimit ?? previousTrainer.dailySessionLimit)
+          : 10,
+      }
+      const schedulingProjection = {
+        ...schedulingPolicy,
+        // Keep the legacy scheduler compatible while the canonical field is
+        // rolled out to every scheduling surface.
+        priority: schedulingPolicy.schedulingPriority,
+      }
       transaction.set(staffRef, {
         id: targetUid, name: displayName, email, phone: phoneNumber,
         role: positions.includes('trainer_pt') ? 'trainer' : positions[0], branchId: branchIds[0] || '', status: 'active',
-        positions, branchIds, employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: availabilitySlots, slotCapacity, ...compensation,
+        positions, branchIds, employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: availabilitySlots, slotCapacity, ...schedulingProjection, ...compensation,
         updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
       if (positions.includes('trainer_pt')) transaction.set(trainerRef, {
         id: targetUid, name: displayName, email, phone: phoneNumber,
-        branchId: branchIds[0] || '', status: 'active', employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: availabilitySlots, slotCapacity, ...compensation,
+        branchId: branchIds[0] || '', status: 'active', employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: availabilitySlots, slotCapacity, ...schedulingProjection, ...compensation,
         updatedBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.set(db.collection('identityAuditLogs').doc(), {
         action: 'staff_operations_profile.saved', actorUid: actor.uid, targetUid,
-        after: { employmentType, employmentLevel, payrollProfile, payrollPolicyId, availabilitySlots: availabilitySlots.length, slotCapacity, compensation, contactChanged }, createdAt: FieldValue.serverTimestamp(),
+        before: {
+          employmentType: normalizedEmploymentType(previousStaff.employmentType),
+          employmentLevel: normalizedEmploymentLevel(previousStaff.employmentLevel),
+          payrollPolicyId: previousStaff.payrollPolicyId || '',
+          availabilitySlots: Array.isArray(previousStaff.availableSlots) ? previousStaff.availableSlots.length : 0,
+          slotCapacity: Number.isInteger(previousStaff.slotCapacity ?? previousTrainer.slotCapacity) ? Number(previousStaff.slotCapacity ?? previousTrainer.slotCapacity) : 2,
+          ...previousSchedulingPolicy,
+        },
+        after: { employmentType, employmentLevel, payrollProfile, payrollPolicyId, availabilitySlots: availabilitySlots.length, slotCapacity, ...schedulingPolicy, compensation, contactChanged }, createdAt: FieldValue.serverTimestamp(),
       })
       transaction.set(userRef, { displayName, name: displayName, email, phoneNumber, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
       })
@@ -1217,7 +1290,54 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       }
       throw normalizeDuplicateAuthError(error)
     }
-    return { uid: targetUid, displayName, email, phoneNumber, employmentType, employmentLevel, payrollProfile, payrollPolicyId, availabilitySlots, slotCapacity, compensation }
+    return { uid: targetUid, displayName, email, phoneNumber, employmentType, employmentLevel, payrollProfile, payrollPolicyId, availabilitySlots, slotCapacity, ...schedulingPolicy, compensation }
+  })
+
+  const applyDefaultTrainerSchedulingPolicy = onCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    requireCapability(actor, 'identity.staff_position.manage')
+    const schedulingPolicy = normalizedTrainerSchedulingPolicy({
+      schedulingPriority: request.data?.schedulingPriority ?? 100,
+      dailySessionTarget: request.data?.dailySessionTarget ?? 8,
+      dailySessionLimit: request.data?.dailySessionLimit ?? 10,
+    })
+    // This action intentionally resets the workload target/limit for every
+    // active PT in the actor's scope. Individual priority remains untouched
+    // unless the caller explicitly supplies a priority.
+    const activeTrainerSnapshot = await db.collection('trainers').where('status', '==', 'active').limit(140).get()
+    const scopedTrainers = activeTrainerSnapshot.docs.filter((snapshot) => {
+      if (actor.accessRole === 'admin' || actor.accessRole === 'super_admin') return true
+      const branchId = snapshot.data()?.branchId
+      return typeof branchId === 'string' && actor.branchIds.includes(branchId)
+    })
+    if (!scopedTrainers.length) return { updated: 0, dailySessionTarget: schedulingPolicy.dailySessionTarget, dailySessionLimit: schedulingPolicy.dailySessionLimit }
+    const batch = db.batch()
+    const updatedTrainerIds = []
+    scopedTrainers.forEach((snapshot) => {
+      const currentPriority = Number.isInteger(snapshot.data()?.schedulingPriority ?? snapshot.data()?.priority)
+        ? Number(snapshot.data()?.schedulingPriority ?? snapshot.data()?.priority)
+        : schedulingPolicy.schedulingPriority
+      const projection = {
+        schedulingPriority: currentPriority,
+        priority: currentPriority,
+        dailySessionTarget: schedulingPolicy.dailySessionTarget,
+        dailySessionLimit: schedulingPolicy.dailySessionLimit,
+        updatedBy: actor.uid,
+        updatedAt: FieldValue.serverTimestamp(),
+      }
+      batch.set(snapshot.ref, projection, { merge: true })
+      batch.set(db.doc(`staff/${snapshot.id}`), projection, { merge: true })
+      updatedTrainerIds.push(snapshot.id)
+    })
+    batch.create(db.collection('identityAuditLogs').doc(), {
+      action: 'trainer_scheduling_policy.bulk_default_applied',
+      actorUid: actor.uid,
+      targetUids: updatedTrainerIds,
+      after: { dailySessionTarget: schedulingPolicy.dailySessionTarget, dailySessionLimit: schedulingPolicy.dailySessionLimit },
+      createdAt: FieldValue.serverTimestamp(),
+    })
+    await batch.commit()
+    return { updated: updatedTrainerIds.length, dailySessionTarget: schedulingPolicy.dailySessionTarget, dailySessionLimit: schedulingPolicy.dailySessionLimit }
   })
 
   return {
@@ -1235,6 +1355,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     deleteUnusedStaffAccount,
     deleteMemberAccount,
     saveStaffOperationsProfile,
+    applyDefaultTrainerSchedulingPolicy,
   }
 }
 
@@ -1245,4 +1366,5 @@ module.exports = {
   publicAccessContext,
   trustedAccessContext,
   requireCapability,
+  normalizedTrainerSchedulingPolicy,
 }

@@ -84,6 +84,74 @@ export interface PtScheduleV2Trainer extends Trainer {
   availabilityMode: 'configured' | 'unrestricted' | 'unconfigured'
   availabilityRevision: number
   slotCapacity: number
+  /** Thứ tự ưu tiên dùng khi học viên chưa có PT chính/phụ. Số nhỏ ưu tiên cao. */
+  schedulingPriority?: number
+  /** Mục tiêu số ca duy nhất trong một ngày. Ca đôi vẫn chỉ tính một ca. */
+  dailySessionTarget?: number
+  /** Trần ca duy nhất trong một ngày. */
+  dailySessionLimit?: number
+}
+
+export interface PtScheduleStudentCoverage {
+  eligibleStudents?: number
+  eligible?: number
+  studentsWithAtLeastOne?: number
+  receivedAtLeastOne?: number
+  withAtLeastOne?: number
+  fullyScheduledStudents?: number
+  fullyScheduled?: number
+  totalTargetSessions?: number
+  requestedSessions?: number
+  scheduledEntries?: number
+  scheduledSessions?: number
+  missingSessions?: number
+}
+
+export interface PtScheduleTrainerDayLoad {
+  day: string
+  date: string
+  teachingSlots: number
+  target: number
+  limit: number
+  remainingToTarget?: number
+  status?: 'under_target' | 'target' | 'over_target' | 'at_limit'
+}
+
+export interface PtScheduleTrainerDailyLoad {
+  trainerId: string
+  trainerName?: string
+  name?: string
+  schedulingPriority?: number
+  day?: string
+  date?: string
+  sessionCount?: number
+  teachingSlots?: number
+  sessions?: number
+  target?: number
+  limit?: number
+  dailySessionTarget?: number
+  dailySessionLimit?: number
+  studentSessions?: number
+  days?: PtScheduleTrainerDayLoad[]
+  status?: 'under_target' | 'target' | 'over_target' | 'at_limit'
+}
+
+export interface PtScheduleUnassignedEntry {
+  studentId: string
+  studentName?: string
+  missingSessions: number
+  reasonCodes?: string[]
+  reasons?: string[]
+  suggestedSlots?: string[]
+}
+
+export interface PtScheduleOptimizationSummary {
+  studentCoverage?: PtScheduleStudentCoverage
+  trainerLoads?: PtScheduleTrainerDailyLoad[]
+  totalTargetSessions?: number
+  scheduledEntries?: number
+  missingSessions?: number
+  generatorVersion?: string
 }
 
 export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspaceResult, 'students' | 'trainers'> {
@@ -101,6 +169,13 @@ export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspac
     unassignedEntries: number
   }
   warnings: Array<{ code: string; studentId?: string; trainerId?: string; missingSessions?: number; entryCount?: number; maxEntries?: number }>
+  /** Optional trong lúc rollout Functions v3; UI luôn có bộ tính fallback từ draft. */
+  optimizationSummary?: PtScheduleOptimizationSummary
+  unassignedEntries?: PtScheduleUnassignedEntry[]
+  /** Alias tạm thời để tương thích response thử nghiệm trước v3. */
+  trainerLoads?: PtScheduleTrainerDailyLoad[]
+  studentCoverage?: PtScheduleStudentCoverage
+  unassigned?: PtScheduleUnassignedEntry[]
 }
 
 export interface PtScheduleSlotCandidate {
@@ -170,6 +245,14 @@ const conflictLabels: Record<string, string> = {
   LEGACY_AVAILABILITY_FALLBACK: 'Một số học viên đang dùng lịch rảnh legacy; nên xác nhận lại lịch tuần.',
   WEEKLY_TARGET_EXCEEDS_QUOTA: 'Mục tiêu tuần vượt quota hợp đồng còn lại.',
   WEEKLY_TARGET_BELOW_SCHEDULED: 'Mục tiêu tuần thấp hơn số buổi đã có trong draft.',
+  STUDENT_UNSCHEDULED: 'Chưa tìm được đủ ca hợp lệ cho học viên.',
+  NO_AVAILABLE_SLOT: 'Không còn khung giờ rảnh chung giữa học viên và PT.',
+  STUDENT_AVAILABILITY_MISSING: 'Học viên chưa có lịch rảnh để xếp tự động.',
+  TRAINER_DAILY_TARGET_REACHED: 'Các PT phù hợp đã đạt mục tiêu ca trong ngày.',
+  TRAINER_DAILY_LIMIT_REACHED: 'Các PT phù hợp đã chạm giới hạn ca trong ngày.',
+  TRAINER_DAILY_SESSION_LIMIT_EXCEEDED: 'PT đã vượt giới hạn ca được cấu hình trong ngày.',
+  TRAINER_NOT_ASSIGNED: 'Chưa có PT phù hợp trong phạm vi chi nhánh.',
+  BRANCH_CAPACITY_REACHED: 'Chi nhánh đã đủ công suất trong các khung giờ phù hợp.',
 }
 
 export function ptScheduleConflictLabel(code: string) {
@@ -262,6 +345,11 @@ export function generatePtScheduleDraft(input: { weekId: string; branchId: strin
     schedule: Schedule
     warnings: Array<{ code: string; studentId?: string; missingSessions?: number }>
     generatorVersion: string
+    optimizationSummary?: PtScheduleOptimizationSummary
+    unassignedEntries?: PtScheduleUnassignedEntry[]
+    trainerLoads?: PtScheduleTrainerDailyLoad[]
+    studentCoverage?: PtScheduleStudentCoverage
+    unassigned?: PtScheduleUnassignedEntry[]
   }>('generatePtScheduleDraft', input)
 }
 

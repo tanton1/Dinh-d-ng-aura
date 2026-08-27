@@ -40,6 +40,9 @@ import {
   validatePtScheduleDraft,
   type PtScheduleBranchOption,
   type PtScheduleDraftCommand,
+  type PtScheduleStudentCoverage,
+  type PtScheduleTrainerDailyLoad,
+  type PtScheduleUnassignedEntry,
   type PtSchedulePublishResult,
   type PtScheduleSlotCandidate,
   type PtScheduleVersionListResult,
@@ -97,6 +100,34 @@ function compareScheduleSlots(left: string, right: string) {
   const days = Object.keys(DAY_LABELS)
   return days.indexOf(leftDay) - days.indexOf(rightDay) || Number(leftHour) - Number(rightHour)
 }
+
+function finiteCount(...values: unknown[]) {
+  for (const value of values) {
+    if (value === null || value === undefined || value === '') continue
+    const numeric = Number(value)
+    if (Number.isFinite(numeric) && numeric >= 0) return numeric
+  }
+  return 0
+}
+
+function trainerLoadStatus(count: number, target: number, limit: number) {
+  if (count >= limit) return 'at_limit' as const
+  if (count > target) return 'over_target' as const
+  if (count === target) return 'target' as const
+  return 'under_target' as const
+}
+
+function normalizedTrainerLoadStatus(value: PtScheduleTrainerDailyLoad['status'], count: number, target: number, limit: number) {
+  if (value === 'under_target' || value === 'target' || value === 'over_target' || value === 'at_limit') return value
+  return trainerLoadStatus(count, target, limit)
+}
+
+const TRAINER_LOAD_LABELS = {
+  under_target: 'Còn tải',
+  target: 'Đạt mục tiêu',
+  over_target: 'Vượt mục tiêu',
+  at_limit: 'Chạm trần',
+} as const
 
 export default function BranchScheduleWorkspace({ accessContext, onNavigate }: Props) {
   const [branches, setBranches] = useState<PtScheduleBranchOption[]>([])
@@ -255,6 +286,112 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     }).sort((left, right) => right.missing - left.missing || (left.student.name || '').localeCompare(right.student.name || '', 'vi'))
   }, [operationalStudentRows, studentFilter, studentSearch])
 
+  const studentCoverage = useMemo(() => {
+    const source: PtScheduleStudentCoverage | undefined = workspace?.optimizationSummary?.studentCoverage
+      || workspace?.studentCoverage
+    const eligible = finiteCount(source?.eligibleStudents, source?.eligible, operationalStudentRows.length)
+    const withAtLeastOneFallback = operationalStudentRows.filter((row) => row.scheduled > 0).length
+    const fullyScheduledFallback = operationalStudentRows.filter((row) => row.missing === 0).length
+    const totalTargetFallback = operationalStudentRows.reduce((total, row) => total + row.student.sessionsPerWeek, 0)
+    const scheduledFallback = operationalStudentRows.reduce((total, row) => total + row.scheduled, 0)
+    return {
+      eligible,
+      withAtLeastOne: finiteCount(source?.studentsWithAtLeastOne, source?.receivedAtLeastOne, source?.withAtLeastOne, withAtLeastOneFallback),
+      fullyScheduled: finiteCount(source?.fullyScheduledStudents, source?.fullyScheduled, fullyScheduledFallback),
+      totalTargetSessions: finiteCount(source?.requestedSessions, source?.totalTargetSessions, workspace?.optimizationSummary?.totalTargetSessions, totalTargetFallback),
+      scheduledEntries: finiteCount(source?.scheduledSessions, source?.scheduledEntries, workspace?.optimizationSummary?.scheduledEntries, scheduledFallback),
+      missingSessions: finiteCount(source?.missingSessions, workspace?.optimizationSummary?.missingSessions, missingSessions),
+    }
+  }, [missingSessions, operationalStudentRows, workspace])
+
+  const trainerLoads = useMemo(() => {
+    if (!workspace) return []
+    const backendLoads: PtScheduleTrainerDailyLoad[] = workspace.optimizationSummary?.trainerLoads
+      || workspace.trainerLoads
+      || []
+    const backendByKey = new Map<string, PtScheduleTrainerDailyLoad>()
+    for (const load of backendLoads) {
+      if (Array.isArray(load.days)) {
+        for (const dayLoad of load.days) backendByKey.set(`${load.trainerId}:${dayLoad.day}`, {
+          ...load,
+          ...dayLoad,
+          trainerName: load.trainerName || load.name,
+          sessionCount: dayLoad.teachingSlots,
+          dailySessionTarget: dayLoad.target,
+          dailySessionLimit: dayLoad.limit,
+        })
+        continue
+      }
+      const loadDay = load.day && workingDays.includes(load.day)
+        ? load.day
+        : workingDays.find((day) => weekDates[day as keyof typeof weekDates]?.full === load.date)
+      if (loadDay) backendByKey.set(`${load.trainerId}:${loadDay}`, load)
+    }
+    return workspace.trainers.flatMap((trainer) => workingDays.map((day) => {
+      const backend = backendByKey.get(`${trainer.id}:${day}`)
+      const fallbackCount = workingHours.reduce((total, hour) => {
+        const hasTeachingSession = (workspace.schedule[`${day}-${hour}`] || [])
+          .some((entry) => entry.trainerId === trainer.id && entry.type !== 'off')
+        return total + Number(hasTeachingSession)
+      }, 0)
+      const count = finiteCount(backend?.sessionCount, backend?.teachingSlots, backend?.sessions, fallbackCount)
+      const target = Math.max(1, finiteCount(backend?.dailySessionTarget, backend?.target, trainer.dailySessionTarget, 8))
+      const limit = Math.max(target, finiteCount(backend?.dailySessionLimit, backend?.limit, trainer.dailySessionLimit, 10))
+      return {
+        trainerId: trainer.id,
+        trainerName: backend?.trainerName || backend?.name || trainer.name,
+        day,
+        date: weekDates[day as keyof typeof weekDates]?.full || '',
+        count,
+        target,
+        limit,
+        status: normalizedTrainerLoadStatus(backend?.status, count, target, limit),
+      }
+    }))
+  }, [weekDates, workingDays, workingHours, workspace])
+
+  const unassignedEntries = useMemo(() => {
+    const raw: PtScheduleUnassignedEntry[] = workspace?.unassignedEntries
+      || workspace?.unassigned
+      || []
+    const byStudent = new Map(raw.filter((entry) => Boolean(entry?.studentId)).map((entry) => [entry.studentId, {
+      ...entry,
+      missingSessions: Math.max(1, finiteCount(entry.missingSessions, 1)),
+      reasonCodes: entry.reasonCodes?.length
+        ? entry.reasonCodes
+        : (entry as PtScheduleUnassignedEntry & { reason?: string }).reason === 'trainer_off'
+          ? ['TRAINER_ON_LEAVE']
+          : ['STUDENT_UNSCHEDULED'],
+    }]))
+    for (const row of operationalStudentRows) {
+      if (row.missing < 1 || byStudent.has(row.student.id)) continue
+      const reasonCodes: string[] = []
+      if (!['submitted', 'locked', 'recurring'].includes(row.student.availabilityStatus)) reasonCodes.push('STUDENT_AVAILABILITY_MISSING')
+      if (row.student.eligibilityReasons.includes('AMBIGUOUS_ACTIVE_CONTRACT')) reasonCodes.push('AMBIGUOUS_ACTIVE_CONTRACT')
+      if (!row.trainerNames) reasonCodes.push('TRAINER_NOT_ASSIGNED')
+      if (!reasonCodes.length) reasonCodes.push('STUDENT_UNSCHEDULED')
+      byStudent.set(row.student.id, {
+        studentId: row.student.id,
+        studentName: row.student.name,
+        missingSessions: row.missing,
+        reasonCodes,
+        suggestedSlots: [],
+      })
+    }
+    return [...byStudent.values()].sort((left, right) => right.missingSessions - left.missingSessions
+      || String(left.studentName || '').localeCompare(String(right.studentName || ''), 'vi'))
+  }, [operationalStudentRows, workspace?.unassigned, workspace?.unassignedEntries])
+
+  const selectedTrainerLoads = useMemo(() => trainerLoads.filter((load) => load.trainerId === selectedTrainerId), [selectedTrainerId, trainerLoads])
+  const warningCount = useMemo(() => {
+    const affectedStudents = new Set([
+      ...unassignedEntries.map((entry) => entry.studentId),
+      ...studentWarnings.map((row) => row.student.id),
+      ...ineligibleDraftRows.map((row) => row.student.id),
+    ])
+    return affectedStudents.size + (workspace?.summary.unconfiguredTrainers || 0)
+  }, [ineligibleDraftRows, studentWarnings, unassignedEntries, workspace?.summary.unconfiguredTrainers])
+
   useEffect(() => {
     if (!workspace || !inspectorSlotId || !selectedTrainerId) {
       setCandidates([])
@@ -305,6 +442,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           schedule: result.schedule,
           draftRevision: result.draftRevision,
           draftStatus: 'draft',
+          // Command API v2 chưa trả snapshot tối ưu mới. Xóa snapshot cũ để
+          // coverage/tải PT được tính trực tiếp từ draft vừa nhận.
+          optimizationSummary: undefined,
+          trainerLoads: undefined,
+          studentCoverage: undefined,
+          unassignedEntries: undefined,
+          unassigned: undefined,
         } : current)
       }
       setNotice(`Đã lưu draft r${result.draftRevision}.`)
@@ -377,10 +521,15 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         draftRevision: result.draftRevision,
         draftStatus: 'draft',
         warnings: result.warnings,
+        optimizationSummary: result.optimizationSummary || current.optimizationSummary,
+        unassignedEntries: result.unassignedEntries || result.unassigned || current.unassignedEntries,
+        trainerLoads: result.trainerLoads || current.trainerLoads,
+        studentCoverage: result.studentCoverage || current.studentCoverage,
       } : current)
-      setNotice(result.warnings.length
-        ? `Đã tạo draft r${result.draftRevision}; còn ${result.warnings.length} hồ sơ cần xử lý.`
-        : `Đã tạo draft r${result.draftRevision} bằng bộ xếp lịch ${result.generatorVersion}.`)
+      const unresolved = result.unassignedEntries?.length || result.unassigned?.length || result.warnings.length
+      setNotice(unresolved
+        ? `Đã tối ưu draft r${result.draftRevision}; còn ${unresolved} hồ sơ cần xử lý.`
+        : `Đã tối ưu draft r${result.draftRevision} bằng ${result.generatorVersion}.`)
     } catch (arrangeError) {
       const normalized = asPtSchedulePublishError(arrangeError)
       setError(normalized.message)
@@ -490,9 +639,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       </header>
 
       <section className="branch-schedule__metrics" aria-label="Tổng quan lịch">
-        <article><UsersRound /><div><strong>{workspace?.summary.eligibleStudents || 0}</strong><span>Học viên đủ điều kiện</span></div></article>
-        <article><CheckCircle2 /><div><strong>{workspace ? Object.values(workspace.schedule).flat().filter((entry) => entry.type !== 'off').length : 0}</strong><span>Buổi trong draft</span></div></article>
-        <article className={missingSessions > 0 ? 'is-warning' : ''}><AlertTriangle /><div><strong>{missingSessions}</strong><span>Buổi còn thiếu</span></div></article>
+        <article className="is-coverage"><UsersRound /><div><strong>{studentCoverage.withAtLeastOne}/{studentCoverage.eligible}</strong><span>Đã có ít nhất 1 buổi</span></div></article>
+        <article><CheckCircle2 /><div><strong>{studentCoverage.fullyScheduled}/{studentCoverage.eligible}</strong><span>Đã đủ mục tiêu tuần</span></div></article>
+        <article><CalendarRange /><div><strong>{studentCoverage.scheduledEntries}/{studentCoverage.totalTargetSessions}</strong><span>Buổi đã xếp / mục tiêu</span></div></article>
+        <article className={studentCoverage.missingSessions > 0 ? 'is-warning' : ''}><AlertTriangle /><div><strong>{studentCoverage.missingSessions}</strong><span>Buổi còn thiếu</span></div></article>
         <article className={(workspace?.summary.unconfiguredTrainers || 0) > 0 ? 'is-warning' : ''}><Clock3 /><div><strong>{workspace?.summary.unconfiguredTrainers || 0}</strong><span>PT thiếu lịch rảnh</span></div></article>
       </section>
 
@@ -500,11 +650,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         <div className="branch-schedule__tabs" role="tablist">
           <button type="button" className={tab === 'matrix' ? 'is-active' : ''} onClick={() => setTab('matrix')}>Ma trận</button>
           <button type="button" className={tab === 'students' ? 'is-active' : ''} onClick={() => setTab('students')}>Học viên <b>{workspace?.summary.eligibleStudents || 0}</b></button>
-          <button type="button" className={tab === 'warnings' ? 'is-active' : ''} onClick={() => setTab('warnings')}>Cảnh báo <b>{studentWarnings.length + ineligibleDraftRows.length + (workspace?.summary.unconfiguredTrainers || 0)}</b></button>
+          <button type="button" className={tab === 'warnings' ? 'is-active' : ''} onClick={() => setTab('warnings')}>Cảnh báo <b>{warningCount}</b></button>
           <button type="button" className={tab === 'history' ? 'is-active' : ''} onClick={() => void openHistory()}>Phiên bản</button>
         </div>
         <div className="branch-schedule__actions">
-          <button type="button" onClick={() => void autoArrange()} disabled={!workspace || busy}><Sparkles size={16} /> Xếp tự động</button>
+          <button type="button" onClick={() => void autoArrange()} disabled={!workspace || busy}><Sparkles size={16} /> Xếp lịch tối ưu</button>
           <button type="button" className="is-publish" onClick={() => void validatePublish()} disabled={!workspace || busy}><CheckCircle2 size={16} /> Kiểm tra & Publish</button>
           <button type="button" aria-label="Tải lại" onClick={() => void loadWorkspace()} disabled={loading || busy}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /></button>
         </div>
@@ -517,9 +667,29 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       {workspace && tab === 'matrix' && (
         <main className="branch-schedule__workspace">
           <section className="branch-schedule__matrix-toolbar">
-            <label><span>Huấn luyện viên</span><select value={selectedTrainerId} onChange={(event) => setSelectedTrainerId(event.target.value)}>{workspace.trainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name}</option>)}</select></label>
+            <label><span>Huấn luyện viên</span><select value={selectedTrainerId} onChange={(event) => setSelectedTrainerId(event.target.value)}>{workspace.trainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name} · {trainer.dailySessionTarget || 8} ca/ngày</option>)}</select></label>
             {selectedTrainer && <div className={`trainer-availability-chip is-${selectedTrainer.availabilityMode}`}><Clock3 size={14} />{selectedTrainer.availabilityMode === 'configured' ? `${selectedTrainer.availableSlots?.length || 0} khung giờ rảnh` : selectedTrainer.availabilityMode === 'unrestricted' ? 'Không giới hạn' : 'Chưa khai lịch rảnh'}</div>}
             <div className="branch-schedule__draft-meta"><span>Draft r{workspace.draftRevision}</span><span>Published v{workspace.publishedVersion}</span></div>
+          </section>
+
+          <section className="trainer-workload" aria-label="Tải ca huấn luyện viên theo ngày">
+            <header>
+              <div><strong>Tải ca PT</strong><span>Ca đôi cùng giờ chỉ tính 1 ca</span></div>
+              {selectedTrainer && <b>{selectedTrainerLoads.reduce((total, load) => total + load.count, 0)} ca tuần · mục tiêu {selectedTrainer.dailySessionTarget || 8}/ngày</b>}
+            </header>
+            <div className="trainer-workload__rail">
+              {workspace.trainers.map((trainer) => {
+                const loads = trainerLoads.filter((load) => load.trainerId === trainer.id)
+                const total = loads.reduce((sum, load) => sum + load.count, 0)
+                const priority = finiteCount(trainer.schedulingPriority, trainer.priority)
+                const target = loads[0]?.target || trainer.dailySessionTarget || 8
+                const limit = loads[0]?.limit || trainer.dailySessionLimit || 10
+                return <button type="button" key={trainer.id} className={`trainer-workload__card${trainer.id === selectedTrainerId ? ' is-active' : ''}`} onClick={() => setSelectedTrainerId(trainer.id)}>
+                  <span className="trainer-workload__identity"><strong>{trainer.name} · {total} ca</strong><small>{priority > 0 ? `Ưu tiên #${priority}` : 'Tự cân tải'} · mục tiêu {target} · trần {limit}</small></span>
+                  <span className="trainer-workload__days">{loads.map((load) => <i key={load.day} className={`is-${load.status}`} title={`${DAY_LABELS[load.day] || load.day}: ${load.count}/${load.target} ca · ${TRAINER_LOAD_LABELS[load.status]}`}><small>{load.day}</small><b>{load.count}/{load.target}</b></i>)}</span>
+                </button>
+              })}
+            </div>
           </section>
 
           <div className="branch-schedule__mobile-days">
@@ -578,7 +748,20 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
       {workspace && tab === 'warnings' && (
         <main className="branch-schedule__warning-page">
-          <header><p>AURA VALIDATION</p><h2>Hồ sơ cần xử lý trước publish</h2><span>Chạm vào từng học viên để xem PT phụ trách, lịch rảnh và lịch đã xếp.</span></header>
+          <header><p>AURA VALIDATION</p><h2>Hồ sơ cần xử lý trước publish</h2><span>{unassignedEntries.length} học viên chưa xếp đủ. Chạm từng hồ sơ để xem nguyên nhân, PT và lịch rảnh.</span></header>
+          {unassignedEntries.length > 0 && <section className="schedule-unassigned">
+            <header><div><strong>Chưa xếp đủ</strong><span>Ưu tiên xử lý theo số buổi còn thiếu</span></div><b>{unassignedEntries.length} học viên</b></header>
+            <div>{unassignedEntries.map((entry) => {
+              const student = workspace.students.find((item) => item.id === entry.studentId)
+              const reasons = entry.reasonCodes?.length ? entry.reasonCodes : entry.reasons?.length ? entry.reasons : ['STUDENT_UNSCHEDULED']
+              const suggestedSlots = entry.suggestedSlots || []
+              return <article key={`unassigned-${entry.studentId}`}>
+                <span className="schedule-unassigned__count">-{entry.missingSessions}</span>
+                <div><strong>{entry.studentName || student?.name || 'Học viên chưa cập nhật tên'}</strong><span>{reasons.map(ptScheduleConflictLabel).join(' · ')}</span>{suggestedSlots.length > 0 && <small>Gợi ý: {suggestedSlots.slice(0, 4).map(availabilitySlotLabel).join(' · ')}</small>}</div>
+                <button type="button" onClick={() => { setTab('students'); setStudentSearch(entry.studentName || student?.name || entry.studentId); setStudentFilter('missing') }}>Mở</button>
+              </article>
+            })}</div>
+          </section>}
           <section className="schedule-warning-grid">
             {workspace.trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').map((trainer) => <article key={trainer.id} className="is-blocking"><Clock3 /><div><strong>{trainer.name}</strong><span>PT chưa cấu hình lịch rảnh nên được loại khỏi xếp tự động; các PT đã cấu hình vẫn hoạt động.</span></div></article>)}
             {studentWarnings.map((row) => {
@@ -610,7 +793,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                 </div>}
               </article>
             })}
-            {!studentWarnings.length && !ineligibleDraftRows.length && workspace.summary.unconfiguredTrainers === 0 && <div className="schedule-warning-empty"><CheckCircle2 /> Không còn cảnh báo dữ liệu đầu vào.</div>}
+            {!unassignedEntries.length && !studentWarnings.length && !ineligibleDraftRows.length && workspace.summary.unconfiguredTrainers === 0 && <div className="schedule-warning-empty"><CheckCircle2 /> Không còn cảnh báo dữ liệu đầu vào.</div>}
           </section>
         </main>
       )}

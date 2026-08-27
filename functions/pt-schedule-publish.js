@@ -5,7 +5,10 @@ const { FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 
-const MAX_SCHEDULE_ENTRIES = 400
+// Keep enough headroom for schedule/version/audit writes in the same atomic
+// publish transaction. A paired session still occupies one trainer time slot,
+// but each learner session is a separate Firestore write.
+const MAX_SCHEDULE_ENTRIES = 440
 const MAX_ENTRIES_PER_SLOT = 100
 const MAX_TRANSACTION_WRITES = 450
 const ACTIVE_SESSION_STATUSES = new Set(['scheduled', 'rescheduled'])
@@ -68,6 +71,11 @@ function entryKey(scheduleId, slotId, studentId) {
 function normalizedCapacity(value) {
   const result = Number(value)
   return Number.isInteger(result) && result >= 1 && result <= 4 ? result : 2
+}
+
+function normalizedDailySessionLimit(value) {
+  const result = Number(value)
+  return Number.isInteger(result) && result >= 1 && result <= 16 ? result : 10
 }
 
 function trainerAvailabilityMode(value = {}) {
@@ -297,7 +305,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       if (recurringConfirmed) warnings.push('LEGACY_AVAILABILITY_FALLBACK')
 
       const dateCandidates = contracts.filter((contract) => contract.studentId === studentId
-        && contract.status === 'active'
+        && ['active', 'future'].includes(String(contract.status || 'active').toLowerCase())
         && storedDate(contract.startDate) <= date
         && storedDate(contract.endDate) >= date)
       if (dateCandidates.some((contract) => !contract.branchId)) errors.push('CONTRACT_BRANCH_REQUIRED')
@@ -351,6 +359,18 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
     const trainerId = key.split('|').at(-1)
     if (offSlots.has(key)) errors.push('TRAINER_OFF_CONFLICT')
     if (count > normalizedCapacity(trainers.get(trainerId)?.slotCapacity)) errors.push('TRAINER_CAPACITY_EXCEEDED')
+  }
+  const trainerDailySlots = new Map()
+  for (const key of trainerSlots.keys()) {
+    const [date, , trainerId] = key.split('|')
+    const dailyKey = `${date}|${trainerId}`
+    trainerDailySlots.set(dailyKey, (trainerDailySlots.get(dailyKey) || 0) + 1)
+  }
+  for (const [dailyKey, count] of trainerDailySlots) {
+    const trainerId = dailyKey.split('|').at(-1)
+    if (count > normalizedDailySessionLimit(trainers.get(trainerId)?.dailySessionLimit)) {
+      errors.push('TRAINER_DAILY_SESSION_LIMIT_EXCEEDED')
+    }
   }
   if (desired.size > MAX_SCHEDULE_ENTRIES) errors.push('SCHEDULE_TOO_LARGE')
   return { desired, errors: [...new Set(errors)], warnings: [...new Set(warnings)] }

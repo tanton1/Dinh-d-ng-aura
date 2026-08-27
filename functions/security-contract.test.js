@@ -461,7 +461,7 @@ test('PT schedule V2 is actor-scoped, date-exact, branch-owned and command revis
   assert.match(ptScheduleV2Source, /AMBIGUOUS_ACTIVE_CONTRACT/)
   assert.match(ptScheduleV2Source, /TRAINER_AVAILABILITY_UNCONFIGURED/)
   assert.match(ptScheduleV2Source, /availabilityStatus = weekly\?\.status \|\| \(recurringConfirmed \? 'recurring' : 'missing'\)/)
-  assert.match(ptScheduleV2Source, /MAX_DRAFT_ENTRIES = 400/)
+  assert.match(ptScheduleV2Source, /MAX_DRAFT_ENTRIES = 440/)
   assert.doesNotMatch(ptScheduleV2Source, /entries\.slice\(0, 5\)/)
   assert.match(ptScheduleV2Source, /revision !== expectedRevision/)
   assert.match(ptScheduleV2Source, /transaction\.create\(receipt/)

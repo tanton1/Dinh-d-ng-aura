@@ -86,6 +86,12 @@ export interface Trainer {
   status: 'active' | 'inactive'
   employmentType?: 'full_time' | 'part_time' | 'collaborator'
   priority?: number
+  /** Canonical scheduling rank; lower values win equal-load tie breaks. */
+  schedulingPriority?: number
+  /** Soft target of distinct teaching slots per day. */
+  dailySessionTarget?: number
+  /** Hard ceiling of distinct teaching slots per day. */
+  dailySessionLimit?: number
   availableSlots?: string[]
   /** Number of learners this trainer can safely serve in one time slot. */
   slotCapacity?: number

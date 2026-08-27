@@ -161,19 +161,124 @@ test('does not silently truncate entries when several trainers share one hour', 
 
 test('generator stops safely at the bounded draft capacity and reports it', () => {
   const data = fixture()
-  data.schedule = Object.fromEntries(['T2-6', 'T3-6', 'T4-6', 'T5-6'].map((slotId, slotIndex) => [
-    slotId,
-    Array.from({ length: 100 }, (_, index) => ({
+  const slotIds = ['T2-6', 'T3-6', 'T4-6', 'T5-6', 'T6-6']
+  let remainingEntries = MAX_DRAFT_ENTRIES
+  data.schedule = Object.fromEntries(slotIds.map((slotId, slotIndex) => {
+    const slotEntryCount = Math.min(100, remainingEntries)
+    remainingEntries -= slotEntryCount
+    return [slotId, Array.from({ length: slotEntryCount }, (_, index) => ({
       studentId: `locked-${slotIndex}-${index}`,
       trainerId: `trainer-${index}`,
       branchId: BRANCH,
       type: 'training',
       isLocked: true,
-    })),
-  ]))
+    }))]
+  }))
   const generated = generateSchedule(data)
   assert.equal(Object.values(generated.schedule).flat().length, MAX_DRAFT_ENTRIES)
   assert.equal(generated.warnings[0].code, 'DRAFT_CAPACITY_REACHED')
+})
+
+test('coverage pass gives every feasible learner one session before filling higher targets', () => {
+  const data = fixture()
+  data.trainers[0].slotCapacity = 1
+  data.students = [
+    { ...data.students[0], id: 'student-a', name: 'A', sessionsPerWeek: 2, availableSlots: ['T2-6', 'T4-6'] },
+    { ...data.students[0], id: 'student-b', name: 'B', sessionsPerWeek: 1, availableSlots: ['T2-6', 'T4-6'] },
+  ]
+  data.contracts = data.students.map((student) => ({ ...fixture().contracts[0], id: `contract-${student.id}`, studentId: student.id }))
+  const generated = generateSchedule(data)
+  const counts = Object.values(generated.schedule).flat().reduce((result, entry) => ({ ...result, [entry.studentId]: (result[entry.studentId] || 0) + 1 }), {})
+  assert.equal(counts['student-a'], 1)
+  assert.equal(counts['student-b'], 1)
+  assert.deepEqual(generated.optimizationSummary.studentCoverage, {
+    eligibleStudents: 2,
+    studentsWithAtLeastOne: 2,
+    fullyScheduledStudents: 1,
+    totalTargetSessions: 3,
+    scheduledEntries: 2,
+    missingSessions: 1,
+  })
+})
+
+test('unassigned learners balance unique teaching slots by daily target', () => {
+  const data = fixture()
+  const slots = ['T2-6', 'T2-7', 'T2-8', 'T2-9']
+  data.trainers = ['trainer-a', 'trainer-b'].map((id) => ({
+    ...data.trainers[0], id, availableSlots: slots, slotCapacity: 1, dailySessionTarget: 8, dailySessionLimit: 10,
+  }))
+  data.students = Array.from({ length: 4 }, (_, index) => ({
+    ...data.students[0], id: `student-${index}`, name: `Student ${index}`, availableSlots: slots,
+  }))
+  data.contracts = data.students.map((student) => ({
+    ...fixture().contracts[0], id: `contract-${student.id}`, studentId: student.id, trainerId: '', trainerIds: [],
+  }))
+  const generated = generateSchedule(data)
+  const mondayLoads = generated.optimizationSummary.trainerLoads.filter((load) => load.day === 'T2')
+  assert.deepEqual(mondayLoads.map((load) => [load.trainerId, load.teachingSlots]), [['trainer-a', 2], ['trainer-b', 2]])
+})
+
+test('trainer rank breaks equal-load ties for a learner without assignment', () => {
+  const data = fixture()
+  data.contracts[0].trainerId = ''
+  data.trainers = [
+    { ...data.trainers[0], id: 'trainer-low', schedulingPriority: 9 },
+    { ...data.trainers[0], id: 'trainer-high', schedulingPriority: 1 },
+  ]
+  const generated = generateSchedule(data)
+  assert.equal(Object.values(generated.schedule).flat().find((entry) => entry.studentId === 'student-a').trainerId, 'trainer-high')
+})
+
+test('primary trainer remains ahead of secondary trainer regardless of rank', () => {
+  const data = fixture()
+  data.contracts[0].trainerId = 'trainer-primary'
+  data.contracts[0].trainerIds = ['trainer-secondary']
+  data.trainers = [
+    { ...data.trainers[0], id: 'trainer-primary', schedulingPriority: 100 },
+    { ...data.trainers[0], id: 'trainer-secondary', schedulingPriority: 1 },
+  ]
+  const generated = generateSchedule(data)
+  assert.equal(Object.values(generated.schedule).flat().find((entry) => entry.studentId === 'student-a').trainerId, 'trainer-primary')
+})
+
+test('paired learners count as one teaching slot and a new slot cannot exceed the daily hard limit', () => {
+  const data = fixture()
+  data.trainers[0].dailySessionTarget = 1
+  data.trainers[0].dailySessionLimit = 1
+  data.students.push({ ...data.students[0], id: 'student-b', name: 'B' })
+  data.contracts.push({ ...data.contracts[0], id: 'contract-b', studentId: 'student-b' })
+  data.schedule = {
+    'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', isLocked: true }],
+  }
+  const pairCandidate = candidateForSlot(data, { student: data.students[1], trainer: data.trainers[0], slotId: 'T2-6', schedule: data.schedule })
+  const newSlotCandidate = candidateForSlot(data, { student: data.students[1], trainer: data.trainers[0], slotId: 'T2-7', schedule: data.schedule })
+  assert.equal(pairCandidate.eligible, true)
+  assert.ok(newSlotCandidate.reasons.includes('TRAINER_DAILY_SESSION_LIMIT_EXCEEDED'))
+  const generated = generateSchedule(data)
+  const mondayLoad = generated.optimizationSummary.trainerLoads.find((load) => load.trainerId === 'trainer-a' && load.day === 'T2')
+  assert.equal(mondayLoad.teachingSlots, 1)
+  assert.equal(mondayLoad.studentSessions, 2)
+})
+
+test('published sessions are retained and counted once in coverage and PT daily load', () => {
+  const data = fixture()
+  data.sessions = [{
+    id: 'published-a', status: 'scheduled', studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, date: WEEK, hour: 6,
+  }]
+  const generated = generateSchedule(data)
+  assert.equal(Object.values(generated.schedule).flat().filter((entry) => entry.studentId === 'student-a').length, 1)
+  assert.equal(generated.optimizationSummary.studentCoverage.scheduledEntries, 1)
+  assert.equal(generated.optimizationSummary.trainerLoads.find((load) => load.trainerId === 'trainer-a' && load.day === 'T2').teachingSlots, 1)
+})
+
+test('legacy published session falls back to the hour encoded in its id', () => {
+  const data = fixture()
+  data.sessions = [{
+    id: 'session-6-student-a', status: 'scheduled', studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, date: WEEK,
+  }]
+  const generated = generateSchedule(data)
+  assert.equal(generated.schedule['T2-6'][0].source, 'published_existing')
+  assert.equal(generated.optimizationSummary.trainerLoads.find((load) => load.trainerId === 'trainer-a' && load.day === 'T2').teachingSlots, 1)
 })
 
 test('blocks leave, trainer assignment mismatch and paused contract', () => {
