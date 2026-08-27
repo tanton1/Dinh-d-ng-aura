@@ -10,7 +10,7 @@ export interface DashboardActionMetric {
 }
 
 export interface OperationsDashboardData {
-  schemaVersion: 4
+  schemaVersion: 5
   range: { startAt: string; endAt: string; timeZone: string }
   branchId: string
   scope: { branchId: string; branchIds: string[]; unrestricted: boolean }
@@ -47,12 +47,12 @@ export interface OperationsDashboardData {
       confirmationRate: number
     }
   }
-  finance: { contractSales: number; cashCollected: number; refunds: number; reversals: number; adjustments: number; netCash: number; receivables: number }
-  clients: { total: number; active: number; newInRange: number; activeContracts: number; preservedContracts: number }
+  finance: { contractSales: number; recognizedRevenue: number; cashCollected: number; refunds: number; reversals: number; adjustments: number; netCash: number; receivables: number; frozenReceivables: number }
+  clients: { total: number; active: number; newInRange: number; activeContracts: number; preservedContracts: number; exhaustedContracts: number; expiringSoonContracts: number }
   analytics: {
     revenue: {
       granularity: 'day' | 'week' | 'month'
-      points: Array<{ key: string; label: string; contractSales: number; grossCash: number; netCash: number }>
+      points: Array<{ key: string; label: string; contractSales: number; recognizedRevenue: number; grossCash: number; netCash: number }>
     }
     packages: {
       totalActive: number
@@ -72,6 +72,7 @@ export interface OperationsDashboardData {
   }
   operations: { sessions: number; attendanceEvents: number; sessionStatus: Record<string, number>; completionRate: number; activeTrainers: number; activeStaff: number; branches: number }
   quality: { completeness: 'complete' | 'partial'; missingContractEffectiveDate: number; truncated: boolean; canonicalFinanceSource: string; canonicalAttendanceSource: string }
+  filters: { branches: Array<{ id: string; name: string }> }
   generatedAt: string
   cache: { hit: boolean; ttlSeconds: number }
 }
@@ -154,6 +155,7 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
       key: text(point.key),
       label: text(point.label),
       contractSales: finiteNumber(point.contractSales),
+      recognizedRevenue: finiteNumber(point.recognizedRevenue),
       grossCash: finiteNumber(point.grossCash),
       netCash: finiteNumber(point.netCash),
     }
@@ -165,7 +167,7 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
   }
 
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     range: {
       startAt: text(range.startAt),
       endAt: text(range.endAt),
@@ -212,12 +214,14 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
     },
     finance: {
       contractSales: finiteNumber(finance.contractSales),
+      recognizedRevenue: finiteNumber(finance.recognizedRevenue),
       cashCollected,
       refunds,
       reversals,
       adjustments,
       netCash,
-      receivables: finiteNumber(finance.receivables),
+      receivables: nonNegativeNumber(finance.receivables),
+      frozenReceivables: nonNegativeNumber(finance.frozenReceivables),
     },
     clients: {
       total: nonNegativeNumber(clients.total),
@@ -225,6 +229,8 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
       newInRange: nonNegativeNumber(clients.newInRange),
       activeContracts: nonNegativeNumber(clients.activeContracts),
       preservedContracts: nonNegativeNumber(clients.preservedContracts || packages.preservedContracts || off.preservedContracts),
+      exhaustedContracts: nonNegativeNumber(clients.exhaustedContracts),
+      expiringSoonContracts: nonNegativeNumber(clients.expiringSoonContracts),
     },
     analytics: {
       revenue: {
@@ -272,6 +278,14 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
       truncated: quality.truncated === true,
       canonicalFinanceSource: text(quality.canonicalFinanceSource, 'ledgerEntries'),
       canonicalAttendanceSource: text(quality.canonicalAttendanceSource, 'attendanceEvents'),
+    },
+    filters: {
+      branches: Array.isArray(record(source.filters).branches)
+        ? (record(source.filters).branches as unknown[]).map((item) => {
+          const branch = record(item)
+          return { id: text(branch.id), name: text(branch.name, text(branch.id)) }
+        }).filter((item) => item.id)
+        : [],
     },
     generatedAt: text(source.generatedAt, new Date().toISOString()),
     cache: {

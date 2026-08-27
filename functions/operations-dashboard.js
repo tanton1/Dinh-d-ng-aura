@@ -100,6 +100,11 @@ function contractDebt(value) {
   return Math.max(0, contractAmount(value) - Math.max(0, Number(value.paidAmount || 0)))
 }
 
+function collectibleContractDebt(value) {
+  if (['draft', 'cancelled', 'inactive', 'archived'].includes(value.status)) return 0
+  return contractDebt(value)
+}
+
 function ledgerReceiptImpact(value) {
   if (!['payment', 'refund', 'reversal', 'adjustment'].includes(value.type)) return 0
   if (value.cashImpact !== undefined && value.cashImpact !== null && Number.isFinite(Number(value.cashImpact))) {
@@ -109,20 +114,32 @@ function ledgerReceiptImpact(value) {
   return Number.isFinite(amount) ? amount : 0
 }
 
+function ledgerRevenueImpact(value) {
+  if (value.revenueImpact !== undefined && value.revenueImpact !== null && Number.isFinite(Number(value.revenueImpact))) {
+    return Number(value.revenueImpact)
+  }
+  return value.type === 'revenue_recognition' && Number.isFinite(Number(value.amount)) ? Number(value.amount) : 0
+}
+
 function storedDateKey(value) {
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10)
   const time = milliseconds(value)
   return time ? dateKey(new Date(time)) : ''
 }
 
-function hasUsableContractWindow(value, referenceDate) {
+function hasCurrentContractWindow(value, referenceDate) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(referenceDate)) return false
   if (['cancelled', 'expired', 'inactive', 'archived'].includes(value.status)) return false
   const startDate = storedDateKey(value.startDate)
   const endDate = storedDateKey(value.endDate)
+  return Boolean(startDate && endDate && startDate <= referenceDate && endDate >= referenceDate)
+}
+
+function hasUsableContractWindow(value, referenceDate) {
+  if (!hasCurrentContractWindow(value, referenceDate)) return false
   const totalSessions = Math.max(0, Number(value.totalSessions || 0))
   const usedSessions = Math.max(0, Number(value.usedSessions || 0))
-  return Boolean(startDate && endDate && startDate <= referenceDate && endDate >= referenceDate && totalSessions > usedSessions)
+  return totalSessions > usedSessions
 }
 
 function isPreservedContract(value, referenceDate) {
@@ -134,6 +151,21 @@ function isPreservedContract(value, referenceDate) {
 
 function isEffectiveContract(value, referenceDate) {
   return hasUsableContractWindow(value, referenceDate) && !isPreservedContract(value, referenceDate)
+}
+
+function isExhaustedContract(value, referenceDate) {
+  if (!hasCurrentContractWindow(value, referenceDate)) return false
+  const totalSessions = Math.max(0, Number(value.totalSessions || 0))
+  const usedSessions = Math.max(0, Number(value.usedSessions || 0))
+  return totalSessions > 0 && usedSessions >= totalSessions
+}
+
+function isExpiringContract(value, referenceDate, withinDays = 30) {
+  if (!isEffectiveContract(value, referenceDate) && !isPreservedContract(value, referenceDate)) return false
+  const endDate = storedDateKey(value.endDate)
+  const referenceTime = Date.parse(`${referenceDate}T00:00:00Z`)
+  const endTime = Date.parse(`${endDate}T00:00:00Z`)
+  return Number.isFinite(endTime) && endTime >= referenceTime && endTime <= referenceTime + withinDays * 86400000
 }
 
 function reportGranularity(start, end) {
@@ -159,7 +191,7 @@ function dashboardAnalytics({ ledgerValues, contractValues, offValues, start, en
   const granularity = reportGranularity(start, end)
   const points = new Map()
   const point = (bucket) => {
-    const current = points.get(bucket.key) || { key: bucket.key, label: bucket.label, contractSales: 0, grossCash: 0, netCash: 0 }
+    const current = points.get(bucket.key) || { key: bucket.key, label: bucket.label, contractSales: 0, recognizedRevenue: 0, grossCash: 0, netCash: 0 }
     points.set(bucket.key, current)
     return current
   }
@@ -176,6 +208,7 @@ function dashboardAnalytics({ ledgerValues, contractValues, offValues, start, en
     const current = point(bucket)
     if (value.type === 'payment' && amount > 0) current.grossCash += amount
     current.netCash += amount
+    current.recognizedRevenue += ledgerRevenueImpact(value)
   }
 
   const effectiveContracts = contractValues.filter((value) => isEffectiveContract(value, referenceDate))
@@ -229,9 +262,13 @@ function pendingInstallments(value) {
 function summarizeReceivables(contracts, today) {
   const summary = emptyAction(true)
   for (const contract of contracts) {
-    const debt = contractDebt(contract)
-    if (!debt || contract.status === 'frozen') continue
+    const debt = collectibleContractDebt(contract)
+    if (!debt) continue
     summary.totalCount += 1
+    if (contract.status === 'frozen') {
+      summary.warningCount += 1
+      continue
+    }
     const installments = pendingInstallments(contract)
     let overdueAmount = 0
     let dueTodayAmount = 0
@@ -452,7 +489,8 @@ function createOperationsDashboardFunctions({ db, onCall }) {
     const studentValues = students ? students.docs.map((item) => item.data()).filter((value) => scopeMatches(value, scope)) : []
     const trainerValues = trainers ? trainers.docs.map((item) => item.data()).filter((value) => scopeMatches(value, scope)) : []
     const staffValues = staff ? staff.docs.map((item) => item.data()).filter((value) => scopeMatches(value, scope)) : []
-    const branchValues = branches ? branches.docs.map((item) => ({ id: item.id, ...item.data() })).filter((value) => scope.unrestricted || scope.branchIds.includes(value.id)) : []
+    const availableBranchValues = branches ? branches.docs.map((item) => ({ id: item.id, ...item.data() })) : []
+    const branchValues = availableBranchValues.filter((value) => scope.unrestricted || scope.branchIds.includes(value.id))
     const sessionValues = sessionRange?.docs ? sessionRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
     const attendanceValues = attendanceRange?.docs ? attendanceRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
     const confirmedSessionValues = confirmedSessionRange?.docs ? confirmedSessionRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
@@ -470,17 +508,22 @@ function createOperationsDashboardFunctions({ db, onCall }) {
       if (value.type === 'reversal' && amount < 0) result.reversals += Math.abs(amount)
       if (value.type === 'adjustment') result.adjustments += amount
       result.netCash += amount
+      result.recognizedRevenue += ledgerRevenueImpact(value)
       return result
-    }, { cashCollected: 0, refunds: 0, reversals: 0, adjustments: 0, netCash: 0 })
+    }, { cashCollected: 0, refunds: 0, reversals: 0, adjustments: 0, netCash: 0, recognizedRevenue: 0 })
 
     let missingContractEffectiveDate = 0
     const contractSales = contractValues.reduce((total, value) => {
+      if (['draft', 'cancelled', 'inactive', 'archived'].includes(value.status)) return total
       const effectiveDate = contractEffectiveDate(value)
       if (!effectiveDate) { missingContractEffectiveDate += 1; return total }
       if (!inRange(effectiveDate, start, end)) return total
       return total + Math.max(0, Number(value.totalPrice || 0) - Number(value.discount || 0))
     }, 0)
-    const receivables = contractValues.reduce((total, value) => total + contractDebt(value), 0)
+    const receivables = contractValues.reduce((total, value) => total + collectibleContractDebt(value), 0)
+    const frozenReceivables = contractValues
+      .filter((value) => value.status === 'frozen')
+      .reduce((total, value) => total + collectibleContractDebt(value), 0)
     const sessionStatus = todayValues.reduce((result, value) => {
       const status = typeof value.status === 'string' ? value.status : 'unknown'
       result[status] = Number(result[status] || 0) + 1
@@ -515,7 +558,7 @@ function createOperationsDashboardFunctions({ db, onCall }) {
     const referenceDate = dateKey(new Date(Math.min(end.getTime(), now.getTime())))
     const analytics = dashboardAnalytics({ ledgerValues, contractValues, offValues, start, end, referenceDate })
     const result = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       range: { startAt: start.toISOString(), endAt: end.toISOString(), timeZone: 'Asia/Ho_Chi_Minh' },
       branchId,
       scope: { branchId, branchIds: scope.branchIds, unrestricted: scope.unrestricted },
@@ -538,13 +581,15 @@ function createOperationsDashboardFunctions({ db, onCall }) {
           confirmationRate: attendanceToday.charged ? Math.round(confirmedToday / attendanceToday.charged * 1000) / 10 : 0,
         },
       },
-      finance: { ...finance, contractSales, receivables },
+      finance: { ...finance, contractSales, receivables, frozenReceivables },
       clients: {
         total: studentValues.length,
         active: studentValues.filter((value) => !['inactive', 'cancelled', 'archived'].includes(value.status)).length,
         newInRange: studentValues.filter((value) => inRange(value.joinDate || value.createdAt, start, end)).length,
         activeContracts: analytics.packages.totalActive,
         preservedContracts: analytics.packages.preservedContracts,
+        exhaustedContracts: contractValues.filter((value) => isExhaustedContract(value, referenceDate)).length,
+        expiringSoonContracts: contractValues.filter((value) => isExpiringContract(value, referenceDate)).length,
       },
       analytics,
       operations: {
@@ -565,6 +610,13 @@ function createOperationsDashboardFunctions({ db, onCall }) {
       },
       generatedAt: new Date().toISOString(),
       cache: { hit: false, ttlSeconds: Math.round(DASHBOARD_CACHE_TTL_MS / 1000) },
+      filters: {
+        branches: availableBranchValues
+          .filter((value) => isOperationsAdmin(actor) || (Array.isArray(actor.branchIds) && actor.branchIds.includes(value.id)))
+          .filter((value) => value.status !== 'inactive')
+          .map((value) => ({ id: value.id, name: value.name || value.branchName || value.id }))
+          .sort((left, right) => left.name.localeCompare(right.name, 'vi')),
+      },
     }
     setCachedDashboard(cacheKey, result)
     return result
@@ -602,6 +654,9 @@ module.exports = {
   summarizeReceivables,
   isEffectiveContract,
   isPreservedContract,
+  isExhaustedContract,
+  isExpiringContract,
   ledgerReceiptImpact,
+  ledgerRevenueImpact,
   dashboardAnalytics,
 }

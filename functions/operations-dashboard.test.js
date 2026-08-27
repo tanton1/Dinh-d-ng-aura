@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const test = require('node:test')
-const { dashboardAnalytics, dashboardBranchScope, isEffectiveContract, isPreservedContract, ledgerReceiptImpact, renewalCaseMatches, summarizeReceivables } = require('./operations-dashboard')
+const { dashboardAnalytics, dashboardBranchScope, isEffectiveContract, isExhaustedContract, isExpiringContract, isPreservedContract, ledgerReceiptImpact, ledgerRevenueImpact, renewalCaseMatches, summarizeReceivables } = require('./operations-dashboard')
 const source = readFileSync(join(__dirname, 'operations-dashboard.js'), 'utf8')
 const dashboard = readFileSync(join(__dirname, '..', 'src', 'pages', 'admin', 'AdminDashboard.tsx'), 'utf8')
 
@@ -24,7 +24,7 @@ test('dashboard and attendance queries are bounded and capability protected', ()
   assert.match(source, /collection\('attendanceEvents'\)/)
   assert.match(source, /\.count\(\)\.get\(\)/)
   assert.match(source, /DASHBOARD_CACHE_TTL_MS/)
-  assert.match(source, /schemaVersion: 4/)
+  assert.match(source, /schemaVersion: 5/)
   assert.match(source, /actionSummary/)
   assert.match(source, /analytics/)
 })
@@ -40,6 +40,9 @@ test('effective contracts require an active date window and remaining sessions',
   const preservation = { status: 'active', startDate: '2026-01-01', endDate: '2026-12-01', totalSessions: 36, usedSessions: 1, pausePeriods: [{ type: 'preservation', startDate: '2026-08-20', endDate: '2026-09-05' }] }
   assert.equal(isEffectiveContract(preservation, '2026-08-27'), false)
   assert.equal(isPreservedContract(preservation, '2026-08-27'), true)
+  assert.equal(isExhaustedContract({ status: 'active', startDate: '2026-01-01', endDate: '2026-12-01', totalSessions: 36, usedSessions: 36 }, '2026-08-27'), true)
+  assert.equal(isExpiringContract({ status: 'active', startDate: '2026-01-01', endDate: '2026-09-10', totalSessions: 36, usedSessions: 10 }, '2026-08-27'), true)
+  assert.equal(isExpiringContract({ status: 'active', startDate: '2026-01-01', endDate: '2026-11-10', totalSessions: 36, usedSessions: 10 }, '2026-08-27'), false)
 })
 
 test('net receipts exclude recognised revenue and operating expenses', () => {
@@ -47,6 +50,8 @@ test('net receipts exclude recognised revenue and operating expenses', () => {
   assert.equal(ledgerReceiptImpact({ type: 'payment', amount: 1_000_000, cashImpact: 900_000 }), 900_000)
   assert.equal(ledgerReceiptImpact({ type: 'revenue_recognition', amount: 7_000_000 }), 0)
   assert.equal(ledgerReceiptImpact({ type: 'expense', amount: -500_000, cashImpact: -500_000 }), 0)
+  assert.equal(ledgerRevenueImpact({ type: 'revenue_recognition', amount: 7_000_000 }), 7_000_000)
+  assert.equal(ledgerRevenueImpact({ type: 'payment', amount: 7_000_000, revenueImpact: 0 }), 0)
 })
 
 test('dashboard analytics separates gross and net cash and calculates package and OFF ratios', () => {
@@ -69,6 +74,7 @@ test('dashboard analytics separates gross and net cash and calculates package an
   })
   assert.equal(analytics.revenue.points.reduce((total, item) => total + item.grossCash, 0), 1_000_000)
   assert.equal(analytics.revenue.points.reduce((total, item) => total + item.netCash, 0), 800_000)
+  assert.equal(analytics.revenue.points.reduce((total, item) => total + item.recognizedRevenue, 0), 4_000_000)
   assert.equal(analytics.packages.totalActive, 1)
   assert.equal(analytics.packages.preservedContracts, 1)
   assert.equal(analytics.packages.items[0].percent, 100)
@@ -82,12 +88,13 @@ test('receivable actions count overdue and due-today contracts without duplicati
     { totalPrice: 2_000_000, paidAmount: 1_700_000, installments: [{ status: 'pending', date: '2026-08-26', amount: 300_000 }] },
     { totalPrice: 500_000, paidAmount: 0, nextPaymentDate: '2026-09-01' },
     { totalPrice: 900_000, paidAmount: 0, nextPaymentDate: '2026-08-20', status: 'frozen' },
+    { totalPrice: 2_000_000, paidAmount: 0, nextPaymentDate: '2026-08-20', status: 'cancelled' },
   ], '2026-08-26')
-  assert.equal(summary.totalCount, 3)
+  assert.equal(summary.totalCount, 4)
   assert.equal(summary.actionCount, 2)
   assert.equal(summary.overdueCount, 1)
   assert.equal(summary.dueTodayCount, 1)
-  assert.equal(summary.warningCount, 1)
+  assert.equal(summary.warningCount, 2)
   assert.equal(summary.amount, 500_000)
 })
 
@@ -112,7 +119,8 @@ test('dashboard UI is one action-first page without legacy dashboard tabs', () =
   assert.match(dashboard, /Không đến/)
   assert.match(dashboard, /Chờ PT/)
   assert.match(dashboard, /Xem lịch sử tập/)
-  assert.match(dashboard, /DÒNG TIỀN & DOANH SỐ/)
+  assert.match(dashboard, /DOANH THU & DÒNG TIỀN/)
+  assert.match(dashboard, /Doanh thu thực hiện/)
   assert.match(dashboard, /CƠ CẤU GÓI TẬP/)
   assert.match(dashboard, /TỶ LỆ OFF/)
   assert.match(dashboard, /Đang bảo lưu/)
@@ -121,6 +129,7 @@ test('dashboard UI is one action-first page without legacy dashboard tabs', () =
   assert.match(dashboard, /actions\.slice\(0, 4\)/)
   assert.match(dashboard, /item\.metric\.available \|\| data\.scope\.unrestricted/)
   assert.match(dashboard, /Các việc cần xử lý/)
+  assert.match(dashboard, /Tổng quan không hiển thị trạng thái “ổn định” khi dữ liệu chưa tải thành công/)
   assert.doesNotMatch(dashboard, /activeTab/)
   assert.doesNotMatch(dashboard, /admin-operations-tabs/)
 })

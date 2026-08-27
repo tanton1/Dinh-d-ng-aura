@@ -119,8 +119,8 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
   })
 
   test('starts the operations dashboard with Aura metrics on mobile and desktop', async ({ page }) => {
-    for (const width of [390, 1440]) {
-      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    for (const width of [360, 390, 430, 1440]) {
+      await page.setViewportSize({ width, height: width < 680 ? 844 : 900 })
       await page.goto('/#/admin-dashboard')
 
       const dashboard = page.locator('.admin-dashboard')
@@ -128,6 +128,13 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
       await expect(dashboard.locator(':scope > .aura-metric-carousel').first()).toBeVisible()
       await expect(dashboard.locator(':scope > .page-header')).toHaveCount(0)
       await expect(dashboard.locator('.admin-dashboard__syncbar')).toBeVisible()
+      await expect(dashboard.getByText('Dịch vụ Tổng quan chưa phản hồi')).toHaveCount(0)
+      await expect(dashboard.getByText('Thực thu ròng', { exact: true }).first()).toBeVisible()
+      await expect(dashboard.getByText('Doanh thu thực hiện', { exact: true }).first()).toBeVisible()
+      await expect(dashboard.getByText('160 hiệu lực · 11 bảo lưu')).toBeVisible()
+      await expect(dashboard.getByLabel('Lọc theo chi nhánh')).toBeVisible()
+      await expect(dashboard.locator('.admin-dashboard__metric-card')).toHaveCount(4)
+      await expect(dashboard.locator('.admin-dashboard__metric-card').first()).not.toContainText('NaN')
       const dashboardRange = dashboard.locator('.date-range-filter__trigger')
       await expect(dashboardRange).toContainText('Tháng này')
       await dashboardRange.click()
@@ -148,7 +155,7 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
         const content = element.closest('.page-content')?.getBoundingClientRect()
         return { width: rect.width, contentWidth: content?.width ?? rect.width }
       })
-      expect(dashboardLayout.contentWidth - dashboardLayout.width).toBeLessThanOrEqual(width === 390 ? 1 : 2)
+      expect(dashboardLayout.contentWidth - dashboardLayout.width).toBeLessThanOrEqual(width < 680 ? 1 : 2)
       await expectNoHorizontalOverflow(page)
     }
   })

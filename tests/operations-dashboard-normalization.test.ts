@@ -21,7 +21,7 @@ test('dashboard accepts the previous callable schema during a rolling deployment
     generatedAt: '2026-08-26T08:00:00.000Z',
   })
 
-  assert.equal(dashboard.schemaVersion, 4)
+  assert.equal(dashboard.schemaVersion, 5)
   assert.equal(dashboard.finance.cashCollected, 125_000_000)
   assert.equal(dashboard.clients.active, 280)
   assert.equal(dashboard.operations.completionRate, 72)
@@ -37,10 +37,10 @@ test('dashboard accepts the previous callable schema during a rolling deployment
 
 test('dashboard bounds chart payloads and preserves signed canonical cash values', () => {
   const dashboard = normalizeOperationsDashboardData({
-    schemaVersion: 4,
-    finance: { cashCollected: 700000, refunds: 750000, netCash: 999999999 },
+    schemaVersion: 5,
+    finance: { cashCollected: 700000, refunds: 750000, recognizedRevenue: 420000, netCash: 999999999, frozenReceivables: 125000 },
     analytics: {
-      revenue: { granularity: 'week', points: [{ key: '2026-08-24', label: '24/08', contractSales: '1000000', grossCash: 700000, netCash: -50000 }] },
+      revenue: { granularity: 'week', points: [{ key: '2026-08-24', label: '24/08', contractSales: '1000000', recognizedRevenue: 420000, grossCash: 700000, netCash: -50000 }] },
       packages: { totalActive: 2, preservedContracts: 1, items: [{ id: 'p1', name: 'PT 3 tháng', count: 2, percent: 100 }] },
       off: { activeContracts: 2, approvedContracts: 1, activeWithoutOff: 1, approvedRequests: 1, pendingRequests: 2, preservationRequests: 0, preservedContracts: 1, rate: 50 },
     },
@@ -48,9 +48,25 @@ test('dashboard bounds chart payloads and preserves signed canonical cash values
   assert.equal(dashboard.analytics.revenue.granularity, 'week')
   assert.equal(dashboard.analytics.revenue.points[0].netCash, -50000)
   assert.equal(dashboard.finance.netCash, -50000)
+  assert.equal(dashboard.finance.recognizedRevenue, 420000)
+  assert.equal(dashboard.finance.frozenReceivables, 125000)
+  assert.equal(dashboard.analytics.revenue.points[0].recognizedRevenue, 420000)
   assert.equal(dashboard.analytics.packages.preservedContracts, 1)
   assert.equal(dashboard.analytics.packages.items[0].percent, 100)
   assert.equal(dashboard.analytics.off.rate, 50)
+})
+
+test('dashboard normalizes contract health and branch filters', () => {
+  const dashboard = normalizeOperationsDashboardData({
+    schemaVersion: 5,
+    clients: { activeContracts: 160, preservedContracts: 11, exhaustedContracts: 14, expiringSoonContracts: 28 },
+    filters: { branches: [{ id: 'b1', name: 'Cơ sở 1' }, { id: '', name: 'Không hợp lệ' }] },
+  })
+  assert.equal(dashboard.clients.activeContracts, 160)
+  assert.equal(dashboard.clients.preservedContracts, 11)
+  assert.equal(dashboard.clients.exhaustedContracts, 14)
+  assert.equal(dashboard.clients.expiringSoonContracts, 28)
+  assert.deepEqual(dashboard.filters.branches, [{ id: 'b1', name: 'Cơ sở 1' }])
 })
 
 test('dashboard rejects a rolling response that adds recognised revenue to net receipts', () => {

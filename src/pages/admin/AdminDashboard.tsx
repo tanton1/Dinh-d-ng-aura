@@ -4,6 +4,7 @@ import {
   AlertCircle,
   ArrowRight,
   BookOpen,
+  Building2,
   CalendarClock,
   CheckCircle2,
   CircleDollarSign,
@@ -35,6 +36,20 @@ function startOfMonth() {
   return new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
 }
 
+function currentMinute() {
+  const now = new Date()
+  now.setSeconds(0, 0)
+  return now.toISOString()
+}
+
+function dashboardErrorMessage(error: unknown) {
+  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
+  if (code.includes('permission-denied')) return 'Tài khoản chưa có quyền xem Tổng quan hoặc phạm vi chi nhánh chưa được đồng bộ.'
+  if (code.includes('unauthenticated')) return 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại để tải Tổng quan.'
+  if (code.includes('resource-exhausted')) return 'Dữ liệu trong kỳ quá lớn. Hãy chọn khoảng thời gian ngắn hơn rồi thử lại.'
+  return 'Dịch vụ Tổng quan chưa phản hồi. Các số liệu cũ không được giả định là dữ liệu mới.'
+}
+
 function compactMoney(value: number) {
   const amount = Number.isFinite(Number(value)) ? Number(value) : 0
   return new Intl.NumberFormat('vi-VN', { notation: 'compact', maximumFractionDigits: 1 }).format(amount)
@@ -56,24 +71,26 @@ function RevenueTrend({ points }: { points: RevenuePoint[] }) {
   const height = 190
   const top = 14
   const bottom = 30
-  const values = points.flatMap((item) => [item.contractSales, item.grossCash, item.netCash])
+  const chartLeft = 62
+  const chartRight = 14
+  const values = points.flatMap((item) => [item.contractSales, item.recognizedRevenue, item.netCash])
   const maximum = Math.max(1, ...values)
   const minimum = Math.min(0, ...values)
   const span = Math.max(1, maximum - minimum)
-  const x = (index: number) => points.length === 1 ? width / 2 : 18 + index / (points.length - 1) * (width - 36)
+  const x = (index: number) => points.length === 1 ? (chartLeft + width - chartRight) / 2 : chartLeft + index / (points.length - 1) * (width - chartLeft - chartRight)
   const y = (value: number) => top + (maximum - value) / span * (height - top - bottom)
   const path = (pick: (item: RevenuePoint) => number) => points.map((item, index) => `${index ? 'L' : 'M'}${x(index).toFixed(1)},${y(pick(item)).toFixed(1)}`).join(' ')
   const labelStep = Math.max(1, Math.ceil(points.length / 6))
   return <div className="admin-dashboard__revenue-chart">
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Biểu đồ doanh số, thực thu gộp và thực thu ròng">
-      {[0, .5, 1].map((ratio) => <line key={ratio} x1="18" x2={width - 18} y1={top + ratio * (height - top - bottom)} y2={top + ratio * (height - top - bottom)} />)}
-      <line className="is-zero" x1="18" x2={width - 18} y1={y(0)} y2={y(0)} />
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Biểu đồ doanh số hợp đồng, doanh thu thực hiện và thực thu ròng">
+      {[0, .5, 1].map((ratio) => <g key={ratio}><line x1={chartLeft} x2={width - chartRight} y1={top + ratio * (height - top - bottom)} y2={top + ratio * (height - top - bottom)} /><text className="is-axis" x="2" y={top + ratio * (height - top - bottom) + 3}>{compactMoney(maximum - ratio * span)}</text></g>)}
+      <line className="is-zero" x1={chartLeft} x2={width - chartRight} y1={y(0)} y2={y(0)} />
       <path className="is-sales" d={path((item) => item.contractSales)} />
-      <path className="is-gross" d={path((item) => item.grossCash)} />
+      <path className="is-revenue" d={path((item) => item.recognizedRevenue)} />
       <path className="is-net" d={path((item) => item.netCash)} />
       {points.map((item, index) => <g key={item.key}>
         <circle className="is-sales" cx={x(index)} cy={y(item.contractSales)} r="3"><title>{`${item.label}: doanh số ${money(item.contractSales)}`}</title></circle>
-        <circle className="is-gross" cx={x(index)} cy={y(item.grossCash)} r="3"><title>{`${item.label}: thu gộp ${money(item.grossCash)}`}</title></circle>
+        <circle className="is-revenue" cx={x(index)} cy={y(item.recognizedRevenue)} r="3"><title>{`${item.label}: doanh thu thực hiện ${money(item.recognizedRevenue)}`}</title></circle>
         <circle className="is-net" cx={x(index)} cy={y(item.netCash)} r="3"><title>{`${item.label}: thu ròng ${money(item.netCash)}`}</title></circle>
         {(index % labelStep === 0 || index === points.length - 1) && <text x={x(index)} y={height - 8} textAnchor="middle">{item.label}</text>}
       </g>)}
@@ -138,7 +155,8 @@ export default function AdminDashboard({
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
-  const [range, setRange] = useState(() => ({ startAt: startOfMonth(), endAt: new Date().toISOString() }))
+  const [range, setRange] = useState(() => ({ startAt: startOfMonth(), endAt: currentMinute() }))
+  const [branchId, setBranchId] = useState('all')
   const loadGeneration = useRef(0)
 
   const load = useCallback(async (forceRefresh = false) => {
@@ -149,26 +167,30 @@ export default function AdminDashboard({
       const result = await getOperationsDashboard({
         startAt: range.startAt,
         endAt: range.endAt,
-        branchId: 'all',
+        branchId,
         forceRefresh,
       })
       if (generation === loadGeneration.current) setData(result)
-    } catch {
-      if (generation === loadGeneration.current) setError('Chưa thể tải dữ liệu điều hành. Aura vẫn giữ số liệu đồng bộ gần nhất nếu có.')
+    } catch (loadError) {
+      if (generation === loadGeneration.current) setError(dashboardErrorMessage(loadError))
     } finally {
       if (generation === loadGeneration.current) {
         setLoading(false)
         setRefreshing(false)
       }
     }
-  }, [range.endAt, range.startAt])
+  }, [branchId, range.endAt, range.startAt])
 
   useEffect(() => { void load() }, [load])
 
   const updateRange = useCallback((start: Date, end: Date) => {
     const now = new Date()
-    const safeEnd = end.getTime() > now.getTime() ? now : end
-    const startAt = start.toISOString()
+    const safeEnd = new Date(Math.min(end.getTime(), now.getTime()))
+    safeEnd.setMilliseconds(0)
+    if (safeEnd.toDateString() === now.toDateString()) safeEnd.setSeconds(0)
+    const safeStart = new Date(start)
+    safeStart.setMilliseconds(0)
+    const startAt = safeStart.toISOString()
     const endAt = safeEnd.toISOString()
     setRange((current) => current.startAt === startAt && current.endAt === endAt ? current : { startAt, endAt })
   }, [])
@@ -222,23 +244,31 @@ export default function AdminDashboard({
         view: 'admin-nutrition-reviews', focus: 'overdue',
       },
     ]
-    return values
-      .filter((item) => item.metric.available || data.scope.unrestricted)
-      .sort((left, right) => {
-        const severity = { critical: 0, warning: 1, normal: 2 }
-        return severity[left.severity] - severity[right.severity]
-          || right.metric.overdueCount - left.metric.overdueCount
-          || right.metric.actionCount - left.metric.actionCount
-      })
+    return values.filter((item) => item.metric.available || data.scope.unrestricted)
   }, [data])
 
+  const priorityActions = useMemo(() => [...actions].sort((left, right) => {
+    const severity = { critical: 0, warning: 1, normal: 2 }
+    return severity[left.severity] - severity[right.severity]
+      || right.metric.overdueCount - left.metric.overdueCount
+      || right.metric.actionCount - left.metric.actionCount
+  }), [actions])
+
   const metricSlides = useMemo<AuraMetricSlide[]>(() => {
-    if (!data) {
+    if (!data && !error) {
       return [
         { id: 'loading-1', eyebrow: 'CÔNG NỢ ĐẾN HẠN', value: '—', detail: 'Đang đối chiếu ledger canonical', icon: <CircleDollarSign size={20} />, tone: 'ink' },
         { id: 'loading-2', eyebrow: 'TÁI KÝ ĐẾN HẠN', value: '—', detail: 'Đang tải hàng đợi chăm sóc', icon: <Users size={20} />, tone: 'pink' },
         { id: 'loading-3', eyebrow: 'LỊCH CẦN XỬ LÝ', value: '—', detail: 'Đang kiểm tra lịch và yêu cầu', icon: <CalendarClock size={20} />, tone: 'sunset' },
         { id: 'loading-4', eyebrow: 'DUYỆT BỮA ĂN', value: '—', detail: 'Đang đối chiếu SLA dinh dưỡng', icon: <Salad size={20} />, tone: 'orange' },
+      ]
+    }
+    if (!data) {
+      return [
+        { id: 'error-1', eyebrow: 'CÔNG NỢ ĐẾN HẠN', value: 'Chưa đồng bộ', detail: 'Chạm để kết nối lại Tổng quan', icon: <CircleDollarSign size={20} />, tone: 'ink', actionLabel: 'Thử lại', onSelect: () => void load(true) },
+        { id: 'error-2', eyebrow: 'TÁI KÝ ĐẾN HẠN', value: 'Chưa đồng bộ', detail: 'Không sử dụng số liệu cũ thay thế', icon: <Users size={20} />, tone: 'pink', actionLabel: 'Thử lại', onSelect: () => void load(true) },
+        { id: 'error-3', eyebrow: 'LỊCH CẦN XỬ LÝ', value: 'Chưa đồng bộ', detail: 'Dịch vụ đang được kết nối lại', icon: <CalendarClock size={20} />, tone: 'sunset', actionLabel: 'Thử lại', onSelect: () => void load(true) },
+        { id: 'error-4', eyebrow: 'DUYỆT BỮA ĂN', value: 'Chưa đồng bộ', detail: 'Dịch vụ đang được kết nối lại', icon: <Salad size={20} />, tone: 'orange', actionLabel: 'Thử lại', onSelect: () => void load(true) },
       ]
     }
     if (!actions.length) {
@@ -253,10 +283,10 @@ export default function AdminDashboard({
       icon: item.icon, tone: item.tone, actionLabel: item.metric.actionCount > 0 ? 'Xử lý ngay' : 'Mở chi tiết',
       onSelect: () => goTo(item.view, item.focus),
     }))
-  }, [actions, data, goTo])
+  }, [actions, data, error, goTo, load])
 
   const taskItems = useMemo(() => {
-    const items = [...actions.filter((item) => item.metric.actionCount > 0)]
+    const items = [...priorityActions.filter((item) => item.metric.actionCount > 0)]
     const missingDates = data?.actionSummary.missingContractEffectiveDate
     if (missingDates?.available && missingDates.actionCount > 0) {
       items.push({
@@ -267,19 +297,20 @@ export default function AdminDashboard({
       })
     }
     return items.slice(0, 5)
-  }, [actions, data])
+  }, [data, priorityActions])
 
   const quickMetrics = useMemo(() => {
     if (!data) return []
     const attendanceDenominator = data.today.attendance.charged || data.today.scheduledSessions
     return [
       data.permissions.finance && {
-        id: 'cash', label: 'Thực thu gộp', value: money(data.finance.cashCollected),
+        id: 'cash', label: 'Thực thu ròng', value: money(data.finance.netCash),
         detail: rangeCaption(data.range.startAt, data.range.endAt), icon: <WalletCards size={19} />,
-        help: 'Thực thu gộp chỉ cộng các khoản khách đã thanh toán. Thực thu ròng lấy thực thu gộp, trừ hoàn tiền và bút toán đảo, sau đó cộng hoặc trừ điều chỉnh.',
+        help: 'Thực thu ròng là tiền thực vào trừ hoàn tiền và đảo giao dịch, cộng hoặc trừ điều chỉnh tiền. Doanh thu thực hiện là giá trị buổi đã hoàn thành và không được cộng vào dòng tiền.',
         facts: [
-          { label: 'Thực thu ròng', value: money(data.finance.netCash) },
-          { label: 'Doanh số', value: money(data.finance.contractSales) },
+          { label: 'Thực thu gộp', value: money(data.finance.cashCollected) },
+          { label: 'Doanh thu TH', value: money(data.finance.recognizedRevenue) },
+          { label: 'Doanh số ký', value: money(data.finance.contractSales) },
           { label: 'Hoàn tiền', value: money(data.finance.refunds) },
           { label: 'Đảo giao dịch', value: money(data.finance.reversals) },
           { label: 'Điều chỉnh', value: money(data.finance.adjustments) },
@@ -295,19 +326,21 @@ export default function AdminDashboard({
           { label: 'Quá hạn', value: data.actionSummary.overdueReceivables.overdueCount.toLocaleString('vi-VN') },
           { label: 'Đến hạn nay', value: data.actionSummary.overdueReceivables.dueTodayCount.toLocaleString('vi-VN') },
           { label: 'Cần thu', value: money(data.actionSummary.overdueReceivables.amount) },
+          { label: 'Đang bảo lưu', value: money(data.finance.frozenReceivables) },
         ],
         actionLabel: 'Xem trả góp', onSelect: () => goTo('admin-finance', 'overdue'),
       },
       data.permissions.clients && {
-        id: 'clients', label: 'Học viên hoạt động', value: data.clients.active.toLocaleString('vi-VN'),
-        detail: `${data.clients.newInRange} học viên mới trong kỳ`, icon: <Users size={19} />,
-        help: 'Học viên hoạt động là hồ sơ chưa ngừng hoặc lưu trữ. Hợp đồng hiệu lực được tính riêng để tránh nhầm giữa trạng thái hồ sơ và gói tập.',
+        id: 'clients', label: 'Hợp đồng hiệu lực', value: data.clients.activeContracts.toLocaleString('vi-VN'),
+        detail: `${data.clients.active.toLocaleString('vi-VN')} học viên đang hoạt động`, icon: <Users size={19} />,
+        help: 'Hợp đồng hiệu lực phải còn thời hạn, còn buổi và không bảo lưu. Hợp đồng hết buổi, bảo lưu hoặc đã hết hạn được tách riêng.',
         facts: [
           { label: 'Tổng hồ sơ', value: data.clients.total.toLocaleString('vi-VN') },
-          { label: 'HĐ hiệu lực', value: data.clients.activeContracts.toLocaleString('vi-VN') },
           { label: 'Đang bảo lưu', value: data.clients.preservedContracts.toLocaleString('vi-VN') },
+          { label: 'Hết buổi', value: data.clients.exhaustedContracts.toLocaleString('vi-VN') },
+          { label: 'Sắp hết hạn', value: data.clients.expiringSoonContracts.toLocaleString('vi-VN') },
           { label: 'Mới trong kỳ', value: data.clients.newInRange.toLocaleString('vi-VN') },
-          { label: 'Chưa hoạt động', value: Math.max(0, data.clients.total - data.clients.active).toLocaleString('vi-VN') },
+          { label: 'Ngừng/lưu trữ', value: Math.max(0, data.clients.total - data.clients.active).toLocaleString('vi-VN') },
         ],
         actionLabel: 'Mở học viên', onSelect: () => goTo('admin-pt-students'),
       },
@@ -361,10 +394,11 @@ export default function AdminDashboard({
     <AuraMetricCarousel slides={metricSlides} label="Các việc cần xử lý" loading={loading && !data} />
 
     <section className="admin-dashboard__syncbar" aria-label="Trạng thái tổng quan">
-      <div><small>AURA · TỔNG QUAN</small><strong>Chào {adminName}</strong><span>{data?.generatedAt ? `Đồng bộ ${new Date(data.generatedAt).toLocaleString('vi-VN')}${data.cache.hit ? ' · dữ liệu đệm' : ''}` : 'Đang kết nối dữ liệu vận hành'}</span></div>
+      <div><small>AURA · TỔNG QUAN</small><strong>Chào {adminName}</strong><span className={`admin-dashboard__data-state ${error ? 'is-error' : loading || refreshing ? 'is-loading' : 'is-synced'}`}><i />{data?.generatedAt ? `Đồng bộ ${new Date(data.generatedAt).toLocaleString('vi-VN')}${data.cache.hit ? ' · dữ liệu đệm' : ''}` : error ? 'Chưa đồng bộ dữ liệu' : 'Đang kết nối dữ liệu vận hành'}</span></div>
       <div className="admin-dashboard__sync-actions">
+        {data && data.filters.branches.length > 1 && <label className="admin-dashboard__branch-filter" aria-label="Lọc theo chi nhánh"><Building2 size={15} /><select value={branchId} onChange={(event) => setBranchId(event.target.value)}><option value="all">Tất cả cơ sở</option>{data.filters.branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
         <DateRangeFilter compact excludeFuture allowAll={false} initialRange="Tháng này" onFilter={updateRange} />
-        <details className="admin-dashboard__help"><summary aria-label="Giải thích số liệu"><CircleHelp size={18} /></summary><div><b>Nguồn số liệu</b><span>Tiền thu lấy từ ledger canonical. Buổi tập lấy từ sessions và attendanceEvents. Dashboard không dùng payment legacy thay thế.</span></div></details>
+        <details className="admin-dashboard__help"><summary aria-label="Giải thích số liệu"><CircleHelp size={18} /></summary><div><b>Nguồn số liệu</b><span>Tiền thu lấy từ ledger canonical; doanh thu thực hiện lấy từ các buổi đã ghi nhận; hiện diện lấy từ sessions và attendanceEvents.</span>{data?.quality.truncated && <span><b>Cảnh báo:</b> kỳ đang chọn vượt giới hạn quét. Hãy thu hẹp bộ lọc để xem đủ dữ liệu.</span>}</div></details>
         <button type="button" onClick={() => void load(true)} disabled={refreshing} aria-label="Làm mới tổng quan"><RefreshCw className={refreshing ? 'spin' : ''} size={18} /><span>{refreshing ? 'Đang tải' : 'Làm mới'}</span></button>
       </div>
     </section>
@@ -376,15 +410,18 @@ export default function AdminDashboard({
         <header><div><small>ƯU TIÊN THEO SLA</small><h2 id="dashboard-tasks-title">Hôm nay cần làm</h2></div><span>{taskItems.length}</span></header>
         {loading && !data
           ? <div className="admin-dashboard__task-skeleton" aria-label="Đang tải công việc"><i /><i /><i /></div>
+          : !data
+            ? <div className="admin-dashboard__unavailable"><AlertCircle size={22} /><div><strong>Chưa thể xác định công việc hôm nay</strong><span>Tổng quan không hiển thị trạng thái “ổn định” khi dữ liệu chưa tải thành công.</span></div></div>
           : taskItems.length
             ? <div className="admin-dashboard__task-list">{taskItems.map((item) => <button key={item.id} type="button" className={`is-${item.severity}`} onClick={() => goTo(item.view, item.focus)}><span className="admin-dashboard__task-icon">{item.icon}</span><span><strong>{item.label}</strong><small>{item.taskDetail}</small></span><ArrowRight size={17} /></button>)}</div>
             : <div className="admin-dashboard__healthy"><CheckCircle2 size={24} /><div><strong>Không có việc quá hạn</strong><span>Các hàng đợi trong phạm vi của bạn đang được xử lý đúng SLA.</span></div></div>}
       </section>
 
       <section className="admin-dashboard__glance" aria-labelledby="dashboard-glance-title">
-        <header><small>CHỈ SỐ ĐIỀU HÀNH</small><h2 id="dashboard-glance-title">Vận hành hiện tại</h2><p>Chạm từng nhóm để mở dữ liệu chi tiết.</p></header>
+        <header><small>CHỈ SỐ ĐIỀU HÀNH</small><h2 id="dashboard-glance-title">Vận hành hiện tại</h2></header>
         <div>
           {loading && !data ? Array.from({ length: 4 }, (_, index) => <article className="admin-dashboard__metric-card is-loading" key={index} aria-label="Đang tải chỉ số"><i /><i /><i /></article>) : null}
+          {!loading && !data && <div className="admin-dashboard__unavailable admin-dashboard__unavailable--metrics"><AlertCircle size={22} /><div><strong>Chưa có chỉ số để hiển thị</strong><span>Hãy thử kết nối lại dịch vụ Tổng quan.</span></div></div>}
           {quickMetrics.map((item) => <article className={`admin-dashboard__metric-card is-${item.id}`} key={item.id}>
             <header>
               <span className="admin-dashboard__metric-icon">{item.icon}</span>
@@ -409,8 +446,9 @@ export default function AdminDashboard({
       <header><div><small>PHÂN TÍCH</small><h2 id="dashboard-analytics-title">Xu hướng & cơ cấu</h2><p>{rangeCaption(data.range.startAt, data.range.endAt)}</p></div></header>
       <div className="admin-dashboard__analytics-grid">
         {data.permissions.finance && <article className="admin-dashboard__chart-card admin-dashboard__chart-card--revenue">
-          <header><div><small>DÒNG TIỀN & DOANH SỐ</small><strong>Biến động theo {data.analytics.revenue.granularity === 'day' ? 'ngày' : data.analytics.revenue.granularity === 'week' ? 'tuần' : 'tháng'}</strong></div><span>{compactMoney(data.finance.netCash)} thu ròng</span></header>
-          <div className="admin-dashboard__chart-legend"><span className="is-sales">Doanh số</span><span className="is-gross">Thực thu gộp</span><span className="is-net">Thực thu ròng</span></div>
+          <header><div><small>DOANH THU & DÒNG TIỀN</small><strong>Biến động theo {data.analytics.revenue.granularity === 'day' ? 'ngày' : data.analytics.revenue.granularity === 'week' ? 'tuần' : 'tháng'}</strong></div><details><summary aria-label="Giải thích biểu đồ tài chính"><CircleHelp size={15} /></summary><p>Doanh số là giá trị hợp đồng ký trong kỳ. Doanh thu thực hiện là giá trị dịch vụ đã hoàn thành. Thực thu ròng chỉ phản ánh dòng tiền thực tế.</p></details></header>
+          <div className="admin-dashboard__chart-totals"><span><small>Doanh số ký</small><b>{compactMoney(data.finance.contractSales)}</b></span><span><small>Doanh thu TH</small><b>{compactMoney(data.finance.recognizedRevenue)}</b></span><span><small>Thực thu ròng</small><b>{compactMoney(data.finance.netCash)}</b></span></div>
+          <div className="admin-dashboard__chart-legend"><span className="is-sales">Doanh số HĐ</span><span className="is-revenue">Doanh thu thực hiện</span><span className="is-net">Thực thu ròng</span></div>
           <RevenueTrend points={data.analytics.revenue.points} />
         </article>}
 
