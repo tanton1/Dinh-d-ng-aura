@@ -178,6 +178,16 @@ async function trainerActor(request, db) {
   return actor
 }
 
+async function trainerProfileForActor(db, actor) {
+  const candidates = [...new Set([actor.legacyStaffId, actor.uid].filter((value) => typeof value === 'string' && value))]
+  const snapshots = candidates.length ? await db.getAll(...candidates.map((id) => db.doc(`trainers/${id}`))) : []
+  const profile = snapshots.find((snapshot) => snapshot.exists)
+  if (!profile || ['inactive', 'archived', 'deleted'].includes(String(profile.data()?.status || '').toLowerCase())) {
+    throw new HttpsError('not-found', 'Tài khoản chưa được liên kết với hồ sơ PT đang hoạt động.')
+  }
+  return { id: profile.id, reference: profile.ref, value: profile.data() }
+}
+
 async function salesActor(request, db) {
   const actor = await trustedAccessContext(request, db)
   await assertPortalRollout(db, actor, 'sales')
@@ -364,6 +374,69 @@ function createPtOperationsV2Functions({ db, onCall }) {
   const getMyCoachWorkspaceScope = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
     return coachWorkspaceScopeForActor(db, actor)
+  })
+
+  const getMyTrainerAvailability = staffCall(async (request) => {
+    const actor = await trainerActor(request, db)
+    requireCapability(actor, 'pt.availability.self.manage')
+    const profile = await trainerProfileForActor(db, actor)
+    const configSnapshot = await db.doc('settings/scheduleConfig').get()
+    const config = scheduleConfig(configSnapshot.data())
+    const slots = normalizedAvailabilitySlots(profile.value.availableSlots || [], config, false)
+    return serialize({
+      schemaVersion: 1,
+      trainerId: profile.id,
+      trainerName: profile.value.name || 'HLV Aura',
+      branchId: profile.value.branchId || actor.branchIds[0] || '',
+      availableSlots: slots,
+      availabilityMode: profile.value.availabilityMode === 'unrestricted'
+        ? 'unrestricted'
+        : slots.length ? 'configured' : 'unconfigured',
+      availabilityRevision: Number(profile.value.availabilityRevision || 0),
+      scheduleConfig: config,
+    })
+  })
+
+  const saveMyTrainerAvailability = staffCall(async (request) => {
+    const actor = await trainerActor(request, db)
+    requireCapability(actor, 'pt.availability.self.manage')
+    const profile = await trainerProfileForActor(db, actor)
+    const configSnapshot = await db.doc('settings/scheduleConfig').get()
+    const config = scheduleConfig(configSnapshot.data())
+    const slots = normalizedAvailabilitySlots(request.data?.availableSlots, config)
+    if (!slots.length) throw new HttpsError('failed-precondition', 'Hãy chọn ít nhất một khung giờ rảnh.')
+    const expectedRevision = integer(request.data?.expectedRevision, 0, 0, 1000000)
+    const nextRevision = await db.runTransaction(async (transaction) => {
+      const current = await transaction.get(profile.reference)
+      if (!current.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ PT.')
+      const revision = Number(current.data()?.availabilityRevision || 0)
+      if (revision !== expectedRevision) {
+        throw new HttpsError('aborted', 'Lịch rảnh đã được cập nhật ở thiết bị khác. Hãy tải lại.', {
+          issueCode: 'REVISION_CONFLICT', currentRevision: revision,
+        })
+      }
+      transaction.update(profile.reference, {
+        availableSlots: slots,
+        availabilityMode: 'configured',
+        availabilityRevision: revision + 1,
+        availabilityUpdatedBy: actor.uid,
+        availabilityUpdatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
+        schemaVersion: 2,
+        action: 'trainer_availability.updated',
+        actorUid: actor.uid,
+        trainerId: profile.id,
+        beforeSlotCount: Array.isArray(current.data()?.availableSlots) ? current.data().availableSlots.length : 0,
+        afterSlotCount: slots.length,
+        previousRevision: revision,
+        nextRevision: revision + 1,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return revision + 1
+    })
+    return { schemaVersion: 1, availableSlots: slots, availabilityMode: 'configured', availabilityRevision: nextRevision }
   })
 
   const listMyStudentPtSchedule = staffCall(async (request) => {
@@ -858,7 +931,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     return { approvalId: reference.id, status: 'pending' }
   })
 
-  return { getMyCoachWorkspaceScope, getMyTrainerWorkspace, listMyStudentPtSchedule, saveMyStudentAvailability, listMyAssignedStudents, listMyTrainerSchedule, getMyTrainerStudentDetail, confirmMySession, recordMySessionAttendance, bulkConfirmMySessions, submitWorkoutNote, requestSessionChange, listMyQuotes, getMySalesCatalog, getMySalesWorkspace, createQuote, createStudentDraft, submitContractForApproval }
+  return { getMyCoachWorkspaceScope, getMyTrainerAvailability, saveMyTrainerAvailability, getMyTrainerWorkspace, listMyStudentPtSchedule, saveMyStudentAvailability, listMyAssignedStudents, listMyTrainerSchedule, getMyTrainerStudentDetail, confirmMySession, recordMySessionAttendance, bulkConfirmMySessions, submitWorkoutNote, requestSessionChange, listMyQuotes, getMySalesCatalog, getMySalesWorkspace, createQuote, createStudentDraft, submitContractForApproval }
 }
 
 module.exports = { createPtOperationsV2Functions, normalizedAvailabilitySlots, scheduleConfig, sessionHour }

@@ -64,6 +64,18 @@ function weeklyTargetForStudent(defaultValue, overrideValue, eligibility) {
   }
 }
 
+function normalizedScheduleAvailabilitySlots(value, config) {
+  if (!Array.isArray(value) || value.length > 100) throw new HttpsError('invalid-argument', 'Ma trận thời gian rảnh không hợp lệ.')
+  const allowed = new Set(config.workingDays.flatMap((day) => config.workingHours.map((hour) => `${day}-${hour}`)))
+  const slots = [...new Set(value.map((slot) => typeof slot === 'string' ? slot.trim() : ''))]
+  if (slots.some((slot) => !allowed.has(slot))) throw new HttpsError('invalid-argument', 'Có khung giờ nằm ngoài lịch hoạt động.')
+  return slots.sort((left, right) => {
+    const [leftDay, leftHour] = left.split('-')
+    const [rightDay, rightHour] = right.split('-')
+    return (DAY_ORDER.get(leftDay) ?? 99) - (DAY_ORDER.get(rightDay) ?? 99) || Number(leftHour) - Number(rightHour)
+  })
+}
+
 function activeAdministrator(actor) {
   return actor.accessRole === 'admin' || actor.accessRole === 'super_admin'
 }
@@ -210,6 +222,7 @@ async function loadBranchData(db, branchId, week) {
       schedulableSessionsThisWeek: target.schedulableSessionsThisWeek,
       availableSlots: Array.isArray(weekly?.slots) ? weekly.slots.slice(0, 100) : recurringSlots,
       availabilityStatus,
+      availabilityRevision: Number(weekly?.revision || data.availabilityRevision || 0),
       availabilitySource: weekly ? 'weekly' : recurringConfirmed ? 'legacy_recurring' : 'none',
       isScheduleConfirmed: ['submitted', 'locked', 'recurring'].includes(availabilityStatus),
       eligibleForWeek: !studentInactive && eligibility.eligible,
@@ -600,6 +613,72 @@ function createPtScheduleV2Functions({ db, onCall }) {
     }
   })
 
+  const savePtStudentAvailability = onCall(async (request) => {
+    const week = weekId(request.data?.weekId)
+    const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
+    const studentId = documentId(request.data?.studentId, 'Mã học viên')
+    const expectedRevision = Number(request.data?.expectedRevision)
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) throw new HttpsError('invalid-argument', 'Phiên bản lịch rảnh không hợp lệ.')
+    const actor = await scheduleActor(request, db, branchId)
+    const [studentSnapshot, configSnapshot] = await Promise.all([
+      db.doc(`students/${studentId}`).get(),
+      db.doc('settings/scheduleConfig').get(),
+    ])
+    if (!studentSnapshot.exists || studentSnapshot.data().branchId !== branchId) {
+      throw new HttpsError('not-found', 'Không tìm thấy học viên trong chi nhánh đang xếp lịch.')
+    }
+    const config = {
+      workingDays: Array.isArray(configSnapshot.data()?.workingDays) && configSnapshot.data().workingDays.length
+        ? configSnapshot.data().workingDays.filter((day) => DAY_ORDER.has(day))
+        : [...DAY_ORDER.keys()].filter((day) => day !== 'CN'),
+      workingHours: Array.isArray(configSnapshot.data()?.workingHours) && configSnapshot.data().workingHours.length
+        ? configSnapshot.data().workingHours.map(Number).filter((hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23)
+        : Array.from({ length: 15 }, (_, index) => index + 6),
+    }
+    const slots = normalizedScheduleAvailabilitySlots(request.data?.availableSlots, config)
+    const requiredSessions = Math.max(1, Math.min(7, Number(studentSnapshot.data().sessionsPerWeek || 1)))
+    const minimumSlots = Math.max(5, requiredSessions)
+    if (slots.length < minimumSlots) throw new HttpsError('failed-precondition', `Hãy chọn ít nhất ${minimumSlots} khung giờ rảnh.`)
+    const reference = db.doc(`ptAvailability/${studentId}_${week}`)
+    const cutoff = Date.parse(`${week}T00:00:00+07:00`) - 14 * 60 * 60 * 1000
+    const nextRevision = await db.runTransaction(async (transaction) => {
+      const current = await transaction.get(reference)
+      const revision = Number(current.data()?.revision || 0)
+      if (revision !== expectedRevision) throw new HttpsError('aborted', 'Lịch rảnh đã thay đổi. Hãy tải lại trước khi lưu.', { issueCode: 'REVISION_CONFLICT', currentRevision: revision })
+      const next = {
+        schemaVersion: 1,
+        studentId,
+        accountUid: current.data()?.accountUid || null,
+        weekId: week,
+        slots,
+        requiredSessions,
+        minimumSlots,
+        status: Date.now() >= cutoff ? 'locked' : 'submitted',
+        revision: revision + 1,
+        submittedAt: current.data()?.submittedAt || FieldValue.serverTimestamp(),
+        updatedBy: actor.uid,
+        updatedAt: FieldValue.serverTimestamp(),
+      }
+      if (current.exists) transaction.update(reference, next)
+      else transaction.create(reference, { ...next, createdAt: FieldValue.serverTimestamp() })
+      transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
+        schemaVersion: 2,
+        action: 'student_availability.admin_updated',
+        actorUid: actor.uid,
+        studentId,
+        branchId,
+        weekId: week,
+        beforeSlotCount: Array.isArray(current.data()?.slots) ? current.data().slots.length : 0,
+        afterSlotCount: slots.length,
+        previousRevision: revision,
+        nextRevision: revision + 1,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return revision + 1
+    })
+    return { schemaVersion: 1, availableSlots: slots, availabilityRevision: nextRevision, availabilityStatus: Date.now() >= cutoff ? 'locked' : 'submitted' }
+  })
+
   const applyPtScheduleDraftCommand = onCall(async (request) => {
     const week = weekId(request.data?.weekId)
     const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
@@ -712,7 +791,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
     })
   })
 
-  return { listPtScheduleBranches, getPtScheduleWorkspace, generatePtScheduleDraft, getPtScheduleSlotCandidates, applyPtScheduleDraftCommand }
+  return { listPtScheduleBranches, getPtScheduleWorkspace, generatePtScheduleDraft, getPtScheduleSlotCandidates, savePtStudentAvailability, applyPtScheduleDraftCommand }
 }
 
 module.exports = {

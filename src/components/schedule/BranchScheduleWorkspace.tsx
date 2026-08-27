@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   CalendarDays,
+  CalendarRange,
   CalendarOff,
   CheckCircle2,
   ChevronLeft,
@@ -14,12 +15,14 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
+  Save,
   Sparkles,
   Unlock,
   UserPlus,
   UsersRound,
   X,
 } from 'lucide-react'
+import AvailabilityMatrix from './AvailabilityMatrix'
 import type { AccessContext } from '../../identity/access'
 import { getDatesForWeek } from '../../utils/dateUtils'
 import {
@@ -33,6 +36,7 @@ import {
   ptScheduleConflictLabel,
   publishPtSchedule,
   restorePtScheduleVersionToDraft,
+  savePtStudentAvailability,
   validatePtScheduleDraft,
   type PtScheduleBranchOption,
   type PtScheduleDraftCommand,
@@ -117,6 +121,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [studentSearch, setStudentSearch] = useState('')
   const [studentFilter, setStudentFilter] = useState<StudentFilter>('all')
   const [expandedWarningStudentId, setExpandedWarningStudentId] = useState<string | null>(null)
+  const [availabilityEditorStudentId, setAvailabilityEditorStudentId] = useState<string | null>(null)
+  const [availabilityDraft, setAvailabilityDraft] = useState<Set<string>>(new Set())
+  const [availabilityBusy, setAvailabilityBusy] = useState(false)
+  const [availabilityError, setAvailabilityError] = useState('')
 
   const weekDates = useMemo(() => getDatesForWeek(weekOffset), [weekOffset])
   const currentWeekId = weekDates.T2.full
@@ -316,6 +324,43 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       : { studentId, targetSessions }, targetSessions === null ? 'Khôi phục định mức hồ sơ' : 'Điều chỉnh mục tiêu riêng cho tuần')
   }
 
+  const openAvailabilityEditor = (student: PtScheduleWorkspaceV2Result['students'][number]) => {
+    setAvailabilityEditorStudentId((current) => current === student.id ? null : student.id)
+    setAvailabilityDraft(new Set(student.availableSlots || []))
+    setAvailabilityError('')
+  }
+
+  const saveStudentAvailability = async (student: PtScheduleWorkspaceV2Result['students'][number]) => {
+    if (availabilityBusy) return
+    setAvailabilityBusy(true); setAvailabilityError('')
+    try {
+      const result = await savePtStudentAvailability({
+        weekId: currentWeekId,
+        branchId,
+        studentId: student.id,
+        availableSlots: [...availabilityDraft],
+        expectedRevision: student.availabilityRevision,
+      })
+      setWorkspace((current) => current ? {
+        ...current,
+        students: current.students.map((item) => item.id === student.id ? {
+          ...item,
+          availableSlots: result.availableSlots,
+          availabilityRevision: result.availabilityRevision,
+          availabilityStatus: result.availabilityStatus,
+          availabilitySource: 'weekly',
+          isScheduleConfirmed: true,
+        } : item),
+      } : current)
+      setAvailabilityDraft(new Set(result.availableSlots))
+      setNotice(`Đã cập nhật lịch rảnh của ${student.name}.`)
+    } catch (cause) {
+      const normalized = asPtSchedulePublishError(cause)
+      setAvailabilityError(normalized.message)
+      if (normalized.issueCode === 'REVISION_CONFLICT') await loadWorkspace(true)
+    } finally { setAvailabilityBusy(false) }
+  }
+
   const autoArrange = async () => {
     if (!workspace) return
     setBusy(true)
@@ -512,12 +557,19 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             </div>
           </div>
           <div className="branch-schedule__student-list">
-            {studentRows.map(({ student, scheduled, scheduledEntries, missing, contract, trainerNames }) => <article key={student.id} className={missing > 0 ? 'is-missing' : 'is-ready'}>
+            {studentRows.map(({ student, scheduled, scheduledEntries, missing, contract, trainerNames }) => <article key={student.id} className={`${missing > 0 ? 'is-missing' : 'is-ready'}${availabilityEditorStudentId === student.id ? ' is-editing-availability' : ''}`}>
               <div className="branch-schedule__student-person"><span><UsersRound size={17} /></span><div><strong>{student.name || 'Chưa cập nhật tên'}</strong><small>{student.phone || `Mã ${student.id.slice(-8)}`}</small></div></div>
               <div className="branch-schedule__student-contract"><small>Gói &amp; PT</small><strong>{contract?.packageName || 'Cần đối soát hợp đồng'}</strong><span>{trainerNames || 'Chưa phân PT'} · {contract ? `còn ${Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))} buổi` : 'chưa có gói phù hợp'}</span></div>
               <div className="branch-schedule__weekly-target"><small>Mục tiêu tuần</small><div><button type="button" aria-label={`Giảm mục tiêu tuần của ${student.name}`} disabled={busy || student.sessionsPerWeek <= scheduled} onClick={() => void setWeeklyTarget(student.id, student.sessionsPerWeek - 1)}><Minus /></button><strong>{student.sessionsPerWeek}</strong><button type="button" aria-label={`Tăng mục tiêu tuần của ${student.name}`} disabled={busy || student.sessionsPerWeek >= student.maxWeeklySessions} onClick={() => void setWeeklyTarget(student.id, student.sessionsPerWeek + 1)}><Plus /></button>{student.weeklySessionTargetOverridden && <button type="button" className="is-reset" title={`Về ${student.defaultSessionsPerWeek} buổi`} aria-label={`Khôi phục mục tiêu của ${student.name} về ${student.defaultSessionsPerWeek} buổi`} disabled={busy || Math.min(student.defaultSessionsPerWeek, student.maxWeeklySessions) < scheduled} onClick={() => void setWeeklyTarget(student.id, null)}><RotateCcw /></button>}</div>{student.weeklySessionTargetOverridden && <span>Tạm thời</span>}</div>
               <div className="branch-schedule__student-progress"><strong>{scheduled}/{student.sessionsPerWeek}</strong><span>{missing > 0 ? `Thiếu ${missing}` : 'Đã đủ'}</span><i><b style={{ width: `${Math.min(100, student.sessionsPerWeek ? scheduled / student.sessionsPerWeek * 100 : 100)}%` }} /></i></div>
               <div className="branch-schedule__student-schedule"><small>Lịch được xếp · {['submitted', 'locked'].includes(student.availabilityStatus) ? 'đã gửi lịch rảnh' : student.availabilityStatus === 'recurring' ? 'lịch rảnh cố định' : 'thiếu lịch rảnh'}</small><div>{scheduledEntries.length ? scheduledEntries.map((entry) => <span key={`${entry.slotId}-${entry.trainerId}`}>{entry.label}<b>{workspace.trainers.find((trainer) => trainer.id === entry.trainerId)?.name || 'PT chưa cập nhật'}</b></span>) : <em>Chưa có buổi nào trong tuần</em>}</div></div>
+              <div className="branch-schedule__student-availability-action"><button type="button" className={`is-${student.availabilityStatus}`} aria-expanded={availabilityEditorStudentId === student.id} onClick={() => openAvailabilityEditor(student)}><CalendarRange size={16} />{student.availabilityStatus === 'locked' ? 'Lịch rảnh đã khóa' : ['submitted', 'recurring'].includes(student.availabilityStatus) ? 'Xem / sửa lịch rảnh' : 'Thêm lịch rảnh'}</button><span>{student.availableSlots.length} khung · r{student.availabilityRevision}</span></div>
+              {availabilityEditorStudentId === student.id && <section className="branch-schedule__availability-editor">
+                <header><div><small>LỊCH RẢNH TUẦN {currentWeekId}</small><strong>{student.name}</strong></div><span>{availabilityDraft.size} khung đã chọn</span></header>
+                <AvailabilityMatrix days={workingDays} hours={workingHours} selected={availabilityDraft} onChange={setAvailabilityDraft} disabled={availabilityBusy} ariaLabel={`Lịch rảnh của ${student.name}`} />
+                {availabilityError && <p role="alert">{availabilityError}</p>}
+                <footer><button type="button" onClick={() => setAvailabilityEditorStudentId(null)}>Đóng</button><button type="button" className="is-save" disabled={availabilityBusy} onClick={() => void saveStudentAvailability(student)}><Save size={16} />{availabilityBusy ? 'Đang lưu' : 'Lưu lịch rảnh'}</button></footer>
+              </section>}
             </article>)}
             {!studentRows.length && <div className="schedule-warning-empty"><CheckCircle2 /> Không có học viên phù hợp bộ lọc.</div>}
           </div>

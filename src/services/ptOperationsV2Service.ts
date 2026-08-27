@@ -146,6 +146,17 @@ export interface CoachWorkspaceScope {
   }
 }
 
+export interface TrainerAvailabilityWorkspace {
+  schemaVersion: number
+  trainerId: string
+  trainerName: string
+  branchId: string
+  availableSlots: string[]
+  availabilityMode: 'configured' | 'unrestricted' | 'unconfigured'
+  availabilityRevision: number
+  scheduleConfig: { workingDays: string[]; workingHours: number[] }
+}
+
 export interface TrainerWorkspaceBootstrap {
   schemaVersion: number
   scope: CoachWorkspaceScope
@@ -203,6 +214,16 @@ export interface SalesWorkspace {
 
 export async function getMyCoachWorkspaceScope() {
   return cachedCall<Record<string, never>, CoachWorkspaceScope>('getMyCoachWorkspaceScope', {}, 90_000)
+}
+
+export async function getMyTrainerAvailability() {
+  return cachedCall<Record<string, never>, TrainerAvailabilityWorkspace>('getMyTrainerAvailability', {}, 30_000)
+}
+
+export async function saveMyTrainerAvailability(input: { availableSlots: string[]; expectedRevision: number }) {
+  const result = await call<typeof input, { schemaVersion: number; availableSlots: string[]; availabilityMode: 'configured'; availabilityRevision: number }>('saveMyTrainerAvailability', input)
+  invalidateReadCache('getMyTrainerAvailability', 'getMyTrainerWorkspace', 'getMyCoachWorkspaceScope')
+  return result
 }
 
 export async function getMyTrainerWorkspace(

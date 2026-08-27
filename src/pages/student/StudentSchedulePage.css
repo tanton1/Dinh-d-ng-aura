@@ -322,6 +322,14 @@
   font-weight: 900;
 }
 .student-schedule-tabs button.active > i { color: #dc286f; background: #fff; }
+.student-schedule-tabs .student-availability-tab-status { padding:3px 6px; border-radius:999px; color:#d62370; background:#fff0f5; font-size:8px; font-style:normal; font-weight:900; white-space:nowrap; }
+.student-schedule-tabs button.active .student-availability-tab-status { color:#d62370; background:#fff; }
+.student-schedule-tabs .student-availability-tab-status.is-dirty { color:#a35b20; background:#fff2df; }
+.student-availability-status-button { flex:0 0 auto; display:grid; gap:2px; border:0; border-radius:14px; padding:8px 12px; color:#d71f6e; background:#fff0f6; text-align:left; }
+.student-availability-status-button strong { font-size:11px; }
+.student-availability-status-button span { font-size:9px; color:#88717d; }
+.student-availability-status-button.is-submitted,.student-availability-status-button.is-locked { color:#17744d; background:#ebf9f2; }
+.student-availability-status-button.is-dirty { color:#a35b20; background:#fff2df; }
 
 .student-availability-week-switch {
   display: inline-grid;
@@ -480,6 +488,7 @@
   .student-availability-card header h2, .student-linked-sessions header h2 { font-size: 18px; }
   .student-availability-card header p, .student-linked-sessions header p { line-height: 1.5; }
   .student-availability-card > header > span, .student-linked-sessions > header > span { display: none; }
+  .student-availability-status-button { padding:7px 9px; }
   .student-schedule-legend { padding: 0 16px 12px; }
   .student-schedule-matrix-scroll { margin: 0 8px; }
   .student-availability-card > footer { position: sticky; bottom: 82px; z-index: 8; padding: 12px 14px; box-shadow: 0 -10px 24px rgba(46,25,36,.08); }

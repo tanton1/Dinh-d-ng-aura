@@ -5,6 +5,7 @@ import {
   Bell,
   BookOpen,
   Check,
+  CalendarClock,
   CalendarDays,
   ChevronDown,
   ClipboardList,
@@ -107,6 +108,7 @@ const staffNavSections: ShellNavSection[] = [
     items: [
       { id: 'staff-students' as const, label: 'Học viên phụ trách', icon: Users },
       { id: 'staff-schedule' as const, label: 'Lịch dạy', icon: Dumbbell },
+      { id: 'staff-availability' as const, label: 'Lịch rảnh', icon: CalendarClock },
       { id: 'staff-requests' as const, label: 'Yêu cầu lịch', icon: History },
       { id: 'staff-nutrition-reviews' as const, label: 'Duyệt món', icon: Check },
       { id: 'staff-quotes' as const, label: 'Báo giá', icon: ClipboardList },
@@ -196,6 +198,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'sales-portal': 'Cổng báo giá & Bán hàng',
   'staff-students': 'Học viên phụ trách',
   'staff-schedule': 'Lịch dạy của tôi',
+  'staff-availability': 'Lịch rảnh của tôi',
   'staff-requests': 'Yêu cầu đổi và hủy lịch',
   'staff-nutrition-reviews': 'Duyệt món học viên',
   'staff-quotes': 'Báo giá',

@@ -162,6 +162,7 @@ export type StudentView =
   | 'sales-portal'
   | 'staff-students'
   | 'staff-schedule'
+  | 'staff-availability'
   | 'staff-requests'
   | 'staff-nutrition-reviews'
   | 'staff-quotes'

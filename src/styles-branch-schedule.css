@@ -164,6 +164,19 @@
 .branch-schedule__student-schedule span { display: inline-grid; max-width: 220px; gap: 1px; padding: 6px 9px; border-radius: 10px; color: #5f4351; background: linear-gradient(135deg,#fff0f6,#fff5ed); font-size: .65rem; font-weight: 850; white-space: normal; }
 .branch-schedule__student-schedule span b { overflow: hidden; color: #a46580; font-size: .56rem; text-overflow: ellipsis; white-space: nowrap; }
 .branch-schedule__student-schedule em { color: #a18d97; font-size: .67rem; font-style: normal; }
+.branch-schedule__student-availability-action { display:flex; grid-column:1/-1; align-items:center; justify-content:space-between; gap:10px; }
+.branch-schedule__student-availability-action button { display:flex; align-items:center; gap:7px; border:1px solid #f1d7e1; border-radius:12px; padding:8px 11px; color:#c8296b; background:#fff4f7; font-size:.68rem; font-weight:850; }
+.branch-schedule__student-availability-action button.is-missing { color:#a55a20; background:#fff5ec; }
+.branch-schedule__student-availability-action span { font-size:.62rem; }
+.branch-schedule__availability-editor { display:grid; grid-column:1/-1; gap:13px; min-width:0; padding:14px; border:1px solid #f0d9e1; border-radius:18px; background:linear-gradient(145deg,#fffafb,#fff6f1); }
+.branch-schedule__availability-editor header,.branch-schedule__availability-editor footer { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.branch-schedule__availability-editor header>div { display:grid; gap:3px; }
+.branch-schedule__availability-editor header strong { font-size:1rem; }
+.branch-schedule__availability-editor header span { color:#d12970; font-size:.72rem; font-weight:850; }
+.branch-schedule__availability-editor p { margin:0; padding:9px 12px; border-radius:12px; color:#a52b54; background:#fff0f3; font-size:.74rem; font-weight:700; }
+.branch-schedule__availability-editor footer { justify-content:flex-end; }
+.branch-schedule__availability-editor footer button { border:1px solid #efdce3; border-radius:11px; padding:9px 13px; color:#765e69; background:#fff; font-weight:800; }
+.branch-schedule__availability-editor footer button.is-save { display:flex; align-items:center; gap:7px; border:0; color:#fff; background:linear-gradient(135deg,#f72d83,#ff8650); }
 .schedule-warning-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
 .schedule-warning-grid article { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 14px; border: 1px solid #f0dce5; border-radius: 16px; background: rgba(255,255,255,.9); }
 .schedule-warning-grid article.is-blocking { border-color: #ffd7c2; background: #fff8f3; }
@@ -294,6 +307,11 @@
   .branch-schedule__student-schedule { padding-top: 7px; }
   .branch-schedule__student-schedule > div { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; scroll-snap-type: x proximity; }
   .branch-schedule__student-schedule span { min-width: 132px; flex: 0 0 auto; padding: 5px 8px; scroll-snap-align: start; }
+  .branch-schedule__student-availability-action { align-items:flex-start; }
+  .branch-schedule__student-availability-action span { padding-top:8px; }
+  .branch-schedule__availability-editor { margin:0 -4px; padding:12px 8px; }
+  .branch-schedule__availability-editor header { align-items:flex-start; }
+  .branch-schedule__availability-editor footer { position:sticky; bottom:92px; z-index:4; padding:8px; border-radius:14px; background:#fffffff2; box-shadow:0 -7px 18px rgba(58,28,42,.08); }
   .schedule-warning-detail { grid-template-columns: 1fr; padding-left: 12px; }
   .schedule-warning-detail section.is-wide { grid-column: auto; }
   .schedule-inspector-backdrop { align-items: flex-end; }

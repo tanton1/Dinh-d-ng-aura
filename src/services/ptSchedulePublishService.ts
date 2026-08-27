@@ -62,6 +62,7 @@ export interface PtScheduleBranchOption {
 
 export interface PtScheduleV2Student extends Student {
   availabilityStatus: string
+  availabilityRevision: number
   availabilitySource?: 'weekly' | 'legacy_recurring' | 'none'
   eligibleForWeek: boolean
   eligibilityReasons: string[]
@@ -272,6 +273,16 @@ export function getPtScheduleSlotCandidates(input: {
   search?: string
 }) {
   return invoke<typeof input, { schemaVersion: number; candidates: PtScheduleSlotCandidate[] }>('getPtScheduleSlotCandidates', input)
+}
+
+export function savePtStudentAvailability(input: {
+  weekId: string
+  branchId: string
+  studentId: string
+  availableSlots: string[]
+  expectedRevision: number
+}) {
+  return invoke<typeof input, { schemaVersion: number; availableSlots: string[]; availabilityRevision: number; availabilityStatus: string }>('savePtStudentAvailability', input)
 }
 
 export function applyPtScheduleDraftCommand(input: {

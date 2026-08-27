@@ -67,6 +67,7 @@ export const routeCapabilities = {
   'sales-portal': 'sales.quotes.self.manage',
   'staff-students': 'coach.workspace.view',
   'staff-schedule': 'coach.workspace.view',
+  'staff-availability': 'pt.availability.self.manage',
   'staff-requests': 'coach.workspace.view',
   'staff-nutrition-reviews': 'coach.workspace.view',
   'staff-quotes': 'sales.quotes.self.manage',

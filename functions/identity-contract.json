@@ -24,6 +24,7 @@
     "trainer_pt": [
       "pt.students.assigned.view",
       "pt.schedule.self.view",
+      "pt.availability.self.manage",
       "pt.session.self.manage",
       "pt.workout_note.create",
       "renewals.workspace.view",

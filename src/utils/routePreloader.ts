@@ -16,6 +16,7 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
   'sales-portal': () => import('../pages/operations/SalesPortalV2'),
   'staff-students': () => import('../pages/operations/TrainerPortalV2'),
   'staff-schedule': () => import('../pages/operations/TrainerPortalV2'),
+  'staff-availability': () => import('../pages/operations/TrainerAvailabilityPage'),
   'staff-requests': () => import('../pages/operations/TrainerPortalV2'),
   'staff-nutrition-reviews': () => import('../features/nutrition-review/NutritionReviewWorkspace'),
   'staff-quotes': () => import('../pages/operations/SalesPortalV2'),

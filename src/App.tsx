@@ -82,6 +82,7 @@ const AdminPackageSettings = lazyWithRetry(() => import('./components/admin/pt/P
 const AdminQuoteGenerator = lazyWithRetry(() => import('./components/admin/pt/QuoteGenerator'))
 const AdminScheduleSettings = lazyWithRetry(() => import('./components/admin/pt/ScheduleSettings'))
 const TrainerPortalV2 = lazyWithRetry(() => import('./pages/operations/TrainerPortalV2'))
+const TrainerAvailabilityPage = lazyWithRetry(() => import('./pages/operations/TrainerAvailabilityPage'))
 const SalesPortalV2 = lazyWithRetry(() => import('./pages/operations/SalesPortalV2'))
 const StaffNutritionReviewsPage = lazyWithRetry(() => import('./pages/operations/StaffNutritionReviewsPage'))
 const StaffPayrollPage = lazyWithRetry(() => import('./pages/operations/StaffPayrollPage'))
@@ -844,6 +845,7 @@ function AuraApplication() {
       case 'trainer-portal':
       case 'staff-students': return <AuraOperationsFrame><TrainerPortalV2 section="students" /></AuraOperationsFrame>
       case 'staff-schedule': return <AuraOperationsFrame><TrainerPortalV2 section="schedule" /></AuraOperationsFrame>
+      case 'staff-availability': return <AuraOperationsFrame><TrainerAvailabilityPage /></AuraOperationsFrame>
       case 'staff-requests': return <AuraOperationsFrame><TrainerPortalV2 section="requests" /></AuraOperationsFrame>
       case 'staff-nutrition-reviews': return <AuraOperationsFrame><StaffNutritionReviewsPage /></AuraOperationsFrame>
       case 'sales-portal':

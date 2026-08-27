@@ -170,6 +170,8 @@ Object.assign(exports, ptOperationsV2Functions)
 // compatibility with already deployed functions.
 exports.listMyStudentPtSchedule = ptOperationsV2Functions.listMyStudentPtSchedule
 exports.saveMyStudentAvailability = ptOperationsV2Functions.saveMyStudentAvailability
+exports.getMyTrainerAvailability = ptOperationsV2Functions.getMyTrainerAvailability
+exports.saveMyTrainerAvailability = ptOperationsV2Functions.saveMyTrainerAvailability
 exports.getMyCoachWorkspaceScope = ptOperationsV2Functions.getMyCoachWorkspaceScope
 exports.getMyTrainerWorkspace = ptOperationsV2Functions.getMyTrainerWorkspace
 exports.listMyTrainerSchedule = ptOperationsV2Functions.listMyTrainerSchedule
@@ -191,6 +193,7 @@ exports.listPtScheduleBranches = ptScheduleV2Functions.listPtScheduleBranches
 exports.getPtScheduleWorkspace = ptScheduleV2Functions.getPtScheduleWorkspace
 exports.generatePtScheduleDraft = ptScheduleV2Functions.generatePtScheduleDraft
 exports.getPtScheduleSlotCandidates = ptScheduleV2Functions.getPtScheduleSlotCandidates
+exports.savePtStudentAvailability = ptScheduleV2Functions.savePtStudentAvailability
 exports.applyPtScheduleDraftCommand = ptScheduleV2Functions.applyPtScheduleDraftCommand
 Object.assign(exports, createFinanceLedgerFunctions({ db, onCall, logger }))
 const contractRenewalFunctions = createContractRenewalFunctions({ db, onCall, onSchedule, logger })

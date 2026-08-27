@@ -117,6 +117,12 @@ test('learner and staff personal Gym schedule is self-scoped and availability wr
   assert.match(studentScheduleBlock, /currentAvailability\.data\(\)\?\.revision/)
   assert.match(studentScheduleBlock, /status: 'submitted'/)
   assert.doesNotMatch(studentScheduleBlock, /request\.data\?\.studentId/)
+  assert.match(operationsV2Source, /const getMyTrainerAvailability = staffCall/)
+  assert.match(operationsV2Source, /const saveMyTrainerAvailability = staffCall/)
+  assert.match(operationsV2Source, /requireCapability\(actor, 'pt\.availability\.self\.manage'\)/)
+  assert.match(operationsV2Source, /availabilityRevision: revision \+ 1/)
+  assert.match(functionsSource, /exports\.getMyTrainerAvailability = ptOperationsV2Functions\.getMyTrainerAvailability/)
+  assert.match(functionsSource, /exports\.saveMyTrainerAvailability = ptOperationsV2Functions\.saveMyTrainerAvailability/)
 })
 
 test('Sales workspace bootstraps quotes and catalog through one actor-scoped callable', () => {

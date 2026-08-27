@@ -190,6 +190,8 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
   const availabilityLocked = availability?.locked === true
   const minimumSlots = availability?.minimumSlots ?? Math.max(5, data?.student?.sessionsPerWeek ?? 1)
   const dirty = !sameSlots(selectedSlots, originalSlots)
+  const availabilityStatusKey = availabilityLocked ? 'locked' : dirty ? 'dirty' : availability?.status === 'submitted' ? 'submitted' : 'draft'
+  const availabilityStatusLabel = availabilityStatusKey === 'locked' ? 'Đã khóa' : availabilityStatusKey === 'dirty' ? 'Chưa lưu' : availabilityStatusKey === 'submitted' ? 'Đã gửi' : 'Chưa gửi'
   const upcomingSessions = useMemo(() => (data?.sessions ?? [])
     .filter((session) => session.date >= toIsoDate(today) && session.status === 'scheduled')
     .sort((left, right) => `${left.date}-${left.hour ?? 99}`.localeCompare(`${right.date}-${right.hour ?? 99}`)), [data?.sessions, today])
@@ -334,7 +336,7 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
         <nav className="student-schedule-tabs" aria-label="Nội dung lịch học viên">
           <button type="button" className={activeTab === 'this-week' ? 'active' : ''} onClick={() => selectWeek(0)}><CalendarCheck size={16} /><span>Tuần này</span></button>
           <button type="button" className={activeTab === 'next-week' ? 'active' : ''} onClick={() => selectWeek(1)}><CalendarDays size={16} /><span>Tuần sau</span></button>
-          <button type="button" className={activeTab === 'availability' ? 'active' : ''} onClick={() => selectAvailabilityWeek(weekOffset > 0 ? 1 : 0)}><CalendarRange size={16} /><span>Lịch rảnh</span></button>
+          <button type="button" className={activeTab === 'availability' ? 'active' : ''} onClick={() => selectAvailabilityWeek(weekOffset > 0 ? 1 : 0)}><CalendarRange size={16} /><span>Lịch rảnh</span><em className={`student-availability-tab-status is-${availabilityStatusKey}`}>{availabilityStatusLabel}</em></button>
           <button type="button" className={activeTab === 'requests' ? 'active' : ''} onClick={() => setActiveTab('requests')}><ScrollText size={16} /><span>Yêu cầu</span>{pendingRequestCount > 0 && <i>{pendingRequestCount}</i>}</button>
           <button type="button" className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}><History size={16} /><span>Lịch sử</span></button>
         </nav>
@@ -376,7 +378,7 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
         {saveIssue && saveIssueContent && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={24} /><strong>{saveIssueContent.title}</strong><span>{saveIssueContent.description}</span>{saveIssue.retryable && <button type="button" onClick={() => void load()}><RefreshCw size={16} /> Tải lịch mới nhất</button>}</div>}
 
         {activeTab === 'availability' && <section className="student-availability-card">
-          <header><div><small>MA TRẬN THỜI GIAN RẢNH · TUẦN {availabilityWeekId}</small><h2>Đăng ký thời gian có thể tập</h2><p>Chọn tối thiểu {minimumSlots} khung giờ. Lịch khóa lúc 10:00 Chủ nhật trước tuần tập.</p></div><span>{selectedSlots.size}/{minimumSlots} ô tối thiểu</span></header>
+          <header><div><small>MA TRẬN THỜI GIAN RẢNH · TUẦN {availabilityWeekId}</small><h2>Đăng ký thời gian có thể tập</h2><p>Chọn tối thiểu {minimumSlots} khung giờ. Lịch khóa lúc 10:00 Chủ nhật trước tuần tập.</p></div><button type="button" className={`student-availability-status-button is-${availabilityStatusKey}`} onClick={() => document.querySelector('.student-schedule-matrix-scroll')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}><strong>{availabilityStatusLabel}</strong><span>{selectedSlots.size}/{minimumSlots} khung</span></button></header>
           <div className="student-availability-week-switch"><button type="button" className={weekOffset === 0 ? 'active' : ''} onClick={() => selectAvailabilityWeek(0)}>Tuần này</button><button type="button" className={weekOffset === 1 ? 'active' : ''} onClick={() => selectAvailabilityWeek(1)}>Tuần sau</button></div>
           {availabilityLocked && <div className="student-schedule-state is-warning" role="status"><AlertCircle size={22} /><strong>Tuần này đã khóa lịch rảnh</strong><span>Hãy chuyển sang tuần kế tiếp để gửi lịch mới hoặc liên hệ vận hành nếu cần điều chỉnh.</span></div>}
           <div className="student-schedule-legend"><span><i className="is-available" /> Có thể tập</span><span><i className="is-booked" /> Đã xếp ca</span><span><i className="is-linked" /> Đã liên kết</span></div>
