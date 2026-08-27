@@ -20,3 +20,26 @@
 .nrw-pagination-note .nrw-limit-note{margin:0}
 .nrw-pagination-note>button{min-height:40px;border:0;border-radius:13px;padding:0 16px;background:linear-gradient(120deg,var(--nrw-pink),var(--nrw-orange));color:#fff;font-weight:800;box-shadow:0 8px 18px rgba(244,47,130,.2)}
 .nrw-pagination-note>button:disabled{opacity:.55}
+
+/* Keep long coach notes fully readable instead of trapping text inside a
+   fixed-height field. The component also mirrors scrollHeight for browsers
+   that do not support content-sized textareas yet. */
+.nrw-feedback-slide textarea{height:auto;min-height:150px;overflow:hidden;resize:none}
+
+@media(max-width:600px){
+  /* AppShell already owns the floating dock safe area. Avoid stacking a
+     second 100px+ spacer that remains visible while the dock auto-hides. */
+  .nrw-page,
+  #main-content>.nrw-page{padding-bottom:max(18px,calc(env(safe-area-inset-bottom) + 12px))}
+
+  /* Give the track a deterministic 3-viewport width. Each panel therefore
+     lands on one exact viewport and cannot rest between two review slides. */
+  .nrw-detail-window{scroll-padding-inline:0;touch-action:pan-x pan-y}
+  .nrw-detail-track{width:300%}
+  .nrw-detail-track .nrw-slide{
+    flex:0 0 calc(100% / 3);
+    width:calc(100% / 3);
+    max-width:calc(100% / 3);
+    min-width:0;
+  }
+}

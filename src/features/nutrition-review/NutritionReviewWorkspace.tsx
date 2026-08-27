@@ -103,6 +103,8 @@ export function NutritionReviewWorkspace({
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const detailWindowRef = useRef<HTMLDivElement>(null)
+  const detailScrollTimerRef = useRef<number | null>(null)
+  const feedbackTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => setDebouncedQuery(query.trim()), 320)
@@ -164,15 +166,45 @@ export function NutritionReviewWorkspace({
   const handleDetailScroll = useCallback(() => {
     const viewport = detailWindowRef.current
     if (!viewport) return
-    setDetailSlide(detailSlideIndex(viewport.scrollLeft, viewport.clientWidth))
+    if (detailScrollTimerRef.current !== null) {
+      window.clearTimeout(detailScrollTimerRef.current)
+    }
+    detailScrollTimerRef.current = window.setTimeout(() => {
+      detailScrollTimerRef.current = null
+      const activeViewport = detailWindowRef.current
+      if (!activeViewport || activeViewport.clientWidth <= 0) return
+      const target = detailSlideIndex(activeViewport.scrollLeft, activeViewport.clientWidth)
+      const targetLeft = activeViewport.clientWidth * target
+      setDetailSlide(target)
+      if (Math.abs(activeViewport.scrollLeft - targetLeft) > 1) {
+        activeViewport.scrollTo({ left: targetLeft, behavior: 'smooth' })
+      }
+    }, 140)
+  }, [])
+
+  useEffect(() => () => {
+    if (detailScrollTimerRef.current !== null) {
+      window.clearTimeout(detailScrollTimerRef.current)
+    }
   }, [])
 
   useEffect(() => {
     if (!selected) return
+    if (detailScrollTimerRef.current !== null) {
+      window.clearTimeout(detailScrollTimerRef.current)
+      detailScrollTimerRef.current = null
+    }
     setFeedback(selected.coachFeedback || selected.analysis.coachFeedbackSuggestion || '')
     setDetailSlide(0)
     detailWindowRef.current?.scrollTo({ left: 0, behavior: 'auto' })
   }, [selected?.id])
+
+  useEffect(() => {
+    const textarea = feedbackTextareaRef.current
+    if (!textarea) return
+    textarea.style.height = '0px'
+    textarea.style.height = `${Math.max(150, textarea.scrollHeight + 2)}px`
+  }, [feedback, selected?.id])
 
   useEffect(() => {
     const viewport = detailWindowRef.current
@@ -306,7 +338,7 @@ export function NutritionReviewWorkspace({
             <section className="nrw-slide nrw-feedback-slide">
               <div className="nrw-feedback-head"><Send /><div><small>PHẢN HỒI CỦA HLV</small><h3>Ngắn gọn, rõ việc cần làm tiếp</h3></div></div>
               <div className="nrw-quick-feedback">{quickFeedback.map((item) => <button key={item} type="button" onClick={() => setFeedback(item)}>{item}</button>)}</div>
-              <textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} maxLength={2000} placeholder="Nhận xét dành riêng cho học viên…" />
+              <textarea ref={feedbackTextareaRef} rows={5} value={feedback} onChange={(event) => setFeedback(event.target.value)} maxLength={2000} placeholder="Nhận xét dành riêng cho học viên…" />
               <div className="nrw-actions">
                 <button type="button" className="is-secondary" disabled={submitting} onClick={() => void submit('feedback')}><Send size={17} /> Gửi nhận xét</button>
                 <button type="button" className="is-reject" disabled={submitting} onClick={() => void submit('reject')}><XCircle size={17} /> Cần chỉnh</button>

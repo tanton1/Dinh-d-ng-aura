@@ -27,6 +27,11 @@ for (const width of [360, 390, 430]) {
     expect(refreshBounds!.x).toBeGreaterThan(searchBounds!.x + searchBounds!.width)
     expect(refreshBounds!.height).toBeGreaterThanOrEqual(42)
 
+    const workspaceBottomPadding = await page.locator('.nrw-page').evaluate((element) => (
+      Number.parseFloat(window.getComputedStyle(element).paddingBottom)
+    ))
+    expect(workspaceBottomPadding).toBeLessThanOrEqual(34)
+
     await expectNoPageOverflow(page)
   })
 }
@@ -74,7 +79,14 @@ test('nutrition review photos fill the mobile width and detail slides scroll nat
     clientWidth: element.clientWidth,
     scrollWidth: element.scrollWidth,
   }))
+  const slideWidths = await carousel.locator('.nrw-slide').evaluateAll((slides) => (
+    slides.map((slide) => slide.getBoundingClientRect().width)
+  ))
   expect(carouselMetrics.scrollWidth).toBeGreaterThanOrEqual(carouselMetrics.clientWidth * 3 - 2)
+  expect(slideWidths).toHaveLength(3)
+  for (const slideWidth of slideWidths) {
+    expect(Math.abs(slideWidth - carouselMetrics.clientWidth)).toBeLessThanOrEqual(1)
+  }
   await carousel.evaluate((element) => element.scrollTo({ left: element.clientWidth, behavior: 'auto' }))
   await expect.poll(() => carousel.evaluate((element) => element.scrollLeft)).toBeGreaterThanOrEqual(carouselMetrics.clientWidth - 2)
 })
