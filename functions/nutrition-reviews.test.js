@@ -44,6 +44,17 @@ test('public review record keeps explicit nutrition values and coach assignment'
   assert.equal(result.revision, 2)
 })
 
+test('review images reject file names and preserve safe persistent sources', () => {
+  const snapshot = (image) => ({
+    id: 'review-image',
+    data: () => ({ userId: 'student-1', meal: { image } }),
+  })
+  assert.equal(reviewRecord(snapshot('IMG_5579.jpeg')).image, '')
+  assert.equal(reviewRecord(snapshot('javascript:alert(1)')).image, '')
+  assert.equal(reviewRecord(snapshot('https://cdn.example.com/meal.jpg')).image, 'https://cdn.example.com/meal.jpg')
+  assert.equal(reviewRecord(snapshot('/images/meals/example.jpg')).image, '/images/meals/example.jpg')
+})
+
 test('pending reviews expose SLA state and prioritise the oldest overdue meal', () => {
   const now = Date.UTC(2026, 7, 24, 12, 0, 0)
   const snapshot = (id, ageMinutes, priority = 'normal') => ({

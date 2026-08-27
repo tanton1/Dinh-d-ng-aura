@@ -42,8 +42,15 @@ function shortText(value, maximum = 1600) {
 
 function safeImage(value) {
   if (typeof value !== 'string') return ''
-  if (value.startsWith('data:image') && value.length > 450_000) return ''
-  return value.slice(0, 500_000)
+  const normalized = value.trim()
+  if (!normalized) return ''
+  if (normalized.startsWith('data:image/')) {
+    return normalized.length <= 450_000 ? normalized : ''
+  }
+  if (/^https:\/\//i.test(normalized) || normalized.startsWith('/')) {
+    return normalized.slice(0, 2_000)
+  }
+  return ''
 }
 
 function compactAnalysis(value) {

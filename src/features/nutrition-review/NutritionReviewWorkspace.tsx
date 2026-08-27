@@ -19,6 +19,7 @@ import {
   type NutritionMealReview,
   type NutritionReviewStatus,
 } from '../../services/nutritionReviewService'
+import { durationLabel } from './nutritionReviewDisplay'
 import './NutritionReviewWorkspace.css'
 
 type StatusFilter = NutritionReviewStatus | 'all'
@@ -50,6 +51,17 @@ function statusLabel(value: NutritionReviewStatus) {
   if (value === 'approved') return 'Đã duyệt'
   if (value === 'rejected') return 'Cần chỉnh'
   return 'Chờ duyệt'
+}
+
+function ReviewPhoto({ source, alt, kind }: { source: string; alt: string; kind: 'card' | 'detail' }) {
+  const [failedSource, setFailedSource] = useState('')
+  const usable = Boolean(source) && failedSource !== source
+  const className = `${kind === 'card' ? 'nrw-card-image' : 'nrw-main-photo'} ${usable ? '' : 'is-empty'}`
+  return <div className={className}>
+    {usable
+      ? <img src={source} alt={alt} onError={() => setFailedSource(source)} />
+      : <span className="nrw-image-fallback"><Sparkles size={kind === 'card' ? 27 : 34} /><small>Không có ảnh gốc</small></span>}
+  </div>
 }
 
 export function NutritionReviewWorkspace({
@@ -176,7 +188,7 @@ export function NutritionReviewWorkspace({
       <div className="nrw-hero-orb"><CheckCircle2 size={34} /></div>
       <div className="nrw-kpis" aria-label="Tổng quan duyệt món">
         <article><strong>{summary.pending}</strong><span>chờ duyệt</span></article>
-        <article className={summary.overdue ? 'is-alert' : ''}><strong>{summary.overdue}</strong><span>quá SLA {slaMinutes} phút</span></article>
+        <article className={summary.overdue ? 'is-alert' : ''}><strong>{summary.overdue}</strong><span>quá SLA {durationLabel(slaMinutes)}</span></article>
         <article><strong>{summary.students}</strong><span>học viên</span></article>
       </div>
     </header>
@@ -210,9 +222,9 @@ export function NutritionReviewWorkspace({
           className={`nrw-review-card ${selected?.id === item.id ? 'is-selected' : ''} ${item.isOverdue ? 'is-overdue' : ''}`}
           onClick={() => setSelectedId(item.id)}
         >
-          <div className="nrw-card-image">{item.image ? <img src={item.image} alt="Bữa ăn học viên gửi" /> : <Sparkles size={30} />}</div>
+          <ReviewPhoto source={item.image} alt="Bữa ăn học viên gửi" kind="card" />
           <div className="nrw-card-body">
-            <span className={`nrw-state is-${item.status}`}>{item.isOverdue ? `Quá SLA ${item.overdueMinutes} phút` : statusLabel(item.status)}</span>
+            <span className={`nrw-state is-${item.status}`}>{item.isOverdue ? `Trễ ${durationLabel(item.overdueMinutes)}` : statusLabel(item.status)}</span>
             <strong>{item.studentName}</strong>
             <small>{item.mealType} · {dateTime(item.createdAt)}</small>
             <p><Flame size={14} /> {Math.round(item.totalKcal)} kcal · {Math.round(item.totalProtein)}g đạm</p>
@@ -223,13 +235,13 @@ export function NutritionReviewWorkspace({
 
       {selected && <article className="nrw-detail">
         <div className="nrw-detail-top">
-          <div className="nrw-detail-identity"><small>HỒ SƠ DUYỆT · {selected.revision + 1}</small><h2>{selected.studentName}</h2><p>{selected.studentGoal || 'Chưa cập nhật mục tiêu dinh dưỡng'}</p>{scope === 'all' && <div className="nrw-assign-coach"><UsersRound size={15} /><span>HLV dinh dưỡng: {selected.assignedCoachName || 'Chưa phân công'}<small>Thiết lập tại Học viên PT Gym → Hợp đồng.</small></span></div>}</div>
+          <div className="nrw-detail-identity"><small>HỒ SƠ DUYỆT · {selected.revision + 1}</small><h2>{selected.studentName}</h2><p>{selected.studentGoal || 'Chưa cập nhật mục tiêu dinh dưỡng'}</p>{scope === 'all' && <div className="nrw-assign-coach"><UsersRound size={15} /><span>HLV dinh dưỡng: {selected.assignedCoachName || 'Chưa phân công'}<small>Gán tại hồ sơ Học viên PT.</small></span></div>}</div>
           <div className="nrw-slide-control"><button onClick={() => setDetailSlide((value) => Math.max(0, value - 1))} disabled={detailSlide === 0} aria-label="Slide trước"><ChevronLeft /></button><span>{detailSlide + 1}/3</span><button onClick={() => setDetailSlide((value) => Math.min(2, value + 1))} disabled={detailSlide === 2} aria-label="Slide sau"><ChevronRight /></button></div>
         </div>
         <div className="nrw-detail-window">
-          <div className="nrw-detail-track" style={{ transform: `translateX(-${detailSlide * 100}%)` }}>
+          <div className={`nrw-detail-track is-slide-${detailSlide}`} style={{ transform: `translateX(-${detailSlide * 100}%)` }}>
             <section className="nrw-slide nrw-overview-slide">
-              <div className="nrw-main-photo">{selected.image ? <img src={selected.image} alt="Bữa ăn đang duyệt" /> : <Sparkles size={44} />}</div>
+              <ReviewPhoto source={selected.image} alt="Bữa ăn đang duyệt" kind="detail" />
               <div className="nrw-meal-summary"><span className={`nrw-state is-${selected.status}`}>{statusLabel(selected.status)}</span><h3>{selected.mealType}</h3><p>{selected.note || 'Học viên chưa thêm ghi chú cho bữa ăn.'}</p><div className="nrw-macro-row"><b>{Math.round(selected.totalKcal)}<small>kcal</small></b><b>{Math.round(selected.totalProtein)}<small>protein</small></b><b>{Math.round(selected.totalCarb)}<small>carb</small></b><b>{Math.round(selected.totalFat)}<small>fat</small></b></div></div>
             </section>
             <section className="nrw-slide nrw-analysis-slide">
