@@ -67,7 +67,7 @@ export default function AuraMetricCarousel({ slides, label, loading = false }: P
         const content = <>
           <div className="aura-metric-carousel__topline">
             <span className="aura-metric-carousel__icon">{slide.icon}</span>
-            <span className="aura-metric-carousel__number">0{index + 1}</span>
+            <span className="aura-metric-carousel__number">{String(index + 1).padStart(2, '0')} / {String(slides.length).padStart(2, '0')}</span>
           </div>
           <span className="aura-metric-carousel__eyebrow">{slide.eyebrow}</span>
           <strong className={loading ? 'is-loading' : ''}>{loading ? 'Đang tải…' : slide.value}</strong>

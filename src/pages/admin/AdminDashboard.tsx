@@ -223,7 +223,7 @@ export default function AdminDashboard({
       },
     ]
     return values
-      .filter((item) => item.metric.available)
+      .filter((item) => item.metric.available || data.scope.unrestricted)
       .sort((left, right) => {
         const severity = { critical: 0, warning: 1, normal: 2 }
         return severity[left.severity] - severity[right.severity]
@@ -305,7 +305,8 @@ export default function AdminDashboard({
         facts: [
           { label: 'Tổng hồ sơ', value: data.clients.total.toLocaleString('vi-VN') },
           { label: 'HĐ hiệu lực', value: data.clients.activeContracts.toLocaleString('vi-VN') },
-          { label: 'Mới tháng này', value: data.clients.newInRange.toLocaleString('vi-VN') },
+          { label: 'Đang bảo lưu', value: data.clients.preservedContracts.toLocaleString('vi-VN') },
+          { label: 'Mới trong kỳ', value: data.clients.newInRange.toLocaleString('vi-VN') },
           { label: 'Chưa hoạt động', value: Math.max(0, data.clients.total - data.clients.active).toLocaleString('vi-VN') },
         ],
         actionLabel: 'Mở học viên', onSelect: () => goTo('admin-pt-students'),
@@ -414,7 +415,7 @@ export default function AdminDashboard({
         </article>}
 
         {data.permissions.clients && <article className="admin-dashboard__chart-card admin-dashboard__chart-card--ratio">
-          <header><div><small>CƠ CẤU GÓI TẬP</small><strong>{data.analytics.packages.totalActive} hợp đồng hiệu lực</strong></div><details><summary aria-label="Giải thích hợp đồng hiệu lực"><CircleHelp size={15} /></summary><p>Chỉ tính hợp đồng đã bắt đầu, chưa hết hạn và vẫn còn ít nhất một buổi tại cuối kỳ đang chọn.</p></details></header>
+          <header><div><small>CƠ CẤU GÓI TẬP</small><strong>{data.analytics.packages.totalActive} hiệu lực · {data.analytics.packages.preservedContracts} bảo lưu</strong></div><details><summary aria-label="Giải thích hợp đồng hiệu lực"><CircleHelp size={15} /></summary><p>Hợp đồng hiệu lực phải đã bắt đầu, còn thời hạn, còn buổi và không ở trong thời gian bảo lưu. Hợp đồng bảo lưu được tách thành số liệu riêng.</p></details></header>
           <div className="admin-dashboard__ratio-body">
             <div className="admin-dashboard__donut" style={{ background: ratioGradient(data.analytics.packages.items) }}><span><b>{data.analytics.packages.totalActive}</b><small>hợp đồng</small></span></div>
             <div className="admin-dashboard__ratio-legend">{data.analytics.packages.items.length ? data.analytics.packages.items.map((item, index) => <span key={item.id}><i style={{ background: ratioPalette[index % ratioPalette.length] }} /><b>{item.name}</b><small>{item.count} · {item.percent}%</small></span>) : <p>Chưa có hợp đồng đủ điều kiện.</p>}</div>
@@ -429,7 +430,7 @@ export default function AdminDashboard({
               <span><i style={{ background: ratioPalette[0] }} /><b>Có OFF</b><small>{data.analytics.off.approvedContracts} hợp đồng</small></span>
               <span><i style={{ background: ratioPalette[1] }} /><b>Không OFF</b><small>{data.analytics.off.activeWithoutOff} hợp đồng</small></span>
               <span><i style={{ background: ratioPalette[2] }} /><b>Chờ duyệt</b><small>{data.analytics.off.pendingRequests} yêu cầu</small></span>
-              <span><i style={{ background: ratioPalette[3] }} /><b>Bảo lưu</b><small>{data.analytics.off.preservationRequests} yêu cầu</small></span>
+              <span><i style={{ background: ratioPalette[3] }} /><b>Bảo lưu</b><small>{data.analytics.off.preservedContracts} hợp đồng</small></span>
             </div>
           </div>
         </article>}

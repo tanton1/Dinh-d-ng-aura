@@ -115,7 +115,7 @@ function storedDateKey(value) {
   return time ? dateKey(new Date(time)) : ''
 }
 
-function isEffectiveContract(value, referenceDate) {
+function hasUsableContractWindow(value, referenceDate) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(referenceDate)) return false
   if (['cancelled', 'expired', 'inactive', 'archived'].includes(value.status)) return false
   const startDate = storedDateKey(value.startDate)
@@ -123,6 +123,17 @@ function isEffectiveContract(value, referenceDate) {
   const totalSessions = Math.max(0, Number(value.totalSessions || 0))
   const usedSessions = Math.max(0, Number(value.usedSessions || 0))
   return Boolean(startDate && endDate && startDate <= referenceDate && endDate >= referenceDate && totalSessions > usedSessions)
+}
+
+function isPreservedContract(value, referenceDate) {
+  if (!hasUsableContractWindow(value, referenceDate)) return false
+  if (value.status === 'frozen') return true
+  return Array.isArray(value.pausePeriods) && value.pausePeriods.some((period) => period?.type === 'preservation'
+    && storedDateKey(period.startDate) <= referenceDate && storedDateKey(period.endDate) >= referenceDate)
+}
+
+function isEffectiveContract(value, referenceDate) {
+  return hasUsableContractWindow(value, referenceDate) && !isPreservedContract(value, referenceDate)
 }
 
 function reportGranularity(start, end) {
@@ -168,6 +179,7 @@ function dashboardAnalytics({ ledgerValues, contractValues, offValues, start, en
   }
 
   const effectiveContracts = contractValues.filter((value) => isEffectiveContract(value, referenceDate))
+  const preservedContracts = contractValues.filter((value) => isPreservedContract(value, referenceDate))
   const packages = new Map()
   for (const contract of effectiveContracts) {
     const id = contract.packageId || contract.packageName || 'unknown'
@@ -183,17 +195,18 @@ function dashboardAnalytics({ ledgerValues, contractValues, offValues, start, en
   for (const item of visiblePackages) item.percent = effectiveContracts.length ? Math.round(item.count / effectiveContracts.length * 1000) / 10 : 0
 
   const effectiveContractIds = new Set(effectiveContracts.map((value) => value.id).filter(Boolean))
+  const usableContractIds = new Set([...effectiveContracts, ...preservedContracts].map((value) => value.id).filter(Boolean))
   const offRequests = offValues.filter((value) => {
     const inferredType = value.type || (Number(value.durationDays || 0) > 0 && Number(value.durationDays || 0) <= 14 ? 'off' : '')
     return inferredType === 'off' && effectiveContractIds.has(value.contractId)
   })
   const approvedContractIds = new Set(offRequests.filter((value) => value.status === 'approved').map((value) => value.contractId))
   const pendingRequests = offRequests.filter((value) => value.status === 'pending').length
-  const preservationRequests = offValues.filter((value) => value.type === 'preservation' && ['pending', 'approved'].includes(value.status) && effectiveContractIds.has(value.contractId)).length
+  const preservationRequests = offValues.filter((value) => value.type === 'preservation' && ['pending', 'approved'].includes(value.status) && usableContractIds.has(value.contractId)).length
 
   return {
     revenue: { granularity, points: [...points.values()].sort((left, right) => left.key.localeCompare(right.key)).slice(-60) },
-    packages: { totalActive: effectiveContracts.length, items: visiblePackages },
+    packages: { totalActive: effectiveContracts.length, preservedContracts: preservedContracts.length, items: visiblePackages },
     off: {
       activeContracts: effectiveContracts.length,
       approvedContracts: approvedContractIds.size,
@@ -201,6 +214,7 @@ function dashboardAnalytics({ ledgerValues, contractValues, offValues, start, en
       approvedRequests: offRequests.filter((value) => value.status === 'approved').length,
       pendingRequests,
       preservationRequests,
+      preservedContracts: preservedContracts.length,
       rate: effectiveContracts.length ? Math.round(approvedContractIds.size / effectiveContracts.length * 1000) / 10 : 0,
     },
   }
@@ -501,7 +515,7 @@ function createOperationsDashboardFunctions({ db, onCall }) {
     const referenceDate = dateKey(new Date(Math.min(end.getTime(), now.getTime())))
     const analytics = dashboardAnalytics({ ledgerValues, contractValues, offValues, start, end, referenceDate })
     const result = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       range: { startAt: start.toISOString(), endAt: end.toISOString(), timeZone: 'Asia/Ho_Chi_Minh' },
       branchId,
       scope: { branchId, branchIds: scope.branchIds, unrestricted: scope.unrestricted },
@@ -530,6 +544,7 @@ function createOperationsDashboardFunctions({ db, onCall }) {
         active: studentValues.filter((value) => !['inactive', 'cancelled', 'archived'].includes(value.status)).length,
         newInRange: studentValues.filter((value) => inRange(value.joinDate || value.createdAt, start, end)).length,
         activeContracts: analytics.packages.totalActive,
+        preservedContracts: analytics.packages.preservedContracts,
       },
       analytics,
       operations: {
@@ -586,6 +601,7 @@ module.exports = {
   renewalCaseMatches,
   summarizeReceivables,
   isEffectiveContract,
+  isPreservedContract,
   ledgerReceiptImpact,
   dashboardAnalytics,
 }

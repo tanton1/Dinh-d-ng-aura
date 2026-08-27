@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const test = require('node:test')
-const { dashboardAnalytics, dashboardBranchScope, isEffectiveContract, ledgerReceiptImpact, renewalCaseMatches, summarizeReceivables } = require('./operations-dashboard')
+const { dashboardAnalytics, dashboardBranchScope, isEffectiveContract, isPreservedContract, ledgerReceiptImpact, renewalCaseMatches, summarizeReceivables } = require('./operations-dashboard')
 const source = readFileSync(join(__dirname, 'operations-dashboard.js'), 'utf8')
 const dashboard = readFileSync(join(__dirname, '..', 'src', 'pages', 'admin', 'AdminDashboard.tsx'), 'utf8')
 
@@ -24,7 +24,7 @@ test('dashboard and attendance queries are bounded and capability protected', ()
   assert.match(source, /collection\('attendanceEvents'\)/)
   assert.match(source, /\.count\(\)\.get\(\)/)
   assert.match(source, /DASHBOARD_CACHE_TTL_MS/)
-  assert.match(source, /schemaVersion: 3/)
+  assert.match(source, /schemaVersion: 4/)
   assert.match(source, /actionSummary/)
   assert.match(source, /analytics/)
 })
@@ -35,6 +35,11 @@ test('effective contracts require an active date window and remaining sessions',
   assert.equal(isEffectiveContract({ status: 'active', startDate: '2026-01-01', endDate: '2026-08-20', totalSessions: 36, usedSessions: 12 }, '2026-08-27'), false)
   assert.equal(isEffectiveContract({ status: 'active', startDate: '2026-01-01', endDate: '2026-12-01', totalSessions: 36, usedSessions: 36 }, '2026-08-27'), false)
   assert.equal(isEffectiveContract({ status: 'cancelled', startDate: '2026-01-01', endDate: '2026-12-01', totalSessions: 36, usedSessions: 1 }, '2026-08-27'), false)
+  assert.equal(isEffectiveContract({ status: 'frozen', startDate: '2026-01-01', endDate: '2026-12-01', totalSessions: 36, usedSessions: 1 }, '2026-08-27'), false)
+  assert.equal(isPreservedContract({ status: 'frozen', startDate: '2026-01-01', endDate: '2026-12-01', totalSessions: 36, usedSessions: 1 }, '2026-08-27'), true)
+  const preservation = { status: 'active', startDate: '2026-01-01', endDate: '2026-12-01', totalSessions: 36, usedSessions: 1, pausePeriods: [{ type: 'preservation', startDate: '2026-08-20', endDate: '2026-09-05' }] }
+  assert.equal(isEffectiveContract(preservation, '2026-08-27'), false)
+  assert.equal(isPreservedContract(preservation, '2026-08-27'), true)
 })
 
 test('net receipts exclude recognised revenue and operating expenses', () => {
@@ -58,14 +63,17 @@ test('dashboard analytics separates gross and net cash and calculates package an
     contractValues: [
       { id: 'c1', status: 'active', startDate: '2026-08-01', endDate: '2026-11-01', totalSessions: 36, usedSessions: 5, packageId: 'p1', packageName: 'PT 3 tháng', totalPrice: 5_000_000, createdAt: '2026-08-02T09:00:00+07:00' },
       { id: 'c2', status: 'active', startDate: '2026-08-01', endDate: '2026-11-01', totalSessions: 36, usedSessions: 36, packageId: 'p1', packageName: 'PT 3 tháng', totalPrice: 5_000_000, createdAt: '2026-08-03T09:00:00+07:00' },
+      { id: 'c3', status: 'frozen', startDate: '2026-08-01', endDate: '2026-11-01', totalSessions: 36, usedSessions: 10, packageId: 'p1', packageName: 'PT 3 tháng', totalPrice: 5_000_000, createdAt: '2026-08-03T09:00:00+07:00' },
     ],
     offValues: [{ contractId: 'c1', type: 'off', status: 'approved', startDate: '2026-08-20' }],
   })
   assert.equal(analytics.revenue.points.reduce((total, item) => total + item.grossCash, 0), 1_000_000)
   assert.equal(analytics.revenue.points.reduce((total, item) => total + item.netCash, 0), 800_000)
   assert.equal(analytics.packages.totalActive, 1)
+  assert.equal(analytics.packages.preservedContracts, 1)
   assert.equal(analytics.packages.items[0].percent, 100)
   assert.equal(analytics.off.rate, 100)
+  assert.equal(analytics.off.preservedContracts, 1)
 })
 
 test('receivable actions count overdue and due-today contracts without duplicating debt', () => {
@@ -107,8 +115,11 @@ test('dashboard UI is one action-first page without legacy dashboard tabs', () =
   assert.match(dashboard, /DÒNG TIỀN & DOANH SỐ/)
   assert.match(dashboard, /CƠ CẤU GÓI TẬP/)
   assert.match(dashboard, /TỶ LỆ OFF/)
+  assert.match(dashboard, /Đang bảo lưu/)
+  assert.match(dashboard, /không ở trong thời gian bảo lưu/)
   assert.match(dashboard, /allowAll=\{false\}/)
   assert.match(dashboard, /actions\.slice\(0, 4\)/)
+  assert.match(dashboard, /item\.metric\.available \|\| data\.scope\.unrestricted/)
   assert.match(dashboard, /Các việc cần xử lý/)
   assert.doesNotMatch(dashboard, /activeTab/)
   assert.doesNotMatch(dashboard, /admin-operations-tabs/)

@@ -141,6 +141,7 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
       await expect(dashboard.getByRole('heading', { name: 'Vận hành hiện tại' })).toBeVisible()
       await expect(dashboard.getByRole('tab')).toHaveCount(0)
       await expect(dashboard.locator('.aura-metric-carousel__slide')).toHaveCount(4)
+      await expect(dashboard.locator(':scope > .aura-metric-carousel .aura-metric-carousel__number').first()).toHaveText('01 / 04')
       await expect(dashboard.getByText('Một phần dữ liệu cần đối soát.')).toHaveCount(0)
       const dashboardLayout = await dashboard.evaluate((element) => {
         const rect = element.getBoundingClientRect()

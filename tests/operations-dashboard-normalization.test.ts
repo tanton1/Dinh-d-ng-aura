@@ -21,7 +21,7 @@ test('dashboard accepts the previous callable schema during a rolling deployment
     generatedAt: '2026-08-26T08:00:00.000Z',
   })
 
-  assert.equal(dashboard.schemaVersion, 3)
+  assert.equal(dashboard.schemaVersion, 4)
   assert.equal(dashboard.finance.cashCollected, 125_000_000)
   assert.equal(dashboard.clients.active, 280)
   assert.equal(dashboard.operations.completionRate, 72)
@@ -37,17 +37,32 @@ test('dashboard accepts the previous callable schema during a rolling deployment
 
 test('dashboard bounds chart payloads and preserves signed canonical cash values', () => {
   const dashboard = normalizeOperationsDashboardData({
-    schemaVersion: 3,
+    schemaVersion: 4,
+    finance: { cashCollected: 700000, refunds: 750000, netCash: 999999999 },
     analytics: {
       revenue: { granularity: 'week', points: [{ key: '2026-08-24', label: '24/08', contractSales: '1000000', grossCash: 700000, netCash: -50000 }] },
-      packages: { totalActive: 2, items: [{ id: 'p1', name: 'PT 3 tháng', count: 2, percent: 100 }] },
-      off: { activeContracts: 2, approvedContracts: 1, activeWithoutOff: 1, approvedRequests: 1, pendingRequests: 2, preservationRequests: 0, rate: 50 },
+      packages: { totalActive: 2, preservedContracts: 1, items: [{ id: 'p1', name: 'PT 3 tháng', count: 2, percent: 100 }] },
+      off: { activeContracts: 2, approvedContracts: 1, activeWithoutOff: 1, approvedRequests: 1, pendingRequests: 2, preservationRequests: 0, preservedContracts: 1, rate: 50 },
     },
   })
   assert.equal(dashboard.analytics.revenue.granularity, 'week')
   assert.equal(dashboard.analytics.revenue.points[0].netCash, -50000)
+  assert.equal(dashboard.finance.netCash, -50000)
+  assert.equal(dashboard.analytics.packages.preservedContracts, 1)
   assert.equal(dashboard.analytics.packages.items[0].percent, 100)
   assert.equal(dashboard.analytics.off.rate, 50)
+})
+
+test('dashboard rejects a rolling response that adds recognised revenue to net receipts', () => {
+  const dashboard = normalizeOperationsDashboardData({
+    schemaVersion: 3,
+    finance: { cashCollected: 274_750_000, refunds: 0, reversals: 0, adjustments: 0, netCash: 493_910_415 },
+    analytics: {
+      revenue: { granularity: 'day', points: [{ key: '2026-08-27', label: '27/08', contractSales: 0, grossCash: 274_750_000, netCash: 493_910_415 }] },
+    },
+  })
+  assert.equal(dashboard.finance.netCash, 274_750_000)
+  assert.equal(dashboard.analytics.revenue.points[0].netCash, 274_750_000)
 })
 
 test('dashboard normalizes malformed numeric fields instead of rendering NaN', () => {

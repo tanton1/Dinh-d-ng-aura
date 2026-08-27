@@ -64,6 +64,37 @@ function cashImpact(item) {
   return ['payment', 'refund', 'reversal', 'adjustment'].includes(item.type) ? Number(item.amount || 0) : 0
 }
 
+function receiptImpact(item) {
+  return ['payment', 'refund', 'reversal', 'adjustment'].includes(item.type) ? cashImpact(item) : 0
+}
+
+function vietnamDateKey(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value || 0)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(date)
+}
+
+function storedDateKey(value) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10)
+  return vietnamDateKey(value)
+}
+
+function hasUsableContractWindow(item, referenceDate) {
+  const startDate = storedDateKey(item.startDate)
+  const endDate = storedDateKey(item.endDate)
+  return Boolean(startDate && endDate && startDate <= referenceDate && endDate >= referenceDate
+    && Number(item.totalSessions || 0) > Number(item.usedSessions || 0))
+}
+
+function isPreservedContract(item, referenceDate) {
+  if (!hasUsableContractWindow(item, referenceDate)) return false
+  if (item.status === 'frozen') return true
+  return Array.isArray(item.pausePeriods) && item.pausePeriods.some((period) => period?.type === 'preservation'
+    && storedDateKey(period.startDate) <= referenceDate && storedDateKey(period.endDate) >= referenceDate)
+}
+
 function sourceOf(item) {
   if (typeof item.source === 'string' && item.source && item.source !== 'legacy') return item.source
   return item.contractId ? 'pt_gym' : 'legacy_unclassified'
@@ -71,7 +102,7 @@ function sourceOf(item) {
 
 async function main() {
   const token = await accessToken()
-  const [ledger, cashAccounts, cashTransactions, attendance, payrollRuns, payrollPolicies, payrollRunItems, trainers, staff, users, sessions] = await Promise.all([
+  const [ledger, cashAccounts, cashTransactions, attendance, payrollRuns, payrollPolicies, payrollRunItems, trainers, staff, users, sessions, contracts] = await Promise.all([
     listCollection(token, 'ledgerEntries'),
     listCollection(token, 'cashAccounts'),
     listCollection(token, 'cashTransactions'),
@@ -83,8 +114,27 @@ async function main() {
     listCollection(token, 'staff'),
     listCollection(token, 'users'),
     listCollection(token, 'sessions'),
+    listCollection(token, 'contracts'),
   ])
   const postedLedger = ledger.filter((item) => item.status === 'posted')
+  const today = vietnamDateKey()
+  const currentMonthStart = `${today.slice(0, 7)}-01`
+  const currentPeriodLedger = ledger.filter((item) => ['posted', 'reversed'].includes(item.status)
+    && storedDateKey(item.effectiveAt) >= currentMonthStart && storedDateKey(item.effectiveAt) <= today)
+  const currentPeriodByType = currentPeriodLedger.reduce((result, item) => {
+    const key = item.type || 'unknown'
+    const current = result[key] || { entries: 0, amount: 0, cashImpact: 0, receiptImpact: 0, revenueImpact: 0 }
+    current.entries += 1
+    current.amount += Number(item.amount || 0)
+    current.cashImpact += cashImpact(item)
+    current.receiptImpact += receiptImpact(item)
+    current.revenueImpact += Number(item.revenueImpact || 0)
+    result[key] = current
+    return result
+  }, {})
+  const currentContracts = contracts.filter((item) => hasUsableContractWindow(item, today))
+  const effectiveContracts = currentContracts.filter((item) => !['cancelled', 'expired', 'inactive', 'archived'].includes(item.status) && !isPreservedContract(item, today))
+  const preservedContracts = currentContracts.filter((item) => isPreservedContract(item, today))
   const revenueEntries = postedLedger.filter((item) => item.type === 'revenue_recognition')
   const recognitionSessionIds = new Set(revenueEntries.map((item) => item.sessionId).filter(Boolean))
   const attendanceSessionIds = new Set(attendance.map((item) => item.sessionId).filter(Boolean))
@@ -172,6 +222,7 @@ async function main() {
       payrollPolicies: payrollPolicies.length,
       payrollRunItems: payrollRunItems.length,
       sessions: sessions.length,
+      contracts: contracts.length,
     },
     totals: {
       cashImpact: postedLedger.reduce((total, item) => total + cashImpact(item), 0),
@@ -204,6 +255,25 @@ async function main() {
       legacyDraftPreviews,
     },
     bySource,
+    currentPeriod: {
+      startDate: currentMonthStart,
+      endDate: today,
+      grossReceipts: currentPeriodLedger.filter((item) => item.type === 'payment').reduce((total, item) => total + Math.max(0, receiptImpact(item)), 0),
+      netReceipts: currentPeriodLedger.reduce((total, item) => total + receiptImpact(item), 0),
+      recognisedRevenue: currentPeriodLedger.reduce((total, item) => total + Number(item.revenueImpact || 0), 0),
+      legacyRawAmountSum: currentPeriodLedger.reduce((total, item) => total + Number(item.amount || 0), 0),
+      byType: currentPeriodByType,
+      contracts: {
+        effective: effectiveContracts.length,
+        preserved: preservedContracts.length,
+        usableWindowAndSessions: currentContracts.length,
+        byStatus: currentContracts.reduce((result, item) => {
+          const key = item.status || 'missing'
+          result[key] = (result[key] || 0) + 1
+          return result
+        }, {}),
+      },
+    },
   }
   fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true })
   const temporary = `${REPORT_PATH}.tmp`

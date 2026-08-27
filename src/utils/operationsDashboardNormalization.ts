@@ -10,7 +10,7 @@ export interface DashboardActionMetric {
 }
 
 export interface OperationsDashboardData {
-  schemaVersion: 3
+  schemaVersion: 4
   range: { startAt: string; endAt: string; timeZone: string }
   branchId: string
   scope: { branchId: string; branchIds: string[]; unrestricted: boolean }
@@ -48,7 +48,7 @@ export interface OperationsDashboardData {
     }
   }
   finance: { contractSales: number; cashCollected: number; refunds: number; reversals: number; adjustments: number; netCash: number; receivables: number }
-  clients: { total: number; active: number; newInRange: number; activeContracts: number }
+  clients: { total: number; active: number; newInRange: number; activeContracts: number; preservedContracts: number }
   analytics: {
     revenue: {
       granularity: 'day' | 'week' | 'month'
@@ -56,6 +56,7 @@ export interface OperationsDashboardData {
     }
     packages: {
       totalActive: number
+      preservedContracts: number
       items: Array<{ id: string; name: string; count: number; percent: number }>
     }
     off: {
@@ -65,6 +66,7 @@ export interface OperationsDashboardData {
       approvedRequests: number
       pendingRequests: number
       preservationRequests: number
+      preservedContracts: number
       rate: number
     }
   }
@@ -141,9 +143,29 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
   const sessionCount = nonNegativeNumber(operations.sessions)
   const completedCount = nonNegativeNumber(sessionStatus.completed) + nonNegativeNumber(sessionStatus.attended)
   const compatibilityPermission = (domainValue: unknown) => schemaVersion < 2 && Object.keys(record(domainValue)).length > 0
+  const cashCollected = finiteNumber(finance.cashCollected)
+  const refunds = nonNegativeNumber(finance.refunds)
+  const reversals = nonNegativeNumber(finance.reversals)
+  const adjustments = finiteNumber(finance.adjustments)
+  const netCash = cashCollected - refunds - reversals + adjustments
+  const revenuePoints = Array.isArray(revenue.points) ? revenue.points.slice(0, 60).map((item) => {
+    const point = record(item)
+    return {
+      key: text(point.key),
+      label: text(point.label),
+      contractSales: finiteNumber(point.contractSales),
+      grossCash: finiteNumber(point.grossCash),
+      netCash: finiteNumber(point.netCash),
+    }
+  }).filter((item) => item.key) : []
+  const pointNetTotal = revenuePoints.reduce((total, item) => total + item.netCash, 0)
+  if (revenuePoints.length && Math.abs(pointNetTotal - netCash) >= 1) {
+    revenuePoints.forEach((item) => { item.netCash = item.grossCash })
+    revenuePoints[revenuePoints.length - 1].netCash += netCash - revenuePoints.reduce((total, item) => total + item.grossCash, 0)
+  }
 
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     range: {
       startAt: text(range.startAt),
       endAt: text(range.endAt),
@@ -190,11 +212,11 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
     },
     finance: {
       contractSales: finiteNumber(finance.contractSales),
-      cashCollected: finiteNumber(finance.cashCollected),
-      refunds: finiteNumber(finance.refunds),
-      reversals: finiteNumber(finance.reversals),
-      adjustments: finiteNumber(finance.adjustments),
-      netCash: finiteNumber(finance.netCash),
+      cashCollected,
+      refunds,
+      reversals,
+      adjustments,
+      netCash,
       receivables: finiteNumber(finance.receivables),
     },
     clients: {
@@ -202,23 +224,16 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
       active: nonNegativeNumber(clients.active),
       newInRange: nonNegativeNumber(clients.newInRange),
       activeContracts: nonNegativeNumber(clients.activeContracts),
+      preservedContracts: nonNegativeNumber(clients.preservedContracts || packages.preservedContracts || off.preservedContracts),
     },
     analytics: {
       revenue: {
         granularity: revenue.granularity === 'week' || revenue.granularity === 'month' ? revenue.granularity : 'day',
-        points: Array.isArray(revenue.points) ? revenue.points.slice(0, 60).map((item) => {
-          const value = record(item)
-          return {
-            key: text(value.key),
-            label: text(value.label),
-            contractSales: finiteNumber(value.contractSales),
-            grossCash: finiteNumber(value.grossCash),
-            netCash: finiteNumber(value.netCash),
-          }
-        }).filter((item) => item.key) : [],
+        points: revenuePoints,
       },
       packages: {
         totalActive: nonNegativeNumber(packages.totalActive),
+        preservedContracts: nonNegativeNumber(packages.preservedContracts || clients.preservedContracts || off.preservedContracts),
         items: Array.isArray(packages.items) ? packages.items.slice(0, 6).map((item) => {
           const value = record(item)
           return {
@@ -236,6 +251,7 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
         approvedRequests: nonNegativeNumber(off.approvedRequests),
         pendingRequests: nonNegativeNumber(off.pendingRequests),
         preservationRequests: nonNegativeNumber(off.preservationRequests),
+        preservedContracts: nonNegativeNumber(off.preservedContracts || clients.preservedContracts || packages.preservedContracts),
         rate: Math.max(0, Math.min(100, finiteNumber(off.rate))),
       },
     },
