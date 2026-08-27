@@ -33,6 +33,20 @@ function draftReference(db, branchId, week) {
   return db.doc(`ptScheduleDrafts/${draftId(branchId, week)}`)
 }
 
+function safeWeeklySessionTargets(value, allowedStudentIds = null) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const allowed = allowedStudentIds instanceof Set ? allowedStudentIds : null
+  return Object.fromEntries(Object.entries(value)
+    .filter(([studentId, target]) => (!allowed || allowed.has(studentId))
+      && typeof studentId === 'string'
+      && studentId.length > 0
+      && studentId.length <= 200
+      && Number.isInteger(Number(target))
+      && Number(target) >= 0
+      && Number(target) <= 7)
+    .map(([studentId, target]) => [studentId, Number(target)]))
+}
+
 function activeAdministrator(actor) {
   return actor.accessRole === 'admin' || actor.accessRole === 'super_admin'
 }
@@ -120,6 +134,7 @@ async function loadBranchData(db, branchId, week) {
   const weeklyAvailability = new Map(availability.docs.map((item) => item.data()).filter((item) => studentSet.has(item.studentId)).map((item) => [item.studentId, item]))
   const legacy = legacySchedule.exists ? legacySchedule.data() : {}
   const draftData = draft.exists ? draft.data() : null
+  const weeklySessionTargets = safeWeeklySessionTargets(draftData?.weeklySessionTargets, studentSet)
   const schedule = draftData
     ? safeSchedule(draftData.schedule)
     : branchScheduleSnapshot(legacy.schedule || {}, branchId, studentMap, trainerMap)
@@ -146,6 +161,13 @@ async function loadBranchData(db, branchId, week) {
     const availabilityStatus = weekly?.status || (recurringConfirmed ? 'recurring' : 'missing')
     const eligibility = studentWeekEligibility(mappedContracts, item.id, branchId, week)
     const studentInactive = ['inactive', 'archived', 'deleted'].includes(String(data.status || '').toLowerCase())
+    const defaultSessionsPerWeek = Math.max(0, Math.min(7, Number(data.sessionsPerWeek || 0)))
+    const weeklySessionTargetOverride = Object.prototype.hasOwnProperty.call(weeklySessionTargets, item.id)
+      ? weeklySessionTargets[item.id]
+      : null
+    const maxWeeklySessions = Math.max(0, Math.min(7, eligibility.validDates.length, eligibility.remainingSessions))
+    const requestedSessions = weeklySessionTargetOverride ?? defaultSessionsPerWeek
+    const effectiveSessionsPerWeek = Math.min(requestedSessions, maxWeeklySessions)
     return {
       id: item.id,
       name: data.name || 'Chưa cập nhật tên',
@@ -153,7 +175,11 @@ async function loadBranchData(db, branchId, week) {
       email: data.email || '',
       status: data.status || 'active',
       branchId,
-      sessionsPerWeek: Math.max(0, Number(data.sessionsPerWeek || 0)),
+      sessionsPerWeek: effectiveSessionsPerWeek,
+      defaultSessionsPerWeek,
+      weeklySessionTargetOverride,
+      weeklySessionTargetOverridden: weeklySessionTargetOverride !== null,
+      maxWeeklySessions,
       availableSlots: Array.isArray(weekly?.slots) ? weekly.slots.slice(0, 100) : recurringSlots,
       availabilityStatus,
       availabilitySource: weekly ? 'weekly' : recurringConfirmed ? 'legacy_recurring' : 'none',
@@ -221,7 +247,18 @@ function datesForWeek(week) {
   return [...DAY_ORDER.keys()].map((day) => dateForSlot(week, day))
 }
 
-function studentWeekEligibility(contracts, studentId, branchId, week) {
+function todayInHoChiMinh() {
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return `${values.year}-${values.month}-${values.day}`
+}
+
+function studentWeekEligibility(contracts, studentId, branchId, week, referenceDate = todayInHoChiMinh()) {
   const reasons = new Set()
   const activeContracts = contracts.filter((contract) => contract.studentId === studentId && contract.status === 'active')
   if (!activeContracts.length) reasons.add('ACTIVE_CONTRACT_NOT_FOUND')
@@ -237,30 +274,34 @@ function studentWeekEligibility(contracts, studentId, branchId, week) {
     }
     return true
   })
-  const dates = datesForWeek(week)
+  const dates = datesForWeek(week).filter((date) => date >= referenceDate)
   const validDates = []
   const pausedDates = []
   const eligibleContractIds = new Set()
   let overlapsWeek = false
   let hasRemainingSessions = false
+  let remainingSessionQuota = 0
 
   for (const contract of branchContracts) {
     const startDate = storedDate(contract.startDate)
     const endDate = storedDate(contract.endDate)
     if (!startDate || !endDate) continue
-    const remainingSessions = Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))
-    if (remainingSessions > 0) hasRemainingSessions = true
+    const contractRemainingSessions = Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))
+    if (contractRemainingSessions > 0) hasRemainingSessions = true
+    let contractUsableInWeek = false
     for (const date of dates) {
       if (date < startDate || date > endDate) continue
       overlapsWeek = true
-      if (remainingSessions < 1) continue
+      if (contractRemainingSessions < 1) continue
       if (contractPaused(contract, date)) {
         pausedDates.push(date)
         continue
       }
       validDates.push(date)
       eligibleContractIds.add(contract.id)
+      contractUsableInWeek = true
     }
+    if (contractUsableInWeek) remainingSessionQuota += contractRemainingSessions
   }
 
   if (branchContracts.length && !overlapsWeek) reasons.add('ACTIVE_CONTRACT_NOT_FOUND')
@@ -281,6 +322,7 @@ function studentWeekEligibility(contracts, studentId, branchId, week) {
     eligibleContractIds: [...eligibleContractIds],
     validDates: [...new Set(validDates)].sort(),
     pausedDates: [...new Set(pausedDates)].sort(),
+    remainingSessions: remainingSessionQuota,
   }
 }
 
@@ -313,6 +355,7 @@ function candidateForSlot(data, { student, trainer, slotId, schedule }) {
       ? student.eligibilityReasons
       : ['ACTIVE_CONTRACT_NOT_FOUND']))
   }
+  if (Array.isArray(student.validScheduleDates) && !student.validScheduleDates.includes(date)) reasons.push('ACTIVE_CONTRACT_NOT_FOUND')
   if (student.status === 'inactive') reasons.push('STUDENT_NOT_ACTIVE')
   if (student.branchId !== data.branch.id) reasons.push('STUDENT_BRANCH_MISMATCH')
   if (trainer.status === 'inactive') reasons.push('TRAINER_NOT_ACTIVE')
@@ -408,7 +451,7 @@ function commandReceiptId(actorUid, branchId, week, idempotencyKey) {
 }
 
 function commandInput(value) {
-  const supported = new Set(['add_student', 'remove_student', 'move_student', 'set_trainer_off', 'clear_trainer_off', 'lock_entry', 'unlock_entry'])
+  const supported = new Set(['add_student', 'remove_student', 'move_student', 'set_trainer_off', 'clear_trainer_off', 'lock_entry', 'unlock_entry', 'set_student_weekly_target'])
   const command = typeof value === 'string' ? value : ''
   if (!supported.has(command)) throw new HttpsError('invalid-argument', 'Lệnh chỉnh lịch không hợp lệ.')
   return command
@@ -539,10 +582,22 @@ function createPtScheduleV2Functions({ db, onCall }) {
     const slotId = typeof payload.slotId === 'string' ? payload.slotId : ''
     const fromSlotId = typeof payload.fromSlotId === 'string' ? payload.fromSlotId : ''
     const slotPattern = /^(T[2-7]|CN)-(?:[0-9]|1[0-9]|2[0-3])$/
-    if (!slotPattern.test(slotId)) throw new HttpsError('invalid-argument', 'Ô lịch không hợp lệ.')
+    if (command !== 'set_student_weekly_target' && !slotPattern.test(slotId)) throw new HttpsError('invalid-argument', 'Ô lịch không hợp lệ.')
     if (command === 'move_student' && !slotPattern.test(fromSlotId)) throw new HttpsError('invalid-argument', 'Ô lịch nguồn không hợp lệ.')
-    const trainerId = documentId(payload.trainerId, 'Mã PT')
+    const trainerId = command === 'set_student_weekly_target' ? '' : documentId(payload.trainerId, 'Mã PT')
     const studentId = command.includes('student') || command.includes('entry') ? documentId(payload.studentId, 'Mã học viên') : ''
+    const targetStudent = command === 'set_student_weekly_target'
+      ? data.students.find((item) => item.id === studentId)
+      : null
+    if (command === 'set_student_weekly_target' && !targetStudent) throw new HttpsError('not-found', 'Không tìm thấy học viên trong chi nhánh.')
+    const resetWeeklyTarget = command === 'set_student_weekly_target' && payload.resetToDefault === true
+    const weeklyTarget = resetWeeklyTarget ? null : Number(payload.targetSessions)
+    if (command === 'set_student_weekly_target' && (!resetWeeklyTarget && (!Number.isInteger(weeklyTarget) || weeklyTarget < 0 || weeklyTarget > 7))) {
+      throw new HttpsError('invalid-argument', 'Mục tiêu tuần phải từ 0 đến 7 buổi.')
+    }
+    if (command === 'set_student_weekly_target' && !resetWeeklyTarget && weeklyTarget > targetStudent.maxWeeklySessions) {
+      throw new HttpsError('failed-precondition', `Tuần này chỉ có thể xếp tối đa ${targetStudent.maxWeeklySessions} buổi theo thời hạn và quota hợp đồng.`, { issueCode: 'WEEKLY_TARGET_EXCEEDS_QUOTA' })
+    }
     const reference = draftReference(db, branchId, week)
     const receipt = db.doc(`ptScheduleCommandReceipts/${commandReceiptId(actor.uid, branchId, week, idempotencyKey)}`)
     let schedule = safeSchedule(data.schedule)
@@ -566,6 +621,18 @@ function createPtScheduleV2Functions({ db, onCall }) {
       if (revision !== expectedRevision) throw new HttpsError('aborted', 'Draft đã thay đổi. Hãy tải lại trước khi chỉnh.')
       schedule = safeSchedule(current.exists ? current.data().schedule : data.schedule)
       const values = Array.isArray(schedule[slotId]) ? [...schedule[slotId]] : []
+      const currentWeeklyTargets = safeWeeklySessionTargets(current.exists ? current.data()?.weeklySessionTargets : {}, new Set(data.students.map((item) => item.id)))
+      if (command === 'set_student_weekly_target') {
+        const scheduledCount = Object.values(schedule).flat().filter((entry) => entry.type !== 'off' && entry.studentId === studentId).length
+        const nextTarget = resetWeeklyTarget
+          ? Math.min(targetStudent.defaultSessionsPerWeek, targetStudent.maxWeeklySessions)
+          : weeklyTarget
+        if (nextTarget < scheduledCount) {
+          throw new HttpsError('failed-precondition', `Học viên đã có ${scheduledCount} buổi trong draft. Hãy gỡ bớt lịch trước khi hạ mục tiêu tuần.`, { issueCode: 'WEEKLY_TARGET_BELOW_SCHEDULED' })
+        }
+        if (resetWeeklyTarget) delete currentWeeklyTargets[studentId]
+        else currentWeeklyTargets[studentId] = weeklyTarget
+      }
       if (command === 'add_student') values.push({ studentId, trainerId, branchId, type: 'training', contractId: resolveContract(data, studentId, trainerId, dateForSlot(week, slotId.split('-')[0])).contract?.id || '', source: 'manual_v2' })
       if (command === 'remove_student') schedule[slotId] = values.filter((entry) => !(entry.studentId === studentId && entry.trainerId === trainerId))
       if (command === 'move_student') {
@@ -590,7 +657,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
       for (const [key, entries] of Object.entries(schedule)) if (!entries.length) delete schedule[key]
       if (scheduleEntryCount(schedule) > MAX_DRAFT_ENTRIES) throw new HttpsError('resource-exhausted', 'Draft vượt giới hạn an toàn.')
       const nextRevision = revision + 1
-      const result = { draftRevision: nextRevision, schedule }
+      const result = { draftRevision: nextRevision, schedule, weeklySessionTargets: currentWeeklyTargets }
       const currentUnassigned = Array.isArray(current.data()?.unassignedEntries) ? current.data().unassignedEntries : []
       const unassignedEntries = [...currentUnassigned, ...requeuedEntries].slice(-200)
       transaction.set(reference, {
@@ -601,12 +668,13 @@ function createPtScheduleV2Functions({ db, onCall }) {
         revision: nextRevision,
         status: 'draft',
         unassignedEntries,
+        weeklySessionTargets: currentWeeklyTargets,
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: actor.uid,
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, idempotencyKey, result, createdAt: FieldValue.serverTimestamp() })
-      transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.${command}`, actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, affectedStudentCount: requeuedEntries.length, reason: typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 300) : '', createdAt: FieldValue.serverTimestamp() })
+      transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.${command}`, actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, affectedStudentCount: command === 'set_student_weekly_target' ? 1 : requeuedEntries.length, studentId: command === 'set_student_weekly_target' ? studentId : null, weeklyTarget: command === 'set_student_weekly_target' ? (resetWeeklyTarget ? null : weeklyTarget) : null, reason: typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 300) : '', createdAt: FieldValue.serverTimestamp() })
       return result
     })
   })
@@ -621,5 +689,6 @@ module.exports = {
   generateSchedule,
   resolveContract,
   safeSchedule,
+  safeWeeklySessionTargets,
   studentWeekEligibility,
 }

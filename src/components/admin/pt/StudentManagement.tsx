@@ -13,6 +13,7 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { provisionStudentAccount } from '../../../services/identityAccessService';
 import { recordContractPayment } from '../../../services/financeLedgerService';
 import StudentRosterTable from './StudentRosterTable';
+import { studentEligibilityForWeek } from '../../../domain/pt/studentEligibility';
 import './StudentManagement.css';
 
 interface Props {
@@ -74,6 +75,11 @@ export default function StudentManagement({ user, profile }: Props) {
     return canManageStudents ? [...students] : [];
   }, [canManageStudents, students]);
 
+  const weekEligibilityByStudent = useMemo(() => new Map(allowedStudents.map((student) => [
+    student.id,
+    studentEligibilityForWeek(student, contracts),
+  ])), [allowedStudents, contracts]);
+
   const filteredStudents = useMemo(() => {
     let filtered = allowedStudents.filter(s => {
       if (!searchTerm) return true;
@@ -105,57 +111,34 @@ export default function StudentManagement({ user, profile }: Props) {
     // Filter by trainer dropdown
     if (selectedTrainerId !== 'all') {
       if (selectedTrainerId === 'none') {
-        filtered = filtered.filter(s => {
-          const studentContracts = contracts.filter(c => c.studentId === s.id && c.status === 'active');
-          return studentContracts.length === 0 || studentContracts.every(c => !c.trainerId && (!c.trainerIds || c.trainerIds.length === 0));
-        });
+        filtered = filtered.filter(s => (weekEligibilityByStudent.get(s.id)?.eligibleContracts || [])
+          .every(c => !c.trainerId && (!c.trainerIds || c.trainerIds.length === 0)));
       } else {
-        filtered = filtered.filter(s => {
-          const studentContracts = contracts.filter(c => c.studentId === s.id);
-          // If no contracts, they aren't assigned to this trainer
-          if (studentContracts.length === 0) return false;
-          // Check if any active contract is assigned to this trainer
-          // Or if no active contracts, check the latest contract
-          studentContracts.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
-          const activeContracts = studentContracts.filter(c => c.status === 'active');
-          if (activeContracts.length > 0) {
-            return activeContracts.some(c => c.trainerId === selectedTrainerId || c.trainerIds?.includes(selectedTrainerId));
-          } else {
-            return studentContracts[0].trainerId === selectedTrainerId || studentContracts[0].trainerIds?.includes(selectedTrainerId);
-          }
-        });
+        filtered = filtered.filter(s => (weekEligibilityByStudent.get(s.id)?.eligibleContracts || [])
+          .some(c => c.trainerId === selectedTrainerId || c.trainerIds?.includes(selectedTrainerId)));
       }
     }
 
     // Filter by nutrition PT dropdown
     if (selectedNutritionPTId !== 'all') {
       if (selectedNutritionPTId === 'none') {
-        filtered = filtered.filter(s => {
-          const studentContracts = contracts.filter(c => c.studentId === s.id && c.status === 'active');
-          return studentContracts.length === 0 || studentContracts.every(c => !c.nutritionPTIds || c.nutritionPTIds.length === 0);
-        });
+        filtered = filtered.filter(s => (weekEligibilityByStudent.get(s.id)?.eligibleContracts || [])
+          .every(c => !c.nutritionPTIds || c.nutritionPTIds.length === 0));
       } else {
-        filtered = filtered.filter(s => {
-          const studentContracts = contracts.filter(c => c.studentId === s.id);
-          if (studentContracts.length === 0) return false;
-          studentContracts.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
-          const activeContracts = studentContracts.filter(c => c.status === 'active');
-          if (activeContracts.length > 0) {
-            return activeContracts.some(c => c.nutritionPTIds?.includes(selectedNutritionPTId));
-          } else {
-            return studentContracts[0].nutritionPTIds?.includes(selectedNutritionPTId) || false;
-          }
-        });
+        filtered = filtered.filter(s => (weekEligibilityByStudent.get(s.id)?.eligibleContracts || [])
+          .some(c => c.nutritionPTIds?.includes(selectedNutritionPTId)));
       }
     }
 
     if (contractFilter !== 'all') {
       filtered = filtered.filter(s => {
-        const studentContracts = contracts.filter(c => c.studentId === s.id);
+        const studentContracts = contracts.filter(c => c.studentId === s.id)
+          .sort((a, b) => b.startDate.localeCompare(a.startDate));
+        const weekEligibility = weekEligibilityByStudent.get(s.id);
+        const effectiveContract = weekEligibility?.eligibleContracts[0];
         let status = 'none';
         
         if (studentContracts.length > 0) {
-          studentContracts.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
           const latestContract = studentContracts[0];
           
           if (latestContract.status === 'expired') {
@@ -193,14 +176,23 @@ export default function StudentManagement({ user, profile }: Props) {
           return s.status === 'inactive';
         }
         if (contractFilter === 'active') {
-          return s.status !== 'inactive' && (status === 'active' || status === 'expiring_month' || status === 'expiring_week');
+          return weekEligibility?.eligible === true;
         }
         if (contractFilter === 'expiring_month') {
-          return s.status !== 'inactive' && (status === 'expiring_month' || status === 'expiring_week');
+          if (!effectiveContract) return false;
+          const daysLeft = Math.ceil((new Date(`${effectiveContract.endDate}T23:59:59`).getTime() - Date.now()) / 86_400_000);
+          const sessionsLeft = effectiveContract.totalSessions - getCalculatedUsedSessions(effectiveContract);
+          return daysLeft <= 31 || sessionsLeft <= 5;
+        }
+        if (contractFilter === 'expiring_week') {
+          if (!effectiveContract) return false;
+          const daysLeft = Math.ceil((new Date(`${effectiveContract.endDate}T23:59:59`).getTime() - Date.now()) / 86_400_000);
+          const sessionsLeft = effectiveContract.totalSessions - getCalculatedUsedSessions(effectiveContract);
+          return daysLeft <= 7 || sessionsLeft <= 2;
         }
         if (contractFilter === 'paused') {
           const latestContract = studentContracts.length > 0 ? studentContracts[0] : null;
-          return latestContract?.status === 'frozen';
+          return latestContract?.status === 'frozen' || Boolean(!weekEligibility?.eligible && weekEligibility?.pausedDates.length);
         }
         if (contractFilter === 'cancelled') {
           const latestContract = studentContracts.length > 0 ? studentContracts[0] : null;
@@ -211,7 +203,7 @@ export default function StudentManagement({ user, profile }: Props) {
     }
 
     return filtered;
-  }, [students, searchTerm, dateRange, selectedBranchId, profile, contracts, contractFilter, selectedTrainerId, selectedNutritionPTId, trainers, user]);
+  }, [allowedStudents, searchTerm, dateRange, selectedBranchId, contracts, contractFilter, selectedTrainerId, selectedNutritionPTId, weekEligibilityByStudent]);
 
   const studentPageSize = 30;
   const studentPageCount = Math.max(1, Math.ceil(filteredStudents.length / studentPageSize));
@@ -227,14 +219,9 @@ export default function StudentManagement({ user, profile }: Props) {
     const unassignedStudentIds = new Set<string>();
 
     allowedStudents.forEach((student) => {
-      const studentContracts = contracts
-        .filter((contract) => contract.studentId === student.id)
-        .sort((left, right) => right.startDate.localeCompare(left.startDate));
-      const activeContract = studentContracts.find((contract) => contract.status === 'active');
-      if (!activeContract) {
-        if (student.status === 'active') unassignedStudentIds.add(student.id);
-        return;
-      }
+      const eligibility = weekEligibilityByStudent.get(student.id);
+      const activeContract = eligibility?.eligibleContracts[0];
+      if (!eligibility?.eligible || !activeContract) return;
       activeStudentIds.add(student.id);
       const sessionsLeft = activeContract.totalSessions - getCalculatedUsedSessions(activeContract);
       const daysLeft = Math.ceil((new Date(activeContract.endDate).getTime() - now.getTime()) / 86_400_000);
@@ -248,7 +235,7 @@ export default function StudentManagement({ user, profile }: Props) {
       expiring: expiringStudentIds.size,
       unassigned: unassignedStudentIds.size,
     };
-  }, [allowedStudents, contracts, sessions]);
+  }, [allowedStudents, weekEligibilityByStudent]);
 
   const activeFilterCount = [
     selectedBranchId !== 'all',
@@ -256,7 +243,15 @@ export default function StudentManagement({ user, profile }: Props) {
     selectedNutritionPTId !== 'all',
     contractFilter !== 'all',
     Boolean(dateRange && dateRange.start.getTime() !== 0),
+    Boolean(searchTerm.trim()),
   ].filter(Boolean).length;
+
+  const activeFilterSummary = [
+    selectedBranchId === 'all' ? null : selectedBranchId === 'none' ? 'Chưa xác định chi nhánh' : branches.find((branch) => branch.id === selectedBranchId)?.name,
+    contractFilter === 'active' ? 'Đang tập tuần này' : contractFilter === 'expiring_week' ? 'Sắp hết trong tuần' : contractFilter === 'expiring_month' ? 'Sắp hết trong tháng' : contractFilter === 'expired' ? 'Đã hết hạn' : contractFilter === 'paused' ? 'Đang bảo lưu' : contractFilter === 'cancelled' ? 'Đã hủy' : contractFilter === 'inactive' ? 'Đã nghỉ' : null,
+    selectedTrainerId === 'all' ? null : selectedTrainerId === 'none' ? 'Chưa có PT' : trainers.find((trainer) => trainer.id === selectedTrainerId)?.name,
+    searchTerm.trim() ? `Tìm “${searchTerm.trim().slice(0, 30)}”` : null,
+  ].filter(Boolean).join(' · ');
 
   const selectOverviewSlide = (index: number) => {
     const normalizedIndex = Math.min(2, Math.max(0, index));
@@ -265,8 +260,16 @@ export default function StudentManagement({ user, profile }: Props) {
     if (track) track.scrollTo({ left: track.clientWidth * normalizedIndex, behavior: 'smooth' });
   };
 
+  const carouselOrder = activeFilterCount > 0
+    ? (['results', 'overview', 'alerts'] as const)
+    : (['overview', 'alerts', 'results'] as const);
+
   useEffect(() => setStudentPage(1), [searchTerm, dateRange, selectedBranchId, contractFilter, selectedTrainerId, selectedNutritionPTId]);
   useEffect(() => setStudentPage((current) => Math.min(current, studentPageCount)), [studentPageCount]);
+  useEffect(() => {
+    setOverviewSlide(0);
+    overviewTrackRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
+  }, [searchTerm, dateRange, selectedBranchId, contractFilter, selectedTrainerId, selectedNutritionPTId]);
 
   const handleSaveContract = async (newContract: StudentContract) => {
     try {
@@ -549,18 +552,22 @@ export default function StudentManagement({ user, profile }: Props) {
             if (track.clientWidth > 0) setOverviewSlide(Math.min(2, Math.max(0, Math.round(track.scrollLeft / track.clientWidth))));
           }}
         >
-          <article className="student-management__carousel-slide is-overview">
-            <div><small>AURA CRM · TỔNG QUAN</small><h2>{studentOverview.total} học viên</h2><p>Toàn bộ hồ sơ trong phạm vi vận hành hiện tại.</p></div>
-            <div className="student-management__carousel-metrics"><span><strong>{studentOverview.active}</strong>Đang tập</span><span><strong>{studentOverview.unassigned}</strong>Chưa phân công</span></div>
-          </article>
-          <article className="student-management__carousel-slide is-alerts">
-            <div><small>CẦN XỬ LÝ SỚM</small><h2>{studentOverview.expiring} hồ sơ</h2><p>Sắp hết hạn hoặc chỉ còn tối đa hai buổi tập.</p></div>
-            <button type="button" onClick={() => { setContractFilter('expiring_week'); setStudentPage(1); }}>Lọc danh sách cảnh báo <ChevronRight size={16} /></button>
-          </article>
-          <article className="student-management__carousel-slide is-results">
-            <div><small>KẾT QUẢ ĐANG HIỂN THỊ</small><h2>{filteredStudents.length} học viên</h2><p>{activeFilterCount ? `${activeFilterCount} điều kiện lọc đang áp dụng.` : 'Chưa áp dụng bộ lọc nâng cao.'}</p></div>
-            <div className="student-management__carousel-metrics"><span><strong>{studentPage}</strong>Trang hiện tại</span><span><strong>{studentPageCount}</strong>Tổng số trang</span></div>
-          </article>
+          {carouselOrder.map((slide) => slide === 'overview' ? (
+            <article key={slide} className="student-management__carousel-slide is-overview">
+              <div><small>AURA CRM · TỔNG QUAN</small><h2>{studentOverview.total} học viên</h2><p>Đang tập được đối chiếu cùng quy tắc hợp đồng của Xếp lịch trong tuần hiện tại.</p></div>
+              <div className="student-management__carousel-metrics"><span><strong>{studentOverview.active}</strong>Đủ điều kiện tuần</span><span><strong>{studentOverview.unassigned}</strong>Chưa phân PT</span></div>
+            </article>
+          ) : slide === 'alerts' ? (
+            <article key={slide} className="student-management__carousel-slide is-alerts">
+              <div><small>CẦN XỬ LÝ SỚM</small><h2>{studentOverview.expiring} hồ sơ</h2><p>Sắp hết hạn hoặc chỉ còn tối đa hai buổi tập.</p></div>
+              <button type="button" onClick={() => { setContractFilter('expiring_week'); setStudentPage(1); }}>Lọc danh sách cảnh báo <ChevronRight size={16} /></button>
+            </article>
+          ) : (
+            <article key={slide} className="student-management__carousel-slide is-results">
+              <div><small>KẾT QUẢ BỘ LỌC</small><h2>{filteredStudents.length} học viên</h2><p>{activeFilterSummary || 'Chưa áp dụng bộ lọc.'}</p></div>
+              <div className="student-management__carousel-metrics"><span><strong>{studentPage}</strong>Trang hiện tại</span><span><strong>{studentPageCount}</strong>Tổng số trang</span></div>
+            </article>
+          ))}
         </div>
         <footer className="student-management__carousel-controls">
           <span>{overviewSlide + 1}/3</span>
@@ -623,7 +630,7 @@ export default function StudentManagement({ user, profile }: Props) {
             onChange={(e) => setContractFilter(e.target.value as any)}
             className="w-full bg-zinc-900 border border-zinc-800 text-zinc-300 px-4 py-2.5 rounded-xl focus:outline-none focus:border-pink-500 transition-colors text-sm"
           >
-            <option value="active">Đang tập (Ẩn hết hạn)</option>
+            <option value="active">Đang tập tuần này</option>
             <option value="expiring_week">Sắp hết trong tuần</option>
             <option value="expiring_month">Sắp hết trong tháng</option>
             <option value="expired">Đã hết hạn</option>
@@ -657,6 +664,7 @@ export default function StudentManagement({ user, profile }: Props) {
 
       <div className="student-management__mobile-list space-y-3">
             {visibleStudents.map(student => {
+              const weekEligibility = weekEligibilityByStudent.get(student.id);
               const hasOverdueDebt = contracts.some(c => {
                 if (c.studentId !== student.id || c.status === 'frozen') return false;
                 const pending = c.installments?.filter(i => i.status === 'pending') || [];
@@ -671,7 +679,7 @@ export default function StudentManagement({ user, profile }: Props) {
                 if (studentContracts.length === 0) return { isExpiringThisMonth: false, isExpiringThisWeek: false, isExpired: false };
                 
                 studentContracts.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
-                const latestContract = studentContracts[0];
+                const latestContract = weekEligibility?.eligibleContracts[0] || studentContracts[0];
                 
                 if (latestContract.status === 'expired') {
                   return { isExpiringThisMonth: false, isExpiringThisWeek: false, isExpired: true };
@@ -758,7 +766,7 @@ export default function StudentManagement({ user, profile }: Props) {
                         if (studentContracts.length === 0) return null;
                         
                         studentContracts.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
-                        const activeContract = studentContracts.find(c => c.status === 'active') || studentContracts[0];
+                        const activeContract = weekEligibility?.eligibleContracts[0] || studentContracts[0];
                         
                         let pts: string[] = [];
                         if (activeContract.trainerIds && activeContract.trainerIds.length > 0) {

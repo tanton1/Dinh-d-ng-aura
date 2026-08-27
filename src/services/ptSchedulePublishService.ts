@@ -68,6 +68,13 @@ export interface PtScheduleV2Student extends Student {
   eligibleContractIds: string[]
   validScheduleDates: string[]
   pausedScheduleDates: string[]
+  /** Hồ sơ mặc định; không bị thay đổi khi điều phối riêng một tuần. */
+  defaultSessionsPerWeek: number
+  /** Override chỉ thuộc draft tuần/chi nhánh hiện tại; null nghĩa là dùng mặc định. */
+  weeklySessionTargetOverride: number | null
+  weeklySessionTargetOverridden: boolean
+  /** Mục tiêu hiệu lực sau khi giới hạn theo ngày hợp đồng và quota còn lại. */
+  maxWeeklySessions: number
 }
 
 export interface PtScheduleV2Trainer extends Trainer {
@@ -111,6 +118,7 @@ export type PtScheduleDraftCommand =
   | 'clear_trainer_off'
   | 'lock_entry'
   | 'unlock_entry'
+  | 'set_student_weekly_target'
 
 export class PtSchedulePublishError extends Error {
   readonly issueCode: string
@@ -157,6 +165,8 @@ const conflictLabels: Record<string, string> = {
   SCHEDULE_TOO_LARGE: 'Lịch vượt giới hạn publish an toàn trong một lần.',
   DRAFT_CAPACITY_REACHED: 'Draft đã đạt giới hạn một lần publish; các hồ sơ còn lại được đưa vào cảnh báo.',
   LEGACY_AVAILABILITY_FALLBACK: 'Một số học viên đang dùng lịch rảnh legacy; nên xác nhận lại lịch tuần.',
+  WEEKLY_TARGET_EXCEEDS_QUOTA: 'Mục tiêu tuần vượt số ngày hoặc quota hợp đồng còn có thể xếp.',
+  WEEKLY_TARGET_BELOW_SCHEDULED: 'Mục tiêu tuần thấp hơn số buổi đã có trong draft.',
 }
 
 export function ptScheduleConflictLabel(code: string) {
@@ -271,5 +281,5 @@ export function applyPtScheduleDraftCommand(input: {
   reason?: string
   payload: Record<string, unknown>
 }) {
-  return invoke<typeof input, { draftRevision: number; schedule: Schedule }>('applyPtScheduleDraftCommand', input)
+  return invoke<typeof input, { draftRevision: number; schedule: Schedule; weeklySessionTargets?: Record<string, number> }>('applyPtScheduleDraftCommand', input)
 }

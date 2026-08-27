@@ -8,6 +8,7 @@ import type {
   Trainer,
 } from '../../../types';
 import type { PtAvailabilityDocument } from '../../../contexts/DatabaseContext';
+import { studentEligibilityForWeek } from '../../../domain/pt/studentEligibility';
 
 interface StudentRosterTableProps {
   students: Student[];
@@ -78,7 +79,8 @@ export default function StudentRosterTable({
       const studentContracts = contracts
         .filter((contract) => contract.studentId === student.id)
         .sort((left, right) => right.startDate.localeCompare(left.startDate));
-      const contract = studentContracts.find((item) => item.status === 'active') || studentContracts[0];
+      const weekEligibility = studentEligibilityForWeek(student, studentContracts, weekId);
+      const contract = weekEligibility.eligibleContracts[0] || studentContracts[0];
       const used = contract ? usedSessionCount(contract) : 0;
       const remaining = contract ? Math.max(0, contract.totalSessions - used) : 0;
       const debt = contract

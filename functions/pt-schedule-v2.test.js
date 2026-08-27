@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_DRAFT_ENTRIES, candidateForSlot, generateSchedule, resolveContract, safeSchedule, studentWeekEligibility } = require('./pt-schedule-v2')
+const { MAX_DRAFT_ENTRIES, candidateForSlot, generateSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, studentWeekEligibility } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
@@ -58,17 +58,17 @@ test('resolves exactly one active contract for the concrete session date', () =>
 
 test('weekly eligibility excludes expired, exhausted and fully paused contracts', () => {
   const contract = fixture().contracts[0]
-  assert.equal(studentWeekEligibility([{ ...contract, endDate: '2026-08-23' }], 'student-a', BRANCH, WEEK).eligible, false)
-  assert.ok(studentWeekEligibility([{ ...contract, endDate: '2026-08-23' }], 'student-a', BRANCH, WEEK).reasonCodes.includes('ACTIVE_CONTRACT_NOT_FOUND'))
+  assert.equal(studentWeekEligibility([{ ...contract, endDate: '2026-08-23' }], 'student-a', BRANCH, WEEK, WEEK).eligible, false)
+  assert.ok(studentWeekEligibility([{ ...contract, endDate: '2026-08-23' }], 'student-a', BRANCH, WEEK, WEEK).reasonCodes.includes('ACTIVE_CONTRACT_NOT_FOUND'))
 
-  const exhausted = studentWeekEligibility([{ ...contract, usedSessions: 36 }], 'student-a', BRANCH, WEEK)
+  const exhausted = studentWeekEligibility([{ ...contract, usedSessions: 36 }], 'student-a', BRANCH, WEEK, WEEK)
   assert.equal(exhausted.eligible, false)
   assert.ok(exhausted.reasonCodes.includes('CONTRACT_SESSION_QUOTA_EXCEEDED'))
 
   const paused = studentWeekEligibility([{
     ...contract,
     pausePeriods: [{ startDate: '2026-08-24', endDate: '2026-08-30' }],
-  }], 'student-a', BRANCH, WEEK)
+  }], 'student-a', BRANCH, WEEK, WEEK)
   assert.equal(paused.eligible, false)
   assert.ok(paused.reasonCodes.includes('CONTRACT_PAUSED'))
 })
@@ -78,10 +78,24 @@ test('weekly eligibility keeps a contract usable on at least one unpaused day', 
   const result = studentWeekEligibility([{
     ...contract,
     pausePeriods: [{ startDate: '2026-08-24', endDate: '2026-08-25' }],
-  }], 'student-a', BRANCH, WEEK)
+  }], 'student-a', BRANCH, WEEK, WEEK)
   assert.equal(result.eligible, true)
   assert.deepEqual(result.pausedDates, ['2026-08-24', '2026-08-25'])
   assert.ok(result.validDates.includes('2026-08-26'))
+})
+
+test('current week excludes contract days that already ended before today', () => {
+  const contract = fixture().contracts[0]
+  const result = studentWeekEligibility([{ ...contract, endDate: '2026-08-25' }], 'student-a', BRANCH, WEEK, '2026-08-27')
+  assert.equal(result.eligible, false)
+})
+
+test('weekly targets are bounded, scoped and do not mutate the profile default', () => {
+  assert.deepEqual(safeWeeklySessionTargets({ 'student-a': 2, stranger: 4, invalid: 9 }, new Set(['student-a'])), { 'student-a': 2 })
+  const data = fixture()
+  data.students[0].sessionsPerWeek = 2
+  const generated = generateSchedule(data)
+  assert.equal(Object.values(generated.schedule).flat().filter((entry) => entry.studentId === 'student-a').length, 2)
 })
 
 test('fails closed when active contracts overlap on the same date', () => {
