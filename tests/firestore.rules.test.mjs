@@ -135,6 +135,15 @@ async function seedPtSecurityFixtures() {
         trainerId: 'legacy-trainer-1',
         status: 'completed',
       }),
+      setDoc(doc(db, 'sessionBillingEvents', 'legacy-session-1'), {
+        sessionId: 'legacy-session-1',
+        billingStatus: 'charged',
+      }),
+      setDoc(doc(db, 'attendanceAuditLogs', 'attendance-audit-1'), {
+        sessionId: 'legacy-session-1',
+        beforeStatus: 'pending',
+        afterStatus: 'present',
+      }),
       setDoc(doc(db, 'staff', 'legacy-staff-1'), {
         id: 'legacy-staff-1',
         name: 'Nhân viên legacy',
@@ -336,6 +345,22 @@ describe('Aura PT Firestore rules', () => {
     for (const documentPath of serverOnlyDocuments) {
       await assertFails(getDoc(doc(studentDb, ...documentPath)))
       await assertFails(getDoc(doc(adminDb, ...documentPath)))
+      await assertFails(setDoc(doc(adminDb, ...documentPath), { forged: true }))
+    }
+  })
+
+  test('automatic session billing and attendance corrections are admin-readable but callable-only', async () => {
+    const studentDb = authenticatedDb('client-1', 'student')
+    const coachDb = authenticatedDb('coach-1', 'coach')
+    const adminDb = authenticatedDb('admin-1', 'admin')
+    const protectedDocuments = [
+      ['sessionBillingEvents', 'legacy-session-1'],
+      ['attendanceAuditLogs', 'attendance-audit-1'],
+    ]
+    for (const documentPath of protectedDocuments) {
+      await assertFails(getDoc(doc(studentDb, ...documentPath)))
+      await assertFails(getDoc(doc(coachDb, ...documentPath)))
+      await assertSucceeds(getDoc(doc(adminDb, ...documentPath)))
       await assertFails(setDoc(doc(adminDb, ...documentPath), { forged: true }))
     }
   })

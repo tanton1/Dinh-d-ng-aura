@@ -71,7 +71,16 @@ export interface TrainingHistoryRecord {
   contractId: string
   counterpartId: string
   counterpartName: string
-  attendance: { id: string; type: string; occurredAt: string; createdAt: string } | null
+  attendance: {
+    id: string
+    type: string
+    billingStatus: string
+    attendanceStatus: string
+    lateMinutes: number | null
+    noShowReason: string
+    occurredAt: string
+    createdAt: string
+  } | null
   events: Array<{ id: string; type: string; reason: string; createdAt: string }>
   revision: number
 }

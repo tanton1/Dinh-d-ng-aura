@@ -274,15 +274,27 @@ async function relatedEvents(db, sessionIds) {
   for (let index = 0; index < sessionIds.length; index += 30) {
     const ids = sessionIds.slice(index, index + 30)
     if (!ids.length) continue
-    const [attendance, events] = await Promise.all([
+    const [attendance, events, attendanceAudits] = await Promise.all([
       db.collection('attendanceEvents').where('sessionId', 'in', ids).limit(500).get(),
       db.collection('sessionEvents').where('sessionId', 'in', ids).limit(500).get(),
+      db.collection('attendanceAuditLogs').where('sessionId', 'in', ids).limit(500).get(),
     ])
     attendance.docs.forEach((item) => attendanceBySession.set(item.data().sessionId, { id: item.id, ...item.data() }))
     events.docs.forEach((item) => {
       const list = eventsBySession.get(item.data().sessionId) || []
       list.push({ id: item.id, ...item.data() })
       eventsBySession.set(item.data().sessionId, list)
+    })
+    attendanceAudits.docs.forEach((item) => {
+      const value = item.data()
+      const list = eventsBySession.get(value.sessionId) || []
+      list.push({
+        id: item.id,
+        type: `attendance_${value.beforeStatus || 'pending'}_to_${value.afterStatus || 'unknown'}`,
+        reason: value.note || value.noShowReason || '',
+        createdAt: value.changedAt || value.createdAt,
+      })
+      eventsBySession.set(value.sessionId, list)
     })
   }
   return { attendanceBySession, eventsBySession }
@@ -446,7 +458,16 @@ function createBusinessReportingFunctions({ db, onCall }) {
           contractId: item.contractId || '',
           counterpartId: counterpartId || '',
           counterpartName: names.get(counterpartId) || 'Đã xóa / Không xác định',
-          attendance: attendance ? { id: attendance.id, type: attendance.type || '', occurredAt: timestampIso(attendance.occurredAt), createdAt: timestampIso(attendance.createdAt) } : null,
+          attendance: attendance ? {
+            id: attendance.id,
+            type: attendance.type || '',
+            billingStatus: attendance.billingStatus || '',
+            attendanceStatus: attendance.attendanceStatus || (attendance.type === 'attended' ? 'present' : ''),
+            lateMinutes: Number(attendance.lateMinutes || 0) || null,
+            noShowReason: attendance.noShowReason || '',
+            occurredAt: timestampIso(attendance.occurredAt),
+            createdAt: timestampIso(attendance.createdAt),
+          } : null,
           events: events.slice(0, 8).map((event) => ({ id: event.id, type: event.type || '', reason: typeof event.reason === 'string' ? event.reason.slice(0, 300) : '', createdAt: timestampIso(event.createdAt) })),
           revision: Number(item.revision || 0),
         }

@@ -51,6 +51,15 @@ function formatDate(value: string) {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
+function attendanceLabel(record: TrainingHistoryPage['records'][number]) {
+  const status = record.attendance?.attendanceStatus
+  if (status === 'present') return 'Có tập'
+  if (status === 'late') return `Đi trễ${record.attendance?.lateMinutes ? ` ${record.attendance.lateMinutes}${record.attendance.lateMinutes === 15 ? '+' : ''} phút` : ''}`
+  if (status === 'no_show') return 'Không đến'
+  if (record.attendance?.billingStatus === 'charged') return 'Đã tính · chờ PT'
+  return 'Chưa tính / xác nhận'
+}
+
 export default function TrainingHistoryPanel({ subject, subjectId, subjectName }: Props) {
   const [startDate, setStartDate] = useState(() => daysAgoKey(89))
   const [endDate, setEndDate] = useState(todayKey)
@@ -101,7 +110,7 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName }
     <div className="training-history__records">
       {loading && !page ? <div className="training-history__empty">Đang tải lịch sử an toàn…</div> : null}
       {!loading && !error && page && page.records.length === 0 ? <div className="training-history__empty">Không có buổi tập nào trong bộ lọc này.</div> : null}
-      {page?.records.map((record) => <article className="training-history__record" key={record.id}><div className="training-history__date"><strong>{record.date.slice(8) || '—'}</strong><span>{record.date.slice(5, 7) || '—'}</span></div><div className="training-history__record-main"><div className="training-history__record-title"><strong>{formatDate(record.date)} {record.hour !== null ? `· ${String(record.hour).padStart(2, '0')}:00` : ''}</strong><span className={`training-history__status training-history__status--${record.status}`}>{statusLabel(record.status)}</span></div><p><UserRound size={14} /> {counterpartLabel}: <b>{record.counterpartName}</b></p><small>Mã buổi {record.id.slice(-10)} · HĐ {record.contractId ? record.contractId.slice(-10) : 'chưa liên kết'}</small>{record.events.length ? <details><summary><ChevronDown size={14} /> {record.events.length} sự kiện thay đổi</summary><ul>{record.events.map((event) => <li key={event.id}><b>{statusLabel(event.type)}</b>{event.reason ? ` · ${event.reason}` : ''}</li>)}</ul></details> : null}</div><div className="training-history__attendance">{record.attendance ? <><CheckCircle2 size={18} /><span>Đã điểm danh</span></> : <><Clock3 size={18} /><span>Chưa có điểm danh</span></>}</div></article>)}
+      {page?.records.map((record) => <article className="training-history__record" key={record.id}><div className="training-history__date"><strong>{record.date.slice(8) || '—'}</strong><span>{record.date.slice(5, 7) || '—'}</span></div><div className="training-history__record-main"><div className="training-history__record-title"><strong>{formatDate(record.date)} {record.hour !== null ? `· ${String(record.hour).padStart(2, '0')}:00` : ''}</strong><span className={`training-history__status training-history__status--${record.status}`}>{statusLabel(record.status)}</span></div><p><UserRound size={14} /> {counterpartLabel}: <b>{record.counterpartName}</b></p><small>Mã buổi {record.id.slice(-10)} · HĐ {record.contractId ? record.contractId.slice(-10) : 'chưa liên kết'}</small>{record.events.length ? <details><summary><ChevronDown size={14} /> {record.events.length} sự kiện thay đổi</summary><ul>{record.events.map((event) => <li key={event.id}><b>{statusLabel(event.type)}</b>{event.reason ? ` · ${event.reason}` : ''}</li>)}</ul></details> : null}</div><div className="training-history__attendance">{record.attendance?.attendanceStatus && record.attendance.attendanceStatus !== 'pending' ? <CheckCircle2 size={18} /> : <Clock3 size={18} />}<span>{attendanceLabel(record)}</span></div></article>)}
     </div>
     {page?.summary.truncated ? <p className="training-history__truncated">Tóm tắt bị giới hạn để bảo vệ hiệu năng. Hãy thu hẹp khoảng thời gian để xem số liệu đầy đủ.</p> : null}
     {page?.hasMore ? <button type="button" className="training-history__more" disabled={loading} onClick={() => void load(true)}>{loading ? 'Đang tải…' : 'Tải thêm lịch sử'}</button> : null}

@@ -1,9 +1,9 @@
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 
-// Revenue is intentionally recognised when a billable PT session is attended,
-// not when cash is collected.  This keeps management P&L separate from the
-// cashbook and lets an upfront contract payment remain deferred until service
-// is delivered.
+// Revenue is recognised when a scheduled PT slot becomes billable at its
+// start time, independently from the trainer's later present/late/no-show
+// confirmation. This keeps management P&L separate from the cashbook and
+// prevents a delayed attendance tap from moving revenue between periods.
 function safeMoney(value) {
   const amount = Number(value || 0)
   return Number.isSafeInteger(amount) && amount > 0 ? amount : 0
@@ -59,7 +59,7 @@ function ptRevenueRecognitionWrite({ sessionId, session, contractId, contract, a
     type: 'revenue_recognition',
     eventClass: 'revenue_recognition',
     source: 'pt_gym',
-    recognitionPolicy: 'billable_attendance_v1',
+    recognitionPolicy: 'scheduled_session_charge_v2',
     contractId,
     studentId: session?.studentId || contract?.studentId || '',
     trainerId: session?.trainerId || '',

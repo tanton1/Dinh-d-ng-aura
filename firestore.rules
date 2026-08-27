@@ -892,6 +892,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Automatic billing and trainer corrections are independent immutable
+    // server ledgers. They are never writable from a browser, including admin.
+    match /sessionBillingEvents/{eventId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /attendanceAuditLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     match /sessionEvents/{eventId} {
       allow read: if isAdmin();
       allow write: if false;

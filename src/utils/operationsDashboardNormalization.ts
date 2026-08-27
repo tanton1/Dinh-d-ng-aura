@@ -32,7 +32,21 @@ export interface OperationsDashboardData {
     overdueMealReviews: DashboardActionMetric
     missingContractEffectiveDate: DashboardActionMetric
   }
-  today: { scheduledSessions: number; completedSessions: number; pendingRequests: number }
+  today: {
+    scheduledSessions: number
+    completedSessions: number
+    pendingRequests: number
+    attendance: {
+      charged: number
+      confirmed: number
+      present: number
+      late: number
+      noShow: number
+      pendingConfirmation: number
+      attendanceRate: number
+      confirmationRate: number
+    }
+  }
   finance: { contractSales: number; cashCollected: number; refunds: number; reversals: number; adjustments: number; netCash: number; receivables: number }
   clients: { total: number; active: number; newInRange: number; activeContracts: number }
   operations: { sessions: number; attendanceEvents: number; sessionStatus: Record<string, number>; completionRate: number; activeTrainers: number; activeStaff: number; branches: number }
@@ -90,6 +104,7 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
   const permissions = record(source.permissions)
   const actionSummary = record(source.actionSummary)
   const today = record(source.today)
+  const todayAttendance = record(today.attendance)
   const finance = record(source.finance)
   const clients = record(source.clients)
   const operations = record(source.operations)
@@ -139,6 +154,16 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
       scheduledSessions: nonNegativeNumber(today.scheduledSessions),
       completedSessions: nonNegativeNumber(today.completedSessions),
       pendingRequests: nonNegativeNumber(today.pendingRequests),
+      attendance: {
+        charged: nonNegativeNumber(todayAttendance.charged),
+        confirmed: nonNegativeNumber(todayAttendance.confirmed),
+        present: nonNegativeNumber(todayAttendance.present),
+        late: nonNegativeNumber(todayAttendance.late),
+        noShow: nonNegativeNumber(todayAttendance.noShow),
+        pendingConfirmation: nonNegativeNumber(todayAttendance.pendingConfirmation),
+        attendanceRate: Math.max(0, Math.min(100, finiteNumber(todayAttendance.attendanceRate))),
+        confirmationRate: Math.max(0, Math.min(100, finiteNumber(todayAttendance.confirmationRate))),
+      },
     },
     finance: {
       contractSales: finiteNumber(finance.contractSales),

@@ -22,6 +22,24 @@ export function swapSessions(input: { firstSessionId: string; secondSessionId: s
   return call<typeof input, { firstRevision: number; secondRevision: number }>('swapSessions', input)
 }
 
+export function recordSessionAttendance(input: {
+  sessionId: string
+  expectedRevision: number
+  attendanceStatus: 'present' | 'late' | 'no_show'
+  lateMinutes?: 5 | 10 | 15
+  noShowReason?: '' | 'busy' | 'sick' | 'forgot' | 'unreachable' | 'other'
+  note?: string
+}) {
+  return call<typeof input, { unchanged: boolean; revision: number; attendanceEventId: string; attendanceStatus: string }>('recordSessionAttendance', input)
+}
+
+export function bulkRecordSessionAttendance(items: Array<{ sessionId: string; expectedRevision: number }>) {
+  return call<
+    { items: Array<{ sessionId: string; expectedRevision: number }> },
+    { total: number; confirmed: number; failed: number; results: Array<{ sessionId: string; ok: boolean; revision?: number; code?: string }> }
+  >('bulkRecordSessionAttendance', { items })
+}
+
 export interface CreateMySessionRequestInput {
   sessionId: string
   expectedRevision: number

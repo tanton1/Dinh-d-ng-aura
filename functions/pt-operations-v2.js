@@ -1,7 +1,11 @@
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
-const { completeSessionAttendanceTransaction } = require('./session-operations')
+const {
+  chargeSessionTransaction,
+  completeSessionAttendanceTransaction,
+  recordSessionAttendanceTransaction,
+} = require('./session-operations')
 const { assertSessionChangeDeadline } = require('./pt-policy')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
@@ -667,12 +671,94 @@ function createPtOperationsV2Functions({ db, onCall }) {
       expectedRevision,
       actorUid: actor.uid,
       timeZone: TIME_ZONE,
+      now: new Date(),
       assertSessionScope: (session) => {
         if (![actor.uid, actor.legacyStaffId].includes(session.trainerId)) {
           throw new HttpsError('permission-denied', 'Buổi tập không thuộc lịch của bạn.')
         }
       },
     })
+  })
+
+  const recordMySessionAttendance = staffCall(async (request) => {
+    const actor = await trainerActor(request, db)
+    const sessionId = documentId(request.data?.sessionId, 'Mã buổi tập')
+    const expectedRevision = integer(request.data?.expectedRevision, 0, 0, 1000000)
+    const attendanceStatus = request.data?.attendanceStatus
+    const assertSessionScope = (session) => {
+      if (![actor.uid, actor.legacyStaffId].includes(session.trainerId)) {
+        throw new HttpsError('permission-denied', 'Buổi tập không thuộc lịch của bạn.')
+      }
+    }
+    const actionAt = new Date()
+    const charge = await chargeSessionTransaction({
+      db,
+      sessionId,
+      expectedRevision,
+      actorUid: actor.uid,
+      assertSessionScope,
+      now: actionAt,
+      timeZone: TIME_ZONE,
+    })
+    return recordSessionAttendanceTransaction({
+      db,
+      sessionId,
+      expectedRevision: charge.revision,
+      actorUid: actor.uid,
+      attendanceStatus,
+      lateMinutes: request.data?.lateMinutes,
+      noShowReason: request.data?.noShowReason,
+      note: request.data?.note,
+      assertSessionScope,
+      now: actionAt,
+      timeZone: TIME_ZONE,
+    })
+  })
+
+  const bulkConfirmMySessions = staffCall(async (request) => {
+    const actor = await trainerActor(request, db)
+    const items = Array.isArray(request.data?.items) ? request.data.items : []
+    if (!items.length || items.length > 30) throw new HttpsError('invalid-argument', 'Mỗi lần chỉ xác nhận từ 1 đến 30 buổi.')
+    const results = []
+    for (const item of items) {
+      const sessionId = documentId(item?.sessionId, 'Mã buổi tập')
+      const assertSessionScope = (session) => {
+        if (![actor.uid, actor.legacyStaffId].includes(session.trainerId)) {
+          throw new HttpsError('permission-denied', 'Buổi tập không thuộc lịch của bạn.')
+        }
+      }
+      try {
+        const actionAt = new Date()
+        const charge = await chargeSessionTransaction({
+          db,
+          sessionId,
+          expectedRevision: integer(item?.expectedRevision, 0, 0, 1000000),
+          actorUid: actor.uid,
+          assertSessionScope,
+          now: actionAt,
+          timeZone: TIME_ZONE,
+        })
+        const result = await recordSessionAttendanceTransaction({
+          db,
+          sessionId,
+          expectedRevision: charge.revision,
+          actorUid: actor.uid,
+          attendanceStatus: 'present',
+          assertSessionScope,
+          now: actionAt,
+          timeZone: TIME_ZONE,
+        })
+        results.push({ sessionId, ok: true, revision: result.revision, unchanged: result.unchanged })
+      } catch (error) {
+        results.push({ sessionId, ok: false, code: error?.code || 'internal' })
+      }
+    }
+    return {
+      total: results.length,
+      confirmed: results.filter((item) => item.ok).length,
+      failed: results.filter((item) => !item.ok).length,
+      results,
+    }
   })
 
   const submitWorkoutNote = staffCall(async (request) => {
@@ -772,7 +858,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     return { approvalId: reference.id, status: 'pending' }
   })
 
-  return { getMyCoachWorkspaceScope, getMyTrainerWorkspace, listMyStudentPtSchedule, saveMyStudentAvailability, listMyAssignedStudents, listMyTrainerSchedule, getMyTrainerStudentDetail, confirmMySession, submitWorkoutNote, requestSessionChange, listMyQuotes, getMySalesCatalog, getMySalesWorkspace, createQuote, createStudentDraft, submitContractForApproval }
+  return { getMyCoachWorkspaceScope, getMyTrainerWorkspace, listMyStudentPtSchedule, saveMyStudentAvailability, listMyAssignedStudents, listMyTrainerSchedule, getMyTrainerStudentDetail, confirmMySession, recordMySessionAttendance, bulkConfirmMySessions, submitWorkoutNote, requestSessionChange, listMyQuotes, getMySalesCatalog, getMySalesWorkspace, createQuote, createStudentDraft, submitContractForApproval }
 }
 
 module.exports = { createPtOperationsV2Functions, normalizedAvailabilitySlots, scheduleConfig, sessionHour }

@@ -204,7 +204,13 @@ export default function AdminDashboard({
       data.permissions.finance && { id: 'cash', label: 'Thực thu tháng', value: money(data.finance.cashCollected), detail: 'Ledger đã ghi nhận', icon: <WalletCards size={19} /> },
       data.permissions.finance && { id: 'debt', label: 'Tổng công nợ', value: money(data.finance.receivables), detail: `${data.actionSummary.overdueReceivables.totalCount} hợp đồng còn nợ`, icon: <CircleDollarSign size={19} /> },
       data.permissions.clients && { id: 'clients', label: 'Học viên hoạt động', value: data.clients.active.toLocaleString('vi-VN'), detail: `${data.clients.newInRange} học viên mới tháng này`, icon: <Users size={19} /> },
-      data.permissions.operations && { id: 'today', label: 'Buổi tập hôm nay', value: `${data.today.completedSessions}/${data.today.scheduledSessions}`, detail: `Hoàn thành kỳ này ${data.operations.completionRate}%`, icon: <Dumbbell size={19} /> },
+      data.permissions.operations && {
+        id: 'today',
+        label: 'Hiện diện hôm nay',
+        value: `${data.today.attendance.confirmed}/${data.today.attendance.charged || data.today.scheduledSessions}`,
+        detail: `${data.today.attendance.present} có tập · ${data.today.attendance.late} trễ · ${data.today.attendance.noShow} no-show · ${data.today.attendance.pendingConfirmation} chờ PT`,
+        icon: <Dumbbell size={19} />,
+      },
     ].filter(Boolean) as Array<{ id: string; label: string; value: string; detail: string; icon: ReactNode }>
   }, [data])
 

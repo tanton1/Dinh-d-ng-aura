@@ -115,6 +115,13 @@ export interface TrainerSessionSummary {
   date: string
   hour?: number
   status: string
+  scheduleStatus?: 'scheduled' | 'rescheduled' | 'cancelled'
+  billingStatus?: 'pending' | 'charged' | 'exempt'
+  attendanceStatus?: 'pending' | 'present' | 'late' | 'no_show' | 'policy_charge'
+  lateMinutes?: number | null
+  noShowReason?: string
+  chargedAt?: string
+  confirmedAt?: string
   contractId?: string
   revision?: number
   timeZone: string
@@ -212,6 +219,35 @@ export async function getMyTrainerWorkspace(
 
 export async function confirmMySession(sessionId: string, expectedRevision: number) {
   const result = await call<{ sessionId: string; expectedRevision: number }, { unchanged: boolean; revision: number }>('confirmMySession', { sessionId, expectedRevision })
+  invalidateReadCache('getMyCoachWorkspaceScope', 'getMyTrainerWorkspace', 'listMyTrainerSchedule')
+  return result
+}
+
+export type SessionAttendanceStatus = 'present' | 'late' | 'no_show'
+
+export async function recordMySessionAttendance(input: {
+  sessionId: string
+  expectedRevision: number
+  attendanceStatus: SessionAttendanceStatus
+  lateMinutes?: 5 | 10 | 15
+  noShowReason?: '' | 'busy' | 'sick' | 'forgot' | 'unreachable' | 'other'
+  note?: string
+}) {
+  const result = await call<typeof input, {
+    unchanged: boolean
+    revision: number
+    attendanceEventId: string
+    attendanceStatus: SessionAttendanceStatus
+  }>('recordMySessionAttendance', input)
+  invalidateReadCache('getMyCoachWorkspaceScope', 'getMyTrainerWorkspace', 'listMyTrainerSchedule')
+  return result
+}
+
+export async function bulkConfirmMySessions(items: Array<{ sessionId: string; expectedRevision: number }>) {
+  const result = await call<
+    { items: Array<{ sessionId: string; expectedRevision: number }> },
+    { total: number; confirmed: number; failed: number; results: Array<{ sessionId: string; ok: boolean; revision?: number; code?: string }> }
+  >('bulkConfirmMySessions', { items })
   invalidateReadCache('getMyCoachWorkspaceScope', 'getMyTrainerWorkspace', 'listMyTrainerSchedule')
   return result
 }

@@ -1,0 +1,42 @@
+.opv2-attendance-details {
+  margin-top: 12px;
+  border: 1px solid #eedbe2;
+  border-radius: 16px;
+  background: #fff9fb;
+  padding: 11px 12px;
+}
+
+.opv2-attendance-details summary {
+  cursor: pointer;
+  color: #bd2c61;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.opv2-attendance-details[open] {
+  display: grid;
+  gap: 10px;
+}
+
+.opv2-attendance-details label {
+  display: grid;
+  gap: 5px;
+  color: #675862;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.opv2-attendance-details :is(select, textarea) {
+  width: 100%;
+  border: 1px solid #eadce1;
+  border-radius: 12px;
+  background: #fff;
+  padding: 9px 10px;
+  color: #281e24;
+  font: inherit;
+}
+
+.opv2-attendance-details textarea {
+  min-height: 70px;
+  resize: vertical;
+}

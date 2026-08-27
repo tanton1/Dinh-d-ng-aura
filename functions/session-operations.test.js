@@ -98,7 +98,7 @@ function operationsFor(seed, authorizeAdmin = async () => ({ uid: 'admin-1' }), 
     onCall: (handler) => handler,
     authorizeAdmin,
     authorizeStudent: options.authorizeStudent || (async () => ({ uid: 'student-account', legacyStaffId: 'student-1', accessRole: 'student' })),
-    now: options.now || (() => new Date('2026-08-19T00:00:00.000Z')),
+    now: options.now || (() => new Date('2026-08-20T03:00:00.000Z')),
   })
   return { ...state, ...operations }
 }
@@ -171,8 +171,12 @@ test('attendance uses the session contract link and a deterministic event id', a
   assert.equal(first.unchanged, false)
   assert.equal(first.attendanceEventId, 'session-attendance-1')
   assert.equal(state.read('sessions/session-attendance-1').status, 'completed')
+  assert.equal(state.read('sessions/session-attendance-1').billingStatus, 'charged')
+  assert.equal(state.read('sessions/session-attendance-1').attendanceStatus, 'present')
   assert.equal(state.read('sessions/session-attendance-1').attendanceEventId, 'session-attendance-1')
   assert.equal(state.read('attendanceEvents/session-attendance-1').contractId, 'contract-1')
+  assert.equal(state.read('attendanceEvents/session-attendance-1').attendanceStatus, 'present')
+  assert.equal(state.read('sessionBillingEvents/session-attendance-1').billingStatus, 'charged')
 
   const retry = await state.confirmSessionAttendance({
     data: { sessionId: 'session-attendance-1', expectedRevision: 0 },
@@ -180,6 +184,52 @@ test('attendance uses the session contract link and a deterministic event id', a
   assert.equal(retry.unchanged, true)
   assert.equal(retry.attendanceEventId, 'session-attendance-1')
   assert.equal(state.paths().filter((path) => path === 'attendanceEvents/session-attendance-1').length, 1)
+  assert.equal(state.paths().filter((path) => path === 'sessionBillingEvents/session-attendance-1').length, 1)
+})
+
+test('automatic billing stays independent from present, late, no-show and audited corrections', async () => {
+  const state = operationsFor({
+    'sessions/session-late': {
+      status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-08-20', hour: 8, revision: 0,
+    },
+    'contracts/contract-1': {
+      status: 'active', studentId: 'student-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 0, totalPrice: 1200000,
+    },
+  })
+  const late = await state.recordSessionAttendance({
+    data: { sessionId: 'session-late', expectedRevision: 0, attendanceStatus: 'late', lateMinutes: 10 },
+  })
+  assert.equal(late.attendanceStatus, 'late')
+  assert.equal(state.read('sessions/session-late').billingStatus, 'charged')
+  assert.equal(state.read('sessions/session-late').attendanceStatus, 'late')
+  assert.equal(state.read('attendanceEvents/session-late').lateMinutes, 10)
+  assert.equal(state.paths().filter((path) => path === 'sessionBillingEvents/session-late').length, 1)
+
+  const corrected = await state.recordSessionAttendance({
+    data: { sessionId: 'session-late', expectedRevision: late.revision, attendanceStatus: 'no_show', noShowReason: 'forgot' },
+  })
+  assert.equal(corrected.attendanceStatus, 'no_show')
+  assert.equal(state.read('sessions/session-late').status, 'no_show')
+  assert.equal(state.paths().filter((path) => path.startsWith('attendanceAuditLogs/')).length, 2)
+  assert.equal(state.paths().filter((path) => path === 'sessionBillingEvents/session-late').length, 1)
+})
+
+test('no-show is blocked during the first fifteen minutes without rolling back the automatic charge', async () => {
+  const state = operationsFor({
+    'sessions/session-grace': {
+      status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-08-20', hour: 8, revision: 0,
+    },
+    'contracts/contract-1': {
+      status: 'active', studentId: 'student-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 0, totalPrice: 1200000,
+    },
+  }, async () => ({ uid: 'admin-1' }), { now: () => new Date('2026-08-20T01:05:00.000Z') })
+  await assert.rejects(
+    state.recordSessionAttendance({ data: { sessionId: 'session-grace', expectedRevision: 0, attendanceStatus: 'no_show' } }),
+    (error) => error.code === 'failed-precondition' && error.details?.issueCode === 'NO_SHOW_GRACE_ACTIVE',
+  )
+  assert.equal(state.read('sessions/session-grace').billingStatus, 'charged')
+  assert.equal(state.read('sessions/session-grace').attendanceStatus, 'pending')
+  assert.equal(state.read('attendanceEvents/session-grace').attendanceStatus, 'pending')
 })
 
 test('attendance fails closed when contractId is missing, mismatched, or outside its term', async () => {

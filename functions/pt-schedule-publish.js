@@ -50,6 +50,11 @@ function storedHour(value, sessionId) {
   return Number.isInteger(parsed) && parsed >= 0 && parsed <= 23 ? parsed : null
 }
 
+function isImmutableSession(value = {}) {
+  return value.billingStatus === 'charged'
+    || ['completed', 'attended', 'no_show'].includes(value.status)
+}
+
 function deterministicSessionId(scheduleId, branchId, slotId, studentId) {
   const digest = createHash('sha256').update(`${scheduleId}|${branchId}|${slotId}|${studentId}`).digest('hex').slice(0, 40)
   return `pt_${digest}`
@@ -296,6 +301,9 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         date,
         hour,
         status: 'scheduled',
+        scheduleStatus: 'scheduled',
+        billingStatus: 'pending',
+        attendanceStatus: 'pending',
       })
     }
   }
@@ -385,12 +393,19 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       }
 
       const plannedByContract = new Map()
-      for (const desired of desiredValues) plannedByContract.set(desired.contractId, (plannedByContract.get(desired.contractId) || 0) + 1)
+      for (const desired of desiredValues) {
+        const existing = existingByEntry.get(desired.scheduleEntryId)
+        if (existing && isImmutableSession(existing.data())) continue
+        plannedByContract.set(desired.contractId, (plannedByContract.get(desired.contractId) || 0) + 1)
+      }
       for (const [contractId, count] of plannedByContract) {
         const contract = contracts.find((item) => item.id === contractId)
         const otherPlanned = activeSessionsSnapshot.docs.filter((item) => {
           const value = item.data()
-          return !scopedExistingIds.has(item.id) && value.contractId === contractId && ACTIVE_SESSION_STATUSES.has(value.status)
+          return !scopedExistingIds.has(item.id)
+            && value.contractId === contractId
+            && ACTIVE_SESSION_STATUSES.has(value.status)
+            && value.billingStatus !== 'charged'
         }).length
         if (Number(contract?.usedSessions || 0) + otherPlanned + count > Number(contract?.totalSessions || 0)) {
           throw scheduleError('CONTRACT_SESSION_QUOTA_EXCEEDED', 'Số buổi đã học và đang xếp vượt quá gói tập.')
@@ -405,17 +420,17 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       for (const [key, desired] of prepared.desired) {
         const existing = existingByEntry.get(key)
         if (!existing) creates.push(desired)
-        else if (existing.data().status === 'completed') {
-          if (!sameSession({ id: existing.id, ...existing.data() }, desired)) throw scheduleError('COMPLETED_SESSION_IMMUTABLE', 'Lịch nháp đang thay đổi một buổi đã hoàn thành.')
+        else if (isImmutableSession(existing.data())) {
+          if (!sameSession({ id: existing.id, ...existing.data() }, desired)) throw scheduleError('CHARGED_SESSION_IMMUTABLE', 'Lịch nháp đang thay đổi một buổi đã được tính hoặc xác nhận.')
           unchanged.push(existing)
         } else if (!ACTIVE_SESSION_STATUSES.has(existing.data().status)) {
           throw scheduleError('CANCELLED_SESSION_REINTRODUCED', 'Một ô lịch đã hủy đang được thêm lại. Hãy tạo yêu cầu điều chỉnh riêng.')
         } else if (sameSession({ id: existing.id, ...existing.data() }, desired)) unchanged.push(existing)
         else updates.push({ existing, desired })
       }
-      const cancellations = existingScoped.filter((item) => ACTIVE_SESSION_STATUSES.has(item.data().status) && !prepared.desired.has(item.data().scheduleEntryId))
-      const completedRemoved = existingScoped.filter((item) => item.data().status === 'completed' && !prepared.desired.has(item.data().scheduleEntryId))
-      if (completedRemoved.length) throw scheduleError('COMPLETED_SESSION_IMMUTABLE', 'Không thể loại buổi đã hoàn thành khỏi lịch publish.')
+      const cancellations = existingScoped.filter((item) => ACTIVE_SESSION_STATUSES.has(item.data().status) && !isImmutableSession(item.data()) && !prepared.desired.has(item.data().scheduleEntryId))
+      const immutableRemoved = existingScoped.filter((item) => isImmutableSession(item.data()) && !prepared.desired.has(item.data().scheduleEntryId))
+      if (immutableRemoved.length) throw scheduleError('CHARGED_SESSION_IMMUTABLE', 'Không thể loại buổi đã được tính hoặc xác nhận khỏi lịch publish.')
       const diff = { create: creates.length, update: updates.length, cancel: cancellations.length, unchanged: unchanged.length }
       if (validateOnly) return { unchanged: false, validateOnly: true, draftRevision, version: nextVersion, diff, warnings: prepared.warnings }
 
@@ -440,6 +455,9 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
           ...desired,
           scheduleVersion: nextVersion,
           status: 'scheduled',
+          scheduleStatus: 'rescheduled',
+          billingStatus: 'pending',
+          attendanceStatus: 'pending',
           previousSchedule: FieldValue.arrayUnion({ date: previous.date, hour: previous.hour ?? null, trainerId: previous.trainerId, changedAt: new Date().toISOString(), reason: 'schedule_publish' }),
           revision: Number(previous.revision || 0) + 1,
           updatedAt: FieldValue.serverTimestamp(),
@@ -449,6 +467,9 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       for (const existing of cancellations) {
         transaction.update(existing.ref, {
           status: 'cancelled',
+          scheduleStatus: 'cancelled',
+          billingStatus: 'exempt',
+          attendanceStatus: null,
           cancellationReason: 'Removed by schedule publish',
           scheduleVersion: nextVersion,
           revision: Number(existing.data().revision || 0) + 1,

@@ -307,11 +307,13 @@ function createOperationsDashboardFunctions({ db, onCall }) {
 
     const contractNeeded = permissions.finance || permissions.clients
     const sessionRangeQuery = db.collection('sessions').where('date', '>=', startDate).where('date', '<=', endDate)
+    const confirmedSessionRangeQuery = db.collection('sessions').where('status', 'in', ['completed', 'attended', 'no_show']).where('date', '>=', startDate).where('date', '<=', endDate)
     const attendanceRangeQuery = db.collection('attendanceEvents').where('occurredAt', '>=', startTimestamp).where('occurredAt', '<=', endTimestamp)
     const canAggregateOperations = permissions.operations && scope.unrestricted
-    const [ledger, sessionRange, attendanceRange, todaySessions, contracts, students, trainers, staff, branches, renewalAction, scheduleAction, nutritionAction] = await Promise.all([
+    const [ledger, sessionRange, confirmedSessionRange, attendanceRange, todaySessions, contracts, students, trainers, staff, branches, renewalAction, scheduleAction, nutritionAction] = await Promise.all([
       permissions.finance ? db.collection('ledgerEntries').where('effectiveAt', '>=', startTimestamp).where('effectiveAt', '<=', endTimestamp).limit(MAX_SCANNED_DOCUMENTS).get() : null,
       permissions.operations ? (canAggregateOperations ? sessionRangeQuery.count().get() : sessionRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
+      permissions.operations ? (canAggregateOperations ? confirmedSessionRangeQuery.count().get() : confirmedSessionRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
       permissions.operations ? (canAggregateOperations ? attendanceRangeQuery.count().get() : attendanceRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
       permissions.operations ? db.collection('sessions').where('date', '==', today).limit(500).get() : null,
       contractNeeded ? db.collection('contracts').limit(2000).get() : null,
@@ -332,7 +334,9 @@ function createOperationsDashboardFunctions({ db, onCall }) {
     const branchValues = branches ? branches.docs.map((item) => ({ id: item.id, ...item.data() })).filter((value) => scope.unrestricted || scope.branchIds.includes(value.id)) : []
     const sessionValues = sessionRange?.docs ? sessionRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
     const attendanceValues = attendanceRange?.docs ? attendanceRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
+    const confirmedSessionValues = confirmedSessionRange?.docs ? confirmedSessionRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
     const sessionCount = canAggregateOperations ? Number(sessionRange?.data().count || 0) : sessionValues.length
+    const confirmedSessionCount = canAggregateOperations ? Number(confirmedSessionRange?.data().count || 0) : confirmedSessionValues.length
     const attendanceCount = canAggregateOperations ? Number(attendanceRange?.data().count || 0) : attendanceValues.length
     const todayValues = todaySessions ? todaySessions.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
 
@@ -359,6 +363,19 @@ function createOperationsDashboardFunctions({ db, onCall }) {
       result[status] = Number(result[status] || 0) + 1
       return result
     }, {})
+    const attendanceToday = todayValues.reduce((result, value) => {
+      const attendanceStatus = value.attendanceStatus
+        || (['completed', 'attended'].includes(value.status) ? 'present' : value.status === 'no_show' ? 'no_show' : 'pending')
+      const billingStatus = value.billingStatus
+        || (['completed', 'attended', 'no_show'].includes(value.status) ? 'charged' : 'pending')
+      if (billingStatus === 'charged') result.charged += 1
+      if (attendanceStatus === 'present') result.present += 1
+      else if (attendanceStatus === 'late') result.late += 1
+      else if (attendanceStatus === 'no_show') result.noShow += 1
+      else if (billingStatus === 'charged') result.pendingConfirmation += 1
+      return result
+    }, { charged: 0, present: 0, late: 0, noShow: 0, pendingConfirmation: 0 })
+    const confirmedToday = attendanceToday.present + attendanceToday.late + attendanceToday.noShow
 
     const receivableAction = permissions.finance ? summarizeReceivables(contractValues, today) : emptyAction(false)
     const missingContractAction = permissions.quality
@@ -367,6 +384,7 @@ function createOperationsDashboardFunctions({ db, onCall }) {
     const incomplete = Boolean(
       (ledger && ledger.size >= MAX_SCANNED_DOCUMENTS)
       || (!canAggregateOperations && sessionRange?.size >= MAX_SCANNED_DOCUMENTS)
+      || (!canAggregateOperations && confirmedSessionRange?.size >= MAX_SCANNED_DOCUMENTS)
       || (!canAggregateOperations && attendanceRange?.size >= MAX_SCANNED_DOCUMENTS)
       || renewalAction.truncated || scheduleAction.truncated || nutritionAction.truncated,
     )
@@ -387,6 +405,12 @@ function createOperationsDashboardFunctions({ db, onCall }) {
         scheduledSessions: todayValues.filter((value) => !['cancelled', 'student_cancelled', 'trainer_cancelled'].includes(value.status)).length,
         completedSessions: todayValues.filter((value) => ['completed', 'attended'].includes(value.status)).length,
         pendingRequests: scheduleAction.totalCount,
+        attendance: {
+          ...attendanceToday,
+          confirmed: confirmedToday,
+          attendanceRate: confirmedToday ? Math.round((attendanceToday.present + attendanceToday.late) / confirmedToday * 1000) / 10 : 0,
+          confirmationRate: attendanceToday.charged ? Math.round(confirmedToday / attendanceToday.charged * 1000) / 10 : 0,
+        },
       },
       finance: { ...finance, contractSales, receivables },
       clients: {
@@ -399,7 +423,7 @@ function createOperationsDashboardFunctions({ db, onCall }) {
         sessions: sessionCount,
         attendanceEvents: attendanceCount,
         sessionStatus,
-        completionRate: sessionCount ? Math.min(100, Math.round(attendanceCount / sessionCount * 100)) : 0,
+        completionRate: sessionCount ? Math.min(100, Math.round(confirmedSessionCount / sessionCount * 100)) : 0,
         activeTrainers: trainerValues.filter((value) => value.status !== 'inactive').length,
         activeStaff: staffValues.filter((value) => value.status !== 'inactive').length,
         branches: branchValues.filter((value) => value.status !== 'inactive').length,

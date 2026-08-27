@@ -18,7 +18,7 @@ const { createIdentityAccessFunctions } = require('./identity-access')
 const { createPtOperationsV2Functions } = require('./pt-operations-v2')
 const { createPtSchedulePublishFunctions } = require('./pt-schedule-publish')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
-const { createSessionOperationFunctions } = require('./session-operations')
+const { chargeDuePtSessions, createSessionOperationFunctions, remindUnconfirmedPtAttendance } = require('./session-operations')
 const { createPayrollFunctions, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile } = require('./payroll')
 const { createStaffPayrollFunctions } = require('./staff-payroll')
 const { createOperationsDashboardFunctions } = require('./operations-dashboard')
@@ -172,6 +172,8 @@ exports.saveMyStudentAvailability = ptOperationsV2Functions.saveMyStudentAvailab
 exports.getMyCoachWorkspaceScope = ptOperationsV2Functions.getMyCoachWorkspaceScope
 exports.getMyTrainerWorkspace = ptOperationsV2Functions.getMyTrainerWorkspace
 exports.listMyTrainerSchedule = ptOperationsV2Functions.listMyTrainerSchedule
+exports.recordMySessionAttendance = ptOperationsV2Functions.recordMySessionAttendance
+exports.bulkConfirmMySessions = ptOperationsV2Functions.bulkConfirmMySessions
 exports.getMySalesWorkspace = ptOperationsV2Functions.getMySalesWorkspace
 const ptSchedulePublishFunctions = createPtSchedulePublishFunctions({ db, onCall })
 Object.assign(exports, ptSchedulePublishFunctions)
@@ -204,11 +206,29 @@ exports.refreshContractRenewalQueueScheduled = contractRenewalFunctions.refreshC
 const sessionOperationFunctions = createSessionOperationFunctions({ db, onCall, logger })
 Object.assign(exports, sessionOperationFunctions)
 exports.createMySessionRequest = sessionOperationFunctions.createMySessionRequest
+exports.confirmSessionAttendance = sessionOperationFunctions.confirmSessionAttendance
+exports.recordSessionAttendance = sessionOperationFunctions.recordSessionAttendance
+exports.bulkRecordSessionAttendance = sessionOperationFunctions.bulkRecordSessionAttendance
 exports.approveSessionRequest = sessionOperationFunctions.approveSessionRequest
 exports.rejectSessionRequest = sessionOperationFunctions.rejectSessionRequest
 exports.createMyContractPauseRequest = sessionOperationFunctions.createMyContractPauseRequest
 exports.approveContractPauseRequest = sessionOperationFunctions.approveContractPauseRequest
 exports.rejectContractPauseRequest = sessionOperationFunctions.rejectContractPauseRequest
+exports.chargeDuePtSessionsScheduled = onSchedule({
+  schedule: 'every 5 minutes',
+  region: 'asia-southeast1',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  retryCount: 1,
+  maxInstances: 1,
+  timeoutSeconds: 540,
+}, async () => chargeDuePtSessions({ db, now: new Date(), logger }))
+exports.remindUnconfirmedPtAttendanceScheduled = onSchedule({
+  schedule: '0 21 * * *',
+  region: 'asia-southeast1',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  retryCount: 1,
+  maxInstances: 1,
+}, async () => remindUnconfirmedPtAttendance({ db, now: new Date(), logger }))
 Object.assign(exports, createPayrollFunctions({ db, onCall, logger }))
 const staffPayrollFunctions = createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile })
 Object.assign(exports, staffPayrollFunctions)

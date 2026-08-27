@@ -1,4 +1,4 @@
-const { FieldValue } = require('firebase-admin/firestore')
+const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { ptRevenueRecognitionWrite } = require('./finance-recognition')
@@ -18,6 +18,11 @@ const {
 const DAILY_SESSION_QUERY_LIMIT = 200
 const REQUEST_QUERY_LIMIT = 200
 const PAUSE_SESSION_QUERY_LIMIT = 200
+const AUTOMATIC_CHARGE_QUERY_LIMIT = 2000
+const BULK_ATTENDANCE_LIMIT = 30
+const NO_SHOW_GRACE_MINUTES = 15
+const ATTENDANCE_STATUSES = new Set(['present', 'late', 'no_show'])
+const NO_SHOW_REASONS = new Set(['', 'busy', 'sick', 'forgot', 'unreachable', 'other'])
 
 function id(value, label) {
   const result = typeof value === 'string' ? value.trim() : ''
@@ -167,12 +172,60 @@ function isOffPauseRequest(value) {
   }
 }
 
-async function completeSessionAttendanceTransaction({
+function sessionStartInstant(session, sessionId) {
+  const sessionDate = storedDateKey(session.date, 'Ngày của buổi tập')
+  const sessionHour = storedSessionHour(session.hour, sessionId, 'Giờ của buổi tập')
+  const instant = new Date(`${sessionDate}T${String(sessionHour).padStart(2, '0')}:00:00+07:00`)
+  if (Number.isNaN(instant.getTime())) throw new HttpsError('failed-precondition', 'Thời gian của buổi tập không hợp lệ.')
+  return instant
+}
+
+function normalizedAttendanceStatus(value) {
+  if (!ATTENDANCE_STATUSES.has(value)) {
+    throw new HttpsError('invalid-argument', 'Trạng thái hiện diện phải là có tập, đi trễ hoặc không đến.')
+  }
+  return value
+}
+
+function normalizedLateMinutes(status, value) {
+  if (status !== 'late') return null
+  const result = Number(value)
+  if (![5, 10, 15].includes(result)) throw new HttpsError('invalid-argument', 'Mốc đi trễ phải là 5, 10 hoặc 15+ phút.')
+  return result
+}
+
+function normalizedNoShowReason(status, value) {
+  if (status !== 'no_show') return ''
+  const result = typeof value === 'string' ? value.trim() : ''
+  if (!NO_SHOW_REASONS.has(result)) throw new HttpsError('invalid-argument', 'Lý do không đến không hợp lệ.')
+  return result
+}
+
+function normalizedAttendanceNote(value) {
+  const result = typeof value === 'string' ? value.trim() : ''
+  if (result.length > 300) throw new HttpsError('invalid-argument', 'Ghi chú hiện diện tối đa 300 ký tự.')
+  return result
+}
+
+function isSessionCharged(session) {
+  return session?.billingStatus === 'charged'
+    || (session?.attendanceEventId && ['completed', 'attended', 'no_show'].includes(session?.status))
+}
+
+function assertSessionCanBeCharged(session) {
+  if (!isActiveSessionStatus(session.status)) throw new HttpsError('failed-precondition', 'Chỉ buổi đang lên lịch mới được tự động tính buổi.')
+  if (session.scheduleStatus === 'cancelled' || session.billingStatus === 'exempt') {
+    throw new HttpsError('failed-precondition', 'Buổi đã hủy hợp lệ không bị tính vào hợp đồng.')
+  }
+}
+
+async function chargeSessionTransaction({
   db,
   sessionId,
-  expectedRevision,
-  actorUid,
+  expectedRevision = null,
+  actorUid = 'system:auto-charge',
   assertSessionScope = () => {},
+  now = new Date(),
   timeZone = 'Asia/Ho_Chi_Minh',
 }) {
   const sessionReference = db.doc(`sessions/${sessionId}`)
@@ -182,23 +235,30 @@ async function completeSessionAttendanceTransaction({
     const session = sessionSnapshot.data()
     await assertSessionScope(session)
     const revision = Number(session.revision || 0)
+    const billingReference = db.doc(`sessionBillingEvents/${sessionId}`)
+    const attendanceReference = db.doc(`attendanceEvents/${sessionId}`)
+    const billingSnapshot = await transaction.get(billingReference)
 
-    // A retry after a successful transaction is safe even when it carries the
-    // previous revision. The completed session itself is the idempotency gate.
-    if (session.status === 'completed' && session.attendanceEventId) {
-      return { unchanged: true, revision, attendanceEventId: session.attendanceEventId }
+    if (billingSnapshot.exists || isSessionCharged(session)) {
+      return {
+        unchanged: true,
+        revision,
+        billingEventId: billingSnapshot.exists ? billingReference.id : session.billingEventId || '',
+        attendanceEventId: session.attendanceEventId || attendanceReference.id,
+      }
     }
-    if (revision !== expectedRevision) throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại.')
-    if (!isActiveSessionStatus(session.status)) throw new HttpsError('failed-precondition', 'Chỉ buổi đang lên lịch mới được xác nhận.')
-
+    if (expectedRevision !== null && revision !== expectedRevision) {
+      throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại.')
+    }
+    assertSessionCanBeCharged(session)
     const contractId = linkedContractId(session)
     const contractReference = db.doc(`contracts/${contractId}`)
-    const attendanceReference = db.doc(`attendanceEvents/${sessionId}`)
     const recognitionReference = db.doc(`ledgerEntries/pt_session_${sessionId}`)
-    const contractSnapshot = await transaction.get(contractReference)
-    const attendanceSnapshot = await transaction.get(attendanceReference)
-    const recognitionSnapshot = await transaction.get(recognitionReference)
-
+    const [contractSnapshot, attendanceSnapshot, recognitionSnapshot] = await Promise.all([
+      transaction.get(contractReference),
+      transaction.get(attendanceReference),
+      transaction.get(recognitionReference),
+    ])
     if (!contractSnapshot.exists) throw new HttpsError('failed-precondition', 'Hợp đồng liên kết không tồn tại.')
     const contract = contractSnapshot.data()
     if (contract.studentId !== session.studentId) throw new HttpsError('failed-precondition', 'Hợp đồng không thuộc học viên của buổi tập.')
@@ -209,12 +269,25 @@ async function completeSessionAttendanceTransaction({
     if (sessionDate < contractStart || sessionDate > contractEnd) {
       throw new HttpsError('failed-precondition', 'Ngày tập nằm ngoài thời hạn hợp đồng liên kết.')
     }
-    if (attendanceSnapshot.exists) {
-      throw new HttpsError('already-exists', 'Sự kiện điểm danh đã tồn tại nhưng buổi tập chưa đồng bộ. Cần đối soát trước khi thử lại.')
+    const startsAt = sessionStartInstant(session, sessionId)
+    if (startsAt.getTime() > now.getTime()) {
+      throw new HttpsError('failed-precondition', 'Chưa đến giờ tập nên buổi chưa được tính.', {
+        issueCode: 'SESSION_NOT_STARTED',
+        startsAt: startsAt.toISOString(),
+      })
     }
+
+    if (attendanceSnapshot.exists) {
+      throw new HttpsError('already-exists', 'Bản ghi hiện diện đã tồn tại nhưng chưa có sổ tính buổi. Cần đối soát trước khi thử lại.')
+    }
+    const chargedSessionIds = Array.isArray(contract.chargedSessionIds) ? contract.chargedSessionIds : []
     const attendedClasses = Array.isArray(contract.attendedClasses) ? contract.attendedClasses : []
-    if (attendedClasses.includes(sessionId)) throw new HttpsError('already-exists', 'Buổi tập đã được tính trong hợp đồng.')
-    if (Number(contract.usedSessions || 0) >= Number(contract.totalSessions || 0)) throw new HttpsError('failed-precondition', 'Hợp đồng đã hết buổi.')
+    if (chargedSessionIds.includes(sessionId) || attendedClasses.includes(sessionId)) {
+      throw new HttpsError('already-exists', 'Buổi tập đã được tính trong hợp đồng nhưng thiếu sổ sự kiện. Cần đối soát trước khi thử lại.')
+    }
+    if (Number(contract.usedSessions || 0) >= Number(contract.totalSessions || 0)) {
+      throw new HttpsError('failed-precondition', 'Hợp đồng đã hết buổi.')
+    }
 
     const recognition = ptRevenueRecognitionWrite({
       sessionId,
@@ -224,39 +297,289 @@ async function completeSessionAttendanceTransaction({
       attendanceEventId: attendanceReference.id,
       actorUid,
     })
-    transaction.create(attendanceReference, {
+    const startsAtTimestamp = Timestamp.fromDate(startsAt)
+    transaction.create(billingReference, {
       schemaVersion: 1,
-      type: 'attended',
+      type: 'session_charge',
       sessionId,
       studentId: session.studentId,
-      trainerId: session.trainerId,
+      trainerId: session.trainerId || '',
       contractId,
-      occurredAt: FieldValue.serverTimestamp(),
+      scheduleStatus: session.scheduleStatus || session.status,
+      billingStatus: 'charged',
+      scheduledAt: startsAtTimestamp,
+      chargedAt: FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
+      createdBy: actorUid,
+      timeZone,
+    })
+    transaction.create(attendanceReference, {
+      schemaVersion: 3,
+      type: 'pending_confirmation',
+      sessionId,
+      studentId: session.studentId,
+      trainerId: session.trainerId || '',
+      contractId,
+      scheduleStatus: session.scheduleStatus || session.status,
+      billingStatus: 'charged',
+      attendanceStatus: 'pending',
+      scheduledAt: startsAtTimestamp,
+      occurredAt: startsAtTimestamp,
+      chargedAt: FieldValue.serverTimestamp(),
+      confirmedAt: null,
+      confirmedBy: '',
+      lateMinutes: null,
+      noShowReason: '',
+      note: '',
       createdAt: FieldValue.serverTimestamp(),
       createdBy: actorUid,
       timeZone,
     })
     transaction.update(sessionReference, {
-      status: 'completed',
+      scheduleStatus: session.scheduleStatus || session.status,
+      billingStatus: 'charged',
+      attendanceStatus: 'pending',
+      billingEventId: billingReference.id,
       attendanceEventId: attendanceReference.id,
-      completedAt: FieldValue.serverTimestamp(),
+      chargedAt: FieldValue.serverTimestamp(),
       revision: revision + 1,
       updatedAt: FieldValue.serverTimestamp(),
       updatedBy: actorUid,
     })
     transaction.update(contractReference, {
       usedSessions: FieldValue.increment(1),
+      // Keep the legacy projection until all old reports have migrated.
       attendedClasses: FieldValue.arrayUnion(sessionId),
+      chargedSessionIds: FieldValue.arrayUnion(sessionId),
       updatedAt: FieldValue.serverTimestamp(),
     })
     if (recognition && !recognitionSnapshot.exists) transaction.create(recognitionReference, recognition)
     return {
       unchanged: false,
       revision: revision + 1,
+      billingEventId: billingReference.id,
       attendanceEventId: attendanceReference.id,
       recognitionEntryId: recognition && !recognitionSnapshot.exists ? recognitionReference.id : null,
     }
   })
+}
+
+async function recordSessionAttendanceTransaction({
+  db,
+  sessionId,
+  expectedRevision,
+  actorUid,
+  attendanceStatus,
+  lateMinutes = null,
+  noShowReason = '',
+  note = '',
+  assertSessionScope = () => {},
+  now = new Date(),
+  timeZone = 'Asia/Ho_Chi_Minh',
+}) {
+  const normalizedStatus = normalizedAttendanceStatus(attendanceStatus)
+  const normalizedLate = normalizedLateMinutes(normalizedStatus, lateMinutes)
+  const normalizedReason = normalizedNoShowReason(normalizedStatus, noShowReason)
+  const normalizedNote = normalizedAttendanceNote(note)
+  const sessionReference = db.doc(`sessions/${sessionId}`)
+  const attendanceReference = db.doc(`attendanceEvents/${sessionId}`)
+  return db.runTransaction(async (transaction) => {
+    const [sessionSnapshot, attendanceSnapshot] = await Promise.all([
+      transaction.get(sessionReference),
+      transaction.get(attendanceReference),
+    ])
+    if (!sessionSnapshot.exists || !attendanceSnapshot.exists) {
+      throw new HttpsError('failed-precondition', 'Buổi chưa được hệ thống tự động tính nên chưa thể xác nhận hiện diện.')
+    }
+    const session = sessionSnapshot.data()
+    const attendance = attendanceSnapshot.data()
+    await assertSessionScope(session)
+    const revision = Number(session.revision || 0)
+    const sameConfirmation = attendance.attendanceStatus === normalizedStatus
+      && Number(attendance.lateMinutes || 0) === Number(normalizedLate || 0)
+      && String(attendance.noShowReason || '') === normalizedReason
+      && String(attendance.note || '') === normalizedNote
+    if (sameConfirmation) {
+      return { unchanged: true, revision, attendanceEventId: attendanceReference.id, attendanceStatus: normalizedStatus }
+    }
+    if (revision !== expectedRevision) throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại.')
+    if (!isSessionCharged(session) || (attendance.billingStatus && attendance.billingStatus !== 'charged')) {
+      throw new HttpsError('failed-precondition', 'Sổ tính buổi chưa hoàn tất. Hãy tải lại sau ít phút.')
+    }
+    const startsAt = sessionStartInstant(session, sessionId)
+    if (now.getTime() < startsAt.getTime()) {
+      throw new HttpsError('failed-precondition', 'Không thể xác nhận trước giờ tập.', { issueCode: 'ATTENDANCE_TOO_EARLY' })
+    }
+    if (normalizedStatus === 'no_show' && now.getTime() < startsAt.getTime() + NO_SHOW_GRACE_MINUTES * 60_000) {
+      throw new HttpsError('failed-precondition', `Chỉ có thể xác nhận không đến sau ${NO_SHOW_GRACE_MINUTES} phút.`, {
+        issueCode: 'NO_SHOW_GRACE_ACTIVE',
+        availableAt: new Date(startsAt.getTime() + NO_SHOW_GRACE_MINUTES * 60_000).toISOString(),
+      })
+    }
+    const beforeStatus = ATTENDANCE_STATUSES.has(attendance.attendanceStatus) ? attendance.attendanceStatus : 'pending'
+    const auditReference = db.collection('attendanceAuditLogs').doc()
+    const legacyStatus = normalizedStatus === 'no_show' ? 'no_show' : 'completed'
+    transaction.update(attendanceReference, {
+      type: normalizedStatus === 'no_show' ? 'no_show' : 'attended',
+      attendanceStatus: normalizedStatus,
+      lateMinutes: normalizedLate,
+      noShowReason: normalizedReason,
+      note: normalizedNote,
+      confirmedAt: FieldValue.serverTimestamp(),
+      confirmedBy: actorUid,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actorUid,
+    })
+    transaction.update(sessionReference, {
+      status: legacyStatus,
+      scheduleStatus: session.scheduleStatus || 'scheduled',
+      billingStatus: 'charged',
+      attendanceStatus: normalizedStatus,
+      confirmedAt: FieldValue.serverTimestamp(),
+      confirmedBy: actorUid,
+      completedAt: normalizedStatus === 'no_show' ? null : FieldValue.serverTimestamp(),
+      revision: revision + 1,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actorUid,
+    })
+    transaction.create(auditReference, {
+      schemaVersion: 1,
+      sessionId,
+      attendanceEventId: attendanceReference.id,
+      studentId: session.studentId || '',
+      trainerId: session.trainerId || '',
+      contractId: session.contractId || '',
+      beforeStatus,
+      afterStatus: normalizedStatus,
+      lateMinutes: normalizedLate,
+      noShowReason: normalizedReason,
+      note: normalizedNote,
+      changedAt: FieldValue.serverTimestamp(),
+      changedBy: actorUid,
+      timeZone,
+    })
+    return {
+      unchanged: false,
+      revision: revision + 1,
+      attendanceEventId: attendanceReference.id,
+      attendanceStatus: normalizedStatus,
+      auditLogId: auditReference.id,
+    }
+  })
+}
+
+async function completeSessionAttendanceTransaction({
+  db,
+  sessionId,
+  expectedRevision,
+  actorUid,
+  assertSessionScope = () => {},
+  timeZone = 'Asia/Ho_Chi_Minh',
+  now = new Date(),
+}) {
+  const charge = await chargeSessionTransaction({
+    db,
+    sessionId,
+    expectedRevision,
+    actorUid,
+    assertSessionScope,
+    now,
+    timeZone,
+  })
+  const confirmation = await recordSessionAttendanceTransaction({
+    db,
+    sessionId,
+    expectedRevision: charge.revision,
+    actorUid,
+    attendanceStatus: 'present',
+    assertSessionScope,
+    now,
+    timeZone,
+  })
+  return {
+    ...confirmation,
+    charged: charge.unchanged !== true,
+    billingEventId: charge.billingEventId,
+    recognitionEntryId: charge.recognitionEntryId || null,
+  }
+}
+
+async function chargeDuePtSessions({ db, now = new Date(), logger = console, limit = AUTOMATIC_CHARGE_QUERY_LIMIT }) {
+  const today = vietnamDateKey(now)
+  const yesterday = addDateDays(today, -1)
+  const snapshot = await db.collection('sessions')
+    .where('date', '>=', yesterday)
+    .where('date', '<=', today)
+    .limit(Math.min(AUTOMATIC_CHARGE_QUERY_LIMIT, Math.max(1, Number(limit) || AUTOMATIC_CHARGE_QUERY_LIMIT)))
+    .get()
+  const candidates = snapshot.docs.filter((item) => {
+    const session = item.data()
+    if (!isActiveSessionStatus(session.status) || isSessionCharged(session) || session.billingStatus === 'exempt') return false
+    try { return sessionStartInstant(session, item.id).getTime() <= now.getTime() } catch { return false }
+  })
+  const summary = { scanned: snapshot.size, due: candidates.length, charged: 0, unchanged: 0, failed: 0 }
+  for (let index = 0; index < candidates.length; index += 25) {
+    const batch = candidates.slice(index, index + 25)
+    const outcomes = await Promise.allSettled(batch.map((item) => chargeSessionTransaction({
+      db,
+      sessionId: item.id,
+      actorUid: 'system:auto-charge',
+      now,
+    })))
+    outcomes.forEach((outcome, outcomeIndex) => {
+      if (outcome.status === 'fulfilled') {
+        if (outcome.value.unchanged) summary.unchanged += 1
+        else summary.charged += 1
+      } else {
+        summary.failed += 1
+        logger.warn?.('PT session automatic charge failed', {
+          sessionId: batch[outcomeIndex].id,
+          code: outcome.reason?.code || 'unknown',
+        })
+      }
+    })
+  }
+  logger.info?.('PT automatic charge completed', summary)
+  return summary
+}
+
+async function remindUnconfirmedPtAttendance({ db, now = new Date(), logger = console }) {
+  const today = vietnamDateKey(now)
+  const snapshot = await db.collection('sessions').where('date', '==', today).limit(2000).get()
+  const pendingByTrainer = new Map()
+  snapshot.docs.forEach((item) => {
+    const session = item.data()
+    const pending = session.billingStatus === 'charged'
+      && (!session.attendanceStatus || session.attendanceStatus === 'pending')
+      && isActiveSessionStatus(session.status)
+    const trainerId = typeof session.trainerId === 'string' ? session.trainerId.trim() : ''
+    if (!pending || !trainerId || !/^[A-Za-z0-9_-]+$/.test(trainerId)) return
+    pendingByTrainer.set(trainerId, Number(pendingByTrainer.get(trainerId) || 0) + 1)
+  })
+  if (!pendingByTrainer.size) return { date: today, trainerCount: 0, pendingSessionCount: 0 }
+  const batch = db.batch()
+  let pendingSessionCount = 0
+  for (const [trainerId, count] of pendingByTrainer) {
+    pendingSessionCount += count
+    const notificationReference = db.doc(`users/${trainerId}/notifications/pt-attendance-${today}`)
+    batch.set(notificationReference, {
+      schemaVersion: 1,
+      userId: trainerId,
+      type: 'pt_attendance_confirmation',
+      title: 'Ca hôm nay chưa xác nhận',
+      body: `Bạn còn ${count} buổi cần xác nhận Có tập hoặc Không đến.`,
+      route: 'staff-schedule',
+      read: false,
+      date: today,
+      pendingSessionCount: count,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true })
+  }
+  await batch.commit()
+  const summary = { date: today, trainerCount: pendingByTrainer.size, pendingSessionCount }
+  logger.info?.('PT unconfirmed attendance reminders created', summary)
+  return summary
 }
 
 async function adminActor(request, db) {
@@ -303,6 +626,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const revision = Number(session.revision || 0)
       if (revision !== expectedRevision) throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại trước khi gửi yêu cầu.')
       if (!isActiveSessionStatus(session.status)) throw new HttpsError('failed-precondition', 'Chỉ buổi đang lên lịch mới được đổi hoặc hủy.')
+      if (isSessionCharged(session)) throw new HttpsError('failed-precondition', 'Buổi đã được hệ thống tính nên không thể tạo yêu cầu đổi/hủy mới.')
       if (session.studentId !== studentId) throw new HttpsError('permission-denied', 'Bạn không thể thay đổi lịch của học viên khác.')
       if (requestsForSession.size >= 20) throw new HttpsError('resource-exhausted', 'Buổi tập có quá nhiều yêu cầu lịch sử để xác minh an toàn.')
       if (requestsForSession.docs.some((item) => item.data().status === 'pending')) {
@@ -381,7 +705,65 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       sessionId,
       expectedRevision,
       actorUid: actor.uid,
+      now: now(),
     })
+  })
+
+  const recordSessionAttendance = onCall(async (request) => {
+    const actor = await authorizeAdmin(request, db)
+    const sessionId = id(request.data?.sessionId, 'Mã buổi tập')
+    const expectedRevision = sessionRevision(request.data?.expectedRevision)
+    const status = normalizedAttendanceStatus(request.data?.attendanceStatus)
+    const charge = await chargeSessionTransaction({
+      db,
+      sessionId,
+      expectedRevision,
+      actorUid: actor.uid,
+      now: now(),
+    })
+    return recordSessionAttendanceTransaction({
+      db,
+      sessionId,
+      expectedRevision: charge.revision,
+      actorUid: actor.uid,
+      attendanceStatus: status,
+      lateMinutes: request.data?.lateMinutes,
+      noShowReason: request.data?.noShowReason,
+      note: request.data?.note,
+      now: now(),
+    })
+  })
+
+  const bulkRecordSessionAttendance = onCall(async (request) => {
+    const actor = await authorizeAdmin(request, db)
+    const items = Array.isArray(request.data?.items) ? request.data.items : []
+    if (!items.length || items.length > BULK_ATTENDANCE_LIMIT) {
+      throw new HttpsError('invalid-argument', `Mỗi lần chỉ xác nhận từ 1 đến ${BULK_ATTENDANCE_LIMIT} buổi.`)
+    }
+    const results = []
+    for (const item of items) {
+      const sessionId = id(item?.sessionId, 'Mã buổi tập')
+      try {
+        const charge = await chargeSessionTransaction({ db, sessionId, expectedRevision: sessionRevision(item?.expectedRevision), actorUid: actor.uid, now: now() })
+        const result = await recordSessionAttendanceTransaction({
+          db,
+          sessionId,
+          expectedRevision: charge.revision,
+          actorUid: actor.uid,
+          attendanceStatus: 'present',
+          now: now(),
+        })
+        results.push({ sessionId, ok: true, revision: result.revision, unchanged: result.unchanged })
+      } catch (error) {
+        results.push({ sessionId, ok: false, code: error?.code || 'internal' })
+      }
+    }
+    return {
+      total: results.length,
+      confirmed: results.filter((item) => item.ok).length,
+      failed: results.filter((item) => !item.ok).length,
+      results,
+    }
   })
 
   const cancelSession = onCall(async (request) => {
@@ -398,7 +780,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const revision = Number(session.revision || 0)
       if (revision !== expectedRevision) throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại.')
       if (!isActiveSessionStatus(session.status)) throw new HttpsError('failed-precondition', 'Chỉ buổi đang lên lịch mới được hủy.')
-      transaction.update(reference, { status: cancellationType, cancellationReason: reason, revision: revision + 1, cancelledAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
+      if (isSessionCharged(session)) throw new HttpsError('failed-precondition', 'Buổi đã được tính. Hãy dùng quy trình điều chỉnh có audit thay vì hủy trực tiếp.')
+      transaction.update(reference, { status: cancellationType, scheduleStatus: 'cancelled', billingStatus: 'exempt', attendanceStatus: null, cancellationReason: reason, revision: revision + 1, cancelledAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
       transaction.create(db.collection('sessionEvents').doc(), { schemaVersion: 1, sessionId, type: cancellationType, reason, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
       return { revision: revision + 1 }
     })
@@ -419,13 +802,14 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const revision = Number(session.revision || 0)
       if (revision !== expectedRevision) throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại.')
       if (!isActiveSessionStatus(session.status)) throw new HttpsError('failed-precondition', 'Chỉ có thể dời buổi đang lên lịch.')
+      if (isSessionCharged(session)) throw new HttpsError('failed-precondition', 'Buổi đã được tính nên không thể dời trực tiếp.')
       const [trainerDay, studentDay] = await Promise.all([
         transaction.get(dailySessionsQuery(db, 'trainerId', trainerId, newDate)),
         transaction.get(dailySessionsQuery(db, 'studentId', session.studentId, newDate)),
       ])
       if (activeHourDocuments(trainerDay, newHour, [sessionId]).length >= 2) throw new HttpsError('resource-exhausted', 'Khung giờ của HLV đã đủ hai học viên.')
       if (activeHourDocuments(studentDay, newHour, [sessionId]).length > 0) throw new HttpsError('already-exists', 'Học viên đã có buổi tập khác trong khung giờ này.')
-      transaction.update(reference, { previousSchedule: FieldValue.arrayUnion({ date: session.date, hour: session.hour ?? null, trainerId: session.trainerId, changedAt: new Date().toISOString() }), date: newDate, hour: newHour, trainerId, status: 'scheduled', rescheduledAt: FieldValue.serverTimestamp(), revision: revision + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
+      transaction.update(reference, { previousSchedule: FieldValue.arrayUnion({ date: session.date, hour: session.hour ?? null, trainerId: session.trainerId, changedAt: new Date().toISOString() }), date: newDate, hour: newHour, trainerId, status: 'scheduled', scheduleStatus: 'rescheduled', billingStatus: 'pending', attendanceStatus: 'pending', rescheduledAt: FieldValue.serverTimestamp(), revision: revision + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
       transaction.create(db.collection('sessionEvents').doc(), { schemaVersion: 1, sessionId, type: 'rescheduled', from: { date: session.date, hour: session.hour ?? null, trainerId: session.trainerId }, to: { date: newDate, hour: newHour, trainerId }, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
       return { revision: revision + 1 }
     })
@@ -446,6 +830,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const firstData = first.data()
       const secondData = second.data()
       if (!isActiveSessionStatus(firstData.status) || !isActiveSessionStatus(secondData.status)) throw new HttpsError('failed-precondition', 'Chỉ có thể đổi hai buổi đang lên lịch.')
+      if (isSessionCharged(firstData) || isSessionCharged(secondData)) throw new HttpsError('failed-precondition', 'Không thể đổi buổi đã được hệ thống tính.')
       const firstRevision = Number(firstData.revision || 0)
       const secondRevision = Number(secondData.revision || 0)
       if (firstRevision !== firstExpectedRevision || secondRevision !== secondExpectedRevision) throw new HttpsError('aborted', 'Một buổi tập đã thay đổi. Hãy tải lại.')
@@ -464,8 +849,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       if (activeHourDocuments(firstTargetStudentDay, secondSlot.hour, excludedIds).length > 0 || activeHourDocuments(secondTargetStudentDay, firstSlot.hour, excludedIds).length > 0) {
         throw new HttpsError('already-exists', 'Một học viên đã có buổi tập khác trong khung giờ nhận đổi.')
       }
-      transaction.update(firstReference, { ...secondSlot, status: 'scheduled', revision: firstRevision + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
-      transaction.update(secondReference, { ...firstSlot, status: 'scheduled', revision: secondRevision + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
+      transaction.update(firstReference, { ...secondSlot, status: 'scheduled', scheduleStatus: 'rescheduled', billingStatus: 'pending', attendanceStatus: 'pending', revision: firstRevision + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
+      transaction.update(secondReference, { ...firstSlot, status: 'scheduled', scheduleStatus: 'rescheduled', billingStatus: 'pending', attendanceStatus: 'pending', revision: secondRevision + 1, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
       transaction.create(db.collection('sessionEvents').doc(), { schemaVersion: 1, type: 'swapped', sessionIds: [firstId, secondId], createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
       return { firstRevision: firstRevision + 1, secondRevision: secondRevision + 1 }
     })
@@ -514,6 +899,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         throw new HttpsError('aborted', 'Buổi tập đã thay đổi kể từ khi yêu cầu được tạo. Hãy tạo yêu cầu mới.')
       }
       if (!isActiveSessionStatus(session.status)) throw new HttpsError('failed-precondition', 'Chỉ có thể xử lý buổi đang lên lịch.')
+      if (isSessionCharged(session)) throw new HttpsError('failed-precondition', 'Buổi đã được tính nên yêu cầu đổi/hủy này không còn hợp lệ.')
       if (session.studentId !== requestData.studentId) throw new HttpsError('failed-precondition', 'Yêu cầu không khớp với học viên của buổi tập.')
       const currentDate = storedDateKey(session.date, 'Ngày hiện tại của buổi tập')
       const originalDate = storedDateKey(requestData.originalDate, 'Ngày gốc trong yêu cầu')
@@ -609,6 +995,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         const cancellationType = requestedBy === 'trainer' ? 'trainer_cancelled' : 'student_cancelled'
         transaction.update(sessionReference, {
           status: cancellationType,
+          scheduleStatus: 'cancelled',
+          billingStatus: policyDecision.countsTowardContract ? 'charged' : 'exempt',
+          attendanceStatus: policyDecision.countsTowardContract ? 'policy_charge' : null,
           cancellationReason: reason,
           approvedRequestId: requestId,
           revision: nextRevision,
@@ -629,6 +1018,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           hour: newHour,
           trainerId,
           status: 'scheduled',
+          scheduleStatus: 'rescheduled',
+          billingStatus: 'pending',
+          attendanceStatus: 'pending',
           approvedRequestId: requestId,
           rescheduledAt: FieldValue.serverTimestamp(),
           revision: nextRevision,
@@ -888,10 +1280,16 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       const nextEndDateKey = addDateDays(oldEndDate, durationDays)
       const newEndDate = storedDateShape(contract.endDate, nextEndDateKey)
       const activeSessions = sessionsSnapshot.docs.filter((item) => isActiveSessionStatus(item.data().status))
+      if (activeSessions.some((item) => isSessionCharged(item.data()))) {
+        throw new HttpsError('failed-precondition', 'Khoảng nghỉ có buổi đã được tính. Hãy điều chỉnh riêng buổi đó trước khi duyệt.')
+      }
       activeSessions.forEach((item) => {
         const session = item.data()
         transaction.update(item.ref, {
           status: 'student_cancelled',
+          scheduleStatus: 'cancelled',
+          billingStatus: 'exempt',
+          attendanceStatus: null,
           cancellationReason: type === 'off' ? 'OFF đã được duyệt' : 'Bảo lưu hợp đồng đã được duyệt',
           pauseRequestId: requestId,
           countsTowardContract: false,
@@ -1002,6 +1400,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
   return {
     createMySessionRequest,
     confirmSessionAttendance,
+    recordSessionAttendance,
+    bulkRecordSessionAttendance,
     cancelSession,
     rescheduleSession,
     swapSessions,
@@ -1013,4 +1413,11 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
   }
 }
 
-module.exports = { completeSessionAttendanceTransaction, createSessionOperationFunctions }
+module.exports = {
+  chargeDuePtSessions,
+  chargeSessionTransaction,
+  completeSessionAttendanceTransaction,
+  createSessionOperationFunctions,
+  recordSessionAttendanceTransaction,
+  remindUnconfirmedPtAttendance,
+}
