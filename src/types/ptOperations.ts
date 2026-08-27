@@ -258,9 +258,11 @@ export interface Quote {
 export interface ScheduleEntry {
   studentId: string
   trainerId: string
+  contractId?: string
   isLocked?: boolean
   branchId?: string
   type?: 'training' | 'off'
+  source?: string
 }
 
 export interface Schedule {

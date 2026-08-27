@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_DRAFT_ENTRIES, candidateForSlot, generateSchedule, resolveContract, safeSchedule } = require('./pt-schedule-v2')
+const { MAX_DRAFT_ENTRIES, candidateForSlot, generateSchedule, resolveContract, safeSchedule, studentWeekEligibility } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
@@ -54,6 +54,34 @@ test('resolves exactly one active contract for the concrete session date', () =>
   data.contracts[0].startDate = '2026-08-26'
   assert.deepEqual(resolveContract(data, 'student-a', 'trainer-a', '2026-08-24').reasons, ['ACTIVE_CONTRACT_NOT_FOUND'])
   assert.equal(resolveContract(data, 'student-a', 'trainer-a', '2026-08-26').contract.id, 'contract-a')
+})
+
+test('weekly eligibility excludes expired, exhausted and fully paused contracts', () => {
+  const contract = fixture().contracts[0]
+  assert.equal(studentWeekEligibility([{ ...contract, endDate: '2026-08-23' }], 'student-a', BRANCH, WEEK).eligible, false)
+  assert.ok(studentWeekEligibility([{ ...contract, endDate: '2026-08-23' }], 'student-a', BRANCH, WEEK).reasonCodes.includes('ACTIVE_CONTRACT_NOT_FOUND'))
+
+  const exhausted = studentWeekEligibility([{ ...contract, usedSessions: 36 }], 'student-a', BRANCH, WEEK)
+  assert.equal(exhausted.eligible, false)
+  assert.ok(exhausted.reasonCodes.includes('CONTRACT_SESSION_QUOTA_EXCEEDED'))
+
+  const paused = studentWeekEligibility([{
+    ...contract,
+    pausePeriods: [{ startDate: '2026-08-24', endDate: '2026-08-30' }],
+  }], 'student-a', BRANCH, WEEK)
+  assert.equal(paused.eligible, false)
+  assert.ok(paused.reasonCodes.includes('CONTRACT_PAUSED'))
+})
+
+test('weekly eligibility keeps a contract usable on at least one unpaused day', () => {
+  const contract = fixture().contracts[0]
+  const result = studentWeekEligibility([{
+    ...contract,
+    pausePeriods: [{ startDate: '2026-08-24', endDate: '2026-08-25' }],
+  }], 'student-a', BRANCH, WEEK)
+  assert.equal(result.eligible, true)
+  assert.deepEqual(result.pausedDates, ['2026-08-24', '2026-08-25'])
+  assert.ok(result.validDates.includes('2026-08-26'))
 })
 
 test('fails closed when active contracts overlap on the same date', () => {
