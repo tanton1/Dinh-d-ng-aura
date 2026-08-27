@@ -44,21 +44,8 @@ function sessionHour(session: Session) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function usedSessionCount(contract: StudentContract, sessions: Session[]) {
-  const start = new Date(`${contract.startDate}T00:00:00`).getTime();
-  const end = new Date(`${contract.endDate}T23:59:59.999`).getTime();
-  const ids = new Set(
-    sessions
-      .filter((session) => {
-        if (session.studentId !== contract.studentId || session.status !== 'completed') return false;
-        if (session.contractId) return session.contractId === contract.id;
-        const occurredAt = new Date(`${session.date}T12:00:00`).getTime();
-        return occurredAt >= start && occurredAt <= end;
-      })
-      .map((session) => session.id),
-  );
-  (contract.attendedClasses || []).forEach((id) => ids.add(id));
-  return ids.size;
+function usedSessionCount(contract: StudentContract) {
+  return Math.max(0, Math.floor(Number(contract.usedSessions || 0)));
 }
 
 function money(value: number) {
@@ -92,7 +79,7 @@ export default function StudentRosterTable({
         .filter((contract) => contract.studentId === student.id)
         .sort((left, right) => right.startDate.localeCompare(left.startDate));
       const contract = studentContracts.find((item) => item.status === 'active') || studentContracts[0];
-      const used = contract ? usedSessionCount(contract, sessions) : 0;
+      const used = contract ? usedSessionCount(contract) : 0;
       const remaining = contract ? Math.max(0, contract.totalSessions - used) : 0;
       const debt = contract
         ? Math.max(0, Number(contract.totalPrice || 0) - Number(contract.discount || 0) - Number(contract.paidAmount || 0))

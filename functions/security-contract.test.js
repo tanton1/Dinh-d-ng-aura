@@ -23,6 +23,7 @@ const adminRolesSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'admi
 const accessRouteSource = readFileSync(join(repositoryRoot, 'src', 'identity', 'access.ts'), 'utf8')
 const studentIdentityLinkSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-student-identity-link.cjs'), 'utf8')
 const sessionContractLinkSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-session-contract-link.cjs'), 'utf8')
+const ptContractUsageReconcileSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-contract-usage-reconcile.cjs'), 'utf8')
 const ptScheduleMigrationSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-schedule-v2-migration.cjs'), 'utf8')
 const identityAccessSource = readFileSync(join(__dirname, 'identity-access.js'), 'utf8')
 const ptSchedulePublishSource = readFileSync(join(__dirname, 'pt-schedule-publish.js'), 'utf8')
@@ -410,6 +411,18 @@ test('session contract linking is target-only, date-exact, digest-gated, and PII
   assert.doesNotMatch(sessionContractLinkSource, /console\.(?:log|error)\([^)]*(?:studentId|sessionId|contractId|email|phone|name)/)
 })
 
+test('PT contract usage reconciliation is target-only, monotonic, evidence-based and digest-gated', () => {
+  assert.match(ptContractUsageReconcileSource, /projectId: 'gen-lang-client-0815966909'/)
+  assert.match(ptContractUsageReconcileSource, /databaseId: 'ai-studio-aurafitnesselear-/)
+  assert.match(ptContractUsageReconcileSource, /APPLY_PT_CONTRACT_USAGE_RECONCILIATION_V1/)
+  assert.match(ptContractUsageReconcileSource, /EVIDENCE_STATUSES\.has\(status\) \|\| session\.fields\.billingStatus === 'charged'/)
+  assert.match(ptContractUsageReconcileSource, /if \(evidence\.length > current\)/)
+  assert.match(ptContractUsageReconcileSource, /currentDocument: \{ updateTime: item\.updateTime \}/)
+  assert.match(ptContractUsageReconcileSource, /decreasesPlanned: 0/)
+  assert.doesNotMatch(ptContractUsageReconcileSource, /usedSessions:\s*(?:item\.before|current\s*-)/)
+  assert.doesNotMatch(ptContractUsageReconcileSource, /console\.(?:log|error)\([^)]*(?:studentId|contractId|phone|email|name)/)
+})
+
 test('PT schedule publish is actor-scoped, revisioned, transactional, and immutable', () => {
   assert.match(functionsSource, /exports\.validatePtScheduleDraft = ptSchedulePublishFunctions\.validatePtScheduleDraft/)
   assert.match(functionsSource, /exports\.publishPtSchedule = ptSchedulePublishFunctions\.publishPtSchedule/)
@@ -446,6 +459,9 @@ test('PT schedule V2 is actor-scoped, date-exact, branch-owned and command revis
   assert.match(ptScheduleV2Source, /storedDate\(contract\.endDate\) >= date/)
   assert.match(ptScheduleV2Source, /AMBIGUOUS_ACTIVE_CONTRACT/)
   assert.match(ptScheduleV2Source, /TRAINER_AVAILABILITY_UNCONFIGURED/)
+  assert.match(ptScheduleV2Source, /availabilityStatus = weekly\?\.status \|\| \(recurringConfirmed \? 'recurring' : 'missing'\)/)
+  assert.match(ptScheduleV2Source, /MAX_DRAFT_ENTRIES = 400/)
+  assert.doesNotMatch(ptScheduleV2Source, /entries\.slice\(0, 5\)/)
   assert.match(ptScheduleV2Source, /revision !== expectedRevision/)
   assert.match(ptScheduleV2Source, /transaction\.create\(receipt/)
   assert.match(ptScheduleV2Source, /unassignedEntries/)

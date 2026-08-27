@@ -170,7 +170,7 @@ export default function BranchScheduleWorkspace({ accessContext }: Props) {
   const studentWarnings = useMemo(() => (workspace?.students || []).map((student) => ({
     student,
     missing: Math.max(0, student.sessionsPerWeek - (scheduledByStudent.get(student.id) || 0)),
-  })).filter((item) => item.missing > 0 || !['submitted', 'locked'].includes(item.student.availabilityStatus)), [scheduledByStudent, workspace])
+  })).filter((item) => item.missing > 0 || !['submitted', 'locked', 'recurring'].includes(item.student.availabilityStatus)), [scheduledByStudent, workspace])
   const missingSessions = studentWarnings.reduce((total, item) => total + item.missing, 0)
 
   useEffect(() => {
@@ -416,8 +416,8 @@ export default function BranchScheduleWorkspace({ accessContext }: Props) {
         <main className="branch-schedule__warning-page">
           <header><p>AURA VALIDATION</p><h2>Hồ sơ cần xử lý trước publish</h2><span>Học viên không biến mất khỏi danh sách; Aura nêu rõ lý do để vận hành xử lý đúng nguồn.</span></header>
           <section className="schedule-warning-grid">
-            {workspace.trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').map((trainer) => <article key={trainer.id} className="is-blocking"><Clock3 /><div><strong>{trainer.name}</strong><span>PT chưa cấu hình lịch rảnh. Auto và chỉnh tay đều bị khóa an toàn.</span></div></article>)}
-            {studentWarnings.map(({ student, missing }) => <article key={student.id}><AlertTriangle /><div><strong>{student.name}</strong><span>{missing > 0 ? `Còn thiếu ${missing} buổi.` : ''} {!['submitted', 'locked'].includes(student.availabilityStatus) ? 'Chưa gửi lịch rảnh tuần.' : ''}</span></div></article>)}
+            {workspace.trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').map((trainer) => <article key={trainer.id} className="is-blocking"><Clock3 /><div><strong>{trainer.name}</strong><span>PT chưa cấu hình lịch rảnh nên được loại khỏi xếp tự động; các PT đã cấu hình vẫn hoạt động.</span></div></article>)}
+            {studentWarnings.map(({ student, missing }) => <article key={student.id}><AlertTriangle /><div><strong>{student.name}</strong><span>{missing > 0 ? `Còn thiếu ${missing} buổi.` : ''} {!['submitted', 'locked', 'recurring'].includes(student.availabilityStatus) ? 'Chưa có lịch rảnh đã xác nhận.' : student.availabilityStatus === 'recurring' ? 'Đang dùng lịch rảnh cố định.' : ''}</span></div></article>)}
             {!studentWarnings.length && workspace.summary.unconfiguredTrainers === 0 && <div className="schedule-warning-empty"><CheckCircle2 /> Không còn cảnh báo dữ liệu đầu vào.</div>}
           </section>
         </main>

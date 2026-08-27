@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { CalendarDays, CheckCircle2, ChevronDown, CircleAlert, Clock3, RefreshCw, UserRound } from 'lucide-react'
+import { CalendarDays, CheckCircle2, ChevronDown, CircleAlert, Clock3, Info, RefreshCw, SlidersHorizontal, UserRound } from 'lucide-react'
 import { listStudentTrainingHistory, listTrainerTeachingHistory, type TrainingHistoryPage, type TrainingHistoryStatus } from '../../../services/businessReportingService'
 import '../../../styles-training-history.css'
 
@@ -67,6 +67,7 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName }
   const [page, setPage] = useState<TrainingHistoryPage | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
 
   const load = useCallback(async (append = false) => {
     if (!subjectId) return
@@ -96,17 +97,20 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName }
   const counterpartLabel = subject === 'student' ? 'PT phụ trách' : 'Học viên'
   return <section className="training-history" aria-busy={loading}>
     <header className="training-history__header">
-      <div><span><CalendarDays size={15} /> Nhật ký vận hành</span><h3>{subject === 'student' ? 'Lịch sử tập của học viên' : 'Lịch dạy của PT'}</h3><p>{subjectName || 'Hồ sơ Aura'} · dữ liệu tải phân trang, có sự kiện điểm danh và thay đổi lịch.</p></div>
-      <button type="button" onClick={() => void load(false)} disabled={loading}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /> Làm mới</button>
+      <div><span><CalendarDays size={15} /> Nhật ký vận hành</span><h3>{subject === 'student' ? 'Lịch sử tập' : 'Lịch dạy PT'}</h3><p>{subjectName || 'Hồ sơ Aura'}</p></div>
+      <button type="button" aria-label="Làm mới lịch sử" onClick={() => void load(false)} disabled={loading}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /><span>Làm mới</span></button>
     </header>
     <div className="training-history__filters">
       <div className="training-history__presets"><button type="button" onClick={() => setPreset(30)}>30 ngày</button><button type="button" onClick={() => setPreset(90)}>90 ngày</button><button type="button" onClick={() => setPreset(180)}>6 tháng</button></div>
-      <label><span>Từ ngày</span><input type="date" value={startDate} max={endDate} onChange={(event) => setStartDate(event.target.value)} /></label>
-      <label><span>Đến ngày</span><input type="date" value={endDate} min={startDate} max={todayKey()} onChange={(event) => setEndDate(event.target.value)} /></label>
-      <label><span>Trạng thái</span><select value={status} onChange={(event) => setStatus(event.target.value as TrainingHistoryStatus)}>{statusOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+      <button type="button" className={`training-history__filter-toggle${showAdvancedFilters ? ' is-active' : ''}`} onClick={() => setShowAdvancedFilters((current) => !current)}><SlidersHorizontal size={15} /> Bộ lọc</button>
+      {showAdvancedFilters && <div className="training-history__advanced">
+        <label><span>Từ ngày</span><input type="date" value={startDate} max={endDate} onChange={(event) => setStartDate(event.target.value)} /></label>
+        <label><span>Đến ngày</span><input type="date" value={endDate} min={startDate} max={todayKey()} onChange={(event) => setEndDate(event.target.value)} /></label>
+        <label><span>Trạng thái</span><select value={status} onChange={(event) => setStatus(event.target.value as TrainingHistoryStatus)}>{statusOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+      </div>}
     </div>
     {error && <div className="training-history__notice"><CircleAlert size={18} /> {error}</div>}
-    {page && <div className="training-history__summary"><div><strong>{page.summary.total}</strong><span>Buổi trong bộ lọc</span></div><div><strong>{page.summary.completed}</strong><span>Đã hoàn thành</span></div><div><strong>{page.summary.cancelled}</strong><span>Đã hủy / báo nghỉ</span></div><div><strong>{page.summary.noShow}</strong><span>Vắng mặt</span></div></div>}
+    {page && <><div className="training-history__summary"><div><strong>{page.summary.total}</strong><span>Trong kỳ</span></div><div><strong>{page.summary.completed}</strong><span>Hoàn thành</span></div><div><strong>{page.summary.cancelled}</strong><span>Hủy / nghỉ</span></div><div><strong>{page.summary.noShow}</strong><span>Vắng mặt</span></div></div><p className="training-history__scope-note"><Info size={13} /> Thống kê theo khoảng ngày; số buổi gói tập dùng projection đã tính từ máy chủ.</p></>}
     <div className="training-history__records">
       {loading && !page ? <div className="training-history__empty">Đang tải lịch sử an toàn…</div> : null}
       {!loading && !error && page && page.records.length === 0 ? <div className="training-history__empty">Không có buổi tập nào trong bộ lọc này.</div> : null}

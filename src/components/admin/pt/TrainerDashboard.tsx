@@ -20,21 +20,9 @@ interface Props {
 export default function TrainerDashboard({ profile, user, trainerId: propTrainerId, explicitTrainerId, onNavigate }: Props) {
   const { students, contracts, sessions, packages, trainers, branches, addContract, updateContract } = useDatabase();
 
-  const getCalculatedUsedSessions = (contract: StudentContract | undefined, allSessions: Session[]) => {
-    if (!contract) return 0;
-    const contractSessions = allSessions.filter(s => {
-      if (s.studentId !== contract.studentId) return false;
-      if (s.status !== 'completed') return false; 
-      const sDate = new Date(s.date).getTime();
-      const startDate = new Date(contract.startDate).getTime();
-      const endDate = new Date(contract.endDate).getTime() + 86400000 - 1;
-      return sDate >= startDate && sDate <= endDate;
-    });
-    const uniqueClassIds = new Set(contractSessions.map(s => `${s.id.split('-').slice(0,2).join('-')}-${s.date}`));
-    const currentAttendedClasses = contract.attendedClasses || [];
-    currentAttendedClasses.forEach((id: string) => uniqueClassIds.add(id));
-    return uniqueClassIds.size;
-  };
+  const getCalculatedUsedSessions = (contract: StudentContract | undefined, _allSessions: Session[]) => contract
+    ? Math.max(0, Math.floor(Number(contract.usedSessions || 0)))
+    : 0;
   const [activeTab, setActiveTab] = useState<'main' | 'sub' | 'nutrition'>('main');
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');

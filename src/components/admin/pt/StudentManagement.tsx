@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { Student, UserProfile, StudentContract, TrainingPackage, Trainer, Branch, Session } from '../../../types';
+import { Student, UserProfile, StudentContract, TrainingPackage, Trainer, Branch } from '../../../types';
 import { User } from 'firebase/auth';
 import { db } from '../../../lib/firebase';
 import { Search, Plus, Edit2, Trash2, Phone, Mail, Calendar, CheckCircle, XCircle, AlertCircle, User as UserIcon, Package, RefreshCw, SlidersHorizontal, ChevronRight } from 'lucide-react';
@@ -32,22 +32,9 @@ export default function StudentManagement({ user, profile }: Props) {
   const canInviteStudents = authzReady && hasCapability('identity.invite.manage');
   const canOpenStudentForm = canInviteStudents || import.meta.env.MODE === 'e2e';
   
-  const getCalculatedUsedSessions = (contract: any, allSessions: Session[]) => {
-    if (!contract) return 0;
-    const contractSessions = allSessions.filter(s => {
-      if (s.studentId !== contract.studentId) return false;
-      if (s.status !== 'completed') return false; 
-      if (s.contractId) return s.contractId === contract.id;
-      const sDate = new Date(s.date).getTime();
-      const startDate = new Date(contract.startDate).getTime();
-      const endDate = new Date(contract.endDate).getTime() + 86400000 - 1;
-      return sDate >= startDate && sDate <= endDate;
-    });
-    const uniqueClassIds = new Set(contractSessions.map(s => s.id));
-    const currentAttendedClasses = contract.attendedClasses || [];
-    currentAttendedClasses.forEach((id: string) => uniqueClassIds.add(id));
-    return uniqueClassIds.size;
-  };
+  const getCalculatedUsedSessions = (contract: StudentContract | undefined) => contract
+    ? Math.max(0, Math.floor(Number(contract.usedSessions || 0)))
+    : 0;
   
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
@@ -185,7 +172,7 @@ export default function StudentManagement({ user, profile }: Props) {
             
             const timeDiff = endDate.getTime() - now.getTime();
             const daysLeft = Math.ceil(timeDiff / (1000 * 3600 * 24));
-            const sessionsLeft = latestContract.totalSessions - getCalculatedUsedSessions(latestContract, sessions);
+            const sessionsLeft = latestContract.totalSessions - getCalculatedUsedSessions(latestContract);
             
             if (daysLeft < 0 || sessionsLeft <= 0) {
               status = 'expired';
@@ -249,7 +236,7 @@ export default function StudentManagement({ user, profile }: Props) {
         return;
       }
       activeStudentIds.add(student.id);
-      const sessionsLeft = activeContract.totalSessions - getCalculatedUsedSessions(activeContract, sessions);
+      const sessionsLeft = activeContract.totalSessions - getCalculatedUsedSessions(activeContract);
       const daysLeft = Math.ceil((new Date(activeContract.endDate).getTime() - now.getTime()) / 86_400_000);
       if (daysLeft <= 7 || sessionsLeft <= 2) expiringStudentIds.add(student.id);
       if (!activeContract.trainerId && !(activeContract.trainerIds || []).length) unassignedStudentIds.add(student.id);
@@ -697,7 +684,7 @@ export default function StudentManagement({ user, profile }: Props) {
                 
                 const timeDiff = endDate.getTime() - now.getTime();
                 const daysLeft = Math.ceil(timeDiff / (1000 * 3600 * 24));
-                const sessionsLeft = latestContract.totalSessions - getCalculatedUsedSessions(latestContract, sessions);
+                const sessionsLeft = latestContract.totalSessions - getCalculatedUsedSessions(latestContract);
                 
                 if (daysLeft < 0 || sessionsLeft <= 0) {
                   return { isExpiringThisMonth: false, isExpiringThisWeek: false, isExpired: true };

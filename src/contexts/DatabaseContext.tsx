@@ -50,6 +50,9 @@ const E2E_PT_STUDENTS: Student[] = import.meta.env.MODE === 'e2e'
 const E2E_PT_PACKAGES: TrainingPackage[] = import.meta.env.MODE === 'e2e'
   ? [{ id: 'e2e-package', name: 'Gói PT Aura', totalSessions: 24, price: 12_000_000, durationMonths: 3, branchId: 'e2e-branch' }]
   : []
+const E2E_PT_SESSIONS: Session[] = import.meta.env.MODE === 'e2e'
+  ? [{ id: 'e2e-session', trainerId: 'e2e-trainer', studentId: 'e2e-student', contractId: 'e2e-contract', date: '2026-08-01', hour: 8, status: 'completed', branchId: 'e2e-branch' }]
+  : []
 
 export interface ScheduleDocumentState {
   schedule: Schedule
@@ -207,7 +210,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   const [students, setStudents] = useState<Student[]>(E2E_PT_STUDENTS)
   const [contracts, setContracts] = useState<StudentContract[]>([])
   const [payments, setPayments] = useState<PaymentRecord[]>([])
-  const [sessions, setSessions] = useState<Session[]>([])
+  const [sessions, setSessions] = useState<Session[]>(E2E_PT_SESSIONS)
   const [trainers, setTrainers] = useState<Trainer[]>(E2E_PT_TRAINERS)
   const [branches, setBranches] = useState<Branch[]>(E2E_PT_BRANCHES)
   const [packages, setPackages] = useState<TrainingPackage[]>(E2E_PT_PACKAGES)
@@ -235,7 +238,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     setStudents(E2E_PT_STUDENTS)
     setContracts([])
     setPayments([])
-    setSessions([])
+    setSessions(E2E_PT_SESSIONS)
     setTrainers(E2E_PT_TRAINERS)
     setBranches(E2E_PT_BRANCHES)
     setPackages(E2E_PT_PACKAGES)

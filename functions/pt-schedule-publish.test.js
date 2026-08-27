@@ -89,6 +89,40 @@ test('rejects entries outside submitted weekly availability', () => {
   assert.ok(result.errors.includes('OUTSIDE_STUDENT_AVAILABILITY'))
 })
 
+test('accepts confirmed recurring availability when no weekly document exists', () => {
+  const fixture = baseFixture()
+  fixture.availability.clear()
+  fixture.students.set('student-a', {
+    status: 'active',
+    branchId: BRANCH_ID,
+    availableSlots: ['T2-6'],
+    isScheduleConfirmed: true,
+  })
+  const result = desiredEntries(fixture)
+  assert.deepEqual(result.errors, [])
+  assert.ok(result.warnings.includes('LEGACY_AVAILABILITY_FALLBACK'))
+})
+
+test('rejects unconfirmed legacy availability when no weekly document exists', () => {
+  const fixture = baseFixture()
+  fixture.availability.clear()
+  fixture.students.set('student-a', {
+    status: 'active',
+    branchId: BRANCH_ID,
+    availableSlots: ['T2-6'],
+    isScheduleConfirmed: false,
+  })
+  const result = desiredEntries(fixture)
+  assert.ok(result.errors.includes('AVAILABILITY_NOT_SUBMITTED'))
+})
+
+test('normalizer retains more than five entries shared by different trainers', () => {
+  const schedule = normalizedDraftSchedule({
+    'T2-6': Array.from({ length: 8 }, (_, index) => ({ studentId: `student-${index}`, trainerId: `trainer-${index}` })),
+  }, BRANCH_ID)
+  assert.equal(schedule['T2-6'].length, 8)
+})
+
 test('rejects a learner placed into a PT OFF slot', () => {
   const fixture = baseFixture()
   fixture.schedule['T2-6'].push({

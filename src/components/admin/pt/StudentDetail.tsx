@@ -463,26 +463,12 @@ export default function StudentDetail({ student, profile, contracts, packages, t
     setNotification({ message: 'Đã hủy hợp đồng thành công', type: 'success' });
   };
 
-  const getCalculatedUsedSessions = (contract: StudentContract | undefined) => {
-    if (!contract) return 0;
-    const contractSessions = studentSessions.filter(s => {
-      if (s.status !== 'completed') return false; 
-      if (s.contractId) return s.contractId === contract.id;
-      const sDate = new Date(`${s.date}T12:00:00`).getTime();
-      const startDate = new Date(contract.startDate).getTime();
-      const endDate = new Date(contract.endDate).getTime() + 86400000 - 1;
-      
-      return sDate >= startDate && sDate <= endDate;
-    });
-
-    const uniqueClassIds = new Set(contractSessions.map(s => s.id));
-    const currentAttendedClasses = contract.attendedClasses || [];
-    currentAttendedClasses.forEach(id => uniqueClassIds.add(id));
-    
-    return uniqueClassIds.size;
-  };
-
-  const actualUsed = getCalculatedUsedSessions(activeContract);
+  // Package billing and attendance are separate domains. `usedSessions` is
+  // maintained by the server; merging migrated attendedClasses with session
+  // document IDs can count the same class twice.
+  const actualUsed = activeContract
+    ? Math.max(0, Math.floor(Number(activeContract.usedSessions || 0)))
+    : 0;
   const todayId = new Date().toISOString().slice(0, 10);
   const nextStudentSession = studentSessions
     .filter((session) => (session.status === 'scheduled' || session.status === 'rescheduled') && session.date >= todayId)
@@ -862,17 +848,9 @@ export default function StudentDetail({ student, profile, contracts, packages, t
             {/* contract details */}
             <div className="flex justify-between items-center">
               <span className="text-zinc-200 font-medium text-lg">{activeContract.packageName}</span>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col items-end gap-0.5">
                 <span className="text-pink-500 font-bold text-xl">{actualUsed} / {activeContract.totalSessions}</span>
-                {actualUsed !== activeContract.usedSessions && (
-                  <button 
-                    disabled
-                    className="p-1.5 bg-pink-500/10 text-pink-500 rounded-lg border border-pink-500/50 cursor-not-allowed opacity-70"
-                    title="Sai lệch chỉ được xử lý bằng quy trình đối soát máy chủ có audit"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                  </button>
-                )}
+                <small className="text-[10px] font-semibold text-zinc-500">Đã tính vào gói</small>
               </div>
             </div>
             
@@ -906,7 +884,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
             <div className="w-full bg-zinc-800 rounded-full h-3 overflow-hidden">
               <div 
                 className="bg-gradient-to-r from-pink-600 to-pink-400 h-3 rounded-full transition-all duration-500 ease-out" 
-                style={{ width: `${(actualUsed / activeContract.totalSessions) * 100}%` }}
+                style={{ width: `${Math.min(100, activeContract.totalSessions ? (actualUsed / activeContract.totalSessions) * 100 : 0)}%` }}
               ></div>
             </div>
             

@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { candidateForSlot, generateSchedule, resolveContract } = require('./pt-schedule-v2')
+const { MAX_DRAFT_ENTRIES, candidateForSlot, generateSchedule, resolveContract, safeSchedule } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
@@ -74,6 +74,46 @@ test('blocks a trainer whose availability is not configured', () => {
   })
   assert.equal(result.eligible, false)
   assert.ok(result.reasons.includes('TRAINER_AVAILABILITY_UNCONFIGURED'))
+})
+
+test('accepts a confirmed recurring learner availability for future weeks', () => {
+  const data = fixture()
+  data.students[0].availabilityStatus = 'recurring'
+  const result = candidateForSlot(data, {
+    student: data.students[0],
+    trainer: data.trainers[0],
+    slotId: 'T2-6',
+    schedule: {},
+  })
+  assert.equal(result.eligible, true)
+})
+
+test('does not silently truncate entries when several trainers share one hour', () => {
+  const entries = Array.from({ length: 8 }, (_, index) => ({
+    studentId: `student-${index}`,
+    trainerId: `trainer-${index}`,
+    branchId: BRANCH,
+    type: 'training',
+  }))
+  const schedule = safeSchedule({ 'T2-6': entries })
+  assert.equal(schedule['T2-6'].length, 8)
+})
+
+test('generator stops safely at the bounded draft capacity and reports it', () => {
+  const data = fixture()
+  data.schedule = Object.fromEntries(['T2-6', 'T3-6', 'T4-6', 'T5-6'].map((slotId, slotIndex) => [
+    slotId,
+    Array.from({ length: 100 }, (_, index) => ({
+      studentId: `locked-${slotIndex}-${index}`,
+      trainerId: `trainer-${index}`,
+      branchId: BRANCH,
+      type: 'training',
+      isLocked: true,
+    })),
+  ]))
+  const generated = generateSchedule(data)
+  assert.equal(Object.values(generated.schedule).flat().length, MAX_DRAFT_ENTRIES)
+  assert.equal(generated.warnings[0].code, 'DRAFT_CAPACITY_REACHED')
 })
 
 test('blocks leave, trainer assignment mismatch and paused contract', () => {

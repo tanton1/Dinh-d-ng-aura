@@ -18,7 +18,11 @@ const {
 
 const MAX_STUDENTS = 500
 const MAX_TRAINERS = 100
-const MAX_DRAFT_ENTRIES = 180
+// Keep the whole publish diff below Firestore's 500-write transaction limit.
+// Real Aura branches currently contain more than 180 entries per week, so the
+// previous guard rejected valid migrated drafts before the workspace loaded.
+const MAX_DRAFT_ENTRIES = 400
+const MAX_ENTRIES_PER_SLOT = 100
 const DAY_ORDER = new Map([['T2', 0], ['T3', 1], ['T4', 2], ['T5', 3], ['T6', 4], ['T7', 5], ['CN', 6]])
 
 function draftId(branchId, week) {
@@ -50,7 +54,8 @@ function safeSchedule(value) {
   let count = 0
   for (const [slotId, entries] of Object.entries(value)) {
     if (!/^(T[2-7]|CN)-(?:[0-9]|1[0-9]|2[0-3])$/.test(slotId) || !Array.isArray(entries)) continue
-    const normalized = entries.slice(0, 5).map((entry) => ({
+    if (entries.length > MAX_ENTRIES_PER_SLOT) throw new HttpsError('resource-exhausted', 'Một khung giờ có quá nhiều dữ liệu.')
+    const normalized = entries.map((entry) => ({
       studentId: entry?.type === 'off' ? 'OFF' : String(entry?.studentId || ''),
       trainerId: String(entry?.trainerId || ''),
       branchId: String(entry?.branchId || ''),
@@ -121,6 +126,9 @@ async function loadBranchData(db, branchId, week) {
   const mappedStudents = students.docs.map((item) => {
     const data = item.data()
     const weekly = weeklyAvailability.get(item.id)
+    const recurringSlots = Array.isArray(data.availableSlots) ? data.availableSlots.slice(0, 100) : []
+    const recurringConfirmed = !weekly && data.isScheduleConfirmed === true && recurringSlots.length > 0
+    const availabilityStatus = weekly?.status || (recurringConfirmed ? 'recurring' : 'missing')
     return {
       id: item.id,
       name: data.name || 'Chưa cập nhật tên',
@@ -129,9 +137,10 @@ async function loadBranchData(db, branchId, week) {
       status: data.status || 'active',
       branchId,
       sessionsPerWeek: Math.max(0, Number(data.sessionsPerWeek || 0)),
-      availableSlots: Array.isArray(weekly?.slots) ? weekly.slots : [],
-      availabilityStatus: weekly?.status || 'missing',
-      isScheduleConfirmed: ['submitted', 'locked'].includes(weekly?.status),
+      availableSlots: Array.isArray(weekly?.slots) ? weekly.slots.slice(0, 100) : recurringSlots,
+      availabilityStatus,
+      availabilitySource: weekly ? 'weekly' : recurringConfirmed ? 'legacy_recurring' : 'none',
+      isScheduleConfirmed: ['submitted', 'locked', 'recurring'].includes(availabilityStatus),
     }
   })
   const mappedTrainers = trainers.docs.map((item) => {
@@ -226,7 +235,7 @@ function candidateForSlot(data, { student, trainer, slotId, schedule }) {
   if (trainer.availabilityMode === 'unconfigured') reasons.push('TRAINER_AVAILABILITY_UNCONFIGURED')
   else if (!trainerIsAvailable(trainer, slotId)) reasons.push('OUTSIDE_TRAINER_AVAILABILITY')
   if (data.leaves.some((leave) => leaveCovers(leave, trainer.id, date))) reasons.push('TRAINER_ON_LEAVE')
-  if (!['submitted', 'locked'].includes(student.availabilityStatus)) reasons.push('AVAILABILITY_NOT_SUBMITTED')
+  if (!['submitted', 'locked', 'recurring'].includes(student.availabilityStatus)) reasons.push('AVAILABILITY_NOT_SUBMITTED')
   else if (!student.availableSlots.includes(slotId)) reasons.push('OUTSIDE_STUDENT_AVAILABILITY')
   const contractResult = resolveContract(data, student.id, trainer.id, date)
   reasons.push(...contractResult.reasons)
@@ -261,13 +270,21 @@ function generateSchedule(data) {
     const retained = entries.filter((entry) => entry.type === 'off' || entry.isLocked === true)
     if (retained.length) schedule[slotId] = retained
   }
-  const warnings = []
+  const warnings = data.trainers
+    .filter((trainer) => trainer.availabilityMode === 'unconfigured')
+    .map((trainer) => ({ code: 'TRAINER_AVAILABILITY_UNCONFIGURED', trainerId: trainer.id }))
+  let entryCount = scheduleEntryCount(schedule)
+  let capacityReached = entryCount >= MAX_DRAFT_ENTRIES
   const students = [...data.students].sort((left, right) => left.availableSlots.length - right.availableSlots.length || left.name.localeCompare(right.name, 'vi'))
   for (const student of students) {
     if (student.status === 'inactive') continue
     const existing = Object.values(schedule).flat().filter((entry) => entry.type !== 'off' && entry.studentId === student.id).length
     let remaining = Math.max(0, student.sessionsPerWeek - existing)
     while (remaining > 0) {
+      if (entryCount >= MAX_DRAFT_ENTRIES) {
+        capacityReached = true
+        break
+      }
       const candidates = []
       for (const slotId of student.availableSlots) {
         for (const trainer of data.trainers) {
@@ -293,10 +310,12 @@ function generateSchedule(data) {
         type: 'training',
         source: 'auto_v2',
       }]
+      entryCount += 1
       remaining -= 1
     }
     if (remaining > 0) warnings.push({ code: 'STUDENT_UNSCHEDULED', studentId: student.id, missingSessions: remaining })
   }
+  if (capacityReached) warnings.unshift({ code: 'DRAFT_CAPACITY_REACHED', entryCount, maxEntries: MAX_DRAFT_ENTRIES })
   return { schedule, warnings }
 }
 
@@ -372,9 +391,6 @@ function createPtScheduleV2Functions({ db, onCall }) {
     if (!Number.isInteger(expectedRevision) || expectedRevision < 0) throw new HttpsError('invalid-argument', 'Phiên bản draft không hợp lệ.')
     const actor = await scheduleActor(request, db, branchId)
     const data = await loadBranchData(db, branchId, week)
-    if (data.trainers.some((trainer) => trainer.availabilityMode === 'unconfigured')) {
-      throw new HttpsError('failed-precondition', 'Có PT chưa cấu hình lịch rảnh.', { issueCode: 'TRAINER_AVAILABILITY_UNCONFIGURED' })
-    }
     const generated = generateSchedule({ ...data, weekId: week })
     const reference = draftReference(db, branchId, week)
     return db.runTransaction(async (transaction) => {
@@ -514,8 +530,10 @@ function createPtScheduleV2Functions({ db, onCall }) {
 }
 
 module.exports = {
+  MAX_DRAFT_ENTRIES,
   createPtScheduleV2Functions,
   candidateForSlot,
   generateSchedule,
   resolveContract,
+  safeSchedule,
 }

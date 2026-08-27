@@ -121,3 +121,26 @@ test('PT student detail groups important data into three slides and hides unlink
   await expect(tabs).toBeVisible()
   await expect(tabs.getByRole('tab', { name: /Dinh dưỡng|Bữa ăn/i })).toHaveCount(0)
 })
+
+test('training history keeps reports compact and advanced filters collapsed on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/#/admin-pt-students')
+  const studentCard = page.locator('.student-management__card').first()
+  await expect(studentCard).toBeVisible()
+  await studentCard.getByRole('button', { name: /Xem chi tiết/i }).click()
+  await page.getByRole('tab', { name: 'Lịch sử' }).click()
+
+  const history = page.locator('.training-history')
+  await expect(history.getByRole('heading', { name: 'Lịch sử tập' })).toBeVisible()
+  await expect(history.locator('.training-history__advanced')).toHaveCount(0)
+  await history.getByRole('button', { name: 'Bộ lọc' }).click()
+  await expect(history.locator('.training-history__advanced')).toBeVisible()
+
+  const dimensions = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    document: document.documentElement.scrollWidth,
+    historyRight: document.querySelector<HTMLElement>('.training-history')?.getBoundingClientRect().right ?? 0,
+  }))
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1)
+  expect(dimensions.historyRight).toBeLessThanOrEqual(dimensions.viewport)
+})

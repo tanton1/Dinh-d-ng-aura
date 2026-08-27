@@ -62,6 +62,7 @@ export interface PtScheduleBranchOption {
 
 export interface PtScheduleV2Student extends Student {
   availabilityStatus: string
+  availabilitySource?: 'weekly' | 'legacy_recurring' | 'none'
 }
 
 export interface PtScheduleV2Trainer extends Trainer {
@@ -84,7 +85,7 @@ export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspac
     missingSessions: number
     unassignedEntries: number
   }
-  warnings: Array<{ code: string; studentId?: string; missingSessions?: number }>
+  warnings: Array<{ code: string; studentId?: string; trainerId?: string; missingSessions?: number; entryCount?: number; maxEntries?: number }>
 }
 
 export interface PtScheduleSlotCandidate {
@@ -149,6 +150,7 @@ const conflictLabels: Record<string, string> = {
   CANCELLED_SESSION_REINTRODUCED: 'Một buổi đã hủy đang được thêm lại trực tiếp.',
   DUPLICATE_DEPLOYED_SESSION: 'Dữ liệu hiện có chứa buổi tập triển khai bị trùng.',
   SCHEDULE_TOO_LARGE: 'Lịch vượt giới hạn publish an toàn trong một lần.',
+  DRAFT_CAPACITY_REACHED: 'Draft đã đạt giới hạn một lần publish; các hồ sơ còn lại được đưa vào cảnh báo.',
   LEGACY_AVAILABILITY_FALLBACK: 'Một số học viên đang dùng lịch rảnh legacy; nên xác nhận lại lịch tuần.',
 }
 

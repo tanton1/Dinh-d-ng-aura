@@ -5,7 +5,8 @@ const { FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 
-const MAX_SCHEDULE_ENTRIES = 180
+const MAX_SCHEDULE_ENTRIES = 400
+const MAX_ENTRIES_PER_SLOT = 100
 const MAX_TRANSACTION_WRITES = 450
 const ACTIVE_SESSION_STATUSES = new Set(['scheduled', 'rescheduled'])
 const DAY_OFFSETS = new Map([['T2', 0], ['T3', 1], ['T4', 2], ['T5', 3], ['T6', 4], ['T7', 5], ['CN', 6]])
@@ -181,7 +182,7 @@ function normalizedDraftSchedule(value, branchId) {
     if (!/^(T[2-7]|CN)-(?:[0-9]|1[0-9]|2[0-3])$/.test(slotId) || !Array.isArray(rawEntries)) {
       throw new HttpsError('invalid-argument', 'Lịch có khung giờ không hợp lệ.')
     }
-    if (rawEntries.length > 5) throw new HttpsError('invalid-argument', 'Một khung giờ có quá nhiều dữ liệu.')
+    if (rawEntries.length > MAX_ENTRIES_PER_SLOT) throw new HttpsError('invalid-argument', 'Một khung giờ có quá nhiều dữ liệu.')
     const entries = rawEntries.map((entry) => {
       const trainerId = documentId(entry?.trainerId, 'Mã PT')
       const type = entry?.type === 'off' ? 'off' : 'training'
@@ -287,10 +288,13 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       trainerSlots.set(trainerSlot, (trainerSlots.get(trainerSlot) || 0) + 1)
 
       const weekly = availability.get(studentId)
-      const slots = new Set(Array.isArray(weekly?.slots) ? weekly.slots : Array.isArray(student?.availableSlots) ? student.availableSlots : [])
-      if (!slots.has(slotId)) errors.push('OUTSIDE_STUDENT_AVAILABILITY')
-      if (!weekly) warnings.push('LEGACY_AVAILABILITY_FALLBACK')
-      else if (!['submitted', 'locked'].includes(weekly.status)) errors.push('AVAILABILITY_NOT_SUBMITTED')
+      const recurringSlots = Array.isArray(student?.availableSlots) ? student.availableSlots : []
+      const recurringConfirmed = !weekly && student?.isScheduleConfirmed === true && recurringSlots.length > 0
+      const slots = new Set(Array.isArray(weekly?.slots) ? weekly.slots : recurringConfirmed ? recurringSlots : [])
+      if (!weekly && !recurringConfirmed) errors.push('AVAILABILITY_NOT_SUBMITTED')
+      else if (weekly && !['submitted', 'locked'].includes(weekly.status)) errors.push('AVAILABILITY_NOT_SUBMITTED')
+      else if (!slots.has(slotId)) errors.push('OUTSIDE_STUDENT_AVAILABILITY')
+      if (recurringConfirmed) warnings.push('LEGACY_AVAILABILITY_FALLBACK')
 
       const dateCandidates = contracts.filter((contract) => contract.studentId === studentId
         && contract.status === 'active'
