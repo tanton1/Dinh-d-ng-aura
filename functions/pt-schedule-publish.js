@@ -73,11 +73,6 @@ function normalizedCapacity(value) {
   return Number.isInteger(result) && result >= 1 && result <= 4 ? result : 2
 }
 
-function normalizedDailySessionLimit(value) {
-  const result = Number(value)
-  return Number.isInteger(result) && result >= 1 && result <= 16 ? result : 10
-}
-
 function trainerAvailabilityMode(value = {}) {
   if (value?.availabilityMode === 'unrestricted') return 'unrestricted'
   if (value?.availabilityMode === 'configured') return 'configured'
@@ -286,7 +281,10 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       if (trainer?.branchId && trainer.branchId !== branchId) errors.push('TRAINER_BRANCH_MISMATCH')
       if (student?.branchId && student.branchId !== branchId) errors.push('STUDENT_BRANCH_MISMATCH')
       const availabilityMode = trainerAvailabilityMode(trainer)
-      if (availabilityMode === 'unconfigured') errors.push('TRAINER_AVAILABILITY_UNCONFIGURED')
+      if (trainer?.employmentType === 'collaborator') {
+        if (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.length) errors.push('TRAINER_AVAILABILITY_UNCONFIGURED')
+        else if (!trainer.availableSlots.includes(slotId)) errors.push('OUTSIDE_TRAINER_AVAILABILITY')
+      } else if (availabilityMode === 'unconfigured') errors.push('TRAINER_AVAILABILITY_UNCONFIGURED')
       else if (!trainerIsAvailable(trainer, slotId)) errors.push('OUTSIDE_TRAINER_AVAILABILITY')
       if (trainerIsOnLeave(trainerId, date, trainerLeaves)) errors.push('TRAINER_ON_LEAVE')
 
@@ -359,18 +357,6 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
     const trainerId = key.split('|').at(-1)
     if (offSlots.has(key)) errors.push('TRAINER_OFF_CONFLICT')
     if (count > normalizedCapacity(trainers.get(trainerId)?.slotCapacity)) errors.push('TRAINER_CAPACITY_EXCEEDED')
-  }
-  const trainerDailySlots = new Map()
-  for (const key of trainerSlots.keys()) {
-    const [date, , trainerId] = key.split('|')
-    const dailyKey = `${date}|${trainerId}`
-    trainerDailySlots.set(dailyKey, (trainerDailySlots.get(dailyKey) || 0) + 1)
-  }
-  for (const [dailyKey, count] of trainerDailySlots) {
-    const trainerId = dailyKey.split('|').at(-1)
-    if (count > normalizedDailySessionLimit(trainers.get(trainerId)?.dailySessionLimit)) {
-      errors.push('TRAINER_DAILY_SESSION_LIMIT_EXCEEDED')
-    }
   }
   if (desired.size > MAX_SCHEDULE_ENTRIES) errors.push('SCHEDULE_TOO_LARGE')
   return { desired, errors: [...new Set(errors)], warnings: [...new Set(warnings)] }

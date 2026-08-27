@@ -88,8 +88,10 @@ export interface PtScheduleV2Trainer extends Trainer {
   schedulingPriority?: number
   /** Mục tiêu số ca duy nhất trong một ngày. Ca đôi vẫn chỉ tính một ca. */
   dailySessionTarget?: number
-  /** Trần ca duy nhất trong một ngày. */
+  /** @deprecated Chỉ giữ để đọc dữ liệu cũ; thuật toán không chặn theo trần. */
   dailySessionLimit?: number
+  employmentType?: 'full_time' | 'part_time' | 'collaborator'
+  employmentLevel?: 'probation' | 'official' | 'senior'
 }
 
 export interface PtScheduleStudentCoverage {
@@ -112,9 +114,9 @@ export interface PtScheduleTrainerDayLoad {
   date: string
   teachingSlots: number
   target: number
-  limit: number
+  limit?: number
   remainingToTarget?: number
-  status?: 'under_target' | 'target' | 'over_target' | 'at_limit'
+  status?: 'under_target' | 'target' | 'over_target'
 }
 
 export interface PtScheduleTrainerDailyLoad {
@@ -122,6 +124,8 @@ export interface PtScheduleTrainerDailyLoad {
   trainerName?: string
   name?: string
   schedulingPriority?: number
+  employmentType?: 'full_time' | 'part_time' | 'collaborator'
+  employmentLevel?: 'probation' | 'official' | 'senior'
   day?: string
   date?: string
   sessionCount?: number
@@ -133,7 +137,7 @@ export interface PtScheduleTrainerDailyLoad {
   dailySessionLimit?: number
   studentSessions?: number
   days?: PtScheduleTrainerDayLoad[]
-  status?: 'under_target' | 'target' | 'over_target' | 'at_limit'
+  status?: 'under_target' | 'target' | 'over_target'
 }
 
 export interface PtScheduleUnassignedEntry {

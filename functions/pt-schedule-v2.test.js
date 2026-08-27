@@ -241,11 +241,12 @@ test('primary trainer remains ahead of secondary trainer regardless of rank', ()
   assert.equal(Object.values(generated.schedule).flat().find((entry) => entry.studentId === 'student-a').trainerId, 'trainer-primary')
 })
 
-test('paired learners count as one teaching slot and a new slot cannot exceed the daily hard limit', () => {
+test('paired learners count as one teaching slot and daily target never blocks an extra class', () => {
   const data = fixture()
   data.trainers[0].dailySessionTarget = 1
   data.trainers[0].dailySessionLimit = 1
-  data.students.push({ ...data.students[0], id: 'student-b', name: 'B' })
+  data.trainers[0].availableSlots.push('T2-7')
+  data.students.push({ ...data.students[0], id: 'student-b', name: 'B', availableSlots: ['T2-6', 'T2-7'] })
   data.contracts.push({ ...data.contracts[0], id: 'contract-b', studentId: 'student-b' })
   data.schedule = {
     'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', isLocked: true }],
@@ -253,11 +254,68 @@ test('paired learners count as one teaching slot and a new slot cannot exceed th
   const pairCandidate = candidateForSlot(data, { student: data.students[1], trainer: data.trainers[0], slotId: 'T2-6', schedule: data.schedule })
   const newSlotCandidate = candidateForSlot(data, { student: data.students[1], trainer: data.trainers[0], slotId: 'T2-7', schedule: data.schedule })
   assert.equal(pairCandidate.eligible, true)
-  assert.ok(newSlotCandidate.reasons.includes('TRAINER_DAILY_SESSION_LIMIT_EXCEEDED'))
+  assert.equal(newSlotCandidate.eligible, true)
   const generated = generateSchedule(data)
   const mondayLoad = generated.optimizationSummary.trainerLoads.find((load) => load.trainerId === 'trainer-a' && load.day === 'T2')
   assert.equal(mondayLoad.teachingSlots, 1)
   assert.equal(mondayLoad.studentSessions, 2)
+})
+
+test('full-time trainer is filled before a higher-ranked collaborator', () => {
+  const data = fixture()
+  data.contracts[0].trainerId = ''
+  data.trainers = [
+    { ...data.trainers[0], id: 'trainer-full', employmentType: 'full_time', schedulingPriority: 999 },
+    { ...data.trainers[0], id: 'trainer-ctv', employmentType: 'collaborator', schedulingPriority: 1 },
+  ]
+  const generated = generateSchedule(data)
+  assert.equal(Object.values(generated.schedule).flat()[0].trainerId, 'trainer-full')
+})
+
+test('collaborator receives work after full-time trainer reaches the daily target', () => {
+  const data = fixture()
+  const targetSlots = Array.from({ length: 8 }, (_, index) => `T2-${index + 6}`)
+  data.schedule = Object.fromEntries(targetSlots.map((slotId, index) => [slotId, [{
+    studentId: `locked-${index}`,
+    trainerId: 'trainer-full',
+    branchId: BRANCH,
+    type: 'training',
+    isLocked: true,
+  }]]))
+  data.students[0].availableSlots = ['T2-14']
+  data.contracts[0].trainerId = ''
+  data.trainers = [
+    { ...data.trainers[0], id: 'trainer-full', employmentType: 'full_time', dailySessionTarget: 8, availableSlots: [...targetSlots, 'T2-14'] },
+    { ...data.trainers[0], id: 'trainer-ctv', employmentType: 'collaborator', schedulingPriority: 1, availableSlots: ['T2-14'] },
+  ]
+  const generated = generateSchedule(data)
+  assert.equal(generated.schedule['T2-14'][0].trainerId, 'trainer-ctv')
+})
+
+test('pairing an existing class is preferred over opening another trainer slot', () => {
+  const data = fixture()
+  data.contracts[0].trainerId = ''
+  data.schedule = {
+    'T2-6': [{ studentId: 'student-b', trainerId: 'trainer-a', branchId: BRANCH, type: 'training', isLocked: true }],
+  }
+  data.trainers = [
+    { ...data.trainers[0], id: 'trainer-a', employmentType: 'full_time', slotCapacity: 2 },
+    { ...data.trainers[0], id: 'trainer-b', employmentType: 'full_time', slotCapacity: 2 },
+  ]
+  const generated = generateSchedule(data)
+  const entry = generated.schedule['T2-6'].find((item) => item.studentId === 'student-a')
+  assert.equal(entry.trainerId, 'trainer-a')
+})
+
+test('collaborator is never auto-scheduled outside explicitly registered availability', () => {
+  const data = fixture()
+  data.contracts[0].trainerId = ''
+  data.trainers[0].employmentType = 'collaborator'
+  data.trainers[0].availabilityMode = 'unrestricted'
+  data.trainers[0].availableSlots = []
+  const result = candidateForSlot(data, { student: data.students[0], trainer: data.trainers[0], slotId: 'T2-6', schedule: {} })
+  assert.equal(result.eligible, false)
+  assert.ok(result.reasons.includes('TRAINER_AVAILABILITY_UNCONFIGURED'))
 })
 
 test('published sessions are retained and counted once in coverage and PT daily load', () => {

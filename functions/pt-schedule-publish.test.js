@@ -101,7 +101,7 @@ test('counts a paired session as one teaching slot for the PT daily limit', () =
   assert.ok(!result.errors.includes('TRAINER_DAILY_SESSION_LIMIT_EXCEEDED'))
 })
 
-test('rejects more unique teaching slots than the PT daily limit', () => {
+test('daily workload target does not block publishing additional valid slots', () => {
   const fixture = baseFixture()
   fixture.trainers.set('trainer-a', {
     status: 'active',
@@ -116,7 +116,21 @@ test('rejects more unique teaching slots than the PT daily limit', () => {
   fixture.schedule['T2-7'] = [{ studentId: 'student-b', trainerId: 'trainer-a', type: 'training' }]
 
   const result = desiredEntries(fixture)
-  assert.ok(result.errors.includes('TRAINER_DAILY_SESSION_LIMIT_EXCEEDED'))
+  assert.ok(!result.errors.includes('TRAINER_DAILY_SESSION_LIMIT_EXCEEDED'))
+})
+
+test('collaborator publish requires an explicitly registered slot', () => {
+  const fixture = baseFixture()
+  fixture.trainers.set('trainer-a', {
+    status: 'active',
+    branchId: BRANCH_ID,
+    employmentType: 'collaborator',
+    availabilityMode: 'unrestricted',
+    availableSlots: [],
+  })
+  assert.ok(desiredEntries(fixture).errors.includes('TRAINER_AVAILABILITY_UNCONFIGURED'))
+  fixture.trainers.get('trainer-a').availableSlots = ['T2-6']
+  assert.ok(!desiredEntries(fixture).errors.includes('TRAINER_AVAILABILITY_UNCONFIGURED'))
 })
 
 test('accepts a future renewal only on or after its concrete start date', () => {

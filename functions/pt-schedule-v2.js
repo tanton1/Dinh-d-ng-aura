@@ -248,6 +248,8 @@ async function loadBranchData(db, branchId, week) {
       email: data.email || '',
       status: data.status || 'active',
       branchId,
+      employmentType: ['full_time', 'part_time', 'collaborator'].includes(data.employmentType) ? data.employmentType : 'full_time',
+      employmentLevel: ['probation', 'official', 'senior'].includes(data.employmentLevel) ? data.employmentLevel : 'official',
       availableSlots: Array.isArray(data.availableSlots) ? data.availableSlots.slice(0, 100) : [],
       availabilityMode: trainerAvailabilityMode(data),
       availabilityRevision: Number(data.availabilityRevision || 0),
@@ -411,7 +413,25 @@ function trainerSchedulingPolicy(trainer) {
   const schedulingPriority = Math.max(1, Math.min(999, Math.trunc(Number(trainer?.schedulingPriority ?? trainer?.priority ?? 100) || 100)))
   const dailySessionTarget = Math.max(1, Math.min(12, Math.trunc(Number(trainer?.dailySessionTarget ?? DEFAULT_DAILY_SESSION_TARGET) || DEFAULT_DAILY_SESSION_TARGET)))
   const dailySessionLimit = Math.max(dailySessionTarget, Math.min(16, Math.trunc(Number(trainer?.dailySessionLimit ?? DEFAULT_DAILY_SESSION_LIMIT) || DEFAULT_DAILY_SESSION_LIMIT)))
-  return { schedulingPriority, dailySessionTarget, dailySessionLimit }
+  const employmentType = ['full_time', 'part_time', 'collaborator'].includes(trainer?.employmentType)
+    ? trainer.employmentType
+    : 'full_time'
+  const employmentLevel = ['probation', 'official', 'senior'].includes(trainer?.employmentLevel)
+    ? trainer.employmentLevel
+    : 'official'
+  return { schedulingPriority, dailySessionTarget, dailySessionLimit, employmentType, employmentLevel }
+}
+
+function schedulingTier(candidate) {
+  // Full-time staff are filled to their daily target first. Part-time and CTV
+  // are then used from their explicitly submitted availability. Once the
+  // target is reached, extra sessions remain possible because it is a target,
+  // never a business hard cap.
+  if (candidate.employmentType === 'full_time' && candidate.currentDailyLoad < candidate.dailySessionTarget) return 0
+  if (candidate.employmentType === 'part_time' && candidate.currentDailyLoad < candidate.dailySessionTarget) return 1
+  if (candidate.employmentType === 'collaborator') return 2
+  if (candidate.employmentType === 'part_time') return 3
+  return 4
 }
 
 function buildSchedulingState(schedule) {
@@ -462,6 +482,7 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
   const date = dateForSlot(data.weekId, day)
   const reasons = []
   const state = schedulingState || buildSchedulingState(schedule)
+  const policy = trainerSchedulingPolicy(trainer)
   if (student.eligibleForWeek === false) {
     reasons.push(...(Array.isArray(student.eligibilityReasons) && student.eligibilityReasons.length
       ? student.eligibilityReasons
@@ -471,7 +492,10 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
   if (student.status === 'inactive') reasons.push('STUDENT_NOT_ACTIVE')
   if (student.branchId !== data.branch.id) reasons.push('STUDENT_BRANCH_MISMATCH')
   if (trainer.status === 'inactive') reasons.push('TRAINER_NOT_ACTIVE')
-  if (trainer.availabilityMode === 'unconfigured') reasons.push('TRAINER_AVAILABILITY_UNCONFIGURED')
+  if (policy.employmentType === 'collaborator') {
+    if (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.length) reasons.push('TRAINER_AVAILABILITY_UNCONFIGURED')
+    else if (!trainer.availableSlots.includes(slotId)) reasons.push('OUTSIDE_TRAINER_AVAILABILITY')
+  } else if (trainer.availabilityMode === 'unconfigured') reasons.push('TRAINER_AVAILABILITY_UNCONFIGURED')
   else if (!trainerIsAvailable(trainer, slotId)) reasons.push('OUTSIDE_TRAINER_AVAILABILITY')
   if (data.leaves.some((leave) => leaveCovers(leave, trainer.id, date))) reasons.push('TRAINER_ON_LEAVE')
   if (!['submitted', 'locked', 'recurring'].includes(student.availabilityStatus)) reasons.push('AVAILABILITY_NOT_SUBMITTED')
@@ -487,11 +511,9 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
   if (state.offTrainerSlots.has(trainerSlotKey)) reasons.push('TRAINER_OFF_CONFLICT')
   const trainerCount = state.trainerSlotCounts.get(trainerSlotKey) || 0
   if (trainerCount >= trainer.slotCapacity) reasons.push('TRAINER_CAPACITY_EXCEEDED')
-  const policy = trainerSchedulingPolicy(trainer)
   const currentDailyLoad = state.trainerSlotsByDay.get(`${trainer.id}|${day}`)?.size || 0
   const opensTeachingSlot = trainerCount === 0
   const projectedDailyLoad = currentDailyLoad + (opensTeachingSlot ? 1 : 0)
-  if (projectedDailyLoad > policy.dailySessionLimit) reasons.push('TRAINER_DAILY_SESSION_LIMIT_EXCEEDED')
   return {
     eligible: reasons.length === 0,
     reasons: [...new Set(reasons)],
@@ -528,12 +550,16 @@ function compareSlots(left, right) {
 
 function compareCandidates(left, right) {
   if (left.assignmentOrder !== right.assignmentOrder) return left.assignmentOrder - right.assignmentOrder
+  // Filling the second learner into an existing PT slot has zero additional
+  // teaching-load cost and therefore wins before opening another class.
+  if (left.opensTeachingSlot !== right.opensTeachingSlot) return Number(left.opensTeachingSlot) - Number(right.opensTeachingSlot)
+  const tierComparison = schedulingTier(left) - schedulingTier(right)
+  if (tierComparison !== 0) return tierComparison
   const ratioComparison = left.projectedDailyLoad * right.dailySessionTarget - right.projectedDailyLoad * left.dailySessionTarget
   if (ratioComparison !== 0) return ratioComparison
-  if (left.unassignedContract && right.unassignedContract && left.schedulingPriority !== right.schedulingPriority) {
+  if (left.schedulingPriority !== right.schedulingPriority) {
     return left.schedulingPriority - right.schedulingPriority
   }
-  if (left.opensTeachingSlot !== right.opensTeachingSlot) return Number(left.opensTeachingSlot) - Number(right.opensTeachingSlot)
   if (left.score !== right.score) return right.score - left.score
   return compareSlots(left.slotId, right.slotId) || left.trainer.id.localeCompare(right.trainer.id)
 }
@@ -562,19 +588,17 @@ function trainerLoadsForSchedule(data, schedule, schedulingState = null) {
           trainerId: trainer.id,
           trainerName: trainer.name,
           schedulingPriority: policy.schedulingPriority,
+          employmentType: policy.employmentType,
+          employmentLevel: policy.employmentLevel,
           day,
           date: dateForSlot(data.weekId, day),
           teachingSlots,
           sessionCount: teachingSlots,
           studentSessions: state.trainerStudentSessionsByDay.get(`${trainer.id}|${day}`) || 0,
           target: policy.dailySessionTarget,
-          limit: policy.dailySessionLimit,
           dailySessionTarget: policy.dailySessionTarget,
-          dailySessionLimit: policy.dailySessionLimit,
           remainingToTarget: Math.max(0, policy.dailySessionTarget - teachingSlots),
-          status: teachingSlots >= policy.dailySessionLimit
-            ? 'at_limit'
-            : teachingSlots > policy.dailySessionTarget
+          status: teachingSlots > policy.dailySessionTarget
               ? 'over_target'
               : teachingSlots === policy.dailySessionTarget
                 ? 'target'
@@ -716,9 +740,12 @@ function generateSchedule(data) {
           assignmentOrder: assignmentIndex >= 0 ? assignmentIndex : 1000,
           unassignedContract: assigned.length === 0,
           score: generationScore({ student, contract, targetDate: result.date }),
+          currentDailyLoad: result.currentDailyLoad,
           projectedDailyLoad: result.projectedDailyLoad,
           dailySessionTarget: result.dailySessionTarget,
           schedulingPriority: result.schedulingPriority,
+          employmentType: result.employmentType,
+          employmentLevel: result.employmentLevel,
           opensTeachingSlot: result.opensTeachingSlot,
         })
       }
