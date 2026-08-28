@@ -904,6 +904,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Session feedback is validated and linked to canonical attendance by
+    // callable Functions. Learners and administrators never write it directly.
+    match /sessionFeedback/{feedbackId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /sessionFeedbackAuditLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     match /sessionEvents/{eventId} {
       allow read: if isAdmin();
       allow write: if false;

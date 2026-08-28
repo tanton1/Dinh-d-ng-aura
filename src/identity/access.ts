@@ -84,6 +84,7 @@ export const routeCapabilities = {
   // the legacy operations surface behind their stronger capability.
   'admin-pt-schedule': 'pt.schedule.branch.publish',
   'admin-training-history': 'pt.operations.manage',
+  'admin-trainer-quality': 'pt.operations.manage',
   'admin-renewals': 'renewals.workspace.view',
   'admin-report': 'pt.operations.manage',
   'admin-finance': 'finance.operations.manage',

@@ -30,6 +30,7 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
     import('../components/schedule/BranchScheduleWorkspace'),
   ]),
   'admin-training-history': () => import('../components/admin/pt/TrainingHistoryWorkspace'),
+  'admin-trainer-quality': () => import('../pages/admin/TrainerQualityPage'),
   'admin-renewals': () => import('../components/admin/pt/ContractRenewals'),
   'admin-report': () => import('../components/admin/pt/AdminReportDashboard'),
   'admin-finance': () => import('../components/admin/pt/FinanceManagement'),

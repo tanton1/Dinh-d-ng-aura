@@ -52,6 +52,7 @@ const HomePage = lazyWithRetry(() => import('./pages/student/HomePage'))
 const AdminCoursesPage = lazyWithRetry(() => import('./pages/admin/AdminCoursesPage'))
 const AdminDashboard = lazyWithRetry(() => import('./pages/admin/AdminDashboard'))
 const AdminTodaySessionsPage = lazyWithRetry(() => import('./pages/admin/AdminTodaySessionsPage'))
+const TrainerQualityPage = lazyWithRetry(() => import('./pages/admin/TrainerQualityPage'))
 const AdminProgramsPage = lazyWithRetry(() => import('./pages/admin/AdminProgramsPage'))
 const AdminRolesPage = lazyWithRetry(() => import('./pages/admin/AdminRolesPage'))
 const AdminStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminStudentsPage'))
@@ -868,6 +869,7 @@ function AuraApplication() {
             : <div className="course-detail-state" role="alert"><h1>Chưa được cấp quyền xếp lịch</h1><p>Trang lịch được khóa an toàn vì tài khoản chưa có phạm vi chi nhánh phù hợp.</p></div>
         : <SchedulerWrapper user={user as any} profile={profile} accessContext={accessContext} backendMode={backendMode} onNavigate={(view) => navigate(view as ViewId)} />}</AuraOperationsFrame>
       case 'admin-training-history': return <AuraOperationsFrame><TrainingHistoryWorkspace /></AuraOperationsFrame>
+      case 'admin-trainer-quality': return <AuraOperationsFrame><TrainerQualityPage isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
       case 'admin-renewals': return <AuraOperationsFrame><ContractRenewals onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
       case 'admin-report': return <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
       case 'admin-finance': return <AuraOperationsFrame><AdminFinanceHub user={user as any} profile={profile} /></AuraOperationsFrame>

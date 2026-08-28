@@ -16,6 +16,7 @@ const { createEatCleanFunctions } = require('./eat-clean')
 const { buildCompletedOnboardingDefaultsPatch } = require('./profile-defaults')
 const { createIdentityAccessFunctions } = require('./identity-access')
 const { createPtOperationsV2Functions } = require('./pt-operations-v2')
+const { createSessionFeedbackFunctions } = require('./session-feedback')
 const { createPtSchedulePublishFunctions } = require('./pt-schedule-publish')
 const { createPtScheduleV2Functions } = require('./pt-schedule-v2')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
@@ -187,6 +188,12 @@ exports.listMyTrainerSchedule = ptOperationsV2Functions.listMyTrainerSchedule
 exports.recordMySessionAttendance = ptOperationsV2Functions.recordMySessionAttendance
 exports.bulkConfirmMySessions = ptOperationsV2Functions.bulkConfirmMySessions
 exports.getMySalesWorkspace = ptOperationsV2Functions.getMySalesWorkspace
+const sessionFeedbackFunctions = createSessionFeedbackFunctions({ db, onCall })
+Object.assign(exports, sessionFeedbackFunctions)
+exports.getMyPendingSessionFeedback = sessionFeedbackFunctions.getMyPendingSessionFeedback
+exports.submitSessionFeedback = sessionFeedbackFunctions.submitSessionFeedback
+exports.listTrainerFeedbackAdmin = sessionFeedbackFunctions.listTrainerFeedbackAdmin
+exports.reviewTrainerFeedback = sessionFeedbackFunctions.reviewTrainerFeedback
 const ptSchedulePublishFunctions = createPtSchedulePublishFunctions({ db, onCall })
 Object.assign(exports, ptSchedulePublishFunctions)
 // Static exports keep the two rollout endpoints selectable with --only.

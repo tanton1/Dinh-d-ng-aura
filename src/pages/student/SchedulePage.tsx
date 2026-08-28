@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import LeaveRequestModal from '../../components/schedule/LeaveRequestModal'
 import SessionRequestModal from '../../components/schedule/SessionRequestModal'
+import SessionFeedbackPrompt from '../../components/student/SessionFeedbackPrompt'
 import {
   asStudentPtScheduleError,
   listMyStudentPtSchedule,
@@ -341,6 +342,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
             </button>)}
           </div>
         </section>}
+        <SessionFeedbackPrompt isDemo={isDemo} onSubmitted={() => setMessage('Đánh giá PT đã được gửi đến Aura.')} />
         <section className="student-schedule-hero" aria-roledescription="carousel" aria-label="Tổng quan lịch học viên">
           <div
             ref={heroTrackRef}
