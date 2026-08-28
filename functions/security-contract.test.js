@@ -24,6 +24,8 @@ const accessRouteSource = readFileSync(join(repositoryRoot, 'src', 'identity', '
 const studentIdentityLinkSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-student-identity-link.cjs'), 'utf8')
 const sessionContractLinkSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-session-contract-link.cjs'), 'utf8')
 const ptContractUsageReconcileSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-contract-usage-reconcile.cjs'), 'utf8')
+const ptHistoryReconcileV2Source = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-history-reconcile-v2.cjs'), 'utf8')
+const ptContractHistoryExactSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-contract-history-exact.cjs'), 'utf8')
 const contractUsageSource = readFileSync(join(__dirname, 'contract-usage.js'), 'utf8')
 const ptScheduleMigrationSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-schedule-v2-migration.cjs'), 'utf8')
 const renewalContinuitySource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-renewal-continuity-reconcile.cjs'), 'utf8')
@@ -440,6 +442,29 @@ test('PT contract usage reconciliation is target-only, monotonic, evidence-based
   assert.match(ptContractUsageReconcileSource, /decreasesPlanned: 0/)
   assert.doesNotMatch(ptContractUsageReconcileSource, /usedSessions:\s*(?:item\.before|current\s*-)/)
   assert.doesNotMatch(ptContractUsageReconcileSource, /console\.(?:log|error)\([^)]*(?:studentId|contractId|phone|email|name)/)
+})
+
+test('PT history reconciliation is target-only, atomic, audited and preserves ambiguous evidence policy', () => {
+  assert.match(ptHistoryReconcileV2Source, /projectId: 'gen-lang-client-0815966909'/)
+  assert.match(ptHistoryReconcileV2Source, /databaseId: 'ai-studio-aurafitnesselear-/)
+  assert.match(ptHistoryReconcileV2Source, /reconcile-pt-history-v2/)
+  assert.match(ptHistoryReconcileV2Source, /overlap_latest_contract_start/)
+  assert.match(ptHistoryReconcileV2Source, /historical_cancelled_contract/)
+  assert.match(ptHistoryReconcileV2Source, /currentDocument: \{ updateTime \}/)
+  assert.match(ptHistoryReconcileV2Source, /afterUsed < item\.beforeUsed/)
+  assert.match(ptHistoryReconcileV2Source, /\/documents:commit/)
+  assert.match(ptHistoryReconcileV2Source, /pt_history\.reconciled/)
+})
+
+test('exact history projection is digest-gated, fully linked and backup protected', () => {
+  assert.match(ptContractHistoryExactSource, /projectId: 'gen-lang-client-0815966909'/)
+  assert.match(ptContractHistoryExactSource, /databaseId: 'ai-studio-aurafitnesselear-/)
+  assert.match(ptContractHistoryExactSource, /apply-history-exact-usage/)
+  assert.match(ptContractHistoryExactSource, /if \(!contractId\) \{ unlinkedChargeable\.push/)
+  assert.match(ptContractHistoryExactSource, /afterUsed = evidenceIds\.length/)
+  assert.match(ptContractHistoryExactSource, /backup-\$\{before\.plan\.planDigest\}/)
+  assert.match(ptContractHistoryExactSource, /currentDocument: \{ updateTime: item\.updateTime \}/)
+  assert.match(ptContractHistoryExactSource, /pt_contract\.usage_history_exact/)
 })
 
 test('contract usage projection and history share one auditable charge formula', () => {

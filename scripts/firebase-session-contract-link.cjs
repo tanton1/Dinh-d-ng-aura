@@ -244,11 +244,16 @@ function buildPlan(sessions, contracts) {
     const existingContractId = safeId(session.fields.contractId)
     if (existingContractId) {
       const contract = contractsById.get(existingContractId)
-      const valid = contract
+      const approvedHistoricalLink = contract
+        && safeId(contract.fields.studentId) === studentId
+        && Number(session.fields.contractLinkVersion || 0) >= 2
+        && session.fields.contractLinkedBy === 'migration:pt-history-priority-v2'
+        && ['exact_contract_window', 'overlap_latest_contract_start', 'nearest_contract_date_gap', 'historical_cancelled_contract'].includes(String(session.fields.contractLinkReason || ''))
+      const valid = approvedHistoricalLink || (contract
         && safeId(contract.fields.studentId) === studentId
         && dateKey(contract.fields.startDate) <= sessionDate
         && dateKey(contract.fields.endDate) >= sessionDate
-        && LINKABLE_CONTRACT_STATUSES.has(String(contract.fields.status || ''))
+        && LINKABLE_CONTRACT_STATUSES.has(String(contract.fields.status || '')))
       categories[valid ? 'alreadyLinked' : 'invalidExistingLink'].push(sessionHash)
       continue
     }

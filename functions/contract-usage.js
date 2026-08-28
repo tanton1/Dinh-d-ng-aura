@@ -141,11 +141,17 @@ async function syncContractUsageProjection({ db, event, logger = console }) {
         nextCharged = [...nextCharged, sessionId]
       }
       if (afterUsed === beforeUsed && nextCharged.length === chargedSessionIds.length && nextAttended.length === attendedClasses.length) return
+      const exactHistoryProjection = Number(contract.usageReconciliationVersion || 0) >= 4
+        && contract.usageReconciledFrom === 'pt-contract-history-exact-v1'
       transaction.update(snapshot.ref, {
         usedSessions: afterUsed,
         chargedSessionIds: nextCharged,
         ...(nextAttended.length !== attendedClasses.length ? { attendedClasses: nextAttended } : {}),
-        usageProjectionVersion: 2,
+        usageProjectionVersion: exactHistoryProjection ? 4 : 2,
+        ...(exactHistoryProjection ? {
+          historyEvidenceSessions: afterUsed,
+          usageReconciliationStatus: afterUsed > safeCount(contract.totalSessions) ? 'over_entitlement' : 'matched',
+        } : {}),
         usageProjectionUpdatedAt: FieldValue.serverTimestamp(),
       })
       changes.push({ contractId: snapshot.id, beforeUsed, afterUsed, action: remove ? 'removed' : 'added' })

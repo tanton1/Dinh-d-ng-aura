@@ -72,3 +72,11 @@ test('session usage transition only changes projection when charge membership ch
     { contractId: 'contract-a', billingStatus: 'exempt' },
   ), { removeContractIds: ['contract-a'], addContractIds: [] })
 })
+
+test('exact history projection contract remains the terminal projection source', () => {
+  const source = require('node:fs').readFileSync(require.resolve('./contract-usage'), 'utf8')
+  assert.match(source, /usageReconciliationVersion \|\| 0\) >= 4/)
+  assert.match(source, /usageReconciledFrom === 'pt-contract-history-exact-v1'/)
+  assert.match(source, /historyEvidenceSessions: afterUsed/)
+  assert.match(source, /afterUsed > safeCount\(contract\.totalSessions\) \? 'over_entitlement' : 'matched'/)
+})
