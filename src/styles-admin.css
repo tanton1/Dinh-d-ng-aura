@@ -1227,10 +1227,10 @@
 
 /* Dashboard v3: full-width operations view with a dedicated daily table. */
 .admin-dashboard.admin-dashboard--v2{padding-inline:0}
-.admin-dashboard>.admin-dashboard__main-grid{order:4}
-.admin-dashboard>.admin-dashboard__receivables{order:5}
-.admin-dashboard>.admin-dashboard__analytics{order:6}
-.admin-dashboard__main-grid{grid-template-columns:1fr}
+.admin-dashboard>.admin-dashboard__analytics{order:4}
+.admin-dashboard>.admin-dashboard__main-grid{order:5}
+.admin-dashboard>.admin-dashboard__receivables{order:6}
+.admin-dashboard__main-grid{grid-template-columns:minmax(0,1fr) minmax(0,1.15fr)}
 .admin-dashboard__attendance{order:1}
 .admin-dashboard__tasks{order:2}
 .admin-dashboard__task-list{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -1246,6 +1246,26 @@
 .admin-dashboard__receivable-tabs>button.is-active{background:#fff;color:#ca3a6e;box-shadow:0 5px 14px rgba(116,47,77,.09)}
 .admin-dashboard__receivable-tabs>button b{display:grid;min-width:20px;height:20px;place-items:center;border-radius:999px;background:#fdebf2;color:#d63c73;font-size:8px}
 .admin-dashboard__table-wrap--debt table{min-width:520px}
+
+/* Dashboard v4: analysis first; daily attendance and debt stay summary-only. */
+.admin-dashboard__attendance>header>button,
+.admin-dashboard__receivables>header>button{display:inline-flex;min-height:32px;align-items:center;justify-content:center;gap:5px;border:0;border-radius:10px;padding:0 11px;background:linear-gradient(110deg,#f62f82,#ff8751);color:#fff;font-size:9px;font-weight:900;cursor:pointer;white-space:nowrap}
+.admin-dashboard__attendance-metrics,
+.admin-dashboard__metric-skeleton{display:grid;min-width:0;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px}
+.admin-dashboard__attendance-metrics>span{display:grid;min-width:0;gap:5px;border:1px solid #f1e3e9;border-radius:14px;padding:12px 10px;background:linear-gradient(145deg,#fff,#fff8f4)}
+.admin-dashboard__attendance-metrics small{overflow:hidden;color:#8d7883;font-size:8px;font-weight:850;text-overflow:ellipsis;white-space:nowrap}
+.admin-dashboard__attendance-metrics b{color:#3b2b34;font-size:22px;line-height:1}
+.admin-dashboard__attendance-metrics .is-present b{color:#198457}
+.admin-dashboard__attendance-metrics .is-late b{color:#d37a23}
+.admin-dashboard__attendance-metrics .is-no-show b{color:#c93661}
+.admin-dashboard__attendance-metrics .is-pending b{color:#745d82}
+.admin-dashboard__metric-skeleton>i{height:65px;border-radius:14px;background:linear-gradient(90deg,#fff1f6,#fff,#fff1f6);background-size:200% 100%;animation:dashboard-skeleton 1.2s linear infinite}
+.admin-dashboard__debt-metrics{display:grid;min-width:0;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.admin-dashboard__debt-metrics>span{display:grid;min-width:0;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:5px 8px;border:1px solid #f1e2e8;border-radius:15px;padding:12px;background:linear-gradient(145deg,#fff,#fff8f4)}
+.admin-dashboard__debt-metrics>span.is-overdue{border-color:#f1c9d6;background:linear-gradient(145deg,#fff4f7,#fff8f3)}
+.admin-dashboard__debt-metrics small{grid-column:1/-1;color:#a23862;font-size:8px;font-weight:900;letter-spacing:.07em;text-transform:uppercase}
+.admin-dashboard__debt-metrics b{min-width:0;overflow:hidden;color:#3e2a35;font-size:17px;text-overflow:ellipsis;white-space:nowrap}
+.admin-dashboard__debt-metrics em{color:#9b828f;font-size:8px;font-style:normal;font-weight:800;white-space:nowrap}
 
 @media(max-width:680px){
   .admin-dashboard.admin-dashboard--v2{padding-inline:0}
@@ -1267,6 +1287,16 @@
   .admin-dashboard__analytics{padding-right:12px;border-right:1px solid rgba(246,47,130,.12)}
   .admin-dashboard__analytics>header{padding-right:0}
   .admin-dashboard__analytics-grid{padding-right:0}
+  .admin-dashboard__main-grid{grid-template-columns:1fr}
+  .admin-dashboard__attendance-metrics,
+  .admin-dashboard__metric-skeleton{display:flex;overflow-x:auto;padding:1px 0 4px;scroll-snap-type:x mandatory;scrollbar-width:none}
+  .admin-dashboard__attendance-metrics::-webkit-scrollbar,
+  .admin-dashboard__metric-skeleton::-webkit-scrollbar,
+  .admin-dashboard__debt-metrics::-webkit-scrollbar{display:none}
+  .admin-dashboard__attendance-metrics>span,
+  .admin-dashboard__metric-skeleton>i{width:108px;min-width:108px;scroll-snap-align:start}
+  .admin-dashboard__debt-metrics{display:flex;overflow-x:auto;padding:1px 0 4px;scroll-snap-type:x mandatory;scrollbar-width:none}
+  .admin-dashboard__debt-metrics>span{width:min(74vw,240px);min-width:min(74vw,240px);scroll-snap-align:start}
 }
 
 /* Nutrition Reviews Page Styles */

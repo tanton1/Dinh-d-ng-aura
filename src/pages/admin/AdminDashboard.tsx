@@ -64,19 +64,6 @@ function rangeCaption(startAt: string, endAt: string) {
   return `${format(start)} – ${format(end)}`
 }
 
-function shortDate(value: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return 'Chưa có hạn'
-  const [year, month, day] = value.split('-')
-  return `${day}/${month}/${year}`
-}
-
-const attendanceLabels = {
-  pending: 'Chờ PT',
-  present: 'Có tập',
-  late: 'Đi trễ',
-  no_show: 'Không đến',
-} as const
-
 type RevenuePoint = OperationsDashboardData['analytics']['revenue']['points'][number]
 
 function RevenueTrend({ points }: { points: RevenuePoint[] }) {
@@ -178,7 +165,6 @@ export default function AdminDashboard({
   const [error, setError] = useState('')
   const [range, setRange] = useState(() => ({ startAt: startOfMonth(), endAt: currentMinute() }))
   const [branchId, setBranchId] = useState('all')
-  const [receivableView, setReceivableView] = useState<'overdue' | 'week' | 'month'>('overdue')
   const loadGeneration = useRef(0)
 
   const load = useCallback(async (forceRefresh = false) => {
@@ -337,20 +323,6 @@ export default function AdminDashboard({
     return items.slice(0, 5)
   }, [data, priorityActions])
 
-  const receivableRows = useMemo(() => {
-    if (!data) return []
-    if (receivableView === 'overdue') return data.receivables.rows.filter((item) => item.status === 'overdue')
-    if (receivableView === 'week') return data.receivables.rows.filter((item) => item.status === 'due_this_week')
-    return data.receivables.rows.filter((item) => item.status !== 'overdue')
-  }, [data, receivableView])
-
-  const receivableSummary = useMemo(() => {
-    if (!data) return { count: 0, amount: 0, label: 'Quá hạn' }
-    if (receivableView === 'week') return { ...data.receivables.summary.dueThisWeek, label: 'Cần thu tuần này' }
-    if (receivableView === 'month') return { ...data.receivables.summary.dueThisMonth, label: 'Cần thu tháng này' }
-    return { ...data.receivables.summary.overdue, label: 'Nợ quá hạn' }
-  }, [data, receivableView])
-
   const shortcuts = useMemo(() => {
     if (!data) return []
     return [
@@ -397,25 +369,27 @@ export default function AdminDashboard({
       <section className="admin-dashboard__attendance" aria-labelledby="dashboard-attendance-title">
         <header>
           <div><small>HIỆN DIỆN HÔM NAY</small><h2 id="dashboard-attendance-title">Ca tập trong ngày</h2></div>
-          {data && <div className="admin-dashboard__attendance-summary"><span><b>{data.today.attendance.present}</b>Có tập</span><span><b>{data.today.attendance.late}</b>Đi trễ</span><span><b>{data.today.attendance.noShow}</b>Không đến</span><span><b>{data.today.attendance.pendingConfirmation}</b>Chờ PT</span></div>}
+          <button type="button" onClick={() => goTo('admin-training-history')}>Xem thêm<ArrowRight size={15} /></button>
         </header>
-        {loading && !data ? <div className="admin-dashboard__table-skeleton"><i /><i /><i /><i /></div>
+        {loading && !data ? <div className="admin-dashboard__metric-skeleton"><i /><i /><i /><i /><i /></div>
           : !data ? <div className="admin-dashboard__unavailable"><AlertCircle size={22} /><div><strong>Chưa tải được hiện diện hôm nay</strong><span>Không suy đoán trạng thái điểm danh từ dữ liệu cũ.</span></div></div>
-            : data.today.rows.length ? <div className="admin-dashboard__table-wrap"><table><thead><tr><th>Giờ</th><th>Học viên</th><th>PT phụ trách</th><th>Trạng thái</th></tr></thead><tbody>{data.today.rows.map((row) => <tr key={row.id}><td data-label="Giờ"><b>{row.hour === null ? '—' : `${String(row.hour).padStart(2, '0')}:00`}</b></td><td data-label="Học viên"><strong>{row.studentName}</strong></td><td data-label="PT phụ trách">{row.trainerName}</td><td data-label="Trạng thái"><span className={`admin-dashboard__status is-${row.attendanceStatus}`}>{attendanceLabels[row.attendanceStatus]}</span>{row.billingStatus === 'charged' && <small>Đã tính buổi</small>}</td></tr>)}</tbody></table></div>
-              : <div className="admin-dashboard__healthy"><CheckCircle2 size={24} /><div><strong>Không có ca đã publish hôm nay</strong><span>Kết nối dữ liệu vẫn hoạt động; lịch của ngày khác không được đưa vào bảng hôm nay.</span></div></div>}
-        {data?.today.truncated && <p className="admin-dashboard__table-note">Danh sách đã được giới hạn. Mở Lịch sử tập để xem đầy đủ.</p>}
+            : <div className="admin-dashboard__attendance-metrics" aria-label="Số liệu ca tập hôm nay">
+              <span className="is-total"><small>Tổng ca</small><b>{data.today.scheduledSessions}</b></span>
+              <span className="is-present"><small>Có tập</small><b>{data.today.attendance.present}</b></span>
+              <span className="is-late"><small>Đi trễ</small><b>{data.today.attendance.late}</b></span>
+              <span className="is-no-show"><small>Vắng</small><b>{data.today.attendance.noShow}</b></span>
+              <span className="is-pending"><small>Chờ PT</small><b>{data.today.attendance.pendingConfirmation}</b></span>
+            </div>}
       </section>
     </div>
 
     {data?.permissions.finance && <section className="admin-dashboard__receivables" aria-labelledby="dashboard-receivables-title">
-      <header><div><small>CÔNG NỢ KHÁCH HÀNG</small><h2 id="dashboard-receivables-title">Lịch cần thu</h2></div><div className="admin-dashboard__receivable-total"><span>{receivableSummary.label}</span><b>{money(receivableSummary.amount)}</b><small>{receivableSummary.count} kỳ</small></div><button type="button" onClick={() => goTo('admin-finance', 'overdue')}>Trả góp<ArrowRight size={15} /></button></header>
-      <div className="admin-dashboard__receivable-tabs" role="tablist" aria-label="Lọc lịch cần thu">
-        <button type="button" role="tab" aria-selected={receivableView === 'overdue'} className={receivableView === 'overdue' ? 'is-active' : ''} onClick={() => setReceivableView('overdue')}>Quá hạn <b>{data.receivables.summary.overdue.count}</b></button>
-        <button type="button" role="tab" aria-selected={receivableView === 'week'} className={receivableView === 'week' ? 'is-active' : ''} onClick={() => setReceivableView('week')}>Tuần này <b>{data.receivables.summary.dueThisWeek.count}</b></button>
-        <button type="button" role="tab" aria-selected={receivableView === 'month'} className={receivableView === 'month' ? 'is-active' : ''} onClick={() => setReceivableView('month')}>Tháng này <b>{data.receivables.summary.dueThisMonth.count}</b></button>
+      <header><div><small>CÔNG NỢ KHÁCH HÀNG</small><h2 id="dashboard-receivables-title">Lịch cần thu</h2></div><button type="button" onClick={() => goTo('admin-finance', 'overdue')}>Xem thêm<ArrowRight size={15} /></button></header>
+      <div className="admin-dashboard__debt-metrics" aria-label="Tổng hợp công nợ cần thu">
+        <span className="is-overdue"><small>Quá hạn</small><b>{money(data.receivables.summary.overdue.amount)}</b><em>{data.receivables.summary.overdue.count} kỳ</em></span>
+        <span><small>Tuần này</small><b>{money(data.receivables.summary.dueThisWeek.amount)}</b><em>{data.receivables.summary.dueThisWeek.count} kỳ</em></span>
+        <span><small>Tháng này</small><b>{money(data.receivables.summary.dueThisMonth.amount)}</b><em>{data.receivables.summary.dueThisMonth.count} kỳ</em></span>
       </div>
-      {receivableRows.length ? <div className="admin-dashboard__table-wrap admin-dashboard__table-wrap--debt"><table><thead><tr><th>Khách hàng</th><th>Hạn thu</th><th>Số tiền</th><th></th></tr></thead><tbody>{receivableRows.map((row) => <tr key={row.id}><td data-label="Khách hàng"><strong>{row.studentName}</strong><small>{row.phone || row.packageName}</small></td><td data-label="Hạn thu"><span className={`admin-dashboard__status is-${row.status}`}>{row.status === 'overdue' ? 'Quá hạn' : row.status === 'due_this_week' ? 'Tuần này' : 'Tháng này'}</span><small>{shortDate(row.dueDate)}</small></td><td data-label="Số tiền"><b>{money(row.amount)}</b></td><td><button type="button" onClick={() => goTo('admin-finance', 'overdue')}>Thu</button></td></tr>)}</tbody></table></div> : <div className="admin-dashboard__healthy"><CheckCircle2 size={24} /><div><strong>Không có khoản cần thu</strong><span>Không phát hiện kỳ thanh toán trong nhóm đang chọn.</span></div></div>}
-      {data.receivables.truncated && <p className="admin-dashboard__table-note">Danh sách nhanh đã giới hạn 60 kỳ; tổng tiền trên slide vẫn lấy toàn bộ dữ liệu đã quét.</p>}
     </section>}
 
     {data && (data.permissions.finance || data.permissions.clients || data.permissions.operations) && <section className="admin-dashboard__analytics" aria-labelledby="dashboard-analytics-title">
