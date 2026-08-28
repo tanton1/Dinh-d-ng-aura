@@ -84,7 +84,8 @@ const AdminPackageSettings = lazyWithRetry(() => import('./components/admin/pt/P
 const AdminQuoteGenerator = lazyWithRetry(() => import('./components/admin/pt/QuoteGenerator'))
 const AdminScheduleSettings = lazyWithRetry(() => import('./components/admin/pt/ScheduleSettings'))
 const TrainerPortalV2 = lazyWithRetry(() => import('./pages/operations/TrainerPortalV2'))
-const TrainerAvailabilityPage = lazyWithRetry(() => import('./pages/operations/TrainerAvailabilityPage'))
+const StaffDashboardPage = lazyWithRetry(() => import('./pages/operations/StaffDashboardPage'))
+const StaffScheduleWorkspace = lazyWithRetry(() => import('./pages/operations/StaffScheduleWorkspace'))
 const SalesPortalV2 = lazyWithRetry(() => import('./pages/operations/SalesPortalV2'))
 const StaffNutritionReviewsPage = lazyWithRetry(() => import('./pages/operations/StaffNutritionReviewsPage'))
 const StaffPayrollPage = lazyWithRetry(() => import('./pages/operations/StaffPayrollPage'))
@@ -848,9 +849,10 @@ function AuraApplication() {
       // PT Coaching & Gym Management Views
       case 'trainer-portal':
       case 'staff-students': return <AuraOperationsFrame><TrainerPortalV2 section="students" /></AuraOperationsFrame>
-      case 'staff-schedule': return <AuraOperationsFrame><TrainerPortalV2 section="schedule" /></AuraOperationsFrame>
-      case 'staff-availability': return <AuraOperationsFrame><TrainerAvailabilityPage /></AuraOperationsFrame>
-      case 'staff-requests': return <AuraOperationsFrame><TrainerPortalV2 section="requests" /></AuraOperationsFrame>
+      case 'staff-dashboard': return <AuraOperationsFrame><StaffDashboardPage onNavigate={navigate} capabilities={accessContext?.capabilities || []} isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
+      case 'staff-schedule': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="teaching" canManageAvailability={backendMode === 'demo' || hasCapability('pt.availability.self.manage')} isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
+      case 'staff-availability': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="availability" canManageAvailability={backendMode === 'demo' || hasCapability('pt.availability.self.manage')} isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
+      case 'staff-requests': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="requests" canManageAvailability={backendMode === 'demo' || hasCapability('pt.availability.self.manage')} isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
       case 'staff-nutrition-reviews': return <AuraOperationsFrame><StaffNutritionReviewsPage /></AuraOperationsFrame>
       case 'sales-portal':
       case 'staff-quotes': return <AuraOperationsFrame><SalesPortalV2 /></AuraOperationsFrame>

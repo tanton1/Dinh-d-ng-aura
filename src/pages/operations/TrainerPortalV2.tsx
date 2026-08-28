@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CheckCheck, CheckCircle2, CircleAlert, Clock3, RefreshCw, Timer, UserCheck, UserX, X } from 'lucide-react'
+import { CheckCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock3, RefreshCw, Timer, UserCheck, UserX, X } from 'lucide-react'
 import {
   bulkConfirmMySessions,
   getMyTrainerWorkspace,
@@ -38,6 +38,17 @@ const vietnamDateFormatter = new Intl.DateTimeFormat('en-CA', {
 })
 
 function dateString(date: Date) { return vietnamDateFormatter.format(date) }
+function addDateDays(value: string, amount: number) {
+  return dateString(new Date(Date.parse(`${value}T12:00:00+07:00`) + amount * 86_400_000))
+}
+function mondayOf(value: string) {
+  const weekday = new Date(`${value}T12:00:00+07:00`).getUTCDay()
+  return addDateDays(value, -((weekday + 6) % 7))
+}
+function compactDate(value: string) {
+  const [, month, day] = value.split('-')
+  return `${day}/${month}`
+}
 
 function sessionStartsAt(session: TrainerSessionSummary) {
   if (!Number.isInteger(session.hour)) return Number.NaN
@@ -65,7 +76,7 @@ function attendanceLabel(session: TrainerSessionSummary) {
   return 'Chờ xác nhận'
 }
 
-export default function TrainerPortalV2({ section = 'students' }: { section?: TrainerWorkspaceSection }) {
+export default function TrainerPortalV2({ section = 'students', embedded = false, isDemo = false }: { section?: TrainerWorkspaceSection; embedded?: boolean; isDemo?: boolean }) {
   const [workspace, setWorkspace] = useState<CoachWorkspaceScope | null>(null)
   const [scopeLoading, setScopeLoading] = useState(true)
   const [scopeError, setScopeError] = useState('')
@@ -96,15 +107,32 @@ export default function TrainerPortalV2({ section = 'students' }: { section?: Tr
     : section === 'schedule'
       ? canViewSchedule
       : canViewRequests
-  const to = useMemo(() => dateString(new Date(Date.parse(`${from}T00:00:00+07:00`) + 14 * 86_400_000)), [from])
+  const rangeFrom = useMemo(() => section === 'schedule' ? mondayOf(from) : from, [from, section])
+  const to = useMemo(() => addDateDays(rangeFrom, 13), [rangeFrom])
   const studentNames = useMemo(() => new Map([
     ...students.map((student) => [student.id, student.name] as const),
     ...sessions.filter((session) => session.studentName).map((session) => [session.studentId, session.studentName as string] as const),
   ]), [sessions, students])
   const load = useCallback(async () => {
     setScopeLoading(true); setLoading(true); setScopeError(''); setError('')
+    if (isDemo) {
+      const demoSessions: TrainerSessionSummary[] = [
+        { id: 'staff-week-1', studentId: 'student-a', trainerId: 'demo-staff', studentName: 'Nguyễn Minh Anh', date: rangeFrom, hour: 8, status: 'attended', attendanceStatus: 'present', billingStatus: 'charged', contractId: 'contract-a', revision: 1, timeZone: 'Asia/Ho_Chi_Minh' },
+        { id: 'staff-week-2', studentId: 'student-b', trainerId: 'demo-staff', studentName: 'Trần Thu Hà', date: rangeFrom, hour: 8, status: 'attended', attendanceStatus: 'present', billingStatus: 'charged', contractId: 'contract-b', revision: 1, timeZone: 'Asia/Ho_Chi_Minh' },
+        { id: 'staff-week-3', studentId: 'student-c', trainerId: 'demo-staff', studentName: 'Lê Ngọc Mai', date: addDateDays(rangeFrom, 2), hour: 18, status: 'scheduled', attendanceStatus: 'pending', billingStatus: 'pending', contractId: 'contract-c', revision: 1, timeZone: 'Asia/Ho_Chi_Minh' },
+        { id: 'staff-week-4', studentId: 'student-d', trainerId: 'demo-staff', studentName: 'Phạm Thảo Vy', date: addDateDays(rangeFrom, 4), hour: 7, status: 'scheduled', attendanceStatus: 'pending', billingStatus: 'pending', contractId: 'contract-d', revision: 1, timeZone: 'Asia/Ho_Chi_Minh' },
+      ]
+      setWorkspace({ schemaVersion: 1, source: 'pt_contract_assignments', staffId: 'demo-staff', tabs: { students: true, schedule: true, requests: true, nutrition: true }, counts: { primaryStudents: 3, secondaryStudents: 1, nutritionStudents: 2, teachingSessions: 4, pendingRequests: 1 } })
+      setStudents(section === 'students' ? [
+        { id: 'student-a', name: 'Nguyễn Minh Anh', phone: '0900000001', email: '', branchId: 'branch-demo', status: 'active', sessionsPerWeek: 3, assignmentRole: 'primary', contract: { id: 'contract-a', status: 'active', totalSessions: 36, usedSessions: 12 } },
+        { id: 'student-b', name: 'Trần Thu Hà', phone: '0900000002', email: '', branchId: 'branch-demo', status: 'active', sessionsPerWeek: 2, assignmentRole: 'secondary', contract: { id: 'contract-b', status: 'active', totalSessions: 72, usedSessions: 21 } },
+      ] : [])
+      setSessions(section === 'students' ? [] : demoSessions)
+      setRequests(section === 'students' ? [] : [{ id: 'request-demo', sessionId: 'staff-week-3', studentId: 'student-c', contractId: 'contract-c', type: 'reschedule', status: 'pending', originalDate: addDateDays(rangeFrom, 2), originalHour: 18, newDate: addDateDays(rangeFrom, 3), newHour: 18, reason: 'Đề nghị đổi ca theo lịch làm việc' }])
+      setScopeLoading(false); setLoading(false); return
+    }
     try {
-      const result = await getMyTrainerWorkspace(section, from, to)
+      const result = await getMyTrainerWorkspace(section, rangeFrom, to)
       setWorkspace(result.scope)
       setStudents(result.students)
       setSessions(result.sessions)
@@ -114,7 +142,7 @@ export default function TrainerPortalV2({ section = 'students' }: { section?: Tr
     } finally {
       setScopeLoading(false); setLoading(false)
     }
-  }, [from, section, to])
+  }, [isDemo, rangeFrom, section, to])
   useEffect(() => { void load() }, [load])
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(Date.now()), 30_000)
@@ -198,13 +226,13 @@ export default function TrainerPortalV2({ section = 'students' }: { section?: Tr
     finally { setSubmitting(false) }
   }
 
-  return <section className="opv2-page">
-    <section className="opv2-hero"><p className="opv2-kicker">Aura Staff · Công việc</p><h1>{sectionCopy[section].title}</h1><p>{sectionCopy[section].description}</p></section>
+  return <section className={`opv2-page${embedded ? ' is-embedded' : ''}`}>
+    {!embedded && <section className="opv2-hero"><p className="opv2-kicker">Aura Staff · Công việc</p><h1>{sectionCopy[section].title}</h1><p>{sectionCopy[section].description}</p></section>}
     {scopeLoading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đối chiếu phân công trong Học viên PT Gym…</div>}
     {!scopeLoading && scopeError && <div className="opv2-state is-error">{scopeError}<button className="opv2-action" onClick={() => void load()}>Kết nối lại</button></div>}
     {!scopeLoading && workspace && !canOpenSection && <section className="opv2-guidance"><CircleAlert size={20} /><div><strong>Chưa có dữ liệu được phân công</strong><p>Trang này chỉ hiển thị dữ liệu gắn trực tiếp với tài khoản Staff của bạn. Quản trị viên có thể cập nhật PT chính, PT phụ hoặc lịch dạy tại hồ sơ học viên.</p></div></section>}
     {!scopeLoading && workspace && canOpenSection && <>
-    <section className="opv2-summary"><div className="opv2-stat"><strong>{workspace.counts.primaryStudents}</strong><span>học viên PT chính</span></div><div className="opv2-stat"><strong>{workspace.counts.secondaryStudents}</strong><span>học viên PT phụ</span></div><div className="opv2-stat"><strong>{workspace.counts.teachingSessions}</strong><span>buổi được phân công</span></div></section>
+    {!embedded && <section className="opv2-summary"><div className="opv2-stat"><strong>{workspace.counts.primaryStudents}</strong><span>học viên PT chính</span></div><div className="opv2-stat"><strong>{workspace.counts.secondaryStudents}</strong><span>học viên PT phụ</span></div><div className="opv2-stat"><strong>{workspace.counts.teachingSessions}</strong><span>buổi được phân công</span></div></section>}
     {notice && <div className="opv2-notice"><CheckCircle2 size={18} /> {notice}</div>}
     {loading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đồng bộ phạm vi làm việc…</div>}
     {error && !requestTarget && <div className="opv2-state is-error">{error}<button className="opv2-action" onClick={() => void load()}>Thử lại</button></div>}
@@ -217,8 +245,37 @@ export default function TrainerPortalV2({ section = 'students' }: { section?: Tr
       const confirmed = daySessions.filter((session) => attendanceState(session) !== 'pending')
       const pendingStarted = daySessions.filter((session) => attendanceState(session) === 'pending' && sessionStartsAt(session) <= now)
       const future = daySessions.filter((session) => sessionStartsAt(session) > now)
+      const weekDays = Array.from({ length: 6 }, (_, index) => ({ date: addDateDays(rangeFrom, index), label: `T${index + 2}` }))
+      const matrixHours = [...new Set([6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20, ...sessions.map((session) => session.hour).filter((hour): hour is number => Number.isInteger(hour))])].sort((a, b) => a - b)
+      const matrixIndex = new Map<string, TrainerSessionSummary[]>()
+      sessions.forEach((session) => {
+        if (!weekDays.some((day) => day.date === session.date) || !Number.isInteger(session.hour) || ['cancelled', 'student_cancelled', 'trainer_cancelled'].includes(session.status)) return
+        const key = `${session.date}:${session.hour}`
+        matrixIndex.set(key, [...(matrixIndex.get(key) || []), session])
+      })
       return <>
-        <div className="opv2-toolbar opv2-today-toolbar"><div><p className="opv2-kicker-dark">Ca hôm nay</p><h2 className="opv2-section-title">{from}</h2></div><input className="opv2-date" aria-label="Ngày lịch dạy" type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></div>
+        <section className="opv2-week-card">
+          <header><div><p className="opv2-kicker-dark">Ma trận tuần</p><h2>{compactDate(rangeFrom)} – {compactDate(addDateDays(rangeFrom, 5))}</h2></div><div><button type="button" aria-label="Tuần trước" onClick={() => setFrom(addDateDays(rangeFrom, -7))}><ChevronLeft /></button><button type="button" aria-label="Tuần sau" onClick={() => setFrom(addDateDays(rangeFrom, 7))}><ChevronRight /></button></div></header>
+          <div className="opv2-week-scroll" role="region" aria-label="Ma trận lịch dạy chi tiết cả tuần" tabIndex={0}>
+            <div className="opv2-week-matrix">
+              <span className="opv2-week-corner">Giờ</span>
+              {weekDays.map((day) => <button type="button" key={day.date} className={`opv2-week-day${from === day.date ? ' is-selected' : ''}`} onClick={() => setFrom(day.date)}><strong>{day.label}</strong><small>{compactDate(day.date)}</small></button>)}
+              {matrixHours.map((hour) => <div className="opv2-week-row" key={hour}>
+                <time>{String(hour).padStart(2, '0')}:00</time>
+                {weekDays.map((day) => {
+                  const items = matrixIndex.get(`${day.date}:${hour}`) || []
+                  const pending = items.some((item) => attendanceState(item) === 'pending' && sessionStartsAt(item) <= now)
+                  const done = items.length > 0 && items.every((item) => attendanceState(item) !== 'pending')
+                  return <button type="button" key={day.date} className={`opv2-week-cell${items.length ? ' has-session' : ''}${pending ? ' is-pending' : ''}${done ? ' is-done' : ''}`} aria-label={`${day.label} ${String(hour).padStart(2, '0')}:00, ${items.length} học viên`} onClick={() => setFrom(day.date)}>
+                    {items.length ? <><b>{items.length}/2</b>{items.slice(0, 2).map((item) => <span key={item.id}>{studentNames.get(item.studentId) || item.studentName || 'Học viên'}</span>)}</> : <i>—</i>}
+                  </button>
+                })}
+              </div>)}
+            </div>
+          </div>
+          <footer><span><i className="is-done" /> Đã xác nhận</span><span><i className="is-pending" /> Chờ PT</span><span><i /> Sắp tới</span></footer>
+        </section>
+        <div className="opv2-toolbar opv2-today-toolbar"><div><p className="opv2-kicker-dark">Chi tiết ngày</p><h2 className="opv2-section-title">{compactDate(from)}</h2></div><input className="opv2-date" aria-label="Ngày lịch dạy" type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></div>
         <section className="opv2-attendance-summary" aria-label="Tổng hợp xác nhận ca dạy">
           <div><strong>{daySessions.length}</strong><span>ca dạy</span></div>
           <div><strong>{confirmed.length}</strong><span>đã xác nhận</span></div>

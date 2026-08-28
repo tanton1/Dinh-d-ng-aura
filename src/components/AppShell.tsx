@@ -109,10 +109,9 @@ const staffNavSections: ShellNavSection[] = [
   {
     label: 'CÔNG VIỆC',
     items: [
+      { id: 'staff-dashboard' as const, label: 'Tổng quan Staff', icon: LayoutDashboard },
       { id: 'staff-students' as const, label: 'Học viên phụ trách', icon: Users },
-      { id: 'staff-schedule' as const, label: 'Lịch dạy', icon: Dumbbell },
-      { id: 'staff-availability' as const, label: 'Lịch rảnh', icon: CalendarClock },
-      { id: 'staff-requests' as const, label: 'Yêu cầu lịch', icon: History },
+      { id: 'staff-schedule' as const, label: 'Lịch làm việc', icon: CalendarDays },
       { id: 'staff-nutrition-reviews' as const, label: 'Duyệt món', icon: Check },
       { id: 'staff-quotes' as const, label: 'Báo giá', icon: ClipboardList },
       { id: 'staff-renewals' as const, label: 'Tái ký', icon: RefreshCw },
@@ -126,12 +125,12 @@ const staffNavSections: ShellNavSection[] = [
 ]
 
 const staffMobileNav: ShellNavItem[] = [
-  { id: 'home', label: 'Hôm nay', icon: Home },
-  { id: 'nutrition', label: 'Dinh dưỡng', icon: Soup },
-  { id: 'schedule', label: 'Lịch học viên', icon: Dumbbell },
-  { id: 'progress', label: 'Tiến độ', icon: BarChart3 },
-  { id: 'courses', label: 'Học', icon: BookOpen },
-  { id: 'profile', label: 'Cá nhân', icon: UserRound },
+  { id: 'staff-dashboard', label: 'Tổng quan', icon: LayoutDashboard },
+  { id: 'staff-students', label: 'Học viên', icon: Users },
+  { id: 'staff-schedule', label: 'Lịch', icon: CalendarDays },
+  { id: 'staff-nutrition-reviews', label: 'Duyệt món', icon: Check },
+  { id: 'staff-renewals', label: 'Tái ký', icon: RefreshCw },
+  { id: 'staff-payroll', label: 'Lương', icon: WalletCards },
 ]
 
 const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
@@ -198,6 +197,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   nutrition: 'Dinh dưỡng',
   'eat-clean': 'Đặt món Eat Clean',
   'trainer-portal': 'Cổng làm việc HLV',
+  'staff-dashboard': 'Tổng quan Staff',
   'sales-portal': 'Cổng báo giá & Bán hàng',
   'staff-students': 'Học viên phụ trách',
   'staff-schedule': 'Lịch dạy của tôi',
@@ -240,6 +240,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
 
 function isNavigationActive(view: ViewId, itemId: ViewId, mobile = false) {
   if (view === itemId) return true
+  if (['staff-schedule', 'staff-availability', 'staff-requests'].includes(view) && itemId === 'staff-schedule') return true
   if (view === 'admin-today-sessions' && itemId === 'admin-dashboard') return true
   if (view === 'course-detail' && itemId === 'courses') return true
   if (view === 'admin-course-editor' && itemId === 'admin-courses') return true
@@ -340,7 +341,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
     <div className={`app-shell ${mode}`} data-view={view}>
       <a className="skip-link" href="#main-content">Bỏ qua điều hướng</a>
       <aside id="app-sidebar" className={`sidebar ${mobileMenu ? 'open' : ''}`}>
-        <button className="brand" type="button" aria-label="Về trang chính" onClick={() => { onNavigate(mode === 'student' || isStaffWorkspace ? 'home' : 'admin-dashboard'); setMobileMenu(false) }}>
+        <button className="brand" type="button" aria-label="Về trang chính" onClick={() => { onNavigate(isStaffWorkspace ? 'staff-dashboard' : mode === 'student' ? 'home' : 'admin-dashboard'); setMobileMenu(false) }}>
           <div className="brand-mark">A<span /></div>
           <div><strong>AURA</strong><small>FITNESS</small></div>
         </button>

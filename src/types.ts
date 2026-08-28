@@ -161,6 +161,7 @@ export type StudentView =
   | 'food-database'
   | 'trainer-portal'
   | 'sales-portal'
+  | 'staff-dashboard'
   | 'staff-students'
   | 'staff-schedule'
   | 'staff-availability'

@@ -36,6 +36,7 @@ const validViews: ViewId[] = [
   'eat-clean',
   'trainer-portal',
   'sales-portal',
+  'staff-dashboard',
   'staff-students',
   'staff-schedule',
   'staff-availability',

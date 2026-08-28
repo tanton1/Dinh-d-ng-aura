@@ -4,7 +4,7 @@ import AvailabilityMatrix from '../../components/schedule/AvailabilityMatrix'
 import { getMyTrainerAvailability, saveMyTrainerAvailability, type TrainerAvailabilityWorkspace } from '../../services/ptOperationsV2Service'
 import './TrainerAvailabilityPage.css'
 
-export default function TrainerAvailabilityPage() {
+export default function TrainerAvailabilityPage({ embedded = false, isDemo = false }: { embedded?: boolean; isDemo?: boolean }) {
   const [data, setData] = useState<TrainerAvailabilityWorkspace | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
@@ -13,13 +13,17 @@ export default function TrainerAvailabilityPage() {
   const [notice, setNotice] = useState('')
   const load = useCallback(async () => {
     setLoading(true); setError('')
+    if (isDemo) {
+      const result: TrainerAvailabilityWorkspace = { schemaVersion: 1, trainerId: 'demo-staff', trainerName: 'Huấn luyện viên Aura', branchId: 'branch-demo', availableSlots: ['T2-6', 'T2-7', 'T3-18', 'T4-18', 'T5-7', 'T6-18', 'T7-8'], availabilityMode: 'configured', availabilityRevision: 3, scheduleConfig: { workingDays: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'], workingHours: [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20] } }
+      setData(result); setSelected(new Set(result.availableSlots)); setLoading(false); return
+    }
     try {
       const result = await getMyTrainerAvailability()
       setData(result); setSelected(new Set(result.availableSlots))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể tải lịch rảnh của PT.')
     } finally { setLoading(false) }
-  }, [])
+  }, [isDemo])
   useEffect(() => { void load() }, [load])
   const original = useMemo(() => [...(data?.availableSlots || [])].sort().join('|'), [data])
   const current = useMemo(() => [...selected].sort().join('|'), [selected])
@@ -27,6 +31,12 @@ export default function TrainerAvailabilityPage() {
   const save = async () => {
     if (!data || !dirty || saving) return
     setSaving(true); setError(''); setNotice('')
+    if (isDemo) {
+      const availableSlots = [...selected]
+      setData({ ...data, availableSlots, availabilityMode: 'configured', availabilityRevision: data.availabilityRevision + 1 })
+      setNotice('Đã cập nhật lịch rảnh trong bản xem trước.')
+      setSaving(false); return
+    }
     try {
       const result = await saveMyTrainerAvailability({ availableSlots: [...selected], expectedRevision: data.availabilityRevision })
       setData({ ...data, availableSlots: result.availableSlots, availabilityMode: result.availabilityMode, availabilityRevision: result.availabilityRevision })
@@ -37,12 +47,12 @@ export default function TrainerAvailabilityPage() {
     } finally { setSaving(false) }
   }
 
-  return <main className="trainer-availability-page">
-    <section className="trainer-availability-hero">
+  return <main className={`trainer-availability-page${embedded ? ' is-embedded' : ''}`}>
+    {!embedded && <section className="trainer-availability-hero">
       <div><small>AURA STAFF · THỜI GIAN LÀM VIỆC</small><h1>Lịch rảnh của tôi</h1><p>Chọn những ca bạn có thể nhận học viên. Lịch đã công bố không bị tự động thay đổi.</p></div>
       <span><CalendarClock /></span>
       <button type="button" className={`is-${data?.availabilityMode || 'unconfigured'}`} onClick={() => document.querySelector('.availability-matrix')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{data?.availabilityMode === 'configured' ? 'Đã thiết lập' : 'Chưa thiết lập'}</button>
-    </section>
+    </section>}
     {loading && <div className="trainer-availability-state"><LoaderCircle className="spin" /><strong>Đang tải lịch rảnh</strong></div>}
     {!loading && error && <div className="trainer-availability-state is-error"><strong>{error}</strong><button type="button" onClick={() => void load()}><RefreshCw /> Thử lại</button></div>}
     {!loading && data && <section className="trainer-availability-card">
