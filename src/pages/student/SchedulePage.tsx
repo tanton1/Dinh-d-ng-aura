@@ -17,6 +17,7 @@ import {
   Save,
   ScrollText,
   UserRound,
+  WalletCards,
 } from 'lucide-react'
 import LeaveRequestModal from '../../components/schedule/LeaveRequestModal'
 import SessionRequestModal from '../../components/schedule/SessionRequestModal'
@@ -24,8 +25,8 @@ import {
   asStudentPtScheduleError,
   listMyStudentPtSchedule,
   saveMyStudentAvailability,
+  StudentPtScheduleServiceError,
   type StudentPtScheduleData,
-  type StudentPtScheduleServiceError,
   type StudentPtSession,
 } from '../../services/studentPtScheduleService'
 import type { ViewId } from '../../types'
@@ -35,7 +36,7 @@ import './StudentSchedulePage.css'
 const DEFAULT_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 const DEFAULT_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
 const DAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
-type StudentScheduleTab = 'this-week' | 'next-week' | 'availability' | 'requests' | 'history'
+type StudentScheduleTab = 'this-week' | 'next-week' | 'availability' | 'contract' | 'requests' | 'history'
 type AvailabilityWeekOffset = 0 | 1 | 2
 
 const statusLabels: Record<string, string> = {
@@ -65,6 +66,8 @@ function issueCopy(issue: StudentPtScheduleServiceError) {
       return { title: 'Lịch rảnh vừa được cập nhật ở nơi khác', description: 'Aura đã tải lại phiên bản mới nhất. Hãy kiểm tra và chọn lại các thay đổi cần lưu.' }
     case 'AVAILABILITY_LOCKED':
       return { title: 'Lịch rảnh của tuần đã khóa', description: 'Hạn gửi là 10:00 Chủ nhật trước tuần tập. Hãy chọn tuần kế tiếp hoặc liên hệ vận hành khi cần điều chỉnh.' }
+    case 'MINIMUM_AVAILABILITY_REQUIRED':
+      return { title: 'Chưa đủ khung giờ rảnh', description: issue.message }
     case 'INVALID_REQUEST':
       return { title: 'Dữ liệu lịch chưa hợp lệ', description: issue.message }
     case 'SYNC_UNAVAILABLE':
@@ -122,6 +125,20 @@ function sameSlots(left: Iterable<string>, right: Iterable<string>) {
   return [...left].sort().join('|') === [...right].sort().join('|')
 }
 
+function formatMoney(value: number) {
+  return `${Math.max(0, Number(value || 0)).toLocaleString('vi-VN')}đ`
+}
+
+function formatContractDate(value: string | null | undefined) {
+  if (!value) return 'Chưa cập nhật'
+  const parsed = fromIsoDate(value)
+  return Number.isFinite(parsed.getTime()) ? new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(parsed) : 'Chưa cập nhật'
+}
+
+function contractStatusLabel(value: string) {
+  return ({ active: 'Đang hiệu lực', future: 'Gói tiếp theo', frozen: 'Đang bảo lưu', expired: 'Đã hết hạn', cancelled: 'Đã hủy' } as Record<string, string>)[value] ?? value
+}
+
 export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }: { onNavigate: (view: ViewId) => void; isDemo?: boolean; ownerId?: string }) {
   const today = useMemo(() => new Date(), [])
   const range = useMemo(() => ({ from: toIsoDate(addDays(today, -180)), to: toIsoDate(addDays(today, 180)) }), [today])
@@ -137,6 +154,7 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
   const [message, setMessage] = useState<string | null>(null)
   const [requestSession, setRequestSession] = useState<StudentPtSession | null>(null)
   const [showPauseRequest, setShowPauseRequest] = useState(false)
+  const [selectedContractId, setSelectedContractId] = useState<string | null>(null)
   const [heroSlide, setHeroSlide] = useState(0)
   const heroTrackRef = useRef<HTMLDivElement>(null)
   const weekStart = useMemo(() => addDays(startOfWeek(today), weekOffset * 7), [today, weekOffset])
@@ -150,7 +168,7 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
     try {
       if (isDemo) {
         const demo: StudentPtScheduleData = {
-          schemaVersion: 2,
+          schemaVersion: 4,
           linked: true,
           identityLink: { status: 'linked', source: 'auth_uid', studentId: 'demo-student', crmProfileIdConfigured: false },
           student: {
@@ -164,7 +182,12 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
             { id: 'demo-2', date: toIsoDate(addDays(today, 3)), hour: 19, status: 'scheduled', trainerId: 'demo-trainer', trainerName: 'PT Minh', branchId: 'demo-branch', verifiedByStudent: false, scheduleEntryId: '', revision: 1, timeZone: 'Asia/Ho_Chi_Minh' },
           ],
           sessionsTruncated: false,
-          contracts: [{ id: 'demo-contract', packageName: 'PT Personal 24 buổi', status: 'active', startDate: toIsoDate(addDays(today, -30)), endDate: toIsoDate(addDays(today, 90)), totalSessions: 24, usedSessions: 8 }],
+          contracts: [{
+            id: 'demo-contract', packageName: 'PT Personal 24 buổi', status: 'active', startDate: toIsoDate(addDays(today, -30)), endDate: toIsoDate(addDays(today, 90)), totalSessions: 24, usedSessions: 8, remainingSessions: 16,
+            totalAmount: 12_000_000, paidAmount: 8_000_000, outstandingAmount: 4_000_000, paymentStatus: 'due_soon', nextPaymentDate: toIsoDate(addDays(today, 5)), daysUntilEnd: 90,
+            installments: [{ id: 'demo-payment-1', date: toIsoDate(addDays(today, -30)), amount: 8_000_000, status: 'paid' }, { id: 'demo-payment-2', date: toIsoDate(addDays(today, 5)), amount: 4_000_000, status: 'pending' }],
+          }],
+          contractAlerts: [{ code: 'PAYMENT_DUE_SOON', severity: 'warning', contractId: 'demo-contract', title: 'Kỳ thanh toán còn 5 ngày', message: 'PT Personal 24 buổi · 4.000.000đ', dueDate: toIsoDate(addDays(today, 5)), amount: 4_000_000 }],
           sessionRequests: [],
           pauseRequests: [],
         }
@@ -193,6 +216,18 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
   const originalSlots = availability?.slots ?? data?.student?.availableSlots ?? []
   const availabilityLocked = availability?.locked === true
   const minimumSlots = availability?.minimumSlots ?? Math.max(5, data?.student?.sessionsPerWeek ?? 1)
+  const availabilityMissingSlots = Math.max(0, minimumSlots - selectedSlots.size)
+  const availabilityGuidance = availabilityMissingSlots > 0
+    ? {
+        tone: 'warning',
+        title: `Cần thêm ${availabilityMissingSlots} khung giờ`,
+        message: selectedSlots.size <= 2
+          ? `Bạn mới chọn ${selectedSlots.size}/${minimumSlots} khung. Thêm nhiều lựa chọn giúp Aura giữ đúng PT, ghép ca đôi phù hợp và tránh thiếu buổi.`
+          : `Sắp hoàn tất rồi! Chỉ cần thêm ${availabilityMissingSlots} khung để lịch linh hoạt hơn và hạn chế phải tập liền nhiều ngày.`,
+      }
+    : selectedSlots.size < minimumSlots + 2
+      ? { tone: 'ready', title: 'Đã đủ mức tối thiểu', message: 'Thêm 2 khung nữa sẽ tăng cơ hội xếp đủ buổi, đúng PT và giãn đều ngày tập.' }
+      : { tone: 'excellent', title: 'Lựa chọn rất tốt!', message: 'Nhiều khung rảnh giúp Aura ưu tiên ca đôi, cân bằng lịch PT và xếp đủ buổi cho bạn.' }
   const dirty = !sameSlots(selectedSlots, originalSlots)
   const availabilityStatusKey = availabilityLocked ? 'locked' : dirty ? 'dirty' : availability?.status === 'submitted' ? 'submitted' : 'draft'
   const availabilityStatusLabel = availabilityStatusKey === 'locked' ? 'Đã khóa' : availabilityStatusKey === 'dirty' ? 'Chưa lưu' : availabilityStatusKey === 'submitted' ? 'Đã gửi' : 'Chưa gửi'
@@ -217,7 +252,18 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
     })
     return result
   }, [upcomingSessions])
-  const activeContract = data?.contracts.find((contract) => contract.status === 'active') ?? data?.contracts[0]
+  const todayKey = toIsoDate(today)
+  const contracts = data?.contracts ?? []
+  const activeContract = contracts.find((contract) => contract.status === 'active'
+    && (!contract.startDate || contract.startDate <= todayKey)
+    && (!contract.endDate || contract.endDate >= todayKey)
+    && contract.remainingSessions > 0)
+  const futureContract = contracts
+    .filter((contract) => ['active', 'future'].includes(contract.status) && contract.startDate > todayKey)
+    .sort((left, right) => left.startDate.localeCompare(right.startDate))[0]
+  const displayContract = activeContract ?? futureContract ?? contracts[0]
+  const selectedContract = contracts.find((contract) => contract.id === selectedContractId) ?? displayContract
+  const contractAlerts = data?.contractAlerts ?? []
   const selectedSessions = useMemo(() => (data?.sessions ?? [])
     .filter((session) => session.date === selectedDate)
     .sort((left, right) => (left.hour ?? 99) - (right.hour ?? 99)), [data?.sessions, selectedDate])
@@ -245,6 +291,15 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
 
   const save = async () => {
     if (!data?.student || !dirty || saving) return
+    if (selectedSlots.size < minimumSlots) {
+      setSaveIssue(new StudentPtScheduleServiceError(
+        `Bạn mới chọn ${selectedSlots.size}/${minimumSlots} khung. Hãy thêm ${minimumSlots - selectedSlots.size} khung để Aura có nhiều phương án xếp đủ buổi và giữ đúng PT.`,
+        'MINIMUM_AVAILABILITY_REQUIRED',
+        false,
+        { selectedSlots: selectedSlots.size, minimumSlots },
+      ))
+      return
+    }
     setSaving(true)
     setSaveIssue(null)
     setMessage(null)
@@ -329,8 +384,8 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
               <div className="student-schedule-hero__progress"><i style={{ width: `${weekCompletion}%` }} /></div>
             </article>
             <article className="student-schedule-hero__slide is-contract" aria-label="Gói tập đang liên kết">
-              <div><small>GÓI TẬP ĐANG LIÊN KẾT</small><h2>{activeContract?.packageName ?? 'Chưa có gói tập'}</h2><p>{activeContract ? `Hiệu lực đến ${activeContract.endDate}` : 'Liên hệ vận hành để liên kết hợp đồng PT.'}</p></div>
-              {activeContract && <><div className="student-schedule-hero__metric"><strong>{activeContract.usedSessions}/{activeContract.totalSessions}</strong><span>Buổi đã dùng</span></div><div className="student-schedule-hero__progress"><i style={{ width: `${Math.min(100, activeContract.totalSessions ? activeContract.usedSessions / activeContract.totalSessions * 100 : 0)}%` }} /></div><button type="button" onClick={() => setShowPauseRequest(true)}>Đăng ký OFF / Bảo lưu</button></>}
+              <div><small>GÓI TẬP ĐANG LIÊN KẾT</small><h2>{displayContract?.packageName ?? 'Chưa có gói tập'}</h2><p>{displayContract ? `Hiệu lực đến ${formatContractDate(displayContract.endDate)}` : 'Liên hệ vận hành để liên kết hợp đồng PT.'}</p></div>
+              {displayContract && <><div className="student-schedule-hero__metric"><strong>{displayContract.usedSessions}/{displayContract.totalSessions}</strong><span>Buổi đã dùng</span></div><div className="student-schedule-hero__progress"><i style={{ width: `${Math.min(100, displayContract.totalSessions ? displayContract.usedSessions / displayContract.totalSessions * 100 : 0)}%` }} /></div><button type="button" onClick={() => { setSelectedContractId(displayContract.id); setActiveTab('contract') }}>Xem thanh toán & hợp đồng</button></>}
             </article>
           </div>
           <footer className="student-schedule-hero__controls">
@@ -344,9 +399,16 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
           <button type="button" className={activeTab === 'this-week' ? 'active' : ''} onClick={() => selectWeek(0)}><CalendarCheck size={16} /><span>Tuần này</span></button>
           <button type="button" className={activeTab === 'next-week' ? 'active' : ''} onClick={() => selectWeek(1)}><CalendarDays size={16} /><span>Tuần sau</span></button>
           <button type="button" className={activeTab === 'availability' ? 'active' : ''} onClick={() => selectAvailabilityWeek(Math.min(2, Math.max(0, weekOffset)) as AvailabilityWeekOffset)}><CalendarRange size={16} /><span>Lịch rảnh</span><em className={`student-availability-tab-status is-${availabilityStatusKey}`}>{availabilityStatusLabel}</em></button>
+          <button type="button" className={activeTab === 'contract' ? 'active' : ''} onClick={() => setActiveTab('contract')}><WalletCards size={16} /><span>Hợp đồng</span>{contractAlerts.length > 0 && <i>{contractAlerts.length}</i>}</button>
           <button type="button" className={activeTab === 'requests' ? 'active' : ''} onClick={() => setActiveTab('requests')}><ScrollText size={16} /><span>Yêu cầu</span>{pendingRequestCount > 0 && <i>{pendingRequestCount}</i>}</button>
           <button type="button" className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}><History size={16} /><span>Lịch sử</span></button>
         </nav>
+
+        {contractAlerts.length > 0 && <section className="student-contract-alert-rail" aria-label="Cảnh báo hợp đồng và thanh toán">
+          {contractAlerts.map((alert, index) => <button type="button" className={`is-${alert.severity}`} key={`${alert.code}-${alert.contractId}-${alert.dueDate ?? index}`} onClick={() => { setSelectedContractId(alert.contractId); setActiveTab('contract') }}>
+            <AlertCircle size={18} /><span><strong>{alert.title}</strong><small>{alert.message}</small></span><ChevronRight size={16} />
+          </button>)}
+        </section>}
 
         {(activeTab === 'this-week' || activeTab === 'next-week') && <section className="schedule-layout">
           <div className="calendar-panel card">
@@ -388,6 +450,7 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
           <header><div><small>MA TRẬN THỜI GIAN RẢNH · TUẦN {availabilityWeekId}</small><h2>Đăng ký thời gian có thể tập</h2><p>Chọn tối thiểu {minimumSlots} khung giờ. Lịch khóa lúc 10:00 Chủ nhật trước tuần tập.</p></div><button type="button" className={`student-availability-status-button is-${availabilityStatusKey}`} onClick={() => document.querySelector('.student-schedule-matrix-scroll')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}><strong>{availabilityStatusLabel}</strong><span>{selectedSlots.size}/{minimumSlots} khung</span></button></header>
           <div className="student-availability-week-switch"><button type="button" className={weekOffset === 0 ? 'active' : ''} onClick={() => selectAvailabilityWeek(0)}>Tuần này</button><button type="button" className={weekOffset === 1 ? 'active' : ''} onClick={() => selectAvailabilityWeek(1)}>Tuần sau</button><button type="button" className={weekOffset === 2 ? 'active' : ''} onClick={() => selectAvailabilityWeek(2)}>Tuần kế</button></div>
           {availabilityLocked && <div className="student-schedule-state is-warning student-availability-lock-note" role="status"><AlertCircle size={22} /><div><strong>Tuần này đã chốt lịch rảnh</strong><span>Khóa từ {availabilityCutoffLabel}. Tuần đã chốt không tự mở lại; vận hành có thể sửa hộ khi cần.</span></div>{weekOffset < 2 && <button type="button" onClick={() => selectAvailabilityWeek((weekOffset + 1) as AvailabilityWeekOffset)}>Đăng ký tuần kế tiếp <ChevronRight size={16} /></button>}</div>}
+          {!availabilityLocked && <div className={`student-availability-guidance is-${availabilityGuidance.tone}`} role="status" aria-live="polite"><span>{availabilityMissingSlots > 0 ? <AlertCircle size={20} /> : <Check size={20} />}</span><div><strong>{availabilityGuidance.title}</strong><p>{availabilityGuidance.message}</p></div><em>{selectedSlots.size}/{minimumSlots}</em></div>}
           <div className="student-schedule-legend"><span><i className="is-available" /> Có thể tập</span><span><i className="is-booked" /> Đã xếp ca</span><span><i className="is-linked" /> Đã liên kết</span></div>
           <div className="student-schedule-matrix-scroll" role="region" aria-label="Ma trận thời gian rảnh" tabIndex={0}>
             <table className="student-schedule-matrix"><thead><tr><th>Giờ</th>{workingDays.map((day) => <th key={day}>{day}</th>)}</tr></thead><tbody>{workingHours.map((hour) => <tr key={hour}><th>{String(hour).padStart(2, '0')}:00</th>{workingDays.map((day) => {
@@ -398,7 +461,33 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
               return <td key={slotId}><button type="button" disabled={availabilityLocked} className={`${selected ? 'is-available' : ''} ${booked ? 'is-booked' : ''} ${selected && booked ? 'is-linked' : ''}`} aria-pressed={selected} aria-label={`${day} ${hour} giờ, ${selected ? 'đã chọn' : 'chưa chọn'}${booked ? `, có ${linkedSessions.length} ca đã xếp` : ''}`} onClick={() => toggleSlot(slotId)}>{selected && booked ? <Link2 size={16} /> : booked ? <Dumbbell size={16} /> : selected ? <Check size={16} /> : null}{booked && <small>{linkedSessions.length}</small>}</button></td>
             })}</tr>)}</tbody></table>
           </div>
-          <footer><div><strong>{availabilityLocked ? 'Đã khóa' : dirty ? 'Có thay đổi chưa lưu' : 'Dữ liệu đã đồng bộ'}</strong><span>Phiên bản tuần #{availability?.revision ?? data.student.availabilityRevision}</span></div><button type="button" disabled={!dirty || saving || availabilityLocked || selectedSlots.size < minimumSlots} onClick={() => void save()}>{saving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}{saving ? 'Đang lưu...' : availabilityLocked ? 'Tuần đã khóa' : 'Gửi lịch rảnh'}</button></footer>
+          <footer><div><strong>{availabilityLocked ? 'Đã khóa' : dirty ? 'Có thay đổi chưa lưu' : 'Dữ liệu đã đồng bộ'}</strong><span>Phiên bản tuần #{availability?.revision ?? data.student.availabilityRevision}</span></div><button type="button" disabled={!dirty || saving || availabilityLocked} onClick={() => void save()}>{saving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}{saving ? 'Đang lưu...' : availabilityLocked ? 'Tuần đã khóa' : 'Gửi lịch rảnh'}</button></footer>
+        </section>}
+
+        {activeTab === 'contract' && <section className="student-contract-center">
+          <header><div><small>AURA · HỢP ĐỒNG & THANH TOÁN</small><h2>Gói tập của bạn</h2><p>Thông tin chỉ đọc, được đồng bộ từ hợp đồng và lịch thanh toán canonical của Aura.</p></div>{selectedContract && <span className={`is-${selectedContract.paymentStatus}`}>{selectedContract.outstandingAmount > 0 ? `Còn ${formatMoney(selectedContract.outstandingAmount)}` : 'Đã thanh toán'}</span>}</header>
+          {contracts.length > 0 ? <>
+            <div className="student-contract-carousel" aria-label="Danh sách hợp đồng">
+              {contracts.map((contract) => <button type="button" key={contract.id} className={`${selectedContract?.id === contract.id ? 'active' : ''} is-${contract.status}`} onClick={() => setSelectedContractId(contract.id)}>
+                <span><small>{contractStatusLabel(contract.status)}</small><strong>{contract.packageName}</strong></span>
+                <em>{contract.remainingSessions} buổi còn lại · tổng {contract.totalSessions}</em>
+                <i><b style={{ width: `${Math.min(100, contract.totalAmount ? contract.paidAmount / contract.totalAmount * 100 : contract.outstandingAmount ? 0 : 100)}%` }} /></i>
+                <span className="student-contract-card-footer"><span>{formatContractDate(contract.startDate)} → {formatContractDate(contract.endDate)}</span><strong>{contract.outstandingAmount > 0 ? `Nợ ${formatMoney(contract.outstandingAmount)}` : 'Đã thu đủ'}</strong></span>
+              </button>)}
+            </div>
+            {selectedContract && <div className="student-contract-detail">
+              <div className="student-contract-kpis"><article><small>Giá trị hợp đồng</small><strong>{formatMoney(selectedContract.totalAmount)}</strong></article><article><small>Đã thanh toán</small><strong>{formatMoney(selectedContract.paidAmount)}</strong></article><article className={selectedContract.outstandingAmount > 0 ? 'is-warning' : 'is-paid'}><small>Công nợ còn lại</small><strong>{formatMoney(selectedContract.outstandingAmount)}</strong></article></div>
+              <div className="student-payment-schedule"><header><div><small>LỊCH THANH TOÁN</small><h3>Các kỳ của {selectedContract.packageName}</h3></div>{selectedContract.nextPaymentDate && <span>Kỳ tới {formatContractDate(selectedContract.nextPaymentDate)}</span>}</header>
+                {selectedContract.installments.length > 0 ? <div>{selectedContract.installments.map((installment, index) => {
+                  const overdue = installment.status === 'pending' && installment.date < todayKey
+                  const dueToday = installment.status === 'pending' && installment.date === todayKey
+                  const status = installment.status === 'paid' ? 'Đã thanh toán' : installment.status === 'cancelled' ? 'Đã hủy' : overdue ? 'Quá hạn' : dueToday ? 'Đến hạn hôm nay' : 'Chờ thanh toán'
+                  return <article className={`${installment.status === 'paid' ? 'is-paid' : overdue || dueToday ? 'is-overdue' : 'is-pending'}`} key={installment.id}><span>{index + 1}</span><div><strong>Kỳ {index + 1} · {formatMoney(installment.amount)}</strong><small>Hạn {formatContractDate(installment.date)}</small></div><em>{status}</em></article>
+                })}</div> : <div className="student-session-empty"><WalletCards size={27} /><strong>{selectedContract.outstandingAmount > 0 ? 'Chưa có lịch trả góp chi tiết' : 'Hợp đồng đã thanh toán đủ'}</strong><span>{selectedContract.nextPaymentDate ? `Kỳ thanh toán tiếp theo: ${formatContractDate(selectedContract.nextPaymentDate)}` : 'Aura chưa ghi nhận kỳ thanh toán nào cần xử lý.'}</span></div>}
+              </div>
+              {activeContract?.id === selectedContract.id && <button type="button" className="student-contract-pause-action" onClick={() => setShowPauseRequest(true)}><CalendarRange size={17} /> Đăng ký OFF / Bảo lưu</button>}
+            </div>}
+          </> : <div className="student-session-empty"><WalletCards size={30} /><strong>Chưa liên kết hợp đồng</strong><span>Vui lòng liên hệ Aura để kiểm tra hồ sơ gói tập.</span></div>}
         </section>}
 
         {activeTab === 'requests' && <section className="student-request-center">

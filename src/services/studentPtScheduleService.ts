@@ -29,6 +29,7 @@ export type StudentPtScheduleIssueCode =
   | 'PROFILE_NOT_LINKED'
   | 'REVISION_CONFLICT'
   | 'AVAILABILITY_LOCKED'
+  | 'MINIMUM_AVAILABILITY_REQUIRED'
   | 'SYNC_UNAVAILABLE'
   | 'INVALID_REQUEST'
   | 'UNKNOWN'
@@ -100,6 +101,31 @@ export interface StudentPtContractSummary {
   endDate: string
   totalSessions: number
   usedSessions: number
+  remainingSessions: number
+  totalAmount: number
+  paidAmount: number
+  outstandingAmount: number
+  paymentStatus: 'paid' | 'overdue' | 'due_today' | 'due_soon' | 'pending'
+  nextPaymentDate: string | null
+  daysUntilEnd: number | null
+  installments: StudentPtInstallmentSummary[]
+}
+
+export interface StudentPtInstallmentSummary {
+  id: string
+  date: string
+  amount: number
+  status: 'pending' | 'paid' | 'cancelled'
+}
+
+export interface StudentPtContractAlert {
+  code: 'PAYMENT_OVERDUE' | 'PAYMENT_DUE_TODAY' | 'PAYMENT_DUE_SOON' | 'CONTRACT_EXPIRING' | 'CONTRACT_SESSIONS_LOW' | 'RENEWAL_READY'
+  severity: 'critical' | 'warning' | 'info'
+  contractId: string
+  title: string
+  message: string
+  dueDate: string | null
+  amount: number | null
 }
 
 export interface StudentPtScheduleData {
@@ -128,6 +154,7 @@ export interface StudentPtScheduleData {
   sessions: StudentPtSession[]
   sessionsTruncated?: boolean
   contracts: StudentPtContractSummary[]
+  contractAlerts: StudentPtContractAlert[]
   sessionRequests: StudentPtSessionRequestSummary[]
   pauseRequests: StudentPtPauseRequestSummary[]
 }
@@ -168,6 +195,7 @@ function knownIssueCode(value: unknown): StudentPtScheduleIssueCode | null {
     'PROFILE_NOT_LINKED',
     'REVISION_CONFLICT',
     'AVAILABILITY_LOCKED',
+    'MINIMUM_AVAILABILITY_REQUIRED',
     'SYNC_UNAVAILABLE',
     'INVALID_REQUEST',
     'UNKNOWN',

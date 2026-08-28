@@ -44,6 +44,157 @@ function serialize(value) {
   return value
 }
 
+function safeMoney(value) {
+  const result = Number(value || 0)
+  return Number.isFinite(result) ? Math.max(0, Math.round(result)) : 0
+}
+
+function storedDateKey(value) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10)
+  if (value instanceof Timestamp) return value.toDate().toISOString().slice(0, 10)
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value.toISOString().slice(0, 10)
+  return ''
+}
+
+function currentDateKey(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now)
+  const part = (type) => parts.find((item) => item.type === type)?.value || ''
+  return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+function dateDistance(from, to) {
+  const fromTime = Date.parse(`${from}T00:00:00Z`)
+  const toTime = Date.parse(`${to}T00:00:00Z`)
+  return Number.isFinite(fromTime) && Number.isFinite(toTime) ? Math.round((toTime - fromTime) / 86400000) : null
+}
+
+function studentContractProjection(id, contract = {}, today = currentDateKey()) {
+  const totalAmount = Math.max(0, safeMoney(contract.totalPrice) - safeMoney(contract.discount))
+  const paidAmount = safeMoney(contract.paidAmount)
+  const outstandingAmount = Math.max(0, totalAmount - paidAmount)
+  const totalSessions = Math.max(0, Number(contract.totalSessions || 0))
+  const usedSessions = Math.max(0, Number(contract.usedSessions || 0))
+  const installments = (Array.isArray(contract.installments) ? contract.installments : [])
+    .slice(0, 24)
+    .map((item, index) => ({
+      id: String(item?.id || `installment-${index + 1}`).slice(0, 100),
+      date: storedDateKey(item?.date),
+      amount: safeMoney(item?.amount),
+      status: ['paid', 'cancelled'].includes(item?.status) ? item.status : 'pending',
+    }))
+    .filter((item) => item.date && item.amount > 0)
+    .sort((left, right) => left.date.localeCompare(right.date) || left.id.localeCompare(right.id))
+  const nextPending = installments.find((item) => item.status === 'pending')
+  const configuredNextPaymentDate = storedDateKey(contract.nextPaymentDate)
+  const nextPaymentDate = nextPending?.date || configuredNextPaymentDate || null
+  const endDate = storedDateKey(contract.endDate)
+  const daysUntilEnd = endDate ? dateDistance(today, endDate) : null
+  const nextPaymentDistance = nextPaymentDate ? dateDistance(today, nextPaymentDate) : null
+  const paymentStatus = outstandingAmount <= 0
+    ? 'paid'
+    : nextPaymentDistance !== null && nextPaymentDistance < 0
+      ? 'overdue'
+      : nextPaymentDistance === 0
+        ? 'due_today'
+        : nextPaymentDistance !== null && nextPaymentDistance <= 7
+          ? 'due_soon'
+          : 'pending'
+  return {
+    id,
+    packageName: contract.packageName || 'Gói tập Aura',
+    status: contract.status || 'active',
+    startDate: storedDateKey(contract.startDate),
+    endDate,
+    totalSessions,
+    usedSessions,
+    remainingSessions: Math.max(0, totalSessions - usedSessions),
+    totalAmount,
+    paidAmount,
+    outstandingAmount,
+    paymentStatus,
+    nextPaymentDate,
+    daysUntilEnd,
+    installments,
+  }
+}
+
+function studentContractAlerts(contracts, today = currentDateKey()) {
+  const alerts = []
+  const activeContracts = contracts.filter((contract) => contract.status === 'active'
+    && contract.startDate && contract.startDate <= today
+    && (!contract.endDate || contract.endDate >= today))
+  const futureContract = contracts
+    .filter((contract) => ['active', 'future'].includes(contract.status) && contract.startDate > today)
+    .sort((left, right) => left.startDate.localeCompare(right.startDate))[0]
+
+  for (const contract of contracts) {
+    if (!['draft', 'cancelled', 'inactive', 'archived'].includes(contract.status) && contract.outstandingAmount > 0) {
+      const pendingInstallments = contract.installments.filter((item) => item.status === 'pending')
+      const dueItems = pendingInstallments.length
+        ? pendingInstallments
+        : contract.nextPaymentDate
+          ? [{ id: 'next-payment', date: contract.nextPaymentDate, amount: contract.outstandingAmount, status: 'pending' }]
+          : []
+      for (const installment of dueItems.slice(0, 12)) {
+        const daysUntilDue = dateDistance(today, installment.date)
+        if (daysUntilDue === null || daysUntilDue > 7) continue
+        const overdue = daysUntilDue < 0
+        const dueToday = daysUntilDue === 0
+        alerts.push({
+          code: overdue ? 'PAYMENT_OVERDUE' : dueToday ? 'PAYMENT_DUE_TODAY' : 'PAYMENT_DUE_SOON',
+          severity: overdue || dueToday ? 'critical' : 'warning',
+          contractId: contract.id,
+          title: overdue ? 'Kỳ thanh toán đã quá hạn' : dueToday ? 'Kỳ thanh toán đến hạn hôm nay' : `Kỳ thanh toán còn ${daysUntilDue} ngày`,
+          message: `${contract.packageName} · ${installment.amount.toLocaleString('vi-VN')}đ`,
+          dueDate: installment.date,
+          amount: installment.amount,
+        })
+      }
+    }
+
+    const current = activeContracts.some((item) => item.id === contract.id)
+    if (!current) continue
+    if (contract.daysUntilEnd !== null && contract.daysUntilEnd >= 0 && contract.daysUntilEnd <= 30) {
+      alerts.push({
+        code: futureContract ? 'RENEWAL_READY' : 'CONTRACT_EXPIRING',
+        severity: contract.daysUntilEnd <= 7 && !futureContract ? 'critical' : futureContract ? 'info' : 'warning',
+        contractId: contract.id,
+        title: futureContract ? 'Gói tiếp theo đã sẵn sàng' : contract.daysUntilEnd === 0 ? 'Hợp đồng hết hạn hôm nay' : `Hợp đồng còn ${contract.daysUntilEnd} ngày`,
+        message: futureContract
+          ? `${futureContract.packageName} bắt đầu ${futureContract.startDate}`
+          : `${contract.packageName}${contract.remainingSessions > 0 ? ` còn ${contract.remainingSessions} buổi` : ' đã hết buổi'}. Hãy trao đổi sớm với Aura để không gián đoạn lịch tập.`,
+        dueDate: contract.endDate,
+        amount: null,
+      })
+    }
+    if (contract.remainingSessions <= 5) {
+      alerts.push({
+        code: 'CONTRACT_SESSIONS_LOW',
+        severity: contract.remainingSessions <= 2 ? 'critical' : 'warning',
+        contractId: contract.id,
+        title: contract.remainingSessions === 0 ? 'Gói tập đã hết buổi' : `Gói tập còn ${contract.remainingSessions} buổi`,
+        message: futureContract
+          ? `Gói ${futureContract.packageName} đã được nối tiếp.`
+          : 'Hãy trao đổi với Aura để chuẩn bị gói tiếp theo và giữ lịch tập ổn định.',
+        dueDate: contract.endDate || null,
+        amount: null,
+      })
+    }
+  }
+
+  const severityOrder = { critical: 0, warning: 1, info: 2 }
+  return alerts
+    .sort((left, right) => (severityOrder[left.severity] ?? 9) - (severityOrder[right.severity] ?? 9)
+      || String(left.dueDate || '').localeCompare(String(right.dueDate || ''))
+      || left.contractId.localeCompare(right.contractId))
+    .slice(0, 20)
+}
+
 function availabilityWeekId(value) {
   const result = dateKey(value, 'Tuần lịch rảnh')
   const parsed = new Date(`${result}T00:00:00.000Z`)
@@ -454,7 +605,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const config = scheduleConfig(configSnapshot.data())
     if (!profile) {
       return {
-        schemaVersion: 2,
+        schemaVersion: 4,
         linked: false,
         identityLink: {
           status: 'profile_not_linked',
@@ -467,6 +618,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
         sessions: [],
         sessionsTruncated: false,
         contracts: [],
+        contractAlerts: [],
         sessionRequests: [],
         pauseRequests: [],
       }
@@ -509,18 +661,11 @@ function createPtOperationsV2Functions({ db, onCall }) {
       revision: Number(session.revision || 0),
       timeZone: TIME_ZONE,
     }))
-    const contracts = contractsSnapshot.docs.map((item) => {
-      const contract = item.data()
-      return serialize({
-        id: item.id,
-        packageName: contract.packageName || 'Gói tập Aura',
-        status: contract.status || 'active',
-        startDate: contract.startDate || '',
-        endDate: contract.endDate || '',
-        totalSessions: Number(contract.totalSessions || 0),
-        usedSessions: Number(contract.usedSessions || 0),
-      })
-    })
+    const today = currentDateKey()
+    const contracts = contractsSnapshot.docs
+      .map((item) => studentContractProjection(item.id, item.data(), today))
+      .sort((left, right) => left.startDate.localeCompare(right.startDate) || left.id.localeCompare(right.id))
+    const contractAlerts = studentContractAlerts(contracts, today)
     const sessionRequests = sessionRequestsSnapshot.docs
       .map((item) => {
         const value = item.data()
@@ -574,7 +719,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       slots: normalizedAvailabilitySlots(storedAvailability.slots || [], config, false),
     })
     return {
-      schemaVersion: 3,
+      schemaVersion: 4,
       linked: true,
       identityLink: {
         status: 'linked',
@@ -595,7 +740,8 @@ function createPtOperationsV2Functions({ db, onCall }) {
       scheduleConfig: config,
       sessions,
       sessionsTruncated: sessionsSnapshot.size > 1000,
-      contracts,
+      contracts: serialize(contracts),
+      contractAlerts: serialize(contractAlerts),
       sessionRequests,
       pauseRequests,
     }
@@ -628,7 +774,13 @@ function createPtOperationsV2Functions({ db, onCall }) {
       })
     }
     if (slots.length < minimumSlots) {
-      throw new HttpsError('failed-precondition', `Hãy chọn ít nhất ${minimumSlots} khung giờ rảnh để Aura có thể xếp lịch.`)
+      throw new HttpsError('failed-precondition', `Bạn mới chọn ${slots.length}/${minimumSlots} khung. Hãy thêm ${minimumSlots - slots.length} khung để Aura có nhiều phương án xếp đủ buổi và giữ đúng PT.`, {
+        issueCode: 'MINIMUM_AVAILABILITY_REQUIRED',
+        action: 'select_more_slots',
+        selectedSlots: slots.length,
+        minimumSlots,
+        missingSlots: minimumSlots - slots.length,
+      })
     }
     const availabilityReference = db.doc(`ptAvailability/${profile.id}_${weekId}`)
     const nextRevision = await db.runTransaction(async (transaction) => {
@@ -935,4 +1087,11 @@ function createPtOperationsV2Functions({ db, onCall }) {
   return { getMyCoachWorkspaceScope, getMyTrainerAvailability, saveMyTrainerAvailability, getMyTrainerWorkspace, listMyStudentPtSchedule, saveMyStudentAvailability, listMyAssignedStudents, listMyTrainerSchedule, getMyTrainerStudentDetail, confirmMySession, recordMySessionAttendance, bulkConfirmMySessions, submitWorkoutNote, requestSessionChange, listMyQuotes, getMySalesCatalog, getMySalesWorkspace, createQuote, createStudentDraft, submitContractForApproval }
 }
 
-module.exports = { createPtOperationsV2Functions, normalizedAvailabilitySlots, scheduleConfig, sessionHour }
+module.exports = {
+  createPtOperationsV2Functions,
+  normalizedAvailabilitySlots,
+  scheduleConfig,
+  sessionHour,
+  studentContractProjection,
+  studentContractAlerts,
+}

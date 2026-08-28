@@ -125,10 +125,12 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   await expect(studentScheduleTabs).toBeVisible()
   await expect(studentScheduleTabs.getByRole('button', { name: 'Tuần này' })).toBeVisible()
   await expect(studentScheduleTabs.getByRole('button', { name: 'Tuần sau' })).toBeVisible()
+  await expect(studentScheduleTabs.getByRole('button', { name: 'Hợp đồng' })).toBeVisible()
   await expect(studentScheduleTabs.getByRole('button', { name: 'Yêu cầu' })).toBeVisible()
   await expect(studentScheduleTabs.getByRole('button', { name: 'Lịch sử' })).toBeVisible()
   await studentScheduleTabs.getByRole('button', { name: 'Lịch rảnh' }).click()
   await expect(page.getByRole('region', { name: 'Ma trận thời gian rảnh' })).toBeVisible()
+  await expect(page.getByText('Đã đủ mức tối thiểu')).toBeVisible()
   await expect(page.locator('.student-schedule-matrix td button').filter({ hasText: '+' })).toHaveCount(0)
   const scheduleLayout = await page.evaluate(() => {
     const schedulePage = document.querySelector<HTMLElement>('.student-schedule-page')!
@@ -154,6 +156,13 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   expect(scheduleLayout.visibleDayHeaders).toEqual(['Giờ', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'])
   expect(scheduleLayout.heroRadius).toBe('0px')
   expect(scheduleLayout.contentBackground).toContain('linear-gradient')
+
+  await studentScheduleTabs.getByRole('button', { name: 'Hợp đồng' }).click()
+  await expect(page.getByRole('heading', { name: 'Gói tập của bạn' })).toBeVisible()
+  await expect(page.getByText('LỊCH THANH TOÁN', { exact: true })).toBeVisible()
+  await expect(page.getByText('Kỳ thanh toán còn 5 ngày')).toBeVisible()
+  const contractOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+  expect(contractOverflow).toBeLessThanOrEqual(1)
 })
 
 test('Today Flow belongs to Home while nutrition guidance follows the three-slide carousel', async ({ page }) => {

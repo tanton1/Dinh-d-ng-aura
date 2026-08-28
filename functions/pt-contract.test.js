@@ -12,6 +12,7 @@ const cycleMigrationSource = readFileSync(join(__dirname, 'scripts', 'backfill-p
 const operationsV2Source = readFileSync(join(__dirname, 'pt-operations-v2.js'), 'utf8')
 const studentScheduleServiceSource = readFileSync(join(__dirname, '..', 'src', 'services', 'studentPtScheduleService.ts'), 'utf8')
 const studentSchedulePageSource = readFileSync(join(__dirname, '..', 'src', 'pages', 'student', 'SchedulePage.tsx'), 'utf8')
+const { studentContractProjection, studentContractAlerts } = require('./pt-operations-v2')
 
 test('PT lifecycle is exposed only through the expected atomic callables', () => {
   for (const name of [
@@ -114,6 +115,9 @@ test('learner and staff personal Gym schedule is self-scoped and availability wr
   assert.match(studentScheduleBlock, /const minimumSlots = Math\.max\(5, requiredSessions\)/)
   assert.match(studentScheduleBlock, /availabilityCutoff\(weekId\)/)
   assert.match(studentScheduleBlock, /issueCode: 'AVAILABILITY_LOCKED'/)
+  assert.match(studentScheduleBlock, /issueCode: 'MINIMUM_AVAILABILITY_REQUIRED'/)
+  assert.match(studentScheduleBlock, /contractAlerts: serialize\(contractAlerts\)/)
+  assert.match(studentScheduleBlock, /studentContractProjection\(item\.id, item\.data\(\), today\)/)
   assert.match(studentScheduleBlock, /currentAvailability\.data\(\)\?\.revision/)
   assert.match(studentScheduleBlock, /status: 'submitted'/)
   assert.doesNotMatch(studentScheduleBlock, /request\.data\?\.studentId/)
@@ -123,6 +127,48 @@ test('learner and staff personal Gym schedule is self-scoped and availability wr
   assert.match(operationsV2Source, /availabilityRevision: revision \+ 1/)
   assert.match(functionsSource, /exports\.getMyTrainerAvailability = ptOperationsV2Functions\.getMyTrainerAvailability/)
   assert.match(functionsSource, /exports\.saveMyTrainerAvailability = ptOperationsV2Functions\.saveMyTrainerAvailability/)
+})
+
+test('student contract projection exposes only a bounded payment schedule and canonical debt', () => {
+  const projection = studentContractProjection('contract-1', {
+    packageName: 'PT 3 tháng',
+    status: 'active',
+    startDate: '2026-08-01',
+    endDate: '2026-09-05',
+    totalSessions: 36,
+    usedSessions: 33,
+    totalPrice: 5_000_000,
+    discount: 500_000,
+    paidAmount: 2_000_000,
+    installments: [
+      { id: 'second', date: '2026-09-02', amount: 1_500_000, status: 'pending' },
+      { id: 'first', date: '2026-08-25', amount: 1_000_000, status: 'pending' },
+    ],
+  }, '2026-08-28')
+  assert.equal(projection.totalAmount, 4_500_000)
+  assert.equal(projection.outstandingAmount, 2_500_000)
+  assert.equal(projection.remainingSessions, 3)
+  assert.equal(projection.nextPaymentDate, '2026-08-25')
+  assert.equal(projection.paymentStatus, 'overdue')
+  assert.deepEqual(projection.installments.map((item) => item.id), ['first', 'second'])
+})
+
+test('student contract alerts prioritize overdue payments and warn before contract/session exhaustion', () => {
+  const contract = studentContractProjection('contract-1', {
+    packageName: 'PT 3 tháng',
+    status: 'active',
+    startDate: '2026-08-01',
+    endDate: '2026-09-05',
+    totalSessions: 36,
+    usedSessions: 33,
+    totalPrice: 5_000_000,
+    paidAmount: 4_000_000,
+    installments: [{ id: 'late', date: '2026-08-25', amount: 1_000_000, status: 'pending' }],
+  }, '2026-08-28')
+  const alerts = studentContractAlerts([contract], '2026-08-28')
+  assert.equal(alerts[0].code, 'PAYMENT_OVERDUE')
+  assert.ok(alerts.some((item) => item.code === 'CONTRACT_EXPIRING'))
+  assert.ok(alerts.some((item) => item.code === 'CONTRACT_SESSIONS_LOW'))
 })
 
 test('Sales workspace bootstraps quotes and catalog through one actor-scoped callable', () => {
@@ -151,6 +197,7 @@ test('student schedule client maps callable failures to actionable structured st
     'PROFILE_NOT_LINKED',
     'REVISION_CONFLICT',
     'AVAILABILITY_LOCKED',
+    'MINIMUM_AVAILABILITY_REQUIRED',
     'SYNC_UNAVAILABLE',
   ]) {
     assert.match(studentScheduleServiceSource, new RegExp(`'${issueCode}'`))

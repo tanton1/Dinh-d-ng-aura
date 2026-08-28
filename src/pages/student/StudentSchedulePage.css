@@ -361,6 +361,112 @@
 .student-availability-lock-note > div strong { font-size:14px; }
 .student-availability-lock-note > div span { font-size:11px; line-height:1.45; }
 .student-availability-lock-note > button { flex:0 0 auto; margin-left:auto; white-space:nowrap; }
+.student-availability-guidance {
+  display:grid;
+  grid-template-columns:38px minmax(0,1fr) auto;
+  align-items:center;
+  gap:11px;
+  margin:0 clamp(16px,3vw,34px) 13px;
+  padding:12px 14px;
+  border:1px solid #f4d4df;
+  border-radius:16px;
+  color:#6f4254;
+  background:linear-gradient(135deg,#fff7fa,#fff8f1);
+}
+.student-availability-guidance > span { display:grid; width:38px; height:38px; place-items:center; border-radius:13px; color:#fff; background:linear-gradient(135deg,var(--schedule-pink),var(--schedule-orange)); }
+.student-availability-guidance strong,.student-availability-guidance p { display:block; margin:0; }
+.student-availability-guidance strong { color:#35232c; font-size:13px; }
+.student-availability-guidance p { margin-top:3px; color:#7c6872; font-size:11px; line-height:1.45; }
+.student-availability-guidance > em { min-width:48px; padding:7px 9px; border-radius:999px; color:#ce276b; background:#fff; font-size:10px; font-style:normal; font-weight:900; text-align:center; }
+.student-availability-guidance.is-warning { border-color:#ffd2bd; background:linear-gradient(135deg,#fff6f8,#fff3e8); }
+.student-availability-guidance.is-warning > span { background:linear-gradient(135deg,#ef3d79,#ff864d); }
+.student-availability-guidance.is-ready { border-color:#bdebd8; background:linear-gradient(135deg,#f3fff9,#fff8ee); }
+.student-availability-guidance.is-ready > span,.student-availability-guidance.is-excellent > span { background:linear-gradient(135deg,#11a36d,#49c88c); }
+.student-availability-guidance.is-excellent { border-color:#aee4d0; background:linear-gradient(135deg,#effcf7,#fff8ed); }
+
+.student-contract-alert-rail {
+  display:flex;
+  gap:9px;
+  overflow-x:auto;
+  padding:11px clamp(13px,3vw,34px);
+  border-bottom:1px solid #f0e1e8;
+  background:rgba(255,249,247,.92);
+  scroll-snap-type:x mandatory;
+  scrollbar-width:none;
+  -webkit-overflow-scrolling:touch;
+}
+.student-contract-alert-rail::-webkit-scrollbar { display:none; }
+.student-contract-alert-rail > button {
+  display:grid;
+  flex:0 0 min(330px,84vw);
+  grid-template-columns:36px minmax(0,1fr) 20px;
+  align-items:center;
+  gap:10px;
+  min-height:68px;
+  padding:10px 12px;
+  border:1px solid #ffd0bd;
+  border-radius:17px;
+  color:#ad3d42;
+  background:linear-gradient(135deg,#fff4f7,#fff2e8);
+  text-align:left;
+  scroll-snap-align:start;
+  cursor:pointer;
+}
+.student-contract-alert-rail > button.is-info { border-color:#c8e1fa; color:#27659a; background:linear-gradient(135deg,#f1f8ff,#fff8f1); }
+.student-contract-alert-rail > button > svg:first-child { padding:8px; box-sizing:content-box; border-radius:12px; color:#fff; background:linear-gradient(135deg,#f12d78,#ff874f); }
+.student-contract-alert-rail > button.is-info > svg:first-child { background:linear-gradient(135deg,#3186ca,#66aee1); }
+.student-contract-alert-rail span { min-width:0; }
+.student-contract-alert-rail strong,.student-contract-alert-rail small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.student-contract-alert-rail strong { color:#3f2932; font-size:12px; }
+.student-contract-alert-rail small { margin-top:3px; color:#836d76; font-size:10px; }
+
+.student-contract-center {
+  padding:20px clamp(16px,3vw,34px) 32px;
+  border-bottom:1px solid #eedfe5;
+  background:linear-gradient(145deg,rgba(255,255,255,.96),rgba(255,245,239,.92));
+}
+.student-contract-center > header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:15px; }
+.student-contract-center header small { color:var(--schedule-pink); font-size:10px; font-weight:900; letter-spacing:.13em; }
+.student-contract-center header h2 { margin:4px 0; color:#241a21; font-size:21px; }
+.student-contract-center header p { margin:0; color:#7d7078; font-size:12px; line-height:1.5; }
+.student-contract-center > header > span { flex:0 0 auto; padding:8px 11px; border-radius:999px; color:#b44d17; background:#fff0de; font-size:10px; font-weight:900; }
+.student-contract-center > header > span.is-paid { color:#147250; background:#e6f8ef; }
+.student-contract-center > header > span.is-overdue,.student-contract-center > header > span.is-due_today { color:#b2254d; background:#ffe8ef; }
+.student-contract-carousel { display:grid; grid-auto-columns:minmax(270px,34%); grid-auto-flow:column; gap:10px; overflow-x:auto; padding:2px 1px 10px; scroll-snap-type:x mandatory; scrollbar-width:none; }
+.student-contract-carousel::-webkit-scrollbar { display:none; }
+.student-contract-carousel > button { display:grid; gap:9px; min-width:0; padding:14px; border:1px solid #f0dce5; border-radius:19px; color:#43323a; background:rgba(255,255,255,.9); text-align:left; scroll-snap-align:start; cursor:pointer; }
+.student-contract-carousel > button.active { border-color:#f15d91; background:linear-gradient(145deg,#fff4f8,#fff7ef); box-shadow:0 9px 24px rgba(226,42,113,.13); }
+.student-contract-carousel > button > span:first-child small,.student-contract-carousel > button > span:first-child strong { display:block; }
+.student-contract-carousel > button > span:first-child small { color:#db286f; font-size:9px; font-weight:900; text-transform:uppercase; }
+.student-contract-carousel > button > span:first-child strong { margin-top:4px; color:#2f2229; font-size:14px; }
+.student-contract-carousel > button > em { color:#74616b; font-size:10px; font-style:normal; }
+.student-contract-carousel > button > i { display:block; height:6px; overflow:hidden; border-radius:999px; background:#f2e4e9; }
+.student-contract-carousel > button > i b { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--schedule-pink),var(--schedule-orange)); }
+.student-contract-card-footer { display:flex; align-items:center; justify-content:space-between; gap:8px; color:#8a7780; font-size:9px; }
+.student-contract-card-footer strong { color:#c72e68; font-size:10px; white-space:nowrap; }
+.student-contract-detail { margin-top:12px; }
+.student-contract-kpis { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.student-contract-kpis article { min-width:0; padding:12px; border:1px solid #f0e0e7; border-radius:16px; background:#fff; }
+.student-contract-kpis small,.student-contract-kpis strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.student-contract-kpis small { color:#8b7c84; font-size:9px; }
+.student-contract-kpis strong { margin-top:5px; color:#34262e; font-size:15px; }
+.student-contract-kpis article.is-warning strong { color:#d02669; }
+.student-contract-kpis article.is-paid strong { color:#12805a; }
+.student-payment-schedule { margin-top:10px; overflow:hidden; border:1px solid #f0dfe7; border-radius:19px; background:#fff; }
+.student-payment-schedule > header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:13px 14px; border-bottom:1px solid #f3e6eb; background:#fff9fb; }
+.student-payment-schedule header h3 { margin:3px 0 0; color:#35272e; font-size:14px; }
+.student-payment-schedule > header > span { color:#ce2b6a; font-size:10px; font-weight:850; white-space:nowrap; }
+.student-payment-schedule > div:not(.student-session-empty) { display:grid; padding:0 14px; }
+.student-payment-schedule article { display:grid; grid-template-columns:32px minmax(0,1fr) auto; align-items:center; gap:10px; padding:12px 0; border-bottom:1px solid #f4eaee; }
+.student-payment-schedule article:last-child { border-bottom:0; }
+.student-payment-schedule article > span { display:grid; width:32px; height:32px; place-items:center; border-radius:11px; color:#d3266d; background:#fff0f6; font-size:10px; font-weight:900; }
+.student-payment-schedule article strong,.student-payment-schedule article small { display:block; }
+.student-payment-schedule article strong { color:#392a31; font-size:12px; }
+.student-payment-schedule article small { margin-top:3px; color:#917e87; font-size:9px; }
+.student-payment-schedule article > em { padding:6px 8px; border-radius:999px; color:#9a621f; background:#fff2dd; font-size:9px; font-style:normal; font-weight:900; white-space:nowrap; }
+.student-payment-schedule article.is-paid > em { color:#147653; background:#e7f8f0; }
+.student-payment-schedule article.is-overdue > em { color:#b8284f; background:#ffe8ef; }
+.student-contract-pause-action { display:inline-flex; align-items:center; gap:7px; min-height:40px; margin-top:11px; padding:0 13px; border:1px solid #efb9cc; border-radius:12px; color:#d4266e; background:#fff4f8; font:inherit; font-size:10px; font-weight:900; cursor:pointer; }
 
 .student-request-center {
   margin: 0;
@@ -667,6 +773,18 @@
   .student-request-policy-grid article { grid-template-columns: 30px minmax(0,1fr) auto; }
   .student-request-history-list > article { grid-template-columns: auto minmax(0,1fr); }
   .student-request-history-list article > em { grid-column: 2; }
+  .student-availability-guidance { grid-template-columns:34px minmax(0,1fr) auto; margin:0 13px 11px; padding:10px 11px; }
+  .student-availability-guidance > span { width:34px; height:34px; border-radius:11px; }
+  .student-contract-center { padding:16px 13px 112px; }
+  .student-contract-center > header { align-items:stretch; flex-direction:column; }
+  .student-contract-center > header > span { align-self:flex-start; }
+  .student-contract-carousel { grid-auto-columns:minmax(270px,88vw); }
+  .student-contract-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .student-contract-kpis article:last-child { grid-column:1/-1; }
+  .student-payment-schedule > header { align-items:flex-start; flex-direction:column; }
+  .student-payment-schedule article { grid-template-columns:30px minmax(0,1fr); }
+  .student-payment-schedule article > em { grid-column:2; justify-self:start; }
+  .student-contract-pause-action { width:100%; justify-content:center; }
 }
 
 .student-policy-modal { position: fixed; inset: 0; z-index: 240; display: grid; place-items: end center; }
