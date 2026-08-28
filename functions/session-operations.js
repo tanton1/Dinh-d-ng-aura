@@ -21,6 +21,8 @@ const DAILY_SESSION_QUERY_LIMIT = 200
 const REQUEST_QUERY_LIMIT = 200
 const PAUSE_SESSION_QUERY_LIMIT = 200
 const AUTOMATIC_CHARGE_QUERY_LIMIT = 2000
+const AUTO_ATTENDANCE_CONFIRM_HOURS = 48
+const AUTO_ATTENDANCE_LOOKBACK_DAYS = 8
 const BULK_ATTENDANCE_LIMIT = 30
 const NO_SHOW_GRACE_MINUTES = 15
 const OPERATIONS_REQUEST_HISTORY_LIMIT = 500
@@ -78,6 +80,13 @@ function nextDateKey(value) {
   const next = new Date(`${value}T00:00:00.000Z`)
   next.setUTCDate(next.getUTCDate() + 1)
   return next.toISOString().slice(0, 10)
+}
+
+function vietnamWeekStartDateKey(value = new Date()) {
+  const current = vietnamDateKey(value)
+  const parsed = new Date(`${current}T00:00:00.000Z`)
+  const weekday = parsed.getUTCDay()
+  return addDateDays(current, weekday === 0 ? -6 : 1 - weekday)
 }
 
 function dailySessionsQuery(db, ownerField, ownerId, targetDate) {
@@ -602,6 +611,7 @@ async function recordSessionAttendanceTransaction({
   assertSessionScope = () => {},
   now = new Date(),
   timeZone = 'Asia/Ho_Chi_Minh',
+  confirmationSource = 'manual',
 }) {
   const normalizedStatus = normalizedAttendanceStatus(attendanceStatus)
   const normalizedLate = normalizedLateMinutes(normalizedStatus, lateMinutes)
@@ -645,6 +655,9 @@ async function recordSessionAttendanceTransaction({
     const beforeStatus = ATTENDANCE_STATUSES.has(attendance.attendanceStatus) ? attendance.attendanceStatus : 'pending'
     const auditReference = db.collection('attendanceAuditLogs').doc()
     const legacyStatus = normalizedStatus === 'no_show' ? 'no_show' : 'completed'
+    const autoConfirmation = confirmationSource === 'auto_after_48h'
+      ? { autoConfirmedAt: FieldValue.serverTimestamp() }
+      : {}
     transaction.update(attendanceReference, {
       type: normalizedStatus === 'no_show' ? 'no_show' : 'attended',
       attendanceStatus: normalizedStatus,
@@ -653,6 +666,8 @@ async function recordSessionAttendanceTransaction({
       note: normalizedNote,
       confirmedAt: FieldValue.serverTimestamp(),
       confirmedBy: actorUid,
+      confirmationSource,
+      ...autoConfirmation,
       updatedAt: FieldValue.serverTimestamp(),
       updatedBy: actorUid,
     })
@@ -663,6 +678,8 @@ async function recordSessionAttendanceTransaction({
       attendanceStatus: normalizedStatus,
       confirmedAt: FieldValue.serverTimestamp(),
       confirmedBy: actorUid,
+      confirmationSource,
+      ...autoConfirmation,
       completedAt: normalizedStatus === 'no_show' ? null : FieldValue.serverTimestamp(),
       revision: revision + 1,
       updatedAt: FieldValue.serverTimestamp(),
@@ -680,6 +697,7 @@ async function recordSessionAttendanceTransaction({
       lateMinutes: normalizedLate,
       noShowReason: normalizedReason,
       note: normalizedNote,
+      confirmationSource,
       changedAt: FieldValue.serverTimestamp(),
       changedBy: actorUid,
       timeZone,
@@ -732,10 +750,10 @@ async function completeSessionAttendanceTransaction({
 
 async function chargeDuePtSessions({ db, now = new Date(), logger = console, limit = AUTOMATIC_CHARGE_QUERY_LIMIT }) {
   const today = vietnamDateKey(now)
-  const yesterday = addDateDays(today, -1)
+  const weekStart = vietnamWeekStartDateKey(now)
   const snapshot = await db.collection('sessions')
-    .where('date', '>=', yesterday)
-    .where('date', '<=', today)
+    .where('date', '>=', weekStart)
+    .where('date', '<', nextDateKey(today))
     .limit(Math.min(AUTOMATIC_CHARGE_QUERY_LIMIT, Math.max(1, Number(limit) || AUTOMATIC_CHARGE_QUERY_LIMIT)))
     .get()
   const candidates = snapshot.docs.filter((item) => {
@@ -743,7 +761,7 @@ async function chargeDuePtSessions({ db, now = new Date(), logger = console, lim
     if (!isActiveSessionStatus(session.status) || isSessionCharged(session) || session.billingStatus === 'exempt') return false
     try { return sessionStartInstant(session, item.id).getTime() <= now.getTime() } catch { return false }
   })
-  const summary = { scanned: snapshot.size, due: candidates.length, charged: 0, unchanged: 0, failed: 0 }
+  const summary = { weekStart, through: today, scanned: snapshot.size, due: candidates.length, charged: 0, unchanged: 0, failed: 0 }
   for (let index = 0; index < candidates.length; index += 25) {
     const batch = candidates.slice(index, index + 25)
     const outcomes = await Promise.allSettled(batch.map((item) => chargeSessionTransaction({
@@ -769,9 +787,72 @@ async function chargeDuePtSessions({ db, now = new Date(), logger = console, lim
   return summary
 }
 
+async function autoConfirmOverduePtAttendance({ db, now = new Date(), logger = console, limit = AUTOMATIC_CHARGE_QUERY_LIMIT }) {
+  const today = vietnamDateKey(now)
+  const from = addDateDays(today, -AUTO_ATTENDANCE_LOOKBACK_DAYS)
+  const snapshot = await db.collection('sessions')
+    .where('date', '>=', from)
+    .where('date', '<', nextDateKey(today))
+    .limit(Math.min(AUTOMATIC_CHARGE_QUERY_LIMIT, Math.max(1, Number(limit) || AUTOMATIC_CHARGE_QUERY_LIMIT)))
+    .get()
+  const candidates = snapshot.docs.filter((item) => {
+    const session = item.data()
+    if (!isActiveSessionStatus(session.status) || !isSessionCharged(session) || session.billingStatus === 'exempt') return false
+    if (session.attendanceStatus && session.attendanceStatus !== 'pending') return false
+    try {
+      const deadline = sessionStartInstant(session, item.id).getTime() + AUTO_ATTENDANCE_CONFIRM_HOURS * 60 * 60_000
+      return deadline <= now.getTime()
+    } catch {
+      return false
+    }
+  })
+  const summary = {
+    from,
+    through: today,
+    confirmationAfterHours: AUTO_ATTENDANCE_CONFIRM_HOURS,
+    scanned: snapshot.size,
+    overdue: candidates.length,
+    confirmedPresent: 0,
+    unchanged: 0,
+    failed: 0,
+  }
+  for (let index = 0; index < candidates.length; index += 25) {
+    const batch = candidates.slice(index, index + 25)
+    const outcomes = await Promise.allSettled(batch.map((item) => recordSessionAttendanceTransaction({
+      db,
+      sessionId: item.id,
+      expectedRevision: Number(item.data().revision || 0),
+      actorUid: 'system:auto-after-48h',
+      attendanceStatus: 'present',
+      note: 'Tự động xác nhận có tập sau 48 giờ chưa có phản hồi từ PT.',
+      confirmationSource: 'auto_after_48h',
+      now,
+    })))
+    outcomes.forEach((outcome, outcomeIndex) => {
+      if (outcome.status === 'fulfilled') {
+        if (outcome.value.unchanged) summary.unchanged += 1
+        else summary.confirmedPresent += 1
+      } else {
+        summary.failed += 1
+        logger.warn?.('PT attendance automatic confirmation failed', {
+          sessionId: batch[outcomeIndex].id,
+          code: outcome.reason?.code || 'unknown',
+        })
+      }
+    })
+  }
+  logger.info?.('PT attendance automatic confirmation completed', summary)
+  return summary
+}
+
 async function remindUnconfirmedPtAttendance({ db, now = new Date(), logger = console }) {
   const today = vietnamDateKey(now)
-  const snapshot = await db.collection('sessions').where('date', '==', today).limit(2000).get()
+  const from = addDateDays(today, -2)
+  const snapshot = await db.collection('sessions')
+    .where('date', '>=', from)
+    .where('date', '<', nextDateKey(today))
+    .limit(2000)
+    .get()
   const pendingByTrainer = new Map()
   snapshot.docs.forEach((item) => {
     const session = item.data()
@@ -792,8 +873,8 @@ async function remindUnconfirmedPtAttendance({ db, now = new Date(), logger = co
       schemaVersion: 1,
       userId: trainerId,
       type: 'pt_attendance_confirmation',
-      title: 'Ca hôm nay chưa xác nhận',
-      body: `Bạn còn ${count} buổi cần xác nhận Có tập hoặc Không đến.`,
+      title: 'Ca dạy đang chờ xác nhận',
+      body: `Bạn còn ${count} buổi cần xác nhận Có tập hoặc Không đến trước mốc tự động 48 giờ.`,
       route: 'staff-schedule',
       read: false,
       date: today,
@@ -1913,6 +1994,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
 }
 
 module.exports = {
+  autoConfirmOverduePtAttendance,
   chargeDuePtSessions,
   chargeSessionTransaction,
   completeSessionAttendanceTransaction,

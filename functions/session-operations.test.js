@@ -2,7 +2,7 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
-const { createSessionOperationFunctions } = require('./session-operations')
+const { autoConfirmOverduePtAttendance, chargeDuePtSessions, createSessionOperationFunctions } = require('./session-operations')
 
 const root = join(__dirname, '..')
 const source = readFileSync(join(__dirname, 'session-operations.js'), 'utf8')
@@ -224,6 +224,53 @@ test('attendance uses the session contract link and a deterministic event id', a
   assert.equal(retry.attendanceEventId, 'session-attendance-1')
   assert.equal(state.paths().filter((path) => path === 'attendanceEvents/session-attendance-1').length, 1)
   assert.equal(state.paths().filter((path) => path === 'sessionBillingEvents/session-attendance-1').length, 1)
+})
+
+test('automatic charge backfills every elapsed session in the current Vietnam week', async () => {
+  const state = fakeDatabase({
+    'sessions/monday-due': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-08-24', hour: 8, revision: 0 },
+    'sessions/today-due': { status: 'scheduled', studentId: 'student-2', trainerId: 'trainer-1', contractId: 'contract-2', date: '2026-08-28', hour: 17, revision: 0 },
+    'sessions/today-future': { status: 'scheduled', studentId: 'student-3', trainerId: 'trainer-1', contractId: 'contract-3', date: '2026-08-28', hour: 18, revision: 0 },
+    'sessions/previous-week': { status: 'scheduled', studentId: 'student-4', trainerId: 'trainer-1', contractId: 'contract-4', date: '2026-08-23', hour: 8, revision: 0 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 12, usedSessions: 0 },
+    'contracts/contract-2': { status: 'active', studentId: 'student-2', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 12, usedSessions: 0 },
+    'contracts/contract-3': { status: 'active', studentId: 'student-3', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 12, usedSessions: 0 },
+    'contracts/contract-4': { status: 'active', studentId: 'student-4', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 12, usedSessions: 0 },
+  })
+  const summary = await chargeDuePtSessions({
+    db: state.db,
+    now: new Date('2026-08-28T10:30:00.000Z'),
+    logger: { info() {}, warn() {} },
+  })
+  assert.equal(summary.weekStart, '2026-08-24')
+  assert.equal(summary.charged, 2)
+  assert.equal(state.read('sessions/monday-due').attendanceStatus, 'pending')
+  assert.equal(state.read('sessions/today-due').billingStatus, 'charged')
+  assert.equal(state.read('sessions/today-future').billingStatus, undefined)
+  assert.equal(state.read('sessions/previous-week').billingStatus, undefined)
+})
+
+test('unconfirmed charged attendance becomes present after 48 hours with an explicit audit source', async () => {
+  const state = fakeDatabase({
+    'sessions/overdue-pending': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-08-26', hour: 17, revision: 1, billingStatus: 'charged', attendanceStatus: 'pending', attendanceEventId: 'overdue-pending' },
+    'attendanceEvents/overdue-pending': { type: 'pending_confirmation', sessionId: 'overdue-pending', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', billingStatus: 'charged', attendanceStatus: 'pending', lateMinutes: null, noShowReason: '', note: '' },
+    'sessions/within-window': { status: 'scheduled', studentId: 'student-2', trainerId: 'trainer-1', contractId: 'contract-2', date: '2026-08-27', hour: 17, revision: 1, billingStatus: 'charged', attendanceStatus: 'pending', attendanceEventId: 'within-window' },
+    'attendanceEvents/within-window': { type: 'pending_confirmation', sessionId: 'within-window', studentId: 'student-2', trainerId: 'trainer-1', contractId: 'contract-2', billingStatus: 'charged', attendanceStatus: 'pending', lateMinutes: null, noShowReason: '', note: '' },
+  })
+  const summary = await autoConfirmOverduePtAttendance({
+    db: state.db,
+    now: new Date('2026-08-28T10:00:00.000Z'),
+    logger: { info() {}, warn() {} },
+  })
+  assert.equal(summary.confirmationAfterHours, 48)
+  assert.equal(summary.confirmedPresent, 1)
+  assert.equal(state.read('sessions/overdue-pending').status, 'completed')
+  assert.equal(state.read('sessions/overdue-pending').attendanceStatus, 'present')
+  assert.equal(state.read('sessions/overdue-pending').confirmationSource, 'auto_after_48h')
+  assert.equal(state.read('attendanceEvents/overdue-pending').attendanceStatus, 'present')
+  assert.equal(state.read('attendanceEvents/overdue-pending').confirmationSource, 'auto_after_48h')
+  assert.equal(state.read('sessions/within-window').attendanceStatus, 'pending')
+  assert.equal(state.paths().filter((path) => path.startsWith('attendanceAuditLogs/')).length, 1)
 })
 
 test('automatic billing stays independent from present, late, no-show and audited corrections', async () => {

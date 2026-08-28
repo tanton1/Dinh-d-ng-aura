@@ -19,7 +19,7 @@ const { createPtOperationsV2Functions } = require('./pt-operations-v2')
 const { createPtSchedulePublishFunctions } = require('./pt-schedule-publish')
 const { createPtScheduleV2Functions } = require('./pt-schedule-v2')
 const { createFinanceLedgerFunctions } = require('./finance-ledger')
-const { chargeDuePtSessions, createSessionOperationFunctions, remindUnconfirmedPtAttendance } = require('./session-operations')
+const { autoConfirmOverduePtAttendance, chargeDuePtSessions, createSessionOperationFunctions, remindUnconfirmedPtAttendance } = require('./session-operations')
 const { createPayrollFunctions, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile } = require('./payroll')
 const { createStaffPayrollFunctions } = require('./staff-payroll')
 const { createOperationsDashboardFunctions } = require('./operations-dashboard')
@@ -244,6 +244,14 @@ exports.chargeDuePtSessionsScheduled = onSchedule({
   maxInstances: 1,
   timeoutSeconds: 540,
 }, async () => chargeDuePtSessions({ db, now: new Date(), logger }))
+exports.autoConfirmOverduePtAttendanceScheduled = onSchedule({
+  schedule: 'every 5 minutes',
+  region: 'asia-southeast1',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  retryCount: 1,
+  maxInstances: 1,
+  timeoutSeconds: 540,
+}, async () => autoConfirmOverduePtAttendance({ db, now: new Date(), logger }))
 exports.remindUnconfirmedPtAttendanceScheduled = onSchedule({
   schedule: '0 21 * * *',
   region: 'asia-southeast1',

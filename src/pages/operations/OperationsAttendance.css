@@ -40,3 +40,17 @@
   min-height: 70px;
   resize: vertical;
 }
+
+.opv2-auto-attendance-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  color: #9a5a70;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.opv2-auto-attendance-note svg {
+  flex: 0 0 auto;
+}
