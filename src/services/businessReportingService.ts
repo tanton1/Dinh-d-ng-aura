@@ -86,11 +86,19 @@ export interface TrainingHistoryRecord {
 }
 
 export interface TrainingHistoryPage {
-  schemaVersion: 2
+  schemaVersion: number
   subjectType: TrainingHistorySubject
   subjectId: string
   records: TrainingHistoryRecord[]
-  summary: { total: number; completed: number; noShow: number; cancelled: number; byStatus: Record<string, number>; truncated: boolean }
+  summary: {
+    total: number
+    completed: number
+    noShow: number
+    cancelled: number
+    byStatus: Record<string, number>
+    teaching: { totalShifts: number; pairedShifts: number; learnerBookings: number; maxLearnersPerShift: number } | null
+    truncated: boolean
+  }
   hasMore: boolean
   nextCursor: string | null
   filters: { startDate: string; endDate: string; status: TrainingHistoryStatus }

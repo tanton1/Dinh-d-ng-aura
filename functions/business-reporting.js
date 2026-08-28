@@ -322,6 +322,34 @@ function sessionStatusSummary(records) {
   }, { total: 0, completed: 0, noShow: 0, cancelled: 0, byStatus: {} })
 }
 
+function historySessionHour(item = {}) {
+  if (Number.isInteger(item.hour)) return item.hour
+  const parsed = Number(String(item.id || '').split('-')[1])
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 23 ? parsed : null
+}
+
+function teachingShiftSummary(records = []) {
+  const shifts = new Map()
+  records.forEach((item) => {
+    const day = typeof item.date === 'string' ? item.date.slice(0, 10) : ''
+    const hour = historySessionHour(item)
+    const trainerId = typeof item.trainerId === 'string' ? item.trainerId : ''
+    const key = day && hour !== null
+      ? `${trainerId}|${day}|${hour}`
+      : `unknown|${item.id || shifts.size}`
+    const studentIds = shifts.get(key) || new Set()
+    studentIds.add(item.studentId || item.id || `unknown-${studentIds.size}`)
+    shifts.set(key, studentIds)
+  })
+  const groupSizes = [...shifts.values()].map((students) => students.size)
+  return {
+    totalShifts: shifts.size,
+    pairedShifts: groupSizes.filter((size) => size >= 2).length,
+    learnerBookings: records.length,
+    maxLearnersPerShift: groupSizes.length ? Math.max(...groupSizes) : 0,
+  }
+}
+
 function createBusinessReportingFunctions({ db, onCall }) {
   const listBusinessPerformance = onCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
@@ -436,11 +464,11 @@ function createBusinessReportingFunctions({ db, onCall }) {
       .limit(5001)
     const summarySnapshot = await summaryQuery.get()
     const summaryRecords = summarySnapshot.docs
-      .map((item) => item.data())
+      .map((item) => ({ id: item.id, ...item.data() }))
       .filter((item) => (access.scope !== 'branch_manager' || access.actor.branchIds.includes(item.branchId)))
       .filter((item) => input.status === 'all' || item.status === input.status)
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
       subjectType,
       subjectId,
       records: records.map((item) => {
@@ -472,7 +500,11 @@ function createBusinessReportingFunctions({ db, onCall }) {
           revision: Number(item.revision || 0),
         }
       }),
-      summary: { ...sessionStatusSummary(summaryRecords), truncated: summarySnapshot.size > 5000 },
+      summary: {
+        ...sessionStatusSummary(summaryRecords),
+        teaching: subjectType === 'trainer' ? teachingShiftSummary(summaryRecords) : null,
+        truncated: summarySnapshot.size > 5000,
+      },
       hasMore: snapshot.size > input.pageSize,
       nextCursor: snapshot.size > input.pageSize && scannedPageDocuments.length ? encodeCursor(scannedPageDocuments[scannedPageDocuments.length - 1]) : null,
       filters: { startDate: input.startDate, endDate: input.endDate, status: input.status },
@@ -490,4 +522,5 @@ module.exports = {
   normaliseBusinessRange,
   normaliseHistoryInput,
   summaryFromLedger,
+  teachingShiftSummary,
 }

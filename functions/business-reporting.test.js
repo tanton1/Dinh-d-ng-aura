@@ -8,6 +8,7 @@ const {
   normaliseBusinessRange,
   normaliseHistoryInput,
   summaryFromLedger,
+  teachingShiftSummary,
 } = require('./business-reporting')
 
 const source = readFileSync(join(__dirname, 'business-reporting.js'), 'utf8')
@@ -40,4 +41,19 @@ test('business report and training history retain bounded filters and actor-scop
   assert.match(source, /MAX_ATTENDANCE_DOCUMENTS = 10000/)
   assert.match(source, /unrecognisedAttendanceEvents/)
   assert.match(source, /Aura không tự suy diễn số còn thiếu/)
+})
+
+test('trainer teaching history counts a paired class as one teaching shift', () => {
+  const summary = teachingShiftSummary([
+    { id: 'session-a', trainerId: 'trainer-1', studentId: 'student-a', branchId: 'branch-1', date: '2026-08-28', hour: 18 },
+    { id: 'session-b', trainerId: 'trainer-1', studentId: 'student-b', branchId: 'branch-1', date: '2026-08-28', hour: 18 },
+    { id: 'session-c', trainerId: 'trainer-1', studentId: 'student-c', branchId: 'branch-1', date: '2026-08-28', hour: 19 },
+    { id: 'session-d', trainerId: 'trainer-1', studentId: 'student-d', branchId: 'branch-2', date: '2026-08-28', hour: 18 },
+  ])
+  assert.deepEqual(summary, {
+    totalShifts: 2,
+    pairedShifts: 1,
+    learnerBookings: 4,
+    maxLearnersPerShift: 3,
+  })
 })
