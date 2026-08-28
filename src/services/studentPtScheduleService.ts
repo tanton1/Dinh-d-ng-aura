@@ -29,6 +29,7 @@ export type StudentPtScheduleIssueCode =
   | 'PROFILE_NOT_LINKED'
   | 'REVISION_CONFLICT'
   | 'AVAILABILITY_LOCKED'
+  | 'AVAILABILITY_EMPTY'
   | 'MINIMUM_AVAILABILITY_REQUIRED'
   | 'SYNC_UNAVAILABLE'
   | 'INVALID_REQUEST'
@@ -165,11 +166,14 @@ export interface StudentPtAvailability {
   minimumSlots: number
   requiredSessions: number
   revision: number
-  status: 'draft' | 'submitted' | 'locked'
+  status: 'draft' | 'submitted' | 'locked' | 'inherited' | 'legacy_default'
+  confirmed?: boolean
   locked: boolean
   cutoffAt: string
   submittedAt: string | null
-  source: 'weekly' | 'legacy_default'
+  source: 'weekly' | 'inherited_weekly' | 'legacy_default' | 'none'
+  sourceWeekId?: string | null
+  sourceRevision?: number
 }
 
 export function normalizeStudentPtScheduleData(data: StudentPtScheduleData): StudentPtScheduleData {
@@ -187,6 +191,9 @@ export function normalizeStudentPtScheduleData(data: StudentPtScheduleData): Stu
       availability: data.student.availability ? {
         ...data.student.availability,
         slots: Array.isArray(data.student.availability.slots) ? data.student.availability.slots : [],
+        source: ['weekly', 'inherited_weekly', 'legacy_default', 'none'].includes(data.student.availability.source)
+          ? data.student.availability.source
+          : 'none',
       } : undefined,
     } : null,
     sessions: Array.isArray(data?.sessions) ? data.sessions : [],
@@ -225,6 +232,7 @@ function knownIssueCode(value: unknown): StudentPtScheduleIssueCode | null {
     'PROFILE_NOT_LINKED',
     'REVISION_CONFLICT',
     'AVAILABILITY_LOCKED',
+    'AVAILABILITY_EMPTY',
     'MINIMUM_AVAILABILITY_REQUIRED',
     'SYNC_UNAVAILABLE',
     'INVALID_REQUEST',

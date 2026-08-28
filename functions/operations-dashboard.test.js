@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const test = require('node:test')
-const { dashboardAnalytics, dashboardBranchScope, isEffectiveContract, isExhaustedContract, isExpiringContract, isPreservedContract, ledgerReceiptImpact, ledgerRevenueImpact, renewalCaseMatches, summarizeReceivables } = require('./operations-dashboard')
+const { dashboardAnalytics, dashboardBranchScope, isEffectiveContract, isExhaustedContract, isExpiringContract, isPreservedContract, ledgerReceiptImpact, ledgerRevenueImpact, receivableSchedule, renewalCaseMatches, summarizeReceivables, todayAttendanceRows } = require('./operations-dashboard')
 const source = readFileSync(join(__dirname, 'operations-dashboard.js'), 'utf8')
 const dashboard = readFileSync(join(__dirname, '..', 'src', 'pages', 'admin', 'AdminDashboard.tsx'), 'utf8')
 
@@ -12,9 +12,9 @@ test('operations dashboard separates contract sales from canonical cash collecti
   assert.match(source, /cashCollected/)
   assert.match(source, /collection\('ledgerEntries'\)/)
   assert.doesNotMatch(source, /collection\('payments'\)/)
-  assert.match(dashboard, /Thực thu gộp/)
+  assert.match(dashboard, /thu gộp/)
   assert.match(dashboard, /Thực thu ròng/)
-  assert.match(dashboard, /Tổng công nợ/)
+  assert.match(dashboard, /CÔNG NỢ QUÁ HẠN/)
 })
 
 test('dashboard and attendance queries are bounded and capability protected', () => {
@@ -24,7 +24,7 @@ test('dashboard and attendance queries are bounded and capability protected', ()
   assert.match(source, /collection\('attendanceEvents'\)/)
   assert.match(source, /\.count\(\)\.get\(\)/)
   assert.match(source, /DASHBOARD_CACHE_TTL_MS/)
-  assert.match(source, /schemaVersion: 5/)
+  assert.match(source, /schemaVersion: 6/)
   assert.match(source, /actionSummary/)
   assert.match(source, /analytics/)
 })
@@ -98,6 +98,33 @@ test('receivable actions count overdue and due-today contracts without duplicati
   assert.equal(summary.amount, 500_000)
 })
 
+test('receivable schedule separates overdue, this week and this month without exceeding contract debt', () => {
+  const result = receivableSchedule([
+    { id: 'c1', studentId: 's1', packageName: 'PT 3 tháng', totalPrice: 1_000_000, paidAmount: 200_000, installments: [
+      { id: 'late', status: 'pending', date: '2026-08-20', amount: 400_000 },
+      { id: 'week', status: 'pending', date: '2026-08-29', amount: 400_000 },
+      { id: 'overflow', status: 'pending', date: '2026-08-30', amount: 400_000 },
+    ] },
+    { id: 'c2', studentId: 's2', packageName: 'PT 6 tháng', totalPrice: 2_000_000, paidAmount: 1_500_000, nextPaymentDate: '2026-08-31' },
+  ], [{ id: 's1', name: 'Lan', phone: '0901' }, { id: 's2', name: 'Mai' }], '2026-08-28')
+  assert.equal(result.summary.overdue.amount, 400_000)
+  assert.equal(result.summary.dueThisWeek.amount, 400_000)
+  assert.equal(result.summary.dueThisMonth.amount, 900_000)
+  assert.equal(result.rows.filter((item) => item.contractId === 'c1').reduce((sum, item) => sum + item.amount, 0), 800_000)
+  assert.equal(result.rows[0].studentName, 'Lan')
+})
+
+test('today attendance table resolves names and keeps billing separate from presence', () => {
+  const result = todayAttendanceRows([
+    { id: 'session-1', studentId: 's1', trainerId: 't1', hour: 8, status: 'completed', billingStatus: 'charged' },
+    { id: 'session-2', studentId: 's2', trainerId: 't1', hour: 9, status: 'scheduled', attendanceStatus: 'late', billingStatus: 'charged' },
+  ], [{ id: 's1', name: 'Lan' }, { id: 's2', name: 'Mai' }], [{ id: 't1', name: 'PT An' }])
+  assert.deepEqual(result.rows.map((item) => item.studentName), ['Lan', 'Mai'])
+  assert.equal(result.rows[0].attendanceStatus, 'present')
+  assert.equal(result.rows[1].attendanceStatus, 'late')
+  assert.equal(result.rows[1].billingStatus, 'charged')
+})
+
 test('staff dashboard scope fails closed for branch data but keeps explicitly assigned renewal cases', () => {
   const actor = {
     uid: 'staff-1', legacyStaffId: 'trainer-1', accessRole: 'staff', branchIds: [],
@@ -112,23 +139,23 @@ test('staff dashboard scope fails closed for branch data but keeps explicitly as
 
 test('dashboard UI is one action-first page without legacy dashboard tabs', () => {
   assert.match(dashboard, /Hôm nay cần làm/)
-  assert.match(dashboard, /Vận hành hiện tại/)
-  assert.match(dashboard, /Đã tính buổi/)
+  assert.match(dashboard, /Ca tập trong ngày/)
+  assert.match(dashboard, /Lịch cần thu/)
+  assert.match(dashboard, /DOANH THU THỰC HIỆN/)
+  assert.match(dashboard, /HỌC VIÊN MỚI/)
   assert.match(dashboard, /Có tập/)
   assert.match(dashboard, /Đi trễ/)
   assert.match(dashboard, /Không đến/)
   assert.match(dashboard, /Chờ PT/)
-  assert.match(dashboard, /Xem lịch sử tập/)
   assert.match(dashboard, /DOANH THU & DÒNG TIỀN/)
   assert.match(dashboard, /Doanh thu thực hiện/)
   assert.match(dashboard, /CƠ CẤU GÓI TẬP/)
   assert.match(dashboard, /TỶ LỆ OFF/)
-  assert.match(dashboard, /Đang bảo lưu/)
+  assert.match(dashboard, /đang bảo lưu/)
   assert.match(dashboard, /không ở trong thời gian bảo lưu/)
   assert.match(dashboard, /allowAll=\{false\}/)
-  assert.match(dashboard, /actions\.slice\(0, 4\)/)
   assert.match(dashboard, /item\.metric\.available \|\| data\.scope\.unrestricted/)
-  assert.match(dashboard, /Các việc cần xử lý/)
+  assert.match(dashboard, /Báo cáo nhanh theo kỳ/)
   assert.match(dashboard, /Tổng quan không hiển thị trạng thái “ổn định” khi dữ liệu chưa tải thành công/)
   assert.doesNotMatch(dashboard, /activeTab/)
   assert.doesNotMatch(dashboard, /admin-operations-tabs/)

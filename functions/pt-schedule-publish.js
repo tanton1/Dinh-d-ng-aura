@@ -4,6 +4,10 @@ const { createHash } = require('node:crypto')
 const { FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
+const {
+  effectiveStudentAvailability,
+  loadLatestSubmittedFallbacks,
+} = require('./student-availability')
 
 // Keep enough headroom for schedule/version/audit writes in the same atomic
 // publish transaction. A paired session still occupies one trainer time slot,
@@ -245,7 +249,7 @@ async function publisherActor(request, db, branchId) {
   return actor
 }
 
-function desiredEntries({ scheduleId, week, branchId, schedule, trainers, students, contracts, availability, config, trainerLeaves = [] }) {
+function desiredEntries({ scheduleId, week, branchId, schedule, trainers, students, contracts, availability, inheritedAvailability = new Map(), config, trainerLeaves = [] }) {
   const desired = new Map()
   const errors = []
   const warnings = []
@@ -322,18 +326,21 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       studentDays.add(studentDay)
       trainerSlots.set(trainerSlot, (trainerSlots.get(trainerSlot) || 0) + 1)
 
-      const weekly = availability.get(studentId)
-      const recurringSlots = Array.isArray(student?.availableSlots) ? student.availableSlots : []
-      const recurringConfirmed = !weekly && student?.isScheduleConfirmed === true && recurringSlots.length > 0
-      const slots = new Set(Array.isArray(weekly?.slots) ? weekly.slots : recurringConfirmed ? recurringSlots : [])
+      const effectiveAvailability = effectiveStudentAvailability({
+        targetWeek: week,
+        exact: availability.get(studentId),
+        inherited: inheritedAvailability.get(studentId),
+        profile: student,
+      })
+      const slots = new Set(effectiveAvailability.slots)
       const override = manualAvailabilityOverride(raw)
       let availabilityIssue = null
-      if (!weekly && !recurringConfirmed) availabilityIssue = 'AVAILABILITY_NOT_SUBMITTED'
-      else if (weekly && !['submitted', 'locked'].includes(weekly.status)) availabilityIssue = 'AVAILABILITY_NOT_SUBMITTED'
+      if (!effectiveAvailability.confirmed) availabilityIssue = 'AVAILABILITY_NOT_SUBMITTED'
       else if (!slots.has(slotId)) availabilityIssue = 'OUTSIDE_STUDENT_AVAILABILITY'
       if (availabilityIssue && override) warnings.push('MANUAL_STUDENT_AVAILABILITY_OVERRIDE')
       else if (availabilityIssue) errors.push(availabilityIssue)
-      if (recurringConfirmed) warnings.push('LEGACY_AVAILABILITY_FALLBACK')
+      if (effectiveAvailability.source === 'inherited_weekly') warnings.push('INHERITED_AVAILABILITY_FALLBACK')
+      if (effectiveAvailability.source === 'legacy_default') warnings.push('LEGACY_AVAILABILITY_FALLBACK')
 
       const dateCandidates = contracts.filter((contract) => contract.studentId === studentId
         && ['active', 'future'].includes(String(contract.status || 'active').toLowerCase())
@@ -407,6 +414,24 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
     const scheduleReference = db.doc(`schedules/${scheduleId}`)
     const v2DraftReference = db.doc(`ptScheduleDrafts/${branchId}_${week}`)
     const branchReference = db.doc(`branches/${branchId}`)
+    const [preliminarySchedule, preliminaryDraft, preliminaryStudents, preliminaryAvailability] = await Promise.all([
+      scheduleReference.get(),
+      v2DraftReference.get(),
+      db.collection('students').where('branchId', '==', branchId).limit(501).get(),
+      db.collection('ptAvailability').where('weekId', '==', week).limit(1001).get(),
+    ])
+    const preliminaryData = preliminaryDraft.exists ? preliminaryDraft.data() : preliminarySchedule.data() || {}
+    const scheduledStudentIds = new Set(Object.values(preliminaryData.schedule || {}).flat()
+      .filter((entry) => entry?.type !== 'off' && entry?.studentId)
+      .map((entry) => entry.studentId))
+    const preliminaryProfiles = new Map(preliminaryStudents.docs
+      .filter((item) => scheduledStudentIds.has(item.id))
+      .map((item) => [item.id, item.data()]))
+    const preliminaryWeekly = new Map(preliminaryAvailability.docs
+      .map((item) => item.data())
+      .filter((item) => scheduledStudentIds.has(item.studentId))
+      .map((item) => [item.studentId, item]))
+    const inheritedAvailability = await loadLatestSubmittedFallbacks(db, preliminaryProfiles, preliminaryWeekly, week)
 
     return db.runTransaction(async (transaction) => {
       const [scheduleSnapshot, v2DraftSnapshot, branchSnapshot, contractsSnapshot, studentsSnapshot, trainersSnapshot, availabilitySnapshot, weekSessionsSnapshot, activeSessionsSnapshot, configSnapshot, trainerLeavesSnapshot] = await Promise.all([
@@ -452,6 +477,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
         students,
         contracts,
         availability,
+        inheritedAvailability,
         config: configSnapshot.data() || {},
         trainerLeaves: trainerLeavesSnapshot.docs.map((item) => item.data()),
       })
@@ -759,6 +785,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       .map((item) => [item.studentId, item]))
     const students = new Map(studentsSnapshot.docs.map((item) => [item.id, item.data()]))
     const trainers = new Map(trainersSnapshot.docs.map((item) => [item.id, item.data()]))
+    const inheritedAvailability = await loadLatestSubmittedFallbacks(db, students, weeklyAvailability, week)
     const scheduleData = scheduleSnapshot.exists ? scheduleSnapshot.data() : {}
     const contracts = contractsSnapshot.docs
       .map((item) => ({ id: item.id, ...item.data() }))
@@ -789,7 +816,12 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       schedule: branchScheduleSnapshot(scheduleData.schedule || {}, branchId, students, trainers),
       students: studentsSnapshot.docs.map((item) => {
         const data = item.data()
-        const availability = weeklyAvailability.get(item.id)
+        const availability = effectiveStudentAvailability({
+          targetWeek: week,
+          exact: weeklyAvailability.get(item.id),
+          inherited: inheritedAvailability.get(item.id),
+          profile: data,
+        })
         return {
           id: item.id,
           name: data.name || 'Chưa cập nhật tên',
@@ -798,8 +830,8 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
           status: data.status || 'active',
           branchId,
           sessionsPerWeek: Number(data.sessionsPerWeek || 0),
-          availableSlots: Array.isArray(availability?.slots) ? availability.slots : [],
-          isScheduleConfirmed: ['submitted', 'locked'].includes(availability?.status),
+          availableSlots: availability.slots,
+          isScheduleConfirmed: availability.confirmed,
         }
       }),
       trainers: trainersSnapshot.docs.map((item) => {

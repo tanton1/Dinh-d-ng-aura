@@ -9,11 +9,12 @@ import {
   CheckCircle2,
   CircleDollarSign,
   CircleHelp,
+  Clock3,
   ClipboardCheck,
-  Dumbbell,
   GraduationCap,
   RefreshCw,
   Salad,
+  UserPlus,
   Users,
   WalletCards,
 } from 'lucide-react'
@@ -62,6 +63,19 @@ function rangeCaption(startAt: string, endAt: string) {
   const format = (value: Date) => value.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: start.getFullYear() === end.getFullYear() ? undefined : 'numeric' })
   return `${format(start)} – ${format(end)}`
 }
+
+function shortDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return 'Chưa có hạn'
+  const [year, month, day] = value.split('-')
+  return `${day}/${month}/${year}`
+}
+
+const attendanceLabels = {
+  pending: 'Chờ PT',
+  present: 'Có tập',
+  late: 'Đi trễ',
+  no_show: 'Không đến',
+} as const
 
 type RevenuePoint = OperationsDashboardData['analytics']['revenue']['points'][number]
 
@@ -157,6 +171,7 @@ export default function AdminDashboard({
   const [error, setError] = useState('')
   const [range, setRange] = useState(() => ({ startAt: startOfMonth(), endAt: currentMinute() }))
   const [branchId, setBranchId] = useState('all')
+  const [receivableView, setReceivableView] = useState<'overdue' | 'week' | 'month'>('overdue')
   const loadGeneration = useRef(0)
 
   const load = useCallback(async (forceRefresh = false) => {
@@ -254,36 +269,52 @@ export default function AdminDashboard({
       || right.metric.actionCount - left.metric.actionCount
   }), [actions])
 
-  const metricSlides = useMemo<AuraMetricSlide[]>(() => {
+  const reportSlides = useMemo<AuraMetricSlide[]>(() => {
     if (!data && !error) {
       return [
-        { id: 'loading-1', eyebrow: 'CÔNG NỢ ĐẾN HẠN', value: '—', detail: 'Đang đối chiếu ledger canonical', icon: <CircleDollarSign size={20} />, tone: 'ink' },
-        { id: 'loading-2', eyebrow: 'TÁI KÝ ĐẾN HẠN', value: '—', detail: 'Đang tải hàng đợi chăm sóc', icon: <Users size={20} />, tone: 'pink' },
-        { id: 'loading-3', eyebrow: 'LỊCH CẦN XỬ LÝ', value: '—', detail: 'Đang kiểm tra lịch và yêu cầu', icon: <CalendarClock size={20} />, tone: 'sunset' },
-        { id: 'loading-4', eyebrow: 'DUYỆT BỮA ĂN', value: '—', detail: 'Đang đối chiếu SLA dinh dưỡng', icon: <Salad size={20} />, tone: 'orange' },
+        { id: 'loading-revenue', eyebrow: 'DOANH THU THỰC HIỆN', value: '—', detail: 'Đang tổng hợp theo kỳ báo cáo', icon: <CircleDollarSign size={20} />, tone: 'ink' },
+        { id: 'loading-students', eyebrow: 'HỌC VIÊN MỚI', value: '—', detail: 'Đang đối chiếu hồ sơ mới', icon: <UserPlus size={20} />, tone: 'pink' },
+        { id: 'loading-cash', eyebrow: 'THỰC THU RÒNG', value: '—', detail: 'Đang đối chiếu ledger canonical', icon: <WalletCards size={20} />, tone: 'sunset' },
+        { id: 'loading-contracts', eyebrow: 'HỢP ĐỒNG HIỆU LỰC', value: '—', detail: 'Đang kiểm tra thời hạn và số buổi', icon: <ClipboardCheck size={20} />, tone: 'orange' },
+        { id: 'loading-debt', eyebrow: 'CÔNG NỢ QUÁ HẠN', value: '—', detail: 'Đang lập danh sách cần thu', icon: <Clock3 size={20} />, tone: 'ink' },
       ]
     }
     if (!data) {
-      return [
-        { id: 'error-1', eyebrow: 'CÔNG NỢ ĐẾN HẠN', value: 'Chưa đồng bộ', detail: 'Chạm để kết nối lại Tổng quan', icon: <CircleDollarSign size={20} />, tone: 'ink', actionLabel: 'Thử lại', onSelect: () => void load(true) },
-        { id: 'error-2', eyebrow: 'TÁI KÝ ĐẾN HẠN', value: 'Chưa đồng bộ', detail: 'Không sử dụng số liệu cũ thay thế', icon: <Users size={20} />, tone: 'pink', actionLabel: 'Thử lại', onSelect: () => void load(true) },
-        { id: 'error-3', eyebrow: 'LỊCH CẦN XỬ LÝ', value: 'Chưa đồng bộ', detail: 'Dịch vụ đang được kết nối lại', icon: <CalendarClock size={20} />, tone: 'sunset', actionLabel: 'Thử lại', onSelect: () => void load(true) },
-        { id: 'error-4', eyebrow: 'DUYỆT BỮA ĂN', value: 'Chưa đồng bộ', detail: 'Dịch vụ đang được kết nối lại', icon: <Salad size={20} />, tone: 'orange', actionLabel: 'Thử lại', onSelect: () => void load(true) },
-      ]
+      return Array.from({ length: 5 }, (_, index) => ({
+        id: `error-${index}`, eyebrow: ['DOANH THU THỰC HIỆN', 'HỌC VIÊN MỚI', 'THỰC THU RÒNG', 'HỢP ĐỒNG HIỆU LỰC', 'CÔNG NỢ QUÁ HẠN'][index],
+        value: 'Chưa đồng bộ', detail: 'Không dùng số liệu cũ thay thế', icon: index === 1 ? <UserPlus size={20} /> : <CircleDollarSign size={20} />,
+        tone: (['ink', 'pink', 'sunset', 'orange', 'ink'][index] as AuraMetricSlide['tone']), actionLabel: 'Thử lại', onSelect: () => void load(true),
+      }))
     }
-    if (!actions.length) {
-      return [{
-        id: 'healthy', eyebrow: 'AURA · VẬN HÀNH HÔM NAY', value: 'Đang ổn định',
-        detail: 'Không có hồ sơ quá hạn hoặc công việc đến hạn trong phạm vi của bạn.',
-        icon: <CheckCircle2 size={20} />, tone: 'pink',
-      }]
-    }
-    return actions.slice(0, 4).map((item) => ({
-      id: item.id, eyebrow: item.label, value: item.value, detail: item.detail,
-      icon: item.icon, tone: item.tone, actionLabel: item.metric.actionCount > 0 ? 'Xử lý ngay' : 'Mở chi tiết',
-      onSelect: () => goTo(item.view, item.focus),
-    }))
-  }, [actions, data, error, goTo, load])
+    const caption = rangeCaption(data.range.startAt, data.range.endAt)
+    return [
+      {
+        id: 'revenue', eyebrow: 'DOANH THU THỰC HIỆN', value: money(data.finance.recognizedRevenue),
+        detail: `${caption} · không cộng vào dòng tiền`, icon: <CircleDollarSign size={20} />, tone: 'ink',
+        actionLabel: 'Xem biểu đồ', onSelect: () => document.getElementById('dashboard-analytics-title')?.scrollIntoView({ behavior: 'smooth' }),
+      },
+      {
+        id: 'new-students', eyebrow: 'HỌC VIÊN MỚI', value: `${data.clients.newInRange.toLocaleString('vi-VN')} hồ sơ`,
+        detail: `${caption} · ${data.clients.active.toLocaleString('vi-VN')} học viên đang hoạt động`, icon: <UserPlus size={20} />, tone: 'pink',
+        actionLabel: 'Mở học viên', onSelect: () => goTo('admin-pt-students'),
+      },
+      {
+        id: 'net-cash', eyebrow: 'THỰC THU RÒNG', value: money(data.finance.netCash),
+        detail: `${money(data.finance.cashCollected)} thu gộp · đã trừ hoàn/đảo`, icon: <WalletCards size={20} />, tone: 'sunset',
+        actionLabel: 'Mở tài chính', onSelect: () => goTo('admin-finance'),
+      },
+      {
+        id: 'active-contracts', eyebrow: 'HỢP ĐỒNG HIỆU LỰC', value: `${data.clients.activeContracts.toLocaleString('vi-VN')} hợp đồng`,
+        detail: `Còn thời hạn, còn buổi · ${data.clients.preservedContracts} đang bảo lưu`, icon: <ClipboardCheck size={20} />, tone: 'orange',
+        actionLabel: 'Mở học viên', onSelect: () => goTo('admin-pt-students'),
+      },
+      {
+        id: 'overdue-debt', eyebrow: 'CÔNG NỢ QUÁ HẠN', value: money(data.receivables.summary.overdue.amount),
+        detail: `${data.receivables.summary.overdue.count} kỳ cần ưu tiên thu`, icon: <Clock3 size={20} />, tone: 'ink',
+        actionLabel: 'Xem công nợ', onSelect: () => document.getElementById('dashboard-receivables-title')?.scrollIntoView({ behavior: 'smooth' }),
+      },
+    ]
+  }, [data, error, goTo, load])
 
   const taskItems = useMemo(() => {
     const items = [...priorityActions.filter((item) => item.metric.actionCount > 0)]
@@ -299,80 +330,12 @@ export default function AdminDashboard({
     return items.slice(0, 5)
   }, [data, priorityActions])
 
-  const quickMetrics = useMemo(() => {
+  const receivableRows = useMemo(() => {
     if (!data) return []
-    const attendanceDenominator = data.today.attendance.charged || data.today.scheduledSessions
-    return [
-      data.permissions.finance && {
-        id: 'cash', label: 'Thực thu ròng', value: money(data.finance.netCash),
-        detail: rangeCaption(data.range.startAt, data.range.endAt), icon: <WalletCards size={19} />,
-        help: 'Thực thu ròng là tiền thực vào trừ hoàn tiền và đảo giao dịch, cộng hoặc trừ điều chỉnh tiền. Doanh thu thực hiện là giá trị buổi đã hoàn thành và không được cộng vào dòng tiền.',
-        facts: [
-          { label: 'Thực thu gộp', value: money(data.finance.cashCollected) },
-          { label: 'Doanh thu TH', value: money(data.finance.recognizedRevenue) },
-          { label: 'Doanh số ký', value: money(data.finance.contractSales) },
-          { label: 'Hoàn tiền', value: money(data.finance.refunds) },
-          { label: 'Đảo giao dịch', value: money(data.finance.reversals) },
-          { label: 'Điều chỉnh', value: money(data.finance.adjustments) },
-        ],
-        actionLabel: 'Mở tài chính', onSelect: () => goTo('admin-finance'),
-      },
-      data.permissions.finance && {
-        id: 'debt', label: 'Tổng công nợ', value: money(data.finance.receivables),
-        detail: `${data.actionSummary.overdueReceivables.totalCount} hợp đồng còn dư nợ`, icon: <CircleDollarSign size={19} />,
-        help: 'Tổng công nợ là số tiền chưa thu của các hợp đồng. Cần thu chỉ gồm các kỳ đã quá hạn hoặc đến hạn hôm nay.',
-        facts: [
-          { label: 'HĐ còn nợ', value: data.actionSummary.overdueReceivables.totalCount.toLocaleString('vi-VN') },
-          { label: 'Quá hạn', value: data.actionSummary.overdueReceivables.overdueCount.toLocaleString('vi-VN') },
-          { label: 'Đến hạn nay', value: data.actionSummary.overdueReceivables.dueTodayCount.toLocaleString('vi-VN') },
-          { label: 'Cần thu', value: money(data.actionSummary.overdueReceivables.amount) },
-          { label: 'Đang bảo lưu', value: money(data.finance.frozenReceivables) },
-        ],
-        actionLabel: 'Xem trả góp', onSelect: () => goTo('admin-finance', 'overdue'),
-      },
-      data.permissions.clients && {
-        id: 'clients', label: 'Hợp đồng hiệu lực', value: data.clients.activeContracts.toLocaleString('vi-VN'),
-        detail: `${data.clients.active.toLocaleString('vi-VN')} học viên đang hoạt động`, icon: <Users size={19} />,
-        help: 'Hợp đồng hiệu lực phải còn thời hạn, còn buổi và không bảo lưu. Hợp đồng hết buổi, bảo lưu hoặc đã hết hạn được tách riêng.',
-        facts: [
-          { label: 'Tổng hồ sơ', value: data.clients.total.toLocaleString('vi-VN') },
-          { label: 'Đang bảo lưu', value: data.clients.preservedContracts.toLocaleString('vi-VN') },
-          { label: 'Hết buổi', value: data.clients.exhaustedContracts.toLocaleString('vi-VN') },
-          { label: 'Sắp hết hạn', value: data.clients.expiringSoonContracts.toLocaleString('vi-VN') },
-          { label: 'Mới trong kỳ', value: data.clients.newInRange.toLocaleString('vi-VN') },
-          { label: 'Ngừng/lưu trữ', value: Math.max(0, data.clients.total - data.clients.active).toLocaleString('vi-VN') },
-        ],
-        actionLabel: 'Mở học viên', onSelect: () => goTo('admin-pt-students'),
-      },
-      data.permissions.operations && {
-        id: 'today',
-        label: 'Hiện diện hôm nay',
-        value: `${data.today.attendance.confirmed}/${attendanceDenominator}`,
-        detail: `${data.today.attendance.attendanceRate}% tham gia · ${data.today.attendance.confirmationRate}% PT đã xác nhận`,
-        icon: <Dumbbell size={19} />,
-        help: 'Hệ thống tự tính buổi khi đến giờ. PT chỉ xác nhận thực tế có tập, đi trễ hoặc không đến; xác nhận không trừ buổi thêm lần nữa.',
-        facts: [
-          { label: 'Lịch hôm nay', value: data.today.scheduledSessions.toLocaleString('vi-VN') },
-          { label: 'Đã tính buổi', value: data.today.attendance.charged.toLocaleString('vi-VN') },
-          { label: 'Có tập', value: data.today.attendance.present.toLocaleString('vi-VN') },
-          { label: 'Đi trễ', value: data.today.attendance.late.toLocaleString('vi-VN') },
-          { label: 'Không đến', value: data.today.attendance.noShow.toLocaleString('vi-VN') },
-          { label: 'Chờ PT', value: data.today.attendance.pendingConfirmation.toLocaleString('vi-VN') },
-        ],
-        actionLabel: 'Xem lịch sử tập', onSelect: () => goTo('admin-training-history'),
-      },
-    ].filter(Boolean) as Array<{
-      id: string
-      label: string
-      value: string
-      detail: string
-      icon: ReactNode
-      help: string
-      facts: Array<{ label: string; value: string }>
-      actionLabel: string
-      onSelect: () => void
-    }>
-  }, [data, goTo])
+    if (receivableView === 'overdue') return data.receivables.rows.filter((item) => item.status === 'overdue')
+    if (receivableView === 'week') return data.receivables.rows.filter((item) => item.status === 'due_this_week')
+    return data.receivables.rows.filter((item) => item.status !== 'overdue')
+  }, [data, receivableView])
 
   const shortcuts = useMemo(() => {
     if (!data) return []
@@ -391,7 +354,7 @@ export default function AdminDashboard({
   }, [canCreate, canManageAcademy, canManageCoaching, canManageEnrollments, data])
 
   return <div className="page admin-dashboard admin-dashboard--v2">
-    <AuraMetricCarousel slides={metricSlides} label="Các việc cần xử lý" loading={loading && !data} />
+    <AuraMetricCarousel slides={reportSlides} label="Báo cáo nhanh theo kỳ" loading={loading && !data} />
 
     <section className="admin-dashboard__syncbar" aria-label="Trạng thái tổng quan">
       <div><small>AURA · TỔNG QUAN</small><strong>Chào {adminName}</strong><span className={`admin-dashboard__data-state ${error ? 'is-error' : loading || refreshing ? 'is-loading' : 'is-synced'}`}><i />{data?.generatedAt ? `Đồng bộ ${new Date(data.generatedAt).toLocaleString('vi-VN')}${data.cache.hit ? ' · dữ liệu đệm' : ''}` : error ? 'Chưa đồng bộ dữ liệu' : 'Đang kết nối dữ liệu vận hành'}</span></div>
@@ -417,30 +380,29 @@ export default function AdminDashboard({
             : <div className="admin-dashboard__healthy"><CheckCircle2 size={24} /><div><strong>Không có việc quá hạn</strong><span>Các hàng đợi trong phạm vi của bạn đang được xử lý đúng SLA.</span></div></div>}
       </section>
 
-      <section className="admin-dashboard__glance" aria-labelledby="dashboard-glance-title">
-        <header><small>CHỈ SỐ ĐIỀU HÀNH</small><h2 id="dashboard-glance-title">Vận hành hiện tại</h2></header>
-        <div>
-          {loading && !data ? Array.from({ length: 4 }, (_, index) => <article className="admin-dashboard__metric-card is-loading" key={index} aria-label="Đang tải chỉ số"><i /><i /><i /></article>) : null}
-          {!loading && !data && <div className="admin-dashboard__unavailable admin-dashboard__unavailable--metrics"><AlertCircle size={22} /><div><strong>Chưa có chỉ số để hiển thị</strong><span>Hãy thử kết nối lại dịch vụ Tổng quan.</span></div></div>}
-          {quickMetrics.map((item) => <article className={`admin-dashboard__metric-card is-${item.id}`} key={item.id}>
-            <header>
-              <span className="admin-dashboard__metric-icon">{item.icon}</span>
-              <small>{item.label}</small>
-              <details className="admin-dashboard__metric-help">
-                <summary aria-label={`Giải thích ${item.label}`}><CircleHelp size={15} /></summary>
-                <p>{item.help}</p>
-              </details>
-            </header>
-            <strong>{item.value}</strong>
-            <p className="admin-dashboard__metric-detail">{item.detail}</p>
-            <div className="admin-dashboard__metric-facts">
-              {item.facts.map((fact) => <span key={fact.label}><small>{fact.label}</small><b>{fact.value}</b></span>)}
-            </div>
-            <button type="button" onClick={item.onSelect}>{item.actionLabel}<ArrowRight size={15} /></button>
-          </article>)}
-        </div>
+      <section className="admin-dashboard__attendance" aria-labelledby="dashboard-attendance-title">
+        <header>
+          <div><small>HIỆN DIỆN HÔM NAY</small><h2 id="dashboard-attendance-title">Ca tập trong ngày</h2></div>
+          {data && <div className="admin-dashboard__attendance-summary"><span><b>{data.today.attendance.present}</b>Có tập</span><span><b>{data.today.attendance.late}</b>Đi trễ</span><span><b>{data.today.attendance.noShow}</b>Không đến</span><span><b>{data.today.attendance.pendingConfirmation}</b>Chờ PT</span></div>}
+        </header>
+        {loading && !data ? <div className="admin-dashboard__table-skeleton"><i /><i /><i /><i /></div>
+          : !data ? <div className="admin-dashboard__unavailable"><AlertCircle size={22} /><div><strong>Chưa tải được hiện diện hôm nay</strong><span>Không suy đoán trạng thái điểm danh từ dữ liệu cũ.</span></div></div>
+            : data.today.rows.length ? <div className="admin-dashboard__table-wrap"><table><thead><tr><th>Giờ</th><th>Học viên</th><th>PT phụ trách</th><th>Trạng thái</th></tr></thead><tbody>{data.today.rows.map((row) => <tr key={row.id}><td data-label="Giờ"><b>{row.hour === null ? '—' : `${String(row.hour).padStart(2, '0')}:00`}</b></td><td data-label="Học viên"><strong>{row.studentName}</strong></td><td data-label="PT phụ trách">{row.trainerName}</td><td data-label="Trạng thái"><span className={`admin-dashboard__status is-${row.attendanceStatus}`}>{attendanceLabels[row.attendanceStatus]}</span>{row.billingStatus === 'charged' && <small>Đã tính buổi</small>}</td></tr>)}</tbody></table></div>
+              : <div className="admin-dashboard__healthy"><CheckCircle2 size={24} /><div><strong>Hôm nay chưa có ca tập</strong><span>Lịch đã publish sẽ tự xuất hiện tại đây.</span></div></div>}
+        {data?.today.truncated && <p className="admin-dashboard__table-note">Danh sách đã được giới hạn. Mở Lịch sử tập để xem đầy đủ.</p>}
       </section>
     </div>
+
+    {data?.permissions.finance && <section className="admin-dashboard__receivables" aria-labelledby="dashboard-receivables-title">
+      <header><div><small>CÔNG NỢ KHÁCH HÀNG</small><h2 id="dashboard-receivables-title">Lịch cần thu</h2></div><button type="button" onClick={() => goTo('admin-finance', 'overdue')}>Mở Trả góp<ArrowRight size={15} /></button></header>
+      <div className="admin-dashboard__receivable-tabs" role="tablist" aria-label="Lọc lịch cần thu">
+        <button type="button" role="tab" aria-selected={receivableView === 'overdue'} className={receivableView === 'overdue' ? 'is-active' : ''} onClick={() => setReceivableView('overdue')}><span>Quá hạn</span><b>{money(data.receivables.summary.overdue.amount)}</b><small>{data.receivables.summary.overdue.count} kỳ</small></button>
+        <button type="button" role="tab" aria-selected={receivableView === 'week'} className={receivableView === 'week' ? 'is-active' : ''} onClick={() => setReceivableView('week')}><span>Tuần này</span><b>{money(data.receivables.summary.dueThisWeek.amount)}</b><small>{data.receivables.summary.dueThisWeek.count} kỳ</small></button>
+        <button type="button" role="tab" aria-selected={receivableView === 'month'} className={receivableView === 'month' ? 'is-active' : ''} onClick={() => setReceivableView('month')}><span>Tháng này</span><b>{money(data.receivables.summary.dueThisMonth.amount)}</b><small>{data.receivables.summary.dueThisMonth.count} kỳ</small></button>
+      </div>
+      {receivableRows.length ? <div className="admin-dashboard__table-wrap admin-dashboard__table-wrap--debt"><table><thead><tr><th>Khách hàng</th><th>Gói tập</th><th>Hạn thu</th><th>Số tiền</th><th></th></tr></thead><tbody>{receivableRows.map((row) => <tr key={row.id}><td data-label="Khách hàng"><strong>{row.studentName}</strong><small>{row.phone || 'Chưa cập nhật SĐT'}</small></td><td data-label="Gói tập">{row.packageName}</td><td data-label="Hạn thu"><span className={`admin-dashboard__status is-${row.status}`}>{row.status === 'overdue' ? 'Quá hạn' : row.status === 'due_this_week' ? 'Tuần này' : 'Tháng này'}</span><small>{shortDate(row.dueDate)}</small></td><td data-label="Số tiền"><b>{money(row.amount)}</b></td><td><button type="button" onClick={() => goTo('admin-finance', 'overdue')}>Thu tiền</button></td></tr>)}</tbody></table></div> : <div className="admin-dashboard__healthy"><CheckCircle2 size={24} /><div><strong>Không có kỳ thanh toán trong nhóm này</strong><span>Danh sách chỉ lấy lịch trả góp và ngày đến hạn đã lưu trên hợp đồng.</span></div></div>}
+      {data.receivables.truncated && <p className="admin-dashboard__table-note">Danh sách nhanh đã giới hạn 60 kỳ; tổng tiền trên slide vẫn lấy toàn bộ dữ liệu đã quét.</p>}
+    </section>}
 
     {data && (data.permissions.finance || data.permissions.clients || data.permissions.operations) && <section className="admin-dashboard__analytics" aria-labelledby="dashboard-analytics-title">
       <header><div><small>PHÂN TÍCH</small><h2 id="dashboard-analytics-title">Xu hướng & cơ cấu</h2><p>{rangeCaption(data.range.startAt, data.range.endAt)}</p></div></header>

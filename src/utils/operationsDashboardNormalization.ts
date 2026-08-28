@@ -10,7 +10,7 @@ export interface DashboardActionMetric {
 }
 
 export interface OperationsDashboardData {
-  schemaVersion: 5
+  schemaVersion: 6
   range: { startAt: string; endAt: string; timeZone: string }
   branchId: string
   scope: { branchId: string; branchIds: string[]; unrestricted: boolean }
@@ -46,8 +46,38 @@ export interface OperationsDashboardData {
       attendanceRate: number
       confirmationRate: number
     }
+    rows: Array<{
+      id: string
+      hour: number | null
+      studentId: string
+      studentName: string
+      trainerId: string
+      trainerName: string
+      attendanceStatus: 'pending' | 'present' | 'late' | 'no_show'
+      billingStatus: 'pending' | 'charged'
+    }>
+    truncated: boolean
   }
   finance: { contractSales: number; recognizedRevenue: number; cashCollected: number; refunds: number; reversals: number; adjustments: number; netCash: number; receivables: number; frozenReceivables: number }
+  receivables: {
+    summary: {
+      overdue: { count: number; amount: number }
+      dueThisWeek: { count: number; amount: number }
+      dueThisMonth: { count: number; amount: number }
+    }
+    rows: Array<{
+      id: string
+      contractId: string
+      studentId: string
+      studentName: string
+      phone: string
+      packageName: string
+      dueDate: string
+      amount: number
+      status: 'overdue' | 'due_this_week' | 'due_this_month'
+    }>
+    truncated: boolean
+  }
   clients: { total: number; active: number; newInRange: number; activeContracts: number; preservedContracts: number; exhaustedContracts: number; expiringSoonContracts: number }
   analytics: {
     revenue: {
@@ -128,6 +158,8 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
   const today = record(source.today)
   const todayAttendance = record(today.attendance)
   const finance = record(source.finance)
+  const receivables = record(source.receivables)
+  const receivableSummary = record(receivables.summary)
   const clients = record(source.clients)
   const analytics = record(source.analytics)
   const revenue = record(analytics.revenue)
@@ -167,7 +199,7 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
   }
 
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     range: {
       startAt: text(range.startAt),
       endAt: text(range.endAt),
@@ -211,6 +243,21 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
         attendanceRate: Math.max(0, Math.min(100, finiteNumber(todayAttendance.attendanceRate))),
         confirmationRate: Math.max(0, Math.min(100, finiteNumber(todayAttendance.confirmationRate))),
       },
+      rows: Array.isArray(today.rows) ? today.rows.slice(0, 80).map((item) => {
+        const row = record(item)
+        const attendanceStatus = text(row.attendanceStatus)
+        return {
+          id: text(row.id),
+          hour: row.hour !== null && row.hour !== undefined && Number.isFinite(Number(row.hour)) ? Number(row.hour) : null,
+          studentId: text(row.studentId),
+          studentName: text(row.studentName, 'Học viên chưa cập nhật tên'),
+          trainerId: text(row.trainerId),
+          trainerName: text(row.trainerName, 'PT chưa cập nhật tên'),
+          attendanceStatus: (['present', 'late', 'no_show'].includes(attendanceStatus) ? attendanceStatus : 'pending') as 'pending' | 'present' | 'late' | 'no_show',
+          billingStatus: row.billingStatus === 'charged' ? 'charged' as const : 'pending' as const,
+        }
+      }).filter((item) => item.id) : [],
+      truncated: today.truncated === true,
     },
     finance: {
       contractSales: finiteNumber(finance.contractSales),
@@ -222,6 +269,29 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
       netCash,
       receivables: nonNegativeNumber(finance.receivables),
       frozenReceivables: nonNegativeNumber(finance.frozenReceivables),
+    },
+    receivables: {
+      summary: {
+        overdue: { count: nonNegativeNumber(record(receivableSummary.overdue).count), amount: nonNegativeNumber(record(receivableSummary.overdue).amount) },
+        dueThisWeek: { count: nonNegativeNumber(record(receivableSummary.dueThisWeek).count), amount: nonNegativeNumber(record(receivableSummary.dueThisWeek).amount) },
+        dueThisMonth: { count: nonNegativeNumber(record(receivableSummary.dueThisMonth).count), amount: nonNegativeNumber(record(receivableSummary.dueThisMonth).amount) },
+      },
+      rows: Array.isArray(receivables.rows) ? receivables.rows.slice(0, 60).map((item) => {
+        const row = record(item)
+        const status = text(row.status)
+        return {
+          id: text(row.id),
+          contractId: text(row.contractId),
+          studentId: text(row.studentId),
+          studentName: text(row.studentName, 'Học viên chưa cập nhật tên'),
+          phone: text(row.phone),
+          packageName: text(row.packageName, 'Gói tập chưa cập nhật'),
+          dueDate: text(row.dueDate),
+          amount: nonNegativeNumber(row.amount),
+          status: (['overdue', 'due_this_week'].includes(status) ? status : 'due_this_month') as 'overdue' | 'due_this_week' | 'due_this_month',
+        }
+      }).filter((item) => item.id) : [],
+      truncated: receivables.truncated === true,
     },
     clients: {
       total: nonNegativeNumber(clients.total),

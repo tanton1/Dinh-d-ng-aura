@@ -9,6 +9,7 @@ export type DateRangePreset =
   | 'Ngày mai'
   | 'Hôm qua'
   | 'Tuần này'
+  | 'Tuần trước'
   | 'Tuần sau'
   | 'Tháng này'
   | 'Tháng trước'
@@ -29,8 +30,8 @@ interface MenuPosition {
   maxHeight: number
 }
 
-const pastOptions: DateRangePreset[] = ['Tất cả', 'Hôm nay', 'Hôm qua', 'Tuần này', 'Tháng này', 'Tháng trước']
-const allOptions: DateRangePreset[] = ['Tất cả', 'Hôm nay', 'Ngày mai', 'Hôm qua', 'Tuần này', 'Tuần sau', 'Tháng này', 'Tháng trước']
+const pastOptions: DateRangePreset[] = ['Tất cả', 'Hôm nay', 'Hôm qua', 'Tuần này', 'Tuần trước', 'Tháng này', 'Tháng trước']
+const allOptions: DateRangePreset[] = ['Tất cả', 'Hôm nay', 'Ngày mai', 'Hôm qua', 'Tuần này', 'Tuần trước', 'Tuần sau', 'Tháng này', 'Tháng trước']
 
 function localDateKey(value = new Date()) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
@@ -81,6 +82,15 @@ export default function DateRangeFilter({ onFilter, excludeFuture = false, compa
       case 'Tuần này': {
         const day = now.getDay()
         const monday = now.getDate() - day + (day === 0 ? -6 : 1)
+        first = new Date(now.getFullYear(), now.getMonth(), monday, 0, 0, 0, 0)
+        last = new Date(first)
+        last.setDate(last.getDate() + 6)
+        last.setHours(23, 59, 59, 999)
+        break
+      }
+      case 'Tuần trước': {
+        const day = now.getDay()
+        const monday = now.getDate() - day + (day === 0 ? -6 : 1) - 7
         first = new Date(now.getFullYear(), now.getMonth(), monday, 0, 0, 0, 0)
         last = new Date(first)
         last.setDate(last.getDate() + 6)

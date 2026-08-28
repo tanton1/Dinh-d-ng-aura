@@ -132,6 +132,11 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   await expect(page).toHaveURL(/#\/student-availability$/)
   await expect(page.getByRole('heading', { name: 'Thời gian có thể tập', exact: true })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Ma trận thời gian rảnh' })).toBeVisible()
+  await expect(page.getByText(/Lịch riêng của tuần/).first()).toBeVisible()
+  await expect(page.getByText('Cần nghỉ trong tuần này?')).toBeVisible()
+  await page.getByRole('button', { name: 'Đăng ký OFF / Bảo lưu' }).click()
+  await expect(page.getByRole('dialog', { name: 'Đăng ký OFF / Bảo lưu' })).toBeVisible()
+  await page.locator('.student-policy-sheet header button[aria-label="Đóng"]').click()
   await expect(page.getByText('Đã đủ mức khuyến nghị')).toBeVisible()
   await expect(page.locator('.student-schedule-matrix td button').filter({ hasText: '+' })).toHaveCount(0)
   const scheduleLayout = await page.evaluate(() => {
@@ -168,6 +173,10 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   await page.getByRole('button', { name: 'Gửi lịch rảnh' }).click()
   await expect(page.getByRole('dialog', { name: 'Chỉ gửi 4 khung?' })).toBeVisible()
   await page.getByRole('button', { name: 'Chọn thêm khung' }).click()
+  for (let index = 0; index < 4; index += 1) await page.locator('.student-schedule-matrix td button.is-available').first().click()
+  await page.getByRole('button', { name: 'Gửi lịch rảnh' }).click()
+  await expect(page.getByRole('dialog', { name: 'Không thể gửi lịch trống' })).toBeVisible()
+  await page.getByRole('button', { name: 'Chọn lại khung' }).click()
   await page.getByRole('button', { name: 'Quay lại lịch học' }).click()
   await expect(page).toHaveURL(/#\/schedule$/)
   await studentScheduleTabs.getByRole('button', { name: 'Hợp đồng' }).click()
@@ -176,6 +185,8 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   await expect(page.getByText('Kỳ thanh toán còn 5 ngày')).toBeVisible()
   const contractOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   expect(contractOverflow).toBeLessThanOrEqual(1)
+  await page.goto('/#/schedule?tab=requests')
+  await expect(page.getByRole('heading', { name: 'Đổi, hủy, OFF và bảo lưu' })).toBeVisible()
 })
 
 test('Today Flow belongs to Home while nutrition guidance follows the three-slide carousel', async ({ page }) => {

@@ -21,7 +21,7 @@ test('dashboard accepts the previous callable schema during a rolling deployment
     generatedAt: '2026-08-26T08:00:00.000Z',
   })
 
-  assert.equal(dashboard.schemaVersion, 5)
+  assert.equal(dashboard.schemaVersion, 6)
   assert.equal(dashboard.finance.cashCollected, 125_000_000)
   assert.equal(dashboard.clients.active, 280)
   assert.equal(dashboard.operations.completionRate, 72)
@@ -98,4 +98,21 @@ test('dashboard normalizes malformed numeric fields instead of rendering NaN', (
   assert.equal(dashboard.operations.completionRate, 0)
   assert.equal(dashboard.actionSummary.overdueReceivables.actionCount, 3)
   assert.equal(dashboard.actionSummary.overdueReceivables.amount, 4_500_000)
+})
+
+test('dashboard bounds and normalizes attendance and receivable tables', () => {
+  const dashboard = normalizeOperationsDashboardData({
+    schemaVersion: 6,
+    today: {
+      rows: [{ id: 's1', hour: 8, studentName: 'Lan', trainerName: 'PT Mai', attendanceStatus: 'late', billingStatus: 'charged' }],
+    },
+    receivables: {
+      summary: { overdue: { count: 2, amount: 3_000_000 }, dueThisWeek: { count: 1, amount: 1_000_000 }, dueThisMonth: { count: 4, amount: 7_000_000 } },
+      rows: [{ id: 'c1:i1', contractId: 'c1', studentName: 'Lan', dueDate: '2026-08-20', amount: 3_000_000, status: 'overdue' }],
+    },
+  })
+  assert.equal(dashboard.today.rows[0].hour, 8)
+  assert.equal(dashboard.today.rows[0].attendanceStatus, 'late')
+  assert.equal(dashboard.receivables.summary.overdue.amount, 3_000_000)
+  assert.equal(dashboard.receivables.rows[0].status, 'overdue')
 })

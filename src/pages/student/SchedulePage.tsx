@@ -36,6 +36,14 @@ const DEFAULT_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
 const DAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 type StudentScheduleTab = 'this-week' | 'next-week' | 'contract' | 'requests' | 'history'
 
+function scheduleTabFromRoute(): StudentScheduleTab | null {
+  if (typeof window === 'undefined') return null
+  const value = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('tab')
+  return value && ['this-week', 'next-week', 'contract', 'requests', 'history'].includes(value)
+    ? value as StudentScheduleTab
+    : null
+}
+
 const statusLabels: Record<string, string> = {
   scheduled: 'Đã xếp lịch',
   completed: 'Đã hoàn thành',
@@ -65,6 +73,8 @@ function issueCopy(issue: StudentPtScheduleServiceError) {
       return { title: 'Lịch rảnh của tuần đã khóa', description: 'Hạn gửi là 10:00 Chủ nhật trước tuần tập. Hãy chọn tuần kế tiếp hoặc liên hệ vận hành khi cần điều chỉnh.' }
     case 'MINIMUM_AVAILABILITY_REQUIRED':
       return { title: 'Chưa đủ khung giờ rảnh', description: issue.message }
+    case 'AVAILABILITY_EMPTY':
+      return { title: 'Không thể gửi lịch trống', description: 'Nếu cần nghỉ, hãy giữ lịch rảnh và tạo yêu cầu OFF hoặc bảo lưu.' }
     case 'INVALID_REQUEST':
       return { title: 'Dữ liệu lịch chưa hợp lệ', description: issue.message }
     case 'SYNC_UNAVAILABLE':
@@ -136,7 +146,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   const today = useMemo(() => new Date(), [])
   const range = useMemo(() => ({ from: toIsoDate(addDays(today, -180)), to: toIsoDate(addDays(today, 180)) }), [today])
   const [data, setData] = useState<StudentPtScheduleData | null>(null)
-  const [activeTab, setActiveTab] = useState<StudentScheduleTab>('this-week')
+  const [activeTab, setActiveTab] = useState<StudentScheduleTab>(() => scheduleTabFromRoute() ?? 'this-week')
   const [weekOffset, setWeekOffset] = useState(0)
   const [selectedDate, setSelectedDate] = useState(toIsoDate(today))
   const [loading, setLoading] = useState(true)
@@ -193,6 +203,14 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   }, [availabilityWeekId, isDemo, range.from, range.to, today, weekStart])
 
   useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    const syncTabFromRoute = () => {
+      const nextTab = scheduleTabFromRoute()
+      if (nextTab) setActiveTab(nextTab)
+    }
+    window.addEventListener('hashchange', syncTabFromRoute)
+    return () => window.removeEventListener('hashchange', syncTabFromRoute)
+  }, [])
 
   const changeDeadlineHours = data?.scheduleConfig.sessionChangeDeadlineHours ?? 12
   const complimentaryChangeCancelPerMonth = data?.scheduleConfig.complimentaryChangeCancelPerMonth ?? 1

@@ -295,6 +295,119 @@ function summarizeReceivables(contracts, today) {
   return summary
 }
 
+function addCalendarDays(dateKeyValue, days) {
+  const [year, month, day] = dateKeyValue.split('-').map(Number)
+  const value = new Date(Date.UTC(year, month - 1, day))
+  value.setUTCDate(value.getUTCDate() + days)
+  return value.toISOString().slice(0, 10)
+}
+
+function receivableSchedule(contracts, studentValues, today, limit = 60) {
+  const studentById = new Map(studentValues.map((value) => [value.id, value]))
+  const monday = weekMonday(today)
+  const weekEnd = addCalendarDays(monday, 6)
+  const monthEnd = new Date(`${today.slice(0, 7)}-01T00:00:00Z`)
+  monthEnd.setUTCMonth(monthEnd.getUTCMonth() + 1)
+  monthEnd.setUTCDate(0)
+  const monthEndKey = monthEnd.toISOString().slice(0, 10)
+  const rows = []
+  const summary = {
+    overdue: { count: 0, amount: 0 },
+    dueThisWeek: { count: 0, amount: 0 },
+    dueThisMonth: { count: 0, amount: 0 },
+  }
+
+  for (const contract of contracts) {
+    const debt = collectibleContractDebt(contract)
+    if (!debt || contract.status === 'frozen') continue
+    let remainingDebt = debt
+    const installments = pendingInstallments(contract)
+      .map((item, index) => ({
+        id: String(item.id || `installment-${index + 1}`),
+        date: String(item.date).slice(0, 10),
+        amount: Math.max(0, Number(item.amount || 0)),
+      }))
+      .sort((left, right) => left.date.localeCompare(right.date))
+    const datedItems = installments.length
+      ? installments
+      : /^\d{4}-\d{2}-\d{2}/.test(String(contract.nextPaymentDate || ''))
+        ? [{ id: 'next-payment', date: String(contract.nextPaymentDate).slice(0, 10), amount: debt }]
+        : []
+
+    for (const installment of datedItems) {
+      if (remainingDebt <= 0) break
+      const amount = Math.min(remainingDebt, installment.amount || remainingDebt)
+      remainingDebt -= amount
+      const isOverdue = installment.date < today
+      const isDueThisWeek = installment.date >= today && installment.date <= weekEnd
+      const isDueThisMonth = installment.date >= today && installment.date <= monthEndKey
+      if (!isOverdue && !isDueThisMonth && !isDueThisWeek) continue
+      const student = studentById.get(contract.studentId) || {}
+      rows.push({
+        id: `${contract.id}:${installment.id}`,
+        contractId: contract.id,
+        studentId: contract.studentId || '',
+        studentName: student.name || student.fullName || contract.studentName || 'Học viên chưa cập nhật tên',
+        phone: student.phone || contract.studentPhone || '',
+        packageName: contract.packageName || 'Gói tập chưa cập nhật',
+        dueDate: installment.date,
+        amount,
+        status: isOverdue ? 'overdue' : isDueThisWeek ? 'due_this_week' : 'due_this_month',
+      })
+      if (isOverdue) {
+        summary.overdue.count += 1
+        summary.overdue.amount += amount
+      }
+      if (isDueThisWeek) {
+        summary.dueThisWeek.count += 1
+        summary.dueThisWeek.amount += amount
+      }
+      if (isDueThisMonth) {
+        summary.dueThisMonth.count += 1
+        summary.dueThisMonth.amount += amount
+      }
+    }
+  }
+
+  const statusOrder = { overdue: 0, due_this_week: 1, due_this_month: 2 }
+  rows.sort((left, right) => statusOrder[left.status] - statusOrder[right.status]
+    || left.dueDate.localeCompare(right.dueDate)
+    || left.studentName.localeCompare(right.studentName, 'vi'))
+  return { summary, rows: rows.slice(0, limit), truncated: rows.length > limit }
+}
+
+function legacySessionHour(value) {
+  const direct = Number(value.hour)
+  if (Number.isFinite(direct)) return direct
+  const match = String(value.id || '').match(/-(\d{1,2})(?:-|$)/)
+  return match ? Number(match[1]) : null
+}
+
+function todayAttendanceRows(sessions, studentValues, trainerValues, limit = 80) {
+  const studentById = new Map(studentValues.map((value) => [value.id, value]))
+  const trainerById = new Map(trainerValues.map((value) => [value.id, value]))
+  const rows = sessions
+    .filter((value) => !['cancelled', 'student_cancelled', 'trainer_cancelled'].includes(value.status))
+    .map((value) => {
+      const student = studentById.get(value.studentId) || {}
+      const trainer = trainerById.get(value.trainerId) || {}
+      const attendanceStatus = value.attendanceStatus
+        || (['completed', 'attended'].includes(value.status) ? 'present' : value.status === 'no_show' ? 'no_show' : 'pending')
+      return {
+        id: value.id || `${value.studentId || 'student'}:${value.trainerId || 'trainer'}:${value.date || ''}:${value.hour || ''}`,
+        hour: legacySessionHour(value),
+        studentId: value.studentId || '',
+        studentName: student.name || student.fullName || 'Học viên chưa cập nhật tên',
+        trainerId: value.trainerId || '',
+        trainerName: trainer.name || trainer.fullName || 'PT chưa cập nhật tên',
+        attendanceStatus: ['present', 'late', 'no_show'].includes(attendanceStatus) ? attendanceStatus : 'pending',
+        billingStatus: value.billingStatus === 'charged' || ['completed', 'attended', 'no_show'].includes(value.status) ? 'charged' : 'pending',
+      }
+    })
+    .sort((left, right) => (left.hour ?? 99) - (right.hour ?? 99) || left.trainerName.localeCompare(right.trainerName, 'vi') || left.studentName.localeCompare(right.studentName, 'vi'))
+  return { rows: rows.slice(0, limit), truncated: rows.length > limit }
+}
+
 function renewalCaseMatches(value, actor, scope) {
   if (value.active === false) return false
   if (isOperationsAdmin(actor) || hasCapability(actor, 'renewals.system.manage') || hasCapability(actor, 'renewals.branch.manage')) return scopeMatches(value, scope)
@@ -486,8 +599,8 @@ function createOperationsDashboardFunctions({ db, onCall }) {
 
     const ledgerValues = ledger ? ledger.docs.map((item) => item.data()).filter((value) => scopeMatches(value, scope) && ['posted', 'reversed'].includes(value.status)) : []
     const contractValues = contracts ? contracts.docs.map((item) => ({ id: item.id, ...item.data() })).filter((value) => scopeMatches(value, scope)) : []
-    const studentValues = students ? students.docs.map((item) => item.data()).filter((value) => scopeMatches(value, scope)) : []
-    const trainerValues = trainers ? trainers.docs.map((item) => item.data()).filter((value) => scopeMatches(value, scope)) : []
+    const studentValues = students ? students.docs.map((item) => ({ id: item.id, ...item.data() })).filter((value) => scopeMatches(value, scope)) : []
+    const trainerValues = trainers ? trainers.docs.map((item) => ({ id: item.id, ...item.data() })).filter((value) => scopeMatches(value, scope)) : []
     const staffValues = staff ? staff.docs.map((item) => item.data()).filter((value) => scopeMatches(value, scope)) : []
     const availableBranchValues = branches ? branches.docs.map((item) => ({ id: item.id, ...item.data() })) : []
     const branchValues = availableBranchValues.filter((value) => scope.unrestricted || scope.branchIds.includes(value.id))
@@ -497,7 +610,7 @@ function createOperationsDashboardFunctions({ db, onCall }) {
     const sessionCount = canAggregateOperations ? Number(sessionRange?.data().count || 0) : sessionValues.length
     const confirmedSessionCount = canAggregateOperations ? Number(confirmedSessionRange?.data().count || 0) : confirmedSessionValues.length
     const attendanceCount = canAggregateOperations ? Number(attendanceRange?.data().count || 0) : attendanceValues.length
-    const todayValues = todaySessions ? todaySessions.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
+    const todayValues = todaySessions ? todaySessions.docs.map((item) => ({ id: item.id, ...item.data() })).filter((value) => operationMatches(value, actor, scope)) : []
     const contractIds = new Set(contractValues.map((value) => value.id))
     const offValues = offRequests ? offRequests.docs.slice(0, MAX_ACTION_DOCUMENTS).map((item) => ({ id: item.id, ...item.data() })).filter((value) => contractIds.has(value.contractId)) : []
 
@@ -544,6 +657,12 @@ function createOperationsDashboardFunctions({ db, onCall }) {
     const confirmedToday = attendanceToday.present + attendanceToday.late + attendanceToday.noShow
 
     const receivableAction = permissions.finance ? summarizeReceivables(contractValues, today) : emptyAction(false)
+    const receivableDetails = permissions.finance
+      ? receivableSchedule(contractValues, studentValues, today)
+      : { summary: { overdue: { count: 0, amount: 0 }, dueThisWeek: { count: 0, amount: 0 }, dueThisMonth: { count: 0, amount: 0 } }, rows: [], truncated: false }
+    const attendanceDetails = permissions.operations
+      ? todayAttendanceRows(todayValues, studentValues, trainerValues)
+      : { rows: [], truncated: false }
     const missingContractAction = permissions.quality
       ? { ...emptyAction(true), totalCount: missingContractEffectiveDate, actionCount: missingContractEffectiveDate, warningCount: missingContractEffectiveDate }
       : emptyAction(false)
@@ -558,7 +677,7 @@ function createOperationsDashboardFunctions({ db, onCall }) {
     const referenceDate = dateKey(new Date(Math.min(end.getTime(), now.getTime())))
     const analytics = dashboardAnalytics({ ledgerValues, contractValues, offValues, start, end, referenceDate })
     const result = {
-      schemaVersion: 5,
+      schemaVersion: 6,
       range: { startAt: start.toISOString(), endAt: end.toISOString(), timeZone: 'Asia/Ho_Chi_Minh' },
       branchId,
       scope: { branchId, branchIds: scope.branchIds, unrestricted: scope.unrestricted },
@@ -580,8 +699,11 @@ function createOperationsDashboardFunctions({ db, onCall }) {
           attendanceRate: confirmedToday ? Math.round((attendanceToday.present + attendanceToday.late) / confirmedToday * 1000) / 10 : 0,
           confirmationRate: attendanceToday.charged ? Math.round(confirmedToday / attendanceToday.charged * 1000) / 10 : 0,
         },
+        rows: attendanceDetails.rows,
+        truncated: attendanceDetails.truncated,
       },
       finance: { ...finance, contractSales, receivables, frozenReceivables },
+      receivables: receivableDetails,
       clients: {
         total: studentValues.length,
         active: studentValues.filter((value) => !['inactive', 'cancelled', 'archived'].includes(value.status)).length,
@@ -652,6 +774,8 @@ module.exports = {
   dashboardPermissions,
   renewalCaseMatches,
   summarizeReceivables,
+  receivableSchedule,
+  todayAttendanceRows,
   isEffectiveContract,
   isPreservedContract,
   isExhaustedContract,

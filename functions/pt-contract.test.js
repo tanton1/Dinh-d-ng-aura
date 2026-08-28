@@ -116,6 +116,9 @@ test('learner and staff personal Gym schedule is self-scoped and availability wr
   assert.match(studentScheduleBlock, /const minimumSlots = Math\.max\(5, requiredSessions\)/)
   assert.match(studentScheduleBlock, /availabilityCutoff\(weekId\)/)
   assert.match(studentScheduleBlock, /issueCode: 'AVAILABILITY_LOCKED'/)
+  assert.match(studentScheduleBlock, /if \(!slots\.length\)/)
+  assert.match(studentScheduleBlock, /issueCode: 'AVAILABILITY_EMPTY'/)
+  assert.match(studentScheduleBlock, /action: 'create_pause_request'/)
   assert.match(studentScheduleBlock, /issueCode: 'MINIMUM_AVAILABILITY_REQUIRED'/)
   assert.match(studentScheduleBlock, /request\.data\?\.confirmBelowMinimum === true/)
   assert.match(studentScheduleBlock, /slots\.length < minimumSlots && !confirmBelowMinimum/)
@@ -201,6 +204,7 @@ test('student schedule client maps callable failures to actionable structured st
     'PROFILE_NOT_LINKED',
     'REVISION_CONFLICT',
     'AVAILABILITY_LOCKED',
+    'AVAILABILITY_EMPTY',
     'MINIMUM_AVAILABILITY_REQUIRED',
     'SYNC_UNAVAILABLE',
   ]) {

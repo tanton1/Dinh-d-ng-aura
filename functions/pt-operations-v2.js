@@ -7,6 +7,11 @@ const {
   recordSessionAttendanceTransaction,
 } = require('./session-operations')
 const { assertSessionChangeDeadline, normalizedPtOperationsPolicy } = require('./pt-policy')
+const {
+  effectiveStudentAvailability,
+  loadLatestSubmittedFallbacks,
+  studentAvailabilityProfilePatch,
+} = require('./student-availability')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const DEFAULT_WORKING_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -211,17 +216,35 @@ function availabilityCutoff(weekId) {
 function availabilityState(weekId, value, now = new Date()) {
   const cutoff = availabilityCutoff(weekId)
   const locked = now.getTime() >= cutoff.getTime()
+  const slots = Array.isArray(value?.slots) ? value.slots : []
+  const source = value?.source || 'weekly'
+  const confirmed = slots.length > 0 && (value?.confirmed === true
+    || value?.status === 'submitted'
+    || value?.status === 'locked'
+    || source === 'inherited_weekly')
+  const status = !confirmed
+    ? 'draft'
+    : locked
+      ? 'locked'
+      : source === 'inherited_weekly'
+        ? 'inherited'
+        : source === 'legacy_default'
+          ? 'legacy_default'
+          : 'submitted'
   return {
     weekId,
-    slots: Array.isArray(value?.slots) ? value.slots : [],
+    slots,
     minimumSlots: Math.max(5, Number(value?.minimumSlots || 5)),
     requiredSessions: Math.max(1, Number(value?.requiredSessions || 1)),
     revision: Math.max(0, Number(value?.revision || 0)),
-    status: locked ? 'locked' : (value?.status === 'submitted' ? 'submitted' : 'draft'),
+    sourceRevision: Math.max(0, Number(value?.sourceRevision || value?.revision || 0)),
+    status,
+    confirmed,
     locked,
     cutoffAt: cutoff.toISOString(),
     submittedAt: value?.submittedAt || null,
-    source: value?.source || 'weekly',
+    source,
+    sourceWeekId: value?.sourceWeekId || null,
   }
 }
 
@@ -703,17 +726,33 @@ function createPtOperationsV2Functions({ db, onCall }) {
       })
       .sort((left, right) => String(right.submittedAtIso || right.createdAt || '').localeCompare(String(left.submittedAtIso || left.createdAt || '')))
     const requiredSessions = integer(profile.value.sessionsPerWeek, 3, 1, 6)
-    const legacySlots = normalizedAvailabilitySlots(profile.value.availableSlots || [], config, false)
-    const storedAvailability = availabilitySnapshot.exists
-      ? availabilitySnapshot.data()
-      : {
-          slots: legacySlots,
-          minimumSlots: Math.max(5, requiredSessions),
-          requiredSessions,
-          revision: 0,
-          status: 'draft',
-          source: legacySlots.length ? 'legacy_default' : 'weekly',
-        }
+    const exactAvailability = new Map(availabilitySnapshot.exists
+      ? [[profile.id, availabilitySnapshot.data()]]
+      : [])
+    const inheritedAvailability = await loadLatestSubmittedFallbacks(
+      db,
+      new Map([[profile.id, profile.value]]),
+      exactAvailability,
+      requestedAvailabilityWeekId,
+    )
+    const effectiveAvailability = effectiveStudentAvailability({
+      targetWeek: requestedAvailabilityWeekId,
+      exact: exactAvailability.get(profile.id),
+      inherited: inheritedAvailability.get(profile.id),
+      profile: profile.value,
+    })
+    const storedAvailability = {
+      slots: normalizedAvailabilitySlots(effectiveAvailability.slots, config, false),
+      minimumSlots: Math.max(5, Number(effectiveAvailability.minimumSlots || requiredSessions)),
+      requiredSessions,
+      revision: effectiveAvailability.targetRevision,
+      sourceRevision: effectiveAvailability.sourceRevision,
+      status: effectiveAvailability.status,
+      confirmed: effectiveAvailability.confirmed,
+      submittedAt: effectiveAvailability.submittedAt,
+      source: effectiveAvailability.source,
+      sourceWeekId: effectiveAvailability.sourceWeekId,
+    }
     const availability = availabilityState(requestedAvailabilityWeekId, {
       ...storedAvailability,
       slots: normalizedAvailabilitySlots(storedAvailability.slots || [], config, false),
@@ -733,7 +772,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
         branchId: profile.value.branchId || '',
         sessionsPerWeek: requiredSessions,
         availableSlots: availability.slots,
-        isScheduleConfirmed: availability.status === 'submitted' || availability.status === 'locked',
+        isScheduleConfirmed: availability.confirmed === true,
         availabilityRevision: availability.revision,
         availability: serialize(availability),
       }),
@@ -766,12 +805,19 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const requiredSessions = integer(profile.value.sessionsPerWeek, 3, 1, 6)
     const minimumSlots = Math.max(5, requiredSessions)
     const confirmBelowMinimum = request.data?.confirmBelowMinimum === true
+    const submittedAtIso = new Date().toISOString()
     const cutoffAt = availabilityCutoff(weekId)
     if (Date.now() >= cutoffAt.getTime()) {
       throw new HttpsError('failed-precondition', 'Lịch rảnh của tuần này đã khóa lúc 10:00 Chủ nhật.', {
         issueCode: 'AVAILABILITY_LOCKED',
         action: 'contact_admin',
         cutoffAt: cutoffAt.toISOString(),
+      })
+    }
+    if (!slots.length) {
+      throw new HttpsError('failed-precondition', 'Không thể gửi lịch rảnh với 0 khung. Nếu cần nghỉ, hãy giữ lịch gần nhất và đăng ký OFF hoặc bảo lưu.', {
+        issueCode: 'AVAILABILITY_EMPTY',
+        action: 'create_pause_request',
       })
     }
     if (slots.length < minimumSlots && !confirmBelowMinimum) {
@@ -815,6 +861,21 @@ function createPtOperationsV2Functions({ db, onCall }) {
       }
       if (currentAvailability.exists) transaction.update(availabilityReference, next)
       else transaction.create(availabilityReference, { ...next, createdAt: FieldValue.serverTimestamp() })
+      const profilePatch = studentAvailabilityProfilePatch(currentProfile.data(), {
+        weekId,
+        slots,
+        requiredSessions,
+        minimumSlots,
+        status: 'submitted',
+        revision: currentRevision + 1,
+        submittedAt: submittedAtIso,
+      })
+      if (Object.keys(profilePatch).length) transaction.update(profile.reference, {
+        ...profilePatch,
+        latestAvailabilityUpdatedBy: actor.uid,
+        latestAvailabilityUpdatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      })
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
         action: 'student_availability.updated',
         actorUid: actor.uid,
@@ -823,6 +884,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
         beforeSlotCount: Array.isArray(currentAvailability.data()?.slots) ? currentAvailability.data().slots.length : 0,
         afterSlotCount: slots.length,
         belowMinimumConfirmed: slots.length < minimumSlots,
+        latestFallbackAdvanced: Boolean(profilePatch.latestSubmittedAvailability),
         createdAt: FieldValue.serverTimestamp(),
       })
       return currentRevision + 1
@@ -838,7 +900,10 @@ function createPtOperationsV2Functions({ db, onCall }) {
         requiredSessions,
         revision: nextRevision,
         status: 'submitted',
-        submittedAt: new Date().toISOString(),
+        submittedAt: submittedAtIso,
+        confirmed: true,
+        source: 'weekly',
+        sourceWeekId: weekId,
       })),
     }
   })

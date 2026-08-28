@@ -6,17 +6,22 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  CircleAlert,
   Dumbbell,
+  History,
   Link2,
   LoaderCircle,
   RefreshCw,
   Save,
+  ShieldCheck,
   X,
 } from 'lucide-react'
+import LeaveRequestModal from '../../components/schedule/LeaveRequestModal'
 import {
   asStudentPtScheduleError,
   listMyStudentPtSchedule,
   saveMyStudentAvailability,
+  type StudentPtPauseRequestSummary,
   type StudentPtScheduleData,
   type StudentPtScheduleServiceError,
   type StudentPtSession,
@@ -61,6 +66,41 @@ function sameSlots(left: Iterable<string>, right: Iterable<string>) {
   return [...left].sort().join('|') === [...right].sort().join('|')
 }
 
+function formatWeekLabel(value?: string | null) {
+  if (!value) return 'tuần trước'
+  const parsed = new Date(`${value}T00:00:00+07:00`)
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : `tuần ${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(parsed)}`
+}
+
+function formatDateLabel(value?: string | null) {
+  if (!value) return 'chưa xác định'
+  const parsed = new Date(`${value}T00:00:00+07:00`)
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(parsed)
+}
+
+function formatWeekRange(weekId: string) {
+  const start = new Date(`${weekId}T00:00:00+07:00`)
+  if (Number.isNaN(start.getTime())) return weekId
+  const end = addDays(start, 6)
+  const short = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit' })
+  const long = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  return `${short.format(start)} – ${long.format(end)}`
+}
+
+function pauseOverlapsWeek(request: StudentPtPauseRequestSummary, from: string, to: string) {
+  return ['pending', 'approved'].includes(request.status)
+    && request.startDate <= to
+    && request.endDate >= from
+}
+
+function pauseTypeLabel(request: StudentPtPauseRequestSummary) {
+  return request.type === 'preservation' ? 'Bảo lưu' : 'OFF'
+}
+
 function issueCopy(issue: StudentPtScheduleServiceError) {
   switch (issue.issueCode) {
     case 'AUTH_REQUIRED':
@@ -75,6 +115,8 @@ function issueCopy(issue: StudentPtScheduleServiceError) {
       return { title: 'Lịch rảnh của tuần đã khóa', description: 'Hãy chọn tuần kế tiếp hoặc liên hệ vận hành nếu cần điều chỉnh.' }
     case 'MINIMUM_AVAILABILITY_REQUIRED':
       return { title: 'Cần xác nhận số khung giờ', description: issue.message }
+    case 'AVAILABILITY_EMPTY':
+      return { title: 'Không thể gửi lịch trống', description: 'Hãy giữ lại các khung rảnh hiện tại. Nếu cần nghỉ, hãy đăng ký OFF hoặc bảo lưu.' }
     default:
       return { title: 'Chưa thể đồng bộ lịch rảnh', description: issue.message }
   }
@@ -110,7 +152,23 @@ function demoAvailabilityData(today: Date, weekStart: Date, weekId: string): Stu
     scheduleConfig: { workingDays: DEFAULT_DAYS, workingHours: DEFAULT_HOURS },
     sessions: [],
     sessionsTruncated: false,
-    contracts: [],
+    contracts: [{
+      id: 'demo-contract',
+      packageName: 'PT Personal 24 buổi',
+      status: 'active',
+      startDate: toIsoDate(addDays(today, -30)),
+      endDate: toIsoDate(addDays(today, 90)),
+      totalSessions: 24,
+      usedSessions: 8,
+      remainingSessions: 16,
+      totalAmount: 12_000_000,
+      paidAmount: 8_000_000,
+      outstandingAmount: 4_000_000,
+      paymentStatus: 'due_soon',
+      nextPaymentDate: toIsoDate(addDays(today, 5)),
+      daysUntilEnd: 90,
+      installments: [],
+    }],
     contractAlerts: [],
     sessionRequests: [],
     pauseRequests: [],
@@ -127,6 +185,8 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   const [issue, setIssue] = useState<StudentPtScheduleServiceError | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [confirmBelowMinimum, setConfirmBelowMinimum] = useState(false)
+  const [confirmEmpty, setConfirmEmpty] = useState(false)
+  const [showPauseRequest, setShowPauseRequest] = useState(false)
   const weekStart = useMemo(() => addDays(startOfWeek(today), weekOffset * 7), [today, weekOffset])
   const weekId = useMemo(() => toIsoDate(weekStart), [weekStart])
   const range = useMemo(() => ({ from: toIsoDate(weekStart), to: toIsoDate(addDays(weekStart, 6)) }), [weekStart])
@@ -158,8 +218,52 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   const missingSlots = Math.max(0, minimumSlots - selectedSlots.size)
   const locked = availability?.locked === true
   const dirty = !sameSlots(selectedSlots, originalSlots)
-  const statusKey = locked ? 'locked' : dirty ? 'dirty' : availability?.status === 'submitted' ? 'submitted' : 'draft'
-  const statusLabel = statusKey === 'locked' ? 'Đã khóa' : statusKey === 'dirty' ? 'Chưa lưu' : statusKey === 'submitted' ? 'Đã gửi' : 'Chưa gửi'
+  const inherited = availability?.source === 'inherited_weekly'
+  const legacyDefault = availability?.source === 'legacy_default'
+  const weeklyAvailability = availability?.source === 'weekly'
+  const missingAvailability = availability?.source === 'none'
+  const canConfirmLegacyDefault = legacyDefault && selectedSlots.size > 0
+  const todayKey = toIsoDate(today)
+  const activeContract = (data?.contracts ?? []).find((contract) => ['active', 'frozen'].includes(contract.status)
+    && (!contract.startDate || contract.startDate <= todayKey)
+    && (!contract.endDate || contract.endDate >= todayKey)
+    && contract.remainingSessions > 0)
+  const overlappingPauses = useMemo(() => (data?.pauseRequests ?? [])
+    .filter((request) => pauseOverlapsWeek(request, range.from, range.to))
+    .sort((left, right) => {
+      if (left.status !== right.status) return left.status === 'approved' ? -1 : 1
+      return left.startDate.localeCompare(right.startDate)
+    }), [data?.pauseRequests, range.from, range.to])
+  const availabilityReady = availability?.confirmed === true
+  const availabilitySourceText = weeklyAvailability
+    ? `lịch riêng của tuần ${formatWeekRange(availability?.weekId ?? weekId)}`
+    : inherited
+      ? `lịch đã gửi từ ${formatWeekLabel(availability?.sourceWeekId)}`
+      : legacyDefault
+        ? 'lịch mặc định cũ trong hồ sơ'
+        : 'chưa có lịch rảnh hợp lệ'
+  const statusKey = locked
+    ? 'locked'
+    : dirty
+      ? 'dirty'
+      : inherited
+        ? 'inherited'
+        : legacyDefault
+          ? 'legacy-default'
+          : availability?.status === 'submitted'
+            ? 'submitted'
+            : 'draft'
+  const statusLabel = statusKey === 'locked'
+    ? 'Đã khóa'
+    : statusKey === 'dirty'
+      ? 'Chưa lưu'
+      : statusKey === 'inherited'
+        ? 'Kế thừa'
+        : statusKey === 'legacy-default'
+          ? 'Mặc định cũ'
+          : statusKey === 'submitted'
+            ? 'Đã gửi'
+            : 'Chưa gửi'
   const cutoffLabel = availability?.cutoffAt
     ? new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date(availability.cutoffAt))
     : '10:00 Chủ nhật trước tuần tập'
@@ -196,7 +300,12 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   }
 
   const save = async (belowMinimumAccepted = false) => {
-    if (!data?.student || !dirty || saving || locked) return
+    if (!data?.student || (!dirty && !canConfirmLegacyDefault) || saving || locked) return
+    if (selectedSlots.size === 0) {
+      setConfirmBelowMinimum(false)
+      setConfirmEmpty(true)
+      return
+    }
     if (selectedSlots.size < minimumSlots && !belowMinimumAccepted) {
       setConfirmBelowMinimum(true)
       return
@@ -205,6 +314,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
     setIssue(null)
     setMessage(null)
     setConfirmBelowMinimum(false)
+    setConfirmEmpty(false)
     try {
       if (isDemo) {
         setData((current) => current?.student ? {
@@ -268,6 +378,31 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
     {!loading && data?.student && <section className="student-availability-card">
       <header><div><small>MA TRẬN THỜI GIAN RẢNH · TUẦN {weekId}</small><h2>Đăng ký thời gian có thể tập</h2><p>Aura khuyến nghị ít nhất {minimumSlots} khung. Lịch khóa lúc 10:00 Chủ nhật trước tuần tập.</p></div><button type="button" className={`student-availability-status-button is-${statusKey}`} onClick={() => document.querySelector('.student-schedule-matrix-scroll')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}><strong>{statusLabel}</strong><span>{selectedSlots.size}/{minimumSlots} khung</span></button></header>
       <div className="student-availability-week-switch"><button type="button" className={weekOffset === 0 ? 'active' : ''} onClick={() => setWeekOffset(0)}>Tuần này</button><button type="button" className={weekOffset === 1 ? 'active' : ''} onClick={() => setWeekOffset(1)}>Tuần sau</button><button type="button" className={weekOffset === 2 ? 'active' : ''} onClick={() => setWeekOffset(2)}>Tuần kế</button></div>
+      {weeklyAvailability && <div className="student-availability-source is-weekly" role="status"><span><CalendarDays size={20} /></span><div><strong>Lịch riêng của tuần {formatWeekRange(availability?.weekId ?? weekId)}</strong><p>Đây là lịch bạn đã gửi cho đúng tuần đang chọn. Lịch này được ưu tiên trước lịch gần nhất và lịch mặc định cũ.</p></div></div>}
+      {inherited && <div className="student-availability-source is-inherited" role="status"><span><History size={20} /></span><div><strong>Đang dùng lịch đã gửi gần nhất</strong><p>Nguồn từ {formatWeekLabel(availability?.sourceWeekId)}. Nếu bạn không điều chỉnh, Aura tự áp dụng {selectedSlots.size} khung này cho tuần đang chọn.</p></div></div>}
+      {legacyDefault && <div className="student-availability-source is-legacy" role="status"><span><CalendarRange size={20} /></span><div><strong>Đây là lịch mặc định cũ trong hồ sơ</strong><p>Aura chỉ dùng lịch này khi chưa có lịch tuần hoặc lịch đã gửi gần nhất. Hãy kiểm tra và bấm “Xác nhận lịch này” để biến nó thành lịch đã gửi của tuần đang chọn.</p></div></div>}
+      {missingAvailability && <div className="student-availability-source is-empty" role="status"><span><CircleAlert size={20} /></span><div><strong>Tuần này chưa có lịch rảnh hợp lệ</strong><p>Hãy chọn ít nhất một khung có thể tập. Không dùng lịch trống để báo nghỉ; trường hợp nghỉ cần đăng ký OFF hoặc bảo lưu.</p></div></div>}
+      {overlappingPauses.map((request) => {
+        const approved = request.status === 'approved'
+        const coversWholeWeek = request.startDate <= range.from && request.endDate >= range.to
+        const sourceAfterPause = availabilityReady
+          ? `Lịch rảnh vẫn được giữ; khi nghỉ kết thúc hệ thống tiếp tục dùng ${availabilitySourceText}.`
+          : 'Khi nghỉ kết thúc, bạn cần gửi hoặc xác nhận ít nhất một khung rảnh trước khi hệ thống có thể xếp buổi.'
+        const sourceWhilePending = availabilityReady
+          ? `Cho đến khi được duyệt, Aura vẫn có thể xếp lịch theo ${availabilitySourceText}.`
+          : 'Tuần này chưa có lịch rảnh đã xác nhận; bạn vẫn cần gửi lịch nếu yêu cầu nghỉ không được duyệt.'
+        return <div className={`student-availability-pause is-${request.status}`} role="status" key={request.id}>
+          <span>{approved ? <ShieldCheck size={21} /> : <CircleAlert size={21} />}</span>
+          <div><strong>{pauseTypeLabel(request)} {approved ? 'đã được duyệt' : 'đang chờ duyệt'}</strong><p>{formatDateLabel(request.startDate)} – {formatDateLabel(request.endDate)}. {approved
+            ? `${coversWholeWeek ? 'Aura không xếp buổi trong toàn bộ tuần này.' : 'Aura chỉ chặn các ngày nằm trong khoảng nghỉ.'} ${sourceAfterPause}`
+            : `Yêu cầu chưa có hiệu lực. ${sourceWhilePending}`}</p></div>
+          <button type="button" onClick={() => { window.location.hash = '#/schedule?tab=requests' }}>Xem yêu cầu <ChevronRight size={15} /></button>
+        </div>
+      })}
+      {overlappingPauses.length === 0 && <div className="student-availability-off-helper">
+        <span><CalendarRange size={20} /></span><div><strong>Cần nghỉ trong tuần này?</strong><p>Giữ nguyên lịch rảnh và đăng ký OFF/bảo lưu. Khi được duyệt, hệ thống tự chặn xếp buổi trong ngày nghỉ.</p></div>
+        <button type="button" disabled={!activeContract} onClick={() => setShowPauseRequest(true)}>{activeContract ? 'Đăng ký OFF / Bảo lưu' : 'Chưa có hợp đồng hiệu lực'}</button>
+      </div>}
       {locked && <div className="student-schedule-state is-warning student-availability-lock-note" role="status"><AlertCircle size={22} /><div><strong>Tuần này đã chốt lịch rảnh</strong><span>Khóa từ {cutoffLabel}. Tuần đã chốt không tự mở lại.</span></div>{weekOffset < 2 && <button type="button" onClick={() => setWeekOffset((weekOffset + 1) as AvailabilityWeekOffset)}>Chọn tuần kế tiếp <ChevronRight size={16} /></button>}</div>}
       {!locked && <div className={`student-availability-guidance is-${guidance.tone}`} role="status" aria-live="polite"><span>{missingSlots > 0 ? <AlertCircle size={20} /> : <Check size={20} />}</span><div><strong>{guidance.title}</strong><p>{guidance.message}</p></div><em>{selectedSlots.size}/{minimumSlots}</em></div>}
       <div className="student-schedule-legend"><span><i className="is-available" /> Có thể tập</span><span><i className="is-booked" /> Đã xếp ca</span><span><i className="is-linked" /> Đã liên kết</span></div>
@@ -280,8 +415,19 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
           return <td key={slotId}><button type="button" disabled={locked} className={`${selected ? 'is-available' : ''} ${booked ? 'is-booked' : ''} ${selected && booked ? 'is-linked' : ''}`} aria-pressed={selected} aria-label={`${day} ${hour} giờ, ${selected ? 'đã chọn' : 'chưa chọn'}${booked ? `, có ${linkedSessions.length} ca đã xếp` : ''}`} onClick={() => toggleSlot(slotId)}>{selected && booked ? <Link2 size={16} /> : booked ? <Dumbbell size={16} /> : selected ? <Check size={16} /> : null}{booked && <small>{linkedSessions.length}</small>}</button></td>
         })}</tr>)}</tbody></table>
       </div>
-      <footer><div><strong>{locked ? 'Đã khóa' : dirty ? 'Có thay đổi chưa lưu' : 'Dữ liệu đã đồng bộ'}</strong><span>Phiên bản tuần #{availability?.revision ?? data.student.availabilityRevision}</span></div><button type="button" disabled={!dirty || saving || locked} onClick={() => void save()}>{saving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}{saving ? 'Đang lưu...' : locked ? 'Tuần đã khóa' : 'Gửi lịch rảnh'}</button></footer>
+      <footer><div><strong>{locked ? 'Đã khóa' : dirty ? 'Có thay đổi chưa lưu' : inherited ? 'Đang tự động kế thừa' : legacyDefault ? 'Đang hiển thị lịch mặc định cũ' : weeklyAvailability ? 'Đã lưu riêng cho tuần này' : 'Chưa có lịch đã gửi'}</strong><span>{inherited ? `Nguồn ${formatWeekLabel(availability?.sourceWeekId)} · phiên bản #${availability?.sourceRevision ?? 0}` : legacyDefault ? 'Lớp tương thích cuối cùng' : weeklyAvailability ? `${formatWeekRange(availability?.weekId ?? weekId)} · phiên bản #${availability?.revision ?? data.student.availabilityRevision}` : 'Chọn khung rảnh hoặc đăng ký OFF'}</span></div><button type="button" disabled={(!dirty && !canConfirmLegacyDefault) || saving || locked} onClick={() => void save()}>{saving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}{saving ? 'Đang lưu...' : locked ? 'Tuần đã khóa' : !dirty && canConfirmLegacyDefault ? 'Xác nhận lịch này' : 'Gửi lịch rảnh'}</button></footer>
     </section>}
+
+    {confirmEmpty && <div className="student-availability-confirm" role="presentation">
+      <button type="button" className="student-availability-confirm__backdrop" aria-label="Đóng cảnh báo" onClick={() => setConfirmEmpty(false)} />
+      <section role="dialog" aria-modal="true" aria-labelledby="availability-empty-title">
+        <header><span><CalendarRange size={23} /></span><button type="button" aria-label="Đóng" onClick={() => setConfirmEmpty(false)}><X size={19} /></button></header>
+        <h2 id="availability-empty-title">Không thể gửi lịch trống</h2>
+        <p>Xóa hết khung rảnh không phải là đăng ký nghỉ và có thể làm sai nguồn lịch của tuần sau. Hãy giữ lịch gần nhất; OFF hoặc bảo lưu đã duyệt sẽ tự chặn xếp buổi.</p>
+        <div className="student-availability-confirm__summary"><ShieldCheck size={18} /><span><strong>Lịch rảnh và ngày nghỉ được quản lý riêng</strong><small>Sau khi khoảng nghỉ kết thúc, Aura tiếp tục dùng lịch đã gửi gần nhất nếu bạn không thay đổi.</small></span></div>
+        <footer><button type="button" onClick={() => setConfirmEmpty(false)}>Chọn lại khung</button><button type="button" className="is-confirm" disabled={!activeContract} onClick={() => { setConfirmEmpty(false); setShowPauseRequest(true) }}>{activeContract ? 'Đăng ký OFF / Bảo lưu' : 'Chưa có hợp đồng'}</button></footer>
+      </section>
+    </div>}
 
     {confirmBelowMinimum && <div className="student-availability-confirm" role="presentation">
       <button type="button" className="student-availability-confirm__backdrop" aria-label="Đóng cảnh báo" onClick={() => setConfirmBelowMinimum(false)} />
@@ -293,5 +439,6 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
         <footer><button type="button" onClick={() => setConfirmBelowMinimum(false)}>Chọn thêm khung</button><button type="button" className="is-confirm" onClick={() => void save(true)}>Vẫn gửi {selectedSlots.size} khung</button></footer>
       </section>
     </div>}
+    {showPauseRequest && activeContract && <LeaveRequestModal contractId={activeContract.id} policy={data?.scheduleConfig} onClose={() => setShowPauseRequest(false)} onCreated={(value) => { setMessage(value); void load() }} />}
   </main>
 }

@@ -63,7 +63,9 @@ export interface PtScheduleBranchOption {
 export interface PtScheduleV2Student extends Student {
   availabilityStatus: string
   availabilityRevision: number
-  availabilitySource?: 'weekly' | 'legacy_recurring' | 'none'
+  availabilitySourceRevision?: number
+  availabilitySourceWeekId?: string | null
+  availabilitySource?: 'weekly' | 'inherited_weekly' | 'legacy_default' | 'none'
   eligibleForWeek: boolean
   eligibilityReasons: string[]
   eligibleContractIds: string[]

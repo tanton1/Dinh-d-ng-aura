@@ -190,6 +190,25 @@ test('accepts confirmed recurring availability when no weekly document exists', 
   assert.ok(result.warnings.includes('LEGACY_AVAILABILITY_FALLBACK'))
 })
 
+test('accepts the latest submitted prior week before the legacy default', () => {
+  const fixture = baseFixture()
+  fixture.availability.clear()
+  fixture.students.set('student-a', {
+    status: 'active',
+    branchId: BRANCH_ID,
+    availableSlots: ['T3-6'],
+    isScheduleConfirmed: true,
+  })
+  fixture.inheritedAvailability = new Map([[
+    'student-a',
+    { weekId: '2026-08-17', status: 'locked', revision: 3, slots: ['T2-6'] },
+  ]])
+  const result = desiredEntries(fixture)
+  assert.deepEqual(result.errors, [])
+  assert.ok(result.warnings.includes('INHERITED_AVAILABILITY_FALLBACK'))
+  assert.ok(!result.warnings.includes('LEGACY_AVAILABILITY_FALLBACK'))
+})
+
 test('rejects unconfirmed legacy availability when no weekly document exists', () => {
   const fixture = baseFixture()
   fixture.availability.clear()

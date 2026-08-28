@@ -37,6 +37,45 @@
 
 .student-availability-page .student-availability-card > footer { position: static; bottom: auto; z-index: auto; box-shadow: none; }
 
+.student-availability-page .student-availability-status-button.is-inherited { color: #176d78; background: #e9f8fa; }
+.student-availability-page .student-availability-status-button.is-legacy-default { color: #8b5a22; background: #fff4df; }
+.student-availability-source { display: flex; align-items: flex-start; gap: 11px; margin: 0 18px 13px; padding: 13px 14px; border: 1px solid; border-radius: 16px; }
+.student-availability-source > span { display: grid; flex: 0 0 auto; width: 38px; height: 38px; place-items: center; border-radius: 13px; }
+.student-availability-source div { display: grid; gap: 3px; }
+.student-availability-source strong { color: #34252d; font-size: 12px; }
+.student-availability-source p { margin: 0; color: #74636c; font-size: 10px; line-height: 1.5; }
+.student-availability-source.is-inherited { border-color: #bfe7e8; background: #effafb; }
+.student-availability-source.is-inherited > span { color: #16717a; background: #d9f2f3; }
+.student-availability-source.is-weekly { border-color: #bfe5d5; background: #effaf5; }
+.student-availability-source.is-weekly > span { color: #14735a; background: #d9f3e8; }
+.student-availability-source.is-legacy { border-color: #f1d7ae; background: #fff9eb; }
+.student-availability-source.is-legacy > span { color: #9a5d1c; background: #ffedca; }
+.student-availability-source.is-empty { border-color: #efcbd9; background: #fff5f8; }
+.student-availability-source.is-empty > span { color: #b13468; background: #fbe2ec; }
+
+.student-availability-pause,
+.student-availability-off-helper { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; margin: 0 18px 13px; padding: 13px 14px; border: 1px solid; border-radius: 17px; }
+.student-availability-pause > span,
+.student-availability-off-helper > span { display: grid; width: 39px; height: 39px; place-items: center; border-radius: 13px; }
+.student-availability-pause > div,
+.student-availability-off-helper > div { display: grid; gap: 3px; min-width: 0; }
+.student-availability-pause strong,
+.student-availability-off-helper strong { color: #34252d; font-size: 12px; }
+.student-availability-pause p,
+.student-availability-off-helper p { margin: 0; color: #74636c; font-size: 10px; line-height: 1.5; }
+.student-availability-pause > button,
+.student-availability-off-helper > button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 38px; padding: 0 12px; border: 1px solid; border-radius: 12px; white-space: nowrap; font-size: 10px; font-weight: 850; }
+.student-availability-pause.is-approved { border-color: #aee1ce; background: #edfaf4; }
+.student-availability-pause.is-approved > span { color: #117052; background: #d1f2e4; }
+.student-availability-pause.is-approved > button { border-color: #addfce; color: #146b52; background: #fff; }
+.student-availability-pause.is-pending { border-color: #efd39e; background: #fff9e9; }
+.student-availability-pause.is-pending > span { color: #a35e12; background: #ffedc5; }
+.student-availability-pause.is-pending > button { border-color: #ead2a8; color: #8b5418; background: #fff; }
+.student-availability-off-helper { border-color: #ecd8e1; background: #fff; }
+.student-availability-off-helper > span { color: #c5296c; background: #fde8f1; }
+.student-availability-off-helper > button { border-color: #efb9d0; color: #af245f; background: #fff7fa; }
+.student-availability-off-helper > button:disabled { cursor: not-allowed; opacity: .55; }
+
 .student-availability-confirm { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 18px; }
 .student-availability-confirm__backdrop { position: absolute; inset: 0; border: 0; background: rgba(36, 18, 29, .54); backdrop-filter: blur(6px); }
 .student-availability-confirm > section { position: relative; width: min(440px, 100%); padding: 22px; border: 1px solid #f0d9e2; border-radius: 24px; background: #fff; box-shadow: 0 28px 70px rgba(47, 20, 35, .3); }
@@ -62,6 +101,11 @@
   .student-availability-page > .student-availability-card { border-right: 0; border-left: 0; border-radius: 22px; }
   .student-availability-page .student-availability-card > header { padding: 17px 13px 11px; }
   .student-availability-page .student-availability-week-switch { display: grid; margin: 0 13px 12px; }
+  .student-availability-page .student-availability-source { margin-inline: 13px; }
+  .student-availability-page .student-availability-pause,
+  .student-availability-page .student-availability-off-helper { grid-template-columns: auto minmax(0, 1fr); margin-inline: 13px; }
+  .student-availability-page .student-availability-pause > button,
+  .student-availability-page .student-availability-off-helper > button { grid-column: 1 / -1; width: 100%; min-height: 42px; }
   .student-availability-page .student-availability-week-switch button { min-width: 0; padding: 0 7px; font-size: 10px; }
   .student-availability-page .student-schedule-legend { padding: 0 13px 11px; }
   .student-availability-page .student-schedule-matrix-scroll { margin: 0; border-right: 0; border-left: 0; border-radius: 0; }

@@ -229,6 +229,18 @@ test('accepts a confirmed recurring learner availability for future weeks', () =
   assert.equal(result.eligible, true)
 })
 
+test('accepts availability inherited from the latest submitted prior week', () => {
+  const data = fixture()
+  data.students[0].availabilityStatus = 'inherited'
+  const result = candidateForSlot(data, {
+    student: data.students[0],
+    trainer: data.trainers[0],
+    slotId: 'T2-6',
+    schedule: {},
+  })
+  assert.equal(result.eligible, true)
+})
+
 test('manual slot list prioritizes matching availability but keeps an outside learner selectable', () => {
   const data = fixture()
   data.trainers[0].availableSlots.push('T3-6')

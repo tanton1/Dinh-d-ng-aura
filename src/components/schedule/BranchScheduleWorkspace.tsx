@@ -58,6 +58,7 @@ interface Props {
 
 type WorkspaceTab = 'matrix' | 'students' | 'warnings' | 'history'
 type StudentFilter = 'all' | 'missing' | 'availability' | 'ready'
+const CONFIRMED_AVAILABILITY_STATUSES = new Set(['submitted', 'locked', 'inherited', 'recurring'])
 
 const DAY_LABELS: Record<string, string> = {
   T2: 'Thứ 2',
@@ -75,6 +76,13 @@ function formatPublishedAt(value: string | null) {
   return Number.isNaN(parsed.getTime())
     ? 'Chưa có thời gian'
     : new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+}
+
+function availabilityOriginLabel(student: { availabilityStatus: string; availabilitySourceWeekId?: string | null }) {
+  if (student.availabilityStatus === 'inherited') return `kế thừa tuần ${student.availabilitySourceWeekId || 'gần nhất'}`
+  if (student.availabilityStatus === 'recurring') return 'lịch mặc định cũ'
+  if (['submitted', 'locked'].includes(student.availabilityStatus)) return 'đã gửi lịch rảnh'
+  return 'thiếu lịch rảnh'
 }
 
 function commandKey() {
@@ -318,7 +326,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       ].filter((value): value is string => Boolean(value)))]
       const trainerNames = trainerIds.map((id) => workspace.trainers.find((trainer) => trainer.id === id)?.name).filter(Boolean).join(', ')
       const inputWarning = missing > 0
-        || !['submitted', 'locked', 'recurring'].includes(student.availabilityStatus)
+        || !CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus)
         || student.eligibilityReasons.includes('AMBIGUOUS_ACTIVE_CONTRACT')
       return { student, scheduled, scheduledEntries, missing, contract, trainerNames, inputWarning }
     })
@@ -333,7 +341,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     const needle = studentSearch.trim().toLocaleLowerCase('vi-VN')
     return operationalStudentRows.filter((row) => {
       if (studentFilter === 'missing' && row.missing < 1) return false
-      if (studentFilter === 'availability' && ['submitted', 'locked', 'recurring'].includes(row.student.availabilityStatus)) return false
+      if (studentFilter === 'availability' && CONFIRMED_AVAILABILITY_STATUSES.has(row.student.availabilityStatus)) return false
       if (studentFilter === 'ready' && row.inputWarning) return false
       if (!needle) return true
       return [row.student.name, row.student.phone, row.contract?.packageName, row.trainerNames]
@@ -420,7 +428,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     for (const row of operationalStudentRows) {
       if (row.missing < 1 || byStudent.has(row.student.id)) continue
       const reasonCodes: string[] = []
-      if (!['submitted', 'locked', 'recurring'].includes(row.student.availabilityStatus)) reasonCodes.push('STUDENT_AVAILABILITY_MISSING')
+      if (!CONFIRMED_AVAILABILITY_STATUSES.has(row.student.availabilityStatus)) reasonCodes.push('STUDENT_AVAILABILITY_MISSING')
       if (row.student.eligibilityReasons.includes('AMBIGUOUS_ACTIVE_CONTRACT')) reasonCodes.push('AMBIGUOUS_ACTIVE_CONTRACT')
       if (!row.trainerNames) reasonCodes.push('TRAINER_NOT_ASSIGNED')
       if (!reasonCodes.length) reasonCodes.push('STUDENT_UNSCHEDULED')
@@ -469,9 +477,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         ...(unassigned?.reasonCodes || unassigned?.reasons || []),
         ...(student.eligibleForWeek ? [] : student.eligibilityReasons || []),
       ])
-      if (!['submitted', 'locked', 'recurring'].includes(student.availabilityStatus)) reasonCodes.add('AVAILABILITY_NOT_SUBMITTED')
+      if (!CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus)) reasonCodes.add('AVAILABILITY_NOT_SUBMITTED')
       if ((row?.missing || unassigned?.missingSessions || 0) > 0 && !reasonCodes.size) reasonCodes.add('STUDENT_UNSCHEDULED')
-      const hasConfirmedAvailability = ['submitted', 'locked', 'recurring'].includes(student.availabilityStatus)
+      const hasConfirmedAvailability = CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus)
         && student.availableSlots.length > 0
       return {
         student,
@@ -873,8 +881,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               <div className="branch-schedule__student-contract"><small>Gói &amp; PT</small><strong>{contract?.packageName || 'Cần đối soát hợp đồng'}</strong><span>{trainerNames || 'Chưa phân PT'} · {contract ? `${contractQuota(contract).schedulable} xếp thêm · ${contractQuota(contract).held} đã giữ chỗ` : 'chưa có gói phù hợp'}</span></div>
               <div className="branch-schedule__weekly-target"><small>Mục tiêu tuần</small><div><button type="button" aria-label={`Giảm mục tiêu tuần của ${student.name}`} disabled={busy || student.sessionsPerWeek <= scheduled} onClick={() => void setWeeklyTarget(student.id, student.sessionsPerWeek - 1)}><Minus /></button><strong>{student.sessionsPerWeek}</strong><button type="button" aria-label={`Tăng mục tiêu tuần của ${student.name}`} disabled={busy || student.sessionsPerWeek >= student.maxWeeklySessions} onClick={() => void setWeeklyTarget(student.id, student.sessionsPerWeek + 1)}><Plus /></button>{student.weeklySessionTargetOverridden && <button type="button" className="is-reset" title={`Về ${student.defaultSessionsPerWeek} buổi`} aria-label={`Khôi phục mục tiêu của ${student.name} về ${student.defaultSessionsPerWeek} buổi`} disabled={busy || Math.min(student.defaultSessionsPerWeek, student.maxWeeklySessions) < scheduled} onClick={() => void setWeeklyTarget(student.id, null)}><RotateCcw /></button>}</div>{student.weeklySessionTargetOverridden && <span>Tạm thời</span>}</div>
               <div className="branch-schedule__student-progress"><strong>{scheduled}/{student.sessionsPerWeek}</strong><span>{missing > 0 ? `Thiếu ${missing}` : 'Đã đủ'}</span><i><b style={{ width: `${Math.min(100, student.sessionsPerWeek ? scheduled / student.sessionsPerWeek * 100 : 100)}%` }} /></i></div>
-              <div className="branch-schedule__student-schedule"><small>Lịch được xếp · {['submitted', 'locked'].includes(student.availabilityStatus) ? 'đã gửi lịch rảnh' : student.availabilityStatus === 'recurring' ? 'lịch rảnh cố định' : 'thiếu lịch rảnh'}</small><div>{scheduledEntries.length ? scheduledEntries.map((entry) => <span key={`${entry.slotId}-${entry.trainerId}`}>{entry.label}<b>{workspace.trainers.find((trainer) => trainer.id === entry.trainerId)?.name || 'PT chưa cập nhật'}</b></span>) : <em>Chưa có buổi nào trong tuần</em>}</div></div>
-              <div className="branch-schedule__student-availability-action"><button type="button" className={`is-${student.availabilityStatus}`} aria-expanded={availabilityEditorStudentId === student.id} onClick={() => openAvailabilityEditor(student)}><CalendarRange size={16} />{student.availabilityStatus === 'locked' ? 'Lịch rảnh đã khóa' : ['submitted', 'recurring'].includes(student.availabilityStatus) ? 'Xem / sửa lịch rảnh' : 'Thêm lịch rảnh'}</button><span>{student.availableSlots.length} khung · r{student.availabilityRevision}</span></div>
+              <div className="branch-schedule__student-schedule"><small>Lịch được xếp · {availabilityOriginLabel(student)}</small><div>{scheduledEntries.length ? scheduledEntries.map((entry) => <span key={`${entry.slotId}-${entry.trainerId}`}>{entry.label}<b>{workspace.trainers.find((trainer) => trainer.id === entry.trainerId)?.name || 'PT chưa cập nhật'}</b></span>) : <em>Chưa có buổi nào trong tuần</em>}</div></div>
+              <div className="branch-schedule__student-availability-action"><button type="button" className={`is-${student.availabilityStatus}`} aria-expanded={availabilityEditorStudentId === student.id} onClick={() => openAvailabilityEditor(student)}><CalendarRange size={16} />{student.availabilityStatus === 'locked' ? 'Lịch rảnh đã khóa' : CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus) ? 'Xem / điều chỉnh lịch rảnh' : 'Thêm lịch rảnh'}</button><span>{student.availableSlots.length} khung · {student.availabilityStatus === 'inherited' ? `nguồn ${student.availabilitySourceWeekId || 'gần nhất'}` : `r${student.availabilityRevision}`}</span></div>
               {availabilityEditorStudentId === student.id && <section className="branch-schedule__availability-editor">
                 <header><div><small>LỊCH RẢNH TUẦN {currentWeekId}</small><strong>{student.name}</strong></div><span>{availabilityDraft.size} khung đã chọn</span></header>
                 <AvailabilityMatrix days={workingDays} hours={workingHours} selected={availabilityDraft} onChange={setAvailabilityDraft} disabled={availabilityBusy} ariaLabel={`Lịch rảnh của ${student.name}`} />
@@ -908,7 +916,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                   <section><small>Gói tập</small><strong>{contract?.packageName || 'Chưa có hợp đồng phù hợp'}</strong><em>{contract ? `${quota.entitlement} quyền lợi · ${quota.held} đã giữ chỗ · ${quota.schedulable} xếp thêm · ${String(contract.startDate || '').slice(0, 10)} → ${String(contract.endDate || '').slice(0, 10)}` : 'Cần đối soát hợp đồng'}</em></section>
                   <section><small>PT phụ trách</small><strong>{trainerNames || 'Chưa phân PT'}</strong><em>{trainerNames ? 'Theo hợp đồng và lịch hiện tại' : 'Sẽ xếp theo hạng PT'}</em></section>
                   <section className="is-wide"><small>Nguyên nhân cần xử lý</small><div>{reasonCodes.length ? reasonCodes.map((code) => <span key={code}>{ptScheduleConflictLabel(code)}</span>) : <em>Chưa tìm được phương án tối ưu</em>}</div></section>
-                  <section className={`is-wide${hasConfirmedAvailability ? '' : ' is-missing-availability'}`}><small>{hasConfirmedAvailability ? `Lịch rảnh đã xác nhận · ${student.availableSlots.length} khung` : 'Chưa có lịch rảnh'}</small><div>{hasConfirmedAvailability ? student.availableSlots.map((slot) => <span key={slot}>{availabilitySlotLabel(slot)}</span>) : <em>Học viên chưa gửi hoặc đã xóa lịch rảnh của tuần này; hệ thống không tự suy đoán khung giờ.</em>}</div></section>
+                  <section className={`is-wide${hasConfirmedAvailability ? '' : ' is-missing-availability'}`}><small>{hasConfirmedAvailability ? `${availabilityOriginLabel(student)} · ${student.availableSlots.length} khung` : 'Chưa có lịch rảnh'}</small><div>{hasConfirmedAvailability ? student.availableSlots.map((slot) => <span key={slot}>{availabilitySlotLabel(slot)}</span>) : <em>Không có lịch đúng tuần, lịch đã gửi trước đó hoặc lịch mặc định cũ đã xác nhận.</em>}</div></section>
                   <section className="is-wide"><small>Lịch đã xếp</small><div>{scheduledEntries.length ? scheduledEntries.map((entry) => <span key={`${entry.slotId}-${entry.trainerId}`}>{entry.label}<b>{workspace.trainers.find((trainer) => trainer.id === entry.trainerId)?.name || 'PT chưa cập nhật'}</b></span>) : <em>Chưa có buổi nào trong tuần</em>}</div></section>
                   <section className="is-wide is-suggestion"><small>Ca hệ thống còn đề xuất</small><div>{suggestedSlots.length ? suggestedSlots.map((slot) => <span key={slot}>{availabilitySlotLabel(slot)}</span>) : <em>Không còn ca chung hợp lệ; cần bổ sung lịch rảnh hoặc PT.</em>}</div></section>
                 </div>}

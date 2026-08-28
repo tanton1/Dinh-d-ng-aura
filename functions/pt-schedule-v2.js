@@ -15,6 +15,11 @@ const {
   trainerIsAvailable,
   weekId,
 } = require('./pt-schedule-publish')
+const {
+  effectiveStudentAvailability,
+  loadLatestSubmittedFallbacks,
+  studentAvailabilityProfilePatch,
+} = require('./student-availability')
 
 const MAX_STUDENTS = 500
 const MAX_TRAINERS = 100
@@ -197,6 +202,7 @@ async function loadBranchData(db, branchId, week) {
     .map((item) => [item.id, item]))
   const sessionRows = [...sessionRowsById.values()]
   const weeklyAvailability = new Map(availability.docs.map((item) => item.data()).filter((item) => studentSet.has(item.studentId)).map((item) => [item.studentId, item]))
+  const inheritedAvailability = await loadLatestSubmittedFallbacks(db, studentMap, weeklyAvailability, week)
   const legacy = legacySchedule.exists ? legacySchedule.data() : {}
   const draftData = draft.exists ? draft.data() : null
   const weeklySessionTargets = safeWeeklySessionTargets(draftData?.weeklySessionTargets, studentSet)
@@ -242,9 +248,19 @@ async function loadBranchData(db, branchId, week) {
   const mappedStudents = students.docs.map((item) => {
     const data = item.data()
     const weekly = weeklyAvailability.get(item.id)
-    const recurringSlots = Array.isArray(data.availableSlots) ? data.availableSlots.slice(0, 100) : []
-    const recurringConfirmed = !weekly && data.isScheduleConfirmed === true && recurringSlots.length > 0
-    const availabilityStatus = weekly?.status || (recurringConfirmed ? 'recurring' : 'missing')
+    const effectiveAvailability = effectiveStudentAvailability({
+      targetWeek: week,
+      exact: weekly,
+      inherited: inheritedAvailability.get(item.id),
+      profile: data,
+    })
+    const availabilityStatus = effectiveAvailability.source === 'weekly'
+      ? effectiveAvailability.status
+      : effectiveAvailability.source === 'inherited_weekly'
+        ? 'inherited'
+        : effectiveAvailability.source === 'legacy_default' && effectiveAvailability.confirmed
+          ? 'recurring'
+          : 'missing'
     const eligibility = studentWeekEligibility(mappedContracts, item.id, branchId, week)
     const studentInactive = ['inactive', 'archived', 'deleted'].includes(String(data.status || '').toLowerCase())
     const weeklySessionTargetOverride = Object.prototype.hasOwnProperty.call(weeklySessionTargets, item.id)
@@ -268,11 +284,13 @@ async function loadBranchData(db, branchId, week) {
       weeklySessionTargetOverridden: target.weeklySessionTargetOverridden,
       maxWeeklySessions: target.maxWeeklySessions,
       schedulableSessionsThisWeek: target.schedulableSessionsThisWeek,
-      availableSlots: Array.isArray(weekly?.slots) ? weekly.slots.slice(0, 100) : recurringSlots,
+      availableSlots: effectiveAvailability.slots.slice(0, 100),
       availabilityStatus,
-      availabilityRevision: Number(weekly?.revision || data.availabilityRevision || 0),
-      availabilitySource: weekly ? 'weekly' : recurringConfirmed ? 'legacy_recurring' : 'none',
-      isScheduleConfirmed: ['submitted', 'locked', 'recurring'].includes(availabilityStatus),
+      availabilityRevision: Number(effectiveAvailability.targetRevision || 0),
+      availabilitySourceRevision: Number(effectiveAvailability.sourceRevision || 0),
+      availabilitySourceWeekId: effectiveAvailability.sourceWeekId,
+      availabilitySource: effectiveAvailability.source,
+      isScheduleConfirmed: effectiveAvailability.confirmed === true,
       eligibleForWeek: !studentInactive && eligibility.eligible,
       eligibilityReasons: studentInactive
         ? ['STUDENT_NOT_ACTIVE', ...eligibility.reasonCodes]
@@ -595,7 +613,7 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
   } else if (trainer.availabilityMode === 'unconfigured') reasons.push('TRAINER_AVAILABILITY_UNCONFIGURED')
   else if (!trainerIsAvailable(trainer, slotId)) reasons.push('OUTSIDE_TRAINER_AVAILABILITY')
   if (data.leaves.some((leave) => leaveCovers(leave, trainer.id, date))) reasons.push('TRAINER_ON_LEAVE')
-  if (!['submitted', 'locked', 'recurring'].includes(student.availabilityStatus)) reasons.push('AVAILABILITY_NOT_SUBMITTED')
+  if (!['submitted', 'locked', 'inherited', 'recurring'].includes(student.availabilityStatus)) reasons.push('AVAILABILITY_NOT_SUBMITTED')
   else if (!student.availableSlots.includes(slotId)) reasons.push('OUTSIDE_STUDENT_AVAILABILITY')
   const contractCacheKey = `${student.id}|${trainer.id}|${date}|${scheduleEntryCount(schedule)}`
   const contractResult = contractCache?.has(contractCacheKey)
@@ -1106,9 +1124,16 @@ function createPtScheduleV2Functions({ db, onCall }) {
     const minimumSlots = Math.max(5, requiredSessions)
     if (slots.length < minimumSlots) throw new HttpsError('failed-precondition', `Hãy chọn ít nhất ${minimumSlots} khung giờ rảnh.`)
     const reference = db.doc(`ptAvailability/${studentId}_${week}`)
+    const studentReference = db.doc(`students/${studentId}`)
     const cutoff = Date.parse(`${week}T00:00:00+07:00`) - 14 * 60 * 60 * 1000
+    const availabilityStatus = Date.now() >= cutoff ? 'locked' : 'submitted'
+    const submittedAtIso = new Date().toISOString()
     const nextRevision = await db.runTransaction(async (transaction) => {
-      const current = await transaction.get(reference)
+      const [current, currentProfile] = await Promise.all([
+        transaction.get(reference),
+        transaction.get(studentReference),
+      ])
+      if (!currentProfile.exists || currentProfile.data().branchId !== branchId) throw new HttpsError('not-found', 'Không tìm thấy học viên trong chi nhánh đang xếp lịch.')
       const revision = Number(current.data()?.revision || 0)
       if (revision !== expectedRevision) throw new HttpsError('aborted', 'Lịch rảnh đã thay đổi. Hãy tải lại trước khi lưu.', { issueCode: 'REVISION_CONFLICT', currentRevision: revision })
       const next = {
@@ -1119,7 +1144,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         slots,
         requiredSessions,
         minimumSlots,
-        status: Date.now() >= cutoff ? 'locked' : 'submitted',
+        status: availabilityStatus,
         revision: revision + 1,
         submittedAt: current.data()?.submittedAt || FieldValue.serverTimestamp(),
         updatedBy: actor.uid,
@@ -1127,6 +1152,21 @@ function createPtScheduleV2Functions({ db, onCall }) {
       }
       if (current.exists) transaction.update(reference, next)
       else transaction.create(reference, { ...next, createdAt: FieldValue.serverTimestamp() })
+      const profilePatch = studentAvailabilityProfilePatch(currentProfile.data(), {
+        weekId: week,
+        slots,
+        requiredSessions,
+        minimumSlots,
+        status: availabilityStatus,
+        revision: revision + 1,
+        submittedAt: submittedAtIso,
+      })
+      if (Object.keys(profilePatch).length) transaction.update(studentReference, {
+        ...profilePatch,
+        latestAvailabilityUpdatedBy: actor.uid,
+        latestAvailabilityUpdatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      })
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
         schemaVersion: 2,
         action: 'student_availability.admin_updated',
@@ -1138,11 +1178,12 @@ function createPtScheduleV2Functions({ db, onCall }) {
         afterSlotCount: slots.length,
         previousRevision: revision,
         nextRevision: revision + 1,
+        latestFallbackAdvanced: Boolean(profilePatch.latestSubmittedAvailability),
         createdAt: FieldValue.serverTimestamp(),
       })
       return revision + 1
     })
-    return { schemaVersion: 1, availableSlots: slots, availabilityRevision: nextRevision, availabilityStatus: Date.now() >= cutoff ? 'locked' : 'submitted' }
+    return { schemaVersion: 1, availableSlots: slots, availabilityRevision: nextRevision, availabilityStatus }
   })
 
   const applyPtScheduleDraftCommand = onCall(async (request) => {
