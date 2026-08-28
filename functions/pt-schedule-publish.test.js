@@ -149,6 +149,33 @@ test('rejects entries outside submitted weekly availability', () => {
   assert.ok(result.errors.includes('OUTSIDE_STUDENT_AVAILABILITY'))
 })
 
+test('accepts an explicitly audited manual placement outside learner availability as a warning', () => {
+  const fixture = baseFixture()
+  fixture.availability.set('student-a', { studentId: 'student-a', status: 'submitted', slots: ['T3-6'] })
+  fixture.schedule['T2-6'][0] = {
+    studentId: 'student-a',
+    trainerId: 'trainer-a',
+    branchId: BRANCH_ID,
+    type: 'training',
+    source: 'manual_v2',
+    availabilityOverride: true,
+    availabilityOverrideReason: 'OUTSIDE_STUDENT_AVAILABILITY',
+    availabilityOverrideBy: 'admin-a',
+    availabilityOverrideAt: '2026-08-28T10:00:00.000Z',
+  }
+  const result = desiredEntries(fixture)
+  assert.ok(!result.errors.includes('OUTSIDE_STUDENT_AVAILABILITY'))
+  assert.ok(result.warnings.includes('MANUAL_STUDENT_AVAILABILITY_OVERRIDE'))
+  const session = [...result.desired.values()][0]
+  assert.equal(session.availabilityOverride, true)
+  assert.equal(session.availabilityOverrideBy, 'admin-a')
+
+  fixture.availability.clear()
+  const afterAvailabilityChanged = desiredEntries(fixture)
+  assert.ok(!afterAvailabilityChanged.errors.includes('AVAILABILITY_NOT_SUBMITTED'))
+  assert.ok(afterAvailabilityChanged.warnings.includes('MANUAL_STUDENT_AVAILABILITY_OVERRIDE'))
+})
+
 test('accepts confirmed recurring availability when no weekly document exists', () => {
   const fixture = baseFixture()
   fixture.availability.clear()
@@ -210,12 +237,13 @@ test('captures OFF and training entries in an immutable branch draft snapshot', 
   const trainers = new Map([['trainer-a', { branchId: BRANCH_ID }]])
   const snapshot = branchScheduleSnapshot({
     'T2-6': [
-      { studentId: 'student-a', trainerId: 'trainer-a', type: 'training', isLocked: true },
+      { studentId: 'student-a', trainerId: 'trainer-a', type: 'training', isLocked: true, source: 'manual_v2', availabilityOverride: true, availabilityOverrideReason: 'OUTSIDE_STUDENT_AVAILABILITY', availabilityOverrideBy: 'admin-a', availabilityOverrideAt: '2026-08-28T10:00:00.000Z' },
       { studentId: 'OFF', trainerId: 'trainer-a', type: 'off' },
     ],
   }, BRANCH_ID, students, trainers)
   assert.equal(snapshot['T2-6'].length, 2)
   assert.equal(snapshot['T2-6'][0].branchId, BRANCH_ID)
+  assert.equal(snapshot['T2-6'][0].availabilityOverride, true)
   assert.equal(snapshot['T2-6'][1].type, 'off')
 })
 
@@ -249,4 +277,20 @@ test('branch draft input is bounded, canonical and cannot persist the all filter
   assert.equal(result['T2-6'][0].type, 'training')
   assert.equal(result['T3-7'][0].studentId, 'OFF')
   assert.equal(result['T3-7'][0].branchId, BRANCH_ID)
+})
+
+test('raw draft input cannot forge an availability override while trusted restore retains it', () => {
+  const input = {
+    'T2-6': [{
+      studentId: 'student-a',
+      trainerId: 'trainer-a',
+      source: 'manual_v2',
+      availabilityOverride: true,
+      availabilityOverrideReason: 'OUTSIDE_STUDENT_AVAILABILITY',
+      availabilityOverrideBy: 'admin-a',
+      availabilityOverrideAt: '2026-08-28T10:00:00.000Z',
+    }],
+  }
+  assert.equal(normalizedDraftSchedule(input, BRANCH_ID)['T2-6'][0].availabilityOverride, undefined)
+  assert.equal(normalizedDraftSchedule(input, BRANCH_ID, true)['T2-6'][0].availabilityOverride, true)
 })

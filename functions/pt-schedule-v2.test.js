@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_DRAFT_ENTRIES, candidateForSlot, generateSchedule, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, studentWeekEligibility, weeklyTargetForStudent } = require('./pt-schedule-v2')
+const { MAX_DRAFT_ENTRIES, candidateForSlot, generateSchedule, manualSlotCandidate, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, studentWeekEligibility, weeklyTargetForStudent } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
@@ -148,6 +148,44 @@ test('accepts a confirmed recurring learner availability for future weeks', () =
   assert.equal(result.eligible, true)
 })
 
+test('manual slot list prioritizes matching availability but keeps an outside learner selectable', () => {
+  const data = fixture()
+  data.trainers[0].availableSlots.push('T3-6')
+  const matching = manualSlotCandidate(candidateForSlot(data, {
+    student: data.students[0],
+    trainer: data.trainers[0],
+    slotId: 'T2-6',
+    schedule: {},
+  }))
+  const outside = manualSlotCandidate(candidateForSlot(data, {
+    student: data.students[0],
+    trainer: data.trainers[0],
+    slotId: 'T3-6',
+    schedule: {},
+  }))
+  assert.equal(matching.eligible, true)
+  assert.equal(matching.matchesStudentAvailability, true)
+  assert.equal(matching.manualSelectable, true)
+  assert.equal(outside.eligible, false)
+  assert.equal(outside.matchesStudentAvailability, false)
+  assert.equal(outside.manualSelectable, true)
+  assert.equal(outside.availabilityReason, 'OUTSIDE_STUDENT_AVAILABILITY')
+})
+
+test('manual availability override never bypasses contract or trainer blockers', () => {
+  const data = fixture()
+  data.trainers[0].availableSlots.push('T3-6')
+  data.contracts = []
+  const result = manualSlotCandidate(candidateForSlot(data, {
+    student: data.students[0],
+    trainer: data.trainers[0],
+    slotId: 'T3-6',
+    schedule: {},
+  }))
+  assert.equal(result.manualSelectable, false)
+  assert.ok(result.reasons.includes('ACTIVE_CONTRACT_NOT_FOUND'))
+})
+
 test('does not silently truncate entries when several trainers share one hour', () => {
   const entries = Array.from({ length: 8 }, (_, index) => ({
     studentId: `student-${index}`,
@@ -157,6 +195,34 @@ test('does not silently truncate entries when several trainers share one hour', 
   }))
   const schedule = safeSchedule({ 'T2-6': entries })
   assert.equal(schedule['T2-6'].length, 8)
+})
+
+test('safe schedule retains only an audited manual availability override', () => {
+  const schedule = safeSchedule({
+    'T2-6': [{
+      studentId: 'student-a',
+      trainerId: 'trainer-a',
+      branchId: BRANCH,
+      type: 'training',
+      source: 'manual_v2',
+      availabilityOverride: true,
+      availabilityOverrideReason: 'OUTSIDE_STUDENT_AVAILABILITY',
+      availabilityOverrideBy: 'admin-a',
+      availabilityOverrideAt: '2026-08-28T10:00:00.000Z',
+    }],
+    'T3-6': [{
+      studentId: 'student-a',
+      trainerId: 'trainer-a',
+      branchId: BRANCH,
+      type: 'training',
+      source: 'generated_v3',
+      availabilityOverride: true,
+      availabilityOverrideReason: 'OUTSIDE_STUDENT_AVAILABILITY',
+    }],
+  })
+  assert.equal(schedule['T2-6'][0].availabilityOverride, true)
+  assert.equal(schedule['T2-6'][0].availabilityOverrideBy, 'admin-a')
+  assert.equal(schedule['T3-6'][0].availabilityOverride, undefined)
 })
 
 test('generator stops safely at the bounded draft capacity and reports it', () => {

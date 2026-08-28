@@ -276,6 +276,10 @@ export interface ScheduleEntry {
   branchId?: string
   type?: 'training' | 'off'
   source?: string
+  availabilityOverride?: boolean
+  availabilityOverrideReason?: 'AVAILABILITY_NOT_SUBMITTED' | 'OUTSIDE_STUDENT_AVAILABILITY'
+  availabilityOverrideBy?: string
+  availabilityOverrideAt?: string
 }
 
 export interface Schedule {

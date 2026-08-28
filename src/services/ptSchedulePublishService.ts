@@ -190,6 +190,11 @@ export interface PtScheduleSlotCandidate {
   reasons: string[]
   contractId: string | null
   date: string
+  /** True khi học viên đã đăng ký đúng khung giờ đang mở. */
+  matchesStudentAvailability?: boolean
+  /** Có thể xếp tay; false khi còn lỗi hợp đồng, chi nhánh, trùng lịch hoặc tải PT. */
+  manualSelectable?: boolean
+  availabilityReason?: 'AVAILABILITY_NOT_SUBMITTED' | 'OUTSIDE_STUDENT_AVAILABILITY' | null
 }
 
 export type PtScheduleDraftCommand =
@@ -254,6 +259,7 @@ const conflictLabels: Record<string, string> = {
   DRAFT_RESET: 'Lịch nháp vừa được đặt lại; học viên đang chờ xếp lại.',
   NO_AVAILABLE_SLOT: 'Không còn khung giờ rảnh chung giữa học viên và PT.',
   STUDENT_AVAILABILITY_MISSING: 'Học viên chưa có lịch rảnh để xếp tự động.',
+  MANUAL_STUDENT_AVAILABILITY_OVERRIDE: 'Có học viên được quản lý xếp tay ngoài lịch rảnh đã đăng ký.',
   TRAINER_DAILY_TARGET_REACHED: 'Các PT phù hợp đã đạt mục tiêu ca trong ngày.',
   TRAINER_DAILY_LIMIT_REACHED: 'Các PT phù hợp đã chạm giới hạn ca trong ngày.',
   TRAINER_DAILY_SESSION_LIMIT_EXCEEDED: 'PT đã vượt giới hạn ca được cấu hình trong ngày.',

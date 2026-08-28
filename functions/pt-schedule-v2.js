@@ -26,6 +26,7 @@ const MAX_ENTRIES_PER_SLOT = 100
 const DEFAULT_DAILY_SESSION_TARGET = 8
 const DEFAULT_DAILY_SESSION_LIMIT = 10
 const DAY_ORDER = new Map([['T2', 0], ['T3', 1], ['T4', 2], ['T5', 3], ['T6', 4], ['T7', 5], ['CN', 6]])
+const STUDENT_AVAILABILITY_REASON_CODES = new Set(['AVAILABILITY_NOT_SUBMITTED', 'OUTSIDE_STUDENT_AVAILABILITY'])
 
 function draftId(branchId, week) {
   return `${branchId}_${week}`
@@ -100,15 +101,32 @@ function safeSchedule(value) {
   for (const [slotId, entries] of Object.entries(value)) {
     if (!/^(T[2-7]|CN)-(?:[0-9]|1[0-9]|2[0-3])$/.test(slotId) || !Array.isArray(entries)) continue
     if (entries.length > MAX_ENTRIES_PER_SLOT) throw new HttpsError('resource-exhausted', 'Một khung giờ có quá nhiều dữ liệu.')
-    const normalized = entries.map((entry) => ({
-      studentId: entry?.type === 'off' ? 'OFF' : String(entry?.studentId || ''),
-      trainerId: String(entry?.trainerId || ''),
-      branchId: String(entry?.branchId || ''),
-      type: entry?.type === 'off' ? 'off' : 'training',
-      ...(entry?.contractId ? { contractId: String(entry.contractId) } : {}),
-      ...(entry?.isLocked === true ? { isLocked: true } : {}),
-      ...(entry?.source ? { source: String(entry.source) } : {}),
-    })).filter((entry) => entry.trainerId && (entry.type === 'off' || entry.studentId))
+    const normalized = entries.map((entry) => {
+      const type = entry?.type === 'off' ? 'off' : 'training'
+      const source = typeof entry?.source === 'string' ? entry.source.slice(0, 40) : ''
+      const availabilityOverrideReason = STUDENT_AVAILABILITY_REASON_CODES.has(entry?.availabilityOverrideReason)
+        ? entry.availabilityOverrideReason
+        : ''
+      const availabilityOverride = type === 'training'
+        && source === 'manual_v2'
+        && entry?.availabilityOverride === true
+        && Boolean(availabilityOverrideReason)
+      return {
+        studentId: type === 'off' ? 'OFF' : String(entry?.studentId || ''),
+        trainerId: String(entry?.trainerId || ''),
+        branchId: String(entry?.branchId || ''),
+        type,
+        ...(entry?.contractId ? { contractId: String(entry.contractId) } : {}),
+        ...(entry?.isLocked === true ? { isLocked: true } : {}),
+        ...(source ? { source } : {}),
+        ...(availabilityOverride ? {
+          availabilityOverride: true,
+          availabilityOverrideReason,
+          availabilityOverrideBy: typeof entry?.availabilityOverrideBy === 'string' ? entry.availabilityOverrideBy.slice(0, 200) : '',
+          availabilityOverrideAt: typeof entry?.availabilityOverrideAt === 'string' ? entry.availabilityOverrideAt.slice(0, 40) : '',
+        } : {}),
+      }
+    }).filter((entry) => entry.trainerId && (entry.type === 'off' || entry.studentId))
     count += normalized.length
     if (normalized.length) result[slotId] = normalized
   }
@@ -535,6 +553,17 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
   }
 }
 
+function manualSlotCandidate(result) {
+  const availabilityReasons = result.reasons.filter((reason) => STUDENT_AVAILABILITY_REASON_CODES.has(reason))
+  const blockingReasons = result.reasons.filter((reason) => !STUDENT_AVAILABILITY_REASON_CODES.has(reason))
+  return {
+    ...result,
+    matchesStudentAvailability: availabilityReasons.length === 0,
+    manualSelectable: blockingReasons.length === 0,
+    availabilityReason: availabilityReasons[0] || null,
+  }
+}
+
 function scheduleEntryCount(schedule) {
   return Object.values(schedule || {}).reduce((total, entries) => total + (Array.isArray(entries) ? entries.length : 0), 0)
 }
@@ -958,12 +987,15 @@ function createPtScheduleV2Functions({ db, onCall }) {
     const search = typeof request.data?.search === 'string' ? request.data.search.trim().toLocaleLowerCase('vi').slice(0, 100) : ''
     return {
       schemaVersion: 2,
-      candidates: data.students.filter((student) => !search || student.name.toLocaleLowerCase('vi').includes(search) || student.phone.includes(search)).slice(0, 100).map((student) => ({
+      candidates: data.students.filter((student) => !search || student.name.toLocaleLowerCase('vi').includes(search) || student.phone.includes(search)).map((student) => ({
         studentId: student.id,
         name: student.name,
         phone: student.phone,
-        ...candidateForSlot(data, { student, trainer, slotId, schedule: data.schedule }),
-      })).sort((left, right) => Number(right.eligible) - Number(left.eligible) || left.name.localeCompare(right.name, 'vi')),
+        ...manualSlotCandidate(candidateForSlot(data, { student, trainer, slotId, schedule: data.schedule })),
+      })).sort((left, right) => {
+        const rank = (candidate) => candidate.eligible ? 0 : candidate.manualSelectable ? 1 : 2
+        return rank(left) - rank(right) || left.name.localeCompare(right.name, 'vi')
+      }).slice(0, 100),
     }
   })
 
@@ -1068,6 +1100,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
     const reference = draftReference(db, branchId, week)
     const receipt = db.doc(`ptScheduleCommandReceipts/${commandReceiptId(actor.uid, branchId, week, idempotencyKey)}`)
     let schedule = safeSchedule(data.schedule)
+    let availabilityOverrideMetadata = null
     if (command === 'add_student' || command === 'move_student') {
       const trainer = data.trainers.find((item) => item.id === trainerId)
       const student = data.students.find((item) => item.id === studentId)
@@ -1078,8 +1111,19 @@ function createPtScheduleV2Functions({ db, onCall }) {
           key === fromSlotId ? entries.filter((entry) => entry.studentId !== studentId) : entries,
         ]))
         : schedule
-      const result = candidateForSlot(data, { student, trainer, slotId, schedule: candidateSchedule })
-      if (!result.eligible) throw new HttpsError('failed-precondition', 'Học viên chưa đủ điều kiện vào ô lịch.', { issueCode: 'SLOT_CANDIDATE_REJECTED', errors: result.reasons })
+      const result = manualSlotCandidate(candidateForSlot(data, { student, trainer, slotId, schedule: candidateSchedule }))
+      const allowAvailabilityOverride = payload.allowOutsideStudentAvailability === true
+      if (!result.eligible && !(result.manualSelectable && allowAvailabilityOverride)) {
+        throw new HttpsError('failed-precondition', 'Học viên chưa đủ điều kiện vào ô lịch.', { issueCode: 'SLOT_CANDIDATE_REJECTED', errors: result.reasons })
+      }
+      if (!result.eligible) {
+        availabilityOverrideMetadata = {
+          availabilityOverride: true,
+          availabilityOverrideReason: result.availabilityReason,
+          availabilityOverrideBy: actor.uid,
+          availabilityOverrideAt: new Date().toISOString(),
+        }
+      }
     }
     return db.runTransaction(async (transaction) => {
       const [current, existingReceipt] = await Promise.all([transaction.get(reference), transaction.get(receipt)])
@@ -1104,11 +1148,11 @@ function createPtScheduleV2Functions({ db, onCall }) {
         if (resetWeeklyTarget) delete currentWeeklyTargets[studentId]
         else currentWeeklyTargets[studentId] = weeklyTarget
       }
-      if (command === 'add_student') values.push({ studentId, trainerId, branchId, type: 'training', contractId: resolveContract(data, studentId, trainerId, dateForSlot(week, slotId.split('-')[0])).contract?.id || '', source: 'manual_v2' })
+      if (command === 'add_student') values.push({ studentId, trainerId, branchId, type: 'training', contractId: resolveContract(data, studentId, trainerId, dateForSlot(week, slotId.split('-')[0])).contract?.id || '', source: 'manual_v2', ...(availabilityOverrideMetadata || {}) })
       if (command === 'remove_student') schedule[slotId] = values.filter((entry) => !(entry.studentId === studentId && entry.trainerId === trainerId))
       if (command === 'move_student') {
         schedule[fromSlotId] = (schedule[fromSlotId] || []).filter((entry) => entry.studentId !== studentId)
-        values.push({ studentId, trainerId, branchId, type: 'training', contractId: resolveContract(data, studentId, trainerId, dateForSlot(week, slotId.split('-')[0])).contract?.id || '', source: 'manual_v2' })
+        values.push({ studentId, trainerId, branchId, type: 'training', contractId: resolveContract(data, studentId, trainerId, dateForSlot(week, slotId.split('-')[0])).contract?.id || '', source: 'manual_v2', ...(availabilityOverrideMetadata || {}) })
       }
       let requeuedEntries = []
       if (command === 'set_trainer_off') {
@@ -1150,7 +1194,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, idempotencyKey, result, createdAt: FieldValue.serverTimestamp() })
-      transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.${command}`, actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, affectedStudentCount: command === 'set_student_weekly_target' ? 1 : command === 'reset_draft' ? resetStudentIds.length : requeuedEntries.length, studentId: command === 'set_student_weekly_target' ? studentId : null, weeklyTarget: command === 'set_student_weekly_target' ? (resetWeeklyTarget ? null : weeklyTarget) : null, reason: typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 300) : '', createdAt: FieldValue.serverTimestamp() })
+      transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.${command}`, actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, affectedStudentCount: command === 'set_student_weekly_target' ? 1 : command === 'reset_draft' ? resetStudentIds.length : (command === 'add_student' || command === 'move_student') ? 1 : requeuedEntries.length, studentId: command.includes('student') ? studentId : null, weeklyTarget: command === 'set_student_weekly_target' ? (resetWeeklyTarget ? null : weeklyTarget) : null, availabilityOverride: Boolean(availabilityOverrideMetadata), availabilityOverrideReason: availabilityOverrideMetadata?.availabilityOverrideReason || null, reason: typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 300) : '', createdAt: FieldValue.serverTimestamp() })
       return result
     })
   })
@@ -1166,6 +1210,7 @@ module.exports = {
   candidateForSlot,
   createsThreeConsecutiveTrainingDays,
   generateSchedule,
+  manualSlotCandidate,
   resetDraftSchedule,
   resolveContract,
   safeSchedule,

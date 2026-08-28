@@ -13,6 +13,7 @@ const MAX_ENTRIES_PER_SLOT = 100
 const MAX_TRANSACTION_WRITES = 450
 const ACTIVE_SESSION_STATUSES = new Set(['scheduled', 'rescheduled'])
 const DAY_OFFSETS = new Map([['T2', 0], ['T3', 1], ['T4', 2], ['T5', 3], ['T6', 4], ['T7', 5], ['CN', 6]])
+const STUDENT_AVAILABILITY_REASON_CODES = new Set(['AVAILABILITY_NOT_SUBMITTED', 'OUTSIDE_STUDENT_AVAILABILITY'])
 
 function documentId(value, label) {
   const result = typeof value === 'string' ? value.trim() : ''
@@ -107,6 +108,22 @@ function sameSession(left, right) {
     && left.branchId === right.branchId
     && storedDate(left.date) === right.date
     && storedHour(left.hour, left.id) === right.hour
+    && Boolean(left.availabilityOverride) === Boolean(right.availabilityOverride)
+    && String(left.availabilityOverrideReason || '') === String(right.availabilityOverrideReason || '')
+}
+
+function manualAvailabilityOverride(entry) {
+  const reason = STUDENT_AVAILABILITY_REASON_CODES.has(entry?.availabilityOverrideReason)
+    ? entry.availabilityOverrideReason
+    : ''
+  if (entry?.type === 'off' || entry?.source !== 'manual_v2' || entry?.availabilityOverride !== true || !reason) return null
+  return {
+    source: 'manual_v2',
+    availabilityOverride: true,
+    availabilityOverrideReason: reason,
+    availabilityOverrideBy: typeof entry?.availabilityOverrideBy === 'string' ? entry.availabilityOverrideBy.slice(0, 200) : '',
+    availabilityOverrideAt: typeof entry?.availabilityOverrideAt === 'string' ? entry.availabilityOverrideAt.slice(0, 40) : '',
+  }
 }
 
 function rawEntryBranch(entry, students, trainers) {
@@ -129,6 +146,7 @@ function branchScheduleSnapshot(schedule, branchId, students, trainers) {
         branchId,
         type: entry.type === 'off' ? 'off' : 'training',
         ...(entry.isLocked === true ? { isLocked: true } : {}),
+        ...(manualAvailabilityOverride(entry) || {}),
       }))
     if (scoped.length) result[slotId] = scoped
   }
@@ -175,7 +193,7 @@ function isoTimestamp(value) {
   return typeof value === 'string' ? value : null
 }
 
-function normalizedDraftSchedule(value, branchId) {
+function normalizedDraftSchedule(value, branchId, allowManualAvailabilityOverrides = false) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new HttpsError('invalid-argument', 'Nội dung lịch nháp không hợp lệ.')
   }
@@ -190,13 +208,16 @@ function normalizedDraftSchedule(value, branchId) {
       const trainerId = documentId(entry?.trainerId, 'Mã PT')
       const type = entry?.type === 'off' ? 'off' : 'training'
       const studentId = type === 'off' ? 'OFF' : documentId(entry?.studentId, 'Mã học viên')
-      return {
+      const normalized = {
         studentId,
         trainerId,
         branchId,
         type,
         ...(entry?.isLocked === true ? { isLocked: true } : {}),
       }
+      return allowManualAvailabilityOverrides
+        ? { ...normalized, ...(manualAvailabilityOverride(entry) || {}) }
+        : normalized
     })
     totalEntries += entries.length
     if (entries.length) result[slotId] = entries
@@ -297,9 +318,13 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       const recurringSlots = Array.isArray(student?.availableSlots) ? student.availableSlots : []
       const recurringConfirmed = !weekly && student?.isScheduleConfirmed === true && recurringSlots.length > 0
       const slots = new Set(Array.isArray(weekly?.slots) ? weekly.slots : recurringConfirmed ? recurringSlots : [])
-      if (!weekly && !recurringConfirmed) errors.push('AVAILABILITY_NOT_SUBMITTED')
-      else if (weekly && !['submitted', 'locked'].includes(weekly.status)) errors.push('AVAILABILITY_NOT_SUBMITTED')
-      else if (!slots.has(slotId)) errors.push('OUTSIDE_STUDENT_AVAILABILITY')
+      const override = manualAvailabilityOverride(raw)
+      let availabilityIssue = null
+      if (!weekly && !recurringConfirmed) availabilityIssue = 'AVAILABILITY_NOT_SUBMITTED'
+      else if (weekly && !['submitted', 'locked'].includes(weekly.status)) availabilityIssue = 'AVAILABILITY_NOT_SUBMITTED'
+      else if (!slots.has(slotId)) availabilityIssue = 'OUTSIDE_STUDENT_AVAILABILITY'
+      if (availabilityIssue && override) warnings.push('MANUAL_STUDENT_AVAILABILITY_OVERRIDE')
+      else if (availabilityIssue) errors.push(availabilityIssue)
       if (recurringConfirmed) warnings.push('LEGACY_AVAILABILITY_FALLBACK')
 
       const dateCandidates = contracts.filter((contract) => contract.studentId === studentId
@@ -349,6 +374,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         scheduleStatus: 'scheduled',
         billingStatus: 'pending',
         attendanceStatus: 'pending',
+        ...(override || {}),
       })
     }
   }
@@ -665,7 +691,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       const nextDraftRevision = draftRevision + 1
       if (v2DraftSnapshot.exists) {
         transaction.update(v2DraftReference, {
-          schedule: normalizedDraftSchedule(restoredBranchSchedule, branchId),
+          schedule: normalizedDraftSchedule(restoredBranchSchedule, branchId, true),
           revision: nextDraftRevision,
           status: 'draft',
           restoredFromVersion: version,
