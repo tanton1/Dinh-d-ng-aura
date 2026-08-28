@@ -448,12 +448,13 @@ function buildPlan(state) {
       status: 'active',
       crmProfileId: item.student.id,
     }
+    const studentData = item.student.data || {}
     const desiredProfile = {
       uid: item.uid,
-      displayName: typeof item.student.name === 'string' ? item.student.name.trim() : '',
-      name: typeof item.student.name === 'string' ? item.student.name.trim() : '',
-      email: typeof item.student.email === 'string' ? item.student.email.trim().toLowerCase() : '',
-      phoneNumber: typeof item.student.phone === 'string' ? item.student.phone.trim() : '',
+      displayName: typeof studentData.name === 'string' ? studentData.name.trim() : '',
+      name: typeof studentData.name === 'string' ? studentData.name.trim() : '',
+      email: typeof studentData.email === 'string' ? studentData.email.trim().toLowerCase() : '',
+      phoneNumber: typeof studentData.phone === 'string' ? studentData.phone.trim() : '',
       crmProfileId: item.student.id,
       role: 'student',
       accessRole: 'student',

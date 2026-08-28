@@ -61,6 +61,11 @@ function parseArguments(argv) {
     else if (argument.startsWith('--database=')) parsed.databaseId = argument.slice('--database='.length)
     else if (argument.startsWith('--digest=')) parsed.digest = argument.slice('--digest='.length)
     else if (argument.startsWith('--confirm=')) parsed.confirmation = argument.slice('--confirm='.length)
+    else if (argument.startsWith('--allow-existing-branch-collisions=')) {
+      const count = Number(argument.slice('--allow-existing-branch-collisions='.length))
+      if (!Number.isInteger(count) || count < 0) throw new Error('Allowed branch collision count must be a non-negative integer.')
+      parsed.allowedBranchCollisions = count
+    }
     else throw new Error(`Unknown argument: ${argument.split('=')[0]}`)
   }
   if (!['dry-run', 'apply', 'verify'].includes(parsed.mode)) {
@@ -80,7 +85,7 @@ function usage() {
     '  node scripts/firebase-finance-ledger-migration.cjs --mode=verify',
     '',
     'Apply (all guards are required):',
-    `  node scripts/firebase-finance-ledger-migration.cjs --mode=apply --project=${TARGET.projectId} --database=${TARGET.databaseId} --digest=<DRY_RUN_DIGEST> --confirm=${APPLY_CONFIRMATION}`,
+    `  node scripts/firebase-finance-ledger-migration.cjs --mode=apply --project=${TARGET.projectId} --database=${TARGET.databaseId} --digest=<DRY_RUN_DIGEST> --confirm=${APPLY_CONFIRMATION} [--allow-existing-branch-collisions=<EXACT_COUNT>]`,
   ].join('\n')
 }
 
@@ -455,6 +460,8 @@ async function buildPlan(token) {
       invalidPayments: classifications.invalidPayments.sort(),
       orphanPayments: classifications.orphanPayments.sort(),
       relationshipMismatches: classifications.relationshipMismatches.sort(),
+      canonicalCollisions: classifications.canonicalCollisions.sort(),
+      collisionFieldCounts,
     },
     reconciliation: Object.fromEntries(Object.entries(reconciliation.classification).map(([key, value]) => [key, [...value].sort()])),
   }))
@@ -569,8 +576,34 @@ async function commitPendingEntries(token, pending) {
 function assertApplySafe(arguments_, plan) {
   loadApprovedDryRun(arguments_.digest)
   if (plan.planDigest !== arguments_.digest) throw new Error('Live source plan changed after dry run. Run and review a new dry run.')
-  const blockerCount = Object.values(plan.blockers).reduce((sum, count) => sum + count, 0)
-  if (blockerCount > 0) throw new Error('Apply blocked by orphaned, invalid, mismatched, colliding, or invalid-contract records. Review the dry-run report.')
+  const nonCollisionBlockerCount = Object.entries(plan.blockers)
+    .filter(([key]) => key !== 'canonicalCollisions')
+    .reduce((sum, [, count]) => sum + count, 0)
+  if (nonCollisionBlockerCount > 0) {
+    throw new Error('Apply blocked by orphaned, invalid, mismatched, or invalid-contract records. Review the dry-run report.')
+  }
+
+  const collisionCount = plan.blockers.canonicalCollisions
+  if (collisionCount === 0) {
+    if ((arguments_.allowedBranchCollisions || 0) !== 0) throw new Error('No canonical branch collision exists to approve.')
+    return
+  }
+  const collisionFields = Object.keys(plan.collisionFieldCounts).sort()
+  const branchOnly = collisionFields.length === 1
+    && collisionFields[0] === 'branchId'
+    && plan.collisionFieldCounts.branchId === collisionCount
+  if (!branchOnly || arguments_.allowedBranchCollisions !== collisionCount) {
+    throw new Error('Canonical collisions remain quarantined. Only an exact, branchId-only collision count may be explicitly preserved.')
+  }
+}
+
+function safeMigrationVerified(plan) {
+  const nonCollisionBlockerCount = Object.entries(plan.blockers)
+    .filter(([key]) => key !== 'canonicalCollisions')
+    .reduce((sum, [, count]) => sum + count, 0)
+  return plan.classifications.pendingMigration.length === 0
+    && nonCollisionBlockerCount === 0
+    && plan.desired.length === plan.classifications.alreadyMigrated.length + plan.classifications.canonicalCollisions.length
 }
 
 async function runDryRun(token) {
@@ -598,12 +631,11 @@ async function runApply(token, arguments_) {
   assertApplySafe(arguments_, planBefore)
   const created = await commitPendingEntries(token, planBefore.pending)
   const planAfter = await buildPlan(token)
-  const verified = planAfter.classifications.pendingMigration.length === 0 &&
-    planAfter.classifications.canonicalCollisions.length === 0 &&
-    planAfter.desired.length === planAfter.classifications.alreadyMigrated.length
+  const verified = safeMigrationVerified(planAfter)
   const report = sanitizedReport('apply', planAfter, {
     approvedDryRunDigest: arguments_.digest,
     createdEntries: created,
+    preservedCanonicalCollisions: planAfter.classifications.canonicalCollisions.length,
     verifiedAfterApply: verified,
   })
   writePrivateReport(REPORT_PATHS.apply, report)
@@ -613,9 +645,7 @@ async function runApply(token, arguments_) {
 
 async function runVerify(token) {
   const plan = await buildPlan(token)
-  const verified = plan.classifications.pendingMigration.length === 0 &&
-    plan.classifications.canonicalCollisions.length === 0 &&
-    plan.desired.length === plan.classifications.alreadyMigrated.length
+  const verified = safeMigrationVerified(plan)
   const report = sanitizedReport('verify', plan, { verified })
   writePrivateReport(REPORT_PATHS.verify, report)
   console.log(JSON.stringify({

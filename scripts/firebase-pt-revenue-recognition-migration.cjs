@@ -31,6 +31,11 @@ function parseArgs(argv) {
     else if (argument.startsWith('--database=')) result.database = argument.slice(11)
     else if (argument.startsWith('--digest=')) result.digest = argument.slice(9)
     else if (argument.startsWith('--confirm=')) result.confirm = argument.slice(10)
+    else if (argument.startsWith('--allow-existing-collisions=')) {
+      const count = Number(argument.slice('--allow-existing-collisions='.length))
+      if (!Number.isInteger(count) || count < 0) throw new Error('Allowed collision count must be a non-negative integer.')
+      result.allowedCollisions = count
+    }
     else if (argument === '--help') result.help = true
     else throw new Error(`Unknown argument: ${argument.split('=')[0]}`)
   }
@@ -318,7 +323,7 @@ function saveReport(mode, report) {
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   if (args.help) {
-    console.log(`dry-run: node scripts/firebase-pt-revenue-recognition-migration.cjs\napply: node scripts/firebase-pt-revenue-recognition-migration.cjs --mode=apply --project=${TARGET.projectId} --database=${TARGET.databaseId} --digest=<DIGEST> --confirm=${CONFIRMATION}\nverify: node scripts/firebase-pt-revenue-recognition-migration.cjs --mode=verify`)
+    console.log(`dry-run: node scripts/firebase-pt-revenue-recognition-migration.cjs\napply: node scripts/firebase-pt-revenue-recognition-migration.cjs --mode=apply --project=${TARGET.projectId} --database=${TARGET.databaseId} --digest=<DIGEST> --confirm=${CONFIRMATION} [--allow-existing-collisions=<EXACT_COUNT>]\nverify: node scripts/firebase-pt-revenue-recognition-migration.cjs --mode=verify`)
     return
   }
   assertTarget(args)
@@ -332,7 +337,11 @@ async function main() {
     readCollection(token, 'ledgerEntries'),
   ])
   const plan = createPlan({ attendance, sessions, contracts, ledger })
-  const planDigest = digest(plan.writes.map((item) => ({ id: item.id, fingerprint: digest(item.data) })))
+  const planDigest = digest({
+    writes: plan.writes.map((item) => ({ id: item.id, fingerprint: digest(item.data) })),
+    collisions: plan.collisions.map((item) => ({ ...item })).sort((left, right) => left.ledgerHash.localeCompare(right.ledgerHash)),
+    quarantine: plan.quarantine,
+  })
   const report = {
     schemaVersion: 1,
     mode: args.mode,
@@ -354,13 +363,31 @@ async function main() {
   if (args.mode === 'apply') {
     const dryRun = JSON.parse(fs.readFileSync(reportPath('dry-run'), 'utf8'))
     if (dryRun.plan.planDigest !== args.digest || dryRun.plan.planDigest !== planDigest) throw new Error('Dry-run digest is stale.')
-    if (plan.collisions.length) throw new Error('Recognition collisions must be resolved before apply.')
+    const preservableCollisions = plan.collisions.every((item) => item.reason === 'deterministic_id_mismatch')
+    if (plan.collisions.length && (!preservableCollisions || args.allowedCollisions !== plan.collisions.length)) {
+      throw new Error('Recognition collisions remain quarantined. Preserve them only with their exact reviewed count.')
+    }
+    if (!plan.collisions.length && (args.allowedCollisions || 0) !== 0) throw new Error('No recognition collision exists to approve.')
     await commitWrites(token, plan.writes)
     report.writesPerformed = true
+    report.plan.preservedCollisions = plan.collisions.length
   }
-  if (args.mode === 'verify' && (plan.writes.length || plan.collisions.length)) process.exitCode = 2
+  const safelyVerified = plan.writes.length === 0
+    && plan.collisions.every((item) => item.reason === 'deterministic_id_mismatch')
+  if (args.mode === 'verify' && !safelyVerified) process.exitCode = 2
   saveReport(args.mode, report)
-  console.log(JSON.stringify(report, null, 2))
+  console.log(JSON.stringify({
+    mode: report.mode,
+    pendingWrites: report.plan.pendingWrites,
+    alreadyRecognised: report.plan.alreadyRecognised,
+    collisionCount: report.plan.collisions.length,
+    quarantine: report.plan.quarantine,
+    totals: report.plan.totals,
+    planDigest: report.plan.planDigest,
+    writesPerformed: report.writesPerformed,
+    verified: args.mode === 'verify' ? safelyVerified : undefined,
+    reportPath: reportPath(args.mode),
+  }, null, 2))
 }
 
 main().catch((error) => {

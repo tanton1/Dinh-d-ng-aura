@@ -26,6 +26,9 @@ const sessionContractLinkSource = readFileSync(join(repositoryRoot, 'scripts', '
 const ptContractUsageReconcileSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-contract-usage-reconcile.cjs'), 'utf8')
 const ptScheduleMigrationSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-schedule-v2-migration.cjs'), 'utf8')
 const renewalContinuitySource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-renewal-continuity-reconcile.cjs'), 'utf8')
+const firestoreDeltaSyncSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-firestore-delta-sync.cjs'), 'utf8')
+const financeLedgerMigrationSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-finance-ledger-migration.cjs'), 'utf8')
+const revenueRecognitionMigrationSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-revenue-recognition-migration.cjs'), 'utf8')
 const identityAccessSource = readFileSync(join(__dirname, 'identity-access.js'), 'utf8')
 const ptSchedulePublishSource = readFileSync(join(__dirname, 'pt-schedule-publish.js'), 'utf8')
 const ptScheduleV2Source = readFileSync(join(__dirname, 'pt-schedule-v2.js'), 'utf8')
@@ -398,6 +401,10 @@ test('student identity linking is target-only, digest-gated, scoped to learners,
   assert.match(studentIdentityLinkSource, /confirmation !== APPLY_CONFIRMATION/)
   assert.match(studentIdentityLinkSource, /accessRole: 'student'/)
   assert.match(studentIdentityLinkSource, /crmProfileId: item\.student\.id/)
+  assert.match(studentIdentityLinkSource, /const studentData = item\.student\.data \|\| \{\}/)
+  assert.match(studentIdentityLinkSource, /displayName: typeof studentData\.name/)
+  assert.match(studentIdentityLinkSource, /email: typeof studentData\.email/)
+  assert.doesNotMatch(studentIdentityLinkSource, /typeof item\.student\.(?:name|email|phone) === 'string'/)
   assert.match(studentIdentityLinkSource, /staff_record_match/)
   assert.match(studentIdentityLinkSource, /auth_matches_multiple_crm_profiles/)
   assert.match(studentIdentityLinkSource, /UIDs and CRM IDs are SHA-256 hashed/)
@@ -502,6 +509,37 @@ test('renewal continuity reconciliation is target-only, digest-gated and refuses
   assert.match(renewalContinuitySource, /currentDocument: \{ updateTime \}/)
   assert.match(renewalContinuitySource, /ENTITLEMENT_NOT_EXACTLY_PROVABLE/)
   assert.doesNotMatch(renewalContinuitySource, /gen-lang-client-0246058381/)
+})
+
+test('Firestore delta sync keeps the retired project read-only and applies only digest-approved target writes', () => {
+  assert.match(firestoreDeltaSyncSource, /projectId: 'gen-lang-client-0246058381', databaseId: 'aura-fitness-db'/)
+  assert.match(firestoreDeltaSyncSource, /projectId: 'gen-lang-client-0815966909'/)
+  assert.match(firestoreDeltaSyncSource, /apply-source-delta/)
+  assert.match(firestoreDeltaSyncSource, /sourceReadOnly: true/)
+  assert.match(firestoreDeltaSyncSource, /deletePropagation: false/)
+  assert.match(firestoreDeltaSyncSource, /source_delete_not_propagated/)
+  assert.match(firestoreDeltaSyncSource, /currentDocument: \{ exists: false \}/)
+  assert.match(firestoreDeltaSyncSource, /currentDocument: \{ updateTime: item\.targetUpdateTime \}/)
+  assert.match(firestoreDeltaSyncSource, /plan\.planDigest !== approved\.planDigest/)
+  assert.match(firestoreDeltaSyncSource, /PROJECTION_FIELDS/)
+  assert.doesNotMatch(firestoreDeltaSyncSource, /databaseBase\(SOURCE\).*documents:commit/s)
+})
+
+test('finance ledger migration preserves immutable branch collisions and keeps the override exact', () => {
+  assert.match(financeLedgerMigrationSource, /currentDocument: \{ exists: false \}/)
+  assert.match(financeLedgerMigrationSource, /--allow-existing-branch-collisions=/)
+  assert.match(financeLedgerMigrationSource, /arguments_\.allowedBranchCollisions !== collisionCount/)
+  assert.match(financeLedgerMigrationSource, /collisionFields\[0\] === 'branchId'/)
+  assert.match(financeLedgerMigrationSource, /preservedCanonicalCollisions/)
+  assert.doesNotMatch(financeLedgerMigrationSource, /documents\/ledgerEntries\/\$\{entry\.id\}[\s\S]*currentDocument: \{ updateTime:/)
+})
+
+test('revenue recognition migration creates only missing entries and preserves reviewed collisions', () => {
+  assert.match(revenueRecognitionMigrationSource, /currentDocument: \{ exists: false \}/)
+  assert.match(revenueRecognitionMigrationSource, /--allow-existing-collisions=/)
+  assert.match(revenueRecognitionMigrationSource, /args\.allowedCollisions !== plan\.collisions\.length/)
+  assert.match(revenueRecognitionMigrationSource, /item\.reason === 'deterministic_id_mismatch'/)
+  assert.match(revenueRecognitionMigrationSource, /collisions: plan\.collisions\.map/)
 })
 
 test('production authentication stays on the authorized Vercel application origin', () => {
