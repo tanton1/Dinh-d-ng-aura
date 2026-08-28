@@ -384,41 +384,31 @@
 .student-availability-guidance.is-ready > span,.student-availability-guidance.is-excellent > span { background:linear-gradient(135deg,#11a36d,#49c88c); }
 .student-availability-guidance.is-excellent { border-color:#aee4d0; background:linear-gradient(135deg,#effcf7,#fff8ed); }
 
-.student-contract-alert-rail {
-  display:flex;
-  gap:9px;
-  overflow-x:auto;
-  padding:11px clamp(13px,3vw,34px);
-  border-bottom:1px solid #f0e1e8;
-  background:rgba(255,249,247,.92);
-  scroll-snap-type:x mandatory;
-  scrollbar-width:none;
-  -webkit-overflow-scrolling:touch;
+.student-attention-center {
+  overflow:hidden;
+  padding:15px clamp(13px,3vw,34px) 17px;
+  border-bottom:1px solid rgba(237,61,116,.16);
+  background:linear-gradient(135deg,#2e1428 0%,#6d1647 48%,#d8226c 100%);
+  box-shadow:0 14px 34px rgba(91,21,62,.2);
 }
-.student-contract-alert-rail::-webkit-scrollbar { display:none; }
-.student-contract-alert-rail > button {
-  display:grid;
-  flex:0 0 min(330px,84vw);
-  grid-template-columns:36px minmax(0,1fr) 20px;
-  align-items:center;
-  gap:10px;
-  min-height:68px;
-  padding:10px 12px;
-  border:1px solid #ffd0bd;
-  border-radius:17px;
-  color:#ad3d42;
-  background:linear-gradient(135deg,#fff4f7,#fff2e8);
-  text-align:left;
-  scroll-snap-align:start;
-  cursor:pointer;
-}
-.student-contract-alert-rail > button.is-info { border-color:#c8e1fa; color:#27659a; background:linear-gradient(135deg,#f1f8ff,#fff8f1); }
-.student-contract-alert-rail > button > svg:first-child { padding:8px; box-sizing:content-box; border-radius:12px; color:#fff; background:linear-gradient(135deg,#f12d78,#ff874f); }
-.student-contract-alert-rail > button.is-info > svg:first-child { background:linear-gradient(135deg,#3186ca,#66aee1); }
-.student-contract-alert-rail span { min-width:0; }
-.student-contract-alert-rail strong,.student-contract-alert-rail small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.student-contract-alert-rail strong { color:#3f2932; font-size:12px; }
-.student-contract-alert-rail small { margin-top:3px; color:#836d76; font-size:10px; }
+.student-attention-center > header { display:flex; align-items:center; gap:10px; margin-bottom:11px; color:#fff; }
+.student-attention-center > header > span { display:grid; width:39px; height:39px; flex:0 0 auto; place-items:center; border-radius:14px; color:#fff; background:linear-gradient(135deg,#ff3883,#ff8b4d); box-shadow:0 8px 18px rgba(255,65,123,.3); }
+.student-attention-center > header small,.student-attention-center > header h2 { display:block; margin:0; }
+.student-attention-center > header small { color:#ffb9d2; font-size:9px; font-weight:950; letter-spacing:.16em; }
+.student-attention-center > header h2 { margin-top:2px; font-size:18px; line-height:1.15; }
+.student-attention-center__rail { display:flex; gap:10px; overflow-x:auto; padding:1px 1px 5px; scroll-snap-type:x mandatory; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+.student-attention-center__rail::-webkit-scrollbar { display:none; }
+.student-attention-center__rail > button { display:grid; flex:0 0 min(420px,87vw); grid-template-columns:42px minmax(0,1fr); align-items:start; gap:11px; min-height:132px; padding:15px; border:1px solid rgba(255,255,255,.62); border-radius:22px; color:#3c2630; background:linear-gradient(145deg,#fff,#fff4f1); box-shadow:0 12px 24px rgba(40,9,29,.18); text-align:left; scroll-snap-align:start; cursor:pointer; }
+.student-attention-center__rail > button.is-critical { border-color:#ff6b91; background:linear-gradient(145deg,#fff,#ffe8eb 52%,#ffe6d6); }
+.student-attention-center__rail > button.is-warning { border-color:#ffc0a3; background:linear-gradient(145deg,#fff,#fff1eb 56%,#ffead8); }
+.student-attention-center__rail > button.is-info { border-color:#ddc9ff; background:linear-gradient(145deg,#fff,#f5efff 58%,#fff2e7); }
+.student-attention-center__icon { display:grid; width:42px; height:42px; place-items:center; border-radius:15px; color:#fff; background:linear-gradient(135deg,#ef2c75,#ff874f); box-shadow:0 8px 16px rgba(238,43,116,.22); }
+.student-attention-center__rail > button.is-info .student-attention-center__icon { background:linear-gradient(135deg,#7658c9,#a57de5); }
+.student-attention-center__copy { display:grid; min-width:0; gap:3px; }
+.student-attention-center__copy small { color:#d6296e; font-size:9px; font-weight:950; letter-spacing:.12em; }
+.student-attention-center__copy strong { color:#2b1d24; font-size:15px; line-height:1.25; }
+.student-attention-center__copy em { color:#755f69; font-size:11px; font-style:normal; line-height:1.45; }
+.student-attention-center__copy b { display:inline-flex; align-items:center; gap:3px; margin-top:5px; color:#d9276e; font-size:10px; }
 
 .student-contract-center {
   padding:20px clamp(16px,3vw,34px) 32px;

@@ -35,6 +35,15 @@ const DEFAULT_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 const DEFAULT_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
 const DAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 type StudentScheduleTab = 'this-week' | 'next-week' | 'contract' | 'requests' | 'history'
+type StudentAttentionAlert = {
+  key: string
+  severity: 'critical' | 'warning' | 'info'
+  title: string
+  message: string
+  action: 'contract' | 'availability'
+  actionLabel: string
+  contractId?: string
+}
 
 function scheduleTabFromRoute(): StudentScheduleTab | null {
   if (typeof window === 'undefined') return null
@@ -172,8 +181,8 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
           identityLink: { status: 'linked', source: 'auth_uid', studentId: 'demo-student', crmProfileIdConfigured: false },
           student: {
             id: 'demo-student', name: 'An Nguyễn', branchId: 'demo-branch', sessionsPerWeek: 3,
-            availableSlots: ['T2-18', 'T3-18', 'T4-19', 'T5-18', 'T6-19'], isScheduleConfirmed: true, availabilityRevision: 1,
-            availability: { weekId: availabilityWeekId, slots: ['T2-18', 'T3-18', 'T4-19', 'T5-18', 'T6-19'], minimumSlots: 5, requiredSessions: 3, revision: 1, status: 'submitted', locked: false, cutoffAt: addDays(weekStart, -1).toISOString(), submittedAt: new Date().toISOString(), source: 'weekly' },
+            availableSlots: ['T2-18', 'T3-18', 'T4-19'], isScheduleConfirmed: true, availabilityRevision: 1,
+            availability: { weekId: availabilityWeekId, slots: ['T2-18', 'T3-18', 'T4-19'], minimumSlots: 5, requiredSessions: 3, revision: 1, status: 'submitted', locked: false, cutoffAt: addDays(weekStart, -1).toISOString(), submittedAt: new Date().toISOString(), source: 'weekly' },
           },
           scheduleConfig: { workingDays: DEFAULT_DAYS, workingHours: DEFAULT_HOURS },
           sessions: [
@@ -236,6 +245,46 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   const displayContract = activeContract ?? futureContract ?? contracts[0]
   const selectedContract = contracts.find((contract) => contract.id === selectedContractId) ?? displayContract
   const contractAlerts = data?.contractAlerts ?? []
+  const availability = data?.student?.availability
+  const availabilitySlots = availability?.slots ?? data?.student?.availableSlots ?? []
+  const minimumAvailabilitySlots = Math.max(5, Number.isFinite(Number(availability?.minimumSlots)) ? Number(availability?.minimumSlots) : 5)
+  const availabilityNeedsSubmission = availability?.status === 'draft' || (availability?.source === 'legacy_default' && availability.confirmed !== true)
+  const availabilityAlert: StudentAttentionAlert | null = availabilitySlots.length < minimumAvailabilitySlots
+    ? {
+        key: `availability-low-${availability?.weekId ?? availabilityWeekId}`,
+        severity: availabilitySlots.length === 0 ? 'critical' : 'warning',
+        title: availabilitySlots.length === 0
+          ? 'Bạn chưa đăng ký lịch rảnh'
+          : `Mới có ${availabilitySlots.length}/${minimumAvailabilitySlots} khung giờ rảnh`,
+        message: availabilitySlots.length === 0
+          ? `Chọn ít nhất ${minimumAvailabilitySlots} khung để Aura dễ xếp đủ lịch tập cho bạn.`
+          : `Thêm ${minimumAvailabilitySlots - availabilitySlots.length} khung nữa để tăng khả năng được xếp đủ buổi và đúng giờ mong muốn.`,
+        action: 'availability',
+        actionLabel: 'Bổ sung lịch rảnh',
+      }
+    : availabilityNeedsSubmission
+      ? {
+          key: `availability-submit-${availability?.weekId ?? availabilityWeekId}`,
+          severity: 'warning',
+          title: 'Lịch rảnh chưa được gửi',
+          message: `Bạn đã chọn ${availabilitySlots.length} khung. Hãy gửi lịch để bộ phận vận hành có thể xếp buổi.`,
+          action: 'availability',
+          actionLabel: 'Kiểm tra và gửi',
+        }
+      : null
+  const severityOrder = { critical: 0, warning: 1, info: 2 }
+  const attentionAlerts: StudentAttentionAlert[] = [
+    ...contractAlerts.map((alert) => ({
+      key: `${alert.code}-${alert.contractId}-${alert.dueDate ?? ''}`,
+      severity: alert.severity,
+      title: alert.title,
+      message: alert.message,
+      action: 'contract' as const,
+      actionLabel: alert.code.startsWith('PAYMENT_') ? 'Xem lịch thanh toán' : 'Xem gói tập',
+      contractId: alert.contractId,
+    })),
+    ...(availabilityAlert ? [availabilityAlert] : []),
+  ].sort((left, right) => severityOrder[left.severity] - severityOrder[right.severity])
   const selectedSessions = useMemo(() => (data?.sessions ?? [])
     .filter((session) => session.date === selectedDate)
     .sort((left, right) => (left.hour ?? 99) - (right.hour ?? 99)), [data?.sessions, selectedDate])
@@ -279,6 +328,19 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
       {!loading && !loadIssue && data && !data.linked && <div className="student-schedule-state is-warning"><Link2 size={28} /><strong>Chưa liên kết hồ sơ học viên</strong><span>{missingProfileDescription}</span></div>}
 
       {!loading && !loadIssue && data?.student && <>
+        {attentionAlerts.length > 0 && <section className="student-attention-center" aria-label="Thông tin bạn cần lưu ý">
+          <header><span><AlertCircle size={19} /></span><div><small>AURA NHẮC BẠN</small><h2>{attentionAlerts.length} việc cần lưu ý</h2></div></header>
+          <div className="student-attention-center__rail">
+            {attentionAlerts.map((alert) => <button type="button" className={`is-${alert.severity}`} key={alert.key} onClick={() => {
+              if (alert.action === 'availability') return onNavigate('student-availability')
+              if (alert.contractId) setSelectedContractId(alert.contractId)
+              setActiveTab('contract')
+            }}>
+              <span className="student-attention-center__icon"><AlertCircle size={20} /></span>
+              <span className="student-attention-center__copy"><small>{alert.severity === 'critical' ? 'CẦN XỬ LÝ SỚM' : alert.severity === 'warning' ? 'CẦN LƯU Ý' : 'THÔNG TIN'}</small><strong>{alert.title}</strong><em>{alert.message}</em><b>{alert.actionLabel} <ChevronRight size={14} /></b></span>
+            </button>)}
+          </div>
+        </section>}
         <section className="student-schedule-hero" aria-roledescription="carousel" aria-label="Tổng quan lịch học viên">
           <div
             ref={heroTrackRef}
@@ -318,12 +380,6 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
           <button type="button" className={activeTab === 'requests' ? 'active' : ''} onClick={() => setActiveTab('requests')}><ScrollText size={16} /><span>Yêu cầu</span>{pendingRequestCount > 0 && <i>{pendingRequestCount}</i>}</button>
           <button type="button" className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}><History size={16} /><span>Lịch sử</span></button>
         </nav>
-
-        {contractAlerts.length > 0 && <section className="student-contract-alert-rail" aria-label="Cảnh báo hợp đồng và thanh toán">
-          {contractAlerts.map((alert, index) => <button type="button" className={`is-${alert.severity}`} key={`${alert.code}-${alert.contractId}-${alert.dueDate ?? index}`} onClick={() => { setSelectedContractId(alert.contractId); setActiveTab('contract') }}>
-            <AlertCircle size={18} /><span><strong>{alert.title}</strong><small>{alert.message}</small></span><ChevronRight size={16} />
-          </button>)}
-        </section>}
 
         {(activeTab === 'this-week' || activeTab === 'next-week') && <section className="schedule-layout">
           <div className="calendar-panel card">
