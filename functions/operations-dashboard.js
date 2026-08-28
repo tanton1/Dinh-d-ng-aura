@@ -195,6 +195,19 @@ function dashboardAnalytics({ ledgerValues, contractValues, offValues, start, en
     points.set(bucket.key, current)
     return current
   }
+  // Build a continuous time axis. Previously only days containing a ledger
+  // item were returned, which made the chart appear missing or broken when a
+  // selected period had sparse activity.
+  const cursor = new Date(start)
+  cursor.setHours(12, 0, 0, 0)
+  const endCursor = new Date(end)
+  endCursor.setHours(12, 0, 0, 0)
+  while (cursor <= endCursor) {
+    const bucket = reportBucket(cursor, granularity)
+    if (bucket) point(bucket)
+    if (granularity === 'month') cursor.setMonth(cursor.getMonth() + 1, 1)
+    else cursor.setDate(cursor.getDate() + (granularity === 'week' ? 7 : 1))
+  }
   for (const value of contractValues) {
     const effectiveAt = contractEffectiveDate(value)
     if (!effectiveAt || !inRange(effectiveAt, start, end)) continue
@@ -549,7 +562,9 @@ function setCachedDashboard(cacheKey, value) {
 }
 
 function contractEffectiveDate(value) {
-  return value.signedAt || value.createdAt || value.contractDate || null
+  // Migrated PT contracts do not carry signedAt/createdAt. startDate is the
+  // preserved business date and is used only as the reporting fallback.
+  return value.signedAt || value.createdAt || value.contractDate || value.startDate || null
 }
 
 function createOperationsDashboardFunctions({ db, onCall }) {
@@ -677,7 +692,7 @@ function createOperationsDashboardFunctions({ db, onCall }) {
     const referenceDate = dateKey(new Date(Math.min(end.getTime(), now.getTime())))
     const analytics = dashboardAnalytics({ ledgerValues, contractValues, offValues, start, end, referenceDate })
     const result = {
-      schemaVersion: 6,
+      schemaVersion: 7,
       range: { startAt: start.toISOString(), endAt: end.toISOString(), timeZone: 'Asia/Ho_Chi_Minh' },
       branchId,
       scope: { branchId, branchIds: scope.branchIds, unrestricted: scope.unrestricted },
@@ -702,7 +717,7 @@ function createOperationsDashboardFunctions({ db, onCall }) {
         rows: attendanceDetails.rows,
         truncated: attendanceDetails.truncated,
       },
-      finance: { ...finance, contractSales, receivables, frozenReceivables },
+      finance: { ...finance, contractSales, receivables, frozenReceivables, ledgerEntries: ledgerValues.length },
       receivables: receivableDetails,
       clients: {
         total: studentValues.length,
@@ -729,6 +744,13 @@ function createOperationsDashboardFunctions({ db, onCall }) {
         truncated: incomplete,
         canonicalFinanceSource: 'ledgerEntries',
         canonicalAttendanceSource: 'attendanceEvents',
+        sourceCounts: {
+          ledgerEntries: ledgerValues.length,
+          contracts: contractValues.length,
+          students: studentValues.length,
+          sessions: sessionCount,
+          attendanceEvents: attendanceCount,
+        },
       },
       generatedAt: new Date().toISOString(),
       cache: { hit: false, ttlSeconds: Math.round(DASHBOARD_CACHE_TTL_MS / 1000) },
@@ -740,6 +762,21 @@ function createOperationsDashboardFunctions({ db, onCall }) {
           .sort((left, right) => left.name.localeCompare(right.name, 'vi')),
       },
     }
+    console.info('operations_dashboard_summary', JSON.stringify({
+      schemaVersion: result.schemaVersion,
+      accessRole: actor.accessRole,
+      branchId: result.branchId,
+      permissions: result.permissions,
+      finance: {
+        ledgerEntries: result.finance.ledgerEntries,
+        recognizedRevenue: result.finance.recognizedRevenue,
+        netCash: result.finance.netCash,
+      },
+      clients: { newInRange: result.clients.newInRange, activeContracts: result.clients.activeContracts },
+      analytics: { revenuePoints: result.analytics.revenue.points.length, packageItems: result.analytics.packages.items.length },
+      todayRows: result.today.rows.length,
+      receivableRows: result.receivables.rows.length,
+    }))
     setCachedDashboard(cacheKey, result)
     return result
   })

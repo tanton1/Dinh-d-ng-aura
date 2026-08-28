@@ -498,7 +498,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const submitInvite = async () => {
     if (!canAssignRole) return
     if (!inviteDraft.displayName.trim()) { setError('Nhập họ và tên trước khi tạo tài khoản.'); return }
-    if (!inviteDraft.phoneNumber.trim() || !inviteDraft.email.trim()) { setError('Cần số điện thoại thật và email đăng nhập để tạo tài khoản.'); return }
+    if (!inviteDraft.phoneNumber.trim()) { setError('Cần số điện thoại để tạo tài khoản.'); return }
     if (inviteDraft.accessRole === 'staff' && !inviteDraft.positions.length) { setError('Tài khoản nhân viên cần ít nhất một chức danh.'); return }
     setInviteSaving(true); setError(null); setSuccess(null)
     try {
@@ -506,7 +506,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       const result = inviteDraft.accessRole === 'staff'
         ? await provisionStaffAccount({ ...common, positions: inviteDraft.positions, branchIds: inviteDraft.branchIds, employmentType: inviteDraft.employmentType, employmentLevel: inviteDraft.employmentLevel, payrollPolicyId: inviteDraft.payrollPolicyId })
         : await provisionStudentAccount(common)
-      setInviteOpen(false); setInviteDraft(emptyInviteDraft()); setSuccess(`Đã tạo tài khoản cho ${result.displayName}. Mật khẩu ban đầu là số điện thoại; người dùng có thể đổi trong Hồ sơ cá nhân nếu muốn.`)
+      setInviteOpen(false); setInviteDraft(emptyInviteDraft()); setSuccess(`Đã tạo tài khoản cho ${result.displayName}. Email đăng nhập: ${result.email}. Mật khẩu ban đầu là số điện thoại; người dùng có thể đổi trong Hồ sơ cá nhân nếu muốn.`)
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể tạo tài khoản.') }
     finally { setInviteSaving(false) }
   }
@@ -705,7 +705,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       <ModalHeader id="invite-title" title={inviteDraft.accessRole === 'staff' ? 'Thêm nhân viên' : 'Thêm thành viên'} detail="Mật khẩu ban đầu là số điện thoại." icon={<UserCog size={21} />} onClose={() => setInviteOpen(false)} />
       <section className="identity-form-section identity-form-section--account">
         <h3>Thông tin đăng nhập</h3>
-        <div className="identity-form-grid"><label className="identity-form-grid__span"><span>Họ và tên</span><input value={inviteDraft.displayName} onChange={(event) => setInviteDraft((current) => ({ ...current, displayName: event.target.value }))} placeholder="Nguyễn Minh Anh" /></label><label><span>Số điện thoại</span><input type="tel" value={inviteDraft.phoneNumber} onChange={(event) => setInviteDraft((current) => ({ ...current, phoneNumber: event.target.value }))} placeholder="090…" /></label><label><span>Email đăng nhập</span><input type="email" value={inviteDraft.email} onChange={(event) => setInviteDraft((current) => ({ ...current, email: event.target.value }))} placeholder="ten@aurafitness.vn" /></label></div>
+        <div className="identity-form-grid"><label className="identity-form-grid__span"><span>Họ và tên</span><input value={inviteDraft.displayName} onChange={(event) => setInviteDraft((current) => ({ ...current, displayName: event.target.value }))} placeholder="Nguyễn Minh Anh" /></label><label><span>Số điện thoại</span><input type="tel" value={inviteDraft.phoneNumber} onChange={(event) => setInviteDraft((current) => ({ ...current, phoneNumber: event.target.value }))} placeholder="090…" /></label><label><span>Email đăng nhập (không bắt buộc)</span><input type="email" value={inviteDraft.email} onChange={(event) => setInviteDraft((current) => ({ ...current, email: event.target.value }))} placeholder="Bỏ trống: SĐT@aurafitness.vn" /></label></div>
       </section>
       {inviteDraft.accessRole === 'staff' && <>
         <section className="identity-form-section">
@@ -722,7 +722,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
     {staffEditor && <section className="identity-overlay" role="region" aria-labelledby="staff-operations-title">
       <div className="identity-modal identity-modal--staff">
         <ModalHeader id="staff-operations-title" title="Hồ sơ nhân viên" detail="Thông tin, thu nhập và lịch nhận ca." icon={<WalletCards size={21} />} onClose={() => setStaffEditor(null)} />
-        <section className="identity-form-section"><h3>Thông tin nhân viên</h3><div className="identity-form-grid"><label className="identity-form-grid__span"><span>Họ và tên</span><input value={staffEditor.displayName} onChange={(event) => setStaffEditor((current) => current ? { ...current, displayName: event.target.value } : current)} placeholder="Họ và tên nhân viên" /></label><label><span>Email đăng nhập</span><input type="email" value={staffEditor.email} onChange={(event) => setStaffEditor((current) => current ? { ...current, email: event.target.value } : current)} placeholder="ten@aurafitness.vn" /></label><label><span>Số điện thoại</span><input type="tel" value={staffEditor.phoneNumber} onChange={(event) => setStaffEditor((current) => current ? { ...current, phoneNumber: event.target.value } : current)} placeholder="090…" /></label></div></section>
+        <section className="identity-form-section"><h3>Thông tin nhân viên</h3><div className="identity-form-grid"><label className="identity-form-grid__span"><span>Họ và tên</span><input value={staffEditor.displayName} onChange={(event) => setStaffEditor((current) => current ? { ...current, displayName: event.target.value } : current)} placeholder="Họ và tên nhân viên" /></label><label><span>Email đăng nhập (không bắt buộc)</span><input type="email" value={staffEditor.email} onChange={(event) => setStaffEditor((current) => current ? { ...current, email: event.target.value } : current)} placeholder="Có thể bổ sung sau" /></label><label><span>Số điện thoại (không bắt buộc)</span><input type="tel" value={staffEditor.phoneNumber} onChange={(event) => setStaffEditor((current) => current ? { ...current, phoneNumber: event.target.value } : current)} placeholder="Có thể bổ sung sau" /></label></div></section>
         <section className="identity-form-section">
           <h3>Loại hợp tác & thu nhập</h3>
           <div className="identity-employment-type" role="radiogroup" aria-label="Loại hợp tác nhân viên">

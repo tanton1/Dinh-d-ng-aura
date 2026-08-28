@@ -10,7 +10,7 @@ export interface DashboardActionMetric {
 }
 
 export interface OperationsDashboardData {
-  schemaVersion: 6
+  schemaVersion: 7
   range: { startAt: string; endAt: string; timeZone: string }
   branchId: string
   scope: { branchId: string; branchIds: string[]; unrestricted: boolean }
@@ -58,7 +58,7 @@ export interface OperationsDashboardData {
     }>
     truncated: boolean
   }
-  finance: { contractSales: number; recognizedRevenue: number; cashCollected: number; refunds: number; reversals: number; adjustments: number; netCash: number; receivables: number; frozenReceivables: number }
+  finance: { contractSales: number; recognizedRevenue: number; cashCollected: number; refunds: number; reversals: number; adjustments: number; netCash: number; receivables: number; frozenReceivables: number; ledgerEntries: number }
   receivables: {
     summary: {
       overdue: { count: number; amount: number }
@@ -101,7 +101,14 @@ export interface OperationsDashboardData {
     }
   }
   operations: { sessions: number; attendanceEvents: number; sessionStatus: Record<string, number>; completionRate: number; activeTrainers: number; activeStaff: number; branches: number }
-  quality: { completeness: 'complete' | 'partial'; missingContractEffectiveDate: number; truncated: boolean; canonicalFinanceSource: string; canonicalAttendanceSource: string }
+  quality: {
+    completeness: 'complete' | 'partial'
+    missingContractEffectiveDate: number
+    truncated: boolean
+    canonicalFinanceSource: string
+    canonicalAttendanceSource: string
+    sourceCounts: { ledgerEntries: number; contracts: number; students: number; sessions: number; attendanceEvents: number }
+  }
   filters: { branches: Array<{ id: string; name: string }> }
   generatedAt: string
   cache: { hit: boolean; ttlSeconds: number }
@@ -192,6 +199,17 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
       netCash: finiteNumber(point.netCash),
     }
   }).filter((item) => item.key) : []
+  if (!revenuePoints.length && (finiteNumber(finance.contractSales) !== 0 || finiteNumber(finance.recognizedRevenue) !== 0 || finiteNumber(finance.netCash) !== 0)) {
+    const fallbackKey = text(range.endAt, new Date().toISOString()).slice(0, 10)
+    revenuePoints.push({
+      key: fallbackKey,
+      label: fallbackKey ? `${fallbackKey.slice(8, 10)}/${fallbackKey.slice(5, 7)}` : 'Kỳ này',
+      contractSales: finiteNumber(finance.contractSales),
+      recognizedRevenue: finiteNumber(finance.recognizedRevenue),
+      grossCash: finiteNumber(finance.cashCollected),
+      netCash: finiteNumber(finance.netCash),
+    })
+  }
   const pointNetTotal = revenuePoints.reduce((total, item) => total + item.netCash, 0)
   if (revenuePoints.length && Math.abs(pointNetTotal - netCash) >= 1) {
     revenuePoints.forEach((item) => { item.netCash = item.grossCash })
@@ -199,7 +217,7 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
   }
 
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     range: {
       startAt: text(range.startAt),
       endAt: text(range.endAt),
@@ -269,6 +287,7 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
       netCash,
       receivables: nonNegativeNumber(finance.receivables),
       frozenReceivables: nonNegativeNumber(finance.frozenReceivables),
+      ledgerEntries: nonNegativeNumber(finance.ledgerEntries),
     },
     receivables: {
       summary: {
@@ -348,6 +367,13 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
       truncated: quality.truncated === true,
       canonicalFinanceSource: text(quality.canonicalFinanceSource, 'ledgerEntries'),
       canonicalAttendanceSource: text(quality.canonicalAttendanceSource, 'attendanceEvents'),
+      sourceCounts: {
+        ledgerEntries: nonNegativeNumber(record(quality.sourceCounts).ledgerEntries || finance.ledgerEntries),
+        contracts: nonNegativeNumber(record(quality.sourceCounts).contracts),
+        students: nonNegativeNumber(record(quality.sourceCounts).students || clients.total),
+        sessions: nonNegativeNumber(record(quality.sourceCounts).sessions || operations.sessions),
+        attendanceEvents: nonNegativeNumber(record(quality.sourceCounts).attendanceEvents || operations.attendanceEvents),
+      },
     },
     filters: {
       branches: Array.isArray(record(source.filters).branches)

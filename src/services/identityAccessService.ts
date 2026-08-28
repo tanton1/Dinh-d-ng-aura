@@ -31,7 +31,7 @@ export interface AccountInviteResult {
 export interface ProvisionStudentAccountInput {
   displayName: string
   phoneNumber: string
-  email: string
+  email?: string
   goal?: string
   crmProfileId?: string
   legacyStudent?: {
@@ -57,7 +57,7 @@ export interface ProvisionStudentAccountResult {
 export interface ProvisionStaffAccountInput {
   displayName: string
   phoneNumber: string
-  email: string
+  email?: string
   positions: StaffPosition[]
   branchIds: string[]
   employmentType?: 'full_time' | 'part_time' | 'collaborator'

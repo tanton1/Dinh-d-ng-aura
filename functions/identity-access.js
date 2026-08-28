@@ -59,6 +59,12 @@ function initialPasswordFromPhone(phoneNumber) {
   return localPhone
 }
 
+function loginEmailFromPhone(value, phoneNumber) {
+  const suppliedEmail = normalizedEmail(value)
+  if (suppliedEmail) return suppliedEmail
+  return `${initialPasswordFromPhone(phoneNumber)}@aurafitness.vn`
+}
+
 function normalizedPositions(value) {
   if (!Array.isArray(value)) return []
   const positions = [...new Set(value.filter((item) => staffPositions.has(item)))]
@@ -619,16 +625,16 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
 
   // Student provisioning is deliberately server-side. The browser never gets
   // Firebase Admin privileges and the initial password is never persisted or
-  // returned. Firebase supports passwords on the email provider, so a real
-  // email is mandatory while the verified phone stays linked to the account.
+  // returned. When a learner has no personal email, a deterministic Aura
+  // login alias is derived from the local phone number.
   const provisionStudentAccount = onCall(async (request) => {
     const action = 'student_account.provision'
     const actor = await identityProvisionStep(logger, action, 'xác minh quyền', () => trustedAccessContext(request, db))
     requireCapability(actor, 'identity.invite.manage')
     const displayName = boundedString(request.data?.displayName, 'Họ và tên', 160)
     const phoneNumber = normalizedPhone(request.data?.phoneNumber)
-    const email = normalizedEmail(request.data?.email)
-    if (!phoneNumber || !email) throw new HttpsError('invalid-argument', 'Cần email đăng nhập và số điện thoại thật để tạo tài khoản học viên.')
+    if (!phoneNumber) throw new HttpsError('invalid-argument', 'Cần số điện thoại để tạo tài khoản học viên.')
+    const email = loginEmailFromPhone(request.data?.email, phoneNumber)
     const crmProfileId = request.data?.crmProfileId ? documentId(request.data.crmProfileId, 'Mã hồ sơ CRM') : ''
     const goal = boundedString(request.data?.goal, 'Mục tiêu coaching', 500, false)
     const legacyStudent = request.data?.legacyStudent && crmProfileId ? {
@@ -702,8 +708,8 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     requireCapability(actor, 'identity.staff_position.manage')
     const displayName = boundedString(request.data?.displayName, 'Họ và tên', 160)
     const phoneNumber = normalizedPhone(request.data?.phoneNumber)
-    const email = normalizedEmail(request.data?.email)
-    if (!phoneNumber || !email) throw new HttpsError('invalid-argument', 'Cần email đăng nhập và số điện thoại thật để tạo tài khoản nhân viên.')
+    if (!phoneNumber) throw new HttpsError('invalid-argument', 'Cần số điện thoại để tạo tài khoản nhân viên.')
+    const email = loginEmailFromPhone(request.data?.email, phoneNumber)
     const positions = normalizedPositions(request.data?.positions || [])
     if (!positions.length) throw new HttpsError('invalid-argument', 'Chọn tối thiểu một chức danh cho nhân viên.')
     const branchIds = normalizedBranchIds(request.data?.branchIds || [])
@@ -1163,13 +1169,17 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     const userRef = db.doc(`users/${targetUid}`)
     const staffRef = db.doc(`staff/${targetUid}`)
     const trainerRef = db.doc(`trainers/${targetUid}`)
-    const [initialProfileSnapshot, initialStaffSnapshot, initialTrainerSnapshot] = await Promise.all([userRef.get(), staffRef.get(), trainerRef.get()])
+    const [initialProfileSnapshot, initialStaffSnapshot, initialTrainerSnapshot, authUser] = await Promise.all([
+      userRef.get(), staffRef.get(), trainerRef.get(), auth.getUser(targetUid),
+    ])
     if (!initialProfileSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy tài khoản nhân viên.')
     const initialProfile = initialProfileSnapshot.data() || {}
     const displayName = boundedString(request.data?.displayName ?? initialProfile.displayName ?? initialProfile.name, 'Họ và tên', 160)
-    const email = normalizedEmail(request.data?.email ?? initialProfile.email)
-    const phoneNumber = normalizedPhone(request.data?.phoneNumber ?? initialProfile.phoneNumber ?? initialProfile.phone)
-    if (!email || !phoneNumber) throw new HttpsError('invalid-argument', 'Nhân viên cần email đăng nhập và số điện thoại thật.')
+    const phoneNumber = normalizedPhone(
+      request.data?.phoneNumber ?? initialProfile.phoneNumber ?? initialProfile.phone ?? authUser.phoneNumber,
+    ) || normalizedPhone(authUser.phoneNumber)
+    const suppliedEmail = normalizedEmail(request.data?.email ?? initialProfile.email ?? authUser.email)
+    const email = suppliedEmail || normalizedEmail(authUser.email) || (phoneNumber ? loginEmailFromPhone('', phoneNumber) : '')
     const availabilitySlots = Array.isArray(request.data?.availabilitySlots)
       ? [...new Set(request.data.availabilitySlots.filter((slot) => typeof slot === 'string' && slot.length <= 80))].slice(0, 168)
       : []
@@ -1212,21 +1222,21 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       throw new HttpsError('invalid-argument', 'Hoa hồng giới thiệu phải bằng 0 hoặc nằm trong khoảng 2–10%.')
     }
     const assignmentRef = db.doc(`roleAssignments/${targetUid}`)
-    const authUser = await auth.getUser(targetUid)
     const previousAuth = {
       displayName: authUser.displayName || undefined,
       email: authUser.email || undefined,
       phoneNumber: authUser.phoneNumber || undefined,
       emailVerified: Boolean(authUser.emailVerified),
     }
-    const contactChanged = previousAuth.displayName !== displayName || previousAuth.email !== email || previousAuth.phoneNumber !== phoneNumber
+    const emailChanged = Boolean(email) && previousAuth.email !== email
+    const phoneChanged = Boolean(phoneNumber) && previousAuth.phoneNumber !== phoneNumber
+    const contactChanged = previousAuth.displayName !== displayName || emailChanged || phoneChanged
     try {
       if (contactChanged) {
         await auth.updateUser(targetUid, {
           displayName,
-          email,
-          phoneNumber,
-          emailVerified: previousAuth.email === email ? previousAuth.emailVerified : false,
+          ...(emailChanged ? { email, emailVerified: false } : {}),
+          ...(phoneChanged ? { phoneNumber } : {}),
         })
       }
       await db.runTransaction(async (transaction) => {
@@ -1367,4 +1377,7 @@ module.exports = {
   trustedAccessContext,
   requireCapability,
   normalizedTrainerSchedulingPolicy,
+  normalizedPhone,
+  initialPasswordFromPhone,
+  loginEmailFromPhone,
 }

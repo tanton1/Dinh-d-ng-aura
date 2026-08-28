@@ -9,7 +9,7 @@ function previewDashboard(input: { startAt?: string; endAt?: string; branchId?: 
   const startAt = input.startAt || '2026-08-01T00:00:00.000+07:00'
   const endAt = input.endAt || '2026-08-27T23:59:59.999+07:00'
   return normalizeOperationsDashboardData({
-    schemaVersion: 6,
+    schemaVersion: 7,
     range: { startAt, endAt, timeZone: 'Asia/Ho_Chi_Minh' },
     branchId: input.branchId || 'all',
     scope: { branchId: input.branchId || 'all', branchIds: [], unrestricted: true },
@@ -34,7 +34,7 @@ function previewDashboard(input: { startAt?: string; endAt?: string; branchId?: 
       ],
       truncated: false,
     },
-    finance: { contractSales: 310_000_000, recognizedRevenue: 219_160_415, cashCollected: 274_750_000, refunds: 2_000_000, reversals: 0, adjustments: 500_000, netCash: 273_250_000, receivables: 290_300_000, frozenReceivables: 24_000_000 },
+    finance: { contractSales: 310_000_000, recognizedRevenue: 219_160_415, cashCollected: 274_750_000, refunds: 2_000_000, reversals: 0, adjustments: 500_000, netCash: 273_250_000, receivables: 290_300_000, frozenReceivables: 24_000_000, ledgerEntries: 980 },
     receivables: {
       summary: {
         overdue: { count: 4, amount: 12_500_000 },
@@ -65,7 +65,7 @@ function previewDashboard(input: { startAt?: string; endAt?: string; branchId?: 
       off: { activeContracts: 160, approvedContracts: 18, activeWithoutOff: 142, approvedRequests: 21, pendingRequests: 3, preservationRequests: 2, preservedContracts: 11, rate: 11.3 },
     },
     operations: { sessions: 931, attendanceEvents: 887, sessionStatus: { completed: 845, no_show: 42, scheduled: 44 }, completionRate: 95, activeTrainers: 9, activeStaff: 26, branches: 2 },
-    quality: { completeness: 'complete', missingContractEffectiveDate: 0, truncated: false, canonicalFinanceSource: 'ledgerEntries', canonicalAttendanceSource: 'attendanceEvents' },
+    quality: { completeness: 'complete', missingContractEffectiveDate: 0, truncated: false, canonicalFinanceSource: 'ledgerEntries', canonicalAttendanceSource: 'attendanceEvents', sourceCounts: { ledgerEntries: 980, contracts: 314, students: 296, sessions: 931, attendanceEvents: 887 } },
     filters: { branches: [{ id: 'thai-thi-boi', name: 'Thái Thị Bôi' }, { id: 'nguyen-van-linh', name: 'Nguyễn Văn Linh' }] },
     generatedAt: new Date().toISOString(),
     cache: { hit: false, ttlSeconds: 60 },

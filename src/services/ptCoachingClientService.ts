@@ -227,9 +227,6 @@ export async function createStudentAccount(input: CreateStudentAccountInput): Pr
   }
 
   const email = input.email?.trim().toLowerCase() || ''
-  if (!email) {
-    throw new Error('Cần email đăng nhập thật để tạo mật khẩu ban đầu bằng số điện thoại.')
-  }
   const displayName = input.displayName.trim() || `Học viên ${phone}`
   const account = await provisionStudentAccount({
     displayName,
@@ -242,7 +239,7 @@ export async function createStudentAccount(input: CreateStudentAccountInput): Pr
     uid: account.uid,
     displayName,
     phoneNumber: phone,
-    email,
+    email: account.email,
     goal: input.goal || '',
     passwordChangeRequired: account.passwordChangeRequired,
   }

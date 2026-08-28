@@ -199,8 +199,8 @@ export default function AdminStudentsPage({
   }
 
   const handleCreateStudent = async () => {
-    if (!createName.trim() || !createPhone.trim() || !createEmail.trim()) {
-      setCreateError('Vui lòng nhập họ tên, số điện thoại và email đăng nhập của học viên.')
+    if (!createName.trim() || !createPhone.trim()) {
+      setCreateError('Vui lòng nhập họ tên và số điện thoại của học viên.')
       return
     }
     setCreateSaving(true)
@@ -853,14 +853,14 @@ export default function AdminStudentsPage({
                     </label>
 
                     <label>
-                      <span>Email đăng nhập <small style={{ color: '#f43f5e', fontWeight: 700 }}>* (Bắt buộc)</small></span>
+                      <span>Email đăng nhập <small style={{ color: '#71717a', fontWeight: 600 }}>(Không bắt buộc)</small></span>
                       <input
                         type="email"
                         value={createEmail}
                         onChange={(e) => {
                           setCreateEmail(e.target.value)
                         }}
-                        placeholder="Ví dụ: hocvien@email.com"
+                        placeholder="Bỏ trống: SĐT@aurafitness.vn"
                       />
                     </label>
 
@@ -882,7 +882,7 @@ export default function AdminStudentsPage({
                         type="button"
                         className="pink-orange-button"
                         onClick={() => void handleCreateStudent()}
-                        disabled={!createName.trim() || !createPhone.trim() || !createEmail.trim() || createSaving}
+                        disabled={!createName.trim() || !createPhone.trim() || createSaving}
                       >
                         {createSaving ? <Activity className="spin" size={16} /> : <UserPlus size={16} />}
                         {createSaving ? 'Đang tạo...' : 'Tạo tài khoản'}

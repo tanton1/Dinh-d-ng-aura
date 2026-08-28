@@ -21,7 +21,7 @@ test('dashboard accepts the previous callable schema during a rolling deployment
     generatedAt: '2026-08-26T08:00:00.000Z',
   })
 
-  assert.equal(dashboard.schemaVersion, 6)
+  assert.equal(dashboard.schemaVersion, 7)
   assert.equal(dashboard.finance.cashCollected, 125_000_000)
   assert.equal(dashboard.clients.active, 280)
   assert.equal(dashboard.operations.completionRate, 72)
@@ -102,7 +102,7 @@ test('dashboard normalizes malformed numeric fields instead of rendering NaN', (
 
 test('dashboard bounds and normalizes attendance and receivable tables', () => {
   const dashboard = normalizeOperationsDashboardData({
-    schemaVersion: 6,
+    schemaVersion: 7,
     today: {
       rows: [{ id: 's1', hour: 8, studentName: 'Lan', trainerName: 'PT Mai', attendanceStatus: 'late', billingStatus: 'charged' }],
     },

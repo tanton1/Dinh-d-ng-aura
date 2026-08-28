@@ -420,8 +420,8 @@ export default function StudentManagement({ user, profile }: Props) {
         console.error("Error updating linked user profile:", e);
       }
     } else {
-      if (!formData.phone || !formData.email) {
-        setError('Cần số điện thoại và email đăng nhập thật để tạo tài khoản học viên.');
+      if (!formData.phone) {
+        setError('Cần số điện thoại để tạo tài khoản học viên.');
         setIsSaving(false);
         return;
       }
@@ -445,14 +445,14 @@ export default function StudentManagement({ user, profile }: Props) {
         branchId: formData.branchId || profile?.branchId || '',
         nutritionNote: formData.nutritionNote || '',
       };
-      await provisionStudentAccount({
+      const account = await provisionStudentAccount({
         displayName: formData.name,
         phoneNumber: formData.phone,
         email: formData.email,
         crmProfileId: studentId,
         legacyStudent: newStudent,
       });
-      setAlertMessage('Đã tạo hồ sơ Aura. Mật khẩu ban đầu là số điện thoại của học viên; học viên có thể đổi trong Hồ sơ cá nhân.');
+      setAlertMessage(`Đã tạo hồ sơ Aura. Email đăng nhập: ${account.email}. Mật khẩu ban đầu là số điện thoại của học viên; học viên có thể đổi trong Hồ sơ cá nhân.`);
     }
 
     setIsAdding(false);
@@ -947,13 +947,13 @@ export default function StudentManagement({ user, profile }: Props) {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-1">Email đăng nhập *</label>
+                  <label className="block text-sm font-medium text-zinc-400 mb-1">Email đăng nhập (không bắt buộc)</label>
                   <input 
                     type="email" 
                     value={formData.email}
                     onChange={e => setFormData({...formData, email: e.target.value})}
                     className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-950 text-white focus:outline-none focus:border-pink-500" 
-                    placeholder="VD: email@example.com"
+                    placeholder="Bỏ trống: SĐT@aurafitness.vn"
                   />
                 </div>
 

@@ -24,7 +24,7 @@ test('dashboard and attendance queries are bounded and capability protected', ()
   assert.match(source, /collection\('attendanceEvents'\)/)
   assert.match(source, /\.count\(\)\.get\(\)/)
   assert.match(source, /DASHBOARD_CACHE_TTL_MS/)
-  assert.match(source, /schemaVersion: 6/)
+  assert.match(source, /schemaVersion: 7/)
   assert.match(source, /actionSummary/)
   assert.match(source, /analytics/)
 })
@@ -80,6 +80,20 @@ test('dashboard analytics separates gross and net cash and calculates package an
   assert.equal(analytics.packages.items[0].percent, 100)
   assert.equal(analytics.off.rate, 100)
   assert.equal(analytics.off.preservedContracts, 1)
+  assert.equal(analytics.revenue.points.length, 31)
+})
+
+test('migrated contracts use startDate as a reporting fallback without emptying contract sales', () => {
+  const analytics = dashboardAnalytics({
+    start: new Date('2026-08-01T00:00:00+07:00'),
+    end: new Date('2026-08-03T23:59:59+07:00'),
+    referenceDate: '2026-08-02',
+    ledgerValues: [],
+    contractValues: [{ id: 'legacy-contract', status: 'active', startDate: '2026-08-02', endDate: '2026-11-02', totalSessions: 36, usedSessions: 0, totalPrice: 9_000_000, packageName: 'PT 3 tháng' }],
+    offValues: [],
+  })
+  assert.equal(analytics.revenue.points.length, 3)
+  assert.equal(analytics.revenue.points.reduce((total, item) => total + item.contractSales, 0), 9_000_000)
 })
 
 test('receivable actions count overdue and due-today contracts without duplicating debt', () => {

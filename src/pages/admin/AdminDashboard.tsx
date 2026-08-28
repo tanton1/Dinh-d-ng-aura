@@ -87,18 +87,25 @@ function RevenueTrend({ points }: { points: RevenuePoint[] }) {
   const bottom = 30
   const chartLeft = 62
   const chartRight = 14
-  const values = points.flatMap((item) => [item.contractSales, item.recognizedRevenue, item.netCash])
+  const values = points.flatMap((item) => [item.contractSales, item.recognizedRevenue, item.grossCash, item.netCash])
   const maximum = Math.max(1, ...values)
   const minimum = Math.min(0, ...values)
   const span = Math.max(1, maximum - minimum)
   const x = (index: number) => points.length === 1 ? (chartLeft + width - chartRight) / 2 : chartLeft + index / (points.length - 1) * (width - chartLeft - chartRight)
   const y = (value: number) => top + (maximum - value) / span * (height - top - bottom)
   const path = (pick: (item: RevenuePoint) => number) => points.map((item, index) => `${index ? 'L' : 'M'}${x(index).toFixed(1)},${y(pick(item)).toFixed(1)}`).join(' ')
+  const areaPath = (pick: (item: RevenuePoint) => number) => `${path(pick)} L${x(points.length - 1).toFixed(1)},${y(0).toFixed(1)} L${x(0).toFixed(1)},${y(0).toFixed(1)} Z`
+  const barWidth = Math.max(3, Math.min(13, (width - chartLeft - chartRight) / Math.max(1, points.length) * .46))
   const labelStep = Math.max(1, Math.ceil(points.length / 6))
   return <div className="admin-dashboard__revenue-chart">
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Biểu đồ doanh số hợp đồng, doanh thu thực hiện và thực thu ròng">
+      <defs>
+        <linearGradient id="dashboardRevenueArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#ff8751" stopOpacity=".24" /><stop offset="100%" stopColor="#ff8751" stopOpacity=".02" /></linearGradient>
+      </defs>
       {[0, .5, 1].map((ratio) => <g key={ratio}><line x1={chartLeft} x2={width - chartRight} y1={top + ratio * (height - top - bottom)} y2={top + ratio * (height - top - bottom)} /><text className="is-axis" x="2" y={top + ratio * (height - top - bottom) + 3}>{compactMoney(maximum - ratio * span)}</text></g>)}
       <line className="is-zero" x1={chartLeft} x2={width - chartRight} y1={y(0)} y2={y(0)} />
+      {points.map((item, index) => <rect key={`cash-${item.key}`} className="is-cash-bar" x={x(index) - barWidth / 2} y={Math.min(y(item.grossCash), y(0))} width={barWidth} height={Math.max(1, Math.abs(y(item.grossCash) - y(0)))} rx="2"><title>{`${item.label}: thực thu gộp ${money(item.grossCash)}`}</title></rect>)}
+      <path className="is-revenue-area" d={areaPath((item) => item.recognizedRevenue)} />
       <path className="is-sales" d={path((item) => item.contractSales)} />
       <path className="is-revenue" d={path((item) => item.recognizedRevenue)} />
       <path className="is-net" d={path((item) => item.netCash)} />
@@ -388,7 +395,7 @@ export default function AdminDashboard({
         {loading && !data ? <div className="admin-dashboard__table-skeleton"><i /><i /><i /><i /></div>
           : !data ? <div className="admin-dashboard__unavailable"><AlertCircle size={22} /><div><strong>Chưa tải được hiện diện hôm nay</strong><span>Không suy đoán trạng thái điểm danh từ dữ liệu cũ.</span></div></div>
             : data.today.rows.length ? <div className="admin-dashboard__table-wrap"><table><thead><tr><th>Giờ</th><th>Học viên</th><th>PT phụ trách</th><th>Trạng thái</th></tr></thead><tbody>{data.today.rows.map((row) => <tr key={row.id}><td data-label="Giờ"><b>{row.hour === null ? '—' : `${String(row.hour).padStart(2, '0')}:00`}</b></td><td data-label="Học viên"><strong>{row.studentName}</strong></td><td data-label="PT phụ trách">{row.trainerName}</td><td data-label="Trạng thái"><span className={`admin-dashboard__status is-${row.attendanceStatus}`}>{attendanceLabels[row.attendanceStatus]}</span>{row.billingStatus === 'charged' && <small>Đã tính buổi</small>}</td></tr>)}</tbody></table></div>
-              : <div className="admin-dashboard__healthy"><CheckCircle2 size={24} /><div><strong>Hôm nay chưa có ca tập</strong><span>Lịch đã publish sẽ tự xuất hiện tại đây.</span></div></div>}
+              : <div className="admin-dashboard__healthy"><CheckCircle2 size={24} /><div><strong>Không có ca đã publish hôm nay</strong><span>Kết nối dữ liệu vẫn hoạt động; lịch của ngày khác không được đưa vào bảng hôm nay.</span></div></div>}
         {data?.today.truncated && <p className="admin-dashboard__table-note">Danh sách đã được giới hạn. Mở Lịch sử tập để xem đầy đủ.</p>}
       </section>
     </div>
@@ -406,11 +413,18 @@ export default function AdminDashboard({
 
     {data && (data.permissions.finance || data.permissions.clients || data.permissions.operations) && <section className="admin-dashboard__analytics" aria-labelledby="dashboard-analytics-title">
       <header><div><small>PHÂN TÍCH</small><h2 id="dashboard-analytics-title">Xu hướng & cơ cấu</h2><p>{rangeCaption(data.range.startAt, data.range.endAt)}</p></div></header>
+      <div className="admin-dashboard__source-counts" aria-label="Dữ liệu nguồn đã tổng hợp">
+        {data.permissions.finance && <span><b>{data.quality.sourceCounts.ledgerEntries.toLocaleString('vi-VN')}</b>bút toán</span>}
+        {data.permissions.clients && <span><b>{data.quality.sourceCounts.contracts.toLocaleString('vi-VN')}</b>hợp đồng</span>}
+        {data.permissions.clients && <span><b>{data.quality.sourceCounts.students.toLocaleString('vi-VN')}</b>học viên</span>}
+        {data.permissions.operations && <span><b>{data.quality.sourceCounts.sessions.toLocaleString('vi-VN')}</b>buổi trong kỳ</span>}
+        {data.permissions.operations && <span><b>{data.quality.sourceCounts.attendanceEvents.toLocaleString('vi-VN')}</b>điểm danh</span>}
+      </div>
       <div className="admin-dashboard__analytics-grid">
         {data.permissions.finance && <article className="admin-dashboard__chart-card admin-dashboard__chart-card--revenue">
           <header><div><small>DOANH THU & DÒNG TIỀN</small><strong>Biến động theo {data.analytics.revenue.granularity === 'day' ? 'ngày' : data.analytics.revenue.granularity === 'week' ? 'tuần' : 'tháng'}</strong></div><details><summary aria-label="Giải thích biểu đồ tài chính"><CircleHelp size={15} /></summary><p>Doanh số là giá trị hợp đồng ký trong kỳ. Doanh thu thực hiện là giá trị dịch vụ đã hoàn thành. Thực thu ròng chỉ phản ánh dòng tiền thực tế.</p></details></header>
           <div className="admin-dashboard__chart-totals"><span><small>Doanh số ký</small><b>{compactMoney(data.finance.contractSales)}</b></span><span><small>Doanh thu TH</small><b>{compactMoney(data.finance.recognizedRevenue)}</b></span><span><small>Thực thu ròng</small><b>{compactMoney(data.finance.netCash)}</b></span></div>
-          <div className="admin-dashboard__chart-legend"><span className="is-sales">Doanh số HĐ</span><span className="is-revenue">Doanh thu thực hiện</span><span className="is-net">Thực thu ròng</span></div>
+          <div className="admin-dashboard__chart-legend"><span className="is-cash">Thực thu gộp</span><span className="is-sales">Doanh số HĐ</span><span className="is-revenue">Doanh thu thực hiện</span><span className="is-net">Thực thu ròng</span></div>
           <RevenueTrend points={data.analytics.revenue.points} />
         </article>}
 
@@ -420,6 +434,7 @@ export default function AdminDashboard({
             <div className="admin-dashboard__donut" style={{ background: ratioGradient(data.analytics.packages.items) }}><span><b>{data.analytics.packages.totalActive}</b><small>hợp đồng</small></span></div>
             <div className="admin-dashboard__ratio-legend">{data.analytics.packages.items.length ? data.analytics.packages.items.map((item, index) => <span key={item.id}><i style={{ background: ratioPalette[index % ratioPalette.length] }} /><b>{item.name}</b><small>{item.count} · {item.percent}%</small></span>) : <p>Chưa có hợp đồng đủ điều kiện.</p>}</div>
           </div>
+          <div className="admin-dashboard__package-bars" aria-label="Tỷ lệ từng gói tập">{data.analytics.packages.items.map((item, index) => <div key={item.id}><span><b>{item.name}</b><small>{item.count} HĐ · {item.percent}%</small></span><i><em style={{ width: `${item.percent}%`, background: ratioPalette[index % ratioPalette.length] }} /></i></div>)}</div>
         </article>}
 
         {(data.permissions.clients || data.permissions.operations) && <article className="admin-dashboard__chart-card admin-dashboard__chart-card--ratio">
