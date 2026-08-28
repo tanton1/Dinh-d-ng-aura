@@ -28,6 +28,7 @@ const { createBusinessReportingFunctions } = require('./business-reporting')
 const { createExerciseCatalogFunctions } = require('./exercise-catalog')
 const { createNutritionReviewFunctions } = require('./nutrition-reviews')
 const { createContractRenewalFunctions } = require('./contract-renewals')
+const { syncContractUsageProjection } = require('./contract-usage')
 
 const app = initializeApp()
 // Keep callable writes on the same named database used by the production web app.
@@ -51,6 +52,13 @@ function configuredRealtimeDatabase() {
   return databaseUrl ? getDatabase(app, databaseUrl) : null
 }
 const realtimeDb = configuredRealtimeDatabase()
+
+exports.syncPtContractUsageProjection = onDocumentWritten({
+  document: 'sessions/{sessionId}',
+  database: databaseId,
+  region: 'asia-southeast1',
+  maxInstances: 3,
+}, async (event) => syncContractUsageProjection({ db, event, logger }))
 
 exports.cleanupEatCleanLiveLocations = onSchedule({
   schedule: 'every 60 minutes',
@@ -260,6 +268,7 @@ Object.assign(exports, businessReportingFunctions)
 exports.listBusinessPerformance = businessReportingFunctions.listBusinessPerformance
 exports.listStudentTrainingHistory = businessReportingFunctions.listStudentTrainingHistory
 exports.listTrainerTeachingHistory = businessReportingFunctions.listTrainerTeachingHistory
+exports.getStudentContractUsage = businessReportingFunctions.getStudentContractUsage
 const exerciseCatalogFunctions = createExerciseCatalogFunctions({ db, onCall })
 Object.assign(exports, exerciseCatalogFunctions)
 exports.listExerciseCatalog = exerciseCatalogFunctions.listExerciseCatalog

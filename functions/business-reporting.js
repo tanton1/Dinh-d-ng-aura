@@ -1,12 +1,14 @@
 const { FieldPath, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
+const { sessionCountsTowardContract, summarizeSessionUsage, summarizeContractUsage } = require('./contract-usage')
 
 const MAX_RANGE_DAYS = 366
 const MAX_LEDGER_DOCUMENTS = 10000
 const MAX_ATTENDANCE_DOCUMENTS = 10000
 const MAX_HISTORY_PAGE = 100
 const DEFAULT_HISTORY_PAGE = 50
+const MAX_USAGE_SESSIONS = 10000
 const validHistoryStatuses = new Set([
   'scheduled',
   'rescheduled',
@@ -350,6 +352,61 @@ function teachingShiftSummary(records = []) {
   }
 }
 
+async function studentContractUsage(db, access, studentId, requestedContractId = '') {
+  const [contractSnapshot, sessionSnapshot] = await Promise.all([
+    db.collection('contracts').where('studentId', '==', studentId).limit(101).get(),
+    db.collection('sessions').where('studentId', '==', studentId).limit(MAX_USAGE_SESSIONS + 1).get(),
+  ])
+  if (contractSnapshot.size > 100) throw new HttpsError('resource-exhausted', 'Hồ sơ có quá nhiều hợp đồng để tổng hợp an toàn.')
+  if (sessionSnapshot.size > MAX_USAGE_SESSIONS) {
+    throw new HttpsError('resource-exhausted', 'Lịch sử vượt giới hạn tổng hợp. Hãy liên hệ Aura để chạy đối soát theo lô.')
+  }
+  let contracts = contractSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+  let sessions = sessionSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+  if (access.scope === 'branch_manager') {
+    contracts = contracts.filter((item) => access.actor.branchIds.includes(item.branchId))
+    sessions = sessions.filter((item) => access.actor.branchIds.includes(item.branchId))
+  }
+  const scopedContractIds = new Set(contracts.map((item) => item.id))
+  const selectedContracts = requestedContractId
+    ? contracts.filter((item) => item.id === requestedContractId)
+    : contracts
+  if (requestedContractId && !selectedContracts.length) {
+    throw new HttpsError('not-found', 'Không tìm thấy hợp đồng trong phạm vi được cấp.')
+  }
+  const selectedContractIds = new Set(selectedContracts.map((item) => item.id))
+  const sessionsByContract = new Map()
+  sessions.forEach((session) => {
+    if (!selectedContractIds.has(session.contractId)) return
+    const list = sessionsByContract.get(session.contractId) || []
+    list.push(session)
+    sessionsByContract.set(session.contractId, list)
+  })
+  const summaries = selectedContracts
+    .map((contract) => ({
+      contractId: contract.id,
+      packageName: contract.packageName || 'Gói tập Aura',
+      status: contract.status || 'active',
+      startDate: typeof contract.startDate === 'string' ? contract.startDate.slice(0, 10) : '',
+      endDate: typeof contract.endDate === 'string' ? contract.endDate.slice(0, 10) : '',
+      ...summarizeContractUsage(contract, sessionsByContract.get(contract.id) || []),
+    }))
+    .sort((left, right) => right.startDate.localeCompare(left.startDate) || left.contractId.localeCompare(right.contractId))
+  const unlinkedChargedSessions = sessions.filter((session) => sessionCountsTowardContract(session) && !scopedContractIds.has(session.contractId)).length
+  return {
+    schemaVersion: 1,
+    studentId,
+    formulaVersion: 'contract-usage-v2',
+    summaries,
+    dataQuality: {
+      scannedContracts: contractSnapshot.size,
+      scannedSessions: sessionSnapshot.size,
+      unlinkedChargedSessions,
+      requiresReview: summaries.filter((item) => item.reconciliationStatus !== 'matched').length,
+    },
+  }
+}
+
 function createBusinessReportingFunctions({ db, onCall }) {
   const listBusinessPerformance = onCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
@@ -502,6 +559,7 @@ function createBusinessReportingFunctions({ db, onCall }) {
       }),
       summary: {
         ...sessionStatusSummary(summaryRecords),
+        usage: summarizeSessionUsage(summaryRecords),
         teaching: subjectType === 'trainer' ? teachingShiftSummary(summaryRecords) : null,
         truncated: summarySnapshot.size > 5000,
       },
@@ -513,8 +571,16 @@ function createBusinessReportingFunctions({ db, onCall }) {
 
   const listStudentTrainingHistory = onCall((request) => listHistory(request, 'student'))
   const listTrainerTeachingHistory = onCall((request) => listHistory(request, 'trainer'))
+  const getStudentContractUsage = onCall(async (request) => {
+    const studentId = documentId(request.data?.studentId, 'Mã học viên')
+    const contractId = typeof request.data?.contractId === 'string' && request.data.contractId.trim()
+      ? documentId(request.data.contractId, 'Mã hợp đồng')
+      : ''
+    const access = await assertHistoryAccess(request, db, 'student', studentId)
+    return studentContractUsage(db, access, studentId, contractId)
+  })
 
-  return { listBusinessPerformance, listStudentTrainingHistory, listTrainerTeachingHistory }
+  return { listBusinessPerformance, listStudentTrainingHistory, listTrainerTeachingHistory, getStudentContractUsage }
 }
 
 module.exports = {
@@ -523,4 +589,5 @@ module.exports = {
   normaliseHistoryInput,
   summaryFromLedger,
   teachingShiftSummary,
+  studentContractUsage,
 }

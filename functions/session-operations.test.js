@@ -123,6 +123,8 @@ test('session request approval updates policy usage, session, contract charge an
   assert.match(approval, /charged_cancellation/)
   assert.match(approval, /charged_reschedule/)
   assert.match(approval, /usedSessions: FieldValue\.increment\(1\)/)
+  assert.match(approval, /chargedSessionIds: FieldValue\.arrayUnion\(sessionId\)/)
+  assert.match(approval, /requestType === 'cancel'/)
   assert.match(approval, /currentDate !== originalDate \|\| currentHour !== originalHour/)
   assert.match(approval, /originalSessionRevision/)
   assert.match(approval, /assertSessionChangeDeadline/)

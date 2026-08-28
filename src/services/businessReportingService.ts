@@ -96,12 +96,54 @@ export interface TrainingHistoryPage {
     noShow: number
     cancelled: number
     byStatus: Record<string, number>
+    usage?: SessionUsageSummary
     teaching: { totalShifts: number; pairedShifts: number; learnerBookings: number; maxLearnersPerShift: number } | null
     truncated: boolean
   }
   hasMore: boolean
   nextCursor: string | null
   filters: { startDate: string; endDate: string; status: TrainingHistoryStatus }
+}
+
+export interface SessionUsageSummary {
+  historySessions: number
+  chargedSessions: number
+  attendedSessions: number
+  presentSessions: number
+  lateSessions: number
+  noShowSessions: number
+  policyChargedSessions: number
+  exemptSessions: number
+  pendingSessions: number
+  legacyChargedSessions: number
+}
+
+export interface ContractUsageSummary extends SessionUsageSummary {
+  contractId: string
+  packageName: string
+  status: string
+  startDate: string
+  endDate: string
+  totalSessions: number
+  storedUsedSessions: number
+  legacyProjectionAdjustment: number
+  usedSessions: number
+  remainingSessions: number
+  projectionDelta: number
+  reconciliationStatus: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement'
+}
+
+export interface StudentContractUsageResponse {
+  schemaVersion: 1
+  studentId: string
+  formulaVersion: 'contract-usage-v2'
+  summaries: ContractUsageSummary[]
+  dataQuality: {
+    scannedContracts: number
+    scannedSessions: number
+    unlinkedChargedSessions: number
+    requiresReview: number
+  }
 }
 
 export interface TrainingHistoryQuery {
@@ -118,4 +160,11 @@ export async function listStudentTrainingHistory(studentId: string, query: Train
 
 export async function listTrainerTeachingHistory(trainerId: string, query: TrainingHistoryQuery): Promise<TrainingHistoryPage> {
   return (await callable<{ trainerId: string } & TrainingHistoryQuery, TrainingHistoryPage>('listTrainerTeachingHistory')({ trainerId, ...query })).data
+}
+
+export async function getStudentContractUsage(studentId: string, contractId?: string): Promise<StudentContractUsageResponse> {
+  return (await callable<{ studentId: string; contractId?: string }, StudentContractUsageResponse>('getStudentContractUsage')({
+    studentId,
+    ...(contractId ? { contractId } : {}),
+  })).data
 }

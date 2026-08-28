@@ -1489,6 +1489,10 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         transaction.update(contractReference, {
           usedSessions: FieldValue.increment(1),
           attendedClasses: FieldValue.arrayUnion(chargeId),
+          // A cancelled session itself becomes the charged evidence. A
+          // rescheduled session remains pending and must still be chargeable
+          // when the replacement slot starts.
+          ...(requestType === 'cancel' ? { chargedSessionIds: FieldValue.arrayUnion(sessionId) } : {}),
           updatedAt: FieldValue.serverTimestamp(),
         })
         if (policyRecognition) transaction.create(policyRecognitionReference, policyRecognition)

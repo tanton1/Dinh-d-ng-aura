@@ -15,6 +15,7 @@ import { useDatabase } from '../../../contexts/DatabaseContext';
 import { addCalendarMonthsDateOnly, formatDate, isSameDayOrAfter } from '../../../utils/dateUtils';
 import { getActiveContract } from '../../../utils/scheduler';
 import { recordContractPayment, recordRefund } from '../../../services/financeLedgerService';
+import { getStudentContractUsage, type ContractUsageSummary } from '../../../services/businessReportingService';
 import TrainingHistoryPanel from './TrainingHistoryPanel';
 import './StudentManagement.css';
 
@@ -72,6 +73,9 @@ export default function StudentDetail({ student, profile, contracts, packages, t
   const detailTrackRef = useRef<HTMLDivElement>(null);
   const [dailyCheckins, setDailyCheckins] = useState<DailyCheckin[]>([]);
   const [loadingCheckins, setLoadingCheckins] = useState(false);
+  const [activeContractUsage, setActiveContractUsage] = useState<ContractUsageSummary | null>(null);
+  const [contractUsageLoading, setContractUsageLoading] = useState(false);
+  const [contractUsageError, setContractUsageError] = useState('');
 
   useEffect(() => {
     if (notification) {
@@ -83,6 +87,31 @@ export default function StudentDetail({ student, profile, contracts, packages, t
   const activeContract = getActiveContract(student.id, contracts);
   const historyContracts = contracts.filter(c => c.studentId === student.id && c.id !== activeContract?.id);
   const studentSessions = sessions.filter(s => s.studentId === student.id);
+
+  useEffect(() => {
+    let active = true;
+    if (!activeContract?.id) {
+      setActiveContractUsage(null);
+      setContractUsageError('');
+      setContractUsageLoading(false);
+      return () => { active = false; };
+    }
+    setContractUsageLoading(true);
+    setContractUsageError('');
+    setActiveContractUsage(null);
+    void getStudentContractUsage(student.id, activeContract.id)
+      .then((response) => {
+        if (!active) return;
+        setActiveContractUsage(response.summaries[0] ?? null);
+        if (!response.summaries.length) setContractUsageError('Chưa có tổng hợp số buổi cho hợp đồng này.');
+      })
+      .catch((cause) => {
+        if (!active) return;
+        setContractUsageError(cause instanceof Error ? cause.message : 'Không thể đối chiếu số buổi.');
+      })
+      .finally(() => { if (active) setContractUsageLoading(false); });
+    return () => { active = false; };
+  }, [activeContract?.id, student.id]);
 
   const mySessionRequests = React.useMemo(() => sessionRequests?.filter(r => r.studentId === student.id) || [], [sessionRequests, student.id]);
   const myLeaveRequests = React.useMemo(() => leaveRequests?.filter(r => r.studentId === student.id) || [], [leaveRequests, student.id]);
@@ -463,11 +492,11 @@ export default function StudentDetail({ student, profile, contracts, packages, t
     setNotification({ message: 'Đã hủy hợp đồng thành công', type: 'success' });
   };
 
-  // Package billing and attendance are separate domains. `usedSessions` is
-  // maintained by the server; merging migrated attendedClasses with session
-  // document IDs can count the same class twice.
+  // The callable and training history share contract-usage-v2. The stored
+  // projection is only a visibly marked fallback while the canonical summary
+  // is loading or temporarily unavailable.
   const actualUsed = activeContract
-    ? Math.max(0, Math.floor(Number(activeContract.usedSessions || 0)))
+    ? Math.max(0, Math.floor(Number(activeContractUsage?.usedSessions ?? activeContract.usedSessions ?? 0)))
     : 0;
   const todayId = new Date().toISOString().slice(0, 10);
   const nextStudentSession = studentSessions
@@ -748,7 +777,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
           </div>
         </div>
       ) : activeTab === 'history' ? (
-        <TrainingHistoryPanel subject="student" subjectId={student.id} subjectName={student.name || 'Học viên Aura'} />
+        <TrainingHistoryPanel subject="student" subjectId={student.id} subjectName={student.name || 'Học viên Aura'} contractId={activeContract?.id} />
       ) : (
         <>
           {/* Active Package */}
@@ -850,7 +879,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
               <span className="text-zinc-200 font-medium text-lg">{activeContract.packageName}</span>
               <div className="flex flex-col items-end gap-0.5">
                 <span className="text-pink-500 font-bold text-xl">{actualUsed} / {activeContract.totalSessions}</span>
-                <small className="text-[10px] font-semibold text-zinc-500">Đã tính vào gói</small>
+                <small className="text-[10px] font-semibold text-zinc-500">{contractUsageLoading ? 'Đang đối chiếu lịch sử…' : contractUsageError ? 'Projection · chưa xác minh' : 'Đã tính theo lịch sử'}</small>
               </div>
             </div>
             
@@ -887,6 +916,15 @@ export default function StudentDetail({ student, profile, contracts, packages, t
                 style={{ width: `${Math.min(100, activeContract.totalSessions ? (actualUsed / activeContract.totalSessions) * 100 : 0)}%` }}
               ></div>
             </div>
+            {activeContractUsage && (
+              <div className="grid grid-cols-3 gap-2 text-center text-[10px] text-zinc-400">
+                <span className="rounded-lg bg-zinc-950/60 p-2"><b className="block text-emerald-400 text-sm">{activeContractUsage.attendedSessions}</b>Có tập</span>
+                <span className="rounded-lg bg-zinc-950/60 p-2"><b className="block text-amber-400 text-sm">{activeContractUsage.noShowSessions + activeContractUsage.policyChargedSessions}</b>Vắng tính buổi</span>
+                <span className="rounded-lg bg-zinc-950/60 p-2"><b className="block text-pink-400 text-sm">{activeContractUsage.remainingSessions}</b>Còn lại</span>
+              </div>
+            )}
+            {activeContractUsage?.legacyProjectionAdjustment ? <p className="m-0 text-[10px] leading-relaxed text-amber-300">Có {activeContractUsage.legacyProjectionAdjustment} buổi dữ liệu cũ chưa liên kết được session; Aura giữ riêng để không làm mất quyền lợi.</p> : null}
+            {contractUsageError ? <p className="m-0 text-[10px] leading-relaxed text-red-300">{contractUsageError}</p> : null}
             
             <div className="flex justify-between text-sm text-zinc-400 bg-zinc-950/50 p-3 rounded-xl">
               <div className="flex flex-col">

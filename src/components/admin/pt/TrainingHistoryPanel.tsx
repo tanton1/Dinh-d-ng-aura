@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CalendarDays, CheckCircle2, ChevronDown, CircleAlert, Clock3, Info, RefreshCw, SlidersHorizontal, UserRound, UsersRound } from 'lucide-react'
-import { listStudentTrainingHistory, listTrainerTeachingHistory, type TrainingHistoryPage, type TrainingHistoryStatus } from '../../../services/businessReportingService'
+import { getStudentContractUsage, listStudentTrainingHistory, listTrainerTeachingHistory, type ContractUsageSummary, type TrainingHistoryPage, type TrainingHistoryStatus } from '../../../services/businessReportingService'
 import '../../../styles-training-history.css'
 
 type Props = {
   subject: 'student' | 'trainer'
   subjectId: string
   subjectName: string
+  contractId?: string
 }
 
 function vietnamDateKey(value = new Date()) {
@@ -86,15 +87,24 @@ function groupTrainerTeachingShifts(records: TrainingHistoryPage['records']): Tr
   }))
 }
 
-export default function TrainingHistoryPanel({ subject, subjectId, subjectName }: Props) {
+export default function TrainingHistoryPanel({ subject, subjectId, subjectName, contractId }: Props) {
   const [startDate, setStartDate] = useState(() => daysAgoKey(89))
   const [endDate, setEndDate] = useState(todayKey)
   const [status, setStatus] = useState<TrainingHistoryStatus>('all')
   const [page, setPage] = useState<TrainingHistoryPage | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [contractUsage, setContractUsage] = useState<ContractUsageSummary[]>([])
+  const [usageError, setUsageError] = useState('')
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
   const trainerShifts = useMemo(() => subject === 'trainer' ? groupTrainerTeachingShifts(page?.records ?? []) : [], [page?.records, subject])
+  const selectedUsage = useMemo(() => {
+    if (subject !== 'student') return null
+    return contractUsage.find((item) => item.contractId === contractId)
+      ?? contractUsage.find((item) => item.status === 'active')
+      ?? contractUsage[0]
+      ?? null
+  }, [contractId, contractUsage, subject])
 
   const load = useCallback(async (append = false) => {
     if (!subjectId) return
@@ -116,6 +126,20 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName }
 
   useEffect(() => { void load(false) }, [subjectId, startDate, endDate, status]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const loadUsage = useCallback(async () => {
+    if (subject !== 'student' || !subjectId) return
+    setUsageError('')
+    try {
+      const response = await getStudentContractUsage(subjectId, contractId)
+      setContractUsage(response.summaries)
+    } catch (cause) {
+      setContractUsage([])
+      setUsageError(cause instanceof Error ? cause.message : 'Không thể đối chiếu số buổi gói tập.')
+    }
+  }, [contractId, subject, subjectId])
+
+  useEffect(() => { void loadUsage() }, [loadUsage])
+
   const setPreset = (days: number) => {
     setStartDate(daysAgoKey(days - 1))
     setEndDate(todayKey())
@@ -125,7 +149,7 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName }
   return <section className="training-history" aria-busy={loading}>
     <header className="training-history__header">
       <div><span><CalendarDays size={15} /> Nhật ký vận hành</span><h3>{subject === 'student' ? 'Lịch sử tập' : 'Lịch dạy PT'}</h3><p>{subjectName || 'Hồ sơ Aura'}</p></div>
-      <button type="button" aria-label="Làm mới lịch sử" onClick={() => void load(false)} disabled={loading}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /><span>Làm mới</span></button>
+      <button type="button" aria-label="Làm mới lịch sử" onClick={() => { void load(false); void loadUsage() }} disabled={loading}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /><span>Làm mới</span></button>
     </header>
     <div className="training-history__filters">
       <div className="training-history__presets"><button type="button" onClick={() => setPreset(30)}>30 ngày</button><button type="button" onClick={() => setPreset(90)}>90 ngày</button><button type="button" onClick={() => setPreset(180)}>6 tháng</button></div>
@@ -137,7 +161,13 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName }
       </div>}
     </div>
     {error && <div className="training-history__notice"><CircleAlert size={18} /> {error}</div>}
-    {page && <>{subject === 'trainer' && page.summary.teaching ? <div className="training-history__summary"><div><strong>{page.summary.teaching.totalShifts}</strong><span>Ca dạy</span></div><div><strong>{page.summary.teaching.pairedShifts}</strong><span>Ca đôi</span></div><div><strong>{page.summary.teaching.learnerBookings}</strong><span>Lượt học viên</span></div><div><strong>{page.summary.noShow}</strong><span>Vắng mặt</span></div></div> : <div className="training-history__summary"><div><strong>{page.summary.total}</strong><span>Trong kỳ</span></div><div><strong>{page.summary.completed}</strong><span>Hoàn thành</span></div><div><strong>{page.summary.cancelled}</strong><span>Hủy / nghỉ</span></div><div><strong>{page.summary.noShow}</strong><span>Vắng mặt</span></div></div>}<p className="training-history__scope-note"><Info size={13} /> {subject === 'trainer' ? 'Một ca được tính theo cùng PT, ngày và giờ; ca có hai học viên chỉ tính một ca dạy.' : 'Thống kê theo khoảng ngày; số buổi gói tập dùng projection đã tính từ máy chủ.'}</p></>}
+    {usageError && subject === 'student' ? <div className="training-history__notice"><CircleAlert size={18} /> {usageError}</div> : null}
+    {selectedUsage ? <section className="training-history__contract-usage">
+      <div><small>GÓI ĐANG ĐỐI CHIẾU</small><strong>{selectedUsage.packageName}</strong><span>{selectedUsage.usedSessions}/{selectedUsage.totalSessions} buổi đã tính · còn {selectedUsage.remainingSessions}</span></div>
+      <div><span><b>{selectedUsage.attendedSessions}</b>Có tập</span><span><b>{selectedUsage.noShowSessions + selectedUsage.policyChargedSessions}</b>Vắng tính buổi</span><span><b>{selectedUsage.legacyProjectionAdjustment}</b>Dữ liệu cũ</span></div>
+      {selectedUsage.legacyProjectionAdjustment > 0 ? <p><Info size={13} /> Phần dữ liệu cũ được tách riêng, không giả thành một buổi có mặt.</p> : null}
+    </section> : null}
+    {page && <>{subject === 'trainer' && page.summary.teaching ? <div className="training-history__summary"><div><strong>{page.summary.teaching.totalShifts}</strong><span>Ca dạy</span></div><div><strong>{page.summary.teaching.pairedShifts}</strong><span>Ca đôi</span></div><div><strong>{page.summary.teaching.learnerBookings}</strong><span>Lượt học viên</span></div><div><strong>{page.summary.noShow}</strong><span>Vắng mặt</span></div></div> : <div className="training-history__summary"><div><strong>{page.summary.usage?.chargedSessions ?? (page.summary.completed + page.summary.noShow)}</strong><span>Đã tính trong kỳ</span></div><div><strong>{page.summary.usage?.attendedSessions ?? page.summary.completed}</strong><span>Có tập</span></div><div><strong>{page.summary.usage?.noShowSessions ?? page.summary.noShow}</strong><span>Vắng vẫn tính</span></div><div><strong>{page.summary.usage?.exemptSessions ?? 0}</strong><span>Được miễn</span></div></div>}<p className="training-history__scope-note"><Info size={13} /> {subject === 'trainer' ? 'Một ca được tính theo cùng PT, ngày và giờ; ca có hai học viên chỉ tính một ca dạy.' : 'Thẻ gói và lịch sử cùng dùng công thức contract-usage-v2; các chỉ số trong kỳ chỉ tính khoảng ngày đang chọn.'}</p></>}
     <div className="training-history__records">
       {loading && !page ? <div className="training-history__empty">Đang tải lịch sử an toàn…</div> : null}
       {!loading && !error && page && page.records.length === 0 ? <div className="training-history__empty">Không có buổi tập nào trong bộ lọc này.</div> : null}

@@ -24,6 +24,7 @@ const accessRouteSource = readFileSync(join(repositoryRoot, 'src', 'identity', '
 const studentIdentityLinkSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-student-identity-link.cjs'), 'utf8')
 const sessionContractLinkSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-session-contract-link.cjs'), 'utf8')
 const ptContractUsageReconcileSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-contract-usage-reconcile.cjs'), 'utf8')
+const contractUsageSource = readFileSync(join(__dirname, 'contract-usage.js'), 'utf8')
 const ptScheduleMigrationSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-schedule-v2-migration.cjs'), 'utf8')
 const renewalContinuitySource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-renewal-continuity-reconcile.cjs'), 'utf8')
 const firestoreDeltaSyncSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-firestore-delta-sync.cjs'), 'utf8')
@@ -439,6 +440,16 @@ test('PT contract usage reconciliation is target-only, monotonic, evidence-based
   assert.match(ptContractUsageReconcileSource, /decreasesPlanned: 0/)
   assert.doesNotMatch(ptContractUsageReconcileSource, /usedSessions:\s*(?:item\.before|current\s*-)/)
   assert.doesNotMatch(ptContractUsageReconcileSource, /console\.(?:log|error)\([^)]*(?:studentId|contractId|phone|email|name)/)
+})
+
+test('contract usage projection and history share one auditable charge formula', () => {
+  assert.match(contractUsageSource, /billingStatus === 'exempt'/)
+  assert.match(contractUsageSource, /billingStatus === 'charged'/)
+  assert.match(contractUsageSource, /LEGACY_CHARGED_STATUSES\.has/)
+  assert.match(contractUsageSource, /legacyProjectionAdjustment/)
+  assert.match(contractUsageSource, /chargedSessionIds/)
+  assert.match(functionsSource, /exports\.syncPtContractUsageProjection = onDocumentWritten/)
+  assert.match(functionsSource, /exports\.getStudentContractUsage = businessReportingFunctions\.getStudentContractUsage/)
 })
 
 test('PT schedule publish is actor-scoped, revisioned, transactional, and immutable', () => {
