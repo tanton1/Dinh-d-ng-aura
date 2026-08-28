@@ -46,6 +46,14 @@ test('staff dock prioritizes work modules and schedule tools share one weekly wo
   await expect(sidebar.getByText('Cài đặt', { exact: true })).toHaveCount(0)
   await expect(sidebar.getByText('Mở trang quản trị', { exact: true })).toHaveCount(0)
 
+  await dock.getByRole('button', { name: 'Học viên' }).click()
+  await expect(page).toHaveURL(/#\/staff-students$/)
+  await expect(page.getByRole('heading', { name: 'Học viên phụ trách' })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Tìm học viên' })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Lọc theo chi nhánh' })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Lọc theo phân công' })).toBeVisible()
+  await expect(page.getByText('buổi được phân công')).toHaveCount(0)
+
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   expect(overflow).toBeLessThanOrEqual(1)
 })

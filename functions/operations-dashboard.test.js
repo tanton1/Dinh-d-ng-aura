@@ -176,7 +176,7 @@ test('dashboard UI is one action-first page without legacy dashboard tabs', () =
   assert.match(dashboard, /HỌC VIÊN MỚI/)
   assert.match(dashboard, /Có tập/)
   assert.match(dashboard, /Đi trễ/)
-  assert.match(dashboard, /Không đến/)
+  assert.match(dashboard, /Vắng/)
   assert.match(dashboard, /Chờ PT/)
   assert.match(dashboard, /DOANH THU & DÒNG TIỀN/)
   assert.match(dashboard, /Doanh thu thực hiện/)

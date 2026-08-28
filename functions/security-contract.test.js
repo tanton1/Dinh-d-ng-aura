@@ -308,20 +308,18 @@ test('sensitive operations routes require Identity v2 capabilities in addition t
 })
 
 test('staff keeps learner navigation while every work capability has a separate page', () => {
-  for (const [view, section] of Object.entries({
-    'staff-students': 'students',
-    'staff-schedule': 'schedule',
-    'staff-requests': 'requests',
-  })) {
-    assert.match(appSource, new RegExp(`case '${view}'[\\s\\S]*?<TrainerPortalV2 section="${section}"`))
-  }
+  assert.match(appSource, /case 'staff-students': return <AuraOperationsFrame><TrainerPortalV2 section="students" isDemo=\{backendMode === 'demo'\}/)
+  assert.match(appSource, /case 'staff-schedule': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="teaching"/)
+  assert.match(appSource, /case 'staff-availability': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="availability"/)
+  assert.match(appSource, /case 'staff-requests': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="requests"/)
+  assert.match(appSource, /canManageAvailability=\{backendMode === 'demo' \|\| hasCapability\('pt\.availability\.self\.manage'\)\}/)
   assert.match(appSource, /case 'staff-nutrition-reviews':[\s\S]*?<StaffNutritionReviewsPage/)
   assert.match(appSource, /case 'staff-quotes':[\s\S]*?<SalesPortalV2/)
   assert.match(appSource, /case 'staff-renewals':[\s\S]*?<ContractRenewals/)
   assert.match(appSource, /case 'staff-payroll':[\s\S]*?<StaffPayrollPage/)
   assert.doesNotMatch(appSource, /view === 'home'[\s\S]{0,200}trainer-portal/)
   assert.match(appShellSource, /const staffNavSections[\s\S]*?label: 'CÔNG VIỆC'[\s\S]*?'staff-students'[\s\S]*?'staff-schedule'[\s\S]*?'staff-requests'[\s\S]*?'staff-nutrition-reviews'[\s\S]*?'staff-quotes'[\s\S]*?'staff-renewals'[\s\S]*?'staff-payroll'/)
-  assert.match(appShellSource, /const staffMobileNav[\s\S]*?'home'[\s\S]*?'nutrition'[\s\S]*?'schedule'[\s\S]*?'progress'[\s\S]*?'courses'[\s\S]*?'profile'/)
+  assert.match(appShellSource, /const staffMobileNav[\s\S]*?'staff-dashboard'[\s\S]*?'staff-students'[\s\S]*?'staff-schedule'[\s\S]*?'staff-nutrition-reviews'[\s\S]*?'staff-renewals'[\s\S]*?'staff-payroll'/)
   assert.match(accessRouteSource, /'staff-students': 'coach\.workspace\.view'/)
   assert.match(accessRouteSource, /'staff-nutrition-reviews': 'coach\.workspace\.view'/)
   assert.match(accessRouteSource, /'staff-quotes': 'sales\.quotes\.self\.manage'/)

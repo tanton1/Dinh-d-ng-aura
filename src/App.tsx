@@ -848,7 +848,7 @@ function AuraApplication() {
 
       // PT Coaching & Gym Management Views
       case 'trainer-portal':
-      case 'staff-students': return <AuraOperationsFrame><TrainerPortalV2 section="students" /></AuraOperationsFrame>
+      case 'staff-students': return <AuraOperationsFrame><TrainerPortalV2 section="students" isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
       case 'staff-dashboard': return <AuraOperationsFrame><StaffDashboardPage onNavigate={navigate} capabilities={accessContext?.capabilities || []} isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
       case 'staff-schedule': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="teaching" canManageAvailability={backendMode === 'demo' || hasCapability('pt.availability.self.manage')} isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
       case 'staff-availability': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="availability" canManageAvailability={backendMode === 'demo' || hasCapability('pt.availability.self.manage')} isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>

@@ -190,8 +190,12 @@ test('Trainer pages keep separate sections while sharing one actor-scoped bootst
   assert.match(operationsV2Source, /const getMyTrainerWorkspace = staffCall/)
   assert.match(operationsV2Source, /const actor = await trainerActor\(request, db\)/)
   assert.match(operationsV2Source, /coachWorkspaceScopeForActor\(db, actor\)/)
+  assert.match(operationsV2Source, /students: trainingStudentIds\.size > 0 \|\| teachingSessions\.size > 0/)
   assert.match(operationsV2Source, /assignedStudentsForActor\(db, actor, limit\)/)
+  assert.match(operationsV2Source, /return \{ schemaVersion: 2, students, branches, hasMore:/)
   assert.match(operationsV2Source, /trainerScheduleForActor\(db, actor, from, to, limit\)/)
+  assert.match(operationsV2Source, /studentPhone: student\?\.phone \|\| ''/)
+  assert.match(operationsV2Source, /studentBranchId: student\?\.branchId \|\| session\.branchId \|\| ''/)
   assert.match(functionsSource, /exports\.getMyTrainerWorkspace = ptOperationsV2Functions\.getMyTrainerWorkspace/)
 })
 

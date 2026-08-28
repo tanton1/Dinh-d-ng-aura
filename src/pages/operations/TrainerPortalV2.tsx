@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CheckCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock3, RefreshCw, Timer, UserCheck, UserX, X } from 'lucide-react'
+import { CalendarDays, CheckCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock3, MapPin, Phone, RefreshCw, Search, Timer, UserCheck, UserX, X } from 'lucide-react'
 import {
   bulkConfirmMySessions,
   getMyTrainerWorkspace,
@@ -49,6 +49,9 @@ function compactDate(value: string) {
   const [, month, day] = value.split('-')
   return `${day}/${month}`
 }
+function normalizedSearch(value: string) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('vi-VN').trim()
+}
 
 function sessionStartsAt(session: TrainerSessionSummary) {
   if (!Number.isInteger(session.hour)) return Number.NaN
@@ -81,6 +84,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const [scopeLoading, setScopeLoading] = useState(true)
   const [scopeError, setScopeError] = useState('')
   const [students, setStudents] = useState<TrainerStudentSummary[]>([])
+  const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([])
   const [sessions, setSessions] = useState<TrainerSessionSummary[]>([])
   const [requests, setRequests] = useState<TrainerSessionRequestSummary[]>([])
   const [from, setFrom] = useState(dateString(new Date()))
@@ -99,6 +103,9 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const [clockNow, setClockNow] = useState(() => Date.now())
   const [noShowReason, setNoShowReason] = useState<'' | 'busy' | 'sick' | 'forgot' | 'unreachable' | 'other'>('')
   const [attendanceNote, setAttendanceNote] = useState('')
+  const [studentQuery, setStudentQuery] = useState('')
+  const [studentBranch, setStudentBranch] = useState('all')
+  const [studentScope, setStudentScope] = useState<'all' | 'primary' | 'secondary' | 'schedule'>('all')
   const canViewStudents = workspace?.tabs.students === true
   const canViewSchedule = workspace?.tabs.schedule === true
   const canViewRequests = workspace?.tabs.requests === true
@@ -113,6 +120,26 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     ...students.map((student) => [student.id, student.name] as const),
     ...sessions.filter((session) => session.studentName).map((session) => [session.studentId, session.studentName as string] as const),
   ]), [sessions, students])
+  const branchNames = useMemo(() => new Map(branches.map((branch) => [branch.id, branch.name])), [branches])
+  const scheduledByStudent = useMemo(() => {
+    const mapped = new Map<string, TrainerSessionSummary[]>()
+    sessions.filter((session) => ['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'].includes(session.status)).forEach((session) => {
+      mapped.set(session.studentId, [...(mapped.get(session.studentId) || []), session])
+    })
+    mapped.forEach((items) => items.sort((left, right) => `${left.date}-${left.hour ?? 0}`.localeCompare(`${right.date}-${right.hour ?? 0}`)))
+    return mapped
+  }, [sessions])
+  const filteredStudents = useMemo(() => {
+    const query = normalizedSearch(studentQuery)
+    return students.filter((student) => {
+      const matchesQuery = !query || normalizedSearch(`${student.name} ${student.phone} ${student.email}`).includes(query)
+      const matchesBranch = studentBranch === 'all' || student.branchId === studentBranch
+      const matchesScope = studentScope === 'all'
+        || student.assignmentRole === studentScope
+        || (studentScope === 'schedule' && scheduledByStudent.has(student.id))
+      return matchesQuery && matchesBranch && matchesScope
+    })
+  }, [scheduledByStudent, studentBranch, studentQuery, studentScope, students])
   const load = useCallback(async () => {
     setScopeLoading(true); setLoading(true); setScopeError(''); setError('')
     if (isDemo) {
@@ -127,14 +154,43 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
         { id: 'student-a', name: 'Nguyễn Minh Anh', phone: '0900000001', email: '', branchId: 'branch-demo', status: 'active', sessionsPerWeek: 3, assignmentRole: 'primary', contract: { id: 'contract-a', status: 'active', totalSessions: 36, usedSessions: 12 } },
         { id: 'student-b', name: 'Trần Thu Hà', phone: '0900000002', email: '', branchId: 'branch-demo', status: 'active', sessionsPerWeek: 2, assignmentRole: 'secondary', contract: { id: 'contract-b', status: 'active', totalSessions: 72, usedSessions: 21 } },
       ] : [])
-      setSessions(section === 'students' ? [] : demoSessions)
+      setBranches([{ id: 'branch-demo', name: 'Chi nhánh Aura' }])
+      setSessions(demoSessions)
       setRequests(section === 'students' ? [] : [{ id: 'request-demo', sessionId: 'staff-week-3', studentId: 'student-c', contractId: 'contract-c', type: 'reschedule', status: 'pending', originalDate: addDateDays(rangeFrom, 2), originalHour: 18, newDate: addDateDays(rangeFrom, 3), newHour: 18, reason: 'Đề nghị đổi ca theo lịch làm việc' }])
       setScopeLoading(false); setLoading(false); return
     }
     try {
+      if (section === 'students') {
+        const [result, scheduleResult] = await Promise.all([
+          getMyTrainerWorkspace('students', rangeFrom, to, 200),
+          getMyTrainerWorkspace('schedule', rangeFrom, addDateDays(rangeFrom, 61), 500),
+        ])
+        const merged = new Map(result.students.map((student) => [student.id, student]))
+        scheduleResult.sessions.forEach((session) => {
+          if (merged.has(session.studentId)) return
+          merged.set(session.studentId, {
+            id: session.studentId,
+            name: session.studentName || 'Học viên Aura',
+            phone: session.studentPhone || '',
+            email: session.studentEmail || '',
+            branchId: session.studentBranchId || '',
+            status: 'active',
+            sessionsPerWeek: 0,
+            assignmentRole: 'schedule',
+            contract: null,
+          })
+        })
+        setWorkspace(result.scope)
+        setStudents([...merged.values()].sort((left, right) => left.name.localeCompare(right.name, 'vi')))
+        setBranches(result.branches || [])
+        setSessions(scheduleResult.sessions)
+        setRequests([])
+        return
+      }
       const result = await getMyTrainerWorkspace(section, rangeFrom, to)
       setWorkspace(result.scope)
       setStudents(result.students)
+      setBranches(result.branches || [])
       setSessions(result.sessions)
       setRequests(result.requests ?? [])
     } catch (cause) {
@@ -226,18 +282,36 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     finally { setSubmitting(false) }
   }
 
-  return <section className={`opv2-page${embedded ? ' is-embedded' : ''}`}>
-    {!embedded && <section className="opv2-hero"><p className="opv2-kicker">Aura Staff · Công việc</p><h1>{sectionCopy[section].title}</h1><p>{sectionCopy[section].description}</p></section>}
+  return <section className={`opv2-page${embedded ? ' is-embedded' : ''}${section === 'students' ? ' is-students' : ''}`}>
+    {!embedded && section === 'students' && <header className="opv2-student-heading"><div><p className="opv2-kicker-dark">AURA STAFF · HỌC VIÊN</p><h1>Học viên phụ trách</h1><p>Hợp nhất học viên được giao và học viên có trong lịch dạy của bạn.</p></div><button type="button" aria-label="Tải lại học viên" disabled={loading} onClick={() => void load()}><RefreshCw className={loading ? 'is-spinning' : ''} /></button></header>}
+    {!embedded && section !== 'students' && <section className="opv2-hero"><p className="opv2-kicker">Aura Staff · Công việc</p><h1>{sectionCopy[section].title}</h1><p>{sectionCopy[section].description}</p></section>}
     {scopeLoading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đối chiếu phân công trong Học viên PT Gym…</div>}
     {!scopeLoading && scopeError && <div className="opv2-state is-error">{scopeError}<button className="opv2-action" onClick={() => void load()}>Kết nối lại</button></div>}
     {!scopeLoading && workspace && !canOpenSection && <section className="opv2-guidance"><CircleAlert size={20} /><div><strong>Chưa có dữ liệu được phân công</strong><p>Trang này chỉ hiển thị dữ liệu gắn trực tiếp với tài khoản Staff của bạn. Quản trị viên có thể cập nhật PT chính, PT phụ hoặc lịch dạy tại hồ sơ học viên.</p></div></section>}
     {!scopeLoading && workspace && canOpenSection && <>
-    {!embedded && <section className="opv2-summary"><div className="opv2-stat"><strong>{workspace.counts.primaryStudents}</strong><span>học viên PT chính</span></div><div className="opv2-stat"><strong>{workspace.counts.secondaryStudents}</strong><span>học viên PT phụ</span></div><div className="opv2-stat"><strong>{workspace.counts.teachingSessions}</strong><span>buổi được phân công</span></div></section>}
+    {!embedded && section !== 'students' && <section className="opv2-summary"><div className="opv2-stat"><strong>{workspace.counts.primaryStudents}</strong><span>học viên PT chính</span></div><div className="opv2-stat"><strong>{workspace.counts.secondaryStudents}</strong><span>học viên PT phụ</span></div><div className="opv2-stat"><strong>{workspace.counts.teachingSessions}</strong><span>buổi được phân công</span></div></section>}
     {notice && <div className="opv2-notice"><CheckCircle2 size={18} /> {notice}</div>}
     {loading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đồng bộ phạm vi làm việc…</div>}
     {error && !requestTarget && <div className="opv2-state is-error">{error}<button className="opv2-action" onClick={() => void load()}>Thử lại</button></div>}
 
-    {!loading && !error && section === 'students' && <><h2 className="opv2-section-title">Học viên được phân công</h2><div className="opv2-list">{students.map((student) => <article className="opv2-card" key={student.id}><div className="opv2-card-head"><div><h3>{student.name}</h3><p>{student.phone || 'Chưa có số điện thoại'}</p></div><span className="opv2-badge">{student.assignmentRole === 'primary' ? 'PT chính' : 'PT phụ'}</span></div><p>Hợp đồng: {student.contract ? `${student.contract.usedSessions}/${student.contract.totalSessions} buổi` : 'Chưa có'}</p></article>)}{students.length === 0 && <div className="opv2-state">Chưa có học viên PT được phân công.</div>}</div></>}
+    {!loading && !error && section === 'students' && <>
+      <section className="opv2-student-metrics" aria-label="Tổng hợp học viên phụ trách"><div><strong>{students.length}</strong><span>Tất cả</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'primary').length}</strong><span>PT chính</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'secondary').length}</strong><span>PT phụ</span></div><div><strong>{scheduledByStudent.size}</strong><span>Có lịch dạy</span></div></section>
+      <section className="opv2-student-filters" aria-label="Lọc học viên">
+        <label className="is-search"><Search /><input aria-label="Tìm học viên" value={studentQuery} onChange={(event) => setStudentQuery(event.target.value)} placeholder="Tên hoặc số điện thoại" /></label>
+        <label><MapPin /><select aria-label="Lọc theo chi nhánh" value={studentBranch} onChange={(event) => setStudentBranch(event.target.value)}><option value="all">Tất cả chi nhánh</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+        <label><UserCheck /><select aria-label="Lọc theo phân công" value={studentScope} onChange={(event) => setStudentScope(event.target.value as typeof studentScope)}><option value="all">Mọi phân công</option><option value="primary">PT chính</option><option value="secondary">PT phụ</option><option value="schedule">Có lịch dạy</option></select></label>
+      </section>
+      <div className="opv2-student-result"><h2>{filteredStudents.length} học viên</h2><span>{studentBranch === 'all' ? 'Tất cả chi nhánh trong phạm vi' : branchNames.get(studentBranch) || 'Chi nhánh đã chọn'}</span></div>
+      <div className="opv2-list opv2-student-list">{filteredStudents.map((student) => {
+        const studentSessions = scheduledByStudent.get(student.id) || []
+        const remaining = student.contract ? Math.max(0, student.contract.totalSessions - student.contract.usedSessions) : null
+        return <article className="opv2-card opv2-student-card" key={student.id}>
+          <div className="opv2-card-head"><div><h3>{student.name}</h3><p>{student.phone ? <><Phone size={13} /> {student.phone}</> : 'Chưa có số điện thoại'}</p></div><span className="opv2-badge">{student.assignmentRole === 'primary' ? 'PT chính' : student.assignmentRole === 'secondary' ? 'PT phụ' : 'Theo lịch dạy'}</span></div>
+          <div className="opv2-student-meta"><span><MapPin /> {branchNames.get(student.branchId) || (student.branchId ? 'Chi nhánh được phân công' : 'Chưa xác định chi nhánh')}</span><span>{remaining === null ? 'Hợp đồng cần đối chiếu' : `Còn ${remaining}/${student.contract?.totalSessions || 0} buổi`}</span></div>
+          <div className="opv2-student-schedule"><strong><CalendarDays /> Lịch dạy được phân</strong>{studentSessions.length ? <div>{studentSessions.slice(0, 3).map((session) => <span key={session.id}>{compactDate(session.date)} · {String(session.hour ?? '--').padStart(2, '0')}:00</span>)}</div> : <small>Chưa có ca trong 62 ngày tới</small>}</div>
+        </article>
+      })}{filteredStudents.length === 0 && <div className="opv2-state">Không có học viên phù hợp bộ lọc.</div>}</div>
+    </>}
 
     {!loading && !error && section === 'schedule' && (() => {
       const now = clockNow

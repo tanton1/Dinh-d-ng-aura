@@ -96,7 +96,7 @@ export interface TrainerStudentSummary {
   branchId: string
   status: string
   sessionsPerWeek: number
-  assignmentRole: 'primary' | 'secondary'
+  assignmentRole: 'primary' | 'secondary' | 'schedule'
   contract: null | {
     id: string
     status: string
@@ -112,6 +112,9 @@ export interface TrainerSessionSummary {
   studentId: string
   trainerId: string
   studentName?: string
+  studentPhone?: string
+  studentEmail?: string
+  studentBranchId?: string
   date: string
   hour?: number
   status: string
@@ -161,6 +164,7 @@ export interface TrainerWorkspaceBootstrap {
   schemaVersion: number
   scope: CoachWorkspaceScope
   students: TrainerStudentSummary[]
+  branches: Array<{ id: string; name: string }>
   sessions: TrainerSessionSummary[]
   requests: TrainerSessionRequestSummary[]
   hasMore: boolean

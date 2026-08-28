@@ -466,7 +466,7 @@ async function coachWorkspaceScopeForActor(db, actor) {
     source: 'pt_contract_assignments',
     staffId: actor.legacyStaffId || actor.uid,
     tabs: {
-      students: trainingStudentIds.size > 0,
+      students: trainingStudentIds.size > 0 || teachingSessions.size > 0,
       schedule: hasTeachingWork,
       requests: hasTeachingWork,
       nutrition: nutritionStudentIds.size > 0,
@@ -484,14 +484,18 @@ async function coachWorkspaceScopeForActor(db, actor) {
 async function assignedStudentsForActor(db, actor, limit) {
   const contracts = await assignedContracts(db, actor, 'training', limit)
   const studentIds = [...new Set(contracts.map((item) => item.studentId).filter(Boolean))]
-  const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : []
+  const branchIds = [...new Set([...actor.branchIds, ...contracts.map((item) => item.branchId).filter(Boolean)])]
+  const [studentSnapshots, branchSnapshots] = await Promise.all([
+    studentIds.length ? db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : [],
+    branchIds.length ? db.getAll(...branchIds.map((id) => db.doc(`branches/${id}`))) : [],
+  ])
   const activeContractByStudent = new Map(contracts.filter((item) => item.status === 'active').map((item) => [item.studentId, item]))
   const students = studentSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => {
     const student = snapshot.data()
     const contract = activeContractByStudent.get(snapshot.id) || contracts.find((item) => item.studentId === snapshot.id)
     return serialize({
       id: snapshot.id, name: student.name || 'Học viên Aura', phone: student.phone || '', email: student.email || '',
-      branchId: student.branchId || contract?.branchId || '', status: student.status || 'active', sessionsPerWeek: student.sessionsPerWeek || 0,
+      branchId: contract?.branchId || student.branchId || '', status: student.status || 'active', sessionsPerWeek: student.sessionsPerWeek || 0,
       assignmentRole: contract ? (() => {
         const actorIds = [actor.uid, actor.legacyStaffId].filter(Boolean)
         const trainerIds = Array.isArray(contract.trainerIds) ? contract.trainerIds : []
@@ -500,7 +504,10 @@ async function assignedStudentsForActor(db, actor, limit) {
       contract: contract ? { id: contract.id, status: contract.status, startDate: contract.startDate, endDate: contract.endDate, totalSessions: contract.totalSessions || 0, usedSessions: contract.usedSessions || 0 } : null,
     })
   })
-  return { schemaVersion: 1, students, hasMore: contracts.length >= limit }
+  const branches = branchSnapshots
+    .filter((snapshot) => snapshot.exists)
+    .map((snapshot) => ({ id: snapshot.id, name: snapshot.data().name || snapshot.id }))
+  return { schemaVersion: 2, students, branches, hasMore: contracts.length >= limit }
 }
 
 async function trainerScheduleForActor(db, actor, from, to, limit) {
@@ -513,7 +520,12 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
   snapshots.forEach((snapshot) => snapshot.docs.forEach((document) => sessions.set(document.id, serialize({ id: document.id, ...document.data(), timeZone: TIME_ZONE }))))
   const studentIds = [...new Set([...sessions.values()].map((session) => session.studentId).filter(Boolean))]
   const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : []
-  const studentNames = new Map(studentSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, snapshot.data().name || 'Học viên Aura']))
+  const studentProfiles = new Map(studentSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => {
+    const value = snapshot.data()
+    return [snapshot.id, {
+      name: value.name || 'Học viên Aura', phone: value.phone || '', email: value.email || '', branchId: value.branchId || '',
+    }]
+  }))
   const requests = new Map()
   requestSnapshots.forEach((snapshot) => snapshot.docs.forEach((document) => {
     const value = document.data()
@@ -534,7 +546,16 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
   }))
   return {
     schemaVersion: 2,
-    sessions: [...sessions.values()].map((session) => ({ ...session, studentName: studentNames.get(session.studentId) || 'Học viên Aura' })).sort((a, b) => `${a.date}-${a.hour || 0}`.localeCompare(`${b.date}-${b.hour || 0}`)),
+    sessions: [...sessions.values()].map((session) => {
+      const student = studentProfiles.get(session.studentId)
+      return {
+        ...session,
+        studentName: student?.name || 'Học viên Aura',
+        studentPhone: student?.phone || '',
+        studentEmail: student?.email || '',
+        studentBranchId: student?.branchId || session.branchId || '',
+      }
+    }).sort((a, b) => `${a.date}-${a.hour || 0}`.localeCompare(`${b.date}-${b.hour || 0}`)),
     requests: [...requests.values()].sort((a, b) => String(b.submittedAtIso || b.createdAt || '').localeCompare(String(a.submittedAtIso || a.createdAt || ''))),
   }
 }
@@ -932,14 +953,14 @@ function createPtOperationsV2Functions({ db, onCall }) {
     if (section === 'students') {
       const limit = integer(request.data?.limit, 100, 1, 200)
       const [scope, data] = await Promise.all([scopePromise, assignedStudentsForActor(db, actor, limit)])
-      return { schemaVersion: 1, scope, students: data.students, sessions: [], requests: [], hasMore: data.hasMore }
+      return { schemaVersion: 2, scope, students: data.students, branches: data.branches, sessions: [], requests: [], hasMore: data.hasMore }
     }
     const from = dateKey(request.data?.from, 'Ngày bắt đầu')
     const to = dateKey(request.data?.to, 'Ngày kết thúc')
     if (from > to || Date.parse(`${to}T00:00:00+07:00`) - Date.parse(`${from}T00:00:00+07:00`) > 62 * 86400000) throw new HttpsError('invalid-argument', 'Khoảng lịch tối đa là 62 ngày.')
     const limit = integer(request.data?.limit, 300, 1, 500)
     const [scope, data] = await Promise.all([scopePromise, trainerScheduleForActor(db, actor, from, to, limit)])
-    return { schemaVersion: 1, scope, students: [], sessions: data.sessions, requests: data.requests, hasMore: false }
+    return { schemaVersion: 2, scope, students: [], branches: [], sessions: data.sessions, requests: data.requests, hasMore: false }
   })
 
   const getMyTrainerStudentDetail = staffCall(async (request) => {
