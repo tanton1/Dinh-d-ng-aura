@@ -113,6 +113,7 @@ export interface SessionUsageSummary {
   lateSessions: number
   noShowSessions: number
   policyChargedSessions: number
+  chargedPendingAttendanceSessions: number
   exemptSessions: number
   pendingSessions: number
   legacyChargedSessions: number

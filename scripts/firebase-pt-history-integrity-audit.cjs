@@ -3,7 +3,7 @@
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
-const { sessionCountsTowardContract } = require('../functions/contract-usage')
+const { sessionCountsTowardContract, summarizeSessionUsage } = require('../functions/contract-usage')
 
 const TARGET = Object.freeze({
   projectId: 'gen-lang-client-0815966909',
@@ -196,6 +196,7 @@ function contractSummary(contract, sessions) {
     return Boolean(sessionDate && startDate && endDate && sessionDate >= startDate && sessionDate <= endDate)
   }).length
   const linkedChargeable = linkedChargeableSessions.length
+  const usage = summarizeSessionUsage(linkedChargeableSessions.map((session) => session.fields))
   const stored = Math.max(0, Number(contract.fields.usedSessions || 0))
   return {
     contractHash: sha256(`contracts/${contract.id}`),
@@ -208,6 +209,10 @@ function contractSummary(contract, sessions) {
     linkedChargeableSessions: linkedChargeable,
     linkedChargeableWithinContractWindow: linkedWithinContractWindow,
     linkedChargeableOutsideContractWindow: linkedChargeable - linkedWithinContractWindow,
+    attendedSessions: usage.attendedSessions,
+    noShowSessions: usage.noShowSessions,
+    policyChargedSessions: usage.policyChargedSessions,
+    chargedPendingAttendanceSessions: usage.chargedPendingAttendanceSessions,
     projectionDelta: stored - linkedChargeable,
   }
 }

@@ -107,7 +107,7 @@ test('new package date fields stay fixed inside the phone viewport', async ({ pa
   }
 })
 
-test('PT student detail groups important data into three slides and hides unlinked tabs', async ({ page }) => {
+test('PT student detail keeps three summary slides and always exposes callable history', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/#/admin-pt-students')
   const studentCard = page.locator('.student-management__card').first()
@@ -119,6 +119,7 @@ test('PT student detail groups important data into three slides and hides unlink
   await expect(detailCarousel.locator('.student-detail__carousel-slide')).toHaveCount(3)
   const tabs = page.getByRole('tablist', { name: 'Nội dung hồ sơ học viên' })
   await expect(tabs).toBeVisible()
+  await expect(tabs.getByRole('tab', { name: 'Lịch sử' })).toBeVisible()
   await expect(tabs.getByRole('tab', { name: /Dinh dưỡng|Bữa ăn/i })).toHaveCount(0)
 })
 

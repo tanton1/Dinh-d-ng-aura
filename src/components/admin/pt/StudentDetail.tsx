@@ -141,11 +141,11 @@ export default function StudentDetail({ student, profile, contracts, packages, t
   const linkedTabs = React.useMemo(() => [
     { id: 'info' as const, label: 'Gói tập', shortLabel: 'Gói tập', icon: Package, visible: true },
     { id: 'progress' as const, label: 'Tiến độ cơ thể', shortLabel: 'Tiến độ', icon: TrendingUp, visible: true },
-    { id: 'history' as const, label: 'Lịch sử tập', shortLabel: 'Lịch sử', icon: History, visible: studentSessions.length > 0 },
+    { id: 'history' as const, label: 'Lịch sử tập', shortLabel: 'Lịch sử', icon: History, visible: true },
     { id: 'checkin' as const, label: 'Check-in', shortLabel: 'Check-in', icon: ClipboardCheck, visible: allDailyCheckins.some((item) => item.studentId === student.id) },
     { id: 'requests' as const, label: 'Yêu cầu', shortLabel: 'Yêu cầu', icon: CalendarClock, visible: allRequests.length > 0 },
     { id: 'workout_logs' as const, label: 'Nhật ký tạ', shortLabel: 'Tạ', icon: Dumbbell, visible: studentWorkoutLogs.length > 0 },
-  ].filter((tab) => tab.visible), [allDailyCheckins, allRequests.length, student.id, studentSessions.length, studentWorkoutLogs.length]);
+  ].filter((tab) => tab.visible), [allDailyCheckins, allRequests.length, student.id, studentWorkoutLogs.length]);
 
   useEffect(() => {
     if (!linkedTabs.some((tab) => tab.id === activeTab)) setActiveTab(isTrainer ? 'progress' : 'info');
@@ -497,6 +497,16 @@ export default function StudentDetail({ student, profile, contracts, packages, t
   // is loading or temporarily unavailable.
   const actualUsed = activeContract
     ? Math.max(0, Math.floor(Number(activeContractUsage?.usedSessions ?? activeContract.usedSessions ?? 0)))
+    : 0;
+  const pendingAttendanceCount = activeContractUsage
+    ? Math.max(0, Math.floor(Number(
+      activeContractUsage.chargedPendingAttendanceSessions
+        ?? activeContractUsage.usedSessions
+          - activeContractUsage.attendedSessions
+          - activeContractUsage.noShowSessions
+          - activeContractUsage.policyChargedSessions
+          - activeContractUsage.legacyProjectionAdjustment,
+    )))
     : 0;
   const todayId = new Date().toISOString().slice(0, 10);
   const nextStudentSession = studentSessions
@@ -917,12 +927,14 @@ export default function StudentDetail({ student, profile, contracts, packages, t
               ></div>
             </div>
             {activeContractUsage && (
-              <div className="grid grid-cols-3 gap-2 text-center text-[10px] text-zinc-400">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-[10px] text-zinc-400">
                 <span className="rounded-lg bg-zinc-950/60 p-2"><b className="block text-emerald-400 text-sm">{activeContractUsage.attendedSessions}</b>Có tập</span>
+                <span className="rounded-lg bg-zinc-950/60 p-2"><b className="block text-sky-400 text-sm">{pendingAttendanceCount}</b>Chờ PT</span>
                 <span className="rounded-lg bg-zinc-950/60 p-2"><b className="block text-amber-400 text-sm">{activeContractUsage.noShowSessions + activeContractUsage.policyChargedSessions}</b>Vắng tính buổi</span>
                 <span className="rounded-lg bg-zinc-950/60 p-2"><b className="block text-pink-400 text-sm">{activeContractUsage.remainingSessions}</b>Còn lại</span>
               </div>
             )}
+            {pendingAttendanceCount > 0 ? <p className="m-0 text-[10px] leading-relaxed text-sky-300">Có {pendingAttendanceCount} buổi đã tự tính khi đến giờ và đang chờ PT xác nhận có tập, đi trễ hoặc không đến.</p> : null}
             {activeContractUsage?.legacyProjectionAdjustment ? <p className="m-0 text-[10px] leading-relaxed text-amber-300">Có {activeContractUsage.legacyProjectionAdjustment} buổi dữ liệu cũ chưa liên kết được session; Aura giữ riêng để không làm mất quyền lợi.</p> : null}
             {contractUsageError ? <p className="m-0 text-[10px] leading-relaxed text-red-300">{contractUsageError}</p> : null}
             

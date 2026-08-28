@@ -1,6 +1,8 @@
 'use strict'
 
 const assert = require('node:assert/strict')
+const { readFileSync } = require('node:fs')
+const path = require('node:path')
 const test = require('node:test')
 const {
   sessionCountsTowardContract,
@@ -44,6 +46,23 @@ test('contract summary exposes legacy projection delta without inventing attenda
   assert.equal(summary.reconciliationStatus, 'legacy_projection')
 })
 
+test('charged session waiting for trainer confirmation stays visible in its own bucket', () => {
+  const summary = summarizeSessionUsage([
+    { billingStatus: 'charged', attendanceStatus: 'pending', status: 'scheduled' },
+    { billingStatus: 'charged', attendanceStatus: 'present', status: 'scheduled' },
+  ])
+  assert.equal(summary.chargedSessions, 2)
+  assert.equal(summary.attendedSessions, 1)
+  assert.equal(summary.chargedPendingAttendanceSessions, 1)
+  assert.equal(
+    summary.attendedSessions
+      + summary.noShowSessions
+      + summary.policyChargedSessions
+      + summary.chargedPendingAttendanceSessions,
+    summary.chargedSessions,
+  )
+})
+
 test('linked session evidence immediately repairs a projection that is behind', () => {
   const summary = summarizeContractUsage({ totalSessions: 12, usedSessions: 1 }, [
     { billingStatus: 'charged', attendanceStatus: 'present' },
@@ -79,4 +98,11 @@ test('exact history projection contract remains the terminal projection source',
   assert.match(source, /usageReconciledFrom === 'pt-contract-history-exact-v1'/)
   assert.match(source, /historyEvidenceSessions: afterUsed/)
   assert.match(source, /afterUsed > safeCount\(contract\.totalSessions\) \? 'over_entitlement' : 'matched'/)
+})
+
+test('student detail always exposes callable history and explains charged attendance pending', () => {
+  const source = readFileSync(path.join(__dirname, '..', 'src', 'components', 'admin', 'pt', 'StudentDetail.tsx'), 'utf8')
+  assert.match(source, /id: 'history'.+visible: true/)
+  assert.match(source, /chargedPendingAttendanceSessions/)
+  assert.match(source, />Chờ PT</)
 })
