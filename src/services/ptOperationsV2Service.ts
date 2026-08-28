@@ -97,6 +97,16 @@ export interface TrainerStudentSummary {
   status: string
   sessionsPerWeek: number
   assignmentRole: 'primary' | 'secondary' | 'schedule'
+  alerts: Array<{
+    code: 'PAYMENT_OVERDUE' | 'PAYMENT_DUE_TODAY' | 'PAYMENT_DUE_SOON' | 'CONTRACT_EXPIRING' | 'CONTRACT_SESSIONS_LOW' | 'RENEWAL_READY' | 'AVAILABILITY_LOW' | 'AVAILABILITY_MISSING'
+    severity: 'critical' | 'warning' | 'info'
+    title: string
+    message: string
+    dueDate?: string | null
+  }>
+  availabilitySlotCount: number
+  minimumAvailabilitySlots: number
+  availabilityWeekId?: string | null
   contract: null | {
     id: string
     status: string

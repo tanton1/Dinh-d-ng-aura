@@ -52,6 +52,9 @@ function compactDate(value: string) {
 function normalizedSearch(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('vi-VN').trim()
 }
+function alertsForStudent(student: TrainerStudentSummary) {
+  return Array.isArray(student.alerts) ? student.alerts : []
+}
 
 function sessionStartsAt(session: TrainerSessionSummary) {
   if (!Number.isInteger(session.hour)) return Number.NaN
@@ -105,7 +108,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const [attendanceNote, setAttendanceNote] = useState('')
   const [studentQuery, setStudentQuery] = useState('')
   const [studentBranch, setStudentBranch] = useState('all')
-  const [studentScope, setStudentScope] = useState<'all' | 'primary' | 'secondary' | 'schedule'>('all')
+  const [studentScope, setStudentScope] = useState<'all' | 'attention' | 'primary' | 'secondary' | 'schedule'>('all')
   const canViewStudents = workspace?.tabs.students === true
   const canViewSchedule = workspace?.tabs.schedule === true
   const canViewRequests = workspace?.tabs.requests === true
@@ -135,9 +138,15 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
       const matchesQuery = !query || normalizedSearch(`${student.name} ${student.phone} ${student.email}`).includes(query)
       const matchesBranch = studentBranch === 'all' || student.branchId === studentBranch
       const matchesScope = studentScope === 'all'
+        || (studentScope === 'attention' && alertsForStudent(student).length > 0)
         || student.assignmentRole === studentScope
         || (studentScope === 'schedule' && scheduledByStudent.has(student.id))
       return matchesQuery && matchesBranch && matchesScope
+    }).sort((left, right) => {
+      const rank = (student: TrainerStudentSummary) => alertsForStudent(student).some((item) => item.severity === 'critical')
+        ? 0
+        : alertsForStudent(student).some((item) => item.severity === 'warning') ? 1 : 2
+      return rank(left) - rank(right) || left.name.localeCompare(right.name, 'vi')
     })
   }, [scheduledByStudent, studentBranch, studentQuery, studentScope, students])
   const load = useCallback(async () => {
@@ -151,8 +160,8 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
       ]
       setWorkspace({ schemaVersion: 1, source: 'pt_contract_assignments', staffId: 'demo-staff', tabs: { students: true, schedule: true, requests: true, nutrition: true }, counts: { primaryStudents: 3, secondaryStudents: 1, nutritionStudents: 2, teachingSessions: 4, pendingRequests: 1 } })
       setStudents(section === 'students' ? [
-        { id: 'student-a', name: 'Nguyễn Minh Anh', phone: '0900000001', email: '', branchId: 'branch-demo', status: 'active', sessionsPerWeek: 3, assignmentRole: 'primary', contract: { id: 'contract-a', status: 'active', totalSessions: 36, usedSessions: 12 } },
-        { id: 'student-b', name: 'Trần Thu Hà', phone: '0900000002', email: '', branchId: 'branch-demo', status: 'active', sessionsPerWeek: 2, assignmentRole: 'secondary', contract: { id: 'contract-b', status: 'active', totalSessions: 72, usedSessions: 21 } },
+        { id: 'student-a', name: 'Nguyễn Minh Anh', phone: '0900000001', email: '', branchId: 'branch-demo', status: 'active', sessionsPerWeek: 3, assignmentRole: 'primary', alerts: [{ code: 'AVAILABILITY_LOW', severity: 'warning', title: 'Lịch rảnh mới có 3/5 khung', message: 'Khuyến khích học viên bổ sung 2 khung để dễ xếp đủ buổi.', dueDate: rangeFrom }], availabilitySlotCount: 3, minimumAvailabilitySlots: 5, availabilityWeekId: rangeFrom, contract: { id: 'contract-a', status: 'active', totalSessions: 36, usedSessions: 12 } },
+        { id: 'student-b', name: 'Trần Thu Hà', phone: '0900000002', email: '', branchId: 'branch-demo', status: 'active', sessionsPerWeek: 2, assignmentRole: 'secondary', alerts: [{ code: 'PAYMENT_OVERDUE', severity: 'critical', title: 'Kỳ thanh toán đã quá hạn', message: 'Lịch trả góp cần được bộ phận phụ trách đối soát và liên hệ học viên.', dueDate: rangeFrom }], availabilitySlotCount: 5, minimumAvailabilitySlots: 5, availabilityWeekId: rangeFrom, contract: { id: 'contract-b', status: 'active', totalSessions: 72, usedSessions: 21 } },
       ] : [])
       setBranches([{ id: 'branch-demo', name: 'Chi nhánh Aura' }])
       setSessions(demoSessions)
@@ -177,6 +186,9 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
             status: 'active',
             sessionsPerWeek: 0,
             assignmentRole: 'schedule',
+            alerts: [],
+            availabilitySlotCount: 0,
+            minimumAvailabilitySlots: 5,
             contract: null,
           })
         })
@@ -295,19 +307,21 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     {error && !requestTarget && <div className="opv2-state is-error">{error}<button className="opv2-action" onClick={() => void load()}>Thử lại</button></div>}
 
     {!loading && !error && section === 'students' && <>
-      <section className="opv2-student-metrics" aria-label="Tổng hợp học viên phụ trách"><div><strong>{students.length}</strong><span>Tất cả</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'primary').length}</strong><span>PT chính</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'secondary').length}</strong><span>PT phụ</span></div><div><strong>{scheduledByStudent.size}</strong><span>Có lịch dạy</span></div></section>
+      <section className="opv2-student-metrics" aria-label="Tổng hợp học viên phụ trách"><div className="is-alert"><strong>{students.filter((item) => alertsForStudent(item).length > 0).length}</strong><span>Cần xử lý</span></div><div><strong>{students.length}</strong><span>Tất cả</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'primary').length}</strong><span>PT chính</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'secondary').length}</strong><span>PT phụ</span></div><div><strong>{scheduledByStudent.size}</strong><span>Có lịch dạy</span></div></section>
       <section className="opv2-student-filters" aria-label="Lọc học viên">
         <label className="is-search"><Search /><input aria-label="Tìm học viên" value={studentQuery} onChange={(event) => setStudentQuery(event.target.value)} placeholder="Tên hoặc số điện thoại" /></label>
         <label><MapPin /><select aria-label="Lọc theo chi nhánh" value={studentBranch} onChange={(event) => setStudentBranch(event.target.value)}><option value="all">Tất cả chi nhánh</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
-        <label><UserCheck /><select aria-label="Lọc theo phân công" value={studentScope} onChange={(event) => setStudentScope(event.target.value as typeof studentScope)}><option value="all">Mọi phân công</option><option value="primary">PT chính</option><option value="secondary">PT phụ</option><option value="schedule">Có lịch dạy</option></select></label>
+        <label><UserCheck /><select aria-label="Lọc theo phân công" value={studentScope} onChange={(event) => setStudentScope(event.target.value as typeof studentScope)}><option value="all">Mọi học viên</option><option value="attention">Cần xử lý</option><option value="primary">PT chính</option><option value="secondary">PT phụ</option><option value="schedule">Có lịch dạy</option></select></label>
       </section>
       <div className="opv2-student-result"><h2>{filteredStudents.length} học viên</h2><span>{studentBranch === 'all' ? 'Tất cả chi nhánh trong phạm vi' : branchNames.get(studentBranch) || 'Chi nhánh đã chọn'}</span></div>
       <div className="opv2-list opv2-student-list">{filteredStudents.map((student) => {
         const studentSessions = scheduledByStudent.get(student.id) || []
+        const studentAlerts = alertsForStudent(student)
         const remaining = student.contract ? Math.max(0, student.contract.totalSessions - student.contract.usedSessions) : null
-        return <article className="opv2-card opv2-student-card" key={student.id}>
+        return <article className={`opv2-card opv2-student-card${studentAlerts.length ? ' has-alerts' : ''}`} key={student.id}>
           <div className="opv2-card-head"><div><h3>{student.name}</h3><p>{student.phone ? <><Phone size={13} /> {student.phone}</> : 'Chưa có số điện thoại'}</p></div><span className="opv2-badge">{student.assignmentRole === 'primary' ? 'PT chính' : student.assignmentRole === 'secondary' ? 'PT phụ' : 'Theo lịch dạy'}</span></div>
           <div className="opv2-student-meta"><span><MapPin /> {branchNames.get(student.branchId) || (student.branchId ? 'Chi nhánh được phân công' : 'Chưa xác định chi nhánh')}</span><span>{remaining === null ? 'Hợp đồng cần đối chiếu' : `Còn ${remaining}/${student.contract?.totalSessions || 0} buổi`}</span></div>
+          {studentAlerts.length > 0 && <div className="opv2-student-alerts" aria-label={`Cảnh báo của ${student.name}`}>{studentAlerts.slice(0, 3).map((alert, index) => <div className={`is-${alert.severity}`} key={`${alert.code}-${alert.dueDate || index}`}><CircleAlert /><span><strong>{alert.title}</strong><small>{alert.message}</small></span></div>)}{studentAlerts.length > 3 && <em>+{studentAlerts.length - 3} cảnh báo khác</em>}</div>}
           <div className="opv2-student-schedule"><strong><CalendarDays /> Lịch dạy được phân</strong>{studentSessions.length ? <div>{studentSessions.slice(0, 3).map((session) => <span key={session.id}>{compactDate(session.date)} · {String(session.hour ?? '--').padStart(2, '0')}:00</span>)}</div> : <small>Chưa có ca trong 62 ngày tới</small>}</div>
         </article>
       })}{filteredStudents.length === 0 && <div className="opv2-state">Không có học viên phù hợp bộ lọc.</div>}</div>

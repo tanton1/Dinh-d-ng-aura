@@ -200,6 +200,54 @@ function studentContractAlerts(contracts, today = currentDateKey()) {
     .slice(0, 20)
 }
 
+function staffStudentOperationalAlerts(student = {}, contract = null, today = currentDateKey()) {
+  const latestAvailability = student.latestSubmittedAvailability && typeof student.latestSubmittedAvailability === 'object'
+    ? student.latestSubmittedAvailability
+    : null
+  const availabilitySlots = [...new Set(Array.isArray(latestAvailability?.slots)
+    ? latestAvailability.slots.filter(Boolean)
+    : Array.isArray(student.availableSlots)
+      ? student.availableSlots.filter(Boolean)
+      : [])]
+  const requestedMinimumSlots = Number(latestAvailability?.minimumSlots || student.minimumAvailabilitySlots || 5)
+  const minimumAvailabilitySlots = Number.isFinite(requestedMinimumSlots)
+    ? Math.max(5, Math.min(14, Math.round(requestedMinimumSlots)))
+    : 5
+  const availabilityWeekId = storedDateKey(latestAvailability?.weekId || student.latestAvailabilityWeekId)
+  const alerts = contract
+    ? studentContractAlerts([studentContractProjection(contract.id, contract, today)], today).map((alert) => ({
+        code: alert.code,
+        severity: alert.severity,
+        title: alert.title,
+        message: alert.code.startsWith('PAYMENT_')
+          ? 'Lịch trả góp cần được bộ phận phụ trách đối soát và liên hệ học viên.'
+          : alert.message,
+        dueDate: alert.dueDate || null,
+      }))
+    : []
+  if (availabilitySlots.length < minimumAvailabilitySlots) {
+    alerts.push({
+      code: availabilitySlots.length ? 'AVAILABILITY_LOW' : 'AVAILABILITY_MISSING',
+      severity: availabilitySlots.length ? 'warning' : 'critical',
+      title: availabilitySlots.length
+        ? `Lịch rảnh mới có ${availabilitySlots.length}/${minimumAvailabilitySlots} khung`
+        : 'Chưa có lịch rảnh được xác nhận',
+      message: availabilitySlots.length
+        ? `Khuyến khích học viên bổ sung ${minimumAvailabilitySlots - availabilitySlots.length} khung để dễ xếp đủ buổi.`
+        : 'Hãy nhắc học viên đăng ký lịch rảnh hoặc kiểm tra trạng thái OFF/bảo lưu.',
+      dueDate: availabilityWeekId || null,
+    })
+  }
+  const severityOrder = { critical: 0, warning: 1, info: 2 }
+  return {
+    alerts: alerts.sort((left, right) => (severityOrder[left.severity] ?? 9) - (severityOrder[right.severity] ?? 9)
+      || String(left.dueDate || '').localeCompare(String(right.dueDate || ''))).slice(0, 5),
+    availabilitySlotCount: availabilitySlots.length,
+    minimumAvailabilitySlots,
+    availabilityWeekId: availabilityWeekId || null,
+  }
+}
+
 function availabilityWeekId(value) {
   const result = dateKey(value, 'Tuần lịch rảnh')
   const parsed = new Date(`${result}T00:00:00.000Z`)
@@ -493,6 +541,7 @@ async function assignedStudentsForActor(db, actor, limit) {
   const students = studentSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => {
     const student = snapshot.data()
     const contract = activeContractByStudent.get(snapshot.id) || contracts.find((item) => item.studentId === snapshot.id)
+    const operational = staffStudentOperationalAlerts(student, contract)
     return serialize({
       id: snapshot.id, name: student.name || 'Học viên Aura', phone: student.phone || '', email: student.email || '',
       branchId: contract?.branchId || student.branchId || '', status: student.status || 'active', sessionsPerWeek: student.sessionsPerWeek || 0,
@@ -502,6 +551,10 @@ async function assignedStudentsForActor(db, actor, limit) {
         return actorIds.some((id) => contract.trainerId === id || trainerIds[0] === id) ? 'primary' : 'secondary'
       })() : 'secondary',
       contract: contract ? { id: contract.id, status: contract.status, startDate: contract.startDate, endDate: contract.endDate, totalSessions: contract.totalSessions || 0, usedSessions: contract.usedSessions || 0 } : null,
+      alerts: operational.alerts,
+      availabilitySlotCount: operational.availabilitySlotCount,
+      minimumAvailabilitySlots: operational.minimumAvailabilitySlots,
+      availabilityWeekId: operational.availabilityWeekId,
     })
   })
   const branches = branchSnapshots
@@ -1183,4 +1236,5 @@ module.exports = {
   sessionHour,
   studentContractProjection,
   studentContractAlerts,
+  staffStudentOperationalAlerts,
 }

@@ -13,7 +13,7 @@ const operationsV2Source = readFileSync(join(__dirname, 'pt-operations-v2.js'), 
 const studentScheduleServiceSource = readFileSync(join(__dirname, '..', 'src', 'services', 'studentPtScheduleService.ts'), 'utf8')
 const studentSchedulePageSource = readFileSync(join(__dirname, '..', 'src', 'pages', 'student', 'SchedulePage.tsx'), 'utf8')
 const studentAvailabilityPageSource = readFileSync(join(__dirname, '..', 'src', 'pages', 'student', 'StudentAvailabilityPage.tsx'), 'utf8')
-const { studentContractProjection, studentContractAlerts } = require('./pt-operations-v2')
+const { studentContractProjection, studentContractAlerts, staffStudentOperationalAlerts } = require('./pt-operations-v2')
 
 test('PT lifecycle is exposed only through the expected atomic callables', () => {
   for (const name of [
@@ -176,6 +176,33 @@ test('student contract alerts prioritize overdue payments and warn before contra
   assert.equal(alerts[0].code, 'PAYMENT_OVERDUE')
   assert.ok(alerts.some((item) => item.code === 'CONTRACT_EXPIRING'))
   assert.ok(alerts.some((item) => item.code === 'CONTRACT_SESSIONS_LOW'))
+})
+
+test('trainer student cards surface redacted payment, expiry, quota and low-availability alerts', () => {
+  const result = staffStudentOperationalAlerts({
+    availableSlots: ['T2-18', 'T4-18'],
+    minimumAvailabilitySlots: 5,
+  }, {
+    id: 'contract-1',
+    packageName: 'PT 3 tháng',
+    status: 'active',
+    startDate: '2026-08-01',
+    endDate: '2026-08-31',
+    totalSessions: 36,
+    usedSessions: 34,
+    totalPrice: 5_000_000,
+    paidAmount: 4_000_000,
+    installments: [{ id: 'late', date: '2026-08-25', amount: 1_000_000, status: 'pending' }],
+  }, '2026-08-28')
+  assert.deepEqual(result.alerts.map((item) => item.code), [
+    'PAYMENT_OVERDUE',
+    'CONTRACT_EXPIRING',
+    'CONTRACT_SESSIONS_LOW',
+    'AVAILABILITY_LOW',
+  ])
+  assert.equal(result.availabilitySlotCount, 2)
+  assert.equal(result.minimumAvailabilitySlots, 5)
+  assert.doesNotMatch(result.alerts[0].message, /1[.,]000[.,]000/)
 })
 
 test('Sales workspace bootstraps quotes and catalog through one actor-scoped callable', () => {
