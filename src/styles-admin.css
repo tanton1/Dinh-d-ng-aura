@@ -1225,6 +1225,50 @@
   .admin-dashboard__shortcuts{margin-right:0!important;border-radius:18px 0 0 18px;border-right:0;padding-right:0}.admin-dashboard__shortcuts>div{padding-right:12px}
 }
 
+/* Dashboard v3: full-width operations view with a dedicated daily table. */
+.admin-dashboard.admin-dashboard--v2{padding-inline:0}
+.admin-dashboard>.admin-dashboard__main-grid{order:4}
+.admin-dashboard>.admin-dashboard__receivables{order:5}
+.admin-dashboard>.admin-dashboard__analytics{order:6}
+.admin-dashboard__main-grid{grid-template-columns:1fr}
+.admin-dashboard__attendance{order:1}
+.admin-dashboard__tasks{order:2}
+.admin-dashboard__task-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+.admin-dashboard__receivables>header{justify-content:flex-start}
+.admin-dashboard__receivables>header>button{margin-left:auto}
+.admin-dashboard__receivable-total{display:grid;min-width:0;grid-template-columns:auto auto;align-items:baseline;gap:1px 7px;margin-left:8px}
+.admin-dashboard__receivable-total>span{grid-column:1/-1;color:#9b7e8d;font-size:8px;font-weight:850;text-transform:uppercase}
+.admin-dashboard__receivable-total>b{color:#3d2935;font-size:14px;white-space:nowrap}
+.admin-dashboard__receivable-total>small{color:#a08794;font-size:8px;white-space:nowrap}
+.admin-dashboard__receivable-tabs{display:flex;width:max-content;max-width:100%;gap:5px;overflow-x:auto;margin-bottom:9px;padding:3px;border-radius:12px;background:#fff4f7;scrollbar-width:none}
+.admin-dashboard__receivable-tabs::-webkit-scrollbar{display:none}
+.admin-dashboard__receivable-tabs>button{display:flex;min-height:32px;align-items:center;gap:6px;border:0;border-radius:9px;padding:0 10px;background:transparent;color:#806b77;font-size:9px;font-weight:850;white-space:nowrap}
+.admin-dashboard__receivable-tabs>button.is-active{background:#fff;color:#ca3a6e;box-shadow:0 5px 14px rgba(116,47,77,.09)}
+.admin-dashboard__receivable-tabs>button b{display:grid;min-width:20px;height:20px;place-items:center;border-radius:999px;background:#fdebf2;color:#d63c73;font-size:8px}
+.admin-dashboard__table-wrap--debt table{min-width:520px}
+
+@media(max-width:680px){
+  .admin-dashboard.admin-dashboard--v2{padding-inline:0}
+  .admin-dashboard>:not(.aura-metric-carousel){margin-inline:0}
+  .admin-dashboard__syncbar{padding-inline:10px}
+  .admin-dashboard__task-list{grid-template-columns:1fr}
+  .admin-dashboard__tasks,.admin-dashboard__shortcuts,.admin-dashboard__attendance,.admin-dashboard__receivables,.admin-dashboard__analytics{border-radius:17px;margin-inline:0!important}
+  .admin-dashboard__receivables>header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px}
+  .admin-dashboard__receivable-total{grid-column:1;margin-left:0}
+  .admin-dashboard__receivables>header>button{grid-column:2;grid-row:1/3;margin-left:0}
+  .admin-dashboard__receivable-tabs{width:100%}
+  .admin-dashboard__receivable-tabs>button{flex:1;justify-content:center;padding-inline:7px}
+  .admin-dashboard__table-wrap--debt table{min-width:0}
+  .admin-dashboard__table-wrap--debt tr{grid-template-columns:minmax(0,1fr) auto}
+  .admin-dashboard__table-wrap--debt td:nth-child(1){grid-column:1;grid-row:1}
+  .admin-dashboard__table-wrap--debt td:nth-child(2){grid-column:2;grid-row:1/3;text-align:right}
+  .admin-dashboard__table-wrap--debt td:nth-child(3){grid-column:1;grid-row:2}
+  .admin-dashboard__table-wrap--debt td:nth-child(4){grid-column:2;grid-row:3;text-align:right}
+  .admin-dashboard__analytics{padding-right:12px;border-right:1px solid rgba(246,47,130,.12)}
+  .admin-dashboard__analytics>header{padding-right:0}
+  .admin-dashboard__analytics-grid{padding-right:0}
+}
+
 /* Nutrition Reviews Page Styles */
 .admin-reviews-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
 .summary-stat-card { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-radius: 14px; border: 1px solid var(--line); background: #fff; }

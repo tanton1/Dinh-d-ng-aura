@@ -266,6 +266,19 @@ function dashboardAnalytics({ ledgerValues, contractValues, offValues, start, en
   }
 }
 
+function summarizeAttendance(confirmedSessions, noShowSessions) {
+  const confirmed = Math.max(0, Number(confirmedSessions || 0))
+  const noShow = Math.min(confirmed, Math.max(0, Number(noShowSessions || 0)))
+  const attended = Math.max(0, confirmed - noShow)
+  return {
+    confirmedSessions: confirmed,
+    attendedSessions: attended,
+    noShowSessions: noShow,
+    attendanceRate: confirmed ? Math.round(attended / confirmed * 1000) / 10 : 0,
+    absenceRate: confirmed ? Math.round(noShow / confirmed * 1000) / 10 : 0,
+  }
+}
+
 function pendingInstallments(value) {
   return Array.isArray(value.installments)
     ? value.installments.filter((item) => item?.status === 'pending' && /^\d{4}-\d{2}-\d{2}$/.test(String(item.date || '').slice(0, 10)))
@@ -593,12 +606,14 @@ function createOperationsDashboardFunctions({ db, onCall }) {
     const contractNeeded = permissions.finance || permissions.clients
     const sessionRangeQuery = db.collection('sessions').where('date', '>=', startDate).where('date', '<=', endDate)
     const confirmedSessionRangeQuery = db.collection('sessions').where('status', 'in', ['completed', 'attended', 'no_show']).where('date', '>=', startDate).where('date', '<=', endDate)
+    const noShowSessionRangeQuery = db.collection('sessions').where('status', '==', 'no_show').where('date', '>=', startDate).where('date', '<=', endDate)
     const attendanceRangeQuery = db.collection('attendanceEvents').where('occurredAt', '>=', startTimestamp).where('occurredAt', '<=', endTimestamp)
     const canAggregateOperations = permissions.operations && scope.unrestricted
-    const [ledger, sessionRange, confirmedSessionRange, attendanceRange, todaySessions, contracts, students, trainers, staff, branches, offRequests, renewalAction, scheduleAction, nutritionAction] = await Promise.all([
+    const [ledger, sessionRange, confirmedSessionRange, noShowSessionRange, attendanceRange, todaySessions, contracts, students, trainers, staff, branches, offRequests, renewalAction, scheduleAction, nutritionAction] = await Promise.all([
       permissions.finance ? db.collection('ledgerEntries').where('effectiveAt', '>=', startTimestamp).where('effectiveAt', '<=', endTimestamp).limit(MAX_SCANNED_DOCUMENTS).get() : null,
       permissions.operations ? (canAggregateOperations ? sessionRangeQuery.count().get() : sessionRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
       permissions.operations ? (canAggregateOperations ? confirmedSessionRangeQuery.count().get() : confirmedSessionRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
+      permissions.operations ? (canAggregateOperations ? noShowSessionRangeQuery.count().get() : noShowSessionRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
       permissions.operations ? (canAggregateOperations ? attendanceRangeQuery.count().get() : attendanceRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
       permissions.operations ? db.collection('sessions').where('date', '==', today).limit(500).get() : null,
       contractNeeded ? db.collection('contracts').limit(2000).get() : null,
@@ -622,8 +637,10 @@ function createOperationsDashboardFunctions({ db, onCall }) {
     const sessionValues = sessionRange?.docs ? sessionRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
     const attendanceValues = attendanceRange?.docs ? attendanceRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
     const confirmedSessionValues = confirmedSessionRange?.docs ? confirmedSessionRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
+    const noShowSessionValues = noShowSessionRange?.docs ? noShowSessionRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
     const sessionCount = canAggregateOperations ? Number(sessionRange?.data().count || 0) : sessionValues.length
     const confirmedSessionCount = canAggregateOperations ? Number(confirmedSessionRange?.data().count || 0) : confirmedSessionValues.length
+    const noShowSessionCount = canAggregateOperations ? Number(noShowSessionRange?.data().count || 0) : noShowSessionValues.length
     const attendanceCount = canAggregateOperations ? Number(attendanceRange?.data().count || 0) : attendanceValues.length
     const todayValues = todaySessions ? todaySessions.docs.map((item) => ({ id: item.id, ...item.data() })).filter((value) => operationMatches(value, actor, scope)) : []
     const contractIds = new Set(contractValues.map((value) => value.id))
@@ -685,12 +702,16 @@ function createOperationsDashboardFunctions({ db, onCall }) {
       (ledger && ledger.size >= MAX_SCANNED_DOCUMENTS)
       || (!canAggregateOperations && sessionRange?.size >= MAX_SCANNED_DOCUMENTS)
       || (!canAggregateOperations && confirmedSessionRange?.size >= MAX_SCANNED_DOCUMENTS)
+      || (!canAggregateOperations && noShowSessionRange?.size >= MAX_SCANNED_DOCUMENTS)
       || (!canAggregateOperations && attendanceRange?.size >= MAX_SCANNED_DOCUMENTS)
       || (offRequests && offRequests.size > MAX_ACTION_DOCUMENTS)
       || renewalAction.truncated || scheduleAction.truncated || nutritionAction.truncated,
     )
     const referenceDate = dateKey(new Date(Math.min(end.getTime(), now.getTime())))
-    const analytics = dashboardAnalytics({ ledgerValues, contractValues, offValues, start, end, referenceDate })
+    const analytics = {
+      ...dashboardAnalytics({ ledgerValues, contractValues, offValues, start, end, referenceDate }),
+      attendance: summarizeAttendance(confirmedSessionCount, noShowSessionCount),
+    }
     const result = {
       schemaVersion: 7,
       range: { startAt: start.toISOString(), endAt: end.toISOString(), timeZone: 'Asia/Ho_Chi_Minh' },
@@ -820,4 +841,5 @@ module.exports = {
   ledgerReceiptImpact,
   ledgerRevenueImpact,
   dashboardAnalytics,
+  summarizeAttendance,
 }

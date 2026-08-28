@@ -54,7 +54,7 @@ export default function TrainingHistoryWorkspace() {
 
   return <div className="training-history-workspace">
     <header className="training-history-workspace__hero">
-      <div><span><History size={16} /> AURA OPERATIONS · NHẬT KÝ PT</span><h1>Lịch sử tập & lịch dạy</h1><p>Một nơi để tra cứu buổi tập, lịch dạy, duyệt đổi/hủy và lưu toàn bộ lịch sử OFF hoặc bảo lưu.</p></div>
+      <div><span><History size={16} /> AURA OPERATIONS · NHẬT KÝ PT</span><h1>Lịch sử tập & dạy</h1></div>
       {isHistoryView && <div className="training-history-workspace__metric"><strong>{subject === 'student' ? students.length : trainers.filter((entry) => entry.status !== 'inactive').length}</strong><span>{subject === 'student' ? 'học viên trong danh sách' : 'PT đang hoạt động'}</span></div>}
     </header>
 

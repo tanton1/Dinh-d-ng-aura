@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const test = require('node:test')
-const { dashboardAnalytics, dashboardBranchScope, isEffectiveContract, isExhaustedContract, isExpiringContract, isPreservedContract, ledgerReceiptImpact, ledgerRevenueImpact, receivableSchedule, renewalCaseMatches, summarizeReceivables, todayAttendanceRows } = require('./operations-dashboard')
+const { dashboardAnalytics, dashboardBranchScope, isEffectiveContract, isExhaustedContract, isExpiringContract, isPreservedContract, ledgerReceiptImpact, ledgerRevenueImpact, receivableSchedule, renewalCaseMatches, summarizeAttendance, summarizeReceivables, todayAttendanceRows } = require('./operations-dashboard')
 const source = readFileSync(join(__dirname, 'operations-dashboard.js'), 'utf8')
 const dashboard = readFileSync(join(__dirname, '..', 'src', 'pages', 'admin', 'AdminDashboard.tsx'), 'utf8')
 
@@ -139,6 +139,23 @@ test('today attendance table resolves names and keeps billing separate from pres
   assert.equal(result.rows[1].billingStatus, 'charged')
 })
 
+test('attendance analytics separates attended and no-show sessions in the selected range', () => {
+  assert.deepEqual(summarizeAttendance(100, 7), {
+    confirmedSessions: 100,
+    attendedSessions: 93,
+    noShowSessions: 7,
+    attendanceRate: 93,
+    absenceRate: 7,
+  })
+  assert.deepEqual(summarizeAttendance(0, 4), {
+    confirmedSessions: 0,
+    attendedSessions: 0,
+    noShowSessions: 0,
+    attendanceRate: 0,
+    absenceRate: 0,
+  })
+})
+
 test('staff dashboard scope fails closed for branch data but keeps explicitly assigned renewal cases', () => {
   const actor = {
     uid: 'staff-1', legacyStaffId: 'trainer-1', accessRole: 'staff', branchIds: [],
@@ -164,7 +181,7 @@ test('dashboard UI is one action-first page without legacy dashboard tabs', () =
   assert.match(dashboard, /DOANH THU & DÒNG TIỀN/)
   assert.match(dashboard, /Doanh thu thực hiện/)
   assert.match(dashboard, /CƠ CẤU GÓI TẬP/)
-  assert.match(dashboard, /TỶ LỆ OFF/)
+  assert.match(dashboard, /TỶ LỆ ĐI TẬP/)
   assert.match(dashboard, /đang bảo lưu/)
   assert.match(dashboard, /không ở trong thời gian bảo lưu/)
   assert.match(dashboard, /allowAll=\{false\}/)

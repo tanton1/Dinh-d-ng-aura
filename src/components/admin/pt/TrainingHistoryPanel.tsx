@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CalendarDays, CheckCircle2, ChevronDown, CircleAlert, Clock3, Info, RefreshCw, SlidersHorizontal, UserRound, UsersRound } from 'lucide-react'
+import { CalendarDays, CheckCircle2, ChevronDown, CircleAlert, Clock3, RefreshCw, SlidersHorizontal, UserRound, UsersRound } from 'lucide-react'
 import { getStudentContractUsage, listStudentTrainingHistory, listTrainerTeachingHistory, type ContractUsageSummary, type TrainingHistoryPage, type TrainingHistoryStatus } from '../../../services/businessReportingService'
 import '../../../styles-training-history.css'
 
@@ -87,6 +87,14 @@ function groupTrainerTeachingShifts(records: TrainingHistoryPage['records']): Tr
   }))
 }
 
+function RecordAuditDetails({ record }: { record: TrainingHistoryPage['records'][number] }) {
+  return <details className="training-history__record-details">
+    <summary>Chi tiết buổi <ChevronDown size={13} /></summary>
+    <div><span>Mã buổi <b>{record.id.slice(-10)}</b></span><span>Hợp đồng <b>{record.contractId ? record.contractId.slice(-10) : 'chưa liên kết'}</b></span></div>
+    {record.events.length ? <ul>{record.events.map((event) => <li key={event.id}><b>{statusLabel(event.type)}</b>{event.reason ? ` · ${event.reason}` : ''}</li>)}</ul> : null}
+  </details>
+}
+
 export default function TrainingHistoryPanel({ subject, subjectId, subjectName, contractId }: Props) {
   const [startDate, setStartDate] = useState(() => daysAgoKey(89))
   const [endDate, setEndDate] = useState(todayKey)
@@ -105,6 +113,7 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
       ?? contractUsage[0]
       ?? null
   }, [contractId, contractUsage, subject])
+  const periodUsage = page?.summary.usage
 
   const load = useCallback(async (append = false) => {
     if (!subjectId) return
@@ -148,7 +157,7 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
   const counterpartLabel = subject === 'student' ? 'PT phụ trách' : 'Học viên'
   return <section className="training-history" aria-busy={loading}>
     <header className="training-history__header">
-      <div><span><CalendarDays size={15} /> Nhật ký vận hành</span><h3>{subject === 'student' ? 'Lịch sử tập' : 'Lịch dạy PT'}</h3><p>{subjectName || 'Hồ sơ Aura'}</p></div>
+      <div><span><CalendarDays size={15} /> {subject === 'student' ? 'NHẬT KÝ TẬP LUYỆN' : 'NHẬT KÝ CA DẠY'}</span><h3>{subject === 'student' ? 'Lịch sử tập' : 'Lịch dạy PT'}<em> · {subjectName || 'Hồ sơ Aura'}</em></h3></div>
       <button type="button" aria-label="Làm mới lịch sử" onClick={() => { void load(false); void loadUsage() }} disabled={loading}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /><span>Làm mới</span></button>
     </header>
     <div className="training-history__filters">
@@ -163,18 +172,25 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
     {error && <div className="training-history__notice"><CircleAlert size={18} /> {error}</div>}
     {usageError && subject === 'student' ? <div className="training-history__notice"><CircleAlert size={18} /> {usageError}</div> : null}
     {selectedUsage ? <section className="training-history__contract-usage">
-      <div><small>GÓI ĐANG ĐỐI CHIẾU</small><strong>{selectedUsage.packageName}</strong><span>{selectedUsage.usedSessions}/{selectedUsage.totalSessions} buổi đã tính · còn {selectedUsage.remainingSessions}</span></div>
-      <div><span><b>{selectedUsage.attendedSessions}</b>Có tập</span><span><b>{selectedUsage.chargedPendingAttendanceSessions ?? Math.max(0, selectedUsage.usedSessions - selectedUsage.attendedSessions - selectedUsage.noShowSessions - selectedUsage.policyChargedSessions - selectedUsage.legacyProjectionAdjustment)}</b>Chờ PT</span><span><b>{selectedUsage.noShowSessions + selectedUsage.policyChargedSessions}</b>Vắng tính buổi</span><span><b>{selectedUsage.legacyProjectionAdjustment}</b>Dữ liệu cũ</span></div>
-      {selectedUsage.legacyProjectionAdjustment > 0 ? <p><Info size={13} /> Phần dữ liệu cũ được tách riêng, không giả thành một buổi có mặt.</p> : null}
+      <header><div><small>GÓI ĐANG ĐỐI CHIẾU</small><strong>{selectedUsage.packageName}</strong></div><span><b>{selectedUsage.usedSessions}</b>/{selectedUsage.totalSessions} buổi</span></header>
+      <i className="training-history__usage-progress"><em style={{ width: `${Math.min(100, selectedUsage.totalSessions ? selectedUsage.usedSessions / selectedUsage.totalSessions * 100 : 0)}%` }} /></i>
+      <div className="training-history__usage-facts">
+        <span><b>{selectedUsage.remainingSessions}</b>Còn lại</span>
+        <span><b>{periodUsage?.chargedSessions ?? 0}</b>Trong kỳ</span>
+        <span><b>{periodUsage?.attendedSessions ?? 0}</b>Có tập</span>
+        <span><b>{periodUsage?.noShowSessions ?? 0}</b>Vắng</span>
+        {(periodUsage?.chargedPendingAttendanceSessions ?? 0) > 0 ? <span className="is-pending"><b>{periodUsage?.chargedPendingAttendanceSessions}</b>Chờ PT</span> : null}
+      </div>
+      {selectedUsage.legacyProjectionAdjustment > 0 ? <small className="training-history__legacy-note">{selectedUsage.legacyProjectionAdjustment} buổi dữ liệu cũ đang được giữ riêng để đối soát.</small> : null}
     </section> : null}
-    {page && <>{subject === 'trainer' && page.summary.teaching ? <div className="training-history__summary"><div><strong>{page.summary.teaching.totalShifts}</strong><span>Ca dạy</span></div><div><strong>{page.summary.teaching.pairedShifts}</strong><span>Ca đôi</span></div><div><strong>{page.summary.teaching.learnerBookings}</strong><span>Lượt học viên</span></div><div><strong>{page.summary.noShow}</strong><span>Vắng mặt</span></div></div> : <div className="training-history__summary"><div><strong>{page.summary.usage?.chargedSessions ?? (page.summary.completed + page.summary.noShow)}</strong><span>Đã tính trong kỳ</span></div><div><strong>{page.summary.usage?.attendedSessions ?? page.summary.completed}</strong><span>Có tập</span></div><div><strong>{page.summary.usage?.chargedPendingAttendanceSessions ?? 0}</strong><span>Chờ PT</span></div><div><strong>{page.summary.usage?.noShowSessions ?? page.summary.noShow}</strong><span>Vắng vẫn tính</span></div></div>}<p className="training-history__scope-note"><Info size={13} /> {subject === 'trainer' ? 'Một ca được tính theo cùng PT, ngày và giờ; ca có hai học viên chỉ tính một ca dạy.' : 'Thẻ gói và lịch sử cùng dùng công thức contract-usage-v2; các chỉ số trong kỳ chỉ tính khoảng ngày đang chọn.'}</p></>}
+    {page && subject === 'trainer' && page.summary.teaching ? <div className="training-history__summary"><div><strong>{page.summary.teaching.totalShifts}</strong><span>Ca dạy</span></div><div><strong>{page.summary.teaching.pairedShifts}</strong><span>Ca đôi</span></div><div><strong>{page.summary.teaching.learnerBookings}</strong><span>Lượt học viên</span></div><div><strong>{page.summary.noShow}</strong><span>Vắng mặt</span></div></div> : null}
     <div className="training-history__records">
       {loading && !page ? <div className="training-history__empty">Đang tải lịch sử an toàn…</div> : null}
       {!loading && !error && page && page.records.length === 0 ? <div className="training-history__empty">Không có buổi tập nào trong bộ lọc này.</div> : null}
       {subject === 'trainer' ? trainerShifts.map((shift) => <article className="training-history__shift" key={shift.key}>
         <header><div className="training-history__date"><strong>{shift.date.slice(8) || '—'}</strong><span>{shift.date.slice(5, 7) || '—'}</span></div><div><small>CA DẠY</small><h4>{formatDate(shift.date)} {shift.hour !== null ? `· ${String(shift.hour).padStart(2, '0')}:00` : ''}</h4><p><UsersRound size={14} /> {shift.studentCount} học viên</p></div><em className={shift.studentCount >= 2 ? 'is-paired' : ''}>{shift.studentCount >= 2 ? 'Ca đôi' : 'Ca đơn'}</em></header>
-        <div className="training-history__shift-students">{shift.records.map((record, index) => <section key={record.id}><span className="training-history__student-order">{index + 1}</span><div className="training-history__shift-student-main"><strong>{record.counterpartName}</strong><small>Mã buổi {record.id.slice(-10)} · HĐ {record.contractId ? record.contractId.slice(-10) : 'chưa liên kết'}</small>{record.events.length ? <details><summary><ChevronDown size={14} /> {record.events.length} sự kiện</summary><ul>{record.events.map((event) => <li key={event.id}><b>{statusLabel(event.type)}</b>{event.reason ? ` · ${event.reason}` : ''}</li>)}</ul></details> : null}</div><div className="training-history__shift-state"><span className={`training-history__status training-history__status--${record.status}`}>{statusLabel(record.status)}</span><small>{record.attendance?.attendanceStatus && record.attendance.attendanceStatus !== 'pending' ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}{attendanceLabel(record)}</small></div></section>)}</div>
-      </article>) : page?.records.map((record) => <article className="training-history__record" key={record.id}><div className="training-history__date"><strong>{record.date.slice(8) || '—'}</strong><span>{record.date.slice(5, 7) || '—'}</span></div><div className="training-history__record-main"><div className="training-history__record-title"><strong>{formatDate(record.date)} {record.hour !== null ? `· ${String(record.hour).padStart(2, '0')}:00` : ''}</strong><span className={`training-history__status training-history__status--${record.status}`}>{statusLabel(record.status)}</span></div><p><UserRound size={14} /> {counterpartLabel}: <b>{record.counterpartName}</b></p><small>Mã buổi {record.id.slice(-10)} · HĐ {record.contractId ? record.contractId.slice(-10) : 'chưa liên kết'}</small>{record.events.length ? <details><summary><ChevronDown size={14} /> {record.events.length} sự kiện thay đổi</summary><ul>{record.events.map((event) => <li key={event.id}><b>{statusLabel(event.type)}</b>{event.reason ? ` · ${event.reason}` : ''}</li>)}</ul></details> : null}</div><div className="training-history__attendance">{record.attendance?.attendanceStatus && record.attendance.attendanceStatus !== 'pending' ? <CheckCircle2 size={18} /> : <Clock3 size={18} />}<span>{attendanceLabel(record)}</span></div></article>)}
+        <div className="training-history__shift-students">{shift.records.map((record, index) => <section key={record.id}><span className="training-history__student-order">{index + 1}</span><div className="training-history__shift-student-main"><strong>{record.counterpartName}</strong><RecordAuditDetails record={record} /></div><div className="training-history__shift-state"><span className={`training-history__status training-history__status--${record.status}`}>{statusLabel(record.status)}</span><small>{record.attendance?.attendanceStatus && record.attendance.attendanceStatus !== 'pending' ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}{attendanceLabel(record)}</small></div></section>)}</div>
+      </article>) : page?.records.map((record) => <article className="training-history__record" key={record.id}><div className="training-history__date"><strong>{record.date.slice(8) || '—'}</strong><span>{record.date.slice(5, 7) || '—'}</span></div><div className="training-history__record-main"><div className="training-history__record-title"><strong>{formatDate(record.date)} {record.hour !== null ? `· ${String(record.hour).padStart(2, '0')}:00` : ''}</strong>{!['completed', 'attended', 'no_show'].includes(record.status) ? <span className={`training-history__status training-history__status--${record.status}`}>{statusLabel(record.status)}</span> : null}</div><p><UserRound size={14} /> {counterpartLabel}: <b>{record.counterpartName}</b></p><RecordAuditDetails record={record} /></div><div className="training-history__attendance">{record.attendance?.attendanceStatus && record.attendance.attendanceStatus !== 'pending' ? <CheckCircle2 size={18} /> : <Clock3 size={18} />}<span>{attendanceLabel(record)}</span></div></article>)}
     </div>
     {page?.summary.truncated ? <p className="training-history__truncated">Tóm tắt bị giới hạn để bảo vệ hiệu năng. Hãy thu hẹp khoảng thời gian để xem số liệu đầy đủ.</p> : null}
     {page?.hasMore ? <button type="button" className="training-history__more" disabled={loading} onClick={() => void load(true)}>{loading ? 'Đang tải…' : 'Tải thêm lịch sử'}</button> : null}

@@ -32,6 +32,7 @@ test('dashboard accepts the previous callable schema during a rolling deployment
   assert.deepEqual(dashboard.cache, { hit: false, ttlSeconds: 0 })
   assert.deepEqual(dashboard.analytics.revenue.points, [])
   assert.equal(dashboard.analytics.packages.totalActive, 0)
+  assert.equal(dashboard.analytics.attendance.attendanceRate, 100)
   assert.equal(dashboard.analytics.off.rate, 0)
 })
 
@@ -42,6 +43,7 @@ test('dashboard bounds chart payloads and preserves signed canonical cash values
     analytics: {
       revenue: { granularity: 'week', points: [{ key: '2026-08-24', label: '24/08', contractSales: '1000000', recognizedRevenue: 420000, grossCash: 700000, netCash: -50000 }] },
       packages: { totalActive: 2, preservedContracts: 1, items: [{ id: 'p1', name: 'PT 3 tháng', count: 2, percent: 100 }] },
+      attendance: { confirmedSessions: 20, attendedSessions: 18, noShowSessions: 2, attendanceRate: 90, absenceRate: 10 },
       off: { activeContracts: 2, approvedContracts: 1, activeWithoutOff: 1, approvedRequests: 1, pendingRequests: 2, preservationRequests: 0, preservedContracts: 1, rate: 50 },
     },
   })
@@ -53,6 +55,8 @@ test('dashboard bounds chart payloads and preserves signed canonical cash values
   assert.equal(dashboard.analytics.revenue.points[0].recognizedRevenue, 420000)
   assert.equal(dashboard.analytics.packages.preservedContracts, 1)
   assert.equal(dashboard.analytics.packages.items[0].percent, 100)
+  assert.equal(dashboard.analytics.attendance.attendanceRate, 90)
+  assert.equal(dashboard.analytics.attendance.absenceRate, 10)
   assert.equal(dashboard.analytics.off.rate, 50)
 })
 

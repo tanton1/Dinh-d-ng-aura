@@ -62,6 +62,7 @@ function previewDashboard(input: { startAt?: string; endAt?: string; branchId?: 
         { id: 'pt-6m', name: 'PT 6 tháng', count: 53, percent: 33.1 },
         { id: 'pt-12m', name: 'PT 12 tháng', count: 35, percent: 21.9 },
       ] },
+      attendance: { confirmedSessions: 887, attendedSessions: 845, noShowSessions: 42, attendanceRate: 95.3, absenceRate: 4.7 },
       off: { activeContracts: 160, approvedContracts: 18, activeWithoutOff: 142, approvedRequests: 21, pendingRequests: 3, preservationRequests: 2, preservedContracts: 11, rate: 11.3 },
     },
     operations: { sessions: 931, attendanceEvents: 887, sessionStatus: { completed: 845, no_show: 42, scheduled: 44 }, completionRate: 95, activeTrainers: 9, activeStaff: 26, branches: 2 },

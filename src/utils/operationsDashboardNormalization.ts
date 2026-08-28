@@ -89,6 +89,13 @@ export interface OperationsDashboardData {
       preservedContracts: number
       items: Array<{ id: string; name: string; count: number; percent: number }>
     }
+    attendance: {
+      confirmedSessions: number
+      attendedSessions: number
+      noShowSessions: number
+      attendanceRate: number
+      absenceRate: number
+    }
     off: {
       activeContracts: number
       approvedContracts: number
@@ -171,6 +178,7 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
   const analytics = record(source.analytics)
   const revenue = record(analytics.revenue)
   const packages = record(analytics.packages)
+  const attendance = record(analytics.attendance)
   const off = record(analytics.off)
   const operations = record(source.operations)
   const sessionStatusSource = record(operations.sessionStatus)
@@ -339,6 +347,20 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
           }
         }).filter((item) => item.id) : [],
       },
+      attendance: (() => {
+        const legacyNoShow = nonNegativeNumber(sessionStatus.no_show)
+        const legacyConfirmed = completedCount + legacyNoShow
+        const confirmedSessions = nonNegativeNumber(attendance.confirmedSessions || legacyConfirmed)
+        const noShowSessions = Math.min(confirmedSessions, nonNegativeNumber(attendance.noShowSessions || legacyNoShow))
+        const attendedSessions = Math.min(confirmedSessions, nonNegativeNumber(attendance.attendedSessions || Math.max(0, confirmedSessions - noShowSessions)))
+        return {
+          confirmedSessions,
+          attendedSessions,
+          noShowSessions,
+          attendanceRate: confirmedSessions ? Math.max(0, Math.min(100, finiteNumber(attendance.attendanceRate || attendedSessions / confirmedSessions * 100))) : 0,
+          absenceRate: confirmedSessions ? Math.max(0, Math.min(100, finiteNumber(attendance.absenceRate || noShowSessions / confirmedSessions * 100))) : 0,
+        }
+      })(),
       off: {
         activeContracts: nonNegativeNumber(off.activeContracts),
         approvedContracts: nonNegativeNumber(off.approvedContracts),

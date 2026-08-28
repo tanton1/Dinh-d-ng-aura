@@ -344,6 +344,13 @@ export default function AdminDashboard({
     return data.receivables.rows.filter((item) => item.status !== 'overdue')
   }, [data, receivableView])
 
+  const receivableSummary = useMemo(() => {
+    if (!data) return { count: 0, amount: 0, label: 'Quá hạn' }
+    if (receivableView === 'week') return { ...data.receivables.summary.dueThisWeek, label: 'Cần thu tuần này' }
+    if (receivableView === 'month') return { ...data.receivables.summary.dueThisMonth, label: 'Cần thu tháng này' }
+    return { ...data.receivables.summary.overdue, label: 'Nợ quá hạn' }
+  }, [data, receivableView])
+
   const shortcuts = useMemo(() => {
     if (!data) return []
     return [
@@ -401,25 +408,18 @@ export default function AdminDashboard({
     </div>
 
     {data?.permissions.finance && <section className="admin-dashboard__receivables" aria-labelledby="dashboard-receivables-title">
-      <header><div><small>CÔNG NỢ KHÁCH HÀNG</small><h2 id="dashboard-receivables-title">Lịch cần thu</h2></div><button type="button" onClick={() => goTo('admin-finance', 'overdue')}>Mở Trả góp<ArrowRight size={15} /></button></header>
+      <header><div><small>CÔNG NỢ KHÁCH HÀNG</small><h2 id="dashboard-receivables-title">Lịch cần thu</h2></div><div className="admin-dashboard__receivable-total"><span>{receivableSummary.label}</span><b>{money(receivableSummary.amount)}</b><small>{receivableSummary.count} kỳ</small></div><button type="button" onClick={() => goTo('admin-finance', 'overdue')}>Trả góp<ArrowRight size={15} /></button></header>
       <div className="admin-dashboard__receivable-tabs" role="tablist" aria-label="Lọc lịch cần thu">
-        <button type="button" role="tab" aria-selected={receivableView === 'overdue'} className={receivableView === 'overdue' ? 'is-active' : ''} onClick={() => setReceivableView('overdue')}><span>Quá hạn</span><b>{money(data.receivables.summary.overdue.amount)}</b><small>{data.receivables.summary.overdue.count} kỳ</small></button>
-        <button type="button" role="tab" aria-selected={receivableView === 'week'} className={receivableView === 'week' ? 'is-active' : ''} onClick={() => setReceivableView('week')}><span>Tuần này</span><b>{money(data.receivables.summary.dueThisWeek.amount)}</b><small>{data.receivables.summary.dueThisWeek.count} kỳ</small></button>
-        <button type="button" role="tab" aria-selected={receivableView === 'month'} className={receivableView === 'month' ? 'is-active' : ''} onClick={() => setReceivableView('month')}><span>Tháng này</span><b>{money(data.receivables.summary.dueThisMonth.amount)}</b><small>{data.receivables.summary.dueThisMonth.count} kỳ</small></button>
+        <button type="button" role="tab" aria-selected={receivableView === 'overdue'} className={receivableView === 'overdue' ? 'is-active' : ''} onClick={() => setReceivableView('overdue')}>Quá hạn <b>{data.receivables.summary.overdue.count}</b></button>
+        <button type="button" role="tab" aria-selected={receivableView === 'week'} className={receivableView === 'week' ? 'is-active' : ''} onClick={() => setReceivableView('week')}>Tuần này <b>{data.receivables.summary.dueThisWeek.count}</b></button>
+        <button type="button" role="tab" aria-selected={receivableView === 'month'} className={receivableView === 'month' ? 'is-active' : ''} onClick={() => setReceivableView('month')}>Tháng này <b>{data.receivables.summary.dueThisMonth.count}</b></button>
       </div>
-      {receivableRows.length ? <div className="admin-dashboard__table-wrap admin-dashboard__table-wrap--debt"><table><thead><tr><th>Khách hàng</th><th>Gói tập</th><th>Hạn thu</th><th>Số tiền</th><th></th></tr></thead><tbody>{receivableRows.map((row) => <tr key={row.id}><td data-label="Khách hàng"><strong>{row.studentName}</strong><small>{row.phone || 'Chưa cập nhật SĐT'}</small></td><td data-label="Gói tập">{row.packageName}</td><td data-label="Hạn thu"><span className={`admin-dashboard__status is-${row.status}`}>{row.status === 'overdue' ? 'Quá hạn' : row.status === 'due_this_week' ? 'Tuần này' : 'Tháng này'}</span><small>{shortDate(row.dueDate)}</small></td><td data-label="Số tiền"><b>{money(row.amount)}</b></td><td><button type="button" onClick={() => goTo('admin-finance', 'overdue')}>Thu tiền</button></td></tr>)}</tbody></table></div> : <div className="admin-dashboard__healthy"><CheckCircle2 size={24} /><div><strong>Không có kỳ thanh toán trong nhóm này</strong><span>Danh sách chỉ lấy lịch trả góp và ngày đến hạn đã lưu trên hợp đồng.</span></div></div>}
+      {receivableRows.length ? <div className="admin-dashboard__table-wrap admin-dashboard__table-wrap--debt"><table><thead><tr><th>Khách hàng</th><th>Hạn thu</th><th>Số tiền</th><th></th></tr></thead><tbody>{receivableRows.map((row) => <tr key={row.id}><td data-label="Khách hàng"><strong>{row.studentName}</strong><small>{row.phone || row.packageName}</small></td><td data-label="Hạn thu"><span className={`admin-dashboard__status is-${row.status}`}>{row.status === 'overdue' ? 'Quá hạn' : row.status === 'due_this_week' ? 'Tuần này' : 'Tháng này'}</span><small>{shortDate(row.dueDate)}</small></td><td data-label="Số tiền"><b>{money(row.amount)}</b></td><td><button type="button" onClick={() => goTo('admin-finance', 'overdue')}>Thu</button></td></tr>)}</tbody></table></div> : <div className="admin-dashboard__healthy"><CheckCircle2 size={24} /><div><strong>Không có khoản cần thu</strong><span>Không phát hiện kỳ thanh toán trong nhóm đang chọn.</span></div></div>}
       {data.receivables.truncated && <p className="admin-dashboard__table-note">Danh sách nhanh đã giới hạn 60 kỳ; tổng tiền trên slide vẫn lấy toàn bộ dữ liệu đã quét.</p>}
     </section>}
 
     {data && (data.permissions.finance || data.permissions.clients || data.permissions.operations) && <section className="admin-dashboard__analytics" aria-labelledby="dashboard-analytics-title">
       <header><div><small>PHÂN TÍCH</small><h2 id="dashboard-analytics-title">Xu hướng & cơ cấu</h2><p>{rangeCaption(data.range.startAt, data.range.endAt)}</p></div></header>
-      <div className="admin-dashboard__source-counts" aria-label="Dữ liệu nguồn đã tổng hợp">
-        {data.permissions.finance && <span><b>{data.quality.sourceCounts.ledgerEntries.toLocaleString('vi-VN')}</b>bút toán</span>}
-        {data.permissions.clients && <span><b>{data.quality.sourceCounts.contracts.toLocaleString('vi-VN')}</b>hợp đồng</span>}
-        {data.permissions.clients && <span><b>{data.quality.sourceCounts.students.toLocaleString('vi-VN')}</b>học viên</span>}
-        {data.permissions.operations && <span><b>{data.quality.sourceCounts.sessions.toLocaleString('vi-VN')}</b>buổi trong kỳ</span>}
-        {data.permissions.operations && <span><b>{data.quality.sourceCounts.attendanceEvents.toLocaleString('vi-VN')}</b>điểm danh</span>}
-      </div>
       <div className="admin-dashboard__analytics-grid">
         {data.permissions.finance && <article className="admin-dashboard__chart-card admin-dashboard__chart-card--revenue">
           <header><div><small>DOANH THU & DÒNG TIỀN</small><strong>Biến động theo {data.analytics.revenue.granularity === 'day' ? 'ngày' : data.analytics.revenue.granularity === 'week' ? 'tuần' : 'tháng'}</strong></div><details><summary aria-label="Giải thích biểu đồ tài chính"><CircleHelp size={15} /></summary><p>Doanh số là giá trị hợp đồng ký trong kỳ. Doanh thu thực hiện là giá trị dịch vụ đã hoàn thành. Thực thu ròng chỉ phản ánh dòng tiền thực tế.</p></details></header>
@@ -437,15 +437,14 @@ export default function AdminDashboard({
           <div className="admin-dashboard__package-bars" aria-label="Tỷ lệ từng gói tập">{data.analytics.packages.items.map((item, index) => <div key={item.id}><span><b>{item.name}</b><small>{item.count} HĐ · {item.percent}%</small></span><i><em style={{ width: `${item.percent}%`, background: ratioPalette[index % ratioPalette.length] }} /></i></div>)}</div>
         </article>}
 
-        {(data.permissions.clients || data.permissions.operations) && <article className="admin-dashboard__chart-card admin-dashboard__chart-card--ratio">
-          <header><div><small>TỶ LỆ OFF</small><strong>{data.analytics.off.rate}% hợp đồng có OFF</strong></div><details><summary aria-label="Giải thích tỷ lệ OFF"><CircleHelp size={15} /></summary><p>Tỷ lệ OFF tính theo số hợp đồng hiệu lực có ít nhất một yêu cầu OFF được duyệt trong kỳ, không cộng bảo lưu vào OFF.</p></details></header>
+        {data.permissions.operations && <article className="admin-dashboard__chart-card admin-dashboard__chart-card--ratio">
+          <header><div><small>TỶ LỆ ĐI TẬP</small><strong>{data.analytics.attendance.attendanceRate}% có tập · {data.analytics.attendance.absenceRate}% vắng</strong></div><details><summary aria-label="Giải thích tỷ lệ đi tập"><CircleHelp size={15} /></summary><p>Tỷ lệ chỉ tính các buổi đã được PT hoặc hệ thống xác nhận trong khoảng ngày đang chọn. Đi trễ vẫn được tính là có tập.</p></details></header>
           <div className="admin-dashboard__ratio-body">
-            <div className="admin-dashboard__donut" style={{ background: ratioGradient([{ percent: data.analytics.off.rate }, { percent: 100 - data.analytics.off.rate }]) }}><span><b>{data.analytics.off.approvedContracts}</b><small>có OFF</small></span></div>
+            <div className="admin-dashboard__donut" style={{ background: ratioGradient([{ percent: data.analytics.attendance.attendanceRate }, { percent: data.analytics.attendance.absenceRate }]) }}><span><b>{data.analytics.attendance.attendanceRate}%</b><small>đi tập</small></span></div>
             <div className="admin-dashboard__ratio-legend">
-              <span><i style={{ background: ratioPalette[0] }} /><b>Có OFF</b><small>{data.analytics.off.approvedContracts} hợp đồng</small></span>
-              <span><i style={{ background: ratioPalette[1] }} /><b>Không OFF</b><small>{data.analytics.off.activeWithoutOff} hợp đồng</small></span>
-              <span><i style={{ background: ratioPalette[2] }} /><b>Chờ duyệt</b><small>{data.analytics.off.pendingRequests} yêu cầu</small></span>
-              <span><i style={{ background: ratioPalette[3] }} /><b>Bảo lưu</b><small>{data.analytics.off.preservedContracts} hợp đồng</small></span>
+              <span><i style={{ background: ratioPalette[0] }} /><b>Có tập</b><small>{data.analytics.attendance.attendedSessions} buổi</small></span>
+              <span><i style={{ background: ratioPalette[1] }} /><b>Vắng</b><small>{data.analytics.attendance.noShowSessions} buổi</small></span>
+              <span><i style={{ background: '#eadde4' }} /><b>Đã xác nhận</b><small>{data.analytics.attendance.confirmedSessions} buổi</small></span>
             </div>
           </div>
         </article>}
