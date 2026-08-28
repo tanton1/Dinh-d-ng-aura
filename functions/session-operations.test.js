@@ -273,6 +273,28 @@ test('unconfirmed charged attendance becomes present after 48 hours with an expl
   assert.equal(state.paths().filter((path) => path.startsWith('attendanceAuditLogs/')).length, 1)
 })
 
+test('an elapsed session with exhausted quota still enters attendance review without consuming another entitlement', async () => {
+  const state = fakeDatabase({
+    'sessions/quota-review': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-08-26', hour: 17, revision: 0 },
+    'contracts/contract-1': { status: 'expired', studentId: 'student-1', startDate: '2026-08-01', endDate: '2026-08-27', totalSessions: 12, usedSessions: 12 },
+  })
+  const now = new Date('2026-08-28T10:00:00.000Z')
+  const charge = await chargeDuePtSessions({ db: state.db, now, logger: { info() {}, warn() {} } })
+  assert.equal(charge.reviewRequired, 1)
+  assert.equal(state.read('sessions/quota-review').billingStatus, 'review_required')
+  assert.equal(state.read('sessions/quota-review').attendanceStatus, 'pending')
+  assert.equal(state.read('attendanceEvents/quota-review').billingIssueCode, 'CONTRACT_QUOTA_EXHAUSTED')
+  assert.equal(state.read('sessionBillingEvents/quota-review'), undefined)
+  assert.equal(state.read('contracts/contract-1').usedSessions, 12)
+
+  const confirmation = await autoConfirmOverduePtAttendance({ db: state.db, now, logger: { info() {}, warn() {} } })
+  assert.equal(confirmation.confirmedPresent, 1)
+  assert.equal(state.read('sessions/quota-review').status, 'completed')
+  assert.equal(state.read('sessions/quota-review').attendanceStatus, 'present')
+  assert.equal(state.read('sessions/quota-review').billingStatus, 'review_required')
+  assert.equal(state.read('contracts/contract-1').usedSessions, 12)
+})
+
 test('automatic billing stays independent from present, late, no-show and audited corrections', async () => {
   const state = operationsFor({
     'sessions/session-late': {

@@ -31,6 +31,7 @@ const SESSION_CHANGE_WINDOW_DAYS = 21
 const SESSION_CHANGE_DATA_LIMIT = 2000
 const ATTENDANCE_STATUSES = new Set(['present', 'late', 'no_show'])
 const NO_SHOW_REASONS = new Set(['', 'busy', 'sick', 'forgot', 'unreachable', 'other'])
+const BILLING_REVIEW_STATUS = 'review_required'
 
 function id(value, label) {
   const result = typeof value === 'string' ? value.trim() : ''
@@ -443,8 +444,8 @@ function normalizedAttendanceNote(value) {
 }
 
 function isSessionCharged(session) {
-  return session?.billingStatus === 'charged'
-    || (session?.attendanceEventId && ['completed', 'attended', 'no_show'].includes(session?.status))
+  if (session?.billingStatus) return session.billingStatus === 'charged'
+  return Boolean(session?.attendanceEventId && ['completed', 'attended', 'no_show'].includes(session?.status))
 }
 
 function assertSessionCanBeCharged(session) {
@@ -472,6 +473,7 @@ async function chargeSessionTransaction({
     const revision = Number(session.revision || 0)
     const billingReference = db.doc(`sessionBillingEvents/${sessionId}`)
     const attendanceReference = db.doc(`attendanceEvents/${sessionId}`)
+    const billingIssueReference = db.doc(`sessionBillingIssues/${sessionId}`)
     const billingSnapshot = await transaction.get(billingReference)
 
     if (billingSnapshot.exists || isSessionCharged(session)) {
@@ -489,15 +491,16 @@ async function chargeSessionTransaction({
     const contractId = linkedContractId(session)
     const contractReference = db.doc(`contracts/${contractId}`)
     const recognitionReference = db.doc(`ledgerEntries/pt_session_${sessionId}`)
-    const [contractSnapshot, attendanceSnapshot, recognitionSnapshot] = await Promise.all([
+    const [contractSnapshot, attendanceSnapshot, recognitionSnapshot, billingIssueSnapshot] = await Promise.all([
       transaction.get(contractReference),
       transaction.get(attendanceReference),
       transaction.get(recognitionReference),
+      transaction.get(billingIssueReference),
     ])
     if (!contractSnapshot.exists) throw new HttpsError('failed-precondition', 'Hợp đồng liên kết không tồn tại.')
     const contract = contractSnapshot.data()
     if (contract.studentId !== session.studentId) throw new HttpsError('failed-precondition', 'Hợp đồng không thuộc học viên của buổi tập.')
-    if (contract.status !== 'active') throw new HttpsError('failed-precondition', 'Hợp đồng liên kết không ở trạng thái hoạt động.')
+    if (!['active', 'expired'].includes(contract.status)) throw new HttpsError('failed-precondition', 'Hợp đồng liên kết không ở trạng thái có thể đối soát.')
     const sessionDate = storedDateKey(session.date, 'Ngày của buổi tập')
     const contractStart = storedContractDate(contract.startDate, 'Ngày bắt đầu')
     const contractEnd = storedContractDate(contract.endDate, 'Ngày kết thúc')
@@ -512,16 +515,83 @@ async function chargeSessionTransaction({
       })
     }
 
-    if (attendanceSnapshot.exists) {
-      throw new HttpsError('already-exists', 'Bản ghi hiện diện đã tồn tại nhưng chưa có sổ tính buổi. Cần đối soát trước khi thử lại.')
-    }
     const chargedSessionIds = Array.isArray(contract.chargedSessionIds) ? contract.chargedSessionIds : []
     const attendedClasses = Array.isArray(contract.attendedClasses) ? contract.attendedClasses : []
     if (chargedSessionIds.includes(sessionId) || attendedClasses.includes(sessionId)) {
       throw new HttpsError('already-exists', 'Buổi tập đã được tính trong hợp đồng nhưng thiếu sổ sự kiện. Cần đối soát trước khi thử lại.')
     }
+    const startsAtTimestamp = Timestamp.fromDate(startsAt)
     if (Number(contract.usedSessions || 0) >= Number(contract.totalSessions || 0)) {
-      throw new HttpsError('failed-precondition', 'Hợp đồng đã hết buổi.')
+      if (attendanceSnapshot.exists && session.billingStatus === BILLING_REVIEW_STATUS && attendanceSnapshot.data()?.billingStatus === BILLING_REVIEW_STATUS) {
+        return {
+          unchanged: true,
+          revision,
+          billingStatus: BILLING_REVIEW_STATUS,
+          billingReviewRequired: true,
+          attendanceEventId: attendanceReference.id,
+        }
+      }
+      if (attendanceSnapshot.exists) {
+        throw new HttpsError('already-exists', 'Bản ghi hiện diện đã tồn tại nhưng chưa có sổ tính buổi. Cần đối soát trước khi thử lại.')
+      }
+      transaction.create(attendanceReference, {
+        schemaVersion: 3,
+        type: 'pending_confirmation',
+        sessionId,
+        studentId: session.studentId,
+        trainerId: session.trainerId || '',
+        contractId,
+        scheduleStatus: session.scheduleStatus || session.status,
+        billingStatus: BILLING_REVIEW_STATUS,
+        billingIssueCode: 'CONTRACT_QUOTA_EXHAUSTED',
+        attendanceStatus: 'pending',
+        scheduledAt: startsAtTimestamp,
+        occurredAt: startsAtTimestamp,
+        chargedAt: null,
+        confirmedAt: null,
+        confirmedBy: '',
+        lateMinutes: null,
+        noShowReason: '',
+        note: '',
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: actorUid,
+        timeZone,
+      })
+      transaction.update(sessionReference, {
+        scheduleStatus: session.scheduleStatus || session.status,
+        billingStatus: BILLING_REVIEW_STATUS,
+        billingIssueCode: 'CONTRACT_QUOTA_EXHAUSTED',
+        attendanceStatus: 'pending',
+        attendanceEventId: attendanceReference.id,
+        revision: revision + 1,
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actorUid,
+      })
+      if (!billingIssueSnapshot.exists) transaction.create(billingIssueReference, {
+        schemaVersion: 1,
+        status: 'open',
+        issueCode: 'CONTRACT_QUOTA_EXHAUSTED',
+        sessionId,
+        studentId: session.studentId,
+        trainerId: session.trainerId || '',
+        contractId,
+        scheduledAt: startsAtTimestamp,
+        usedSessions: Number(contract.usedSessions || 0),
+        totalSessions: Number(contract.totalSessions || 0),
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: actorUid,
+      })
+      return {
+        unchanged: false,
+        revision: revision + 1,
+        billingStatus: BILLING_REVIEW_STATUS,
+        billingReviewRequired: true,
+        attendanceEventId: attendanceReference.id,
+        billingIssueId: billingIssueReference.id,
+      }
+    }
+    if (attendanceSnapshot.exists) {
+      throw new HttpsError('already-exists', 'Bản ghi hiện diện đã tồn tại nhưng chưa có sổ tính buổi. Cần đối soát trước khi thử lại.')
     }
 
     const recognition = ptRevenueRecognitionWrite({
@@ -532,7 +602,6 @@ async function chargeSessionTransaction({
       attendanceEventId: attendanceReference.id,
       actorUid,
     })
-    const startsAtTimestamp = Timestamp.fromDate(startsAt)
     transaction.create(billingReference, {
       schemaVersion: 1,
       type: 'session_charge',
@@ -592,6 +661,7 @@ async function chargeSessionTransaction({
     return {
       unchanged: false,
       revision: revision + 1,
+      billingStatus: 'charged',
       billingEventId: billingReference.id,
       attendanceEventId: attendanceReference.id,
       recognitionEntryId: recognition && !recognitionSnapshot.exists ? recognitionReference.id : null,
@@ -639,7 +709,12 @@ async function recordSessionAttendanceTransaction({
       return { unchanged: true, revision, attendanceEventId: attendanceReference.id, attendanceStatus: normalizedStatus }
     }
     if (revision !== expectedRevision) throw new HttpsError('aborted', 'Buổi tập đã thay đổi. Hãy tải lại.')
-    if (!isSessionCharged(session) || (attendance.billingStatus && attendance.billingStatus !== 'charged')) {
+    const effectiveBillingStatus = isSessionCharged(session) && (!attendance.billingStatus || attendance.billingStatus === 'charged')
+      ? 'charged'
+      : session.billingStatus === BILLING_REVIEW_STATUS && attendance.billingStatus === BILLING_REVIEW_STATUS
+        ? BILLING_REVIEW_STATUS
+        : ''
+    if (!effectiveBillingStatus) {
       throw new HttpsError('failed-precondition', 'Sổ tính buổi chưa hoàn tất. Hãy tải lại sau ít phút.')
     }
     const startsAt = sessionStartInstant(session, sessionId)
@@ -674,7 +749,7 @@ async function recordSessionAttendanceTransaction({
     transaction.update(sessionReference, {
       status: legacyStatus,
       scheduleStatus: session.scheduleStatus || 'scheduled',
-      billingStatus: 'charged',
+      billingStatus: effectiveBillingStatus,
       attendanceStatus: normalizedStatus,
       confirmedAt: FieldValue.serverTimestamp(),
       confirmedBy: actorUid,
@@ -742,7 +817,8 @@ async function completeSessionAttendanceTransaction({
   })
   return {
     ...confirmation,
-    charged: charge.unchanged !== true,
+    charged: charge.billingStatus === 'charged',
+    billingStatus: charge.billingStatus || 'charged',
     billingEventId: charge.billingEventId,
     recognitionEntryId: charge.recognitionEntryId || null,
   }
@@ -758,10 +834,10 @@ async function chargeDuePtSessions({ db, now = new Date(), logger = console, lim
     .get()
   const candidates = snapshot.docs.filter((item) => {
     const session = item.data()
-    if (!isActiveSessionStatus(session.status) || isSessionCharged(session) || session.billingStatus === 'exempt') return false
+    if (!isActiveSessionStatus(session.status) || isSessionCharged(session) || [BILLING_REVIEW_STATUS, 'exempt'].includes(session.billingStatus)) return false
     try { return sessionStartInstant(session, item.id).getTime() <= now.getTime() } catch { return false }
   })
-  const summary = { weekStart, through: today, scanned: snapshot.size, due: candidates.length, charged: 0, unchanged: 0, failed: 0 }
+  const summary = { weekStart, through: today, scanned: snapshot.size, due: candidates.length, charged: 0, reviewRequired: 0, unchanged: 0, failed: 0 }
   for (let index = 0; index < candidates.length; index += 25) {
     const batch = candidates.slice(index, index + 25)
     const outcomes = await Promise.allSettled(batch.map((item) => chargeSessionTransaction({
@@ -773,6 +849,7 @@ async function chargeDuePtSessions({ db, now = new Date(), logger = console, lim
     outcomes.forEach((outcome, outcomeIndex) => {
       if (outcome.status === 'fulfilled') {
         if (outcome.value.unchanged) summary.unchanged += 1
+        else if (outcome.value.billingReviewRequired) summary.reviewRequired += 1
         else summary.charged += 1
       } else {
         summary.failed += 1
@@ -797,7 +874,7 @@ async function autoConfirmOverduePtAttendance({ db, now = new Date(), logger = c
     .get()
   const candidates = snapshot.docs.filter((item) => {
     const session = item.data()
-    if (!isActiveSessionStatus(session.status) || !isSessionCharged(session) || session.billingStatus === 'exempt') return false
+    if (!isActiveSessionStatus(session.status) || (!isSessionCharged(session) && session.billingStatus !== BILLING_REVIEW_STATUS) || session.billingStatus === 'exempt') return false
     if (session.attendanceStatus && session.attendanceStatus !== 'pending') return false
     try {
       const deadline = sessionStartInstant(session, item.id).getTime() + AUTO_ATTENDANCE_CONFIRM_HOURS * 60 * 60_000
@@ -856,7 +933,7 @@ async function remindUnconfirmedPtAttendance({ db, now = new Date(), logger = co
   const pendingByTrainer = new Map()
   snapshot.docs.forEach((item) => {
     const session = item.data()
-    const pending = session.billingStatus === 'charged'
+    const pending = ['charged', BILLING_REVIEW_STATUS].includes(session.billingStatus)
       && (!session.attendanceStatus || session.attendanceStatus === 'pending')
       && isActiveSessionStatus(session.status)
     const trainerId = typeof session.trainerId === 'string' ? session.trainerId.trim() : ''

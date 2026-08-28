@@ -116,7 +116,7 @@ export interface TrainerSessionSummary {
   hour?: number
   status: string
   scheduleStatus?: 'scheduled' | 'rescheduled' | 'cancelled'
-  billingStatus?: 'pending' | 'charged' | 'exempt'
+  billingStatus?: 'pending' | 'charged' | 'exempt' | 'review_required'
   attendanceStatus?: 'pending' | 'present' | 'late' | 'no_show' | 'policy_charge'
   lateMinutes?: number | null
   noShowReason?: string

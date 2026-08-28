@@ -666,7 +666,7 @@ function createOperationsDashboardFunctions({ db, onCall }) {
       if (attendanceStatus === 'present') result.present += 1
       else if (attendanceStatus === 'late') result.late += 1
       else if (attendanceStatus === 'no_show') result.noShow += 1
-      else if (billingStatus === 'charged') result.pendingConfirmation += 1
+      else if (billingStatus === 'charged' || billingStatus === 'review_required') result.pendingConfirmation += 1
       return result
     }, { charged: 0, present: 0, late: 0, noShow: 0, pendingConfirmation: 0 })
     const confirmedToday = attendanceToday.present + attendanceToday.late + attendanceToday.noShow

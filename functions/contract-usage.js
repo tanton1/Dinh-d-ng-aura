@@ -17,6 +17,10 @@ function sessionCountsTowardContract(session = {}) {
   const billingStatus = normalized(session.billingStatus)
   if (billingStatus === 'exempt') return false
   if (billingStatus === 'charged') return true
+  // Legacy status fallback is valid only when no explicit billing lifecycle
+  // exists. A completed attendance awaiting quota review must not consume a
+  // paid entitlement or push the contract beyond its total sessions.
+  if (billingStatus) return false
   return LEGACY_CHARGED_STATUSES.has(normalized(session.status))
 }
 
