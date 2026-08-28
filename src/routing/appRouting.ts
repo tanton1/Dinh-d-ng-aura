@@ -3,6 +3,7 @@ import type { ViewId } from '../types'
 
 export const adminViews: ViewId[] = [
   'admin-dashboard',
+  'admin-today-sessions',
   'admin-pt-students',
   'admin-pt-schedule',
   'admin-training-history',
@@ -53,6 +54,7 @@ const validViews: ViewId[] = [
 
 export const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
   'admin-dashboard': 'dashboard.view',
+  'admin-today-sessions': 'dashboard.view',
   'admin-pt-students': 'student.view_assigned',
   'admin-pt-schedule': 'dashboard.view',
   'admin-training-history': 'analytics.view_all',

@@ -177,6 +177,7 @@ export type StudentView =
 
 export type AdminView =
   | 'admin-dashboard'
+  | 'admin-today-sessions'
   | 'admin-courses'
   | 'admin-course-editor'
   | 'admin-academy-students'

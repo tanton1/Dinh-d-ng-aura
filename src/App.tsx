@@ -51,6 +51,7 @@ const Onboarding = lazyWithRetry(() => import('./onboarding/Onboarding'))
 const HomePage = lazyWithRetry(() => import('./pages/student/HomePage'))
 const AdminCoursesPage = lazyWithRetry(() => import('./pages/admin/AdminCoursesPage'))
 const AdminDashboard = lazyWithRetry(() => import('./pages/admin/AdminDashboard'))
+const AdminTodaySessionsPage = lazyWithRetry(() => import('./pages/admin/AdminTodaySessionsPage'))
 const AdminProgramsPage = lazyWithRetry(() => import('./pages/admin/AdminProgramsPage'))
 const AdminRolesPage = lazyWithRetry(() => import('./pages/admin/AdminRolesPage'))
 const AdminStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminStudentsPage'))
@@ -792,6 +793,7 @@ function AuraApplication() {
       }
       case 'delivery': return <DeliveryPage driverId={user?.uid ?? 'demo-shipper'} displayName={effectiveDisplayName ?? 'Shipper Aura'} onSignOut={signOut} />
       case 'admin-dashboard': return <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
+      case 'admin-today-sessions': return <AuraOperationsFrame><AdminTodaySessionsPage onNavigate={navigate} /></AuraOperationsFrame>
       case 'admin-courses': return <AdminCoursesPage
         courseItems={adminCourseData.courses}
         analytics={adminCourseAnalytics}

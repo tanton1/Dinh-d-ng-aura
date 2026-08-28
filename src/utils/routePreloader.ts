@@ -39,6 +39,7 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
   'admin-schedule-settings': () => import('../components/admin/pt/ScheduleSettings'),
   delivery: () => import('../features/delivery/DeliveryPage'),
   'admin-dashboard': () => import('../pages/admin/AdminDashboard'),
+  'admin-today-sessions': () => import('../pages/admin/AdminTodaySessionsPage'),
   'admin-courses': () => import('../pages/admin/AdminCoursesPage'),
   'admin-course-editor': () => import('../pages/admin/CourseEditorPage'),
   'admin-academy-students': () => import('../pages/admin/AdminAcademyStudentsPage'),

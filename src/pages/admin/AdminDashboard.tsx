@@ -369,7 +369,7 @@ export default function AdminDashboard({
       <section className="admin-dashboard__attendance" aria-labelledby="dashboard-attendance-title">
         <header>
           <div><small>HIỆN DIỆN HÔM NAY</small><h2 id="dashboard-attendance-title">Ca tập trong ngày</h2></div>
-          <button type="button" onClick={() => goTo('admin-training-history')}>Xem thêm<ArrowRight size={15} /></button>
+          <button type="button" onClick={() => goTo('admin-today-sessions')}>Xem thêm<ArrowRight size={15} /></button>
         </header>
         {loading && !data ? <div className="admin-dashboard__metric-skeleton"><i /><i /><i /><i /><i /></div>
           : !data ? <div className="admin-dashboard__unavailable"><AlertCircle size={22} /><div><strong>Chưa tải được hiện diện hôm nay</strong><span>Không suy đoán trạng thái điểm danh từ dữ liệu cũ.</span></div></div>

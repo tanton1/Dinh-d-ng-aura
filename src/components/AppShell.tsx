@@ -214,6 +214,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   workout: 'Buổi tập',
   delivery: 'Aura Delivery',
   'admin-dashboard': 'Trung tâm điều hành',
+  'admin-today-sessions': 'Ca tập hôm nay',
   'admin-pt-students': 'Quản lý Học viên PT Gym',
   'admin-pt-schedule': 'Lịch PT & Hộp yêu cầu',
   'admin-training-history': 'Lịch sử tập & lịch dạy',
@@ -239,6 +240,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
 
 function isNavigationActive(view: ViewId, itemId: ViewId, mobile = false) {
   if (view === itemId) return true
+  if (view === 'admin-today-sessions' && itemId === 'admin-dashboard') return true
   if (view === 'course-detail' && itemId === 'courses') return true
   if (view === 'admin-course-editor' && itemId === 'admin-courses') return true
   if (mobile && view === 'student-availability' && itemId === 'schedule') return true

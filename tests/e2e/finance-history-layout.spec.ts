@@ -174,4 +174,24 @@ test.describe('Aura Finance Intelligence responsive workspace', () => {
       await expectNoHorizontalOverflow(page)
     }
   })
+
+  test('opens a dedicated today-session status page from the dashboard', async ({ page }) => {
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: width < 680 ? 844 : 900 })
+      await page.goto('/#/admin-dashboard')
+      await page.locator('.admin-dashboard__attendance').getByRole('button', { name: 'Xem thêm' }).click()
+      await expect(page).toHaveURL(/#\/admin-today-sessions$/)
+
+      const detail = page.locator('.today-sessions-page')
+      await expect(detail).toBeVisible()
+      await expect(detail.getByRole('heading', { name: 'Ca tập hôm nay' })).toBeVisible()
+      await expect(detail.locator('.today-sessions-page__metrics > button')).toHaveCount(6)
+      await expect(detail.locator('.today-session-shift')).toHaveCount(4)
+      await expect(detail.getByText('Đã tính buổi').first()).toBeVisible()
+      await detail.locator('.today-sessions-page__metrics .is-no_show').click()
+      await expect(detail.locator('.today-session-shift')).toHaveCount(1)
+      await expect(detail.getByText('Vắng', { exact: true }).last()).toBeVisible()
+      await expectNoHorizontalOverflow(page)
+    }
+  })
 })

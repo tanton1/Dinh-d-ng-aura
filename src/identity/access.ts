@@ -77,6 +77,7 @@ export const routeCapabilities = {
   // actor-scoped replacements are being rolled out. Bind every such route to
   // the Identity v2 access context so a legacy UI role alone cannot open it.
   'admin-dashboard': 'pt.operations.manage',
+  'admin-today-sessions': 'pt.operations.manage',
   'admin-pt-students': 'pt.operations.manage',
   // Branch managers enter an actor-scoped callable workspace. Admins retain
   // the legacy operations surface behind their stronger capability.
