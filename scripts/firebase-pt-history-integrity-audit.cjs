@@ -187,18 +187,27 @@ function gapBucket(value) {
 }
 
 function contractSummary(contract, sessions) {
-  const linkedChargeable = sessions.filter((session) => sessionCountsTowardContract(session.fields)
-    && session.fields.contractId === contract.id).length
+  const startDate = dateKey(contract.fields.startDate)
+  const endDate = dateKey(contract.fields.endDate)
+  const linkedChargeableSessions = sessions.filter((session) => sessionCountsTowardContract(session.fields)
+    && session.fields.contractId === contract.id)
+  const linkedWithinContractWindow = linkedChargeableSessions.filter((session) => {
+    const sessionDate = dateKey(session.fields.date)
+    return Boolean(sessionDate && startDate && endDate && sessionDate >= startDate && sessionDate <= endDate)
+  }).length
+  const linkedChargeable = linkedChargeableSessions.length
   const stored = Math.max(0, Number(contract.fields.usedSessions || 0))
   return {
     contractHash: sha256(`contracts/${contract.id}`),
     packageName: String(contract.fields.packageName || 'Gói tập Aura'),
     status: String(contract.fields.status || ''),
-    startDate: dateKey(contract.fields.startDate),
-    endDate: dateKey(contract.fields.endDate),
+    startDate,
+    endDate,
     totalSessions: Math.max(0, Number(contract.fields.totalSessions || 0)),
     storedUsedSessions: stored,
     linkedChargeableSessions: linkedChargeable,
+    linkedChargeableWithinContractWindow: linkedWithinContractWindow,
+    linkedChargeableOutsideContractWindow: linkedChargeable - linkedWithinContractWindow,
     projectionDelta: stored - linkedChargeable,
   }
 }
