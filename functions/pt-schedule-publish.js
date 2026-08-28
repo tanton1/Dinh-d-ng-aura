@@ -9,6 +9,10 @@ const { trustedAccessContext, requireCapability } = require('./identity-access')
 // publish transaction. A paired session still occupies one trainer time slot,
 // but each learner session is a separate Firestore write.
 const MAX_SCHEDULE_ENTRIES = 440
+// OFF markers are operational availability metadata and never create a
+// learner session write. Bound them separately so a legitimate week with many
+// PT leave markers does not consume the atomic publish budget.
+const MAX_DRAFT_DOCUMENT_ENTRIES = 700
 const MAX_ENTRIES_PER_SLOT = 100
 const MAX_TRANSACTION_WRITES = 450
 const ACTIVE_SESSION_STATUSES = new Set(['scheduled', 'rescheduled'])
@@ -198,7 +202,8 @@ function normalizedDraftSchedule(value, branchId, allowManualAvailabilityOverrid
     throw new HttpsError('invalid-argument', 'Nội dung lịch nháp không hợp lệ.')
   }
   const result = {}
-  let totalEntries = 0
+  let documentEntryCount = 0
+  let trainingEntryCount = 0
   for (const [slotId, rawEntries] of Object.entries(value)) {
     if (!/^(T[2-7]|CN)-(?:[0-9]|1[0-9]|2[0-3])$/.test(slotId) || !Array.isArray(rawEntries)) {
       throw new HttpsError('invalid-argument', 'Lịch có khung giờ không hợp lệ.')
@@ -219,10 +224,13 @@ function normalizedDraftSchedule(value, branchId, allowManualAvailabilityOverrid
         ? { ...normalized, ...(manualAvailabilityOverride(entry) || {}) }
         : normalized
     })
-    totalEntries += entries.length
+    documentEntryCount += entries.length
+    trainingEntryCount += entries.filter((entry) => entry.type !== 'off').length
     if (entries.length) result[slotId] = entries
   }
-  if (totalEntries > MAX_SCHEDULE_ENTRIES) throw new HttpsError('invalid-argument', 'Lịch nháp vượt giới hạn an toàn.')
+  if (documentEntryCount > MAX_DRAFT_DOCUMENT_ENTRIES || trainingEntryCount > MAX_SCHEDULE_ENTRIES) {
+    throw new HttpsError('invalid-argument', 'Lịch nháp vượt giới hạn an toàn.')
+  }
   return result
 }
 

@@ -122,13 +122,17 @@
 .branch-schedule__grid thead th:first-child { left: 0; z-index: 7; width: 58px; }
 .branch-schedule__grid thead span { display: block; font-size: .72rem; }
 .branch-schedule__grid thead small { display: block; margin-top: 2px; color: #a28d99; font-size: .59rem; font-weight: 650; }
+.branch-schedule__grid thead th.is-holiday { color: #a44f36; background: #fff0e8; }
 .branch-schedule__grid tbody > tr > th { position: sticky; left: 0; z-index: 4; width: 58px; padding: 7px 3px; color: #8a697b; background: #fffafc; font-size: .68rem; }
 .branch-schedule__grid td { height: 72px; padding: 4px; vertical-align: top; }
+.branch-schedule__grid td.is-holiday { background: repeating-linear-gradient(135deg,#fff8f4,#fff8f4 7px,#fff3ed 7px,#fff3ed 14px); }
 .schedule-cell { display: grid; align-content: start; gap: 3px; width: 100%; min-height: 62px; padding: 6px; border: 1px dashed transparent; border-radius: 10px; color: #7f7079; background: transparent; text-align: left; }
 .schedule-cell:hover { border-color: rgba(246,47,130,.26); background: #fff5f9; }
 .schedule-cell.has-entry { border-style: solid; border-color: rgba(246,47,130,.18); background: linear-gradient(145deg,#fff3f8,#fff8f3); }
 .schedule-cell.is-off { place-items: center; align-content: center; color: #a34c2b; background: #fff1e9; }
 .schedule-cell.is-off svg { width: 18px; }
+.schedule-cell.is-holiday { place-items: center; align-content: center; cursor: not-allowed; color: #a44f36; background: transparent; opacity: .82; }
+.schedule-cell.is-holiday svg { width: 17px; }
 .schedule-cell__count { justify-self: end; color: #c1296a; font-size: .57rem; font-weight: 900; }
 .schedule-cell em { display: flex; align-items: center; justify-content: space-between; gap: 3px; overflow: hidden; color: #392830; font-size: .66rem; font-style: normal; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
 .schedule-cell small { align-self: center; justify-self: center; color: #b6a6af; font-size: .61rem; }

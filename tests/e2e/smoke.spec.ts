@@ -129,23 +129,28 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   await expect(studentScheduleTabs.getByRole('button', { name: 'Yêu cầu' })).toBeVisible()
   await expect(studentScheduleTabs.getByRole('button', { name: 'Lịch sử' })).toBeVisible()
   await studentScheduleTabs.getByRole('button', { name: 'Lịch rảnh' }).click()
+  await expect(page).toHaveURL(/#\/student-availability$/)
+  await expect(page.getByRole('heading', { name: 'Thời gian có thể tập', exact: true })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Ma trận thời gian rảnh' })).toBeVisible()
-  await expect(page.getByText('Đã đủ mức tối thiểu')).toBeVisible()
+  await expect(page.getByText('Đã đủ mức khuyến nghị')).toBeVisible()
   await expect(page.locator('.student-schedule-matrix td button').filter({ hasText: '+' })).toHaveCount(0)
   const scheduleLayout = await page.evaluate(() => {
-    const schedulePage = document.querySelector<HTMLElement>('.student-schedule-page')!
+    const schedulePage = document.querySelector<HTMLElement>('.student-availability-page')!
     const matrix = document.querySelector<HTMLElement>('.student-schedule-matrix-scroll')!
+    const submitFooter = document.querySelector<HTMLElement>('.student-availability-card > footer')!
     const content = document.querySelector<HTMLElement>('.page-content')!
     return {
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       matrixEdgeDelta: Math.abs(matrix.getBoundingClientRect().left - schedulePage.getBoundingClientRect().left),
       matrixRadius: getComputedStyle(matrix).borderRadius,
       matrixOverflow: matrix.scrollWidth - matrix.clientWidth,
+      footerGap: submitFooter.getBoundingClientRect().top - matrix.getBoundingClientRect().bottom,
+      footerPosition: getComputedStyle(submitFooter).position,
       visibleDayHeaders: Array.from(matrix.querySelectorAll('thead th')).filter((element) => {
         const style = getComputedStyle(element)
         return style.display !== 'none' && element.getBoundingClientRect().width > 0
       }).map((element) => element.textContent?.trim()),
-      heroRadius: getComputedStyle(document.querySelector<HTMLElement>('.student-schedule-hero')!).borderRadius,
+      heroRadius: getComputedStyle(document.querySelector<HTMLElement>('.student-availability-page__hero')!).borderRadius,
       contentBackground: getComputedStyle(content).backgroundImage,
     }
   })
@@ -153,10 +158,18 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   expect(scheduleLayout.matrixEdgeDelta).toBeLessThanOrEqual(1)
   expect(scheduleLayout.matrixRadius).toBe('0px')
   expect(scheduleLayout.matrixOverflow).toBeLessThanOrEqual(1)
+  expect(scheduleLayout.footerGap).toBeGreaterThanOrEqual(0)
+  expect(scheduleLayout.footerPosition).toBe('static')
   expect(scheduleLayout.visibleDayHeaders).toEqual(['Giờ', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'])
-  expect(scheduleLayout.heroRadius).toBe('0px')
+  expect(scheduleLayout.heroRadius).toBe('24px')
   expect(scheduleLayout.contentBackground).toContain('linear-gradient')
 
+  await page.locator('.student-schedule-matrix td button.is-available').first().click()
+  await page.getByRole('button', { name: 'Gửi lịch rảnh' }).click()
+  await expect(page.getByRole('dialog', { name: 'Chỉ gửi 4 khung?' })).toBeVisible()
+  await page.getByRole('button', { name: 'Chọn thêm khung' }).click()
+  await page.getByRole('button', { name: 'Quay lại lịch học' }).click()
+  await expect(page).toHaveURL(/#\/schedule$/)
   await studentScheduleTabs.getByRole('button', { name: 'Hợp đồng' }).click()
   await expect(page.getByRole('heading', { name: 'Gói tập của bạn' })).toBeVisible()
   await expect(page.getByText('LỊCH THANH TOÁN', { exact: true })).toBeVisible()

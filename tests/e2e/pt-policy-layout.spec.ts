@@ -31,6 +31,7 @@ for (const width of [360, 390, 430]) {
     expect(sessionGeometry.scrollHeight).toBeGreaterThan(0)
     await sessionDialog.getByRole('button', { name: 'Đóng' }).last().click()
 
+    await page.getByRole('button', { name: /Hợp đồng/ }).click()
     await page.getByRole('button', { name: 'Đăng ký OFF / Bảo lưu' }).click()
     const pauseDialog = page.getByRole('dialog', { name: 'Đăng ký OFF / Bảo lưu' })
     await expect(pauseDialog).toBeVisible()

@@ -64,6 +64,7 @@ const ProfilePage = lazyWithRetry(() => import('./pages/student/ProfilePage'))
 const ProgressPage = lazyWithRetry(() => import('./pages/student/ProgressPage'))
 const ProgressPhotoStudio = lazyWithRetry(() => import('./pages/student/ProgressPhotoStudio'))
 const SchedulePage = lazyWithRetry(() => import('./pages/student/SchedulePage'))
+const StudentAvailabilityPage = lazyWithRetry(() => import('./pages/student/StudentAvailabilityPage'))
 const WorkoutPage = lazyWithRetry(() => import('./pages/student/WorkoutPage'))
 const EatCleanPage = lazyWithRetry(() => import('./features/eat-clean/EatCleanPage'))
 const AdminEatCleanPage = lazyWithRetry(() => import('./features/eat-clean/admin/AdminEatCleanPage'))
@@ -668,6 +669,7 @@ function AuraApplication() {
         navigate('courses')
       }} onSelectLesson={(lessonId) => selectedCourseId && (isAdminCoursePreview ? goTo('course-detail', selectedCourseId, lessonId) : openCourse(selectedCourseId, lessonId))} onEnroll={enrollSelectedCourse} onComplete={completeLesson} onUpgrade={() => navigate('profile')} />
       case 'schedule': return <SchedulePage key={user?.uid ?? 'demo'} onNavigate={navigate} isDemo={backendMode === 'demo'} ownerId={user?.uid ?? 'demo'} />
+      case 'student-availability': return <StudentAvailabilityPage key={user?.uid ?? 'demo'} onNavigate={navigate} isDemo={backendMode === 'demo'} />
       case 'nutrition': return <NutritionPage
         key={user?.uid ?? 'demo'}
         displayName={effectiveDisplayName ?? user?.displayName ?? undefined}
@@ -854,8 +856,12 @@ function AuraApplication() {
       case 'staff-payroll': return <AuraOperationsFrame><StaffPayrollPage /></AuraOperationsFrame>
 
       case 'admin-pt-students': return <AuraOperationsFrame className="aura-operations-page--students"><AdminPTStudentManagement user={user as any} profile={profile} /></AuraOperationsFrame>
-      case 'admin-pt-schedule': return <AuraOperationsFrame className="aura-operations-page--schedule">{backendMode === 'firebase' && accessContext?.capabilities.includes('pt.schedule.branch.publish')
-        ? <BranchScheduleWorkspace accessContext={accessContext} onNavigate={(view) => navigate(view)} />
+      case 'admin-pt-schedule': return <AuraOperationsFrame className="aura-operations-page--schedule">{backendMode === 'firebase'
+        ? !authzReady
+          ? <div className="course-detail-state" role="status"><h1>Đang xác minh phạm vi lịch</h1><p>Aura đang tải quyền chi nhánh trước khi mở công cụ xếp lịch.</p></div>
+          : accessContext?.capabilities.includes('pt.schedule.branch.publish')
+            ? <BranchScheduleWorkspace accessContext={accessContext} onNavigate={(view) => navigate(view)} />
+            : <div className="course-detail-state" role="alert"><h1>Chưa được cấp quyền xếp lịch</h1><p>Trang lịch được khóa an toàn vì tài khoản chưa có phạm vi chi nhánh phù hợp.</p></div>
         : <SchedulerWrapper user={user as any} profile={profile} accessContext={accessContext} backendMode={backendMode} onNavigate={(view) => navigate(view as ViewId)} />}</AuraOperationsFrame>
       case 'admin-training-history': return <AuraOperationsFrame><TrainingHistoryWorkspace /></AuraOperationsFrame>
       case 'admin-renewals': return <AuraOperationsFrame><ContractRenewals onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>

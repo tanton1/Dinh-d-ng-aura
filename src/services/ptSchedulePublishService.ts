@@ -69,6 +69,10 @@ export interface PtScheduleV2Student extends Student {
   eligibleContractIds: string[]
   validScheduleDates: string[]
   pausedScheduleDates: string[]
+  remainingEntitlementSessions?: number
+  activeScheduledSessions?: number
+  activeScheduledThisWeek?: number
+  remainingSchedulableSessions?: number
   /** Hồ sơ mặc định; không bị thay đổi khi điều phối riêng một tuần. */
   defaultSessionsPerWeek: number
   /** Override chỉ thuộc draft tuần/chi nhánh hiện tại; null nghĩa là dùng mặc định. */

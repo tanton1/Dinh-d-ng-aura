@@ -279,6 +279,18 @@ test('branch draft input is bounded, canonical and cannot persist the all filter
   assert.equal(result['T3-7'][0].branchId, BRANCH_ID)
 })
 
+test('OFF metadata does not consume the 440 learner-session publish budget', () => {
+  const schedule = Object.fromEntries(Array.from({ length: 5 }, (_, dayIndex) => [
+    `T${dayIndex + 2}-6`,
+    Array.from({ length: 100 }, (_, index) => ({
+      studentId: 'OFF',
+      trainerId: `trainer-${dayIndex}-${index}`,
+      type: 'off',
+    })),
+  ]))
+  assert.equal(Object.values(normalizedDraftSchedule(schedule, BRANCH_ID)).flat().length, 500)
+})
+
 test('raw draft input cannot forge an availability override while trusted restore retains it', () => {
   const input = {
     'T2-6': [{

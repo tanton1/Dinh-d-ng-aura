@@ -22,6 +22,10 @@ const MAX_TRAINERS = 100
 // Real Aura branches currently contain more than 180 entries per week, so the
 // previous guard rejected valid migrated drafts before the workspace loaded.
 const MAX_DRAFT_ENTRIES = 440
+// OFF markers do not create learner sessions during publish. Keep a separate
+// document guard so PT leave markers never consume the atomic session budget,
+// while a malformed draft still cannot grow without bounds.
+const MAX_DRAFT_DOCUMENT_ENTRIES = 700
 const MAX_ENTRIES_PER_SLOT = 100
 const DEFAULT_DAILY_SESSION_TARGET = 8
 const DEFAULT_DAILY_SESSION_LIMIT = 10
@@ -97,7 +101,8 @@ async function scheduleActor(request, db, branchId) {
 function safeSchedule(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   const result = {}
-  let count = 0
+  let documentEntryCount = 0
+  let trainingEntryCount = 0
   for (const [slotId, entries] of Object.entries(value)) {
     if (!/^(T[2-7]|CN)-(?:[0-9]|1[0-9]|2[0-3])$/.test(slotId) || !Array.isArray(entries)) continue
     if (entries.length > MAX_ENTRIES_PER_SLOT) throw new HttpsError('resource-exhausted', 'Một khung giờ có quá nhiều dữ liệu.')
@@ -127,10 +132,13 @@ function safeSchedule(value) {
         } : {}),
       }
     }).filter((entry) => entry.trainerId && (entry.type === 'off' || entry.studentId))
-    count += normalized.length
+    documentEntryCount += normalized.length
+    trainingEntryCount += normalized.filter((entry) => entry.type !== 'off').length
     if (normalized.length) result[slotId] = normalized
   }
-  if (count > MAX_DRAFT_ENTRIES) throw new HttpsError('resource-exhausted', 'Draft vượt giới hạn an toàn.')
+  if (documentEntryCount > MAX_DRAFT_DOCUMENT_ENTRIES || trainingEntryCount > MAX_DRAFT_ENTRIES) {
+    throw new HttpsError('resource-exhausted', 'Draft vượt giới hạn an toàn.')
+  }
   return result
 }
 
@@ -161,7 +169,7 @@ function leaveCovers(leave, trainerId, date) {
 }
 
 async function loadBranchData(db, branchId, week) {
-  const [branch, legacySchedule, draft, students, trainers, availability, sessions, config, leaves] = await Promise.all([
+  const [branch, legacySchedule, draft, students, trainers, availability, weekSessions, activeSessions, config, leaves] = await Promise.all([
     db.doc(`branches/${branchId}`).get(),
     db.doc(`schedules/schedule_${week}`).get(),
     draftReference(db, branchId, week).get(),
@@ -169,11 +177,12 @@ async function loadBranchData(db, branchId, week) {
     db.collection('trainers').where('branchId', '==', branchId).limit(MAX_TRAINERS + 1).get(),
     db.collection('ptAvailability').where('weekId', '==', week).limit(MAX_STUDENTS + 1).get(),
     db.collection('sessions').where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
+    db.collection('sessions').where('status', 'in', ['scheduled', 'rescheduled']).limit(3001).get(),
     db.doc('settings/scheduleConfig').get(),
     db.collection('leaveRequests').where('status', '==', 'approved').limit(1001).get(),
   ])
   if (!branch.exists || branch.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
-  if (students.size > MAX_STUDENTS || trainers.size > MAX_TRAINERS || availability.size > MAX_STUDENTS || sessions.size > 1000 || leaves.size > 1000) {
+  if (students.size > MAX_STUDENTS || trainers.size > MAX_TRAINERS || availability.size > MAX_STUDENTS || weekSessions.size > 1000 || activeSessions.size > 3000 || leaves.size > 1000) {
     throw new HttpsError('resource-exhausted', 'Dữ liệu chi nhánh vượt giới hạn workspace an toàn.')
   }
   const studentIds = students.docs.map((item) => item.id)
@@ -182,6 +191,11 @@ async function loadBranchData(db, branchId, week) {
   const contracts = await contractsForStudents(db, studentIds)
   const studentMap = new Map(students.docs.map((item) => [item.id, item.data()]))
   const trainerMap = new Map(trainers.docs.map((item) => [item.id, item.data()]))
+  const sessionRowsById = new Map([...weekSessions.docs, ...activeSessions.docs]
+    .map((item) => ({ id: item.id, ...item.data() }))
+    .filter((item) => studentSet.has(item.studentId))
+    .map((item) => [item.id, item]))
+  const sessionRows = [...sessionRowsById.values()]
   const weeklyAvailability = new Map(availability.docs.map((item) => item.data()).filter((item) => studentSet.has(item.studentId)).map((item) => [item.studentId, item]))
   const legacy = legacySchedule.exists ? legacySchedule.data() : {}
   const draftData = draft.exists ? draft.data() : null
@@ -189,7 +203,16 @@ async function loadBranchData(db, branchId, week) {
   const schedule = draftData
     ? safeSchedule(draftData.schedule)
     : branchScheduleSnapshot(legacy.schedule || {}, branchId, studentMap, trainerMap)
-  const mappedContracts = contracts.map((contract) => ({
+  const mappedContracts = contracts.map((contract) => {
+    const activeContractSessions = sessionRows.filter((session) => session.contractId === contract.id
+      && ['scheduled', 'rescheduled'].includes(String(session.status || '').toLowerCase())
+      && session.billingStatus !== 'charged')
+    const activeScheduledThisWeek = activeContractSessions.filter((session) => {
+      const date = storedDate(session.date)
+      return date >= week && date < nextWeek(week)
+    }).length
+    const remainingEntitlementSessions = Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))
+    return {
     id: contract.id,
     studentId: contract.studentId,
     trainerId: contract.trainerId || '',
@@ -203,6 +226,10 @@ async function loadBranchData(db, branchId, week) {
     pausePeriods: Array.isArray(contract.pausePeriods) ? contract.pausePeriods.slice(0, 20) : [],
     totalSessions: Number(contract.totalSessions || 0),
     usedSessions: Number(contract.usedSessions || 0),
+    remainingEntitlementSessions,
+    activeScheduledSessions: activeContractSessions.length,
+    activeScheduledThisWeek,
+    remainingSchedulableSessions: Math.max(0, remainingEntitlementSessions - activeContractSessions.length),
     packageSessions: Number(contract.packageSessions || 0),
     plannedCarryOverSessions: Number(contract.plannedCarryOverSessions || 0),
     carriedOverSessions: Number(contract.carriedOverSessions || 0),
@@ -210,7 +237,8 @@ async function loadBranchData(db, branchId, week) {
     carryOverPending: contract.carryOverPending === true,
     sourceContractId: contract.sourceContractId || '',
     renewedByContractId: contract.renewedByContractId || '',
-  }))
+    }
+  })
   const mappedStudents = students.docs.map((item) => {
     const data = item.data()
     const weekly = weeklyAvailability.get(item.id)
@@ -252,6 +280,10 @@ async function loadBranchData(db, branchId, week) {
       eligibleContractIds: eligibility.eligibleContractIds,
       validScheduleDates: eligibility.validDates,
       pausedScheduleDates: eligibility.pausedDates,
+      remainingEntitlementSessions: eligibility.remainingEntitlementSessions,
+      activeScheduledSessions: eligibility.activeScheduledSessions,
+      activeScheduledThisWeek: eligibility.activeScheduledThisWeek,
+      remainingSchedulableSessions: eligibility.remainingSchedulableSessions,
     }
   })
   const mappedTrainers = trainers.docs.map((item) => {
@@ -293,7 +325,7 @@ async function loadBranchData(db, branchId, week) {
     trainers: mappedTrainers,
     contracts: mappedContracts,
     availability: weeklyAvailability,
-    sessions: sessions.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => item.branchId === branchId),
+    sessions: sessionRows,
     leaves: leaves.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => trainerIds.has(item.trainerId)),
     config: {
       workingDays: Array.isArray(config.data()?.workingDays) ? config.data().workingDays : [...DAY_ORDER.keys()],
@@ -357,18 +389,32 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
   let overlapsWeek = false
   let hasRemainingSessions = false
   let remainingSessionQuota = 0
+  let remainingEntitlementSessions = 0
+  let activeScheduledSessions = 0
+  let activeScheduledThisWeek = 0
+  let remainingSchedulableSessions = 0
 
   for (const contract of branchContracts) {
     const startDate = storedDate(contract.startDate)
     const endDate = storedDate(contract.endDate)
     if (!startDate || !endDate) continue
-    const contractRemainingSessions = Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))
-    if (contractRemainingSessions > 0) hasRemainingSessions = true
+    const contractEntitlement = Math.max(0, Number(contract.remainingEntitlementSessions
+      ?? (Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))))
+    const contractActiveScheduled = Math.max(0, Number(contract.activeScheduledSessions || 0))
+    const contractActiveThisWeek = Math.max(0, Number(contract.activeScheduledThisWeek || 0))
+    const contractSchedulable = Math.max(0, Number(contract.remainingSchedulableSessions
+      ?? (contractEntitlement - contractActiveScheduled)))
+    const contractWeeklyCapacity = Math.min(contractEntitlement, contractSchedulable + contractActiveThisWeek)
+    remainingEntitlementSessions += contractEntitlement
+    activeScheduledSessions += contractActiveScheduled
+    activeScheduledThisWeek += contractActiveThisWeek
+    remainingSchedulableSessions += contractSchedulable
+    if (contractWeeklyCapacity > 0) hasRemainingSessions = true
     let contractUsableInWeek = false
     for (const date of dates) {
       if (date < startDate || date > endDate) continue
       overlapsWeek = true
-      if (contractRemainingSessions < 1) continue
+      if (contractWeeklyCapacity < 1) continue
       if (contractPaused(contract, date)) {
         pausedDates.push(date)
         continue
@@ -377,7 +423,7 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
       eligibleContractIds.add(contract.id)
       contractUsableInWeek = true
     }
-    if (contractUsableInWeek) remainingSessionQuota += contractRemainingSessions
+    if (contractUsableInWeek) remainingSessionQuota += contractWeeklyCapacity
   }
 
   if (branchContracts.length && !overlapsWeek) reasons.add('ACTIVE_CONTRACT_NOT_FOUND')
@@ -385,10 +431,18 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
   if (overlapsWeek && hasRemainingSessions && !validDates.length && pausedDates.length) reasons.add('CONTRACT_PAUSED')
 
   for (const date of [...new Set(validDates)]) {
-    const matching = branchContracts.filter((contract) => Number(contract.totalSessions || 0) > Number(contract.usedSessions || 0)
-      && storedDate(contract.startDate) <= date
-      && storedDate(contract.endDate) >= date
-      && !contractPaused(contract, date))
+    const matching = branchContracts.filter((contract) => {
+      const entitlement = Math.max(0, Number(contract.remainingEntitlementSessions
+        ?? (Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))))
+      const activeScheduled = Math.max(0, Number(contract.activeScheduledSessions || 0))
+      const schedulable = Math.max(0, Number(contract.remainingSchedulableSessions
+        ?? (entitlement - activeScheduled)))
+      const activeThisWeek = Math.max(0, Number(contract.activeScheduledThisWeek || 0))
+      return Math.min(entitlement, schedulable + activeThisWeek) > 0
+        && storedDate(contract.startDate) <= date
+        && storedDate(contract.endDate) >= date
+        && !contractPaused(contract, date)
+    })
     if (matching.length > 1) reasons.add('AMBIGUOUS_ACTIVE_CONTRACT')
   }
 
@@ -399,10 +453,14 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
     validDates: [...new Set(validDates)].sort(),
     pausedDates: [...new Set(pausedDates)].sort(),
     remainingSessions: remainingSessionQuota,
+    remainingEntitlementSessions,
+    activeScheduledSessions,
+    activeScheduledThisWeek,
+    remainingSchedulableSessions,
   }
 }
 
-function resolveContract(data, studentId, trainerId, date) {
+function resolveContract(data, studentId, trainerId, date, schedule = null) {
   const dateCandidates = data.contracts.filter((contract) => contract.studentId === studentId
     && contractCanServeScheduledDate(contract, date))
   if (dateCandidates.some((contract) => !contract.branchId)) return { contract: null, reasons: ['CONTRACT_BRANCH_REQUIRED'] }
@@ -416,7 +474,14 @@ function resolveContract(data, studentId, trainerId, date) {
   const activeForContract = data.sessions.filter((session) => session.contractId === contract.id
     && ['scheduled', 'rescheduled'].includes(session.status)
     && session.billingStatus !== 'charged').length
-  if (contract.usedSessions + activeForContract >= contract.totalSessions) return { contract: null, reasons: ['CONTRACT_SESSION_QUOTA_EXCEEDED'] }
+  const draftForContract = schedule && typeof schedule === 'object'
+    ? Object.values(schedule).flat().filter((entry) => entry?.type !== 'off'
+      && entry?.contractId === contract.id
+      && entry?.source !== 'published_existing').length
+    : 0
+  if (contract.usedSessions + activeForContract + draftForContract >= contract.totalSessions) {
+    return { contract: null, reasons: ['CONTRACT_SESSION_QUOTA_EXCEEDED'] }
+  }
   return { contract, reasons: [] }
 }
 
@@ -503,11 +568,18 @@ function addEntryToSchedulingState(state, slotId, entry) {
 }
 
 function candidateForSlot(data, { student, trainer, slotId, schedule, schedulingState = null, contractCache = null }) {
-  const [day] = slotId.split('-')
+  const [day, rawHour] = slotId.split('-')
+  const hour = Number(rawHour)
   const date = dateForSlot(data.weekId, day)
   const reasons = []
   const state = schedulingState || buildSchedulingState(schedule)
   const policy = trainerSchedulingPolicy(trainer)
+  const workingDays = Array.isArray(data.config?.workingDays) ? data.config.workingDays : []
+  const workingHours = Array.isArray(data.config?.workingHours) ? data.config.workingHours.map(Number) : []
+  const holidays = Array.isArray(data.config?.holidays) ? data.config.holidays : []
+  if ((workingDays.length && !workingDays.includes(day))
+    || (workingHours.length && !workingHours.includes(hour))
+    || holidays.includes(date)) reasons.push('OUTSIDE_WORKING_CALENDAR')
   if (student.eligibleForWeek === false) {
     reasons.push(...(Array.isArray(student.eligibilityReasons) && student.eligibilityReasons.length
       ? student.eligibilityReasons
@@ -525,10 +597,10 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
   if (data.leaves.some((leave) => leaveCovers(leave, trainer.id, date))) reasons.push('TRAINER_ON_LEAVE')
   if (!['submitted', 'locked', 'recurring'].includes(student.availabilityStatus)) reasons.push('AVAILABILITY_NOT_SUBMITTED')
   else if (!student.availableSlots.includes(slotId)) reasons.push('OUTSIDE_STUDENT_AVAILABILITY')
-  const contractCacheKey = `${student.id}|${trainer.id}|${date}`
+  const contractCacheKey = `${student.id}|${trainer.id}|${date}|${scheduleEntryCount(schedule)}`
   const contractResult = contractCache?.has(contractCacheKey)
     ? contractCache.get(contractCacheKey)
-    : resolveContract(data, student.id, trainer.id, date)
+    : resolveContract(data, student.id, trainer.id, date, schedule)
   if (contractCache && !contractCache.has(contractCacheKey)) contractCache.set(contractCacheKey, contractResult)
   reasons.push(...contractResult.reasons)
   if (state.studentDays.get(student.id)?.has(day)) reasons.push('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
@@ -565,6 +637,12 @@ function manualSlotCandidate(result) {
 }
 
 function scheduleEntryCount(schedule) {
+  return Object.values(schedule || {}).reduce((total, entries) => total + (Array.isArray(entries)
+    ? entries.filter((entry) => entry?.type !== 'off' && entry?.studentId !== 'OFF').length
+    : 0), 0)
+}
+
+function scheduleDocumentEntryCount(schedule) {
   return Object.values(schedule || {}).reduce((total, entries) => total + (Array.isArray(entries) ? entries.length : 0), 0)
 }
 
@@ -725,7 +803,7 @@ function mergePublishedSessions(data, schedule, warnings) {
       warnings.push({ code: 'PUBLISHED_SESSION_CONTRACT_REQUIRED', sessionId: session.id, studentId: session.studentId })
       continue
     }
-    if (scheduleEntryCount(schedule) >= MAX_DRAFT_ENTRIES) {
+    if (scheduleEntryCount(schedule) >= MAX_DRAFT_ENTRIES || scheduleDocumentEntryCount(schedule) >= MAX_DRAFT_DOCUMENT_ENTRIES) {
       warnings.push({ code: 'DRAFT_CAPACITY_REACHED', entryCount: scheduleEntryCount(schedule), maxEntries: MAX_DRAFT_ENTRIES })
       break
     }
@@ -755,7 +833,7 @@ function generateSchedule(data) {
   // trainer/date/hour load instead of being silently replaced or double-counted.
   mergePublishedSessions(data, schedule, warnings)
   let entryCount = scheduleEntryCount(schedule)
-  let capacityReached = entryCount >= MAX_DRAFT_ENTRIES
+  let capacityReached = entryCount >= MAX_DRAFT_ENTRIES || scheduleDocumentEntryCount(schedule) >= MAX_DRAFT_DOCUMENT_ENTRIES
   const schedulingState = buildSchedulingState(schedule)
   const contractCache = new Map()
   const scheduledCounts = scheduleStudentCounts(schedule)
@@ -765,7 +843,9 @@ function generateSchedule(data) {
   const remainingByStudent = new Map(students.map((student) => [student.id, Math.max(0, student.sessionsPerWeek - (scheduledCounts.get(student.id) || 0))]))
 
   const assignOne = (student) => {
-    if ((remainingByStudent.get(student.id) || 0) < 1 || entryCount >= MAX_DRAFT_ENTRIES) return false
+    if ((remainingByStudent.get(student.id) || 0) < 1
+      || entryCount >= MAX_DRAFT_ENTRIES
+      || scheduleDocumentEntryCount(schedule) >= MAX_DRAFT_DOCUMENT_ENTRIES) return false
     const candidates = []
     for (const slotId of [...student.availableSlots].sort(compareSlots)) {
       for (const trainer of [...data.trainers].sort((left, right) => left.id.localeCompare(right.id))) {
@@ -815,7 +895,7 @@ function generateSchedule(data) {
   // session before anyone receives another generated session.
   for (const student of students) {
     if ((scheduledCounts.get(student.id) || 0) === 0) assignOne(student)
-    if (entryCount >= MAX_DRAFT_ENTRIES) {
+    if (entryCount >= MAX_DRAFT_ENTRIES || scheduleDocumentEntryCount(schedule) >= MAX_DRAFT_DOCUMENT_ENTRIES) {
       capacityReached = true
       break
     }
@@ -828,7 +908,7 @@ function generateSchedule(data) {
     progress = false
     for (const student of students) {
       if (assignOne(student)) progress = true
-      if (entryCount >= MAX_DRAFT_ENTRIES) {
+      if (entryCount >= MAX_DRAFT_ENTRIES || scheduleDocumentEntryCount(schedule) >= MAX_DRAFT_DOCUMENT_ENTRIES) {
         capacityReached = true
         break
       }
@@ -1170,7 +1250,9 @@ function createPtScheduleV2Functions({ db, onCall }) {
       if (command === 'lock_entry' || command === 'unlock_entry') schedule[slotId] = values.map((entry) => entry.studentId === studentId && entry.trainerId === trainerId ? { ...entry, isLocked: command === 'lock_entry' } : entry)
       if (command === 'add_student') schedule[slotId] = values
       for (const [key, entries] of Object.entries(schedule)) if (!entries.length) delete schedule[key]
-      if (scheduleEntryCount(schedule) > MAX_DRAFT_ENTRIES) throw new HttpsError('resource-exhausted', 'Draft vượt giới hạn an toàn.')
+      if (scheduleEntryCount(schedule) > MAX_DRAFT_ENTRIES || scheduleDocumentEntryCount(schedule) > MAX_DRAFT_DOCUMENT_ENTRIES) {
+        throw new HttpsError('resource-exhausted', 'Draft vượt giới hạn an toàn.')
+      }
       const nextRevision = revision + 1
       const result = { draftRevision: nextRevision, schedule, weeklySessionTargets: currentWeeklyTargets }
       // Generated missing-session diagnostics become stale after any manual
@@ -1206,6 +1288,7 @@ module.exports = {
   DEFAULT_DAILY_SESSION_LIMIT,
   DEFAULT_DAILY_SESSION_TARGET,
   MAX_DRAFT_ENTRIES,
+  MAX_DRAFT_DOCUMENT_ENTRIES,
   createPtScheduleV2Functions,
   candidateForSlot,
   createsThreeConsecutiveTrainingDays,

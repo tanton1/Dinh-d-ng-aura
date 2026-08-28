@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_DRAFT_ENTRIES, candidateForSlot, generateSchedule, manualSlotCandidate, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, studentWeekEligibility, weeklyTargetForStudent } = require('./pt-schedule-v2')
+const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, candidateForSlot, generateSchedule, manualSlotCandidate, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, studentWeekEligibility, weeklyTargetForStudent } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
@@ -45,8 +45,89 @@ function fixture() {
     sessions: [],
     leaves: [],
     schedule: {},
+    config: {
+      workingDays: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'],
+      workingHours: Array.from({ length: 24 }, (_, hour) => hour),
+      holidays: [],
+    },
   }
 }
+
+test('auto scheduling never creates a draft on a configured holiday', () => {
+  const data = fixture()
+  data.students[0].availableSlots = ['T2-6']
+  data.trainers[0].availableSlots = ['T2-6']
+  data.config.holidays = [WEEK]
+  const candidate = candidateForSlot(data, {
+    student: data.students[0],
+    trainer: data.trainers[0],
+    slotId: 'T2-6',
+    schedule: {},
+  })
+  assert.equal(candidate.eligible, false)
+  assert.ok(candidate.reasons.includes('OUTSIDE_WORKING_CALENDAR'))
+  assert.equal(Object.values(generateSchedule(data).schedule).flat().length, 0)
+})
+
+test('OFF markers use a separate document guard from publishable learner sessions', () => {
+  const offSchedule = Object.fromEntries(Array.from({ length: 5 }, (_, dayIndex) => [
+    `T${dayIndex + 2}-6`,
+    Array.from({ length: 100 }, (_, index) => ({
+      studentId: 'OFF',
+      trainerId: `trainer-${dayIndex}-${index}`,
+      branchId: BRANCH,
+      type: 'off',
+    })),
+  ]))
+  assert.equal(Object.values(safeSchedule(offSchedule)).flat().length, 500)
+  assert.ok(MAX_DRAFT_DOCUMENT_ENTRIES > MAX_DRAFT_ENTRIES)
+
+  const trainingSchedule = Object.fromEntries(Array.from({ length: 5 }, (_, dayIndex) => [
+    `T${dayIndex + 2}-6`,
+    Array.from({ length: dayIndex === 4 ? 41 : 100 }, (_, index) => ({
+      studentId: `student-${dayIndex}-${index}`,
+      trainerId: `trainer-${dayIndex}-${index}`,
+      branchId: BRANCH,
+      type: 'training',
+    })),
+  ]))
+  assert.throws(() => safeSchedule(trainingSchedule), /Draft vượt giới hạn an toàn/)
+})
+
+test('active scheduled sessions reduce new quota without hiding sessions already held this week', () => {
+  const contract = {
+    ...fixture().contracts[0],
+    totalSessions: 3,
+    usedSessions: 1,
+    remainingEntitlementSessions: 2,
+    activeScheduledSessions: 2,
+    activeScheduledThisWeek: 1,
+    remainingSchedulableSessions: 0,
+  }
+  const eligibility = studentWeekEligibility([contract], 'student-a', BRANCH, WEEK, WEEK)
+  assert.equal(eligibility.remainingEntitlementSessions, 2)
+  assert.equal(eligibility.activeScheduledSessions, 2)
+  assert.equal(eligibility.activeScheduledThisWeek, 1)
+  assert.equal(eligibility.remainingSchedulableSessions, 0)
+  assert.equal(eligibility.remainingSessions, 1)
+
+  const data = fixture()
+  data.contracts[0].totalSessions = 2
+  data.sessions = [{
+    id: 'held-elsewhere',
+    studentId: 'student-a',
+    trainerId: 'trainer-a',
+    contractId: 'contract-a',
+    branchId: BRANCH,
+    date: '2026-08-31',
+    status: 'scheduled',
+    billingStatus: 'pending',
+  }]
+  const draft = {
+    'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training' }],
+  }
+  assert.deepEqual(resolveContract(data, 'student-a', 'trainer-a', '2026-08-26', draft).reasons, ['CONTRACT_SESSION_QUOTA_EXCEEDED'])
+})
 
 test('resolves exactly one active contract for the concrete session date', () => {
   const data = fixture()

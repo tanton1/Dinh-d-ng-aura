@@ -154,6 +154,7 @@ export type StudentView =
   | 'courses'
   | 'course-detail'
   | 'schedule'
+  | 'student-availability'
   | 'nutrition'
   | 'eat-clean'
   | 'meal-plan'

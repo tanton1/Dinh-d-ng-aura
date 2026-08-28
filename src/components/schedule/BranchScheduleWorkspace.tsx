@@ -145,6 +145,14 @@ function trainerEmploymentLabel(value: 'full_time' | 'part_time' | 'collaborator
   return 'PT chính thức'
 }
 
+function contractQuota(contract: PtScheduleWorkspaceV2Result['contracts'][number] | null | undefined) {
+  if (!contract) return { entitlement: 0, held: 0, schedulable: 0 }
+  const entitlement = finiteCount(contract.remainingEntitlementSessions, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))
+  const held = finiteCount(contract.activeScheduledSessions)
+  const schedulable = finiteCount(contract.remainingSchedulableSessions, entitlement - held)
+  return { entitlement, held, schedulable }
+}
+
 export default function BranchScheduleWorkspace({ accessContext, onNavigate }: Props) {
   const [branches, setBranches] = useState<PtScheduleBranchOption[]>([])
   const [branchId, setBranchId] = useState(accessContext.branchIds[0] || '')
@@ -183,6 +191,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const workingHours = workspace?.scheduleConfig.workingHours?.length
     ? workspace.scheduleConfig.workingHours
     : Array.from({ length: 16 }, (_, index) => index + 6)
+  const holidayDates = useMemo(
+    () => new Set((workspace?.scheduleConfig.holidays || []).map((value) => String(value).slice(0, 10))),
+    [workspace?.scheduleConfig.holidays],
+  )
   const mobileGroups = useMemo(() => {
     const result: string[][] = []
     for (let index = 0; index < workingDays.length; index += 2) result.push(workingDays.slice(index, index + 2))
@@ -824,12 +836,17 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
           <div className="branch-schedule__matrix-shell">
             <table className="branch-schedule__grid">
-              <thead><tr><th>Giờ</th>{workingDays.map((day) => <th key={day} className={selectedDays.includes(day) ? 'is-mobile-visible' : ''}><span>{DAY_LABELS[day] || day}</span><small>{weekDates[day as keyof typeof weekDates]?.display}</small></th>)}</tr></thead>
+              <thead><tr><th>Giờ</th>{workingDays.map((day) => {
+                const date = weekDates[day as keyof typeof weekDates]?.full || ''
+                const holiday = holidayDates.has(date)
+                return <th key={day} className={`${selectedDays.includes(day) ? 'is-mobile-visible' : ''}${holiday ? ' is-holiday' : ''}`}><span>{DAY_LABELS[day] || day}</span><small>{holiday ? 'Ngày nghỉ' : weekDates[day as keyof typeof weekDates]?.display}</small></th>
+              })}</tr></thead>
               <tbody>{workingHours.map((hour) => <tr key={hour}><th>{String(hour).padStart(2, '0')}:00</th>{workingDays.map((day) => {
                 const slotId = `${day}-${hour}`
                 const entries = (workspace.schedule[slotId] || []).filter((entry) => entry.trainerId === selectedTrainerId)
                 const isOff = entries.some((entry) => entry.type === 'off')
-                return <td key={slotId} className={selectedDays.includes(day) ? 'is-mobile-visible' : ''}><button type="button" className={`schedule-cell${isOff ? ' is-off' : ''}${entries.length ? ' has-entry' : ''}`} onClick={() => { setInspectorSlotId(slotId); setCandidateSearch(''); setOffConfirmation(false); setAvailabilityOverrideCandidate(null) }} disabled={!selectedTrainerId}><span className="schedule-cell__count">{isOff ? 'OFF' : `${entries.length}/${selectedTrainer?.slotCapacity || 2}`}</span>{isOff ? <CalendarOff /> : entries.length ? entries.filter((entry) => entry.type !== 'off').map((entry) => <em key={`${entry.studentId}-${entry.trainerId}`}>{studentName(entry.studentId)}{entry.isLocked && <Lock size={11} />}</em>) : <small>Chạm để xếp</small>}</button></td>
+                const holiday = holidayDates.has(weekDates[day as keyof typeof weekDates]?.full || '')
+                return <td key={slotId} className={`${selectedDays.includes(day) ? 'is-mobile-visible' : ''}${holiday ? ' is-holiday' : ''}`}><button type="button" className={`schedule-cell${holiday ? ' is-holiday' : ''}${isOff ? ' is-off' : ''}${entries.length ? ' has-entry' : ''}`} onClick={() => { setInspectorSlotId(slotId); setCandidateSearch(''); setOffConfirmation(false); setAvailabilityOverrideCandidate(null) }} disabled={!selectedTrainerId || holiday}><span className="schedule-cell__count">{holiday ? 'NGHỈ' : isOff ? 'OFF' : `${entries.length}/${selectedTrainer?.slotCapacity || 2}`}</span>{holiday ? <><CalendarOff /><small>Không xếp lịch</small></> : isOff ? <CalendarOff /> : entries.length ? entries.filter((entry) => entry.type !== 'off').map((entry) => <em key={`${entry.studentId}-${entry.trainerId}`}>{studentName(entry.studentId)}{entry.isLocked && <Lock size={11} />}</em>) : <small>Chạm để xếp</small>}</button></td>
               })}</tr>)}</tbody>
             </table>
           </div>
@@ -853,7 +870,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           <div className="branch-schedule__student-list">
             {studentRows.map(({ student, scheduled, scheduledEntries, missing, contract, trainerNames }) => <article key={student.id} className={`${missing > 0 ? 'is-missing' : 'is-ready'}${availabilityEditorStudentId === student.id ? ' is-editing-availability' : ''}`}>
               <div className="branch-schedule__student-person"><span><UsersRound size={17} /></span><div><strong>{student.name || 'Chưa cập nhật tên'}</strong><small>{student.phone || `Mã ${student.id.slice(-8)}`}</small></div></div>
-              <div className="branch-schedule__student-contract"><small>Gói &amp; PT</small><strong>{contract?.packageName || 'Cần đối soát hợp đồng'}</strong><span>{trainerNames || 'Chưa phân PT'} · {contract ? `còn ${Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))} buổi` : 'chưa có gói phù hợp'}</span></div>
+              <div className="branch-schedule__student-contract"><small>Gói &amp; PT</small><strong>{contract?.packageName || 'Cần đối soát hợp đồng'}</strong><span>{trainerNames || 'Chưa phân PT'} · {contract ? `${contractQuota(contract).schedulable} xếp thêm · ${contractQuota(contract).held} đã giữ chỗ` : 'chưa có gói phù hợp'}</span></div>
               <div className="branch-schedule__weekly-target"><small>Mục tiêu tuần</small><div><button type="button" aria-label={`Giảm mục tiêu tuần của ${student.name}`} disabled={busy || student.sessionsPerWeek <= scheduled} onClick={() => void setWeeklyTarget(student.id, student.sessionsPerWeek - 1)}><Minus /></button><strong>{student.sessionsPerWeek}</strong><button type="button" aria-label={`Tăng mục tiêu tuần của ${student.name}`} disabled={busy || student.sessionsPerWeek >= student.maxWeeklySessions} onClick={() => void setWeeklyTarget(student.id, student.sessionsPerWeek + 1)}><Plus /></button>{student.weeklySessionTargetOverridden && <button type="button" className="is-reset" title={`Về ${student.defaultSessionsPerWeek} buổi`} aria-label={`Khôi phục mục tiêu của ${student.name} về ${student.defaultSessionsPerWeek} buổi`} disabled={busy || Math.min(student.defaultSessionsPerWeek, student.maxWeeklySessions) < scheduled} onClick={() => void setWeeklyTarget(student.id, null)}><RotateCcw /></button>}</div>{student.weeklySessionTargetOverridden && <span>Tạm thời</span>}</div>
               <div className="branch-schedule__student-progress"><strong>{scheduled}/{student.sessionsPerWeek}</strong><span>{missing > 0 ? `Thiếu ${missing}` : 'Đã đủ'}</span><i><b style={{ width: `${Math.min(100, student.sessionsPerWeek ? scheduled / student.sessionsPerWeek * 100 : 100)}%` }} /></i></div>
               <div className="branch-schedule__student-schedule"><small>Lịch được xếp · {['submitted', 'locked'].includes(student.availabilityStatus) ? 'đã gửi lịch rảnh' : student.availabilityStatus === 'recurring' ? 'lịch rảnh cố định' : 'thiếu lịch rảnh'}</small><div>{scheduledEntries.length ? scheduledEntries.map((entry) => <span key={`${entry.slotId}-${entry.trainerId}`}>{entry.label}<b>{workspace.trainers.find((trainer) => trainer.id === entry.trainerId)?.name || 'PT chưa cập nhật'}</b></span>) : <em>Chưa có buổi nào trong tuần</em>}</div></div>
@@ -882,13 +899,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             {workspace.trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').map((trainer) => <article key={trainer.id} className="schedule-warning-trainer is-blocking"><Clock3 /><div><strong>{trainer.name}</strong><span>{trainerEmploymentLabel(trainer.employmentType)} · chưa đăng ký lịch nhận ca nên không được xếp tự động.</span><small>Hạng #{trainer.schedulingPriority || 100} · mục tiêu {trainer.dailySessionTarget || 8} ca/ngày</small></div></article>)}
             {warningProfiles.map(({ student, missingSessions: missing, trainerNames, contract, scheduledEntries, reasonCodes, suggestedSlots, hasConfirmedAvailability, offState }) => {
               const expanded = expandedWarningStudentId === student.id
-              const remainingSessions = contract ? Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0)) : 0
+              const quota = contractQuota(contract)
               return <article key={student.id} className={`schedule-warning-student${student.eligibleForWeek ? '' : ' is-blocking'}${expanded ? ' is-expanded' : ''}`}>
                 <button type="button" onClick={() => setExpandedWarningStudentId(expanded ? null : student.id)} aria-expanded={expanded}>
                   <AlertTriangle /><div><span className="schedule-warning-student__title"><strong>{student.name}</strong>{missing > 0 && <b>Thiếu {missing}</b>}</span><span>{student.phone || `Mã ${student.id.slice(-8)}`} · <i className={hasConfirmedAvailability ? 'has-availability' : 'no-availability'}>{hasConfirmedAvailability ? `${student.availableSlots.length} khung lịch rảnh` : 'Chưa có lịch rảnh'}</i>{offState === 'trainer' ? ' · PT xin OFF, đang chờ xếp lại' : offState === 'student' ? ' · Học viên đang OFF/bảo lưu' : ''}</span></div><ChevronRight />
                 </button>
                 {expanded && <div className="schedule-warning-detail">
-                  <section><small>Gói tập</small><strong>{contract?.packageName || 'Chưa có hợp đồng phù hợp'}</strong><em>{contract ? `${remainingSessions} buổi còn lại · ${String(contract.startDate || '').slice(0, 10)} → ${String(contract.endDate || '').slice(0, 10)}` : 'Cần đối soát hợp đồng'}</em></section>
+                  <section><small>Gói tập</small><strong>{contract?.packageName || 'Chưa có hợp đồng phù hợp'}</strong><em>{contract ? `${quota.entitlement} quyền lợi · ${quota.held} đã giữ chỗ · ${quota.schedulable} xếp thêm · ${String(contract.startDate || '').slice(0, 10)} → ${String(contract.endDate || '').slice(0, 10)}` : 'Cần đối soát hợp đồng'}</em></section>
                   <section><small>PT phụ trách</small><strong>{trainerNames || 'Chưa phân PT'}</strong><em>{trainerNames ? 'Theo hợp đồng và lịch hiện tại' : 'Sẽ xếp theo hạng PT'}</em></section>
                   <section className="is-wide"><small>Nguyên nhân cần xử lý</small><div>{reasonCodes.length ? reasonCodes.map((code) => <span key={code}>{ptScheduleConflictLabel(code)}</span>) : <em>Chưa tìm được phương án tối ưu</em>}</div></section>
                   <section className={`is-wide${hasConfirmedAvailability ? '' : ' is-missing-availability'}`}><small>{hasConfirmedAvailability ? `Lịch rảnh đã xác nhận · ${student.availableSlots.length} khung` : 'Chưa có lịch rảnh'}</small><div>{hasConfirmedAvailability ? student.availableSlots.map((slot) => <span key={slot}>{availabilitySlotLabel(slot)}</span>) : <em>Học viên chưa gửi hoặc đã xóa lịch rảnh của tuần này; hệ thống không tự suy đoán khung giờ.</em>}</div></section>

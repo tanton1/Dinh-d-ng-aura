@@ -172,6 +172,36 @@ export interface StudentPtAvailability {
   source: 'weekly' | 'legacy_default'
 }
 
+export function normalizeStudentPtScheduleData(data: StudentPtScheduleData): StudentPtScheduleData {
+  const scheduleConfig = data?.scheduleConfig ?? { workingDays: [], workingHours: [] }
+  return {
+    ...data,
+    scheduleConfig: {
+      ...scheduleConfig,
+      workingDays: Array.isArray(scheduleConfig.workingDays) ? scheduleConfig.workingDays : [],
+      workingHours: Array.isArray(scheduleConfig.workingHours) ? scheduleConfig.workingHours : [],
+    },
+    student: data?.student ? {
+      ...data.student,
+      availableSlots: Array.isArray(data.student.availableSlots) ? data.student.availableSlots : [],
+      availability: data.student.availability ? {
+        ...data.student.availability,
+        slots: Array.isArray(data.student.availability.slots) ? data.student.availability.slots : [],
+      } : undefined,
+    } : null,
+    sessions: Array.isArray(data?.sessions) ? data.sessions : [],
+    contracts: Array.isArray(data?.contracts)
+      ? data.contracts.filter(Boolean).map((contract) => ({
+          ...contract,
+          installments: Array.isArray(contract.installments) ? contract.installments.filter(Boolean) : [],
+        }))
+      : [],
+    contractAlerts: Array.isArray(data?.contractAlerts) ? data.contractAlerts : [],
+    sessionRequests: Array.isArray(data?.sessionRequests) ? data.sessionRequests : [],
+    pauseRequests: Array.isArray(data?.pauseRequests) ? data.pauseRequests : [],
+  }
+}
+
 function functionsInstance() {
   if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
   return firebaseFunctions
@@ -233,13 +263,13 @@ export function asStudentPtScheduleError(error: unknown): StudentPtScheduleServi
 export async function listMyStudentPtSchedule(from: string, to: string, availabilityWeekId: string): Promise<StudentPtScheduleData> {
   try {
     const callable = httpsCallable<{ from: string; to: string; availabilityWeekId: string }, StudentPtScheduleData>(functionsInstance(), 'listMyStudentPtSchedule')
-    return (await callable({ from, to, availabilityWeekId })).data
+    return normalizeStudentPtScheduleData((await callable({ from, to, availabilityWeekId })).data)
   } catch (error) {
     throw asStudentPtScheduleError(error)
   }
 }
 
-export async function saveMyStudentAvailability(input: { weekId: string; availableSlots: string[]; expectedRevision: number }) {
+export async function saveMyStudentAvailability(input: { weekId: string; availableSlots: string[]; expectedRevision: number; confirmBelowMinimum?: boolean }) {
   try {
     const callable = httpsCallable<typeof input, {
       schemaVersion: number

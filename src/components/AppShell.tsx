@@ -74,7 +74,10 @@ const studentNavSections: ShellNavSection[] = [
   },
   {
     label: 'PT COACHING & GYM',
-    items: [{ id: 'schedule' as const, label: 'Lịch học viên', icon: CalendarDays }],
+    items: [
+      { id: 'schedule' as const, label: 'Lịch học viên', icon: CalendarDays },
+      { id: 'student-availability' as const, label: 'Lịch rảnh', icon: CalendarClock },
+    ],
   },
   {
     label: 'TÀI KHOẢN',
@@ -206,6 +209,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'staff-payroll': 'Lương của tôi',
   progress: 'Tiến độ & ôn tập',
   schedule: 'Lịch học viên',
+  'student-availability': 'Lịch rảnh',
   profile: 'Cá nhân',
   workout: 'Buổi tập',
   delivery: 'Aura Delivery',
@@ -237,6 +241,7 @@ function isNavigationActive(view: ViewId, itemId: ViewId, mobile = false) {
   if (view === itemId) return true
   if (view === 'course-detail' && itemId === 'courses') return true
   if (view === 'admin-course-editor' && itemId === 'admin-courses') return true
+  if (mobile && view === 'student-availability' && itemId === 'schedule') return true
   if (mobile && view === 'eat-clean' && itemId === 'nutrition') return true
   return false
 }

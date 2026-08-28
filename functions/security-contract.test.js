@@ -285,10 +285,19 @@ test('sensitive operations routes require Identity v2 capabilities in addition t
       `${route} must require ${capability}`,
     )
   }
-  assert.match(appSource, /accessContext\?\.capabilities\.includes\('pt\.schedule\.branch\.publish'\)[\s\S]*?BranchScheduleWorkspace/)
+  const productionScheduleRoute = appSource.match(/case 'admin-pt-schedule':[\s\S]*?<\/AuraOperationsFrame>/)?.[0] ?? ''
+  assert.match(productionScheduleRoute, /backendMode === 'firebase'/)
+  assert.match(productionScheduleRoute, /!authzReady/)
+  assert.match(productionScheduleRoute, /accessContext\?\.capabilities\.includes\('pt\.schedule\.branch\.publish'\)[\s\S]*?BranchScheduleWorkspace/)
+  assert.match(productionScheduleRoute, /: <SchedulerWrapper/)
+  assert.equal((productionScheduleRoute.match(/<SchedulerWrapper/g) || []).length, 1)
   assert.match(branchScheduleWorkspaceSource, /getPtScheduleWorkspace/)
   assert.match(branchScheduleWorkspaceSource, /applyPtScheduleDraftCommand/)
   assert.match(branchScheduleWorkspaceSource, /generatePtScheduleDraft/)
+  assert.match(branchScheduleWorkspaceSource, /const validatePublish = async \(\) =>[\s\S]*?validatePtScheduleDraft\(\{[\s\S]*?expectedDraftRevision: workspace\.draftRevision/)
+  assert.match(branchScheduleWorkspaceSource, /const confirmPublish = async \(\) =>[\s\S]*?publishPtSchedule\(\{[\s\S]*?expectedDraftRevision: publishPreview\.draftRevision/)
+  assert.match(branchScheduleWorkspaceSource, /onClick=\{\(\) => void validatePublish\(\)\}[\s\S]*?Kiểm tra & Publish/)
+  assert.match(branchScheduleWorkspaceSource, /onClick=\{\(\) => void confirmPublish\(\)\}/)
 })
 
 test('staff keeps learner navigation while every work capability has a separate page', () => {

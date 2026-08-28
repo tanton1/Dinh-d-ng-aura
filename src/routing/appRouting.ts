@@ -30,6 +30,7 @@ const validViews: ViewId[] = [
   'courses',
   'course-detail',
   'schedule',
+  'student-availability',
   'nutrition',
   'eat-clean',
   'trainer-portal',

@@ -14,7 +14,6 @@ import {
   LoaderCircle,
   RefreshCw,
   RotateCcw,
-  Save,
   ScrollText,
   UserRound,
   WalletCards,
@@ -24,7 +23,6 @@ import SessionRequestModal from '../../components/schedule/SessionRequestModal'
 import {
   asStudentPtScheduleError,
   listMyStudentPtSchedule,
-  saveMyStudentAvailability,
   StudentPtScheduleServiceError,
   type StudentPtScheduleData,
   type StudentPtSession,
@@ -36,8 +34,7 @@ import './StudentSchedulePage.css'
 const DEFAULT_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 const DEFAULT_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
 const DAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
-type StudentScheduleTab = 'this-week' | 'next-week' | 'availability' | 'contract' | 'requests' | 'history'
-type AvailabilityWeekOffset = 0 | 1 | 2
+type StudentScheduleTab = 'this-week' | 'next-week' | 'contract' | 'requests' | 'history'
 
 const statusLabels: Record<string, string> = {
   scheduled: 'Đã xếp lịch',
@@ -121,10 +118,6 @@ function canRequestSessionChange(session: StudentPtSession, deadlineHours = 12) 
   return Number.isFinite(startsAt) && startsAt - Date.now() >= deadlineHours * 60 * 60 * 1000
 }
 
-function sameSlots(left: Iterable<string>, right: Iterable<string>) {
-  return [...left].sort().join('|') === [...right].sort().join('|')
-}
-
 function formatMoney(value: number) {
   return `${Math.max(0, Number(value || 0)).toLocaleString('vi-VN')}đ`
 }
@@ -139,18 +132,15 @@ function contractStatusLabel(value: string) {
   return ({ active: 'Đang hiệu lực', future: 'Gói tiếp theo', frozen: 'Đang bảo lưu', expired: 'Đã hết hạn', cancelled: 'Đã hủy' } as Record<string, string>)[value] ?? value
 }
 
-export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }: { onNavigate: (view: ViewId) => void; isDemo?: boolean; ownerId?: string }) {
+export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigate: (view: ViewId) => void; isDemo?: boolean; ownerId?: string }) {
   const today = useMemo(() => new Date(), [])
   const range = useMemo(() => ({ from: toIsoDate(addDays(today, -180)), to: toIsoDate(addDays(today, 180)) }), [today])
   const [data, setData] = useState<StudentPtScheduleData | null>(null)
   const [activeTab, setActiveTab] = useState<StudentScheduleTab>('this-week')
-  const [selectedSlots, setSelectedSlots] = useState<Set<string>>(new Set())
   const [weekOffset, setWeekOffset] = useState(0)
   const [selectedDate, setSelectedDate] = useState(toIsoDate(today))
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
   const [loadIssue, setLoadIssue] = useState<StudentPtScheduleServiceError | null>(null)
-  const [saveIssue, setSaveIssue] = useState<StudentPtScheduleServiceError | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [requestSession, setRequestSession] = useState<StudentPtSession | null>(null)
   const [showPauseRequest, setShowPauseRequest] = useState(false)
@@ -164,7 +154,6 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
   const load = useCallback(async () => {
     setLoading(true)
     setLoadIssue(null)
-    setSaveIssue(null)
     try {
       if (isDemo) {
         const demo: StudentPtScheduleData = {
@@ -192,12 +181,10 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
           pauseRequests: [],
         }
         setData(demo)
-        setSelectedSlots(new Set(demo.student?.availableSlots ?? []))
         return
       }
       const response = await listMyStudentPtSchedule(range.from, range.to, availabilityWeekId)
       setData(response)
-      setSelectedSlots(new Set(response.student?.availableSlots ?? []))
     } catch (caught) {
       setLoadIssue(asStudentPtScheduleError(caught))
     } finally {
@@ -207,33 +194,9 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
 
   useEffect(() => { void load() }, [load])
 
-  const workingDays = data?.scheduleConfig.workingDays?.length ? data.scheduleConfig.workingDays : DEFAULT_DAYS
-  const workingHours = data?.scheduleConfig.workingHours?.length ? data.scheduleConfig.workingHours : DEFAULT_HOURS
   const changeDeadlineHours = data?.scheduleConfig.sessionChangeDeadlineHours ?? 12
   const complimentaryChangeCancelPerMonth = data?.scheduleConfig.complimentaryChangeCancelPerMonth ?? 1
   const offMaxDaysPerRequest = data?.scheduleConfig.offMaxDaysPerRequest ?? 14
-  const availability = data?.student?.availability
-  const originalSlots = availability?.slots ?? data?.student?.availableSlots ?? []
-  const availabilityLocked = availability?.locked === true
-  const minimumSlots = availability?.minimumSlots ?? Math.max(5, data?.student?.sessionsPerWeek ?? 1)
-  const availabilityMissingSlots = Math.max(0, minimumSlots - selectedSlots.size)
-  const availabilityGuidance = availabilityMissingSlots > 0
-    ? {
-        tone: 'warning',
-        title: `Cần thêm ${availabilityMissingSlots} khung giờ`,
-        message: selectedSlots.size <= 2
-          ? `Bạn mới chọn ${selectedSlots.size}/${minimumSlots} khung. Thêm nhiều lựa chọn giúp Aura giữ đúng PT, ghép ca đôi phù hợp và tránh thiếu buổi.`
-          : `Sắp hoàn tất rồi! Chỉ cần thêm ${availabilityMissingSlots} khung để lịch linh hoạt hơn và hạn chế phải tập liền nhiều ngày.`,
-      }
-    : selectedSlots.size < minimumSlots + 2
-      ? { tone: 'ready', title: 'Đã đủ mức tối thiểu', message: 'Thêm 2 khung nữa sẽ tăng cơ hội xếp đủ buổi, đúng PT và giãn đều ngày tập.' }
-      : { tone: 'excellent', title: 'Lựa chọn rất tốt!', message: 'Nhiều khung rảnh giúp Aura ưu tiên ca đôi, cân bằng lịch PT và xếp đủ buổi cho bạn.' }
-  const dirty = !sameSlots(selectedSlots, originalSlots)
-  const availabilityStatusKey = availabilityLocked ? 'locked' : dirty ? 'dirty' : availability?.status === 'submitted' ? 'submitted' : 'draft'
-  const availabilityStatusLabel = availabilityStatusKey === 'locked' ? 'Đã khóa' : availabilityStatusKey === 'dirty' ? 'Chưa lưu' : availabilityStatusKey === 'submitted' ? 'Đã gửi' : 'Chưa gửi'
-  const availabilityCutoffLabel = availability?.cutoffAt
-    ? new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date(availability.cutoffAt))
-    : '10:00 Chủ nhật trước tuần tập'
   const upcomingSessions = useMemo(() => (data?.sessions ?? [])
     .filter((session) => session.date >= toIsoDate(today) && session.status === 'scheduled')
     .sort((left, right) => `${left.date}-${left.hour ?? 99}`.localeCompare(`${right.date}-${right.hour ?? 99}`)), [data?.sessions, today])
@@ -243,15 +206,6 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
   const scheduleRequests = data?.sessionRequests ?? []
   const pauseRequests = data?.pauseRequests ?? []
   const pendingRequestCount = scheduleRequests.filter((request) => request.status === 'pending').length + pauseRequests.filter((request) => request.status === 'pending').length
-  const sessionsBySlot = useMemo(() => {
-    const result = new Map<string, StudentPtSession[]>()
-    upcomingSessions.forEach((session) => {
-      const slotId = slotIdForSession(session)
-      if (!slotId) return
-      result.set(slotId, [...(result.get(slotId) ?? []), session])
-    })
-    return result
-  }, [upcomingSessions])
   const todayKey = toIsoDate(today)
   const contracts = data?.contracts ?? []
   const activeContract = contracts.find((contract) => contract.status === 'active'
@@ -277,68 +231,12 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
   const weekLabel = `${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: 'short' }).format(weekDays[0])} – ${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: 'short', year: 'numeric' }).format(weekDays[6])}`
   const selectedLabel = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: 'numeric', month: 'long' }).format(fromIsoDate(selectedDate))
 
-  const toggleSlot = (slotId: string) => {
-    if (saving || availabilityLocked) return
-    setMessage(null)
-    setSaveIssue(null)
-    setSelectedSlots((current) => {
-      const next = new Set(current)
-      if (next.has(slotId)) next.delete(slotId)
-      else next.add(slotId)
-      return next
-    })
-  }
-
-  const save = async () => {
-    if (!data?.student || !dirty || saving) return
-    if (selectedSlots.size < minimumSlots) {
-      setSaveIssue(new StudentPtScheduleServiceError(
-        `Bạn mới chọn ${selectedSlots.size}/${minimumSlots} khung. Hãy thêm ${minimumSlots - selectedSlots.size} khung để Aura có nhiều phương án xếp đủ buổi và giữ đúng PT.`,
-        'MINIMUM_AVAILABILITY_REQUIRED',
-        false,
-        { selectedSlots: selectedSlots.size, minimumSlots },
-      ))
-      return
-    }
-    setSaving(true)
-    setSaveIssue(null)
-    setMessage(null)
-    try {
-      if (isDemo) {
-        setData((current) => current?.student ? {
-          ...current,
-          student: {
-            ...current.student,
-            availableSlots: [...selectedSlots], availabilityRevision: current.student.availabilityRevision + 1, isScheduleConfirmed: true,
-            availability: current.student.availability ? { ...current.student.availability, slots: [...selectedSlots], revision: current.student.availability.revision + 1, status: 'submitted' } : undefined,
-          },
-        } : current)
-      } else {
-        const result = await saveMyStudentAvailability({ weekId: availabilityWeekId, availableSlots: [...selectedSlots], expectedRevision: availability?.revision ?? data.student.availabilityRevision })
-        setData((current) => current?.student ? { ...current, student: { ...current.student, availableSlots: result.availableSlots, availabilityRevision: result.availabilityRevision, isScheduleConfirmed: result.isScheduleConfirmed, availability: result.availability } } : current)
-        setSelectedSlots(new Set(result.availableSlots))
-      }
-      setMessage('Đã lưu lịch rảnh. Bộ phận vận hành sẽ rà soát các ca cần xếp lại.')
-    } catch (caught) {
-      const issue = asStudentPtScheduleError(caught)
-      if (issue.issueCode === 'REVISION_CONFLICT') await load()
-      setSaveIssue(issue)
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const selectWeek = (offset: 0 | 1) => {
     setWeekOffset(offset)
     setSelectedDate(offset === 0 ? toIsoDate(today) : toIsoDate(addDays(startOfWeek(today), 7)))
     setActiveTab(offset === 0 ? 'this-week' : 'next-week')
   }
   const goToday = () => selectWeek(0)
-  const selectAvailabilityWeek = (offset: AvailabilityWeekOffset) => {
-    setWeekOffset(offset)
-    setSelectedDate(toIsoDate(addDays(startOfWeek(today), offset * 7)))
-    setActiveTab('availability')
-  }
   const selectUpcoming = (session: StudentPtSession) => {
     const targetOffset = Math.floor((fromIsoDate(session.date).getTime() - startOfWeek(today).getTime()) / (7 * 86_400_000))
     setWeekOffset(targetOffset > 0 ? 1 : 0)
@@ -352,7 +250,6 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
     if (track) track.scrollTo({ left: track.clientWidth * normalizedIndex, behavior: 'smooth' })
   }
   const loadIssueContent = loadIssue ? issueCopy(loadIssue) : null
-  const saveIssueContent = saveIssue ? issueCopy(saveIssue) : null
   const missingProfileDescription = data?.identityLink?.crmProfileIdConfigured
     ? 'Mã hồ sơ CRM đã được cấu hình nhưng không còn khớp dữ liệu học viên. Quản trị viên cần kiểm tra lại liên kết.'
     : 'Tài khoản này chưa được ghép với hồ sơ PT đã chuyển dữ liệu. Quản trị viên cần bổ sung crmProfileId cho Role Assignment.'
@@ -398,7 +295,7 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
         <nav className="student-schedule-tabs" aria-label="Nội dung lịch học viên">
           <button type="button" className={activeTab === 'this-week' ? 'active' : ''} onClick={() => selectWeek(0)}><CalendarCheck size={16} /><span>Tuần này</span></button>
           <button type="button" className={activeTab === 'next-week' ? 'active' : ''} onClick={() => selectWeek(1)}><CalendarDays size={16} /><span>Tuần sau</span></button>
-          <button type="button" className={activeTab === 'availability' ? 'active' : ''} onClick={() => selectAvailabilityWeek(Math.min(2, Math.max(0, weekOffset)) as AvailabilityWeekOffset)}><CalendarRange size={16} /><span>Lịch rảnh</span><em className={`student-availability-tab-status is-${availabilityStatusKey}`}>{availabilityStatusLabel}</em></button>
+          <button type="button" onClick={() => onNavigate('student-availability')}><CalendarRange size={16} /><span>Lịch rảnh</span><ChevronRight size={14} /></button>
           <button type="button" className={activeTab === 'contract' ? 'active' : ''} onClick={() => setActiveTab('contract')}><WalletCards size={16} /><span>Hợp đồng</span>{contractAlerts.length > 0 && <i>{contractAlerts.length}</i>}</button>
           <button type="button" className={activeTab === 'requests' ? 'active' : ''} onClick={() => setActiveTab('requests')}><ScrollText size={16} /><span>Yêu cầu</span>{pendingRequestCount > 0 && <i>{pendingRequestCount}</i>}</button>
           <button type="button" className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}><History size={16} /><span>Lịch sử</span></button>
@@ -421,7 +318,7 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
             <div className="day-label"><span>{selectedLabel.toLocaleUpperCase('vi')}</span><small>{selectedSessions.length} buổi tập</small></div>
 
             {selectedSessions.length ? selectedSessions.map((session) => {
-              const matched = selectedSlots.has(slotIdForSession(session))
+              const matched = (data.student?.availableSlots ?? []).includes(slotIdForSession(session))
               return <article className={`timeline-event featured ${session.status}`} key={session.id}>
                 <div className="event-time"><strong>{session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}</strong><span>Buổi PT</span></div><div className="event-line"><i /></div>
                 <div className="event-detail"><div className="event-icon purple"><Dumbbell size={22} /></div><div><span>HUẤN LUYỆN CÁ NHÂN</span><h3>Buổi tập PT</h3><p><UserRound size={13} /> {session.trainerName}</p><em className={`pt-activity-status ${session.status}`}>{statusLabels[session.status] ?? session.status}</em><small className={matched ? 'student-classic-match is-linked' : 'student-classic-match needs-review'}>{matched ? <><Link2 size={12} /> Khớp lịch rảnh</> : <><AlertCircle size={12} /> Cần rà soát lịch rảnh</>}</small>{session.status === 'scheduled' && <button type="button" disabled={!canRequestSessionChange(session, changeDeadlineHours)} title={!canRequestSessionChange(session, changeDeadlineHours) ? `Đã qua hạn gửi trước ${changeDeadlineHours} giờ` : undefined} className="student-session-policy-action" onClick={() => setRequestSession(session)}>{canRequestSessionChange(session, changeDeadlineHours) ? 'Đổi / hủy buổi' : `Đã qua hạn ${changeDeadlineHours} giờ`}</button>}</div></div>
@@ -444,26 +341,6 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
         </section>}
         {message && <div className="student-schedule-message" role="status"><Check size={17} /> {message}</div>}
         {data.sessionsTruncated && <div className="student-schedule-state is-warning" role="status"><AlertCircle size={24} /><strong>Khoảng lịch có quá nhiều buổi tập</strong><span>Aura đang hiển thị 1.000 buổi đầu tiên. Hãy chuyển sang khoảng thời gian ngắn hơn để xem đầy đủ.</span></div>}
-        {saveIssue && saveIssueContent && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={24} /><strong>{saveIssueContent.title}</strong><span>{saveIssueContent.description}</span>{saveIssue.retryable && <button type="button" onClick={() => void load()}><RefreshCw size={16} /> Tải lịch mới nhất</button>}</div>}
-
-        {activeTab === 'availability' && <section className="student-availability-card">
-          <header><div><small>MA TRẬN THỜI GIAN RẢNH · TUẦN {availabilityWeekId}</small><h2>Đăng ký thời gian có thể tập</h2><p>Chọn tối thiểu {minimumSlots} khung giờ. Lịch khóa lúc 10:00 Chủ nhật trước tuần tập.</p></div><button type="button" className={`student-availability-status-button is-${availabilityStatusKey}`} onClick={() => document.querySelector('.student-schedule-matrix-scroll')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}><strong>{availabilityStatusLabel}</strong><span>{selectedSlots.size}/{minimumSlots} khung</span></button></header>
-          <div className="student-availability-week-switch"><button type="button" className={weekOffset === 0 ? 'active' : ''} onClick={() => selectAvailabilityWeek(0)}>Tuần này</button><button type="button" className={weekOffset === 1 ? 'active' : ''} onClick={() => selectAvailabilityWeek(1)}>Tuần sau</button><button type="button" className={weekOffset === 2 ? 'active' : ''} onClick={() => selectAvailabilityWeek(2)}>Tuần kế</button></div>
-          {availabilityLocked && <div className="student-schedule-state is-warning student-availability-lock-note" role="status"><AlertCircle size={22} /><div><strong>Tuần này đã chốt lịch rảnh</strong><span>Khóa từ {availabilityCutoffLabel}. Tuần đã chốt không tự mở lại; vận hành có thể sửa hộ khi cần.</span></div>{weekOffset < 2 && <button type="button" onClick={() => selectAvailabilityWeek((weekOffset + 1) as AvailabilityWeekOffset)}>Đăng ký tuần kế tiếp <ChevronRight size={16} /></button>}</div>}
-          {!availabilityLocked && <div className={`student-availability-guidance is-${availabilityGuidance.tone}`} role="status" aria-live="polite"><span>{availabilityMissingSlots > 0 ? <AlertCircle size={20} /> : <Check size={20} />}</span><div><strong>{availabilityGuidance.title}</strong><p>{availabilityGuidance.message}</p></div><em>{selectedSlots.size}/{minimumSlots}</em></div>}
-          <div className="student-schedule-legend"><span><i className="is-available" /> Có thể tập</span><span><i className="is-booked" /> Đã xếp ca</span><span><i className="is-linked" /> Đã liên kết</span></div>
-          <div className="student-schedule-matrix-scroll" role="region" aria-label="Ma trận thời gian rảnh" tabIndex={0}>
-            <table className="student-schedule-matrix"><thead><tr><th>Giờ</th>{workingDays.map((day) => <th key={day}>{day}</th>)}</tr></thead><tbody>{workingHours.map((hour) => <tr key={hour}><th>{String(hour).padStart(2, '0')}:00</th>{workingDays.map((day) => {
-              const slotId = `${day}-${hour}`
-              const selected = selectedSlots.has(slotId)
-              const linkedSessions = sessionsBySlot.get(slotId) ?? []
-              const booked = linkedSessions.length > 0
-              return <td key={slotId}><button type="button" disabled={availabilityLocked} className={`${selected ? 'is-available' : ''} ${booked ? 'is-booked' : ''} ${selected && booked ? 'is-linked' : ''}`} aria-pressed={selected} aria-label={`${day} ${hour} giờ, ${selected ? 'đã chọn' : 'chưa chọn'}${booked ? `, có ${linkedSessions.length} ca đã xếp` : ''}`} onClick={() => toggleSlot(slotId)}>{selected && booked ? <Link2 size={16} /> : booked ? <Dumbbell size={16} /> : selected ? <Check size={16} /> : null}{booked && <small>{linkedSessions.length}</small>}</button></td>
-            })}</tr>)}</tbody></table>
-          </div>
-          <footer><div><strong>{availabilityLocked ? 'Đã khóa' : dirty ? 'Có thay đổi chưa lưu' : 'Dữ liệu đã đồng bộ'}</strong><span>Phiên bản tuần #{availability?.revision ?? data.student.availabilityRevision}</span></div><button type="button" disabled={!dirty || saving || availabilityLocked} onClick={() => void save()}>{saving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}{saving ? 'Đang lưu...' : availabilityLocked ? 'Tuần đã khóa' : 'Gửi lịch rảnh'}</button></footer>
-        </section>}
-
         {activeTab === 'contract' && <section className="student-contract-center">
           <header><div><small>AURA · HỢP ĐỒNG & THANH TOÁN</small><h2>Gói tập của bạn</h2><p>Thông tin chỉ đọc, được đồng bộ từ hợp đồng và lịch thanh toán canonical của Aura.</p></div>{selectedContract && <span className={`is-${selectedContract.paymentStatus}`}>{selectedContract.outstandingAmount > 0 ? `Còn ${formatMoney(selectedContract.outstandingAmount)}` : 'Đã thanh toán'}</span>}</header>
           {contracts.length > 0 ? <>
@@ -478,7 +355,7 @@ export default function SchedulePage({ onNavigate: _onNavigate, isDemo = false }
             {selectedContract && <div className="student-contract-detail">
               <div className="student-contract-kpis"><article><small>Giá trị hợp đồng</small><strong>{formatMoney(selectedContract.totalAmount)}</strong></article><article><small>Đã thanh toán</small><strong>{formatMoney(selectedContract.paidAmount)}</strong></article><article className={selectedContract.outstandingAmount > 0 ? 'is-warning' : 'is-paid'}><small>Công nợ còn lại</small><strong>{formatMoney(selectedContract.outstandingAmount)}</strong></article></div>
               <div className="student-payment-schedule"><header><div><small>LỊCH THANH TOÁN</small><h3>Các kỳ của {selectedContract.packageName}</h3></div>{selectedContract.nextPaymentDate && <span>Kỳ tới {formatContractDate(selectedContract.nextPaymentDate)}</span>}</header>
-                {selectedContract.installments.length > 0 ? <div>{selectedContract.installments.map((installment, index) => {
+                {(selectedContract.installments ?? []).length > 0 ? <div>{(selectedContract.installments ?? []).map((installment, index) => {
                   const overdue = installment.status === 'pending' && installment.date < todayKey
                   const dueToday = installment.status === 'pending' && installment.date === todayKey
                   const status = installment.status === 'paid' ? 'Đã thanh toán' : installment.status === 'cancelled' ? 'Đã hủy' : overdue ? 'Quá hạn' : dueToday ? 'Đến hạn hôm nay' : 'Chờ thanh toán'

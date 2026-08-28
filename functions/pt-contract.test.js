@@ -12,6 +12,7 @@ const cycleMigrationSource = readFileSync(join(__dirname, 'scripts', 'backfill-p
 const operationsV2Source = readFileSync(join(__dirname, 'pt-operations-v2.js'), 'utf8')
 const studentScheduleServiceSource = readFileSync(join(__dirname, '..', 'src', 'services', 'studentPtScheduleService.ts'), 'utf8')
 const studentSchedulePageSource = readFileSync(join(__dirname, '..', 'src', 'pages', 'student', 'SchedulePage.tsx'), 'utf8')
+const studentAvailabilityPageSource = readFileSync(join(__dirname, '..', 'src', 'pages', 'student', 'StudentAvailabilityPage.tsx'), 'utf8')
 const { studentContractProjection, studentContractAlerts } = require('./pt-operations-v2')
 
 test('PT lifecycle is exposed only through the expected atomic callables', () => {
@@ -116,6 +117,9 @@ test('learner and staff personal Gym schedule is self-scoped and availability wr
   assert.match(studentScheduleBlock, /availabilityCutoff\(weekId\)/)
   assert.match(studentScheduleBlock, /issueCode: 'AVAILABILITY_LOCKED'/)
   assert.match(studentScheduleBlock, /issueCode: 'MINIMUM_AVAILABILITY_REQUIRED'/)
+  assert.match(studentScheduleBlock, /request\.data\?\.confirmBelowMinimum === true/)
+  assert.match(studentScheduleBlock, /slots\.length < minimumSlots && !confirmBelowMinimum/)
+  assert.match(studentScheduleBlock, /belowMinimumConfirmed: slots\.length < minimumSlots/)
   assert.match(studentScheduleBlock, /contractAlerts: serialize\(contractAlerts\)/)
   assert.match(studentScheduleBlock, /studentContractProjection\(item\.id, item\.data\(\), today\)/)
   assert.match(studentScheduleBlock, /currentAvailability\.data\(\)\?\.revision/)
@@ -204,9 +208,13 @@ test('student schedule client maps callable failures to actionable structured st
   }
   assert.match(studentScheduleServiceSource, /details\.issueCode/)
   assert.match(studentScheduleServiceSource, /replace\(\/\^functions\\\//)
+  assert.match(studentScheduleServiceSource, /normalizeStudentPtScheduleData/)
+  assert.match(studentScheduleServiceSource, /installments: Array\.isArray\(contract\.installments\)/)
   assert.match(studentSchedulePageSource, /issue\.issueCode/)
   assert.match(studentSchedulePageSource, /crmProfileIdConfigured/)
-  assert.match(studentSchedulePageSource, /if \(issue\.issueCode === 'REVISION_CONFLICT'\) await load\(\)/)
+  assert.match(studentSchedulePageSource, /selectedContract\.installments \?\? \[\]/)
+  assert.match(studentAvailabilityPageSource, /if \(nextIssue\.issueCode === 'REVISION_CONFLICT'\) await load\(\)/)
+  assert.match(studentAvailabilityPageSource, /confirmBelowMinimum: belowMinimumAccepted/)
 })
 
 test('assignment-cycle backfill is stable, dry-run by default and non-destructive', () => {

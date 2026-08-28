@@ -1,0 +1,87 @@
+.student-availability-page {
+  --schedule-pink: #f62f82;
+  --schedule-orange: #ff8751;
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  padding: 16px clamp(13px, 3vw, 34px) 128px;
+  background: linear-gradient(150deg, #fff8fa 0%, #fff3ef 55%, #fff 100%);
+}
+
+.student-availability-page__hero,
+.student-availability-page > .student-availability-card,
+.student-availability-page > .student-schedule-state,
+.student-availability-page > .student-schedule-message {
+  width: min(1080px, 100%);
+  margin-inline: auto;
+}
+
+.student-availability-page__hero {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 26px;
+  border-radius: 28px;
+  color: #fff;
+  background: linear-gradient(135deg, #3a172d 0%, #a11658 58%, #ff7955 100%);
+  box-shadow: 0 20px 44px rgba(86, 24, 54, .2);
+}
+
+.student-availability-page__hero small { font-size: 10px; font-weight: 900; letter-spacing: .15em; }
+.student-availability-page__hero h1 { margin: 7px 0; font-size: clamp(27px, 4vw, 40px); }
+.student-availability-page__hero p { max-width: 660px; margin: 0; color: #ffe9f1; font-size: 13px; line-height: 1.55; }
+.student-availability-page__hero > span { display: grid; width: 60px; height: 60px; place-items: center; border-radius: 21px; background: rgba(255,255,255,.15); }
+.student-availability-page__hero > button { display: inline-flex; grid-column: 1 / -1; justify-self: start; align-items: center; gap: 7px; min-height: 40px; padding: 0 13px; border: 1px solid rgba(255,255,255,.45); border-radius: 13px; color: #fff; background: rgba(255,255,255,.12); font-weight: 850; }
+
+.student-availability-page .student-availability-card > footer { position: static; bottom: auto; z-index: auto; box-shadow: none; }
+
+.student-availability-confirm { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 18px; }
+.student-availability-confirm__backdrop { position: absolute; inset: 0; border: 0; background: rgba(36, 18, 29, .54); backdrop-filter: blur(6px); }
+.student-availability-confirm > section { position: relative; width: min(440px, 100%); padding: 22px; border: 1px solid #f0d9e2; border-radius: 24px; background: #fff; box-shadow: 0 28px 70px rgba(47, 20, 35, .3); }
+.student-availability-confirm > section > header { display: flex; align-items: center; justify-content: space-between; }
+.student-availability-confirm > section > header > span { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 15px; color: #bc5d18; background: #fff1df; }
+.student-availability-confirm > section > header > button { display: grid; width: 38px; height: 38px; place-items: center; border: 0; border-radius: 12px; color: #6f626a; background: #f7f2f4; }
+.student-availability-confirm h2 { margin: 17px 0 7px; color: #291e25; font-size: 23px; }
+.student-availability-confirm p { margin: 0; color: #786b73; font-size: 13px; line-height: 1.55; }
+.student-availability-confirm__summary { display: flex; gap: 10px; margin-top: 16px; padding: 13px; border: 1px solid #f4dec8; border-radius: 15px; color: #ae5618; background: #fff8ed; }
+.student-availability-confirm__summary span { display: grid; gap: 3px; }
+.student-availability-confirm__summary strong { color: #7b3b14; font-size: 13px; }
+.student-availability-confirm__summary small { color: #876b59; font-size: 10px; line-height: 1.4; }
+.student-availability-confirm > section > footer { display: grid; grid-template-columns: 1fr 1.15fr; gap: 9px; margin-top: 20px; }
+.student-availability-confirm > section > footer button { min-height: 46px; border: 1px solid #edd5df; border-radius: 14px; color: #a33162; background: #fff; font-weight: 850; }
+.student-availability-confirm > section > footer button.is-confirm { border-color: transparent; color: #fff; background: linear-gradient(120deg, var(--schedule-pink), var(--schedule-orange)); box-shadow: 0 9px 22px rgba(246,47,130,.22); }
+
+@media (max-width: 640px) {
+  .student-availability-page { gap: 12px; padding: 10px 0 112px; }
+  .student-availability-page__hero { width: auto; margin: 0 10px; padding: 21px 17px; border-radius: 24px; }
+  .student-availability-page__hero > span { width: 50px; height: 50px; border-radius: 17px; }
+  .student-availability-page__hero h1 { font-size: 25px; }
+  .student-availability-page__hero p { font-size: 11px; }
+  .student-availability-page > .student-availability-card { border-right: 0; border-left: 0; border-radius: 22px; }
+  .student-availability-page .student-availability-card > header { padding: 17px 13px 11px; }
+  .student-availability-page .student-availability-week-switch { display: grid; margin: 0 13px 12px; }
+  .student-availability-page .student-availability-week-switch button { min-width: 0; padding: 0 7px; font-size: 10px; }
+  .student-availability-page .student-schedule-legend { padding: 0 13px 11px; }
+  .student-availability-page .student-schedule-matrix-scroll { margin: 0; border-right: 0; border-left: 0; border-radius: 0; }
+  .student-availability-page .student-schedule-matrix { width: 100%; min-width: 0; border-spacing: 1px; padding: 4px 2px; }
+  .student-availability-page .student-schedule-matrix th { padding: 6px 1px; font-size: 9px; }
+  .student-availability-page .student-schedule-matrix thead th:first-child,
+  .student-availability-page .student-schedule-matrix tbody th { width: 38px; font-size: 8px; }
+  .student-availability-page .student-schedule-matrix td { height: 35px; }
+  .student-availability-page .student-schedule-matrix td button { height: 32px; border-radius: 4px; box-shadow: none; }
+  .student-availability-page .student-schedule-matrix td button svg { width: 13px; height: 13px; }
+  .student-availability-page .student-availability-card > footer { padding: 14px 13px calc(18px + env(safe-area-inset-bottom, 0px)); }
+  .student-availability-page .student-availability-card footer button { min-width: 150px; }
+  .student-availability-page > .student-schedule-state,
+  .student-availability-page > .student-schedule-message { width: auto; margin-inline: 10px; }
+  .student-availability-confirm { align-items: end; padding: 10px; }
+  .student-availability-confirm > section { padding: 19px 16px calc(18px + env(safe-area-inset-bottom, 0px)); border-radius: 24px 24px 18px 18px; }
+}
+
+@media (max-width: 390px) {
+  .student-availability-page .student-availability-card > footer { align-items: stretch; flex-direction: column; }
+  .student-availability-page .student-availability-card footer button { width: 100%; }
+  .student-availability-confirm > section > footer { grid-template-columns: 1fr; }
+}

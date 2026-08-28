@@ -10,6 +10,7 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
   progress: () => import('../pages/student/ProgressPage'),
   'progress-photo-studio': () => import('../pages/student/ProgressPhotoStudio'),
   schedule: () => import('../pages/student/SchedulePage'),
+  'student-availability': () => import('../pages/student/StudentAvailabilityPage'),
   profile: () => import('../pages/student/ProfilePage'),
   workout: () => import('../pages/student/WorkoutPage'),
   'trainer-portal': () => import('../pages/operations/TrainerPortalV2'),

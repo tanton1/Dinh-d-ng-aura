@@ -208,6 +208,14 @@ export interface StudentContract {
   frozenAt?: string
   totalSessions: number
   usedSessions: number
+  /** Quyền lợi chưa bị tính buổi, chưa trừ các session đang giữ chỗ. */
+  remainingEntitlementSessions?: number
+  /** Session scheduled/rescheduled chưa bị tính buổi trên toàn hợp đồng. */
+  activeScheduledSessions?: number
+  /** Session scheduled/rescheduled thuộc tuần workspace đang xem. */
+  activeScheduledThisWeek?: number
+  /** Số buổi mới còn có thể xếp sau khi trừ mọi session đang giữ chỗ. */
+  remainingSchedulableSessions?: number
   packageSessions?: number
   plannedCarryOverSessions?: number
   carriedOverSessions?: number

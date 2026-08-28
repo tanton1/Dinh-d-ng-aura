@@ -765,6 +765,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const expectedRevision = integer(request.data?.expectedRevision, 0, 0, 1000000)
     const requiredSessions = integer(profile.value.sessionsPerWeek, 3, 1, 6)
     const minimumSlots = Math.max(5, requiredSessions)
+    const confirmBelowMinimum = request.data?.confirmBelowMinimum === true
     const cutoffAt = availabilityCutoff(weekId)
     if (Date.now() >= cutoffAt.getTime()) {
       throw new HttpsError('failed-precondition', 'Lịch rảnh của tuần này đã khóa lúc 10:00 Chủ nhật.', {
@@ -773,10 +774,10 @@ function createPtOperationsV2Functions({ db, onCall }) {
         cutoffAt: cutoffAt.toISOString(),
       })
     }
-    if (slots.length < minimumSlots) {
+    if (slots.length < minimumSlots && !confirmBelowMinimum) {
       throw new HttpsError('failed-precondition', `Bạn mới chọn ${slots.length}/${minimumSlots} khung. Hãy thêm ${minimumSlots - slots.length} khung để Aura có nhiều phương án xếp đủ buổi và giữ đúng PT.`, {
         issueCode: 'MINIMUM_AVAILABILITY_REQUIRED',
-        action: 'select_more_slots',
+        action: 'confirm_below_minimum',
         selectedSlots: slots.length,
         minimumSlots,
         missingSlots: minimumSlots - slots.length,
@@ -805,6 +806,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
         slots,
         requiredSessions,
         minimumSlots,
+        belowMinimumConfirmed: slots.length < minimumSlots,
         status: 'submitted',
         revision: currentRevision + 1,
         submittedAt: FieldValue.serverTimestamp(),
@@ -820,6 +822,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
         weekId,
         beforeSlotCount: Array.isArray(currentAvailability.data()?.slots) ? currentAvailability.data().slots.length : 0,
         afterSlotCount: slots.length,
+        belowMinimumConfirmed: slots.length < minimumSlots,
         createdAt: FieldValue.serverTimestamp(),
       })
       return currentRevision + 1
