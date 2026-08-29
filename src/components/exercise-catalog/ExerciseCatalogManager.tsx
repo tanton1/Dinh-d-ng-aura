@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Check, Dumbbell, Image, Library, Plus, RefreshCw, Save, Search, Send, Sparkles } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AlertTriangle, ArrowLeft, Check, ChevronRight, Dumbbell, Flame, Image, Library, Plus, RefreshCw, Save, Search, Send, Sparkles } from 'lucide-react'
 import type { ExerciseCatalogItem } from '../../types'
 import {
   getExerciseCatalogItem,
@@ -10,11 +10,20 @@ import {
 } from '../../services/exerciseCatalogService'
 import './ExerciseCatalogManager.css'
 
-type CatalogStatusFilter = 'all' | ExerciseCatalogItem['status'] | 'working'
+type CatalogStatusFilter = 'all' | ExerciseCatalogItem['status'] | 'working' | 'popular'
 
 const statusLabels: Record<CatalogStatusFilter, string> = {
-  all: 'Tất cả', draft: 'Nháp', review: 'Chờ duyệt', published: 'Đã xuất bản', archived: 'Lưu trữ', working: 'Đang chỉnh sửa',
+  all: 'Tất cả', popular: 'Nữ hay chọn', draft: 'Nháp', review: 'Chờ duyệt', published: 'Đã xuất bản', archived: 'Lưu trữ', working: 'Đang chỉnh sửa',
 }
+
+// Curated starting set while Aura collects enough program and workout-log
+// usage for a statistically meaningful server-side ranking.
+const popularForWomenIds = new Set([
+  'aura_women_barbell_hip_thrust', 'aura_women_cable_glute_kickback', 'aura_women_goblet_squat',
+  'aura_women_romanian_deadlift', 'aura_women_dumbbell_split_squat', 'aura_women_step_up_knee_raise',
+  'aura_women_leg_press', 'aura_women_lying_leg_curl', 'aura_women_wide_grip_lat_pulldown',
+  'aura_women_seated_cable_row', 'aura_women_dead_bug', 'aura_women_plank',
+])
 
 function emptyDraft(): ExerciseCatalogDraft {
   return {
@@ -67,6 +76,7 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
   const [dirty, setDirty] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const editorRef = useRef<HTMLDivElement>(null)
 
   const loadItems = useCallback(async () => {
     setLoading(true); setError('')
@@ -82,7 +92,12 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
     try {
       const detail = isDemo ? { item, editItem: item } : await getExerciseCatalogItem(item.id)
       setSelectedId(item.id); setPublishedItem(detail.item); setDraft(draftFromItem(detail.editItem)); setEditRevision(detail.editItem.revision); setDirty(false)
+      requestAnimationFrame(() => { if (window.matchMedia('(max-width: 760px)').matches) editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) })
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể mở bài tập.') }
+  }
+
+  const closeMobileDetail = () => {
+    setSelectedId(''); setPublishedItem(null); setDraft(emptyDraft()); setEditRevision(0); setDirty(false); setError(''); setNotice('')
   }
 
   const createNew = () => {
@@ -135,7 +150,8 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
   const filteredItems = useMemo(() => {
     const term = query.trim().toLocaleLowerCase('vi')
     return items.filter((item) => {
-      const matchesStatus = statusFilter === 'all' || (statusFilter === 'working' ? item.hasWorkingDraft : item.status === statusFilter)
+      const matchesStatus = statusFilter === 'all'
+        || (statusFilter === 'popular' ? popularForWomenIds.has(item.id) : statusFilter === 'working' ? item.hasWorkingDraft : item.status === statusFilter)
       const matchesQuery = !term || [item.nameVi, item.nameEn, ...item.targetMuscles, ...item.bodyParts, ...item.equipment].join(' ').toLocaleLowerCase('vi').includes(term)
       return matchesStatus && matchesQuery
     })
@@ -144,7 +160,7 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
   const counts = useMemo(() => ({ published: items.filter((item) => item.status === 'published').length, review: items.filter((item) => item.status === 'review').length, working: items.filter((item) => item.hasWorkingDraft).length }), [items])
   const missingPublishData = !draft.instructionsVi.length || !draft.media.startImageUrl
 
-  return <section className="exercise-catalog-manager" aria-label="Quản lý thư viện bài tập">
+  return <section className={`exercise-catalog-manager ${selectedId ? 'has-mobile-detail' : ''}`} aria-label="Quản lý thư viện bài tập">
     <header className="exercise-catalog-manager__heading">
       <div><span>THƯ VIỆN DÙNG CHUNG</span><h2>Kho bài tập Aura</h2><p>Một nguồn bài tập thống nhất cho giáo án của tất cả học viên.</p></div>
       <button className="exercise-catalog-manager__new" onClick={createNew}><Plus />Thêm bài tập</button>
@@ -165,20 +181,21 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
           <label><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tên bài, nhóm cơ, dụng cụ…" aria-label="Tìm trong thư viện bài tập" /></label>
           <button onClick={() => void loadItems()} disabled={loading} aria-label="Tải lại thư viện"><RefreshCw /></button>
         </div>
-        <div className="exercise-catalog-manager__filters">{(['all', 'published', 'review', 'draft', 'working'] as CatalogStatusFilter[]).map((status) => <button className={statusFilter === status ? 'is-active' : ''} onClick={() => setStatusFilter(status)} key={status}>{statusLabels[status]}</button>)}</div>
+        <div className="exercise-catalog-manager__filters">{(['all', 'popular', 'published', 'review', 'draft', 'working'] as CatalogStatusFilter[]).map((status) => <button className={`${statusFilter === status ? 'is-active' : ''} ${status === 'popular' ? 'is-popular' : ''}`} onClick={() => setStatusFilter(status)} key={status}>{status === 'popular' && <Flame />}{statusLabels[status]}</button>)}</div>
         <div className="exercise-catalog-manager__list">
-          {filteredItems.map((item) => <button className={selectedId === item.id ? 'is-active' : ''} onClick={() => void selectItem(item)} key={item.id}>
+          {filteredItems.map((item) => <button className={`${selectedId === item.id ? 'is-active' : ''} ${popularForWomenIds.has(item.id) ? 'is-popular' : ''}`} onClick={() => void selectItem(item)} key={item.id}>
             <span className="exercise-catalog-manager__thumb">{item.media.posterUrl || item.media.startImageUrl ? <img src={item.media.posterUrl || item.media.startImageUrl} alt="" /> : <Dumbbell />}</span>
-            <span><b>{item.nameVi}</b><small>{item.targetMuscles.join(' · ') || item.bodyParts.join(' · ') || 'Chưa phân nhóm'}</small><em className={`is-${item.hasWorkingDraft ? 'working' : item.status}`}>{item.hasWorkingDraft ? 'Đang sửa' : statusLabels[item.status]}</em></span>
-            {(!item.instructionsVi.length || !item.media.startImageUrl) && <AlertTriangle aria-label="Thiếu dữ liệu xuất bản" />}
+            <span><b>{item.nameVi}</b><small>{item.targetMuscles.join(' · ') || item.bodyParts.join(' · ') || 'Chưa phân nhóm'}</small><span className="exercise-catalog-manager__badges">{popularForWomenIds.has(item.id) && <em className="is-popular"><Flame />Nữ hay chọn</em>}<em className={`is-${item.hasWorkingDraft ? 'working' : item.status}`}>{item.hasWorkingDraft ? 'Đang sửa' : statusLabels[item.status]}</em></span></span>
+            {(!item.instructionsVi.length || !item.media.startImageUrl) ? <AlertTriangle aria-label="Thiếu dữ liệu xuất bản" /> : <ChevronRight aria-label="Xem chi tiết" />}
           </button>)}
           {!loading && !filteredItems.length && <div className="exercise-catalog-manager__empty"><Library /><strong>Không có bài tập phù hợp</strong><span>Đổi bộ lọc hoặc thêm một bài mới.</span></div>}
         </div>
       </aside>
 
-      <div className="exercise-catalog-manager__editor">
+      <div className="exercise-catalog-manager__editor" ref={editorRef}>
         {!selectedId ? <div className="exercise-catalog-manager__empty is-large"><Dumbbell /><strong>Chọn hoặc thêm bài tập</strong><span>Biên tập ngay trên trang, không mở popup.</span></div> : <>
-          <header><div><span>{publishedItem?.status === 'published' ? 'BẢN CHỈNH SỬA AN TOÀN' : 'HỒ SƠ BÀI TẬP'}</span><h3>{draft.nameVi || 'Bài tập mới'}</h3><p>{publishedItem?.status === 'published' ? 'Bản đang dùng vẫn giữ nguyên cho đến khi Admin xuất bản thay đổi.' : `Revision ${editRevision}`}</p></div><em>{draft.status === 'review' ? 'Chờ duyệt' : 'Nháp'}</em></header>
+          <button className="exercise-catalog-manager__mobile-back" onClick={closeMobileDetail}><ArrowLeft />Danh sách bài tập</button>
+          <header><div><span>{publishedItem?.status === 'published' ? 'CHI TIẾT BÀI TẬP' : 'HỒ SƠ BÀI TẬP'}</span><h3>{draft.nameVi || 'Bài tập mới'}</h3><p>{popularForWomenIds.has(selectedId) ? 'Nữ hay chọn · ' : ''}{publishedItem?.status === 'published' ? 'Xem kỹ thuật, nhóm cơ và giáo án đề xuất.' : `Revision ${editRevision}`}</p></div>{popularForWomenIds.has(selectedId) ? <em className="is-popular"><Flame />Nữ hay chọn</em> : <em>{draft.status === 'review' ? 'Chờ duyệt' : 'Nháp'}</em>}</header>
 
           <div className="exercise-catalog-manager__form-grid">
             <label>Tên tiếng Việt<input value={draft.nameVi} onChange={(event) => updateDraft({ nameVi: event.target.value })} /></label>

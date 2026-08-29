@@ -7,6 +7,8 @@ const source = fs.readFileSync(path.join(__dirname, 'exercise-catalog.js'), 'utf
 const indexSource = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8')
 const importer = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'import-free-exercise-catalog.cjs'), 'utf8')
 const serviceSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'exerciseCatalogService.ts'), 'utf8')
+const managerSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'exercise-catalog', 'ExerciseCatalogManager.tsx'), 'utf8')
+const managerStyles = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'exercise-catalog', 'ExerciseCatalogManager.css'), 'utf8')
 
 test('exercise catalog is authenticated, review-gated and revisioned', () => {
   assert.match(source, /if \(!uid\) throw new HttpsError\('unauthenticated'/)
@@ -40,4 +42,12 @@ test('catalog detail remains readable across staged backend rollouts', () => {
   assert.match(source, /sourceExerciseId: text\(data\.source\?\.sourceExerciseId, 160\) \|\| id/)
   assert.match(source, /editItem: editableItem\(snapshot, actor\)/)
   assert.match(serviceSource, /parseCatalogItem\(payload\?\.editItem\) \|\| item/)
+})
+
+test('catalog highlights women recommendations and provides mobile master-detail navigation', () => {
+  assert.match(managerSource, /popularForWomenIds/)
+  assert.match(managerSource, /Nữ hay chọn/)
+  assert.match(managerSource, /Danh sách bài tập/)
+  assert.match(managerSource, /has-mobile-detail/)
+  assert.match(managerStyles, /@media\(max-width:760px\).*has-mobile-detail/s)
 })
