@@ -10,6 +10,15 @@ type CatalogFilters = {
   includeReview?: boolean
 }
 
+export type ExerciseCatalogDraft = Omit<ExerciseCatalogItem, 'id' | 'schemaVersion' | 'revision' | 'status' | 'hasWorkingDraft' | 'editRevision' | 'editStatus'> & {
+  status: 'draft' | 'review'
+}
+
+export interface ExerciseCatalogDetail {
+  item: ExerciseCatalogItem
+  editItem: ExerciseCatalogItem
+}
+
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
 }
@@ -72,6 +81,9 @@ function parseCatalogItem(value: unknown): ExerciseCatalogItem | null {
       license: source?.license === 'Aura-owned' ? 'Aura-owned' : 'Unlicense',
     },
     sourceAttribution: typeof data.sourceAttribution === 'string' ? data.sourceAttribution : 'Free Exercise DB · Unlicense',
+    hasWorkingDraft: data.hasWorkingDraft === true,
+    editRevision: typeof data.editRevision === 'number' ? Math.max(0, Math.round(data.editRevision)) : undefined,
+    editStatus: data.editStatus === 'review' ? 'review' : data.editStatus === 'draft' ? 'draft' : undefined,
   }
 }
 
@@ -84,6 +96,35 @@ export async function listExerciseCatalog(filters: CatalogFilters = {}): Promise
     const parsed = parseCatalogItem(item)
     return parsed ? [parsed] : []
   }) : []
+}
+
+export async function getExerciseCatalogItem(exerciseId: string): Promise<ExerciseCatalogDetail> {
+  if (!firebaseFunctions) throw new Error('Firebase Functions chưa được cấu hình.')
+  const callable = httpsCallable<{ exerciseId: string }, unknown>(firebaseFunctions, 'getExerciseCatalogItem')
+  const response = await callable({ exerciseId })
+  const payload = record(response.data)
+  const item = parseCatalogItem(payload?.item)
+  const editItem = parseCatalogItem(payload?.editItem)
+  if (!item || !editItem) throw new Error('Dữ liệu bài tập không hợp lệ.')
+  return { item, editItem }
+}
+
+export async function saveExerciseCatalogDraft(input: {
+  exerciseId: string
+  expectedRevision: number
+  draft: ExerciseCatalogDraft
+}) {
+  if (!firebaseFunctions) throw new Error('Firebase Functions chưa được cấu hình.')
+  const callable = httpsCallable<typeof input, { exerciseId: string; revision: number; status: 'draft' | 'review'; hasWorkingDraft?: boolean }>(firebaseFunctions, 'saveExerciseCatalogDraft')
+  const response = await callable(input)
+  return response.data
+}
+
+export async function publishExerciseCatalogItem(exerciseId: string, expectedRevision: number) {
+  if (!firebaseFunctions) throw new Error('Firebase Functions chưa được cấu hình.')
+  const callable = httpsCallable<{ exerciseId: string; expectedRevision: number }, { exerciseId: string; revision: number; status: 'published' }>(firebaseFunctions, 'publishExerciseCatalogItem')
+  const response = await callable({ exerciseId, expectedRevision })
+  return response.data
 }
 
 export function exerciseCatalogSnapshot(item: ExerciseCatalogItem) {

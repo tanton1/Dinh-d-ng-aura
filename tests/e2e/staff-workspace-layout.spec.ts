@@ -53,6 +53,10 @@ test('staff dock prioritizes work modules and schedule tools share one weekly wo
   await expect(page).toHaveURL(/#\/staff-workouts$/)
   await expect(page.getByRole('heading', { name: 'Giáo án & mức tạ' })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Nội dung giáo án' })).toBeVisible()
+  await page.getByRole('button', { name: /Thư viện/ }).click()
+  await expect(page.getByRole('region', { name: 'Quản lý thư viện bài tập' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Kho bài tập Aura' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Thêm bài tập/ })).toBeVisible()
 
   await dock.getByRole('button', { name: 'Học viên' }).click()
   await expect(page).toHaveURL(/#\/staff-students$/)

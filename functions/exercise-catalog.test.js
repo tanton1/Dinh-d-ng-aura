@@ -13,7 +13,10 @@ test('exercise catalog is authenticated, review-gated and revisioned', () => {
   assert.match(source, /item\.status !== 'published'/)
   assert.match(source, /expectedRevision/)
   assert.match(source, /collection\('revisions'\)/)
-  assert.match(source, /current\.status === 'published' \|\| current\.status === 'archived'/)
+  assert.match(source, /current\.status === 'published'/)
+  assert.match(source, /workingDraftRevision/)
+  assert.match(source, /revisionType: 'working_draft'/)
+  assert.match(source, /workingDraft: FieldValue\.delete\(\)/)
 })
 
 test('catalog import is public-domain, target-only and dry-run by default', () => {

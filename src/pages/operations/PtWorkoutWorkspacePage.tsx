@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Activity, AlertTriangle, BarChart3, CalendarDays, Check, ChevronRight, Dumbbell,
+  Activity, AlertTriangle, BarChart3, BookOpen, CalendarDays, Check, ChevronRight, Dumbbell,
   History, Plus, RefreshCw, Save, Search, Sparkles, Target, Trash2, Users, Weight,
 } from 'lucide-react'
 import { listExerciseCatalog } from '../../services/exerciseCatalogService'
@@ -21,8 +21,9 @@ import {
   type PtWorkoutWorkspace,
 } from '../../services/ptWorkoutTrackingService'
 import './PtWorkoutWorkspacePage.css'
+import ExerciseCatalogManager from '../../components/exercise-catalog/ExerciseCatalogManager'
 
-type WorkspaceTab = 'today' | 'program' | 'history'
+type WorkspaceTab = 'today' | 'program' | 'library' | 'history'
 
 const dateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' })
 const muscleLabels = ['Tất cả', 'Mông', 'Đùi trước', 'Đùi sau', 'Lưng', 'Ngực', 'Vai', 'Tay', 'Bụng']
@@ -79,7 +80,7 @@ function groupedSessions(sessions: PtWorkoutSession[]) {
   return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right))
 }
 
-export default function PtWorkoutWorkspacePage({ isDemo = false }: { isDemo?: boolean }) {
+export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatalog = false }: { isDemo?: boolean; canPublishCatalog?: boolean }) {
   const [tab, setTab] = useState<WorkspaceTab>('today')
   const [date, setDate] = useState(todayKey())
   const [workspace, setWorkspace] = useState<PtWorkoutWorkspace>({ sessions: [], students: [], programs: [], logs: [] })
@@ -219,6 +220,7 @@ export default function PtWorkoutWorkspacePage({ isDemo = false }: { isDemo?: bo
       <nav className="pt-workout-workspace__tabs" aria-label="Nội dung giáo án">
         <button className={tab === 'today' ? 'is-active' : ''} onClick={() => setTab('today')}><Activity />Ca tập</button>
         <button className={tab === 'program' ? 'is-active' : ''} onClick={() => setTab('program')}><Dumbbell />Giáo án</button>
+        <button className={tab === 'library' ? 'is-active' : ''} onClick={() => setTab('library')}><BookOpen />Thư viện</button>
         <button className={tab === 'history' ? 'is-active' : ''} onClick={() => setTab('history')}><History />Tiến bộ</button>
       </nav>
 
@@ -299,6 +301,8 @@ export default function PtWorkoutWorkspacePage({ isDemo = false }: { isDemo?: bo
           </aside>
         </>}
       </section>}
+
+      {tab === 'library' && <ExerciseCatalogManager canPublish={canPublishCatalog} isDemo={isDemo} />}
 
       {tab === 'history' && <section className="pt-workout-workspace__history">
         {!selectedStudentId ? <div className="pt-workout-workspace__empty"><Users /><strong>Chọn học viên</strong></div> : !history ? <div className="pt-workout-workspace__empty"><RefreshCw /><strong>Đang tải tiến bộ</strong></div> : <>

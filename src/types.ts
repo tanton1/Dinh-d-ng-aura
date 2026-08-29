@@ -507,6 +507,9 @@ export interface ExerciseCatalogItem extends ExerciseCatalogSnapshot {
     sourceVersion: string
     license: 'Unlicense' | 'Aura-owned'
   }
+  hasWorkingDraft?: boolean
+  editRevision?: number
+  editStatus?: 'draft' | 'review'
 }
 
 export interface WorkoutProgramSessionDraft {

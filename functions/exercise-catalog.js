@@ -42,10 +42,9 @@ async function actorContext(request, db) {
   return { uid, isStaff: staffRoles.has(role), canPublish: publishRoles.has(role) }
 }
 
-function publicItem(snapshot) {
-  const data = snapshot.data()
+function publicItemFromData(id, data) {
   return {
-    id: snapshot.id,
+    id,
     schemaVersion: 1,
     revision: Number.isInteger(data.revision) ? data.revision : 1,
     status: ['draft', 'review', 'published', 'archived'].includes(data.status) ? data.status : 'draft',
@@ -69,7 +68,24 @@ function publicItem(snapshot) {
       sourceVersion: text(data.source?.sourceVersion, 100) || 'unknown', license: data.source?.license === 'Aura-owned' ? 'Aura-owned' : 'Unlicense',
     },
     sourceAttribution: text(data.sourceAttribution, 300) || 'Free Exercise DB · Unlicense',
+    hasWorkingDraft: Boolean(data.workingDraft && typeof data.workingDraft === 'object'),
+    ...(Number.isInteger(data.workingDraftRevision) ? { editRevision: data.workingDraftRevision } : {}),
+    ...(['draft', 'review'].includes(data.workingDraftStatus) ? { editStatus: data.workingDraftStatus } : {}),
   }
+}
+
+function publicItem(snapshot) {
+  return publicItemFromData(snapshot.id, snapshot.data())
+}
+
+function editableItem(snapshot, actor) {
+  const data = snapshot.data()
+  if (!actor.isStaff || !data.workingDraft || typeof data.workingDraft !== 'object') return publicItem(snapshot)
+  return publicItemFromData(snapshot.id, {
+    ...data.workingDraft,
+    revision: Number.isInteger(data.workingDraftRevision) ? data.workingDraftRevision : Number(data.revision || 1),
+    status: ['draft', 'review'].includes(data.workingDraftStatus) ? data.workingDraftStatus : 'draft',
+  })
 }
 
 function normalizeDraft(raw, current = {}) {
@@ -120,7 +136,7 @@ function createExerciseCatalogFunctions({ db, onCall }) {
     if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy bài tập.')
     const item = publicItem(snapshot)
     if (item.status !== 'published' && !actor.isStaff) throw new HttpsError('permission-denied', 'Bài tập chưa được xuất bản.')
-    return { schemaVersion: 1, item }
+    return { schemaVersion: 1, item, editItem: editableItem(snapshot, actor) }
   })
 
   const saveExerciseCatalogDraft = onCall(async (request) => {
@@ -133,8 +149,28 @@ function createExerciseCatalogFunctions({ db, onCall }) {
       const snapshot = await transaction.get(reference)
       const current = snapshot.exists ? snapshot.data() : {}
       const revision = snapshot.exists ? Number(current.revision || 1) : 0
+      if (current.status === 'archived') throw new HttpsError('failed-precondition', 'Bài đã lưu trữ không thể chỉnh sửa.')
+      if (current.status === 'published') {
+        const draftRevision = Number.isInteger(current.workingDraftRevision) ? current.workingDraftRevision : revision
+        if (!Number.isInteger(expectedRevision) || expectedRevision !== draftRevision) throw new HttpsError('aborted', 'Bản chỉnh sửa đã được người khác cập nhật. Hãy tải lại.')
+        const nextRevision = draftRevision + 1
+        const normalized = normalizeDraft(request.data?.draft || {}, current.workingDraft || current)
+        transaction.update(reference, {
+          workingDraft: normalized,
+          workingDraftRevision: nextRevision,
+          workingDraftStatus: normalized.status,
+          workingDraftUpdatedAt: FieldValue.serverTimestamp(),
+          workingDraftUpdatedBy: actor.uid,
+          updatedAt: FieldValue.serverTimestamp(),
+          updatedBy: actor.uid,
+        })
+        transaction.create(reference.collection('revisions').doc(`draft-${nextRevision}`), {
+          ...normalized, exerciseId, revision: nextRevision, publishedRevision: revision,
+          revisionType: 'working_draft', createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid,
+        })
+        return { exerciseId, revision: nextRevision, status: normalized.status, publishedStatus: 'published', hasWorkingDraft: true }
+      }
       if (!Number.isInteger(expectedRevision) || expectedRevision !== revision) throw new HttpsError('aborted', 'Bài tập đã được người khác cập nhật. Hãy tải lại.')
-      if (current.status === 'published' || current.status === 'archived') throw new HttpsError('failed-precondition', 'Bài đã xuất bản hoặc lưu trữ không thể sửa trực tiếp.')
       const nextRevision = revision + 1
       const normalized = normalizeDraft(request.data?.draft || {}, current)
       transaction.set(reference, { ...normalized, revision: nextRevision, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid }, { merge: true })
@@ -153,11 +189,20 @@ function createExerciseCatalogFunctions({ db, onCall }) {
       const snapshot = await transaction.get(reference)
       if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy bài tập.')
       const data = snapshot.data()
-      if (Number(data.revision) !== expectedRevision) throw new HttpsError('aborted', 'Bài tập đã thay đổi. Hãy tải lại.')
-      if (!text(data.nameVi) || !stringList(data.instructionsVi).length || !text(data.media?.startImageUrl)) throw new HttpsError('failed-precondition', 'Bài tập cần tên tiếng Việt, hướng dẫn và hình minh họa trước khi xuất bản.')
+      const hasWorkingDraft = data.status === 'published' && data.workingDraft && typeof data.workingDraft === 'object'
+      const candidate = hasWorkingDraft ? data.workingDraft : data
+      const currentRevision = hasWorkingDraft ? Number(data.workingDraftRevision) : Number(data.revision)
+      if (currentRevision !== expectedRevision) throw new HttpsError('aborted', 'Bài tập đã thay đổi. Hãy tải lại.')
+      if (!text(candidate.nameVi) || !stringList(candidate.instructionsVi).length || !text(candidate.media?.startImageUrl)) throw new HttpsError('failed-precondition', 'Bài tập cần tên tiếng Việt, hướng dẫn và hình minh họa trước khi xuất bản.')
       const revision = expectedRevision + 1
-      transaction.update(reference, { status: 'published', revision, reviewedBy: actor.uid, reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
-      transaction.create(reference.collection('revisions').doc(String(revision)), { ...data, exerciseId, status: 'published', revision, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
+      const published = { ...candidate, status: 'published', revision }
+      transaction.set(reference, {
+        ...published,
+        workingDraft: FieldValue.delete(), workingDraftRevision: FieldValue.delete(), workingDraftStatus: FieldValue.delete(),
+        workingDraftUpdatedAt: FieldValue.delete(), workingDraftUpdatedBy: FieldValue.delete(),
+        reviewedBy: actor.uid, reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid,
+      }, { merge: true })
+      transaction.create(reference.collection('revisions').doc(String(revision)), { ...published, exerciseId, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
       return { exerciseId, revision, status: 'published' }
     })
   })
