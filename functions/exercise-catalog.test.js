@@ -6,6 +6,7 @@ const test = require('node:test')
 const source = fs.readFileSync(path.join(__dirname, 'exercise-catalog.js'), 'utf8')
 const indexSource = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8')
 const importer = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'import-free-exercise-catalog.cjs'), 'utf8')
+const serviceSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'exerciseCatalogService.ts'), 'utf8')
 
 test('exercise catalog is authenticated, review-gated and revisioned', () => {
   assert.match(source, /if \(!uid\) throw new HttpsError\('unauthenticated'/)
@@ -33,4 +34,10 @@ test('catalog callables are statically deployable', () => {
   for (const name of ['listExerciseCatalog', 'getExerciseCatalogItem', 'saveExerciseCatalogDraft', 'publishExerciseCatalogItem']) {
     assert.match(indexSource, new RegExp(`exports\\.${name} = exerciseCatalogFunctions\\.${name}`))
   }
+})
+
+test('catalog detail remains readable across staged backend rollouts', () => {
+  assert.match(source, /sourceExerciseId: text\(data\.source\?\.sourceExerciseId, 160\) \|\| id/)
+  assert.match(source, /editItem: editableItem\(snapshot, actor\)/)
+  assert.match(serviceSource, /parseCatalogItem\(payload\?\.editItem\) \|\| item/)
 })

@@ -104,8 +104,11 @@ export async function getExerciseCatalogItem(exerciseId: string): Promise<Exerci
   const response = await callable({ exerciseId })
   const payload = record(response.data)
   const item = parseCatalogItem(payload?.item)
-  const editItem = parseCatalogItem(payload?.editItem)
-  if (!item || !editItem) throw new Error('Dữ liệu bài tập không hợp lệ.')
+  if (!item) throw new Error('Dữ liệu bài tập không hợp lệ.')
+  // During a staged Functions rollout, older endpoints can temporarily return
+  // only the published item. Keep detail viewing available while the richer
+  // editable projection catches up.
+  const editItem = parseCatalogItem(payload?.editItem) || item
   return { item, editItem }
 }
 

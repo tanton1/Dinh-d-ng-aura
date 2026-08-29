@@ -64,7 +64,7 @@ function publicItemFromData(id, data) {
       rpe: Number.isInteger(data.defaultPrescription?.rpe) ? data.defaultPrescription.rpe : 7,
     },
     source: {
-      provider: data.source?.provider === 'aura' ? 'aura' : 'free-exercise-db', sourceExerciseId: text(data.source?.sourceExerciseId, 160) || snapshot.id,
+      provider: data.source?.provider === 'aura' ? 'aura' : 'free-exercise-db', sourceExerciseId: text(data.source?.sourceExerciseId, 160) || id,
       sourceVersion: text(data.source?.sourceVersion, 100) || 'unknown', license: data.source?.license === 'Aura-owned' ? 'Aura-owned' : 'Unlicense',
     },
     sourceAttribution: text(data.sourceAttribution, 300) || 'Free Exercise DB · Unlicense',
