@@ -204,7 +204,16 @@ exports.listPtScheduleVersions = ptSchedulePublishFunctions.listPtScheduleVersio
 exports.restorePtScheduleVersionToDraft = ptSchedulePublishFunctions.restorePtScheduleVersionToDraft
 exports.getMyBranchScheduleWorkspace = ptSchedulePublishFunctions.getMyBranchScheduleWorkspace
 exports.saveMyBranchScheduleDraft = ptSchedulePublishFunctions.saveMyBranchScheduleDraft
-const ptScheduleV2Functions = createPtScheduleV2Functions({ db, onCall })
+// Schedule workspaces are management-only and burst infrequently. A bounded
+// Gen-1 CPU profile avoids exhausting the regional Cloud Run CPU quota while
+// still allowing the optimizer a longer deterministic execution window.
+const ptScheduleOnCall = (optionsOrHandler, maybeHandler) => {
+  const resourceOptions = { cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 120 }
+  return typeof optionsOrHandler === 'function'
+    ? onCall(resourceOptions, optionsOrHandler)
+    : onCall({ ...resourceOptions, ...optionsOrHandler }, maybeHandler)
+}
+const ptScheduleV2Functions = createPtScheduleV2Functions({ db, onCall: ptScheduleOnCall })
 Object.assign(exports, ptScheduleV2Functions)
 exports.listPtScheduleBranches = ptScheduleV2Functions.listPtScheduleBranches
 exports.getPtScheduleWorkspace = ptScheduleV2Functions.getPtScheduleWorkspace
