@@ -150,14 +150,27 @@ export interface PtScheduleUnassignedEntry {
   studentId: string
   studentName?: string
   missingSessions: number
+  blockerType?: 'optimizer_gap' | 'input_or_capacity'
   reasonCodes?: string[]
   reasons?: string[]
   suggestedSlots?: string[]
 }
 
+export interface PtScheduleSlotUtilization {
+  teachingSlots: number
+  studentSessions: number
+  pairedSlots: number
+  singleSlots: number
+  fullSlots: number
+  pairRatePercent: number
+  seatUtilizationPercent: number
+}
+
 export interface PtScheduleOptimizationSummary {
   studentCoverage?: PtScheduleStudentCoverage
   trainerLoads?: PtScheduleTrainerDailyLoad[]
+  slotUtilization?: PtScheduleSlotUtilization
+  pairingMoves?: number
   totalTargetSessions?: number
   scheduledEntries?: number
   missingSessions?: number

@@ -367,6 +367,69 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     }
   }, [missingSessions, operationalStudentRows, workspace])
 
+  const slotUtilization = useMemo(() => {
+    const source = workspace?.optimizationSummary?.slotUtilization
+    if (source) return source
+    const groups = new Map<string, number>()
+    for (const [slotId, entries] of Object.entries(workspace?.schedule || {})) {
+      for (const entry of entries) {
+        if (entry.type === 'off') continue
+        const key = `${entry.trainerId}|${slotId}`
+        groups.set(key, (groups.get(key) || 0) + 1)
+      }
+    }
+    let desiredSeats = 0
+    let occupiedDesiredSeats = 0
+    let pairedSlots = 0
+    let singleSlots = 0
+    let fullSlots = 0
+    for (const [key, count] of groups) {
+      const trainerId = key.split('|')[0]
+      const capacity = Math.max(1, workspace?.trainers.find((trainer) => trainer.id === trainerId)?.slotCapacity || 1)
+      const desiredCapacity = Math.min(2, capacity)
+      desiredSeats += desiredCapacity
+      occupiedDesiredSeats += Math.min(count, desiredCapacity)
+      if (count >= 2) pairedSlots += 1
+      if (count === 1) singleSlots += 1
+      if (count >= desiredCapacity) fullSlots += 1
+    }
+    return {
+      teachingSlots: groups.size,
+      studentSessions: [...groups.values()].reduce((total, count) => total + count, 0),
+      pairedSlots,
+      singleSlots,
+      fullSlots,
+      pairRatePercent: groups.size ? Math.round(pairedSlots / groups.size * 1000) / 10 : 0,
+      seatUtilizationPercent: desiredSeats ? Math.round(occupiedDesiredSeats / desiredSeats * 1000) / 10 : 0,
+    }
+  }, [workspace])
+
+  const singleSlotWarnings = useMemo(() => {
+    if (!workspace) return []
+    const rows: Array<{ slotId: string; trainerId: string; trainerName: string; studentName: string }> = []
+    for (const [slotId, entries] of Object.entries(workspace.schedule)) {
+      const trainers = new Set(entries.filter((entry) => entry.type !== 'off').map((entry) => entry.trainerId))
+      for (const trainerId of trainers) {
+        const trainer = workspace.trainers.find((item) => item.id === trainerId)
+        const trainingEntries = entries.filter((entry) => entry.type !== 'off' && entry.trainerId === trainerId)
+        if (!trainer || trainer.slotCapacity < 2 || trainingEntries.length !== 1) continue
+        rows.push({
+          slotId,
+          trainerId,
+          trainerName: trainer.name,
+          studentName: workspace.students.find((student) => student.id === trainingEntries[0].studentId)?.name || 'Học viên chưa cập nhật',
+        })
+      }
+    }
+    return rows.sort((left, right) => {
+      const [leftDay, leftHour] = left.slotId.split('-')
+      const [rightDay, rightHour] = right.slotId.split('-')
+      return workingDays.indexOf(leftDay) - workingDays.indexOf(rightDay)
+        || Number(leftHour) - Number(rightHour)
+        || left.trainerName.localeCompare(right.trainerName, 'vi')
+    })
+  }, [workingDays, workspace])
+
   const trainerLoads = useMemo(() => {
     if (!workspace) return []
     const backendLoads: PtScheduleTrainerDailyLoad[] = workspace.optimizationSummary?.trainerLoads
@@ -525,8 +588,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
   const selectedTrainerLoads = useMemo(() => trainerLoads.filter((load) => load.trainerId === selectedTrainerId), [selectedTrainerId, trainerLoads])
   const warningCount = useMemo(() => {
-    return warningProfiles.length + (workspace?.summary.unconfiguredTrainers || 0)
-  }, [warningProfiles.length, workspace?.summary.unconfiguredTrainers])
+    return warningProfiles.length + singleSlotWarnings.length + (workspace?.summary.unconfiguredTrainers || 0)
+  }, [singleSlotWarnings.length, warningProfiles.length, workspace?.summary.unconfiguredTrainers])
 
   useEffect(() => {
     if (!workspace || !inspectorSlotId || !selectedTrainerId) {
@@ -787,7 +850,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         <article><CheckCircle2 /><div><strong>{studentCoverage.fullyScheduled}/{studentCoverage.eligible}</strong><span>Đã đủ mục tiêu tuần</span></div></article>
         <article><CalendarRange /><div><strong>{studentCoverage.scheduledEntries}/{studentCoverage.totalTargetSessions}</strong><span>Buổi đã xếp / mục tiêu</span></div></article>
         <article className={studentCoverage.missingSessions > 0 ? 'is-warning' : ''}><AlertTriangle /><div><strong>{studentCoverage.missingSessions}</strong><span>Buổi còn thiếu</span></div></article>
-        <article className={(workspace?.summary.unconfiguredTrainers || 0) > 0 ? 'is-warning' : ''}><Clock3 /><div><strong>{workspace?.summary.unconfiguredTrainers || 0}</strong><span>PT thiếu lịch rảnh</span></div></article>
+        <article className="is-paired"><UsersRound /><div><strong>{slotUtilization.pairedSlots}</strong><span>Ca 2/2 đã ghép</span></div></article>
+        <article className={slotUtilization.singleSlots > 0 ? 'is-warning' : ''}><Clock3 /><div><strong>{slotUtilization.singleSlots}</strong><span>Ca 1/2 còn lẻ</span></div></article>
+        <article><Sparkles /><div><strong>{slotUtilization.pairRatePercent}%</strong><span>Tỷ lệ ghép ca</span></div></article>
       </section>
 
       <section className="branch-schedule__toolbar">
@@ -901,8 +966,18 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           <section className="schedule-warning-summary" aria-label="Tóm tắt cảnh báo">
             <article><strong>{warningProfiles.length}</strong><span>Học viên cần xử lý</span></article>
             <article><strong>{warningProfiles.reduce((total, profile) => total + profile.missingSessions, 0)}</strong><span>Buổi còn thiếu</span></article>
+            <article><strong>{singleSlotWarnings.length}</strong><span>Ca 1/2 có thể ghép</span></article>
             <article><strong>{workspace.trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').length}</strong><span>PT thiếu lịch rảnh</span></article>
           </section>
+          {singleSlotWarnings.length > 0 && <section className="schedule-pairing-opportunities" aria-label="Ca một học viên còn có thể ghép">
+            <header><div><strong>Ca 1/2 cần ưu tiên ghép</strong><span>Chạm vào ca để mở đúng ô lịch và bổ sung học viên phù hợp.</span></div><b>{slotUtilization.seatUtilizationPercent}% sử dụng ghế</b></header>
+            <div>{singleSlotWarnings.map((row) => {
+              const [day, hour] = row.slotId.split('-')
+              return <button type="button" key={`${row.trainerId}-${row.slotId}`} onClick={() => { setSelectedTrainerId(row.trainerId); setInspectorSlotId(row.slotId); setCandidateSearch(''); setTab('matrix') }}>
+                <span><strong>{DAY_LABELS[day] || day} · {String(hour).padStart(2, '0')}:00</strong><small>{row.trainerName}</small></span><em>{row.studentName}</em><ChevronRight size={16} />
+              </button>
+            })}</div>
+          </section>}
           <section className="schedule-warning-grid">
             {workspace.trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').map((trainer) => <article key={trainer.id} className="schedule-warning-trainer is-blocking"><Clock3 /><div><strong>{trainer.name}</strong><span>{trainerEmploymentLabel(trainer.employmentType)} · chưa đăng ký lịch nhận ca nên không được xếp tự động.</span><small>Hạng #{trainer.schedulingPriority || 100} · mục tiêu {trainer.dailySessionTarget || 8} ca/ngày</small></div></article>)}
             {warningProfiles.map(({ student, missingSessions: missing, trainerNames, contract, scheduledEntries, reasonCodes, suggestedSlots, hasConfirmedAvailability, offState }) => {
