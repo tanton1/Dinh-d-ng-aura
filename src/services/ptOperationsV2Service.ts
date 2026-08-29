@@ -126,6 +126,8 @@ export interface TrainerSessionSummary {
   chargedAt?: string
   confirmedAt?: string
   contractId?: string
+  contractEffective?: boolean
+  contract?: TrainerStudentSummary['contract']
   revision?: number
   timeZone: string
 }
