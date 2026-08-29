@@ -3,13 +3,13 @@ const test = require('node:test')
 
 const {
   applyCatalogLookupToItem,
-  buildFoodOpenRouterRequest,
+  apiKeyFunUsageMetadata,
+  buildFoodApiKeyFunRequest,
   buildFoodAnalysisInstructions,
   enrichAnalysisWithLookups,
-  extractOpenRouterNutritionText,
+  extractApiKeyFunNutritionText,
   foodAnalysisSchema,
-  getOpenRouterFoodModelCandidates,
-  openRouterUsageMetadata,
+  getApiKeyFunFoodModelCandidates,
   sanitizeProviderErrorMessage,
   scaleCatalogNutrition,
   shouldTryNextFoodAnalysisModel,
@@ -18,25 +18,25 @@ const {
   validateFoodAnalysisWithLocalRepair,
 } = require('./nutrition')
 
-test('OpenRouter model candidates use Gemini 3.7 Flash and remove duplicates', () => {
-  const originalModel = process.env.OPENROUTER_VISION_MODEL
-  const originalFallback = process.env.OPENROUTER_VISION_FALLBACK_MODEL
+test('apikey.fun food model candidates use documented model IDs and remove duplicates', () => {
+  const originalModel = process.env.APIKEY_FUN_VISION_MODEL
+  const originalFallback = process.env.APIKEY_FUN_VISION_FALLBACK_MODEL
   try {
-    delete process.env.OPENROUTER_VISION_MODEL
-    delete process.env.OPENROUTER_VISION_FALLBACK_MODEL
-    assert.deepEqual(getOpenRouterFoodModelCandidates(), [
-      'google/gemini-3.7-flash',
-      'google/gemini-3.6-flash',
+    delete process.env.APIKEY_FUN_VISION_MODEL
+    delete process.env.APIKEY_FUN_VISION_FALLBACK_MODEL
+    assert.deepEqual(getApiKeyFunFoodModelCandidates(), [
+      'gemini-3.7-flash',
+      'gemini-3.6-flash',
     ])
 
-    process.env.OPENROUTER_VISION_MODEL = 'google/gemini-3.7-flash'
-    process.env.OPENROUTER_VISION_FALLBACK_MODEL = 'google/gemini-3.7-flash'
-    assert.deepEqual(getOpenRouterFoodModelCandidates(), ['google/gemini-3.7-flash'])
+    process.env.APIKEY_FUN_VISION_MODEL = 'gemini-3.7-flash'
+    process.env.APIKEY_FUN_VISION_FALLBACK_MODEL = 'gemini-3.7-flash'
+    assert.deepEqual(getApiKeyFunFoodModelCandidates(), ['gemini-3.7-flash'])
   } finally {
-    if (originalModel === undefined) delete process.env.OPENROUTER_VISION_MODEL
-    else process.env.OPENROUTER_VISION_MODEL = originalModel
-    if (originalFallback === undefined) delete process.env.OPENROUTER_VISION_FALLBACK_MODEL
-    else process.env.OPENROUTER_VISION_FALLBACK_MODEL = originalFallback
+    if (originalModel === undefined) delete process.env.APIKEY_FUN_VISION_MODEL
+    else process.env.APIKEY_FUN_VISION_MODEL = originalModel
+    if (originalFallback === undefined) delete process.env.APIKEY_FUN_VISION_FALLBACK_MODEL
+    else process.env.APIKEY_FUN_VISION_FALLBACK_MODEL = originalFallback
   }
 })
 
@@ -78,29 +78,30 @@ test('food analysis prompt asks the model to answer every advisory field separat
   assert.match(instructions, /Never add filler, greetings, motivational slogans, body\/beauty claims/)
 })
 
-test('food vision sends image and strict JSON schema through OpenRouter', () => {
-  const body = buildFoodOpenRouterRequest({
-    model: 'google/gemini-3.7-flash',
+test('food vision sends image and strict JSON schema through apikey.fun', () => {
+  const body = buildFoodApiKeyFunRequest({
+    model: 'gemini-3.7-flash',
     buffer: Buffer.from('image-bytes'),
     contentType: 'image/jpeg',
     prompt: 'Analyze this meal.',
     instructions: 'Return nutrition JSON.',
   })
 
-  assert.equal(body.model, 'google/gemini-3.7-flash')
+  assert.equal(body.model, 'gemini-3.7-flash')
   assert.equal(body.messages[0].role, 'system')
+  assert.match(body.messages[0].content, /The exact required JSON Schema is:/)
+  assert.match(body.messages[0].content, /"dishNameVi"/)
   assert.equal(body.messages[1].content[0].type, 'text')
   assert.match(body.messages[1].content[1].image_url.url, /^data:image\/jpeg;base64,/)
   assert.equal(body.max_tokens, 6144)
-  assert.equal(buildFoodOpenRouterRequest({
-    model: 'google/gemini-3.7-flash',
+  assert.equal(buildFoodApiKeyFunRequest({
+    model: 'gemini-3.7-flash',
     buffer: Buffer.from('image-bytes'),
     contentType: 'image/jpeg',
     prompt: 'Analyze this meal.',
     instructions: 'Return nutrition JSON.',
     qualityTier: 'escalated',
   }).max_tokens, 6144)
-  assert.equal(body.reasoning.effort, 'low')
   assert.equal(body.response_format.type, 'json_schema')
   assert.equal(body.response_format.json_schema.strict, true)
   assert.notEqual(body.response_format.json_schema.schema, foodAnalysisSchema)
@@ -120,12 +121,14 @@ test('food vision sends image and strict JSON schema through OpenRouter', () => 
     assert.equal(Object.hasOwn(body.response_format.json_schema.schema.properties, field), true)
     assert.equal(body.response_format.json_schema.schema.required.includes(field), true)
   }
-  assert.equal(body.provider.require_parameters, true)
+  assert.equal(Object.hasOwn(body, 'provider'), false)
+  assert.equal(Object.hasOwn(body, 'reasoning'), false)
+  assert.equal(Object.hasOwn(body, 'usage'), false)
   assert.equal(Object.hasOwn(body, 'temperature'), false)
 })
 
 test('food vision records provider token usage as bounded telemetry numbers', () => {
-  assert.deepEqual(openRouterUsageMetadata({
+  assert.deepEqual(apiKeyFunUsageMetadata({
     usage: {
       prompt_tokens: 1748,
       completion_tokens: 1709,
@@ -142,15 +145,15 @@ test('food vision records provider token usage as bounded telemetry numbers', ()
     costUsd: null,
   })
 
-  assert.equal(openRouterUsageMetadata({ usage: { cost: 0.004204625 } }).costUsd, 0.004204625)
-  assert.equal(openRouterUsageMetadata({ usage: { cost: -1 } }).costUsd, null)
+  assert.equal(apiKeyFunUsageMetadata({ usage: { cost: 0.004204625 } }).costUsd, 0.004204625)
+  assert.equal(apiKeyFunUsageMetadata({ usage: { cost: -1 } }).costUsd, null)
 })
 
-test('OpenRouter parser accepts completed text and rejects incomplete output', () => {
-  assert.equal(extractOpenRouterNutritionText({
+test('apikey.fun parser accepts completed text and rejects incomplete output', () => {
+  assert.equal(extractApiKeyFunNutritionText({
     choices: [{ finish_reason: 'stop', message: { content: '{"isFood":true}' } }],
   }), '{"isFood":true}')
-  assert.throws(() => extractOpenRouterNutritionText({
+  assert.throws(() => extractApiKeyFunNutritionText({
     choices: [{ finish_reason: 'length', message: { content: '{}' } }],
   }), /chưa hoàn tất/)
 })
@@ -266,7 +269,7 @@ test('server validation still enforces the item limit removed from the provider 
 })
 
 test('provider errors are flattened, bounded, and redact API credentials', () => {
-  const secret = `sk-or-v1-${'x'.repeat(32)}`
+  const secret = `sk-${'x'.repeat(32)}`
   const bearerSecret = 'SUPERSECRET-BEARER-TOKEN'
   const sanitized = sanitizeProviderErrorMessage(`Bad request\napi_key=${secret}\tauthorization: Bearer ${bearerSecret} ${'z'.repeat(600)}`)
 

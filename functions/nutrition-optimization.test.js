@@ -22,6 +22,8 @@ const {
 } = require('./nutrition-scan-cache')
 
 const nutritionSource = readFileSync(join(__dirname, 'nutrition.js'), 'utf8')
+const nutritionClientSource = readFileSync(join(__dirname, '..', 'src', 'services', 'nutritionService.ts'), 'utf8')
+const serviceWorkerSource = readFileSync(join(__dirname, '..', 'public', 'sw.js'), 'utf8')
 
 function nutrition(overrides = {}) {
   return {
@@ -258,7 +260,7 @@ test('food scan cache identity is stable, opaque, and independent from retry sca
 })
 
 test('food scan cache identity changes across owner, image, context, and analysis versions', () => {
-  assert.equal(FOOD_SCAN_CACHE_VERSION, 'food-vision-full-advisory-v2')
+  assert.equal(FOOD_SCAN_CACHE_VERSION, 'food-vision-provider-fallback-v4')
 
   const base = {
     uid: 'member-1',
@@ -282,7 +284,7 @@ test('food scan cache identity changes across owner, image, context, and analysi
 test('cache lookup happens before paid quota and live inference, while cache writes remain best-effort', () => {
   const cacheLookup = nutritionSource.indexOf('const cachedResult = await readFoodVisionCache')
   const quotaLookup = nutritionSource.indexOf('const dailyLimit = await readFoodScanDailyLimit')
-  const liveInference = nutritionSource.indexOf('const providerResult = await analyzeWithOpenRouter')
+  const liveInference = nutritionSource.indexOf('providerResult = await analyzeWithApiKeyFun')
   const cacheWrite = nutritionSource.indexOf('await writeFoodVisionCache')
 
   assert.ok(cacheLookup > 0)
@@ -291,5 +293,30 @@ test('cache lookup happens before paid quota and live inference, while cache wri
   assert.ok(liveInference < cacheWrite)
   assert.match(nutritionSource, /Food vision cache lookup failed; continuing with live analysis/)
   assert.match(nutritionSource, /Food vision cache write failed; returning the live result/)
-  assert.match(nutritionSource, /scanId: input\.scanId,[\s\S]*status: 'completed',[\s\S]*provider: 'openrouter'/)
+  assert.match(nutritionSource, /scanId: input\.scanId,[\s\S]*status: 'completed',[\s\S]*provider: providerResult\.provider/)
+})
+
+test('apikey.fun is primary for nutrition vision, reviews, and advice while OpenRouter stays retry-only', () => {
+  const primaryVision = nutritionSource.indexOf('providerResult = await analyzeWithApiKeyFun')
+  const fallbackVision = nutritionSource.indexOf('providerResult = await analyzeWithOpenRouterFallback')
+  const primaryText = nutritionSource.indexOf('return await generateApiKeyFunText')
+  const fallbackText = nutritionSource.indexOf('return generateOpenRouterText')
+
+  assert.ok(primaryVision > 0)
+  assert.ok(primaryVision < fallbackVision)
+  assert.ok(primaryText > 0)
+  assert.ok(primaryText < fallbackText)
+  assert.match(nutritionSource, /secrets: \[APIKEY_FUN_API_KEY, OPENROUTER_API_KEY\]/)
+  assert.match(nutritionSource, /if \(!openRouterApiKey \|\| !shouldFallbackToOpenRouter\(error\)\) throw error/)
+  assert.match(nutritionSource, /generateMealReview[\s\S]*generateNutritionTextWithFallback/)
+  assert.match(nutritionSource, /askAiCoach[\s\S]*generateNutritionTextWithFallback/)
+})
+
+test('client accepts apikey.fun responses and app shell v11 removes stale Aura caches', () => {
+  assert.match(nutritionClientSource, /value\.provider !== 'apikey_fun'/)
+  assert.match(nutritionClientSource, /provider: 'apikey_fun' \| 'openrouter' \| 'gemini' \| 'none'/)
+  assert.match(serviceWorkerSource, /aura-shell-v11-20260829-apikey-fun-cutover/)
+  assert.match(serviceWorkerSource, /name\.startsWith\('aura-shell-'\) && name !== CACHE_VERSION/)
+  assert.match(serviceWorkerSource, /self\.skipWaiting\(\)/)
+  assert.match(serviceWorkerSource, /self\.clients\.claim\(\)/)
 })

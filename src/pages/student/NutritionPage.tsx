@@ -3078,7 +3078,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         evidence = [`${loggedMeals.length} bữa đã ghi trong ngày đã chọn`]
       } else {
         content = await askAiCoach(question, profileDraft)
-        evidence = ['Phân tích qua OpenRouter (Gemini 3.7 Flash)']
+        evidence = ['Aura AI dùng apikey.fun; OpenRouter chỉ chạy dự phòng khi nhà cung cấp chính lỗi']
         confidenceLabel = 'AI Generated'
       }
       setAssistantMessages((current) => [...current, {

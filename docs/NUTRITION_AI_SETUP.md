@@ -41,35 +41,48 @@ user to choose the correct region/record.
 Keep the API key in Firebase Secret Manager:
 
 ```powershell
+firebase functions:secrets:set APIKEY_FUN_API_KEY
 firebase functions:secrets:set OPENROUTER_API_KEY
 firebase deploy --only "functions:analyzeFoodImage,functions:generateMealReview,functions:askAiCoach,functions:generateAuraContent,storage" `
   --project gen-lang-client-0815966909
 ```
+
+`analyzeFoodImage`, `generateMealReview`, and `askAiCoach` use the OpenAI-compatible
+apikey.fun endpoint at `https://api.apikey.fun/v1/chat/completions` as their primary
+provider. They call OpenRouter only when apikey.fun is missing or returns a retryable
+provider failure. Aura Academy content continues to use OpenRouter directly. Both
+keys remain server-side Firebase secrets; neither belongs in Vercel or in a `VITE_*`
+variable.
 
 Production uses the Vercel web app plus regional Firebase callable Functions. The
 browser calls these functions through the Firebase SDK; `/api/*` belongs only to
 the optional local Express server. Deploying only Vercel does not update the AI
 Functions.
 
-To deploy the production-shaped demo without an OpenRouter key, set the secret value
+To deploy the production-shaped demo without an apikey.fun key, set the secret value
 to `disabled` when prompted. The endpoint will use the explicit no-fabrication
 fallback until a real key is stored and the function is redeployed.
 
 For the local emulator, create an ignored `functions/.secret.local` file:
 
 ```text
+APIKEY_FUN_API_KEY=replace_with_your_key
 OPENROUTER_API_KEY=replace_with_your_key
 ```
 
-The optional `OPENROUTER_VISION_MODEL` environment variable defaults to
-`google/gemini-3.7-flash`. If that model is temporarily unavailable, the
-function falls back to `OPENROUTER_VISION_FALLBACK_MODEL`, which defaults to
-`google/gemini-3.6-flash`. Do not expose any provider configuration value through
-a `VITE_*` variable.
+The optional `APIKEY_FUN_VISION_MODEL` environment variable defaults to
+`gemini-3.7-flash`, a multimodal model enabled for the production key. If it is temporarily
+unavailable, the function falls back to `APIKEY_FUN_VISION_FALLBACK_MODEL`, which
+defaults to `gemini-3.6-flash`. Confirm the enabled model IDs in the apikey.fun dashboard or
+authenticated `/v1/models` response before overriding them. Meal reviews and AI
+Coach use `APIKEY_FUN_TEXT_MODEL` and `APIKEY_FUN_TEXT_FALLBACK_MODEL`. Their
+OpenRouter fallback uses the corresponding `OPENROUTER_VISION_*` or
+`OPENROUTER_TEXT_*` configuration.
 
 Verify deployment metadata without printing the secret value:
 
 ```powershell
+firebase functions:secrets:get APIKEY_FUN_API_KEY --project gen-lang-client-0815966909
 firebase functions:secrets:get OPENROUTER_API_KEY --project gen-lang-client-0815966909
 firebase functions:list --project gen-lang-client-0815966909
 ```

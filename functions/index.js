@@ -2150,8 +2150,8 @@ const productEventNames = new Set([
   'eat_clean_consumption_confirmed',
 ])
 
-const clientIssueAreas = new Set(['auth', 'gemini', 'openrouter', 'firestore', 'push', 'ui'])
-const clientIssueProviders = new Set(['google', 'phone', 'email', 'password', 'gemini', 'openrouter'])
+const clientIssueAreas = new Set(['auth', 'gemini', 'openrouter', 'apikey_fun', 'firestore', 'push', 'ui'])
+const clientIssueProviders = new Set(['google', 'phone', 'email', 'password', 'gemini', 'openrouter', 'apikey_fun'])
 
 exports.reportClientIssue = onCall({
   // Error reporting must stay available even when the project is close to its
