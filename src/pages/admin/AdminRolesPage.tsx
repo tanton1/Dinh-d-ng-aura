@@ -7,7 +7,7 @@ import {
   Phone, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, UserCog, Users,
   Trash2, WalletCards, X,
 } from 'lucide-react'
-import { collection, onSnapshot, query as firestoreQuery, where } from 'firebase/firestore'
+import { collection, limit, onSnapshot, query as firestoreQuery, where } from 'firebase/firestore'
 import { hasPermission } from '../../config/permissions'
 import { useDatabase } from '../../contexts/DatabaseContext'
 import { firestoreDb } from '../../lib/firebase'
@@ -277,7 +277,6 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const [assignments, setAssignments] = useState<Record<string, RoleAssignmentSummary>>({})
   const [staffOperations, setStaffOperations] = useState<Record<string, StaffOperationsRecord>>({})
   const [payrollPolicies, setPayrollPolicies] = useState<PayrollPolicy[]>([])
-  const [directorySnapshot, setDirectorySnapshot] = useState<Record<string, AdminRoleUser>>({})
   const [legacyContracts, setLegacyContracts] = useState<Array<Record<string, unknown>>>([])
   const [staffEditor, setStaffEditor] = useState<StaffEditorState | null>(null)
   const [staffSaving, setStaffSaving] = useState(false)
@@ -301,7 +300,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       setAssignments({})
       return
     }
-    return onSnapshot(collection(firestoreDb, 'roleAssignments'), (snapshot) => {
+    return onSnapshot(firestoreQuery(collection(firestoreDb, 'roleAssignments'), limit(2_500)), (snapshot) => {
       const next: Record<string, RoleAssignmentSummary> = {}
       snapshot.forEach((item) => {
         const data = item.data()
@@ -318,24 +317,13 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
     }, () => setAssignments({}))
   }, [canViewTeam])
   useEffect(() => {
-    if (!canViewTeam || !firestoreDb) {
-      setDirectorySnapshot({})
-      return
-    }
-    return onSnapshot(collection(firestoreDb, 'users'), (snapshot) => {
-      const next: Record<string, AdminRoleUser> = {}
-      snapshot.forEach((item) => { next[item.id] = profileDirectoryUser(item.id, item.data() as Record<string, unknown>) })
-      setDirectorySnapshot(next)
-    }, () => setDirectorySnapshot({}))
-  }, [canViewTeam])
-  useEffect(() => {
     if (section !== 'staff' || !canViewTeam || !firestoreDb) return
-    const stopStaff = onSnapshot(collection(firestoreDb, 'staff'), (snapshot) => {
+    const stopStaff = onSnapshot(firestoreQuery(collection(firestoreDb, 'staff'), limit(1_500)), (snapshot) => {
       const next: Record<string, StaffOperationsRecord> = {}
       snapshot.forEach((item) => { next[item.id] = item.data() as StaffOperationsRecord })
       setStaffOperations(next)
     }, () => setStaffOperations({}))
-    const stopTrainers = onSnapshot(collection(firestoreDb, 'trainers'), (snapshot) => {
+    const stopTrainers = onSnapshot(firestoreQuery(collection(firestoreDb, 'trainers'), limit(1_500)), (snapshot) => {
       setStaffOperations((current) => {
         const next = { ...current }
         snapshot.forEach((item) => { next[item.id] = { ...next[item.id], ...(item.data() as StaffOperationsRecord) } })
@@ -345,6 +333,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
     const activeContractsQuery = firestoreQuery(
       collection(firestoreDb, 'contracts'),
       where('status', 'in', ['active', 'future', 'frozen']),
+      limit(5_000),
     )
     const stopContracts = onSnapshot(activeContractsQuery, (snapshot) => setLegacyContracts(snapshot.docs.map((item) => item.data() as Record<string, unknown>)), () => setLegacyContracts([]))
     return () => { stopStaff(); stopTrainers(); stopContracts() }
@@ -357,20 +346,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       .catch(() => { if (active) setPayrollPolicies([]) })
     return () => { active = false }
   }, [canViewTeam])
-  const directoryUsers = useMemo(() => {
-    const next = new Map(users.map((user) => [user.uid, user]))
-    Object.values(directorySnapshot).forEach((user) => {
-      const current = next.get(user.uid)
-      next.set(user.uid, {
-        ...current,
-        ...user,
-        displayName: user.displayName || current?.displayName || '',
-        email: user.email || current?.email || '',
-        phoneNumber: user.phoneNumber || current?.phoneNumber,
-      })
-    })
-    return [...next.values()]
-  }, [directorySnapshot, users])
+  const directoryUsers = users
   const memberUsers = useMemo(() => directoryUsers.filter((user) => {
     const assignment = assignments[user.uid]
     return assignment?.accessRole !== 'staff'

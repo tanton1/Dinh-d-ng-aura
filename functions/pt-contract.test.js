@@ -13,7 +13,18 @@ const operationsV2Source = readFileSync(join(__dirname, 'pt-operations-v2.js'), 
 const studentScheduleServiceSource = readFileSync(join(__dirname, '..', 'src', 'services', 'studentPtScheduleService.ts'), 'utf8')
 const studentSchedulePageSource = readFileSync(join(__dirname, '..', 'src', 'pages', 'student', 'SchedulePage.tsx'), 'utf8')
 const studentAvailabilityPageSource = readFileSync(join(__dirname, '..', 'src', 'pages', 'student', 'StudentAvailabilityPage.tsx'), 'utf8')
-const { studentContractProjection, studentContractAlerts } = require('./pt-operations-v2')
+const { isEffectiveStaffContract, studentContractProjection, studentContractAlerts } = require('./pt-operations-v2')
+
+test('staff student scope only accepts active contracts in date with remaining sessions', () => {
+  const base = { status: 'active', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 36, usedSessions: 12 }
+  assert.equal(isEffectiveStaffContract(base, '2026-08-29'), true)
+  assert.equal(isEffectiveStaffContract({ ...base, status: 'future' }, '2026-08-29'), false)
+  assert.equal(isEffectiveStaffContract({ ...base, status: 'frozen' }, '2026-08-29'), false)
+  assert.equal(isEffectiveStaffContract({ ...base, endDate: '2026-08-28' }, '2026-08-29'), false)
+  assert.equal(isEffectiveStaffContract({ ...base, startDate: '2026-08-30' }, '2026-08-29'), false)
+  assert.equal(isEffectiveStaffContract({ ...base, usedSessions: 36 }, '2026-08-29'), false)
+  assert.equal(isEffectiveStaffContract({ ...base, pausePeriods: [{ type: 'preservation', startDate: '2026-08-20', endDate: '2026-09-05' }] }, '2026-08-29'), false)
+})
 
 test('PT lifecycle is exposed only through the expected atomic callables', () => {
   for (const name of [
@@ -190,12 +201,14 @@ test('Trainer pages keep separate sections while sharing one actor-scoped bootst
   assert.match(operationsV2Source, /const getMyTrainerWorkspace = staffCall/)
   assert.match(operationsV2Source, /const actor = await trainerActor\(request, db\)/)
   assert.match(operationsV2Source, /coachWorkspaceScopeForActor\(db, actor\)/)
-  assert.match(operationsV2Source, /students: trainingStudentIds\.size > 0 \|\| teachingSessions\.size > 0/)
+  assert.match(operationsV2Source, /students: trainingStudentIds\.size > 0/)
+  assert.match(operationsV2Source, /isEffectiveStaffContract\(contract, today\)/)
   assert.match(operationsV2Source, /assignedStudentsForActor\(db, actor, limit\)/)
-  assert.match(operationsV2Source, /return \{ schemaVersion: 2, students, branches, hasMore:/)
+  assert.match(operationsV2Source, /return \{ schemaVersion: 3, students, branches, hasMore:/)
   assert.match(operationsV2Source, /trainerScheduleForActor\(db, actor, from, to, limit\)/)
   assert.match(operationsV2Source, /studentPhone: student\?\.phone \|\| ''/)
   assert.match(operationsV2Source, /studentBranchId: student\?\.branchId \|\| session\.branchId \|\| ''/)
+  assert.match(operationsV2Source, /contractEffective,/)
   assert.match(functionsSource, /exports\.getMyTrainerWorkspace = ptOperationsV2Functions\.getMyTrainerWorkspace/)
 })
 

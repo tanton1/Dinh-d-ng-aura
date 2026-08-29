@@ -237,7 +237,8 @@ export function subscribeToUserNotifications(
 
   const q = query(
     collection(firestoreDb, 'users', userId, 'notifications'),
-    orderBy('createdAt', 'desc')
+    orderBy('createdAt', 'desc'),
+    limit(50),
   )
 
   return onSnapshot(

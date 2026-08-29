@@ -1,6 +1,6 @@
 const { createHash } = require('node:crypto')
 
-const FOOD_SCAN_CACHE_VERSION = 'food-vision-full-advisory-v2'
+const FOOD_SCAN_CACHE_VERSION = 'food-vision-provider-fallback-v4'
 
 function canonicalString(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalString).join(',')}]`

@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { motion } from 'motion/react'
 import {
   AlertTriangle,
   ArrowDownRight,
@@ -10,18 +9,6 @@ import {
   RefreshCw,
   Users,
 } from 'lucide-react'
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
 import { LOGO_URL } from '../../../constants'
 import { useDatabase } from '../../../contexts/DatabaseContext'
 import {
@@ -30,9 +17,9 @@ import {
   type FinanceLedgerEntry,
   type FinanceLedgerSummary,
 } from '../../../services/financeLedgerService'
-import TrainerDashboard from './TrainerDashboard'
 
-const COLORS = ['#f43f8c', '#fb7185', '#fb923c', '#fbbf24']
+const AdminReportCharts = React.lazy(() => import('./AdminReportCharts'))
+const TrainerDashboard = React.lazy(() => import('./TrainerDashboard'))
 type TimeRange = '7days' | '30days' | 'thisMonth' | 'lastMonth' | 'year'
 
 interface Props {
@@ -296,40 +283,9 @@ export default function AdminReportDashboard({ onNavigate }: Props) {
 
       {activeTab === 'overview' && (
         <>
-          <div className="grid gap-4 lg:grid-cols-3">
-            <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5 lg:col-span-2">
-              <div className="mb-5 flex items-center justify-between">
-                <div>
-                  <h2 className="font-bold text-white">Dòng tiền theo ngày hạch toán</h2>
-                  <p className="mt-1 text-xs text-zinc-500">Không dùng ngày bắt đầu hợp đồng. P&L xem tại Tài chính.</p>
-                </div>
-                <span className="rounded-full bg-pink-500/10 px-3 py-1 text-xs font-bold text-pink-400">Canonical</span>
-              </div>
-              <div className="h-[280px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={revenueData} margin={{ top: 10, right: 10, left: -18, bottom: 0 }}>
-                    <defs><linearGradient id="reportRevenue" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f43f8c" stopOpacity={0.4} /><stop offset="95%" stopColor="#fb923c" stopOpacity={0} /></linearGradient></defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                    <XAxis dataKey="name" stroke="#71717a" fontSize={11} tickLine={false} axisLine={false} />
-                    <YAxis stroke="#71717a" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(value) => `${Number(value) / 1_000_000}M`} />
-                    <Tooltip contentStyle={{ backgroundColor: '#18181b', borderColor: '#3f3f46', borderRadius: 12 }} formatter={(value) => money(Number(value) || 0)} />
-                    <Area type="monotone" dataKey="total" stroke="#f43f8c" strokeWidth={3} fill="url(#reportRevenue)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </section>
-
-            <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5">
-              <h2 className="font-bold text-white">Hợp đồng đang hoạt động</h2>
-              <p className="mt-1 text-xs text-zinc-500">Phân bố theo gói, không phải doanh thu.</p>
-              <div className="mt-4 h-52">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart><Pie data={packageData} innerRadius={55} outerRadius={78} dataKey="value" paddingAngle={4}>{packageData.map((item, index) => <Cell key={item.name} fill={COLORS[index % COLORS.length]} />)}</Pie><Tooltip contentStyle={{ backgroundColor: '#18181b', borderColor: '#3f3f46', borderRadius: 12 }} /></PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="space-y-2">{packageData.slice(0, 5).map((item, index) => <div key={item.name} className="flex items-center justify-between text-xs"><span className="flex min-w-0 items-center gap-2 text-zinc-400"><i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} /> <span className="truncate">{item.name}</span></span><b className="text-white">{item.value}</b></div>)}</div>
-            </section>
-          </div>
+          <React.Suspense fallback={<div className="grid gap-4 lg:grid-cols-3" role="status" aria-live="polite"><div className="h-[360px] animate-pulse rounded-3xl bg-zinc-900 lg:col-span-2" /><div className="h-[360px] animate-pulse rounded-3xl bg-zinc-900" /><span className="sr-only">Đang tải biểu đồ báo cáo…</span></div>}>
+            <AdminReportCharts revenueData={revenueData} packageData={packageData} />
+          </React.Suspense>
 
           <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5">
             <div className="mb-4 flex items-center justify-between">
@@ -357,7 +313,7 @@ export default function AdminReportDashboard({ onNavigate }: Props) {
       {activeTab === 'pt_details' && (
         <div className="space-y-3">
           <div className="flex gap-2 overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-950 p-2">{filteredTrainers.map((trainer) => <button key={trainer.id} onClick={() => setSelectedTrainerId(trainer.id)} className={`min-h-10 shrink-0 rounded-xl px-4 text-sm font-semibold ${selectedTrainerId === trainer.id ? 'bg-gradient-to-r from-pink-500 to-orange-500 text-white' : 'bg-zinc-900 text-zinc-400'}`}>{trainer.name}</button>)}</div>
-          {selectedTrainerId ? <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-2 md:p-4"><TrainerDashboard trainerId={selectedTrainerId} /></div> : <p className="rounded-3xl border border-zinc-800 bg-zinc-950 p-8 text-center text-zinc-500">Không có PT trong phạm vi đã chọn.</p>}
+          {selectedTrainerId ? <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-2 md:p-4"><React.Suspense fallback={<div className="p-8 text-center text-sm text-zinc-500" role="status">Đang tải chi tiết PT…</div>}><TrainerDashboard trainerId={selectedTrainerId} /></React.Suspense></div> : <p className="rounded-3xl border border-zinc-800 bg-zinc-950 p-8 text-center text-zinc-500">Không có PT trong phạm vi đã chọn.</p>}
         </div>
       )}
 
@@ -382,7 +338,7 @@ export default function AdminReportDashboard({ onNavigate }: Props) {
 }
 
 function KPICard({ title, value, trend, isPositive, icon }: { title: string; value: string; trend: string; isPositive: boolean; icon: React.ReactNode }) {
-  return <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-950 p-4"><div className="flex items-start justify-between gap-2"><span className="rounded-xl bg-zinc-900 p-2">{icon}</span><span className={`flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>{isPositive ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}{trend}</span></div><p className="mt-4 truncate text-[11px] font-bold uppercase tracking-wider text-zinc-500">{title}</p><p className="mt-1 truncate text-lg font-bold text-white sm:text-xl">{value}</p></motion.div>
+  return <div className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-950 p-4"><div className="flex items-start justify-between gap-2"><span className="rounded-xl bg-zinc-900 p-2">{icon}</span><span className={`flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>{isPositive ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}{trend}</span></div><p className="mt-4 truncate text-[11px] font-bold uppercase tracking-wider text-zinc-500">{title}</p><p className="mt-1 truncate text-lg font-bold text-white sm:text-xl">{value}</p></div>
 }
 
 function DataQuality({ label, value, warning = false }: { label: string; value: number; warning?: boolean }) {

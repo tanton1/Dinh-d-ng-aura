@@ -5,6 +5,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -33,6 +34,7 @@ export {
   saveUserMealLog,
   saveUserWaterLog,
   subscribeToUserActivityLogs,
+  subscribeToUserActivityLogsForDate,
   subscribeToUserMealLogs,
   subscribeToRecentUserActivityLogs,
   subscribeToRecentUserMealLogs,
@@ -317,7 +319,7 @@ export function subscribeToAllEnrollments(
 ): Unsubscribe {
   const db = requireDb()
   return onSnapshot(
-    collection(db, 'enrollments'),
+    query(collection(db, 'enrollments'), limit(5_000)),
     { includeMetadataChanges: true },
     (snapshot) => onData(snapshot.docs.map(mapEnrollment)),
     (error) => onError(error),
@@ -330,7 +332,7 @@ export function subscribeToAllStudentProgress(
 ): Unsubscribe {
   const db = requireDb()
   return onSnapshot(
-    collectionGroup(db, 'progress'),
+    query(collectionGroup(db, 'progress'), limit(5_000)),
     { includeMetadataChanges: true },
     (snapshot) => onData(snapshot.docs.map(mapAdminStudentProgress)),
     (error) => onError(error),
@@ -908,9 +910,9 @@ export function subscribeToAdminUsers(
 ): Unsubscribe {
   const db = requireDb()
   return onSnapshot(
-    collection(db, 'users'),
+    query(collection(db, 'users'), limit(2_500)),
     (snapshot) => onData(snapshot.docs.map((item) => {
-      const data = item.data() as Partial<UserProfile> & { disabled?: boolean }
+      const data = item.data() as Partial<UserProfile> & { disabled?: boolean; status?: unknown; lastActive?: unknown }
       return {
         uid: item.id,
         // Do not invent a member name. The access directory must make an
@@ -922,13 +924,13 @@ export function subscribeToAdminUsers(
         role: data.role ?? 'student',
         photoURL: data.photoURL,
         membership: data.membership,
-        status: data.disabled ? 'disabled' : 'active',
+        status: data.disabled ? 'disabled' : data.status === 'invited' ? 'invited' : 'active',
+        lastActive: typeof data.lastActive === 'string' ? data.lastActive : 'Đã đồng bộ Firebase',
         notificationSettings: data.notificationSettings,
         goals: Array.isArray(data.goals) ? data.goals : undefined,
         nutritionProfile: data.nutritionProfile?.goal
           ? { goal: data.nutritionProfile.goal }
           : undefined,
-        lastActive: 'Đã đồng bộ Firebase',
       }
     })),
     (error) => onError(error),

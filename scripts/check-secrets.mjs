@@ -16,7 +16,7 @@ const tokenPatterns = [
   { label: 'Private key material', pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g },
 ]
 
-const sensitiveAssignment = /^\s*(OPENROUTER_API_KEY|GEMINI_API_KEY|DELIVERY_OTP_SECRET|FIREBASE_SERVICE_ACCOUNT_KEY)\s*=\s*(.+?)\s*$/i
+const sensitiveAssignment = /^\s*(APIKEY_FUN_API_KEY|OPENROUTER_API_KEY|GEMINI_API_KEY|DELIVERY_OTP_SECRET|FIREBASE_SERVICE_ACCOUNT_KEY)\s*=\s*(.+?)\s*$/i
 const safeExampleValue = /^(?:$|your[_-]|change[_-]?me|replace[_-]|placeholder|example|test|<.*>|\$\{.*\})/i
 const findings = []
 

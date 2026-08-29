@@ -1,4 +1,4 @@
-import '../../styles-admin.css'
+import './AdminDashboard.css'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   AlertCircle,
@@ -36,6 +36,8 @@ import {
   buildStaffDashboardPayrollChart,
   type StaffDashboardPayrollSnapshot,
 } from '../../utils/staffDashboardPayroll'
+import { useDebounce } from '../../hooks/useDebounce'
+import { trackProductEvent } from '../../services/analyticsService'
 
 function money(value: number) {
   const amount = Number(value)
@@ -277,6 +279,8 @@ export default function AdminDashboard({
   const [error, setError] = useState('')
   const [range, setRange] = useState(() => ({ startAt: startOfMonth(), endAt: currentMinute() }))
   const [branchId, setBranchId] = useState('all')
+  const dashboardQuery = useMemo(() => ({ branchId, startAt: range.startAt, endAt: range.endAt }), [branchId, range.endAt, range.startAt])
+  const debouncedDashboardQuery = useDebounce(dashboardQuery, 250)
   const loadGeneration = useRef(0)
   const currentPayrollPeriodId = useMemo(() => payrollPeriodId(), [])
   const [payrollRoster, setPayrollRoster] = useState<AdminPayrollStaffTab[]>([])
@@ -288,19 +292,30 @@ export default function AdminDashboard({
   const [payrollStatementError, setPayrollStatementError] = useState('')
   const payrollRosterGeneration = useRef(0)
   const payrollStatementGeneration = useRef(0)
+  const payrollSectionRef = useRef<HTMLElement>(null)
+  const [payrollVisible, setPayrollVisible] = useState(false)
 
   const load = useCallback(async (forceRefresh = false) => {
     const generation = ++loadGeneration.current
+    const requestStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
     forceRefresh ? setRefreshing(true) : setLoading(true)
     setError('')
     try {
       const result = await getOperationsDashboard({
-        startAt: range.startAt,
-        endAt: range.endAt,
-        branchId,
+        startAt: debouncedDashboardQuery.startAt,
+        endAt: debouncedDashboardQuery.endAt,
+        branchId: debouncedDashboardQuery.branchId,
         forceRefresh,
       })
-      if (generation === loadGeneration.current) setData(result)
+      if (generation === loadGeneration.current) {
+        setData(result)
+        void trackProductEvent('admin_dashboard_loaded', {
+          durationMs: Math.max(0, Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - requestStartedAt)),
+          cacheTier: result.cache.tier,
+          branchScope: result.branchId === 'all' ? 'all' : 'branch',
+          forceRefresh,
+        })
+      }
     } catch (loadError) {
       if (generation === loadGeneration.current) setError(dashboardErrorMessage(loadError))
     } finally {
@@ -309,11 +324,27 @@ export default function AdminDashboard({
         setRefreshing(false)
       }
     }
-  }, [branchId, range.endAt, range.startAt])
+  }, [debouncedDashboardQuery])
 
   useEffect(() => { void load() }, [load])
 
   const canViewPayroll = data?.permissions.payroll === true
+
+  useEffect(() => {
+    if (!canViewPayroll || payrollVisible) return
+    const element = payrollSectionRef.current
+    if (!element || typeof IntersectionObserver === 'undefined') {
+      setPayrollVisible(true)
+      return
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return
+      setPayrollVisible(true)
+      observer.disconnect()
+    }, { rootMargin: '240px 0px' })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [canViewPayroll, payrollVisible])
 
   const loadPayrollRoster = useCallback(async () => {
     const generation = ++payrollRosterGeneration.current
@@ -354,7 +385,9 @@ export default function AdminDashboard({
     }
   }, [branchId, canViewPayroll, currentPayrollPeriodId, isDemo])
 
-  useEffect(() => { void loadPayrollRoster() }, [loadPayrollRoster])
+  useEffect(() => {
+    if (payrollVisible) void loadPayrollRoster()
+  }, [loadPayrollRoster, payrollVisible])
 
   const loadPayrollStatement = useCallback(async (staffId: string) => {
     const generation = ++payrollStatementGeneration.current
@@ -382,7 +415,9 @@ export default function AdminDashboard({
     }
   }, [canViewPayroll, currentPayrollPeriodId, isDemo])
 
-  useEffect(() => { void loadPayrollStatement(selectedPayrollStaffId) }, [loadPayrollStatement, selectedPayrollStaffId])
+  useEffect(() => {
+    if (payrollVisible) void loadPayrollStatement(selectedPayrollStaffId)
+  }, [loadPayrollStatement, payrollVisible, selectedPayrollStaffId])
 
   const updateRange = useCallback((start: Date, end: Date) => {
     const now = new Date()
@@ -586,12 +621,12 @@ export default function AdminDashboard({
       </section>
     </div>
 
-    {canViewPayroll && <section className="admin-dashboard__payroll" aria-labelledby="dashboard-payroll-title" aria-busy={payrollRosterLoading || payrollStatementLoading}>
+    {canViewPayroll && <section ref={payrollSectionRef} className="admin-dashboard__payroll" aria-labelledby="dashboard-payroll-title" aria-busy={!payrollVisible || payrollRosterLoading || payrollStatementLoading}>
       <header>
         <div><small>QUỸ LƯƠNG · {periodLabel(currentPayrollPeriodId).toUpperCase()}</small><h2 id="dashboard-payroll-title">Lương & hoa hồng ca dạy</h2><p>Chọn từng nhân sự để xem thu nhập đã ghi nhận theo tuần.</p></div>
         <button type="button" onClick={() => goTo('admin-payroll')}>Xem bảng lương<ArrowRight size={15} /></button>
       </header>
-      {payrollRosterLoading
+      {!payrollVisible || payrollRosterLoading
         ? <div className="admin-dashboard__payroll-loading" aria-label="Đang tải bảng lương nhân sự"><div className="admin-dashboard__payroll-tab-skeleton"><i /><i /><i /></div><div className="admin-dashboard__payroll-chart-skeleton"><span /><span /><span /><span /><span /></div></div>
         : payrollRosterError
           ? <div className="admin-dashboard__payroll-state"><BarChart3 size={27} /><strong>Chưa tải được danh sách nhân sự</strong><p>{payrollRosterError}</p><button type="button" onClick={() => void loadPayrollRoster()}>Thử lại</button></div>

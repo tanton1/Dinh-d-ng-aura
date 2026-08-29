@@ -118,7 +118,7 @@ export interface OperationsDashboardData {
   }
   filters: { branches: Array<{ id: string; name: string }> }
   generatedAt: string
-  cache: { hit: boolean; ttlSeconds: number }
+  cache: { hit: boolean; tier: 'memory' | 'shared' | 'miss'; ttlSeconds: number }
 }
 
 type UnknownRecord = Record<string, unknown>
@@ -408,6 +408,7 @@ export function normalizeOperationsDashboardData(value: unknown): OperationsDash
     generatedAt: text(source.generatedAt, new Date().toISOString()),
     cache: {
       hit: cache.hit === true,
+      tier: cache.tier === 'memory' || cache.tier === 'shared' ? cache.tier : 'miss',
       ttlSeconds: nonNegativeNumber(cache.ttlSeconds),
     },
   }

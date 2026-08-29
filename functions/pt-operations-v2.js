@@ -72,6 +72,22 @@ function currentDateKey(now = new Date()) {
   return `${part('year')}-${part('month')}-${part('day')}`
 }
 
+function isEffectiveStaffContract(contract = {}, referenceDate = currentDateKey()) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(referenceDate)) return false
+  if (String(contract.status || 'active').toLowerCase() !== 'active') return false
+  const startDate = storedDateKey(contract.startDate)
+  const endDate = storedDateKey(contract.endDate)
+  const totalSessions = Math.max(0, Number(contract.totalSessions || 0))
+  const usedSessions = Math.max(0, Number(contract.usedSessions || 0))
+  if (!startDate || !endDate || startDate > referenceDate || endDate < referenceDate || totalSessions <= usedSessions) return false
+  return !(Array.isArray(contract.pausePeriods) && contract.pausePeriods.some((period) => {
+    if (String(period?.type || '').toLowerCase() !== 'preservation') return false
+    const pauseStart = storedDateKey(period.startDate)
+    const pauseEnd = storedDateKey(period.endDate)
+    return Boolean(pauseStart && pauseEnd && pauseStart <= referenceDate && pauseEnd >= referenceDate)
+  }))
+}
+
 function dateDistance(from, to) {
   const fromTime = Date.parse(`${from}T00:00:00Z`)
   const toTime = Date.parse(`${to}T00:00:00Z`)
@@ -380,10 +396,6 @@ function nutritionContractAssignedTo(contract, actor) {
   return Array.isArray(contract.nutritionPTIds) && contract.nutritionPTIds.some((id) => ids.has(id))
 }
 
-function activeAssignmentContract(contract) {
-  return ['active', 'future', 'frozen'].includes(contract.status || 'active')
-}
-
 async function assignedContracts(db, actor, relation = 'training', limit = 200) {
   const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
   const snapshots = []
@@ -440,8 +452,9 @@ async function coachWorkspaceScopeForActor(db, actor) {
     Promise.all(actorIds.map((actorId) => db.collection('sessions').where('trainerId', '==', actorId).limit(200).get())),
     Promise.all(actorIds.map((actorId) => db.collection('sessionRequests').where('trainerId', '==', actorId).limit(100).get())),
   ])
-  const activeTraining = trainingContracts.filter(activeAssignmentContract)
-  const activeNutrition = nutritionContracts.filter(activeAssignmentContract)
+  const today = currentDateKey()
+  const activeTraining = trainingContracts.filter((contract) => isEffectiveStaffContract(contract, today))
+  const activeNutrition = nutritionContracts.filter((contract) => isEffectiveStaffContract(contract, today))
   const teachingSessions = new Map()
   sessionSnapshots.forEach((snapshot) => snapshot.docs.forEach((document) => teachingSessions.set(document.id, document.data())))
   const pendingRequests = new Map()
@@ -466,7 +479,7 @@ async function coachWorkspaceScopeForActor(db, actor) {
     source: 'pt_contract_assignments',
     staffId: actor.legacyStaffId || actor.uid,
     tabs: {
-      students: trainingStudentIds.size > 0 || teachingSessions.size > 0,
+      students: trainingStudentIds.size > 0,
       schedule: hasTeachingWork,
       requests: hasTeachingWork,
       nutrition: nutritionStudentIds.size > 0,
@@ -482,17 +495,34 @@ async function coachWorkspaceScopeForActor(db, actor) {
 }
 
 async function assignedStudentsForActor(db, actor, limit) {
-  const contracts = await assignedContracts(db, actor, 'training', limit)
-  const studentIds = [...new Set(contracts.map((item) => item.studentId).filter(Boolean))]
+  const candidateLimit = Math.min(1000, Math.max(300, limit * 3))
+  const assigned = await assignedContracts(db, actor, 'training', candidateLimit)
+  const today = currentDateKey()
+  const contracts = assigned.filter((contract) => isEffectiveStaffContract(contract, today))
+  const allStudentIds = [...new Set(contracts.map((item) => item.studentId).filter(Boolean))]
+  const studentIds = allStudentIds.slice(0, limit)
+  const visibleStudentIds = new Set(studentIds)
+  const visibleContracts = contracts.filter((contract) => visibleStudentIds.has(contract.studentId))
   const branchIds = [...new Set([...actor.branchIds, ...contracts.map((item) => item.branchId).filter(Boolean)])]
   const [studentSnapshots, branchSnapshots] = await Promise.all([
     studentIds.length ? db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : [],
     branchIds.length ? db.getAll(...branchIds.map((id) => db.doc(`branches/${id}`))) : [],
   ])
-  const activeContractByStudent = new Map(contracts.filter((item) => item.status === 'active').map((item) => [item.studentId, item]))
   const students = studentSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => {
     const student = snapshot.data()
-    const contract = activeContractByStudent.get(snapshot.id) || contracts.find((item) => item.studentId === snapshot.id)
+    const studentContracts = visibleContracts
+      .filter((item) => item.studentId === snapshot.id)
+      .sort((left, right) => {
+        const actorIds = [actor.uid, actor.legacyStaffId].filter(Boolean)
+        const leftTrainerIds = Array.isArray(left.trainerIds) ? left.trainerIds : []
+        const rightTrainerIds = Array.isArray(right.trainerIds) ? right.trainerIds : []
+        const leftPrimary = actorIds.some((id) => left.trainerId === id || leftTrainerIds[0] === id)
+        const rightPrimary = actorIds.some((id) => right.trainerId === id || rightTrainerIds[0] === id)
+        return Number(rightPrimary) - Number(leftPrimary)
+          || storedDateKey(left.endDate).localeCompare(storedDateKey(right.endDate))
+          || left.id.localeCompare(right.id)
+      })
+    const contract = studentContracts[0]
     return serialize({
       id: snapshot.id, name: student.name || 'Học viên Aura', phone: student.phone || '', email: student.email || '',
       branchId: contract?.branchId || student.branchId || '', status: student.status || 'active', sessionsPerWeek: student.sessionsPerWeek || 0,
@@ -507,7 +537,7 @@ async function assignedStudentsForActor(db, actor, limit) {
   const branches = branchSnapshots
     .filter((snapshot) => snapshot.exists)
     .map((snapshot) => ({ id: snapshot.id, name: snapshot.data().name || snapshot.id }))
-  return { schemaVersion: 2, students, branches, hasMore: contracts.length >= limit }
+  return { schemaVersion: 3, students, branches, hasMore: allStudentIds.length > limit }
 }
 
 async function trainerScheduleForActor(db, actor, from, to, limit) {
@@ -519,7 +549,13 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
   const sessions = new Map()
   snapshots.forEach((snapshot) => snapshot.docs.forEach((document) => sessions.set(document.id, serialize({ id: document.id, ...document.data(), timeZone: TIME_ZONE }))))
   const studentIds = [...new Set([...sessions.values()].map((session) => session.studentId).filter(Boolean))]
-  const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : []
+  const contractIds = [...new Set([...sessions.values()].map((session) => session.contractId).filter(Boolean))]
+  const [studentSnapshots, contractSnapshots] = await Promise.all([
+    studentIds.length ? db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : [],
+    contractIds.length ? db.getAll(...contractIds.map((id) => db.doc(`contracts/${id}`))) : [],
+  ])
+  const contracts = new Map(contractSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, { id: snapshot.id, ...snapshot.data() }]))
+  const today = currentDateKey()
   const studentProfiles = new Map(studentSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => {
     const value = snapshot.data()
     return [snapshot.id, {
@@ -548,12 +584,23 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
     schemaVersion: 2,
     sessions: [...sessions.values()].map((session) => {
       const student = studentProfiles.get(session.studentId)
+      const contract = contracts.get(session.contractId)
+      const contractEffective = Boolean(contract && isEffectiveStaffContract(contract, today))
       return {
         ...session,
         studentName: student?.name || 'Học viên Aura',
         studentPhone: student?.phone || '',
         studentEmail: student?.email || '',
         studentBranchId: student?.branchId || session.branchId || '',
+        contractEffective,
+        contract: contractEffective ? {
+          id: contract.id,
+          status: contract.status || 'active',
+          startDate: storedDateKey(contract.startDate),
+          endDate: storedDateKey(contract.endDate),
+          totalSessions: Math.max(0, Number(contract.totalSessions || 0)),
+          usedSessions: Math.max(0, Number(contract.usedSessions || 0)),
+        } : null,
       }
     }).sort((a, b) => `${a.date}-${a.hour || 0}`.localeCompare(`${b.date}-${b.hour || 0}`)),
     requests: [...requests.values()].sort((a, b) => String(b.submittedAtIso || b.createdAt || '').localeCompare(String(a.submittedAtIso || a.createdAt || ''))),
@@ -1178,6 +1225,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
 
 module.exports = {
   createPtOperationsV2Functions,
+  isEffectiveStaffContract,
   normalizedAvailabilitySlots,
   scheduleConfig,
   sessionHour,

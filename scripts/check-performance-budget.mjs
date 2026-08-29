@@ -4,6 +4,7 @@ import { gzipSync } from 'node:zlib'
 
 const rootDir = process.cwd()
 const assetsDir = path.join(rootDir, 'dist', 'assets')
+const manifestPath = path.join(rootDir, 'dist', '.vite', 'manifest.json')
 
 const budgets = {
   entryCss: 150_000,
@@ -12,7 +13,17 @@ const budgets = {
   initialAssetsGzip: 410_000,
   startupTransfer: 480_000,
   splashImage: 100_000,
+  adminDashboardJsGzip: 14_000,
+  adminDashboardCssGzip: 10_000,
 }
+
+const routeBudgets = [
+  { label: 'Dinh dưỡng', key: 'src/pages/student/NutritionPage.tsx', bytes: 84_000 },
+  { label: 'Quản lý học viên PT', key: 'src/components/admin/pt/StudentManagement.tsx', bytes: 75_000 },
+  { label: 'Báo cáo Admin cũ', key: 'src/components/admin/pt/AdminReportDashboard.tsx', bytes: 10_000 },
+  { label: 'Biểu đồ Báo cáo Admin', key: 'src/components/admin/pt/AdminReportCharts.tsx', bytes: 120_000 },
+  { label: 'Tổng quan Admin mới', key: 'src/pages/admin/AdminDashboard.tsx', bytes: 34_000 },
+]
 
 function formatBytes(bytes) {
   return `${(bytes / 1024).toFixed(1)} KiB`
@@ -29,6 +40,12 @@ async function largestMatchingAsset(pattern) {
   return sizes.sort((a, b) => b.bytes - a.bytes)[0]
 }
 
+async function gzipMatchingAsset(pattern) {
+  const asset = await largestMatchingAsset(pattern)
+  const contents = await readFile(path.join(assetsDir, asset.file))
+  return { file: asset.file, bytes: gzipSync(contents).byteLength }
+}
+
 function assertWithinBudget(label, asset, budget) {
   if (asset.bytes > budget) {
     throw new Error(`${label} ${asset.file} vượt budget: ${formatBytes(asset.bytes)} > ${formatBytes(budget)}`)
@@ -36,10 +53,12 @@ function assertWithinBudget(label, asset, budget) {
   console.log(`✓ ${label}: ${formatBytes(asset.bytes)} / ${formatBytes(budget)}`)
 }
 
-const [entryCss, entryJs, firebaseVendor, splashStats, html, builtHtml, appSource, onboardingSource] = await Promise.all([
+const [entryCss, entryJs, firebaseVendor, adminDashboardJs, adminDashboardCss, splashStats, html, builtHtml, appSource, onboardingSource] = await Promise.all([
   largestMatchingAsset(/^index-[\w-]+\.css$/),
   largestMatchingAsset(/^index-[\w-]+\.js$/),
   largestMatchingAsset(/^vendor-firebase-(?!app-check|messaging)[\w-]+\.js$/),
+  gzipMatchingAsset(/^AdminDashboard-[\w-]+\.js$/),
+  gzipMatchingAsset(/^AdminDashboard-[\w-]+\.css$/),
   stat(path.join(rootDir, 'public', 'aura-onboarding.webp')),
   readFile(path.join(rootDir, 'index.html'), 'utf8'),
   readFile(path.join(rootDir, 'dist', 'index.html'), 'utf8'),
@@ -50,6 +69,8 @@ const [entryCss, entryJs, firebaseVendor, splashStats, html, builtHtml, appSourc
 assertWithinBudget('CSS khởi động', entryCss, budgets.entryCss)
 assertWithinBudget('JS khởi động', entryJs, budgets.entryJs)
 assertWithinBudget('Firebase vendor', firebaseVendor, budgets.firebaseVendor)
+assertWithinBudget('Admin Dashboard JS gzip', adminDashboardJs, budgets.adminDashboardJsGzip)
+assertWithinBudget('Admin Dashboard CSS gzip', adminDashboardCss, budgets.adminDashboardCssGzip)
 assertWithinBudget('Ảnh splash WebP', { file: 'aura-onboarding.webp', bytes: splashStats.size }, budgets.splashImage)
 
 const initialAssetNames = [...builtHtml.matchAll(/<(?:script|link)\b[^>]*(?:src|href)="\/assets\/([^"]+)"/g)]
@@ -75,6 +96,41 @@ if (startupTransfer > budgets.startupTransfer) {
   throw new Error(`Tổng tải khởi động gồm HTML và splash vượt budget: ${formatBytes(startupTransfer)} > ${formatBytes(budgets.startupTransfer)}`)
 }
 console.log(`✓ Tổng tải khởi động gồm HTML và splash: ${formatBytes(startupTransfer)} / ${formatBytes(budgets.startupTransfer)}`)
+
+const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+const initialAssetFiles = new Set(initialAssetNames.map((file) => `assets/${file}`))
+
+function collectStaticRouteAssets(manifestKey, visited = new Set()) {
+  if (visited.has(manifestKey)) return new Set()
+  visited.add(manifestKey)
+  const entry = manifest[manifestKey]
+  if (!entry) throw new Error(`Không tìm thấy route ${manifestKey} trong Vite manifest.`)
+
+  const files = new Set([entry.file, ...(entry.css ?? [])])
+  for (const importKey of entry.imports ?? []) {
+    for (const file of collectStaticRouteAssets(importKey, visited)) files.add(file)
+  }
+  return files
+}
+
+function resolveRouteManifestKey(sourceKey) {
+  if (manifest[sourceKey]) return sourceKey
+  const routeName = path.basename(sourceKey, path.extname(sourceKey))
+  const match = Object.entries(manifest).find(([, entry]) => entry.src === sourceKey || (entry.isDynamicEntry && entry.name === routeName))
+  if (!match) throw new Error(`Không tìm thấy route ${sourceKey} trong Vite manifest.`)
+  return match[0]
+}
+
+for (const route of routeBudgets) {
+  const routeFiles = [...collectStaticRouteAssets(resolveRouteManifestKey(route.key))]
+    .filter((file) => !initialAssetFiles.has(file))
+  const gzipSizes = await Promise.all(routeFiles.map(async (file) => {
+    const contents = await readFile(path.join(rootDir, 'dist', file))
+    return gzipSync(contents).byteLength
+  }))
+  const total = gzipSizes.reduce((sum, bytes) => sum + bytes, 0)
+  assertWithinBudget(`${route.label} · tải thêm`, { file: `${routeFiles.length} assets`, bytes: total }, route.bytes)
+}
 
 const startupSources = [html, appSource, onboardingSource].join('\n')
 if (startupSources.includes('/aura-onboarding.png')) {

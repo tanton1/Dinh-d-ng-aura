@@ -11,6 +11,7 @@ export type ProductEventName =
   | 'workout_completed'
   | 'eat_clean_order_created'
   | 'eat_clean_consumption_confirmed'
+  | 'admin_dashboard_loaded'
 
 const recentPageViews = new Map<string, number>()
 const PAGE_VIEW_DEDUPLICATION_MS = 5_000

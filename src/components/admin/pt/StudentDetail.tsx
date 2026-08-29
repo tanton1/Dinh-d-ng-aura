@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Student, StudentContract, TrainingPackage, Installment, Trainer, Branch, Session, DailyCheckin } from '../../../types';
+import { Student, StudentContract, TrainingPackage, Installment, Trainer, Branch, Session, DailyCheckin, LeaveRequest, SessionRequest, WorkoutLog } from '../../../types';
+import { collection, getDocs, limit, query, where } from 'firebase/firestore';
 import { ArrowLeft, CheckCircle, Plus, Activity, History, FileText, CreditCard, Calendar as CalendarIcon, AlertCircle, TrendingUp, Package, ClipboardCheck, Droplets, Moon, Smile, Zap, RefreshCw, Edit, User as UserIcon, CalendarClock, Dumbbell, Trash2, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ContractInvoice from './ContractInvoice';
@@ -17,6 +18,7 @@ import { getActiveContract } from '../../../utils/scheduler';
 import { recordContractPayment, recordRefund } from '../../../services/financeLedgerService';
 import { getStudentContractUsage, type ContractUsageSummary } from '../../../services/businessReportingService';
 import TrainingHistoryPanel from './TrainingHistoryPanel';
+import { db } from '../../../lib/firebase';
 import './StudentManagement.css';
 
 interface Props {
@@ -38,7 +40,7 @@ import TrainerPrioritySelector from './TrainerPrioritySelector';
 
 export default function StudentDetail({ student, profile, contracts, packages, trainers, branches, sessions, onBack, onSaveContract, onUpdateContract }: Props) {
   const isTrainer = (profile as any)?.role === 'trainer';
-  const { dailyCheckins: allDailyCheckins, sessionRequests, leaveRequests, workoutLogs, deleteWorkoutLog } = useDatabase();
+  const { deleteWorkoutLog } = useDatabase();
   const manualAttendanceUnavailable = 'Chưa thể điểm danh thủ công an toàn vì tạo buổi tập và trừ buổi hợp đồng cần một giao dịch máy chủ duy nhất. Vui lòng dùng quy trình chấm công đã kiểm toán.';
   const [isAddingPackage, setIsAddingPackage] = useState(false);
   const [isSavingPackage, setIsSavingPackage] = useState(false);
@@ -72,6 +74,11 @@ export default function StudentDetail({ student, profile, contracts, packages, t
   const [detailSlide, setDetailSlide] = useState(0);
   const detailTrackRef = useRef<HTMLDivElement>(null);
   const [dailyCheckins, setDailyCheckins] = useState<DailyCheckin[]>([]);
+  const [allDailyCheckins, setAllDailyCheckins] = useState<DailyCheckin[]>([]);
+  const [sessionRequests, setSessionRequests] = useState<SessionRequest[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
+  const [workoutLogs, setWorkoutLogs] = useState<WorkoutLog[]>([]);
+  const [relatedDataRevision, setRelatedDataRevision] = useState(0);
   const [loadingCheckins, setLoadingCheckins] = useState(false);
   const [activeContractUsage, setActiveContractUsage] = useState<ContractUsageSummary | null>(null);
   const [contractUsageLoading, setContractUsageLoading] = useState(false);
@@ -87,6 +94,40 @@ export default function StudentDetail({ student, profile, contracts, packages, t
   const activeContract = getActiveContract(student.id, contracts);
   const historyContracts = contracts.filter(c => c.studentId === student.id && c.id !== activeContract?.id);
   const studentSessions = sessions.filter(s => s.studentId === student.id);
+
+  useEffect(() => {
+    let active = true;
+    if (!db) return () => { active = false; };
+    const firestore = db;
+    const loadRelated = async () => {
+      const studentQuery = (collectionName: string, maximum = 250) => getDocs(query(
+        collection(firestore, collectionName),
+        where('studentId', '==', student.id),
+        limit(maximum),
+      ));
+      const [checkinsSnapshot, sessionRequestsSnapshot, leaveRequestsSnapshot, workoutLogsSnapshot] = await Promise.all([
+        studentQuery('dailyCheckins', 180),
+        studentQuery('sessionRequests', 250),
+        studentQuery('leaveRequests', 250),
+        studentQuery('workoutLogs', 500),
+      ]);
+      if (!active) return;
+      const values = <T,>(snapshot: typeof checkinsSnapshot) => snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as T);
+      setAllDailyCheckins(values<DailyCheckin>(checkinsSnapshot));
+      setSessionRequests(values<SessionRequest>(sessionRequestsSnapshot));
+      setLeaveRequests(values<LeaveRequest>(leaveRequestsSnapshot));
+      setWorkoutLogs(values<WorkoutLog>(workoutLogsSnapshot));
+    };
+    void loadRelated().catch((cause) => {
+      console.warn('Không thể tải dữ liệu chi tiết học viên.', cause);
+      if (!active) return;
+      setAllDailyCheckins([]);
+      setSessionRequests([]);
+      setLeaveRequests([]);
+      setWorkoutLogs([]);
+    });
+    return () => { active = false; };
+  }, [relatedDataRevision, student.id]);
 
   useEffect(() => {
     let active = true;
@@ -716,7 +757,9 @@ export default function StudentDetail({ student, profile, contracts, packages, t
                         <button 
                           onClick={() => {
                              if(confirm('Xoá lịch sử bài này?')) {
-                                deleteWorkoutLog(log.id);
+                                void deleteWorkoutLog(log.id).then(() => {
+                                  setWorkoutLogs((current) => current.filter((item) => item.id !== log.id));
+                                });
                              }
                           }}
                           className="text-red-400/70 hover:text-red-400 p-1.5 hover:bg-red-500/10 rounded-lg transition-colors"
@@ -1489,6 +1532,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
               onClose={() => {
                 setShowWorkoutLogger(false);
                 setEditingWorkoutLog(null);
+                setRelatedDataRevision((current) => current + 1);
               }} 
             />
           </div>

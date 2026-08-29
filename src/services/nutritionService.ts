@@ -233,7 +233,7 @@ export interface FoodAnalysisResponse {
   scanId: string
   status: 'completed' | 'provider_not_configured'
   mode: 'live' | 'demo'
-  provider: 'openrouter' | 'gemini' | 'none'
+  provider: 'apikey_fun' | 'openrouter' | 'gemini' | 'none'
   model: string | null
   providerRequestId: string | null
   analysis: FoodAnalysis | null
@@ -562,7 +562,7 @@ function validateAnalysisResponse(value: unknown, expectedScanId: string): FoodA
   if (value.status === 'completed') {
     if (
       value.mode !== 'live'
-      || (value.provider !== 'openrouter' && value.provider !== 'gemini')
+      || (value.provider !== 'apikey_fun' && value.provider !== 'openrouter' && value.provider !== 'gemini')
       || typeof value.model !== 'string'
       || !value.model.trim()
       || (value.providerRequestId !== null && typeof value.providerRequestId !== 'string')
@@ -644,7 +644,7 @@ export async function analyzeUploadedFoodPhoto(
     }
     return response
   } catch (error) {
-    reportClientIssue('openrouter', error, { phase: 'analyze_food_callable', provider: 'openrouter', retryable: true })
+    reportClientIssue('apikey_fun', error, { phase: 'analyze_food_callable', provider: 'apikey_fun', retryable: true })
     if (options.retainImage !== true && storage) {
       await deleteObject(ref(storage, upload.storagePath)).catch(() => undefined)
     }
@@ -663,7 +663,7 @@ export async function analyzeFoodPhoto(
     const upload = await uploadFoodPhoto(image)
     return await analyzeUploadedFoodPhoto(upload, options)
   } catch (error) {
-    reportClientIssue('openrouter', error, { phase: 'analyze_food_pipeline', provider: 'openrouter', retryable: true })
+    reportClientIssue('apikey_fun', error, { phase: 'analyze_food_pipeline', provider: 'apikey_fun', retryable: true })
     throw error
   }
 }

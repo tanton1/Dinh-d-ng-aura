@@ -4,7 +4,6 @@ import { User } from 'firebase/auth';
 import { db } from '../../../lib/firebase';
 import { Search, Plus, Edit2, Trash2, Phone, Mail, Calendar, CheckCircle, XCircle, AlertCircle, User as UserIcon, Package, RefreshCw, SlidersHorizontal, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import StudentDetail from './StudentDetail';
 import DateRangeFilter from './DateRangeFilter';
 import RenewContractModal from './RenewContractModal';
 import { LOGO_URL } from '../../../constants';
@@ -15,6 +14,8 @@ import { recordContractPayment } from '../../../services/financeLedgerService';
 import StudentRosterTable from './StudentRosterTable';
 import { studentEligibilityForWeek } from '../../../domain/pt/studentEligibility';
 import './StudentManagement.css';
+
+const StudentDetail = React.lazy(() => import('./StudentDetail'));
 
 interface Props {
   user: User | null;
@@ -75,10 +76,22 @@ export default function StudentManagement({ user, profile }: Props) {
     return canManageStudents ? [...students] : [];
   }, [canManageStudents, students]);
 
+  const contractsByStudent = useMemo(() => {
+    const index = new Map<string, StudentContract[]>();
+    contracts.forEach((contract) => {
+      const current = index.get(contract.studentId) || [];
+      current.push(contract);
+      index.set(contract.studentId, current);
+    });
+    index.forEach((items) => items.sort((left, right) => right.startDate.localeCompare(left.startDate)));
+    return index;
+  }, [contracts]);
+  const contractsById = useMemo(() => new Map(contracts.map((contract) => [contract.id, contract])), [contracts]);
+
   const weekEligibilityByStudent = useMemo(() => new Map(allowedStudents.map((student) => [
     student.id,
-    studentEligibilityForWeek(student, contracts),
-  ])), [allowedStudents, contracts]);
+    studentEligibilityForWeek(student, contractsByStudent.get(student.id) || []),
+  ])), [allowedStudents, contractsByStudent]);
 
   const filteredStudents = useMemo(() => {
     let filtered = allowedStudents.filter(s => {
@@ -132,8 +145,7 @@ export default function StudentManagement({ user, profile }: Props) {
 
     if (contractFilter !== 'all') {
       filtered = filtered.filter(s => {
-        const studentContracts = contracts.filter(c => c.studentId === s.id)
-          .sort((a, b) => b.startDate.localeCompare(a.startDate));
+        const studentContracts = contractsByStudent.get(s.id) || [];
         const weekEligibility = weekEligibilityByStudent.get(s.id);
         const effectiveContract = weekEligibility?.eligibleContracts[0];
         let status = 'none';
@@ -203,7 +215,7 @@ export default function StudentManagement({ user, profile }: Props) {
     }
 
     return filtered;
-  }, [allowedStudents, searchTerm, dateRange, selectedBranchId, contracts, contractFilter, selectedTrainerId, selectedNutritionPTId, weekEligibilityByStudent]);
+  }, [allowedStudents, searchTerm, dateRange, selectedBranchId, contractFilter, selectedTrainerId, selectedNutritionPTId, weekEligibilityByStudent, contractsByStudent]);
 
   const studentPageSize = 30;
   const studentPageCount = Math.max(1, Math.ceil(filteredStudents.length / studentPageSize));
@@ -296,7 +308,7 @@ export default function StudentManagement({ user, profile }: Props) {
         .sort((left, right) => left.date.localeCompare(right.date))[0];
       contractToPersist.nextPaymentDate = persistedPending?.date || null;
 
-      const existingContract = contracts.find((contract) => contract.id === newContract.id);
+      const existingContract = contractsById.get(newContract.id);
       if (existingContract && existingContract.studentId !== newContract.studentId) {
         throw new Error('Mã hợp đồng đã thuộc về một học viên khác.');
       }
@@ -332,7 +344,7 @@ export default function StudentManagement({ user, profile }: Props) {
 
   const handleUpdateContract = async (updatedContract: StudentContract, skipPayment?: boolean) => {
     try {
-      const oldContract = contracts.find(c => c.id === updatedContract.id);
+      const oldContract = contractsById.get(updatedContract.id);
       const previousPaidAmount = Number(oldContract?.paidAmount || 0);
       const requestedPaidAmount = Number(updatedContract.paidAmount || 0);
       if (!skipPayment && oldContract && requestedPaidAmount !== previousPaidAmount) {
@@ -494,18 +506,20 @@ export default function StudentManagement({ user, profile }: Props) {
     const student = students.find(s => s.id === selectedStudentId);
     if (student) {
       return (
-        <StudentDetail
-          student={student}
-          profile={profile}
-          contracts={contracts}
-          packages={packages}
-          trainers={trainers}
-          branches={branches}
-          sessions={sessions}
-          onBack={() => setSelectedStudentId(null)}
-          onSaveContract={handleSaveContract}
-          onUpdateContract={handleUpdateContract}
-        />
+        <React.Suspense fallback={<div className="student-management" role="status" aria-live="polite">Đang tải hồ sơ học viên…</div>}>
+          <StudentDetail
+            student={student}
+            profile={profile}
+            contracts={contracts}
+            packages={packages}
+            trainers={trainers}
+            branches={branches}
+            sessions={sessions}
+            onBack={() => setSelectedStudentId(null)}
+            onSaveContract={handleSaveContract}
+            onUpdateContract={handleUpdateContract}
+          />
+        </React.Suspense>
       );
     }
   }
@@ -675,7 +689,7 @@ export default function StudentManagement({ user, profile }: Props) {
               });
 
               const { isExpiringThisMonth, isExpiringThisWeek, isExpired } = (() => {
-                const studentContracts = contracts.filter(c => c.studentId === student.id);
+                const studentContracts = contractsByStudent.get(student.id) || [];
                 if (studentContracts.length === 0) return { isExpiringThisMonth: false, isExpiringThisWeek: false, isExpired: false };
                 
                 studentContracts.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
@@ -762,7 +776,7 @@ export default function StudentManagement({ user, profile }: Props) {
                         {student.sessionsPerWeek} buổi/tuần
                       </div>
                       {(() => {
-                        const studentContracts = contracts.filter(c => c.studentId === student.id);
+                        const studentContracts = contractsByStudent.get(student.id) || [];
                         if (studentContracts.length === 0) return null;
                         
                         studentContracts.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
@@ -812,7 +826,7 @@ export default function StudentManagement({ user, profile }: Props) {
                     {(isExpired || isExpiringThisMonth || isExpiringThisWeek) && canManageStudents && (
                       <button
                         onClick={() => {
-                          const studentContracts = contracts.filter(c => c.studentId === student.id);
+                          const studentContracts = contractsByStudent.get(student.id) || [];
                           if (studentContracts.length > 0) {
                             studentContracts.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
                             setRenewingStudent({ student, contract: studentContracts[0] });

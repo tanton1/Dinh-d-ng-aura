@@ -1,14 +1,14 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions, firebaseAppCheckStatus, isFirebaseConfigured, useFirebaseEmulators } from '../lib/firebase'
 
-export type ClientIssueArea = 'auth' | 'gemini' | 'openrouter' | 'firestore' | 'push' | 'ui'
+export type ClientIssueArea = 'auth' | 'gemini' | 'openrouter' | 'apikey_fun' | 'firestore' | 'push' | 'ui'
 
 interface ClientIssueContext {
   phase: string
   incidentId?: string
   route?: string
   host?: string
-  provider?: 'google' | 'phone' | 'email' | 'password' | 'gemini' | 'openrouter'
+  provider?: 'google' | 'phone' | 'email' | 'password' | 'gemini' | 'openrouter' | 'apikey_fun'
   retryable?: boolean
 }
 

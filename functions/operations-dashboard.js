@@ -1,12 +1,19 @@
 const { Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
+const { createSharedDashboardCache, stableDashboardCacheKey } = require('./operations-dashboard-cache')
+const { loadDailyAggregates } = require('./operations-dashboard-aggregates')
 
 const MAX_RANGE_DAYS = 366
 const MAX_SCANNED_DOCUMENTS = 10000
 const MAX_ACTION_DOCUMENTS = 2000
 const DASHBOARD_CACHE_TTL_MS = 60_000
 const DASHBOARD_CACHE_MAX_ENTRIES = 120
+const MAX_CONTRACT_DOCUMENTS = 2000
+const MAX_STUDENT_DOCUMENTS = 2000
+const MAX_TRAINER_DOCUMENTS = 500
+const MAX_STAFF_DOCUMENTS = 500
+const MAX_BRANCH_DOCUMENTS = 100
 const dashboardCache = new Map()
 
 function dateInput(value, fallback) {
@@ -264,6 +271,36 @@ function dashboardAnalytics({ ledgerValues, contractValues, offValues, start, en
       rate: effectiveContracts.length ? Math.round(approvedContractIds.size / effectiveContracts.length * 1000) / 10 : 0,
     },
   }
+}
+
+function aggregateRevenueAnalytics(days, start, end) {
+  const granularity = reportGranularity(start, end)
+  const points = new Map()
+  const point = (bucket) => {
+    const current = points.get(bucket.key) || { key: bucket.key, label: bucket.label, contractSales: 0, recognizedRevenue: 0, grossCash: 0, netCash: 0 }
+    points.set(bucket.key, current)
+    return current
+  }
+  const cursor = new Date(start)
+  cursor.setHours(12, 0, 0, 0)
+  const endCursor = new Date(end)
+  endCursor.setHours(12, 0, 0, 0)
+  while (cursor <= endCursor) {
+    const bucket = reportBucket(cursor, granularity)
+    if (bucket) point(bucket)
+    if (granularity === 'month') cursor.setMonth(cursor.getMonth() + 1, 1)
+    else cursor.setDate(cursor.getDate() + (granularity === 'week' ? 7 : 1))
+  }
+  for (const day of days) {
+    const bucket = reportBucket(`${day.date}T12:00:00+07:00`, granularity)
+    if (!bucket) continue
+    const current = point(bucket)
+    current.contractSales += Number(day.metrics.contractSales || 0)
+    current.recognizedRevenue += Number(day.metrics.recognizedRevenue || 0)
+    current.grossCash += Number(day.metrics.grossCash || 0)
+    current.netCash += Number(day.metrics.netCash || 0)
+  }
+  return { granularity, points: [...points.values()].sort((left, right) => left.key.localeCompare(right.key)).slice(-60) }
 }
 
 function summarizeAttendance(confirmedSessions, noShowSessions) {
@@ -580,8 +617,10 @@ function contractEffectiveDate(value) {
   return value.signedAt || value.createdAt || value.contractDate || value.startDate || null
 }
 
-function createOperationsDashboardFunctions({ db, onCall }) {
+function createOperationsDashboardFunctions({ db, onCall, logger = console }) {
+  const sharedCache = createSharedDashboardCache({ db, logger })
   const getOperationsDashboard = onCall(async (request) => {
+    const startedAt = Date.now()
     const actor = await trustedAccessContext(request, db)
     requireCapability(actor, 'dashboard.view')
     const now = new Date()
@@ -599,10 +638,35 @@ function createOperationsDashboardFunctions({ db, onCall }) {
     const startDate = dateKey(start)
     const endDate = dateKey(end)
     const today = dateKey(now)
-    const cacheKey = [actor.uid, actor.authzVersion, startDate, endDate, branchId, scope.branchIds.join(',')].join('|')
+    const cacheKey = stableDashboardCacheKey({ actor, permissions, scope, startDate, endDate })
     const cached = getCachedDashboard(cacheKey, request.data?.forceRefresh === true)
-    if (cached) return cached
+    if (cached) {
+      logger.info('operations_dashboard_request', {
+        durationMs: Date.now() - startedAt,
+        cacheTier: 'memory',
+        branchId,
+        rangeDays: Math.ceil((end.getTime() - start.getTime()) / 86_400_000) + 1,
+      })
+      return { ...cached, cache: { ...cached.cache, tier: 'memory' } }
+    }
+    const sharedCached = await sharedCache.get(cacheKey, request.data?.forceRefresh === true)
+    if (sharedCached) {
+      setCachedDashboard(cacheKey, sharedCached)
+      logger.info('operations_dashboard_request', {
+        durationMs: Date.now() - startedAt,
+        cacheTier: 'shared',
+        branchId,
+        rangeDays: Math.ceil((end.getTime() - start.getTime()) / 86_400_000) + 1,
+      })
+      return sharedCached
+    }
 
+    // Daily aggregates are built once and maintained by Firestore triggers.
+    // They replace the largest ledger/session scans for administrator views;
+    // actor-scoped staff views continue to use the stricter raw queries.
+    const dailyAggregate = isOperationsAdmin(actor)
+      ? await loadDailyAggregates({ db, startDate, endDate, scope })
+      : null
     const contractNeeded = permissions.finance || permissions.clients
     const sessionRangeQuery = db.collection('sessions').where('date', '>=', startDate).where('date', '<=', endDate)
     const confirmedSessionRangeQuery = db.collection('sessions').where('status', 'in', ['completed', 'attended', 'no_show']).where('date', '>=', startDate).where('date', '<=', endDate)
@@ -610,17 +674,17 @@ function createOperationsDashboardFunctions({ db, onCall }) {
     const attendanceRangeQuery = db.collection('attendanceEvents').where('occurredAt', '>=', startTimestamp).where('occurredAt', '<=', endTimestamp)
     const canAggregateOperations = permissions.operations && scope.unrestricted
     const [ledger, sessionRange, confirmedSessionRange, noShowSessionRange, attendanceRange, todaySessions, contracts, students, trainers, staff, branches, offRequests, renewalAction, scheduleAction, nutritionAction] = await Promise.all([
-      permissions.finance ? db.collection('ledgerEntries').where('effectiveAt', '>=', startTimestamp).where('effectiveAt', '<=', endTimestamp).limit(MAX_SCANNED_DOCUMENTS).get() : null,
-      permissions.operations ? (canAggregateOperations ? sessionRangeQuery.count().get() : sessionRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
-      permissions.operations ? (canAggregateOperations ? confirmedSessionRangeQuery.count().get() : confirmedSessionRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
-      permissions.operations ? (canAggregateOperations ? noShowSessionRangeQuery.count().get() : noShowSessionRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
-      permissions.operations ? (canAggregateOperations ? attendanceRangeQuery.count().get() : attendanceRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
+      permissions.finance && !dailyAggregate ? db.collection('ledgerEntries').where('effectiveAt', '>=', startTimestamp).where('effectiveAt', '<=', endTimestamp).limit(MAX_SCANNED_DOCUMENTS).get() : null,
+      permissions.operations && !dailyAggregate ? (canAggregateOperations ? sessionRangeQuery.count().get() : sessionRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
+      permissions.operations && !dailyAggregate ? (canAggregateOperations ? confirmedSessionRangeQuery.count().get() : confirmedSessionRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
+      permissions.operations && !dailyAggregate ? (canAggregateOperations ? noShowSessionRangeQuery.count().get() : noShowSessionRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
+      permissions.operations && !dailyAggregate ? (canAggregateOperations ? attendanceRangeQuery.count().get() : attendanceRangeQuery.limit(MAX_SCANNED_DOCUMENTS).get()) : null,
       permissions.operations ? db.collection('sessions').where('date', '==', today).limit(500).get() : null,
-      contractNeeded ? db.collection('contracts').limit(2000).get() : null,
-      permissions.clients ? db.collection('students').limit(2000).get() : null,
-      permissions.operations ? db.collection('trainers').limit(500).get() : null,
-      permissions.operations ? db.collection('staff').limit(500).get() : null,
-      permissions.operations ? db.collection('branches').limit(100).get() : null,
+      contractNeeded ? db.collection('contracts').limit(MAX_CONTRACT_DOCUMENTS + 1).get() : null,
+      permissions.clients ? db.collection('students').limit(MAX_STUDENT_DOCUMENTS + 1).get() : null,
+      permissions.operations ? db.collection('trainers').limit(MAX_TRAINER_DOCUMENTS + 1).get() : null,
+      permissions.operations ? db.collection('staff').limit(MAX_STAFF_DOCUMENTS + 1).get() : null,
+      permissions.operations ? db.collection('branches').limit(MAX_BRANCH_DOCUMENTS + 1).get() : null,
       (permissions.operations || permissions.clients) ? db.collection('leaveRequests').where('startDate', '>=', startDate).where('startDate', '<=', endDate).limit(MAX_ACTION_DOCUMENTS + 1).get() : null,
       loadRenewalAction(db, actor, scope, today, permissions.renewals),
       loadScheduleAction(db, actor, scope, today, permissions.schedule),
@@ -628,20 +692,21 @@ function createOperationsDashboardFunctions({ db, onCall }) {
     ])
 
     const ledgerValues = ledger ? ledger.docs.map((item) => item.data()).filter((value) => scopeMatches(value, scope) && ['posted', 'reversed'].includes(value.status)) : []
-    const contractValues = contracts ? contracts.docs.map((item) => ({ id: item.id, ...item.data() })).filter((value) => scopeMatches(value, scope)) : []
-    const studentValues = students ? students.docs.map((item) => ({ id: item.id, ...item.data() })).filter((value) => scopeMatches(value, scope)) : []
-    const trainerValues = trainers ? trainers.docs.map((item) => ({ id: item.id, ...item.data() })).filter((value) => scopeMatches(value, scope)) : []
-    const staffValues = staff ? staff.docs.map((item) => item.data()).filter((value) => scopeMatches(value, scope)) : []
-    const availableBranchValues = branches ? branches.docs.map((item) => ({ id: item.id, ...item.data() })) : []
+    const contractValues = contracts ? contracts.docs.slice(0, MAX_CONTRACT_DOCUMENTS).map((item) => ({ id: item.id, ...item.data() })).filter((value) => scopeMatches(value, scope)) : []
+    const studentValues = students ? students.docs.slice(0, MAX_STUDENT_DOCUMENTS).map((item) => ({ id: item.id, ...item.data() })).filter((value) => scopeMatches(value, scope)) : []
+    const trainerValues = trainers ? trainers.docs.slice(0, MAX_TRAINER_DOCUMENTS).map((item) => ({ id: item.id, ...item.data() })).filter((value) => scopeMatches(value, scope)) : []
+    const staffValues = staff ? staff.docs.slice(0, MAX_STAFF_DOCUMENTS).map((item) => item.data()).filter((value) => scopeMatches(value, scope)) : []
+    const availableBranchValues = branches ? branches.docs.slice(0, MAX_BRANCH_DOCUMENTS).map((item) => ({ id: item.id, ...item.data() })) : []
     const branchValues = availableBranchValues.filter((value) => scope.unrestricted || scope.branchIds.includes(value.id))
     const sessionValues = sessionRange?.docs ? sessionRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
     const attendanceValues = attendanceRange?.docs ? attendanceRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
     const confirmedSessionValues = confirmedSessionRange?.docs ? confirmedSessionRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
     const noShowSessionValues = noShowSessionRange?.docs ? noShowSessionRange.docs.map((item) => item.data()).filter((value) => operationMatches(value, actor, scope)) : []
-    const sessionCount = canAggregateOperations ? Number(sessionRange?.data().count || 0) : sessionValues.length
-    const confirmedSessionCount = canAggregateOperations ? Number(confirmedSessionRange?.data().count || 0) : confirmedSessionValues.length
-    const noShowSessionCount = canAggregateOperations ? Number(noShowSessionRange?.data().count || 0) : noShowSessionValues.length
-    const attendanceCount = canAggregateOperations ? Number(attendanceRange?.data().count || 0) : attendanceValues.length
+    const aggregateTotals = dailyAggregate?.totals || {}
+    const sessionCount = dailyAggregate ? Number(aggregateTotals.sessions || 0) : canAggregateOperations ? Number(sessionRange?.data().count || 0) : sessionValues.length
+    const confirmedSessionCount = dailyAggregate ? Number(aggregateTotals.confirmedSessions || 0) : canAggregateOperations ? Number(confirmedSessionRange?.data().count || 0) : confirmedSessionValues.length
+    const noShowSessionCount = dailyAggregate ? Number(aggregateTotals.noShowSessions || 0) : canAggregateOperations ? Number(noShowSessionRange?.data().count || 0) : noShowSessionValues.length
+    const attendanceCount = dailyAggregate ? Number(aggregateTotals.attendanceEvents || 0) : canAggregateOperations ? Number(attendanceRange?.data().count || 0) : attendanceValues.length
     const todayValues = todaySessions ? todaySessions.docs.map((item) => ({ id: item.id, ...item.data() })).filter((value) => operationMatches(value, actor, scope)) : []
     const contractIds = new Set(contractValues.map((value) => value.id))
     const offValues = offRequests ? offRequests.docs.slice(0, MAX_ACTION_DOCUMENTS).map((item) => ({ id: item.id, ...item.data() })).filter((value) => contractIds.has(value.contractId)) : []
@@ -655,16 +720,24 @@ function createOperationsDashboardFunctions({ db, onCall }) {
       result.netCash += amount
       result.recognizedRevenue += ledgerRevenueImpact(value)
       return result
-    }, { cashCollected: 0, refunds: 0, reversals: 0, adjustments: 0, netCash: 0, recognizedRevenue: 0 })
+    }, dailyAggregate ? {
+      cashCollected: Number(aggregateTotals.cashCollected || 0),
+      refunds: Number(aggregateTotals.refunds || 0),
+      reversals: Number(aggregateTotals.reversals || 0),
+      adjustments: Number(aggregateTotals.adjustments || 0),
+      netCash: Number(aggregateTotals.netCash || 0),
+      recognizedRevenue: Number(aggregateTotals.recognizedRevenue || 0),
+    } : { cashCollected: 0, refunds: 0, reversals: 0, adjustments: 0, netCash: 0, recognizedRevenue: 0 })
 
     let missingContractEffectiveDate = 0
-    const contractSales = contractValues.reduce((total, value) => {
+    const rawContractSales = contractValues.reduce((total, value) => {
       if (['draft', 'cancelled', 'inactive', 'archived'].includes(value.status)) return total
       const effectiveDate = contractEffectiveDate(value)
       if (!effectiveDate) { missingContractEffectiveDate += 1; return total }
       if (!inRange(effectiveDate, start, end)) return total
       return total + Math.max(0, Number(value.totalPrice || 0) - Number(value.discount || 0))
     }, 0)
+    const contractSales = dailyAggregate ? Number(aggregateTotals.contractSales || 0) : rawContractSales
     const receivables = contractValues.reduce((total, value) => total + collectibleContractDebt(value), 0)
     const frozenReceivables = contractValues
       .filter((value) => value.status === 'frozen')
@@ -705,6 +778,11 @@ function createOperationsDashboardFunctions({ db, onCall }) {
       || (!canAggregateOperations && noShowSessionRange?.size >= MAX_SCANNED_DOCUMENTS)
       || (!canAggregateOperations && attendanceRange?.size >= MAX_SCANNED_DOCUMENTS)
       || (offRequests && offRequests.size > MAX_ACTION_DOCUMENTS)
+      || (contracts && contracts.size > MAX_CONTRACT_DOCUMENTS)
+      || (students && students.size > MAX_STUDENT_DOCUMENTS)
+      || (trainers && trainers.size > MAX_TRAINER_DOCUMENTS)
+      || (staff && staff.size > MAX_STAFF_DOCUMENTS)
+      || (branches && branches.size > MAX_BRANCH_DOCUMENTS)
       || renewalAction.truncated || scheduleAction.truncated || nutritionAction.truncated,
     )
     const referenceDate = dateKey(new Date(Math.min(end.getTime(), now.getTime())))
@@ -712,6 +790,7 @@ function createOperationsDashboardFunctions({ db, onCall }) {
       ...dashboardAnalytics({ ledgerValues, contractValues, offValues, start, end, referenceDate }),
       attendance: summarizeAttendance(confirmedSessionCount, noShowSessionCount),
     }
+    if (dailyAggregate) analytics.revenue = aggregateRevenueAnalytics(dailyAggregate.days, start, end)
     const result = {
       schemaVersion: 7,
       range: { startAt: start.toISOString(), endAt: end.toISOString(), timeZone: 'Asia/Ho_Chi_Minh' },
@@ -738,12 +817,12 @@ function createOperationsDashboardFunctions({ db, onCall }) {
         rows: attendanceDetails.rows,
         truncated: attendanceDetails.truncated,
       },
-      finance: { ...finance, contractSales, receivables, frozenReceivables, ledgerEntries: ledgerValues.length },
+      finance: { ...finance, contractSales, receivables, frozenReceivables, ledgerEntries: dailyAggregate ? Number(aggregateTotals.ledgerEntries || 0) : ledgerValues.length },
       receivables: receivableDetails,
       clients: {
         total: studentValues.length,
         active: studentValues.filter((value) => !['inactive', 'cancelled', 'archived'].includes(value.status)).length,
-        newInRange: studentValues.filter((value) => inRange(value.joinDate || value.createdAt, start, end)).length,
+        newInRange: dailyAggregate ? Number(aggregateTotals.newStudents || 0) : studentValues.filter((value) => inRange(value.joinDate || value.createdAt, start, end)).length,
         activeContracts: analytics.packages.totalActive,
         preservedContracts: analytics.packages.preservedContracts,
         exhaustedContracts: contractValues.filter((value) => isExhaustedContract(value, referenceDate)).length,
@@ -753,7 +832,7 @@ function createOperationsDashboardFunctions({ db, onCall }) {
       operations: {
         sessions: sessionCount,
         attendanceEvents: attendanceCount,
-        sessionStatus,
+        sessionStatus: dailyAggregate ? dailyAggregate.sessionStatus : sessionStatus,
         completionRate: sessionCount ? Math.min(100, Math.round(confirmedSessionCount / sessionCount * 100)) : 0,
         activeTrainers: trainerValues.filter((value) => value.status !== 'inactive').length,
         activeStaff: staffValues.filter((value) => value.status !== 'inactive').length,
@@ -766,7 +845,7 @@ function createOperationsDashboardFunctions({ db, onCall }) {
         canonicalFinanceSource: 'ledgerEntries',
         canonicalAttendanceSource: 'attendanceEvents',
         sourceCounts: {
-          ledgerEntries: ledgerValues.length,
+          ledgerEntries: dailyAggregate ? Number(aggregateTotals.ledgerEntries || 0) : ledgerValues.length,
           contracts: contractValues.length,
           students: studentValues.length,
           sessions: sessionCount,
@@ -774,7 +853,7 @@ function createOperationsDashboardFunctions({ db, onCall }) {
         },
       },
       generatedAt: new Date().toISOString(),
-      cache: { hit: false, ttlSeconds: Math.round(DASHBOARD_CACHE_TTL_MS / 1000) },
+      cache: { hit: false, tier: 'miss', ttlSeconds: Math.round(DASHBOARD_CACHE_TTL_MS / 1000) },
       filters: {
         branches: availableBranchValues
           .filter((value) => isOperationsAdmin(actor) || (Array.isArray(actor.branchIds) && actor.branchIds.includes(value.id)))
@@ -783,7 +862,7 @@ function createOperationsDashboardFunctions({ db, onCall }) {
           .sort((left, right) => left.name.localeCompare(right.name, 'vi')),
       },
     }
-    console.info('operations_dashboard_summary', JSON.stringify({
+    logger.info('operations_dashboard_summary', {
       schemaVersion: result.schemaVersion,
       accessRole: actor.accessRole,
       branchId: result.branchId,
@@ -797,8 +876,18 @@ function createOperationsDashboardFunctions({ db, onCall }) {
       analytics: { revenuePoints: result.analytics.revenue.points.length, packageItems: result.analytics.packages.items.length },
       todayRows: result.today.rows.length,
       receivableRows: result.receivables.rows.length,
-    }))
+    })
     setCachedDashboard(cacheKey, result)
+    await sharedCache.set(cacheKey, result)
+    logger.info('operations_dashboard_request', {
+      durationMs: Date.now() - startedAt,
+      cacheTier: 'miss',
+      branchId,
+      rangeDays: Math.ceil((end.getTime() - start.getTime()) / 86_400_000) + 1,
+      sourceCounts: result.quality.sourceCounts,
+      truncated: result.quality.truncated,
+      aggregateUsed: Boolean(dailyAggregate),
+    })
     return result
   })
   const listStaffAttendance = onCall(async (request) => {

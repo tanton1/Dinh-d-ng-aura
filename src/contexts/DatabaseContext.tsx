@@ -40,6 +40,7 @@ const DEFAULT_SCHEDULE_CONFIG: ScheduleConfig = {
   offRegistrationCutoffHour: 10,
   offLimitsByDuration: { threeMonths: 1, sixMonths: 3, twelveMonths: 6 },
 }
+const LEGACY_DIRECTORY_LIMIT = 2500
 
 // Deterministic browser-layout fixtures only. Production starts empty and
 // receives canonical operations data exclusively from Firestore.
@@ -90,7 +91,9 @@ type LegacyOperationSource =
 // sources. Keep each surface on the smallest set its current components use;
 // actor-scoped paginated APIs will replace these remaining listeners.
 const LEGACY_OPERATIONS_VIEW_SOURCES = {
-  'admin-pt-students': ['students', 'contracts', 'payments', 'packages', 'trainers', 'branches', 'sessions', 'leaveRequests', 'sessionRequests', 'dailyCheckins', 'workoutLogs', 'ptAvailability'],
+  // Check-ins, requests and workout logs are fetched by student only when the
+  // detail drawer opens; the roster must not subscribe to those collections.
+  'admin-pt-students': ['students', 'contracts', 'packages', 'trainers', 'branches', 'sessions', 'ptAvailability'],
   'admin-pt-schedule': ['students', 'trainers', 'branches', 'contracts', 'sessions', 'schedules', 'scheduleConfig', 'ptAvailability', 'leaveRequests', 'sessionRequests'],
   // The history workspace resolves the selected subject locally, while all
   // historical sessions are fetched cursor-first from a callable API.
@@ -340,11 +343,14 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
         setOperationsSync({ status: 'ready', lastSyncedAt: new Date().toISOString(), error: null })
       }
     }
-    const listenerError = (source: string, error: unknown) => {
+      const listenerError = (source: string, error: unknown) => {
       const code = typeof error === 'object' && error && 'code' in error
         ? String((error as { code?: unknown }).code || '')
         : ''
-      const message = code === 'permission-denied'
+      const requiresPaging = error instanceof Error && error.message === 'DIRECTORY_PAGE_REQUIRED'
+      const message = requiresPaging
+        ? `Dữ liệu ${source} đã vượt ${LEGACY_DIRECTORY_LIMIT.toLocaleString('vi-VN')} bản ghi. Hãy dùng bộ lọc/phân trang máy chủ thay vì tải toàn bộ.`
+        : code === 'permission-denied'
         ? 'Firestore đang từ chối quyền đọc dữ liệu vận hành. Hãy đăng xuất và đăng nhập lại tài khoản admin.'
         : `Không thể đồng bộ ${source}.`
       setOperationsSync({ status: 'error', lastSyncedAt: null, error: message })
@@ -357,21 +363,26 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     }) as T
 
     try {
-      if (activeSources.has('students')) unsubs.push(onSnapshot(collection(db, 'students'), (snapshot) => {
-        setStudents(snapshot.docs.map(document => withDocumentId<Student>(document)))
-        markReady('students')
+      if (activeSources.has('students')) unsubs.push(onSnapshot(query(collection(db, 'students'), limit(LEGACY_DIRECTORY_LIMIT + 1)), (snapshot) => {
+        setStudents(snapshot.docs.slice(0, LEGACY_DIRECTORY_LIMIT).map(document => withDocumentId<Student>(document)))
+        if (snapshot.size > LEGACY_DIRECTORY_LIMIT) listenerError('students', new Error('DIRECTORY_PAGE_REQUIRED'))
+        else markReady('students')
       }, (err) => listenerError('students', err)))
 
-      if (activeSources.has('contracts')) unsubs.push(onSnapshot(collection(db, 'contracts'), (snapshot) => {
-        setContracts(snapshot.docs.map(document => withDocumentId<StudentContract>(document)))
-        markReady('contracts')
+      if (activeSources.has('contracts')) unsubs.push(onSnapshot(query(collection(db, 'contracts'), limit(LEGACY_DIRECTORY_LIMIT + 1)), (snapshot) => {
+        setContracts(snapshot.docs.slice(0, LEGACY_DIRECTORY_LIMIT).map(document => withDocumentId<StudentContract>(document)))
+        if (snapshot.size > LEGACY_DIRECTORY_LIMIT) listenerError('contracts', new Error('DIRECTORY_PAGE_REQUIRED'))
+        else markReady('contracts')
       }, (err) => listenerError('contracts', err)))
 
       // Transitional legacy adapter: never open a realtime listener over all
       // 9k+ historical sessions. Pages that need older history must use a
       // cursor API; the shared context carries only the operational window.
       const sessionWindowStart = new Date()
-      sessionWindowStart.setDate(sessionWindowStart.getDate() - 180)
+      // The student roster only renders upcoming sessions. Historical detail
+      // already uses the actor-scoped training-history callable, so loading a
+      // 180-day session window on this route duplicated thousands of rows.
+      if (operationsView !== 'admin-pt-students') sessionWindowStart.setDate(sessionWindowStart.getDate() - 180)
       const sessionsQuery = query(
         collection(db, 'sessions'),
         where('date', '>=', sessionWindowStart.toISOString().slice(0, 10)),

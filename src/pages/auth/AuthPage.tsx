@@ -289,7 +289,7 @@ export default function AuthPage() {
         aria-labelledby="auth-title"
       >
         <div className="auth-logo-stage">
-          <img src="/aura-logo-transparent-512.png" alt="Aura Fit" className="auth-logo-image" width="512" height="341" fetchPriority="high" />
+          <img src="/aura-logo-transparent-512.webp" alt="Aura Fit" className="auth-logo-image" width="512" height="341" fetchPriority="high" />
         </div>
 
         <div className="auth-entry__heading">

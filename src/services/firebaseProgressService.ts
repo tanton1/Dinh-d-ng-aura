@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc, type Unsubscribe } from 'firebase/firestore'
+import { collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, type Unsubscribe } from 'firebase/firestore'
 import { getDownloadURL, ref as storageRef, uploadBytesResumable } from 'firebase/storage'
 import { firebaseStorage, firestoreDb } from '../lib/firebase'
 import { safeLocalStorageSet } from '../lib/safeStorage'
@@ -59,7 +59,21 @@ function subscribeToCollection(userId: string, collectionName: string, cacheName
 
 export async function saveUserWeightLog(userId: string, record: Record<string, unknown> & { id: string }) { await saveProgressDocument(userId, 'weightLogs', record.id, record, true) }
 export async function deleteUserWeightLog(userId: string, recordId: string) { await deleteDoc(doc(requireDb(), 'users', userId, 'weightLogs', recordId)) }
-export function subscribeToUserWeightLogs(userId: string, onData: (records: any[]) => void, onError?: (error: Error) => void) { return subscribeToCollection(userId, 'weightLogs', 'user_weight_logs', onData, onError) }
+export function subscribeToUserWeightLogs(userId: string, onData: (records: any[]) => void, onError?: (error: Error) => void) {
+  const reference = query(
+    collection(requireDb(), 'users', userId, 'weightLogs'),
+    orderBy('date', 'desc'),
+    limit(365),
+  )
+  return onSnapshot(reference, (snapshot) => {
+    const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+    writeCache(`user_weight_logs:${userId}`, items)
+    onData(items)
+  }, (error) => {
+    onData(readCache(`user_weight_logs:${userId}`, []))
+    onError?.(error)
+  })
+}
 
 export async function saveUserBodyMeasurements(userId: string, measurements: Record<string, unknown>) { await saveProgressDocument(userId, 'bodyMeasurements', 'current', measurements) }
 export function subscribeToUserBodyMeasurements(userId: string, onData: (value: any) => void, onError?: (error: Error) => void) { return subscribeToDocument(userId, 'bodyMeasurements', 'current', 'user_body_measurements', onData, onError) }

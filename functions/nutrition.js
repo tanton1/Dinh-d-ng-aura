@@ -12,6 +12,18 @@ const {
   buildFoodScanCacheKey,
 } = require('./nutrition-scan-cache')
 const {
+  APIKEY_FUN_API_KEY,
+  APIKEY_FUN_ENDPOINT,
+  createApiKeyFunHeaders,
+  extractApiKeyFunProviderMessage,
+  extractApiKeyFunText,
+  getApiKeyFunApiKey,
+  getApiKeyFunModelCandidates,
+  isApiKeyFunFallbackError,
+  normalizeApiKeyFunUsage,
+  sanitizeApiKeyFunProviderMessage,
+} = require('./apikey-fun')
+const {
   OPENROUTER_API_KEY,
   OPENROUTER_ENDPOINT,
   createGeminiCompatibleSchema,
@@ -21,8 +33,6 @@ const {
   getOpenRouterApiKey,
   getOpenRouterModelCandidates,
   isOpenRouterFallbackError,
-  normalizeOpenRouterUsage,
-  sanitizeProviderMessage,
 } = require('./openrouter')
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
@@ -341,6 +351,7 @@ async function readFoodVisionCache(db, uid, cacheKey) {
     return {
       analysis: validateFoodAnalysis(cached.analysis),
       model: typeof cached.model === 'string' ? cached.model : null,
+      provider: ['apikey_fun', 'openrouter'].includes(cached.provider) ? cached.provider : 'apikey_fun',
       providerRequestId: typeof cached.providerRequestId === 'string' ? cached.providerRequestId : null,
     }
   } catch (error) {
@@ -357,6 +368,7 @@ async function writeFoodVisionCache(db, uid, cacheKey, providerResult, analysis)
     pipelineVersion: FOOD_SCAN_CACHE_VERSION,
     analysis,
     model: providerResult.model,
+    provider: providerResult.provider,
     providerRequestId: providerResult.providerRequestId,
     createdAt: FieldValue.serverTimestamp(),
     expiresAt: new Date(Date.now() + FOOD_ANALYSIS_CACHE_TTL_MS),
@@ -364,13 +376,34 @@ async function writeFoodVisionCache(db, uid, cacheKey, providerResult, analysis)
 }
 
 function sanitizeProviderErrorMessage(value) {
-  return sanitizeProviderMessage(value)
+  return sanitizeApiKeyFunProviderMessage(value)
 }
 
-function getOpenRouterFoodModelCandidates() {
+function getApiKeyFunFoodModelCandidates() {
+  return getApiKeyFunModelCandidates({
+    modelEnv: process.env.APIKEY_FUN_VISION_MODEL,
+    fallbackModelEnv: process.env.APIKEY_FUN_VISION_FALLBACK_MODEL,
+  })
+}
+
+function getApiKeyFunTextModelCandidates() {
+  return getApiKeyFunModelCandidates({
+    modelEnv: process.env.APIKEY_FUN_TEXT_MODEL,
+    fallbackModelEnv: process.env.APIKEY_FUN_TEXT_FALLBACK_MODEL,
+  })
+}
+
+function getOpenRouterVisionModelCandidates() {
   return getOpenRouterModelCandidates({
     modelEnv: process.env.OPENROUTER_VISION_MODEL,
     fallbackModelEnv: process.env.OPENROUTER_VISION_FALLBACK_MODEL,
+  })
+}
+
+function getOpenRouterTextModelCandidates() {
+  return getOpenRouterModelCandidates({
+    modelEnv: process.env.OPENROUTER_TEXT_MODEL,
+    fallbackModelEnv: process.env.OPENROUTER_TEXT_FALLBACK_MODEL,
   })
 }
 
@@ -378,7 +411,29 @@ function shouldTryNextFoodAnalysisModel({ index, modelCount, status, providerMes
   if (index >= modelCount - 1) return false
   if (stage === 'incomplete_response' || stage === 'structured_output') return true
   if (status === 0) return true
-  return isOpenRouterFallbackError(status, providerMessage)
+  return isApiKeyFunFallbackError(status, providerMessage)
+    || isOpenRouterFallbackError(status, providerMessage)
+}
+
+function extractApiKeyFunNutritionText(payload) {
+  const choice = payload?.choices?.[0]
+  const finishReason = typeof choice?.finish_reason === 'string'
+    ? choice.finish_reason.toLowerCase()
+    : ''
+  if (['content_filter', 'safety'].includes(finishReason)) {
+    throw new HttpsError('failed-precondition', 'AI không thể xử lý nội dung này. Hãy thử lại với nội dung khác.')
+  }
+  if (finishReason && finishReason !== 'stop') {
+    const error = new HttpsError(
+      'internal',
+      'AI chưa hoàn tất kết quả. Hãy thử lại sau.',
+    )
+    error.providerMessage = sanitizeProviderErrorMessage(
+      choice?.error?.message || payload?.error?.message,
+    )
+    throw error
+  }
+  return extractApiKeyFunText(payload)
 }
 
 function extractOpenRouterNutritionText(payload) {
@@ -1133,9 +1188,9 @@ async function enrichWithNutritionDatabase(db, analysis) {
   return enrichAnalysisWithLookups(analysis, dishLookup, itemLookups)
 }
 
-function openRouterUsageMetadata(payload) {
+function apiKeyFunUsageMetadata(payload) {
   const usage = isPlainObject(payload?.usage) ? payload.usage : {}
-  const normalized = normalizeOpenRouterUsage(usage)
+  const normalized = normalizeApiKeyFunUsage(usage)
   const tokenCount = (value) => Number.isFinite(Number(value)) && Number(value) >= 0
     ? Math.round(Number(value))
     : 0
@@ -1154,11 +1209,15 @@ function openRouterUsageMetadata(payload) {
   }
 }
 
-function buildFoodOpenRouterRequest({ model, buffer, contentType, prompt, instructions }) {
+function buildFoodApiKeyFunRequest({ model, buffer, contentType, prompt, instructions }) {
+  const compatibleSchema = createGeminiCompatibleSchema(foodAnalysisSchema)
   return {
     model,
     messages: [
-      { role: 'system', content: instructions },
+      {
+        role: 'system',
+        content: `${instructions}\nThe exact required JSON Schema is:\n${JSON.stringify(compatibleSchema)}`,
+      },
       {
         role: 'user',
         content: [
@@ -1171,21 +1230,27 @@ function buildFoodOpenRouterRequest({ model, buffer, contentType, prompt, instru
       },
     ],
     max_tokens: 6144,
-    reasoning: { effort: 'low', exclude: true },
     response_format: {
       type: 'json_schema',
       json_schema: {
         name: 'aura_food_analysis',
         strict: true,
-        schema: createGeminiCompatibleSchema(foodAnalysisSchema),
+        schema: compatibleSchema,
       },
     },
+  }
+}
+
+function buildFoodOpenRouterFallbackRequest(options) {
+  return {
+    ...buildFoodApiKeyFunRequest(options),
+    reasoning: { effort: 'low', exclude: true },
     provider: { require_parameters: true },
     usage: { include: true },
   }
 }
 
-async function requestOpenRouterVisionModel({
+async function requestVisionModel({
   apiKey,
   buffer,
   contentType,
@@ -1194,15 +1259,20 @@ async function requestOpenRouterVisionModel({
   model,
   scanId,
   qualityTier = 'standard',
+  endpoint,
+  createHeaders,
+  buildRequest,
+  extractProviderMessage,
+  providerName,
 }) {
   let response
   try {
     response = await fetch(
-      OPENROUTER_ENDPOINT,
+      endpoint,
       {
         method: 'POST',
-        headers: createOpenRouterHeaders(apiKey),
-        body: JSON.stringify(buildFoodOpenRouterRequest({
+        headers: createHeaders(apiKey),
+        body: JSON.stringify(buildRequest({
           model,
           buffer,
           contentType,
@@ -1216,6 +1286,7 @@ async function requestOpenRouterVisionModel({
   } catch (error) {
     logger.error('Food vision provider request failed.', {
       scanId,
+      provider: providerName,
       model,
       reason: error instanceof Error ? error.message : 'unknown',
     })
@@ -1230,9 +1301,10 @@ async function requestOpenRouterVisionModel({
   const headerRequestId = response.headers.get('x-request-id')
   const payload = await response.json().catch(() => null)
   const requestId = typeof payload?.id === 'string' ? payload.id : (headerRequestId ?? null)
-  const usage = openRouterUsageMetadata(payload)
-  logger.info('Food vision OpenRouter attempt', {
+  const usage = apiKeyFunUsageMetadata(payload)
+  logger.info('Food vision provider attempt', {
     scanId,
+    provider: providerName,
     model,
     requestId,
     outcome: response.ok ? 'success' : 'provider_error',
@@ -1241,9 +1313,10 @@ async function requestOpenRouterVisionModel({
     ...usage,
   })
   if (!response.ok) {
-    const providerMessage = extractOpenRouterProviderMessage(payload)
+    const providerMessage = extractProviderMessage(payload)
     logger.error('Food vision provider returned an error.', {
       scanId,
+      provider: providerName,
       model,
       requestId,
       status: response.status,
@@ -1257,10 +1330,33 @@ async function requestOpenRouterVisionModel({
   return { ok: true, payload, requestId, usage }
 }
 
+function requestApiKeyFunVisionModel(options) {
+  return requestVisionModel({
+    ...options,
+    endpoint: APIKEY_FUN_ENDPOINT,
+    createHeaders: createApiKeyFunHeaders,
+    buildRequest: buildFoodApiKeyFunRequest,
+    extractProviderMessage: extractApiKeyFunProviderMessage,
+    providerName: 'apikey_fun',
+  })
+}
+
+function requestOpenRouterVisionModel(options) {
+  return requestVisionModel({
+    ...options,
+    endpoint: OPENROUTER_ENDPOINT,
+    createHeaders: createOpenRouterHeaders,
+    buildRequest: buildFoodOpenRouterFallbackRequest,
+    extractProviderMessage: extractOpenRouterProviderMessage,
+    providerName: 'openrouter',
+  })
+}
+
 function buildFoodAnalysisInstructions() {
   return [
     'You are Aura Food Vision and a top PT Nutritionist.',
     'Analyze the photographed meal as a nutrition-estimation draft.',
+    'Return only one JSON object matching the requested schema, without Markdown or code fences.',
     'Identify visible Vietnamese or international dishes and ingredients. Estimate edible cooked portion mass and a realistic range.',
     'Every advisory JSON field must contain a distinct Vietnamese answer for only its named purpose. Never concatenate headings, repeat the same sentence, or move content between fields.',
     'Write concise factual Vietnamese. Stop after answering the named field. Never add filler, greetings, motivational slogans, body/beauty claims, repeated words, or unrelated trailing text.',
@@ -1309,8 +1405,20 @@ function foodAnalysisNeedsEscalation(analysis) {
     && (high - low) / midpoint > 0.9
 }
 
-async function analyzeWithOpenRouter({ apiKey, buffer, contentType, mealType, notes, scanId, studentGoal, studentCondition }) {
-  const models = getOpenRouterFoodModelCandidates()
+async function analyzeWithVisionProvider({
+  apiKey,
+  buffer,
+  contentType,
+  mealType,
+  notes,
+  scanId,
+  studentGoal,
+  studentCondition,
+  models,
+  providerName,
+  requestVisionModel,
+  extractNutritionText,
+}) {
   const context = JSON.stringify({
     mealType,
     notes,
@@ -1326,7 +1434,7 @@ async function analyzeWithOpenRouter({ apiKey, buffer, contentType, mealType, no
     const prompt = qualityTier === 'escalated'
       ? `${basePrompt}\nRe-check ambiguous ingredients, portion scale, hidden oil or sauce, and return the most defensible estimate.`
       : basePrompt
-    const result = await requestOpenRouterVisionModel({
+    const result = await requestVisionModel({
       apiKey,
       buffer,
       contentType,
@@ -1340,6 +1448,7 @@ async function analyzeWithOpenRouter({ apiKey, buffer, contentType, mealType, no
       if (bestCandidate) {
         logger.warn('Food vision fallback failed; returning the best validated result.', {
           scanId,
+          provider: providerName,
           model,
           status: result.status,
           selectedModel: bestCandidate.result.model,
@@ -1354,8 +1463,9 @@ async function analyzeWithOpenRouter({ apiKey, buffer, contentType, mealType, no
         stage: 'provider_error',
       })
       if (canTryFallback) {
-        logger.warn('OpenRouter model unavailable; trying the configured fallback.', {
+        logger.warn('Food vision model unavailable; trying the configured fallback.', {
           scanId,
+          provider: providerName,
           model,
           fallbackModel: models[index + 1],
           status: result.status,
@@ -1371,7 +1481,7 @@ async function analyzeWithOpenRouter({ apiKey, buffer, contentType, mealType, no
 
     let outputText
     try {
-      outputText = extractOpenRouterNutritionText(result.payload)
+      outputText = extractNutritionText(result.payload)
     } catch (error) {
       const finishReasons = (Array.isArray(result.payload?.choices) ? result.payload.choices : [])
         .map((choice) => choice?.finish_reason)
@@ -1421,6 +1531,7 @@ async function analyzeWithOpenRouter({ apiKey, buffer, contentType, mealType, no
       const candidateResult = {
         analysis: validated.analysis,
         model,
+        provider: providerName,
         providerRequestId: result.requestId,
         localRepairFields: [...new Set(validated.repairedFields)],
       }
@@ -1467,30 +1578,61 @@ async function analyzeWithOpenRouter({ apiKey, buffer, contentType, mealType, no
   throw new HttpsError('unavailable', 'AI chưa thể phân tích ảnh lúc này. Hãy thử lại sau.')
 }
 
-async function generateOpenRouterText({ apiKey, prompt, maxOutputTokens, operation }) {
-  const models = getOpenRouterFoodModelCandidates()
+function analyzeWithApiKeyFun(options) {
+  return analyzeWithVisionProvider({
+    ...options,
+    models: getApiKeyFunFoodModelCandidates(),
+    providerName: 'apikey_fun',
+    requestVisionModel: requestApiKeyFunVisionModel,
+    extractNutritionText: extractApiKeyFunNutritionText,
+  })
+}
 
+function analyzeWithOpenRouterFallback(options) {
+  return analyzeWithVisionProvider({
+    ...options,
+    models: getOpenRouterVisionModelCandidates(),
+    providerName: 'openrouter',
+    requestVisionModel: requestOpenRouterVisionModel,
+    extractNutritionText: extractOpenRouterNutritionText,
+  })
+}
+
+async function generateProviderText({
+  apiKey,
+  prompt,
+  maxOutputTokens,
+  operation,
+  models,
+  endpoint,
+  createHeaders,
+  extractProviderMessage,
+  extractNutritionText,
+  isFallbackError,
+  providerName,
+  requestExtras = {},
+}) {
   for (const [index, model] of models.entries()) {
     let response
     try {
       response = await fetch(
-        OPENROUTER_ENDPOINT,
+        endpoint,
         {
           method: 'POST',
-          headers: createOpenRouterHeaders(apiKey),
+          headers: createHeaders(apiKey),
           body: JSON.stringify({
             model,
             messages: [{ role: 'user', content: prompt }],
             max_tokens: maxOutputTokens,
-            reasoning: { effort: 'low', exclude: true },
-            usage: { include: true },
+            ...requestExtras,
           }),
           signal: AbortSignal.timeout(25000),
         },
       )
     } catch (error) {
-      logger.error('OpenRouter text request failed.', {
+      logger.error('AI text provider request failed.', {
         operation,
+        provider: providerName,
         model,
         reason: sanitizeProviderErrorMessage(error instanceof Error ? error.message : 'unknown'),
       })
@@ -1503,9 +1645,10 @@ async function generateOpenRouterText({ apiKey, prompt, maxOutputTokens, operati
     const requestId = typeof payload?.id === 'string' ? payload.id : (headerRequestId ?? null)
 
     if (!response.ok) {
-      const providerMessage = sanitizeProviderErrorMessage(payload?.error?.message)
-      logger.error('OpenRouter text request returned an error.', {
+      const providerMessage = extractProviderMessage(payload)
+      logger.error('AI text provider request returned an error.', {
         operation,
+        provider: providerName,
         model,
         requestId,
         status: response.status,
@@ -1515,7 +1658,7 @@ async function generateOpenRouterText({ apiKey, prompt, maxOutputTokens, operati
       })
       const canTryFallback = index === 0
         && models.length > 1
-        && isOpenRouterFallbackError(response.status, providerMessage)
+        && isFallbackError(response.status, providerMessage)
       if (canTryFallback) continue
       if (response.status === 429) {
         throw new HttpsError('resource-exhausted', 'Dịch vụ AI đang bận. Hãy thử lại sau ít phút.')
@@ -1525,10 +1668,11 @@ async function generateOpenRouterText({ apiKey, prompt, maxOutputTokens, operati
 
     let text
     try {
-      text = extractOpenRouterNutritionText(payload)
+      text = extractNutritionText(payload)
     } catch (error) {
-      logger.warn('OpenRouter text response was incomplete.', {
+      logger.warn('AI text provider response was incomplete.', {
         operation,
+        provider: providerName,
         model,
         requestId,
         finishReason: payload?.choices?.[0]?.finish_reason ?? null,
@@ -1539,14 +1683,83 @@ async function generateOpenRouterText({ apiKey, prompt, maxOutputTokens, operati
       throw new HttpsError('unavailable', 'AI chưa hoàn tất câu trả lời. Hãy thử lại sau.')
     }
     if (!text) {
-      logger.error('OpenRouter text request returned no text.', { operation, model, requestId })
+      logger.error('AI text provider request returned no text.', { operation, provider: providerName, model, requestId })
       if (index === 0 && models.length > 1) continue
       throw new HttpsError('internal', 'AI trả về kết quả trống. Hãy thử lại.')
     }
-    return { text, model, requestId }
+    return { text, model, provider: providerName, requestId }
   }
 
   throw new HttpsError('unavailable', 'AI chưa thể trả lời lúc này. Hãy thử lại sau.')
+}
+
+function generateApiKeyFunText(options) {
+  return generateProviderText({
+    ...options,
+    models: getApiKeyFunTextModelCandidates(),
+    endpoint: APIKEY_FUN_ENDPOINT,
+    createHeaders: createApiKeyFunHeaders,
+    extractProviderMessage: extractApiKeyFunProviderMessage,
+    extractNutritionText: extractApiKeyFunNutritionText,
+    isFallbackError: isApiKeyFunFallbackError,
+    providerName: 'apikey_fun',
+  })
+}
+
+function generateOpenRouterText(options) {
+  return generateProviderText({
+    ...options,
+    models: getOpenRouterTextModelCandidates(),
+    endpoint: OPENROUTER_ENDPOINT,
+    createHeaders: createOpenRouterHeaders,
+    extractProviderMessage: extractOpenRouterProviderMessage,
+    extractNutritionText: extractOpenRouterNutritionText,
+    isFallbackError: isOpenRouterFallbackError,
+    providerName: 'openrouter',
+    requestExtras: {
+      reasoning: { effort: 'low', exclude: true },
+      usage: { include: true },
+    },
+  })
+}
+
+function shouldFallbackToOpenRouter(error) {
+  return error instanceof HttpsError
+    && ['internal', 'resource-exhausted', 'unavailable'].includes(error.code)
+}
+
+async function generateNutritionTextWithFallback({
+  apiKeyFunApiKey,
+  openRouterApiKey,
+  prompt,
+  maxOutputTokens,
+  operation,
+}) {
+  if (apiKeyFunApiKey) {
+    try {
+      return await generateApiKeyFunText({
+        apiKey: apiKeyFunApiKey,
+        prompt,
+        maxOutputTokens,
+        operation,
+      })
+    } catch (error) {
+      if (!openRouterApiKey || !shouldFallbackToOpenRouter(error)) throw error
+      logger.warn('apikey.fun text generation failed; using OpenRouter fallback.', {
+        operation,
+        code: error.code,
+      })
+    }
+  } else if (openRouterApiKey) {
+    logger.warn('apikey.fun is not configured; using OpenRouter text fallback.', { operation })
+  }
+
+  return generateOpenRouterText({
+    apiKey: openRouterApiKey,
+    prompt,
+    maxOutputTokens,
+    operation,
+  })
 }
 
 function createDemoResponse(scanId) {
@@ -1560,7 +1773,7 @@ function createDemoResponse(scanId) {
     analysis: null,
     notices: [
       'AI nhận diện ảnh chưa được cấu hình trên máy chủ.',
-      'Ảnh không được suy đoán bằng dữ liệu mẫu. Bạn có thể nhập món thủ công hoặc cấu hình OPENROUTER_API_KEY.',
+      'Ảnh không được suy đoán bằng dữ liệu mẫu. Bạn có thể nhập món thủ công hoặc cấu hình APIKEY_FUN_API_KEY.',
     ],
   }
 }
@@ -1572,7 +1785,7 @@ function createNutritionFunctions({ app, db }) {
     maxInstances: 3,
     concurrency: 4,
     enforceAppCheck: ENFORCE_AI_APP_CHECK,
-    secrets: [OPENROUTER_API_KEY],
+    secrets: [APIKEY_FUN_API_KEY, OPENROUTER_API_KEY],
   }, withFunctionTelemetry('analyzeFoodImage', async (request) => {
     const uid = requireCaller(request)
     const input = parseAnalyzeRequest(request.data, uid)
@@ -1603,7 +1816,8 @@ function createNutritionFunctions({ app, db }) {
         })
         return null
       })
-      const apiKey = getOpenRouterApiKey()
+      const apiKeyFunApiKey = getApiKeyFunApiKey()
+      const openRouterApiKey = getOpenRouterApiKey()
 
       if (cachedResult) {
         const analysis = await enrichWithNutritionDatabase(db, cachedResult.analysis)
@@ -1616,7 +1830,7 @@ function createNutritionFunctions({ app, db }) {
           scanId: input.scanId,
           status: 'completed',
           mode: 'live',
-          provider: 'openrouter',
+          provider: cachedResult.provider,
           model: cachedResult.model,
           providerRequestId: cachedResult.providerRequestId,
           analysis,
@@ -1625,7 +1839,7 @@ function createNutritionFunctions({ app, db }) {
             ...analysis.databaseNotices,
           ],
         }
-      } else if (!apiKey) {
+      } else if (!apiKeyFunApiKey && !openRouterApiKey) {
         response = createDemoResponse(input.scanId)
       } else {
         const dailyLimit = await readFoodScanDailyLimit(db, request, uid)
@@ -1636,8 +1850,7 @@ function createNutritionFunctions({ app, db }) {
           dayCount: rateLimit.dayCount,
           windowCount: rateLimit.windowCount,
         })
-        const providerResult = await analyzeWithOpenRouter({
-          apiKey,
+        const inferenceOptions = {
           buffer,
           contentType,
           mealType: input.mealType,
@@ -1645,7 +1858,34 @@ function createNutritionFunctions({ app, db }) {
           scanId: input.scanId,
           studentGoal: input.studentGoal,
           studentCondition: input.studentCondition,
-        })
+        }
+        let providerResult
+        if (apiKeyFunApiKey) {
+          try {
+            providerResult = await analyzeWithApiKeyFun({
+              ...inferenceOptions,
+              apiKey: apiKeyFunApiKey,
+            })
+          } catch (error) {
+            if (!openRouterApiKey || !shouldFallbackToOpenRouter(error)) throw error
+            logger.warn('apikey.fun food vision failed; using OpenRouter fallback.', {
+              scanId: input.scanId,
+              code: error.code,
+            })
+            providerResult = await analyzeWithOpenRouterFallback({
+              ...inferenceOptions,
+              apiKey: openRouterApiKey,
+            })
+          }
+        } else {
+          logger.warn('apikey.fun is not configured; using OpenRouter food vision fallback.', {
+            scanId: input.scanId,
+          })
+          providerResult = await analyzeWithOpenRouterFallback({
+            ...inferenceOptions,
+            apiKey: openRouterApiKey,
+          })
+        }
         await writeFoodVisionCache(db, uid, cacheKey, providerResult, providerResult.analysis).catch((error) => {
           logger.warn('Food vision cache write failed; returning the live result.', {
             scanId: input.scanId,
@@ -1657,12 +1897,15 @@ function createNutritionFunctions({ app, db }) {
           scanId: input.scanId,
           status: 'completed',
           mode: 'live',
-          provider: 'openrouter',
+          provider: providerResult.provider,
           model: providerResult.model,
           providerRequestId: providerResult.providerRequestId,
           analysis,
           notices: [
             'Khối lượng được ước tính từ ảnh. Aura dùng cơ sở dữ liệu khi đối chiếu và quy đổi đáng tin cậy; các trường còn thiếu vẫn là ước tính AI.',
+            ...(providerResult.provider === 'openrouter'
+              ? ['apikey.fun tạm thời không khả dụng; Aura đã dùng OpenRouter dự phòng cho lần phân tích này.']
+              : []),
             ...analysis.databaseNotices,
           ],
         }
@@ -1694,15 +1937,16 @@ function createNutritionFunctions({ app, db }) {
     maxInstances: 3,
     concurrency: 4,
     enforceAppCheck: ENFORCE_AI_APP_CHECK,
-    secrets: [OPENROUTER_API_KEY],
+    secrets: [APIKEY_FUN_API_KEY, OPENROUTER_API_KEY],
   }, withFunctionTelemetry('generateMealReview', async (request) => {
     requireCaller(request)
     const { meal, userProfile } = request.data || {}
     if (!isPlainObject(meal)) throw new HttpsError('invalid-argument', 'Meal data is required.')
 
-    const apiKey = getOpenRouterApiKey()
-    if (!apiKey) {
-      return { review: 'Cần cấu hình OpenRouter API Key trên máy chủ để AI có thể phân tích.' }
+    const apiKeyFunApiKey = getApiKeyFunApiKey()
+    const openRouterApiKey = getOpenRouterApiKey()
+    if (!apiKeyFunApiKey && !openRouterApiKey) {
+      return { review: 'Cần cấu hình API key AI trên máy chủ để hệ thống có thể phân tích.' }
     }
 
     const prompt = `
@@ -1717,13 +1961,14 @@ Mục tiêu của học viên: ${userProfile?.goals?.includes('lose-fat') ? 'Gi�
 Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm tốt và điểm cần cải thiện của bữa ăn này dựa trên mục tiêu của họ. KHÔNG dùng markdown hay định dạng phức tạp. Viết trực tiếp nội dung.
 `
 
-    const result = await generateOpenRouterText({
-      apiKey,
+    const result = await generateNutritionTextWithFallback({
+      apiKeyFunApiKey,
+      openRouterApiKey,
       prompt,
       maxOutputTokens: 500,
       operation: 'generateMealReview',
     })
-    return { review: result.text, model: result.model, providerRequestId: result.requestId }
+    return { review: result.text, provider: result.provider, model: result.model, providerRequestId: result.requestId }
   }))
 
   const askAiCoach = onCall({
@@ -1732,7 +1977,7 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
     maxInstances: 3,
     concurrency: 4,
     enforceAppCheck: ENFORCE_AI_APP_CHECK,
-    secrets: [OPENROUTER_API_KEY],
+    secrets: [APIKEY_FUN_API_KEY, OPENROUTER_API_KEY],
   }, withFunctionTelemetry('askAiCoach', async (request) => {
     requireCaller(request)
     const { message, userProfile } = request.data || {}
@@ -1740,9 +1985,10 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
       throw new HttpsError('invalid-argument', 'Message must contain between 1 and 3000 characters.')
     }
 
-    const apiKey = getOpenRouterApiKey()
-    if (!apiKey) {
-      return { text: 'Cần cấu hình OpenRouter API Key trên máy chủ để AI Coach có thể trả lời.' }
+    const apiKeyFunApiKey = getApiKeyFunApiKey()
+    const openRouterApiKey = getOpenRouterApiKey()
+    if (!apiKeyFunApiKey && !openRouterApiKey) {
+      return { text: 'Cần cấu hình API key AI trên máy chủ để AI Coach có thể trả lời.' }
     }
 
     const goalStr = userProfile?.goals?.includes('lose-fat') ? 'Giảm mỡ (Thâm hụt calo)' : userProfile?.goals?.includes('gain-muscle') ? 'Tăng cơ (Thặng dư đạm & calo)' : 'Duy trì vóc dáng & sức khỏe'
@@ -1762,13 +2008,14 @@ Câu hỏi của học viên: "${message}"
 Hãy trả lời học viên một cách thân thiện, ngắn gọn, khoa học và BẮT BUỘC DỰA TRÊN hồ sơ của họ (nếu có thông tin). 
 Không dùng markdown định dạng phức tạp, chỉ cần xuống dòng hợp lý.`
 
-    const result = await generateOpenRouterText({
-      apiKey,
+    const result = await generateNutritionTextWithFallback({
+      apiKeyFunApiKey,
+      openRouterApiKey,
       prompt,
       maxOutputTokens: 600,
       operation: 'askAiCoach',
     })
-    return { text: result.text, model: result.model, providerRequestId: result.requestId }
+    return { text: result.text, provider: result.provider, model: result.model, providerRequestId: result.requestId }
   }))
 
   return { analyzeFoodImage, generateMealReview, askAiCoach }
@@ -1776,16 +2023,16 @@ Không dùng markdown định dạng phức tạp, chỉ cần xuống dòng h�
 
 module.exports = {
   applyCatalogLookupToItem,
-  buildFoodOpenRouterRequest,
+  apiKeyFunUsageMetadata,
+  buildFoodApiKeyFunRequest,
   buildFoodAnalysisInstructions,
   createNutritionFunctions,
   enrichAnalysisWithLookups,
   foodAnalysisSchema,
-  extractOpenRouterNutritionText,
+  extractApiKeyFunNutritionText,
   foodAnalysisNeedsEscalation,
   foodAnalysisQualityScore,
-  getOpenRouterFoodModelCandidates,
-  openRouterUsageMetadata,
+  getApiKeyFunFoodModelCandidates,
   shouldTryNextFoodAnalysisModel,
   sanitizeProviderErrorMessage,
   scaleCatalogNutrition,

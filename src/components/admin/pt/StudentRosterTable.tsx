@@ -74,11 +74,28 @@ export default function StudentRosterTable({
   const rows = useMemo(() => {
     const weekId = currentWeekId();
     const today = localDateId(new Date());
+    const contractsByStudent = new Map<string, StudentContract[]>();
+    contracts.forEach((contract) => {
+      const current = contractsByStudent.get(contract.studentId) || [];
+      current.push(contract);
+      contractsByStudent.set(contract.studentId, current);
+    });
+    contractsByStudent.forEach((items) => items.sort((left, right) => right.startDate.localeCompare(left.startDate)));
+    const trainerById = new Map(trainers.map((trainer) => [trainer.id, trainer]));
+    const branchById = new Map(branches.map((branch) => [branch.id, branch]));
+    const availabilityByStudent = new Map(availability
+      .filter((item) => item.weekId === weekId)
+      .map((item) => [item.studentId, item]));
+    const nextSessionByStudent = new Map<string, Session>();
+    sessions
+      .filter((session) => (session.status === 'scheduled' || session.status === 'rescheduled') && session.date >= today)
+      .sort((left, right) => left.date.localeCompare(right.date) || sessionHour(left) - sessionHour(right))
+      .forEach((session) => {
+        if (!nextSessionByStudent.has(session.studentId)) nextSessionByStudent.set(session.studentId, session);
+      });
 
     return students.map((student) => {
-      const studentContracts = contracts
-        .filter((contract) => contract.studentId === student.id)
-        .sort((left, right) => right.startDate.localeCompare(left.startDate));
+      const studentContracts = contractsByStudent.get(student.id) || [];
       const weekEligibility = studentEligibilityForWeek(student, studentContracts, weekId);
       const contract = weekEligibility.eligibleContracts[0] || studentContracts[0];
       const used = contract ? usedSessionCount(contract) : 0;
@@ -92,16 +109,10 @@ export default function StudentRosterTable({
           ? [contract.trainerId]
           : [];
       const trainerNames = trainerIds
-        .map((id) => trainers.find((trainer) => trainer.id === id)?.name)
+        .map((id) => trainerById.get(id)?.name)
         .filter((name): name is string => Boolean(name));
-      const nextSession = sessions
-        .filter((session) => (
-          session.studentId === student.id
-          && (session.status === 'scheduled' || session.status === 'rescheduled')
-          && session.date >= today
-        ))
-        .sort((left, right) => left.date.localeCompare(right.date) || sessionHour(left) - sessionHour(right))[0];
-      const weekAvailability = availability.find((item) => item.studentId === student.id && item.weekId === weekId);
+      const nextSession = nextSessionByStudent.get(student.id);
+      const weekAvailability = availabilityByStudent.get(student.id);
       const expiresAt = contract ? new Date(`${contract.endDate}T23:59:59.999`).getTime() : 0;
       const daysLeft = contract ? Math.ceil((expiresAt - Date.now()) / 86_400_000) : null;
       const needsRenewal = Boolean(contract && contract.status === 'active' && ((daysLeft ?? 999) <= 31 || remaining <= 5));
@@ -113,7 +124,7 @@ export default function StudentRosterTable({
         remaining,
         debt,
         trainerNames,
-        branchName: branches.find((branch) => branch.id === student.branchId)?.name || 'Chưa xác định',
+        branchName: branchById.get(student.branchId || '')?.name || 'Chưa xác định',
         nextSession,
         availability: weekAvailability,
         needsRenewal,

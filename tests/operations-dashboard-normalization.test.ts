@@ -29,7 +29,7 @@ test('dashboard accepts the previous callable schema during a rolling deployment
   assert.equal(dashboard.permissions.clients, true)
   assert.equal(dashboard.actionSummary.dueRenewals.available, false)
   assert.equal(dashboard.quality.completeness, 'partial')
-  assert.deepEqual(dashboard.cache, { hit: false, ttlSeconds: 0 })
+  assert.deepEqual(dashboard.cache, { hit: false, tier: 'miss', ttlSeconds: 0 })
   assert.deepEqual(dashboard.analytics.revenue.points, [])
   assert.equal(dashboard.analytics.packages.totalActive, 0)
   assert.equal(dashboard.analytics.attendance.attendanceRate, 100)

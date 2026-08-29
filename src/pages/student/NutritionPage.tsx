@@ -1,20 +1,17 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useDebounce } from '../../hooks/useDebounce'
 import { useAuth } from '../../contexts/AuthContext'
-import NutritionFoodDetail, {
-  type NutritionFoodDetailRecord,
-  type NutritionServingSelection,
+import type {
+  NutritionFoodDetailRecord,
+  NutritionServingSelection,
 } from './NutritionFoodDetail'
-import CapturedMealDetail from './CapturedMealDetail'
 import {
   readRecentAverageWeight,
   resolveDailyNutritionTargets,
 } from '../../features/nutrition/dailyNutritionTargets'
 import NutritionGroupIcon from '../../components/NutritionGroupIcon'
 import NutritionDashboardHome from './NutritionDashboardHome'
-import NutritionProfileEditor from './NutritionProfileEditor'
-import MealPlanPage, { type Recipe as MealPlanRecipe } from './MealPlanPage'
-import WorkoutLogSheet from '../../components/workout/WorkoutLogSheet'
+import type { Recipe as MealPlanRecipe } from './MealPlanPage'
 import NutritionWorkspace, {
   NutritionSectionNav,
   type AuraAssistantMessage,
@@ -27,14 +24,17 @@ import { firebaseAuth, firestoreDb } from '../../lib/firebase'
 import {
   saveUserMealLog,
   deleteUserMealLog,
-  subscribeToUserMealLogs,
+  subscribeToRecentUserMealLogs,
+  subscribeToUserMealLogsForDate,
   submitMealReview,
   saveUserWaterLog,
   deleteUserWaterLog,
-  subscribeToUserWaterLogs,
+  subscribeToRecentUserWaterLogs,
+  subscribeToUserWaterLogsForDate,
   saveUserActivityLog,
   deleteUserActivityLog,
-  subscribeToUserActivityLogs,
+  subscribeToRecentUserActivityLogs,
+  subscribeToUserActivityLogsForDate,
   compressBase64Image,
 } from '../../services/firebaseService'
 import {
@@ -132,6 +132,12 @@ import {
   toFoodDetailSummary,
 } from '../../features/nutrition/catalog'
 import { normalizeAnalysis, nutritionEvidenceLabel, perGramNutrition } from '../../features/nutrition/analysis'
+
+const NutritionFoodDetail = React.lazy(() => import('./NutritionFoodDetail'))
+const CapturedMealDetail = React.lazy(() => import('./CapturedMealDetail'))
+const NutritionProfileEditor = React.lazy(() => import('./NutritionProfileEditor'))
+const MealPlanPage = React.lazy(() => import('./MealPlanPage'))
+const WorkoutLogSheet = React.lazy(() => import('../../components/workout/WorkoutLogSheet'))
 
 function canLogCatalogFood(food: NutritionFoodCatalogItem): food is NutritionFoodCatalogItem & {
   calories: number
@@ -2592,6 +2598,12 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   const [profileReady, setProfileReady] = useState(hasProfile)
   const [profileDraft, setProfileDraft] = useState<NutritionProfileDraft>(profile ?? DEFAULT_PROFILE)
   const [todayKey, setTodayKey] = useState(() => toLocalDateKey(new Date()))
+  const recentNutritionFromDate = useMemo(() => {
+    const firstDay = new Date()
+    firstDay.setHours(0, 0, 0, 0)
+    firstDay.setDate(firstDay.getDate() - 89)
+    return toLocalDateKey(firstDay)
+  }, [todayKey])
   const [selectedDate, setSelectedDate] = useState(todayKey)
   const [planSelectedDay, setPlanSelectedDay] = useState(todayKey)
   const [homeWeekStart, setHomeWeekStart] = useState(() => getCalendarStart())
@@ -2772,21 +2784,27 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
 
   useEffect(() => {
     if (!firestoreDb || resolvedOwnerId === 'anonymous') return
-    const unsubscribeMeals = subscribeToUserMealLogs(resolvedOwnerId, (remoteMeals) => {
-      setMeals(Array.isArray(remoteMeals) ? remoteMeals.filter((item): item is MealLog => Boolean(item && typeof item === 'object' && item.id)) : [])
+    const unsubscribeMeals = subscribeToRecentUserMealLogs(resolvedOwnerId, recentNutritionFromDate, (remoteMeals) => {
+      const recentItems = Array.isArray(remoteMeals) ? remoteMeals.filter((item): item is MealLog => Boolean(item && typeof item === 'object' && item.id)) : []
+      setMeals((current) => [...recentItems, ...current.filter((item) => item.date < recentNutritionFromDate)])
     }, undefined, (state) => updateNutritionSync('meals', state))
 
-    const unsubscribeWater = subscribeToUserWaterLogs(resolvedOwnerId, (remoteWater) => {
+    const unsubscribeWater = subscribeToRecentUserWaterLogs(resolvedOwnerId, recentNutritionFromDate, (remoteWater) => {
       const entries = Array.isArray(remoteWater) ? remoteWater.filter((item): item is NutritionWaterLog => Boolean(item && typeof item === 'object' && item.id)) : []
-      setWaterEntries(entries)
-      setWaterByDate(entries.reduce<Record<string, number>>((result, entry) => {
+      setWaterEntries((current) => [...entries, ...current.filter((item) => item.date < recentNutritionFromDate)])
+      const recentTotals = entries.reduce<Record<string, number>>((result, entry) => {
         result[entry.date] = (result[entry.date] ?? 0) + Math.max(0, Number(entry.amountMl) || 0)
         return result
-      }, {}))
+      }, {})
+      setWaterByDate((current) => ({
+        ...Object.fromEntries(Object.entries(current).filter(([date]) => date < recentNutritionFromDate)),
+        ...recentTotals,
+      }))
     }, undefined, (state) => updateNutritionSync('water', state))
 
-    const unsubscribeActivities = subscribeToUserActivityLogs(resolvedOwnerId, (remoteActivities) => {
-      setActivities(Array.isArray(remoteActivities) ? remoteActivities.filter((item): item is NutritionActivityLog => Boolean(item && typeof item === 'object' && item.id)) : [])
+    const unsubscribeActivities = subscribeToRecentUserActivityLogs(resolvedOwnerId, recentNutritionFromDate, (remoteActivities) => {
+      const recentItems = Array.isArray(remoteActivities) ? remoteActivities.filter((item): item is NutritionActivityLog => Boolean(item && typeof item === 'object' && item.id)) : []
+      setActivities((current) => [...recentItems, ...current.filter((item) => item.date < recentNutritionFromDate)])
     }, undefined, (state) => updateNutritionSync('activities', state))
 
     return () => {
@@ -2794,7 +2812,34 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       unsubscribeWater()
       unsubscribeActivities()
     }
-  }, [resolvedOwnerId, updateNutritionSync])
+  }, [recentNutritionFromDate, resolvedOwnerId, updateNutritionSync])
+
+  useEffect(() => {
+    if (!firestoreDb || resolvedOwnerId === 'anonymous' || selectedDate >= recentNutritionFromDate) return
+
+    const unsubscribeMeals = subscribeToUserMealLogsForDate(resolvedOwnerId, selectedDate, (remoteMeals) => {
+      const dayItems = Array.isArray(remoteMeals) ? remoteMeals.filter((item): item is MealLog => Boolean(item && typeof item === 'object' && item.id)) : []
+      setMeals((current) => [...current.filter((item) => item.date !== selectedDate), ...dayItems])
+    })
+    const unsubscribeWater = subscribeToUserWaterLogsForDate(resolvedOwnerId, selectedDate, (remoteWater) => {
+      const dayItems = Array.isArray(remoteWater) ? remoteWater.filter((item): item is NutritionWaterLog => Boolean(item && typeof item === 'object' && item.id)) : []
+      setWaterEntries((current) => [...current.filter((item) => item.date !== selectedDate), ...dayItems])
+      setWaterByDate((current) => ({
+        ...current,
+        [selectedDate]: dayItems.reduce((sum, item) => sum + Math.max(0, Number(item.amountMl) || 0), 0),
+      }))
+    })
+    const unsubscribeActivities = subscribeToUserActivityLogsForDate(resolvedOwnerId, selectedDate, (remoteActivities) => {
+      const dayItems = Array.isArray(remoteActivities) ? remoteActivities.filter((item): item is NutritionActivityLog => Boolean(item && typeof item === 'object' && item.id)) : []
+      setActivities((current) => [...current.filter((item) => item.date !== selectedDate), ...dayItems])
+    })
+
+    return () => {
+      unsubscribeMeals()
+      unsubscribeWater()
+      unsubscribeActivities()
+    }
+  }, [recentNutritionFromDate, resolvedOwnerId, selectedDate])
 
   useEffect(() => {
     if (!isDemo) return
@@ -3078,7 +3123,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         evidence = [`${loggedMeals.length} bữa đã ghi trong ngày đã chọn`]
       } else {
         content = await askAiCoach(question, profileDraft)
-        evidence = ['Phân tích qua OpenRouter (Gemini 3.7 Flash)']
+        evidence = ['Aura AI dùng apikey.fun; OpenRouter chỉ chạy dự phòng khi nhà cung cấp chính lỗi']
         confidenceLabel = 'AI Generated'
       }
       setAssistantMessages((current) => [...current, {
@@ -3490,27 +3535,33 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       </div>
     </div>
   ) : (
-    <NutritionProfileEditor
-      onSave={(nextProfile) => { completeProfile(nextProfile); navigateNutrition('today') }}
-      initialProfile={profileDraft}
-      onCancel={() => navigateNutrition('today')}
-    />
+    <React.Suspense fallback={<div role="status" aria-live="polite">Đang tải hồ sơ dinh dưỡng…</div>}>
+      <NutritionProfileEditor
+        onSave={(nextProfile) => { completeProfile(nextProfile); navigateNutrition('today') }}
+        initialProfile={profileDraft}
+        onCancel={() => navigateNutrition('today')}
+      />
+    </React.Suspense>
   )
 
-  if (selectedFood && selectedFoodSummary) return <NutritionFoodDetail
-    item={selectedFoodSummary}
-    relatedItems={relatedFoodSummaries}
-    initialSaved={savedFoodIds.has(selectedFood.id)}
-    loadRecord={loadNutritionCatalogDetail}
-    onBack={closeFoodDetail}
-    onAdd={addFoodFromDetail}
-    onSave={saveFood}
-    onScan={scanFromFoodDetail}
-    onSelectRelated={(item) => {
-      const selected = catalogSnapshot.find((candidate) => candidate.id === item.id)
-      if (selected) openFoodDetail(selected, catalogSnapshot)
-    }}
-  />
+  if (selectedFood && selectedFoodSummary) return (
+    <React.Suspense fallback={<div role="status" aria-live="polite">Đang tải chi tiết món ăn…</div>}>
+      <NutritionFoodDetail
+        item={selectedFoodSummary}
+        relatedItems={relatedFoodSummaries}
+        initialSaved={savedFoodIds.has(selectedFood.id)}
+        loadRecord={loadNutritionCatalogDetail}
+        onBack={closeFoodDetail}
+        onAdd={addFoodFromDetail}
+        onSave={saveFood}
+        onScan={scanFromFoodDetail}
+        onSelectRelated={(item) => {
+          const selected = catalogSnapshot.find((candidate) => candidate.id === item.id)
+          if (selected) openFoodDetail(selected, catalogSnapshot)
+        }}
+      />
+    </React.Suspense>
+  )
 
   const selectedLoggedMeal = selectedLoggedMealId ? meals.find((meal) => meal.id === selectedLoggedMealId) ?? null : null
 
@@ -3519,21 +3570,23 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   if (selectedLoggedMeal) return (
     <div className="page nutrition-page nutrition-page--workspace" data-testid="captured-meal-detail-page">
       {toastContent}
-      <CapturedMealDetail
-        meal={selectedLoggedMeal}
-        dailyCalorieGoal={calorieGoal}
-        userGoal={profileDraft.goal}
-        onBack={() => setSelectedLoggedMealId(null)}
-        onEdit={(mealId) => {
-          setSelectedLoggedMealId(null)
-          setEditingMealId(mealId)
-        }}
-        onDelete={(mealId) => {
-          deleteMeal(mealId)
-          setSelectedLoggedMealId(null)
-          showMessage(`Đã xóa bữa ăn ${selectedLoggedMeal.title}`)
-        }}
-      />
+      <React.Suspense fallback={<div role="status" aria-live="polite">Đang tải bữa ăn…</div>}>
+        <CapturedMealDetail
+          meal={selectedLoggedMeal}
+          dailyCalorieGoal={calorieGoal}
+          userGoal={profileDraft.goal}
+          onBack={() => setSelectedLoggedMealId(null)}
+          onEdit={(mealId) => {
+            setSelectedLoggedMealId(null)
+            setEditingMealId(mealId)
+          }}
+          onDelete={(mealId) => {
+            deleteMeal(mealId)
+            setSelectedLoggedMealId(null)
+            showMessage(`Đã xóa bữa ăn ${selectedLoggedMeal.title}`)
+          }}
+        />
+      </React.Suspense>
     </div>
   )
   const editingMeal = editingMealId ? meals.find((meal) => meal.id === editingMealId) ?? null : null
@@ -3573,7 +3626,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       }} 
       onLog={logWater} 
     />}
-    {exerciseSheetOpen && <WorkoutLogSheet dateLabel={selectedDateLabel} weightKg={profileDraft.weightKg} onClose={() => setExerciseSheetOpen(false)} onSave={saveActivity} />}
+    {exerciseSheetOpen && <React.Suspense fallback={<div role="status" aria-live="polite">Đang tải nhật ký vận động…</div>}><WorkoutLogSheet dateLabel={selectedDateLabel} weightKg={profileDraft.weightKg} onClose={() => setExerciseSheetOpen(false)} onSave={saveActivity} /></React.Suspense>}
     {pendingFood && <MealEditorSheet food={pendingFood} initialDate={selectedDate} onClose={() => setPendingFood(null)} onConfirm={commitCatalogFood} />}
     {editingMeal && <MealLogEditorSheet meal={editingMeal} onClose={() => setEditingMealId(null)} onConfirm={(draft) => editMeal(editingMeal.id, draft)} />}
   </>
@@ -3651,27 +3704,29 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
           onDeleteMeal={deleteMeal}
           onDeleteActivity={deleteActivity}
         /></>}
-        menuContent={<MealPlanPage
-          onNavigate={(view) => {
-            window.location.hash = view === 'profile' ? '#/profile' : `#/${view}`
-          }}
-          onLogRecipe={(recipe: MealPlanRecipe) => {
-            void queueCatalogFood({
-              id: `aura-menu:${recipe.id}`,
-              kind: 'dish',
-              name: recipe.name,
-              servingGrams: null,
-              servingLabel: '1 khẩu phần theo công thức',
-              calories: recipe.kcal,
-              protein: recipe.protein,
-              carbs: recipe.carbs,
-              fat: recipe.fat,
-              fiber: recipe.fiber ?? null,
-              source: 'Aura Menu',
-              imageUrl: recipe.image,
-            }, 1, false)
-          }}
-        />}
+        menuContent={<React.Suspense fallback={<div role="status" aria-live="polite">Đang tải thực đơn…</div>}>
+          <MealPlanPage
+            onNavigate={(view) => {
+              window.location.hash = view === 'profile' ? '#/profile' : `#/${view}`
+            }}
+            onLogRecipe={(recipe: MealPlanRecipe) => {
+              void queueCatalogFood({
+                id: `aura-menu:${recipe.id}`,
+                kind: 'dish',
+                name: recipe.name,
+                servingGrams: null,
+                servingLabel: '1 khẩu phần theo công thức',
+                calories: recipe.kcal,
+                protein: recipe.protein,
+                carbs: recipe.carbs,
+                fat: recipe.fat,
+                fiber: recipe.fiber ?? null,
+                source: 'Aura Menu',
+                imageUrl: recipe.image,
+              }, 1, false)
+            }}
+          />
+        </React.Suspense>}
         diary={{
           dateLabel: selectedDateLabel,
           targets: { calories: calorieGoal, protein: proteinGoal, carbs: carbGoal, fat: fatGoal, waterMl: waterGoal },

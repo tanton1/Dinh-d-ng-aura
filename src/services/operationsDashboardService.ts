@@ -1,9 +1,12 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebase'
-import { normalizeOperationsDashboardData } from '../utils/operationsDashboardNormalization'
+import { normalizeOperationsDashboardData, type OperationsDashboardData } from '../utils/operationsDashboardNormalization'
 export type { DashboardActionMetric, OperationsDashboardData } from '../utils/operationsDashboardNormalization'
 
 const dashboardPreviewEnabled = import.meta.env.MODE === 'e2e'
+const dashboardRequests = new Map<string, Promise<OperationsDashboardData>>()
+const dashboardResponses = new Map<string, { value: OperationsDashboardData; expiresAt: number }>()
+const DASHBOARD_CLIENT_CACHE_MS = 15_000
 
 function previewDashboard(input: { startAt?: string; endAt?: string; branchId?: string }) {
   const startAt = input.startAt || '2026-08-01T00:00:00.000+07:00'
@@ -69,15 +72,31 @@ function previewDashboard(input: { startAt?: string; endAt?: string; branchId?: 
     quality: { completeness: 'complete', missingContractEffectiveDate: 0, truncated: false, canonicalFinanceSource: 'ledgerEntries', canonicalAttendanceSource: 'attendanceEvents', sourceCounts: { ledgerEntries: 980, contracts: 314, students: 296, sessions: 931, attendanceEvents: 887 } },
     filters: { branches: [{ id: 'thai-thi-boi', name: 'Thái Thị Bôi' }, { id: 'nguyen-van-linh', name: 'Nguyễn Văn Linh' }] },
     generatedAt: new Date().toISOString(),
-    cache: { hit: false, ttlSeconds: 60 },
+    cache: { hit: false, tier: 'miss', ttlSeconds: 60 },
   })
 }
 
 export async function getOperationsDashboard(input: { startAt?: string; endAt?: string; branchId?: string; forceRefresh?: boolean } = {}) {
   if (dashboardPreviewEnabled) return previewDashboard(input)
   if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
-  const result = await httpsCallable<typeof input, unknown>(firebaseFunctions, 'getOperationsDashboard')(input)
-  return normalizeOperationsDashboardData(result.data)
+  const requestKey = JSON.stringify({ startAt: input.startAt || '', endAt: input.endAt || '', branchId: input.branchId || 'all' })
+  if (!input.forceRefresh) {
+    const cached = dashboardResponses.get(requestKey)
+    if (cached && cached.expiresAt > Date.now()) return cached.value
+    const pending = dashboardRequests.get(requestKey)
+    if (pending) return pending
+  } else {
+    dashboardResponses.delete(requestKey)
+  }
+  const pending = httpsCallable<typeof input, unknown>(firebaseFunctions, 'getOperationsDashboard', { timeout: 30_000 })(input)
+    .then((result) => normalizeOperationsDashboardData(result.data))
+    .then((value) => {
+      dashboardResponses.set(requestKey, { value, expiresAt: Date.now() + DASHBOARD_CLIENT_CACHE_MS })
+      return value
+    })
+    .finally(() => dashboardRequests.delete(requestKey))
+  dashboardRequests.set(requestKey, pending)
+  return pending
 }
 
 export async function listStaffAttendance(periodId: string) {

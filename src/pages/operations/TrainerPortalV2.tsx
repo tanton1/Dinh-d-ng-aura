@@ -18,7 +18,7 @@ export type TrainerWorkspaceSection = 'students' | 'schedule' | 'requests'
 const sectionCopy: Record<TrainerWorkspaceSection, { title: string; description: string }> = {
   students: {
     title: 'Học viên phụ trách',
-    description: 'Danh sách học viên được gán PT chính hoặc PT phụ cho tài khoản của bạn.',
+    description: 'Chỉ hiển thị học viên được phân công và đang có hợp đồng còn hiệu lực.',
   },
   schedule: {
     title: 'Lịch dạy của tôi',
@@ -166,7 +166,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
         ])
         const merged = new Map(result.students.map((student) => [student.id, student]))
         scheduleResult.sessions.forEach((session) => {
-          if (merged.has(session.studentId)) return
+          if (merged.has(session.studentId) || !session.contractEffective || !session.contract) return
           merged.set(session.studentId, {
             id: session.studentId,
             name: session.studentName || 'Học viên Aura',
@@ -176,7 +176,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
             status: 'active',
             sessionsPerWeek: 0,
             assignmentRole: 'schedule',
-            contract: null,
+            contract: session.contract,
           })
         })
         setWorkspace(result.scope)
@@ -282,7 +282,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   }
 
   return <section className={`opv2-page${embedded ? ' is-embedded' : ''}${section === 'students' ? ' is-students' : ''}`}>
-    {!embedded && section === 'students' && <header className="opv2-student-heading"><div><p className="opv2-kicker-dark">AURA STAFF · HỌC VIÊN</p><h1>Học viên phụ trách</h1><p>Hợp nhất học viên được giao và học viên có trong lịch dạy của bạn.</p></div><button type="button" aria-label="Tải lại học viên" disabled={loading} onClick={() => void load()}><RefreshCw className={loading ? 'is-spinning' : ''} /></button></header>}
+    {!embedded && section === 'students' && <header className="opv2-student-heading"><div><p className="opv2-kicker-dark">AURA STAFF · HỌC VIÊN</p><h1>Học viên phụ trách</h1><p>Học viên được phân công hoặc có lịch dạy, với hợp đồng đang còn thời hạn và số buổi.</p></div><button type="button" aria-label="Tải lại học viên" disabled={loading} onClick={() => void load()}><RefreshCw className={loading ? 'is-spinning' : ''} /></button></header>}
     {!embedded && section !== 'students' && <section className="opv2-hero"><p className="opv2-kicker">Aura Staff · Công việc</p><h1>{sectionCopy[section].title}</h1><p>{sectionCopy[section].description}</p></section>}
     {scopeLoading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đối chiếu phân công trong Học viên PT Gym…</div>}
     {!scopeLoading && scopeError && <div className="opv2-state is-error">{scopeError}<button className="opv2-action" onClick={() => void load()}>Kết nối lại</button></div>}
@@ -294,7 +294,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     {error && !requestTarget && <div className="opv2-state is-error">{error}<button className="opv2-action" onClick={() => void load()}>Thử lại</button></div>}
 
     {!loading && !error && section === 'students' && <>
-      <section className="opv2-student-metrics" aria-label="Tổng hợp học viên phụ trách"><div><strong>{students.length}</strong><span>Tất cả</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'primary').length}</strong><span>PT chính</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'secondary').length}</strong><span>PT phụ</span></div><div><strong>{scheduledByStudent.size}</strong><span>Có lịch dạy</span></div></section>
+      <section className="opv2-student-metrics" aria-label="Tổng hợp học viên phụ trách"><div><strong>{students.length}</strong><span>Đang hiệu lực</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'primary').length}</strong><span>PT chính</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'secondary').length}</strong><span>PT phụ</span></div><div><strong>{students.filter((item) => scheduledByStudent.has(item.id)).length}</strong><span>Có lịch dạy</span></div></section>
       <section className="opv2-student-filters" aria-label="Lọc học viên">
         <label className="is-search"><Search /><input aria-label="Tìm học viên" value={studentQuery} onChange={(event) => setStudentQuery(event.target.value)} placeholder="Tên hoặc số điện thoại" /></label>
         <label><MapPin /><select aria-label="Lọc theo chi nhánh" value={studentBranch} onChange={(event) => setStudentBranch(event.target.value)}><option value="all">Tất cả chi nhánh</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
@@ -309,7 +309,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
           <div className="opv2-student-meta"><span><MapPin /> {branchNames.get(student.branchId) || (student.branchId ? 'Chi nhánh được phân công' : 'Chưa xác định chi nhánh')}</span><span>{remaining === null ? 'Hợp đồng cần đối chiếu' : `Còn ${remaining}/${student.contract?.totalSessions || 0} buổi`}</span></div>
           <div className="opv2-student-schedule"><strong><CalendarDays /> Lịch dạy được phân</strong>{studentSessions.length ? <div>{studentSessions.slice(0, 3).map((session) => <span key={session.id}>{compactDate(session.date)} · {String(session.hour ?? '--').padStart(2, '0')}:00</span>)}</div> : <small>Chưa có ca trong 62 ngày tới</small>}</div>
         </article>
-      })}{filteredStudents.length === 0 && <div className="opv2-state">Không có học viên phù hợp bộ lọc.</div>}</div>
+      })}{filteredStudents.length === 0 && <div className="opv2-state">Không có học viên còn hợp đồng hiệu lực phù hợp bộ lọc.</div>}</div>
     </>}
 
     {!loading && !error && section === 'schedule' && (() => {

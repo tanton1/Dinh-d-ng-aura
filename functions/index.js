@@ -24,6 +24,8 @@ const { autoConfirmOverduePtAttendance, chargeDuePtSessions, createSessionOperat
 const { createPayrollFunctions, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile } = require('./payroll')
 const { createStaffPayrollFunctions } = require('./staff-payroll')
 const { createOperationsDashboardFunctions } = require('./operations-dashboard')
+const { pruneExpiredDashboardCache } = require('./operations-dashboard-cache')
+const { rebuildOperationsDailyAggregates, syncDailyAggregateWrite } = require('./operations-dashboard-aggregates')
 const { createCashbookFunctions } = require('./cashbook')
 const { createBusinessReportingFunctions } = require('./business-reporting')
 const { createExerciseCatalogFunctions } = require('./exercise-catalog')
@@ -61,6 +63,34 @@ exports.syncPtContractUsageProjection = onDocumentWritten({
   region: 'asia-southeast1',
   maxInstances: 3,
 }, async (event) => syncContractUsageProjection({ db, event, logger }))
+
+const operationsAggregateTriggerOptions = (document) => ({
+  document,
+  database: databaseId,
+  region: 'asia-southeast1',
+  maxInstances: 5,
+  retry: true,
+})
+exports.syncOperationsLedgerDailyAggregate = onDocumentWritten(
+  operationsAggregateTriggerOptions('ledgerEntries/{entryId}'),
+  async (event) => syncDailyAggregateWrite({ db, source: 'ledger', event, logger }),
+)
+exports.syncOperationsSessionDailyAggregate = onDocumentWritten(
+  operationsAggregateTriggerOptions('sessions/{sessionId}'),
+  async (event) => syncDailyAggregateWrite({ db, source: 'session', event, logger }),
+)
+exports.syncOperationsAttendanceDailyAggregate = onDocumentWritten(
+  operationsAggregateTriggerOptions('attendanceEvents/{eventId}'),
+  async (event) => syncDailyAggregateWrite({ db, source: 'attendance', event, logger }),
+)
+exports.syncOperationsContractDailyAggregate = onDocumentWritten(
+  operationsAggregateTriggerOptions('contracts/{contractId}'),
+  async (event) => syncDailyAggregateWrite({ db, source: 'contract', event, logger }),
+)
+exports.syncOperationsStudentDailyAggregate = onDocumentWritten(
+  operationsAggregateTriggerOptions('students/{studentId}'),
+  async (event) => syncDailyAggregateWrite({ db, source: 'student', event, logger }),
+)
 
 exports.cleanupEatCleanLiveLocations = onSchedule({
   schedule: 'every 60 minutes',
@@ -171,7 +201,23 @@ Object.assign(exports, nutritionReviewFunctions)
 exports.listNutritionMealReviews = nutritionReviewFunctions.listNutritionMealReviews
 exports.assignNutritionCoach = nutritionReviewFunctions.assignNutritionCoach
 exports.reviewNutritionMeal = nutritionReviewFunctions.reviewNutritionMeal
-Object.assign(exports, createOperationsDashboardFunctions({ db, onCall }))
+Object.assign(exports, createOperationsDashboardFunctions({ db, onCall, logger }))
+exports.cleanupOperationsDashboardCache = onSchedule({
+  schedule: 'every 6 hours',
+  region: 'asia-southeast1',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  retryCount: 1,
+  maxInstances: 1,
+}, async () => pruneExpiredDashboardCache({ db, logger }))
+exports.rebuildOperationsDashboardAggregatesScheduled = onSchedule({
+  schedule: '15 1 * * *',
+  region: 'asia-southeast1',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  retryCount: 1,
+  maxInstances: 1,
+  timeoutSeconds: 540,
+  memory: '1GiB',
+}, async () => rebuildOperationsDailyAggregates({ db, logger, days: 366 }))
 Object.assign(exports, createCashbookFunctions({ db, onCall }))
 const ptOperationsV2Functions = createPtOperationsV2Functions({ db, onCall, logger })
 Object.assign(exports, ptOperationsV2Functions)
@@ -2148,10 +2194,11 @@ const productEventNames = new Set([
   'workout_completed',
   'eat_clean_order_created',
   'eat_clean_consumption_confirmed',
+  'admin_dashboard_loaded',
 ])
 
-const clientIssueAreas = new Set(['auth', 'gemini', 'openrouter', 'firestore', 'push', 'ui'])
-const clientIssueProviders = new Set(['google', 'phone', 'email', 'password', 'gemini', 'openrouter'])
+const clientIssueAreas = new Set(['auth', 'gemini', 'openrouter', 'apikey_fun', 'firestore', 'push', 'ui'])
+const clientIssueProviders = new Set(['google', 'phone', 'email', 'password', 'gemini', 'openrouter', 'apikey_fun'])
 
 exports.reportClientIssue = onCall({
   // Error reporting must stay available even when the project is close to its

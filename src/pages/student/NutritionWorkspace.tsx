@@ -29,8 +29,9 @@ import {
   X,
 } from 'lucide-react'
 import { useId, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import ProgressPage from './ProgressPage'
 import '../../styles-nutrition-workspace.css'
+
+const ProgressPage = React.lazy(() => import('./ProgressPage'))
 
 export type NutritionWorkspaceSection = 'today' | 'diary' | 'plan' | 'catalog' | 'insights'
 export type NutritionMealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
@@ -688,13 +689,15 @@ function NutritionWorkspace({
           {activeSection === 'diary' && <NutritionDiaryPage {...diary} />}
           {activeSection === 'plan' && (menuContent ?? <NutritionPlanPage {...plan} />)}
           {activeSection === 'insights' && (
-            <ProgressPage
-              ownerId={ownerId}
-              onNavigate={(view) => { if (typeof view === 'string') onSectionChange(view as any) }}
-              weightKg={weightKg}
-              targetWeightDeltaKg={targetWeightDeltaKg}
-              targetTimeframeMonths={targetTimeframeMonths}
-            />
+            <React.Suspense fallback={<div role="status" aria-live="polite">Đang tải phân tích tiến độ…</div>}>
+              <ProgressPage
+                ownerId={ownerId}
+                onNavigate={(view) => { if (typeof view === 'string') onSectionChange(view as any) }}
+                weightKg={weightKg}
+                targetWeightDeltaKg={targetWeightDeltaKg}
+                targetTimeframeMonths={targetTimeframeMonths}
+              />
+            </React.Suspense>
           )}
         </>}
       </div>
