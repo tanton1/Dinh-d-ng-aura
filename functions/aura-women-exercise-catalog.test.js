@@ -1,0 +1,25 @@
+const assert = require('node:assert/strict')
+const test = require('node:test')
+const { ITEMS, RELEASE, canonicalItems, validateItems } = require('../scripts/import-aura-women-exercise-catalog.cjs')
+
+test('Aura women catalog contains exactly twenty complete published exercises', () => {
+  assert.equal(RELEASE, 'aura-women-20-v1')
+  assert.doesNotThrow(() => validateItems(ITEMS))
+  assert.equal(ITEMS.length, 20)
+  assert.equal(new Set(ITEMS.map((item) => item.id)).size, 20)
+  assert.equal(ITEMS.every((item) => item.status === 'published'), true)
+  assert.equal(ITEMS.every((item) => item.instructionsVi.length >= 4), true)
+  assert.equal(ITEMS.every((item) => item.cuesVi.length >= 3 && item.commonMistakesVi.length >= 3), true)
+  assert.equal(ITEMS.every((item) => item.media.startImageUrl && item.media.endImageUrl), true)
+})
+
+test('catalog content digests are deterministic and every movement has coaching prescription', () => {
+  const first = canonicalItems()
+  const second = canonicalItems()
+  assert.deepEqual(first, second)
+  assert.equal(first.every((item) => /^[a-f0-9]{64}$/.test(item.contentDigest)), true)
+  assert.equal(first.every((item) => item.defaultPrescription.sets > 0 && item.defaultPrescription.reps && item.defaultPrescription.rpe >= 1), true)
+  assert.equal(first.some((item) => item.targetMuscles.includes('Mông lớn')), true)
+  assert.equal(first.some((item) => item.bodyParts.includes('Core')), true)
+  assert.equal(first.some((item) => item.bodyParts.includes('Thân trên')), true)
+})
