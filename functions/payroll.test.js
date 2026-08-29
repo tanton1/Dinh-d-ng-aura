@@ -106,10 +106,9 @@ test('locking a payroll run records an immutable management expense', () => {
 test('payroll payout creates the cash-book and ledger entries atomically', () => {
   const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
   const payoutStart = source.indexOf('const markPayrollRunPaid = onCall')
-  const payoutEnd = source.indexOf('\n  return {\n    listPayrollPolicies', payoutStart)
-  const payoutBlock = payoutStart >= 0 && payoutEnd > payoutStart
-    ? source.slice(payoutStart, payoutEnd)
-    : ''
+  const payoutTail = payoutStart >= 0 ? source.slice(payoutStart) : ''
+  const payoutEnd = payoutTail.search(/\r?\n  return \{\r?\n    listPayrollPolicies/)
+  const payoutBlock = payoutEnd > 0 ? payoutTail.slice(0, payoutEnd) : ''
 
   assert.match(payoutBlock, /ledgerEntries\/payroll_payment_\$\{runId\}/)
   assert.match(payoutBlock, /cashTransactions\/payroll_\$\{runId\}/)
