@@ -2,26 +2,26 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { safeLocalStorageSet } from '../../lib/safeStorage'
 import {
   ArrowRight,
-  BookOpen,
   CalendarDays,
-  Clock3,
   Trophy,
 } from 'lucide-react'
-import { courses as demoCourses } from '../../data'
 import type { Course, ViewId, CourseProgress } from '../../types'
 import AuraTodayFlow from '../../components/AuraTodayFlow'
-import { calculateNutritionTargets } from '../../services/nutritionSyncService'
 import {
-  isPtScheduleCloudAvailable,
-  listLocalPtScheduleEvents,
-  listPtScheduleEvents,
-  type PtScheduleEvent,
-} from '../../services/ptCoachingScheduleService'
+  asStudentPtScheduleError,
+  listMyStudentPtSchedule,
+  type StudentPtSession,
+} from '../../services/studentPtScheduleService'
+import { buildStudentHomeSchedule } from '../../features/home/studentHomeSchedule'
+import {
+  readRecentAverageWeight,
+  resolveDailyNutritionTargets,
+} from '../../features/nutrition/dailyNutritionTargets'
 import {
   saveUserGamification,
   subscribeToUserGamification,
-  subscribeToUserMealLogs,
-  subscribeToUserWaterLogs,
+  subscribeToUserMealLogsForDate,
+  subscribeToUserWaterLogsForDate,
 } from '../../services/firebaseService'
 import type { NutritionProfileDraft } from './NutritionPage'
 
@@ -70,10 +70,8 @@ function formatScheduleDay(dateId: string) {
   return new Intl.DateTimeFormat('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit' }).format(target)
 }
 
-function scheduleTypeLabel(type: PtScheduleEvent['type']) {
-  if (type === 'checkin') return 'Check-in cùng PT'
-  if (type === 'recovery') return 'Phục hồi'
-  return 'Vận động'
+function formatScheduleHour(hour: number | null) {
+  return hour === null ? 'Chưa rõ giờ' : `${String(hour).padStart(2, '0')}:00`
 }
 
 interface HomePageProps {
@@ -89,12 +87,9 @@ interface HomePageProps {
 
 export default function HomePage({
   onNavigate,
-  onOpenCourse,
-  courseItems = demoCourses,
   displayName = 'Thành viên Aura',
   isDemo = true,
   ownerId = 'demo',
-  progressItems = [],
   nutritionProfile,
 }: HomePageProps) {
   const now = new Date()
@@ -107,7 +102,9 @@ export default function HomePage({
   const [dailyPulseWater, setDailyPulseWater] = useState<DailyPulseWaterEntry[]>(() =>
     readStoredArray<DailyPulseWaterEntry>(`aura:nutrition:water-entries:v1:${ownerId}`)
   )
-  const [upcomingSchedule, setUpcomingSchedule] = useState<PtScheduleEvent[]>([])
+  const [upcomingSchedule, setUpcomingSchedule] = useState<StudentPtSession[]>([])
+  const [todaySessionCount, setTodaySessionCount] = useState(0)
+  const [scheduleState, setScheduleState] = useState<'loading' | 'linked' | 'unlinked' | 'unavailable'>('loading')
   const [weeklyScheduleMinutesByDate, setWeeklyScheduleMinutesByDate] = useState<Record<string, number>>({})
   const [weekPanel, setWeekPanel] = useState<'activity' | 'schedule'>('activity')
 
@@ -118,10 +115,10 @@ export default function HomePage({
     if (isDemo || !ownerId || ownerId === 'anonymous') return
 
     try {
-      const unsubscribeMeals = subscribeToUserMealLogs(ownerId, (remoteMeals) => {
+      const unsubscribeMeals = subscribeToUserMealLogsForDate(ownerId, todayDateId, (remoteMeals) => {
         setDailyPulseMeals(Array.isArray(remoteMeals) ? remoteMeals as DailyPulseMeal[] : [])
       })
-      const unsubscribeWater = subscribeToUserWaterLogs(ownerId, (remoteWater) => {
+      const unsubscribeWater = subscribeToUserWaterLogsForDate(ownerId, todayDateId, (remoteWater) => {
         setDailyPulseWater(Array.isArray(remoteWater) ? remoteWater as DailyPulseWaterEntry[] : [])
       })
       return () => {
@@ -131,7 +128,7 @@ export default function HomePage({
     } catch (error) {
       console.warn('Aura Today Flow đang dùng dữ liệu gần nhất trên thiết bị:', error)
     }
-  }, [isDemo, ownerId])
+  }, [isDemo, ownerId, todayDateId])
 
   useEffect(() => {
     let active = true
@@ -147,55 +144,58 @@ export default function HomePage({
     const weekFromDate = toLocalDateKey(monday)
     const weekToDate = toLocalDateKey(sunday)
 
-    const selectUpcoming = (events: PtScheduleEvent[]) => events
-      .filter((event) => event.status === 'planned' && event.date >= today)
-      .sort((left, right) => `${left.date}${left.time}${left.id}`.localeCompare(`${right.date}${right.time}${right.id}`))
-      .slice(0, 2)
-    const minutesByDate = (events: PtScheduleEvent[]) => events
-      .filter((event) => event.status === 'done' && event.date >= weekFromDate && event.date <= weekToDate)
-      .reduce<Record<string, number>>((result, event) => {
-        result[event.date] = (result[event.date] ?? 0) + event.durationMinutes
-        return result
-      }, {})
+    const applySessions = (sessions: StudentPtSession[]) => {
+      const summary = buildStudentHomeSchedule(sessions, today, weekFromDate, weekToDate)
+      setUpcomingSchedule(summary.upcomingSessions)
+      setTodaySessionCount(summary.todaySessionCount)
+      setWeeklyScheduleMinutesByDate(summary.weeklyCompletedMinutesByDate)
+    }
 
-    const localEvents = listLocalPtScheduleEvents(ownerId)
-    setUpcomingSchedule(selectUpcoming(localEvents))
-    setWeeklyScheduleMinutesByDate(minutesByDate(localEvents))
+    setScheduleState('loading')
+    applySessions([])
 
-    if (isDemo || !ownerId || ownerId === 'anonymous' || !isPtScheduleCloudAvailable()) {
+    if (isDemo) {
+      const tomorrow = new Date(currentDate)
+      tomorrow.setDate(tomorrow.getDate() + 1)
+      const later = new Date(currentDate)
+      later.setDate(later.getDate() + 3)
+      applySessions([
+        { id: 'demo-home-1', date: toLocalDateKey(tomorrow), hour: 18, status: 'scheduled', trainerId: 'demo-trainer', trainerName: 'PT Minh', branchId: 'demo-branch', verifiedByStudent: false, scheduleEntryId: '', revision: 1, timeZone: 'Asia/Ho_Chi_Minh' },
+        { id: 'demo-home-2', date: toLocalDateKey(later), hour: 19, status: 'scheduled', trainerId: 'demo-trainer', trainerName: 'PT Minh', branchId: 'demo-branch', verifiedByStudent: false, scheduleEntryId: '', revision: 1, timeZone: 'Asia/Ho_Chi_Minh' },
+      ])
+      setScheduleState('linked')
       return () => { active = false }
     }
 
-    // One request hydrates both the upcoming agenda and the current-week chart.
-    listPtScheduleEvents({ clientId: ownerId, fromDate: weekFromDate, toDate: toLocalDateKey(through) })
-      .then((events) => {
+    if (!ownerId || ownerId === 'anonymous') {
+      setScheduleState('unlinked')
+      return () => { active = false }
+    }
+
+    // This is the same identity-aware callable used by the student's Schedule page.
+    listMyStudentPtSchedule(weekFromDate, toLocalDateKey(through), weekFromDate)
+      .then((data) => {
         if (!active) return
-        setUpcomingSchedule(selectUpcoming(events))
-        setWeeklyScheduleMinutesByDate(minutesByDate(events))
+        applySessions(data.sessions)
+        setScheduleState(data.linked ? 'linked' : 'unlinked')
       })
-      .catch(() => {
-        // Keep the last local snapshot. A schedule outage must not block Home.
+      .catch((error) => {
+        if (!active) return
+        const issue = asStudentPtScheduleError(error)
+        setScheduleState(issue.issueCode === 'PROFILE_NOT_LINKED' ? 'unlinked' : 'unavailable')
       })
 
     return () => { active = false }
   }, [isDemo, ownerId])
 
-  const dailyPulseTargets = useMemo(() => {
-    const storedTargets = nutritionProfile as (NutritionProfileDraft & {
-      targetCalories?: number
-      protein?: number
-      waterLiters?: number
-    }) | null | undefined
-    if (nutritionProfile) {
-      const targets = calculateNutritionTargets(nutritionProfile)
-      return {
-        calories: storedTargets?.targetCalories || targets.targetCaloriesKcal,
-        protein: storedTargets?.protein || targets.proteinG,
-        waterMl: (storedTargets?.waterLiters || targets.waterLiters) * 1_000,
-      }
-    }
-    return { calories: 2000, protein: 100, waterMl: 2_000 }
-  }, [nutritionProfile])
+  const effectiveNutritionWeight = useMemo(
+    () => readRecentAverageWeight(ownerId, nutritionProfile?.weightKg ?? 60),
+    [nutritionProfile?.weightKg, ownerId],
+  )
+  const dailyPulseTargets = useMemo(
+    () => resolveDailyNutritionTargets(nutritionProfile, effectiveNutritionWeight),
+    [effectiveNutritionWeight, nutritionProfile],
+  )
 
   const todayPulseMeals = useMemo(() => dailyPulseMeals.filter((meal) =>
     meal.date === todayDateId && meal.status === 'logged'
@@ -211,16 +211,6 @@ export default function HomePage({
       ? 'Tăng cơ & phục hồi'
       : 'Duy trì thể trạng'
   
-  const continueCourses = courseItems
-    .filter((course) => course.status !== 'Khám phá' && course.progress < 100)
-    .sort((left, right) => right.progress - left.progress)
-    .slice(0, 1)
-  // Dynamic completed lessons calculation based on real lesson progress state
-  const completedLessonsCount = useMemo(() => {
-    if (!progressItems || !Array.isArray(progressItems)) return 0
-    return progressItems.reduce((acc, progress) => acc + (progress.completedLessonIds?.length || 0), 0)
-  }, [progressItems])
-
   // Gamification stats state with offline local storage fallback
   const [streak, setStreak] = useState<number>(() => {
     const isDemoUser = ownerId === 'demo'
@@ -406,10 +396,8 @@ export default function HomePage({
     if (streak >= 7) count++
     if (journalMetrics.weightLogsCount >= 5) count++
     if (journalMetrics.weightLogsCount > 0) count++
-    if (completedLessonsCount >= 5) count++
-    if (completedLessonsCount >= 15) count++
     return count
-  }, [journalMetrics, streak, completedLessonsCount])
+  }, [journalMetrics, streak])
 
   // Dynamic weekly activity tracking based on current calendar week
   const dynamicWeeklyActivity = useMemo(() => {
@@ -469,7 +457,6 @@ export default function HomePage({
   const nextMilestone = useMemo(() => {
     const levelStartXp = (currentLevel - 1) * 500
     const earnedInLevel = Math.max(0, xp - levelStartXp)
-    const lessonTarget = completedLessonsCount < 5 ? 5 : 15
     const badgeTarget = Math.max(1, Math.min(8, unlockedBadgesCount + 1))
     const candidates = [
       {
@@ -477,12 +464,6 @@ export default function HomePage({
         detail: `Còn ${Math.max(0, 500 - earnedInLevel)} XP để mở cấp độ tiếp theo.`,
         progress: Math.round((earnedInLevel / 500) * 100),
         label: `${earnedInLevel}/500 XP`,
-      },
-      {
-        title: `Hoàn thành ${lessonTarget} bài học`,
-        detail: `Còn ${Math.max(0, lessonTarget - completedLessonsCount)} bài để đạt cột mốc học tập tiếp theo.`,
-        progress: Math.min(100, Math.round((completedLessonsCount / lessonTarget) * 100)),
-        label: `${completedLessonsCount}/${lessonTarget} bài`,
       },
       {
         title: 'Mở huy hiệu tiếp theo',
@@ -494,7 +475,7 @@ export default function HomePage({
     return candidates
       .filter((candidate) => candidate.progress < 100)
       .sort((left, right) => right.progress - left.progress)[0] ?? candidates[0]
-  }, [completedLessonsCount, currentLevel, unlockedBadgesCount, xp])
+  }, [currentLevel, unlockedBadgesCount, xp])
 
   const handleCheckIn = () => {
     if (isCheckedInToday) return
@@ -548,59 +529,29 @@ export default function HomePage({
         streak={streak}
         goalLabel={nutritionGoalLabel}
         caloriesConsumed={todayCalories}
-        calorieGoal={dailyPulseTargets.calories}
+        calorieGoal={dailyPulseTargets.calorieGoal}
         proteinConsumed={todayProtein}
-        proteinGoal={dailyPulseTargets.protein}
+        proteinGoal={dailyPulseTargets.proteinGoal}
         waterMl={todayWaterMl}
-        waterGoalMl={dailyPulseTargets.waterMl}
+        waterGoalMl={dailyPulseTargets.waterGoal}
         mealsCount={todayPulseMeals.length}
         checkedIn={isCheckedInToday}
         movementMinutesToday={todayMovementMinutes}
         weeklyMovementMinutes={dynamicTotalWeeklyMinutes}
-        learningTitle={continueCourses[0]?.title}
-        learningProgress={continueCourses[0]?.progress}
         todayMeals={todayPulseMeals}
         onOpenNutrition={() => onNavigate('nutrition')}
         onOpenEatClean={() => onNavigate('eat-clean')}
         onCheckIn={handleCheckIn}
-        onOpenLearning={() => continueCourses[0] ? onOpenCourse(String(continueCourses[0].id)) : onNavigate('courses')}
         onOpenProgress={() => onNavigate('progress')}
         onOpenSchedule={() => onNavigate('schedule')}
+        scheduleState={scheduleState}
+        todaySessionCount={todaySessionCount}
+        nextSession={upcomingSchedule[0] ? {
+          dateLabel: formatScheduleDay(upcomingSchedule[0].date),
+          timeLabel: formatScheduleHour(upcomingSchedule[0].hour),
+          trainerName: upcomingSchedule[0].trainerName || 'Huấn luyện viên Aura',
+        } : null}
       />
-
-      <section className="home-v3-academy" aria-labelledby="home-learning-title">
-        <div className="home-v3-section-heading">
-          <div><span>AURA ACADEMY</span><h2 id="home-learning-title">Học tiếp cùng Aura</h2></div>
-          <button type="button" onClick={() => onNavigate('courses')}>Thư viện <ArrowRight size={18} /></button>
-        </div>
-        <article className={`home-v3-academy-card ${continueCourses[0] ? 'has-course' : 'is-empty'}`}>
-          <span className="home-v3-academy-card__icon"><BookOpen size={25} /></span>
-          <div className="home-v3-academy-card__copy">
-            <span>{continueCourses[0] ? `${continueCourses[0].category} · ${continueCourses[0].level}` : 'Lộ trình dành cho bạn'}</span>
-            <h3>{continueCourses[0]?.title ?? 'Chọn khóa học đầu tiên'}</h3>
-            <p>{continueCourses[0]?.description ?? 'Khám phá thư viện Aura và bắt đầu một lộ trình phù hợp với mục tiêu của bạn.'}</p>
-            {continueCourses[0] && (
-              <>
-                <div className="home-v3-academy-card__meta">
-                  <span><Clock3 size={15} /> {continueCourses[0].duration}</span>
-                  <span><BookOpen size={15} /> {continueCourses[0].lessons} bài học</span>
-                </div>
-                <div className="home-v3-academy-card__progress">
-                  <div><span>Tiến độ lộ trình</span><strong>{Math.round(continueCourses[0].progress)}%</strong></div>
-                  <span role="progressbar" aria-label="Tiến độ khóa học" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(continueCourses[0].progress)}><i style={{ width: `${continueCourses[0].progress}%` }} /></span>
-                </div>
-              </>
-            )}
-          </div>
-          <button
-            type="button"
-            className="home-v3-primary-action"
-            onClick={() => continueCourses[0] ? onOpenCourse(String(continueCourses[0].id)) : onNavigate('courses')}
-          >
-            {continueCourses[0] ? 'Học tiếp' : 'Khám phá'} <ArrowRight size={17} />
-          </button>
-        </article>
-      </section>
 
       <section className="home-v3-week" aria-labelledby="home-week-title">
         <header className="home-v3-week__header">
@@ -636,8 +587,8 @@ export default function HomePage({
               <div className="home-v3-schedule__list">
                 {upcomingSchedule.map((event) => (
                   <button type="button" key={event.id} className="home-v3-schedule__item" onClick={() => onNavigate('schedule')}>
-                    <span className="home-v3-schedule__date"><strong>{formatScheduleDay(event.date)}</strong><small>{event.time}</small></span>
-                    <span className="home-v3-schedule__copy"><small>{scheduleTypeLabel(event.type)}</small><strong>{event.title}</strong><em>{event.durationMinutes} phút</em></span>
+                    <span className="home-v3-schedule__date"><strong>{formatScheduleDay(event.date)}</strong><small>{formatScheduleHour(event.hour)}</small></span>
+                    <span className="home-v3-schedule__copy"><small>BUỔI TẬP PT</small><strong>{event.trainerName || 'Huấn luyện viên Aura'}</strong><em>Đã xếp lịch</em></span>
                     <ArrowRight size={18} />
                   </button>
                 ))}
@@ -645,7 +596,7 @@ export default function HomePage({
             ) : (
               <button type="button" className="home-v3-schedule__empty" onClick={() => onNavigate('schedule')}>
                 <span><CalendarDays size={22} /></span>
-                <span><strong>Tạo lịch đầu tiên</strong><small>Lịch chỉ hiển thị dữ liệu thật do bạn hoặc PT đã tạo.</small></span>
+                <span><strong>Chưa có lịch PT sắp tới</strong><small>Buổi mới sẽ xuất hiện ngay sau khi vận hành xếp lịch.</small></span>
                 <ArrowRight size={18} />
               </button>
             )}

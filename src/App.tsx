@@ -67,6 +67,7 @@ const ProgressPage = lazyWithRetry(() => import('./pages/student/ProgressPage'))
 const ProgressPhotoStudio = lazyWithRetry(() => import('./pages/student/ProgressPhotoStudio'))
 const SchedulePage = lazyWithRetry(() => import('./pages/student/SchedulePage'))
 const StudentAvailabilityPage = lazyWithRetry(() => import('./pages/student/StudentAvailabilityPage'))
+const StudentPtWorkoutPage = lazyWithRetry(() => import('./pages/student/StudentPtWorkoutPage'))
 const WorkoutPage = lazyWithRetry(() => import('./pages/student/WorkoutPage'))
 const EatCleanPage = lazyWithRetry(() => import('./features/eat-clean/EatCleanPage'))
 const AdminEatCleanPage = lazyWithRetry(() => import('./features/eat-clean/admin/AdminEatCleanPage'))
@@ -90,6 +91,7 @@ const StaffScheduleWorkspace = lazyWithRetry(() => import('./pages/operations/St
 const SalesPortalV2 = lazyWithRetry(() => import('./pages/operations/SalesPortalV2'))
 const StaffNutritionReviewsPage = lazyWithRetry(() => import('./pages/operations/StaffNutritionReviewsPage'))
 const StaffPayrollPage = lazyWithRetry(() => import('./pages/operations/StaffPayrollPage'))
+const PtWorkoutWorkspacePage = lazyWithRetry(() => import('./pages/operations/PtWorkoutWorkspacePage'))
 
 
 const roleLabels: Record<UserRole, string> = {
@@ -105,7 +107,7 @@ const roleLabels: Record<UserRole, string> = {
   user: 'Khách hàng',
 }
 
-const learnerAcademyViews = new Set<ViewId>(['home', 'courses', 'course-detail', 'progress'])
+const learnerAcademyViews = new Set<ViewId>(['courses', 'course-detail', 'progress'])
 const adminAcademyViews = new Set<ViewId>(['admin-courses', 'admin-course-editor', 'admin-academy-students', 'admin-students'])
 const adminDirectoryViews = new Set<ViewId>(['admin-academy-students', 'admin-students', 'admin-roles', 'admin-hr', 'admin-notifications'])
 const adminAcademyAnalyticsViews = new Set<ViewId>(['admin-courses', 'admin-academy-students', 'admin-students'])
@@ -794,7 +796,7 @@ function AuraApplication() {
         }} />
       }
       case 'delivery': return <DeliveryPage driverId={user?.uid ?? 'demo-shipper'} displayName={effectiveDisplayName ?? 'Shipper Aura'} onSignOut={signOut} />
-      case 'admin-dashboard': return <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
+      case 'admin-dashboard': return <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} isDemo={backendMode === 'demo'} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
       case 'admin-today-sessions': return <AuraOperationsFrame><AdminTodaySessionsPage onNavigate={navigate} /></AuraOperationsFrame>
       case 'admin-courses': return <AdminCoursesPage
         courseItems={adminCourseData.courses}
@@ -852,6 +854,7 @@ function AuraApplication() {
       case 'staff-students': return <AuraOperationsFrame><TrainerPortalV2 section="students" isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
       case 'staff-dashboard': return <AuraOperationsFrame><StaffDashboardPage onNavigate={navigate} capabilities={accessContext?.capabilities || []} isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
       case 'staff-schedule': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="teaching" canManageAvailability={backendMode === 'demo' || hasCapability('pt.availability.self.manage')} isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
+      case 'staff-workouts': return <AuraOperationsFrame><PtWorkoutWorkspacePage isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
       case 'staff-availability': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="availability" canManageAvailability={backendMode === 'demo' || hasCapability('pt.availability.self.manage')} isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
       case 'staff-requests': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="requests" canManageAvailability={backendMode === 'demo' || hasCapability('pt.availability.self.manage')} isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
       case 'staff-nutrition-reviews': return <AuraOperationsFrame><StaffNutritionReviewsPage /></AuraOperationsFrame>
@@ -859,6 +862,8 @@ function AuraApplication() {
       case 'staff-quotes': return <AuraOperationsFrame><SalesPortalV2 /></AuraOperationsFrame>
       case 'staff-renewals': return <AuraOperationsFrame><ContractRenewals onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
       case 'staff-payroll': return <AuraOperationsFrame><StaffPayrollPage /></AuraOperationsFrame>
+
+      case 'pt-workout': return <StudentPtWorkoutPage />
 
       case 'admin-pt-students': return <AuraOperationsFrame className="aura-operations-page--students"><AdminPTStudentManagement user={user as any} profile={profile} /></AuraOperationsFrame>
       case 'admin-pt-schedule': return <AuraOperationsFrame className="aura-operations-page--schedule">{backendMode === 'firebase'
@@ -869,9 +874,10 @@ function AuraApplication() {
             : <div className="course-detail-state" role="alert"><h1>Chưa được cấp quyền xếp lịch</h1><p>Trang lịch được khóa an toàn vì tài khoản chưa có phạm vi chi nhánh phù hợp.</p></div>
         : <SchedulerWrapper user={user as any} profile={profile} accessContext={accessContext} backendMode={backendMode} onNavigate={(view) => navigate(view as ViewId)} />}</AuraOperationsFrame>
       case 'admin-training-history': return <AuraOperationsFrame><TrainingHistoryWorkspace /></AuraOperationsFrame>
+      case 'admin-pt-workouts': return <AuraOperationsFrame><PtWorkoutWorkspacePage isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
       case 'admin-trainer-quality': return <AuraOperationsFrame><TrainerQualityPage isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
       case 'admin-renewals': return <AuraOperationsFrame><ContractRenewals onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
-      case 'admin-report': return <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
+      case 'admin-report': return <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} isDemo={backendMode === 'demo'} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
       case 'admin-finance': return <AuraOperationsFrame><AdminFinanceHub user={user as any} profile={profile} /></AuraOperationsFrame>
       case 'admin-hr': return <AuraOperationsFrame><AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} /></AuraOperationsFrame>
       case 'admin-payroll': return <AuraOperationsFrame><AdminPayroll user={user as any} profile={profile} /></AuraOperationsFrame>

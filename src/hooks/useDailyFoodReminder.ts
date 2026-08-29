@@ -1,30 +1,32 @@
 import { useEffect, useRef } from 'react'
-import { collection, query, where, getDocs } from 'firebase/firestore'
+import { collection, query, where, getDocs, limit } from 'firebase/firestore'
 import { firestoreDb } from '../lib/firebase'
 import { createNotification } from '../services/notificationService'
 
 export function useDailyFoodReminder(userId?: string) {
-  const checked = useRef(false)
+  const checkedUserDay = useRef('')
 
   useEffect(() => {
-    if (!userId || !firestoreDb || checked.current) return
+    if (!userId || !firestoreDb) return
     
     async function checkMealLogs() {
       if (!userId || !firestoreDb) return
-      checked.current = true
-      
       try {
         const today = new Date()
         const yyyy = today.getFullYear()
         const mm = String(today.getMonth() + 1).padStart(2, '0')
         const dd = String(today.getDate()).padStart(2, '0')
         const todayStr = `${yyyy}-${mm}-${dd}`
+        const userDayKey = `${userId}:${todayStr}`
+        if (checkedUserDay.current === userDayKey) return
+        checkedUserDay.current = userDayKey
         
         // 1. Check if reminder was already sent today
         const notifQ = query(
             collection(firestoreDb, 'users', userId, 'notifications'),
             where('type', '==', 'REMINDER'),
-            where('dateString', '==', todayStr)
+            where('dateString', '==', todayStr),
+            limit(1),
         )
         const notifSnap = await getDocs(notifQ)
         if (!notifSnap.empty) {
@@ -33,19 +35,25 @@ export function useDailyFoodReminder(userId?: string) {
         
         // 2. Query mealLogs to check if user has uploaded anything today
         const mealsRef = collection(firestoreDb, 'users', userId, 'mealLogs')
-        const mealsSnap = await getDocs(mealsRef)
-        const meals = mealsSnap.docs.map(d => d.data())
-        
-        const hasMealToday = meals.some(m => {
-            const mDate = m.date || m.mealDate || m.dateString
-            if (mDate && typeof mDate === 'string' && mDate.startsWith(todayStr)) return true
-            // Fallback to createdAt check
-            if (m.createdAt && typeof m.createdAt.toDate === 'function') {
-                const dateObj = m.createdAt.toDate()
-                if (dateObj.toISOString().startsWith(todayStr)) return true
-            }
-            return false
-        })
+        let hasMealToday = false
+        for (const dateField of ['date', 'mealDate', 'dateString']) {
+          const snapshot = await getDocs(query(mealsRef, where(dateField, '==', todayStr), limit(1)))
+          if (!snapshot.empty) {
+            hasMealToday = true
+            break
+          }
+        }
+
+        if (!hasMealToday) {
+          const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1)
+          const createdToday = await getDocs(query(
+            mealsRef,
+            where('createdAt', '>=', new Date(today.getFullYear(), today.getMonth(), today.getDate())),
+            where('createdAt', '<', tomorrow),
+            limit(1),
+          ))
+          hasMealToday = !createdToday.empty
+        }
 
         if (!hasMealToday) {
             // For testing: wait till evening (e.g., 6 PM). Or just trigger it for demo purposes if none is logged.

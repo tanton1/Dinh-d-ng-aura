@@ -348,7 +348,7 @@ function NutritionDashboardHome({
                 tabIndex={0}
               >
                 <div className="cal-hero-info">
-                  <span className="cal-big-number">
+                  <span className="cal-big-number" data-testid="nutrition-calories-value" data-mode={showConsumed ? 'consumed' : 'remaining'}>
                     {showConsumed
                       ? formatNumber(caloriesConsumed)
                       : calorieDelta >= 0

@@ -34,7 +34,12 @@ export {
   saveUserWaterLog,
   subscribeToUserActivityLogs,
   subscribeToUserMealLogs,
+  subscribeToRecentUserActivityLogs,
+  subscribeToRecentUserMealLogs,
+  subscribeToRecentUserWaterLogs,
+  subscribeToUserMealLogsForDate,
   subscribeToUserWaterLogs,
+  subscribeToUserWaterLogsForDate,
 } from './firebaseNutritionLogService'
 export {
   deleteUserProgressPhoto,

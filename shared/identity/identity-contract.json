@@ -27,6 +27,7 @@
       "pt.availability.self.manage",
       "pt.session.self.manage",
       "pt.workout_note.create",
+      "pt.workout.manage",
       "renewals.workspace.view",
       "renewals.case.assigned_student.support"
     ],
@@ -46,6 +47,7 @@
       "pt.schedule.branch.publish",
       "branch.finance.view",
       "branch.team.view",
+      "pt.workout.manage",
       "renewals.workspace.view",
       "renewals.branch.manage",
       "renewals.approval.manage"
@@ -64,6 +66,7 @@
     "identity.staff_position.manage",
     "nutrition.meals.all.review",
     "pt.operations.manage",
+    "pt.workout.manage",
     "pt.schedule.branch.publish",
     "sales.operations.manage",
     "renewals.workspace.view",

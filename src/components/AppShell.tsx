@@ -77,6 +77,7 @@ const studentNavSections: ShellNavSection[] = [
     items: [
       { id: 'schedule' as const, label: 'Lịch học viên', icon: CalendarDays },
       { id: 'student-availability' as const, label: 'Lịch rảnh', icon: CalendarClock },
+      { id: 'pt-workout' as const, label: 'Giáo án PT', icon: Dumbbell },
     ],
   },
   {
@@ -112,6 +113,7 @@ const staffNavSections: ShellNavSection[] = [
       { id: 'staff-dashboard' as const, label: 'Tổng quan Staff', icon: LayoutDashboard },
       { id: 'staff-students' as const, label: 'Học viên phụ trách', icon: Users },
       { id: 'staff-schedule' as const, label: 'Lịch làm việc', icon: CalendarDays },
+      { id: 'staff-workouts' as const, label: 'Giáo án & mức tạ', icon: Dumbbell },
       { id: 'staff-nutrition-reviews' as const, label: 'Duyệt món', icon: Check },
       { id: 'staff-quotes' as const, label: 'Báo giá', icon: ClipboardList },
       { id: 'staff-renewals' as const, label: 'Tái ký', icon: RefreshCw },
@@ -128,8 +130,8 @@ const staffMobileNav: ShellNavItem[] = [
   { id: 'staff-dashboard', label: 'Tổng quan', icon: LayoutDashboard },
   { id: 'staff-students', label: 'Học viên', icon: Users },
   { id: 'staff-schedule', label: 'Lịch', icon: CalendarDays },
+  { id: 'staff-workouts', label: 'Giáo án', icon: Dumbbell },
   { id: 'staff-nutrition-reviews', label: 'Duyệt món', icon: Check },
-  { id: 'staff-renewals', label: 'Tái ký', icon: RefreshCw },
   { id: 'staff-payroll', label: 'Lương', icon: WalletCards },
 ]
 
@@ -146,6 +148,7 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
       { id: 'admin-pt-students' as const, label: 'Học viên PT Gym', icon: Users, permission: 'student.view_assigned' as Permission },
       { id: 'admin-pt-schedule' as const, label: 'Lịch PT & Yêu cầu', icon: CalendarDays, permission: 'dashboard.view' as Permission },
       { id: 'admin-training-history' as const, label: 'Lịch sử tập & lịch dạy', icon: History, permission: 'analytics.view_all' as Permission },
+      { id: 'admin-pt-workouts' as const, label: 'Giáo án & mức tạ', icon: Dumbbell, permission: 'program.view' as Permission },
       { id: 'admin-trainer-quality' as const, label: 'Chất lượng PT', icon: Sparkles, permission: 'analytics.view_all' as Permission },
       { id: 'admin-renewals' as const, label: 'Tái ký & gia hạn', icon: RefreshCw, permission: 'dashboard.view' as Permission },
     ],
@@ -202,6 +205,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'sales-portal': 'Cổng báo giá & Bán hàng',
   'staff-students': 'Học viên phụ trách',
   'staff-schedule': 'Lịch dạy của tôi',
+  'staff-workouts': 'Giáo án & mức tạ',
   'staff-availability': 'Lịch rảnh của tôi',
   'staff-requests': 'Yêu cầu đổi và hủy lịch',
   'staff-nutrition-reviews': 'Duyệt món học viên',
@@ -211,6 +215,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   progress: 'Tiến độ & ôn tập',
   schedule: 'Lịch học viên',
   'student-availability': 'Lịch rảnh',
+  'pt-workout': 'Giáo án PT của tôi',
   profile: 'Cá nhân',
   workout: 'Buổi tập',
   delivery: 'Aura Delivery',
@@ -219,6 +224,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   'admin-pt-students': 'Quản lý Học viên PT Gym',
   'admin-pt-schedule': 'Lịch PT & Hộp yêu cầu',
   'admin-training-history': 'Lịch sử tập & lịch dạy',
+  'admin-pt-workouts': 'Giáo án & mức tạ',
   'admin-trainer-quality': 'Chất lượng PT',
   'admin-renewals': 'Tái ký & chăm sóc hợp đồng',
   'admin-report': 'Tổng quan vận hành Gym',

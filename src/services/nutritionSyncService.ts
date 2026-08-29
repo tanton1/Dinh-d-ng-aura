@@ -1,4 +1,4 @@
-import { NutritionProfileDraft } from '../pages/student/NutritionPage';
+import type { NutritionProfileDraft } from '../features/nutrition/types';
 
 export interface UserProfileData {
   age?: number;

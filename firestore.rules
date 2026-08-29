@@ -754,6 +754,29 @@ service cloud.firestore {
       }
     }
 
+    // In-person PT programs and set-by-set training logs are actor-scoped by
+    // callable Functions. Browser writes are denied so workout history cannot
+    // be forged or silently disconnected from its scheduled session.
+    match /ptTrainingPrograms/{studentId} {
+      allow read, create, update, delete: if false;
+
+      match /revisions/{revisionId} {
+        allow read, create, update, delete: if false;
+      }
+    }
+
+    match /ptWorkoutLogs/{logId} {
+      allow read, create, update, delete: if false;
+
+      match /revisions/{revisionId} {
+        allow read, create, update, delete: if false;
+      }
+    }
+
+    match /ptWorkoutAuditLogs/{logId} {
+      allow read, create, update, delete: if false;
+    }
+
     match /enrollments/{enrollmentId} {
       allow get: if signedIn()
                  && (isAdmin()

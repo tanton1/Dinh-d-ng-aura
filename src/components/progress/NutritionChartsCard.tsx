@@ -1,28 +1,17 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useMemo } from 'react'
 import { Info, BarChart } from 'lucide-react'
-import { subscribeToUserMealLogs, subscribeToUserWaterLogs } from '../../services/firebaseService'
 
 type RangeType = '7d' | '30d' | '90d'
 type MetricType = 'calories' | 'protein' | 'carbs' | 'fat' | 'water' | 'fiber'
 
-export const NutritionChartsCard = React.memo(function NutritionChartsCard({ ownerId = 'demo' }: { ownerId?: string }) {
+interface NutritionChartsCardProps {
+  mealLogs: any[]
+  waterLogs: any[]
+}
+
+export const NutritionChartsCard = React.memo(function NutritionChartsCard({ mealLogs, waterLogs }: NutritionChartsCardProps) {
   const [range, setRange] = useState<RangeType>('7d')
   const [metric, setMetric] = useState<MetricType>('calories')
-  const [mealLogs, setMealLogs] = useState<any[]>([])
-  const [waterLogs, setWaterLogs] = useState<any[]>([])
-
-  useEffect(() => {
-    const unsubMeals = subscribeToUserMealLogs(ownerId, (meals) => {
-      setMealLogs(meals || [])
-    })
-    const unsubWater = subscribeToUserWaterLogs(ownerId, (water) => {
-      setWaterLogs(water || [])
-    })
-    return () => {
-      unsubMeals()
-      unsubWater()
-    }
-  }, [ownerId])
 
   const ranges: Array<{ id: RangeType; label: string }> = [
     { id: '7d', label: '7 ngày' },

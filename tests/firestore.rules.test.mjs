@@ -119,6 +119,12 @@ async function seedPtSecurityFixtures() {
         id: 'legacy-student-1',
         name: 'Học viên legacy',
       }),
+      setDoc(doc(db, 'ptTrainingPrograms', 'legacy-student-1'), {
+        studentId: 'legacy-student-1', revision: 1, status: 'active', trainingDays: [],
+      }),
+      setDoc(doc(db, 'ptWorkoutLogs', 'ptlog-test'), {
+        studentId: 'legacy-student-1', sessionId: 'legacy-session-1', revision: 1, status: 'completed',
+      }),
       setDoc(doc(db, 'contracts', 'legacy-contract-1'), {
         id: 'legacy-contract-1',
         studentId: 'legacy-student-1',
@@ -491,6 +497,18 @@ describe('Aura PT Firestore rules', () => {
       date: '2026-08-20',
       status: 'scheduled',
     }))
+  })
+
+  test('PT programs and set logs are callable-only for every browser role', async () => {
+    for (const db of [
+      authenticatedDb('client-1', 'student'),
+      authenticatedDb('coach-1', 'coach'),
+      authenticatedDb('admin-1', 'admin'),
+    ]) {
+      await assertFails(getDoc(doc(db, 'ptTrainingPrograms', 'legacy-student-1')))
+      await assertFails(getDoc(doc(db, 'ptWorkoutLogs', 'ptlog-test')))
+      await assertFails(setDoc(doc(db, 'ptWorkoutLogs', 'forged-log'), { studentId: 'legacy-student-1', status: 'completed' }))
+    }
   })
 
   test('PT change, OFF and preservation policy records are callable-only', async () => {

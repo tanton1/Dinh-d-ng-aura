@@ -72,7 +72,7 @@
 
 .aura-today-flow__status-track {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -111,10 +111,13 @@
 }
 
 .aura-today-flow__status.is-nutrition { background: radial-gradient(circle at 100% 0, rgba(245, 44, 130, .16), transparent 42%), linear-gradient(145deg, #fff 0%, #ffedf5 57%, #fff0e8 100%); }
+.aura-today-flow__status.is-schedule { background: radial-gradient(circle at 100% 0, rgba(255, 91, 103, .15), transparent 42%), linear-gradient(145deg, #fff 0%, #fff2f5 58%, #fff5ed 100%); }
 .aura-today-flow__status.is-movement { background: radial-gradient(circle at 100% 0, rgba(255, 137, 53, .14), transparent 42%), linear-gradient(145deg, #fff 0%, #fff8f4 100%); }
 .aura-today-flow__status.is-learning { background: radial-gradient(circle at 100% 0, rgba(245, 44, 130, .12), transparent 42%), linear-gradient(145deg, #fff 0%, #fff7f1 100%); }
+.aura-today-flow__status.is-schedule .aura-today-flow__status-icon { background: linear-gradient(135deg, var(--today-coral), var(--today-orange)); }
 .aura-today-flow__status.is-learning .aura-today-flow__status-icon { background: linear-gradient(135deg, var(--today-coral), var(--today-orange)); }
 .aura-today-flow__status.is-nutrition .aura-today-flow__status-progress i { background: linear-gradient(90deg, var(--today-pink), var(--today-coral)); }
+.aura-today-flow__status.is-schedule .aura-today-flow__status-progress i,
 .aura-today-flow__status.is-movement .aura-today-flow__status-progress i,
 .aura-today-flow__status.is-learning .aura-today-flow__status-progress i { background: linear-gradient(90deg, var(--today-coral), var(--today-orange)); }
 
@@ -145,7 +148,6 @@
 }
 
 .aura-today-flow__next > span,
-.home-v3-academy-card__icon,
 .home-v3-milestone__icon {
   display: grid;
   place-items: center;
@@ -161,8 +163,6 @@
 
 .aura-today-flow__next button,
 .aura-today-flow__rhythm-card header button,
-.home-v3-section-heading button,
-.home-v3-primary-action,
 .home-v3-week__footer button,
 .home-v3-schedule__open,
 .home-v3-milestone > button {
@@ -187,8 +187,7 @@
 .aura-today-flow__rhythm-card header { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 12px; }
 .aura-today-flow__rhythm-card header span { display: inline-flex; align-items: center; gap: 7px; color: var(--home-pink); font-size: 11px; font-weight: 880; letter-spacing: .1em; }
 .aura-today-flow__rhythm-card header h3 { margin: 4px 0 0; font-size: 16px; }
-.aura-today-flow__rhythm-card header button,
-.home-v3-section-heading button { padding: 0 4px; color: var(--home-pink); background: transparent; box-shadow: none; }
+.aura-today-flow__rhythm-card header button { padding: 0 4px; color: var(--home-pink); background: transparent; box-shadow: none; }
 
 .aura-today-flow__meal-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; }
 .aura-today-flow__meal-list > div { min-height: 50px; display: grid; grid-template-columns: 42px 20px minmax(0, 1fr) 20px; align-items: center; gap: 8px; border-top: 1px solid #f3e9ee; }
@@ -226,7 +225,6 @@
 .aura-today-flow__empty strong { color: var(--home-ink); font-size: 13px; }
 .aura-today-flow__empty small { color: var(--home-muted); font-size: 11px; line-height: 1.4; }
 
-.home-v3-academy,
 .home-v3-week,
 .home-v3-milestone {
   margin-bottom: 24px;
@@ -236,43 +234,11 @@
   box-shadow: 0 14px 34px rgba(82, 40, 60, .06);
 }
 
-.home-v3-academy,
 .home-v3-week { padding: 22px; }
-.home-v3-section-heading,
 .home-v3-week__header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
-.home-v3-section-heading > div > span,
 .home-v3-week__header > div > span,
 .home-v3-milestone__copy > span { color: var(--home-pink); font-size: 10px; font-weight: 880; letter-spacing: .1em; }
-.home-v3-section-heading h2,
 .home-v3-week__header h2 { margin: 4px 0 0; color: var(--home-ink); font-size: clamp(21px, 2.4vw, 28px); letter-spacing: -.035em; }
-
-.home-v3-academy-card {
-  position: relative;
-  overflow: hidden;
-  display: grid;
-  grid-template-columns: 58px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 17px;
-  padding: 21px;
-  border: 1px solid rgba(245, 44, 130, .15);
-  border-radius: 23px;
-  background: radial-gradient(circle at 94% 0, rgba(255, 137, 53, .3), transparent 34%), radial-gradient(circle at 8% 100%, rgba(245, 44, 130, .14), transparent 38%), linear-gradient(135deg, #fff 0%, #ffeaf3 56%, #ffede0 100%);
-}
-.home-v3-academy-card::after { position: absolute; top: -70px; right: 14%; width: 180px; height: 120px; border: 28px solid rgba(255, 255, 255, .34); border-radius: 50%; content: ''; transform: rotate(-16deg); pointer-events: none; }
-.home-v3-academy-card > * { position: relative; z-index: 1; }
-.home-v3-academy-card__icon { width: 58px; height: 58px; border-radius: 18px; }
-.home-v3-academy-card__copy { min-width: 0; }
-.home-v3-academy-card__copy > span { color: var(--home-pink); font-size: 10px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
-.home-v3-academy-card__copy h3 { margin: 5px 0 4px; overflow: hidden; color: var(--home-ink); font-size: 18px; text-overflow: ellipsis; white-space: nowrap; }
-.home-v3-academy-card__copy p { max-width: 720px; margin: 0; color: var(--home-muted); font-size: 12px; line-height: 1.5; }
-.home-v3-academy-card__meta { display: flex; align-items: center; gap: 14px; margin-top: 10px; color: #7d727a; font-size: 11px; }
-.home-v3-academy-card__meta span { display: inline-flex; align-items: center; gap: 5px; }
-.home-v3-academy-card__progress { max-width: 420px; margin-top: 12px; }
-.home-v3-academy-card__progress > div { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; color: #746972; font-size: 11px; }
-.home-v3-academy-card__progress > div strong { color: var(--home-ink); }
-.home-v3-academy-card__progress > span { height: 7px; display: block; overflow: hidden; border-radius: 99px; background: #f1e7ec; }
-.home-v3-academy-card__progress i { height: 100%; display: block; border-radius: inherit; background: linear-gradient(90deg, var(--home-pink), var(--home-orange)); }
-.home-v3-primary-action { min-width: 136px; }
 
 .home-v3-week__tabs { min-height: 44px; display: flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid #f0e4e9; border-radius: 14px; background: rgba(255, 255, 255, .72); }
 .home-v3-week__tabs button { min-height: 36px; padding: 0 13px; border: 0; border-radius: 10px; color: #837780; background: transparent; font-size: 12px; font-weight: 780; }
@@ -325,7 +291,6 @@
 .home-v3-milestone > button { min-width: 188px; }
 
 .aura-today-flow button:focus-visible,
-.home-v3-academy button:focus-visible,
 .home-v3-week button:focus-visible,
 .home-v3-milestone button:focus-visible { outline: 3px solid rgba(245, 44, 130, .25); outline-offset: 3px; }
 
@@ -370,17 +335,8 @@
   .aura-today-flow__meal-list > div:nth-child(2) { border-top: 1px solid #f3e9ee; }
   .aura-today-flow__meal-list > div { grid-template-columns: 39px 20px minmax(0, 1fr) 18px; gap: 7px; }
 
-  .home-v3-academy,
   .home-v3-week { margin-bottom: 20px; padding: 17px 14px; border-radius: 24px; }
-  .home-v3-section-heading h2,
   .home-v3-week__header h2 { font-size: 22px; }
-  .home-v3-section-heading button { min-width: 44px; padding: 0; font-size: 0; }
-  .home-v3-section-heading button svg { width: 20px; height: 20px; }
-  .home-v3-academy-card { grid-template-columns: 50px minmax(0, 1fr); gap: 13px; padding: 17px; }
-  .home-v3-academy-card__icon { width: 50px; height: 50px; border-radius: 15px; }
-  .home-v3-academy-card__copy h3 { font-size: 16px; }
-  .home-v3-academy-card__meta { align-items: flex-start; flex-direction: column; gap: 5px; }
-  .home-v3-primary-action { grid-column: 1 / -1; width: 100%; }
 
   .home-v3-week__header { align-items: stretch; flex-direction: column; }
   .home-v3-week__tabs { width: 100%; }
@@ -408,7 +364,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .aura-today-flow *,
-  .home-v3-academy *,
   .home-v3-week *,
   .home-v3-milestone * { scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }

@@ -68,6 +68,7 @@ export const routeCapabilities = {
   'staff-dashboard': 'dashboard.view',
   'staff-students': 'coach.workspace.view',
   'staff-schedule': 'coach.workspace.view',
+  'staff-workouts': 'pt.workout.manage',
   'staff-availability': 'pt.availability.self.manage',
   'staff-requests': 'coach.workspace.view',
   'staff-nutrition-reviews': 'coach.workspace.view',
@@ -84,6 +85,7 @@ export const routeCapabilities = {
   // the legacy operations surface behind their stronger capability.
   'admin-pt-schedule': 'pt.schedule.branch.publish',
   'admin-training-history': 'pt.operations.manage',
+  'admin-pt-workouts': 'pt.workout.manage',
   'admin-trainer-quality': 'pt.operations.manage',
   'admin-renewals': 'renewals.workspace.view',
   'admin-report': 'pt.operations.manage',

@@ -1,7 +1,7 @@
 import {
   Activity,
   ArrowRight,
-  BookOpenCheck,
+  CalendarDays,
   Check,
   Droplets,
   Flame,
@@ -19,6 +19,12 @@ interface TodayMealSummary {
   calories?: number
 }
 
+interface TodayScheduleSummary {
+  dateLabel: string
+  timeLabel: string
+  trainerName: string
+}
+
 interface AuraTodayFlowProps {
   firstName: string
   streak?: number
@@ -33,15 +39,15 @@ interface AuraTodayFlowProps {
   checkedIn: boolean
   movementMinutesToday?: number
   weeklyMovementMinutes?: number
-  learningTitle?: string
-  learningProgress?: number
   todayMeals?: TodayMealSummary[]
   onOpenNutrition: () => void
   onOpenEatClean?: () => void
   onCheckIn: () => void
-  onOpenLearning: () => void
   onOpenProgress: () => void
   onOpenSchedule: () => void
+  scheduleState?: 'loading' | 'linked' | 'unlinked' | 'unavailable'
+  todaySessionCount?: number
+  nextSession?: TodayScheduleSummary | null
 }
 
 function formatNumber(value: number) {
@@ -66,15 +72,15 @@ export default function AuraTodayFlow({
   checkedIn,
   movementMinutesToday = 0,
   weeklyMovementMinutes = 0,
-  learningTitle,
-  learningProgress = 0,
   todayMeals = [],
   onOpenNutrition,
   onOpenEatClean,
   onCheckIn,
-  onOpenLearning,
   onOpenProgress,
   onOpenSchedule,
+  scheduleState = 'loading',
+  todaySessionCount = 0,
+  nextSession = null,
 }: AuraTodayFlowProps) {
   const statusTrackRef = useRef<HTMLDivElement>(null)
   const [activeStatusIndex, setActiveStatusIndex] = useState(0)
@@ -84,11 +90,22 @@ export default function AuraTodayFlow({
   const waterProgress = percent(waterMl, waterGoalMl)
   const movementProgress = percent(movementMinutesToday, 30)
   const hasMeal = mealsCount > 0
-  const hasLearning = Boolean(learningTitle)
   const sortedMeals = [...todayMeals]
     .filter((meal) => meal.title || meal.label)
     .sort((left, right) => (left.time ?? '').localeCompare(right.time ?? ''))
     .slice(0, 4)
+
+  const scheduleCard = scheduleState === 'loading'
+    ? { value: '…', unit: 'đang tải lịch PT', detail: 'Aura đang đồng bộ các buổi đã được xếp.', progress: 0, progressLabel: 'Đang đồng bộ lịch PT' }
+    : scheduleState === 'unlinked'
+      ? { value: 'Chưa nối', unit: 'hồ sơ lịch PT', detail: 'Mở lịch để kiểm tra liên kết tài khoản.', progress: 0, progressLabel: 'Hồ sơ lịch PT chưa liên kết' }
+      : scheduleState === 'unavailable'
+        ? { value: 'Tạm lỗi', unit: 'đồng bộ lịch PT', detail: 'Chạm để mở lịch và thử tải lại.', progress: 0, progressLabel: 'Chưa đồng bộ được lịch PT' }
+        : todaySessionCount > 0
+          ? { value: formatNumber(todaySessionCount), unit: 'buổi hôm nay', detail: nextSession ? `${nextSession.timeLabel} · ${nextSession.trainerName}` : 'Mở lịch để xem chi tiết buổi tập.', progress: 100, progressLabel: `${todaySessionCount} buổi PT hôm nay` }
+          : nextSession
+            ? { value: nextSession.timeLabel, unit: nextSession.dateLabel, detail: `Buổi PT · ${nextSession.trainerName}`, progress: 100, progressLabel: `Đã đồng bộ buổi PT tiếp theo vào ${nextSession.dateLabel}` }
+            : { value: '0', unit: 'buổi sắp tới', detail: 'Chưa có buổi PT nào được xếp.', progress: 0, progressLabel: 'Chưa có buổi PT sắp tới' }
 
   const statusCards = [
     {
@@ -106,6 +123,14 @@ export default function AuraTodayFlow({
       action: onOpenNutrition,
     },
     {
+      id: 'schedule',
+      tone: 'schedule',
+      icon: <CalendarDays size={20} />,
+      label: 'Lịch tập',
+      ...scheduleCard,
+      action: onOpenSchedule,
+    },
+    {
       id: 'movement',
       tone: 'movement',
       icon: <Activity size={20} />,
@@ -116,18 +141,6 @@ export default function AuraTodayFlow({
       progress: movementProgress,
       progressLabel: `${movementProgress}% mốc 30 phút hôm nay`,
       action: onOpenSchedule,
-    },
-    {
-      id: 'learning',
-      tone: 'learning',
-      icon: <BookOpenCheck size={20} />,
-      label: 'Học tập',
-      value: hasLearning ? `${Math.round(learningProgress)}%` : 'Sẵn sàng',
-      unit: hasLearning ? 'lộ trình đã xong' : 'chọn lộ trình đầu tiên',
-      detail: learningTitle ?? 'Khám phá khóa học phù hợp với mục tiêu của bạn',
-      progress: hasLearning ? Math.round(learningProgress) : 0,
-      progressLabel: hasLearning ? `${Math.round(learningProgress)}% tiến độ khóa học` : 'Chưa tham gia khóa học',
-      action: onOpenLearning,
     },
   ]
 
@@ -181,16 +194,7 @@ export default function AuraTodayFlow({
             action: onOpenSchedule,
             icon: <Activity size={21} />,
           }
-        : hasLearning && learningProgress < 100
-          ? {
-              eyebrow: 'VIỆC NÊN LÀM TIẾP THEO',
-              title: 'Học tiếp từ vị trí đang dở',
-              detail: `Tiếp tục “${learningTitle}” bằng một bài học ngắn.`,
-              label: 'Tiếp tục học',
-              action: onOpenLearning,
-              icon: <BookOpenCheck size={21} />,
-            }
-          : !checkedIn
+        : !checkedIn
             ? {
                 eyebrow: 'HOÀN TẤT NHỊP HÔM NAY',
                 title: 'Điểm danh để ghi nhận sự đều đặn',
@@ -224,13 +228,14 @@ export default function AuraTodayFlow({
         </div>
       </header>
 
-      <div ref={statusTrackRef} onScroll={updateActiveStatus} className="aura-today-flow__status-track" aria-label="Dinh dưỡng, vận động và học tập">
+      <div ref={statusTrackRef} onScroll={updateActiveStatus} className="aura-today-flow__status-track" aria-label="Dinh dưỡng, lịch tập và vận động">
         {statusCards.map((card) => (
           <button
             type="button"
             key={card.id}
             className={`aura-today-flow__status is-${card.tone}`}
             onClick={card.action}
+            data-testid={`today-status-${card.id}`}
           >
             <span className="aura-today-flow__status-icon">{card.icon}</span>
             <span className="aura-today-flow__status-label">{card.label}</span>

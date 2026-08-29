@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   AlertCircle,
   ArrowRight,
+  BarChart3,
   BookOpen,
   Building2,
   CalendarClock,
@@ -26,6 +27,15 @@ import {
 } from '../../services/operationsDashboardService'
 import AuraMetricCarousel, { type AuraMetricSlide } from '../../components/admin/pt/AuraMetricCarousel'
 import DateRangeFilter from '../../components/admin/pt/DateRangeFilter'
+import {
+  getStaffPayrollStatement,
+  listStaffPayrollAttendance,
+  type StaffAttendanceRow,
+} from '../../services/staffPayrollService'
+import {
+  buildStaffDashboardPayrollChart,
+  type StaffDashboardPayrollSnapshot,
+} from '../../utils/staffDashboardPayroll'
 
 function money(value: number) {
   const amount = Number(value)
@@ -54,6 +64,106 @@ function dashboardErrorMessage(error: unknown) {
 function compactMoney(value: number) {
   const amount = Number.isFinite(Number(value)) ? Number(value) : 0
   return new Intl.NumberFormat('vi-VN', { notation: 'compact', maximumFractionDigits: 1 }).format(amount)
+}
+
+const vietnamDateFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
+})
+
+function payrollPeriodId(date = new Date()) {
+  return vietnamDateFormatter.format(date).slice(0, 7)
+}
+
+function periodLabel(periodId: string) {
+  const matched = /^(\d{4})-(\d{2})$/.exec(periodId)
+  return matched ? `Tháng ${Number(matched[2])}/${matched[1]}` : periodId
+}
+
+function chartHeight(value: number, maximum: number) {
+  if (value <= 0 || maximum <= 0) return '0%'
+  return `${Math.max(7, Math.round(value / maximum * 100))}%`
+}
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) return 'A'
+  return parts.slice(-2).map((part) => part[0]?.toUpperCase()).join('')
+}
+
+function payrollErrorMessage(error: unknown) {
+  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
+  if (code.includes('permission-denied')) return 'Tài khoản chưa có quyền xem bảng lương nhân sự trong phạm vi này.'
+  if (code.includes('unauthenticated')) return 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại để xem bảng lương.'
+  return error instanceof Error && error.message ? error.message : 'Chưa thể tải dữ liệu lương và hoa hồng ca dạy.'
+}
+
+interface AdminPayrollStaffTab {
+  staffId: string
+  name: string
+  employmentType: StaffAttendanceRow['employmentType']
+  teachingSlotCount: number
+  baseSalaryEarned: number
+  teachingPayAmount: number
+  finalAmount: number
+  reviewRequired: boolean
+}
+
+interface DemoPayrollProfile extends AdminPayrollStaffTab {
+  teachingRates: Array<{ day: number; rate: number }>
+  official: boolean
+}
+
+const demoPayrollProfiles: DemoPayrollProfile[] = [
+  { staffId: 'trainer-1', name: 'PT Mai', employmentType: 'full_time', teachingSlotCount: 3, baseSalaryEarned: 9_600_000, teachingPayAmount: 2_450_000, finalAmount: 12_050_000, reviewRequired: false, official: false, teachingRates: [{ day: 3, rate: 450_000 }, { day: 10, rate: 750_000 }, { day: 17, rate: 1_250_000 }] },
+  { staffId: 'trainer-2', name: 'PT Tấn', employmentType: 'full_time', teachingSlotCount: 4, baseSalaryEarned: 8_800_000, teachingPayAmount: 3_100_000, finalAmount: 11_900_000, reviewRequired: false, official: true, teachingRates: [{ day: 4, rate: 550_000 }, { day: 11, rate: 650_000 }, { day: 18, rate: 800_000 }, { day: 25, rate: 1_100_000 }] },
+  { staffId: 'trainer-3', name: 'PT Âu', employmentType: 'part_time', teachingSlotCount: 3, baseSalaryEarned: 7_900_000, teachingPayAmount: 1_850_000, finalAmount: 9_750_000, reviewRequired: true, official: false, teachingRates: [{ day: 5, rate: 450_000 }, { day: 12, rate: 650_000 }, { day: 19, rate: 750_000 }] },
+  { staffId: 'trainer-4', name: 'PT Hùng', employmentType: 'collaborator', teachingSlotCount: 4, baseSalaryEarned: 0, teachingPayAmount: 2_100_000, finalAmount: 2_100_000, reviewRequired: false, official: false, teachingRates: [{ day: 6, rate: 450_000 }, { day: 13, rate: 450_000 }, { day: 20, rate: 550_000 }, { day: 27, rate: 650_000 }] },
+]
+
+function demoPayrollRoster(): AdminPayrollStaffTab[] {
+  return demoPayrollProfiles.map(({ teachingRates: _teachingRates, official: _official, ...profile }) => profile)
+}
+
+function demoPayrollStatement(periodId: string, staffId: string): StaffDashboardPayrollSnapshot | null {
+  const profile = demoPayrollProfiles.find((item) => item.staffId === staffId)
+  if (!profile) return null
+  const [year, month] = periodId.split('-').map(Number)
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const workdayNumbers = [3, 7, 10, 14, 17, 21, 24, 28, 29].filter((day) => day <= daysInMonth)
+  return {
+    periodId,
+    amounts: {
+      baseSalaryAmount: profile.baseSalaryEarned,
+      teachingPayAmount: profile.teachingPayAmount,
+    },
+    workdays: {
+      days: workdayNumbers.map((day, index) => ({
+        date: `${periodId}-${String(day).padStart(2, '0')}`,
+        weekday: index % 7,
+        status: 'present' as const,
+        eligible: profile.employmentType !== 'collaborator',
+        holidayName: '',
+        note: '',
+        revision: 1,
+        teachingSlotCount: profile.teachingRates.some((slot) => slot.day === day) ? 1 : 0,
+        source: 'admin_override' as const,
+      })),
+    },
+    teachingSlots: profile.teachingRates.map((slot, index) => ({
+      key: `${staffId}-demo-slot-${index}`,
+      date: `${periodId}-${String(slot.day).padStart(2, '0')}`,
+      hour: index % 2 ? 18 : 7,
+      branchId: 'demo',
+      dailyPosition: 1,
+      tier: index > 1 ? 'after_threshold' as const : 'standard' as const,
+      rate: slot.rate,
+      policyId: 'demo-policy',
+      policyName: 'Chính sách PT Aura',
+      studentCount: 1,
+      sessionIds: [`${staffId}-demo-session-${index}`],
+    })),
+    run: { official: profile.official },
+  }
 }
 
 function rangeCaption(startAt: string, endAt: string) {
@@ -145,6 +255,7 @@ interface DashboardAction {
 interface Props {
   onNavigate: (view: ViewId) => void
   adminName?: string
+  isDemo?: boolean
   canCreate?: boolean
   canManageAcademy?: boolean
   canManageCoaching?: boolean
@@ -154,6 +265,7 @@ interface Props {
 export default function AdminDashboard({
   onNavigate,
   adminName = 'Admin Aura',
+  isDemo = false,
   canCreate = false,
   canManageAcademy = false,
   canManageCoaching = false,
@@ -166,6 +278,16 @@ export default function AdminDashboard({
   const [range, setRange] = useState(() => ({ startAt: startOfMonth(), endAt: currentMinute() }))
   const [branchId, setBranchId] = useState('all')
   const loadGeneration = useRef(0)
+  const currentPayrollPeriodId = useMemo(() => payrollPeriodId(), [])
+  const [payrollRoster, setPayrollRoster] = useState<AdminPayrollStaffTab[]>([])
+  const [selectedPayrollStaffId, setSelectedPayrollStaffId] = useState('')
+  const [payrollStatement, setPayrollStatement] = useState<StaffDashboardPayrollSnapshot | null>(null)
+  const [payrollRosterLoading, setPayrollRosterLoading] = useState(true)
+  const [payrollStatementLoading, setPayrollStatementLoading] = useState(true)
+  const [payrollRosterError, setPayrollRosterError] = useState('')
+  const [payrollStatementError, setPayrollStatementError] = useState('')
+  const payrollRosterGeneration = useRef(0)
+  const payrollStatementGeneration = useRef(0)
 
   const load = useCallback(async (forceRefresh = false) => {
     const generation = ++loadGeneration.current
@@ -190,6 +312,77 @@ export default function AdminDashboard({
   }, [branchId, range.endAt, range.startAt])
 
   useEffect(() => { void load() }, [load])
+
+  const canViewPayroll = data?.permissions.payroll === true
+
+  const loadPayrollRoster = useCallback(async () => {
+    const generation = ++payrollRosterGeneration.current
+    if (!canViewPayroll) {
+      setPayrollRoster([])
+      setSelectedPayrollStaffId('')
+      setPayrollRosterLoading(false)
+      setPayrollRosterError('')
+      return
+    }
+    setPayrollRosterLoading(true)
+    setPayrollRosterError('')
+    try {
+      const rows = isDemo
+        ? demoPayrollRoster()
+        : (await listStaffPayrollAttendance(currentPayrollPeriodId, branchId === 'all' ? '' : branchId)).rows
+          .map((row) => ({
+            staffId: row.staffId,
+            name: row.name,
+            employmentType: row.employmentType,
+            teachingSlotCount: row.teachingSlotCount,
+            baseSalaryEarned: row.baseSalaryEarned,
+            teachingPayAmount: row.teachingPayAmount,
+            finalAmount: row.finalAmount,
+            reviewRequired: row.reviewRequired,
+          }))
+          .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
+      if (generation !== payrollRosterGeneration.current) return
+      setPayrollRoster(rows)
+      setSelectedPayrollStaffId((current) => rows.some((row) => row.staffId === current) ? current : rows[0]?.staffId || '')
+    } catch (payrollError) {
+      if (generation !== payrollRosterGeneration.current) return
+      setPayrollRoster([])
+      setSelectedPayrollStaffId('')
+      setPayrollRosterError(payrollErrorMessage(payrollError))
+    } finally {
+      if (generation === payrollRosterGeneration.current) setPayrollRosterLoading(false)
+    }
+  }, [branchId, canViewPayroll, currentPayrollPeriodId, isDemo])
+
+  useEffect(() => { void loadPayrollRoster() }, [loadPayrollRoster])
+
+  const loadPayrollStatement = useCallback(async (staffId: string) => {
+    const generation = ++payrollStatementGeneration.current
+    if (!canViewPayroll || !staffId) {
+      setPayrollStatement(null)
+      setPayrollStatementLoading(false)
+      setPayrollStatementError('')
+      return
+    }
+    setPayrollStatementLoading(true)
+    setPayrollStatementError('')
+    try {
+      const result = isDemo
+        ? demoPayrollStatement(currentPayrollPeriodId, staffId)
+        : await getStaffPayrollStatement(currentPayrollPeriodId, staffId)
+      if (generation !== payrollStatementGeneration.current) return
+      setPayrollStatement(result)
+      if (!result) setPayrollStatementError('Không tìm thấy sao kê của nhân sự đã chọn.')
+    } catch (payrollError) {
+      if (generation !== payrollStatementGeneration.current) return
+      setPayrollStatement(null)
+      setPayrollStatementError(payrollErrorMessage(payrollError))
+    } finally {
+      if (generation === payrollStatementGeneration.current) setPayrollStatementLoading(false)
+    }
+  }, [canViewPayroll, currentPayrollPeriodId, isDemo])
+
+  useEffect(() => { void loadPayrollStatement(selectedPayrollStaffId) }, [loadPayrollStatement, selectedPayrollStaffId])
 
   const updateRange = useCallback((start: Date, end: Date) => {
     const now = new Date()
@@ -339,6 +532,16 @@ export default function AdminDashboard({
     ].filter(Boolean) as Array<{ id: string; label: string; view: ViewId; icon: ReactNode }>
   }, [canCreate, canManageAcademy, canManageCoaching, canManageEnrollments, data])
 
+  const selectedPayrollStaff = useMemo(
+    () => payrollRoster.find((staff) => staff.staffId === selectedPayrollStaffId) || null,
+    [payrollRoster, selectedPayrollStaffId],
+  )
+  const payrollChart = useMemo(
+    () => payrollStatement ? buildStaffDashboardPayrollChart(payrollStatement) : null,
+    [payrollStatement],
+  )
+  const payrollTeachingSlotCount = payrollChart?.buckets.reduce((sum, bucket) => sum + bucket.teachingSlotCount, 0) || 0
+
   return <div className="page admin-dashboard admin-dashboard--v2">
     <AuraMetricCarousel slides={reportSlides} label="Báo cáo nhanh theo kỳ" loading={loading && !data} />
 
@@ -382,6 +585,64 @@ export default function AdminDashboard({
             </div>}
       </section>
     </div>
+
+    {canViewPayroll && <section className="admin-dashboard__payroll" aria-labelledby="dashboard-payroll-title" aria-busy={payrollRosterLoading || payrollStatementLoading}>
+      <header>
+        <div><small>QUỸ LƯƠNG · {periodLabel(currentPayrollPeriodId).toUpperCase()}</small><h2 id="dashboard-payroll-title">Lương & hoa hồng ca dạy</h2><p>Chọn từng nhân sự để xem thu nhập đã ghi nhận theo tuần.</p></div>
+        <button type="button" onClick={() => goTo('admin-payroll')}>Xem bảng lương<ArrowRight size={15} /></button>
+      </header>
+      {payrollRosterLoading
+        ? <div className="admin-dashboard__payroll-loading" aria-label="Đang tải bảng lương nhân sự"><div className="admin-dashboard__payroll-tab-skeleton"><i /><i /><i /></div><div className="admin-dashboard__payroll-chart-skeleton"><span /><span /><span /><span /><span /></div></div>
+        : payrollRosterError
+          ? <div className="admin-dashboard__payroll-state"><BarChart3 size={27} /><strong>Chưa tải được danh sách nhân sự</strong><p>{payrollRosterError}</p><button type="button" onClick={() => void loadPayrollRoster()}>Thử lại</button></div>
+          : !payrollRoster.length
+            ? <div className="admin-dashboard__payroll-state"><Users size={27} /><strong>Chưa có nhân sự trong kỳ</strong><p>Biểu đồ sẽ xuất hiện khi bảng lương tháng có ít nhất một nhân sự.</p></div>
+            : <>
+              <div className="admin-dashboard__payroll-tabs" role="tablist" aria-label="Chọn nhân sự xem biểu đồ lương">
+                {payrollRoster.map((staff) => <button
+                  id={`dashboard-payroll-tab-${staff.staffId}`}
+                  key={staff.staffId}
+                  type="button"
+                  role="tab"
+                  aria-selected={staff.staffId === selectedPayrollStaffId}
+                  aria-controls="dashboard-payroll-panel"
+                  tabIndex={staff.staffId === selectedPayrollStaffId ? 0 : -1}
+                  className={staff.staffId === selectedPayrollStaffId ? 'is-active' : ''}
+                  onClick={() => setSelectedPayrollStaffId(staff.staffId)}
+                >
+                  <span className="admin-dashboard__payroll-avatar" aria-hidden="true">{initials(staff.name)}</span>
+                  <span><strong>{staff.name}</strong><small>{staff.teachingSlotCount} ca · {compactMoney(staff.finalAmount)}</small></span>
+                  {staff.reviewRequired && <i aria-label="Cần đối soát" />}
+                </button>)}
+              </div>
+              <div id="dashboard-payroll-panel" className="admin-dashboard__payroll-panel" role="tabpanel" aria-labelledby={`dashboard-payroll-tab-${selectedPayrollStaffId}`}>
+                {payrollStatementLoading
+                  ? <div className="admin-dashboard__payroll-chart-skeleton" aria-label="Đang tải biểu đồ thu nhập"><span /><span /><span /><span /><span /></div>
+                  : payrollStatementError
+                    ? <div className="admin-dashboard__payroll-state"><BarChart3 size={27} /><strong>Chưa tải được sao kê của {selectedPayrollStaff?.name || 'nhân sự'}</strong><p>{payrollStatementError}</p><button type="button" onClick={() => void loadPayrollStatement(selectedPayrollStaffId)}>Thử lại</button></div>
+                    : payrollChart && selectedPayrollStaff ? <>
+                      <div className="admin-dashboard__payroll-person">
+                        <span><strong>{selectedPayrollStaff.name}</strong><small>{selectedPayrollStaff.employmentType === 'full_time' ? 'Toàn thời gian' : selectedPayrollStaff.employmentType === 'part_time' ? 'Bán thời gian' : 'Cộng tác viên'} · {payrollTeachingSlotCount} ca đã ghi nhận</small></span>
+                        <em className={selectedPayrollStaff.reviewRequired ? 'is-review' : payrollChart.official ? 'is-official' : ''}>{selectedPayrollStaff.reviewRequired ? 'Cần đối soát' : payrollChart.official ? 'Đã khóa' : 'Tạm tính'}</em>
+                      </div>
+                      <div className="admin-dashboard__payroll-summary">
+                        <article><span><WalletCards size={17} />Lương theo công</span><strong>{money(payrollChart.baseSalaryAmount)}</strong><small>{payrollChart.official ? 'Đã khóa số liệu' : 'Tạm tính trong kỳ'}</small></article>
+                        <article><span><CircleDollarSign size={17} />Hoa hồng ca dạy</span><strong>{money(payrollChart.teachingPayAmount)}</strong><small>{payrollTeachingSlotCount} ca đủ điều kiện</small></article>
+                      </div>
+                      <div className="admin-dashboard__payroll-chart" role="img" aria-label={`Biểu đồ thu nhập ${selectedPayrollStaff.name} trong ${periodLabel(currentPayrollPeriodId)}: lương ${money(payrollChart.baseSalaryAmount)}, hoa hồng ca dạy ${money(payrollChart.teachingPayAmount)}`}>
+                        {payrollChart.buckets.map((bucket) => <article key={bucket.id}>
+                          <div className="admin-dashboard__payroll-bars">
+                            <span className="is-salary" style={{ height: chartHeight(bucket.baseSalaryAmount, payrollChart.maxBucketAmount) }} title={`Lương ${bucket.label}: ${money(bucket.baseSalaryAmount)}`} />
+                            <span className="is-teaching" style={{ height: chartHeight(bucket.teachingPayAmount, payrollChart.maxBucketAmount) }} title={`Hoa hồng ca dạy ${bucket.label}: ${money(bucket.teachingPayAmount)}`} />
+                          </div>
+                          <strong>{bucket.label}</strong><small>{bucket.teachingSlotCount} ca</small>
+                        </article>)}
+                      </div>
+                      <footer><span><i className="is-salary" />Lương theo công</span><span><i className="is-teaching" />Hoa hồng ca dạy</span><small>Tiền ca chỉ ghi nhận sau điểm danh hợp lệ.</small></footer>
+                    </> : <div className="admin-dashboard__payroll-state"><BarChart3 size={27} /><strong>Chưa có dữ liệu thu nhập</strong><p>Nhân sự này chưa có sao kê trong tháng đang xem.</p></div>}
+              </div>
+            </>}
+    </section>}
 
     {data?.permissions.finance && <section className="admin-dashboard__receivables" aria-labelledby="dashboard-receivables-title">
       <header><div><small>CÔNG NỢ KHÁCH HÀNG</small><h2 id="dashboard-receivables-title">Lịch cần thu</h2></div><button type="button" onClick={() => goTo('admin-finance', 'overdue')}>Xem thêm<ArrowRight size={15} /></button></header>

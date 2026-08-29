@@ -26,15 +26,16 @@ import { firebaseAuth } from '../../lib/firebase'
 import { AiCoachBottomSheet } from '../../components/progress/AiCoachBottomSheet'
 import { calculateProgressScore, defaultProgressInputSample } from '../../utils/progressScoreCalculator'
 import type { NutritionProfileDraft } from '../../features/nutrition/types'
+import { toLocalDateKey } from '../../features/nutrition/routing'
 import {
   saveUserWeightLog,
   subscribeToUserWeightLogs,
   saveUserBodyMeasurements,
   subscribeToUserBodyMeasurements,
   subscribeToUserGamification,
-  subscribeToUserMealLogs,
-  subscribeToUserWaterLogs,
-  subscribeToUserActivityLogs,
+  subscribeToRecentUserMealLogs,
+  subscribeToRecentUserWaterLogs,
+  subscribeToRecentUserActivityLogs,
 } from '../../services/firebaseService'
 
 interface ProgressPageProps {
@@ -72,6 +73,11 @@ export default function ProgressPage({
   const resolvedOwnerId = (ownerId && ownerId !== 'demo' && ownerId !== 'anonymous')
     ? ownerId
     : (firebaseAuth?.currentUser?.uid || 'demo')
+  const recentNutritionFromDate = useMemo(() => {
+    const firstDay = new Date()
+    firstDay.setDate(firstDay.getDate() - 89)
+    return toLocalDateKey(firstDay)
+  }, [])
 
   // Modals & Bottom Sheets state
   const [quickLogOpen, setQuickLogOpen] = useState(false)
@@ -133,17 +139,17 @@ export default function ProgressPage({
     window.addEventListener('aura:nutrition:updated', handleStorage)
 
     if (resolvedOwnerId && resolvedOwnerId !== 'anonymous') {
-      const unsubM = subscribeToUserMealLogs(resolvedOwnerId, (remote) => {
+      const unsubM = subscribeToRecentUserMealLogs(resolvedOwnerId, recentNutritionFromDate, (remote) => {
         if (remote && Array.isArray(remote)) {
           setAllMeals(remote)
         }
       })
-      const unsubW = subscribeToUserWaterLogs(resolvedOwnerId, (remote) => {
+      const unsubW = subscribeToRecentUserWaterLogs(resolvedOwnerId, recentNutritionFromDate, (remote) => {
         if (remote && Array.isArray(remote)) {
           setAllWater(remote)
         }
       })
-      const unsubA = subscribeToUserActivityLogs(resolvedOwnerId, (remote) => {
+      const unsubA = subscribeToRecentUserActivityLogs(resolvedOwnerId, recentNutritionFromDate, (remote) => {
         if (remote && Array.isArray(remote)) {
           setAllActivities(remote)
         }
@@ -161,7 +167,7 @@ export default function ProgressPage({
       window.removeEventListener('storage', handleStorage)
       window.removeEventListener('aura:nutrition:updated', handleStorage)
     }
-  }, [resolvedOwnerId])
+  }, [recentNutritionFromDate, resolvedOwnerId])
 
   // Weight Data State
   const [weightRecords, setWeightRecords] = useState<WeightRecord[]>(() => {
@@ -856,7 +862,7 @@ export default function ProgressPage({
             />
           </div>
           <div style={{ marginBottom: 20 }}>
-            <NutritionChartsCard ownerId={resolvedOwnerId} />
+            <NutritionChartsCard mealLogs={allMeals} waterLogs={allWater} />
           </div>
         </>
       )}

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  BarChart3,
   CalendarDays,
   CheckCircle2,
-  ChefHat,
+  CircleDollarSign,
   Clock3,
   Dumbbell,
   RefreshCw,
@@ -13,7 +14,12 @@ import {
 } from 'lucide-react'
 import AuraMetricCarousel, { type AuraMetricSlide } from '../../components/admin/pt/AuraMetricCarousel'
 import { getMyTrainerWorkspace, type CoachWorkspaceScope, type TrainerSessionSummary } from '../../services/ptOperationsV2Service'
+import { getMyStaffPayroll } from '../../services/staffPayrollService'
 import type { ViewId } from '../../types'
+import {
+  buildStaffDashboardPayrollChart,
+  type StaffDashboardPayrollSnapshot,
+} from '../../utils/staffDashboardPayroll'
 import './StaffDashboardPage.css'
 
 const vietnamDateFormatter = new Intl.DateTimeFormat('en-CA', {
@@ -23,6 +29,45 @@ const vietnamDateFormatter = new Intl.DateTimeFormat('en-CA', {
 function dateKey(date = new Date()) { return vietnamDateFormatter.format(date) }
 function addDays(value: string, amount: number) {
   return dateKey(new Date(Date.parse(`${value}T12:00:00+07:00`) + amount * 86_400_000))
+}
+function money(value: unknown) {
+  const parsed = Number(value)
+  const safe = Number.isFinite(parsed) ? Math.round(parsed) : 0
+  return `${safe.toLocaleString('vi-VN')}đ`
+}
+function periodLabel(periodId: string) {
+  const matched = /^(\d{4})-(\d{2})$/.exec(periodId)
+  return matched ? `Tháng ${Number(matched[2])}/${matched[1]}` : periodId
+}
+function chartHeight(value: number, maximum: number) {
+  if (value <= 0 || maximum <= 0) return '0%'
+  return `${Math.max(7, Math.round(value / maximum * 100))}%`
+}
+function demoPayrollSnapshot(periodId: string): StaffDashboardPayrollSnapshot {
+  const workdayDates = ['03', '10', '17', '24', '28']
+  return {
+    periodId,
+    amounts: { baseSalaryAmount: 9_600_000, teachingPayAmount: 2_450_000 },
+    workdays: {
+      days: workdayDates.map((day, index) => ({
+        date: `${periodId}-${day}`,
+        weekday: index + 1,
+        status: index < 3 ? 'present' as const : 'upcoming' as const,
+        eligible: true,
+        holidayName: '',
+        note: '',
+        revision: index < 3 ? 1 : 0,
+        teachingSlotCount: index < 3 ? index + 1 : 0,
+        source: index < 3 ? 'admin_override' as const : 'calendar' as const,
+      })),
+    },
+    teachingSlots: [
+      { key: 'demo-pay-1', date: `${periodId}-03`, hour: 7, branchId: 'demo', dailyPosition: 1, tier: 'standard', rate: 450_000, policyId: 'demo', policyName: 'Chính sách PT', studentCount: 2, sessionIds: ['demo-1', 'demo-2'] },
+      { key: 'demo-pay-2', date: `${periodId}-10`, hour: 8, branchId: 'demo', dailyPosition: 1, tier: 'standard', rate: 750_000, policyId: 'demo', policyName: 'Chính sách PT', studentCount: 1, sessionIds: ['demo-3'] },
+      { key: 'demo-pay-3', date: `${periodId}-17`, hour: 18, branchId: 'demo', dailyPosition: 1, tier: 'after_threshold_evening', rate: 1_250_000, policyId: 'demo', policyName: 'Chính sách PT', studentCount: 1, sessionIds: ['demo-4'] },
+    ],
+    run: { official: false },
+  }
 }
 function sessionAttendance(session: TrainerSessionSummary) {
   if (session.attendanceStatus && session.attendanceStatus !== 'policy_charge') return session.attendanceStatus
@@ -47,31 +92,50 @@ interface Props {
 
 export default function StaffDashboardPage({ onNavigate, capabilities, isDemo = false }: Props) {
   const today = dateKey()
+  const periodId = today.slice(0, 7)
   const [scope, setScope] = useState<CoachWorkspaceScope | null>(null)
   const [sessions, setSessions] = useState<TrainerSessionSummary[]>([])
+  const [payroll, setPayroll] = useState<StaffDashboardPayrollSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
+  const [payrollLoading, setPayrollLoading] = useState(true)
   const [error, setError] = useState('')
-  const can = useCallback((capability: string) => capabilities.includes(capability) || isDemo, [capabilities, isDemo])
+  const [payrollError, setPayrollError] = useState('')
+  const canViewPayroll = capabilities.includes('payroll.self.view') || isDemo
 
   const load = useCallback(async () => {
-    setLoading(true); setError('')
+    setLoading(true); setError(''); setPayrollError(''); setPayrollLoading(canViewPayroll)
     if (isDemo) {
       const demoSessions: TrainerSessionSummary[] = [
+        { id: 'demo-5', studentId: 'demo-e', trainerId: 'demo-staff', studentName: 'Đỗ Khánh Linh', date: today, hour: 6, status: 'attended', attendanceStatus: 'present', billingStatus: 'charged', timeZone: 'Asia/Ho_Chi_Minh' },
+        { id: 'demo-6', studentId: 'demo-f', trainerId: 'demo-staff', studentName: 'Võ Bảo Ngọc', date: today, hour: 7, status: 'attended', attendanceStatus: 'present', billingStatus: 'charged', timeZone: 'Asia/Ho_Chi_Minh' },
         { id: 'demo-1', studentId: 'demo-a', trainerId: 'demo-staff', studentName: 'Nguyễn Minh Anh', date: today, hour: 8, status: 'attended', attendanceStatus: 'present', billingStatus: 'charged', timeZone: 'Asia/Ho_Chi_Minh' },
         { id: 'demo-2', studentId: 'demo-b', trainerId: 'demo-staff', studentName: 'Trần Thu Hà', date: today, hour: 8, status: 'attended', attendanceStatus: 'present', billingStatus: 'charged', timeZone: 'Asia/Ho_Chi_Minh' },
+        { id: 'demo-7', studentId: 'demo-g', trainerId: 'demo-staff', studentName: 'Phan Mỹ Duyên', date: today, hour: 9, status: 'attended', attendanceStatus: 'present', billingStatus: 'charged', timeZone: 'Asia/Ho_Chi_Minh' },
+        { id: 'demo-8', studentId: 'demo-h', trainerId: 'demo-staff', studentName: 'Ngô Hoàng Anh', date: today, hour: 10, status: 'scheduled', attendanceStatus: 'pending', billingStatus: 'pending', timeZone: 'Asia/Ho_Chi_Minh' },
+        { id: 'demo-9', studentId: 'demo-i', trainerId: 'demo-staff', studentName: 'Lâm Thanh Trúc', date: today, hour: 17, status: 'scheduled', attendanceStatus: 'pending', billingStatus: 'pending', timeZone: 'Asia/Ho_Chi_Minh' },
         { id: 'demo-3', studentId: 'demo-c', trainerId: 'demo-staff', studentName: 'Lê Ngọc Mai', date: today, hour: 18, status: 'scheduled', attendanceStatus: 'pending', billingStatus: 'pending', timeZone: 'Asia/Ho_Chi_Minh' },
         { id: 'demo-4', studentId: 'demo-d', trainerId: 'demo-staff', studentName: 'Phạm Thảo Vy', date: addDays(today, 1), hour: 7, status: 'scheduled', attendanceStatus: 'pending', billingStatus: 'pending', timeZone: 'Asia/Ho_Chi_Minh' },
       ]
       setScope({ schemaVersion: 1, source: 'pt_contract_assignments', staffId: 'demo-staff', tabs: { students: true, schedule: true, requests: true, nutrition: true }, counts: { primaryStudents: 8, secondaryStudents: 3, nutritionStudents: 5, teachingSessions: 24, pendingRequests: 2 } })
-      setSessions(demoSessions); setLoading(false); return
+      setSessions(demoSessions); setPayroll(demoPayrollSnapshot(periodId)); setLoading(false); setPayrollLoading(false); return
     }
-    try {
-      const result = await getMyTrainerWorkspace('schedule', today, addDays(today, 6))
-      setScope(result.scope); setSessions(result.sessions)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Chưa thể tải tổng quan công việc Staff.')
-    } finally { setLoading(false) }
-  }, [isDemo, today])
+    const [workspaceResult, payrollResult] = await Promise.allSettled([
+      getMyTrainerWorkspace('schedule', today, today, 500),
+      canViewPayroll ? getMyStaffPayroll(periodId) : Promise.resolve(null),
+    ])
+    if (workspaceResult.status === 'fulfilled') {
+      setScope(workspaceResult.value.scope); setSessions(workspaceResult.value.sessions)
+    } else {
+      setError(workspaceResult.reason instanceof Error ? workspaceResult.reason.message : 'Chưa thể tải tổng quan công việc Staff.')
+    }
+    if (payrollResult.status === 'fulfilled') {
+      setPayroll(payrollResult.value)
+    } else {
+      setPayroll(null)
+      setPayrollError(payrollResult.reason instanceof Error ? payrollResult.reason.message : 'Chưa thể tải dữ liệu thu nhập tháng này.')
+    }
+    setLoading(false); setPayrollLoading(false)
+  }, [canViewPayroll, isDemo, periodId, today])
 
   useEffect(() => { void load() }, [load])
 
@@ -89,6 +153,8 @@ export default function StaffDashboardPage({ onNavigate, capabilities, isDemo = 
     })
     return [...groups.entries()].map(([key, items]) => ({ key, hour: items[0]?.hour, items }))
   }, [todaySessions])
+  const payrollChart = useMemo(() => payroll ? buildStaffDashboardPayrollChart(payroll) : null, [payroll])
+  const teachingSlotCount = payrollChart?.buckets.reduce((sum, bucket) => sum + bucket.teachingSlotCount, 0) || 0
 
   const slides = useMemo<AuraMetricSlide[]>(() => [
     { id: 'today', eyebrow: 'Ca dạy hôm nay', value: `${todayShiftCount} ca`, detail: `${todaySessions.length} lượt học viên trong lịch`, icon: <Dumbbell size={20} />, tone: 'pink', actionLabel: 'Mở lịch làm việc', onSelect: () => onNavigate('staff-schedule') },
@@ -96,14 +162,6 @@ export default function StaffDashboardPage({ onNavigate, capabilities, isDemo = 
     { id: 'students', eyebrow: 'Học viên phụ trách', value: `${(scope?.counts.primaryStudents || 0) + (scope?.counts.secondaryStudents || 0)}`, detail: `${scope?.counts.primaryStudents || 0} chính · ${scope?.counts.secondaryStudents || 0} phụ`, icon: <Users size={20} />, tone: 'sunset', actionLabel: 'Xem học viên', onSelect: () => onNavigate('staff-students') },
     { id: 'requests', eyebrow: 'Yêu cầu lịch', value: `${scope?.counts.pendingRequests || 0} chờ`, detail: 'Đổi, hủy và điều chỉnh ca của bạn', icon: <RotateCcw size={20} />, tone: 'ink', actionLabel: 'Mở yêu cầu', onSelect: () => onNavigate('staff-requests') },
   ], [onNavigate, pendingAttendance, scope, todaySessions.length, todayShiftCount])
-
-  const modules = [
-    { view: 'staff-students' as const, capability: 'coach.workspace.view', label: 'Học viên', detail: 'Hồ sơ được phân công', icon: Users },
-    { view: 'staff-schedule' as const, capability: 'coach.workspace.view', label: 'Lịch làm việc', detail: 'Dạy · rảnh · yêu cầu', icon: CalendarDays },
-    { view: 'staff-nutrition-reviews' as const, capability: 'coach.workspace.view', label: 'Duyệt món', detail: `${scope?.counts.nutritionStudents || 0} học viên dinh dưỡng`, icon: ChefHat },
-    { view: 'staff-renewals' as const, capability: 'renewals.workspace.view', label: 'Tái ký', detail: 'Hợp đồng đang chăm sóc', icon: RefreshCw },
-    { view: 'staff-payroll' as const, capability: 'payroll.self.view', label: 'Lương', detail: 'Tạm tính và đối soát', icon: WalletCards },
-  ].filter((module) => can(module.capability))
 
   return <main className="staff-dashboard" data-testid="staff-dashboard-page">
     <header className="staff-dashboard__heading">
@@ -116,7 +174,7 @@ export default function StaffDashboardPage({ onNavigate, capabilities, isDemo = 
 
     <section className="staff-dashboard__today">
       <header><div><small>CA HÔM NAY</small><h2>Lịch dạy và hiện diện</h2></div><button type="button" onClick={() => onNavigate('staff-schedule')}>Xem tuần <CalendarDays size={17} /></button></header>
-      {groupedToday.length ? <div className="staff-dashboard__timeline">{groupedToday.slice(0, 5).map((group) => {
+      {groupedToday.length ? <div className="staff-dashboard__timeline">{groupedToday.map((group) => {
         const statuses = group.items.map(statusLabel)
         const pending = statuses.some((status) => status === 'Chờ xác nhận')
         const future = statuses.every((status) => status === 'Sắp tới')
@@ -128,9 +186,29 @@ export default function StaffDashboardPage({ onNavigate, capabilities, isDemo = 
       })}</div> : <div className="staff-dashboard__empty"><UserRoundCheck size={28} /><strong>Không có ca dạy hôm nay</strong><p>Mở lịch tuần để xem các ca tiếp theo.</p></div>}
     </section>
 
-    <section className="staff-dashboard__modules">
-      <header><small>MODULE STAFF</small><h2>Truy cập nhanh</h2></header>
-      <div>{modules.map(({ view, label, detail, icon: Icon }) => <button type="button" key={view} onClick={() => onNavigate(view)}><span><Icon size={21} /></span><strong>{label}</strong><small>{detail}</small></button>)}</div>
+    <section className="staff-dashboard__payroll" aria-label="Biểu đồ lương và hoa hồng ca dạy trong tháng" aria-busy={payrollLoading}>
+      <header>
+        <div><small>THU NHẬP · {periodLabel(periodId).toUpperCase()}</small><h2>Lương & hoa hồng ca dạy</h2></div>
+        {canViewPayroll && <button type="button" onClick={() => onNavigate('staff-payroll')}>Chi tiết <WalletCards size={17} /></button>}
+      </header>
+      {payrollLoading ? <div className="staff-dashboard__payroll-loading" aria-label="Đang tải biểu đồ thu nhập"><span /><span /><span /><span /><span /></div>
+        : payrollError ? <div className="staff-dashboard__payroll-state"><BarChart3 size={28} /><strong>Chưa tải được dữ liệu thu nhập</strong><p>{payrollError}</p><button type="button" onClick={() => void load()}>Thử lại</button></div>
+          : payrollChart ? <>
+            <div className="staff-dashboard__payroll-summary">
+              <article><span><WalletCards size={17} />Lương theo công</span><strong>{money(payrollChart.baseSalaryAmount)}</strong><small>{payrollChart.official ? 'Đã khóa số liệu' : 'Tạm tính trong kỳ'}</small></article>
+              <article><span><CircleDollarSign size={17} />Hoa hồng ca dạy</span><strong>{money(payrollChart.teachingPayAmount)}</strong><small>{teachingSlotCount} ca đã ghi nhận</small></article>
+            </div>
+            <div className="staff-dashboard__chart" role="img" aria-label={`Biểu đồ ${periodLabel(periodId)}: lương ${money(payrollChart.baseSalaryAmount)}, hoa hồng ca dạy ${money(payrollChart.teachingPayAmount)}`}>
+              {payrollChart.buckets.map((bucket) => <article key={bucket.id}>
+                <div className="staff-dashboard__bars">
+                  <span className="is-salary" style={{ height: chartHeight(bucket.baseSalaryAmount, payrollChart.maxBucketAmount) }} title={`Lương ${bucket.label}: ${money(bucket.baseSalaryAmount)}`} />
+                  <span className="is-teaching" style={{ height: chartHeight(bucket.teachingPayAmount, payrollChart.maxBucketAmount) }} title={`Hoa hồng ca dạy ${bucket.label}: ${money(bucket.teachingPayAmount)}`} />
+                </div>
+                <strong>{bucket.label}</strong><small>{bucket.teachingSlotCount} ca</small>
+              </article>)}
+            </div>
+            <footer><span><i className="is-salary" />Lương theo công</span><span><i className="is-teaching" />Hoa hồng ca dạy</span><small>Tiền ca chỉ ghi nhận sau điểm danh hợp lệ.</small></footer>
+          </> : <div className="staff-dashboard__payroll-state"><BarChart3 size={28} /><strong>Chưa có dữ liệu thu nhập</strong><p>Bảng lương tháng sẽ xuất hiện khi tài khoản được cấp quyền và có chính sách phù hợp.</p></div>}
     </section>
   </main>
 }

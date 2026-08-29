@@ -35,6 +35,7 @@ const revenueRecognitionMigrationSource = readFileSync(join(repositoryRoot, 'scr
 const identityAccessSource = readFileSync(join(__dirname, 'identity-access.js'), 'utf8')
 const ptSchedulePublishSource = readFileSync(join(__dirname, 'pt-schedule-publish.js'), 'utf8')
 const ptScheduleV2Source = readFileSync(join(__dirname, 'pt-schedule-v2.js'), 'utf8')
+const ptWorkoutTrackingSource = readFileSync(join(__dirname, 'pt-workout-tracking.js'), 'utf8')
 const studentAvailabilitySource = readFileSync(join(__dirname, 'student-availability.js'), 'utf8')
 const appSource = readFileSync(join(repositoryRoot, 'src', 'App.tsx'), 'utf8')
 const appShellSource = readFileSync(join(repositoryRoot, 'src', 'components', 'AppShell.tsx'), 'utf8')
@@ -54,6 +55,20 @@ function readRuntimeSources(directory) {
     })
     .join('\n')
 }
+
+test('in-person PT programs and set logs are revisioned, actor-scoped and callable-only', () => {
+  assert.match(ptWorkoutTrackingSource, /requireCapability\(actor, 'pt\.workout\.manage'\)/)
+  assert.match(ptWorkoutTrackingSource, /assertStudentScope\(db, actor, studentId\)/)
+  assert.match(ptWorkoutTrackingSource, /sessionManagedByActor\(session, actor\)/)
+  assert.match(ptWorkoutTrackingSource, /currentRevision: revision/)
+  assert.match(ptWorkoutTrackingSource, /transaction\.create\(logReference\.collection\('revisions'\)/)
+  for (const exportName of ['getPtWorkoutWorkspace', 'getPtStudentTrainingPlan', 'savePtStudentTrainingPlan', 'savePtSessionWorkoutLog', 'listPtWorkoutHistory']) {
+    assert.match(functionsSource, new RegExp(`exports\\.${exportName} = ptWorkoutTrackingFunctions\\.${exportName}`))
+  }
+  for (const collection of ['ptTrainingPrograms', 'ptWorkoutLogs', 'ptWorkoutAuditLogs']) {
+    assert.match(rules, new RegExp(`match /${collection}/`))
+  }
+})
 
 const runtimeSource = readRuntimeSources(join(repositoryRoot, 'src'))
 const adminRuntimeSource = readRuntimeSources(join(repositoryRoot, 'src', 'components', 'admin'))

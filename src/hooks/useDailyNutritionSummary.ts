@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { NutritionProfileDraft } from '../features/nutrition/types'
-import { subscribeToUserMealLogs } from '../services/firebaseNutritionLogService'
-import { calculateNutritionTargets } from '../services/nutritionSyncService'
+import {
+  readRecentAverageWeight,
+  resolveDailyNutritionTargets,
+} from '../features/nutrition/dailyNutritionTargets'
+import { subscribeToUserMealLogsForDate } from '../services/firebaseNutritionLogService'
 
 interface DailyMealSummary {
   date?: string
@@ -29,16 +32,17 @@ export function useDailyNutritionSummary(
       setMeals([])
       return
     }
-    return subscribeToUserMealLogs(ownerId, (items) => setMeals(items as DailyMealSummary[]), () => setMeals([]))
+    const today = localDateKey()
+    return subscribeToUserMealLogsForDate(ownerId, today, (items) => setMeals(items as DailyMealSummary[]), () => setMeals([]))
   }, [enabled, ownerId])
 
   return useMemo(() => {
-    const stored = profile as (NutritionProfileDraft & { targetCalories?: number; protein?: number }) | null | undefined
-    const targets = profile ? calculateNutritionTargets(profile) : null
-    const calorieTarget = Math.max(1, Math.round(stored?.targetCalories || targets?.targetCaloriesKcal || 2_000))
-    const proteinTarget = Math.max(1, Math.round(stored?.protein || targets?.proteinG || 100))
+    const effectiveWeight = readRecentAverageWeight(ownerId, profile?.weightKg ?? 60)
+    const targets = resolveDailyNutritionTargets(profile, effectiveWeight)
+    const calorieTarget = Math.max(1, Math.round(targets.calorieGoal))
+    const proteinTarget = Math.max(1, Math.round(targets.proteinGoal))
     const today = localDateKey()
-    const logged = meals.filter((meal) => meal.date === today && meal.status !== 'planned')
+    const logged = meals.filter((meal) => meal.date === today && meal.status === 'logged')
     const caloriesConsumed = Math.round(logged.reduce((sum, meal) => sum + (Number(meal.calories) || 0), 0))
     const proteinConsumed = Math.round(logged.reduce((sum, meal) => sum + (Number(meal.protein) || 0), 0))
 
@@ -50,5 +54,5 @@ export function useDailyNutritionSummary(
       remainingCalories: Math.max(0, calorieTarget - caloriesConsumed),
       remainingProtein: Math.max(0, proteinTarget - proteinConsumed),
     }
-  }, [meals, profile])
+  }, [meals, ownerId, profile])
 }

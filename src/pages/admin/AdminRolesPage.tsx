@@ -7,7 +7,7 @@ import {
   Phone, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, UserCog, Users,
   Trash2, WalletCards, X,
 } from 'lucide-react'
-import { collection, onSnapshot } from 'firebase/firestore'
+import { collection, onSnapshot, query as firestoreQuery, where } from 'firebase/firestore'
 import { hasPermission } from '../../config/permissions'
 import { useDatabase } from '../../contexts/DatabaseContext'
 import { firestoreDb } from '../../lib/firebase'
@@ -342,7 +342,11 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
         return next
       })
     })
-    const stopContracts = onSnapshot(collection(firestoreDb, 'contracts'), (snapshot) => setLegacyContracts(snapshot.docs.map((item) => item.data() as Record<string, unknown>)), () => setLegacyContracts([]))
+    const activeContractsQuery = firestoreQuery(
+      collection(firestoreDb, 'contracts'),
+      where('status', 'in', ['active', 'future', 'frozen']),
+    )
+    const stopContracts = onSnapshot(activeContractsQuery, (snapshot) => setLegacyContracts(snapshot.docs.map((item) => item.data() as Record<string, unknown>)), () => setLegacyContracts([]))
     return () => { stopStaff(); stopTrainers(); stopContracts() }
   }, [section, canViewTeam])
   useEffect(() => {

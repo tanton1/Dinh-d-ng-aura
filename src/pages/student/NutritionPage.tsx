@@ -6,7 +6,10 @@ import NutritionFoodDetail, {
   type NutritionServingSelection,
 } from './NutritionFoodDetail'
 import CapturedMealDetail from './CapturedMealDetail'
-import { calculateNutritionTargets } from '../../services/nutritionSyncService'
+import {
+  readRecentAverageWeight,
+  resolveDailyNutritionTargets,
+} from '../../features/nutrition/dailyNutritionTargets'
 import NutritionGroupIcon from '../../components/NutritionGroupIcon'
 import NutritionDashboardHome from './NutritionDashboardHome'
 import NutritionProfileEditor from './NutritionProfileEditor'
@@ -303,25 +306,6 @@ function formatNumber(value: number) {
 
 function formatDecimal(value: number, maximumFractionDigits = 1) {
   return new Intl.NumberFormat('vi-VN', { maximumFractionDigits }).format(value)
-}
-
-function getNutritionTargets(profile: NutritionProfileDraft, overrideWeight?: number) {
-  const targets = calculateNutritionTargets({
-    ...profile,
-    weightKg: overrideWeight ?? profile.weightKg
-  });
-  
-  return {
-    calorieGoal: targets.targetCaloriesKcal,
-    proteinGoal: targets.proteinG,
-    carbGoal: targets.carbsG,
-    fatGoal: targets.fatG,
-    waterGoal: targets.waterLiters * 1000,
-    maintenanceCalories: targets.tdee,
-    dailyAdjustment: targets.targetCaloriesKcal - targets.tdee,
-    targetDelta: profile.targetWeightDeltaKg ?? 0,
-    timeframeMonths: profile.targetTimeframeMonths ?? 3
-  }
 }
 
 function getDailyPlan(calorieGoal: number, profile: NutritionProfileDraft) {
@@ -2669,35 +2653,12 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   const firstName = displayName.trim().split(/\s+/).slice(-1)[0] || 'bạn'
 
   // Get actual weight in the last 30 days based on weight history of this user
-  const actual30DayWeight = useMemo(() => {
-    try {
-      const raw = window.localStorage.getItem(`aura:progress:weight-records:${resolvedOwnerId}`)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const today = new Date()
-          const thirtyDaysAgo = new Date()
-          thirtyDaysAgo.setDate(today.getDate() - 30)
-          const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0]
-          const todayStr = today.toISOString().split('T')[0]
+  const actual30DayWeight = useMemo(
+    () => readRecentAverageWeight(resolvedOwnerId, profileDraft.weightKg),
+    [resolvedOwnerId, profileDraft.weightKg],
+  )
 
-          const last30Days = parsed.filter((r: any) => r.date >= thirtyDaysAgoStr && r.date <= todayStr)
-          if (last30Days.length > 0) {
-            const sum = last30Days.reduce((acc: number, r: any) => acc + (Number(r.weightKg) || 0), 0)
-            return Number((sum / last30Days.length).toFixed(1))
-          } else {
-            const latest = parsed[parsed.length - 1]
-            return Number(latest.weightKg) || profileDraft.weightKg
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Error loading weight history in NutritionPage:', e)
-    }
-    return profileDraft.weightKg
-  }, [resolvedOwnerId, profileDraft.weightKg])
-
-  const { calorieGoal, proteinGoal, carbGoal, fatGoal, waterGoal } = getNutritionTargets(profileDraft, actual30DayWeight)
+  const { calorieGoal, proteinGoal, carbGoal, fatGoal, waterGoal } = resolveDailyNutritionTargets(profileDraft, actual30DayWeight)
   const dailyPlan = getDailyPlan(calorieGoal, profileDraft)
   const selectedDayMeals = meals.filter((meal) => meal.date === selectedDate)
   const loggedMeals = selectedDayMeals.filter((meal) => meal.status === 'logged')

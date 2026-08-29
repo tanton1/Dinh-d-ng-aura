@@ -27,6 +27,7 @@ const { createOperationsDashboardFunctions } = require('./operations-dashboard')
 const { createCashbookFunctions } = require('./cashbook')
 const { createBusinessReportingFunctions } = require('./business-reporting')
 const { createExerciseCatalogFunctions } = require('./exercise-catalog')
+const { createPtWorkoutTrackingFunctions } = require('./pt-workout-tracking')
 const { createNutritionReviewFunctions } = require('./nutrition-reviews')
 const { createContractRenewalFunctions } = require('./contract-renewals')
 const { syncContractUsageProjection } = require('./contract-usage')
@@ -290,6 +291,13 @@ exports.listExerciseCatalog = exerciseCatalogFunctions.listExerciseCatalog
 exports.getExerciseCatalogItem = exerciseCatalogFunctions.getExerciseCatalogItem
 exports.saveExerciseCatalogDraft = exerciseCatalogFunctions.saveExerciseCatalogDraft
 exports.publishExerciseCatalogItem = exerciseCatalogFunctions.publishExerciseCatalogItem
+const ptWorkoutTrackingFunctions = createPtWorkoutTrackingFunctions({ db, onCall })
+Object.assign(exports, ptWorkoutTrackingFunctions)
+exports.getPtWorkoutWorkspace = ptWorkoutTrackingFunctions.getPtWorkoutWorkspace
+exports.getPtStudentTrainingPlan = ptWorkoutTrackingFunctions.getPtStudentTrainingPlan
+exports.savePtStudentTrainingPlan = ptWorkoutTrackingFunctions.savePtStudentTrainingPlan
+exports.savePtSessionWorkoutLog = ptWorkoutTrackingFunctions.savePtSessionWorkoutLog
+exports.listPtWorkoutHistory = ptWorkoutTrackingFunctions.listPtWorkoutHistory
 
 // Backend invariant for onboarding profiles. This also protects members who
 // finish onboarding from an older cached PWA bundle that submitted null for

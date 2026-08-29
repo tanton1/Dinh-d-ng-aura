@@ -3108,3 +3108,85 @@
 .catalog-thumb{overflow:hidden;padding:0;background:linear-gradient(145deg,#fff3f8,#fff0e7)}
 .catalog-thumb img{width:100%;height:100%;object-fit:cover}
 .catalog-inline-state{margin:8px 0;padding:9px 10px;border:1px solid #ffd0df;border-radius:10px;color:#a34266;background:#fff6f9;font-size:8px;line-height:1.45}
+
+/* Admin dashboard payroll: same weekly view as Staff, switchable by employee. */
+.admin-dashboard>.admin-dashboard__payroll{order:6}
+.admin-dashboard>.admin-dashboard__receivables{order:7}
+.admin-dashboard>.admin-dashboard__shortcuts{order:8}
+.admin-dashboard__payroll{min-width:0;border:1px solid rgba(246,47,130,.14);border-radius:21px;padding:16px;background:rgba(255,255,255,.94);box-shadow:0 13px 34px rgba(91,39,64,.07);backdrop-filter:blur(12px)}
+.admin-dashboard__payroll>header{display:flex;min-width:0;align-items:flex-start;justify-content:space-between;gap:14px}
+.admin-dashboard__payroll>header>div{display:grid;min-width:0;gap:2px}
+.admin-dashboard__payroll>header small{color:var(--dashboard-pink);font-size:9px;font-weight:900;letter-spacing:.1em}
+.admin-dashboard__payroll>header h2{margin:0;color:#392832;font-size:18px;letter-spacing:-.025em}
+.admin-dashboard__payroll>header p{margin:2px 0 0;color:#8b7581;font-size:9.5px;line-height:1.45}
+.admin-dashboard__payroll>header>button{display:inline-flex;min-height:34px;flex:0 0 auto;align-items:center;justify-content:center;gap:5px;border:0;border-radius:11px;padding:0 12px;background:linear-gradient(110deg,#f62f82,#ff8751);color:#fff;font-size:9px;font-weight:900;cursor:pointer;white-space:nowrap}
+.admin-dashboard__payroll-tabs{display:flex;max-width:100%;gap:7px;overflow-x:auto;margin-top:14px;padding:3px 2px 6px;scroll-snap-type:x proximity;scrollbar-width:none}
+.admin-dashboard__payroll-tabs::-webkit-scrollbar{display:none}
+.admin-dashboard__payroll-tabs>button{position:relative;display:grid;min-width:168px;max-width:210px;flex:1 0 168px;grid-template-columns:34px minmax(0,1fr);align-items:center;gap:8px;border:1px solid #f0e0e7;border-radius:14px;padding:8px;background:#fff;color:#604b57;text-align:left;scroll-snap-align:start;cursor:pointer;transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease}
+.admin-dashboard__payroll-tabs>button:hover{border-color:#f3b8ce;transform:translateY(-1px)}
+.admin-dashboard__payroll-tabs>button.is-active{border-color:#f45b91;background:linear-gradient(145deg,#fff7fb,#fff8f2);box-shadow:0 8px 20px rgba(219,47,111,.12)}
+.admin-dashboard__payroll-avatar{display:grid;width:34px;height:34px;place-items:center;border-radius:11px;background:#f9eaf1;color:#d93672;font-size:10px;font-weight:950;letter-spacing:.02em}
+.admin-dashboard__payroll-tabs>button.is-active .admin-dashboard__payroll-avatar{background:linear-gradient(135deg,#f62f82,#ff8751);color:#fff}
+.admin-dashboard__payroll-tabs>button>span:not(.admin-dashboard__payroll-avatar){display:grid;min-width:0;gap:2px}
+.admin-dashboard__payroll-tabs strong,.admin-dashboard__payroll-tabs small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.admin-dashboard__payroll-tabs strong{font-size:10.5px}
+.admin-dashboard__payroll-tabs small{color:#98828d;font-size:8px;font-weight:750}
+.admin-dashboard__payroll-tabs>button>i{position:absolute;top:7px;right:7px;width:7px;height:7px;border:2px solid #fff;border-radius:50%;background:#e78b23;box-sizing:content-box}
+.admin-dashboard__payroll-panel{min-width:0;margin-top:8px}
+.admin-dashboard__payroll-person{display:flex;min-width:0;align-items:center;justify-content:space-between;gap:10px;border:1px solid #f2e5ea;border-radius:13px;padding:9px 11px;background:#fffafb}
+.admin-dashboard__payroll-person>span{display:grid;min-width:0;gap:2px}
+.admin-dashboard__payroll-person strong{overflow:hidden;color:#46313d;font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.admin-dashboard__payroll-person small{overflow:hidden;color:#927c88;font-size:8px;text-overflow:ellipsis;white-space:nowrap}
+.admin-dashboard__payroll-person em{flex:0 0 auto;border-radius:999px;padding:5px 8px;background:#fff0f5;color:#c63f70;font-size:8px;font-style:normal;font-weight:900}
+.admin-dashboard__payroll-person em.is-official{background:#e9f8f1;color:#19805a}
+.admin-dashboard__payroll-person em.is-review{background:#fff4e7;color:#b6671d}
+.admin-dashboard__payroll-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:9px}
+.admin-dashboard__payroll-summary article{display:grid;min-width:0;gap:4px;border:1px solid #f1e0e6;border-radius:16px;padding:12px;background:linear-gradient(145deg,#fff,#fff8fa)}
+.admin-dashboard__payroll-summary article:nth-child(2){background:linear-gradient(145deg,#fff,#fff7ef)}
+.admin-dashboard__payroll-summary span{display:flex;align-items:center;gap:6px;color:#7e6873;font-size:9px;font-weight:850}
+.admin-dashboard__payroll-summary svg{color:#ed2e78}
+.admin-dashboard__payroll-summary strong{overflow:hidden;color:#3d2b35;font-size:clamp(17px,2.2vw,23px);letter-spacing:-.025em;text-overflow:ellipsis;white-space:nowrap}
+.admin-dashboard__payroll-summary small{color:#957f89;font-size:8px}
+.admin-dashboard__payroll-chart{display:grid;min-width:0;grid-template-columns:repeat(5,minmax(42px,1fr));align-items:end;gap:clamp(7px,2vw,18px);min-height:220px;margin-top:10px;padding:18px 10px 7px;border:1px solid #f2e4e8;border-radius:18px;background:repeating-linear-gradient(to top,transparent 0,transparent 44px,rgba(224,197,207,.34) 45px),linear-gradient(180deg,#fff,#fffafd)}
+.admin-dashboard__payroll-chart>article{display:grid;min-width:0;justify-items:center;gap:3px}
+.admin-dashboard__payroll-bars{display:flex;width:100%;height:152px;align-items:end;justify-content:center;gap:4px}
+.admin-dashboard__payroll-bars>span{width:min(19px,37%);min-height:0;border-radius:7px 7px 3px 3px;box-shadow:0 8px 14px rgba(143,38,82,.12);transition:height .3s ease}
+.admin-dashboard__payroll-bars .is-salary{background:linear-gradient(180deg,#ee2d79,#ff5c79)}
+.admin-dashboard__payroll-bars .is-teaching{background:linear-gradient(180deg,#ff8a4c,#ffbd62)}
+.admin-dashboard__payroll-chart article>strong{color:#4d3944;font-size:9px}
+.admin-dashboard__payroll-chart article>small{color:#96808b;font-size:8px}
+.admin-dashboard__payroll-panel>footer{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin-top:10px;color:#725e68;font-size:8.5px}
+.admin-dashboard__payroll-panel>footer span{display:inline-flex;align-items:center;gap:5px;font-weight:850}
+.admin-dashboard__payroll-panel>footer i{width:9px;height:9px;border-radius:3px}
+.admin-dashboard__payroll-panel>footer i.is-salary{background:#ee2d79}
+.admin-dashboard__payroll-panel>footer i.is-teaching{background:#ff9b51}
+.admin-dashboard__payroll-panel>footer small{margin-left:auto;color:#98818c;font-size:8px}
+.admin-dashboard__payroll-state{display:grid;justify-items:center;gap:5px;margin-top:12px;border-radius:16px;padding:23px;background:linear-gradient(135deg,#fff5f8,#fff6ee);color:#7a6872;text-align:center}
+.admin-dashboard__payroll-state svg{color:#ec3478}
+.admin-dashboard__payroll-state p{max-width:520px;margin:0;font-size:9px;line-height:1.5}
+.admin-dashboard__payroll-state button{margin-top:4px;border:0;border-radius:10px;padding:8px 11px;background:#ef3179;color:#fff;font-size:9px;font-weight:850;cursor:pointer}
+.admin-dashboard__payroll-loading{display:grid;gap:10px;margin-top:12px}
+.admin-dashboard__payroll-tab-skeleton{display:flex;gap:7px;overflow:hidden}
+.admin-dashboard__payroll-tab-skeleton i{width:178px;height:52px;flex:0 0 178px;border-radius:14px;background:linear-gradient(100deg,#f7e7ee 20%,#fff 45%,#f7e7ee 70%);background-size:220% 100%;animation:dashboard-skeleton 1.2s linear infinite}
+.admin-dashboard__payroll-chart-skeleton{display:grid;grid-template-columns:repeat(5,1fr);align-items:end;gap:10px;height:220px;padding:18px;border-radius:18px;background:#fff8fb}
+.admin-dashboard__payroll-chart-skeleton span{height:45%;border-radius:9px 9px 4px 4px;background:linear-gradient(100deg,#f7e7ee 20%,#fff 45%,#f7e7ee 70%);background-size:220% 100%;animation:dashboard-skeleton 1.2s linear infinite}
+.admin-dashboard__payroll-chart-skeleton span:nth-child(2){height:70%}.admin-dashboard__payroll-chart-skeleton span:nth-child(3){height:55%}.admin-dashboard__payroll-chart-skeleton span:nth-child(4){height:82%}.admin-dashboard__payroll-chart-skeleton span:nth-child(5){height:36%}
+
+@media(max-width:680px){
+  .admin-dashboard__payroll{margin-inline:0!important;border-radius:17px;padding:12px}
+  .admin-dashboard__payroll>header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+  .admin-dashboard__payroll>header h2{font-size:17px}
+  .admin-dashboard__payroll>header p{font-size:9px}
+  .admin-dashboard__payroll>header>button{align-self:center;min-height:33px;padding-inline:10px;font-size:0}
+  .admin-dashboard__payroll>header>button svg{width:16px;height:16px}
+  .admin-dashboard__payroll-tabs{margin-right:-12px;padding-right:12px}
+  .admin-dashboard__payroll-tabs>button{min-width:154px;flex-basis:154px;padding:7px}
+  .admin-dashboard__payroll-summary{gap:7px}
+  .admin-dashboard__payroll-summary article{padding:10px}
+  .admin-dashboard__payroll-summary span{font-size:8.5px}
+  .admin-dashboard__payroll-summary strong{font-size:17px}
+  .admin-dashboard__payroll-chart{gap:6px;min-height:210px;padding-inline:5px}
+  .admin-dashboard__payroll-bars{height:146px;gap:3px}
+  .admin-dashboard__payroll-bars>span{width:min(15px,39%)}
+  .admin-dashboard__payroll-panel>footer small{width:100%;margin-left:0}
+}

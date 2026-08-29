@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { collection, doc, setDoc, deleteDoc, runTransaction, updateDoc, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore'
-import { db, auth } from '../lib/firebase'
+import { db } from '../lib/firebase'
+import { useAuth } from './AuthContext'
 import type {
   Student,
   StudentContract,
@@ -19,7 +20,6 @@ import type {
   WorkoutLog,
   SessionRequest,
 } from '../types/ptOperations'
-import { getIdTokenResult, onIdTokenChanged } from 'firebase/auth'
 
 type OperationsSyncStatus = 'idle' | 'loading' | 'ready' | 'forbidden' | 'error'
 
@@ -212,6 +212,12 @@ export const useDatabase = () => {
 }
 
 export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
+  const {
+    user: authenticatedUser,
+    role: authenticatedRole,
+    accessContext,
+    authzReady,
+  } = useAuth()
   const [students, setStudents] = useState<Student[]>(E2E_PT_STUDENTS)
   const [contracts, setContracts] = useState<StudentContract[]>([])
   const [payments, setPayments] = useState<PaymentRecord[]>([])
@@ -269,52 +275,40 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   }, [])
 
   useEffect(() => {
-    if (!auth) return
-    let active = true
-    let authGeneration = 0
-    const unsubscribe = onIdTokenChanged(auth, async (user) => {
-      const generation = ++authGeneration
-      if (!user) {
-        if (active && generation === authGeneration) {
-          setCanUseLegacyOperations(false)
-          clearLegacyOperationsData()
-          setOperationsSync({ status: 'idle', lastSyncedAt: null, error: null })
-        }
-        return
-      }
-
-      try {
-        // onIdTokenChanged already fires when claims refresh. Do not force a
-        // second refresh here: it can race a sign-out or a newer token event.
-        const token = await getIdTokenResult(user)
-        if (!active || generation !== authGeneration) return
-        const legacyRole = typeof token.claims.role === 'string' ? token.claims.role : 'student'
-        const accessRole = typeof token.claims.accessRole === 'string' ? token.claims.accessRole : ''
-        const canUse = accessRole === 'admin' || accessRole === 'super_admin'
-          || legacyRole === 'admin' || legacyRole === 'super_admin'
-        setCanUseLegacyOperations(canUse)
-        if (!canUse) clearLegacyOperationsData()
-        setOperationsSync({
-          status: canUse && operationsView ? 'loading' : canUse ? 'idle' : 'forbidden',
-          lastSyncedAt: null,
-          error: canUse ? null : 'Tài khoản này không có quyền truy cập dữ liệu vận hành.',
-        })
-      } catch (error) {
-        if (!active || generation !== authGeneration) return
-        setCanUseLegacyOperations(false)
-        clearLegacyOperationsData()
-        setOperationsSync({
-          status: 'error',
-          lastSyncedAt: null,
-          error: error instanceof Error ? error.message : 'Không thể xác minh quyền truy cập dữ liệu vận hành.',
-        })
-      }
-    })
-    return () => {
-      active = false
-      unsubscribe()
+    if (import.meta.env.MODE === 'e2e') {
+      setCanUseLegacyOperations(true)
+      setOperationsSync({ status: 'ready', lastSyncedAt: new Date().toISOString(), error: null })
+      return
     }
-  }, [operationsView])
+
+    if (!authenticatedUser) {
+      setCanUseLegacyOperations(false)
+      clearLegacyOperationsData()
+      setOperationsSync({ status: 'idle', lastSyncedAt: null, error: null })
+      return
+    }
+
+    if (!authzReady) {
+      setCanUseLegacyOperations(false)
+      setOperationsSync({
+        status: operationsView ? 'loading' : 'idle',
+        lastSyncedAt: null,
+        error: null,
+      })
+      return
+    }
+
+    const accessRole = accessContext?.accessRole ?? ''
+    const canUse = accessRole === 'admin' || accessRole === 'super_admin'
+      || authenticatedRole === 'admin' || authenticatedRole === 'super_admin'
+    setCanUseLegacyOperations(canUse)
+    if (!canUse) clearLegacyOperationsData()
+    setOperationsSync({
+      status: canUse && operationsView ? 'loading' : canUse ? 'idle' : 'forbidden',
+      lastSyncedAt: null,
+      error: canUse ? null : 'Tài khoản này không có quyền truy cập dữ liệu vận hành.',
+    })
+  }, [accessContext?.accessRole, authenticatedRole, authenticatedUser?.uid, authzReady, operationsView])
 
   useEffect(() => {
     // Browser layout tests use deterministic, non-sensitive PT fixtures. Do

@@ -44,27 +44,49 @@ async function expectVisibleTargetsAtLeast(locator: Locator, minimum = 44) {
 test.describe('Home V3 mobile layout', () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(mobileViewport)
+    await page.addInitScript(() => {
+      window.localStorage.setItem('aura:nutrition-profile:demo-admin', JSON.stringify({
+        goal: 'lose-fat',
+        age: 31,
+        biologicalSex: 'male',
+        heightCm: 173,
+        weightKg: 84,
+        targetWeightDeltaKg: -6,
+        targetTimeframeMonths: 4,
+        targetSpeedPace: 'standard',
+        activityLevel: 'moderate',
+        trainingSessions: 4,
+        eatingStyle: 'Không giới hạn',
+        allergies: '',
+        mealsPerDay: 3,
+        targetCalories: 2084,
+      }))
+      window.localStorage.setItem('aura:nutrition:meals:v2:demo-admin', '[]')
+      window.localStorage.setItem('aura:progress:weight-records:demo-admin', '[]')
+    })
     await page.goto('/#/home')
     await expect(page.locator('.aura-today-flow')).toBeVisible()
   })
 
-  test('shows the full-bleed Today Flow and keeps the decision flow before Academy', async ({ page }) => {
+  test('shows the full-bleed Today Flow without Academy content', async ({ page }) => {
     const todayFlow = page.locator('.aura-today-flow')
     const statusCards = todayFlow.locator('.aura-today-flow__status')
 
     await expect(statusCards).toHaveCount(3)
+    await expect(page.getByTestId('today-status-schedule')).toContainText('PT Minh')
     await expect(todayFlow.getByRole('heading', { name: /Hôm nay của/i })).toBeVisible()
     await expect(todayFlow.getByText(/AURA DAILY PULSE/i)).toHaveCount(0)
     await expect(statusCards.filter({ hasText: /phút hôm nay/i })).toHaveCount(1)
     await expect(statusCards.filter({ hasText: /phút tuần này/i })).toHaveCount(0)
     await expect(statusCards.filter({ hasText: /chuỗi/i })).toHaveCount(0)
-    await expect(page.locator('.today-workout, .home-academy-hero, .academy-feature-hero')).toHaveCount(0)
+    await expect(page.locator('.today-workout, .home-academy-hero, .academy-feature-hero, .home-v3-academy')).toHaveCount(0)
+    await expect(page.getByTestId('today-status-learning')).toHaveCount(0)
 
     const sectionOrder = await page.evaluate(() => {
       const nextAction = document.querySelector('.aura-today-flow__next')
       const rhythm = document.querySelector('.aura-today-flow__rhythm-grid')
-      const learning = document.querySelector('.home-v3-academy')
-      if (!nextAction || !rhythm || !learning) return null
+      const week = document.querySelector('.home-v3-week')
+      if (!nextAction || !rhythm || !week) return null
 
       const follows = (first: Element, second: Element) => Boolean(
         first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -72,11 +94,11 @@ test.describe('Home V3 mobile layout', () => {
 
       return {
         nextBeforeRhythm: follows(nextAction, rhythm),
-        rhythmBeforeLearning: follows(rhythm, learning),
+        rhythmBeforeWeek: follows(rhythm, week),
       }
     })
 
-    expect(sectionOrder).toEqual({ nextBeforeRhythm: true, rhythmBeforeLearning: true })
+    expect(sectionOrder).toEqual({ nextBeforeRhythm: true, rhythmBeforeWeek: true })
 
     const flowBounds = await todayFlow.boundingBox()
     expect(flowBounds).not.toBeNull()
@@ -84,7 +106,7 @@ test.describe('Home V3 mobile layout', () => {
     expect(Math.abs(flowBounds!.width - mobileViewport.width)).toBeLessThanOrEqual(1)
     await expectNoPageOverflow(page)
 
-    await expect(page.getByRole('heading', { name: 'Học tiếp cùng Aura' })).toHaveCount(1)
+    await expect(page.getByRole('heading', { name: 'Học tiếp cùng Aura' })).toHaveCount(0)
     await expect(page.getByText(/Tiến độ học tập|Tiếp tục hành trình|Thành tích đạt được/i)).toHaveCount(0)
     await page.getByRole('tab', { name: 'Lịch sắp tới' }).click()
     await expect(page.getByRole('tabpanel')).toBeVisible()
@@ -93,12 +115,26 @@ test.describe('Home V3 mobile layout', () => {
       '.aura-today-flow__status',
       '.aura-today-flow__next > button',
       '.aura-today-flow__empty',
-      '.home-v3-primary-action',
       '.home-v3-week__tabs button',
       '.home-v3-schedule__item',
       '.home-v3-schedule__empty',
       '.home-v3-milestone > button',
     ].join(', ')))
+
+    await page.getByTestId('today-status-schedule').click()
+    await expect(page).toHaveURL(/#\/schedule$/)
+  })
+
+  test('uses the same remaining kcal on Home and Nutrition and ignores a legacy target override', async ({ page }) => {
+    const homeValue = (await page.getByTestId('today-status-nutrition').locator('strong').first().textContent())?.trim()
+    expect(homeValue).toBeTruthy()
+    expect(homeValue).not.toBe('2.084')
+
+    await page.getByTestId('today-status-nutrition').click()
+    await expect(page).toHaveURL(/#\/nutrition/)
+    const nutritionValue = page.getByTestId('nutrition-calories-value')
+    await expect(nutritionValue).toHaveAttribute('data-mode', 'remaining')
+    await expect(nutritionValue).toHaveText(homeValue!)
   })
 
   for (const width of [375, 430]) {
