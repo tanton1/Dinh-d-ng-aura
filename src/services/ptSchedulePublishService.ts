@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebase'
+import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebase'
 import type { Schedule, ScheduleConfig, Session, Student, StudentContract, Trainer } from '../types'
 
 export interface PtSchedulePublishDiff {
@@ -371,7 +371,7 @@ export function getPtScheduleWorkspace(input: { weekId: string; branchId: string
 }
 
 export function generatePtScheduleDraft(input: { weekId: string; branchId: string; expectedDraftRevision: number }) {
-  return invoke<typeof input, {
+  type Result = {
     draftRevision: number
     schedule: Schedule
     warnings: Array<{ code: string; studentId?: string; missingSessions?: number }>
@@ -381,7 +381,12 @@ export function generatePtScheduleDraft(input: { weekId: string; branchId: strin
     trainerLoads?: PtScheduleTrainerDailyLoad[]
     studentCoverage?: PtScheduleStudentCoverage
     unassigned?: PtScheduleUnassignedEntry[]
-  }>('generatePtScheduleDraft', input)
+  }
+  if (!firebaseScheduleOptimizerFunctions) {
+    return Promise.reject(new PtSchedulePublishError('Bộ tối ưu lịch chưa sẵn sàng.', 'SYNC_UNAVAILABLE', [], true))
+  }
+  const callable = httpsCallable<typeof input, Result>(firebaseScheduleOptimizerFunctions, 'generatePtScheduleDraftV4', { timeout: 120_000 })
+  return callable(input).then((response) => response.data).catch((error) => { throw asPtSchedulePublishError(error) })
 }
 
 export function getPtScheduleSlotCandidates(input: {

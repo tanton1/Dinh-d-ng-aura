@@ -221,6 +221,18 @@ exports.generatePtScheduleDraft = ptScheduleV2Functions.generatePtScheduleDraft
 exports.getPtScheduleSlotCandidates = ptScheduleV2Functions.getPtScheduleSlotCandidates
 exports.savePtStudentAvailability = ptScheduleV2Functions.savePtStudentAvailability
 exports.applyPtScheduleDraftCommand = ptScheduleV2Functions.applyPtScheduleDraftCommand
+// Regional overflow endpoint for optimizer-v4. Asia-southeast1 currently
+// hosts the large legacy callable fleet and can reject a safe revision before
+// startup when its regional CPU quota is saturated. Only generation is moved;
+// it still uses the same canonical Firestore database and revision transaction.
+const ptScheduleOverflowOnCall = (optionsOrHandler, maybeHandler) => {
+  const resourceOptions = { region: 'asia-east1', cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 120 }
+  return typeof optionsOrHandler === 'function'
+    ? onCall(resourceOptions, optionsOrHandler)
+    : onCall({ ...resourceOptions, ...optionsOrHandler }, maybeHandler)
+}
+const ptScheduleOverflowFunctions = createPtScheduleV2Functions({ db, onCall: ptScheduleOverflowOnCall })
+exports.generatePtScheduleDraftV4 = ptScheduleOverflowFunctions.generatePtScheduleDraft
 Object.assign(exports, createFinanceLedgerFunctions({ db, onCall, logger }))
 const contractRenewalFunctions = createContractRenewalFunctions({ db, onCall, onSchedule, logger })
 Object.assign(exports, contractRenewalFunctions)
