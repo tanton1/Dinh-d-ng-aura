@@ -74,6 +74,8 @@ type StaffEditorState = {
   displayName: string
   email: string
   phoneNumber: string
+  initialEmail: string
+  initialPhoneNumber: string
   slots: string[]
   slotCapacity: number
   isTrainer: boolean
@@ -159,6 +161,17 @@ function normalizeStaffSlot(value: string) {
   const [day, rawHour = ''] = value.split('-', 2)
   const hour = Number(rawHour.split(':')[0])
   return day && Number.isInteger(hour) ? `${day}-${hour}` : value
+}
+
+function normalizeStaffEmail(value: string) {
+  return value.trim().toLocaleLowerCase('vi')
+}
+
+function normalizeStaffPhone(value: string) {
+  const compact = value.trim().replace(/[\s().-]/g, '')
+  if (compact.startsWith('+84')) return `0${compact.slice(3)}`
+  if (compact.startsWith('84')) return `0${compact.slice(2)}`
+  return compact
 }
 
 function initials(name: string, email: string) {
@@ -403,11 +416,15 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
     const record = staffOperations[member.uid] || {}
     const assignment = assignments[member.uid]
     const dailySessionTarget = Number.isInteger(record.dailySessionTarget) ? Math.max(1, Math.min(12, Number(record.dailySessionTarget))) : 8
+    const email = member.email || record.email || ''
+    const phoneNumber = member.phoneNumber || record.phone || ''
     setStaffEditor({
       uid: member.uid,
       displayName: member.displayName || record.name || '',
-      email: member.email || record.email || '',
-      phoneNumber: member.phoneNumber || record.phone || '',
+      email,
+      phoneNumber,
+      initialEmail: email,
+      initialPhoneNumber: phoneNumber,
       slots: Array.isArray(record.availableSlots) ? [...new Set(record.availableSlots.map(normalizeStaffSlot))] : [],
       slotCapacity: Number.isInteger(record.slotCapacity) ? Number(record.slotCapacity) : 2,
       isTrainer: Boolean(assignment?.positions.includes('trainer_pt') || member.role === 'trainer' || record.role === 'trainer'),
@@ -424,7 +441,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const saveStaffProfile = async () => {
     if (!staffEditor) return
     setStaffSaving(true); setError(null)
-    try { await saveStaffOperationsProfile({ uid: staffEditor.uid, displayName: staffEditor.displayName, email: staffEditor.email, phoneNumber: staffEditor.phoneNumber, employmentType: staffEditor.employmentType, employmentLevel: staffEditor.employmentLevel, payrollPolicyId: staffEditor.payrollPolicyId, availabilitySlots: staffEditor.slots, slotCapacity: staffEditor.slotCapacity, schedulingPriority: staffEditor.schedulingPriority, dailySessionTarget: staffEditor.dailySessionTarget, dailySessionLimit: staffEditor.dailySessionLimit, compensation: staffEditor.compensation }); setStaffEditor(null); setSuccess('Đã lưu hồ sơ, lịch rảnh và chính sách phân ca của nhân viên.') }
+    try { await saveStaffOperationsProfile({ uid: staffEditor.uid, displayName: staffEditor.displayName, email: staffEditor.email, phoneNumber: staffEditor.phoneNumber, contactChanges: { email: normalizeStaffEmail(staffEditor.email) !== normalizeStaffEmail(staffEditor.initialEmail), phoneNumber: normalizeStaffPhone(staffEditor.phoneNumber) !== normalizeStaffPhone(staffEditor.initialPhoneNumber) }, employmentType: staffEditor.employmentType, employmentLevel: staffEditor.employmentLevel, payrollPolicyId: staffEditor.payrollPolicyId, availabilitySlots: staffEditor.slots, slotCapacity: staffEditor.slotCapacity, schedulingPriority: staffEditor.schedulingPriority, dailySessionTarget: staffEditor.dailySessionTarget, dailySessionLimit: staffEditor.dailySessionLimit, compensation: staffEditor.compensation }); setStaffEditor(null); setSuccess('Đã lưu hồ sơ, lịch rảnh và chính sách phân ca của nhân viên.') }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể lưu hồ sơ vận hành nhân viên.') }
     finally { setStaffSaving(false) }
   }

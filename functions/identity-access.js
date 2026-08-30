@@ -307,6 +307,35 @@ function normalizeDuplicateAuthError(error) {
   return error
 }
 
+function resolveStaffContactUpdate(requestData, profile, authUser) {
+  const requestedChanges = requestData?.contactChanges && typeof requestData.contactChanges === 'object'
+    ? requestData.contactChanges
+    : {}
+  const updateEmail = requestedChanges.email === true
+  const updatePhoneNumber = requestedChanges.phoneNumber === true
+  const authEmail = normalizedEmail(authUser?.email)
+  const authPhoneNumber = normalizedPhone(authUser?.phoneNumber)
+  // Firebase Auth owns login contacts. Legacy clients used to submit the
+  // Firestore projection on every operational save; migrated projections can
+  // be stale or belong to another UID. Ignore those values unless the current
+  // editor explicitly marks the field as changed.
+  const requestedEmail = updateEmail ? normalizedEmail(requestData?.email) : ''
+  const requestedPhoneNumber = updatePhoneNumber ? normalizedPhone(requestData?.phoneNumber) : ''
+  const fallbackPhoneNumber = authPhoneNumber || normalizedPhone(profile?.phoneNumber ?? profile?.phone)
+  const email = updateEmail
+    ? requestedEmail || authEmail || (fallbackPhoneNumber ? loginEmailFromPhone('', fallbackPhoneNumber) : '')
+    : authEmail || normalizedEmail(profile?.email) || (fallbackPhoneNumber ? loginEmailFromPhone('', fallbackPhoneNumber) : '')
+  const phoneNumber = updatePhoneNumber
+    ? requestedPhoneNumber || authPhoneNumber
+    : authPhoneNumber || normalizedPhone(profile?.phoneNumber ?? profile?.phone)
+  return {
+    email,
+    phoneNumber,
+    emailChanged: updateEmail && Boolean(email) && authEmail !== email,
+    phoneChanged: updatePhoneNumber && Boolean(phoneNumber) && authPhoneNumber !== phoneNumber,
+  }
+}
+
 function foldCatalogText(value) {
   return String(value || '')
     .normalize('NFD')
@@ -1175,11 +1204,8 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     if (!initialProfileSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy tài khoản nhân viên.')
     const initialProfile = initialProfileSnapshot.data() || {}
     const displayName = boundedString(request.data?.displayName ?? initialProfile.displayName ?? initialProfile.name, 'Họ và tên', 160)
-    const phoneNumber = normalizedPhone(
-      request.data?.phoneNumber ?? initialProfile.phoneNumber ?? initialProfile.phone ?? authUser.phoneNumber,
-    ) || normalizedPhone(authUser.phoneNumber)
-    const suppliedEmail = normalizedEmail(request.data?.email ?? initialProfile.email ?? authUser.email)
-    const email = suppliedEmail || normalizedEmail(authUser.email) || (phoneNumber ? loginEmailFromPhone('', phoneNumber) : '')
+    const contactUpdate = resolveStaffContactUpdate(request.data || {}, initialProfile, authUser)
+    const { email, phoneNumber, emailChanged, phoneChanged } = contactUpdate
     const availabilitySlots = Array.isArray(request.data?.availabilitySlots)
       ? [...new Set(request.data.availabilitySlots.filter((slot) => typeof slot === 'string' && slot.length <= 80))].slice(0, 168)
       : []
@@ -1228,8 +1254,6 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       phoneNumber: authUser.phoneNumber || undefined,
       emailVerified: Boolean(authUser.emailVerified),
     }
-    const emailChanged = Boolean(email) && previousAuth.email !== email
-    const phoneChanged = Boolean(phoneNumber) && previousAuth.phoneNumber !== phoneNumber
     const contactChanged = previousAuth.displayName !== displayName || emailChanged || phoneChanged
     try {
       if (contactChanged) {
@@ -1378,6 +1402,7 @@ module.exports = {
   requireCapability,
   normalizedTrainerSchedulingPolicy,
   normalizedPhone,
+  resolveStaffContactUpdate,
   initialPasswordFromPhone,
   loginEmailFromPhone,
 }

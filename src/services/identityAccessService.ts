@@ -97,6 +97,23 @@ function presentInviteError(error: unknown): Error {
   return error instanceof Error ? error : new Error('Chưa thể tạo tài khoản Aura. Vui lòng thử lại.')
 }
 
+function presentStaffProfileError(error: unknown): Error {
+  const source = error && typeof error === 'object' ? error as { code?: unknown; message?: unknown } : {}
+  const code = typeof source.code === 'string' ? source.code.replace(/^functions\//, '') : ''
+  const message = typeof source.message === 'string' ? source.message.trim() : ''
+
+  if (code === 'already-exists') return new Error('Email hoặc số điện thoại mới đang thuộc tài khoản Aura khác. Các thay đổi hồ sơ chưa được lưu.')
+  if (code === 'permission-denied') return new Error(message || 'Bạn chưa có quyền cập nhật hồ sơ nhân viên.')
+  if (code === 'unauthenticated') return new Error('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại rồi thử lại.')
+  if (code === 'invalid-argument' || code === 'failed-precondition' || code === 'not-found') {
+    return new Error(message || 'Thông tin hồ sơ nhân viên chưa hợp lệ.')
+  }
+  if (code === 'deadline-exceeded' || code === 'internal' || code === 'unavailable') {
+    return new Error(message || 'Dịch vụ lưu hồ sơ chưa phản hồi. Hãy thử lại sau ít phút.')
+  }
+  return error instanceof Error ? error : new Error('Chưa thể lưu hồ sơ nhân viên. Vui lòng thử lại.')
+}
+
 export async function createAccountInvite(input: AccountInviteInput): Promise<AccountInviteResult> {
   const callable = httpsCallable<AccountInviteInput, AccountInviteResult>(requireFunctions(), 'createAccountInvite')
   try {
@@ -207,6 +224,10 @@ export interface StaffOperationsProfileInput {
   displayName?: string
   email?: string
   phoneNumber?: string
+  contactChanges?: {
+    email?: boolean
+    phoneNumber?: boolean
+  }
   availabilitySlots: string[]
   slotCapacity: number
   schedulingPriority: number
@@ -225,7 +246,7 @@ export interface StaffOperationsProfileResult extends StaffOperationsProfileInpu
 }
 export async function saveStaffOperationsProfile(input: StaffOperationsProfileInput) {
   const callable = httpsCallable<StaffOperationsProfileInput, StaffOperationsProfileResult>(requireFunctions(), 'saveStaffOperationsProfile')
-  try { return (await callable(input)).data } catch (error) { throw presentInviteError(error) }
+  try { return (await callable(input)).data } catch (error) { throw presentStaffProfileError(error) }
 }
 
 export async function applyDefaultTrainerSchedulingPolicy() {
