@@ -51,3 +51,16 @@ test('catalog highlights women recommendations and provides mobile master-detail
   assert.match(managerSource, /has-mobile-detail/)
   assert.match(managerStyles, /@media\(max-width:760px\).*has-mobile-detail/s)
 })
+
+test('catalog editor uses a five-step wizard and local image uploads', () => {
+  assert.match(managerSource, /const wizardSteps = \[/)
+  for (const label of ['Thông tin', 'Kỹ thuật', 'Giáo án', 'Hình ảnh', 'Xem lại']) assert.match(managerSource, new RegExp(label))
+  assert.match(managerSource, /uploadExerciseCatalogImage/)
+  assert.match(managerSource, /MediaCarousel/)
+  assert.match(managerSource, /onPointerDown/)
+  assert.match(managerSource, /tự động lưu/)
+  assert.match(managerStyles, /transition:transform \.24s/)
+  assert.match(source, /function normalizedMedia/)
+  assert.match(source, /posterImageId/)
+  assert.match(serviceSource, /images: mediaImages\(media\?\.images\)/)
+})

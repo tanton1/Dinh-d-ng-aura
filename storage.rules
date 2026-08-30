@@ -66,6 +66,25 @@ service firebase.storage {
                      && request.resource.metadata.mediaId == resource.metadata.mediaId));
     }
 
+    function isExerciseCatalogStaff() {
+      return signedIn()
+             && (request.auth.token.role in ['coach', 'trainer', 'editor', 'admin', 'super_admin']
+                 || request.auth.token.accessRole in ['staff', 'admin', 'super_admin']);
+    }
+
+    function isSupportedExerciseImage() {
+      return request.resource.size > 0
+             && request.resource.size <= 10 * 1024 * 1024
+             && request.resource.contentType == 'image/webp';
+    }
+
+    function hasValidExerciseImageMetadata(exerciseId, mediaId) {
+      return request.resource.metadata.resourceKind == 'exercise-image'
+             && request.resource.metadata.exerciseId == exerciseId
+             && request.resource.metadata.mediaId == mediaId
+             && request.resource.metadata.uploadedBy == request.auth.uid;
+    }
+
     function isSupportedCourseCover() {
       return request.resource.size > 0
              && request.resource.size <= 5 * 1024 * 1024
@@ -138,6 +157,19 @@ service firebase.storage {
                             && request.resource.contentType.matches('image/(jpeg|png|webp)')
                             && request.resource.metadata.uploadedBy == request.auth.uid
                             && request.resource.metadata.recipeId == recipeId;
+      allow delete: if isAdmin();
+    }
+
+    match /exercise-catalog/{exerciseId}/{mediaId}.webp {
+      allow read: if signedIn();
+      allow create: if isExerciseCatalogStaff()
+                    && exerciseId.matches('[A-Za-z0-9_-]{1,160}')
+                    && mediaId.matches('[A-Za-z0-9_-]{8,160}')
+                    && isSupportedExerciseImage()
+                    && hasValidExerciseImageMetadata(exerciseId, mediaId);
+      // Uploads use immutable UUID names. Published media must not be replaced
+      // in-place because old program snapshots can still reference it.
+      allow update: if false;
       allow delete: if isAdmin();
     }
 

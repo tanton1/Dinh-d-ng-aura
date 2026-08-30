@@ -462,10 +462,22 @@ export interface WorkoutProgramExerciseDraft {
   notes: string
 }
 
+export interface ExerciseCatalogMediaImage {
+  id: string
+  url: string
+  storagePath?: string
+  role: 'start' | 'end' | 'detail'
+  order: number
+  alt?: string
+  mimeType?: string
+}
+
 export interface ExerciseCatalogMedia {
   startImageUrl?: string
   endImageUrl?: string
   posterUrl?: string
+  posterImageId?: string
+  images?: ExerciseCatalogMediaImage[]
   animationUrl?: string
   mimeType?: string
   checksum?: string

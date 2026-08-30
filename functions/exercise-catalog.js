@@ -20,6 +20,45 @@ function safeId(value) {
   return id
 }
 
+function mediaImages(value, exerciseId) {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry, index) => {
+    if (!entry || typeof entry !== 'object') return []
+    const id = text(entry.id, 160)
+    const url = text(entry.url, 2_000)
+    if (!id || !/^[A-Za-z0-9_-]+$/.test(id) || !url) return []
+    const storagePath = text(entry.storagePath, 500)
+    if (storagePath && !storagePath.startsWith(`exercise-catalog/${exerciseId}/`)) return []
+    return [{
+      id,
+      url,
+      ...(storagePath ? { storagePath } : {}),
+      role: ['start', 'end', 'detail'].includes(entry.role) ? entry.role : 'detail',
+      order: Number.isFinite(entry.order) ? Math.max(0, Math.round(entry.order)) : index,
+      alt: text(entry.alt, 240),
+      mimeType: text(entry.mimeType, 100),
+    }]
+  }).slice(0, 12).sort((left, right) => left.order - right.order).map((entry, order) => ({ ...entry, order }))
+}
+
+function normalizedMedia(rawMedia, exerciseId) {
+  const images = mediaImages(rawMedia?.images, exerciseId)
+  const startImage = images.find((image) => image.role === 'start') || images[0]
+  const endImage = images.find((image) => image.role === 'end')
+  const posterImageId = text(rawMedia?.posterImageId, 160)
+  const posterImage = images.find((image) => image.id === posterImageId) || startImage
+  return {
+    startImageUrl: text(rawMedia?.startImageUrl, 2_000) || startImage?.url || '',
+    endImageUrl: text(rawMedia?.endImageUrl, 2_000) || endImage?.url || '',
+    posterUrl: text(rawMedia?.posterUrl, 2_000) || posterImage?.url || '',
+    posterImageId: posterImage?.id || '',
+    images,
+    animationUrl: text(rawMedia?.animationUrl, 2_000),
+    mimeType: text(rawMedia?.mimeType, 100) || startImage?.mimeType || '',
+    checksum: text(rawMedia?.checksum, 128),
+  }
+}
+
 async function actorContext(request, db) {
   const uid = request.auth?.uid
   if (!uid) throw new HttpsError('unauthenticated', 'Bạn cần đăng nhập để xem kho bài tập.')
@@ -53,10 +92,7 @@ function publicItemFromData(id, data) {
     equipment: stringList(data.equipment, 12, 80), environment: stringList(data.environment, 2, 20),
     difficulty: ['beginner', 'intermediate', 'advanced'].includes(data.difficulty) ? data.difficulty : 'beginner', goals: stringList(data.goals, 12, 80),
     instructionsVi: stringList(data.instructionsVi, 20, 600), cuesVi: stringList(data.cuesVi, 12, 300), commonMistakesVi: stringList(data.commonMistakesVi, 12, 300), breathingVi: text(data.breathingVi, 500),
-    media: {
-      startImageUrl: text(data.media?.startImageUrl, 2_000), endImageUrl: text(data.media?.endImageUrl, 2_000), posterUrl: text(data.media?.posterUrl, 2_000),
-      animationUrl: text(data.media?.animationUrl, 2_000), mimeType: text(data.media?.mimeType, 100), checksum: text(data.media?.checksum, 128),
-    },
+    media: normalizedMedia(data.media, id),
     defaultPrescription: {
       sets: Number.isInteger(data.defaultPrescription?.sets) ? data.defaultPrescription.sets : 3,
       reps: text(data.defaultPrescription?.reps, 40) || '10–12',
@@ -88,7 +124,7 @@ function editableItem(snapshot, actor) {
   })
 }
 
-function normalizeDraft(raw, current = {}) {
+function normalizeDraft(raw, current = {}, exerciseId = '') {
   const nameVi = text(raw.nameVi, 200)
   const nameEn = text(raw.nameEn, 200)
   if (!nameVi || !nameEn) throw new HttpsError('invalid-argument', 'Tên tiếng Việt và tiếng Anh là bắt buộc.')
@@ -99,10 +135,7 @@ function normalizeDraft(raw, current = {}) {
     environment: stringList(raw.environment, 2, 20).filter((item) => item === 'gym' || item === 'home'),
     difficulty: ['beginner', 'intermediate', 'advanced'].includes(raw.difficulty) ? raw.difficulty : 'beginner', goals: stringList(raw.goals, 12, 80),
     instructionsVi: stringList(raw.instructionsVi, 20, 600), cuesVi: stringList(raw.cuesVi, 12, 300), commonMistakesVi: stringList(raw.commonMistakesVi, 12, 300),
-    breathingVi: text(raw.breathingVi, 500), media: {
-      startImageUrl: text(raw.media?.startImageUrl, 2_000), endImageUrl: text(raw.media?.endImageUrl, 2_000), posterUrl: text(raw.media?.posterUrl, 2_000),
-      animationUrl: text(raw.media?.animationUrl, 2_000), mimeType: text(raw.media?.mimeType, 100), checksum: text(raw.media?.checksum, 128),
-    },
+    breathingVi: text(raw.breathingVi, 500), media: normalizedMedia(raw.media, exerciseId),
     defaultPrescription: {
       sets: Math.min(10, Math.max(1, Number(raw.defaultPrescription?.sets) || 3)), reps: text(raw.defaultPrescription?.reps, 40) || '10–12',
       restSeconds: Math.min(600, Math.max(0, Number(raw.defaultPrescription?.restSeconds) || 60)), rpe: Math.min(10, Math.max(1, Number(raw.defaultPrescription?.rpe) || 7)),
@@ -154,7 +187,7 @@ function createExerciseCatalogFunctions({ db, onCall }) {
         const draftRevision = Number.isInteger(current.workingDraftRevision) ? current.workingDraftRevision : revision
         if (!Number.isInteger(expectedRevision) || expectedRevision !== draftRevision) throw new HttpsError('aborted', 'Bản chỉnh sửa đã được người khác cập nhật. Hãy tải lại.')
         const nextRevision = draftRevision + 1
-        const normalized = normalizeDraft(request.data?.draft || {}, current.workingDraft || current)
+        const normalized = normalizeDraft(request.data?.draft || {}, current.workingDraft || current, exerciseId)
         transaction.update(reference, {
           workingDraft: normalized,
           workingDraftRevision: nextRevision,
@@ -172,7 +205,7 @@ function createExerciseCatalogFunctions({ db, onCall }) {
       }
       if (!Number.isInteger(expectedRevision) || expectedRevision !== revision) throw new HttpsError('aborted', 'Bài tập đã được người khác cập nhật. Hãy tải lại.')
       const nextRevision = revision + 1
-      const normalized = normalizeDraft(request.data?.draft || {}, current)
+      const normalized = normalizeDraft(request.data?.draft || {}, current, exerciseId)
       transaction.set(reference, { ...normalized, revision: nextRevision, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid }, { merge: true })
       transaction.create(reference.collection('revisions').doc(String(nextRevision)), { ...normalized, exerciseId, revision: nextRevision, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
       return { exerciseId, revision: nextRevision, status: normalized.status }

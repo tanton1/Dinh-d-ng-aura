@@ -27,6 +27,18 @@ function uploadCover(storage, courseId, name, bytes = validImage, options = {}) 
   })
 }
 
+function uploadExerciseImage(storage, exerciseId, mediaId, options = {}) {
+  return uploadBytes(ref(storage, `exercise-catalog/${exerciseId}/${mediaId}.webp`), validImage, {
+    contentType: options.contentType ?? 'image/webp',
+    customMetadata: {
+      resourceKind: options.resourceKind ?? 'exercise-image',
+      exerciseId: options.metadataExerciseId ?? exerciseId,
+      mediaId: options.metadataMediaId ?? mediaId,
+      uploadedBy: options.uploadedBy ?? 'editor-1',
+    },
+  })
+}
+
 describe('Aura Academy Storage rules', () => {
   before(async () => {
     testEnvironment = await initializeTestEnvironment({
@@ -59,5 +71,17 @@ describe('Aura Academy Storage rules', () => {
   test('cover uploads larger than five MiB are denied', async () => {
     const editorStorage = storageFor('editor-1', 'editor')
     await assertFails(uploadCover(editorStorage, 'course-large', 'cover.jpg', new Uint8Array(5 * 1024 * 1024 + 1)))
+  })
+
+  test('catalog staff can upload immutable WebP exercise images', async () => {
+    const editorStorage = storageFor('editor-1', 'editor')
+    const uploaded = await assertSucceeds(uploadExerciseImage(editorStorage, 'aura_hip_thrust', 'media-12345678'))
+    await assertSucceeds(getBytes(ref(storageFor('student-1', 'student'), uploaded.ref.fullPath)))
+  })
+
+  test('exercise image uploads reject students, forged metadata and unsupported formats', async () => {
+    await assertFails(uploadExerciseImage(storageFor('student-1', 'student'), 'aura_squat', 'media-student', { uploadedBy: 'student-1' }))
+    await assertFails(uploadExerciseImage(storageFor('editor-1', 'editor'), 'aura_squat', 'media-forged', { metadataExerciseId: 'another-exercise' }))
+    await assertFails(uploadExerciseImage(storageFor('editor-1', 'editor'), 'aura_squat', 'media-jpeg', { contentType: 'image/jpeg' }))
   })
 })

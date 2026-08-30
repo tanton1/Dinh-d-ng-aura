@@ -1,6 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebase'
-import type { ExerciseCatalogItem } from '../types'
+import type { ExerciseCatalogItem, ExerciseCatalogMediaImage } from '../types'
 
 type CatalogFilters = {
   query?: string
@@ -27,6 +27,24 @@ function strings(value: unknown, maximum = 30) {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => item.trim()).slice(0, maximum)
     : []
+}
+
+function mediaImages(value: unknown): ExerciseCatalogMediaImage[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry, index) => {
+    const image = record(entry)
+    if (!image || typeof image.id !== 'string' || typeof image.url !== 'string' || !image.url.trim()) return []
+    const role: ExerciseCatalogMediaImage['role'] = image.role === 'start' || image.role === 'end' || image.role === 'detail' ? image.role : 'detail'
+    return [{
+      id: image.id.slice(0, 160),
+      url: image.url.slice(0, 2_000),
+      storagePath: typeof image.storagePath === 'string' ? image.storagePath.slice(0, 500) : undefined,
+      role,
+      order: typeof image.order === 'number' ? image.order : index,
+      alt: typeof image.alt === 'string' ? image.alt.slice(0, 240) : undefined,
+      mimeType: typeof image.mimeType === 'string' ? image.mimeType.slice(0, 100) : undefined,
+    }]
+  }).slice(0, 12).sort((left, right) => left.order - right.order)
 }
 
 function parseCatalogItem(value: unknown): ExerciseCatalogItem | null {
@@ -64,6 +82,8 @@ function parseCatalogItem(value: unknown): ExerciseCatalogItem | null {
       startImageUrl: typeof media?.startImageUrl === 'string' ? media.startImageUrl : undefined,
       endImageUrl: typeof media?.endImageUrl === 'string' ? media.endImageUrl : undefined,
       posterUrl: typeof media?.posterUrl === 'string' ? media.posterUrl : undefined,
+      posterImageId: typeof media?.posterImageId === 'string' ? media.posterImageId : undefined,
+      images: mediaImages(media?.images),
       animationUrl: typeof media?.animationUrl === 'string' ? media.animationUrl : undefined,
       mimeType: typeof media?.mimeType === 'string' ? media.mimeType : undefined,
       checksum: typeof media?.checksum === 'string' ? media.checksum : undefined,
