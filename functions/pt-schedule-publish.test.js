@@ -51,6 +51,49 @@ test('validates a legacy branch-less entry and binds it to the exact contract', 
   assert.equal(session.hour, 6)
 })
 
+test('publishes a same-branch support PT as a warning instead of rejecting the learner', () => {
+  const fixture = baseFixture()
+  fixture.trainers.set('trainer-support', {
+    status: 'active',
+    branchId: BRANCH_ID,
+    availabilityMode: 'configured',
+    availableSlots: ['T2-6'],
+  })
+  fixture.schedule['T2-6'] = [{
+    studentId: 'student-a',
+    trainerId: 'trainer-support',
+    contractId: 'contract-a',
+    branchId: BRANCH_ID,
+    type: 'training',
+    trainerAssignmentWarning: true,
+  }]
+  const result = desiredEntries(fixture)
+  assert.deepEqual(result.errors, [])
+  assert.ok(result.warnings.includes('TRAINER_ASSIGNMENT_MISMATCH'))
+  const [session] = result.desired.values()
+  assert.equal(session.trainerId, 'trainer-support')
+  assert.equal(session.contractId, 'contract-a')
+  assert.equal(session.trainerAssignmentWarning, true)
+})
+
+test('does not warn for any same-branch PT when contract has no assigned trainer', () => {
+  const fixture = baseFixture()
+  fixture.contracts[0].trainerId = ''
+  fixture.contracts[0].trainerIds = []
+  const result = desiredEntries(fixture)
+  assert.deepEqual(result.errors, [])
+  assert.ok(!result.warnings.includes('TRAINER_ASSIGNMENT_MISMATCH'))
+  assert.equal(result.desired.values().next().value.trainerAssignmentWarning, undefined)
+})
+
+test('keeps the primary PT assigned when secondary trainer ids are stored separately', () => {
+  const fixture = baseFixture()
+  fixture.contracts[0].trainerIds = ['trainer-secondary']
+  const result = desiredEntries(fixture)
+  assert.deepEqual(result.errors, [])
+  assert.ok(!result.warnings.includes('TRAINER_ASSIGNMENT_MISMATCH'))
+})
+
 test('rejects more than one PT session for the same learner on one day', () => {
   const fixture = baseFixture()
   fixture.schedule['T2-7'] = [{ studentId: 'student-a', trainerId: 'trainer-a', type: 'training' }]

@@ -668,7 +668,7 @@ test('legacy published session falls back to the hour encoded in its id', () => 
   assert.equal(generated.optimizationSummary.trainerLoads.find((load) => load.trainerId === 'trainer-a' && load.day === 'T2').teachingSlots, 1)
 })
 
-test('blocks leave, trainer assignment mismatch and paused contract', () => {
+test('blocks leave and paused contracts but treats an outside assigned PT as support warning', () => {
   const data = fixture()
   data.leaves.push({ status: 'approved', trainerId: 'trainer-a', startDate: WEEK, endDate: WEEK })
   let result = candidateForSlot(data, { student: data.students[0], trainer: data.trainers[0], slotId: 'T2-6', schedule: {} })
@@ -677,12 +677,51 @@ test('blocks leave, trainer assignment mismatch and paused contract', () => {
   data.leaves = []
   data.contracts[0].trainerId = 'trainer-b'
   result = candidateForSlot(data, { student: data.students[0], trainer: data.trainers[0], slotId: 'T2-6', schedule: {} })
-  assert.ok(result.reasons.includes('TRAINER_ASSIGNMENT_MISMATCH'))
+  assert.equal(result.eligible, true)
+  assert.equal(result.trainerAssignmentWarning, true)
+  assert.deepEqual(result.assignedTrainerIds, ['trainer-b'])
 
   data.contracts[0].trainerId = 'trainer-a'
   data.contracts[0].pausePeriods = [{ startDate: WEEK, endDate: WEEK }]
   result = candidateForSlot(data, { student: data.students[0], trainer: data.trainers[0], slotId: 'T2-6', schedule: {} })
   assert.ok(result.reasons.includes('CONTRACT_PAUSED'))
+})
+
+test('published support PT session stays linked and visibly warned', () => {
+  const data = fixture()
+  data.contracts[0].trainerId = 'trainer-primary'
+  data.sessions = [{
+    id: 'published-support', status: 'scheduled', studentId: 'student-a', trainerId: 'trainer-a', branchId: BRANCH, date: WEEK, hour: 6,
+  }]
+  const generated = generateSchedule(data)
+  const entry = generated.schedule['T2-6'][0]
+  assert.equal(entry.contractId, 'contract-a')
+  assert.equal(entry.trainerAssignmentWarning, true)
+  assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 0)
+})
+
+test('uses an available support PT in the same branch when assigned PTs cannot teach', () => {
+  const data = fixture()
+  data.contracts[0].trainerId = 'trainer-primary'
+  data.contracts[0].trainerIds = ['trainer-secondary']
+  const generated = generateSchedule(data)
+  const entry = Object.values(generated.schedule).flat().find((item) => item.studentId === 'student-a')
+  assert.equal(entry.trainerId, 'trainer-a')
+  assert.equal(entry.trainerAssignmentWarning, true)
+  assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 0)
+  assert.ok(generated.warnings.some((warning) => warning.code === 'TRAINER_ASSIGNMENT_MISMATCH'
+    && warning.studentId === 'student-a'
+    && warning.trainerId === 'trainer-a'))
+})
+
+test('does not warn when learner has no primary or secondary trainer', () => {
+  const data = fixture()
+  data.contracts[0].trainerId = ''
+  data.contracts[0].trainerIds = []
+  const generated = generateSchedule(data)
+  const entry = Object.values(generated.schedule).flat().find((item) => item.studentId === 'student-a')
+  assert.equal(entry.trainerAssignmentWarning, undefined)
+  assert.ok(!generated.warnings.some((warning) => warning.code === 'TRAINER_ASSIGNMENT_MISMATCH'))
 })
 
 test('deterministic generator preserves locked entries and binds contract ids', () => {

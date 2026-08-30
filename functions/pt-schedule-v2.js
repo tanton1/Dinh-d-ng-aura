@@ -128,6 +128,7 @@ function safeSchedule(value) {
         type,
         ...(entry?.contractId ? { contractId: String(entry.contractId) } : {}),
         ...(entry?.isLocked === true ? { isLocked: true } : {}),
+        ...(entry?.trainerAssignmentWarning === true ? { trainerAssignmentWarning: true } : {}),
         ...(source ? { source } : {}),
         ...(availabilityOverride ? {
           availabilityOverride: true,
@@ -628,7 +629,11 @@ function resolveContract(data, studentId, trainerId, date, schedule = null) {
   const contract = candidates[0]
   if (contractPaused(contract, date)) return { contract: null, reasons: ['CONTRACT_PAUSED'] }
   const assigned = assignedTrainerIds(contract)
-  if (assigned.length && !assigned.includes(trainerId)) return { contract: null, reasons: ['TRAINER_ASSIGNMENT_MISMATCH'] }
+  // PT chính/phụ là thứ tự ưu tiên vận hành, không phải khóa cứng. Khi cả hai
+  // đều không thể nhận ca, mọi PT đang hoạt động trong cùng chi nhánh vẫn có
+  // thể dạy để không bỏ sót quyền lợi của học viên. Entry sẽ mang cờ cảnh báo
+  // để UI, publish và audit cùng nhận diện đây là ca PT hỗ trợ.
+  const trainerAssignmentWarning = assigned.length > 0 && !assigned.includes(trainerId)
   const activeForContract = data.sessions.filter((session) => session.contractId === contract.id
     && ['scheduled', 'rescheduled'].includes(session.status)
     && session.billingStatus !== 'charged').length
@@ -640,7 +645,7 @@ function resolveContract(data, studentId, trainerId, date, schedule = null) {
   if (contract.usedSessions + activeForContract + draftForContract >= contract.totalSessions) {
     return { contract: null, reasons: ['CONTRACT_SESSION_QUOTA_EXCEEDED'] }
   }
-  return { contract, reasons: [] }
+  return { contract, reasons: [], trainerAssignmentWarning, assignedTrainerIds: assigned }
 }
 
 function assignedTrainerIds(contract) {
@@ -747,6 +752,7 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
   if (student.status === 'inactive') reasons.push('STUDENT_NOT_ACTIVE')
   if (student.branchId !== data.branch.id) reasons.push('STUDENT_BRANCH_MISMATCH')
   if (trainer.status === 'inactive') reasons.push('TRAINER_NOT_ACTIVE')
+  if (trainer.branchId !== data.branch.id) reasons.push('TRAINER_BRANCH_MISMATCH')
   if (policy.employmentType === 'collaborator') {
     if (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.length) reasons.push('TRAINER_AVAILABILITY_UNCONFIGURED')
     else if (!trainer.availableSlots.includes(slotId)) reasons.push('OUTSIDE_TRAINER_AVAILABILITY')
@@ -774,6 +780,8 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
     eligible: reasons.length === 0,
     reasons: [...new Set(reasons)],
     contractId: contractResult.contract?.id || null,
+    trainerAssignmentWarning: contractResult.trainerAssignmentWarning === true,
+    assignedTrainerIds: contractResult.assignedTrainerIds || [],
     date,
     currentDailyLoad,
     projectedDailyLoad,
@@ -957,6 +965,7 @@ function candidateRecord(data, schedule, schedulingState, contractCache, student
     trainer,
     contractId: result.contractId,
     assignmentOrder: assignmentIndex >= 0 ? assignmentIndex : 1000,
+    trainerAssignmentWarning: result.trainerAssignmentWarning === true,
     score: generationScore({ student, contract, targetDate: result.date }),
     currentDailyLoad: result.currentDailyLoad,
     projectedDailyLoad: result.projectedDailyLoad,
@@ -1166,8 +1175,7 @@ function mergePublishedSessions(data, schedule, warnings) {
       const matches = data.contracts.filter((contract) => contract.studentId === session.studentId
         && contract.branchId === data.branch.id
         && contractCanServeScheduledDate(contract, date)
-        && !contractPaused(contract, date)
-        && (!assignedTrainerIds(contract).length || assignedTrainerIds(contract).includes(session.trainerId)))
+        && !contractPaused(contract, date))
       if (matches.length === 1) contractId = matches[0].id
     }
     if (!contractId) {
@@ -1178,6 +1186,10 @@ function mergePublishedSessions(data, schedule, warnings) {
       warnings.push({ code: 'DRAFT_CAPACITY_REACHED', entryCount: scheduleEntryCount(schedule), maxEntries: MAX_DRAFT_ENTRIES })
       break
     }
+    const resolvedContract = data.contracts.find((contract) => contract.id === contractId)
+    const assigned = assignedTrainerIds(resolvedContract)
+    const trainerAssignmentWarning = session.trainerAssignmentWarning === true
+      || (assigned.length > 0 && !assigned.includes(session.trainerId))
     schedule[slotId] = [...values, {
       studentId: session.studentId,
       trainerId: session.trainerId,
@@ -1185,6 +1197,7 @@ function mergePublishedSessions(data, schedule, warnings) {
       branchId: data.branch.id,
       type: 'training',
       source: 'published_existing',
+      ...(trainerAssignmentWarning ? { trainerAssignmentWarning: true } : {}),
       ...((session.billingStatus === 'charged' || ['completed', 'attended', 'no_show'].includes(session.status)) ? { isLocked: true } : {}),
     }]
   }
@@ -1226,7 +1239,16 @@ function generateSchedule(data) {
         branchId: data.branch.id,
         type: 'training',
         source: 'auto_v4',
+        ...(candidate.trainerAssignmentWarning ? { trainerAssignmentWarning: true } : {}),
       }]
+      if (candidate.trainerAssignmentWarning) {
+        warnings.push({
+          code: 'TRAINER_ASSIGNMENT_MISMATCH',
+          studentId: student.id,
+          trainerId: candidate.trainer.id,
+          slotId: candidate.slotId,
+        })
+      }
       scheduledCounts.set(student.id, (scheduledCounts.get(student.id) || 0) + 1)
       remainingByStudent.set(student.id, Math.max(0, (remainingByStudent.get(student.id) || 0) - 1))
       entryCount += 1
@@ -1391,7 +1413,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         schedule: generated.schedule,
         revision: nextRevision,
         status: 'draft',
-        generatorVersion: 'optimizer-v4',
+        generatorVersion: 'optimizer-v5',
         warnings: generated.warnings,
         optimizationSummary: generated.optimizationSummary,
         unassignedEntries: generated.unassignedEntries,
@@ -1400,7 +1422,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: 'pt_schedule.generated', actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, entryCount: scheduleEntryCount(generated.schedule), studentCoverage: generated.optimizationSummary.studentCoverage, slotUtilization: generated.optimizationSummary.slotUtilization, unassignedCount: generated.unassignedEntries.length, warnings: generated.warnings.slice(0, 100), createdAt: FieldValue.serverTimestamp() })
-      return { draftRevision: nextRevision, schedule: generated.schedule, warnings: generated.warnings, optimizationSummary: generated.optimizationSummary, unassignedEntries: generated.unassignedEntries, generatorVersion: 'optimizer-v4' }
+      return { draftRevision: nextRevision, schedule: generated.schedule, warnings: generated.warnings, optimizationSummary: generated.optimizationSummary, unassignedEntries: generated.unassignedEntries, generatorVersion: 'optimizer-v5' }
     })
   })
 
@@ -1432,6 +1454,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         const leftMissing = Math.max(0, Number(leftStudent?.sessionsPerWeek || 0) - (scheduledCounts.get(left.studentId) || 0))
         const rightMissing = Math.max(0, Number(rightStudent?.sessionsPerWeek || 0) - (scheduledCounts.get(right.studentId) || 0))
         return rank(left) - rank(right)
+          || Number(Boolean(left.trainerAssignmentWarning)) - Number(Boolean(right.trainerAssignmentWarning))
           || rightMissing - leftMissing
           || Number(leftStudent?.availableSlots?.length || 0) - Number(rightStudent?.availableSlots?.length || 0)
           || left.name.localeCompare(right.name, 'vi')
@@ -1569,6 +1592,8 @@ function createPtScheduleV2Functions({ db, onCall }) {
     const receipt = db.doc(`ptScheduleCommandReceipts/${commandReceiptId(actor.uid, branchId, week, idempotencyKey)}`)
     let schedule = safeSchedule(data.schedule)
     let availabilityOverrideMetadata = null
+    let selectedManualContractId = ''
+    let trainerAssignmentWarningMetadata = null
     if (command === 'add_student' || command === 'move_student') {
       const trainer = data.trainers.find((item) => item.id === trainerId)
       const student = data.students.find((item) => item.id === studentId)
@@ -1592,6 +1617,8 @@ function createPtScheduleV2Functions({ db, onCall }) {
           availabilityOverrideAt: new Date().toISOString(),
         }
       }
+      selectedManualContractId = result.contractId || ''
+      if (result.trainerAssignmentWarning) trainerAssignmentWarningMetadata = { trainerAssignmentWarning: true }
     }
     return db.runTransaction(async (transaction) => {
       const [current, existingReceipt] = await Promise.all([transaction.get(reference), transaction.get(receipt)])
@@ -1616,11 +1643,11 @@ function createPtScheduleV2Functions({ db, onCall }) {
         if (resetWeeklyTarget) delete currentWeeklyTargets[studentId]
         else currentWeeklyTargets[studentId] = weeklyTarget
       }
-      if (command === 'add_student') values.push({ studentId, trainerId, branchId, type: 'training', contractId: resolveContract(data, studentId, trainerId, dateForSlot(week, slotId.split('-')[0])).contract?.id || '', source: 'manual_v2', ...(availabilityOverrideMetadata || {}) })
+      if (command === 'add_student') values.push({ studentId, trainerId, branchId, type: 'training', contractId: selectedManualContractId, source: 'manual_v2', ...(trainerAssignmentWarningMetadata || {}), ...(availabilityOverrideMetadata || {}) })
       if (command === 'remove_student') schedule[slotId] = values.filter((entry) => !(entry.studentId === studentId && entry.trainerId === trainerId))
       if (command === 'move_student') {
         schedule[fromSlotId] = (schedule[fromSlotId] || []).filter((entry) => entry.studentId !== studentId)
-        values.push({ studentId, trainerId, branchId, type: 'training', contractId: resolveContract(data, studentId, trainerId, dateForSlot(week, slotId.split('-')[0])).contract?.id || '', source: 'manual_v2', ...(availabilityOverrideMetadata || {}) })
+        values.push({ studentId, trainerId, branchId, type: 'training', contractId: selectedManualContractId, source: 'manual_v2', ...(trainerAssignmentWarningMetadata || {}), ...(availabilityOverrideMetadata || {}) })
       }
       let requeuedEntries = []
       if (command === 'set_trainer_off') {
@@ -1664,7 +1691,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, idempotencyKey, result, createdAt: FieldValue.serverTimestamp() })
-      transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.${command}`, actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, affectedStudentCount: command === 'set_student_weekly_target' ? 1 : command === 'reset_draft' ? resetStudentIds.length : (command === 'add_student' || command === 'move_student') ? 1 : requeuedEntries.length, studentId: command.includes('student') ? studentId : null, weeklyTarget: command === 'set_student_weekly_target' ? (resetWeeklyTarget ? null : weeklyTarget) : null, availabilityOverride: Boolean(availabilityOverrideMetadata), availabilityOverrideReason: availabilityOverrideMetadata?.availabilityOverrideReason || null, reason: typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 300) : '', createdAt: FieldValue.serverTimestamp() })
+      transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.${command}`, actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, affectedStudentCount: command === 'set_student_weekly_target' ? 1 : command === 'reset_draft' ? resetStudentIds.length : (command === 'add_student' || command === 'move_student') ? 1 : requeuedEntries.length, studentId: command.includes('student') ? studentId : null, weeklyTarget: command === 'set_student_weekly_target' ? (resetWeeklyTarget ? null : weeklyTarget) : null, availabilityOverride: Boolean(availabilityOverrideMetadata), availabilityOverrideReason: availabilityOverrideMetadata?.availabilityOverrideReason || null, trainerAssignmentWarning: Boolean(trainerAssignmentWarningMetadata), reason: typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 300) : '', createdAt: FieldValue.serverTimestamp() })
       return result
     })
   })

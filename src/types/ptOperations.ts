@@ -284,6 +284,8 @@ export interface ScheduleEntry {
   branchId?: string
   type?: 'training' | 'off'
   source?: string
+  /** PT cùng chi nhánh đang hỗ trợ ngoài danh sách PT chính/phụ của hợp đồng. */
+  trainerAssignmentWarning?: boolean
   availabilityOverride?: boolean
   availabilityOverrideReason?: 'AVAILABILITY_NOT_SUBMITTED' | 'OUTSIDE_STUDENT_AVAILABILITY'
   availabilityOverrideBy?: string

@@ -192,7 +192,7 @@ export interface PtScheduleWorkspaceV2Result extends Omit<BranchScheduleWorkspac
     missingSessions: number
     unassignedEntries: number
   }
-  warnings: Array<{ code: string; studentId?: string; trainerId?: string; missingSessions?: number; entryCount?: number; maxEntries?: number }>
+  warnings: Array<{ code: string; studentId?: string; trainerId?: string; slotId?: string; missingSessions?: number; entryCount?: number; maxEntries?: number }>
   /** Optional trong lúc rollout Functions v3; UI luôn có bộ tính fallback từ draft. */
   optimizationSummary?: PtScheduleOptimizationSummary
   unassignedEntries?: PtScheduleUnassignedEntry[]
@@ -215,6 +215,10 @@ export interface PtScheduleSlotCandidate {
   /** Có thể xếp tay; false khi còn lỗi hợp đồng, chi nhánh, trùng lịch hoặc tải PT. */
   manualSelectable?: boolean
   availabilityReason?: 'AVAILABILITY_NOT_SUBMITTED' | 'OUTSIDE_STUDENT_AVAILABILITY' | null
+  /** True khi PT của ô lịch không nằm trong danh sách PT chính/phụ của hợp đồng. */
+  trainerAssignmentWarning?: boolean
+  /** Danh sách PT chính/phụ để UI giải thích cảnh báo mà không chặn xếp lịch. */
+  assignedTrainerIds?: string[]
 }
 
 export type PtScheduleDraftCommand =
@@ -262,7 +266,7 @@ const conflictLabels: Record<string, string> = {
   AMBIGUOUS_ACTIVE_CONTRACT: 'Có học viên có nhiều hợp đồng cùng hiệu lực.',
   CONTRACT_BRANCH_REQUIRED: 'Hợp đồng chưa xác định chi nhánh canonical.',
   CONTRACT_PAUSED: 'Hợp đồng đang OFF hoặc bảo lưu trong ngày tập.',
-  TRAINER_ASSIGNMENT_MISMATCH: 'PT chưa được phân công cho hợp đồng này.',
+  TRAINER_ASSIGNMENT_MISMATCH: 'PT hỗ trợ ngoài danh sách PT chính/phụ; ca vẫn hợp lệ trong cùng chi nhánh.',
   DUPLICATE_SCHEDULE_ENTRY: 'Một học viên bị lặp trong cùng ô lịch.',
   TRAINER_OFF_CONFLICT: 'Có học viên nằm trong ca PT đã đánh dấu nghỉ.',
   TRAINER_CAPACITY_EXCEEDED: 'Có ca vượt sức chứa được cấu hình cho PT.',

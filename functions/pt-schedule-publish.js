@@ -153,7 +153,10 @@ function branchScheduleSnapshot(schedule, branchId, students, trainers) {
         trainerId: entry.trainerId,
         branchId,
         type: entry.type === 'off' ? 'off' : 'training',
+        ...(entry.contractId ? { contractId: entry.contractId } : {}),
         ...(entry.isLocked === true ? { isLocked: true } : {}),
+        ...(entry.trainerAssignmentWarning === true ? { trainerAssignmentWarning: true } : {}),
+        ...(typeof entry.source === 'string' && entry.source ? { source: entry.source.slice(0, 40) } : {}),
         ...(manualAvailabilityOverride(entry) || {}),
       }))
     if (scoped.length) result[slotId] = scoped
@@ -222,7 +225,10 @@ function normalizedDraftSchedule(value, branchId, allowManualAvailabilityOverrid
         trainerId,
         branchId,
         type,
+        ...(entry?.contractId ? { contractId: documentId(entry.contractId, 'Mã hợp đồng') } : {}),
         ...(entry?.isLocked === true ? { isLocked: true } : {}),
+        ...(entry?.trainerAssignmentWarning === true ? { trainerAssignmentWarning: true } : {}),
+        ...(typeof entry?.source === 'string' && entry.source ? { source: entry.source.slice(0, 40) } : {}),
       }
       return allowManualAvailabilityOverrides
         ? { ...normalized, ...(manualAvailabilityOverride(entry) || {}) }
@@ -353,13 +359,12 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         continue
       }
       const contract = contractCandidates[0]
-      const assignedTrainerIds = Array.isArray(contract.trainerIds) && contract.trainerIds.length
-        ? contract.trainerIds
-        : contract.trainerId ? [contract.trainerId] : []
-      if (assignedTrainerIds.length && !assignedTrainerIds.includes(trainerId)) {
-        errors.push('TRAINER_ASSIGNMENT_MISMATCH')
-        continue
-      }
+      const assignedTrainerIds = [...new Set([
+        contract.trainerId,
+        ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : []),
+      ].filter(Boolean))]
+      const trainerAssignmentWarning = assignedTrainerIds.length > 0 && !assignedTrainerIds.includes(trainerId)
+      if (trainerAssignmentWarning) warnings.push('TRAINER_ASSIGNMENT_MISMATCH')
       const pauses = Array.isArray(contract.pausePeriods) ? contract.pausePeriods : []
       if (pauses.some((period) => {
         const pauseStart = storedDate(period?.startDate)
@@ -389,6 +394,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         scheduleStatus: 'scheduled',
         billingStatus: 'pending',
         attendanceStatus: 'pending',
+        ...(trainerAssignmentWarning ? { trainerAssignmentWarning: true } : {}),
         ...(override || {}),
       })
     }
@@ -578,6 +584,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
         const previous = existing.data()
         transaction.update(existing.ref, {
           ...desired,
+          trainerAssignmentWarning: desired.trainerAssignmentWarning === true ? true : FieldValue.delete(),
           scheduleVersion: nextVersion,
           status: 'scheduled',
           scheduleStatus: 'rescheduled',
