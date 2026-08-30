@@ -309,6 +309,12 @@ export interface SchedulerResult {
   debugSteps?: string[]
 }
 
+export interface ScheduleHoliday {
+  date: string
+  name: string
+  paid: true
+}
+
 export interface ScheduleConfig {
   workingDays: Day[]
   workingHours: number[]
@@ -316,6 +322,7 @@ export interface ScheduleConfig {
   lockDayOfWeek?: number
   lockHour?: number
   holidays?: string[]
+  holidayDetails?: ScheduleHoliday[]
   complimentaryChangeCancelPerMonth?: 1 | 2
   sessionChangeDeadlineHours?: number
   offMaxDaysPerRequest?: number

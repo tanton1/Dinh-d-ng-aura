@@ -138,14 +138,35 @@ function normalizedHolidays(value, periodId) {
   }).sort((left, right) => left.date.localeCompare(right.date))
 }
 
-function mergeWorkCalendar(periodId, globalValue = {}, branchValue = {}) {
+function normalizedPolicyHolidays(value = {}, periodId) {
+  const details = Array.isArray(value.holidayDetails) ? value.holidayDetails.slice(0, 100) : []
+  const legacyDates = Array.isArray(value.holidays) ? value.holidays.slice(0, 100) : []
+  const holidayMap = new Map()
+  details.forEach((holiday) => {
+    const date = optionalDateKey(holiday?.date)
+    if (!date || !date.startsWith(`${periodId}-`)) return
+    const normalizedName = typeof holiday?.name === 'string' ? holiday.name.trim().replace(/\s+/g, ' ').slice(0, 100) : ''
+    holidayMap.set(date, { date, name: normalizedName.length >= 2 ? normalizedName : 'Ngày nghỉ lễ', paid: true })
+  })
+  legacyDates.forEach((value) => {
+    const date = optionalDateKey(value)
+    if (date && date.startsWith(`${periodId}-`) && !holidayMap.has(date)) {
+      holidayMap.set(date, { date, name: 'Ngày nghỉ lễ', paid: true })
+    }
+  })
+  return [...holidayMap.values()].sort((left, right) => left.date.localeCompare(right.date))
+}
+
+function mergeWorkCalendar(periodId, globalValue = {}, branchValue = {}, policyValue = {}) {
   const branchConfigured = branchValue && Object.keys(branchValue).length > 0
   const selected = branchConfigured ? branchValue : globalValue
   const weeklyRestDays = normalizedWeeklyRestDays(selected.weeklyRestDays)
   const globalHolidays = normalizedHolidays(globalValue.holidays, periodId)
   const branchHolidays = branchConfigured ? normalizedHolidays(branchValue.holidays, periodId) : []
+  const policyHolidays = normalizedPolicyHolidays(policyValue, periodId)
   const holidayMap = new Map(globalHolidays.map((holiday) => [holiday.date, holiday]))
   branchHolidays.forEach((holiday) => holidayMap.set(holiday.date, holiday))
+  policyHolidays.forEach((holiday) => holidayMap.set(holiday.date, holiday))
   const configured = Object.keys(selected).length > 0
   return {
     periodId,
@@ -307,14 +328,16 @@ async function loadIdentity(db, staffId, uid = staffId) {
 }
 
 async function loadCalendar(db, periodId, branchId) {
-  const [globalSnapshot, branchSnapshot] = await Promise.all([
+  const [globalSnapshot, branchSnapshot, policySnapshot] = await Promise.all([
     db.doc(`workCalendars/global_${periodId}`).get(),
     branchId ? db.doc(`workCalendars/${branchId}_${periodId}`).get() : Promise.resolve(null),
+    db.doc('settings/scheduleConfig').get(),
   ])
   return mergeWorkCalendar(
     periodId,
     globalSnapshot?.exists ? globalSnapshot.data() : {},
     branchSnapshot?.exists ? branchSnapshot.data() : {},
+    policySnapshot?.exists ? policySnapshot.data() : {},
   )
 }
 
@@ -585,12 +608,13 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
     const periodId = payrollPeriod(request.data?.periodId)
     const branchFilter = typeof request.data?.branchId === 'string' ? request.data.branchId.trim() : ''
     const { start, end } = payrollPeriodBounds(periodId)
-    const [staffSnapshot, trainerSnapshot, assignmentSnapshot, attendanceSnapshot, calendarSnapshot, teachingEvidence, policySnapshot, referralLedgerSnapshot] = await Promise.all([
+    const [staffSnapshot, trainerSnapshot, assignmentSnapshot, attendanceSnapshot, calendarSnapshot, schedulePolicySnapshot, teachingEvidence, policySnapshot, referralLedgerSnapshot] = await Promise.all([
       db.collection('staff').limit(450).get(),
       db.collection('trainers').limit(450).get(),
       db.collection('roleAssignments').where('accessRole', '==', 'staff').limit(450).get(),
       db.collection('staffAttendanceDays').where('periodId', '==', periodId).limit(5000).get(),
       db.collection('workCalendars').where('periodId', '==', periodId).limit(100).get(),
+      db.doc('settings/scheduleConfig').get(),
       loadTeachingEvidence(db, periodId),
       db.collection('payrollPolicies').orderBy('effectiveFrom', 'desc').limit(100).get(),
       db.collection('ledgerEntries').where('effectiveAt', '>=', start).where('effectiveAt', '<', end).limit(5001).get(),
@@ -605,6 +629,7 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
     })
     const calendars = new Map(calendarSnapshot.docs.map((item) => [item.data().branchId || 'global', item.data()]))
     const globalCalendar = calendars.get('global') || {}
+    const schedulePolicy = schedulePolicySnapshot.exists ? schedulePolicySnapshot.data() : {}
     const policies = policySnapshot.docs.map((snapshot) => {
       const data = snapshot.data() || {}
       return {
@@ -652,7 +677,7 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
       .filter((staff) => staff.status !== 'inactive' && (!branchFilter || staff.branchId === branchFilter))
       .map((staff) => {
         const user = userByStaffId.get(staff.id) || {}
-        const calendar = mergeWorkCalendar(periodId, globalCalendar, calendars.get(staff.branchId) || {})
+        const calendar = mergeWorkCalendar(periodId, globalCalendar, calendars.get(staff.branchId) || {}, schedulePolicy)
         const teachingSlots = teachingEvidence.byStaff.get(staff.id) || []
         const profile = payrollProfile(staff)
         const eligiblePolicies = policies.filter((policy) => policySupportsProfile(policy, profile))

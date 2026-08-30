@@ -727,13 +727,14 @@ function createPayrollFunctions({ db, onCall }) {
       const existing = await transaction.get(runReference)
       if (existing.exists) return { runId: existing.id, unchanged: true, status: existing.data().status }
 
-      const [attendance, staffSnapshot, trainerRecordsSnapshot, assignmentSnapshot, workdayAttendanceSnapshot, calendarSnapshot, referralLedgerSnapshot] = await Promise.all([
+      const [attendance, staffSnapshot, trainerRecordsSnapshot, assignmentSnapshot, workdayAttendanceSnapshot, calendarSnapshot, schedulePolicySnapshot, referralLedgerSnapshot] = await Promise.all([
         transaction.get(db.collection('attendanceEvents').where('occurredAt', '>=', start).where('occurredAt', '<', end)),
         transaction.get(db.collection('staff').limit(451)),
         transaction.get(db.collection('trainers').limit(451)),
         transaction.get(db.collection('roleAssignments').where('accessRole', '==', 'staff').limit(451)),
         transaction.get(db.collection('staffAttendanceDays').where('periodId', '==', periodId).limit(5001)),
         transaction.get(db.collection('workCalendars').where('periodId', '==', periodId).limit(101)),
+        transaction.get(db.doc('settings/scheduleConfig')),
         transaction.get(db.collection('ledgerEntries').where('effectiveAt', '>=', start).where('effectiveAt', '<', end).limit(5001)),
       ])
       if (staffSnapshot.size > 450 || trainerRecordsSnapshot.size > 450 || assignmentSnapshot.size > 450 || workdayAttendanceSnapshot.size > 5000 || calendarSnapshot.size > 100 || referralLedgerSnapshot.size > 5000) {
@@ -846,6 +847,7 @@ function createPayrollFunctions({ db, onCall }) {
       })
       const calendars = new Map(calendarSnapshot.docs.map((item) => [item.data().branchId || 'global', item.data()]))
       const globalCalendar = calendars.get('global') || {}
+      const schedulePolicy = schedulePolicySnapshot.exists ? schedulePolicySnapshot.data() : {}
       const defaultPolicy = selectedPolicies.find((policy) => policy.id === defaultPolicyId) || selectedPolicies[0]
       const selectedPolicyById = new Map(selectedPolicies.map((policy) => [policy.id, policy]))
       const policySnapshots = selectedPolicies.map(payrollPolicySnapshot)
@@ -853,7 +855,7 @@ function createPayrollFunctions({ db, onCall }) {
       const itemRecords = staffIds.map((staffId) => {
         const staff = { ...(trainerRecordById.get(staffId) || {}), ...(staffRecordById.get(staffId) || {}) }
         const identity = identityById.get(staffId) || {}
-        const calendar = mergeWorkCalendar(periodId, globalCalendar, calendars.get(identity.branchId) || {})
+        const calendar = mergeWorkCalendar(periodId, globalCalendar, calendars.get(identity.branchId) || {}, schedulePolicy)
         const teachingSlots = teaching.trainers.get(staffId) || []
         const workdays = calculateWorkdayPayroll({
           periodId,

@@ -55,6 +55,29 @@ test('paid holidays are excluded and unpaid absences reduce base salary by the c
   assert.equal(result.days.find((item) => item.date === '2026-08-13').status, 'paid_leave')
 })
 
+test('global schedule policy holidays flow into payroll and remain paid across branch calendars', () => {
+  const calendar = mergeWorkCalendar('2026-09', {
+    periodId: '2026-09', branchId: 'global', weeklyRestDays: [0], holidays: [], status: 'approved', revision: 2,
+  }, {
+    periodId: '2026-09', branchId: 'branch-a', weeklyRestDays: [0], holidays: [{ date: '2026-09-02', name: 'Ghi chú cũ', paid: false }], status: 'approved', revision: 3,
+  }, {
+    holidayDetails: [{ date: '2026-09-02', name: 'Quốc khánh', paid: true }],
+    holidays: ['2026-09-02', '2026-09-03'],
+  })
+  const attendance = monthDateKeys('2026-09').map((date) => ({ date, status: 'present', revision: 1 }))
+  const result = calculateWorkdayPayroll({
+    periodId: '2026-09', calendar, attendance,
+    staff: { baseSalary: 12_000_000 }, today: '2026-09-30',
+  })
+  assert.deepEqual(calendar.holidays, [
+    { date: '2026-09-02', name: 'Quốc khánh', paid: true },
+    { date: '2026-09-03', name: 'Ngày nghỉ lễ', paid: true },
+  ])
+  assert.equal(result.days.find((item) => item.date === '2026-09-02').status, 'paid_holiday')
+  assert.equal(result.days.find((item) => item.date === '2026-09-03').status, 'paid_holiday')
+  assert.equal(result.baseSalaryEarned, 12_000_000)
+})
+
 test('missing past attendance and benefit leave block review but future workdays remain upcoming', () => {
   const calendar = mergeWorkCalendar('2026-08', {
     periodId: '2026-08', weeklyRestDays: [0], holidays: [], status: 'approved', revision: 1,

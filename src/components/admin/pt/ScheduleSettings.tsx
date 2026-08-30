@@ -21,7 +21,8 @@ export default function ScheduleSettings() {
     lockDayOfWeek: scheduleConfig?.lockDayOfWeek ?? 6,
     lockHour: scheduleConfig?.lockHour ?? 12,
     isAutoLockEnabled: scheduleConfig?.isAutoLockEnabled ?? false,
-    holidays: scheduleConfig?.holidays || []
+    holidays: scheduleConfig?.holidays || [],
+    holidayDetails: scheduleConfig?.holidayDetails || []
   });
   const [isSaving, setIsSaving] = useState(false);
   const [newHoliday, setNewHoliday] = useState('');
@@ -50,7 +51,10 @@ export default function ScheduleSettings() {
     
     setConfig(prev => ({
       ...prev,
-      holidays: [...(prev.holidays || []), newHoliday].sort()
+      holidays: [...(prev.holidays || []), newHoliday].sort(),
+      holidayDetails: [...(prev.holidayDetails || []), { date: newHoliday, name: 'Ngày nghỉ lễ', paid: true as const }]
+        .filter((holiday, index, values) => values.findIndex((item) => item.date === holiday.date) === index)
+        .sort((left, right) => left.date.localeCompare(right.date))
     }));
     setNewHoliday('');
   };
@@ -58,7 +62,8 @@ export default function ScheduleSettings() {
   const removeHoliday = (date: string) => {
     setConfig(prev => ({
       ...prev,
-      holidays: (prev.holidays || []).filter(d => d !== date)
+      holidays: (prev.holidays || []).filter(d => d !== date),
+      holidayDetails: (prev.holidayDetails || []).filter((holiday) => holiday.date !== date)
     }));
   };
 
