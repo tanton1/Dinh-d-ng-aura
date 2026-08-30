@@ -77,7 +77,7 @@ const studentNavSections: ShellNavSection[] = [
     items: [
       { id: 'schedule' as const, label: 'Lịch học viên', icon: CalendarDays },
       { id: 'student-availability' as const, label: 'Lịch rảnh', icon: CalendarClock },
-      { id: 'pt-workout' as const, label: 'Giáo án PT', icon: Dumbbell },
+      { id: 'pt-workout' as const, label: 'Tập luyện', icon: Dumbbell },
     ],
   },
   {
@@ -89,9 +89,8 @@ const studentNavSections: ShellNavSection[] = [
 const studentMobileNav: ShellNavItem[] = [
   { id: 'home', label: 'Hôm nay', icon: Home },
   { id: 'nutrition', label: 'Dinh dưỡng', icon: Soup },
-  { id: 'schedule', label: 'Lịch học viên', icon: Dumbbell },
+  { id: 'pt-workout', label: 'Tập luyện', icon: Dumbbell },
   { id: 'progress', label: 'Tiến độ', icon: BarChart3 },
-  { id: 'courses', label: 'Học', icon: BookOpen },
   { id: 'profile', label: 'Cá nhân', icon: UserRound },
 ]
 
@@ -215,7 +214,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   progress: 'Tiến độ & ôn tập',
   schedule: 'Lịch học viên',
   'student-availability': 'Lịch rảnh',
-  'pt-workout': 'Giáo án PT của tôi',
+  'pt-workout': 'Tập luyện',
   profile: 'Cá nhân',
   workout: 'Buổi tập',
   delivery: 'Aura Delivery',
