@@ -26,15 +26,27 @@ for (const assetPath of assetPaths.slice(0, 4)) {
 
 if (!entryBundle) throw new Error('Production entry bundle was not found')
 
-checks.push({ name: 'no sensitive env placeholders', ok: !entryBundle.includes('[SENSITIVE]') })
-checks.push({ name: 'Firebase project config', ok: entryBundle.includes('gen-lang-client-0815966909') })
+// Firebase initialization is intentionally lazy-loaded to keep the public
+// shell fast. Validate the split Firestore bootstrap chunk as well as the
+// entry bundle instead of reporting a false production configuration error.
+let firebaseBootstrapBundle = ''
+const firebaseBootstrapPath = entryBundle.match(/(?:\.\/|assets\/)(firebaseFirestore-[A-Za-z0-9_-]+\.js)/)?.[1]
+if (firebaseBootstrapPath) {
+  const asset = await fetchText(`/assets/${firebaseBootstrapPath}`)
+  firebaseBootstrapBundle = asset.body
+  checks.push({ name: `/assets/${firebaseBootstrapPath}`, ok: asset.body.length > 0 })
+}
+const configurationBundles = `${entryBundle}\n${firebaseBootstrapBundle}`
+
+checks.push({ name: 'no sensitive env placeholders', ok: !configurationBundles.includes('[SENSITIVE]') })
+checks.push({ name: 'Firebase project config', ok: configurationBundles.includes('gen-lang-client-0815966909') })
 checks.push({
   name: 'Firestore named database config',
-  ok: entryBundle.includes('ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7'),
+  ok: configurationBundles.includes('ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7'),
 })
 
 const firebaseApiKeys = [...new Set(
-  [...entryBundle.matchAll(/AIza[0-9A-Za-z_-]{20,}/g)].map((match) => match[0]),
+  [...configurationBundles.matchAll(/AIza[0-9A-Za-z_-]{20,}/g)].map((match) => match[0]),
 )]
 checks.push({ name: 'single Firebase web API key', ok: firebaseApiKeys.length === 1 })
 
