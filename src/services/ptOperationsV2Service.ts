@@ -12,6 +12,27 @@ function callableErrorCode(error: unknown) {
   return typeof error.code === 'string' ? error.code : ''
 }
 
+function callableErrorMessage(error: unknown) {
+  if (!error || typeof error !== 'object' || !('message' in error)) return ''
+  return typeof error.message === 'string' ? error.message.trim() : ''
+}
+
+function genericCallableMessage(value: string) {
+  return !value || /^(?:firebase:\s*)?(?:functions\/)?(?:internal|unknown|error)(?:\s*\(functions\/(?:internal|unknown)\))?\.?$/i.test(value)
+}
+
+function staffCallableMessage(code: string, rawMessage: string) {
+  if (!genericCallableMessage(rawMessage)) return rawMessage
+  if (code === 'functions/resource-exhausted') return 'Không gian Staff đang có nhiều lượt truy cập. Aura đã thử lại nhưng chưa có phiên xử lý trống.'
+  if (code === 'functions/deadline-exceeded') return 'Dữ liệu Staff phản hồi quá thời gian. Hãy thử tải lại trang.'
+  if (code === 'functions/unavailable') return 'Kết nối tới dịch vụ Staff tạm gián đoạn. Hãy kiểm tra mạng và thử lại.'
+  if (code === 'functions/internal') return 'Dịch vụ Staff gặp lỗi máy chủ. Mã lỗi đã được gửi để Aura đối soát.'
+  if (code === 'functions/unauthenticated') return 'Phiên đăng nhập Staff đã hết hạn. Hãy đăng nhập lại.'
+  if (code === 'functions/permission-denied') return 'Tài khoản Staff chưa đồng bộ quyền hoặc phạm vi chi nhánh. Hãy liên hệ quản trị viên.'
+  if (code === 'functions/not-found') return 'Tài khoản chưa được liên kết với hồ sơ PT đang hoạt động.'
+  return rawMessage || 'Không thể kết nối không gian làm việc Staff.'
+}
+
 function retryDelay(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
 }
@@ -29,25 +50,14 @@ async function call<Input, Output>(name: string, input: Input): Promise<Output> 
       return (await invoke(input)).data
     } catch (error) {
       const code = callableErrorCode(error)
+      const rawMessage = callableErrorMessage(error)
       reportClientIssue('firestore', error, {
         phase: `staff_callable_${name}`,
         route: window.location.hash,
         retryable: retryableCodes.has(code),
       })
       if (!retryableCodes.has(code) || attempt === 2) {
-        if (retryableCodes.has(code)) {
-          if (code === 'functions/resource-exhausted') {
-            throw new Error('Không gian Staff đang có nhiều lượt truy cập. Aura đã thử lại nhưng chưa có phiên xử lý trống.')
-          }
-          if (code === 'functions/deadline-exceeded') {
-            throw new Error('Dữ liệu Staff phản hồi quá thời gian. Hãy thử tải lại trang.')
-          }
-          if (code === 'functions/unavailable') {
-            throw new Error('Kết nối tới dịch vụ Staff tạm gián đoạn. Hãy kiểm tra mạng và thử lại.')
-          }
-          throw new Error('Dịch vụ Staff gặp lỗi máy chủ. Mã lỗi đã được gửi để Aura đối soát.')
-        }
-        throw error
+        throw new Error(staffCallableMessage(code, rawMessage))
       }
       await retryDelay(350 * (2 ** attempt))
     }

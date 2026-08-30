@@ -22,6 +22,8 @@ const {
 } = require('./nutrition-scan-cache')
 
 const nutritionSource = readFileSync(join(__dirname, 'nutrition.js'), 'utf8')
+const nutritionClientSource = readFileSync(join(__dirname, '..', 'src', 'services', 'nutritionService.ts'), 'utf8')
+const serviceWorkerSource = readFileSync(join(__dirname, '..', 'public', 'sw.js'), 'utf8')
 
 function nutrition(overrides = {}) {
   return {
@@ -308,4 +310,13 @@ test('apikey.fun is primary for nutrition vision, reviews, and advice while Open
   assert.match(nutritionSource, /if \(!openRouterApiKey \|\| !shouldFallbackToOpenRouter\(error\)\) throw error/)
   assert.match(nutritionSource, /generateMealReview[\s\S]*generateNutritionTextWithFallback/)
   assert.match(nutritionSource, /askAiCoach[\s\S]*generateNutritionTextWithFallback/)
+})
+
+test('client accepts apikey.fun responses and the current app shell removes stale Aura caches', () => {
+  assert.match(nutritionClientSource, /value\.provider !== 'apikey_fun'/)
+  assert.match(nutritionClientSource, /provider: 'apikey_fun' \| 'openrouter' \| 'gemini' \| 'none'/)
+  assert.match(serviceWorkerSource, /aura-shell-v13-20260830-schedule-access-fix/)
+  assert.match(serviceWorkerSource, /name\.startsWith\('aura-shell-'\) && name !== CACHE_VERSION/)
+  assert.match(serviceWorkerSource, /self\.skipWaiting\(\)/)
+  assert.match(serviceWorkerSource, /self\.clients\.claim\(\)/)
 })

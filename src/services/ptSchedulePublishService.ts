@@ -1,6 +1,7 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebase'
+import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebase'
 import type { Schedule, ScheduleConfig, Session, Student, StudentContract, Trainer } from '../types'
+import { reportClientIssue } from './clientTelemetryService'
 
 export interface PtSchedulePublishDiff {
   create: number
@@ -150,14 +151,27 @@ export interface PtScheduleUnassignedEntry {
   studentId: string
   studentName?: string
   missingSessions: number
+  blockerType?: 'optimizer_gap' | 'input_or_capacity'
   reasonCodes?: string[]
   reasons?: string[]
   suggestedSlots?: string[]
 }
 
+export interface PtScheduleSlotUtilization {
+  teachingSlots: number
+  studentSessions: number
+  pairedSlots: number
+  singleSlots: number
+  fullSlots: number
+  pairRatePercent: number
+  seatUtilizationPercent: number
+}
+
 export interface PtScheduleOptimizationSummary {
   studentCoverage?: PtScheduleStudentCoverage
   trainerLoads?: PtScheduleTrainerDailyLoad[]
+  slotUtilization?: PtScheduleSlotUtilization
+  pairingMoves?: number
   totalTargetSessions?: number
   scheduledEntries?: number
   missingSessions?: number
@@ -286,33 +300,83 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {}
 }
 
+const retryableCallableCodes = new Set(['internal', 'resource-exhausted', 'unavailable', 'deadline-exceeded'])
+const retryableReadCallables = new Set([
+  'getMyBranchScheduleWorkspace',
+  'getPtScheduleSlotCandidates',
+  'getPtScheduleWorkspace',
+  'listPtScheduleBranches',
+  'listPtScheduleVersions',
+  'validatePtScheduleDraft',
+])
+
+function callableErrorCode(error: unknown) {
+  const source = asRecord(error)
+  return typeof source.code === 'string' ? source.code.replace(/^functions\//, '') : ''
+}
+
+function genericCallableMessage(value: string) {
+  return !value || /^(?:firebase:\s*)?(?:functions\/)?(?:internal|unknown|error)(?:\s*\(functions\/(?:internal|unknown)\))?\.?$/i.test(value.trim())
+}
+
+function friendlyCallableMessage(code: string, rawMessage: string) {
+  if (!genericCallableMessage(rawMessage)) return rawMessage.trim()
+  if (code === 'internal') return 'Dịch vụ lịch gặp lỗi máy chủ. Aura đã ghi nhận để đối soát; hãy thử tải lại.'
+  if (code === 'resource-exhausted') return 'Dịch vụ lịch đang có nhiều lượt xử lý. Aura đã thử lại nhưng chưa có phiên trống.'
+  if (code === 'deadline-exceeded') return 'Dữ liệu lịch phản hồi quá thời gian. Hãy thử tải lại trang.'
+  if (code === 'unavailable') return 'Kết nối tới dịch vụ lịch tạm gián đoạn. Hãy kiểm tra mạng và thử lại.'
+  if (code === 'unauthenticated') return 'Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại để tải lịch.'
+  if (code === 'permission-denied') return 'Tài khoản chưa được đồng bộ quyền hoặc phạm vi chi nhánh.'
+  return 'Chưa thể kiểm tra lịch PT.'
+}
+
+function retryDelay(milliseconds: number) {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds))
+}
+
 export function asPtSchedulePublishError(error: unknown) {
   if (error instanceof PtSchedulePublishError) return error
   const source = asRecord(error)
   const details = asRecord(source.details)
-  const code = typeof source.code === 'string' ? source.code.replace(/^functions\//, '') : ''
-  const issueCode = typeof details.issueCode === 'string' ? details.issueCode : code === 'aborted' ? 'REVISION_CONFLICT' : 'UNKNOWN'
+  const code = callableErrorCode(error)
+  const issueCode = typeof details.issueCode === 'string'
+    ? details.issueCode
+    : code === 'aborted'
+      ? 'REVISION_CONFLICT'
+      : code
+        ? `CALLABLE_${code.replace(/-/g, '_').toUpperCase()}`
+        : 'UNKNOWN'
   const conflicts = Array.isArray(details.errors)
     ? details.errors.filter((item): item is string => typeof item === 'string')
     : []
-  const message = typeof source.message === 'string' && source.message.trim()
-    ? source.message.trim()
-    : 'Chưa thể kiểm tra lịch PT.'
+  const rawMessage = typeof source.message === 'string' ? source.message : ''
   return new PtSchedulePublishError(
-    message,
+    friendlyCallableMessage(code, rawMessage),
     issueCode,
     conflicts,
-    ['aborted', 'unavailable', 'deadline-exceeded', 'resource-exhausted'].includes(code),
+    code === 'aborted' || retryableCallableCodes.has(code),
   )
 }
 
 async function invoke<TInput extends Record<string, unknown>, TOutput>(name: string, input: TInput) {
-  try {
-    const callable = httpsCallable<TInput, TOutput>(functionsInstance(), name, { timeout: 60_000 })
-    return (await callable(input)).data
-  } catch (error) {
-    throw asPtSchedulePublishError(error)
+  const callable = httpsCallable<TInput, TOutput>(functionsInstance(), name, { timeout: 60_000 })
+  const maximumAttempts = retryableReadCallables.has(name) ? 3 : 1
+  for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
+    try {
+      return (await callable(input)).data
+    } catch (error) {
+      const code = callableErrorCode(error)
+      const retryable = retryableCallableCodes.has(code)
+      reportClientIssue('firestore', error, {
+        phase: `admin_schedule_callable_${name}`,
+        route: typeof window === 'undefined' ? '' : window.location.hash,
+        retryable,
+      })
+      if (!retryable || attempt === maximumAttempts - 1) throw asPtSchedulePublishError(error)
+      await retryDelay(350 * (2 ** attempt))
+    }
   }
+  throw new PtSchedulePublishError('Chưa thể kết nối dịch vụ lịch PT.', 'SYNC_UNAVAILABLE', [], true)
 }
 
 export function validatePtScheduleDraft(input: { weekId: string; branchId: string; expectedDraftRevision: number }) {
@@ -358,7 +422,7 @@ export function getPtScheduleWorkspace(input: { weekId: string; branchId: string
 }
 
 export function generatePtScheduleDraft(input: { weekId: string; branchId: string; expectedDraftRevision: number }) {
-  return invoke<typeof input, {
+  type Result = {
     draftRevision: number
     schedule: Schedule
     warnings: Array<{ code: string; studentId?: string; missingSessions?: number }>
@@ -368,7 +432,12 @@ export function generatePtScheduleDraft(input: { weekId: string; branchId: strin
     trainerLoads?: PtScheduleTrainerDailyLoad[]
     studentCoverage?: PtScheduleStudentCoverage
     unassigned?: PtScheduleUnassignedEntry[]
-  }>('generatePtScheduleDraft', input)
+  }
+  if (!firebaseScheduleOptimizerFunctions) {
+    return Promise.reject(new PtSchedulePublishError('Bộ tối ưu lịch chưa sẵn sàng.', 'SYNC_UNAVAILABLE', [], true))
+  }
+  const callable = httpsCallable<typeof input, Result>(firebaseScheduleOptimizerFunctions, 'generatePtScheduleDraftV4', { timeout: 120_000 })
+  return callable(input).then((response) => response.data).catch((error) => { throw asPtSchedulePublishError(error) })
 }
 
 export function getPtScheduleSlotCandidates(input: {

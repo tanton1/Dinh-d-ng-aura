@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, candidateForSlot, generateSchedule, manualSlotCandidate, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, studentWeekEligibility, weeklyTargetForStudent } = require('./pt-schedule-v2')
+const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, candidateForSlot, compactPairedSlots, generateSchedule, manualSlotCandidate, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, weeklyTargetForStudent } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
@@ -360,6 +360,21 @@ test('coverage pass gives every feasible learner one session before filling high
   })
 })
 
+test('round matching gives a constrained learner their only slot without losing flexible learner coverage', () => {
+  const data = fixture()
+  data.trainers[0].slotCapacity = 1
+  data.students = [
+    { ...data.students[0], id: 'student-flexible', name: 'A flexible', availableSlots: ['T2-6', 'T4-6'] },
+    { ...data.students[0], id: 'student-constrained', name: 'Z constrained', availableSlots: ['T2-6'] },
+  ]
+  data.contracts = data.students.map((student) => ({ ...fixture().contracts[0], id: `contract-${student.id}`, studentId: student.id }))
+  const generated = generateSchedule(data)
+  const byStudent = new Map(Object.entries(generated.schedule).flatMap(([slotId, entries]) => entries.map((entry) => [entry.studentId, slotId])))
+  assert.equal(byStudent.get('student-constrained'), 'T2-6')
+  assert.equal(byStudent.get('student-flexible'), 'T4-6')
+  assert.equal(generated.optimizationSummary.studentCoverage.studentsWithAtLeastOne, 2)
+})
+
 test('unassigned learners balance unique teaching slots by daily target', () => {
   const data = fixture()
   const slots = ['T2-6', 'T2-7', 'T2-8', 'T2-9']
@@ -464,6 +479,99 @@ test('pairing an existing class is preferred over opening another trainer slot',
   const generated = generateSchedule(data)
   const entry = generated.schedule['T2-6'].find((item) => item.studentId === 'student-a')
   assert.equal(entry.trainerId, 'trainer-a')
+})
+
+test('existing secondary PT pair is preferred over opening a new primary PT class', () => {
+  const data = fixture()
+  data.contracts[0].trainerId = 'trainer-primary'
+  data.contracts[0].trainerIds = ['trainer-secondary']
+  data.schedule = {
+    'T2-6': [{ studentId: 'student-b', trainerId: 'trainer-secondary', branchId: BRANCH, type: 'training', isLocked: true }],
+  }
+  data.trainers = [
+    { ...data.trainers[0], id: 'trainer-primary', schedulingPriority: 1 },
+    { ...data.trainers[0], id: 'trainer-secondary', schedulingPriority: 100 },
+  ]
+  const generated = generateSchedule(data)
+  const entry = generated.schedule['T2-6'].find((item) => item.studentId === 'student-a')
+  assert.equal(entry.trainerId, 'trainer-secondary')
+})
+
+test('pair compaction merges two compatible mutable single classes', () => {
+  const data = fixture()
+  data.students.push({ ...data.students[0], id: 'student-b', name: 'B' })
+  data.contracts.push({ ...data.contracts[0], id: 'contract-b', studentId: 'student-b' })
+  const result = compactPairedSlots(data, {
+    'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'auto_v4' }],
+    'T4-6': [{ studentId: 'student-b', trainerId: 'trainer-a', contractId: 'contract-b', branchId: BRANCH, type: 'training', source: 'auto_v4' }],
+  })
+  assert.equal(result.moves, 1)
+  assert.equal(Object.values(result.schedule).filter((entries) => entries.length === 2).length, 1)
+  assert.equal(Object.keys(result.schedule).length, 1)
+})
+
+test('pair compaction never moves a locked source entry', () => {
+  const data = fixture()
+  data.students.push({ ...data.students[0], id: 'student-b', name: 'B' })
+  data.contracts.push({ ...data.contracts[0], id: 'contract-b', studentId: 'student-b' })
+  const locked = { studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'published_existing', isLocked: true }
+  const result = compactPairedSlots(data, {
+    'T2-6': [locked],
+    'T4-6': [{ studentId: 'student-b', trainerId: 'trainer-a', contractId: 'contract-b', branchId: BRANCH, type: 'training', source: 'auto_v4' }],
+  })
+  assert.equal(result.schedule['T2-6'][0], locked)
+  assert.equal(result.schedule['T2-6'].some((entry) => entry.studentId === 'student-a'), true)
+})
+
+test('pair compaction does not create a duplicate learner day', () => {
+  const data = fixture()
+  data.students.push({ ...data.students[0], id: 'student-b', name: 'B', availableSlots: ['T3-6'] })
+  data.contracts.push({ ...data.contracts[0], id: 'contract-b', studentId: 'student-b' })
+  data.students[0].availableSlots = ['T2-6', 'T3-6', 'T3-7']
+  data.trainers[0].availableSlots = [...data.students[0].availableSlots]
+  const result = compactPairedSlots(data, {
+    'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'auto_v4' }],
+    'T3-6': [{ studentId: 'student-b', trainerId: 'trainer-a', contractId: 'contract-b', branchId: BRANCH, type: 'training', source: 'published_existing', isLocked: true }],
+    'T3-7': [{ studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'published_existing', isLocked: true }],
+  })
+  assert.equal(result.schedule['T2-6'].some((entry) => entry.studentId === 'student-a'), true)
+})
+
+test('pair compaction does not introduce three consecutive training days', () => {
+  const data = fixture()
+  data.students.push({ ...data.students[0], id: 'student-b', name: 'B', availableSlots: ['T4-6'] })
+  data.contracts.push({ ...data.contracts[0], id: 'contract-b', studentId: 'student-b' })
+  data.students[0].availableSlots = ['T2-6', 'T3-6', 'T4-6', 'T5-6']
+  data.trainers[0].availableSlots = [...data.students[0].availableSlots]
+  const result = compactPairedSlots(data, {
+    'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'published_existing', isLocked: true }],
+    'T3-6': [{ studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'published_existing', isLocked: true }],
+    'T4-6': [{ studentId: 'student-b', trainerId: 'trainer-a', contractId: 'contract-b', branchId: BRANCH, type: 'training', source: 'published_existing', isLocked: true }],
+    'T5-6': [{ studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', source: 'auto_v4' }],
+  })
+  assert.equal(result.schedule['T5-6'].some((entry) => entry.studentId === 'student-a'), true)
+})
+
+test('pairing metrics count unique trainer and hour classes', () => {
+  const data = fixture()
+  data.trainers.push({ ...data.trainers[0], id: 'trainer-b' })
+  const metrics = slotUtilizationForSchedule(data, {
+    'T2-6': [
+      { studentId: 'student-a', trainerId: 'trainer-a', type: 'training' },
+      { studentId: 'student-b', trainerId: 'trainer-a', type: 'training' },
+      { studentId: 'student-c', trainerId: 'trainer-b', type: 'training' },
+    ],
+    'T4-6': [{ studentId: 'student-d', trainerId: 'trainer-a', type: 'training' }],
+  })
+  assert.deepEqual(metrics, {
+    teachingSlots: 3,
+    studentSessions: 4,
+    pairedSlots: 1,
+    singleSlots: 2,
+    fullSlots: 1,
+    pairRatePercent: 33.3,
+    seatUtilizationPercent: 66.7,
+  })
 })
 
 test('optimizer avoids three consecutive learner training days when a spaced slot exists', () => {

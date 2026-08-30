@@ -44,6 +44,8 @@ export let firebaseAuth: Auth | null = null
 export let firestoreDb: Firestore | null = null
 export let firebaseStorage: FirebaseStorage | null = null
 export let firebaseFunctions: Functions | null = null
+/** Dedicated overflow region for CPU-bounded scheduling optimization. */
+export let firebaseScheduleOptimizerFunctions: Functions | null = null
 let firebaseMessagingPromise: Promise<Messaging | null> | null = null
 let firebaseAppCheckPromise: Promise<AppCheck | null> | null = null
 
@@ -140,12 +142,14 @@ if (isFirebaseConfigured) {
 
   firebaseStorage = getStorage(firebaseApp)
   firebaseFunctions = getFunctions(firebaseApp, 'asia-southeast1')
+  firebaseScheduleOptimizerFunctions = getFunctions(firebaseApp, 'asia-east1')
   
   if (useFirebaseEmulators) {
     connectAuthEmulator(firebaseAuth, 'http://127.0.0.1:9099', { disableWarnings: true })
     connectFirestoreEmulator(firestoreDb, '127.0.0.1', 8080)
     connectStorageEmulator(firebaseStorage, '127.0.0.1', 9199)
     connectFunctionsEmulator(firebaseFunctions, '127.0.0.1', 5001)
+    connectFunctionsEmulator(firebaseScheduleOptimizerFunctions, '127.0.0.1', 5001)
   }
 }
 

@@ -1,6 +1,6 @@
 // Bump the shell whenever production Firebase bootstrap configuration changes.
 // Activation removes every older Aura cache before the client reloads.
-const CACHE_VERSION = 'aura-shell-v12-20260830-performance-p0'
+const CACHE_VERSION = 'aura-shell-v13-20260830-schedule-access-fix'
 const APP_SHELL = [
   '/',
   '/manifest.webmanifest',
