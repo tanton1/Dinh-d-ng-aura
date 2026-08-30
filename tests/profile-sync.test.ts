@@ -31,7 +31,7 @@ const profile: UserProfile = {
 }
 
 test('missing profile data never opens onboarding during application loading', () => {
-  const application = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  const application = fs.readFileSync(new URL('../src/AuraApplication.tsx', import.meta.url), 'utf8')
   assert.match(application, /const showOnboarding = forceOnboarding && role !== 'shipper'/)
   assert.match(application, /&& showOnboarding\)/)
   assert.doesNotMatch(application, /!isOnboardingDone/)

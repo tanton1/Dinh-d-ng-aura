@@ -1,18 +1,6 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app'
 import type { AppCheck } from 'firebase/app-check'
 import { connectAuthEmulator, getAuth, type Auth } from 'firebase/auth'
-import {
-  connectFirestoreEmulator,
-  getFirestore,
-  initializeFirestore,
-  memoryLocalCache,
-  persistentLocalCache,
-  persistentMultipleTabManager,
-  type Firestore,
-} from 'firebase/firestore'
-import { connectStorageEmulator, getStorage, type FirebaseStorage } from 'firebase/storage'
-import { connectFunctionsEmulator, getFunctions, type Functions } from 'firebase/functions'
-import type { Messaging } from 'firebase/messaging'
 
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -23,9 +11,7 @@ export const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 }
 
-const firestoreDatabaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || '(default)'
 const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APP_CHECK_SITE_KEY?.trim() || ''
-const persistentOfflineCacheEnabled = import.meta.env.VITE_ENABLE_OFFLINE_CACHE === 'true'
 
 const forceDemoMode = import.meta.env.VITE_FORCE_DEMO === 'true'
   && (import.meta.env.DEV || import.meta.env.MODE === 'e2e')
@@ -38,15 +24,9 @@ export const useFirebaseEmulators =
 
 export let firebaseApp: FirebaseApp | null = null
 export let firebaseAppCheck: AppCheck | null = null
-export type FirebaseAppCheckStatus = 'disabled' | 'initializing' | 'enabled' | 'missing_site_key' | 'initialization_error' | 'emulator'
+export type FirebaseAppCheckStatus = 'disabled' | 'deferred' | 'initializing' | 'enabled' | 'missing_site_key' | 'initialization_error' | 'emulator'
 export let firebaseAppCheckStatus: FirebaseAppCheckStatus = 'disabled'
 export let firebaseAuth: Auth | null = null
-export let firestoreDb: Firestore | null = null
-export let firebaseStorage: FirebaseStorage | null = null
-export let firebaseFunctions: Functions | null = null
-/** Dedicated overflow region for CPU-bounded scheduling optimization. */
-export let firebaseScheduleOptimizerFunctions: Functions | null = null
-let firebaseMessagingPromise: Promise<Messaging | null> | null = null
 let firebaseAppCheckPromise: Promise<AppCheck | null> | null = null
 
 export function initializeFirebaseAppCheck(): Promise<AppCheck | null> {
@@ -72,52 +52,13 @@ export function initializeFirebaseAppCheck(): Promise<AppCheck | null> {
   return firebaseAppCheckPromise
 }
 
-function scheduleFirebaseAppCheck() {
-  const start = () => { void initializeFirebaseAppCheck() }
-  if (import.meta.env.VITE_APP_CHECK_INITIALIZATION === 'immediate') {
-    start()
-    return
-  }
-  const schedule = () => {
-    const idleWindow = window as Window & { requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number }
-    if (typeof idleWindow.requestIdleCallback === 'function') {
-      idleWindow.requestIdleCallback(start, { timeout: 1_500 })
-    } else {
-      globalThis.setTimeout(start, 800)
-    }
-  }
-  if (document.readyState === 'complete') schedule()
-  else window.addEventListener('load', schedule, { once: true })
-}
-
-export function getFirebaseMessaging(): Promise<Messaging | null> {
-  if (!firebaseApp || typeof window === 'undefined' || !('serviceWorker' in navigator)) {
-    return Promise.resolve(null)
-  }
-
-  if (!firebaseMessagingPromise) {
-    firebaseMessagingPromise = import('firebase/messaging')
-      .then(async ({ getMessaging, isSupported }) => {
-        if (!(await isSupported())) return null
-        return getMessaging(firebaseApp!)
-      })
-      .catch((error) => {
-        if (import.meta.env.DEV) {
-          console.warn('Firebase Messaging failed to initialize', error)
-        }
-        return null
-      })
-  }
-
-  return firebaseMessagingPromise
-}
-
 if (isFirebaseConfigured) {
   firebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig)
 
   if (appCheckSiteKey && !useFirebaseEmulators) {
-    firebaseAppCheckStatus = 'initializing'
-    scheduleFirebaseAppCheck()
+    // App Check loads reCAPTCHA Enterprise. Keep it out of the first-paint
+    // path and initialize it only immediately before a protected AI request.
+    firebaseAppCheckStatus = 'deferred'
   } else if (useFirebaseEmulators) {
     firebaseAppCheckStatus = 'emulator'
   } else {
@@ -125,32 +66,10 @@ if (isFirebaseConfigured) {
   }
 
   firebaseAuth = getAuth(firebaseApp)
-
-  try {
-    firestoreDb = initializeFirestore(
-      firebaseApp,
-      { 
-        localCache: persistentOfflineCacheEnabled
-          ? persistentLocalCache({ tabManager: persistentMultipleTabManager() })
-          : memoryLocalCache(),
-      },
-      firestoreDatabaseId,
-    )
-  } catch {
-    firestoreDb = getFirestore(firebaseApp, firestoreDatabaseId)
-  }
-
-  firebaseStorage = getStorage(firebaseApp)
-  firebaseFunctions = getFunctions(firebaseApp, 'asia-southeast1')
-  firebaseScheduleOptimizerFunctions = getFunctions(firebaseApp, 'asia-east1')
   
   if (useFirebaseEmulators) {
     connectAuthEmulator(firebaseAuth, 'http://127.0.0.1:9099', { disableWarnings: true })
-    connectFirestoreEmulator(firestoreDb, '127.0.0.1', 8080)
-    connectStorageEmulator(firebaseStorage, '127.0.0.1', 9199)
-    connectFunctionsEmulator(firebaseFunctions, '127.0.0.1', 5001)
-    connectFunctionsEmulator(firebaseScheduleOptimizerFunctions, '127.0.0.1', 5001)
   }
 }
 
-export { firestoreDb as db, firebaseAuth as auth, firebaseApp as app }
+export { firebaseAuth as auth, firebaseApp as app }

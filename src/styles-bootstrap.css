@@ -1,0 +1,65 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #17131c;
+  background: #fff9fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; min-width: 320px; min-height: 100%; margin: 0; }
+button, input, textarea, select { font: inherit; }
+
+.aura-bootstrap {
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  padding: 24px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 10%, rgba(255, 194, 221, .52), transparent 34%),
+    radial-gradient(circle at 90% 84%, rgba(255, 203, 171, .46), transparent 32%),
+    linear-gradient(180deg, #fffafb, #fff);
+}
+
+.aura-bootstrap__mark {
+  position: relative;
+  width: 62px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 15px;
+  border-radius: 20px;
+  color: #fff;
+  background: linear-gradient(135deg, #f42482, #ff7839);
+  box-shadow: 0 18px 42px rgba(244, 36, 130, .22);
+  font-size: 34px;
+  font-weight: 900;
+}
+
+.aura-bootstrap__mark span {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.aura-bootstrap > strong { font-size: 24px; letter-spacing: -.03em; }
+.aura-bootstrap > p { margin: 8px 0 19px; color: #827982; font-size: 14px; }
+.aura-bootstrap__progress { width: 132px; height: 4px; overflow: hidden; border-radius: 99px; background: rgba(244, 36, 130, .15); }
+.aura-bootstrap__progress i { display: block; width: 48%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #f42482, #ff7839); animation: aura-bootstrap-load 1.05s ease-in-out infinite alternate; }
+
+@keyframes aura-bootstrap-load {
+  from { transform: translateX(-20%); }
+  to { transform: translateX(130%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-bootstrap__progress i { animation: none; transform: translateX(55%); }
+}

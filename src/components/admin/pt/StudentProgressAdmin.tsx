@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, ProgressRecord } from '../../../types';
 import { doc, getDoc, setDoc, getDocs, collection, deleteDoc } from 'firebase/firestore';
-import { db } from '../../../lib/firebase';
+import { db } from '../../../lib/firebaseFirestore';
 import { Scale, Percent, Ruler, Accessibility, User, PlusCircle, X, Camera, Trash2, Pencil, Heart, Circle, Activity, Dumbbell, Waves, Drumstick, Apple } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { compressImage } from '../../../utils/imageCompression';

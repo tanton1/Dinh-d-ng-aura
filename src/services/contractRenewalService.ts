@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebase'
+import { firebaseFunctions } from '../lib/firebaseFunctions'
 
 export type RenewalRiskCategory = 'expired' | 'exhausted' | 'critical' | 'upcoming' | 'early'
 export type RenewalStage = 'uncontacted' | 'contacted' | 'interested' | 'quote_sent' | 'follow_up' | 'won' | 'lost'

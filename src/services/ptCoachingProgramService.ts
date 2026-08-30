@@ -1,6 +1,8 @@
 import { httpsCallable } from 'firebase/functions'
 import { collection, doc, getDoc, runTransaction, serverTimestamp } from 'firebase/firestore'
-import { firebaseAuth, firebaseFunctions, firestoreDb } from '../lib/firebase'
+import { firebaseAuth } from '../lib/firebase'
+import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firestoreDb } from '../lib/firebaseFirestore'
 import type { LessonWorkoutReference, WorkoutProgramDraftInput, WorkoutProgramExerciseDraft, WorkoutProgramSessionDraft } from '../types'
 import type { RuntimeWorkoutProgram } from './workoutProgramService'
 

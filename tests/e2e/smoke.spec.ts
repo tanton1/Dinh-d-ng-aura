@@ -57,7 +57,7 @@ test('home route keeps deferred assets out of the initial request path', async (
     .getEntriesByType('resource')
     .map((entry) => new URL(entry.name).pathname))
 
-  expect(resourcePaths.some((path) => path.endsWith('/aura-onboarding.webp'))).toBe(true)
+  expect(resourcePaths.some((path) => path.endsWith('/aura-onboarding.webp'))).toBe(false)
   expect(resourcePaths.some((path) => path.endsWith('/aura-onboarding.png'))).toBe(false)
   expect(resourcePaths.some((path) => path.includes('styles-admin-'))).toBe(false)
   expect(resourcePaths.some((path) => path.includes('vendor-firebase-messaging-'))).toBe(false)

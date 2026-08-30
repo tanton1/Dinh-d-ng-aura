@@ -1,5 +1,4 @@
-import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions, firebaseAppCheckStatus, isFirebaseConfigured, useFirebaseEmulators } from '../lib/firebase'
+import { firebaseAppCheckStatus, isFirebaseConfigured, useFirebaseEmulators } from '../lib/firebase'
 
 export type ClientIssueArea = 'auth' | 'gemini' | 'openrouter' | 'apikey_fun' | 'firestore' | 'push' | 'ui'
 
@@ -51,9 +50,7 @@ export function reportClientIssue(
   if (import.meta.env.DEV) {
     console.warn('Aura client issue', { area, code, ...context })
   }
-  if (!firebaseFunctions) return
-
-  const report = httpsCallable<{
+  const payload: {
     area: ClientIssueArea
     code: string
     phase: string
@@ -63,9 +60,7 @@ export function reportClientIssue(
     provider?: ClientIssueContext['provider']
     retryable?: boolean
     release: string
-  }, { accepted: boolean }>(firebaseFunctions, 'reportClientIssue', { timeout: 5_000 })
-
-  void report({
+  } = {
     area,
     code,
     phase: context.phase.slice(0, 80),
@@ -75,6 +70,21 @@ export function reportClientIssue(
     provider: context.provider,
     retryable: context.retryable,
     release: (import.meta.env.VITE_APP_RELEASE || 'web').slice(0, 80),
+  }
+
+  // Error reporting must never add Firebase Functions to the first-paint
+  // bundle. Load the transport only if an issue actually needs reporting.
+  void Promise.all([
+    import('firebase/functions'),
+    import('../lib/firebaseFunctions'),
+  ]).then(([{ httpsCallable }, { firebaseFunctions }]) => {
+    if (!firebaseFunctions) return undefined
+    const report = httpsCallable<typeof payload, { accepted: boolean }>(
+      firebaseFunctions,
+      'reportClientIssue',
+      { timeout: 5_000 },
+    )
+    return report(payload)
   }).catch(() => undefined)
 }
 
@@ -100,7 +110,7 @@ export function initializeClientTelemetry() {
   window.addEventListener('error', onWindowError)
   window.addEventListener('unhandledrejection', onUnhandledRejection)
 
-  if (isFirebaseConfigured && !useFirebaseEmulators && !['enabled', 'initializing'].includes(firebaseAppCheckStatus)) {
+  if (isFirebaseConfigured && !useFirebaseEmulators && !['enabled', 'initializing', 'deferred'].includes(firebaseAppCheckStatus)) {
     let shouldReportAppCheck = true
     try {
       shouldReportAppCheck = window.sessionStorage.getItem('aura:app-check-telemetry') !== 'reported'

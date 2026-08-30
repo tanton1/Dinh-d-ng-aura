@@ -4,7 +4,7 @@ import { doc, getDoc } from 'firebase/firestore'
 import type { Session, SessionRequest, Student, StudentContract } from '../../../types'
 import { useDatabase } from '../../../contexts/DatabaseContext'
 import { approveSessionRequest, rejectSessionRequest } from '../../../services/sessionOperationsService'
-import { db } from '../../../lib/firebase'
+import { db } from '../../../lib/firebaseFirestore'
 
 interface Props {
   students: Student[]

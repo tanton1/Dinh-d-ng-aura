@@ -24,14 +24,10 @@ import {
   type AuthCredential,
   type ConfirmationResult
 } from 'firebase/auth'
-import { doc, onSnapshot } from 'firebase/firestore'
-import { firebaseAuth, firestoreDb, isFirebaseConfigured } from '../lib/firebase'
-import { createOrUpdateUserProfile, updateUserProfile } from '../services/firebaseService'
+import { firebaseAuth, isFirebaseConfigured } from '../lib/firebase'
 import { reportClientIssue } from '../services/clientTelemetryService'
-import { unregisterFcmToken } from '../services/fcmService'
 import type { AppUser, UserProfile, UserRole } from '../types'
 import { emptyStudentAccessContext, type AccessContext } from '../identity/access'
-import { getMyAccessContext } from '../services/identityAccessService'
 import {
   initialProfileSyncState,
   readProfileCache,
@@ -96,7 +92,53 @@ const demoOtpEnabled = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_O
 const e2eOtpEnabled = import.meta.env.MODE === 'e2e' && import.meta.env.VITE_ENABLE_DEMO_OTP === 'true'
 const localOtpEnabled = demoOtpEnabled || e2eOtpEnabled
 const recaptchaContainerId = 'aura-recaptcha-container'
+const googleRedirectMarkerKey = 'aura:google-auth-redirect'
 let pendingGoogleCredential: AuthCredential | null = null
+
+async function createOrUpdateUserProfile(profile: UserProfile) {
+  const service = await import('../services/firebaseService')
+  return service.createOrUpdateUserProfile(profile)
+}
+
+async function updateUserProfile(userId: string, values: Partial<UserProfile>) {
+  const service = await import('../services/firebaseService')
+  return service.updateUserProfile(userId, values)
+}
+
+async function getMyAccessContext(uid: string) {
+  const service = await import('../services/identityAccessService')
+  return service.getMyAccessContext(uid)
+}
+
+async function unregisterFcmToken(userId: string) {
+  const service = await import('../services/fcmService')
+  return service.unregisterFcmToken(userId)
+}
+
+function markGoogleRedirect() {
+  try {
+    sessionStorage.setItem(googleRedirectMarkerKey, String(Date.now()))
+  } catch {
+    // Firebase can still continue when storage is restricted.
+  }
+}
+
+function hasFreshGoogleRedirectMarker() {
+  try {
+    const startedAt = Number(sessionStorage.getItem(googleRedirectMarkerKey) || 0)
+    return Number.isFinite(startedAt) && Date.now() - startedAt < 15 * 60_000
+  } catch {
+    return false
+  }
+}
+
+function clearGoogleRedirectMarker() {
+  try {
+    sessionStorage.removeItem(googleRedirectMarkerKey)
+  } catch {
+    // Nothing else to clean up.
+  }
+}
 
 function normalizePhoneNumber(phoneNumber: string) {
   const compact = phoneNumber.trim().replace(/[\s().-]/g, '')
@@ -224,7 +266,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profileSyncState, setProfileSyncState] = useState<DataSyncState>(initialProfileSyncState)
 
   useEffect(() => {
-    if (!firebaseAuth) return
+    if (!firebaseAuth || !hasFreshGoogleRedirectMarker()) return
     void getRedirectResult(firebaseAuth)
       .then(async (result) => {
         if (!result) return
@@ -248,10 +290,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         window.dispatchEvent(new CustomEvent('aura-auth-redirect-error', { detail: friendlyMessage }))
       })
+      .finally(clearGoogleRedirectMarker)
   }, [])
 
   useEffect(() => {
-    if (!isFirebaseConfigured || !firebaseAuth || !firestoreDb) {
+    if (!isFirebaseConfigured || !firebaseAuth) {
       setLoading(false)
       return
     }
@@ -354,99 +397,110 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Fail closed to the learner role while token refresh is unavailable.
         })
 
-      unsubscribeProfile = onSnapshot(
-        doc(firestoreDb!, 'users', firebaseUser.uid),
-        { includeMetadataChanges: true },
-        (snapshot) => {
-          if (!isCurrent()) return
-          if (snapshot.exists()) {
-            const data = snapshot.data() as UserProfile
-            storedRole = data.role
-            const activeNutritionProfile = data.nutritionProfile || undefined
+      try {
+        const [{ doc, onSnapshot }, { firestoreDb }] = await Promise.all([
+          import('firebase/firestore'),
+          import('../lib/firebaseFirestore'),
+        ])
+        if (!isCurrent() || !firestoreDb) return
+        unsubscribeProfile = onSnapshot(
+          doc(firestoreDb, 'users', firebaseUser.uid),
+          { includeMetadataChanges: true },
+          (snapshot) => {
+            if (!isCurrent()) return
+            if (snapshot.exists()) {
+              const data = snapshot.data() as UserProfile
+              storedRole = data.role
+              const activeNutritionProfile = data.nutritionProfile || undefined
 
-            const mergedData: UserProfile = {
-              ...data,
-              nutritionProfile: activeNutritionProfile,
-              heightCm: data.heightCm ?? activeNutritionProfile?.heightCm,
-              weightKg: data.weightKg ?? activeNutritionProfile?.weightKg,
-              goals: (data.goals && data.goals.length > 0) ? data.goals : (activeNutritionProfile?.goal ? [activeNutritionProfile.goal] : undefined),
-              targetWeightDeltaKg: data.targetWeightDeltaKg ?? activeNutritionProfile?.targetWeightDeltaKg,
-              targetTimeframeMonths: data.targetTimeframeMonths ?? activeNutritionProfile?.targetTimeframeMonths,
-              targetSpeedPace: data.targetSpeedPace ?? activeNutritionProfile?.targetSpeedPace,
-            }
+              const mergedData: UserProfile = {
+                ...data,
+                nutritionProfile: activeNutritionProfile,
+                heightCm: data.heightCm ?? activeNutritionProfile?.heightCm,
+                weightKg: data.weightKg ?? activeNutritionProfile?.weightKg,
+                goals: (data.goals && data.goals.length > 0) ? data.goals : (activeNutritionProfile?.goal ? [activeNutritionProfile.goal] : undefined),
+                targetWeightDeltaKg: data.targetWeightDeltaKg ?? activeNutritionProfile?.targetWeightDeltaKg,
+                targetTimeframeMonths: data.targetTimeframeMonths ?? activeNutritionProfile?.targetTimeframeMonths,
+                targetSpeedPace: data.targetSpeedPace ?? activeNutritionProfile?.targetSpeedPace,
+              }
 
-            // Firestore is canonical. Visible nutrition defaults or an old
-            // local cache must never silently complete onboarding.
-            const isCompleted = mergedData.onboardingCompleted === true
+              // Firestore is canonical. Visible nutrition defaults or an old
+              // local cache must never silently complete onboarding.
+              const isCompleted = mergedData.onboardingCompleted === true
 
-            const finalProfile: UserProfile = {
-              ...mergedData,
-              onboardingCompleted: isCompleted,
-              uid: firebaseUser.uid,
-              email: firebaseUser.email ?? '',
-              role: effectiveRole(tokenRole, data.role),
-            }
+              const finalProfile: UserProfile = {
+                ...mergedData,
+                onboardingCompleted: isCompleted,
+                uid: firebaseUser.uid,
+                email: firebaseUser.email ?? '',
+                role: effectiveRole(tokenRole, data.role),
+              }
 
-            setProfile(finalProfile)
-            const revision = resolveProfileRevision(snapshot.data())
-            const lastConfirmed = readProfileCache(firebaseUser.uid)
-            if (snapshot.metadata.hasPendingWrites) {
-              setProfileSyncState({ status: 'pending-local-change', revision, cachedAt: lastConfirmed?.cachedAt ?? null })
-            } else if (snapshot.metadata.fromCache) {
-              setProfileSyncState({
-                status: typeof navigator !== 'undefined' && !navigator.onLine ? 'offline-readonly' : 'stale-cache',
-                revision: lastConfirmed?.revision ?? revision,
-                cachedAt: lastConfirmed?.cachedAt ?? null,
-              })
-            } else if (lastConfirmed && lastConfirmed.revision > revision) {
-              setProfileSyncState({
-                status: 'conflict',
-                revision,
-                cachedAt: lastConfirmed.cachedAt,
-                message: 'Bản máy chủ cũ hơn bản đã xác nhận trước đó. Aura đã khóa chỉnh sửa để tránh ghi đè.',
-              })
+              setProfile(finalProfile)
+              const revision = resolveProfileRevision(snapshot.data())
+              const lastConfirmed = readProfileCache(firebaseUser.uid)
+              if (snapshot.metadata.hasPendingWrites) {
+                setProfileSyncState({ status: 'pending-local-change', revision, cachedAt: lastConfirmed?.cachedAt ?? null })
+              } else if (snapshot.metadata.fromCache) {
+                setProfileSyncState({
+                  status: typeof navigator !== 'undefined' && !navigator.onLine ? 'offline-readonly' : 'stale-cache',
+                  revision: lastConfirmed?.revision ?? revision,
+                  cachedAt: lastConfirmed?.cachedAt ?? null,
+                })
+              } else if (lastConfirmed && lastConfirmed.revision > revision) {
+                setProfileSyncState({
+                  status: 'conflict',
+                  revision,
+                  cachedAt: lastConfirmed.cachedAt,
+                  message: 'Bản máy chủ cũ hơn bản đã xác nhận trước đó. Aura đã khóa chỉnh sửa để tránh ghi đè.',
+                })
+              } else {
+                const cachedAt = new Date().toISOString()
+                // Persist the confirmed Firestore role. It is always intersected
+                // with verified token claims before becoming effective in UI.
+                writeProfileCache(firebaseUser.uid, { ...finalProfile, role: data.role }, revision, cachedAt)
+                setProfileSyncState({ status: 'synced', revision, cachedAt })
+              }
             } else {
-              const cachedAt = new Date().toISOString()
-              // Persist the confirmed Firestore role. It is always intersected
-              // with verified token claims before becoming effective in UI.
-              writeProfileCache(firebaseUser.uid, { ...finalProfile, role: data.role }, revision, cachedAt)
-              setProfileSyncState({ status: 'synced', revision, cachedAt })
+              const nextProfile: UserProfile = {
+                uid: firebaseUser.uid,
+                email: firebaseUser.email ?? '',
+                displayName: firebaseUser.displayName ?? 'Thành viên Aura',
+                photoURL: firebaseUser.photoURL,
+                role: 'student',
+                membership: 'free',
+                onboardingCompleted: false,
+              }
+              setProfile(nextProfile)
+              setProfileSyncState({
+                status: 'sync-failed',
+                revision: 0,
+                cachedAt: cachedProfile?.cachedAt ?? null,
+                message: 'Chưa tìm thấy hồ sơ canonical. Vui lòng hoàn tất thiết lập hoặc liên hệ quản trị viên.',
+              })
+              setLoading(false)
+              return
             }
-          } else {
-            const nextProfile: UserProfile = {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email ?? '',
-              displayName: firebaseUser.displayName ?? 'Thành viên Aura',
-              photoURL: firebaseUser.photoURL,
-              role: 'student',
-              membership: 'free',
-              onboardingCompleted: false,
-            }
-            setProfile(nextProfile)
+            setLoading(false)
+          },
+          (err) => {
+            if (!isCurrent()) return
+            reportClientIssue('firestore', err, { phase: 'profile_subscription', retryable: true })
+            const fallback = readProfileCache(firebaseUser.uid)
+            if (fallback) setProfile({ ...fallback.value, role: effectiveRole(tokenRole, fallback.value.role) })
             setProfileSyncState({
-              status: 'sync-failed',
-              revision: 0,
-              cachedAt: cachedProfile?.cachedAt ?? null,
-              message: 'Chưa tìm thấy hồ sơ canonical. Vui lòng hoàn tất thiết lập hoặc liên hệ quản trị viên.',
+              status: typeof navigator !== 'undefined' && !navigator.onLine && fallback ? 'offline-readonly' : 'sync-failed',
+              revision: fallback?.revision ?? 0,
+              cachedAt: fallback?.cachedAt ?? null,
             })
             setLoading(false)
-            return
-          }
-          setLoading(false)
-        },
-        (err) => {
-          if (!isCurrent()) return
-          reportClientIssue('firestore', err, { phase: 'profile_subscription', retryable: true })
-          const fallback = readProfileCache(firebaseUser.uid)
-          if (fallback) setProfile({ ...fallback.value, role: effectiveRole(tokenRole, fallback.value.role) })
-          setProfileSyncState({
-            status: typeof navigator !== 'undefined' && !navigator.onLine && fallback ? 'offline-readonly' : 'sync-failed',
-            revision: fallback?.revision ?? 0,
-            cachedAt: fallback?.cachedAt ?? null,
-          })
-          setLoading(false)
-        },
-      )
+          },
+        )
+      } catch (err) {
+        if (!isCurrent()) return
+        reportClientIssue('firestore', err, { phase: 'profile_module_load', retryable: true })
+        setProfileSyncState({ status: 'sync-failed', revision: 0, cachedAt: cachedProfile?.cachedAt ?? null })
+      }
     })
 
     return () => {
@@ -512,6 +566,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       provider.setCustomParameters({ prompt: 'select_account' })
       try {
         if (isMobileAuthFlow() || window.self !== window.top) {
+          markGoogleRedirect()
           await signInWithRedirect(firebaseAuth, provider)
           return
         }
@@ -527,6 +582,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
       } catch (error: any) {
         if (error?.code === 'auth/popup-blocked') {
+          markGoogleRedirect()
           await signInWithRedirect(firebaseAuth, provider)
           return
         }
@@ -549,6 +605,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       provider.setCustomParameters({ prompt: 'select_account' })
       try {
         if (isMobileAuthFlow() || window.self !== window.top) {
+          markGoogleRedirect()
           await linkWithRedirect(firebaseAuth.currentUser, provider)
           return
         }
@@ -556,6 +613,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(toAppUser(result.user))
       } catch (error: any) {
         if (error?.code === 'auth/popup-blocked') {
+          markGoogleRedirect()
           await linkWithRedirect(firebaseAuth.currentUser, provider)
           return
         }

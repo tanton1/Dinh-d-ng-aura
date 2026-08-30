@@ -20,7 +20,8 @@ import NutritionWorkspace, {
   type NutritionPlanDay,
 } from './NutritionWorkspace'
 import { askAiCoach, getFoodAnalysisErrorMessage, getUsableFoodAnalysisText } from '../../services/nutritionService'
-import { firebaseAuth, firestoreDb } from '../../lib/firebase'
+import { firebaseAuth } from '../../lib/firebase'
+import { firestoreDb } from '../../lib/firebaseFirestore'
 import {
   saveUserMealLog,
   deleteUserMealLog,

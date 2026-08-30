@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { TrainingPackage, Quote, Student, StudentContract, Branch, UserProfile } from '../../../types';
 import { User } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { db } from '../../../lib/firebase';
+import { db } from '../../../lib/firebaseFirestore';
 import { FileText, Printer, Plus, Trash2, Download, Package, Edit2, Clock, Hash, DollarSign, ShoppingCart, CheckCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PackageSettings from './PackageSettings';

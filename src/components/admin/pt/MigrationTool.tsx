@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { getFirestore, collection, getDocs, setDoc, doc } from 'firebase/firestore';
-import { app, db as newDb } from '../../../lib/firebase';
+import { app } from '../../../lib/firebase';
+import { db as newDb } from '../../../lib/firebaseFirestore';
 import { Loader2, Database, AlertTriangle } from 'lucide-react';
 
 export default function MigrationTool() {

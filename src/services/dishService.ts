@@ -1,5 +1,6 @@
 import { collection, getDocs } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { auth } from '../lib/firebase';
+import { db } from '../lib/firebaseFirestore';
 import { HealthyDish } from '../types';
 import { healthyDishes as fallbackDishes } from '../data/healthyDishes';
 

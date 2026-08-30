@@ -1,5 +1,6 @@
 import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, Timestamp, where } from 'firebase/firestore'
-import { firebaseAuth, firestoreDb } from '../lib/firebase'
+import { firebaseAuth } from '../lib/firebase'
+import { firestoreDb } from '../lib/firebaseFirestore'
 import type { AcademyLessonMemory, CourseLessonDraft } from '../types'
 
 export interface AcademyTerm {

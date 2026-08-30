@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebase'
+import { firebaseFunctions } from '../lib/firebaseFunctions'
 
 function callable<Input, Output>(name: string) {
   if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')

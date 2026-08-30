@@ -37,7 +37,7 @@ const ptSchedulePublishSource = readFileSync(join(__dirname, 'pt-schedule-publis
 const ptScheduleV2Source = readFileSync(join(__dirname, 'pt-schedule-v2.js'), 'utf8')
 const ptWorkoutTrackingSource = readFileSync(join(__dirname, 'pt-workout-tracking.js'), 'utf8')
 const studentAvailabilitySource = readFileSync(join(__dirname, 'student-availability.js'), 'utf8')
-const appSource = readFileSync(join(repositoryRoot, 'src', 'App.tsx'), 'utf8')
+const appSource = readFileSync(join(repositoryRoot, 'src', 'AuraApplication.tsx'), 'utf8')
 const appShellSource = readFileSync(join(repositoryRoot, 'src', 'components', 'AppShell.tsx'), 'utf8')
 const ptOperationsClientSource = readFileSync(join(repositoryRoot, 'src', 'services', 'ptOperationsV2Service.ts'), 'utf8')
 const ptScheduleClientSource = readFileSync(join(repositoryRoot, 'src', 'services', 'ptSchedulePublishService.ts'), 'utf8')
@@ -437,7 +437,8 @@ test('legacy operations listeners are route scoped and never load the admin dash
 
 test('startup defers non-critical providers and ships immutable hashed assets', () => {
   assert.match(firebaseClientSource, /import\('firebase\/app-check'\)/)
-  assert.match(firebaseClientSource, /requestIdleCallback/)
+  assert.match(firebaseClientSource, /firebaseAppCheckStatus = 'deferred'/)
+  assert.doesNotMatch(firebaseClientSource, /requestIdleCallback|scheduleFirebaseAppCheck/)
   assert.match(indexHtmlSource, /href="\/icons\/aura-icon-192\.png"/)
   assert.doesNotMatch(indexHtmlSource, /LogoAura_Update_final2|preconnect" href="https:\/\/www\.(?:google|gstatic)\.com/)
 

@@ -4,8 +4,7 @@ import App from './App'
 import { GlobalErrorBoundary } from './GlobalErrorBoundary'
 import { initializeClientTelemetry } from './services/clientTelemetryService'
 import { recoverFromStaleRelease } from './utils/appReleaseRecovery'
-import './styles.css'
-import './styles-aura.css'
+import './styles-bootstrap.css'
 
 initializeClientTelemetry()
 

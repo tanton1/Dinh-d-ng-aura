@@ -1,6 +1,7 @@
 import { collection, doc, onSnapshot, orderBy, query, setDoc, updateDoc, deleteDoc, serverTimestamp, getDocs, writeBatch, where, getDoc, limit } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions, firestoreDb } from '../lib/firebase'
+import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firestoreDb } from '../lib/firebaseFirestore'
 import { safeLocalStorageSet } from '../lib/safeStorage'
 import type {
   AppNotification,

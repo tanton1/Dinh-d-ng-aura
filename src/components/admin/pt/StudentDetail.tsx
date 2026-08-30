@@ -18,7 +18,7 @@ import { getActiveContract } from '../../../utils/scheduler';
 import { recordContractPayment, recordRefund } from '../../../services/financeLedgerService';
 import { getStudentContractUsage, type ContractUsageSummary } from '../../../services/businessReportingService';
 import TrainingHistoryPanel from './TrainingHistoryPanel';
-import { db } from '../../../lib/firebase';
+import { db } from '../../../lib/firebaseFirestore';
 import './StudentManagement.css';
 
 interface Props {

@@ -1,6 +1,8 @@
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage'
 import { httpsCallable } from 'firebase/functions'
-import { firebaseAuth, firebaseFunctions, firebaseStorage } from '../lib/firebase'
+import { firebaseAuth } from '../lib/firebase'
+import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseStorage } from '../lib/firebaseStorage'
 
 export type MealPlanDay = {
   dayName: string

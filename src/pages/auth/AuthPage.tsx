@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { getFriendlyAuthError, useAuth } from '../../contexts/AuthContext'
 import { getCanonicalAuthRedirectUrl } from '../../services/authOriginService'
+import '../../styles-auth.css'
 
 type AuthMode = 'signin' | 'signup'
 type AuthMethod = 'phone' | 'email'

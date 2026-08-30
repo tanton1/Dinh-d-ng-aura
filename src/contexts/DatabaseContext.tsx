@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { collection, doc, setDoc, deleteDoc, runTransaction, updateDoc, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore'
-import { db } from '../lib/firebase'
+import { db } from '../lib/firebaseFirestore'
 import { useAuth } from './AuthContext'
 import type {
   Student,

@@ -1,5 +1,7 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseAuth, firebaseFunctions, getFirebaseMessaging } from '../lib/firebase'
+import { firebaseAuth } from '../lib/firebase'
+import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { getFirebaseMessaging } from '../lib/firebaseMessaging'
 import { getPublicPushConfig } from './notificationService'
 
 const TOKEN_STORAGE_PREFIX = 'aura:fcm-token:'

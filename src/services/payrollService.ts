@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebase'
+import { firebaseFunctions } from '../lib/firebaseFunctions'
 
 export type PayrollRunStatus = 'draft' | 'reviewed' | 'locked' | 'paid'
 export type PayrollPolicyApplicationMode = 'single' | 'staff_profile' | 'trainer_assignment' | 'effective_date'

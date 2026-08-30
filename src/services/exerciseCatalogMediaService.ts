@@ -1,6 +1,7 @@
 import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage'
 import type { ExerciseCatalogMediaImage } from '../types'
-import { firebaseAuth, firebaseStorage } from '../lib/firebase'
+import { firebaseAuth } from '../lib/firebase'
+import { firebaseStorage } from '../lib/firebaseStorage'
 
 const MAX_SOURCE_BYTES = 10 * 1024 * 1024
 const MAX_EDGE = 1_600

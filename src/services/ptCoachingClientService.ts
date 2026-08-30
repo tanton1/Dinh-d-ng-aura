@@ -1,6 +1,7 @@
 import { doc, getDoc } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions, firestoreDb } from '../lib/firebase'
+import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firestoreDb } from '../lib/firebaseFirestore'
 import { provisionStudentAccount } from './identityAccessService'
 
 export type PtCoachingStatus = 'active' | 'onboarding' | 'paused' | 'completed'

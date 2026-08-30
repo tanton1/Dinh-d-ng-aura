@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebase'
+import { firebaseFunctions } from '../lib/firebaseFunctions'
 
 export type PtScheduleEventType = 'workout' | 'checkin' | 'recovery'
 export type PtScheduleEventStatus = 'planned' | 'done' | 'skipped' | 'cancelled'

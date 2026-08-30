@@ -7,11 +7,13 @@ const assetsDir = path.join(rootDir, 'dist', 'assets')
 const manifestPath = path.join(rootDir, 'dist', '.vite', 'manifest.json')
 
 const budgets = {
-  entryCss: 150_000,
-  entryJs: 240_000,
-  firebaseVendor: 725_000,
-  initialAssetsGzip: 410_000,
-  startupTransfer: 480_000,
+  entryCss: 20_000,
+  entryJs: 80_000,
+  firebaseAuthVendor: 120_000,
+  firebaseFirestoreVendor: 525_000,
+  initialAssetsGzip: 180_000,
+  startupTransfer: 200_000,
+  authenticatedShellGzip: 360_000,
   splashImage: 100_000,
   adminDashboardJsGzip: 14_000,
   adminDashboardCssGzip: 10_000,
@@ -53,10 +55,11 @@ function assertWithinBudget(label, asset, budget) {
   console.log(`✓ ${label}: ${formatBytes(asset.bytes)} / ${formatBytes(budget)}`)
 }
 
-const [entryCss, entryJs, firebaseVendor, adminDashboardJs, adminDashboardCss, splashStats, html, builtHtml, appSource, onboardingSource] = await Promise.all([
+const [entryCss, entryJs, firebaseAuthVendor, firebaseFirestoreVendor, adminDashboardJs, adminDashboardCss, splashStats, html, builtHtml, appSource, onboardingSource] = await Promise.all([
   largestMatchingAsset(/^index-[\w-]+\.css$/),
   largestMatchingAsset(/^index-[\w-]+\.js$/),
-  largestMatchingAsset(/^vendor-firebase-(?!app-check|messaging)[\w-]+\.js$/),
+  largestMatchingAsset(/^vendor-firebase-auth-[\w-]+\.js$/),
+  largestMatchingAsset(/^vendor-firebase-firestore-[\w-]+\.js$/),
   gzipMatchingAsset(/^AdminDashboard-[\w-]+\.js$/),
   gzipMatchingAsset(/^AdminDashboard-[\w-]+\.css$/),
   stat(path.join(rootDir, 'public', 'aura-onboarding.webp')),
@@ -68,7 +71,8 @@ const [entryCss, entryJs, firebaseVendor, adminDashboardJs, adminDashboardCss, s
 
 assertWithinBudget('CSS khởi động', entryCss, budgets.entryCss)
 assertWithinBudget('JS khởi động', entryJs, budgets.entryJs)
-assertWithinBudget('Firebase vendor', firebaseVendor, budgets.firebaseVendor)
+assertWithinBudget('Firebase Auth vendor', firebaseAuthVendor, budgets.firebaseAuthVendor)
+assertWithinBudget('Firebase Firestore vendor', firebaseFirestoreVendor, budgets.firebaseFirestoreVendor)
 assertWithinBudget('Admin Dashboard JS gzip', adminDashboardJs, budgets.adminDashboardJsGzip)
 assertWithinBudget('Admin Dashboard CSS gzip', adminDashboardCss, budgets.adminDashboardCssGzip)
 assertWithinBudget('Ảnh splash WebP', { file: 'aura-onboarding.webp', bytes: splashStats.size }, budgets.splashImage)
@@ -91,11 +95,11 @@ if (initialAssets.length < 4) {
 }
 console.log(`✓ Tổng tài nguyên khởi động gzip: ${formatBytes(initialAssetsGzip)} / ${formatBytes(budgets.initialAssetsGzip)} (${initialAssets.length} assets)`)
 
-const startupTransfer = initialAssetsGzip + splashStats.size + gzipSync(Buffer.from(builtHtml)).byteLength
+const startupTransfer = initialAssetsGzip + gzipSync(Buffer.from(builtHtml)).byteLength
 if (startupTransfer > budgets.startupTransfer) {
-  throw new Error(`Tổng tải khởi động gồm HTML và splash vượt budget: ${formatBytes(startupTransfer)} > ${formatBytes(budgets.startupTransfer)}`)
+  throw new Error(`Tổng tải khởi động gồm HTML vượt budget: ${formatBytes(startupTransfer)} > ${formatBytes(budgets.startupTransfer)}`)
 }
-console.log(`✓ Tổng tải khởi động gồm HTML và splash: ${formatBytes(startupTransfer)} / ${formatBytes(budgets.startupTransfer)}`)
+console.log(`✓ Tổng tải khởi động gồm HTML: ${formatBytes(startupTransfer)} / ${formatBytes(budgets.startupTransfer)}`)
 
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
 const initialAssetFiles = new Set(initialAssetNames.map((file) => `assets/${file}`))
@@ -121,9 +125,25 @@ function resolveRouteManifestKey(sourceKey) {
   return match[0]
 }
 
+// The authenticated shell is intentionally lazy. Route budgets measure only
+// what each page adds after this shared shell has loaded, matching the previous
+// metric while keeping the public/auth startup budget much smaller.
+const authenticatedShellFiles = collectStaticRouteAssets(resolveRouteManifestKey('src/AuraApplication.tsx'))
+const authenticatedShellOnlyFiles = [...authenticatedShellFiles].filter((file) => !initialAssetFiles.has(file))
+const authenticatedBaselineFiles = new Set([...initialAssetFiles, ...authenticatedShellFiles])
+
+const shellGzipSizes = await Promise.all(authenticatedShellOnlyFiles.map(async (file) => {
+  const contents = await readFile(path.join(rootDir, 'dist', file))
+  return gzipSync(contents).byteLength
+}))
+assertWithinBudget('Shell sau đăng nhập · tải thêm', {
+  file: `${authenticatedShellOnlyFiles.length} assets`,
+  bytes: shellGzipSizes.reduce((sum, bytes) => sum + bytes, 0),
+}, budgets.authenticatedShellGzip)
+
 for (const route of routeBudgets) {
   const routeFiles = [...collectStaticRouteAssets(resolveRouteManifestKey(route.key))]
-    .filter((file) => !initialAssetFiles.has(file))
+    .filter((file) => !authenticatedBaselineFiles.has(file))
   const gzipSizes = await Promise.all(routeFiles.map(async (file) => {
     const contents = await readFile(path.join(rootDir, 'dist', file))
     return gzipSync(contents).byteLength
@@ -138,3 +158,8 @@ if (startupSources.includes('/aura-onboarding.png')) {
 }
 
 console.log('✓ Không còn tải ảnh splash PNG trong luồng khởi động')
+
+if (/rel=["']preload["'][^>]+aura-onboarding\.webp|class=["']app-loader-image["']/.test(html)) {
+  throw new Error('HTML khởi động vẫn tải ảnh splash trước khi biết trạng thái đăng nhập.')
+}
+console.log('✓ HTML khởi động không còn cạnh tranh băng thông với ảnh splash')

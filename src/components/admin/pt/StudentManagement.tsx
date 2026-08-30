@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Student, UserProfile, StudentContract, TrainingPackage, Trainer, Branch } from '../../../types';
 import { User } from 'firebase/auth';
-import { db } from '../../../lib/firebase';
+import { db } from '../../../lib/firebaseFirestore';
 import { Search, Plus, Edit2, Trash2, Phone, Mail, Calendar, CheckCircle, XCircle, AlertCircle, User as UserIcon, Package, RefreshCw, SlidersHorizontal, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import DateRangeFilter from './DateRangeFilter';

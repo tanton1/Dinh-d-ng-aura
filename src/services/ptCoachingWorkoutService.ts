@@ -1,4 +1,4 @@
-import { firebaseFunctions } from '../lib/firebase'
+import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { httpsCallable } from 'firebase/functions'
 import type { LessonWorkoutReference, WorkoutLogInput } from '../types'
 import type { RuntimeWorkoutProgram } from './workoutProgramService'

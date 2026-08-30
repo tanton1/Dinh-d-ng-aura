@@ -1,6 +1,7 @@
 import { collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, type Unsubscribe } from 'firebase/firestore'
 import { getDownloadURL, ref as storageRef, uploadBytesResumable } from 'firebase/storage'
-import { firebaseStorage, firestoreDb } from '../lib/firebase'
+import { firestoreDb } from '../lib/firebaseFirestore'
+import { firebaseStorage } from '../lib/firebaseStorage'
 import { safeLocalStorageSet } from '../lib/safeStorage'
 
 function requireDb() {

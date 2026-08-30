@@ -14,7 +14,7 @@ import {
   type Query,
   type Unsubscribe,
 } from 'firebase/firestore'
-import { firestoreDb } from '../lib/firebase'
+import { firestoreDb } from '../lib/firebaseFirestore'
 import { readVersionedCache, writeVersionedCache } from '../dataSync/versionedCache'
 import type { DataSyncState } from '../dataSync/profileSync'
 

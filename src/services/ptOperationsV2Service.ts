@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseAuth, firebaseFunctions } from '../lib/firebase'
+import { firebaseAuth } from '../lib/firebase'
+import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { reportClientIssue } from './clientTelemetryService'
 
 function functionsInstance() {

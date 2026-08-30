@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebase'
+import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
 import type { Schedule, ScheduleConfig, Session, Student, StudentContract, Trainer } from '../types'
 import { reportClientIssue } from './clientTelemetryService'
 

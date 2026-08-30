@@ -88,3 +88,4 @@ export default function Onboarding({ onComplete, onSkip, initialProfile }: Onboa
     </div>
   );
 }
+import '../styles-onboarding.css'

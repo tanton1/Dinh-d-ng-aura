@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebase'
+import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { reportClientIssue } from './clientTelemetryService'
 
 export type StaffAttendanceStatus =

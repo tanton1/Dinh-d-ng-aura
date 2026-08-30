@@ -1,6 +1,8 @@
 import { httpsCallable } from 'firebase/functions'
 import { deleteObject, ref, uploadBytes } from 'firebase/storage'
-import { firebaseAuth, firebaseFunctions, firebaseStorage, initializeFirebaseAppCheck } from '../lib/firebase'
+import { firebaseAuth, initializeFirebaseAppCheck } from '../lib/firebase'
+import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseStorage } from '../lib/firebaseStorage'
 import { reportClientIssue } from './clientTelemetryService'
 import { optimizeNutritionImageForUpload } from './nutritionImageOptimizer'
 

@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../../lib/firebase'
+import { firebaseFunctions } from '../../lib/firebaseFunctions'
 import { DEMO_EAT_CLEAN_STOREFRONT, EAT_CLEAN_CATEGORIES, createDemoQuote } from './demoCatalog'
 import type {
   EatCleanCreateOrderRequest,

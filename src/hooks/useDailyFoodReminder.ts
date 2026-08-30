@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { collection, query, where, getDocs, limit } from 'firebase/firestore'
-import { firestoreDb } from '../lib/firebase'
+import { firestoreDb } from '../lib/firebaseFirestore'
 import { createNotification } from '../services/notificationService'
 
 export function useDailyFoodReminder(userId?: string) {

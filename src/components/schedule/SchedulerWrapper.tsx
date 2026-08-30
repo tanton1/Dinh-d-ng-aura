@@ -41,7 +41,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { User } from "firebase/auth";
 import { doc, setDoc, onSnapshot, updateDoc, getDoc } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { db } from "../../lib/firebaseFirestore";
 import {
   getDatesForCurrentWeek,
   getDatesForWeek,

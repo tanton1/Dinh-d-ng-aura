@@ -10,7 +10,7 @@ import {
 import { collection, limit, onSnapshot, query as firestoreQuery, where } from 'firebase/firestore'
 import { hasPermission } from '../../config/permissions'
 import { useDatabase } from '../../contexts/DatabaseContext'
-import { firestoreDb } from '../../lib/firebase'
+import { firestoreDb } from '../../lib/firebaseFirestore'
 import { applyDefaultTrainerSchedulingPolicy, assignStaffPositions, deleteMemberAccount, deleteUnusedStaffAccount, provisionStaffAccount, provisionStudentAccount, saveStaffOperationsProfile, suspendAccountAccess } from '../../services/identityAccessService'
 import { listPayrollPolicies, type PayrollPolicy, type PayrollProfile } from '../../services/payrollService'
 import type { StaffPosition } from '../../identity/access'

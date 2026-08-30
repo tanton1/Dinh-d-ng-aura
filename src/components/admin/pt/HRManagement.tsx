@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../../../lib/firebase';
+import { db } from '../../../lib/firebaseFirestore';
 import { getDatesForWeek } from '../../../utils/dateUtils';
 import { User as UserIcon, Building, Plus, Trash2, Edit2, ShieldCheck, Users, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
