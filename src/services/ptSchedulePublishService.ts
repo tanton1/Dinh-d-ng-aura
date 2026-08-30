@@ -301,6 +301,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 const retryableCallableCodes = new Set(['internal', 'resource-exhausted', 'unavailable', 'deadline-exceeded'])
+const autoRetryCallableCodes = new Set(['internal', 'unavailable', 'deadline-exceeded'])
 const retryableReadCallables = new Set([
   'getMyBranchScheduleWorkspace',
   'getPtScheduleSlotCandidates',
@@ -359,21 +360,25 @@ export function asPtSchedulePublishError(error: unknown) {
 }
 
 async function invoke<TInput extends Record<string, unknown>, TOutput>(name: string, input: TInput) {
-  const callable = httpsCallable<TInput, TOutput>(functionsInstance(), name, { timeout: 60_000 })
-  const maximumAttempts = retryableReadCallables.has(name) ? 3 : 1
+  const timeout = name === 'validatePtScheduleDraft' ? 30_000 : retryableReadCallables.has(name) ? 20_000 : 60_000
+  const callable = httpsCallable<TInput, TOutput>(functionsInstance(), name, { timeout })
+  const maximumAttempts = retryableReadCallables.has(name) ? 2 : 1
   for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
     try {
       return (await callable(input)).data
     } catch (error) {
       const code = callableErrorCode(error)
       const retryable = retryableCallableCodes.has(code)
-      reportClientIssue('firestore', error, {
-        phase: `admin_schedule_callable_${name}`,
-        route: typeof window === 'undefined' ? '' : window.location.hash,
-        retryable,
-      })
-      if (!retryable || attempt === maximumAttempts - 1) throw asPtSchedulePublishError(error)
-      await retryDelay(350 * (2 ** attempt))
+      const shouldRetry = autoRetryCallableCodes.has(code) && attempt < maximumAttempts - 1
+      if (!shouldRetry) {
+        reportClientIssue('firestore', error, {
+          phase: `admin_schedule_callable_${name}`,
+          route: typeof window === 'undefined' ? '' : window.location.hash,
+          retryable,
+        })
+        throw asPtSchedulePublishError(error)
+      }
+      await retryDelay(400)
     }
   }
   throw new PtSchedulePublishError('Chưa thể kết nối dịch vụ lịch PT.', 'SYNC_UNAVAILABLE', [], true)

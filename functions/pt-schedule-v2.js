@@ -166,6 +166,14 @@ async function contractsForStudents(db, studentIds) {
   return [...unique.values()]
 }
 
+async function exactAvailabilityForStudents(db, studentIds, week) {
+  if (!studentIds.length) return []
+  const snapshots = await Promise.all(splitChunks(studentIds, 100).map((ids) => db.getAll(
+    ...ids.map((studentId) => db.doc(`ptAvailability/${studentId}_${week}`)),
+  )))
+  return snapshots.flat().filter((item) => item.exists)
+}
+
 function leaveCovers(leave, trainerId, date) {
   if (leave?.status !== 'approved' || leave?.trainerId !== trainerId) return false
   const start = storedDate(leave.startDate)
@@ -174,26 +182,31 @@ function leaveCovers(leave, trainerId, date) {
 }
 
 async function loadBranchData(db, branchId, week) {
-  const [branch, legacySchedule, draft, students, trainers, availability, weekSessions, activeSessions, config, leaves] = await Promise.all([
+  const [branch, legacySchedule, draft, students, trainers, weekSessions, activeSessions, config, leaves] = await Promise.all([
     db.doc(`branches/${branchId}`).get(),
     db.doc(`schedules/schedule_${week}`).get(),
     draftReference(db, branchId, week).get(),
     db.collection('students').where('branchId', '==', branchId).limit(MAX_STUDENTS + 1).get(),
     db.collection('trainers').where('branchId', '==', branchId).limit(MAX_TRAINERS + 1).get(),
-    db.collection('ptAvailability').where('weekId', '==', week).limit(MAX_STUDENTS + 1).get(),
     db.collection('sessions').where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
     db.collection('sessions').where('status', 'in', ['scheduled', 'rescheduled']).limit(3001).get(),
     db.doc('settings/scheduleConfig').get(),
     db.collection('leaveRequests').where('status', '==', 'approved').limit(1001).get(),
   ])
   if (!branch.exists || branch.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
-  if (students.size > MAX_STUDENTS || trainers.size > MAX_TRAINERS || availability.size > MAX_STUDENTS || weekSessions.size > 1000 || activeSessions.size > 3000 || leaves.size > 1000) {
+  if (students.size > MAX_STUDENTS || trainers.size > MAX_TRAINERS || weekSessions.size > 1000 || activeSessions.size > 3000 || leaves.size > 1000) {
     throw new HttpsError('resource-exhausted', 'Dữ liệu chi nhánh vượt giới hạn workspace an toàn.')
   }
   const studentIds = students.docs.map((item) => item.id)
   const trainerIds = new Set(trainers.docs.map((item) => item.id))
   const studentSet = new Set(studentIds)
-  const contracts = await contractsForStudents(db, studentIds)
+  // Fetch exact weekly availability by deterministic document id. The old
+  // week-wide query scanned every branch and could truncate before reaching
+  // the selected branch when migrated data was large.
+  const [contracts, availability] = await Promise.all([
+    contractsForStudents(db, studentIds),
+    exactAvailabilityForStudents(db, studentIds, week),
+  ])
   const studentMap = new Map(students.docs.map((item) => [item.id, item.data()]))
   const trainerMap = new Map(trainers.docs.map((item) => [item.id, item.data()]))
   const sessionRowsById = new Map([...weekSessions.docs, ...activeSessions.docs]
@@ -201,7 +214,7 @@ async function loadBranchData(db, branchId, week) {
     .filter((item) => studentSet.has(item.studentId))
     .map((item) => [item.id, item]))
   const sessionRows = [...sessionRowsById.values()]
-  const weeklyAvailability = new Map(availability.docs.map((item) => item.data()).filter((item) => studentSet.has(item.studentId)).map((item) => [item.studentId, item]))
+  const weeklyAvailability = new Map(availability.map((item) => item.data()).filter((item) => studentSet.has(item.studentId)).map((item) => [item.studentId, item]))
   const inheritedAvailability = await loadLatestSubmittedFallbacks(db, studentMap, weeklyAvailability, week)
   const legacy = legacySchedule.exists ? legacySchedule.data() : {}
   const draftData = draft.exists ? draft.data() : null

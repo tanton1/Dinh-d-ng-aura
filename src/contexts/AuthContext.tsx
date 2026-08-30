@@ -321,25 +321,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (isCurrent()) setAuthzReady(true)
         })
 
-      let tokenRole: UserRole = 'student'
-      try {
-        const tokenResult = await getIdTokenResult(firebaseUser)
-        if (!isCurrent()) return
-        tokenRole = tokenRoleFromClaims(tokenResult.claims.role)
-      } catch {
-        // Fail closed to the learner role while token refresh is unavailable.
-      }
-      if (!isCurrent()) return
-
       // A cache is display-only. Only a versioned envelope previously written
       // from a confirmed Firestore snapshot is accepted here.
       const cachedProfile = readProfileCache(firebaseUser.uid)
+      let tokenRole: UserRole = 'student'
+      let storedRole: unknown = cachedProfile?.value.role
       if (cachedProfile) {
         setProfile({
           ...cachedProfile.value,
           uid: firebaseUser.uid,
           email: firebaseUser.email ?? '',
-          role: effectiveRole(tokenRole, cachedProfile.value.role),
+          // Claims are resolved in parallel. Fail closed briefly instead of
+          // delaying the canonical Firestore listener behind a token request.
+          role: 'student',
         })
         setProfileSyncState({
           status: typeof navigator !== 'undefined' && !navigator.onLine ? 'offline-readonly' : 'stale-cache',
@@ -348,6 +342,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
       }
 
+      void getIdTokenResult(firebaseUser)
+        .then((tokenResult) => {
+          if (!isCurrent()) return
+          tokenRole = tokenRoleFromClaims(tokenResult.claims.role)
+          setProfile((current) => current && current.uid === firebaseUser.uid
+            ? { ...current, role: effectiveRole(tokenRole, storedRole) }
+            : current)
+        })
+        .catch(() => {
+          // Fail closed to the learner role while token refresh is unavailable.
+        })
+
       unsubscribeProfile = onSnapshot(
         doc(firestoreDb!, 'users', firebaseUser.uid),
         { includeMetadataChanges: true },
@@ -355,6 +361,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!isCurrent()) return
           if (snapshot.exists()) {
             const data = snapshot.data() as UserProfile
+            storedRole = data.role
             const activeNutritionProfile = data.nutritionProfile || undefined
 
             const mergedData: UserProfile = {
@@ -400,7 +407,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               })
             } else {
               const cachedAt = new Date().toISOString()
-              writeProfileCache(firebaseUser.uid, finalProfile, revision, cachedAt)
+              // Persist the confirmed Firestore role. It is always intersected
+              // with verified token claims before becoming effective in UI.
+              writeProfileCache(firebaseUser.uid, { ...finalProfile, role: data.role }, revision, cachedAt)
               setProfileSyncState({ status: 'synced', revision, cachedAt })
             }
           } else {

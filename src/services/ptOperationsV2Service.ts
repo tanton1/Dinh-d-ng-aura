@@ -37,29 +37,31 @@ function retryDelay(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
 }
 
-async function call<Input, Output>(name: string, input: Input): Promise<Output> {
-  const invoke = httpsCallable<Input, Output>(functionsInstance(), name)
+async function call<Input, Output>(name: string, input: Input, options: { readOnly?: boolean } = {}): Promise<Output> {
+  const readOnly = options.readOnly === true
+  const invoke = httpsCallable<Input, Output>(functionsInstance(), name, { timeout: readOnly ? 20_000 : 30_000 })
   const retryableCodes = new Set([
     'functions/internal',
-    'functions/resource-exhausted',
     'functions/unavailable',
     'functions/deadline-exceeded',
   ])
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const maximumAttempts = readOnly ? 2 : 1
+  for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
     try {
       return (await invoke(input)).data
     } catch (error) {
       const code = callableErrorCode(error)
       const rawMessage = callableErrorMessage(error)
-      reportClientIssue('firestore', error, {
-        phase: `staff_callable_${name}`,
-        route: window.location.hash,
-        retryable: retryableCodes.has(code),
-      })
-      if (!retryableCodes.has(code) || attempt === 2) {
+      const shouldRetry = retryableCodes.has(code) && attempt < maximumAttempts - 1
+      if (!shouldRetry) {
+        reportClientIssue('firestore', error, {
+          phase: `staff_callable_${name}`,
+          route: window.location.hash,
+          retryable: retryableCodes.has(code) || code === 'functions/resource-exhausted',
+        })
         throw new Error(staffCallableMessage(code, rawMessage))
       }
-      await retryDelay(350 * (2 ** attempt))
+      await retryDelay(400)
     }
   }
   throw new Error('Không thể kết nối không gian làm việc Staff.')
@@ -78,7 +80,7 @@ async function cachedCall<Input, Output>(name: string, input: Input, ttlMs: numb
   const cached = readCache.get(key)
   if (cached?.value !== undefined && cached.expiresAt > now) return cached.value as Output
   if (cached?.promise) return cached.promise as Promise<Output>
-  const promise = call<Input, Output>(name, input)
+  const promise = call<Input, Output>(name, input, { readOnly: true })
     .then((value) => {
       readCache.set(key, { value, expiresAt: Date.now() + ttlMs })
       return value
@@ -303,11 +305,11 @@ export async function requestSessionChange(input: {
 }
 
 export async function listMyQuotes(limit = 100) {
-  return call<{ limit: number }, { quotes: SalesQuoteSummary[] }>('listMyQuotes', { limit })
+  return call<{ limit: number }, { quotes: SalesQuoteSummary[] }>('listMyQuotes', { limit }, { readOnly: true })
 }
 
 export async function getMySalesCatalog() {
-  return call<Record<string, never>, SalesCatalog>('getMySalesCatalog', {})
+  return call<Record<string, never>, SalesCatalog>('getMySalesCatalog', {}, { readOnly: true })
 }
 
 export async function getMySalesWorkspace(limit = 100) {

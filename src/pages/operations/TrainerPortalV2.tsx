@@ -160,12 +160,9 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     }
     try {
       if (section === 'students') {
-        const [result, scheduleResult] = await Promise.all([
-          getMyTrainerWorkspace('students', rangeFrom, to, 200),
-          getMyTrainerWorkspace('schedule', rangeFrom, addDateDays(rangeFrom, 61), 500),
-        ])
+        const result = await getMyTrainerWorkspace('students', rangeFrom, addDateDays(rangeFrom, 61), 500)
         const merged = new Map(result.students.map((student) => [student.id, student]))
-        scheduleResult.sessions.forEach((session) => {
+        result.sessions.forEach((session) => {
           if (merged.has(session.studentId) || !session.contractEffective || !session.contract) return
           merged.set(session.studentId, {
             id: session.studentId,
@@ -182,7 +179,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
         setWorkspace(result.scope)
         setStudents([...merged.values()].sort((left, right) => left.name.localeCompare(right.name, 'vi')))
         setBranches(result.branches || [])
-        setSessions(scheduleResult.sessions)
+        setSessions(result.sessions)
         setRequests([])
         return
       }

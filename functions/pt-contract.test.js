@@ -206,6 +206,7 @@ test('Trainer pages keep separate sections while sharing one actor-scoped bootst
   assert.match(operationsV2Source, /assignedStudentsForActor\(db, actor, limit\)/)
   assert.match(operationsV2Source, /return \{ schemaVersion: 3, students, branches, hasMore:/)
   assert.match(operationsV2Source, /trainerScheduleForActor\(db, actor, from, to, limit\)/)
+  assert.match(operationsV2Source, /section === 'students'[\s\S]*?Promise\.all\(\[[\s\S]*?assignedStudentsForActor\(db, actor, studentLimit\)[\s\S]*?trainerScheduleForActor\(db, actor, from, to, scheduleLimit\)/)
   assert.match(operationsV2Source, /studentPhone: student\?\.phone \|\| ''/)
   assert.match(operationsV2Source, /studentBranchId: student\?\.branchId \|\| session\.branchId \|\| ''/)
   assert.match(operationsV2Source, /contractEffective,/)

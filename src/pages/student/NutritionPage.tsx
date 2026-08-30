@@ -2630,6 +2630,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   const [activities, setActivities] = useState<NutritionActivityLog[]>(() => isDemo ? loadPersistedActivities(activityStorageKey, createInitialActivities()) : [])
   const [waterEntries, setWaterEntries] = useState<NutritionWaterLog[]>(() => isDemo ? loadPersistedWaterEntries(waterEntryStorageKey) : [])
   const [nutritionLogSyncState, setNutritionLogSyncState] = useState<DataSyncState>({ status: 'synced', revision: 0, cachedAt: null })
+  const [historySyncStarted, setHistorySyncStarted] = useState(false)
   const nutritionSyncScopes = useRef<Record<'meals' | 'water' | 'activities', DataSyncState>>({
     meals: { status: 'synced', revision: 0, cachedAt: null },
     water: { status: 'synced', revision: 0, cachedAt: null },
@@ -2779,11 +2780,29 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   }, [])
 
   useEffect(() => {
+    if (isDemo || resolvedOwnerId === 'anonymous' || historySyncStarted) return
+    if (activeSection !== 'today' && activeSection !== 'scan') {
+      setHistorySyncStarted(true)
+      return
+    }
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number
+      cancelIdleCallback?: (handle: number) => void
+    }
+    if (idleWindow.requestIdleCallback) {
+      const handle = idleWindow.requestIdleCallback(() => setHistorySyncStarted(true), { timeout: 1_200 })
+      return () => idleWindow.cancelIdleCallback?.(handle)
+    }
+    const timer = window.setTimeout(() => setHistorySyncStarted(true), 800)
+    return () => window.clearTimeout(timer)
+  }, [activeSection, historySyncStarted, isDemo, resolvedOwnerId])
+
+  useEffect(() => {
     if (!planDays.some((day) => day.id === planSelectedDay)) setPlanSelectedDay(todayKey)
   }, [planDays, planSelectedDay, todayKey])
 
   useEffect(() => {
-    if (!firestoreDb || resolvedOwnerId === 'anonymous') return
+    if (!firestoreDb || resolvedOwnerId === 'anonymous' || !historySyncStarted) return
     const unsubscribeMeals = subscribeToRecentUserMealLogs(resolvedOwnerId, recentNutritionFromDate, (remoteMeals) => {
       const recentItems = Array.isArray(remoteMeals) ? remoteMeals.filter((item): item is MealLog => Boolean(item && typeof item === 'object' && item.id)) : []
       setMeals((current) => [...recentItems, ...current.filter((item) => item.date < recentNutritionFromDate)])
@@ -2812,10 +2831,11 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       unsubscribeWater()
       unsubscribeActivities()
     }
-  }, [recentNutritionFromDate, resolvedOwnerId, updateNutritionSync])
+  }, [historySyncStarted, recentNutritionFromDate, resolvedOwnerId, updateNutritionSync])
 
   useEffect(() => {
-    if (!firestoreDb || resolvedOwnerId === 'anonymous' || selectedDate >= recentNutritionFromDate) return
+    const coveredByRecentSubscription = historySyncStarted && selectedDate >= recentNutritionFromDate
+    if (!firestoreDb || resolvedOwnerId === 'anonymous' || coveredByRecentSubscription) return
 
     const unsubscribeMeals = subscribeToUserMealLogsForDate(resolvedOwnerId, selectedDate, (remoteMeals) => {
       const dayItems = Array.isArray(remoteMeals) ? remoteMeals.filter((item): item is MealLog => Boolean(item && typeof item === 'object' && item.id)) : []
@@ -2839,7 +2859,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       unsubscribeWater()
       unsubscribeActivities()
     }
-  }, [recentNutritionFromDate, resolvedOwnerId, selectedDate])
+  }, [historySyncStarted, recentNutritionFromDate, resolvedOwnerId, selectedDate])
 
   useEffect(() => {
     if (!isDemo) return

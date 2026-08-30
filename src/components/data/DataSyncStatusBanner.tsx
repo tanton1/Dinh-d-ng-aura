@@ -29,8 +29,8 @@ const copy = {
     description: 'Aura giữ bản máy chủ an toàn. Hãy tải lại trước khi chỉnh sửa tiếp.',
   },
   'stale-cache': {
-    title: 'Đang hiển thị bản lưu gần nhất',
-    description: 'Aura đang kiểm tra bản mới trên máy chủ. Tạm thời chưa nên chỉnh sửa.',
+    title: 'Đang đồng bộ dữ liệu mới nhất',
+    description: 'Aura đang xác nhận với máy chủ. Dữ liệu hiện tại là bản đã đồng bộ an toàn.',
   },
 } satisfies Record<DataSyncState['status'], { title: string; description: string }>
 
@@ -42,8 +42,10 @@ export default function DataSyncStatusBanner({ state, compact = false }: DataSyn
     ? ShieldCheck
     : state.status === 'pending-local-change'
       ? Save
-      : state.status === 'offline-readonly' || state.status === 'stale-cache'
+      : state.status === 'offline-readonly'
         ? CloudOff
+        : state.status === 'stale-cache'
+          ? RefreshCw
         : state.status === 'conflict'
           ? AlertTriangle
           : RefreshCw

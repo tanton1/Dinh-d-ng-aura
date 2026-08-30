@@ -998,9 +998,26 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const section = ['students', 'schedule', 'requests'].includes(request.data?.section) ? request.data.section : 'students'
     const scopePromise = coachWorkspaceScopeForActor(db, actor)
     if (section === 'students') {
-      const limit = integer(request.data?.limit, 100, 1, 200)
-      const [scope, data] = await Promise.all([scopePromise, assignedStudentsForActor(db, actor, limit)])
-      return { schemaVersion: 2, scope, students: data.students, branches: data.branches, sessions: [], requests: [], hasMore: data.hasMore }
+      const from = dateKey(request.data?.from, 'Ngày bắt đầu')
+      const to = dateKey(request.data?.to, 'Ngày kết thúc')
+      if (from > to || Date.parse(`${to}T00:00:00+07:00`) - Date.parse(`${from}T00:00:00+07:00`) > 62 * 86400000) throw new HttpsError('invalid-argument', 'Khoảng lịch tối đa là 62 ngày.')
+      const requestedLimit = integer(request.data?.limit, 300, 1, 500)
+      const studentLimit = Math.min(200, requestedLimit)
+      const scheduleLimit = Math.max(300, requestedLimit)
+      const [scope, data, schedule] = await Promise.all([
+        scopePromise,
+        assignedStudentsForActor(db, actor, studentLimit),
+        trainerScheduleForActor(db, actor, from, to, scheduleLimit),
+      ])
+      return {
+        schemaVersion: 3,
+        scope,
+        students: data.students,
+        branches: data.branches,
+        sessions: schedule.sessions,
+        requests: [],
+        hasMore: data.hasMore,
+      }
     }
     const from = dateKey(request.data?.from, 'Ngày bắt đầu')
     const to = dateKey(request.data?.to, 'Ngày kết thúc')

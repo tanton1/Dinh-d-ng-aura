@@ -169,8 +169,11 @@ async function loadLatestSubmittedFallbacks(db, profiles, exactAvailability, tar
     if (projected && projected.weekId < targetWeek) result.set(studentId, projected)
     else unresolved.push(studentId)
   }
-  for (let index = 0; index < unresolved.length; index += 20) {
-    const chunk = unresolved.slice(index, index + 20)
+  // Legacy profiles without the denormalized latest submission still need a
+  // bounded lookup. Fifty concurrent point queries keeps migration fallback
+  // from turning a 500-student branch into 25 sequential network rounds.
+  for (let index = 0; index < unresolved.length; index += 50) {
+    const chunk = unresolved.slice(index, index + 50)
     const values = await Promise.all(chunk.map((studentId) => latestSubmittedBeforeWeek(db, studentId, targetWeek)))
     values.forEach((value, valueIndex) => {
       if (value) result.set(chunk[valueIndex], value)
