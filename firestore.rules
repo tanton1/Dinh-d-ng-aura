@@ -72,6 +72,16 @@ service cloud.firestore {
       return hasRole(['admin', 'super_admin']);
     }
 
+    function managesBranchSchedule(branchId) {
+      return signedIn()
+             && exists(/databases/$(database)/documents/roleAssignments/$(request.auth.uid))
+             && get(/databases/$(database)/documents/roleAssignments/$(request.auth.uid)).data.get('accessRole', '') == 'staff'
+             && get(/databases/$(database)/documents/roleAssignments/$(request.auth.uid)).data.get('status', '') == 'active'
+             && get(/databases/$(database)/documents/roleAssignments/$(request.auth.uid)).data.get('positions', []).hasAny(['branch_manager'])
+             && get(/databases/$(database)/documents/roleAssignments/$(request.auth.uid)).data.get('branchIds', []).hasAny([branchId])
+             && currentUser().get('disabled', false) != true;
+    }
+
     function canManageCourseAfter(courseId) {
       return isAdmin()
              || (hasRole(['editor'])
@@ -961,7 +971,7 @@ service cloud.firestore {
     // Callable Functions. Admin may inspect them for incident response; staff
     // receives a bounded actor-scoped projection from the backend.
     match /ptScheduleDrafts/{draftId} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || managesBranchSchedule(resource.data.get('branchId', ''));
       allow write: if false;
     }
 

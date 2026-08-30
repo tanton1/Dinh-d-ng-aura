@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Activity,
   AlertTriangle,
   CalendarDays,
   CalendarRange,
@@ -11,6 +12,7 @@ import {
   History,
   Lock,
   Minus,
+  MoreHorizontal,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -22,8 +24,10 @@ import {
   UsersRound,
   X,
 } from 'lucide-react'
+import { doc, onSnapshot } from 'firebase/firestore'
 import AvailabilityMatrix from './AvailabilityMatrix'
 import type { AccessContext } from '../../identity/access'
+import { firestoreDb } from '../../lib/firebaseFirestore'
 import { getDatesForWeek } from '../../utils/dateUtils'
 import {
   applyPtScheduleDraftCommand,
@@ -58,6 +62,7 @@ interface Props {
 
 type WorkspaceTab = 'matrix' | 'students' | 'warnings' | 'history'
 type StudentFilter = 'all' | 'missing' | 'availability' | 'ready'
+type WorkspaceSyncState = 'connecting' | 'live' | 'syncing' | 'offline'
 const CONFIRMED_AVAILABILITY_STATUSES = new Set(['submitted', 'locked', 'inherited', 'recurring'])
 
 const DAY_LABELS: Record<string, string> = {
@@ -161,6 +166,29 @@ function contractQuota(contract: PtScheduleWorkspaceV2Result['contracts'][number
   return { entitlement, held, schedulable }
 }
 
+function workspaceRealtimeFingerprint(value: PtScheduleWorkspaceV2Result | null) {
+  if (!value) return ''
+  return JSON.stringify({
+    branchId: value.branch.id,
+    weekId: value.weekId,
+    draftRevision: value.draftRevision,
+    publishedVersion: value.publishedVersion,
+    summary: value.summary,
+    students: value.students.map((student) => [
+      student.id, student.status, student.sessionsPerWeek, student.availabilityRevision,
+      student.availabilityStatus, student.eligibleForWeek, student.remainingSchedulableSessions,
+    ]),
+    trainers: value.trainers.map((trainer) => [
+      trainer.id, trainer.status, trainer.availabilityRevision, trainer.availabilityMode,
+      trainer.slotCapacity, trainer.dailySessionTarget, trainer.schedulingPriority,
+    ]),
+    contracts: value.contracts.map((contract) => [
+      contract.id, contract.status, contract.usedSessions, contract.activeScheduledSessions,
+      contract.startDate, contract.endDate,
+    ]),
+  })
+}
+
 function localSlotCandidates(
   workspace: PtScheduleWorkspaceV2Result,
   trainerId: string,
@@ -255,6 +283,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [offConfirmation, setOffConfirmation] = useState(false)
   const [studentSearch, setStudentSearch] = useState('')
   const [studentFilter, setStudentFilter] = useState<StudentFilter>('all')
+  const [syncState, setSyncState] = useState<WorkspaceSyncState>('connecting')
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null)
   const [expandedWarningStudentId, setExpandedWarningStudentId] = useState<string | null>(null)
   const [availabilityEditorStudentId, setAvailabilityEditorStudentId] = useState<string | null>(null)
   const [availabilityDraft, setAvailabilityDraft] = useState<Set<string>>(new Set())
@@ -262,6 +292,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [availabilityError, setAvailabilityError] = useState('')
   const [resetDraftOpen, setResetDraftOpen] = useState(false)
   const candidateCache = useRef(new Map<string, PtScheduleSlotCandidate[]>())
+  const workspaceRef = useRef<PtScheduleWorkspaceV2Result | null>(null)
+  const busyRef = useRef(false)
+  const realtimeRefreshTimer = useRef<number | null>(null)
+  const moreMenuRef = useRef<HTMLDetailsElement | null>(null)
 
   const weekDates = useMemo(() => getDatesForWeek(weekOffset), [weekOffset])
   const currentWeekId = weekDates.T2.full
@@ -281,18 +315,29 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     return result
   }, [workingDays])
 
+  useEffect(() => { workspaceRef.current = workspace }, [workspace])
+  useEffect(() => { busyRef.current = busy }, [busy])
+
   const loadWorkspace = useCallback(async (quiet = false) => {
     if (!branchId) return
     if (!quiet) setLoading(true)
+    setSyncState(quiet ? 'syncing' : 'connecting')
     setError(null)
     try {
       const result = await getPtScheduleWorkspace({ weekId: currentWeekId, branchId })
-      setWorkspace(result)
-      setSelectedTrainerId((current) => result.trainers.some((trainer) => trainer.id === current)
+      const changed = workspaceRealtimeFingerprint(workspaceRef.current) !== workspaceRealtimeFingerprint(result)
+      if (!quiet) setWorkspace(result)
+      else if (changed) startTransition(() => setWorkspace(result))
+      setLastSyncedAt(new Date())
+      setSyncState('live')
+      const keepValidTrainer = (current: string) => result.trainers.some((trainer) => trainer.id === current)
         ? current
-        : result.trainers[0]?.id || '')
+        : result.trainers[0]?.id || ''
+      if (quiet) startTransition(() => setSelectedTrainerId(keepValidTrainer))
+      else setSelectedTrainerId(keepValidTrainer)
     } catch (loadError) {
-      setWorkspace(null)
+      if (!quiet || !workspaceRef.current) setWorkspace(null)
+      setSyncState('offline')
       setError(asPtSchedulePublishError(loadError).message)
     } finally {
       if (!quiet) setLoading(false)
@@ -328,6 +373,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   }, [loadBranches])
 
   useEffect(() => {
+    setWorkspace((current) => current?.branch.id === branchId && current.weekId === currentWeekId ? current : null)
     void loadWorkspace()
     setNotice(null)
     setPublishPreview(null)
@@ -338,7 +384,61 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     setHighlightedStudentId(null)
     candidateCache.current.clear()
     setMobilePage(0)
-  }, [loadWorkspace])
+  }, [branchId, currentWeekId, loadWorkspace])
+
+  useEffect(() => {
+    if (!notice) return undefined
+    const timeout = window.setTimeout(() => setNotice(null), 3_600)
+    return () => window.clearTimeout(timeout)
+  }, [notice])
+
+  useEffect(() => {
+    if (!branchId || !currentWeekId) return undefined
+    const scheduleQuietRefresh = (delay = 180) => {
+      if (document.visibilityState === 'hidden' || busyRef.current) return
+      if (realtimeRefreshTimer.current !== null) window.clearTimeout(realtimeRefreshTimer.current)
+      realtimeRefreshTimer.current = window.setTimeout(() => void loadWorkspace(true), delay)
+    }
+    const onFocus = () => scheduleQuietRefresh(80)
+    const onVisibility = () => { if (document.visibilityState === 'visible') scheduleQuietRefresh(80) }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
+
+    // The draft stream contains branch-owned scheduling data only. Firestore
+    // Rules limit it to Admin or the branch manager assigned to this branch.
+    let stopDraftListener: (() => void) | undefined
+    const canListenToDraft = ['admin', 'super_admin'].includes(accessContext.accessRole)
+      || (accessContext.accessRole === 'staff' && accessContext.positions.includes('branch_manager'))
+    if (firestoreDb && canListenToDraft) {
+      stopDraftListener = onSnapshot(
+        doc(firestoreDb, 'ptScheduleDrafts', `${branchId}_${currentWeekId}`),
+        (snapshot) => {
+          const revision = Number(snapshot.data()?.revision ?? 0)
+          if (revision > Number(workspaceRef.current?.draftRevision || 0)) scheduleQuietRefresh()
+        },
+        () => setSyncState((current) => current === 'connecting' ? 'offline' : current),
+      )
+    }
+    const refreshInterval = window.setInterval(
+      () => scheduleQuietRefresh(0),
+      30_000,
+    )
+    return () => {
+      stopDraftListener?.()
+      window.clearInterval(refreshInterval)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+      if (realtimeRefreshTimer.current !== null) window.clearTimeout(realtimeRefreshTimer.current)
+    }
+  }, [accessContext.accessRole, accessContext.positions, branchId, currentWeekId, loadWorkspace])
+
+  useEffect(() => {
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (moreMenuRef.current?.open && !moreMenuRef.current.contains(event.target as Node)) moreMenuRef.current.open = false
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick)
+  }, [])
 
   const selectedTrainer = workspace?.trainers.find((trainer) => trainer.id === selectedTrainerId) || null
   const inspectorEntries = useMemo(() => {
@@ -949,42 +1049,45 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     <div className="branch-schedule">
       <header className="branch-schedule__hero">
         <div>
-          <span><CalendarDays size={16} /> AURA PT · LỊCH VẬN HÀNH</span>
-          <h1>Xếp lịch & ca tập</h1>
-          <p>Mỗi chỉnh sửa được kiểm tra theo ngày hợp đồng, chi nhánh, PT, lịch rảnh và revision hiện tại.</p>
+          <span><CalendarDays size={16} /> AURA PT</span>
+          <h1>Xếp lịch PT</h1>
         </div>
         <div className="branch-schedule__hero-controls">
-          <label><span>Chi nhánh</span><select value={branchId} onChange={(event) => setBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+          <label><span>Chi nhánh</span><select aria-label="Chọn chi nhánh" value={branchId} onChange={(event) => setBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
           <div className="branch-schedule__week">
             <button type="button" aria-label="Tuần trước" onClick={() => setWeekOffset((value) => Math.max(0, value - 1))}><ChevronLeft /></button>
-            <div><span>Tuần làm việc</span><strong>{weekDates.T2.display} – {weekDates.CN.display}</strong></div>
+            <div><span>Tuần</span><strong>{weekDates.T2.display} – {weekDates.CN.display}</strong></div>
             <button type="button" aria-label="Tuần sau" onClick={() => setWeekOffset((value) => value + 1)}><ChevronRight /></button>
           </div>
+          <span className={`branch-schedule__sync is-${syncState}`} title={lastSyncedAt ? `Cập nhật lúc ${lastSyncedAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Đang kết nối dữ liệu'}><Activity size={14} />{syncState === 'live' ? 'Trực tiếp' : syncState === 'offline' ? 'Mất kết nối' : 'Đang đồng bộ'}</span>
         </div>
       </header>
 
-      <section className="branch-schedule__metrics" aria-label="Tổng quan lịch">
-        <article className="is-coverage"><UsersRound /><div><strong>{studentCoverage.withAtLeastOne}/{studentCoverage.eligible}</strong><span>Đã có ít nhất 1 buổi</span></div></article>
-        <article><CheckCircle2 /><div><strong>{studentCoverage.fullyScheduled}/{studentCoverage.eligible}</strong><span>Đã đủ mục tiêu tuần</span></div></article>
-        <article><CalendarRange /><div><strong>{studentCoverage.scheduledEntries}/{studentCoverage.totalTargetSessions}</strong><span>Buổi đã xếp / mục tiêu</span></div></article>
-        <article className={studentCoverage.missingSessions > 0 ? 'is-warning' : ''}><AlertTriangle /><div><strong>{studentCoverage.missingSessions}</strong><span>Buổi còn thiếu</span></div></article>
-        <article className="is-paired"><UsersRound /><div><strong>{slotUtilization.pairedSlots}</strong><span>Ca 2/2 đã ghép</span></div></article>
-        <article className={slotUtilization.singleSlots > 0 ? 'is-warning' : ''}><Clock3 /><div><strong>{slotUtilization.singleSlots}</strong><span>Ca 1/2 còn lẻ</span></div></article>
-        <article><Sparkles /><div><strong>{slotUtilization.pairRatePercent}%</strong><span>Tỷ lệ ghép ca</span></div></article>
+      <section className="branch-schedule__summary-strip" aria-label="Tóm tắt lịch tuần">
+        <button type="button" onClick={() => setTab('students')}><UsersRound /><strong>{studentCoverage.fullyScheduled}/{studentCoverage.eligible}</strong><span>học viên đủ lịch</span></button>
+        <button type="button" onClick={() => setTab('students')}><CalendarRange /><strong>{studentCoverage.scheduledEntries}/{studentCoverage.totalTargetSessions}</strong><span>buổi đã xếp</span></button>
+        <button type="button" onClick={() => setTab('warnings')} className={slotUtilization.singleSlots > 0 ? 'is-attention' : ''}><UsersRound /><strong>{slotUtilization.pairedSlots} đôi</strong><span>{slotUtilization.singleSlots} ca còn lẻ</span></button>
+        <button type="button" onClick={() => setTab('warnings')} className={warningCount > 0 ? 'is-attention' : ''}><AlertTriangle /><strong>{warningCount}</strong><span>cảnh báo cần xem</span></button>
       </section>
 
       <section className="branch-schedule__toolbar">
         <div className="branch-schedule__tabs" role="tablist">
-          <button type="button" className={tab === 'matrix' ? 'is-active' : ''} onClick={() => setTab('matrix')}>Ma trận</button>
-          <button type="button" className={tab === 'students' ? 'is-active' : ''} onClick={() => setTab('students')}>Học viên <b>{workspace?.summary.eligibleStudents || 0}</b></button>
+          <button type="button" className={tab === 'matrix' ? 'is-active' : ''} onClick={() => setTab('matrix')}>Lịch PT</button>
           <button type="button" className={tab === 'warnings' ? 'is-active' : ''} onClick={() => setTab('warnings')}>Cảnh báo <b>{warningCount}</b></button>
-          <button type="button" className={tab === 'history' ? 'is-active' : ''} onClick={() => void openHistory()}>Phiên bản</button>
+          <button type="button" className={tab === 'students' ? 'is-active' : ''} onClick={() => setTab('students')}>Học viên</button>
         </div>
         <div className="branch-schedule__actions">
-          <button type="button" onClick={() => void autoArrange()} disabled={!workspace || busy}><Sparkles size={16} /> Xếp lịch tối ưu</button>
-          <button type="button" className="is-publish" onClick={() => void validatePublish()} disabled={!workspace || busy}><CheckCircle2 size={16} /> Kiểm tra & Publish</button>
-          <button type="button" className="is-reset-draft" aria-label="Đặt lại lịch nháp" title="Đặt lại lịch nháp" onClick={() => setResetDraftOpen(true)} disabled={!workspace || busy || draftResetSummary.resettableEntries < 1}><RotateCcw size={16} /> Đặt lại</button>
-          <button type="button" className="is-reload" aria-label="Tải lại dữ liệu" title="Tải lại dữ liệu" onClick={() => void loadWorkspace()} disabled={loading || busy}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /></button>
+          <button type="button" onClick={() => void autoArrange()} disabled={!workspace || busy}><Sparkles size={16} /><span>Xếp tối ưu</span></button>
+          <button type="button" className="is-publish" onClick={() => void validatePublish()} title="Kiểm tra & Publish" disabled={!workspace || busy}><CheckCircle2 size={16} /><span>Publish</span></button>
+          <details className="branch-schedule__more" ref={moreMenuRef}>
+            <summary aria-label="Mở thêm công cụ" title="Thêm công cụ"><MoreHorizontal size={18} /></summary>
+            <div>
+              <header><strong>Công cụ khác</strong><span>Draft r{workspace?.draftRevision || 0} · lịch v{workspace?.publishedVersion || 0}</span></header>
+              <button type="button" onClick={() => { moreMenuRef.current?.removeAttribute('open'); void openHistory() }}><History size={16} /><span><strong>Lịch sử & khôi phục</strong><small>Dùng khi cần quay lại lịch đã publish</small></span></button>
+              <button type="button" onClick={() => { moreMenuRef.current?.removeAttribute('open'); setResetDraftOpen(true) }} disabled={!workspace || busy || draftResetSummary.resettableEntries < 1}><RotateCcw size={16} /><span><strong>Đặt lại draft</strong><small>Giữ nguyên ca khóa, OFF và đã publish</small></span></button>
+              <button type="button" onClick={() => { moreMenuRef.current?.removeAttribute('open'); void loadWorkspace() }} disabled={loading || busy}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /><span><strong>Tải lại dữ liệu</strong><small>Đồng bộ lại ngay bây giờ</small></span></button>
+            </div>
+          </details>
         </div>
       </section>
 
@@ -996,29 +1099,27 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       {workspace && tab === 'matrix' && (
         <main className="branch-schedule__workspace">
           <section className="branch-schedule__matrix-toolbar">
-            <label><span>Huấn luyện viên</span><select value={selectedTrainerId} onChange={(event) => setSelectedTrainerId(event.target.value)}>{workspace.trainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name} · {trainer.dailySessionTarget || 8} ca/ngày</option>)}</select></label>
+            <label><span>Huấn luyện viên</span><select value={selectedTrainerId} onChange={(event) => setSelectedTrainerId(event.target.value)}>{workspace.trainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name}</option>)}</select></label>
             {selectedTrainer && <div className={`trainer-availability-chip is-${selectedTrainer.availabilityMode}`}><Clock3 size={14} />{selectedTrainer.availabilityMode === 'configured' ? `${selectedTrainer.availableSlots?.length || 0} khung giờ rảnh` : selectedTrainer.availabilityMode === 'unrestricted' ? 'Không giới hạn' : 'Chưa khai lịch rảnh'}</div>}
-            <div className="branch-schedule__draft-meta"><span>Draft r{workspace.draftRevision}</span><span>Published v{workspace.publishedVersion}</span></div>
           </section>
 
-          <section className="trainer-workload" aria-label="Tải ca huấn luyện viên theo ngày">
-            <header>
-              <div><strong>Tải ca PT</strong><span>Ca đôi cùng giờ chỉ tính 1 ca</span></div>
-              {selectedTrainer && <b>{selectedTrainerLoads.reduce((total, load) => total + load.count, 0)} ca tuần · mục tiêu {selectedTrainer.dailySessionTarget || 8}/ngày</b>}
-            </header>
-            <div className="trainer-workload__rail">
-              {workspace.trainers.map((trainer) => {
-                const loads = trainerLoads.filter((load) => load.trainerId === trainer.id)
-                const total = loads.reduce((sum, load) => sum + load.count, 0)
-                const priority = finiteCount(trainer.schedulingPriority, trainer.priority)
-                const target = loads[0]?.target || trainer.dailySessionTarget || 8
-                return <button type="button" key={trainer.id} className={`trainer-workload__card${trainer.id === selectedTrainerId ? ' is-active' : ''}`} onClick={() => setSelectedTrainerId(trainer.id)}>
-                  <span className="trainer-workload__identity"><strong>{trainer.name} · {total} ca</strong><small>{trainerEmploymentLabel(trainer.employmentType)} · {priority > 0 ? `hạng #${priority}` : 'tự cân tải'} · mục tiêu {target}</small></span>
-                  <span className="trainer-workload__days">{loads.map((load) => <i key={load.day} className={`is-${load.status}`} title={`${DAY_LABELS[load.day] || load.day}: ${load.count}/${load.target} ca · ${TRAINER_LOAD_LABELS[load.status]}`}><small>{load.day}</small><b>{load.count}/{load.target}</b></i>)}</span>
-                </button>
-              })}
-            </div>
-          </section>
+          <details className="branch-schedule__trainer-details">
+            <summary><span><strong>Phân bổ ca PT</strong><small>Chạm để xem tải ca và thứ tự ưu tiên</small></span>{selectedTrainer && <b>{selectedTrainerLoads.reduce((total, load) => total + load.count, 0)} ca tuần <ChevronRight size={15} /></b>}</summary>
+            <section className="trainer-workload" aria-label="Tải ca huấn luyện viên theo ngày">
+              <div className="trainer-workload__rail">
+                {workspace.trainers.map((trainer) => {
+                  const loads = trainerLoads.filter((load) => load.trainerId === trainer.id)
+                  const total = loads.reduce((sum, load) => sum + load.count, 0)
+                  const priority = finiteCount(trainer.schedulingPriority, trainer.priority)
+                  const target = loads[0]?.target || trainer.dailySessionTarget || 8
+                  return <button type="button" key={trainer.id} className={`trainer-workload__card${trainer.id === selectedTrainerId ? ' is-active' : ''}`} onClick={() => setSelectedTrainerId(trainer.id)}>
+                    <span className="trainer-workload__identity"><strong>{trainer.name} · {total} ca</strong><small>{trainerEmploymentLabel(trainer.employmentType)} · {priority > 0 ? `hạng #${priority}` : 'tự cân tải'} · mục tiêu {target}</small></span>
+                    <span className="trainer-workload__days">{loads.map((load) => <i key={load.day} className={`is-${load.status}`} title={`${DAY_LABELS[load.day] || load.day}: ${load.count}/${load.target} ca · ${TRAINER_LOAD_LABELS[load.status]}`}><small>{load.day}</small><b>{load.count}/{load.target}</b></i>)}</span>
+                  </button>
+                })}
+              </div>
+            </section>
+          </details>
 
           <div className="branch-schedule__mobile-days">
             <button type="button" disabled={mobilePage === 0} onClick={() => setMobilePage((value) => Math.max(0, value - 1))}><ChevronLeft /></button>
@@ -1062,17 +1163,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
       {workspace && tab === 'students' && (
         <main className="branch-schedule__students-page">
-          <header><div><p>AURA PT · HỌC VIÊN TRONG TUẦN</p><h2>Hồ sơ cần xếp lịch</h2><span>Đối chiếu gói tập, PT phụ trách, lịch rảnh và số buổi còn thiếu ngay trong phạm vi chi nhánh.</span></div>{onNavigate && <button type="button" onClick={() => onNavigate('admin-pt-students')}><UserPlus size={16} /> Mở hồ sơ học viên</button>}</header>
+          <header><div><p>HỌC VIÊN TRONG TUẦN</p><h2>Tiến độ xếp lịch</h2><span>Chạm vào từng hồ sơ để xem hoặc điều chỉnh lịch rảnh.</span></div>{onNavigate && <button type="button" onClick={() => onNavigate('admin-pt-students')}><UserPlus size={16} /> Hồ sơ học viên</button>}</header>
           <div className="branch-schedule__student-tools">
             <label><Search size={17} /><input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="Tên, SĐT, gói tập hoặc PT" /></label>
-            <div role="group" aria-label="Lọc học viên theo trạng thái">
-              {([
-                ['all', 'Tất cả'],
-                ['missing', 'Còn thiếu'],
-                ['availability', 'Thiếu lịch rảnh'],
-                ['ready', 'Đã đủ'],
-              ] as Array<[StudentFilter, string]>).map(([value, label]) => <button type="button" key={value} className={studentFilter === value ? 'is-active' : ''} onClick={() => setStudentFilter(value)}>{label}</button>)}
-            </div>
+            <select aria-label="Lọc trạng thái học viên" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value as StudentFilter)}><option value="all">Tất cả học viên</option><option value="missing">Còn thiếu buổi</option><option value="availability">Thiếu lịch rảnh</option><option value="ready">Đã đủ lịch</option></select>
           </div>
           <div className="branch-schedule__student-list">
             {studentRows.map(({ student, scheduled, scheduledEntries, missing, contract, trainerNames }) => <article key={student.id} className={`${missing > 0 ? 'is-missing' : 'is-ready'}${availabilityEditorStudentId === student.id ? ' is-editing-availability' : ''}`}>
@@ -1096,7 +1190,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
       {workspace && tab === 'warnings' && (
         <main className="branch-schedule__warning-page">
-          <header><p>AURA VALIDATION</p><h2>Cảnh báo xếp lịch</h2><span>Mỗi hồ sơ đã gom đủ nguyên nhân, hợp đồng, PT, lịch rảnh, lịch đã xếp và ca gợi ý ngay tại đây.</span></header>
+          <header><p>CẦN XỬ LÝ</p><h2>Cảnh báo xếp lịch</h2><span>Chạm vào từng mục để xem đủ nguyên nhân và phương án xử lý.</span></header>
           <section className="schedule-warning-summary" aria-label="Tóm tắt cảnh báo">
             <article><strong>{warningProfiles.length}</strong><span>Học viên cần xử lý</span></article>
             <article><strong>{warningProfiles.reduce((total, profile) => total + profile.missingSessions, 0)}</strong><span>Buổi còn thiếu</span></article>
@@ -1138,7 +1232,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
       {workspace && tab === 'history' && (
         <main className="branch-schedule__history-page">
-          <header><p>PHIÊN BẢN BẤT BIẾN</p><h2>Lịch sử publish</h2><span>Khôi phục luôn tạo draft mới; không sửa session đã tính buổi.</span></header>
+          <header><p>LỚP AN TOÀN</p><h2>Lịch sử đã publish</h2><span>Chỉ dùng khi cần xem lại hoặc khôi phục một lịch cũ. Hệ thống luôn tạo draft mới và không sửa buổi đã tính.</span><button type="button" onClick={() => setTab('matrix')}><ChevronLeft size={16} /> Quay lại lịch PT</button></header>
           {busy && !history ? <div className="branch-schedule__loading"><RefreshCw className="is-spinning" /> Đang tải lịch sử…</div> : null}
           <section className="schedule-version-list">{history?.versions.map((version) => <article key={version.version} className={version.version === history.currentVersion ? 'is-current' : ''}><div><strong>Phiên bản v{version.version}</strong><span>{version.entryCount} buổi · draft r{version.sourceDraftRevision}</span><small>{formatPublishedAt(version.publishedAt)}</small></div><button type="button" onClick={() => setRestoreCandidate(version)}><History size={15} /> Tạo draft</button></article>)}</section>
           {history && !history.versions.length && <div className="schedule-warning-empty">Chưa có phiên bản đã publish.</div>}

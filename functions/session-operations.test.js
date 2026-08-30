@@ -656,7 +656,8 @@ test('request history resolves operational identities and current session revisi
 
 test('new branch schedule keeps learners in a dedicated operational tab without restoring request tabs', () => {
   assert.match(branchScheduleWorkspace, /WorkspaceTab = 'matrix' \| 'students' \| 'warnings' \| 'history'/)
-  assert.match(branchScheduleWorkspace, /Hồ sơ cần xếp lịch/)
+  assert.match(branchScheduleWorkspace, /Tiến độ xếp lịch/)
   assert.match(branchScheduleWorkspace, /Thiếu lịch rảnh/)
+  assert.match(branchScheduleWorkspace, /Lịch sử & khôi phục/)
   assert.doesNotMatch(branchScheduleWorkspace, /SessionRequestApprovals|LeaveApprovals/)
 })

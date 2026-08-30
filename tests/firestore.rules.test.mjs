@@ -51,6 +51,18 @@ async function seedPtSecurityFixtures() {
         membership: 'coach',
         disabled: false,
       }),
+      setDoc(doc(db, 'users', 'manager-1'), {
+        uid: 'manager-1', displayName: 'Quản lý chi nhánh A', role: 'manager', disabled: false,
+      }),
+      setDoc(doc(db, 'users', 'manager-other'), {
+        uid: 'manager-other', displayName: 'Quản lý chi nhánh B', role: 'manager', disabled: false,
+      }),
+      setDoc(doc(db, 'roleAssignments', 'manager-1'), {
+        accessRole: 'staff', positions: ['branch_manager'], branchIds: ['branch-a'], status: 'active',
+      }),
+      setDoc(doc(db, 'roleAssignments', 'manager-other'), {
+        accessRole: 'staff', positions: ['branch_manager'], branchIds: ['branch-b'], status: 'active',
+      }),
       setDoc(doc(db, 'coachClients', 'client-1'), {
         clientId: 'client-1',
         coachId: 'coach-1',
@@ -162,6 +174,9 @@ async function seedPtSecurityFixtures() {
       setDoc(doc(db, 'settings', 'scheduleConfig'), {
         workingDays: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'],
         workingHours: [6, 7, 8],
+      }),
+      setDoc(doc(db, 'ptScheduleDrafts', 'branch-a_2026-08-24'), {
+        branchId: 'branch-a', weekId: '2026-08-24', revision: 2, schedule: {},
       }),
     ])
   })
@@ -355,17 +370,22 @@ describe('Aura PT Firestore rules', () => {
     }
   })
 
-  test('PT schedule drafts are admin-readable but every browser write remains blocked', async () => {
+  test('PT schedule drafts are realtime-readable only in the assigned manager branch and every browser write remains blocked', async () => {
     const studentDb = authenticatedDb('client-1', 'student')
     const coachDb = authenticatedDb('coach-1', 'coach')
     const adminDb = authenticatedDb('admin-1', 'admin')
+    const branchManagerDb = authenticatedDb('manager-1', 'manager')
+    const otherBranchManagerDb = authenticatedDb('manager-other', 'manager')
     const draftPath = ['ptScheduleDrafts', 'branch-a_2026-08-24']
     const receiptPath = ['ptScheduleCommandReceipts', 'receipt-a']
 
     await assertFails(getDoc(doc(studentDb, ...draftPath)))
     await assertFails(getDoc(doc(coachDb, ...draftPath)))
     await assertSucceeds(getDoc(doc(adminDb, ...draftPath)))
+    await assertSucceeds(getDoc(doc(branchManagerDb, ...draftPath)))
+    await assertFails(getDoc(doc(otherBranchManagerDb, ...draftPath)))
     await assertFails(setDoc(doc(adminDb, ...draftPath), { revision: 999 }))
+    await assertFails(setDoc(doc(branchManagerDb, ...draftPath), { branchId: 'branch-a', revision: 999 }))
     await assertFails(getDoc(doc(adminDb, ...receiptPath)))
     await assertFails(setDoc(doc(adminDb, ...receiptPath), { forged: true }))
   })
