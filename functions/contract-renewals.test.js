@@ -74,7 +74,7 @@ test('bulk renewal handoff is branch-scoped, revisioned and audited atomically',
 
 test('renewal callables and scheduler use bounded low-CPU production settings', () => {
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'contract-renewals.js'), 'utf8')
-  assert.match(source, /const renewalCall[\s\S]*?cpu: 'gcf_gen1', maxInstances: 6, invoker: 'public'/)
+  assert.match(source, /const renewalCall[\s\S]*?cpu: 'gcf_gen1', concurrency: 1, maxInstances: 2, invoker: 'public'/)
   assert.match(source, /createRenewalQuote = renewalCall/)
   assert.match(source, /retryCount: 1, cpu: 'gcf_gen1', maxInstances: 1/)
   assert.match(source, /schedule: '5 0 \* \* \*'/)

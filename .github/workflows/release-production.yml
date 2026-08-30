@@ -13,6 +13,11 @@ on:
         required: true
         default: false
         type: boolean
+      backend_functions:
+        description: Comma-separated Functions changed by this release; leave empty for frontend-only releases
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -103,8 +108,45 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
 
-      - name: Deploy backend Functions
-        run: npx --yes firebase-tools@15.9.1 deploy --only functions --project gen-lang-client-0815966909 --non-interactive
+      - name: Validate backend deployment scope
+        id: backend
+        shell: bash
+        env:
+          BACKEND_FUNCTIONS: ${{ inputs.backend_functions }}
+        run: |
+          TARGETS="$(printf '%s' "$BACKEND_FUNCTIONS" | tr -d '[:space:]')"
+          if [ -z "$TARGETS" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Frontend-only release: Functions deployment skipped."
+            exit 0
+          fi
+          if ! printf '%s' "$TARGETS" | grep -Eq '^[A-Za-z][A-Za-z0-9]*(,[A-Za-z][A-Za-z0-9]*)*$'; then
+            echo "backend_functions must be a comma-separated list of exported Function names." >&2
+            exit 1
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "targets=$TARGETS" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy backend Functions sequentially and require healthy revisions
+        if: steps.backend.outputs.enabled == 'true'
+        shell: bash
+        env:
+          BACKEND_FUNCTIONS: ${{ steps.backend.outputs.targets }}
+          FUNCTIONS_DISCOVERY_TIMEOUT: 60
+        run: |
+          IFS=',' read -ra TARGETS <<< "$BACKEND_FUNCTIONS"
+          for FUNCTION_NAME in "${TARGETS[@]}"; do
+            echo "Deploying ${FUNCTION_NAME}..."
+            SERVICE_NAME="$(printf '%s' "$FUNCTION_NAME" | tr '[:upper:]' '[:lower:]')"
+            if ! npx --yes firebase-tools@15.9.1 deploy --only "functions:${FUNCTION_NAME}" --project gen-lang-client-0815966909 --non-interactive; then
+              node scripts/cloud-run-functions-rollback.cjs --functions="$SERVICE_NAME" --confirm=gen-lang-client-0815966909/asia-southeast1 || true
+              exit 1
+            fi
+            if ! node scripts/cloud-run-functions-health.cjs --functions="$SERVICE_NAME" --fail-on-unhealthy; then
+              node scripts/cloud-run-functions-rollback.cjs --functions="$SERVICE_NAME" --confirm=gen-lang-client-0815966909/asia-southeast1
+              exit 1
+            fi
+          done
 
       - name: Deploy Firestore indexes and wait until ready
         run: node scripts/firebase-firestore-index-deploy.cjs apply --confirm=projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7:create-missing-indexes
@@ -136,4 +178,5 @@ jobs:
           echo "- Git ref: \`${{ inputs.git_ref }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Git SHA: \`${{ steps.revision.outputs.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Deployment: ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Backend Functions: \`${{ steps.backend.outputs.targets || 'skipped' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- App Check compatibility rollout: \`${{ inputs.allow_pending_app_check }}\`" >> "$GITHUB_STEP_SUMMARY"

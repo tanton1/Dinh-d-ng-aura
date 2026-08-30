@@ -630,8 +630,8 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
   // transactions. A fractional CPU profile avoids Cloud Run's regional
   // cpu_allocation quota rejecting cold starts before the handler can run.
   const renewalCall = (optionsOrHandler, maybeHandler) => typeof optionsOrHandler === 'function'
-    ? onCall({ cpu: 'gcf_gen1', maxInstances: 6, invoker: 'public' }, optionsOrHandler)
-    : onCall({ cpu: 'gcf_gen1', maxInstances: 6, invoker: 'public', ...optionsOrHandler }, maybeHandler)
+    ? onCall({ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 2, invoker: 'public' }, optionsOrHandler)
+    : onCall({ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 2, invoker: 'public', ...optionsOrHandler }, maybeHandler)
   const listHandler = async (request) => {
     const actor = await renewalActor(request, db)
     const input = listInput(request.data || {})

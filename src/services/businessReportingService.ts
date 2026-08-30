@@ -1,10 +1,4 @@
-import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebaseFunctions'
-
-function callable<Input, Output>(name: string) {
-  if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
-  return httpsCallable<Input, Output>(firebaseFunctions, name)
-}
+import { callReadOnlyFunction } from './readOnlyCallableService'
 
 export type BusinessSource = 'all' | 'pt_gym' | 'online_coaching' | 'nutrition_coaching' | 'academy' | 'eat_clean' | 'delivery_fee' | 'payroll' | 'other' | 'legacy_unclassified'
 
@@ -54,7 +48,7 @@ export interface BusinessPerformanceReport {
 }
 
 export async function listBusinessPerformance(input: BusinessPerformanceQuery): Promise<BusinessPerformanceReport> {
-  return (await callable<BusinessPerformanceQuery, BusinessPerformanceReport>('listBusinessPerformance')(input)).data
+  return callReadOnlyFunction<BusinessPerformanceQuery, BusinessPerformanceReport>('listBusinessPerformance', input)
 }
 
 export type TrainingHistorySubject = 'student' | 'trainer'
@@ -156,16 +150,16 @@ export interface TrainingHistoryQuery {
 }
 
 export async function listStudentTrainingHistory(studentId: string, query: TrainingHistoryQuery): Promise<TrainingHistoryPage> {
-  return (await callable<{ studentId: string } & TrainingHistoryQuery, TrainingHistoryPage>('listStudentTrainingHistory')({ studentId, ...query })).data
+  return callReadOnlyFunction<{ studentId: string } & TrainingHistoryQuery, TrainingHistoryPage>('listStudentTrainingHistory', { studentId, ...query })
 }
 
 export async function listTrainerTeachingHistory(trainerId: string, query: TrainingHistoryQuery): Promise<TrainingHistoryPage> {
-  return (await callable<{ trainerId: string } & TrainingHistoryQuery, TrainingHistoryPage>('listTrainerTeachingHistory')({ trainerId, ...query })).data
+  return callReadOnlyFunction<{ trainerId: string } & TrainingHistoryQuery, TrainingHistoryPage>('listTrainerTeachingHistory', { trainerId, ...query })
 }
 
 export async function getStudentContractUsage(studentId: string, contractId?: string): Promise<StudentContractUsageResponse> {
-  return (await callable<{ studentId: string; contractId?: string }, StudentContractUsageResponse>('getStudentContractUsage')({
+  return callReadOnlyFunction<{ studentId: string; contractId?: string }, StudentContractUsageResponse>('getStudentContractUsage', {
     studentId,
     ...(contractId ? { contractId } : {}),
-  })).data
+  })
 }

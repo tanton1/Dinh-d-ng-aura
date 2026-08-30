@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { callReadOnlyFunction } from './readOnlyCallableService'
 
 export type PtExerciseTrackingMode = 'weight_reps' | 'bodyweight_reps' | 'time' | 'distance' | 'assisted_weight'
 
@@ -134,13 +135,12 @@ function callable<Input, Output>(name: string) {
 }
 
 export async function getPtWorkoutWorkspace(from: string, to = from): Promise<PtWorkoutWorkspace> {
-  const response = await callable<{ from: string; to: string }, PtWorkoutWorkspace>('getPtWorkoutWorkspace')({ from, to })
-  return response.data
+  return callReadOnlyFunction<{ from: string; to: string }, PtWorkoutWorkspace>('getPtWorkoutWorkspace', { from, to })
 }
 
 export async function getPtStudentTrainingPlan(studentId?: string): Promise<PtTrainingProgram | null> {
-  const response = await callable<{ studentId?: string }, { program: PtTrainingProgram | null }>('getPtStudentTrainingPlan')({ studentId })
-  return response.data.program
+  const response = await callReadOnlyFunction<{ studentId?: string }, { program: PtTrainingProgram | null }>('getPtStudentTrainingPlan', { studentId })
+  return response.program
 }
 
 export async function savePtStudentTrainingPlan(input: {
@@ -168,6 +168,5 @@ export async function savePtSessionWorkoutLog(input: {
 }
 
 export async function listPtWorkoutHistory(studentId?: string, limit = 60): Promise<PtWorkoutHistory> {
-  const response = await callable<{ studentId?: string; limit: number }, PtWorkoutHistory>('listPtWorkoutHistory')({ studentId, limit })
-  return response.data
+  return callReadOnlyFunction<{ studentId?: string; limit: number }, PtWorkoutHistory>('listPtWorkoutHistory', { studentId, limit })
 }

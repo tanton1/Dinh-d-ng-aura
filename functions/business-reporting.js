@@ -408,7 +408,8 @@ async function studentContractUsage(db, access, studentId, requestedContractId =
 }
 
 function createBusinessReportingFunctions({ db, onCall }) {
-  const listBusinessPerformance = onCall(async (request) => {
+  const readCall = (handler) => onCall({ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 2, invoker: 'public' }, handler)
+  const listBusinessPerformance = readCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
     const canManageAll = actor.capabilities.includes('finance.operations.manage')
     const canManageBranch = actor.capabilities.includes('branch.finance.view')
@@ -569,9 +570,9 @@ function createBusinessReportingFunctions({ db, onCall }) {
     }
   }
 
-  const listStudentTrainingHistory = onCall((request) => listHistory(request, 'student'))
-  const listTrainerTeachingHistory = onCall((request) => listHistory(request, 'trainer'))
-  const getStudentContractUsage = onCall(async (request) => {
+  const listStudentTrainingHistory = readCall((request) => listHistory(request, 'student'))
+  const listTrainerTeachingHistory = readCall((request) => listHistory(request, 'trainer'))
+  const getStudentContractUsage = readCall(async (request) => {
     const studentId = documentId(request.data?.studentId, 'Mã học viên')
     const contractId = typeof request.data?.contractId === 'string' && request.data.contractId.trim()
       ? documentId(request.data.contractId, 'Mã hợp đồng')

@@ -266,7 +266,10 @@ function historyAnalytics(logs) {
 }
 
 function createPtWorkoutTrackingFunctions({ db, onCall }) {
-  const staffCall = (handler) => onCall({ cpu: 1, concurrency: 24, maxInstances: 6, invoker: 'public' }, handler)
+  // These endpoints are IO-bound. Fractional CPU avoids burning six full
+  // regional vCPUs during a cold rollout while preserving transaction safety.
+  const staffCall = (handler) => onCall({ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 2, invoker: 'public' }, handler)
+  const readCall = (handler) => onCall({ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 2, invoker: 'public' }, handler)
 
   const getPtWorkoutWorkspace = staffCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
@@ -329,7 +332,7 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
     })
   })
 
-  const getPtStudentTrainingPlan = onCall(async (request) => {
+  const getPtStudentTrainingPlan = readCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
     const requestedStudentId = safeDocumentId(request.data?.studentId || actor.legacyStaffId || actor.uid, 'Học viên')
     const learnerIds = actorIds(actor)
@@ -430,7 +433,7 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
     return { schemaVersion: 1, ...result }
   })
 
-  const listPtWorkoutHistory = onCall(async (request) => {
+  const listPtWorkoutHistory = readCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
     const studentId = safeDocumentId(request.data?.studentId || actor.legacyStaffId || actor.uid, 'Học viên')
     if (actor.accessRole === 'student') {

@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { callReadOnlyFunction } from './readOnlyCallableService'
 
 export type RenewalRiskCategory = 'expired' | 'exhausted' | 'critical' | 'upcoming' | 'early'
 export type RenewalStage = 'uncontacted' | 'contacted' | 'interested' | 'quote_sent' | 'follow_up' | 'won' | 'lost'
@@ -206,7 +207,7 @@ function callable<Input, Output>(name: string) {
 }
 
 export async function listContractRenewalCases(input: RenewalListInput = {}) {
-  return (await callable<RenewalListInput, RenewalPipelineResponse>('listContractRenewalCases')(input)).data
+  return callReadOnlyFunction<RenewalListInput, RenewalPipelineResponse>('listContractRenewalCases', input)
 }
 
 export async function listContractRenewalPipeline() {
@@ -214,7 +215,7 @@ export async function listContractRenewalPipeline() {
 }
 
 export async function getContractRenewalCaseDetail(caseId: string) {
-  return (await callable<{ caseId: string }, RenewalCaseDetail>('getContractRenewalCaseDetail')({ caseId })).data
+  return callReadOnlyFunction<{ caseId: string }, RenewalCaseDetail>('getContractRenewalCaseDetail', { caseId })
 }
 
 export async function recordContractRenewalActivity(input: {
@@ -254,7 +255,7 @@ export async function transferRenewalCases(input: {
 }
 
 export async function listRenewalMessageTemplates() {
-  return (await callable<Record<string, never>, { schemaVersion: 1; templates: RenewalMessageTemplate[] }>('listRenewalMessageTemplates')({})).data
+  return callReadOnlyFunction<Record<string, never>, { schemaVersion: 1; templates: RenewalMessageTemplate[] }>('listRenewalMessageTemplates', {})
 }
 
 export async function createRenewalQuote(input: {
@@ -299,11 +300,11 @@ export async function renewPtContract(input: {
 }
 
 export async function listRenewalCalendar(input: { from: string; to: string }) {
-  return (await callable<typeof input, { from: string; to: string; items: RenewalPipelineRow[]; truncated: boolean }>('listRenewalCalendar')(input)).data
+  return callReadOnlyFunction<typeof input, { from: string; to: string; items: RenewalPipelineRow[]; truncated: boolean }>('listRenewalCalendar', input)
 }
 
 export async function getRenewalAnalytics(input: { from: string; to: string }) {
-  return (await callable<typeof input, RenewalAnalytics>('getRenewalAnalytics')(input)).data
+  return callReadOnlyFunction<typeof input, RenewalAnalytics>('getRenewalAnalytics', input)
 }
 
 export async function refreshContractRenewalQueue(apply: boolean) {

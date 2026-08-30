@@ -175,7 +175,7 @@ function allowClientIncident(request) {
 setGlobalOptions({
   region: 'asia-southeast1',
   maxInstances: 3,
-  labels: { 'aura-release': 'pt-policy-v1-20260823' },
+  labels: { 'aura-release': 'quota-safe-v1-20260830' },
 })
 
 Object.assign(exports, createNutritionFunctions({ app, db }))
