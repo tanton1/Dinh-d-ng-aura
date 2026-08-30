@@ -22,6 +22,7 @@ import {
 import { getPtStudentTrainingPlan, listPtWorkoutHistory, type PtTrainingProgram, type PtWorkoutHistory } from '../../services/ptWorkoutTrackingService'
 import { listExerciseCatalog } from '../../services/exerciseCatalogService'
 import type { ExerciseCatalogItem, ExerciseCatalogMediaImage } from '../../types'
+import { exerciseMatchesMuscleGroup, exerciseMuscleGroupOptions, type ExerciseMuscleGroupId } from '../../utils/exerciseMuscleGroups'
 import '../operations/PtWorkoutWorkspacePage.css'
 import './StudentPtWorkoutPage.css'
 
@@ -109,6 +110,7 @@ export default function StudentPtWorkoutPage({ isDemo = false }: { isDemo?: bool
   const [catalogError, setCatalogError] = useState('')
   const [catalogQuery, setCatalogQuery] = useState('')
   const [catalogFilter, setCatalogFilter] = useState<LibraryFilter>('all')
+  const [muscleFilter, setMuscleFilter] = useState<ExerciseMuscleGroupId>('all')
   const [visibleCatalogCount, setVisibleCatalogCount] = useState(24)
   const [selectedExercise, setSelectedExercise] = useState<ExerciseCatalogItem | null>(null)
   const [savedIds, setSavedIds] = useState<Set<string>>(() => {
@@ -144,18 +146,19 @@ export default function StudentPtWorkoutPage({ isDemo = false }: { isDemo?: bool
   useEffect(() => { void load() }, [isDemo])
   useEffect(() => { if (activeTab === 'library' && !catalogRequested) void loadCatalog() }, [activeTab, catalogRequested])
   useEffect(() => { try { window.localStorage.setItem('aura-student-exercise-favorites', JSON.stringify([...savedIds])) } catch { /* unavailable in private mode */ } }, [savedIds])
-  useEffect(() => { setVisibleCatalogCount(24) }, [catalogFilter, catalogQuery])
+  useEffect(() => { setVisibleCatalogCount(24) }, [catalogFilter, catalogQuery, muscleFilter])
 
   const day = program?.trainingDays[dayIndex]
   const planExerciseIds = useMemo(() => new Set((program?.trainingDays || []).flatMap((trainingDay) => trainingDay.exercises.map((exercise) => exercise.catalogExerciseId))), [program])
+  const muscleGroups = useMemo(() => exerciseMuscleGroupOptions(catalog), [catalog])
   const filteredCatalog = useMemo(() => {
     const query = catalogQuery.trim().toLocaleLowerCase('vi')
     return catalog.filter((item) => {
       const searchable = [item.nameVi, item.nameEn, ...item.aliasesVi, ...item.targetMuscles, ...item.bodyParts, ...item.equipment].join(' ').toLocaleLowerCase('vi')
       const filterMatch = catalogFilter === 'all' || item.difficulty === catalogFilter || (catalogFilter === 'home' && item.environment.includes('home'))
-      return filterMatch && (!query || searchable.includes(query))
+      return filterMatch && exerciseMatchesMuscleGroup(item, muscleFilter) && (!query || searchable.includes(query))
     })
-  }, [catalog, catalogFilter, catalogQuery])
+  }, [catalog, catalogFilter, catalogQuery, muscleFilter])
   const visibleCatalog = filteredCatalog.slice(0, visibleCatalogCount)
   const toggleSaved = (exerciseId: string) => setSavedIds((current) => { const next = new Set(current); if (next.has(exerciseId)) next.delete(exerciseId); else next.add(exerciseId); return next })
   const openPlan = () => { setActiveTab('plan'); setSelectedExercise(null); setNotice('Đã mở giáo án của bạn. Chọn đúng buổi để bắt đầu tập.'); window.setTimeout(() => setNotice(''), 3500) }
@@ -184,8 +187,9 @@ export default function StudentPtWorkoutPage({ isDemo = false }: { isDemo?: bool
     {activeTab === 'library' && <section className="student-library" aria-label="Thư viện bài tập">
       {selectedExercise ? <ExerciseDetail item={selectedExercise} isInCurrentPlan={planExerciseIds.has(selectedExercise.id)} onBack={() => setSelectedExercise(null)} onOpenPlan={openPlan} saved={savedIds.has(selectedExercise.id)} onToggleSaved={() => toggleSaved(selectedExercise.id)} /> : <>
         <div className="student-library__intro"><div><span>THƯ VIỆN AURA</span><h2>Khám phá bài tập</h2><p>Chọn bài phù hợp, xem kỹ thuật và lưu lại để tham khảo.</p></div><button type="button" className="student-library__refresh" onClick={() => void loadCatalog()} disabled={catalogLoading} aria-label="Tải lại thư viện"><RefreshCw /></button></div>
-        <div className="student-library__search"><Search /><input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder="Tìm tên bài, nhóm cơ, dụng cụ…" aria-label="Tìm bài tập" /><button type="button" aria-label="Bộ lọc đang dùng"><SlidersHorizontal /></button></div>
-        <div className="student-library__filters" role="group" aria-label="Lọc bài tập">{(Object.keys(libraryFilterLabels) as LibraryFilter[]).map((filter) => <button type="button" className={catalogFilter === filter ? 'is-active' : ''} onClick={() => setCatalogFilter(filter)} key={filter}>{libraryFilterLabels[filter]}</button>)}</div>
+        <div className="student-library__search"><Search /><input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder="Tìm tên bài, nhóm cơ, dụng cụ…" aria-label="Tìm bài tập" /><SlidersHorizontal aria-hidden="true" /></div>
+        <div className="student-library__filter-block"><strong>Nhóm cơ</strong><div className="student-library__filters" role="group" aria-label="Lọc theo nhóm cơ">{muscleGroups.map((group) => <button type="button" className={muscleFilter === group.id ? 'is-active' : ''} onClick={() => setMuscleFilter(group.id)} key={group.id}>{group.label}<small>{group.count}</small></button>)}</div></div>
+        <div className="student-library__filter-block is-secondary"><strong>Mức độ</strong><div className="student-library__filters" role="group" aria-label="Lọc theo mức độ">{(Object.keys(libraryFilterLabels) as LibraryFilter[]).map((filter) => <button type="button" className={catalogFilter === filter ? 'is-active' : ''} onClick={() => setCatalogFilter(filter)} key={filter}>{libraryFilterLabels[filter]}</button>)}</div></div>
         {catalogError && <div className="student-library__inline-error" role="alert"><AlertTriangle />{catalogError}<button type="button" onClick={() => void loadCatalog()}>Thử lại</button></div>}
         {catalogLoading && <div className="student-library__loading" role="status" aria-live="polite"><RefreshCw />Đang tải thư viện bài tập…</div>}
         {!catalogLoading && !catalogError && <>

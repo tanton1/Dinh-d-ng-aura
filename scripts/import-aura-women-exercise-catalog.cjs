@@ -196,7 +196,7 @@ function canonicalItems() {
   return ITEMS.map((item) => ({ ...item, contentDigest: sha256(JSON.stringify(item)) }))
 }
 
-function parseArgs() {
+function parseArgs(confirmation = CONFIRMATION) {
   const result = { mode: 'dry-run' }
   process.argv.slice(2).forEach((argument) => {
     if (argument.startsWith('--mode=')) result.mode = argument.slice(7)
@@ -209,7 +209,7 @@ function parseArgs() {
   if (!['dry-run', 'apply', 'verify'].includes(result.mode)) throw new Error('Mode must be dry-run, apply, or verify.')
   if (result.mode === 'apply') {
     if (result.projectId !== TARGET.projectId || result.databaseId !== TARGET.databaseId) throw new Error('Apply requires the exact production target.')
-    if (result.confirm !== CONFIRMATION) throw new Error('Apply confirmation is missing or incorrect.')
+    if (result.confirm !== confirmation) throw new Error('Apply confirmation is missing or incorrect.')
     if (!/^[a-f0-9]{64}$/.test(result.digest || '')) throw new Error('Apply requires the dry-run digest.')
   }
   return result
@@ -279,26 +279,34 @@ async function loadExistingRevisions(token, items) {
   }))
 }
 
-async function createMissing(token, items, existing) {
+async function createMissing(token, items, existing, release = RELEASE) {
   const writes = []
   for (const item of items) {
     if (existing.has(item.id)) continue
     const { id, ...fields } = item
     const documentName = `${firestoreResourceBase()}/documents/exercises/${id}`
     writes.push({ update: { name: documentName, fields: encodeFields(fields) }, currentDocument: { exists: false } })
-    writes.push({ update: { name: `${documentName}/revisions/1`, fields: encodeFields({ ...fields, exerciseId: id, revisionType: 'catalog_import', createdBy: RELEASE }) }, currentDocument: { exists: false } })
+    writes.push({ update: { name: `${documentName}/revisions/1`, fields: encodeFields({ ...fields, exerciseId: id, revisionType: 'catalog_import', createdBy: release }) }, currentDocument: { exists: false } })
   }
   if (writes.length) await requestJson(token, '/documents:batchWrite', { method: 'POST', body: JSON.stringify({ writes }) })
   return writes.length / 2
 }
 
-async function main() {
-  const args = parseArgs()
-  const items = canonicalItems()
+async function runCatalogImport({
+  sourceItems = ITEMS,
+  release = RELEASE,
+  confirmation = CONFIRMATION,
+  reportPath = REPORT,
+  categories = { lowerBody: 12, upperBody: 5, core: 3 },
+  validate = validateItems,
+} = {}) {
+  const args = parseArgs(confirmation)
+  validate(sourceItems)
+  const items = sourceItems.map((item) => ({ ...item, contentDigest: sha256(JSON.stringify(item)) }))
   const planDigest = sha256(JSON.stringify(items))
-  const report = { schemaVersion: 1, release: RELEASE, mode: args.mode, selectedCount: items.length, planDigest, writesPerformed: false, published: items.length }
+  const report = { schemaVersion: 1, release, mode: args.mode, selectedCount: items.length, planDigest, writesPerformed: false, published: items.length }
   if (args.mode === 'dry-run') {
-    report.categories = { lowerBody: 12, upperBody: 5, core: 3 }
+    report.categories = categories
   } else {
     const token = await accessToken()
     const metadata = await requestJson(token, '')
@@ -308,7 +316,7 @@ async function main() {
       if (args.digest !== planDigest) throw new Error('Live plan digest no longer matches the approved dry run.')
       const conflicts = items.filter((item) => existing.has(item.id) && existing.get(item.id).contentDigest !== item.contentDigest)
       if (conflicts.length) throw new Error(`Refusing to overwrite ${conflicts.length} existing exercise documents.`)
-      report.created = await createMissing(token, items, existing)
+      report.created = await createMissing(token, items, existing, release)
       report.skippedExact = items.length - report.created
       report.writesPerformed = report.created > 0
       existing = await loadExisting(token, items)
@@ -320,10 +328,10 @@ async function main() {
     report.missingOrDifferentRevisions = items.length - report.presentRevisions
     if (report.missingOrDifferent || report.missingOrDifferentRevisions) process.exitCode = 2
   }
-  fs.mkdirSync(path.dirname(REPORT), { recursive: true })
-  fs.writeFileSync(REPORT, `${JSON.stringify(report, null, 2)}\n`)
+  fs.mkdirSync(path.dirname(reportPath), { recursive: true })
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`)
   console.log(JSON.stringify(report, null, 2))
 }
 
-if (require.main === module) main().catch((error) => { console.error(error.message); process.exitCode = 1 })
-module.exports = { ITEMS, RELEASE, canonicalItems, validateItems }
+if (require.main === module) runCatalogImport().catch((error) => { console.error(error.message); process.exitCode = 1 })
+module.exports = { ITEMS, RELEASE, canonicalItems, runCatalogImport, validateItems }

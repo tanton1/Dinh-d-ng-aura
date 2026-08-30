@@ -9,6 +9,8 @@ const importer = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'import-f
 const serviceSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'exerciseCatalogService.ts'), 'utf8')
 const managerSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'exercise-catalog', 'ExerciseCatalogManager.tsx'), 'utf8')
 const managerStyles = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'exercise-catalog', 'ExerciseCatalogManager.css'), 'utf8')
+const studentLibrarySource = fs.readFileSync(path.join(__dirname, '..', 'src', 'pages', 'student', 'StudentPtWorkoutPage.tsx'), 'utf8')
+const trainerWorkspaceSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'pages', 'operations', 'PtWorkoutWorkspacePage.tsx'), 'utf8')
 
 test('exercise catalog is authenticated, review-gated and revisioned', () => {
   assert.match(source, /if \(!uid\) throw new HttpsError\('unauthenticated'/)
@@ -50,6 +52,15 @@ test('catalog highlights women recommendations and provides mobile master-detail
   assert.match(managerSource, /Danh sách bài tập/)
   assert.match(managerSource, /has-mobile-detail/)
   assert.match(managerStyles, /@media\(max-width:760px\).*has-mobile-detail/s)
+})
+
+test('admin, trainer and learner catalogs share canonical muscle group filters', () => {
+  assert.match(managerSource, /exerciseMuscleGroupOptions/)
+  assert.match(managerSource, /Lọc thư viện theo nhóm cơ/)
+  assert.match(studentLibrarySource, /exerciseMatchesMuscleGroup/)
+  assert.match(studentLibrarySource, /Lọc theo nhóm cơ/)
+  assert.match(trainerWorkspaceSource, /exerciseMuscleGroupOptions/)
+  assert.match(trainerWorkspaceSource, /Lọc bài tập theo nhóm cơ/)
 })
 
 test('catalog editor uses a five-step wizard and local image uploads', () => {

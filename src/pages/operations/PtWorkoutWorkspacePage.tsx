@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { listExerciseCatalog } from '../../services/exerciseCatalogService'
 import type { ExerciseCatalogItem } from '../../types'
+import { exerciseMatchesMuscleGroup, exerciseMuscleGroupOptions, type ExerciseMuscleGroupId } from '../../utils/exerciseMuscleGroups'
 import {
   getPtWorkoutWorkspace,
   listPtWorkoutHistory,
@@ -26,8 +27,6 @@ import ExerciseCatalogManager from '../../components/exercise-catalog/ExerciseCa
 type WorkspaceTab = 'today' | 'program' | 'library' | 'history'
 
 const dateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' })
-const muscleLabels = ['Tất cả', 'Mông', 'Đùi trước', 'Đùi sau', 'Lưng', 'Ngực', 'Vai', 'Tay', 'Bụng']
-
 function todayKey() { return dateFormatter.format(new Date()) }
 function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T }
 function emptyProgram(): PtTrainingProgram {
@@ -91,7 +90,7 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
   const [sets, setSets] = useState<PtWorkoutSet[]>([])
   const [catalog, setCatalog] = useState<ExerciseCatalogItem[]>([])
   const [catalogQuery, setCatalogQuery] = useState('')
-  const [muscleFilter, setMuscleFilter] = useState('Tất cả')
+  const [muscleFilter, setMuscleFilter] = useState<ExerciseMuscleGroupId>('all')
   const [history, setHistory] = useState<PtWorkoutHistory | null>(null)
   const [coachNotes, setCoachNotes] = useState('')
   const [painNotes, setPainNotes] = useState('')
@@ -107,6 +106,7 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
   const selectedDay = programDraft.trainingDays.find((day) => day.id === selectedDayId) || programDraft.trainingDays[0]
   const selectedLog = workspace.logs.find((log) => log.sessionId === selectedSessionId && log.studentId === selectedStudentId) || null
   const sessionGroups = useMemo(() => groupedSessions(workspace.sessions), [workspace.sessions])
+  const muscleGroups = useMemo(() => exerciseMuscleGroupOptions(catalog), [catalog])
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -151,7 +151,7 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
     const query = catalogQuery.trim().toLocaleLowerCase('vi')
     return catalog.filter((item) => {
       const matchesQuery = !query || [item.nameVi, item.nameEn, ...item.targetMuscles, ...item.bodyParts].join(' ').toLocaleLowerCase('vi').includes(query)
-      const matchesMuscle = muscleFilter === 'Tất cả' || [...item.targetMuscles, ...item.bodyParts].some((value) => value.toLocaleLowerCase('vi').includes(muscleFilter.toLocaleLowerCase('vi')))
+      const matchesMuscle = exerciseMatchesMuscleGroup(item, muscleFilter)
       return matchesQuery && matchesMuscle
     }).slice(0, 24)
   }, [catalog, catalogQuery, muscleFilter])
@@ -296,7 +296,7 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
           <aside className="pt-workout-workspace__catalog">
             <div className="pt-workout-workspace__section-title"><div><span>THƯ VIỆN AURA</span><h2>Chọn theo nhóm cơ</h2></div><Sparkles /></div>
             <label className="pt-workout-workspace__search"><Search /><input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder="Tìm bài tập…" /></label>
-            <div className="pt-workout-workspace__muscles">{muscleLabels.map((muscle) => <button className={muscle === muscleFilter ? 'is-active' : ''} onClick={() => setMuscleFilter(muscle)} key={muscle}>{muscle}</button>)}</div>
+            <div className="pt-workout-workspace__muscles" role="group" aria-label="Lọc bài tập theo nhóm cơ">{muscleGroups.map((group) => <button className={group.id === muscleFilter ? 'is-active' : ''} onClick={() => setMuscleFilter(group.id)} key={group.id}>{group.label}<small>{group.count}</small></button>)}</div>
             <div className="pt-workout-workspace__catalog-list">{filteredCatalog.map((item) => <button key={item.id} onClick={() => addExercise(item)} disabled={selectedDay?.exercises.some((exercise) => exercise.catalogExerciseId === item.id)}>{item.media.posterUrl || item.media.startImageUrl ? <img src={item.media.posterUrl || item.media.startImageUrl} alt="" /> : <Dumbbell />}<span><b>{item.nameVi}</b><small>{item.targetMuscles.join(' · ') || item.bodyParts.join(' · ')}</small></span><Plus /></button>)}</div>
           </aside>
         </>}
