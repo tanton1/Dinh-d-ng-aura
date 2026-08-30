@@ -8,6 +8,17 @@ import './styles-bootstrap.css'
 
 initializeClientTelemetry()
 
+const APP_UPDATE_READY_KEY = 'aura:update-ready'
+const APP_UPDATE_READY_EVENT = 'aura:update-ready'
+
+// A fresh document already runs the newest shell. This marker is only used to
+// carry a controller update across route changes in the current document.
+try {
+  window.sessionStorage.removeItem(APP_UPDATE_READY_KEY)
+} catch {
+  // Storage can be unavailable in private browsing.
+}
+
 window.addEventListener('vite:preloadError', (event) => {
   event.preventDefault()
   void recoverFromStaleRelease()
@@ -30,6 +41,17 @@ if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (refreshing) return
         refreshing = true
+        // The schedule workspace can contain a long-running edit. Do not tear
+        // it down underneath the operator when a new deploy becomes ready.
+        if (window.location.hash.startsWith('#/admin-pt-schedule')) {
+          try {
+            window.sessionStorage.setItem(APP_UPDATE_READY_KEY, '1')
+          } catch {
+            // The in-page event still protects the active workspace.
+          }
+          window.dispatchEvent(new CustomEvent(APP_UPDATE_READY_EVENT))
+          return
+        }
         window.location.reload()
       })
     }

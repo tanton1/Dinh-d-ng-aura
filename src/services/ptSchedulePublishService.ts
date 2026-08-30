@@ -172,6 +172,8 @@ export interface PtScheduleOptimizationSummary {
   trainerLoads?: PtScheduleTrainerDailyLoad[]
   slotUtilization?: PtScheduleSlotUtilization
   pairingMoves?: number
+  refillAssignments?: number
+  optimizationPasses?: number
   totalTargetSessions?: number
   scheduledEntries?: number
   missingSessions?: number

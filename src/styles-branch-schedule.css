@@ -106,6 +106,8 @@
 .branch-schedule__loading { margin: 0; padding: 10px clamp(14px,2vw,24px); border-bottom: 1px solid var(--branch-line); font-size: .76rem; font-weight: 720; }
 .branch-schedule__notice { color: #167147; background: #effbf5; }
 .branch-schedule__error { color: #a3284b; background: #fff2f5; }
+.branch-schedule__update-ready { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px clamp(14px,2vw,24px); border-bottom:1px solid #ead9a2; color:#725817; background:#fff9df; font-size:.72rem; font-weight:760; }
+.branch-schedule__update-ready button { display:inline-flex; min-height:34px; flex:0 0 auto; align-items:center; justify-content:center; gap:6px; border:1px solid #dec46d; border-radius:9px; padding:0 11px; color:#725817; background:#fff; font-size:.68rem; font-weight:830; }
 .branch-schedule__branch-warning { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .branch-schedule__branch-warning button,
 .branch-schedule__blocked button { display: inline-flex; min-height: 38px; flex: 0 0 auto; align-items: center; justify-content: center; gap: 7px; border: 1px solid #efbfd0; border-radius: 11px; padding: 0 13px; color: #b2265d; background: #fff; font-size: .72rem; font-weight: 820; }
@@ -440,6 +442,7 @@
 
 @media (max-width: 760px) {
   .branch-schedule__branch-warning { align-items: flex-start; flex-direction: column; }
+  .branch-schedule__update-ready { align-items:flex-start; flex-direction:column; }
   .branch-schedule__hero { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:9px; padding:8px 7px; }
   .branch-schedule__hero > div:first-child > span { display:none; }
   .branch-schedule__hero h1 { margin:0; font-size:1rem; white-space:nowrap; }

@@ -34,6 +34,7 @@ const MAX_DRAFT_DOCUMENT_ENTRIES = 700
 const MAX_ENTRIES_PER_SLOT = 100
 const DEFAULT_DAILY_SESSION_TARGET = 8
 const DEFAULT_DAILY_SESSION_LIMIT = 10
+const MAX_DEEP_OPTIMIZATION_PASSES = 3
 const DAY_ORDER = new Map([['T2', 0], ['T3', 1], ['T4', 2], ['T5', 3], ['T6', 4], ['T7', 5], ['CN', 6]])
 const STUDENT_AVAILABILITY_REASON_CODES = new Set(['AVAILABILITY_NOT_SUBMITTED', 'OUTSIDE_STUDENT_AVAILABILITY'])
 
@@ -830,13 +831,13 @@ function compareSlots(left, right) {
     || left.localeCompare(right)
 }
 
-function compareCandidates(left, right) {
+function compareCandidatePriorities(left, right, leftOpensTeachingSlot, rightOpensTeachingSlot) {
   // Lexicographic objective after maximum-cardinality learner matching:
   // keep training days spaced, then fill a compatible 1/2 class, honour the
   // assignment, and only then balance PT teaching load/rank. A fairer PT load
   // must never open a singleton while a compatible pair is available.
   if (left.consecutiveDayPenalty !== right.consecutiveDayPenalty) return left.consecutiveDayPenalty - right.consecutiveDayPenalty
-  if (left.opensTeachingSlot !== right.opensTeachingSlot) return Number(left.opensTeachingSlot) - Number(right.opensTeachingSlot)
+  if (leftOpensTeachingSlot !== rightOpensTeachingSlot) return Number(leftOpensTeachingSlot) - Number(rightOpensTeachingSlot)
   if (left.assignmentOrder !== right.assignmentOrder) return left.assignmentOrder - right.assignmentOrder
   const tierComparison = schedulingTier(left) - schedulingTier(right)
   if (tierComparison !== 0) return tierComparison
@@ -847,6 +848,10 @@ function compareCandidates(left, right) {
   }
   if (left.score !== right.score) return right.score - left.score
   return compareSlots(left.slotId, right.slotId) || left.trainer.id.localeCompare(right.trainer.id)
+}
+
+function compareCandidates(left, right) {
+  return compareCandidatePriorities(left, right, left.opensTeachingSlot, right.opensTeachingSlot)
 }
 
 function scheduleStudentCounts(schedule) {
@@ -1037,7 +1042,17 @@ function matchSchedulingRound(data, schedule, students) {
   const tryAssign = (studentId, visitedStudents = new Set(), visitedTargets = new Set()) => {
     if (visitedStudents.has(studentId)) return false
     visitedStudents.add(studentId)
-    for (const candidate of candidatesByStudent.get(studentId) || []) {
+    // Re-rank with assignments already made in this round. Without this live
+    // occupancy check, two learners evaluated from the same empty snapshot can
+    // unnecessarily open two 1/2 classes instead of sharing one class.
+    const rankedCandidates = [...(candidatesByStudent.get(studentId) || [])].sort((left, right) => {
+      const liveOpensSlot = (candidate) => {
+        const targetKey = `${candidate.trainer.id}|${candidate.slotId}`
+        return (state.trainerSlotCounts.get(targetKey) || 0) + (occupantsByTarget.get(targetKey) || []).length === 0
+      }
+      return compareCandidatePriorities(left, right, liveOpensSlot(left), liveOpensSlot(right))
+    })
+    for (const candidate of rankedCandidates) {
       const targetKey = `${candidate.trainer.id}|${candidate.slotId}`
       if (visitedTargets.has(targetKey) || (targetCapacity.get(targetKey) || 0) < 1) continue
       const occupants = occupantsByTarget.get(targetKey) || []
@@ -1257,25 +1272,48 @@ function generateSchedule(data) {
     return committed
   }
 
-  // Maximum-cardinality first-session round. Augmenting paths can move a
-  // flexible learner away from the only slot of a constrained learner.
-  commitRound(students.filter((student) => (scheduledCounts.get(student.id) || 0) === 0
-    && (remainingByStudent.get(student.id) || 0) > 0))
+  const fillRemainingSessions = () => {
+    let committedTotal = 0
+    // Maximum-cardinality first-session round. Augmenting paths can move a
+    // flexible learner away from the only slot of a constrained learner.
+    committedTotal += commitRound(students.filter((student) => (scheduledCounts.get(student.id) || 0) === 0
+      && (remainingByStudent.get(student.id) || 0) > 0))
 
-  // Later rounds remain fair (one seat per learner per round) while maximizing
-  // the number of fulfilled weekly targets in each round.
-  let progress = true
-  while (!capacityReached && progress) {
-    const roundStudents = students.filter((student) => (remainingByStudent.get(student.id) || 0) > 0)
-    if (!roundStudents.length) break
-    progress = commitRound(roundStudents) > 0
+    // Later rounds remain fair (one seat per learner per round) while maximizing
+    // the number of fulfilled weekly targets in each round.
+    let progress = true
+    while (!capacityReached && progress) {
+      const roundStudents = students.filter((student) => (remainingByStudent.get(student.id) || 0) > 0)
+      if (!roundStudents.length) break
+      const committed = commitRound(roundStudents)
+      committedTotal += committed
+      progress = committed > 0
+    }
+    return committedTotal
   }
 
-  // A final safe compaction moves only mutable generated entries and strictly
-  // reduces the number of teaching slots by filling compatible 1/2 classes.
-  const compacted = compactPairedSlots(data, schedule)
-  Object.keys(schedule).forEach((slotId) => delete schedule[slotId])
-  Object.assign(schedule, compacted.schedule)
+  fillRemainingSessions()
+
+  // Deep improvement runs compaction and coverage again. Compaction can move a
+  // flexible learner from a capacity-1 class into an existing 1/2 class. That
+  // newly empty class is then retried for learners still missing a weekly
+  // session. Repeating the cycle also catches a second pairing opportunity
+  // created by the refill itself.
+  let pairingMoves = 0
+  let refillAssignments = 0
+  let optimizationPasses = 1
+  for (let pass = 0; pass < MAX_DEEP_OPTIMIZATION_PASSES && !capacityReached; pass += 1) {
+    const compacted = compactPairedSlots(data, schedule)
+    if (compacted.moves > 0) {
+      Object.keys(schedule).forEach((slotId) => delete schedule[slotId])
+      Object.assign(schedule, compacted.schedule)
+      pairingMoves += compacted.moves
+    }
+    const refilled = fillRemainingSessions()
+    refillAssignments += refilled
+    optimizationPasses += 1
+    if (compacted.moves === 0 && refilled === 0) break
+  }
   const schedulingState = buildSchedulingState(schedule)
   const contractCache = new Map()
 
@@ -1299,7 +1337,10 @@ function generateSchedule(data) {
     studentCoverage: studentCoverageForSchedule(data, schedule),
     trainerLoads: trainerLoadsForSchedule(data, schedule, schedulingState),
     slotUtilization: slotUtilizationForSchedule(data, schedule),
-    pairingMoves: compacted.moves,
+    pairingMoves,
+    refillAssignments,
+    optimizationPasses,
+    generatorVersion: 'optimizer-v6',
   }
   return { schedule, warnings, optimizationSummary, unassignedEntries }
 }
@@ -1413,7 +1454,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         schedule: generated.schedule,
         revision: nextRevision,
         status: 'draft',
-        generatorVersion: 'optimizer-v5',
+        generatorVersion: 'optimizer-v6',
         warnings: generated.warnings,
         optimizationSummary: generated.optimizationSummary,
         unassignedEntries: generated.unassignedEntries,
@@ -1422,7 +1463,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: 'pt_schedule.generated', actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, entryCount: scheduleEntryCount(generated.schedule), studentCoverage: generated.optimizationSummary.studentCoverage, slotUtilization: generated.optimizationSummary.slotUtilization, unassignedCount: generated.unassignedEntries.length, warnings: generated.warnings.slice(0, 100), createdAt: FieldValue.serverTimestamp() })
-      return { draftRevision: nextRevision, schedule: generated.schedule, warnings: generated.warnings, optimizationSummary: generated.optimizationSummary, unassignedEntries: generated.unassignedEntries, generatorVersion: 'optimizer-v5' }
+      return { draftRevision: nextRevision, schedule: generated.schedule, warnings: generated.warnings, optimizationSummary: generated.optimizationSummary, unassignedEntries: generated.unassignedEntries, generatorVersion: 'optimizer-v6' }
     })
   })
 

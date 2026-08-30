@@ -64,6 +64,10 @@ type WorkspaceTab = 'matrix' | 'students' | 'warnings' | 'history'
 type StudentFilter = 'all' | 'missing' | 'availability' | 'ready'
 type WorkspaceSyncState = 'connecting' | 'live' | 'syncing' | 'offline'
 const CONFIRMED_AVAILABILITY_STATUSES = new Set(['submitted', 'locked', 'inherited', 'recurring'])
+const QUIET_REFRESH_COOLDOWN_MS = 5_000
+const BACKGROUND_REFRESH_INTERVAL_MS = 60_000
+const APP_UPDATE_READY_KEY = 'aura:update-ready'
+const APP_UPDATE_READY_EVENT = 'aura:update-ready'
 
 const DAY_LABELS: Record<string, string> = {
   T2: 'Thứ 2',
@@ -289,6 +293,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [studentFilter, setStudentFilter] = useState<StudentFilter>('all')
   const [syncState, setSyncState] = useState<WorkspaceSyncState>('connecting')
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null)
+  const [releaseUpdateReady, setReleaseUpdateReady] = useState(() => {
+    try {
+      return window.sessionStorage.getItem(APP_UPDATE_READY_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
   const [expandedWarningStudentId, setExpandedWarningStudentId] = useState<string | null>(null)
   const [availabilityEditorStudentId, setAvailabilityEditorStudentId] = useState<string | null>(null)
   const [availabilityDraft, setAvailabilityDraft] = useState<Set<string>>(new Set())
@@ -299,10 +310,14 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const workspaceRef = useRef<PtScheduleWorkspaceV2Result | null>(null)
   const busyRef = useRef(false)
   const realtimeRefreshTimer = useRef<number | null>(null)
+  const workspaceRequestRef = useRef<{ scope: string; promise: Promise<void> } | null>(null)
+  const activeWorkspaceScopeRef = useRef('')
+  const lastWorkspaceRequestAtRef = useRef(0)
   const moreMenuRef = useRef<HTMLDetailsElement | null>(null)
 
   const weekDates = useMemo(() => getDatesForWeek(weekOffset), [weekOffset])
   const currentWeekId = weekDates.T2.full
+  const workspaceScope = `${branchId}|${currentWeekId}`
   const workingDays = workspace?.scheduleConfig.workingDays?.length
     ? workspace.scheduleConfig.workingDays
     : ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -321,30 +336,50 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
   useEffect(() => { workspaceRef.current = workspace }, [workspace])
   useEffect(() => { busyRef.current = busy }, [busy])
+  useEffect(() => { activeWorkspaceScopeRef.current = workspaceScope }, [workspaceScope])
 
   const loadWorkspace = useCallback(async (quiet = false) => {
     if (!branchId) return
-    if (!quiet) setLoading(true)
-    setSyncState(quiet ? 'syncing' : 'connecting')
-    setError(null)
+    const requestScope = `${branchId}|${currentWeekId}`
+    const inFlight = workspaceRequestRef.current
+    if (inFlight?.scope === requestScope) {
+      await inFlight.promise
+      return
+    }
+    lastWorkspaceRequestAtRef.current = Date.now()
+    const request = (async () => {
+      if (!quiet) setLoading(true)
+      if (!quiet || !workspaceRef.current) setSyncState('connecting')
+      if (!quiet) setError(null)
+      try {
+        const result = await getPtScheduleWorkspace({ weekId: currentWeekId, branchId })
+        if (activeWorkspaceScopeRef.current !== requestScope) return
+        const changed = workspaceRealtimeFingerprint(workspaceRef.current) !== workspaceRealtimeFingerprint(result)
+        if (!quiet) setWorkspace(result)
+        else if (changed) startTransition(() => setWorkspace(result))
+        setLastSyncedAt(new Date())
+        setSyncState('live')
+        const keepValidTrainer = (current: string) => result.trainers.some((trainer) => trainer.id === current)
+          ? current
+          : result.trainers[0]?.id || ''
+        if (quiet) startTransition(() => setSelectedTrainerId(keepValidTrainer))
+        else setSelectedTrainerId(keepValidTrainer)
+      } catch (loadError) {
+        if (activeWorkspaceScopeRef.current !== requestScope) return
+        if (!quiet || !workspaceRef.current) {
+          setWorkspace(null)
+          setError(asPtSchedulePublishError(loadError).message)
+        }
+        setSyncState('offline')
+      } finally {
+        if (!quiet && activeWorkspaceScopeRef.current === requestScope) setLoading(false)
+      }
+    })()
+    workspaceRequestRef.current = { scope: requestScope, promise: request }
     try {
-      const result = await getPtScheduleWorkspace({ weekId: currentWeekId, branchId })
-      const changed = workspaceRealtimeFingerprint(workspaceRef.current) !== workspaceRealtimeFingerprint(result)
-      if (!quiet) setWorkspace(result)
-      else if (changed) startTransition(() => setWorkspace(result))
-      setLastSyncedAt(new Date())
-      setSyncState('live')
-      const keepValidTrainer = (current: string) => result.trainers.some((trainer) => trainer.id === current)
-        ? current
-        : result.trainers[0]?.id || ''
-      if (quiet) startTransition(() => setSelectedTrainerId(keepValidTrainer))
-      else setSelectedTrainerId(keepValidTrainer)
-    } catch (loadError) {
-      if (!quiet || !workspaceRef.current) setWorkspace(null)
-      setSyncState('offline')
-      setError(asPtSchedulePublishError(loadError).message)
+      await request
     } finally {
-      if (!quiet) setLoading(false)
+      if (workspaceRequestRef.current?.promise === request) workspaceRequestRef.current = null
     }
   }, [branchId, currentWeekId])
 
@@ -397,11 +432,21 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   }, [notice])
 
   useEffect(() => {
+    const onUpdateReady = () => setReleaseUpdateReady(true)
+    window.addEventListener(APP_UPDATE_READY_EVENT, onUpdateReady)
+    return () => window.removeEventListener(APP_UPDATE_READY_EVENT, onUpdateReady)
+  }, [])
+
+  useEffect(() => {
     if (!branchId || !currentWeekId) return undefined
     const scheduleQuietRefresh = (delay = 180) => {
       if (document.visibilityState === 'hidden' || busyRef.current) return
       if (realtimeRefreshTimer.current !== null) window.clearTimeout(realtimeRefreshTimer.current)
-      realtimeRefreshTimer.current = window.setTimeout(() => void loadWorkspace(true), delay)
+      const cooldownRemaining = Math.max(0, QUIET_REFRESH_COOLDOWN_MS - (Date.now() - lastWorkspaceRequestAtRef.current))
+      realtimeRefreshTimer.current = window.setTimeout(() => {
+        realtimeRefreshTimer.current = null
+        void loadWorkspace(true)
+      }, Math.max(delay, cooldownRemaining))
     }
     const onFocus = () => scheduleQuietRefresh(80)
     const onVisibility = () => { if (document.visibilityState === 'visible') scheduleQuietRefresh(80) }
@@ -425,7 +470,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     }
     const refreshInterval = window.setInterval(
       () => scheduleQuietRefresh(0),
-      30_000,
+      BACKGROUND_REFRESH_INTERVAL_MS,
     )
     return () => {
       stopDraftListener?.()
@@ -982,9 +1027,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         studentCoverage: result.studentCoverage || current.studentCoverage,
       } : current)
       const unresolved = result.unassignedEntries?.length || result.unassigned?.length || 0
+      const passes = Math.max(1, Number(result.optimizationSummary?.optimizationPasses || 1))
+      const refilled = Math.max(0, Number(result.optimizationSummary?.refillAssignments || 0))
+      const deepRun = passes > 1 ? ` Đã chạy ${passes} lượt tối ưu${refilled ? ` và lấp thêm ${refilled} buổi` : ''}.` : ''
       setNotice(unresolved
-        ? `Đã tối ưu draft r${result.draftRevision}; còn ${unresolved} hồ sơ cần xử lý.`
-        : `Đã tối ưu draft r${result.draftRevision}; đã ưu tiên đủ học viên, ca đôi và PT chính/phụ.`)
+        ? `Đã tối ưu draft r${result.draftRevision}; còn ${unresolved} hồ sơ cần xử lý.${deepRun}`
+        : `Đã tối ưu draft r${result.draftRevision}; đã ưu tiên đủ học viên, ca đôi và PT chính/phụ.${deepRun}`)
     } catch (arrangeError) {
       const normalized = asPtSchedulePublishError(arrangeError)
       setError(normalized.message)
@@ -1132,6 +1180,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       </section>
 
       {notice && <div className="branch-schedule__notice" role="status">{notice}</div>}
+      {releaseUpdateReady && <div className="branch-schedule__update-ready" role="status"><span>Aura có bản cập nhật mới. Lịch đang mở được giữ nguyên để không mất thao tác.</span><button type="button" onClick={() => window.location.reload()}><RefreshCw size={14} /> Cập nhật khi sẵn sàng</button></div>}
       {branchCatalogError && <div className="branch-schedule__error branch-schedule__branch-warning" role="alert"><span>{branchCatalogError}</span><button type="button" onClick={() => void loadBranches()}><RefreshCw size={15} /> Tải lại chi nhánh</button></div>}
       {error && <div className="branch-schedule__error" role="alert">{error}</div>}
       {loading && !workspace && <div className="branch-schedule__loading"><RefreshCw className="is-spinning" /> Đang tải workspace theo phạm vi…</div>}

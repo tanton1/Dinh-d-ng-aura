@@ -518,6 +518,91 @@ test('pairing remains ahead of PT load balancing after every learner receives co
   assert.equal(generated.optimizationSummary.slotUtilization.pairedSlots, 1)
 })
 
+test('live round occupancy pairs learners before reopening their separate primary PT classes', () => {
+  const data = fixture()
+  data.trainers = [
+    { ...data.trainers[0], id: 'trainer-a', slotCapacity: 2, availableSlots: ['T2-6'] },
+    { ...data.trainers[0], id: 'trainer-b', slotCapacity: 2, availableSlots: ['T2-6'] },
+  ]
+  data.students = [
+    { ...data.students[0], id: 'student-a', name: 'A', availableSlots: ['T2-6'] },
+    { ...data.students[0], id: 'student-b', name: 'B', availableSlots: ['T2-6'] },
+  ]
+  data.contracts = [
+    { ...fixture().contracts[0], id: 'contract-a', studentId: 'student-a', trainerId: 'trainer-a' },
+    { ...fixture().contracts[0], id: 'contract-b', studentId: 'student-b', trainerId: 'trainer-b' },
+  ]
+
+  const generated = generateSchedule(data)
+  assert.equal(generated.optimizationSummary.slotUtilization.teachingSlots, 1)
+  assert.equal(generated.optimizationSummary.slotUtilization.pairedSlots, 1)
+  assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 0)
+  assert.ok(Object.values(generated.schedule).flat().some((entry) => entry.trainerAssignmentWarning === true))
+})
+
+test('deep optimization repeats coverage and pairing until the weekly target is fulfilled', () => {
+  const data = fixture()
+  data.trainers = [
+    {
+      ...data.trainers[0],
+      id: 'trainer-narrow',
+      name: 'PT ca hẹp',
+      slotCapacity: 1,
+      availableSlots: ['T3-6', 'T4-6'],
+    },
+    {
+      ...data.trainers[0],
+      id: 'trainer-pair',
+      name: 'PT ca đôi',
+      slotCapacity: 2,
+      availableSlots: ['T2-6', 'T5-6'],
+    },
+  ]
+  data.students = [
+    {
+      ...data.students[0],
+      id: 'student-a-flexible',
+      name: 'Z linh hoạt',
+      sessionsPerWeek: 1,
+      availableSlots: ['T4-6', 'T5-6'],
+    },
+    {
+      ...data.students[0],
+      id: 'student-b-pair',
+      name: 'A ca đôi',
+      sessionsPerWeek: 2,
+      availableSlots: ['T2-6', 'T5-6'],
+    },
+    {
+      ...data.students[0],
+      id: 'student-c-needs-two',
+      name: 'B cần hai buổi',
+      sessionsPerWeek: 2,
+      availableSlots: ['T3-6', 'T4-6'],
+    },
+  ]
+  data.contracts = data.students.map((student) => ({
+    ...fixture().contracts[0],
+    id: `contract-${student.id}`,
+    studentId: student.id,
+    trainerId: student.id === 'student-b-pair' ? 'trainer-pair' : 'trainer-narrow',
+    trainerIds: [],
+  }))
+
+  const generated = generateSchedule(data)
+  const counts = Object.values(generated.schedule).flat().reduce((result, entry) => {
+    result.set(entry.studentId, (result.get(entry.studentId) || 0) + 1)
+    return result
+  }, new Map())
+  assert.equal(counts.get('student-a-flexible'), 1)
+  assert.equal(counts.get('student-b-pair'), 2)
+  assert.equal(counts.get('student-c-needs-two'), 2)
+  assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 0)
+  assert.equal(generated.optimizationSummary.slotUtilization.pairedSlots, 1)
+  assert.ok(generated.optimizationSummary.optimizationPasses >= 2)
+  assert.equal(generated.optimizationSummary.generatorVersion, 'optimizer-v6')
+})
+
 test('pair compaction merges two compatible mutable single classes', () => {
   const data = fixture()
   data.students.push({ ...data.students[0], id: 'student-b', name: 'B' })
