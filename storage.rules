@@ -78,10 +78,12 @@ service firebase.storage {
              && request.resource.contentType == 'image/webp';
     }
 
-    function hasValidExerciseImageMetadata(exerciseId, mediaId) {
+    function hasValidExerciseImageMetadata(exerciseId, fileName) {
       return request.resource.metadata.resourceKind == 'exercise-image'
              && request.resource.metadata.exerciseId == exerciseId
-             && request.resource.metadata.mediaId == mediaId
+             && request.resource.metadata.mediaId is string
+             && request.resource.metadata.mediaId.matches('[A-Za-z0-9_-]{8,160}')
+             && fileName == request.resource.metadata.mediaId + '.webp'
              && request.resource.metadata.uploadedBy == request.auth.uid;
     }
 
@@ -160,13 +162,13 @@ service firebase.storage {
       allow delete: if isAdmin();
     }
 
-    match /exercise-catalog/{exerciseId}/{mediaId}.webp {
+    match /exercise-catalog/{exerciseId}/{fileName} {
       allow read: if signedIn();
       allow create: if isExerciseCatalogStaff()
                     && exerciseId.matches('[A-Za-z0-9_-]{1,160}')
-                    && mediaId.matches('[A-Za-z0-9_-]{8,160}')
+                    && fileName.matches('[A-Za-z0-9_-]{8,160}\\.webp')
                     && isSupportedExerciseImage()
-                    && hasValidExerciseImageMetadata(exerciseId, mediaId);
+                    && hasValidExerciseImageMetadata(exerciseId, fileName);
       // Uploads use immutable UUID names. Published media must not be replaced
       // in-place because old program snapshots can still reference it.
       allow update: if false;
