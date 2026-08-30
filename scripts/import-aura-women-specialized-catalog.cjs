@@ -37,12 +37,12 @@ const ITEMS = [
     cuesVi: ['Gối mở theo mũi chân', 'Bước ngắn nhưng luôn căng dây', 'Hông giữ ngang'], commonMistakesVi: ['Kéo lê bàn chân', 'Đứng thẳng mất lực mông', 'Gối đổ vào trong'],
     breathingVi: 'Thở đều, thở ra ở mỗi bước mở chân.', defaultPrescription: { sets: 3, reps: '12–16 bước mỗi hướng', restSeconds: 45, rpe: 7 },
   }),
-  exercise('aura_women_barbell_glute_bridge', 'Barbell_Glute_Bridge', {
-    nameVi: 'Cầu mông đòn tạ trên sàn', nameEn: 'Barbell Glute Bridge', aliasesVi: ['Barbell Glute Bridge'], bodyParts: ['Thân dưới'],
-    targetMuscles: ['Mông lớn'], secondaryMuscles: ['Đùi sau', 'Core'], equipment: ['Đòn tạ', 'Đệm đòn', 'Thảm tập'], difficulty: 'beginner',
-    instructionsVi: ['Nằm ngửa, đặt đòn tạ có đệm ngang nếp gấp hông.', 'Co gối, đặt bàn chân rộng bằng hông và gần mông vừa đủ.', 'Siết bụng rồi đẩy qua gót chân để nâng hông.', 'Siết mông ở đỉnh một nhịp và hạ xuống chậm.'],
-    cuesVi: ['Xương sườn khép', 'Đẩy qua gót chân', 'Dừng bằng siết mông'], commonMistakesVi: ['Ưỡn lưng ở đỉnh', 'Bàn chân đặt quá xa', 'Bật nảy đòn tạ'],
-    breathingVi: 'Hít khi hạ hông, thở ra khi nâng và siết mông.', defaultPrescription: { sets: 4, reps: '10–15', restSeconds: 75, rpe: 8 },
+  exercise('aura_women_thigh_abductor_machine', 'Thigh_Abductor', {
+    nameVi: 'Dạng đùi máy', nameEn: 'Thigh Abductor Machine', aliasesVi: ['Máy đùi ngoài', 'Máy dạng hông'], bodyParts: ['Thân dưới'],
+    targetMuscles: ['Mông nhỡ', 'Đùi ngoài'], secondaryMuscles: ['Mông nhỏ', 'Core'], equipment: ['Máy dạng đùi'], difficulty: 'beginner',
+    instructionsVi: ['Chỉnh ghế và biên độ khởi đầu để hai gối không bị ép quá sâu vào trong.', 'Ngồi sát tựa lưng, đặt hai chân đúng bệ và giữ hông cân bằng.', 'Mở hai đùi sang hai bên bằng lực mông ngoài, không bật người.', 'Dừng một nhịp ở biên độ chủ động rồi khép chân về chậm.'],
+    cuesVi: ['Mở gối bằng mông', 'Hông luôn áp ghế', 'Chiều về chậm hơn chiều mở'], commonMistakesVi: ['Dùng quán tính để bật gối', 'Nhấc hông khỏi ghế', 'Chọn mức tạ làm mất biên độ'],
+    breathingVi: 'Thở ra khi mở đùi, hít vào khi khép về.', defaultPrescription: { sets: 3, reps: '12–20', restSeconds: 45, rpe: 8 },
   }),
   exercise('aura_women_band_hip_extension', 'Hip_Extension_with_Bands', {
     nameVi: 'Duỗi hông với dây kháng lực', nameEn: 'Hip Extension with Bands', aliasesVi: ['Band Hip Extension'], bodyParts: ['Thân dưới'],
@@ -58,12 +58,12 @@ const ITEMS = [
     cuesVi: ['Lực chính ở chân trước', 'Hai hông hướng thẳng', 'Gối theo mũi chân'], commonMistakesVi: ['Đứng quá gần ghế', 'Dùng chân sau đẩy mạnh', 'Gối trước đổ vào trong'],
     breathingVi: 'Hít khi hạ, thở ra khi đẩy người lên.', defaultPrescription: { sets: 3, reps: '8–12 mỗi bên', restSeconds: 75, rpe: 8 },
   }),
-  exercise('aura_women_dumbbell_reverse_lunge', 'Dumbbell_Rear_Lunge', {
-    nameVi: 'Reverse Lunge với tạ đơn', nameEn: 'Dumbbell Rear Lunge', aliasesVi: ['Chùng chân bước lùi'], bodyParts: ['Thân dưới'],
-    targetMuscles: ['Mông', 'Đùi trước'], secondaryMuscles: ['Đùi sau', 'Core'], equipment: ['Tạ đơn'], difficulty: 'beginner',
-    instructionsVi: ['Đứng thẳng, giữ tạ dọc hai bên thân và siết nhẹ bụng.', 'Bước một chân ra sau đủ dài, tiếp đất bằng mũi chân.', 'Hạ gối sau xuống gần sàn, giữ chân trước ổn định.', 'Đẩy qua bàn chân trước để trở về đứng rồi đổi bên.'],
-    cuesVi: ['Bước lùi trên hai đường ray', 'Thân người ổn định', 'Đẩy bằng chân trước'], commonMistakesVi: ['Bước quá ngắn', 'Gối trước đổ vào trong', 'Đạp mạnh bằng chân sau'],
-    breathingVi: 'Hít khi bước lùi và hạ, thở khi trở về đứng.', defaultPrescription: { sets: 3, reps: '10–12 mỗi bên', restSeconds: 60, rpe: 7 },
+  exercise('aura_women_platform_hamstring_slide', 'Platform_Hamstring_Slides', {
+    nameVi: 'Trượt gót tập đùi sau', nameEn: 'Platform Hamstring Slides', aliasesVi: ['Hamstring Slide', 'Cuốn đùi sau trượt gót'], bodyParts: ['Thân dưới'],
+    targetMuscles: ['Đùi sau'], secondaryMuscles: ['Mông', 'Core'], equipment: ['Đĩa trượt', 'Thảm tập'], difficulty: 'intermediate', environment: ['home', 'gym'],
+    instructionsVi: ['Nằm ngửa, đặt hai gót lên đĩa trượt và co gối khoảng 90 độ.', 'Siết bụng, nâng hông để vai, hông và gối tạo thành đường thẳng.', 'Trượt hai gót ra xa chậm trong khi giữ hông không rơi xuống.', 'Kéo gót về bằng lực đùi sau, giữ xương chậu ổn định suốt lần lặp.'],
+    cuesVi: ['Hông luôn được nâng', 'Kéo bằng gót chân', 'Chiều duỗi thật chậm'], commonMistakesVi: ['Để hông chạm sàn', 'Co lưng dưới để bù lực', 'Trượt quá xa làm mất kiểm soát'],
+    breathingVi: 'Hít khi trượt chân ra, thở ra khi kéo gót về.', defaultPrescription: { sets: 3, reps: '8–12', restSeconds: 60, rpe: 8 },
   }),
   exercise('aura_women_adductor_machine', 'Adductor', {
     nameVi: 'Khép đùi máy', nameEn: 'Adductor Machine', aliasesVi: ['Máy đùi trong'], bodyParts: ['Thân dưới'],
@@ -72,19 +72,19 @@ const ITEMS = [
     cuesVi: ['Hông luôn áp ghế', 'Khép bằng đùi trong', 'Chiều mở chậm'], commonMistakesVi: ['Mở biên độ quá rộng', 'Dùng quán tính', 'Nhấc hông khỏi ghế'],
     breathingVi: 'Thở ra khi khép chân, hít vào khi mở.', defaultPrescription: { sets: 3, reps: '12–15', restSeconds: 45, rpe: 8 },
   }),
-  exercise('aura_women_cable_hip_adduction', 'Cable_Hip_Adduction', {
-    nameVi: 'Khép hông với cáp', nameEn: 'Cable Hip Adduction', aliasesVi: ['Khép chân cáp thấp'], bodyParts: ['Thân dưới'],
-    targetMuscles: ['Đùi trong', 'Cơ khép'], secondaryMuscles: ['Mông', 'Core'], equipment: ['Máy cáp', 'Dây cổ chân'], difficulty: 'intermediate',
-    instructionsVi: ['Gắn dây cổ chân vào cáp thấp và đứng nghiêng với máy.', 'Chân làm việc ở phía gần máy, chân trụ hơi chùng.', 'Kéo chân làm việc qua trước chân trụ bằng lực đùi trong.', 'Dừng ngắn rồi trả chân về chậm mà không xoay hông.'],
-    cuesVi: ['Hông giữ vuông', 'Thân người không nghiêng', 'Chuyển động từ khớp hông'], commonMistakesVi: ['Vung chân qua nhanh', 'Xoay bàn chân và hông', 'Chọn tạ quá nặng'],
-    breathingVi: 'Thở ra khi khép chân, hít vào khi mở về.', defaultPrescription: { sets: 3, reps: '12–15 mỗi bên', restSeconds: 45, rpe: 7 },
+  exercise('aura_women_cable_pull_through', 'Pull_Through', {
+    nameVi: 'Cable Pull Through', nameEn: 'Cable Pull Through', aliasesVi: ['Kéo cáp qua chân', 'Hip Hinge với cáp'], bodyParts: ['Thân dưới'],
+    targetMuscles: ['Mông lớn'], secondaryMuscles: ['Đùi sau', 'Core'], equipment: ['Máy cáp', 'Dây thừng'], difficulty: 'beginner',
+    instructionsVi: ['Gắn dây thừng vào cáp thấp, quay lưng với máy và cầm dây qua giữa hai chân.', 'Bước ra đủ xa để cáp luôn căng, đứng rộng bằng hông và chùng gối nhẹ.', 'Đẩy hông ra sau, giữ cột sống trung lập và để dây đi sát thân.', 'Siết mông đưa hông về trước đến khi đứng cao, không ngửa lưng.'],
+    cuesVi: ['Đẩy hông ra sau', 'Cẳng chân gần thẳng đứng', 'Kết thúc bằng siết mông'], commonMistakesVi: ['Biến động tác thành squat', 'Ưỡn lưng ở cuối', 'Kéo dây bằng tay'],
+    breathingVi: 'Hít khi đẩy hông ra sau, thở ra khi đứng lên.', defaultPrescription: { sets: 3, reps: '12–15', restSeconds: 60, rpe: 8 },
   }),
-  exercise('aura_women_hack_squat', 'Hack_Squat', {
-    nameVi: 'Hack Squat máy', nameEn: 'Hack Squat', aliasesVi: ['Squat máy trượt'], bodyParts: ['Thân dưới'],
-    targetMuscles: ['Đùi trước', 'Mông'], secondaryMuscles: ['Đùi sau', 'Bắp chân'], equipment: ['Máy Hack Squat'], difficulty: 'intermediate',
-    instructionsVi: ['Đặt vai dưới đệm, lưng áp tựa và bàn chân rộng bằng hông.', 'Mở khóa máy, siết bụng và hạ xe trượt có kiểm soát.', 'Hạ đến độ sâu vẫn giữ gót chân và lưng áp máy.', 'Đẩy đều cả bàn chân để đứng lên, không khóa cứng gối.'],
-    cuesVi: ['Lưng áp tựa', 'Gối theo mũi chân', 'Đẩy cả bàn chân'], commonMistakesVi: ['Khóa cứng gối', 'Gối đổ vào trong', 'Hạ sâu làm cuộn hông'],
-    breathingVi: 'Hít và giữ bụng khi hạ, thở ra khi đẩy lên.', defaultPrescription: { sets: 4, reps: '8–12', restSeconds: 90, rpe: 8 },
+  exercise('aura_women_seated_leg_curl', 'Seated_Leg_Curl', {
+    nameVi: 'Cuốn đùi sau máy ngồi', nameEn: 'Seated Leg Curl', aliasesVi: ['Leg Curl ngồi'], bodyParts: ['Thân dưới'],
+    targetMuscles: ['Đùi sau'], secondaryMuscles: ['Bắp chân'], equipment: ['Máy cuốn đùi sau'], difficulty: 'beginner',
+    instructionsVi: ['Chỉnh trục máy ngang khớp gối, đệm dưới nằm trên gót và đệm trên giữ chắc đùi.', 'Ngồi sát lưng ghế, duỗi chân tự nhiên và giữ tay cầm.', 'Cuốn gót xuống dưới ghế bằng lực đùi sau, không nhấc hông.', 'Siết ngắn ở đáy rồi duỗi gối về chậm mà không để chồng tạ va.'],
+    cuesVi: ['Gối thẳng trục máy', 'Hông giữ sát ghế', 'Chiều duỗi có kiểm soát'], commonMistakesVi: ['Nhấc hông khi kéo', 'Thả tạ rơi nhanh', 'Co bàn chân quá mức để lấy lực bắp chân'],
+    breathingVi: 'Thở ra khi cuốn chân, hít vào khi duỗi về.', defaultPrescription: { sets: 3, reps: '10–15', restSeconds: 60, rpe: 8 },
   }),
   exercise('aura_women_single_leg_calf_raise', 'Calf_Raise_On_A_Dumbbell', {
     nameVi: 'Nhón bắp chân một chân', nameEn: 'Single-Leg Calf Raise', aliasesVi: ['Calf Raise một chân'], bodyParts: ['Thân dưới'],
@@ -93,12 +93,12 @@ const ITEMS = [
     cuesVi: ['Cổ chân đi thẳng', 'Đẩy qua ngón cái', 'Dừng rõ ở đỉnh'], commonMistakesVi: ['Bật nảy ở đáy', 'Lật cổ chân ra ngoài', 'Biên độ quá ngắn'],
     breathingVi: 'Thở ra khi nhón gót, hít vào khi hạ.', defaultPrescription: { sets: 3, reps: '12–20 mỗi bên', restSeconds: 45, rpe: 8 },
   }),
-  exercise('aura_women_one_arm_dumbbell_row', 'One-Arm_Dumbbell_Row', {
-    nameVi: 'Kéo tạ đơn một tay', nameEn: 'One-Arm Dumbbell Row', aliasesVi: ['Dumbbell Row một tay'], bodyParts: ['Thân trên'],
-    targetMuscles: ['Cơ xô', 'Lưng giữa'], secondaryMuscles: ['Vai sau', 'Tay trước', 'Core'], equipment: ['Tạ đơn', 'Ghế tập'], difficulty: 'beginner',
-    instructionsVi: ['Chống một tay và gối cùng bên lên ghế, chân còn lại đứng vững.', 'Giữ lưng trung lập, vai làm việc hạ xa tai.', 'Kéo khuỷu tay về phía hông để nâng tạ sát thân.', 'Siết lưng ngắn rồi hạ tạ chậm đến khi tay duỗi tự nhiên.'],
-    cuesVi: ['Kéo khuỷu về hông', 'Vai không nhún', 'Hông không xoay'], commonMistakesVi: ['Vặn thân để lấy đà', 'Kéo tạ lên vai', 'Gập lưng'],
-    breathingVi: 'Thở ra khi kéo tạ, hít vào khi hạ.', defaultPrescription: { sets: 3, reps: '10–12 mỗi bên', restSeconds: 60, rpe: 8 },
+  exercise('aura_women_chest_supported_dumbbell_row', 'Dumbbell_Incline_Row', {
+    nameVi: 'Kéo tạ đơn tựa ngực ghế dốc', nameEn: 'Chest-Supported Dumbbell Row', aliasesVi: ['Dumbbell Incline Row'], bodyParts: ['Thân trên'],
+    targetMuscles: ['Lưng giữa', 'Cơ xô'], secondaryMuscles: ['Vai sau', 'Tay trước'], equipment: ['Ghế dốc', 'Tạ đơn'], difficulty: 'beginner',
+    instructionsVi: ['Chỉnh ghế dốc khoảng 30–45 độ và nằm sấp sao cho ngực được nâng đỡ.', 'Giữ hai tạ dưới vai, chân bám sàn và vai hạ xa tai.', 'Kéo hai khuỷu tay về sau, hướng tạ về hai bên thân.', 'Siết lưng ngắn rồi hạ tạ chậm đến khi bả vai mở tự nhiên.'],
+    cuesVi: ['Ngực luôn chạm ghế', 'Khuỷu kéo về hông', 'Vai không nhún'], commonMistakesVi: ['Nhấc ngực khỏi ghế', 'Kéo tạ bằng cổ tay', 'Thả tạ quá nhanh'],
+    breathingVi: 'Thở ra khi kéo tạ, hít vào khi hạ.', defaultPrescription: { sets: 3, reps: '10–12', restSeconds: 60, rpe: 8 },
   }),
   exercise('aura_women_close_grip_lat_pulldown', 'Close-Grip_Front_Lat_Pulldown', {
     nameVi: 'Kéo xô tay hẹp', nameEn: 'Close-Grip Front Lat Pulldown', aliasesVi: ['Lat Pulldown tay hẹp'], bodyParts: ['Thân trên'],
@@ -121,12 +121,12 @@ const ITEMS = [
     cuesVi: ['Mở bằng khuỷu tay', 'Vai không nhún', 'Thân người đứng yên'], commonMistakesVi: ['Kéo quá xa ra sau', 'Co khuỷu thành động tác row', 'Dùng lưng dưới lấy đà'],
     breathingVi: 'Thở ra khi mở tay, hít vào khi khép về.', defaultPrescription: { sets: 3, reps: '12–15', restSeconds: 45, rpe: 7 },
   }),
-  exercise('aura_women_rope_overhead_triceps_extension', 'Cable_Rope_Overhead_Triceps_Extension', {
-    nameVi: 'Duỗi tay sau qua đầu với dây thừng', nameEn: 'Cable Rope Overhead Triceps Extension', aliasesVi: ['Overhead Triceps Extension'], bodyParts: ['Thân trên'],
-    targetMuscles: ['Tay sau'], secondaryMuscles: ['Vai', 'Core'], equipment: ['Máy cáp', 'Dây thừng'], difficulty: 'intermediate',
-    instructionsVi: ['Quay lưng với cáp, cầm dây và bước ra tạo lực căng.', 'Đưa khuỷu lên hai bên đầu, hơi nghiêng thân và siết bụng.', 'Duỗi khuỷu để đưa hai đầu dây ra trước và tách nhẹ.', 'Dừng khi tay gần thẳng rồi gập khuỷu về chậm.'],
-    cuesVi: ['Khuỷu hướng trước', 'Cánh tay trên giữ yên', 'Xương sườn khép'], commonMistakesVi: ['Xòe khuỷu quá rộng', 'Ưỡn lưng', 'Di chuyển vai thay vì khuỷu'],
-    breathingVi: 'Thở ra khi duỗi tay, hít vào khi gập về.', defaultPrescription: { sets: 3, reps: '10–15', restSeconds: 60, rpe: 8 },
+  exercise('aura_women_arnold_dumbbell_press', 'Arnold_Dumbbell_Press', {
+    nameVi: 'Arnold Press với tạ đơn', nameEn: 'Arnold Dumbbell Press', aliasesVi: ['Arnold Press'], bodyParts: ['Thân trên'],
+    targetMuscles: ['Vai trước', 'Vai giữa'], secondaryMuscles: ['Tay sau', 'Core'], equipment: ['Tạ đơn', 'Ghế tựa'], difficulty: 'intermediate',
+    instructionsVi: ['Ngồi sát ghế tựa, giữ hai tạ trước ngực với lòng bàn tay hướng vào người.', 'Siết bụng và hạ vai, giữ cổ tay thẳng trên khuỷu.', 'Xoay lòng bàn tay ra ngoài đồng thời đẩy tạ lên qua đầu.', 'Hạ tạ theo đúng đường ngược lại, đưa khuỷu về trước có kiểm soát.'],
+    cuesVi: ['Xương sườn giữ khép', 'Xoay và đẩy liền mạch', 'Vai luôn xa tai'], commonMistakesVi: ['Ưỡn lưng để đẩy tạ', 'Va hai tạ trên đỉnh', 'Xoay cổ tay quá sớm'],
+    breathingVi: 'Thở ra khi đẩy tạ lên, hít vào khi hạ về.', defaultPrescription: { sets: 3, reps: '8–12', restSeconds: 60, rpe: 8 },
   }),
   exercise('aura_women_alternate_hammer_curl', 'Alternate_Hammer_Curl', {
     nameVi: 'Cuốn tạ búa luân phiên', nameEn: 'Alternate Hammer Curl', aliasesVi: ['Hammer Curl'], bodyParts: ['Thân trên'],
@@ -156,19 +156,19 @@ const ITEMS = [
     cuesVi: ['Cuộn xương chậu', 'Lưng dưới giữ ổn định', 'Không đá chân lấy đà'], commonMistakesVi: ['Chỉ gập hông', 'Vung chân', 'Hạ quá xa làm võng lưng'],
     breathingVi: 'Thở hết khi cuộn hông lên, hít vào khi hạ chậm.', defaultPrescription: { sets: 3, reps: '10–15', restSeconds: 60, rpe: 8 },
   }),
-  exercise('aura_women_mountain_climber', 'Mountain_Climbers', {
-    nameVi: 'Mountain Climber kiểm soát', nameEn: 'Mountain Climbers', aliasesVi: ['Leo núi tại chỗ'], bodyParts: ['Core', 'Toàn thân'],
-    targetMuscles: ['Cơ bụng sâu'], secondaryMuscles: ['Vai', 'Gập hông', 'Đùi trước'], equipment: ['Thảm tập'], difficulty: 'beginner', environment: ['home', 'gym'],
-    instructionsVi: ['Vào tư thế plank tay cao, hai tay dưới vai và chân duỗi.', 'Siết bụng, đẩy sàn và giữ hông ngang.', 'Kéo một gối về gần ngực mà không làm lưng cong.', 'Đổi chân theo nhịp kiểm soát, duy trì thân trên ổn định.'],
-    cuesVi: ['Hông không nảy lên xuống', 'Vai nằm trên cổ tay', 'Kéo gối bằng bụng'], commonMistakesVi: ['Chạy quá nhanh mất kỹ thuật', 'Võng lưng', 'Dồn vai ra sau tay'],
-    breathingVi: 'Thở đều theo nhịp đổi chân, không nín thở.', defaultPrescription: { sets: 3, reps: '30–40 giây', restSeconds: 45, rpe: 7 },
+  exercise('aura_women_cable_wood_chop', 'Standing_Cable_Wood_Chop', {
+    nameVi: 'Wood Chop với cáp', nameEn: 'Standing Cable Wood Chop', aliasesVi: ['Xoay chéo bụng với cáp'], bodyParts: ['Core'],
+    targetMuscles: ['Cơ xiên', 'Cơ bụng sâu'], secondaryMuscles: ['Vai', 'Mông'], equipment: ['Máy cáp', 'Tay cầm đơn'], difficulty: 'intermediate',
+    instructionsVi: ['Đặt cáp cao hơn vai, đứng nghiêng với máy và nắm tay cầm bằng hai tay.', 'Mở chân vững, hơi chùng gối và giữ xương sườn trên xương chậu.', 'Kéo tay chéo xuống qua thân bằng cách xoay lồng ngực có kiểm soát.', 'Dừng khi tay gần hông đối diện rồi trở về chậm, chống lực kéo của cáp.'],
+    cuesVi: ['Xoay từ lồng ngực', 'Hông giữ ổn định', 'Tay chỉ là móc nối'], commonMistakesVi: ['Kéo hoàn toàn bằng tay', 'Vặn gối theo cáp', 'Ưỡn lưng khi trở về'],
+    breathingVi: 'Thở ra khi kéo chéo xuống, hít vào khi trở về.', defaultPrescription: { sets: 3, reps: '10–12 mỗi bên', restSeconds: 45, rpe: 7 },
   }),
-  exercise('aura_women_hanging_leg_raise', 'Hanging_Leg_Raise', {
-    nameVi: 'Treo người nâng chân', nameEn: 'Hanging Leg Raise', aliasesVi: ['Hanging Knee Raise'], bodyParts: ['Core'],
-    targetMuscles: ['Cơ bụng dưới', 'Cơ bụng sâu'], secondaryMuscles: ['Gập hông', 'Cẳng tay'], equipment: ['Xà đơn'], difficulty: 'advanced',
-    instructionsVi: ['Nắm xà chắc, treo người với vai chủ động và chân khép.', 'Siết bụng, thu nhẹ xương chậu để hạn chế đung đưa.', 'Nâng gối hoặc chân về trước bằng cách cuộn xương chậu.', 'Hạ chân chậm về thẳng người trước lần lặp tiếp theo.'],
-    cuesVi: ['Bắt đầu bằng cuộn hông', 'Không đung đưa', 'Vai luôn chủ động'], commonMistakesVi: ['Đá chân lấy đà', 'Thả rơi chân', 'Chỉ dùng cơ gập hông'],
-    breathingVi: 'Thở ra khi nâng chân, hít vào khi hạ chậm.', defaultPrescription: { sets: 3, reps: '8–12', restSeconds: 75, rpe: 8 },
+  exercise('aura_women_stomach_vacuum', 'Stomach_Vacuum', {
+    nameVi: 'Stomach Vacuum kiểm soát bụng sâu', nameEn: 'Stomach Vacuum', aliasesVi: ['Hút bụng', 'Kích hoạt cơ ngang bụng'], bodyParts: ['Core'],
+    targetMuscles: ['Cơ bụng sâu'], secondaryMuscles: ['Cơ hoành', 'Sàn chậu'], equipment: ['Không dụng cụ'], difficulty: 'beginner', environment: ['home', 'gym'],
+    instructionsVi: ['Đứng hoặc quỳ với cột sống trung lập, hai tay tựa nhẹ để thả lỏng vai.', 'Hít vào bằng mũi rồi thở ra dài cho đến khi lồng ngực hạ tự nhiên.', 'Nhẹ nhàng kéo bụng dưới vào trong như kéo khóa quần, không gồng vai.', 'Giữ trong thời gian quy định, sau đó thả bụng và hít vào từ từ.'],
+    cuesVi: ['Kéo bụng vào chứ không nín ép', 'Vai và cổ thả lỏng', 'Giữ lưng trung lập'], commonMistakesVi: ['Nín thở quá sức', 'Hóp ngực và gù lưng', 'Gồng bụng cứng thay vì kéo bụng sâu'],
+    breathingVi: 'Thở ra hết trước khi giữ; dừng ngay nếu chóng mặt và trở lại nhịp thở bình thường.', defaultPrescription: { sets: 3, reps: '15–25 giây', restSeconds: 45, rpe: 5 },
   }),
 ]
 

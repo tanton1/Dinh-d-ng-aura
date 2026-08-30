@@ -312,10 +312,14 @@ async function runCatalogImport({
     const metadata = await requestJson(token, '')
     if (metadata?.name !== `projects/${TARGET.projectId}/databases/${TARGET.databaseId}`) throw new Error('Connected database is not the approved target.')
     let existing = await loadExisting(token, items)
+    const conflictingIds = items
+      .filter((item) => existing.has(item.id) && existing.get(item.id).contentDigest !== item.contentDigest)
+      .map((item) => item.id)
+    report.existing = items.filter((item) => existing.has(item.id)).length
+    report.conflictingIds = conflictingIds
     if (args.mode === 'apply') {
       if (args.digest !== planDigest) throw new Error('Live plan digest no longer matches the approved dry run.')
-      const conflicts = items.filter((item) => existing.has(item.id) && existing.get(item.id).contentDigest !== item.contentDigest)
-      if (conflicts.length) throw new Error(`Refusing to overwrite ${conflicts.length} existing exercise documents.`)
+      if (conflictingIds.length) throw new Error(`Refusing to overwrite existing exercise documents: ${conflictingIds.join(', ')}.`)
       report.created = await createMissing(token, items, existing, release)
       report.skippedExact = items.length - report.created
       report.writesPerformed = report.created > 0
