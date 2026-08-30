@@ -367,6 +367,133 @@ async function loadBranchData(db, branchId, week) {
   }
 }
 
+async function loadManualMutationData(db, branchId, week, trainerId, studentId) {
+  const [branch, legacySchedule, draft, studentSnapshot, trainerSnapshot, exactAvailability, config, leaves, contractSnapshot, sessionSnapshot] = await Promise.all([
+    db.doc(`branches/${branchId}`).get(),
+    db.doc(`schedules/schedule_${week}`).get(),
+    draftReference(db, branchId, week).get(),
+    db.doc(`students/${studentId}`).get(),
+    db.doc(`trainers/${trainerId}`).get(),
+    db.doc(`ptAvailability/${studentId}_${week}`).get(),
+    db.doc('settings/scheduleConfig').get(),
+    db.collection('leaveRequests').where('trainerId', '==', trainerId).limit(1001).get(),
+    db.collection('contracts').where('studentId', '==', studentId).get(),
+    db.collection('sessions').where('studentId', '==', studentId).limit(1001).get(),
+  ])
+  if (!branch.exists || branch.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
+  if (!studentSnapshot.exists || studentSnapshot.data().branchId !== branchId) throw new HttpsError('not-found', 'Không tìm thấy học viên trong chi nhánh.')
+  if (!trainerSnapshot.exists || trainerSnapshot.data().branchId !== branchId) throw new HttpsError('not-found', 'Không tìm thấy PT trong chi nhánh.')
+  if (leaves.size > 1000 || sessionSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu hồ sơ vượt giới hạn chỉnh ca an toàn.')
+  // A legacy-only week still needs the complete branch snapshot so no other
+  // learner is dropped while the first v2 draft document is created.
+  if (!draft.exists) return loadBranchData(db, branchId, week)
+
+  const rawStudent = studentSnapshot.data()
+  const rawTrainer = trainerSnapshot.data()
+  const sessions = sessionSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+  const contracts = contractSnapshot.docs.map((item) => {
+    const contract = item.data()
+    const activeContractSessions = sessions.filter((session) => session.contractId === item.id
+      && ['scheduled', 'rescheduled'].includes(String(session.status || '').toLowerCase())
+      && session.billingStatus !== 'charged')
+    const activeScheduledThisWeek = activeContractSessions.filter((session) => {
+      const date = storedDate(session.date)
+      return date >= week && date < nextWeek(week)
+    }).length
+    const remainingEntitlementSessions = Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))
+    return {
+      id: item.id,
+      studentId: contract.studentId,
+      trainerId: contract.trainerId || '',
+      trainerIds: Array.isArray(contract.trainerIds) ? contract.trainerIds.slice(0, 10) : [],
+      branchId: contract.branchId || '',
+      packageId: contract.packageId || '',
+      packageName: contract.packageName || contract.packageId || 'Gói tập chưa cập nhật',
+      status: contract.status,
+      startDate: contract.startDate,
+      endDate: contract.endDate,
+      pausePeriods: Array.isArray(contract.pausePeriods) ? contract.pausePeriods.slice(0, 20) : [],
+      totalSessions: Number(contract.totalSessions || 0),
+      usedSessions: Number(contract.usedSessions || 0),
+      remainingEntitlementSessions,
+      activeScheduledSessions: activeContractSessions.length,
+      activeScheduledThisWeek,
+      remainingSchedulableSessions: Math.max(0, remainingEntitlementSessions - activeContractSessions.length),
+    }
+  })
+  const exactMap = new Map(exactAvailability.exists ? [[studentId, exactAvailability.data()]] : [])
+  const profileMap = new Map([[studentId, rawStudent]])
+  const inherited = await loadLatestSubmittedFallbacks(db, profileMap, exactMap, week)
+  const effectiveAvailability = effectiveStudentAvailability({
+    targetWeek: week,
+    exact: exactAvailability.exists ? exactAvailability.data() : null,
+    inherited: inherited.get(studentId),
+    profile: rawStudent,
+  })
+  const availabilityStatus = effectiveAvailability.source === 'weekly'
+    ? effectiveAvailability.status
+    : effectiveAvailability.source === 'inherited_weekly'
+      ? 'inherited'
+      : effectiveAvailability.source === 'legacy_default' && effectiveAvailability.confirmed
+        ? 'recurring'
+        : 'missing'
+  const eligibility = studentWeekEligibility(contracts, studentId, branchId, week)
+  const studentInactive = ['inactive', 'archived', 'deleted'].includes(String(rawStudent.status || '').toLowerCase())
+  const student = {
+    id: studentId,
+    name: rawStudent.name || 'Chưa cập nhật tên',
+    phone: rawStudent.phone || '',
+    status: rawStudent.status || 'active',
+    branchId,
+    sessionsPerWeek: Math.min(Math.max(0, Number(rawStudent.sessionsPerWeek || 0)), Math.max(0, Number(eligibility.remainingSessions || 0))),
+    availableSlots: effectiveAvailability.slots.slice(0, 100),
+    availabilityStatus,
+    eligibleForWeek: !studentInactive && eligibility.eligible,
+    eligibilityReasons: studentInactive ? ['STUDENT_NOT_ACTIVE', ...eligibility.reasonCodes] : eligibility.reasonCodes,
+    eligibleContractIds: eligibility.eligibleContractIds,
+    validScheduleDates: eligibility.validDates,
+    pausedScheduleDates: eligibility.pausedDates,
+  }
+  const schedulingPriority = Math.max(1, Math.min(999, Math.trunc(Number(rawTrainer.schedulingPriority ?? rawTrainer.priority ?? 100) || 100)))
+  const dailySessionTarget = Math.max(1, Math.min(12, Math.trunc(Number(rawTrainer.dailySessionTarget ?? DEFAULT_DAILY_SESSION_TARGET) || DEFAULT_DAILY_SESSION_TARGET)))
+  const dailySessionLimit = Math.max(dailySessionTarget, Math.min(16, Math.trunc(Number(rawTrainer.dailySessionLimit ?? DEFAULT_DAILY_SESSION_LIMIT) || DEFAULT_DAILY_SESSION_LIMIT)))
+  const trainer = {
+    id: trainerId,
+    name: rawTrainer.name || 'PT chưa cập nhật tên',
+    status: rawTrainer.status || 'active',
+    branchId,
+    employmentType: ['full_time', 'part_time', 'collaborator'].includes(rawTrainer.employmentType) ? rawTrainer.employmentType : 'full_time',
+    employmentLevel: ['probation', 'official', 'senior'].includes(rawTrainer.employmentLevel) ? rawTrainer.employmentLevel : 'official',
+    availableSlots: Array.isArray(rawTrainer.availableSlots) ? rawTrainer.availableSlots.slice(0, 100) : [],
+    availabilityMode: trainerAvailabilityMode(rawTrainer),
+    slotCapacity: normalizedCapacity(rawTrainer.slotCapacity),
+    schedulingPriority,
+    dailySessionTarget,
+    dailySessionLimit,
+  }
+  const draftData = draft.exists ? draft.data() : null
+  const schedule = safeSchedule(draftData.schedule)
+  return {
+    branch: { id: branchId, name: branch.data().name || branchId, status: branch.data().status || 'active' },
+    draft: {
+      exists: draft.exists,
+      revision: Number(draftData?.revision ?? legacySchedule.data()?.draftRevision ?? 0),
+    },
+    schedule,
+    students: [student],
+    trainers: [trainer],
+    contracts,
+    sessions,
+    leaves: leaves.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => item.status === 'approved'),
+    config: {
+      workingDays: Array.isArray(config.data()?.workingDays) ? config.data().workingDays : [...DAY_ORDER.keys()],
+      workingHours: Array.isArray(config.data()?.workingHours) ? config.data().workingHours.map(Number) : [],
+      holidays: Array.isArray(config.data()?.holidays) ? config.data().holidays : [],
+      branchCapacityBySlot: config.data()?.branchCapacityBySlot || {},
+    },
+  }
+}
+
 function contractPaused(contract, date) {
   return Array.isArray(contract.pausePeriods) && contract.pausePeriods.some((period) => {
     const start = storedDate(period?.startDate)
@@ -696,13 +823,11 @@ function compareSlots(left, right) {
 }
 
 function compareCandidates(left, right) {
-  // Spacing is a soft preference: avoid three consecutive training days when
-  // another valid slot exists, but never reject the only feasible option.
+  // Lexicographic objective after maximum-cardinality learner matching:
+  // keep training days spaced, then fill a compatible 1/2 class, honour the
+  // assignment, and only then balance PT teaching load/rank. A fairer PT load
+  // must never open a singleton while a compatible pair is available.
   if (left.consecutiveDayPenalty !== right.consecutiveDayPenalty) return left.consecutiveDayPenalty - right.consecutiveDayPenalty
-  // Filling the second learner into an existing PT slot has zero additional
-  // teaching-load cost. It wins even when the compatible PT is a secondary
-  // assignment; a PT outside the contract assignment is still rejected by
-  // candidateForSlot.
   if (left.opensTeachingSlot !== right.opensTeachingSlot) return Number(left.opensTeachingSlot) - Number(right.opensTeachingSlot)
   if (left.assignmentOrder !== right.assignmentOrder) return left.assignmentOrder - right.assignmentOrder
   const tierComparison = schedulingTier(left) - schedulingTier(right)
@@ -1291,6 +1416,8 @@ function createPtScheduleV2Functions({ db, onCall }) {
     const trainer = data.trainers.find((item) => item.id === trainerId)
     if (!trainer) throw new HttpsError('not-found', 'Không tìm thấy PT trong chi nhánh.')
     const search = typeof request.data?.search === 'string' ? request.data.search.trim().toLocaleLowerCase('vi').slice(0, 100) : ''
+    const scheduledCounts = scheduleStudentCounts(data.schedule)
+    const studentsById = new Map(data.students.map((student) => [student.id, student]))
     return {
       schemaVersion: 2,
       candidates: data.students.filter((student) => !search || student.name.toLocaleLowerCase('vi').includes(search) || student.phone.includes(search)).map((student) => ({
@@ -1300,7 +1427,14 @@ function createPtScheduleV2Functions({ db, onCall }) {
         ...manualSlotCandidate(candidateForSlot(data, { student, trainer, slotId, schedule: data.schedule })),
       })).sort((left, right) => {
         const rank = (candidate) => candidate.eligible ? 0 : candidate.manualSelectable ? 1 : 2
-        return rank(left) - rank(right) || left.name.localeCompare(right.name, 'vi')
+        const leftStudent = studentsById.get(left.studentId)
+        const rightStudent = studentsById.get(right.studentId)
+        const leftMissing = Math.max(0, Number(leftStudent?.sessionsPerWeek || 0) - (scheduledCounts.get(left.studentId) || 0))
+        const rightMissing = Math.max(0, Number(rightStudent?.sessionsPerWeek || 0) - (scheduledCounts.get(right.studentId) || 0))
+        return rank(left) - rank(right)
+          || rightMissing - leftMissing
+          || Number(leftStudent?.availableSlots?.length || 0) - Number(rightStudent?.availableSlots?.length || 0)
+          || left.name.localeCompare(right.name, 'vi')
       }).slice(0, 100),
     }
   })
@@ -1403,8 +1537,6 @@ function createPtScheduleV2Functions({ db, onCall }) {
     const idempotencyKey = typeof request.data?.idempotencyKey === 'string' ? request.data.idempotencyKey.trim() : ''
     if (!/^[A-Za-z0-9:_-]{8,200}$/.test(idempotencyKey)) throw new HttpsError('invalid-argument', 'Khóa chống lặp không hợp lệ.')
     const actor = await scheduleActor(request, db, branchId)
-    const data = await loadBranchData(db, branchId, week)
-    data.weekId = week
     const payload = request.data?.payload && typeof request.data.payload === 'object' ? request.data.payload : {}
     const slotId = typeof payload.slotId === 'string' ? payload.slotId : ''
     const fromSlotId = typeof payload.fromSlotId === 'string' ? payload.fromSlotId : ''
@@ -1414,6 +1546,13 @@ function createPtScheduleV2Functions({ db, onCall }) {
     if (command === 'move_student' && !slotPattern.test(fromSlotId)) throw new HttpsError('invalid-argument', 'Ô lịch nguồn không hợp lệ.')
     const trainerId = commandWithoutSlot ? '' : documentId(payload.trainerId, 'Mã PT')
     const studentId = command.includes('student') || command.includes('entry') ? documentId(payload.studentId, 'Mã học viên') : ''
+    // Adding/moving one learner previously scanned the complete branch and all
+    // active sessions. Scope the hot path to the selected learner/PT while
+    // preserving the same canonical contract, availability and audit checks.
+    const data = command === 'add_student' || command === 'move_student'
+      ? await loadManualMutationData(db, branchId, week, trainerId, studentId)
+      : await loadBranchData(db, branchId, week)
+    data.weekId = week
     const targetStudent = command === 'set_student_weekly_target'
       ? data.students.find((item) => item.id === studentId)
       : null

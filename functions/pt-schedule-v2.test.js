@@ -497,6 +497,27 @@ test('existing secondary PT pair is preferred over opening a new primary PT clas
   assert.equal(entry.trainerId, 'trainer-secondary')
 })
 
+test('pairing remains ahead of PT load balancing after every learner receives coverage', () => {
+  const data = fixture()
+  data.contracts[0].trainerId = ''
+  data.contracts[0].trainerIds = []
+  data.schedule = {
+    'T2-6': [{ studentId: 'student-existing', trainerId: 'trainer-busy', branchId: BRANCH, type: 'training', isLocked: true }],
+    'T2-7': [{ studentId: 'locked-7', trainerId: 'trainer-busy', branchId: BRANCH, type: 'training', isLocked: true }],
+    'T2-8': [{ studentId: 'locked-8', trainerId: 'trainer-busy', branchId: BRANCH, type: 'training', isLocked: true }],
+  }
+  data.students[0].availableSlots = ['T2-6', 'T2-9']
+  data.trainers = [
+    { ...data.trainers[0], id: 'trainer-busy', availableSlots: ['T2-6', 'T2-7', 'T2-8', 'T2-9'], slotCapacity: 2 },
+    { ...data.trainers[0], id: 'trainer-empty', availableSlots: ['T2-6', 'T2-9'], slotCapacity: 2 },
+  ]
+  const generated = generateSchedule(data)
+  const learnerEntry = generated.schedule['T2-6'].find((entry) => entry.studentId === 'student-a')
+  assert.equal(learnerEntry.trainerId, 'trainer-busy')
+  assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 0)
+  assert.equal(generated.optimizationSummary.slotUtilization.pairedSlots, 1)
+})
+
 test('pair compaction merges two compatible mutable single classes', () => {
   const data = fixture()
   data.students.push({ ...data.students[0], id: 'student-b', name: 'B' })

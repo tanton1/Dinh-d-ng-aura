@@ -131,16 +131,27 @@
 .branch-schedule__grid tbody > tr > th { position: sticky; left: 0; z-index: 4; width: 58px; padding: 7px 3px; color: #8a697b; background: #fffafc; font-size: .68rem; }
 .branch-schedule__grid td { height: 72px; padding: 4px; vertical-align: top; }
 .branch-schedule__grid td.is-holiday { background: repeating-linear-gradient(135deg,#fff8f4,#fff8f4 7px,#fff3ed 7px,#fff3ed 14px); }
-.schedule-cell { display: grid; align-content: start; gap: 3px; width: 100%; min-height: 62px; padding: 6px; border: 1px dashed transparent; border-radius: 10px; color: #7f7079; background: transparent; text-align: left; }
+.schedule-cell { position:relative; display: grid; align-content: start; gap: 3px; width: 100%; min-height: 62px; box-sizing:border-box; padding: 6px; border: 1px dashed transparent; border-radius: 10px; color: #7f7079; background: transparent; text-align: left; cursor:pointer; transition:border-color .14s ease,background .14s ease,box-shadow .14s ease,transform .14s ease; }
+.schedule-cell[aria-disabled="true"] { cursor:not-allowed; }
 .schedule-cell:hover { border-color: rgba(246,47,130,.26); background: #fff5f9; }
 .schedule-cell.has-entry { border-style: solid; border-color: rgba(246,47,130,.18); background: linear-gradient(145deg,#fff3f8,#fff8f3); }
+.schedule-cell.is-availability-hover { border-style:solid; border-color:#2eb779; background:linear-gradient(145deg,rgba(222,250,237,.98),rgba(239,255,247,.96)); box-shadow:inset 0 0 0 2px rgba(46,183,121,.13),0 7px 16px rgba(30,137,91,.10); }
+.schedule-cell.is-student-highlight { border-style:solid; border-color:#e32b67; color:#fff; background:linear-gradient(135deg,#cb1859 0%,#f03f73 48%,#ff7b62 100%); box-shadow:0 9px 22px rgba(210,30,91,.24); }
+.schedule-cell.is-student-highlight .schedule-cell__count,.schedule-cell.is-student-highlight small { color:rgba(255,255,255,.88); }
 .schedule-cell.is-off { place-items: center; align-content: center; color: #a34c2b; background: #fff1e9; }
 .schedule-cell.is-off svg { width: 18px; }
 .schedule-cell.is-holiday { place-items: center; align-content: center; cursor: not-allowed; color: #a44f36; background: transparent; opacity: .82; }
 .schedule-cell.is-holiday svg { width: 17px; }
 .schedule-cell__count { justify-self: end; color: #c1296a; font-size: .57rem; font-weight: 900; }
-.schedule-cell em { display: flex; align-items: center; justify-content: space-between; gap: 3px; overflow: hidden; color: #392830; font-size: .66rem; font-style: normal; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.schedule-cell__student { display:flex; width:100%; min-width:0; align-items:center; justify-content:space-between; gap:3px; border:0; border-radius:7px; padding:3px 4px; color:#392830; background:transparent; font-size:.66rem; font-weight:800; text-align:left; }
+.schedule-cell__student span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.schedule-cell__student:hover,.schedule-cell__student:focus-visible { outline:0; color:#087a52; background:rgba(255,255,255,.76); box-shadow:0 0 0 2px rgba(38,175,113,.20); }
+.schedule-cell__student.is-selected { color:#fff; background:rgba(102,0,38,.24); }
+.schedule-cell.is-student-highlight .schedule-cell__student { color:#fff; }
 .schedule-cell small { align-self: center; justify-self: center; color: #b6a6af; font-size: .61rem; }
+.schedule-student-focus { display:flex; min-height:36px; align-items:center; justify-content:space-between; gap:10px; margin:0 2px 8px; border:1px solid rgba(35,168,109,.25); border-radius:11px; padding:7px 10px; color:#177552; background:linear-gradient(110deg,#ecfbf4,#f6fff9); font-size:.68rem; }
+.schedule-student-focus.is-pinned { border-color:rgba(220,37,99,.26); color:#a52555; background:linear-gradient(110deg,#fff0f6,#fff5ef); }
+.schedule-student-focus button { min-height:28px; flex:0 0 auto; border:0; border-radius:8px; padding:0 9px; color:#b12559; background:#fff; font-size:.61rem; font-weight:850; }
 
 .branch-schedule__students-page,
 .branch-schedule__warning-page,
@@ -330,6 +341,10 @@
 .schedule-candidate-list article.is-override button { border-color: #f1ccb2; color: #c05722; background: #fff8f2; }
 .schedule-candidate-list article.is-disabled { opacity: .62; }
 .schedule-candidate-list article.is-disabled button { color: #a998a1; background: #f7f3f5; }
+.schedule-candidate-list article.is-selected { margin-inline:-5px; border:1px solid rgba(224,42,105,.28); border-radius:12px; padding-inline:7px; background:linear-gradient(105deg,#fff0f6,#fff8f1); box-shadow:0 8px 18px rgba(176,32,86,.08); }
+.schedule-candidate-list article.is-selected button { border-color:transparent; color:#fff; background:linear-gradient(130deg,var(--branch-pink),var(--branch-orange)); }
+.schedule-candidate-sync { display:flex; align-items:center; gap:6px; min-height:30px; margin-top:7px; color:#8d7280; font-size:.61rem; }
+.schedule-candidate-sync svg { width:14px; }
 .schedule-manual-override-confirm { display: grid; grid-template-columns: 22px minmax(0,1fr); gap: 9px; margin: 10px 0 2px; padding: 11px; border: 1px solid #f2cdb6; border-radius: 12px; color: #73442d; background: linear-gradient(125deg,#fff5ec,#fffaf7); }
 .schedule-manual-override-confirm > svg { width: 20px; color: #d56b2d; }
 .schedule-manual-override-confirm strong { font-size: .75rem; }
@@ -337,6 +352,13 @@
 .schedule-manual-override-confirm > div > div { display: grid; grid-template-columns: .8fr 1.2fr; gap: 6px; }
 .schedule-manual-override-confirm button { min-height: 36px; border: 1px solid #e8cbbb; border-radius: 9px; color: #754936; background: #fff; font-size: .65rem; font-weight: 800; }
 .schedule-manual-override-confirm button:last-child { border: 0; color: #fff; background: linear-gradient(110deg,var(--branch-pink),var(--branch-orange)); }
+.schedule-manual-confirm { position:sticky; bottom:-14px; z-index:4; display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:6px; margin:10px -14px -14px; border-top:1px solid #eedce4; padding:10px 12px calc(10px + env(safe-area-inset-bottom)); background:rgba(255,250,252,.96); box-shadow:0 -9px 22px rgba(61,32,47,.08); backdrop-filter:blur(12px); }
+.schedule-manual-confirm > div { display:grid; min-width:0; gap:1px; }
+.schedule-manual-confirm span { color:#9a7e8d; font-size:.56rem; font-weight:850; text-transform:uppercase; }
+.schedule-manual-confirm strong { overflow:hidden; font-size:.7rem; text-overflow:ellipsis; white-space:nowrap; }
+.schedule-manual-confirm button { min-height:36px; border:1px solid #ead5df; border-radius:9px; padding:0 9px; color:#7e6070; background:#fff; font-size:.63rem; font-weight:850; }
+.schedule-manual-confirm button.is-confirm { border:0; color:#fff; background:linear-gradient(110deg,var(--branch-pink),var(--branch-orange)); box-shadow:0 7px 16px rgba(218,35,99,.18); }
+.schedule-manual-confirm button:disabled { cursor:not-allowed; opacity:.48; }
 
 .branch-schedule__blocked { display: grid; min-height: 50vh; place-content: center; justify-items: center; padding: 30px; text-align: center; }
 .branch-schedule__blocked svg { color: var(--branch-pink); }
@@ -382,7 +404,8 @@
   .branch-schedule__grid tbody > tr > th { width: 52px; }
   .branch-schedule__grid td { height: 76px; }
   .schedule-cell { min-height: 66px; padding: 5px; }
-  .schedule-cell em { font-size: .62rem; }
+  .schedule-cell__student { font-size: .62rem; }
+  .schedule-student-focus { margin-inline:0; }
   .schedule-warning-grid { grid-template-columns: 1fr; }
   .schedule-warning-summary { gap: 5px; }
   .schedule-warning-summary article { padding: 9px 7px; border-radius: 12px; text-align: center; }
@@ -426,5 +449,7 @@
   .schedule-inspector { width: 100%; height: min(88dvh, 780px); border-radius: 24px 24px 0 0; padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
   .schedule-inspector > header { border-radius: 24px 24px 0 0; padding: 15px; }
   .schedule-inspector__body { padding: 8px; }
+  .schedule-manual-confirm { bottom:calc(-14px + 84px + env(safe-area-inset-bottom)); grid-template-columns:minmax(0,1fr) auto; }
+  .schedule-manual-confirm .is-confirm { grid-column:1/-1; }
   .schedule-version-list article { align-items: flex-start; }
 }
