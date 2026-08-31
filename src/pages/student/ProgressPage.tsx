@@ -756,6 +756,29 @@ export default function ProgressPage({
     return allActivities.some(a => a.date === todayStr)
   }, [allActivities, todayStr])
 
+  const aiWeeklySummary = useMemo(() => {
+    const recentDates = new Set<string>()
+    const today = new Date()
+    for (let offset = 0; offset < 7; offset += 1) {
+      const date = new Date(today)
+      date.setDate(today.getDate() - offset)
+      recentDates.add(toLocalDateKey(date))
+    }
+    const loggedMeals = allMeals.filter((meal: any) => (
+      recentDates.has(meal.date) && (!meal.status || meal.status === 'logged')
+    ))
+    const recentWater = allWater.filter((entry: any) => recentDates.has(entry.date))
+    const recentActivities = allActivities.filter((activity: any) => recentDates.has(activity.date))
+    const oldestDate = [...recentDates].sort()[0]
+    return {
+      mealLoggedDays: new Set(loggedMeals.map((meal: any) => meal.date)).size,
+      mealCount: loggedMeals.length,
+      waterLoggedDays: new Set(recentWater.map((entry: any) => entry.date)).size,
+      workoutDays: new Set(recentActivities.map((activity: any) => activity.date)).size,
+      weightLogCount: weightRecords.filter((record) => record.date >= oldestDate && recentDates.has(record.date)).length,
+    }
+  }, [allActivities, allMeals, allWater, weightRecords])
+
   return (
     <div className="progress-center-page">
       {/* Header with Time Selector & Category Pills & Coach Button */}
@@ -881,7 +904,7 @@ export default function ProgressPage({
       )}
 
       {/* AI Analysis Weekly Summary */}
-      <AiWeeklyAnalysisCard onOpenCoach={() => setCoachSheetOpen(true)} />
+      <AiWeeklyAnalysisCard summary={aiWeeklySummary} onOpenCoach={() => setCoachSheetOpen(true)} />
 
       {/* Floating Quick Log Button */}
       <div style={{ position: 'fixed', bottom: 84, right: 20, zIndex: 90 }}>
@@ -935,12 +958,7 @@ export default function ProgressPage({
       {coachSheetOpen && (
         <AiCoachBottomSheet
           onClose={() => setCoachSheetOpen(false)}
-          userProfile={{
-            weightKg: weightKg ?? undefined,
-            heightCm: heightCm ?? undefined,
-            targetWeightDeltaKg: targetWeightDeltaKg ?? undefined,
-            targetTimeframeMonths: targetTimeframeMonths ?? undefined,
-          }}
+          conversationScope={`progress-${resolvedOwnerId}`}
         />
       )}
     </div>

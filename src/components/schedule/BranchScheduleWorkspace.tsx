@@ -1033,7 +1033,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       const unresolved = result.unassignedEntries?.length || result.unassigned?.length || 0
       const passes = Math.max(1, Number(result.optimizationSummary?.optimizationPasses || 1))
       const refilled = Math.max(0, Number(result.optimizationSummary?.refillAssignments || 0))
-      const deepRun = passes > 1 ? ` Đã chạy ${passes} lượt tối ưu${refilled ? ` và lấp thêm ${refilled} buổi` : ''}.` : ''
+      const repaired = Math.max(0, Number(result.optimizationSummary?.repairAssignments || 0))
+      const relocated = Math.max(0, Number(result.optimizationSummary?.repairRelocations || 0))
+      const improvements = [
+        refilled ? `lấp thêm ${refilled} buổi` : '',
+        repaired ? `cứu thêm ${repaired} buổi bằng ${relocated} lần đổi chỗ` : '',
+      ].filter(Boolean).join(', ')
+      const deepRun = passes > 1 ? ` Đã chạy ${passes} lượt tối ưu${improvements ? `, ${improvements}` : ''}.` : ''
       setNotice(unresolved
         ? `Đã tối ưu draft r${result.draftRevision}; còn ${unresolved} hồ sơ cần xử lý.${deepRun}`
         : `Đã tối ưu draft r${result.draftRevision}; đã ưu tiên đủ học viên, ca đôi và PT chính/phụ.${deepRun}`)

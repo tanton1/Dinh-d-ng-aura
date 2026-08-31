@@ -600,7 +600,82 @@ test('deep optimization repeats coverage and pairing until the weekly target is 
   assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 0)
   assert.equal(generated.optimizationSummary.slotUtilization.pairedSlots, 1)
   assert.ok(generated.optimizationSummary.optimizationPasses >= 2)
-  assert.equal(generated.optimizationSummary.generatorVersion, 'optimizer-v6')
+  assert.equal(generated.optimizationSummary.generatorVersion, 'optimizer-v7')
+})
+
+test('deep repair relocates an earlier flexible session to increase total weekly coverage', () => {
+  const data = fixture()
+  data.config.workingDays = ['T2', 'T3', 'T4', 'T5']
+  data.config.workingHours = [6]
+  data.trainers = [{
+    ...data.trainers[0],
+    id: 'trainer-only',
+    slotCapacity: 1,
+    availableSlots: ['T2-6', 'T3-6', 'T4-6', 'T5-6'],
+  }]
+  data.students = [
+    { ...data.students[0], id: 'student-needs-three', name: 'A cần ba', sessionsPerWeek: 3, maxWeeklySessions: 3, availableSlots: ['T3-6', 'T4-6', 'T5-6'] },
+    { ...data.students[0], id: 'student-can-move', name: 'B linh hoạt', sessionsPerWeek: 1, maxWeeklySessions: 1, availableSlots: ['T2-6', 'T3-6', 'T4-6'] },
+    { ...data.students[0], id: 'student-third', name: 'C', sessionsPerWeek: 1, maxWeeklySessions: 1, availableSlots: ['T3-6', 'T4-6', 'T5-6'] },
+  ]
+  data.contracts = data.students.map((student) => ({
+    ...fixture().contracts[0],
+    id: `contract-${student.id}`,
+    studentId: student.id,
+    trainerId: 'trainer-only',
+  }))
+
+  const generated = generateSchedule(data)
+  const counts = Object.values(generated.schedule).flat().reduce((result, entry) => {
+    result.set(entry.studentId, (result.get(entry.studentId) || 0) + 1)
+    return result
+  }, new Map())
+
+  assert.equal(generated.optimizationSummary.studentCoverage.scheduledEntries, 4)
+  assert.equal(generated.optimizationSummary.repairAssignments, 1)
+  assert.equal(generated.optimizationSummary.repairRelocations, 1)
+  assert.equal(counts.get('student-needs-three'), 2)
+  assert.equal(counts.get('student-can-move'), 1)
+  assert.equal(generated.schedule['T2-6'][0].studentId, 'student-can-move')
+})
+
+test('deep repair never relocates a locked or manually protected session', () => {
+  const data = fixture()
+  data.config.workingDays = ['T2', 'T3', 'T4', 'T5']
+  data.config.workingHours = [6]
+  data.trainers = [{
+    ...data.trainers[0],
+    id: 'trainer-only',
+    slotCapacity: 1,
+    availableSlots: ['T2-6', 'T3-6', 'T4-6', 'T5-6'],
+  }]
+  data.students = [
+    { ...data.students[0], id: 'student-needs-three', name: 'A cần ba', sessionsPerWeek: 3, maxWeeklySessions: 3, availableSlots: ['T3-6', 'T4-6', 'T5-6'] },
+    { ...data.students[0], id: 'student-locked', name: 'B đã khóa', sessionsPerWeek: 1, maxWeeklySessions: 1, availableSlots: ['T2-6', 'T3-6', 'T4-6'] },
+    { ...data.students[0], id: 'student-third', name: 'C', sessionsPerWeek: 1, maxWeeklySessions: 1, availableSlots: ['T3-6', 'T4-6', 'T5-6'] },
+  ]
+  data.contracts = data.students.map((student) => ({
+    ...fixture().contracts[0],
+    id: `contract-${student.id}`,
+    studentId: student.id,
+    trainerId: 'trainer-only',
+  }))
+  data.schedule = {
+    'T4-6': [{
+      studentId: 'student-locked',
+      trainerId: 'trainer-only',
+      contractId: 'contract-student-locked',
+      branchId: BRANCH,
+      type: 'training',
+      source: 'manual_v2',
+      isLocked: true,
+    }],
+  }
+
+  const generated = generateSchedule(data)
+  assert.equal(generated.schedule['T4-6'].length, 1)
+  assert.equal(generated.schedule['T4-6'][0].studentId, 'student-locked')
+  assert.equal(generated.schedule['T4-6'][0].isLocked, true)
 })
 
 test('pair compaction merges two compatible mutable single classes', () => {

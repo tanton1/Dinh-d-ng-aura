@@ -185,6 +185,10 @@ export interface PtScheduleOptimizationSummary {
   slotUtilization?: PtScheduleSlotUtilization
   pairingMoves?: number
   refillAssignments?: number
+  repairAssignments?: number
+  repairRelocations?: number
+  repairSearchNodes?: number
+  repairSearchLimitReached?: boolean
   optimizationPasses?: number
   totalTargetSessions?: number
   scheduledEntries?: number

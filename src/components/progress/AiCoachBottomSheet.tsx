@@ -1,171 +1,312 @@
-import React, { useState } from 'react'
-import { Bot, Send, Sparkles, X, Loader2 } from 'lucide-react'
-import { askAiCoach } from '../../services/nutritionService'
+import React, { useEffect, useId, useRef, useState } from 'react'
+import {
+  Bot,
+  ChevronDown,
+  ChevronUp,
+  Database,
+  HeartHandshake,
+  Loader2,
+  RefreshCw,
+  RotateCcw,
+  Send,
+  ShieldCheck,
+  X,
+} from 'lucide-react'
+import {
+  askAiCoachDetailed,
+  getAiCoachOverview,
+  type AiCoachContextSnapshot,
+  type AiCoachHistoryMessage,
+  type AiCoachSafetyLevel,
+} from '../../services/nutritionService'
+import { safeLocalStorageSet } from '../../lib/safeStorage'
 
 interface AiCoachBottomSheetProps {
   onClose: () => void
-  userProfile?: {
-    weightKg?: number
-    heightCm?: number
-    targetWeightDeltaKg?: number
-    targetTimeframeMonths?: number
-    age?: number
-    biologicalSex?: 'male' | 'female'
-    goal?: string
-    targetCalories?: number
+  conversationScope?: string
+}
+
+interface ChatMessage extends AiCoachHistoryMessage {
+  safetyLevel?: AiCoachSafetyLevel
+  dataUsed?: string[]
+}
+
+const DEFAULT_SUGGESTIONS = [
+  'Hôm nay mình chỉ muốn tâm sự',
+  'Mình đang mất động lực',
+  'Xem tiến độ thật của mình',
+  'Giúp mình chọn một bước nhỏ',
+]
+
+function createConversationId(scope: string) {
+  const normalized = scope.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32) || 'progress'
+  return `${normalized}-current`
+}
+
+function conversationStorageKey(scope: string) {
+  return `aura:ai-health-coach:conversation:${scope.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80)}`
+}
+
+function readConversationId(scope: string) {
+  try {
+    const saved = window.localStorage.getItem(conversationStorageKey(scope))
+    if (saved && /^[A-Za-z0-9_-]{1,80}$/.test(saved)) return saved
+  } catch {
+    // Private browsing or storage policies may block persistence; chat still works for this session.
   }
+  return createConversationId(scope)
 }
 
-interface ChatMessage {
-  id: string;
-  sender: 'ai' | 'user';
-  text: string;
+function formatNumber(value: number) {
+  return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(value)
 }
 
-export function AiCoachBottomSheet({ onClose, userProfile }: AiCoachBottomSheetProps) {
-  const currentWeight = userProfile?.weightKg || 65
-  const targetWeight = currentWeight + (userProfile?.targetWeightDeltaKg || -4)
-  const isLoss = (userProfile?.targetWeightDeltaKg || -4) < 0
+function contextItems(context: AiCoachContextSnapshot) {
+  return [
+    context.goalLabel ? { label: 'Mục tiêu', value: context.goalLabel } : null,
+    typeof context.latestWeightKg === 'number'
+      ? { label: 'Cân gần nhất', value: `${context.latestWeightKg.toLocaleString('vi-VN')} kg` }
+      : null,
+    typeof context.todayCalories === 'number' && typeof context.calorieGoal === 'number'
+      ? { label: 'Năng lượng hôm nay', value: `${formatNumber(context.todayCalories)} / ${formatNumber(context.calorieGoal)} kcal` }
+      : null,
+    typeof context.todayProteinG === 'number' && typeof context.proteinGoalG === 'number'
+      ? { label: 'Đạm hôm nay', value: `${formatNumber(context.todayProteinG)} / ${formatNumber(context.proteinGoalG)}g` }
+      : null,
+    typeof context.loggedDays7 === 'number'
+      ? { label: 'Nhật ký 7 ngày', value: `${context.loggedDays7}/7 ngày` }
+      : null,
+    typeof context.workoutDays7 === 'number'
+      ? { label: 'Vận động 7 ngày', value: `${context.workoutDays7} ngày` }
+      : null,
+  ].filter((item): item is { label: string; value: string } => Boolean(item))
+}
 
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: '1',
-      sender: 'ai',
-      text: `Xin chào! Tôi là AI Coach của Aura. Dựa trên hồ sơ của bạn (Cân nặng ${currentWeight}kg, mục tiêu ${isLoss ? 'giảm' : 'tăng'} về ${targetWeight}kg), bạn cần hỗ trợ thông tin gì hôm nay?`,
-    },
-  ])
+export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: AiCoachBottomSheetProps) {
+  const titleId = useId()
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const chatEndRef = useRef<HTMLDivElement>(null)
+  const [conversationId, setConversationId] = useState(() => readConversationId(conversationScope))
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [context, setContext] = useState<AiCoachContextSnapshot>({})
+  const [dataUsed, setDataUsed] = useState<string[]>([])
+  const [missingData, setMissingData] = useState<string[]>([])
+  const [suggestions, setSuggestions] = useState(DEFAULT_SUGGESTIONS)
   const [inputVal, setInputVal] = useState('')
   const [loading, setLoading] = useState(false)
+  const [initializing, setInitializing] = useState(true)
+  const [error, setError] = useState('')
+  const [failedMessage, setFailedMessage] = useState('')
+  const [showContext, setShowContext] = useState(false)
 
-  const chips = [
-    '• Vì sao cân chưa thay đổi?',
-    '• Tôi cần ăn bao nhiêu kcal hôm nay?',
-    '• Tuần này tập luyện có hiệu quả không?',
-    '• Lời khuyên tối ưu cho vóc dáng tôi',
-  ]
-
-  const handleSend = async (textToSend?: string) => {
-    const text = textToSend || inputVal
-    if (!text.trim() || loading) return
-
-    const userMsg: ChatMessage = { id: Date.now().toString(), sender: 'user', text }
-    setMessages((prev) => [...prev, userMsg])
-    if (!textToSend) setInputVal('')
-
-    setLoading(true)
-
+  const loadOverview = async () => {
+    setInitializing(true)
+    setError('')
+    setFailedMessage('')
     try {
-      const responseText = await askAiCoach(text, userProfile || {})
-      if (responseText && responseText !== 'Không thể kết nối với AI Coach.' && responseText !== 'AI Coach chưa thể trả lời lúc này.') {
-        setMessages((prev) => [...prev, { id: (Date.now() + 1).toString(), sender: 'ai', text: responseText }])
-      } else {
-        // Dynamic calculated fallback based strictly on user profile
-        let fallback = ''
-        if (text.includes('Vì sao cân chưa thay đổi') || text.includes('cân')) {
-          fallback = `Cân nặng hiện tại ${currentWeight}kg đang dao động bình thường. Với mục tiêu ${targetWeight}kg, việc cân nặng giữ nguyên trong vài ngày thường do tích nước cơ bắp sau tập. Hãy tiếp tục duy trì thói quen nhé!`
-        } else if (text.includes('ăn bao nhiêu')) {
-          const bmr = Math.round(10 * currentWeight + 6.25 * (userProfile?.heightCm || 168) - 5 * (userProfile?.age || 25) + (userProfile?.biologicalSex === 'male' ? 5 : -161))
-          const targetCal = userProfile?.targetCalories || (isLoss ? Math.round(bmr * 1.3 - 350) : Math.round(bmr * 1.35 + 300))
-          const protein = Math.round(currentWeight * 1.8)
-          fallback = `Dựa trên cân nặng ${currentWeight}kg và chiều cao ${userProfile?.heightCm || 168}cm: Mức calo khuyến nghị cho bạn là khoảng ${targetCal} kcal/ngày, với ${protein}g Protein để duy trì cơ bắp.`
-        } else if (text.includes('tập luyện')) {
-          fallback = `Hoạt động tập luyện đều đặn rất tốt cho mục tiêu ${currentWeight}kg -> ${targetWeight}kg của bạn. Hãy đảm bảo nghỉ ngơi đầy đủ giữa các buổi tập!`
-        } else {
-          fallback = `Hồ sơ vóc dáng của bạn (${currentWeight}kg, mục tiêu ${targetWeight}kg) đang đi đúng hướng. Hãy kiên trì ghi nhận dinh dưỡng và tập luyện hàng ngày!`
-        }
-        setMessages((prev) => [...prev, { id: (Date.now() + 1).toString(), sender: 'ai', text: fallback }])
-      }
+      const overview = await getAiCoachOverview(conversationId)
+      setMessages(overview.history)
+      setContext(overview.context)
+      setDataUsed(overview.dataUsed)
+      setMissingData(overview.missingData)
+      setSuggestions(overview.suggestedReplies.length ? overview.suggestedReplies : DEFAULT_SUGGESTIONS)
     } catch {
-      setMessages((prev) => [...prev, { id: (Date.now() + 1).toString(), sender: 'ai', text: 'Có lỗi xảy ra khi gọi AI Coach. Bạn vui lòng thử lại sau.' }])
+      setError('Chưa thể đồng bộ dữ liệu của bạn. Aura sẽ không tự đoán số liệu; hãy thử tải lại.')
     } finally {
-      setLoading(false)
+      setInitializing(false)
     }
   }
 
+  useEffect(() => {
+    void loadOverview()
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    window.setTimeout(() => inputRef.current?.focus(), 150)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+    // The sheet intentionally initializes one bounded conversation only once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [messages, loading])
+
+  const handleSend = async (textToSend?: string, retryExisting = false) => {
+    const text = (textToSend ?? inputVal).trim()
+    if (!text || loading || initializing) return
+
+    const userMessage: ChatMessage = {
+      id: `local-user-${Date.now()}`,
+      sender: 'user',
+      text,
+    }
+    if (!retryExisting) setMessages((current) => [...current, userMessage])
+    setInputVal('')
+    setLoading(true)
+    setError('')
+    setFailedMessage('')
+
+    try {
+      const response = await askAiCoachDetailed(text, conversationId)
+      setMessages((current) => [...current, {
+        id: `local-ai-${Date.now()}`,
+        sender: 'ai',
+        text: response.text,
+        safetyLevel: response.safetyLevel,
+        dataUsed: response.dataUsed,
+      }])
+      setDataUsed(response.dataUsed)
+      setMissingData(response.missingData)
+      if (response.suggestedReplies.length) setSuggestions(response.suggestedReplies)
+    } catch {
+      setError('Aura chưa thể trả lời lúc này. Câu hỏi của bạn vẫn ở đây để thử lại.')
+      setFailedMessage(text)
+    } finally {
+      setLoading(false)
+      inputRef.current?.focus()
+    }
+  }
+
+  const startNewConversation = () => {
+    const nextConversationId = `${conversationScope.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 22) || 'progress'}-${Date.now().toString(36)}`
+    safeLocalStorageSet(conversationStorageKey(conversationScope), nextConversationId)
+    setConversationId(nextConversationId)
+    setMessages([])
+    setSuggestions(DEFAULT_SUGGESTIONS)
+    setInputVal('')
+    setError('')
+    setFailedMessage('')
+    inputRef.current?.focus()
+  }
+
+  const knownContext = contextItems(context)
+  const greeting = knownContext.length
+    ? 'Mình đã xem dữ liệu Aura đang có về bạn. Hôm nay bạn muốn mình lắng nghe, cùng nhìn lại tiến độ, hay tìm một việc nhỏ dễ làm?'
+    : 'Mình chưa có đủ dữ liệu để hiểu chính xác hành trình của bạn, nhưng mình vẫn có thể lắng nghe. Hôm nay bạn đang cảm thấy thế nào?'
+
   return (
-    <div className="pg-modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="pg-modal-sheet" style={{ maxWidth: 520 }}>
-        <div className="pg-modal-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div className="pg-ai-robot-badge" style={{ width: 38, height: 38, borderRadius: 12 }}>
-              <Bot size={22} />
-            </div>
+    <div className="pg-modal-backdrop pg-coach-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section
+        className="pg-modal-sheet pg-coach-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+      >
+        <header className="pg-modal-header pg-coach-header">
+          <div className="pg-coach-heading">
+            <div className="pg-ai-robot-badge pg-coach-avatar"><Bot size={22} /></div>
             <div>
-              <h2 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>AI Health Coach</h2>
-              <span style={{ fontSize: 12, color: '#10b981', fontWeight: 600 }}>• Trực tuyến sẵn sàng hỗ trợ</span>
+              <h2 id={titleId}>Aura Health Coach</h2>
+              <span><HeartHandshake size={13} /> Chuyên gia dinh dưỡng AI đồng hành cùng bạn</span>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="pg-modal-close-btn" aria-label="Đóng">
-            <X size={18} />
-          </button>
+          <div className="pg-coach-header-actions">
+            <button type="button" className="pg-coach-icon-btn" onClick={startNewConversation} aria-label="Bắt đầu cuộc trò chuyện mới" title="Cuộc trò chuyện mới">
+              <RotateCcw size={17} />
+            </button>
+            <button type="button" onClick={onClose} className="pg-modal-close-btn" aria-label="Đóng AI Health Coach">
+              <X size={18} />
+            </button>
+          </div>
+        </header>
+
+        <div className="pg-coach-safety-note">
+          <ShieldCheck size={16} />
+          <span>Aura hỗ trợ dinh dưỡng và thói quen, không chẩn đoán hay thay thế bác sĩ/chuyên gia y tế. Khi nhấn Gửi, bạn đồng ý để Aura dùng phần dữ liệu sức khỏe liên quan cho câu trả lời; hệ thống không gửi email, số điện thoại hoặc ảnh.</span>
         </div>
 
-        {/* Prompt Chips */}
-        <div className="pg-coach-chips">
-          {chips.map((chip) => (
+        <button type="button" className="pg-coach-context-toggle" onClick={() => setShowContext((current) => !current)} aria-expanded={showContext}>
+          <span><Database size={16} /> Aura đang hiểu gì về bạn</span>
+          {showContext ? <ChevronUp size={17} /> : <ChevronDown size={17} />}
+        </button>
+
+        {showContext && (
+          <div className="pg-coach-context-panel">
+            {knownContext.length ? (
+              <div className="pg-coach-context-grid">
+                {knownContext.map((item) => (
+                  <div key={item.label} className="pg-coach-context-item">
+                    <span>{item.label}</span>
+                    <strong>{item.value}</strong>
+                  </div>
+                ))}
+              </div>
+            ) : <p>Chưa có chỉ số đủ tin cậy để hiển thị.</p>}
+            {dataUsed.length > 0 && <p><strong>Dữ liệu đang dùng:</strong> {dataUsed.join(' · ')}</p>}
+            {missingData.length > 0 && <p className="pg-coach-missing"><strong>Có thể bổ sung:</strong> {missingData.join(' · ')}</p>}
+          </div>
+        )}
+
+        <div className="pg-coach-chat-list" aria-live="polite" aria-busy={loading || initializing}>
+          {!initializing && messages.length === 0 && (
+            <div className="pg-coach-msg ai pg-coach-greeting">{greeting}</div>
+          )}
+          {messages.map((message) => (
+            <div key={message.id} className={`pg-coach-msg ${message.sender}${message.safetyLevel === 'urgent' ? ' urgent' : ''}`}>
+              {message.text}
+              {message.sender === 'ai' && message.dataUsed && message.dataUsed.length > 0 && (
+                <small>Dựa trên: {message.dataUsed.slice(0, 3).join(' · ')}</small>
+              )}
+            </div>
+          ))}
+          {(initializing || loading) && (
+            <div className="pg-coach-msg ai pg-coach-typing" role="status">
+              <Loader2 className="spin" size={16} />
+              <span>{initializing ? 'Đang đọc dữ liệu bạn đã cho phép Aura lưu…' : 'Đang lắng nghe và đối chiếu dữ liệu của bạn…'}</span>
+            </div>
+          )}
+          <div ref={chatEndRef} />
+        </div>
+
+        {error && (
+          <div className="pg-coach-error" role="alert">
+            <span>{error}</span>
             <button
-              key={chip}
               type="button"
-              onClick={() => handleSend(chip)}
-              className="pg-coach-chip"
+              onClick={() => failedMessage ? void handleSend(failedMessage, true) : void loadOverview()}
+              disabled={initializing || loading}
             >
-              {chip}
+              <RefreshCw size={15} /> {failedMessage ? 'Thử lại' : 'Tải lại'}
+            </button>
+          </div>
+        )}
+
+        <div className="pg-coach-chips" aria-label="Gợi ý trò chuyện">
+          {suggestions.slice(0, 4).map((suggestion) => (
+            <button key={suggestion} type="button" onClick={() => void handleSend(suggestion)} className="pg-coach-chip" disabled={loading || initializing}>
+              {suggestion}
             </button>
           ))}
         </div>
 
-        {/* Chat History */}
-        <div className="pg-coach-chat-list">
-          {messages.map((m) => (
-            <div key={m.id} className={`pg-coach-msg ${m.sender}`}>
-              {m.text}
-            </div>
-          ))}
-        </div>
-
-        {/* Input box */}
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <input
-            type="text"
-            placeholder={loading ? "AI đang suy nghĩ..." : "Hỏi AI Coach về tiến độ..."}
+        <div className="pg-coach-composer">
+          <textarea
+            ref={inputRef}
+            rows={1}
+            maxLength={3000}
+            placeholder="Bạn có thể hỏi hoặc tâm sự với Aura…"
             value={inputVal}
-            disabled={loading}
-            onChange={(e) => setInputVal(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            style={{
-              flex: 1,
-              height: 48,
-              borderRadius: 16,
-              border: '1px solid #cbd5e1',
-              padding: '0 16px',
-              fontSize: 14,
-              outline: 'none',
-              opacity: loading ? 0.7 : 1,
+            disabled={loading || initializing}
+            onChange={(event) => setInputVal(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                void handleSend()
+              }
             }}
           />
-          <button
-            type="button"
-            disabled={loading}
-            onClick={() => handleSend()}
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: 16,
-              border: 'none',
-              background: 'linear-gradient(110deg, #ec4899 0%, #fb923c 100%)',
-              color: '#ffffff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.7 : 1,
-              flexShrink: 0,
-            }}
-          >
-            {loading ? <Loader2 className="spin" size={18} /> : <Send size={18} />}
+          <button type="button" disabled={loading || initializing || !inputVal.trim()} onClick={() => void handleSend()} aria-label="Gửi tin nhắn cho Aura Health Coach">
+            {loading ? <Loader2 className="spin" size={19} /> : <Send size={19} />}
           </button>
         </div>
-      </div>
+      </section>
     </div>
   )
 }

@@ -35,6 +35,13 @@ const MAX_ENTRIES_PER_SLOT = 100
 const DEFAULT_DAILY_SESSION_TARGET = 8
 const DEFAULT_DAILY_SESSION_LIMIT = 10
 const MAX_DEEP_OPTIMIZATION_PASSES = 3
+// A bounded repair search can relocate auto-generated sessions from earlier
+// rounds. This closes the remaining gap between fair one-seat rounds and the
+// maximum weekly coverage without making the callable response unpredictable.
+const MAX_REPAIR_CHAIN_DEPTH = 4
+const MAX_REPAIR_SEARCH_NODES = 12000
+const MAX_REPAIR_DIRECT_CANDIDATES = 80
+const MAX_REPAIR_DISPLACEMENT_CANDIDATES = 120
 const DAY_ORDER = new Map([['T2', 0], ['T3', 1], ['T4', 2], ['T5', 3], ['T6', 4], ['T7', 5], ['CN', 6]])
 const STUDENT_AVAILABILITY_REASON_CODES = new Set(['AVAILABILITY_NOT_SUBMITTED', 'OUTSIDE_STUDENT_AVAILABILITY'])
 
@@ -1172,6 +1179,190 @@ function matchSchedulingRound(data, schedule, students) {
     .map((student) => ({ student, candidate: assignments.get(student.id) }))
 }
 
+function autoEntryForCandidate(data, student, candidate, template = null) {
+  return {
+    studentId: student.id,
+    trainerId: candidate.trainer.id,
+    contractId: candidate.contractId,
+    branchId: data.branch.id,
+    type: 'training',
+    source: template?.source || 'auto_v4',
+    ...(candidate.trainerAssignmentWarning ? { trainerAssignmentWarning: true } : {}),
+  }
+}
+
+function scheduleWithEntry(schedule, slotId, entry) {
+  return { ...schedule, [slotId]: [...(schedule[slotId] || []), entry] }
+}
+
+function scheduleWithoutEntry(schedule, slotId, entry) {
+  const values = schedule[slotId] || []
+  const index = values.indexOf(entry)
+  if (index < 0) return schedule
+  const remaining = [...values.slice(0, index), ...values.slice(index + 1)]
+  if (remaining.length) return { ...schedule, [slotId]: remaining }
+  const next = { ...schedule }
+  delete next[slotId]
+  return next
+}
+
+function repairTargetKey(candidate) {
+  return `${candidate.trainer.id}|${candidate.slotId}`
+}
+
+function boundedRepairCandidates(data, student, schedule, forbiddenTargets, budget) {
+  const candidates = []
+  const state = buildSchedulingState(schedule)
+  const contractCache = new Map()
+  const trainers = [...data.trainers].sort((left, right) => left.id.localeCompare(right.id))
+  search: for (const slotId of [...new Set(student.availableSlots || [])].sort(compareSlots)) {
+    for (const trainer of trainers) {
+      if (budget.nodes >= budget.limit) break search
+      budget.nodes += 1
+      const candidate = candidateRecord(data, schedule, state, contractCache, student, trainer, slotId)
+      if (!candidate || forbiddenTargets.has(repairTargetKey(candidate))) continue
+      candidates.push(candidate)
+      // Direct seats are only an escape route for a displaced entry. A bounded
+      // best-candidate set keeps repair latency stable on large branches.
+      if (candidates.length >= MAX_REPAIR_DIRECT_CANDIDATES) break search
+    }
+  }
+  return candidates.sort(compareCandidates)
+}
+
+/**
+ * Place one more learner session by relocating only mutable auto-generated
+ * entries. Every recursive step removes an existing entry before validating
+ * its replacement, so quota, one-session-per-day, PT availability, leave/OFF,
+ * exact contract dates and branch rules continue to be enforced by the same
+ * candidateForSlot path used by normal generation.
+ */
+function tryRepairPlacement(data, studentMap, student, schedule, template, depth, visitedStudents, forbiddenTargets, budget) {
+  if (!student || visitedStudents.has(student.id) || budget.nodes >= budget.limit) return null
+  const nextVisitedStudents = new Set(visitedStudents)
+  nextVisitedStudents.add(student.id)
+
+  const directCandidates = boundedRepairCandidates(data, student, schedule, forbiddenTargets, budget)
+  for (const candidate of directCandidates) {
+    return {
+      schedule: scheduleWithEntry(schedule, candidate.slotId, autoEntryForCandidate(data, student, candidate, template)),
+      relocations: 0,
+    }
+  }
+  if (depth < 1) return null
+
+  const displacementAttempts = []
+  const displacementContractCache = new Map()
+  displacementSearch: for (const slotId of [...new Set(student.availableSlots || [])].sort(compareSlots)) {
+    for (const trainer of [...data.trainers].sort((left, right) => left.id.localeCompare(right.id))) {
+      if (budget.nodes >= budget.limit) break displacementSearch
+      const targetKey = `${trainer.id}|${slotId}`
+      if (forbiddenTargets.has(targetKey)) continue
+      const trainerEntries = (schedule[slotId] || []).filter((entry) => entry.type !== 'off' && entry.trainerId === trainer.id)
+      if (trainerEntries.length < Math.max(1, Number(trainer.slotCapacity || 1))) continue
+      const movableEntries = trainerEntries.filter((entry) => entry.source === 'auto_v4'
+        && entry.isLocked !== true
+        && studentMap.has(entry.studentId)
+        && !nextVisitedStudents.has(entry.studentId))
+      for (const occupantEntry of movableEntries) {
+        if (budget.nodes >= budget.limit) break displacementSearch
+        const withoutOccupant = scheduleWithoutEntry(schedule, slotId, occupantEntry)
+        budget.nodes += 1
+        const candidate = candidateRecord(data, withoutOccupant, buildSchedulingState(withoutOccupant), displacementContractCache, student, trainer, slotId)
+        if (!candidate) continue
+        displacementAttempts.push({
+          candidate,
+          occupantEntry,
+          occupantStudent: studentMap.get(occupantEntry.studentId),
+          schedule: withoutOccupant,
+        })
+      }
+    }
+  }
+
+  displacementAttempts.sort((left, right) => compareCandidates(left.candidate, right.candidate)
+    || (right.occupantStudent.availableSlots?.length || 0) - (left.occupantStudent.availableSlots?.length || 0)
+    || left.occupantStudent.id.localeCompare(right.occupantStudent.id))
+
+  for (const attempt of displacementAttempts.slice(0, MAX_REPAIR_DISPLACEMENT_CANDIDATES)) {
+    if (budget.nodes >= budget.limit) break
+    const targetKey = repairTargetKey(attempt.candidate)
+    const nextForbiddenTargets = new Set(forbiddenTargets)
+    nextForbiddenTargets.add(targetKey)
+    const relocated = tryRepairPlacement(
+      data,
+      studentMap,
+      attempt.occupantStudent,
+      attempt.schedule,
+      attempt.occupantEntry,
+      depth - 1,
+      nextVisitedStudents,
+      nextForbiddenTargets,
+      budget,
+    )
+    if (!relocated) continue
+    return {
+      schedule: scheduleWithEntry(
+        relocated.schedule,
+        attempt.candidate.slotId,
+        autoEntryForCandidate(data, student, attempt.candidate, template),
+      ),
+      relocations: relocated.relocations + 1,
+    }
+  }
+  return null
+}
+
+function repairCoverageWithRelocations(data, inputSchedule, students, remainingByStudent, options = {}) {
+  let schedule = Object.fromEntries(Object.entries(inputSchedule).map(([slotId, entries]) => [slotId, [...entries]]))
+  const studentMap = new Map(students.map((student) => [student.id, student]))
+  const localRemaining = new Map(students.map((student) => [student.id, Math.max(0, Number(remainingByStudent.get(student.id) || 0))]))
+  const maxAssignments = Math.max(0, Number(options.maxAssignments ?? MAX_DRAFT_ENTRIES))
+  const budget = { nodes: 0, limit: Math.max(1, Number(options.maxSearchNodes || MAX_REPAIR_SEARCH_NODES)) }
+  const assignedStudentIds = []
+  let relocations = 0
+  let progress = true
+
+  while (progress && assignedStudentIds.length < maxAssignments && budget.nodes < budget.limit) {
+    progress = false
+    const missingStudents = students
+      .filter((student) => (localRemaining.get(student.id) || 0) > 0)
+      .sort((left, right) => (left.availableSlots?.length || 0) - (right.availableSlots?.length || 0)
+        || (localRemaining.get(right.id) || 0) - (localRemaining.get(left.id) || 0)
+        || left.name.localeCompare(right.name, 'vi')
+        || left.id.localeCompare(right.id))
+    for (const student of missingStudents) {
+      if (assignedStudentIds.length >= maxAssignments || budget.nodes >= budget.limit) break
+      const repaired = tryRepairPlacement(
+        data,
+        studentMap,
+        student,
+        schedule,
+        null,
+        MAX_REPAIR_CHAIN_DEPTH,
+        new Set(),
+        new Set(),
+        budget,
+      )
+      if (!repaired) continue
+      schedule = repaired.schedule
+      localRemaining.set(student.id, Math.max(0, (localRemaining.get(student.id) || 0) - 1))
+      assignedStudentIds.push(student.id)
+      relocations += repaired.relocations
+      progress = true
+    }
+  }
+
+  return {
+    schedule,
+    assignedStudentIds,
+    assignments: assignedStudentIds.length,
+    relocations,
+    searchNodes: budget.nodes,
+    searchLimitReached: budget.nodes >= budget.limit,
+  }
+}
+
 function hasThreeConsecutiveTrainingDays(days) {
   const indexes = new Set([...(days || [])].map((day) => DAY_ORDER.get(day)).filter(Number.isInteger))
   return [...indexes].some((index) => indexes.has(index + 1) && indexes.has(index + 2))
@@ -1220,11 +1411,7 @@ function compactPairedSlots(data, inputSchedule) {
       if (!selected) continue
       schedule[source.slotId] = temporary[source.slotId] || []
       if (!schedule[source.slotId].length) delete schedule[source.slotId]
-      schedule[selected.slotId] = [...(temporary[selected.slotId] || []), {
-        ...sourceEntry,
-        trainerId: selected.trainer.id,
-        contractId: selected.contractId,
-      }]
+      schedule[selected.slotId] = [...(temporary[selected.slotId] || []), autoEntryForCandidate(data, student, selected, sourceEntry)]
       moves += 1
       changed = true
       break
@@ -1344,23 +1531,7 @@ function generateSchedule(data) {
         capacityReached = true
         break
       }
-      schedule[candidate.slotId] = [...(schedule[candidate.slotId] || []), {
-        studentId: student.id,
-        trainerId: candidate.trainer.id,
-        contractId: candidate.contractId,
-        branchId: data.branch.id,
-        type: 'training',
-        source: 'auto_v4',
-        ...(candidate.trainerAssignmentWarning ? { trainerAssignmentWarning: true } : {}),
-      }]
-      if (candidate.trainerAssignmentWarning) {
-        warnings.push({
-          code: 'TRAINER_ASSIGNMENT_MISMATCH',
-          studentId: student.id,
-          trainerId: candidate.trainer.id,
-          slotId: candidate.slotId,
-        })
-      }
+      schedule[candidate.slotId] = [...(schedule[candidate.slotId] || []), autoEntryForCandidate(data, student, candidate)]
       scheduledCounts.set(student.id, (scheduledCounts.get(student.id) || 0) + 1)
       remainingByStudent.set(student.id, Math.max(0, (remainingByStudent.get(student.id) || 0) - 1))
       entryCount += 1
@@ -1391,13 +1562,20 @@ function generateSchedule(data) {
 
   fillRemainingSessions()
 
-  // Deep improvement runs compaction and coverage again. Compaction can move a
+  // Deep improvement runs compaction, regular coverage and bounded relocation.
+  // Compaction can move a
   // flexible learner from a capacity-1 class into an existing 1/2 class. That
   // newly empty class is then retried for learners still missing a weekly
-  // session. Repeating the cycle also catches a second pairing opportunity
-  // created by the refill itself.
+  // session. Relocation then opens a seat held by a flexible learner from an
+  // earlier round, which closes global coverage gaps without moving protected
+  // workload. Repeating the cycle catches pairing opportunities created by the
+  // repair itself.
   let pairingMoves = 0
   let refillAssignments = 0
+  let repairAssignments = 0
+  let repairRelocations = 0
+  let repairSearchNodes = 0
+  let repairSearchLimitReached = false
   let optimizationPasses = 1
   for (let pass = 0; pass < MAX_DEEP_OPTIMIZATION_PASSES; pass += 1) {
     const compacted = compactPairedSlots(data, schedule)
@@ -1411,11 +1589,47 @@ function generateSchedule(data) {
     // one 2/2 class without increasing the number of entries.
     const refilled = capacityReached ? 0 : fillRemainingSessions()
     refillAssignments += refilled
+    const repairCapacity = Math.max(0, Math.min(
+      MAX_DRAFT_ENTRIES - entryCount,
+      MAX_DRAFT_DOCUMENT_ENTRIES - scheduleDocumentEntryCount(schedule),
+    ))
+    const repaired = capacityReached || repairCapacity < 1
+      ? { assignments: 0, relocations: 0, searchNodes: 0, searchLimitReached: false, assignedStudentIds: [], schedule }
+      : repairCoverageWithRelocations(data, schedule, students, remainingByStudent, { maxAssignments: repairCapacity })
+    if (repaired.assignments > 0) {
+      Object.keys(schedule).forEach((slotId) => delete schedule[slotId])
+      Object.assign(schedule, repaired.schedule)
+      for (const studentId of repaired.assignedStudentIds) {
+        scheduledCounts.set(studentId, (scheduledCounts.get(studentId) || 0) + 1)
+        remainingByStudent.set(studentId, Math.max(0, (remainingByStudent.get(studentId) || 0) - 1))
+      }
+      entryCount += repaired.assignments
+      repairAssignments += repaired.assignments
+      repairRelocations += repaired.relocations
+      capacityReached = entryCount >= MAX_DRAFT_ENTRIES || scheduleDocumentEntryCount(schedule) >= MAX_DRAFT_DOCUMENT_ENTRIES
+    }
+    repairSearchNodes += repaired.searchNodes
+    repairSearchLimitReached ||= repaired.searchLimitReached
     optimizationPasses += 1
-    if (compacted.moves === 0 && refilled === 0) break
+    if (compacted.moves === 0 && refilled === 0 && repaired.assignments === 0) break
   }
   const schedulingState = buildSchedulingState(schedule)
   const contractCache = new Map()
+
+  // Assignment warnings are derived from the final schedule. Earlier rounds
+  // may have moved an entry back to an assigned PT (or to a support PT), so
+  // retaining incremental warnings would leave stale audit information.
+  for (const [slotId, entries] of Object.entries(schedule)) {
+    for (const entry of entries) {
+      if (entry.type === 'off' || entry.trainerAssignmentWarning !== true) continue
+      warnings.push({
+        code: 'TRAINER_ASSIGNMENT_MISMATCH',
+        studentId: entry.studentId,
+        trainerId: entry.trainerId,
+        slotId,
+      })
+    }
+  }
 
   const unassignedEntries = []
   for (const student of students) {
@@ -1440,8 +1654,12 @@ function generateSchedule(data) {
     slotUtilization: slotUtilizationForSchedule(data, schedule),
     pairingMoves,
     refillAssignments,
+    repairAssignments,
+    repairRelocations,
+    repairSearchNodes,
+    repairSearchLimitReached,
     optimizationPasses,
-    generatorVersion: 'optimizer-v6',
+    generatorVersion: 'optimizer-v7',
   }
   return { schedule, warnings, optimizationSummary, unassignedEntries }
 }
@@ -1556,7 +1774,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         schedule: generated.schedule,
         revision: nextRevision,
         status: 'draft',
-        generatorVersion: 'optimizer-v6',
+        generatorVersion: 'optimizer-v7',
         warnings: generated.warnings,
         optimizationSummary: generated.optimizationSummary,
         unassignedEntries: generated.unassignedEntries,
@@ -1565,7 +1783,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: 'pt_schedule.generated', actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, entryCount: scheduleEntryCount(generated.schedule), studentCoverage: generated.optimizationSummary.studentCoverage, slotUtilization: generated.optimizationSummary.slotUtilization, unassignedCount: generated.unassignedEntries.length, warnings: generated.warnings.slice(0, 100), createdAt: FieldValue.serverTimestamp() })
-      return { draftRevision: nextRevision, schedule: generated.schedule, warnings: generated.warnings, optimizationSummary: generated.optimizationSummary, unassignedEntries: generated.unassignedEntries, generatorVersion: 'optimizer-v6' }
+      return { draftRevision: nextRevision, schedule: generated.schedule, warnings: generated.warnings, optimizationSummary: generated.optimizationSummary, unassignedEntries: generated.unassignedEntries, generatorVersion: 'optimizer-v7' }
     })
   })
 
@@ -1854,6 +2072,7 @@ module.exports = {
   generateSchedule,
   manualSlotCandidate,
   maximumFeasibleSessionsForStudent,
+  repairCoverageWithRelocations,
   studentFeasibilityForSchedule,
   resetDraftSchedule,
   resolveContract,

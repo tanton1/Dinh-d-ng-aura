@@ -686,19 +686,155 @@ export async function generateMealReview(meal: any, userProfile: any): Promise<s
   }
 }
 
-export async function askAiCoach(message: string, userProfile: any): Promise<string> {
-  try {
-    await initializeFirebaseAppCheck()
-    const firebase = requireNutritionFirebase();
-    const callable = httpsCallable<{ message: string, userProfile: any }, { text: string }>(
-      firebase.functions,
-      'askAiCoach',
-      { timeout: 30_000 },
-    );
-    const result = await callable({ message, userProfile });
-    return result.data.text || 'AI Coach chưa có phản hồi.';
-  } catch (err) {
-    console.error('Error calling askAiCoach function:', err);
-    return 'Không thể kết nối với AI Coach lúc này.';
+export type AiCoachSafetyLevel = 'standard' | 'caution' | 'urgent'
+
+export interface AiCoachContextSnapshot {
+  goalLabel?: string | null
+  latestWeightKg?: number | null
+  targetWeightKg?: number | null
+  todayCalories?: number | null
+  calorieGoal?: number | null
+  todayProteinG?: number | null
+  proteinGoalG?: number | null
+  loggedDays7?: number | null
+  workoutDays7?: number | null
+  updatedAt?: string | null
+}
+
+export interface AiCoachHistoryMessage {
+  id: string
+  sender: 'ai' | 'user'
+  text: string
+  createdAt?: string | null
+}
+
+export interface AiCoachOverview {
+  history: AiCoachHistoryMessage[]
+  context: AiCoachContextSnapshot
+  dataUsed: string[]
+  missingData: string[]
+  suggestedReplies: string[]
+}
+
+export interface AiCoachResponse {
+  text: string
+  dataUsed: string[]
+  missingData: string[]
+  suggestedReplies: string[]
+  safetyLevel: AiCoachSafetyLevel
+  provider?: 'apikey_fun' | 'openrouter' | 'none'
+  model?: string | null
+  providerRequestId?: string | null
+}
+
+function boundedStringList(value: unknown, maximum = 8): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+    .map((item) => item.trim().slice(0, 180))
+    .slice(0, maximum)
+}
+
+function optionalFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function validateAiCoachContext(value: unknown): AiCoachContextSnapshot {
+  if (!isRecord(value)) return {}
+  return {
+    goalLabel: typeof value.goalLabel === 'string' ? value.goalLabel.slice(0, 120) : null,
+    latestWeightKg: optionalFiniteNumber(value.latestWeightKg),
+    targetWeightKg: optionalFiniteNumber(value.targetWeightKg),
+    todayCalories: optionalFiniteNumber(value.todayCalories),
+    calorieGoal: optionalFiniteNumber(value.calorieGoal),
+    todayProteinG: optionalFiniteNumber(value.todayProteinG),
+    proteinGoalG: optionalFiniteNumber(value.proteinGoalG),
+    loggedDays7: optionalFiniteNumber(value.loggedDays7),
+    workoutDays7: optionalFiniteNumber(value.workoutDays7),
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : null,
   }
+}
+
+function validateAiCoachOverview(value: unknown): AiCoachOverview {
+  if (!isRecord(value)) throw new Error('Dữ liệu khởi tạo AI Coach không hợp lệ.')
+  const history = Array.isArray(value.history) ? value.history.flatMap((item): AiCoachHistoryMessage[] => {
+    if (!isRecord(item) || typeof item.text !== 'string' || !item.text.trim()) return []
+    const sender = item.sender === 'user' ? 'user' : item.sender === 'ai' || item.sender === 'assistant' ? 'ai' : null
+    if (!sender) return []
+    return [{
+      id: typeof item.id === 'string' ? item.id : `${sender}-${Math.random().toString(36).slice(2)}`,
+      sender,
+      text: item.text.trim().slice(0, 6000),
+      createdAt: typeof item.createdAt === 'string' ? item.createdAt : null,
+    }]
+  }).slice(-20) : []
+
+  return {
+    history,
+    context: validateAiCoachContext(value.context),
+    dataUsed: boundedStringList(value.dataUsed),
+    missingData: boundedStringList(value.missingData),
+    suggestedReplies: boundedStringList(value.suggestedReplies, 6),
+  }
+}
+
+function validateAiCoachResponse(value: unknown): AiCoachResponse {
+  if (!isRecord(value) || typeof value.text !== 'string' || !value.text.trim()) {
+    throw new Error('AI Coach chưa trả về nội dung hợp lệ.')
+  }
+  const safetyLevel: AiCoachSafetyLevel = value.safetyLevel === 'urgent'
+    ? 'urgent'
+    : value.safetyLevel === 'caution'
+      ? 'caution'
+      : 'standard'
+  const provider = value.provider === 'apikey_fun' || value.provider === 'openrouter' || value.provider === 'none'
+    ? value.provider
+    : undefined
+  return {
+    text: value.text.trim().slice(0, 6000),
+    dataUsed: boundedStringList(value.dataUsed),
+    missingData: boundedStringList(value.missingData),
+    suggestedReplies: boundedStringList(value.suggestedReplies, 6),
+    safetyLevel,
+    provider,
+    model: typeof value.model === 'string' ? value.model : null,
+    providerRequestId: typeof value.providerRequestId === 'string' ? value.providerRequestId : null,
+  }
+}
+
+export async function getAiCoachOverview(conversationId: string): Promise<AiCoachOverview> {
+  await initializeFirebaseAppCheck()
+  const firebase = requireNutritionFirebase()
+  const callable = httpsCallable<{ conversationId: string }, unknown>(
+    firebase.functions,
+    'getAiCoachOverview',
+    { timeout: 30_000 },
+  )
+  const result = await callable({ conversationId })
+  return validateAiCoachOverview(result.data)
+}
+
+export async function askAiCoachDetailed(message: string, conversationId: string): Promise<AiCoachResponse> {
+  const normalizedMessage = message.trim()
+  if (!normalizedMessage || normalizedMessage.length > 3000) {
+    throw new Error('Tin nhắn cần có từ 1 đến 3.000 ký tự.')
+  }
+  await initializeFirebaseAppCheck()
+  const firebase = requireNutritionFirebase()
+  const callable = httpsCallable<{ message: string; conversationId: string }, unknown>(
+    firebase.functions,
+    'askAiCoach',
+    { timeout: 45_000 },
+  )
+  const result = await callable({ message: normalizedMessage, conversationId })
+  return validateAiCoachResponse(result.data)
+}
+
+/**
+ * Compatibility wrapper for the Nutrition assistant. Profile data is intentionally
+ * ignored because the server rebuilds trusted context from the authenticated UID.
+ */
+export async function askAiCoach(message: string, _legacyUserProfile?: unknown): Promise<string> {
+  const response = await askAiCoachDetailed(message, 'nutrition-assistant')
+  return response.text
 }

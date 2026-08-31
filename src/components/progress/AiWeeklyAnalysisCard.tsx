@@ -1,77 +1,56 @@
 import React from 'react'
-import { ArrowRight, Bot, CheckCircle2, Sparkles, TrendingUp, AlertTriangle, Target } from 'lucide-react'
+import { ArrowRight, Bot, CheckCircle2, ClipboardList, Dumbbell, Sparkles, Target } from 'lucide-react'
 
-export function AiWeeklyAnalysisCard({ onOpenCoach }: { onOpenCoach: () => void }) {
-  const priorities = [
-    'Thêm nguồn protein nạc (ức gà, trứng) vào bữa sáng.',
-    'Uống thêm 500ml nước vào các ngày có tập luyện.',
-  ]
+export interface AiWeeklySummary {
+  mealLoggedDays: number
+  mealCount: number
+  waterLoggedDays: number
+  workoutDays: number
+  weightLogCount: number
+}
+
+interface AiWeeklyAnalysisCardProps {
+  onOpenCoach: () => void
+  summary: AiWeeklySummary
+}
+
+export function AiWeeklyAnalysisCard({ onOpenCoach, summary }: AiWeeklyAnalysisCardProps) {
+  const hasEnoughNutritionData = summary.mealLoggedDays >= 3
+  const priorities: string[] = []
+
+  if (summary.mealLoggedDays < 3) priorities.push('Ghi ít nhất một bữa trong ngày để Aura hiểu nhịp ăn thực tế hơn.')
+  if (summary.waterLoggedDays < 3) priorities.push('Ghi lượng nước ở một vài thời điểm cố định, không cần cố đạt số hoàn hảo.')
+  if (summary.workoutDays === 0) priorities.push('Ghi một hoạt động nhẹ hoặc buổi tập để lời khuyên phục hồi có đúng ngữ cảnh.')
+  if (priorities.length === 0) priorities.push('Tiếp tục ghi nhận đều đặn; Aura sẽ ưu tiên thay đổi nhỏ dựa trên xu hướng nhiều ngày.')
+
   return (
     <div className="pg-ai-card">
       <div className="pg-ai-card-inner">
-        <div className="pg-ai-robot-badge">
-          <Bot size={28} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#ec4899', fontSize: 13, fontWeight: 800 }}>
-            <Sparkles size={16} fill="#ec4899" />
-            <span>AI Coach Review Tuần</span>
-          </div>
-          <h3 style={{ fontSize: 18, fontWeight: 900, color: '#0f172a', margin: '4px 0 8px' }}>
-            Điều làm tốt: Ghi nhận đều đặn!
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-              <TrendingUp size={16} style={{ color: '#10b981', marginTop: 2, flexShrink: 0 }} />
-              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: '#334155' }}>
-                <strong>Thói quen tốt:</strong> Bạn đã check-in bữa ăn 6/7 ngày và hoàn thành 3 buổi tập. Streak hiện tại phản ánh sự kỷ luật rất tuyệt vời.
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-              <Target size={16} style={{ color: '#3b82f6', marginTop: 2, flexShrink: 0 }} />
-              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: '#334155' }}>
-                <strong>So sánh Tập vs Nghỉ:</strong> Năng lượng nạp vào ngày có tập cao hơn ngày nghỉ khoảng 300 kcal (rất hợp lý để phục hồi), nhưng lượng nước chưa tăng tương ứng.
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-              <AlertTriangle size={16} style={{ color: '#f59e0b', marginTop: 2, flexShrink: 0 }} />
-              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: '#334155' }}>
-                <strong>Insight phát hiện:</strong> Thiếu hụt protein ở bữa sáng trong 3 ngày liên tiếp. <br/><span style={{ color: '#64748b' }}>Nguyên nhân: Thường bỏ bữa hoặc chỉ ăn bánh ngọt nhẹ. Hành động: Chuẩn bị sẵn trứng luộc hoặc sữa chua protein.</span>
-              </p>
-            </div>
+        <div className="pg-ai-robot-badge"><Bot size={28} /></div>
+        <div className="pg-ai-review-content">
+          <div className="pg-ai-eyebrow"><Sparkles size={16} /> Tổng quan dữ liệu 7 ngày</div>
+          <h3>{hasEnoughNutritionData ? 'Aura đã có đủ dữ liệu để cùng bạn nhìn lại' : 'Cần thêm vài ngày ghi nhận để tư vấn chính xác'}</h3>
+          <p className="pg-ai-review-lead">
+            {hasEnoughNutritionData
+              ? 'Các số dưới đây lấy trực tiếp từ nhật ký của bạn, không dùng dữ liệu mẫu.'
+              : 'Aura sẽ nói rõ phần còn thiếu thay vì tự suy đoán cân nặng, khẩu phần hay nguyên nhân tiến độ.'}
+          </p>
+
+          <div className="pg-ai-review-stats" aria-label="Dữ liệu bảy ngày gần nhất">
+            <div><ClipboardList size={17} /><span><strong>{summary.mealLoggedDays}/7 ngày</strong> có bữa ăn · {summary.mealCount} bữa</span></div>
+            <div><Dumbbell size={17} /><span><strong>{summary.workoutDays} ngày</strong> có vận động</span></div>
+            <div><Target size={17} /><span><strong>{summary.waterLoggedDays} ngày</strong> có ghi nước · {summary.weightLogCount} lần cân</span></div>
           </div>
 
-          <div style={{ background: 'rgba(255,255,255,0.8)', border: '1px solid #fbcfe8', borderRadius: 18, padding: 14, marginTop: 14 }}>
-            <span style={{ fontSize: 12, fontWeight: 800, color: '#db1557', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Ưu tiên điều chỉnh tuần tới
-            </span>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-              {priorities.map((item, index) => (
-                <div key={index} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: '#334155', fontWeight: 600 }}>
-                  <CheckCircle2 size={16} style={{ color: '#ec4899', flexShrink: 0, marginTop: 2 }} />
-                  <span>{item}</span>
-                </div>
-              ))}
-            </div>
+          <div className="pg-ai-priority-box">
+            <span>Việc nhỏ giúp Aura hiểu bạn hơn</span>
+            {priorities.slice(0, 2).map((item) => (
+              <div key={item}><CheckCircle2 size={16} /><p>{item}</p></div>
+            ))}
           </div>
-          <button
-            type="button"
-            onClick={onOpenCoach}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#ec4899',
-              fontWeight: 800,
-              fontSize: 13,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              cursor: 'pointer',
-              marginTop: 14,
-              padding: 0,
-            }}
-          >
-            <span>Thảo luận chi tiết với AI Coach</span>
+
+          <button type="button" onClick={onOpenCoach} className="pg-ai-review-action">
+            <span>{hasEnoughNutritionData ? 'Cùng Aura phân tích và trò chuyện' : 'Tâm sự với Aura ngay cả khi chưa đủ dữ liệu'}</span>
             <ArrowRight size={16} />
           </button>
         </div>
