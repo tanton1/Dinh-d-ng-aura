@@ -833,11 +833,13 @@ function compareSlots(left, right) {
 
 function compareCandidatePriorities(left, right, leftOpensTeachingSlot, rightOpensTeachingSlot) {
   // Lexicographic objective after maximum-cardinality learner matching:
-  // keep training days spaced, then fill a compatible 1/2 class, honour the
-  // assignment, and only then balance PT teaching load/rank. A fairer PT load
-  // must never open a singleton while a compatible pair is available.
-  if (left.consecutiveDayPenalty !== right.consecutiveDayPenalty) return left.consecutiveDayPenalty - right.consecutiveDayPenalty
+  // fill an existing 1/2 class before opening a new class. Spacing learner
+  // days is a soft preference: a full weekly target and a paired class are
+  // more valuable than leaving a valid seat empty. This keeps the optimizer
+  // aligned with Aura's operating goal while still preferring non-consecutive
+  // days whenever the utilization result is otherwise equal.
   if (leftOpensTeachingSlot !== rightOpensTeachingSlot) return Number(leftOpensTeachingSlot) - Number(rightOpensTeachingSlot)
+  if (left.consecutiveDayPenalty !== right.consecutiveDayPenalty) return left.consecutiveDayPenalty - right.consecutiveDayPenalty
   if (left.assignmentOrder !== right.assignmentOrder) return left.assignmentOrder - right.assignmentOrder
   const tierComparison = schedulingTier(left) - schedulingTier(right)
   if (tierComparison !== 0) return tierComparison
@@ -994,6 +996,94 @@ function feasibleCandidatesForStudent(data, schedule, schedulingState, contractC
   return candidates.sort(compareCandidates)
 }
 
+/**
+ * Estimate the maximum number of sessions a learner can receive in this week
+ * from the current protected workload. This is intentionally a fast,
+ * optimistic preflight rather than a second global solver: it uses the
+ * learner's registered slots, concrete contract dates, PT availability,
+ * leave/OFF markers and live slot capacity, then enforces one session/day.
+ *
+ * The value is used for diagnostics only. It never reduces the requested
+ * weekly target and never blocks generation, so a soft scheduling preference
+ * cannot turn into a hard operational failure.
+ */
+function feasibilitySlotIndex(data, schedule, state = buildSchedulingState(schedule)) {
+  const workingDays = Array.isArray(data.config?.workingDays) ? data.config.workingDays : []
+  const workingHours = Array.isArray(data.config?.workingHours) ? data.config.workingHours.map(Number) : []
+  const holidays = Array.isArray(data.config?.holidays) ? data.config.holidays : []
+  const slots = new Set(data.students.flatMap((student) => Array.isArray(student.availableSlots) ? student.availableSlots : []))
+  const feasible = new Set()
+  for (const slotId of slots) {
+    const [day, rawHour] = String(slotId).split('-')
+    const hour = Number(rawHour)
+    const date = dateForSlot(data.weekId, day)
+    if ((workingDays.length && !workingDays.includes(day))
+      || (workingHours.length && !workingHours.includes(hour))
+      || holidays.includes(date)) continue
+    if (data.trainers.some((trainer) => {
+      if (!trainer || trainer.status === 'inactive' || trainer.branchId !== data.branch.id) return false
+      if (trainer.employmentType === 'collaborator') {
+        if (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.length || !trainer.availableSlots.includes(slotId)) return false
+      } else if (trainer.availabilityMode === 'unconfigured' || !trainerIsAvailable(trainer, slotId)) return false
+      if (data.leaves.some((leave) => leaveCovers(leave, trainer.id, date))) return false
+      const trainerSlotKey = `${trainer.id}|${slotId}`
+      if (state.offTrainerSlots.has(trainerSlotKey)) return false
+      return (state.trainerSlotCounts.get(trainerSlotKey) || 0) < Math.max(1, Number(trainer.slotCapacity || 1))
+    })) feasible.add(slotId)
+  }
+  return feasible
+}
+
+function maximumFeasibleSessionsForStudent(data, student, schedule, prebuiltState = null, feasibleSlotIds = null) {
+  if (!student || student.status === 'inactive' || student.eligibleForWeek === false) return 0
+  const state = prebuiltState || buildSchedulingState(schedule)
+  const existingEntries = Object.values(schedule || {}).flat().filter((entry) => entry.type !== 'off' && entry.studentId === student.id)
+  const existingCount = existingEntries.length
+  const existingDays = state.studentDays.get(student.id) || new Set()
+  const configuredDates = Array.isArray(student.validScheduleDates) && student.validScheduleDates.length
+    ? new Set(student.validScheduleDates)
+    : new Set(datesForWeek(data.weekId).filter((date) => data.contracts.some((contract) => contract.studentId === student.id
+      && contractCanServeScheduledDate(contract, date)
+      && contract.branchId === data.branch.id
+      && !contractPaused(contract, date))))
+  const availableDates = new Map()
+  for (const slotId of [...new Set(student.availableSlots || [])].sort(compareSlots)) {
+    const [day] = slotId.split('-')
+    const date = dateForSlot(data.weekId, day)
+    if (!configuredDates.has(date) || existingDays.has(day)) continue
+    if (feasibleSlotIds ? !feasibleSlotIds.has(slotId) : !feasibilitySlotIndex(data, schedule, state).has(slotId)) continue
+    availableDates.set(date, (availableDates.get(date) || 0) + 1)
+  }
+  // Every date has at most one session for a learner. Sorting by the number
+  // of options gives a small maximum-cardinality matching for date choices.
+  const additional = [...availableDates.entries()]
+    .sort((left, right) => left[1] - right[1] || left[0].localeCompare(right[0]))
+    .length
+  const quota = Math.max(existingCount, Number(student.maxWeeklySessions || student.sessionsPerWeek || 7))
+  return Math.min(7, quota, existingCount + additional)
+}
+
+function studentFeasibilityForSchedule(data, schedule, baseSchedule = schedule) {
+  const counts = scheduleStudentCounts(schedule)
+  const state = buildSchedulingState(baseSchedule)
+  const feasibleSlotIds = feasibilitySlotIndex(data, baseSchedule, state)
+  return data.students
+    .filter((student) => student.status !== 'inactive' && student.eligibleForWeek !== false && Number(student.sessionsPerWeek || 0) > 0)
+    .map((student) => {
+      const scheduledSessions = counts.get(student.id) || 0
+      const maximumFeasibleSessions = maximumFeasibleSessionsForStudent(data, student, baseSchedule, state, feasibleSlotIds)
+      return {
+        studentId: student.id,
+        studentName: student.name,
+        requestedSessions: Number(student.sessionsPerWeek || 0),
+        maximumFeasibleSessions,
+        scheduledSessions,
+        missingSessions: Math.max(0, Number(student.sessionsPerWeek || 0) - scheduledSessions),
+        impossibleSessions: Math.max(0, Number(student.sessionsPerWeek || 0) - maximumFeasibleSessions),
+      }
+    })
+}
+
 function matchSchedulingRound(data, schedule, students) {
   const state = buildSchedulingState(schedule)
   const contractCache = new Map()
@@ -1120,6 +1210,9 @@ function compactPairedSlots(data, inputSchedule) {
         .filter((candidate) => {
           const nextDays = new Set(temporaryState.studentDays.get(student.id) || [])
           nextDays.add(candidate.slotId.split('-')[0])
+          // Pairing is a strong preference, but compaction never creates an
+          // avoidable third consecutive training day. The regular assignment
+          // pass can still use one when it is the only way to fulfil demand.
           return beforeConsecutive || !hasThreeConsecutiveTrainingDays(nextDays)
         })
         .sort(compareCandidates)
@@ -1231,6 +1324,10 @@ function generateSchedule(data) {
   // next draft so it contributes once to coverage and to the PT's unique
   // trainer/date/hour load instead of being silently replaced or double-counted.
   mergePublishedSessions(data, schedule, warnings)
+  // This protected snapshot is used only for diagnostics. It lets the UI
+  // explain whether a missing session is caused by input capacity or by the
+  // optimizer, without counting newly generated entries as "available" slots.
+  const feasibilityBaseSchedule = Object.fromEntries(Object.entries(schedule).map(([slotId, entries]) => [slotId, [...entries]]))
   let entryCount = scheduleEntryCount(schedule)
   let capacityReached = entryCount >= MAX_DRAFT_ENTRIES || scheduleDocumentEntryCount(schedule) >= MAX_DRAFT_DOCUMENT_ENTRIES
   const scheduledCounts = scheduleStudentCounts(schedule)
@@ -1302,14 +1399,17 @@ function generateSchedule(data) {
   let pairingMoves = 0
   let refillAssignments = 0
   let optimizationPasses = 1
-  for (let pass = 0; pass < MAX_DEEP_OPTIMIZATION_PASSES && !capacityReached; pass += 1) {
+  for (let pass = 0; pass < MAX_DEEP_OPTIMIZATION_PASSES; pass += 1) {
     const compacted = compactPairedSlots(data, schedule)
     if (compacted.moves > 0) {
       Object.keys(schedule).forEach((slotId) => delete schedule[slotId])
       Object.assign(schedule, compacted.schedule)
       pairingMoves += compacted.moves
     }
-    const refilled = fillRemainingSessions()
+    // Reaching the draft-entry guard only disables adding more sessions. A
+    // compaction pass still has value because it can turn two 1/2 classes into
+    // one 2/2 class without increasing the number of entries.
+    const refilled = capacityReached ? 0 : fillRemainingSessions()
     refillAssignments += refilled
     optimizationPasses += 1
     if (compacted.moves === 0 && refilled === 0) break
@@ -1335,6 +1435,7 @@ function generateSchedule(data) {
   if (capacityReached) warnings.unshift({ code: 'DRAFT_CAPACITY_REACHED', entryCount, maxEntries: MAX_DRAFT_ENTRIES })
   const optimizationSummary = {
     studentCoverage: studentCoverageForSchedule(data, schedule),
+    studentFeasibility: studentFeasibilityForSchedule(data, schedule, feasibilityBaseSchedule),
     trainerLoads: trainerLoadsForSchedule(data, schedule, schedulingState),
     slotUtilization: slotUtilizationForSchedule(data, schedule),
     pairingMoves,
@@ -1398,6 +1499,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
     mergePublishedSessions({ ...data, weekId: week }, workloadSchedule, [])
     const calculatedOptimizationSummary = {
       studentCoverage: studentCoverageForSchedule({ ...data, weekId: week }, workloadSchedule),
+      studentFeasibility: studentFeasibilityForSchedule({ ...data, weekId: week }, workloadSchedule),
       trainerLoads: trainerLoadsForSchedule({ ...data, weekId: week }, workloadSchedule),
       slotUtilization: slotUtilizationForSchedule({ ...data, weekId: week }, workloadSchedule),
     }
@@ -1751,6 +1853,8 @@ module.exports = {
   createsThreeConsecutiveTrainingDays,
   generateSchedule,
   manualSlotCandidate,
+  maximumFeasibleSessionsForStudent,
+  studentFeasibilityForSchedule,
   resetDraftSchedule,
   resolveContract,
   safeSchedule,

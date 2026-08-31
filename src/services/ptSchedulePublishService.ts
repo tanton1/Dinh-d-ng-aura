@@ -167,8 +167,20 @@ export interface PtScheduleSlotUtilization {
   seatUtilizationPercent: number
 }
 
+export interface PtScheduleStudentFeasibility {
+  studentId: string
+  studentName?: string
+  requestedSessions: number
+  maximumFeasibleSessions: number
+  scheduledSessions: number
+  missingSessions: number
+  impossibleSessions: number
+}
+
 export interface PtScheduleOptimizationSummary {
   studentCoverage?: PtScheduleStudentCoverage
+  /** Fast preflight showing whether a missing buổi is realistically schedulable this week. */
+  studentFeasibility?: PtScheduleStudentFeasibility[]
   trainerLoads?: PtScheduleTrainerDailyLoad[]
   slotUtilization?: PtScheduleSlotUtilization
   pairingMoves?: number
