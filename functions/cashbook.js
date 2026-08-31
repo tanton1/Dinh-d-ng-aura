@@ -1,7 +1,7 @@
 const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
-const { assertFinancePeriodOpen } = require('./finance-ledger')
+const { assertFinancePeriodOpen, receiptVoucherNumber } = require('./finance-ledger')
 const {
   CHART_OF_ACCOUNTS,
   EXPENSE_PURPOSES,
@@ -92,6 +92,44 @@ function serializeExpenseVoucher(snapshot) {
   }
 }
 
+function serializeReceiptVoucher(snapshot) {
+  const value = snapshot.data() || {}
+  return {
+    id: snapshot.id,
+    voucherNumber: value.voucherNumber || '',
+    documentType: value.documentType || 'receipt_voucher',
+    status: value.status || 'posted',
+    revision: Number(value.revision || 0),
+    accountId: value.accountId || '',
+    branchId: value.branchId || '',
+    contractId: value.contractId || '',
+    studentId: value.studentId || '',
+    payerName: value.payerName || 'Học viên Aura',
+    payerAddress: value.payerAddress || '',
+    description: value.description || '',
+    paymentMethod: value.paymentMethod || '',
+    source: value.source || 'pt_gym',
+    installmentId: value.installmentId || '',
+    totalAmount: Number(value.totalAmount || 0),
+    amountInWords: value.amountInWords || '',
+    journalLines: Array.isArray(value.journalLines) ? value.journalLines : [],
+    effectiveAt: timestampIso(value.effectiveAt),
+    createdAt: timestampIso(value.createdAt),
+    postedAt: timestampIso(value.postedAt),
+    reversedAt: timestampIso(value.reversedAt),
+    ledgerEntryId: value.ledgerEntryId || '',
+    journalEntryId: value.journalEntryId || '',
+    cashTransactionId: value.cashTransactionId || '',
+    originalVoucherId: value.originalVoucherId || '',
+    reversalVoucherId: value.reversalVoucherId || '',
+    reason: value.reason || '',
+    createdBy: value.createdBy || '',
+    postedBy: value.postedBy || '',
+    reversedBy: value.reversedBy || '',
+    derived: value.derived === true,
+  }
+}
+
 function voucherNumber(reference, branchId, at) {
   const date = at.toDate().toISOString().slice(0, 10).replaceAll('-', '')
   const branch = String(branchId || 'AURA').replace(/[^A-Za-z0-9]/g, '').slice(0, 6).toUpperCase() || 'AURA'
@@ -170,6 +208,82 @@ function createCashbookFunctions({ db, onCall }) {
       .filter((document) => ['expense_voucher', 'expense_voucher_reversal'].includes(document.data()?.documentType))
       .slice(0, pageSize)
     return { vouchers: voucherDocuments.map(serializeExpenseVoucher), hasMore: voucherDocuments.length === pageSize }
+  })
+
+  const listReceiptVouchers = onCall(async (request) => {
+    await actorForFinance(request, db)
+    const pageSize = Math.min(100, Math.max(1, Number.isInteger(request.data?.pageSize) ? request.data.pageSize : 50))
+    const accountId = optionalClean(request.data?.accountId, 200)
+    const scanLimit = Math.min(500, pageSize * 5)
+    const [snapshot, ledgerSnapshot] = await Promise.all([
+      db.collection('accountingDocuments').orderBy('createdAt', 'desc').limit(scanLimit).get(),
+      db.collection('ledgerEntries').orderBy('effectiveAt', 'desc').limit(scanLimit).get(),
+    ])
+    const receiptDocuments = snapshot.docs
+      .filter((document) => ['receipt_voucher', 'receipt_voucher_reversal'].includes(document.data()?.documentType))
+      .filter((document) => !accountId || document.data()?.accountId === accountId)
+    const linkedLedgerIds = new Set(receiptDocuments.map((document) => document.data()?.ledgerEntryId).filter(Boolean))
+    const legacyPayments = ledgerSnapshot.docs
+      .filter((document) => document.data()?.type === 'payment')
+      .filter((document) => Number(document.data()?.amount || 0) > 0)
+      .filter((document) => !linkedLedgerIds.has(document.id))
+      .filter((document) => !accountId || document.data()?.cashAccountId === accountId)
+      .slice(0, pageSize)
+    const journalReferences = legacyPayments
+      .map((document) => document.data()?.journalEntryId)
+      .filter(Boolean)
+      .map((id) => db.doc(`journalEntries/${id}`))
+    const studentIds = [...new Set(legacyPayments.map((document) => document.data()?.studentId).filter(Boolean))]
+    const [journalSnapshots, studentSnapshots] = await Promise.all([
+      journalReferences.length ? db.getAll(...journalReferences) : [],
+      studentIds.length ? db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : [],
+    ])
+    const journals = new Map(journalSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
+    const students = new Map(studentSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
+    const legacyReceipts = legacyPayments.map((document) => {
+      const value = document.data()
+      const student = students.get(value.studentId) || {}
+      const journal = journals.get(value.journalEntryId) || {}
+      const legacyReference = { id: `receipt_${document.id}` }
+      return {
+        id: `derived_${document.id}`,
+        voucherNumber: value.voucherNumber || receiptVoucherNumber(legacyReference, value.branchId, value.effectiveAt),
+        documentType: 'receipt_voucher',
+        status: value.status === 'reversed' ? 'reversed' : 'posted',
+        revision: 0,
+        accountId: value.cashAccountId || '',
+        branchId: value.branchId || '',
+        contractId: value.contractId || '',
+        studentId: value.studentId || '',
+        payerName: student.name || student.displayName || `Học viên ${String(value.studentId || '').slice(0, 24)}`.trim(),
+        payerAddress: student.address || student.homeAddress || '',
+        description: value.note || `Thu tiền hợp đồng ${value.contractId || ''}`.trim(),
+        paymentMethod: value.paymentMethod || '',
+        source: value.source || 'pt_gym',
+        installmentId: value.installmentId || '',
+        totalAmount: Number(value.amount || 0),
+        amountInWords: amountInVietnameseWords(Number(value.amount || 0)),
+        journalLines: Array.isArray(journal.lines) ? journal.lines : [],
+        effectiveAt: timestampIso(value.effectiveAt),
+        createdAt: timestampIso(value.createdAt),
+        postedAt: timestampIso(value.createdAt),
+        reversedAt: timestampIso(value.reversedAt),
+        ledgerEntryId: document.id,
+        journalEntryId: value.journalEntryId || '',
+        cashTransactionId: value.cashAccountId ? `ledger_${document.id}` : '',
+        originalVoucherId: '',
+        reversalVoucherId: '',
+        reason: '',
+        createdBy: value.createdBy || '',
+        postedBy: value.createdBy || '',
+        reversedBy: value.reversedBy || '',
+        derived: true,
+      }
+    })
+    const vouchers = [...receiptDocuments.map(serializeReceiptVoucher), ...legacyReceipts]
+      .sort((left, right) => String(right.effectiveAt || right.createdAt).localeCompare(String(left.effectiveAt || left.createdAt)))
+      .slice(0, pageSize)
+    return { vouchers, hasMore: vouchers.length === pageSize }
   })
 
   const saveExpenseVoucherDraft = onCall(async (request) => {
@@ -393,6 +507,7 @@ function createCashbookFunctions({ db, onCall }) {
     listCashTransactions,
     recordCashExpense,
     listExpenseVouchers,
+    listReceiptVouchers,
     saveExpenseVoucherDraft,
     approveAndPostExpenseVoucher,
     reverseExpenseVoucher,

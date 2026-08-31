@@ -7,6 +7,7 @@ const test = require('node:test')
 const {
   contractAdvanceAccountCode,
   normalizeLedgerListInput,
+  receiptVoucherNumber,
   summarizeLedgerDocuments,
   updatedInstallments,
 } = require('./finance-ledger')
@@ -149,4 +150,16 @@ test('selected cash accounts move balances in the same immutable ledger transact
   assert.match(ledgerSource, /createCashMovement\(transaction, db, ledgerReference, cashAccount, amount/)
   assert.match(ledgerSource, /FieldValue\.increment\(signedAmount\)/)
   assert.match(ledgerSource, /cashTransactions\/ledger_\$\{ledgerReference\.id\}/)
+})
+
+test('contract collections create an immutable linked receipt voucher and reversals create the opposite document', () => {
+  assert.equal(receiptVoucherNumber({ id: 'abc123xyz' }, 'da-nang', new Date('2026-08-31T02:00:00.000Z')), 'PT-DANANG-20260831-ABC123')
+  assert.equal(receiptVoucherNumber({ id: 'receipt_xyz987abc' }, 'aura', new Date('2026-08-31T02:00:00.000Z')), 'PT-AURA-20260831-XYZ987')
+  assert.match(ledgerSource, /accountingDocuments\/receipt_\$\{ledgerReference\.id\}/)
+  assert.match(ledgerSource, /documentType: 'receipt_voucher'/)
+  assert.match(ledgerSource, /amountInWords: amountInVietnameseWords\(totalAmount\)/)
+  assert.match(ledgerSource, /accountingDocumentId: receipt\.reference\.id/)
+  assert.match(ledgerSource, /cashTransactionId/)
+  assert.match(ledgerSource, /documentType: 'receipt_voucher_reversal'/)
+  assert.match(ledgerSource, /status: 'reversed'/)
 })

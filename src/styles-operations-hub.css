@@ -114,13 +114,40 @@
 .expense-voucher-list__main small { display: block; overflow: hidden; color: #897b82; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .expense-voucher-list__amount { flex: 0 0 auto; text-align: right; }
 .expense-voucher-list__amount > strong { display: block; margin-bottom: 7px; color: #302129; font-size: 15px; }
-.expense-voucher-list__amount > div { display: flex; justify-content: flex-end; }
+.expense-voucher-list__amount > div { display: flex; justify-content: flex-end; gap: 6px; }
+.expense-voucher-list__amount .positive { color: #168458; }
+.expense-voucher-list__amount .negative { color: #d92f63; }
 .expense-voucher-list > p { padding: 28px; color: #80767b; text-align: center; }
 .expense-voucher-status { display: inline-flex; padding: 3px 7px; border-radius: 999px; font-size: 9px; font-weight: 850; }
 .expense-voucher-status.status-draft { background: #f0edf0; color: #665d62; }
 .expense-voucher-status.status-pending_approval { background: #fff1cf; color: #76530b; }
 .expense-voucher-status.status-posted { background: #dff8ec; color: #176647; }
 .expense-voucher-status.status-reversed { background: #ffe7ee; color: #9e2853; }
+
+.receipt-voucher-modal { position: fixed; z-index: 1200; inset: 0; display: grid; overflow-y: auto; place-items: start center; padding: 28px 14px; background: rgba(35,21,29,.62); backdrop-filter: blur(8px); }
+.receipt-voucher-document { width: min(780px,100%); padding: 28px; border-radius: 22px; background: #fff; box-shadow: 0 24px 80px rgba(31,17,25,.24); color: #2c2428; }
+.receipt-voucher-document__toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: -12px -12px 22px; padding: 10px 12px; border-radius: 13px; background: #fff4f8; color: #79656f; font-size: 11px; }
+.receipt-voucher-document__toolbar > div { display: flex; gap: 7px; }
+.receipt-voucher-document__toolbar button { display: inline-flex; min-height: 38px; align-items: center; gap: 6px; padding: 0 11px; border: 1px solid #ead8e0; border-radius: 10px; background: #fff; color: #4c3a43; font-weight: 750; }
+.receipt-voucher-document header { display: grid; grid-template-columns: 1fr 1.5fr; gap: 20px; align-items: start; border-bottom: 2px solid #33272d; padding-bottom: 16px; }
+.receipt-voucher-document header > div { display: grid; gap: 4px; }
+.receipt-voucher-document header > div:last-child { text-align: center; }
+.receipt-voucher-document header b { font-size: 16px; letter-spacing: .06em; }
+.receipt-voucher-document header strong { font-size: 25px; letter-spacing: .08em; }
+.receipt-voucher-document header small { color: #746970; font-size: 11px; }
+.receipt-voucher-document__date { margin: 10px 0 18px; color: #5f5359; text-align: center; font-size: 12px; font-style: italic; }
+.receipt-voucher-document__fields { display: grid; gap: 0; margin: 0; }
+.receipt-voucher-document__fields > div { display: grid; grid-template-columns: 145px 1fr; gap: 12px; padding: 9px 0; border-bottom: 1px dotted #d9ced3; }
+.receipt-voucher-document__fields dt { color: #756970; font-size: 12px; font-weight: 750; }
+.receipt-voucher-document__fields dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-size: 13px; }
+.receipt-voucher-document__journal { margin-top: 18px; padding: 14px; border: 1px solid #ded3d8; border-radius: 14px; }
+.receipt-voucher-document__journal h4 { margin: 0 0 8px; font-size: 13px; }
+.receipt-voucher-document__journal div { display: flex; justify-content: space-between; gap: 14px; padding: 7px 0; border-top: 1px dashed #ded3d8; font-size: 11px; }
+.receipt-voucher-document__links { display: grid; gap: 3px; margin-top: 12px; color: #897c83; font-size: 9px; overflow-wrap: anywhere; }
+.receipt-voucher-document footer { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin-top: 30px; }
+.receipt-voucher-document footer div { display: grid; min-height: 90px; align-content: start; gap: 5px; text-align: center; }
+.receipt-voucher-document footer b { font-size: 11px; }
+.receipt-voucher-document footer span { color: #8b7d84; font-size: 9px; font-style: italic; }
 
 @media (max-width: 820px) {
   .finance-hub__tabs { display: flex; gap: 6px; overflow-x: auto; padding: 5px; border-radius: 17px; scroll-snap-type: x proximity; scrollbar-width: none; }
@@ -147,4 +174,22 @@
   .expense-voucher-list__main small { white-space: normal; }
   .expense-voucher-list__amount { display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; }
   .expense-voucher-list__amount > strong { margin: 0; }
+  .cashbook-ledger-tabs { overflow-x: auto; }
+  .cashbook-ledger-tabs button { min-width: 110px; }
+  .receipt-voucher-modal { padding: 8px; }
+  .receipt-voucher-document { padding: 18px 14px; border-radius: 16px; }
+  .receipt-voucher-document__toolbar { align-items: stretch; flex-direction: column; margin: -5px -4px 18px; }
+  .receipt-voucher-document__toolbar > div { display: grid; grid-template-columns: 1fr 1fr; }
+  .receipt-voucher-document header { grid-template-columns: 1fr; }
+  .receipt-voucher-document header > div, .receipt-voucher-document header > div:last-child { text-align: center; }
+  .receipt-voucher-document__fields > div { grid-template-columns: 105px 1fr; }
+  .receipt-voucher-document footer { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+
+@media print {
+  body * { visibility: hidden !important; }
+  .receipt-voucher-modal, .receipt-voucher-modal * { visibility: visible !important; }
+  .receipt-voucher-modal { position: absolute; inset: 0; display: block; overflow: visible; padding: 0; background: #fff; }
+  .receipt-voucher-document { width: 100%; padding: 12mm; border-radius: 0; box-shadow: none; }
+  .receipt-voucher-document__toolbar { display: none !important; }
 }

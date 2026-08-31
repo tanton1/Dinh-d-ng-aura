@@ -1,7 +1,7 @@
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
-const { cashAccountForMovement, createCashMovement, assertFinancePeriodOpen } = require('./finance-ledger')
+const { cashAccountForMovement, createCashMovement, createReceiptVoucher, assertFinancePeriodOpen } = require('./finance-ledger')
 const { contractPaymentJournal } = require('./accounting-core')
 
 const renewalStages = new Set(['uncontacted', 'contacted', 'interested', 'quote_sent', 'follow_up', 'won', 'lost'])
@@ -997,13 +997,39 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
       }
       transaction.create(newContractReference, newContract)
       let paymentEntryId = null
+      let receiptVoucherId = null
+      let receiptVoucherNumber = null
       if (initialPayment > 0) {
         paymentEntryId = paymentReference.id
         const paymentCode = `THU-${paymentReference.id.slice(0, 8).toUpperCase()}`
         const journal = contractPaymentJournal({ amount: initialPayment, cashAccountType: cashAccount.data.type, recognisedReceivable: 0, advanceAccountCode: '131' })
-        transaction.create(paymentReference, { schemaVersion: 4, type: 'payment', eventClass: 'cash_collection', source: 'pt_gym', renewalCaseId: caseId, contractId: newContractReference.id, studentId: source.studentId || '', branchId: newContract.branchId || '', installmentId: null, cashAccountId, journalEntryId: paymentJournalReference.id, accountingCashAccountType: cashAccount.data.type, accountingAdvanceAccountCode: '131', referralCode: newContract.referralCode, referralStaffId: newContract.referralStaffId, referralCommissionRate: newContract.referralCommissionRate, amount: initialPayment, cashImpact: initialPayment, revenueImpact: 0, expenseImpact: 0, receivableImpact: 0, deferredRevenueImpact: initialPayment, effectiveAt: paymentAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod, referenceCode: paymentCode, idempotencyKey: `renewal-payment:${idempotencyKey}`, status: 'posted', note: `Thu đầu kỳ hợp đồng tái ký ${newContractReference.id}` })
-        transaction.create(paymentJournalReference, { schemaVersion: 1, documentType: 'contract_renewal_payment', documentId: paymentReference.id, referenceCode: paymentCode, branchId: newContract.branchId || '', effectiveAt: paymentAt, lines: journal.lines, totalDebit: journal.totalDebit, totalCredit: journal.totalCredit, status: 'posted', createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
-        createCashMovement(transaction, db, paymentReference, cashAccount, initialPayment, paymentAt, actor.uid, 'contract_renewal_payment')
+        const paymentNote = `Thu đầu kỳ hợp đồng tái ký ${newContractReference.id}`
+        const receipt = createReceiptVoucher(transaction, db, {
+          ledgerReference: paymentReference,
+          journalReference: paymentJournalReference,
+          cashAccount,
+          contract: { ...newContract, id: newContractReference.id },
+          payer: {
+            name: renewalCase.studentSnapshot?.name || quoteSnapshot?.data?.()?.customerName || 'Học viên Aura',
+            address: renewalCase.studentSnapshot?.address || '',
+          },
+          journal,
+          effectiveAt: paymentAt,
+          actorUid: actor.uid,
+          paymentMethod,
+          description: paymentNote,
+          source: 'contract_renewal',
+        })
+        receiptVoucherId = receipt.reference.id
+        receiptVoucherNumber = receipt.voucherNumber
+        transaction.create(paymentReference, { schemaVersion: 4, type: 'payment', eventClass: 'cash_collection', source: 'pt_gym', renewalCaseId: caseId, contractId: newContractReference.id, studentId: source.studentId || '', branchId: newContract.branchId || '', installmentId: null, cashAccountId, journalEntryId: paymentJournalReference.id, accountingDocumentId: receipt.reference.id, voucherNumber: receipt.voucherNumber, accountingCashAccountType: cashAccount.data.type, accountingAdvanceAccountCode: '131', referralCode: newContract.referralCode, referralStaffId: newContract.referralStaffId, referralCommissionRate: newContract.referralCommissionRate, amount: initialPayment, cashImpact: initialPayment, revenueImpact: 0, expenseImpact: 0, receivableImpact: 0, deferredRevenueImpact: initialPayment, effectiveAt: paymentAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod, referenceCode: paymentCode, idempotencyKey: `renewal-payment:${idempotencyKey}`, status: 'posted', note: paymentNote })
+        transaction.create(paymentJournalReference, { schemaVersion: 1, documentType: 'receipt_voucher', documentId: receipt.reference.id, sourceLedgerEntryId: paymentReference.id, referenceCode: receipt.voucherNumber, branchId: newContract.branchId || '', effectiveAt: paymentAt, lines: journal.lines, totalDebit: journal.totalDebit, totalCredit: journal.totalCredit, status: 'posted', createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
+        createCashMovement(transaction, db, paymentReference, cashAccount, initialPayment, paymentAt, actor.uid, 'contract_renewal_payment', {
+          referenceCode: receipt.voucherNumber,
+          accountingDocumentId: receipt.reference.id,
+          payerName: renewalCase.studentSnapshot?.name || '',
+          note: paymentNote,
+        })
       }
       transaction.update(sourceReference, {
         ...(handoverDue || source.endDate < today || Number(source.usedSessions || 0) >= Number(source.totalSessions || 0) ? { status: 'expired' } : {}),
@@ -1020,7 +1046,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
       if (quoteSnapshot?.exists) transaction.update(quoteReference, { status: 'accepted', contractId: newContractReference.id, acceptedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
       if (approvalSnapshot?.exists) transaction.update(approvalReference, { status: 'consumed', contractId: newContractReference.id, consumedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
       transaction.create(db.collection('contractRenewalActivities').doc(), { schemaVersion: 1, caseId, sourceContractId, studentId: source.studentId || '', branchId: renewalCase.branchId || '', type: 'renewal_completed', outcome: 'connected', quoteId: quoteId || null, approvalId: approvalId || null, newContractId: newContractReference.id, actorUid: actor.uid, createdAt: FieldValue.serverTimestamp() })
-      return { contractId: newContractReference.id, paymentEntryId, unchanged: false }
+      return { contractId: newContractReference.id, paymentEntryId, receiptVoucherId, receiptVoucherNumber, unchanged: false }
     })
   })
 

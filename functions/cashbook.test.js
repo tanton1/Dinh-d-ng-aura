@@ -35,3 +35,12 @@ test('expense vouchers have an immutable approval, posting and reversal workflow
   assert.match(source, /assertFinancePeriodOpen/)
   assert.match(source, /status: 'reversed'/)
 })
+
+test('receipt vouchers are read through a bounded callable and remain backend owned', () => {
+  assert.match(source, /const listReceiptVouchers = onCall/)
+  assert.match(source, /\['receipt_voucher', 'receipt_voucher_reversal'\]/)
+  assert.match(source, /scanLimit = Math\.min\(500, pageSize \* 5\)/)
+  assert.match(source, /serializeReceiptVoucher/)
+  assert.match(source, /derived: true/)
+  assert.match(rules, /match \/accountingDocuments\/\{documentId\}[\s\S]*?allow read, write: if false/)
+})

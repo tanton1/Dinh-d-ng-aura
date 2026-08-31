@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, ArrowRight, ArrowRightLeft, CheckCircle2, FilePenLine, Landmark, Plus, RefreshCw, RotateCcw, Send, Wallet, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowRightLeft, CheckCircle2, Eye, FilePenLine, Landmark, Plus, Printer, ReceiptText, RefreshCw, RotateCcw, Send, Wallet, X } from 'lucide-react'
 import {
   approveAndPostExpenseVoucher,
   initializeCashAccount,
@@ -7,6 +7,7 @@ import {
   listCashAccounts,
   listCashTransactions,
   listExpenseVouchers,
+  listReceiptVouchers,
   reverseExpenseVoucher,
   saveExpenseVoucherDraft,
   transferCash,
@@ -17,10 +18,12 @@ import {
   type ExpensePurpose,
   type ExpenseVoucher,
   type JournalLine,
+  type ReceiptVoucher,
 } from '../../../services/cashbookService'
+import { reverseContractPayment } from '../../../services/financeLedgerService'
 
 type PanelMode = 'none' | 'account' | 'voucher' | 'transfer'
-type LedgerTab = 'vouchers' | 'cash'
+type LedgerTab = 'receipts' | 'vouchers' | 'cash'
 
 const today = () => new Date().toISOString().slice(0, 10)
 const money = (value: number) => `${Math.round(value || 0).toLocaleString('vi-VN')}đ`
@@ -57,16 +60,18 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
   const [accounts, setAccounts] = useState<CashAccount[]>([])
   const [transactions, setTransactions] = useState<CashTransaction[]>([])
   const [vouchers, setVouchers] = useState<ExpenseVoucher[]>([])
+  const [receipts, setReceipts] = useState<ReceiptVoucher[]>([])
   const [purposes, setPurposes] = useState<ExpensePurpose[]>([])
   const [accountingAccounts, setAccountingAccounts] = useState<AccountingAccount[]>([])
   const [approvalThreshold, setApprovalThreshold] = useState(10_000_000)
   const [selectedAccount, setSelectedAccount] = useState('')
-  const [activeTab, setActiveTab] = useState<LedgerTab>('vouchers')
+  const [activeTab, setActiveTab] = useState<LedgerTab>('receipts')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [mode, setMode] = useState<PanelMode>('none')
+  const [selectedReceipt, setSelectedReceipt] = useState<ReceiptVoucher | null>(null)
   const [voucherStep, setVoucherStep] = useState(1)
   const [voucherForm, setVoucherForm] = useState(emptyVoucher())
   const [basicForm, setBasicForm] = useState({ name: '', type: 'cash' as CashAccountType, branchId: '', amount: '', toAccountId: '' })
@@ -75,15 +80,17 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
     setLoading(true)
     setError('')
     try {
-      const [accountPage, transactionPage, voucherPage, catalog] = await Promise.all([
+      const [accountPage, transactionPage, voucherPage, receiptPage, catalog] = await Promise.all([
         listCashAccounts(),
         listCashTransactions({ accountId: selectedAccount || undefined, pageSize: 100 }),
         listExpenseVouchers({ pageSize: 100 }),
+        listReceiptVouchers({ accountId: selectedAccount || undefined, pageSize: 100 }),
         listAccountingCatalog(),
       ])
       setAccounts(accountPage.accounts)
       setTransactions(transactionPage.transactions)
       setVouchers(voucherPage.vouchers)
+      setReceipts(receiptPage.vouchers)
       setPurposes(catalog.expensePurposes)
       setAccountingAccounts(catalog.accounts)
       setApprovalThreshold(catalog.approvalSeparationThreshold)
@@ -249,9 +256,25 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
     } finally { setBusy(false) }
   }
 
+  const reverseReceipt = async (receipt: ReceiptVoucher) => {
+    const reason = window.prompt(`Lý do đảo phiếu thu ${receipt.voucherNumber}:`)?.trim()
+    if (!reason) return
+    if (!window.confirm('Hệ thống sẽ đảo đồng thời phiếu thu, bút toán, sổ quỹ và số tiền đã thu trên hợp đồng. Tiếp tục?')) return
+    setBusy(true)
+    setError('')
+    try {
+      const result = await reverseContractPayment(receipt.ledgerEntryId, reason)
+      setSelectedReceipt(null)
+      setMessage(`Đã tạo ${result.receiptVoucherNumber || 'chứng từ đảo'} cho ${receipt.voucherNumber}.`)
+      await load()
+    } catch (value) {
+      setError(errorMessage(value, 'Không thể đảo phiếu thu.'))
+    } finally { setBusy(false) }
+  }
+
   return <section className="cashbook-panel">
     <div className="cashbook-summary">
-      <div><span>TỔNG SỐ DƯ ĐÃ ĐỐI SOÁT</span><strong>{loading ? '…' : money(totalBalance)}</strong><small>{activeAccounts.length} tài khoản đang hoạt động · {pendingCount} phiếu chờ duyệt</small></div>
+      <div><span>TỔNG SỐ DƯ ĐÃ ĐỐI SOÁT</span><strong>{loading ? '…' : money(totalBalance)}</strong><small>{activeAccounts.length} tài khoản đang hoạt động · {receipts.length} phiếu thu · {pendingCount} phiếu chờ duyệt</small></div>
       <Wallet />
     </div>
 
@@ -315,7 +338,12 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
       </div>
     </div>}
 
-    <div className="cashbook-ledger-tabs"><button className={activeTab === 'vouchers' ? 'is-active' : ''} onClick={() => setActiveTab('vouchers')}>Phiếu chi <span>{vouchers.length}</span></button><button className={activeTab === 'cash' ? 'is-active' : ''} onClick={() => setActiveTab('cash')}>Biến động quỹ <span>{transactions.length}</span></button></div>
+    <div className="cashbook-ledger-tabs"><button className={activeTab === 'receipts' ? 'is-active' : ''} onClick={() => setActiveTab('receipts')}>Phiếu thu <span>{receipts.length}</span></button><button className={activeTab === 'vouchers' ? 'is-active' : ''} onClick={() => setActiveTab('vouchers')}>Phiếu chi <span>{vouchers.length}</span></button><button className={activeTab === 'cash' ? 'is-active' : ''} onClick={() => setActiveTab('cash')}>Biến động quỹ <span>{transactions.length}</span></button></div>
+
+    {activeTab === 'receipts' && <div className="expense-voucher-list receipt-voucher-list">{receipts.map((receipt) => <article key={receipt.id}>
+      <div className="expense-voucher-list__main"><div><ReceiptText size={16} /><b>{receipt.voucherNumber}</b><span className={`expense-voucher-status status-${receipt.status}`}>{statusLabels[receipt.status]}</span></div><p>{receipt.payerName} · {accounts.find((item) => item.id === receipt.accountId)?.name || 'Quỹ đã lưu'}</p><small>{receipt.effectiveAt ? new Date(receipt.effectiveAt).toLocaleDateString('vi-VN') : ''} · {receipt.description}</small></div>
+      <div className="expense-voucher-list__amount"><strong className={receipt.documentType === 'receipt_voucher_reversal' ? 'negative' : 'positive'}>{receipt.documentType === 'receipt_voucher_reversal' ? '−' : '+'}{money(receipt.totalAmount)}</strong><div><button onClick={() => setSelectedReceipt(receipt)}><Eye size={15} /> Xem / In</button>{receipt.status === 'posted' && receipt.documentType === 'receipt_voucher' && <button disabled={busy || !receipt.ledgerEntryId} onClick={() => void reverseReceipt(receipt)}><RotateCcw size={15} /> Đảo phiếu</button>}</div></div>
+    </article>)}{!loading && receipts.length === 0 && <p>Chưa có phiếu thu trong quỹ đã chọn. Phiếu sẽ tự tạo khi thu tiền hợp đồng hoặc thu đầu kỳ tái ký.</p>}</div>}
 
     {activeTab === 'vouchers' && <div className="expense-voucher-list">{vouchers.map((voucher) => <article key={voucher.id}>
       <div className="expense-voucher-list__main"><div><b>{voucher.voucherNumber}</b><span className={`expense-voucher-status status-${voucher.status}`}>{statusLabels[voucher.status]}</span></div><p>{voucher.purposeLabel} · {voucher.payeeName}</p><small>{voucher.effectiveAt ? new Date(voucher.effectiveAt).toLocaleDateString('vi-VN') : ''} · {voucher.description}</small></div>
@@ -323,5 +351,27 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
     </article>)}{!loading && vouchers.length === 0 && <p>Chưa có phiếu chi. Hãy lập phiếu đầu tiên để chi tiền đúng chứng từ và bút toán.</p>}</div>}
 
     {activeTab === 'cash' && <div className="cashbook-list">{transactions.map((item) => <article key={item.id}><div><b>{item.referenceCode}</b><span>{item.category || item.type} · {new Date(item.effectiveAt).toLocaleString('vi-VN')}</span></div><strong className={item.amount >= 0 ? 'positive' : 'negative'}>{money(item.amount)}</strong></article>)}{!loading && transactions.length === 0 && <p>Chưa có giao dịch. Hãy mở quỹ bằng số dư đã kiểm kê tại ngày chuyển đổi.</p>}</div>}
+
+    {selectedReceipt && <div className="receipt-voucher-modal" role="dialog" aria-modal="true" aria-label={`Phiếu thu ${selectedReceipt.voucherNumber}`} onClick={() => setSelectedReceipt(null)}>
+      <article className="receipt-voucher-document" onClick={(event) => event.stopPropagation()}>
+        <div className="receipt-voucher-document__toolbar"><span>{selectedReceipt.derived ? 'Phiếu đối soát từ sổ tài chính lịch sử · Chỉ đọc' : 'Chứng từ gốc · Đã liên kết sổ quỹ'}</span><div><button onClick={() => window.print()}><Printer size={16} /> In phiếu</button><button onClick={() => setSelectedReceipt(null)}><X size={16} /> Đóng</button></div></div>
+        <header><div><b>AURA FITNESS</b><small>Chứng từ kế toán điện tử</small></div><div><strong>{selectedReceipt.documentType === 'receipt_voucher_reversal' ? 'PHIẾU THU ĐẢO' : 'PHIẾU THU'}</strong><small>Số: {selectedReceipt.voucherNumber}</small></div></header>
+        <div className="receipt-voucher-document__date">Ngày {selectedReceipt.effectiveAt ? new Date(selectedReceipt.effectiveAt).toLocaleDateString('vi-VN') : '—'}</div>
+        <dl className="receipt-voucher-document__fields">
+          <div><dt>Người nộp tiền</dt><dd>{selectedReceipt.payerName}</dd></div>
+          <div><dt>Địa chỉ</dt><dd>{selectedReceipt.payerAddress || 'Không ghi nhận'}</dd></div>
+          <div><dt>Lý do thu</dt><dd>{selectedReceipt.description}</dd></div>
+          <div><dt>Số tiền</dt><dd><strong>{money(selectedReceipt.totalAmount)}</strong></dd></div>
+          <div><dt>Viết bằng chữ</dt><dd>{selectedReceipt.amountInWords}</dd></div>
+          <div><dt>Phương thức</dt><dd>{selectedReceipt.paymentMethod || 'Theo tài khoản quỹ'}</dd></div>
+          <div><dt>Hợp đồng</dt><dd>{selectedReceipt.contractId || '—'}</dd></div>
+          <div><dt>Tài khoản quỹ</dt><dd>{accounts.find((item) => item.id === selectedReceipt.accountId)?.name || selectedReceipt.accountId}</dd></div>
+          {selectedReceipt.reason && <div><dt>Lý do đảo</dt><dd>{selectedReceipt.reason}</dd></div>}
+        </dl>
+        <section className="receipt-voucher-document__journal"><h4>Định khoản</h4>{selectedReceipt.journalLines.map((line, index) => <div key={`${line.accountCode}-${index}`}><span>{line.side === 'debit' ? 'Nợ' : 'Có'} {line.accountCode} · {line.accountName}</span><strong>{money(line.debit || line.credit)}</strong></div>)}</section>
+        <div className="receipt-voucher-document__links"><span>Ledger: {selectedReceipt.ledgerEntryId}</span><span>Nhật ký: {selectedReceipt.journalEntryId}</span><span>Sổ quỹ: {selectedReceipt.cashTransactionId}</span></div>
+        <footer><div><b>Người nộp tiền</b><span>Ký, họ tên</span></div><div><b>Người lập phiếu</b><span>Ký, họ tên</span></div><div><b>Thủ quỹ</b><span>Ký, họ tên</span></div><div><b>Kế toán</b><span>Ký, họ tên</span></div></footer>
+      </article>
+    </div>}
   </section>
 }

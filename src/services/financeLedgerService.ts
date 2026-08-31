@@ -106,11 +106,11 @@ export async function recordContractPayment(input: {
   installmentId?: string
   cashAccountId: string
 }) {
-  return (await callable<typeof input, { entryId: string; unchanged: boolean; referenceCode: string }>('recordContractPayment')(input)).data
+  return (await callable<typeof input, { entryId: string; unchanged: boolean; referenceCode: string; receiptVoucherId: string | null; receiptVoucherNumber: string | null }>('recordContractPayment')(input)).data
 }
 
 export async function reverseContractPayment(entryId: string, reason: string) {
-  return (await callable<{ entryId: string; reason: string; idempotencyKey: string }, { entryId: string; unchanged: boolean }>('reverseContractPayment')({ entryId, reason, idempotencyKey: crypto.randomUUID() })).data
+  return (await callable<{ entryId: string; reason: string; idempotencyKey: string }, { entryId: string; unchanged: boolean; receiptVoucherId?: string; receiptVoucherNumber?: string }>('reverseContractPayment')({ entryId, reason, idempotencyKey: crypto.randomUUID() })).data
 }
 
 export async function recordRefund(input: {

@@ -2,7 +2,7 @@ const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { recognitionThrough } = require('./finance-recognition')
-const { contractPaymentJournal, reversedJournalLines } = require('./accounting-core')
+const { contractPaymentJournal, reversedJournalLines, amountInVietnameseWords } = require('./accounting-core')
 
 // `payment` is a cash collection, while `revenue_recognition` is the
 // management P&L event.  Keeping both types prevents cash flow from being
@@ -52,6 +52,133 @@ function referenceCode(prefix, reference) {
   return `${prefix}-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${reference.id.slice(0, 7).toUpperCase()}`
 }
 
+function receiptVoucherNumber(reference, branchId, effectiveAt) {
+  const date = vietnamDateKey(effectiveAt).replaceAll('-', '')
+  const branch = String(branchId || 'AURA').replace(/[^A-Za-z0-9]/g, '').slice(0, 6).toUpperCase() || 'AURA'
+  const identity = String(reference?.id || '').replace(/^receipt_(?:reversal_)?/, '')
+  return `PT-${branch}-${date}-${identity.slice(0, 6).toUpperCase()}`
+}
+
+function boundedReceiptText(value, maximum = 300) {
+  return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, maximum) : ''
+}
+
+function receiptPayer(student, contract = {}, fallback = {}) {
+  const value = student?.exists ? student.data() : {}
+  return {
+    name: boundedReceiptText(value.name || value.displayName || contract.studentName || fallback.name, 200)
+      || `Học viên ${String(contract.studentId || fallback.id || '').slice(0, 24)}`.trim(),
+    address: boundedReceiptText(value.address || value.homeAddress || contract.studentAddress || fallback.address, 300),
+  }
+}
+
+function createReceiptVoucher(transaction, db, {
+  ledgerReference,
+  journalReference,
+  cashAccount,
+  contract = {},
+  payer = {},
+  journal,
+  effectiveAt,
+  actorUid,
+  paymentMethod,
+  description,
+  source = 'pt_gym',
+  installmentId = '',
+}) {
+  if (!cashAccount) throw new HttpsError('failed-precondition', 'Phiếu thu bắt buộc phải liên kết với tài khoản quỹ đang hoạt động.')
+  const reference = db.doc(`accountingDocuments/receipt_${ledgerReference.id}`)
+  const cashTransactionId = `ledger_${ledgerReference.id}`
+  const voucherNumber = receiptVoucherNumber(reference, contract.branchId || cashAccount.data.branchId, effectiveAt)
+  const totalAmount = Number(journal?.totalDebit || 0)
+  transaction.create(reference, {
+    schemaVersion: 1,
+    documentType: 'receipt_voucher',
+    voucherNumber,
+    status: 'posted',
+    revision: 1,
+    accountId: cashAccount.reference.id,
+    cashAccountType: cashAccount.data.type || 'cash',
+    branchId: contract.branchId || cashAccount.data.branchId || '',
+    contractId: contract.id || '',
+    studentId: contract.studentId || '',
+    payerName: boundedReceiptText(payer.name, 200) || 'Học viên Aura',
+    payerAddress: boundedReceiptText(payer.address, 300),
+    description: boundedReceiptText(description, 500) || 'Thu tiền hợp đồng dịch vụ',
+    paymentMethod: boundedReceiptText(paymentMethod, 50),
+    source,
+    installmentId: installmentId || null,
+    totalAmount,
+    amountInWords: amountInVietnameseWords(totalAmount),
+    journalLines: journal.lines,
+    totalDebit: journal.totalDebit,
+    totalCredit: journal.totalCredit,
+    effectiveAt,
+    ledgerEntryId: ledgerReference.id,
+    journalEntryId: journalReference.id,
+    cashTransactionId,
+    createdAt: FieldValue.serverTimestamp(),
+    createdBy: actorUid,
+    postedAt: FieldValue.serverTimestamp(),
+    postedBy: actorUid,
+  })
+  return { reference, voucherNumber, cashTransactionId }
+}
+
+function createReceiptVoucherReversal(transaction, db, {
+  originalLedgerReference,
+  reversalLedgerReference,
+  reversalJournalReference,
+  originalVoucher,
+  originalLedger,
+  cashAccount,
+  journalLines,
+  effectiveAt,
+  actorUid,
+  reason,
+}) {
+  const reference = db.doc(`accountingDocuments/receipt_reversal_${originalLedgerReference.id}`)
+  const originalVoucherReference = db.doc(`accountingDocuments/receipt_${originalLedgerReference.id}`)
+  const originalVoucherNumber = originalVoucher?.voucherNumber
+    || receiptVoucherNumber(originalVoucherReference, originalLedger.branchId || cashAccount?.data?.branchId, originalLedger.effectiveAt || effectiveAt)
+  const voucherNumber = `DAO-${originalVoucherNumber}`.slice(0, 100)
+  const totalAmount = positiveAmount(Math.abs(Number(originalLedger.amount || 0)))
+  transaction.create(reference, {
+    schemaVersion: 1,
+    documentType: 'receipt_voucher_reversal',
+    voucherNumber,
+    status: 'posted',
+    revision: 1,
+    accountId: originalVoucher?.accountId || cashAccount?.reference?.id || originalLedger.cashAccountId || '',
+    cashAccountType: originalVoucher?.cashAccountType || originalLedger.accountingCashAccountType || cashAccount?.data?.type || 'cash',
+    branchId: originalVoucher?.branchId || originalLedger.branchId || cashAccount?.data?.branchId || '',
+    contractId: originalVoucher?.contractId || originalLedger.contractId || '',
+    studentId: originalVoucher?.studentId || originalLedger.studentId || '',
+    payerName: originalVoucher?.payerName || 'Học viên Aura',
+    payerAddress: originalVoucher?.payerAddress || '',
+    description: `Đảo phiếu thu ${originalVoucherNumber}: ${reason}`.slice(0, 500),
+    paymentMethod: originalVoucher?.paymentMethod || originalLedger.paymentMethod || '',
+    source: originalVoucher?.source || originalLedger.source || 'pt_gym',
+    installmentId: originalVoucher?.installmentId || originalLedger.installmentId || null,
+    totalAmount,
+    amountInWords: amountInVietnameseWords(totalAmount),
+    journalLines,
+    totalDebit: totalAmount,
+    totalCredit: totalAmount,
+    effectiveAt,
+    ledgerEntryId: reversalLedgerReference.id,
+    journalEntryId: reversalJournalReference.id,
+    cashTransactionId: `ledger_${reversalLedgerReference.id}`,
+    originalVoucherId: originalVoucherReference.id,
+    reason,
+    createdAt: FieldValue.serverTimestamp(),
+    createdBy: actorUid,
+    postedAt: FieldValue.serverTimestamp(),
+    postedBy: actorUid,
+  })
+  return { reference, originalVoucherReference, voucherNumber }
+}
+
 function referralSnapshot(contract = {}) {
   const referralCode = typeof contract.referralCode === 'string' ? contract.referralCode.trim().slice(0, 100) : ''
   const referralStaffId = typeof contract.referralStaffId === 'string' ? contract.referralStaffId.trim().slice(0, 200) : ''
@@ -69,11 +196,28 @@ async function cashAccountForMovement(transaction, db, cashAccountId, signedAmou
   return { reference, data: snapshot.data() }
 }
 
-function createCashMovement(transaction, db, ledgerReference, account, signedAmount, effectiveAt, actorUid, category) {
+function createCashMovement(transaction, db, ledgerReference, account, signedAmount, effectiveAt, actorUid, category, metadata = {}) {
   if (!account) return
   const movementReference = db.doc(`cashTransactions/ledger_${ledgerReference.id}`)
   transaction.update(account.reference, { balance: FieldValue.increment(signedAmount), updatedAt: FieldValue.serverTimestamp() })
-  transaction.create(movementReference, { schemaVersion: 1, accountId: account.reference.id, branchId: account.data.branchId || '', type: signedAmount >= 0 ? 'income' : 'expense', category, amount: signedAmount, effectiveAt, status: 'posted', referenceCode: `LED-${ledgerReference.id.slice(0, 8).toUpperCase()}`, ledgerEntryId: ledgerReference.id, createdAt: FieldValue.serverTimestamp(), createdBy: actorUid })
+  transaction.create(movementReference, {
+    schemaVersion: 2,
+    accountId: account.reference.id,
+    branchId: account.data.branchId || '',
+    type: signedAmount >= 0 ? 'income' : 'expense',
+    category,
+    amount: signedAmount,
+    effectiveAt,
+    status: 'posted',
+    referenceCode: metadata.referenceCode || `LED-${ledgerReference.id.slice(0, 8).toUpperCase()}`,
+    ledgerEntryId: ledgerReference.id,
+    accountingDocumentId: metadata.accountingDocumentId || null,
+    payerName: boundedReceiptText(metadata.payerName, 200),
+    note: boundedReceiptText(metadata.note, 500),
+    createdAt: FieldValue.serverTimestamp(),
+    createdBy: actorUid,
+  })
+  return movementReference
 }
 
 function vietnamDateKey(value) {
@@ -218,7 +362,7 @@ function contractAdvanceAccountCode(contract = {}, effectiveAt) {
   return serviceStarted && spansAccountingPeriods ? '3387' : '131'
 }
 
-function createJournalEntry(transaction, reference, { documentType, documentId, referenceCode: code, branchId, effectiveAt, lines, actorUid, reversedJournalEntryId = null }) {
+function createJournalEntry(transaction, reference, { documentType, documentId, referenceCode: code, branchId, effectiveAt, lines, actorUid, reversedJournalEntryId = null, sourceLedgerEntryId = null }) {
   const totalDebit = lines.reduce((sum, line) => sum + Number(line.debit || 0), 0)
   const totalCredit = lines.reduce((sum, line) => sum + Number(line.credit || 0), 0)
   transaction.create(reference, {
@@ -233,6 +377,7 @@ function createJournalEntry(transaction, reference, { documentType, documentId, 
     totalCredit,
     status: 'posted',
     reversedJournalEntryId,
+    sourceLedgerEntryId,
     createdAt: FieldValue.serverTimestamp(),
     createdBy: actorUid,
   })
@@ -400,12 +545,22 @@ function createFinanceLedgerFunctions({ db, onCall }) {
         transaction.get(db.collection('ledgerEntries').where('idempotencyKey', '==', idempotencyKey).limit(1)),
       ])
       if (!contract.exists) throw new HttpsError('not-found', 'Không tìm thấy hợp đồng.')
-      if (!duplicate.empty) return { entryId: duplicate.docs[0].id, unchanged: true, referenceCode: duplicate.docs[0].data().referenceCode }
+      if (!duplicate.empty) return {
+        entryId: duplicate.docs[0].id,
+        unchanged: true,
+        referenceCode: duplicate.docs[0].data().referenceCode,
+        receiptVoucherId: duplicate.docs[0].data().accountingDocumentId || null,
+        receiptVoucherNumber: duplicate.docs[0].data().voucherNumber || null,
+      }
       await assertFinancePeriodOpen(transaction, db, effectiveAt)
       const cashAccount = await cashAccountForMovement(transaction, db, cashAccountId, amount)
       const data = contract.data()
       const renewalCaseReference = data.renewalCaseId ? db.doc(`contractRenewalCases/${data.renewalCaseId}`) : null
-      const renewalCase = renewalCaseReference ? await transaction.get(renewalCaseReference) : null
+      const studentReference = data.studentId ? db.doc(`students/${data.studentId}`) : null
+      const [renewalCase, student] = await Promise.all([
+        renewalCaseReference ? transaction.get(renewalCaseReference) : Promise.resolve(null),
+        studentReference ? transaction.get(studentReference) : Promise.resolve(null),
+      ])
       const totalDue = Number(data.totalPrice || 0) - Number(data.discount || 0)
       const nextPaid = Number(data.paidAmount || 0) + amount
       if (nextPaid > totalDue) throw new HttpsError('failed-precondition', 'Khoản thu vượt số tiền hợp đồng còn lại.')
@@ -416,12 +571,37 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       const advanceAccountCode = contractAdvanceAccountCode(data, effectiveAt)
       const accountingCashAccountType = inferredCashAccountType(paymentMethod, cashAccount)
       const journal = contractPaymentJournal({ amount, cashAccountType: accountingCashAccountType, recognisedReceivable: receivableSettlement, advanceAccountCode })
-      transaction.create(ledgerReference, { schemaVersion: 4, type: 'payment', eventClass: 'cash_collection', source: 'pt_gym', renewalCaseId: data.renewalCaseId || null, contractId, studentId: data.studentId || '', branchId: data.branchId || '', installmentId: installmentId || null, cashAccountId: cashAccountId || null, journalEntryId: journalReference.id, accountingCashAccountType, accountingAdvanceAccountCode: advanceAccountCode, cashbookReconciliationRequired: !cashAccount, ...referralSnapshot(data), amount, cashImpact: amount, revenueImpact: 0, expenseImpact: 0, receivableImpact: -receivableSettlement, deferredRevenueImpact: amount - receivableSettlement, effectiveAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod, referenceCode: code, idempotencyKey, status: 'posted', note: typeof request.data?.note === 'string' ? request.data.note.trim().slice(0, 500) : '' })
-      createJournalEntry(transaction, journalReference, { documentType: 'contract_payment', documentId: ledgerReference.id, referenceCode: code, branchId: data.branchId, effectiveAt, lines: journal.lines, actorUid: actor.uid })
+      const note = boundedReceiptText(request.data?.note, 500) || `Thu tiền hợp đồng ${contractId}`
+      const payer = receiptPayer(student, data, {
+        id: data.studentId,
+        name: renewalCase?.data?.()?.studentSnapshot?.name,
+        address: renewalCase?.data?.()?.studentSnapshot?.address,
+      })
+      const receipt = createReceiptVoucher(transaction, db, {
+        ledgerReference,
+        journalReference,
+        cashAccount,
+        contract: { ...data, id: contractId },
+        payer,
+        journal,
+        effectiveAt,
+        actorUid: actor.uid,
+        paymentMethod,
+        description: note,
+        source: 'pt_gym',
+        installmentId,
+      })
+      transaction.create(ledgerReference, { schemaVersion: 4, type: 'payment', eventClass: 'cash_collection', source: 'pt_gym', renewalCaseId: data.renewalCaseId || null, contractId, studentId: data.studentId || '', branchId: data.branchId || '', installmentId: installmentId || null, cashAccountId: cashAccountId || null, journalEntryId: journalReference.id, accountingDocumentId: receipt.reference.id, voucherNumber: receipt.voucherNumber, accountingCashAccountType, accountingAdvanceAccountCode: advanceAccountCode, cashbookReconciliationRequired: false, ...referralSnapshot(data), amount, cashImpact: amount, revenueImpact: 0, expenseImpact: 0, receivableImpact: -receivableSettlement, deferredRevenueImpact: amount - receivableSettlement, effectiveAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod, referenceCode: code, idempotencyKey, status: 'posted', note })
+      createJournalEntry(transaction, journalReference, { documentType: 'receipt_voucher', documentId: receipt.reference.id, referenceCode: receipt.voucherNumber, branchId: data.branchId, effectiveAt, lines: journal.lines, actorUid: actor.uid, sourceLedgerEntryId: ledgerReference.id })
       transaction.update(contractReference, { paidAmount: nextPaid, ...(installmentPatch || {}), accountingAdvanceAccountCode: advanceAccountCode, financeProjectionUpdatedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
       if (renewalCase?.exists) transaction.update(renewalCaseReference, { collectedValue: FieldValue.increment(amount), updatedAt: FieldValue.serverTimestamp() })
-      createCashMovement(transaction, db, ledgerReference, cashAccount, amount, effectiveAt, actor.uid, 'contract_payment')
-      return { entryId: ledgerReference.id, unchanged: false, referenceCode: code }
+      createCashMovement(transaction, db, ledgerReference, cashAccount, amount, effectiveAt, actor.uid, 'contract_payment', {
+        referenceCode: receipt.voucherNumber,
+        accountingDocumentId: receipt.reference.id,
+        payerName: payer.name,
+        note,
+      })
+      return { entryId: ledgerReference.id, unchanged: false, referenceCode: code, receiptVoucherId: receipt.reference.id, receiptVoucherNumber: receipt.voucherNumber }
     })
   })
 
@@ -432,6 +612,7 @@ function createFinanceLedgerFunctions({ db, onCall }) {
     const reason = text(request.data?.reason, 'Lý do', 500)
     const reversalEffectiveAt = Timestamp.now()
     const originalReference = db.doc(`ledgerEntries/${entryId}`)
+    const originalReceiptReference = db.doc(`accountingDocuments/receipt_${entryId}`)
     const reversalReference = db.collection('ledgerEntries').doc()
     const reversalJournalReference = db.doc(`journalEntries/${reversalReference.id}`)
     return db.runTransaction(async (transaction) => {
@@ -443,7 +624,10 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       const originalCashAccountId = optionalText(original.data().cashAccountId, 'Tài khoản quỹ', 200)
       const cashAccount = await cashAccountForMovement(transaction, db, originalCashAccountId, -positiveAmount(original.data().amount))
       const contractReference = db.doc(`contracts/${original.data().contractId}`)
-      const contract = await transaction.get(contractReference)
+      const [contract, originalReceiptSnapshot] = await Promise.all([
+        transaction.get(contractReference),
+        transaction.get(originalReceiptReference),
+      ])
       if (!contract.exists) throw new HttpsError('failed-precondition', 'Hợp đồng nguồn không còn tồn tại.')
       const originalJournalEntryId = optionalText(original.data().journalEntryId, 'Nhật ký gốc', 200)
       const originalJournalSnapshot = originalJournalEntryId
@@ -466,13 +650,38 @@ function createFinanceLedgerFunctions({ db, onCall }) {
       const originalJournal = contractPaymentJournal({ amount, cashAccountType: accountingCashAccountType, recognisedReceivable: reversalReceivableImpact, advanceAccountCode })
       const reversalLines = reversedJournalLines(originalJournalSnapshot?.exists ? originalJournalSnapshot.data().lines : originalJournal.lines)
       const reversalCode = referenceCode('DAO', reversalReference)
-      transaction.create(reversalReference, { ...original.data(), schemaVersion: 4, type: 'reversal', eventClass: 'cash_reversal', source: original.data().source || 'pt_gym', amount: -amount, cashImpact: -amount, revenueImpact: 0, expenseImpact: 0, receivableImpact: reversalReceivableImpact, deferredRevenueImpact: reversalDeferredRevenueImpact, accountingCashAccountType, accountingAdvanceAccountCode: advanceAccountCode, journalEntryId: reversalJournalReference.id, effectiveAt: reversalEffectiveAt, reversedEntryId: entryId, referenceCode: reversalCode, idempotencyKey, reason, status: 'posted', createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
-      createJournalEntry(transaction, reversalJournalReference, { documentType: 'contract_payment_reversal', documentId: reversalReference.id, referenceCode: reversalCode, branchId: original.data().branchId, effectiveAt: reversalEffectiveAt, lines: reversalLines, actorUid: actor.uid, reversedJournalEntryId: original.data().journalEntryId || null })
+      const reversalReceipt = createReceiptVoucherReversal(transaction, db, {
+        originalLedgerReference: originalReference,
+        reversalLedgerReference: reversalReference,
+        reversalJournalReference,
+        originalVoucher: originalReceiptSnapshot.exists ? originalReceiptSnapshot.data() : null,
+        originalLedger: original.data(),
+        cashAccount,
+        journalLines: reversalLines,
+        effectiveAt: reversalEffectiveAt,
+        actorUid: actor.uid,
+        reason,
+      })
+      transaction.create(reversalReference, { ...original.data(), schemaVersion: 4, type: 'reversal', eventClass: 'cash_reversal', source: original.data().source || 'pt_gym', amount: -amount, cashImpact: -amount, revenueImpact: 0, expenseImpact: 0, receivableImpact: reversalReceivableImpact, deferredRevenueImpact: reversalDeferredRevenueImpact, accountingCashAccountType, accountingAdvanceAccountCode: advanceAccountCode, journalEntryId: reversalJournalReference.id, accountingDocumentId: reversalReceipt.reference.id, voucherNumber: reversalReceipt.voucherNumber, effectiveAt: reversalEffectiveAt, reversedEntryId: entryId, referenceCode: reversalCode, idempotencyKey, reason, status: 'posted', createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
+      createJournalEntry(transaction, reversalJournalReference, { documentType: 'receipt_voucher_reversal', documentId: reversalReceipt.reference.id, referenceCode: reversalReceipt.voucherNumber, branchId: original.data().branchId, effectiveAt: reversalEffectiveAt, lines: reversalLines, actorUid: actor.uid, reversedJournalEntryId: original.data().journalEntryId || null, sourceLedgerEntryId: reversalReference.id })
       transaction.update(originalReference, { status: 'reversed', reversedAt: FieldValue.serverTimestamp(), reversedBy: actor.uid, reversalEntryId: reversalReference.id })
+      if (originalReceiptSnapshot.exists) transaction.update(originalReceiptReference, {
+        status: 'reversed',
+        revision: FieldValue.increment(1),
+        reversedAt: FieldValue.serverTimestamp(),
+        reversedBy: actor.uid,
+        reversalVoucherId: reversalReceipt.reference.id,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
       transaction.update(contractReference, { paidAmount: Math.max(0, Number(contract.data().paidAmount || 0) - amount), ...(installmentPatch || {}), financeProjectionUpdatedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
       if (renewalCase?.exists) transaction.update(renewalCaseReference, { collectedValue: FieldValue.increment(-amount), updatedAt: FieldValue.serverTimestamp() })
-      createCashMovement(transaction, db, reversalReference, cashAccount, -amount, reversalEffectiveAt, actor.uid, 'contract_payment_reversal')
-      return { entryId: reversalReference.id, unchanged: false }
+      createCashMovement(transaction, db, reversalReference, cashAccount, -amount, reversalEffectiveAt, actor.uid, 'contract_payment_reversal', {
+        referenceCode: reversalReceipt.voucherNumber,
+        accountingDocumentId: reversalReceipt.reference.id,
+        payerName: originalReceiptSnapshot.data?.()?.payerName || '',
+        note: reason,
+      })
+      return { entryId: reversalReference.id, unchanged: false, receiptVoucherId: reversalReceipt.reference.id, receiptVoucherNumber: reversalReceipt.voucherNumber }
     })
   })
 
@@ -542,5 +751,8 @@ module.exports = {
   updatedInstallments,
   cashAccountForMovement,
   createCashMovement,
+  createReceiptVoucher,
+  receiptVoucherNumber,
+  receiptPayer,
   assertFinancePeriodOpen,
 }
