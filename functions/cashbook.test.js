@@ -44,3 +44,23 @@ test('receipt vouchers are read through a bounded callable and remain backend ow
   assert.match(source, /derived: true/)
   assert.match(rules, /match \/accountingDocuments\/\{documentId\}[\s\S]*?allow read, write: if false/)
 })
+
+test('S2e-HKD cash detail book uses exact period aggregates and backend-owned legal identity', () => {
+  assert.match(source, /const getS2eCashDetailBook = onCall/)
+  assert.match(source, /AggregateField\.sum\('amount'\)/)
+  assert.match(source, /where\('effectiveAt', '<', period\.start\)/)
+  assert.match(source, /where\('effectiveAt', '>=', period\.start\)\.where\('effectiveAt', '<', period\.end\)/)
+  assert.match(source, /formCode: 'S2e-HKD'/)
+  assert.match(source, /Thông tư số 152\/2025\/TT-BTC/)
+  assert.match(source, /const saveS2eCashDetailSettings = onCall/)
+  assert.match(source, /accountingSettings\/s2e_hkd/)
+  assert.match(rules, /match \/accountingSettings\/\{settingId\}[\s\S]*?allow read, write: if false/)
+})
+
+test('S2e-HKD bounds the reporting period and number of returned legal rows', () => {
+  assert.match(source, /days > 366/)
+  assert.match(source, /S2E_MAX_ACCOUNTS = 50/)
+  assert.match(source, /S2E_MAX_ROWS_PER_ACCOUNT = 2000/)
+  assert.match(source, /limit\(S2E_MAX_ROWS_PER_ACCOUNT \+ 1\)/)
+  assert.match(source, /openingBalance \+ totalReceipt - totalPayment/)
+})

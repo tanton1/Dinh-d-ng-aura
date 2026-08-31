@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, ArrowRight, ArrowRightLeft, CheckCircle2, Eye, FilePenLine, Landmark, Plus, Printer, ReceiptText, RefreshCw, RotateCcw, Send, Wallet, X } from 'lucide-react'
 import {
   approveAndPostExpenseVoucher,
+  getS2eCashDetailBook,
   initializeCashAccount,
   listAccountingCatalog,
   listCashAccounts,
@@ -9,6 +10,7 @@ import {
   listExpenseVouchers,
   listReceiptVouchers,
   reverseExpenseVoucher,
+  saveS2eCashDetailSettings,
   saveExpenseVoucherDraft,
   transferCash,
   type AccountingAccount,
@@ -19,13 +21,22 @@ import {
   type ExpenseVoucher,
   type JournalLine,
   type ReceiptVoucher,
+  type S2eCashDetailBook as S2eBook,
+  type S2eCashDetailSettings,
 } from '../../../services/cashbookService'
 import { reverseContractPayment } from '../../../services/financeLedgerService'
+import S2eCashDetailBook from './S2eCashDetailBook'
 
 type PanelMode = 'none' | 'account' | 'voucher' | 'transfer'
-type LedgerTab = 'receipts' | 'vouchers' | 'cash'
+type LedgerTab = 's2e' | 'receipts' | 'vouchers' | 'cash'
 
 const today = () => new Date().toISOString().slice(0, 10)
+const monthStart = () => `${today().slice(0, 7)}-01`
+const dayAfter = (value: string) => {
+  const date = new Date(`${value}T12:00:00+07:00`)
+  date.setUTCDate(date.getUTCDate() + 1)
+  return date.toISOString().slice(0, 10)
+}
 const money = (value: number) => `${Math.round(value || 0).toLocaleString('vi-VN')}đ`
 
 const statusLabels: Record<ExpenseVoucher['status'], string> = {
@@ -65,7 +76,10 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
   const [accountingAccounts, setAccountingAccounts] = useState<AccountingAccount[]>([])
   const [approvalThreshold, setApprovalThreshold] = useState(10_000_000)
   const [selectedAccount, setSelectedAccount] = useState('')
-  const [activeTab, setActiveTab] = useState<LedgerTab>('receipts')
+  const [activeTab, setActiveTab] = useState<LedgerTab>('s2e')
+  const [s2eBook, setS2eBook] = useState<S2eBook | null>(null)
+  const [periodStart, setPeriodStart] = useState(monthStart())
+  const [periodEnd, setPeriodEnd] = useState(today())
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -80,12 +94,17 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
     setLoading(true)
     setError('')
     try {
-      const [accountPage, transactionPage, voucherPage, receiptPage, catalog] = await Promise.all([
+      const [accountPage, transactionPage, voucherPage, receiptPage, catalog, s2ePage] = await Promise.all([
         listCashAccounts(),
         listCashTransactions({ accountId: selectedAccount || undefined, pageSize: 100 }),
         listExpenseVouchers({ pageSize: 100 }),
         listReceiptVouchers({ accountId: selectedAccount || undefined, pageSize: 100 }),
         listAccountingCatalog(),
+        getS2eCashDetailBook({
+          accountId: selectedAccount || undefined,
+          periodStart: `${periodStart}T00:00:00+07:00`,
+          periodEnd: `${dayAfter(periodEnd)}T00:00:00+07:00`,
+        }),
       ])
       setAccounts(accountPage.accounts)
       setTransactions(transactionPage.transactions)
@@ -94,16 +113,13 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
       setPurposes(catalog.expensePurposes)
       setAccountingAccounts(catalog.accounts)
       setApprovalThreshold(catalog.approvalSeparationThreshold)
-      if (!selectedAccount) {
-        const firstActiveAccount = accountPage.accounts.find((item) => item.status === 'active')
-        if (firstActiveAccount) setSelectedAccount(firstActiveAccount.id)
-      }
+      setS2eBook(s2ePage)
     } catch (value) {
       setError(errorMessage(value, 'Không thể tải sổ quỹ. Chức năng được khóa an toàn cho đến khi backend sẵn sàng.'))
     } finally {
       setLoading(false)
     }
-  }, [selectedAccount])
+  }, [periodEnd, periodStart, selectedAccount])
 
   useEffect(() => { void load() }, [load])
 
@@ -272,6 +288,23 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
     } finally { setBusy(false) }
   }
 
+  const saveS2eSettings = async (settings: S2eCashDetailSettings) => {
+    setBusy(true)
+    setError('')
+    setMessage('')
+    try {
+      await saveS2eCashDetailSettings(settings)
+      setMessage('Đã lưu thông tin hộ/cá nhân kinh doanh trên Mẫu S2e-HKD.')
+      await load()
+      return true
+    } catch (value) {
+      setError(errorMessage(value, 'Không thể lưu thông tin Mẫu S2e-HKD.'))
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return <section className="cashbook-panel">
     <div className="cashbook-summary">
       <div><span>TỔNG SỐ DƯ ĐÃ ĐỐI SOÁT</span><strong>{loading ? '…' : money(totalBalance)}</strong><small>{activeAccounts.length} tài khoản đang hoạt động · {receipts.length} phiếu thu · {pendingCount} phiếu chờ duyệt</small></div>
@@ -338,7 +371,22 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
       </div>
     </div>}
 
-    <div className="cashbook-ledger-tabs"><button className={activeTab === 'receipts' ? 'is-active' : ''} onClick={() => setActiveTab('receipts')}>Phiếu thu <span>{receipts.length}</span></button><button className={activeTab === 'vouchers' ? 'is-active' : ''} onClick={() => setActiveTab('vouchers')}>Phiếu chi <span>{vouchers.length}</span></button><button className={activeTab === 'cash' ? 'is-active' : ''} onClick={() => setActiveTab('cash')}>Biến động quỹ <span>{transactions.length}</span></button></div>
+    <div className="cashbook-ledger-tabs"><button className={activeTab === 's2e' ? 'is-active' : ''} onClick={() => setActiveTab('s2e')}>Sổ S2e-HKD <span>{s2eBook?.sections.length || 0}</span></button><button className={activeTab === 'receipts' ? 'is-active' : ''} onClick={() => setActiveTab('receipts')}>Phiếu thu <span>{receipts.length}</span></button><button className={activeTab === 'vouchers' ? 'is-active' : ''} onClick={() => setActiveTab('vouchers')}>Phiếu chi <span>{vouchers.length}</span></button><button className={activeTab === 'cash' ? 'is-active' : ''} onClick={() => setActiveTab('cash')}>Biến động quỹ <span>{transactions.length}</span></button></div>
+
+    {activeTab === 's2e' && <S2eCashDetailBook
+      accounts={accounts}
+      accountId={selectedAccount}
+      book={s2eBook}
+      busy={busy}
+      loading={loading}
+      periodStart={periodStart}
+      periodEnd={periodEnd}
+      onAccountChange={setSelectedAccount}
+      onPeriodStartChange={setPeriodStart}
+      onPeriodEndChange={setPeriodEnd}
+      onRefresh={() => void load()}
+      onSaveSettings={saveS2eSettings}
+    />}
 
     {activeTab === 'receipts' && <div className="expense-voucher-list receipt-voucher-list">{receipts.map((receipt) => <article key={receipt.id}>
       <div className="expense-voucher-list__main"><div><ReceiptText size={16} /><b>{receipt.voucherNumber}</b><span className={`expense-voucher-status status-${receipt.status}`}>{statusLabels[receipt.status]}</span></div><p>{receipt.payerName} · {accounts.find((item) => item.id === receipt.accountId)?.name || 'Quỹ đã lưu'}</p><small>{receipt.effectiveAt ? new Date(receipt.effectiveAt).toLocaleDateString('vi-VN') : ''} · {receipt.description}</small></div>

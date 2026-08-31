@@ -1,4 +1,4 @@
-const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
+const { AggregateField, FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { assertFinancePeriodOpen, receiptVoucherNumber } = require('./finance-ledger')
@@ -13,6 +13,8 @@ const {
 const accountTypes = new Set(['cash', 'bank', 'wallet'])
 const transactionTypes = new Set(['opening_balance', 'income', 'expense', 'transfer_in', 'transfer_out', 'reversal'])
 const EXPENSE_APPROVAL_SEPARATION_THRESHOLD = 10_000_000
+const S2E_MAX_ACCOUNTS = 50
+const S2E_MAX_ROWS_PER_ACCOUNT = 2000
 
 function clean(value, label, max = 200) {
   const result = typeof value === 'string' ? value.trim() : ''
@@ -36,6 +38,17 @@ function effectiveAt(value) {
   return Timestamp.fromDate(date)
 }
 
+function s2ePeriod(startValue, endValue) {
+  const start = new Date(startValue)
+  const end = new Date(endValue)
+  if (!startValue || !endValue || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+    throw new HttpsError('invalid-argument', 'Kỳ kê khai S2e-HKD không hợp lệ.')
+  }
+  const days = (end.getTime() - start.getTime()) / 86400000
+  if (days > 366) throw new HttpsError('invalid-argument', 'Mỗi lần chỉ được lập S2e-HKD cho tối đa 366 ngày.')
+  return { start: Timestamp.fromDate(start), end: Timestamp.fromDate(end) }
+}
+
 async function actorForFinance(request, db) {
   const actor = await trustedAccessContext(request, db)
   requireCapability(actor, 'finance.operations.manage')
@@ -50,6 +63,30 @@ function serializeAccount(snapshot) {
 function serializeTransaction(snapshot) {
   const value = snapshot.data()
   return { id: snapshot.id, accountId: value.accountId || '', pairedAccountId: value.pairedAccountId || '', branchId: value.branchId || '', type: value.type || '', category: value.category || '', amount: Number(value.amount || 0), effectiveAt: value.effectiveAt?.toDate?.().toISOString?.() || '', referenceCode: value.referenceCode || '', note: value.note || '', status: value.status || 'posted', reversedTransactionId: value.reversedTransactionId || '' }
+}
+
+function s2eSettings(value = {}) {
+  return {
+    businessName: optionalClean(value.businessName, 200) || 'AURA FITNESS',
+    address: optionalClean(value.address, 300),
+    taxCode: optionalClean(value.taxCode, 80),
+    representativeName: optionalClean(value.representativeName, 200),
+    unit: optionalClean(value.unit, 30) || 'VND',
+  }
+}
+
+function s2eDescription(value, accountNames) {
+  if (optionalClean(value.note, 500)) return optionalClean(value.note, 500)
+  if (value.type === 'transfer_in') return `Nhận chuyển tiền từ ${accountNames.get(value.pairedAccountId) || 'tài khoản khác'}`
+  if (value.type === 'transfer_out') return `Chuyển tiền sang ${accountNames.get(value.pairedAccountId) || 'tài khoản khác'}`
+  const labels = {
+    contract_payment: 'Thu tiền hợp đồng học viên',
+    contract_payment_reversal: 'Đảo khoản thu hợp đồng',
+    contract_refund: 'Hoàn tiền hợp đồng',
+    payroll_payment: 'Thanh toán tiền lương',
+    internal_transfer: 'Điều chuyển tiền nội bộ',
+  }
+  return labels[value.category] || optionalClean(value.category, 200) || 'Nghiệp vụ thu, chi tiền'
 }
 
 function timestampIso(value) {
@@ -190,6 +227,98 @@ function createCashbookFunctions({ db, onCall }) {
     if (accountId) query = query.where('accountId', '==', accountId)
     const snapshot = await query.limit(pageSize).get()
     return { transactions: snapshot.docs.map(serializeTransaction), hasMore: snapshot.size === pageSize }
+  })
+
+  const getS2eCashDetailBook = onCall(async (request) => {
+    await actorForFinance(request, db)
+    const accountId = optionalClean(request.data?.accountId, 200)
+    const period = s2ePeriod(request.data?.periodStart, request.data?.periodEnd)
+    const [accountSnapshot, settingsSnapshot] = await Promise.all([
+      db.collection('cashAccounts').orderBy('name').limit(S2E_MAX_ACCOUNTS + 1).get(),
+      db.doc('accountingSettings/s2e_hkd').get(),
+    ])
+    if (accountSnapshot.size > S2E_MAX_ACCOUNTS) throw new HttpsError('resource-exhausted', `S2e-HKD hỗ trợ tối đa ${S2E_MAX_ACCOUNTS} tài khoản tiền.`)
+    const allAccounts = accountSnapshot.docs.map(serializeAccount)
+    const selectedAccounts = accountId ? allAccounts.filter((item) => item.id === accountId) : allAccounts
+    if (accountId && selectedAccounts.length === 0) throw new HttpsError('not-found', 'Không tìm thấy tài khoản tiền cần lập sổ.')
+    const accountNames = new Map(allAccounts.map((item) => [item.id, item.name]))
+    const sections = await Promise.all(selectedAccounts.map(async (account) => {
+      const baseQuery = db.collection('cashTransactions').where('accountId', '==', account.id)
+      const [openingSnapshot, rowSnapshot] = await Promise.all([
+        baseQuery.where('effectiveAt', '<', period.start).aggregate({ amount: AggregateField.sum('amount') }).get(),
+        baseQuery.where('effectiveAt', '>=', period.start).where('effectiveAt', '<', period.end)
+          .orderBy('effectiveAt', 'asc').orderBy(FieldPath.documentId(), 'asc').limit(S2E_MAX_ROWS_PER_ACCOUNT + 1).get(),
+      ])
+      if (rowSnapshot.size > S2E_MAX_ROWS_PER_ACCOUNT) {
+        throw new HttpsError('resource-exhausted', `Tài khoản ${account.name} có trên ${S2E_MAX_ROWS_PER_ACCOUNT} dòng trong kỳ. Hãy chia kỳ kê khai ngắn hơn.`)
+      }
+      let openingBalance = Number(openingSnapshot.data().amount || 0)
+      const transactionDocuments = []
+      rowSnapshot.docs.forEach((document) => {
+        const value = document.data()
+        const transactionAmount = Number(value.amount || 0)
+        if (value.type === 'opening_balance') {
+          openingBalance += transactionAmount
+          return
+        }
+        transactionDocuments.push({ document, value, transactionAmount })
+      })
+      let runningBalance = openingBalance
+      let totalReceipt = 0
+      let totalPayment = 0
+      const rows = transactionDocuments.map(({ document, value, transactionAmount }) => {
+        const receipt = transactionAmount > 0 ? transactionAmount : 0
+        const payment = transactionAmount < 0 ? Math.abs(transactionAmount) : 0
+        totalReceipt += receipt
+        totalPayment += payment
+        runningBalance += transactionAmount
+        return {
+          id: document.id,
+          voucherNumber: optionalClean(value.referenceCode, 100),
+          documentDate: timestampIso(value.effectiveAt),
+          description: s2eDescription(value, accountNames),
+          receipt,
+          payment,
+          runningBalance,
+          category: optionalClean(value.category, 120),
+        }
+      })
+      return {
+        account,
+        sectionType: account.type === 'cash' ? 'cash' : 'demand_deposit',
+        openingBalance,
+        totalReceipt,
+        totalPayment,
+        closingBalance: openingBalance + totalReceipt - totalPayment,
+        rows,
+      }
+    }))
+    return {
+      formCode: 'S2e-HKD',
+      legalBasis: 'Thông tư số 152/2025/TT-BTC ngày 31/12/2025 của Bộ trưởng Bộ Tài chính',
+      periodStart: period.start.toDate().toISOString(),
+      periodEnd: period.end.toDate().toISOString(),
+      settings: s2eSettings(settingsSnapshot.data()),
+      sections,
+    }
+  })
+
+  const saveS2eCashDetailSettings = onCall(async (request) => {
+    const actor = await actorForFinance(request, db)
+    const settings = {
+      businessName: clean(request.data?.businessName, 'Tên hộ/cá nhân kinh doanh', 200),
+      address: clean(request.data?.address, 'Địa chỉ', 300),
+      taxCode: clean(request.data?.taxCode, 'Mã số thuế', 80),
+      representativeName: optionalClean(request.data?.representativeName, 200),
+      unit: optionalClean(request.data?.unit, 30) || 'VND',
+    }
+    await db.doc('accountingSettings/s2e_hkd').set({
+      schemaVersion: 1,
+      ...settings,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actor.uid,
+    }, { merge: true })
+    return { settings }
   })
 
   const recordCashExpense = onCall(async (request) => {
@@ -505,6 +634,8 @@ function createCashbookFunctions({ db, onCall }) {
     listCashAccounts,
     initializeCashAccount,
     listCashTransactions,
+    getS2eCashDetailBook,
+    saveS2eCashDetailSettings,
     recordCashExpense,
     listExpenseVouchers,
     listReceiptVouchers,

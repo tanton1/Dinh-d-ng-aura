@@ -1059,6 +1059,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Legal identity and S2e-HKD settings include tax information and are
+    // available only through finance-authorized callable functions.
+    match /accountingSettings/{settingId} {
+      allow read, write: if false;
+    }
+
     match /payrollPolicies/{policyId} {
       allow read: if isAdmin();
       allow write: if false;

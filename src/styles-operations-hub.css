@@ -65,6 +65,69 @@
 .cashbook-list .negative { color: #d92f63; }
 .cashbook-list > p { padding: 28px; color: #80767b; text-align: center; }
 
+.s2e-module { display: grid; gap: 13px; }
+.s2e-compliance-card { display: flex; align-items: flex-start; gap: 11px; padding: 14px 16px; border: 1px solid #b9e4d2; border-radius: 16px; background: linear-gradient(120deg,#effff8,#f6fffb); color: #195b43; }
+.s2e-compliance-card svg { flex: 0 0 auto; margin-top: 1px; }
+.s2e-compliance-card div { display: grid; gap: 4px; }
+.s2e-compliance-card strong { font-size: 13px; }
+.s2e-compliance-card span { color: #537367; font-size: 11px; line-height: 1.5; }
+.s2e-controls { display: grid; grid-template-columns: 150px 150px minmax(220px,1fr) auto; gap: 9px; align-items: end; padding: 13px; border: 1px solid #eee2e7; border-radius: 17px; background: #fff; }
+.s2e-controls label, .s2e-settings label { display: grid; min-width: 0; gap: 6px; color: #6e6067; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.s2e-controls input, .s2e-controls select, .s2e-settings input { width: 100%; min-width: 0; min-height: 42px; padding: 0 11px; border: 1px solid #e5d9de; border-radius: 11px; background: #fff; color: #382b32; font: inherit; font-size: 12px; font-weight: 650; text-transform: none; }
+.s2e-controls__actions { display: flex; gap: 7px; }
+.s2e-controls button, .s2e-settings button { display: inline-flex; min-height: 42px; align-items: center; justify-content: center; gap: 6px; padding: 0 11px; border: 1px solid #e4d7dc; border-radius: 11px; background: #fff; color: #493a42; font-weight: 750; white-space: nowrap; }
+.s2e-controls button:disabled, .s2e-settings button:disabled { opacity: .45; }
+.s2e-print-button { border-color: #f3357b !important; background: #f3357b !important; color: #fff !important; }
+.s2e-settings { display: grid; gap: 13px; padding: 16px; border: 1px solid #ffd0df; border-radius: 18px; background: #fff8fb; }
+.s2e-settings__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.s2e-settings__heading small { color: #df2d70; font-size: 9px; font-weight: 850; letter-spacing: .1em; }
+.s2e-settings__heading h3 { margin: 3px 0 0; color: #3e2c35; font-size: 17px; }
+.s2e-settings__heading > button { width: 36px; min-height: 36px; padding: 0; }
+.s2e-settings__grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 11px; }
+.s2e-settings__wide { grid-column: 1 / -1; }
+.s2e-settings__save { justify-self: end; }
+.s2e-empty { padding: 35px 18px; border: 1px dashed #dfd2d8; border-radius: 16px; background: #fff; color: #81757b; text-align: center; font-size: 12px; }
+.s2e-print-root { overflow: hidden; padding: 28px; border: 1px solid #ded7da; border-radius: 18px; background: #fff; color: #191416; box-shadow: 0 14px 35px rgba(48,29,38,.06); font-family: "Times New Roman",Times,serif; }
+.s2e-document-header { display: grid; grid-template-columns: 1fr 1.05fr; gap: 22px; align-items: start; }
+.s2e-document-header dl { display: grid; gap: 4px; margin: 0; }
+.s2e-document-header dl div { display: flex; gap: 5px; border-bottom: 1px dotted #8e8589; }
+.s2e-document-header dt { flex: 0 0 auto; font-size: 12px; font-weight: 800; }
+.s2e-document-header dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-size: 12px; font-weight: 700; }
+.s2e-document-header > div { text-align: center; }
+.s2e-document-header > div strong, .s2e-document-header > div i { display: block; }
+.s2e-document-header > div strong { font-size: 14px; }
+.s2e-document-header > div i { margin-top: 4px; font-size: 11px; line-height: 1.3; }
+.s2e-document-title { margin: 25px 0 14px; text-align: center; }
+.s2e-document-title h2 { margin: 0; font-size: 23px; letter-spacing: .03em; }
+.s2e-document-title p { margin: 4px 0 0; font-size: 13px; font-weight: 700; }
+.s2e-document-unit { margin-bottom: 5px; text-align: right; font-size: 12px; font-style: italic; }
+.s2e-account-section { margin-top: 14px; }
+.s2e-account-section > h3, .s2e-account-section > h4 { margin: 0 0 5px; font-size: 14px; }
+.s2e-account-section > h3 { text-decoration: underline; }
+.s2e-account-section > h4 { font-size: 12px; font-style: italic; }
+.s2e-table-wrap { overflow-x: auto; }
+.s2e-account-section table { width: 100%; min-width: 650px; border-collapse: collapse; table-layout: fixed; font-size: 11px; }
+.s2e-account-section th, .s2e-account-section td { height: 33px; padding: 5px 7px; border: 1px solid #403a3d; vertical-align: middle; }
+.s2e-account-section thead th { text-align: center; font-size: 11px; }
+.s2e-col-number { width: 15%; }
+.s2e-col-date { width: 14%; }
+.s2e-col-description { width: 41%; }
+.s2e-col-money { width: 15%; }
+.s2e-account-section tbody td:nth-child(1), .s2e-account-section tbody td:nth-child(2) { text-align: center; }
+.s2e-account-section tbody td:nth-child(4), .s2e-account-section tbody td:nth-child(5) { text-align: right; font-variant-numeric: tabular-nums; }
+.s2e-column-codes th { height: 26px; font-weight: 400; }
+.s2e-opening-row th, .s2e-total-row th, .s2e-closing-row th { text-align: left; }
+.s2e-closing-row { font-weight: 800; }
+.s2e-no-activity td:nth-child(3) { color: #81777b; font-style: italic; text-align: center; }
+.s2e-running-balance { display: block; margin-top: 3px; color: #85777e; font-family: system-ui,sans-serif; font-size: 8px; }
+.s2e-document-footer { display: grid; justify-items: center; width: 48%; min-height: 150px; margin: 20px 2% 0 auto; align-content: start; text-align: center; }
+.s2e-document-footer p, .s2e-document-footer strong, .s2e-document-footer i { margin: 0 0 4px; }
+.s2e-document-footer p, .s2e-document-footer i { font-size: 11px; }
+.s2e-document-footer strong { font-size: 12px; }
+.s2e-document-footer b { margin-top: 55px; font-size: 12px; }
+.s2e-screen-note { margin-top: 18px; padding: 9px 11px; border-radius: 9px; background: #f6f2f4; color: #756970; font-family: system-ui,sans-serif; font-size: 9px; }
+.s2e-page-break { display: none; }
+
 .expense-voucher { overflow: hidden; border: 1px solid #f2ceda; border-radius: 22px; background: #fff; box-shadow: 0 14px 34px rgba(77,38,58,.07); }
 .expense-voucher__steps { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 0; padding: 10px; border-bottom: 1px solid #f2e4e9; background: #fff9fb; }
 .expense-voucher__steps button { display: flex; min-width: 0; align-items: center; justify-content: center; gap: 7px; min-height: 42px; border: 0; background: transparent; color: #8e7e87; font-weight: 750; }
@@ -154,6 +217,9 @@
   .finance-hub__tabs::-webkit-scrollbar { display: none; }
   .finance-hub__tabs button { min-width: 108px; min-height: 47px; flex: 1 0 auto; padding: 6px 8px; scroll-snap-align: start; }
   .finance-hub__tabs button > svg { width: 28px; height: 28px; }
+  .s2e-controls { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .s2e-controls label:nth-child(3), .s2e-controls__actions { grid-column: 1 / -1; }
+  .s2e-controls__actions { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); }
 }
 @media (max-width: 640px) {
   .finance-hub__tabs { margin-inline: -5px; }
@@ -184,12 +250,32 @@
   .receipt-voucher-document header > div, .receipt-voucher-document header > div:last-child { text-align: center; }
   .receipt-voucher-document__fields > div { grid-template-columns: 105px 1fr; }
   .receipt-voucher-document footer { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .s2e-controls { grid-template-columns: 1fr; }
+  .s2e-controls label:nth-child(3), .s2e-controls__actions { grid-column: 1; }
+  .s2e-controls__actions { grid-template-columns: 1fr; }
+  .s2e-settings__grid { grid-template-columns: 1fr; }
+  .s2e-settings__wide { grid-column: 1; }
+  .s2e-settings__save { width: 100%; }
+  .s2e-print-root { padding: 17px 12px; border-radius: 14px; }
+  .s2e-document-header { grid-template-columns: 1fr; }
+  .s2e-document-header > div { padding-top: 10px; border-top: 1px solid #d9d0d4; }
+  .s2e-document-title h2 { font-size: 20px; }
+  .s2e-document-footer { width: 100%; margin-right: 0; }
 }
 
 @media print {
+  @page { size: A4 portrait; margin: 10mm; }
   body * { visibility: hidden !important; }
   .receipt-voucher-modal, .receipt-voucher-modal * { visibility: visible !important; }
   .receipt-voucher-modal { position: absolute; inset: 0; display: block; overflow: visible; padding: 0; background: #fff; }
   .receipt-voucher-document { width: 100%; padding: 12mm; border-radius: 0; box-shadow: none; }
   .receipt-voucher-document__toolbar { display: none !important; }
+  .s2e-print-root, .s2e-print-root * { visibility: visible !important; }
+  .s2e-print-root { position: absolute; inset: 0; width: 100%; overflow: visible; padding: 0; border: 0; border-radius: 0; box-shadow: none; }
+  .s2e-account-section { break-inside: auto; }
+  .s2e-account-section + .s2e-account-section { break-before: page; }
+  .s2e-account-section table { min-width: 0; font-size: 10pt; }
+  .s2e-account-section thead { display: table-header-group; }
+  .s2e-account-section tr { break-inside: avoid; }
+  .s2e-running-balance, .s2e-screen-note { display: none !important; }
 }

@@ -9,6 +9,25 @@ function callable<Input, Output>(name: string) {
 export type CashAccountType = 'cash' | 'bank' | 'wallet'
 export interface CashAccount { id: string; name: string; type: CashAccountType; branchId: string; currency: 'VND'; balance: number; status: string; openingBalanceAt: string }
 export interface CashTransaction { id: string; accountId: string; pairedAccountId: string; branchId: string; type: string; category: string; amount: number; effectiveAt: string; referenceCode: string; note: string; status: string; reversedTransactionId: string }
+export interface S2eCashDetailSettings { businessName: string; address: string; taxCode: string; representativeName: string; unit: string }
+export interface S2eCashDetailRow { id: string; voucherNumber: string; documentDate: string; description: string; receipt: number; payment: number; runningBalance: number; category: string }
+export interface S2eCashDetailSection {
+  account: CashAccount
+  sectionType: 'cash' | 'demand_deposit'
+  openingBalance: number
+  totalReceipt: number
+  totalPayment: number
+  closingBalance: number
+  rows: S2eCashDetailRow[]
+}
+export interface S2eCashDetailBook {
+  formCode: 'S2e-HKD'
+  legalBasis: string
+  periodStart: string
+  periodEnd: string
+  settings: S2eCashDetailSettings
+  sections: S2eCashDetailSection[]
+}
 export interface AccountingAccount { code: string; name: string; group: 'asset' | 'liability' | 'revenue' | 'expense' }
 export interface ExpensePurpose { code: string; label: string; debitAccountCode: string; expenseImpact: boolean; vatAllowed: boolean }
 export interface JournalLine { side: 'debit' | 'credit'; accountCode: string; accountName: string; debit: number; credit: number; description: string }
@@ -103,6 +122,8 @@ export async function listAccountingCatalog() { return (await callable<Record<st
 export async function listCashAccounts() { return (await callable<Record<string, never>, { accounts: CashAccount[] }>('listCashAccounts')({})).data }
 export async function initializeCashAccount(input: { name: string; type: CashAccountType; branchId: string; openingBalance: number; openingBalanceAt: string; idempotencyKey: string }) { return (await callable<typeof input, { accountId: string }>('initializeCashAccount')(input)).data }
 export async function listCashTransactions(input: { accountId?: string; pageSize?: number } = {}) { return (await callable<typeof input, { transactions: CashTransaction[]; hasMore: boolean }>('listCashTransactions')(input)).data }
+export async function getS2eCashDetailBook(input: { periodStart: string; periodEnd: string; accountId?: string }) { return (await callable<typeof input, S2eCashDetailBook>('getS2eCashDetailBook')(input)).data }
+export async function saveS2eCashDetailSettings(input: S2eCashDetailSettings) { return (await callable<S2eCashDetailSettings, { settings: S2eCashDetailSettings }>('saveS2eCashDetailSettings')(input)).data }
 export async function recordCashExpense(input: { accountId: string; amount: number; category: string; effectiveAt: string; note?: string; idempotencyKey: string }) { return (await callable<typeof input, { transactionId: string }>('recordCashExpense')(input)).data }
 export async function listExpenseVouchers(input: { pageSize?: number } = {}) { return (await callable<typeof input, { vouchers: ExpenseVoucher[]; hasMore: boolean }>('listExpenseVouchers')(input)).data }
 export async function listReceiptVouchers(input: { accountId?: string; pageSize?: number } = {}) { return (await callable<typeof input, { vouchers: ReceiptVoucher[]; hasMore: boolean }>('listReceiptVouchers')(input)).data }
