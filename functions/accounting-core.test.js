@@ -8,6 +8,7 @@ const {
   serviceRevenueJournal,
   payrollAccrualJournal,
   payrollPaymentJournal,
+  manualReceiptJournal,
   reversedJournalLines,
   amountInVietnameseWords,
 } = require('./accounting-core')
@@ -64,4 +65,16 @@ test('payroll accrual and payment settle account 334 without recording expense t
   assert.equal(accrual.lines.find((item) => item.accountCode === '334').credit, 12_000_000)
   assert.equal(payment.lines.find((item) => item.accountCode === '334').debit, 12_000_000)
   assert.equal(payment.lines.find((item) => item.accountCode === '1121').credit, 12_000_000)
+})
+
+test('manual receipts distinguish cash inflow from revenue', () => {
+  const capital = manualReceiptJournal({ purposeCode: 'owner_contribution', amount: 20_000_000, cashAccountType: 'bank' })
+  assert.deepEqual(capital.lines.map((item) => [item.accountCode, item.debit, item.credit]), [
+    ['1121', 20_000_000, 0],
+    ['4111', 0, 20_000_000],
+  ])
+  assert.equal(capital.revenueImpact, 0)
+  const otherIncome = manualReceiptJournal({ purposeCode: 'other_income', amount: 500_000, cashAccountType: 'cash' })
+  assert.equal(otherIncome.lines.find((item) => item.accountCode === '711').credit, 500_000)
+  assert.equal(otherIncome.revenueImpact, 500_000)
 })

@@ -12,9 +12,12 @@ const CHART_OF_ACCOUNTS = Object.freeze({
   '242': { code: '242', name: 'Chi phí trả trước', group: 'asset' },
   '331': { code: '331', name: 'Phải trả cho người bán', group: 'liability' },
   '334': { code: '334', name: 'Phải trả người lao động', group: 'liability' },
+  '3411': { code: '3411', name: 'Các khoản đi vay', group: 'liability' },
   '3387': { code: '3387', name: 'Doanh thu chờ phân bổ', group: 'liability' },
   '33311': { code: '33311', name: 'Thuế GTGT đầu ra', group: 'liability' },
+  '4111': { code: '4111', name: 'Vốn góp của chủ sở hữu', group: 'equity' },
   '5113': { code: '5113', name: 'Doanh thu cung cấp dịch vụ', group: 'revenue' },
+  '711': { code: '711', name: 'Thu nhập khác', group: 'revenue' },
   '6277': { code: '6277', name: 'Chi phí dịch vụ mua ngoài', group: 'expense' },
   '6417': { code: '6417', name: 'Chi phí dịch vụ mua ngoài bán hàng', group: 'expense' },
   '6421': { code: '6421', name: 'Chi phí nhân viên quản lý', group: 'expense' },
@@ -35,6 +38,15 @@ const EXPENSE_PURPOSES = Object.freeze({
   fixed_asset_purchase: { label: 'Mua tài sản cố định', debitAccountCode: '2111', expenseImpact: false, vatAllowed: true },
   prepaid_expense: { label: 'Chi phí trả trước', debitAccountCode: '242', expenseImpact: false, vatAllowed: true },
   payroll_payment: { label: 'Thanh toán lương phải trả', debitAccountCode: '334', expenseImpact: false, vatAllowed: false },
+})
+
+const RECEIPT_PURPOSES = Object.freeze({
+  owner_contribution: { label: 'Chủ hộ góp/nộp thêm vốn', creditAccountCode: '4111', revenueImpact: false },
+  borrowing: { label: 'Nhận tiền vay', creditAccountCode: '3411', revenueImpact: false },
+  advance_recovery: { label: 'Thu hồi tạm ứng', creditAccountCode: '141', revenueImpact: false },
+  receivable_collection: { label: 'Thu hồi công nợ phải thu', creditAccountCode: '131', revenueImpact: false },
+  supplier_refund: { label: 'Nhà cung cấp hoàn lại tiền', creditAccountCode: '331', revenueImpact: false },
+  other_income: { label: 'Thu nhập khác thực tế phát sinh', creditAccountCode: '711', revenueImpact: true },
 })
 
 function integerMoney(value, label = 'Số tiền', allowZero = false) {
@@ -119,6 +131,24 @@ function contractPaymentJournal({ amount, cashAccountType, recognisedReceivable 
   return { lines, ...balance }
 }
 
+function manualReceiptJournal({ purposeCode, amount, cashAccountType, description = '' }) {
+  const purpose = RECEIPT_PURPOSES[purposeCode]
+  if (!purpose) throw new Error('Mục đích thu không hợp lệ.')
+  const total = integerMoney(amount)
+  const lines = [
+    line('debit', cashAccountCode(cashAccountType), total, 'Thu tiền theo phiếu thu'),
+    line('credit', purpose.creditAccountCode, total, description || purpose.label),
+  ]
+  return {
+    purposeCode,
+    purposeLabel: purpose.label,
+    revenueImpact: purpose.revenueImpact ? total : 0,
+    totalAmount: total,
+    lines,
+    ...assertBalancedJournal(lines),
+  }
+}
+
 function serviceRevenueJournal({ amount, paidAllocation = 0, advanceAccountCode = '131' }) {
   const total = integerMoney(amount)
   const allocated = Math.min(total, integerMoney(paidAllocation, 'Doanh thu đã thu tiền', true))
@@ -199,10 +229,12 @@ function amountInVietnameseWords(value) {
 module.exports = {
   CHART_OF_ACCOUNTS,
   EXPENSE_PURPOSES,
+  RECEIPT_PURPOSES,
   cashAccountCode,
   assertBalancedJournal,
   expenseVoucherJournal,
   contractPaymentJournal,
+  manualReceiptJournal,
   serviceRevenueJournal,
   payrollAccrualJournal,
   payrollPaymentJournal,

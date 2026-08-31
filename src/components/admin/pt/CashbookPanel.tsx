@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, ArrowRight, ArrowRightLeft, CheckCircle2, Eye, FilePenLine, Landmark, Plus, Printer, ReceiptText, RefreshCw, RotateCcw, Send, Wallet, X } from 'lucide-react'
 import {
   approveAndPostExpenseVoucher,
+  createManualReceiptVoucher,
   getS2eCashDetailBook,
   initializeCashAccount,
   listAccountingCatalog,
@@ -10,6 +11,7 @@ import {
   listExpenseVouchers,
   listReceiptVouchers,
   reverseExpenseVoucher,
+  reverseManualReceiptVoucher,
   saveS2eCashDetailSettings,
   saveExpenseVoucherDraft,
   transferCash,
@@ -21,13 +23,14 @@ import {
   type ExpenseVoucher,
   type JournalLine,
   type ReceiptVoucher,
+  type ReceiptPurpose,
   type S2eCashDetailBook as S2eBook,
   type S2eCashDetailSettings,
 } from '../../../services/cashbookService'
 import { reverseContractPayment } from '../../../services/financeLedgerService'
 import S2eCashDetailBook from './S2eCashDetailBook'
 
-type PanelMode = 'none' | 'account' | 'voucher' | 'transfer'
+type PanelMode = 'none' | 'account' | 'receipt' | 'voucher' | 'transfer'
 type LedgerTab = 's2e' | 'receipts' | 'vouchers' | 'cash'
 
 const today = () => new Date().toISOString().slice(0, 10)
@@ -62,6 +65,8 @@ const emptyVoucher = (accountId = '') => ({
   attachmentUrl: '',
 })
 
+const emptyReceipt = (accountId = '') => ({ accountId, purposeCode: '', effectiveAt: today(), payerName: '', payerAddress: '', description: '', amount: '', paymentMethod: 'cash' })
+
 function errorMessage(value: unknown, fallback: string) {
   if (!(value instanceof Error)) return fallback
   return value.message.replace(/^Firebase:\s*/i, '').replace(/\(functions\/[\w-]+\)\.?$/i, '').trim() || fallback
@@ -73,6 +78,7 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
   const [vouchers, setVouchers] = useState<ExpenseVoucher[]>([])
   const [receipts, setReceipts] = useState<ReceiptVoucher[]>([])
   const [purposes, setPurposes] = useState<ExpensePurpose[]>([])
+  const [receiptPurposes, setReceiptPurposes] = useState<ReceiptPurpose[]>([])
   const [accountingAccounts, setAccountingAccounts] = useState<AccountingAccount[]>([])
   const [approvalThreshold, setApprovalThreshold] = useState(10_000_000)
   const [selectedAccount, setSelectedAccount] = useState('')
@@ -88,6 +94,7 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptVoucher | null>(null)
   const [voucherStep, setVoucherStep] = useState(1)
   const [voucherForm, setVoucherForm] = useState(emptyVoucher())
+  const [receiptForm, setReceiptForm] = useState(emptyReceipt())
   const [basicForm, setBasicForm] = useState({ name: '', type: 'cash' as CashAccountType, branchId: '', amount: '', toAccountId: '' })
 
   const load = useCallback(async () => {
@@ -111,6 +118,7 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
       setVouchers(voucherPage.vouchers)
       setReceipts(receiptPage.vouchers)
       setPurposes(catalog.expensePurposes)
+      setReceiptPurposes(catalog.receiptPurposes || [])
       setAccountingAccounts(catalog.accounts)
       setApprovalThreshold(catalog.approvalSeparationThreshold)
       setS2eBook(s2ePage)
@@ -145,6 +153,7 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
     setMode('none')
     setVoucherStep(1)
     setVoucherForm(emptyVoucher(selectedAccount))
+    setReceiptForm(emptyReceipt(selectedAccount))
     setBasicForm({ name: '', type: 'cash', branchId: '', amount: '', toAccountId: '' })
   }
 
@@ -172,6 +181,14 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
       originalDocumentCount: String(voucher.originalDocumentCount || 0),
       attachmentUrl: voucher.attachmentUrls[0] || '',
     } : emptyVoucher(selectedAccount || activeAccounts[0].id))
+  }
+
+  const openReceipt = () => {
+    if (!activeAccounts.length) return setError('Chưa có tài khoản quỹ đang hoạt động. Hãy mở quỹ trước khi lập phiếu thu.')
+    setError('')
+    setMessage('')
+    setMode('receipt')
+    setReceiptForm(emptyReceipt(selectedAccount || activeAccounts[0].id))
   }
 
   const validateVoucherStep = (step: number) => {
@@ -244,6 +261,29 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
     }
   }
 
+  const submitReceipt = async () => {
+    const receiptAmount = Number(receiptForm.amount)
+    if (!receiptForm.accountId || !receiptForm.purposeCode || !receiptForm.payerName.trim() || !receiptForm.description.trim()) return setError('Hãy nhập đủ tài khoản thu, loại nghiệp vụ, người nộp và nội dung thu.')
+    if (!Number.isSafeInteger(receiptAmount) || receiptAmount <= 0) return setError('Số tiền thu phải là số nguyên dương.')
+    setBusy(true)
+    setError('')
+    setMessage('')
+    try {
+      const result = await createManualReceiptVoucher({
+        ...receiptForm,
+        amount: receiptAmount,
+        effectiveAt: new Date(`${receiptForm.effectiveAt}T12:00:00+07:00`).toISOString(),
+        idempotencyKey: crypto.randomUUID(),
+      })
+      closeForm()
+      setActiveTab('receipts')
+      setMessage(`Đã ghi sổ ${result.voucherNumber}. Khoản thu chỉ được tính doanh thu theo đúng loại nghiệp vụ đã chọn.`)
+      await load()
+    } catch (value) {
+      setError(errorMessage(value, 'Không thể lập phiếu thu.'))
+    } finally { setBusy(false) }
+  }
+
   const approveVoucher = async (voucher: ExpenseVoucher) => {
     if (!window.confirm(`Phê duyệt và ghi sổ phiếu ${voucher.voucherNumber} với số tiền ${money(voucher.totalAmount)}?`)) return
     setBusy(true)
@@ -279,9 +319,16 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
     setBusy(true)
     setError('')
     try {
-      const result = await reverseContractPayment(receipt.ledgerEntryId, reason)
+      let reversalNumber = 'chứng từ đảo'
+      if (receipt.source === 'manual_receipt') {
+        const result = await reverseManualReceiptVoucher({ voucherId: receipt.id, reason })
+        reversalNumber = result.voucherNumber || reversalNumber
+      } else {
+        const result = await reverseContractPayment(receipt.ledgerEntryId, reason)
+        reversalNumber = result.receiptVoucherNumber || reversalNumber
+      }
       setSelectedReceipt(null)
-      setMessage(`Đã tạo ${result.receiptVoucherNumber || 'chứng từ đảo'} cho ${receipt.voucherNumber}.`)
+      setMessage(`Đã tạo ${reversalNumber} cho ${receipt.voucherNumber}.`)
       await load()
     } catch (value) {
       setError(errorMessage(value, 'Không thể đảo phiếu thu.'))
@@ -317,6 +364,7 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
         {activeAccounts.map((item) => <option key={item.id} value={item.id}>{item.name} · {money(item.balance)}</option>)}
       </select>
       <button onClick={() => { closeForm(); setMode('account') }}><Plus size={16} /> Mở quỹ</button>
+      <button onClick={openReceipt}><ReceiptText size={16} /> Lập phiếu thu</button>
       <button onClick={() => openVoucher()}><FilePenLine size={16} /> Lập phiếu chi</button>
       <button disabled={!selectedAccount || activeAccounts.length < 2} onClick={() => { closeForm(); setMode('transfer') }}><ArrowRightLeft size={16} /> Chuyển quỹ</button>
       <button onClick={() => void load()} aria-label="Tải lại"><RefreshCw size={16} /></button>
@@ -334,6 +382,22 @@ export default function CashbookPanel({ branches }: { branches: Array<{ id: stri
       {mode === 'transfer' && <label>Quỹ nhận<select value={basicForm.toAccountId} onChange={(event) => setBasicForm((value) => ({ ...value, toAccountId: event.target.value }))}><option value="">Chọn quỹ nhận</option>{activeAccounts.filter((item) => item.id !== selectedAccount).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
       <label>{mode === 'account' ? 'Số dư đầu kỳ đã kiểm kê' : 'Số tiền'}<input type="number" min="0" step="1" value={basicForm.amount} onChange={(event) => setBasicForm((value) => ({ ...value, amount: event.target.value }))} /></label>
       <div className="cashbook-form__actions"><button className="cashbook-primary" onClick={() => void submitBasicForm()} disabled={busy}>Xác nhận</button><button onClick={closeForm}><X size={15} /> Hủy</button></div>
+    </div>}
+
+    {mode === 'receipt' && <div className="manual-receipt-form">
+      <div className="manual-receipt-form__heading"><div><small>PHIẾU THU PHÁT SINH</small><h3>Ghi đúng bản chất tiền vào</h3><p>Tiền nhận vào quỹ không tự động là doanh thu. Chỉ “Thu nhập khác” làm tăng doanh thu tại thời điểm ghi phiếu.</p></div><button onClick={closeForm} aria-label="Đóng"><X size={18} /></button></div>
+      <div className="manual-receipt-form__grid">
+        <label>Tài khoản nhận<select value={receiptForm.accountId} onChange={(event) => setReceiptForm((value) => ({ ...value, accountId: event.target.value }))}>{activeAccounts.map((item) => <option key={item.id} value={item.id}>{item.name} · {money(item.balance)}</option>)}</select></label>
+        <label>Ngày hạch toán<input type="date" value={receiptForm.effectiveAt} onChange={(event) => setReceiptForm((value) => ({ ...value, effectiveAt: event.target.value }))} /></label>
+        <label className="manual-receipt-form__wide">Loại khoản thu<select value={receiptForm.purposeCode} onChange={(event) => setReceiptForm((value) => ({ ...value, purposeCode: event.target.value }))}><option value="">Chọn bản chất nghiệp vụ</option>{receiptPurposes.map((item) => <option key={item.code} value={item.code}>{item.label} · Có {item.creditAccountCode}{item.revenueImpact ? ' · Có tính doanh thu' : ' · Không phải doanh thu'}</option>)}</select></label>
+        {receiptForm.purposeCode && <div className={`manual-receipt-form__classification manual-receipt-form__wide ${receiptPurposes.find((item) => item.code === receiptForm.purposeCode)?.revenueImpact ? 'is-revenue' : ''}`}><b>{receiptPurposes.find((item) => item.code === receiptForm.purposeCode)?.revenueImpact ? 'Khoản này được ghi nhận thu nhập' : 'Khoản này chỉ làm tăng tiền, không tăng doanh thu'}</b><span>Bút toán: Nợ tài khoản tiền / Có {receiptPurposes.find((item) => item.code === receiptForm.purposeCode)?.creditAccountCode}</span></div>}
+        <label>Người nộp tiền<input value={receiptForm.payerName} onChange={(event) => setReceiptForm((value) => ({ ...value, payerName: event.target.value }))} placeholder="Cá nhân hoặc tổ chức" /></label>
+        <label>Địa chỉ<input value={receiptForm.payerAddress} onChange={(event) => setReceiptForm((value) => ({ ...value, payerAddress: event.target.value }))} /></label>
+        <label className="manual-receipt-form__wide">Nội dung thu<textarea rows={3} value={receiptForm.description} onChange={(event) => setReceiptForm((value) => ({ ...value, description: event.target.value }))} placeholder="Diễn giải và căn cứ chứng từ" /></label>
+        <label>Số tiền<input type="number" min="1" step="1" value={receiptForm.amount} onChange={(event) => setReceiptForm((value) => ({ ...value, amount: event.target.value }))} /></label>
+        <label>Phương thức<select value={receiptForm.paymentMethod} onChange={(event) => setReceiptForm((value) => ({ ...value, paymentMethod: event.target.value }))}><option value="cash">Tiền mặt</option><option value="bank_transfer">Chuyển khoản</option><option value="e_wallet">Ví điện tử</option></select></label>
+      </div>
+      <div className="manual-receipt-form__actions"><button onClick={closeForm}>Hủy</button><button className="cashbook-primary" disabled={busy} onClick={() => void submitReceipt()}><ReceiptText size={16} /> Ghi sổ phiếu thu</button></div>
     </div>}
 
     {mode === 'voucher' && <div className="expense-voucher">

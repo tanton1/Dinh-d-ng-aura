@@ -5,7 +5,9 @@ const { assertFinancePeriodOpen, receiptVoucherNumber } = require('./finance-led
 const {
   CHART_OF_ACCOUNTS,
   EXPENSE_PURPOSES,
+  RECEIPT_PURPOSES,
   expenseVoucherJournal,
+  manualReceiptJournal,
   reversedJournalLines,
   amountInVietnameseWords,
 } = require('./accounting-core')
@@ -189,6 +191,7 @@ function createCashbookFunctions({ db, onCall }) {
     return {
       accounts: Object.values(CHART_OF_ACCOUNTS),
       expensePurposes: Object.entries(EXPENSE_PURPOSES).map(([code, value]) => ({ code, ...value })),
+      receiptPurposes: Object.entries(RECEIPT_PURPOSES).map(([code, value]) => ({ code, ...value })),
       approvalSeparationThreshold: EXPENSE_APPROVAL_SEPARATION_THRESHOLD,
     }
   })
@@ -415,6 +418,133 @@ function createCashbookFunctions({ db, onCall }) {
     return { vouchers, hasMore: vouchers.length === pageSize }
   })
 
+  const createManualReceiptVoucher = onCall(async (request) => {
+    const actor = await actorForFinance(request, db)
+    const accountId = clean(request.data?.accountId, 'Tài khoản thu', 200)
+    const purposeCode = clean(request.data?.purposeCode, 'Mục đích thu', 80)
+    const payerName = clean(request.data?.payerName, 'Người nộp tiền', 200)
+    const payerAddress = optionalClean(request.data?.payerAddress, 300)
+    const description = clean(request.data?.description, 'Nội dung thu', 500)
+    const receiptAmount = amount(request.data?.amount)
+    const at = effectiveAt(request.data?.effectiveAt)
+    const paymentMethod = clean(request.data?.paymentMethod, 'Phương thức thanh toán', 50)
+    const idempotencyKey = clean(request.data?.idempotencyKey, 'Khóa chống trùng', 120)
+    const ledgerReference = db.doc(`ledgerEntries/manual_receipt_${idempotencyKey}`)
+    const voucherReference = db.doc(`accountingDocuments/manual_receipt_${idempotencyKey}`)
+    const journalReference = db.doc(`journalEntries/manual_receipt_${idempotencyKey}`)
+    const cashReference = db.doc(`cashTransactions/manual_receipt_${idempotencyKey}`)
+    return db.runTransaction(async (transaction) => {
+      const [duplicate, account] = await Promise.all([
+        transaction.get(voucherReference),
+        transaction.get(db.doc(`cashAccounts/${accountId}`)),
+      ])
+      if (duplicate.exists) return { voucherId: voucherReference.id, voucherNumber: duplicate.data().voucherNumber, ledgerEntryId: ledgerReference.id, unchanged: true }
+      await assertFinancePeriodOpen(transaction, db, at)
+      if (!account.exists || account.data().status !== 'active') throw new HttpsError('failed-precondition', 'Tài khoản quỹ không hoạt động.')
+      let journal
+      try {
+        journal = manualReceiptJournal({ purposeCode, amount: receiptAmount, cashAccountType: account.data().type, description })
+      } catch (cause) {
+        throw new HttpsError('invalid-argument', cause instanceof Error ? cause.message : 'Bút toán phiếu thu không hợp lệ.')
+      }
+      const number = receiptVoucherNumber(voucherReference, account.data().branchId, at)
+      const common = { createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid }
+      transaction.update(account.ref, { balance: FieldValue.increment(receiptAmount), updatedAt: FieldValue.serverTimestamp() })
+      transaction.create(voucherReference, {
+        schemaVersion: 1, documentType: 'receipt_voucher', voucherNumber: number, status: 'posted', revision: 1,
+        accountId, cashAccountType: account.data().type, branchId: account.data().branchId || '', contractId: '', studentId: '',
+        payerName, payerAddress, description, paymentMethod, source: 'manual_receipt', installmentId: null,
+        purposeCode, purposeLabel: journal.purposeLabel, revenueImpact: journal.revenueImpact,
+        totalAmount: receiptAmount, amountInWords: amountInVietnameseWords(receiptAmount), journalLines: journal.lines,
+        totalDebit: journal.totalDebit, totalCredit: journal.totalCredit, effectiveAt: at, ledgerEntryId: ledgerReference.id,
+        journalEntryId: journalReference.id, cashTransactionId: cashReference.id, ...common,
+        postedAt: FieldValue.serverTimestamp(), postedBy: actor.uid,
+      })
+      transaction.create(journalReference, {
+        schemaVersion: 1, documentId: voucherReference.id, documentType: 'receipt_voucher', voucherNumber: number,
+        branchId: account.data().branchId || '', effectiveAt: at, status: 'posted', lines: journal.lines,
+        totalDebit: journal.totalDebit, totalCredit: journal.totalCredit, ...common,
+      })
+      transaction.create(ledgerReference, {
+        schemaVersion: 4, type: 'payment', eventClass: 'manual_cash_receipt', source: 'other', documentId: voucherReference.id,
+        journalEntryId: journalReference.id, accountingDocumentId: voucherReference.id, voucherNumber: number,
+        cashAccountId: accountId, branchId: account.data().branchId || '', amount: receiptAmount, cashImpact: receiptAmount,
+        revenueImpact: journal.revenueImpact, expenseImpact: 0, receivableImpact: purposeCode === 'receivable_collection' ? -receiptAmount : 0,
+        deferredRevenueImpact: 0, effectiveAt: at, note: description, status: 'posted', referenceCode: number,
+        idempotencyKey, paymentMethod, ...common,
+      })
+      transaction.create(cashReference, {
+        schemaVersion: 3, accountId, branchId: account.data().branchId || '', type: 'income', category: purposeCode,
+        amount: receiptAmount, effectiveAt: at, payerName, note: description, status: 'posted', referenceCode: number,
+        idempotencyKey, ledgerEntryId: ledgerReference.id, accountingDocumentId: voucherReference.id, ...common,
+      })
+      return { voucherId: voucherReference.id, voucherNumber: number, ledgerEntryId: ledgerReference.id, unchanged: false }
+    })
+  })
+
+  const reverseManualReceiptVoucher = onCall(async (request) => {
+    const actor = await actorForFinance(request, db)
+    const voucherId = clean(request.data?.voucherId, 'Mã phiếu thu', 200)
+    const reason = clean(request.data?.reason, 'Lý do đảo phiếu', 500)
+    const originalReference = db.doc(`accountingDocuments/${voucherId}`)
+    const reversalReference = db.doc(`accountingDocuments/reversal_${voucherId}`)
+    const journalReference = db.doc(`journalEntries/reversal_${voucherId}`)
+    const ledgerReference = db.doc(`ledgerEntries/reversal_${voucherId}`)
+    const cashReference = db.doc(`cashTransactions/reversal_${voucherId}`)
+    const at = Timestamp.now()
+    return db.runTransaction(async (transaction) => {
+      const [original, duplicate] = await Promise.all([transaction.get(originalReference), transaction.get(reversalReference)])
+      if (duplicate.exists) return { voucherId: reversalReference.id, voucherNumber: duplicate.data().voucherNumber, unchanged: true }
+      if (!original.exists || original.data().documentType !== 'receipt_voucher' || original.data().source !== 'manual_receipt') {
+        throw new HttpsError('failed-precondition', 'Chỉ phiếu thu phát sinh đã ghi sổ mới dùng thao tác này.')
+      }
+      if (original.data().status !== 'posted') throw new HttpsError('failed-precondition', 'Phiếu thu không còn ở trạng thái đã ghi sổ.')
+      await assertFinancePeriodOpen(transaction, db, at)
+      const data = original.data()
+      const account = await transaction.get(db.doc(`cashAccounts/${data.accountId}`))
+      if (!account.exists || account.data().status !== 'active') throw new HttpsError('failed-precondition', 'Tài khoản quỹ không hoạt động.')
+      const total = amount(data.totalAmount)
+      if (Number(account.data().balance || 0) < total) throw new HttpsError('failed-precondition', 'Số dư không đủ để đảo phiếu thu này.')
+      let lines
+      try { lines = reversedJournalLines(data.journalLines) } catch { throw new HttpsError('failed-precondition', 'Bút toán phiếu thu gốc không hợp lệ để đảo.') }
+      const reversalNumber = `DAO-${data.voucherNumber}`.slice(0, 100)
+      const common = { createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid }
+      transaction.update(account.ref, { balance: FieldValue.increment(-total), updatedAt: FieldValue.serverTimestamp() })
+      transaction.create(reversalReference, {
+        ...data, documentType: 'receipt_voucher_reversal', voucherNumber: reversalNumber, status: 'posted', revision: 1,
+        description: `Đảo phiếu thu ${data.voucherNumber}: ${reason}`.slice(0, 500), journalLines: lines,
+        effectiveAt: at, ledgerEntryId: ledgerReference.id, journalEntryId: journalReference.id, cashTransactionId: cashReference.id,
+        originalVoucherId: voucherId, reason, ...common, postedAt: FieldValue.serverTimestamp(), postedBy: actor.uid,
+      })
+      transaction.create(journalReference, {
+        schemaVersion: 1, documentId: reversalReference.id, documentType: 'receipt_voucher_reversal', voucherNumber: reversalNumber,
+        originalJournalEntryId: data.journalEntryId || '', branchId: data.branchId || '', effectiveAt: at, status: 'posted',
+        lines, totalDebit: total, totalCredit: total, ...common,
+      })
+      transaction.create(ledgerReference, {
+        schemaVersion: 4, type: 'reversal', eventClass: 'manual_cash_receipt_reversal', source: 'other',
+        documentId: reversalReference.id, originalDocumentId: voucherId, journalEntryId: journalReference.id,
+        accountingDocumentId: reversalReference.id, voucherNumber: reversalNumber, cashAccountId: data.accountId,
+        branchId: data.branchId || '', amount: -total, cashImpact: -total, revenueImpact: -Number(data.revenueImpact || 0),
+        expenseImpact: 0, receivableImpact: data.purposeCode === 'receivable_collection' ? total : 0, deferredRevenueImpact: 0,
+        effectiveAt: at, reason, note: reason, status: 'posted', referenceCode: reversalNumber,
+        idempotencyKey: `manual-receipt-reversal:${voucherId}`, ...common,
+      })
+      transaction.create(cashReference, {
+        schemaVersion: 3, accountId: data.accountId, branchId: data.branchId || '', type: 'reversal', category: data.purposeCode || '',
+        amount: -total, effectiveAt: at, payerName: data.payerName || '', note: reason, status: 'posted', referenceCode: reversalNumber,
+        reversedTransactionId: data.cashTransactionId || '', ledgerEntryId: ledgerReference.id,
+        accountingDocumentId: reversalReference.id, ...common,
+      })
+      transaction.update(originalReference, {
+        status: 'reversed', revision: FieldValue.increment(1), reversedAt: FieldValue.serverTimestamp(), reversedBy: actor.uid,
+        reversalVoucherId: reversalReference.id, updatedAt: FieldValue.serverTimestamp(),
+      })
+      if (data.ledgerEntryId) transaction.update(db.doc(`ledgerEntries/${data.ledgerEntryId}`), { status: 'reversed', reversedAt: FieldValue.serverTimestamp(), reversedBy: actor.uid, reversalEntryId: ledgerReference.id })
+      return { voucherId: reversalReference.id, voucherNumber: reversalNumber, unchanged: false }
+    })
+  })
+
   const saveExpenseVoucherDraft = onCall(async (request) => {
     const actor = await actorForFinance(request, db)
     const voucherId = optionalClean(request.data?.voucherId, 200)
@@ -639,6 +769,8 @@ function createCashbookFunctions({ db, onCall }) {
     recordCashExpense,
     listExpenseVouchers,
     listReceiptVouchers,
+    createManualReceiptVoucher,
+    reverseManualReceiptVoucher,
     saveExpenseVoucherDraft,
     approveAndPostExpenseVoucher,
     reverseExpenseVoucher,

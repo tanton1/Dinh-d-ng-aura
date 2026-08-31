@@ -28,8 +28,9 @@ export interface S2eCashDetailBook {
   settings: S2eCashDetailSettings
   sections: S2eCashDetailSection[]
 }
-export interface AccountingAccount { code: string; name: string; group: 'asset' | 'liability' | 'revenue' | 'expense' }
+export interface AccountingAccount { code: string; name: string; group: 'asset' | 'liability' | 'equity' | 'revenue' | 'expense' }
 export interface ExpensePurpose { code: string; label: string; debitAccountCode: string; expenseImpact: boolean; vatAllowed: boolean }
+export interface ReceiptPurpose { code: string; label: string; creditAccountCode: string; revenueImpact: boolean }
 export interface JournalLine { side: 'debit' | 'credit'; accountCode: string; accountName: string; debit: number; credit: number; description: string }
 export type ExpenseVoucherStatus = 'draft' | 'pending_approval' | 'posted' | 'reversed'
 export interface ExpenseVoucher {
@@ -118,7 +119,7 @@ export interface ExpenseVoucherInput {
   submit: boolean
 }
 
-export async function listAccountingCatalog() { return (await callable<Record<string, never>, { accounts: AccountingAccount[]; expensePurposes: ExpensePurpose[]; approvalSeparationThreshold: number }>('listAccountingCatalog')({})).data }
+export async function listAccountingCatalog() { return (await callable<Record<string, never>, { accounts: AccountingAccount[]; expensePurposes: ExpensePurpose[]; receiptPurposes: ReceiptPurpose[]; approvalSeparationThreshold: number }>('listAccountingCatalog')({})).data }
 export async function listCashAccounts() { return (await callable<Record<string, never>, { accounts: CashAccount[] }>('listCashAccounts')({})).data }
 export async function initializeCashAccount(input: { name: string; type: CashAccountType; branchId: string; openingBalance: number; openingBalanceAt: string; idempotencyKey: string }) { return (await callable<typeof input, { accountId: string }>('initializeCashAccount')(input)).data }
 export async function listCashTransactions(input: { accountId?: string; pageSize?: number } = {}) { return (await callable<typeof input, { transactions: CashTransaction[]; hasMore: boolean }>('listCashTransactions')(input)).data }
@@ -127,6 +128,8 @@ export async function saveS2eCashDetailSettings(input: S2eCashDetailSettings) { 
 export async function recordCashExpense(input: { accountId: string; amount: number; category: string; effectiveAt: string; note?: string; idempotencyKey: string }) { return (await callable<typeof input, { transactionId: string }>('recordCashExpense')(input)).data }
 export async function listExpenseVouchers(input: { pageSize?: number } = {}) { return (await callable<typeof input, { vouchers: ExpenseVoucher[]; hasMore: boolean }>('listExpenseVouchers')(input)).data }
 export async function listReceiptVouchers(input: { accountId?: string; pageSize?: number } = {}) { return (await callable<typeof input, { vouchers: ReceiptVoucher[]; hasMore: boolean }>('listReceiptVouchers')(input)).data }
+export async function createManualReceiptVoucher(input: { accountId: string; purposeCode: string; payerName: string; payerAddress?: string; description: string; amount: number; effectiveAt: string; paymentMethod: string; idempotencyKey: string }) { return (await callable<typeof input, { voucherId: string; voucherNumber: string; ledgerEntryId: string; unchanged: boolean }>('createManualReceiptVoucher')(input)).data }
+export async function reverseManualReceiptVoucher(input: { voucherId: string; reason: string }) { return (await callable<typeof input, { voucherId: string; voucherNumber: string; unchanged: boolean }>('reverseManualReceiptVoucher')(input)).data }
 export async function saveExpenseVoucherDraft(input: ExpenseVoucherInput) { return (await callable<ExpenseVoucherInput, { voucherId: string; voucherNumber: string; status: ExpenseVoucherStatus; revision: number; journalLines: JournalLine[] }>('saveExpenseVoucherDraft')(input)).data }
 export async function approveAndPostExpenseVoucher(input: { voucherId: string; expectedRevision: number }) { return (await callable<typeof input, { voucherId: string; status: ExpenseVoucherStatus; unchanged: boolean; journalEntryId?: string; ledgerEntryId?: string }>('approveAndPostExpenseVoucher')(input)).data }
 export async function reverseExpenseVoucher(input: { voucherId: string; reason: string }) { return (await callable<typeof input, { voucherId: string; status: ExpenseVoucherStatus; unchanged: boolean }>('reverseExpenseVoucher')(input)).data }

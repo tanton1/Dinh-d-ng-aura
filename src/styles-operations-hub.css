@@ -65,6 +65,23 @@
 .cashbook-list .negative { color: #d92f63; }
 .cashbook-list > p { padding: 28px; color: #80767b; text-align: center; }
 
+.manual-receipt-form { overflow: hidden; padding: 18px; border: 1px solid #bfe4d3; border-radius: 20px; background: linear-gradient(135deg,#f5fff9,#fff); box-shadow: 0 14px 34px rgba(27,105,75,.07); }
+.manual-receipt-form__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; margin-bottom: 15px; }
+.manual-receipt-form__heading small { color: #11845b; font-size: 10px; font-weight: 850; letter-spacing: .12em; }
+.manual-receipt-form__heading h3 { margin: 3px 0; color: #273a32; font-size: 19px; }
+.manual-receipt-form__heading p { max-width: 700px; margin: 0; color: #64746d; font-size: 11px; line-height: 1.5; }
+.manual-receipt-form__heading > button { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border: 1px solid #d7e8e0; border-radius: 11px; background: #fff; color: #66756f; }
+.manual-receipt-form__grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.manual-receipt-form__grid label { display: grid; min-width: 0; gap: 6px; color: #5e7168; font-size: 11px; font-weight: 800; }
+.manual-receipt-form__grid input, .manual-receipt-form__grid select, .manual-receipt-form__grid textarea { width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 1px solid #d9e7e1; border-radius: 12px; outline: 0; background: #fff; color: #2d3d36; font: inherit; font-weight: 600; }
+.manual-receipt-form__grid textarea { resize: vertical; }
+.manual-receipt-form__wide { grid-column: 1 / -1; }
+.manual-receipt-form__classification { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 13px; border-radius: 12px; background: #eafbf3; color: #176a4d; font-size: 11px; }
+.manual-receipt-form__classification.is-revenue { background: #fff4dc; color: #76520d; }
+.manual-receipt-form__classification span { font-size: 10px; }
+.manual-receipt-form__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px; padding-top: 13px; border-top: 1px solid #dcebe5; }
+.manual-receipt-form__actions button { display: inline-flex; min-height: 42px; align-items: center; justify-content: center; gap: 6px; padding: 0 13px; border: 1px solid #d6e5df; border-radius: 11px; background: #fff; color: #40544b; font-weight: 800; }
+
 .s2e-module { display: grid; gap: 13px; }
 .s2e-compliance-card { display: flex; align-items: flex-start; gap: 11px; padding: 14px 16px; border: 1px solid #b9e4d2; border-radius: 16px; background: linear-gradient(120deg,#effff8,#f6fffb); color: #195b43; }
 .s2e-compliance-card svg { flex: 0 0 auto; margin-top: 1px; }
@@ -250,6 +267,10 @@
   .receipt-voucher-document header > div, .receipt-voucher-document header > div:last-child { text-align: center; }
   .receipt-voucher-document__fields > div { grid-template-columns: 105px 1fr; }
   .receipt-voucher-document footer { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .manual-receipt-form__grid { grid-template-columns: 1fr; }
+  .manual-receipt-form__wide { grid-column: 1; }
+  .manual-receipt-form__classification { align-items: flex-start; flex-direction: column; }
+  .manual-receipt-form__actions { display: grid; grid-template-columns: 1fr 1fr; }
   .s2e-controls { grid-template-columns: 1fr; }
   .s2e-controls label:nth-child(3), .s2e-controls__actions { grid-column: 1; }
   .s2e-controls__actions { grid-template-columns: 1fr; }
