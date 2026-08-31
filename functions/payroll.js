@@ -4,6 +4,8 @@ const { createHash } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { calculateWorkdayPayroll, mergeWorkCalendar, payrollAmounts } = require('./staff-payroll')
 const { calculateReferralCommissions } = require('./referral-commission')
+const { assertFinancePeriodOpen } = require('./finance-ledger')
+const { payrollAccrualJournal, payrollPaymentJournal } = require('./accounting-core')
 
 async function payrollActor(request, db) {
   const actor = await trustedAccessContext(request, db)
@@ -1062,21 +1064,27 @@ function createPayrollFunctions({ db, onCall }) {
     if (!runId) throw new HttpsError('invalid-argument', 'Mã kỳ lương không hợp lệ.')
     const runReference = db.doc(`payrollRuns/${runId}`)
     const ledgerReference = db.doc(`ledgerEntries/payroll_${runId}`)
+    const journalReference = db.doc(`journalEntries/payroll_${runId}`)
     await db.runTransaction(async (transaction) => {
-      const [run, existingLedger] = await Promise.all([transaction.get(runReference), transaction.get(ledgerReference)])
+      const [run, existingLedger, existingJournal] = await Promise.all([transaction.get(runReference), transaction.get(ledgerReference), transaction.get(journalReference)])
       if (!run.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
       if (run.data().status === 'locked') return
       if (run.data().status !== 'reviewed') throw new HttpsError('failed-precondition', 'Kỳ lương phải ở trạng thái reviewed.')
       const periodId = period(run.data().periodId)
       const finalAmount = Math.max(0, Number(run.data().finalAmount || run.data().grossAmount || 0))
-      transaction.update(runReference, { status: 'locked', lockedAt: FieldValue.serverTimestamp(), lockedBy: actor.uid, ledgerEntryId: ledgerReference.id, updatedAt: FieldValue.serverTimestamp() })
+      if (!Number.isSafeInteger(finalAmount) || finalAmount <= 0) throw new HttpsError('failed-precondition', 'Kỳ lương không có số tiền hợp lệ để khóa.')
+      const effectiveAt = payrollEffectiveAt(periodId)
+      await assertFinancePeriodOpen(transaction, db, effectiveAt)
+      const journal = payrollAccrualJournal({ amount: finalAmount })
+      transaction.update(runReference, { status: 'locked', lockedAt: FieldValue.serverTimestamp(), lockedBy: actor.uid, ledgerEntryId: ledgerReference.id, journalEntryId: journalReference.id, updatedAt: FieldValue.serverTimestamp() })
       if (!existingLedger.exists) {
         transaction.create(ledgerReference, {
-          schemaVersion: 2,
+          schemaVersion: 3,
           type: 'payroll',
           eventClass: 'payroll_accrual',
           source: 'payroll',
           payrollRunId: runId,
+          journalEntryId: journalReference.id,
           periodId,
           branchId: run.data().branchId || '',
           amount: -finalAmount,
@@ -1085,13 +1093,18 @@ function createPayrollFunctions({ db, onCall }) {
           expenseImpact: finalAmount,
           receivableImpact: 0,
           deferredRevenueImpact: 0,
-          effectiveAt: payrollEffectiveAt(periodId),
+          effectiveAt,
           idempotencyKey: `payroll-accrual:${runId}`,
           status: 'posted',
           createdAt: FieldValue.serverTimestamp(),
           createdBy: actor.uid,
         })
       }
+      if (!existingJournal.exists) transaction.create(journalReference, {
+        schemaVersion: 1, documentType: 'payroll_accrual', documentId: ledgerReference.id, referenceCode: `TL-${runId.slice(-12).toUpperCase()}`,
+        branchId: run.data().branchId || '', effectiveAt, lines: journal.lines, totalDebit: journal.totalDebit, totalCredit: journal.totalCredit,
+        status: 'posted', createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid,
+      })
       transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 2, runId, action: 'payroll.locked', actorUid: actor.uid, fromStatus: 'reviewed', toStatus: 'locked', ledgerEntryId: ledgerReference.id, createdAt: FieldValue.serverTimestamp() })
     })
     return { runId, status: 'locked' }
@@ -1105,14 +1118,16 @@ function createPayrollFunctions({ db, onCall }) {
     const runReference = db.doc(`payrollRuns/${runId}`)
     const accrualReference = db.doc(`ledgerEntries/payroll_${runId}`)
     const paymentLedgerReference = db.doc(`ledgerEntries/payroll_payment_${runId}`)
+    const paymentJournalReference = db.doc(`journalEntries/payroll_payment_${runId}`)
     const cashTransactionReference = db.doc(`cashTransactions/payroll_${runId}`)
     const accountReference = db.doc(`cashAccounts/${cashAccountId}`)
 
     return db.runTransaction(async (transaction) => {
-      const [run, accrual, existingPayment, account] = await Promise.all([
+      const [run, accrual, existingPayment, existingPaymentJournal, account] = await Promise.all([
         transaction.get(runReference),
         transaction.get(accrualReference),
         transaction.get(paymentLedgerReference),
+        transaction.get(paymentJournalReference),
         transaction.get(accountReference),
       ])
       if (!run.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
@@ -1134,13 +1149,16 @@ function createPayrollFunctions({ db, onCall }) {
         throw new HttpsError('failed-precondition', 'Số dư quỹ không đủ để chi trả kỳ lương này.')
       }
       const paidAt = Timestamp.now()
+      await assertFinancePeriodOpen(transaction, db, paidAt)
+      const journal = payrollPaymentJournal({ amount: finalAmount, cashAccountType: account.data().type })
       if (!existingPayment.exists) {
         transaction.create(paymentLedgerReference, {
-          schemaVersion: 2,
+          schemaVersion: 3,
           type: 'payroll',
           eventClass: 'payroll_payment',
           source: 'payroll',
           payrollRunId: runId,
+          journalEntryId: paymentJournalReference.id,
           periodId: run.data().periodId || '',
           branchId: run.data().branchId || account.data().branchId || '',
           cashAccountId,
@@ -1178,6 +1196,11 @@ function createPayrollFunctions({ db, onCall }) {
           updatedAt: FieldValue.serverTimestamp(),
         })
       }
+      if (!existingPaymentJournal.exists) transaction.create(paymentJournalReference, {
+        schemaVersion: 1, documentType: 'payroll_payment', documentId: paymentLedgerReference.id, referenceCode: `CTL-${runId.slice(-12).toUpperCase()}`,
+        branchId: run.data().branchId || account.data().branchId || '', effectiveAt: paidAt, lines: journal.lines,
+        totalDebit: journal.totalDebit, totalCredit: journal.totalCredit, status: 'posted', createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid,
+      })
       transaction.update(runReference, {
         status: 'paid',
         paidAt: FieldValue.serverTimestamp(),
@@ -1185,6 +1208,7 @@ function createPayrollFunctions({ db, onCall }) {
         paymentReference,
         cashAccountId,
         paymentLedgerEntryId: paymentLedgerReference.id,
+        paymentJournalEntryId: paymentJournalReference.id,
         updatedAt: FieldValue.serverTimestamp(),
       })
       transaction.create(db.collection('payrollAuditLogs').doc(), {

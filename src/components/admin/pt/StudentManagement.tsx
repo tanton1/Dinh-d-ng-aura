@@ -11,6 +11,7 @@ import { useDatabase } from '../../../contexts/DatabaseContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { provisionStudentAccount } from '../../../services/identityAccessService';
 import { recordContractPayment } from '../../../services/financeLedgerService';
+import { listCashAccounts, type CashAccount } from '../../../services/cashbookService';
 import StudentRosterTable from './StudentRosterTable';
 import { studentEligibilityForWeek } from '../../../domain/pt/studentEligibility';
 import './StudentManagement.css';
@@ -68,6 +69,15 @@ export default function StudentManagement({ user, profile }: Props) {
     branchId: '',
     nutritionNote: '',
   });
+  const [cashAccounts, setCashAccounts] = useState<CashAccount[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    void listCashAccounts()
+      .then((result) => { if (active) setCashAccounts(result.accounts.filter((item) => item.status === 'active')); })
+      .catch(() => { if (active) setCashAccounts([]); });
+    return () => { active = false; };
+  }, []);
 
   const allowedStudents = useMemo(() => {
     // This legacy CRM reads admin-only collections. Never fall back to a
@@ -283,7 +293,7 @@ export default function StudentManagement({ user, profile }: Props) {
     overviewTrackRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
   }, [searchTerm, dateRange, selectedBranchId, contractFilter, selectedTrainerId, selectedNutritionPTId]);
 
-  const handleSaveContract = async (newContract: StudentContract) => {
+  const handleSaveContract = async (newContract: StudentContract, initialCashAccountId?: string) => {
     try {
       const student = students.find(s => s.id === newContract.studentId);
       if (student && student.status !== 'active') {
@@ -308,6 +318,13 @@ export default function StudentManagement({ user, profile }: Props) {
         .sort((left, right) => left.date.localeCompare(right.date))[0];
       contractToPersist.nextPaymentDate = persistedPending?.date || null;
 
+      const initialCashAccount = initialPaidAmount > 0
+        ? cashAccounts.find((item) => item.id === initialCashAccountId && (!newContract.branchId || item.branchId === newContract.branchId))
+        : null;
+      if (initialPaidAmount > 0 && !initialCashAccount) {
+        throw new Error('Chưa có quỹ phù hợp để thu lần đầu. Hãy mở Sổ quỹ trước khi lưu hợp đồng có thanh toán.');
+      }
+
       const existingContract = contractsById.get(newContract.id);
       if (existingContract && existingContract.studentId !== newContract.studentId) {
         throw new Error('Mã hợp đồng đã thuộc về một học viên khác.');
@@ -330,6 +347,7 @@ export default function StudentManagement({ user, profile }: Props) {
           amount: initialPaidAmount,
           effectiveAt: new Date().toISOString(),
           paymentMethod: 'transfer',
+          cashAccountId: initialCashAccount!.id,
           idempotencyKey: `initial-payment:${newContract.id}`,
           note: 'Thanh toán lần đầu khi đăng ký gói',
           installmentId: initialInstallment?.id,

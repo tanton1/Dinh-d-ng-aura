@@ -100,6 +100,9 @@ test('locking a payroll run records an immutable management expense', () => {
   assert.match(lockBlock, /eventClass: 'payroll_accrual'/)
   assert.match(lockBlock, /expenseImpact: finalAmount/)
   assert.match(lockBlock, /cashImpact: 0/)
+  assert.match(lockBlock, /journalEntries\/payroll_\$\{runId\}/)
+  assert.match(lockBlock, /payrollAccrualJournal/)
+  assert.match(lockBlock, /assertFinancePeriodOpen/)
   assert.match(lockBlock, /db\.runTransaction/)
 })
 
@@ -116,6 +119,8 @@ test('payroll payout creates the cash-book and ledger entries atomically', () =>
   assert.match(payoutBlock, /eventClass: 'payroll_payment'/)
   assert.match(payoutBlock, /cashImpact: -finalAmount/)
   assert.match(payoutBlock, /expenseImpact: 0/)
+  assert.match(payoutBlock, /journalEntries\/payroll_payment_\$\{runId\}/)
+  assert.match(payoutBlock, /payrollPaymentJournal/)
   assert.match(payoutBlock, /FieldValue\.increment\(-finalAmount\)/)
   assert.match(payoutBlock, /status !== 'locked'/)
   assert.match(payoutBlock, /db\.runTransaction/)

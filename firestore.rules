@@ -1019,6 +1019,21 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Accounting documents and double-entry journals are exposed only through
+    // finance callables so document state, period locks and approvals cannot be
+    // bypassed by a modified browser client.
+    match /accountingDocuments/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /journalEntries/{entryId} {
+      allow read, write: if false;
+    }
+
+    match /revenueRecognitionReviews/{reviewId} {
+      allow read, write: if false;
+    }
+
     // Multi-account cashbook is mutated only by finance callables. Direct
     // browser access stays closed so balances and immutable entries cannot be
     // forged by a modified admin client.

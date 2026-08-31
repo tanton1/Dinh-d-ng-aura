@@ -328,6 +328,10 @@ export default function FinanceManagement({ profile }: Props) {
       setAlertMessage('Số tiền phải là số nguyên khác 0.')
       return
     }
+    if (!selectedCashAccountId) {
+      setAlertMessage('Hãy chọn quỹ nhận/chi để sổ quỹ và bút toán kế toán luôn đối chiếu được.')
+      return
+    }
     setIsSubmitting(true)
     try {
       if (amount > 0) {
@@ -337,7 +341,7 @@ export default function FinanceManagement({ profile }: Props) {
           effectiveAt: new Date().toISOString(),
           paymentMethod: 'transfer',
           idempotencyKey: crypto.randomUUID(),
-          cashAccountId: selectedCashAccountId || undefined,
+          cashAccountId: selectedCashAccountId,
           installmentId: selectedInstallmentId || undefined,
           note: selectedInstallmentId ? 'Thanh toán kỳ trả góp' : 'Thanh toán công nợ',
         })
@@ -348,7 +352,7 @@ export default function FinanceManagement({ profile }: Props) {
           effectiveAt: new Date().toISOString(),
           paymentMethod: 'transfer',
           installmentId: selectedInstallmentId || undefined,
-          cashAccountId: selectedCashAccountId || undefined,
+          cashAccountId: selectedCashAccountId,
           reason: selectedInstallmentId ? 'Hoàn tiền kỳ trả góp' : 'Hoàn tiền từ trang tài chính',
         })
       }
@@ -493,9 +497,9 @@ export default function FinanceManagement({ profile }: Props) {
           <label className="mt-4 block text-xs font-bold text-zinc-500">Số tiền; nhập số âm để hoàn tiền</label>
           <input type="number" value={payAmount} onChange={(event) => { setPayAmount(event.target.value); setSelectedInstallmentId(null) }} className="mt-2 min-h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 text-lg font-bold text-white" />
           <label className="mt-4 block text-xs font-bold text-zinc-500">Quỹ nhận/chi</label>
-          <select value={selectedCashAccountId} onChange={(event) => setSelectedCashAccountId(event.target.value)} className="mt-2 min-h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 text-sm font-bold text-white"><option value="">Chưa phản ánh vào sổ quỹ</option>{cashAccounts.map((item) => <option key={item.id} value={item.id}>{item.name} · {money(item.balance)}</option>)}</select>
+          <select required value={selectedCashAccountId} onChange={(event) => setSelectedCashAccountId(event.target.value)} className="mt-2 min-h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 text-sm font-bold text-white"><option value="">Chọn quỹ bắt buộc</option>{cashAccounts.map((item) => <option key={item.id} value={item.id}>{item.name} · {money(item.balance)}</option>)}</select>
           {!cashAccounts.length && <p className="mt-2 text-xs text-amber-400">Chưa có quỹ. Mở Sổ quỹ và nhập số dư đầu kỳ đã kiểm kê trước khi thu/hoàn.</p>}
-          <button onClick={() => void submitPayment()} disabled={isSubmitting || !payAmount || Number(payAmount) === 0} className="mt-4 min-h-12 w-full rounded-xl bg-gradient-to-r from-pink-500 to-orange-500 font-bold text-white disabled:opacity-50">{isSubmitting ? 'Đang ghi sổ…' : Number(payAmount) < 0 ? 'Ghi khoản hoàn tiền' : 'Ghi khoản thu'}</button>
+          <button onClick={() => void submitPayment()} disabled={isSubmitting || !selectedCashAccountId || !payAmount || Number(payAmount) === 0} className="mt-4 min-h-12 w-full rounded-xl bg-gradient-to-r from-pink-500 to-orange-500 font-bold text-white disabled:opacity-50">{isSubmitting ? 'Đang ghi sổ…' : Number(payAmount) < 0 ? 'Ghi khoản hoàn tiền' : 'Ghi khoản thu'}</button>
         </Modal>}
 
         {entryToReverse && <Modal onClose={() => setEntryToReverse(null)} title="Đảo bút toán">

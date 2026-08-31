@@ -5,6 +5,7 @@ const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const test = require('node:test')
 const {
+  contractAdvanceAccountCode,
   normalizeLedgerListInput,
   summarizeLedgerDocuments,
   updatedInstallments,
@@ -81,6 +82,23 @@ test('revenue recognition never increases collected cash or cash net', () => {
   assert.deepEqual(summary.dailySeries, [{ date: '2026-08-20', total: 950_000 }])
 })
 
+test('explicit negative expense impact from a reversal reduces operating expense', () => {
+  const effectiveAt = new Date('2026-08-20T02:00:00.000Z')
+  const summary = summarizeLedgerDocuments([
+    { type: 'expense', status: 'posted', amount: -500_000, cashImpact: -500_000, expenseImpact: 500_000, branchId: 'a', effectiveAt },
+    { type: 'reversal', status: 'posted', amount: 500_000, cashImpact: 500_000, expenseImpact: -500_000, branchId: 'a', effectiveAt },
+  ], summaryInput({ branchId: 'a' }))
+  assert.equal(summary.operatingExpense, 0)
+  assert.equal(summary.operatingResult, 0)
+})
+
+test('contract advances use 3387 only after a multi-period service has started', () => {
+  const contract = { startDate: '2026-08-01', endDate: '2026-12-31', usedSessions: 0 }
+  assert.equal(contractAdvanceAccountCode(contract, new Date('2026-07-20T00:00:00Z')), '131')
+  assert.equal(contractAdvanceAccountCode(contract, new Date('2026-08-20T00:00:00Z')), '3387')
+  assert.equal(contractAdvanceAccountCode({ ...contract, accountingAdvanceAccountCode: '131' }, new Date('2026-09-20T00:00:00Z')), '131')
+})
+
 test('installment transition is atomic-ready and advances the next due date', () => {
   const contract = {
     installments: [
@@ -120,9 +138,13 @@ test('finance mutations guard locked periods and keep installment state in the l
   assert.match(ledgerSource, /transaction\.update\(contractReference, \{ paidAmount: nextPaid, \.\.\.\(installmentPatch \|\| \{\}\)/)
   assert.match(ledgerSource, /reversalEffectiveAt = Timestamp\.now\(\)/)
   assert.doesNotMatch(ledgerSource, /transaction\.delete\(/)
+  assert.match(ledgerSource, /journalEntries\/\$\{ledgerReference\.id\}/)
+  assert.match(ledgerSource, /contractPaymentJournal/)
+  assert.match(ledgerSource, /accountingAdvanceAccountCode/)
 })
 
 test('selected cash accounts move balances in the same immutable ledger transaction', () => {
+  assert.match(ledgerSource, /const cashAccountId = text\(request\.data\?\.cashAccountId, 'Tài khoản quỹ', 200\)/)
   assert.match(ledgerSource, /cashAccountForMovement\(transaction, db, cashAccountId, amount\)/)
   assert.match(ledgerSource, /createCashMovement\(transaction, db, ledgerReference, cashAccount, amount/)
   assert.match(ledgerSource, /FieldValue\.increment\(signedAmount\)/)

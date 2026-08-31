@@ -174,4 +174,7 @@ test('trainer renewal API is financially redacted and sales-only mutations fail 
   assert.match(source, /expectedValue: actor\.renewalCanSell === true \? Number\(value\.expectedValue \|\| 0\) : 0/)
   assert.match(source, /const createRenewalQuote = renewalCall[\s\S]*?requireRenewalSalesAction\(actor\)/)
   assert.match(source, /const renewPtContract = renewalCall[\s\S]*?requireRenewalSalesAction\(actor\)/)
+  assert.match(source, /contractPaymentJournal/)
+  assert.match(source, /journalEntries\/\$\{paymentReference\.id\}/)
+  assert.match(source, /accountingAdvanceAccountCode: '131'/)
 })

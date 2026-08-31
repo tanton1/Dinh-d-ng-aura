@@ -16,6 +16,7 @@ import { useDatabase } from '../../../contexts/DatabaseContext';
 import { addCalendarMonthsDateOnly, formatDate, isSameDayOrAfter } from '../../../utils/dateUtils';
 import { getActiveContract } from '../../../utils/scheduler';
 import { recordContractPayment, recordRefund } from '../../../services/financeLedgerService';
+import { listCashAccounts, type CashAccount } from '../../../services/cashbookService';
 import { getStudentContractUsage, type ContractUsageSummary } from '../../../services/businessReportingService';
 import TrainingHistoryPanel from './TrainingHistoryPanel';
 import { db } from '../../../lib/firebaseFirestore';
@@ -30,7 +31,7 @@ interface Props {
   branches: Branch[];
   sessions: Session[];
   onBack: () => void;
-  onSaveContract: (contract: StudentContract) => Promise<void>;
+  onSaveContract: (contract: StudentContract, initialCashAccountId?: string) => Promise<void>;
   onUpdateContract: (contract: StudentContract, skipPayment?: boolean) => void;
 }
 
@@ -83,6 +84,18 @@ export default function StudentDetail({ student, profile, contracts, packages, t
   const [activeContractUsage, setActiveContractUsage] = useState<ContractUsageSummary | null>(null);
   const [contractUsageLoading, setContractUsageLoading] = useState(false);
   const [contractUsageError, setContractUsageError] = useState('');
+  const [cashAccounts, setCashAccounts] = useState<CashAccount[]>([]);
+  const [initialCashAccountId, setInitialCashAccountId] = useState('');
+  const [debtCashAccountId, setDebtCashAccountId] = useState('');
+
+  useEffect(() => {
+    if (isTrainer) return;
+    let active = true;
+    void listCashAccounts()
+      .then((result) => { if (active) setCashAccounts(result.accounts.filter((item) => item.status === 'active')); })
+      .catch(() => { if (active) setCashAccounts([]); });
+    return () => { active = false; };
+  }, [isTrainer]);
 
   useEffect(() => {
     if (notification) {
@@ -315,6 +328,10 @@ export default function StudentDetail({ student, profile, contracts, packages, t
       setNotification({ message: 'Số tiền thu lần đầu không được vượt số tiền phải thanh toán.', type: 'error' });
       return;
     }
+    if (amountPaid > 0 && !initialCashAccountId) {
+      setNotification({ message: 'Hãy chọn quỹ nhận khoản thanh toán lần đầu.', type: 'error' });
+      return;
+    }
 
     const debt = totalDue - amountPaid;
     const contractId = packageDraftContractId.current || crypto.randomUUID();
@@ -396,7 +413,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
 
     setIsSavingPackage(true);
     try {
-      await onSaveContract(newContract);
+      await onSaveContract(newContract, initialCashAccountId || undefined);
       setIsAddingPackage(false);
       packageDraftContractId.current = null;
       setSelectedPackageId('');
@@ -410,6 +427,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
       setDiscount('');
       setInstallmentCount(1);
       setInstallments([]);
+      setInitialCashAccountId('');
       setNotification({ message: 'Đã tạo hợp đồng và ghi nhận khoản thu ban đầu.', type: 'success' });
     } catch (error) {
       setNotification({
@@ -431,6 +449,11 @@ export default function StudentDetail({ student, profile, contracts, packages, t
       setNotification({ message: 'Kỳ trả góp này đã được xử lý hoặc không còn hiệu lực.', type: 'error' });
       return;
     }
+    const cashAccount = cashAccounts.find((item) => item.id === debtCashAccountId && (!contract.branchId || item.branchId === contract.branchId));
+    if (!cashAccount) {
+      setNotification({ message: 'Hãy chọn đúng quỹ nhận tiền trước khi thu kỳ trả góp.', type: 'error' });
+      return;
+    }
 
     const idempotencyKey = crypto.randomUUID();
     const effectiveAt = new Date().toISOString();
@@ -446,6 +469,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
             amount: installmentToPay.amount,
             effectiveAt,
             paymentMethod: 'transfer',
+            cashAccountId: cashAccount.id,
             installmentId,
             idempotencyKey,
             note: `Thu kỳ trả góp ${installmentId}`,
@@ -475,6 +499,11 @@ export default function StudentDetail({ student, profile, contracts, packages, t
       setNotification({ message: 'Chỉ có thể hoàn khoản thu của kỳ đã thanh toán.', type: 'error' });
       return;
     }
+    const cashAccount = cashAccounts.find((item) => item.id === debtCashAccountId && (!contract.branchId || item.branchId === contract.branchId));
+    if (!cashAccount) {
+      setNotification({ message: 'Hãy chọn đúng quỹ chi trước khi hoàn tiền.', type: 'error' });
+      return;
+    }
 
     const idempotencyKey = crypto.randomUUID();
     const effectiveAt = new Date().toISOString();
@@ -490,6 +519,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
             amount: installmentToUndo.amount,
             effectiveAt,
             paymentMethod: 'transfer',
+            cashAccountId: cashAccount.id,
             installmentId,
             idempotencyKey,
             reason: `Hoàn khoản thu kỳ trả góp ${installmentId}`,
@@ -1019,6 +1049,12 @@ export default function StudentDetail({ student, profile, contracts, packages, t
                     {isManagingDebt ? 'Đóng' : 'Quản lý'}
                   </button>
                 </div>
+                {isManagingDebt && <label className="mb-3 block text-xs font-bold text-zinc-500">Quỹ nhận/chi
+                  <select value={debtCashAccountId} onChange={(event) => setDebtCashAccountId(event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm font-bold text-white">
+                    <option value="">Chọn quỹ bắt buộc</option>
+                    {cashAccounts.filter((item) => !activeContract.branchId || item.branchId === activeContract.branchId).map((item) => <option key={item.id} value={item.id}>{item.name} · {item.balance.toLocaleString('vi-VN')}đ</option>)}
+                  </select>
+                </label>}
                 
                 <div className="space-y-2">
                   {activeContract.installments.map((inst, idx) => {
@@ -1361,6 +1397,15 @@ export default function StudentDetail({ student, profile, contracts, packages, t
                       />
                       <p className="student-package-modal__hint">Có thể thanh toán một phần hoặc toàn bộ.</p>
                     </div>
+
+                    {Number(paidAmount) > 0 && <div className="student-package-modal__field">
+                      <label>Quỹ nhận tiền</label>
+                      <select value={initialCashAccountId} onChange={(event) => setInitialCashAccountId(event.target.value)} className="student-package-modal__input" required>
+                        <option value="">Chọn quỹ bắt buộc</option>
+                        {cashAccounts.filter((item) => !selectedBranchId || item.branchId === selectedBranchId).map((item) => <option key={item.id} value={item.id}>{item.name} · {item.balance.toLocaleString('vi-VN')}đ</option>)}
+                      </select>
+                      {!cashAccounts.length && <p className="student-package-modal__hint">Chưa có quỹ hoạt động. Hãy mở Sổ quỹ trước.</p>}
+                    </div>}
 
                     {Number(paidAmount) < ((packages.find(p => p.id === selectedPackageId)?.price || 0) - (Number(discount) || 0)) && (
                       <motion.div 

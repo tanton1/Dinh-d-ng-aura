@@ -51,9 +51,12 @@
 .cashbook-toolbar button { display: flex; align-items: center; gap: 6px; }
 .cashbook-toolbar button:disabled { opacity: .45; }
 .cashbook-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; padding: 16px; border: 1px solid #ffcada; border-radius: 18px; background: #fff8fa; }
-.cashbook-form > div { display: flex; gap: 8px; }
+.cashbook-form label { display: grid; gap: 6px; color: #71636b; font-size: 12px; font-weight: 750; }
+.cashbook-form__actions { display: flex; align-items: flex-end; gap: 8px; }
+.cashbook-form__actions button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
 .cashbook-primary { border: 0 !important; background: linear-gradient(100deg,#f62f82,#ff8751) !important; color: #fff !important; }
 .cashbook-error { padding: 12px; border-radius: 12px; background: #fff0f2; color: #ad234e; }
+.cashbook-message { display: flex; align-items: center; gap: 8px; padding: 12px; border: 1px solid #b9e9d5; border-radius: 12px; background: #edfff7; color: #176646; }
 .cashbook-list { overflow: hidden; border: 1px solid #eee2e7; border-radius: 18px; background: #fff; }
 .cashbook-list article { display: flex; justify-content: space-between; gap: 15px; padding: 14px 16px; border-bottom: 1px solid #f2e9ed; }
 .cashbook-list article:last-child { border: 0; }
@@ -61,6 +64,63 @@
 .cashbook-list .positive { color: #168458; }
 .cashbook-list .negative { color: #d92f63; }
 .cashbook-list > p { padding: 28px; color: #80767b; text-align: center; }
+
+.expense-voucher { overflow: hidden; border: 1px solid #f2ceda; border-radius: 22px; background: #fff; box-shadow: 0 14px 34px rgba(77,38,58,.07); }
+.expense-voucher__steps { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 0; padding: 10px; border-bottom: 1px solid #f2e4e9; background: #fff9fb; }
+.expense-voucher__steps button { display: flex; min-width: 0; align-items: center; justify-content: center; gap: 7px; min-height: 42px; border: 0; background: transparent; color: #8e7e87; font-weight: 750; }
+.expense-voucher__steps button span { display: grid; width: 25px; height: 25px; place-items: center; border: 1px solid #e7d7de; border-radius: 50%; background: #fff; font-size: 11px; }
+.expense-voucher__steps button.is-active { color: #dd2f70; }
+.expense-voucher__steps button.is-active span { border-color: #f6347d; background: #f6347d; color: #fff; }
+.expense-voucher__steps button.is-done span { border-color: #9bd7bf; background: #eafff5; color: #19724f; }
+.expense-voucher__body { padding: 18px; }
+.expense-voucher__title { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; margin-bottom: 16px; }
+.expense-voucher__title small { color: #e33476; font-size: 10px; font-weight: 850; letter-spacing: .12em; }
+.expense-voucher__title h3 { margin: 3px 0 0; color: #32232b; font-size: 19px; }
+.expense-voucher__title > button { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid #eadde3; border-radius: 11px; background: #fff; color: #75666e; }
+.expense-voucher__grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 13px; }
+.expense-voucher__grid label { display: grid; min-width: 0; gap: 6px; color: #71636b; font-size: 12px; font-weight: 750; }
+.expense-voucher__grid input, .expense-voucher__grid select, .expense-voucher__grid textarea { width: 100%; min-width: 0; min-height: 45px; padding: 10px 12px; border: 1px solid #e7d9df; border-radius: 12px; outline: none; background: #fff; color: #32272d; font: inherit; font-weight: 600; }
+.expense-voucher__grid input:focus, .expense-voucher__grid select:focus, .expense-voucher__grid textarea:focus { border-color: #f45b91; box-shadow: 0 0 0 3px rgba(244,91,145,.1); }
+.expense-voucher__grid input:disabled { background: #f5f2f3; color: #a89da2; }
+.expense-voucher__grid textarea { resize: vertical; }
+.expense-voucher__wide { grid-column: 1 / -1; }
+.expense-voucher__total { display: flex; align-items: center; justify-content: space-between; padding: 13px 15px; border-radius: 14px; background: linear-gradient(110deg,#fff3f8,#fff5ec); color: #75626d; }
+.expense-voucher__total strong { color: #db2b6d; font-size: 21px; }
+.expense-voucher__review { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.expense-voucher__review > div:not(.expense-voucher__journal) { min-width: 0; padding: 12px; border: 1px solid #eee2e7; border-radius: 13px; background: #fff; }
+.expense-voucher__review > div span { display: block; margin-bottom: 5px; color: #8a7d84; font-size: 10px; text-transform: uppercase; }
+.expense-voucher__review > div strong { display: block; overflow-wrap: anywhere; color: #392b32; font-size: 13px; }
+.expense-voucher__journal { grid-column: 1 / -1; padding: 14px; border: 1px solid #f0d7e0; border-radius: 15px; background: #fff9fb; }
+.expense-voucher__journal h4 { margin: 0 0 10px; color: #4c3943; font-size: 13px; }
+.expense-voucher__journal div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px dashed #eadde2; }
+.expense-voucher__journal div span { margin: 0; color: #675861; font-size: 11px; }
+.expense-voucher__approval-note { grid-column: 1 / -1; margin: 0; padding: 11px 13px; border-radius: 12px; background: #fff6e5; color: #79591e; font-size: 11px; line-height: 1.55; }
+.expense-voucher__actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid #f0e5e9; }
+.expense-voucher__actions > div { display: flex; gap: 8px; }
+.expense-voucher__actions button, .expense-voucher-list button { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; border: 1px solid #eadce2; border-radius: 11px; background: #fff; color: #493940; font-weight: 750; }
+.expense-voucher__actions button:disabled, .expense-voucher-list button:disabled { opacity: .45; }
+
+.cashbook-ledger-tabs { display: flex; gap: 6px; padding: 5px; border: 1px solid #eee1e6; border-radius: 15px; background: #fff; }
+.cashbook-ledger-tabs button { min-height: 40px; flex: 1; border: 0; border-radius: 11px; background: transparent; color: #796c73; font-weight: 750; }
+.cashbook-ledger-tabs button span { margin-left: 5px; padding: 2px 6px; border-radius: 999px; background: #f5e9ee; font-size: 10px; }
+.cashbook-ledger-tabs button.is-active { background: #fff0f5; color: #d72d6b; }
+.expense-voucher-list { overflow: hidden; border: 1px solid #eee2e7; border-radius: 18px; background: #fff; }
+.expense-voucher-list article { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border-bottom: 1px solid #f2e9ed; }
+.expense-voucher-list article:last-child { border-bottom: 0; }
+.expense-voucher-list__main { min-width: 0; }
+.expense-voucher-list__main > div { display: flex; align-items: center; gap: 8px; }
+.expense-voucher-list__main b { color: #3a2932; font-size: 13px; }
+.expense-voucher-list__main p { margin: 5px 0 3px; color: #5e4e56; font-size: 12px; font-weight: 700; }
+.expense-voucher-list__main small { display: block; overflow: hidden; color: #897b82; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.expense-voucher-list__amount { flex: 0 0 auto; text-align: right; }
+.expense-voucher-list__amount > strong { display: block; margin-bottom: 7px; color: #302129; font-size: 15px; }
+.expense-voucher-list__amount > div { display: flex; justify-content: flex-end; }
+.expense-voucher-list > p { padding: 28px; color: #80767b; text-align: center; }
+.expense-voucher-status { display: inline-flex; padding: 3px 7px; border-radius: 999px; font-size: 9px; font-weight: 850; }
+.expense-voucher-status.status-draft { background: #f0edf0; color: #665d62; }
+.expense-voucher-status.status-pending_approval { background: #fff1cf; color: #76530b; }
+.expense-voucher-status.status-posted { background: #dff8ec; color: #176647; }
+.expense-voucher-status.status-reversed { background: #ffe7ee; color: #9e2853; }
 
 @media (max-width: 820px) {
   .finance-hub__tabs { display: flex; gap: 6px; overflow-x: auto; padding: 5px; border-radius: 17px; scroll-snap-type: x proximity; scrollbar-width: none; }
@@ -75,4 +135,16 @@
   .cashbook-list article { align-items: flex-start; }
   .cashbook-summary strong { font-size: 23px; }
   .admin-operations-tabs { margin-inline: -4px; }
+  .expense-voucher__steps { overflow-x: auto; grid-template-columns: repeat(4,minmax(92px,1fr)); }
+  .expense-voucher__steps button { font-size: 10px; }
+  .expense-voucher__body { padding: 14px; }
+  .expense-voucher__grid, .expense-voucher__review { grid-template-columns: 1fr; }
+  .expense-voucher__wide, .expense-voucher__journal, .expense-voucher__approval-note { grid-column: 1; }
+  .expense-voucher__actions { align-items: stretch; flex-direction: column-reverse; }
+  .expense-voucher__actions > div { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .expense-voucher__actions > button { width: 100%; }
+  .expense-voucher-list article { align-items: stretch; flex-direction: column; }
+  .expense-voucher-list__main small { white-space: normal; }
+  .expense-voucher-list__amount { display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; }
+  .expense-voucher-list__amount > strong { margin: 0; }
 }

@@ -123,6 +123,7 @@ test('session request approval updates policy usage, session, contract charge an
   assert.match(approval, /charged_cancellation/)
   assert.match(approval, /charged_reschedule/)
   assert.match(approval, /usedSessions: FieldValue\.increment\(1\)/)
+  assert.match(approval, /financePeriods\/\$\{policyPeriodId\}/)
   assert.match(approval, /chargedSessionIds: FieldValue\.arrayUnion\(sessionId\)/)
   assert.match(approval, /requestType === 'cancel'/)
   assert.match(approval, /currentDate !== originalDate \|\| currentHour !== originalHour/)
@@ -216,6 +217,10 @@ test('attendance uses the session contract link and a deterministic event id', a
   assert.equal(state.read('attendanceEvents/session-attendance-1').contractId, 'contract-1')
   assert.equal(state.read('attendanceEvents/session-attendance-1').attendanceStatus, 'present')
   assert.equal(state.read('sessionBillingEvents/session-attendance-1').billingStatus, 'charged')
+  assert.equal(state.read('ledgerEntries/pt_session_session-attendance-1').recognitionPolicy, 'confirmed_attendance_v3')
+  assert.equal(state.read('ledgerEntries/pt_session_session-attendance-1').serviceOrdinal, 1)
+  assert.equal(state.read('journalEntries/pt_session_session-attendance-1').totalDebit, 100000)
+  assert.equal(state.read('journalEntries/pt_session_session-attendance-1').totalCredit, 100000)
 
   const retry = await state.confirmSessionAttendance({
     data: { sessionId: 'session-attendance-1', expectedRevision: 0 },
@@ -256,6 +261,8 @@ test('unconfirmed charged attendance becomes present after 48 hours with an expl
     'attendanceEvents/overdue-pending': { type: 'pending_confirmation', sessionId: 'overdue-pending', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', billingStatus: 'charged', attendanceStatus: 'pending', lateMinutes: null, noShowReason: '', note: '' },
     'sessions/within-window': { status: 'scheduled', studentId: 'student-2', trainerId: 'trainer-1', contractId: 'contract-2', date: '2026-08-27', hour: 17, revision: 1, billingStatus: 'charged', attendanceStatus: 'pending', attendanceEventId: 'within-window' },
     'attendanceEvents/within-window': { type: 'pending_confirmation', sessionId: 'within-window', studentId: 'student-2', trainerId: 'trainer-1', contractId: 'contract-2', billingStatus: 'charged', attendanceStatus: 'pending', lateMinutes: null, noShowReason: '', note: '' },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 12, usedSessions: 1, totalPrice: 1200000, chargedSessionIds: ['overdue-pending'] },
+    'contracts/contract-2': { status: 'active', studentId: 'student-2', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 12, usedSessions: 1, totalPrice: 1200000, chargedSessionIds: ['within-window'] },
   })
   const summary = await autoConfirmOverduePtAttendance({
     db: state.db,
@@ -269,6 +276,9 @@ test('unconfirmed charged attendance becomes present after 48 hours with an expl
   assert.equal(state.read('sessions/overdue-pending').confirmationSource, 'auto_after_48h')
   assert.equal(state.read('attendanceEvents/overdue-pending').attendanceStatus, 'present')
   assert.equal(state.read('attendanceEvents/overdue-pending').confirmationSource, 'auto_after_48h')
+  assert.equal(state.read('attendanceEvents/overdue-pending').recognitionReviewRequired, true)
+  assert.equal(state.read('revenueRecognitionReviews/overdue-pending').issueCode, 'AUTO_CONFIRMATION_REQUIRES_REVIEW')
+  assert.equal(state.read('ledgerEntries/pt_session_overdue-pending'), undefined)
   assert.equal(state.read('sessions/within-window').attendanceStatus, 'pending')
   assert.equal(state.paths().filter((path) => path.startsWith('attendanceAuditLogs/')).length, 1)
 })
@@ -426,6 +436,8 @@ test('second approved change in a calendar month creates one immutable policy ch
   assert.equal(result.countsTowardContract, true)
   assert.equal(state.read('attendanceEvents/policy_request-charge').type, 'charged_cancellation')
   assert.equal(state.read('sessionRequests/request-charge').countsTowardContract, true)
+  assert.equal(state.read('ledgerEntries/pt_policy_request-charge').recognitionPolicy, 'approved_policy_charge_v2')
+  assert.equal(state.read('journalEntries/pt_policy_request-charge').totalDebit, 100000)
   assert.equal(state.paths().filter((path) => path === 'attendanceEvents/policy_request-charge').length, 1)
 })
 

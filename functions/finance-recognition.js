@@ -1,9 +1,8 @@
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 
-// Revenue is recognised when a scheduled PT slot becomes billable at its
-// start time, independently from the trainer's later present/late/no-show
-// confirmation. This keeps management P&L separate from the cashbook and
-// prevents a delayed attendance tap from moving revenue between periods.
+// PT revenue is recognised only from eligible, confirmed service evidence.
+// Charging a contract entitlement and recognising earned revenue are separate
+// events: an elapsed scheduled slot alone is not proof that service occurred.
 function safeMoney(value) {
   const amount = Number(value || 0)
   return Number.isSafeInteger(amount) && amount > 0 ? amount : 0
@@ -35,6 +34,14 @@ function recognitionForNextSession(contract) {
   return Math.max(0, after - before)
 }
 
+function recognitionForServiceOrdinal(contract, serviceOrdinal) {
+  const ordinal = Math.max(0, Math.floor(Number(serviceOrdinal || 0)))
+  if (!ordinal) return 0
+  const before = recognitionThrough(contract, ordinal - 1)
+  const after = recognitionThrough(contract, ordinal)
+  return Math.max(0, after - before)
+}
+
 function attendanceEffectiveAt(session = {}) {
   const date = typeof session.date === 'string' ? session.date.trim().slice(0, 10) : ''
   if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -44,22 +51,24 @@ function attendanceEffectiveAt(session = {}) {
   return FieldValue.serverTimestamp()
 }
 
-function ptRevenueRecognitionWrite({ sessionId, session, contractId, contract, attendanceEventId, actorUid }) {
-  const amount = recognitionForNextSession(contract)
+function ptRevenueRecognitionWrite({ sessionId, session, contractId, contract, attendanceEventId, actorUid, serviceOrdinal, evidenceStatus = 'present', confirmationSource = 'manual' }) {
+  const ordinal = Math.max(1, Math.floor(Number(serviceOrdinal || (Number(contract?.usedSessions || 0) + 1))))
+  const amount = recognitionForServiceOrdinal(contract, ordinal)
   const totalSessions = contractSessionCount(contract)
-  const completedBefore = Math.max(0, Number(contract?.usedSessions || 0))
-  if (!amount || !totalSessions || completedBefore >= totalSessions) return null
+  if (!amount || !totalSessions || ordinal > totalSessions) return null
 
-  const recognisedBefore = recognitionThrough(contract, completedBefore)
+  const recognisedBefore = recognitionThrough(contract, ordinal - 1)
   const paidBefore = Math.max(0, Number(contract?.paidAmount || 0))
   const deferredReleased = Math.min(amount, Math.max(0, paidBefore - recognisedBefore))
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     type: 'revenue_recognition',
     eventClass: 'revenue_recognition',
     source: 'pt_gym',
-    recognitionPolicy: 'scheduled_session_charge_v2',
+    recognitionPolicy: 'confirmed_attendance_v3',
+    evidenceStatus,
+    confirmationSource,
     contractId,
     studentId: session?.studentId || contract?.studentId || '',
     trainerId: session?.trainerId || '',
@@ -72,7 +81,7 @@ function ptRevenueRecognitionWrite({ sessionId, session, contractId, contract, a
     expenseImpact: 0,
     receivableImpact: amount - deferredReleased,
     deferredRevenueImpact: -deferredReleased,
-    serviceOrdinal: completedBefore + 1,
+    serviceOrdinal: ordinal,
     serviceTotal: totalSessions,
     effectiveAt: attendanceEffectiveAt(session),
     status: 'posted',
@@ -125,6 +134,7 @@ module.exports = {
   contractSessionCount,
   recognitionThrough,
   recognitionForNextSession,
+  recognitionForServiceOrdinal,
   ptRevenueRecognitionWrite,
   eatCleanRevenueRecognitionWrites,
 }

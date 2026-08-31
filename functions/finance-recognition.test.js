@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict')
 const test = require('node:test')
-const { recognitionThrough, recognitionForNextSession, ptRevenueRecognitionWrite, eatCleanRevenueRecognitionWrites } = require('./finance-recognition')
+const { recognitionThrough, recognitionForNextSession, recognitionForServiceOrdinal, ptRevenueRecognitionWrite, eatCleanRevenueRecognitionWrites } = require('./finance-recognition')
 
 test('PT revenue recognition is prorated per completed billable session', () => {
   const contract = { totalPrice: 1_000_001, discount: 0, totalSessions: 10, usedSessions: 0, paidAmount: 1_000_001, studentId: 'student-1', branchId: 'branch-a' }
@@ -10,13 +10,17 @@ test('PT revenue recognition is prorated per completed billable session', () => 
   assert.equal(recognitionThrough(contract, 1), 100_001)
   assert.equal(recognitionThrough(contract, 10), 1_000_001)
   assert.equal(recognitionForNextSession(contract), 100_001)
-  const write = ptRevenueRecognitionWrite({ sessionId: 'session-1', session: { studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-a', date: '2026-08-21' }, contractId: 'contract-1', contract, attendanceEventId: 'attendance-1', actorUid: 'admin-1' })
+  assert.equal(recognitionForServiceOrdinal({ ...contract, usedSessions: 9 }, 1), 100_001)
+  const write = ptRevenueRecognitionWrite({ sessionId: 'session-1', session: { studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-a', date: '2026-08-21' }, contractId: 'contract-1', contract: { ...contract, usedSessions: 8 }, serviceOrdinal: 1, attendanceEventId: 'attendance-1', actorUid: 'admin-1', evidenceStatus: 'late' })
   assert.equal(write.type, 'revenue_recognition')
   assert.equal(write.source, 'pt_gym')
   assert.equal(write.cashImpact, 0)
   assert.equal(write.revenueImpact, 100_001)
   assert.equal(write.deferredRevenueImpact, -100_001)
   assert.equal(write.idempotencyKey, 'pt-session-recognition:session-1')
+  assert.equal(write.recognitionPolicy, 'confirmed_attendance_v3')
+  assert.equal(write.evidenceStatus, 'late')
+  assert.equal(write.serviceOrdinal, 1)
 })
 
 test('incomplete legacy PT contract does not invent revenue', () => {

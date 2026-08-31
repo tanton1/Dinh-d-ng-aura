@@ -123,7 +123,7 @@ function revenueImpact(entry) {
 }
 
 function expenseImpact(entry) {
-  if (Number.isFinite(Number(entry.expenseImpact))) return Math.abs(Number(entry.expenseImpact))
+  if (Number.isFinite(Number(entry.expenseImpact))) return Number(entry.expenseImpact)
   return entry.type === 'expense' || entry.type === 'payroll' ? Math.abs(number(entry.amount)) : 0
 }
 

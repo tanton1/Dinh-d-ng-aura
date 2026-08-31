@@ -2,6 +2,7 @@ const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { cashAccountForMovement, createCashMovement, assertFinancePeriodOpen } = require('./finance-ledger')
+const { contractPaymentJournal } = require('./accounting-core')
 
 const renewalStages = new Set(['uncontacted', 'contacted', 'interested', 'quote_sent', 'follow_up', 'won', 'lost'])
 const closedStages = new Set(['won', 'lost'])
@@ -924,6 +925,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
     const approvalReference = approvalId ? db.doc(`contractRenewalApprovals/${approvalId}`) : null
     const newContractReference = db.collection('contracts').doc()
     const paymentReference = db.collection('ledgerEntries').doc()
+    const paymentJournalReference = db.doc(`journalEntries/${paymentReference.id}`)
     return db.runTransaction(async (transaction) => {
       const baseReads = [transaction.get(sourceReference), transaction.get(packageReference), transaction.get(caseReference)]
       if (quoteReference) baseReads.push(transaction.get(quoteReference))
@@ -985,7 +987,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
         carriedOverSessions: handoverDue ? carriedOverSessions : 0,
         carryOverRequested: carryOver,
         carryOverPending,
-        usedSessions: 0, totalPrice: packagePrice, discount, paidAmount: initialPayment, status: startDate > today ? 'future' : 'active',
+        usedSessions: 0, totalPrice: packagePrice, discount, paidAmount: initialPayment, accountingAdvanceAccountCode: '131', status: startDate > today ? 'future' : 'active',
         installments, nextPaymentDate: installments[0]?.date || null, sourceContractId, renewalCaseId: caseId,
         referralCode: source.referralCode || null,
         referralStaffId: source.referralStaffId || null,
@@ -997,7 +999,10 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
       let paymentEntryId = null
       if (initialPayment > 0) {
         paymentEntryId = paymentReference.id
-        transaction.create(paymentReference, { schemaVersion: 3, type: 'payment', eventClass: 'cash_collection', source: 'pt_gym', renewalCaseId: caseId, contractId: newContractReference.id, studentId: source.studentId || '', branchId: newContract.branchId || '', installmentId: null, cashAccountId, referralCode: newContract.referralCode, referralStaffId: newContract.referralStaffId, referralCommissionRate: newContract.referralCommissionRate, amount: initialPayment, cashImpact: initialPayment, revenueImpact: 0, expenseImpact: 0, receivableImpact: 0, deferredRevenueImpact: initialPayment, effectiveAt: paymentAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod, referenceCode: `THU-${paymentReference.id.slice(0, 8).toUpperCase()}`, idempotencyKey: `renewal-payment:${idempotencyKey}`, status: 'posted', note: `Thu đầu kỳ hợp đồng tái ký ${newContractReference.id}` })
+        const paymentCode = `THU-${paymentReference.id.slice(0, 8).toUpperCase()}`
+        const journal = contractPaymentJournal({ amount: initialPayment, cashAccountType: cashAccount.data.type, recognisedReceivable: 0, advanceAccountCode: '131' })
+        transaction.create(paymentReference, { schemaVersion: 4, type: 'payment', eventClass: 'cash_collection', source: 'pt_gym', renewalCaseId: caseId, contractId: newContractReference.id, studentId: source.studentId || '', branchId: newContract.branchId || '', installmentId: null, cashAccountId, journalEntryId: paymentJournalReference.id, accountingCashAccountType: cashAccount.data.type, accountingAdvanceAccountCode: '131', referralCode: newContract.referralCode, referralStaffId: newContract.referralStaffId, referralCommissionRate: newContract.referralCommissionRate, amount: initialPayment, cashImpact: initialPayment, revenueImpact: 0, expenseImpact: 0, receivableImpact: 0, deferredRevenueImpact: initialPayment, effectiveAt: paymentAt, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, paymentMethod, referenceCode: paymentCode, idempotencyKey: `renewal-payment:${idempotencyKey}`, status: 'posted', note: `Thu đầu kỳ hợp đồng tái ký ${newContractReference.id}` })
+        transaction.create(paymentJournalReference, { schemaVersion: 1, documentType: 'contract_renewal_payment', documentId: paymentReference.id, referenceCode: paymentCode, branchId: newContract.branchId || '', effectiveAt: paymentAt, lines: journal.lines, totalDebit: journal.totalDebit, totalCredit: journal.totalCredit, status: 'posted', createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
         createCashMovement(transaction, db, paymentReference, cashAccount, initialPayment, paymentAt, actor.uid, 'contract_renewal_payment')
       }
       transaction.update(sourceReference, {
