@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __AURA_RELEASE_SHA__: JSON.stringify(process.env.VERCEL_GIT_COMMIT_SHA || process.env.AURA_RELEASE_SHA || 'development'),
+  },
   build: {
     manifest: true,
     rollupOptions: {

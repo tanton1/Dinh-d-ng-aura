@@ -6,6 +6,7 @@ import { initializeClientTelemetry } from './services/clientTelemetryService'
 import { recoverFromStaleRelease } from './utils/appReleaseRecovery'
 import './styles-bootstrap.css'
 
+document.documentElement.dataset.auraRelease = __AURA_RELEASE_SHA__
 initializeClientTelemetry()
 
 const APP_UPDATE_READY_KEY = 'aura:update-ready'
