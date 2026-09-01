@@ -57,6 +57,30 @@ function configuredRealtimeDatabase() {
 }
 const realtimeDb = configuredRealtimeDatabase()
 
+async function cleanupStaleAiCoachImages(now = Date.now()) {
+  const [files] = await storage.bucket().getFiles({
+    prefix: 'nutrition-scans/',
+    maxResults: 500,
+    autoPaginate: false,
+  })
+  const cutoff = now - 24 * 60 * 60 * 1000
+  const staleFiles = files.filter((file) => {
+    const purpose = file.metadata?.metadata?.purpose
+    const createdAt = Date.parse(file.metadata?.timeCreated || file.metadata?.updated || '')
+    return ['ai-coach-body', 'ai-coach-meal'].includes(purpose)
+      && Number.isFinite(createdAt)
+      && createdAt <= cutoff
+  })
+  let deletedImages = 0
+  for (let offset = 0; offset < staleFiles.length; offset += 20) {
+    const results = await Promise.allSettled(
+      staleFiles.slice(offset, offset + 20).map((file) => file.delete({ ignoreNotFound: true })),
+    )
+    deletedImages += results.filter((result) => result.status === 'fulfilled').length
+  }
+  return { scannedImages: files.length, deletedImages }
+}
+
 exports.syncPtContractUsageProjection = onDocumentWritten({
   document: 'sessions/{sessionId}',
   database: databaseId,
@@ -97,17 +121,26 @@ exports.cleanupEatCleanLiveLocations = onSchedule({
   region: 'asia-southeast1',
   timeZone: 'Asia/Ho_Chi_Minh',
   retryCount: 1,
+  cpu: 'gcf_gen1',
+  memory: '256MiB',
+  maxInstances: 1,
 }, async () => {
+  let deletedLocations = 0
   if (!realtimeDb) {
     logger.warn('Eat Clean GPS cleanup skipped because Realtime Database is not configured.')
-    return
+  } else {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000
+    const snapshot = await realtimeDb.ref('eatCleanLiveLocations').orderByChild('updatedAt').endAt(cutoff).limitToFirst(500).get()
+    const updates = {}
+    snapshot.forEach((item) => { updates[item.key] = null })
+    deletedLocations = Object.keys(updates).length
+    if (deletedLocations) await realtimeDb.ref('eatCleanLiveLocations').update(updates)
   }
-  const cutoff = Date.now() - 24 * 60 * 60 * 1000
-  const snapshot = await realtimeDb.ref('eatCleanLiveLocations').orderByChild('updatedAt').endAt(cutoff).limitToFirst(500).get()
-  const updates = {}
-  snapshot.forEach((item) => { updates[item.key] = null })
-  if (Object.keys(updates).length) await realtimeDb.ref('eatCleanLiveLocations').update(updates)
-  logger.info('Eat Clean stale GPS cleanup completed', { deletedLocations: Object.keys(updates).length })
+  const imageCleanup = await cleanupStaleAiCoachImages()
+  logger.info('Stale private location and AI image cleanup completed', {
+    deletedLocations,
+    ...imageCleanup,
+  })
 })
 const assignableRoles = new Set(['student', 'coach', 'editor', 'shipper', 'admin', 'super_admin'])
 const privilegedAdminRoles = new Set(['admin', 'super_admin'])
@@ -120,7 +153,9 @@ const quizAnswerLimit = 100
 const quizMaxAttemptLimit = 20
 const mediaUrlTtlMs = 5 * 60 * 1000
 const enforceAppCheck = process.env.ENFORCE_APP_CHECK === 'true'
-const enforceAiAppCheck = (process.env.ENFORCE_AI_APP_CHECK ?? process.env.ENFORCE_APP_CHECK) === 'true'
+const enforceAiAppCheck = (
+  process.env.ENFORCE_AI_APP_CHECK ?? process.env.ENFORCE_APP_CHECK ?? 'true'
+) === 'true'
 const publicAppUrl = process.env.PUBLIC_APP_URL || 'https://dinh-duong-aura.vercel.app'
 const clientIncidentRateWindows = new Map()
 
@@ -356,6 +391,9 @@ const exerciseCatalogFunctions = createExerciseCatalogFunctions({ db, onCall })
 Object.assign(exports, exerciseCatalogFunctions)
 exports.listExerciseCatalog = exerciseCatalogFunctions.listExerciseCatalog
 exports.getExerciseCatalogItem = exerciseCatalogFunctions.getExerciseCatalogItem
+exports.searchExternalExerciseCatalog = exerciseCatalogFunctions.searchExternalExerciseCatalog
+exports.getExternalExercisePreview = exerciseCatalogFunctions.getExternalExercisePreview
+exports.getExerciseCatalogMedia = exerciseCatalogFunctions.getExerciseCatalogMedia
 exports.saveExerciseCatalogDraft = exerciseCatalogFunctions.saveExerciseCatalogDraft
 exports.publishExerciseCatalogItem = exerciseCatalogFunctions.publishExerciseCatalogItem
 const ptWorkoutTrackingFunctions = createPtWorkoutTrackingFunctions({ db, onCall })

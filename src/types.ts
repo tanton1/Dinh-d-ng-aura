@@ -472,12 +472,39 @@ export interface ExerciseCatalogMediaImage {
   mimeType?: string
 }
 
+export interface ExerciseCatalogMediaVideo {
+  id: string
+  provider: 'aura' | 'ymove'
+  externalId?: string
+  /** Durable URL for Aura-owned media. YMove URLs are transient and are never persisted. */
+  url?: string
+  hlsUrl?: string
+  posterUrl?: string
+  tag?: 'white-background' | 'gym-shot' | 'aura'
+  angle?: 'front' | 'side' | 'other'
+  presenter?: 'female' | 'male' | 'neutral'
+  orientation?: 'portrait' | 'landscape'
+  format?: 'hls' | 'mp4' | 'webp' | 'gif'
+  durationSeconds?: number
+  isPrimary?: boolean
+}
+
+export interface ExerciseCatalogExternalMedia {
+  provider: 'ymove'
+  exerciseId: string
+  slug?: string
+  preferredVideoTag?: 'white-background' | 'gym-shot'
+  preferredOrientation?: 'portrait' | 'landscape'
+  syncedAt?: string
+}
+
 export interface ExerciseCatalogMedia {
   startImageUrl?: string
   endImageUrl?: string
   posterUrl?: string
   posterImageId?: string
   images?: ExerciseCatalogMediaImage[]
+  videos?: ExerciseCatalogMediaVideo[]
   animationUrl?: string
   mimeType?: string
   checksum?: string
@@ -492,6 +519,7 @@ export interface ExerciseCatalogSnapshot {
   commonMistakesVi: string[]
   breathingVi?: string
   media: ExerciseCatalogMedia
+  externalMedia?: ExerciseCatalogExternalMedia
   sourceAttribution?: string
 }
 
@@ -514,10 +542,10 @@ export interface ExerciseCatalogItem extends ExerciseCatalogSnapshot {
     rpe: number
   }
   source: {
-    provider: 'free-exercise-db' | 'aura'
+    provider: 'free-exercise-db' | 'aura' | 'ymove'
     sourceExerciseId: string
     sourceVersion: string
-    license: 'Unlicense' | 'Aura-owned'
+    license: 'Unlicense' | 'Aura-owned' | 'External-provider'
   }
   hasWorkingDraft?: boolean
   editRevision?: number

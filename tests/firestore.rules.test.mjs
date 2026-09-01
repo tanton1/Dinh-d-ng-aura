@@ -354,6 +354,24 @@ describe('Aura PT Firestore rules', () => {
     }
   })
 
+  test('AI Health Coach private state remains callable-only for every browser role', async () => {
+    const ownerDb = authenticatedDb('client-1', 'student')
+    const adminDb = authenticatedDb('admin-1', 'admin')
+    const serverOnlyDocuments = [
+      ['users', 'client-1', 'aiCoachCache', 'context'],
+      ['users', 'client-1', 'aiCoachConversations', 'progress'],
+      ['users', 'client-1', 'aiCoachTurnReceipts', 'turn_12345678'],
+      ['users', 'client-1', 'aiRateLimits', 'healthCoach'],
+    ]
+
+    for (const documentPath of serverOnlyDocuments) {
+      await assertFails(getDoc(doc(ownerDb, ...documentPath)))
+      await assertFails(getDoc(doc(adminDb, ...documentPath)))
+      await assertFails(setDoc(doc(ownerDb, ...documentPath), { forged: true }))
+      await assertFails(setDoc(doc(adminDb, ...documentPath), { forged: true }))
+    }
+  })
+
   test('renewal cases, activities and approvals are callable-only for every browser role', async () => {
     const studentDb = authenticatedDb('client-1', 'student')
     const adminDb = authenticatedDb('admin-1', 'admin')

@@ -12,7 +12,7 @@ const {
 // ENFORCE_AI_APP_CHECK value lets production protect AI without unexpectedly
 // blocking Auth-adjacent, Push, Academy, PT or Eat Clean callables.
 const ENFORCE_AI_APP_CHECK = (
-  process.env.ENFORCE_AI_APP_CHECK ?? process.env.ENFORCE_APP_CHECK
+  process.env.ENFORCE_AI_APP_CHECK ?? process.env.ENFORCE_APP_CHECK ?? 'true'
 ) === 'true'
 const STAFF_ROLES = new Set(['editor', 'admin', 'super_admin'])
 const ADMIN_ROLES = new Set(['admin', 'super_admin'])

@@ -48,7 +48,10 @@ interface PendingCoachImage {
 interface FailedCoachRequest {
   text: string
   attachment: PendingCoachImage | null
+  clientTurnId: string
 }
+
+type QueuedCoachRequest = FailedCoachRequest
 
 const DEFAULT_SUGGESTIONS = [
   'Hôm nay mình chỉ muốn tâm sự',
@@ -64,6 +67,11 @@ function createConversationId(scope: string) {
 
 function conversationStorageKey(scope: string) {
   return `aura:ai-health-coach:conversation:${scope.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80)}`
+}
+
+function createClientTurnId() {
+  if (typeof crypto.randomUUID === 'function') return `turn_${crypto.randomUUID()}`
+  return `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 14)}`
 }
 
 function readConversationId(scope: string) {
@@ -104,7 +112,7 @@ function contextItems(context: AiCoachContextSnapshot) {
 export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: AiCoachBottomSheetProps) {
   const titleId = useId()
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const chatEndRef = useRef<HTMLDivElement>(null)
+  const chatListRef = useRef<HTMLDivElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const nextImageKindRef = useRef<AiCoachImageKind>('meal')
   const previewUrlsRef = useRef(new Set<string>())
@@ -122,14 +130,18 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
   const [showContext, setShowContext] = useState(false)
   const [showImageMenu, setShowImageMenu] = useState(false)
   const [pendingImage, setPendingImage] = useState<PendingCoachImage | null>(null)
+  const [queuedRequest, setQueuedRequest] = useState<QueuedCoachRequest | null>(null)
 
-  const loadOverview = async () => {
+  const loadOverview = async (forceRefresh = false) => {
     setInitializing(true)
     setError('')
     setFailedRequest(null)
     try {
-      const overview = await getAiCoachOverview(conversationId)
-      setMessages(overview.history)
+      const overview = await getAiCoachOverview(conversationId, { forceRefresh })
+      setMessages((current) => [
+        ...overview.history,
+        ...current.filter((message) => message.id.startsWith('local-user-')),
+      ])
       setContext(overview.context)
       setDataUsed(overview.dataUsed)
       setMissingData(overview.missingData)
@@ -149,8 +161,12 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
       if (event.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', handleKeyDown)
-    window.setTimeout(() => inputRef.current?.focus(), 150)
+    const canAutoFocus = window.matchMedia('(hover: hover) and (pointer: fine)').matches
+    const focusTimer = canAutoFocus
+      ? window.setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 180)
+      : null
     return () => {
+      if (focusTimer !== null) window.clearTimeout(focusTimer)
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', handleKeyDown)
       previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
@@ -161,8 +177,22 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
   }, [])
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    const list = chatListRef.current
+    if (!list) return
+    const frame = window.requestAnimationFrame(() => {
+      list.scrollTop = list.scrollHeight
+    })
+    return () => window.cancelAnimationFrame(frame)
   }, [messages, loading])
+
+  useEffect(() => {
+    if (initializing || !queuedRequest) return
+    const queued = queuedRequest
+    setQueuedRequest(null)
+    void handleSend(queued.text, true, queued.attachment, queued.clientTurnId)
+    // handleSend is intentionally invoked only when a queued initialization request becomes ready.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initializing, queuedRequest])
 
   const chooseImage = (kind: AiCoachImageKind) => {
     nextImageKindRef.current = kind
@@ -204,13 +234,15 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
     textToSend?: string,
     retryExisting = false,
     attachmentOverride?: PendingCoachImage | null,
+    clientTurnIdOverride?: string,
   ) => {
     const attachment = attachmentOverride === undefined ? pendingImage : attachmentOverride
     const text = (textToSend ?? inputVal).trim()
-    if ((!text && !attachment) || loading || initializing) return
+    if ((!text && !attachment) || loading || (queuedRequest && !retryExisting)) return
     const displayText = text || (attachment?.kind === 'body'
       ? 'Nhận xét vóc dáng hiện tại và gợi ý hướng cải thiện phù hợp với mình.'
       : 'Phân tích món ăn này và tư vấn theo mục tiêu hiện tại của mình.')
+    const clientTurnId = clientTurnIdOverride || createClientTurnId()
 
     const userMessage: ChatMessage = {
       id: `local-user-${Date.now()}`,
@@ -222,15 +254,21 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
     if (!retryExisting) setMessages((current) => [...current, userMessage])
     setInputVal('')
     if (!retryExisting) setPendingImage(null)
+    if (initializing) {
+      setQueuedRequest({ text, attachment: attachment ?? null, clientTurnId })
+      setError('')
+      return
+    }
     setLoading(true)
     setError('')
     setFailedRequest(null)
+    setQueuedRequest(null)
 
     try {
       const uploadedAttachment = attachment
         ? await uploadAiCoachPhoto(attachment.file, attachment.kind)
         : null
-      const response = await askAiCoachDetailed(text, conversationId, uploadedAttachment)
+      const response = await askAiCoachDetailed(text, conversationId, uploadedAttachment, clientTurnId)
       setMessages((current) => [...current, {
         id: `local-ai-${Date.now()}`,
         sender: 'ai',
@@ -246,10 +284,10 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
       setError(message && !/^(internal|unknown)$/i.test(message)
         ? message
         : 'Aura chưa thể trả lời lúc này. Câu hỏi và ảnh của bạn vẫn ở đây để thử lại.')
-      setFailedRequest({ text, attachment: attachment ?? null })
+      setFailedRequest({ text, attachment: attachment ?? null, clientTurnId })
     } finally {
       setLoading(false)
-      inputRef.current?.focus()
+      inputRef.current?.focus({ preventScroll: true })
     }
   }
 
@@ -262,8 +300,9 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
     setInputVal('')
     setError('')
     setFailedRequest(null)
+    setQueuedRequest(null)
     removePendingImage()
-    inputRef.current?.focus()
+    inputRef.current?.focus({ preventScroll: true })
   }
 
   const knownContext = contextItems(context)
@@ -324,8 +363,8 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
           </div>
         )}
 
-        <div className="pg-coach-chat-list" aria-live="polite" aria-busy={loading || initializing}>
-          {!initializing && messages.length === 0 && (
+        <div ref={chatListRef} className="pg-coach-chat-list" aria-live="polite" aria-busy={loading || initializing}>
+          {messages.length === 0 && (
             <div className="pg-coach-msg ai pg-coach-greeting">{greeting}</div>
           )}
           {messages.map((message) => (
@@ -345,10 +384,13 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
           {(initializing || loading) && (
             <div className="pg-coach-msg ai pg-coach-typing" role="status">
               <Loader2 className="spin" size={16} />
-              <span>{initializing ? 'Đang đọc dữ liệu bạn đã cho phép Aura lưu…' : 'Đang lắng nghe và đối chiếu dữ liệu của bạn…'}</span>
+              <span>{queuedRequest
+                ? 'Đã giữ câu hỏi của bạn · Aura sẽ gửi ngay khi dữ liệu sẵn sàng…'
+                : initializing
+                  ? 'Đang đọc dữ liệu bạn đã cho phép Aura lưu…'
+                  : 'Đang lắng nghe và đối chiếu dữ liệu của bạn…'}</span>
             </div>
           )}
-          <div ref={chatEndRef} />
         </div>
 
         {error && (
@@ -357,8 +399,8 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
             <button
               type="button"
               onClick={() => failedRequest
-                ? void handleSend(failedRequest.text, true, failedRequest.attachment)
-                : void loadOverview()}
+                ? void handleSend(failedRequest.text, true, failedRequest.attachment, failedRequest.clientTurnId)
+                : void loadOverview(true)}
               disabled={initializing || loading}
             >
               <RefreshCw size={15} /> {failedRequest ? 'Thử lại' : 'Tải lại'}
@@ -368,7 +410,7 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
 
         <div className="pg-coach-chips" aria-label="Gợi ý trò chuyện">
           {suggestions.slice(0, 4).map((suggestion) => (
-            <button key={suggestion} type="button" onClick={() => void handleSend(suggestion)} className="pg-coach-chip" disabled={loading || initializing}>
+            <button key={suggestion} type="button" onClick={() => void handleSend(suggestion)} className="pg-coach-chip" disabled={loading || Boolean(queuedRequest)}>
               {suggestion}
             </button>
           ))}
@@ -405,7 +447,7 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
           <button
             type="button"
             className="pg-coach-attach-btn"
-            disabled={loading || initializing}
+            disabled={loading}
             onClick={() => setShowImageMenu((current) => !current)}
             aria-label="Thêm ảnh để Aura tư vấn"
             aria-expanded={showImageMenu}
@@ -418,7 +460,7 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
             maxLength={3000}
             placeholder={pendingImage ? 'Mô tả điều bạn muốn Aura tư vấn (không bắt buộc)…' : 'Bạn có thể hỏi hoặc gửi ảnh cho Aura…'}
             value={inputVal}
-            disabled={loading || initializing}
+            disabled={loading}
             onChange={(event) => setInputVal(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
@@ -427,7 +469,7 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
               }
             }}
           />
-          <button type="button" className="pg-coach-send-btn" disabled={loading || initializing || (!inputVal.trim() && !pendingImage)} onClick={() => void handleSend()} aria-label="Gửi tin nhắn cho Aura Health Coach">
+          <button type="button" className="pg-coach-send-btn" disabled={loading || Boolean(queuedRequest) || (!inputVal.trim() && !pendingImage)} onClick={() => void handleSend()} aria-label="Gửi tin nhắn cho Aura Health Coach">
             {loading ? <Loader2 className="spin" size={19} /> : <Send size={19} />}
           </button>
         </div>

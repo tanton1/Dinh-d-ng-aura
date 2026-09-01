@@ -748,6 +748,51 @@ export interface AiCoachResponse {
   providerRequestId?: string | null
 }
 
+const AI_COACH_OVERVIEW_TTL_MS = 3 * 60_000
+const aiCoachOverviewCache = new Map<string, { expiresAt: number; value: AiCoachOverview }>()
+const aiCoachOverviewRequests = new Map<string, Promise<AiCoachOverview>>()
+const aiCoachOverviewExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function aiCoachOverviewCacheKey(conversationId: string) {
+  const uid = firebaseAuth?.currentUser?.uid || 'anonymous'
+  return `${uid}:${conversationId}`
+}
+
+function readCachedAiCoachOverview(cacheKey: string): AiCoachOverview | null {
+  const now = Date.now()
+  const memoryEntry = aiCoachOverviewCache.get(cacheKey)
+  if (memoryEntry && memoryEntry.expiresAt > now) return memoryEntry.value
+  if (memoryEntry) aiCoachOverviewCache.delete(cacheKey)
+  return null
+}
+
+function cacheAiCoachOverview(cacheKey: string, value: AiCoachOverview) {
+  // Conversation history can contain sensitive health or emotional content.
+  // Keep this short-lived cache in memory only; never persist it in Web Storage.
+  const expiresAt = Date.now() + AI_COACH_OVERVIEW_TTL_MS
+  aiCoachOverviewCache.set(cacheKey, { expiresAt, value })
+  const previousTimer = aiCoachOverviewExpiryTimers.get(cacheKey)
+  if (previousTimer) clearTimeout(previousTimer)
+  const timer = setTimeout(() => {
+    const current = aiCoachOverviewCache.get(cacheKey)
+    if (current && current.expiresAt <= Date.now()) aiCoachOverviewCache.delete(cacheKey)
+    aiCoachOverviewExpiryTimers.delete(cacheKey)
+  }, AI_COACH_OVERVIEW_TTL_MS + 100)
+  aiCoachOverviewExpiryTimers.set(cacheKey, timer)
+}
+
+function invalidateAiCoachOverview(conversationId: string) {
+  const cacheKey = aiCoachOverviewCacheKey(conversationId)
+  aiCoachOverviewCache.delete(cacheKey)
+  const timer = aiCoachOverviewExpiryTimers.get(cacheKey)
+  if (timer) clearTimeout(timer)
+  aiCoachOverviewExpiryTimers.delete(cacheKey)
+}
+
+export function prewarmAiCoachAppCheck() {
+  void initializeFirebaseAppCheck().catch(() => undefined)
+}
+
 function boundedStringList(value: unknown, maximum = 8): string[] {
   if (!Array.isArray(value)) return []
   return value
@@ -824,22 +869,44 @@ function validateAiCoachResponse(value: unknown): AiCoachResponse {
   }
 }
 
-export async function getAiCoachOverview(conversationId: string): Promise<AiCoachOverview> {
-  await initializeFirebaseAppCheck()
-  const firebase = requireNutritionFirebase()
-  const callable = httpsCallable<{ conversationId: string }, unknown>(
-    firebase.functions,
-    'getAiCoachOverview',
-    { timeout: 30_000 },
-  )
-  const result = await callable({ conversationId })
-  return validateAiCoachOverview(result.data)
+export async function getAiCoachOverview(
+  conversationId: string,
+  options: { forceRefresh?: boolean } = {},
+): Promise<AiCoachOverview> {
+  const cacheKey = aiCoachOverviewCacheKey(conversationId)
+  const pending = aiCoachOverviewRequests.get(cacheKey)
+  if (pending) return pending
+  if (!options.forceRefresh) {
+    const cached = readCachedAiCoachOverview(cacheKey)
+    if (cached) return cached
+  }
+
+  const request = (async () => {
+    await initializeFirebaseAppCheck()
+    const firebase = requireNutritionFirebase()
+    const callable = httpsCallable<{ conversationId: string }, unknown>(
+      firebase.functions,
+      'getAiCoachOverview',
+      { timeout: 30_000 },
+    )
+    const result = await callable({ conversationId })
+    const overview = validateAiCoachOverview(result.data)
+    cacheAiCoachOverview(cacheKey, overview)
+    return overview
+  })()
+  aiCoachOverviewRequests.set(cacheKey, request)
+  try {
+    return await request
+  } finally {
+    if (aiCoachOverviewRequests.get(cacheKey) === request) aiCoachOverviewRequests.delete(cacheKey)
+  }
 }
 
 export async function askAiCoachDetailed(
   message: string,
   conversationId: string,
   attachment?: AiCoachImageAttachment | null,
+  clientTurnId?: string,
 ): Promise<AiCoachResponse> {
   const normalizedMessage = message.trim()
   if ((!normalizedMessage && !attachment) || normalizedMessage.length > 3000) {
@@ -853,19 +920,25 @@ export async function askAiCoachDetailed(
   const callable = httpsCallable<{
     message: string
     conversationId: string
+    clientTurnId?: string
     attachment?: { kind: AiCoachImageKind; storagePath: string }
   }, unknown>(
     firebase.functions,
     'askAiCoach',
-    { timeout: attachment ? 75_000 : 45_000 },
+    // The backend reserves up to 45 seconds for provider fallbacks, then still
+    // needs time to persist the exchange and idempotency receipt.
+    { timeout: attachment ? 75_000 : 65_000 },
   )
   try {
     const result = await callable({
       message: normalizedMessage,
       conversationId,
+      ...(clientTurnId ? { clientTurnId } : {}),
       ...(attachment ? { attachment: { kind: attachment.kind, storagePath: attachment.storagePath } } : {}),
     })
-    return validateAiCoachResponse(result.data)
+    const response = validateAiCoachResponse(result.data)
+    invalidateAiCoachOverview(conversationId)
+    return response
   } catch (error) {
     if (attachment && firebase.storage) {
       await deleteObject(ref(firebase.storage, attachment.storagePath)).catch(() => undefined)

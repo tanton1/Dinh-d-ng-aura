@@ -516,6 +516,25 @@ service cloud.firestore {
                       && request.resource.data.updatedAt == request.time;
         allow delete: if isOwner(userId);
       }
+
+      // AI Coach context, conversation history, idempotency receipts and
+      // throttling counters contain server-owned health and safety state.
+      // Clients receive only the sanitized callable response.
+      match /aiCoachCache/{documentId} {
+        allow read, write: if false;
+      }
+
+      match /aiCoachConversations/{documentId} {
+        allow read, write: if false;
+      }
+
+      match /aiCoachTurnReceipts/{documentId} {
+        allow read, write: if false;
+      }
+
+      match /aiRateLimits/{documentId} {
+        allow read, write: if false;
+      }
     }
 
     // FCM public key/config contains no secret and must be readable by an

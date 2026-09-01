@@ -8,7 +8,7 @@ const MAX_RANGE_DAYS = 366
 const MAX_SCANNED_DOCUMENTS = 10000
 const MAX_ACTION_DOCUMENTS = 2000
 const DASHBOARD_CACHE_TTL_MS = 60_000
-const DASHBOARD_CACHE_MAX_ENTRIES = 120
+const DASHBOARD_CACHE_MAX_ENTRIES = 24
 const MAX_CONTRACT_DOCUMENTS = 2000
 const MAX_STUDENT_DOCUMENTS = 2000
 const MAX_TRAINER_DOCUMENTS = 500
@@ -619,7 +619,12 @@ function contractEffectiveDate(value) {
 
 function createOperationsDashboardFunctions({ db, onCall, logger = console }) {
   const sharedCache = createSharedDashboardCache({ db, logger })
-  const getOperationsDashboard = onCall(async (request) => {
+  const getOperationsDashboard = onCall({
+    memory: '512MiB',
+    cpu: 1,
+    maxInstances: 3,
+    concurrency: 8,
+  }, async (request) => {
     const startedAt = Date.now()
     const actor = await trustedAccessContext(request, db)
     requireCapability(actor, 'dashboard.view')

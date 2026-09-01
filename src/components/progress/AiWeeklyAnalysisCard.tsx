@@ -11,10 +11,11 @@ export interface AiWeeklySummary {
 
 interface AiWeeklyAnalysisCardProps {
   onOpenCoach: () => void
+  onPrepareCoach?: () => void
   summary: AiWeeklySummary
 }
 
-export function AiWeeklyAnalysisCard({ onOpenCoach, summary }: AiWeeklyAnalysisCardProps) {
+export function AiWeeklyAnalysisCard({ onOpenCoach, onPrepareCoach, summary }: AiWeeklyAnalysisCardProps) {
   const hasEnoughNutritionData = summary.mealLoggedDays >= 3
   const priorities: string[] = []
 
@@ -49,7 +50,7 @@ export function AiWeeklyAnalysisCard({ onOpenCoach, summary }: AiWeeklyAnalysisC
             ))}
           </div>
 
-          <button type="button" onClick={onOpenCoach} className="pg-ai-review-action">
+          <button type="button" onPointerEnter={onPrepareCoach} onPointerDown={onPrepareCoach} onFocus={onPrepareCoach} onClick={onOpenCoach} className="pg-ai-review-action">
             <span>{hasEnoughNutritionData ? 'Cùng Aura phân tích và trò chuyện' : 'Tâm sự với Aura ngay cả khi chưa đủ dữ liệu'}</span>
             <ArrowRight size={16} />
           </button>

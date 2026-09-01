@@ -24,6 +24,7 @@ import { WeightLogModal } from '../../components/progress/WeightLogModal'
 import { BodyMeasurementsModal } from '../../components/progress/BodyMeasurementsModal'
 import { firebaseAuth } from '../../lib/firebase'
 import { AiCoachBottomSheet } from '../../components/progress/AiCoachBottomSheet'
+import { prewarmAiCoachAppCheck } from '../../services/nutritionService'
 import { calculateProgressScore, defaultProgressInputSample } from '../../utils/progressScoreCalculator'
 import type { NutritionProfileDraft } from '../../features/nutrition/types'
 import { toLocalDateKey } from '../../features/nutrition/routing'
@@ -67,6 +68,22 @@ export default function ProgressPage({
   heightCm,
   nutritionProfile = null,
 }: ProgressPageProps) {
+  useEffect(() => {
+    // Mobile users do not have a hover event. Warm App Check only while the
+    // browser is idle so it cannot compete with the progress page's first paint.
+    if (!window.matchMedia('(hover: none), (pointer: coarse)').matches) return undefined
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number
+      cancelIdleCallback?: (handle: number) => void
+    }
+    if (idleWindow.requestIdleCallback) {
+      const handle = idleWindow.requestIdleCallback(prewarmAiCoachAppCheck, { timeout: 2_500 })
+      return () => idleWindow.cancelIdleCallback?.(handle)
+    }
+    const timer = window.setTimeout(prewarmAiCoachAppCheck, 1_500)
+    return () => window.clearTimeout(timer)
+  }, [])
+
   const [period, setPeriod] = useState<ProgressPeriod>('7-days')
   const [category, setCategory] = useState<ProgressCategory>('overview')
 
@@ -904,7 +921,7 @@ export default function ProgressPage({
       )}
 
       {/* AI Analysis Weekly Summary */}
-      <AiWeeklyAnalysisCard summary={aiWeeklySummary} onOpenCoach={() => setCoachSheetOpen(true)} />
+      <AiWeeklyAnalysisCard summary={aiWeeklySummary} onPrepareCoach={prewarmAiCoachAppCheck} onOpenCoach={() => setCoachSheetOpen(true)} />
 
       {/* Floating Quick Log Button */}
       <div style={{ position: 'fixed', bottom: 84, right: 20, zIndex: 90 }}>

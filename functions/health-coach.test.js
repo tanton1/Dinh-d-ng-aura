@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const test = require('node:test')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
+const { HttpsError } = require('firebase-functions/v2/https')
 
 const {
   buildHealthCoachPrompt,
@@ -10,13 +11,24 @@ const {
   capHealthCoachHistory,
   classifyHealthCoachSafety,
   createNutritionFunctions,
+  healthCoachProviderCapacity,
+  healthCoachPrimaryApiKey,
+  healthCoachRateLimitMutation,
+  healthCoachTurnFingerprint,
+  normalizeHealthCoachClientTurnId,
   normalizeHealthCoachConversationId,
   parseHealthCoachImageAttachment,
   parseHealthCoachProviderResponse,
+  resetHealthCoachProviderState,
+  recordHealthCoachPrimaryProviderFailure,
+  recordHealthCoachPrimaryProviderSuccess,
+  runHealthCoachProviderRequest,
   summarizeHealthCoachContext,
+  validHealthCoachContextCache,
 } = require('./nutrition')
 
 const nutritionSource = readFileSync(join(__dirname, 'nutrition.js'), 'utf8')
+const functionsIndexSource = readFileSync(join(__dirname, 'index.js'), 'utf8')
 const storageRulesSource = readFileSync(join(__dirname, '..', 'storage.rules'), 'utf8')
 
 test('AI Health Coach context uses bounded server records and real nutrition totals', () => {
@@ -141,6 +153,145 @@ test('conversation ids are actor-path safe and history is capped to ten messages
   assert.equal(capped[1].sender, 'ai')
 })
 
+test('client turn receipts accept opaque ids and bind retries to the exact request', () => {
+  assert.equal(normalizeHealthCoachClientTurnId(), null)
+  assert.equal(normalizeHealthCoachClientTurnId('turn_12345678'), 'turn_12345678')
+  assert.throws(
+    () => normalizeHealthCoachClientTurnId('../turn'),
+    (error) => error?.code === 'invalid-argument',
+  )
+  const base = {
+    conversationId: 'default',
+    message: 'Mình nên ăn gì?',
+    attachment: null,
+  }
+  assert.equal(healthCoachTurnFingerprint(base), healthCoachTurnFingerprint({ ...base }))
+  assert.notEqual(healthCoachTurnFingerprint(base), healthCoachTurnFingerprint({ ...base, message: 'Câu khác' }))
+  const imageTurn = { ...base, attachment: { kind: 'meal', purpose: 'ai-coach-meal', storagePath: 'path-a' } }
+  assert.equal(
+    healthCoachTurnFingerprint(imageTurn),
+    healthCoachTurnFingerprint({ ...imageTurn, attachment: { ...imageTurn.attachment, storagePath: 'path-b' } }),
+  )
+})
+
+test('context cache accepts only current, complete and unexpired server summaries', () => {
+  const summary = {
+    context: {},
+    promptContext: {},
+    dataUsed: [],
+    missingData: [],
+    suggestedReplies: [],
+  }
+  assert.equal(validHealthCoachContextCache({ schemaVersion: 1, expiresAtMs: 2_000, summary }, 1_000), true)
+  assert.equal(validHealthCoachContextCache({ schemaVersion: 1, expiresAtMs: 999, summary }, 1_000), false)
+  assert.equal(validHealthCoachContextCache({ schemaVersion: 2, expiresAtMs: 2_000, summary }, 1_000), false)
+  assert.equal(validHealthCoachContextCache({ schemaVersion: 1, expiresAtMs: 2_000, summary: {} }, 1_000), false)
+})
+
+test('rate limit mutation bounds both burst and daily AI usage before a receipt is written', () => {
+  const now = 2_000_000
+  const recent = { toMillis: () => now - 1_000 }
+  const allowed = healthCoachRateLimitMutation({
+    windowStartedAt: recent,
+    dayStartedAt: recent,
+    windowCount: 19,
+    dayCount: 99,
+  }, now)
+  assert.equal(allowed.windowCount, 20)
+  assert.equal(allowed.dayCount, 100)
+  assert.throws(
+    () => healthCoachRateLimitMutation({
+      windowStartedAt: recent,
+      dayStartedAt: recent,
+      windowCount: 20,
+      dayCount: 20,
+    }, now),
+    (error) => error?.code === 'resource-exhausted',
+  )
+  assert.throws(
+    () => healthCoachRateLimitMutation({
+      windowStartedAt: recent,
+      dayStartedAt: recent,
+      windowCount: 1,
+      dayCount: 100,
+    }, now),
+    (error) => error?.code === 'resource-exhausted',
+  )
+})
+
+test('per-instance provider admission rejects overflow without a global hot document', async () => {
+  resetHealthCoachProviderState()
+  const releases = []
+  const hold = () => runHealthCoachProviderRequest(() => new Promise((resolve) => releases.push(resolve)))
+  const active = [hold(), hold(), hold(), hold()]
+  assert.deepEqual(healthCoachProviderCapacity(), {
+    active: 4,
+    available: 0,
+    circuitOpen: false,
+    retryAfterMs: 0,
+    consecutiveFailures: 0,
+    primaryCircuitOpen: false,
+    primaryRetryAfterMs: 0,
+  })
+  await assert.rejects(
+    () => runHealthCoachProviderRequest(async () => 'overflow'),
+    (error) => error?.code === 'resource-exhausted',
+  )
+  releases.forEach((resolve) => resolve('ok'))
+  await Promise.all(active)
+  assert.equal(healthCoachProviderCapacity().active, 0)
+})
+
+test('provider circuit opens after consecutive transient failures and recovers after reset', async () => {
+  resetHealthCoachProviderState()
+  for (let index = 0; index < 3; index += 1) {
+    await assert.rejects(
+      () => runHealthCoachProviderRequest(async () => {
+        throw new HttpsError('unavailable', 'provider unavailable')
+      }),
+    )
+  }
+  assert.equal(healthCoachProviderCapacity().circuitOpen, true)
+  await assert.rejects(
+    () => runHealthCoachProviderRequest(async () => 'blocked'),
+    (error) => error?.code === 'unavailable',
+  )
+  resetHealthCoachProviderState()
+  assert.equal(await runHealthCoachProviderRequest(async () => 'recovered'), 'recovered')
+})
+
+test('an older in-flight success cannot close a circuit opened by newer failures', async () => {
+  resetHealthCoachProviderState()
+  let releaseSuccess
+  const staleSuccess = runHealthCoachProviderRequest(() => new Promise((resolve) => {
+    releaseSuccess = resolve
+  }))
+  for (let index = 0; index < 3; index += 1) {
+    await assert.rejects(() => runHealthCoachProviderRequest(async () => {
+      throw new HttpsError('unavailable', 'newer provider failure')
+    }))
+  }
+  assert.equal(healthCoachProviderCapacity().circuitOpen, true)
+  releaseSuccess('late success')
+  assert.equal(await staleSuccess, 'late success')
+  assert.equal(healthCoachProviderCapacity().circuitOpen, true)
+  resetHealthCoachProviderState()
+})
+
+test('primary provider circuit skips apikey.fun while preserving OpenRouter fallback capacity', () => {
+  resetHealthCoachProviderState()
+  const error = new HttpsError('unavailable', 'primary failed')
+  recordHealthCoachPrimaryProviderFailure(error)
+  recordHealthCoachPrimaryProviderFailure(error)
+  recordHealthCoachPrimaryProviderFailure(error)
+  assert.equal(healthCoachPrimaryApiKey('primary-key'), '')
+  assert.equal(healthCoachProviderCapacity().primaryCircuitOpen, true)
+  recordHealthCoachPrimaryProviderSuccess()
+  assert.equal(healthCoachPrimaryApiKey('primary-key'), '')
+  recordHealthCoachPrimaryProviderSuccess(Date.now() + 31_000)
+  assert.equal(healthCoachPrimaryApiKey('primary-key'), 'primary-key')
+})
+
 test('coach prompt distinguishes facts, cautious inference, missing data, empathy and safety', () => {
   const history = Array.from({ length: 12 }, (_, index) => ({
     id: `m${index}`,
@@ -160,6 +311,11 @@ test('coach prompt distinguishes facts, cautious inference, missing data, empath
   assert.match(systemPrompt, /"có thể", "nhiều khả năng"/)
   assert.match(systemPrompt, /Không bịa số đo/)
   assert.match(systemPrompt, /tối đa 1-3 hành động nhỏ/i)
+  assert.match(systemPrompt, /phỏng vấn tạo động lực/i)
+  assert.match(systemPrompt, /muốn được nghe tiếp hay cùng tìm giải pháp/i)
+  assert.match(systemPrompt, /mức sẵn sàng 0-10/i)
+  assert.match(systemPrompt, /Bạn từng chia sẻ/i)
+  assert.match(systemPrompt, /Không biến mọi cuộc trò chuyện thành bài phân tích số liệu/i)
   assert.match(systemPrompt, /Không chẩn đoán bệnh/)
   assert.match(systemPrompt, /Không chấm điểm cơ thể/i)
   assert.match(systemPrompt, /không.*phần trăm mỡ\/cân nặng chính xác/i)
@@ -197,6 +353,14 @@ test('Storage permits only the three private nutrition image purposes', () => {
   assert.match(storageRulesSource, /'ai-coach-meal'/)
   assert.match(storageRulesSource, /request\.resource\.metadata\.ownerUid == userId/)
   assert.match(storageRulesSource, /request\.resource\.metadata\.scanId == scanId/)
+})
+
+test('hourly cleanup removes abandoned AI Coach images without deleting retained food scans', () => {
+  assert.match(functionsIndexSource, /prefix: 'nutrition-scans\/'/)
+  assert.match(functionsIndexSource, /\['ai-coach-body', 'ai-coach-meal'\]\.includes\(purpose\)/)
+  assert.match(functionsIndexSource, /now - 24 \* 60 \* 60 \* 1000/)
+  assert.match(functionsIndexSource, /file\.delete\(\{ ignoreNotFound: true \}\)/)
+  assert.match(functionsIndexSource, /cpu: 'gcf_gen1'[\s\S]*memory: '256MiB'[\s\S]*maxInstances: 1/)
 })
 
 test('coach image prompt discloses ephemeral visual context without promoting it to a verified measurement', () => {
@@ -248,6 +412,7 @@ test('provider output is normalized into the frontend structured contract', () =
 })
 
 test('callables include overview and ask; ask ignores client profile and reads actor-owned context', () => {
+  assert.match(nutritionSource, /ENFORCE_AI_APP_CHECK[\s\S]*ENFORCE_APP_CHECK \?\? 'true'/)
   const functions = createNutritionFunctions({ app: {}, db: {} })
   assert.equal(typeof functions.getAiCoachOverview, 'function')
   assert.equal(typeof functions.askAiCoach, 'function')
@@ -269,4 +434,38 @@ test('callables include overview and ask; ask ignores client profile and reads a
   assert.match(askSource, /role: 'user', content: userContent/)
   assert.match(askSource, /type: 'image_url'/)
   assert.match(askSource, /imageFile\.delete\(\{ ignoreNotFound: true \}\)/)
+})
+
+test('Health Coach P0 bounds source scans, caches context and makes client turns idempotent', () => {
+  assert.match(nutritionSource, /where\('date', '<=', today\)[\s\S]*orderBy\('date', 'desc'\)/)
+  assert.match(nutritionSource, /users\/\$\{uid\}\/aiCoachCache\/context/)
+  assert.match(nutritionSource, /HEALTH_COACH_CONTEXT_CACHE_TTL_MS = 60 \* 1000/)
+  assert.match(nutritionSource, /expiresAt: new Date\(now\.getTime\(\) \+ HEALTH_COACH_CONTEXT_CACHE_TTL_MS\)/)
+  assert.match(nutritionSource, /healthCoachContextLoads\.get\(uid\)/)
+  assert.match(nutritionSource, /if \(complete\) \{[\s\S]*cacheReference\.set/)
+  assert.match(nutritionSource, /if \(!complete\) \{[\s\S]*Dữ liệu sức khỏe chưa đồng bộ đầy đủ/)
+  assert.match(nutritionSource, /users\/\$\{uid\}\/aiCoachTurnReceipts\/\$\{clientTurnId\}/)
+  assert.match(nutritionSource, /rateLimitSnapshot = await transaction\.get\(rateLimitReference\)[\s\S]*transaction\.set\(rateLimitReference[\s\S]*transaction\.set\(reference/)
+  assert.doesNotMatch(nutritionSource, /consumeHealthCoachRateLimit/)
+  assert.match(nutritionSource, /HEALTH_COACH_TURN_RECEIPT_TTL_MS = 24 \* 60 \* 60 \* 1000/)
+  assert.match(nutritionSource, /expiresAt: new Date\(now \+ HEALTH_COACH_TURN_RECEIPT_TTL_MS\)/)
+  assert.match(nutritionSource, /current\.status === 'completed'/)
+  assert.match(nutritionSource, /current\.status === 'processing'/)
+  assert.match(nutritionSource, /turnClaim\.reference,[\s\S]*response,[\s\S]*\)/)
+  assert.match(nutritionSource, /transaction\.set\(receiptReference,[\s\S]*status: 'completed'/)
+  assert.match(nutritionSource, /await failHealthCoachTurn\(turnClaim\.reference, error\)/)
+  assert.match(nutritionSource, /turnClaim\.status === 'completed'[\s\S]*imageFile\.delete\(\{ ignoreNotFound: true \}\)/)
+})
+
+test('Health Coach provider calls have a bounded total budget and local circuit admission', () => {
+  assert.match(nutritionSource, /HEALTH_COACH_PROVIDER_BUDGET_MS = 45 \* 1000/)
+  assert.match(nutritionSource, /HEALTH_COACH_PROVIDER_ATTEMPT_TIMEOUT_MS = 12 \* 1000/)
+  assert.match(nutritionSource, /HEALTH_COACH_PROVIDER_MAX_ACTIVE_PER_INSTANCE = 4/)
+  assert.match(nutritionSource, /Math\.min\(perAttemptTimeoutMs, remainingMs - 500\)/)
+  assert.match(nutritionSource, /runHealthCoachProviderRequest\(\(\) => generateNutritionTextWithFallback/)
+  assert.match(nutritionSource, /deadlineAt: Date\.now\(\) \+ HEALTH_COACH_PROVIDER_BUDGET_MS/)
+  assert.match(nutritionSource, /consecutiveFailures >= HEALTH_COACH_PROVIDER_CIRCUIT_FAILURES/)
+  assert.match(nutritionSource, /apiKeyFunApiKey: healthCoachPrimaryApiKey\(apiKeyFunApiKey\)/)
+  assert.match(nutritionSource, /minInstances: 1,[\s\S]*maxInstances: 3,[\s\S]*concurrency: 12/)
+  assert.doesNotMatch(nutritionSource, /globalHealthCoachRateLimit|aiCoachGlobalCircuit/)
 })

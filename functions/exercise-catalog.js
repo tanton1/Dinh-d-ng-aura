@@ -1,5 +1,11 @@
 const { FieldValue } = require('firebase-admin/firestore')
+const { defineSecret } = require('firebase-functions/params')
 const { HttpsError } = require('firebase-functions/v2/https')
+
+const YMOVE_API_KEY = defineSecret('YMOVE_API_KEY', {
+  description: 'Server-side API key for the YMove exercise media provider.',
+})
+const YMOVE_API_BASE_URL = 'https://exercise-api.ymove.app/api/v2'
 
 const staffRoles = new Set(['coach', 'trainer', 'editor', 'admin', 'super_admin'])
 const publishRoles = new Set(['admin', 'super_admin'])
@@ -41,6 +47,49 @@ function mediaImages(value, exerciseId) {
   }).slice(0, 12).sort((left, right) => left.order - right.order).map((entry, order) => ({ ...entry, order }))
 }
 
+function mediaVideos(value) {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry, index) => {
+    if (!entry || typeof entry !== 'object') return []
+    const provider = entry.provider === 'ymove' ? 'ymove' : 'aura'
+    const id = text(entry.id, 160) || `video-${index + 1}`
+    if (!/^[A-Za-z0-9_-]+$/.test(id)) return []
+    // YMove URLs expire. They are returned by getExerciseCatalogMedia only.
+    const url = provider === 'aura' ? text(entry.url, 2_000) : ''
+    const hlsUrl = provider === 'aura' ? text(entry.hlsUrl, 2_000) : ''
+    const posterUrl = provider === 'aura' ? text(entry.posterUrl, 2_000) : ''
+    return [{
+      id,
+      provider,
+      ...(text(entry.externalId, 160) ? { externalId: text(entry.externalId, 160) } : {}),
+      ...(url ? { url } : {}),
+      ...(hlsUrl ? { hlsUrl } : {}),
+      ...(posterUrl ? { posterUrl } : {}),
+      ...(['white-background', 'gym-shot', 'aura'].includes(entry.tag) ? { tag: entry.tag } : provider === 'aura' ? { tag: 'aura' } : {}),
+      ...(['front', 'side', 'other'].includes(entry.angle) ? { angle: entry.angle } : {}),
+      ...(['female', 'male', 'neutral'].includes(entry.presenter) ? { presenter: entry.presenter } : {}),
+      ...(['portrait', 'landscape'].includes(entry.orientation) ? { orientation: entry.orientation } : {}),
+      ...(['hls', 'mp4', 'webp', 'gif'].includes(entry.format) ? { format: entry.format } : {}),
+      ...(Number.isFinite(entry.durationSeconds) ? { durationSeconds: Math.max(0, Math.round(entry.durationSeconds)) } : {}),
+      isPrimary: entry.isPrimary === true,
+    }]
+  }).slice(0, 12)
+}
+
+function normalizedExternalMedia(value) {
+  if (!value || typeof value !== 'object' || value.provider !== 'ymove') return undefined
+  const exerciseId = text(value.exerciseId, 160)
+  if (!exerciseId || !/^[A-Za-z0-9_-]+$/.test(exerciseId)) return undefined
+  return {
+    provider: 'ymove',
+    exerciseId,
+    ...(text(value.slug, 200) ? { slug: text(value.slug, 200) } : {}),
+    ...(['white-background', 'gym-shot'].includes(value.preferredVideoTag) ? { preferredVideoTag: value.preferredVideoTag } : {}),
+    ...(['portrait', 'landscape'].includes(value.preferredOrientation) ? { preferredOrientation: value.preferredOrientation } : {}),
+    ...(text(value.syncedAt, 80) ? { syncedAt: text(value.syncedAt, 80) } : {}),
+  }
+}
+
 function normalizedMedia(rawMedia, exerciseId) {
   const images = mediaImages(rawMedia?.images, exerciseId)
   const startImage = images.find((image) => image.role === 'start') || images[0]
@@ -53,6 +102,7 @@ function normalizedMedia(rawMedia, exerciseId) {
     posterUrl: text(rawMedia?.posterUrl, 2_000) || posterImage?.url || '',
     posterImageId: posterImage?.id || '',
     images,
+    videos: mediaVideos(rawMedia?.videos),
     animationUrl: text(rawMedia?.animationUrl, 2_000),
     mimeType: text(rawMedia?.mimeType, 100) || startImage?.mimeType || '',
     checksum: text(rawMedia?.checksum, 128),
@@ -93,6 +143,7 @@ function publicItemFromData(id, data) {
     difficulty: ['beginner', 'intermediate', 'advanced'].includes(data.difficulty) ? data.difficulty : 'beginner', goals: stringList(data.goals, 12, 80),
     instructionsVi: stringList(data.instructionsVi, 20, 600), cuesVi: stringList(data.cuesVi, 12, 300), commonMistakesVi: stringList(data.commonMistakesVi, 12, 300), breathingVi: text(data.breathingVi, 500),
     media: normalizedMedia(data.media, id),
+    ...(normalizedExternalMedia(data.externalMedia) ? { externalMedia: normalizedExternalMedia(data.externalMedia) } : {}),
     defaultPrescription: {
       sets: Number.isInteger(data.defaultPrescription?.sets) ? data.defaultPrescription.sets : 3,
       reps: text(data.defaultPrescription?.reps, 40) || '10–12',
@@ -100,8 +151,8 @@ function publicItemFromData(id, data) {
       rpe: Number.isInteger(data.defaultPrescription?.rpe) ? data.defaultPrescription.rpe : 7,
     },
     source: {
-      provider: data.source?.provider === 'aura' ? 'aura' : 'free-exercise-db', sourceExerciseId: text(data.source?.sourceExerciseId, 160) || id,
-      sourceVersion: text(data.source?.sourceVersion, 100) || 'unknown', license: data.source?.license === 'Aura-owned' ? 'Aura-owned' : 'Unlicense',
+      provider: ['aura', 'ymove'].includes(data.source?.provider) ? data.source.provider : 'free-exercise-db', sourceExerciseId: text(data.source?.sourceExerciseId, 160) || id,
+      sourceVersion: text(data.source?.sourceVersion, 100) || 'unknown', license: ['Aura-owned', 'External-provider'].includes(data.source?.license) ? data.source.license : 'Unlicense',
     },
     sourceAttribution: text(data.sourceAttribution, 300) || 'Free Exercise DB · Unlicense',
     hasWorkingDraft: Boolean(data.workingDraft && typeof data.workingDraft === 'object'),
@@ -136,11 +187,99 @@ function normalizeDraft(raw, current = {}, exerciseId = '') {
     difficulty: ['beginner', 'intermediate', 'advanced'].includes(raw.difficulty) ? raw.difficulty : 'beginner', goals: stringList(raw.goals, 12, 80),
     instructionsVi: stringList(raw.instructionsVi, 20, 600), cuesVi: stringList(raw.cuesVi, 12, 300), commonMistakesVi: stringList(raw.commonMistakesVi, 12, 300),
     breathingVi: text(raw.breathingVi, 500), media: normalizedMedia(raw.media, exerciseId),
+    externalMedia: normalizedExternalMedia(raw.externalMedia) || null,
     defaultPrescription: {
       sets: Math.min(10, Math.max(1, Number(raw.defaultPrescription?.sets) || 3)), reps: text(raw.defaultPrescription?.reps, 40) || '10–12',
       restSeconds: Math.min(600, Math.max(0, Number(raw.defaultPrescription?.restSeconds) || 60)), rpe: Math.min(10, Math.max(1, Number(raw.defaultPrescription?.rpe) || 7)),
     },
     source: current.source || raw.source, sourceAttribution: text(raw.sourceAttribution, 300) || 'Free Exercise DB · Unlicense',
+  }
+}
+
+function providerApiKey() {
+  let value = ''
+  try { value = text(YMOVE_API_KEY.value(), 500) || text(process.env.YMOVE_API_KEY, 500) } catch { value = text(process.env.YMOVE_API_KEY, 500) }
+  return value === 'AURA_PROVIDER_DISABLED' ? '' : value
+}
+
+async function fetchYMove(pathname, searchParams = {}) {
+  const apiKey = providerApiKey()
+  if (!apiKey) return { configured: false, payload: null }
+  const url = new URL(`${YMOVE_API_BASE_URL}${pathname}`)
+  Object.entries(searchParams).forEach(([key, value]) => {
+    if (value !== '' && value !== undefined && value !== null) url.searchParams.set(key, String(value))
+  })
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 12_000)
+  try {
+    const response = await fetch(url, { headers: { Accept: 'application/json', 'X-API-Key': apiKey }, signal: controller.signal })
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) throw new HttpsError('failed-precondition', 'Khóa đồng bộ thư viện bài tập chưa hợp lệ.')
+      if (response.status === 429) throw new HttpsError('resource-exhausted', 'Nguồn video đang giới hạn lượt truy cập. Hãy thử lại sau.')
+      throw new HttpsError('unavailable', 'Nguồn bài tập tạm thời chưa phản hồi.')
+    }
+    return { configured: true, payload: await response.json() }
+  } catch (error) {
+    if (error instanceof HttpsError) throw error
+    throw new HttpsError('unavailable', error?.name === 'AbortError' ? 'Nguồn bài tập phản hồi quá chậm.' : 'Không thể kết nối nguồn bài tập.')
+  } finally { clearTimeout(timer) }
+}
+
+function externalExerciseRows(payload) {
+  if (Array.isArray(payload?.data)) return payload.data
+  if (Array.isArray(payload?.data?.exercises)) return payload.data.exercises
+  if (Array.isArray(payload?.exercises)) return payload.exercises
+  if (Array.isArray(payload?.items)) return payload.items
+  return []
+}
+
+function externalExerciseData(payload) {
+  return payload?.data && !Array.isArray(payload.data) ? payload.data : payload
+}
+
+function normalizedExternalVideo(entry, index) {
+  if (!entry || typeof entry !== 'object') return null
+  const url = text(entry.videoUrl || entry.url || entry.mp4Url, 2_000)
+  const hlsUrl = text(entry.videoHlsUrl || entry.hlsUrl, 2_000)
+  if (!url && !hlsUrl) return null
+  const presenter = entry.presenter || entry.gender
+  return {
+    id: text(entry.id, 160) || `ymove-${index + 1}`,
+    provider: 'ymove',
+    externalId: text(entry.id, 160),
+    url,
+    hlsUrl,
+    posterUrl: text(entry.thumbnailUrl || entry.posterUrl, 2_000),
+    tag: ['white-background', 'gym-shot'].includes(entry.tag) ? entry.tag : undefined,
+    presenter: ['female', 'male', 'neutral'].includes(presenter) ? presenter : undefined,
+    orientation: ['portrait', 'landscape'].includes(entry.orientation) ? entry.orientation : undefined,
+    format: url ? 'mp4' : 'hls',
+    durationSeconds: Number.isFinite(entry.videoDurationSecs || entry.durationSeconds) ? Math.max(0, Math.round(entry.videoDurationSecs || entry.durationSeconds)) : undefined,
+    isPrimary: entry.isPrimary === true || index === 0,
+  }
+}
+
+function normalizedExternalExercise(entry, includeMedia = false) {
+  const id = text(entry?.id, 160)
+  if (!id) return null
+  const sourceVideos = Array.isArray(entry.videos) && entry.videos.length ? entry.videos : [entry]
+  const videos = includeMedia ? sourceVideos.map(normalizedExternalVideo).filter(Boolean).slice(0, 12) : []
+  const thumbnailUrl = text(entry.thumbnailUrl, 2_000) || videos.find((video) => video.posterUrl)?.posterUrl || ''
+  return {
+    id,
+    title: text(entry.title || entry.name, 200),
+    slug: text(entry.slug, 200),
+    description: text(entry.description, 2_000),
+    instructions: stringList(entry.instructions, 20, 600),
+    importantPoints: stringList(entry.importantPoints, 20, 400),
+    muscleGroup: text(entry.muscleGroup, 120),
+    secondaryMuscles: stringList(entry.secondaryMuscles, 12, 120),
+    equipment: Array.isArray(entry.equipment) ? stringList(entry.equipment, 12, 120) : stringList([entry.equipment], 12, 120),
+    category: text(entry.category || entry.exerciseType, 120),
+    difficulty: text(entry.difficulty, 40),
+    thumbnailUrl,
+    videoCount: Number.isFinite(entry.videoCount) ? Math.max(0, Math.round(entry.videoCount)) : videos.length || (entry.videoUrl || entry.videoHlsUrl ? 1 : 0),
+    videos,
   }
 }
 
@@ -170,6 +309,71 @@ function createExerciseCatalogFunctions({ db, onCall }) {
     const item = publicItem(snapshot)
     if (item.status !== 'published' && !actor.isStaff) throw new HttpsError('permission-denied', 'Bài tập chưa được xuất bản.')
     return { schemaVersion: 1, item, editItem: editableItem(snapshot, actor) }
+  })
+
+  const searchExternalExerciseCatalog = onCall({ secrets: [YMOVE_API_KEY], timeoutSeconds: 20 }, async (request) => {
+    const actor = await actorContext(request, db)
+    if (!actor.isStaff) throw new HttpsError('permission-denied', 'Chỉ nhân sự Aura được đồng bộ thư viện ngoài.')
+    const page = Math.min(50, Math.max(1, Math.round(Number(request.data?.page) || 1)))
+    const pageSize = Math.min(20, Math.max(1, Math.round(Number(request.data?.pageSize) || 12)))
+    const result = await fetchYMove('/exercises', {
+      search: text(request.data?.search, 120),
+      muscleGroup: text(request.data?.muscleGroup, 80),
+      equipment: text(request.data?.equipment, 80),
+      difficulty: text(request.data?.difficulty, 40),
+      videoTag: text(request.data?.videoTag, 40),
+      hasVideo: 'true',
+      includeVideos: 'true',
+      page,
+      pageSize,
+    })
+    if (!result.configured) return { provider: 'ymove', providerConfigured: false, items: [], total: 0, page, pageSize }
+    const items = externalExerciseRows(result.payload).map((entry) => normalizedExternalExercise(entry, true)).filter(Boolean).slice(0, pageSize)
+    const total = Number(result.payload?.meta?.total || result.payload?.pagination?.total || result.payload?.total || items.length)
+    return { provider: 'ymove', providerConfigured: true, items, total: Number.isFinite(total) ? total : items.length, page, pageSize }
+  })
+
+  const getExternalExercisePreview = onCall({ secrets: [YMOVE_API_KEY], timeoutSeconds: 20 }, async (request) => {
+    const actor = await actorContext(request, db)
+    if (!actor.isStaff) throw new HttpsError('permission-denied', 'Chỉ nhân sự Aura được xem trước thư viện ngoài.')
+    const externalExerciseId = safeId(request.data?.externalExerciseId)
+    const result = await fetchYMove(`/exercises/${encodeURIComponent(externalExerciseId)}`)
+    if (!result.configured) return { provider: 'ymove', providerConfigured: false, item: null }
+    const item = normalizedExternalExercise(externalExerciseData(result.payload), true)
+    if (!item) throw new HttpsError('not-found', 'Không tìm thấy bài tập ở nguồn đồng bộ.')
+    return { provider: 'ymove', providerConfigured: true, item, transientMedia: true }
+  })
+
+  const getExerciseCatalogMedia = onCall({ secrets: [YMOVE_API_KEY], timeoutSeconds: 20 }, async (request) => {
+    const actor = await actorContext(request, db)
+    const exerciseId = safeId(request.data?.exerciseId)
+    const snapshot = await db.doc(`exercises/${exerciseId}`).get()
+    if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy bài tập.')
+    const data = snapshot.data()
+    if (data.status !== 'published' && !actor.isStaff) throw new HttpsError('permission-denied', 'Bài tập chưa được xuất bản.')
+    const candidate = actor.isStaff && data.workingDraft && typeof data.workingDraft === 'object' ? data.workingDraft : data
+    const media = normalizedMedia(candidate.media, exerciseId)
+    const externalMedia = normalizedExternalMedia(candidate.externalMedia)
+    if (!externalMedia) {
+      return { providerConfigured: Boolean(providerApiKey()), externalLinked: false, images: media.images, videos: media.videos, animationUrl: media.animationUrl }
+    }
+    const result = await fetchYMove(`/exercises/${encodeURIComponent(externalMedia.exerciseId)}`)
+    if (!result.configured) return { providerConfigured: false, externalLinked: true, images: media.images, videos: media.videos, animationUrl: media.animationUrl }
+    const externalExercise = normalizedExternalExercise(externalExerciseData(result.payload), true)
+    const preferred = (externalExercise?.videos || []).slice().sort((left, right) => {
+      const leftScore = Number(left.tag === externalMedia.preferredVideoTag) * 2 + Number(left.orientation === externalMedia.preferredOrientation)
+      const rightScore = Number(right.tag === externalMedia.preferredVideoTag) * 2 + Number(right.orientation === externalMedia.preferredOrientation)
+      return rightScore - leftScore
+    }).map((video, index) => ({ ...video, isPrimary: index === 0 }))
+    return {
+      providerConfigured: true,
+      externalLinked: true,
+      transientMedia: true,
+      expiresAt: new Date(Date.now() + 47 * 60 * 60 * 1000).toISOString(),
+      images: media.images,
+      videos: [...preferred, ...media.videos].slice(0, 12),
+      animationUrl: media.animationUrl,
+    }
   })
 
   const saveExerciseCatalogDraft = onCall(async (request) => {
@@ -240,7 +444,15 @@ function createExerciseCatalogFunctions({ db, onCall }) {
     })
   })
 
-  return { listExerciseCatalog, getExerciseCatalogItem, saveExerciseCatalogDraft, publishExerciseCatalogItem }
+  return {
+    listExerciseCatalog,
+    getExerciseCatalogItem,
+    searchExternalExerciseCatalog,
+    getExternalExercisePreview,
+    getExerciseCatalogMedia,
+    saveExerciseCatalogDraft,
+    publishExerciseCatalogItem,
+  }
 }
 
 module.exports = { createExerciseCatalogFunctions }

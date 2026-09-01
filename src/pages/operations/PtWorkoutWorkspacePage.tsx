@@ -51,10 +51,11 @@ function demoWorkspace(date: string): PtWorkoutWorkspace {
 function exerciseFromCatalog(item: ExerciseCatalogItem): PtTrainingExercise {
   const prescription = item.defaultPrescription
   const numbers = prescription.reps.match(/\d+/g)?.map(Number) ?? [10, 12]
+  const durableVideo = item.media.videos?.find((video) => video.provider === 'aura' && video.url)
   return {
     id: crypto.randomUUID(), catalogExerciseId: item.id, catalogRevision: item.revision, nameVi: item.nameVi,
     targetMuscles: item.targetMuscles, secondaryMuscles: item.secondaryMuscles, equipment: item.equipment,
-    instructionsVi: item.instructionsVi, cuesVi: item.cuesVi, media: { posterUrl: item.media.posterUrl || item.media.startImageUrl, animationUrl: item.media.animationUrl },
+    instructionsVi: item.instructionsVi, cuesVi: item.cuesVi, media: { posterUrl: durableVideo?.posterUrl || item.media.posterUrl || item.media.startImageUrl, animationUrl: durableVideo?.url || item.media.animationUrl },
     trackingMode: 'weight_reps', sets: prescription.sets, repMinimum: numbers[0] || 10, repMaximum: numbers[1] || numbers[0] || 12,
     durationSeconds: 0, distanceMeters: 0, targetWeightKg: 0, targetRpe: prescription.rpe, targetRir: 3,
     tempo: '', restSeconds: prescription.restSeconds, unilateral: false, notes: '',

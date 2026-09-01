@@ -6,8 +6,6 @@ import {
   Bookmark,
   BookmarkCheck,
   Check,
-  ChevronLeft,
-  ChevronRight,
   Dumbbell,
   History,
   Images,
@@ -23,6 +21,7 @@ import { getPtStudentTrainingPlan, listPtWorkoutHistory, type PtTrainingProgram,
 import { listExerciseCatalog } from '../../services/exerciseCatalogService'
 import type { ExerciseCatalogItem, ExerciseCatalogMediaImage } from '../../types'
 import { exerciseMatchesMuscleGroup, exerciseMuscleGroupOptions, type ExerciseMuscleGroupId } from '../../utils/exerciseMuscleGroups'
+import ExerciseMediaPlayer from '../../components/exercise-catalog/ExerciseMediaPlayer'
 import '../operations/PtWorkoutWorkspacePage.css'
 import './StudentPtWorkoutPage.css'
 
@@ -70,23 +69,13 @@ function ExerciseVisual({ item, className = '' }: { item: ExerciseCatalogItem; c
 function ExerciseDetail({ item, isInCurrentPlan, onBack, onOpenPlan, saved, onToggleSaved }: {
   item: ExerciseCatalogItem; isInCurrentPlan: boolean; onBack: () => void; onOpenPlan: () => void; saved: boolean; onToggleSaved: () => void
 }) {
-  const images = mediaImages(item)
-  const [imageIndex, setImageIndex] = useState(0)
-  useEffect(() => setImageIndex(0), [item.id])
-  const image = images[imageIndex]
   const PosterIcon = saved ? BookmarkCheck : Bookmark
   return <article className="student-library__detail" aria-label={`Chi tiết ${item.nameVi}`}>
     <div className="student-library__detail-media">
       <button type="button" className="student-library__back" onClick={onBack}><ArrowLeft /><span>Thư viện</span></button>
       <button type="button" className="student-library__detail-save" onClick={onToggleSaved} aria-label={saved ? 'Bỏ lưu bài tập' : 'Lưu bài tập'}><PosterIcon /></button>
-      {image ? <img src={image.url} alt={image.alt || item.nameVi} /> : <Dumbbell aria-hidden="true" />}
-      <span className="student-library__image-count">{images.length ? `${imageIndex + 1} / ${images.length}` : 'Minh họa'}</span>
-      {images.length > 1 && <>
-        <button type="button" className="student-library__carousel-control is-left" onClick={() => setImageIndex((current) => (current - 1 + images.length) % images.length)} aria-label="Ảnh trước"><ChevronLeft /></button>
-        <button type="button" className="student-library__carousel-control is-right" onClick={() => setImageIndex((current) => (current + 1) % images.length)} aria-label="Ảnh tiếp theo"><ChevronRight /></button>
-      </>}
+      <ExerciseMediaPlayer exerciseId={item.id} name={item.nameVi} media={item.media} externalMedia={item.externalMedia} />
     </div>
-    {images.length > 1 && <div className="student-library__thumbnails" aria-label="Chọn ảnh bài tập">{images.map((entry, index) => <button type="button" className={index === imageIndex ? 'is-active' : ''} onClick={() => setImageIndex(index)} key={entry.id}><img src={entry.url} alt="" /></button>)}</div>}
     <div className="student-library__detail-body">
       <div className="student-library__detail-heading"><div><span>{item.nameEn || 'AURA EXERCISE'}</span><h2>{item.nameVi}</h2><p>{item.targetMuscles.join(' · ') || item.bodyParts.join(' · ') || 'Bài tập toàn thân'}</p></div><PosterIcon aria-hidden="true" /></div>
       <div className="student-library__chips"><span>{difficultyLabel(item.difficulty)}</span>{item.environment.map((value) => <span key={value}>{value === 'home' ? 'Tại nhà' : 'Phòng gym'}</span>)}{item.equipment.slice(0, 1).map((value) => <span key={value}>{value}</span>)}</div>
