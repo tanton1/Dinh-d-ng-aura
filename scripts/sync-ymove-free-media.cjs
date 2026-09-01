@@ -197,7 +197,7 @@ async function applyCatalogLinks(token, plan, uploaded) {
       }
     })
     const revision = Number(target.data.revision || 1) + 1
-    const media = { ...(target.data.media || {}), videos: [...currentVideos, ...videos].slice(0, 12) }
+    const media = { ...(target.data.media || {}), videos: [...currentVideos, ...videos] }
     const sourceAttribution = [target.data.sourceAttribution, 'Video: YMove Free Library · commercial use allowed'].filter(Boolean).join(' · ')
     const fields = { media, sourceAttribution, revision, updatedBy: RELEASE }
     const root = `${resourceBase()}/documents/exercises/${exerciseId}`

@@ -17,7 +17,7 @@ type MediaEntry =
   | { kind: 'image'; key: string; image: ExerciseCatalogMediaImage }
 
 function localImages(media: ExerciseCatalogMedia): ExerciseCatalogMediaImage[] {
-  if (media.images?.length) return media.images.filter((entry) => Boolean(entry.url)).slice(0, 12)
+  if (media.images?.length) return media.images.filter((entry) => Boolean(entry.url))
   return [
     media.posterUrl ? { id: 'legacy-poster', url: media.posterUrl, role: 'detail' as const, order: 0 } : null,
     media.startImageUrl && media.startImageUrl !== media.posterUrl ? { id: 'legacy-start', url: media.startImageUrl, role: 'start' as const, order: 1 } : null,

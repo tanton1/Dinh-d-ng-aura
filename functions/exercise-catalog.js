@@ -48,7 +48,7 @@ function mediaImages(value, exerciseId) {
       alt: text(entry.alt, 240),
       mimeType: text(entry.mimeType, 100),
     }]
-  }).slice(0, 12).sort((left, right) => left.order - right.order).map((entry, order) => ({ ...entry, order }))
+  }).sort((left, right) => left.order - right.order).map((entry, order) => ({ ...entry, order }))
 }
 
 function mediaVideos(value) {
@@ -77,7 +77,7 @@ function mediaVideos(value) {
       ...(Number.isFinite(entry.durationSeconds) ? { durationSeconds: Math.max(0, Math.round(entry.durationSeconds)) } : {}),
       isPrimary: entry.isPrimary === true,
     }]
-  }).slice(0, 12)
+  })
 }
 
 function normalizedExternalMedia(value) {
@@ -311,7 +311,7 @@ function normalizedExternalExercise(entry, includeMedia = false, provider = 'ymo
   const id = text(entry?.id, 160)
   if (!id) return null
   const sourceVideos = Array.isArray(entry.videos) && entry.videos.length ? entry.videos : [entry]
-  const videos = includeMedia ? sourceVideos.map((video, index) => normalizedExternalVideo(video, index, provider)).filter(Boolean).slice(0, 12) : []
+  const videos = includeMedia ? sourceVideos.map((video, index) => normalizedExternalVideo(video, index, provider)).filter(Boolean) : []
   const thumbnailUrl = text(entry.thumbnailUrl, 2_000) || videos.find((video) => video.posterUrl)?.posterUrl || ''
   return {
     id,
@@ -555,7 +555,7 @@ function createExerciseCatalogFunctions({ db, onCall }) {
       videos: [...preferred, ...media.videos].filter((video, index, all) => index === all.findIndex((candidate) => (
         (candidate.externalId && video.externalId && candidate.externalId === video.externalId)
           || (candidate.url && video.url && candidate.url === video.url)
-      ))).slice(0, 12),
+      ))),
       animationUrl: media.animationUrl,
     }
   })

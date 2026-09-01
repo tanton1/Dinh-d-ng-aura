@@ -12,6 +12,8 @@ const managerStyles = fs.readFileSync(path.join(__dirname, '..', 'src', 'compone
 const studentLibrarySource = fs.readFileSync(path.join(__dirname, '..', 'src', 'pages', 'student', 'StudentPtWorkoutPage.tsx'), 'utf8')
 const trainerWorkspaceSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'pages', 'operations', 'PtWorkoutWorkspacePage.tsx'), 'utf8')
 const exercisedbWomenImporter = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'import-exercisedb-women-catalog.cjs'), 'utf8')
+const mediaPlayerSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'exercise-catalog', 'ExerciseMediaPlayer.tsx'), 'utf8')
+const unifiedMediaSync = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'sync-unified-exercise-media.cjs'), 'utf8')
 
 test('exercise catalog is authenticated, review-gated and revisioned', () => {
   assert.match(source, /if \(!uid\) throw new HttpsError\('unauthenticated'/)
@@ -127,4 +129,15 @@ test('catalog editor uses a five-step wizard and local image uploads', () => {
   assert.match(source, /function normalizedMedia/)
   assert.match(source, /posterImageId/)
   assert.match(serviceSource, /images: mediaImages\(media\?\.images\)/)
+})
+
+test('exercise media keeps the complete gallery and safely unifies stills with ExerciseDB GIFs', () => {
+  assert.doesNotMatch(source, /mediaImages[\s\S]*?\.slice\(0, 12\)/)
+  assert.doesNotMatch(serviceSource, /function mediaImages[\s\S]*?\.slice\(0, 12\)/)
+  assert.doesNotMatch(mediaPlayerSource, /media\.images[^\n]*\.slice\(0, 12\)/)
+  assert.doesNotMatch(managerSource, /12 - mediaImages\(draft\.media\)\.length/)
+  assert.match(unifiedMediaSync, /extract-exercise-gif-frames\.py/)
+  assert.match(unifiedMediaSync, /DEPRECATED_MEDIA_REPLACEMENTS/)
+  assert.match(unifiedMediaSync, /nextAvailableRevision/)
+  assert.match(unifiedMediaSync, /sourceAttribution/)
 })

@@ -91,7 +91,7 @@ function mediaImages(media: ExerciseCatalogMedia): ExerciseCatalogMediaImage[] {
 }
 
 function syncMedia(media: ExerciseCatalogMedia, images: ExerciseCatalogMediaImage[], requestedPosterId?: string): ExerciseCatalogMedia {
-  const ordered = images.slice(0, 12).map((image, order) => ({ ...image, order }))
+  const ordered = images.map((image, order) => ({ ...image, order }))
   const start = ordered.find((image) => image.role === 'start') || ordered[0]
   const end = ordered.find((image) => image.role === 'end')
   const posterId = requestedPosterId || media.posterImageId || start?.id || ''
@@ -303,8 +303,8 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
 
   const handleFiles = async (files: FileList | File[]) => {
     if (!selectedId || uploading) return
-    const selected = Array.from(files).slice(0, Math.max(0, 12 - mediaImages(draft.media).length))
-    if (!selected.length) { setError('Thư viện hỗ trợ tối đa 12 ảnh cho một bài tập.'); return }
+    const selected = Array.from(files)
+    if (!selected.length) { setError('Không có ảnh hợp lệ để tải lên.'); return }
     setUploading(true); setUploadProgress(0); setError('')
     let working = mediaImages(draft.media)
     try {

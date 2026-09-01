@@ -91,7 +91,7 @@ function mediaImages(value: unknown): ExerciseCatalogMediaImage[] {
       alt: typeof image.alt === 'string' ? image.alt.slice(0, 240) : undefined,
       mimeType: typeof image.mimeType === 'string' ? image.mimeType.slice(0, 100) : undefined,
     }]
-  }).slice(0, 12).sort((left, right) => left.order - right.order)
+  }).sort((left, right) => left.order - right.order)
 }
 
 function mediaVideos(value: unknown): ExerciseCatalogMediaVideo[] {
@@ -121,7 +121,7 @@ function mediaVideos(value: unknown): ExerciseCatalogMediaVideo[] {
       durationSeconds: typeof video.durationSeconds === 'number' ? Math.max(0, Math.round(video.durationSeconds)) : undefined,
       isPrimary: video.isPrimary === true,
     }]
-  }).slice(0, 12)
+  })
 }
 
 function externalMedia(value: unknown): ExerciseCatalogExternalMedia | undefined {
