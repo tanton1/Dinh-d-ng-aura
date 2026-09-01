@@ -45,7 +45,8 @@ test('external exercise provider remains server-only and never persists signed m
   assert.match(source, /AURA_PROVIDER_DISABLED/)
   assert.match(source, /secrets: \[YMOVE_API_KEY\]/)
   assert.match(source, /'X-API-Key': apiKey/)
-  assert.match(source, /const url = provider === 'aura' \? text\(entry\.url/)
+  assert.match(source, /durableVideoProviders = new Set\(\['aura', 'ymove_free', 'exercisedb', 'programme'\]\)/)
+  assert.match(source, /const url = durableVideoProviders\.has\(provider\) \? text\(entry\.url/)
   assert.match(source, /normalizedExternalMedia\(raw\.externalMedia\)/)
   assert.match(source, /transientMedia: true/)
   assert.doesNotMatch(managerSource, /VITE_YMOVE/)
@@ -54,9 +55,22 @@ test('external exercise provider remains server-only and never persists signed m
 test('catalog editor can search, preview and link provider media without replacing Vietnamese instructions', () => {
   assert.match(managerSource, /searchExternalExerciseCatalog/)
   assert.match(managerSource, /getExternalExercisePreview/)
-  assert.match(managerSource, /Đồng bộ ảnh và video chuyên nghiệp/)
+  assert.match(managerSource, /Kho media bài tập/)
   assert.match(managerSource, /PT-reviewed Vietnamese content is never overwritten/)
   assert.match(managerSource, /externalMedia: \{/)
+  assert.match(managerSource, /ExerciseDB Free/)
+  assert.match(managerSource, /YMove miễn phí/)
+})
+
+test('free providers expose ExerciseDB GIFs and the public 25-video YMove library without API keys', () => {
+  assert.match(source, /EXERCISEDB_API_BASE_URL = 'https:\/\/oss\.exercisedb\.dev\/api\/v1'/)
+  assert.match(source, /YMOVE_FREE_LIBRARY_URL = 'https:\/\/ymove\.app\/free-exercise-videos'/)
+  assert.match(source, /async function fetchExerciseDb/)
+  assert.match(source, /async function fetchYMoveFreeLibrary/)
+  assert.match(source, /payload\?\.props\?\.pageProps\?\.exercises/)
+  assert.match(source, /provider === 'exercisedb'/)
+  assert.match(source, /provider === 'ymove_free'/)
+  assert.match(source, /Free-commercial-embed/)
 })
 
 test('catalog detail remains readable across staged backend rollouts', () => {

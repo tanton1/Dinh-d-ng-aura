@@ -474,13 +474,13 @@ export interface ExerciseCatalogMediaImage {
 
 export interface ExerciseCatalogMediaVideo {
   id: string
-  provider: 'aura' | 'ymove'
+  provider: 'aura' | 'ymove' | 'ymove_free' | 'exercisedb' | 'programme'
   externalId?: string
-  /** Durable URL for Aura-owned media. YMove URLs are transient and are never persisted. */
+  /** Durable URL unless the provider is the paid YMove API, whose signed URLs are transient. */
   url?: string
   hlsUrl?: string
   posterUrl?: string
-  tag?: 'white-background' | 'gym-shot' | 'aura'
+  tag?: 'white-background' | 'gym-shot' | 'aura' | 'animation' | 'licensed-embed'
   angle?: 'front' | 'side' | 'other'
   presenter?: 'female' | 'male' | 'neutral'
   orientation?: 'portrait' | 'landscape'
@@ -490,7 +490,7 @@ export interface ExerciseCatalogMediaVideo {
 }
 
 export interface ExerciseCatalogExternalMedia {
-  provider: 'ymove'
+  provider: 'ymove' | 'ymove_free' | 'exercisedb'
   exerciseId: string
   slug?: string
   preferredVideoTag?: 'white-background' | 'gym-shot'
@@ -542,10 +542,10 @@ export interface ExerciseCatalogItem extends ExerciseCatalogSnapshot {
     rpe: number
   }
   source: {
-    provider: 'free-exercise-db' | 'aura' | 'ymove'
+    provider: 'free-exercise-db' | 'aura' | 'ymove' | 'ymove_free' | 'exercisedb' | 'programme'
     sourceExerciseId: string
     sourceVersion: string
-    license: 'Unlicense' | 'Aura-owned' | 'External-provider'
+    license: 'Unlicense' | 'Aura-owned' | 'External-provider' | 'CC-BY-SA-3.0' | 'Free-commercial-embed'
   }
   hasWorkingDraft?: boolean
   editRevision?: number

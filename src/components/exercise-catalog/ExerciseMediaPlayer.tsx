@@ -32,6 +32,7 @@ function localVideos(media: ExerciseCatalogMedia): ExerciseCatalogMediaVideo[] {
 }
 
 function videoLabel(video: ExerciseCatalogMediaVideo, index: number) {
+  if (video.format === 'gif' || video.tag === 'animation') return `Ảnh động ${index + 1}`
   if (video.tag === 'white-background') return `Kỹ thuật ${index + 1}`
   if (video.tag === 'gym-shot') return `Tại phòng tập ${index + 1}`
   return `Video ${index + 1}`
@@ -72,7 +73,7 @@ export default function ExerciseMediaPlayer({
     void refresh()
     // Fresh provider URLs are kept in component state only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exerciseId, externalMedia?.exerciseId])
+  }, [exerciseId, externalMedia?.exerciseId, externalMedia?.provider])
 
   const entries = useMemo<MediaEntry[]>(() => {
     const videos = remote?.videos?.length ? remote.videos : localVideos(media)
@@ -93,7 +94,8 @@ export default function ExerciseMediaPlayer({
   return <section className={`exercise-media-player ${compact ? 'is-compact' : ''}`} aria-label={`Hình ảnh và video ${name}`}>
     <div className={`exercise-media-player__stage ${active?.kind === 'video' && active.video.orientation === 'portrait' ? 'is-portrait' : ''}`}>
       {loading ? <div className="exercise-media-player__state"><LoaderCircle className="is-spinning" /><span>Đang lấy video mới…</span></div>
-        : active?.kind === 'video' ? <video
+        : active?.kind === 'video' && active.video.format === 'gif' ? <img src={active.video.url} alt={`Minh họa động ${name}`} loading="lazy" />
+          : active?.kind === 'video' ? <video
           key={active.key}
           controls
           playsInline
@@ -116,7 +118,7 @@ export default function ExerciseMediaPlayer({
     </div>}
 
     {(externalMedia || error) && <div className={`exercise-media-player__provider ${error ? 'is-error' : ''}`}>
-      <span>{error || (remote?.providerConfigured === false ? 'Chưa cấu hình nguồn video YMove.' : 'Video được tải mới khi mở, không lưu URL tạm.')}</span>
+      <span>{error || (remote?.providerConfigured === false ? 'Nguồn video trả phí chưa được cấu hình.' : externalMedia?.provider === 'exercisedb' ? 'Ảnh động từ ExerciseDB Free.' : externalMedia?.provider === 'ymove_free' ? 'Video thuộc bộ 25 bài YMove miễn phí.' : 'Video được tải mới khi mở, không lưu URL tạm.')}</span>
       {externalMedia && exerciseId && <button type="button" onClick={() => void refresh()} disabled={loading}><RefreshCw />Tải lại</button>}
     </div>}
   </section>

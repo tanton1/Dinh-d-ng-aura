@@ -13,6 +13,7 @@ import {
   saveExerciseCatalogDraft,
   searchExternalExerciseCatalog,
   type ExternalExerciseCandidate,
+  type ExternalExerciseProvider,
   type ExerciseCatalogResolvedMedia,
   type ExerciseCatalogDraft,
 } from '../../services/exerciseCatalogService'
@@ -42,6 +43,12 @@ const popularForWomenIds = new Set([
   'aura_women_leg_press', 'aura_women_lying_leg_curl', 'aura_women_wide_grip_lat_pulldown',
   'aura_women_seated_cable_row', 'aura_women_dead_bug', 'aura_women_plank',
 ])
+
+const externalProviderMeta: Record<ExternalExerciseProvider, { label: string; note: string; source: string }> = {
+  exercisedb: { label: 'ExerciseDB Free', note: '1.500 ảnh động · không cần API key', source: 'GIF: ExerciseDB Free' },
+  ymove_free: { label: 'YMove miễn phí', note: '25 video HD · dùng thương mại', source: 'Video: YMove Free Library' },
+  ymove: { label: 'YMove API', note: 'Kho nâng cao · cần API key', source: 'Video: YMove API' },
+}
 
 function emptyDraft(): ExerciseCatalogDraft {
   return {
@@ -186,6 +193,7 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
   const [remoteUrl, setRemoteUrl] = useState('')
   const [remoteRole, setRemoteRole] = useState<MediaRole>('detail')
   const [externalQuery, setExternalQuery] = useState('')
+  const [externalProvider, setExternalProvider] = useState<ExternalExerciseProvider>('exercisedb')
   const [externalItems, setExternalItems] = useState<ExternalExerciseCandidate[]>([])
   const [externalPreview, setExternalPreview] = useState<ExternalExerciseCandidate | null>(null)
   const [externalConfigured, setExternalConfigured] = useState<boolean | null>(null)
@@ -213,18 +221,19 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
     try {
       const detail = isDemo ? { item, editItem: item } : await getExerciseCatalogItem(item.id)
       setSelectedId(item.id); setPublishedItem(detail.item); setDraft(draftFromItem(detail.editItem)); setEditRevision(detail.editItem.revision)
-      setDirty(false); setActiveStep(0); setLastSavedAt(null); setExternalPreview(null); changeVersionRef.current = 0
+      setDirty(false); setActiveStep(0); setLastSavedAt(null); setExternalPreview(null); setExternalItems([]); setExternalConfigured(null)
+      setExternalProvider(detail.editItem.externalMedia?.provider || 'exercisedb'); changeVersionRef.current = 0
       requestAnimationFrame(() => { if (window.matchMedia('(max-width: 760px)').matches) editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) })
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể mở bài tập.') }
   }
 
   const closeMobileDetail = () => {
-    setSelectedId(''); setPublishedItem(null); setDraft(emptyDraft()); setEditRevision(0); setDirty(false); setError(''); setNotice(''); setActiveStep(0); setExternalPreview(null)
+    setSelectedId(''); setPublishedItem(null); setDraft(emptyDraft()); setEditRevision(0); setDirty(false); setError(''); setNotice(''); setActiveStep(0); setExternalPreview(null); setExternalItems([]); setExternalProvider('exercisedb')
   }
 
   const createNew = () => {
     const id = newExerciseId(); const next = emptyDraft(); next.source.sourceExerciseId = id
-    setSelectedId(id); setPublishedItem(null); setDraft(next); setEditRevision(0); setDirty(true); setError(''); setNotice(''); setStepError(''); setActiveStep(0); setLastSavedAt(null); setExternalPreview(null); changeVersionRef.current = 1
+    setSelectedId(id); setPublishedItem(null); setDraft(next); setEditRevision(0); setDirty(true); setError(''); setNotice(''); setStepError(''); setActiveStep(0); setLastSavedAt(null); setExternalPreview(null); setExternalItems([]); setExternalProvider('exercisedb'); changeVersionRef.current = 1
   }
 
   const updateDraft = (patch: Partial<ExerciseCatalogDraft>) => {
@@ -315,7 +324,7 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
   const searchExternal = async () => {
     setExternalLoading(true); setStepError('')
     try {
-      const result = await searchExternalExerciseCatalog({ search: externalQuery.trim(), pageSize: 12 })
+      const result = await searchExternalExerciseCatalog({ provider: externalProvider, search: externalQuery.trim(), pageSize: 12 })
       setExternalConfigured(result.providerConfigured); setExternalItems(result.items)
       if (result.providerConfigured && !result.items.length) setStepError('Không tìm thấy bài tập phù hợp ở nguồn video.')
     } catch (cause) { setStepError(cause instanceof Error ? cause.message : 'Không thể tìm nguồn video.') }
@@ -325,7 +334,7 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
   const previewExternal = async (candidate: ExternalExerciseCandidate) => {
     setExternalLoading(true); setStepError('')
     try {
-      const result = await getExternalExercisePreview(candidate.id)
+      const result = await getExternalExercisePreview(candidate.id, candidate.provider)
       setExternalConfigured(result.providerConfigured); setExternalPreview(result.item || candidate)
     } catch (cause) { setStepError(cause instanceof Error ? cause.message : 'Không thể xem trước bài tập.') }
     finally { setExternalLoading(false) }
@@ -334,11 +343,10 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
   const linkExternal = (candidate: ExternalExerciseCandidate) => {
     updateDraft({
       externalMedia: {
-        provider: 'ymove',
+        provider: candidate.provider,
         exerciseId: candidate.id,
         ...(candidate.slug ? { slug: candidate.slug } : {}),
-        preferredVideoTag: 'white-background',
-        preferredOrientation: 'portrait',
+        ...(candidate.provider === 'ymove' ? { preferredVideoTag: 'white-background' as const, preferredOrientation: 'portrait' as const } : {}),
         syncedAt: new Date().toISOString(),
       },
       // Metadata is only used to fill blanks. PT-reviewed Vietnamese content is never overwritten.
@@ -346,15 +354,18 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
       targetMuscles: draft.targetMuscles.length ? draft.targetMuscles : candidate.muscleGroup ? [candidate.muscleGroup] : [],
       secondaryMuscles: draft.secondaryMuscles.length ? draft.secondaryMuscles : candidate.secondaryMuscles,
       equipment: draft.equipment.length ? draft.equipment : candidate.equipment,
+      sourceAttribution: `Nội dung: Aura Fitness · ${externalProviderMeta[candidate.provider].source}`,
     })
     setExternalPreview(candidate)
-    setNotice('Đã liên kết nguồn video. Nội dung tiếng Việt của Aura được giữ nguyên; URL video tạm không được lưu vào bài tập.')
+    setExternalProvider(candidate.provider)
+    setNotice(candidate.provider === 'ymove' ? 'Đã liên kết YMove API. Nội dung tiếng Việt của Aura được giữ nguyên; URL video tạm không được lưu.' : 'Đã liên kết nguồn media miễn phí. Nội dung tiếng Việt của Aura được giữ nguyên và nguồn sử dụng đã được ghi nhận.')
   }
 
   const externalResolvedMedia = useMemo<ExerciseCatalogResolvedMedia | null>(() => externalPreview ? {
+    provider: externalPreview.provider,
     providerConfigured: true,
     externalLinked: true,
-    transientMedia: true,
+    transientMedia: externalPreview.provider === 'ymove',
     images: [],
     videos: externalPreview.videos,
   } : null, [externalPreview])
@@ -403,19 +414,20 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
             {activeStep === 3 && <section className="exercise-catalog-manager__panel"><header><span>BƯỚC 4</span><h4>Hình ảnh và video</h4><p>Vuốt để xem, chọn vai trò và đặt ảnh bìa cho thư viện.</p></header><div className="exercise-catalog-manager__media-workspace"><MediaCarousel images={imagesForDraft} posterId={draft.media.posterImageId} onSetPoster={(id) => updateMedia((media) => syncMedia(media, mediaImages(media), id))} /><div className={`exercise-catalog-manager__dropzone ${uploading ? 'is-uploading' : ''}`} onDragOver={(event) => { event.preventDefault(); event.currentTarget.classList.add('is-dragging') }} onDragLeave={(event) => event.currentTarget.classList.remove('is-dragging')} onDrop={(event) => { event.preventDefault(); event.currentTarget.classList.remove('is-dragging'); void handleFiles(event.dataTransfer.files) }}><input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => event.target.files && void handleFiles(event.target.files)} /><Upload /><strong>{uploading ? `Đang tải ${uploadProgress}%` : 'Kéo ảnh vào đây hoặc chọn từ máy'}</strong><span>JPG, PNG, WebP · tối đa 10MB/ảnh · tự tối ưu WebP</span>{uploading ? <div><i style={{ width: `${uploadProgress}%` }} /></div> : <button type="button" onClick={() => fileInputRef.current?.click()}>Chọn ảnh</button>}</div></div>
               {!!imagesForDraft.length && <div className="exercise-catalog-manager__media-list">{imagesForDraft.map((image, index) => <article key={image.id}><img src={image.url} alt="" /><span><b>Ảnh {index + 1}</b><input value={image.alt || ''} placeholder="Mô tả ảnh" onChange={(event) => updateMedia((media) => syncMedia(media, mediaImages(media).map((entry) => entry.id === image.id ? { ...entry, alt: event.target.value } : entry)))} /></span><select value={image.role} onChange={(event) => { const role = event.target.value as MediaRole; updateMedia((media) => { const current = mediaImages(media).map((entry) => (role === 'start' || role === 'end') && entry.role === role ? { ...entry, role: 'detail' as const } : entry).map((entry) => entry.id === image.id ? { ...entry, role } : entry); return syncMedia(media, current) }) }}><option value="start">Bắt đầu</option><option value="end">Kết thúc</option><option value="detail">Bổ sung</option></select><div><button type="button" disabled={index === 0} onClick={() => updateMedia((media) => { const next = mediaImages(media); [next[index - 1], next[index]] = [next[index], next[index - 1]]; return syncMedia(media, next) })}><ArrowUp /></button><button type="button" disabled={index === imagesForDraft.length - 1} onClick={() => updateMedia((media) => { const next = mediaImages(media); [next[index + 1], next[index]] = [next[index], next[index + 1]]; return syncMedia(media, next) })}><ArrowDown /></button><button type="button" onClick={() => updateMedia((media) => syncMedia(media, mediaImages(media).filter((entry) => entry.id !== image.id)))}><Trash2 /></button></div></article>)}</div>}
               <section className="exercise-catalog-manager__external-sync">
-                <header><span><Cloud /><b>Đồng bộ ảnh và video chuyên nghiệp</b><small>YMove · chỉ lưu mã liên kết, không lưu URL có thời hạn</small></span>{draft.externalMedia ? <em>Đã liên kết</em> : <em className="is-muted">Chưa liên kết</em>}</header>
+                <header><span><Cloud /><b>Kho media bài tập</b><small>Nguồn miễn phí trước · giữ nguyên nội dung tiếng Việt của Aura</small></span>{draft.externalMedia ? <em>Đã liên kết</em> : <em className="is-muted">Chưa liên kết</em>}</header>
                 {draft.externalMedia && <div className="exercise-catalog-manager__external-linked">
-                  <span><Video /><b>{externalPreview?.title || draft.nameEn || draft.nameVi}</b><small>Mã nguồn: {draft.externalMedia.exerciseId}</small></span>
-                  <label>Phông video<select value={draft.externalMedia.preferredVideoTag || 'white-background'} onChange={(event) => updateDraft({ externalMedia: { ...draft.externalMedia!, preferredVideoTag: event.target.value as 'white-background' | 'gym-shot' } })}><option value="white-background">Nền trắng</option><option value="gym-shot">Phòng tập</option></select></label>
-                  <label>Khung hình<select value={draft.externalMedia.preferredOrientation || 'portrait'} onChange={(event) => updateDraft({ externalMedia: { ...draft.externalMedia!, preferredOrientation: event.target.value as 'portrait' | 'landscape' } })}><option value="portrait">Dọc · mobile</option><option value="landscape">Ngang</option></select></label>
+                  <span><Video /><b>{externalPreview?.title || draft.nameEn || draft.nameVi}</b><small>{externalProviderMeta[draft.externalMedia.provider].label} · {draft.externalMedia.exerciseId}</small></span>
+                  {draft.externalMedia.provider === 'ymove' && <><label>Phông video<select value={draft.externalMedia.preferredVideoTag || 'white-background'} onChange={(event) => updateDraft({ externalMedia: { ...draft.externalMedia!, preferredVideoTag: event.target.value as 'white-background' | 'gym-shot' } })}><option value="white-background">Nền trắng</option><option value="gym-shot">Phòng tập</option></select></label>
+                  <label>Khung hình<select value={draft.externalMedia.preferredOrientation || 'portrait'} onChange={(event) => updateDraft({ externalMedia: { ...draft.externalMedia!, preferredOrientation: event.target.value as 'portrait' | 'landscape' } })}><option value="portrait">Dọc · mobile</option><option value="landscape">Ngang</option></select></label></>}
                   <button type="button" onClick={() => { updateDraft({ externalMedia: undefined }); setExternalPreview(null) }}><Unlink />Bỏ liên kết</button>
                 </div>}
+                <div className="exercise-catalog-manager__provider-tabs" role="group" aria-label="Chọn nguồn media">{(Object.keys(externalProviderMeta) as ExternalExerciseProvider[]).map((provider) => <button type="button" className={externalProvider === provider ? 'is-active' : ''} onClick={() => { setExternalProvider(provider); setExternalItems([]); setExternalPreview(null); setExternalConfigured(null); setStepError('') }} key={provider}><b>{externalProviderMeta[provider].label}</b><small>{externalProviderMeta[provider].note}</small></button>)}</div>
                 <div className="exercise-catalog-manager__external-search"><label><Search /><input value={externalQuery} onChange={(event) => setExternalQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void searchExternal() } }} placeholder="Tìm tên tiếng Anh, ví dụ hip thrust…" /></label><button type="button" onClick={() => void searchExternal()} disabled={externalLoading}><Search />{externalLoading ? 'Đang tìm…' : 'Tìm video'}</button></div>
-                {externalConfigured === false && <div className="exercise-catalog-manager__external-unconfigured"><AlertTriangle /><span><b>Chưa bật nguồn YMove</b><small>Admin cần thêm secret YMOVE_API_KEY. Kho bài tập Aura vẫn dùng bình thường.</small></span></div>}
-                {!!externalItems.length && <div className="exercise-catalog-manager__external-results">{externalItems.map((candidate) => <button type="button" className={externalPreview?.id === candidate.id ? 'is-active' : ''} onClick={() => void previewExternal(candidate)} key={candidate.id}>{candidate.thumbnailUrl ? <img src={candidate.thumbnailUrl} alt="" loading="lazy" /> : <Video />}<span><b>{candidate.title}</b><small>{[candidate.muscleGroup, ...candidate.equipment.slice(0, 1)].filter(Boolean).join(' · ') || 'Bài tập kỹ thuật'}</small><em>{candidate.videoCount || candidate.videos.length} video</em></span><Eye /></button>)}</div>}
-                {externalPreview && <div className="exercise-catalog-manager__external-preview"><ExerciseMediaPlayer name={externalPreview.title} media={draft.media} resolvedMedia={externalResolvedMedia} compact /><article><span>NGUỒN YMOVE</span><h5>{externalPreview.title}</h5><p>{externalPreview.description || [externalPreview.muscleGroup, ...externalPreview.equipment].filter(Boolean).join(' · ')}</p><small>{externalPreview.videos.length} biến thể video · URL chỉ dùng trong lần xem này</small><button type="button" onClick={() => linkExternal(externalPreview)}><Link2 />{draft.externalMedia?.exerciseId === externalPreview.id ? 'Đã liên kết bài này' : 'Liên kết vào bài Aura'}</button></article></div>}
+                {externalConfigured === false && <div className="exercise-catalog-manager__external-unconfigured"><AlertTriangle /><span><b>Chưa bật YMove API</b><small>ExerciseDB Free và 25 video YMove miễn phí vẫn hoạt động mà không cần secret.</small></span></div>}
+                {!!externalItems.length && <div className="exercise-catalog-manager__external-results">{externalItems.map((candidate) => <button type="button" className={externalPreview?.id === candidate.id && externalPreview.provider === candidate.provider ? 'is-active' : ''} onClick={() => void previewExternal(candidate)} key={`${candidate.provider}-${candidate.id}`}>{candidate.thumbnailUrl ? <img src={candidate.thumbnailUrl} alt="" loading="lazy" /> : <Video />}<span><b>{candidate.title}</b><small>{[candidate.muscleGroup, ...candidate.equipment.slice(0, 1)].filter(Boolean).join(' · ') || 'Bài tập kỹ thuật'}</small><em>{candidate.mediaLabel || `${candidate.videoCount || candidate.videos.length} video`}</em></span><Eye /></button>)}</div>}
+                {externalPreview && <div className="exercise-catalog-manager__external-preview"><ExerciseMediaPlayer name={externalPreview.title} media={draft.media} resolvedMedia={externalResolvedMedia} compact /><article><span>{externalProviderMeta[externalPreview.provider].label.toLocaleUpperCase('vi')}</span><h5>{externalPreview.title}</h5><p>{externalPreview.description || [externalPreview.muscleGroup, ...externalPreview.equipment].filter(Boolean).join(' · ')}</p><small>{externalPreview.licenseNotice || `${externalPreview.videos.length} biến thể media`}</small><button type="button" onClick={() => linkExternal(externalPreview)}><Link2 />{draft.externalMedia?.provider === externalPreview.provider && draft.externalMedia?.exerciseId === externalPreview.id ? 'Đã liên kết bài này' : 'Liên kết vào bài Aura'}</button></article></div>}
               </section>
-              <details className="exercise-catalog-manager__advanced-media"><summary><Link2 />Thêm bằng URL hoặc video</summary><div><label>Đường dẫn ảnh<input value={remoteUrl} onChange={(event) => setRemoteUrl(event.target.value)} placeholder="https://…" /></label><label>Vai trò<select value={remoteRole} onChange={(event) => setRemoteRole(event.target.value as MediaRole)}><option value="detail">Bổ sung</option><option value="start">Bắt đầu</option><option value="end">Kết thúc</option></select></label><button type="button" onClick={addRemoteImage}><Plus />Thêm ảnh</button><label className="is-wide">Video / animation<input value={draft.media.animationUrl || ''} onChange={(event) => updateMedia((media) => ({ ...media, animationUrl: event.target.value }))} placeholder="https://…" /></label></div></details>
+              <details className="exercise-catalog-manager__advanced-media"><summary><Link2 />Thêm media bằng URL</summary><div><label>Đường dẫn ảnh<input value={remoteUrl} onChange={(event) => setRemoteUrl(event.target.value)} placeholder="https://…" /></label><label>Vai trò<select value={remoteRole} onChange={(event) => setRemoteRole(event.target.value as MediaRole)}><option value="detail">Bổ sung</option><option value="start">Bắt đầu</option><option value="end">Kết thúc</option></select></label><button type="button" onClick={addRemoteImage}><Plus />Thêm ảnh</button><label className="is-wide">Video MP4/WebM hoặc ảnh động GIF<input value={draft.media.animationUrl || ''} onChange={(event) => updateMedia((media) => ({ ...media, animationUrl: event.target.value }))} placeholder="https://…/video.mp4" /></label><p className="is-wide exercise-catalog-manager__license-note">Có thể dùng video được cấp phép từ <a href="https://programme.app/license" target="_blank" rel="noreferrer">Programme</a>. Chỉ dán đường dẫn media trực tiếp và ghi nguồn ở bước xem lại.</p><label className="is-wide">Ghi nguồn media<input value={draft.sourceAttribution || ''} onChange={(event) => updateDraft({ sourceAttribution: event.target.value })} placeholder="Ví dụ: Nội dung Aura Fitness · Video Programme" /></label></div></details>
             </section>}
             {activeStep === 4 && <section className="exercise-catalog-manager__panel"><header><span>BƯỚC 5</span><h4>Xem lại và xuất bản</h4><p>Đây là thông tin Staff và học viên sẽ nhìn thấy.</p></header><div className="exercise-catalog-manager__review"><ExerciseMediaPlayer exerciseId={publishedItem?.id} name={draft.nameVi || 'Bài tập Aura'} media={draft.media} externalMedia={draft.externalMedia} resolvedMedia={externalResolvedMedia} /><article><span className="exercise-catalog-manager__review-badge">{draft.difficulty === 'beginner' ? 'Cơ bản' : draft.difficulty === 'intermediate' ? 'Trung bình' : 'Nâng cao'}</span><h4>{draft.nameVi || 'Chưa đặt tên'}</h4><small>{draft.nameEn}</small><div className="exercise-catalog-manager__review-tags">{[...draft.targetMuscles, ...draft.equipment].map((tag) => <em key={tag}>{tag}</em>)}</div><strong>{draft.defaultPrescription.sets} hiệp × {draft.defaultPrescription.reps} reps · nghỉ {draft.defaultPrescription.restSeconds}s</strong><ol>{draft.instructionsVi.filter(Boolean).map((instruction) => <li key={instruction}>{instruction}</li>)}</ol></article></div><div className="exercise-catalog-manager__checklist">{[{ label: 'Tên và nhóm cơ', ok: stepComplete(0) }, { label: 'Hướng dẫn kỹ thuật', ok: stepComplete(1) }, { label: 'Giáo án đề xuất', ok: stepComplete(2) }, { label: 'Ảnh minh họa', ok: stepComplete(3) }].map((item) => <span className={item.ok ? 'is-ok' : ''} key={item.label}>{item.ok ? <CircleCheck /> : <AlertTriangle />}{item.label}</span>)}</div></section>}
           </div>

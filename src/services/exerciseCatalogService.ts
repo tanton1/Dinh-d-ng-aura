@@ -26,6 +26,7 @@ export interface ExerciseCatalogDetail {
 
 export interface ExternalExerciseCandidate {
   id: string
+  provider: ExternalExerciseProvider
   title: string
   slug?: string
   description?: string
@@ -38,11 +39,15 @@ export interface ExternalExerciseCandidate {
   difficulty?: string
   thumbnailUrl?: string
   videoCount: number
+  mediaLabel?: string
+  licenseNotice?: string
   videos: ExerciseCatalogMediaVideo[]
 }
 
+export type ExternalExerciseProvider = 'exercisedb' | 'ymove_free' | 'ymove'
+
 export interface ExternalExerciseSearchResult {
-  provider: 'ymove'
+  provider: ExternalExerciseProvider
   providerConfigured: boolean
   items: ExternalExerciseCandidate[]
   total: number
@@ -51,6 +56,7 @@ export interface ExternalExerciseSearchResult {
 }
 
 export interface ExerciseCatalogResolvedMedia {
+  provider?: ExternalExerciseProvider
   providerConfigured: boolean
   externalLinked: boolean
   transientMedia?: boolean
@@ -93,9 +99,9 @@ function mediaVideos(value: unknown): ExerciseCatalogMediaVideo[] {
   return value.flatMap((entry, index) => {
     const video = record(entry)
     if (!video) return []
-    const provider: ExerciseCatalogMediaVideo['provider'] = video.provider === 'ymove' ? 'ymove' : 'aura'
+    const provider: ExerciseCatalogMediaVideo['provider'] = video.provider === 'ymove' || video.provider === 'ymove_free' || video.provider === 'exercisedb' || video.provider === 'programme' ? video.provider : 'aura'
     const id = typeof video.id === 'string' && video.id ? video.id.slice(0, 160) : `video-${index + 1}`
-    const tag: ExerciseCatalogMediaVideo['tag'] = video.tag === 'white-background' || video.tag === 'gym-shot' || video.tag === 'aura' ? video.tag : undefined
+    const tag: ExerciseCatalogMediaVideo['tag'] = video.tag === 'white-background' || video.tag === 'gym-shot' || video.tag === 'aura' || video.tag === 'animation' || video.tag === 'licensed-embed' ? video.tag : undefined
     const angle: ExerciseCatalogMediaVideo['angle'] = video.angle === 'front' || video.angle === 'side' || video.angle === 'other' ? video.angle : undefined
     const presenter: ExerciseCatalogMediaVideo['presenter'] = video.presenter === 'female' || video.presenter === 'male' || video.presenter === 'neutral' ? video.presenter : undefined
     const orientation: ExerciseCatalogMediaVideo['orientation'] = video.orientation === 'portrait' || video.orientation === 'landscape' ? video.orientation : undefined
@@ -120,9 +126,9 @@ function mediaVideos(value: unknown): ExerciseCatalogMediaVideo[] {
 
 function externalMedia(value: unknown): ExerciseCatalogExternalMedia | undefined {
   const data = record(value)
-  if (!data || data.provider !== 'ymove' || typeof data.exerciseId !== 'string' || !data.exerciseId) return undefined
+  if (!data || !['ymove', 'ymove_free', 'exercisedb'].includes(String(data.provider)) || typeof data.exerciseId !== 'string' || !data.exerciseId) return undefined
   return {
-    provider: 'ymove',
+    provider: data.provider as ExerciseCatalogExternalMedia['provider'],
     exerciseId: data.exerciseId.slice(0, 160),
     slug: typeof data.slug === 'string' ? data.slug.slice(0, 200) : undefined,
     preferredVideoTag: data.preferredVideoTag === 'white-background' || data.preferredVideoTag === 'gym-shot' ? data.preferredVideoTag : undefined,
@@ -181,10 +187,10 @@ function parseCatalogItem(value: unknown): ExerciseCatalogItem | null {
       rpe: typeof prescription?.rpe === 'number' ? prescription.rpe : 7,
     },
     source: {
-      provider: source?.provider === 'aura' || source?.provider === 'ymove' ? source.provider : 'free-exercise-db',
+      provider: source?.provider === 'aura' || source?.provider === 'ymove' || source?.provider === 'ymove_free' || source?.provider === 'exercisedb' || source?.provider === 'programme' ? source.provider : 'free-exercise-db',
       sourceExerciseId: typeof source?.sourceExerciseId === 'string' ? source.sourceExerciseId : data.id,
       sourceVersion: typeof source?.sourceVersion === 'string' ? source.sourceVersion : 'unknown',
-      license: source?.license === 'Aura-owned' || source?.license === 'External-provider' ? source.license : 'Unlicense',
+      license: source?.license === 'Aura-owned' || source?.license === 'External-provider' || source?.license === 'CC-BY-SA-3.0' || source?.license === 'Free-commercial-embed' ? source.license : 'Unlicense',
     },
     sourceAttribution: typeof data.sourceAttribution === 'string' ? data.sourceAttribution : 'Free Exercise DB · Unlicense',
     hasWorkingDraft: data.hasWorkingDraft === true,
@@ -196,8 +202,10 @@ function parseCatalogItem(value: unknown): ExerciseCatalogItem | null {
 function parseExternalExercise(value: unknown): ExternalExerciseCandidate | null {
   const data = record(value)
   if (!data || typeof data.id !== 'string' || typeof data.title !== 'string') return null
+  const provider: ExternalExerciseProvider = data.provider === 'ymove' || data.provider === 'ymove_free' ? data.provider : 'exercisedb'
   return {
     id: data.id.slice(0, 160),
+    provider,
     title: data.title.slice(0, 200),
     slug: typeof data.slug === 'string' ? data.slug.slice(0, 200) : undefined,
     description: typeof data.description === 'string' ? data.description.slice(0, 2_000) : undefined,
@@ -210,6 +218,8 @@ function parseExternalExercise(value: unknown): ExternalExerciseCandidate | null
     difficulty: typeof data.difficulty === 'string' ? data.difficulty.slice(0, 40) : undefined,
     thumbnailUrl: typeof data.thumbnailUrl === 'string' ? data.thumbnailUrl.slice(0, 2_000) : undefined,
     videoCount: typeof data.videoCount === 'number' ? Math.max(0, Math.round(data.videoCount)) : 0,
+    mediaLabel: typeof data.mediaLabel === 'string' ? data.mediaLabel.slice(0, 80) : undefined,
+    licenseNotice: typeof data.licenseNotice === 'string' ? data.licenseNotice.slice(0, 300) : undefined,
     videos: mediaVideos(data.videos),
   }
 }
@@ -240,6 +250,7 @@ export async function getExerciseCatalogItem(exerciseId: string): Promise<Exerci
 }
 
 export async function searchExternalExerciseCatalog(input: {
+  provider?: ExternalExerciseProvider
   search?: string
   muscleGroup?: string
   equipment?: string
@@ -248,7 +259,7 @@ export async function searchExternalExerciseCatalog(input: {
   page?: number
   pageSize?: number
 } = {}): Promise<ExternalExerciseSearchResult> {
-  if (!firebaseFunctions) return { provider: 'ymove', providerConfigured: false, items: [], total: 0, page: 1, pageSize: 12 }
+  if (!firebaseFunctions) return { provider: input.provider || 'exercisedb', providerConfigured: false, items: [], total: 0, page: 1, pageSize: 12 }
   const callable = httpsCallable<typeof input, unknown>(firebaseFunctions, 'searchExternalExerciseCatalog')
   const response = await callable(input)
   const payload = record(response.data)
@@ -257,7 +268,7 @@ export async function searchExternalExerciseCatalog(input: {
     return parsed ? [parsed] : []
   }) : []
   return {
-    provider: 'ymove',
+    provider: payload?.provider === 'ymove' || payload?.provider === 'ymove_free' ? payload.provider : 'exercisedb',
     providerConfigured: payload?.providerConfigured === true,
     items,
     total: typeof payload?.total === 'number' ? payload.total : items.length,
@@ -266,12 +277,13 @@ export async function searchExternalExerciseCatalog(input: {
   }
 }
 
-export async function getExternalExercisePreview(externalExerciseId: string): Promise<{ providerConfigured: boolean; item: ExternalExerciseCandidate | null }> {
-  if (!firebaseFunctions) return { providerConfigured: false, item: null }
-  const callable = httpsCallable<{ externalExerciseId: string }, unknown>(firebaseFunctions, 'getExternalExercisePreview')
-  const response = await callable({ externalExerciseId })
+export async function getExternalExercisePreview(externalExerciseId: string, provider: ExternalExerciseProvider = 'exercisedb'): Promise<{ provider: ExternalExerciseProvider; providerConfigured: boolean; item: ExternalExerciseCandidate | null }> {
+  if (!firebaseFunctions) return { provider, providerConfigured: false, item: null }
+  const callable = httpsCallable<{ externalExerciseId: string; provider: ExternalExerciseProvider }, unknown>(firebaseFunctions, 'getExternalExercisePreview')
+  const response = await callable({ externalExerciseId, provider })
   const payload = record(response.data)
-  return { providerConfigured: payload?.providerConfigured === true, item: parseExternalExercise(payload?.item) }
+  const resolvedProvider: ExternalExerciseProvider = payload?.provider === 'ymove' || payload?.provider === 'ymove_free' ? payload.provider : 'exercisedb'
+  return { provider: resolvedProvider, providerConfigured: payload?.providerConfigured === true, item: parseExternalExercise(payload?.item) }
 }
 
 export async function getExerciseCatalogMedia(exerciseId: string): Promise<ExerciseCatalogResolvedMedia> {
@@ -280,6 +292,7 @@ export async function getExerciseCatalogMedia(exerciseId: string): Promise<Exerc
   const response = await callable({ exerciseId })
   const payload = record(response.data)
   return {
+    provider: payload?.provider === 'ymove' || payload?.provider === 'ymove_free' ? payload.provider : payload?.provider === 'exercisedb' ? 'exercisedb' : undefined,
     providerConfigured: payload?.providerConfigured === true,
     externalLinked: payload?.externalLinked === true,
     transientMedia: payload?.transientMedia === true,

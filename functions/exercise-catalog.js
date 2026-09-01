@@ -6,6 +6,10 @@ const YMOVE_API_KEY = defineSecret('YMOVE_API_KEY', {
   description: 'Server-side API key for the YMove exercise media provider.',
 })
 const YMOVE_API_BASE_URL = 'https://exercise-api.ymove.app/api/v2'
+const YMOVE_FREE_LIBRARY_URL = 'https://ymove.app/free-exercise-videos'
+const EXERCISEDB_API_BASE_URL = 'https://oss.exercisedb.dev/api/v1'
+const externalProviders = new Set(['exercisedb', 'ymove_free', 'ymove'])
+const durableVideoProviders = new Set(['aura', 'ymove_free', 'exercisedb', 'programme'])
 
 const staffRoles = new Set(['coach', 'trainer', 'editor', 'admin', 'super_admin'])
 const publishRoles = new Set(['admin', 'super_admin'])
@@ -51,13 +55,13 @@ function mediaVideos(value) {
   if (!Array.isArray(value)) return []
   return value.flatMap((entry, index) => {
     if (!entry || typeof entry !== 'object') return []
-    const provider = entry.provider === 'ymove' ? 'ymove' : 'aura'
+    const provider = ['ymove', 'ymove_free', 'exercisedb', 'programme'].includes(entry.provider) ? entry.provider : 'aura'
     const id = text(entry.id, 160) || `video-${index + 1}`
     if (!/^[A-Za-z0-9_-]+$/.test(id)) return []
-    // YMove URLs expire. They are returned by getExerciseCatalogMedia only.
-    const url = provider === 'aura' ? text(entry.url, 2_000) : ''
-    const hlsUrl = provider === 'aura' ? text(entry.hlsUrl, 2_000) : ''
-    const posterUrl = provider === 'aura' ? text(entry.posterUrl, 2_000) : ''
+    // Paid YMove URLs expire. Public/free providers use durable URLs.
+    const url = durableVideoProviders.has(provider) ? text(entry.url, 2_000) : ''
+    const hlsUrl = durableVideoProviders.has(provider) ? text(entry.hlsUrl, 2_000) : ''
+    const posterUrl = durableVideoProviders.has(provider) ? text(entry.posterUrl, 2_000) : ''
     return [{
       id,
       provider,
@@ -65,7 +69,7 @@ function mediaVideos(value) {
       ...(url ? { url } : {}),
       ...(hlsUrl ? { hlsUrl } : {}),
       ...(posterUrl ? { posterUrl } : {}),
-      ...(['white-background', 'gym-shot', 'aura'].includes(entry.tag) ? { tag: entry.tag } : provider === 'aura' ? { tag: 'aura' } : {}),
+      ...(['white-background', 'gym-shot', 'aura', 'animation', 'licensed-embed'].includes(entry.tag) ? { tag: entry.tag } : provider === 'aura' ? { tag: 'aura' } : {}),
       ...(['front', 'side', 'other'].includes(entry.angle) ? { angle: entry.angle } : {}),
       ...(['female', 'male', 'neutral'].includes(entry.presenter) ? { presenter: entry.presenter } : {}),
       ...(['portrait', 'landscape'].includes(entry.orientation) ? { orientation: entry.orientation } : {}),
@@ -77,11 +81,11 @@ function mediaVideos(value) {
 }
 
 function normalizedExternalMedia(value) {
-  if (!value || typeof value !== 'object' || value.provider !== 'ymove') return undefined
+  if (!value || typeof value !== 'object' || !externalProviders.has(value.provider)) return undefined
   const exerciseId = text(value.exerciseId, 160)
   if (!exerciseId || !/^[A-Za-z0-9_-]+$/.test(exerciseId)) return undefined
   return {
-    provider: 'ymove',
+    provider: value.provider,
     exerciseId,
     ...(text(value.slug, 200) ? { slug: text(value.slug, 200) } : {}),
     ...(['white-background', 'gym-shot'].includes(value.preferredVideoTag) ? { preferredVideoTag: value.preferredVideoTag } : {}),
@@ -151,8 +155,8 @@ function publicItemFromData(id, data) {
       rpe: Number.isInteger(data.defaultPrescription?.rpe) ? data.defaultPrescription.rpe : 7,
     },
     source: {
-      provider: ['aura', 'ymove'].includes(data.source?.provider) ? data.source.provider : 'free-exercise-db', sourceExerciseId: text(data.source?.sourceExerciseId, 160) || id,
-      sourceVersion: text(data.source?.sourceVersion, 100) || 'unknown', license: ['Aura-owned', 'External-provider'].includes(data.source?.license) ? data.source.license : 'Unlicense',
+      provider: ['aura', 'ymove', 'ymove_free', 'exercisedb', 'programme'].includes(data.source?.provider) ? data.source.provider : 'free-exercise-db', sourceExerciseId: text(data.source?.sourceExerciseId, 160) || id,
+      sourceVersion: text(data.source?.sourceVersion, 100) || 'unknown', license: ['Aura-owned', 'External-provider', 'CC-BY-SA-3.0', 'Free-commercial-embed'].includes(data.source?.license) ? data.source.license : 'Unlicense',
     },
     sourceAttribution: text(data.sourceAttribution, 300) || 'Free Exercise DB · Unlicense',
     hasWorkingDraft: Boolean(data.workingDraft && typeof data.workingDraft === 'object'),
@@ -225,6 +229,49 @@ async function fetchYMove(pathname, searchParams = {}) {
   } finally { clearTimeout(timer) }
 }
 
+async function fetchPublicJson(baseUrl, pathname, searchParams = {}) {
+  const url = new URL(`${baseUrl}${pathname}`)
+  Object.entries(searchParams).forEach(([key, value]) => {
+    if (value !== '' && value !== undefined && value !== null) url.searchParams.set(key, String(value))
+  })
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 12_000)
+  try {
+    const response = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'AuraFitnessExerciseCatalog/1.0' }, signal: controller.signal })
+    if (!response.ok) {
+      if (response.status === 429) throw new HttpsError('resource-exhausted', 'Nguồn bài tập miễn phí đang giới hạn lượt truy cập. Hãy thử lại sau.')
+      throw new HttpsError('unavailable', 'Nguồn bài tập miễn phí tạm thời chưa phản hồi.')
+    }
+    return await response.json()
+  } catch (error) {
+    if (error instanceof HttpsError) throw error
+    throw new HttpsError('unavailable', error?.name === 'AbortError' ? 'Nguồn bài tập miễn phí phản hồi quá chậm.' : 'Không thể kết nối nguồn bài tập miễn phí.')
+  } finally { clearTimeout(timer) }
+}
+
+async function fetchExerciseDb(pathname = '/exercises', searchParams = {}) {
+  return fetchPublicJson(EXERCISEDB_API_BASE_URL, pathname, searchParams)
+}
+
+async function fetchYMoveFreeLibrary() {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 12_000)
+  try {
+    const response = await fetch(YMOVE_FREE_LIBRARY_URL, { headers: { Accept: 'text/html', 'User-Agent': 'AuraFitnessExerciseCatalog/1.0' }, signal: controller.signal })
+    if (!response.ok) throw new HttpsError('unavailable', 'Thư viện 25 video miễn phí tạm thời chưa phản hồi.')
+    const html = await response.text()
+    const match = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/)
+    if (!match) throw new HttpsError('data-loss', 'YMove đã thay đổi định dạng thư viện miễn phí.')
+    const payload = JSON.parse(match[1])
+    const exercises = payload?.props?.pageProps?.exercises
+    if (!Array.isArray(exercises)) throw new HttpsError('data-loss', 'Không đọc được danh sách video miễn phí.')
+    return exercises.slice(0, 25)
+  } catch (error) {
+    if (error instanceof HttpsError) throw error
+    throw new HttpsError('unavailable', error?.name === 'AbortError' ? 'Thư viện video miễn phí phản hồi quá chậm.' : 'Không thể tải thư viện video miễn phí.')
+  } finally { clearTimeout(timer) }
+}
+
 function externalExerciseRows(payload) {
   if (Array.isArray(payload?.data)) return payload.data
   if (Array.isArray(payload?.data?.exercises)) return payload.data.exercises
@@ -237,15 +284,15 @@ function externalExerciseData(payload) {
   return payload?.data && !Array.isArray(payload.data) ? payload.data : payload
 }
 
-function normalizedExternalVideo(entry, index) {
+function normalizedExternalVideo(entry, index, provider = 'ymove') {
   if (!entry || typeof entry !== 'object') return null
   const url = text(entry.videoUrl || entry.url || entry.mp4Url, 2_000)
   const hlsUrl = text(entry.videoHlsUrl || entry.hlsUrl, 2_000)
   if (!url && !hlsUrl) return null
   const presenter = entry.presenter || entry.gender
   return {
-    id: text(entry.id, 160) || `ymove-${index + 1}`,
-    provider: 'ymove',
+    id: text(entry.id, 160) || `${provider}-${index + 1}`,
+    provider,
     externalId: text(entry.id, 160),
     url,
     hlsUrl,
@@ -259,14 +306,15 @@ function normalizedExternalVideo(entry, index) {
   }
 }
 
-function normalizedExternalExercise(entry, includeMedia = false) {
+function normalizedExternalExercise(entry, includeMedia = false, provider = 'ymove') {
   const id = text(entry?.id, 160)
   if (!id) return null
   const sourceVideos = Array.isArray(entry.videos) && entry.videos.length ? entry.videos : [entry]
-  const videos = includeMedia ? sourceVideos.map(normalizedExternalVideo).filter(Boolean).slice(0, 12) : []
+  const videos = includeMedia ? sourceVideos.map((video, index) => normalizedExternalVideo(video, index, provider)).filter(Boolean).slice(0, 12) : []
   const thumbnailUrl = text(entry.thumbnailUrl, 2_000) || videos.find((video) => video.posterUrl)?.posterUrl || ''
   return {
     id,
+    provider,
     title: text(entry.title || entry.name, 200),
     slug: text(entry.slug, 200),
     description: text(entry.description, 2_000),
@@ -280,6 +328,81 @@ function normalizedExternalExercise(entry, includeMedia = false) {
     thumbnailUrl,
     videoCount: Number.isFinite(entry.videoCount) ? Math.max(0, Math.round(entry.videoCount)) : videos.length || (entry.videoUrl || entry.videoHlsUrl ? 1 : 0),
     videos,
+  }
+}
+
+function normalizedExerciseDbExercise(entry) {
+  const id = text(entry?.exerciseId, 160)
+  const gifUrl = text(entry?.gifUrl, 2_000)
+  if (!id || !gifUrl) return null
+  const title = text(entry.name, 200)
+  const targetMuscles = stringList(entry.targetMuscles, 12, 120)
+  const bodyParts = stringList(entry.bodyParts, 12, 120)
+  const equipment = stringList(entry.equipments, 12, 120)
+  const presenter = /\(female\)/i.test(title) ? 'female' : /\(male\)/i.test(title) ? 'male' : 'neutral'
+  return {
+    id,
+    provider: 'exercisedb',
+    title,
+    description: '',
+    instructions: stringList(entry.instructions, 20, 600).map((instruction) => instruction.replace(/^Step\s*:?\s*\d+\s*/i, '').trim()).filter(Boolean),
+    importantPoints: [],
+    muscleGroup: targetMuscles[0] || bodyParts[0] || '',
+    secondaryMuscles: stringList(entry.secondaryMuscles, 12, 120),
+    equipment,
+    category: bodyParts[0] || '',
+    difficulty: '',
+    thumbnailUrl: gifUrl,
+    videoCount: 1,
+    mediaLabel: 'GIF miễn phí',
+    licenseNotice: 'ExerciseDB Free · cần giữ ghi nguồn theo chính sách nhà cung cấp',
+    videos: [{
+      id: `exercisedb-${id}`,
+      provider: 'exercisedb',
+      externalId: id,
+      url: gifUrl,
+      posterUrl: gifUrl,
+      tag: 'animation',
+      presenter,
+      format: 'gif',
+      isPrimary: true,
+    }],
+  }
+}
+
+function normalizedYMoveFreeExercise(entry) {
+  const id = text(entry?.id, 160)
+  const videoUrl = text(entry?.videoUrl, 2_000)
+  if (!id || !videoUrl) return null
+  return {
+    id,
+    provider: 'ymove_free',
+    title: text(entry.title, 200),
+    slug: text(entry.slug, 200),
+    description: 'Video HD miễn phí từ bộ sưu tập Your Move.',
+    instructions: [],
+    importantPoints: [],
+    muscleGroup: text(entry.muscleGroup, 120),
+    secondaryMuscles: [],
+    equipment: stringList([entry.equipment], 12, 120),
+    category: 'strength',
+    difficulty: '',
+    thumbnailUrl: text(entry.thumbnailUrl, 2_000),
+    videoCount: 1,
+    mediaLabel: 'Video HD miễn phí',
+    licenseNotice: 'YMove Free · miễn phí sử dụng thương mại, không được bán lại như một thư viện',
+    videos: [{
+      id: `ymove-free-${id}`,
+      provider: 'ymove_free',
+      externalId: id,
+      url: videoUrl,
+      posterUrl: text(entry.thumbnailUrl, 2_000),
+      tag: 'white-background',
+      presenter: 'neutral',
+      orientation: 'portrait',
+      format: 'mp4',
+      isPrimary: true,
+    }],
   }
 }
 
@@ -314,8 +437,32 @@ function createExerciseCatalogFunctions({ db, onCall }) {
   const searchExternalExerciseCatalog = onCall({ secrets: [YMOVE_API_KEY], timeoutSeconds: 20 }, async (request) => {
     const actor = await actorContext(request, db)
     if (!actor.isStaff) throw new HttpsError('permission-denied', 'Chỉ nhân sự Aura được đồng bộ thư viện ngoài.')
+    const provider = externalProviders.has(request.data?.provider) ? request.data.provider : 'exercisedb'
     const page = Math.min(50, Math.max(1, Math.round(Number(request.data?.page) || 1)))
     const pageSize = Math.min(20, Math.max(1, Math.round(Number(request.data?.pageSize) || 12)))
+    if (provider === 'exercisedb') {
+      const payload = await fetchExerciseDb('/exercises', {
+        name: text(request.data?.search, 120),
+        bodyPart: text(request.data?.muscleGroup, 80),
+        equipment: text(request.data?.equipment, 80),
+        limit: pageSize,
+      })
+      const items = (Array.isArray(payload?.data) ? payload.data : []).map(normalizedExerciseDbExercise).filter(Boolean).slice(0, pageSize)
+      const total = Number(payload?.meta?.total || items.length)
+      return { provider, providerConfigured: true, items, total: Number.isFinite(total) ? total : items.length, page: 1, pageSize }
+    }
+    if (provider === 'ymove_free') {
+      const search = text(request.data?.search, 120).toLocaleLowerCase('en')
+      const muscleGroup = text(request.data?.muscleGroup, 80).toLocaleLowerCase('en')
+      const equipment = text(request.data?.equipment, 80).toLocaleLowerCase('en')
+      const rows = await fetchYMoveFreeLibrary()
+      const allItems = rows.map(normalizedYMoveFreeExercise).filter(Boolean).filter((item) => {
+        const searchable = [item.title, item.muscleGroup, ...item.equipment].join(' ').toLocaleLowerCase('en')
+        return (!search || searchable.includes(search)) && (!muscleGroup || item.muscleGroup.toLocaleLowerCase('en').includes(muscleGroup))
+          && (!equipment || item.equipment.some((value) => value.toLocaleLowerCase('en').includes(equipment)))
+      })
+      return { provider, providerConfigured: true, items: allItems.slice(0, pageSize), total: allItems.length, page: 1, pageSize }
+    }
     const result = await fetchYMove('/exercises', {
       search: text(request.data?.search, 120),
       muscleGroup: text(request.data?.muscleGroup, 80),
@@ -327,21 +474,34 @@ function createExerciseCatalogFunctions({ db, onCall }) {
       page,
       pageSize,
     })
-    if (!result.configured) return { provider: 'ymove', providerConfigured: false, items: [], total: 0, page, pageSize }
-    const items = externalExerciseRows(result.payload).map((entry) => normalizedExternalExercise(entry, true)).filter(Boolean).slice(0, pageSize)
+    if (!result.configured) return { provider, providerConfigured: false, items: [], total: 0, page, pageSize }
+    const items = externalExerciseRows(result.payload).map((entry) => normalizedExternalExercise(entry, true, 'ymove')).filter(Boolean).slice(0, pageSize)
     const total = Number(result.payload?.meta?.total || result.payload?.pagination?.total || result.payload?.total || items.length)
-    return { provider: 'ymove', providerConfigured: true, items, total: Number.isFinite(total) ? total : items.length, page, pageSize }
+    return { provider, providerConfigured: true, items, total: Number.isFinite(total) ? total : items.length, page, pageSize }
   })
 
   const getExternalExercisePreview = onCall({ secrets: [YMOVE_API_KEY], timeoutSeconds: 20 }, async (request) => {
     const actor = await actorContext(request, db)
     if (!actor.isStaff) throw new HttpsError('permission-denied', 'Chỉ nhân sự Aura được xem trước thư viện ngoài.')
+    const provider = externalProviders.has(request.data?.provider) ? request.data.provider : 'exercisedb'
     const externalExerciseId = safeId(request.data?.externalExerciseId)
+    if (provider === 'exercisedb') {
+      const payload = await fetchExerciseDb(`/exercises/${encodeURIComponent(externalExerciseId)}`)
+      const item = normalizedExerciseDbExercise(payload?.data)
+      if (!item) throw new HttpsError('not-found', 'Không tìm thấy bài tập ở ExerciseDB.')
+      return { provider, providerConfigured: true, item, transientMedia: false }
+    }
+    if (provider === 'ymove_free') {
+      const rows = await fetchYMoveFreeLibrary()
+      const item = normalizedYMoveFreeExercise(rows.find((entry) => entry.id === externalExerciseId))
+      if (!item) throw new HttpsError('not-found', 'Không tìm thấy video trong bộ 25 bài miễn phí.')
+      return { provider, providerConfigured: true, item, transientMedia: false }
+    }
     const result = await fetchYMove(`/exercises/${encodeURIComponent(externalExerciseId)}`)
-    if (!result.configured) return { provider: 'ymove', providerConfigured: false, item: null }
-    const item = normalizedExternalExercise(externalExerciseData(result.payload), true)
+    if (!result.configured) return { provider, providerConfigured: false, item: null }
+    const item = normalizedExternalExercise(externalExerciseData(result.payload), true, 'ymove')
     if (!item) throw new HttpsError('not-found', 'Không tìm thấy bài tập ở nguồn đồng bộ.')
-    return { provider: 'ymove', providerConfigured: true, item, transientMedia: true }
+    return { provider, providerConfigured: true, item, transientMedia: true }
   })
 
   const getExerciseCatalogMedia = onCall({ secrets: [YMOVE_API_KEY], timeoutSeconds: 20 }, async (request) => {
@@ -357,19 +517,36 @@ function createExerciseCatalogFunctions({ db, onCall }) {
     if (!externalMedia) {
       return { providerConfigured: Boolean(providerApiKey()), externalLinked: false, images: media.images, videos: media.videos, animationUrl: media.animationUrl }
     }
-    const result = await fetchYMove(`/exercises/${encodeURIComponent(externalMedia.exerciseId)}`)
-    if (!result.configured) return { providerConfigured: false, externalLinked: true, images: media.images, videos: media.videos, animationUrl: media.animationUrl }
-    const externalExercise = normalizedExternalExercise(externalExerciseData(result.payload), true)
+    let externalExercise = null
+    let providerConfigured = true
+    let transientMedia = false
+    let expiresAt
+    if (externalMedia.provider === 'exercisedb') {
+      const payload = await fetchExerciseDb(`/exercises/${encodeURIComponent(externalMedia.exerciseId)}`)
+      externalExercise = normalizedExerciseDbExercise(payload?.data)
+    } else if (externalMedia.provider === 'ymove_free') {
+      const rows = await fetchYMoveFreeLibrary()
+      externalExercise = normalizedYMoveFreeExercise(rows.find((entry) => entry.id === externalMedia.exerciseId))
+    } else {
+      const result = await fetchYMove(`/exercises/${encodeURIComponent(externalMedia.exerciseId)}`)
+      providerConfigured = result.configured
+      if (result.configured) externalExercise = normalizedExternalExercise(externalExerciseData(result.payload), true, 'ymove')
+      transientMedia = result.configured
+      expiresAt = result.configured ? new Date(Date.now() + 47 * 60 * 60 * 1000).toISOString() : undefined
+    }
+    if (!providerConfigured) return { provider: externalMedia.provider, providerConfigured: false, externalLinked: true, images: media.images, videos: media.videos, animationUrl: media.animationUrl }
+    if (!externalExercise) throw new HttpsError('not-found', 'Nguồn media liên kết không còn bài tập này.')
     const preferred = (externalExercise?.videos || []).slice().sort((left, right) => {
       const leftScore = Number(left.tag === externalMedia.preferredVideoTag) * 2 + Number(left.orientation === externalMedia.preferredOrientation)
       const rightScore = Number(right.tag === externalMedia.preferredVideoTag) * 2 + Number(right.orientation === externalMedia.preferredOrientation)
       return rightScore - leftScore
     }).map((video, index) => ({ ...video, isPrimary: index === 0 }))
     return {
-      providerConfigured: true,
+      provider: externalMedia.provider,
+      providerConfigured,
       externalLinked: true,
-      transientMedia: true,
-      expiresAt: new Date(Date.now() + 47 * 60 * 60 * 1000).toISOString(),
+      transientMedia,
+      ...(expiresAt ? { expiresAt } : {}),
       images: media.images,
       videos: [...preferred, ...media.videos].slice(0, 12),
       animationUrl: media.animationUrl,

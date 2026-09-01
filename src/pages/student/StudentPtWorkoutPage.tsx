@@ -75,6 +75,7 @@ function ExerciseDetail({ item, isInCurrentPlan, onBack, onOpenPlan, saved, onTo
       <button type="button" className="student-library__back" onClick={onBack}><ArrowLeft /><span>Thư viện</span></button>
       <button type="button" className="student-library__detail-save" onClick={onToggleSaved} aria-label={saved ? 'Bỏ lưu bài tập' : 'Lưu bài tập'}><PosterIcon /></button>
       <ExerciseMediaPlayer exerciseId={item.id} name={item.nameVi} media={item.media} externalMedia={item.externalMedia} />
+      {item.sourceAttribution && item.sourceAttribution !== 'Aura Fitness' && <small className="student-library__media-credit">{item.sourceAttribution}</small>}
     </div>
     <div className="student-library__detail-body">
       <div className="student-library__detail-heading"><div><span>{item.nameEn || 'AURA EXERCISE'}</span><h2>{item.nameVi}</h2><p>{item.targetMuscles.join(' · ') || item.bodyParts.join(' · ') || 'Bài tập toàn thân'}</p></div><PosterIcon aria-hidden="true" /></div>
