@@ -328,12 +328,25 @@
 .ask-aura__suggestions button:hover { border-color: #e9b0cb; color: var(--nw-purple); background: #fff5f9; }
 .ask-aura__composer { padding: 13px 18px 16px; border-top: 1px solid #eceaf0; }
 .ask-aura__composer > label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
-.ask-aura__composer > div { display: grid; grid-template-columns: minmax(0, 1fr) 40px; align-items: center; gap: 8px; padding: 5px 5px 5px 13px; border: 1px solid #dcd9e4; border-radius: 14px; background: #fff; }
-.ask-aura__composer > div:focus-within { border-color: #e194b7; box-shadow: 0 0 0 3px rgba(217, 0, 104, .1); }
+.ask-aura__composer > .ask-aura__composer-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) 40px; align-items: center; gap: 6px; padding: 5px; border: 1px solid #dcd9e4; border-radius: 14px; background: #fff; }
+.ask-aura__composer > .ask-aura__composer-row:focus-within { border-color: #e194b7; box-shadow: 0 0 0 3px rgba(217, 0, 104, .1); }
 .ask-aura__composer input { min-width: 0; height: 36px; padding: 0; border: 0; outline: 0; color: #1f1f27; background: transparent; font-size: 10px; }
 .ask-aura__composer button { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 11px; color: #fff; background: var(--nw-purple); }
+.ask-aura__composer button.ask-aura__attach { border: 1px solid #eceaf0; color: var(--nw-purple); background: #faf9fc; }
 .ask-aura__composer button:disabled { opacity: .35; }
 .ask-aura__composer > small { display: block; margin-top: 8px; color: #9a98a2; font-size: 7px; text-align: center; }
+.ask-aura__file-input { display: none; }
+.ask-aura__pending-image { display: grid; grid-template-columns: 48px minmax(0, 1fr) 34px; align-items: center; gap: 9px; margin-bottom: 8px; padding: 7px; border: 1px solid #f0c5da; border-radius: 12px; background: #fff7fb; }
+.ask-aura__pending-image img { width: 48px; height: 48px; border-radius: 9px; object-fit: cover; }
+.ask-aura__pending-image span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.ask-aura__pending-image strong { color: #7f1748; font-size: 9px; }
+.ask-aura__pending-image small { color: #777582; font-size: 7px; }
+.ask-aura__pending-image button { width: 34px; height: 34px; color: #be123c; background: #fff; }
+.ask-aura__image-menu { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-bottom: 8px; }
+.ask-aura__image-menu button { display: flex; width: auto; height: 40px; align-items: center; justify-content: center; gap: 6px; border: 1px solid #e8e5f6; color: #7f1748; background: #faf9fc; font-size: 8px; font-weight: 800; }
+.ask-aura-message__image { position: relative; width: min(220px, 100%); margin: 0 0 8px; overflow: hidden; border-radius: 12px; background: #e5e7eb; }
+.ask-aura-message__image img { display: block; width: 100%; max-height: 220px; object-fit: cover; }
+.ask-aura-message__image figcaption { position: absolute; right: 6px; bottom: 6px; display: inline-flex; align-items: center; gap: 4px; padding: 4px 7px; border-radius: 99px; color: #fff; background: rgba(31,31,39,.76); font-size: 7px; font-weight: 800; }
 
 .is-spinning { animation: nutrition-workspace-spin .9s linear infinite; }
 @keyframes nutrition-workspace-spin { to { transform: rotate(360deg); } }
@@ -472,7 +485,7 @@
   .ask-aura__suggestions button { min-height: 44px; }
   .ask-aura__composer input { height: 44px; }
   .ask-aura__composer { padding: 11px 14px max(14px, env(safe-area-inset-bottom)); }
-  .ask-aura__composer > div { grid-template-columns: minmax(0, 1fr) 44px; }
+  .ask-aura__composer > .ask-aura__composer-row { grid-template-columns: 44px minmax(0, 1fr) 44px; }
   .ask-aura__composer button { width: 44px; height: 44px; }
 }
 

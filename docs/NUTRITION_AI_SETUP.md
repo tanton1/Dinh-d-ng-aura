@@ -79,6 +79,28 @@ Coach use `APIKEY_FUN_TEXT_MODEL` and `APIKEY_FUN_TEXT_FALLBACK_MODEL`. Their
 OpenRouter fallback uses the corresponding `OPENROUTER_VISION_*` or
 `OPENROUTER_TEXT_*` configuration.
 
+## AI Coach image advice
+
+The student Nutrition assistant and the Progress-page Aura Coach both expose an
+`Thêm ảnh` action with two explicit modes: `Ảnh vóc dáng` and `Ảnh món ăn`. The
+browser sends only the selected type and an owner-scoped temporary Storage path to
+`askAiCoach`; the callable re-validates the path, MIME type, size and metadata
+purpose before passing the image as multimodal input to the configured model.
+
+Coach images use the same private path shape as food scans with one of these
+metadata purposes: `ai-coach-body` or `ai-coach-meal`. They are deleted in the
+callable `finally` block (and retried by the client when a callable request fails),
+and conversations persist only a human-readable label such as “Ảnh vóc dáng trong
+tin nhắn hiện tại (không lưu)”. A lifecycle rule on `nutrition-scans/` remains the
+fallback for uploads abandoned before the callable starts.
+
+Body-photo advice is intentionally limited to cautious observations relevant to
+training goals. The model must not identify a person, infer health conditions,
+estimate exact body-fat or weight, score attractiveness/body quality, compare the
+user to beauty standards, or promise spot reduction. Meal-photo advice must call
+out uncertainty from hidden oil, sauce and portions, and remain an estimate until
+the user confirms ingredients and serving size.
+
 Verify deployment metadata without printing the secret value:
 
 ```powershell

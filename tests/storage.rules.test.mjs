@@ -39,6 +39,17 @@ function uploadExerciseImage(storage, exerciseId, mediaId, options = {}) {
   })
 }
 
+function uploadPrivateCoachImage(storage, userId, scanId, purpose) {
+  return uploadBytes(ref(storage, `nutrition-scans/${userId}/${scanId}/original.jpg`), validImage, {
+    contentType: 'image/jpeg',
+    customMetadata: {
+      ownerUid: userId,
+      scanId,
+      purpose,
+    },
+  })
+}
+
 describe('Aura Academy Storage rules', () => {
   before(async () => {
     testEnvironment = await initializeTestEnvironment({
@@ -83,5 +94,14 @@ describe('Aura Academy Storage rules', () => {
     await assertFails(uploadExerciseImage(storageFor('student-1', 'student'), 'aura_squat', 'media-student', { uploadedBy: 'student-1' }))
     await assertFails(uploadExerciseImage(storageFor('editor-1', 'editor'), 'aura_squat', 'media-forged', { metadataExerciseId: 'another-exercise' }))
     await assertFails(uploadExerciseImage(storageFor('editor-1', 'editor'), 'aura_squat', 'media-jpeg', { contentType: 'image/jpeg' }))
+  })
+
+  test('learners can upload only actor-owned temporary food and AI Coach images', async () => {
+    const studentStorage = storageFor('student-1', 'student')
+    await assertSucceeds(uploadPrivateCoachImage(studentStorage, 'student-1', 'scan_food_123', 'food-analysis'))
+    await assertSucceeds(uploadPrivateCoachImage(studentStorage, 'student-1', 'scan_body_123', 'ai-coach-body'))
+    await assertSucceeds(uploadPrivateCoachImage(studentStorage, 'student-1', 'scan_meal_123', 'ai-coach-meal'))
+    await assertFails(uploadPrivateCoachImage(studentStorage, 'student-2', 'scan_cross_123', 'ai-coach-body'))
+    await assertFails(uploadPrivateCoachImage(studentStorage, 'student-1', 'scan_bad_1234', 'profile-photo'))
   })
 })

@@ -10,6 +10,27 @@ test('demo dashboard loads without a fatal runtime error', async ({ page }) => {
   expect(pageErrors).toEqual([])
 })
 
+test('nutrition assistant exposes private body and meal image choices', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.addInitScript(() => {
+    window.localStorage.setItem('aura:nutrition-profile:demo-admin', JSON.stringify({
+      goal: 'maintain', age: 28, biologicalSex: 'female', heightCm: 162, weightKg: 58,
+      activityLevel: 'moderate', trainingSessions: 4, eatingStyle: 'Không giới hạn',
+      allergies: '', mealsPerDay: 3, dislikes: '', budget: 'medium', prepTime: 'medium',
+      favoriteCuisine: 'Đa dạng', reminders: { water: false, breakfast: false, lunch: false, dinner: false },
+    }))
+  })
+  await page.goto('/#/nutrition?section=assistant')
+
+  const assistant = page.getByRole('region', { name: 'Trợ lý quyết định bữa tiếp theo' })
+  await expect(assistant).toBeVisible()
+  await assistant.getByRole('button', { name: 'Thêm ảnh' }).click()
+  await expect(assistant.getByRole('button', { name: 'Vóc dáng' })).toBeVisible()
+  await expect(assistant.getByRole('button', { name: 'Món ăn' })).toBeVisible()
+  await expect(assistant.getByText('Ảnh chỉ dùng cho câu trả lời hiện tại và tự xoá', { exact: false })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
 test('student mobile dock keeps six Aura tabs ordered and full-width safe', async ({ page }) => {
   for (const width of [360, 390, 430]) {
     await page.setViewportSize({ width, height: 844 })

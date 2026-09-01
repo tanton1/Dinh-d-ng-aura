@@ -12,6 +12,7 @@ import {
   Droplets,
   Dumbbell,
   Flame,
+  ImagePlus,
   MessageCircle,
   MoreHorizontal,
   Plus,
@@ -28,7 +29,7 @@ import {
   Wheat,
   X,
 } from 'lucide-react'
-import { useId, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import '../../styles-nutrition-workspace.css'
 
 const ProgressPage = React.lazy(() => import('./ProgressPage'))
@@ -106,6 +107,15 @@ export interface AuraAssistantMessage {
   content: string
   evidence?: string[]
   confidenceLabel?: string
+  imagePreviewUrl?: string
+  imageKind?: AuraAssistantImageKind
+}
+
+export type AuraAssistantImageKind = 'body' | 'meal'
+
+export interface AuraAssistantImageAttachment {
+  file: File
+  kind: AuraAssistantImageKind
 }
 
 export interface AuraContextItem {
@@ -565,7 +575,7 @@ export interface AskAuraPanelProps {
   suggestions?: string[]
   isLoading?: boolean
   onClose: () => void
-  onSubmit: (question: string) => void
+  onSubmit: (question: string, attachment?: AuraAssistantImageAttachment) => void
 }
 
 export function AskAuraPanel({
@@ -580,16 +590,47 @@ export function AskAuraPanel({
   onSubmit,
 }: AskAuraPanelProps) {
   const [question, setQuestion] = useState('')
+  const [pendingImage, setPendingImage] = useState<{
+    file: File
+    kind: AuraAssistantImageKind
+    previewUrl: string
+  } | null>(null)
+  const [imageMenuOpen, setImageMenuOpen] = useState(false)
   const headingId = useId()
   const inputId = useId()
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const imageKindRef = useRef<AuraAssistantImageKind>('meal')
+
+  useEffect(() => () => {
+    if (pendingImage) URL.revokeObjectURL(pendingImage.previewUrl)
+  }, [pendingImage])
 
   if (!open) return null
 
   const submitQuestion = (value: string) => {
     const normalized = value.trim()
-    if (!normalized || isLoading) return
-    onSubmit(normalized)
+    if ((!normalized && !pendingImage) || isLoading) return
+    const fallbackQuestion = pendingImage?.kind === 'body'
+      ? 'Nhận xét vóc dáng hiện tại và gợi ý hướng cải thiện phù hợp với mình.'
+      : 'Phân tích món ăn này và tư vấn theo mục tiêu hiện tại của mình.'
+    onSubmit(normalized || fallbackQuestion, pendingImage ? { file: pendingImage.file, kind: pendingImage.kind } : undefined)
+    if (pendingImage) URL.revokeObjectURL(pendingImage.previewUrl)
+    setPendingImage(null)
     setQuestion('')
+  }
+
+  const chooseImage = (kind: AuraAssistantImageKind) => {
+    imageKindRef.current = kind
+    setImageMenuOpen(false)
+    imageInputRef.current?.click()
+  }
+
+  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type.toLowerCase()) || file.size <= 0 || file.size > 8 * 1024 * 1024) return
+    if (pendingImage) URL.revokeObjectURL(pendingImage.previewUrl)
+    setPendingImage({ file, kind: imageKindRef.current, previewUrl: URL.createObjectURL(file) })
   }
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -616,7 +657,7 @@ export function AskAuraPanel({
         {messages.length ? messages.map((message) => (
           <article key={message.id} className={`ask-aura-message ask-aura-message--${message.role}`}>
             {message.role === 'assistant' && <span><Sparkles size={15} /></span>}
-            <div><p>{message.content}</p>{message.evidence?.length ? <div className="ask-aura-message__evidence"><strong>Căn cứ</strong>{message.evidence.map((item) => <small key={item}><Check size={12} /> {item}</small>)}</div> : null}{message.confidenceLabel && <em>{message.confidenceLabel}</em>}</div>
+            <div>{message.imagePreviewUrl && <figure className="ask-aura-message__image"><img src={message.imagePreviewUrl} alt={message.imageKind === 'body' ? 'Ảnh vóc dáng đã gửi' : 'Ảnh món ăn đã gửi'} /><figcaption>{message.imageKind === 'body' ? <><Camera size={12} /> Vóc dáng</> : <><Utensils size={12} /> Món ăn</>}</figcaption></figure>}<p>{message.content}</p>{message.evidence?.length ? <div className="ask-aura-message__evidence"><strong>Căn cứ</strong>{message.evidence.map((item) => <small key={item}><Check size={12} /> {item}</small>)}</div> : null}{message.confidenceLabel && <em>{message.confidenceLabel}</em>}</div>
           </article>
         )) : (
           <div className="ask-aura__welcome"><span><MessageCircle size={24} /></span><h3>Bạn muốn hiểu điều gì?</h3><p>Aura phân tích hồ sơ và nhật ký đã ghi để đưa ra gợi ý theo ngữ cảnh của bạn.</p></div>
@@ -632,8 +673,11 @@ export function AskAuraPanel({
 
       <form className="ask-aura__composer" onSubmit={handleSubmit}>
         <label htmlFor={inputId}>Câu hỏi cho Aura</label>
-        <div><input id={inputId} value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ví dụ: Bữa tối nên ăn gì?" autoComplete="off" /><button type="submit" disabled={!question.trim() || isLoading} aria-label="Gửi câu hỏi"><Send size={18} /></button></div>
-        <small>Thông tin chỉ mang tính hỗ trợ, không thay thế tư vấn y khoa.</small>
+        {pendingImage && <div className="ask-aura__pending-image"><img src={pendingImage.previewUrl} alt="Ảnh chờ gửi" /><span><strong>{pendingImage.kind === 'body' ? 'Ảnh vóc dáng' : 'Ảnh món ăn'}</strong><small>Ảnh tự xoá sau khi AI phân tích</small></span><button type="button" onClick={() => setPendingImage(null)} aria-label="Bỏ ảnh"><Trash2 size={16} /></button></div>}
+        {imageMenuOpen && <div className="ask-aura__image-menu"><button type="button" onClick={() => chooseImage('body')}><Camera size={17} /> Vóc dáng</button><button type="button" onClick={() => chooseImage('meal')}><Utensils size={17} /> Món ăn</button></div>}
+        <input ref={imageInputRef} className="ask-aura__file-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageChange} tabIndex={-1} aria-hidden="true" />
+        <div className="ask-aura__composer-row"><button type="button" className="ask-aura__attach" onClick={() => setImageMenuOpen((current) => !current)} disabled={isLoading} aria-label="Thêm ảnh"><ImagePlus size={18} /></button><input id={inputId} value={question} onChange={(event) => setQuestion(event.target.value)} placeholder={pendingImage ? 'Mô tả điều muốn tư vấn (không bắt buộc)' : 'Hỏi Aura hoặc gửi ảnh…'} autoComplete="off" /><button type="submit" disabled={(!question.trim() && !pendingImage) || isLoading} aria-label="Gửi câu hỏi"><Send size={18} /></button></div>
+        <small>Ảnh chỉ dùng cho câu trả lời hiện tại và tự xoá; Aura không thay thế tư vấn y khoa.</small>
       </form>
     </aside>
   )

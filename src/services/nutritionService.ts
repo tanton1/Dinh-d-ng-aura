@@ -260,6 +260,12 @@ export interface UploadedFoodImage {
   size: number
 }
 
+export type AiCoachImageKind = 'body' | 'meal'
+
+export interface AiCoachImageAttachment extends UploadedFoodImage {
+  kind: AiCoachImageKind
+}
+
 interface AnalyzeFoodImageRequest {
   storagePath: string
   mealType: MealType
@@ -585,7 +591,10 @@ function validateAnalysisResponse(value: unknown, expectedScanId: string): FoodA
   return value as unknown as FoodAnalysisResponse
 }
 
-export async function uploadFoodPhoto(image: Blob): Promise<UploadedFoodImage> {
+async function uploadPrivateNutritionPhoto(
+  image: Blob,
+  purpose: 'food-analysis' | 'ai-coach-body' | 'ai-coach-meal',
+): Promise<UploadedFoodImage> {
   assertImage(image)
   const { user, storage } = requireNutritionFirebase()
   const optimizedImage = await optimizeNutritionImageForUpload(image)
@@ -604,11 +613,22 @@ export async function uploadFoodPhoto(image: Blob): Promise<UploadedFoodImage> {
     customMetadata: {
       ownerUid: user.uid,
       scanId,
-      purpose: 'food-analysis',
+      purpose,
     },
   })
 
   return { scanId, storagePath, contentType, size: uploadImage.size }
+}
+
+export async function uploadFoodPhoto(image: Blob): Promise<UploadedFoodImage> {
+  return uploadPrivateNutritionPhoto(image, 'food-analysis')
+}
+
+export async function uploadAiCoachPhoto(image: Blob, kind: AiCoachImageKind): Promise<AiCoachImageAttachment> {
+  if (kind !== 'body' && kind !== 'meal') throw new Error('Loại ảnh tư vấn không hợp lệ.')
+  await initializeFirebaseAppCheck()
+  const upload = await uploadPrivateNutritionPhoto(image, `ai-coach-${kind}`)
+  return { ...upload, kind }
 }
 
 export async function analyzeUploadedFoodPhoto(
@@ -722,6 +742,7 @@ export interface AiCoachResponse {
   missingData: string[]
   suggestedReplies: string[]
   safetyLevel: AiCoachSafetyLevel
+  imageProcessed?: boolean
   provider?: 'apikey_fun' | 'openrouter' | 'none'
   model?: string | null
   providerRequestId?: string | null
@@ -796,6 +817,7 @@ function validateAiCoachResponse(value: unknown): AiCoachResponse {
     missingData: boundedStringList(value.missingData),
     suggestedReplies: boundedStringList(value.suggestedReplies, 6),
     safetyLevel,
+    imageProcessed: value.imageProcessed === true,
     provider,
     model: typeof value.model === 'string' ? value.model : null,
     providerRequestId: typeof value.providerRequestId === 'string' ? value.providerRequestId : null,
@@ -814,20 +836,42 @@ export async function getAiCoachOverview(conversationId: string): Promise<AiCoac
   return validateAiCoachOverview(result.data)
 }
 
-export async function askAiCoachDetailed(message: string, conversationId: string): Promise<AiCoachResponse> {
+export async function askAiCoachDetailed(
+  message: string,
+  conversationId: string,
+  attachment?: AiCoachImageAttachment | null,
+): Promise<AiCoachResponse> {
   const normalizedMessage = message.trim()
-  if (!normalizedMessage || normalizedMessage.length > 3000) {
+  if ((!normalizedMessage && !attachment) || normalizedMessage.length > 3000) {
     throw new Error('Tin nhắn cần có từ 1 đến 3.000 ký tự.')
+  }
+  if (attachment && attachment.kind !== 'body' && attachment.kind !== 'meal') {
+    throw new Error('Loại ảnh tư vấn không hợp lệ.')
   }
   await initializeFirebaseAppCheck()
   const firebase = requireNutritionFirebase()
-  const callable = httpsCallable<{ message: string; conversationId: string }, unknown>(
+  const callable = httpsCallable<{
+    message: string
+    conversationId: string
+    attachment?: { kind: AiCoachImageKind; storagePath: string }
+  }, unknown>(
     firebase.functions,
     'askAiCoach',
-    { timeout: 45_000 },
+    { timeout: attachment ? 75_000 : 45_000 },
   )
-  const result = await callable({ message: normalizedMessage, conversationId })
-  return validateAiCoachResponse(result.data)
+  try {
+    const result = await callable({
+      message: normalizedMessage,
+      conversationId,
+      ...(attachment ? { attachment: { kind: attachment.kind, storagePath: attachment.storagePath } } : {}),
+    })
+    return validateAiCoachResponse(result.data)
+  } catch (error) {
+    if (attachment && firebase.storage) {
+      await deleteObject(ref(firebase.storage, attachment.storagePath)).catch(() => undefined)
+    }
+    throw error
+  }
 }
 
 /**

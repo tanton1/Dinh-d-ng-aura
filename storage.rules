@@ -144,7 +144,12 @@ service firebase.storage {
                     && request.resource.size <= 8 * 1024 * 1024
                     && request.resource.contentType.matches('image/(jpeg|png|webp)')
                     && request.resource.metadata.ownerUid == userId
-                    && request.resource.metadata.scanId == scanId;
+                    && request.resource.metadata.scanId == scanId
+                    && request.resource.metadata.purpose in [
+                      'food-analysis',
+                      'ai-coach-body',
+                      'ai-coach-meal'
+                    ];
       allow update: if false;
       allow delete: if isOwner(userId);
     }

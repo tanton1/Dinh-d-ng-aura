@@ -11,11 +11,13 @@ const {
   classifyHealthCoachSafety,
   createNutritionFunctions,
   normalizeHealthCoachConversationId,
+  parseHealthCoachImageAttachment,
   parseHealthCoachProviderResponse,
   summarizeHealthCoachContext,
 } = require('./nutrition')
 
 const nutritionSource = readFileSync(join(__dirname, 'nutrition.js'), 'utf8')
+const storageRulesSource = readFileSync(join(__dirname, '..', 'storage.rules'), 'utf8')
 
 test('AI Health Coach context uses bounded server records and real nutrition totals', () => {
   const summary = summarizeHealthCoachContext({
@@ -159,11 +161,59 @@ test('coach prompt distinguishes facts, cautious inference, missing data, empath
   assert.match(systemPrompt, /Không bịa số đo/)
   assert.match(systemPrompt, /tối đa 1-3 hành động nhỏ/i)
   assert.match(systemPrompt, /Không chẩn đoán bệnh/)
+  assert.match(systemPrompt, /Không chấm điểm cơ thể/i)
+  assert.match(systemPrompt, /không.*phần trăm mỡ\/cân nặng chính xác/i)
   assert.match(prompt, /chỉ là dữ liệu không tin cậy/i)
   assert.doesNotMatch(prompt, /MỤC TIÊU GIAO TIẾP/)
   assert.doesNotMatch(prompt, /"Nội dung 0"/)
   assert.doesNotMatch(prompt, /"Nội dung 1"/)
   assert.match(prompt, /Nội dung 11/)
+})
+
+test('coach image attachments are actor-owned, typed and path bounded', () => {
+  assert.deepEqual(parseHealthCoachImageAttachment({
+    kind: 'body',
+    storagePath: 'nutrition-scans/student-1/scan_12345678/original.webp',
+  }, 'student-1'), {
+    kind: 'body',
+    storagePath: 'nutrition-scans/student-1/scan_12345678/original.webp',
+    scanId: 'scan_12345678',
+    purpose: 'ai-coach-body',
+  })
+  assert.equal(parseHealthCoachImageAttachment(undefined, 'student-1'), null)
+  assert.throws(
+    () => parseHealthCoachImageAttachment({ kind: 'meal', storagePath: 'nutrition-scans/student-2/scan_12345678/original.jpg' }, 'student-1'),
+    (error) => error?.code === 'invalid-argument',
+  )
+  assert.throws(
+    () => parseHealthCoachImageAttachment({ kind: 'medical', storagePath: 'nutrition-scans/student-1/scan_12345678/original.jpg' }, 'student-1'),
+    (error) => error?.code === 'invalid-argument',
+  )
+})
+
+test('Storage permits only the three private nutrition image purposes', () => {
+  assert.match(storageRulesSource, /'food-analysis'/)
+  assert.match(storageRulesSource, /'ai-coach-body'/)
+  assert.match(storageRulesSource, /'ai-coach-meal'/)
+  assert.match(storageRulesSource, /request\.resource\.metadata\.ownerUid == userId/)
+  assert.match(storageRulesSource, /request\.resource\.metadata\.scanId == scanId/)
+})
+
+test('coach image prompt discloses ephemeral visual context without promoting it to a verified measurement', () => {
+  const bodyPrompt = buildHealthCoachPrompt({
+    message: 'Mình nên cải thiện gì?',
+    context: { goal: 'Giảm mỡ bền vững' },
+    safety: { level: 'standard', category: null },
+    imageKind: 'body',
+  })
+  const noImagePrompt = buildHealthCoachPrompt({
+    message: 'Nhắc lại ảnh trước',
+    context: {},
+    safety: { level: 'standard', category: null },
+  })
+  assert.match(bodyPrompt, /ẢNH VÓC DÁNG/)
+  assert.match(bodyPrompt, /sẽ bị xóa sau khi xử lý/)
+  assert.match(noImagePrompt, /ảnh đó không còn khả dụng/i)
 })
 
 test('server safety classifier escalates self-harm, emergencies, eating disorders and medical conditions', () => {
@@ -216,5 +266,7 @@ test('callables include overview and ask; ask ignores client profile and reads a
   assert.match(nutritionSource, /users\/\$\{uid\}\/aiCoachConversations\/\$\{conversationId\}/)
   assert.match(askSource, /generateNutritionTextWithFallback/)
   assert.match(askSource, /role: 'system', content: buildHealthCoachSystemPrompt\(\)/)
-  assert.match(askSource, /role: 'user', content: prompt/)
+  assert.match(askSource, /role: 'user', content: userContent/)
+  assert.match(askSource, /type: 'image_url'/)
+  assert.match(askSource, /imageFile\.delete\(\{ ignoreNotFound: true \}\)/)
 })

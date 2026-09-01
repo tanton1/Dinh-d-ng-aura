@@ -14,12 +14,19 @@ import NutritionDashboardHome from './NutritionDashboardHome'
 import type { Recipe as MealPlanRecipe } from './MealPlanPage'
 import NutritionWorkspace, {
   NutritionSectionNav,
+  type AuraAssistantImageAttachment,
   type AuraAssistantMessage,
   type NutritionMealEntry,
   type NutritionPlannedMeal,
   type NutritionPlanDay,
 } from './NutritionWorkspace'
-import { askAiCoach, getFoodAnalysisErrorMessage, getUsableFoodAnalysisText } from '../../services/nutritionService'
+import {
+  askAiCoach,
+  askAiCoachDetailed,
+  getFoodAnalysisErrorMessage,
+  getUsableFoodAnalysisText,
+  uploadAiCoachPhoto,
+} from '../../services/nutritionService'
 import { firebaseAuth } from '../../lib/firebase'
 import { firestoreDb } from '../../lib/firebaseFirestore'
 import {
@@ -2641,8 +2648,14 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   const [assistantMessages, setAssistantMessages] = useState<AuraAssistantMessage[]>([])
   const [assistantLoading, setAssistantLoading] = useState(false)
   const [assistantReturnSection, setAssistantReturnSection] = useState<NutritionPrimarySection>('today')
+  const assistantImageUrlsRef = useRef(new Set<string>())
   const [toast, setToast] = useState<NutritionToastState | null>(null)
   const messageTimer = useRef<number | null>(null)
+
+  useEffect(() => () => {
+    assistantImageUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+    assistantImageUrlsRef.current.clear()
+  }, [])
   const catalogDetailCache = useRef(new Map<string, NutritionFoodDetailRecord>())
   const updateNutritionSync = useCallback((scope: 'meals' | 'water' | 'activities', next: DataSyncState) => {
     nutritionSyncScopes.current[scope] = next
@@ -2995,11 +3008,33 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
 
   const closeAssistant = () => navigateNutrition(assistantReturnSection)
 
-  const submitAssistantQuestion = async (question: string) => {
-    const userMessage: AuraAssistantMessage = { id: `aura-user-${Date.now()}`, role: 'user', content: question }
+  const submitAssistantQuestion = async (question: string, attachment?: AuraAssistantImageAttachment) => {
+    const imagePreviewUrl = attachment ? URL.createObjectURL(attachment.file) : undefined
+    if (imagePreviewUrl) assistantImageUrlsRef.current.add(imagePreviewUrl)
+    const userMessage: AuraAssistantMessage = {
+      id: `aura-user-${Date.now()}`,
+      role: 'user',
+      content: question,
+      imagePreviewUrl,
+      imageKind: attachment?.kind,
+    }
     setAssistantMessages((current) => [...current, userMessage])
     setAssistantLoading(true)
     try {
+      if (attachment) {
+        const uploaded = await uploadAiCoachPhoto(attachment.file, attachment.kind)
+        const response = await askAiCoachDetailed(question, 'nutrition-assistant', uploaded)
+        setAssistantMessages((current) => [...current, {
+          id: `aura-assistant-${Date.now()}`,
+          role: 'assistant',
+          content: response.text,
+          evidence: response.dataUsed.length
+            ? response.dataUsed
+            : ['Ảnh chỉ dùng cho câu trả lời hiện tại và đã được xoá sau phân tích'],
+          confidenceLabel: response.imageProcessed ? 'AI đã phân tích ảnh' : 'AI chưa đọc được ảnh',
+        }])
+        return
+      }
       const intent = resolveNutritionAssistantIntent(question)
       const caloriesRemaining = calorieGoal - caloriesConsumed
       const proteinRemaining = proteinGoal - proteinConsumed

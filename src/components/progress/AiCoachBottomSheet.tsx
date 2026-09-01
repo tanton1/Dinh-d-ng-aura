@@ -1,22 +1,28 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
 import {
   Bot,
+  Camera,
   ChevronDown,
   ChevronUp,
   Database,
   HeartHandshake,
+  ImagePlus,
   Loader2,
   RefreshCw,
   RotateCcw,
   Send,
   ShieldCheck,
+  Trash2,
+  Utensils,
   X,
 } from 'lucide-react'
 import {
   askAiCoachDetailed,
   getAiCoachOverview,
+  uploadAiCoachPhoto,
   type AiCoachContextSnapshot,
   type AiCoachHistoryMessage,
+  type AiCoachImageKind,
   type AiCoachSafetyLevel,
 } from '../../services/nutritionService'
 import { safeLocalStorageSet } from '../../lib/safeStorage'
@@ -29,6 +35,19 @@ interface AiCoachBottomSheetProps {
 interface ChatMessage extends AiCoachHistoryMessage {
   safetyLevel?: AiCoachSafetyLevel
   dataUsed?: string[]
+  imagePreviewUrl?: string
+  imageKind?: AiCoachImageKind
+}
+
+interface PendingCoachImage {
+  file: File
+  kind: AiCoachImageKind
+  previewUrl: string
+}
+
+interface FailedCoachRequest {
+  text: string
+  attachment: PendingCoachImage | null
 }
 
 const DEFAULT_SUGGESTIONS = [
@@ -86,6 +105,9 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
   const titleId = useId()
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const nextImageKindRef = useRef<AiCoachImageKind>('meal')
+  const previewUrlsRef = useRef(new Set<string>())
   const [conversationId, setConversationId] = useState(() => readConversationId(conversationScope))
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [context, setContext] = useState<AiCoachContextSnapshot>({})
@@ -96,13 +118,15 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
   const [loading, setLoading] = useState(false)
   const [initializing, setInitializing] = useState(true)
   const [error, setError] = useState('')
-  const [failedMessage, setFailedMessage] = useState('')
+  const [failedRequest, setFailedRequest] = useState<FailedCoachRequest | null>(null)
   const [showContext, setShowContext] = useState(false)
+  const [showImageMenu, setShowImageMenu] = useState(false)
+  const [pendingImage, setPendingImage] = useState<PendingCoachImage | null>(null)
 
   const loadOverview = async () => {
     setInitializing(true)
     setError('')
-    setFailedMessage('')
+    setFailedRequest(null)
     try {
       const overview = await getAiCoachOverview(conversationId)
       setMessages(overview.history)
@@ -129,6 +153,8 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
     return () => {
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', handleKeyDown)
+      previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+      previewUrlsRef.current.clear()
     }
     // The sheet intentionally initializes one bounded conversation only once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -138,23 +164,73 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, loading])
 
-  const handleSend = async (textToSend?: string, retryExisting = false) => {
+  const chooseImage = (kind: AiCoachImageKind) => {
+    nextImageKindRef.current = kind
+    setShowImageMenu(false)
+    imageInputRef.current?.click()
+  }
+
+  const handleImageSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type.toLowerCase())) {
+      setError('Aura chỉ hỗ trợ ảnh JPEG, PNG hoặc WebP.')
+      return
+    }
+    if (file.size <= 0 || file.size > 8 * 1024 * 1024) {
+      setError('Ảnh cần có dung lượng từ 1 byte đến 8 MB.')
+      return
+    }
+    if (pendingImage) {
+      URL.revokeObjectURL(pendingImage.previewUrl)
+      previewUrlsRef.current.delete(pendingImage.previewUrl)
+    }
+    const previewUrl = URL.createObjectURL(file)
+    previewUrlsRef.current.add(previewUrl)
+    setPendingImage({ file, kind: nextImageKindRef.current, previewUrl })
+    setError('')
+  }
+
+  const removePendingImage = () => {
+    if (pendingImage) {
+      URL.revokeObjectURL(pendingImage.previewUrl)
+      previewUrlsRef.current.delete(pendingImage.previewUrl)
+    }
+    setPendingImage(null)
+  }
+
+  const handleSend = async (
+    textToSend?: string,
+    retryExisting = false,
+    attachmentOverride?: PendingCoachImage | null,
+  ) => {
+    const attachment = attachmentOverride === undefined ? pendingImage : attachmentOverride
     const text = (textToSend ?? inputVal).trim()
-    if (!text || loading || initializing) return
+    if ((!text && !attachment) || loading || initializing) return
+    const displayText = text || (attachment?.kind === 'body'
+      ? 'Nhận xét vóc dáng hiện tại và gợi ý hướng cải thiện phù hợp với mình.'
+      : 'Phân tích món ăn này và tư vấn theo mục tiêu hiện tại của mình.')
 
     const userMessage: ChatMessage = {
       id: `local-user-${Date.now()}`,
       sender: 'user',
-      text,
+      text: displayText,
+      imagePreviewUrl: attachment?.previewUrl,
+      imageKind: attachment?.kind,
     }
     if (!retryExisting) setMessages((current) => [...current, userMessage])
     setInputVal('')
+    if (!retryExisting) setPendingImage(null)
     setLoading(true)
     setError('')
-    setFailedMessage('')
+    setFailedRequest(null)
 
     try {
-      const response = await askAiCoachDetailed(text, conversationId)
+      const uploadedAttachment = attachment
+        ? await uploadAiCoachPhoto(attachment.file, attachment.kind)
+        : null
+      const response = await askAiCoachDetailed(text, conversationId, uploadedAttachment)
       setMessages((current) => [...current, {
         id: `local-ai-${Date.now()}`,
         sender: 'ai',
@@ -165,9 +241,12 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
       setDataUsed(response.dataUsed)
       setMissingData(response.missingData)
       if (response.suggestedReplies.length) setSuggestions(response.suggestedReplies)
-    } catch {
-      setError('Aura chưa thể trả lời lúc này. Câu hỏi của bạn vẫn ở đây để thử lại.')
-      setFailedMessage(text)
+    } catch (sendError) {
+      const message = sendError instanceof Error ? sendError.message.trim() : ''
+      setError(message && !/^(internal|unknown)$/i.test(message)
+        ? message
+        : 'Aura chưa thể trả lời lúc này. Câu hỏi và ảnh của bạn vẫn ở đây để thử lại.')
+      setFailedRequest({ text, attachment: attachment ?? null })
     } finally {
       setLoading(false)
       inputRef.current?.focus()
@@ -182,7 +261,8 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
     setSuggestions(DEFAULT_SUGGESTIONS)
     setInputVal('')
     setError('')
-    setFailedMessage('')
+    setFailedRequest(null)
+    removePendingImage()
     inputRef.current?.focus()
   }
 
@@ -219,7 +299,7 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
 
         <div className="pg-coach-safety-note">
           <ShieldCheck size={16} />
-          <span>Aura hỗ trợ dinh dưỡng và thói quen, không chẩn đoán hay thay thế bác sĩ/chuyên gia y tế. Khi nhấn Gửi, bạn đồng ý để Aura dùng phần dữ liệu sức khỏe liên quan cho câu trả lời; hệ thống không gửi email, số điện thoại hoặc ảnh.</span>
+          <span>Aura hỗ trợ dinh dưỡng và vóc dáng, không chẩn đoán hay thay thế chuyên gia y tế. Ảnh chỉ được gửi cho AI khi bạn nhấn Gửi và tự xoá khỏi hệ thống ngay sau lần phân tích.</span>
         </div>
 
         <button type="button" className="pg-coach-context-toggle" onClick={() => setShowContext((current) => !current)} aria-expanded={showContext}>
@@ -250,6 +330,12 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
           )}
           {messages.map((message) => (
             <div key={message.id} className={`pg-coach-msg ${message.sender}${message.safetyLevel === 'urgent' ? ' urgent' : ''}`}>
+              {message.imagePreviewUrl && (
+                <div className="pg-coach-msg-image">
+                  <img src={message.imagePreviewUrl} alt={message.imageKind === 'body' ? 'Ảnh vóc dáng đã gửi' : 'Ảnh món ăn đã gửi'} />
+                  <span>{message.imageKind === 'body' ? <><Camera size={13} /> Vóc dáng</> : <><Utensils size={13} /> Món ăn</>}</span>
+                </div>
+              )}
               {message.text}
               {message.sender === 'ai' && message.dataUsed && message.dataUsed.length > 0 && (
                 <small>Dựa trên: {message.dataUsed.slice(0, 3).join(' · ')}</small>
@@ -270,10 +356,12 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
             <span>{error}</span>
             <button
               type="button"
-              onClick={() => failedMessage ? void handleSend(failedMessage, true) : void loadOverview()}
+              onClick={() => failedRequest
+                ? void handleSend(failedRequest.text, true, failedRequest.attachment)
+                : void loadOverview()}
               disabled={initializing || loading}
             >
-              <RefreshCw size={15} /> {failedMessage ? 'Thử lại' : 'Tải lại'}
+              <RefreshCw size={15} /> {failedRequest ? 'Thử lại' : 'Tải lại'}
             </button>
           </div>
         )}
@@ -286,12 +374,49 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
           ))}
         </div>
 
+        {pendingImage && (
+          <div className="pg-coach-pending-image">
+            <img src={pendingImage.previewUrl} alt={pendingImage.kind === 'body' ? 'Ảnh vóc dáng chờ gửi' : 'Ảnh món ăn chờ gửi'} />
+            <div>
+              <strong>{pendingImage.kind === 'body' ? 'Ảnh vóc dáng' : 'Ảnh món ăn'}</strong>
+              <span>Chỉ dùng cho câu trả lời này · tự xoá sau phân tích</span>
+            </div>
+            <button type="button" onClick={removePendingImage} aria-label="Bỏ ảnh đã chọn"><Trash2 size={17} /></button>
+          </div>
+        )}
+
+        {showImageMenu && (
+          <div className="pg-coach-image-menu" role="group" aria-label="Chọn loại ảnh cần tư vấn">
+            <button type="button" onClick={() => chooseImage('body')}><Camera size={18} /><span><strong>Ảnh vóc dáng</strong><small>Tư thế, tỷ lệ và hướng cải thiện</small></span></button>
+            <button type="button" onClick={() => chooseImage('meal')}><Utensils size={18} /><span><strong>Ảnh món ăn</strong><small>Khẩu phần và dinh dưỡng phù hợp</small></span></button>
+          </div>
+        )}
+
         <div className="pg-coach-composer">
+          <input
+            ref={imageInputRef}
+            className="pg-coach-file-input"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={handleImageSelected}
+            tabIndex={-1}
+            aria-hidden="true"
+          />
+          <button
+            type="button"
+            className="pg-coach-attach-btn"
+            disabled={loading || initializing}
+            onClick={() => setShowImageMenu((current) => !current)}
+            aria-label="Thêm ảnh để Aura tư vấn"
+            aria-expanded={showImageMenu}
+          >
+            <ImagePlus size={20} />
+          </button>
           <textarea
             ref={inputRef}
             rows={1}
             maxLength={3000}
-            placeholder="Bạn có thể hỏi hoặc tâm sự với Aura…"
+            placeholder={pendingImage ? 'Mô tả điều bạn muốn Aura tư vấn (không bắt buộc)…' : 'Bạn có thể hỏi hoặc gửi ảnh cho Aura…'}
             value={inputVal}
             disabled={loading || initializing}
             onChange={(event) => setInputVal(event.target.value)}
@@ -302,7 +427,7 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
               }
             }}
           />
-          <button type="button" disabled={loading || initializing || !inputVal.trim()} onClick={() => void handleSend()} aria-label="Gửi tin nhắn cho Aura Health Coach">
+          <button type="button" className="pg-coach-send-btn" disabled={loading || initializing || (!inputVal.trim() && !pendingImage)} onClick={() => void handleSend()} aria-label="Gửi tin nhắn cho Aura Health Coach">
             {loading ? <Loader2 className="spin" size={19} /> : <Send size={19} />}
           </button>
         </div>
