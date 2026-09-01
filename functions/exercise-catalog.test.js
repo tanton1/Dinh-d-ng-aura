@@ -141,3 +141,14 @@ test('exercise media keeps the complete gallery and safely unifies stills with E
   assert.match(unifiedMediaSync, /nextAvailableRevision/)
   assert.match(unifiedMediaSync, /sourceAttribution/)
 })
+
+test('exercise media player reliably plays selected videos and falls back from broken sources', () => {
+  assert.match(mediaPlayerSource, /function isAnimatedImageVideo/)
+  assert.match(mediaPlayerSource, /function mergeRemoteAndLocalVideos/)
+  assert.match(mediaPlayerSource, /preload="metadata"/)
+  assert.match(mediaPlayerSource, /autoPlay=\{active\.key === autoPlayKey\}/)
+  assert.match(mediaPlayerSource, /ref=\{videoRef\}/)
+  assert.match(mediaPlayerSource, /onError=\{\(\) => failMedia\(active\.key\)\}/)
+  assert.match(mediaPlayerSource, /Phát video/)
+  assert.match(mediaPlayerSource, /Phát lại/)
+})

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Dumbbell, Image as ImageIcon, LoaderCircle, Play, RefreshCw, Video } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Dumbbell, Image as ImageIcon, LoaderCircle, Play, RefreshCw, RotateCcw, Video } from 'lucide-react'
 import type {
   ExerciseCatalogExternalMedia,
   ExerciseCatalogMedia,
@@ -28,7 +28,39 @@ function localImages(media: ExerciseCatalogMedia): ExerciseCatalogMediaImage[] {
 function localVideos(media: ExerciseCatalogMedia): ExerciseCatalogMediaVideo[] {
   const videos = (media.videos || []).filter((entry) => Boolean(entry.url || entry.hlsUrl))
   if (videos.length || !media.animationUrl) return videos
-  return [{ id: 'legacy-animation', provider: 'aura', url: media.animationUrl, posterUrl: media.posterUrl || media.startImageUrl, tag: 'aura', format: 'mp4', isPrimary: true }]
+  const animationPath = media.animationUrl.split(/[?#]/)[0].toLowerCase()
+  const format: ExerciseCatalogMediaVideo['format'] = animationPath.endsWith('.gif') || media.mimeType === 'image/gif'
+    ? 'gif'
+    : animationPath.endsWith('.webp') || media.mimeType === 'image/webp'
+      ? 'webp'
+      : 'mp4'
+  return [{ id: 'legacy-animation', provider: 'aura', url: media.animationUrl, posterUrl: media.posterUrl || media.startImageUrl, tag: format === 'gif' || format === 'webp' ? 'animation' : 'aura', format, isPrimary: true }]
+}
+
+function videoSource(video: ExerciseCatalogMediaVideo) {
+  return video.url || video.hlsUrl || ''
+}
+
+function isAnimatedImageVideo(video: ExerciseCatalogMediaVideo) {
+  if (video.format === 'gif' || video.format === 'webp') return true
+  return /\.(gif|webp)(?:$|[?#])/i.test(videoSource(video))
+}
+
+function mergeRemoteAndLocalVideos(remoteVideos: ExerciseCatalogMediaVideo[], localMediaVideos: ExerciseCatalogMediaVideo[]) {
+  // Durable catalog media must remain available if a provider refresh returns a
+  // stale or temporarily unavailable URL. Different URLs are kept as fallbacks.
+  const durableLocal = localMediaVideos.filter((video) => video.provider !== 'ymove')
+  return [...durableLocal, ...remoteVideos, ...localMediaVideos].filter((video, index, all) => {
+    const source = videoSource(video)
+    if (!source) return false
+    return index === all.findIndex((candidate) => candidate.provider === video.provider && videoSource(candidate) === source)
+  })
+}
+
+function mergeRemoteAndLocalImages(remoteImages: ExerciseCatalogMediaImage[], localMediaImages: ExerciseCatalogMediaImage[]) {
+  return [...localMediaImages, ...remoteImages].filter((image, index, all) => (
+    Boolean(image.url) && index === all.findIndex((candidate) => candidate.url === image.url)
+  ))
 }
 
 function videoLabel(video: ExerciseCatalogMediaVideo, index: number) {
@@ -57,12 +89,17 @@ export default function ExerciseMediaPlayer({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [activeKey, setActiveKey] = useState('')
+  const [failedKeys, setFailedKeys] = useState<Set<string>>(() => new Set())
+  const [replayVersion, setReplayVersion] = useState(0)
+  const [autoPlayKey, setAutoPlayKey] = useState('')
+  const [playing, setPlaying] = useState(false)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
 
   useEffect(() => setRemote(resolvedMedia || null), [resolvedMedia])
 
   const refresh = async () => {
     if (!exerciseId || !externalMedia) return
-    setLoading(true); setError('')
+    setLoading(true); setError(''); setFailedKeys(new Set())
     try { setRemote(await getExerciseCatalogMedia(exerciseId)) }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể tải video kỹ thuật.') }
     finally { setLoading(false) }
@@ -75,14 +112,16 @@ export default function ExerciseMediaPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exerciseId, externalMedia?.exerciseId, externalMedia?.provider])
 
-  const entries = useMemo<MediaEntry[]>(() => {
-    const videos = remote?.videos?.length ? remote.videos : localVideos(media)
-    const images = remote?.images?.length ? remote.images : localImages(media)
+  const allEntries = useMemo<MediaEntry[]>(() => {
+    const videos = mergeRemoteAndLocalVideos(remote?.videos || [], localVideos(media))
+    const images = mergeRemoteAndLocalImages(remote?.images || [], localImages(media))
     return [
       ...videos.map((video, index) => ({ kind: 'video' as const, key: `video-${video.id}-${index}`, video })),
       ...images.map((image, index) => ({ kind: 'image' as const, key: `image-${image.id}-${index}`, image })),
     ]
   }, [media, remote])
+
+  const entries = useMemo(() => allEntries.filter((entry) => !failedKeys.has(entry.key)), [allEntries, failedKeys])
 
   useEffect(() => {
     if (!entries.some((entry) => entry.key === activeKey)) setActiveKey(entries[0]?.key || '')
@@ -90,26 +129,76 @@ export default function ExerciseMediaPlayer({
 
   const active = entries.find((entry) => entry.key === activeKey) || entries[0]
   const currentVideoIndex = active?.kind === 'video' ? entries.filter((entry) => entry.kind === 'video').findIndex((entry) => entry.key === active.key) : -1
+  const activeIsAnimatedImage = active?.kind === 'video' && isAnimatedImageVideo(active.video)
+
+  const selectEntry = (entry: MediaEntry) => {
+    setError('')
+    setPlaying(false)
+    setActiveKey(entry.key)
+    setReplayVersion((version) => version + 1)
+    setAutoPlayKey(entry.kind === 'video' && !isAnimatedImageVideo(entry.video) ? entry.key : '')
+  }
+
+  const retryActiveMedia = () => {
+    setError('')
+    setFailedKeys(new Set())
+    setReplayVersion((version) => version + 1)
+    if (externalMedia && exerciseId) void refresh()
+  }
+
+  const failMedia = (key: string) => {
+    setPlaying(false)
+    setAutoPlayKey('')
+    setFailedKeys((current) => new Set(current).add(key))
+    setError('Video này không tải được. Aura đã chuyển sang media dự phòng; bạn có thể thử tải lại.')
+  }
+
+  const playActiveVideo = async () => {
+    if (active?.kind !== 'video') return
+    if (activeIsAnimatedImage) {
+      setReplayVersion((version) => version + 1)
+      return
+    }
+    const element = videoRef.current
+    if (!element) return
+    try {
+      element.muted = false
+      await element.play()
+    } catch {
+      setError('Trình duyệt đang chặn phát tự động. Hãy bấm nút phát trong khung video.')
+    }
+  }
 
   return <section className={`exercise-media-player ${compact ? 'is-compact' : ''}`} aria-label={`Hình ảnh và video ${name}`}>
     <div className={`exercise-media-player__stage ${active?.kind === 'video' && active.video.orientation === 'portrait' ? 'is-portrait' : ''}`}>
-      {loading ? <div className="exercise-media-player__state"><LoaderCircle className="is-spinning" /><span>Đang lấy video mới…</span></div>
-        : active?.kind === 'video' && active.video.format === 'gif' ? <img src={active.video.url} alt={`Minh họa động ${name}`} loading="lazy" />
+      {loading && !active ? <div className="exercise-media-player__state"><LoaderCircle className="is-spinning" /><span>Đang lấy video mới…</span></div>
+        : active?.kind === 'video' && activeIsAnimatedImage ? <img key={`${active.key}-${replayVersion}`} src={videoSource(active.video)} alt={`Minh họa động ${name}`} loading="eager" onError={() => failMedia(active.key)} />
           : active?.kind === 'video' ? <video
-          key={active.key}
+          ref={videoRef}
+          key={`${active.key}-${replayVersion}`}
           controls
           playsInline
-          preload="none"
+          preload="metadata"
+          autoPlay={active.key === autoPlayKey}
+          muted={active.key === autoPlayKey}
           poster={active.video.posterUrl || media.posterUrl || media.startImageUrl}
-          src={active.video.url || active.video.hlsUrl}
+          src={videoSource(active.video)}
+          onPlaying={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onError={() => failMedia(active.key)}
         >Trình duyệt chưa hỗ trợ video này.</video>
-          : active?.kind === 'image' ? <img src={active.image.url} alt={active.image.alt || name} loading="lazy" />
+          : active?.kind === 'image' ? <img src={active.image.url} alt={active.image.alt || name} loading="lazy" onError={() => failMedia(active.key)} />
             : <div className="exercise-media-player__state"><Dumbbell /><span>Chưa có media minh họa</span></div>}
+      {active?.kind === 'video' && (!playing || activeIsAnimatedImage) && <button type="button" className={`exercise-media-player__play ${activeIsAnimatedImage ? 'is-replay' : ''}`} onClick={() => void playActiveVideo()}>
+        {activeIsAnimatedImage ? <RotateCcw /> : <Play />}
+        <span>{activeIsAnimatedImage ? 'Phát lại' : 'Phát video'}</span>
+      </button>}
       {active?.kind === 'video' && <span className="exercise-media-player__kind"><Play />{videoLabel(active.video, Math.max(0, currentVideoIndex))}</span>}
+      {loading && active && <span className="exercise-media-player__refreshing"><LoaderCircle className="is-spinning" />Đang đồng bộ media…</span>}
     </div>
 
     {entries.length > 1 && <div className="exercise-media-player__rail" aria-label="Chọn ảnh hoặc video">
-      {entries.map((entry, index) => <button type="button" className={entry.key === active?.key ? 'is-active' : ''} onClick={() => setActiveKey(entry.key)} key={entry.key}>
+      {entries.map((entry, index) => <button type="button" className={entry.key === active?.key ? 'is-active' : ''} onClick={() => selectEntry(entry)} key={entry.key}>
         {entry.kind === 'video'
           ? <>{entry.video.posterUrl ? <img src={entry.video.posterUrl} alt="" loading="lazy" /> : <Video />}<i><Play /></i></>
           : <><img src={entry.image.url} alt="" loading="lazy" /><i><ImageIcon /></i></>}
@@ -119,7 +208,7 @@ export default function ExerciseMediaPlayer({
 
     {(externalMedia || error) && <div className={`exercise-media-player__provider ${error ? 'is-error' : ''}`}>
       <span>{error || (remote?.providerConfigured === false ? 'Nguồn video trả phí chưa được cấu hình.' : externalMedia?.provider === 'exercisedb' ? 'Ảnh động từ ExerciseDB Free.' : externalMedia?.provider === 'ymove_free' ? 'Video thuộc bộ 25 bài YMove miễn phí.' : 'Video được tải mới khi mở, không lưu URL tạm.')}</span>
-      {externalMedia && exerciseId && <button type="button" onClick={() => void refresh()} disabled={loading}><RefreshCw />Tải lại</button>}
+      {(error || (externalMedia && exerciseId)) && <button type="button" onClick={retryActiveMedia} disabled={loading}><RefreshCw />Thử lại</button>}
     </div>}
   </section>
 }
