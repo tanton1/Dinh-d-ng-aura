@@ -11,6 +11,7 @@ const managerSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'compone
 const managerStyles = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'exercise-catalog', 'ExerciseCatalogManager.css'), 'utf8')
 const studentLibrarySource = fs.readFileSync(path.join(__dirname, '..', 'src', 'pages', 'student', 'StudentPtWorkoutPage.tsx'), 'utf8')
 const trainerWorkspaceSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'pages', 'operations', 'PtWorkoutWorkspacePage.tsx'), 'utf8')
+const exercisedbWomenImporter = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'import-exercisedb-women-catalog.cjs'), 'utf8')
 
 test('exercise catalog is authenticated, review-gated and revisioned', () => {
   assert.match(source, /if \(!uid\) throw new HttpsError\('unauthenticated'/)
@@ -73,10 +74,29 @@ test('free providers expose ExerciseDB GIFs and the public 25-video YMove librar
   assert.match(source, /Free-commercial-embed/)
 })
 
+test('curated ExerciseDB women catalog is translated, classified and learner-published', () => {
+  assert.match(exercisedbWomenImporter, /const RELEASE = 'exercisedb-women-120-v3'/)
+  assert.match(exercisedbWomenImporter, /if \(items\.length !== 120\)/)
+  assert.match(exercisedbWomenImporter, /popularForWomen: true/)
+  assert.match(exercisedbWomenImporter, /sourceAttribution: SOURCE_ATTRIBUTION/)
+  assert.match(exercisedbWomenImporter, /license: 'External-provider'/)
+  assert.match(exercisedbWomenImporter, /instructionsVi\.length < 4/)
+  assert.match(exercisedbWomenImporter, /allowOwnedUpdates: true/)
+  assert.match(exercisedbWomenImporter, /previousRelease: 'exercisedb-women-120-v2'/)
+})
+
 test('catalog detail remains readable across staged backend rollouts', () => {
   assert.match(source, /sourceExerciseId: text\(data\.source\?\.sourceExerciseId, 160\) \|\| id/)
   assert.match(source, /editItem: editableItem\(snapshot, actor\)/)
   assert.match(serviceSource, /parseCatalogItem\(payload\?\.editItem\) \|\| item/)
+})
+
+test('learner exercise detail keeps every coaching section on mobile', () => {
+  assert.match(studentLibrarySource, /item\.instructionsVi\.map/)
+  assert.match(studentLibrarySource, /item\.cuesVi\.map/)
+  assert.match(studentLibrarySource, /item\.commonMistakesVi\.map/)
+  assert.match(studentLibrarySource, /student-library__bullet-list/)
+  assert.match(managerStyles, /has-mobile-detail/)
 })
 
 test('catalog highlights women recommendations and provides mobile master-detail navigation', () => {

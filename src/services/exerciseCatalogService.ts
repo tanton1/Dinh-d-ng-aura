@@ -154,6 +154,7 @@ function parseCatalogItem(value: unknown): ExerciseCatalogItem | null {
     schemaVersion: 1,
     revision: typeof data.revision === 'number' ? Math.max(1, Math.round(data.revision)) : 1,
     status,
+    ...(data.popularForWomen === true ? { popularForWomen: true } : {}),
     nameVi: data.nameVi.trim(),
     nameEn: typeof data.nameEn === 'string' ? data.nameEn.trim() : undefined,
     aliasesVi: strings(data.aliasesVi),

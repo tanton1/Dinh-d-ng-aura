@@ -16,3 +16,14 @@
 @media(max-width:600px){.student-library__tabs{position:sticky;top:69px;z-index:8;width:calc(100% - 20px)}.student-library{width:100%;margin-top:10px;padding:14px 10px;border-left:0;border-right:0;border-radius:20px}.student-library__intro h2{font-size:21px}.student-library__featured{grid-template-columns:1fr}.student-library__featured .student-library__visual{height:150px}.student-library__featured>span:last-child{padding:14px}.student-library__grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.student-library__card .student-library__visual{height:108px}.student-library__card-copy{padding:9px}.student-library__card-copy strong{font-size:12px}.student-library__detail{margin:-14px -10px}.student-library__detail-media,.student-library__detail-media>img{min-height:250px;height:250px}.student-library__detail-body{padding:15px 10px 18px}.student-library__detail-heading h2{font-size:22px}.student-library__prescription{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}.student-library__prescription span{padding:6px}.student-library__primary-action{position:sticky;bottom:calc(74px + env(safe-area-inset-bottom));z-index:4;box-shadow:0 -8px 20px rgba(65,31,47,.08)}}
 @media(max-width:600px){.student-library__detail-media:has(.exercise-media-player){height:auto;min-height:250px;padding-bottom:10px}.student-library__detail-media .exercise-media-player__stage{min-height:250px}.student-library__detail-media .exercise-media-player__rail{margin-top:8px}}
 .student-library__detail-body{padding-bottom:84px}.student-library__load-more{display:flex;align-items:center;justify-content:center;width:100%;min-height:43px;margin-top:10px;border:1px solid #efdee4;border-radius:13px;background:#fff;color:#b42b60;font-size:12px;font-weight:850}
+.student-library__detail-media{overflow:visible}
+.student-library__detail-heading>div{min-width:0}
+.student-library__detail-heading h2,.student-library__detail-heading p,.student-library__step,.student-library__info,.student-library__warning{overflow-wrap:anywhere}
+.student-library__step{line-height:1.55}
+.student-library__bullet-list{display:grid;gap:7px;margin:0;padding-left:18px}
+.student-library__bullet-list li{overflow-wrap:anywhere}
+@media(max-width:600px){
+  .student-library__detail-media{height:auto;min-height:250px;align-content:start;overflow:visible}
+  .student-library__detail-media>img{height:250px;min-height:250px}
+  .student-library__detail-body{padding-bottom:calc(150px + env(safe-area-inset-bottom, 0px))}
+}

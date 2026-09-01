@@ -267,10 +267,13 @@ async function loadExisting(token, items) {
 
 async function loadExistingRevisions(token, items) {
   const documents = await Promise.all(items.map(async (item) => {
-    const response = await fetch(`${firestoreBase()}/documents/exercises/${item.id}/revisions/1`, { headers: { Authorization: `Bearer ${token}` } })
-    if (response.status === 404) return null
-    if (!response.ok) throw new Error(`Unable to inspect revision for ${item.id} (${response.status}).`)
-    return response.json()
+    for (const revision of [3, 2, 1]) {
+      const response = await fetch(`${firestoreBase()}/documents/exercises/${item.id}/revisions/${revision}`, { headers: { Authorization: `Bearer ${token}` } })
+      if (response.status === 404) continue
+      if (!response.ok) throw new Error(`Unable to inspect revision for ${item.id} (${response.status}).`)
+      return response.json()
+    }
+    return null
   }))
   return new Map(documents.filter(Boolean).map((document) => {
     const segments = document.name.split('/')
@@ -292,6 +295,21 @@ async function createMissing(token, items, existing, release = RELEASE) {
   return writes.length / 2
 }
 
+async function updateOwned(token, items, existing, release, previousRelease) {
+  const writes = []
+  for (const item of items) {
+    const current = existing.get(item.id)
+    if (!current || current.catalogRelease !== previousRelease) continue
+    const { id, ...fields } = item
+    const documentName = `${firestoreResourceBase()}/documents/exercises/${id}`
+    const nextRevision = Math.max(2, Number(current.revision || 1) + 1)
+    writes.push({ update: { name: documentName, fields: encodeFields(fields) }, currentDocument: { exists: true } })
+    writes.push({ update: { name: `${documentName}/revisions/${nextRevision}`, fields: encodeFields({ ...fields, exerciseId: id, revision: nextRevision, revisionType: 'catalog_repair', createdBy: release }) }, currentDocument: { exists: false } })
+  }
+  if (writes.length) await requestJson(token, '/documents:batchWrite', { method: 'POST', body: JSON.stringify({ writes }) })
+  return writes.length / 2
+}
+
 async function runCatalogImport({
   sourceItems = ITEMS,
   release = RELEASE,
@@ -299,6 +317,8 @@ async function runCatalogImport({
   reportPath = REPORT,
   categories = { lowerBody: 12, upperBody: 5, core: 3 },
   validate = validateItems,
+  allowOwnedUpdates = false,
+  previousRelease = '',
 } = {}) {
   const args = parseArgs(confirmation)
   validate(sourceItems)
@@ -319,10 +339,15 @@ async function runCatalogImport({
     report.conflictingIds = conflictingIds
     if (args.mode === 'apply') {
       if (args.digest !== planDigest) throw new Error('Live plan digest no longer matches the approved dry run.')
-      if (conflictingIds.length) throw new Error(`Refusing to overwrite existing exercise documents: ${conflictingIds.join(', ')}.`)
+      const ownedConflicts = allowOwnedUpdates && previousRelease
+        ? conflictingIds.filter((id) => existing.get(id)?.catalogRelease === previousRelease)
+        : []
+      const unownedConflicts = conflictingIds.filter((id) => !ownedConflicts.includes(id))
+      if (unownedConflicts.length) throw new Error(`Refusing to overwrite existing exercise documents: ${unownedConflicts.join(', ')}.`)
       report.created = await createMissing(token, items, existing, release)
       report.skippedExact = items.length - report.created
-      report.writesPerformed = report.created > 0
+      report.updatedOwned = await updateOwned(token, items.filter((item) => ownedConflicts.includes(item.id)), existing, release, previousRelease)
+      report.writesPerformed = report.created > 0 || report.updatedOwned > 0
       existing = await loadExisting(token, items)
     }
     report.present = items.filter((item) => existing.get(item.id)?.contentDigest === item.contentDigest && existing.get(item.id)?.status === 'published').length

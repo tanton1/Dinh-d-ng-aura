@@ -141,6 +141,7 @@ function publicItemFromData(id, data) {
     schemaVersion: 1,
     revision: Number.isInteger(data.revision) ? data.revision : 1,
     status: ['draft', 'review', 'published', 'archived'].includes(data.status) ? data.status : 'draft',
+    ...(data.popularForWomen === true ? { popularForWomen: true } : {}),
     nameVi: text(data.nameVi || data.nameEn, 200), nameEn: text(data.nameEn, 200), aliasesVi: stringList(data.aliasesVi, 12, 100),
     bodyParts: stringList(data.bodyParts, 12, 80), targetMuscles: stringList(data.targetMuscles, 12, 80), secondaryMuscles: stringList(data.secondaryMuscles, 12, 80),
     equipment: stringList(data.equipment, 12, 80), environment: stringList(data.environment, 2, 20),
@@ -414,13 +415,16 @@ function createExerciseCatalogFunctions({ db, onCall }) {
     const bodyPart = text(request.data?.bodyPart, 80).toLocaleLowerCase('vi')
     const equipment = text(request.data?.equipment, 80).toLocaleLowerCase('vi')
     const difficulty = text(request.data?.difficulty, 20)
-    const snapshots = await db.collection('exercises').limit(250).get()
+    // The learner library now includes the curated ExerciseDB set in addition to
+    // Aura/YMove exercises. Keep this bounded, but high enough that published
+    // items are not silently omitted once the catalog grows past the old MVP cap.
+    const snapshots = await db.collection('exercises').limit(500).get()
     const items = snapshots.docs.map(publicItem).filter((item) => {
       if (includeReview ? item.status === 'archived' : item.status !== 'published') return false
       const searchable = [item.nameVi, item.nameEn, ...item.aliasesVi, ...item.targetMuscles, ...item.bodyParts].join(' ').toLocaleLowerCase('vi')
       return (!query || searchable.includes(query)) && (!bodyPart || item.bodyParts.some((value) => value.toLocaleLowerCase('vi') === bodyPart))
         && (!equipment || item.equipment.some((value) => value.toLocaleLowerCase('vi') === equipment)) && (!difficulty || item.difficulty === difficulty)
-    }).sort((a, b) => a.nameVi.localeCompare(b.nameVi, 'vi')).slice(0, 150)
+    }).sort((a, b) => a.nameVi.localeCompare(b.nameVi, 'vi')).slice(0, 400)
     return { schemaVersion: 1, items, total: items.length }
   })
 
@@ -548,7 +552,10 @@ function createExerciseCatalogFunctions({ db, onCall }) {
       transientMedia,
       ...(expiresAt ? { expiresAt } : {}),
       images: media.images,
-      videos: [...preferred, ...media.videos].slice(0, 12),
+      videos: [...preferred, ...media.videos].filter((video, index, all) => index === all.findIndex((candidate) => (
+        (candidate.externalId && video.externalId && candidate.externalId === video.externalId)
+          || (candidate.url && video.url && candidate.url === video.url)
+      ))).slice(0, 12),
       animationUrl: media.animationUrl,
     }
   })

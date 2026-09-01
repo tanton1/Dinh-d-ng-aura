@@ -524,6 +524,8 @@ export interface ExerciseCatalogSnapshot {
 }
 
 export interface ExerciseCatalogItem extends ExerciseCatalogSnapshot {
+  /** Curated recommendation flag for the learner-facing women's library. */
+  popularForWomen?: boolean
   id: string
   schemaVersion: 1
   revision: number
