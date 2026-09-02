@@ -177,6 +177,15 @@ export interface PtScheduleStudentFeasibility {
   impossibleSessions: number
 }
 
+export interface PtScheduleSwapMove {
+  studentId: string
+  studentName?: string
+  fromSlotId: string | null
+  fromTrainerId: string | null
+  toSlotId: string
+  toTrainerId: string
+}
+
 export interface PtScheduleOptimizationSummary {
   studentCoverage?: PtScheduleStudentCoverage
   /** Fast preflight showing whether a missing buổi is realistically schedulable this week. */
@@ -189,6 +198,8 @@ export interface PtScheduleOptimizationSummary {
   repairRelocations?: number
   repairSearchNodes?: number
   repairSearchLimitReached?: boolean
+  /** Các bước xếp mới/đổi chỗ đã thực hiện trong chuỗi sửa sâu. */
+  swapTrace?: PtScheduleSwapMove[]
   optimizationPasses?: number
   totalTargetSessions?: number
   scheduledEntries?: number
@@ -307,6 +318,7 @@ const conflictLabels: Record<string, string> = {
   TRAINER_DAILY_SESSION_LIMIT_EXCEEDED: 'PT đã vượt giới hạn ca được cấu hình trong ngày.',
   TRAINER_NOT_ASSIGNED: 'Chưa có PT phù hợp trong phạm vi chi nhánh.',
   BRANCH_CAPACITY_REACHED: 'Chi nhánh đã đủ công suất trong các khung giờ phù hợp.',
+  STUDENT_WEEKLY_TARGET_REACHED: 'Học viên đã đủ mục tiêu số buổi của tuần.',
 }
 
 export function ptScheduleConflictLabel(code: string) {

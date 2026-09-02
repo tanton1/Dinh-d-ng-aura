@@ -497,6 +497,53 @@ test('existing secondary PT pair is preferred over opening a new primary PT clas
   assert.equal(entry.trainerId, 'trainer-secondary')
 })
 
+test('branch capacity blocks auto and manual candidates even when another trainer still has room', () => {
+  const data = fixture()
+  data.config.branchCapacityBySlot = { [BRANCH]: { default: 1 } }
+  data.trainers.push({ ...data.trainers[0], id: 'trainer-b' })
+  data.students.push({ ...data.students[0], id: 'student-b', name: 'B' })
+  data.contracts.push({ ...data.contracts[0], id: 'contract-b', studentId: 'student-b', trainerId: 'trainer-b' })
+  data.schedule = {
+    'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training', isLocked: true }],
+  }
+  const result = candidateForSlot(data, { student: data.students[1], trainer: data.trainers[1], slotId: 'T2-6', schedule: data.schedule })
+  assert.equal(result.eligible, false)
+  assert.ok(result.reasons.includes('BRANCH_CAPACITY_REACHED'))
+  assert.equal(manualSlotCandidate(result).manualSelectable, false)
+})
+
+test('one matching round never exceeds branch capacity across different trainers', () => {
+  const data = fixture()
+  data.config.branchCapacityBySlot = { [BRANCH]: { default: 1 } }
+  data.trainers = [
+    { ...data.trainers[0], id: 'trainer-a', availableSlots: ['T2-6'] },
+    { ...data.trainers[0], id: 'trainer-b', availableSlots: ['T2-6'] },
+  ]
+  data.students = [
+    { ...data.students[0], id: 'student-a', name: 'A', availableSlots: ['T2-6'] },
+    { ...data.students[0], id: 'student-b', name: 'B', availableSlots: ['T2-6'] },
+  ]
+  data.contracts = [
+    { ...data.contracts[0], id: 'contract-a', studentId: 'student-a', trainerId: 'trainer-a' },
+    { ...data.contracts[0], id: 'contract-b', studentId: 'student-b', trainerId: 'trainer-b' },
+  ]
+
+  const generated = generateSchedule(data)
+  assert.equal(generated.schedule['T2-6'].filter((entry) => entry.type !== 'off').length, 1)
+  assert.equal(generated.optimizationSummary.studentCoverage.scheduledEntries, 1)
+  assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 1)
+})
+
+test('manual candidates stop once the learner weekly target is already fulfilled', () => {
+  const data = fixture()
+  data.schedule = {
+    'T2-6': [{ studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: BRANCH, type: 'training' }],
+  }
+  const result = candidateForSlot(data, { student: data.students[0], trainer: data.trainers[0], slotId: 'T4-6', schedule: data.schedule })
+  assert.equal(result.eligible, false)
+  assert.ok(result.reasons.includes('STUDENT_WEEKLY_TARGET_REACHED'))
+})
+
 test('pairing remains ahead of PT load balancing after every learner receives coverage', () => {
   const data = fixture()
   data.contracts[0].trainerId = ''
@@ -600,7 +647,7 @@ test('deep optimization repeats coverage and pairing until the weekly target is 
   assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 0)
   assert.equal(generated.optimizationSummary.slotUtilization.pairedSlots, 1)
   assert.ok(generated.optimizationSummary.optimizationPasses >= 2)
-  assert.equal(generated.optimizationSummary.generatorVersion, 'optimizer-v7')
+  assert.equal(generated.optimizationSummary.generatorVersion, 'optimizer-v8')
 })
 
 test('deep repair relocates an earlier flexible session to increase total weekly coverage', () => {
@@ -634,6 +681,7 @@ test('deep repair relocates an earlier flexible session to increase total weekly
   assert.equal(generated.optimizationSummary.studentCoverage.scheduledEntries, 4)
   assert.equal(generated.optimizationSummary.repairAssignments, 1)
   assert.equal(generated.optimizationSummary.repairRelocations, 1)
+  assert.ok(generated.optimizationSummary.swapTrace.some((move) => move.fromSlotId && move.fromSlotId !== move.toSlotId))
   assert.equal(counts.get('student-needs-three'), 2)
   assert.equal(counts.get('student-can-move'), 1)
   assert.equal(generated.schedule['T2-6'][0].studentId, 'student-can-move')

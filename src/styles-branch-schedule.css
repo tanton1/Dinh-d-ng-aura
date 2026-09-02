@@ -112,6 +112,24 @@
 .branch-schedule__branch-warning button,
 .branch-schedule__blocked button { display: inline-flex; min-height: 38px; flex: 0 0 auto; align-items: center; justify-content: center; gap: 7px; border: 1px solid #efbfd0; border-radius: 11px; padding: 0 13px; color: #b2265d; background: #fff; font-size: .72rem; font-weight: 820; }
 .branch-schedule__loading { display: flex; align-items: center; gap: 8px; color: #8a6074; background: #fff5f8; }
+.branch-schedule__optimization-progress { display:flex; align-items:center; gap:10px; padding:11px clamp(14px,2vw,24px); border-bottom:1px solid #d9d2f3; color:#514184; background:linear-gradient(110deg,#f5f1ff,#fff5fa); }
+.branch-schedule__optimization-progress > svg { width:19px; flex:0 0 auto; color:#7b5fca; }
+.branch-schedule__optimization-progress > div { display:grid; gap:2px; }
+.branch-schedule__optimization-progress strong { font-size:.75rem; }
+.branch-schedule__optimization-progress span { color:#786b91; font-size:.66rem; }
+.branch-schedule__optimization-trace { margin:8px clamp(10px,1.7vw,22px) 0; overflow:hidden; border:1px solid #eadbea; border-radius:13px; background:#fff; box-shadow:0 8px 22px rgba(58,29,45,.045); }
+.branch-schedule__optimization-trace > summary { display:flex; min-height:42px; align-items:center; justify-content:space-between; gap:10px; padding:0 12px; cursor:pointer; list-style:none; }
+.branch-schedule__optimization-trace > summary::-webkit-details-marker { display:none; }
+.branch-schedule__optimization-trace > summary > span { display:flex; align-items:center; gap:7px; color:#7b3ea5; font-size:.71rem; }
+.branch-schedule__optimization-trace > summary small { color:#927f89; font-size:.61rem; }
+.branch-schedule__optimization-trace ol { display:grid; max-height:240px; gap:0; overflow:auto; margin:0; padding:0 12px 10px; list-style:none; }
+.branch-schedule__optimization-trace li { display:grid; grid-template-columns:24px minmax(0,1fr); align-items:start; gap:8px; padding:8px 0; border-top:1px solid #f2e8ed; }
+.branch-schedule__optimization-trace li > b { display:grid; width:22px; height:22px; place-items:center; border-radius:8px; color:#fff; background:linear-gradient(135deg,#a35fe0,#ef4e91); font-size:.58rem; }
+.branch-schedule__optimization-trace li > div { display:grid; min-width:0; gap:2px; }
+.branch-schedule__optimization-trace li strong { font-size:.69rem; }
+.branch-schedule__optimization-trace li span { overflow:hidden; color:#7d6d77; font-size:.63rem; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
+.branch-schedule__search-limit { display:flex; align-items:center; gap:8px; margin:8px clamp(10px,1.7vw,22px) 0; padding:9px 11px; border:1px solid #f1d7bd; border-radius:11px; color:#97511d; background:#fff8ef; font-size:.67rem; font-weight:720; }
+.branch-schedule__search-limit svg { flex:0 0 auto; }
 .branch-schedule .is-spinning { animation: branch-schedule-spin .8s linear infinite; }
 @keyframes branch-schedule-spin { to { transform: rotate(360deg); } }
 

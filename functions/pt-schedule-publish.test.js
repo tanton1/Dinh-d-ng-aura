@@ -125,6 +125,28 @@ test('uses a configurable PT slot capacity and defaults to two learners', () => 
   assert.ok(!configuredResult.errors.includes('TRAINER_CAPACITY_EXCEEDED'))
 })
 
+test('publish enforces the total branch capacity across different trainers', () => {
+  const fixture = baseFixture()
+  fixture.config.branchCapacityBySlot = { [BRANCH_ID]: { 'T2-6': 1 } }
+  fixture.trainers.set('trainer-b', {
+    status: 'active', branchId: BRANCH_ID, availabilityMode: 'configured', availableSlots: ['T2-6'], slotCapacity: 2,
+  })
+  fixture.students.set('student-b', { status: 'active', branchId: BRANCH_ID })
+  fixture.contracts.push({ ...fixture.contracts[0], id: 'contract-b', studentId: 'student-b', trainerId: 'trainer-b' })
+  fixture.availability.set('student-b', { studentId: 'student-b', status: 'submitted', slots: ['T2-6'] })
+  fixture.schedule['T2-6'].push({ studentId: 'student-b', trainerId: 'trainer-b', type: 'training' })
+  assert.ok(desiredEntries(fixture).errors.includes('BRANCH_CAPACITY_REACHED'))
+})
+
+test('publish rejects a draft that exceeds a learner weekly target', () => {
+  const fixture = baseFixture()
+  fixture.students.get('student-a').sessionsPerWeek = 1
+  fixture.schedule['T3-6'] = [{ studentId: 'student-a', trainerId: 'trainer-a', type: 'training' }]
+  fixture.trainers.get('trainer-a').availableSlots.push('T3-6')
+  fixture.availability.get('student-a').slots.push('T3-6')
+  assert.ok(desiredEntries(fixture).errors.includes('STUDENT_WEEKLY_TARGET_REACHED'))
+})
+
 test('counts a paired session as one teaching slot for the PT daily limit', () => {
   const fixture = baseFixture()
   fixture.trainers.set('trainer-a', {

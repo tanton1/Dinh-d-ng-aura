@@ -317,6 +317,13 @@ export interface ScheduleHoliday {
   paid: true
 }
 
+export interface ScheduleBranchCapacity {
+  /** Tổng số học viên tối đa có thể tập đồng thời tại chi nhánh. */
+  default?: number | null
+  /** Ghi đè theo ô lịch, ví dụ `T2-18`. */
+  [slotId: string]: number | null | undefined
+}
+
 export interface ScheduleConfig {
   workingDays: Day[]
   workingHours: number[]
@@ -325,6 +332,7 @@ export interface ScheduleConfig {
   lockHour?: number
   holidays?: string[]
   holidayDetails?: ScheduleHoliday[]
+  branchCapacityBySlot?: Record<string, ScheduleBranchCapacity>
   complimentaryChangeCancelPerMonth?: 1 | 2
   sessionChangeDeadlineHours?: number
   offMaxDaysPerRequest?: number

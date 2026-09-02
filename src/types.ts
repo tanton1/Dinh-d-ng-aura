@@ -763,6 +763,7 @@ export type {
   Warning,
   SchedulerResult,
   ScheduleHoliday,
+  ScheduleBranchCapacity,
   ScheduleConfig,
   Session,
   Payroll,

@@ -21,6 +21,8 @@ const MAX_ENTRIES_PER_SLOT = 100
 const MAX_TRANSACTION_WRITES = 450
 const ACTIVE_SESSION_STATUSES = new Set(['scheduled', 'rescheduled'])
 const DAY_OFFSETS = new Map([['T2', 0], ['T3', 1], ['T4', 2], ['T5', 3], ['T6', 4], ['T7', 5], ['CN', 6]])
+const DEFAULT_WORKING_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
+const DEFAULT_WORKING_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
 const STUDENT_AVAILABILITY_REASON_CODES = new Set(['AVAILABILITY_NOT_SUBMITTED', 'OUTSIDE_STUDENT_AVAILABILITY'])
 
 function documentId(value, label) {
@@ -53,6 +55,14 @@ function dateForSlot(week, dayCode) {
   return value.toISOString().slice(0, 10)
 }
 
+function slotIdForDateHour(week, date, hour) {
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return null
+  for (const [day] of DAY_OFFSETS) {
+    if (dateForSlot(week, day) === date) return `${day}-${hour}`
+  }
+  return null
+}
+
 function storedDate(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : ''
 }
@@ -80,6 +90,69 @@ function entryKey(scheduleId, slotId, studentId) {
 function normalizedCapacity(value) {
   const result = Number(value)
   return Number.isInteger(result) && result >= 1 && result <= 4 ? result : 2
+}
+
+function normalizedScheduleConfig(value = {}) {
+  const workingDays = Array.isArray(value.workingDays)
+    ? [...new Set(value.workingDays.filter((day) => DAY_OFFSETS.has(day)))]
+    : []
+  const workingHours = Array.isArray(value.workingHours)
+    ? [...new Set(value.workingHours.map(Number).filter((hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23))].sort((left, right) => left - right)
+    : []
+  return {
+    ...value,
+    workingDays: workingDays.length ? workingDays : DEFAULT_WORKING_DAYS,
+    workingHours: workingHours.length ? workingHours : DEFAULT_WORKING_HOURS,
+    holidays: Array.isArray(value.holidays)
+      ? [...new Set(value.holidays.map(storedDate).filter(Boolean))].sort()
+      : [],
+    branchCapacityBySlot: value.branchCapacityBySlot && typeof value.branchCapacityBySlot === 'object' && !Array.isArray(value.branchCapacityBySlot)
+      ? value.branchCapacityBySlot
+      : {},
+  }
+}
+
+function positiveCapacity(value) {
+  const capacity = Number(value)
+  return Number.isInteger(capacity) && capacity > 0 && capacity <= 10000 ? capacity : null
+}
+
+/**
+ * Capacity accepts the current nested shape (`branchId.default`,
+ * `branchId.T2-6`) and legacy flat keys (`branchId|T2-6`, `T2-6`). A missing
+ * value is intentionally unlimited so enabling this guard cannot close an
+ * existing branch before an administrator configures it.
+ */
+function branchSlotCapacity(config, branchId, slotId) {
+  const source = config?.branchCapacityBySlot
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return null
+  const branch = source[branchId]
+  const candidates = [
+    branch && typeof branch === 'object' && !Array.isArray(branch) ? branch[slotId] : null,
+    branch && typeof branch === 'object' && !Array.isArray(branch) ? branch.default : null,
+    source[`${branchId}|${slotId}`],
+    source[slotId],
+    source.default,
+  ]
+  for (const candidate of candidates) {
+    const capacity = positiveCapacity(candidate)
+    if (capacity !== null) return capacity
+  }
+  return null
+}
+
+function exactAvailabilityReferences(db, studentIds, week) {
+  return [...studentIds].map((studentId) => db.doc(`ptAvailability/${studentId}_${week}`))
+}
+
+async function exactAvailabilitySnapshots(db, studentIds, week) {
+  const references = exactAvailabilityReferences(db, studentIds, week)
+  if (!references.length) return []
+  const batches = []
+  for (let index = 0; index < references.length; index += 100) {
+    batches.push(db.getAll(...references.slice(index, index + 100)))
+  }
+  return (await Promise.all(batches)).flat()
 }
 
 function trainerAvailabilityMode(value = {}) {
@@ -256,15 +329,18 @@ async function publisherActor(request, db, branchId) {
 }
 
 function desiredEntries({ scheduleId, week, branchId, schedule, trainers, students, contracts, availability, inheritedAvailability = new Map(), config, trainerLeaves = [] }) {
+  const calendar = normalizedScheduleConfig(config)
   const desired = new Map()
   const errors = []
   const warnings = []
   const studentDays = new Set()
+  const studentSessions = new Map()
   const trainerSlots = new Map()
+  const branchSlots = new Map()
   const offSlots = new Set()
-  const workingDays = new Set(Array.isArray(config.workingDays) ? config.workingDays : [...DAY_OFFSETS.keys()])
-  const workingHours = new Set(Array.isArray(config.workingHours) ? config.workingHours.map(Number) : [])
-  const holidays = new Set(Array.isArray(config.holidays) ? config.holidays : [])
+  const workingDays = new Set(calendar.workingDays)
+  const workingHours = new Set(calendar.workingHours)
+  const holidays = new Set(calendar.holidays)
 
   for (const [slotId, rawEntries] of Object.entries(schedule || {})) {
     if (!Array.isArray(rawEntries)) continue
@@ -330,7 +406,9 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       const studentDay = `${studentId}|${date}`
       if (studentDays.has(studentDay)) errors.push('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
       studentDays.add(studentDay)
+      studentSessions.set(studentId, (studentSessions.get(studentId) || 0) + 1)
       trainerSlots.set(trainerSlot, (trainerSlots.get(trainerSlot) || 0) + 1)
+      branchSlots.set(slotId, (branchSlots.get(slotId) || 0) + 1)
 
       const effectiveAvailability = effectiveStudentAvailability({
         targetWeek: week,
@@ -405,6 +483,14 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
     if (offSlots.has(key)) errors.push('TRAINER_OFF_CONFLICT')
     if (count > normalizedCapacity(trainers.get(trainerId)?.slotCapacity)) errors.push('TRAINER_CAPACITY_EXCEEDED')
   }
+  for (const [slotId, count] of branchSlots) {
+    const capacity = branchSlotCapacity(calendar, branchId, slotId)
+    if (capacity !== null && count > capacity) errors.push('BRANCH_CAPACITY_REACHED')
+  }
+  for (const [studentId, count] of studentSessions) {
+    const target = Number(students.get(studentId)?.sessionsPerWeek)
+    if (Number.isInteger(target) && target >= 0 && count > target) errors.push('STUDENT_WEEKLY_TARGET_REACHED')
+  }
   if (desired.size > MAX_SCHEDULE_ENTRIES) errors.push('SCHEDULE_TOO_LARGE')
   return { desired, errors: [...new Set(errors)], warnings: [...new Set(warnings)] }
 }
@@ -420,42 +506,48 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
     const scheduleReference = db.doc(`schedules/${scheduleId}`)
     const v2DraftReference = db.doc(`ptScheduleDrafts/${branchId}_${week}`)
     const branchReference = db.doc(`branches/${branchId}`)
-    const [preliminarySchedule, preliminaryDraft, preliminaryStudents, preliminaryAvailability] = await Promise.all([
+    const [preliminarySchedule, preliminaryDraft, preliminaryStudents] = await Promise.all([
       scheduleReference.get(),
       v2DraftReference.get(),
       db.collection('students').where('branchId', '==', branchId).limit(501).get(),
-      db.collection('ptAvailability').where('weekId', '==', week).limit(1001).get(),
     ])
     const preliminaryData = preliminaryDraft.exists ? preliminaryDraft.data() : preliminarySchedule.data() || {}
-    const scheduledStudentIds = new Set(Object.values(preliminaryData.schedule || {}).flat()
+    const preliminaryTrainingEntries = Object.values(preliminaryData.schedule || {}).flat()
       .filter((entry) => entry?.type !== 'off' && entry?.studentId)
+    if (preliminaryTrainingEntries.length > MAX_SCHEDULE_ENTRIES || preliminaryStudents.size > 500) {
+      throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn kiểm tra an toàn.')
+    }
+    const scheduledStudentIds = new Set(preliminaryTrainingEntries
       .map((entry) => entry.studentId))
     const preliminaryProfiles = new Map(preliminaryStudents.docs
       .filter((item) => scheduledStudentIds.has(item.id))
       .map((item) => [item.id, item.data()]))
-    const preliminaryWeekly = new Map(preliminaryAvailability.docs
+    const preliminaryAvailability = await exactAvailabilitySnapshots(db, scheduledStudentIds, week)
+    const preliminaryWeekly = new Map(preliminaryAvailability
+      .filter((item) => item.exists)
       .map((item) => item.data())
       .filter((item) => scheduledStudentIds.has(item.studentId))
       .map((item) => [item.studentId, item]))
     const inheritedAvailability = await loadLatestSubmittedFallbacks(db, preliminaryProfiles, preliminaryWeekly, week)
+    const availabilityReferences = exactAvailabilityReferences(db, scheduledStudentIds, week)
 
     return db.runTransaction(async (transaction) => {
-      const [scheduleSnapshot, v2DraftSnapshot, branchSnapshot, contractsSnapshot, studentsSnapshot, trainersSnapshot, availabilitySnapshot, weekSessionsSnapshot, activeSessionsSnapshot, configSnapshot, trainerLeavesSnapshot] = await Promise.all([
+      const [scheduleSnapshot, v2DraftSnapshot, branchSnapshot, contractsSnapshot, studentsSnapshot, trainersSnapshot, weekSessionsSnapshot, activeSessionsSnapshot, configSnapshot, trainerLeavesSnapshot, availabilitySnapshots] = await Promise.all([
         transaction.get(scheduleReference),
         transaction.get(v2DraftReference),
         transaction.get(branchReference),
-        transaction.get(db.collection('contracts').limit(1000)),
-        transaction.get(db.collection('students').limit(1000)),
-        transaction.get(db.collection('trainers').limit(500)),
-        transaction.get(db.collection('ptAvailability').where('weekId', '==', week).limit(1000)),
-        transaction.get(db.collection('sessions').where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001)),
-        transaction.get(db.collection('sessions').where('status', 'in', ['scheduled', 'rescheduled']).limit(3001)),
+        transaction.get(db.collection('contracts').where('branchId', '==', branchId).limit(1001)),
+        transaction.get(db.collection('students').where('branchId', '==', branchId).limit(501)),
+        transaction.get(db.collection('trainers').where('branchId', '==', branchId).limit(101)),
+        transaction.get(db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001)),
+        transaction.get(db.collection('sessions').where('branchId', '==', branchId).where('status', 'in', ['scheduled', 'rescheduled']).limit(3001)),
         transaction.get(db.doc('settings/scheduleConfig')),
         transaction.get(db.collection('leaveRequests').where('status', '==', 'approved').limit(1001)),
+        Promise.all(availabilityReferences.map((reference) => transaction.get(reference))),
       ])
       if (!scheduleSnapshot.exists && !v2DraftSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy lịch nháp của tuần.')
       if (!branchSnapshot.exists || branchSnapshot.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
-      if (weekSessionsSnapshot.size > 1000 || activeSessionsSnapshot.size > 3000 || trainerLeavesSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn kiểm tra an toàn.')
+      if (contractsSnapshot.size > 1000 || studentsSnapshot.size > 500 || trainersSnapshot.size > 100 || weekSessionsSnapshot.size > 1000 || activeSessionsSnapshot.size > 3000 || trainerLeavesSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn kiểm tra an toàn.')
       const scheduleData = scheduleSnapshot.exists ? scheduleSnapshot.data() : {}
       const activeDraftData = v2DraftSnapshot.exists ? v2DraftSnapshot.data() : scheduleData
       const draftRevision = Number(v2DraftSnapshot.exists ? activeDraftData.revision : scheduleData.draftRevision || 0)
@@ -471,9 +563,19 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       }
 
       const contracts = contractsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-      const students = new Map(studentsSnapshot.docs.map((item) => [item.id, item.data()]))
+      const weeklySessionTargets = activeDraftData.weeklySessionTargets && typeof activeDraftData.weeklySessionTargets === 'object' && !Array.isArray(activeDraftData.weeklySessionTargets)
+        ? activeDraftData.weeklySessionTargets
+        : {}
+      const students = new Map(studentsSnapshot.docs.map((item) => {
+        const data = item.data()
+        const override = weeklySessionTargets[item.id]
+        const sessionsPerWeek = Number.isInteger(Number(override)) && Number(override) >= 0 && Number(override) <= 7
+          ? Number(override)
+          : data.sessionsPerWeek
+        return [item.id, { ...data, sessionsPerWeek }]
+      }))
       const trainers = new Map(trainersSnapshot.docs.map((item) => [item.id, item.data()]))
-      const availability = new Map(availabilitySnapshot.docs.map((item) => [item.data().studentId, item.data()]))
+      const availability = new Map(availabilitySnapshots.filter((item) => item.exists).map((item) => [item.data().studentId, item.data()]))
       const prepared = desiredEntries({
         scheduleId,
         week,
@@ -505,6 +607,20 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       const desiredValues = [...prepared.desired.values()]
       const desiredStudentIds = new Set(desiredValues.map((item) => item.studentId))
       const scopedExistingIds = new Set(existingScoped.map((item) => item.id))
+      const totalBranchLoadBySlot = new Map()
+      for (const desired of desiredValues) {
+        totalBranchLoadBySlot.set(desired.slotId, (totalBranchLoadBySlot.get(desired.slotId) || 0) + 1)
+      }
+      for (const item of activeSessionsSnapshot.docs) {
+        if (scopedExistingIds.has(item.id)) continue
+        const value = item.data()
+        const slotId = slotIdForDateHour(week, storedDate(value.date), storedHour(value.hour, item.id))
+        if (slotId) totalBranchLoadBySlot.set(slotId, (totalBranchLoadBySlot.get(slotId) || 0) + 1)
+      }
+      for (const [slotId, count] of totalBranchLoadBySlot) {
+        const capacity = branchSlotCapacity(configSnapshot.data(), branchId, slotId)
+        if (capacity !== null && count > capacity) throw scheduleError('BRANCH_CAPACITY_REACHED', 'Khung giờ đã vượt công suất tổng của chi nhánh.')
+      }
       for (const item of activeSessionsSnapshot.docs) {
         const session = item.data()
         if (!desiredStudentIds.has(session.studentId) || scopedExistingIds.has(item.id)) continue
@@ -711,8 +827,8 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
         transaction.get(scheduleReference),
         transaction.get(v2DraftReference),
         transaction.get(versionReference),
-        transaction.get(db.collection('students').limit(1000)),
-        transaction.get(db.collection('trainers').limit(500)),
+        transaction.get(db.collection('students').where('branchId', '==', branchId).limit(501)),
+        transaction.get(db.collection('trainers').where('branchId', '==', branchId).limit(101)),
       ])
       if (!scheduleSnapshot.exists && !v2DraftSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy lịch nháp của tuần.')
       if (!versionSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy phiên bản lịch đã chọn.')
@@ -770,23 +886,24 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
     const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
     await publisherActor(request, db, branchId)
     const scheduleId = `schedule_${week}`
-    const [branchSnapshot, scheduleSnapshot, studentsSnapshot, trainersSnapshot, contractsSnapshot, availabilitySnapshot, sessionsSnapshot, configSnapshot] = await Promise.all([
+    const [branchSnapshot, scheduleSnapshot, studentsSnapshot, trainersSnapshot, contractsSnapshot, sessionsSnapshot, configSnapshot] = await Promise.all([
       db.doc(`branches/${branchId}`).get(),
       db.doc(`schedules/${scheduleId}`).get(),
       db.collection('students').where('branchId', '==', branchId).limit(501).get(),
       db.collection('trainers').where('branchId', '==', branchId).limit(101).get(),
-      db.collection('contracts').limit(1001).get(),
-      db.collection('ptAvailability').where('weekId', '==', week).limit(1001).get(),
-      db.collection('sessions').where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
+      db.collection('contracts').where('branchId', '==', branchId).limit(1001).get(),
+      db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
       db.doc('settings/scheduleConfig').get(),
     ])
     if (!branchSnapshot.exists || branchSnapshot.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
-    if (studentsSnapshot.size > 500 || trainersSnapshot.size > 100 || contractsSnapshot.size > 1000 || availabilitySnapshot.size > 1000 || sessionsSnapshot.size > 1000) {
+    if (studentsSnapshot.size > 500 || trainersSnapshot.size > 100 || contractsSnapshot.size > 1000 || sessionsSnapshot.size > 1000) {
       throw new HttpsError('resource-exhausted', 'Dữ liệu chi nhánh vượt giới hạn tải an toàn.')
     }
     const studentIds = new Set(studentsSnapshot.docs.map((item) => item.id))
     const trainerIds = new Set(trainersSnapshot.docs.map((item) => item.id))
-    const weeklyAvailability = new Map(availabilitySnapshot.docs
+    const availabilitySnapshots = await exactAvailabilitySnapshots(db, studentIds, week)
+    const weeklyAvailability = new Map(availabilitySnapshots
+      .filter((item) => item.exists)
       .map((item) => item.data())
       .filter((item) => studentIds.has(item.studentId))
       .map((item) => [item.studentId, item]))
@@ -871,13 +988,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
           scheduleVersion: Number(item.scheduleVersion || 0),
           revision: Number(item.revision || 0),
         })),
-      scheduleConfig: {
-        workingDays: Array.isArray(configSnapshot.data()?.workingDays) ? configSnapshot.data().workingDays : [...DAY_OFFSETS.keys()],
-        workingHours: Array.isArray(configSnapshot.data()?.workingHours) ? configSnapshot.data().workingHours.map(Number) : [],
-        holidays: Array.isArray(configSnapshot.data()?.holidays) ? configSnapshot.data().holidays : [],
-        lockDayOfWeek: Number(configSnapshot.data()?.lockDayOfWeek ?? 6),
-        lockHour: Number(configSnapshot.data()?.lockHour ?? 12),
-      },
+      scheduleConfig: normalizedScheduleConfig(configSnapshot.data()),
     }
   })
 
@@ -894,8 +1005,8 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       const [scheduleSnapshot, branchSnapshot, studentsSnapshot, trainersSnapshot] = await Promise.all([
         transaction.get(scheduleReference),
         transaction.get(db.doc(`branches/${branchId}`)),
-        transaction.get(db.collection('students').limit(1001)),
-        transaction.get(db.collection('trainers').limit(501)),
+        transaction.get(db.collection('students').where('branchId', '==', branchId).limit(501)),
+        transaction.get(db.collection('trainers').where('branchId', '==', branchId).limit(101)),
       ])
       if (!branchSnapshot.exists || branchSnapshot.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
       if (studentsSnapshot.size > 1000 || trainersSnapshot.size > 500) throw new HttpsError('resource-exhausted', 'Dữ liệu vận hành vượt giới hạn lưu an toàn.')
@@ -962,6 +1073,8 @@ module.exports = {
   dateForSlot,
   storedDate,
   normalizedCapacity,
+  normalizedScheduleConfig,
+  branchSlotCapacity,
   trainerAvailabilityMode,
   trainerIsAvailable,
 }

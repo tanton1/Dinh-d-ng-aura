@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
-import { motion } from 'motion/react';
-import { Settings, Save, Clock, CalendarDays, Lock, CalendarOff, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Save, Clock, CalendarDays, Lock, CalendarOff, Gauge, X } from 'lucide-react';
 import { ScheduleConfig, Day } from '../../../types';
 import { useDatabase } from '../../../contexts/DatabaseContext';
 
@@ -14,7 +13,7 @@ const ALL_DAYS: { id: Day; label: string }[] = [
 ];
 
 export default function ScheduleSettings() {
-  const { scheduleConfig, updateScheduleConfig } = useDatabase();
+  const { branches, scheduleConfig, updateScheduleConfig } = useDatabase();
   const [config, setConfig] = useState<ScheduleConfig>({
     workingDays: scheduleConfig?.workingDays || ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'],
     workingHours: scheduleConfig?.workingHours || [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20],
@@ -22,10 +21,36 @@ export default function ScheduleSettings() {
     lockHour: scheduleConfig?.lockHour ?? 12,
     isAutoLockEnabled: scheduleConfig?.isAutoLockEnabled ?? false,
     holidays: scheduleConfig?.holidays || [],
-    holidayDetails: scheduleConfig?.holidayDetails || []
+    holidayDetails: scheduleConfig?.holidayDetails || [],
+    branchCapacityBySlot: scheduleConfig?.branchCapacityBySlot || {}
   });
   const [isSaving, setIsSaving] = useState(false);
   const [newHoliday, setNewHoliday] = useState('');
+
+  useEffect(() => {
+    setConfig({
+      workingDays: scheduleConfig?.workingDays || ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'],
+      workingHours: scheduleConfig?.workingHours || [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20],
+      lockDayOfWeek: scheduleConfig?.lockDayOfWeek ?? 6,
+      lockHour: scheduleConfig?.lockHour ?? 12,
+      isAutoLockEnabled: scheduleConfig?.isAutoLockEnabled ?? false,
+      holidays: scheduleConfig?.holidays || [],
+      holidayDetails: scheduleConfig?.holidayDetails || [],
+      branchCapacityBySlot: scheduleConfig?.branchCapacityBySlot || {},
+    });
+  }, [scheduleConfig]);
+
+  const setBranchCapacity = (branchId: string, rawValue: string) => {
+    setConfig((current) => {
+      const branchCapacityBySlot = { ...(current.branchCapacityBySlot || {}) };
+      const existing = { ...(branchCapacityBySlot[branchId] || {}) };
+      if (!rawValue) existing.default = null;
+      else existing.default = Math.max(1, Math.min(500, Math.trunc(Number(rawValue) || 1)));
+      if (Object.keys(existing).length) branchCapacityBySlot[branchId] = existing;
+      else delete branchCapacityBySlot[branchId];
+      return { ...current, branchCapacityBySlot };
+    });
+  };
   
   const toggleDay = (day: Day) => {
     setConfig(prev => ({
@@ -106,6 +131,47 @@ export default function ScheduleSettings() {
             )
           })}
         </div>
+      </div>
+
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+        <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
+          <Gauge className="w-5 h-5 text-sky-400" />
+          Công suất đồng thời theo chi nhánh
+        </h3>
+        <p className="text-sm text-zinc-400 mb-5">
+          Giới hạn tổng số học viên trong cùng một khung giờ, tính trên tất cả PT. Để trống nếu chi nhánh không cần giới hạn.
+        </p>
+        {branches.filter((branch) => branch.status !== 'archived').length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {branches.filter((branch) => branch.status !== 'archived').map((branch) => {
+              const configuredCapacity = config.branchCapacityBySlot?.[branch.id]?.default;
+              const capacity = typeof configuredCapacity === 'number' && configuredCapacity > 0 ? configuredCapacity : '';
+              return (
+                <label key={branch.id} className="flex items-center justify-between gap-4 bg-zinc-950/70 border border-zinc-800 rounded-xl px-4 py-3">
+                  <span className="min-w-0">
+                    <strong className="block text-sm text-white truncate">{branch.name}</strong>
+                    <small className="text-zinc-500">Tổng học viên / một khung giờ</small>
+                  </span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="500"
+                    inputMode="numeric"
+                    aria-label={`Công suất đồng thời của ${branch.name}`}
+                    value={capacity ?? ''}
+                    placeholder="∞"
+                    onChange={(event) => setBranchCapacity(branch.id, event.target.value)}
+                    className="w-24 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-right text-white focus:outline-none focus:border-sky-400"
+                  />
+                </label>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-center py-6 border border-dashed border-zinc-800 rounded-xl text-zinc-500 text-sm">
+            Chưa có chi nhánh hoạt động để cấu hình.
+          </div>
+        )}
       </div>
 
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">

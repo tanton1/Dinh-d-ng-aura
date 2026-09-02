@@ -6,10 +6,12 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const {
   branchScheduleSnapshot,
+  branchSlotCapacity,
   dateForSlot,
   documentId,
   nextWeek,
   normalizedCapacity,
+  normalizedScheduleConfig,
   storedDate,
   trainerAvailabilityMode,
   trainerIsAvailable,
@@ -197,8 +199,8 @@ async function loadBranchData(db, branchId, week) {
     draftReference(db, branchId, week).get(),
     db.collection('students').where('branchId', '==', branchId).limit(MAX_STUDENTS + 1).get(),
     db.collection('trainers').where('branchId', '==', branchId).limit(MAX_TRAINERS + 1).get(),
-    db.collection('sessions').where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
-    db.collection('sessions').where('status', 'in', ['scheduled', 'rescheduled']).limit(3001).get(),
+    db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
+    db.collection('sessions').where('branchId', '==', branchId).where('status', 'in', ['scheduled', 'rescheduled']).limit(3001).get(),
     db.doc('settings/scheduleConfig').get(),
     db.collection('leaveRequests').where('status', '==', 'approved').limit(1001).get(),
   ])
@@ -367,12 +369,7 @@ async function loadBranchData(db, branchId, week) {
     availability: weeklyAvailability,
     sessions: sessionRows,
     leaves: leaves.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => trainerIds.has(item.trainerId)),
-    config: {
-      workingDays: Array.isArray(config.data()?.workingDays) ? config.data().workingDays : [...DAY_ORDER.keys()],
-      workingHours: Array.isArray(config.data()?.workingHours) ? config.data().workingHours.map(Number) : [],
-      holidays: Array.isArray(config.data()?.holidays) ? config.data().holidays : [],
-      branchCapacityBySlot: config.data()?.branchCapacityBySlot || {},
-    },
+    config: normalizedScheduleConfig(config.data()),
   }
 }
 
@@ -494,12 +491,7 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId) 
     contracts,
     sessions,
     leaves: leaves.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => item.status === 'approved'),
-    config: {
-      workingDays: Array.isArray(config.data()?.workingDays) ? config.data().workingDays : [...DAY_ORDER.keys()],
-      workingHours: Array.isArray(config.data()?.workingHours) ? config.data().workingHours.map(Number) : [],
-      holidays: Array.isArray(config.data()?.holidays) ? config.data().holidays : [],
-      branchCapacityBySlot: config.data()?.branchCapacityBySlot || {},
-    },
+    config: normalizedScheduleConfig(config.data()),
   }
 }
 
@@ -698,6 +690,8 @@ function createsThreeConsecutiveTrainingDays(existingDays, candidateDay) {
 function buildSchedulingState(schedule) {
   const state = {
     studentDays: new Map(),
+    studentSessionCounts: new Map(),
+    branchSlotCounts: new Map(),
     trainerSlotsByDay: new Map(),
     trainerSlotCounts: new Map(),
     trainerStudentSessions: new Map(),
@@ -714,6 +708,8 @@ function buildSchedulingState(schedule) {
       }
       if (!state.studentDays.has(entry.studentId)) state.studentDays.set(entry.studentId, new Set())
       state.studentDays.get(entry.studentId).add(day)
+      state.studentSessionCounts.set(entry.studentId, (state.studentSessionCounts.get(entry.studentId) || 0) + 1)
+      state.branchSlotCounts.set(slotId, (state.branchSlotCounts.get(slotId) || 0) + 1)
       const trainerDayKey = `${entry.trainerId}|${day}`
       if (!state.trainerSlotsByDay.has(trainerDayKey)) state.trainerSlotsByDay.set(trainerDayKey, new Set())
       state.trainerSlotsByDay.get(trainerDayKey).add(slotId)
@@ -729,6 +725,8 @@ function addEntryToSchedulingState(state, slotId, entry) {
   const [day] = slotId.split('-')
   if (!state.studentDays.has(entry.studentId)) state.studentDays.set(entry.studentId, new Set())
   state.studentDays.get(entry.studentId).add(day)
+  state.studentSessionCounts.set(entry.studentId, (state.studentSessionCounts.get(entry.studentId) || 0) + 1)
+  state.branchSlotCounts.set(slotId, (state.branchSlotCounts.get(slotId) || 0) + 1)
   const trainerDayKey = `${entry.trainerId}|${day}`
   if (!state.trainerSlotsByDay.has(trainerDayKey)) state.trainerSlotsByDay.set(trainerDayKey, new Set())
   state.trainerSlotsByDay.get(trainerDayKey).add(slotId)
@@ -776,10 +774,14 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
   if (contractCache && !contractCache.has(contractCacheKey)) contractCache.set(contractCacheKey, contractResult)
   reasons.push(...contractResult.reasons)
   if (state.studentDays.get(student.id)?.has(day)) reasons.push('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
+  const scheduledForStudent = state.studentSessionCounts.get(student.id) || 0
+  if (Number(student.sessionsPerWeek || 0) >= 0 && scheduledForStudent >= Number(student.sessionsPerWeek || 0)) reasons.push('STUDENT_WEEKLY_TARGET_REACHED')
   const trainerSlotKey = `${trainer.id}|${slotId}`
   if (state.offTrainerSlots.has(trainerSlotKey)) reasons.push('TRAINER_OFF_CONFLICT')
   const trainerCount = state.trainerSlotCounts.get(trainerSlotKey) || 0
   if (trainerCount >= trainer.slotCapacity) reasons.push('TRAINER_CAPACITY_EXCEEDED')
+  const configuredBranchCapacity = branchSlotCapacity(data.config, data.branch.id, slotId)
+  if (configuredBranchCapacity !== null && (state.branchSlotCounts.get(slotId) || 0) >= configuredBranchCapacity) reasons.push('BRANCH_CAPACITY_REACHED')
   const currentDailyLoad = state.trainerSlotsByDay.get(`${trainer.id}|${day}`)?.size || 0
   const opensTeachingSlot = trainerCount === 0
   const projectedDailyLoad = currentDailyLoad + (opensTeachingSlot ? 1 : 0)
@@ -1027,6 +1029,8 @@ function feasibilitySlotIndex(data, schedule, state = buildSchedulingState(sched
     if ((workingDays.length && !workingDays.includes(day))
       || (workingHours.length && !workingHours.includes(hour))
       || holidays.includes(date)) continue
+    const configuredBranchCapacity = branchSlotCapacity(data.config, data.branch.id, slotId)
+    if (configuredBranchCapacity !== null && (state.branchSlotCounts.get(slotId) || 0) >= configuredBranchCapacity) continue
     if (data.trainers.some((trainer) => {
       if (!trainer || trainer.status === 'inactive' || trainer.branchId !== data.branch.id) return false
       if (trainer.employmentType === 'collaborator') {
@@ -1113,6 +1117,7 @@ function matchSchedulingRound(data, schedule, students) {
   const priorityIndex = new Map(orderedStudents.map((student, index) => [student.id, index]))
   const assignments = new Map()
   const occupantsByTarget = new Map()
+  const assignedStudentsByBranchSlot = new Map()
   const targetCapacity = new Map()
 
   for (const candidates of candidatesByStudent.values()) {
@@ -1130,10 +1135,12 @@ function matchSchedulingRound(data, schedule, students) {
     if (previous) {
       const previousKey = `${previous.trainer.id}|${previous.slotId}`
       occupantsByTarget.set(previousKey, (occupantsByTarget.get(previousKey) || []).filter((id) => id !== studentId))
+      assignedStudentsByBranchSlot.set(previous.slotId, (assignedStudentsByBranchSlot.get(previous.slotId) || []).filter((id) => id !== studentId))
     }
     const targetKey = `${candidate.trainer.id}|${candidate.slotId}`
     assignments.set(studentId, candidate)
     occupantsByTarget.set(targetKey, [...(occupantsByTarget.get(targetKey) || []), studentId])
+    assignedStudentsByBranchSlot.set(candidate.slotId, [...(assignedStudentsByBranchSlot.get(candidate.slotId) || []), studentId])
   }
 
   const tryAssign = (studentId, visitedStudents = new Set(), visitedTargets = new Set()) => {
@@ -1152,6 +1159,13 @@ function matchSchedulingRound(data, schedule, students) {
     for (const candidate of rankedCandidates) {
       const targetKey = `${candidate.trainer.id}|${candidate.slotId}`
       if (visitedTargets.has(targetKey) || (targetCapacity.get(targetKey) || 0) < 1) continue
+      const configuredBranchCapacity = branchSlotCapacity(data.config, data.branch.id, candidate.slotId)
+      const previous = assignments.get(studentId)
+      const alreadyUsesBranchSlot = previous?.slotId === candidate.slotId
+      const projectedBranchLoad = (state.branchSlotCounts.get(candidate.slotId) || 0)
+        + (assignedStudentsByBranchSlot.get(candidate.slotId) || []).length
+        + (alreadyUsesBranchSlot ? 0 : 1)
+      if (configuredBranchCapacity !== null && projectedBranchLoad > configuredBranchCapacity) continue
       const occupants = occupantsByTarget.get(targetKey) || []
       if (occupants.length < targetCapacity.get(targetKey)) {
         setAssignment(studentId, candidate)
@@ -1237,7 +1251,18 @@ function boundedRepairCandidates(data, student, schedule, forbiddenTargets, budg
  * exact contract dates and branch rules continue to be enforced by the same
  * candidateForSlot path used by normal generation.
  */
-function tryRepairPlacement(data, studentMap, student, schedule, template, depth, visitedStudents, forbiddenTargets, budget) {
+function repairMove(student, origin, candidate) {
+  return {
+    studentId: student.id,
+    studentName: student.name || '',
+    fromSlotId: origin?.slotId || null,
+    fromTrainerId: origin?.entry?.trainerId || null,
+    toSlotId: candidate.slotId,
+    toTrainerId: candidate.trainer.id,
+  }
+}
+
+function tryRepairPlacement(data, studentMap, student, schedule, origin, depth, visitedStudents, forbiddenTargets, budget) {
   if (!student || visitedStudents.has(student.id) || budget.nodes >= budget.limit) return null
   const nextVisitedStudents = new Set(visitedStudents)
   nextVisitedStudents.add(student.id)
@@ -1245,8 +1270,9 @@ function tryRepairPlacement(data, studentMap, student, schedule, template, depth
   const directCandidates = boundedRepairCandidates(data, student, schedule, forbiddenTargets, budget)
   for (const candidate of directCandidates) {
     return {
-      schedule: scheduleWithEntry(schedule, candidate.slotId, autoEntryForCandidate(data, student, candidate, template)),
+      schedule: scheduleWithEntry(schedule, candidate.slotId, autoEntryForCandidate(data, student, candidate, origin?.entry || null)),
       relocations: 0,
+      moves: [repairMove(student, origin, candidate)],
     }
   }
   if (depth < 1) return null
@@ -1294,7 +1320,7 @@ function tryRepairPlacement(data, studentMap, student, schedule, template, depth
       studentMap,
       attempt.occupantStudent,
       attempt.schedule,
-      attempt.occupantEntry,
+      { entry: attempt.occupantEntry, slotId: attempt.candidate.slotId },
       depth - 1,
       nextVisitedStudents,
       nextForbiddenTargets,
@@ -1305,9 +1331,10 @@ function tryRepairPlacement(data, studentMap, student, schedule, template, depth
       schedule: scheduleWithEntry(
         relocated.schedule,
         attempt.candidate.slotId,
-        autoEntryForCandidate(data, student, attempt.candidate, template),
+        autoEntryForCandidate(data, student, attempt.candidate, origin?.entry || null),
       ),
       relocations: relocated.relocations + 1,
+      moves: [...relocated.moves, repairMove(student, origin, attempt.candidate)],
     }
   }
   return null
@@ -1320,6 +1347,7 @@ function repairCoverageWithRelocations(data, inputSchedule, students, remainingB
   const maxAssignments = Math.max(0, Number(options.maxAssignments ?? MAX_DRAFT_ENTRIES))
   const budget = { nodes: 0, limit: Math.max(1, Number(options.maxSearchNodes || MAX_REPAIR_SEARCH_NODES)) }
   const assignedStudentIds = []
+  const swapTrace = []
   let relocations = 0
   let progress = true
 
@@ -1349,6 +1377,7 @@ function repairCoverageWithRelocations(data, inputSchedule, students, remainingB
       localRemaining.set(student.id, Math.max(0, (localRemaining.get(student.id) || 0) - 1))
       assignedStudentIds.push(student.id)
       relocations += repaired.relocations
+      swapTrace.push(...repaired.moves)
       progress = true
     }
   }
@@ -1360,6 +1389,7 @@ function repairCoverageWithRelocations(data, inputSchedule, students, remainingB
     relocations,
     searchNodes: budget.nodes,
     searchLimitReached: budget.nodes >= budget.limit,
+    swapTrace,
   }
 }
 
@@ -1576,6 +1606,7 @@ function generateSchedule(data) {
   let repairRelocations = 0
   let repairSearchNodes = 0
   let repairSearchLimitReached = false
+  const swapTrace = []
   let optimizationPasses = 1
   for (let pass = 0; pass < MAX_DEEP_OPTIMIZATION_PASSES; pass += 1) {
     const compacted = compactPairedSlots(data, schedule)
@@ -1594,7 +1625,7 @@ function generateSchedule(data) {
       MAX_DRAFT_DOCUMENT_ENTRIES - scheduleDocumentEntryCount(schedule),
     ))
     const repaired = capacityReached || repairCapacity < 1
-      ? { assignments: 0, relocations: 0, searchNodes: 0, searchLimitReached: false, assignedStudentIds: [], schedule }
+      ? { assignments: 0, relocations: 0, searchNodes: 0, searchLimitReached: false, assignedStudentIds: [], swapTrace: [], schedule }
       : repairCoverageWithRelocations(data, schedule, students, remainingByStudent, { maxAssignments: repairCapacity })
     if (repaired.assignments > 0) {
       Object.keys(schedule).forEach((slotId) => delete schedule[slotId])
@@ -1606,6 +1637,7 @@ function generateSchedule(data) {
       entryCount += repaired.assignments
       repairAssignments += repaired.assignments
       repairRelocations += repaired.relocations
+      swapTrace.push(...repaired.swapTrace)
       capacityReached = entryCount >= MAX_DRAFT_ENTRIES || scheduleDocumentEntryCount(schedule) >= MAX_DRAFT_DOCUMENT_ENTRIES
     }
     repairSearchNodes += repaired.searchNodes
@@ -1658,8 +1690,9 @@ function generateSchedule(data) {
     repairRelocations,
     repairSearchNodes,
     repairSearchLimitReached,
+    swapTrace: swapTrace.slice(0, 500),
     optimizationPasses,
-    generatorVersion: 'optimizer-v7',
+    generatorVersion: 'optimizer-v8',
   }
   return { schedule, warnings, optimizationSummary, unassignedEntries }
 }
@@ -1704,13 +1737,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
     const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
     await scheduleActor(request, db, branchId)
     const data = await loadBranchData(db, branchId, week)
-    const scheduledByStudent = new Map()
-    for (const entry of Object.values(data.schedule).flat()) {
-      if (entry.type === 'off') continue
-      scheduledByStudent.set(entry.studentId, (scheduledByStudent.get(entry.studentId) || 0) + 1)
-    }
     const eligibleStudents = data.students.filter((student) => student.eligibleForWeek === true)
-    const missingSessions = eligibleStudents.reduce((total, student) => total + Math.max(0, student.sessionsPerWeek - (scheduledByStudent.get(student.id) || 0)), 0)
     const draftSnapshot = await draftReference(db, branchId, week).get()
     const draftData = draftSnapshot.exists ? draftSnapshot.data() : {}
     const workloadSchedule = safeSchedule(data.schedule)
@@ -1739,15 +1766,19 @@ function createPtScheduleV2Functions({ db, onCall }) {
       scheduleConfig: data.config,
       warnings: Array.isArray(draftData.warnings) ? draftData.warnings.slice(0, 100) : [],
       // Always derive live workload from the current draft and current trainer
-      // policy. Stored summaries are audit snapshots and may predate a policy edit.
-      optimizationSummary: calculatedOptimizationSummary,
+      // policy. Keep generator diagnostics (including the relocation trace)
+      // from the audit snapshot, but never reuse its stale live metrics.
+      optimizationSummary: {
+        ...(draftData.optimizationSummary && typeof draftData.optimizationSummary === 'object' ? draftData.optimizationSummary : {}),
+        ...calculatedOptimizationSummary,
+      },
       unassignedEntries: Array.isArray(draftData.unassignedEntries) ? draftData.unassignedEntries.slice(0, MAX_STUDENTS) : [],
       summary: {
         eligibleStudents: eligibleStudents.length,
         trainers: data.trainers.length,
         unconfiguredTrainers: data.trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').length,
-        scheduledEntries: Object.values(data.schedule).flat().filter((entry) => entry.type !== 'off').length,
-        missingSessions,
+        scheduledEntries: calculatedOptimizationSummary.studentCoverage.scheduledEntries,
+        missingSessions: calculatedOptimizationSummary.studentCoverage.missingSessions,
         unassignedEntries: Array.isArray(draftData.unassignedEntries) ? draftData.unassignedEntries.length : 0,
       },
     }
@@ -1774,7 +1805,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         schedule: generated.schedule,
         revision: nextRevision,
         status: 'draft',
-        generatorVersion: 'optimizer-v7',
+        generatorVersion: 'optimizer-v8',
         warnings: generated.warnings,
         optimizationSummary: generated.optimizationSummary,
         unassignedEntries: generated.unassignedEntries,
@@ -1783,7 +1814,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: 'pt_schedule.generated', actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, entryCount: scheduleEntryCount(generated.schedule), studentCoverage: generated.optimizationSummary.studentCoverage, slotUtilization: generated.optimizationSummary.slotUtilization, unassignedCount: generated.unassignedEntries.length, warnings: generated.warnings.slice(0, 100), createdAt: FieldValue.serverTimestamp() })
-      return { draftRevision: nextRevision, schedule: generated.schedule, warnings: generated.warnings, optimizationSummary: generated.optimizationSummary, unassignedEntries: generated.unassignedEntries, generatorVersion: 'optimizer-v7' }
+      return { draftRevision: nextRevision, schedule: generated.schedule, warnings: generated.warnings, optimizationSummary: generated.optimizationSummary, unassignedEntries: generated.unassignedEntries, generatorVersion: 'optimizer-v8' }
     })
   })
 
@@ -1837,14 +1868,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
     if (!studentSnapshot.exists || studentSnapshot.data().branchId !== branchId) {
       throw new HttpsError('not-found', 'Không tìm thấy học viên trong chi nhánh đang xếp lịch.')
     }
-    const config = {
-      workingDays: Array.isArray(configSnapshot.data()?.workingDays) && configSnapshot.data().workingDays.length
-        ? configSnapshot.data().workingDays.filter((day) => DAY_ORDER.has(day))
-        : [...DAY_ORDER.keys()].filter((day) => day !== 'CN'),
-      workingHours: Array.isArray(configSnapshot.data()?.workingHours) && configSnapshot.data().workingHours.length
-        ? configSnapshot.data().workingHours.map(Number).filter((hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23)
-        : Array.from({ length: 15 }, (_, index) => index + 6),
-    }
+    const config = normalizedScheduleConfig(configSnapshot.data())
     const slots = normalizedScheduleAvailabilitySlots(request.data?.availableSlots, config)
     const requiredSessions = Math.max(1, Math.min(7, Number(studentSnapshot.data().sessionsPerWeek || 1)))
     const minimumSlots = Math.max(5, requiredSessions)

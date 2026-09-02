@@ -391,6 +391,8 @@ test('schedule workspace scopes exact availability reads and bounds legacy fallb
   assert.match(ptScheduleV2Source, /exactAvailabilityForStudents\(db, studentIds, week\)/)
   assert.match(ptScheduleV2Source, /db\.doc\(`ptAvailability\/\$\{studentId\}_\$\{week\}`\)/)
   assert.doesNotMatch(ptScheduleV2Source, /collection\('ptAvailability'\)\.where\('weekId', '==', week\)/)
+  assert.match(ptSchedulePublishSource, /exactAvailabilitySnapshots\(db, scheduledStudentIds, week\)/)
+  assert.doesNotMatch(ptSchedulePublishSource, /collection\('ptAvailability'\)\.where\('weekId', '==', week\)/)
   assert.match(studentAvailabilitySource, /index \+= 50/)
   assert.match(studentAvailabilitySource, /slice\(index, index \+ 50\)/)
 })
@@ -413,7 +415,7 @@ test('legacy operations listeners are route scoped and never load the admin dash
   assert.doesNotMatch(viewScope, /['"]admin-report['"]/, 'the report must use aggregate APIs, not legacy listeners')
   assert.match(viewScope, /'admin-finance': \['branches', 'contracts', 'students'\]/)
   assert.match(viewScope, /'admin-payroll': \['trainers', 'branches'\]/)
-  assert.match(viewScope, /'admin-schedule-settings': \['scheduleConfig'\]/)
+  assert.match(viewScope, /'admin-schedule-settings': \['scheduleConfig', 'branches'\]/)
   assert.match(databaseContextSource, /const activeSources = new Set<LegacyOperationSource>\(LEGACY_OPERATIONS_VIEW_SOURCES\[operationsView\]\)/)
   assert.match(databaseContextSource, /const expectedInitialSnapshots = new Set<LegacyOperationSource>\(activeSources\)/)
 

@@ -110,7 +110,7 @@ const LEGACY_OPERATIONS_VIEW_SOURCES = {
   'admin-payroll': ['trainers', 'branches'],
   'admin-packages': ['packages', 'branches'],
   'admin-quotes': ['students', 'contracts', 'packages', 'branches'],
-  'admin-schedule-settings': ['scheduleConfig'],
+  'admin-schedule-settings': ['scheduleConfig', 'branches'],
   // Identity v2 assignment editor only needs branch labels; it must not
   // revive the former whole-operations listener set on the roles route.
   'admin-roles': ['branches', 'scheduleConfig'],
