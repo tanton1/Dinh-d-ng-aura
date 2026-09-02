@@ -223,4 +223,6 @@ async function main() {
   console.log(JSON.stringify(report, null, 2))
 }
 
-main().catch((error) => { console.error(error.message); process.exitCode = 1 })
+if (require.main === module) main().catch((error) => { console.error(error.message); process.exitCode = 1 })
+
+module.exports = { curate, draftVietnameseName, targetGroup, scoreExercise }

@@ -441,9 +441,10 @@ function createExerciseCatalogFunctions({ db, onCall }) {
     const bodyPart = text(request.data?.bodyPart, 80).toLocaleLowerCase('vi')
     const equipment = text(request.data?.equipment, 80).toLocaleLowerCase('vi')
     const difficulty = text(request.data?.difficulty, 20)
-    // The learner library now includes the curated ExerciseDB set in addition to
-    // Aura/YMove exercises. Keep this bounded, but high enough that published
-    // items are not silently omitted once the catalog grows past the old MVP cap.
+    // Free Exercise DB is the canonical learner source. ExerciseDB records are
+    // retained only as reviewed women-focused fallbacks when the canonical
+    // source has no equivalent. Keep this bounded, but high enough that
+    // published items are not silently omitted once the catalog grows.
     const snapshots = await db.collection('exercises').limit(500).get()
     const items = snapshots.docs.map(publicItem).filter((item) => {
       if (includeReview ? item.status === 'archived' : item.status !== 'published') return false

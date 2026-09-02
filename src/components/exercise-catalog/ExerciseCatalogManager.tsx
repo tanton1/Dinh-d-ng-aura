@@ -44,7 +44,7 @@ const popularForWomenIds = new Set([
   'aura_women_seated_cable_row', 'aura_women_dead_bug', 'aura_women_plank',
 ])
 
-// The curated ExerciseDB import is explicitly selected for the women’s library.
+// The curated Free Exercise DB catalog is the canonical women’s library.
 // Keep the legacy Aura IDs above so the filter remains useful during rollout.
 function isPopularForWomen(item: ExerciseCatalogItem | string) {
   const id = typeof item === 'string' ? item : item.id
@@ -52,7 +52,7 @@ function isPopularForWomen(item: ExerciseCatalogItem | string) {
 }
 
 const externalProviderMeta: Record<ExternalExerciseProvider, { label: string; note: string; source: string }> = {
-  exercisedb: { label: 'ExerciseDB Free', note: '1.500 ảnh động · không cần API key', source: 'GIF: ExerciseDB Free' },
+  exercisedb: { label: 'ExerciseDB Free', note: 'Chỉ bổ sung GIF khi Free Exercise DB có bài khớp', source: 'GIF bổ sung: ExerciseDB Free' },
   ymove_free: { label: 'YMove miễn phí', note: '25 video HD · dùng thương mại', source: 'Video: YMove Free Library' },
   ymove: { label: 'YMove API', note: 'Kho nâng cao · cần API key', source: 'Video: YMove API' },
 }

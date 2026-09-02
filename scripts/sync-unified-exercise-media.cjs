@@ -172,16 +172,18 @@ function loadExerciseDbSource() {
   return payload.rows.filter((entry) => entry?.exerciseId && entry?.name && entry?.gifUrl)
 }
 
-const stopWords = new Set(['the', 'with', 'and', 'body', 'weight', 'female', 'male', 'version', 'exercise'])
-const aliases = Object.freeze({
-  curls: 'curl', extensions: 'extension', raises: 'raise', rows: 'row', squats: 'squat', lunges: 'lunge',
-  dumbbells: 'dumbbell', barbells: 'barbell', seated: 'seat', sitting: 'seat', lying: 'lie', rear: 'reverse',
-  one: 'single', legged: 'leg', arms: 'arm', calves: 'calf', hyperextensions: 'hyperextension',
-})
+// This sync is intentionally conservative: Free Exercise DB owns the
+// exercise and still images. ExerciseDB V1 is used only to add a GIF when the
+// names are an exact normalized match or an explicitly reviewed mapping.
+const aliases = Object.freeze({ one: 'single' })
 
 function nameTokens(value) {
-  return unique(String(value || '').toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').split(/\s+/)
-    .map((token) => aliases[token] || token).filter((token) => token && !stopWords.has(token)))
+  return unique(String(value || '').toLowerCase().replace(/\((?:female|male)\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').split(/\s+/)
+    .map((token) => aliases[token] || token).filter(Boolean))
+}
+
+function canonicalNameKey(value) {
+  return nameTokens(value).map((token) => token.endsWith('s') && token.length > 3 ? token.slice(0, -1) : token).sort().join(' ')
 }
 
 function matchScore(leftValue, rightValue) {
@@ -200,6 +202,11 @@ function matchScore(leftValue, rightValue) {
 }
 
 function bestSourceMatch(item, source) {
+  // Do not attach a second provider to an ExerciseDB-owned fallback item.
+  // Those records already use ExerciseDB because Free Exercise DB has no
+  // reviewed equivalent; the sync only enriches canonical Free Exercise DB
+  // records with optional GIF media.
+  if (item.data.source?.provider !== 'free-exercise-db') return null
   const directId = item.data.externalMedia?.provider === 'exercisedb' ? item.data.externalMedia.exerciseId
     : item.data.source?.provider === 'exercisedb' ? item.data.source.sourceExerciseId : ''
   if (directId) {
@@ -212,13 +219,11 @@ function bestSourceMatch(item, source) {
     return verified ? { source: verified, score: 1, method: 'verified-map' } : null
   }
   if (DO_NOT_AUTO_MATCH.has(item.id)) return null
-  const searchNames = unique([item.data.source?.sourceExerciseId, item.data.nameEn].map((value) => String(value || '').replace(/_/g, ' ')))
-  let best = null
-  for (const candidate of source) {
-    const score = Math.max(...searchNames.map((name) => matchScore(name, candidate.name)))
-    if (!best || score > best.score) best = { source: candidate, score, method: 'name' }
-  }
-  return best && best.score >= 0.9 ? best : null
+  const searchNames = unique([item.data.nameEn, item.data.source?.sourceExerciseId].map((value) => String(value || '').replace(/_/g, ' ')))
+  const keys = new Set(searchNames.map(canonicalNameKey).filter(Boolean))
+  const candidates = source.filter((candidate) => keys.has(canonicalNameKey(candidate.name)))
+  if (!candidates.length) return null
+  return { source: candidates[0], score: 1, method: 'exact-normalized-name' }
 }
 
 function legacyImages(item) {
@@ -232,7 +237,7 @@ function legacyImages(item) {
 }
 
 function buildPlan(catalog, source) {
-  const targets = catalog.filter((item) => item.data.status === 'published' && (item.data.source?.provider === 'exercisedb' || item.data.source?.provider === 'free-exercise-db' || item.id.startsWith('aura_women_')))
+  const targets = catalog.filter((item) => item.data.status === 'published' && item.data.source?.provider === 'free-exercise-db')
   const matched = []
   const unmatched = []
   const entries = []
@@ -406,14 +411,18 @@ async function commitSelectedEntries(token, entries, preparedBySource) {
 }
 
 function verification(catalog) {
-  const target = catalog.filter((item) => item.data.status === 'published' && (item.data.source?.provider === 'exercisedb' || item.data.source?.provider === 'free-exercise-db' || item.id.startsWith('aura_women_')))
+  const target = catalog.filter((item) => item.data.status === 'published' && ['exercisedb', 'free-exercise-db'].includes(item.data.source?.provider))
+  const canonical = target.filter((item) => item.data.source?.provider === 'free-exercise-db')
+  const supplemental = target.filter((item) => item.data.source?.provider === 'exercisedb')
   const withImageGallery = target.filter((item) => Array.isArray(item.data.media?.images) && item.data.media.images.length >= 2)
   const withExerciseDbGif = target.filter((item) => Array.isArray(item.data.media?.videos) && item.data.media.videos.some((video) => video.provider === 'exercisedb' && video.format === 'gif'))
-  const exercisedbItems = target.filter((item) => item.data.source?.provider === 'exercisedb')
-  const incompleteExerciseDb = exercisedbItems.filter((item) => !withImageGallery.includes(item) || !withExerciseDbGif.includes(item))
+  const incompleteExerciseDb = supplemental.filter((item) => !withImageGallery.includes(item) || !withExerciseDbGif.includes(item))
   return {
     targetCount: target.length, imageGalleryCount: withImageGallery.length, exerciseDbGifCount: withExerciseDbGif.length,
-    exerciseDbItemCount: exercisedbItems.length, incompleteExerciseDb: incompleteExerciseDb.map((item) => item.id),
+    canonicalTargetCount: canonical.length,
+    canonicalWithExerciseDbGifCount: canonical.filter((item) => withExerciseDbGif.includes(item)).length,
+    canonicalWithoutExerciseDbGifCount: canonical.filter((item) => !withExerciseDbGif.includes(item)).length,
+    exerciseDbItemCount: supplemental.length, incompleteExerciseDb: incompleteExerciseDb.map((item) => item.id),
     missingImageGallery: target.filter((item) => !withImageGallery.includes(item)).map((item) => item.id),
   }
 }

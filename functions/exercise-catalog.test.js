@@ -14,6 +14,7 @@ const trainerWorkspaceSource = fs.readFileSync(path.join(__dirname, '..', 'src',
 const exercisedbWomenImporter = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'import-exercisedb-women-catalog.cjs'), 'utf8')
 const mediaPlayerSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'exercise-catalog', 'ExerciseMediaPlayer.tsx'), 'utf8')
 const unifiedMediaSync = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'sync-unified-exercise-media.cjs'), 'utf8')
+const sourceComparison = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'compare-exercise-sources.cjs'), 'utf8')
 
 test('exercise catalog is authenticated, review-gated and revisioned', () => {
   assert.match(source, /if \(!uid\) throw new HttpsError\('unauthenticated'/)
@@ -148,6 +149,15 @@ test('exercise media keeps the complete gallery and safely unifies stills with E
   assert.match(source, /startImageUrl: startImage\?\.url \|\| text\(rawMedia\?\.startImageUrl/)
   assert.match(source, /posterUrl: posterImage\?\.url \|\| text\(rawMedia\?\.posterUrl/)
   assert.match(unifiedMediaSync, /legacyImages\(entry\.target\)\.filter\(\(image\) => !isAnimatedImageUrl/)
+})
+
+test('Free Exercise DB is canonical and ExerciseDB V1 is a reviewed GIF fallback', () => {
+  assert.match(sourceComparison, /Free Exercise DB là nguồn bài tập chính; ExerciseDB Free V1 chỉ là nguồn GIF\/bổ sung/)
+  assert.match(sourceComparison, /freeCanonicalWithExerciseDbGif/)
+  assert.match(sourceComparison, /exerciseDbWomenFallbackCandidates/)
+  assert.match(unifiedMediaSync, /item\.data\.source\?\.provider !== 'free-exercise-db'/)
+  assert.match(unifiedMediaSync, /method: 'exact-normalized-name'/)
+  assert.match(unifiedMediaSync, /const targets = catalog\.filter\(\(item\) => item\.data\.status === 'published' && item\.data\.source\?\.provider === 'free-exercise-db'/)
 })
 
 test('exercise media player reliably plays selected videos and falls back from broken sources', () => {
