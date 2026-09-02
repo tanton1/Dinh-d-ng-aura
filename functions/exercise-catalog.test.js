@@ -140,6 +140,9 @@ test('exercise media keeps the complete gallery and safely unifies stills with E
   assert.match(unifiedMediaSync, /DEPRECATED_MEDIA_REPLACEMENTS/)
   assert.match(unifiedMediaSync, /nextAvailableRevision/)
   assert.match(unifiedMediaSync, /sourceAttribution/)
+  assert.match(source, /validExerciseImageStoragePath/)
+  assert.match(source, /parts\.length === 4 && parts\[0\] === 'exercise-catalog' && parts\[1\] === 'exercisedb'/)
+  assert.match(source, /parts\.length === 3 && parts\[0\] === 'exercise-catalog' && parts\[1\] === 'ymove-free'/)
 })
 
 test('exercise media player reliably plays selected videos and falls back from broken sources', () => {

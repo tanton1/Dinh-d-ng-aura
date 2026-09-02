@@ -30,6 +30,20 @@ function safeId(value) {
   return id
 }
 
+function validExerciseImageStoragePath(storagePath, exerciseId) {
+  const parts = storagePath.split('/')
+  if (parts.some((part) => !part || part === '.' || part === '..')) return false
+  const fileName = parts.at(-1) || ''
+  if (!/^[A-Za-z0-9_-]{1,240}\.(?:webp|jpg|jpeg|png)$/i.test(fileName)) return false
+  // Staff uploads are scoped to the Aura exercise id. Media migrations use a
+  // separate, immutable provider namespace so their generated frame files can
+  // be read without weakening the path checks to arbitrary storage URLs.
+  if (parts.length === 3 && parts[0] === 'exercise-catalog' && parts[1] === exerciseId) return true
+  if (parts.length === 4 && parts[0] === 'exercise-catalog' && parts[1] === 'exercisedb') return true
+  if (parts.length === 3 && parts[0] === 'exercise-catalog' && parts[1] === 'ymove-free') return true
+  return false
+}
+
 function mediaImages(value, exerciseId) {
   if (!Array.isArray(value)) return []
   return value.flatMap((entry, index) => {
@@ -38,7 +52,7 @@ function mediaImages(value, exerciseId) {
     const url = text(entry.url, 2_000)
     if (!id || !/^[A-Za-z0-9_-]+$/.test(id) || !url) return []
     const storagePath = text(entry.storagePath, 500)
-    if (storagePath && !storagePath.startsWith(`exercise-catalog/${exerciseId}/`)) return []
+    if (storagePath && !validExerciseImageStoragePath(storagePath, exerciseId)) return []
     return [{
       id,
       url,
