@@ -438,8 +438,13 @@ async function main() {
   const selectedMatched = selectedEntries.filter((entry) => entry.source)
   const report = {
     schemaVersion: 1, release: RELEASE, mode: args.mode, targetCount: plan.targets.length, matchedCount: plan.matched.length,
-    unmatchedCount: plan.unmatched.length, unmatched: plan.unmatched, nameMatches: plan.matched.filter((entry) => entry.method === 'name').map((entry) => ({ id: entry.target.id, exerciseId: entry.source.exerciseId, sourceName: entry.source.name, score: entry.score })),
+    unmatchedCount: plan.unmatched.length, unmatched: plan.unmatched,
     sourceMediaCount: new Set(plan.matched.map((entry) => entry.source.exerciseId)).size, planDigest: plan.digest, writesPerformed: false,
+    // Keep the report compatible with the older `name` label while exposing
+    // the actual matching method used by the conservative media resolver.
+    nameMatches: plan.matched.filter((entry) => entry.method === 'exact-normalized-name' || entry.method === 'name').map((entry) => ({
+      id: entry.target.id, exerciseId: entry.source.exerciseId, sourceName: entry.source.name, score: entry.score, method: entry.method,
+    })),
   }
   if (args.mode === 'apply') {
     if (args.digest !== plan.digest) throw new Error('Live plan digest no longer matches the approved dry run.')

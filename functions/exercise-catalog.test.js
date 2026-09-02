@@ -172,6 +172,11 @@ test('the learner release is a guarded 120-item Free Exercise DB catalog', () =>
   assert.match(releaseScript, /currentDocument: \{ updateTime: document\.updateTime \}/)
 })
 
+test('media reconciliation report exposes normalized name matches', () => {
+  assert.match(unifiedMediaSync, /entry\.method === 'exact-normalized-name' \|\| entry\.method === 'name'/)
+  assert.match(unifiedMediaSync, /method: entry\.method/)
+})
+
 test('exercise media player reliably plays selected videos and falls back from broken sources', () => {
   assert.match(mediaPlayerSource, /function isAnimatedImageVideo/)
   assert.match(mediaPlayerSource, /function mergeRemoteAndLocalVideos/)
