@@ -31,6 +31,13 @@ test('nutrition scan result stays responsive and does not expose Coach/PT sugges
   await expect(result.getByText(/đánh giá lượng đạm, carb, béo và chất xơ/i)).toBeVisible()
   await expect(result.getByRole('heading', { name: 'Giúp Aura tính sát bữa ăn thực tế' })).toBeVisible()
   await expect(result.getByText('0/1 đã rõ')).toBeVisible()
+  await result.getByRole('button', { name: 'Cần sửa' }).click()
+  await result.getByPlaceholder(/thêm 1 trứng/i).fill('chỉ ăn một nửa phần sốt')
+  await expect(result.getByText(/Đã ghi nhận mô tả.*Aura tính lại/i)).toBeVisible()
+  await expect(result.getByRole('button', { name: /Aura tính lại từ phần sửa/i })).toBeDisabled()
+  await expect(result.getByText(/Ảnh gốc không còn trong phiên này/i)).toBeVisible()
+  await result.getByRole('button', { name: 'Không rõ' }).click()
+  await expect(result.getByText(/giữ số liệu AI ban đầu.*mở rộng khoảng ước tính/i)).toBeVisible()
   await result.getByRole('button', { name: 'Đúng' }).click()
   await expect(result.getByText('1/1 đã rõ')).toBeVisible()
 

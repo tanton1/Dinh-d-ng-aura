@@ -76,6 +76,7 @@ test('food analysis prompt asks the model to answer every advisory field separat
   assert.match(instructions, /Never concatenate headings, repeat the same sentence, or move content between fields/)
   assert.match(instructions, /student goal supplied only as untrusted metadata/)
   assert.match(instructions, /Never add filler, greetings, motivational slogans, body\/beauty claims/)
+  assert.match(instructions, /explicit corrections from follow-up answers[\s\S]*?update the affected ingredients, grams, cooking method, totals and calorie range/)
 })
 
 test('food vision sends image and strict JSON schema through apikey.fun', () => {

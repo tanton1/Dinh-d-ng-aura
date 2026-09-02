@@ -1383,12 +1383,6 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     return { score: finalScore, badge, description, proteinPct, fatPct, carbsPct }
   }, [adjustedTotals])
 
-  const adjustedRange = useMemo(() => {
-    if (!serverRange || baselineCalories <= 0) return { low: Math.round(adjustedTotals.calories * .88), high: Math.round(adjustedTotals.calories * 1.12) }
-    const multiplier = adjustedTotals.calories / baselineCalories
-    return { low: Math.max(0, Math.round(serverRange.low * multiplier)), high: Math.max(0, Math.round(serverRange.high * multiplier)) }
-  }, [baselineCalories, serverRange, adjustedTotals.calories])
-
   const unresolvedItems = items.filter((item) => (item.confidence === 'low' || item.calculationSource !== 'database') && !confirmedItemIds.has(item.id))
   const unresolvedQuestions = analysisQuestions.filter((question) => {
     const response = questionResponses[question]
@@ -1396,6 +1390,20 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     if (response !== 'adjust') return false
     return !nutritionAdjustmentFromText(dynamicAnswers[question]?.customText).recognized
   })
+  const adjustedRange = useMemo(() => {
+    const baseRange = !serverRange || baselineCalories <= 0
+      ? { low: adjustedTotals.calories * .88, high: adjustedTotals.calories * 1.12 }
+      : {
+          low: serverRange.low * (adjustedTotals.calories / baselineCalories),
+          high: serverRange.high * (adjustedTotals.calories / baselineCalories),
+        }
+    const uncertaintyRatio = Math.min(.28, unresolvedQuestions.length * .08 + unresolvedItems.length * .04)
+    return {
+      low: Math.max(0, Math.round(baseRange.low * (1 - uncertaintyRatio))),
+      high: Math.round(baseRange.high * (1 + uncertaintyRatio)),
+    }
+  }, [adjustedTotals.calories, baselineCalories, serverRange, unresolvedItems.length, unresolvedQuestions.length])
+
   const allItemsFromCatalog = items.length > 0 && items.every((item) => item.calculationSource === 'database')
   const userConfirmedEstimate = !allItemsFromCatalog && unresolvedItems.length === 0 && unresolvedQuestions.length === 0
   const primaryNutrientSource = allItemsFromCatalog ? 'catalog' as const : userConfirmedEstimate ? 'user-confirmed' as const : 'ai-estimate' as const
@@ -1530,7 +1538,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     analyzeTimerRef.current = window.setTimeout(() => setStage('result'), 1450)
   }
 
-  const runImageAnalysis = async (file: File) => {
+  const runImageAnalysis = async (file: File, notes = '') => {
     setLastFile(file)
     setAnalysisError('')
     setHasAnalysisResult(false)
@@ -1541,7 +1549,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     }
     setStage('analyzing')
     try {
-      const response = await onAnalyzeImage(file, { mealType })
+      const response = await onAnalyzeImage(file, { mealType, notes: notes || undefined })
       const normalized = normalizeAnalysis(response)
       if (response.analysis) {
         setQuantityCookingAnalysis(getUsableFoodAnalysisText(response.analysis.quantityAndCookingAnalysis))
@@ -1628,6 +1636,18 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     const file = event.currentTarget.files?.[0]
     event.currentTarget.value = ''
     handleFile(file)
+  }
+
+  const reanalyzeWithClarifications = () => {
+    if (!lastFile || !onAnalyzeImage) return
+    const corrections = analysisQuestions.flatMap((question) => {
+      if (questionResponses[question] !== 'adjust') return []
+      const answer = dynamicAnswers[question]?.customText?.trim()
+      return answer ? [`${question.slice(0, 70)}: ${answer.slice(0, 120)}`] : []
+    })
+    if (corrections.length === 0) return
+    const notes = `Điều chỉnh đã xác nhận: ${corrections.join('; ')}`.slice(0, 300)
+    void runImageAnalysis(lastFile, notes)
   }
 
   const updateItem = (id: string, field: keyof Pick<AiFoodItem, 'name' | 'grams' | 'calories'>, value: string) => {
@@ -1964,6 +1984,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                     responses={questionResponses}
                     adjustments={Object.fromEntries(Object.entries(dynamicAnswers).map(([question, answer]) => [question, answer.customText ?? '']))}
                     unresolvedCount={unresolvedQuestions.length}
+                    canReanalyze={Boolean(lastFile && onAnalyzeImage)}
                     resolveAdjustment={nutritionAdjustmentFromText}
                     onResponse={(question, response) => {
                       setQuestionResponses((current) => ({ ...current, [question]: response }))
@@ -1978,6 +1999,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                       ...current,
                       [question]: { optionId: 'adjust', calorieDelta: 0, proteinDelta: 0, carbsDelta: 0, fatDelta: 0, customText: value },
                     }))}
+                    onReanalyze={reanalyzeWithClarifications}
                   />
                 </React.Suspense>
               )}

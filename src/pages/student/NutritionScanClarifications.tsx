@@ -1,5 +1,5 @@
 import React from 'react'
-import { Check, CircleAlert, Info, Scale, TriangleAlert } from 'lucide-react'
+import { Check, CircleAlert, Info, RefreshCw, Scale, TriangleAlert } from 'lucide-react'
 import type { NutritionClarificationResponse } from '../../features/nutrition/types'
 import '../../styles-nutrition-scan-clarifications.css'
 
@@ -13,9 +13,11 @@ interface NutritionScanClarificationsProps {
   responses: Record<string, NutritionClarificationResponse>
   adjustments: Record<string, string>
   unresolvedCount: number
+  canReanalyze: boolean
   resolveAdjustment: (value: string) => AdjustmentResult
   onResponse: (question: string, response: NutritionClarificationResponse) => void
   onAdjustment: (question: string, value: string) => void
+  onReanalyze: () => void
 }
 
 export default React.memo(function NutritionScanClarifications({
@@ -23,10 +25,14 @@ export default React.memo(function NutritionScanClarifications({
   responses,
   adjustments,
   unresolvedCount,
+  canReanalyze,
   resolveAdjustment,
   onResponse,
   onAdjustment,
+  onReanalyze,
 }: NutritionScanClarificationsProps) {
+  const hasCorrection = questions.some((question) => responses[question] === 'adjust' && Boolean(adjustments[question]?.trim()))
+
   return (
     <section className="nutrition-scan-clarifications" aria-labelledby="nutrition-scan-clarifications-title">
       <div className="nutrition-scan-clarifications__heading">
@@ -57,15 +63,32 @@ export default React.memo(function NutritionScanClarifications({
                     {adjustmentResult.recognized
                       ? `Đã cập nhật ${adjustmentResult.calories >= 0 ? '+' : ''}${adjustmentResult.calories} kcal vào kết quả.`
                       : adjustment
-                        ? 'Aura chưa quy đổi được mô tả này. Hãy chỉnh trực tiếp gram từng thành phần.'
+                        ? 'Đã ghi nhận mô tả. Chọn “Aura tính lại” để đọc lại ảnh và quy đổi toàn bộ kcal, đạm, carb, béo.'
                         : 'Nhập thay đổi để Aura cập nhật calories và macro.'}
                   </small>
                 </label>
+              )}
+              {response === 'unknown' && (
+                <p className="nutrition-scan-clarification__state-note">
+                  <Info size={13} /> Aura sẽ giữ số liệu AI ban đầu, mở rộng khoảng ước tính và đánh dấu bữa ăn cần kiểm tra.
+                </p>
               )}
             </article>
           )
         })}
       </div>
+      {hasCorrection && (
+        <div className="nutrition-scan-clarifications__reanalyze">
+          <button type="button" onClick={onReanalyze} disabled={!canReanalyze}>
+            <RefreshCw size={14} /> Aura tính lại từ phần sửa
+          </button>
+          <small>
+            {canReanalyze
+              ? 'Aura dùng lại ảnh trong phiên này và áp dụng mô tả như dữ liệu khẩu phần mới.'
+              : 'Ảnh gốc không còn trong phiên này. Hãy quét lại ảnh hoặc chỉnh gram trực tiếp ở danh sách thành phần.'}
+          </small>
+        </div>
+      )}
       {unresolvedCount > 0 && <p className="nutrition-scan-clarifications__notice"><TriangleAlert size={14} /> Còn {unresolvedCount} câu chưa rõ. Bạn vẫn có thể lưu, nhưng kết quả sẽ được đánh dấu là ước tính cần kiểm tra.</p>}
     </section>
   )
