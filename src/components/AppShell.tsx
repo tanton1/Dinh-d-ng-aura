@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { prefetchRoute } from '../utils/routePreloader'
 import {
   BarChart3,
   Bell,
+  Bot,
   BookOpen,
   Check,
   CalendarClock,
@@ -33,6 +34,11 @@ import { hasPermission, type Permission } from '../config/permissions'
 import type { AppMode, UserRole, ViewId } from '../types'
 import NotificationCenter from './NotificationCenter'
 
+// Keep the conversation out of the initial shell bundle. The coach is
+// available from every learner page, but its chat UI and Firebase calls are
+// loaded only after the member opens it.
+const AiCoachBottomSheet = lazy(() => import('./progress/AiCoachBottomSheet').then((module) => ({ default: module.AiCoachBottomSheet })))
+
 interface AppShellProps {
   children: ReactNode
   mode: AppMode
@@ -52,6 +58,7 @@ interface AppShellProps {
   onSearch?: (query: string) => void
   canNavigate?: (view: ViewId) => boolean
   authorizationError?: string | null
+  aiCoachConversationScope?: string
 }
 
 type ShellNavItem = { id: ViewId; label: string; icon: LucideIcon }
@@ -256,7 +263,7 @@ function isNavigationActive(view: ViewId, itemId: ViewId, mobile = false) {
   return false
 }
 
-export default function AppShell({ children, mode, view, onNavigate, onModeChange, mobileMenu, setMobileMenu, userName, userRole, role, setPreviewRole, userPhoto, backendMode, isStaffWorkspace = false, onSignOut, onSearch, canNavigate = () => true, authorizationError }: AppShellProps) {
+export default function AppShell({ children, mode, view, onNavigate, onModeChange, mobileMenu, setMobileMenu, userName, userRole, role, setPreviewRole, userPhoto, backendMode, isStaffWorkspace = false, onSignOut, onSearch, canNavigate = () => true, authorizationError, aiCoachConversationScope = 'progress-demo' }: AppShellProps) {
   const navSections: ShellNavSection[] = isStaffWorkspace
     ? staffNavSections
       .map((section) => ({ ...section, items: section.items.filter((item) => canNavigate(item.id)) }))
@@ -278,9 +285,19 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [online, setOnline] = useState(navigator.onLine)
   const [mobileDockHidden, setMobileDockHidden] = useState(false)
+  const [aiCoachOpen, setAiCoachOpen] = useState(false)
   const mobileSearchInputRef = useRef<HTMLInputElement>(null)
   const lastScrollYRef = useRef(0)
   const currentMonth = new Intl.DateTimeFormat('vi-VN', { month: 'numeric' }).format(new Date())
+  const showAiCoach = mode === 'student' && !isStaffWorkspace
+  // Progress already has a contextual AI Coach action in its header. Keep a
+  // single launcher there while preserving an open global conversation when
+  // the member navigates into the page.
+  const showAiCoachLauncher = showAiCoach && view !== 'progress'
+
+  useEffect(() => {
+    if (!showAiCoach) setAiCoachOpen(false)
+  }, [showAiCoach])
 
   useEffect(() => {
     const handleOnline = () => setOnline(true)
@@ -342,7 +359,37 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
     setMobileSearchOpen(false)
   }
 
-  if (isImmersive) return <>{children}</>
+  const aiCoachSurface = showAiCoach ? (
+    <>
+      {showAiCoachLauncher && (
+        <button
+          type="button"
+          className={`ai-coach-global-launcher${aiCoachOpen ? ' is-open' : ''}`}
+          data-testid="ai-coach-launcher"
+          aria-label="Mở Aura Health Coach"
+          aria-expanded={aiCoachOpen}
+          onClick={() => setAiCoachOpen(true)}
+        >
+          <span className="ai-coach-global-launcher__orb" aria-hidden="true"><Bot size={20} /></span>
+          <span className="ai-coach-global-launcher__copy">
+            <strong>Aura Coach</strong>
+            <small>Hỏi nhanh về dinh dưỡng</small>
+          </span>
+          <span className="ai-coach-global-launcher__status" aria-hidden="true" />
+        </button>
+      )}
+      {aiCoachOpen && (
+        <Suspense fallback={null}>
+          <AiCoachBottomSheet
+            onClose={() => setAiCoachOpen(false)}
+            conversationScope={aiCoachConversationScope}
+          />
+        </Suspense>
+      )}
+    </>
+  ) : null
+
+  if (isImmersive) return <>{children}{aiCoachSurface}</>
 
   return (
     <div className={`app-shell ${mode}`} data-view={view}>
@@ -538,6 +585,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
           </nav>
         )}
       </div>
+      {aiCoachSurface}
     </div>
   )
 }

@@ -21,6 +21,7 @@ test('nutrition scan result stays responsive and does not expose Coach/PT sugges
     }))
   })
   await page.goto('/#/nutrition?section=scan')
+  await expect(page.getByTestId('ai-coach-launcher')).toBeVisible()
   await page.getByTestId('nutrition-demo-scan').click()
 
   const result = page.getByTestId('nutrition-scan-result')

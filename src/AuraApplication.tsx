@@ -46,6 +46,8 @@ import { toCourseDraft } from './utils/courseDraft'
 import { DatabaseProvider } from './contexts/DatabaseContext'
 import './styles.css'
 import './styles-aura.css'
+import './styles-progress.css'
+import './styles-ai-coach.css'
 
 const AdminAcademyStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminAcademyStudentsPage'))
 const Onboarding = lazyWithRetry(() => import('./onboarding/Onboarding'))
@@ -1003,6 +1005,7 @@ function AuraApplication() {
         return backendMode !== 'firebase' || !capability || (authzReady && hasCapability(capability))
       }}
       authorizationError={authorizationError}
+      aiCoachConversationScope={`progress-${user?.uid ?? 'demo'}`}
     >
       <ChunkErrorBoundary>
         <Suspense fallback={<RouteLoadingFallback />}>
