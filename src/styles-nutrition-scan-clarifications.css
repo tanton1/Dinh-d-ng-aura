@@ -9,7 +9,8 @@
 .nutrition-scan-clarification > p { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 10px; color: #334155; font-size: 12px; line-height: 1.5; }
 .nutrition-scan-clarification > p > strong { width: 21px; height: 21px; flex: 0 0 21px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #f59e0b; font-size: 10px; }
 .nutrition-scan-clarification__choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.nutrition-scan-clarification__choices button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 10px; color: #475569; background: #fff; cursor: pointer; font-size: 10px; font-weight: 800; }
+.nutrition-scan-clarification__choices button { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 5px 7px; border: 1px solid #e2e8f0; border-radius: 10px; color: #475569; background: #fff; cursor: pointer; font-size: 10px; font-weight: 800; transition: border-color .15s ease, background .15s ease, transform .15s ease; }
+.nutrition-scan-clarification__choices button:hover { border-color: #fbbf24; transform: translateY(-1px); }
 .nutrition-scan-clarification__choices button.is-active { border-color: #f59e0b; color: #92400e; background: #fef3c7; box-shadow: 0 0 0 2px rgba(245,158,11,.1); }
 .nutrition-scan-clarification__adjustment { display: grid; gap: 5px; margin-top: 10px; }
 .nutrition-scan-clarification__adjustment > span { color: #475569; font-size: 10px; font-weight: 800; }
@@ -21,6 +22,19 @@
 .nutrition-scan-clarifications__notice svg { flex: 0 0 auto; margin-top: 1px; }
 .nutrition-scan-clarification__state-note { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; color: #475569; background: #f8fafc; font-size: 10px; line-height: 1.45; }
 .nutrition-scan-clarification__state-note svg { flex: 0 0 auto; margin-top: 1px; }
+.nutrition-scan-clarifications__notes { margin-top: 11px; padding: 12px; border: 1px solid #e2e8f0; border-radius: 14px; background: rgba(248, 250, 252, .8); }
+.nutrition-scan-clarifications__notes-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
+.nutrition-scan-clarifications__notes-heading > div { display: flex; align-items: center; gap: 6px; color: #334155; }
+.nutrition-scan-clarifications__notes-heading strong { font-size: 11px; }
+.nutrition-scan-clarifications__notes-heading small { padding: 3px 7px; border-radius: 999px; color: #64748b; background: #e2e8f0; font-size: 9px; font-weight: 800; }
+.nutrition-scan-clarifications__note-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.nutrition-scan-clarifications__note-grid label { display: grid; gap: 4px; min-width: 0; }
+.nutrition-scan-clarifications__note-grid label > span { color: #475569; font-size: 10px; font-weight: 800; }
+.nutrition-scan-clarifications__note-grid textarea { width: 100%; min-height: 58px; resize: vertical; padding: 8px 9px; border: 1px solid #cbd5e1; border-radius: 10px; color: #334155; background: #fff; outline: 0; font: inherit; font-size: 10px; line-height: 1.45; }
+.nutrition-scan-clarifications__note-grid textarea:focus { border-color: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.12); }
+.nutrition-scan-clarifications__note-grid label > small { color: #94a3b8; font-size: 9px; text-align: right; }
+.nutrition-scan-clarifications__notes-hint { display: flex; align-items: flex-start; gap: 5px; margin: 8px 0 0; color: #64748b; font-size: 9px; line-height: 1.45; }
+.nutrition-scan-clarifications__notes-hint svg { flex: 0 0 auto; margin-top: 1px; }
 .nutrition-scan-clarifications__reanalyze { display: grid; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #fed7aa; }
 .nutrition-scan-clarifications__reanalyze button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px; padding: 8px 12px; border: 0; border-radius: 12px; color: #fff; background: linear-gradient(135deg, #ea580c, #f97316); font-size: 11px; font-weight: 900; cursor: pointer; }
 .nutrition-scan-clarifications__reanalyze button:disabled { color: #94a3b8; background: #e2e8f0; cursor: not-allowed; }
@@ -28,5 +42,11 @@
 
 @media (max-width: 480px) {
   .nutrition-scan-clarifications { padding: 13px; }
-  .nutrition-scan-clarification__choices { grid-template-columns: 1fr; }
+  .nutrition-scan-clarification { padding: 10px; }
+  .nutrition-scan-clarification > p { margin-bottom: 8px; font-size: 11px; }
+  .nutrition-scan-clarification__choices { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+  .nutrition-scan-clarification__choices button { min-height: 32px; padding: 4px 3px; font-size: 9px; }
+  .nutrition-scan-clarification__choices button svg { width: 12px; height: 12px; }
+  .nutrition-scan-clarifications__notes { padding: 10px; }
+  .nutrition-scan-clarifications__note-grid { grid-template-columns: 1fr; }
 }

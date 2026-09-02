@@ -42,6 +42,7 @@ export interface MealLogItem {
   label: string
   time: string
   title: string
+  dishName?: string
   description?: string
   calories: number
   protein: number
@@ -65,6 +66,8 @@ export interface MealLogItem {
   calorieOptimizationTip?: string
   macroBalanceAssessment?: string
   coachFeedbackSuggestion?: string
+  cookingNote?: string
+  portionNote?: string
   reviewStatus?: 'pending' | 'reviewed'
 }
 
@@ -140,6 +143,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
   const totalFat = Math.round((meal.fat || 12) * portionCount)
   const totalFiber = Math.round((meal.fiber || 0) * portionCount)
   const storedAiAnalysis = typeof meal.aiAnalysis === 'object' && meal.aiAnalysis !== null ? meal.aiAnalysis : {}
+  const displayTitle = (meal.dishName?.trim() || (typeof storedAiAnalysis.dishName === 'string' ? storedAiAnalysis.dishName.trim() : '') || meal.title || 'Bữa ăn dinh dưỡng')
   const quantityAndCookingAnalysis = getUsableFoodAnalysisText(meal.quantityAndCookingAnalysis)
     || getUsableFoodAnalysisText(storedAiAnalysis.quantityAndCookingAnalysis)
   const portionAndCalorieRationale = getUsableFoodAnalysisText(meal.portionAndCalorieRationale)
@@ -197,9 +201,9 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
             <button className="fdet-lightbox-close" onClick={() => setLightboxOpen(false)}>
               <X size={20} />
             </button>
-            <img src={heroImageUrl} alt={meal.title} className="fdet-lightbox-img" />
+            <img src={heroImageUrl} alt={displayTitle} className="fdet-lightbox-img" />
             <div className="fdet-lightbox-caption">
-              <strong>{meal.title}</strong>
+              <strong>{displayTitle}</strong>
               <span>{totalCal} kcal · {portionCount} phần</span>
             </div>
           </div>
@@ -208,7 +212,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
 
       {/* Hero Top Image Section */}
       <div className="fdet-hero">
-        <img src={heroImageUrl} alt={meal.title} className="fdet-hero-img" onClick={() => setLightboxOpen(true)} />
+        <img src={heroImageUrl} alt={displayTitle} className="fdet-hero-img" onClick={() => setLightboxOpen(true)} />
 
         {/* Overlaid Top Header Controls */}
         <div className="fdet-hero-overlay">
@@ -272,7 +276,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
                     className="danger"
                     onClick={() => {
                       setShowOptionsMenu(false)
-                      if (window.confirm(`Xác nhận xóa món "${meal.title}"?`)) {
+                      if (window.confirm(`Xác nhận xóa món "${displayTitle}"?`)) {
                         onDelete(meal.id)
                       }
                     }}
@@ -308,7 +312,7 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
         {/* Title & Calories Header Flex Layout */}
         <div className="fdet-title-cal-row">
           <div className="fdet-title-col">
-            <h1 className="fdet-title">{meal.title}</h1>
+            <h1 className="fdet-title">{displayTitle}</h1>
 
             <button
               type="button"
@@ -515,6 +519,14 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
               </article>
             </div>
           </div>
+
+          {(meal.cookingNote || meal.portionNote || storedAiAnalysis.cookingNote || storedAiAnalysis.portionNote) && (
+            <div className="fdet-scan-notes">
+              <div className="fdet-scan-notes__heading"><Info size={15} /><strong>Ghi chú khẩu phần từ bạn</strong></div>
+              {(meal.cookingNote || storedAiAnalysis.cookingNote) && <p><span>Cách chế biến</span>{meal.cookingNote || storedAiAnalysis.cookingNote}</p>}
+              {(meal.portionNote || storedAiAnalysis.portionNote) && <p><span>Khẩu phần thực tế</span>{meal.portionNote || storedAiAnalysis.portionNote}</p>}
+            </div>
+          )}
 
           {/* Coach Reviewed Feedback (When reviewed by Coach - Gradient Hồng - Xanh Tươi Mát) */}
           {meal.coachFeedback && (

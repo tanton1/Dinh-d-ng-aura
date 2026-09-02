@@ -1245,6 +1245,8 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
   const [analysisModel, setAnalysisModel] = useState<string | null>(restoredReview?.analysisModel ?? null)
   const [quantityCookingAnalysis, setQuantityCookingAnalysis] = useState<string>(() => getUsableFoodAnalysisText(restoredReview?.quantityCookingAnalysis))
   const [portionCalorieRationale, setPortionCalorieRationale] = useState<string>(() => getUsableFoodAnalysisText(restoredReview?.portionCalorieRationale))
+  const [cookingNote, setCookingNote] = useState(restoredReview?.cookingNote ?? '')
+  const [portionNote, setPortionNote] = useState(restoredReview?.portionNote ?? '')
   const [goalAlignmentAssessment, setGoalAlignmentAssessment] = useState<string>(() => getUsableFoodAnalysisText(restoredReview?.goalAlignmentAssessment))
   const [calorieOptimizationTip, setCalorieOptimizationTip] = useState<string>(() => getUsableFoodAnalysisText(restoredReview?.calorieOptimizationTip))
   const [macroBalanceAssessment, setMacroBalanceAssessment] = useState<string>(() => getUsableFoodAnalysisText(restoredReview?.macroBalanceAssessment))
@@ -1494,6 +1496,8 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
       clarificationAdjustments: Object.fromEntries(Object.entries(dynamicAnswers)
         .filter(([, answer]) => Boolean(answer.customText?.trim()))
         .map(([question, answer]) => [question, answer.customText?.trim() ?? ''])),
+      cookingNote,
+      portionNote,
       mealType,
       mealDate,
       mealTime,
@@ -1510,7 +1514,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     } catch {
       // A review remains usable in memory even when session storage is unavailable.
     }
-  }, [analysisConfidence, analysisModel, analysisQuestions, analysisWarnings, baselineCalories, calorieOptimizationTip, confirmedItemIds, dishName, dynamicAnswers, fileName, goalAlignmentAssessment, hasAnalysisResult, items, macroBalanceAssessment, mealDate, mealTime, mealType, portionCalorieRationale, questionResponses, quantityCookingAnalysis, resultMode, resultNotice, reviewStorageKey, serverRange, stage, storageOwnerId, coachFeedbackSuggestion])
+  }, [analysisConfidence, analysisModel, analysisQuestions, analysisWarnings, baselineCalories, calorieOptimizationTip, confirmedItemIds, cookingNote, dishName, dynamicAnswers, fileName, goalAlignmentAssessment, hasAnalysisResult, items, macroBalanceAssessment, mealDate, mealTime, mealType, portionCalorieRationale, portionNote, questionResponses, quantityCookingAnalysis, resultMode, resultNotice, reviewStorageKey, serverRange, stage, storageOwnerId, coachFeedbackSuggestion])
 
   const startDemoAnalysis = (notice = 'Đây là dữ liệu minh họa để bạn trải nghiệm luồng chỉnh sửa. Chưa có kết quả từ mô hình AI.') => {
     setResultMode('demo')
@@ -1526,6 +1530,8 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     setAnalysisModel(null)
     setQuantityCookingAnalysis('Khẩu phần minh họa gồm cơm, ức gà áp chảo, rau củ luộc và một lượng nhỏ sốt hoặc dầu chế biến.')
     setPortionCalorieRationale('Đây là dữ liệu minh họa theo khẩu phần mẫu; không phải suy luận từ ảnh đã tải.')
+    setCookingNote('')
+    setPortionNote('')
     setGoalAlignmentAssessment('Dữ liệu minh họa chưa sử dụng hồ sơ và mục tiêu thực tế của bạn.')
     setCalorieOptimizationTip('Hãy phân tích ảnh thật để nhận một điều chỉnh khẩu phần phù hợp với mục tiêu calo của bạn.')
     setMacroBalanceAssessment('Khẩu phần minh họa có đủ ba nhóm macro; cần kết quả ảnh thật để đánh giá lượng đạm, carb, béo và chất xơ chính xác hơn.')
@@ -1596,6 +1602,8 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     if (!file) return
     setUploadError('')
     setHasAnalysisResult(false)
+    setCookingNote('')
+    setPortionNote('')
     clearPendingScanReview(storageOwnerId)
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type.toLowerCase())) {
       setUploadError('Vui lòng chọn tệp ảnh JPEG, PNG hoặc WebP.')
@@ -1645,8 +1653,13 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
       const answer = dynamicAnswers[question]?.customText?.trim()
       return answer ? [`${question.slice(0, 70)}: ${answer.slice(0, 120)}`] : []
     })
-    if (corrections.length === 0) return
-    const notes = `Điều chỉnh đã xác nhận: ${corrections.join('; ')}`.slice(0, 300)
+    const noteParts = [
+      corrections.length > 0 ? `Điều chỉnh đã xác nhận: ${corrections.join('; ')}` : '',
+      cookingNote.trim() ? `Cách chế biến khách ghi chú: ${cookingNote.trim()}` : '',
+      portionNote.trim() ? `Khẩu phần khách ghi chú: ${portionNote.trim()}` : '',
+    ].filter(Boolean)
+    if (noteParts.length === 0) return
+    const notes = noteParts.join(' | ').slice(0, 300)
     void runImageAnalysis(lastFile, notes)
   }
 
@@ -1700,6 +1713,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     if (!canSaveMeal) return
     clearPendingScanReview(storageOwnerId)
     onSave({
+      dishName: dishName.trim() || 'Bữa ăn dinh dưỡng',
       name: items.map((item) => item.name.trim()).filter(Boolean).slice(0, 2).join(', '),
       mealType,
       mealDate,
@@ -1719,6 +1733,8 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
       items,
       source: resultMode === 'live' ? 'ai-scan' : 'demo',
       submitForReview,
+      cookingNote: cookingNote.trim() || undefined,
+      portionNote: portionNote.trim() || undefined,
       quantityCookingAnalysis,
       portionCalorieRationale,
       goalAlignmentAssessment,
@@ -1977,12 +1993,14 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                 </div>
               </div>
 
-              {analysisQuestions.length > 0 && (
+              {(analysisQuestions.length > 0 || hasAnalysisResult) && (
                 <React.Suspense fallback={<div className="nutrition-scan-clarifications" role="status">Đang mở phần xác nhận khẩu phần…</div>}>
                   <NutritionScanClarifications
                     questions={analysisQuestions}
                     responses={questionResponses}
                     adjustments={Object.fromEntries(Object.entries(dynamicAnswers).map(([question, answer]) => [question, answer.customText ?? '']))}
+                    cookingNote={cookingNote}
+                    portionNote={portionNote}
                     unresolvedCount={unresolvedQuestions.length}
                     canReanalyze={Boolean(lastFile && onAnalyzeImage)}
                     resolveAdjustment={nutritionAdjustmentFromText}
@@ -1999,6 +2017,8 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                       ...current,
                       [question]: { optionId: 'adjust', calorieDelta: 0, proteinDelta: 0, carbsDelta: 0, fatDelta: 0, customText: value },
                     }))}
+                    onCookingNoteChange={setCookingNote}
+                    onPortionNoteChange={setPortionNote}
                     onReanalyze={reanalyzeWithClarifications}
                   />
                 </React.Suspense>
@@ -3514,6 +3534,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       sodium: sum.sodium + (item.sodium ?? 0),
     }), { protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium: 0 })
     const finalNutrition = meal.finalNutrition
+    const canonicalDishName = meal.dishName?.trim() || meal.name.trim() || 'Bữa ăn dinh dưỡng'
     const mealLabels: Record<NutritionMealDraft['mealType'], string> = { breakfast: 'Bữa sáng', lunch: 'Bữa trưa', dinner: 'Bữa tối', snack: 'Bữa phụ' }
     const newMealLog: MealLog = {
       id: `ai-${Date.now()}`,
@@ -3521,7 +3542,8 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       type: meal.mealType,
       label: mealLabels[meal.mealType],
       time: meal.mealTime ?? new Date().toTimeString().slice(0, 5),
-      title: meal.name,
+      title: canonicalDishName,
+      dishName: canonicalDishName,
       description: meal.source === 'demo'
         ? `${meal.items.length} thành phần · Dữ liệu minh họa, chưa phân tích từ ảnh`
         : finalNutrition?.confidence === 'needs-review'
@@ -3545,12 +3567,15 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       items: meal.items,
       reviewStatus: meal.submitForReview ? 'pending' : undefined,
       aiAnalysis: {
+        dishName: canonicalDishName,
         quantityAndCookingAnalysis: meal.quantityCookingAnalysis,
         portionAndCalorieRationale: meal.portionCalorieRationale,
         goalAlignmentAssessment: meal.goalAlignmentAssessment,
         calorieOptimizationTip: meal.calorieOptimizationTip,
         macroBalanceAssessment: meal.macroBalanceAssessment,
         coachFeedbackSuggestion: meal.coachFeedbackSuggestion,
+        cookingNote: meal.cookingNote,
+        portionNote: meal.portionNote,
         clarifications: meal.clarifications,
         finalNutrition: meal.finalNutrition,
       },

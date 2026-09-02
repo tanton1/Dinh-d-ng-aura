@@ -38,6 +38,9 @@ test('nutrition scan result stays responsive and does not expose Coach/PT sugges
   await expect(result.getByText(/Ảnh gốc không còn trong phiên này/i)).toBeVisible()
   await result.getByRole('button', { name: 'Không rõ' }).click()
   await expect(result.getByText(/giữ số liệu AI ban đầu.*mở rộng khoảng ước tính/i)).toBeVisible()
+  await result.getByPlaceholder(/áp chảo ít dầu/i).fill('Áp chảo với khoảng 1 thìa cà phê dầu')
+  await result.getByPlaceholder(/ăn nửa bát cơm/i).fill('Ăn khoảng một nửa phần cơm')
+  await expect(result.getByText(/bấm “Aura tính lại” để gửi ghi chú cùng ảnh/i)).toBeVisible()
   await result.getByRole('button', { name: 'Đúng' }).click()
   await expect(result.getByText('1/1 đã rõ')).toBeVisible()
 
@@ -83,7 +86,7 @@ test('nutrition scan result stays responsive and does not expose Coach/PT sugges
   }
 
   await result.getByRole('button', { name: /Lưu vào nhật ký/i }).click()
-  await page.getByRole('heading', { name: /Cơm gạo lứt đỏ, Ức gà áp chảo/i }).click()
+  await page.getByRole('heading', { name: 'Bữa ăn dinh dưỡng' }).click()
 
   const mealDetail = page.getByTestId('captured-meal-detail-page')
   await expect(mealDetail).toBeVisible()
@@ -93,6 +96,8 @@ test('nutrition scan result stays responsive and does not expose Coach/PT sugges
   await expect(mealDetail.getByText('⚖️ Cân bằng Macro')).toBeVisible()
   await expect(mealDetail.getByText('🍽️ Phương pháp chế biến & Định lượng')).toBeVisible()
   await expect(mealDetail.getByText('📏 Cơ sở dự đoán Khối lượng & Kcal')).toBeVisible()
+  await expect(mealDetail.getByText('Áp chảo với khoảng 1 thìa cà phê dầu')).toBeVisible()
+  await expect(mealDetail.getByText('Ăn khoảng một nửa phần cơm')).toBeVisible()
   await expect(mealDetail.getByText('Tư vấn từ AI Coach', { exact: false })).toHaveCount(0)
 
   if (process.env.SCAN_SCREENSHOT) {

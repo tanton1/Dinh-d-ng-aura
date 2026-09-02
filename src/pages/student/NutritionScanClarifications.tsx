@@ -1,5 +1,5 @@
 import React from 'react'
-import { Check, CircleAlert, Info, RefreshCw, Scale, TriangleAlert } from 'lucide-react'
+import { Check, CircleAlert, Info, RefreshCw, Scale, TriangleAlert, Utensils } from 'lucide-react'
 import type { NutritionClarificationResponse } from '../../features/nutrition/types'
 import '../../styles-nutrition-scan-clarifications.css'
 
@@ -12,11 +12,15 @@ interface NutritionScanClarificationsProps {
   questions: string[]
   responses: Record<string, NutritionClarificationResponse>
   adjustments: Record<string, string>
+  cookingNote: string
+  portionNote: string
   unresolvedCount: number
   canReanalyze: boolean
   resolveAdjustment: (value: string) => AdjustmentResult
   onResponse: (question: string, response: NutritionClarificationResponse) => void
   onAdjustment: (question: string, value: string) => void
+  onCookingNoteChange: (value: string) => void
+  onPortionNoteChange: (value: string) => void
   onReanalyze: () => void
 }
 
@@ -24,26 +28,33 @@ export default React.memo(function NutritionScanClarifications({
   questions,
   responses,
   adjustments,
+  cookingNote,
+  portionNote,
   unresolvedCount,
   canReanalyze,
   resolveAdjustment,
   onResponse,
   onAdjustment,
+  onCookingNoteChange,
+  onPortionNoteChange,
   onReanalyze,
 }: NutritionScanClarificationsProps) {
   const hasCorrection = questions.some((question) => responses[question] === 'adjust' && Boolean(adjustments[question]?.trim()))
+  const hasNotes = Boolean(cookingNote.trim() || portionNote.trim())
+  const hasQuestions = questions.length > 0
 
   return (
     <section className="nutrition-scan-clarifications" aria-labelledby="nutrition-scan-clarifications-title">
-      <div className="nutrition-scan-clarifications__heading">
-        <div>
-          <span><CircleAlert size={14} /> Xác nhận khẩu phần</span>
-          <h2 id="nutrition-scan-clarifications-title">Giúp Aura tính sát bữa ăn thực tế</h2>
+      {hasQuestions && <>
+        <div className="nutrition-scan-clarifications__heading">
+          <div>
+            <span><CircleAlert size={14} /> Xác nhận khẩu phần</span>
+            <h2 id="nutrition-scan-clarifications-title">Giúp Aura tính sát bữa ăn thực tế</h2>
+          </div>
+          <small>{questions.length - unresolvedCount}/{questions.length} đã rõ</small>
         </div>
-        <small>{questions.length - unresolvedCount}/{questions.length} đã rõ</small>
-      </div>
-      <div className="nutrition-scan-clarifications__list">
-        {questions.map((question, index) => {
+        <div className="nutrition-scan-clarifications__list">
+          {questions.map((question, index) => {
           const response = responses[question]
           const adjustment = adjustments[question] ?? ''
           const adjustmentResult = resolveAdjustment(adjustment)
@@ -74,10 +85,37 @@ export default React.memo(function NutritionScanClarifications({
                 </p>
               )}
             </article>
-          )
-        })}
+            )
+          })}
+        </div>
+      </>}
+      {!hasQuestions && <div className="nutrition-scan-clarifications__heading nutrition-scan-clarifications__heading--notes-only">
+        <div>
+          <span><Utensils size={14} /> Bổ sung thông tin bữa ăn</span>
+          <h2 id="nutrition-scan-clarifications-title">Giúp Aura tính sát khẩu phần thực tế</h2>
+        </div>
+        <small>Tùy chọn</small>
+      </div>}
+      <div className="nutrition-scan-clarifications__notes">
+        <div className="nutrition-scan-clarifications__notes-heading">
+          <div><Utensils size={14} /><strong>Ghi chú để Aura tính sát hơn</strong></div>
+          <small>Tùy chọn</small>
+        </div>
+        <div className="nutrition-scan-clarifications__note-grid">
+          <label>
+            <span>Cách chế biến</span>
+            <textarea value={cookingNote} onChange={(event) => onCookingNoteChange(event.target.value.slice(0, 180))} maxLength={180} rows={2} placeholder="Ví dụ: áp chảo ít dầu, chiên giòn, luộc, sốt nhiều…" />
+            <small>{cookingNote.length}/180</small>
+          </label>
+          <label>
+            <span>Khẩu phần thực tế</span>
+            <textarea value={portionNote} onChange={(event) => onPortionNoteChange(event.target.value.slice(0, 180))} maxLength={180} rows={2} placeholder="Ví dụ: ăn nửa bát cơm, bỏ lại 1/3 phần sốt…" />
+            <small>{portionNote.length}/180</small>
+          </label>
+        </div>
+        {hasNotes && <p className="nutrition-scan-clarifications__notes-hint"><Info size={13} /> Sau khi nhập, bấm “Aura tính lại” để gửi ghi chú cùng ảnh và cập nhật khối lượng, kcal, macro.</p>}
       </div>
-      {hasCorrection && (
+      {(hasCorrection || hasNotes) && (
         <div className="nutrition-scan-clarifications__reanalyze">
           <button type="button" onClick={onReanalyze} disabled={!canReanalyze}>
             <RefreshCw size={14} /> Aura tính lại từ phần sửa

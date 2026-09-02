@@ -77,6 +77,10 @@ export interface NutritionClarificationAnswer {
 }
 
 export interface NutritionMealDraft {
+  /** Canonical dish title returned by the scan. Keep separate from ingredient fallback name. */
+  dishName?: string
+  cookingNote?: string
+  portionNote?: string
   quantityCookingAnalysis?: string
   portionCalorieRationale?: string
   goalAlignmentAssessment?: string
@@ -145,6 +149,8 @@ export interface PersistedScanReview {
   confirmedItemIds: string[]
   questionResponses: Record<string, NutritionClarificationResponse>
   clarificationAdjustments?: Record<string, string>
+  cookingNote?: string
+  portionNote?: string
   mealType: NutritionMealDraft['mealType']
   mealDate: string
   mealTime: string
@@ -179,6 +185,8 @@ export interface MealLog {
   label: string
   time: string
   title: string
+  /** Canonical scan dish name; title remains for backwards-compatible legacy records. */
+  dishName?: string
   description: string
   calories: number
   protein: number
@@ -199,6 +207,8 @@ export interface MealLog {
   reviewStatus?: 'pending' | 'reviewed'
   coachFeedback?: string
   aiAnalysis?: any
+  cookingNote?: string
+  portionNote?: string
   studentGoal?: string
   studentCondition?: string
 }

@@ -988,6 +988,41 @@
   background: rgba(248, 250, 252, .82);
 }
 
+.fdet-scan-notes {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 15px;
+  background: linear-gradient(135deg, #eff6ff, #f8fafc);
+}
+
+.fdet-scan-notes__heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #1d4ed8;
+  font-size: 11px;
+}
+
+.fdet-scan-notes p {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  color: #334155;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.fdet-scan-notes p span {
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
 @media (max-width: 600px) {
   .fdet-ai-analysis-card__tips,
   .fdet-ai-analysis-card__evidence {
