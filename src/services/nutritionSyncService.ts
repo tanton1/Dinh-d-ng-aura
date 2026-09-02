@@ -15,9 +15,25 @@ export interface UserProfileData {
 }
 
 export function calculateNutritionTargets(data: UserProfileData) {
-  const weight = data.weightKg || 60;
-  const height = data.heightCm || 165;
-  const age = data.age || 30;
+  const weight = Number(data.weightKg)
+  const height = Number(data.heightCm)
+  const age = Number(data.age)
+  const goal = data.primaryGoal || data.goal
+  if (!Number.isFinite(weight) || weight <= 0 || !Number.isFinite(height) || height <= 0 || !Number.isFinite(age) || age <= 0 || !goal || !data.biologicalSex) {
+    return {
+      configured: false,
+      bmr: 0,
+      tdee: 0,
+      targetCaloriesKcal: 0,
+      proteinG: 0,
+      carbsG: 0,
+      fatG: 0,
+      waterLiters: 0,
+      stepsPerDay: 0,
+      targetDelta: 0,
+      timeframeMonths: 0,
+    }
+  }
   
   // Mifflin-St Jeor Equation
   let bmr = 10 * weight + 6.25 * height - 5 * age;
@@ -36,7 +52,7 @@ export function calculateNutritionTargets(data: UserProfileData) {
   
   const tdee = bmr * activityMultipliers[mappedActivity];
 
-  const goalStr = data.primaryGoal || data.goal || 'maintain';
+  const goalStr = goal;
   
   // Determine delta
   let targetDelta = 0;
@@ -79,6 +95,7 @@ export function calculateNutritionTargets(data: UserProfileData) {
   const stepsGoal = mappedActivity === 'high' ? 10000 : mappedActivity === 'moderate' ? 8000 : 5000;
 
   return {
+    configured: true,
     bmr: Math.round(bmr),
     tdee: Math.round(tdee),
     targetCaloriesKcal: targetCalories,

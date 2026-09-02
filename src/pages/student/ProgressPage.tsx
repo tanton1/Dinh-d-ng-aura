@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { safeLocalStorageSet } from '../../lib/safeStorage'
 import '../../styles-progress.css'
-import { Plus } from 'lucide-react'
+import { AlertCircle, LoaderCircle, Plus } from 'lucide-react'
 
 import type { Course, CourseProgress } from '../../types'
 import type { BodyMeasurements, ProgressCategory, ProgressPeriod, WeightRecord } from '../../types/progressTypes'
@@ -25,8 +25,9 @@ import { BodyMeasurementsModal } from '../../components/progress/BodyMeasurement
 import { firebaseAuth } from '../../lib/firebase'
 import { AiCoachBottomSheet } from '../../components/progress/AiCoachBottomSheet'
 import { prewarmAiCoachAppCheck } from '../../services/nutritionService'
-import { calculateProgressScore, defaultProgressInputSample } from '../../utils/progressScoreCalculator'
+import { calculateProgressScore } from '../../utils/progressScoreCalculator'
 import type { NutritionProfileDraft } from '../../features/nutrition/types'
+import { resolveDailyNutritionTargets } from '../../features/nutrition/dailyNutritionTargets'
 import { toLocalDateKey } from '../../features/nutrition/routing'
 import {
   saveUserWeightLog,
@@ -102,10 +103,16 @@ export default function ProgressPage({
   const [metricsModalOpen, setMetricsModalOpen] = useState(false)
   const [coachSheetOpen, setCoachSheetOpen] = useState(false)
   const [triggerPhotoUpload, setTriggerPhotoUpload] = useState(false)
+  const [progressMutationError, setProgressMutationError] = useState<string | null>(null)
 
-  const baseWeight = weightKg ?? 65.0
+  // Do not invent a measurement for a real account. Demo mode keeps its
+  // sample value, while production stays empty until the member records one.
+  const baseWeight = weightKg ?? nutritionProfile?.weightKg ?? (ownerId === 'demo' ? 65.0 : 0)
   const startWeightKg = baseWeight
-  const goalWeightKg = Number((baseWeight + (targetWeightDeltaKg ?? -4)).toFixed(1))
+  const configuredTargetDelta = targetWeightDeltaKg ?? nutritionProfile?.targetWeightDeltaKg ?? null
+  const goalWeightKg = baseWeight > 0 && configuredTargetDelta !== null
+    ? Number((baseWeight + configuredTargetDelta).toFixed(1))
+    : 0
 
   // Live Nutrition Data States
   const [allMeals, setAllMeals] = useState<any[]>(() => {
@@ -211,10 +218,7 @@ export default function ProgressPage({
         { id: '7', date: '2026-08-04', label: '04/08', weightKg: Number((baseWeight).toFixed(1)), trendKg: Number((baseWeight - 0.1).toFixed(1)) },
       ]
     }
-    const today = new Date()
-    return [
-      { id: 'init', date: today.toISOString().split('T')[0], label: `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}`, weightKg: baseWeight, trendKg: baseWeight }
-    ]
+    return []
   })
 
   // Body Metrics State
@@ -250,10 +254,12 @@ export default function ProgressPage({
 
   // Dynamically calculate target date based on targetTimeframeMonths
   const targetDateText = useMemo(() => {
+    const timeframe = targetTimeframeMonths ?? nutritionProfile?.targetTimeframeMonths ?? (ownerId === 'demo' ? 3 : null)
+    if (!timeframe || timeframe <= 0) return 'Chưa thiết lập'
     const targetDate = new Date()
-    targetDate.setMonth(targetDate.getMonth() + (targetTimeframeMonths ?? 3))
+    targetDate.setMonth(targetDate.getMonth() + timeframe)
     return `${String(targetDate.getDate()).padStart(2, '0')}/${String(targetDate.getMonth() + 1).padStart(2, '0')}/${targetDate.getFullYear()}`
-  }, [targetTimeframeMonths])
+  }, [ownerId, targetTimeframeMonths, nutritionProfile?.targetTimeframeMonths])
 
   const currentWeight = weightRecords[weightRecords.length - 1]?.weightKg ?? baseWeight
 
@@ -286,9 +292,7 @@ export default function ProgressPage({
         { id: '7', date: '2026-08-04', label: '04/08', weightKg: Number((baseWeight).toFixed(1)), trendKg: Number((baseWeight - 0.1).toFixed(1)) },
       ])
     } else {
-      setWeightRecords([
-        { id: 'init', date: new Date().toISOString().split('T')[0], label: `${String(new Date().getDate()).padStart(2, '0')}/${String(new Date().getMonth() + 1).padStart(2, '0')}`, weightKg: baseWeight, trendKg: baseWeight }
-      ])
+      setWeightRecords([])
     }
 
     let initialBodyMetrics = null
@@ -335,22 +339,22 @@ export default function ProgressPage({
 
     try {
       unsubscribeWeight = subscribeToUserWeightLogs(ownerId, (remoteRecords) => {
-        if (Array.isArray(remoteRecords) && remoteRecords.length > 0) {
-          const sorted = [...remoteRecords].sort((a, b) => {
-            return new Date(a.date).getTime() - new Date(b.date).getTime()
-          })
-          setWeightRecords(sorted)
-          safeLocalStorageSet(`aura:progress:weight-records:${ownerId}`, JSON.stringify(sorted))
-        }
+        if (!Array.isArray(remoteRecords)) return
+        const sorted = [...remoteRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        // An empty server snapshot is authoritative; do not resurrect deleted
+        // records from the local cache after a refresh.
+        setWeightRecords(sorted)
+        safeLocalStorageSet(`aura:progress:weight-records:${ownerId}`, JSON.stringify(sorted))
       }, (err) => {
         console.warn('Error subscribing to weight logs:', err)
       })
 
       unsubscribeMetrics = subscribeToUserBodyMeasurements(ownerId, (remoteMetrics) => {
-        if (remoteMetrics && typeof remoteMetrics === 'object' && remoteMetrics !== null) {
-          setBodyMetrics(remoteMetrics as BodyMeasurements)
-          safeLocalStorageSet(`aura:progress:body-measurements:${ownerId}`, JSON.stringify(remoteMetrics))
-        }
+        const nextMetrics: BodyMeasurements = remoteMetrics && typeof remoteMetrics === 'object'
+          ? remoteMetrics as BodyMeasurements
+          : { bmi: 0, bmiCategory: 'Chưa cập nhật', bodyFatPercentage: 0, bodyFatStatus: 'Chưa cập nhật', muscleMassKg: 0, muscleStatus: 'Chưa cập nhật', waistCm: 0, waistStatus: 'Chưa cập nhật', updatedAt: '' }
+        setBodyMetrics(nextMetrics)
+        safeLocalStorageSet(`aura:progress:body-measurements:${ownerId}`, JSON.stringify(nextMetrics))
       }, (err) => {
         console.warn('Error subscribing to body measurements:', err)
       })
@@ -375,7 +379,7 @@ export default function ProgressPage({
     }
   }, [ownerId, baseWeight])
 
-  const handleSaveWeight = (weightKgVal: number, note?: string) => {
+  const handleSaveWeight = async (weightKgVal: number, note?: string) => {
     const today = new Date()
     const label = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}`
     const newRecord: WeightRecord = {
@@ -387,25 +391,41 @@ export default function ProgressPage({
       note,
     }
     const updated = [...weightRecords, newRecord]
+    const previous = weightRecords
+    setProgressMutationError(null)
     setWeightRecords(updated)
     safeLocalStorageSet(`aura:progress:weight-records:${ownerId}`, JSON.stringify(updated))
 
-    if (ownerId && ownerId !== 'anonymous') {
-      saveUserWeightLog(ownerId, newRecord as any).catch((err) => {
-        console.error('Failed to sync weight to Firestore:', err)
-      })
+    if (ownerId && ownerId !== 'anonymous' && ownerId !== 'demo') {
+      try {
+        await saveUserWeightLog(ownerId, newRecord as any)
+      } catch (err) {
+        setWeightRecords(previous)
+        safeLocalStorageSet(`aura:progress:weight-records:${ownerId}`, JSON.stringify(previous))
+        const message = 'Chưa thể đồng bộ cân nặng. Vui lòng thử lại.'
+        setProgressMutationError(message)
+        throw err instanceof Error ? err : new Error(message)
+      }
     }
   }
 
-  const handleSaveMetrics = (updated: Partial<BodyMeasurements>) => {
+  const handleSaveMetrics = async (updated: Partial<BodyMeasurements>) => {
     const next = { ...bodyMetrics, ...updated }
+    const previous = bodyMetrics
+    setProgressMutationError(null)
     setBodyMetrics(next)
     safeLocalStorageSet(`aura:progress:body-measurements:${ownerId}`, JSON.stringify(next))
 
-    if (ownerId && ownerId !== 'anonymous') {
-      saveUserBodyMeasurements(ownerId, next as any).catch((err) => {
-        console.error('Failed to sync body measurements to Firestore:', err)
-      })
+    if (ownerId && ownerId !== 'anonymous' && ownerId !== 'demo') {
+      try {
+        await saveUserBodyMeasurements(ownerId, next as any)
+      } catch (err) {
+        setBodyMetrics(previous)
+        safeLocalStorageSet(`aura:progress:body-measurements:${ownerId}`, JSON.stringify(previous))
+        const message = 'Chưa thể đồng bộ chỉ số cơ thể. Vui lòng thử lại.'
+        setProgressMutationError(message)
+        throw err instanceof Error ? err : new Error(message)
+      }
     }
   }
 
@@ -432,12 +452,19 @@ export default function ProgressPage({
     return baseWeight
   }, [weightRecords, baseWeight])
 
+  // Progress, Home and Nutrition must read the same canonical targets.  Do
+  // not silently invent age/height/sex/goal values for a real member; an
+  // incomplete profile is shown as "chưa thiết lập" by the cards instead.
+  const nutritionTargets = useMemo(() => {
+    return resolveDailyNutritionTargets(userProfile, actual30DayWeight > 0 ? actual30DayWeight : undefined)
+  }, [userProfile, actual30DayWeight])
+
   // Calculate body metrics dynamically so BMI is NEVER 0
   const currentBmi = useMemo(() => {
     const w = actual30DayWeight
-    const h = heightCm ?? 165
+    const h = heightCm ?? 0
     const hM = h / 100
-    if (hM <= 0) return 0
+    if (hM <= 0 || w <= 0) return 0
     return Number((w / (hM * hM)).toFixed(1))
   }, [heightCm, actual30DayWeight])
 
@@ -454,12 +481,12 @@ export default function ProgressPage({
       ...bodyMetrics,
       bmi: currentBmi,
       bmiCategory: currentBmiCategory,
-      bodyFatPercentage: bodyMetrics.bodyFatPercentage || 21.3,
-      bodyFatStatus: bodyMetrics.bodyFatPercentage ? bodyMetrics.bodyFatStatus : 'Ổn định',
-      muscleMassKg: bodyMetrics.muscleMassKg || 27.6,
-      muscleStatus: bodyMetrics.muscleMassKg ? bodyMetrics.muscleStatus : 'Tốt',
-      waistCm: bodyMetrics.waistCm || 76,
-      waistStatus: bodyMetrics.waistCm ? bodyMetrics.waistStatus : 'Tốt',
+      bodyFatPercentage: bodyMetrics.bodyFatPercentage || 0,
+      bodyFatStatus: bodyMetrics.bodyFatPercentage ? bodyMetrics.bodyFatStatus : 'Chưa cập nhật',
+      muscleMassKg: bodyMetrics.muscleMassKg || 0,
+      muscleStatus: bodyMetrics.muscleMassKg ? bodyMetrics.muscleStatus : 'Chưa cập nhật',
+      waistCm: bodyMetrics.waistCm || 0,
+      waistStatus: bodyMetrics.waistCm ? bodyMetrics.waistStatus : 'Chưa cập nhật',
     }
   }, [bodyMetrics, currentBmi, currentBmiCategory])
 
@@ -477,17 +504,21 @@ export default function ProgressPage({
       dateKeys.push(`${yr}-${mo}-${dy}`)
     }
 
-    const goal = userProfile?.goal || 'lose-fat'
-    const sex = userProfile?.biologicalSex || 'female'
-    const h = userProfile?.heightCm || heightCm || 162
-    const w = actual30DayWeight // Use actual 30-day recorded weight history instead of profile/default weight
-    const age = userProfile?.age || 28
-    const act = userProfile?.activityLevel || 'moderate'
-    
-    const sexOffset = sex === 'male' ? 5 : -161
-    const resting = 10 * w + 6.25 * h - 5 * age + sexOffset
-    const factors: Record<string, number> = { low: 1.25, moderate: 1.45, high: 1.65 }
-    const dailyBase = Math.round(resting * (factors[act] || 1.45))
+    const configuredProfile = nutritionTargets.configured
+      && userProfile
+      && Number(userProfile.heightCm) > 0
+      && Number(userProfile.age) > 0
+      && actual30DayWeight > 0
+    const goal = configuredProfile ? userProfile.goal : 'chưa thiết lập'
+    const h = configuredProfile ? Number(userProfile.heightCm) : 0
+    const w = configuredProfile ? actual30DayWeight : 0
+    const age = configuredProfile ? Number(userProfile.age) : 0
+    const act = configuredProfile ? userProfile.activityLevel : 'low'
+
+    const sexOffset = configuredProfile && userProfile.biologicalSex === 'male' ? 5 : -161
+    const resting = configuredProfile ? 10 * w + 6.25 * h - 5 * age + sexOffset : 0
+    const factors: Record<string, number> = { low: 1.375, moderate: 1.55, high: 1.725 }
+    const dailyBase = configuredProfile ? Math.round(resting * factors[act]) : 0
     
     const isMealLogged = (m: any) => !m.status || m.status === 'logged'
     const periodMeals = allMeals.filter((m: any) => isMealLogged(m) && dateKeys.includes(m.date))
@@ -509,9 +540,9 @@ export default function ProgressPage({
     const confidence: 'Cao' | 'Trung bình' | 'Thấp' = confidenceScore > 0.75 ? 'Cao' : (confidenceScore > 0.4 ? 'Trung bình' : 'Thấp')
 
     // BMR and Daily Activities are only calculated for the days where data is logged (uniqueDaysWithMeals)
-    const totalBasal = Math.round(resting * uniqueDaysWithMeals)
-    const totalDailyActivity = Math.round((dailyBase - resting) * uniqueDaysWithMeals)
-    const totalThermicEffect = Math.round(totalIntake * 0.10)
+    const totalBasal = configuredProfile ? Math.round(resting * uniqueDaysWithMeals) : 0
+    const totalDailyActivity = configuredProfile ? Math.round((dailyBase - resting) * uniqueDaysWithMeals) : 0
+    const totalThermicEffect = configuredProfile ? Math.round(totalIntake * 0.10) : 0
 
     return {
       intake: totalIntake,
@@ -525,8 +556,9 @@ export default function ProgressPage({
       totalPeriodDays: daysCount,
       activeDays: uniqueDaysWithMeals,
       workoutDays: daysWithWorkout,
+      configured: Boolean(configuredProfile),
     }
-  }, [period, resolvedOwnerId, actual30DayWeight, allMeals, allActivities, userProfile, heightCm])
+  }, [period, resolvedOwnerId, actual30DayWeight, allMeals, allActivities, userProfile, nutritionTargets])
 
   // Nutrition progress calculation based on real log history and actual 30-day weight
   const nutritionProgressData = useMemo(() => {
@@ -542,35 +574,12 @@ export default function ProgressPage({
       dateKeys.push(`${yr}-${mo}-${dy}`)
     }
 
-    const goal = userProfile?.goal || 'lose-fat'
-    const sex = userProfile?.biologicalSex || 'female'
-    const h = userProfile?.heightCm || heightCm || 162
-    const w = actual30DayWeight // Use actual 30-day recorded weight history instead of profile/default weight
-    const age = userProfile?.age || 28
-    const act = userProfile?.activityLevel || 'moderate'
-    const targetDelta = userProfile?.targetWeightDeltaKg ?? (goal === 'lose-fat' ? -4 : goal === 'gain-muscle' ? 3 : 0)
-    const timeframeMonths = userProfile?.targetTimeframeMonths ?? 3
-
-    const sexOffset = sex === 'male' ? 5 : -161
-    const restingCalories = 10 * w + 6.25 * h - 5 * age + sexOffset
-    const maintenanceCalories = restingCalories * (act === 'low' ? 1.25 : act === 'moderate' ? 1.45 : 1.65)
-    
-    let dailyAdjustment = 0
-    if (goal === 'lose-fat') {
-      const totalDeficit = Math.abs(targetDelta) * 7700
-      dailyAdjustment = -Math.min(800, Math.max(250, Math.round(totalDeficit / (timeframeMonths * 30))))
-    } else if (goal === 'gain-muscle') {
-      const totalSurplus = Math.abs(targetDelta) * 5500
-      dailyAdjustment = Math.min(600, Math.max(200, Math.round(totalSurplus / (timeframeMonths * 30))))
-    }
-
-    const calorieGoal = Math.min(4500, Math.max(1200, Math.round((maintenanceCalories + dailyAdjustment) / 50) * 50))
-    const proteinPerKg = goal === 'gain-muscle' ? 2 : goal === 'lose-fat' ? 1.8 : 1.6
-    const proteinGoal = Math.round(w * proteinPerKg)
-    const fatGoal = Math.max(45, Math.round(w * 0.8))
-    const carbGoal = Math.max(80, Math.round((calorieGoal - proteinGoal * 4 - fatGoal * 9) / 4))
-    const fiberGoal = 30
-    const waterGoal = userProfile?.waterLiters ? Math.round(userProfile.waterLiters * 1000) : 2000
+    const calorieGoal = nutritionTargets.calorieGoal
+    const proteinGoal = nutritionTargets.proteinGoal
+    const carbGoal = nutritionTargets.carbGoal
+    const fatGoal = nutritionTargets.fatGoal
+    const fiberGoal = nutritionTargets.configured ? 30 : 0
+    const waterGoal = nutritionTargets.waterGoal
 
     const isMealLogged = (m: any) => !m.status || m.status === 'logged'
     const periodMeals = allMeals.filter((m: any) => isMealLogged(m) && dateKeys.includes(m.date))
@@ -600,8 +609,9 @@ export default function ProgressPage({
       avgWater: uniqueDaysWithMeals > 0 ? avgWater : 0,
       waterGoal,
       activeDays: uniqueDaysWithMeals,
+      configured: nutritionTargets.configured,
     }
-  }, [period, resolvedOwnerId, actual30DayWeight, allMeals, allWater, userProfile, heightCm])
+  }, [period, resolvedOwnerId, allMeals, allWater, nutritionTargets])
 
   // Real Progress Score calculation based on real user logged data
   const realProgressInput = useMemo(() => {
@@ -625,12 +635,13 @@ export default function ProgressPage({
     // Calculate calorie and protein adherence per day
     let totalCalorieScoreSum = 0
     let totalProteinScoreSum = 0
-    const targetCal = nutritionProgressData.targetCalories || 2000
-    const targetProt = nutritionProgressData.proteinGoal || 100
+    const targetCal = nutritionProgressData.targetCalories
+    const targetProt = nutritionProgressData.proteinGoal
+    const canScoreNutrition = nutritionTargets.configured && targetCal > 0 && targetProt > 0
 
     dateKeys.forEach(date => {
       const dayMeals = periodMeals.filter((m: any) => m.date === date)
-      if (dayMeals.length > 0) {
+      if (dayMeals.length > 0 && canScoreNutrition) {
         const dayCalories = dayMeals.reduce((sum: number, m: any) => sum + (Number(m.calories) || 0), 0)
         const dayProtein = dayMeals.reduce((sum: number, m: any) => sum + (Number(m.protein) || 0), 0)
         
@@ -650,11 +661,11 @@ export default function ProgressPage({
     // Hydration rate
     const periodWater = allWater.filter((w: any) => dateKeys.includes(w.date))
     let hydrationOnTargetDays = 0
-    const waterGoal = nutritionProgressData.waterGoal || 2000
+    const waterGoal = nutritionProgressData.waterGoal
     dateKeys.forEach(date => {
       const dayWater = periodWater.filter((w: any) => w.date === date)
       const totalWater = dayWater.reduce((sum: number, w: any) => sum + (Number(w.amountMl) || 0), 0)
-      if (totalWater >= waterGoal * 0.8) {
+      if (waterGoal > 0 && totalWater >= waterGoal * 0.8) {
         hydrationOnTargetDays++
       }
     })
@@ -675,43 +686,54 @@ export default function ProgressPage({
     return {
       adherence: {
         mealLoggingRate,
-        calorieTargetRate: calorieTargetRate || 50, // default placeholders to keep score realistic when logs are starting out
-        proteinTargetRate: proteinTargetRate || 50,
+        calorieTargetRate,
+        proteinTargetRate,
         hydrationRate,
         dailyTaskRate: Math.round((mealLoggingRate + hydrationRate + weightTrackingRate) / 3),
       },
       nutrition: {
-        calorieScore: calorieTargetRate || 65,
-        proteinScore: proteinTargetRate || 65,
-        fiberScore: 75,
-        fruitVegetableScore: 80,
-        mealDistributionScore: 80,
+        calorieScore: calorieTargetRate,
+        proteinScore: proteinTargetRate,
+        fiberScore: undefined,
+        fruitVegetableScore: undefined,
+        mealDistributionScore: undefined,
       },
       activity: {
-        workoutCompletionScore: workoutCompletionScore || 40,
-        activeMinutesScore: workoutCompletionScore || 40,
-        consistencyScore: Math.round((daysWithWorkout / daysCount) * 100) || 50,
+        workoutCompletionScore,
+        activeMinutesScore: workoutCompletionScore,
+        consistencyScore: Math.round((daysWithWorkout / daysCount) * 100),
       },
       body: {
-        weightTrendScore: periodWeights.length > 0 ? 80 : 50,
-        measurementTrendScore: 70,
-        bodyCompositionScore: 65,
-        progressPhotoScore: 80,
+        // A measurement is evidence, not a score. Without a user target or a
+        // prior comparison point Aura must keep the progress score neutral
+        // instead of manufacturing 65/70/80-point estimates.
+        weightTrendScore: undefined,
+        measurementTrendScore: undefined,
+        bodyCompositionScore: undefined,
+        progressPhotoScore: undefined,
       },
       tracking: {
         mealTrackingRate: mealLoggingRate,
         weightTrackingRate,
         workoutTrackingRate: workoutCompletionScore,
         hydrationTrackingRate: hydrationRate,
-        measurementTrackingRate: 50,
+        measurementTrackingRate: bodyMetrics.updatedAt ? 100 : 0,
       }
     }
-  }, [allMeals, allWater, allActivities, weightRecords, nutritionProgressData, period])
+  }, [allMeals, allWater, allActivities, weightRecords, nutritionProgressData, nutritionTargets, period])
 
+  const trackedDataDays = useMemo(() => {
+    const dates = new Set<string>()
+    for (const item of [...allMeals, ...allWater, ...allActivities, ...weightRecords]) {
+      if (typeof item?.date === 'string' && item.date) dates.add(item.date)
+    }
+    if (bodyMetrics.updatedAt) dates.add(bodyMetrics.updatedAt)
+    return dates.size
+  }, [allActivities, allMeals, allWater, bodyMetrics.updatedAt, weightRecords])
   const progressScore = useMemo(() => {
     const daysCount = period === '7-days' ? 7 : period === '30-days' ? 30 : 90
-    return calculateProgressScore(realProgressInput, daysCount)
-  }, [realProgressInput, period])
+    return calculateProgressScore(realProgressInput, Math.min(daysCount, trackedDataDays))
+  }, [realProgressInput, period, trackedDataDays])
 
   // Calculate weight difference over the period
   const weightChangeText = useMemo(() => {
@@ -729,7 +751,7 @@ export default function ProgressPage({
       const diff = weightRecords[weightRecords.length - 1].weightKg - weightRecords[0].weightKg
       return `${diff >= 0 ? '+' : ''}${diff.toFixed(1)} kg`
     }
-    return '0.0 kg'
+    return '--'
   }, [weightRecords, period])
 
   const handleSelectQuickAction = (action: 'weight' | 'meal' | 'workout' | 'measurement' | 'photo' | 'water') => {
@@ -739,7 +761,7 @@ export default function ProgressPage({
     } else if (action === 'meal') {
       window.location.hash = '#/nutrition?section=scan'
     } else if (action === 'workout') {
-      onNavigate?.('workout')
+      onNavigate?.('pt-workout')
     } else if (action === 'measurement') {
       setMetricsModalOpen(true)
     } else if (action === 'photo') {
@@ -798,6 +820,15 @@ export default function ProgressPage({
 
   return (
     <div className="progress-center-page">
+      {loading && <div className="pg-data-state is-loading" role="status" aria-live="polite">
+        <LoaderCircle className="spin" size={17} aria-hidden="true" />
+        <span className="pg-data-state__copy"><strong>Đang đồng bộ dữ liệu tiến độ</strong><span>Aura đang tải nhật ký học tập mới nhất. Các chỉ số sẽ cập nhật sau khi đồng bộ xong.</span></span>
+      </div>}
+      {!loading && error && <div className="pg-data-state is-error" role="alert">
+        <AlertCircle size={17} aria-hidden="true" />
+        <span className="pg-data-state__copy"><strong>Chưa thể tải đầy đủ dữ liệu tiến độ</strong><span>{error}</span></span>
+      </div>}
+      {progressMutationError && <div className="pg-inline-error" role="alert">{progressMutationError}</div>}
       {/* Header with Time Selector & Category Pills & Coach Button */}
       <ProgressHeader
         period={period}
@@ -887,7 +918,7 @@ export default function ProgressPage({
             <EnergyBalanceCard
               onOpenDetails={() => onNavigate?.('nutrition')}
               onLogMeal={() => onNavigate?.('nutrition')}
-              onLogWorkout={() => onNavigate?.('workout')}
+              onLogWorkout={() => onNavigate?.('pt-workout')}
               intake={energyBalanceData.intake}
               basal={energyBalanceData.basal}
               dailyActivity={energyBalanceData.dailyActivity}

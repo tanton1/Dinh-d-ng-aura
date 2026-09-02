@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   CalendarDays,
@@ -21,6 +21,7 @@ import {
   asStudentPtScheduleError,
   listMyStudentPtSchedule,
   saveMyStudentAvailability,
+  studentPtContractHasSchedulableDate,
   type StudentPtPauseRequestSummary,
   type StudentPtScheduleData,
   type StudentPtScheduleServiceError,
@@ -218,16 +219,22 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   const missingSlots = Math.max(0, minimumSlots - selectedSlots.size)
   const locked = availability?.locked === true
   const dirty = !sameSlots(selectedSlots, originalSlots)
+  const dirtyRef = useRef(dirty)
+  dirtyRef.current = dirty
   const inherited = availability?.source === 'inherited_weekly'
   const legacyDefault = availability?.source === 'legacy_default'
   const weeklyAvailability = availability?.source === 'weekly'
   const missingAvailability = availability?.source === 'none'
   const canConfirmLegacyDefault = legacyDefault && selectedSlots.size > 0
-  const todayKey = toIsoDate(today)
-  const activeContract = (data?.contracts ?? []).find((contract) => ['active', 'frozen'].includes(contract.status)
-    && (!contract.startDate || contract.startDate <= todayKey)
-    && (!contract.endDate || contract.endDate >= todayKey)
-    && contract.remainingSessions > 0)
+  // A frozen contract remains visible for history and pause context, but it
+  // must never be treated as schedulable or as the contract receiving a new
+  // availability submission. The backend uses the same rule (status=active).
+  const activeContract = (data?.contracts ?? []).find((contract) => studentPtContractHasSchedulableDate(
+    contract,
+    range.from,
+    range.to,
+    ['active'],
+  ))
   const overlappingPauses = useMemo(() => (data?.pauseRequests ?? [])
     .filter((request) => pauseOverlapsWeek(request, range.from, range.to))
     .sort((left, right) => {
@@ -286,6 +293,24 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
     return result
   }, [data?.sessions])
   const issueContent = issue ? issueCopy(issue) : null
+
+  // Refresh the server snapshot while the page is visible, but never replace
+  // an in-progress local selection. This keeps the page realtime without
+  // wiping a student's unsaved availability changes.
+  useEffect(() => {
+    if (isDemo) return
+    const refresh = () => {
+      if (document.hidden || dirtyRef.current || loading) return
+      void load()
+    }
+    const onVisibilityChange = () => { if (!document.hidden) refresh() }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    const timer = window.setInterval(refresh, 90_000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.clearInterval(timer)
+    }
+  }, [isDemo, load, loading])
 
   const toggleSlot = (slotId: string) => {
     if (saving || locked) return

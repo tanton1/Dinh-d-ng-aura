@@ -31,21 +31,20 @@ test('nutrition assistant exposes private body and meal image choices', async ({
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
-test('student mobile dock keeps six Aura tabs ordered and full-width safe', async ({ page }) => {
+test('student mobile dock keeps five daily Aura tabs ordered and full-width safe', async ({ page }) => {
   for (const width of [360, 390, 430]) {
     await page.setViewportSize({ width, height: 844 })
     await page.goto('/#/home')
 
     const dock = page.getByRole('navigation', { name: 'Điều hướng học viên' })
     await expect(dock).toBeVisible()
-    await expect(dock.getByRole('button')).toHaveCount(6)
+    await expect(dock.getByRole('button')).toHaveCount(5)
     expect(await dock.getByRole('button').allTextContents()).toEqual([
       'Hôm nay',
+      'Lịch',
       'Dinh dưỡng',
-      'Lịch học viên',
+      'Tập luyện',
       'Tiến độ',
-      'Học',
-      'Cá nhân',
     ])
 
     const box = await dock.boundingBox()
@@ -96,6 +95,7 @@ test('retired food, menu and workout links redirect to active workspaces', async
   for (const [legacyPath, expectedUrl] of redirects) {
     await page.goto(legacyPath)
     await expect(page).toHaveURL(expectedUrl)
+    await expect(page.locator('#root')).not.toBeEmpty()
   }
 })
 
@@ -132,7 +132,7 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/#/home')
-  await page.locator('.mobile-bottom-nav').getByRole('button', { name: 'Lịch học viên' }).click()
+  await page.locator('.mobile-bottom-nav').getByRole('button', { name: 'Lịch', exact: true }).click()
   await expect(page).toHaveURL(/#\/schedule$/)
   await expect(page.getByRole('heading', { name: /^Lịch tập luyện$/i })).toBeVisible()
   const scheduleHero = page.getByRole('region', { name: 'Tổng quan lịch học viên' })
@@ -193,6 +193,7 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   await page.locator('.student-schedule-matrix td button.is-available').first().click()
   await page.getByRole('button', { name: 'Gửi lịch rảnh' }).click()
   await expect(page.getByRole('dialog', { name: 'Chỉ gửi 4 khung?' })).toBeVisible()
+  await expect(page.getByTestId('ai-coach-launcher')).toHaveCSS('pointer-events', 'none')
   await page.getByRole('button', { name: 'Chọn thêm khung' }).click()
   for (let index = 0; index < 4; index += 1) await page.locator('.student-schedule-matrix td button.is-available').first().click()
   await page.getByRole('button', { name: 'Gửi lịch rảnh' }).click()

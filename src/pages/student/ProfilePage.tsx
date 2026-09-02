@@ -52,7 +52,9 @@ export interface ProfilePageProps {
 }
 
 export default function ProfilePage({ fullProfile, displayName, email, membership, notificationSettings, mealReminderTime, userId, onSave, onSignOut, onEditProfile, onChangePassword, onUploadAvatar, syncState }: ProfilePageProps) {
-  const data = { ...(fullProfile || {}), ...(fullProfile?.onboardingData || {}) };
+  // Canonical profile fields win over the legacy onboarding projection. The
+  // previous order let stale onboardingData overwrite freshly synced values.
+  const data = { ...(fullProfile?.onboardingData || {}), ...(fullProfile || {}) };
   const nutrition = fullProfile?.nutritionProfile || {};
   
   const currentYear = new Date().getFullYear();

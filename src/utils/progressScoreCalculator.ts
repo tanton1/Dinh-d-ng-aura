@@ -254,14 +254,14 @@ export function calculateProgressScore(
     trackingScore * 0.05
 
   const finalTotal = Math.round(clampScore(totalScore))
-  const dataCoverage = calculateDataCoverage({
-    mealLoggedDays: Math.min(7, daysOfData),
-    expectedMealDays: 7,
-    weightEntries: Math.min(2, Math.max(1, Math.floor(daysOfData / 3))),
-    expectedWeightEntries: 2,
-    workoutEntries: Math.min(3, Math.floor(daysOfData / 2)),
-    expectedWorkoutEntries: 3,
-  })
+  // Coverage must reflect records that actually exist, not the selected
+  // period length. The previous calculation returned high confidence for a
+  // user with zero logs simply because the period was seven days long.
+  const dataCoverage = Math.round(clampScore(
+    input.adherence.mealLoggingRate * 0.5
+      + input.tracking.weightTrackingRate * 0.25
+      + input.tracking.workoutTrackingRate * 0.25,
+  ))
   const confidence = getConfidence(dataCoverage)
   const { classification, statusTag } = getClassificationText(finalTotal)
 

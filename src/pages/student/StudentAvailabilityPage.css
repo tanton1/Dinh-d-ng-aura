@@ -76,7 +76,7 @@
 .student-availability-off-helper > button { border-color: #efb9d0; color: #af245f; background: #fff7fa; }
 .student-availability-off-helper > button:disabled { cursor: not-allowed; opacity: .55; }
 
-.student-availability-confirm { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 18px; }
+.student-availability-confirm { position: fixed; inset: 0; z-index: 260; display: grid; place-items: center; padding: 18px; }
 .student-availability-confirm__backdrop { position: absolute; inset: 0; border: 0; background: rgba(36, 18, 29, .54); backdrop-filter: blur(6px); }
 .student-availability-confirm > section { position: relative; width: min(440px, 100%); padding: 22px; border: 1px solid #f0d9e2; border-radius: 24px; background: #fff; box-shadow: 0 28px 70px rgba(47, 20, 35, .3); }
 .student-availability-confirm > section > header { display: flex; align-items: center; justify-content: space-between; }

@@ -24,6 +24,7 @@ export default function NotificationCenter({
   const userId = user?.uid
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [isOpen, setIsOpen] = useState(false)
+  const [notificationError, setNotificationError] = useState<string | null>(null)
   const [foregroundPushVersion, setForegroundPushVersion] = useState(0)
   const dropdownRef = useRef<HTMLDivElement>(null)
   
@@ -39,6 +40,7 @@ export default function NotificationCenter({
   useEffect(() => {
     if (!userId) {
       setNotifications([])
+      setNotificationError(null)
       previousNotifIdsRef.current.clear()
       return
     }
@@ -47,6 +49,7 @@ export default function NotificationCenter({
     previousNotifIdsRef.current = new Set()
 
     const unsubscribe = subscribeToUserNotifications(userId, (data) => {
+      setNotificationError(null)
       if (isInitialLoadRef.current) {
         // Initial snapshot: record all existing notification IDs
         previousNotifIdsRef.current = new Set(data.map(n => n.id))
@@ -60,6 +63,8 @@ export default function NotificationCenter({
         })
       }
       setNotifications(data)
+    }, () => {
+      setNotificationError('Chưa thể đồng bộ thông báo. Hãy thử lại sau.')
     })
     return () => unsubscribe()
   }, [userId])
@@ -123,10 +128,15 @@ export default function NotificationCenter({
 
   const unreadCount = notifications.filter(n => !n.read).length
 
-  const handleNotificationClick = (notif: AppNotification) => {
+  const handleNotificationClick = async (notif: AppNotification) => {
     if (!userId) return
     if (!notif.read) {
-      markNotificationAsRead(userId, notif.id)
+      try {
+        await markNotificationAsRead(userId, notif.id)
+      } catch {
+        setNotificationError('Chưa thể cập nhật trạng thái thông báo.')
+        return
+      }
     }
     if (notif.actionUrl) {
       setIsOpen(false)
@@ -139,9 +149,15 @@ export default function NotificationCenter({
     }
   }
 
-  const handleMarkAllAsRead = (e: React.MouseEvent) => {
+  const handleMarkAllAsRead = async (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (userId) markAllNotificationsAsRead(userId)
+    if (!userId) return
+    try {
+      await markAllNotificationsAsRead(userId)
+      setNotificationError(null)
+    } catch {
+      setNotificationError('Chưa thể đánh dấu tất cả thông báo đã đọc.')
+    }
   }
 
   return (
@@ -239,6 +255,7 @@ export default function NotificationCenter({
               </button>
             )}
           </div>
+          {notificationError && <div role="alert" style={{ padding: '8px 16px', color: '#b42318', background: '#fff1f2', fontSize: '12px', fontWeight: 600 }}>{notificationError}</div>}
           
           <div style={{ overflowY: 'auto', flex: 1 }}>
             {notifications.length === 0 ? (
@@ -251,12 +268,20 @@ export default function NotificationCenter({
               </div>
             ) : (
               notifications.map((notif) => (
-                <div 
+                <button
+                  type="button"
                   key={notif.id}
-                  onClick={() => handleNotificationClick(notif)}
+                  onClick={() => void handleNotificationClick(notif)}
+                  disabled={!notif.actionUrl}
                   style={{
                     padding: '14px 16px',
+                    width: '100%',
                     borderBottom: '1px solid #f1f5f9',
+                    borderTop: 0,
+                    borderLeft: 0,
+                    borderRight: 0,
+                    textAlign: 'left',
+                    font: 'inherit',
                     cursor: notif.actionUrl ? 'pointer' : 'default',
                     backgroundColor: notif.read ? '#ffffff' : 'rgba(236, 72, 153, 0.04)',
                     display: 'flex',
@@ -286,7 +311,7 @@ export default function NotificationCenter({
                       <ChevronRight size={16} />
                     </div>
                   )}
-                </div>
+                </button>
               ))
             )}
           </div>

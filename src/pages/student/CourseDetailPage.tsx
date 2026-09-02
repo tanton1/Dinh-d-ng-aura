@@ -216,7 +216,7 @@ export default function CourseDetailPage({
       savedNote.current = ''
     }
     setNoteSaved(false)
-    if (storedNote || !course || !selectedLesson) return
+    if (!course || !selectedLesson) return
     let active = true
     void loadAcademyNoteFromCloud(noteOwnerId, String(course.id), selectedLesson.id)
       .then((cloudNote) => {
@@ -291,14 +291,23 @@ export default function CourseDetailPage({
     }
   }
 
-  const saveNote = () => {
+  const saveNote = async () => {
     if (!noteStorageKey || !selectedLesson) return
+    setNoteSaved(false)
+    setActionError(null)
     try {
+      // Demo content has no durable account, so local persistence is enough.
+      // In Firebase mode the cloud write must succeed before we acknowledge
+      // the save; otherwise the UI can claim success while only localStorage
+      // contains the note.
+      if (!allowDemoContent && noteOwnerId !== 'demo') {
+        await saveAcademyNoteToCloud(noteOwnerId, String(course.id), selectedLesson.id, note)
+      }
       localStorage.setItem(noteStorageKey, note)
       savedNote.current = note
       setNoteSaved(true)
-      void saveAcademyNoteToCloud(noteOwnerId, String(course.id), selectedLesson.id, note).catch(() => undefined)
     } catch {
+      setActionError('Chưa thể đồng bộ ghi chú. Nội dung của bạn vẫn được giữ lại, hãy thử lại.')
       setNoteSaved(false)
     }
   }

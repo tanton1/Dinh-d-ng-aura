@@ -4,20 +4,30 @@ import { Calendar, Check, Scale, X } from 'lucide-react'
 interface WeightLogModalProps {
   currentWeight: number
   onClose: () => void
-  onSave: (weightKg: number, note?: string) => void
+  onSave: (weightKg: number, note?: string) => void | Promise<void>
 }
 
 export function WeightLogModal({ currentWeight = 65.0, onClose, onSave }: WeightLogModalProps) {
   const [val, setVal] = useState<string>(String(currentWeight))
   const [note, setNote] = useState<string>('')
   const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const num = parseFloat(val)
     if (!isNaN(num) && num > 20 && num < 300) {
-      onSave(num, note)
-      onClose()
+      setSaving(true)
+      setError(null)
+      try {
+        await onSave(num, note)
+        onClose()
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Chưa thể lưu cân nặng.')
+      } finally {
+        setSaving(false)
+      }
     }
   }
 
@@ -37,6 +47,7 @@ export function WeightLogModal({ currentWeight = 65.0, onClose, onSave }: Weight
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {error && <div role="alert" style={{ padding: '10px 12px', borderRadius: 12, background: '#fff1f2', color: '#b42318', fontSize: 13, fontWeight: 600 }}>{error}</div>}
           <div>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
               Cân nặng (kg)
@@ -114,8 +125,9 @@ export function WeightLogModal({ currentWeight = 65.0, onClose, onSave }: Weight
             />
           </div>
 
-          <button
-            type="submit"
+            <button
+              type="submit"
+              disabled={saving}
             style={{
               height: 50,
               borderRadius: 16,
@@ -128,13 +140,13 @@ export function WeightLogModal({ currentWeight = 65.0, onClose, onSave }: Weight
               alignItems: 'center',
               justifyContent: 'center',
               gap: 8,
-              cursor: 'pointer',
+              cursor: saving ? 'wait' : 'pointer',
               marginTop: 8,
               boxShadow: '0 8px 20px rgba(247, 37, 103, 0.25)',
             }}
           >
             <Check size={18} strokeWidth={3} />
-            <span>Lưu cân nặng</span>
+            <span>{saving ? 'Đang lưu…' : 'Lưu cân nặng'}</span>
           </button>
         </form>
       </div>

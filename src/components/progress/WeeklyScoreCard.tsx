@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Apple, Dumbbell, Flame, Info, Scale, ShieldCheck, Sparkles, ChevronDown, ChevronUp } from 'lucide-react'
 import type { ProgressScoreResult } from '../../utils/progressScoreCalculator'
-import { calculateProgressScore, defaultProgressInputSample } from '../../utils/progressScoreCalculator'
+import { calculateProgressScore } from '../../utils/progressScoreCalculator'
 
 interface WeeklyScoreCardProps {
   scoreResult?: ProgressScoreResult
@@ -19,13 +19,13 @@ interface WeeklyScoreCardProps {
 
 export function WeeklyScoreCard({
   scoreResult,
-  score: fallbackScore = 82,
+  score: fallbackScore = 0,
   maxScore = 100,
   weightChangeText = '+0.2 kg',
   weightSubText = 'So với tuần trước ↑',
-  nutritionPercent = 84,
-  workoutsCount = 3,
-  streakDays = 5,
+  nutritionPercent = 0,
+  workoutsCount = 0,
+  streakDays = 0,
   statusTagText,
   insightText,
   daysOfData = 7,
@@ -34,8 +34,13 @@ export function WeeklyScoreCard({
   const [showBreakdown, setShowBreakdown] = useState(false)
 
   // Calculate score from formula engine if scoreResult not passed
-  const activeResult: ProgressScoreResult =
-    scoreResult || calculateProgressScore(defaultProgressInputSample, daysOfData)
+  const activeResult: ProgressScoreResult = scoreResult || calculateProgressScore({
+    adherence: { mealLoggingRate: 0, calorieTargetRate: 0, proteinTargetRate: 0, hydrationRate: 0, dailyTaskRate: 0 },
+    nutrition: { calorieScore: 0, proteinScore: 0 },
+    activity: { workoutCompletionScore: 0, activeMinutesScore: 0, consistencyScore: 0 },
+    body: {},
+    tracking: { mealTrackingRate: 0, weightTrackingRate: 0, workoutTrackingRate: 0, hydrationTrackingRate: 0 },
+  }, 0)
 
   const finalScore = scoreResult ? scoreResult.total : activeResult.total || fallbackScore
   const activeStatusTag = statusTagText || activeResult.statusTag

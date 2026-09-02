@@ -12,6 +12,7 @@ const {
   loadLatestSubmittedFallbacks,
   studentAvailabilityProfilePatch,
 } = require('./student-availability')
+const { summarizeContractUsage } = require('./contract-usage')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const DEFAULT_WORKING_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -94,12 +95,18 @@ function dateDistance(from, to) {
   return Number.isFinite(fromTime) && Number.isFinite(toTime) ? Math.round((toTime - fromTime) / 86400000) : null
 }
 
-function studentContractProjection(id, contract = {}, today = currentDateKey()) {
+function studentContractProjection(id, contract = {}, today = currentDateKey(), usageSessions = [], usageEvidenceComplete = true) {
   const totalAmount = Math.max(0, safeMoney(contract.totalPrice) - safeMoney(contract.discount))
   const paidAmount = safeMoney(contract.paidAmount)
   const outstandingAmount = Math.max(0, totalAmount - paidAmount)
-  const totalSessions = Math.max(0, Number(contract.totalSessions || 0))
-  const usedSessions = Math.max(0, Number(contract.usedSessions || 0))
+  // Session evidence is canonical only when the caller loaded the contract's
+  // whole effective period. A calendar window must never make an older
+  // contract look as if it used fewer sessions than it actually did.
+  const usage = usageEvidenceComplete && Array.isArray(usageSessions) && usageSessions.length
+    ? summarizeContractUsage(contract, usageSessions)
+    : null
+  const totalSessions = usage?.totalSessions ?? Math.max(0, Number(contract.totalSessions || 0))
+  const usedSessions = usage?.usedSessions ?? Math.max(0, Number(contract.usedSessions || 0))
   const installments = (Array.isArray(contract.installments) ? contract.installments : [])
     .slice(0, 24)
     .map((item, index) => ({
@@ -113,8 +120,25 @@ function studentContractProjection(id, contract = {}, today = currentDateKey()) 
   const nextPending = installments.find((item) => item.status === 'pending')
   const configuredNextPaymentDate = storedDateKey(contract.nextPaymentDate)
   const nextPaymentDate = nextPending?.date || configuredNextPaymentDate || null
+  const startDate = storedDateKey(contract.startDate)
   const endDate = storedDateKey(contract.endDate)
+  const remainingSessions = Math.max(0, totalSessions - usedSessions)
   const daysUntilEnd = endDate ? dateDistance(today, endDate) : null
+  const pausePeriods = Array.isArray(contract.pausePeriods)
+    ? contract.pausePeriods.slice(0, 20).map((period) => ({
+        type: typeof period?.type === 'string' ? period.type : undefined,
+        startDate: storedDateKey(period?.startDate),
+        endDate: storedDateKey(period?.endDate),
+      })).filter((period) => period.startDate && period.endDate)
+    : []
+  const pausedToday = pausePeriods.some((period) => {
+    const pauseType = String(period.type || 'preservation').toLowerCase()
+    return pauseType === 'preservation' && period.startDate <= today && period.endDate >= today
+  })
+  const schedulableToday = String(contract.status || '').toLowerCase() === 'active'
+    && Boolean(startDate && endDate && startDate <= today && endDate >= today)
+    && remainingSessions > 0
+    && !pausedToday
   const nextPaymentDistance = nextPaymentDate ? dateDistance(today, nextPaymentDate) : null
   const paymentStatus = outstandingAmount <= 0
     ? 'paid'
@@ -129,7 +153,7 @@ function studentContractProjection(id, contract = {}, today = currentDateKey()) 
     id,
     packageName: contract.packageName || 'Gói tập Aura',
     status: contract.status || 'active',
-    startDate: storedDateKey(contract.startDate),
+    startDate,
     endDate,
     totalSessions,
     usedSessions,
@@ -140,17 +164,20 @@ function studentContractProjection(id, contract = {}, today = currentDateKey()) 
     paymentStatus,
     nextPaymentDate,
     daysUntilEnd,
+    schedulableToday,
+    pausedToday,
+    pausePeriods,
     installments,
   }
 }
 
 function studentContractAlerts(contracts, today = currentDateKey()) {
   const alerts = []
-  const activeContracts = contracts.filter((contract) => contract.status === 'active'
+  const activeContracts = contracts.filter((contract) => String(contract.status || '').toLowerCase() === 'active'
     && contract.startDate && contract.startDate <= today
     && (!contract.endDate || contract.endDate >= today))
   const futureContract = contracts
-    .filter((contract) => ['active', 'future'].includes(contract.status) && contract.startDate > today)
+    .filter((contract) => ['active', 'future'].includes(String(contract.status || '').toLowerCase()) && contract.startDate > today)
     .sort((left, right) => left.startDate.localeCompare(right.startDate))[0]
 
   for (const contract of contracts) {
@@ -753,8 +780,22 @@ function createPtOperationsV2Functions({ db, onCall }) {
       timeZone: TIME_ZONE,
     }))
     const today = currentDateKey()
+    const rangeSessionsComplete = sessionsSnapshot.size <= 1000
     const contracts = contractsSnapshot.docs
-      .map((item) => studentContractProjection(item.id, item.data(), today))
+      .map((item) => {
+        const contract = item.data()
+        const contractStart = storedDateKey(contract.startDate)
+        const contractEnd = storedDateKey(contract.endDate)
+        const usageEvidenceComplete = rangeSessionsComplete
+          && Boolean(contractStart && contractEnd && from <= contractStart && to >= contractEnd)
+        return studentContractProjection(
+          item.id,
+          contract,
+          today,
+          sessionRecords.filter((session) => session.contractId === item.id),
+          usageEvidenceComplete,
+        )
+      })
       .sort((left, right) => left.startDate.localeCompare(right.startDate) || left.id.localeCompare(right.id))
     const contractAlerts = studentContractAlerts(contracts, today)
     const sessionRequests = sessionRequestsSnapshot.docs

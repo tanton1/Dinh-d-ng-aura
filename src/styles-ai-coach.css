@@ -42,6 +42,16 @@
   opacity: 0;
 }
 
+/* A global helper must never sit above an application decision. This covers
+   learner sheets as well as legacy/admin dialogs whose historical z-index is
+   lower than the launcher. `:has()` is supported by every browser in Aura's
+   current deployment matrix and avoids coupling each modal to AppShell state. */
+body:has([role='dialog'][aria-modal='true'], [role='alertdialog'][aria-modal='true']) .ai-coach-global-launcher {
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+}
+
 .ai-coach-global-launcher__orb {
   position: relative;
   display: grid;
@@ -130,6 +140,18 @@
 
   .ai-coach-global-launcher__copy small {
     font-size: 9px;
+  }
+
+  .app-shell:is([data-view='staff-workouts'], [data-view='admin-pt-workouts'], [data-view='pt-workout']) .ai-coach-global-launcher {
+    width: 48px;
+    min-width: 48px;
+    max-width: 48px;
+    padding: 6px;
+  }
+
+  .app-shell:is([data-view='staff-workouts'], [data-view='admin-pt-workouts'], [data-view='pt-workout']) .ai-coach-global-launcher__copy,
+  .app-shell:is([data-view='staff-workouts'], [data-view='admin-pt-workouts'], [data-view='pt-workout']) .ai-coach-global-launcher__status {
+    display: none;
   }
 }
 

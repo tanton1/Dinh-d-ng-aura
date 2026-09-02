@@ -189,7 +189,7 @@ export default function HomePage({
   }, [isDemo, ownerId])
 
   const effectiveNutritionWeight = useMemo(
-    () => readRecentAverageWeight(ownerId, nutritionProfile?.weightKg ?? 60),
+    () => readRecentAverageWeight(ownerId, nutritionProfile?.weightKg ?? 0),
     [nutritionProfile?.weightKg, ownerId],
   )
   const dailyPulseTargets = useMemo(
@@ -527,7 +527,8 @@ export default function HomePage({
       <AuraTodayFlow
         firstName={firstName}
         streak={streak}
-        goalLabel={nutritionGoalLabel}
+        goalLabel={dailyPulseTargets.configured ? nutritionGoalLabel : 'chưa thiết lập mục tiêu'}
+        nutritionConfigured={dailyPulseTargets.configured}
         caloriesConsumed={todayCalories}
         calorieGoal={dailyPulseTargets.calorieGoal}
         proteinConsumed={todayProtein}

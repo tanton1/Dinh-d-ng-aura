@@ -171,6 +171,23 @@
 .student-schedule-hero__controls > div button.active { width: 20px; background: #fff; }
 .student-schedule-hero__controls > button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid rgba(255,255,255,.32); border-radius: 11px; color: #fff; background: rgba(17,10,16,.2); }
 
+/* Desktop users should see the three key summaries at once. Keeping the
+   swipeable track for narrow screens avoids the old "only one slide" feeling
+   while preserving the compact mobile layout. */
+@media (min-width: 960px) {
+  .student-schedule-hero__track {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+  .student-schedule-hero__slide {
+    min-height: 188px;
+    flex: initial;
+  }
+  .student-schedule-hero__controls { display: none; }
+}
+
 .student-schedule-state {
   min-height: 240px;
   display: flex;
@@ -436,6 +453,13 @@
 .student-contract-card-footer strong { color:#c72e68; font-size:10px; white-space:nowrap; }
 .student-contract-detail { margin-top:12px; }
 .student-contract-kpis { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.student-contract-state-line { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin:12px 0 0; padding:9px 11px; border:1px solid #f0e0e6; border-radius:12px; background:#fffafc; color:#5d4854; font-size:11px; }
+.student-contract-state-line > span { width:8px; height:8px; border-radius:50%; background:#94a3b8; }
+.student-contract-state-line > span.is-active { background:#16a36a; }
+.student-contract-state-line > span.is-future { background:#3b82f6; }
+.student-contract-state-line > span.is-frozen { background:#f59e0b; }
+.student-contract-state-line > span.is-expired,.student-contract-state-line > span.is-cancelled { background:#ef4444; }
+.student-contract-state-line em { color:#8b7580; font-size:10px; font-style:normal; }
 .student-contract-kpis article { min-width:0; padding:12px; border:1px solid #f0e0e7; border-radius:16px; background:#fff; }
 .student-contract-kpis small,.student-contract-kpis strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .student-contract-kpis small { color:#8b7c84; font-size:9px; }

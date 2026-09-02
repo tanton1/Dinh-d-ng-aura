@@ -304,7 +304,11 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
     );
 
     sortedContracts.forEach((c) => {
-      if (c.status === "active" && !map.has(c.studentId)) {
+      const status = String(c.status || "").toLowerCase();
+      // A future renewal can be eligible later in this week, but the scheduler
+      // validates the exact slot date before placing a student. Expired,
+      // frozen and cancelled contracts never enter the candidate map.
+      if (["active", "future"].includes(status) && !map.has(c.studentId)) {
         let startDate = new Date(c.startDate || 0);
         if (isNaN(startDate.getTime())) startDate = new Date(0);
 
@@ -319,7 +323,7 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
         const timeDiff = endDate.getTime() - now.getTime();
         const daysLeft = Math.ceil(timeDiff / (1000 * 3600 * 24));
 
-        const totalSess = c.totalSessions !== undefined ? c.totalSessions : 999;
+        const totalSess = Math.max(0, Math.floor(Number(c.totalSessions || 0)));
         
         // Count scheduled sessions for this contract
         const scheduledSessions = sessions.filter(s => {
@@ -337,7 +341,8 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
         if (
           daysLeft >= 0 &&
           sessionsLeft > 0 &&
-          startDate.getTime() <= endOfTargetWeek.getTime()
+          startDate.getTime() <= endOfTargetWeek.getTime() &&
+          endDate.getTime() >= now.getTime()
         ) {
           map.set(c.studentId, c);
         }

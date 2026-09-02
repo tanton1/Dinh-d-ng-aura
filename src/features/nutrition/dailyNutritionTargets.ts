@@ -7,6 +7,7 @@ export interface NutritionWeightRecord {
 }
 
 export interface DailyNutritionTargets {
+  configured: boolean
   calorieGoal: number
   proteinGoal: number
   carbGoal: number
@@ -72,15 +73,33 @@ export function resolveDailyNutritionTargets(
 ): DailyNutritionTargets {
   if (!profile) {
     return {
-      calorieGoal: 2_000,
-      proteinGoal: 100,
-      carbGoal: 250,
-      fatGoal: 55,
-      waterGoal: 2_000,
-      maintenanceCalories: 2_000,
+      configured: false,
+      calorieGoal: 0,
+      proteinGoal: 0,
+      carbGoal: 0,
+      fatGoal: 0,
+      waterGoal: 0,
+      maintenanceCalories: 0,
       dailyAdjustment: 0,
       targetDelta: 0,
-      timeframeMonths: 3,
+      timeframeMonths: 0,
+    }
+  }
+
+  const hasCompleteInputs = [profile.age, profile.heightCm, profile.weightKg, profile.biologicalSex, profile.goal]
+    .every((value) => value !== null && value !== undefined && String(value).trim() !== '')
+  if (!hasCompleteInputs) {
+    return {
+      configured: false,
+      calorieGoal: 0,
+      proteinGoal: 0,
+      carbGoal: 0,
+      fatGoal: 0,
+      waterGoal: 0,
+      maintenanceCalories: 0,
+      dailyAdjustment: 0,
+      targetDelta: 0,
+      timeframeMonths: 0,
     }
   }
 
@@ -90,6 +109,7 @@ export function resolveDailyNutritionTargets(
   })
 
   return {
+    configured: targets.configured !== false,
     calorieGoal: targets.targetCaloriesKcal,
     proteinGoal: targets.proteinG,
     carbGoal: targets.carbsG,

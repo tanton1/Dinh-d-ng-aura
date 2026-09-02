@@ -24,6 +24,7 @@ import SessionFeedbackPrompt from '../../components/student/SessionFeedbackPromp
 import {
   asStudentPtScheduleError,
   listMyStudentPtSchedule,
+  studentPtContractHasSchedulableDate,
   StudentPtScheduleServiceError,
   type StudentPtScheduleData,
   type StudentPtSession,
@@ -152,6 +153,14 @@ function contractStatusLabel(value: string) {
   return ({ active: 'Đang hiệu lực', future: 'Gói tiếp theo', frozen: 'Đang bảo lưu', expired: 'Đã hết hạn', cancelled: 'Đã hủy' } as Record<string, string>)[value] ?? value
 }
 
+function contractDisplayStatus(contract: StudentPtScheduleData['contracts'][number], today: string) {
+  const status = String(contract.status || '').toLowerCase()
+  if (status === 'active' && contract.pausedToday) return 'Đang bảo lưu'
+  if (status === 'active' && contract.endDate && contract.endDate < today) return 'Đã hết hạn'
+  if (status === 'active' && contract.remainingSessions <= 0) return 'Hết buổi'
+  return contractStatusLabel(status)
+}
+
 export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigate: (view: ViewId) => void; isDemo?: boolean; ownerId?: string }) {
   const today = useMemo(() => new Date(), [])
   const range = useMemo(() => ({ from: toIsoDate(addDays(today, -180)), to: toIsoDate(addDays(today, 180)) }), [today])
@@ -222,6 +231,24 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
     return () => window.removeEventListener('hashchange', syncTabFromRoute)
   }, [])
 
+  // Keep schedule, attendance and payment alerts fresh without a full page
+  // reload. Poll only while the tab is visible; returning to the tab triggers
+  // an immediate read so staff changes are reflected quickly.
+  useEffect(() => {
+    if (isDemo) return
+    const refresh = () => {
+      if (document.hidden || loading) return
+      void load()
+    }
+    const onVisibilityChange = () => { if (!document.hidden) refresh() }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    const timer = window.setInterval(refresh, 90_000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.clearInterval(timer)
+    }
+  }, [isDemo, load, loading])
+
   const changeDeadlineHours = data?.scheduleConfig.sessionChangeDeadlineHours ?? 12
   const complimentaryChangeCancelPerMonth = data?.scheduleConfig.complimentaryChangeCancelPerMonth ?? 1
   const offMaxDaysPerRequest = data?.scheduleConfig.offMaxDaysPerRequest ?? 14
@@ -236,15 +263,31 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   const pendingRequestCount = scheduleRequests.filter((request) => request.status === 'pending').length + pauseRequests.filter((request) => request.status === 'pending').length
   const todayKey = toIsoDate(today)
   const contracts = data?.contracts ?? []
-  const activeContract = contracts.find((contract) => contract.status === 'active'
-    && (!contract.startDate || contract.startDate <= todayKey)
-    && (!contract.endDate || contract.endDate >= todayKey)
-    && contract.remainingSessions > 0)
+  const selectedWeekFrom = toIsoDate(weekDays[0])
+  const selectedWeekTo = toIsoDate(weekDays[6])
+  const activeContract = contracts.find((contract) => studentPtContractHasSchedulableDate(
+    contract,
+    selectedWeekFrom,
+    selectedWeekTo,
+    ['active'],
+  ))
+  const futureContractInWeek = contracts.find((contract) => studentPtContractHasSchedulableDate(
+    contract,
+    selectedWeekFrom,
+    selectedWeekTo,
+    ['future'],
+  ))
   const futureContract = contracts
-    .filter((contract) => ['active', 'future'].includes(contract.status) && contract.startDate > todayKey)
+    .filter((contract) => ['active', 'future'].includes(contract.status) && contract.remainingSessions > 0 && contract.startDate > selectedWeekTo)
     .sort((left, right) => left.startDate.localeCompare(right.startDate))[0]
-  const displayContract = activeContract ?? futureContract ?? contracts[0]
-  const selectedContract = contracts.find((contract) => contract.id === selectedContractId) ?? displayContract
+  // Expired/frozen contracts remain available in the contract history tab,
+  // but must not be promoted as the current package in the schedule hero.
+  const displayContract = activeContract ?? futureContractInWeek ?? futureContract ?? null
+  // The contract tab may still inspect an expired/frozen record, while the
+  // schedule summary above only uses an effective or upcoming contract.
+  const selectedContract = contracts.find((contract) => contract.id === selectedContractId)
+    ?? displayContract
+    ?? contracts[0]
   const contractAlerts = data?.contractAlerts ?? []
   const availability = data?.student?.availability
   const availabilitySlots = availability?.slots ?? data?.student?.availableSlots ?? []
@@ -388,8 +431,8 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
             <div className="calendar-header"><button type="button" aria-label="Tuần trước" disabled={weekOffset === 0} onClick={() => selectWeek(0)}><ChevronLeft size={19} /></button><div><strong>{weekLabel}</strong><button type="button" onClick={goToday}>Hôm nay</button></div><button type="button" aria-label="Tuần sau" disabled={weekOffset === 1} onClick={() => selectWeek(1)}><ChevronRight size={19} /></button></div>
             <div className="week-strip">{weekDays.map((date) => {
               const iso = toIsoDate(date)
-              const session = (data.sessions ?? []).find((item) => item.date === iso && item.status !== 'cancelled')
-              return <button type="button" key={iso} className={selectedDate === iso ? 'active' : ''} aria-pressed={selectedDate === iso} aria-label={`${DAY_LABELS[date.getDay()]} ngày ${date.getDate()}, ${session ? 'có lịch' : 'không có lịch'}`} onClick={() => setSelectedDate(iso)}><span>{DAY_LABELS[date.getDay()]}</span><strong>{date.getDate()}</strong>{session && <i />}</button>
+              const hasSession = (data.sessions ?? []).some((item) => item.date === iso && item.status !== 'cancelled')
+              return <button type="button" key={iso} className={selectedDate === iso ? 'active' : ''} aria-pressed={selectedDate === iso} aria-label={`${DAY_LABELS[date.getDay()]} ngày ${date.getDate()}, ${hasSession ? 'có lịch' : 'không có lịch'}`} onClick={() => setSelectedDate(iso)}><span>{DAY_LABELS[date.getDay()]}</span><strong>{date.getDate()}</strong>{hasSession && <i />}</button>
             })}</div>
             <div className="day-label"><span>{selectedLabel.toLocaleUpperCase('vi')}</span><small>{selectedSessions.length} buổi tập</small></div>
 
@@ -422,14 +465,16 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
           {contracts.length > 0 ? <>
             <div className="student-contract-carousel" aria-label="Danh sách hợp đồng">
               {contracts.map((contract) => <button type="button" key={contract.id} className={`${selectedContract?.id === contract.id ? 'active' : ''} is-${contract.status}`} onClick={() => setSelectedContractId(contract.id)}>
-                <span><small>{contractStatusLabel(contract.status)}</small><strong>{contract.packageName}</strong></span>
+                <span><small>{contractDisplayStatus(contract, todayKey)}</small><strong>{contract.packageName}</strong></span>
                 <em>{contract.remainingSessions} buổi còn lại · tổng {contract.totalSessions}</em>
                 <i><b style={{ width: `${Math.min(100, contract.totalAmount ? contract.paidAmount / contract.totalAmount * 100 : contract.outstandingAmount ? 0 : 100)}%` }} /></i>
                 <span className="student-contract-card-footer"><span>{formatContractDate(contract.startDate)} → {formatContractDate(contract.endDate)}</span><strong>{contract.outstandingAmount > 0 ? `Nợ ${formatMoney(contract.outstandingAmount)}` : 'Đã thu đủ'}</strong></span>
               </button>)}
             </div>
             {selectedContract && <div className="student-contract-detail">
+              <div className="student-contract-state-line"><span className={`is-${String(selectedContract.status || '').toLowerCase()}`} /> <strong>{contractDisplayStatus(selectedContract, todayKey)}</strong><em>{selectedContract.usedSessions}/{selectedContract.totalSessions} buổi đã dùng · còn {selectedContract.remainingSessions} buổi</em></div>
               <div className="student-contract-kpis"><article><small>Giá trị hợp đồng</small><strong>{formatMoney(selectedContract.totalAmount)}</strong></article><article><small>Đã thanh toán</small><strong>{formatMoney(selectedContract.paidAmount)}</strong></article><article className={selectedContract.outstandingAmount > 0 ? 'is-warning' : 'is-paid'}><small>Công nợ còn lại</small><strong>{formatMoney(selectedContract.outstandingAmount)}</strong></article></div>
+              {selectedContract.pausedToday && <div className="student-schedule-message" role="status"><CalendarRange size={16} /> Hợp đồng đang bảo lưu hôm nay. Lịch cũ vẫn được giữ trong lịch sử; Aura sẽ chỉ xếp buổi mới sau khi bảo lưu kết thúc.</div>}
               <div className="student-payment-schedule"><header><div><small>LỊCH THANH TOÁN</small><h3>Các kỳ của {selectedContract.packageName}</h3></div>{selectedContract.nextPaymentDate && <span>Kỳ tới {formatContractDate(selectedContract.nextPaymentDate)}</span>}</header>
                 {(selectedContract.installments ?? []).length > 0 ? <div>{(selectedContract.installments ?? []).map((installment, index) => {
                   const overdue = installment.status === 'pending' && installment.date < todayKey

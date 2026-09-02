@@ -15,13 +15,14 @@ export function DailyActionsCard({
   onOpenQuickLog,
   todayMealCount,
   todayWaterMl,
-  waterTargetMl = 2000,
+  waterTargetMl = 0,
   todayWeightLogged,
   todayWorkoutLogged,
 }: DailyActionsCardProps) {
-  const waterPct = Math.min(100, Math.round(((todayWaterMl ?? 1200) / waterTargetMl) * 100))
-  const isWaterDone = (todayWaterMl ?? 0) >= waterTargetMl
-  const isMealDone = typeof todayMealCount === 'number' ? todayMealCount > 0 : true
+  const actualWaterMl = todayWaterMl ?? 0
+  const waterPct = waterTargetMl > 0 ? Math.min(100, Math.round((actualWaterMl / waterTargetMl) * 100)) : 0
+  const isWaterDone = waterTargetMl > 0 && actualWaterMl >= waterTargetMl
+  const isMealDone = typeof todayMealCount === 'number' ? todayMealCount > 0 : false
   const isWeightDone = typeof todayWeightLogged === 'boolean' ? todayWeightLogged : false
   const isWorkoutDone = typeof todayWorkoutLogged === 'boolean' ? todayWorkoutLogged : false
 
@@ -49,14 +50,16 @@ export function DailyActionsCard({
     {
       id: '2',
       title: 'Ghi bữa ăn',
-      subtitle: todayMealCount !== undefined ? `${todayMealCount} bữa đã ghi` : 'Sáng',
+      subtitle: todayMealCount !== undefined ? `${todayMealCount} bữa đã ghi` : 'Chưa ghi nhận',
       type: 'meal',
       completed: isTaskCompleted('2', 'meal')
     },
     {
       id: '3',
       title: 'Uống nước',
-      subtitle: `${((todayWaterMl ?? 1200) / 1000).toFixed(1)} / ${(waterTargetMl / 1000).toFixed(1)} lít`,
+      subtitle: waterTargetMl > 0
+        ? `${(actualWaterMl / 1000).toFixed(1)} / ${(waterTargetMl / 1000).toFixed(1)} lít`
+        : 'Chưa thiết lập mục tiêu nước',
       type: 'water',
       completed: isTaskCompleted('3', 'water'),
       progress: waterPct
@@ -64,7 +67,7 @@ export function DailyActionsCard({
     {
       id: '4',
       title: 'Buổi tập',
-      subtitle: isWorkoutDone ? 'Đã hoàn thành' : 'Thân dưới',
+      subtitle: isWorkoutDone ? 'Đã hoàn thành' : 'Chưa ghi nhận',
       type: 'workout',
       completed: isTaskCompleted('4', 'workout')
     },

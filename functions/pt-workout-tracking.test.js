@@ -1,6 +1,15 @@
 const assert = require('node:assert/strict')
 const test = require('node:test')
-const { historyAnalytics, logDocumentId, normalizeProgramDraft, normalizeWorkoutSets, workspaceStudentIds, workoutMetrics } = require('./pt-workout-tracking')
+const {
+  historyAnalytics,
+  isEffectiveWorkoutContract,
+  logDocumentId,
+  normalizeProgramDraft,
+  normalizeWorkoutSets,
+  workspaceStudentIds,
+  workoutMetrics,
+  workoutSessionWriteIssue,
+} = require('./pt-workout-tracking')
 
 test('program draft preserves muscle-day structure and bounded prescription', () => {
   const program = normalizeProgramDraft({ title: 'Mông đùi A', trainingDays: [{
@@ -42,6 +51,14 @@ test('history analytics returns per-exercise records from completed logs only', 
   assert.equal(analytics.personalRecords[0].maximumSetVolumeKg, 400)
 })
 
+test('warm-up sets do not create personal weight records', () => {
+  const analytics = historyAnalytics([{ status: 'completed', metrics: { totalVolumeKg: 600, painAlert: false }, sets: [
+    { completed: true, setType: 'warmup', catalogExerciseId: 'squat', exerciseName: 'Squat', weightKg: 70, reps: 2 },
+    { completed: true, setType: 'working', catalogExerciseId: 'squat', exerciseName: 'Squat', weightKg: 50, reps: 8 },
+  ] }])
+  assert.equal(analytics.personalRecords[0].maximumWeightKg, 50)
+})
+
 test('one deterministic log exists per source session and learner', () => {
   assert.equal(logDocumentId('session-a', 'student-a'), logDocumentId('session-a', 'student-a'))
   assert.notEqual(logDocumentId('session-a', 'student-a'), logDocumentId('session-a', 'student-b'))
@@ -51,12 +68,32 @@ test('workspace includes assigned learners without requiring a session in the se
   const studentIds = workspaceStudentIds(
     [{ studentId: 'student-with-session' }],
     [
-      { studentId: 'student-assigned', status: 'active' },
-      { studentId: 'student-future', status: 'future' },
-      { studentId: 'student-frozen', status: 'frozen' },
-      { studentId: 'student-expired', status: 'expired' },
-      { studentId: 'student-with-session', status: 'active' },
+      { studentId: 'student-assigned', status: 'active', startDate: '2026-01-01', endDate: '2026-12-31', totalSessions: 20, usedSessions: 3 },
+      { studentId: 'student-future', status: 'future', startDate: '2026-10-01', endDate: '2027-01-01', totalSessions: 20, usedSessions: 0 },
+      { studentId: 'student-frozen', status: 'frozen', startDate: '2026-01-01', endDate: '2026-12-31', totalSessions: 20, usedSessions: 3 },
+      { studentId: 'student-expired', status: 'expired', startDate: '2026-01-01', endDate: '2026-08-01', totalSessions: 20, usedSessions: 3 },
+      { studentId: 'student-with-session', status: 'active', startDate: '2026-01-01', endDate: '2026-12-31', totalSessions: 20, usedSessions: 3 },
     ],
+    '2026-09-02',
   )
-  assert.deepEqual(studentIds, ['student-with-session', 'student-assigned', 'student-future', 'student-frozen'])
+  assert.deepEqual(studentIds, ['student-with-session', 'student-assigned'])
+})
+
+test('workout contracts require active date quota and no preservation', () => {
+  const base = { status: 'active', startDate: '2026-01-01', endDate: '2026-12-31', totalSessions: 20, usedSessions: 3 }
+  assert.equal(isEffectiveWorkoutContract(base, '2026-09-02'), true)
+  assert.equal(isEffectiveWorkoutContract({ ...base, status: 'future' }, '2026-09-02'), false)
+  assert.equal(isEffectiveWorkoutContract({ ...base, status: 'frozen' }, '2026-09-02'), false)
+  assert.equal(isEffectiveWorkoutContract({ ...base, startDate: '2026-10-01' }, '2026-09-02'), false)
+  assert.equal(isEffectiveWorkoutContract({ ...base, endDate: '2026-08-31' }, '2026-09-02'), false)
+  assert.equal(isEffectiveWorkoutContract({ ...base, usedSessions: 20 }, '2026-09-02'), false)
+  assert.equal(isEffectiveWorkoutContract({ ...base, pausePeriods: [{ type: 'preservation', startDate: '2026-09-01', endDate: '2026-09-10' }] }, '2026-09-02'), false)
+})
+
+test('future and no-show workout logs are protected', () => {
+  const now = new Date('2026-09-02T10:30:00+07:00')
+  assert.match(workoutSessionWriteIssue({ status: 'scheduled', date: '2026-09-03', hour: 8 }, 'draft', now), /tương lai/)
+  assert.match(workoutSessionWriteIssue({ status: 'scheduled', date: '2026-09-02', hour: 11 }, 'completed', now), /Chưa đến giờ/)
+  assert.match(workoutSessionWriteIssue({ status: 'no_show', date: '2026-09-02', hour: 8 }, 'draft', now), /vắng mặt/)
+  assert.equal(workoutSessionWriteIssue({ status: 'attended', date: '2026-09-02', hour: 8 }, 'completed', now), '')
 })

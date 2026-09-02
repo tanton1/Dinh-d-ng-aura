@@ -119,14 +119,27 @@ export function canonicalRouteHash(view: ViewId, courseId?: string | null, lesso
   return retiredRouteRedirects[view]?.hash ?? routeHash(view, courseId, lessonId)
 }
 
+/**
+ * Canonicalize retired hashes independently from React. Hash navigation can
+ * happen while a lazy route is rendering, before (or between) component
+ * effects. Keeping this operation synchronous ensures old bookmarks always
+ * expose their supported URL and lets the React router read one source of
+ * truth afterwards.
+ */
+export function canonicalizeRetiredRouteHash() {
+  const rawHash = window.location.hash.replace(/^#\/?/, '')
+  const [rawView = 'home'] = rawHash.split('?')
+  const retiredRoute = retiredRouteRedirects[rawView]
+  if (!retiredRoute || window.location.hash === retiredRoute.hash) return false
+  window.history.replaceState(null, '', retiredRoute.hash)
+  return true
+}
+
 export function getCurrentRoute(): AuraRoute {
+  canonicalizeRetiredRouteHash()
   const rawHash = window.location.hash.replace(/^#\/?/, '')
   const [rawView = 'home', rawQuery = ''] = rawHash.split('?')
-  const retiredRoute = retiredRouteRedirects[rawView]
-  if (retiredRoute && window.location.hash !== retiredRoute.hash) {
-    window.history.replaceState(null, '', retiredRoute.hash)
-  }
-  const view = retiredRoute?.view ?? (validViews.includes(rawView as ViewId) ? rawView as ViewId : 'home')
+  const view = validViews.includes(rawView as ViewId) ? rawView as ViewId : 'home'
   const params = new URLSearchParams(rawQuery)
   return {
     view,

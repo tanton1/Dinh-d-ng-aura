@@ -125,6 +125,8 @@ function AuraApplication() {
   const [route, setRoute] = useState<AuraRoute>(getCurrentRoute)
   const view = route.view
   const routeRef = useRef(route)
+  const editorDirtyRef = useRef(false)
+  const courseNoteDirtyRef = useRef(false)
   const [adminPreviewCourseId, setAdminPreviewCourseId] = useState<string | null>(null)
   const [editorDirty, setEditorDirty] = useState(false)
   const [courseNoteDirty, setCourseNoteDirty] = useState(false)
@@ -182,34 +184,50 @@ function AuraApplication() {
   const showOnboarding = forceOnboarding && role !== 'shipper'
 
   const saveProfile = async (values: ProfileUpdateInput) => {
-    // Recalculate targets based on new values
-    const rawGoal = values.goals ? values.goals[0] : (profile?.nutritionProfile?.goal || 'maintain');
-    const safeGoal = rawGoal === 'fat_loss' ? 'lose-fat' : rawGoal === 'muscle_gain' ? 'gain-muscle' : 'maintain';
-    
+    // Only merge the canonical profile in Firebase mode. Local demo/cache
+    // values must never overwrite a real profile when the user changes one
+    // field (for example notification settings).
+    const baseNutritionProfile: Record<string, any> = backendMode === 'firebase'
+      ? (profile?.nutritionProfile || {})
+      : (localNutritionProfile || profile?.nutritionProfile || {})
+    const rawGoal = values.goals?.[0] ?? baseNutritionProfile.goal
+    const safeGoal = rawGoal === 'fat_loss' || rawGoal === 'lose-fat'
+      ? 'lose-fat'
+      : rawGoal === 'muscle_gain' || rawGoal === 'gain-muscle'
+        ? 'gain-muscle'
+        : rawGoal === 'maintain' || rawGoal === 'maintenance'
+          ? 'maintain'
+          : undefined
+
     const mergedProfileData = {
-      ...(profile?.nutritionProfile || {}),
-      ...(localNutritionProfile || {}),
+      ...baseNutritionProfile,
       ...values,
-      heightCm: values.heightCm ?? profile?.nutritionProfile?.heightCm ?? 165,
-      weightKg: values.weightKg ?? profile?.nutritionProfile?.weightKg ?? 60,
-      targetWeightDeltaKg: values.targetWeightDeltaKg ?? profile?.nutritionProfile?.targetWeightDeltaKg ?? 0,
-      targetTimeframeMonths: values.targetTimeframeMonths ?? profile?.nutritionProfile?.targetTimeframeMonths ?? 3,
-      goal: safeGoal
-    }
-    const newTargets = calculateNutritionTargets(mergedProfileData as any)
-    
+      ...(safeGoal ? { goal: safeGoal } : {}),
+    } as Record<string, any>
+
+    // Nutrition targets are meaningful only when the minimum profile inputs
+    // are present. Do not silently invent height, weight, age or sex.
+    const hasCompleteNutritionInputs = [
+      mergedProfileData.age,
+      mergedProfileData.heightCm,
+      mergedProfileData.weightKg,
+      mergedProfileData.biologicalSex,
+      mergedProfileData.goal,
+    ].every((value) => value !== null && value !== undefined && value !== '')
+    const newTargets = hasCompleteNutritionInputs
+      ? calculateNutritionTargets(mergedProfileData as any)
+      : null
+
     const nextNutritionProfile = {
       ...mergedProfileData,
-      age: mergedProfileData.age ?? 30,
-      biologicalSex: mergedProfileData.biologicalSex ?? 'female',
-      targetSpeedPace: mergedProfileData.targetSpeedPace || undefined,
-      goal: safeGoal as "lose-fat" | "gain-muscle" | "maintain",
-      targetCalories: newTargets.targetCaloriesKcal,
-      protein: newTargets.proteinG,
-      carbs: newTargets.carbsG,
-      fat: newTargets.fatG,
-      waterLiters: newTargets.waterLiters,
-      steps: newTargets.stepsPerDay
+      ...(newTargets ? {
+        targetCalories: newTargets.targetCaloriesKcal,
+        protein: newTargets.proteinG,
+        carbs: newTargets.carbsG,
+        fat: newTargets.fatG,
+        waterLiters: newTargets.waterLiters,
+        steps: newTargets.stepsPerDay,
+      } : {}),
     } as any;
 
     if (backendMode === 'firebase' && user) {
@@ -281,27 +299,41 @@ function AuraApplication() {
   }, [route])
 
   useEffect(() => {
+    editorDirtyRef.current = editorDirty
+  }, [editorDirty])
+
+  useEffect(() => {
+    courseNoteDirtyRef.current = courseNoteDirty
+  }, [courseNoteDirty])
+
+  useEffect(() => {
     const onHashChange = () => {
       const nextRoute = getCurrentRoute()
       const currentRoute = routeRef.current
       if (isSameRoute(currentRoute, nextRoute)) return
-      const unsavedWarning = currentRoute.view === 'admin-course-editor' && editorDirty
+      const unsavedWarning = currentRoute.view === 'admin-course-editor' && editorDirtyRef.current
         ? 'Bạn có thay đổi chưa lưu. Rời trình tạo khóa học và bỏ các thay đổi này?'
-        : currentRoute.view === 'course-detail' && courseNoteDirty
+        : currentRoute.view === 'course-detail' && courseNoteDirtyRef.current
           ? 'Ghi chú bài học chưa được lưu. Bạn vẫn muốn rời trang này?'
           : null
       if (unsavedWarning && !window.confirm(unsavedWarning)) {
         window.history.replaceState(null, '', routeHash(currentRoute.view, currentRoute.courseId, currentRoute.lessonId))
         return
       }
-      if (currentRoute.view === 'admin-course-editor') setEditorDirty(false)
-      if (currentRoute.view === 'course-detail') setCourseNoteDirty(false)
+      if (currentRoute.view === 'admin-course-editor') {
+        editorDirtyRef.current = false
+        setEditorDirty(false)
+      }
+      if (currentRoute.view === 'course-detail') {
+        courseNoteDirtyRef.current = false
+        setCourseNoteDirty(false)
+      }
       routeRef.current = nextRoute
       setRoute(nextRoute)
     }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
-  }, [courseNoteDirty, editorDirty])
+  }, [])
 
   useEffect(() => {
     if (backendMode === 'firebase') {
@@ -849,7 +881,7 @@ function AuraApplication() {
       case 'staff-renewals': return <AuraOperationsFrame><ContractRenewals onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
       case 'staff-payroll': return <AuraOperationsFrame><StaffPayrollPage /></AuraOperationsFrame>
 
-      case 'pt-workout': return <StudentPtWorkoutPage isDemo={backendMode === 'demo'} />
+      case 'pt-workout': return <StudentPtWorkoutPage isDemo={backendMode === 'demo'} ownerId={user?.uid ?? 'demo'} />
 
       case 'admin-pt-students': return <AuraOperationsFrame className="aura-operations-page--students"><AdminPTStudentManagement user={user as any} profile={profile} /></AuraOperationsFrame>
       case 'admin-pt-schedule': return <AuraOperationsFrame className="aura-operations-page--schedule">{backendMode === 'firebase'

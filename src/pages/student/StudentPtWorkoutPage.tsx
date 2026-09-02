@@ -25,7 +25,7 @@ import ExerciseMediaPlayer from '../../components/exercise-catalog/ExerciseMedia
 import '../operations/PtWorkoutWorkspacePage.css'
 import './StudentPtWorkoutPage.css'
 
-type StudentWorkoutTab = 'plan' | 'library'
+type StudentWorkoutTab = 'plan' | 'history' | 'library'
 type LibraryFilter = 'all' | 'beginner' | 'intermediate' | 'advanced' | 'home'
 
 const libraryFilterLabels: Record<LibraryFilter, string> = {
@@ -60,6 +60,37 @@ function mediaImages(item: ExerciseCatalogItem): ExerciseCatalogMediaImage[] {
 
 function difficultyLabel(value: ExerciseCatalogItem['difficulty']) { return libraryFilterLabels[value] }
 
+function compactDate(value: string) {
+  const [, month, day] = value.split('-')
+  return month && day ? `${day}/${month}` : value
+}
+
+function VolumeTrend({ history }: { history: PtWorkoutHistory }) {
+  const points = history.logs
+    .filter((log) => log.status === 'completed')
+    .slice(0, 12)
+    .reverse()
+    .map((log) => ({ label: compactDate(log.date), value: Number(log.metrics?.totalVolumeKg || 0) }))
+  const maximum = Math.max(1, ...points.map((point) => point.value))
+  const coordinates = points.map((point, index) => ({
+    ...point,
+    x: points.length === 1 ? 50 : 6 + (index / (points.length - 1)) * 88,
+    y: 86 - (point.value / maximum) * 68,
+  }))
+  return <div className="pt-workout-learner__trend">
+    <header><div><span>XU HƯỚNG</span><h3>Volume theo buổi</h3></div><small>{points.length} buổi gần nhất</small></header>
+    {!coordinates.length ? <div className="pt-workout-learner__trend-empty"><BarChart3 />Chưa đủ dữ liệu để vẽ xu hướng.</div> : <>
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Biểu đồ volume tập luyện theo buổi">
+        <defs><linearGradient id="student-volume-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#f52f7b" stopOpacity=".28"/><stop offset="1" stopColor="#f52f7b" stopOpacity="0"/></linearGradient></defs>
+        <path d={`M ${coordinates[0].x} 90 L ${coordinates.map((point) => `${point.x} ${point.y}`).join(' L ')} L ${coordinates.at(-1)?.x} 90 Z`} fill="url(#student-volume-fill)" />
+        <polyline points={coordinates.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#f52f7b" strokeWidth="2.2" vectorEffect="non-scaling-stroke" />
+        {coordinates.map((point) => <circle key={`${point.label}-${point.x}`} cx={point.x} cy={point.y} r="2.4" fill="#fff" stroke="#f52f7b" strokeWidth="1.4" vectorEffect="non-scaling-stroke"><title>{point.label}: {point.value.toLocaleString('vi-VN')} kg</title></circle>)}
+      </svg>
+      <div className="pt-workout-learner__trend-labels"><span>{coordinates[0]?.label}</span><strong>Cao nhất {Math.round(maximum).toLocaleString('vi-VN')} kg</strong><span>{coordinates.at(-1)?.label}</span></div>
+    </>}
+  </div>
+}
+
 function ExerciseVisual({ item, className = '' }: { item: ExerciseCatalogItem; className?: string }) {
   const image = mediaImages(item)[0]
   return <div className={`student-library__visual ${className}`}>
@@ -92,7 +123,8 @@ function ExerciseDetail({ item, isInCurrentPlan, onBack, onOpenPlan, saved, onTo
   </article>
 }
 
-export default function StudentPtWorkoutPage({ isDemo = false }: { isDemo?: boolean }) {
+export default function StudentPtWorkoutPage({ isDemo = false, ownerId = 'demo' }: { isDemo?: boolean; ownerId?: string }) {
+  const favoritesStorageKey = `aura-student-exercise-favorites:${ownerId}`
   const [program, setProgram] = useState<PtTrainingProgram | null>(null)
   const [history, setHistory] = useState<PtWorkoutHistory | null>(null)
   const [dayIndex, setDayIndex] = useState(0)
@@ -107,7 +139,7 @@ export default function StudentPtWorkoutPage({ isDemo = false }: { isDemo?: bool
   const [visibleCatalogCount, setVisibleCatalogCount] = useState(24)
   const [selectedExercise, setSelectedExercise] = useState<ExerciseCatalogItem | null>(null)
   const [savedIds, setSavedIds] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(window.localStorage.getItem('aura-student-exercise-favorites') || '[]')) } catch { return new Set() }
+    try { return new Set(JSON.parse(window.localStorage.getItem(favoritesStorageKey) || '[]')) } catch { return new Set() }
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -117,16 +149,25 @@ export default function StudentPtWorkoutPage({ isDemo = false }: { isDemo?: bool
     setLoading(true); setError('')
     if (isDemo) {
       setProgram(null)
-      setHistory(null)
+      setHistory({ studentId: 'student-demo', logs: [], analytics: { completedWorkouts: 0, totalVolumeKg: 0, painAlerts: 0, personalRecords: [] } })
       setDayIndex(0)
       setLoading(false)
       return
     }
-    try {
-      const [nextProgram, nextHistory] = await Promise.all([getPtStudentTrainingPlan(), listPtWorkoutHistory()])
-      setProgram(nextProgram); setHistory(nextHistory); setDayIndex(0)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể tải giáo án PT.') }
-    finally { setLoading(false) }
+    const results = await Promise.allSettled([getPtStudentTrainingPlan(), listPtWorkoutHistory()])
+    const messages: string[] = []
+    if (results[0].status === 'fulfilled') { setProgram(results[0].value); setDayIndex(0) }
+    else {
+      setProgram(null)
+      messages.push(results[0].reason instanceof Error ? results[0].reason.message : 'Không thể tải giáo án.')
+    }
+    if (results[1].status === 'fulfilled') setHistory(results[1].value)
+    else {
+      setHistory(null)
+      messages.push(results[1].reason instanceof Error ? results[1].reason.message : 'Không thể tải lịch sử tập luyện.')
+    }
+    setError(messages.join(' '))
+    setLoading(false)
   }
   const loadCatalog = async () => {
     if (catalogLoading) return
@@ -137,8 +178,22 @@ export default function StudentPtWorkoutPage({ isDemo = false }: { isDemo?: bool
     finally { setCatalogLoading(false) }
   }
   useEffect(() => { void load() }, [isDemo])
+  useEffect(() => {
+    if (isDemo) return
+    const refresh = () => { if (!document.hidden) void load() }
+    const onVisibilityChange = () => { if (!document.hidden) refresh() }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    const timer = window.setInterval(refresh, 90_000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.clearInterval(timer)
+    }
+  }, [isDemo])
   useEffect(() => { if (activeTab === 'library' && !catalogRequested) void loadCatalog() }, [activeTab, catalogRequested])
-  useEffect(() => { try { window.localStorage.setItem('aura-student-exercise-favorites', JSON.stringify([...savedIds])) } catch { /* unavailable in private mode */ } }, [savedIds])
+  useEffect(() => { try { window.localStorage.setItem(favoritesStorageKey, JSON.stringify([...savedIds])) } catch { /* unavailable in private mode */ } }, [favoritesStorageKey, savedIds])
+  useEffect(() => {
+    try { setSavedIds(new Set(JSON.parse(window.localStorage.getItem(favoritesStorageKey) || '[]'))) } catch { setSavedIds(new Set()) }
+  }, [favoritesStorageKey])
   useEffect(() => { setVisibleCatalogCount(24) }, [catalogFilter, catalogQuery, muscleFilter])
 
   const day = program?.trainingDays[dayIndex]
@@ -159,12 +214,13 @@ export default function StudentPtWorkoutPage({ isDemo = false }: { isDemo?: bool
   return <main className="pt-workout-workspace pt-workout-learner">
     <section className="pt-workout-workspace__slides" aria-label="Tổng quan tập luyện">
       <article className="pt-workout-workspace__hero"><span>AURA PT · CỦA BẠN</span><h1>Tập luyện</h1><p>Giáo án, kỹ thuật và thư viện bài tập được thiết kế cho bạn.</p><Dumbbell /></article>
-      <article className="pt-workout-workspace__metric"><small>Buổi đã ghi</small><strong>{history?.analytics.completedWorkouts || 0}</strong><span>Nhật ký có PT xác nhận</span><History /></article>
+      <article className="pt-workout-workspace__metric"><small>Nhật ký mức tạ</small><strong>{history?.analytics.completedWorkouts || 0}</strong><span>Buổi đã hoàn thành ghi nhận bài tập</span><History /></article>
       <article className="pt-workout-workspace__metric"><small>Tổng volume</small><strong>{Math.round(history?.analytics.totalVolumeKg || 0).toLocaleString('vi-VN')}</strong><span>kg qua các buổi đã hoàn thành</span><Weight /></article>
     </section>
     {(error || notice) && <div className={`pt-workout-workspace__message ${error ? 'is-error' : 'is-success'}`} role={error ? 'alert' : 'status'}>{error || notice}</div>}
     {!selectedExercise && <nav className="student-library__tabs" aria-label="Khu vực tập luyện">
       <button type="button" className={activeTab === 'plan' ? 'is-active' : ''} onClick={() => { setActiveTab('plan'); setSelectedExercise(null) }}><Dumbbell />Giáo án của tôi</button>
+      <button type="button" className={activeTab === 'history' ? 'is-active' : ''} onClick={() => { setActiveTab('history'); setSelectedExercise(null) }}><BarChart3 />Lịch sử & tiến bộ</button>
       <button type="button" className={activeTab === 'library' ? 'is-active' : ''} onClick={() => { setActiveTab('library'); setSelectedExercise(null) }}><Images />Khám phá bài tập<span>{catalog.length || '…'}</span></button>
     </nav>}
     {activeTab === 'plan' && <>
@@ -177,6 +233,26 @@ export default function StudentPtWorkoutPage({ isDemo = false }: { isDemo?: bool
         </section>
       </>}
     </>}
+    {activeTab === 'history' && <section className="pt-workout-learner__history" aria-label="Lịch sử và tiến bộ">
+      <div className="pt-workout-learner__history-metrics">
+        <article><History /><span><small>Nhật ký mức tạ</small><strong>{history?.analytics.completedWorkouts || 0}</strong></span></article>
+        <article><Weight /><span><small>Tổng volume</small><strong>{Math.round(history?.analytics.totalVolumeKg || 0).toLocaleString('vi-VN')} kg</strong></span></article>
+        <article className={history?.analytics.painAlerts ? 'has-alert' : ''}><AlertTriangle /><span><small>Lưu ý đau</small><strong>{history?.analytics.painAlerts || 0}</strong></span></article>
+      </div>
+      {history && <VolumeTrend history={history} />}
+      <div className="pt-workout-learner__history-layout">
+        <div className="pt-workout-learner__history-list">
+          <header><div><span>NHẬT KÝ</span><h2>Các buổi gần nhất</h2></div><History /></header>
+          {history?.logs.map((log) => <article key={log.id} className={log.status === 'completed' ? 'is-completed' : 'is-draft'}>
+            <time>{compactDate(log.date)}<small>{String(log.hour).padStart(2, '0')}:00</small></time>
+            <div><strong>{log.trainingDayTitle || 'Buổi tập Aura'}</strong><span>{log.metrics.completedSets} hiệp · {Math.round(log.metrics.totalVolumeKg).toLocaleString('vi-VN')} kg{log.coachNotes ? ` · ${log.coachNotes}` : ''}</span></div>
+            <em>{log.status === 'completed' ? 'Hoàn thành' : 'Nháp'}</em>
+          </article>)}
+          {!loading && !history?.logs.length && <div className="pt-workout-workspace__empty is-compact"><Dumbbell /><strong>Chưa có nhật ký mức tạ</strong><span>Buổi tập sẽ xuất hiện khi PT bắt đầu ghi giáo án thực tế.</span></div>}
+        </div>
+        <aside className="pt-workout-learner__records"><header><div><span>KỶ LỤC</span><h2>Mức tạ tốt nhất</h2></div><Sparkles /></header>{history?.analytics.personalRecords.map((record) => <article key={record.catalogExerciseId}><span><strong>{record.exerciseName}</strong><small>Volume hiệp {record.maximumSetVolumeKg.toLocaleString('vi-VN')} kg</small></span><b>{record.maximumWeightKg} kg</b></article>)}{!history?.analytics.personalRecords.length && <p>Kỷ lục sẽ được tổng hợp từ các hiệp làm việc đã hoàn thành.</p>}</aside>
+      </div>
+    </section>}
     {activeTab === 'library' && <section className="student-library" aria-label="Thư viện bài tập">
       {selectedExercise ? <ExerciseDetail item={selectedExercise} isInCurrentPlan={planExerciseIds.has(selectedExercise.id)} onBack={() => setSelectedExercise(null)} onOpenPlan={openPlan} saved={savedIds.has(selectedExercise.id)} onToggleSaved={() => toggleSaved(selectedExercise.id)} /> : <>
         <div className="student-library__intro"><div><span>THƯ VIỆN AURA</span><h2>Khám phá bài tập</h2><p>Chọn bài phù hợp, xem kỹ thuật và lưu lại để tham khảo.</p></div><button type="button" className="student-library__refresh" onClick={() => void loadCatalog()} disabled={catalogLoading} aria-label="Tải lại thư viện"><RefreshCw /></button></div>

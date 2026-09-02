@@ -22,6 +22,7 @@ const {
   loadLatestSubmittedFallbacks,
   studentAvailabilityProfilePatch,
 } = require('./student-availability')
+const { summarizeContractUsage } = require('./contract-usage')
 
 const MAX_STUDENTS = 500
 const MAX_TRAINERS = 100
@@ -234,6 +235,7 @@ async function loadBranchData(db, branchId, week) {
     ? safeSchedule(draftData.schedule)
     : branchScheduleSnapshot(legacy.schedule || {}, branchId, studentMap, trainerMap)
   const mappedContracts = contracts.map((contract) => {
+    const usage = summarizeContractUsage(contract, sessionRows.filter((session) => session.contractId === contract.id))
     const activeContractSessions = sessionRows.filter((session) => session.contractId === contract.id
       && ['scheduled', 'rescheduled'].includes(String(session.status || '').toLowerCase())
       && session.billingStatus !== 'charged')
@@ -241,7 +243,7 @@ async function loadBranchData(db, branchId, week) {
       const date = storedDate(session.date)
       return date >= week && date < nextWeek(week)
     }).length
-    const remainingEntitlementSessions = Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))
+    const remainingEntitlementSessions = usage.remainingSessions
     return {
     id: contract.id,
     studentId: contract.studentId,
@@ -255,7 +257,7 @@ async function loadBranchData(db, branchId, week) {
     endDate: contract.endDate,
     pausePeriods: Array.isArray(contract.pausePeriods) ? contract.pausePeriods.slice(0, 20) : [],
     totalSessions: Number(contract.totalSessions || 0),
-    usedSessions: Number(contract.usedSessions || 0),
+    usedSessions: usage.usedSessions,
     remainingEntitlementSessions,
     activeScheduledSessions: activeContractSessions.length,
     activeScheduledThisWeek,
@@ -399,6 +401,7 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId) 
   const sessions = sessionSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
   const contracts = contractSnapshot.docs.map((item) => {
     const contract = item.data()
+    const usage = summarizeContractUsage(contract, sessions.filter((session) => session.contractId === item.id))
     const activeContractSessions = sessions.filter((session) => session.contractId === item.id
       && ['scheduled', 'rescheduled'].includes(String(session.status || '').toLowerCase())
       && session.billingStatus !== 'charged')
@@ -406,7 +409,7 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId) 
       const date = storedDate(session.date)
       return date >= week && date < nextWeek(week)
     }).length
-    const remainingEntitlementSessions = Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0))
+    const remainingEntitlementSessions = usage.remainingSessions
     return {
       id: item.id,
       studentId: contract.studentId,
@@ -420,7 +423,7 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId) 
       endDate: contract.endDate,
       pausePeriods: Array.isArray(contract.pausePeriods) ? contract.pausePeriods.slice(0, 20) : [],
       totalSessions: Number(contract.totalSessions || 0),
-      usedSessions: Number(contract.usedSessions || 0),
+      usedSessions: usage.usedSessions,
       remainingEntitlementSessions,
       activeScheduledSessions: activeContractSessions.length,
       activeScheduledThisWeek,

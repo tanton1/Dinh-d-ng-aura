@@ -12,6 +12,8 @@ interface Props {
 
 export default function ConfirmationModal({ isOpen, title, message, onConfirm, onCancel }: Props) {
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const titleId = React.useId();
+  const messageId = React.useId();
 
   // Reset state when modal opens/closes
   React.useEffect(() => {
@@ -32,7 +34,7 @@ export default function ConfirmationModal({ isOpen, title, message, onConfirm, o
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4" role="presentation">
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -45,12 +47,16 @@ export default function ConfirmationModal({ isOpen, title, message, onConfirm, o
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             className="relative w-full max-w-sm bg-zinc-900 rounded-3xl p-6 shadow-2xl border border-zinc-800"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            aria-describedby={messageId}
           >
             <div className="flex items-center gap-3 mb-4 text-amber-500">
               <AlertCircle className="w-8 h-8" />
-              <h3 className="text-xl font-bold text-white">{title}</h3>
+              <h3 id={titleId} className="text-xl font-bold text-white">{title}</h3>
             </div>
-            <p className="text-zinc-400 mb-6">{message}</p>
+            <p id={messageId} className="text-zinc-400 mb-6">{message}</p>
             <div className="flex gap-3">
               <button 
                 onClick={onCancel}

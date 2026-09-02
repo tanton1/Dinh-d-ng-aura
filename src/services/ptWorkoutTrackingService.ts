@@ -60,6 +60,8 @@ export interface PtWorkoutSession {
   date: string
   hour: number
   status: string
+  trainerName?: string
+  branchName?: string
 }
 
 export interface PtWorkoutStudent {
@@ -70,6 +72,7 @@ export interface PtWorkoutStudent {
   contractId?: string
   contractStatus?: 'active' | 'future' | 'frozen' | string
   assignmentSource?: 'contract' | 'teaching_session'
+  eligibleForNewProgram?: boolean
 }
 
 export interface PtWorkoutSet {
@@ -163,7 +166,12 @@ export async function savePtSessionWorkoutLog(input: {
   painNotes?: string
   coachNotes?: string
 }) {
-  const response = await callable<typeof input, { logId: string; revision: number; status: 'draft' | 'completed' }>('savePtSessionWorkoutLog')(input)
+  const response = await callable<typeof input, {
+    logId: string
+    revision: number
+    status: 'draft' | 'completed'
+    metrics: PtWorkoutLog['metrics']
+  }>('savePtSessionWorkoutLog')(input)
   return response.data
 }
 

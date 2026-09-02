@@ -177,6 +177,15 @@
       ]
     },
     {
+      "collectionGroup": "ptWorkoutLogs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "studentId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" },
+        { "fieldPath": "hour", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "courseRevisions",
       "queryScope": "COLLECTION",
       "fields": [

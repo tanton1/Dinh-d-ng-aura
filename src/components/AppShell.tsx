@@ -95,10 +95,10 @@ const studentNavSections: ShellNavSection[] = [
 
 const studentMobileNav: ShellNavItem[] = [
   { id: 'home', label: 'Hôm nay', icon: Home },
+  { id: 'schedule', label: 'Lịch', icon: CalendarDays },
   { id: 'nutrition', label: 'Dinh dưỡng', icon: Soup },
   { id: 'pt-workout', label: 'Tập luyện', icon: Dumbbell },
   { id: 'progress', label: 'Tiến độ', icon: BarChart3 },
-  { id: 'profile', label: 'Cá nhân', icon: UserRound },
 ]
 
 const staffNavSections: ShellNavSection[] = [

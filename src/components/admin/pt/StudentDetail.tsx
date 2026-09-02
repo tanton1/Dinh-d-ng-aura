@@ -39,6 +39,23 @@ type StudentDetailTab = 'info' | 'progress' | 'history' | 'checkin' | 'requests'
 
 import TrainerPrioritySelector from './TrainerPrioritySelector';
 
+function hoChiMinhDateKey(reference = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(reference);
+  const value = (type: string) => parts.find((part) => part.type === type)?.value || '';
+  return `${value('year')}-${value('month')}-${value('day')}`;
+}
+
+function contractPausedOn(contract: StudentContract, date: string) {
+  if (String(contract.status || '').toLowerCase() === 'frozen') return true;
+  return (contract.pausePeriods || []).some((period) => {
+    const startDate = String(period.startDate || '').slice(0, 10);
+    const endDate = String(period.endDate || '').slice(0, 10);
+    return period.type === 'preservation' && startDate <= date && endDate >= date;
+  });
+}
+
 export default function StudentDetail({ student, profile, contracts, packages, trainers, branches, sessions, onBack, onSaveContract, onUpdateContract }: Props) {
   const isTrainer = (profile as any)?.role === 'trainer';
   const { deleteWorkoutLog } = useDatabase();
@@ -105,7 +122,12 @@ export default function StudentDetail({ student, profile, contracts, packages, t
   }, [notification]);
 
   const activeContract = getActiveContract(student.id, contracts);
-  const historyContracts = contracts.filter(c => c.studentId === student.id && c.id !== activeContract?.id);
+  const todayId = hoChiMinhDateKey();
+  const pausedContract = contracts
+    .filter((contract) => contract.studentId === student.id && contractPausedOn(contract, todayId))
+    .sort((left, right) => new Date(right.endDate).getTime() - new Date(left.endDate).getTime())[0];
+  const displayContract = activeContract || pausedContract;
+  const historyContracts = contracts.filter(c => c.studentId === student.id && c.id !== activeContract?.id && c.id !== pausedContract?.id);
   const studentSessions = sessions.filter(s => s.studentId === student.id);
 
   useEffect(() => {
@@ -144,7 +166,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
 
   useEffect(() => {
     let active = true;
-    if (!activeContract?.id) {
+    if (!displayContract?.id) {
       setActiveContractUsage(null);
       setContractUsageError('');
       setContractUsageLoading(false);
@@ -153,7 +175,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
     setContractUsageLoading(true);
     setContractUsageError('');
     setActiveContractUsage(null);
-    void getStudentContractUsage(student.id, activeContract.id)
+    void getStudentContractUsage(student.id, displayContract.id)
       .then((response) => {
         if (!active) return;
         setActiveContractUsage(response.summaries[0] ?? null);
@@ -165,7 +187,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
       })
       .finally(() => { if (active) setContractUsageLoading(false); });
     return () => { active = false; };
-  }, [activeContract?.id, student.id]);
+  }, [displayContract?.id, student.id]);
 
   const mySessionRequests = React.useMemo(() => sessionRequests?.filter(r => r.studentId === student.id) || [], [sessionRequests, student.id]);
   const myLeaveRequests = React.useMemo(() => leaveRequests?.filter(r => r.studentId === student.id) || [], [leaveRequests, student.id]);
@@ -566,8 +588,8 @@ export default function StudentDetail({ student, profile, contracts, packages, t
   // The callable and training history share contract-usage-v2. The stored
   // projection is only a visibly marked fallback while the canonical summary
   // is loading or temporarily unavailable.
-  const actualUsed = activeContract
-    ? Math.max(0, Math.floor(Number(activeContractUsage?.usedSessions ?? activeContract.usedSessions ?? 0)))
+  const actualUsed = displayContract
+    ? Math.max(0, Math.floor(Number(activeContractUsage?.usedSessions ?? displayContract.usedSessions ?? 0)))
     : 0;
   const pendingAttendanceCount = activeContractUsage
     ? Math.max(0, Math.floor(Number(
@@ -579,14 +601,13 @@ export default function StudentDetail({ student, profile, contracts, packages, t
           - activeContractUsage.legacyProjectionAdjustment,
     )))
     : 0;
-  const todayId = new Date().toISOString().slice(0, 10);
   const nextStudentSession = studentSessions
     .filter((session) => (session.status === 'scheduled' || session.status === 'rescheduled') && session.date >= todayId)
     .sort((left, right) => left.date.localeCompare(right.date) || Number(left.hour || 0) - Number(right.hour || 0))[0];
-  const contractDebt = activeContract
-    ? Math.max(0, Number(activeContract.totalPrice || 0) - Number(activeContract.discount || 0) - Number(activeContract.paidAmount || 0))
+  const contractDebt = displayContract
+    ? Math.max(0, Number(displayContract.totalPrice || 0) - Number(displayContract.discount || 0) - Number(displayContract.paidAmount || 0))
     : 0;
-  const primaryTrainerId = activeContract?.trainerIds?.[0] || activeContract?.trainerId;
+  const primaryTrainerId = displayContract?.trainerIds?.[0] || displayContract?.trainerId;
   const primaryTrainer = primaryTrainerId ? trainers.find((trainer) => trainer.id === primaryTrainerId) : undefined;
   const selectDetailSlide = (index: number) => {
     const normalizedIndex = Math.min(2, Math.max(0, index));
@@ -631,9 +652,9 @@ export default function StudentDetail({ student, profile, contracts, packages, t
             <span className="student-detail__carousel-badge">{student.status === 'active' ? 'Đang hoạt động' : 'Đã lưu trữ'}</span>
           </article>
           <article className="student-detail__carousel-slide is-package">
-            <div><small>GÓI TẬP ĐANG LIÊN KẾT</small><h2>{activeContract?.packageName || 'Chưa có gói tập'}</h2><p>{activeContract ? `Hết hạn ${formatDate(activeContract.endDate)}` : 'Đăng ký gói để bắt đầu quản lý lịch và số buổi.'}</p></div>
-            <div className="student-detail__carousel-metric"><strong>{activeContract ? Math.max(0, activeContract.totalSessions - actualUsed) : 0}</strong><span>Buổi còn lại</span></div>
-            {activeContract && <div className="student-detail__carousel-progress"><i style={{ width: `${Math.min(100, activeContract.totalSessions ? actualUsed / activeContract.totalSessions * 100 : 0)}%` }} /></div>}
+            <div><small>GÓI TẬP ĐANG LIÊN KẾT</small><h2>{displayContract?.packageName || 'Chưa có gói tập'}</h2><p>{activeContract ? `Hết hạn ${formatDate(activeContract.endDate)}` : pausedContract ? `Đang bảo lưu · hết hạn ${formatDate(pausedContract.endDate)}` : 'Đăng ký gói để bắt đầu quản lý lịch và số buổi.'}</p></div>
+            <div className="student-detail__carousel-metric"><strong>{displayContract ? Math.max(0, displayContract.totalSessions - actualUsed) : 0}</strong><span>Buổi còn lại</span></div>
+            {displayContract && <div className="student-detail__carousel-progress"><i style={{ width: `${Math.min(100, displayContract.totalSessions ? actualUsed / displayContract.totalSessions * 100 : 0)}%` }} /></div>}
           </article>
           <article className="student-detail__carousel-slide is-operations">
             <div><small>LỊCH & TÀI CHÍNH</small><h2>{nextStudentSession ? `${formatDate(nextStudentSession.date)} · ${String(nextStudentSession.hour ?? 0).padStart(2, '0')}:00` : 'Chưa xếp lịch'}</h2><p>PT chính: {primaryTrainer?.name || 'Chưa phân công'}</p></div>
@@ -860,7 +881,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
           </div>
         </div>
       ) : activeTab === 'history' ? (
-        <TrainingHistoryPanel subject="student" subjectId={student.id} subjectName={student.name || 'Học viên Aura'} contractId={activeContract?.id} />
+        <TrainingHistoryPanel subject="student" subjectId={student.id} subjectName={student.name || 'Học viên Aura'} contractId={displayContract?.id} />
       ) : (
         <>
           {/* Active Package */}
@@ -909,39 +930,23 @@ export default function StudentDetail({ student, profile, contracts, packages, t
             {!isTrainer && activeContract && (
               <button 
                 onClick={() => {
-                  const isFrozen = activeContract.status === 'frozen';
                   setConfirmAction({
-                    title: isFrozen ? 'Xác nhận hủy bảo lưu' : 'Xác nhận bảo lưu',
-                    message: isFrozen ? 'Học viên sẽ quay lại tập luyện?' : 'Học viên sẽ được bảo lưu gói tập?',
+                    title: 'Xác nhận bảo lưu',
+                    message: 'Học viên sẽ tạm ngừng nhận lịch mới. Lịch sử và số buổi đã dùng vẫn được giữ nguyên.',
                     onConfirm: () => {
-                      if (isFrozen) {
-                        const frozenDuration = new Date().getTime() - new Date(activeContract.frozenAt || activeContract.startDate).getTime();
-                        const { frozenAt, ...contractWithoutFrozenAt } = activeContract;
-                        const newEndDate = new Date(new Date(activeContract.endDate).getTime() + frozenDuration).toISOString().split('T')[0];
-                        onUpdateContract({
-                          ...contractWithoutFrozenAt,
-                          status: 'active',
-                          endDate: newEndDate
-                        });
-                      } else {
-                        onUpdateContract({
-                          ...activeContract,
-                          status: 'frozen',
-                          frozenAt: new Date().toISOString()
-                        });
-                      }
+                      onUpdateContract({
+                        ...activeContract,
+                        status: 'frozen',
+                        frozenAt: new Date().toISOString()
+                      });
                       setConfirmAction(null);
-                      setNotification({message: isFrozen ? 'Đã hủy bảo lưu!' : 'Đã bảo lưu thành công!', type: 'success'});
+                      setNotification({message: 'Đã bảo lưu thành công!', type: 'success'});
                     }
                   });
                 }}
-                className={`text-xs font-medium flex items-center gap-1 px-2 py-1 rounded-lg ${
-                  activeContract.status === 'frozen' 
-                    ? 'text-emerald-500 bg-emerald-500/10 hover:text-emerald-400' 
-                    : 'text-blue-500 bg-blue-500/10 hover:text-blue-400'
-                }`}
+                className="text-xs font-medium flex items-center gap-1 px-2 py-1 rounded-lg text-blue-500 bg-blue-500/10 hover:text-blue-400"
               >
-                {activeContract.status === 'frozen' ? 'Hủy bảo lưu' : 'Bảo lưu'}
+                Bảo lưu
               </button>
             )}
             {!isTrainer && activeContract && (
@@ -955,6 +960,30 @@ export default function StudentDetail({ student, profile, contracts, packages, t
           </div>
         </div>
         
+        {!activeContract && pausedContract && <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200" role="status">
+          <span>Gói <strong>{pausedContract.packageName}</strong> đang bảo lưu nên không nhận lịch mới. Đã dùng {actualUsed}/{pausedContract.totalSessions} buổi; lịch sử vẫn được giữ để đối soát.</span>
+          {!isTrainer && String(pausedContract.status || '').toLowerCase() === 'frozen' && <button
+            type="button"
+            className="rounded-lg bg-emerald-500/15 px-3 py-2 font-bold text-emerald-300 hover:bg-emerald-500/25"
+            onClick={() => setConfirmAction({
+              title: 'Mở lại hợp đồng bảo lưu',
+              message: 'Học viên sẽ có thể nhận lịch mới từ hôm nay. Thời gian đã bảo lưu được cộng vào ngày hết hạn.',
+              onConfirm: () => {
+                const frozenAt = pausedContract.frozenAt ? new Date(pausedContract.frozenAt).getTime() : NaN;
+                const now = Date.now();
+                const frozenDuration = Number.isFinite(frozenAt) ? Math.max(0, now - frozenAt) : 0;
+                const endAt = new Date(`${pausedContract.endDate}T12:00:00+07:00`).getTime();
+                const nextEndDate = Number.isFinite(endAt)
+                  ? hoChiMinhDateKey(new Date(endAt + frozenDuration))
+                  : pausedContract.endDate;
+                onUpdateContract({ ...pausedContract, frozenAt: undefined, status: 'active', endDate: nextEndDate });
+                setConfirmAction(null);
+                setNotification({ message: 'Đã mở lại hợp đồng bảo lưu!', type: 'success' });
+              },
+            })}
+          >Mở bảo lưu</button>}
+        </div>}
+
         {activeContract ? (
           <div className="space-y-4 relative z-10">
             {/* contract details */}

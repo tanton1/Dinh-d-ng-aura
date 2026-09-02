@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { studentEligibilityForWeek } from '../src/domain/pt/studentEligibility'
+import { isContractSchedulableOn } from '../src/utils/scheduler'
 import type { Student, StudentContract } from '../src/types'
 
 const student = { id: 'student-a', status: 'active', branchId: 'cs1' } as Student
@@ -34,4 +35,12 @@ test('a future renewal is eligible on the concrete days it becomes effective', (
   }], '2026-08-24', '2026-08-27')
   assert.equal(result.eligible, true)
   assert.deepEqual(result.validDates, ['2026-08-29', '2026-08-30'])
+})
+
+test('scheduler checks the concrete slot date and never activates a renewal early', () => {
+  const renewal = { ...contract, status: 'future', startDate: '2026-08-27', endDate: '2026-11-27' }
+  assert.equal(isContractSchedulableOn(renewal, '2026-08-26'), false)
+  assert.equal(isContractSchedulableOn(renewal, '2026-08-27'), true)
+  assert.equal(isContractSchedulableOn({ ...renewal, status: 'frozen' }, '2026-08-27'), false)
+  assert.equal(isContractSchedulableOn({ ...renewal, pausePeriods: [{ type: 'preservation', startDate: '2026-08-27', endDate: '2026-08-28' }] }, '2026-08-27'), false)
 })

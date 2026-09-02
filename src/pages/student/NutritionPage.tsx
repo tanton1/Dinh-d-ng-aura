@@ -340,6 +340,18 @@ const DEFAULT_PROFILE: NutritionProfileDraft = {
   }
 }
 
+function hasCompleteNutritionProfile(profile?: NutritionProfileDraft | null) {
+  if (!profile) return false
+  const age = Number(profile.age)
+  const height = Number(profile.heightCm)
+  const weight = Number(profile.weightKg)
+  return Number.isFinite(age) && age >= 13 && age <= 100
+    && Number.isFinite(height) && height >= 80 && height <= 250
+    && Number.isFinite(weight) && weight >= 20 && weight <= 300
+    && ['female', 'male', 'other'].includes(String(profile.biologicalSex))
+    && ['lose-fat', 'gain-muscle', 'maintain'].includes(String(profile.goal))
+}
+
 function formatNumber(value: number) {
   return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(value)
 }
@@ -2754,7 +2766,8 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   const waterEntryStorageKey = `${WATER_ENTRY_STORAGE_PREFIX}:${resolvedOwnerId}`
   const savedFoodStorageKey = `${SAVED_FOOD_STORAGE_PREFIX}:${resolvedOwnerId}`
   const activityStorageKey = `${ACTIVITY_STORAGE_PREFIX}:${resolvedOwnerId}`
-  const [profileReady, setProfileReady] = useState(hasProfile)
+  const profileIsComplete = isDemo || (hasProfile && hasCompleteNutritionProfile(profile))
+  const [profileReady, setProfileReady] = useState(profileIsComplete)
   const [profileDraft, setProfileDraft] = useState<NutritionProfileDraft>(profile ?? DEFAULT_PROFILE)
   const [todayKey, setTodayKey] = useState(() => toLocalDateKey(new Date()))
   const recentNutritionFromDate = useMemo(() => {
@@ -2789,6 +2802,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   const [activities, setActivities] = useState<NutritionActivityLog[]>(() => isDemo ? loadPersistedActivities(activityStorageKey, createInitialActivities()) : [])
   const [waterEntries, setWaterEntries] = useState<NutritionWaterLog[]>(() => isDemo ? loadPersistedWaterEntries(waterEntryStorageKey) : [])
   const [nutritionLogSyncState, setNutritionLogSyncState] = useState<DataSyncState>({ status: 'synced', revision: 0, cachedAt: null })
+  const [nutritionMutation, setNutritionMutation] = useState<{ scope: 'meals' | 'water' | 'activities'; id: string } | null>(null)
   const [historySyncStarted, setHistorySyncStarted] = useState(false)
   const nutritionSyncScopes = useRef<Record<'meals' | 'water' | 'activities', DataSyncState>>({
     meals: { status: 'synced', revision: 0, cachedAt: null },
@@ -2836,7 +2850,8 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     [resolvedOwnerId, profileDraft.weightKg],
   )
 
-  const { calorieGoal, proteinGoal, carbGoal, fatGoal, waterGoal } = resolveDailyNutritionTargets(profileDraft, actual30DayWeight)
+  const nutritionTargets = resolveDailyNutritionTargets(profileDraft, actual30DayWeight)
+  const { calorieGoal, proteinGoal, carbGoal, fatGoal, waterGoal } = nutritionTargets
   const dailyPlan = getDailyPlan(calorieGoal, profileDraft)
   const selectedDayMeals = meals.filter((meal) => meal.date === selectedDate)
   const loggedMeals = selectedDayMeals.filter((meal) => meal.status === 'logged')
@@ -2847,9 +2862,12 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   const proteinConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + meal.protein, 0))
   const carbsConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + meal.carbs, 0))
   const fatConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + meal.fat, 0))
-  const fiberConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + (meal.fiber ?? Math.round(meal.carbs * 0.12)), 0))
-  const sugarConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + (meal.sugar ?? Math.round(meal.carbs * 0.15)), 0))
-  const sodiumConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + (meal.sodium ?? Math.round(meal.calories * 1.1)), 0))
+  // Do not manufacture micronutrients from calories/carbs. Missing source
+  // values remain incomplete and are explained in the UI instead of being
+  // presented as measured intake.
+  const fiberConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + (meal.fiber ?? 0), 0))
+  const sugarConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + (meal.sugar ?? 0), 0))
+  const sodiumConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + (meal.sodium ?? 0), 0))
   const hasVerifiedNutrient = (meal: MealLog, nutrient: 'fiber' | 'sugar' | 'sodium') => {
     if (typeof meal[nutrient] !== 'number' || !Number.isFinite(meal[nutrient])) return false
     const source = meal.nutrientSources?.[nutrient]
@@ -2860,13 +2878,17 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   const sugarDataComplete = loggedMeals.length > 0 && loggedMeals.every((meal) => hasVerifiedNutrient(meal, 'sugar'))
   const sodiumDataComplete = loggedMeals.length > 0 && loggedMeals.every((meal) => hasVerifiedNutrient(meal, 'sodium'))
   const water = waterByDate[selectedDate] ?? 0
-  const caloriePercent = Math.min(100, Math.round((caloriesConsumed / calorieGoal) * 100))
+  const caloriePercent = calorieGoal > 0
+    ? Math.min(100, Math.max(0, Math.round((caloriesConsumed / calorieGoal) * 100)))
+    : 0
   const qualityMetrics = [
     { label: 'Chất xơ', value: fiberConsumed, goal: 25, unit: 'g', tone: 'fiber', inverse: false, complete: fiberDataComplete },
     { label: 'Đường', value: sugarConsumed, goal: 50, unit: 'g', tone: 'sugar', inverse: true, complete: sugarDataComplete },
     { label: 'Natri', value: sodiumConsumed, goal: 2300, unit: 'mg', tone: 'sodium', inverse: true, complete: sodiumDataComplete },
   ]
-  const assistantSuggestions = loggedMeals.length
+  const assistantSuggestions = !nutritionTargets.configured
+    ? ['Tôi cần bổ sung gì để thiết lập mục tiêu?', 'Cách cập nhật hồ sơ dinh dưỡng?', 'Phân tích các bữa tôi đã ghi']
+    : loggedMeals.length
     ? [
         'Bữa tiếp theo nên ăn gì?',
         proteinConsumed < proteinGoal ? 'Tôi còn thiếu bao nhiêu đạm?' : 'Lượng đạm của tôi đã vượt chưa?',
@@ -3065,8 +3087,8 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   }, [activities, activityStorageKey, isDemo])
 
   useEffect(() => {
-    setProfileReady(hasProfile)
-  }, [hasProfile])
+    setProfileReady(profileIsComplete)
+  }, [profileIsComplete])
 
   useEffect(() => {
     if (profile) setProfileDraft(profile)
@@ -3187,6 +3209,10 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       let confidenceLabel = 'Căn cứ từ dữ liệu ngày đã chọn'
 
       const answerMacro = (label: string, consumed: number, goal: number) => {
+        if (!nutritionTargets.configured || goal <= 0) {
+          confidenceLabel = 'Hồ sơ dinh dưỡng chưa đủ dữ liệu'
+          return `Aura chưa thể tính mục tiêu ${label.toLocaleLowerCase('vi-VN')} vì hồ sơ còn thiếu tuổi, chiều cao, cân nặng, giới tính sinh học hoặc mục tiêu. Hãy hoàn thiện hồ sơ trước; các bữa đã ghi vẫn được giữ nguyên.`
+        }
         if (!loggedMeals.length) {
           confidenceLabel = 'Chưa đủ nhật ký bữa ăn'
           return `Mình chưa thể kết luận lượng ${label.toLocaleLowerCase('vi-VN')} còn thiếu vì ${selectedDateLabel.toLocaleLowerCase('vi-VN')} chưa có bữa ăn nào được ghi. Mục tiêu tham chiếu hiện tại là ${formatNumber(goal)}g; hãy ghi bữa đầu tiên để Aura tính phần còn lại.`
@@ -3214,7 +3240,9 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       }
 
       if (intent === 'hydration') {
-        content = waterRemaining > 0
+        content = !nutritionTargets.configured || waterGoal <= 0
+          ? 'Aura chưa thể tính mục tiêu nước vì hồ sơ dinh dưỡng chưa đủ dữ liệu. Hãy hoàn thiện hồ sơ; lượng nước đã ghi vẫn được giữ nguyên.'
+          : waterRemaining > 0
           ? `Bạn còn thiếu khoảng ${formatNumber(waterRemaining)} ml nước so với mục tiêu tham chiếu. Chia thành vài lần nhỏ trong phần còn lại của ngày sẽ dễ thực hiện hơn.`
           : 'Bạn đã đạt mục tiêu nước tham chiếu của ngày. Tiếp tục uống theo cảm giác khát và điều kiện vận động.'
         evidence = [`Nước đã ghi ${formatNumber(water)} / ${formatNumber(waterGoal)} ml`]
@@ -3237,7 +3265,9 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         content = answerQualityMetric('Natri', sodiumConsumed, 2300, 'mg', sodiumDataComplete, true)
         evidence = [`${loggedMeals.length} bữa đã ghi`, sodiumDataComplete ? 'Tất cả bữa đã ghi có dữ liệu natri' : 'Có món thiếu dữ liệu natri']
       } else if (intent === 'energy') {
-        content = !loggedMeals.length
+        content = !nutritionTargets.configured || calorieGoal <= 0
+          ? 'Aura chưa thể tính mục tiêu năng lượng vì hồ sơ còn thiếu dữ liệu cơ thể hoặc mục tiêu. Hãy hoàn thiện hồ sơ trước; nhật ký bữa ăn hiện tại vẫn được giữ nguyên.'
+          : !loggedMeals.length
           ? `Mục tiêu năng lượng tham chiếu của bạn là ${formatNumber(calorieGoal)} kcal. Ngày này chưa có bữa ăn được ghi nên Aura chưa thể đánh giá mức còn lại một cách có ý nghĩa.`
           : caloriesRemaining >= 0
             ? `Bạn đã ghi ${formatNumber(caloriesConsumed)} kcal và còn khoảng ${formatNumber(caloriesRemaining)} kcal so với mục tiêu ${formatNumber(calorieGoal)} kcal.`
@@ -3245,7 +3275,9 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         evidence = [`${loggedMeals.length} bữa đã ghi`, `Mục tiêu ${formatNumber(calorieGoal)} kcal`]
       } else if (intent === 'workout') {
         const normalizedQuestion = normalizeSearch(question)
-        content = normalizedQuestion.includes('truoc tap')
+        content = !nutritionTargets.configured
+          ? 'Bạn vẫn có thể ghi vận động, nhưng Aura chưa thể cá nhân hóa bữa trước hoặc sau tập cho đến khi hồ sơ dinh dưỡng có đủ tuổi, chiều cao, cân nặng, giới tính sinh học và mục tiêu.'
+          : normalizedQuestion.includes('truoc tap')
           ? 'Trước tập, ưu tiên một khẩu phần dễ tiêu có carb và một ít đạm; lượng cụ thể còn phụ thuộc thời gian đến buổi tập và khẩu phần bạn đã ăn.'
           : normalizedQuestion.includes('sau tap')
             ? `Sau tập, hãy ưu tiên bữa có đạm và carb. Theo nhật ký ngày này, bạn ${proteinRemaining > 0 ? `còn khoảng ${formatNumber(proteinRemaining)}g đạm` : 'đã đạt mục tiêu đạm tham chiếu'}.`
@@ -3260,7 +3292,11 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         evidence = [profileDraft.allergies.trim() ? `Hồ sơ: tránh ${profileDraft.allergies}` : 'Hồ sơ chưa ghi dị ứng']
         confidenceLabel = 'Không thay thế xác nhận thành phần trực tiếp'
       } else if (intent === 'next-meal') {
-        if (!loggedMeals.length) {
+        if (!nutritionTargets.configured) {
+          content = 'Aura chưa thể xếp hạng bữa tiếp theo theo phần dinh dưỡng còn thiếu vì hồ sơ chưa có mục tiêu hợp lệ. Hãy hoàn thiện hồ sơ; sau đó Aura sẽ dùng chính các bữa đã ghi để gợi ý.'
+          evidence = ['Mục tiêu dinh dưỡng chưa được thiết lập']
+          confidenceLabel = 'Cần hoàn thiện hồ sơ'
+        } else if (!loggedMeals.length) {
           content = 'Ngày này chưa có bữa ăn được ghi, nên mình chưa thể chọn “bữa tiếp theo” theo phần dinh dưỡng còn thiếu. Hãy quét hoặc chọn bữa đầu tiên; Aura sẽ không tự lưu khi bạn chưa xác nhận.'
           evidence = ['Chưa có bữa ăn trong ngày đã chọn']
           confidenceLabel = 'Cần thêm một bữa để cá nhân hóa'
@@ -3362,7 +3398,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     setSelectedDate(toLocalDateKey(nextSelectedDate))
   }
 
-  const logWater = (amount: number) => {
+  const logWater = async (amount: number) => {
     if (!Number.isFinite(amount) || amount <= 0) return
     const date = selectedDate
     const previous = waterByDate[date] ?? 0
@@ -3381,24 +3417,40 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     }
     setWaterByDate((current) => ({ ...current, [date]: next }))
     setWaterEntries((current) => [entry, ...current])
-    if (firestoreDb && resolvedOwnerId !== 'anonymous') {
-      saveUserWaterLog(resolvedOwnerId, entry as any).catch((err) => console.error('Error saving water log to Firestore:', err))
+    beginNutritionMutation('water', entry.id)
+    try {
+      if (isCloudLogEnabled) await saveUserWaterLog(resolvedOwnerId, entry as any)
+      completeNutritionMutation('water')
+    } catch (error) {
+      setWaterByDate((current) => ({ ...current, [date]: previous }))
+      setWaterEntries((current) => current.filter((item) => item.id !== entry.id))
+      failNutritionMutation('water', error)
+      showMessage('Không thể lưu lượng nước. Dữ liệu đã được hoàn tác, hãy thử lại.')
+      return
     }
     setWaterSheetOpen(false)
     showMessage(`Đã thêm ${formatNumber(loggedAmount)} ml nước vào ${selectedDateLabel.toLocaleLowerCase('vi-VN')}`, {
       label: 'Hoàn tác',
-      onClick: () => {
+      onClick: () => { void (async () => {
         setWaterByDate((current) => ({ ...current, [date]: previous }))
         setWaterEntries((current) => current.filter((item) => item.id !== entry.id))
-        if (firestoreDb && resolvedOwnerId !== 'anonymous') {
-          deleteUserWaterLog(resolvedOwnerId, entry.id).catch((err) => console.error('Error deleting water log from Firestore:', err))
+        beginNutritionMutation('water', entry.id)
+        try {
+          if (isCloudLogEnabled) await deleteUserWaterLog(resolvedOwnerId, entry.id)
+          completeNutritionMutation('water')
+        } catch (error) {
+          setWaterByDate((current) => ({ ...current, [date]: next }))
+          setWaterEntries((current) => [entry, ...current])
+          failNutritionMutation('water', error)
+          showMessage('Không thể hoàn tác lượng nước vì máy chủ chưa xác nhận.')
+          return
         }
         showMessage('Đã hoàn tác lần ghi nước')
-      },
+      })() },
     })
   }
 
-  const saveActivity = (draft: NutritionActivityDraft) => {
+  const saveActivity = async (draft: NutritionActivityDraft) => {
     const activity: NutritionActivityLog = {
       ...draft,
       id: `activity-${Date.now()}`,
@@ -3407,61 +3459,103 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       createdAt: Date.now(),
     }
     setActivities((current) => [activity, ...current])
-    if (firestoreDb && resolvedOwnerId !== 'anonymous') {
-      saveUserActivityLog(resolvedOwnerId, activity as any).catch((err) => console.error('Error saving activity log to Firestore:', err))
+    beginNutritionMutation('activities', activity.id)
+    try {
+      if (isCloudLogEnabled) await saveUserActivityLog(resolvedOwnerId, activity as any)
+      completeNutritionMutation('activities')
+    } catch (error) {
+      setActivities((current) => current.filter((item) => item.id !== activity.id))
+      failNutritionMutation('activities', error)
+      showMessage('Không thể lưu buổi vận động. Dữ liệu đã được hoàn tác, hãy thử lại.')
+      return
     }
     setExerciseSheetOpen(false)
     showMessage(`Đã ghi ${activity.title} · ${activity.durationMinutes} phút`, {
       label: 'Hoàn tác',
-      onClick: () => {
+      onClick: () => { void (async () => {
         setActivities((current) => current.filter((item) => item.id !== activity.id))
-        if (firestoreDb && resolvedOwnerId !== 'anonymous') {
-          deleteUserActivityLog(resolvedOwnerId, activity.id).catch((err) => console.error('Error deleting activity log from Firestore:', err))
+        beginNutritionMutation('activities', activity.id)
+        try {
+          if (isCloudLogEnabled) await deleteUserActivityLog(resolvedOwnerId, activity.id)
+          completeNutritionMutation('activities')
+        } catch (error) {
+          setActivities((current) => [activity, ...current])
+          failNutritionMutation('activities', error)
+          showMessage('Không thể hoàn tác buổi vận động vì máy chủ chưa xác nhận.')
+          return
         }
         showMessage('Đã hoàn tác buổi tập')
-      },
+      })() },
     })
   }
 
-  const deleteActivity = (activityId: string) => {
+  const deleteActivity = async (activityId: string) => {
     const deletedActivity = activities.find((activity) => activity.id === activityId)
     if (!deletedActivity) return
     setActivities((current) => current.filter((activity) => activity.id !== activityId))
-    if (firestoreDb && resolvedOwnerId !== 'anonymous') {
-      deleteUserActivityLog(resolvedOwnerId, activityId).catch((err) => console.error('Error deleting activity from Firestore:', err))
+    beginNutritionMutation('activities', activityId)
+    try {
+      if (isCloudLogEnabled) await deleteUserActivityLog(resolvedOwnerId, activityId)
+      completeNutritionMutation('activities')
+    } catch (error) {
+      setActivities((current) => [deletedActivity, ...current])
+      failNutritionMutation('activities', error)
+      showMessage('Không thể xóa buổi vận động. Dữ liệu đã được giữ lại.')
+      return
     }
     showMessage(`Đã xóa ${deletedActivity.title}`, {
       label: 'Hoàn tác',
-      onClick: () => {
+      onClick: () => { void (async () => {
         setActivities((current) => current.some((activity) => activity.id === deletedActivity.id) ? current : [deletedActivity, ...current])
-        if (firestoreDb && resolvedOwnerId !== 'anonymous') {
-          saveUserActivityLog(resolvedOwnerId, deletedActivity as any).catch((err) => console.error('Error restoring activity to Firestore:', err))
+        beginNutritionMutation('activities', deletedActivity.id)
+        try {
+          if (isCloudLogEnabled) await saveUserActivityLog(resolvedOwnerId, deletedActivity as any)
+          completeNutritionMutation('activities')
+        } catch (error) {
+          setActivities((current) => current.filter((activity) => activity.id !== deletedActivity.id))
+          failNutritionMutation('activities', error)
+          showMessage('Không thể khôi phục buổi vận động vì máy chủ chưa xác nhận.')
+          return
         }
         showMessage('Đã khôi phục buổi tập')
-      },
+      })() },
     })
   }
 
-  const deleteMeal = (mealId: string) => {
+  const deleteMeal = async (mealId: string) => {
     const deletedMeal = meals.find((meal) => meal.id === mealId)
     if (!deletedMeal) return
     setMeals((current) => current.filter((meal) => meal.id !== mealId))
-    if (firestoreDb && resolvedOwnerId !== 'anonymous') {
-      deleteUserMealLog(resolvedOwnerId, mealId).catch((err) => console.error('Error deleting meal from Firestore:', err))
+    beginNutritionMutation('meals', mealId)
+    try {
+      if (isCloudLogEnabled) await deleteUserMealLog(resolvedOwnerId, mealId)
+      completeNutritionMutation('meals')
+    } catch (error) {
+      setMeals((current) => [deletedMeal, ...current])
+      failNutritionMutation('meals', error)
+      showMessage('Không thể xóa bữa ăn. Dữ liệu đã được giữ lại.')
+      return
     }
     showMessage(`Đã xóa ${deletedMeal.title}`, {
       label: 'Hoàn tác',
-      onClick: () => {
+      onClick: () => { void (async () => {
         setMeals((current) => current.some((meal) => meal.id === deletedMeal.id) ? current : [deletedMeal, ...current])
-        if (firestoreDb && resolvedOwnerId !== 'anonymous') {
-          saveUserMealLog(resolvedOwnerId, deletedMeal as any).catch((err) => console.error('Error restoring meal to Firestore:', err))
+        beginNutritionMutation('meals', deletedMeal.id)
+        try {
+          if (isCloudLogEnabled) await saveUserMealLog(resolvedOwnerId, deletedMeal as any)
+          completeNutritionMutation('meals')
+        } catch (error) {
+          setMeals((current) => current.filter((meal) => meal.id !== deletedMeal.id))
+          failNutritionMutation('meals', error)
+          showMessage('Không thể khôi phục bữa ăn vì máy chủ chưa xác nhận.')
+          return
         }
         showMessage('Đã khôi phục món ăn')
-      },
+      })() },
     })
   }
 
-  const editMeal = (mealId: string, draft: MealLogEditDraft) => {
+  const editMeal = async (mealId: string, draft: MealLogEditDraft) => {
     const original = meals.find((meal) => meal.id === mealId)
     if (!original) return
     const multiplier = Math.min(10, Math.max(.1, draft.portionMultiplier))
@@ -3494,23 +3588,37 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       })),
     }
     setMeals((current) => current.map((meal) => meal.id === mealId ? updated : meal))
-    if (firestoreDb && resolvedOwnerId !== 'anonymous') {
-      saveUserMealLog(resolvedOwnerId, updated as any).catch((err) => console.error('Error saving updated meal to Firestore:', err))
+    beginNutritionMutation('meals', mealId)
+    try {
+      if (isCloudLogEnabled) await saveUserMealLog(resolvedOwnerId, updated as any)
+      completeNutritionMutation('meals')
+    } catch (error) {
+      setMeals((current) => current.map((meal) => meal.id === mealId ? original : meal))
+      failNutritionMutation('meals', error)
+      showMessage('Không thể cập nhật bữa ăn. Dữ liệu cũ đã được giữ lại.')
+      return
     }
     setEditingMealId(null)
     setHomeWeekStart(getCalendarStart(dateFromLocalKey(draft.date)))
     setSelectedDate(draft.date)
     showMessage(`Đã cập nhật ${updated.title}`, {
       label: 'Hoàn tác',
-      onClick: () => {
+      onClick: () => { void (async () => {
         setMeals((current) => current.map((meal) => meal.id === mealId ? original : meal))
-        if (firestoreDb && resolvedOwnerId !== 'anonymous') {
-          saveUserMealLog(resolvedOwnerId, original as any).catch((err) => console.error('Error restoring edited meal to Firestore:', err))
+        beginNutritionMutation('meals', mealId)
+        try {
+          if (isCloudLogEnabled) await saveUserMealLog(resolvedOwnerId, original as any)
+          completeNutritionMutation('meals')
+        } catch (error) {
+          setMeals((current) => current.map((meal) => meal.id === mealId ? updated : meal))
+          failNutritionMutation('meals', error)
+          showMessage('Không thể hoàn tác chỉnh sửa vì máy chủ chưa xác nhận.')
+          return
         }
         setHomeWeekStart(getCalendarStart(dateFromLocalKey(original.date)))
         setSelectedDate(original.date)
         showMessage('Đã hoàn tác chỉnh sửa bữa ăn')
-      },
+      })() },
     })
   }
 
@@ -3520,7 +3628,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     onProfileComplete?.(profile)
   }
 
-  const saveScannedMeal = (meal: NutritionMealDraft) => {
+  const saveScannedMeal = async (meal: NutritionMealDraft) => {
     const loggedDate = meal.mealDate ?? selectedDate
     const fiberComplete = meal.items.length > 0 && meal.items.every((item) => item.fiber !== undefined)
     const sugarComplete = meal.items.length > 0 && meal.items.every((item) => item.sugar !== undefined)
@@ -3595,12 +3703,24 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       ].filter(Boolean).join(', '),
     }
     setMeals((current) => [newMealLog, ...current])
-    if (firestoreDb && resolvedOwnerId !== 'anonymous') {
-      saveUserMealLog(resolvedOwnerId, newMealLog as any).then(() => {
+    beginNutritionMutation('meals', newMealLog.id)
+    try {
+      if (isCloudLogEnabled) {
+        await saveUserMealLog(resolvedOwnerId, newMealLog as any)
         if (meal.submitForReview) {
-          submitMealReview(resolvedOwnerId, firstName || 'Học viên', newMealLog as any).catch((err) => console.error('Error submitting meal review:', err))
+          try {
+            await submitMealReview(resolvedOwnerId, firstName || 'Học viên', newMealLog as any)
+          } catch {
+            showMessage('Đã lưu bữa ăn, nhưng chưa gửi được yêu cầu PT kiểm tra.')
+          }
         }
-      }).catch((err) => console.error('Error saving scanned meal to Firestore:', err))
+      }
+      completeNutritionMutation('meals')
+    } catch (error) {
+      setMeals((current) => current.filter((item) => item.id !== newMealLog.id))
+      failNutritionMutation('meals', error)
+      showMessage('Không thể lưu bữa ăn. Dữ liệu chưa được ghi nhận trên máy chủ.')
+      return
     }
     onMealSaved?.(meal)
     setHomeWeekStart(getCalendarStart(dateFromLocalKey(loggedDate)))
@@ -3632,7 +3752,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     setPendingFood(pending)
   }
 
-  const commitCatalogFood = (food: NutritionFoodCatalogItem, context: MealEditorContext) => {
+  const commitCatalogFood = async (food: NutritionFoodCatalogItem, context: MealEditorContext) => {
     if (!canLogCatalogFood(food)) {
       showMessage('Bản ghi nguồn còn thiếu kcal hoặc macro nên chưa thể thêm an toàn')
       return
@@ -3660,8 +3780,15 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       confidence: 'verified',
     }
     setMeals((current) => [newMealLog, ...current])
-    if (firestoreDb && resolvedOwnerId !== 'anonymous') {
-      saveUserMealLog(resolvedOwnerId, newMealLog as any).catch((err) => console.error('Error saving catalog meal to Firestore:', err))
+    beginNutritionMutation('meals', newMealLog.id)
+    try {
+      if (isCloudLogEnabled) await saveUserMealLog(resolvedOwnerId, newMealLog as any)
+      completeNutritionMutation('meals')
+    } catch (error) {
+      setMeals((current) => current.filter((meal) => meal.id !== newMealLog.id))
+      failNutritionMutation('meals', error)
+      showMessage('Không thể thêm món ăn. Dữ liệu nguồn chưa được ghi nhận.')
+      return
     }
     setPendingFood(null)
     setHomeWeekStart(getCalendarStart(dateFromLocalKey(context.date)))
@@ -3724,6 +3851,30 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     })
   }
 
+  const isCloudLogEnabled = Boolean(firestoreDb && resolvedOwnerId !== 'anonymous')
+  const beginNutritionMutation = (scope: 'meals' | 'water' | 'activities', id: string) => {
+    setNutritionMutation({ scope, id })
+    updateNutritionSync(scope, {
+      status: 'pending-local-change',
+      revision: Date.now(),
+      cachedAt: new Date().toISOString(),
+      message: 'Aura đang xác nhận thay đổi với máy chủ…',
+    })
+  }
+  const completeNutritionMutation = (scope: 'meals' | 'water' | 'activities') => {
+    setNutritionMutation(null)
+    updateNutritionSync(scope, { status: 'synced', revision: Date.now(), cachedAt: new Date().toISOString() })
+  }
+  const failNutritionMutation = (scope: 'meals' | 'water' | 'activities', error: unknown) => {
+    setNutritionMutation(null)
+    updateNutritionSync(scope, {
+      status: 'sync-failed',
+      revision: Date.now(),
+      cachedAt: new Date().toISOString(),
+      message: error instanceof Error && error.message ? error.message : 'Aura chưa ghi nhận thay đổi. Hãy thử lại.',
+    })
+  }
+
   const saveFood = (record: NutritionFoodDetailRecord, saved: boolean) => setFoodSaved(record.id, saved)
 
   const scanFromFoodDetail = () => {
@@ -3734,7 +3885,10 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   if (!profileReady) return <NutritionSetupPrompt onStart={onStartOnboarding} />
 
   const profileReadOnly = Boolean(syncState && syncState.status !== 'synced')
-  const displayedSyncState = syncState && syncState.status !== 'synced' ? syncState : nutritionLogSyncState
+  const mutationSyncState: DataSyncState = nutritionMutation
+    ? { status: 'pending-local-change', revision: nutritionMutation.id.length, cachedAt: new Date().toISOString(), message: 'Aura đang xác nhận thay đổi với máy chủ…' }
+    : nutritionLogSyncState
+  const displayedSyncState = syncState && syncState.status !== 'synced' ? syncState : mutationSyncState
   const profileSyncBanner = <DataSyncStatusBanner state={displayedSyncState} compact={displayedSyncState.status === 'synced'} />
 
   if (activeSection === 'profile') return profileReadOnly ? (
@@ -3794,9 +3948,8 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
             setEditingMealId(mealId)
           }}
           onDelete={(mealId) => {
-            deleteMeal(mealId)
+            void deleteMeal(mealId)
             setSelectedLoggedMealId(null)
-            showMessage(`Đã xóa bữa ăn ${selectedLoggedMeal.title}`)
           }}
         />
       </React.Suspense>
@@ -3818,15 +3971,24 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       goal={waterGoal} 
       dateLabel={selectedDateLabel} 
       todayEntries={waterEntries.filter((e) => e.date === selectedDate).map((e) => ({ id: e.id, time: e.time, amountMl: e.amountMl }))}
-      onRemoveEntry={(id) => {
+      onRemoveEntry={(id) => { void (async () => {
         const entry = waterEntries.find((e) => e.id === id)
-        if (entry) {
-          setWaterEntries((prev) => prev.filter((e) => e.id !== id))
-          setWaterByDate((prev) => ({ ...prev, [selectedDate]: Math.max(0, (prev[selectedDate] ?? 0) - entry.amountMl) }))
-          deleteUserWaterLog(resolvedOwnerId, id).catch((err) => console.error('Error deleting water log:', err))
+        if (!entry) return
+        const previousTotal = waterByDate[selectedDate] ?? 0
+        setWaterEntries((prev) => prev.filter((e) => e.id !== id))
+        setWaterByDate((prev) => ({ ...prev, [selectedDate]: Math.max(0, previousTotal - entry.amountMl) }))
+        beginNutritionMutation('water', id)
+        try {
+          if (isCloudLogEnabled) await deleteUserWaterLog(resolvedOwnerId, id)
+          completeNutritionMutation('water')
           showMessage('Đã xóa lượt ghi nước.')
+        } catch (error) {
+          setWaterEntries((prev) => [entry, ...prev])
+          setWaterByDate((prev) => ({ ...prev, [selectedDate]: previousTotal }))
+          failNutritionMutation('water', error)
+          showMessage('Không thể xóa lượt ghi nước. Dữ liệu đã được giữ lại.')
         }
-      }}
+      })() }}
       onClose={() => {
         setWaterSheetOpen(false)
         const queryStr = window.location.hash.split('?')[1] ?? ''

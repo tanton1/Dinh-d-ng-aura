@@ -4,20 +4,10 @@ import type { WeightRecord } from '../../types/progressTypes'
 
 interface WeightChartCardProps {
   records?: WeightRecord[]
-  goalWeightKg?: number
+  goalWeightKg?: number | null
 }
 
-const defaultRecords: WeightRecord[] = [
-  { id: '1', date: '2026-07-29', label: '29/07', weightKg: 65.1, trendKg: 65.4 },
-  { id: '2', date: '2026-07-30', label: '30/07', weightKg: 65.7, trendKg: 65.3 },
-  { id: '3', date: '2026-07-31', label: '31/07', weightKg: 65.5, trendKg: 65.2 },
-  { id: '4', date: '2026-08-01', label: '01/08', weightKg: 64.5, trendKg: 65.1 },
-  { id: '5', date: '2026-08-02', label: '02/08', weightKg: 65.2, trendKg: 65.0 },
-  { id: '6', date: '2026-08-03', label: '03/08', weightKg: 64.5, trendKg: 64.9 },
-  { id: '7', date: '2026-08-04', label: '04/08', weightKg: 65.0, trendKg: 64.9 },
-]
-
-export const WeightChartCard = React.memo(function WeightChartCard({ records = defaultRecords, goalWeightKg = 61.0 }: WeightChartCardProps) {
+export const WeightChartCard = React.memo(function WeightChartCard({ records = [], goalWeightKg = null }: WeightChartCardProps) {
   const [range, setRange] = useState<'30d' | '90d' | '6m' | '1y'>('30d')
   const [activePointIndex, setActivePointIndex] = useState<number | null>(null)
 
@@ -28,8 +18,28 @@ export const WeightChartCard = React.memo(function WeightChartCard({ records = d
     { id: '1y', label: '1 năm' },
   ]
 
-  const dataList = records.length > 0 ? records : defaultRecords
-  const latestWeight = dataList[dataList.length - 1]?.weightKg ?? 65.0
+  // Empty server data is a valid state. Do not render a fabricated chart for
+  // a real member just because the component did not receive records yet.
+  const dataList = records
+    .filter((record) => Number.isFinite(Number(record.weightKg)) && Number(record.weightKg) > 0)
+    .sort((left, right) => left.date.localeCompare(right.date))
+
+  if (!dataList.length) {
+    return (
+      <div className="pg-card pg-chart-empty" role="status">
+        <div className="pg-chart-empty__heading">
+          <h2>Biểu đồ cân nặng</h2>
+          <Info size={15} aria-hidden="true" />
+        </div>
+        <div className="pg-chart-empty__body">
+          <span>Chưa có dữ liệu cân nặng</span>
+          <small>Ghi ít nhất một lần cân để Aura bắt đầu vẽ xu hướng.</small>
+        </div>
+      </div>
+    )
+  }
+
+  const latestWeight = dataList[dataList.length - 1]?.weightKg
 
   // Chart coordinate parameters
   const chartWidth = 320
@@ -41,7 +51,7 @@ export const WeightChartCard = React.memo(function WeightChartCard({ records = d
 
   // Dynamically calculate min and max weight for chart scaling
   const weightValues = dataList.map((d) => d.weightKg).concat(dataList.map((d) => d.trendKg || d.weightKg))
-  weightValues.push(goalWeightKg)
+  if (goalWeightKg && goalWeightKg > 0) weightValues.push(goalWeightKg)
   const minVal = Math.min(...weightValues)
   const maxVal = Math.max(...weightValues)
   const valRange = maxVal - minVal
@@ -137,7 +147,7 @@ export const WeightChartCard = React.memo(function WeightChartCard({ records = d
           })}
 
           {/* Goal reference line */}
-          <line x1={padLeft} y1={getY(goalWeightKg)} x2={chartWidth - padRight} y2={getY(goalWeightKg)} stroke="#fbcfe8" strokeDasharray="4 4" strokeWidth="1.5" />
+          {goalWeightKg && goalWeightKg > 0 && <line x1={padLeft} y1={getY(goalWeightKg)} x2={chartWidth - padRight} y2={getY(goalWeightKg)} stroke="#fbcfe8" strokeDasharray="4 4" strokeWidth="1.5" />}
 
           {/* Gradient area */}
           <path d={areaPath} fill="url(#weightAreaGrad)" />
@@ -183,7 +193,7 @@ export const WeightChartCard = React.memo(function WeightChartCard({ records = d
             style={{
               position: 'absolute',
               top: getY(activeRecord.weightKg) - 54,
-              left: `calc(${(activePointIndex / (dataList.length - 1)) * 80 + 10}%)`,
+              left: `calc(${(activePointIndex / Math.max(1, dataList.length - 1)) * 80 + 10}%)`,
               transform: 'translateX(-50%)',
               background: '#0f172a',
               color: '#ffffff',

@@ -8,15 +8,15 @@ interface BodyMetricsCardProps {
 }
 
 const defaultMetrics: BodyMeasurements = {
-  bmi: 23.0,
-  bmiCategory: 'Khỏe mạnh',
-  bodyFatPercentage: 21.3,
-  bodyFatStatus: 'Ổn định',
-  muscleMassKg: 27.6,
-  muscleStatus: 'Tốt',
-  waistCm: 76,
-  waistStatus: 'Tốt',
-  updatedAt: '2026-08-04',
+  bmi: 0,
+  bmiCategory: 'Chưa cập nhật',
+  bodyFatPercentage: 0,
+  bodyFatStatus: 'Chưa cập nhật',
+  muscleMassKg: 0,
+  muscleStatus: 'Chưa cập nhật',
+  waistCm: 0,
+  waistStatus: 'Chưa cập nhật',
+  updatedAt: '',
 }
 
 export function BodyMetricsCard({
@@ -59,7 +59,7 @@ export function BodyMetricsCard({
           <div>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>BMI</span>
             <strong style={{ display: 'block', fontSize: 18, fontWeight: 900, color: '#0f172a', marginTop: 2 }}>
-              {metrics.bmi.toFixed(1)}
+              {metrics.bmi > 0 ? metrics.bmi.toFixed(1) : '--'}
             </strong>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#10b981' }}>{metrics.bmiCategory}</span>
           </div>
@@ -73,7 +73,7 @@ export function BodyMetricsCard({
           <div>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Mỡ cơ thể</span>
             <strong style={{ display: 'block', fontSize: 18, fontWeight: 900, color: '#0f172a', marginTop: 2 }}>
-              {metrics.bodyFatPercentage}%
+              {metrics.bodyFatPercentage > 0 ? `${metrics.bodyFatPercentage}%` : '--'}
             </strong>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#ea580c' }}>{metrics.bodyFatStatus}</span>
           </div>
@@ -87,7 +87,7 @@ export function BodyMetricsCard({
           <div>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Khối cơ</span>
             <strong style={{ display: 'block', fontSize: 18, fontWeight: 900, color: '#0f172a', marginTop: 2 }}>
-              {metrics.muscleMassKg} kg
+              {metrics.muscleMassKg > 0 ? `${metrics.muscleMassKg} kg` : '--'}
             </strong>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#059669' }}>{metrics.muscleStatus}</span>
           </div>
@@ -101,7 +101,7 @@ export function BodyMetricsCard({
           <div>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Vòng eo</span>
             <strong style={{ display: 'block', fontSize: 18, fontWeight: 900, color: '#0f172a', marginTop: 2 }}>
-              {metrics.waistCm} cm
+              {metrics.waistCm > 0 ? `${metrics.waistCm} cm` : '--'}
             </strong>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#059669' }}>{metrics.waistStatus}</span>
           </div>

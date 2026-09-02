@@ -10,18 +10,21 @@ interface WeightTrackerCardProps {
 }
 
 export function WeightTrackerCard({
-  currentWeightKg = 65.0,
-  startWeightKg = 65.0,
-  goalWeightKg = 67.0,
-  targetDateText = '10/09/2026',
+  currentWeightKg = 0,
+  startWeightKg = 0,
+  goalWeightKg = 0,
+  targetDateText = 'Chưa xác định',
   onOpenLogWeight,
 }: WeightTrackerCardProps) {
-  const diffFromStart = (currentWeightKg - startWeightKg).toFixed(1)
+  const hasWeightData = currentWeightKg > 0 && startWeightKg > 0
+  const diffFromStart = hasWeightData ? (currentWeightKg - startWeightKg).toFixed(1) : '--'
   const totalChangeNeeded = goalWeightKg - startWeightKg
   const changeAchieved = currentWeightKg - startWeightKg
   
   let percentComplete = 0
-  if (totalChangeNeeded === 0) {
+  if (goalWeightKg <= 0 || startWeightKg <= 0 || currentWeightKg <= 0) {
+    percentComplete = 0
+  } else if (totalChangeNeeded === 0) {
     percentComplete = 100
   } else {
     const rawPercent = (changeAchieved / totalChangeNeeded) * 100
@@ -38,7 +41,7 @@ export function WeightTrackerCard({
 
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 8 }}>
           <span style={{ fontSize: 44, fontWeight: 900, color: '#0f172a', letterSpacing: '-0.04em' }}>
-            {currentWeightKg.toFixed(1)}
+            {currentWeightKg > 0 ? currentWeightKg.toFixed(1) : '--'}
           </span>
           <span style={{ fontSize: 16, fontWeight: 800, color: '#64748b' }}>kg</span>
         </div>
@@ -48,9 +51,9 @@ export function WeightTrackerCard({
           const isGainGoal = totalChangeNeeded > 0
           const numDiff = Number(diffFromStart)
           
-          const isGoodProgress = isLossGoal 
-            ? numDiff <= 0 
-            : (isGainGoal ? numDiff >= 0 : true)
+          const isGoodProgress = hasWeightData && (isLossGoal
+            ? numDiff <= 0
+            : (isGainGoal ? numDiff >= 0 : true))
             
           const bg = isGoodProgress ? '#ecfdf5' : '#fff0f5'
           const fg = isGoodProgress ? '#059669' : '#db1557'
@@ -70,8 +73,8 @@ export function WeightTrackerCard({
                 marginTop: 8,
               }}
             >
-              {numDiff < 0 ? <TrendingDown size={14} /> : <TrendingUp size={14} />}
-              <span>{numDiff >= 0 ? `+${diffFromStart}` : diffFromStart} kg / 7 ngày</span>
+              {hasWeightData && (numDiff < 0 ? <TrendingDown size={14} /> : <TrendingUp size={14} />)}
+              <span>{hasWeightData ? `${numDiff >= 0 ? '+' : ''}${diffFromStart} kg / 7 ngày` : 'Chưa có đủ dữ liệu cân nặng'}</span>
             </div>
           )
         })()}
@@ -79,8 +82,8 @@ export function WeightTrackerCard({
         {/* Start vs Goal Progress bar */}
         <div style={{ marginTop: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b', marginBottom: 6 }}>
-            <span>Bắt đầu: <strong style={{ color: '#0f172a' }}>{startWeightKg.toFixed(1)} kg</strong></span>
-            <span>Mục tiêu: <strong style={{ color: '#0f172a' }}>{goalWeightKg.toFixed(1)} kg</strong></span>
+            <span>Bắt đầu: <strong style={{ color: '#0f172a' }}>{startWeightKg > 0 ? `${startWeightKg.toFixed(1)} kg` : '--'}</strong></span>
+            <span>Mục tiêu: <strong style={{ color: '#0f172a' }}>{goalWeightKg > 0 ? `${goalWeightKg.toFixed(1)} kg` : '--'}</strong></span>
           </div>
 
           <div style={{ position: 'relative', width: '100%', height: 8, background: '#fce7f3', borderRadius: 4 }}>

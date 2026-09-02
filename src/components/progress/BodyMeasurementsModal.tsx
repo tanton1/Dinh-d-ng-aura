@@ -5,23 +5,33 @@ import type { BodyMeasurements } from '../../types/progressTypes'
 interface BodyMeasurementsModalProps {
   metrics: BodyMeasurements
   onClose: () => void
-  onSave: (updated: Partial<BodyMeasurements>) => void
+  onSave: (updated: Partial<BodyMeasurements>) => void | Promise<void>
 }
 
 export function BodyMeasurementsModal({ metrics, onClose, onSave }: BodyMeasurementsModalProps) {
   const [waist, setWaist] = useState(String(metrics.waistCm))
   const [bodyFat, setBodyFat] = useState(String(metrics.bodyFatPercentage))
   const [muscle, setMuscle] = useState(String(metrics.muscleMassKg))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    onSave({
-      waistCm: parseFloat(waist) || metrics.waistCm,
-      bodyFatPercentage: parseFloat(bodyFat) || metrics.bodyFatPercentage,
-      muscleMassKg: parseFloat(muscle) || metrics.muscleMassKg,
-      updatedAt: new Date().toISOString().split('T')[0],
-    })
-    onClose()
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave({
+        waistCm: parseFloat(waist) || metrics.waistCm,
+        bodyFatPercentage: parseFloat(bodyFat) || metrics.bodyFatPercentage,
+        muscleMassKg: parseFloat(muscle) || metrics.muscleMassKg,
+        updatedAt: new Date().toISOString().split('T')[0],
+      })
+      onClose()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Chưa thể lưu chỉ số cơ thể.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -35,6 +45,7 @@ export function BodyMeasurementsModal({ metrics, onClose, onSave }: BodyMeasurem
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {error && <div role="alert" style={{ padding: '10px 12px', borderRadius: 12, background: '#fff1f2', color: '#b42318', fontSize: 13, fontWeight: 600 }}>{error}</div>}
           <div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
               <Activity size={16} style={{ color: '#9333ea' }} />
@@ -105,6 +116,7 @@ export function BodyMeasurementsModal({ metrics, onClose, onSave }: BodyMeasurem
 
           <button
             type="submit"
+            disabled={saving}
             style={{
               height: 48,
               borderRadius: 16,
@@ -117,13 +129,13 @@ export function BodyMeasurementsModal({ metrics, onClose, onSave }: BodyMeasurem
               alignItems: 'center',
               justifyContent: 'center',
               gap: 8,
-              cursor: 'pointer',
+              cursor: saving ? 'wait' : 'pointer',
               marginTop: 10,
               boxShadow: '0 8px 20px rgba(247, 37, 103, 0.25)',
             }}
           >
             <Check size={18} strokeWidth={3} />
-            <span>Lưu chỉ số</span>
+            <span>{saving ? 'Đang lưu…' : 'Lưu chỉ số'}</span>
           </button>
         </form>
       </div>

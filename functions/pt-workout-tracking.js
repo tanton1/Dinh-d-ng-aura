@@ -4,7 +4,7 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 
 const ACTIVE_SESSION_STATUSES = new Set(['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'])
-const ACTIVE_ASSIGNMENT_CONTRACT_STATUSES = new Set(['active', 'future', 'frozen'])
+const ACTIVE_ASSIGNMENT_CONTRACT_STATUSES = new Set(['active'])
 const TRACKING_MODES = new Set(['weight_reps', 'bodyweight_reps', 'time', 'distance', 'assisted_weight'])
 const SET_TYPES = new Set(['warmup', 'working', 'drop', 'failure'])
 
@@ -27,6 +27,57 @@ function dateKey(value, label = 'Ngày') {
     throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
   }
   return result
+}
+
+function storedDateKey(value) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10)
+  if (value && typeof value.toDate === 'function') return currentDateKey(value.toDate())
+  if (value instanceof Date && Number.isFinite(value.getTime())) return currentDateKey(value)
+  return ''
+}
+
+function currentDateKey(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(now)
+  const part = (type) => parts.find((item) => item.type === type)?.value || ''
+  return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+function pauseCoversDate(contract, referenceDate) {
+  return Array.isArray(contract?.pausePeriods) && contract.pausePeriods.some((period) => {
+    if (text(period?.type, 40).toLowerCase() !== 'preservation') return false
+    const startDate = storedDateKey(period?.startDate)
+    const endDate = storedDateKey(period?.endDate)
+    return Boolean(startDate && endDate && startDate <= referenceDate && endDate >= referenceDate)
+  })
+}
+
+function isEffectiveWorkoutContract(contract, referenceDate = currentDateKey()) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(referenceDate)) return false
+  if (!ACTIVE_ASSIGNMENT_CONTRACT_STATUSES.has(text(contract?.status || 'active', 40).toLowerCase())) return false
+  const startDate = storedDateKey(contract?.startDate)
+  const endDate = storedDateKey(contract?.endDate)
+  const totalSessions = Math.max(0, Number(contract?.totalSessions || 0))
+  const usedSessions = Math.max(0, Number(contract?.usedSessions || 0))
+  return Boolean(startDate && endDate && startDate <= referenceDate && endDate >= referenceDate
+    && totalSessions > usedSessions && !pauseCoversDate(contract, referenceDate))
+}
+
+function workoutSessionWriteIssue(session, requestedStatus, now = new Date()) {
+  const status = text(session?.status || 'scheduled', 40).toLowerCase()
+  if (status === 'cancelled') return 'Ca tập đã hủy, không thể ghi nhật ký.'
+  if (status === 'no_show') return 'Học viên vắng mặt, không thể ghi nhật ký tập luyện.'
+  if (!ACTIVE_SESSION_STATUSES.has(status)) return 'Trạng thái ca tập chưa cho phép ghi nhật ký.'
+  const sessionDate = storedDateKey(session?.date)
+  const today = currentDateKey(now)
+  if (!sessionDate || sessionDate > today) return 'Chưa thể ghi nhật ký cho ca tập trong tương lai.'
+  if (requestedStatus === 'completed') {
+    const hour = integer(session?.hour, 0, 0, 23)
+    const sessionTime = Date.parse(`${sessionDate}T${String(hour).padStart(2, '0')}:00:00+07:00`)
+    if (Number.isFinite(sessionTime) && sessionTime > now.getTime()) return 'Chưa đến giờ tập nên chưa thể hoàn thành nhật ký.'
+  }
+  return ''
 }
 
 function serialize(value) {
@@ -75,18 +126,18 @@ function contractAssignedToActor(contract, actor) {
     || (Array.isArray(contract.trainerIds) && contract.trainerIds.some((id) => ids.has(id)))
 }
 
-function activeAssignmentContract(contract) {
-  return ACTIVE_ASSIGNMENT_CONTRACT_STATUSES.has(text(contract?.status || 'active', 40).toLowerCase())
+function activeAssignmentContract(contract, referenceDate = currentDateKey()) {
+  return isEffectiveWorkoutContract(contract, referenceDate)
 }
 
-function workspaceStudentIds(sessions, contracts) {
+function workspaceStudentIds(sessions, contracts, referenceDate = currentDateKey()) {
   return [...new Set([
     ...sessions.map((session) => session?.studentId),
-    ...contracts.filter(activeAssignmentContract).map((contract) => contract?.studentId),
+    ...contracts.filter((contract) => activeAssignmentContract(contract, referenceDate)).map((contract) => contract?.studentId),
   ].filter((studentId) => typeof studentId === 'string' && studentId.trim()).map((studentId) => studentId.trim()))]
 }
 
-async function workspaceContractsForActor(db, actor) {
+async function workspaceContractsForActor(db, actor, referenceDate = currentDateKey()) {
   const requests = []
   if (isOperationsAdmin(actor)) {
     for (const status of ACTIVE_ASSIGNMENT_CONTRACT_STATUSES) {
@@ -109,7 +160,7 @@ async function workspaceContractsForActor(db, actor) {
   const contracts = new Map()
   snapshots.forEach((snapshot) => snapshot.docs.forEach((document) => {
     const value = document.data() || {}
-    if (!activeAssignmentContract(value) || !contractAssignedToActor(value, actor)) return
+    if (!activeAssignmentContract(value, referenceDate) || !contractAssignedToActor(value, actor)) return
     contracts.set(document.id, { id: document.id, ...value })
   }))
   return [...contracts.values()].slice(0, 600)
@@ -117,14 +168,14 @@ async function workspaceContractsForActor(db, actor) {
 
 async function assertStudentScope(db, actor, studentId) {
   if (isOperationsAdmin(actor)) return
-  const [contractSnapshot, sessionSnapshot] = await Promise.all([
-    db.collection('contracts').where('studentId', '==', studentId).limit(30).get(),
-    db.collection('sessions').where('studentId', '==', studentId).limit(100).get(),
-  ])
-  const assignedByContract = contractSnapshot.docs.some((document) => contractAssignedToActor(document.data(), actor))
-  const assignedByTeachingSession = sessionSnapshot.docs.some((document) => sessionManagedByActor(document.data(), actor))
-  if (!assignedByContract && !assignedByTeachingSession) {
-    throw new HttpsError('permission-denied', 'Học viên không thuộc phạm vi phụ trách hoặc lịch dạy của bạn.')
+  const contractSnapshot = await db.collection('contracts').where('studentId', '==', studentId).limit(30).get()
+  const referenceDate = currentDateKey()
+  const assignedByEffectiveContract = contractSnapshot.docs.some((document) => {
+    const contract = document.data()
+    return activeAssignmentContract(contract, referenceDate) && contractAssignedToActor(contract, actor)
+  })
+  if (!assignedByEffectiveContract) {
+    throw new HttpsError('permission-denied', 'Học viên không có hợp đồng hiệu lực trong phạm vi phụ trách của bạn.')
   }
 }
 
@@ -244,14 +295,14 @@ function workoutMetrics(sets) {
     totalVolumeKg: Math.round(completed.reduce((sum, set) => sum + set.weightKg * set.reps, 0) * 10) / 10,
     maximumWeightKg: completed.reduce((maximum, set) => Math.max(maximum, set.weightKg), 0),
     maximumRpe: completed.reduce((maximum, set) => Math.max(maximum, set.rpe), 0),
-    painAlert: completed.some((set) => set.painLevel >= 4),
+    painAlert: sets.some((set) => set.painLevel >= 4),
   }
 }
 
 function historyAnalytics(logs) {
   const completed = logs.filter((log) => log.status === 'completed')
   const exerciseBest = new Map()
-  completed.forEach((log) => (log.sets || []).filter((set) => set.completed).forEach((set) => {
+  completed.forEach((log) => (log.sets || []).filter((set) => set.completed && set.setType !== 'warmup').forEach((set) => {
     const current = exerciseBest.get(set.catalogExerciseId) || { catalogExerciseId: set.catalogExerciseId, exerciseName: set.exerciseName, maximumWeightKg: 0, maximumSetVolumeKg: 0 }
     current.maximumWeightKg = Math.max(current.maximumWeightKg, Number(set.weightKg || 0))
     current.maximumSetVolumeKg = Math.max(current.maximumSetVolumeKg, Number(set.weightKg || 0) * Number(set.reps || 0))
@@ -285,7 +336,7 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
       : Promise.all(ids.map((id) => db.collection('sessions').where('trainerId', '==', id).where('date', '>=', from).where('date', '<=', to).limit(300).get()))
     const [snapshots, contracts] = await Promise.all([
       sessionSnapshotsPromise,
-      workspaceContractsForActor(db, actor),
+      workspaceContractsForActor(db, actor, currentDateKey()),
     ])
     const sessions = new Map()
     snapshots.forEach((snapshot) => snapshot.docs.forEach((document) => {
@@ -294,23 +345,40 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
       if (!sessionManagedByActor(value, actor)) return
       sessions.set(document.id, { id: document.id, ...value })
     }))
-    const sessionItems = [...sessions.values()].sort((left, right) => `${left.date}-${left.hour || 0}`.localeCompare(`${right.date}-${right.hour || 0}`))
-    const studentIds = workspaceStudentIds(sessionItems, contracts)
+    const rawSessionItems = [...sessions.values()].sort((left, right) => `${left.date}-${left.hour || 0}`.localeCompare(`${right.date}-${right.hour || 0}`))
+    const studentIds = workspaceStudentIds(rawSessionItems, contracts)
+    const trainerIds = [...new Set(rawSessionItems.map((session) => text(session.trainerId, 180)).filter(Boolean))]
+    const branchIds = [...new Set(rawSessionItems.map((session) => text(session.branchId, 180)).filter(Boolean))]
     const contractByStudent = new Map()
-    const contractStatusPriority = new Map([['active', 3], ['future', 2], ['frozen', 1]])
     contracts.forEach((contract) => {
       const current = contractByStudent.get(contract.studentId)
-      const status = text(contract.status || 'active', 40).toLowerCase()
-      const currentStatus = text(current?.status || '', 40).toLowerCase()
-      if (!current || (contractStatusPriority.get(status) || 0) > (contractStatusPriority.get(currentStatus) || 0)) {
+      const currentEnd = storedDateKey(current?.endDate)
+      const candidateEnd = storedDateKey(contract?.endDate)
+      if (!current || candidateEnd > currentEnd) {
         contractByStudent.set(contract.studentId, contract)
       }
     })
-    const [studentSnapshots, programSnapshots, logSnapshots] = await Promise.all([
+    const [studentSnapshots, programSnapshots, logSnapshots, trainerSnapshots, staffSnapshots, branchSnapshots] = await Promise.all([
       studentIds.length ? db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : [],
       studentIds.length ? db.getAll(...studentIds.map((id) => db.doc(`ptTrainingPrograms/${id}`))) : [],
-      sessionItems.length ? db.getAll(...sessionItems.map((session) => db.doc(`ptWorkoutLogs/${logDocumentId(session.id, session.studentId)}`))) : [],
+      rawSessionItems.length ? db.getAll(...rawSessionItems.map((session) => db.doc(`ptWorkoutLogs/${logDocumentId(session.id, session.studentId)}`))) : [],
+      trainerIds.length ? db.getAll(...trainerIds.map((id) => db.doc(`trainers/${id}`))) : [],
+      trainerIds.length ? db.getAll(...trainerIds.map((id) => db.doc(`staff/${id}`))) : [],
+      branchIds.length ? db.getAll(...branchIds.map((id) => db.doc(`branches/${id}`))) : [],
     ])
+    const trainerNames = new Map()
+    ;[...trainerSnapshots, ...staffSnapshots].filter((snapshot) => snapshot.exists).forEach((snapshot) => {
+      const name = text(snapshot.data()?.name || snapshot.data()?.fullName, 160)
+      if (name && !trainerNames.has(snapshot.id)) trainerNames.set(snapshot.id, name)
+    })
+    const branchNames = new Map(branchSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => [
+      snapshot.id, text(snapshot.data()?.name || snapshot.data()?.branchName, 160) || 'Chi nhánh Aura',
+    ]))
+    const sessionItems = rawSessionItems.map((session) => ({
+      ...session,
+      trainerName: trainerNames.get(session.trainerId) || 'PT Aura',
+      branchName: branchNames.get(session.branchId) || 'Chi nhánh Aura',
+    }))
     const students = studentSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => {
       const contract = contractByStudent.get(snapshot.id)
       return {
@@ -321,6 +389,7 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
         contractId: text(contract?.id, 180),
         contractStatus: text(contract?.status, 40),
         assignmentSource: contract ? 'contract' : 'teaching_session',
+        eligibleForNewProgram: Boolean(contract),
       }
     }).sort((left, right) => left.name.localeCompare(right.name, 'vi'))
     return serialize({
@@ -400,6 +469,8 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
       const session = sessionSnapshot.data()
       if (session.studentId !== studentId) throw new HttpsError('failed-precondition', 'Học viên không thuộc ca tập này.')
       if (!sessionManagedByActor(session, actor)) throw new HttpsError('permission-denied', 'Bạn không phụ trách ca tập này.')
+      const sessionIssue = workoutSessionWriteIssue(session, status)
+      if (sessionIssue) throw new HttpsError('failed-precondition', sessionIssue, { issueCode: 'WORKOUT_SESSION_NOT_WRITABLE' })
       if (!programSnapshot.exists) throw new HttpsError('failed-precondition', 'Học viên chưa có giáo án đang áp dụng.')
       const program = programSnapshot.data()
       const trainingDay = (program.trainingDays || []).find((day) => day.id === dayId)
@@ -408,6 +479,9 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
       const sets = normalizeWorkoutSets(request.data?.sets || [], exerciseIndex)
       if (status === 'completed' && !sets.some((set) => set.completed)) throw new HttpsError('failed-precondition', 'Hãy hoàn thành ít nhất một hiệp trước khi kết thúc buổi.')
       const revision = logSnapshot.exists ? integer(logSnapshot.data().revision, 0, 0, 1_000_000) : 0
+      if (logSnapshot.exists && logSnapshot.data().status === 'completed') {
+        throw new HttpsError('failed-precondition', 'Nhật ký đã hoàn thành và được khóa. Admin cần tạo điều chỉnh có lý do nếu phát hiện sai.', { issueCode: 'WORKOUT_LOG_LOCKED' })
+      }
       if (revision !== expectedRevision) throw new HttpsError('aborted', 'Nhật ký đã được cập nhật ở thiết bị khác. Hãy tải lại.', { issueCode: 'REVISION_CONFLICT', currentRevision: revision })
       const nextRevision = revision + 1
       const payload = {
@@ -443,9 +517,13 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
       await assertStudentScope(db, actor, studentId)
     }
     const limit = integer(request.data?.limit, 60, 1, 100)
-    const snapshot = await db.collection('ptWorkoutLogs').where('studentId', '==', studentId).limit(limit).get()
+    const snapshot = await db.collection('ptWorkoutLogs')
+      .where('studentId', '==', studentId)
+      .orderBy('date', 'desc')
+      .orderBy('hour', 'desc')
+      .limit(limit)
+      .get()
     const logs = snapshot.docs.map((document) => ({ id: document.id, ...document.data() }))
-      .sort((left, right) => `${right.date}-${right.hour || 0}`.localeCompare(`${left.date}-${left.hour || 0}`))
     return serialize({ schemaVersion: 1, studentId, logs, analytics: historyAnalytics(logs) })
   })
 
@@ -455,9 +533,12 @@ function createPtWorkoutTrackingFunctions({ db, onCall }) {
 module.exports = {
   createPtWorkoutTrackingFunctions,
   historyAnalytics,
+  isEffectiveWorkoutContract,
   logDocumentId,
   normalizeProgramDraft,
   normalizeWorkoutSets,
+  pauseCoversDate,
   workspaceStudentIds,
+  workoutSessionWriteIssue,
   workoutMetrics,
 }

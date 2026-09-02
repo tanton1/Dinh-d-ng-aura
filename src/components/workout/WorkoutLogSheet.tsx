@@ -58,7 +58,7 @@ const ACTIVITY_LIST: Array<{
   { value: 'other', label: 'Hoạt động khác', icon: Activity, met: { low: 2.5, moderate: 4.0, high: 6.0 } },
 ]
 
-export function WorkoutLogSheet({ dateLabel = 'hôm nay', weightKg = 60, onClose, onSave }: WorkoutLogSheetProps) {
+export function WorkoutLogSheet({ dateLabel = 'hôm nay', weightKg = 0, onClose, onSave }: WorkoutLogSheetProps) {
   const now = new Date()
   const defaultTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
 
@@ -82,8 +82,9 @@ export function WorkoutLogSheet({ dateLabel = 'hôm nay', weightKg = 60, onClose
   const safeDuration = Number.isFinite(durationMinutes) ? Math.min(600, Math.max(1, Math.round(durationMinutes))) : 1
   const met = option.met[intensity]
   
-  const estimatedCalories = Math.round((met * 3.5 * Math.max(30, weightKg) / 200) * safeDuration)
-  const caloriesPerMinute = ((met * 3.5 * Math.max(30, weightKg)) / 200).toFixed(1)
+  const hasWeight = Number.isFinite(weightKg) && weightKg > 0
+  const estimatedCalories = hasWeight ? Math.round((met * 3.5 * weightKg / 200) * safeDuration) : 0
+  const caloriesPerMinute = hasWeight ? ((met * 3.5 * weightKg) / 200).toFixed(1) : '—'
 
   // Impact Score
   const baseIntensityScore = intensity === 'high' ? 82 : intensity === 'moderate' ? 70 : 45
@@ -322,11 +323,11 @@ export function WorkoutLogSheet({ dateLabel = 'hôm nay', weightKg = 60, onClose
                   <Flame size={14} style={{ color: '#f97316', fill: '#f97316' }} /> Tiêu hao ước tính
                 </span>
                 <div className="wls-summary-value">
-                  {estimatedCalories}
-                  <span>kcal</span>
+                  {hasWeight ? estimatedCalories : '—'}
+                  <span>{hasWeight ? 'kcal' : 'chưa đủ dữ liệu'}</span>
                 </div>
                 <div className="wls-summary-rate">
-                  ≈ {caloriesPerMinute} kcal/phút
+                  {hasWeight ? `≈ ${caloriesPerMinute} kcal/phút` : 'Cập nhật cân nặng để ước tính kcal'}
                 </div>
                 <div className="wls-summary-dots">
                   {Array.from({ length: 20 }).map((_, idx) => {

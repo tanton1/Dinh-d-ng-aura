@@ -3,11 +3,18 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { GlobalErrorBoundary } from './GlobalErrorBoundary'
 import { initializeClientTelemetry } from './services/clientTelemetryService'
+import { canonicalizeRetiredRouteHash } from './routing/appRouting'
 import { recoverFromStaleRelease } from './utils/appReleaseRecovery'
 import './styles-bootstrap.css'
 
 document.documentElement.dataset.auraRelease = __AURA_RELEASE_SHA__
 initializeClientTelemetry()
+
+// Install URL compatibility before React starts. Old bookmarks may be opened
+// or changed while a lazy screen is loading, so redirecting them must not
+// depend on a component effect being mounted at that exact moment.
+canonicalizeRetiredRouteHash()
+window.addEventListener('hashchange', canonicalizeRetiredRouteHash)
 
 const APP_UPDATE_READY_KEY = 'aura:update-ready'
 const APP_UPDATE_READY_EVENT = 'aura:update-ready'

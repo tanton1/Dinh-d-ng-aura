@@ -318,6 +318,7 @@ export default function WorkoutPage(props: WorkoutPageProps) {
         <p>{loadError} Aura đã dừng tải để không hiển thị nhầm giáo án hoặc phiên bản chưa được PT gán.</p>
         <div className="inline-actions">
           <button type="button" className="primary-button" onClick={() => setReloadToken((value) => value + 1)}>Thử tải lại</button>
+          <button type="button" className="secondary-button" onClick={() => onNavigate('pt-workout')}>Mở giáo án & lịch sử</button>
           <button type="button" className="secondary-button" onClick={leaveWorkout}>Quay lại lịch tập</button>
         </div>
       </div>

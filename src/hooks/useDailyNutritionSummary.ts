@@ -37,10 +37,10 @@ export function useDailyNutritionSummary(
   }, [enabled, ownerId])
 
   return useMemo(() => {
-    const effectiveWeight = readRecentAverageWeight(ownerId, profile?.weightKg ?? 60)
+    const effectiveWeight = readRecentAverageWeight(ownerId, profile?.weightKg ?? 0)
     const targets = resolveDailyNutritionTargets(profile, effectiveWeight)
-    const calorieTarget = Math.max(1, Math.round(targets.calorieGoal))
-    const proteinTarget = Math.max(1, Math.round(targets.proteinGoal))
+    const calorieTarget = Math.max(0, Math.round(targets.calorieGoal))
+    const proteinTarget = Math.max(0, Math.round(targets.proteinGoal))
     const today = localDateKey()
     const logged = meals.filter((meal) => meal.date === today && meal.status === 'logged')
     const caloriesConsumed = Math.round(logged.reduce((sum, meal) => sum + (Number(meal.calories) || 0), 0))
@@ -51,6 +51,7 @@ export function useDailyNutritionSummary(
       proteinTarget,
       caloriesConsumed,
       proteinConsumed,
+      configured: targets.configured,
       remainingCalories: Math.max(0, calorieTarget - caloriesConsumed),
       remainingProtein: Math.max(0, proteinTarget - proteinConsumed),
     }

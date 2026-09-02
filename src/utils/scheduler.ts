@@ -12,6 +12,54 @@ function getDayIndex(day: string, config: ScheduleConfig): number {
   return config.workingDays.indexOf(day as any);
 }
 
+const DAY_CODES = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"] as const;
+
+function dateKey(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : "";
+}
+
+function todayDateKey(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function weekStartDate(value: Date): Date {
+  const start = new Date(value);
+  start.setHours(12, 0, 0, 0);
+  const weekday = start.getDay();
+  start.setDate(start.getDate() - (weekday === 0 ? 6 : weekday - 1));
+  return start;
+}
+
+function slotDateKey(targetDate: Date, day: string): string {
+  const dayIndex = DAY_CODES.indexOf(day as (typeof DAY_CODES)[number]);
+  if (dayIndex < 0) return "";
+  const date = weekStartDate(targetDate);
+  date.setDate(date.getDate() + dayIndex);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+export function isContractSchedulableOn(contract: StudentContract, date: string): boolean {
+  const status = String(contract.status || "").toLowerCase();
+  const start = dateKey(contract.startDate);
+  const end = dateKey(contract.endDate);
+  if (!date || !start || !end || !["active", "future"].includes(status) || date < start || date > end) return false;
+  if (Math.max(0, Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0)) <= 0) return false;
+  return !(contract.pausePeriods || []).some((period) => {
+    const pauseStart = dateKey(period.startDate);
+    const pauseEnd = dateKey(period.endDate);
+    return Boolean(pauseStart && pauseEnd && pauseStart <= date && pauseEnd >= date);
+  });
+}
+
 function trainerSlotCapacity(trainer: Trainer): number {
   const configured = Number(trainer.slotCapacity);
   return Number.isInteger(configured) && configured >= 1 && configured <= 4 ? configured : 2;
@@ -29,7 +77,9 @@ export function getStudentSessionsPerWeek(
 }
 
 function getSessionsLeft(contract: StudentContract, allSessions: import("../types").Session[]): number {
-  const totalSess = contract.totalSessions !== undefined ? contract.totalSessions : 999;
+  // Missing quota is not an unlimited quota. Legacy records must be repaired
+  // explicitly before they can consume new sessions.
+  const totalSess = Math.max(0, Math.floor(Number(contract.totalSessions || 0)));
   
   // Base completed/used sessions
   let used = contract.usedSessions || 0;
@@ -45,7 +95,7 @@ function getSessionsLeft(contract: StudentContract, allSessions: import("../type
     return sDate >= startDate && sDate <= endDate;
   }).length;
   
-  return totalSess - used - scheduledCount;
+  return Math.max(0, totalSess - Math.max(0, Number(used) || 0) - scheduledCount);
 }
 
 export function generateSchedule(
@@ -114,10 +164,19 @@ export function generateSchedule(
   endOfTargetWeek.setDate(now.getDate() + 6);
   endOfTargetWeek.setHours(23, 59, 59, 999);
 
-  // Group active contracts by student ID
+  // Group contracts that overlap the selected week by student ID. A renewal
+  // may be considered for the week, but it is still checked again against the
+  // exact date of each slot below; this prevents using a future contract early.
   const studentActiveContractsMap = new Map<string, StudentContract[]>();
   contracts.forEach((c) => {
-    if (c.status === "active") {
+    const status = String(c.status || "").toLowerCase();
+    const start = dateKey(c.startDate);
+    const end = dateKey(c.endDate);
+    const weekStart = dateKey(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`);
+    const weekEndDate = new Date(now);
+    weekEndDate.setDate(now.getDate() + 6);
+    const weekEnd = `${weekEndDate.getFullYear()}-${String(weekEndDate.getMonth() + 1).padStart(2, "0")}-${String(weekEndDate.getDate()).padStart(2, "0")}`;
+    if (["active", "future"].includes(status) && start && end && start <= weekEnd && end >= weekStart) {
       const existing = studentActiveContractsMap.get(c.studentId) || [];
       studentActiveContractsMap.set(c.studentId, [...existing, c]);
     }
@@ -140,33 +199,8 @@ export function generateSchedule(
       const timeDiff = endDate.getTime() - now.getTime();
       const daysLeft = Math.ceil(timeDiff / (1000 * 3600 * 24));
 
-      // Fallback for old data where totalSessions might be undefined
-      const totalSess = c.totalSessions !== undefined ? c.totalSessions : 999;
       const sessionsLeft = getSessionsLeft(c, allSessions);
-
-      let isStartValid = startDate.getTime() <= endOfTargetWeek.getTime();
-
-      // Option 1: If startDate is in the future, but all prior contracts for this student are exhausted or expired,
-      // auto-advance this continuation contract so it becomes effective immediately!
-      if (!isStartValid && sessionsLeft > 0 && daysLeft >= 0) {
-        const priorContracts = sortedUserContracts.filter(
-          other => other.id !== c.id && new Date(other.startDate).getTime() < startDate.getTime()
-        );
-
-        const hasUnexhaustedPriorContract = priorContracts.some(other => {
-          const otherLeft = getSessionsLeft(other, allSessions);
-          const otherEndDate = new Date(other.endDate || 0);
-          otherEndDate.setHours(23, 59, 59, 999);
-          return otherLeft > 0 && otherEndDate.getTime() >= now.getTime();
-        });
-
-        if (!hasUnexhaustedPriorContract) {
-          isStartValid = true;
-          debugSteps.push(
-            `Kích hoạt sớm HĐ ${c.packageName || c.id} cho học viên ${studentId} do các HĐ cũ đã hết buổi/hết hạn.`
-          );
-        }
-      }
+      const isStartValid = startDate.getTime() <= endOfTargetWeek.getTime();
 
       if (
         daysLeft >= 0 &&
@@ -179,7 +213,7 @@ export function generateSchedule(
         const reason = [];
         if (daysLeft < 0) reason.push(`Hết hạn (còn ${daysLeft} ngày)`);
         if (sessionsLeft <= 0) reason.push(`Hết buổi (còn ${sessionsLeft} buổi)`);
-        if (!isStartValid) reason.push(`Chưa tới ngày học (Start: ${startDate.toLocaleDateString()})`);
+        if (!isStartValid) reason.push(`Chưa tới ngày học (bắt đầu: ${startDate.toLocaleDateString()})`);
         
         debugSteps.push(
           `Bỏ qua HĐ của ${c.studentId}: ${reason.join(', ')}`,
@@ -193,6 +227,14 @@ export function generateSchedule(
   const activeStudents = students.filter(
     (s) => studentContracts.has(s.id)
   );
+
+  // A weekly override can request more sessions than the contract still
+  // owns. Never let the scheduler create sessions beyond the canonical quota.
+  activeStudents.forEach((student) => {
+    const quota = (studentContracts.get(student.id) || [])
+      .reduce((sum, contract) => sum + getSessionsLeft(contract, allSessions), 0);
+    studentNeeds[student.id] = Math.max(0, Math.min(studentNeeds[student.id], quota));
+  });
 
   if (activeStudents.length === 0) {
     debugSteps.push(`Lỗi: Không tìm thấy học viên nào có hợp đồng khả dụng trong tuần này để xếp lịch.`);
@@ -213,7 +255,11 @@ export function generateSchedule(
       const sBranchId = studentActiveContracts[0]?.branchId || student.branchId || "";
       
       // Determine the ordered list of trainers for this student based on the active contract
-      const latestContract = studentActiveContracts[0];
+      const latestContract = [...studentActiveContracts].sort((left, right) =>
+        dateKey(left.endDate).localeCompare(dateKey(right.endDate))
+        || dateKey(left.startDate).localeCompare(dateKey(right.startDate))
+        || left.id.localeCompare(right.id),
+      )[0];
       let orderedTrainerIds: string[] = [];
       
       if (latestContract) {
@@ -259,6 +305,8 @@ export function generateSchedule(
           studentScheduledDays,
           studentScheduledSlots,
           config,
+          studentActiveContracts,
+          targetDate,
           debugSteps,
         );
 
@@ -382,6 +430,8 @@ function scheduleStudentWithTrainer(
   studentScheduledDays: Record<string, Set<string>>,
   studentScheduledSlots: Record<string, string[]>,
   config: ScheduleConfig,
+  studentContracts: StudentContract[] = [],
+  targetDate: Date = new Date(),
   debugSteps?: string[],
 ) {
   let needed = studentNeeds[student.id];
@@ -403,6 +453,14 @@ function scheduleStudentWithTrainer(
     const hour = parseInt(hourStr, 10);
 
     if (!config.workingDays.includes(day as any)) continue;
+
+    const sessionDate = slotDateKey(targetDate, day);
+    if (!studentContracts.some((contract) => isContractSchedulableOn(contract, sessionDate))) {
+      // The contract can overlap the selected week while still starting later
+      // in the week (or being paused on this date). Do not place the learner
+      // into an invalid day and wait for publish to reject it.
+      continue;
+    }
 
     // Rule: Max 1 session per day per student
     if (scheduledDays.has(day)) continue;
@@ -635,19 +693,18 @@ function getSuggestions(
 }
 
 export function getActiveContract(studentId: string, contracts: StudentContract[]): StudentContract | undefined {
+  const today = todayDateKey();
   const studentContracts = contracts
-    .filter(c => c.studentId === studentId && (c.status === 'active' || c.status === 'frozen'))
-    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
-  
-  if (studentContracts.length === 0) return undefined;
+    .filter((contract) => {
+      if (contract.studentId !== studentId || String(contract.status || "").toLowerCase() !== "active") return false;
+      if (!isContractSchedulableOn(contract, today)) return false;
+      return true;
+    })
+    // When a renewal overlaps the current date, use the contract ending first
+    // so remaining entitlement is consumed in chronological order.
+    .sort((left, right) => dateKey(left.endDate).localeCompare(dateKey(right.endDate))
+      || dateKey(left.startDate).localeCompare(dateKey(right.startDate))
+      || left.id.localeCompare(right.id));
 
-  // Find the first contract that still has sessions remaining
-  const activeUnexhausted = studentContracts.find(c => {
-    const total = c.totalSessions !== undefined ? c.totalSessions : 999;
-    const used = c.usedSessions || 0;
-    return total - used > 0;
-  });
-
-  // If all are unexhausted/exhausted, return activeUnexhausted or the latest contract
-  return activeUnexhausted || studentContracts[studentContracts.length - 1];
+  return studentContracts[0];
 }

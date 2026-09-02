@@ -33,6 +33,14 @@ test('daily targets use the same canonical calculation and ignore legacy calorie
   assert.notEqual(result.calorieGoal, legacyProfile.targetCalories)
 })
 
+test('incomplete profile does not receive fabricated body defaults', () => {
+  const result = calculateNutritionTargets({ goal: 'lose-fat', biologicalSex: 'female' })
+  assert.equal(result.configured, false)
+  assert.equal(result.targetCaloriesKcal, 0)
+  assert.equal(result.proteinG, 0)
+  assert.equal(resolveDailyNutritionTargets(null).configured, false)
+})
+
 test('recent weight average includes only valid entries in the latest 30 days', () => {
   const result = recentAverageWeight([
     { date: '2026-08-01', weightKg: 84 },

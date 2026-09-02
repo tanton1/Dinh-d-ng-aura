@@ -109,6 +109,10 @@ export interface StudentPtContractSummary {
   paymentStatus: 'paid' | 'overdue' | 'due_today' | 'due_soon' | 'pending'
   nextPaymentDate: string | null
   daysUntilEnd: number | null
+  /** True only when the contract is active, in-date, has quota and is not in preservation today. */
+  schedulableToday?: boolean
+  pausedToday?: boolean
+  pausePeriods?: Array<{ type?: string; startDate: string; endDate: string }>
   installments: StudentPtInstallmentSummary[]
 }
 
@@ -117,6 +121,49 @@ export interface StudentPtInstallmentSummary {
   date: string
   amount: number
   status: 'pending' | 'paid' | 'cancelled'
+}
+
+function normalizedScheduleDate(value: unknown) {
+  if (typeof value !== 'string') return ''
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})/)
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : ''
+}
+
+export function isStudentPtContractSchedulableOn(
+  contract: StudentPtContractSummary,
+  date: string,
+  allowedStatuses: string[] = ['active'],
+) {
+  const dateKey = normalizedScheduleDate(date)
+  const startDate = normalizedScheduleDate(contract.startDate)
+  const endDate = normalizedScheduleDate(contract.endDate)
+  if (!dateKey || !startDate || !endDate || !allowedStatuses.includes(String(contract.status || '').toLowerCase())) return false
+  if (dateKey < startDate || dateKey > endDate || Number(contract.remainingSessions || 0) <= 0) return false
+  return !(contract.pausePeriods || []).some((period) => {
+    const pauseStart = normalizedScheduleDate(period.startDate)
+    const pauseEnd = normalizedScheduleDate(period.endDate)
+    return Boolean(pauseStart && pauseEnd && pauseStart <= dateKey && pauseEnd >= dateKey)
+  })
+}
+
+export function studentPtContractHasSchedulableDate(
+  contract: StudentPtContractSummary,
+  from: string,
+  to: string,
+  allowedStatuses: string[] = ['active'],
+) {
+  const fromKey = normalizedScheduleDate(from)
+  const toKey = normalizedScheduleDate(to)
+  if (!fromKey || !toKey || fromKey > toKey) return false
+  const cursor = new Date(`${fromKey}T12:00:00`)
+  const end = new Date(`${toKey}T12:00:00`)
+  if (Number.isNaN(cursor.getTime()) || Number.isNaN(end.getTime())) return false
+  for (let checked = 0; cursor <= end && checked < 367; checked += 1) {
+    const date = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`
+    if (isStudentPtContractSchedulableOn(contract, date, allowedStatuses)) return true
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  return false
 }
 
 export interface StudentPtContractAlert {

@@ -135,7 +135,8 @@ test('learner and staff personal Gym schedule is self-scoped and availability wr
   assert.match(studentScheduleBlock, /slots\.length < minimumSlots && !confirmBelowMinimum/)
   assert.match(studentScheduleBlock, /belowMinimumConfirmed: slots\.length < minimumSlots/)
   assert.match(studentScheduleBlock, /contractAlerts: serialize\(contractAlerts\)/)
-  assert.match(studentScheduleBlock, /studentContractProjection\(item\.id, item\.data\(\), today\)/)
+  assert.match(studentScheduleBlock, /const usageEvidenceComplete = rangeSessionsComplete/)
+  assert.match(studentScheduleBlock, /studentContractProjection\(\s*item\.id,\s*contract,\s*today,\s*sessionRecords\.filter\([\s\S]*?usageEvidenceComplete/)
   assert.match(studentScheduleBlock, /currentAvailability\.data\(\)\?\.revision/)
   assert.match(studentScheduleBlock, /status: 'submitted'/)
   assert.doesNotMatch(studentScheduleBlock, /request\.data\?\.studentId/)
@@ -169,6 +170,54 @@ test('student contract projection exposes only a bounded payment schedule and ca
   assert.equal(projection.nextPaymentDate, '2026-08-25')
   assert.equal(projection.paymentStatus, 'overdue')
   assert.deepEqual(projection.installments.map((item) => item.id), ['first', 'second'])
+})
+
+test('student contract projection prefers chargeable session evidence over a stale stored counter', () => {
+  const projection = studentContractProjection('contract-1', {
+    packageName: 'PT 12 buổi',
+    status: 'active',
+    startDate: '2026-08-01',
+    endDate: '2026-12-31',
+    totalSessions: 12,
+    usedSessions: 1,
+  }, '2026-08-28', [
+    { id: 'session-1', contractId: 'contract-1', status: 'completed', billingStatus: 'charged' },
+    { id: 'session-2', contractId: 'contract-1', status: 'no_show', billingStatus: 'charged' },
+  ])
+  assert.equal(projection.usedSessions, 2)
+  assert.equal(projection.remainingSessions, 10)
+})
+
+test('student contract projection ignores partial calendar evidence outside the contract range', () => {
+  const projection = studentContractProjection('contract-long', {
+    packageName: 'PT dài hạn',
+    status: 'active',
+    startDate: '2026-01-01',
+    endDate: '2026-12-31',
+    totalSessions: 100,
+    usedSessions: 48,
+  }, '2026-08-28', [
+    { id: 'visible-session', contractId: 'contract-long', status: 'completed', billingStatus: 'charged' },
+  ], false)
+  assert.equal(projection.usedSessions, 48)
+  assert.equal(projection.remainingSessions, 52)
+})
+
+test('student contract projection marks preservation as not schedulable without hiding history', () => {
+  const projection = studentContractProjection('contract-paused', {
+    packageName: 'PT 24 buổi',
+    status: 'active',
+    startDate: '2026-08-01',
+    endDate: '2026-12-31',
+    totalSessions: 24,
+    usedSessions: 4,
+    pausePeriods: [{ type: 'preservation', startDate: '2026-08-25', endDate: '2026-09-05' }],
+  }, '2026-08-28')
+
+  assert.equal(projection.remainingSessions, 20)
+  assert.equal(projection.pausedToday, true)
+  assert.equal(projection.schedulableToday, false)
+  assert.deepEqual(projection.pausePeriods, [{ type: 'preservation', startDate: '2026-08-25', endDate: '2026-09-05' }])
 })
 
 test('student contract alerts prioritize overdue payments and warn before contract/session exhaustion', () => {

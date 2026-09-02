@@ -18,7 +18,6 @@ import {
   Sparkles,
   Zap,
 } from 'lucide-react'
-import { courses as demoCourses } from '../../data'
 import type { Course } from '../../types'
 import '../../styles-academy-catalog.css'
 
@@ -132,7 +131,9 @@ import { useDebounce } from '../../hooks/useDebounce'
 
 export default function CoursesPage({
   onOpenCourse,
-  courseItems = demoCourses,
+  // The parent decides whether demo mode is enabled. A learner page must not
+  // silently replace an empty/failed Firebase response with sample courses.
+  courseItems = [],
   loading = false,
   error,
   warning,

@@ -29,6 +29,7 @@ interface AuraTodayFlowProps {
   firstName: string
   streak?: number
   goalLabel: string
+  nutritionConfigured?: boolean
   caloriesConsumed: number
   calorieGoal: number
   proteinConsumed: number
@@ -62,6 +63,7 @@ export default function AuraTodayFlow({
   firstName,
   streak = 0,
   goalLabel,
+  nutritionConfigured = true,
   caloriesConsumed,
   calorieGoal,
   proteinConsumed,
@@ -84,10 +86,10 @@ export default function AuraTodayFlow({
 }: AuraTodayFlowProps) {
   const statusTrackRef = useRef<HTMLDivElement>(null)
   const [activeStatusIndex, setActiveStatusIndex] = useState(0)
-  const calorieDelta = calorieGoal - caloriesConsumed
-  const calorieProgress = percent(caloriesConsumed, calorieGoal)
-  const proteinProgress = percent(proteinConsumed, proteinGoal)
-  const waterProgress = percent(waterMl, waterGoalMl)
+  const calorieDelta = nutritionConfigured ? calorieGoal - caloriesConsumed : 0
+  const calorieProgress = nutritionConfigured ? percent(caloriesConsumed, calorieGoal) : 0
+  const proteinProgress = nutritionConfigured ? percent(proteinConsumed, proteinGoal) : 0
+  const waterProgress = nutritionConfigured ? percent(waterMl, waterGoalMl) : 0
   const movementProgress = percent(movementMinutesToday, 30)
   const hasMeal = mealsCount > 0
   const sortedMeals = [...todayMeals]
@@ -113,11 +115,13 @@ export default function AuraTodayFlow({
       tone: 'nutrition',
       icon: <Utensils size={20} />,
       label: 'Dinh dưỡng',
-      value: calorieDelta >= 0 ? formatNumber(calorieDelta) : `+${formatNumber(Math.abs(calorieDelta))}`,
-      unit: calorieDelta >= 0 ? 'kcal còn lại' : 'kcal vượt mục tiêu',
+      value: nutritionConfigured ? (calorieDelta >= 0 ? formatNumber(calorieDelta) : `+${formatNumber(Math.abs(calorieDelta))}`) : '—',
+      unit: nutritionConfigured ? (calorieDelta >= 0 ? 'kcal còn lại' : 'kcal vượt mục tiêu') : 'mục tiêu chưa thiết lập',
       detail: hasMeal
-        ? `${mealsCount} bữa · ${formatNumber(proteinConsumed)}/${formatNumber(proteinGoal)}g đạm`
-        : `Chưa ghi bữa · ${goalLabel}`,
+        ? nutritionConfigured
+          ? `${mealsCount} bữa · ${formatNumber(proteinConsumed)}/${formatNumber(proteinGoal)}g đạm`
+          : `${mealsCount} bữa · Chưa thiết lập mục tiêu`
+        : nutritionConfigured ? `Chưa ghi bữa · ${goalLabel}` : 'Cập nhật hồ sơ để Aura tính mục tiêu chính xác',
       progress: calorieProgress,
       progressLabel: `${calorieProgress}% mục tiêu năng lượng`,
       action: onOpenNutrition,
