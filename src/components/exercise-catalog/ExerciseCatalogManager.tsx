@@ -68,15 +68,51 @@ function emptyDraft(): ExerciseCatalogDraft {
   }
 }
 
-function draftFromItem(item: ExerciseCatalogItem): ExerciseCatalogDraft {
+function safeStringList(value: unknown, maximum = 30): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string' && Boolean(entry.trim())).map((entry) => entry.trim()).slice(0, maximum)
+    : []
+}
+
+function safeDraftMedia(value: unknown): ExerciseCatalogMedia {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value as Partial<ExerciseCatalogMedia> : {}
+  const images = Array.isArray(source.images)
+    ? source.images.filter((entry): entry is ExerciseCatalogMediaImage => Boolean(entry && typeof entry === 'object' && typeof (entry as ExerciseCatalogMediaImage).id === 'string' && typeof (entry as ExerciseCatalogMediaImage).url === 'string')).map((entry, index) => ({
+      ...entry,
+      role: entry.role === 'start' || entry.role === 'end' || entry.role === 'detail' ? entry.role : 'detail',
+      order: Number.isFinite(entry.order) ? entry.order : index,
+    })).sort((left, right) => left.order - right.order)
+    : []
   return {
-    status: item.status === 'review' ? 'review' : 'draft', nameVi: item.nameVi, nameEn: item.nameEn || '', aliasesVi: [...item.aliasesVi],
-    bodyParts: [...item.bodyParts], targetMuscles: [...item.targetMuscles], secondaryMuscles: [...item.secondaryMuscles], equipment: [...item.equipment],
-    environment: [...item.environment], difficulty: item.difficulty, goals: [...item.goals], instructionsVi: [...item.instructionsVi], cuesVi: [...item.cuesVi],
-    commonMistakesVi: [...item.commonMistakesVi], breathingVi: item.breathingVi || '',
-    media: { ...item.media, images: item.media.images?.map((image) => ({ ...image })) || [], videos: item.media.videos?.map((video) => ({ ...video })) || [] },
-    externalMedia: item.externalMedia ? { ...item.externalMedia } : undefined,
-    defaultPrescription: { ...item.defaultPrescription }, source: { ...item.source }, sourceAttribution: item.sourceAttribution || 'Aura Fitness',
+    ...emptyDraft().media,
+    ...source,
+    images,
+    videos: Array.isArray(source.videos) ? source.videos.filter(Boolean).map((video) => ({ ...video })) : [],
+  }
+}
+
+function draftFromItem(item: ExerciseCatalogItem): ExerciseCatalogDraft {
+  // Older imports did not always contain every optional array/media field. Keep
+  // the editor usable even while those records are being curated or migrated.
+  const raw = item as Partial<ExerciseCatalogItem>
+  const difficulty = raw.difficulty === 'intermediate' || raw.difficulty === 'advanced' ? raw.difficulty : 'beginner'
+  const environment = safeStringList(raw.environment, 2).filter((entry): entry is 'gym' | 'home' => entry === 'gym' || entry === 'home')
+  const prescription = raw.defaultPrescription && typeof raw.defaultPrescription === 'object' ? raw.defaultPrescription : {}
+  const source = raw.source && typeof raw.source === 'object' ? raw.source : emptyDraft().source
+  return {
+    status: raw.status === 'review' ? 'review' : 'draft', nameVi: typeof raw.nameVi === 'string' ? raw.nameVi : '', nameEn: typeof raw.nameEn === 'string' ? raw.nameEn : '', aliasesVi: safeStringList(raw.aliasesVi, 12),
+    bodyParts: safeStringList(raw.bodyParts, 12), targetMuscles: safeStringList(raw.targetMuscles, 12), secondaryMuscles: safeStringList(raw.secondaryMuscles, 12), equipment: safeStringList(raw.equipment, 12),
+    environment: environment.length ? environment : ['gym'], difficulty, goals: safeStringList(raw.goals, 12), instructionsVi: safeStringList(raw.instructionsVi, 20), cuesVi: safeStringList(raw.cuesVi, 12),
+    commonMistakesVi: safeStringList(raw.commonMistakesVi, 12), breathingVi: typeof raw.breathingVi === 'string' ? raw.breathingVi : '',
+    media: safeDraftMedia(raw.media),
+    externalMedia: raw.externalMedia && typeof raw.externalMedia === 'object' ? { ...raw.externalMedia } : undefined,
+    defaultPrescription: {
+      sets: Number.isFinite(Number((prescription as { sets?: unknown }).sets)) ? Number((prescription as { sets?: unknown }).sets) : 3,
+      reps: typeof (prescription as { reps?: unknown }).reps === 'string' ? (prescription as { reps: string }).reps : '10–12',
+      restSeconds: Number.isFinite(Number((prescription as { restSeconds?: unknown }).restSeconds)) ? Number((prescription as { restSeconds?: unknown }).restSeconds) : 60,
+      rpe: Number.isFinite(Number((prescription as { rpe?: unknown }).rpe)) ? Number((prescription as { rpe: number }).rpe) : 7,
+    },
+    source: { ...emptyDraft().source, ...source }, sourceAttribution: typeof raw.sourceAttribution === 'string' ? raw.sourceAttribution : 'Aura Fitness',
   }
 }
 
@@ -183,6 +219,7 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
   const [publishedItem, setPublishedItem] = useState<ExerciseCatalogItem | null>(null)
   const [draft, setDraft] = useState<ExerciseCatalogDraft>(emptyDraft)
   const [editRevision, setEditRevision] = useState(0)
+  const [detailLoading, setDetailLoading] = useState(false)
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<CatalogStatusFilter>('all')
   const [muscleFilter, setMuscleFilter] = useState<ExerciseMuscleGroupId>('all')
@@ -224,7 +261,10 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
   }, [dirty])
 
   const selectItem = async (item: ExerciseCatalogItem) => {
-    setError(''); setNotice(''); setStepError('')
+    setError(''); setNotice(''); setStepError(''); setDetailLoading(true)
+    // Clear the previous record immediately. This avoids showing an old
+    // Bước 1 form while a slower callable request is resolving.
+    setSelectedId(item.id); setPublishedItem(null); setDraft(emptyDraft()); setEditRevision(0); setDirty(false); setActiveStep(0)
     try {
       const detail = isDemo ? { item, editItem: item } : await getExerciseCatalogItem(item.id)
       setSelectedId(item.id); setPublishedItem(detail.item); setDraft(draftFromItem(detail.editItem)); setEditRevision(detail.editItem.revision)
@@ -232,6 +272,7 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
       setExternalProvider(detail.editItem.externalMedia?.provider || 'exercisedb'); changeVersionRef.current = 0
       requestAnimationFrame(() => { if (window.matchMedia('(max-width: 760px)').matches) editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) })
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể mở bài tập.') }
+    finally { setDetailLoading(false) }
   }
 
   const closeMobileDetail = () => {
@@ -387,6 +428,11 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
   }, [items, muscleFilter, query, statusFilter])
 
   const counts = useMemo(() => ({ published: items.filter((item) => item.status === 'published').length, review: items.filter((item) => item.status === 'review').length, working: items.filter((item) => item.hasWorkingDraft).length }), [items])
+  const sourceCounts = useMemo(() => ({
+    freePublished: items.filter((item) => item.status === 'published' && item.source.provider === 'free-exercise-db').length,
+    freeReview: items.filter((item) => item.status === 'review' && item.source.provider === 'free-exercise-db').length,
+    exerciseDbGif: items.filter((item) => item.source.provider === 'free-exercise-db' && item.media.videos?.some((video) => video.provider === 'exercisedb')).length,
+  }), [items])
   const muscleGroups = useMemo(() => exerciseMuscleGroupOptions(items), [items])
   const imagesForDraft = useMemo(() => mediaImages(draft.media), [draft.media])
   const stepComplete = (step: number): boolean => step === 0
@@ -403,6 +449,7 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
   return <section className={`exercise-catalog-manager ${selectedId ? 'has-mobile-detail' : ''}`} aria-label="Quản lý thư viện bài tập">
     <header className="exercise-catalog-manager__heading"><div><span>THƯ VIỆN DÙNG CHUNG</span><h2>Kho bài tập Aura</h2><p>Tạo hồ sơ bài tập theo từng bước, đồng bộ cho mọi giáo án.</p></div><button className="exercise-catalog-manager__new" onClick={createNew}><Plus />Thêm bài tập</button></header>
     <div className="exercise-catalog-manager__metrics"><article><Library /><span><small>Tổng bài</small><strong>{items.length}</strong></span></article><article><Check /><span><small>Đã xuất bản</small><strong>{counts.published}</strong></span></article><article><Send /><span><small>Chờ duyệt</small><strong>{counts.review}</strong></span></article><article><Sparkles /><span><small>Đang chỉnh sửa</small><strong>{counts.working}</strong></span></article></div>
+    <div className="exercise-catalog-manager__source-note" role="status"><span><b>Nguồn chính: Free Exercise DB</b><small>{sourceCounts.freePublished} bài đang xuất bản · {sourceCounts.freeReview} bài nền đang chờ rà soát</small></span><em>{sourceCounts.exerciseDbGif} bài đã có GIF ExerciseDB</em></div>
     {(error || notice) && <div className={`exercise-catalog-manager__message ${error ? 'is-error' : 'is-success'}`} role={error ? 'alert' : 'status'}>{error || notice}</div>}
     <div className="exercise-catalog-manager__layout">
       <aside className="exercise-catalog-manager__browser"><div className="exercise-catalog-manager__tools"><label><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tên bài, nhóm cơ, dụng cụ…" aria-label="Tìm trong thư viện bài tập" /></label><button onClick={() => void loadItems()} disabled={loading} aria-label="Tải lại thư viện"><RefreshCw /></button></div><div className="exercise-catalog-manager__filters">{(['all', 'popular', 'published', 'review', 'draft', 'working'] as CatalogStatusFilter[]).map((status) => <button className={`${statusFilter === status ? 'is-active' : ''} ${status === 'popular' ? 'is-popular' : ''}`} onClick={() => setStatusFilter(status)} key={status}>{status === 'popular' && <Flame />}{statusLabels[status]}</button>)}</div><div className="exercise-catalog-manager__muscle-filters" role="group" aria-label="Lọc thư viện theo nhóm cơ">{muscleGroups.map((group) => <button className={muscleFilter === group.id ? 'is-active' : ''} onClick={() => setMuscleFilter(group.id)} key={group.id}>{group.label}<small>{group.count}</small></button>)}</div><div className="exercise-catalog-manager__list">
@@ -410,7 +457,7 @@ export default function ExerciseCatalogManager({ canPublish, isDemo = false }: {
         {!loading && !filteredItems.length && <div className="exercise-catalog-manager__empty"><Library /><strong>Không có bài tập phù hợp</strong><span>Đổi bộ lọc hoặc thêm một bài mới.</span></div>}
       </div></aside>
       <div className="exercise-catalog-manager__editor" ref={editorRef}>
-        {!selectedId ? <div className="exercise-catalog-manager__empty is-large"><Dumbbell /><strong>Chọn hoặc thêm bài tập</strong><span>Biên tập khoa học theo 5 bước, không cần điền một form dài.</span></div> : <>
+        {detailLoading ? <div className="exercise-catalog-manager__empty is-large is-loading" role="status"><RefreshCw className="is-spinning" /><strong>Đang tải chi tiết bài tập…</strong><span>Đang đồng bộ thông tin và media mới nhất.</span></div> : !selectedId ? <div className="exercise-catalog-manager__empty is-large"><Dumbbell /><strong>Chọn hoặc thêm bài tập</strong><span>Biên tập khoa học theo 5 bước, không cần điền một form dài.</span></div> : <>
           <button className="exercise-catalog-manager__mobile-back" onClick={closeMobileDetail}><ArrowLeft />Danh sách bài tập</button>
           <header><div><span>{publishedItem?.status === 'published' ? 'CHI TIẾT BÀI TẬP' : 'HỒ SƠ BÀI TẬP'}</span><h3>{draft.nameVi || 'Bài tập mới'}</h3><p>{autoSaving ? 'Đang tự động lưu…' : dirty ? 'Có thay đổi chưa lưu' : lastSavedAt ? `Đã lưu lúc ${lastSavedAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}` : `Revision ${editRevision}`}</p></div>{isPopularForWomen(selectedId) ? <em className="is-popular"><Flame />Nữ hay chọn</em> : <em>{draft.status === 'review' ? 'Chờ duyệt' : 'Nháp'}</em>}</header>
           <nav className="exercise-catalog-manager__stepper" aria-label="Các bước tạo bài tập">{wizardSteps.map((step, index) => <button type="button" aria-label={`${step.label}: ${step.note}`} className={`${activeStep === index ? 'is-active' : ''} ${stepComplete(index) ? 'is-complete' : ''}`} onClick={() => { setActiveStep(index); setStepError('') }} key={step.label}><i>{stepComplete(index) ? <Check /> : index + 1}</i><span><b>{step.label}</b><small>{step.note}</small></span></button>)}</nav>
