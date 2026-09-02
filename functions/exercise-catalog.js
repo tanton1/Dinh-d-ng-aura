@@ -44,6 +44,10 @@ function validExerciseImageStoragePath(storagePath, exerciseId) {
   return false
 }
 
+function isAnimatedImageUrl(url, mimeType = '') {
+  return /^image\/gif$/i.test(mimeType) || /\.(?:gif)(?:$|[?#])/i.test(url)
+}
+
 function mediaImages(value, exerciseId) {
   if (!Array.isArray(value)) return []
   return value.flatMap((entry, index) => {
@@ -109,20 +113,28 @@ function normalizedExternalMedia(value) {
 }
 
 function normalizedMedia(rawMedia, exerciseId) {
-  const images = mediaImages(rawMedia?.images, exerciseId)
+  const rawImages = mediaImages(rawMedia?.images, exerciseId)
+  const videos = mediaVideos(rawMedia?.videos)
+  const hasAnimatedVideo = videos.some((video) => video.format === 'gif' || isAnimatedImageUrl(video.url || '', video.format === 'gif' ? 'image/gif' : ''))
+  // ExerciseDB V1 exposes one animated GIF. Older imports also copied that GIF
+  // into startImageUrl/images, which made the catalog appear to have no stills.
+  // Keep GIFs in the video collection and expose only real stills as images
+  // whenever a GIF video is present. GIF-only legacy records remain readable.
+  const stillImages = hasAnimatedVideo ? rawImages.filter((image) => !isAnimatedImageUrl(image.url, image.mimeType)) : rawImages
+  const images = stillImages.length ? stillImages : rawImages
   const startImage = images.find((image) => image.role === 'start') || images[0]
-  const endImage = images.find((image) => image.role === 'end')
+  const endImage = images.find((image) => image.role === 'end') || images[images.length - 1]
   const posterImageId = text(rawMedia?.posterImageId, 160)
   const posterImage = images.find((image) => image.id === posterImageId) || startImage
   return {
-    startImageUrl: text(rawMedia?.startImageUrl, 2_000) || startImage?.url || '',
-    endImageUrl: text(rawMedia?.endImageUrl, 2_000) || endImage?.url || '',
-    posterUrl: text(rawMedia?.posterUrl, 2_000) || posterImage?.url || '',
+    startImageUrl: startImage?.url || text(rawMedia?.startImageUrl, 2_000) || '',
+    endImageUrl: endImage?.url || text(rawMedia?.endImageUrl, 2_000) || '',
+    posterUrl: posterImage?.url || text(rawMedia?.posterUrl, 2_000) || '',
     posterImageId: posterImage?.id || '',
     images,
-    videos: mediaVideos(rawMedia?.videos),
+    videos,
     animationUrl: text(rawMedia?.animationUrl, 2_000),
-    mimeType: text(rawMedia?.mimeType, 100) || startImage?.mimeType || '',
+    mimeType: startImage?.mimeType || text(rawMedia?.mimeType, 100) || '',
     checksum: text(rawMedia?.checksum, 128),
   }
 }

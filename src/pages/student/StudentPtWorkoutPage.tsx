@@ -48,6 +48,8 @@ function demoCatalog(): ExerciseCatalogItem[] {
 
 function mediaImages(item: ExerciseCatalogItem): ExerciseCatalogMediaImage[] {
   const images = item.media.images?.filter((image) => image.url) ?? []
+  const stills = images.filter((image) => image.mimeType !== 'image/gif' && !/\.gif(?:$|[?#])/i.test(image.url))
+  if (stills.length) return stills
   if (images.length) return images
   return [
     item.media.posterUrl ? { id: `${item.id}-poster`, url: item.media.posterUrl, role: 'start', order: 0 } : null,

@@ -69,6 +69,10 @@ function sha256(value) { return crypto.createHash('sha256').update(value).digest
 function slug(value) { return String(value || '').normalize('NFKD').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase().slice(0, 120) }
 function unique(values) { return [...new Set(values.filter(Boolean))] }
 
+function isAnimatedImageUrl(url, mimeType = '') {
+  return /^image\/gif$/i.test(mimeType) || /\.(?:gif)(?:$|[?#])/i.test(url)
+}
+
 function parseArgs() {
   const result = { mode: 'dry-run' }
   process.argv.slice(2).forEach((argument) => {
@@ -327,7 +331,9 @@ async function prepareSourceMedia(token, source, args, temporaryRoot) {
 
 function mergedMedia(entry, prepared) {
   const current = entry.target.data.media || {}
-  const existingImages = legacyImages(entry.target)
+  // Do not preserve a legacy copy of the provider GIF as a still image. The
+  // GIF remains in videos; the extracted WebP frames are the canonical stills.
+  const existingImages = legacyImages(entry.target).filter((image) => !isAnimatedImageUrl(image.url, image.mimeType))
   const generatedImages = [
     { id: `exercisedb-frame-${entry.source.exerciseId}-start`, url: prepared.startUrl, storagePath: `exercise-catalog/exercisedb/${slug(entry.source.exerciseId)}/start.webp`, role: existingImages.length ? 'detail' : 'start', order: existingImages.length, alt: `Tư thế bắt đầu · ${entry.target.data.nameVi || entry.source.name}`, mimeType: 'image/webp' },
     { id: `exercisedb-frame-${entry.source.exerciseId}-end`, url: prepared.endUrl, storagePath: `exercise-catalog/exercisedb/${slug(entry.source.exerciseId)}/end.webp`, role: existingImages.length ? 'detail' : 'end', order: existingImages.length + 1, alt: `Tư thế kết thúc · ${entry.target.data.nameVi || entry.source.name}`, mimeType: 'image/webp' },

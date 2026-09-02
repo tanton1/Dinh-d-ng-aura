@@ -143,6 +143,11 @@ test('exercise media keeps the complete gallery and safely unifies stills with E
   assert.match(source, /validExerciseImageStoragePath/)
   assert.match(source, /parts\.length === 4 && parts\[0\] === 'exercise-catalog' && parts\[1\] === 'exercisedb'/)
   assert.match(source, /parts\.length === 3 && parts\[0\] === 'exercise-catalog' && parts\[1\] === 'ymove-free'/)
+  assert.match(source, /const hasAnimatedVideo = videos\.some/)
+  assert.match(source, /const stillImages = hasAnimatedVideo \? rawImages\.filter/)
+  assert.match(source, /startImageUrl: startImage\?\.url \|\| text\(rawMedia\?\.startImageUrl/)
+  assert.match(source, /posterUrl: posterImage\?\.url \|\| text\(rawMedia\?\.posterUrl/)
+  assert.match(unifiedMediaSync, /legacyImages\(entry\.target\)\.filter\(\(image\) => !isAnimatedImageUrl/)
 })
 
 test('exercise media player reliably plays selected videos and falls back from broken sources', () => {
