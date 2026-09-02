@@ -445,6 +445,7 @@ async function main() {
     nameMatches: plan.matched.filter((entry) => entry.method === 'exact-normalized-name' || entry.method === 'name').map((entry) => ({
       id: entry.target.id, exerciseId: entry.source.exerciseId, sourceName: entry.source.name, score: entry.score, method: entry.method,
     })),
+    matchMethodCounts: plan.matched.reduce((counts, entry) => ({ ...counts, [entry.method]: (counts[entry.method] || 0) + 1 }), {}),
   }
   if (args.mode === 'apply') {
     if (args.digest !== plan.digest) throw new Error('Live plan digest no longer matches the approved dry run.')
