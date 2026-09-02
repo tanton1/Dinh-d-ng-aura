@@ -447,7 +447,10 @@ function createExerciseCatalogFunctions({ db, onCall }) {
     // published items are not silently omitted once the catalog grows.
     const snapshots = await db.collection('exercises').limit(500).get()
     const items = snapshots.docs.map(publicItem).filter((item) => {
-      if (includeReview ? item.status === 'archived' : item.status !== 'published') return false
+      // Staff can review published + draft/review records from one workspace,
+      // while archived provider fallbacks stay out of the active catalog. The
+      // learner path remains published-only.
+      if (item.status === 'archived' || (!includeReview && item.status !== 'published')) return false
       const searchable = [item.nameVi, item.nameEn, ...item.aliasesVi, ...item.targetMuscles, ...item.bodyParts].join(' ').toLocaleLowerCase('vi')
       return (!query || searchable.includes(query)) && (!bodyPart || item.bodyParts.some((value) => value.toLocaleLowerCase('vi') === bodyPart))
         && (!equipment || item.equipment.some((value) => value.toLocaleLowerCase('vi') === equipment)) && (!difficulty || item.difficulty === difficulty)

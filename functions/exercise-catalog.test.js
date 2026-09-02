@@ -15,6 +15,7 @@ const exercisedbWomenImporter = fs.readFileSync(path.join(__dirname, '..', 'scri
 const mediaPlayerSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'exercise-catalog', 'ExerciseMediaPlayer.tsx'), 'utf8')
 const unifiedMediaSync = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'sync-unified-exercise-media.cjs'), 'utf8')
 const sourceComparison = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'compare-exercise-sources.cjs'), 'utf8')
+const releaseScript = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'release-free-exercise-catalog.cjs'), 'utf8')
 
 test('exercise catalog is authenticated, review-gated and revisioned', () => {
   assert.match(source, /if \(!uid\) throw new HttpsError\('unauthenticated'/)
@@ -158,6 +159,17 @@ test('Free Exercise DB is canonical and ExerciseDB V1 is a reviewed GIF fallback
   assert.match(unifiedMediaSync, /item\.data\.source\?\.provider !== 'free-exercise-db'/)
   assert.match(unifiedMediaSync, /method: 'exact-normalized-name'/)
   assert.match(unifiedMediaSync, /const targets = catalog\.filter\(\(item\) => item\.data\.status === 'published' && item\.data\.source\?\.provider === 'free-exercise-db'/)
+})
+
+test('the learner release is a guarded 120-item Free Exercise DB catalog', () => {
+  assert.match(releaseScript, /const TARGET_CANONICAL_COUNT = 120/)
+  assert.match(releaseScript, /source: \{ provider: 'free-exercise-db'/)
+  assert.match(releaseScript, /archiveExerciseDb/)
+  assert.match(releaseScript, /status: 'archived'/)
+  assert.match(releaseScript, /media\.images\.length < 2/)
+  assert.match(releaseScript, /instructionsVi\.length < 4/)
+  assert.match(releaseScript, /ARCHIVE_EDB_AND_PUBLISH_FREE_2026_V1/)
+  assert.match(releaseScript, /currentDocument: \{ updateTime: document\.updateTime \}/)
 })
 
 test('exercise media player reliably plays selected videos and falls back from broken sources', () => {

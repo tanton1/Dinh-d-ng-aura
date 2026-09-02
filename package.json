@@ -23,6 +23,7 @@
     "security:secrets": "node scripts/check-secrets.mjs",
     "security:audit": "npm audit --omit=dev --audit-level=high && npm --prefix functions audit --omit=dev --audit-level=high",
     "exercise:compare": "node scripts/compare-exercise-sources.cjs",
+    "exercise:release": "node scripts/release-free-exercise-catalog.cjs",
     "ci": "npm run typecheck && npm run test:profile-sync && npm run build && npm run performance:check && npm --prefix functions run check && npm --prefix functions run check:apikey-fun",
     "typecheck": "tsc -b",
     "start": "vite preview --host 0.0.0.0"
