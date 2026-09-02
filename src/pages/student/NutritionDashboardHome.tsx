@@ -177,6 +177,7 @@ function NutritionDashboardHome({
   const waterRatio = Math.min(1, water / Math.max(1, waterGoal))
   const fiberVal = qualityMetrics.find((m) => m.label.includes('xơ'))?.value ?? 0
   const fiberRatio = Math.min(1, fiberVal / 25)
+  const micronutrientDataComplete = qualityMetrics.every((metric) => metric.complete)
 
   let calculatedScore = 5.0
   if (meals.length > 0 || water > 0) {
@@ -192,11 +193,17 @@ function NutritionDashboardHome({
     calculatedScore = Math.round(Math.min(10, Math.max(1, pScore + cScore + fScore + wScore)) * 10) / 10
   }
   const healthScore = calculatedScore
-  const healthScoreBadge = healthScore >= 8.5 ? 'Xuất sắc 🌟' : healthScore >= 7.0 ? 'Khá tốt 👍' : healthScore >= 5.0 ? 'Cân bằng ⚖️' : 'Cần bổ sung 🥗'
+  const healthScoreBadge = !meals.length
+    ? 'Chưa đủ dữ liệu'
+    : !micronutrientDataComplete
+    ? 'Dữ liệu hạn chế'
+    : healthScore >= 8.5 ? 'Xuất sắc 🌟' : healthScore >= 7.0 ? 'Khá tốt 👍' : healthScore >= 5.0 ? 'Cân bằng ⚖️' : 'Cần bổ sung 🥗'
 
   // Health Score Advice Text
   const healthAdvice = !meals.length
     ? 'Chưa ghi nhận bữa ăn nào trong ngày. Hãy thêm bữa đầu tiên để Aura tính toán năng lượng, vi chất và điểm sức khỏe.'
+    : !micronutrientDataComplete
+      ? 'Điểm này chỉ dựa trên dữ liệu đã ghi. Một số món còn thiếu chất xơ, đường hoặc natri đã xác minh nên chưa thể đánh giá toàn diện.'
     : proteinRemaining > 20
       ? 'Lượng đạm hôm nay còn thiếu. Bổ sung thêm thực phẩm giàu đạm như ức gà, trứng, cá hoặc đậu hũ để giữ chỉ số sức khỏe tối ưu.'
       : calorieDelta < 0
@@ -340,12 +347,12 @@ function NutritionDashboardHome({
             {/* SLIDE 0: Main Calories + 3 Macro Rings */}
             <div className="nutrition-slide nutrition-slide--macros">
               {/* Hero Card */}
-              <div
+              <button
+                type="button"
                 className="cal-hero-card"
                 onClick={() => setShowConsumed((prev) => !prev)}
                 title="Chạm để đổi giữa Calo còn lại và Calo đã nạp"
-                role="button"
-                tabIndex={0}
+                aria-pressed={showConsumed}
               >
                 <div className="cal-hero-info">
                   <span className="cal-big-number" data-testid="nutrition-calories-value" data-mode={showConsumed ? 'consumed' : 'remaining'}>
@@ -380,17 +387,17 @@ function NutritionDashboardHome({
                     </div>
                   </div>
                 </div>
-              </div>
+              </button>
 
               {/* 3 Macro Cards (Protein, Carbs, Fat) */}
               <div className="macro-cards-grid">
                 {/* Protein Card */}
-                <div
+                <button
+                  type="button"
                   className="macro-card macro-card--protein"
                   onClick={() => setShowConsumed((prev) => !prev)}
                   title="Chạm để đổi Còn lại / Đã nạp"
-                  role="button"
-                  tabIndex={0}
+                  aria-pressed={showConsumed}
                 >
                   <div className="macro-card-info">
                     <strong>
@@ -403,15 +410,15 @@ function NutritionDashboardHome({
                       <span className="macro-icon-pink">🍗</span>
                     </div>
                   </div>
-                </div>
+                </button>
 
                 {/* Carbs Card */}
-                <div
+                <button
+                  type="button"
                   className="macro-card macro-card--carbs"
                   onClick={() => setShowConsumed((prev) => !prev)}
                   title="Chạm để đổi Còn lại / Đã nạp"
-                  role="button"
-                  tabIndex={0}
+                  aria-pressed={showConsumed}
                 >
                   <div className="macro-card-info">
                     <strong>
@@ -424,15 +431,15 @@ function NutritionDashboardHome({
                       <span className="macro-icon-orange">🌾</span>
                     </div>
                   </div>
-                </div>
+                </button>
 
                 {/* Fat Card */}
-                <div
+                <button
+                  type="button"
                   className="macro-card macro-card--fat"
                   onClick={() => setShowConsumed((prev) => !prev)}
                   title="Chạm để đổi Còn lại / Đã nạp"
-                  role="button"
-                  tabIndex={0}
+                  aria-pressed={showConsumed}
                 >
                   <div className="macro-card-info">
                     <strong>
@@ -445,7 +452,7 @@ function NutritionDashboardHome({
                       <span className="macro-icon-blue">🥑</span>
                     </div>
                   </div>
-                </div>
+                </button>
               </div>
             </div>
 
@@ -461,13 +468,13 @@ function NutritionDashboardHome({
                     : metric.label.includes('Natri') || metric.label.includes('Sodium') ? 'Natri'
                     : metric.label
                   return (
-                    <div
-                      className="macro-card"
+                    <button
+                      type="button"
+                      className={`macro-card ${metric.complete ? '' : 'is-estimated'}`}
                       key={metric.label}
                       onClick={() => setShowConsumed((prev) => !prev)}
                       title="Chạm để đổi giữa Đã nạp và Còn lại"
-                      role="button"
-                      tabIndex={0}
+                      aria-pressed={showConsumed}
                     >
                       <div className="macro-card-info">
                         <strong>
@@ -482,6 +489,7 @@ function NutritionDashboardHome({
                             : metric.inverse
                               ? 'hạn mức còn'
                               : 'còn lại'}
+                          {!metric.complete && <em className="macro-card-estimate">Ước tính</em>}
                         </span>
                       </div>
                       <div className="macro-ring" style={progressStyle(percent)}>
@@ -495,7 +503,7 @@ function NutritionDashboardHome({
                           )}
                         </div>
                       </div>
-                    </div>
+                    </button>
                   )
                 })}
               </div>
@@ -503,16 +511,16 @@ function NutritionDashboardHome({
               {/* Health Score Card */}
               <div className="health-score-card">
                 <div className="health-score-header">
-                  <span className="health-score-title">Điểm sức khỏe bữa ăn</span>
+                  <span className="health-score-title">Điểm theo dữ liệu đã ghi</span>
                   <div className="health-score-badge-wrap">
                     <span className="health-score-badge">{healthScoreBadge}</span>
-                    <span className="health-score-value">{healthScore}/10</span>
+                    <span className="health-score-value">{meals.length ? `${healthScore}/10` : '—'}</span>
                   </div>
                 </div>
                 <div className="health-score-bar-track">
                   <div
                     className="health-score-bar-fill"
-                    style={{ width: `${Math.min(100, Math.max(10, healthScore * 10))}%` }}
+                    style={{ width: meals.length ? `${Math.min(100, Math.max(10, healthScore * 10))}%` : '0%' }}
                   />
                 </div>
                 <p className="health-score-advice">{healthAdvice}</p>

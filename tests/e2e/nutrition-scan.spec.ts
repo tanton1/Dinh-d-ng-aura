@@ -29,6 +29,10 @@ test('nutrition scan result stays responsive and does not expose Coach/PT sugges
   await expect(result.getByText('Dữ liệu minh họa chưa sử dụng hồ sơ và mục tiêu thực tế của bạn.')).toBeVisible()
   await expect(result.getByText(/điều chỉnh khẩu phần phù hợp với mục tiêu calo/i)).toBeVisible()
   await expect(result.getByText(/đánh giá lượng đạm, carb, béo và chất xơ/i)).toBeVisible()
+  await expect(result.getByRole('heading', { name: 'Giúp Aura tính sát bữa ăn thực tế' })).toBeVisible()
+  await expect(result.getByText('0/1 đã rõ')).toBeVisible()
+  await result.getByRole('button', { name: 'Đúng' }).click()
+  await expect(result.getByText('1/1 đã rõ')).toBeVisible()
 
   const macroGrid = result.locator('.nutrition-scan-result__macro-grid')
   const ingredient = result.locator('.nutrition-scan-result__ingredient').first()

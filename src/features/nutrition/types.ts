@@ -55,6 +55,27 @@ export interface AiFoodItem {
   perGram?: { calories: number; protein: number; carbs: number; fat: number; fiber: number; sugar: number; sodium: number }
 }
 
+export type NutritionNutrientSource = 'catalog' | 'ai-estimate' | 'user-confirmed' | 'manual' | 'missing'
+
+export interface NutritionFinalNutrition {
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+  fiber?: number
+  sugar?: number
+  sodium?: number
+  nutrientSources: Partial<Record<'calories' | 'protein' | 'carbs' | 'fat' | 'fiber' | 'sugar' | 'sodium', NutritionNutrientSource>>
+  confidence: 'verified' | 'estimated' | 'needs-review'
+  unresolvedQuestions: string[]
+}
+
+export interface NutritionClarificationAnswer {
+  question: string
+  response: NutritionClarificationResponse
+  adjustmentNote?: string
+}
+
 export interface NutritionMealDraft {
   quantityCookingAnalysis?: string
   portionCalorieRationale?: string
@@ -72,6 +93,8 @@ export interface NutritionMealDraft {
   protein?: number
   carbs?: number
   fat?: number
+  finalNutrition?: NutritionFinalNutrition
+  clarifications?: NutritionClarificationAnswer[]
   calorieRange?: { low: number; high: number }
   items: AiFoodItem[]
   source: 'ai-scan' | 'demo'
@@ -121,6 +144,7 @@ export interface PersistedScanReview {
   analysisModel: string | null
   confirmedItemIds: string[]
   questionResponses: Record<string, NutritionClarificationResponse>
+  clarificationAdjustments?: Record<string, string>
   mealType: NutritionMealDraft['mealType']
   mealDate: string
   mealTime: string
@@ -163,6 +187,8 @@ export interface MealLog {
   fiber?: number
   sugar?: number
   sodium?: number
+  nutrientSources?: NutritionFinalNutrition['nutrientSources']
+  unresolvedQuestions?: string[]
   status: 'logged' | 'planned'
   tone: 'violet' | 'orange' | 'green' | 'pink'
   image?: string

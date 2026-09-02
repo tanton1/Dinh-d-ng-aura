@@ -2,6 +2,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocs,
   limit,
   onSnapshot,
   orderBy,
@@ -144,6 +145,37 @@ function subscribeToUserLog(
   })
 }
 
+async function loadUserLog(
+  collectionName: UserNutritionLogCollection,
+  cacheName: string,
+  userId: string,
+  onSync?: (state: DataSyncState) => void,
+  scope?: UserLogSubscriptionScope,
+): Promise<any[]> {
+  const key = nutritionCacheKey(cacheName, userId)
+  const filterItems = (items: Record<string, unknown>[]) => scope?.filterCachedItems
+    ? items.filter(scope.filterCachedItems)
+    : items
+  try {
+    const reference = collection(requireDb(), 'users', userId, collectionName)
+    const source = scope?.buildQuery ? scope.buildQuery(reference) : reference
+    const snapshot = await getDocs(source)
+    const items = filterItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))
+    const written = writeVersionedCache(key, userId, cacheName, items)
+    onSync?.({ status: 'synced', revision: written?.revision ?? Date.now(), cachedAt: written?.cachedAt ?? null })
+    return items
+  } catch (error) {
+    const fallback = readVersionedCache(key, userId, cacheName, isLogArray)
+    onSync?.({
+      status: typeof navigator !== 'undefined' && !navigator.onLine && fallback ? 'offline-readonly' : 'sync-failed',
+      revision: fallback?.revision ?? 0,
+      cachedAt: fallback?.cachedAt ?? null,
+    })
+    if (fallback) return filterItems(fallback.value)
+    throw error
+  }
+}
+
 export async function saveUserMealLog(userId: string, meal: Record<string, unknown> & { id: string }) {
   return saveUserLog('mealLogs', userId, await cleanMealForStorage(meal))
 }
@@ -157,6 +189,12 @@ export function subscribeToUserMealLogsForDate(userId: string, date: string, onD
 }
 export function subscribeToRecentUserMealLogs(userId: string, fromDate: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) {
   return subscribeToUserLog('mealLogs', 'user_meal_logs_recent_90d', userId, onData, onError, onSync, {
+    buildQuery: (reference) => query(reference, where('date', '>=', fromDate), orderBy('date', 'desc'), limit(1_000)),
+    filterCachedItems: (item) => typeof item.date === 'string' && item.date >= fromDate,
+  })
+}
+export function loadRecentUserMealLogs(userId: string, fromDate: string, onSync?: (state: DataSyncState) => void) {
+  return loadUserLog('mealLogs', 'user_meal_logs_recent_90d', userId, onSync, {
     buildQuery: (reference) => query(reference, where('date', '>=', fromDate), orderBy('date', 'desc'), limit(1_000)),
     filterCachedItems: (item) => typeof item.date === 'string' && item.date >= fromDate,
   })
@@ -177,6 +215,12 @@ export function subscribeToRecentUserWaterLogs(userId: string, fromDate: string,
     filterCachedItems: (item) => typeof item.date === 'string' && item.date >= fromDate,
   })
 }
+export function loadRecentUserWaterLogs(userId: string, fromDate: string, onSync?: (state: DataSyncState) => void) {
+  return loadUserLog('waterLogs', 'user_water_logs_recent_90d', userId, onSync, {
+    buildQuery: (reference) => query(reference, where('date', '>=', fromDate), orderBy('date', 'desc'), limit(1_000)),
+    filterCachedItems: (item) => typeof item.date === 'string' && item.date >= fromDate,
+  })
+}
 
 export async function saveUserActivityLog(userId: string, activity: Record<string, unknown> & { id: string }) { return saveUserLog('activityLogs', userId, activity) }
 export async function deleteUserActivityLog(userId: string, activityId: string) { await deleteDoc(doc(requireDb(), 'users', userId, 'activityLogs', activityId)) }
@@ -189,6 +233,12 @@ export function subscribeToUserActivityLogsForDate(userId: string, date: string,
 }
 export function subscribeToRecentUserActivityLogs(userId: string, fromDate: string, onData: (items: any[]) => void, onError?: (error: Error) => void, onSync?: (state: DataSyncState) => void) {
   return subscribeToUserLog('activityLogs', 'user_activity_logs_recent_90d', userId, onData, onError, onSync, {
+    buildQuery: (reference) => query(reference, where('date', '>=', fromDate), orderBy('date', 'desc'), limit(1_000)),
+    filterCachedItems: (item) => typeof item.date === 'string' && item.date >= fromDate,
+  })
+}
+export function loadRecentUserActivityLogs(userId: string, fromDate: string, onSync?: (state: DataSyncState) => void) {
+  return loadUserLog('activityLogs', 'user_activity_logs_recent_90d', userId, onSync, {
     buildQuery: (reference) => query(reference, where('date', '>=', fromDate), orderBy('date', 'desc'), limit(1_000)),
     filterCachedItems: (item) => typeof item.date === 'string' && item.date >= fromDate,
   })

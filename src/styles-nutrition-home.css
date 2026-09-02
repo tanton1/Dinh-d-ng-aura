@@ -209,6 +209,7 @@
 
 /* Hero Card (Cal AI Top Card) */
 .cal-hero-card {
+  width: 100%;
   background: #ffffff;
   border-radius: 24px;
   padding: 24px 22px;
@@ -220,6 +221,9 @@
   cursor: pointer;
   user-select: none;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
 
 .cal-hero-card:active {
@@ -305,6 +309,7 @@
 }
 
 .macro-card {
+  width: 100%;
   background: #ffffff;
   border-radius: 22px;
   padding: 18px 14px;
@@ -316,7 +321,19 @@
   cursor: pointer;
   user-select: none;
   transition: transform 0.15s ease, border-color 0.15s ease;
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
+
+.cal-hero-card:focus-visible,
+.macro-card:focus-visible {
+  outline: 3px solid rgba(245, 48, 130, .2);
+  outline-offset: 2px;
+}
+
+.macro-card.is-estimated { border-style: dashed; }
+.macro-card-estimate { display: block; margin-top: 3px; color: #b45309; font-size: 9px; font-style: normal; font-weight: 800; }
 
 .macro-card:hover {
   border-color: #e0dae2;

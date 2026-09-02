@@ -10,7 +10,6 @@ import {
   resolveDailyNutritionTargets,
 } from '../../features/nutrition/dailyNutritionTargets'
 import NutritionGroupIcon from '../../components/NutritionGroupIcon'
-import NutritionDashboardHome from './NutritionDashboardHome'
 import type { Recipe as MealPlanRecipe } from './MealPlanPage'
 import NutritionWorkspace, {
   NutritionSectionNav,
@@ -32,16 +31,16 @@ import { firestoreDb } from '../../lib/firebaseFirestore'
 import {
   saveUserMealLog,
   deleteUserMealLog,
-  subscribeToRecentUserMealLogs,
+  loadRecentUserMealLogs,
   subscribeToUserMealLogsForDate,
   submitMealReview,
   saveUserWaterLog,
   deleteUserWaterLog,
-  subscribeToRecentUserWaterLogs,
+  loadRecentUserWaterLogs,
   subscribeToUserWaterLogsForDate,
   saveUserActivityLog,
   deleteUserActivityLog,
-  subscribeToRecentUserActivityLogs,
+  loadRecentUserActivityLogs,
   subscribeToUserActivityLogsForDate,
   compressBase64Image,
 } from '../../services/firebaseService'
@@ -144,6 +143,8 @@ import { normalizeAnalysis, nutritionEvidenceLabel, perGramNutrition } from '../
 const NutritionFoodDetail = React.lazy(() => import('./NutritionFoodDetail'))
 const CapturedMealDetail = React.lazy(() => import('./CapturedMealDetail'))
 const NutritionProfileEditor = React.lazy(() => import('./NutritionProfileEditor'))
+const NutritionScanClarifications = React.lazy(() => import('./NutritionScanClarifications'))
+const NutritionDashboardHome = React.lazy(() => import('./NutritionDashboardHome'))
 const MealPlanPage = React.lazy(() => import('./MealPlanPage'))
 const WorkoutLogSheet = React.lazy(() => import('../../components/workout/WorkoutLogSheet'))
 
@@ -161,6 +162,31 @@ const INITIAL_ANALYSIS: AiFoodItem[] = [
   { id: 'vegetables', name: 'Rau củ luộc', grams: 110, calories: 54, protein: 2.6, carbs: 10.3, fat: 0.4, confidence: 'medium' },
   { id: 'sauce', name: 'Sốt / dầu chế biến', grams: 12, calories: 78, protein: 0.2, carbs: 2.5, fat: 7.4, confidence: 'low' },
 ]
+
+function nutritionAdjustmentFromText(value = '') {
+  const text = normalizeSearch(value)
+  let calories = 0
+  let protein = 0
+  let carbs = 0
+  let fat = 0
+  let recognized = false
+
+  if (/\b(them )?(1 )?(qua )?trung\b/.test(text)) { calories += 70; protein += 6; fat += 5; recognized = true }
+  if (/\b(bo|khong an|loai)( phan)? da\b/.test(text)) { calories -= 60; fat -= 7; recognized = true }
+  if (/\bthem( mot| 1)? (chen|bat|phan)? ?com\b/.test(text)) { calories += 90; carbs += 20; recognized = true }
+  if (/\bthem( mot| 1)? (phan )?(thit|uc ga)\b/.test(text)) { calories += 100; protein += 18; recognized = true }
+
+  return { calories, protein, carbs, fat, recognized }
+}
+
+function dataUrlToImageFile(dataUrl: string, originalName: string) {
+  const [header, payload = ''] = dataUrl.split(',', 2)
+  const mimeType = header.match(/^data:([^;]+)/)?.[1] ?? 'image/jpeg'
+  const bytes = Uint8Array.from(window.atob(payload), (character) => character.charCodeAt(0))
+  const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg'
+  const baseName = originalName.replace(/\.[^.]+$/, '') || 'aura-meal'
+  return new File([bytes], `${baseName}.${extension}`, { type: mimeType, lastModified: Date.now() })
+}
 
 const INITIAL_MEALS: Array<Omit<MealLog, 'date'>> = [
   {
@@ -1227,7 +1253,11 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
   const [activeSlide, setActiveSlide] = useState<'ingredients' | 'nutrition'>('ingredients')
   const [confirmedItemIds, setConfirmedItemIds] = useState<Set<string>>(() => new Set(restoredReview?.confirmedItemIds ?? []))
   const [questionResponses, setQuestionResponses] = useState<Record<string, NutritionClarificationResponse>>(restoredReview?.questionResponses ?? {})
-  const [dynamicAnswers, setDynamicAnswers] = useState<Record<string, { optionId: string; calorieDelta: number; proteinDelta: number; carbsDelta: number; fatDelta: number; customText?: string }>>({})
+  const [dynamicAnswers, setDynamicAnswers] = useState<Record<string, { optionId: string; calorieDelta: number; proteinDelta: number; carbsDelta: number; fatDelta: number; customText?: string }>>(() => Object.fromEntries(
+    Object.entries(restoredReview?.clarificationAdjustments ?? {}).map(([question, customText]) => [question, {
+      optionId: 'adjust', calorieDelta: 0, proteinDelta: 0, carbsDelta: 0, fatDelta: 0, customText,
+    }]),
+  ))
   const [hasAnalysisResult, setHasAnalysisResult] = useState(Boolean(restoredReview))
   const [analysisError, setAnalysisError] = useState(() => {
     const step = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('step')
@@ -1251,42 +1281,41 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
   const questionDeltas = useMemo(() => {
     return Object.values(dynamicAnswers).reduce((sum, res) => {
       if (!res) return sum
-      let customCalorie = 0
-      let customProtein = 0
-      let customCarbs = 0
-      let customFat = 0
-
-      if (res.customText) {
-        const text = res.customText.toLowerCase()
-        if (text.includes('trung') || text.includes('trứng')) { customCalorie += 70; customProtein += 6; customFat += 5 }
-        if (text.includes('bo da') || text.includes('không da') || text.includes('bỏ da')) { customCalorie -= 60; customFat -= 7 }
-        if (text.includes('them com') || text.includes('thêm cơm')) { customCalorie += 90; customCarbs += 20 }
-        if (text.includes('them thit') || text.includes('thêm thịt') || text.includes('ức gà')) { customCalorie += 100; customProtein += 18 }
-      }
+      const custom = nutritionAdjustmentFromText(res.customText)
 
       return {
-        calories: sum.calories + (res.calorieDelta ?? 0) + customCalorie,
-        protein: sum.protein + (res.proteinDelta ?? 0) + customProtein,
-        carbs: sum.carbs + (res.carbsDelta ?? 0) + customCarbs,
-        fat: sum.fat + (res.fatDelta ?? 0) + customFat,
+        calories: sum.calories + (res.calorieDelta ?? 0) + custom.calories,
+        protein: sum.protein + (res.proteinDelta ?? 0) + custom.protein,
+        carbs: sum.carbs + (res.carbsDelta ?? 0) + custom.carbs,
+        fat: sum.fat + (res.fatDelta ?? 0) + custom.fat,
       }
     }, { calories: 0, protein: 0, carbs: 0, fat: 0 })
   }, [dynamicAnswers])
 
   const adjustedTotals = useMemo(() => {
     const totalGrams = items.reduce((sum, i) => sum + (parseFloat(i.grams.toString()) || 0), 0)
-    const estFiber = Math.max(1, Math.round((totalGrams / 100) * 1.8 * 10) / 10)
-    const estSugar = Math.max(1, Math.round((totals.carbs * 0.12) * 10) / 10)
-    const estSodium = Math.max(120, Math.round(totalGrams * 1.25))
+    const fiberComplete = items.length > 0 && items.every((item) => typeof item.fiber === 'number' && Number.isFinite(item.fiber))
+    const sugarComplete = items.length > 0 && items.every((item) => typeof item.sugar === 'number' && Number.isFinite(item.sugar))
+    const sodiumComplete = items.length > 0 && items.every((item) => typeof item.sodium === 'number' && Number.isFinite(item.sodium))
+    const fiber = fiberComplete
+      ? items.reduce((sum, item) => sum + (item.fiber ?? 0), 0)
+      : Math.max(1, (totalGrams / 100) * 1.8)
+    const sugar = sugarComplete
+      ? items.reduce((sum, item) => sum + (item.sugar ?? 0), 0)
+      : Math.max(1, totals.carbs * 0.12)
+    const sodium = sodiumComplete
+      ? items.reduce((sum, item) => sum + (item.sodium ?? 0), 0)
+      : Math.max(120, totalGrams * 1.25)
 
     return {
       calories: Math.max(10, Math.round(totals.calories + questionDeltas.calories)),
       protein: Math.max(0, Math.round((totals.protein + questionDeltas.protein) * 10) / 10),
       carbs: Math.max(0, Math.round((totals.carbs + questionDeltas.carbs) * 10) / 10),
       fat: Math.max(0, Math.round((totals.fat + questionDeltas.fat) * 10) / 10),
-      fiber: estFiber,
-      sugar: estSugar,
-      sodium: estSodium,
+      fiber: Math.round(fiber * 10) / 10,
+      sugar: Math.round(sugar * 10) / 10,
+      sodium: Math.round(sodium),
+      micronutrientComplete: { fiber: fiberComplete, sugar: sugarComplete, sodium: sodiumComplete },
     }
   }, [totals, questionDeltas, items])
 
@@ -1361,7 +1390,40 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
   }, [baselineCalories, serverRange, adjustedTotals.calories])
 
   const unresolvedItems = items.filter((item) => (item.confidence === 'low' || item.calculationSource !== 'database') && !confirmedItemIds.has(item.id))
-  const unresolvedQuestions: string[] = []
+  const unresolvedQuestions = analysisQuestions.filter((question) => {
+    const response = questionResponses[question]
+    if (!response || response === 'unknown') return true
+    if (response !== 'adjust') return false
+    return !nutritionAdjustmentFromText(dynamicAnswers[question]?.customText).recognized
+  })
+  const allItemsFromCatalog = items.length > 0 && items.every((item) => item.calculationSource === 'database')
+  const userConfirmedEstimate = !allItemsFromCatalog && unresolvedItems.length === 0 && unresolvedQuestions.length === 0
+  const primaryNutrientSource = allItemsFromCatalog ? 'catalog' as const : userConfirmedEstimate ? 'user-confirmed' as const : 'ai-estimate' as const
+  const finalConfidence = unresolvedItems.length > 0 || unresolvedQuestions.length > 0
+    ? 'needs-review' as const
+    : allItemsFromCatalog
+      ? 'verified' as const
+      : 'estimated' as const
+  const finalNutrition = {
+    calories: adjustedTotals.calories,
+    protein: adjustedTotals.protein,
+    carbs: adjustedTotals.carbs,
+    fat: adjustedTotals.fat,
+    fiber: adjustedTotals.fiber,
+    sugar: adjustedTotals.sugar,
+    sodium: adjustedTotals.sodium,
+    nutrientSources: {
+      calories: primaryNutrientSource,
+      protein: primaryNutrientSource,
+      carbs: primaryNutrientSource,
+      fat: primaryNutrientSource,
+      fiber: adjustedTotals.micronutrientComplete.fiber ? primaryNutrientSource : 'ai-estimate' as const,
+      sugar: adjustedTotals.micronutrientComplete.sugar ? primaryNutrientSource : 'ai-estimate' as const,
+      sodium: adjustedTotals.micronutrientComplete.sodium ? primaryNutrientSource : 'ai-estimate' as const,
+    },
+    confidence: finalConfidence,
+    unresolvedQuestions,
+  }
   const canSaveMeal = adjustedTotals.calories > 0
     && items.some((item) => item.name.trim().length > 0 && item.calories > 0)
     && Boolean(mealDate && mealTime)
@@ -1421,6 +1483,9 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
       analysisModel,
       confirmedItemIds: [...confirmedItemIds],
       questionResponses,
+      clarificationAdjustments: Object.fromEntries(Object.entries(dynamicAnswers)
+        .filter(([, answer]) => Boolean(answer.customText?.trim()))
+        .map(([question, answer]) => [question, answer.customText?.trim() ?? ''])),
       mealType,
       mealDate,
       mealTime,
@@ -1437,7 +1502,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     } catch {
       // A review remains usable in memory even when session storage is unavailable.
     }
-  }, [analysisConfidence, analysisModel, analysisQuestions, analysisWarnings, baselineCalories, calorieOptimizationTip, confirmedItemIds, dishName, fileName, goalAlignmentAssessment, hasAnalysisResult, items, macroBalanceAssessment, mealDate, mealTime, mealType, portionCalorieRationale, questionResponses, quantityCookingAnalysis, resultMode, resultNotice, reviewStorageKey, serverRange, stage, storageOwnerId, coachFeedbackSuggestion])
+  }, [analysisConfidence, analysisModel, analysisQuestions, analysisWarnings, baselineCalories, calorieOptimizationTip, confirmedItemIds, dishName, dynamicAnswers, fileName, goalAlignmentAssessment, hasAnalysisResult, items, macroBalanceAssessment, mealDate, mealTime, mealType, portionCalorieRationale, questionResponses, quantityCookingAnalysis, resultMode, resultNotice, reviewStorageKey, serverRange, stage, storageOwnerId, coachFeedbackSuggestion])
 
   const startDemoAnalysis = (notice = 'Đây là dữ liệu minh họa để bạn trải nghiệm luồng chỉnh sửa. Chưa có kết quả từ mô hình AI.') => {
     setResultMode('demo')
@@ -1448,6 +1513,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
     setAnalysisConfidence(null)
     setAnalysisQuestions(['Bạn có dùng hết phần sốt hoặc dầu trong đĩa không?'])
     setQuestionResponses({})
+    setDynamicAnswers({})
     setAnalysisWarnings([])
     setAnalysisModel(null)
     setQuantityCookingAnalysis('Khẩu phần minh họa gồm cơm, ức gà áp chảo, rau củ luộc và một lượng nhỏ sốt hoặc dầu chế biến.')
@@ -1501,6 +1567,7 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
         setAnalysisConfidence(normalized.confidence)
         setAnalysisQuestions(normalized.questions)
         setQuestionResponses({})
+        setDynamicAnswers({})
         setAnalysisWarnings([
           ...normalized.warnings,
           ...normalized.notices,
@@ -1539,7 +1606,8 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
         const compressedUrl = await compressBase64Image(rawUrl, 600, 0.68)
         setPreviewUrl(compressedUrl)
         setFileName(file.name)
-        void runImageAnalysis(file)
+        const analysisFile = compressedUrl !== rawUrl ? dataUrlToImageFile(compressedUrl, file.name) : file
+        void runImageAnalysis(analysisFile)
       } catch (error) {
         setStage('upload')
         setUploadError(getFoodAnalysisErrorMessage(error))
@@ -1621,6 +1689,12 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
       protein: Math.round(adjustedTotals.protein),
       carbs: Math.round(adjustedTotals.carbs),
       fat: Math.round(adjustedTotals.fat),
+      finalNutrition,
+      clarifications: analysisQuestions.map((question) => ({
+        question,
+        response: questionResponses[question] ?? 'unknown',
+        adjustmentNote: dynamicAnswers[question]?.customText?.trim() || undefined,
+      })),
       calorieRange: adjustedRange,
       items,
       source: resultMode === 'live' ? 'ai-scan' : 'demo',
@@ -1876,12 +1950,37 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                       <strong>Chất xơ</strong>
                     </div>
                     <span className="nutrition-scan-result__macro-percent">
-                      Chất xơ
+                      {adjustedTotals.micronutrientComplete.fiber ? 'Có dữ liệu' : 'Ước tính'}
                     </span>
                   </div>
                   <strong className="nutrition-scan-result__macro-value">{adjustedTotals.fiber ?? 7.9} g</strong>
                 </div>
               </div>
+
+              {analysisQuestions.length > 0 && (
+                <React.Suspense fallback={<div className="nutrition-scan-clarifications" role="status">Đang mở phần xác nhận khẩu phần…</div>}>
+                  <NutritionScanClarifications
+                    questions={analysisQuestions}
+                    responses={questionResponses}
+                    adjustments={Object.fromEntries(Object.entries(dynamicAnswers).map(([question, answer]) => [question, answer.customText ?? '']))}
+                    unresolvedCount={unresolvedQuestions.length}
+                    resolveAdjustment={nutritionAdjustmentFromText}
+                    onResponse={(question, response) => {
+                      setQuestionResponses((current) => ({ ...current, [question]: response }))
+                      setDynamicAnswers((current) => {
+                        if (response === 'adjust') return { ...current, [question]: current[question] ?? { optionId: 'adjust', calorieDelta: 0, proteinDelta: 0, carbsDelta: 0, fatDelta: 0, customText: '' } }
+                        const next = { ...current }
+                        delete next[question]
+                        return next
+                      })
+                    }}
+                    onAdjustment={(question, value) => setDynamicAnswers((current) => ({
+                      ...current,
+                      [question]: { optionId: 'adjust', calorieDelta: 0, proteinDelta: 0, carbsDelta: 0, fatDelta: 0, customText: value },
+                    }))}
+                  />
+                </React.Suspense>
+              )}
 
               {/* THÀNH PHẦN NHẬN DIỆN (Được nới khoảng cách thêm so với khung trên) */}
               <div className="nutrition-scan-result__ingredients-wrap">
@@ -2165,6 +2264,14 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
               )}
 
               {/* ACTION BUTTONS: Saved directly without outer frame */}
+              <div className={`nutrition-scan-result__save-quality is-${finalConfidence}`} role="status">
+                {finalConfidence === 'verified' ? <ShieldCheck size={15} /> : finalConfidence === 'estimated' ? <Info size={15} /> : <TriangleAlert size={15} />}
+                <span>{finalConfidence === 'verified'
+                  ? 'Dữ liệu đã đối chiếu Catalog.'
+                  : finalConfidence === 'estimated'
+                    ? 'Khẩu phần đã được bạn xác nhận; giá trị vẫn là ước tính dinh dưỡng.'
+                    : 'Kết quả còn giả định chưa xác nhận và sẽ được lưu ở trạng thái cần kiểm tra.'}</span>
+              </div>
               <div className="nutrition-scan-result__actions">
                 <button
                   type="button"
@@ -2222,7 +2329,7 @@ function catalogPageNeedsReload(error: unknown) {
   return code.endsWith('failed-precondition') || code.endsWith('invalid-argument')
 }
 
-const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFoodIds, initialSavedOnly = false, allowDemo = false, onClose, onAdd, onOpenDetail, presentation = 'modal' }: { catalog?: NutritionFoodCatalogItem[]; savedFoodIds?: Set<string>; initialSavedOnly?: boolean; allowDemo?: boolean; onClose: () => void; onAdd: (food: NutritionFoodCatalogItem, multiplier: number) => void | Promise<void>; onOpenDetail: (food: NutritionFoodCatalogItem, catalog: NutritionFoodCatalogItem[]) => void; presentation?: 'modal' | 'page' }) {
+const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFoodIds, initialSavedOnly = false, allowDemo = false, onClose, onAdd, onOpenDetail, onToggleSaved, presentation = 'modal' }: { catalog?: NutritionFoodCatalogItem[]; savedFoodIds?: Set<string>; initialSavedOnly?: boolean; allowDemo?: boolean; onClose: () => void; onAdd: (food: NutritionFoodCatalogItem, multiplier: number) => void | Promise<void>; onOpenDetail: (food: NutritionFoodCatalogItem, catalog: NutritionFoodCatalogItem[]) => void; onToggleSaved: (food: NutritionFoodCatalogItem, saved: boolean) => void; presentation?: 'modal' | 'page' }) {
   const [query, setQuery] = useState('')
   const debouncedQuery = useDebounce(query, 300)
   const [items, setItems] = useState<NutritionFoodCatalogItem[]>(catalog?.length ? catalog : [])
@@ -2237,8 +2344,10 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
   const [retryToken, setRetryToken] = useState(0)
   const [kindFilter, setKindFilter] = useState<'all' | 'dish' | 'food'>('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
-  const [visibleCount, setVisibleCount] = useState(36)
+  const renderBatchSize = useMemo(() => window.matchMedia('(max-width: 760px)').matches ? 16 : 30, [])
+  const [visibleCount, setVisibleCount] = useState(renderBatchSize)
   const [savedOnly, setSavedOnly] = useState(initialSavedOnly)
+  const savedQueryKey = savedOnly ? JSON.stringify([...(savedFoodIds ?? [])].sort()) : ''
   const [layoutMode, setLayoutMode] = useState<'single' | 'grid'>(() => {
     try {
       const savedLayout = window.localStorage.getItem('aura:nutrition:catalog-layout')
@@ -2295,7 +2404,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
       return
     }
     let active = true
-    if (savedOnly && !savedFoodIds?.size) {
+    if (savedOnly && savedQueryKey === '[]') {
       setItems([])
       setCatalogFilteredCount(0)
       setCatalogNextCursor(null)
@@ -2311,13 +2420,13 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
     setCatalogLoadingMore(false)
     catalogLoadingMoreRef.current = false
     setItems([])
-    setVisibleCount(36)
-    const savedIds = savedOnly ? [...(savedFoodIds ?? [])] : undefined
+    setVisibleCount(renderBatchSize)
+    const savedIds = savedQueryKey ? JSON.parse(savedQueryKey) as string[] : undefined
     loadNutritionCatalogPage({
       query: savedIds?.length ? '' : debouncedQuery,
       kind: kindFilter,
       category: categoryFilter === 'all' ? '' : categoryFilter,
-      limit: 60,
+      limit: 36,
       ids: savedIds,
     })
       .then((page) => {
@@ -2338,7 +2447,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
         setCatalogState(allowDemo ? 'demo' : 'error')
     })
     return () => { active = false }
-  }, [allowDemo, catalog, categoryFilter, debouncedQuery, kindFilter, retryToken, savedFoodIds, savedOnly])
+  }, [allowDemo, catalog, categoryFilter, debouncedQuery, kindFilter, renderBatchSize, retryToken, savedOnly, savedQueryKey])
 
   const retryCatalog = () => {
     resetNutritionCatalog()
@@ -2358,7 +2467,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
         query: debouncedQuery,
         kind: kindFilter,
         category: categoryFilter === 'all' ? '' : categoryFilter,
-        limit: 60,
+        limit: 36,
         cursor,
         catalogVersion: catalogVersion || undefined,
       })
@@ -2374,7 +2483,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
       setCatalogCategories(page.categories)
       setCatalogNextCursor(page.nextCursor)
       setCatalogHasMore(page.hasMore)
-      setVisibleCount((current) => current + 36)
+      setVisibleCount((current) => current + renderBatchSize)
     } catch (error: unknown) {
       if (catalogRequestGenerationRef.current !== generation) return
       if (catalogPageNeedsReload(error)) {
@@ -2390,7 +2499,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
         setCatalogLoadingMore(false)
       }
     }
-  }, [catalogHasMore, catalogNextCursor, catalogVersion, categoryFilter, debouncedQuery, kindFilter, savedOnly])
+  }, [catalogHasMore, catalogNextCursor, catalogVersion, categoryFilter, debouncedQuery, kindFilter, renderBatchSize, savedOnly])
 
   useEffect(() => {
     if (categoryFilter !== 'all' && catalogCategories.length && !catalogCategories.includes(categoryFilter)) setCategoryFilter('all')
@@ -2410,7 +2519,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
     })
   }, [catalog, catalogState, categoryFilter, items, kindFilter, debouncedQuery, savedFoodIds, savedOnly])
 
-  useEffect(() => setVisibleCount(36), [categoryFilter, kindFilter, debouncedQuery, savedOnly])
+  useEffect(() => setVisibleCount(renderBatchSize), [categoryFilter, kindFilter, debouncedQuery, renderBatchSize, savedOnly])
 
   const filteredItems = matchingItems.slice(0, visibleCount)
 
@@ -2420,7 +2529,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
     const observer = new IntersectionObserver((entries) => {
       if (!entries.some((entry) => entry.isIntersecting) || catalogState === 'loading' || catalogState === 'error') return
       if (matchingItems.length > filteredItems.length) {
-        setVisibleCount((current) => current + 36)
+        setVisibleCount((current) => current + renderBatchSize)
       } else if (catalogHasMore && !catalogLoadingMore) {
         void loadMoreCatalog()
       }
@@ -2431,7 +2540,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
     })
     observer.observe(target)
     return () => observer.disconnect()
-  }, [catalogHasMore, catalogLoadingMore, catalogState, filteredItems.length, loadMoreCatalog, matchingItems.length, presentation])
+  }, [catalogHasMore, catalogLoadingMore, catalogState, filteredItems.length, loadMoreCatalog, matchingItems.length, presentation, renderBatchSize])
 
   return (
     <div className={presentation === 'page' ? 'nutrition-route-page nutrition-route-page--catalog' : 'nutrition-modal-backdrop'} role="presentation" onMouseDown={(event) => presentation === 'modal' && event.target === event.currentTarget && onClose()}>
@@ -2513,7 +2622,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
                     <div className="catalog-card-info-box">
                       <div className="catalog-card-header">
                         <span className="catalog-card-category">{food.kind === 'dish' ? 'MÓN ĂN' : food.kind === 'food' ? 'THỰC PHẨM' : 'DỮ LIỆU'} {food.category?.nameVi ? `· ${food.category.nameVi.toUpperCase()}` : ''}</span>
-                        <button className={`catalog-card-bookmark ${isSaved ? 'saved' : ''}`}><Bookmark size={18} /></button>
+                        <button type="button" className={`catalog-card-bookmark ${isSaved ? 'saved' : ''}`} aria-label={isSaved ? `Bỏ lưu ${food.name}` : `Lưu ${food.name}`} aria-pressed={isSaved} onClick={() => onToggleSaved(food, !isSaved)}><Bookmark size={18} fill={isSaved ? 'currentColor' : 'none'} /></button>
                       </div>
                       
                       <button type="button" className="catalog-card-title-btn" onClick={() => onOpenDetail(food, items)} aria-label={`Xem chi tiết ${food.name}`}>
@@ -2586,9 +2695,9 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
             <span>{catalogLoadingMore ? 'Đang tải thêm món…' : 'Cuộn xuống để tải tiếp'}</span>
           </div>}
           {(matchingItems.length > filteredItems.length || catalogHasMore) && <button type="button" className="nutrition-catalog-load-more" disabled={catalogLoadingMore} onClick={() => {
-            if (matchingItems.length > filteredItems.length) setVisibleCount((current) => current + 36)
+            if (matchingItems.length > filteredItems.length) setVisibleCount((current) => current + renderBatchSize)
             else void loadMoreCatalog()
-          }}>{catalogLoadingMore ? <LoaderCircle className="nutrition-spin" size={14} /> : null} {matchingItems.length > filteredItems.length ? `Hiển thị thêm ${Math.min(36, matchingItems.length - filteredItems.length)} kết quả` : 'Tải thêm món từ Catalog'} <ArrowRight size={14} /></button>}
+          }}>{catalogLoadingMore ? <LoaderCircle className="nutrition-spin" size={14} /> : null} {matchingItems.length > filteredItems.length ? `Hiển thị thêm ${Math.min(renderBatchSize, matchingItems.length - filteredItems.length)} kết quả` : 'Tải thêm món từ Catalog'} <ArrowRight size={14} /></button>}
           <footer className="nutrition-catalog-footer"><Info size={14} /><span>Giá trị dinh dưỡng phụ thuộc khẩu phần và cách chế biến. Hãy kiểm tra lại lượng thực tế trước khi lưu.</span></footer>
         </div>
       </section>
@@ -2699,10 +2808,15 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
   const fiberConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + (meal.fiber ?? Math.round(meal.carbs * 0.12)), 0))
   const sugarConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + (meal.sugar ?? Math.round(meal.carbs * 0.15)), 0))
   const sodiumConsumed = Math.round(loggedMeals.reduce((sum, meal) => sum + (meal.sodium ?? Math.round(meal.calories * 1.1)), 0))
-  const fiberDataComplete = loggedMeals.length > 0
-  const sugarDataComplete = loggedMeals.length > 0
-  const sodiumDataComplete = loggedMeals.length > 0
-  const qualityDataComplete = loggedMeals.length > 0
+  const hasVerifiedNutrient = (meal: MealLog, nutrient: 'fiber' | 'sugar' | 'sodium') => {
+    if (typeof meal[nutrient] !== 'number' || !Number.isFinite(meal[nutrient])) return false
+    const source = meal.nutrientSources?.[nutrient]
+    if (source) return source === 'catalog' || source === 'manual' || source === 'user-confirmed'
+    return meal.source === 'catalog' || meal.source === 'manual'
+  }
+  const fiberDataComplete = loggedMeals.length > 0 && loggedMeals.every((meal) => hasVerifiedNutrient(meal, 'fiber'))
+  const sugarDataComplete = loggedMeals.length > 0 && loggedMeals.every((meal) => hasVerifiedNutrient(meal, 'sugar'))
+  const sodiumDataComplete = loggedMeals.length > 0 && loggedMeals.every((meal) => hasVerifiedNutrient(meal, 'sodium'))
   const water = waterByDate[selectedDate] ?? 0
   const caloriePercent = Math.min(100, Math.round((caloriesConsumed / calorieGoal) * 100))
   const qualityMetrics = [
@@ -2795,20 +2909,10 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
 
   useEffect(() => {
     if (isDemo || resolvedOwnerId === 'anonymous' || historySyncStarted) return
-    if (activeSection !== 'today' && activeSection !== 'scan') {
+    const needsHistory = activeSection === 'diary' || activeSection === 'plan' || activeSection === 'insights' || activeSection === 'assistant'
+    if (needsHistory) {
       setHistorySyncStarted(true)
-      return
     }
-    const idleWindow = window as Window & {
-      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number
-      cancelIdleCallback?: (handle: number) => void
-    }
-    if (idleWindow.requestIdleCallback) {
-      const handle = idleWindow.requestIdleCallback(() => setHistorySyncStarted(true), { timeout: 1_200 })
-      return () => idleWindow.cancelIdleCallback?.(handle)
-    }
-    const timer = window.setTimeout(() => setHistorySyncStarted(true), 800)
-    return () => window.clearTimeout(timer)
   }, [activeSection, historySyncStarted, isDemo, resolvedOwnerId])
 
   useEffect(() => {
@@ -2817,15 +2921,19 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
 
   useEffect(() => {
     if (!firestoreDb || resolvedOwnerId === 'anonymous' || !historySyncStarted) return
-    const unsubscribeMeals = subscribeToRecentUserMealLogs(resolvedOwnerId, recentNutritionFromDate, (remoteMeals) => {
-      const recentItems = Array.isArray(remoteMeals) ? remoteMeals.filter((item): item is MealLog => Boolean(item && typeof item === 'object' && item.id)) : []
-      setMeals((current) => [...recentItems, ...current.filter((item) => item.date < recentNutritionFromDate)])
-    }, undefined, (state) => updateNutritionSync('meals', state))
-
-    const unsubscribeWater = subscribeToRecentUserWaterLogs(resolvedOwnerId, recentNutritionFromDate, (remoteWater) => {
-      const entries = Array.isArray(remoteWater) ? remoteWater.filter((item): item is NutritionWaterLog => Boolean(item && typeof item === 'object' && item.id)) : []
-      setWaterEntries((current) => [...entries, ...current.filter((item) => item.date < recentNutritionFromDate)])
-      const recentTotals = entries.reduce<Record<string, number>>((result, entry) => {
+    let active = true
+    void Promise.all([
+      loadRecentUserMealLogs(resolvedOwnerId, recentNutritionFromDate, (state) => updateNutritionSync('meals', state)),
+      loadRecentUserWaterLogs(resolvedOwnerId, recentNutritionFromDate, (state) => updateNutritionSync('water', state)),
+      loadRecentUserActivityLogs(resolvedOwnerId, recentNutritionFromDate, (state) => updateNutritionSync('activities', state)),
+    ]).then(([remoteMeals, remoteWater, remoteActivities]) => {
+      if (!active) return
+      const recentMeals = Array.isArray(remoteMeals) ? remoteMeals.filter((item): item is MealLog => Boolean(item && typeof item === 'object' && item.id)) : []
+      const recentWater = Array.isArray(remoteWater) ? remoteWater.filter((item): item is NutritionWaterLog => Boolean(item && typeof item === 'object' && item.id)) : []
+      const recentActivities = Array.isArray(remoteActivities) ? remoteActivities.filter((item): item is NutritionActivityLog => Boolean(item && typeof item === 'object' && item.id)) : []
+      setMeals((current) => [...recentMeals, ...current.filter((item) => item.date < recentNutritionFromDate)])
+      setWaterEntries((current) => [...recentWater, ...current.filter((item) => item.date < recentNutritionFromDate)])
+      const recentTotals = recentWater.reduce<Record<string, number>>((result, entry) => {
         result[entry.date] = (result[entry.date] ?? 0) + Math.max(0, Number(entry.amountMl) || 0)
         return result
       }, {})
@@ -2833,18 +2941,11 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         ...Object.fromEntries(Object.entries(current).filter(([date]) => date < recentNutritionFromDate)),
         ...recentTotals,
       }))
-    }, undefined, (state) => updateNutritionSync('water', state))
-
-    const unsubscribeActivities = subscribeToRecentUserActivityLogs(resolvedOwnerId, recentNutritionFromDate, (remoteActivities) => {
-      const recentItems = Array.isArray(remoteActivities) ? remoteActivities.filter((item): item is NutritionActivityLog => Boolean(item && typeof item === 'object' && item.id)) : []
-      setActivities((current) => [...recentItems, ...current.filter((item) => item.date < recentNutritionFromDate)])
-    }, undefined, (state) => updateNutritionSync('activities', state))
-
-    return () => {
-      unsubscribeMeals()
-      unsubscribeWater()
-      unsubscribeActivities()
-    }
+      setActivities((current) => [...recentActivities, ...current.filter((item) => item.date < recentNutritionFromDate)])
+    }).catch((error) => {
+      if (active) console.error('Error loading nutrition history:', error)
+    })
+    return () => { active = false }
   }, [historySyncStarted, recentNutritionFromDate, resolvedOwnerId, updateNutritionSync])
 
   useEffect(() => {
@@ -3390,6 +3491,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       sugar: sum.sugar + (item.sugar ?? 0),
       sodium: sum.sodium + (item.sodium ?? 0),
     }), { protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium: 0 })
+    const finalNutrition = meal.finalNutrition
     const mealLabels: Record<NutritionMealDraft['mealType'], string> = { breakfast: 'Bữa sáng', lunch: 'Bữa trưa', dinner: 'Bữa tối', snack: 'Bữa phụ' }
     const newMealLog: MealLog = {
       id: `ai-${Date.now()}`,
@@ -3400,19 +3502,23 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       title: meal.name,
       description: meal.source === 'demo'
         ? `${meal.items.length} thành phần · Dữ liệu minh họa, chưa phân tích từ ảnh`
-        : `${meal.items.length} thành phần · AI ước tính`,
-      calories: meal.calories,
-      protein: Math.round(macros.protein),
-      carbs: Math.round(macros.carbs),
-      fat: Math.round(macros.fat),
-      fiber: fiberComplete ? Math.round(macros.fiber) : undefined,
-      sugar: sugarComplete ? Math.round(macros.sugar) : undefined,
-      sodium: sodiumComplete ? Math.round(macros.sodium) : undefined,
+        : finalNutrition?.confidence === 'needs-review'
+          ? `${meal.items.length} thành phần · AI ước tính, còn giả định cần kiểm tra`
+          : `${meal.items.length} thành phần · AI ước tính`,
+      calories: Math.round(finalNutrition?.calories ?? meal.calories),
+      protein: Math.round(finalNutrition?.protein ?? meal.protein ?? macros.protein),
+      carbs: Math.round(finalNutrition?.carbs ?? meal.carbs ?? macros.carbs),
+      fat: Math.round(finalNutrition?.fat ?? meal.fat ?? macros.fat),
+      fiber: finalNutrition?.fiber !== undefined ? Math.round(finalNutrition.fiber) : fiberComplete ? Math.round(macros.fiber) : undefined,
+      sugar: finalNutrition?.sugar !== undefined ? Math.round(finalNutrition.sugar) : sugarComplete ? Math.round(macros.sugar) : undefined,
+      sodium: finalNutrition?.sodium !== undefined ? Math.round(finalNutrition.sodium) : sodiumComplete ? Math.round(macros.sodium) : undefined,
+      nutrientSources: finalNutrition?.nutrientSources,
+      unresolvedQuestions: finalNutrition?.unresolvedQuestions,
       status: 'logged',
       tone: 'green',
       image: meal.image,
       source: meal.source,
-      confidence: meal.source === 'ai-scan' ? 'estimated' : 'needs-review',
+      confidence: finalNutrition?.confidence ?? (meal.source === 'ai-scan' ? 'estimated' : 'needs-review'),
       calorieRange: meal.calorieRange ?? { low: Math.max(0, Math.round(meal.calories * .88)), high: Math.round(meal.calories * 1.12) },
       items: meal.items,
       reviewStatus: meal.submitForReview ? 'pending' : undefined,
@@ -3422,7 +3528,9 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         goalAlignmentAssessment: meal.goalAlignmentAssessment,
         calorieOptimizationTip: meal.calorieOptimizationTip,
         macroBalanceAssessment: meal.macroBalanceAssessment,
-        coachFeedbackSuggestion: meal.coachFeedbackSuggestion
+        coachFeedbackSuggestion: meal.coachFeedbackSuggestion,
+        clarifications: meal.clarifications,
+        finalNutrition: meal.finalNutrition,
       },
       studentGoal: profileDraft.goal === 'lose-fat'
         ? `Giảm mỡ thâm hụt calo (${profileDraft.targetWeightDeltaKg ? `Giảm ${Math.abs(profileDraft.targetWeightDeltaKg)}kg` : 'Thâm hụt calo'})`
@@ -3555,11 +3663,11 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     closeFoodDetail()
   }
 
-  const saveFood = (record: NutritionFoodDetailRecord, saved: boolean) => {
+  const setFoodSaved = (foodId: string, saved: boolean) => {
     setSavedFoodIds((current) => {
       const next = new Set(current)
-      if (saved) next.add(record.id)
-      else next.delete(record.id)
+      if (saved) next.add(foodId)
+      else next.delete(foodId)
       try {
         window.localStorage.setItem(savedFoodStorageKey, JSON.stringify([...next]))
       } catch {
@@ -3568,6 +3676,8 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       return next
     })
   }
+
+  const saveFood = (record: NutritionFoodDetailRecord, saved: boolean) => setFoodSaved(record.id, saved)
 
   const scanFromFoodDetail = () => {
     setSelectedFood(null)
@@ -3705,7 +3815,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
       <div className="nutrition-workspace">
         <NutritionSectionNav activeSection="catalog" onSectionChange={(section) => navigateNutrition(section)} onScan={() => navigateNutrition('scan')} onOpenCatalog={() => openCatalog(false)} onOpenAskAura={openAssistant} />
         {profileSyncBanner && <div className="nutrition-sync-banner-wrap">{profileSyncBanner}</div>}
-        <FoodCatalogModal presentation="page" catalog={foodCatalog} savedFoodIds={savedFoodIds} initialSavedOnly={catalogSavedOnly} allowDemo={isDemo} onClose={() => navigateNutrition('today')} onAdd={queueCatalogFood} onOpenDetail={openFoodDetail} />
+        <FoodCatalogModal presentation="page" catalog={foodCatalog} savedFoodIds={savedFoodIds} initialSavedOnly={catalogSavedOnly} allowDemo={isDemo} onClose={() => navigateNutrition('today')} onAdd={queueCatalogFood} onOpenDetail={openFoodDetail} onToggleSaved={(food, saved) => setFoodSaved(food.id, saved)} />
       </div>
       {quickSheets}
     </div>
@@ -3724,7 +3834,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         targetWeightDeltaKg={profileDraft.targetWeightDeltaKg}
         targetTimeframeMonths={profileDraft.targetTimeframeMonths}
         ownerId={resolvedOwnerId}
-        todayContent={<>{profileSyncBanner}<NutritionDashboardHome
+        todayContent={<>{profileSyncBanner}<React.Suspense fallback={<div className="nutrition-dashboard-loading" role="status" aria-live="polite">Đang tải tổng quan dinh dưỡng…</div>}><NutritionDashboardHome
           selectedDate={selectedDate}
           days={days}
           loggedDateIds={loggedDateIds}
@@ -3759,7 +3869,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
           onOpenMeal={setSelectedLoggedMealId}
           onDeleteMeal={deleteMeal}
           onDeleteActivity={deleteActivity}
-        /></>}
+        /></React.Suspense></>}
         menuContent={<React.Suspense fallback={<div role="status" aria-live="polite">Đang tải thực đơn…</div>}>
           <MealPlanPage
             onNavigate={(view) => {

@@ -376,13 +376,15 @@ test('staff keeps learner navigation while every work capability has a separate 
   assert.doesNotMatch(trainerPortalSource, /const \[result, scheduleResult\] = await Promise\.all/)
 })
 
-test('authenticated bootstrap confirms server data without blocking profile listener behind token claims', () => {
+test('authenticated bootstrap confirms server data and defers nutrition history until a history view is opened', () => {
   assert.doesNotMatch(authSource, /await getIdTokenResult\(firebaseUser\)/)
   assert.match(authSource, /void getIdTokenResult\(firebaseUser\)[\s\S]*?unsubscribeProfile = onSnapshot/)
   assert.match(dataSyncBannerSource, /Đang đồng bộ dữ liệu mới nhất/)
   assert.doesNotMatch(dataSyncBannerSource, /Đang hiển thị bản lưu gần nhất/)
   assert.match(nutritionPageSource, /const \[historySyncStarted, setHistorySyncStarted\] = useState\(false\)/)
-  assert.match(nutritionPageSource, /requestIdleCallback[\s\S]*?timeout: 1_200/)
+  assert.match(nutritionPageSource, /const needsHistory = activeSection === 'diary' \|\| activeSection === 'plan' \|\| activeSection === 'insights' \|\| activeSection === 'assistant'/)
+  assert.match(nutritionPageSource, /if \(needsHistory\) \{[\s\S]*?setHistorySyncStarted\(true\)/)
+  assert.doesNotMatch(nutritionPageSource, /requestIdleCallback/)
 })
 
 test('schedule workspace scopes exact availability reads and bounds legacy fallback rounds', () => {

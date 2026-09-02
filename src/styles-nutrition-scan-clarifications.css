@@ -1,0 +1,26 @@
+.nutrition-scan-clarifications { margin: 0 0 24px; padding: 16px; border: 1px solid #fde68a; border-radius: 18px; background: linear-gradient(145deg, #fffbeb, #fff7ed); }
+.nutrition-scan-clarifications__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.nutrition-scan-clarifications__heading span { display: flex; align-items: center; gap: 5px; color: #b45309; font-size: 10px; font-weight: 900; letter-spacing: .05em; text-transform: uppercase; }
+.nutrition-scan-clarifications__heading h2 { margin: 4px 0 0; color: #172033; font-size: 15px; line-height: 1.35; }
+.nutrition-scan-clarifications__heading small { flex: 0 0 auto; padding: 4px 8px; border-radius: 999px; color: #92400e; background: #fef3c7; font-size: 10px; font-weight: 800; }
+.nutrition-scan-clarifications__list { display: grid; gap: 9px; }
+.nutrition-scan-clarification { padding: 12px; border: 1px solid #fed7aa; border-radius: 14px; background: rgba(255,255,255,.86); }
+.nutrition-scan-clarification.is-confirmed { border-color: #a7f3d0; background: #f0fdf4; }
+.nutrition-scan-clarification > p { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 10px; color: #334155; font-size: 12px; line-height: 1.5; }
+.nutrition-scan-clarification > p > strong { width: 21px; height: 21px; flex: 0 0 21px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #f59e0b; font-size: 10px; }
+.nutrition-scan-clarification__choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.nutrition-scan-clarification__choices button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 10px; color: #475569; background: #fff; cursor: pointer; font-size: 10px; font-weight: 800; }
+.nutrition-scan-clarification__choices button.is-active { border-color: #f59e0b; color: #92400e; background: #fef3c7; box-shadow: 0 0 0 2px rgba(245,158,11,.1); }
+.nutrition-scan-clarification__adjustment { display: grid; gap: 5px; margin-top: 10px; }
+.nutrition-scan-clarification__adjustment > span { color: #475569; font-size: 10px; font-weight: 800; }
+.nutrition-scan-clarification__adjustment input { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid #fed7aa; border-radius: 10px; color: #334155; background: #fff; outline: 0; font: inherit; font-size: 11px; }
+.nutrition-scan-clarification__adjustment input:focus { border-color: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.12); }
+.nutrition-scan-clarification__adjustment small { color: #047857; font-size: 10px; line-height: 1.4; }
+.nutrition-scan-clarification__adjustment small.is-warning { color: #b45309; }
+.nutrition-scan-clarifications__notice { display: flex; align-items: flex-start; gap: 6px; margin: 11px 0 0; color: #92400e; font-size: 10px; line-height: 1.5; }
+.nutrition-scan-clarifications__notice svg { flex: 0 0 auto; margin-top: 1px; }
+
+@media (max-width: 480px) {
+  .nutrition-scan-clarifications { padding: 13px; }
+  .nutrition-scan-clarification__choices { grid-template-columns: 1fr; }
+}
