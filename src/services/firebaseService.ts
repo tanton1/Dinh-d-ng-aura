@@ -83,7 +83,6 @@ import type {
   WorkoutProgramSessionDraft,
 } from '../types'
 import { courses as demoCourses, workoutExercises } from '../data'
-import { auraFoundationCourse } from '../course-template'
 
 /** Sample Academy content is never shown as Firebase data in a production build. */
 export const academyDemoFallbackEnabled = import.meta.env.DEV || import.meta.env.MODE === 'e2e'
@@ -956,6 +955,7 @@ export async function seedAuraFoundationCourse(publish = false) {
   if (publish) {
     throw new Error('Dữ liệu mẫu phải đi qua quy trình gửi duyệt và xuất bản phía server.')
   }
+  const { auraFoundationCourse } = await import('../course-template')
   return saveCourseDraft({
     ...auraFoundationCourse,
     publicationStatus: 'draft',

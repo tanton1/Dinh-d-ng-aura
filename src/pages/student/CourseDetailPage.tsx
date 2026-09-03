@@ -350,7 +350,11 @@ export default function CourseDetailPage({
       }
       return (
         <article className="lesson-resources">
-          <h2>Tài liệu bài học</h2>
+          <div className="lesson-resources__heading">
+            <div><span className="eyebrow">THƯ VIỆN CHƯƠNG</span><h2>Tài liệu bài học</h2></div>
+            <strong>{selectedLesson.resources.length} tài liệu</strong>
+          </div>
+          <p className="lesson-resources__intro">Mở giáo trình PDF đầy đủ để xem infographic, case study, workbook, checklist và nguồn tham khảo của chương.</p>
           <div className="lesson-resource-list">
             {selectedLesson.resources.map((resource) => (
               <CourseResourceItem
@@ -574,7 +578,7 @@ export default function CourseDetailPage({
           <div className="lesson-tabs" role="tablist" aria-label="Nội dung bài học">
             <button role="tab" aria-selected={tab === 'overview'} className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>Tổng quan</button>
             <button role="tab" aria-selected={tab === 'memory'} className={tab === 'memory' ? 'active' : ''} onClick={() => setTab('memory')}>Ghi nhớ sâu</button>
-            <button role="tab" aria-selected={tab === 'resources'} className={tab === 'resources' ? 'active' : ''} onClick={() => setTab('resources')}>Tài liệu</button>
+            <button role="tab" aria-selected={tab === 'resources'} className={tab === 'resources' ? 'active' : ''} onClick={() => setTab('resources')}>Tài liệu {selectedLesson?.resources?.length ? <span>{selectedLesson.resources.length}</span> : null}</button>
             <button role="tab" aria-selected={tab === 'notes'} className={tab === 'notes' ? 'active' : ''} onClick={() => setTab('notes')}>Ghi chú</button>
             <button role="tab" aria-selected={tab === 'discussion'} className={tab === 'discussion' ? 'active' : ''} onClick={() => setTab('discussion')}>Thảo luận</button>
           </div>

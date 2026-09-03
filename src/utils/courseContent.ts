@@ -1,5 +1,6 @@
-import { auraFoundationCourse } from '../course-template'
 import type { Course, CourseLessonDraft, CourseModuleDraft } from '../types'
+
+const auraFoundationCourseId = 'nutrition-foundation'
 
 const categoryLessonTitles: Record<string, string[]> = {
   'Dinh dưỡng': [
@@ -51,8 +52,8 @@ function buildDemoModules(course: Course): CourseModuleDraft[] {
 export function getCourseModules(course: Course, allowDemoFallback = false): CourseModuleDraft[] {
   if (course.modules?.length) return [...course.modules].sort((a, b) => a.order - b.order)
   if (!allowDemoFallback) return []
-  if (String(course.id) === '1' || String(course.id) === auraFoundationCourse.id) {
-    return auraFoundationCourse.modules
+  if (String(course.id) === '1' || String(course.id) === auraFoundationCourseId) {
+    return buildDemoModules(course)
   }
   return buildDemoModules(course)
 }

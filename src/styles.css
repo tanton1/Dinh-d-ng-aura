@@ -196,8 +196,37 @@ h1, h2, h3, p { margin-top: 0; }
   margin-top: 10px;
 }
 .lesson-resources h2 {
-  margin: 0 0 14px;
+  margin: 3px 0 0;
   font-size: 14px;
+}
+.lesson-resources__heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border: 1px solid #e9e1ff;
+  border-radius: 14px 14px 0 0;
+  background: linear-gradient(135deg,#faf7ff,#fff7fb);
+}
+.lesson-resources__heading>strong {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: var(--primary);
+  background: #fff;
+  font-size: 8px;
+}
+.lesson-resources__intro {
+  margin: 0 0 14px;
+  padding: 10px 18px;
+  border: 1px solid #e9e1ff;
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+  color: var(--muted);
+  background: #fff;
+  font-size: 9px;
+  line-height: 1.55;
 }
 .lesson-resource-list {
   display: grid;

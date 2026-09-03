@@ -1,4 +1,5 @@
 import type { AcademyLessonMemory, CourseLessonDraft, CourseModuleDraft } from '../types'
+import { auraNutritionStudyGuides } from './auraNutritionStudyGuides'
 
 type QuizQuestion = {
   question: string
@@ -750,27 +751,83 @@ function lessonMemory(chapter: CurriculumChapter): AcademyLessonMemory {
 }
 
 function chapterBody(chapter: CurriculumChapter) {
+  const guide = auraNutritionStudyGuides[chapter.number]
   return [
-    `## Vì sao chương này quan trọng`,
-    chapter.promise,
+    `# Chương ${chapter.number} · ${chapter.title}`,
+    '',
+    `> **Câu hỏi lớn:** ${guide.bigQuestion}`,
+    '',
+    guide.opening,
     '',
     '## Bạn sẽ làm được',
     ...chapter.objectives.map((item) => `- ${item}`),
     '',
-    `> **Lưu ý an toàn:** ${chapter.safety}`,
+    ...guide.sections.flatMap((section) => [
+      `## ${section.title}`,
+      section.explanation,
+      '',
+      ...section.points.map((item) => `- ${item}`),
+      '',
+    ]),
+    '## Tình huống đã phân tích',
+    guide.workedExample,
     '',
-    '## Cách học chương này',
-    'Đọc để hiểu cơ chế, tự diễn đạt lại trong tab **Ghi nhớ sâu**, sau đó hoàn thành bài thực hành trước khi làm checkpoint. Không dùng nội dung như chẩn đoán hoặc đơn điều trị cá nhân.',
+    '## Hiểu lầm thường gặp',
+    ...guide.misconceptions.flatMap(([myth, fact]) => [
+      `### ${myth}`,
+      fact,
+      '',
+    ]),
+    '## Góc bằng chứng',
+    guide.evidenceNote,
+    '',
+    '## Thuật ngữ cần nhớ',
+    ...chapter.glossary.map(([term, definition]) => `- **${term}:** ${definition}`),
+    '',
+    '## Tóm tắt chương',
+    ...chapter.takeaways.map((item) => `- ${item}`),
+    '',
+    `> **Cổng an toàn:** ${chapter.safety}`,
+    '',
+    '## Học tiếp như thế nào?',
+    'Mở tab **Tài liệu** để xem giáo trình PDF đầy đủ với infographic, case study, workbook, checklist và nguồn tham khảo. Sau đó dùng tab **Ghi nhớ sâu**, hoàn thành bài thực hành và làm checkpoint. Nội dung phục vụ giáo dục, không thay thế chẩn đoán hoặc điều trị cá nhân.',
   ].join('\n')
 }
 
 function practiceBody(chapter: CurriculumChapter) {
+  const guide = auraNutritionStudyGuides[chapter.number]
   return [
-    `## ${chapter.practiceTitle}`,
-    'Bài thực hành này biến kiến thức thành một vòng quan sát có thể dùng trong đời sống thật.',
+    `# ${chapter.practiceTitle}`,
+    '',
+    'Bài thực hành biến kiến thức thành một vòng quan sát nhỏ, có đầu ra và có ngày rà. Không cần làm hoàn hảo; cần làm đủ rõ để biết bước tiếp theo.',
     '',
     '## Kết quả cần có',
     chapter.practiceResult,
+    '',
+    '## Làm lần lượt',
+    ...chapter.practiceSteps.flatMap((step, index) => [
+      `### Bước ${index + 1}`,
+      step,
+      '',
+    ]),
+    '## Ví dụ hoàn chỉnh',
+    guide.practiceExample,
+    '',
+    '## Mẫu đầu ra để tự điền',
+    '- **Dữ kiện tôi quan sát:** …',
+    '- **Giả thuyết tạm thời:** …',
+    '- **Một thay đổi nhỏ tôi sẽ thử:** …',
+    '- **Dữ liệu tối thiểu cần ghi:** …',
+    '- **Điều kiện phải dừng hoặc hỏi chuyên môn:** …',
+    '- **Ngày tôi sẽ rà lại:** …',
+    '',
+    '## Ba câu tự kiểm',
+    ...guide.reviewQuestions.map((question) => `- ${question}`),
+    '',
+    '## Tiêu chí hoàn thành',
+    '- Đầu ra mô tả hành vi cụ thể, không chỉ ghi một mục tiêu chung chung.',
+    '- Chỉ thay đổi một biến chính để còn đọc được kết quả.',
+    '- Có dữ liệu, thời hạn và điều kiện giữ, chỉnh, dừng hoặc chuyển tuyến.',
     '',
     `> **Cổng an toàn:** ${chapter.safety}`,
   ].join('\n')
