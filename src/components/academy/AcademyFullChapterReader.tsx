@@ -103,11 +103,9 @@ function searchSnippet(page: FullReaderPage, query: string) {
 export default function AcademyFullChapterReader({
   chapter,
   ownerId,
-  onOpenPdf,
 }: {
   chapter: number
   ownerId: string
-  onOpenPdf: () => void
 }) {
   const [content, setContent] = useState<FullChapter | null>(() => chapterCache.get(chapter) ?? null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(content ? 'ready' : 'loading')
@@ -210,7 +208,7 @@ export default function AcademyFullChapterReader({
       <header className="academy-full-reader__hero">
         <div className="academy-full-reader__eyebrow"><BookOpen size={16} /> GIÁO TRÌNH TOÀN VĂN · CHƯƠNG {chapter}</div>
         <h2>{content.title}</h2>
-        <p>Toàn bộ phần chữ được giữ theo thứ tự trang của bản xuất bản. Với infographic hoặc bảng có bố cục phức tạp, hãy mở PDF gốc để xem hình ảnh chính xác.</p>
+        <p>Toàn bộ phần chữ được giữ theo thứ tự trang của bản xuất bản và tối ưu để đọc liền mạch trên điện thoại.</p>
         <div className="academy-full-reader__stats"><span><FileText size={14} /> {content.pageCount} trang</span><span>{content.wordCount.toLocaleString('vi-VN')} từ</span><span><Bookmark size={14} /> Đang ở trang {currentPage}</span></div>
       </header>
 
@@ -219,7 +217,6 @@ export default function AcademyFullChapterReader({
         <button type="button" className={pageOutlineOpen ? 'is-active' : ''} onClick={() => setPageOutlineOpen(true)} aria-haspopup="dialog" aria-label="Mở mục lục chương"><ListTree size={16} /> Mục lục</button>
         <div className="academy-full-reader__font" aria-label="Điều chỉnh cỡ chữ"><button type="button" onClick={() => setFontScale((value) => Math.max(.9, Math.round((value - .1) * 10) / 10))} aria-label="Giảm cỡ chữ"><Minus size={15} /></button><span>Aa</span><button type="button" onClick={() => setFontScale((value) => Math.min(1.3, Math.round((value + .1) * 10) / 10))} aria-label="Tăng cỡ chữ"><Plus size={15} /></button></div>
         <button type="button" className={isSpeaking ? 'is-active' : ''} onClick={togglePageSpeech} aria-label={isSpeaking ? 'Dừng đọc thành tiếng' : `Nghe trang ${currentPage}`} >{isSpeaking ? <VolumeX size={16} /> : <Volume2 size={16} />}{isSpeaking ? 'Dừng' : 'Nghe'}</button>
-        <button type="button" onClick={onOpenPdf} aria-label="Mở PDF gốc có hình minh họa"><FileText size={16} /> PDF gốc</button>
       </div>
 
       {pageOutlineOpen ? (
@@ -287,7 +284,7 @@ export default function AcademyFullChapterReader({
               <strong>{currentPage} / {content.pageCount}</strong>
               <button type="button" onClick={() => scrollToPage(currentPage + 1)} disabled={currentPage >= content.pageCount}>Trang sau <ChevronRight size={18} /></button>
             </nav>
-          <footer className="academy-full-reader__source"><FileText size={16} /><div><strong>Nguồn chính thức</strong><small>{content.sourceFile}</small></div><button type="button" onClick={onOpenPdf}>Mở bản PDF có hình minh họa</button></footer>
+          <footer className="academy-full-reader__source"><FileText size={16} /><div><strong>Nguồn chính thức</strong><small>{content.sourceFile}</small></div></footer>
         </div>
       </div>
     </article>

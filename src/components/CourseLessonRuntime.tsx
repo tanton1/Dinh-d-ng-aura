@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import {
   AlertCircle,
   Brain,
+  BookOpen,
   Check,
   CheckCircle2,
   ClipboardCheck,
@@ -16,6 +17,8 @@ import {
   LoaderCircle,
   LockKeyhole,
   ListChecks,
+  Maximize2,
+  Minimize2,
   Play,
   RefreshCw,
   Save,
@@ -188,6 +191,84 @@ function trustedSlideEmbed(value: string) {
 
 function MediaLoading() {
   return <div className="lesson-media-status" role="status"><LoaderCircle className="spin" size={16} /> Đang mở media bảo mật...</div>
+}
+
+function pdfViewerUrl(url: string) {
+  const separator = url.includes('#') ? '&' : '#'
+  return `${url}${separator}toolbar=1&navpanes=0&view=FitH`
+}
+
+/**
+ * In-app PDF reader used by chapter navigation. The browser PDF engine does
+ * the actual rendering (including page navigation and text selection), while
+ * this shell keeps private Firebase media inside the learning experience and
+ * provides a reliable mobile fallback when an embedded viewer is unavailable.
+ */
+export function CoursePdfReader({
+  courseId,
+  lessonId,
+  resource,
+  canAccess = true,
+  onBackToContent,
+}: {
+  courseId: string
+  lessonId: string
+  resource: LessonResourceDraft
+  canAccess?: boolean
+  onBackToContent?: () => void
+}) {
+  const runtime = runtimeResource(resource)
+  const media = useResolvedMedia(courseId, lessonId, runtime, canAccess)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [frameLoaded, setFrameLoaded] = useState(false)
+  const title = runtime.title || 'Tài liệu chương'
+
+  useEffect(() => {
+    setFrameLoaded(false)
+    setIsFullscreen(false)
+  }, [runtime.id])
+
+  useEffect(() => {
+    if (!isFullscreen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsFullscreen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [isFullscreen])
+
+  if (!canAccess) {
+    return <div className="lesson-empty-state"><LockKeyhole size={28} /><h2>Tài liệu đang được khóa</h2><p>Ghi danh khóa học để đọc tài liệu này.</p></div>
+  }
+  if (media.status === 'loading' || media.status === 'idle') {
+    return <div className="lesson-pdf-reader-state" role="status"><LoaderCircle className="spin" size={20} /><span>Đang mở tài liệu…</span></div>
+  }
+  if (media.status === 'error' || !media.url) {
+    return <div className="lesson-pdf-reader-state is-error" role="alert"><FileType size={20} /><div><strong>Chưa mở được tài liệu</strong><p>{media.message ?? 'Liên kết PDF chưa sẵn sàng.'}</p><button type="button" className="outline-button small" onClick={media.retry}><RefreshCw size={13} /> Thử lại</button></div></div>
+  }
+
+  return (
+    <article className={`lesson-pdf-reader${isFullscreen ? ' is-fullscreen' : ''}`} aria-label={`Trình đọc ${title}`}>
+      <header className="lesson-pdf-reader__header">
+        <div className="lesson-pdf-reader__title"><span><FileType size={17} /></span><div><small>ĐANG ĐỌC</small><strong>{title}</strong></div></div>
+        <div className="lesson-pdf-reader__actions">
+          {onBackToContent ? <button type="button" className="outline-button small" onClick={onBackToContent}><BookOpen size={13} /> Nội dung</button> : null}
+          <button type="button" className="outline-button small" onClick={() => setIsFullscreen((value) => !value)} aria-pressed={isFullscreen}>{isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}{isFullscreen ? 'Thu nhỏ' : 'Toàn màn hình'}</button>
+          <MediaActions url={media.url} downloadUrl={media.downloadUrl} fileName={media.fileName} kind="document" compact />
+        </div>
+      </header>
+      <div className="lesson-pdf-reader__frame">
+        {!frameLoaded ? <div className="lesson-pdf-reader__loading" role="status"><LoaderCircle className="spin" size={18} /> Đang hiển thị tài liệu…</div> : null}
+        <iframe
+          src={pdfViewerUrl(media.url)}
+          title={title}
+          onLoad={() => setFrameLoaded(true)}
+          referrerPolicy="no-referrer"
+        />
+      </div>
+      <footer className="lesson-pdf-reader__footer"><span>Đọc trực tiếp trong Aura · trang và cỡ hiển thị do trình duyệt PDF điều khiển.</span><a href={media.url} target="_blank" rel="noopener noreferrer">Mở riêng nếu không hiển thị</a></footer>
+    </article>
+  )
 }
 
 function MediaActions({
@@ -531,21 +612,8 @@ export function CoursePrimaryContent({
   if (primaryResource.kind === 'slide' && slideEmbed) {
     return <div className="video-player lesson-runtime-player"><iframe src={slideEmbed} title={primaryResource.title || lesson.title} allowFullScreen sandbox="allow-scripts allow-same-origin allow-popups" referrerPolicy="no-referrer" /></div>
   }
-  if (primaryResource.kind === 'document' && looksLikePdf) {
-    return (
-      <div className="video-player lesson-runtime-player lesson-pdf-player">
-        <div className="lesson-pdf-toolbar">
-          <div><FileType size={16} /><strong>{primaryResource.title || lesson.title}</strong></div>
-          <MediaActions url={media.url} downloadUrl={media.downloadUrl} fileName={media.fileName} kind="document" compact />
-        </div>
-        <iframe
-          src={`${media.url}#toolbar=1&navpanes=0&view=FitH`}
-          title={primaryResource.title || lesson.title}
-          referrerPolicy="no-referrer"
-        />
-        <p className="lesson-pdf-fallback">Nếu khung xem trước không hiện, hãy chọn <strong>Mở PDF</strong> hoặc <strong>Tải PDF</strong> ở phía trên.</p>
-      </div>
-    )
+  if ((primaryResource.kind === 'document' || primaryResource.kind === 'slide') && looksLikePdf) {
+    return <CoursePdfReader courseId={courseId} lessonId={lesson.id} resource={primaryResource} canAccess={canView} />
   }
 
   return <div className="video-player"><div className="video-pattern"><i /><i /><i /></div><div className="video-copy"><strong>{primaryResource.title || lesson.title}</strong><small>Mở {resourceLabels[primaryResource.kind]} trong cửa sổ mới.</small></div><a className="video-play" href={media.url} target="_blank" rel="noopener noreferrer" aria-label={`Mở ${primaryResource.title || resourceLabels[primaryResource.kind]}`}><ExternalLink size={26} /></a></div>

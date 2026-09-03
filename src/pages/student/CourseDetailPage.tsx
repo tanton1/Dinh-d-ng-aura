@@ -15,7 +15,7 @@ import {
   Search,
 } from 'lucide-react'
 import AcademyFullChapterReader from '../../components/academy/AcademyFullChapterReader'
-import { CoursePrimaryContent, CourseQuizRunner, CourseResourceItem } from '../../components/CourseLessonRuntime'
+import { CoursePdfReader, CoursePrimaryContent, CourseQuizRunner, CourseResourceItem } from '../../components/CourseLessonRuntime'
 import { ProgressBar } from '../../components/ui'
 import type { Course, CourseLessonDraft, CourseProgress } from '../../types'
 import { flattenCourseLessons, getCourseModules, getInitialDemoCompletedLessonIds } from '../../utils/courseContent'
@@ -83,6 +83,18 @@ function normalizeOutlineSearch(value: string) {
     .trim()
 }
 
+function isPdfResource(resource: NonNullable<CourseLessonDraft['resources']>[number]) {
+  if (resource.assetRef?.contentType) return resource.assetRef.contentType === 'application/pdf'
+  if (/\.pdf(?:$|\?)/i.test(resource.url)) return true
+  // Some older Firebase references omit contentType and use a document kind.
+  // Never treat an explicitly named Word/text file as an embeddable PDF.
+  return resource.kind === 'document' && !/\.(docx?|txt)(?:$|\?)/i.test(resource.url)
+}
+
+function firstPdfResource(lesson: CourseLessonDraft | undefined) {
+  return lesson?.resources?.find(isPdfResource)
+}
+
 export default function CourseDetailPage({
   course,
   progress,
@@ -135,6 +147,7 @@ export default function CourseDetailPage({
   const selectedLesson = isAuraNutritionCurriculum
     ? requestedModule?.lessons.find((lesson) => lesson.id.endsWith('-core')) ?? navigationLessons[0]
     : requestedLesson
+  const selectedPdfResource = firstPdfResource(selectedLesson)
   const selectedModuleIndex = selectedLesson
     ? modules.findIndex((module) => module.lessons.some((lesson) => lesson.id === selectedLesson.id))
     : -1
@@ -194,10 +207,12 @@ export default function CourseDetailPage({
 
   useEffect(() => {
     setCompleteState(lessonCompleted ? 'saved' : 'idle')
-    setReaderView('content')
+    // Chapters with a PDF open directly in the in-app reader. Chapters that
+    // only have the bundled text reader keep the normal content view.
+    setReaderView(selectedPdfResource ? 'resources' : 'content')
     setMediaProgress(0)
     setActionError(null)
-  }, [lessonCompleted, selectedLesson?.id])
+  }, [lessonCompleted, selectedLesson?.id, selectedPdfResource?.id])
 
   useEffect(() => {
     if (!mobileLessonsOpen) return
@@ -251,7 +266,11 @@ export default function CourseDetailPage({
     }
   }
 
-  const selectLesson = (lessonId: string) => onSelectLesson(lessonId)
+  const selectLesson = (lessonId: string) => {
+    const nextLesson = lessons.find((lesson) => lesson.id === lessonId)
+    setReaderView(firstPdfResource(nextLesson) ? 'resources' : 'content')
+    onSelectLesson(lessonId)
+  }
   const selectMobileLesson = (lessonId: string) => {
     selectLesson(lessonId)
     setMobileLessonsOpen(false)
@@ -292,11 +311,27 @@ export default function CourseDetailPage({
   const renderReaderContent = () => {
     if (readerView === 'resources') {
       if (!selectedLesson?.resources?.length) {
-        return <div className="lesson-empty-state"><FileText size={28} /><h2>Chưa có tài liệu PDF</h2><p>Chương này chưa có tệp đính kèm.</p></div>
+        return <div className="lesson-empty-state"><FileText size={28} /><h2>Chưa có tài nguyên</h2><p>Chương này chưa có tệp đính kèm.</p></div>
+      }
+      if (selectedPdfResource) {
+        const supplementalResources = selectedLesson.resources.filter((resource) => resource.id !== selectedPdfResource.id)
+        return (
+          <article className="course-reader-resources">
+            <CoursePdfReader courseId={String(course.id)} lessonId={selectedLesson.id} resource={selectedPdfResource} canAccess={canViewContent} onBackToContent={() => setReaderView('content')} />
+            {supplementalResources.length ? (
+              <details className="course-reader-supplemental" open>
+                <summary>Tài nguyên bổ sung <span>{supplementalResources.length}</span></summary>
+                <div className="lesson-resource-list">
+                  {supplementalResources.map((resource) => <CourseResourceItem key={resource.id} courseId={String(course.id)} lessonId={selectedLesson.id} resource={resource} canAccess={canViewContent} />)}
+                </div>
+              </details>
+            ) : null}
+          </article>
+        )
       }
       return (
         <article className="course-reader-resources">
-          <header><div><small>TÀI LIỆU CHƯƠNG {Math.max(1, selectedModuleIndex + 1)}</small><h2>PDF và tài liệu tải về</h2></div><strong>{selectedLesson.resources.length}</strong></header>
+          <header><div><small>TÀI LIỆU CHƯƠNG {Math.max(1, selectedModuleIndex + 1)}</small><h2>Tài nguyên bổ sung</h2></div><strong>{selectedLesson.resources.length}</strong></header>
           <div className="lesson-resource-list">
             {selectedLesson.resources.map((resource) => <CourseResourceItem key={resource.id} courseId={String(course.id)} lessonId={selectedLesson.id} resource={resource} canAccess={canViewContent} />)}
           </div>
@@ -307,7 +342,7 @@ export default function CourseDetailPage({
       if (!canViewContent) {
         return <div className="lesson-empty-state"><LockKeyhole size={28} /><h2>Bài đọc đang được khóa</h2><p>{openToAllMembers ? 'Bấm “Bắt đầu miễn phí” để đọc toàn bộ chương.' : 'Ghi danh khóa học để đọc toàn bộ chương.'}</p></div>
       }
-      return <AcademyFullChapterReader chapter={fullChapterNumber} ownerId={noteOwnerId} onOpenPdf={() => setReaderView('resources')} />
+      return <AcademyFullChapterReader chapter={fullChapterNumber} ownerId={noteOwnerId} />
     }
     if (!selectedLesson) return <div className="lesson-empty-state"><BookOpen size={28} /><h2>Chưa có nội dung</h2></div>
     if (selectedLesson.type === 'Quiz') {
@@ -374,7 +409,7 @@ export default function CourseDetailPage({
           <nav className="course-reader-toolbar" aria-label="Công cụ đọc">
             <div role="tablist" aria-label="Loại nội dung">
               <button type="button" role="tab" aria-selected={readerView === 'content'} className={readerView === 'content' ? 'is-active' : ''} onClick={() => setReaderView('content')}><BookOpen size={15} /> Nội dung</button>
-              <button type="button" role="tab" aria-selected={readerView === 'resources'} className={readerView === 'resources' ? 'is-active' : ''} onClick={() => setReaderView('resources')}><FileText size={15} /> Tài liệu PDF {selectedLesson?.resources?.length ? <span>{selectedLesson.resources.length}</span> : null}</button>
+              {selectedLesson?.resources?.length ? <button type="button" role="tab" aria-selected={readerView === 'resources'} className={readerView === 'resources' ? 'is-active' : ''} onClick={() => setReaderView('resources')}><span>{selectedPdfResource ? 'Đọc tài liệu' : 'Tài nguyên'}</span>{selectedLesson.resources.length ? <span>{selectedLesson.resources.length}</span> : null}</button> : null}
             </div>
             <div className="course-reader-lesson-pager">
               <button type="button" disabled={!previousLesson} onClick={() => previousLesson && selectLesson(previousLesson.id)} aria-label="Bài trước"><ChevronLeft size={17} /></button>
