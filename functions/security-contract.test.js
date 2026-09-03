@@ -30,6 +30,7 @@ const contractUsageSource = readFileSync(join(__dirname, 'contract-usage.js'), '
 const ptScheduleMigrationSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-schedule-v2-migration.cjs'), 'utf8')
 const renewalContinuitySource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-renewal-continuity-reconcile.cjs'), 'utf8')
 const firestoreDeltaSyncSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-firestore-delta-sync.cjs'), 'utf8')
+const superAdminRepairSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-super-admin-repair.cjs'), 'utf8')
 const financeLedgerMigrationSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-finance-ledger-migration.cjs'), 'utf8')
 const revenueRecognitionMigrationSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-revenue-recognition-migration.cjs'), 'utf8')
 const identityAccessSource = readFileSync(join(__dirname, 'identity-access.js'), 'utf8')
@@ -622,8 +623,23 @@ test('Firestore delta sync keeps the retired project read-only and applies only 
   assert.match(firestoreDeltaSyncSource, /currentDocument: \{ exists: false \}/)
   assert.match(firestoreDeltaSyncSource, /currentDocument: \{ updateTime: item\.targetUpdateTime \}/)
   assert.match(firestoreDeltaSyncSource, /plan\.planDigest !== approved\.planDigest/)
-  assert.match(firestoreDeltaSyncSource, /PROJECTION_FIELDS/)
+  assert.match(firestoreDeltaSyncSource, /TARGET_OWNED_FIELDS/)
+  assert.match(firestoreDeltaSyncSource, /confirm-delete-target-only/)
+  assert.match(firestoreDeltaSyncSource, /currentDocument: \{ updateTime: item\.targetUpdateTime \}/)
   assert.doesNotMatch(firestoreDeltaSyncSource, /databaseBase\(SOURCE\).*documents:commit/s)
+})
+
+test('super-admin repair is target-only, digest-gated and restores all Identity v2 layers', () => {
+  assert.match(superAdminRepairSource, /databaseId: 'ai-studio-aurafitnesselear-/)
+  assert.match(superAdminRepairSource, /repair-super-admin/)
+  assert.match(superAdminRepairSource, /state\.plan\.planDigest !== arguments_\.digest/)
+  assert.match(superAdminRepairSource, /accessRole: 'super_admin'/)
+  assert.match(superAdminRepairSource, /setCustomUserClaims\(state\.authUser\.uid, state\.plan\.desiredClaims\)/)
+  assert.match(superAdminRepairSource, /documentWrite\('users'/)
+  assert.match(superAdminRepairSource, /documentWrite\('roleAssignments'/)
+  assert.match(superAdminRepairSource, /currentDocument: current \? \{ updateTime: current\.updateTime \} : \{ exists: false \}/)
+  assert.match(superAdminRepairSource, /await auth\.setCustomUserClaims\(state\.authUser\.uid, previousClaims\)/)
+  assert.doesNotMatch(superAdminRepairSource, /firestore\.googleapis\.com\/v1\/projects\/gen-lang-client-0246058381/)
 })
 
 test('finance ledger migration preserves immutable branch collisions and keeps the override exact', () => {

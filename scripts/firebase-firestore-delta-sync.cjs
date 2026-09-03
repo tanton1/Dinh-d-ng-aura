@@ -9,7 +9,7 @@ const TARGET = {
   databaseId: 'ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7',
 }
 const RETIRED_SOURCE_PROJECT = SOURCE.projectId
-const PLAN_VERSION = 1
+const PLAN_VERSION = 2
 const MAX_WRITES_PER_COMMIT = 200
 const APPLY_CONFIRMATION = `projects/${TARGET.projectId}/databases/${TARGET.databaseId}:apply-source-delta`
 const PRIVATE_DIRECTORY = path.resolve('.migration-private')
@@ -38,19 +38,63 @@ const COLLECTIONS = [
   'users',
   'workoutLogs',
 ]
-const PROJECTION_FIELDS = {
-  contracts: new Set(['usedSessions', 'attendedClasses']),
+const TARGET_OWNED_FIELDS = {
+  contracts: new Set([
+    'activatedAt', 'activatedBy', 'attendedClasses', 'carriedOverSessions', 'carryOverPending',
+    'carryOverProjectedFrom', 'carryOverProjectionUpdatedAt', 'carryOverProjectionVersion',
+    'carryOverReconciledAt', 'carryOverReconciledFrom', 'carryOverReconciliationVersion',
+    'carryOverRequested', 'carryOverTransferredAt', 'carryOverTransferredSessions',
+    'chargedSessionIds', 'financeProjectionUpdatedAt', 'historyEvidenceSessions', 'packageSessions',
+    'plannedCarryOverSessions', 'renewalContinuityReconciledAt', 'renewalSupersededBy',
+    'renewedByContractId', 'revision', 'sourceContractId', 'updatedAt', 'usageReconciledAt',
+    'usageReconciledFrom', 'usageReconciliationStatus', 'usageReconciliationVersion', 'usedSessions',
+  ]),
+  sessions: new Set([
+    'attendanceEventId', 'attendanceStatus', 'autoConfirmedAt', 'billingEventId', 'billingIssueCode',
+    'billingStatus', 'chargedAt', 'completedAt', 'confirmationSource', 'confirmedAt', 'confirmedBy',
+    'contractId', 'contractLinkConfidence', 'contractLinkGapDays', 'contractLinkReason',
+    'contractLinkVersion', 'contractLinkedAt', 'contractLinkedBy', 'recognitionReviewIssueCode',
+    'recognitionReviewRequired', 'revenueRecognitionEntryId', 'revision', 'scheduleStatus',
+    'serviceOrdinal', 'updatedAt', 'updatedBy',
+  ]),
+  students: new Set([
+    'accountUid', 'availabilityRevision', 'availabilityUpdatedAt', 'availabilityUpdatedBy',
+    'contactSyncVersion', 'contactSyncedAt', 'createdAt', 'scheduleNeedsReview', 'updatedAt',
+  ]),
+  trainers: new Set([
+    'availableSlots', 'availabilityRevision', 'availabilityUpdatedAt', 'availabilityUpdatedBy',
+    'baseSalary', 'commissionPerSession', 'commissionRate', 'createdAt', 'dailySessionLimit',
+    'dailySessionTarget', 'employmentLevel', 'employmentType', 'payrollPolicyId', 'payrollProfile',
+    'priority', 'schedulingPriority', 'slotCapacity', 'updatedAt', 'updatedBy',
+  ]),
+  staff: new Set([
+    'availableSlots', 'baseSalary', 'bonusMonthly', 'branchIds', 'commissionPerSession',
+    'commissionRate', 'createdAt', 'createdBy', 'dailySessionLimit', 'dailySessionTarget',
+    'employmentLevel', 'employmentType', 'payrollPolicyId', 'payrollProfile', 'positions',
+    'priority', 'schedulingPriority', 'slotCapacity', 'updatedAt', 'updatedBy',
+  ]),
+  users: new Set([
+    'accessRole', 'authzVersion', 'branchId', 'contactSyncVersion', 'contactSyncedAt', 'crmProfileId',
+    'displayName', 'email', 'employeeCode', 'identityLinkVersion', 'phone', 'phoneNumber', 'role',
+    'uid', 'updatedAt',
+  ]),
+}
+const CREATE_STRIPPED_FIELDS = {
+  contracts: TARGET_OWNED_FIELDS.contracts,
+  sessions: TARGET_OWNED_FIELDS.sessions,
 }
 const PRIVILEGED_ROLES = new Set(['admin', 'super_admin'])
 
 function parseArguments(argv) {
-  const result = { mode: 'dry-run' }
+  const result = { mode: 'dry-run', deleteTargetOnly: false }
   for (const argument of argv) {
     if (argument.startsWith('--mode=')) result.mode = argument.slice('--mode='.length)
     else if (argument.startsWith('--project=')) result.projectId = argument.slice('--project='.length)
     else if (argument.startsWith('--database=')) result.databaseId = argument.slice('--database='.length)
     else if (argument.startsWith('--digest=')) result.digest = argument.slice('--digest='.length)
     else if (argument.startsWith('--confirm=')) result.confirmation = argument.slice('--confirm='.length)
+    else if (argument.startsWith('--confirm-delete-target-only=')) result.confirmDeleteTargetOnly = argument.slice('--confirm-delete-target-only='.length)
+    else if (argument === '--delete-target-only') result.deleteTargetOnly = true
     else if (argument === '--help') result.help = true
     else throw new Error(`Unknown argument: ${argument.split('=')[0]}`)
   }
@@ -62,11 +106,11 @@ function usage() {
   return [
     'Firestore delta sync (source is always read-only)',
     'Dry run:',
-    '  node scripts/firebase-firestore-delta-sync.cjs --mode=dry-run',
+    '  node scripts/firebase-firestore-delta-sync.cjs --mode=dry-run --delete-target-only',
     'Apply:',
-    `  node scripts/firebase-firestore-delta-sync.cjs --mode=apply --project=${TARGET.projectId} --database=${TARGET.databaseId} --digest=<PLAN_DIGEST> --confirm=${APPLY_CONFIRMATION}`,
+    `  node scripts/firebase-firestore-delta-sync.cjs --mode=apply --project=${TARGET.projectId} --database=${TARGET.databaseId} --digest=<PLAN_DIGEST> --confirm=${APPLY_CONFIRMATION} --delete-target-only --confirm-delete-target-only=<EXACT_COUNT>`,
     'Verify:',
-    '  node scripts/firebase-firestore-delta-sync.cjs --mode=verify',
+    '  node scripts/firebase-firestore-delta-sync.cjs --mode=verify --delete-target-only',
   ].join('\n')
 }
 
@@ -78,6 +122,9 @@ function assertApplyGuards(arguments_) {
   }
   if (!/^[a-f0-9]{64}$/.test(arguments_.digest || '')) throw new Error('Apply requires the latest dry-run plan digest.')
   if (arguments_.confirmation !== APPLY_CONFIRMATION) throw new Error('Apply confirmation does not match the target-only guard.')
+  if (arguments_.deleteTargetOnly && !/^\d+$/.test(arguments_.confirmDeleteTargetOnly || '')) {
+    throw new Error('Deleting target-only documents requires an exact numeric confirmation count.')
+  }
 }
 
 function cliAuth() {
@@ -203,6 +250,109 @@ function stringField(fields, name) {
   return typeof fields?.[name]?.stringValue === 'string' ? fields[name].stringValue : ''
 }
 
+function scalarField(fields, name) {
+  const value = fields?.[name]
+  if (!value || typeof value !== 'object') return ''
+  for (const key of ['stringValue', 'integerValue', 'doubleValue', 'timestampValue', 'booleanValue']) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) return String(value[key]).trim()
+  }
+  return ''
+}
+
+function normalizedText(value) {
+  return String(value || '').trim().toLocaleLowerCase('vi-VN').replace(/\s+/g, ' ')
+}
+
+function normalizedPhone(value) {
+  const digits = String(value || '').replace(/\D/g, '')
+  if (digits.startsWith('84') && digits.length >= 10) return `0${digits.slice(2)}`
+  return digits
+}
+
+function semanticKeys(collection, fields) {
+  const value = (name) => scalarField(fields, name)
+  const compact = (parts) => parts.every(Boolean) ? parts.join('|') : ''
+  const keys = []
+  if (collection === 'students' || collection === 'staff') {
+    const email = normalizedText(value('email'))
+    const phone = normalizedPhone(value('phone') || value('phoneNumber'))
+    if (email) keys.push(`email:${email}`)
+    if (phone) keys.push(`phone:${phone}`)
+  } else if (collection === 'users') {
+    const employeeCode = normalizedText(value('employeeCode'))
+    const uid = value('uid')
+    const email = normalizedText(value('email'))
+    const phone = normalizedPhone(value('phone') || value('phoneNumber'))
+    if (employeeCode) keys.push(`employee:${employeeCode}`)
+    if (uid) keys.push(`uid:${uid}`)
+    if (email) keys.push(`email:${email}`)
+    if (phone) keys.push(`phone:${phone}`)
+  } else if (collection === 'contracts') {
+    const signature = compact([value('studentId'), value('packageId'), value('startDate'), value('endDate')])
+    if (signature) keys.push(`contract:${signature}`)
+  } else if (collection === 'payments') {
+    const signature = compact([value('studentId'), value('contractId'), value('date'), value('amount')])
+    if (signature) keys.push(`payment:${signature}:${value('installmentId')}`)
+  } else if (collection === 'sessions') {
+    const signature = compact([value('studentId'), value('date'), value('hour'), value('trainerId')])
+    if (signature) keys.push(`session:${signature}`)
+  } else if (collection === 'dailyCheckins') {
+    const signature = compact([value('studentId'), value('date')])
+    if (signature) keys.push(`checkin:${signature}`)
+  } else if (collection === 'packages') {
+    const signature = compact([value('branchId'), normalizedText(value('name')), value('durationMonths'), value('totalSessions')])
+    if (signature) keys.push(`package:${signature}`)
+  }
+  return keys
+}
+
+function targetSemanticIndex(collection, target, excludedIds = new Set()) {
+  const index = new Map()
+  for (const [id, document] of target) {
+    if (excludedIds.has(id)) continue
+    for (const key of semanticKeys(collection, document.fields || {})) {
+      const ids = index.get(key) || new Set()
+      ids.add(id)
+      index.set(key, ids)
+    }
+  }
+  return index
+}
+
+function appendSafeCreate(plan, collection, id, sourceDocument, semanticIndex) {
+  const sourceFields = sourceDocument.fields || {}
+  if (collection === 'users' && PRIVILEGED_ROLES.has(stringField(sourceFields, 'role'))) {
+    addReason(plan, collection, id, 'privileged_new_user_requires_review', ['role'])
+    return
+  }
+  const duplicateKeys = semanticKeys(collection, sourceFields).filter((key) => {
+    const ids = semanticIndex.get(key)
+    return ids && [...ids].some((targetId) => targetId !== id)
+  })
+  if (duplicateKeys.length) {
+    addReason(plan, collection, id, 'semantic_duplicate_conflict', duplicateKeys.map((key) => key.split(':')[0]))
+    return
+  }
+  const stripped = Object.keys(sourceFields).filter((name) => CREATE_STRIPPED_FIELDS[collection]?.has(name))
+  if (stripped.length) {
+    plan.transforms.push({ collection, idHash: sha256(id), reason: 'canonical_create_field_stripped', fields: stripped.sort() })
+    plan.summary.transformedCreates += 1
+  }
+  const createFields = {}
+  for (const [name, value] of Object.entries(sourceFields)) {
+    if (!CREATE_STRIPPED_FIELDS[collection]?.has(name)) createFields[name] = rewriteReferences(value)
+  }
+  plan.writes.push({
+    operation: 'create',
+    collection,
+    id,
+    sourceUpdateTime: sourceDocument.updateTime,
+    fields: createFields,
+    fieldPaths: Object.keys(createFields).sort(),
+  })
+  plan.summary.safeCreates += 1
+}
+
 function rewriteReferences(value) {
   if (Array.isArray(value)) return value.map(rewriteReferences)
   if (!value || typeof value !== 'object') return value
@@ -232,7 +382,10 @@ function createSummary() {
     sourceDeletedIgnored: 0,
     safeCreates: 0,
     safeUpdates: 0,
+    transformedCreates: 0,
     alreadyApplied: 0,
+    targetOnlyDocuments: 0,
+    safeDeletes: 0,
     deferredDocuments: 0,
     quarantinedDocuments: 0,
   }
@@ -242,15 +395,18 @@ function deferredFields(collection, isNew, names) {
   if (isNew) return []
   const deferred = new Set()
   for (const name of names) {
-    if (PROJECTION_FIELDS[collection]?.has(name)) deferred.add(name)
-    if (collection === 'users' && name === 'role') deferred.add(name)
+    if (TARGET_OWNED_FIELDS[collection]?.has(name)) deferred.add(name)
     if (collection === 'schedules') deferred.add(name)
   }
   return [...deferred]
 }
 
-function planCollection(collection, source, baseline, target) {
-  const plan = { writes: [], quarantine: [], sourceDeletes: [], summary: createSummary() }
+function planCollection(collection, source, baseline, target, options = {}) {
+  const plan = { writes: [], deletes: [], transforms: [], quarantine: [], sourceDeletes: [], summary: createSummary() }
+  const plannedTargetOnlyIds = options.deleteTargetOnly
+    ? new Set([...target.keys()].filter((id) => !source.has(id)))
+    : new Set()
+  const semanticIndex = targetSemanticIndex(collection, target, plannedTargetOnlyIds)
   plan.summary.sourceDocuments = source.size
   plan.summary.baselineDocuments = baseline.size
   plan.summary.targetDocuments = target.size
@@ -267,19 +423,12 @@ function planCollection(collection, source, baseline, target) {
         else addReason(plan, collection, id, 'new_id_conflict', changedFields(sourceFields, targetDocument.fields || {}))
         continue
       }
-      if (collection === 'users' && PRIVILEGED_ROLES.has(stringField(sourceFields, 'role'))) {
-        addReason(plan, collection, id, 'privileged_new_user_requires_review', ['role'])
-        continue
-      }
-      plan.writes.push({
-        operation: 'create',
-        collection,
-        id,
-        sourceUpdateTime: sourceDocument.updateTime,
-        fields: rewriteReferences(sourceFields),
-        fieldPaths: Object.keys(sourceFields).sort(),
-      })
-      plan.summary.safeCreates += 1
+      appendSafeCreate(plan, collection, id, sourceDocument, semanticIndex)
+      continue
+    }
+
+    if (!targetDocument) {
+      appendSafeCreate(plan, collection, id, sourceDocument, semanticIndex)
       continue
     }
 
@@ -287,10 +436,6 @@ function planCollection(collection, source, baseline, target) {
     const sourceChanged = changedFields(sourceFields, baselineFields)
     if (!sourceChanged.length) continue
     plan.summary.sourceUpdated += 1
-    if (!targetDocument) {
-      addReason(plan, collection, id, 'target_document_missing', sourceChanged)
-      continue
-    }
     const targetFields = targetDocument.fields || {}
     const needed = sourceChanged.filter((name) => valueAt(sourceFields, name) !== valueAt(targetFields, name))
     if (!needed.length) {
@@ -326,39 +471,61 @@ function planCollection(collection, source, baseline, target) {
     plan.sourceDeletes.push({ collection, idHash: sha256(id), reason: 'source_delete_not_propagated' })
     plan.summary.sourceDeletedIgnored += 1
   }
+  for (const [id, targetDocument] of target) {
+    if (source.has(id)) continue
+    plan.summary.targetOnlyDocuments += 1
+    if (!options.deleteTargetOnly) continue
+    plan.deletes.push({
+      operation: 'delete',
+      collection,
+      id,
+      targetUpdateTime: targetDocument.updateTime,
+    })
+    plan.summary.safeDeletes += 1
+  }
   plan.summary.deferredDocuments = new Set(plan.quarantine.filter((item) => item.reason === 'canonical_field_deferred').map((item) => item.idHash)).size
   plan.summary.quarantinedDocuments = new Set(plan.quarantine.map((item) => item.idHash)).size
   return plan
 }
 
-async function buildPlan(token, snapshot) {
+async function buildPlan(token, snapshot, options = {}) {
   const metadata = await Promise.all([
     assertDatabase(token, SOURCE),
     assertDatabase(token, BASELINE),
     assertDatabase(token, TARGET),
   ])
-  const plan = { writes: [], quarantine: [], sourceDeletes: [], collections: {}, metadata }
+  const plan = { writes: [], deletes: [], transforms: [], quarantine: [], sourceDeletes: [], collections: {}, metadata, deleteTargetOnly: Boolean(options.deleteTargetOnly) }
   for (const collection of COLLECTIONS) {
     const [source, baseline, target] = await Promise.all([
       listDocuments(token, SOURCE, collection, snapshot.sourceSnapshotTime),
       listDocuments(token, BASELINE, collection),
       listDocuments(token, TARGET, collection),
     ])
-    const collectionPlan = planCollection(collection, source, baseline, target)
+    const collectionPlan = planCollection(collection, source, baseline, target, options)
     plan.writes.push(...collectionPlan.writes)
+    plan.deletes.push(...collectionPlan.deletes)
+    plan.transforms.push(...collectionPlan.transforms)
     plan.quarantine.push(...collectionPlan.quarantine)
     plan.sourceDeletes.push(...collectionPlan.sourceDeletes)
     plan.collections[collection] = collectionPlan.summary
   }
   plan.writes.sort((left, right) => `${left.collection}/${left.id}`.localeCompare(`${right.collection}/${right.id}`))
-  plan.planDigest = sha256(plan.writes.map((item) => ({
+  plan.deletes.sort((left, right) => `${left.collection}/${left.id}`.localeCompare(`${right.collection}/${right.id}`))
+  plan.planDigest = sha256([
+    ...plan.writes.map((item) => ({
     operation: item.operation,
     path: `${item.collection}/${item.id}`,
     sourceUpdateTime: item.sourceUpdateTime,
     targetUpdateTime: item.targetUpdateTime || null,
     fieldPaths: item.fieldPaths,
     fieldsHash: sha256(item.fields),
-  })))
+    })),
+    ...plan.deletes.map((item) => ({
+      operation: item.operation,
+      path: `${item.collection}/${item.id}`,
+      targetUpdateTime: item.targetUpdateTime,
+    })),
+  ])
   return plan
 }
 
@@ -380,8 +547,12 @@ function aggregate(plan) {
     sourceDeletedIgnored: sum('sourceDeletedIgnored'),
     safeCreates: sum('safeCreates'),
     safeUpdates: sum('safeUpdates'),
+    transformedCreates: sum('transformedCreates'),
     alreadyApplied: sum('alreadyApplied'),
     pendingWrites: plan.writes.length,
+    targetOnlyDocuments: sum('targetOnlyDocuments'),
+    pendingDeletes: plan.deletes.length,
+    pendingOperations: plan.writes.length + plan.deletes.length,
     quarantinedDocuments: new Set(plan.quarantine.map((item) => `${item.collection}:${item.idHash}`)).size,
     quarantineReasons: reasons,
     quarantineFields: fields,
@@ -397,12 +568,19 @@ function sanitizedReport(mode, snapshot, plan, extra = {}) {
     target: TARGET,
     sourceReadOnly: true,
     deletePropagation: false,
+    targetOnlyDeletionRequested: plan.deleteTargetOnly,
     snapshot,
     planDigest: plan.planDigest,
     summary: aggregate(plan),
     collections: plan.collections,
     quarantine: plan.quarantine,
     sourceDeletes: plan.sourceDeletes,
+    transforms: plan.transforms,
+    plannedDeletes: plan.deletes.map((item) => ({
+      collection: item.collection,
+      idHash: sha256(item.id),
+      targetUpdateTime: item.targetUpdateTime,
+    })),
     writesPerformed: false,
     generatedAt: new Date().toISOString(),
     ...extra,
@@ -427,19 +605,39 @@ function firestoreWrite(item) {
   }
 }
 
+function firestoreDelete(item) {
+  return {
+    delete: documentResource(TARGET, item.collection, item.id),
+    currentDocument: { updateTime: item.targetUpdateTime },
+  }
+}
+
 async function commitPlan(token, plan) {
   let writesPerformed = 0
+  let deletesPerformed = 0
   let batchesCommitted = 0
+  const batches = []
   for (let index = 0; index < plan.writes.length; index += MAX_WRITES_PER_COMMIT) {
-    const batch = plan.writes.slice(index, index + MAX_WRITES_PER_COMMIT)
-    await requestJson(token, `${databaseBase(TARGET)}/documents:commit`, {
-      method: 'POST',
-      body: JSON.stringify({ writes: batch.map(firestoreWrite) }),
-    })
-    writesPerformed += batch.length
-    batchesCommitted += 1
+    batches.push({ kind: 'write', items: plan.writes.slice(index, index + MAX_WRITES_PER_COMMIT) })
   }
-  return { writesPerformed, batchesCommitted }
+  for (let index = 0; index < plan.deletes.length; index += MAX_WRITES_PER_COMMIT) {
+    batches.push({ kind: 'delete', items: plan.deletes.slice(index, index + MAX_WRITES_PER_COMMIT) })
+  }
+  try {
+    for (const batch of batches) {
+      await requestJson(token, `${databaseBase(TARGET)}/documents:commit`, {
+        method: 'POST',
+        body: JSON.stringify({ writes: batch.kind === 'write' ? batch.items.map(firestoreWrite) : batch.items.map(firestoreDelete) }),
+      })
+      if (batch.kind === 'write') writesPerformed += batch.items.length
+      else deletesPerformed += batch.items.length
+      batchesCommitted += 1
+    }
+  } catch (error) {
+    error.migrationOutcome = { writesPerformed, deletesPerformed, batchesCommitted }
+    throw error
+  }
+  return { writesPerformed, deletesPerformed, batchesCommitted }
 }
 
 function readDryRunReport() {
@@ -458,7 +656,7 @@ async function main() {
   assertApplyGuards(arguments_)
   const snapshot = approvedSnapshotState()
   const token = await accessToken()
-  const plan = await buildPlan(token, snapshot)
+  const plan = await buildPlan(token, snapshot, { deleteTargetOnly: arguments_.deleteTargetOnly })
 
   if (arguments_.mode === 'dry-run') {
     const report = sanitizedReport('dry-run', snapshot, plan)
@@ -469,17 +667,28 @@ async function main() {
 
   if (arguments_.mode === 'apply') {
     const approved = readDryRunReport()
+    if (Boolean(approved.targetOnlyDeletionRequested) !== Boolean(arguments_.deleteTargetOnly)) {
+      throw new Error('Apply target-only deletion policy differs from the approved dry-run.')
+    }
+    if (arguments_.deleteTargetOnly) {
+      const expectedDeleteCount = Number(arguments_.confirmDeleteTargetOnly)
+      if (expectedDeleteCount !== plan.deletes.length) {
+        throw new Error(`Target-only delete confirmation must equal the live plan count (${plan.deletes.length}).`)
+      }
+    }
     if (arguments_.digest !== approved.planDigest || plan.planDigest !== approved.planDigest) {
       throw new Error('Live plan differs from the approved dry-run digest. Run a fresh dry-run.')
     }
     if (canonical(snapshot) !== canonical(approved.snapshot)) throw new Error('Approved source snapshot or target backup changed.')
-    let outcome = { writesPerformed: 0, batchesCommitted: 0 }
+    let outcome = { writesPerformed: 0, deletesPerformed: 0, batchesCommitted: 0 }
     try {
       outcome = await commitPlan(token, plan)
     } catch (error) {
+      outcome = error?.migrationOutcome || outcome
       const failure = sanitizedReport('apply', snapshot, plan, {
         writesPerformed: outcome.writesPerformed > 0,
         committedWriteCount: outcome.writesPerformed,
+        committedDeleteCount: outcome.deletesPerformed,
         batchesCommitted: outcome.batchesCommitted,
         error: String(error?.message || error).slice(0, 1000),
       })
@@ -489,6 +698,7 @@ async function main() {
     const report = sanitizedReport('apply', snapshot, plan, {
       writesPerformed: outcome.writesPerformed > 0,
       committedWriteCount: outcome.writesPerformed,
+      committedDeleteCount: outcome.deletesPerformed,
       batchesCommitted: outcome.batchesCommitted,
     })
     const reportPath = writeReport('apply', report)
@@ -499,7 +709,7 @@ async function main() {
   const report = sanitizedReport('verify', snapshot, plan)
   const reportPath = writeReport('verify', report)
   console.log(JSON.stringify({ mode: 'verify', planDigest: plan.planDigest, ...report.summary, reportPath, writesPerformed: false }, null, 2))
-  if (plan.writes.length > 0) process.exitCode = 2
+  if (plan.writes.length > 0 || plan.deletes.length > 0) process.exitCode = 2
 }
 
 main().catch((error) => {
