@@ -1001,6 +1001,8 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
       setSaveError('Khóa học cần được lưu trên Firebase trước khi đổi trạng thái.')
       return
     }
+    if (nextStatus === 'archived' && !window.confirm('Lưu trữ khóa học này? Học viên sẽ mất quyền truy cập ngay cho tới khi khóa học được xuất bản lại.')) return
+    if (course.publicationStatus === 'archived' && nextStatus === 'published' && !window.confirm('Xuất bản lại revision mới nhất? Khóa học sẽ hiển thị lại ngay cho toàn bộ học viên đủ quyền.')) return
     setWorkflowBusy(true)
     setSaveError(null)
     try {
@@ -1442,7 +1444,8 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
                   {course.publicationStatus === 'approved' && <button className="outline-button" type="button" disabled title="Chưa có scheduler backend"><Clock3 size={16} /> Lên lịch — chưa khả dụng</button>}
                   {course.publicationStatus === 'scheduled' && canPublish && <button className="primary-button" type="button" disabled={workflowBusy} onClick={() => void changePublicationStatus('published')}><ShieldCheck size={17} /> Xuất bản lịch cũ</button>}
                   {course.publicationStatus === 'published' && canPublish && <button className="outline-button" type="button" disabled={workflowBusy} onClick={() => void changePublicationStatus('archived')}><Archive size={16} /> Lưu trữ khóa học</button>}
-                  {course.publicationStatus === 'archived' && <p className="academy-workflow-note"><Archive size={16} /> Khóa học đã lưu trữ. Khôi phục revision để tạo bản nháp mới.</p>}
+                  {course.publicationStatus === 'archived' && canPublish && <button className="primary-button" type="button" disabled={workflowBusy} onClick={() => void changePublicationStatus('published')}><ShieldCheck size={17} /> Xuất bản lại bản mới nhất</button>}
+                  {course.publicationStatus === 'archived' && <p className="academy-workflow-note"><Archive size={16} /> Có thể xuất bản lại nguyên revision mới nhất, hoặc tạo bản nháp từ lịch sử nếu cần chỉnh nội dung.</p>}
                   {workflowBusy && <span className="academy-workflow-loading"><LoaderCircle className="spin" size={16} /> Đang xử lý trên server...</span>}
                 </div>
               </section>

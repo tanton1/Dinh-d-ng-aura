@@ -85,6 +85,8 @@ test('publication workflow is server-only, revisioned and fail-closed without a 
   assert.match(block, /review: new Set\(\['approved'\]\)/)
   assert.match(block, /approved: new Set\(academyCoursePublishingSchedulerAvailable \? \['scheduled', 'published'\] : \['published'\]\)/)
   assert.match(block, /published: new Set\(\['archived'\]\)/)
+  assert.match(block, /archived: new Set\(\['published'\]\)/)
+  assert.match(block, /archivedAt: FieldValue\.delete\(\)/)
   assert.match(block, /currentRevision !== expectedRevision/)
   assert.match(block, /new HttpsError\(\s*'aborted'/)
   assert.match(block, /transaction\.update\(courseReference/)
@@ -110,6 +112,8 @@ test('revision diff is answer-key-free and rollback creates a new draft revision
 test('Academy editor exposes approval, diff and safe rollback without enabling scheduled publish', () => {
   assert.match(editorSource, /changePublicationStatus\('approved'\)/)
   assert.match(editorSource, /changePublicationStatus\('published'\)/)
+  assert.match(editorSource, /Xuất bản lại bản mới nhất/)
+  assert.match(editorSource, /Học viên sẽ mất quyền truy cập ngay/)
   assert.match(editorSource, /getCourseRevisionDiff/)
   assert.match(editorSource, /restoreCourseRevisionToDraft/)
   assert.match(editorSource, /Lên lịch — chưa khả dụng/)

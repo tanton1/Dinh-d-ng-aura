@@ -261,10 +261,25 @@ async function assertHistoryAccess(request, db, subjectType, subjectId) {
 
   if (subjectType === 'student' && actor.capabilities.includes('pt.students.assigned.view')) {
     const contracts = await db.collection('contracts').where('studentId', '==', subjectId).limit(40).get()
-    if (!contracts.docs.some((item) => matchesAssignment(item.data(), actor))) {
-      throw new HttpsError('permission-denied', 'Học viên không thuộc phạm vi được giao.')
+    if (contracts.docs.some((item) => matchesAssignment(item.data(), actor))) {
+      return { actor, scope: 'trainer_assigned_student' }
     }
-    return { actor, scope: 'trainer_assigned_student' }
+
+    // Staff workspace may include a learner whose active contract belongs to
+    // another PT but who has an actual session assigned to this PT. Keep the
+    // canonical history endpoint aligned with that server-verified workspace
+    // scope. A caller still needs a real session relationship and cannot use
+    // this fallback to enumerate unrelated learner histories.
+    const actorIds = [...new Set([actor.uid, actor.legacyStaffId].filter(Boolean))]
+    const sessionSnapshots = await Promise.all(actorIds.map((actorId) => db.collection('sessions')
+      .where('studentId', '==', subjectId)
+      .where('trainerId', '==', actorId)
+      .limit(1)
+      .get()))
+    if (sessionSnapshots.some((snapshot) => !snapshot.empty)) {
+      return { actor, scope: 'trainer_scheduled_student' }
+    }
+    throw new HttpsError('permission-denied', 'Học viên không thuộc phạm vi được giao.')
   }
 
   throw new HttpsError('permission-denied', 'Bạn không có quyền xem lịch sử này.')

@@ -373,6 +373,8 @@ test('staff keeps learner navigation while every work capability has a separate 
   assert.match(ptOperationsClientSource, /Không gian Staff đang có nhiều lượt truy cập/)
   assert.match(ptOperationsClientSource, /Kết nối tới dịch vụ Staff tạm gián đoạn/)
   assert.match(trainerPortalSource, /getMyTrainerWorkspace\('students', rangeFrom, addDateDays\(rangeFrom, 61\), 500\)/)
+  assert.match(trainerPortalSource, /<TrainingHistoryPanel/)
+  assert.doesNotMatch(trainerPortalSource, /studentDetail\.sessions\.slice/)
   assert.doesNotMatch(trainerPortalSource, /const \[result, scheduleResult\] = await Promise\.all/)
 })
 

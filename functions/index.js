@@ -1945,6 +1945,7 @@ function immutableCourseRevisionSnapshot(value, status, revision) {
     revisionUpdatedBy: _revisionUpdatedBy,
     approvedAt: _approvedAt,
     approvedBy: _approvedBy,
+    firstPublishedAt: _firstPublishedAt,
     publishedAt: _publishedAt,
     publishedBy: _publishedBy,
     archivedAt: _archivedAt,
@@ -1993,6 +1994,7 @@ exports.transitionCoursePublicationStatus = onCall({ cpu: 'gcf_gen1', maxInstanc
     approved: new Set(academyCoursePublishingSchedulerAvailable ? ['scheduled', 'published'] : ['published']),
     scheduled: new Set(['published']),
     published: new Set(['archived']),
+    archived: new Set(['published']),
   }
   const courseReference = db.doc(`courses/${targetCourseId}`)
   let nextRevision = 0
@@ -2031,8 +2033,11 @@ exports.transitionCoursePublicationStatus = onCall({ cpu: 'gcf_gen1', maxInstanc
       ? { approvedAt: FieldValue.serverTimestamp(), approvedBy: actor.actorId }
       : nextStatus === 'published'
         ? {
-            publishedAt: current.publishedAt ?? FieldValue.serverTimestamp(),
+            firstPublishedAt: current.firstPublishedAt ?? current.publishedAt ?? FieldValue.serverTimestamp(),
+            publishedAt: FieldValue.serverTimestamp(),
             publishedBy: actor.actorId,
+            archivedAt: FieldValue.delete(),
+            archivedBy: FieldValue.delete(),
           }
         : nextStatus === 'archived'
           ? { archivedAt: FieldValue.serverTimestamp(), archivedBy: actor.actorId }

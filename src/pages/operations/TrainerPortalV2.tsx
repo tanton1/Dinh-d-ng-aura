@@ -12,6 +12,7 @@ import {
   type TrainerStudentDetail,
   type CoachWorkspaceScope,
 } from '../../services/ptOperationsV2Service'
+import TrainingHistoryPanel from '../../components/admin/pt/TrainingHistoryPanel'
 import type { ViewId } from '../../types'
 import './OperationsPortalV2.css'
 import './OperationsAttendance.css'
@@ -487,7 +488,12 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
         {(() => { const source = availabilitySourceCopy(studentDetail.availability); return <article className="opv2-availability-summary"><header><strong><CalendarClock /> Lịch rảnh áp dụng tuần {compactDate(studentDetail.availability.weekId)}</strong><span>{source.label} · {studentDetail.availability.slots.length} khung</span></header><p className="opv2-availability-source">{source.note}</p>{studentDetail.availability.slots.length ? <div>{studentDetail.availability.slots.map((slot) => <span key={slot}>{slot.replace('-', ' · ')}:00</span>)}</div> : <p>Chưa có lịch rảnh hợp lệ để xếp lịch.</p>}</article> })()}
         <div className="opv2-student-detail__actions"><button type="button" onClick={() => { setDetailTarget(null); onNavigate?.('staff-workouts') }}><Dumbbell /> Mở giáo án</button><button type="button" onClick={() => { setDetailTarget(null); onNavigate?.('staff-nutrition-reviews') }}><CheckCircle2 /> Duyệt món</button></div>
       </div>}
-      {!detailLoading && studentDetail && detailTab === 'history' && <div className="opv2-student-history">{studentDetail.sessions.slice(0, 30).map((session) => <article key={session.id}><time>{compactDate(session.date)}<small>{String(session.hour ?? '--').padStart(2, '0')}:00</small></time><div><strong>{attendanceLabel(session)}</strong><span>{session.billingStatus === 'charged' ? 'Đã tính 1 buổi' : session.billingStatus === 'exempt' ? 'Không tính buổi' : 'Chưa tính buổi'}</span></div></article>)}{studentDetail.sessions.length === 0 && <div className="opv2-state">Chưa có lịch sử tập.</div>}</div>}
+      {!detailLoading && studentDetail && detailTab === 'history' && <TrainingHistoryPanel
+        subject="student"
+        subjectId={studentDetail.student.id}
+        subjectName={studentDetail.student.name || detailTarget.name}
+        contractId={studentDetail.contracts.find((contract) => contract.schedulableToday)?.id || studentDetail.contracts[0]?.id}
+      />}
       {!detailLoading && studentDetail && detailTab === 'workout' && <div className="opv2-student-workout">{studentDetail.trainingProgram ? <article className="opv2-training-plan-summary"><header><div><small>GIÁO ÁN ĐANG ÁP DỤNG</small><strong>{studentDetail.trainingProgram.title}</strong></div><span>{studentDetail.trainingProgram.status === 'active' ? 'Đang áp dụng' : 'Bản nháp'}</span></header>{studentDetail.trainingProgram.goal && <p>{studentDetail.trainingProgram.goal}</p>}<div><b>{studentDetail.trainingProgram.trainingDayCount}</b><small>buổi mẫu</small><b>{studentDetail.trainingProgram.exerciseCount}</b><small>bài tập</small></div></article> : <div className="opv2-state">Học viên chưa có giáo án đang lưu.</div>}<div className="opv2-student-history">{studentDetail.workoutLogs.slice(0, 20).map((log) => <article key={log.id}><time>{compactDate(String(log.date || log.completedAt || log.updatedAt || '').slice(0, 10))}<small>{log.hour === null || log.hour === undefined ? '' : `${String(log.hour).padStart(2, '0')}:00`}</small></time><div><strong>{String(log.trainingDayTitle || log.programName || log.workoutName || log.title || 'Buổi tập đã ghi nhận')}</strong><span>{log.metrics?.completedSets ? `${log.metrics.completedSets} hiệp · ${Math.round(log.metrics.totalVolumeKg).toLocaleString('vi-VN')} kg tổng tải` : String(log.note || log.status || 'Đã lưu kết quả buổi tập')}</span>{log.painNotes && <small className="is-warning">Lưu ý đau mỏi: {log.painNotes}</small>}</div></article>)}{studentDetail.workoutLogs.length === 0 && <div className="opv2-state">Chưa có nhật ký mức tạ hoặc kết quả buổi tập.</div>}</div></div>}
     </section></div>}
     </>}
