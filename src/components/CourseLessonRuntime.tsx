@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import {
   AlertCircle,
   CheckCircle2,
@@ -159,6 +160,14 @@ function MediaLoading() {
   return <div className="lesson-media-status" role="status"><LoaderCircle className="spin" size={16} /> Đang mở media bảo mật...</div>
 }
 
+function AcademyRichLesson({ body }: { body: string }) {
+  return (
+    <article className="lesson-copy lesson-primary-copy academy-rich-lesson">
+      <ReactMarkdown>{body}</ReactMarkdown>
+    </article>
+  )
+}
+
 export function CoursePrimaryContent({
   courseId,
   lesson,
@@ -184,7 +193,7 @@ export function CoursePrimaryContent({
   }
 
   if (runtimeLesson.primaryContent?.kind === 'rich-text' && runtimeLesson.primaryContent.body?.trim()) {
-    return <article className="lesson-copy lesson-primary-copy"><p>{runtimeLesson.primaryContent.body}</p></article>
+    return <AcademyRichLesson body={runtimeLesson.primaryContent.body} />
   }
 
   if (runtimeLesson.primaryContent?.kind === 'workout' || lesson.type === 'Buổi tập') {

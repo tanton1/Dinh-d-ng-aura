@@ -154,3 +154,90 @@
   .academy-enrollment-create { grid-template-columns: 1fr; }
   .academy-enrollment-create>div { grid-column: auto; }
 }
+
+/* 2026 nutrition curriculum: four-stage learner journey and mobile reading. */
+.academy-phase-rail {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+  margin: 18px 32px 0;
+  padding: 9px;
+  border: 1px solid #ece7ef;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .92);
+  box-shadow: 0 10px 30px rgba(70, 35, 61, .055);
+}
+
+.academy-phase-rail > button {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  color: #726977;
+  background: transparent;
+  text-align: left;
+  transition: background .2s ease, border-color .2s ease, transform .2s ease;
+}
+
+.academy-phase-rail > button:hover { transform: translateY(-1px); background: #fff7fb; }
+.academy-phase-rail > button.is-active { color: #9f1f5a; border-color: #f5bed7; background: linear-gradient(135deg, #fff1f7, #fff9fc); }
+.academy-phase-rail > button.is-complete { color: #397225; background: #f4faef; }
+.academy-phase-rail > button > span { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; color: #fff; background: linear-gradient(135deg, #da246f, #ff6c9f); font-size: 10px; font-weight: 850; }
+.academy-phase-rail > button.is-complete > span { background: linear-gradient(135deg, #5c9d37, #8dc85c); }
+.academy-phase-rail > button > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.academy-phase-rail strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.academy-phase-rail small { color: #918792; font-size: 8px; }
+
+.academy-rich-lesson {
+  max-width: none;
+  padding: clamp(20px, 4vw, 42px);
+  border-color: #eadfe7;
+  background:
+    radial-gradient(circle at 95% 4%, rgba(251, 207, 232, .45), transparent 28%),
+    linear-gradient(145deg, #fff, #fffafd);
+}
+
+.academy-rich-lesson h2 {
+  margin: 28px 0 12px;
+  color: #211923;
+  font-size: clamp(18px, 2.2vw, 25px);
+  letter-spacing: -.025em;
+}
+
+.academy-rich-lesson h2:first-child { margin-top: 0; }
+.academy-rich-lesson h3 { margin: 18px 0 7px; color: #b72968; font-size: 14px; line-height: 1.45; }
+.academy-rich-lesson p { margin: 0 0 12px; color: #554c57; font-size: 13px; line-height: 1.82; white-space: normal; }
+.academy-rich-lesson ul { display: grid; gap: 9px; margin: 0 0 20px; padding: 0; list-style: none; }
+.academy-rich-lesson li { position: relative; padding: 11px 14px 11px 41px; border: 1px solid #f0e7ed; border-radius: 12px; color: #4e4650; background: rgba(255,255,255,.82); font-size: 12px; line-height: 1.62; }
+.academy-rich-lesson li::before { position: absolute; left: 13px; top: 11px; width: 19px; height: 19px; display: grid; place-items: center; content: '✓'; border-radius: 7px; color: #fff; background: #df327a; font-size: 10px; font-weight: 900; }
+.academy-rich-lesson blockquote { margin: 24px 0 0; padding: 16px 18px; border: 1px solid #f2c5d7; border-left: 4px solid #dd2f75; border-radius: 6px 14px 14px 6px; background: #fff5f8; }
+.academy-rich-lesson blockquote p { margin: 0; color: #6c354c; font-size: 12px; }
+.academy-rich-lesson strong { color: inherit; }
+
+@media (min-width: 1021px) {
+  .lesson-sidebar { max-height: calc(100vh - 76px); overflow-y: auto; position: sticky; top: 76px; align-self: start; }
+}
+
+@media (max-width: 820px) {
+  .academy-phase-rail {
+    grid-template-columns: repeat(4, minmax(170px, 1fr));
+    margin: 14px 16px 0;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+  .academy-phase-rail::-webkit-scrollbar { display: none; }
+  .academy-phase-rail > button { scroll-snap-align: start; }
+}
+
+@media (max-width: 520px) {
+  .academy-rich-lesson { padding: 20px 16px; border-radius: 16px; }
+  .academy-rich-lesson h2 { margin-top: 24px; font-size: 19px; }
+  .academy-rich-lesson h3 { font-size: 13px; }
+  .academy-rich-lesson p, .academy-rich-lesson li { font-size: 12px; }
+  .academy-rich-lesson li { padding-left: 38px; }
+}

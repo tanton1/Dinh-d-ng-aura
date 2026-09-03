@@ -951,6 +951,40 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
     }
   }
 
+  const applyAuraNutritionCurriculum = () => {
+    if (isContentLocked) {
+      setSaveError('Phiên bản này đã khóa nội dung. Hãy khôi phục một revision thành bản nháp trước khi thay giáo trình.')
+      return
+    }
+    const hasAuthoredContent = course.modules.some((module) => (
+      module.lessons.length > 0
+      || (module.title.trim() && module.title.trim() !== 'Chương 1' && module.title.trim() !== 'Chương mới')
+    ))
+    if (hasAuthoredContent && !window.confirm('Nạp giáo trình AURA 20 chương sẽ thay toàn bộ chương và bài học hiện tại. Bạn muốn tiếp tục?')) return
+
+    const template = structuredClone(auraFoundationCourse)
+    setCourse((current) => ({
+      ...current,
+      title: template.title,
+      description: template.description,
+      category: template.category,
+      level: template.level,
+      coach: template.coach,
+      duration: template.duration,
+      outcomes: template.outcomes,
+      requirements: template.requirements,
+      modules: template.modules.map((module) => ({
+        ...module,
+        lessons: module.lessons.map(ensureLessonMeta),
+      })),
+      quizAnswerKeys: undefined,
+    }))
+    setDetailLessonModuleIndex(0)
+    setDetailLessonIndex(0)
+    setValidationRequested(false)
+    setSaveError(null)
+  }
+
   const changePublicationStatus = async (nextStatus: 'approved' | 'published' | 'archived') => {
     if (isDirty) {
       setSaveError('Hãy lưu hoặc bỏ các thay đổi cục bộ trước khi duyệt hay xuất bản.')
@@ -1161,7 +1195,7 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
                 </label>
                 <label className={`span-2 ${validationRequested && !course.description.trim() ? 'field-has-error' : ''}`}><span>Mô tả *</span><textarea id="course-description" value={course.description} aria-invalid={validationRequested && !course.description.trim()} onChange={(event) => updateField('description', event.target.value)} />{validationRequested && !course.description.trim() && <small className="field-error">Mô tả giúp học viên hiểu giá trị khóa học.</small>}</label>
                 <label><span>Danh mục</span><select id="course-category" value={course.category} onChange={(event) => updateField('category', event.target.value)}>{!['Dinh dưỡng nền tảng', 'Dinh dưỡng giảm mỡ', 'Dinh dưỡng tăng cơ', 'Dinh dưỡng thể thao', 'Dinh dưỡng chuyên sâu', 'Chứng nhận chuyên môn'].includes(course.category) ? <option>{course.category}</option> : null}<option>Dinh dưỡng nền tảng</option><option>Dinh dưỡng giảm mỡ</option><option>Dinh dưỡng tăng cơ</option><option>Dinh dưỡng thể thao</option><option>Dinh dưỡng chuyên sâu</option><option>Chứng nhận chuyên môn</option></select></label>
-                <label><span>Cấp độ</span><select id="course-level" value={course.level} onChange={(event) => updateField('level', event.target.value)}><option>Cơ bản</option><option>Trung cấp</option><option>Nâng cao</option><option>Mọi cấp độ</option></select></label>
+                <label><span>Cấp độ</span><select id="course-level" value={course.level} onChange={(event) => updateField('level', event.target.value)}>{!['Cơ bản', 'Trung cấp', 'Nâng cao', 'Mọi cấp độ'].includes(course.level) ? <option>{course.level}</option> : null}<option>Cơ bản</option><option>Trung cấp</option><option>Nâng cao</option><option>Mọi cấp độ</option></select></label>
                 <label className={validationRequested && !course.coach.trim() ? 'field-has-error' : ''}><span>Giảng viên *</span><input id="course-coach" value={course.coach} aria-invalid={validationRequested && !course.coach.trim()} onChange={(event) => updateField('coach', event.target.value)} />{validationRequested && !course.coach.trim() && <small className="field-error">Chọn hoặc nhập giảng viên phụ trách.</small>}</label>
                 <label><span>Thời lượng</span><input id="course-duration" value={course.duration} onChange={(event) => updateField('duration', event.target.value)} /></label>
                 <label className={validationRequested && !course.outcomes.length ? 'field-has-error' : ''}><span>Kết quả đầu ra · mỗi dòng một ý</span><textarea id="course-outcomes" value={course.outcomes.join('\n')} aria-invalid={validationRequested && !course.outcomes.length} onChange={(event) => updateField('outcomes', event.target.value.split('\n').map((item) => item.trim()).filter(Boolean))} />{validationRequested && !course.outcomes.length && <small className="field-error">Thêm ít nhất một kết quả đầu ra.</small>}</label>
@@ -1172,8 +1206,8 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
 
           {activeStep === 2 && (
             <section className="editor-step-panel" id="course-curriculum">
-              <div className="builder-heading"><div><span className="eyebrow">BƯỚC 2 / 4</span><h1>Nội dung Aura Academy</h1><p>Thiết kế khóa đào tạo dinh dưỡng chuyên sâu, độc lập hoàn toàn với giáo án PT.</p></div><div className="builder-heading-actions"><button className="outline-button" onClick={handleGenerateOutline} disabled={generatingOutline} style={{color: '#8b5cf6', border: '1px solid #8b5cf6'}}><Sparkles size={17} /> {generatingOutline ? 'Đang tạo...' : 'AI Lên sườn nội dung'}</button><button className="outline-button" onClick={addModule}><Plus size={17} /> Thêm chương</button></div></div>
-              <div className="builder-tip"><span>💡</span><p><strong>Nhịp học ghi nhớ sâu</strong>Kết hợp video, bài đọc, tóm tắt 60 giây, active recall, flashcard và quiz kiểm tra.</p></div>
+              <div className="builder-heading"><div><span className="eyebrow">BƯỚC 2 / 4</span><h1>Nội dung Aura Academy</h1><p>Thiết kế khóa đào tạo dinh dưỡng chuyên sâu, độc lập hoàn toàn với giáo án PT.</p></div><div className="builder-heading-actions"><button className="outline-button academy-curriculum-import" onClick={applyAuraNutritionCurriculum}><BookOpen size={17} /> Nạp giáo trình 20 chương</button><button className="outline-button" onClick={handleGenerateOutline} disabled={generatingOutline} style={{color: '#8b5cf6', border: '1px solid #8b5cf6'}}><Sparkles size={17} /> {generatingOutline ? 'Đang tạo...' : 'AI Lên sườn nội dung'}</button><button className="outline-button" onClick={addModule}><Plus size={17} /> Thêm chương</button></div></div>
+              <div className="builder-tip"><span>📚</span><p><strong>Giáo trình AURA 2026 đã sẵn sàng</strong>Nút “Nạp giáo trình 20 chương” tạo 4 chặng, 60 bài micro-learning, bài thực hành, active recall, flashcard và checkpoint có đáp án bảo mật.</p></div>
               <div className="module-list">
                 {course.modules.map((module, moduleIndex) => (
                   <article className="builder-module editable" key={module.id}>

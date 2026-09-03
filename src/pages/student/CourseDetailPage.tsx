@@ -20,6 +20,7 @@ import {
 import AcademyLessonStudy from '../../components/academy/AcademyLessonStudy'
 import { CoursePrimaryContent, CourseQuizRunner, CourseResourceItem } from '../../components/CourseLessonRuntime'
 import { ProgressBar } from '../../components/ui'
+import { auraNutritionPhases } from '../../data/auraNutritionCurriculum'
 import { getAcademyCoachNote, loadAcademyNoteFromCloud, saveAcademyNoteToCloud } from '../../services/academyLearningService'
 import { summarizeLessonWithAi } from '../../services/generativeAiService'
 import type { Course, CourseLessonDraft, CourseProgress } from '../../types'
@@ -83,6 +84,10 @@ function timestampToMillis(value: unknown) {
   }
   const parsed = typeof value === 'string' || typeof value === 'number' ? new Date(value).getTime() : Number.NaN
   return Number.isNaN(parsed) ? null : parsed
+}
+
+function moduleDisplayTitle(title: string) {
+  return title.replace(/^Chương\s+\d+\s*[·:.-]?\s*/i, '').trim() || title
 }
 
 export default function CourseDetailPage({
@@ -156,6 +161,14 @@ export default function CourseDetailPage({
     ? modules.findIndex((module) => module.lessons.some((lesson) => lesson.id === selectedLesson.id))
     : -1
   const selectedModule = selectedModuleIndex >= 0 ? modules[selectedModuleIndex] : undefined
+  const isAuraNutritionCurriculum = modules.length === 20
+    && modules.every((module) => module.id.startsWith('nutrition-chapter-'))
+  const selectedPhaseIndex = Math.min(3, Math.floor(Math.max(0, selectedModuleIndex) / 5))
+  const phaseProgress = auraNutritionPhases.map((_, phaseIndex) => {
+    const phaseLessons = modules.slice(phaseIndex * 5, phaseIndex * 5 + 5).flatMap((module) => module.lessons)
+    const completed = phaseLessons.filter((lesson) => completedLessonIds.includes(lesson.id)).length
+    return { completed, total: phaseLessons.length }
+  })
   const selectedLessonIndex = selectedLesson ? lessons.findIndex((lesson) => lesson.id === selectedLesson.id) : -1
   const previousLesson = selectedLessonIndex > 0 ? lessons[selectedLessonIndex - 1] : undefined
   const nextLesson = selectedLessonIndex >= 0 && selectedLessonIndex < lessons.length - 1 ? lessons[selectedLessonIndex + 1] : undefined
@@ -395,8 +408,8 @@ export default function CourseDetailPage({
         ) : null}
                 {getAcademyCoachNote(selectedLesson) ? <div className="coach-notes-block"><NotebookPen size={17} /><div><strong>Ghi chú giảng viên</strong><p>{getAcademyCoachNote(selectedLesson)}</p></div></div> : null}
         
-        {/* AI Summary Block */}
-        <div style={{ marginTop: 24, padding: 20, borderRadius: 12, background: 'linear-gradient(to right, #f8fafc, #f1f5f9)', border: '1px solid #e2e8f0' }}>
+        {/* AI is only offered for legacy lessons without a reviewed Academy memory pack. */}
+        {!selectedLesson?.memory ? <div style={{ marginTop: 24, padding: 20, borderRadius: 12, background: 'linear-gradient(to right, #f8fafc, #f1f5f9)', border: '1px solid #e2e8f0' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                <Sparkles size={18} color="#8b5cf6" />
@@ -435,7 +448,7 @@ export default function CourseDetailPage({
               </div>
             </div>
           )}
-        </div>
+        </div> : null}
 
         </article>
       </>
@@ -472,6 +485,31 @@ export default function CourseDetailPage({
           <small>{completedLessonIds.length}/{lessons.length} bài</small>
         </div>
       </section>
+
+      {isAuraNutritionCurriculum ? (
+        <nav className="academy-phase-rail" aria-label="Bốn chặng của giáo trình AURA">
+          {auraNutritionPhases.map((phase, phaseIndex) => {
+            const phaseState = phaseProgress[phaseIndex]
+            const active = phaseIndex === selectedPhaseIndex
+            const complete = phaseState.total > 0 && phaseState.completed === phaseState.total
+            return (
+              <button
+                type="button"
+                key={phase.id}
+                className={`${active ? 'is-active' : ''} ${complete ? 'is-complete' : ''}`}
+                aria-current={active ? 'step' : undefined}
+                onClick={() => {
+                  const firstLesson = modules[phaseIndex * 5]?.lessons[0]
+                  if (firstLesson) selectLesson(firstLesson.id)
+                }}
+              >
+                <span>{complete ? <CheckCircle2 size={15} /> : String(phaseIndex + 1).padStart(2, '0')}</span>
+                <div><strong>{phase.title}</strong><small>{phase.range} · {phaseState.completed}/{phaseState.total} bài</small></div>
+              </button>
+            )
+          })}
+        </nav>
+      ) : null}
 
         <div className="learning-layout">
         <section className="lesson-main">
@@ -536,7 +574,7 @@ export default function CourseDetailPage({
             const moduleCompleted = module.lessons.filter((lesson) => completedLessonIds.includes(lesson.id)).length
             return (
               <div className="lesson-module" key={module.id}>
-                <div className="module-heading"><div><span>CHƯƠNG {moduleIndex + 1}</span><strong>{module.title}</strong></div><small>{moduleCompleted}/{module.lessons.length} bài</small></div>
+                <div className="module-heading"><div><span>CHƯƠNG {moduleIndex + 1}</span><strong>{moduleDisplayTitle(module.title)}</strong></div><small>{moduleCompleted}/{module.lessons.length} bài</small></div>
                 <div className="lesson-list">
                   {module.lessons.map((lesson) => {
                     const completed = completedLessonIds.includes(lesson.id)
@@ -577,7 +615,7 @@ export default function CourseDetailPage({
               {modules.map((module, moduleIndex) => {
                 const moduleCompleted = module.lessons.filter((lesson) => completedLessonIds.includes(lesson.id)).length
                 return <div className="mobile-lesson-module" key={module.id}>
-                  <div className="module-heading"><div><span>CHƯƠNG {moduleIndex + 1}</span><strong>{module.title}</strong></div><small>{moduleCompleted}/{module.lessons.length} bài</small></div>
+                  <div className="module-heading"><div><span>CHƯƠNG {moduleIndex + 1}</span><strong>{moduleDisplayTitle(module.title)}</strong></div><small>{moduleCompleted}/{module.lessons.length} bài</small></div>
                   <div className="lesson-list">
                     {module.lessons.map((lesson) => {
                       const completed = completedLessonIds.includes(lesson.id)
