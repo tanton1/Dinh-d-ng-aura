@@ -1,0 +1,21 @@
+[
+  {
+    "origin": [
+      "https://dinh-duong-aura.vercel.app",
+      "http://localhost:5173",
+      "http://127.0.0.1:4173"
+    ],
+    "method": [
+      "GET",
+      "HEAD"
+    ],
+    "responseHeader": [
+      "Accept-Ranges",
+      "Content-Length",
+      "Content-Range",
+      "Content-Type",
+      "Range"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

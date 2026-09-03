@@ -209,13 +209,11 @@ export function CoursePdfReader({
   lessonId,
   resource,
   canAccess = true,
-  onBackToContent,
 }: {
   courseId: string
   lessonId: string
   resource: LessonResourceDraft
   canAccess?: boolean
-  onBackToContent?: () => void
 }) {
   const runtime = runtimeResource(resource)
   const media = useResolvedMedia(courseId, lessonId, runtime, canAccess)
@@ -260,7 +258,11 @@ export function CoursePdfReader({
   useEffect(() => {
     const stage = stageRef.current
     if (!stage) return
-    const updateWidth = () => setStageWidth(Math.max(0, Math.floor(stage.clientWidth)))
+    const updateWidth = () => {
+      const style = window.getComputedStyle(stage)
+      const horizontalPadding = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight)
+      setStageWidth(Math.max(0, Math.floor(stage.clientWidth - horizontalPadding)))
+    }
     updateWidth()
     const observer = new ResizeObserver(updateWidth)
     observer.observe(stage)
@@ -303,7 +305,7 @@ export function CoursePdfReader({
       if (cancelled || !canvasRef.current) return
       const canvas = canvasRef.current
       const baseViewport = page.getViewport({ scale: 1 })
-      const fitScale = Math.max(.25, (Math.max(240, stageWidth) - 24) / baseViewport.width)
+      const fitScale = Math.max(.25, Math.max(240, stageWidth) / baseViewport.width)
       const viewport = page.getViewport({ scale: fitScale * zoom })
       const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1))
       const context = canvas.getContext('2d', { alpha: false })
@@ -353,7 +355,6 @@ export function CoursePdfReader({
       <header className="lesson-pdf-reader__header">
         <div className="lesson-pdf-reader__title"><span><FileType size={17} /></span><div><small>ĐANG ĐỌC</small><strong>{title}</strong></div></div>
         <div className="lesson-pdf-reader__actions">
-          {onBackToContent ? <button type="button" className="outline-button small" onClick={onBackToContent}><BookOpen size={13} /> Nội dung</button> : null}
           <div className="lesson-pdf-reader__zoom" aria-label="Điều chỉnh kích thước trang">
             <button type="button" onClick={() => setZoom((value) => Math.max(.75, Math.round((value - .25) * 100) / 100))} disabled={zoom <= .75} aria-label="Thu nhỏ trang"><ZoomOut size={13} /></button>
             <button type="button" onClick={() => setZoom(1)} aria-label="Vừa chiều ngang">{Math.round(zoom * 100)}%</button>

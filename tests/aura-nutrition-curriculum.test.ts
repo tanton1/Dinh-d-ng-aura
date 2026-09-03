@@ -100,11 +100,11 @@ test('focused lesson reader keeps searchable outlines and real pagination on eve
   assert.match(courseContentSource, /buildAuraReaderDemoModules/)
   assert.match(courseContentSource, /auraReaderChapterTitles\.map/)
   assert.match(pageSource, /const navigationLessons = useMemo/)
-  assert.match(pageSource, /20 chương toàn văn/)
+  assert.match(pageSource, /\$\{modules\.length\} chương toàn văn/)
   assert.match(pageSource, /className="course-reader-outline"/)
   assert.match(pageSource, /className="course-reader-search"/)
   assert.match(pageSource, /onOpenResources=\{\(\) => setReaderView\('resources'\)\}/)
-  assert.match(pageSource, /Tài liệu PDF/)
+  assert.match(pageSource, /Đọc tài liệu/)
   assert.doesNotMatch(pageSource, /Ghi nhớ sâu|Thảo luận đang hoàn thiện|AI Tổng hợp/)
   assert.match(runtimeSource, /className="academy-article-outline"/)
   assert.match(runtimeSource, /className="academy-handbook-callout"/)
@@ -116,4 +116,26 @@ test('focused lesson reader keeps searchable outlines and real pagination on eve
   assert.match(fullReaderSource, /className="academy-full-reader__pagination"/)
   assert.match(fullReaderSource, /const visiblePages = \[availablePages\[currentPage - 1\]/)
   assert.doesNotMatch(fullReaderSource, /IntersectionObserver/)
+})
+
+test('private PDF reader supports mobile pagination without exposing a redundant content tab', () => {
+  const pageSource = readFileSync(new URL('../src/pages/student/CourseDetailPage.tsx', import.meta.url), 'utf8')
+  const runtimeSource = readFileSync(new URL('../src/components/CourseLessonRuntime.tsx', import.meta.url), 'utf8')
+  const mobileStyles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+  const cors = JSON.parse(readFileSync(new URL('../storage.cors.json', import.meta.url), 'utf8')) as Array<{
+    origin: string[]
+    method: string[]
+    responseHeader: string[]
+  }>
+
+  assert.match(runtimeSource, /import\('pdfjs-dist'\)/)
+  assert.match(runtimeSource, /goToPage\(pageNumber \+ 1\)/)
+  assert.match(runtimeSource, /horizontalPadding/)
+  assert.doesNotMatch(runtimeSource, /lesson-pdf-reader__frame|pdfViewerUrl/)
+  assert.doesNotMatch(runtimeSource, /onBackToContent/)
+  assert.match(pageSource, /!selectedPdfResource \? <button[^>]*role="tab"[\s\S]*?Nội dung/)
+  assert.match(mobileStyles, /\.lesson-pdf-reader__stage \{ padding: 0;/)
+  assert.ok(cors[0]?.origin.includes('https://dinh-duong-aura.vercel.app'))
+  assert.ok(cors[0]?.method.includes('GET'))
+  assert.ok(cors[0]?.responseHeader.includes('Range'))
 })

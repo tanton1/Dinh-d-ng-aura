@@ -317,7 +317,7 @@ export default function CourseDetailPage({
         const supplementalResources = selectedLesson.resources.filter((resource) => resource.id !== selectedPdfResource.id)
         return (
           <article className="course-reader-resources">
-            <CoursePdfReader courseId={String(course.id)} lessonId={selectedLesson.id} resource={selectedPdfResource} canAccess={canViewContent} onBackToContent={() => setReaderView('content')} />
+            <CoursePdfReader courseId={String(course.id)} lessonId={selectedLesson.id} resource={selectedPdfResource} canAccess={canViewContent} />
             {supplementalResources.length ? (
               <details className="course-reader-supplemental" open>
                 <summary>Tài nguyên bổ sung <span>{supplementalResources.length}</span></summary>
@@ -408,7 +408,7 @@ export default function CourseDetailPage({
 
           <nav className="course-reader-toolbar" aria-label="Công cụ đọc">
             <div role="tablist" aria-label="Loại nội dung">
-              <button type="button" role="tab" aria-selected={readerView === 'content'} className={readerView === 'content' ? 'is-active' : ''} onClick={() => setReaderView('content')}><BookOpen size={15} /> Nội dung</button>
+              {!selectedPdfResource ? <button type="button" role="tab" aria-selected={readerView === 'content'} className={readerView === 'content' ? 'is-active' : ''} onClick={() => setReaderView('content')}><BookOpen size={15} /> Nội dung</button> : null}
               {selectedLesson?.resources?.length ? <button type="button" role="tab" aria-selected={readerView === 'resources'} className={readerView === 'resources' ? 'is-active' : ''} onClick={() => setReaderView('resources')}><span>{selectedPdfResource ? 'Đọc tài liệu' : 'Tài nguyên'}</span>{selectedLesson.resources.length ? <span>{selectedLesson.resources.length}</span> : null}</button> : null}
             </div>
             <div className="course-reader-lesson-pager">
