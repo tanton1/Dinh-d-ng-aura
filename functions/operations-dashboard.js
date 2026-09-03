@@ -194,6 +194,25 @@ function reportBucket(value, granularity) {
   return { key, label: `${key.slice(8, 10)}/${key.slice(5, 7)}` }
 }
 
+function nextReportDateKey(value, granularity) {
+  if (granularity !== 'month') return addCalendarDays(value, granularity === 'week' ? 7 : 1)
+  const [year, month] = value.split('-').map(Number)
+  return new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10)
+}
+
+function seedContinuousReportPoints(start, end, granularity, point) {
+  // Never advance the graph with the host machine's local timezone. GitHub
+  // runners use UTC while Aura operates in Vietnam; mutating a Date with
+  // setHours/setDate used to add 31/07 to an August report on CI.
+  let cursorKey = dateKey(start)
+  const endKey = dateKey(end)
+  while (cursorKey <= endKey) {
+    const bucket = reportBucket(`${cursorKey}T12:00:00+07:00`, granularity)
+    if (bucket) point(bucket)
+    cursorKey = nextReportDateKey(cursorKey, granularity)
+  }
+}
+
 function dashboardAnalytics({ ledgerValues, contractValues, offValues, start, end, referenceDate }) {
   const granularity = reportGranularity(start, end)
   const points = new Map()
@@ -205,16 +224,7 @@ function dashboardAnalytics({ ledgerValues, contractValues, offValues, start, en
   // Build a continuous time axis. Previously only days containing a ledger
   // item were returned, which made the chart appear missing or broken when a
   // selected period had sparse activity.
-  const cursor = new Date(start)
-  cursor.setHours(12, 0, 0, 0)
-  const endCursor = new Date(end)
-  endCursor.setHours(12, 0, 0, 0)
-  while (cursor <= endCursor) {
-    const bucket = reportBucket(cursor, granularity)
-    if (bucket) point(bucket)
-    if (granularity === 'month') cursor.setMonth(cursor.getMonth() + 1, 1)
-    else cursor.setDate(cursor.getDate() + (granularity === 'week' ? 7 : 1))
-  }
+  seedContinuousReportPoints(start, end, granularity, point)
   for (const value of contractValues) {
     const effectiveAt = contractEffectiveDate(value)
     if (!effectiveAt || !inRange(effectiveAt, start, end)) continue
@@ -281,16 +291,7 @@ function aggregateRevenueAnalytics(days, start, end) {
     points.set(bucket.key, current)
     return current
   }
-  const cursor = new Date(start)
-  cursor.setHours(12, 0, 0, 0)
-  const endCursor = new Date(end)
-  endCursor.setHours(12, 0, 0, 0)
-  while (cursor <= endCursor) {
-    const bucket = reportBucket(cursor, granularity)
-    if (bucket) point(bucket)
-    if (granularity === 'month') cursor.setMonth(cursor.getMonth() + 1, 1)
-    else cursor.setDate(cursor.getDate() + (granularity === 'week' ? 7 : 1))
-  }
+  seedContinuousReportPoints(start, end, granularity, point)
   for (const day of days) {
     const bucket = reportBucket(`${day.date}T12:00:00+07:00`, granularity)
     if (!bucket) continue
