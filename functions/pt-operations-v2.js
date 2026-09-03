@@ -1230,20 +1230,41 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const actor = await trainerActor(request, db)
     const studentId = documentId(request.data?.studentId, 'Mã học viên')
     const weekId = availabilityWeekId(request.data?.weekId || mondayDateKey())
-    const contracts = await assignedContracts(db, actor, 'training', 300)
-    const studentContracts = contracts.filter((item) => item.studentId === studentId)
+    const [contracts, sessionsSnapshot] = await Promise.all([
+      assignedContracts(db, actor, 'training', 300),
+      db.collection('sessions').where('studentId', '==', studentId).limit(1001).get(),
+    ])
+    if (sessionsSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Lịch sử học viên vượt giới hạn xem nhanh. Hãy mở báo cáo đối soát.')
+    const sessionRows = sessionsSnapshot.docs.map((document) => ({ id: document.id, ...document.data() }))
+    let studentContracts = contracts.filter((item) => item.studentId === studentId)
+
+    // The Staff student list also includes active students currently scheduled
+    // with this PT, even when another PT owns the contract. Keep detail access
+    // aligned with that list while requiring both an owned session and an
+    // effective contract; an unrelated Staff account still cannot enumerate it.
+    if (!studentContracts.length) {
+      const actorIds = new Set([actor.uid, actor.legacyStaffId].filter(Boolean))
+      const scheduledContractIds = [...new Set(sessionRows
+        .filter((session) => actorIds.has(session.trainerId))
+        .map((session) => session.contractId)
+        .filter(Boolean))]
+      const scheduledContractSnapshots = scheduledContractIds.length
+        ? await db.getAll(...scheduledContractIds.map((contractId) => db.doc(`contracts/${contractId}`)))
+        : []
+      studentContracts = scheduledContractSnapshots
+        .filter((snapshot) => snapshot.exists)
+        .map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }))
+        .filter((contract) => contract.studentId === studentId && isEffectiveStaffContract(contract))
+    }
     if (!studentContracts.length) throw new HttpsError('permission-denied', 'Học viên không thuộc phạm vi được giao.')
     const availabilityReference = db.doc(`ptAvailability/${studentId}_${weekId}`)
-    const [studentSnapshot, logsSnapshot, sessionsSnapshot, availabilitySnapshot, configSnapshot] = await Promise.all([
+    const [studentSnapshot, logsSnapshot, availabilitySnapshot, configSnapshot] = await Promise.all([
       db.doc(`students/${studentId}`).get(),
       db.collection('workoutLogs').where('studentId', '==', studentId).limit(100).get(),
-      db.collection('sessions').where('studentId', '==', studentId).limit(1001).get(),
       availabilityReference.get(),
       db.doc('settings/scheduleConfig').get(),
     ])
     if (!studentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy học viên.')
-    if (sessionsSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Lịch sử học viên vượt giới hạn xem nhanh. Hãy mở báo cáo đối soát.')
-    const sessionRows = sessionsSnapshot.docs.map((document) => ({ id: document.id, ...document.data() }))
     const projectedContracts = studentContracts.map((contract) => studentContractProjection(
       contract.id,
       contract,

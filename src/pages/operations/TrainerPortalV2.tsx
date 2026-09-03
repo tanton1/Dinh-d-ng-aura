@@ -115,6 +115,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const [detailTab, setDetailTab] = useState<'overview' | 'history' | 'workout'>('overview')
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState('')
+  const detailRequestRef = useRef(0)
   const loadedRef = useRef(false)
   const canViewStudents = workspace?.tabs.students === true
   const canViewSchedule = workspace?.tabs.schedule === true
@@ -215,6 +216,8 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   }, [])
 
   const openStudentDetail = async (student: TrainerStudentSummary) => {
+    const requestId = detailRequestRef.current + 1
+    detailRequestRef.current = requestId
     setDetailTarget(student)
     setStudentDetail(null)
     setDetailTab('overview')
@@ -249,12 +252,21 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
       return
     }
     try {
-      setStudentDetail(await getMyTrainerStudentDetail(student.id, mondayOf(rangeFrom)))
+      const detail = await getMyTrainerStudentDetail(student.id, mondayOf(rangeFrom))
+      if (detailRequestRef.current === requestId) setStudentDetail(detail)
     } catch (cause) {
-      setDetailError(cause instanceof Error ? cause.message : 'Chưa thể tải hồ sơ học viên.')
+      if (detailRequestRef.current === requestId) setDetailError(cause instanceof Error ? cause.message : 'Chưa thể tải hồ sơ học viên.')
     } finally {
-      setDetailLoading(false)
+      if (detailRequestRef.current === requestId) setDetailLoading(false)
     }
+  }
+
+  const closeStudentDetail = () => {
+    detailRequestRef.current += 1
+    setDetailTarget(null)
+    setStudentDetail(null)
+    setDetailError('')
+    setDetailLoading(false)
   }
 
   const markAttendance = async (
@@ -453,12 +465,13 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
 
     {requestTarget && <div className="opv2-sheet-layer" role="presentation"><button type="button" className="opv2-sheet-backdrop" aria-label="Đóng" onClick={() => setRequestTarget(null)} /><section className="opv2-sheet" role="dialog" aria-modal="true" aria-labelledby="trainer-request-title"><header><div><small>AURA PT · YÊU CẦU CA DẠY</small><h2 id="trainer-request-title">Đổi hoặc hủy lịch</h2></div><button type="button" aria-label="Đóng" onClick={() => setRequestTarget(null)}><X size={19} /></button></header><p className="opv2-sheet-current">Buổi {requestTarget.date} · {String(requestTarget.hour ?? '--').padStart(2, '0')}:00</p><form onSubmit={submitRequest}><div className="opv2-sheet-segment"><button type="button" className={requestType === 'cancel' ? 'active' : ''} onClick={() => setRequestType('cancel')}>Hủy ca</button><button type="button" className={requestType === 'reschedule' ? 'active' : ''} onClick={() => setRequestType('reschedule')}>Đổi ca</button></div>{requestType === 'reschedule' && <div className="opv2-sheet-fields"><label>Ngày mới<input type="date" value={requestDate} onChange={(event) => setRequestDate(event.target.value)} /></label><label>Giờ mới<select value={requestHour} onChange={(event) => setRequestHour(event.target.value)}><option value="">Chọn giờ</option>{[6,7,8,9,10,11,14,15,16,17,18,19,20].map((hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}</select></label></div>}<label>Lý do<textarea maxLength={500} value={requestReason} onChange={(event) => setRequestReason(event.target.value)} placeholder="Nêu rõ lý do để quản lý xử lý…" /></label>{error && <p className="opv2-form-error">{error}</p>}<footer><button type="button" onClick={() => setRequestTarget(null)}>Để sau</button><button type="submit" disabled={submitting}>{submitting ? 'Đang gửi…' : 'Gửi yêu cầu'}</button></footer></form></section></div>}
 
-    {detailTarget && <div className="opv2-sheet-layer" role="presentation"><button type="button" className="opv2-sheet-backdrop" aria-label="Đóng hồ sơ học viên" onClick={() => setDetailTarget(null)} /><section className="opv2-sheet opv2-student-detail" role="dialog" aria-modal="true" aria-labelledby="trainer-student-detail-title"><header><div><small>HỒ SƠ HỌC VIÊN</small><h2 id="trainer-student-detail-title">{detailTarget.name}</h2><p>{detailTarget.phone || detailTarget.email || 'Chưa có thông tin liên hệ'}</p></div><button type="button" aria-label="Đóng" onClick={() => setDetailTarget(null)}><X size={19} /></button></header>
+    {detailTarget && <div className="opv2-sheet-layer" role="presentation"><button type="button" className="opv2-sheet-backdrop" aria-label="Đóng hồ sơ học viên" onClick={closeStudentDetail} /><section className="opv2-sheet opv2-student-detail" role="dialog" aria-modal="true" aria-labelledby="trainer-student-detail-title"><header><div><small>HỒ SƠ HỌC VIÊN</small><h2 id="trainer-student-detail-title">{detailTarget.name}</h2><p>{detailTarget.phone || detailTarget.email || 'Chưa có thông tin liên hệ'}</p></div><button type="button" aria-label="Đóng" onClick={closeStudentDetail}><X size={19} /></button></header>
       <nav className="opv2-student-detail__tabs" aria-label="Chi tiết học viên"><button type="button" className={detailTab === 'overview' ? 'active' : ''} onClick={() => setDetailTab('overview')}><CalendarClock /> Tổng quan</button><button type="button" className={detailTab === 'history' ? 'active' : ''} onClick={() => setDetailTab('history')}><History /> Lịch sử</button><button type="button" className={detailTab === 'workout' ? 'active' : ''} onClick={() => setDetailTab('workout')}><Dumbbell /> Giáo án</button></nav>
       {detailLoading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đối chiếu lịch sử và hợp đồng…</div>}
       {detailError && <div className="opv2-state is-error">{detailError}<button type="button" className="opv2-action" onClick={() => void openStudentDetail(detailTarget)}>Thử lại</button></div>}
       {!detailLoading && studentDetail && detailTab === 'overview' && <div className="opv2-student-detail__content">
         {studentDetail.contracts.map((contract) => <article className="opv2-contract-summary" key={contract.id}><header><div><strong>{contract.packageName}</strong><small>{contract.startDate} → {contract.endDate}</small></div><span className={contract.schedulableToday ? 'is-active' : 'is-inactive'}>{contract.pausedToday ? 'Bảo lưu' : contract.schedulableToday ? 'Hiệu lực' : 'Không thể xếp'}</span></header><div><b>{contract.remainingSessions}</b><span>buổi còn lại</span><small>{contract.usedSessions}/{contract.totalSessions} buổi đã tính theo lịch sử</small></div>{contract.reconciliationStatus !== 'matched' && <p><CircleAlert /> Dữ liệu cũ đang được đối chiếu; Aura ưu tiên lịch sử có tính buổi.</p>}</article>)}
+        {studentDetail.contracts.length === 0 && <div className="opv2-state">Chưa có gói tập hợp lệ để hiển thị.</div>}
         <article className="opv2-availability-summary"><header><strong><CalendarClock /> Lịch rảnh tuần {compactDate(studentDetail.availability.weekId)}</strong><span>{studentDetail.availability.slots.length} khung</span></header>{studentDetail.availability.slots.length ? <div>{studentDetail.availability.slots.map((slot) => <span key={slot}>{slot.replace('-', ' · ')}:00</span>)}</div> : <p>Chưa có lịch rảnh đã gửi cho tuần này.</p>}</article>
         <div className="opv2-student-detail__actions"><button type="button" onClick={() => { setDetailTarget(null); onNavigate?.('staff-workouts') }}><Dumbbell /> Mở giáo án</button><button type="button" onClick={() => { setDetailTarget(null); onNavigate?.('staff-nutrition-reviews') }}><CheckCircle2 /> Duyệt món</button></div>
       </div>}

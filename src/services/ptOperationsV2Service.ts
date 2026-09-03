@@ -2,6 +2,7 @@ import { httpsCallable } from 'firebase/functions'
 import { firebaseAuth } from '../lib/firebase'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { reportClientIssue } from './clientTelemetryService'
+import { normalizeTrainerStudentDetail } from './ptOperationsV2Normalization'
 
 function functionsInstance() {
   if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
@@ -308,7 +309,8 @@ export async function getMyTrainerWorkspace(
 }
 
 export async function getMyTrainerStudentDetail(studentId: string, weekId: string) {
-  return cachedCall<{ studentId: string; weekId: string }, TrainerStudentDetail>('getMyTrainerStudentDetail', { studentId, weekId }, 30_000)
+  const result = await cachedCall<{ studentId: string; weekId: string }, unknown>('getMyTrainerStudentDetail', { studentId, weekId }, 30_000)
+  return normalizeTrainerStudentDetail(result, { studentId, weekId })
 }
 
 export async function confirmMySession(sessionId: string, expectedRevision: number) {
