@@ -26,6 +26,9 @@ function normalizedSubmittedAvailability(value, fallbackWeekId = '') {
     minimumSlots: Math.max(5, Number(value.minimumSlots || 5)),
     requiredSessions: Math.max(1, Number(value.requiredSessions || 1)),
     submittedAt: value.submittedAt || null,
+    // Keep the last server update separately from the submission timestamp so
+    // Staff can explain which snapshot is being inherited without guessing.
+    updatedAt: value.updatedAt || value.submittedAt || null,
   }
 }
 
@@ -94,6 +97,7 @@ function effectiveStudentAvailability({ targetWeek, exact, inherited, profile })
       minimumSlots: legacy.minimumSlots,
       requiredSessions: legacy.requiredSessions,
       submittedAt: null,
+      updatedAt: null,
     }
   }
 
@@ -109,6 +113,7 @@ function effectiveStudentAvailability({ targetWeek, exact, inherited, profile })
     minimumSlots: 5,
     requiredSessions: Math.max(1, Number(profile?.sessionsPerWeek || 1)),
     submittedAt: null,
+    updatedAt: null,
   }
 }
 

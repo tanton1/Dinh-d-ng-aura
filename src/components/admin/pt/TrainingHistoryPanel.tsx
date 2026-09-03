@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CalendarDays, CheckCircle2, ChevronDown, CircleAlert, Clock3, RefreshCw, SlidersHorizontal, UserRound, UsersRound } from 'lucide-react'
 import { getStudentContractUsage, listStudentTrainingHistory, listTrainerTeachingHistory, type ContractUsageSummary, type TrainingHistoryPage, type TrainingHistoryStatus } from '../../../services/businessReportingService'
+import type { TrainerSessionSummary, TrainerStudentContractDetail } from '../../../services/ptOperationsV2Service'
 import '../../../styles-training-history.css'
 
 type Props = {
@@ -8,6 +9,9 @@ type Props = {
   subjectId: string
   subjectName: string
   contractId?: string
+  isDemo?: boolean
+  initialSessions?: TrainerSessionSummary[]
+  initialContracts?: TrainerStudentContractDetail[]
 }
 
 function vietnamDateKey(value = new Date()) {
@@ -95,7 +99,59 @@ function RecordAuditDetails({ record }: { record: TrainingHistoryPage['records']
   </details>
 }
 
-export default function TrainingHistoryPanel({ subject, subjectId, subjectName, contractId }: Props) {
+function demoPage(subjectId: string, sessions: TrainerSessionSummary[], startDate: string, endDate: string, status: TrainingHistoryStatus): TrainingHistoryPage {
+  const visible = sessions.filter((session) => session.date >= startDate && session.date <= endDate && (status === 'all' || session.status === status))
+  const charged = visible.filter((session) => session.billingStatus === 'charged' || ['completed', 'attended', 'no_show'].includes(session.status))
+  const attended = visible.filter((session) => ['present', 'late'].includes(String(session.attendanceStatus || '')) || ['completed', 'attended'].includes(session.status))
+  const noShow = visible.filter((session) => session.attendanceStatus === 'no_show' || session.status === 'no_show')
+  return {
+    schemaVersion: 3,
+    subjectType: 'student',
+    subjectId,
+    records: visible.map((session) => ({
+      id: session.id, date: session.date, hour: session.hour ?? null, status: session.status,
+      studentId: session.studentId, trainerId: session.trainerId, branchId: session.studentBranchId || '', contractId: session.contractId || '',
+      counterpartId: session.trainerId, counterpartName: 'PT Aura',
+      attendance: {
+        id: `attendance-${session.id}`, type: 'demo', billingStatus: session.billingStatus || 'pending',
+        attendanceStatus: session.attendanceStatus || 'pending', lateMinutes: session.lateMinutes || null,
+        noShowReason: session.noShowReason || '', occurredAt: '', createdAt: '',
+      },
+      events: [], revision: session.revision || 0,
+    })),
+    summary: {
+      total: visible.length,
+      completed: attended.length,
+      noShow: noShow.length,
+      cancelled: visible.filter((session) => session.status.includes('cancelled')).length,
+      byStatus: visible.reduce<Record<string, number>>((result, session) => ({ ...result, [session.status]: (result[session.status] || 0) + 1 }), {}),
+      usage: {
+        historySessions: visible.length, chargedSessions: charged.length, attendedSessions: attended.length,
+        presentSessions: attended.filter((session) => session.attendanceStatus !== 'late').length,
+        lateSessions: attended.filter((session) => session.attendanceStatus === 'late').length,
+        noShowSessions: noShow.length, policyChargedSessions: 0,
+        chargedPendingAttendanceSessions: charged.filter((session) => !session.attendanceStatus || session.attendanceStatus === 'pending').length,
+        exemptSessions: visible.filter((session) => session.billingStatus === 'exempt').length,
+        pendingSessions: visible.length - charged.length, legacyChargedSessions: 0,
+      },
+      teaching: null,
+      truncated: false,
+    },
+    hasMore: false,
+    nextCursor: null,
+    filters: { startDate, endDate, status },
+  }
+}
+
+function stableSessionSignature(sessions: TrainerSessionSummary[]) {
+  return sessions.map((session) => `${session.id}:${session.revision || 0}:${session.status}:${session.attendanceStatus || ''}:${session.billingStatus || ''}`).join('|')
+}
+
+function stableContractSignature(contracts: TrainerStudentContractDetail[]) {
+  return contracts.map((contract) => `${contract.id}:${contract.usedSessions}:${contract.remainingSessions}:${contract.reconciliationStatus}`).join('|')
+}
+
+export default function TrainingHistoryPanel({ subject, subjectId, subjectName, contractId, isDemo = false, initialSessions = [], initialContracts = [] }: Props) {
   const [startDate, setStartDate] = useState(() => daysAgoKey(89))
   const [endDate, setEndDate] = useState(todayKey)
   const [status, setStatus] = useState<TrainingHistoryStatus>('all')
@@ -105,6 +161,8 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
   const [contractUsage, setContractUsage] = useState<ContractUsageSummary[]>([])
   const [usageError, setUsageError] = useState('')
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+  const initialSessionSignature = stableSessionSignature(initialSessions)
+  const initialContractSignature = stableContractSignature(initialContracts)
   const trainerShifts = useMemo(() => subject === 'trainer' ? groupTrainerTeachingShifts(page?.records ?? []) : [], [page?.records, subject])
   const selectedUsage = useMemo(() => {
     if (subject !== 'student') return null
@@ -120,6 +178,10 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
     setLoading(true)
     setError('')
     try {
+      if (isDemo && subject === 'student') {
+        setPage(demoPage(subjectId, initialSessions, startDate, endDate, status))
+        return
+      }
       const query = { startDate, endDate, status, pageSize: 50, cursor: append ? page?.nextCursor : null }
       const response = subject === 'student'
         ? await listStudentTrainingHistory(subjectId, query)
@@ -131,7 +193,7 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
     } finally {
       setLoading(false)
     }
-  }, [endDate, page?.nextCursor, startDate, status, subject, subjectId])
+  }, [endDate, initialSessionSignature, isDemo, page?.nextCursor, startDate, status, subject, subjectId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { void load(false) }, [subjectId, startDate, endDate, status]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -139,13 +201,41 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
     if (subject !== 'student' || !subjectId) return
     setUsageError('')
     try {
+      if (isDemo) {
+        setContractUsage(initialContracts.map((contract) => ({
+          contractId: contract.id,
+          packageName: contract.packageName,
+          status: contract.status,
+          startDate: contract.startDate,
+          endDate: contract.endDate,
+          totalSessions: contract.totalSessions,
+          storedUsedSessions: contract.usedSessions,
+          legacyProjectionAdjustment: Math.max(0, contract.usedSessions - Number(contract.chargedSessions || 0)),
+          usedSessions: contract.usedSessions,
+          remainingSessions: contract.remainingSessions,
+          projectionDelta: contract.usedSessions - Number(contract.chargedSessions || contract.usedSessions),
+          reconciliationStatus: contract.reconciliationStatus,
+          historySessions: Number(contract.historySessions || contract.usedSessions),
+          chargedSessions: Number(contract.chargedSessions || contract.usedSessions),
+          attendedSessions: Number(contract.chargedSessions || contract.usedSessions),
+          presentSessions: Number(contract.chargedSessions || contract.usedSessions),
+          lateSessions: 0,
+          noShowSessions: 0,
+          policyChargedSessions: 0,
+          chargedPendingAttendanceSessions: 0,
+          exemptSessions: 0,
+          pendingSessions: 0,
+          legacyChargedSessions: 0,
+        })))
+        return
+      }
       const response = await getStudentContractUsage(subjectId, contractId)
       setContractUsage(response.summaries)
     } catch (cause) {
       setContractUsage([])
       setUsageError(cause instanceof Error ? cause.message : 'Không thể đối chiếu số buổi gói tập.')
     }
-  }, [contractId, subject, subjectId])
+  }, [contractId, initialContractSignature, isDemo, subject, subjectId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { void loadUsage() }, [loadUsage])
 

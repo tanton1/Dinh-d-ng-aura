@@ -58,7 +58,29 @@ test('Staff student detail makes legacy and malformed callable rows safe to rend
     contracts: [{ id: 'contract-a', packageName: { legacy: true }, totalSessions: '36', usedSessions: '12' }],
     sessions: [{ id: 'session-a', date: null, hour: '18', status: null }, null],
     availability: { slots: ['T2-8', null, { day: 'T4', hour: 18 }, 'not-a-slot'] },
-    trainingProgram: { id: 'student-a', title: 'Mông đùi nữ', status: 'active', trainingDayCount: '3', exerciseCount: 18 },
+    trainingProgram: {
+      id: 'student-a',
+      title: 'Mông đùi nữ',
+      status: 'active',
+      trainingDayCount: '3',
+      exerciseCount: 18,
+      trainingDays: [{
+        id: 'day-a',
+        title: 'Mông đùi sau',
+        focusMuscles: ['Mông', null],
+        exercises: [{
+          id: 'hip-thrust',
+          nameVi: 'Hip Thrust',
+          targetMuscles: ['Mông lớn'],
+          sets: '4',
+          repMinimum: '8',
+          repMaximum: 12,
+          targetWeightKg: '40',
+          targetRpe: 8,
+          restSeconds: '90',
+        }],
+      }],
+    },
     workoutLogs: [{ id: 'log-a', programName: { legacy: true }, completedAt: null }, null],
   }, { studentId: 'student-a', weekId: '2026-08-31' })
 
@@ -70,6 +92,10 @@ test('Staff student detail makes legacy and malformed callable rows safe to rend
   assert.equal(detail.availability.weekId, '2026-08-31')
   assert.equal(detail.trainingProgram?.title, 'Mông đùi nữ')
   assert.equal(detail.trainingProgram?.trainingDayCount, 3)
+  assert.equal(detail.trainingProgram?.trainingDays[0].title, 'Mông đùi sau')
+  assert.deepEqual(detail.trainingProgram?.trainingDays[0].focusMuscles, ['Mông'])
+  assert.equal(detail.trainingProgram?.trainingDays[0].exercises[0].sets, 4)
+  assert.equal(detail.trainingProgram?.trainingDays[0].exercises[0].targetWeightKg, 40)
   assert.equal(detail.workoutLogs[0].programName, '')
   assert.equal(detail.workoutLogs[1].id, 'workout-2')
 })

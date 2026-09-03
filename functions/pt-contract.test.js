@@ -16,7 +16,10 @@ const studentAvailabilityPageSource = readFileSync(join(__dirname, '..', 'src', 
 const {
   availabilityCutoff,
   availabilityWeekId,
+  contractCoversDate,
   isEffectiveStaffContract,
+  isContractSchedulableInWeek,
+  isContractSchedulableOn,
   mondayDateKey,
   normalizedTrainerOffDates,
   studentContractProjection,
@@ -33,6 +36,32 @@ test('staff student scope only accepts active contracts in date with remaining s
   assert.equal(isEffectiveStaffContract({ ...base, startDate: '2026-08-30' }, '2026-08-29'), false)
   assert.equal(isEffectiveStaffContract({ ...base, usedSessions: 36 }, '2026-08-29'), false)
   assert.equal(isEffectiveStaffContract({ ...base, pausePeriods: [{ type: 'preservation', startDate: '2026-08-20', endDate: '2026-09-05' }] }, '2026-08-29'), false)
+})
+
+test('session contract linkage uses the session date while new scheduling remains active and quota aware', () => {
+  const expiredToday = {
+    status: 'expired',
+    startDate: '2026-07-01',
+    endDate: '2026-08-31',
+    totalSessions: 24,
+    usedSessions: 24,
+  }
+  assert.equal(contractCoversDate(expiredToday, '2026-08-25'), true)
+  assert.equal(contractCoversDate(expiredToday, '2026-09-03'), false)
+  assert.equal(isContractSchedulableOn(expiredToday, '2026-08-25'), false)
+
+  const renewal = {
+    status: 'active',
+    startDate: '2026-09-07',
+    endDate: '2026-12-06',
+    totalSessions: 36,
+    usedSessions: 0,
+  }
+  assert.equal(contractCoversDate(renewal, '2026-09-10'), true)
+  assert.equal(isContractSchedulableOn(renewal, '2026-09-03'), false)
+  assert.equal(isContractSchedulableOn(renewal, '2026-09-10'), true)
+  assert.equal(isContractSchedulableInWeek(renewal, '2026-08-31'), false)
+  assert.equal(isContractSchedulableInWeek(renewal, '2026-09-07'), true)
 })
 
 test('trainer weekly availability uses a Vietnam Monday, Sunday cutoff and exact OFF dates', () => {
@@ -289,7 +318,9 @@ test('Trainer pages keep separate sections while sharing one actor-scoped bootst
   assert.match(operationsV2Source, /formulaVersion: 'contract-usage-v2'/)
   assert.match(operationsV2Source, /scheduledContractIds/)
   assert.match(operationsV2Source, /actorIds\.has\(session\.trainerId\)/)
-  assert.match(operationsV2Source, /contract\.studentId === studentId && isEffectiveStaffContract\(contract\)/)
+  assert.match(operationsV2Source, /studentContracts = \[\.\.\.new Map\(\[\.\.\.studentContracts, \.\.\.scheduledContracts\]/)
+  assert.match(operationsV2Source, /contractCoversDate\(studentContracts\.find\(\(contract\) => contract\.id === session\.contractId\), session\.date/)
+  assert.match(operationsV2Source, /schedulableOnWeek: isContractSchedulableInWeek\(contract, weekId, projection\.remainingSessions\)/)
   assert.match(operationsV2Source, /db\.collection\('ptWorkoutLogs'\)\.where\('studentId', '==', studentId\)/)
   assert.match(operationsV2Source, /db\.doc\(`ptTrainingPrograms\/\$\{studentId\}`\)\.get\(\)/)
   assert.match(operationsV2Source, /trainingProgram: serialize\(staffStudentTrainingProgramDetail\(trainingProgramSnapshot\)\)/)

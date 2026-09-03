@@ -67,6 +67,7 @@ function normalizeContract(value: unknown, index: number): TrainerStudentContrac
       : asNonNegativeNumber(contract.historySessions),
     reconciliationStatus,
     schedulableToday: asBoolean(contract.schedulableToday),
+    schedulableOnWeek: typeof contract.schedulableOnWeek === 'boolean' ? contract.schedulableOnWeek : undefined,
     pausedToday: asBoolean(contract.pausedToday),
   }
 }
@@ -121,6 +122,31 @@ function normalizeTrainingProgram(value: unknown): TrainerStudentDetail['trainin
   const program = asRecord(value)
   const id = asText(program.id)
   if (!id) return null
+  const trainingDays = (Array.isArray(program.trainingDays) ? program.trainingDays : []).map((rawDay, dayIndex) => {
+    const day = asRecord(rawDay)
+    return {
+      id: asText(day.id, `day-${dayIndex + 1}`),
+      title: asText(day.title, `Buổi ${dayIndex + 1}`),
+      focusMuscles: (Array.isArray(day.focusMuscles) ? day.focusMuscles : []).map((item) => asText(item)).filter(Boolean),
+      notes: asText(day.notes),
+      exercises: (Array.isArray(day.exercises) ? day.exercises : []).map((rawExercise, exerciseIndex) => {
+        const exercise = asRecord(rawExercise)
+        return {
+          id: asText(exercise.id, `exercise-${exerciseIndex + 1}`),
+          nameVi: asText(exercise.nameVi, 'Bài tập Aura'),
+          targetMuscles: (Array.isArray(exercise.targetMuscles) ? exercise.targetMuscles : []).map((item) => asText(item)).filter(Boolean),
+          secondaryMuscles: (Array.isArray(exercise.secondaryMuscles) ? exercise.secondaryMuscles : []).map((item) => asText(item)).filter(Boolean),
+          sets: asNonNegativeNumber(exercise.sets, 1),
+          repMinimum: asNonNegativeNumber(exercise.repMinimum),
+          repMaximum: asNonNegativeNumber(exercise.repMaximum),
+          targetWeightKg: asNonNegativeNumber(exercise.targetWeightKg),
+          targetRpe: asNonNegativeNumber(exercise.targetRpe),
+          restSeconds: asNonNegativeNumber(exercise.restSeconds),
+          notes: asText(exercise.notes),
+        }
+      }),
+    }
+  })
   return {
     id,
     title: asText(program.title, 'Giáo án Aura'),
@@ -129,6 +155,7 @@ function normalizeTrainingProgram(value: unknown): TrainerStudentDetail['trainin
     revision: asNonNegativeNumber(program.revision),
     trainingDayCount: asNonNegativeNumber(program.trainingDayCount),
     exerciseCount: asNonNegativeNumber(program.exerciseCount),
+    trainingDays,
     updatedAt: asText(program.updatedAt),
   }
 }
@@ -193,10 +220,16 @@ export function normalizeTrainerStudentDetail(
     availability: {
       weekId: asDateKey(availability.weekId, fallback.weekId),
       slots: [...new Set((Array.isArray(availability.slots) ? availability.slots : []).map(normalizeAvailabilitySlot).filter(Boolean))],
+      minimumSlots: asNonNegativeNumber(availability.minimumSlots, 5),
+      requiredSessions: asNonNegativeNumber(availability.requiredSessions, 1),
+      revision: asNonNegativeNumber(availability.revision),
+      sourceRevision: asNonNegativeNumber(availability.sourceRevision, asNonNegativeNumber(availability.revision)),
       status: asText(availability.status, 'not_submitted'),
       confirmed: asBoolean(availability.confirmed),
       locked: asBoolean(availability.locked),
       cutoffAt: asText(availability.cutoffAt),
+      submittedAt: asText(availability.submittedAt) || null,
+      updatedAt: asText(availability.updatedAt) || null,
       source: asText(availability.source, 'profile'),
       sourceWeekId: asDateKey(availability.sourceWeekId) || null,
     },

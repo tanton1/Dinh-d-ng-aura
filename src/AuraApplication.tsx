@@ -152,6 +152,7 @@ function AuraApplication() {
   const [adminStudentProgress, setAdminStudentProgress] = useState<AdminStudentProgress[]>([])
   const [adminCourseAnalytics, setAdminCourseAnalytics] = useState<CourseAnalytics[]>([])
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
+  const [staffStudentFocus, setStaffStudentFocus] = useState<{ id: string; name: string } | null>(null)
   const [localNutritionProfile, setLocalNutritionProfile] = useState<NutritionProfileDraft | null>(null)
   const [forceOnboarding, setForceOnboarding] = useState(false)
   const [localProfile, setLocalProfile] = useState<ProfileUpdateInput | null>(null)
@@ -388,7 +389,16 @@ function AuraApplication() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const navigate = (next: ViewId) => goTo(next)
+  const navigate = (next: ViewId) => {
+    // A student opened from the detail sheet is a one-off deep link. Regular
+    // menu navigation must not keep forcing that old student in another page.
+    setStaffStudentFocus(null)
+    goTo(next)
+  }
+  const navigateStaffStudent = (next: ViewId, studentId?: string, studentName?: string) => {
+    setStaffStudentFocus(studentId ? { id: studentId, name: studentName || '' } : null)
+    goTo(next)
+  }
   const navigateEatClean = (screen: AuraRoute['eatCleanScreen'] = 'store', resourceId?: string | null) => {
     const nextHash = eatCleanRouteHash(screen, resourceId)
     if (window.location.hash !== nextHash) window.location.hash = nextHash
@@ -901,13 +911,13 @@ function AuraApplication() {
 
       // PT Coaching & Gym Management Views
       case 'trainer-portal':
-      case 'staff-students': return <AuraOperationsFrame><TrainerPortalV2 section="students" isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
+      case 'staff-students': return <AuraOperationsFrame><TrainerPortalV2 section="students" isDemo={backendMode === 'demo'} onNavigate={navigateStaffStudent} /></AuraOperationsFrame>
       case 'staff-dashboard': return <AuraOperationsFrame><StaffDashboardPage onNavigate={navigate} capabilities={accessContext?.capabilities || []} positions={staffPositions} branchCount={accessContext?.branchIds.length || 0} isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
       case 'staff-schedule': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="teaching" canManageAvailability={backendMode === 'demo' || hasCapability('pt.availability.self.manage')} isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
-      case 'staff-workouts': return <AuraOperationsFrame><PtWorkoutWorkspacePage isDemo={backendMode === 'demo'} canPublishCatalog={role === 'admin' || role === 'super_admin'} /></AuraOperationsFrame>
+      case 'staff-workouts': return <AuraOperationsFrame><PtWorkoutWorkspacePage isDemo={backendMode === 'demo'} canPublishCatalog={role === 'admin' || role === 'super_admin'} initialStudentId={staffStudentFocus?.id} /></AuraOperationsFrame>
       case 'staff-availability': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="availability" canManageAvailability={backendMode === 'demo' || hasCapability('pt.availability.self.manage')} isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
       case 'staff-requests': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="requests" canManageAvailability={backendMode === 'demo' || hasCapability('pt.availability.self.manage')} isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
-      case 'staff-nutrition-reviews': return <AuraOperationsFrame><StaffNutritionReviewsPage /></AuraOperationsFrame>
+      case 'staff-nutrition-reviews': return <AuraOperationsFrame><StaffNutritionReviewsPage initialStudentName={staffStudentFocus?.name} /></AuraOperationsFrame>
       case 'sales-portal':
       case 'staff-quotes': return <AuraOperationsFrame><SalesPortalV2 /></AuraOperationsFrame>
       case 'staff-renewals': return <AuraOperationsFrame><ContractRenewals onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, AlertTriangle, BarChart3, BookOpen, CalendarDays, Check, ChevronRight, Dumbbell,
   History, Plus, RefreshCw, Save, Search, Sparkles, Target, Trash2, Users, Weight,
@@ -38,8 +38,8 @@ function emptyProgram(): PtTrainingProgram {
 
 function demoWorkspace(date: string): PtWorkoutWorkspace {
   const students: PtWorkoutStudent[] = [
-    { id: 'student-demo-a', name: 'Nguyễn Minh Anh', phone: '0900000001', branchId: 'branch-demo' },
-    { id: 'student-demo-b', name: 'Trần Thu Hà', phone: '0900000002', branchId: 'branch-demo' },
+    { id: 'student-a', name: 'Nguyễn Minh Anh', phone: '0900000001', branchId: 'branch-demo' },
+    { id: 'student-b', name: 'Trần Thu Hà', phone: '0900000002', branchId: 'branch-demo' },
   ]
   const programs = students.map((student) => ({
     id: student.id,
@@ -107,13 +107,14 @@ function groupedSessions(sessions: PtWorkoutSession[]) {
   })
 }
 
-export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatalog = false }: { isDemo?: boolean; canPublishCatalog?: boolean }) {
+export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatalog = false, initialStudentId = '' }: { isDemo?: boolean; canPublishCatalog?: boolean; initialStudentId?: string }) {
+  const initialStudentAppliedRef = useRef(false)
   const [tab, setTab] = useState<WorkspaceTab>('today')
   const [date, setDate] = useState(todayKey())
   const [branchFilter, setBranchFilter] = useState('all')
   const [trainerFilter, setTrainerFilter] = useState('all')
   const [workspace, setWorkspace] = useState<PtWorkoutWorkspace>({ sessions: [], students: [], programs: [], logs: [] })
-  const [selectedStudentId, setSelectedStudentId] = useState('')
+  const [selectedStudentId, setSelectedStudentId] = useState(initialStudentId)
   const [selectedSessionId, setSelectedSessionId] = useState('')
   const [programDraft, setProgramDraft] = useState<PtTrainingProgram>(emptyProgram)
   const [selectedDayId, setSelectedDayId] = useState('')
@@ -169,19 +170,25 @@ export default function PtWorkoutWorkspacePage({ isDemo = false, canPublishCatal
       const result = isDemo ? demoWorkspace(date) : await getPtWorkoutWorkspace(date)
       setWorkspace(result)
       const firstSession = result.sessions[0]
-      setSelectedSessionId((current) => result.sessions.some((item) => item.id === current) ? current : firstSession?.id || '')
-      setSelectedStudentId((current) => result.students.some((item) => item.id === current) ? current : firstSession?.studentId || result.students[0]?.id || '')
+      const preferredStudentId = !initialStudentAppliedRef.current && initialStudentId && result.students.some((item) => item.id === initialStudentId) ? initialStudentId : ''
+      const preferredSession = preferredStudentId ? result.sessions.find((session) => session.studentId === preferredStudentId) : null
+      setSelectedSessionId((current) => preferredSession?.id || (result.sessions.some((item) => item.id === current) ? current : firstSession?.id || ''))
+      setSelectedStudentId((current) => preferredStudentId || (result.students.some((item) => item.id === current) ? current : firstSession?.studentId || result.students[0]?.id || ''))
+      if (preferredStudentId) {
+        initialStudentAppliedRef.current = true
+        setTab('program')
+      }
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu giáo án PT.') }
     finally { setLoading(false) }
-  }, [date, isDemo])
+  }, [date, initialStudentId, isDemo])
 
   useEffect(() => { void load(false) }, [load])
   useEffect(() => {
     if (visibleSessions.some((session) => session.id === selectedSessionId)) return
     const first = visibleSessions[0]
     setSelectedSessionId(first?.id || '')
-    if (first) setSelectedStudentId(first.studentId)
-  }, [selectedSessionId, visibleSessions])
+    if (first && tab === 'today') setSelectedStudentId(first.studentId)
+  }, [selectedSessionId, tab, visibleSessions])
   useEffect(() => {
     if (tab !== 'program' || catalog.length || isDemo) return
     void listExerciseCatalog({ includeReview: false }).then(setCatalog).catch((cause) => setError(cause instanceof Error ? cause.message : 'Không thể tải thư viện bài tập.'))

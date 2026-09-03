@@ -76,9 +76,11 @@ function ReviewPhoto({ source, alt, kind }: { source: string; alt: string; kind:
 export function NutritionReviewWorkspace({
   compact = false,
   title = 'Duyệt bữa ăn học viên',
+  initialQuery = '',
 }: {
   compact?: boolean
   title?: string
+  initialQuery?: string
 }) {
   const [reviews, setReviews] = useState<NutritionMealReview[]>([])
   const [scope, setScope] = useState<'all' | 'assigned'>('assigned')
@@ -92,8 +94,8 @@ export function NutritionReviewWorkspace({
   const [slaMinutes, setSlaMinutes] = useState(120)
   const [status, setStatus] = useState<StatusFilter>('pending')
   const [coachId, setCoachId] = useState('all')
-  const [query, setQuery] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [query, setQuery] = useState(initialQuery)
+  const [debouncedQuery, setDebouncedQuery] = useState(initialQuery.trim())
   const [selectedId, setSelectedId] = useState('')
   const [detailSlide, setDetailSlide] = useState(0)
   const [feedback, setFeedback] = useState('')

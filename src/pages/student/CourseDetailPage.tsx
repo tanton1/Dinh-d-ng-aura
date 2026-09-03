@@ -19,6 +19,7 @@ import {
   UnlockKeyhole,
 } from 'lucide-react'
 import AcademyLessonStudy from '../../components/academy/AcademyLessonStudy'
+import AcademyFullChapterReader from '../../components/academy/AcademyFullChapterReader'
 import { CoursePrimaryContent, CourseQuizRunner, CourseResourceItem } from '../../components/CourseLessonRuntime'
 import { ProgressBar } from '../../components/ui'
 import { auraNutritionPhases } from '../../data/auraNutritionCurriculum'
@@ -27,7 +28,7 @@ import { summarizeLessonWithAi } from '../../services/generativeAiService'
 import type { Course, CourseLessonDraft, CourseProgress } from '../../types'
 import { flattenCourseLessons, getCourseModules, getInitialDemoCompletedLessonIds } from '../../utils/courseContent'
 
-type LessonTab = 'overview' | 'memory' | 'resources' | 'notes' | 'discussion'
+type LessonTab = 'overview' | 'full' | 'memory' | 'resources' | 'notes' | 'discussion'
 
 interface CourseDetailPageProps {
   course?: Course
@@ -190,6 +191,14 @@ export default function CourseDetailPage({
     || selectedLesson?.primaryContent?.kind === 'workout'
   const isRichTextLesson = selectedLesson?.primaryContent?.kind === 'rich-text'
     && Boolean(selectedLesson.primaryContent.body?.trim())
+  const taggedChapterNumber = Number(selectedLesson?.tags?.find((tag) => /^Chương\s+\d+$/i.test(tag))?.match(/\d+/)?.[0])
+  const fullChapterNumber = Number.isInteger(taggedChapterNumber) && taggedChapterNumber >= 1 && taggedChapterNumber <= 20
+    ? taggedChapterNumber
+    : selectedModuleIndex + 1
+  const canShowFullReader = isAuraNutritionCurriculum
+    && selectedLesson?.id.endsWith('-core') === true
+    && fullChapterNumber >= 1
+    && fullChapterNumber <= 20
   const openToAllMembers = course?.settings?.accessTier === 'free'
     && course.settings.visibility === 'members'
   const completionThreshold = Math.max(1, Math.min(100, completionPolicy.thresholdPercent ?? 80))
@@ -204,10 +213,10 @@ export default function CourseDetailPage({
 
   useEffect(() => {
     setCompleteState(lessonCompleted ? 'saved' : 'idle')
-    setTab('overview')
+    setTab(canShowFullReader ? 'full' : 'overview')
     setMediaProgress(0)
     setActionError(null)
-  }, [lessonCompleted, selectedLesson?.id])
+  }, [canShowFullReader, lessonCompleted, selectedLesson?.id])
 
   useEffect(() => {
     if (!mobileLessonsOpen) return
@@ -344,6 +353,12 @@ export default function CourseDetailPage({
   }
 
   const renderTab = () => {
+    if (tab === 'full' && canShowFullReader) {
+      if (!canViewContent) {
+        return <div className="lesson-empty-state"><LockKeyhole size={28} /><h2>Bài đọc đầy đủ đang được khóa</h2><p>{openToAllMembers ? 'Bấm “Bắt đầu miễn phí” để mở trọn nội dung chương này.' : 'Ghi danh khóa học để mở toàn bộ giáo trình.'}</p></div>
+      }
+      return <AcademyFullChapterReader chapter={fullChapterNumber} ownerId={noteOwnerId} onOpenPdf={() => setTab('resources')} />
+    }
     if (tab === 'resources') {
       if (!selectedLesson?.resources?.length) {
         return <div className="lesson-empty-state"><FileText size={28} /><h2>Chưa có tài liệu đính kèm</h2><p>Giảng viên sẽ cập nhật tài liệu cho bài học này khi sẵn sàng.</p></div>
@@ -589,7 +604,8 @@ export default function CourseDetailPage({
           {(actionError || learningWarning) && <div className="learning-action-error" role="alert">{actionError ?? `Tiến độ tạm thời chưa lưu: ${learningWarning}`}</div>}
 
           <div className="lesson-tabs" role="tablist" aria-label="Nội dung bài học">
-            <button role="tab" aria-selected={tab === 'overview'} className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>Tổng quan</button>
+            {canShowFullReader ? <button role="tab" aria-selected={tab === 'full'} className={tab === 'full' ? 'active' : ''} onClick={() => setTab('full')}><BookOpen size={14} /> Đọc đầy đủ</button> : null}
+            <button role="tab" aria-selected={tab === 'overview'} className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>{canShowFullReader ? 'Học trọng tâm' : 'Tổng quan'}</button>
             <button role="tab" aria-selected={tab === 'memory'} className={tab === 'memory' ? 'active' : ''} onClick={() => setTab('memory')}>Ghi nhớ sâu</button>
             <button role="tab" aria-selected={tab === 'resources'} className={tab === 'resources' ? 'active' : ''} onClick={() => setTab('resources')}>Tài liệu {selectedLesson?.resources?.length ? <span>{selectedLesson.resources.length}</span> : null}</button>
             <button role="tab" aria-selected={tab === 'notes'} className={tab === 'notes' ? 'active' : ''} onClick={() => setTab('notes')}>Ghi chú</button>

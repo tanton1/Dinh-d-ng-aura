@@ -72,7 +72,21 @@ test('staff dock prioritizes work modules and schedule tools share one weekly wo
   const studentDetail = page.getByRole('dialog', { name: /Nguyễn Minh Anh/ })
   await expect(studentDetail.getByRole('button', { name: /Lịch sử/ })).toBeVisible()
   await expect(studentDetail.getByRole('button', { name: /Giáo án/ })).toBeVisible()
+  await expect(studentDetail.getByText('Lịch đã xếp trong tuần')).toBeVisible()
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   expect(overflow).toBeLessThanOrEqual(1)
+
+  await studentDetail.getByRole('button', { name: /Lịch sử/ }).click()
+  await expect(studentDetail.getByText(/Lịch sử tập · Nguyễn Minh Anh/)).toBeVisible()
+  await expect(studentDetail.getByText(/Firebase Functions chưa/)).toHaveCount(0)
+
+  await studentDetail.getByRole('button', { name: /Giáo án/ }).click()
+  await studentDetail.locator('summary').first().click()
+  await expect(studentDetail.getByText('Đẩy hông với tạ đòn')).toBeVisible()
+
+  await studentDetail.getByRole('button', { name: 'Tổng quan' }).click()
+  await studentDetail.getByRole('button', { name: /Mở giáo án/ }).click()
+  await expect(page).toHaveURL(/#\/staff-workouts$/)
+  await expect(page.getByRole('combobox', { name: 'Học viên' })).toHaveValue('student-a')
 })

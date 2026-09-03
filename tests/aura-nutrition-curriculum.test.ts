@@ -60,16 +60,50 @@ test('medical chapter keeps the education and referral boundary explicit', () =>
   assert.match(medicalCore.primaryContent?.body ?? '', /điều trị/i)
 })
 
+test('full handbook reader ships all 20 PDF chapters as bounded lazy-loaded assets', () => {
+  const readerRoot = new URL('../public/academy/full-reader/', import.meta.url)
+  const manifest = JSON.parse(readFileSync(new URL('manifest.json', readerRoot), 'utf8')) as {
+    schemaVersion: number
+    chapters: Array<{ chapter: number; pageCount: number; wordCount: number; sourceSha256: string }>
+  }
+  assert.equal(manifest.schemaVersion, 1)
+  assert.deepEqual(manifest.chapters.map((chapter) => chapter.chapter), Array.from({ length: 20 }, (_, index) => index + 1))
+  assert.equal(manifest.chapters.reduce((total, chapter) => total + chapter.pageCount, 0), 1823)
+  assert.ok(manifest.chapters.reduce((total, chapter) => total + chapter.wordCount, 0) > 400_000)
+
+  manifest.chapters.forEach((chapter) => {
+    const content = JSON.parse(readFileSync(new URL(`chapter-${String(chapter.chapter).padStart(2, '0')}.json`, readerRoot), 'utf8')) as {
+      schemaVersion: number
+      chapter: number
+      pageCount: number
+      sourceSha256: string
+      pages: Array<{ number: number; blocks: Array<{ kind: string; text: string }> }>
+    }
+    assert.equal(content.schemaVersion, 1)
+    assert.equal(content.chapter, chapter.chapter)
+    assert.equal(content.pages.length, content.pageCount)
+    assert.match(content.sourceSha256, /^[a-f0-9]{64}$/)
+    assert.ok(content.pages.every((page, index) => page.number === index + 1 && page.blocks.length > 0))
+    assert.ok(content.pages.flatMap((page) => page.blocks).every((block) => ['heading', 'paragraph', 'bullet'].includes(block.kind) && block.text.trim()))
+  })
+})
+
 test('lesson reading layout keeps the course outline accessible before content on every viewport', () => {
   const pageSource = readFileSync(new URL('../src/pages/student/CourseDetailPage.tsx', import.meta.url), 'utf8')
   const runtimeSource = readFileSync(new URL('../src/components/CourseLessonRuntime.tsx', import.meta.url), 'utf8')
   const academyStyles = readFileSync(new URL('../src/styles-academy.css', import.meta.url), 'utf8')
+  const fullReaderSource = readFileSync(new URL('../src/components/academy/AcademyFullChapterReader.tsx', import.meta.url), 'utf8')
 
   assert.match(pageSource, /className="course-outline-trigger"/)
   assert.match(pageSource, /onOpenResources=\{\(\) => setTab\('resources'\)\}/)
+  assert.match(pageSource, /setTab\(canShowFullReader \? 'full' : 'overview'\)/)
+  assert.match(pageSource, /Đọc đầy đủ/)
   assert.match(runtimeSource, /className="academy-article-outline"/)
   assert.match(runtimeSource, /className="academy-handbook-callout"/)
   assert.match(academyStyles, /@media \(min-width: 1181px\)[\s\S]*?\.lesson-sidebar \{ grid-column: 1; grid-row: 1;/)
   assert.match(academyStyles, /@media \(max-width: 1180px\)[\s\S]*?\.course-detail-page \.lesson-sidebar \{ display: none; \}[\s\S]*?\.course-outline-trigger \{/)
   assert.match(academyStyles, /\.course-detail-page \.mobile-lesson-sheet-backdrop \{[^}]*display: flex;/)
+  assert.match(fullReaderSource, /\/academy\/full-reader\/chapter-/)
+  assert.match(fullReaderSource, /IntersectionObserver/)
+  assert.match(academyStyles, /\.academy-full-reader__page \{[^}]*content-visibility: auto;/)
 })

@@ -96,6 +96,53 @@ function isEffectiveStaffContract(contract = {}, referenceDate = currentDateKey(
   }))
 }
 
+function contractCoversDate(contract = {}, referenceDate = currentDateKey()) {
+  const status = String(contract.status || 'active').toLowerCase()
+  if (['draft', 'cancelled', 'inactive', 'archived'].includes(status)) return false
+  const startDate = storedDateKey(contract.startDate)
+  const endDate = storedDateKey(contract.endDate)
+  if (!startDate || !endDate || startDate > referenceDate || endDate < referenceDate) return false
+  return !(Array.isArray(contract.pausePeriods) && contract.pausePeriods.some((period) => {
+    if (String(period?.type || '').toLowerCase() !== 'preservation') return false
+    const pauseStart = storedDateKey(period.startDate)
+    const pauseEnd = storedDateKey(period.endDate)
+    return Boolean(pauseStart && pauseEnd && pauseStart <= referenceDate && pauseEnd >= referenceDate)
+  }))
+}
+
+// Contract eligibility is date-sensitive. Staff can see a future schedule or
+// historical sessions after a contract has expired today, so callers that are
+// evaluating a concrete session must pass that session's date rather than the
+// current date.
+function isContractSchedulableOn(contract = {}, referenceDate = currentDateKey(), remainingSessionsOverride) {
+  const remainingSessions = remainingSessionsOverride === undefined
+    ? Math.max(0, Number(contract.remainingSessions ?? Number(contract.totalSessions || 0) - Number(contract.usedSessions || 0)))
+    : Math.max(0, Number(remainingSessionsOverride))
+  if (String(contract.status || 'active').toLowerCase() !== 'active') return false
+  const startDate = storedDateKey(contract.startDate)
+  const endDate = storedDateKey(contract.endDate)
+  if (!startDate || !endDate || startDate > referenceDate || endDate < referenceDate || remainingSessions <= 0) return false
+  return !(Array.isArray(contract.pausePeriods) && contract.pausePeriods.some((period) => {
+    if (String(period?.type || '').toLowerCase() !== 'preservation') return false
+    const pauseStart = storedDateKey(period.startDate)
+    const pauseEnd = storedDateKey(period.endDate)
+    return Boolean(pauseStart && pauseEnd && pauseStart <= referenceDate && pauseEnd >= referenceDate)
+  }))
+}
+
+function isContractSchedulableInWeek(contract = {}, weekId, remainingSessionsOverride) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(weekId || ''))) return false
+  const start = storedDateKey(contract.startDate)
+  const end = storedDateKey(contract.endDate)
+  if (!start || !end) return false
+  for (let index = 0; index < 7; index += 1) {
+    const date = new Date(`${weekId}T12:00:00Z`)
+    date.setUTCDate(date.getUTCDate() + index)
+    if (isContractSchedulableOn(contract, date.toISOString().slice(0, 10), remainingSessionsOverride)) return true
+  }
+  return false
+}
+
 function dateDistance(from, to) {
   const fromTime = Date.parse(`${from}T00:00:00Z`)
   const toTime = Date.parse(`${to}T00:00:00Z`)
@@ -142,10 +189,7 @@ function studentContractProjection(id, contract = {}, today = currentDateKey(), 
     const pauseType = String(period.type || 'preservation').toLowerCase()
     return pauseType === 'preservation' && period.startDate <= today && period.endDate >= today
   })
-  const schedulableToday = String(contract.status || '').toLowerCase() === 'active'
-    && Boolean(startDate && endDate && startDate <= today && endDate >= today)
-    && remainingSessions > 0
-    && !pausedToday
+  const schedulableToday = isContractSchedulableOn(contract, today, remainingSessions)
   const nextPaymentDistance = nextPaymentDate ? dateDistance(today, nextPaymentDate) : null
   const paymentStatus = outstandingAmount <= 0
     ? 'paid'
@@ -298,6 +342,7 @@ function availabilityState(weekId, value, now = new Date()) {
     locked,
     cutoffAt: cutoff.toISOString(),
     submittedAt: value?.submittedAt || null,
+    updatedAt: value?.updatedAt || value?.submittedAt || null,
     source,
     sourceWeekId: value?.sourceWeekId || null,
   }
@@ -317,6 +362,7 @@ function staffStudentContractDetail(contract = {}) {
     historySessions: contract.historySessions,
     reconciliationStatus: contract.reconciliationStatus,
     schedulableToday: contract.schedulableToday,
+    schedulableOnWeek: contract.schedulableOnWeek,
     pausedToday: contract.pausedToday,
   }
 }
@@ -386,6 +432,25 @@ function staffStudentTrainingProgramDetail(snapshot) {
     revision: Math.max(0, Number(program.revision || 0)),
     trainingDayCount: trainingDays.length,
     exerciseCount: trainingDays.reduce((total, day) => total + (Array.isArray(day?.exercises) ? day.exercises.length : 0), 0),
+    trainingDays: trainingDays.slice(0, 7).map((day, dayIndex) => ({
+      id: String(day?.id || `day-${dayIndex + 1}`).slice(0, 100),
+      title: String(day?.title || `Buổi ${dayIndex + 1}`).slice(0, 120),
+      focusMuscles: (Array.isArray(day?.focusMuscles) ? day.focusMuscles : []).filter((item) => typeof item === 'string').slice(0, 8),
+      notes: typeof day?.notes === 'string' ? day.notes.slice(0, 600) : '',
+      exercises: (Array.isArray(day?.exercises) ? day.exercises : []).slice(0, 20).map((exercise, exerciseIndex) => ({
+        id: String(exercise?.id || `exercise-${exerciseIndex + 1}`).slice(0, 100),
+        nameVi: String(exercise?.nameVi || exercise?.name || 'Bài tập Aura').slice(0, 160),
+        targetMuscles: (Array.isArray(exercise?.targetMuscles) ? exercise.targetMuscles : []).filter((item) => typeof item === 'string').slice(0, 8),
+        secondaryMuscles: (Array.isArray(exercise?.secondaryMuscles) ? exercise.secondaryMuscles : []).filter((item) => typeof item === 'string').slice(0, 8),
+        sets: Math.max(1, Number(exercise?.sets || 1)),
+        repMinimum: Math.max(0, Number(exercise?.repMinimum || 0)),
+        repMaximum: Math.max(0, Number(exercise?.repMaximum || 0)),
+        targetWeightKg: Math.max(0, Number(exercise?.targetWeightKg || 0)),
+        targetRpe: Math.max(0, Number(exercise?.targetRpe || 0)),
+        restSeconds: Math.max(0, Number(exercise?.restSeconds || 0)),
+        notes: typeof exercise?.notes === 'string' ? exercise.notes.slice(0, 500) : '',
+      })),
+    })),
     updatedAt: program.updatedAt || null,
   }
 }
@@ -767,7 +832,10 @@ async function trainerScheduleForActor(db, actor, from, to, limit) {
     sessions: [...sessions.values()].map((session) => {
       const student = studentProfiles.get(session.studentId)
       const contract = contracts.get(session.contractId)
-      const contractEffective = Boolean(contract && isEffectiveStaffContract(contract, today))
+      // A session is valid against the contract on the date it is scheduled,
+      // not against today's date. This keeps future renewals and historical
+      // sessions visible to Staff even when the contract changes later.
+      const contractEffective = Boolean(contract && contractCoversDate(contract, session.date || today))
       return {
         ...session,
         studentName: student?.name || 'Học viên Aura',
@@ -1323,25 +1391,25 @@ function createPtOperationsV2Functions({ db, onCall }) {
     ])
     if (sessionsSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Lịch sử học viên vượt giới hạn xem nhanh. Hãy mở báo cáo đối soát.')
     const sessionRows = sessionsSnapshot.docs.map((document) => ({ id: document.id, ...document.data() }))
+    const actorIds = new Set([actor.uid, actor.legacyStaffId].filter(Boolean))
     let studentContracts = contracts.filter((item) => item.studentId === studentId)
 
-    // The Staff student list also includes active students currently scheduled
-    // with this PT, even when another PT owns the contract. Keep detail access
-    // aligned with that list while requiring both an owned session and an
-    // effective contract; an unrelated Staff account still cannot enumerate it.
-    if (!studentContracts.length) {
-      const actorIds = new Set([actor.uid, actor.legacyStaffId].filter(Boolean))
-      const scheduledContractIds = [...new Set(sessionRows
-        .filter((session) => actorIds.has(session.trainerId))
-        .map((session) => session.contractId)
-        .filter(Boolean))]
-      const scheduledContractSnapshots = scheduledContractIds.length
-        ? await db.getAll(...scheduledContractIds.map((contractId) => db.doc(`contracts/${contractId}`)))
-        : []
-      studentContracts = scheduledContractSnapshots
+    // The Staff student list also includes learners currently scheduled with
+    // this PT even when another PT owns the contract. Always merge those
+    // session-linked contracts instead of only doing so when the assigned list
+    // is empty; otherwise an expired contract owned by this PT could hide a
+    // newer active contract attached to a live session.
+    const scheduledContractIds = [...new Set(sessionRows
+      .filter((session) => actorIds.has(session.trainerId))
+      .map((session) => session.contractId)
+      .filter(Boolean))]
+    if (scheduledContractIds.length) {
+      const scheduledContractSnapshots = await db.getAll(...scheduledContractIds.map((contractId) => db.doc(`contracts/${contractId}`)))
+      const scheduledContracts = scheduledContractSnapshots
         .filter((snapshot) => snapshot.exists)
         .map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }))
-        .filter((contract) => contract.studentId === studentId && isEffectiveStaffContract(contract))
+        .filter((contract) => contract.studentId === studentId)
+      studentContracts = [...new Map([...studentContracts, ...scheduledContracts].map((contract) => [contract.id, contract])).values()]
     }
     if (!studentContracts.length) throw new HttpsError('permission-denied', 'Học viên không thuộc phạm vi được giao.')
     const availabilityReference = db.doc(`ptAvailability/${studentId}_${weekId}`)
@@ -1354,13 +1422,21 @@ function createPtOperationsV2Functions({ db, onCall }) {
       db.doc('settings/scheduleConfig').get(),
     ])
     if (!studentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy học viên.')
-    const projectedContracts = studentContracts.map((contract) => studentContractProjection(
-      contract.id,
-      contract,
-      currentDateKey(),
-      sessionRows.filter((session) => session.contractId === contract.id),
-      true,
-    )).sort((left, right) => right.startDate.localeCompare(left.startDate) || left.id.localeCompare(right.id))
+    const projectedContracts = studentContracts.map((contract) => {
+      const projection = studentContractProjection(
+        contract.id,
+        contract,
+        currentDateKey(),
+        sessionRows.filter((session) => session.contractId === contract.id),
+        true,
+      )
+      return {
+        ...projection,
+        // The detail modal may be opened while reviewing a future or past
+        // week. Expose a week-aware status in addition to today's status.
+        schedulableOnWeek: isContractSchedulableInWeek(contract, weekId, projection.remainingSessions),
+      }
+    }).sort((left, right) => right.startDate.localeCompare(left.startDate) || left.id.localeCompare(right.id))
     const config = scheduleConfig(configSnapshot.data())
     const exactAvailability = new Map(availabilitySnapshot.exists ? [[studentId, availabilitySnapshot.data()]] : [])
     const inheritedAvailability = await loadLatestSubmittedFallbacks(
@@ -1386,6 +1462,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       submittedAt: effectiveAvailability.submittedAt,
       source: effectiveAvailability.source,
       sourceWeekId: effectiveAvailability.sourceWeekId,
+      updatedAt: effectiveAvailability.updatedAt,
     })
     const student = studentSnapshot.data() || {}
     const effectiveBranchId = projectedContracts.find((contract) => contract.schedulableToday)?.branchId
@@ -1415,7 +1492,11 @@ function createPtOperationsV2Functions({ db, onCall }) {
         status: student.status || 'active',
       }),
       contracts: serialize(projectedContracts.map(staffStudentContractDetail)),
-      sessions: sessionRows.map((session) => serialize(staffStudentSessionDetail(session)))
+      sessions: sessionRows.map((session) => serialize({
+        ...staffStudentSessionDetail(session),
+        contractEffective: Boolean(studentContracts.find((contract) => contract.id === session.contractId)
+          && contractCoversDate(studentContracts.find((contract) => contract.id === session.contractId), session.date || currentDateKey())),
+      }))
         .sort((left, right) => `${right.date || ''}-${String(right.hour ?? 0).padStart(2, '0')}`.localeCompare(`${left.date || ''}-${String(left.hour ?? 0).padStart(2, '0')}`)),
       availability: serialize(availability),
       trainingProgram: serialize(staffStudentTrainingProgramDetail(trainingProgramSnapshot)),
@@ -1626,7 +1707,10 @@ function createPtOperationsV2Functions({ db, onCall }) {
 module.exports = {
   availabilityCutoff,
   availabilityWeekId,
+  contractCoversDate,
   createPtOperationsV2Functions,
+  isContractSchedulableInWeek,
+  isContractSchedulableOn,
   mondayDateKey,
   normalizedTrainerOffDates,
   isEffectiveStaffContract,

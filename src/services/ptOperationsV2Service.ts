@@ -213,6 +213,8 @@ export interface TrainerStudentContractDetail {
   historySessions: number | null
   reconciliationStatus: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement'
   schedulableToday: boolean
+  /** Whether at least one day in the selected detail week is schedulable. */
+  schedulableOnWeek?: boolean
   pausedToday: boolean
 }
 
@@ -234,10 +236,16 @@ export interface TrainerStudentDetail {
   availability: {
     weekId: string
     slots: string[]
+    minimumSlots?: number
+    requiredSessions?: number
+    revision?: number
+    sourceRevision?: number
     status: string
     confirmed: boolean
     locked: boolean
     cutoffAt: string
+    submittedAt?: string | null
+    updatedAt?: string | null
     source: string
     sourceWeekId: string | null
   }
@@ -249,6 +257,25 @@ export interface TrainerStudentDetail {
     revision: number
     trainingDayCount: number
     exerciseCount: number
+    trainingDays: Array<{
+      id: string
+      title: string
+      focusMuscles: string[]
+      notes: string
+      exercises: Array<{
+        id: string
+        nameVi: string
+        targetMuscles: string[]
+        secondaryMuscles: string[]
+        sets: number
+        repMinimum: number
+        repMaximum: number
+        targetWeightKg: number
+        targetRpe: number
+        restSeconds: number
+        notes: string
+      }>
+    }>
     updatedAt: string
   }
   workoutLogs: Array<Record<string, unknown> & {
