@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   AlertCircle,
   BookOpen,
@@ -87,10 +87,6 @@ function readSavedPage(ownerId: string, chapter: number) {
   }
 }
 
-function mobileReaderQuery() {
-  return typeof window !== 'undefined' && window.matchMedia('(max-width: 700px)').matches
-}
-
 function pageHeading(page: FullReaderPage) {
   return page.blocks.find((block) => block.kind === 'heading')?.text ?? `Trang ${page.number}`
 }
@@ -120,17 +116,7 @@ export default function AcademyFullChapterReader({
   const deferredQuery = useDeferredValue(query)
   const normalizedQuery = normalizeSearch(deferredQuery)
   const [currentPage, setCurrentPage] = useState(() => readSavedPage(ownerId, chapter))
-  const [isMobileReader, setIsMobileReader] = useState(mobileReaderQuery)
   const [isSpeaking, setIsSpeaking] = useState(false)
-  const pageElements = useRef(new Map<number, HTMLElement>())
-
-  useEffect(() => {
-    const query = window.matchMedia('(max-width: 700px)')
-    const updateMode = () => setIsMobileReader(query.matches)
-    updateMode()
-    query.addEventListener?.('change', updateMode)
-    return () => query.removeEventListener?.('change', updateMode)
-  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -154,24 +140,9 @@ export default function AcademyFullChapterReader({
   }, [chapter, ownerId, retryKey])
 
   useEffect(() => {
-    if (!content || status !== 'ready' || isMobileReader) return
-    const observer = new IntersectionObserver((entries) => {
-      const visible = entries
-        .filter((entry) => entry.isIntersecting)
-        .sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0]
-      const page = Number((visible?.target as HTMLElement | undefined)?.dataset.page)
-      if (!Number.isInteger(page) || page < 1) return
-      setCurrentPage(page)
-      try { localStorage.setItem(readingStorageKey(ownerId, chapter), String(page)) } catch { /* Optional device bookmark. */ }
-    }, { rootMargin: '-18% 0px -64% 0px', threshold: [0, .15, .5] })
-    pageElements.current.forEach((element) => observer.observe(element))
-    return () => observer.disconnect()
-  }, [chapter, content, isMobileReader, ownerId, status])
-
-  useEffect(() => {
-    if (!isMobileReader || !content) return
+    if (!content) return
     try { localStorage.setItem(readingStorageKey(ownerId, chapter), String(currentPage)) } catch { /* Optional device bookmark. */ }
-  }, [chapter, content, currentPage, isMobileReader, ownerId])
+  }, [chapter, content, currentPage, ownerId])
 
   useEffect(() => () => {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
@@ -188,19 +159,13 @@ export default function AcademyFullChapterReader({
   const scrollToPage = (requestedPage: number) => {
     const page = Math.min(Math.max(1, requestedPage), content?.pageCount ?? 1)
     setCurrentPage(page)
-    if (isMobileReader) {
-      window.requestAnimationFrame(() => {
-        document.getElementById('academy-mobile-page-navigation')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      })
-      return
-    }
-    pageElements.current.get(page)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    window.requestAnimationFrame(() => {
+      document.getElementById('academy-page-navigation')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
   }
 
   const availablePages = content?.pages ?? []
-  const visiblePages = isMobileReader
-    ? [availablePages[currentPage - 1] ?? availablePages[0]].filter((page): page is FullReaderPage => Boolean(page))
-    : availablePages
+  const visiblePages = [availablePages[currentPage - 1] ?? availablePages[0]].filter((page): page is FullReaderPage => Boolean(page))
 
   const togglePageSpeech = () => {
     if (!content || !('speechSynthesis' in window)) return
@@ -252,10 +217,7 @@ export default function AcademyFullChapterReader({
         </section>
       ) : null}
 
-      {currentPage > 1 ? <button type="button" className="academy-full-reader__resume" onClick={() => scrollToPage(currentPage)}><Bookmark size={16} /> Tiếp tục từ trang {currentPage}</button> : null}
-
-      {isMobileReader ? (
-        <nav id="academy-mobile-page-navigation" className="academy-full-reader__mobile-nav" aria-label="Điều hướng trang bài đọc">
+      <nav id="academy-page-navigation" className="academy-full-reader__pagination" aria-label="Điều hướng trang bài đọc">
           <button type="button" onClick={() => scrollToPage(currentPage - 1)} disabled={currentPage <= 1} aria-label="Đọc trang trước"><ChevronLeft size={18} /> Trang trước</button>
           <label>
             <span>Trang</span>
@@ -264,23 +226,16 @@ export default function AcademyFullChapterReader({
             </select>
           </label>
           <button type="button" onClick={() => scrollToPage(currentPage + 1)} disabled={currentPage >= content.pageCount} aria-label="Đọc trang tiếp theo">Trang sau <ChevronRight size={18} /></button>
-        </nav>
-      ) : null}
+      </nav>
 
       <div className="academy-full-reader__layout">
-        <nav className="academy-full-reader__pages" aria-label="Mục lục trang">
-          <strong>Mục lục trang</strong>
-          <div>{content.pages.map((page) => <button type="button" className={page.number === currentPage ? 'is-current' : ''} key={page.number} onClick={() => scrollToPage(page.number)} aria-current={page.number === currentPage ? 'page' : undefined}><span>{String(page.number).padStart(2, '0')}</span><small>{pageHeading(page)}</small></button>)}</div>
-        </nav>
         <div className="academy-full-reader__document">
           {visiblePages.map((page) => (
             <section
               className="academy-full-reader__page"
               id={`academy-full-chapter-${chapter}-page-${page.number}`}
               data-page={page.number}
-              data-mobile-page={isMobileReader ? 'true' : undefined}
               key={page.number}
-              ref={(element) => { if (element) pageElements.current.set(page.number, element); else pageElements.current.delete(page.number) }}
               aria-labelledby={`academy-full-chapter-${chapter}-page-${page.number}-title`}
             >
               <header><span>CHƯƠNG {chapter}</span><strong id={`academy-full-chapter-${chapter}-page-${page.number}-title`}>Trang {page.number}/{content.pageCount}</strong></header>
@@ -293,13 +248,11 @@ export default function AcademyFullChapterReader({
               </div>
             </section>
           ))}
-          {isMobileReader ? (
-            <nav className="academy-full-reader__mobile-nav is-bottom" aria-label="Điều hướng cuối trang">
+            <nav className="academy-full-reader__pagination is-bottom" aria-label="Điều hướng cuối trang">
               <button type="button" onClick={() => scrollToPage(currentPage - 1)} disabled={currentPage <= 1}><ChevronLeft size={18} /> Trang trước</button>
               <strong>{currentPage} / {content.pageCount}</strong>
               <button type="button" onClick={() => scrollToPage(currentPage + 1)} disabled={currentPage >= content.pageCount}>Trang sau <ChevronRight size={18} /></button>
             </nav>
-          ) : null}
           <footer className="academy-full-reader__source"><FileText size={16} /><div><strong>Nguồn chính thức</strong><small>{content.sourceFile}</small></div><button type="button" onClick={onOpenPdf}>Mở bản PDF có hình minh họa</button></footer>
         </div>
       </div>
