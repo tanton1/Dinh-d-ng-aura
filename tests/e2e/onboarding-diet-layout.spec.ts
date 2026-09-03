@@ -8,7 +8,9 @@ test('untouched onboarding defaults are reflected without creating a legacy raw 
   await page.getByRole('button', { name: 'Để sau' }).click()
   await expect(page).toHaveURL(/#\/courses$/)
 
-  await page.getByRole('button', { name: 'Cá nhân' }).last().click()
+  // Profile is no longer a primary mobile-dock destination. Navigate to the
+  // route directly so this test remains focused on persisted onboarding data.
+  await page.goto('/#/profile')
   await expect(page.getByText('Chiều cao').locator('..')).toContainText('165cm')
   await expect(page.getByText('Cân nặng').locator('..')).toContainText('60.0kg')
   await expect(page.getByText('Tuổi').locator('..')).toContainText(String(new Date().getFullYear() - 1995))
