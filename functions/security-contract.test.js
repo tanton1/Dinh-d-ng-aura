@@ -586,6 +586,7 @@ test('PT schedule V2 is actor-scoped, date-exact, branch-owned and command revis
   assert.match(ptScheduleV2Source, /unassignedEntries/)
   assert.match(rules, /match \/ptScheduleDrafts\/\{draftId\}[\s\S]*?allow write: if false/)
   assert.match(rules, /match \/ptScheduleCommandReceipts\/\{receiptId\}[\s\S]*?allow read, write: if false/)
+  assert.match(rules, /match \/trainerAvailability\/\{availabilityId\}[\s\S]*?allow read, write: if false/)
 })
 
 test('PT schedule migration is target-only, digest-gated, create-only for drafts and preserves sessions', () => {

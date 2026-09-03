@@ -155,6 +155,24 @@ async function exactAvailabilitySnapshots(db, studentIds, week) {
   return (await Promise.all(batches)).flat()
 }
 
+function exactTrainerAvailabilityReferences(db, trainerIds, week) {
+  return [...trainerIds].map((trainerId) => db.doc(`trainerAvailability/${trainerId}_${week}`))
+}
+
+async function exactTrainerAvailabilitySnapshots(db, trainerIds, week) {
+  const references = exactTrainerAvailabilityReferences(db, trainerIds, week)
+  if (!references.length) return []
+  const batches = []
+  for (let index = 0; index < references.length; index += 100) batches.push(db.getAll(...references.slice(index, index + 100)))
+  return (await Promise.all(batches)).flat()
+}
+
+function trainerProfileForWeek(profile = {}, weekly = null, week = '') {
+  if (!weekly || weekly.weekId !== week || !['submitted', 'locked'].includes(String(weekly.status || ''))) return profile
+  const slots = Array.isArray(weekly.slots) ? weekly.slots.slice(0, 100) : []
+  return { ...profile, availableSlots: slots, availabilityMode: slots.length ? 'configured' : 'unconfigured', availabilityRevision: Number(weekly.revision || 0), availabilitySource: 'weekly', availabilityWeekId: week }
+}
+
 function trainerAvailabilityMode(value = {}) {
   if (value?.availabilityMode === 'unrestricted') return 'unrestricted'
   if (value?.availabilityMode === 'configured') return 'configured'
@@ -562,6 +580,9 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
         return { unchanged: true, draftRevision, version: currentPublishedVersion, diff: { create: 0, update: 0, cancel: 0, unchanged: 0 }, warnings: [] }
       }
 
+      const trainerAvailabilitySnapshots = await Promise.all(trainersSnapshot.docs.map((item) => transaction.get(db.doc(`trainerAvailability/${item.id}_${week}`))))
+      const weeklyTrainerAvailability = new Map(trainerAvailabilitySnapshots.filter((item) => item.exists).map((item) => [item.data().trainerId, item.data()]))
+
       const contracts = contractsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
       const weeklySessionTargets = activeDraftData.weeklySessionTargets && typeof activeDraftData.weeklySessionTargets === 'object' && !Array.isArray(activeDraftData.weeklySessionTargets)
         ? activeDraftData.weeklySessionTargets
@@ -574,7 +595,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
           : data.sessionsPerWeek
         return [item.id, { ...data, sessionsPerWeek }]
       }))
-      const trainers = new Map(trainersSnapshot.docs.map((item) => [item.id, item.data()]))
+      const trainers = new Map(trainersSnapshot.docs.map((item) => [item.id, trainerProfileForWeek(item.data(), weeklyTrainerAvailability.get(item.id), week)]))
       const availability = new Map(availabilitySnapshots.filter((item) => item.exists).map((item) => [item.data().studentId, item.data()]))
       const prepared = desiredEntries({
         scheduleId,
@@ -901,14 +922,18 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
     }
     const studentIds = new Set(studentsSnapshot.docs.map((item) => item.id))
     const trainerIds = new Set(trainersSnapshot.docs.map((item) => item.id))
-    const availabilitySnapshots = await exactAvailabilitySnapshots(db, studentIds, week)
+    const [availabilitySnapshots, trainerAvailabilitySnapshots] = await Promise.all([
+      exactAvailabilitySnapshots(db, studentIds, week),
+      exactTrainerAvailabilitySnapshots(db, trainerIds, week),
+    ])
     const weeklyAvailability = new Map(availabilitySnapshots
       .filter((item) => item.exists)
       .map((item) => item.data())
       .filter((item) => studentIds.has(item.studentId))
       .map((item) => [item.studentId, item]))
     const students = new Map(studentsSnapshot.docs.map((item) => [item.id, item.data()]))
-    const trainers = new Map(trainersSnapshot.docs.map((item) => [item.id, item.data()]))
+    const weeklyTrainerAvailability = new Map(trainerAvailabilitySnapshots.filter((item) => item.exists).map((item) => [item.data().trainerId, item.data()]))
+    const trainers = new Map(trainersSnapshot.docs.map((item) => [item.id, trainerProfileForWeek(item.data(), weeklyTrainerAvailability.get(item.id), week)]))
     const inheritedAvailability = await loadLatestSubmittedFallbacks(db, students, weeklyAvailability, week)
     const scheduleData = scheduleSnapshot.exists ? scheduleSnapshot.data() : {}
     const contracts = contractsSnapshot.docs
@@ -967,7 +992,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
           email: data.email || '',
           status: data.status || 'active',
           branchId,
-          availableSlots: Array.isArray(data.availableSlots) ? data.availableSlots.slice(0, 100) : [],
+          availableSlots: Array.isArray(trainers.get(item.id)?.availableSlots) ? trainers.get(item.id).availableSlots.slice(0, 100) : [],
           slotCapacity: normalizedCapacity(data.slotCapacity),
         }
       }),
@@ -1076,5 +1101,6 @@ module.exports = {
   normalizedScheduleConfig,
   branchSlotCapacity,
   trainerAvailabilityMode,
+  trainerProfileForWeek,
   trainerIsAvailable,
 }

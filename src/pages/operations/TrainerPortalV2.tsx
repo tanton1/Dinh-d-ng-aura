@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CalendarDays, CheckCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock3, MapPin, Phone, RefreshCw, Search, Timer, UserCheck, UserX, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { CalendarClock, CalendarDays, CheckCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock3, Dumbbell, History, MapPin, Phone, RefreshCw, Search, Timer, UserCheck, UserX, X } from 'lucide-react'
 import {
   bulkConfirmMySessions,
+  getMyTrainerStudentDetail,
   getMyTrainerWorkspace,
   recordMySessionAttendance,
   requestSessionChange,
   type TrainerSessionRequestSummary,
   type TrainerSessionSummary,
   type TrainerStudentSummary,
+  type TrainerStudentDetail,
   type CoachWorkspaceScope,
 } from '../../services/ptOperationsV2Service'
+import type { ViewId } from '../../types'
 import './OperationsPortalV2.css'
 import './OperationsAttendance.css'
 
@@ -46,6 +49,7 @@ function mondayOf(value: string) {
   return addDateDays(value, -((weekday + 6) % 7))
 }
 function compactDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return '—'
   const [, month, day] = value.split('-')
   return `${day}/${month}`
 }
@@ -78,7 +82,7 @@ function attendanceLabel(session: TrainerSessionSummary) {
   return 'Chờ xác nhận'
 }
 
-export default function TrainerPortalV2({ section = 'students', embedded = false, isDemo = false }: { section?: TrainerWorkspaceSection; embedded?: boolean; isDemo?: boolean }) {
+export default function TrainerPortalV2({ section = 'students', embedded = false, isDemo = false, onNavigate }: { section?: TrainerWorkspaceSection; embedded?: boolean; isDemo?: boolean; onNavigate?: (view: ViewId) => void }) {
   const [workspace, setWorkspace] = useState<CoachWorkspaceScope | null>(null)
   const [scopeLoading, setScopeLoading] = useState(true)
   const [scopeError, setScopeError] = useState('')
@@ -88,6 +92,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const [requests, setRequests] = useState<TrainerSessionRequestSummary[]>([])
   const [from, setFrom] = useState(dateString(new Date()))
   const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [requestTarget, setRequestTarget] = useState<TrainerSessionSummary | null>(null)
@@ -105,6 +110,12 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const [studentQuery, setStudentQuery] = useState('')
   const [studentBranch, setStudentBranch] = useState('all')
   const [studentScope, setStudentScope] = useState<'all' | 'primary' | 'secondary' | 'schedule'>('all')
+  const [detailTarget, setDetailTarget] = useState<TrainerStudentSummary | null>(null)
+  const [studentDetail, setStudentDetail] = useState<TrainerStudentDetail | null>(null)
+  const [detailTab, setDetailTab] = useState<'overview' | 'history' | 'workout'>('overview')
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState('')
+  const loadedRef = useRef(false)
   const canViewStudents = workspace?.tabs.students === true
   const canViewSchedule = workspace?.tabs.schedule === true
   const canViewRequests = workspace?.tabs.requests === true
@@ -140,7 +151,9 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     }).sort((left, right) => left.name.localeCompare(right.name, 'vi'))
   }, [scheduledByStudent, studentBranch, studentQuery, studentScope, students])
   const load = useCallback(async () => {
-    setScopeLoading(true); setLoading(true); setScopeError(''); setError('')
+    if (loadedRef.current) setRefreshing(true)
+    else { setScopeLoading(true); setLoading(true) }
+    setScopeError(''); setError('')
     if (isDemo) {
       const demoSessions: TrainerSessionSummary[] = [
         { id: 'staff-week-1', studentId: 'student-a', trainerId: 'demo-staff', studentName: 'Nguyễn Minh Anh', date: rangeFrom, hour: 8, status: 'attended', attendanceStatus: 'present', billingStatus: 'charged', contractId: 'contract-a', revision: 1, timeZone: 'Asia/Ho_Chi_Minh' },
@@ -156,7 +169,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
       setBranches([{ id: 'branch-demo', name: 'Chi nhánh Aura' }])
       setSessions(demoSessions)
       setRequests(section === 'students' ? [] : [{ id: 'request-demo', sessionId: 'staff-week-3', studentId: 'student-c', contractId: 'contract-c', type: 'reschedule', status: 'pending', originalDate: addDateDays(rangeFrom, 2), originalHour: 18, newDate: addDateDays(rangeFrom, 3), newHour: 18, reason: 'Đề nghị đổi ca theo lịch làm việc' }])
-      setScopeLoading(false); setLoading(false); return
+      loadedRef.current = true; setScopeLoading(false); setLoading(false); setRefreshing(false); return
     }
     try {
       if (section === 'students') {
@@ -192,7 +205,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     } catch (cause) {
       setScopeError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu được phân công.')
     } finally {
-      setScopeLoading(false); setLoading(false)
+      loadedRef.current = true; setScopeLoading(false); setLoading(false); setRefreshing(false)
     }
   }, [isDemo, rangeFrom, section, to])
   useEffect(() => { void load() }, [load])
@@ -200,6 +213,49 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     const timer = window.setInterval(() => setClockNow(Date.now()), 30_000)
     return () => window.clearInterval(timer)
   }, [])
+
+  const openStudentDetail = async (student: TrainerStudentSummary) => {
+    setDetailTarget(student)
+    setStudentDetail(null)
+    setDetailTab('overview')
+    setDetailError('')
+    setDetailLoading(true)
+    if (isDemo) {
+      const demoContract = student.contract
+      setStudentDetail({
+        schemaVersion: 2,
+        formulaVersion: 'contract-usage-v2',
+        student: { id: student.id, name: student.name, phone: student.phone, email: student.email, branchId: student.branchId },
+        contracts: demoContract ? [{
+          id: demoContract.id,
+          packageName: 'Gói PT Aura',
+          status: demoContract.status,
+          startDate: demoContract.startDate || rangeFrom,
+          endDate: demoContract.endDate || addDateDays(rangeFrom, 90),
+          totalSessions: demoContract.totalSessions,
+          usedSessions: demoContract.usedSessions,
+          remainingSessions: demoContract.remainingSessions ?? Math.max(0, demoContract.totalSessions - demoContract.usedSessions),
+          chargedSessions: demoContract.chargedSessions ?? demoContract.usedSessions,
+          historySessions: demoContract.historySessions ?? demoContract.usedSessions,
+          reconciliationStatus: demoContract.reconciliationStatus || 'matched',
+          schedulableToday: true,
+          pausedToday: false,
+        }] : [],
+        sessions: scheduledByStudent.get(student.id) || [],
+        availability: { weekId: mondayOf(rangeFrom), slots: ['T2-8', 'T3-18', 'T5-7', 'T6-18'], status: 'submitted', confirmed: true, locked: false, cutoffAt: '', source: 'weekly', sourceWeekId: mondayOf(rangeFrom) },
+        workoutLogs: [{ id: 'demo-log', date: rangeFrom, programName: 'Thân dưới & mông', completedAt: `${rangeFrom}T09:00:00+07:00` }],
+      })
+      setDetailLoading(false)
+      return
+    }
+    try {
+      setStudentDetail(await getMyTrainerStudentDetail(student.id, mondayOf(rangeFrom)))
+    } catch (cause) {
+      setDetailError(cause instanceof Error ? cause.message : 'Chưa thể tải hồ sơ học viên.')
+    } finally {
+      setDetailLoading(false)
+    }
+  }
 
   const markAttendance = async (
     session: TrainerSessionSummary,
@@ -210,7 +266,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     if (attendanceBusy) return
     setAttendanceBusy(session.id); setError('')
     try {
-      await recordMySessionAttendance({
+      const result = await recordMySessionAttendance({
         sessionId: session.id,
         expectedRevision: Number(session.revision || 0),
         attendanceStatus: status,
@@ -221,8 +277,16 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
       setAttendanceTarget(null)
       setNoShowReason('')
       setAttendanceNote('')
+      setSessions((current) => current.map((item) => item.id === session.id ? {
+        ...item,
+        revision: result.revision,
+        attendanceStatus: status,
+        status: status === 'no_show' ? 'no_show' : 'attended',
+        billingStatus: 'charged',
+        lateMinutes: status === 'late' ? lateMinutes : null,
+      } : item))
       setNotice(status === 'no_show' ? 'Đã ghi nhận học viên không đến. Buổi đã tính vẫn được giữ nguyên.' : 'Đã ghi nhận hiện diện. Số buổi không bị tính thêm lần nữa.')
-      await load()
+      void load()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể xác nhận hiện diện.') }
     finally { setAttendanceBusy('') }
   }
@@ -240,8 +304,10 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     try {
       const result = await bulkConfirmMySessions(items.slice(0, 30).map((session) => ({ sessionId: session.id, expectedRevision: Number(session.revision || 0) })))
       setBulkTargets([])
+      const confirmed = new Map(result.results.filter((item) => item.ok).map((item) => [item.sessionId, item.revision]))
+      setSessions((current) => current.map((session) => confirmed.has(session.id) ? { ...session, revision: confirmed.get(session.id), attendanceStatus: 'present', status: 'attended', billingStatus: 'charged' } : session))
       setNotice(result.failed ? `Đã xác nhận ${result.confirmed}/${result.total} buổi; ${result.failed} buổi cần tải lại để đối soát.` : `Đã xác nhận ${result.confirmed} học viên đều có tập.`)
-      await load()
+      void load()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể xác nhận hàng loạt.') }
     finally { setAttendanceBusy('') }
   }
@@ -279,7 +345,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   }
 
   return <section className={`opv2-page${embedded ? ' is-embedded' : ''}${section === 'students' ? ' is-students' : ''}`}>
-    {!embedded && section === 'students' && <header className="opv2-student-heading"><div><p className="opv2-kicker-dark">AURA STAFF · HỌC VIÊN</p><h1>Học viên phụ trách</h1><p>Học viên được phân công hoặc có lịch dạy, với hợp đồng đang còn thời hạn và số buổi.</p></div><button type="button" aria-label="Tải lại học viên" disabled={loading} onClick={() => void load()}><RefreshCw className={loading ? 'is-spinning' : ''} /></button></header>}
+    {!embedded && section === 'students' && <header className="opv2-student-heading"><div><p className="opv2-kicker-dark">AURA STAFF · HỌC VIÊN</p><h1>Học viên phụ trách</h1><p>Học viên được phân công hoặc có lịch dạy, với hợp đồng đang còn thời hạn và số buổi.</p></div><button type="button" aria-label="Tải lại học viên" disabled={loading || refreshing} onClick={() => void load()}><RefreshCw className={loading || refreshing ? 'is-spinning' : ''} /></button></header>}
     {!embedded && section !== 'students' && <section className="opv2-hero"><p className="opv2-kicker">Aura Staff · Công việc</p><h1>{sectionCopy[section].title}</h1><p>{sectionCopy[section].description}</p></section>}
     {scopeLoading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đối chiếu phân công trong Học viên PT Gym…</div>}
     {!scopeLoading && scopeError && <div className="opv2-state is-error" data-testid="staff-workspace-error"><strong>Không thể tải không gian Staff</strong><span>{scopeError}</span><small>Đây không phải trạng thái “chưa có chi nhánh”. Aura cần đối chiếu kết nối hoặc hồ sơ phân quyền của tài khoản.</small><button className="opv2-action" onClick={() => void load()}>Kết nối lại</button></div>}
@@ -290,7 +356,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     {loading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đồng bộ phạm vi làm việc…</div>}
     {error && !requestTarget && <div className="opv2-state is-error">{error}<button className="opv2-action" onClick={() => void load()}>Thử lại</button></div>}
 
-    {!loading && !error && section === 'students' && <>
+    {!loading && section === 'students' && <>
       <section className="opv2-student-metrics" aria-label="Tổng hợp học viên phụ trách"><div><strong>{students.length}</strong><span>Đang hiệu lực</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'primary').length}</strong><span>PT chính</span></div><div><strong>{students.filter((item) => item.assignmentRole === 'secondary').length}</strong><span>PT phụ</span></div><div><strong>{students.filter((item) => scheduledByStudent.has(item.id)).length}</strong><span>Có lịch dạy</span></div></section>
       <section className="opv2-student-filters" aria-label="Lọc học viên">
         <label className="is-search"><Search /><input aria-label="Tìm học viên" value={studentQuery} onChange={(event) => setStudentQuery(event.target.value)} placeholder="Tên hoặc số điện thoại" /></label>
@@ -300,16 +366,17 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
       <div className="opv2-student-result"><h2>{filteredStudents.length} học viên</h2><span>{studentBranch === 'all' ? 'Tất cả chi nhánh trong phạm vi' : branchNames.get(studentBranch) || 'Chi nhánh đã chọn'}</span></div>
       <div className="opv2-list opv2-student-list">{filteredStudents.map((student) => {
         const studentSessions = scheduledByStudent.get(student.id) || []
-        const remaining = student.contract ? Math.max(0, student.contract.totalSessions - student.contract.usedSessions) : null
+        const remaining = student.contract ? student.contract.remainingSessions ?? Math.max(0, student.contract.totalSessions - student.contract.usedSessions) : null
         return <article className="opv2-card opv2-student-card" key={student.id}>
           <div className="opv2-card-head"><div><h3>{student.name}</h3><p>{student.phone ? <><Phone size={13} /> {student.phone}</> : 'Chưa có số điện thoại'}</p></div><span className="opv2-badge">{student.assignmentRole === 'primary' ? 'PT chính' : student.assignmentRole === 'secondary' ? 'PT phụ' : 'Theo lịch dạy'}</span></div>
           <div className="opv2-student-meta"><span><MapPin /> {branchNames.get(student.branchId) || (student.branchId ? 'Chi nhánh được phân công' : 'Chưa xác định chi nhánh')}</span><span>{remaining === null ? 'Hợp đồng cần đối chiếu' : `Còn ${remaining}/${student.contract?.totalSessions || 0} buổi`}</span></div>
           <div className="opv2-student-schedule"><strong><CalendarDays /> Lịch dạy được phân</strong>{studentSessions.length ? <div>{studentSessions.slice(0, 3).map((session) => <span key={session.id}>{compactDate(session.date)} · {String(session.hour ?? '--').padStart(2, '0')}:00</span>)}</div> : <small>Chưa có ca trong 62 ngày tới</small>}</div>
+          <button type="button" className="opv2-student-open" onClick={() => void openStudentDetail(student)}>Xem hồ sơ & lịch sử</button>
         </article>
       })}{filteredStudents.length === 0 && <div className="opv2-state">Không có học viên còn hợp đồng hiệu lực phù hợp bộ lọc.</div>}</div>
     </>}
 
-    {!loading && !error && section === 'schedule' && (() => {
+    {!loading && section === 'schedule' && (() => {
       const now = clockNow
       const daySessions = sessions.filter((session) => session.date === from && ['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'].includes(session.status))
       const confirmed = daySessions.filter((session) => attendanceState(session) !== 'pending')
@@ -374,7 +441,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
       </>
     })()}
 
-    {!loading && !error && section === 'requests' && <>
+    {!loading && section === 'requests' && <>
       <section className="opv2-guidance"><CircleAlert size={20} /><div><strong>Phân biệt OFF học viên và nghỉ ca PT</strong><p>OFF/Bảo lưu là quyền lợi hợp đồng của học viên. PT nghỉ ca gửi đổi/hủy từng buổi tại tab Lịch 14 ngày; nghỉ nhiều ngày cần báo quản lý để đánh dấu PT OFF trên ma trận trước khi publish.</p></div></section>
       <h2 className="opv2-section-title">Lịch sử yêu cầu của tôi</h2>
       <div className="opv2-list">{requests.map((request) => <article className="opv2-card" key={request.id}><div className="opv2-card-head"><div><h3>{request.type === 'cancel' ? 'Xin hủy ca dạy' : 'Xin đổi ca dạy'}</h3><p>{request.originalDate} · {String(request.originalHour ?? '--').padStart(2, '0')}:00 · {studentNames.get(request.studentId) || 'Học viên Aura'}</p></div><span className={`opv2-badge is-${request.status}`}>{requestStatus(request.status)}</span></div>{request.type === 'reschedule' && request.newDate && <p>Đề xuất: {request.newDate} · {String(request.newHour ?? '--').padStart(2, '0')}:00</p>}<p>{request.reason}</p></article>)}{requests.length === 0 && <div className="opv2-state">Bạn chưa gửi yêu cầu đổi hoặc hủy ca nào.</div>}</div>
@@ -385,6 +452,19 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     {bulkTargets.length > 0 && <div className="opv2-sheet-layer" role="presentation"><button type="button" className="opv2-sheet-backdrop" aria-label="Đóng" onClick={() => setBulkTargets([])} /><section className="opv2-sheet opv2-bulk-confirm-sheet" role="dialog" aria-modal="true" aria-labelledby="trainer-bulk-attendance-title"><header><div><small>AURA PT · XÁC NHẬN NHANH</small><h2 id="trainer-bulk-attendance-title">Tất cả đều đã tập?</h2></div><button type="button" aria-label="Đóng" onClick={() => setBulkTargets([])}><X size={19} /></button></header><p className="opv2-sheet-current">Xác nhận <b>{bulkTargets.length} học viên</b> trong các ca đã bắt đầu đều có tập. Bạn vẫn có thể sửa riêng ca đi trễ hoặc không đến sau đó.</p><footer><button type="button" onClick={() => setBulkTargets([])}>Xem lại</button><button type="button" disabled={attendanceBusy === 'bulk'} onClick={() => void bulkConfirmToday(bulkTargets)}>{attendanceBusy === 'bulk' ? 'Đang xác nhận…' : 'Xác nhận tất cả'}</button></footer>{error && <p className="opv2-form-error">{error}</p>}</section></div>}
 
     {requestTarget && <div className="opv2-sheet-layer" role="presentation"><button type="button" className="opv2-sheet-backdrop" aria-label="Đóng" onClick={() => setRequestTarget(null)} /><section className="opv2-sheet" role="dialog" aria-modal="true" aria-labelledby="trainer-request-title"><header><div><small>AURA PT · YÊU CẦU CA DẠY</small><h2 id="trainer-request-title">Đổi hoặc hủy lịch</h2></div><button type="button" aria-label="Đóng" onClick={() => setRequestTarget(null)}><X size={19} /></button></header><p className="opv2-sheet-current">Buổi {requestTarget.date} · {String(requestTarget.hour ?? '--').padStart(2, '0')}:00</p><form onSubmit={submitRequest}><div className="opv2-sheet-segment"><button type="button" className={requestType === 'cancel' ? 'active' : ''} onClick={() => setRequestType('cancel')}>Hủy ca</button><button type="button" className={requestType === 'reschedule' ? 'active' : ''} onClick={() => setRequestType('reschedule')}>Đổi ca</button></div>{requestType === 'reschedule' && <div className="opv2-sheet-fields"><label>Ngày mới<input type="date" value={requestDate} onChange={(event) => setRequestDate(event.target.value)} /></label><label>Giờ mới<select value={requestHour} onChange={(event) => setRequestHour(event.target.value)}><option value="">Chọn giờ</option>{[6,7,8,9,10,11,14,15,16,17,18,19,20].map((hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}</select></label></div>}<label>Lý do<textarea maxLength={500} value={requestReason} onChange={(event) => setRequestReason(event.target.value)} placeholder="Nêu rõ lý do để quản lý xử lý…" /></label>{error && <p className="opv2-form-error">{error}</p>}<footer><button type="button" onClick={() => setRequestTarget(null)}>Để sau</button><button type="submit" disabled={submitting}>{submitting ? 'Đang gửi…' : 'Gửi yêu cầu'}</button></footer></form></section></div>}
+
+    {detailTarget && <div className="opv2-sheet-layer" role="presentation"><button type="button" className="opv2-sheet-backdrop" aria-label="Đóng hồ sơ học viên" onClick={() => setDetailTarget(null)} /><section className="opv2-sheet opv2-student-detail" role="dialog" aria-modal="true" aria-labelledby="trainer-student-detail-title"><header><div><small>HỒ SƠ HỌC VIÊN</small><h2 id="trainer-student-detail-title">{detailTarget.name}</h2><p>{detailTarget.phone || detailTarget.email || 'Chưa có thông tin liên hệ'}</p></div><button type="button" aria-label="Đóng" onClick={() => setDetailTarget(null)}><X size={19} /></button></header>
+      <nav className="opv2-student-detail__tabs" aria-label="Chi tiết học viên"><button type="button" className={detailTab === 'overview' ? 'active' : ''} onClick={() => setDetailTab('overview')}><CalendarClock /> Tổng quan</button><button type="button" className={detailTab === 'history' ? 'active' : ''} onClick={() => setDetailTab('history')}><History /> Lịch sử</button><button type="button" className={detailTab === 'workout' ? 'active' : ''} onClick={() => setDetailTab('workout')}><Dumbbell /> Giáo án</button></nav>
+      {detailLoading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đối chiếu lịch sử và hợp đồng…</div>}
+      {detailError && <div className="opv2-state is-error">{detailError}<button type="button" className="opv2-action" onClick={() => void openStudentDetail(detailTarget)}>Thử lại</button></div>}
+      {!detailLoading && studentDetail && detailTab === 'overview' && <div className="opv2-student-detail__content">
+        {studentDetail.contracts.map((contract) => <article className="opv2-contract-summary" key={contract.id}><header><div><strong>{contract.packageName}</strong><small>{contract.startDate} → {contract.endDate}</small></div><span className={contract.schedulableToday ? 'is-active' : 'is-inactive'}>{contract.pausedToday ? 'Bảo lưu' : contract.schedulableToday ? 'Hiệu lực' : 'Không thể xếp'}</span></header><div><b>{contract.remainingSessions}</b><span>buổi còn lại</span><small>{contract.usedSessions}/{contract.totalSessions} buổi đã tính theo lịch sử</small></div>{contract.reconciliationStatus !== 'matched' && <p><CircleAlert /> Dữ liệu cũ đang được đối chiếu; Aura ưu tiên lịch sử có tính buổi.</p>}</article>)}
+        <article className="opv2-availability-summary"><header><strong><CalendarClock /> Lịch rảnh tuần {compactDate(studentDetail.availability.weekId)}</strong><span>{studentDetail.availability.slots.length} khung</span></header>{studentDetail.availability.slots.length ? <div>{studentDetail.availability.slots.map((slot) => <span key={slot}>{slot.replace('-', ' · ')}:00</span>)}</div> : <p>Chưa có lịch rảnh đã gửi cho tuần này.</p>}</article>
+        <div className="opv2-student-detail__actions"><button type="button" onClick={() => { setDetailTarget(null); onNavigate?.('staff-workouts') }}><Dumbbell /> Mở giáo án</button><button type="button" onClick={() => { setDetailTarget(null); onNavigate?.('staff-nutrition-reviews') }}><CheckCircle2 /> Duyệt món</button></div>
+      </div>}
+      {!detailLoading && studentDetail && detailTab === 'history' && <div className="opv2-student-history">{studentDetail.sessions.slice(0, 30).map((session) => <article key={session.id}><time>{compactDate(session.date)}<small>{String(session.hour ?? '--').padStart(2, '0')}:00</small></time><div><strong>{attendanceLabel(session)}</strong><span>{session.billingStatus === 'charged' ? 'Đã tính 1 buổi' : session.billingStatus === 'exempt' ? 'Không tính buổi' : 'Chưa tính buổi'}</span></div></article>)}{studentDetail.sessions.length === 0 && <div className="opv2-state">Chưa có lịch sử tập.</div>}</div>}
+      {!detailLoading && studentDetail && detailTab === 'workout' && <div className="opv2-student-history">{studentDetail.workoutLogs.slice(0, 20).map((log) => <article key={log.id}><time>{compactDate(String(log.date || log.completedAt || log.updatedAt || '').slice(0, 10))}</time><div><strong>{String(log.programName || log.workoutName || log.title || 'Buổi tập đã ghi nhận')}</strong><span>{String(log.note || log.status || 'Đã lưu mức tạ và kết quả')}</span></div></article>)}{studentDetail.workoutLogs.length === 0 && <div className="opv2-state">Chưa có nhật ký giáo án.</div>}</div>}
+    </section></div>}
     </>}
   </section>
 }

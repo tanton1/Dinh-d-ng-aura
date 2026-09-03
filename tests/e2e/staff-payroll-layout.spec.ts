@@ -5,7 +5,7 @@ for (const width of [360, 390, 430]) {
     await page.setViewportSize({ width, height: 844 })
     await page.goto('/#/home')
     await page.getByRole('button', { name: /Tài khoản/ }).click()
-    await page.getByRole('button', { name: 'Huấn luyện viên' }).click()
+    await page.getByRole('button', { name: 'PT Gym' }).click()
     await page.getByRole('button', { name: 'Mở menu' }).click()
     await page.locator('#app-sidebar').getByRole('button', { name: /Lương của tôi/ }).click()
 
@@ -33,7 +33,7 @@ test('staff payroll uses the full operations workspace on desktop', async ({ pag
   await page.setViewportSize({ width: 1366, height: 900 })
   await page.goto('/#/home')
   await page.getByRole('button', { name: /Tài khoản/ }).click()
-  await page.getByRole('button', { name: 'Huấn luyện viên' }).click()
+  await page.getByRole('button', { name: 'PT Gym' }).click()
   await page.locator('#app-sidebar').getByRole('button', { name: /Lương của tôi/ }).click()
 
   const payroll = page.getByTestId('staff-payroll-page')

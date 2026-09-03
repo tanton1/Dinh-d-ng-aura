@@ -978,6 +978,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Weekly PT availability contains internal staffing capacity and cutoff
+    // metadata. It is resolved by the actor-scoped Staff callables so a
+    // browser can never read another trainer's schedule or forge an override.
+    match /trainerAvailability/{availabilityId} {
+      allow read, write: if false;
+    }
+
     // Immutable snapshots created by the server whenever a branch schedule
     // is published. Browsers may inspect versions only through trusted admin
     // surfaces and can never forge or overwrite a published timetable.

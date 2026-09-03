@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { desiredEntries, branchScheduleSnapshot, mergeRestoredBranchSchedule, normalizedDraftSchedule } = require('./pt-schedule-publish')
+const { desiredEntries, branchScheduleSnapshot, mergeRestoredBranchSchedule, normalizedDraftSchedule, trainerProfileForWeek } = require('./pt-schedule-publish')
 
 const WEEK = '2026-08-24'
 const SCHEDULE_ID = `schedule_${WEEK}`
@@ -39,6 +39,16 @@ function baseFixture() {
     config: { workingDays: ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'], workingHours: [6, 7] },
   }
 }
+
+test('publish resolves the same exact PT weekly availability as auto scheduling', () => {
+  const recurring = { availableSlots: ['T2-6'], availabilityMode: 'configured', availabilityRevision: 5 }
+  const weekly = { trainerId: 'trainer-a', weekId: WEEK, status: 'submitted', slots: ['T3-7'], revision: 1 }
+  const resolved = trainerProfileForWeek(recurring, weekly, WEEK)
+  assert.deepEqual(resolved.availableSlots, ['T3-7'])
+  assert.equal(resolved.availabilityRevision, 1)
+  assert.equal(resolved.availabilitySource, 'weekly')
+  assert.equal(trainerProfileForWeek(recurring, { ...weekly, status: 'draft' }, WEEK), recurring)
+})
 
 test('validates a legacy branch-less entry and binds it to the exact contract', () => {
   const result = desiredEntries(baseFixture())

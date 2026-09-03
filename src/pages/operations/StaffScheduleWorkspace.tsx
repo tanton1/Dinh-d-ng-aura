@@ -29,9 +29,9 @@ export default function StaffScheduleWorkspace({ initialTab = 'teaching', canMan
       {tabs.map(({ id, view, label, detail, icon: Icon }) => <button type="button" key={id} className={initialTab === id ? 'is-active' : ''} aria-current={initialTab === id ? 'page' : undefined} onClick={() => onNavigate(view)}><Icon size={19} /><span><strong>{label}</strong><small>{detail}</small></span></button>)}
     </nav>
     <section className="staff-schedule-workspace__content">
-      {initialTab === 'teaching' && <TrainerPortalV2 section="schedule" embedded isDemo={isDemo} />}
+      {initialTab === 'teaching' && <TrainerPortalV2 section="schedule" embedded isDemo={isDemo} onNavigate={onNavigate} />}
       {initialTab === 'availability' && canManageAvailability && <TrainerAvailabilityPage embedded isDemo={isDemo} />}
-      {initialTab === 'requests' && <TrainerPortalV2 section="requests" embedded isDemo={isDemo} />}
+      {initialTab === 'requests' && <TrainerPortalV2 section="requests" embedded isDemo={isDemo} onNavigate={onNavigate} />}
     </section>
   </main>
 }

@@ -73,6 +73,13 @@ function currentDateKey(now = new Date()) {
   return `${part('year')}-${part('month')}-${part('day')}`
 }
 
+function mondayDateKey(referenceDate = currentDateKey()) {
+  const parsed = Date.parse(`${referenceDate}T12:00:00+07:00`)
+  if (!Number.isFinite(parsed)) return referenceDate
+  const weekday = new Date(parsed).getUTCDay()
+  return new Date(parsed - ((weekday + 6) % 7) * 86400000).toISOString().slice(0, 10)
+}
+
 function isEffectiveStaffContract(contract = {}, referenceDate = currentDateKey()) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(referenceDate)) return false
   if (String(contract.status || 'active').toLowerCase() !== 'active') return false
@@ -102,7 +109,7 @@ function studentContractProjection(id, contract = {}, today = currentDateKey(), 
   // Session evidence is canonical only when the caller loaded the contract's
   // whole effective period. A calendar window must never make an older
   // contract look as if it used fewer sessions than it actually did.
-  const usage = usageEvidenceComplete && Array.isArray(usageSessions) && usageSessions.length
+  const usage = usageEvidenceComplete && Array.isArray(usageSessions)
     ? summarizeContractUsage(contract, usageSessions)
     : null
   const totalSessions = usage?.totalSessions ?? Math.max(0, Number(contract.totalSessions || 0))
@@ -158,6 +165,11 @@ function studentContractProjection(id, contract = {}, today = currentDateKey(), 
     totalSessions,
     usedSessions,
     remainingSessions: Math.max(0, totalSessions - usedSessions),
+    formulaVersion: 'contract-usage-v2',
+    storedUsedSessions: usage?.storedUsedSessions ?? Math.max(0, Number(contract.usedSessions || 0)),
+    chargedSessions: usage?.chargedSessions ?? null,
+    historySessions: usage?.historySessions ?? null,
+    reconciliationStatus: usage?.reconciliationStatus ?? 'legacy_projection',
     totalAmount,
     paidAmount,
     outstandingAmount,
@@ -440,6 +452,37 @@ async function assignedContracts(db, actor, relation = 'training', limit = 200) 
   return [...result.values()].filter((contract) => owns(contract, actor)).slice(0, limit)
 }
 
+function datesInAvailabilityWeek(weekId) {
+  const start = Date.parse(`${weekId}T00:00:00.000Z`)
+  return DEFAULT_WORKING_DAYS.map((day, index) => ({ day, date: new Date(start + index * 86400000).toISOString().slice(0, 10) }))
+}
+
+function normalizedTrainerOffDates(value, weekId) {
+  const allowed = new Set(datesInAvailabilityWeek(weekId).map((item) => item.date))
+  return [...new Set((Array.isArray(value) ? value : []).map(storedDateKey).filter((date) => allowed.has(date)))].sort()
+}
+
+function trainerSlotsWithoutOffDates(slots, offDates, weekId) {
+  const offDays = new Set(datesInAvailabilityWeek(weekId).filter((item) => offDates.includes(item.date)).map((item) => item.day))
+  return slots.filter((slot) => !offDays.has(String(slot).split('-')[0]))
+}
+
+async function sessionsForContracts(db, contractIds = []) {
+  const ids = [...new Set(contractIds.filter(Boolean))]
+  const snapshots = []
+  for (let index = 0; index < ids.length; index += 30) {
+    snapshots.push(db.collection('sessions').where('contractId', 'in', ids.slice(index, index + 30)).get())
+  }
+  const results = await Promise.all(snapshots)
+  const byContract = new Map(ids.map((id) => [id, []]))
+  results.forEach((snapshot) => snapshot.docs.forEach((document) => {
+    const value = { id: document.id, ...document.data() }
+    if (!byContract.has(value.contractId)) return
+    byContract.get(value.contractId).push(value)
+  }))
+  return byContract
+}
+
 async function salesQuotesForActor(db, actor, limit) {
   const quoteQueries = [
     db.collection('quotes').where('assignedSalesId', '==', actor.uid).limit(limit).get(),
@@ -525,7 +568,19 @@ async function assignedStudentsForActor(db, actor, limit) {
   const candidateLimit = Math.min(1000, Math.max(300, limit * 3))
   const assigned = await assignedContracts(db, actor, 'training', candidateLimit)
   const today = currentDateKey()
-  const contracts = assigned.filter((contract) => isEffectiveStaffContract(contract, today))
+  const datedContracts = assigned.filter((contract) => {
+    const projection = studentContractProjection(contract.id, contract, today, [], false)
+    return String(contract.status || 'active').toLowerCase() === 'active'
+      && projection.startDate && projection.startDate <= today
+      && projection.endDate && projection.endDate >= today
+      && !projection.pausedToday
+  })
+  const sessionsByContract = await sessionsForContracts(db, datedContracts.map((contract) => contract.id))
+  const projectedContracts = datedContracts.map((contract) => ({
+    ...contract,
+    usage: studentContractProjection(contract.id, contract, today, sessionsByContract.get(contract.id) || [], true),
+  }))
+  const contracts = projectedContracts.filter((contract) => contract.usage.schedulableToday)
   const allStudentIds = [...new Set(contracts.map((item) => item.studentId).filter(Boolean))]
   const studentIds = allStudentIds.slice(0, limit)
   const visibleStudentIds = new Set(studentIds)
@@ -558,7 +613,20 @@ async function assignedStudentsForActor(db, actor, limit) {
         const trainerIds = Array.isArray(contract.trainerIds) ? contract.trainerIds : []
         return actorIds.some((id) => contract.trainerId === id || trainerIds[0] === id) ? 'primary' : 'secondary'
       })() : 'secondary',
-      contract: contract ? { id: contract.id, status: contract.status, startDate: contract.startDate, endDate: contract.endDate, totalSessions: contract.totalSessions || 0, usedSessions: contract.usedSessions || 0 } : null,
+      contract: contract ? {
+        id: contract.id,
+        status: contract.status,
+        startDate: storedDateKey(contract.startDate),
+        endDate: storedDateKey(contract.endDate),
+        totalSessions: contract.usage.totalSessions,
+        usedSessions: contract.usage.usedSessions,
+        remainingSessions: contract.usage.remainingSessions,
+        chargedSessions: contract.usage.chargedSessions,
+        historySessions: contract.usage.historySessions,
+        storedUsedSessions: contract.usage.storedUsedSessions,
+        formulaVersion: contract.usage.formulaVersion,
+        reconciliationStatus: contract.usage.reconciliationStatus,
+      } : null,
     })
   })
   const branches = branchSnapshots
@@ -650,19 +718,46 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const actor = await trainerActor(request, db)
     requireCapability(actor, 'pt.availability.self.manage')
     const profile = await trainerProfileForActor(db, actor)
-    const configSnapshot = await db.doc('settings/scheduleConfig').get()
+    const requestedWeekId = request.data?.weekId ? availabilityWeekId(request.data.weekId) : null
+    const weeklyReference = requestedWeekId ? db.doc(`trainerAvailability/${profile.id}_${requestedWeekId}`) : null
+    const [configSnapshot, weeklySnapshot] = await Promise.all([
+      db.doc('settings/scheduleConfig').get(),
+      weeklyReference ? weeklyReference.get() : Promise.resolve(null),
+    ])
     const config = scheduleConfig(configSnapshot.data())
-    const slots = normalizedAvailabilitySlots(profile.value.availableSlots || [], config, false)
+    const baseSlots = normalizedAvailabilitySlots(profile.value.availableSlots || [], config, false)
+    const weeklyValue = weeklySnapshot?.exists ? weeklySnapshot.data() : null
+    const offDates = requestedWeekId ? normalizedTrainerOffDates(weeklyValue?.offDates, requestedWeekId) : []
+    const weeklySlots = requestedWeekId && weeklyValue
+      ? trainerSlotsWithoutOffDates(normalizedAvailabilitySlots(weeklyValue.slots || [], config, false), offDates, requestedWeekId)
+      : null
+    const slots = weeklySlots || baseSlots
+    const cutoff = requestedWeekId ? availabilityCutoff(requestedWeekId) : null
+    const reopenedUntil = weeklyValue?.reopenedUntil?.toDate?.() || (weeklyValue?.reopenedUntil ? new Date(weeklyValue.reopenedUntil) : null)
+    const locked = Boolean(cutoff && Date.now() >= cutoff.getTime() && (!reopenedUntil || reopenedUntil.getTime() <= Date.now()))
     return serialize({
-      schemaVersion: 1,
+      schemaVersion: 2,
       trainerId: profile.id,
       trainerName: profile.value.name || 'HLV Aura',
       branchId: profile.value.branchId || actor.branchIds[0] || '',
       availableSlots: slots,
+      baseAvailableSlots: baseSlots,
+      weekId: requestedWeekId,
+      weeklyOverride: Boolean(weeklyValue),
+      offDates,
+      locked,
+      cutoffAt: cutoff?.toISOString() || null,
+      source: weeklyValue ? 'weekly' : 'recurring',
       availabilityMode: profile.value.availabilityMode === 'unrestricted'
         ? 'unrestricted'
         : slots.length ? 'configured' : 'unconfigured',
-      availabilityRevision: Number(profile.value.availabilityRevision || 0),
+      // A new weekly document starts at revision zero even when the recurring
+      // profile has already been edited many times. The two revision streams
+      // are intentionally independent.
+      availabilityRevision: requestedWeekId
+        ? Number(weeklyValue?.revision || 0)
+        : Number(profile.value.availabilityRevision || 0),
+      updatedAt: weeklyValue?.updatedAt || profile.value.availabilityUpdatedAt || null,
       scheduleConfig: config,
     })
   })
@@ -673,9 +768,72 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const profile = await trainerProfileForActor(db, actor)
     const configSnapshot = await db.doc('settings/scheduleConfig').get()
     const config = scheduleConfig(configSnapshot.data())
-    const slots = normalizedAvailabilitySlots(request.data?.availableSlots, config)
-    if (!slots.length) throw new HttpsError('failed-precondition', 'Hãy chọn ít nhất một khung giờ rảnh.')
+    const requestedWeekId = request.data?.weekId ? availabilityWeekId(request.data.weekId) : null
+    const offDates = requestedWeekId ? normalizedTrainerOffDates(request.data?.offDates, requestedWeekId) : []
+    const normalizedSlots = normalizedAvailabilitySlots(request.data?.availableSlots, config, requestedWeekId ? false : true)
+    const slots = requestedWeekId ? trainerSlotsWithoutOffDates(normalizedSlots, offDates, requestedWeekId) : normalizedSlots
+    if (!slots.length && !offDates.length) throw new HttpsError('failed-precondition', 'Hãy chọn ít nhất một khung giờ rảnh hoặc đánh dấu ngày OFF.')
     const expectedRevision = integer(request.data?.expectedRevision, 0, 0, 1000000)
+    if (requestedWeekId) {
+      const reference = db.doc(`trainerAvailability/${profile.id}_${requestedWeekId}`)
+      const cutoffAt = availabilityCutoff(requestedWeekId)
+      const submittedAtIso = new Date().toISOString()
+      const result = await db.runTransaction(async (transaction) => {
+        const [current, currentProfile] = await Promise.all([transaction.get(reference), transaction.get(profile.reference)])
+        if (!currentProfile.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ PT.')
+        const currentValue = current.data() || {}
+        const reopenedUntil = currentValue.reopenedUntil?.toDate?.() || (currentValue.reopenedUntil ? new Date(currentValue.reopenedUntil) : null)
+        if (Date.now() >= cutoffAt.getTime() && (!reopenedUntil || reopenedUntil.getTime() <= Date.now())) {
+          throw new HttpsError('failed-precondition', 'Lịch rảnh của tuần này đã khóa. Hãy gửi quản lý mở lại nếu cần điều chỉnh.', { issueCode: 'TRAINER_AVAILABILITY_LOCKED', cutoffAt: cutoffAt.toISOString() })
+        }
+        const revision = Number(currentValue.revision || 0)
+        if (revision !== expectedRevision) throw new HttpsError('aborted', 'Lịch rảnh tuần đã thay đổi ở thiết bị khác. Hãy tải lại.', { issueCode: 'REVISION_CONFLICT', currentRevision: revision })
+        const next = {
+          schemaVersion: 1,
+          trainerId: profile.id,
+          accountUid: actor.uid,
+          branchId: currentProfile.data().branchId || actor.branchIds[0] || '',
+          weekId: requestedWeekId,
+          slots,
+          offDates,
+          status: 'submitted',
+          revision: revision + 1,
+          submittedAt: currentValue.submittedAt || FieldValue.serverTimestamp(),
+          updatedBy: actor.uid,
+          updatedAt: FieldValue.serverTimestamp(),
+        }
+        if (current.exists) transaction.update(reference, next)
+        else transaction.create(reference, { ...next, createdAt: FieldValue.serverTimestamp() })
+        transaction.create(db.collection('ptOperationsAuditLogs').doc(), {
+          schemaVersion: 2,
+          action: 'trainer_weekly_availability.updated',
+          actorUid: actor.uid,
+          trainerId: profile.id,
+          weekId: requestedWeekId,
+          beforeSlotCount: Array.isArray(currentValue.slots) ? currentValue.slots.length : 0,
+          afterSlotCount: slots.length,
+          offDates,
+          previousRevision: revision,
+          nextRevision: revision + 1,
+          createdAt: FieldValue.serverTimestamp(),
+        })
+        return revision + 1
+      })
+      return {
+        schemaVersion: 2,
+        weekId: requestedWeekId,
+        availableSlots: slots,
+        baseAvailableSlots: normalizedAvailabilitySlots(profile.value.availableSlots || [], config, false),
+        offDates,
+        source: 'weekly',
+        weeklyOverride: true,
+        locked: false,
+        cutoffAt: cutoffAt.toISOString(),
+        availabilityMode: slots.length ? 'configured' : 'unconfigured',
+        availabilityRevision: result,
+        updatedAt: submittedAtIso,
+      }
+    }
     const nextRevision = await db.runTransaction(async (transaction) => {
       const current = await transaction.get(profile.reference)
       if (!current.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ PT.')
@@ -706,7 +864,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
       })
       return revision + 1
     })
-    return { schemaVersion: 1, availableSlots: slots, availabilityMode: 'configured', availabilityRevision: nextRevision }
+    return { schemaVersion: 2, weekId: null, availableSlots: slots, baseAvailableSlots: slots, offDates: [], source: 'recurring', weeklyOverride: false, locked: false, cutoffAt: null, availabilityMode: 'configured', availabilityRevision: nextRevision, updatedAt: new Date().toISOString() }
   })
 
   const listMyStudentPtSchedule = staffCall(async (request) => {
@@ -1071,14 +1229,65 @@ function createPtOperationsV2Functions({ db, onCall }) {
   const getMyTrainerStudentDetail = staffCall(async (request) => {
     const actor = await trainerActor(request, db)
     const studentId = documentId(request.data?.studentId, 'Mã học viên')
+    const weekId = availabilityWeekId(request.data?.weekId || mondayDateKey())
     const contracts = await assignedContracts(db, actor, 'training', 300)
     const studentContracts = contracts.filter((item) => item.studentId === studentId)
     if (!studentContracts.length) throw new HttpsError('permission-denied', 'Học viên không thuộc phạm vi được giao.')
-    const [studentSnapshot, logsSnapshot] = await Promise.all([
-      db.doc(`students/${studentId}`).get(), db.collection('workoutLogs').where('studentId', '==', studentId).limit(100).get(),
+    const availabilityReference = db.doc(`ptAvailability/${studentId}_${weekId}`)
+    const [studentSnapshot, logsSnapshot, sessionsSnapshot, availabilitySnapshot, configSnapshot] = await Promise.all([
+      db.doc(`students/${studentId}`).get(),
+      db.collection('workoutLogs').where('studentId', '==', studentId).limit(100).get(),
+      db.collection('sessions').where('studentId', '==', studentId).limit(1001).get(),
+      availabilityReference.get(),
+      db.doc('settings/scheduleConfig').get(),
     ])
     if (!studentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy học viên.')
-    return { schemaVersion: 1, student: serialize({ id: studentId, ...studentSnapshot.data() }), contracts: serialize(studentContracts), workoutLogs: logsSnapshot.docs.map((doc) => serialize({ id: doc.id, ...doc.data() })) }
+    if (sessionsSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Lịch sử học viên vượt giới hạn xem nhanh. Hãy mở báo cáo đối soát.')
+    const sessionRows = sessionsSnapshot.docs.map((document) => ({ id: document.id, ...document.data() }))
+    const projectedContracts = studentContracts.map((contract) => studentContractProjection(
+      contract.id,
+      contract,
+      currentDateKey(),
+      sessionRows.filter((session) => session.contractId === contract.id),
+      true,
+    )).sort((left, right) => right.startDate.localeCompare(left.startDate) || left.id.localeCompare(right.id))
+    const config = scheduleConfig(configSnapshot.data())
+    const exactAvailability = new Map(availabilitySnapshot.exists ? [[studentId, availabilitySnapshot.data()]] : [])
+    const inheritedAvailability = await loadLatestSubmittedFallbacks(
+      db,
+      new Map([[studentId, studentSnapshot.data()]]),
+      exactAvailability,
+      weekId,
+    )
+    const effectiveAvailability = effectiveStudentAvailability({
+      targetWeek: weekId,
+      exact: exactAvailability.get(studentId),
+      inherited: inheritedAvailability.get(studentId),
+      profile: studentSnapshot.data(),
+    })
+    const availability = availabilityState(weekId, {
+      slots: normalizedAvailabilitySlots(effectiveAvailability.slots, config, false),
+      minimumSlots: effectiveAvailability.minimumSlots,
+      requiredSessions: Math.max(1, Number(studentSnapshot.data().sessionsPerWeek || 1)),
+      revision: effectiveAvailability.targetRevision,
+      sourceRevision: effectiveAvailability.sourceRevision,
+      status: effectiveAvailability.status,
+      confirmed: effectiveAvailability.confirmed,
+      submittedAt: effectiveAvailability.submittedAt,
+      source: effectiveAvailability.source,
+      sourceWeekId: effectiveAvailability.sourceWeekId,
+    })
+    return {
+      schemaVersion: 2,
+      formulaVersion: 'contract-usage-v2',
+      student: serialize({ id: studentId, ...studentSnapshot.data() }),
+      contracts: serialize(projectedContracts),
+      sessions: sessionRows.map((session) => serialize({ id: session.id, ...session, timeZone: TIME_ZONE }))
+        .sort((left, right) => `${right.date || ''}-${String(right.hour ?? 0).padStart(2, '0')}`.localeCompare(`${left.date || ''}-${String(left.hour ?? 0).padStart(2, '0')}`)),
+      availability: serialize(availability),
+      workoutLogs: logsSnapshot.docs.map((doc) => serialize({ id: doc.id, ...doc.data() }))
+        .sort((left, right) => String(right.completedAt || right.updatedAt || right.date || '').localeCompare(String(left.completedAt || left.updatedAt || left.date || ''))),
+    }
   })
 
   const confirmMySession = staffCall(async (request) => {
@@ -1282,11 +1491,16 @@ function createPtOperationsV2Functions({ db, onCall }) {
 }
 
 module.exports = {
+  availabilityCutoff,
+  availabilityWeekId,
   createPtOperationsV2Functions,
+  mondayDateKey,
+  normalizedTrainerOffDates,
   isEffectiveStaffContract,
   normalizedAvailabilitySlots,
   scheduleConfig,
   sessionHour,
   studentContractProjection,
   studentContractAlerts,
+  trainerSlotsWithoutOffDates,
 }

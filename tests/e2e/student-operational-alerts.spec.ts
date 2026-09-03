@@ -21,7 +21,7 @@ test('staff student list stays compact and contains no learner financial alerts'
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/#/home')
   await page.getByRole('button', { name: /Tài khoản/ }).click()
-  await page.getByRole('button', { name: 'Huấn luyện viên' }).click()
+  await page.getByRole('button', { name: 'PT Gym' }).click()
   await page.getByRole('navigation', { name: 'Điều hướng Staff' }).getByRole('button', { name: 'Học viên' }).click()
 
   await expect(page).toHaveURL(/#\/staff-students$/)

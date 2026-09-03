@@ -41,7 +41,7 @@ import type {
 import { flattenCourseLessons, getInitialDemoCompletedLessonIds } from './utils/courseContent'
 import ChunkErrorBoundary, { lazyWithRetry } from './components/ChunkErrorBoundary'
 import { adminViewPermissions, adminViews, canonicalRouteHash, eatCleanRouteHash, getCurrentRoute, isSameRoute, resolveSupportedView, routeHash, type AuraRoute } from './routing/appRouting'
-import { routeCapabilities } from './identity/access'
+import { routeCapabilities, type StaffPosition } from './identity/access'
 import { toCourseDraft } from './utils/courseDraft'
 import { DatabaseProvider } from './contexts/DatabaseContext'
 import './styles.css'
@@ -110,6 +110,16 @@ const roleLabels: Record<UserRole, string> = {
   user: 'Khách hàng',
 }
 
+function legacyStaffPosition(role: UserRole): StaffPosition | null {
+  if (role === 'trainer') return 'trainer_pt'
+  if (role === 'coach') return 'coach_online'
+  if (role === 'sales') return 'sales'
+  if (role === 'manager') return 'branch_manager'
+  if (role === 'editor') return 'academy_editor'
+  if (role === 'shipper') return 'shipper'
+  return null
+}
+
 const learnerAcademyViews = new Set<ViewId>(['courses', 'course-detail', 'progress'])
 const adminAcademyViews = new Set<ViewId>(['admin-courses', 'admin-course-editor', 'admin-academy-students', 'admin-students'])
 const adminDirectoryViews = new Set<ViewId>(['admin-academy-students', 'admin-students', 'admin-roles', 'admin-hr', 'admin-notifications'])
@@ -122,6 +132,11 @@ function AuraApplication() {
   const canManageCoaching = canAccessAdmin && hasPermission(role, 'program.view')
   const isStaffWorkspace = accessContext?.accessRole === 'staff'
     || ['coach', 'trainer', 'sales', 'manager', 'editor'].includes(role)
+  const staffPositions = useMemo<StaffPosition[]>(() => {
+    if (accessContext?.positions.length) return accessContext.positions
+    const fallback = legacyStaffPosition(role)
+    return fallback ? [fallback] : []
+  }, [accessContext?.positions, role])
   const [route, setRoute] = useState<AuraRoute>(getCurrentRoute)
   const view = route.view
   const routeRef = useRef(route)
@@ -411,6 +426,10 @@ function AuraApplication() {
     if (backendMode === 'firebase' && !user) return
     if (role === 'shipper' && view !== 'delivery') {
       goTo('delivery')
+      return
+    }
+    if (isStaffWorkspace && role !== 'shipper' && view === 'home') {
+      goTo('staff-dashboard')
       return
     }
     if (view === 'delivery' && role !== 'shipper') {
@@ -869,8 +888,8 @@ function AuraApplication() {
 
       // PT Coaching & Gym Management Views
       case 'trainer-portal':
-      case 'staff-students': return <AuraOperationsFrame><TrainerPortalV2 section="students" isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
-      case 'staff-dashboard': return <AuraOperationsFrame><StaffDashboardPage onNavigate={navigate} capabilities={accessContext?.capabilities || []} isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
+      case 'staff-students': return <AuraOperationsFrame><TrainerPortalV2 section="students" isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
+      case 'staff-dashboard': return <AuraOperationsFrame><StaffDashboardPage onNavigate={navigate} capabilities={accessContext?.capabilities || []} positions={staffPositions} branchCount={accessContext?.branchIds.length || 0} isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
       case 'staff-schedule': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="teaching" canManageAvailability={backendMode === 'demo' || hasCapability('pt.availability.self.manage')} isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
       case 'staff-workouts': return <AuraOperationsFrame><PtWorkoutWorkspacePage isDemo={backendMode === 'demo'} canPublishCatalog={role === 'admin' || role === 'super_admin'} /></AuraOperationsFrame>
       case 'staff-availability': return <AuraOperationsFrame><StaffScheduleWorkspace initialTab="availability" canManageAvailability={backendMode === 'demo' || hasCapability('pt.availability.self.manage')} isDemo={backendMode === 'demo'} onNavigate={navigate} /></AuraOperationsFrame>
@@ -1020,6 +1039,7 @@ function AuraApplication() {
       userPhoto={profile?.photoURL ?? user?.photoURL}
       backendMode={backendMode}
       isStaffWorkspace={isStaffWorkspace}
+      staffPositions={staffPositions}
       onSignOut={signOut}
       onSearch={(query) => {
         setGlobalSearchQuery(query)

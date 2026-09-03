@@ -31,6 +31,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { hasPermission, type Permission } from '../config/permissions'
+import type { StaffPosition } from '../identity/access'
 import type { AppMode, UserRole, ViewId } from '../types'
 import NotificationCenter from './NotificationCenter'
 
@@ -54,6 +55,7 @@ interface AppShellProps {
   userPhoto?: string | null
   backendMode: 'demo' | 'firebase'
   isStaffWorkspace?: boolean
+  staffPositions?: StaffPosition[]
   onSignOut: () => void
   onSearch?: (query: string) => void
   canNavigate?: (view: ViewId) => boolean
@@ -103,6 +105,20 @@ const studentMobileNav: ShellNavItem[] = [
 
 const staffNavSections: ShellNavSection[] = [
   {
+    label: 'CÔNG VIỆC',
+    items: [
+      { id: 'staff-dashboard' as const, label: 'Tổng quan Staff', icon: LayoutDashboard },
+      { id: 'staff-students' as const, label: 'Học viên phụ trách', icon: Users },
+      { id: 'staff-schedule' as const, label: 'Lịch làm việc', icon: CalendarDays },
+      { id: 'admin-pt-schedule' as const, label: 'Lịch chi nhánh', icon: CalendarDays },
+      { id: 'staff-workouts' as const, label: 'Giáo án & mức tạ', icon: Dumbbell },
+      { id: 'staff-nutrition-reviews' as const, label: 'Duyệt món', icon: Check },
+      { id: 'staff-quotes' as const, label: 'Báo giá', icon: ClipboardList },
+      { id: 'staff-renewals' as const, label: 'Tái ký', icon: RefreshCw },
+      { id: 'staff-payroll' as const, label: 'Lương của tôi', icon: WalletCards },
+    ],
+  },
+  {
     label: 'CÁ NHÂN AURA',
     items: [
       { id: 'home' as const, label: 'Hôm nay', icon: Home },
@@ -111,19 +127,6 @@ const staffNavSections: ShellNavSection[] = [
       { id: 'progress' as const, label: 'Tiến độ', icon: BarChart3 },
       { id: 'courses' as const, label: 'Học', icon: BookOpen },
       { id: 'eat-clean' as const, label: 'Đặt món Eat Clean', icon: ShoppingBasket },
-    ],
-  },
-  {
-    label: 'CÔNG VIỆC',
-    items: [
-      { id: 'staff-dashboard' as const, label: 'Tổng quan Staff', icon: LayoutDashboard },
-      { id: 'staff-students' as const, label: 'Học viên phụ trách', icon: Users },
-      { id: 'staff-schedule' as const, label: 'Lịch làm việc', icon: CalendarDays },
-      { id: 'staff-workouts' as const, label: 'Giáo án & mức tạ', icon: Dumbbell },
-      { id: 'staff-nutrition-reviews' as const, label: 'Duyệt món', icon: Check },
-      { id: 'staff-quotes' as const, label: 'Báo giá', icon: ClipboardList },
-      { id: 'staff-renewals' as const, label: 'Tái ký', icon: RefreshCw },
-      { id: 'staff-payroll' as const, label: 'Lương của tôi', icon: WalletCards },
     ],
   },
   {
@@ -136,10 +139,40 @@ const staffMobileNav: ShellNavItem[] = [
   { id: 'staff-dashboard', label: 'Tổng quan', icon: LayoutDashboard },
   { id: 'staff-students', label: 'Học viên', icon: Users },
   { id: 'staff-schedule', label: 'Lịch', icon: CalendarDays },
+  { id: 'admin-pt-schedule', label: 'Lịch CN', icon: CalendarDays },
+  { id: 'staff-quotes', label: 'Báo giá', icon: ClipboardList },
   { id: 'staff-workouts', label: 'Giáo án', icon: Dumbbell },
   { id: 'staff-nutrition-reviews', label: 'Duyệt món', icon: Check },
   { id: 'staff-payroll', label: 'Lương', icon: WalletCards },
+  { id: 'staff-renewals', label: 'Tái ký', icon: RefreshCw },
+  { id: 'courses', label: 'Academy', icon: BookOpen },
 ]
+
+const staffPositionRoutes: Record<StaffPosition, ViewId[]> = {
+  trainer_pt: ['staff-dashboard', 'staff-students', 'staff-schedule', 'staff-workouts', 'staff-nutrition-reviews', 'staff-renewals', 'staff-payroll'],
+  coach_online: ['staff-dashboard', 'staff-students', 'staff-nutrition-reviews', 'staff-payroll'],
+  sales: ['staff-dashboard', 'staff-quotes', 'staff-renewals', 'staff-payroll'],
+  branch_manager: ['staff-dashboard', 'admin-pt-schedule', 'staff-workouts', 'staff-renewals', 'staff-payroll'],
+  academy_editor: ['staff-dashboard', 'courses', 'staff-payroll'],
+  shipper: ['delivery'],
+}
+
+function legacyStaffPosition(role: UserRole): StaffPosition | null {
+  if (role === 'trainer') return 'trainer_pt'
+  if (role === 'coach') return 'coach_online'
+  if (role === 'sales') return 'sales'
+  if (role === 'manager') return 'branch_manager'
+  if (role === 'editor') return 'academy_editor'
+  if (role === 'shipper') return 'shipper'
+  return null
+}
+
+function staffRouteSet(positions: StaffPosition[], role: UserRole) {
+  const effectivePositions = positions.length ? positions : [legacyStaffPosition(role)].filter((item): item is StaffPosition => Boolean(item))
+  const routes = new Set<ViewId>(['staff-dashboard', 'profile'])
+  effectivePositions.forEach((position) => staffPositionRoutes[position].forEach((view) => routes.add(view)))
+  return routes
+}
 
 const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
   {
@@ -263,10 +296,11 @@ function isNavigationActive(view: ViewId, itemId: ViewId, mobile = false) {
   return false
 }
 
-export default function AppShell({ children, mode, view, onNavigate, onModeChange, mobileMenu, setMobileMenu, userName, userRole, role, setPreviewRole, userPhoto, backendMode, isStaffWorkspace = false, onSignOut, onSearch, canNavigate = () => true, authorizationError, aiCoachConversationScope = 'progress-demo' }: AppShellProps) {
+export default function AppShell({ children, mode, view, onNavigate, onModeChange, mobileMenu, setMobileMenu, userName, userRole, role, setPreviewRole, userPhoto, backendMode, isStaffWorkspace = false, staffPositions = [], onSignOut, onSearch, canNavigate = () => true, authorizationError, aiCoachConversationScope = 'progress-demo' }: AppShellProps) {
+  const allowedStaffRoutes = staffRouteSet(staffPositions, role)
   const navSections: ShellNavSection[] = isStaffWorkspace
     ? staffNavSections
-      .map((section) => ({ ...section, items: section.items.filter((item) => canNavigate(item.id)) }))
+      .map((section) => ({ ...section, items: section.items.filter((item) => allowedStaffRoutes.has(item.id) && canNavigate(item.id)) }))
       .filter((section) => section.items.length > 0)
     : mode === 'student'
       ? studentNavSections
@@ -279,6 +313,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
       }))
       .filter((section) => section.items.length > 0)
   const mobileAdminItems = adminMobileNav.filter((item) => hasPermission(role, item.permission) && canNavigate(item.id))
+  const mobileStaffItems = staffMobileNav.filter((item) => allowedStaffRoutes.has(item.id) && canNavigate(item.id)).slice(0, 6)
   const isImmersive = view === 'workout' || view === 'delivery'
   const [searchQuery, setSearchQuery] = useState('')
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
@@ -490,9 +525,25 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
                       <span>Học viên</span>
                       {role === 'student' && <Check size={14} />}
                     </button>
+                    <button className={role === 'trainer' ? 'active' : ''} onClick={() => { setPreviewRole?.('trainer'); setUserMenuOpen(false); }}>
+                      <span>PT Gym</span>
+                      {role === 'trainer' && <Check size={14} />}
+                    </button>
                     <button className={role === 'coach' ? 'active' : ''} onClick={() => { setPreviewRole?.('coach'); setUserMenuOpen(false); }}>
-                      <span>Huấn luyện viên</span>
+                      <span>HLV Online</span>
                       {role === 'coach' && <Check size={14} />}
+                    </button>
+                    <button className={role === 'sales' ? 'active' : ''} onClick={() => { setPreviewRole?.('sales'); setUserMenuOpen(false); }}>
+                      <span>Sales</span>
+                      {role === 'sales' && <Check size={14} />}
+                    </button>
+                    <button className={role === 'manager' ? 'active' : ''} onClick={() => { setPreviewRole?.('manager'); setUserMenuOpen(false); }}>
+                      <span>Quản lý chi nhánh</span>
+                      {role === 'manager' && <Check size={14} />}
+                    </button>
+                    <button className={role === 'editor' ? 'active' : ''} onClick={() => { setPreviewRole?.('editor'); setUserMenuOpen(false); }}>
+                      <span>Biên tập Academy</span>
+                      {role === 'editor' && <Check size={14} />}
                     </button>
                     <button className={role === 'admin' ? 'active' : ''} onClick={() => { setPreviewRole?.('admin'); setUserMenuOpen(false); }}>
                       <span>Admin</span>
@@ -544,7 +595,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
 
         {mode === 'student' || isStaffWorkspace ? (
           <nav className={`mobile-bottom-nav student-mobile-nav${isStaffWorkspace ? ' staff-mobile-nav' : ''}${mobileDockHidden ? ' is-scroll-hidden' : ''}`} aria-label={isStaffWorkspace ? 'Điều hướng Staff' : 'Điều hướng học viên'}>
-            {(isStaffWorkspace ? staffMobileNav : studentMobileNav).filter((item) => canNavigate(item.id)).map((item) => {
+            {(isStaffWorkspace ? mobileStaffItems : studentMobileNav.filter((item) => canNavigate(item.id))).map((item) => {
               const Icon = item.icon
               const active = isNavigationActive(view, item.id, true)
               return (

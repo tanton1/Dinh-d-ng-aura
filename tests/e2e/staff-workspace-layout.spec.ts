@@ -5,9 +5,9 @@ test('staff dock prioritizes work modules and schedule tools share one weekly wo
   await page.goto('/#/home')
 
   await page.getByRole('button', { name: /Tài khoản/ }).click()
-  await page.getByRole('button', { name: 'Huấn luyện viên' }).click()
+  await page.getByRole('button', { name: 'PT Gym' }).click()
 
-  await expect(page).toHaveURL(/#\/home$/)
+  await expect(page).toHaveURL(/#\/staff-dashboard$/)
 
   const dock = page.getByRole('navigation', { name: 'Điều hướng Staff' })
   await expect(dock).toBeVisible()
@@ -32,9 +32,10 @@ test('staff dock prioritizes work modules and schedule tools share one weekly wo
   await page.getByRole('button', { name: 'Mở menu' }).click()
   const sidebar = page.locator('#app-sidebar')
   await expect(sidebar.getByText('CÔNG VIỆC', { exact: true })).toBeVisible()
-  for (const label of ['Tổng quan Staff', 'Học viên phụ trách', 'Lịch làm việc', 'Giáo án & mức tạ', 'Duyệt món', 'Báo giá', 'Tái ký', 'Lương của tôi']) {
+  for (const label of ['Tổng quan Staff', 'Học viên phụ trách', 'Lịch làm việc', 'Giáo án & mức tạ', 'Duyệt món', 'Tái ký', 'Lương của tôi']) {
     await expect(sidebar.getByRole('button', { name: new RegExp(label) })).toBeVisible()
   }
+  await expect(sidebar.getByRole('button', { name: /Báo giá/ })).toHaveCount(0)
   await expect(sidebar.getByRole('button', { name: /Lịch rảnh/ })).toHaveCount(0)
   await expect(sidebar.getByRole('button', { name: /Yêu cầu lịch/ })).toHaveCount(0)
 
@@ -65,6 +66,12 @@ test('staff dock prioritizes work modules and schedule tools share one weekly wo
   await expect(page.getByRole('combobox', { name: 'Lọc theo chi nhánh' })).toBeVisible()
   await expect(page.getByRole('combobox', { name: 'Lọc theo phân công' })).toBeVisible()
   await expect(page.getByText('buổi được phân công')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Xem hồ sơ & lịch sử' }).first().click()
+  await expect(page.getByRole('dialog', { name: /Nguyễn Minh Anh/ })).toBeVisible()
+  const studentDetail = page.getByRole('dialog', { name: /Nguyễn Minh Anh/ })
+  await expect(studentDetail.getByRole('button', { name: /Lịch sử/ })).toBeVisible()
+  await expect(studentDetail.getByRole('button', { name: /Giáo án/ })).toBeVisible()
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   expect(overflow).toBeLessThanOrEqual(1)

@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, candidateForSlot, compactPairedSlots, generateSchedule, manualSlotCandidate, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, weeklyTargetForStudent } = require('./pt-schedule-v2')
+const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, candidateForSlot, compactPairedSlots, generateSchedule, manualSlotCandidate, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, trainerProfileForWeek, weeklyTargetForStudent } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
@@ -52,6 +52,22 @@ function fixture() {
     },
   }
 }
+
+test('exact submitted PT week overrides recurring slots, including a full OFF week', () => {
+  const recurring = { availableSlots: ['T2-6', 'T3-6'], availabilityMode: 'configured', availabilityRevision: 9 }
+  const weekly = { trainerId: 'trainer-a', weekId: WEEK, status: 'submitted', slots: ['T4-18'], offDates: ['2026-08-24'], revision: 2 }
+  assert.deepEqual(trainerProfileForWeek(recurring, weekly, WEEK), {
+    ...recurring,
+    availableSlots: ['T4-18'],
+    availabilityMode: 'configured',
+    availabilityRevision: 2,
+    availabilitySource: 'weekly',
+    availabilityWeekId: WEEK,
+    offDates: ['2026-08-24'],
+  })
+  assert.equal(trainerProfileForWeek(recurring, { ...weekly, slots: [] }, WEEK).availabilityMode, 'unconfigured')
+  assert.deepEqual(trainerProfileForWeek(recurring, { ...weekly, weekId: '2026-08-31' }, WEEK), recurring)
+})
 
 test('auto scheduling never creates a draft on a configured holiday', () => {
   const data = fixture()

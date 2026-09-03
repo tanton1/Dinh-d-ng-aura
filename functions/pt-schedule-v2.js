@@ -186,6 +186,29 @@ async function exactAvailabilityForStudents(db, studentIds, week) {
   return snapshots.flat().filter((item) => item.exists)
 }
 
+async function exactAvailabilityForTrainers(db, trainerIds, week) {
+  const ids = [...trainerIds]
+  if (!ids.length) return []
+  const snapshots = await Promise.all(splitChunks(ids, 100).map((chunk) => db.getAll(
+    ...chunk.map((trainerId) => db.doc(`trainerAvailability/${trainerId}_${week}`)),
+  )))
+  return snapshots.flat().filter((item) => item.exists)
+}
+
+function trainerProfileForWeek(profile = {}, weekly = null, week = '') {
+  if (!weekly || weekly.weekId !== week || !['submitted', 'locked'].includes(String(weekly.status || ''))) return profile
+  const slots = Array.isArray(weekly.slots) ? weekly.slots.slice(0, 100) : []
+  return {
+    ...profile,
+    availableSlots: slots,
+    availabilityMode: slots.length ? 'configured' : 'unconfigured',
+    availabilityRevision: Number(weekly.revision || 0),
+    availabilitySource: 'weekly',
+    availabilityWeekId: week,
+    offDates: Array.isArray(weekly.offDates) ? weekly.offDates.slice(0, 6) : [],
+  }
+}
+
 function leaveCovers(leave, trainerId, date) {
   if (leave?.status !== 'approved' || leave?.trainerId !== trainerId) return false
   const start = storedDate(leave.startDate)
@@ -215,9 +238,10 @@ async function loadBranchData(db, branchId, week) {
   // Fetch exact weekly availability by deterministic document id. The old
   // week-wide query scanned every branch and could truncate before reaching
   // the selected branch when migrated data was large.
-  const [contracts, availability] = await Promise.all([
+  const [contracts, availability, trainerAvailability] = await Promise.all([
     contractsForStudents(db, studentIds),
     exactAvailabilityForStudents(db, studentIds, week),
+    exactAvailabilityForTrainers(db, trainerIds, week),
   ])
   const studentMap = new Map(students.docs.map((item) => [item.id, item.data()]))
   const trainerMap = new Map(trainers.docs.map((item) => [item.id, item.data()]))
@@ -227,6 +251,7 @@ async function loadBranchData(db, branchId, week) {
     .map((item) => [item.id, item]))
   const sessionRows = [...sessionRowsById.values()]
   const weeklyAvailability = new Map(availability.map((item) => item.data()).filter((item) => studentSet.has(item.studentId)).map((item) => [item.studentId, item]))
+  const weeklyTrainerAvailability = new Map(trainerAvailability.map((item) => item.data()).filter((item) => trainerIds.has(item.trainerId)).map((item) => [item.trainerId, item]))
   const inheritedAvailability = await loadLatestSubmittedFallbacks(db, studentMap, weeklyAvailability, week)
   const legacy = legacySchedule.exists ? legacySchedule.data() : {}
   const draftData = draft.exists ? draft.data() : null
@@ -331,7 +356,7 @@ async function loadBranchData(db, branchId, week) {
     }
   })
   const mappedTrainers = trainers.docs.map((item) => {
-    const data = item.data()
+    const data = trainerProfileForWeek(item.data(), weeklyTrainerAvailability.get(item.id), week)
     const schedulingPriority = Math.max(1, Math.min(999, Math.trunc(Number(data.schedulingPriority ?? data.priority ?? 100) || 100)))
     const dailySessionTarget = Math.max(1, Math.min(12, Math.trunc(Number(data.dailySessionTarget ?? DEFAULT_DAILY_SESSION_TARGET) || DEFAULT_DAILY_SESSION_TARGET)))
     const dailySessionLimit = Math.max(dailySessionTarget, Math.min(16, Math.trunc(Number(data.dailySessionLimit ?? DEFAULT_DAILY_SESSION_LIMIT) || DEFAULT_DAILY_SESSION_LIMIT)))
@@ -376,13 +401,14 @@ async function loadBranchData(db, branchId, week) {
 }
 
 async function loadManualMutationData(db, branchId, week, trainerId, studentId) {
-  const [branch, legacySchedule, draft, studentSnapshot, trainerSnapshot, exactAvailability, config, leaves, contractSnapshot, sessionSnapshot] = await Promise.all([
+  const [branch, legacySchedule, draft, studentSnapshot, trainerSnapshot, exactAvailability, exactTrainerAvailability, config, leaves, contractSnapshot, sessionSnapshot] = await Promise.all([
     db.doc(`branches/${branchId}`).get(),
     db.doc(`schedules/schedule_${week}`).get(),
     draftReference(db, branchId, week).get(),
     db.doc(`students/${studentId}`).get(),
     db.doc(`trainers/${trainerId}`).get(),
     db.doc(`ptAvailability/${studentId}_${week}`).get(),
+    db.doc(`trainerAvailability/${trainerId}_${week}`).get(),
     db.doc('settings/scheduleConfig').get(),
     db.collection('leaveRequests').where('trainerId', '==', trainerId).limit(1001).get(),
     db.collection('contracts').where('studentId', '==', studentId).get(),
@@ -397,7 +423,7 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId) 
   if (!draft.exists) return loadBranchData(db, branchId, week)
 
   const rawStudent = studentSnapshot.data()
-  const rawTrainer = trainerSnapshot.data()
+  const rawTrainer = trainerProfileForWeek(trainerSnapshot.data(), exactTrainerAvailability.exists ? exactTrainerAvailability.data() : null, week)
   const sessions = sessionSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
   const contracts = contractSnapshot.docs.map((item) => {
     const contract = item.data()
@@ -2107,6 +2133,7 @@ module.exports = {
   safeWeeklySessionTargets,
   slotUtilizationForSchedule,
   studentWeekEligibility,
+  trainerProfileForWeek,
   trainerLoadsForSchedule,
   trainerSchedulingPolicy,
   weeklyTargetForStudent,

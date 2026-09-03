@@ -13,7 +13,16 @@ const operationsV2Source = readFileSync(join(__dirname, 'pt-operations-v2.js'), 
 const studentScheduleServiceSource = readFileSync(join(__dirname, '..', 'src', 'services', 'studentPtScheduleService.ts'), 'utf8')
 const studentSchedulePageSource = readFileSync(join(__dirname, '..', 'src', 'pages', 'student', 'SchedulePage.tsx'), 'utf8')
 const studentAvailabilityPageSource = readFileSync(join(__dirname, '..', 'src', 'pages', 'student', 'StudentAvailabilityPage.tsx'), 'utf8')
-const { isEffectiveStaffContract, studentContractProjection, studentContractAlerts } = require('./pt-operations-v2')
+const {
+  availabilityCutoff,
+  availabilityWeekId,
+  isEffectiveStaffContract,
+  mondayDateKey,
+  normalizedTrainerOffDates,
+  studentContractProjection,
+  studentContractAlerts,
+  trainerSlotsWithoutOffDates,
+} = require('./pt-operations-v2')
 
 test('staff student scope only accepts active contracts in date with remaining sessions', () => {
   const base = { status: 'active', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 36, usedSessions: 12 }
@@ -24,6 +33,20 @@ test('staff student scope only accepts active contracts in date with remaining s
   assert.equal(isEffectiveStaffContract({ ...base, startDate: '2026-08-30' }, '2026-08-29'), false)
   assert.equal(isEffectiveStaffContract({ ...base, usedSessions: 36 }, '2026-08-29'), false)
   assert.equal(isEffectiveStaffContract({ ...base, pausePeriods: [{ type: 'preservation', startDate: '2026-08-20', endDate: '2026-09-05' }] }, '2026-08-29'), false)
+})
+
+test('trainer weekly availability uses a Vietnam Monday, Sunday cutoff and exact OFF dates', () => {
+  assert.equal(mondayDateKey('2026-09-03'), '2026-08-31')
+  assert.equal(availabilityWeekId('2026-08-31'), '2026-08-31')
+  assert.throws(() => availabilityWeekId('2026-09-01'), /thứ Hai/)
+  assert.equal(availabilityCutoff('2026-08-31').toISOString(), '2026-08-30T03:00:00.000Z')
+
+  const offDates = normalizedTrainerOffDates(['2026-09-01', '2026-09-01', '2026-09-07'], '2026-08-31')
+  assert.deepEqual(offDates, ['2026-09-01'])
+  assert.deepEqual(
+    trainerSlotsWithoutOffDates(['T2-6', 'T3-6', 'T3-18', 'T4-7'], offDates, '2026-08-31'),
+    ['T2-6', 'T4-7'],
+  )
 })
 
 test('PT lifecycle is exposed only through the expected atomic callables', () => {
@@ -144,6 +167,9 @@ test('learner and staff personal Gym schedule is self-scoped and availability wr
   assert.match(operationsV2Source, /const saveMyTrainerAvailability = staffCall/)
   assert.match(operationsV2Source, /requireCapability\(actor, 'pt\.availability\.self\.manage'\)/)
   assert.match(operationsV2Source, /availabilityRevision: revision \+ 1/)
+  assert.match(operationsV2Source, /requestedWeekId\s*\?\s*Number\(weeklyValue\?\.revision \|\| 0\)/)
+  assert.match(operationsV2Source, /trainerAvailability\/\$\{profile\.id\}_\$\{requestedWeekId\}/)
+  assert.match(operationsV2Source, /trainerSlotsWithoutOffDates/)
   assert.match(functionsSource, /exports\.getMyTrainerAvailability = ptOperationsV2Functions\.getMyTrainerAvailability/)
   assert.match(functionsSource, /exports\.saveMyTrainerAvailability = ptOperationsV2Functions\.saveMyTrainerAvailability/)
 })
@@ -259,6 +285,9 @@ test('Trainer pages keep separate sections while sharing one actor-scoped bootst
   assert.match(operationsV2Source, /studentPhone: student\?\.phone \|\| ''/)
   assert.match(operationsV2Source, /studentBranchId: student\?\.branchId \|\| session\.branchId \|\| ''/)
   assert.match(operationsV2Source, /contractEffective,/)
+  assert.match(operationsV2Source, /const getMyTrainerStudentDetail = staffCall/)
+  assert.match(operationsV2Source, /formulaVersion: 'contract-usage-v2'/)
+  assert.match(operationsV2Source, /sessionsForContracts\(db, datedContracts\.map/)
   assert.match(functionsSource, /exports\.getMyTrainerWorkspace = ptOperationsV2Functions\.getMyTrainerWorkspace/)
 })
 

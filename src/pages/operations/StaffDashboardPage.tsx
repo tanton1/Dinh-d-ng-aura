@@ -1,19 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   BarChart3,
+  BookOpen,
   CalendarDays,
   CheckCircle2,
   CircleDollarSign,
   Clock3,
+  ClipboardList,
   Dumbbell,
   RefreshCw,
   RotateCcw,
+  ShieldCheck,
   UserRoundCheck,
   Users,
   WalletCards,
 } from 'lucide-react'
 import AuraMetricCarousel, { type AuraMetricSlide } from '../../components/admin/pt/AuraMetricCarousel'
-import { getMyTrainerWorkspace, type CoachWorkspaceScope, type TrainerSessionSummary } from '../../services/ptOperationsV2Service'
+import type { StaffPosition } from '../../identity/access'
+import { getMySalesWorkspace, getMyTrainerWorkspace, type CoachWorkspaceScope, type SalesWorkspace, type TrainerSessionSummary } from '../../services/ptOperationsV2Service'
 import { getMyStaffPayroll } from '../../services/staffPayrollService'
 import type { ViewId } from '../../types'
 import {
@@ -87,23 +91,45 @@ function statusLabel(session: TrainerSessionSummary) {
 interface Props {
   onNavigate: (view: ViewId) => void
   capabilities: string[]
+  positions: StaffPosition[]
+  branchCount: number
   isDemo?: boolean
 }
 
-export default function StaffDashboardPage({ onNavigate, capabilities, isDemo = false }: Props) {
+const positionLabels: Record<StaffPosition, string> = {
+  trainer_pt: 'PT Gym',
+  coach_online: 'HLV Online',
+  sales: 'Sales',
+  branch_manager: 'Quản lý chi nhánh',
+  academy_editor: 'Biên tập Academy',
+  shipper: 'Shipper Eat Clean',
+}
+
+export default function StaffDashboardPage({ onNavigate, capabilities, positions, branchCount, isDemo = false }: Props) {
   const today = dateKey()
   const periodId = today.slice(0, 7)
+  const effectivePositions = useMemo<StaffPosition[]>(() => positions.length ? positions : isDemo ? ['trainer_pt'] : [], [isDemo, positions])
+  const coachDashboard = effectivePositions.some((position) => position === 'trainer_pt' || position === 'coach_online')
+  const salesDashboard = effectivePositions.includes('sales')
+  const managerDashboard = effectivePositions.includes('branch_manager')
+  const academyDashboard = effectivePositions.includes('academy_editor')
+  const roleLabel = effectivePositions.map((position) => positionLabels[position]).join(' · ') || 'Nhân sự Aura'
   const [scope, setScope] = useState<CoachWorkspaceScope | null>(null)
   const [sessions, setSessions] = useState<TrainerSessionSummary[]>([])
+  const [sales, setSales] = useState<SalesWorkspace | null>(null)
   const [payroll, setPayroll] = useState<StaffDashboardPayrollSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [payrollLoading, setPayrollLoading] = useState(true)
   const [error, setError] = useState('')
   const [payrollError, setPayrollError] = useState('')
+  const loadedRef = useRef(false)
   const canViewPayroll = capabilities.includes('payroll.self.view') || isDemo
 
   const load = useCallback(async () => {
-    setLoading(true); setError(''); setPayrollError(''); setPayrollLoading(canViewPayroll)
+    if (loadedRef.current) setRefreshing(true)
+    else setLoading(true)
+    setError(''); setPayrollError(''); setPayrollLoading(canViewPayroll && !loadedRef.current)
     if (isDemo) {
       const demoSessions: TrainerSessionSummary[] = [
         { id: 'demo-5', studentId: 'demo-e', trainerId: 'demo-staff', studentName: 'Đỗ Khánh Linh', date: today, hour: 6, status: 'attended', attendanceStatus: 'present', billingStatus: 'charged', timeZone: 'Asia/Ho_Chi_Minh' },
@@ -117,16 +143,22 @@ export default function StaffDashboardPage({ onNavigate, capabilities, isDemo = 
         { id: 'demo-4', studentId: 'demo-d', trainerId: 'demo-staff', studentName: 'Phạm Thảo Vy', date: addDays(today, 1), hour: 7, status: 'scheduled', attendanceStatus: 'pending', billingStatus: 'pending', timeZone: 'Asia/Ho_Chi_Minh' },
       ]
       setScope({ schemaVersion: 1, source: 'pt_contract_assignments', staffId: 'demo-staff', tabs: { students: true, schedule: true, requests: true, nutrition: true }, counts: { primaryStudents: 8, secondaryStudents: 3, nutritionStudents: 5, teachingSessions: 24, pendingRequests: 2 } })
-      setSessions(demoSessions); setPayroll(demoPayrollSnapshot(periodId)); setLoading(false); setPayrollLoading(false); return
+      setSessions(demoSessions); setPayroll(demoPayrollSnapshot(periodId)); setLoading(false); setRefreshing(false); setPayrollLoading(false); loadedRef.current = true; return
     }
-    const [workspaceResult, payrollResult] = await Promise.allSettled([
-      getMyTrainerWorkspace('schedule', today, today, 500),
+    const [workspaceResult, salesResult, payrollResult] = await Promise.allSettled([
+      coachDashboard ? getMyTrainerWorkspace('schedule', today, today, 500) : Promise.resolve(null),
+      salesDashboard ? getMySalesWorkspace(100) : Promise.resolve(null),
       canViewPayroll ? getMyStaffPayroll(periodId) : Promise.resolve(null),
     ])
-    if (workspaceResult.status === 'fulfilled') {
+    if (workspaceResult.status === 'fulfilled' && workspaceResult.value) {
       setScope(workspaceResult.value.scope); setSessions(workspaceResult.value.sessions)
-    } else {
+    } else if (workspaceResult.status === 'rejected') {
       setError(workspaceResult.reason instanceof Error ? workspaceResult.reason.message : 'Chưa thể tải tổng quan công việc Staff.')
+    }
+    if (salesResult.status === 'fulfilled' && salesResult.value) {
+      setSales(salesResult.value)
+    } else if (salesResult.status === 'rejected') {
+      setError((current) => current || (salesResult.reason instanceof Error ? salesResult.reason.message : 'Chưa thể tải tổng quan Sales.'))
     }
     if (payrollResult.status === 'fulfilled') {
       setPayroll(payrollResult.value)
@@ -134,8 +166,9 @@ export default function StaffDashboardPage({ onNavigate, capabilities, isDemo = 
       setPayroll(null)
       setPayrollError(payrollResult.reason instanceof Error ? payrollResult.reason.message : 'Chưa thể tải dữ liệu thu nhập tháng này.')
     }
-    setLoading(false); setPayrollLoading(false)
-  }, [canViewPayroll, isDemo, periodId, today])
+    loadedRef.current = true
+    setLoading(false); setRefreshing(false); setPayrollLoading(false)
+  }, [canViewPayroll, coachDashboard, isDemo, periodId, salesDashboard, today])
 
   useEffect(() => { void load() }, [load])
 
@@ -156,23 +189,64 @@ export default function StaffDashboardPage({ onNavigate, capabilities, isDemo = 
   const payrollChart = useMemo(() => payroll ? buildStaffDashboardPayrollChart(payroll) : null, [payroll])
   const teachingSlotCount = payrollChart?.buckets.reduce((sum, bucket) => sum + bucket.teachingSlotCount, 0) || 0
 
-  const slides = useMemo<AuraMetricSlide[]>(() => [
-    { id: 'today', eyebrow: 'Ca dạy hôm nay', value: `${todayShiftCount} ca`, detail: `${todaySessions.length} lượt học viên trong lịch`, icon: <Dumbbell size={20} />, tone: 'pink', actionLabel: 'Mở lịch làm việc', onSelect: () => onNavigate('staff-schedule') },
-    { id: 'attendance', eyebrow: 'Chờ xác nhận', value: `${pendingAttendance} lượt`, detail: pendingAttendance ? 'Ưu tiên hoàn tất hiện diện sau ca' : 'Không có ca quá giờ đang chờ', icon: <Clock3 size={20} />, tone: 'orange', actionLabel: 'Kiểm tra ca dạy', onSelect: () => onNavigate('staff-schedule') },
-    { id: 'students', eyebrow: 'Học viên phụ trách', value: `${(scope?.counts.primaryStudents || 0) + (scope?.counts.secondaryStudents || 0)}`, detail: `${scope?.counts.primaryStudents || 0} chính · ${scope?.counts.secondaryStudents || 0} phụ`, icon: <Users size={20} />, tone: 'sunset', actionLabel: 'Xem học viên', onSelect: () => onNavigate('staff-students') },
-    { id: 'requests', eyebrow: 'Yêu cầu lịch', value: `${scope?.counts.pendingRequests || 0} chờ`, detail: 'Đổi, hủy và điều chỉnh ca của bạn', icon: <RotateCcw size={20} />, tone: 'ink', actionLabel: 'Mở yêu cầu', onSelect: () => onNavigate('staff-requests') },
-  ], [onNavigate, pendingAttendance, scope, todaySessions.length, todayShiftCount])
+  const slides = useMemo<AuraMetricSlide[]>(() => {
+    if (coachDashboard) return [
+      { id: 'today', eyebrow: 'Ca dạy hôm nay', value: `${todayShiftCount} ca`, detail: `${todaySessions.length} lượt học viên trong lịch`, icon: <Dumbbell size={20} />, tone: 'pink', actionLabel: 'Mở lịch làm việc', onSelect: () => onNavigate('staff-schedule') },
+      { id: 'attendance', eyebrow: 'Chờ xác nhận', value: `${pendingAttendance} lượt`, detail: pendingAttendance ? 'Ưu tiên hoàn tất hiện diện sau ca' : 'Không có ca quá giờ đang chờ', icon: <Clock3 size={20} />, tone: 'orange', actionLabel: 'Kiểm tra ca dạy', onSelect: () => onNavigate('staff-schedule') },
+      { id: 'students', eyebrow: 'Học viên phụ trách', value: `${(scope?.counts.primaryStudents || 0) + (scope?.counts.secondaryStudents || 0)}`, detail: `${scope?.counts.primaryStudents || 0} chính · ${scope?.counts.secondaryStudents || 0} phụ`, icon: <Users size={20} />, tone: 'sunset', actionLabel: 'Xem học viên', onSelect: () => onNavigate('staff-students') },
+      { id: 'requests', eyebrow: 'Yêu cầu lịch', value: `${scope?.counts.pendingRequests || 0} chờ`, detail: 'Đổi, hủy và điều chỉnh ca của bạn', icon: <RotateCcw size={20} />, tone: 'ink', actionLabel: 'Mở yêu cầu', onSelect: () => onNavigate('staff-requests') },
+    ]
+    if (salesDashboard) {
+      const quotes = sales?.quotes || []
+      const openQuotes = quotes.filter((quote) => !['approved', 'converted', 'rejected', 'cancelled'].includes(String(quote.status).toLowerCase())).length
+      return [
+        { id: 'quotes', eyebrow: 'Báo giá phụ trách', value: `${quotes.length}`, detail: `${openQuotes} báo giá đang theo dõi`, icon: <ClipboardList size={20} />, tone: 'pink', actionLabel: 'Mở báo giá', onSelect: () => onNavigate('staff-quotes') },
+        { id: 'branches', eyebrow: 'Phạm vi chi nhánh', value: `${sales?.catalog.branches.length || branchCount}`, detail: 'Chỉ dữ liệu trong phạm vi được cấp', icon: <ShieldCheck size={20} />, tone: 'ink' },
+        { id: 'packages', eyebrow: 'Gói có thể tư vấn', value: `${sales?.catalog.packages.length || 0}`, detail: 'Danh mục đang hoạt động', icon: <Dumbbell size={20} />, tone: 'orange' },
+        { id: 'renewals', eyebrow: 'Chăm sóc & tái ký', value: 'Mở', detail: 'Theo dõi khách hàng cần gia hạn', icon: <RefreshCw size={20} />, tone: 'sunset', actionLabel: 'Mở tái ký', onSelect: () => onNavigate('staff-renewals') },
+      ]
+    }
+    return [
+      { id: 'role', eyebrow: 'Vai trò hiện tại', value: roleLabel, detail: 'Giao diện đã được tinh gọn theo chức danh', icon: <ShieldCheck size={20} />, tone: 'pink' },
+      { id: 'branches', eyebrow: 'Phạm vi chi nhánh', value: `${branchCount}`, detail: 'Chi nhánh được cấp trong Identity', icon: <CalendarDays size={20} />, tone: 'ink' },
+      { id: 'work', eyebrow: 'Không gian công việc', value: managerDashboard ? 'Điều hành' : academyDashboard ? 'Academy' : 'Cá nhân', detail: 'Chỉ hiển thị module đúng nhiệm vụ', icon: academyDashboard ? <BookOpen size={20} /> : <Users size={20} />, tone: 'orange' },
+      { id: 'payroll', eyebrow: 'Lương cá nhân', value: canViewPayroll ? 'Có quyền xem' : 'Chưa được cấp', detail: 'Dữ liệu chỉ đọc và có đối soát', icon: <WalletCards size={20} />, tone: 'sunset', actionLabel: canViewPayroll ? 'Mở bảng lương' : undefined, onSelect: canViewPayroll ? () => onNavigate('staff-payroll') : undefined },
+    ]
+  }, [academyDashboard, branchCount, canViewPayroll, coachDashboard, managerDashboard, onNavigate, pendingAttendance, roleLabel, sales, salesDashboard, scope, todaySessions.length, todayShiftCount])
+
+  const roleActions = useMemo(() => {
+    const actions: Array<{ id: string; label: string; detail: string; view: ViewId; icon: typeof CalendarDays }> = []
+    if (coachDashboard) actions.push(
+      { id: 'schedule', label: 'Lịch & yêu cầu', detail: 'Ca dạy, lịch rảnh và đổi ca', view: 'staff-schedule', icon: CalendarDays },
+      { id: 'students', label: 'Học viên phụ trách', detail: 'Hợp đồng, lịch và giáo án', view: 'staff-students', icon: Users },
+    )
+    if (salesDashboard) actions.push(
+      { id: 'quotes', label: 'Báo giá', detail: 'Tạo và theo dõi báo giá', view: 'staff-quotes', icon: ClipboardList },
+      { id: 'renewals', label: 'Tái ký', detail: 'Khách hàng cần chăm sóc', view: 'staff-renewals', icon: RefreshCw },
+    )
+    if (managerDashboard) actions.push(
+      { id: 'branch-schedule', label: 'Lịch chi nhánh', detail: 'Draft, cảnh báo và publish', view: 'admin-pt-schedule', icon: CalendarDays },
+      { id: 'branch-renewals', label: 'Duyệt tái ký', detail: 'Pipeline trong phạm vi chi nhánh', view: 'staff-renewals', icon: ShieldCheck },
+    )
+    if (academyDashboard) actions.push({ id: 'academy', label: 'Aura Academy', detail: 'Nội dung học và thư viện', view: 'courses', icon: BookOpen })
+    return actions.filter((item, index) => actions.findIndex((candidate) => candidate.view === item.view) === index)
+  }, [academyDashboard, coachDashboard, managerDashboard, salesDashboard])
 
   return <main className="staff-dashboard" data-testid="staff-dashboard-page">
     <header className="staff-dashboard__heading">
-      <div><small>AURA STAFF</small><h1>Tổng quan công việc</h1><p>{today.split('-').reverse().join('/')} · Dữ liệu chỉ trong phạm vi được phân công</p></div>
-      <button type="button" aria-label="Tải lại tổng quan Staff" disabled={loading} onClick={() => void load()}><RefreshCw className={loading ? 'is-spinning' : ''} size={19} /></button>
+      <div><small>AURA STAFF · {roleLabel.toUpperCase()}</small><h1>Tổng quan công việc</h1><p>{today.split('-').reverse().join('/')} · Dữ liệu chỉ trong phạm vi được phân công</p></div>
+      <button type="button" aria-label="Tải lại tổng quan Staff" disabled={loading || refreshing} onClick={() => void load()}><RefreshCw className={loading || refreshing ? 'is-spinning' : ''} size={19} /></button>
     </header>
 
     <AuraMetricCarousel slides={slides} label="Tổng quan công việc Staff" loading={loading} />
     {error && <section className="staff-dashboard__state"><Clock3 size={20} /><div><strong>Chưa tải đủ dữ liệu công việc</strong><p>{error}</p></div><button type="button" onClick={() => void load()}>Thử lại</button></section>}
 
-    <section className="staff-dashboard__today">
+    {roleActions.length > 0 && <section className="staff-dashboard__role-actions">
+      <header><div><small>TRUY CẬP THEO VAI TRÒ</small><h2>Việc cần làm</h2></div></header>
+      <div>{roleActions.map(({ id, label, detail, view: target, icon: Icon }) => <button type="button" key={id} onClick={() => onNavigate(target)}><span><Icon size={19} /></span><strong>{label}</strong><small>{detail}</small></button>)}</div>
+    </section>}
+
+    {coachDashboard && <section className="staff-dashboard__today">
       <header><div><small>CA HÔM NAY</small><h2>Lịch dạy và hiện diện</h2></div><button type="button" onClick={() => onNavigate('staff-schedule')}>Xem tuần <CalendarDays size={17} /></button></header>
       {groupedToday.length ? <div className="staff-dashboard__timeline">{groupedToday.map((group) => {
         const statuses = group.items.map(statusLabel)
@@ -184,7 +258,7 @@ export default function StaffDashboardPage({ onNavigate, capabilities, isDemo = 
           <i className={pending ? 'is-pending' : future ? 'is-future' : 'is-done'}>{pending ? <Clock3 /> : future ? <CalendarDays /> : <CheckCircle2 />}</i>
         </button>
       })}</div> : <div className="staff-dashboard__empty"><UserRoundCheck size={28} /><strong>Không có ca dạy hôm nay</strong><p>Mở lịch tuần để xem các ca tiếp theo.</p></div>}
-    </section>
+    </section>}
 
     <section className="staff-dashboard__payroll" aria-label="Biểu đồ lương và hoa hồng ca dạy trong tháng" aria-busy={payrollLoading}>
       <header>

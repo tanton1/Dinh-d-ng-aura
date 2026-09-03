@@ -117,6 +117,12 @@ export interface TrainerStudentSummary {
     endDate?: string
     totalSessions: number
     usedSessions: number
+    remainingSessions?: number
+    chargedSessions?: number | null
+    historySessions?: number | null
+    storedUsedSessions?: number
+    formulaVersion?: 'contract-usage-v2'
+    reconciliationStatus?: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement'
   }
 }
 
@@ -170,6 +176,14 @@ export interface TrainerAvailabilityWorkspace {
   trainerName: string
   branchId: string
   availableSlots: string[]
+  baseAvailableSlots: string[]
+  weekId: string | null
+  weeklyOverride: boolean
+  offDates: string[]
+  locked: boolean
+  cutoffAt: string | null
+  source: 'recurring' | 'weekly'
+  updatedAt: string | null
   availabilityMode: 'configured' | 'unrestricted' | 'unconfigured'
   availabilityRevision: number
   scheduleConfig: { workingDays: string[]; workingHours: number[] }
@@ -183,6 +197,41 @@ export interface TrainerWorkspaceBootstrap {
   sessions: TrainerSessionSummary[]
   requests: TrainerSessionRequestSummary[]
   hasMore: boolean
+}
+
+export interface TrainerStudentContractDetail {
+  id: string
+  packageName: string
+  status: string
+  startDate: string
+  endDate: string
+  totalSessions: number
+  usedSessions: number
+  remainingSessions: number
+  chargedSessions: number | null
+  historySessions: number | null
+  reconciliationStatus: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement'
+  schedulableToday: boolean
+  pausedToday: boolean
+}
+
+export interface TrainerStudentDetail {
+  schemaVersion: number
+  formulaVersion: 'contract-usage-v2'
+  student: Record<string, unknown> & { id: string; name?: string; phone?: string; email?: string; branchId?: string }
+  contracts: TrainerStudentContractDetail[]
+  sessions: TrainerSessionSummary[]
+  availability: {
+    weekId: string
+    slots: string[]
+    status: string
+    confirmed: boolean
+    locked: boolean
+    cutoffAt: string
+    source: string
+    sourceWeekId: string | null
+  }
+  workoutLogs: Array<Record<string, unknown> & { id: string }>
 }
 
 export interface TrainerSessionRequestSummary {
@@ -235,12 +284,13 @@ export async function getMyCoachWorkspaceScope() {
   return cachedCall<Record<string, never>, CoachWorkspaceScope>('getMyCoachWorkspaceScope', {}, 90_000)
 }
 
-export async function getMyTrainerAvailability() {
-  return cachedCall<Record<string, never>, TrainerAvailabilityWorkspace>('getMyTrainerAvailability', {}, 30_000)
+export async function getMyTrainerAvailability(weekId?: string) {
+  const input = weekId ? { weekId } : {}
+  return cachedCall<{ weekId?: string }, TrainerAvailabilityWorkspace>('getMyTrainerAvailability', input, 30_000)
 }
 
-export async function saveMyTrainerAvailability(input: { availableSlots: string[]; expectedRevision: number }) {
-  const result = await call<typeof input, { schemaVersion: number; availableSlots: string[]; availabilityMode: 'configured'; availabilityRevision: number }>('saveMyTrainerAvailability', input)
+export async function saveMyTrainerAvailability(input: { weekId?: string; availableSlots: string[]; offDates?: string[]; expectedRevision: number }) {
+  const result = await call<typeof input, TrainerAvailabilityWorkspace>('saveMyTrainerAvailability', input)
   invalidateReadCache('getMyTrainerAvailability', 'getMyTrainerWorkspace', 'getMyCoachWorkspaceScope')
   return result
 }
@@ -255,6 +305,10 @@ export async function getMyTrainerWorkspace(
     { section: 'students' | 'schedule' | 'requests'; from: string; to: string; limit: number },
     TrainerWorkspaceBootstrap
   >('getMyTrainerWorkspace', { section, from, to, limit }, 30_000)
+}
+
+export async function getMyTrainerStudentDetail(studentId: string, weekId: string) {
+  return cachedCall<{ studentId: string; weekId: string }, TrainerStudentDetail>('getMyTrainerStudentDetail', { studentId, weekId }, 30_000)
 }
 
 export async function confirmMySession(sessionId: string, expectedRevision: number) {
