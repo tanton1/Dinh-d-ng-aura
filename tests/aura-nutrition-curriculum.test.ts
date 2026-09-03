@@ -9,6 +9,9 @@ test('AURA nutrition curriculum contains four phases, 20 chapters and 60 lessons
   assert.equal(auraNutritionCurriculumStats.lessons, 60)
   assert.equal(auraFoundationCourse.modules.length, 20)
   assert.ok(auraFoundationCourse.modules.every((module) => module.lessons.length === 3))
+  assert.equal(auraFoundationCourse.settings.accessTier, 'free')
+  assert.equal(auraFoundationCourse.settings.visibility, 'members')
+  assert.equal(auraFoundationCourse.settings.dripSchedule, 'none')
 })
 
 test('curriculum lesson identifiers are unique and every chapter is publication-ready', () => {
@@ -42,4 +45,3 @@ test('medical chapter keeps the education and referral boundary explicit', () =>
   assert.match(medicalCore.primaryContent?.body ?? '', /chỉ phục vụ giáo dục/i)
   assert.match(medicalCore.primaryContent?.body ?? '', /điều trị/i)
 })
-

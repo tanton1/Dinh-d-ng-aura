@@ -46,6 +46,8 @@ function CourseCardV2({
 }) {
   const Icon = iconMap[course.icon as keyof typeof iconMap] ?? Leaf
   const gradientClass = bannerGradients[index % bannerGradients.length]
+  const openToAllMembers = course.settings?.accessTier === 'free'
+    && course.settings.visibility === 'members'
 
   return (
     <article
@@ -71,7 +73,7 @@ function CourseCardV2({
             HOÀN THÀNH
           </span>
         ) : course.status === 'Khám phá' ? (
-          <span className="course-badge-tag">MỚI</span>
+          <span className="course-badge-tag">{openToAllMembers ? 'MIỄN PHÍ' : 'MỚI'}</span>
         ) : course.progress > 0 ? (
           <span className="course-badge-tag">{course.progress}% TIẾN ĐỘ</span>
         ) : (
@@ -84,6 +86,7 @@ function CourseCardV2({
           <span className="course-category-tag">
             {course.category} · {course.level.toUpperCase()}
           </span>
+          {openToAllMembers ? <span className="course-open-label"><CheckCircle2 size={13} /> Mở cho mọi thành viên AURA</span> : null}
           <h3 className="course-card-v2__title">{course.title}</h3>
           <p className="course-card-v2__desc">{course.description}</p>
         </div>

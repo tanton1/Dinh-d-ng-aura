@@ -30,7 +30,7 @@ export const auraFoundationCourse: CourseDraftInput = {
   ],
   modules: buildAuraNutritionModules(),
   settings: {
-    accessTier: 'pro',
+    accessTier: 'free',
     completionPercent: 80,
     certificateEnabled: true,
     dripSchedule: 'none',

@@ -16,6 +16,7 @@ import {
   NotebookPen,
   Play,
   Sparkles,
+  UnlockKeyhole,
 } from 'lucide-react'
 import AcademyLessonStudy from '../../components/academy/AcademyLessonStudy'
 import { CoursePrimaryContent, CourseQuizRunner, CourseResourceItem } from '../../components/CourseLessonRuntime'
@@ -187,6 +188,10 @@ export default function CourseDetailPage({
   const isLegacyWorkoutLesson = selectedLesson?.type === 'Buổi tập'
     || selectedLesson?.completionPolicy?.mode === 'workout-complete'
     || selectedLesson?.primaryContent?.kind === 'workout'
+  const isRichTextLesson = selectedLesson?.primaryContent?.kind === 'rich-text'
+    && Boolean(selectedLesson.primaryContent.body?.trim())
+  const openToAllMembers = course?.settings?.accessTier === 'free'
+    && course.settings.visibility === 'members'
   const completionThreshold = Math.max(1, Math.min(100, completionPolicy.thresholdPercent ?? 80))
   const mediaThresholdReached = mediaProgress >= completionThreshold
   const canStudy = (enrolled || previewMode) && !accessLocked && selectedLessonAvailable
@@ -376,6 +381,19 @@ export default function CourseDetailPage({
     if (tab === 'discussion') {
       return <div className="lesson-empty-state"><MessageCircle size={28} /><h2>Thảo luận đang hoàn thiện</h2><p>Gặp lại bạn sẽ có thể đặt câu hỏi và trao đổi trực tiếp dưới mỗi bài học.</p><span className="coming-soon-badge">SẮP RA MẮT</span></div>
     }
+    if (selectedLesson && isRichTextLesson) {
+      return (
+        <>
+          <CoursePrimaryContent
+            courseId={String(course.id)}
+            lesson={selectedLesson}
+            canView={canViewContent}
+            lockedMessage={accessLocked ? 'Nâng cấp Aura Pro để mở nội dung này.' : openToAllMembers ? 'Bấm Bắt đầu miễn phí để mở toàn bộ bài học và lưu tiến độ.' : selectedLessonAvailable ? 'Ghi danh để mở khóa bài học' : unlockLabel(selectedUnlockAt) ?? 'Bài học chưa mở'}
+          />
+          {getAcademyCoachNote(selectedLesson) ? <div className="coach-notes-block"><NotebookPen size={17} /><div><strong>Ghi chú giảng viên</strong><p>{getAcademyCoachNote(selectedLesson)}</p></div></div> : null}
+        </>
+      )
+    }
     return (
       <>
         {selectedLesson?.type === 'Quiz' ? (
@@ -476,6 +494,7 @@ export default function CourseDetailPage({
             <span><BookOpen size={15} /> {lessons.length} bài học</span>
             <span><Clock3 size={15} /> {course.duration}</span>
             <span><Sparkles size={15} /> {course.coach}</span>
+            {openToAllMembers ? <span className="academy-open-access"><UnlockKeyhole size={15} /> Miễn phí cho mọi thành viên</span> : null}
           </div>
         </div>
         <div className="course-detail-hero__progress">
@@ -513,7 +532,7 @@ export default function CourseDetailPage({
 
         <div className="learning-layout">
         <section className="lesson-main">
-          {selectedLesson ? (
+          {selectedLesson && !isRichTextLesson ? (
             <CoursePrimaryContent
               courseId={String(course.id)}
               lesson={selectedLesson}
@@ -521,9 +540,9 @@ export default function CourseDetailPage({
               lockedMessage={accessLocked ? 'Nâng cấp Aura Pro để mở nội dung này.' : selectedLessonAvailable ? 'Ghi danh để mở khóa bài học' : unlockLabel(selectedUnlockAt) ?? 'Bài học chưa mở'}
               onMediaProgress={setMediaProgress}
             />
-          ) : (
+          ) : !selectedLesson ? (
             <div className="lesson-empty-state media"><BookOpen size={30} /><h2>Khóa học chưa có bài học</h2><p>Quản trị viên cần bổ sung ít nhất một bài trước khi học viên bắt đầu.</p></div>
-          )}
+          ) : null}
 
           <div className="lesson-title-row">
             <div>
@@ -536,7 +555,7 @@ export default function CourseDetailPage({
             ) : accessLocked ? (
               <button className="primary-button" onClick={onUpgrade}><LockKeyhole size={18} /> Nâng cấp gói Pro</button>
             ) : !enrolled ? (
-              <button className="primary-button" onClick={enroll} disabled={enrollState === 'saving' || lessons.length === 0}><Play size={18} fill="currentColor" /> {enrollState === 'saving' ? 'Đang ghi danh...' : enrollState === 'error' ? 'Thử ghi danh lại' : 'Bắt đầu khóa học'}</button>
+              <button className="primary-button" onClick={enroll} disabled={enrollState === 'saving' || lessons.length === 0}><Play size={18} fill="currentColor" /> {enrollState === 'saving' ? 'Đang ghi danh...' : enrollState === 'error' ? 'Thử ghi danh lại' : openToAllMembers ? 'Bắt đầu miễn phí' : 'Bắt đầu khóa học'}</button>
             ) : !selectedLessonAvailable ? (
               <button className="primary-button" disabled title={unlockLabel(selectedUnlockAt) ?? undefined}><LockKeyhole size={18} /> {unlockLabel(selectedUnlockAt) ?? 'Bài học chưa mở'}</button>
             ) : isLegacyWorkoutLesson ? (
@@ -549,7 +568,7 @@ export default function CourseDetailPage({
               <button className="primary-button" onClick={completeLesson} disabled={!selectedLesson || completeState === 'saving' || completeState === 'saved'}><Check size={18} /> {completeState === 'saving' ? 'Đang đóng...' : completeState === 'saved' ? 'Đã hoàn thành' : completeState === 'error' ? 'Thử đóng lại' : 'Đánh dấu hoàn thành'}</button>
             )}
           </div>
-          {selectedLesson && canViewContent ? <div className="lesson-completion-status" role="status" aria-live="polite">{previewMode ? 'Bạn đang xem nội dung bằng quyền quản trị. Mọi thao tác hoàn thành và quiz đều không được ghi.' : isLegacyWorkoutLesson ? 'Bài học kế thừa đang chờ giảng viên chuyển đổi sang Aura Academy.' : completionPolicy.mode === 'media-progress' ? `Điều kiện hoàn thành: xem ít nhất ${completionThreshold}% media.` : completionPolicy.mode === 'quiz-pass' ? 'Điều kiện hoàn thành: đạt điểm yêu cầu của quiz.' : 'Bạn chủ động đánh dấu khi đã học xong nội dung.'}</div> : null}
+          {selectedLesson && canViewContent ? <div className="lesson-completion-status" role="status" aria-live="polite">{previewMode ? 'Bạn đang xem nội dung bằng quyền quản trị. Mọi thao tác hoàn thành và quiz đều không được ghi.' : !enrolled && openToAllMembers ? 'Bạn đang xem thử miễn phí. Bấm “Bắt đầu miễn phí” để mở trọn 20 chương và lưu tiến độ.' : isLegacyWorkoutLesson ? 'Bài học kế thừa đang chờ giảng viên chuyển đổi sang Aura Academy.' : completionPolicy.mode === 'media-progress' ? `Điều kiện hoàn thành: xem ít nhất ${completionThreshold}% media.` : completionPolicy.mode === 'quiz-pass' ? 'Điều kiện hoàn thành: đạt điểm yêu cầu của quiz.' : 'Bạn chủ động đánh dấu khi đã học xong nội dung.'}</div> : null}
           {(actionError || learningWarning) && <div className="learning-action-error" role="alert">{actionError ?? `Tiến độ tạm thời chưa lưu: ${learningWarning}`}</div>}
 
           <div className="lesson-tabs" role="tablist" aria-label="Nội dung bài học">
@@ -602,7 +621,11 @@ export default function CourseDetailPage({
       <nav className="mobile-lesson-cta" aria-label="Điều hướng học trên mobile">
         <button type="button" aria-label="Bài trước" disabled={!previousLesson} onClick={() => previousLesson && selectLesson(previousLesson.id)}><ChevronLeft size={19} /></button>
         <button type="button" className="mobile-lesson-cta__list" onClick={() => setMobileLessonsOpen(true)}><List size={17} /><span>Bài học</span><strong>{selectedLessonIndex >= 0 ? `${selectedLessonIndex + 1}/${lessons.length}` : `${lessons.length}`}</strong></button>
-        <button type="button" className="mobile-lesson-cta__complete" disabled={!canStudy || completionPolicy.mode !== 'manual' || completeState === 'saving' || completeState === 'saved'} onClick={completeLesson}><Check size={17} /> {completeState === 'saved' ? 'Đã xong' : 'Hoàn thành'}</button>
+        {!enrolled && !previewMode && !accessLocked ? (
+          <button type="button" className="mobile-lesson-cta__complete" disabled={enrollState === 'saving'} onClick={enroll}><Play size={17} /> {enrollState === 'saving' ? 'Đang mở...' : openToAllMembers ? 'Bắt đầu miễn phí' : 'Bắt đầu học'}</button>
+        ) : (
+          <button type="button" className="mobile-lesson-cta__complete" disabled={!canStudy || completionPolicy.mode !== 'manual' || completeState === 'saving' || completeState === 'saved'} onClick={completeLesson}><Check size={17} /> {completeState === 'saved' ? 'Đã xong' : 'Hoàn thành'}</button>
+        )}
         <button type="button" aria-label="Bài tiếp theo" disabled={!nextLesson} onClick={() => nextLesson && selectLesson(nextLesson.id)}><ChevronRight size={19} /></button>
       </nav>
 

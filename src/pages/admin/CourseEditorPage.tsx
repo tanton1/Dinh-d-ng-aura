@@ -977,6 +977,12 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
         ...module,
         lessons: module.lessons.map(ensureLessonMeta),
       })),
+      settings: {
+        ...current.settings,
+        accessTier: 'free',
+        visibility: 'members',
+        dripSchedule: 'none',
+      },
       quizAnswerKeys: undefined,
     }))
     setDetailLessonModuleIndex(0)
@@ -1207,7 +1213,7 @@ export default function CourseEditorPage({ onNavigate, onSave, onDirtyChange, ca
           {activeStep === 2 && (
             <section className="editor-step-panel" id="course-curriculum">
               <div className="builder-heading"><div><span className="eyebrow">BƯỚC 2 / 4</span><h1>Nội dung Aura Academy</h1><p>Thiết kế khóa đào tạo dinh dưỡng chuyên sâu, độc lập hoàn toàn với giáo án PT.</p></div><div className="builder-heading-actions"><button className="outline-button academy-curriculum-import" onClick={applyAuraNutritionCurriculum}><BookOpen size={17} /> Nạp giáo trình 20 chương</button><button className="outline-button" onClick={handleGenerateOutline} disabled={generatingOutline} style={{color: '#8b5cf6', border: '1px solid #8b5cf6'}}><Sparkles size={17} /> {generatingOutline ? 'Đang tạo...' : 'AI Lên sườn nội dung'}</button><button className="outline-button" onClick={addModule}><Plus size={17} /> Thêm chương</button></div></div>
-              <div className="builder-tip"><span>📚</span><p><strong>Giáo trình AURA 2026 đã sẵn sàng</strong>Nút “Nạp giáo trình 20 chương” tạo 4 chặng, 60 bài micro-learning, bài thực hành, active recall, flashcard và checkpoint có đáp án bảo mật.</p></div>
+              <div className="builder-tip"><span>📚</span><p><strong>Giáo trình AURA 2026 đã sẵn sàng</strong>Nút “Nạp giáo trình 20 chương” tạo 4 chặng, 60 bài micro-learning, bài thực hành, active recall, flashcard và checkpoint có đáp án bảo mật. Khóa được đặt miễn phí, mở toàn bộ cho mọi thành viên sau khi xuất bản.</p></div>
               <div className="module-list">
                 {course.modules.map((module, moduleIndex) => (
                   <article className="builder-module editable" key={module.id}>

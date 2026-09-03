@@ -757,9 +757,6 @@ function chapterBody(chapter: CurriculumChapter) {
     '## Bạn sẽ làm được',
     ...chapter.objectives.map((item) => `- ${item}`),
     '',
-    '## Ba ý cốt lõi',
-    ...chapter.takeaways.map((item, index) => `### ${index + 1}. ${item}`),
-    '',
     `> **Lưu ý an toàn:** ${chapter.safety}`,
     '',
     '## Cách học chương này',
@@ -772,7 +769,6 @@ function practiceBody(chapter: CurriculumChapter) {
     `## ${chapter.practiceTitle}`,
     'Bài thực hành này biến kiến thức thành một vòng quan sát có thể dùng trong đời sống thật.',
     '',
-    ...chapter.practiceSteps.flatMap((item, index) => [`### Bước ${index + 1}`, item, '']),
     '## Kết quả cần có',
     chapter.practiceResult,
     '',
@@ -859,4 +855,3 @@ export const auraNutritionCurriculumStats = {
   phases: auraNutritionPhases.length,
   estimatedMinutes: chapters.reduce((total, chapter) => total + chapter.minutes + 18, 0),
 }
-

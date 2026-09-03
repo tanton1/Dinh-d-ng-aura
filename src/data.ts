@@ -13,6 +13,13 @@ export const courses: Course[] = [
     progress: 68,
     accent: 'purple',
     icon: 'nutrition',
+    settings: {
+      accessTier: 'free',
+      completionPercent: 80,
+      certificateEnabled: true,
+      dripSchedule: 'none',
+      visibility: 'members',
+    },
     status: 'Đang học',
   },
   {

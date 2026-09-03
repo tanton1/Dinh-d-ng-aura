@@ -2,16 +2,23 @@ import { useEffect, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import {
   AlertCircle,
+  Brain,
   CheckCircle2,
+  Compass,
   ExternalLink,
   FileSpreadsheet,
   FileType,
+  Footprints,
+  Lightbulb,
   LoaderCircle,
   LockKeyhole,
   ListChecks,
   Play,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
+  Target,
+  Timer,
 } from 'lucide-react'
 import type { CourseLessonDraft, LessonResourceDraft } from '../types'
 import {
@@ -160,10 +167,76 @@ function MediaLoading() {
   return <div className="lesson-media-status" role="status"><LoaderCircle className="spin" size={16} /> Đang mở media bảo mật...</div>
 }
 
-function AcademyRichLesson({ body }: { body: string }) {
+function AcademyRichLesson({ lesson, body }: { lesson: CourseLessonDraft; body: string }) {
+  const isPractice = lesson.tags?.includes('Thực hành') === true
+  const chapterLabel = lesson.tags?.find((tag) => /^Chương\s+\d+$/i.test(tag)) ?? 'AURA ACADEMY'
+  const phaseLabel = lesson.tags?.find((tag) => !/^Chương\s+\d+$/i.test(tag) && !['Thực hành', 'Giáo trình 2026'].includes(tag))
+  const takeaways = lesson.memory?.takeaways.slice(0, 3) ?? []
+  const terms = lesson.memory?.glossary.slice(0, 3) ?? []
+  const visualPath = isPractice
+    ? [
+        { label: 'Quan sát', detail: 'Bắt đầu từ dữ liệu thật', Icon: Compass },
+        { label: 'Thử nhỏ', detail: 'Chọn một bước vừa sức', Icon: Footprints },
+        { label: 'Rà lại', detail: 'Giữ, chỉnh hoặc dừng', Icon: Target },
+      ]
+    : [
+        { label: 'Nhìn rộng', detail: 'Hiểu đúng bối cảnh', Icon: Compass },
+        { label: 'Nắm lõi', detail: 'Giữ ba ý quan trọng', Icon: Lightbulb },
+        { label: 'Nhớ sâu', detail: 'Tự nói lại bằng lời mình', Icon: Brain },
+      ]
+
   return (
     <article className="lesson-copy lesson-primary-copy academy-rich-lesson">
-      <ReactMarkdown>{body}</ReactMarkdown>
+      <header className={`academy-lesson-visual ${isPractice ? 'is-practice' : ''}`}>
+        <div className="academy-lesson-visual__glow" aria-hidden="true" />
+        <div className="academy-lesson-visual__meta">
+          <span><Sparkles size={13} /> {chapterLabel}</span>
+          {phaseLabel ? <span>{phaseLabel}</span> : null}
+          <span><Timer size={13} /> {lesson.duration}</span>
+        </div>
+        <div className="academy-lesson-visual__copy">
+          <span>{isPractice ? 'XƯỞNG THỰC HÀNH' : 'BẢN ĐỒ HỌC NHANH'}</span>
+          <h2>{isPractice ? 'Biến kiến thức thành một bước làm được ngay' : 'Hiểu theo lớp, nhớ bằng kết nối'}</h2>
+          <p>{lesson.summary}</p>
+        </div>
+        <div className="academy-learning-path" aria-label="Nhịp học của bài">
+          {visualPath.map(({ label, detail, Icon }, index) => (
+            <div key={label}>
+              <span><Icon size={18} /></span>
+              <strong>{label}</strong>
+              <small>{detail}</small>
+              {index < visualPath.length - 1 ? <i aria-hidden="true" /> : null}
+            </div>
+          ))}
+        </div>
+      </header>
+
+      {takeaways.length ? (
+        <section className={`academy-visual-takeaways ${isPractice ? 'is-practice' : ''}`} aria-label={isPractice ? 'Ba bước thực hành' : 'Ba ý cần mang theo'}>
+          <div className="academy-section-kicker"><Lightbulb size={17} /><span><small>{isPractice ? 'LÀM THEO NHỊP' : '60 GIÂY NẮM LÕI'}</small><strong>{isPractice ? 'Ba bước để bắt đầu' : 'Ba ý cần mang theo'}</strong></span></div>
+          <div>
+            {takeaways.map((item, index) => (
+              <article key={item}>
+                <span>{String(index + 1).padStart(2, '0')}</span>
+                <p>{item}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <div className="academy-rich-lesson__body">
+        <ReactMarkdown>{body}</ReactMarkdown>
+      </div>
+
+      {terms.length ? (
+        <section className="academy-concept-strip" aria-label="Từ khóa của bài học">
+          <div className="academy-section-kicker"><Brain size={17} /><span><small>TỪ KHÓA</small><strong>Chạm để tạo liên kết</strong></span></div>
+          <dl>
+            {terms.map((entry) => <div key={entry.id}><dt>{entry.term}</dt><dd>{entry.definition}</dd></div>)}
+          </dl>
+        </section>
+      ) : null}
     </article>
   )
 }
@@ -193,7 +266,7 @@ export function CoursePrimaryContent({
   }
 
   if (runtimeLesson.primaryContent?.kind === 'rich-text' && runtimeLesson.primaryContent.body?.trim()) {
-    return <AcademyRichLesson body={runtimeLesson.primaryContent.body} />
+    return <AcademyRichLesson lesson={lesson} body={runtimeLesson.primaryContent.body} />
   }
 
   if (runtimeLesson.primaryContent?.kind === 'workout' || lesson.type === 'Buổi tập') {

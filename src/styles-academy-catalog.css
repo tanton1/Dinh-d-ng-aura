@@ -346,6 +346,22 @@
   display: block;
 }
 
+.course-open-label {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 8px;
+  padding: 5px 9px;
+  border: 1px solid #bfe8d1;
+  border-radius: 999px;
+  color: #23744f;
+  background: #eefbf4;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .2px;
+}
+
 .course-card-v2__title {
   font-size: 20px;
   font-weight: 800;
