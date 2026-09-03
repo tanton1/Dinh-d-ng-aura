@@ -1,11 +1,15 @@
-import { Children, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Children, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
+import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import {
   AlertCircle,
   Brain,
   BookOpen,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   ClipboardCheck,
   Compass,
   Download,
@@ -28,6 +32,8 @@ import {
   VolumeX,
   Target,
   Timer,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import type { CourseLessonDraft, LessonResourceDraft } from '../types'
 import { firebaseAuth } from '../lib/firebase'
@@ -193,16 +199,10 @@ function MediaLoading() {
   return <div className="lesson-media-status" role="status"><LoaderCircle className="spin" size={16} /> Đang mở media bảo mật...</div>
 }
 
-function pdfViewerUrl(url: string) {
-  const separator = url.includes('#') ? '&' : '#'
-  return `${url}${separator}toolbar=1&navpanes=0&view=FitH`
-}
-
 /**
- * In-app PDF reader used by chapter navigation. The browser PDF engine does
- * the actual rendering (including page navigation and text selection), while
- * this shell keeps private Firebase media inside the learning experience and
- * provides a reliable mobile fallback when an embedded viewer is unavailable.
+ * Canvas-based PDF reader used by chapter navigation. Rendering one page at a
+ * time keeps memory bounded on phones and avoids the browser-native PDF iframe
+ * limitations found in iOS/PWA webviews.
  */
 export function CoursePdfReader({
   courseId,
@@ -219,13 +219,33 @@ export function CoursePdfReader({
 }) {
   const runtime = runtimeResource(resource)
   const media = useResolvedMedia(courseId, lessonId, runtime, canAccess)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const renderTaskRef = useRef<RenderTask | null>(null)
+  const touchStartXRef = useRef<number | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [frameLoaded, setFrameLoaded] = useState(false)
+  const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null)
+  const [documentStatus, setDocumentStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [documentError, setDocumentError] = useState('')
+  const [pageNumber, setPageNumber] = useState(1)
+  const [pageRendering, setPageRendering] = useState(false)
+  const [zoom, setZoom] = useState(1)
+  const [stageWidth, setStageWidth] = useState(0)
   const title = runtime.title || 'Tài liệu chương'
+  const pageCount = pdfDocument?.numPages ?? 0
+
+  const goToPage = (page: number) => {
+    if (!pageCount) return
+    setPageNumber(Math.max(1, Math.min(pageCount, page)))
+  }
 
   useEffect(() => {
-    setFrameLoaded(false)
     setIsFullscreen(false)
+    setPdfDocument(null)
+    setDocumentStatus('idle')
+    setDocumentError('')
+    setPageNumber(1)
+    setZoom(1)
   }, [runtime.id])
 
   useEffect(() => {
@@ -237,6 +257,81 @@ export function CoursePdfReader({
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [isFullscreen])
 
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+    const updateWidth = () => setStageWidth(Math.max(0, Math.floor(stage.clientWidth)))
+    updateWidth()
+    const observer = new ResizeObserver(updateWidth)
+    observer.observe(stage)
+    return () => observer.disconnect()
+  }, [documentStatus, isFullscreen])
+
+  useEffect(() => {
+    if (media.status !== 'ready' || !media.url) return
+    let cancelled = false
+    let loadingTask: ReturnType<typeof import('pdfjs-dist')['getDocument']> | null = null
+    setDocumentStatus('loading')
+    setDocumentError('')
+    void import('pdfjs-dist').then(async (pdfjs) => {
+      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+      loadingTask = pdfjs.getDocument({ url: media.url as string })
+      const document = await loadingTask.promise
+      if (cancelled) return
+      setPdfDocument(document)
+      setPageNumber((current) => Math.max(1, Math.min(document.numPages, current)))
+      setDocumentStatus('ready')
+    }).catch((error) => {
+      if (cancelled) return
+      setDocumentStatus('error')
+      setDocumentError(error instanceof Error ? error.message : 'Không thể đọc cấu trúc tệp PDF.')
+    })
+    return () => {
+      cancelled = true
+      renderTaskRef.current?.cancel()
+      void loadingTask?.destroy()
+    }
+  }, [media.status, media.url])
+
+  useEffect(() => {
+    if (!pdfDocument || documentStatus !== 'ready' || !stageWidth || !canvasRef.current) return
+    let cancelled = false
+    renderTaskRef.current?.cancel()
+    setPageRendering(true)
+    setDocumentError('')
+    void pdfDocument.getPage(pageNumber).then(async (page) => {
+      if (cancelled || !canvasRef.current) return
+      const canvas = canvasRef.current
+      const baseViewport = page.getViewport({ scale: 1 })
+      const fitScale = Math.max(.25, (Math.max(240, stageWidth) - 24) / baseViewport.width)
+      const viewport = page.getViewport({ scale: fitScale * zoom })
+      const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1))
+      const context = canvas.getContext('2d', { alpha: false })
+      if (!context) throw new Error('Thiết bị không hỗ trợ vùng vẽ PDF.')
+      canvas.width = Math.max(1, Math.floor(viewport.width * pixelRatio))
+      canvas.height = Math.max(1, Math.floor(viewport.height * pixelRatio))
+      canvas.style.width = `${Math.floor(viewport.width)}px`
+      canvas.style.height = `${Math.floor(viewport.height)}px`
+      const task = page.render({
+        canvas,
+        canvasContext: context,
+        viewport,
+        transform: pixelRatio === 1 ? undefined : [pixelRatio, 0, 0, pixelRatio, 0, 0],
+      })
+      renderTaskRef.current = task
+      await task.promise
+      if (!cancelled) setPageRendering(false)
+    }).catch((error) => {
+      if (cancelled || (error instanceof Error && error.name === 'RenderingCancelledException')) return
+      setPageRendering(false)
+      setDocumentError(error instanceof Error ? error.message : 'Không thể hiển thị trang PDF này.')
+    })
+    return () => {
+      cancelled = true
+      renderTaskRef.current?.cancel()
+    }
+  }, [documentStatus, pageNumber, pdfDocument, stageWidth, zoom])
+
   if (!canAccess) {
     return <div className="lesson-empty-state"><LockKeyhole size={28} /><h2>Tài liệu đang được khóa</h2><p>Ghi danh khóa học để đọc tài liệu này.</p></div>
   }
@@ -246,6 +341,12 @@ export function CoursePdfReader({
   if (media.status === 'error' || !media.url) {
     return <div className="lesson-pdf-reader-state is-error" role="alert"><FileType size={20} /><div><strong>Chưa mở được tài liệu</strong><p>{media.message ?? 'Liên kết PDF chưa sẵn sàng.'}</p><button type="button" className="outline-button small" onClick={media.retry}><RefreshCw size={13} /> Thử lại</button></div></div>
   }
+  if (documentStatus === 'loading' || documentStatus === 'idle') {
+    return <div className="lesson-pdf-reader-state" role="status"><LoaderCircle className="spin" size={20} /><span>Đang chuẩn bị các trang tài liệu…</span></div>
+  }
+  if (documentStatus === 'error' || !pdfDocument) {
+    return <div className="lesson-pdf-reader-state is-error" role="alert"><FileType size={20} /><div><strong>Chưa đọc được PDF</strong><p>{documentError || 'Tệp PDF không hợp lệ hoặc máy chủ không cho phép đọc trực tiếp.'}</p><MediaActions url={media.url} downloadUrl={media.downloadUrl} fileName={media.fileName} kind="document" compact /></div></div>
+  }
 
   return (
     <article className={`lesson-pdf-reader${isFullscreen ? ' is-fullscreen' : ''}`} aria-label={`Trình đọc ${title}`}>
@@ -253,20 +354,38 @@ export function CoursePdfReader({
         <div className="lesson-pdf-reader__title"><span><FileType size={17} /></span><div><small>ĐANG ĐỌC</small><strong>{title}</strong></div></div>
         <div className="lesson-pdf-reader__actions">
           {onBackToContent ? <button type="button" className="outline-button small" onClick={onBackToContent}><BookOpen size={13} /> Nội dung</button> : null}
+          <div className="lesson-pdf-reader__zoom" aria-label="Điều chỉnh kích thước trang">
+            <button type="button" onClick={() => setZoom((value) => Math.max(.75, Math.round((value - .25) * 100) / 100))} disabled={zoom <= .75} aria-label="Thu nhỏ trang"><ZoomOut size={13} /></button>
+            <button type="button" onClick={() => setZoom(1)} aria-label="Vừa chiều ngang">{Math.round(zoom * 100)}%</button>
+            <button type="button" onClick={() => setZoom((value) => Math.min(2, Math.round((value + .25) * 100) / 100))} disabled={zoom >= 2} aria-label="Phóng to trang"><ZoomIn size={13} /></button>
+          </div>
           <button type="button" className="outline-button small" onClick={() => setIsFullscreen((value) => !value)} aria-pressed={isFullscreen}>{isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}{isFullscreen ? 'Thu nhỏ' : 'Toàn màn hình'}</button>
           <MediaActions url={media.url} downloadUrl={media.downloadUrl} fileName={media.fileName} kind="document" compact />
         </div>
       </header>
-      <div className="lesson-pdf-reader__frame">
-        {!frameLoaded ? <div className="lesson-pdf-reader__loading" role="status"><LoaderCircle className="spin" size={18} /> Đang hiển thị tài liệu…</div> : null}
-        <iframe
-          src={pdfViewerUrl(media.url)}
-          title={title}
-          onLoad={() => setFrameLoaded(true)}
-          referrerPolicy="no-referrer"
-        />
+      <nav className="lesson-pdf-reader__pager" aria-label="Chuyển trang tài liệu">
+        <button type="button" onClick={() => goToPage(pageNumber - 1)} disabled={pageNumber <= 1}><ChevronLeft size={16} /> Trang trước</button>
+        <label><span>Trang</span><select value={pageNumber} onChange={(event) => goToPage(Number(event.target.value))} aria-label="Chọn trang PDF">{Array.from({ length: pageCount }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} / {pageCount}</option>)}</select></label>
+        <button type="button" onClick={() => goToPage(pageNumber + 1)} disabled={pageNumber >= pageCount}>Trang sau <ChevronRight size={16} /></button>
+      </nav>
+      <div
+        ref={stageRef}
+        className="lesson-pdf-reader__stage"
+        onTouchStart={(event) => { touchStartXRef.current = event.changedTouches[0]?.clientX ?? null }}
+        onTouchEnd={(event) => {
+          const startX = touchStartXRef.current
+          const endX = event.changedTouches[0]?.clientX
+          touchStartXRef.current = null
+          if (startX === null || endX === undefined || zoom > 1) return
+          const distance = endX - startX
+          if (Math.abs(distance) < 52) return
+          goToPage(distance < 0 ? pageNumber + 1 : pageNumber - 1)
+        }}
+      >
+        {pageRendering ? <div className="lesson-pdf-reader__loading" role="status"><LoaderCircle className="spin" size={18} /> Đang hiển thị trang {pageNumber}…</div> : null}
+        <canvas ref={canvasRef} aria-label={`${title}, trang ${pageNumber} trên ${pageCount}`} />
       </div>
-      <footer className="lesson-pdf-reader__footer"><span>Đọc trực tiếp trong Aura · trang và cỡ hiển thị do trình duyệt PDF điều khiển.</span><a href={media.url} target="_blank" rel="noopener noreferrer">Mở riêng nếu không hiển thị</a></footer>
+      <footer className="lesson-pdf-reader__footer"><span>Trang {pageNumber}/{pageCount} · vừa chiều ngang màn hình · vuốt trái/phải để chuyển trang.</span><a href={media.url} target="_blank" rel="noopener noreferrer">Mở riêng nếu cần</a></footer>
     </article>
   )
 }

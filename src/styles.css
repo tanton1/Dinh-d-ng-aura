@@ -282,7 +282,7 @@ h1, h2, h3, p { margin-top: 0; }
 .lesson-pdf-player iframe { min-height: 0; flex: 1 1 auto; height: auto; width: 100%; border: 0; background: #2a2732; }
 .lesson-pdf-fallback { flex: 0 0 auto; margin: 0; padding: 8px 13px; color: #dcd7e7; background: #191721; font-size: 8px; line-height: 1.5; }
 .lesson-pdf-fallback strong { color: #fff; }
-.lesson-pdf-reader { --pdf-reader-height: min(78vh, 760px); display: flex; flex-direction: column; min-height: 460px; overflow: hidden; border: 1px solid #e9e2ec; border-radius: 16px; background: #15131b; box-shadow: 0 12px 28px rgba(29, 18, 33, .12); }
+.lesson-pdf-reader { --pdf-reader-height: min(74vh, 720px); width: 100%; max-width: 100%; min-width: 0; display: flex; flex-direction: column; min-height: 460px; overflow: hidden; box-sizing: border-box; border: 1px solid #e9e2ec; border-radius: 16px; background: #15131b; box-shadow: 0 12px 28px rgba(29, 18, 33, .12); }
 .lesson-pdf-reader.is-fullscreen { position: fixed; z-index: 120; inset: 12px; min-height: 0; border-radius: 14px; box-shadow: 0 24px 60px rgba(16, 12, 22, .38); }
 .lesson-pdf-reader__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 13px; color: #fff; background: linear-gradient(125deg, #241622, #5e1f43); }
 .lesson-pdf-reader__title { min-width: 0; display: flex; align-items: center; gap: 8px; }
@@ -293,9 +293,19 @@ h1, h2, h3, p { margin-top: 0; }
 .lesson-pdf-reader__actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
 .lesson-pdf-reader__actions .outline-button { color: #fff; border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.1); }
 .lesson-pdf-reader__actions .outline-button:hover { border-color: rgba(255,255,255,.58); background: rgba(255,255,255,.18); }
-.lesson-pdf-reader__frame { position: relative; min-height: 0; flex: 1 1 auto; height: var(--pdf-reader-height); background: #292631; }
-.lesson-pdf-reader.is-fullscreen .lesson-pdf-reader__frame { height: auto; }
-.lesson-pdf-reader__frame iframe { display: block; width: 100%; height: 100%; border: 0; background: #292631; }
+.lesson-pdf-reader__zoom { display: inline-flex; align-items: center; overflow: hidden; border: 1px solid rgba(255,255,255,.3); border-radius: 8px; background: rgba(255,255,255,.1); }
+.lesson-pdf-reader__zoom button { min-width: 30px; height: 30px; display: grid; place-items: center; padding: 0 7px; border: 0; color: #fff; background: transparent; font-size: 8px; font-weight: 800; }
+.lesson-pdf-reader__zoom button + button { border-left: 1px solid rgba(255,255,255,.18); }
+.lesson-pdf-reader__zoom button:disabled { opacity: .35; }
+.lesson-pdf-reader__pager { min-width: 0; display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #e8e0e9; color: #4b3b48; background: #fff; }
+.lesson-pdf-reader__pager > button { min-width: 0; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 7px 10px; border: 1px solid #eadde5; border-radius: 9px; color: #584752; background: #fff8fb; font-size: 9px; font-weight: 800; }
+.lesson-pdf-reader__pager > button:last-child { justify-self: end; }
+.lesson-pdf-reader__pager > button:disabled { opacity: .38; }
+.lesson-pdf-reader__pager label { display: inline-flex; align-items: center; gap: 6px; color: #81727c; font-size: 8px; font-weight: 750; white-space: nowrap; }
+.lesson-pdf-reader__pager select { min-width: 82px; height: 34px; padding: 0 8px; border: 1px solid #e4d8e0; border-radius: 9px; outline: 0; color: #342831; background: #fff; font: inherit; font-size: 9px; font-weight: 850; }
+.lesson-pdf-reader__stage { position: relative; width: 100%; max-width: 100%; min-width: 0; height: var(--pdf-reader-height); flex: 1 1 auto; overflow: auto; display: flex; align-items: flex-start; justify-content: flex-start; padding: 12px; box-sizing: border-box; background: #292631; overscroll-behavior: contain; touch-action: pan-y; scrollbar-gutter: stable; }
+.lesson-pdf-reader.is-fullscreen .lesson-pdf-reader__stage { height: auto; }
+.lesson-pdf-reader__stage canvas { display: block; flex: 0 0 auto; max-width: none; margin: 0 auto; background: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.28); }
 .lesson-pdf-reader__loading { position: absolute; z-index: 1; inset: 0; display: flex; align-items: center; justify-content: center; gap: 7px; color: #e8dfea; background: #292631; font-size: 10px; pointer-events: none; }
 .lesson-pdf-reader__footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 13px; color: #cfc3d1; background: #1e1b25; font-size: 8px; line-height: 1.45; }
 .lesson-pdf-reader__footer a { flex: 0 0 auto; color: #ffd4e6; font-weight: 750; text-decoration: none; }
@@ -754,13 +764,20 @@ body {
   .lesson-pdf-player { min-height: 420px; height: min(74vh, 620px); border-radius: 12px; }
   .lesson-pdf-toolbar { align-items: flex-start; flex-direction: column; gap: 8px; }
   .lesson-pdf-toolbar .lesson-media-actions { width: 100%; justify-content: flex-start; }
-  .lesson-pdf-reader { --pdf-reader-height: min(72vh, 620px); min-height: 420px; border-radius: 12px; }
+  .lesson-pdf-reader { --pdf-reader-height: min(68vh, 580px); min-height: 420px; border-radius: 12px; }
   .lesson-pdf-reader.is-fullscreen { inset: 0; border-radius: 0; }
   .lesson-pdf-reader__header { align-items: flex-start; flex-direction: column; gap: 9px; }
   .lesson-pdf-reader__actions { width: 100%; justify-content: flex-start; }
   .lesson-pdf-reader__actions .lesson-media-actions { gap: 5px; }
   .lesson-pdf-reader__actions .outline-button,
   .lesson-pdf-reader__actions .primary-button { padding-inline: 8px; font-size: 8px; }
+  .lesson-pdf-reader__pager { grid-template-columns: 38px minmax(0,1fr) 38px; gap: 7px; padding: 7px 9px; }
+  .lesson-pdf-reader__pager > button { width: 38px; height: 36px; padding: 0; }
+  .lesson-pdf-reader__pager > button:first-child { font-size: 0; }
+  .lesson-pdf-reader__pager > button:last-child { font-size: 0; }
+  .lesson-pdf-reader__pager label { justify-self: center; }
+  .lesson-pdf-reader__pager select { width: min(128px, 38vw); min-width: 0; }
+  .lesson-pdf-reader__stage { padding: 8px; scrollbar-gutter: auto; }
   .lesson-pdf-reader__footer { align-items: flex-start; flex-direction: column; }
 }
 
