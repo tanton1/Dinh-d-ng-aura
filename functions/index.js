@@ -3217,17 +3217,37 @@ exports.getCourseMediaUrl = onCall(async (request) => {
   }
 
   const expiresAt = Date.now() + mediaUrlTtlMs
+  const safeFileName = (path.split('/').pop() || `aura-${customMetadata.resourceKind}`)
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 180) || `aura-${customMetadata.resourceKind}`
+  const signedUrlOptions = {
+    version: 'v4',
+    action: 'read',
+    expires: expiresAt,
+    responseType: fileMetadata.contentType,
+    responseDisposition: 'inline',
+  }
   let url
+  let downloadUrl
   try {
-    ;[url] = await file.getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: expiresAt,
-      responseType: fileMetadata.contentType,
-    })
+    ;[url] = await file.getSignedUrl(signedUrlOptions)
   } catch (error) {
     console.error('Unable to sign course media URL', { courseId, lessonId, path, error })
     throw new HttpsError('internal', 'Không thể tạo liên kết media lúc này.')
+  }
+  if (customMetadata.resourceKind === 'document') {
+    try {
+      ;[downloadUrl] = await file.getSignedUrl({
+        ...signedUrlOptions,
+        responseDisposition: undefined,
+        promptSaveAs: safeFileName,
+      })
+    } catch (error) {
+      // Opening the document remains available even if the optional
+      // attachment URL cannot be generated during a transient Storage error.
+      console.warn('Unable to sign course media download URL', { courseId, lessonId, path, error })
+    }
   }
 
   return {
@@ -3236,6 +3256,7 @@ exports.getCourseMediaUrl = onCall(async (request) => {
     expiresAt: new Date(expiresAt).toISOString(),
     contentType: fileMetadata.contentType,
     size,
+    ...(downloadUrl ? { downloadUrl, fileName: safeFileName } : {}),
   }
 })
 

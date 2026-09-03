@@ -19,6 +19,9 @@ export interface QuizGradeResult {
 
 export interface ResolvedCourseMedia {
   url: string
+  /** A signed URL with an attachment disposition when the backend supports it. */
+  downloadUrl?: string
+  fileName?: string
   contentType?: string
   expiresAt?: number | null
 }
@@ -135,8 +138,11 @@ export async function getCourseMediaUrl(input: {
   }
   const url = safeCourseMediaUrl(data.url)
   if (!url) throw new Error('Aura không nhận được liên kết media an toàn.')
+  const downloadUrl = safeCourseMediaUrl(data.downloadUrl)
   return {
     url,
+    ...(downloadUrl ? { downloadUrl } : {}),
+    ...(typeof data.fileName === 'string' && data.fileName.trim() ? { fileName: data.fileName.trim() } : {}),
     contentType: typeof data.contentType === 'string' ? data.contentType : undefined,
     expiresAt: toExpiryMillis(data.expiresAt),
   }

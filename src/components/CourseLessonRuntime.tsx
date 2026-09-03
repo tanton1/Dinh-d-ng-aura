@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Compass,
+  Download,
   ExternalLink,
   FileSpreadsheet,
   FileType,
@@ -71,6 +72,8 @@ type RuntimeLesson = CourseLessonDraft & {
 interface ResolvedMediaState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   url: string | null
+  downloadUrl?: string
+  fileName?: string
   contentType?: string
   message?: string
 }
@@ -98,6 +101,7 @@ function useResolvedMedia(courseId: string, lessonId: string, resource: RuntimeR
   const externalUrl = resource?.url
   const contentType = resource?.assetRef?.contentType
   const assetStatus = resource?.assetRef?.status
+  const resourceId = resource?.id
 
   useEffect(() => {
     let cancelled = false
@@ -121,7 +125,13 @@ function useResolvedMedia(courseId: string, lessonId: string, resource: RuntimeR
         if (storagePath) {
           const resolved = await getCourseMediaUrl({ courseId, lessonId, storagePath })
           if (cancelled) return
-          setState({ status: 'ready', url: resolved.url, contentType: resolved.contentType ?? contentType })
+          setState({
+            status: 'ready',
+            url: resolved.url,
+            downloadUrl: resolved.downloadUrl,
+            fileName: resolved.fileName,
+            contentType: resolved.contentType ?? contentType,
+          })
           if (resolved.expiresAt) {
             const refreshAfter = Math.max(15_000, resolved.expiresAt - Date.now() - 30_000)
             refreshTimer = window.setTimeout(() => setRetryKey((value) => value + 1), refreshAfter)
@@ -147,7 +157,7 @@ function useResolvedMedia(courseId: string, lessonId: string, resource: RuntimeR
       cancelled = true
       if (refreshTimer) window.clearTimeout(refreshTimer)
     }
-  }, [assetStatus, contentType, courseId, enabled, externalUrl, lessonId, resource, retryKey, storagePath])
+  }, [assetStatus, contentType, courseId, enabled, externalUrl, lessonId, resourceId, retryKey, storagePath])
 
   return { ...state, retry: () => setRetryKey((value) => value + 1) }
 }
@@ -178,6 +188,39 @@ function trustedSlideEmbed(value: string) {
 
 function MediaLoading() {
   return <div className="lesson-media-status" role="status"><LoaderCircle className="spin" size={16} /> Đang mở media bảo mật...</div>
+}
+
+function MediaActions({
+  url,
+  downloadUrl,
+  fileName,
+  kind,
+  compact = false,
+}: {
+  url: string
+  downloadUrl?: string
+  fileName?: string
+  kind: RuntimeResource['kind']
+  compact?: boolean
+}) {
+  const label = resourceLabels[kind]
+  const downloadTarget = downloadUrl || url
+  return (
+    <div className={`lesson-media-actions${compact ? ' is-compact' : ''}`}>
+      <a className="outline-button small" href={url} target="_blank" rel="noopener noreferrer">
+        <ExternalLink size={14} /> Mở {label}
+      </a>
+      <a
+        className="primary-button small"
+        href={downloadTarget}
+        download={fileName || undefined}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <Download size={14} /> Tải {kind === 'document' ? 'PDF' : label}
+      </a>
+    </div>
+  )
 }
 
 function academyHeadingId(lessonId: string, label: string) {
@@ -447,7 +490,7 @@ export function CoursePrimaryContent({
   onOpenResources?: () => void
 }) {
   const runtimeLesson = lesson as RuntimeLesson
-  const resources = (lesson.resources ?? []).map(runtimeResource)
+  const resources = useMemo(() => (lesson.resources ?? []).map(runtimeResource), [lesson.resources])
   const primaryResource = resources.find((resource) => resource.id === runtimeLesson.primaryContent?.resourceId)
     ?? resources.find((resource) => resource.isPrimary)
     ?? resources.find((resource) => lesson.type === 'Video' ? resource.kind === 'video' : resource.kind !== 'video')
@@ -489,7 +532,20 @@ export function CoursePrimaryContent({
     return <div className="video-player lesson-runtime-player"><iframe src={slideEmbed} title={primaryResource.title || lesson.title} allowFullScreen sandbox="allow-scripts allow-same-origin allow-popups" referrerPolicy="no-referrer" /></div>
   }
   if (primaryResource.kind === 'document' && looksLikePdf) {
-    return <div className="video-player lesson-runtime-player"><iframe src={media.url} title={primaryResource.title || lesson.title} sandbox="allow-same-origin" referrerPolicy="no-referrer" /></div>
+    return (
+      <div className="video-player lesson-runtime-player lesson-pdf-player">
+        <div className="lesson-pdf-toolbar">
+          <div><FileType size={16} /><strong>{primaryResource.title || lesson.title}</strong></div>
+          <MediaActions url={media.url} downloadUrl={media.downloadUrl} fileName={media.fileName} kind="document" compact />
+        </div>
+        <iframe
+          src={`${media.url}#toolbar=1&navpanes=0&view=FitH`}
+          title={primaryResource.title || lesson.title}
+          referrerPolicy="no-referrer"
+        />
+        <p className="lesson-pdf-fallback">Nếu khung xem trước không hiện, hãy chọn <strong>Mở PDF</strong> hoặc <strong>Tải PDF</strong> ở phía trên.</p>
+      </div>
+    )
   }
 
   return <div className="video-player"><div className="video-pattern"><i /><i /><i /></div><div className="video-copy"><strong>{primaryResource.title || lesson.title}</strong><small>Mở {resourceLabels[primaryResource.kind]} trong cửa sổ mới.</small></div><a className="video-play" href={media.url} target="_blank" rel="noopener noreferrer" aria-label={`Mở ${primaryResource.title || resourceLabels[primaryResource.kind]}`}><ExternalLink size={26} /></a></div>
@@ -509,12 +565,18 @@ export function CourseResourceItem({
   const runtime = runtimeResource(resource)
   const media = useResolvedMedia(courseId, lessonId, runtime, canAccess)
   const Icon = runtime.kind === 'slide' ? FileSpreadsheet : runtime.kind === 'video' ? Play : FileType
-  const content = <><span><Icon size={16} /></span><div><strong>{runtime.title || `Tài nguyên ${resourceLabels[runtime.kind]}`}</strong><small>{runtime.assetRef?.storagePath ? <><ShieldCheck size={12} /> Media bảo mật Aura</> : <><ExternalLink size={12} /> Liên kết ngoài</>}</small>{runtime.note ? <small>{runtime.note}</small> : null}</div></>
+  const title = runtime.title || `Tài nguyên ${resourceLabels[runtime.kind]}`
+  const content = <><span><Icon size={16} /></span><div><strong>{title}</strong><small>{runtime.assetRef?.storagePath ? <><ShieldCheck size={12} /> Media bảo mật Aura</> : <><ExternalLink size={12} /> Liên kết ngoài</>}</small>{runtime.note ? <small>{runtime.note}</small> : null}</div></>
 
-  if (!canAccess) return <div className="lesson-resource-item is-disabled" aria-disabled="true"><LockKeyhole size={16} /><div><strong>{runtime.title}</strong><small>Ghi danh để mở tài nguyên này.</small></div></div>
-  if (media.status === 'loading') return <div className="lesson-resource-item is-disabled" role="status"><LoaderCircle className="spin" size={16} /><div><strong>{runtime.title}</strong><small>Đang tạo liên kết an toàn...</small></div></div>
-  if (media.status !== 'ready' || !media.url) return <button type="button" className="lesson-resource-item is-disabled" onClick={media.retry} aria-label={`Thử tải lại ${runtime.title}`}>{content}<RefreshCw size={14} /></button>
-  return <a href={media.url} className="lesson-resource-item" target="_blank" rel="noopener noreferrer">{content}</a>
+  if (!canAccess) return <div className="lesson-resource-item is-disabled" aria-disabled="true"><LockKeyhole size={16} /><div><strong>{title}</strong><small>Ghi danh để mở tài nguyên này.</small></div></div>
+  if (media.status === 'loading') return <div className="lesson-resource-item is-disabled" role="status"><LoaderCircle className="spin" size={16} /><div><strong>{title}</strong><small>Đang tạo liên kết an toàn...</small></div></div>
+  if (media.status !== 'ready' || !media.url) return <button type="button" className="lesson-resource-item is-disabled" onClick={media.retry} aria-label={`Thử tải lại ${title}`}>{content}<RefreshCw size={14} /></button>
+  return (
+    <div className="lesson-resource-item">
+      {content}
+      <MediaActions url={media.url} downloadUrl={media.downloadUrl} fileName={media.fileName} kind={runtime.kind} />
+    </div>
+  )
 }
 
 export function CourseQuizRunner({

@@ -234,7 +234,7 @@ h1, h2, h3, p { margin-top: 0; }
 }
 .lesson-resource-item {
   display: grid;
-  grid-template-columns: 28px 1fr;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   padding: 12px 14px;
@@ -270,6 +270,18 @@ h1, h2, h3, p { margin-top: 0; }
   font-size: 8px;
   line-height: 1.5;
 }
+.lesson-resource-item > div:nth-child(2) { min-width: 0; }
+.lesson-media-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
+.lesson-media-actions a { white-space: nowrap; text-decoration: none; }
+.lesson-media-actions.is-compact { flex-wrap: nowrap; }
+.lesson-pdf-player { display: flex; flex-direction: column; height: min(78vh, 760px); min-height: 460px; aspect-ratio: auto; overflow: hidden; }
+.lesson-pdf-toolbar { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 13px; color: var(--ink); background: #fff; border-bottom: 1px solid rgba(255,255,255,.12); }
+.lesson-pdf-toolbar > div:first-child { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.lesson-pdf-toolbar > div:first-child svg { flex: 0 0 auto; color: #d84b82; }
+.lesson-pdf-toolbar strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.lesson-pdf-player iframe { min-height: 0; flex: 1 1 auto; height: auto; width: 100%; border: 0; background: #2a2732; }
+.lesson-pdf-fallback { flex: 0 0 auto; margin: 0; padding: 8px 13px; color: #dcd7e7; background: #191721; font-size: 8px; line-height: 1.5; }
+.lesson-pdf-fallback strong { color: #fff; }
 .quiz-overview {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -704,6 +716,13 @@ body {
   .course-quiz-runner .quiz-overview { grid-template-columns: 1fr; }
   .course-quiz-runner fieldset { padding: 13px; }
   .lesson-primary-copy { min-height: 160px; padding: 18px; }
+  .lesson-resource-item { grid-template-columns: 28px minmax(0, 1fr); align-items: start; }
+  .lesson-resource-item .lesson-media-actions { grid-column: 2; justify-content: flex-start; padding-top: 2px; }
+  .lesson-media-actions.is-compact { gap: 5px; }
+  .lesson-media-actions.is-compact a { padding-inline: 8px; font-size: 8px; }
+  .lesson-pdf-player { min-height: 420px; height: min(74vh, 620px); border-radius: 12px; }
+  .lesson-pdf-toolbar { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .lesson-pdf-toolbar .lesson-media-actions { width: 100%; justify-content: flex-start; }
 }
 
 .modal-backdrop {
