@@ -3,7 +3,9 @@ import ReactMarkdown from 'react-markdown'
 import {
   AlertCircle,
   Brain,
+  Check,
   CheckCircle2,
+  ClipboardCheck,
   Compass,
   ExternalLink,
   FileSpreadsheet,
@@ -15,12 +17,23 @@ import {
   ListChecks,
   Play,
   RefreshCw,
+  Save,
   ShieldCheck,
   Sparkles,
+  Volume2,
+  VolumeX,
   Target,
   Timer,
 } from 'lucide-react'
 import type { CourseLessonDraft, LessonResourceDraft } from '../types'
+import { firebaseAuth } from '../lib/firebase'
+import { auraNutritionStudyGuides } from '../data/auraNutritionStudyGuides'
+import {
+  loadAcademyWorkbookFromCloud,
+  loadAcademyWorkbook,
+  saveAcademyWorkbook,
+  type AcademyWorkbookState,
+} from '../services/academyLearningService'
 import {
   getCourseMediaUrl,
   gradeCourseQuiz,
@@ -182,13 +195,108 @@ function headingText(children: ReactNode) {
   return Children.toArray(children).map((child) => typeof child === 'string' || typeof child === 'number' ? String(child) : '').join('').trim()
 }
 
+function lessonChapterNumber(lesson: CourseLessonDraft) {
+  const tag = lesson.tags?.find((item) => /^Chương\s+\d+$/i.test(item))
+  const match = tag?.match(/\d+/)
+  return match ? Number(match[0]) : null
+}
+
+function speakableLessonText(body: string) {
+  return body
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/[#>*_`~-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 18_000)
+}
+
+function AcademyWorkbookPanel({ lesson, courseId }: { lesson: CourseLessonDraft; courseId: string }) {
+  const chapter = lessonChapterNumber(lesson)
+  const deepDive = chapter ? auraNutritionStudyGuides[chapter]?.deepDive : undefined
+  const ownerId = firebaseAuth?.currentUser?.uid ?? 'demo'
+  const [state, setState] = useState<AcademyWorkbookState>(() => loadAcademyWorkbook(ownerId, courseId, lesson.id))
+  const [ready, setReady] = useState(false)
+  const [saved, setSaved] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    void loadAcademyWorkbookFromCloud(ownerId, courseId, lesson.id).then((remote) => {
+      if (!cancelled) {
+        setState(remote)
+        setReady(true)
+      }
+    }).catch(() => { if (!cancelled) setReady(true) })
+    return () => { cancelled = true }
+  }, [courseId, lesson.id, ownerId])
+
+  useEffect(() => {
+    if (!ready) return
+    setSaved(false)
+    const timer = window.setTimeout(() => {
+      saveAcademyWorkbook(ownerId, courseId, lesson.id, state)
+      setSaved(true)
+    }, 650)
+    return () => window.clearTimeout(timer)
+  }, [courseId, lesson.id, ownerId, ready, state])
+
+  const updateAnswer = (id: string, value: string) => setState((current) => ({
+    ...current,
+    answers: { ...current.answers, [id]: value.slice(0, 2000) },
+  }))
+  const toggleDay = (day: number) => setState((current) => ({
+    ...current,
+    challengeDone: { ...current.challengeDone, [String(day)]: !current.challengeDone[String(day)] },
+  }))
+
+  if (!deepDive) return null
+
+  return (
+    <section className="academy-workbook-panel" aria-labelledby={`workbook-${lesson.id}`}>
+      <header className="academy-workbook-panel__header">
+        <div>
+          <span className="academy-section-kicker"><ClipboardCheck size={17} /><span><small>WORKBOOK TƯƠNG TÁC</small><strong id={`workbook-${lesson.id}`}>Biến bài đọc thành quyết định của bạn</strong></span></span>
+          <p>Điền ngắn, lưu tự động. Nội dung chỉ thuộc tài khoản của bạn và có thể chỉnh lại bất cứ lúc nào.</p>
+        </div>
+        <span className={`academy-workbook-save ${saved ? 'is-saved' : ''}`} role="status"><Save size={14} />{saved ? 'Đã lưu' : 'Đang lưu…'}</span>
+      </header>
+      <div className="academy-workbook-fields">
+        {deepDive.workbookFields.map((field) => (
+          <label key={field.id} className={`academy-workbook-field is-${field.kind}`}>
+            <span>{field.label}</span>
+            <small>{field.prompt}</small>
+            {field.kind === 'scale' ? (
+              <div className="academy-confidence-scale" role="radiogroup" aria-label={field.prompt}>
+                {[1, 2, 3, 4, 5].map((score) => <button key={score} type="button" className={state.answers[field.id] === String(score) ? 'is-selected' : ''} onClick={() => updateAnswer(field.id, String(score))} aria-pressed={state.answers[field.id] === String(score)}>{score}</button>)}
+              </div>
+            ) : field.kind === 'long' ? (
+              <textarea value={state.answers[field.id] ?? ''} onChange={(event) => updateAnswer(field.id, event.target.value)} rows={3} placeholder="Viết vài dòng thật ngắn…" />
+            ) : (
+              <input value={state.answers[field.id] ?? ''} onChange={(event) => updateAnswer(field.id, event.target.value)} placeholder="Ví dụ: Chủ nhật tuần này" />
+            )}
+          </label>
+        ))}
+      </div>
+      <div className="academy-challenge-card">
+        <div className="academy-challenge-card__title"><Target size={17} /><div><small>THỬ NGHIỆM 7 NGÀY</small><strong>{deepDive.challenge.title}</strong></div><span>{Object.values(state.challengeDone).filter(Boolean).length}/7</span></div>
+        <div className="academy-challenge-days">
+          {deepDive.challenge.days.map((day) => <label key={day.day} className={state.challengeDone[String(day.day)] ? 'is-done' : ''}><input type="checkbox" checked={Boolean(state.challengeDone[String(day.day)])} onChange={() => toggleDay(day.day)} /><span><b>Ngày {day.day}</b>{day.task}<small>{day.reflection}</small></span>{state.challengeDone[String(day.day)] ? <Check size={15} /> : null}</label>)}
+        </div>
+      </div>
+      <div className="academy-readiness-card"><div><ShieldCheck size={17} /><strong>Cổng sẵn sàng</strong></div>{deepDive.readinessChecklist.map((item) => <span key={item}><CheckCircle2 size={14} />{item}</span>)}</div>
+    </section>
+  )
+}
+
 function AcademyRichLesson({
   lesson,
   body,
+  courseId,
   onOpenResources,
 }: {
   lesson: CourseLessonDraft
   body: string
+  courseId: string
   onOpenResources?: () => void
 }) {
   const isPractice = lesson.tags?.includes('Thực hành') === true
@@ -203,6 +311,7 @@ function AcademyRichLesson({
     .filter(Boolean), [body])
   const handbook = lesson.resources?.find((resource) => resource.kind === 'document')
   const readingMinutes = Math.max(4, Math.ceil(body.trim().split(/\s+/).length / 220))
+  const [isSpeaking, setIsSpeaking] = useState(false)
   const visualPath = isPractice
     ? [
         { label: 'Quan sát', detail: 'Bắt đầu từ dữ liệu thật', Icon: Compass },
@@ -228,6 +337,22 @@ function AcademyRichLesson({
           <span>{isPractice ? 'XƯỞNG THỰC HÀNH' : 'BẢN ĐỒ HỌC NHANH'}</span>
           <h2>{isPractice ? 'Biến kiến thức thành một bước làm được ngay' : 'Hiểu theo lớp, nhớ bằng kết nối'}</h2>
           <p>{lesson.summary}</p>
+          <button type="button" className="academy-speak-button" onClick={() => {
+            if (!('speechSynthesis' in window)) return
+            if (isSpeaking) {
+              window.speechSynthesis.cancel()
+              setIsSpeaking(false)
+              return
+            }
+            const utterance = new SpeechSynthesisUtterance(speakableLessonText(body))
+            utterance.lang = 'vi-VN'
+            utterance.rate = .94
+            utterance.onend = () => setIsSpeaking(false)
+            utterance.onerror = () => setIsSpeaking(false)
+            window.speechSynthesis.cancel()
+            window.speechSynthesis.speak(utterance)
+            setIsSpeaking(true)
+          }} aria-pressed={isSpeaking}><span>{isSpeaking ? <VolumeX size={16} /> : <Volume2 size={16} />}</span>{isSpeaking ? 'Dừng đọc bài' : 'Nghe bài học'}</button>
         </div>
         <div className="academy-learning-path" aria-label="Nhịp học của bài">
           {visualPath.map(({ label, detail, Icon }, index) => (
@@ -301,6 +426,7 @@ function AcademyRichLesson({
           </dl>
         </section>
       ) : null}
+      <AcademyWorkbookPanel lesson={lesson} courseId={courseId} />
     </article>
   )
 }
@@ -332,7 +458,7 @@ export function CoursePrimaryContent({
   }
 
   if (runtimeLesson.primaryContent?.kind === 'rich-text' && runtimeLesson.primaryContent.body?.trim()) {
-    return <AcademyRichLesson lesson={lesson} body={runtimeLesson.primaryContent.body} onOpenResources={onOpenResources} />
+    return <AcademyRichLesson courseId={courseId} lesson={lesson} body={runtimeLesson.primaryContent.body} onOpenResources={onOpenResources} />
   }
 
   if (runtimeLesson.primaryContent?.kind === 'workout' || lesson.type === 'Buổi tập') {

@@ -752,6 +752,7 @@ function lessonMemory(chapter: CurriculumChapter): AcademyLessonMemory {
 
 function chapterBody(chapter: CurriculumChapter) {
   const guide = auraNutritionStudyGuides[chapter.number]
+  const deepDive = guide.deepDive
   return [
     `# Chương ${chapter.number} · ${chapter.title}`,
     '',
@@ -781,6 +782,43 @@ function chapterBody(chapter: CurriculumChapter) {
       `**Tự kiểm bằng dữ liệu thật:** ${guide.reviewQuestions[index]}`,
       '',
     ]),
+    ...(deepDive ? [
+      `## Bản đồ trực quan: ${deepDive.visualModel.title}`,
+      'Hãy đi theo bốn ô theo thứ tự. Mỗi ô là một câu hỏi ra quyết định, không phải một luật cứng. Khi học trên điện thoại, bạn có thể dừng ở từng ô và tự nói lại bằng một ví dụ của mình.',
+      '',
+      ...deepDive.visualModel.steps.flatMap((step, index) => [
+        `### ${index + 1}. ${step.label}`,
+        step.detail,
+        '',
+      ]),
+      '## Phòng mô phỏng: ba ca khác nhau',
+      'Cùng một kiến thức có thể dẫn đến bước tiếp theo khác nhau khi bối cảnh thay đổi. Đọc phần “Tín hiệu” trước khi xem “Diễn giải” để luyện cách suy nghĩ như một người quan sát dữ liệu.',
+      '',
+      ...deepDive.caseStudies.flatMap((caseStudy) => [
+        `### ${caseStudy.name}`,
+        `**Bối cảnh:** ${caseStudy.context}`,
+        '',
+        `**Tín hiệu:** ${caseStudy.signal}`,
+        '',
+        `**Diễn giải:** ${caseStudy.interpretation}`,
+        '',
+        `**Bước tiếp theo:** ${caseStudy.nextStep}`,
+        '',
+      ]),
+      `## Bài toán quen thuộc: ${deepDive.vietnamExample.title}`,
+      `**Trước khi điều chỉnh:** ${deepDive.vietnamExample.before}`,
+      '',
+      `**Điều chỉnh:** ${deepDive.vietnamExample.adjustment}`,
+      '',
+      `**Vì sao hợp lý:** ${deepDive.vietnamExample.rationale}`,
+      '',
+      `## Thử nghiệm 7 ngày: ${deepDive.challenge.title}`,
+      ...deepDive.challenge.days.map((day) => `- **Ngày ${day.day}:** ${day.task} _Tự hỏi: ${day.reflection}_`),
+      '',
+      '## Cổng sẵn sàng trước khi chuyển chương',
+      ...deepDive.readinessChecklist.map((item) => `- [ ] ${item}`),
+      '',
+    ] : []),
     '## Tình huống đã phân tích',
     guide.workedExample,
     '',

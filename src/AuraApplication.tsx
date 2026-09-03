@@ -10,7 +10,7 @@ import { useDailyNutritionSummary } from './hooks/useDailyNutritionSummary'
 import type { NutritionProfileDraft } from './features/nutrition/types'
 import type { EatCleanRoute } from './features/eat-clean/types'
 import type { ProfileUpdateInput } from './pages/student/ProfilePage'
-import { analyzeFoodPhoto } from './services/nutritionService'
+import { analyzeFoodPhoto, type AiCoachLearningContext } from './services/nutritionService'
 import {
   enrollInCourse,
   manageAcademyEnrollment,
@@ -614,6 +614,19 @@ function AuraApplication() {
     : selectedCourseLessons.some((lesson) => lesson.id === selectedProgress?.lastLessonId)
       ? selectedProgress?.lastLessonId
       : selectedCourseLessons[0]?.id
+  const selectedLesson = selectedCourseLessons.find((lesson) => lesson.id === selectedLessonId)
+  const aiCoachLearningContext: AiCoachLearningContext | null = view === 'course-detail' && selectedCourse && selectedLesson
+    ? {
+        courseTitle: String(selectedCourse.title),
+        chapter: selectedLesson.tags?.find((tag) => /^Chương\s+\d+$/i.test(tag)) ?? undefined,
+        lessonTitle: selectedLesson.title,
+        summary: selectedLesson.summary?.slice(0, 500),
+        takeaways: selectedLesson.memory?.takeaways.slice(0, 3),
+        workbookSummary: selectedLesson.tags?.includes('Thực hành')
+          ? 'Học viên đang ở bài thực hành; hãy hỏi một câu ngắn, gợi mở và khuyến khích ghi dữ liệu vào workbook.'
+          : undefined,
+      }
+    : null
   const selectedEnrollmentRecord = selectedCourse
     ? learningData.enrollmentByCourseId.get(String(selectedCourse.id))
     : undefined
@@ -1058,6 +1071,7 @@ function AuraApplication() {
       }}
       authorizationError={authorizationError}
       aiCoachConversationScope={`progress-${user?.uid ?? 'demo'}`}
+      aiCoachLearningContext={aiCoachLearningContext}
     >
       <ChunkErrorBoundary>
         <Suspense fallback={<RouteLoadingFallback />}>

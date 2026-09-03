@@ -23,6 +23,7 @@ import {
   type AiCoachContextSnapshot,
   type AiCoachHistoryMessage,
   type AiCoachImageKind,
+  type AiCoachLearningContext,
   type AiCoachSafetyLevel,
 } from '../../services/nutritionService'
 import { safeLocalStorageSet } from '../../lib/safeStorage'
@@ -30,6 +31,7 @@ import { safeLocalStorageSet } from '../../lib/safeStorage'
 interface AiCoachBottomSheetProps {
   onClose: () => void
   conversationScope?: string
+  learningContext?: AiCoachLearningContext | null
 }
 
 interface ChatMessage extends AiCoachHistoryMessage {
@@ -109,7 +111,7 @@ function contextItems(context: AiCoachContextSnapshot) {
   ].filter((item): item is { label: string; value: string } => Boolean(item))
 }
 
-export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: AiCoachBottomSheetProps) {
+export function AiCoachBottomSheet({ onClose, conversationScope = 'progress', learningContext }: AiCoachBottomSheetProps) {
   const titleId = useId()
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const chatListRef = useRef<HTMLDivElement>(null)
@@ -268,7 +270,7 @@ export function AiCoachBottomSheet({ onClose, conversationScope = 'progress' }: 
       const uploadedAttachment = attachment
         ? await uploadAiCoachPhoto(attachment.file, attachment.kind)
         : null
-      const response = await askAiCoachDetailed(text, conversationId, uploadedAttachment, clientTurnId)
+      const response = await askAiCoachDetailed(text, conversationId, uploadedAttachment, clientTurnId, learningContext)
       setMessages((current) => [...current, {
         id: `local-ai-${Date.now()}`,
         sender: 'ai',

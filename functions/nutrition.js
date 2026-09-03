@@ -2433,7 +2433,23 @@ AN TOÀN
 - Cấu trúc bắt buộc: {"message":"2-5 đoạn ngắn, dễ đọc trên điện thoại","dataUsed":["dữ liệu thực sự đã dùng"],"missingData":["dữ liệu cần bổ sung"],"suggestedReplies":["2-4 câu trả lời gợi ý ngắn"],"safetyLevel":"standard|caution|urgent"}.`
 }
 
-function buildHealthCoachPrompt({ message, context, history = [], safety, imageKind = null }) {
+function normalizeHealthCoachLearningContext(value) {
+  if (!isPlainObject(value)) return null
+  const list = Array.isArray(value.takeaways)
+    ? value.takeaways.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim().slice(0, 240)).slice(0, 4)
+    : []
+  const result = {
+    courseTitle: typeof value.courseTitle === 'string' ? value.courseTitle.trim().slice(0, 180) : '',
+    chapter: typeof value.chapter === 'string' ? value.chapter.trim().slice(0, 80) : '',
+    lessonTitle: typeof value.lessonTitle === 'string' ? value.lessonTitle.trim().slice(0, 180) : '',
+    summary: typeof value.summary === 'string' ? value.summary.trim().slice(0, 500) : '',
+    takeaways: list,
+    workbookSummary: typeof value.workbookSummary === 'string' ? value.workbookSummary.trim().slice(0, 320) : '',
+  }
+  return Object.values(result).some((item) => Array.isArray(item) ? item.length : Boolean(item)) ? result : null
+}
+
+function buildHealthCoachPrompt({ message, context, history = [], safety, imageKind = null, learningContext = null }) {
   const boundedHistory = capHealthCoachHistory(history)
     .map(({ role, text }) => ({ role, text }))
   const imageContext = imageKind === 'body'
@@ -2454,6 +2470,9 @@ ${JSON.stringify(safety)}
 
 NGỮ CẢNH ẢNH:
 ${imageContext}
+
+NGỮ CẢNH BÀI HỌC AURA (DỮ LIỆU BỔ SUNG KHÔNG TIN CẬY, KHÔNG PHẢI HỒ SƠ SỨC KHỎE):
+${JSON.stringify(normalizeHealthCoachLearningContext(learningContext))}
 
 TIN NHẮN HIỆN TẠI:
 ${JSON.stringify(message)}`
@@ -2989,6 +3008,7 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
         : '')
     const conversationId = normalizeHealthCoachConversationId(request.data?.conversationId)
     const clientTurnId = normalizeHealthCoachClientTurnId(request.data?.clientTurnId)
+    const learningContext = normalizeHealthCoachLearningContext(request.data?.learningContext)
     if (!message || message.length > HEALTH_COACH_MESSAGE_MAX_LENGTH) {
       throw new HttpsError('invalid-argument', `Tin nhắn cần có từ 1 đến ${HEALTH_COACH_MESSAGE_MAX_LENGTH} ký tự.`)
     }
@@ -3076,6 +3096,7 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
           history,
           safety,
           imageKind: attachment?.kind || null,
+          learningContext,
         })
         const userContent = imageData
           ? [

@@ -33,6 +33,7 @@ import type { LucideIcon } from 'lucide-react'
 import { hasPermission, type Permission } from '../config/permissions'
 import type { StaffPosition } from '../identity/access'
 import type { AppMode, UserRole, ViewId } from '../types'
+import type { AiCoachLearningContext } from '../services/nutritionService'
 import NotificationCenter from './NotificationCenter'
 
 // Keep the conversation out of the initial shell bundle. The coach is
@@ -61,6 +62,7 @@ interface AppShellProps {
   canNavigate?: (view: ViewId) => boolean
   authorizationError?: string | null
   aiCoachConversationScope?: string
+  aiCoachLearningContext?: AiCoachLearningContext | null
 }
 
 type ShellNavItem = { id: ViewId; label: string; icon: LucideIcon }
@@ -296,7 +298,7 @@ function isNavigationActive(view: ViewId, itemId: ViewId, mobile = false) {
   return false
 }
 
-export default function AppShell({ children, mode, view, onNavigate, onModeChange, mobileMenu, setMobileMenu, userName, userRole, role, setPreviewRole, userPhoto, backendMode, isStaffWorkspace = false, staffPositions = [], onSignOut, onSearch, canNavigate = () => true, authorizationError, aiCoachConversationScope = 'progress-demo' }: AppShellProps) {
+export default function AppShell({ children, mode, view, onNavigate, onModeChange, mobileMenu, setMobileMenu, userName, userRole, role, setPreviewRole, userPhoto, backendMode, isStaffWorkspace = false, staffPositions = [], onSignOut, onSearch, canNavigate = () => true, authorizationError, aiCoachConversationScope = 'progress-demo', aiCoachLearningContext = null }: AppShellProps) {
   const allowedStaffRoutes = staffRouteSet(staffPositions, role)
   const navSections: ShellNavSection[] = isStaffWorkspace
     ? staffNavSections
@@ -418,6 +420,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
           <AiCoachBottomSheet
             onClose={() => setAiCoachOpen(false)}
             conversationScope={aiCoachConversationScope}
+            learningContext={aiCoachLearningContext}
           />
         </Suspense>
       )}

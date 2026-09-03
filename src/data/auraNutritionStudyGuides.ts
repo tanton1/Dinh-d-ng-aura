@@ -4,6 +4,41 @@ export type AuraNutritionStudySection = {
   points: string[]
 }
 
+export type AuraNutritionCaseStudy = {
+  name: string
+  context: string
+  signal: string
+  interpretation: string
+  nextStep: string
+}
+
+export type AuraNutritionWorkbookField = {
+  id: string
+  label: string
+  prompt: string
+  kind: 'short' | 'long' | 'scale'
+}
+
+export type AuraNutritionDeepDive = {
+  visualModel: {
+    title: string
+    steps: Array<{ label: string; detail: string }>
+  }
+  caseStudies: AuraNutritionCaseStudy[]
+  vietnamExample: {
+    title: string
+    before: string
+    adjustment: string
+    rationale: string
+  }
+  challenge: {
+    title: string
+    days: Array<{ day: number; task: string; reflection: string }>
+  }
+  readinessChecklist: string[]
+  workbookFields: AuraNutritionWorkbookField[]
+}
+
 export type AuraNutritionStudyGuide = {
   bigQuestion: string
   opening: string
@@ -13,6 +48,7 @@ export type AuraNutritionStudyGuide = {
   workedExample: string
   practiceExample: string
   reviewQuestions: [string, string, string]
+  deepDive?: AuraNutritionDeepDive
 }
 
 /**
@@ -20,7 +56,7 @@ export type AuraNutritionStudyGuide = {
  * handbooks. The complete illustrated handbook remains the canonical source
  * and is attached to each chapter as a private PDF resource.
  */
-export const auraNutritionStudyGuides: Record<number, AuraNutritionStudyGuide> = {
+const baseAuraNutritionStudyGuides: Record<number, AuraNutritionStudyGuide> = {
   1: {
     bigQuestion: 'Nếu đã thử nhiều chế độ ăn nhưng luôn quay lại điểm cũ, vấn đề có thật sự là thiếu ý chí?',
     opening: 'Một kế hoạch thường thất bại trước khi bắt đầu khi nó chỉ sửa món ăn cuối ngày mà bỏ qua giấc ngủ, lịch làm việc, mức đói và môi trường. Chương này đổi góc nhìn từ “chấm điểm bản thân” sang quan sát hệ thống đang tạo ra lựa chọn.',
@@ -865,3 +901,88 @@ export const auraNutritionStudyGuides: Record<number, AuraNutritionStudyGuide> =
     reviewQuestions: ['Quyết định nào bạn đã có thể tự giải thích và thích nghi?', 'Dữ liệu tối thiểu nào thật sự giúp quyết định?', 'Tình huống nào phải chuyển tuyến thay vì tự thử?'],
   },
 }
+
+/**
+ * Structured learning layer shared by every chapter. It is derived from the
+ * chapter's authored sections so the visual model, workbook and challenge stay
+ * aligned with the PDF-backed lesson instead of becoming a second, conflicting
+ * curriculum. The text is intentionally bounded and mobile-friendly.
+ */
+function enrichStudyGuide(guide: AuraNutritionStudyGuide, chapter: number): AuraNutritionStudyGuide {
+  const sections = guide.sections.slice(0, 4)
+  const first = sections[0]
+  const second = sections[1] ?? first
+  const third = sections[2] ?? second
+  const fourth = sections[3] ?? third
+  const chapterLabel = `Chương ${chapter}`
+  const deepDive: AuraNutritionDeepDive = {
+    visualModel: {
+      title: `Mô hình 4 bước của ${chapterLabel}`,
+      steps: [
+        { label: 'Đọc bối cảnh', detail: `${first.title}: ${first.explanation}` },
+        { label: 'Tìm tín hiệu', detail: `${second.title}: ${second.points[0] ?? second.explanation}` },
+        { label: 'Chọn đòn bẩy', detail: `${third.title}: ${third.points[0] ?? third.explanation}` },
+        { label: 'Rà và điều chỉnh', detail: `${fourth.title}: ${guide.reviewQuestions[2]}` },
+      ],
+    },
+    caseStudies: [
+      {
+        name: 'Ca A · Ngày lý tưởng',
+        context: guide.workedExample,
+        signal: `Tín hiệu cần quan sát: ${guide.reviewQuestions[0]}`,
+        interpretation: `Không kết luận từ một điểm đo. Đặt tín hiệu cạnh nguyên tắc: ${first.points[0] ?? first.explanation}`,
+        nextStep: `Thử trong bối cảnh quen thuộc: ${guide.practiceExample}`,
+      },
+      {
+        name: 'Ca B · Ngày bận hoặc lệch nhịp',
+        context: `Khi lịch sống thay đổi, phần khó nhất thường nằm ở ${second.title.toLowerCase()}, không phải ở việc thiếu thêm một quy tắc.`,
+        signal: `Ghi lại lượng, thời điểm và điều kiện đi kèm; sau đó hỏi: ${guide.reviewQuestions[1]}`,
+        interpretation: `Đổi một biến chính, giữ các phần còn lại đủ ổn định để đọc được kết quả.`,
+        nextStep: `Dùng phiên bản tối thiểu của bài tập: ${guide.practiceExample}`,
+      },
+      {
+        name: 'Ca C · Khi cần hỗ trợ',
+        context: `Nếu dữ liệu chạm đến cờ đỏ hoặc vượt phạm vi tự học, ưu tiên an toàn và chuyển tuyến. ${guide.evidenceNote}`,
+        signal: `Dấu hiệu dừng cần nhớ: ${guide.evidenceNote}`,
+        interpretation: 'Một quyết định tốt không phải lúc nào cũng là làm thêm; đôi khi là dừng thử nghiệm và tìm đúng người.',
+        nextStep: 'Chuẩn bị tóm tắt ngắn: điều đã xảy ra, thời điểm, mức độ, yếu tố liên quan và câu hỏi muốn được giải đáp.',
+      },
+    ],
+    vietnamExample: {
+      title: 'Bữa ăn Việt trong đời sống thật',
+      before: `Bối cảnh ban đầu: ${guide.practiceExample}`,
+      adjustment: `Điều chỉnh vừa đủ: chọn một món quen thuộc trong gia đình, giữ khẩu vị và thay đổi một chi tiết có thể đo được dựa trên ${first.title.toLowerCase()}.`,
+      rationale: `Lý do: ${second.points[0] ?? second.explanation} Không cần biến món Việt thành “thực đơn mẫu” xa lạ.`,
+    },
+    challenge: {
+      title: `Thử nghiệm 7 ngày · ${chapterLabel}`,
+      days: Array.from({ length: 7 }, (_, index) => ({
+        day: index + 1,
+        task: index === 0
+          ? `Ngày 1: chụp lại điểm xuất phát và viết một câu hỏi muốn trả lời về ${first.title.toLowerCase()}.`
+          : index === 6
+            ? `Ngày 7: rà xu hướng, mức thực hiện và quyết định giữ – chỉnh – dừng.`
+            : `Ngày ${index + 1}: lặp phiên bản nhỏ của “${guide.practiceExample}”.`,
+        reflection: index === 6 ? guide.reviewQuestions[2] : `Tín hiệu hôm nay là gì? Điều gì làm hành vi dễ hoặc khó hơn?`,
+      })),
+    },
+    readinessChecklist: [
+      `Tôi có thể giải thích ${first.title.toLowerCase()} bằng ví dụ của mình.`,
+      `Tôi biết dữ liệu nào là quan sát, dữ liệu nào chỉ là ước tính.`,
+      'Tôi đã chọn một thay đổi nhỏ và điều kiện để rà lại.',
+      'Tôi biết dấu hiệu nào cần dừng tự thử và hỏi người có chuyên môn.',
+    ],
+    workbookFields: [
+      { id: 'snapshot', label: 'Điểm xuất phát', prompt: `Hôm nay điều gì đang xảy ra liên quan đến ${first.title.toLowerCase()}?`, kind: 'long' },
+      { id: 'signal', label: 'Tín hiệu cần theo dõi', prompt: guide.reviewQuestions[0], kind: 'long' },
+      { id: 'experiment', label: 'Một thử nghiệm nhỏ', prompt: `Tôi sẽ thử gì trong 7 ngày để kiểm chứng giả thuyết?`, kind: 'long' },
+      { id: 'confidence', label: 'Mức tự tin', prompt: 'Bạn tự tin thực hiện bước này ở mức nào?', kind: 'scale' },
+      { id: 'next', label: 'Ngày rà lại', prompt: 'Ngày hoặc mốc nào bạn sẽ nhìn lại dữ liệu?', kind: 'short' },
+    ],
+  }
+  return { ...guide, deepDive }
+}
+
+export const auraNutritionStudyGuides: Record<number, AuraNutritionStudyGuide> = Object.fromEntries(
+  Object.entries(baseAuraNutritionStudyGuides).map(([chapter, guide]) => [Number(chapter), enrichStudyGuide(guide, Number(chapter))]),
+) as Record<number, AuraNutritionStudyGuide>

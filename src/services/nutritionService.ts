@@ -721,6 +721,15 @@ export interface AiCoachContextSnapshot {
   updatedAt?: string | null
 }
 
+export interface AiCoachLearningContext {
+  courseTitle?: string
+  chapter?: string
+  lessonTitle?: string
+  summary?: string
+  takeaways?: string[]
+  workbookSummary?: string
+}
+
 export interface AiCoachHistoryMessage {
   id: string
   sender: 'ai' | 'user'
@@ -907,6 +916,7 @@ export async function askAiCoachDetailed(
   conversationId: string,
   attachment?: AiCoachImageAttachment | null,
   clientTurnId?: string,
+  learningContext?: AiCoachLearningContext | null,
 ): Promise<AiCoachResponse> {
   const normalizedMessage = message.trim()
   if ((!normalizedMessage && !attachment) || normalizedMessage.length > 3000) {
@@ -922,6 +932,7 @@ export async function askAiCoachDetailed(
     conversationId: string
     clientTurnId?: string
     attachment?: { kind: AiCoachImageKind; storagePath: string }
+    learningContext?: AiCoachLearningContext
   }, unknown>(
     firebase.functions,
     'askAiCoach',
@@ -935,6 +946,7 @@ export async function askAiCoachDetailed(
       conversationId,
       ...(clientTurnId ? { clientTurnId } : {}),
       ...(attachment ? { attachment: { kind: attachment.kind, storagePath: attachment.storagePath } } : {}),
+      ...(learningContext ? { learningContext } : {}),
     })
     const response = validateAiCoachResponse(result.data)
     invalidateAiCoachOverview(conversationId)

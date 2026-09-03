@@ -30,6 +30,12 @@ export interface AcademyLessonContent {
   flashcards: AcademyFlashcard[]
 }
 
+export type AcademyWorkbookState = {
+  answers: Record<string, string>
+  challengeDone: Record<string, boolean>
+  updatedAt: number
+}
+
 export type AcademyReviewRating = 'again' | 'hard' | 'good' | 'easy'
 
 export interface AcademyCardProgress {
@@ -207,6 +213,10 @@ function academyRecallStorageKey(ownerId: string, courseId: string, lessonId: st
   return `aura:academy:recall:v1:${ownerId || 'guest'}:${courseId}:${lessonId}`
 }
 
+function academyWorkbookStorageKey(ownerId: string, courseId: string, lessonId: string) {
+  return `aura:academy:workbook:v1:${ownerId || 'guest'}:${courseId}:${lessonId}`
+}
+
 function academyStateDocumentId(courseId: string, lessonId: string, itemId = '') {
   return [courseId, lessonId, itemId].filter(Boolean).map((value) => encodeURIComponent(value)).join('__')
 }
@@ -231,6 +241,75 @@ export async function saveAcademyNoteToCloud(ownerId: string, courseId: string, 
     courseId,
     lessonId,
     body: body.slice(0, 20_000),
+    ...(existing.exists() ? { createdAt: existing.data().createdAt } : { createdAt: serverTimestamp() }),
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export function emptyAcademyWorkbookState(): AcademyWorkbookState {
+  return { answers: {}, challengeDone: {}, updatedAt: 0 }
+}
+
+export function loadAcademyWorkbook(ownerId: string, courseId: string, lessonId: string): AcademyWorkbookState {
+  try {
+    const raw = localStorage.getItem(academyWorkbookStorageKey(ownerId, courseId, lessonId))
+    if (!raw) return emptyAcademyWorkbookState()
+    const parsed = JSON.parse(raw) as Partial<AcademyWorkbookState>
+    const answers = parsed.answers && typeof parsed.answers === 'object'
+      ? Object.fromEntries(Object.entries(parsed.answers).filter((entry): entry is [string, string] => typeof entry[1] === 'string').slice(0, 20))
+      : {}
+    const challengeDone = parsed.challengeDone && typeof parsed.challengeDone === 'object'
+      ? Object.fromEntries(Object.entries(parsed.challengeDone).filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean').slice(0, 14))
+      : {}
+    return { answers, challengeDone, updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0 }
+  } catch {
+    return emptyAcademyWorkbookState()
+  }
+}
+
+export function saveAcademyWorkbook(ownerId: string, courseId: string, lessonId: string, state: AcademyWorkbookState) {
+  const bounded: AcademyWorkbookState = {
+    answers: Object.fromEntries(Object.entries(state.answers).slice(0, 20).map(([key, value]) => [key, value.slice(0, 2000)])),
+    challengeDone: Object.fromEntries(Object.entries(state.challengeDone).slice(0, 14)),
+    updatedAt: Date.now(),
+  }
+  try {
+    localStorage.setItem(academyWorkbookStorageKey(ownerId, courseId, lessonId), JSON.stringify(bounded))
+  } catch {
+    // The panel remains usable for this session when device storage is unavailable.
+  }
+  void saveAcademyWorkbookToCloud(ownerId, courseId, lessonId, bounded).catch(() => undefined)
+}
+
+export async function loadAcademyWorkbookFromCloud(ownerId: string, courseId: string, lessonId: string) {
+  const localState = loadAcademyWorkbook(ownerId, courseId, lessonId)
+  if (!canSyncAcademyState(ownerId) || !firestoreDb) return localState
+  const snapshot = await getDoc(doc(firestoreDb, 'users', ownerId, 'academyWorkbooks', academyStateDocumentId(courseId, lessonId)))
+  if (!snapshot.exists()) return localState
+  const body = snapshot.data().body
+  if (typeof body !== 'string') return localState
+  try {
+    const remote = JSON.parse(body) as Partial<AcademyWorkbookState>
+    const merged: AcademyWorkbookState = {
+      answers: { ...localState.answers, ...(remote.answers && typeof remote.answers === 'object' ? remote.answers : {}) },
+      challengeDone: { ...localState.challengeDone, ...(remote.challengeDone && typeof remote.challengeDone === 'object' ? remote.challengeDone : {}) },
+      updatedAt: typeof remote.updatedAt === 'number' ? remote.updatedAt : localState.updatedAt,
+    }
+    try { localStorage.setItem(academyWorkbookStorageKey(ownerId, courseId, lessonId), JSON.stringify(merged)) } catch { /* noop */ }
+    return merged
+  } catch {
+    return localState
+  }
+}
+
+async function saveAcademyWorkbookToCloud(ownerId: string, courseId: string, lessonId: string, state: AcademyWorkbookState) {
+  if (!canSyncAcademyState(ownerId) || !firestoreDb) return
+  const reference = doc(firestoreDb, 'users', ownerId, 'academyWorkbooks', academyStateDocumentId(courseId, lessonId))
+  const existing = await getDoc(reference)
+  await setDoc(reference, {
+    courseId,
+    lessonId,
+    body: JSON.stringify(state).slice(0, 20_000),
     ...(existing.exists() ? { createdAt: existing.data().createdAt } : { createdAt: serverTimestamp() }),
     updatedAt: serverTimestamp(),
   })

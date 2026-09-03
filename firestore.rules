@@ -205,6 +205,20 @@ service cloud.firestore {
              && data.updatedAt == request.time;
     }
 
+    function hasValidAcademyWorkbook(data) {
+      return data.keys().hasOnly([
+               'courseId', 'lessonId', 'body', 'createdAt', 'updatedAt'
+             ])
+             && data.courseId is string
+             && data.courseId.size() > 0
+             && data.lessonId is string
+             && data.lessonId.size() > 0
+             && data.body is string
+             && data.body.size() <= 20000
+             && data.createdAt is timestamp
+             && data.updatedAt == request.time;
+    }
+
     function hasValidAcademyReviewItem(data) {
       return data.keys().hasOnly([
                'courseId', 'lessonId', 'cardId', 'state', 'dueAt',
@@ -396,6 +410,20 @@ service cloud.firestore {
                       && hasAcademyEnrollment(userId, request.resource.data.courseId);
         allow update: if isOwner(userId)
                       && hasValidAcademyNote(request.resource.data)
+                      && request.resource.data.courseId == resource.data.courseId
+                      && request.resource.data.lessonId == resource.data.lessonId
+                      && request.resource.data.createdAt == resource.data.createdAt
+                      && hasAcademyEnrollment(userId, resource.data.courseId);
+        allow delete: if isOwner(userId);
+      }
+
+      match /academyWorkbooks/{workbookId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+                      && hasValidAcademyWorkbook(request.resource.data)
+                      && hasAcademyEnrollment(userId, request.resource.data.courseId);
+        allow update: if isOwner(userId)
+                      && hasValidAcademyWorkbook(request.resource.data)
                       && request.resource.data.courseId == resource.data.courseId
                       && request.resource.data.lessonId == resource.data.lessonId
                       && request.resource.data.createdAt == resource.data.createdAt
