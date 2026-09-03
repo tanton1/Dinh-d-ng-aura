@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Children, useEffect, useMemo, useState, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import {
   AlertCircle,
@@ -167,12 +167,42 @@ function MediaLoading() {
   return <div className="lesson-media-status" role="status"><LoaderCircle className="spin" size={16} /> Đang mở media bảo mật...</div>
 }
 
-function AcademyRichLesson({ lesson, body }: { lesson: CourseLessonDraft; body: string }) {
+function academyHeadingId(lessonId: string, label: string) {
+  const slug = label
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/đ/g, 'd')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+  return `${lessonId}-${slug || 'section'}`
+}
+
+function headingText(children: ReactNode) {
+  return Children.toArray(children).map((child) => typeof child === 'string' || typeof child === 'number' ? String(child) : '').join('').trim()
+}
+
+function AcademyRichLesson({
+  lesson,
+  body,
+  onOpenResources,
+}: {
+  lesson: CourseLessonDraft
+  body: string
+  onOpenResources?: () => void
+}) {
   const isPractice = lesson.tags?.includes('Thực hành') === true
   const chapterLabel = lesson.tags?.find((tag) => /^Chương\s+\d+$/i.test(tag)) ?? 'AURA ACADEMY'
   const phaseLabel = lesson.tags?.find((tag) => !/^Chương\s+\d+$/i.test(tag) && !['Thực hành', 'Giáo trình 2026'].includes(tag))
   const takeaways = lesson.memory?.takeaways.slice(0, 3) ?? []
   const terms = lesson.memory?.glossary.slice(0, 3) ?? []
+  const articleSections = useMemo(() => body
+    .split('\n')
+    .filter((line) => /^##\s+/.test(line))
+    .map((line) => line.replace(/^##\s+/, '').trim())
+    .filter(Boolean), [body])
+  const handbook = lesson.resources?.find((resource) => resource.kind === 'document')
+  const readingMinutes = Math.max(4, Math.ceil(body.trim().split(/\s+/).length / 220))
   const visualPath = isPractice
     ? [
         { label: 'Quan sát', detail: 'Bắt đầu từ dữ liệu thật', Icon: Compass },
@@ -211,6 +241,34 @@ function AcademyRichLesson({ lesson, body }: { lesson: CourseLessonDraft; body: 
         </div>
       </header>
 
+      {articleSections.length ? (
+        <nav className="academy-article-outline" aria-label="Nội dung trong bài">
+          <div>
+            <span><ListChecks size={18} /></span>
+            <div><small>NỘI DUNG CHƯƠNG</small><strong>{articleSections.length} phần · khoảng {readingMinutes} phút đọc</strong></div>
+          </div>
+          <div>
+            {articleSections.map((label, index) => (
+              <button
+                type="button"
+                key={`${label}-${index}`}
+                onClick={() => document.getElementById(academyHeadingId(lesson.id, label))?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              >
+                <span>{String(index + 1).padStart(2, '0')}</span>{label}
+              </button>
+            ))}
+          </div>
+        </nav>
+      ) : null}
+
+      {handbook && onOpenResources ? (
+        <button type="button" className="academy-handbook-callout" onClick={onOpenResources}>
+          <span><FileType size={22} /></span>
+          <div><small>GIÁO TRÌNH ĐẦY ĐỦ</small><strong>{handbook.title}</strong><p>{handbook.note || 'PDF minh họa, case study, workbook và tài liệu tham khảo.'}</p></div>
+          <i>Mở tài liệu <ExternalLink size={14} /></i>
+        </button>
+      ) : null}
+
       {takeaways.length ? (
         <section className={`academy-visual-takeaways ${isPractice ? 'is-practice' : ''}`} aria-label={isPractice ? 'Ba bước thực hành' : 'Ba ý cần mang theo'}>
           <div className="academy-section-kicker"><Lightbulb size={17} /><span><small>{isPractice ? 'LÀM THEO NHỊP' : '60 GIÂY NẮM LÕI'}</small><strong>{isPractice ? 'Ba bước để bắt đầu' : 'Ba ý cần mang theo'}</strong></span></div>
@@ -226,7 +284,13 @@ function AcademyRichLesson({ lesson, body }: { lesson: CourseLessonDraft; body: 
       ) : null}
 
       <div className="academy-rich-lesson__body">
-        <ReactMarkdown>{body}</ReactMarkdown>
+        <ReactMarkdown components={{
+          h1: () => null,
+          h2: ({ children }) => {
+            const label = headingText(children)
+            return <h2 id={academyHeadingId(lesson.id, label)}>{children}</h2>
+          },
+        }}>{body}</ReactMarkdown>
       </div>
 
       {terms.length ? (
@@ -247,12 +311,14 @@ export function CoursePrimaryContent({
   canView,
   lockedMessage,
   onMediaProgress,
+  onOpenResources,
 }: {
   courseId: string
   lesson: CourseLessonDraft
   canView: boolean
   lockedMessage: string
   onMediaProgress?: (percent: number) => void
+  onOpenResources?: () => void
 }) {
   const runtimeLesson = lesson as RuntimeLesson
   const resources = (lesson.resources ?? []).map(runtimeResource)
@@ -266,7 +332,7 @@ export function CoursePrimaryContent({
   }
 
   if (runtimeLesson.primaryContent?.kind === 'rich-text' && runtimeLesson.primaryContent.body?.trim()) {
-    return <AcademyRichLesson lesson={lesson} body={runtimeLesson.primaryContent.body} />
+    return <AcademyRichLesson lesson={lesson} body={runtimeLesson.primaryContent.body} onOpenResources={onOpenResources} />
   }
 
   if (runtimeLesson.primaryContent?.kind === 'workout' || lesson.type === 'Buổi tập') {

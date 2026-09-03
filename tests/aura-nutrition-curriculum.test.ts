@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { auraFoundationCourse } from '../src/course-template'
 import { auraNutritionCurriculumStats, auraNutritionPhases } from '../src/data/auraNutritionCurriculum'
@@ -23,9 +24,11 @@ test('curriculum lesson identifiers are unique and every chapter is publication-
     const [core, practice, checkpoint] = module.lessons
     assert.equal(core.type, 'Bài đọc')
     assert.equal(core.primaryContent?.kind, 'rich-text')
-    assert.ok((core.primaryContent?.body?.length ?? 0) >= 3_000)
+    assert.ok((core.primaryContent?.body?.length ?? 0) >= 4_200)
     assert.match(core.primaryContent?.body ?? '', /Câu hỏi lớn/)
+    assert.match(core.primaryContent?.body ?? '', /Khung học sâu: hiểu, quan sát và tự kiểm/)
     assert.match(core.primaryContent?.body ?? '', /Tình huống đã phân tích/)
+    assert.match(core.primaryContent?.body ?? '', /Từ kiến thức đến một quyết định có thể kiểm chứng/)
     assert.match(core.primaryContent?.body ?? '', /Hiểu lầm thường gặp/)
     assert.match(core.primaryContent?.body ?? '', /Góc bằng chứng/)
     assert.match(core.primaryContent?.body ?? '', /Cổng an toàn/)
@@ -55,4 +58,18 @@ test('medical chapter keeps the education and referral boundary explicit', () =>
   assert.match(medicalModule.title, /bệnh lý/i)
   assert.match(medicalCore.primaryContent?.body ?? '', /chỉ phục vụ giáo dục/i)
   assert.match(medicalCore.primaryContent?.body ?? '', /điều trị/i)
+})
+
+test('lesson reading layout keeps the course outline accessible before content on every viewport', () => {
+  const pageSource = readFileSync(new URL('../src/pages/student/CourseDetailPage.tsx', import.meta.url), 'utf8')
+  const runtimeSource = readFileSync(new URL('../src/components/CourseLessonRuntime.tsx', import.meta.url), 'utf8')
+  const academyStyles = readFileSync(new URL('../src/styles-academy.css', import.meta.url), 'utf8')
+
+  assert.match(pageSource, /className="course-outline-trigger"/)
+  assert.match(pageSource, /onOpenResources=\{\(\) => setTab\('resources'\)\}/)
+  assert.match(runtimeSource, /className="academy-article-outline"/)
+  assert.match(runtimeSource, /className="academy-handbook-callout"/)
+  assert.match(academyStyles, /@media \(min-width: 1181px\)[\s\S]*?\.lesson-sidebar \{ grid-column: 1; grid-row: 1;/)
+  assert.match(academyStyles, /@media \(max-width: 1180px\)[\s\S]*?\.course-detail-page \.lesson-sidebar \{ display: none; \}[\s\S]*?\.course-outline-trigger \{/)
+  assert.match(academyStyles, /\.course-detail-page \.mobile-lesson-sheet-backdrop \{[^}]*display: flex;/)
 })

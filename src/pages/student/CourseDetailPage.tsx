@@ -393,6 +393,7 @@ export default function CourseDetailPage({
             lesson={selectedLesson}
             canView={canViewContent}
             lockedMessage={accessLocked ? 'Nâng cấp Aura Pro để mở nội dung này.' : openToAllMembers ? 'Bấm Bắt đầu miễn phí để mở toàn bộ bài học và lưu tiến độ.' : selectedLessonAvailable ? 'Ghi danh để mở khóa bài học' : unlockLabel(selectedUnlockAt) ?? 'Bài học chưa mở'}
+            onOpenResources={() => setTab('resources')}
           />
           {getAcademyCoachNote(selectedLesson) ? <div className="coach-notes-block"><NotebookPen size={17} /><div><strong>Ghi chú giảng viên</strong><p>{getAcademyCoachNote(selectedLesson)}</p></div></div> : null}
         </>
@@ -534,6 +535,18 @@ export default function CourseDetailPage({
         </nav>
       ) : null}
 
+      <button
+        type="button"
+        className="course-outline-trigger"
+        aria-controls="course-outline-sheet"
+        aria-expanded={mobileLessonsOpen}
+        onClick={() => setMobileLessonsOpen(true)}
+      >
+        <span><List size={19} /></span>
+        <div><small>MỤC LỤC KHÓA HỌC</small><strong>{selectedModule ? `Chương ${selectedModuleIndex + 1} · ${moduleDisplayTitle(selectedModule.title)}` : `${modules.length} chương`}</strong></div>
+        <i>{selectedLessonIndex >= 0 ? `${selectedLessonIndex + 1}/${lessons.length}` : `${lessons.length} bài`}</i>
+      </button>
+
         <div className="learning-layout">
         <section className="lesson-main">
           {selectedLesson && !isRichTextLesson ? (
@@ -635,7 +648,7 @@ export default function CourseDetailPage({
 
       {mobileLessonsOpen ? (
         <div className="mobile-lesson-sheet-backdrop" role="presentation" onClick={() => setMobileLessonsOpen(false)}>
-          <section className="mobile-lesson-sheet" role="dialog" aria-modal="true" aria-label="Danh sách bài học" onClick={(event) => event.stopPropagation()}>
+          <section id="course-outline-sheet" className="mobile-lesson-sheet" role="dialog" aria-modal="true" aria-label="Danh sách bài học" onClick={(event) => event.stopPropagation()}>
             <header><div><span className="eyebrow">KHÓA HỌC</span><h2>{course.title}</h2></div><button type="button" aria-label="Đóng danh sách bài học" onClick={() => setMobileLessonsOpen(false)}>×</button></header>
             <div className="mobile-lesson-sheet__progress"><span style={{ width: `${percent}%` }} /></div>
             <div className="mobile-lesson-sheet__body">
