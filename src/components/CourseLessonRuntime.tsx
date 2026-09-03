@@ -208,7 +208,7 @@ function MediaActions({
   return (
     <div className={`lesson-media-actions${compact ? ' is-compact' : ''}`}>
       <a className="outline-button small" href={url} target="_blank" rel="noopener noreferrer">
-        <ExternalLink size={14} /> Mở {label}
+        <ExternalLink size={14} /> Mở {kind === 'document' ? 'PDF' : label}
       </a>
       <a
         className="primary-button small"
@@ -433,7 +433,7 @@ function AcademyRichLesson({
         <button type="button" className="academy-handbook-callout" onClick={onOpenResources}>
           <span><FileType size={22} /></span>
           <div><small>GIÁO TRÌNH ĐẦY ĐỦ</small><strong>{handbook.title}</strong><p>{handbook.note || 'PDF minh họa, case study, workbook và tài liệu tham khảo.'}</p></div>
-          <i>Mở tài liệu <ExternalLink size={14} /></i>
+          <i>Mở PDF <ExternalLink size={14} /></i>
         </button>
       ) : null}
 
@@ -570,7 +570,15 @@ export function CourseResourceItem({
 
   if (!canAccess) return <div className="lesson-resource-item is-disabled" aria-disabled="true"><LockKeyhole size={16} /><div><strong>{title}</strong><small>Ghi danh để mở tài nguyên này.</small></div></div>
   if (media.status === 'loading') return <div className="lesson-resource-item is-disabled" role="status"><LoaderCircle className="spin" size={16} /><div><strong>{title}</strong><small>Đang tạo liên kết an toàn...</small></div></div>
-  if (media.status !== 'ready' || !media.url) return <button type="button" className="lesson-resource-item is-disabled" onClick={media.retry} aria-label={`Thử tải lại ${title}`}>{content}<RefreshCw size={14} /></button>
+  if (media.status !== 'ready' || !media.url) return (
+    <div className="lesson-resource-item is-error" role="alert">
+      {content}
+      <div className="lesson-resource-error">
+        <small>{media.message ?? 'Chưa thể tạo liên kết mở tài liệu.'}</small>
+        <button type="button" className="outline-button small" onClick={media.retry} aria-label={`Thử tải lại ${title}`}><RefreshCw size={13} /> Thử lại</button>
+      </div>
+    </div>
+  )
   return (
     <div className="lesson-resource-item">
       {content}

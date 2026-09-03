@@ -218,6 +218,7 @@
 .academy-full-reader__source strong { font-size: 10px; }
 .academy-full-reader__source small { overflow: hidden; color: #668278; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .academy-full-reader__source button { flex: 0 0 auto; padding: 8px 10px; border-radius: 9px; color: #28705c; background: #e0f2e7; font-size: 8px; font-weight: 850; }
+.academy-full-reader__mobile-nav { display: none; }
 
 @media (max-width: 900px) {
   .academy-full-reader__toolbar { top: 116px; flex-wrap: wrap; }
@@ -227,7 +228,7 @@
   .academy-full-reader__page { scroll-margin-top: 205px; }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 700px) {
   .academy-full-reader { margin-inline: -4px; border-radius: 14px; }
   .academy-full-reader__hero { padding: 24px 18px; }
   .academy-full-reader__hero h2 { font-size: 27px; }
@@ -237,14 +238,17 @@
   .academy-full-reader__font { flex: 0 0 auto; }
   .academy-full-reader__search-results { margin: 10px; }
   .academy-full-reader__search-results > div:last-child { grid-template-columns: 1fr; }
+  .academy-full-reader__resume { width: calc(100% - 20px); justify-content: center; margin: 10px 10px 0; }
+  .academy-full-reader__mobile-nav { scroll-margin-top: 10px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; margin: 10px; padding: 8px; border: 1px solid #e8dfe4; border-radius: 12px; background: #fff; box-shadow: 0 7px 20px rgba(45,31,39,.05); }
+  .academy-full-reader__mobile-nav button { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 3px; padding: 0 9px; border-radius: 9px; color: #8e2454; background: #faedf3; font-size: 9px; font-weight: 850; }
+  .academy-full-reader__mobile-nav button:disabled { cursor: not-allowed; color: #aaa0a7; background: #f3f0f2; }
+  .academy-full-reader__mobile-nav label { min-width: 0; display: grid; gap: 2px; color: #887b84; font-size: 7px; font-weight: 800; text-align: center; }
+  .academy-full-reader__mobile-nav select { width: 100%; min-height: 30px; padding: 0 5px; overflow: hidden; border: 1px solid #e6dce2; border-radius: 8px; outline: none; color: #554a52; background: #fff; font-size: 9px; font-weight: 800; text-overflow: ellipsis; }
+  .academy-full-reader__mobile-nav.is-bottom { margin: 0; }
+  .academy-full-reader__mobile-nav.is-bottom strong { color: #6f626b; font-size: 10px; text-align: center; }
   .academy-full-reader__layout { display: block; padding: 10px; }
-  .academy-full-reader__pages { position: relative; top: auto; max-height: none; margin-bottom: 10px; }
-  .academy-full-reader__pages > strong { padding: 10px; }
-  .academy-full-reader__pages > div { max-height: none; display: flex; gap: 5px; padding: 7px; overflow-x: auto; }
-  .academy-full-reader__pages button { width: 42px; min-width: 42px; display: block; padding: 4px; text-align: center; }
-  .academy-full-reader__pages button span { width: 34px; height: 32px; }
-  .academy-full-reader__pages button small { display: none; }
-  .academy-full-reader__page { scroll-margin-top: 118px; border-radius: 12px; }
+  .academy-full-reader__pages { display: none; }
+  .academy-full-reader__page { scroll-margin-top: 12px; content-visibility: visible; contain-intrinsic-size: none; border-radius: 12px; }
   .academy-full-reader__page > div { padding: 24px 18px; }
   .academy-full-reader__page h3 { font-size: calc(17px * var(--reader-font-scale)); }
   .academy-full-reader__page p { font-size: calc(13px * var(--reader-font-scale)); line-height: 1.75; }
