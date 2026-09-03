@@ -550,7 +550,7 @@ export default function HRManagement({ user, manageIdentity = true }: Props) {
       {/* Add Modal */}
       {isAdding && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-zinc-900 p-6 rounded-3xl w-full max-w-md border border-zinc-800 max-h-[90vh] overflow-y-auto">
+          <div className="bg-zinc-900 p-6 rounded-3xl w-full max-w-md border border-zinc-800 max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true" aria-label={editingItem ? 'Sửa thông tin nhân sự' : 'Thêm nhân sự'}>
             <h3 className="text-xl font-bold text-white mb-4">
               {editingItem ? 'Sửa' : 'Thêm'} {
                 activeSubTab === 'trainers' ? 'PT' : 
@@ -729,6 +729,9 @@ export default function HRManagement({ user, manageIdentity = true }: Props) {
               onClick={() => setShowDeleteConfirm(false)}
             />
             <motion.div 
+              role="alertdialog"
+              aria-modal="true"
+              aria-label="Xác nhận xóa"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
@@ -772,6 +775,9 @@ export default function HRManagement({ user, manageIdentity = true }: Props) {
               onClick={() => setAlertMessage(null)}
             />
             <motion.div 
+              role="alertdialog"
+              aria-modal="true"
+              aria-label="Thông báo"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}

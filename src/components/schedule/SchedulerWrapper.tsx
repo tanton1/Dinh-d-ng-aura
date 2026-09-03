@@ -10,8 +10,10 @@ import {
   Session,
   ScheduleEntry,
   Branch,
+  ScheduleConfig,
+  SchedulerResult,
 } from "../../types";
-import { generateSchedule, calculateWarnings } from "../../utils/scheduler";
+import { calculateWarnings } from "../../utils/scheduler";
 import StudentForm from "../admin/pt/StudentForm";
 import StudentList from "./StudentList";
 import ScheduleWarningsPanel from "./ScheduleWarningsPanel";
@@ -73,6 +75,74 @@ interface Props {
   onNavigate?: (screen: string) => void;
 }
 
+type ScheduleWorkerRequest = {
+  students: Student[];
+  trainers: Trainer[];
+  contracts: StudentContract[];
+  sessions: Session[];
+  config: ScheduleConfig;
+  existingSchedule: Schedule;
+  overriddenSessions: Record<string, number>;
+  targetDate: Date;
+};
+
+async function generateScheduleOffThread(request: ScheduleWorkerRequest): Promise<SchedulerResult> {
+  const runFallback = async () => {
+    const { generateSchedule } = await import("../../utils/scheduler");
+    return generateSchedule(
+      request.students,
+      request.trainers,
+      request.contracts,
+      request.sessions,
+      request.config,
+      request.existingSchedule,
+      request.overriddenSessions,
+      request.targetDate,
+    );
+  };
+
+  if (typeof Worker === "undefined") return runFallback();
+
+  return new Promise<SchedulerResult>((resolve, reject) => {
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL("../../workers/scheduleWorker.ts", import.meta.url), { type: "module" });
+    } catch {
+      void runFallback().then(resolve, reject);
+      return;
+    }
+
+    let settled = false;
+    const finishWithFallback = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      worker.terminate();
+      void runFallback().then(resolve, reject);
+    };
+    const timeoutId = window.setTimeout(finishWithFallback, 20_000);
+
+    worker.onmessage = (event: MessageEvent<{ ok: true; result: SchedulerResult } | { ok: false; message: string }>) => {
+      if (settled) return;
+      const response = event.data;
+      if (!response?.ok) {
+        finishWithFallback();
+        return;
+      }
+      settled = true;
+      window.clearTimeout(timeoutId);
+      worker.terminate();
+      resolve(response.result);
+    };
+    worker.onerror = finishWithFallback;
+    try {
+      worker.postMessage(request);
+    } catch {
+      finishWithFallback();
+    }
+  });
+}
+
 function initialOperationsTab(): "schedule" | "students" | "warnings" {
   const focus = new URLSearchParams(window.location.hash.split('?')[1] || '').get('focus');
   if (focus === 'warnings') return 'warnings';
@@ -103,6 +173,7 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
   } = useDatabase();
 
   const [debugData, setDebugData] = useState<any>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
   const [activeSubTab, setActiveSubTab] = useState<"schedule" | "students" | "warnings">(
     initialOperationsTab,
@@ -499,7 +570,8 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
     updateScheduleData(weekId, preservedSchedule, newWarnings);
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
+    if (isGenerating) return;
     // 1. Filter students to schedule based on branch
     const branchStudents = schedulingBranchId
       ? studentsForTargetWeek.filter((s) => {
@@ -556,16 +628,18 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
     }
 
     const { start: targetDate } = getWeekRange(weekOffset);
-    const result = generateSchedule(
-      activeStudentList,
-      trainers,
-      contracts,
-      sessions,
-      activeScheduleConfig,
-      preservedSchedule,
-      overriddenSessions,
-      targetDate,
-    );
+    setIsGenerating(true);
+    try {
+      const result = await generateScheduleOffThread({
+        students: activeStudentList,
+        trainers,
+        contracts,
+        sessions,
+        config: activeScheduleConfig,
+        existingSchedule: preservedSchedule,
+        overriddenSessions,
+        targetDate,
+      });
 
     // Check if any slots were effectively generated
     let generatedCount = 0;
@@ -581,26 +655,29 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
       ).length;
     });
 
-    if (generatedCount === previousCount) {
-      setDebugData({
-        message:
-          "Hệ thống không thể xếp thêm được lịch nào. Hãy xem log ở bên dưới màn hình.",
-        activeStudentsLength: activeStudentList.length,
-        branchStudentsLength: branchStudents.length,
-        debugSteps: result.debugSteps,
-      });
-      const debugLogs = result.debugSteps?.length ? `\nChi tiết Log (vài dòng đầu):\n${result.debugSteps.slice(0, 15).join('\n')}` : '';
-      alert(
-        `Chưa có thay đổi nào được tạo ra (hoặc không còn chỗ để xếp).\n- Số HV có HĐ active hợp lệ: ${activeStudentList.length}/${branchStudents.length}\n${debugLogs}`,
-      );
-    } else {
-      setDebugData({ success: true, generatedCount, previousCount, debugSteps: result.debugSteps });
-      updateScheduleData(weekId, result.schedule, result.warnings).then(() => {
+      if (generatedCount === previousCount) {
+        setDebugData({
+          message:
+            "Hệ thống không thể xếp thêm được lịch nào. Hãy xem log ở bên dưới màn hình.",
+          activeStudentsLength: activeStudentList.length,
+          branchStudentsLength: branchStudents.length,
+          debugSteps: result.debugSteps,
+        });
+        const debugLogs = result.debugSteps?.length ? `\nChi tiết Log (vài dòng đầu):\n${result.debugSteps.slice(0, 15).join('\n')}` : '';
+        alert(
+          `Chưa có thay đổi nào được tạo ra (hoặc không còn chỗ để xếp).\n- Số HV có HĐ active hợp lệ: ${activeStudentList.length}/${branchStudents.length}\n${debugLogs}`,
+        );
+      } else {
+        setDebugData({ success: true, generatedCount, previousCount, debugSteps: result.debugSteps });
+        await updateScheduleData(weekId, result.schedule, result.warnings);
         alert("Xếp lịch thành công!");
-      }).catch(err => {
-        alert("Lỗi lưu lịch: " + err.message);
-        console.error(err);
-      });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không thể hoàn tất xếp lịch.";
+      setDebugData({ message, activeStudentsLength: activeStudentList.length, branchStudentsLength: branchStudents.length });
+      alert(`Lỗi xếp lịch: ${message}`);
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -756,7 +833,7 @@ export default function SchedulerWrapper({ user, profile, accessContext, backend
             </select>
             <div className="scheduler-action-row">
               <button type="button" onClick={handleResetSchedule} title="Đặt lại lịch nháp"><RotateCcw /> <span>Đặt lại</span></button>
-              <button type="button" className="is-generate" onClick={handleGenerate}><Calendar /> <span>Xếp lịch</span></button>
+              <button type="button" className="is-generate" onClick={() => void handleGenerate()} disabled={isGenerating} aria-busy={isGenerating}><Calendar /> <span>{isGenerating ? "Đang xếp lịch…" : "Xếp lịch"}</span></button>
               <button type="button" disabled={!schedulingBranchId || versionHistoryBusy || publishBusy !== null} onClick={handleOpenVersionHistory} title={!schedulingBranchId ? "Chọn một cơ sở cụ thể để xem lịch sử." : "Xem các phiên bản đã publish."} className="schedule-history-trigger disabled:cursor-not-allowed">
                 <Clock /> <span>{versionHistoryBusy ? "Đang tải…" : "Lịch sử"}</span>
               </button>

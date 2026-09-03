@@ -10,7 +10,7 @@ import { useDailyNutritionSummary } from './hooks/useDailyNutritionSummary'
 import type { NutritionProfileDraft } from './features/nutrition/types'
 import type { EatCleanRoute } from './features/eat-clean/types'
 import type { ProfileUpdateInput } from './pages/student/ProfilePage'
-import { analyzeFoodPhoto, type AiCoachLearningContext } from './services/nutritionService'
+import type { AiCoachLearningContext } from './services/nutritionService'
 import {
   enrollInCourse,
   manageAcademyEnrollment,
@@ -777,6 +777,7 @@ function AuraApplication() {
             : ''
           const userCondStr = [sexStr, ageStr, heightStr, weightStr, targetStr].filter(Boolean).join(', ')
 
+          const { analyzeFoodPhoto } = await import('./services/nutritionService')
           return analyzeFoodPhoto(file, {
             ...options,
             userGoal: goalStr,
@@ -830,8 +831,8 @@ function AuraApplication() {
           }}
         />
       }
-      case 'progress-photo-studio': return <ProgressPhotoStudio onNavigate={navigate} ownerId={user?.uid ?? 'demo'} />
-      case 'progress': return <ProgressPage ownerId={user?.uid ?? 'demo'} courseItems={studentCourses} progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error || learningData.error} onOpenCourse={openCourse} onNavigate={navigate} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} heightCm={effectiveHeight} nutritionProfile={effectiveNutritionProfile} />
+      case 'progress-photo-studio': return <ProgressPhotoStudio onNavigate={navigate} ownerId={backendMode === 'firebase' ? (user?.uid ?? 'anonymous') : 'demo'} />
+      case 'progress': return <ProgressPage ownerId={backendMode === 'firebase' ? (user?.uid ?? 'anonymous') : 'demo'} courseItems={studentCourses} progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error || learningData.error} onOpenCourse={openCourse} onNavigate={navigate} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} heightCm={effectiveHeight} nutritionProfile={effectiveNutritionProfile} />
       case 'profile': return <ProfilePage userId={user?.uid} fullProfile={backendMode === 'demo' ? { ...profile, ...localProfile } : profile} displayName={effectiveDisplayName} email={profile?.email} membership={profile?.membership} goals={effectiveGoals} heightCm={effectiveHeight} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} targetSpeedPace={effectiveTargetSpeedPace} notificationSettings={effectiveNotifications} mealReminderTime={profile?.mealReminderTime} syncState={profileSyncState} onSave={saveProfile} onSignOut={signOut} onChangePassword={changePassword} onEditProfile={() => setForceOnboarding(true)} onUploadAvatar={async (file, onProgress) => {
         if (backendMode === 'firebase' && user) {
           const photoURL = await uploadUserAvatar(user.uid, file, onProgress)
@@ -907,7 +908,7 @@ function AuraApplication() {
       case 'admin-roles': return <AuraOperationsFrame><AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} /></AuraOperationsFrame>
       case 'admin-nutrition-reviews': return <AdminNutritionReviewsPage onNavigate={navigate} />
       case 'admin-notifications': return <AdminNotificationsPage onNavigate={navigate} users={adminUsers} currentUserUid={user?.uid} />
-      case 'admin-eat-clean': return <AdminEatCleanPage currentRole={role} />
+      case 'admin-eat-clean': return <AdminEatCleanPage currentRole={role} isDemo={backendMode === 'demo'} />
 
       // PT Coaching & Gym Management Views
       case 'trainer-portal':

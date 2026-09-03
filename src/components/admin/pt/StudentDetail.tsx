@@ -3,22 +3,12 @@ import { Student, StudentContract, TrainingPackage, Installment, Trainer, Branch
 import { collection, getDocs, limit, query, where } from 'firebase/firestore';
 import { ArrowLeft, CheckCircle, Plus, Activity, History, FileText, CreditCard, Calendar as CalendarIcon, AlertCircle, TrendingUp, Package, ClipboardCheck, Droplets, Moon, Smile, Zap, RefreshCw, Edit, User as UserIcon, CalendarClock, Dumbbell, Trash2, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import ContractInvoice from './ContractInvoice';
-import EditContractModal from './EditContractModal';
-import ExtendContractModal from './ExtendContractModal';
-import AddSessionsModal from './AddSessionsModal';
-import RenewContractModal from './RenewContractModal';
-import CancelContractModal from './CancelContractModal';
-import StudentProgressAdmin from './StudentProgressAdmin';
-import ConfirmationModal from '../../schedule/ConfirmationModal';
-import WorkoutLoggerModal from '../../schedule/WorkoutLoggerModal';
 import { useDatabase } from '../../../contexts/DatabaseContext';
 import { addCalendarMonthsDateOnly, formatDate, isSameDayOrAfter } from '../../../utils/dateUtils';
 import { getActiveContract } from '../../../utils/scheduler';
 import { recordContractPayment, recordRefund } from '../../../services/financeLedgerService';
 import { listCashAccounts, type CashAccount } from '../../../services/cashbookService';
 import { getStudentContractUsage, type ContractUsageSummary } from '../../../services/businessReportingService';
-import TrainingHistoryPanel from './TrainingHistoryPanel';
 import { db } from '../../../lib/firebaseFirestore';
 import './StudentManagement.css';
 
@@ -36,6 +26,25 @@ interface Props {
 }
 
 type StudentDetailTab = 'info' | 'progress' | 'history' | 'checkin' | 'requests' | 'workout_logs';
+
+const ContractInvoice = React.lazy(() => import('./ContractInvoice'));
+const EditContractModal = React.lazy(() => import('./EditContractModal'));
+const ExtendContractModal = React.lazy(() => import('./ExtendContractModal'));
+const AddSessionsModal = React.lazy(() => import('./AddSessionsModal'));
+const RenewContractModal = React.lazy(() => import('./RenewContractModal'));
+const CancelContractModal = React.lazy(() => import('./CancelContractModal'));
+const StudentProgressAdmin = React.lazy(() => import('./StudentProgressAdmin'));
+const ConfirmationModal = React.lazy(() => import('../../schedule/ConfirmationModal'));
+const WorkoutLoggerModal = React.lazy(() => import('../../schedule/WorkoutLoggerModal'));
+const TrainingHistoryPanel = React.lazy(() => import('./TrainingHistoryPanel'));
+
+function DeferredPanel({ children, label }: { children: React.ReactNode; label: string }) {
+  return <React.Suspense fallback={<div className="flex min-h-48 items-center justify-center gap-2 rounded-2xl border border-zinc-800 bg-zinc-900 text-sm text-zinc-400" role="status"><RefreshCw className="h-4 w-4 animate-spin" /> {label}</div>}>{children}</React.Suspense>;
+}
+
+function DeferredModal({ children }: { children: React.ReactNode }) {
+  return <React.Suspense fallback={<div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Đang mở biểu mẫu"><div className="flex items-center gap-2 rounded-2xl border border-zinc-700 bg-zinc-900 px-5 py-4 text-sm text-zinc-200 shadow-2xl"><RefreshCw className="h-4 w-4 animate-spin" /> Đang mở biểu mẫu…</div></div>}>{children}</React.Suspense>;
+}
 
 import TrainerPrioritySelector from './TrainerPrioritySelector';
 
@@ -623,13 +632,13 @@ export default function StudentDetail({ student, profile, contracts, packages, t
       </button>
       
       {confirmAction && (
-        <ConfirmationModal
-          isOpen={!!confirmAction}
-          title={confirmAction.title}
-          message={confirmAction.message}
-          onConfirm={confirmAction.onConfirm}
-          onCancel={() => setConfirmAction(null)}
-        />
+        <DeferredModal><ConfirmationModal
+            isOpen={!!confirmAction}
+            title={confirmAction.title}
+            message={confirmAction.message}
+            onConfirm={confirmAction.onConfirm}
+            onCancel={() => setConfirmAction(null)}
+          /></DeferredModal>
       )}
       
       {notification && (
@@ -677,7 +686,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
       </div>
 
       {activeTab === 'progress' ? (
-        <StudentProgressAdmin studentId={student.id} isTrainer={isTrainer} />
+        <DeferredPanel label="Đang tải dữ liệu tiến độ…"><StudentProgressAdmin studentId={student.id} isTrainer={isTrainer} /></DeferredPanel>
       ) : activeTab === 'checkin' ? (
         <div className="bg-zinc-900 p-5 rounded-2xl border border-zinc-800 shadow-sm">
           <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
@@ -881,7 +890,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
           </div>
         </div>
       ) : activeTab === 'history' ? (
-        <TrainingHistoryPanel subject="student" subjectId={student.id} subjectName={student.name || 'Học viên Aura'} contractId={displayContract?.id} />
+        <DeferredPanel label="Đang tải lịch sử tập…"><TrainingHistoryPanel subject="student" subjectId={student.id} subjectName={student.name || 'Học viên Aura'} contractId={displayContract?.id} /></DeferredPanel>
       ) : (
         <>
           {/* Active Package */}
@@ -1530,16 +1539,16 @@ export default function StudentDetail({ student, profile, contracts, packages, t
       </AnimatePresence>
 
       {renewingContract && (
-        <RenewContractModal
+        <DeferredModal><RenewContractModal
           isOpen={true}
           onClose={() => setRenewingContract(null)}
           student={student}
           latestContract={renewingContract}
-        />
+        /></DeferredModal>
       )}
 
       {addingSessionsContract && (
-        <AddSessionsModal
+        <DeferredModal><AddSessionsModal
           isOpen={true}
           onClose={() => setAddingSessionsContract(null)}
           contract={addingSessionsContract}
@@ -1547,23 +1556,23 @@ export default function StudentDetail({ student, profile, contracts, packages, t
             onUpdateContract(updatedContract, skipPayment);
             setAddingSessionsContract(null);
           }}
-        />
+        /></DeferredModal>
       )}
 
       {/* Contract Invoice Modal */}
       <AnimatePresence>
         {viewingContract && (
           <div key="view-contract">
-            <ContractInvoice 
+            <DeferredModal><ContractInvoice
               student={student}
               contract={viewingContract}
               onClose={() => setViewingContract(null)}
-            />
+            /></DeferredModal>
           </div>
         )}
         {editingContract && (
           <div key="edit-contract">
-            <EditContractModal
+            <DeferredModal><EditContractModal
               contract={editingContract}
               packages={packages}
               trainers={trainers}
@@ -1573,34 +1582,34 @@ export default function StudentDetail({ student, profile, contracts, packages, t
                 onUpdateContract(updatedContract);
                 setEditingContract(null);
               }}
-            />
+            /></DeferredModal>
           </div>
         )}
         {extendingContract && (
           <div key="extend-contract">
-            <ExtendContractModal
+            <DeferredModal><ExtendContractModal
               contract={extendingContract}
               onClose={() => setExtendingContract(null)}
               onSave={(updatedContract) => {
                 onUpdateContract(updatedContract);
                 setExtendingContract(null);
               }}
-            />
+            /></DeferredModal>
           </div>
         )}
         {cancelingContract && (
           <div key="cancel-contract">
-            <CancelContractModal
+            <DeferredModal><CancelContractModal
               isOpen={!!cancelingContract}
               contract={cancelingContract}
               onClose={() => setCancelingContract(null)}
               onConfirm={handleCancelContractConfirm}
-            />
+            /></DeferredModal>
           </div>
         )}
         {showWorkoutLogger && (
           <div key="workout-logger">
-            <WorkoutLoggerModal 
+            <DeferredModal><WorkoutLoggerModal
               studentId={student.id} 
               initialData={editingWorkoutLog}
               onClose={() => {
@@ -1608,7 +1617,7 @@ export default function StudentDetail({ student, profile, contracts, packages, t
                 setEditingWorkoutLog(null);
                 setRelatedDataRevision((current) => current + 1);
               }} 
-            />
+            /></DeferredModal>
           </div>
         )}
       </AnimatePresence>

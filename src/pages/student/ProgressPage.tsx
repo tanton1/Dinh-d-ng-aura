@@ -88,9 +88,11 @@ export default function ProgressPage({
   const [period, setPeriod] = useState<ProgressPeriod>('7-days')
   const [category, setCategory] = useState<ProgressCategory>('overview')
 
-  const resolvedOwnerId = (ownerId && ownerId !== 'demo' && ownerId !== 'anonymous')
-    ? ownerId
-    : (firebaseAuth?.currentUser?.uid || 'demo')
+  // Keep demo data isolated even when Firebase Auth still has a signed-in
+  // session (for example role preview/E2E). Replacing `demo` with that UID
+  // would start Firestore subscriptions while the app is intentionally using
+  // the local backend and can crash the whole progress route.
+  const resolvedOwnerId = ownerId?.trim() || firebaseAuth?.currentUser?.uid || 'demo'
   const recentNutritionFromDate = useMemo(() => {
     const firstDay = new Date()
     firstDay.setDate(firstDay.getDate() - 89)
@@ -162,7 +164,7 @@ export default function ProgressPage({
     window.addEventListener('storage', handleStorage)
     window.addEventListener('aura:nutrition:updated', handleStorage)
 
-    if (resolvedOwnerId && resolvedOwnerId !== 'anonymous') {
+    if (resolvedOwnerId && resolvedOwnerId !== 'anonymous' && resolvedOwnerId !== 'demo') {
       const unsubM = subscribeToRecentUserMealLogs(resolvedOwnerId, recentNutritionFromDate, (remote) => {
         if (remote && Array.isArray(remote)) {
           setAllMeals(remote)

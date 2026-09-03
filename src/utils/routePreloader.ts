@@ -35,7 +35,7 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
   'admin-pt-workouts': () => import('../pages/operations/PtWorkoutWorkspacePage'),
   'admin-trainer-quality': () => import('../pages/admin/TrainerQualityPage'),
   'admin-renewals': () => import('../components/admin/pt/ContractRenewals'),
-  'admin-report': () => import('../components/admin/pt/AdminReportDashboard'),
+  'admin-report': () => import('../pages/admin/AdminDashboard'),
   'admin-finance': () => import('../components/admin/pt/FinanceManagement'),
   'admin-payroll': () => import('../components/admin/pt/TrainerPayroll'),
   'admin-hr': () => import('../pages/admin/AdminRolesPage'),

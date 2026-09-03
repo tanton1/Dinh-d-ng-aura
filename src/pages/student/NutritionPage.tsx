@@ -19,13 +19,6 @@ import NutritionWorkspace, {
   type NutritionPlannedMeal,
   type NutritionPlanDay,
 } from './NutritionWorkspace'
-import {
-  askAiCoach,
-  askAiCoachDetailed,
-  getFoodAnalysisErrorMessage,
-  getUsableFoodAnalysisText,
-  uploadAiCoachPhoto,
-} from '../../services/nutritionService'
 import { firebaseAuth } from '../../lib/firebase'
 import { firestoreDb } from '../../lib/firebaseFirestore'
 import {
@@ -138,7 +131,7 @@ import {
   scaleOptionalNumber,
   toFoodDetailSummary,
 } from '../../features/nutrition/catalog'
-import { normalizeAnalysis, nutritionEvidenceLabel, perGramNutrition } from '../../features/nutrition/analysis'
+import { getFoodAnalysisErrorMessage, getUsableFoodAnalysisText, normalizeAnalysis, nutritionEvidenceLabel, perGramNutrition } from '../../features/nutrition/analysis'
 
 const NutritionFoodDetail = React.lazy(() => import('./NutritionFoodDetail'))
 const CapturedMealDetail = React.lazy(() => import('./CapturedMealDetail'))
@@ -3187,6 +3180,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
     setAssistantLoading(true)
     try {
       if (attachment) {
+        const { askAiCoachDetailed, uploadAiCoachPhoto } = await import('../../services/nutritionService')
         const uploaded = await uploadAiCoachPhoto(attachment.file, attachment.kind)
         const response = await askAiCoachDetailed(question, 'nutrition-assistant', uploaded)
         setAssistantMessages((current) => [...current, {
@@ -3357,6 +3351,7 @@ export default function NutritionPage({ displayName = 'Thành viên Aura', isDem
         content = 'Bắt đầu bằng một thao tác: quét ảnh hoặc chọn món trong Catalog, kiểm tra khẩu phần rồi xác nhận bữa và thời gian. Sau một đến hai bữa, Aura có thể trả lời phần còn thiếu cụ thể hơn.'
         evidence = [`${loggedMeals.length} bữa đã ghi trong ngày đã chọn`]
       } else {
+        const { askAiCoach } = await import('../../services/nutritionService')
         content = await askAiCoach(question, profileDraft)
         evidence = ['Aura AI dùng apikey.fun; OpenRouter chỉ chạy dự phòng khi nhà cung cấp chính lỗi']
         confidenceLabel = 'AI Generated'

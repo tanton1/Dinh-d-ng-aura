@@ -352,6 +352,9 @@ export default function QuoteGenerator({ user, profile, onNavigate }: Props) {
               onClick={() => setIsCreating(false)}
             />
             <motion.div 
+              role="dialog"
+              aria-modal="true"
+              aria-label="Tạo báo giá mới"
               initial={{ opacity: 0, y: '100%' }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: '100%' }}
@@ -454,6 +457,9 @@ export default function QuoteGenerator({ user, profile, onNavigate }: Props) {
         {selectedQuote && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm print:bg-white print:p-0">
             <motion.div 
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Báo giá của ${selectedQuote.customerName}`}
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}

@@ -149,6 +149,9 @@ export default function PackageSettings({ user, profile }: Props) {
               onClick={() => setIsEditing(false)}
             />
             <motion.div 
+              role="dialog"
+              aria-modal="true"
+              aria-label={editingPackage ? 'Sửa gói tập' : 'Thêm gói tập mới'}
               initial={{ opacity: 0, y: '100%' }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: '100%' }}

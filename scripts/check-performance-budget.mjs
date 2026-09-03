@@ -17,13 +17,15 @@ const budgets = {
   splashImage: 100_000,
   adminDashboardJsGzip: 14_000,
   adminDashboardCssGzip: 10_000,
+  courseDetailJsGzip: 15_000,
+  courseRuntimeJsGzip: 56_000,
+  studentDetailJsGzip: 20_000,
+  schedulerWorkspaceJsGzip: 29_000,
 }
 
 const routeBudgets = [
   { label: 'Dinh dưỡng', key: 'src/pages/student/NutritionPage.tsx', bytes: 84_000 },
   { label: 'Quản lý học viên PT', key: 'src/components/admin/pt/StudentManagement.tsx', bytes: 75_000 },
-  { label: 'Báo cáo Admin cũ', key: 'src/components/admin/pt/AdminReportDashboard.tsx', bytes: 10_000 },
-  { label: 'Biểu đồ Báo cáo Admin', key: 'src/components/admin/pt/AdminReportCharts.tsx', bytes: 120_000 },
   { label: 'Tổng quan Admin mới', key: 'src/pages/admin/AdminDashboard.tsx', bytes: 34_000 },
 ]
 
@@ -55,13 +57,17 @@ function assertWithinBudget(label, asset, budget) {
   console.log(`✓ ${label}: ${formatBytes(asset.bytes)} / ${formatBytes(budget)}`)
 }
 
-const [entryCss, entryJs, firebaseAuthVendor, firebaseFirestoreVendor, adminDashboardJs, adminDashboardCss, splashStats, html, builtHtml, appSource, onboardingSource] = await Promise.all([
+const [entryCss, entryJs, firebaseAuthVendor, firebaseFirestoreVendor, adminDashboardJs, adminDashboardCss, courseDetailJs, courseRuntimeJs, studentDetailJs, schedulerWorkspaceJs, splashStats, html, builtHtml, appSource, onboardingSource] = await Promise.all([
   largestMatchingAsset(/^index-[\w-]+\.css$/),
   largestMatchingAsset(/^index-[\w-]+\.js$/),
   largestMatchingAsset(/^vendor-firebase-auth-[\w-]+\.js$/),
   largestMatchingAsset(/^vendor-firebase-firestore-[\w-]+\.js$/),
   gzipMatchingAsset(/^AdminDashboard-[\w-]+\.js$/),
   gzipMatchingAsset(/^AdminDashboard-[\w-]+\.css$/),
+  gzipMatchingAsset(/^CourseDetailPage-[\w-]+\.js$/),
+  gzipMatchingAsset(/^CourseLessonRuntime-[\w-]+\.js$/),
+  gzipMatchingAsset(/^StudentDetail-[\w-]+\.js$/),
+  gzipMatchingAsset(/^SchedulerWrapper-[\w-]+\.js$/),
   stat(path.join(rootDir, 'public', 'aura-onboarding.webp')),
   readFile(path.join(rootDir, 'index.html'), 'utf8'),
   readFile(path.join(rootDir, 'dist', 'index.html'), 'utf8'),
@@ -75,6 +81,10 @@ assertWithinBudget('Firebase Auth vendor', firebaseAuthVendor, budgets.firebaseA
 assertWithinBudget('Firebase Firestore vendor', firebaseFirestoreVendor, budgets.firebaseFirestoreVendor)
 assertWithinBudget('Admin Dashboard JS gzip', adminDashboardJs, budgets.adminDashboardJsGzip)
 assertWithinBudget('Admin Dashboard CSS gzip', adminDashboardCss, budgets.adminDashboardCssGzip)
+assertWithinBudget('Trang đọc khóa học JS gzip', courseDetailJs, budgets.courseDetailJsGzip)
+assertWithinBudget('Runtime media khóa học JS gzip', courseRuntimeJs, budgets.courseRuntimeJsGzip)
+assertWithinBudget('Chi tiết học viên JS gzip', studentDetailJs, budgets.studentDetailJsGzip)
+assertWithinBudget('Workspace xếp lịch JS gzip', schedulerWorkspaceJs, budgets.schedulerWorkspaceJsGzip)
 assertWithinBudget('Ảnh splash WebP', { file: 'aura-onboarding.webp', bytes: splashStats.size }, budgets.splashImage)
 
 const initialAssetNames = [...builtHtml.matchAll(/<(?:script|link)\b[^>]*(?:src|href)="\/assets\/([^"]+)"/g)]

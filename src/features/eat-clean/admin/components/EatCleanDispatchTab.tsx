@@ -88,7 +88,7 @@ function validateConfig(config: EatCleanDeliveryOperationsConfig) {
   return ''
 }
 
-export function EatCleanDispatchTab() {
+export function EatCleanDispatchTab({ isDemo = false }: { isDemo?: boolean }) {
   const [section, setSection] = useState<DispatchSection>('live')
   const [snapshot, setSnapshot] = useState<EatCleanDispatchSnapshot | null>(null)
   const [configDraft, setConfigDraft] = useState<EatCleanDeliveryOperationsConfig>(DEFAULT_DELIVERY_OPERATIONS_CONFIG)
@@ -107,7 +107,23 @@ export function EatCleanDispatchTab() {
     background ? setRefreshing(true) : setLoading(true)
     setError('')
     try {
-      const next = await listEatCleanDispatchSnapshot()
+      const next: EatCleanDispatchSnapshot = isDemo
+        ? {
+            jobs: [],
+            drivers: [],
+            config: { ...DEFAULT_DELIVERY_OPERATIONS_CONFIG },
+            readiness: {
+              secretBindingEnabled: false,
+              mapsKeyAvailable: false,
+              storeCoordinateReady: false,
+              distancePricingReady: false,
+              realtimeDatabaseReady: false,
+              otpKeyAvailable: false,
+              dispatchReady: false,
+            },
+            signals: { mapsErrorsToday: 0, otpRejected: 0, otpLocked: 0, gpsStale: 0, lateOrders: 0 },
+          }
+        : await listEatCleanDispatchSnapshot()
       setSnapshot(next)
       setConfigDraft(next.config)
     } catch (loadError) {
@@ -120,9 +136,10 @@ export function EatCleanDispatchTab() {
 
   useEffect(() => {
     void load()
+    if (isDemo) return undefined
     const timer = window.setInterval(() => void load(true), 30_000)
     return () => window.clearInterval(timer)
-  }, [load])
+  }, [isDemo, load])
 
   useEffect(() => {
     if (!googleMapsConfigured()) return
@@ -135,7 +152,7 @@ export function EatCleanDispatchTab() {
         : { status: 'error', message: googleMapsClientMessage(health) })
     })
     return () => { active = false }
-  }, [])
+  }, [isDemo])
 
   const activeJobs = useMemo(() => snapshot?.jobs.filter((job) => !['completed', 'cancelled'].includes(job.status)) ?? [], [snapshot?.jobs])
   const unassignedJobs = activeJobs.filter((job) => job.canAssign)

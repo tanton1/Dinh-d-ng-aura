@@ -1089,6 +1089,9 @@ export default function StudentManagement({ user, profile }: Props) {
               onClick={() => setShowDeleteConfirm(false)}
             />
             <motion.div 
+              role="alertdialog"
+              aria-modal="true"
+              aria-label="Xác nhận xóa học viên"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
@@ -1132,6 +1135,9 @@ export default function StudentManagement({ user, profile }: Props) {
               onClick={() => setAlertMessage(null)}
             />
             <motion.div 
+              role="alertdialog"
+              aria-modal="true"
+              aria-label="Thông báo"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}

@@ -107,6 +107,7 @@ export default function ScheduleSettings() {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+      <h1 className="aura-visually-hidden">Cấu hình lịch và ca làm việc</h1>
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
         <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
           <CalendarDays className="w-5 h-5 text-pink-500" />

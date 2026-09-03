@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   ArrowLeft,
   BookOpen,
@@ -15,13 +15,21 @@ import {
   Search,
 } from 'lucide-react'
 import AcademyFullChapterReader from '../../components/academy/AcademyFullChapterReader'
-import { CoursePdfReader, CoursePrimaryContent, CourseQuizRunner, CourseResourceItem } from '../../components/CourseLessonRuntime'
 import { ProgressBar } from '../../components/ui'
 import type { Course, CourseLessonDraft, CourseProgress } from '../../types'
 import { flattenCourseLessons, getCourseModules, getInitialDemoCompletedLessonIds } from '../../utils/courseContent'
 import '../../styles-academy.css'
 
 type ReaderView = 'content' | 'resources'
+
+const CoursePdfReader = lazy(() => import('../../components/CourseLessonRuntime').then((module) => ({ default: module.CoursePdfReader })))
+const CoursePrimaryContent = lazy(() => import('../../components/CourseLessonRuntime').then((module) => ({ default: module.CoursePrimaryContent })))
+const CourseQuizRunner = lazy(() => import('../../components/CourseLessonRuntime').then((module) => ({ default: module.CourseQuizRunner })))
+const CourseResourceItem = lazy(() => import('../../components/CourseLessonRuntime').then((module) => ({ default: module.CourseResourceItem })))
+
+function CourseRuntimeFallback() {
+  return <div className="lesson-empty-state" role="status"><BookOpen size={28} /><h2>Đang chuẩn bị bài học…</h2><p>Aura đang tải đúng định dạng nội dung cho chương này.</p></div>
+}
 
 interface CourseDetailPageProps {
   course?: Course
@@ -418,7 +426,7 @@ export default function CourseDetailPage({
             </div>
           </nav>
 
-          <div className="course-reader-content" role="tabpanel">{renderReaderContent()}</div>
+          <div className="course-reader-content" role="tabpanel"><Suspense fallback={<CourseRuntimeFallback />}>{renderReaderContent()}</Suspense></div>
 
           <nav className="course-reader-bottom-pager" aria-label="Chuyển bài học">
             <button type="button" disabled={!previousLesson} onClick={() => previousLesson && selectLesson(previousLesson.id)}><ChevronLeft size={17} /><span><small>{isAuraNutritionCurriculum ? 'CHƯƠNG TRƯỚC' : 'BÀI TRƯỚC'}</small><strong>{lessonNavigationLabel(previousLesson) ?? 'Đầu khóa học'}</strong></span></button>

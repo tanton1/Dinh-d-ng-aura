@@ -392,7 +392,7 @@ export function StreaksAndBadgesCard({ ownerId, progressItems }: StreaksAndBadge
     safeLocalStorageSet(`aura:gamification:xp:${ownerId}`, newXp.toString())
 
     // Save to Firestore
-    if (ownerId && ownerId !== 'anonymous') {
+    if (ownerId && ownerId !== 'anonymous' && ownerId !== 'demo') {
       saveUserGamification(ownerId, {
         checkedInDates: newDates,
         streak: newStreak,

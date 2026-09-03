@@ -765,6 +765,18 @@ body.shell-overlay-open { overflow: hidden; }
     transform: translateX(-50%) translateY(calc(100% + 24px));
   }
 
+  /* Modal and bottom-sheet actions must own the bottom safe area. Hiding the
+     app dock while a modal is open prevents its primary action from being
+     covered, including older workspaces whose backdrop used the same z-index
+     as the dock. */
+  .app-shell:has([role='dialog'][aria-modal='true'], [role='alertdialog'][aria-modal='true'])
+    :is(.student-mobile-nav, .admin-mobile-nav) {
+    visibility: hidden;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateX(-50%) translateY(calc(100% + 24px));
+  }
+
   .page-content {
     scroll-padding-bottom: calc(var(--shell-mobile-dock-height) + env(safe-area-inset-bottom, 0px) + 28px);
   }
@@ -834,8 +846,8 @@ body.shell-overlay-open { overflow: hidden; }
     outline-offset: 2px;
   }
 
-  .app-shell[data-view="course-detail"] .mobile-bottom-nav { display: none; }
-  .app-shell[data-view="course-detail"] .shell-toast { bottom: 14px; }
+  .app-shell:is([data-view="course-detail"], [data-view="progress-photo-studio"]) .mobile-bottom-nav { display: none; }
+  .app-shell:is([data-view="course-detail"], [data-view="progress-photo-studio"]) .shell-toast { bottom: 14px; }
 
   .app-shell.student .nutrition-quick-fab {
     bottom: calc(var(--shell-mobile-dock-height) + env(safe-area-inset-bottom) + 14px);
@@ -921,6 +933,16 @@ body.shell-overlay-open { overflow: hidden; }
   }
 }
 
+.aura-visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+}
+
 .aura-route-fallback-card {
   display: flex;
   flex-direction: column;
@@ -961,6 +983,13 @@ body.shell-overlay-open { overflow: hidden; }
     .finance-modal-layer,
     .identity-modal,
     .driver-action-bar,
+    .fixed.inset-0,
+    .fdet-modal-overlay,
+    .meal-plan-modal-overlay,
+    .student-package-modal,
+    .renewal-inspector-layer,
+    .renewal-message-layer,
+    .renewal-modal-layer,
     .z-50,
     .z-\[50\],
     .z-\[60\],

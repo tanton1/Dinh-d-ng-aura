@@ -22,6 +22,9 @@ export default function CancelContractModal({ isOpen, onClose, contract, onConfi
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
       <motion.div
+        role="alertdialog"
+        aria-modal="true"
+        aria-label="Hủy học viên và hợp đồng"
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         className="bg-zinc-900 rounded-2xl p-6 w-full max-w-md border border-red-500/30"

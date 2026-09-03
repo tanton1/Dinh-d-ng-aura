@@ -422,6 +422,9 @@ export default function StudentProgressAdmin({ studentId, isTrainer }: Props) {
               onClick={() => setIsUpdating(false)}
             />
             <motion.div 
+              role="dialog"
+              aria-modal="true"
+              aria-label="Cập nhật chỉ số cơ thể"
               initial={{ opacity: 0, y: '100%' }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: '100%' }}

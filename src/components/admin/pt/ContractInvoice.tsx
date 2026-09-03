@@ -17,6 +17,9 @@ export default function ContractInvoice({ student, contract, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm print:bg-white print:p-0">
       <motion.div 
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Hợp đồng ${contract.packageName}`}
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}

@@ -72,7 +72,7 @@ export interface MealLogItem {
 }
 
 import { useAuth } from '../../contexts/AuthContext'
-import { getUsableFoodAnalysisText } from '../../services/nutritionService'
+import { getUsableFoodAnalysisText } from '../../features/nutrition/analysis'
 import { submitMealReview } from '../../services/firebaseService'
 
 export interface CapturedMealDetailProps {
@@ -598,8 +598,8 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
 
       {/* Edit Portion Modal */}
       {isEditingPortion && (
-        <div className="fdet-modal-overlay" onClick={() => setIsEditingPortion(false)}>
-          <div className="fdet-modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="fdet-modal-overlay" role="presentation" onClick={() => setIsEditingPortion(false)}>
+          <div className="fdet-modal-card" role="dialog" aria-modal="true" aria-label="Điều chỉnh khẩu phần" onClick={(e) => e.stopPropagation()}>
             <div className="fdet-modal-head">
               <h3>Điều chỉnh khẩu phần</h3>
               <button type="button" onClick={() => setIsEditingPortion(false)}>
@@ -632,8 +632,8 @@ export const CapturedMealDetail: React.FC<CapturedMealDetailProps> = ({
 
       {/* Add Ingredient Modal */}
       {showAddIngredientModal && (
-        <div className="fdet-modal-overlay" onClick={() => setShowAddIngredientModal(false)}>
-          <div className="fdet-modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="fdet-modal-overlay" role="presentation" onClick={() => setShowAddIngredientModal(false)}>
+          <div className="fdet-modal-card" role="dialog" aria-modal="true" aria-label="Thêm thành phần món ăn" onClick={(e) => e.stopPropagation()}>
             <div className="fdet-modal-head">
               <h3>Thêm thành phần món ăn</h3>
               <button type="button" onClick={() => setShowAddIngredientModal(false)}>

@@ -35,6 +35,7 @@ import type {
   SaveEatCleanInventoryInput,
   UpdateEatCleanOrderInput,
 } from './types'
+import { DEFAULT_EAT_CLEAN_CONFIG, EMPTY_EAT_CLEAN_SUMMARY } from './types'
 import { EatCleanInventoryTab } from './components/EatCleanInventoryTab'
 import { EatCleanMenuTab } from './components/EatCleanMenuTab'
 import { EatCleanOperationsTab } from './components/EatCleanOperationsTab'
@@ -48,6 +49,7 @@ export interface AdminEatCleanPageProps {
   currentRole: UserRole
   initialTab?: EatCleanAdminTab
   className?: string
+  isDemo?: boolean
 }
 
 const TABS: Array<{ id: EatCleanAdminTab; label: string; icon: typeof ShoppingBag }> = [
@@ -62,7 +64,7 @@ function canManageEatClean(role: UserRole): role is Extract<UserRole, 'admin' | 
   return role === 'admin' || role === 'super_admin'
 }
 
-export default function AdminEatCleanPage({ currentRole, initialTab = 'dispatch', className = '' }: AdminEatCleanPageProps) {
+export default function AdminEatCleanPage({ currentRole, initialTab = 'dispatch', className = '', isDemo = false }: AdminEatCleanPageProps) {
   const [activeTab, setActiveTab] = useState<EatCleanAdminTab>(initialTab)
   const [data, setData] = useState<EatCleanAdminData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -80,14 +82,26 @@ export default function AdminEatCleanPage({ currentRole, initialTab = 'dispatch'
     else setLoading(true)
     setLoadError('')
     try {
-      setData(await listEatCleanAdminData())
+      if (isDemo) {
+        setData({
+          schemaVersion: 1,
+          orders: [],
+          meals: [],
+          inventory: [],
+          config: { ...DEFAULT_EAT_CLEAN_CONFIG },
+          summary: { ...EMPTY_EAT_CLEAN_SUMMARY },
+          seeded: true,
+        })
+      } else {
+        setData(await listEatCleanAdminData())
+      }
     } catch (error) {
       setLoadError(getEatCleanAdminErrorMessage(error))
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [currentRole])
+  }, [currentRole, isDemo])
 
   useEffect(() => {
     void loadData()
@@ -313,7 +327,7 @@ export default function AdminEatCleanPage({ currentRole, initialTab = 'dispatch'
               onReverseRefundOutcome={handleReverseRefundOutcome}
             />
           )}
-          {activeTab === 'dispatch' && <EatCleanDispatchTab />}
+          {activeTab === 'dispatch' && <EatCleanDispatchTab isDemo={isDemo} />}
           {activeTab === 'menu' && <EatCleanMenuTab meals={data.meals} deliverySlots={data.config.deliverySlots} onSaveMeal={handleSaveMeal} />}
           {activeTab === 'inventory' && <EatCleanInventoryTab inventory={data.inventory} meals={data.meals} onSaveInventory={handleSaveInventory} />}
           {activeTab === 'operations' && <EatCleanOperationsTab config={data.config} onSaveConfig={handleSaveConfig} />}

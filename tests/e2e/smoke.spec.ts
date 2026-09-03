@@ -10,6 +10,28 @@ test('demo dashboard loads without a fatal runtime error', async ({ page }) => {
   expect(pageErrors).toEqual([])
 })
 
+test('demo progress opens without registering Firebase-only subscriptions', async ({ page }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+
+  await page.goto('/#/progress')
+  await expect(page.getByRole('heading', { name: 'Tiến độ', exact: true })).toBeVisible()
+  await expect(page.getByText('Aura đang gặp sự cố')).toHaveCount(0)
+  expect(pageErrors).toEqual([])
+})
+
+test('demo Eat Clean admin uses its local snapshot without calling production', async ({ page }) => {
+  const productionCallableRequests: string[] = []
+  page.on('request', (request) => {
+    if (/eatCleanAdminSnapshot|eatCleanDispatchSnapshot/i.test(request.url())) productionCallableRequests.push(request.url())
+  })
+
+  await page.goto('/#/admin-eat-clean')
+  await expect(page.getByRole('heading', { name: 'Trung tâm vận hành Eat Clean' })).toBeVisible()
+  await expect(page.getByText('Aura đang gặp sự cố')).toHaveCount(0)
+  expect(productionCallableRequests).toEqual([])
+})
+
 test('nutrition assistant exposes private body and meal image choices', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.addInitScript(() => {

@@ -159,6 +159,7 @@ export default function StaffPayrollPage() {
   }
 
   return <main className="staff-payroll" data-testid="staff-payroll-page">
+    <h1 className="aura-visually-hidden">Bảng lương cá nhân</h1>
     <section className="staff-payroll__toolbar" aria-label="Bộ lọc kỳ lương">
       <label><span>Kỳ lương</span><input type="month" value={periodId} onChange={(event) => setPeriodId(event.target.value)} /></label>
       <button type="button" aria-label="Tải lại bảng lương" disabled={loading} onClick={() => void load()}><RefreshCw size={18} /></button>

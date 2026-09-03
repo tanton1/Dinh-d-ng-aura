@@ -1060,9 +1060,12 @@ export default function MealPlanPage({
             RECIPE DETAIL MODAL SHEET
         ===================================================== */}
         {selectedRecipe && (
-          <div className="meal-plan-modal-overlay" onClick={() => setSelectedRecipe(null)}>
+          <div className="meal-plan-modal-overlay" role="presentation" onClick={() => setSelectedRecipe(null)}>
             <div
               className="meal-plan-modal-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Công thức ${selectedRecipe.name}`}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="recipe-modal-hero">
@@ -1185,9 +1188,12 @@ export default function MealPlanPage({
             FILTER MODAL
         ===================================================== */}
         {filterModalOpen && (
-          <div className="meal-plan-modal-overlay" onClick={() => setFilterModalOpen(false)}>
+          <div className="meal-plan-modal-overlay" role="presentation" onClick={() => setFilterModalOpen(false)}>
             <div
               className="meal-plan-modal-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Bộ lọc tìm kiếm món ăn"
               style={{ maxWidth: '500px' }}
               onClick={(e) => e.stopPropagation()}
             >

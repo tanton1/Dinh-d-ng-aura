@@ -220,6 +220,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     role: authenticatedRole,
     accessContext,
     authzReady,
+    backendMode,
   } = useAuth()
   const [students, setStudents] = useState<Student[]>(E2E_PT_STUDENTS)
   const [contracts, setContracts] = useState<StudentContract[]>([])
@@ -278,7 +279,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
   }, [])
 
   useEffect(() => {
-    if (import.meta.env.MODE === 'e2e') {
+    if (import.meta.env.MODE === 'e2e' || backendMode === 'demo') {
       setCanUseLegacyOperations(true)
       setOperationsSync({ status: 'ready', lastSyncedAt: new Date().toISOString(), error: null })
       return
@@ -311,20 +312,29 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       lastSyncedAt: null,
       error: canUse ? null : 'Tài khoản này không có quyền truy cập dữ liệu vận hành.',
     })
-  }, [accessContext?.accessRole, authenticatedRole, authenticatedUser?.uid, authzReady, operationsView])
+  }, [accessContext?.accessRole, authenticatedRole, authenticatedUser?.uid, authzReady, backendMode, operationsView])
 
   useEffect(() => {
     // Browser layout tests use deterministic, non-sensitive PT fixtures. Do
     // not replace them with an empty emulator snapshot while a form is open.
-    if (import.meta.env.MODE === 'e2e') {
+    if (import.meta.env.MODE === 'e2e' || backendMode === 'demo') {
       setOperationsSync({ status: 'ready', lastSyncedAt: new Date().toISOString(), error: null })
       return
     }
-    if (!canUseLegacyOperations || !operationsView || !db) {
+    if (!canUseLegacyOperations || !operationsView) {
       if (!operationsView) {
         clearLegacyOperationsData()
         if (canUseLegacyOperations) setOperationsSync({ status: 'idle', lastSyncedAt: null, error: null })
       }
+      return
+    }
+    if (!db) {
+      clearLegacyOperationsData()
+      setOperationsSync({
+        status: 'error',
+        lastSyncedAt: null,
+        error: 'Firebase chưa sẵn sàng. Hãy kiểm tra cấu hình dự án rồi thử lại.',
+      })
       return
     }
 
@@ -337,13 +347,16 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
     const activeSources = new Set<LegacyOperationSource>(LEGACY_OPERATIONS_VIEW_SOURCES[operationsView])
     const expectedInitialSnapshots = new Set<LegacyOperationSource>(activeSources)
     const receivedInitialSnapshots = new Set<LegacyOperationSource>()
+    let initialSyncTimeout: number | undefined
     const markReady = (source: LegacyOperationSource) => {
       receivedInitialSnapshots.add(source)
       if (receivedInitialSnapshots.size === expectedInitialSnapshots.size) {
+        if (initialSyncTimeout) window.clearTimeout(initialSyncTimeout)
         setOperationsSync({ status: 'ready', lastSyncedAt: new Date().toISOString(), error: null })
       }
     }
-      const listenerError = (source: string, error: unknown) => {
+    const listenerError = (source: string, error: unknown) => {
+      if (initialSyncTimeout) window.clearTimeout(initialSyncTimeout)
       const code = typeof error === 'object' && error && 'code' in error
         ? String((error as { code?: unknown }).code || '')
         : ''
@@ -356,6 +369,16 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       setOperationsSync({ status: 'error', lastSyncedAt: null, error: message })
       console.warn(`${source} listener error`, error)
     }
+
+    initialSyncTimeout = window.setTimeout(() => {
+      const pendingSources = [...expectedInitialSnapshots].filter((source) => !receivedInitialSnapshots.has(source))
+      if (!pendingSources.length) return
+      setOperationsSync({
+        status: 'error',
+        lastSyncedAt: null,
+        error: `Đồng bộ quá thời gian chờ (${pendingSources.join(', ')}). Hãy kiểm tra kết nối và thử lại.`,
+      })
+    }, 12_000)
 
     const withDocumentId = <T extends { id: string }>(snapshot: { id: string; data: () => unknown }): T => ({
       ...(snapshot.data() as Omit<T, 'id'>),
@@ -500,8 +523,11 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       console.warn('Failed to set up Firestore listeners', e)
     }
 
-    return () => unsubs.forEach(unsub => unsub())
-  }, [canUseLegacyOperations, operationsView])
+    return () => {
+      if (initialSyncTimeout) window.clearTimeout(initialSyncTimeout)
+      unsubs.forEach(unsub => unsub())
+    }
+  }, [backendMode, canUseLegacyOperations, operationsView])
 
   const migrateData = async () => {
     throw new Error('Công cụ migration phía trình duyệt đã ngừng hoạt động. Hãy dùng quy trình migration có dry-run, manifest và đối soát phía server.')

@@ -109,6 +109,11 @@ const retiredRouteRedirects: Record<string, { view: ViewId; hash: string }> = {
   'meal-plan': { view: 'nutrition', hash: '#/nutrition?section=plan' },
   'admin-workout-plans': { view: 'admin-programs', hash: '#/admin-programs' },
   'admin-meal-plans': { view: 'admin-eat-clean', hash: '#/admin-eat-clean' },
+  // These routes used to render duplicate workspaces. Keep old bookmarks
+  // working while directing navigation, permission checks and prefetching to
+  // one canonical screen.
+  'admin-report': { view: 'admin-dashboard', hash: '#/admin-dashboard' },
+  'admin-roles': { view: 'admin-hr', hash: '#/admin-hr' },
 }
 
 export function resolveSupportedView(view: ViewId) {

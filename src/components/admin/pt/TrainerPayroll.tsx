@@ -447,6 +447,7 @@ export default function TrainerPayroll({ profile }: Props) {
   />
 
   return <div className={`payroll-page ${subpageActive ? 'payroll-page--subpage' : ''}`}>
+    <h1 className="aura-visually-hidden">Quản lý bảng lương</h1>
     <AuraMetricCarousel slides={slides} label="Lương tạm tính từng nhân viên" loading={loading && liveRows.length === 0} />
 
     <div className="payroll-page__nav" role="tablist" aria-label="Quản lý lương">

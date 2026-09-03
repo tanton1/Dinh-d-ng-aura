@@ -118,6 +118,9 @@ export default function WorkoutLoggerModal({ studentId, sessionId, defaultDate, 
   return (
     <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
       <motion.div 
+        role="dialog"
+        aria-modal="true"
+        aria-label={initialData ? 'Sửa lịch sử tập' : 'Ghi lịch sử tập'}
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
