@@ -219,7 +219,16 @@ export interface TrainerStudentContractDetail {
 export interface TrainerStudentDetail {
   schemaVersion: number
   formulaVersion: 'contract-usage-v2'
-  student: Record<string, unknown> & { id: string; name?: string; phone?: string; email?: string; branchId?: string }
+  student: Record<string, unknown> & {
+    id: string
+    name?: string
+    phone?: string
+    email?: string
+    dob?: string
+    branchId?: string
+    sessionsPerWeek?: number
+    status?: string
+  }
   contracts: TrainerStudentContractDetail[]
   sessions: TrainerSessionSummary[]
   availability: {
@@ -232,7 +241,37 @@ export interface TrainerStudentDetail {
     source: string
     sourceWeekId: string | null
   }
-  workoutLogs: Array<Record<string, unknown> & { id: string }>
+  trainingProgram: null | {
+    id: string
+    title: string
+    goal: string
+    status: 'draft' | 'active'
+    revision: number
+    trainingDayCount: number
+    exerciseCount: number
+    updatedAt: string
+  }
+  workoutLogs: Array<Record<string, unknown> & {
+    id: string
+    source?: 'pt_tracking' | 'legacy'
+    sessionId?: string
+    date?: string
+    hour?: number | null
+    status?: string
+    trainingDayTitle?: string
+    programName?: string
+    note?: string
+    painNotes?: string
+    completedAt?: string
+    updatedAt?: string
+    metrics?: {
+      completedSets: number
+      totalVolumeKg: number
+      maximumWeightKg: number
+      maximumRpe: number
+      painAlert: boolean
+    }
+  }>
 }
 
 export interface TrainerSessionRequestSummary {

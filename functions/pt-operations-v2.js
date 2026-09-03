@@ -303,6 +303,93 @@ function availabilityState(weekId, value, now = new Date()) {
   }
 }
 
+function staffStudentContractDetail(contract = {}) {
+  return {
+    id: contract.id,
+    packageName: contract.packageName,
+    status: contract.status,
+    startDate: contract.startDate,
+    endDate: contract.endDate,
+    totalSessions: contract.totalSessions,
+    usedSessions: contract.usedSessions,
+    remainingSessions: contract.remainingSessions,
+    chargedSessions: contract.chargedSessions,
+    historySessions: contract.historySessions,
+    reconciliationStatus: contract.reconciliationStatus,
+    schedulableToday: contract.schedulableToday,
+    pausedToday: contract.pausedToday,
+  }
+}
+
+function staffStudentSessionDetail(session = {}) {
+  const parsedHour = Number(session.hour)
+  const status = String(session.status || 'scheduled').toLowerCase()
+  const billingStatus = session.billingStatus || (['completed', 'attended', 'no_show'].includes(status) ? 'charged' : 'pending')
+  const attendanceStatus = session.attendanceStatus || (['completed', 'attended'].includes(status)
+    ? 'present'
+    : status === 'no_show' ? 'no_show' : 'pending')
+  return {
+    id: session.id,
+    studentId: session.studentId,
+    trainerId: session.trainerId,
+    branchId: session.branchId,
+    contractId: session.contractId,
+    date: storedDateKey(session.date),
+    hour: Number.isInteger(parsedHour) && parsedHour >= 0 && parsedHour <= 23 ? parsedHour : null,
+    status,
+    scheduleStatus: session.scheduleStatus,
+    billingStatus,
+    attendanceStatus,
+    lateMinutes: session.lateMinutes,
+    noShowReason: session.noShowReason,
+    chargedAt: session.chargedAt,
+    confirmedAt: session.confirmedAt,
+    revision: session.revision,
+    timeZone: TIME_ZONE,
+  }
+}
+
+function staffStudentWorkoutLogDetail(id, log = {}, source = 'pt_tracking') {
+  const metrics = log.metrics && typeof log.metrics === 'object' ? log.metrics : {}
+  return {
+    id,
+    source,
+    sessionId: log.sessionId || '',
+    date: storedDateKey(log.date || log.completedAt || log.updatedAt || log.createdAt),
+    hour: Number.isInteger(log.hour) ? log.hour : null,
+    status: log.status || '',
+    trainingDayTitle: log.trainingDayTitle || '',
+    programName: log.programName || log.workoutName || log.title || '',
+    note: log.coachNotes || log.note || '',
+    painNotes: log.painNotes || '',
+    completedAt: log.completedAt || null,
+    updatedAt: log.updatedAt || null,
+    metrics: {
+      completedSets: Math.max(0, Number(metrics.completedSets || 0)),
+      totalVolumeKg: Math.max(0, Number(metrics.totalVolumeKg || 0)),
+      maximumWeightKg: Math.max(0, Number(metrics.maximumWeightKg || 0)),
+      maximumRpe: Math.max(0, Number(metrics.maximumRpe || 0)),
+      painAlert: metrics.painAlert === true,
+    },
+  }
+}
+
+function staffStudentTrainingProgramDetail(snapshot) {
+  if (!snapshot?.exists) return null
+  const program = snapshot.data() || {}
+  const trainingDays = Array.isArray(program.trainingDays) ? program.trainingDays : []
+  return {
+    id: snapshot.id,
+    title: typeof program.title === 'string' && program.title.trim() ? program.title.trim() : 'Giáo án Aura',
+    goal: typeof program.goal === 'string' ? program.goal.trim() : '',
+    status: program.status === 'draft' ? 'draft' : 'active',
+    revision: Math.max(0, Number(program.revision || 0)),
+    trainingDayCount: trainingDays.length,
+    exerciseCount: trainingDays.reduce((total, day) => total + (Array.isArray(day?.exercises) ? day.exercises.length : 0), 0),
+    updatedAt: program.updatedAt || null,
+  }
+}
+
 function scheduleConfig(value = {}) {
   const workingDays = Array.isArray(value.workingDays)
     ? value.workingDays.filter((day) => DEFAULT_WORKING_DAYS.includes(day))
@@ -1258,9 +1345,11 @@ function createPtOperationsV2Functions({ db, onCall }) {
     }
     if (!studentContracts.length) throw new HttpsError('permission-denied', 'Học viên không thuộc phạm vi được giao.')
     const availabilityReference = db.doc(`ptAvailability/${studentId}_${weekId}`)
-    const [studentSnapshot, logsSnapshot, availabilitySnapshot, configSnapshot] = await Promise.all([
+    const [studentSnapshot, legacyLogsSnapshot, workoutLogsSnapshot, trainingProgramSnapshot, availabilitySnapshot, configSnapshot] = await Promise.all([
       db.doc(`students/${studentId}`).get(),
       db.collection('workoutLogs').where('studentId', '==', studentId).limit(100).get(),
+      db.collection('ptWorkoutLogs').where('studentId', '==', studentId).limit(100).get(),
+      db.doc(`ptTrainingPrograms/${studentId}`).get(),
       availabilityReference.get(),
       db.doc('settings/scheduleConfig').get(),
     ])
@@ -1298,16 +1387,39 @@ function createPtOperationsV2Functions({ db, onCall }) {
       source: effectiveAvailability.source,
       sourceWeekId: effectiveAvailability.sourceWeekId,
     })
+    const student = studentSnapshot.data() || {}
+    const effectiveBranchId = projectedContracts.find((contract) => contract.schedulableToday)?.branchId
+      || studentContracts.find((contract) => isEffectiveStaffContract(contract))?.branchId
+      || student.branchId
+      || ''
+    const currentWorkoutLogs = workoutLogsSnapshot.docs.map((doc) => staffStudentWorkoutLogDetail(doc.id, doc.data()))
+    const currentSessionIds = new Set(currentWorkoutLogs.map((log) => log.sessionId).filter(Boolean))
+    const workoutLogs = [
+      ...currentWorkoutLogs,
+      ...legacyLogsSnapshot.docs
+        .map((doc) => staffStudentWorkoutLogDetail(doc.id, doc.data(), 'legacy'))
+        .filter((log) => !log.sessionId || !currentSessionIds.has(log.sessionId)),
+    ].sort((left, right) => `${right.date || ''}-${String(right.hour ?? 0).padStart(2, '0')}`
+      .localeCompare(`${left.date || ''}-${String(left.hour ?? 0).padStart(2, '0')}`))
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
       formulaVersion: 'contract-usage-v2',
-      student: serialize({ id: studentId, ...studentSnapshot.data() }),
-      contracts: serialize(projectedContracts),
-      sessions: sessionRows.map((session) => serialize({ id: session.id, ...session, timeZone: TIME_ZONE }))
+      student: serialize({
+        id: studentId,
+        name: student.name || 'Học viên Aura',
+        phone: student.phone || '',
+        email: student.email || '',
+        dob: storedDateKey(student.dob || student.dateOfBirth),
+        branchId: effectiveBranchId,
+        sessionsPerWeek: Math.max(0, Number(student.sessionsPerWeek || 0)),
+        status: student.status || 'active',
+      }),
+      contracts: serialize(projectedContracts.map(staffStudentContractDetail)),
+      sessions: sessionRows.map((session) => serialize(staffStudentSessionDetail(session)))
         .sort((left, right) => `${right.date || ''}-${String(right.hour ?? 0).padStart(2, '0')}`.localeCompare(`${left.date || ''}-${String(left.hour ?? 0).padStart(2, '0')}`)),
       availability: serialize(availability),
-      workoutLogs: logsSnapshot.docs.map((doc) => serialize({ id: doc.id, ...doc.data() }))
-        .sort((left, right) => String(right.completedAt || right.updatedAt || right.date || '').localeCompare(String(left.completedAt || left.updatedAt || left.date || ''))),
+      trainingProgram: serialize(staffStudentTrainingProgramDetail(trainingProgramSnapshot)),
+      workoutLogs: serialize(workoutLogs.slice(0, 100)),
     }
   })
 

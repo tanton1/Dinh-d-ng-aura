@@ -58,6 +58,7 @@ test('Staff student detail makes legacy and malformed callable rows safe to rend
     contracts: [{ id: 'contract-a', packageName: { legacy: true }, totalSessions: '36', usedSessions: '12' }],
     sessions: [{ id: 'session-a', date: null, hour: '18', status: null }, null],
     availability: { slots: ['T2-8', null, { day: 'T4', hour: 18 }, 'not-a-slot'] },
+    trainingProgram: { id: 'student-a', title: 'Mông đùi nữ', status: 'active', trainingDayCount: '3', exerciseCount: 18 },
     workoutLogs: [{ id: 'log-a', programName: { legacy: true }, completedAt: null }, null],
   }, { studentId: 'student-a', weekId: '2026-08-31' })
 
@@ -67,6 +68,8 @@ test('Staff student detail makes legacy and malformed callable rows safe to rend
   assert.equal(detail.sessions[0].hour, 18)
   assert.deepEqual(detail.availability.slots, ['T2-8', 'T4-18'])
   assert.equal(detail.availability.weekId, '2026-08-31')
+  assert.equal(detail.trainingProgram?.title, 'Mông đùi nữ')
+  assert.equal(detail.trainingProgram?.trainingDayCount, 3)
   assert.equal(detail.workoutLogs[0].programName, '')
   assert.equal(detail.workoutLogs[1].id, 'workout-2')
 })
@@ -78,6 +81,7 @@ test('Staff student detail supplies empty collections when an older response omi
   assert.deepEqual(detail.sessions, [])
   assert.deepEqual(detail.workoutLogs, [])
   assert.deepEqual(detail.availability.slots, [])
+  assert.equal(detail.trainingProgram, null)
   assert.equal(detail.student.id, 'student-b')
   assert.equal(detail.availability.weekId, '2026-09-07')
 })

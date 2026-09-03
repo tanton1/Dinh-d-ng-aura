@@ -117,6 +117,22 @@ function normalizeAvailabilitySlot(value: unknown) {
   return day && hour !== undefined ? `${day}-${hour}` : ''
 }
 
+function normalizeTrainingProgram(value: unknown): TrainerStudentDetail['trainingProgram'] {
+  const program = asRecord(value)
+  const id = asText(program.id)
+  if (!id) return null
+  return {
+    id,
+    title: asText(program.title, 'Giáo án Aura'),
+    goal: asText(program.goal),
+    status: program.status === 'draft' ? 'draft' : 'active',
+    revision: asNonNegativeNumber(program.revision),
+    trainingDayCount: asNonNegativeNumber(program.trainingDayCount),
+    exerciseCount: asNonNegativeNumber(program.exerciseCount),
+    updatedAt: asText(program.updatedAt),
+  }
+}
+
 /**
  * Callable data may contain legacy documents with missing fields. Normalize at
  * the network boundary so one malformed row cannot crash the entire Staff UI.
@@ -132,17 +148,30 @@ export function normalizeTrainerStudentDetail(
   const rawWorkoutLogs = Array.isArray(detail.workoutLogs) ? detail.workoutLogs : []
   const workoutLogs = rawWorkoutLogs.map((item, index) => {
     const log = asRecord(item)
+    const metrics = asRecord(log.metrics)
     return {
       ...log,
       id: asText(log.id, `workout-${index + 1}`),
+      source: log.source === 'legacy' ? 'legacy' as const : 'pt_tracking' as const,
+      sessionId: asText(log.sessionId),
       date: asDateKey(log.date) || asText(log.date),
+      hour: log.hour === null || log.hour === undefined ? null : asOptionalHour(log.hour) ?? null,
       completedAt: asText(log.completedAt),
       updatedAt: asText(log.updatedAt),
+      trainingDayTitle: asText(log.trainingDayTitle),
       programName: asText(log.programName),
       workoutName: asText(log.workoutName),
       title: asText(log.title),
       note: asText(log.note),
+      painNotes: asText(log.painNotes),
       status: asText(log.status),
+      metrics: {
+        completedSets: asNonNegativeNumber(metrics.completedSets),
+        totalVolumeKg: asNonNegativeNumber(metrics.totalVolumeKg),
+        maximumWeightKg: asNonNegativeNumber(metrics.maximumWeightKg),
+        maximumRpe: asNonNegativeNumber(metrics.maximumRpe),
+        painAlert: asBoolean(metrics.painAlert),
+      },
     }
   })
   return {
@@ -154,7 +183,10 @@ export function normalizeTrainerStudentDetail(
       name: asText(student.name) || undefined,
       phone: asText(student.phone) || undefined,
       email: asText(student.email) || undefined,
+      dob: asDateKey(student.dob) || undefined,
       branchId: asText(student.branchId) || undefined,
+      sessionsPerWeek: asNonNegativeNumber(student.sessionsPerWeek),
+      status: asText(student.status, 'active'),
     },
     contracts: (Array.isArray(detail.contracts) ? detail.contracts : []).map(normalizeContract),
     sessions: (Array.isArray(detail.sessions) ? detail.sessions : []).map((session, index) => normalizeSession(session, index, studentId)),
@@ -168,6 +200,7 @@ export function normalizeTrainerStudentDetail(
       source: asText(availability.source, 'profile'),
       sourceWeekId: asDateKey(availability.sourceWeekId) || null,
     },
+    trainingProgram: normalizeTrainingProgram(detail.trainingProgram),
     workoutLogs,
   }
 }

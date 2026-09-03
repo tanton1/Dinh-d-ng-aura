@@ -89,3 +89,15 @@ test('editing an older week never rolls the latest projection backwards', () => 
   assert.equal(patch.latestSubmittedAvailability, undefined)
   assert.equal(patch.availableSlots, undefined)
 })
+
+test('an empty draft for the target week falls back to the latest submitted week', () => {
+  const result = effectiveStudentAvailability({
+    targetWeek: TARGET_WEEK,
+    exact: { weekId: TARGET_WEEK, status: 'draft', revision: 1, slots: [] },
+    inherited: { weekId: '2026-08-31', status: 'submitted', revision: 4, slots: ['T2-18', 'T5-19'] },
+    profile: {},
+  })
+  assert.equal(result.source, 'inherited_weekly')
+  assert.equal(result.sourceWeekId, '2026-08-31')
+  assert.deepEqual(result.slots, ['T2-18', 'T5-19'])
+})

@@ -149,7 +149,7 @@ async function latestSubmittedBeforeWeek(db, studentId, targetWeek) {
     .where(FieldPath.documentId(), '>=', lowerBound)
     .where(FieldPath.documentId(), '<', upperBound)
     .orderBy(FieldPath.documentId(), 'desc')
-    .limit(12)
+    .limit(52)
     .get()
   for (const item of snapshot.docs) {
     const value = item.data()

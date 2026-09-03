@@ -82,6 +82,16 @@ function attendanceLabel(session: TrainerSessionSummary) {
   return 'Chờ xác nhận'
 }
 
+function availabilitySourceCopy(detail: TrainerStudentDetail['availability']) {
+  if (detail.source === 'weekly') return { label: 'Tuần hiện tại', note: 'Học viên đã gửi hoặc điều chỉnh riêng cho tuần này.' }
+  if (detail.source === 'inherited_weekly' && detail.sourceWeekId) {
+    return { label: 'Lịch gần nhất', note: `Không có điều chỉnh tuần này · đang kế thừa lịch đã gửi từ tuần ${compactDate(detail.sourceWeekId)}.` }
+  }
+  if (detail.source === 'legacy_default' && detail.confirmed) return { label: 'Lịch mặc định', note: 'Chưa có lịch theo tuần · đang dùng lịch hồ sơ đã xác nhận.' }
+  if (detail.source === 'legacy_default') return { label: 'Chưa xác nhận', note: 'Có lịch cũ trong hồ sơ nhưng học viên chưa xác nhận, nên chưa dùng để tự động xếp lịch.' }
+  return { label: 'Chưa đăng ký', note: 'Chưa có lịch tuần hiện tại hoặc lịch đã gửi gần nhất để kế thừa.' }
+}
+
 export default function TrainerPortalV2({ section = 'students', embedded = false, isDemo = false, onNavigate }: { section?: TrainerWorkspaceSection; embedded?: boolean; isDemo?: boolean; onNavigate?: (view: ViewId) => void }) {
   const [workspace, setWorkspace] = useState<CoachWorkspaceScope | null>(null)
   const [scopeLoading, setScopeLoading] = useState(true)
@@ -246,6 +256,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
         }] : [],
         sessions: scheduledByStudent.get(student.id) || [],
         availability: { weekId: mondayOf(rangeFrom), slots: ['T2-8', 'T3-18', 'T5-7', 'T6-18'], status: 'submitted', confirmed: true, locked: false, cutoffAt: '', source: 'weekly', sourceWeekId: mondayOf(rangeFrom) },
+        trainingProgram: { id: 'student-a', title: 'Thân dưới & mông', goal: 'Tăng sức mạnh và săn chắc', status: 'active', revision: 2, trainingDayCount: 3, exerciseCount: 18, updatedAt: `${rangeFrom}T09:00:00+07:00` },
         workoutLogs: [{ id: 'demo-log', date: rangeFrom, programName: 'Thân dưới & mông', completedAt: `${rangeFrom}T09:00:00+07:00` }],
       })
       setDetailLoading(false)
@@ -470,13 +481,14 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
       {detailLoading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đối chiếu lịch sử và hợp đồng…</div>}
       {detailError && <div className="opv2-state is-error">{detailError}<button type="button" className="opv2-action" onClick={() => void openStudentDetail(detailTarget)}>Thử lại</button></div>}
       {!detailLoading && studentDetail && detailTab === 'overview' && <div className="opv2-student-detail__content">
+        <article className="opv2-profile-summary"><div><small>Chi nhánh</small><strong>{branchNames.get(String(studentDetail.student.branchId || detailTarget.branchId)) || 'Chưa xác định'}</strong></div><div><small>Mục tiêu tuần</small><strong>{Number(studentDetail.student.sessionsPerWeek || detailTarget.sessionsPerWeek || 0)} buổi</strong></div>{studentDetail.student.dob && <div><small>Ngày sinh</small><strong>{compactDate(String(studentDetail.student.dob))}</strong></div>}</article>
         {studentDetail.contracts.map((contract) => <article className="opv2-contract-summary" key={contract.id}><header><div><strong>{contract.packageName}</strong><small>{contract.startDate} → {contract.endDate}</small></div><span className={contract.schedulableToday ? 'is-active' : 'is-inactive'}>{contract.pausedToday ? 'Bảo lưu' : contract.schedulableToday ? 'Hiệu lực' : 'Không thể xếp'}</span></header><div><b>{contract.remainingSessions}</b><span>buổi còn lại</span><small>{contract.usedSessions}/{contract.totalSessions} buổi đã tính theo lịch sử</small></div>{contract.reconciliationStatus !== 'matched' && <p><CircleAlert /> Dữ liệu cũ đang được đối chiếu; Aura ưu tiên lịch sử có tính buổi.</p>}</article>)}
         {studentDetail.contracts.length === 0 && <div className="opv2-state">Chưa có gói tập hợp lệ để hiển thị.</div>}
-        <article className="opv2-availability-summary"><header><strong><CalendarClock /> Lịch rảnh tuần {compactDate(studentDetail.availability.weekId)}</strong><span>{studentDetail.availability.slots.length} khung</span></header>{studentDetail.availability.slots.length ? <div>{studentDetail.availability.slots.map((slot) => <span key={slot}>{slot.replace('-', ' · ')}:00</span>)}</div> : <p>Chưa có lịch rảnh đã gửi cho tuần này.</p>}</article>
+        {(() => { const source = availabilitySourceCopy(studentDetail.availability); return <article className="opv2-availability-summary"><header><strong><CalendarClock /> Lịch rảnh áp dụng tuần {compactDate(studentDetail.availability.weekId)}</strong><span>{source.label} · {studentDetail.availability.slots.length} khung</span></header><p className="opv2-availability-source">{source.note}</p>{studentDetail.availability.slots.length ? <div>{studentDetail.availability.slots.map((slot) => <span key={slot}>{slot.replace('-', ' · ')}:00</span>)}</div> : <p>Chưa có lịch rảnh hợp lệ để xếp lịch.</p>}</article> })()}
         <div className="opv2-student-detail__actions"><button type="button" onClick={() => { setDetailTarget(null); onNavigate?.('staff-workouts') }}><Dumbbell /> Mở giáo án</button><button type="button" onClick={() => { setDetailTarget(null); onNavigate?.('staff-nutrition-reviews') }}><CheckCircle2 /> Duyệt món</button></div>
       </div>}
       {!detailLoading && studentDetail && detailTab === 'history' && <div className="opv2-student-history">{studentDetail.sessions.slice(0, 30).map((session) => <article key={session.id}><time>{compactDate(session.date)}<small>{String(session.hour ?? '--').padStart(2, '0')}:00</small></time><div><strong>{attendanceLabel(session)}</strong><span>{session.billingStatus === 'charged' ? 'Đã tính 1 buổi' : session.billingStatus === 'exempt' ? 'Không tính buổi' : 'Chưa tính buổi'}</span></div></article>)}{studentDetail.sessions.length === 0 && <div className="opv2-state">Chưa có lịch sử tập.</div>}</div>}
-      {!detailLoading && studentDetail && detailTab === 'workout' && <div className="opv2-student-history">{studentDetail.workoutLogs.slice(0, 20).map((log) => <article key={log.id}><time>{compactDate(String(log.date || log.completedAt || log.updatedAt || '').slice(0, 10))}</time><div><strong>{String(log.programName || log.workoutName || log.title || 'Buổi tập đã ghi nhận')}</strong><span>{String(log.note || log.status || 'Đã lưu mức tạ và kết quả')}</span></div></article>)}{studentDetail.workoutLogs.length === 0 && <div className="opv2-state">Chưa có nhật ký giáo án.</div>}</div>}
+      {!detailLoading && studentDetail && detailTab === 'workout' && <div className="opv2-student-workout">{studentDetail.trainingProgram ? <article className="opv2-training-plan-summary"><header><div><small>GIÁO ÁN ĐANG ÁP DỤNG</small><strong>{studentDetail.trainingProgram.title}</strong></div><span>{studentDetail.trainingProgram.status === 'active' ? 'Đang áp dụng' : 'Bản nháp'}</span></header>{studentDetail.trainingProgram.goal && <p>{studentDetail.trainingProgram.goal}</p>}<div><b>{studentDetail.trainingProgram.trainingDayCount}</b><small>buổi mẫu</small><b>{studentDetail.trainingProgram.exerciseCount}</b><small>bài tập</small></div></article> : <div className="opv2-state">Học viên chưa có giáo án đang lưu.</div>}<div className="opv2-student-history">{studentDetail.workoutLogs.slice(0, 20).map((log) => <article key={log.id}><time>{compactDate(String(log.date || log.completedAt || log.updatedAt || '').slice(0, 10))}<small>{log.hour === null || log.hour === undefined ? '' : `${String(log.hour).padStart(2, '0')}:00`}</small></time><div><strong>{String(log.trainingDayTitle || log.programName || log.workoutName || log.title || 'Buổi tập đã ghi nhận')}</strong><span>{log.metrics?.completedSets ? `${log.metrics.completedSets} hiệp · ${Math.round(log.metrics.totalVolumeKg).toLocaleString('vi-VN')} kg tổng tải` : String(log.note || log.status || 'Đã lưu kết quả buổi tập')}</span>{log.painNotes && <small className="is-warning">Lưu ý đau mỏi: {log.painNotes}</small>}</div></article>)}{studentDetail.workoutLogs.length === 0 && <div className="opv2-state">Chưa có nhật ký mức tạ hoặc kết quả buổi tập.</div>}</div></div>}
     </section></div>}
     </>}
   </section>
