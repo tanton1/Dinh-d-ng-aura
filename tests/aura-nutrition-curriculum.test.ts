@@ -89,11 +89,18 @@ test('full handbook reader ships all 20 PDF chapters as bounded lazy-loaded asse
 })
 
 test('focused lesson reader keeps searchable outlines and real pagination on every viewport', () => {
+  const shellSource = readFileSync(new URL('../src/components/AppShell.tsx', import.meta.url), 'utf8')
+  const courseContentSource = readFileSync(new URL('../src/utils/courseContent.ts', import.meta.url), 'utf8')
   const pageSource = readFileSync(new URL('../src/pages/student/CourseDetailPage.tsx', import.meta.url), 'utf8')
   const runtimeSource = readFileSync(new URL('../src/components/CourseLessonRuntime.tsx', import.meta.url), 'utf8')
   const academyStyles = readFileSync(new URL('../src/styles-academy.css', import.meta.url), 'utf8')
   const fullReaderSource = readFileSync(new URL('../src/components/academy/AcademyFullChapterReader.tsx', import.meta.url), 'utf8')
 
+  assert.match(shellSource, /isImmersive[\s\S]*view === 'course-detail'/)
+  assert.match(courseContentSource, /buildAuraReaderDemoModules/)
+  assert.match(courseContentSource, /auraReaderChapterTitles\.map/)
+  assert.match(pageSource, /const navigationLessons = useMemo/)
+  assert.match(pageSource, /20 chương toàn văn/)
   assert.match(pageSource, /className="course-reader-outline"/)
   assert.match(pageSource, /className="course-reader-search"/)
   assert.match(pageSource, /onOpenResources=\{\(\) => setReaderView\('resources'\)\}/)
@@ -105,6 +112,7 @@ test('focused lesson reader keeps searchable outlines and real pagination on eve
   assert.match(academyStyles, /@media \(max-width: 1080px\)[\s\S]*?\.course-reader-outline \{ display: none; \}[\s\S]*?\.course-reader-outline-button \{ display: inline-flex; \}/)
   assert.match(academyStyles, /\.course-reader-page \.mobile-lesson-sheet-backdrop \{[^}]*display: flex;/)
   assert.match(fullReaderSource, /\/academy\/full-reader\/chapter-/)
+  assert.match(fullReaderSource, /className="academy-full-reader__outline-panel"/)
   assert.match(fullReaderSource, /className="academy-full-reader__pagination"/)
   assert.match(fullReaderSource, /const visiblePages = \[availablePages\[currentPage - 1\]/)
   assert.doesNotMatch(fullReaderSource, /IntersectionObserver/)

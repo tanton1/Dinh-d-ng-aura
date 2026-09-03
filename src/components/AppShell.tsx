@@ -316,7 +316,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
       .filter((section) => section.items.length > 0)
   const mobileAdminItems = adminMobileNav.filter((item) => hasPermission(role, item.permission) && canNavigate(item.id))
   const mobileStaffItems = staffMobileNav.filter((item) => allowedStaffRoutes.has(item.id) && canNavigate(item.id)).slice(0, 6)
-  const isImmersive = view === 'workout' || view === 'delivery'
+  const isImmersive = view === 'workout' || view === 'delivery' || view === 'course-detail'
   const [searchQuery, setSearchQuery] = useState('')
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)

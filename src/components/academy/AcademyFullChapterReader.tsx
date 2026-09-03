@@ -8,11 +8,13 @@ import {
   CheckCircle2,
   FileText,
   LoaderCircle,
+  ListTree,
   Minus,
   Plus,
   Search,
   Volume2,
   VolumeX,
+  X,
 } from 'lucide-react'
 
 type FullReaderBlock = {
@@ -117,6 +119,7 @@ export default function AcademyFullChapterReader({
   const normalizedQuery = normalizeSearch(deferredQuery)
   const [currentPage, setCurrentPage] = useState(() => readSavedPage(ownerId, chapter))
   const [isSpeaking, setIsSpeaking] = useState(false)
+  const [pageOutlineOpen, setPageOutlineOpen] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -124,6 +127,7 @@ export default function AcademyFullChapterReader({
     setStatus(chapterCache.has(chapter) ? 'ready' : 'loading')
     setError('')
     setQuery('')
+    setPageOutlineOpen(false)
     setCurrentPage(readSavedPage(ownerId, chapter))
     void loadFullChapter(chapter, controller.signal)
       .then((result) => {
@@ -147,6 +151,15 @@ export default function AcademyFullChapterReader({
   useEffect(() => () => {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
   }, [chapter])
+
+  useEffect(() => {
+    if (!pageOutlineOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPageOutlineOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [pageOutlineOpen])
 
   const searchResults = useMemo(() => {
     if (!content || normalizedQuery.length < 2) return []
@@ -203,10 +216,31 @@ export default function AcademyFullChapterReader({
 
       <div className="academy-full-reader__toolbar">
         <label><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm trong toàn bộ chương…" aria-label="Tìm trong toàn bộ chương" />{query ? <button type="button" onClick={() => setQuery('')} aria-label="Xóa tìm kiếm">×</button> : null}</label>
+        <button type="button" className={pageOutlineOpen ? 'is-active' : ''} onClick={() => setPageOutlineOpen(true)} aria-haspopup="dialog" aria-label="Mở mục lục chương"><ListTree size={16} /> Mục lục</button>
         <div className="academy-full-reader__font" aria-label="Điều chỉnh cỡ chữ"><button type="button" onClick={() => setFontScale((value) => Math.max(.9, Math.round((value - .1) * 10) / 10))} aria-label="Giảm cỡ chữ"><Minus size={15} /></button><span>Aa</span><button type="button" onClick={() => setFontScale((value) => Math.min(1.3, Math.round((value + .1) * 10) / 10))} aria-label="Tăng cỡ chữ"><Plus size={15} /></button></div>
-        <button type="button" className={isSpeaking ? 'is-active' : ''} onClick={togglePageSpeech}>{isSpeaking ? <VolumeX size={16} /> : <Volume2 size={16} />}{isSpeaking ? 'Dừng đọc' : `Nghe trang ${currentPage}`}</button>
-        <button type="button" onClick={onOpenPdf}><FileText size={16} /> PDF minh họa</button>
+        <button type="button" className={isSpeaking ? 'is-active' : ''} onClick={togglePageSpeech} aria-label={isSpeaking ? 'Dừng đọc thành tiếng' : `Nghe trang ${currentPage}`} >{isSpeaking ? <VolumeX size={16} /> : <Volume2 size={16} />}{isSpeaking ? 'Dừng' : 'Nghe'}</button>
+        <button type="button" onClick={onOpenPdf} aria-label="Mở PDF gốc có hình minh họa"><FileText size={16} /> PDF gốc</button>
       </div>
+
+      {pageOutlineOpen ? (
+        <div className="academy-full-reader__outline-layer" role="presentation" onClick={() => setPageOutlineOpen(false)}>
+          <aside className="academy-full-reader__outline-panel" role="dialog" aria-modal="true" aria-label={`Mục lục Chương ${chapter}`} onClick={(event) => event.stopPropagation()}>
+            <header>
+              <div><small>MỤC LỤC CHƯƠNG {chapter}</small><h3>{content.title}</h3><span>{content.pageCount} trang · chọn để mở đúng vị trí</span></div>
+              <button type="button" onClick={() => setPageOutlineOpen(false)} aria-label="Đóng mục lục chương"><X size={19} /></button>
+            </header>
+            <div className="academy-full-reader__outline-list">
+              {content.pages.map((page) => (
+                <button type="button" className={page.number === currentPage ? 'is-current' : ''} key={page.number} aria-current={page.number === currentPage ? 'page' : undefined} onClick={() => { scrollToPage(page.number); setPageOutlineOpen(false) }}>
+                  <span>{String(page.number).padStart(2, '0')}</span>
+                  <strong>{pageHeading(page)}</strong>
+                  <ChevronRight size={15} />
+                </button>
+              ))}
+            </div>
+          </aside>
+        </div>
+      ) : null}
 
       <div className="academy-full-reader__progress" aria-label={`Đã đọc đến trang ${currentPage} trên ${content.pageCount}`}><span style={{ width: `${Math.min(100, (currentPage / content.pageCount) * 100)}%` }} /></div>
 
