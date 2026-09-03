@@ -120,6 +120,12 @@ body:has([role='dialog'][aria-modal='true'], [role='alertdialog'][aria-modal='tr
     bottom: calc(80px + env(safe-area-inset-bottom));
   }
 
+  /* Eat Clean owns a sticky cart bar above the learner navigation. Keep the
+     global coach available, but never let it cover the cart's primary action. */
+  .app-shell[data-view='eat-clean'] .ai-coach-global-launcher {
+    bottom: calc(154px + env(safe-area-inset-bottom));
+  }
+
   .app-shell[data-view='progress'] .ai-coach-global-launcher {
     bottom: calc(148px + env(safe-area-inset-bottom));
   }

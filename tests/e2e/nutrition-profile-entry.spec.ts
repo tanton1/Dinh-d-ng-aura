@@ -1,21 +1,17 @@
 import { expect, test } from '@playwright/test'
 
-test('nutrition setup launches the canonical Aura onboarding', async ({ page }) => {
+test('profile update launches the canonical Aura onboarding', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/#/nutrition?section=today')
+  await page.goto('/#/profile')
 
-  const setupPrompt = page.getByTestId('nutrition-setup-prompt')
-  await expect(setupPrompt).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Thiết lập mục tiêu dinh dưỡng' })).toBeVisible()
-  await expect(page.getByText(/Bước 1 \/ 4/)).toHaveCount(0)
-  const setupBounds = await setupPrompt.boundingBox()
-  expect(setupBounds?.x).toBeLessThanOrEqual(1)
-  expect(setupBounds?.y).toBeLessThanOrEqual(1)
-  expect(setupBounds?.width).toBeGreaterThanOrEqual(389)
-  expect(setupBounds?.height).toBeGreaterThanOrEqual(843)
+  await page.getByRole('button', { name: 'Cập nhật', exact: true }).click()
+  await expect(page.getByRole('heading', { name: /Chào mừng bạn đến/i })).toBeVisible()
+  await expect(page.locator('.onboarding-container')).toHaveAttribute('data-onboarding-step', 'welcome')
 
-  await page.getByRole('button', { name: 'Thiết lập mục tiêu' }).click()
-  await expect(page.getByRole('button', { name: 'Thiết lập hồ sơ' })).toBeVisible()
+  const setupButton = page.getByRole('button', { name: 'Thiết lập hồ sơ' })
+  await expect(setupButton).toBeVisible()
+  await setupButton.click()
+  await expect(page.locator('.onboarding-container')).not.toHaveAttribute('data-onboarding-step', 'welcome')
 })
 
 test('profile accepts a mobile-friendly avatar upload', async ({ page }) => {
