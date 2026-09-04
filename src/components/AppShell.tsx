@@ -77,7 +77,10 @@ type ShellNavSection = { label: string; items: ShellNavItem[] }
 const studentNavSections: ShellNavSection[] = [
   {
     label: 'TỔNG QUAN',
-    items: [{ id: 'home' as const, label: 'Hôm nay', icon: Home }],
+    items: [
+      { id: 'home' as const, label: 'Hôm nay', icon: Home },
+      { id: 'aura-club' as const, label: 'Aura Club', icon: WalletCards },
+    ],
   },
   {
     label: 'AURA ACADEMY & DINH DƯỠNG',
@@ -125,6 +128,7 @@ const staffNavSections: ShellNavSection[] = [
       { id: 'staff-students' as const, label: 'Học viên phụ trách', icon: Users },
       { id: 'staff-schedule' as const, label: 'Lịch làm việc', icon: CalendarDays },
       { id: 'admin-pt-schedule' as const, label: 'Lịch chi nhánh', icon: CalendarDays },
+      { id: 'admin-loyalty' as const, label: 'Aura Club chi nhánh', icon: WalletCards },
       { id: 'staff-workouts' as const, label: 'Giáo án & mức tạ', icon: Dumbbell },
       { id: 'staff-nutrition-reviews' as const, label: 'Duyệt món', icon: Check },
       { id: 'staff-quotes' as const, label: 'Báo giá', icon: ClipboardList },
@@ -166,7 +170,7 @@ const staffPositionRoutes: Record<StaffPosition, ViewId[]> = {
   trainer_pt: ['staff-dashboard', 'staff-students', 'staff-schedule', 'staff-workouts', 'staff-nutrition-reviews', 'staff-renewals', 'staff-payroll'],
   coach_online: ['staff-dashboard', 'staff-students', 'staff-nutrition-reviews', 'staff-payroll'],
   sales: ['staff-dashboard', 'staff-quotes', 'staff-renewals', 'staff-payroll'],
-  branch_manager: ['staff-dashboard', 'admin-pt-schedule', 'staff-workouts', 'staff-renewals', 'staff-payroll'],
+  branch_manager: ['staff-dashboard', 'admin-pt-schedule', 'admin-loyalty', 'staff-workouts', 'staff-renewals', 'staff-payroll'],
   academy_editor: ['staff-dashboard', 'courses', 'staff-payroll'],
   shipper: ['delivery'],
 }
@@ -202,8 +206,8 @@ const staffWorkspaceDock: Record<StaffPosition, ShellNavItem[]> = {
   branch_manager: [
     { id: 'staff-dashboard', label: 'Tổng quan', icon: LayoutDashboard },
     { id: 'admin-pt-schedule', label: 'Lịch CN', icon: CalendarDays },
+    { id: 'admin-loyalty', label: 'Aura Club', icon: WalletCards },
     { id: 'staff-workouts', label: 'Giáo án', icon: Dumbbell },
-    { id: 'staff-renewals', label: 'Tái ký', icon: RefreshCw },
   ],
   academy_editor: [
     { id: 'staff-dashboard', label: 'Tổng quan', icon: LayoutDashboard },
@@ -244,6 +248,7 @@ const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
     label: 'HỆ THỐNG',
     items: [
       { id: 'admin-dashboard' as const, label: 'Trung tâm điều hành', icon: LayoutDashboard, permission: 'dashboard.view' as Permission },
+      { id: 'admin-loyalty' as const, label: 'Aura Club', icon: WalletCards, permission: 'dashboard.view' as Permission },
     ],
   },
   {
@@ -307,6 +312,7 @@ const adminV4MobileNav: ShellAdminNavItem[] = [
 
 const viewTitles: Partial<Record<ViewId, string>> = {
   home: 'Hôm nay',
+  'aura-club': 'Aura Club',
   courses: 'Học',
   'course-detail': 'Không gian học',
   nutrition: 'Dinh dưỡng',
@@ -331,6 +337,7 @@ const viewTitles: Partial<Record<ViewId, string>> = {
   workout: 'Buổi tập',
   delivery: 'Aura Delivery',
   'admin-dashboard': 'Trung tâm điều hành',
+  'admin-loyalty': 'Aura Club',
   'admin-today-sessions': 'Ca tập hôm nay',
   'admin-pt-students': 'Quản lý Học viên PT Gym',
   'admin-pt-schedule': 'Lịch PT & Hộp yêu cầu',

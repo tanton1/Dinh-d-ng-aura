@@ -13,6 +13,7 @@ const {
   studentAvailabilityProfilePatch,
 } = require('./student-availability')
 const { summarizeContractUsage } = require('./contract-usage')
+const { normalizeMemberReferralCode } = require('./loyalty-core')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const DEFAULT_WORKING_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -71,6 +72,10 @@ function currentDateKey(now = new Date()) {
   }).formatToParts(now)
   const part = (type) => parts.find((item) => item.type === type)?.value || ''
   return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+function normalizedContact(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9@._+]/g, '')
 }
 
 function mondayDateKey(referenceDate = currentDateKey()) {
@@ -1673,9 +1678,22 @@ function createPtOperationsV2Functions({ db, onCall }) {
     if (!packageSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy gói tập.')
     const originalPrice = Number(packageSnapshot.data().price || 0)
     const discount = integer(request.data?.discount, 0, 0, Math.round(originalPrice * 0.2))
+    const rawMemberReferralCode = typeof request.data?.memberReferralCode === 'string' ? request.data.memberReferralCode.trim() : ''
+    const memberReferralCode = normalizeMemberReferralCode(rawMemberReferralCode)
+    if (rawMemberReferralCode && !memberReferralCode) throw new HttpsError('invalid-argument', 'Mã giới thiệu Aura không hợp lệ.')
+    let memberReferrerStudentId = ''
+    if (memberReferralCode) {
+      const codeSnapshot = await db.doc(`memberReferralCodes/${memberReferralCode}`).get()
+      if (!codeSnapshot.exists || codeSnapshot.data().status !== 'active') throw new HttpsError('not-found', 'Mã giới thiệu Aura không tồn tại hoặc đã ngừng hoạt động.')
+      memberReferrerStudentId = String(codeSnapshot.data().studentId || '')
+      const referrerSnapshot = memberReferrerStudentId ? await db.doc(`students/${memberReferrerStudentId}`).get() : null
+      const customerPhone = normalizedContact(request.data?.customerPhone)
+      const referrerPhone = referrerSnapshot?.exists ? normalizedContact(referrerSnapshot.data().phone || referrerSnapshot.data().phoneNumber) : ''
+      if (customerPhone && referrerPhone && customerPhone === referrerPhone) throw new HttpsError('failed-precondition', 'Không thể dùng mã giới thiệu cho chính chủ mã.')
+    }
     const reference = db.collection('quotes').doc()
     const code = `AQ-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${reference.id.slice(0, 6).toUpperCase()}`
-    await reference.create({ schemaVersion: 1, code, customerName: boundedString(request.data?.customerName, 'Tên khách hàng', 160), customerPhone: boundedString(request.data?.customerPhone, 'Số điện thoại', 30), branchId, packageId, packageName: packageSnapshot.data().name || '', originalPrice, discount, finalPrice: originalPrice - discount, assignedSalesId: actor.uid, status: 'pending', createdBy: actor.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+    await reference.create({ schemaVersion: 2, code, customerName: boundedString(request.data?.customerName, 'Tên khách hàng', 160), customerPhone: boundedString(request.data?.customerPhone, 'Số điện thoại', 30), branchId, packageId, packageName: packageSnapshot.data().name || '', originalPrice, discount, finalPrice: originalPrice - discount, memberReferralCode: memberReferralCode || null, memberReferrerStudentId: memberReferrerStudentId || null, assignedSalesId: actor.uid, status: 'pending', createdBy: actor.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
     return { quoteId: reference.id, code, finalPrice: originalPrice - discount }
   })
 
@@ -1697,7 +1715,7 @@ function createPtOperationsV2Functions({ db, onCall }) {
     const [lead, quote] = await Promise.all([db.doc(`salesLeads/${leadId}`).get(), db.doc(`quotes/${quoteId}`).get()])
     if (!lead.exists || !quote.exists || lead.data().assignedSalesId !== actor.uid || quote.data().assignedSalesId !== actor.uid) throw new HttpsError('permission-denied', 'Hồ sơ hoặc báo giá không thuộc phạm vi của bạn.')
     const reference = db.collection('contractApprovals').doc()
-    await reference.create({ schemaVersion: 1, leadId, quoteId, branchId: quote.data().branchId, assignedSalesId: actor.uid, status: 'pending', submittedBy: actor.uid, submittedAt: FieldValue.serverTimestamp(), createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+    await reference.create({ schemaVersion: 2, leadId, quoteId, branchId: quote.data().branchId, assignedSalesId: actor.uid, memberReferralCode: quote.data().memberReferralCode || null, memberReferrerStudentId: quote.data().memberReferrerStudentId || null, status: 'pending', submittedBy: actor.uid, submittedAt: FieldValue.serverTimestamp(), createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
     return { approvalId: reference.id, status: 'pending' }
   })
 

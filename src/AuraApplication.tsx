@@ -54,8 +54,10 @@ import { AuraUiRolloutProvider } from './features/ui-rollout/AuraUiRolloutContex
 const AdminAcademyStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminAcademyStudentsPage'))
 const Onboarding = lazyWithRetry(() => import('./onboarding/Onboarding'))
 const HomePage = lazyWithRetry(() => import('./pages/student/HomePage'))
+const AuraClubPage = lazyWithRetry(() => import('./features/loyalty/AuraClubPage'))
 const AdminCoursesPage = lazyWithRetry(() => import('./pages/admin/AdminCoursesPage'))
 const AdminDashboard = lazyWithRetry(() => import('./pages/admin/AdminDashboard'))
+const AdminLoyaltyPage = lazyWithRetry(() => import('./features/loyalty/AdminLoyaltyPage'))
 const AdminTodaySessionsPage = lazyWithRetry(() => import('./pages/admin/AdminTodaySessionsPage'))
 const TrainerQualityPage = lazyWithRetry(() => import('./pages/admin/TrainerQualityPage'))
 const AdminProgramsPage = lazyWithRetry(() => import('./pages/admin/AdminProgramsPage'))
@@ -379,6 +381,7 @@ function AuraApplication() {
       eatCleanScreen: 'store',
       mealId: null,
       orderId: null,
+      loyaltyTab: 'rewards',
     }
     const routeChanges = !isSameRoute(route, nextRoute)
     const unsavedWarning = route.view === 'admin-course-editor' && editorDirty
@@ -413,6 +416,7 @@ function AuraApplication() {
       eatCleanScreen: 'store',
       mealId: null,
       orderId: null,
+      loyaltyTab: 'rewards',
     }
     setStaffStudentFocus({ id: studentId, name: studentName })
     routeRef.current = nextRoute
@@ -754,6 +758,7 @@ function AuraApplication() {
 
   const renderPage = () => {
     switch (view) {
+      case 'aura-club': return <AuraClubPage isDemo={backendMode === 'demo'} ownerId={user?.uid ?? 'demo'} initialTab={route.loyaltyTab} onNavigate={navigate} />
       case 'courses': return <CoursesPage onOpenCourse={openCourse} courseItems={studentCourses} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error} warning={learningData.error} initialQuery={globalSearchQuery} />
       case 'course-detail': return <CourseDetailPage course={selectedCourse} progress={selectedProgress} activeLessonId={selectedLessonId} enrolled={selectedEnrollment} enrolledAt={selectedEnrollmentRecord?.enrolledAt} noteOwnerId={user?.uid ?? 'demo'} onNoteDirtyChange={setCourseNoteDirty} accessLocked={selectedCourseLocked} learningWarning={learningData.error} loading={studentCourseData.loading || learningData.loading} allowDemoContent={backendMode === 'demo'} previewMode={isAdminCoursePreview} onBack={() => {
         if (isAdminCoursePreview) {
@@ -907,6 +912,18 @@ function AuraApplication() {
       case 'admin-dashboard': return backendMode === 'firebase' && (!authzReady || !hasCapability('pt.operations.manage'))
         ? <div className="course-detail-state" role="status"><h1>{authzReady ? 'Không có quyền mở Tổng quan' : 'Đang xác minh quyền Tổng quan'}</h1><p>{authzReady ? 'Khu vực này chỉ dành cho quản trị viên hoặc quản lý có quyền vận hành.' : 'Aura đang đối chiếu phạm vi vận hành trước khi tải dữ liệu.'}</p></div>
         : <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} isDemo={backendMode === 'demo'} canViewPayroll={backendMode === 'demo' || hasCapability('payroll.operations.manage')} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
+      case 'admin-loyalty': return backendMode === 'firebase' && (!authzReady || !hasCapability('loyalty.dashboard.read'))
+        ? <div className="course-detail-state" role="status"><h1>{authzReady ? 'Không có quyền mở Aura Club' : 'Đang xác minh quyền Aura Club'}</h1><p>{authzReady ? 'Tài khoản chưa được cấp quyền điều hành loyalty.' : 'Aura đang đối chiếu phạm vi quản trị.'}</p></div>
+        : <AuraOperationsFrame><AdminLoyaltyPage
+          isDemo={backendMode === 'demo'}
+          canRunBackfill={accessContext?.accessRole === 'admin' || accessContext?.accessRole === 'super_admin'}
+          canManagePolicy={backendMode === 'demo' || hasCapability('loyalty.policy.manage')}
+          canManageRewards={backendMode === 'demo' || hasCapability('loyalty.reward.manage')}
+          canManageAmbassadors={backendMode === 'demo' || hasCapability('loyalty.ambassador.manage')}
+          canReviewRedemptions={backendMode === 'demo' || hasCapability('loyalty.redemption.review')}
+          canAudit={backendMode === 'demo' || hasCapability('loyalty.audit.read')}
+          canAdjust={backendMode === 'demo' || hasCapability('loyalty.adjust.request')}
+        /></AuraOperationsFrame>
       case 'admin-today-sessions': return <AuraOperationsFrame><AdminTodaySessionsPage onNavigate={navigate} /></AuraOperationsFrame>
       case 'admin-courses': return <AdminCoursesPage
         courseItems={adminCourseData.courses}
