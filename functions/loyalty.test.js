@@ -158,6 +158,7 @@ test('source keys are deterministic and policy defaults keep financial writes pa
 })
 
 test('Aura Club endpoints and server-owned rules are statically wired', () => {
+  const loyaltySource = readFileSync(join(__dirname, 'loyalty.js'), 'utf8')
   const indexSource = readFileSync(join(__dirname, 'index.js'), 'utf8')
   const rulesSource = readFileSync(join(__dirname, '..', 'firestore.rules'), 'utf8')
   for (const name of [
@@ -177,6 +178,8 @@ test('Aura Club endpoints and server-owned rules are statically wired', () => {
     assert.match(indexSource, new RegExp(`exports\\.${name} = loyaltyFunctions\\.${name}`))
   }
   assert.match(indexSource, /exports\.syncLoyaltyNutritionReview = onDocumentWritten/)
+  assert.match(loyaltySource, /DEFAULT_CALL_OPTIONS = \{ cpu: 'gcf_gen1', maxInstances: 3, concurrency: 1/)
+  assert.match(loyaltySource, /ADMIN_CALL_OPTIONS = \{ cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1/)
   for (const collection of ['loyaltyAccounts', 'loyaltyLedgerEntries', 'loyaltySourceBalances', 'loyaltyRedemptions', 'memberReferrals', 'ambassadorProfiles', 'ambassadorCommissionSources', 'ambassadorQuarterCounters', 'loyaltyReconciliationIssues']) {
     assert.match(rulesSource, new RegExp(`match /${collection}/`))
   }

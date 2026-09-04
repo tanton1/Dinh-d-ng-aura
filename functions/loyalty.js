@@ -28,8 +28,11 @@ const REGION = 'asia-southeast1'
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const MAX_PAGE_SIZE = 100
 const MAX_RECONCILE_DOCUMENTS = 500
-const DEFAULT_CALL_OPTIONS = { cpu: 'gcf_gen1', maxInstances: 3, concurrency: 8, timeoutSeconds: 60 }
-const ADMIN_CALL_OPTIONS = { cpu: 'gcf_gen1', maxInstances: 2, concurrency: 4, timeoutSeconds: 90 }
+// Fractional Gen-1 CPU keeps the regional fleet quota-safe. Cloud Run only
+// permits request concurrency greater than one with a full CPU, so these
+// low-volume transactional callables must remain single-concurrency.
+const DEFAULT_CALL_OPTIONS = { cpu: 'gcf_gen1', maxInstances: 3, concurrency: 1, timeoutSeconds: 60 }
+const ADMIN_CALL_OPTIONS = { cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1, timeoutSeconds: 90 }
 
 function boundedString(value, label, maximum = 200, required = true) {
   const result = typeof value === 'string' ? value.trim() : ''
