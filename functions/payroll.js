@@ -464,7 +464,18 @@ async function legacyPayrollPreview(db, runData, itemValues) {
 }
 
 function createPayrollFunctions({ db, onCall }) {
-  const listPayrollPolicies = onCall(async (request) => {
+  // Payroll is a low-volume administrative workflow. Fractional Gen-1 CPU
+  // keeps new revisions deployable even when the regional Cloud Run CPU quota
+  // is tight; concurrency must remain one for fractional CPU functions.
+  const payrollCall = (handler) => onCall({
+    cpu: 'gcf_gen1',
+    memory: '256MiB',
+    maxInstances: 1,
+    concurrency: 1,
+    timeoutSeconds: 300,
+  }, handler)
+
+  const listPayrollPolicies = payrollCall(async (request) => {
     await payrollActor(request, db)
     const [snapshot, runSnapshot] = await Promise.all([
       db.collection('payrollPolicies').orderBy('effectiveFrom', 'desc').limit(100).get(),
@@ -504,7 +515,7 @@ function createPayrollFunctions({ db, onCall }) {
     }
   })
 
-  const savePayrollPolicy = onCall(async (request) => {
+  const savePayrollPolicy = payrollCall(async (request) => {
     const actor = await payrollActor(request, db)
     const effective = policyEffectiveDate(request.data?.effectiveFrom)
     const rates = payrollPolicyConfiguration(request.data || {})
@@ -568,7 +579,7 @@ function createPayrollFunctions({ db, onCall }) {
     })
   })
 
-  const managePayrollPolicy = onCall(async (request) => {
+  const managePayrollPolicy = payrollCall(async (request) => {
     const actor = await payrollActor(request, db)
     const policyId = payrollDocumentId(request.data?.policyId, 'Mã chính sách')
     const action = request.data?.action
@@ -612,7 +623,7 @@ function createPayrollFunctions({ db, onCall }) {
     })
   })
 
-  const listPayrollRuns = onCall(async (request) => {
+  const listPayrollRuns = payrollCall(async (request) => {
     await payrollActor(request, db)
     const limit = Math.min(36, Math.max(1, Number.isInteger(request.data?.limit) ? request.data.limit : 18))
     const snapshot = await db.collection('payrollRuns').orderBy('createdAt', 'desc').limit(limit).get()
@@ -654,7 +665,7 @@ function createPayrollFunctions({ db, onCall }) {
     }
   })
 
-  const getPayrollRun = onCall(async (request) => {
+  const getPayrollRun = payrollCall(async (request) => {
     await payrollActor(request, db)
     const runId = typeof request.data?.runId === 'string' ? request.data.runId.trim() : ''
     if (!runId) throw new HttpsError('invalid-argument', 'Mã kỳ lương không hợp lệ.')
@@ -719,7 +730,7 @@ function createPayrollFunctions({ db, onCall }) {
     }
   })
 
-  const createPayrollRun = onCall(async (request) => {
+  const createPayrollRun = payrollCall(async (request) => {
     const actor = await payrollActor(request, db)
     const periodId = period(request.data?.periodId)
     const { start, end } = periodBounds(periodId)
@@ -1009,7 +1020,7 @@ function createPayrollFunctions({ db, onCall }) {
     })
   })
 
-  const deleteDraftPayrollRun = onCall(async (request) => {
+  const deleteDraftPayrollRun = payrollCall(async (request) => {
     const actor = await payrollActor(request, db)
     const runId = period(request.data?.runId)
     const runReference = db.doc(`payrollRuns/${runId}`)
@@ -1059,8 +1070,8 @@ function createPayrollFunctions({ db, onCall }) {
     return { runId, status: to }
   }
 
-  const reviewPayrollRun = onCall((request) => transition(request, 'draft', 'reviewed'))
-  const lockPayrollRun = onCall(async (request) => {
+  const reviewPayrollRun = payrollCall((request) => transition(request, 'draft', 'reviewed'))
+  const lockPayrollRun = payrollCall(async (request) => {
     const actor = await payrollActor(request, db)
     const runId = typeof request.data?.runId === 'string' ? request.data.runId.trim() : ''
     if (!runId) throw new HttpsError('invalid-argument', 'Mã kỳ lương không hợp lệ.')
@@ -1111,7 +1122,7 @@ function createPayrollFunctions({ db, onCall }) {
     })
     return { runId, status: 'locked' }
   })
-  const markPayrollRunPaid = onCall(async (request) => {
+  const markPayrollRunPaid = payrollCall(async (request) => {
     const actor = await payrollActor(request, db)
     const runId = typeof request.data?.runId === 'string' ? request.data.runId.trim() : ''
     if (!runId) throw new HttpsError('invalid-argument', 'Mã kỳ lương không hợp lệ.')

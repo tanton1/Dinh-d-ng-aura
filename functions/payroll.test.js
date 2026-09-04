@@ -108,7 +108,7 @@ test('locking a payroll run records an immutable management expense', () => {
 
 test('payroll payout creates the cash-book and ledger entries atomically', () => {
   const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
-  const payoutStart = source.indexOf('const markPayrollRunPaid = onCall')
+  const payoutStart = source.indexOf('const markPayrollRunPaid = payrollCall')
   const payoutTail = payoutStart >= 0 ? source.slice(payoutStart) : ''
   const payoutEnd = payoutTail.search(/\r?\n  return \{\r?\n    listPayrollPolicies/)
   const payoutBlock = payoutEnd > 0 ? payoutTail.slice(0, payoutEnd) : ''
@@ -128,8 +128,8 @@ test('payroll payout creates the cash-book and ledger entries atomically', () =>
 
 test('payroll policy versions are immutable, independently selectable and audited', () => {
   const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
-  const start = source.indexOf('const savePayrollPolicy = onCall')
-  const end = source.indexOf('const managePayrollPolicy = onCall', start)
+  const start = source.indexOf('const savePayrollPolicy = payrollCall')
+  const end = source.indexOf('const managePayrollPolicy = payrollCall', start)
   const block = start >= 0 && end > start ? source.slice(start, end) : ''
 
   assert.match(block, /payrollPolicies\/\$\{policyId\}/)
@@ -142,8 +142,8 @@ test('payroll policy versions are immutable, independently selectable and audite
 
 test('used payroll policies can only be hidden while unused policies may be deleted', () => {
   const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
-  const start = source.indexOf('const managePayrollPolicy = onCall')
-  const end = source.indexOf('const listPayrollRuns = onCall', start)
+  const start = source.indexOf('const managePayrollPolicy = payrollCall')
+  const end = source.indexOf('const listPayrollRuns = payrollCall', start)
   const block = start >= 0 && end > start ? source.slice(start, end) : ''
 
   assert.match(block, /where\('policyId', '==', policyId\)/)
@@ -197,7 +197,7 @@ test('payroll can apply selected policies by trainer, effective date or staff pr
 
 test('only a draft payroll run can be deleted and its items are removed atomically', () => {
   const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
-  const start = source.indexOf('const deleteDraftPayrollRun = onCall')
+  const start = source.indexOf('const deleteDraftPayrollRun = payrollCall')
   const end = source.indexOf('async function transition', start)
   const block = start >= 0 && end > start ? source.slice(start, end) : ''
   assert.match(block, /status !== 'draft'/)
@@ -224,8 +224,8 @@ test('payroll items snapshot trainer identity and attendance evidence source', (
 
 test('legacy draft payroll is enriched for review but cannot be approved before rebuilding', () => {
   const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
-  const getStart = source.indexOf('const getPayrollRun = onCall')
-  const getEnd = source.indexOf('const createPayrollRun = onCall', getStart)
+  const getStart = source.indexOf('const getPayrollRun = payrollCall')
+  const getEnd = source.indexOf('const createPayrollRun = payrollCall', getStart)
   const getBlock = getStart >= 0 && getEnd > getStart ? source.slice(getStart, getEnd) : ''
   const transitionStart = source.indexOf('async function transition')
   const transitionEnd = source.indexOf('const reviewPayrollRun', transitionStart)

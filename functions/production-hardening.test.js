@@ -104,11 +104,11 @@ test('payroll lifecycle is draft, reviewed, locked, paid', () => {
   assert.match(payroll, /transition\(request, 'draft', 'reviewed'\)/)
   // Locking is intentionally a dedicated transaction: it creates the
   // immutable payroll expense ledger entry before the run becomes locked.
-  assert.match(payroll, /const lockPayrollRun = onCall/)
+  assert.match(payroll, /const lockPayrollRun = payrollCall/)
   assert.match(payroll, /status !== 'reviewed'/)
   assert.match(payroll, /status: 'locked'/)
   assert.match(payroll, /ledgerEntries\/payroll_\$\{runId\}/)
-  assert.match(payroll, /const markPayrollRunPaid = onCall/)
+  assert.match(payroll, /const markPayrollRunPaid = payrollCall/)
   assert.match(payroll, /status !== 'locked'/)
   assert.match(payroll, /ledgerEntries\/payroll_payment_\$\{runId\}/)
   assert.match(payroll, /cashTransactions\/payroll_\$\{runId\}/)

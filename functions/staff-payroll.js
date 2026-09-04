@@ -440,9 +440,14 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
     'unavailable',
   ])
   const observedCall = (operation, handler) => onCall({
-    cpu: 1,
+    // Staff payroll queries are read-mostly and serialized by design. Using
+    // fractional CPU prevents quota pressure from retiring a freshly deployed
+    // revision while keeping the callable contract unchanged.
+    cpu: 'gcf_gen1',
+    memory: '256MiB',
     maxInstances: 1,
-    concurrency: 20,
+    concurrency: 1,
+    timeoutSeconds: 300,
   }, async (request) => {
     try {
       return await handler(request)
