@@ -253,6 +253,8 @@ select { font-family: var(--aura-font); }
 .admin-dashboard--v4 .aura-metric-carousel__eyebrow,
 .admin-dashboard--v4 .aura-metric-carousel__slide small { color: var(--aura-neutral-700); }
 .admin-dashboard--v4 .aura-metric-carousel__action { color: var(--aura-brand-pink); }
+.admin-dashboard--v4 .admin-dashboard__tasks { order: 1; }
+.admin-dashboard--v4 .admin-dashboard__attendance { order: 2; }
 .admin-dashboard.admin-dashboard--v4 > .admin-dashboard__syncbar { order: -10; border-radius: 16px; background: #fff; }
 .admin-dashboard.admin-dashboard--v4 > .aura-metric-carousel { order: -6; }
 .admin-dashboard.admin-dashboard--v4 > .admin-dashboard__main-grid { order: -8; }
