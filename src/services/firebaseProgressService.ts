@@ -1,5 +1,5 @@
-import { collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, type Unsubscribe } from 'firebase/firestore'
-import { getDownloadURL, ref as storageRef, uploadBytesResumable } from 'firebase/storage'
+import { collection, deleteDoc, doc, getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, type Unsubscribe } from 'firebase/firestore'
+import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes, uploadBytesResumable } from 'firebase/storage'
 import { firestoreDb } from '../lib/firebaseFirestore'
 import { firebaseStorage } from '../lib/firebaseStorage'
 import { safeLocalStorageSet } from '../lib/safeStorage'
@@ -82,8 +82,58 @@ export function subscribeToUserBodyMeasurements(userId: string, onData: (value: 
 export async function saveUserGamification(userId: string, data: Record<string, unknown>) { await saveProgressDocument(userId, 'gamification', 'stats', data) }
 export function subscribeToUserGamification(userId: string, onData: (value: any) => void, onError?: (error: Error) => void) { return subscribeToDocument(userId, 'gamification', 'stats', 'user_gamification', onData, onError) }
 
-export async function saveUserProgressPhoto(userId: string, photo: Record<string, unknown> & { id: string }) { await saveProgressDocument(userId, 'progressPhotos', photo.id, photo, true) }
-export async function deleteUserProgressPhoto(userId: string, photoId: string) { await deleteDoc(doc(requireDb(), 'users', userId, 'progressPhotos', photoId)) }
+function storagePathFromDownloadUrl(value: unknown) {
+  if (typeof value !== 'string' || !value.startsWith('https://')) return ''
+  try {
+    const match = new URL(value).pathname.match(/\/o\/([^/?]+)/)
+    return match ? decodeURIComponent(match[1]) : ''
+  } catch {
+    return ''
+  }
+}
+
+async function persistInlineProgressPhoto(userId: string, photoId: string, dataUrl: string) {
+  if (!firebaseStorage) throw new Error('Firebase Storage is not initialized.')
+  const response = await fetch(dataUrl)
+  const blob = await response.blob()
+  if (!blob.type.startsWith('image/') || blob.size <= 0 || blob.size > 10 * 1024 * 1024) throw new Error('Ảnh tiến độ không hợp lệ hoặc vượt quá 10MB.')
+  const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer())))
+    .map((value) => value.toString(16).padStart(2, '0')).join('')
+  const extension = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg'
+  const storagePath = `users/${userId}/progress-photos/${photoId}-${digest.slice(0, 16)}.${extension}`
+  const reference = storageRef(firebaseStorage, storagePath)
+  await uploadBytes(reference, blob, { contentType: blob.type, customMetadata: { ownerUid: userId, resourceKind: 'progress-photo', checksum: digest } })
+  return { storagePath, checksum: digest, url: await getDownloadURL(reference) }
+}
+
+export async function saveUserProgressPhoto(userId: string, photo: Record<string, unknown> & { id: string }) {
+  const imageUrl = typeof photo.imageUrl === 'string' ? photo.imageUrl : ''
+  let asset = {
+    storagePath: typeof photo.storagePath === 'string' ? photo.storagePath : storagePathFromDownloadUrl(imageUrl),
+    checksum: typeof photo.checksum === 'string' ? photo.checksum : '',
+    url: imageUrl,
+  }
+  if (imageUrl.startsWith('data:image/')) asset = await persistInlineProgressPhoto(userId, photo.id, imageUrl)
+  await saveProgressDocument(userId, 'progressPhotos', photo.id, {
+    ...photo,
+    imageUrl: asset.url,
+    storagePath: asset.storagePath,
+    ...(asset.checksum ? { checksum: asset.checksum } : {}),
+    images: [{ storagePath: asset.storagePath, ...(asset.checksum ? { checksum: asset.checksum } : {}), ...(asset.storagePath ? {} : { url: asset.url }) }],
+    schemaVersion: 2,
+  }, true)
+}
+export async function deleteUserProgressPhoto(userId: string, photoId: string) {
+  const reference = doc(requireDb(), 'users', userId, 'progressPhotos', photoId)
+  const snapshot = await getDoc(reference)
+  const value = snapshot.exists() ? snapshot.data() : {}
+  const paths = [...new Set([
+    typeof value.storagePath === 'string' ? value.storagePath : '',
+    ...(Array.isArray(value.images) ? value.images.map((item) => typeof item?.storagePath === 'string' ? item.storagePath : '') : []),
+  ].filter(Boolean))]
+  await deleteDoc(reference)
+  if (firebaseStorage) await Promise.allSettled(paths.map((path) => deleteObject(storageRef(firebaseStorage!, path))))
+}
 export function subscribeToUserProgressPhotos(userId: string, onData: (photos: any[]) => void, onError?: (error: Error) => void) { return subscribeToCollection(userId, 'progressPhotos', 'user_progress_photos', onData, onError) }
 
 export async function uploadUserProgressPhoto(userId: string, file: File, onProgress?: (percent: number) => void): Promise<string> {
@@ -91,7 +141,7 @@ export async function uploadUserProgressPhoto(userId: string, file: File, onProg
   const extension = file.name.split('.').pop() ?? 'jpg'
   const reference = storageRef(firebaseStorage, `users/${userId}/progress-photos/${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`)
   return new Promise((resolve, reject) => {
-    const task = uploadBytesResumable(reference, file)
+    const task = uploadBytesResumable(reference, file, { contentType: file.type, customMetadata: { ownerUid: userId, resourceKind: 'progress-photo' } })
     task.on('state_changed', (snapshot) => onProgress?.(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)), reject, async () => {
       try { resolve(await getDownloadURL(task.snapshot.ref)) } catch (error) { reject(error) }
     })

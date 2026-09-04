@@ -154,6 +154,20 @@ service firebase.storage {
       allow delete: if isOwner(userId);
     }
 
+    match /users/{userId}/progress-photos/{fileName} {
+      // The learner owns uploads. Assigned Staff receive only short-lived
+      // signed URLs from Student 360 after the server verifies assignment.
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if isOwner(userId)
+                            && fileName.matches('[A-Za-z0-9._-]{1,240}')
+                            && request.resource.size > 0
+                            && request.resource.size <= 10 * 1024 * 1024
+                            && request.resource.contentType.matches('image/(jpeg|png|webp)')
+                            && request.resource.metadata.ownerUid == userId
+                            && request.resource.metadata.resourceKind == 'progress-photo';
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
     match /recipe-images/{recipeId}/{fileName} {
       allow read: if signedIn();
       allow create, update: if isAdmin()

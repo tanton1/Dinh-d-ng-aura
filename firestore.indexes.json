@@ -243,6 +243,14 @@
         { "fieldPath": "staffId", "order": "ASCENDING" },
         { "fieldPath": "periodId", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "studentTimelineEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "studentId", "order": "ASCENDING" },
+        { "fieldPath": "sortKey", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

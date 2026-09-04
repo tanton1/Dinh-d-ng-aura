@@ -49,6 +49,7 @@ const validViews: ViewId[] = [
   'staff-quotes',
   'staff-renewals',
   'staff-payroll',
+  'student-360',
   'progress',
   'progress-photo-studio',
   'profile',
@@ -88,6 +89,8 @@ export interface AuraRoute {
   view: ViewId
   courseId: string | null
   lessonId: string | null
+  studentId: string | null
+  source: Student360Source | null
   eatCleanScreen: 'store' | 'meal' | 'cart' | 'checkout' | 'orders' | 'order' | 'success'
   mealId: string | null
   orderId: string | null
@@ -115,6 +118,10 @@ const retiredRouteRedirects: Record<string, { view: ViewId; hash: string }> = {
   'admin-report': { view: 'admin-dashboard', hash: '#/admin-dashboard' },
   'admin-roles': { view: 'admin-hr', hash: '#/admin-hr' },
 }
+
+export type Student360Source = 'staff-students' | 'admin-pt-students'
+
+const student360Sources = new Set<Student360Source>(['staff-students', 'admin-pt-students'])
 
 export function resolveSupportedView(view: ViewId) {
   return retiredRouteRedirects[view]?.view ?? view
@@ -150,6 +157,10 @@ export function getCurrentRoute(): AuraRoute {
     view,
     courseId: params.get('courseId'),
     lessonId: params.get('lessonId'),
+    studentId: params.get('studentId'),
+    source: student360Sources.has(params.get('source') as Student360Source)
+      ? params.get('source') as Student360Source
+      : null,
     eatCleanScreen: eatCleanScreens.has(params.get('screen') as AuraRoute['eatCleanScreen'])
       ? params.get('screen') as AuraRoute['eatCleanScreen']
       : 'store',
@@ -170,9 +181,16 @@ export function isSameRoute(left: AuraRoute, right: AuraRoute) {
   return left.view === right.view
     && left.courseId === right.courseId
     && left.lessonId === right.lessonId
+    && left.studentId === right.studentId
+    && left.source === right.source
     && left.eatCleanScreen === right.eatCleanScreen
     && left.mealId === right.mealId
     && left.orderId === right.orderId
+}
+
+export function student360RouteHash(studentId: string, source: Student360Source) {
+  const params = new URLSearchParams({ studentId, source })
+  return `#/student-360?${params.toString()}`
 }
 
 export function eatCleanRouteHash(

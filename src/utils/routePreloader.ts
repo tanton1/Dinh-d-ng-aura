@@ -26,6 +26,7 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
   'staff-quotes': () => import('../pages/operations/SalesPortalV2'),
   'staff-renewals': () => import('../components/admin/pt/ContractRenewals'),
   'staff-payroll': () => import('../pages/operations/StaffPayrollPage'),
+  'student-360': () => import('../features/student-360/Student360Page'),
   'admin-pt-students': () => import('../components/admin/pt/StudentManagement'),
   'admin-pt-schedule': () => Promise.all([
     import('../components/schedule/SchedulerWrapper'),

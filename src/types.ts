@@ -172,6 +172,7 @@ export type StudentView =
   | 'staff-quotes'
   | 'staff-renewals'
   | 'staff-payroll'
+  | 'student-360'
   | 'progress'
   | 'progress-photo-studio'
   | 'profile'

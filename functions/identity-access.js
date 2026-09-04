@@ -220,6 +220,7 @@ async function trustedAccessContext(request, db) {
 
   const claims = request.auth.token || {}
   const profile = profileSnapshot.data()
+  const actorName = boundedString(profile.displayName ?? profile.name, 'Tên nhân sự', 160, false) || 'Nhân sự Aura'
   if (assignmentSnapshot.exists) {
     const assignment = assignmentSnapshot.data()
     const context = publicAccessContext(uid, assignment)
@@ -228,7 +229,7 @@ async function trustedAccessContext(request, db) {
         || Number(claims.authzVersion) !== context.authzVersion) {
       throw new HttpsError('permission-denied', 'Quyền tài khoản chưa đồng bộ. Vui lòng đăng nhập lại hoặc liên hệ quản trị viên.')
     }
-    return { ...context, legacyStaffId: assignment.crmProfileId || uid }
+    return { ...context, legacyStaffId: assignment.crmProfileId || uid, actorName }
   }
 
   const tokenLegacyRole = typeof claims.role === 'string' ? claims.role : 'student'
@@ -246,7 +247,7 @@ async function trustedAccessContext(request, db) {
     branchIds: profile.branchId ? [profile.branchId] : [],
     authzVersion: 1,
     status: 'active',
-  }), legacyStaffId: uid }
+  }), legacyStaffId: uid, actorName }
 }
 
 function requireCapability(context, capability) {

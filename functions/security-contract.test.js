@@ -27,6 +27,7 @@ const ptContractUsageReconcileSource = readFileSync(join(repositoryRoot, 'script
 const ptHistoryReconcileV2Source = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-history-reconcile-v2.cjs'), 'utf8')
 const ptContractHistoryExactSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-contract-history-exact.cjs'), 'utf8')
 const contractUsageSource = readFileSync(join(__dirname, 'contract-usage.js'), 'utf8')
+const student360Source = readFileSync(join(__dirname, 'student-360.js'), 'utf8')
 const ptScheduleMigrationSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-pt-schedule-v2-migration.cjs'), 'utf8')
 const renewalContinuitySource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-renewal-continuity-reconcile.cjs'), 'utf8')
 const firestoreDeltaSyncSource = readFileSync(join(repositoryRoot, 'scripts', 'firebase-firestore-delta-sync.cjs'), 'utf8')
@@ -590,6 +591,28 @@ test('PT schedule V2 is actor-scoped, date-exact, branch-owned and command revis
   assert.match(rules, /match \/ptScheduleDrafts\/\{draftId\}[\s\S]*?allow write: if false/)
   assert.match(rules, /match \/ptScheduleCommandReceipts\/\{receiptId\}[\s\S]*?allow read, write: if false/)
   assert.match(rules, /match \/trainerAvailability\/\{availabilityId\}[\s\S]*?allow read, write: if false/)
+})
+
+test('Student 360 is callable-only and redacts finance, photos and cross-role activity on the server', () => {
+  for (const endpoint of [
+    'listStudent360Directory',
+    'getStudent360Overview',
+    'listStudent360Timeline',
+    'createStudentCareActivity',
+    'getStudent360ProgressPhotos',
+    'refreshStudent360Projection',
+  ]) assert.match(functionsSource, new RegExp(`exports\\.${endpoint} = student360Functions\\.${endpoint}`))
+  for (const collection of ['studentOperationalViews', 'studentTimelineEvents', 'studentCareActivities']) {
+    assert.match(rules, new RegExp(`match /${collection}/[\\s\\S]*?allow read, write: if false;`))
+  }
+  assert.match(student360Source, /actor\.accessRole === 'student'/)
+  assert.match(student360Source, /canViewFinancialAmounts/)
+  assert.match(student360Source, /canViewProgressPhotos/)
+  assert.match(student360Source, /event\.type === 'nutrition' && !permissions\.canViewNutrition/)
+  assert.match(student360Source, /event\.type === 'workout' && !permissions\.canViewTraining/)
+  assert.match(student360Source, /getSignedUrl\(\{ action: 'read'/)
+  assert.match(functionsSource, /syncStudent360ProgressPhoto = student360Trigger\('users\/\{accountUid\}\/progressPhotos\/\{documentId\}'\)/)
+  assert.match(student360Source, /progress_photos`\)\.select\('date', 'createdAt', 'updatedAt'\)/)
 })
 
 test('PT schedule migration is target-only, digest-gated, create-only for drafts and preserves sessions', () => {

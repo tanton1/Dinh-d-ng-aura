@@ -21,9 +21,30 @@ const StudentDetail = React.lazy(() => import('./StudentDetail'));
 interface Props {
   user: User | null;
   profile: UserProfile | null;
+  initialStudentId?: string | null;
+  onOpenStudent360?: (studentId: string, studentName: string) => void;
 }
 
-export default function StudentManagement({ user, profile }: Props) {
+const ADMIN_STUDENT_LIST_MEMORY = 'aura:student-360:return:admin-pt-students';
+
+function adminStudentListMemory() {
+  try {
+    return JSON.parse(window.sessionStorage.getItem(ADMIN_STUDENT_LIST_MEMORY) || '{}') as {
+      search?: string;
+      branchId?: string;
+      trainerId?: string;
+      nutritionPTId?: string;
+      contractFilter?: 'active' | 'expiring_week' | 'expiring_month' | 'expired' | 'paused' | 'inactive' | 'cancelled' | 'all';
+      page?: number;
+      scrollY?: number;
+      advanced?: boolean;
+    };
+  } catch {
+    return {};
+  }
+}
+
+export default function StudentManagement({ user, profile, initialStudentId = null, onOpenStudent360 }: Props) {
   const { authzReady, hasCapability } = useAuth();
   const { 
     students, contracts, packages, trainers, branches, sessions, ptAvailability,
@@ -39,23 +60,23 @@ export default function StudentManagement({ user, profile }: Props) {
     ? Math.max(0, Math.floor(Number(contract.usedSessions || 0)))
     : 0;
   
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
-  const [selectedTrainerId, setSelectedTrainerId] = useState<string>('all');
-  const [selectedNutritionPTId, setSelectedNutritionPTId] = useState<string>('all');
-  const [contractFilter, setContractFilter] = useState<'active' | 'expiring_week' | 'expiring_month' | 'expired' | 'paused' | 'inactive' | 'cancelled' | 'all'>('all');
+  const [searchTerm, setSearchTerm] = useState(() => adminStudentListMemory().search || '');
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(() => adminStudentListMemory().branchId || 'all');
+  const [selectedTrainerId, setSelectedTrainerId] = useState<string>(() => adminStudentListMemory().trainerId || 'all');
+  const [selectedNutritionPTId, setSelectedNutritionPTId] = useState<string>(() => adminStudentListMemory().nutritionPTId || 'all');
+  const [contractFilter, setContractFilter] = useState<'active' | 'expiring_week' | 'expiring_month' | 'expired' | 'paused' | 'inactive' | 'cancelled' | 'all'>(() => adminStudentListMemory().contractFilter || 'all');
   const [dateRange, setDateRange] = useState<{ start: Date, end: Date } | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
-  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(initialStudentId);
   const [error, setError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const contractCreationPromises = useRef(new Map<string, Promise<void>>());
-  const [studentPage, setStudentPage] = useState(1);
+  const [studentPage, setStudentPage] = useState(() => Math.max(1, Number(adminStudentListMemory().page || 1)));
   const [overviewSlide, setOverviewSlide] = useState(0);
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(() => adminStudentListMemory().advanced === true);
   const overviewTrackRef = useRef<HTMLDivElement>(null);
   const [renewingStudent, setRenewingStudent] = useState<{ student: Student, contract: StudentContract } | null>(null);
   const [formData, setFormData] = useState<Partial<Student>>({
@@ -70,6 +91,8 @@ export default function StudentManagement({ user, profile }: Props) {
     nutritionNote: '',
   });
   const [cashAccounts, setCashAccounts] = useState<CashAccount[]>([]);
+  const filterInitializationRef = useRef(false);
+  const listScrollRestoredRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -286,8 +309,41 @@ export default function StudentManagement({ user, profile }: Props) {
     ? (['results', 'overview', 'alerts'] as const)
     : (['overview', 'alerts', 'results'] as const);
 
-  useEffect(() => setStudentPage(1), [searchTerm, dateRange, selectedBranchId, contractFilter, selectedTrainerId, selectedNutritionPTId]);
+  useEffect(() => {
+    if (!filterInitializationRef.current) {
+      filterInitializationRef.current = true;
+      return;
+    }
+    setStudentPage(1);
+  }, [searchTerm, dateRange, selectedBranchId, contractFilter, selectedTrainerId, selectedNutritionPTId]);
   useEffect(() => setStudentPage((current) => Math.min(current, studentPageCount)), [studentPageCount]);
+  useEffect(() => {
+    const previous = adminStudentListMemory();
+    window.sessionStorage.setItem(ADMIN_STUDENT_LIST_MEMORY, JSON.stringify({
+      ...previous,
+      search: searchTerm,
+      branchId: selectedBranchId,
+      trainerId: selectedTrainerId,
+      nutritionPTId: selectedNutritionPTId,
+      contractFilter,
+      page: studentPage,
+      advanced: showAdvancedFilters,
+    }));
+  }, [contractFilter, searchTerm, selectedBranchId, selectedNutritionPTId, selectedTrainerId, showAdvancedFilters, studentPage]);
+  useEffect(() => {
+    if (listScrollRestoredRef.current || selectedStudentId || visibleStudents.length === 0) return;
+    listScrollRestoredRef.current = true;
+    const scrollY = Math.max(0, Number(adminStudentListMemory().scrollY || 0));
+    const frame = window.requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'auto' }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedStudentId, visibleStudents.length]);
+  useEffect(() => () => {
+    const previous = adminStudentListMemory();
+    window.sessionStorage.setItem(ADMIN_STUDENT_LIST_MEMORY, JSON.stringify({ ...previous, scrollY: window.scrollY }));
+  }, []);
+  useEffect(() => {
+    if (initialStudentId) setSelectedStudentId(initialStudentId);
+  }, [initialStudentId]);
   useEffect(() => {
     setOverviewSlide(0);
     overviewTrackRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
@@ -683,7 +739,11 @@ export default function StudentManagement({ user, profile }: Props) {
         branches={branches}
         availability={ptAvailability}
         canManage={canManageStudents}
-        onOpen={setSelectedStudentId}
+        onOpen={(studentId) => {
+          const student = students.find((item) => item.id === studentId);
+          if (onOpenStudent360) onOpenStudent360(studentId, student?.name || '');
+          else setSelectedStudentId(studentId);
+        }}
         onEdit={(student) => {
           setEditingStudent(student);
           setFormData(student);
@@ -893,10 +953,10 @@ export default function StudentManagement({ user, profile }: Props) {
                     Tham gia: {student.joinDate && !isNaN(new Date(student.joinDate).getTime()) ? new Date(student.joinDate).toLocaleDateString('vi-VN') : 'N/A'}
                   </span>
                   <button 
-                    onClick={() => setSelectedStudentId(student.id)}
+                    onClick={() => onOpenStudent360 ? onOpenStudent360(student.id, student.name || '') : setSelectedStudentId(student.id)}
                     className="text-xs font-medium text-pink-500 hover:text-pink-400 transition-colors"
                   >
-                    Xem chi tiết & Gói tập &rarr;
+                    Mở Học viên 360 &rarr;
                   </button>
                 </div>
               </div>

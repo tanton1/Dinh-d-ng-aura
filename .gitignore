@@ -21,5 +21,6 @@ ui-debug.log
 .tools/
 test-results/
 playwright-report/
+/tmp/
 .migration-private/
 .vercel

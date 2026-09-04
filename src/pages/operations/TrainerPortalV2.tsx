@@ -1,23 +1,35 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarClock, CalendarDays, CheckCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock3, Dumbbell, History, MapPin, Phone, RefreshCw, Search, Timer, UserCheck, UserX, X } from 'lucide-react'
+import { CalendarDays, CheckCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock3, MapPin, Phone, RefreshCw, Search, Timer, UserCheck, UserX, X } from 'lucide-react'
 import {
   bulkConfirmMySessions,
-  getMyTrainerStudentDetail,
   getMyTrainerWorkspace,
   recordMySessionAttendance,
   requestSessionChange,
   type TrainerSessionRequestSummary,
   type TrainerSessionSummary,
   type TrainerStudentSummary,
-  type TrainerStudentDetail,
   type CoachWorkspaceScope,
 } from '../../services/ptOperationsV2Service'
-import TrainingHistoryPanel from '../../components/admin/pt/TrainingHistoryPanel'
 import type { ViewId } from '../../types'
 import './OperationsPortalV2.css'
 import './OperationsAttendance.css'
 
 export type TrainerWorkspaceSection = 'students' | 'schedule' | 'requests'
+
+const STAFF_STUDENT_LIST_MEMORY = 'aura:student-360:return:staff-students'
+
+function staffStudentListMemory() {
+  try {
+    return JSON.parse(window.sessionStorage.getItem(STAFF_STUDENT_LIST_MEMORY) || '{}') as {
+      query?: string
+      branch?: string
+      scope?: 'all' | 'primary' | 'secondary' | 'schedule'
+      scrollY?: number
+    }
+  } catch {
+    return {}
+  }
+}
 
 const sectionCopy: Record<TrainerWorkspaceSection, { title: string; description: string }> = {
   students: {
@@ -83,16 +95,6 @@ function attendanceLabel(session: TrainerSessionSummary) {
   return 'Chờ xác nhận'
 }
 
-function availabilitySourceCopy(detail: TrainerStudentDetail['availability']) {
-  if (detail.source === 'weekly') return { label: 'Tuần hiện tại', note: 'Học viên đã gửi hoặc điều chỉnh riêng cho tuần này.' }
-  if (detail.source === 'inherited_weekly' && detail.sourceWeekId) {
-    return { label: 'Lịch gần nhất', note: `Không có điều chỉnh tuần này · đang kế thừa lịch đã gửi từ tuần ${compactDate(detail.sourceWeekId)}.` }
-  }
-  if (detail.source === 'legacy_default' && detail.confirmed) return { label: 'Lịch mặc định', note: 'Chưa có lịch theo tuần · đang dùng lịch hồ sơ đã xác nhận.' }
-  if (detail.source === 'legacy_default') return { label: 'Chưa xác nhận', note: 'Có lịch cũ trong hồ sơ nhưng học viên chưa xác nhận, nên chưa dùng để tự động xếp lịch.' }
-  return { label: 'Chưa đăng ký', note: 'Chưa có lịch tuần hiện tại hoặc lịch đã gửi gần nhất để kế thừa.' }
-}
-
 export default function TrainerPortalV2({ section = 'students', embedded = false, isDemo = false, onNavigate }: { section?: TrainerWorkspaceSection; embedded?: boolean; isDemo?: boolean; onNavigate?: (view: ViewId, studentId?: string, studentName?: string) => void }) {
   const [workspace, setWorkspace] = useState<CoachWorkspaceScope | null>(null)
   const [scopeLoading, setScopeLoading] = useState(true)
@@ -118,16 +120,11 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const [clockNow, setClockNow] = useState(() => Date.now())
   const [noShowReason, setNoShowReason] = useState<'' | 'busy' | 'sick' | 'forgot' | 'unreachable' | 'other'>('')
   const [attendanceNote, setAttendanceNote] = useState('')
-  const [studentQuery, setStudentQuery] = useState('')
-  const [studentBranch, setStudentBranch] = useState('all')
-  const [studentScope, setStudentScope] = useState<'all' | 'primary' | 'secondary' | 'schedule'>('all')
-  const [detailTarget, setDetailTarget] = useState<TrainerStudentSummary | null>(null)
-  const [studentDetail, setStudentDetail] = useState<TrainerStudentDetail | null>(null)
-  const [detailTab, setDetailTab] = useState<'overview' | 'history' | 'workout'>('overview')
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [detailError, setDetailError] = useState('')
-  const detailRequestRef = useRef(0)
+  const [studentQuery, setStudentQuery] = useState(() => staffStudentListMemory().query || '')
+  const [studentBranch, setStudentBranch] = useState(() => staffStudentListMemory().branch || 'all')
+  const [studentScope, setStudentScope] = useState<'all' | 'primary' | 'secondary' | 'schedule'>(() => staffStudentListMemory().scope || 'all')
   const loadedRef = useRef(false)
+  const restoredStudentListRef = useRef(false)
   const canViewStudents = workspace?.tabs.students === true
   const canViewSchedule = workspace?.tabs.schedule === true
   const canViewRequests = workspace?.tabs.requests === true
@@ -222,64 +219,33 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   }, [isDemo, rangeFrom, section, to])
   useEffect(() => { void load() }, [load])
   useEffect(() => {
+    if (section !== 'students') return
+    const previous = staffStudentListMemory()
+    window.sessionStorage.setItem(STAFF_STUDENT_LIST_MEMORY, JSON.stringify({
+      ...previous,
+      query: studentQuery,
+      branch: studentBranch,
+      scope: studentScope,
+    }))
+  }, [section, studentBranch, studentQuery, studentScope])
+  useEffect(() => {
+    if (section !== 'students' || scopeLoading || restoredStudentListRef.current) return
+    restoredStudentListRef.current = true
+    const scrollY = Math.max(0, Number(staffStudentListMemory().scrollY || 0))
+    const frame = window.requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'auto' }))
+    return () => window.cancelAnimationFrame(frame)
+  }, [scopeLoading, section])
+  useEffect(() => {
+    if (section !== 'students') return
+    return () => {
+      const previous = staffStudentListMemory()
+      window.sessionStorage.setItem(STAFF_STUDENT_LIST_MEMORY, JSON.stringify({ ...previous, scrollY: window.scrollY }))
+    }
+  }, [section])
+  useEffect(() => {
     const timer = window.setInterval(() => setClockNow(Date.now()), 30_000)
     return () => window.clearInterval(timer)
   }, [])
-
-  const openStudentDetail = async (student: TrainerStudentSummary) => {
-    const requestId = detailRequestRef.current + 1
-    detailRequestRef.current = requestId
-    setDetailTarget(student)
-    setStudentDetail(null)
-    setDetailTab('overview')
-    setDetailError('')
-    setDetailLoading(true)
-    if (isDemo) {
-      const demoContract = student.contract
-      setStudentDetail({
-        schemaVersion: 2,
-        formulaVersion: 'contract-usage-v2',
-        student: { id: student.id, name: student.name, phone: student.phone, email: student.email, branchId: student.branchId },
-        contracts: demoContract ? [{
-          id: demoContract.id,
-          packageName: 'Gói PT Aura',
-          status: demoContract.status,
-          startDate: demoContract.startDate || rangeFrom,
-          endDate: demoContract.endDate || addDateDays(rangeFrom, 90),
-          totalSessions: demoContract.totalSessions,
-          usedSessions: demoContract.usedSessions,
-          remainingSessions: demoContract.remainingSessions ?? Math.max(0, demoContract.totalSessions - demoContract.usedSessions),
-          chargedSessions: demoContract.chargedSessions ?? demoContract.usedSessions,
-          historySessions: demoContract.historySessions ?? demoContract.usedSessions,
-          reconciliationStatus: demoContract.reconciliationStatus || 'matched',
-          schedulableToday: true,
-          pausedToday: false,
-        }] : [],
-        sessions: scheduledByStudent.get(student.id) || [],
-        availability: { weekId: mondayOf(rangeFrom), slots: ['T2-8', 'T3-18', 'T5-7', 'T6-18'], status: 'submitted', confirmed: true, locked: false, cutoffAt: '', source: 'weekly', sourceWeekId: mondayOf(rangeFrom) },
-        trainingProgram: { id: 'student-a', title: 'Thân dưới & mông', goal: 'Tăng sức mạnh và săn chắc', status: 'active', revision: 2, trainingDayCount: 3, exerciseCount: 18, updatedAt: `${rangeFrom}T09:00:00+07:00`, trainingDays: [{ id: 'day-a', title: 'Mông đùi A', focusMuscles: ['Mông', 'Đùi sau'], notes: '', exercises: [{ id: 'hip-thrust', nameVi: 'Đẩy hông với tạ đòn', targetMuscles: ['Mông'], secondaryMuscles: ['Đùi sau'], sets: 4, repMinimum: 8, repMaximum: 12, targetWeightKg: 30, targetRpe: 8, restSeconds: 75, notes: '' }] }] },
-        workoutLogs: [{ id: 'demo-log', date: rangeFrom, programName: 'Thân dưới & mông', completedAt: `${rangeFrom}T09:00:00+07:00` }],
-      })
-      setDetailLoading(false)
-      return
-    }
-    try {
-      const detail = await getMyTrainerStudentDetail(student.id, mondayOf(rangeFrom))
-      if (detailRequestRef.current === requestId) setStudentDetail(detail)
-    } catch (cause) {
-      if (detailRequestRef.current === requestId) setDetailError(cause instanceof Error ? cause.message : 'Chưa thể tải hồ sơ học viên.')
-    } finally {
-      if (detailRequestRef.current === requestId) setDetailLoading(false)
-    }
-  }
-
-  const closeStudentDetail = () => {
-    detailRequestRef.current += 1
-    setDetailTarget(null)
-    setStudentDetail(null)
-    setDetailError('')
-    setDetailLoading(false)
-  }
 
   const markAttendance = async (
     session: TrainerSessionSummary,
@@ -395,7 +361,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
           <div className="opv2-card-head"><div><h3>{student.name}</h3><p>{student.phone ? <><Phone size={13} /> {student.phone}</> : 'Chưa có số điện thoại'}</p></div><span className="opv2-badge">{student.assignmentRole === 'primary' ? 'PT chính' : student.assignmentRole === 'secondary' ? 'PT phụ' : 'Theo lịch dạy'}</span></div>
           <div className="opv2-student-meta"><span><MapPin /> {branchNames.get(student.branchId) || (student.branchId ? 'Chi nhánh được phân công' : 'Chưa xác định chi nhánh')}</span><span>{remaining === null ? 'Hợp đồng cần đối chiếu' : `Còn ${remaining}/${student.contract?.totalSessions || 0} buổi`}</span></div>
           <div className="opv2-student-schedule"><strong><CalendarDays /> Lịch dạy được phân</strong>{studentSessions.length ? <div>{studentSessions.slice(0, 3).map((session) => <span key={session.id}>{compactDate(session.date)} · {String(session.hour ?? '--').padStart(2, '0')}:00</span>)}</div> : <small>Chưa có ca trong 62 ngày tới</small>}</div>
-          <button type="button" className="opv2-student-open" onClick={() => void openStudentDetail(student)}>Xem hồ sơ & lịch sử</button>
+          <button type="button" className="opv2-student-open" onClick={() => onNavigate?.('student-360', student.id, student.name)}>Mở Học viên 360</button>
         </article>
       })}{filteredStudents.length === 0 && <div className="opv2-state">Không có học viên còn hợp đồng hiệu lực phù hợp bộ lọc.</div>}</div>
     </>}
@@ -477,6 +443,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
 
     {requestTarget && <div className="opv2-sheet-layer" role="presentation"><button type="button" className="opv2-sheet-backdrop" aria-label="Đóng" onClick={() => setRequestTarget(null)} /><section className="opv2-sheet" role="dialog" aria-modal="true" aria-labelledby="trainer-request-title"><header><div><small>AURA PT · YÊU CẦU CA DẠY</small><h2 id="trainer-request-title">Đổi hoặc hủy lịch</h2></div><button type="button" aria-label="Đóng" onClick={() => setRequestTarget(null)}><X size={19} /></button></header><p className="opv2-sheet-current">Buổi {requestTarget.date} · {String(requestTarget.hour ?? '--').padStart(2, '0')}:00</p><form onSubmit={submitRequest}><div className="opv2-sheet-segment"><button type="button" className={requestType === 'cancel' ? 'active' : ''} onClick={() => setRequestType('cancel')}>Hủy ca</button><button type="button" className={requestType === 'reschedule' ? 'active' : ''} onClick={() => setRequestType('reschedule')}>Đổi ca</button></div>{requestType === 'reschedule' && <div className="opv2-sheet-fields"><label>Ngày mới<input type="date" value={requestDate} onChange={(event) => setRequestDate(event.target.value)} /></label><label>Giờ mới<select value={requestHour} onChange={(event) => setRequestHour(event.target.value)}><option value="">Chọn giờ</option>{[6,7,8,9,10,11,14,15,16,17,18,19,20].map((hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}</select></label></div>}<label>Lý do<textarea maxLength={500} value={requestReason} onChange={(event) => setRequestReason(event.target.value)} placeholder="Nêu rõ lý do để quản lý xử lý…" /></label>{error && <p className="opv2-form-error">{error}</p>}<footer><button type="button" onClick={() => setRequestTarget(null)}>Để sau</button><button type="submit" disabled={submitting}>{submitting ? 'Đang gửi…' : 'Gửi yêu cầu'}</button></footer></form></section></div>}
 
+    {/* Popup hồ sơ Staff cũ đã được thay bằng trang Học viên 360 toàn màn hình.
     {detailTarget && <div className="opv2-sheet-layer" role="presentation"><button type="button" className="opv2-sheet-backdrop" aria-label="Đóng hồ sơ học viên" onClick={closeStudentDetail} /><section className="opv2-sheet opv2-student-detail" role="dialog" aria-modal="true" aria-labelledby="trainer-student-detail-title"><header><div><small>HỒ SƠ HỌC VIÊN</small><h2 id="trainer-student-detail-title">{detailTarget.name}</h2><p>{detailTarget.phone || detailTarget.email || 'Chưa có thông tin liên hệ'}</p></div><button type="button" aria-label="Đóng" onClick={closeStudentDetail}><X size={19} /></button></header>
       <nav className="opv2-student-detail__tabs" aria-label="Chi tiết học viên"><button type="button" className={detailTab === 'overview' ? 'active' : ''} onClick={() => setDetailTab('overview')}><CalendarClock /> Tổng quan</button><button type="button" className={detailTab === 'history' ? 'active' : ''} onClick={() => setDetailTab('history')}><History /> Lịch sử</button><button type="button" className={detailTab === 'workout' ? 'active' : ''} onClick={() => setDetailTab('workout')}><Dumbbell /> Giáo án</button></nav>
       {detailLoading && <div className="opv2-state"><RefreshCw className="is-spinning" /> Đang đối chiếu lịch sử và hợp đồng…</div>}
@@ -499,7 +466,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
         initialContracts={studentDetail.contracts}
       />}
       {!detailLoading && studentDetail && detailTab === 'workout' && <div className="opv2-student-workout">{studentDetail.trainingProgram ? <><article className="opv2-training-plan-summary"><header><div><small>GIÁO ÁN ĐANG ÁP DỤNG</small><strong>{studentDetail.trainingProgram.title}</strong></div><span>{studentDetail.trainingProgram.status === 'active' ? 'Đang áp dụng' : 'Bản nháp'}</span></header>{studentDetail.trainingProgram.goal && <p>{studentDetail.trainingProgram.goal}</p>}<div><b>{studentDetail.trainingProgram.trainingDayCount}</b><small>buổi mẫu</small><b>{studentDetail.trainingProgram.exerciseCount}</b><small>bài tập</small></div></article><div className="opv2-training-days">{studentDetail.trainingProgram.trainingDays.map((day) => <details key={day.id}><summary><span><strong>{day.title}</strong><small>{day.focusMuscles.join(' · ') || 'Chưa phân nhóm cơ'}</small></span><b>{day.exercises.length} bài</b></summary><div>{day.exercises.map((exercise) => <article key={exercise.id}><div><strong>{exercise.nameVi}</strong><small>{exercise.targetMuscles.join(' · ') || 'Toàn thân'}{exercise.secondaryMuscles.length ? ` · hỗ trợ ${exercise.secondaryMuscles.join(', ')}` : ''}</small></div><span>{exercise.sets} hiệp · {exercise.repMinimum}{exercise.repMaximum && exercise.repMaximum !== exercise.repMinimum ? `–${exercise.repMaximum}` : ''} lần{exercise.targetWeightKg ? ` · ${exercise.targetWeightKg}kg` : ''}{exercise.targetRpe ? ` · RPE ${exercise.targetRpe}` : ''}</span></article>)}</div></details>)}</div></> : <div className="opv2-state">Học viên chưa có giáo án đang lưu.</div>}<div className="opv2-student-history">{studentDetail.workoutLogs.slice(0, 20).map((log) => <article key={log.id}><time>{compactDate(String(log.date || log.completedAt || log.updatedAt || '').slice(0, 10))}<small>{log.hour === null || log.hour === undefined ? '' : `${String(log.hour).padStart(2, '0')}:00`}</small></time><div><strong>{String(log.trainingDayTitle || log.programName || log.workoutName || log.title || 'Buổi tập đã ghi nhận')}</strong><span>{log.metrics?.completedSets ? `${log.metrics.completedSets} hiệp · ${Math.round(log.metrics.totalVolumeKg).toLocaleString('vi-VN')} kg tổng tải · tối đa ${Math.round(log.metrics.maximumWeightKg || 0)}kg` : String(log.note || log.status || 'Đã lưu kết quả buổi tập')}</span>{log.painNotes && <small className="is-warning">Lưu ý đau mỏi: {log.painNotes}</small>}</div></article>)}{studentDetail.workoutLogs.length === 0 && <div className="opv2-state">Chưa có nhật ký mức tạ hoặc kết quả buổi tập.</div>}</div></div>}
-    </section></div>}
+    </section></div>} */}
     </>}
   </section>
 }

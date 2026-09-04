@@ -72,7 +72,10 @@ test('new package date fields stay fixed inside the phone viewport', async ({ pa
   await page.goto('/#/admin-pt-students')
   const studentCard = page.locator('.student-management__card').first()
   await expect(studentCard).toBeVisible()
-  await studentCard.getByRole('button', { name: /Xem chi tiết/i }).click()
+  await studentCard.getByRole('button', { name: /Mở Học viên 360/i }).click()
+  await expect(page).toHaveURL(/#\/student-360\?studentId=.*source=admin-pt-students/)
+  await page.locator('summary[aria-label="Mở menu nghiệp vụ"]').click()
+  await page.getByRole('button', { name: /Đổi PT · bảo lưu · sửa hợp đồng/ }).click()
   await page.getByRole('button', { name: 'Đăng ký gói mới' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Đăng ký gói tập mới' })
@@ -107,43 +110,44 @@ test('new package date fields stay fixed inside the phone viewport', async ({ pa
   }
 })
 
-test('PT student detail keeps three summary slides and always exposes callable history', async ({ page }) => {
+test('Student 360 replaces the legacy detail with four metrics and five focused tabs', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/#/admin-pt-students')
   const studentCard = page.locator('.student-management__card').first()
   await expect(studentCard).toBeVisible()
-  await studentCard.getByRole('button', { name: /Xem chi tiết/i }).click()
+  await studentCard.getByRole('button', { name: /Mở Học viên 360/i }).click()
 
-  const detailCarousel = page.getByRole('region', { name: 'Tóm tắt hồ sơ và gói tập' })
-  await expect(detailCarousel).toBeVisible()
-  await expect(detailCarousel.locator('.student-detail__carousel-slide')).toHaveCount(3)
-  const tabs = page.getByRole('tablist', { name: 'Nội dung hồ sơ học viên' })
+  await expect(page).toHaveURL(/#\/student-360\?studentId=.*source=admin-pt-students/)
+  await expect(page.getByRole('region', { name: 'Chỉ số nhanh' }).locator('.student360-metric')).toHaveCount(4)
+  const tabs = page.getByRole('navigation', { name: 'Nội dung Học viên 360 trên điện thoại' })
   await expect(tabs).toBeVisible()
-  await expect(tabs.getByRole('tab', { name: 'Lịch sử' })).toBeVisible()
-  await expect(tabs.getByRole('tab', { name: /Dinh dưỡng|Bữa ăn/i })).toHaveCount(0)
+  await expect(tabs.getByRole('button')).toHaveCount(5)
+  await expect(page.locator('.mobile-bottom-nav')).toHaveCount(0)
+  await tabs.getByRole('button', { name: 'Hoạt động' }).click()
+  await expect(page.getByRole('heading', { name: 'Toàn bộ hoạt động' })).toBeVisible()
 })
 
-test('training history keeps reports compact and advanced filters collapsed on mobile', async ({ page }) => {
+test('Student 360 activity timeline keeps filters compact and remains mobile-safe', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/#/admin-pt-students')
   const studentCard = page.locator('.student-management__card').first()
   await expect(studentCard).toBeVisible()
-  await studentCard.getByRole('button', { name: /Xem chi tiết/i }).click()
-  await page.getByRole('tab', { name: 'Lịch sử' }).click()
+  await studentCard.getByRole('button', { name: /Mở Học viên 360/i }).click()
+  await page.getByRole('navigation', { name: 'Nội dung Học viên 360 trên điện thoại' }).getByRole('button', { name: 'Hoạt động' }).click()
 
-  const history = page.locator('.training-history')
-  await expect(history.getByRole('heading', { name: 'Lịch sử tập' })).toBeVisible()
-  await expect(history.locator('.training-history__advanced')).toHaveCount(0)
-  await history.getByRole('button', { name: 'Bộ lọc' }).click()
-  await expect(history.locator('.training-history__advanced')).toBeVisible()
+  const activity = page.locator('.student360-section')
+  await expect(activity.getByRole('heading', { name: 'Toàn bộ hoạt động' })).toBeVisible()
+  await expect(activity.locator('.student360-filter-chips').getByRole('button')).toHaveCount(6)
+  await activity.locator('.student360-filter-chips').getByRole('button', { name: 'Tập luyện' }).click()
+  await expect(activity.locator('.student360-timeline')).toBeVisible()
 
   const dimensions = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
     document: document.documentElement.scrollWidth,
-    historyRight: document.querySelector<HTMLElement>('.training-history')?.getBoundingClientRect().right ?? 0,
+    activityRight: document.querySelector<HTMLElement>('.student360-section')?.getBoundingClientRect().right ?? 0,
   }))
   expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1)
-  expect(dimensions.historyRight).toBeLessThanOrEqual(dimensions.viewport)
+  expect(dimensions.activityRight).toBeLessThanOrEqual(dimensions.viewport)
 })
 
 test('training history exposes request archives as separate mobile-safe tabs', async ({ page }) => {

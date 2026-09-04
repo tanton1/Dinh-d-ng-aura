@@ -948,6 +948,21 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Student 360 is a server-owned projection. Callable Functions redact
+    // finance, coaching and photo data according to assignment scope before a
+    // payload reaches Staff; direct browser access would bypass that boundary.
+    match /studentOperationalViews/{studentId} {
+      allow read, write: if false;
+    }
+
+    match /studentTimelineEvents/{eventId} {
+      allow read, write: if false;
+    }
+
+    match /studentCareActivities/{activityId} {
+      allow read, write: if false;
+    }
+
     // Identity v2 is mutated only by audited Callable Functions. Staff scope
     // and invitations must never be client-authored, even by an admin browser.
     match /roleAssignments/{userId} {

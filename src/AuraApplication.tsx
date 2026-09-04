@@ -40,7 +40,7 @@ import type {
 } from './types'
 import { flattenCourseLessons, getInitialDemoCompletedLessonIds } from './utils/courseContent'
 import ChunkErrorBoundary, { lazyWithRetry } from './components/ChunkErrorBoundary'
-import { adminViewPermissions, adminViews, canonicalRouteHash, eatCleanRouteHash, getCurrentRoute, isSameRoute, resolveSupportedView, routeHash, type AuraRoute } from './routing/appRouting'
+import { adminViewPermissions, adminViews, canonicalRouteHash, eatCleanRouteHash, getCurrentRoute, isSameRoute, resolveSupportedView, routeHash, student360RouteHash, type AuraRoute, type Student360Source } from './routing/appRouting'
 import { routeCapabilities, type StaffPosition } from './identity/access'
 import { toCourseDraft } from './utils/courseDraft'
 import { DatabaseProvider } from './contexts/DatabaseContext'
@@ -95,6 +95,7 @@ const SalesPortalV2 = lazyWithRetry(() => import('./pages/operations/SalesPortal
 const StaffNutritionReviewsPage = lazyWithRetry(() => import('./pages/operations/StaffNutritionReviewsPage'))
 const StaffPayrollPage = lazyWithRetry(() => import('./pages/operations/StaffPayrollPage'))
 const PtWorkoutWorkspacePage = lazyWithRetry(() => import('./pages/operations/PtWorkoutWorkspacePage'))
+const Student360Page = lazyWithRetry(() => import('./features/student-360/Student360Page'))
 
 
 const roleLabels: Record<UserRole, string> = {
@@ -171,7 +172,9 @@ function AuraApplication() {
   const academyAccessRevision = `${profile?.membership ?? 'free'}:${[...learningData.enrollmentByCourseId.entries()].map(([courseId, enrollment]) => `${courseId}:${enrollment.status}`).sort().join('|')}:${[...localEnrollmentIds].sort().join('|')}`
   const studentCourseData = useCourses(learnerAcademyEnabled, false, academyAccessRevision)
   const adminCourseData = useCourses(adminAcademyEnabled, true)
-  const mode: AppMode = adminViews.includes(view) ? 'admin' : 'student'
+  const mode: AppMode = view === 'student-360'
+    ? route.source === 'admin-pt-students' ? 'admin' : 'student'
+    : adminViews.includes(view) ? 'admin' : 'student'
   const effectiveNutritionProfile = profile?.nutritionProfile ?? localNutritionProfile
   const dailyNutrition = useDailyNutritionSummary(
     user?.uid ?? 'demo',
@@ -369,6 +372,8 @@ function AuraApplication() {
       view: supportedNext,
       courseId: courseId ?? null,
       lessonId: lessonId ?? null,
+      studentId: null,
+      source: null,
       eatCleanScreen: 'store',
       mealId: null,
       orderId: null,
@@ -395,7 +400,30 @@ function AuraApplication() {
     setStaffStudentFocus(null)
     goTo(next)
   }
+  const openStudent360 = (studentId: string, source: Student360Source, studentName = '') => {
+    if (!studentId) return
+    const nextRoute: AuraRoute = {
+      view: 'student-360',
+      courseId: null,
+      lessonId: null,
+      studentId,
+      source,
+      eatCleanScreen: 'store',
+      mealId: null,
+      orderId: null,
+    }
+    setStaffStudentFocus({ id: studentId, name: studentName })
+    routeRef.current = nextRoute
+    setRoute(nextRoute)
+    const nextHash = student360RouteHash(studentId, source)
+    if (window.location.hash !== nextHash) window.location.hash = nextHash
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
   const navigateStaffStudent = (next: ViewId, studentId?: string, studentName?: string) => {
+    if (next === 'student-360' && studentId) {
+      openStudent360(studentId, 'staff-students', studentName)
+      return
+    }
     setStaffStudentFocus(studentId ? { id: studentId, name: studentName || '' } : null)
     goTo(next)
   }
@@ -833,6 +861,27 @@ function AuraApplication() {
       }
       case 'progress-photo-studio': return <ProgressPhotoStudio onNavigate={navigate} ownerId={backendMode === 'firebase' ? (user?.uid ?? 'anonymous') : 'demo'} />
       case 'progress': return <ProgressPage ownerId={backendMode === 'firebase' ? (user?.uid ?? 'anonymous') : 'demo'} courseItems={studentCourses} progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error || learningData.error} onOpenCourse={openCourse} onNavigate={navigate} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} heightCm={effectiveHeight} nutritionProfile={effectiveNutritionProfile} />
+      case 'student-360': {
+        const source = route.source || (canAccessAdmin ? 'admin-pt-students' : 'staff-students')
+        const internalActor = backendMode === 'demo'
+          || accessContext?.accessRole === 'staff'
+          || accessContext?.accessRole === 'admin'
+          || accessContext?.accessRole === 'super_admin'
+          || ['coach', 'trainer', 'sales', 'manager', 'admin', 'super_admin'].includes(role)
+        if (backendMode === 'firebase' && !authzReady) return <div className="course-detail-state" role="status"><h1>Đang xác minh quyền truy cập</h1><p>Aura đang đối chiếu phạm vi học viên của tài khoản.</p></div>
+        if (!route.studentId || !internalActor) return <div className="course-detail-state" role="alert"><h1>Không thể mở Học viên 360</h1><p>Trang này chỉ dành cho nhân sự Aura và cần một mã học viên hợp lệ.</p><button className="primary-button" onClick={() => navigate(internalActor ? source : 'home')}>Quay lại</button></div>
+        return <Student360Page
+          studentId={route.studentId}
+          source={source}
+          isDemo={backendMode === 'demo'}
+          onBack={() => navigate(source)}
+          onNavigate={navigateStaffStudent}
+          onOpenContractOperations={source === 'admin-pt-students' ? (studentId) => {
+            setStaffStudentFocus({ id: studentId, name: '' })
+            goTo('admin-pt-students')
+          } : undefined}
+        />
+      }
       case 'profile': return <ProfilePage userId={user?.uid} fullProfile={backendMode === 'demo' ? { ...profile, ...localProfile } : profile} displayName={effectiveDisplayName} email={profile?.email} membership={profile?.membership} goals={effectiveGoals} heightCm={effectiveHeight} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} targetSpeedPace={effectiveTargetSpeedPace} notificationSettings={effectiveNotifications} mealReminderTime={profile?.mealReminderTime} syncState={profileSyncState} onSave={saveProfile} onSignOut={signOut} onChangePassword={changePassword} onEditProfile={() => setForceOnboarding(true)} onUploadAvatar={async (file, onProgress) => {
         if (backendMode === 'firebase' && user) {
           const photoURL = await uploadUserAvatar(user.uid, file, onProgress)
@@ -926,7 +975,7 @@ function AuraApplication() {
 
       case 'pt-workout': return <StudentPtWorkoutPage isDemo={backendMode === 'demo'} ownerId={user?.uid ?? 'demo'} />
 
-      case 'admin-pt-students': return <AuraOperationsFrame className="aura-operations-page--students"><AdminPTStudentManagement user={user as any} profile={profile} /></AuraOperationsFrame>
+      case 'admin-pt-students': return <AuraOperationsFrame className="aura-operations-page--students"><AdminPTStudentManagement user={user as any} profile={profile} initialStudentId={staffStudentFocus?.id} onOpenStudent360={(studentId, studentName) => openStudent360(studentId, 'admin-pt-students', studentName)} /></AuraOperationsFrame>
       case 'admin-pt-schedule': return <AuraOperationsFrame className="aura-operations-page--schedule">{backendMode === 'firebase'
         ? !authzReady
           ? <div className="course-detail-state" role="status"><h1>Đang xác minh phạm vi lịch</h1><p>Aura đang tải quyền chi nhánh trước khi mở công cụ xếp lịch.</p></div>
@@ -935,7 +984,7 @@ function AuraApplication() {
             : <div className="course-detail-state" role="alert"><h1>Chưa được cấp quyền xếp lịch</h1><p>Trang lịch được khóa an toàn vì tài khoản chưa có phạm vi chi nhánh phù hợp.</p></div>
         : <SchedulerWrapper user={user as any} profile={profile} accessContext={accessContext} backendMode={backendMode} onNavigate={(view) => navigate(view as ViewId)} />}</AuraOperationsFrame>
       case 'admin-training-history': return <AuraOperationsFrame><TrainingHistoryWorkspace /></AuraOperationsFrame>
-      case 'admin-pt-workouts': return <AuraOperationsFrame><PtWorkoutWorkspacePage isDemo={backendMode === 'demo'} canPublishCatalog={accessContext?.accessRole === 'admin' || accessContext?.accessRole === 'super_admin' || role === 'admin' || role === 'super_admin'} /></AuraOperationsFrame>
+      case 'admin-pt-workouts': return <AuraOperationsFrame><PtWorkoutWorkspacePage isDemo={backendMode === 'demo'} canPublishCatalog={accessContext?.accessRole === 'admin' || accessContext?.accessRole === 'super_admin' || role === 'admin' || role === 'super_admin'} initialStudentId={staffStudentFocus?.id} /></AuraOperationsFrame>
       case 'admin-trainer-quality': return <AuraOperationsFrame><TrainerQualityPage isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
       case 'admin-renewals': return <AuraOperationsFrame><ContractRenewals onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
       case 'admin-report': return <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} isDemo={backendMode === 'demo'} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />

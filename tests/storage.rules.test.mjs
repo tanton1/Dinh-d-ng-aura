@@ -50,6 +50,13 @@ function uploadPrivateCoachImage(storage, userId, scanId, purpose) {
   })
 }
 
+function uploadProgressPhoto(storage, userId, fileName = 'photo-123.jpg', metadataOwner = userId) {
+  return uploadBytes(ref(storage, `users/${userId}/progress-photos/${fileName}`), validImage, {
+    contentType: 'image/jpeg',
+    customMetadata: { ownerUid: metadataOwner, resourceKind: 'progress-photo' },
+  })
+}
+
 describe('Aura Academy Storage rules', () => {
   before(async () => {
     testEnvironment = await initializeTestEnvironment({
@@ -103,5 +110,13 @@ describe('Aura Academy Storage rules', () => {
     await assertSucceeds(uploadPrivateCoachImage(studentStorage, 'student-1', 'scan_meal_123', 'ai-coach-meal'))
     await assertFails(uploadPrivateCoachImage(studentStorage, 'student-2', 'scan_cross_123', 'ai-coach-body'))
     await assertFails(uploadPrivateCoachImage(studentStorage, 'student-1', 'scan_bad_1234', 'profile-photo'))
+  })
+
+  test('progress photos are owner-written and Staff must use the scoped Student 360 API', async () => {
+    const uploaded = await assertSucceeds(uploadProgressPhoto(storageFor('student-1', 'student'), 'student-1'))
+    await assertFails(uploadProgressPhoto(storageFor('student-1', 'student'), 'student-2'))
+    await assertFails(uploadProgressPhoto(storageFor('student-1', 'student'), 'student-1', 'forged.jpg', 'student-2'))
+    await assertFails(getBytes(ref(storageFor('trainer-1', 'trainer'), uploaded.ref.fullPath)))
+    await assertSucceeds(getBytes(ref(storageFor('admin-1', 'admin'), uploaded.ref.fullPath)))
   })
 })

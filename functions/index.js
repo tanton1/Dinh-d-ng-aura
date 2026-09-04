@@ -33,6 +33,7 @@ const { createPtWorkoutTrackingFunctions } = require('./pt-workout-tracking')
 const { createNutritionReviewFunctions } = require('./nutrition-reviews')
 const { createContractRenewalFunctions } = require('./contract-renewals')
 const { syncContractUsageProjection } = require('./contract-usage')
+const { createStudent360Functions, reconcileStudent360ProjectionBatch, syncStudent360ProjectionFromEvent } = require('./student-360')
 
 const app = initializeApp()
 // Keep callable writes on the same named database used by the production web app.
@@ -271,6 +272,55 @@ exports.getMyTrainerStudentDetail = ptOperationsV2Functions.getMyTrainerStudentD
 exports.recordMySessionAttendance = ptOperationsV2Functions.recordMySessionAttendance
 exports.bulkConfirmMySessions = ptOperationsV2Functions.bulkConfirmMySessions
 exports.getMySalesWorkspace = ptOperationsV2Functions.getMySalesWorkspace
+const student360Functions = createStudent360Functions({ db, onCall, storage, logger })
+Object.assign(exports, student360Functions)
+exports.listStudent360Directory = student360Functions.listStudent360Directory
+exports.getStudent360Overview = student360Functions.getStudent360Overview
+exports.listStudent360Timeline = student360Functions.listStudent360Timeline
+exports.createStudentCareActivity = student360Functions.createStudentCareActivity
+exports.getStudent360ProgressPhotos = student360Functions.getStudent360ProgressPhotos
+exports.refreshStudent360Projection = student360Functions.refreshStudent360Projection
+
+const student360Trigger = (document) => onDocumentWritten({
+  document,
+  database: databaseId,
+  region: 'asia-southeast1',
+  maxInstances: 3,
+  retry: true,
+}, async (event) => syncStudent360ProjectionFromEvent({ db, event, logger }))
+
+// Keep the overview projection fresh from canonical sources. The callable also
+// repairs a missing/stale projection on demand, so a failed trigger never
+// leaves the workspace permanently unavailable.
+exports.syncStudent360Student = student360Trigger('students/{studentId}')
+exports.syncStudent360Contract = student360Trigger('contracts/{documentId}')
+exports.syncStudent360Session = student360Trigger('sessions/{documentId}')
+exports.syncStudent360Attendance = student360Trigger('attendanceEvents/{documentId}')
+exports.syncStudent360Availability = student360Trigger('ptAvailability/{availabilityId}')
+exports.syncStudent360Workout = student360Trigger('workoutLogs/{documentId}')
+exports.syncStudent360PtWorkout = student360Trigger('ptWorkoutLogs/{documentId}')
+exports.syncStudent360MealReview = student360Trigger('mealReviews/{documentId}')
+exports.syncStudent360LeaveRequest = student360Trigger('leaveRequests/{documentId}')
+exports.syncStudent360SessionRequest = student360Trigger('sessionRequests/{documentId}')
+exports.syncStudent360Renewal = student360Trigger('contractRenewalCases/{documentId}')
+exports.syncStudent360Payment = student360Trigger('payments/{documentId}')
+exports.syncStudent360DailyCheckin = student360Trigger('dailyCheckins/{documentId}')
+exports.syncStudent360Profile = student360Trigger('users/{accountUid}')
+exports.syncStudent360MealLog = student360Trigger('users/{accountUid}/mealLogs/{documentId}')
+exports.syncStudent360BodyMetric = student360Trigger('users/{accountUid}/bodyMetrics/{documentId}')
+exports.syncStudent360BodyMeasurement = student360Trigger('users/{accountUid}/bodyMeasurements/{documentId}')
+exports.syncStudent360WeightLog = student360Trigger('users/{accountUid}/weightLogs/{documentId}')
+exports.syncStudent360LegacyProgressPhoto = student360Trigger('users/{accountUid}/progress_photos/{documentId}')
+exports.syncStudent360ProgressPhoto = student360Trigger('users/{accountUid}/progressPhotos/{documentId}')
+exports.reconcileStudent360ProjectionsScheduled = onSchedule({
+  schedule: 'every 60 minutes',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  region: 'asia-southeast1',
+  retryCount: 1,
+  maxInstances: 1,
+  timeoutSeconds: 540,
+  memory: '1GiB',
+}, async () => reconcileStudent360ProjectionBatch({ db, logger, batchSize: 25, staleAfterDays: 2 }))
 const sessionFeedbackFunctions = createSessionFeedbackFunctions({ db, onCall })
 Object.assign(exports, sessionFeedbackFunctions)
 exports.getMyPendingSessionFeedback = sessionFeedbackFunctions.getMyPendingSessionFeedback
