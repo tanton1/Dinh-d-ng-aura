@@ -285,6 +285,7 @@ const student360Trigger = (document) => onDocumentWritten({
   document,
   database: databaseId,
   region: 'asia-southeast1',
+  cpu: 'gcf_gen1',
   maxInstances: 3,
   retry: true,
 }, async (event) => syncStudent360ProjectionFromEvent({ db, event, logger }))
