@@ -461,7 +461,7 @@ export default function TrainerPayroll({ profile }: Props) {
     detail: `${money(row.baseSalaryEarned)} cơ bản · ${money(row.teachingPayAmount)} ca dạy · ${money(row.commissionAmount)} HH ${row.referralCommissionRate ? `${row.referralCommissionRate}%` : ''}`,
     icon: <Banknote size={20} />,
     tone: (['pink', 'orange', 'sunset', 'ink'] as const)[index % 4],
-    actionLabel: row.reviewRequired || !row.policyConfigured ? 'Cần đối soát' : `Tạm tính đến ${liveAsOfDate ? dateLabel(liveAsOfDate) : 'hiện tại'}`,
+    actionLabel: row.reviewRequired || !row.policyConfigured ? 'Cần đối soát' : `Dự tính toàn kỳ · dữ liệu đến ${liveAsOfDate ? dateLabel(liveAsOfDate) : 'hiện tại'}`,
     onSelect: () => void openStaffStatement(row.staffId),
   })) : [{
     id: 'staff-empty', eyebrow: periodLabel(periodId), value: 'Chưa có số liệu',
@@ -618,7 +618,7 @@ export default function TrainerPayroll({ profile }: Props) {
               return <article className={`payroll-trainer-item ${expanded ? 'is-expanded' : ''}`} key={item.id}>
                 <button type="button" className="payroll-trainer-item__trigger" aria-expanded={expanded} onClick={() => setExpandedTrainerId((current) => current === item.id ? '' : item.id)}>
                   <div className="payroll-drawer__person"><span>{name.slice(0, 1).toUpperCase()}</span><div><strong>{name}</strong><small>{item.employmentType === 'collaborator' ? 'CTV' : 'Nhân viên'} · {branchById.get(branchId)?.name || 'Chưa gắn chi nhánh'} · {item.teachingDayCount || new Set(item.teachingSlots.map((slot) => slot.date)).size} ngày dạy</small></div></div>
-                  <div className="payroll-drawer__numbers"><span>{item.workdaySummary.estimatedPaidDays}/{item.workdaySummary.eligibleWorkdays} công · {item.sessionCount} ca</span><strong>{money(item.finalAmount)}</strong></div>
+                  <div className="payroll-drawer__numbers"><span>{item.workdaySummary.paidDays} công đã chốt · {item.workdaySummary.estimatedPaidDays}/{item.workdaySummary.eligibleWorkdays} dự tính · {item.sessionCount} ca</span><strong>{money(item.finalAmount)}</strong></div>
                   <ChevronRight className="payroll-trainer-item__chevron" size={18} />
                 </button>
                 {expanded && <div className="payroll-trainer-item__detail">

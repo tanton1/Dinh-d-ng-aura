@@ -101,14 +101,14 @@ export default function StaffPayrollStatementPanel({ data, periodId, loading, er
   const workdays = data?.workdays
   const slides = useMemo<AuraMetricSlide[]>(() => [
     {
-      id: 'total', eyebrow: data?.run.official ? 'Thực nhận chính thức' : 'Tạm tính đến hiện tại',
+      id: 'total', eyebrow: data?.run.official ? 'Thực nhận chính thức' : 'Dự tính toàn kỳ',
       value: money(amounts?.finalAmount),
       detail: data?.run.official ? `${periodLabel(periodId)} đã khóa số liệu` : 'Số liệu thay đổi đến khi kỳ lương được khóa',
       icon: <WalletCards size={20} />, tone: 'pink',
     },
     {
-      id: 'workdays', eyebrow: 'Ngày công hưởng lương', value: `${workdays?.estimatedPaidDays || 0}/${workdays?.eligibleWorkdays || 0}`,
-      detail: `${workdays?.autoPaidDays || 0} ngày tự tính · ${workdays?.pendingDays || 0} ngày chờ chốt`,
+      id: 'workdays', eyebrow: 'Dự tính công toàn kỳ', value: `${workdays?.estimatedPaidDays || 0}/${workdays?.eligibleWorkdays || 0}`,
+      detail: `${workdays?.paidDays || 0} ngày đã ghi nhận · ${workdays?.autoPaidDays || 0} ngày tự tính · ${workdays?.pendingDays || 0} ngày chờ chốt`,
       icon: <CalendarCheck2 size={20} />, tone: 'orange',
     },
     {
@@ -151,16 +151,16 @@ export default function StaffPayrollStatementPanel({ data, periodId, loading, er
       <section className="staff-payroll__breakdown" aria-label="Cấu phần lương nhân viên">
         <div className="staff-payroll__section-title"><div><span>Cấu phần lương</span><strong>{periodLabel(periodId)}</strong></div><small>{data.run.official ? 'Snapshot chính thức' : 'Dữ liệu tạm tính'}</small></div>
         <div className="staff-payroll__money-grid">
-          <article><span className="is-pink"><Banknote size={18} /></span><div><small>Lương cơ bản theo công</small><strong>{money(amounts?.baseSalaryAmount)}</strong><p>{workdays?.employmentType === 'collaborator' ? 'CTV không áp dụng lương cơ bản' : `${workdays?.estimatedPaidDays || 0}/${workdays?.eligibleWorkdays || 0} ngày hưởng lương`}</p></div></article>
+          <article><span className="is-pink"><Banknote size={18} /></span><div><small>{data.run.official ? 'Lương cơ bản theo công' : 'Lương cơ bản dự tính toàn kỳ'}</small><strong>{money(amounts?.baseSalaryAmount)}</strong><p>{workdays?.employmentType === 'collaborator' ? 'CTV không áp dụng lương cơ bản' : `${workdays?.paidDays || 0} ngày đã ghi nhận · ${workdays?.estimatedPaidDays || 0}/${workdays?.eligibleWorkdays || 0} ngày dự tính`}</p></div></article>
           <article><span className="is-orange"><Dumbbell size={18} /></span><div><small>Tiền ca dạy</small><strong>{money(amounts?.teachingPayAmount)}</strong><p>{data.teachingSlots.length} ca đã ghi nhận</p></div></article>
           <article><span className="is-sunset"><CircleDollarSign size={18} /></span><div><small>Hoa hồng giới thiệu</small><strong>{money(amounts?.commissionAmount)}</strong><p>{data.referralCommission.contractCount} hợp đồng · {data.referralCommission.rate || 0}% thực thu</p></div></article>
           <article><span className="is-ink"><Gift size={18} /></span><div><small>Thưởng & điều chỉnh</small><strong>{money((amounts?.bonusAmount || 0) + (amounts?.adjustmentAmount || 0))}</strong><p>Khấu trừ {money(amounts?.deductionAmount)}</p></div></article>
         </div>
-        <footer><span>Tổng thực nhận</span><strong>{money(amounts?.finalAmount)}</strong></footer>
+        <footer><span>{data.run.official ? 'Tổng thực nhận' : 'Tổng dự tính toàn kỳ'}</span><strong>{money(amounts?.finalAmount)}</strong></footer>
       </section>
 
       <section className="staff-payroll__calendar" aria-label="Chi tiết ngày công nhân viên">
-        <div className="staff-payroll__section-title"><div><span>Ngày công</span><strong>{workdays?.estimatedPaidDays || 0}/{workdays?.eligibleWorkdays || 0} ngày</strong></div><small>{workdays?.autoPaidDays || 0} ngày tự tính từ ≥5 ca</small></div>
+        <div className="staff-payroll__section-title"><div><span>Ngày công đã ghi nhận</span><strong>{workdays?.paidDays || 0}/{workdays?.eligibleWorkdays || 0} ngày</strong></div><small>Dự tính toàn kỳ {workdays?.estimatedPaidDays || 0}/{workdays?.eligibleWorkdays || 0} · {workdays?.autoPaidDays || 0} ngày tự tính từ ≥5 ca</small></div>
         <div className="staff-payroll__weekday"><span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span></div>
         <div className="staff-payroll__days">
           {Array.from({ length: workdays?.days[0] ? (workdays.days[0].weekday + 6) % 7 : 0 }, (_, index) => <i key={`empty-${index}`} aria-hidden="true" />)}

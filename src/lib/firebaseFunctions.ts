@@ -2,7 +2,7 @@ import { connectFunctionsEmulator, getFunctions, type Functions } from 'firebase
 import { firebaseApp, isFirebaseConfigured, useFirebaseEmulators } from './firebase'
 
 export let firebaseFunctions: Functions | null = null
-/** Dedicated overflow region for CPU-bounded scheduling optimization. */
+/** Dedicated overflow region for CPU-bounded scheduling and payroll services. */
 export let firebaseScheduleOptimizerFunctions: Functions | null = null
 
 if (isFirebaseConfigured && firebaseApp) {

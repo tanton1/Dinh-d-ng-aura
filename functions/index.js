@@ -433,6 +433,36 @@ exports.getStaffPayrollAttendanceDetail = staffPayrollFunctions.getStaffPayrollA
 exports.saveStaffAttendanceDay = staffPayrollFunctions.saveStaffAttendanceDay
 exports.fillMissingStaffAttendanceDays = staffPayrollFunctions.fillMissingStaffAttendanceDays
 exports.saveWorkCalendar = staffPayrollFunctions.saveWorkCalendar
+
+// Blue-green payroll rollout. The original asia-southeast1 services remain
+// untouched as an instant rollback path while the canonical payroll handlers
+// run in the lower-pressure asia-east1 region against the same Firestore DB.
+const payrollOverflowOnCall = (optionsOrHandler, maybeHandler) => {
+  const regional = { region: 'asia-east1' }
+  return typeof optionsOrHandler === 'function'
+    ? onCall(regional, optionsOrHandler)
+    : onCall({ ...optionsOrHandler, ...regional }, maybeHandler)
+}
+const payrollV2Functions = createPayrollFunctions({ db, onCall: payrollOverflowOnCall, logger })
+exports.listPayrollPoliciesV2 = payrollV2Functions.listPayrollPolicies
+exports.savePayrollPolicyV2 = payrollV2Functions.savePayrollPolicy
+exports.managePayrollPolicyV2 = payrollV2Functions.managePayrollPolicy
+exports.listPayrollRunsV2 = payrollV2Functions.listPayrollRuns
+exports.getPayrollRunV2 = payrollV2Functions.getPayrollRun
+exports.createPayrollRunV2 = payrollV2Functions.createPayrollRun
+exports.deleteDraftPayrollRunV2 = payrollV2Functions.deleteDraftPayrollRun
+exports.reviewPayrollRunV2 = payrollV2Functions.reviewPayrollRun
+exports.lockPayrollRunV2 = payrollV2Functions.lockPayrollRun
+exports.markPayrollRunPaidV2 = payrollV2Functions.markPayrollRunPaid
+const staffPayrollV2Functions = createStaffPayrollFunctions({ db, onCall: payrollOverflowOnCall, logger, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile })
+exports.getMyStaffPayrollV2 = staffPayrollV2Functions.getMyStaffPayroll
+exports.getStaffPayrollStatementV2 = staffPayrollV2Functions.getStaffPayrollStatement
+exports.listStaffPayrollAttendanceV2 = staffPayrollV2Functions.listStaffPayrollAttendance
+exports.getStaffPayrollAttendanceDetailV2 = staffPayrollV2Functions.getStaffPayrollAttendanceDetail
+exports.saveStaffAttendanceDayV2 = staffPayrollV2Functions.saveStaffAttendanceDay
+exports.fillMissingStaffAttendanceDaysV2 = staffPayrollV2Functions.fillMissingStaffAttendanceDays
+exports.saveWorkCalendarV2 = staffPayrollV2Functions.saveWorkCalendar
+exports.submitMyPayrollInquiryV2 = staffPayrollV2Functions.submitMyPayrollInquiry
 exports.submitMyPayrollInquiry = staffPayrollFunctions.submitMyPayrollInquiry
 const businessReportingFunctions = createBusinessReportingFunctions({ db, onCall })
 Object.assign(exports, businessReportingFunctions)

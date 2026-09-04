@@ -129,9 +129,9 @@ export default function StaffPayrollPage() {
       icon: <WalletCards size={20} />, tone: 'pink',
     },
     {
-      id: 'workdays', eyebrow: 'Ngày công hưởng lương',
+      id: 'workdays', eyebrow: 'Dự tính công toàn kỳ',
       value: `${workdays?.estimatedPaidDays || 0}/${workdays?.eligibleWorkdays || 0}`,
-      detail: `${workdays?.autoPaidDays || 0} ngày tự tính từ ≥5 ca · ${workdays?.pendingDays || 0} ngày chờ chốt`,
+      detail: `${workdays?.paidDays || 0} ngày đã ghi nhận · ${workdays?.autoPaidDays || 0} ngày tự tính từ ≥5 ca · ${workdays?.pendingDays || 0} ngày chờ chốt`,
       icon: <CalendarCheck2 size={20} />, tone: 'orange',
     },
     {
@@ -211,12 +211,12 @@ export default function StaffPayrollPage() {
     <section className="staff-payroll__breakdown" aria-label="Chi tiết thu nhập">
       <div className="staff-payroll__section-title"><div><span>Cấu phần lương</span><strong>{periodLabel(periodId)}</strong></div><small>{data?.run.official ? 'Số liệu chính thức' : 'Số liệu tạm tính'}</small></div>
       <div className="staff-payroll__money-grid">
-        <article><span className="is-pink"><Banknote size={18} /></span><div><small>{workdays?.employmentType === 'collaborator' ? 'CTV · không lương cơ bản' : 'Lương cơ bản theo công'}</small><strong>{money(amounts?.baseSalaryAmount)}</strong><p>{workdays?.employmentType === 'collaborator' ? 'Thu nhập theo chính sách ca dạy CTV' : `${workdays?.estimatedPaidDays || 0}/${workdays?.eligibleWorkdays || 0} ngày đủ điều kiện`}</p></div></article>
+        <article><span className="is-pink"><Banknote size={18} /></span><div><small>{workdays?.employmentType === 'collaborator' ? 'CTV · không lương cơ bản' : 'Lương cơ bản dự tính toàn kỳ'}</small><strong>{money(amounts?.baseSalaryAmount)}</strong><p>{workdays?.employmentType === 'collaborator' ? 'Thu nhập theo chính sách ca dạy CTV' : `${workdays?.paidDays || 0} ngày đã ghi nhận · ${workdays?.estimatedPaidDays || 0}/${workdays?.eligibleWorkdays || 0} ngày dự tính`}</p></div></article>
         <article><span className="is-orange"><Dumbbell size={18} /></span><div><small>Tiền ca dạy</small><strong>{money(amounts?.teachingPayAmount)}</strong><p>{data?.teachingSlots.length || 0} ca đã ghi nhận</p></div></article>
         <article><span className="is-sunset"><CircleDollarSign size={18} /></span><div><small>Hoa hồng giới thiệu</small><strong>{money(amounts?.commissionAmount)}</strong><p>{data?.referralCommission.rate || 0}% trên {money(data?.referralCommission.netCashAmount)} thực thu · {data?.referralCommission.contractCount || 0} hợp đồng</p></div></article>
         <article><span className="is-ink"><Gift size={18} /></span><div><small>Thưởng & điều chỉnh</small><strong>{money((amounts?.bonusAmount || 0) + (amounts?.adjustmentAmount || 0))}</strong><p>Khấu trừ {money(amounts?.deductionAmount)}</p></div></article>
       </div>
-      <footer><span>Tổng thực nhận</span><strong>{money(amounts?.finalAmount)}</strong></footer>
+      <footer><span>{data?.run.official ? 'Tổng thực nhận' : 'Tổng dự tính toàn kỳ'}</span><strong>{money(amounts?.finalAmount)}</strong></footer>
     </section>
 
     <section className="staff-payroll__calendar" aria-label="Lịch ngày công">

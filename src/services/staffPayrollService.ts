@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
 import { reportClientIssue } from './clientTelemetryService'
 
 export type StaffAttendanceStatus =
@@ -198,8 +198,9 @@ export interface StaffPayrollLiveSummary {
 type UnknownRecord = Record<string, unknown>
 
 function callable<Input, Output>(name: string) {
-  if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
-  const invoke = httpsCallable<Input, Output>(firebaseFunctions, name, { timeout: 30_000 })
+  const functions = firebaseScheduleOptimizerFunctions || firebaseFunctions
+  if (!functions) throw new Error('Firebase Functions chưa sẵn sàng.')
+  const invoke = httpsCallable<Input, Output>(functions, `${name}V2`, { timeout: 30_000 })
   return async (input: Input) => {
     const retryableCodes = new Set([
       'functions/internal',

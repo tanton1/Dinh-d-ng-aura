@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions'
-import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
 
 export type PayrollRunStatus = 'draft' | 'reviewed' | 'locked' | 'paid'
 export type PayrollPolicyApplicationMode = 'single' | 'staff_profile' | 'trainer_assignment' | 'effective_date'
@@ -162,8 +162,9 @@ export interface PayrollRunDetail {
 }
 
 function callable<Input, Output>(name: string) {
-  if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
-  return httpsCallable<Input, Output>(firebaseFunctions, name)
+  const functions = firebaseScheduleOptimizerFunctions || firebaseFunctions
+  if (!functions) throw new Error('Firebase Functions chưa sẵn sàng.')
+  return httpsCallable<Input, Output>(functions, `${name}V2`)
 }
 
 function amount(value: unknown) {

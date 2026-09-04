@@ -136,7 +136,8 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
   const summary = useMemo(() => ({
     total: rows.length,
     review: rows.filter((row) => row.reviewRequired).length,
-    approved: rows.filter((row) => row.calendarApproved).length,
+    paidDays: rows.reduce((total, row) => total + row.paidDays, 0),
+    eligibleWorkdays: rows.reduce((total, row) => total + row.eligibleWorkdays, 0),
     payroll: rows.reduce((total, row) => total + row.finalAmount, 0),
   }), [rows])
 
@@ -209,8 +210,8 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
     <div className="staff-workdays__summary">
       <article><span>Nhân sự</span><strong>{summary.total}</strong><small>trong phạm vi lọc</small></article>
       <article className={summary.review ? 'is-warning' : ''}><span>Cần đối soát</span><strong>{summary.review}</strong><small>thiếu công hoặc quyền lợi</small></article>
-      <article><span>Lịch đã duyệt</span><strong>{summary.approved}/{summary.total}</strong><small>theo hồ sơ nhân viên</small></article>
-      <article><span>Tổng lương tạm tính</span><strong>{money(summary.payroll)}</strong><small>đến thời điểm hiện tại</small></article>
+      <article><span>Công đã ghi nhận</span><strong>{summary.paidDays}/{summary.eligibleWorkdays}</strong><small>không gồm ngày tương lai</small></article>
+      <article><span>Dự tính toàn kỳ</span><strong>{money(summary.payroll)}</strong><small>gồm lương cơ bản dự phóng</small></article>
     </div>
 
     <div className="staff-workdays__toolbar">
@@ -229,14 +230,14 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
         {loading && !rows.length ? <div className="staff-workdays__skeleton" /> : visibleRows.length ? visibleRows.map((row) => <button type="button" key={row.staffId} className={selectedId === row.staffId ? 'is-active' : ''} onClick={() => void loadDetail(row.staffId)}>
           <span className="staff-workdays__avatar">{row.name.slice(0, 1).toUpperCase()}</span>
           <span className="staff-workdays__person"><strong>{row.name}</strong><small>{row.employmentType === 'collaborator' ? 'CTV' : 'Nhân viên'} · {branches.find((branch) => branch.id === row.branchId)?.name || 'Chưa gắn chi nhánh'}</small></span>
-          <span className="staff-workdays__numbers"><b>{row.estimatedPaidDays ?? row.paidDays}/{row.eligibleWorkdays} công</b><small>{teachingCountLabel(row.teachingSlotCount)} · {money(row.finalAmount)} tạm tính</small></span>
+          <span className="staff-workdays__numbers"><b>{row.paidDays} đã chốt · {row.estimatedPaidDays ?? row.paidDays}/{row.eligibleWorkdays} dự tính</b><small>{teachingCountLabel(row.teachingSlotCount)} · {money(row.finalAmount)} toàn kỳ</small></span>
           {row.reviewRequired && <em>!</em>}<ChevronRight size={17} />
         </button>) : <div className="staff-workdays__empty"><UserRoundCheck size={27} /><strong>Không có nhân sự phù hợp</strong><p>Đổi bộ lọc hoặc kiểm tra hồ sơ đội ngũ.</p></div>}
       </div>}
 
       {(detail || detailLoading && selectedId) && <div className="staff-workdays__detail">
         {detailLoading && !detail ? <div className="staff-workdays__skeleton" /> : detail ? <>
-          <button className="staff-workdays__back" type="button" onClick={() => { setDetail(null); setSelectedId('') }}><ArrowLeft size={18} /> Danh sách ngày công</button><header className="staff-workdays__detail-head"><div><span>{detail.identity.employeeCode || 'NHÂN VIÊN AURA'}</span><strong>{detail.identity.name}</strong><small>{detail.workdays.employmentType === 'collaborator' ? 'CTV · không lương cơ bản' : `${detail.workdays.employmentType === 'part_time' ? 'Part-time' : detail.workdays.employmentLevel === 'senior' ? 'Senior' : detail.workdays.employmentLevel === 'probation' ? 'Thử việc' : 'Chính thức'} · Lương cơ bản ${money(detail.workdays.baseSalary)} · ${money(detail.workdays.dailyRate)}/ngày chuẩn`} · Tự tính {detail.workdays.autoPaidDays} ngày</small></div><div><b>{detail.workdays.estimatedPaidDays}/{detail.workdays.eligibleWorkdays}</b><small>ngày hưởng lương</small>{detail.workdays.workdayEnabled && detail.workdays.pendingDays > 0 && <button type="button" disabled={fillBusy} onClick={() => void fillMissingDays()}>{fillBusy ? 'Đang chốt…' : `Chốt ${detail.workdays.pendingDays} ngày thiếu`}</button>}</div></header>
+          <button className="staff-workdays__back" type="button" onClick={() => { setDetail(null); setSelectedId('') }}><ArrowLeft size={18} /> Danh sách ngày công</button><header className="staff-workdays__detail-head"><div><span>{detail.identity.employeeCode || 'NHÂN VIÊN AURA'}</span><strong>{detail.identity.name}</strong><small>{detail.workdays.employmentType === 'collaborator' ? 'CTV · không lương cơ bản' : `${detail.workdays.employmentType === 'part_time' ? 'Part-time' : detail.workdays.employmentLevel === 'senior' ? 'Senior' : detail.workdays.employmentLevel === 'probation' ? 'Thử việc' : 'Chính thức'} · Lương cơ bản ${money(detail.workdays.baseSalary)} · ${money(detail.workdays.dailyRate)}/ngày chuẩn`} · Tự tính {detail.workdays.autoPaidDays} ngày</small></div><div><b>{detail.workdays.paidDays}/{detail.workdays.eligibleWorkdays}</b><small>đã ghi nhận · dự tính {detail.workdays.estimatedPaidDays}/{detail.workdays.eligibleWorkdays}</small>{detail.workdays.workdayEnabled && detail.workdays.pendingDays > 0 && <button type="button" disabled={fillBusy} onClick={() => void fillMissingDays()}>{fillBusy ? 'Đang chốt…' : `Chốt ${detail.workdays.pendingDays} ngày thiếu`}</button>}</div></header>
 
           <div className="staff-workdays__calendar-card">
             <div className="staff-workdays__calendar-title"><div><CalendarCheck2 size={18} /><span><strong>Lịch ngày công</strong><small>Chọn trạng thái trực tiếp trên từng ngày làm việc</small></span></div>{detail.workdays.reviewRequired && <em>Cần đối soát</em>}</div>
