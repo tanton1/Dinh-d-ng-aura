@@ -538,11 +538,11 @@
 .ui-rollout-pilot select,
 .ui-rollout-pilot input[type='date'] { min-height: 42px; padding: 0 11px; border: 1px solid var(--aura-neutral-300, #d9d3da); border-radius: 12px; background: #fff; font-size: 12px; }
 .ui-rollout-card > footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; }
-.ui-rollout-card > footer > span { color: var(--aura-neutral-700, #5f5961); font-size: 11px; }
+.ui-rollout-card > footer > span { color: var(--aura-neutral-700, #5f5961); font-size: 12px; }
 .ui-rollout-pilot { display: grid; grid-template-columns: 1fr 220px; gap: 15px; padding: 18px; }
-.ui-rollout-pilot > label { display: grid; gap: 6px; color: var(--aura-neutral-700, #5f5961); font-size: 11px; font-weight: 750; }
+.ui-rollout-pilot > label { display: grid; gap: 6px; color: var(--aura-neutral-700, #5f5961); font-size: 12px; font-weight: 750; }
 .ui-rollout-pilot fieldset { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 14px; border: 1px solid var(--aura-neutral-150, #ece8ec); border-radius: 14px; }
-.ui-rollout-pilot legend { padding: 0 6px; color: var(--aura-neutral-700, #5f5961); font-size: 11px; font-weight: 750; }
+.ui-rollout-pilot legend { padding: 0 6px; color: var(--aura-neutral-700, #5f5961); font-size: 12px; font-weight: 750; }
 .ui-rollout-pilot fieldset label { min-height: 42px; display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 10px; background: var(--aura-neutral-75, #f7f4f6); font-size: 12px; }
 .ui-rollout-pilot fieldset input { width: 18px; height: 18px; accent-color: var(--aura-brand-pink, #ec2c76); }
 

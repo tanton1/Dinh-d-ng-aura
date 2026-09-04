@@ -67,7 +67,7 @@ test('PT student roster uses a desktop table without leaking horizontal overflow
   expect(dimensions.rosterRight).toBeLessThanOrEqual(dimensions.viewport)
 })
 
-test('new package date fields stay fixed inside the phone viewport', async ({ page }) => {
+test('Student 360 contract date fields stay fixed inside the phone viewport', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 844 })
   await page.goto('/#/admin-pt-students')
   const studentCard = page.locator('.student-management__card').first()
@@ -76,19 +76,19 @@ test('new package date fields stay fixed inside the phone viewport', async ({ pa
   await expect(page).toHaveURL(/#\/student-360\?studentId=.*source=admin-pt-students/)
   await page.locator('summary[aria-label="Mở menu nghiệp vụ"]').click()
   await page.getByRole('button', { name: /Đổi PT · bảo lưu · sửa hợp đồng/ }).click()
-  await page.getByRole('button', { name: 'Đăng ký gói mới' }).click()
+  await page.getByRole('button', { name: 'Tạo hợp đồng' }).click()
 
-  const dialog = page.getByRole('dialog', { name: 'Đăng ký gói tập mới' })
+  const dialog = page.locator('.student360-contract-form')
   await expect(dialog).toBeVisible()
-  await dialog.locator('select').first().selectOption('custom')
+  await expect(dialog.getByRole('heading', { name: 'Tạo hợp đồng mới' })).toBeVisible()
   const dates = dialog.locator('input[type="date"]')
   await expect(dates).toHaveCount(2)
   await dates.first().fill('2026-08-26')
 
   const layout = await page.evaluate(() => {
-    const modal = document.querySelector<HTMLElement>('.student-package-modal')
-    const sheet = document.querySelector<HTMLElement>('.student-package-modal__dialog')
-    const dateInputs = [...document.querySelectorAll<HTMLInputElement>('.student-package-modal input[type="date"]')]
+    const modal = document.querySelector<HTMLElement>('.student360-dialog-layer')
+    const sheet = document.querySelector<HTMLElement>('.student360-contract-form')
+    const dateInputs = [...document.querySelectorAll<HTMLInputElement>('.student360-contract-form input[type="date"]')]
     return {
       viewportWidth: document.documentElement.clientWidth,
       documentWidth: document.documentElement.scrollWidth,
@@ -137,8 +137,9 @@ test('Student 360 activity timeline keeps filters compact and remains mobile-saf
 
   const activity = page.locator('.student360-section')
   await expect(activity.getByRole('heading', { name: 'Toàn bộ hoạt động' })).toBeVisible()
-  await expect(activity.locator('.student360-filter-chips').getByRole('button')).toHaveCount(6)
-  await activity.locator('.student360-filter-chips').getByRole('button', { name: 'Tập luyện' }).click()
+  const typeFilters = activity.locator('.student360-filter-chips').first()
+  await expect(typeFilters.getByRole('button')).toHaveCount(6)
+  await typeFilters.getByRole('button', { name: 'Tập luyện' }).click()
   await expect(activity.locator('.student360-timeline')).toBeVisible()
 
   const dimensions = await page.evaluate(() => ({

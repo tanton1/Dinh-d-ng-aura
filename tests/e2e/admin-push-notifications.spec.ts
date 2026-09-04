@@ -80,6 +80,16 @@ test.describe('Admin Push Notifications mobile', () => {
     await expectNoPageOverflow(page)
   })
 
+  test('shows all seven UI 4.0 rollout surfaces without mobile overflow', async ({ page }) => {
+    await page.getByRole('tab', { name: 'UI 4.0' }).click()
+    const panel = page.locator('.ui-rollout-panel')
+    const audiences = panel.locator('.ui-rollout-grid select')
+    await expect(audiences).toHaveCount(7)
+    await expect(panel.getByRole('button', { name: 'Lưu audience' })).toBeDisabled()
+    await expect(panel.getByText(/Chỉ Super Administrator có thể thay đổi/)).toBeVisible()
+    await expectNoPageOverflow(page)
+  })
+
   for (const width of [320, 360, 430]) {
     test(`has no page-level overflow at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 })
