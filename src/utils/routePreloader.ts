@@ -3,6 +3,7 @@ import type { ViewId } from '../types'
 const preloadedRoutes = new Set<ViewId>()
 
 const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
+  'aura-club': () => import('../features/loyalty/AuraClubPage'),
   courses: () => import('../pages/student/CoursesPage'),
   'course-detail': () => import('../pages/student/CourseDetailPage'),
   nutrition: () => import('../pages/student/NutritionPage'),
@@ -45,6 +46,7 @@ const routeImporters: Partial<Record<ViewId, () => Promise<unknown>>> = {
   'admin-schedule-settings': () => import('../components/admin/pt/ScheduleSettings'),
   delivery: () => import('../features/delivery/DeliveryPage'),
   'admin-dashboard': () => import('../pages/admin/AdminDashboard'),
+  'admin-loyalty': () => import('../features/loyalty/AdminLoyaltyPage'),
   'admin-today-sessions': () => import('../pages/admin/AdminTodaySessionsPage'),
   'admin-courses': () => import('../pages/admin/AdminCoursesPage'),
   'admin-course-editor': () => import('../pages/admin/CourseEditorPage'),

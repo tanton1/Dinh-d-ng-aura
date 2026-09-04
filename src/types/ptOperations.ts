@@ -233,6 +233,10 @@ export interface StudentContract {
   referralCode?: string | null
   referralStaffId?: string | null
   referralCommissionRate?: number | null
+  /** Aura Club member referral; separate from Staff/PT commission fields above. */
+  memberReferralId?: string | null
+  memberReferralCode?: string | null
+  memberReferrerStudentId?: string | null
   /** @deprecated Legacy cached amount; payroll now derives commission from canonical cash ledger entries. */
   referralCommission?: number | null
   extensions?: ContractExtension[]

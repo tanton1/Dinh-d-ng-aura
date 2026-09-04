@@ -9,6 +9,7 @@ import {
   ChevronDown,
   CircleDollarSign,
   ClipboardCheck,
+  Coins,
   Copy,
   Dumbbell,
   FileText,
@@ -50,6 +51,8 @@ import type {
 } from './types'
 import './Student360Page.css'
 import { useAuraUiSurface } from '../ui-rollout/AuraUiRolloutContext'
+import { getStudentLoyaltySummary } from '../loyalty/loyaltyService'
+import type { LoyaltyAccount } from '../loyalty/types'
 
 const Student360ContractWorkspace = lazy(() => import('./Student360ContractWorkspace'))
 
@@ -210,6 +213,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   const [careActionId, setCareActionId] = useState<string | undefined>()
   const [careNote, setCareNote] = useState('')
   const [careSaving, setCareSaving] = useState(false)
+  const [loyaltyAccount, setLoyaltyAccount] = useState<LoyaltyAccount | null>(null)
 
   const loadOverview = useCallback(async (force = false) => {
     force ? setRefreshing(true) : setLoading(true)
@@ -228,6 +232,15 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   }, [isDemo, studentId])
 
   useEffect(() => { void loadOverview(false) }, [loadOverview])
+  useEffect(() => {
+    let active = true
+    if (isDemo) {
+      setLoyaltyAccount({ studentId, status: 'active', availablePoints: 2_480, pendingPoints: 180, reservedPoints: 0, debtPoints: 0, lifetimeEarnedPoints: 3_180, lifetimeRedeemedPoints: 700, tierQualifyingValue: 38_000_000, tier: 'gold', tierProgress: { tier: 'gold', nextTier: 'diamond', currentValue: 38_000_000, targetValue: 50_000_000, remainingValue: 12_000_000, percent: 52 }, revision: 1 })
+      return () => { active = false }
+    }
+    void getStudentLoyaltySummary(studentId).then((result) => { if (active) setLoyaltyAccount(result.account) }).catch(() => { if (active) setLoyaltyAccount(null) })
+    return () => { active = false }
+  }, [isDemo, studentId])
 
   const loadTimeline = useCallback(async (append = false) => {
     if (timelineLoading) return
@@ -487,6 +500,10 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
             <div className="student360-score-ring" style={{ '--score': `${health.score * 3.6}deg` } as React.CSSProperties}><div><strong>{health.score}</strong><span>/100</span></div></div>
             <div className="student360-score-components">{health.components.map((component) => <details key={component.id}><summary><span>{component.label}<small>{component.available ? `${component.weight}% trọng số` : 'Chưa đủ dữ liệu'}</small></span><b>{component.score ?? '—'}</b><ChevronDown /></summary><p>{component.reason}</p></details>)}</div>
           </Card>
+
+          {loyaltyAccount && <Card title="Aura Club" icon={Coins}>
+            <div className="student360-loyalty-summary"><div><strong>{new Intl.NumberFormat('vi-VN').format(loyaltyAccount.availablePoints)}</strong><span>Điểm Aura khả dụng</span></div><div><b>{loyaltyAccount.tier}</b><small>{loyaltyAccount.pendingPoints ? `${new Intl.NumberFormat('vi-VN').format(loyaltyAccount.pendingPoints)} điểm đang chờ` : 'Không có điểm chờ'}</small></div>{loyaltyAccount.debtPoints > 0 && <p><AlertTriangle /> Cần đối soát {new Intl.NumberFormat('vi-VN').format(loyaltyAccount.debtPoints)} điểm nghĩa vụ.</p>}</div>
+          </Card>}
 
           {!student360V4 && permissions.canViewOperations && <Card title="Tỷ lệ đi tập" icon={Activity}>
             <div className="student360-attendance-chart">{attendance.weeklyTrend.map((week) => <div key={week.weekStart}><span><i style={{ height: `${Math.max(5, week.rate ?? 0)}%` }} /></span><small>{safeDate(week.weekStart).slice(0, 5)}</small><b>{week.rate === null ? '—' : `${week.rate}%`}</b></div>)}</div>

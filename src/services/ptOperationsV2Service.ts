@@ -326,6 +326,7 @@ export interface SalesQuoteSummary {
   packageName: string
   finalPrice: number
   status: string
+  memberReferralCode?: string | null
 }
 
 export interface SalesCatalog {
@@ -445,6 +446,7 @@ export async function createQuote(input: {
   branchId: string
   packageId: string
   discount: number
+  memberReferralCode?: string
 }) {
   const result = await call<typeof input, { quoteId: string; code: string; finalPrice: number }>('createQuote', input)
   invalidateReadCache('getMySalesWorkspace', 'listMyQuotes')

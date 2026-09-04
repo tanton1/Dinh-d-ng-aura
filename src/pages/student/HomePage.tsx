@@ -25,6 +25,7 @@ import {
 } from '../../services/firebaseService'
 import type { NutritionProfileDraft } from './NutritionPage'
 import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
+import LoyaltyHomeCard from '../../features/loyalty/LoyaltyHomeCard'
 
 interface DailyPulseMeal {
   id?: string
@@ -569,6 +570,8 @@ export default function HomePage({
           trainerName: upcomingSchedule[0].trainerName || 'Huấn luyện viên Aura',
         } : null}
       />
+
+      <LoyaltyHomeCard isDemo={isDemo} ownerId={ownerId} onNavigate={onNavigate} />
 
       <section className="home-v3-week" aria-labelledby="home-week-title">
         <header className="home-v3-week__header">

@@ -32,6 +32,7 @@ const { createExerciseCatalogFunctions } = require('./exercise-catalog')
 const { createPtWorkoutTrackingFunctions } = require('./pt-workout-tracking')
 const { createNutritionReviewFunctions } = require('./nutrition-reviews')
 const { createContractRenewalFunctions } = require('./contract-renewals')
+const { createLoyaltyFunctions, reconcileAttendance: reconcileLoyaltyAttendance, reconcileAttendanceMissions, reconcileContractSpend: reconcileLoyaltyContractSpend, reconcileMemberReferral, reconcileNutritionReview, reconcilePendingMemberReferrals, vestPendingSources } = require('./loyalty')
 const { syncContractUsageProjection } = require('./contract-usage')
 const { createStudent360Functions, reconcileStudent360ProjectionBatch, syncStudent360ProjectionFromEvent } = require('./student-360')
 
@@ -116,6 +117,63 @@ exports.syncOperationsStudentDailyAggregate = onDocumentWritten(
   operationsAggregateTriggerOptions('students/{studentId}'),
   async (event) => syncDailyAggregateWrite({ db, source: 'student', event, logger }),
 )
+
+exports.syncLoyaltyContractSpend = onDocumentWritten({
+  document: 'ledgerEntries/{entryId}',
+  database: databaseId,
+  region: 'asia-southeast1',
+  maxInstances: 3,
+}, async (event) => {
+  const before = event.data?.before?.data?.() || {}
+  const after = event.data?.after?.data?.() || {}
+  const contractId = after.contractId || before.contractId || ''
+  if (!contractId || !['payment', 'refund', 'reversal'].includes(after.type || before.type)) return null
+  const spend = await reconcileLoyaltyContractSpend({ db, contractId, logger })
+  const referral = await reconcileMemberReferral({ db, contractId, logger })
+  return { spend, referral }
+})
+
+exports.syncLoyaltyAttendance = onDocumentWritten({
+  document: 'attendanceEvents/{attendanceId}',
+  database: databaseId,
+  region: 'asia-southeast1',
+  maxInstances: 3,
+}, async (event) => {
+  const afterValue = event.data?.after?.data?.()
+  const beforeValue = event.data?.before?.data?.() || {}
+  const value = afterValue || { ...beforeValue, attendanceStatus: 'deleted', billingStatus: '' }
+  const points = await reconcileLoyaltyAttendance({ db, attendanceId: event.params.attendanceId, value, logger })
+  const missions = await reconcileAttendanceMissions({ db, attendanceId: event.params.attendanceId, value, logger })
+  return { points, missions }
+})
+
+exports.syncLoyaltyNutritionReview = onDocumentWritten({
+  document: 'mealReviews/{reviewId}',
+  database: databaseId,
+  region: 'asia-southeast1',
+  maxInstances: 2,
+}, async (event) => reconcileNutritionReview({
+  db,
+  reviewId: event.params.reviewId,
+  beforeValue: event.data?.before?.data?.() || {},
+  afterValue: event.data?.after?.data?.() || {},
+  logger,
+}))
+
+exports.vestPendingLoyaltySourcesScheduled = onSchedule({
+  schedule: 'every 30 minutes',
+  region: 'asia-southeast1',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  retryCount: 1,
+  cpu: 'gcf_gen1',
+  maxInstances: 1,
+  timeoutSeconds: 540,
+}, async () => {
+  const now = new Date()
+  const referrals = await reconcilePendingMemberReferrals({ db, logger, now, limit: 100 })
+  const sources = await vestPendingSources({ db, logger, now, limit: 300 })
+  return { referrals, sources }
+})
 
 exports.cleanupEatCleanLiveLocations = onSchedule({
   schedule: 'every 60 minutes',
@@ -330,6 +388,35 @@ exports.getMyPendingSessionFeedback = sessionFeedbackFunctions.getMyPendingSessi
 exports.submitSessionFeedback = sessionFeedbackFunctions.submitSessionFeedback
 exports.listTrainerFeedbackAdmin = sessionFeedbackFunctions.listTrainerFeedbackAdmin
 exports.reviewTrainerFeedback = sessionFeedbackFunctions.reviewTrainerFeedback
+const loyaltyFunctions = createLoyaltyFunctions({ db, onCall, logger })
+Object.assign(exports, loyaltyFunctions)
+exports.getMyLoyaltyDashboard = loyaltyFunctions.getMyLoyaltyDashboard
+exports.listMyLoyaltyHistory = loyaltyFunctions.listMyLoyaltyHistory
+exports.listMyAvailableRewards = loyaltyFunctions.listMyAvailableRewards
+exports.redeemMyReward = loyaltyFunctions.redeemMyReward
+exports.cancelMyPendingRedemption = loyaltyFunctions.cancelMyPendingRedemption
+exports.getMyReferralWorkspace = loyaltyFunctions.getMyReferralWorkspace
+exports.createMyReferralCode = loyaltyFunctions.createMyReferralCode
+exports.captureMemberContractReferral = loyaltyFunctions.captureMemberContractReferral
+exports.applyForAmbassador = loyaltyFunctions.applyForAmbassador
+exports.getLoyaltyAdminDashboard = loyaltyFunctions.getLoyaltyAdminDashboard
+exports.listLoyaltyAccounts = loyaltyFunctions.listLoyaltyAccounts
+exports.listLoyaltyRewardsAdmin = loyaltyFunctions.listLoyaltyRewardsAdmin
+exports.listLoyaltyAmbassadors = loyaltyFunctions.listLoyaltyAmbassadors
+exports.listLoyaltyReconciliationIssues = loyaltyFunctions.listLoyaltyReconciliationIssues
+exports.listLoyaltyRedemptions = loyaltyFunctions.listLoyaltyRedemptions
+exports.transitionLoyaltyRedemption = loyaltyFunctions.transitionLoyaltyRedemption
+exports.fulfillLoyaltyRedemption = loyaltyFunctions.fulfillLoyaltyRedemption
+exports.saveLoyaltyPolicy = loyaltyFunctions.saveLoyaltyPolicy
+exports.saveLoyaltyReward = loyaltyFunctions.saveLoyaltyReward
+exports.adjustLoyaltyBalance = loyaltyFunctions.adjustLoyaltyBalance
+exports.reviewLoyaltyAdjustment = loyaltyFunctions.reviewLoyaltyAdjustment
+exports.manageAmbassadorProfile = loyaltyFunctions.manageAmbassadorProfile
+exports.approveAmbassadorPayout = loyaltyFunctions.approveAmbassadorPayout
+exports.reconcileLoyaltyAccount = loyaltyFunctions.reconcileLoyaltyAccount
+exports.runLoyaltyBackfill = loyaltyFunctions.runLoyaltyBackfill
+exports.getStudentLoyaltySummary = loyaltyFunctions.getStudentLoyaltySummary
+exports.giveSessionKudos = loyaltyFunctions.giveSessionKudos
 const ptSchedulePublishFunctions = createPtSchedulePublishFunctions({ db, onCall })
 Object.assign(exports, ptSchedulePublishFunctions)
 // Static exports keep the two rollout endpoints selectable with --only.

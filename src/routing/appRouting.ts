@@ -3,6 +3,7 @@ import type { ViewId } from '../types'
 
 export const adminViews: ViewId[] = [
   'admin-dashboard',
+  'admin-loyalty',
   'admin-today-sessions',
   'admin-pt-students',
   'admin-pt-schedule',
@@ -30,6 +31,7 @@ export const adminViews: ViewId[] = [
 
 const validViews: ViewId[] = [
   'home',
+  'aura-club',
   'courses',
   'course-detail',
   'schedule',
@@ -60,6 +62,7 @@ const validViews: ViewId[] = [
 
 export const adminViewPermissions: Partial<Record<ViewId, Permission>> = {
   'admin-dashboard': 'dashboard.view',
+  'admin-loyalty': 'dashboard.view',
   'admin-today-sessions': 'dashboard.view',
   'admin-pt-students': 'student.view_assigned',
   'admin-pt-schedule': 'dashboard.view',
@@ -94,9 +97,11 @@ export interface AuraRoute {
   eatCleanScreen: 'store' | 'meal' | 'cart' | 'checkout' | 'orders' | 'order' | 'success'
   mealId: string | null
   orderId: string | null
+  loyaltyTab: 'rewards' | 'missions' | 'levels' | 'referral' | 'history'
 }
 
 const eatCleanScreens = new Set<AuraRoute['eatCleanScreen']>(['store', 'meal', 'cart', 'checkout', 'orders', 'order', 'success'])
+const loyaltyTabs = new Set<AuraRoute['loyaltyTab']>(['rewards', 'missions', 'levels', 'referral', 'history'])
 
 /**
  * Routes retired from the app navigation remain canonicalized so links shared
@@ -166,6 +171,9 @@ export function getCurrentRoute(): AuraRoute {
       : 'store',
     mealId: params.get('mealId'),
     orderId: params.get('orderId'),
+    loyaltyTab: loyaltyTabs.has(params.get('tab') as AuraRoute['loyaltyTab'])
+      ? params.get('tab') as AuraRoute['loyaltyTab']
+      : 'rewards',
   }
 }
 
@@ -186,6 +194,7 @@ export function isSameRoute(left: AuraRoute, right: AuraRoute) {
     && left.eatCleanScreen === right.eatCleanScreen
     && left.mealId === right.mealId
     && left.orderId === right.orderId
+    && left.loyaltyTab === right.loyaltyTab
 }
 
 export function student360RouteHash(studentId: string, source: Student360Source) {

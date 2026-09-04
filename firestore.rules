@@ -494,6 +494,13 @@ service cloud.firestore {
         allow read: if isAdmin();
       }
 
+      // Điểm Aura có giá trị đổi quyền lợi nên projection này chỉ được đọc.
+      // Mọi số dư và lịch sử chuẩn được Functions dựng từ ledger bất biến.
+      match /loyaltySummary/{docId} {
+        allow read: if isOwner(userId);
+        allow create, update, delete: if false;
+      }
+
       match /mealLogs/{mealId} {
         allow read: if isOwner(userId) || isAdmin() || coachOwnsClient(userId);
         allow create, update: if isOwner(userId) || isAdmin();
@@ -1100,6 +1107,105 @@ service cloud.firestore {
     match /ledgerEntries/{entryId} {
       allow read: if isAdmin();
       allow write: if false;
+    }
+
+    // Aura Club is server-owned. Browsers, including administrator browsers,
+    // must use capability-checked callables so branch scope, revisions,
+    // inventory, maker-checker approval and idempotency cannot be bypassed.
+    match /loyaltyAccounts/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /loyaltyLedgerEntries/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /loyaltySourceBalances/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /loyaltyPolicyVersions/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /loyaltySettings/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /loyaltyRewards/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /loyaltyRedemptions/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /loyaltyEntitlements/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /loyaltyMissions/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /loyaltyMissionProgress/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /memberReferralCodes/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /memberReferrals/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /ambassadorProfiles/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /ambassadorCommissionLedger/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /ambassadorCommissionSources/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /ambassadorQuarterCounters/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /ambassadorPayouts/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /loyaltyAdjustments/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /loyaltyAuditLogs/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /loyaltyReconciliationRuns/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /loyaltyReconciliationIssues/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /loyaltyCommandReceipts/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /sessionKudos/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /trainerKudosUsage/{documentId} {
+      allow read, write: if false;
     }
 
     // Accounting documents and double-entry journals are exposed only through

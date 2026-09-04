@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarDays, CheckCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock3, MapPin, Phone, RefreshCw, Search, Timer, UserCheck, UserX, X } from 'lucide-react'
+import { CalendarDays, CheckCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock3, MapPin, Phone, RefreshCw, Search, Sparkles, Timer, UserCheck, UserX, X } from 'lucide-react'
 import {
   bulkConfirmMySessions,
   getMyTrainerWorkspace,
@@ -11,6 +11,7 @@ import {
   type CoachWorkspaceScope,
 } from '../../services/ptOperationsV2Service'
 import type { ViewId } from '../../types'
+import { giveSessionKudos } from '../../features/loyalty/loyaltyService'
 import './OperationsPortalV2.css'
 import './OperationsAttendance.css'
 
@@ -108,6 +109,8 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [kudosBusy, setKudosBusy] = useState('')
+  const [kudosSent, setKudosSent] = useState<Set<string>>(() => new Set())
   const [requestTarget, setRequestTarget] = useState<TrainerSessionSummary | null>(null)
   const [requestType, setRequestType] = useState<'cancel' | 'reschedule'>('cancel')
   const [requestReason, setRequestReason] = useState('')
@@ -288,6 +291,18 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
     setError('')
   }
 
+  const sendKudos = async (session: TrainerSessionSummary) => {
+    if (kudosBusy || kudosSent.has(session.id)) return
+    setKudosBusy(session.id); setError('')
+    try {
+      if (!isDemo) await giveSessionKudos({ sessionId: session.id, studentId: session.studentId, message: 'Buổi tập rất tốt hôm nay — tiếp tục giữ phong độ nhé! 🔥' })
+      setKudosSent((current) => new Set(current).add(session.id))
+      setNotice(`Đã gửi lời khen tới ${studentNames.get(session.studentId) || 'học viên'}. Kudos chỉ tạo huy hiệu, không cộng điểm đổi quà.`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không thể gửi Kudos cho buổi tập này.')
+    } finally { setKudosBusy('') }
+  }
+
   const bulkConfirmToday = async (items: TrainerSessionSummary[]) => {
     if (attendanceBusy || !items.length) return
     setAttendanceBusy('bulk'); setError('')
@@ -424,6 +439,7 @@ export default function TrainerPortalV2({ section = 'students', embedded = false
               {state === 'pending' && started ? <small className="opv2-auto-attendance-note"><Clock3 size={13} /> PT có 48 giờ để xác nhận; quá hạn Aura tự ghi Có tập.</small> : null}
               {state === 'pending' && started ? <div className="opv2-quick-attendance"><button type="button" disabled={attendanceBusy === session.id} onClick={() => openAttendance(session)}><UserCheck size={17} /> Có tập</button><button type="button" className="is-no-show" disabled={!noShowReady || attendanceBusy === session.id} title={!noShowReady ? 'Có thể xác nhận sau 15 phút từ giờ bắt đầu' : undefined} onClick={() => void markAttendance(session, 'no_show')}><UserX size={17} /> Không đến</button></div> : null}
               {state !== 'pending' ? <button className="opv2-correct-attendance" type="button" onClick={() => openAttendance(session)}>Sửa xác nhận</button> : null}
+              {['present', 'late'].includes(state) ? <button className="opv2-kudos" type="button" disabled={kudosBusy === session.id || kudosSent.has(session.id)} onClick={() => void sendKudos(session)}><Sparkles size={15} /> {kudosSent.has(session.id) ? 'Đã gửi Kudos' : kudosBusy === session.id ? 'Đang gửi…' : 'Gửi Kudos'}</button> : null}
               {!started ? <button className="opv2-request-link" type="button" disabled={!requestable} onClick={() => openRequest(session)}>Đổi / hủy trước 12 giờ</button> : null}
             </div>
           </article>

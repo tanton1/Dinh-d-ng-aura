@@ -151,6 +151,7 @@ export interface AdminStudentDirectoryItem {
 
 export type StudentView =
   | 'home'
+  | 'aura-club'
   | 'courses'
   | 'course-detail'
   | 'schedule'
@@ -181,6 +182,7 @@ export type StudentView =
 
 export type AdminView =
   | 'admin-dashboard'
+  | 'admin-loyalty'
   | 'admin-today-sessions'
   | 'admin-courses'
   | 'admin-course-editor'
@@ -211,7 +213,7 @@ export type ViewId = StudentView | AdminView
 
 export type FitnessGoalTarget = 'all' | 'lose-fat' | 'gain-muscle' | 'maintain' | 'health'
 
-export type NotificationCategory = 'workout' | 'nutrition' | 'learning' | 'coach' | 'general'
+export type NotificationCategory = 'workout' | 'nutrition' | 'learning' | 'coach' | 'loyalty' | 'general'
 
 export interface NotificationSettings {
   /** Master switch for in-app and push reminders. */

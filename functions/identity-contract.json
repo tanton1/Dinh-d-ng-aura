@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "accessRoles": ["student", "staff", "admin", "super_admin"],
   "staffPositions": [
     "coach_online",
@@ -13,7 +13,8 @@
     "dashboard.view",
     "coach.workspace.view",
     "attendance.self.view",
-    "payroll.self.view"
+    "payroll.self.view",
+    "loyalty.student.read"
   ],
   "positionCapabilities": {
     "coach_online": [
@@ -29,7 +30,8 @@
       "pt.workout_note.create",
       "pt.workout.manage",
       "renewals.workspace.view",
-      "renewals.case.assigned_student.support"
+      "renewals.case.assigned_student.support",
+      "loyalty.kudos.create"
     ],
     "sales": [
       "dashboard.view",
@@ -38,7 +40,8 @@
       "sales.student_draft.create",
       "sales.contract.submit",
       "renewals.workspace.view",
-      "renewals.case.self.manage"
+      "renewals.case.self.manage",
+      "loyalty.referral.capture"
     ],
     "branch_manager": [
       "dashboard.view",
@@ -50,7 +53,11 @@
       "pt.workout.manage",
       "renewals.workspace.view",
       "renewals.branch.manage",
-      "renewals.approval.manage"
+      "renewals.approval.manage",
+      "loyalty.dashboard.read",
+      "loyalty.redemption.review",
+      "loyalty.redemption.fulfill",
+      "loyalty.audit.read"
     ],
     "academy_editor": [
       "dashboard.view",
@@ -77,7 +84,19 @@
     "attendance.self.view",
     "payroll.self.view",
     "academy.operations.manage",
-    "eat_clean.operations.manage"
+    "eat_clean.operations.manage",
+    "loyalty.dashboard.read",
+    "loyalty.student.read",
+    "loyalty.reward.manage",
+    "loyalty.redemption.review",
+    "loyalty.redemption.fulfill",
+    "loyalty.policy.manage",
+    "loyalty.adjust.request",
+    "loyalty.adjust.approve",
+    "loyalty.ambassador.manage",
+    "loyalty.audit.read",
+    "loyalty.referral.capture",
+    "loyalty.kudos.create"
   ],
   "superAdminCapabilities": ["identity.admin_role.manage", "system.manage"]
 }
