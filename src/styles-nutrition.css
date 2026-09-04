@@ -2652,3 +2652,41 @@
   .nutrition-sync-banner-wrap,
   .nutrition-profile-sync-guard { padding-left: 12px; padding-right: 12px; }
 }
+
+/* UI 4.0 mobile reading surfaces: remove nested page gutters while preserving
+   a deliberate 12px content gutter inside the food catalog itself. */
+@media (max-width: 767px) {
+  .nutrition-page--v4 #nutrition-workspace-panel-today {
+    width: 100%;
+    padding: 8px 0 calc(108px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .nutrition-page--v4 .nutrition-home--cal-ai {
+    width: 100%;
+    max-width: none;
+    padding-inline: 8px;
+  }
+
+  .nutrition-page--v4 .nutrition-date-strip {
+    width: calc(100% + 16px);
+    margin-inline: -8px;
+    border-inline: 0;
+    border-radius: 0;
+  }
+
+  .nutrition-page--v4 .nutrition-route-page--catalog {
+    width: 100%;
+    padding: 0 0 calc(100px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .nutrition-page--v4 .nutrition-route-page--catalog .nutrition-catalog-modal {
+    width: 100%;
+    border-inline: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .nutrition-page--v4 .nutrition-route-page--catalog .nutrition-catalog-body {
+    padding-inline: 12px;
+  }
+}

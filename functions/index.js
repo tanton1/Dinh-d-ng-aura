@@ -341,6 +341,29 @@ exports.refreshStudent360Projection = student360Functions.refreshStudent360Proje
 exports.getStudent360ContractWorkspace = student360Functions.getStudent360ContractWorkspace
 exports.mutateStudent360Contract = student360Functions.mutateStudent360Contract
 
+// Student 360 is also exposed from the overflow region. The original callable
+// names remain available in asia-southeast1 during rollout so older clients do
+// not break. Firestore stays on the canonical named database above.
+const student360RegionalOnCall = (optionsOrHandler, maybeHandler) => (
+  typeof optionsOrHandler === 'function'
+    ? onCall({ region: 'asia-east1' }, optionsOrHandler)
+    : onCall({ ...optionsOrHandler, region: 'asia-east1' }, maybeHandler)
+)
+const student360RegionalFunctions = createStudent360Functions({
+  db,
+  onCall: student360RegionalOnCall,
+  storage,
+  logger,
+})
+exports.listStudent360DirectoryRegional = student360RegionalFunctions.listStudent360Directory
+exports.getStudent360OverviewRegional = student360RegionalFunctions.getStudent360Overview
+exports.listStudent360TimelineRegional = student360RegionalFunctions.listStudent360Timeline
+exports.createStudentCareActivityRegional = student360RegionalFunctions.createStudentCareActivity
+exports.getStudent360ProgressPhotosRegional = student360RegionalFunctions.getStudent360ProgressPhotos
+exports.refreshStudent360ProjectionRegional = student360RegionalFunctions.refreshStudent360Projection
+exports.getStudent360ContractWorkspaceRegional = student360RegionalFunctions.getStudent360ContractWorkspace
+exports.mutateStudent360ContractRegional = student360RegionalFunctions.mutateStudent360Contract
+
 const student360Trigger = (document) => onDocumentWritten({
   document,
   database: databaseId,

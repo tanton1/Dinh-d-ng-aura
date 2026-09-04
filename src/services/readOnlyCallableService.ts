@@ -1,4 +1,4 @@
-import { httpsCallable } from 'firebase/functions'
+import { httpsCallable, type Functions } from 'firebase/functions'
 import { firebaseAuth } from '../lib/firebase'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
 import { reportClientIssue } from './clientTelemetryService'
@@ -8,6 +8,8 @@ export interface ReadOnlyCallableOptions {
   signal?: AbortSignal
   timeoutMs?: number
   maximumAttempts?: number
+  /** Override the default regional Functions client for overflow read endpoints. */
+  functionsClient?: Functions | null
 }
 
 export async function callReadOnlyFunction<Input, Output>(
@@ -15,8 +17,11 @@ export async function callReadOnlyFunction<Input, Output>(
   input: Input,
   options: ReadOnlyCallableOptions = {},
 ): Promise<Output> {
-  if (!firebaseFunctions) throw new Error('Firebase Functions chưa sẵn sàng.')
-  const invoke = httpsCallable<Input, Output>(firebaseFunctions, name, { timeout: options.timeoutMs ?? 18_000 })
+  const functionsClient = options.functionsClient === undefined
+    ? firebaseFunctions
+    : options.functionsClient
+  if (!functionsClient) throw new Error('Firebase Functions chưa sẵn sàng.')
+  const invoke = httpsCallable<Input, Output>(functionsClient, name, { timeout: options.timeoutMs ?? 18_000 })
   const currentUser = firebaseAuth?.currentUser
   return runReadOnlyWithRetry(async () => (await invoke(input)).data, {
     signal: options.signal,

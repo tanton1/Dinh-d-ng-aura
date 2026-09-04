@@ -602,6 +602,17 @@ test('Student 360 is callable-only and redacts finance, photos and cross-role ac
     'getStudent360ProgressPhotos',
     'refreshStudent360Projection',
   ]) assert.match(functionsSource, new RegExp(`exports\\.${endpoint} = student360Functions\\.${endpoint}`))
+  for (const endpoint of [
+    'listStudent360Directory',
+    'getStudent360Overview',
+    'listStudent360Timeline',
+    'createStudentCareActivity',
+    'getStudent360ProgressPhotos',
+    'refreshStudent360Projection',
+    'getStudent360ContractWorkspace',
+    'mutateStudent360Contract',
+  ]) assert.match(functionsSource, new RegExp(`exports\\.${endpoint}Regional = student360RegionalFunctions\\.${endpoint}`))
+  assert.match(functionsSource, /onCall\(\{ \.\.\.optionsOrHandler, region: 'asia-east1' \}, maybeHandler\)/)
   for (const collection of ['studentOperationalViews', 'studentTimelineEvents', 'studentCareActivities']) {
     assert.match(rules, new RegExp(`match /${collection}/[\\s\\S]*?allow read, write: if false;`))
   }

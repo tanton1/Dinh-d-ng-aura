@@ -62,6 +62,12 @@ test('nutrition V4 uses four primary sections and compatible nested routes', asy
   await enableAuraUiV4(page)
   await page.goto('/#/nutrition')
 
+  const todayPanel = page.locator('#nutrition-workspace-panel-today')
+  const todayBox = await todayPanel.boundingBox()
+  expect(todayBox).not.toBeNull()
+  expect(todayBox!.x).toBeLessThanOrEqual(1)
+  expect(todayBox!.x + todayBox!.width).toBeGreaterThanOrEqual(389)
+
   const sections = page.getByRole('navigation', { name: 'Điều hướng dinh dưỡng' })
   await expect(sections.getByRole('button')).toHaveCount(4, { timeout: 10_000 })
   expect(await sections.getByRole('button').allTextContents()).toEqual(['Hôm nay', 'Nhật ký', 'Kế hoạch', 'Khám phá'])
@@ -70,6 +76,24 @@ test('nutrition V4 uses four primary sections and compatible nested routes', asy
   await page.getByRole('button', { name: /Thư viện món ăn/ }).click()
   await expect(page).toHaveURL(/#\/nutrition\?section=explore&view=catalog$/)
   await expect(page.getByRole('heading', { name: /Món ăn & thực phẩm/i })).toBeVisible()
+  const catalogBox = await page.locator('.nutrition-route-page--catalog').boundingBox()
+  expect(catalogBox).not.toBeNull()
+  expect(catalogBox!.x).toBeLessThanOrEqual(1)
+  expect(catalogBox!.x + catalogBox!.width).toBeGreaterThanOrEqual(389)
+  await expectNoHorizontalOverflow(page)
+})
+
+test('Aura Academy hero uses the responsive nutrition curriculum artwork', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await enableAuraUiV4(page)
+  await page.goto('/#/courses')
+
+  const hero = page.locator('.academy-hero-header')
+  const artwork = hero.locator('.academy-hero-media img')
+  await expect(hero.getByRole('heading', { name: /Khóa học dinh dưỡng chuyên sâu/i })).toBeVisible()
+  await expect(hero.getByText('20 chương toàn văn')).toBeVisible()
+  await expect(artwork).toBeVisible()
+  expect(await artwork.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= 1200)).toBe(true)
   await expectNoHorizontalOverflow(page)
 })
 

@@ -10,7 +10,6 @@ import {
   Dumbbell,
   Filter,
   Flame,
-  GraduationCap,
   Leaf,
   RotateCcw,
   Search,
@@ -193,8 +192,19 @@ export default function CoursesPage({
           Học theo lộ trình, ghi nhớ chủ động và chứng minh năng lực bằng bài kiểm tra thực hành.
         </p>
 
-        <div className="academy-hero-decoration">
-          <GraduationCap size={110} color="#ff2d91" strokeWidth={1} opacity={0.2} />
+        <div className="academy-hero-proof" aria-label="Nội dung giáo trình Aura">
+          <span><strong>20</strong> chương toàn văn</span>
+          <span><strong>PDF</strong> đọc trực tiếp</span>
+          <span><strong>360°</strong> kiến thức ứng dụng</span>
+        </div>
+
+        <div className="academy-hero-media" aria-hidden="true">
+          <img
+            src="/images/aura-nutrition-academy-hero-v1.jpg"
+            alt=""
+            loading="eager"
+            fetchPriority="high"
+          />
         </div>
       </header>
 
