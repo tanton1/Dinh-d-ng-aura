@@ -98,6 +98,7 @@ test('Aura UI rollout is Super Admin-only, fail-closed and audited', () => {
   assert.match(functionsIndex, /action: 'ui\.rollout\.config\.updated'/)
   assert.match(functionsIndex, /action: 'ui\.rollout\.assignment\.updated'/)
   assert.match(functionsIndex, /db\.runTransaction/)
+  assert.match(functionsIndex, /exports\.updateAuraUiRollout = onCall\(\{[\s\S]*?cpu: 0\.1666,[\s\S]*?maxInstances: 1,[\s\S]*?concurrency: 1,/)
 })
 
 test('legacy learner user and student labels normalize without opening staff privileges', () => {

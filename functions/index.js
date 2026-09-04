@@ -607,7 +607,7 @@ exports.updateAuraUiRollout = onCall({
   memory: '256MiB',
   cpu: 0.1666,
   maxInstances: 1,
-  concurrency: 20,
+  concurrency: 1,
 }, async (request) => {
   const actorUid = await requireTrustedSuperAdmin(request)
   const action = request.data?.action
