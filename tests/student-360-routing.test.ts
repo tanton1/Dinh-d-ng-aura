@@ -46,4 +46,5 @@ test('Student 360 contract commands stay inside the 360 workspace instead of reo
   assert.match(workspace, /mutateStudent360Contract/)
   assert.match(workspace, /Quản lý thu tiền/)
   assert.match(workspace, /Tạo hợp đồng/)
+  assert.match(workspace, /Mua thêm buổi/)
 })

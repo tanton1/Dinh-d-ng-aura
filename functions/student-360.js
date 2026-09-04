@@ -231,15 +231,20 @@ function nonNegativeInteger(value, label, maximum = 1_000_000_000) {
 }
 
 function addCalendarMonths(value, amount) {
-  const date = new Date(`${contractDateKey(value, 'Ngày bắt đầu')}T12:00:00+07:00`)
-  date.setUTCMonth(date.getUTCMonth() + Math.max(1, Math.min(120, Math.floor(finite(amount, 1)))))
-  return vietnamDateKey(date)
+  const [year, month, day] = contractDateKey(value, 'Ngày bắt đầu').split('-').map(Number)
+  const delta = Math.max(1, Math.min(120, Math.floor(finite(amount, 1))))
+  const targetMonth = month - 1 + delta
+  const targetYear = year + Math.floor(targetMonth / 12)
+  const normalizedMonth = ((targetMonth % 12) + 12) % 12
+  const lastDay = new Date(Date.UTC(targetYear, normalizedMonth + 1, 0)).getUTCDate()
+  return `${targetYear}-${String(normalizedMonth + 1).padStart(2, '0')}-${String(Math.min(day, lastDay)).padStart(2, '0')}`
 }
 
 function contractMutationTitle(action) {
   return {
     create: 'Đã tạo hợp đồng',
     edit: 'Đã cập nhật hợp đồng',
+    add_sessions: 'Đã mua thêm buổi',
     extend: 'Đã gia hạn ngày hợp đồng',
     freeze: 'Đã bảo lưu hợp đồng',
     reopen: 'Đã mở lại hợp đồng',
@@ -248,6 +253,11 @@ function contractMutationTitle(action) {
 }
 
 function contractMutationDescription(action, value = {}) {
+  if (action === 'add_sessions') {
+    const sessions = Math.max(0, Math.floor(finite(value.extraSessions)))
+    const price = Math.max(0, Math.floor(finite(value.extraPrice)))
+    return `Bổ sung ${sessions} buổi${price ? ` · phát sinh ${price.toLocaleString('vi-VN')}đ` : ''}${value.endDate ? ` · hạn mới ${bounded(value.endDate, 10)}` : ''}`
+  }
   if (action === 'extend') return `Gia hạn đến ${bounded(value.endDate, 10)}`
   if (action === 'freeze') return 'Tạm dừng nhận lịch mới; quyền lợi và lịch sử vẫn được giữ.'
   if (action === 'reopen') return `Mở lại hiệu lực đến ${bounded(value.endDate, 10)}`
@@ -504,6 +514,9 @@ async function assignmentNames(db, sources, contract) {
 function sourceTimelineEvents(studentId, sources) {
   const values = []
   for (const contract of sources.contracts || []) {
+    // Student 360 mutations already create a dedicated immutable audit event.
+    // Do not add a second generic event for the same contract revision.
+    if (contract.student360LastActivityId) continue
     const occurred = timestampMillis(contract.updatedAt || contract.createdAt) || dateKeyMillis(contract.startDate)
     const status = bounded(contract.status, 40) || 'active'
     const title = status === 'frozen' ? 'Hợp đồng đang bảo lưu' : status === 'expired' ? 'Hợp đồng đã hết hạn' : status === 'cancelled' ? 'Hợp đồng đã hủy' : 'Cập nhật hợp đồng'
@@ -903,7 +916,10 @@ function safeTimelineEvent(event, permissions) {
   if (event.type === 'workout' && !permissions.canViewTraining) return null
   if (['training', 'off', 'freeze', 'schedule_change'].includes(event.type) && !permissions.canViewOperations) return null
   const result = { ...event, metadata: { ...(event.metadata || {}) } }
-  if (event.audience === 'finance' && !permissions.canViewFinancialAmounts) delete result.metadata.amount
+  if (event.audience === 'finance' && !permissions.canViewFinancialAmounts) {
+    delete result.metadata.amount
+    result.description = 'Trạng thái tài chính hợp đồng đã được cập nhật.'
+  }
   return result
 }
 
@@ -981,7 +997,16 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
 
   const contractWorkspace = async (actor, studentId, projection, permissions) => {
     const contractSnapshot = await db.collection('contracts').where('studentId', '==', studentId).limit(50).get()
+    const ids = actorIds(actor)
     const contracts = contractSnapshot.docs
+      .filter((item) => {
+        if (permissions.scope === 'system') return true
+        const value = item.data() || {}
+        if (item.id === projection.contract?.id) return true
+        if (permissions.scope === 'branch') return normalizedArray(actor.branchIds).includes(bounded(value.branchId, 200))
+        if (permissions.scope === 'sales') return includesActor([value.assignedSalesId], ids)
+        return includesActor([value.trainerId, ...normalizedArray(value.trainerIds), ...normalizedArray(value.nutritionPTIds)], ids)
+      })
       .map((item) => contractWorkspaceRecord(item, permissions.canViewFinancialAmounts, permissions.canManageContract))
       .sort((left, right) => right.startDate.localeCompare(left.startDate) || right.id.localeCompare(left.id))
     const canManageFinancials = actor.capabilities.includes('finance.operations.manage')
@@ -1076,7 +1101,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const actor = await trustedAccessContext(request, db)
     const studentId = documentId(request.data?.studentId)
     const action = bounded(request.data?.action, 30)
-    if (!['create', 'edit', 'extend', 'freeze', 'reopen', 'cancel'].includes(action)) {
+    if (!['create', 'edit', 'add_sessions', 'extend', 'freeze', 'reopen', 'cancel'].includes(action)) {
       throw new HttpsError('invalid-argument', 'Nghiệp vụ hợp đồng không hợp lệ.')
     }
     const { projection, permissions } = await loadAuthorizedProjection(db, actor, studentId, mondayDateKey(), false)
@@ -1108,6 +1133,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
 
       let next = current ? { ...current } : {}
       let reason = bounded(request.data?.reason, 500)
+      let eventDetails = null
       if (action === 'create' || action === 'edit') {
         const packageId = documentId(input.packageId, 'Gói tập')
         const packageSnapshot = await transaction.get(db.doc(`packages/${packageId}`))
@@ -1184,6 +1210,43 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
           status: action === 'create' ? (startDate > vietnamDateKey() ? 'future' : 'active') : current.status,
           note: bounded(input.note, 1_000) || bounded(current?.note, 1_000),
         }
+      } else if (action === 'add_sessions') {
+        if (!canManageFinancials) throw new HttpsError('permission-denied', 'Chỉ bộ phận tài chính được ghi nhận mua thêm buổi.')
+        if (!['active', 'future', 'frozen'].includes(bounded(current.status, 30))) {
+          throw new HttpsError('failed-precondition', 'Chỉ hợp đồng đang hiệu lực, sắp hiệu lực hoặc bảo lưu mới được mua thêm buổi.')
+        }
+        if (reason.length < 2) throw new HttpsError('invalid-argument', 'Vui lòng nhập nội dung thỏa thuận mua thêm buổi.')
+        const extraSessions = nonNegativeInteger(request.data?.extraSessions, 'Số buổi mua thêm', 100_000)
+        if (!extraSessions) throw new HttpsError('invalid-argument', 'Số buổi mua thêm phải lớn hơn 0.')
+        const extraDurationMonths = nonNegativeInteger(request.data?.extraDurationMonths, 'Số tháng gia hạn', 120)
+        const extraPrice = nonNegativeInteger(request.data?.extraPrice, 'Giá trị mua thêm')
+        const previousEndDate = contractDateKey(current.endDate, 'Ngày hết hạn hiện tại')
+        const newEndDate = extraDurationMonths ? addCalendarMonths(previousEndDate, extraDurationMonths) : previousEndDate
+        const installments = Array.isArray(current.installments) ? [...current.installments] : []
+        if (extraPrice) {
+          if (installments.length >= 24) throw new HttpsError('failed-precondition', 'Hợp đồng đã đạt tối đa 24 kỳ thanh toán.')
+          const paymentDueDate = contractDateKey(request.data?.paymentDueDate, 'Ngày hẹn thanh toán')
+          if (paymentDueDate < vietnamDateKey()) throw new HttpsError('invalid-argument', 'Ngày hẹn thanh toán không thể ở quá khứ.')
+          installments.push({ id: `${contractId}-addon-${auditReference.id}`, amount: extraPrice, date: paymentDueDate, status: 'pending' })
+        }
+        const nextPending = installments.filter((item) => item.status === 'pending' && item.date).sort((left, right) => bounded(left.date, 10).localeCompare(bounded(right.date, 10)))[0]
+        next.totalSessions = Math.max(0, Math.floor(finite(current.totalSessions))) + extraSessions
+        next.totalPrice = Math.max(0, Math.floor(finite(current.totalPrice))) + extraPrice
+        next.endDate = newEndDate
+        next.installments = installments
+        next.nextPaymentDate = nextPending?.date || null
+        next.note = bounded(`${bounded(current.note, 700)}${current.note ? '\n' : ''}Mua thêm ${extraSessions} buổi: ${reason}`, 1_000)
+        if (newEndDate !== previousEndDate) {
+          next.extensions = [...(Array.isArray(current.extensions) ? current.extensions : []), {
+            id: auditReference.id,
+            oldEndDate: previousEndDate,
+            newEndDate,
+            reason: `Mua thêm ${extraSessions} buổi · ${reason}`,
+            createdAt: new Date(now).toISOString(),
+            createdBy: actor.uid,
+          }].slice(-100)
+        }
+        eventDetails = { extraSessions, extraPrice, extraDurationMonths, endDate: newEndDate }
       } else if (action === 'extend') {
         const newEndDate = contractDateKey(request.data?.newEndDate, 'Ngày hết hạn mới')
         const previousEndDate = contractDateKey(current.endDate, 'Ngày hết hạn hiện tại')
@@ -1206,7 +1269,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
       } else if (action === 'reopen') {
         if (current.status !== 'frozen') throw new HttpsError('failed-precondition', 'Hợp đồng chưa ở trạng thái bảo lưu.')
         const frozenAt = timestampMillis(current.frozenAt)
-        const frozenDays = frozenAt ? Math.max(0, Math.ceil((now - frozenAt) / 86_400_000)) : 0
+        const frozenDays = frozenAt ? Math.max(0, daysBetween(vietnamDateKey(new Date(frozenAt)), vietnamDateKey(new Date(now)))) : 0
         const previousEndDate = contractDateKey(current.endDate, 'Ngày hết hạn hiện tại')
         const newEndDate = addDays(previousEndDate, frozenDays)
         next.status = 'active'
@@ -1278,9 +1341,9 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         auditReference.id,
         now,
         contractMutationTitle(action),
-        contractMutationDescription(action, { ...next, reason }),
+        contractMutationDescription(action, { ...next, ...eventDetails, reason }),
         'finance',
-        { contractId, action, status: next.status || '', actorName: actor.actorName, changedFields },
+        { contractId, action, status: next.status || '', actorName: actor.actorName, changedFields, ...(eventDetails || {}) },
       )
       transaction.set(db.doc(`studentTimelineEvents/${event.id}`), event)
       return { contractId, revision: nextRevision, action }
@@ -1469,6 +1532,7 @@ module.exports = {
   ACTIVE_SESSION_STATUSES,
   HEALTH_FORMULA_VERSION,
   OVERVIEW_SCHEMA_VERSION,
+  addCalendarMonths,
   buildHealthScore,
   buildStudent360Projection,
   contractUsage,
@@ -1479,6 +1543,7 @@ module.exports = {
   redactProjection,
   reconcileStudent360ProjectionBatch,
   sourceTimelineEvents,
+  safeTimelineEvent,
   studentIdFromAccountUid,
   studentAccountProfile,
   syncStudent360ProjectionFromEvent,

@@ -248,6 +248,7 @@ export interface Student360ContractWorkspace {
 export type Student360ContractMutation =
   | { studentId: string; action: 'create'; contract: Record<string, unknown> }
   | { studentId: string; contractId: string; expectedRevision: number; action: 'edit'; contract: Record<string, unknown> }
+  | { studentId: string; contractId: string; expectedRevision: number; action: 'add_sessions'; extraSessions: number; extraDurationMonths: number; extraPrice: number; paymentDueDate?: string; reason: string }
   | { studentId: string; contractId: string; expectedRevision: number; action: 'extend'; newEndDate: string; reason: string }
   | { studentId: string; contractId: string; expectedRevision: number; action: 'freeze' | 'reopen'; reason?: string }
   | { studentId: string; contractId: string; expectedRevision: number; action: 'cancel'; reason: string; cancelDebt: boolean }

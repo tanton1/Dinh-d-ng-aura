@@ -1,19 +1,27 @@
 const assert = require('node:assert/strict')
 const test = require('node:test')
 const {
+  addCalendarMonths,
   buildHealthScore,
   contractInstallments,
   contractMutationTitle,
   contractUsage,
   permissionsFor,
   redactProjection,
+  safeTimelineEvent,
   sourceTimelineEvents,
   studentIdFromAccountUid,
   studentAccountProfile,
 } = require('./student-360')
 
+test('contract month duration clamps month-end dates instead of drifting into a later month', () => {
+  assert.equal(addCalendarMonths('2026-01-31', 1), '2026-02-28')
+  assert.equal(addCalendarMonths('2028-01-31', 1), '2028-02-29')
+})
+
 test('contract workspace exposes named, immutable CRM actions', () => {
   assert.equal(contractMutationTitle('edit'), 'Đã cập nhật hợp đồng')
+  assert.equal(contractMutationTitle('add_sessions'), 'Đã mua thêm buổi')
   assert.equal(contractMutationTitle('freeze'), 'Đã bảo lưu hợp đồng')
   assert.equal(contractMutationTitle('reopen'), 'Đã mở lại hợp đồng')
   assert.equal(contractMutationTitle('cancel'), 'Đã hủy hợp đồng')
@@ -111,6 +119,25 @@ test('CRM timeline includes canonical finance ledger cash events and ignores rev
   assert.equal(rows.length, 1)
   assert.equal(rows[0].title, 'Đã ghi nhận thanh toán')
   assert.equal(rows[0].metadata.amount, 2_000_000)
+})
+
+test('CRM timeline avoids duplicate generic contract events after an audited 360 mutation', () => {
+  const rows = sourceTimelineEvents('student-1', {
+    contracts: [{ id: 'contract-1', packageName: 'PT 24 buổi', status: 'active', startDate: '2026-08-01', student360LastActivityId: 'audit-1' }],
+    sessions: [], workoutLogs: [], leaveRequests: [], sessionRequests: [], mealLogs: [], payments: [], renewals: [],
+    mealReviews: [], dailyCheckins: [], profile: null, bodyMetrics: [], progressPhotos: [],
+  })
+  assert.equal(rows.length, 0)
+})
+
+test('CRM timeline removes amounts from both metadata and descriptions for PT and coach', () => {
+  const result = safeTimelineEvent({
+    id: 'event-1', type: 'finance', audience: 'finance', title: 'Đã mua thêm buổi',
+    description: 'Bổ sung 12 buổi · phát sinh 6.000.000đ', metadata: { amount: 6_000_000, contractId: 'contract-1' },
+  }, { canViewFinancialStatus: true, canViewFinancialAmounts: false })
+  assert.equal(result.description.includes('6.000.000'), false)
+  assert.equal(Object.prototype.hasOwnProperty.call(result.metadata, 'amount'), false)
+  assert.equal(result.metadata.contractId, 'contract-1')
 })
 
 test('health score reweights only available components and exposes confidence', () => {

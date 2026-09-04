@@ -11,6 +11,7 @@ import {
   LoaderCircle,
   PauseCircle,
   PlayCircle,
+  PlusCircle,
   Printer,
   RefreshCw,
   RotateCcw,
@@ -58,6 +59,14 @@ interface ContractForm {
   note: string
 }
 
+interface AddSessionsForm {
+  extraSessions: number
+  extraDurationMonths: number
+  extraPrice: number
+  paymentDueDate: string
+  reason: string
+}
+
 interface Props {
   studentId: string
   overview: Student360Overview
@@ -75,9 +84,12 @@ function dateLabel(value?: string | null) {
 }
 
 function addMonths(value: string, months: number) {
-  const parsed = new Date(`${value}T12:00:00+07:00`)
-  parsed.setUTCMonth(parsed.getUTCMonth() + months)
-  return parsed.toISOString().slice(0, 10)
+  const [year, month, day] = value.split('-').map(Number)
+  const targetMonth = month - 1 + months
+  const targetYear = year + Math.floor(targetMonth / 12)
+  const normalizedMonth = ((targetMonth % 12) + 12) % 12
+  const lastDay = new Date(Date.UTC(targetYear, normalizedMonth + 1, 0)).getUTCDate()
+  return `${targetYear}-${String(normalizedMonth + 1).padStart(2, '0')}-${String(Math.min(day, lastDay)).padStart(2, '0')}`
 }
 
 function statusLabel(value: Student360ContractRecord['status']) {
@@ -183,6 +195,7 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
   const [formMode, setFormMode] = useState<FormMode | null>(null)
   const [form, setForm] = useState<ContractForm | null>(null)
   const [extendOpen, setExtendOpen] = useState(false)
+  const [addSessionsForm, setAddSessionsForm] = useState<AddSessionsForm | null>(null)
   const [newEndDate, setNewEndDate] = useState('')
   const [reason, setReason] = useState('')
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
@@ -220,6 +233,7 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
       await onChanged()
       setFormMode(null)
       setExtendOpen(false)
+      setAddSessionsForm(null)
       setConfirmation(null)
       setReason('')
       onNotice(success)
@@ -281,6 +295,34 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
     }
   }
 
+  const openAddSessions = () => {
+    if (!selected) return
+    setAddSessionsForm({
+      extraSessions: 1,
+      extraDurationMonths: 0,
+      extraPrice: 0,
+      paymentDueDate: new Date().toISOString().slice(0, 10),
+      reason: '',
+    })
+  }
+
+  const saveAddSessions = async () => {
+    if (!selected || !addSessionsForm) return
+    await mutate({
+      studentId,
+      contractId: selected.id,
+      expectedRevision: selected.revision,
+      action: 'add_sessions',
+      extraSessions: addSessionsForm.extraSessions,
+      extraDurationMonths: addSessionsForm.extraDurationMonths,
+      extraPrice: addSessionsForm.extraPrice,
+      ...(addSessionsForm.extraPrice ? { paymentDueDate: addSessionsForm.paymentDueDate } : {}),
+      reason: addSessionsForm.reason,
+    }, addSessionsForm.extraPrice
+      ? 'Đã bổ sung buổi và tạo kỳ phải thu. Có thể thu tiền ngay trong bảng Thanh toán.'
+      : 'Đã bổ sung quyền lợi buổi tập và lưu CRM Timeline.')
+  }
+
   const executeConfirmation = async () => {
     if (!confirmation || !selected) return
     if (confirmation.action === 'payment' || confirmation.action === 'refund') {
@@ -324,6 +366,7 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
       <div>
         {selected && workspace.permissions.canViewFinancialAmounts && <button type="button" onClick={() => setInvoiceOpen(true)}><Printer /> Xem / In HĐ</button>}
         {selected && workspace.permissions.canManageContract && <button type="button" onClick={() => openForm('edit')}><FilePenLine /> Chỉnh sửa</button>}
+        {selected && workspace.permissions.canEditFinancialTerms && ['active', 'future', 'frozen'].includes(selected.status) && <button type="button" onClick={openAddSessions}><PlusCircle /> Mua thêm buổi</button>}
         {selected && workspace.permissions.canManageContract && selected.status !== 'cancelled' && <button type="button" onClick={() => { setNewEndDate(selected.endDate); setReason(''); setExtendOpen(true) }}><CalendarClock /> Gia hạn ngày</button>}
         {selected && workspace.permissions.canManageContract && selected.status === 'active' && <button type="button" onClick={() => setConfirmation({ action: 'freeze', title: 'Xác nhận bảo lưu', message: 'Học viên sẽ tạm ngừng nhận lịch mới. Quyền lợi và lịch sử vẫn được giữ nguyên.' })}><PauseCircle /> Bảo lưu</button>}
         {selected && workspace.permissions.canManageContract && selected.status === 'frozen' && <button type="button" onClick={() => setConfirmation({ action: 'reopen', title: 'Mở lại hợp đồng', message: 'Aura sẽ cộng số ngày bảo lưu vào ngày hết hạn và cho phép xếp lịch trở lại.' })}><PlayCircle /> Mở bảo lưu</button>}
@@ -366,11 +409,13 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
       <label>Chi nhánh<select required value={form.branchId} onChange={(event) => setForm({ ...form, branchId: event.target.value })}>{workspace.branches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label>Ngày bắt đầu<input required type="date" value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} /></label>
       <label>Ngày kết thúc<input required type="date" min={form.startDate} value={form.endDate} onChange={(event) => setForm({ ...form, endDate: event.target.value })} /></label>
-      <label>Tổng số buổi<input required type="number" min={selected?.usedSessions || 0} value={form.totalSessions} onChange={(event) => setForm({ ...form, totalSessions: Number(event.target.value) })} /></label>
+      <label>Tổng số buổi<input required type="number" min={formMode === 'edit' ? selected?.usedSessions || 0 : 0} value={form.totalSessions} onChange={(event) => setForm({ ...form, totalSessions: Number(event.target.value) })} /></label>
       {workspace.permissions.canEditFinancialTerms && <><label>Giá trị hợp đồng<input required type="number" min="0" value={form.totalPrice} onChange={(event) => setForm({ ...form, totalPrice: Number(event.target.value) })} /></label><label>Giảm giá<input required type="number" min="0" max={form.totalPrice} value={form.discount} onChange={(event) => setForm({ ...form, discount: Number(event.target.value) })} /></label></>}
     </div><fieldset><legend>PT chính/phụ</legend><div className="student360-contract-person-picker">{workspace.trainers.filter((item) => !item.branchId || item.branchId === form.branchId).map((item) => <label key={item.id}><input type="checkbox" checked={form.trainerIds.includes(item.id)} onChange={() => setForm({ ...form, trainerIds: form.trainerIds.includes(item.id) ? form.trainerIds.filter((id) => id !== item.id) : [...form.trainerIds, item.id] })} />{item.name}</label>)}</div></fieldset><fieldset><legend>Coach dinh dưỡng</legend><div className="student360-contract-person-picker">{workspace.trainers.filter((item) => !item.branchId || item.branchId === form.branchId).map((item) => <label key={item.id}><input type="checkbox" checked={form.nutritionPTIds.includes(item.id)} onChange={() => setForm({ ...form, nutritionPTIds: form.nutritionPTIds.includes(item.id) ? form.nutritionPTIds.filter((id) => id !== item.id) : [...form.nutritionPTIds, item.id] })} />{item.name}</label>)}</div></fieldset>{workspace.permissions.canEditFinancialTerms && <fieldset><legend>Kế hoạch trả góp</legend><div className="student360-contract-form-installments">{form.installments.map((item) => <div key={item.id}><input type="date" disabled={item.status !== 'pending'} value={item.date} onChange={(event) => setForm({ ...form, installments: form.installments.map((value) => value.id === item.id ? { ...value, date: event.target.value } : value) })} /><input type="number" min="0" disabled={item.status !== 'pending'} value={item.amount || 0} onChange={(event) => setForm({ ...form, installments: form.installments.map((value) => value.id === item.id ? { ...value, amount: Number(event.target.value) } : value) })} /><span>{installmentLabel(item.status)}</span>{item.status === 'pending' && <button type="button" onClick={() => setForm({ ...form, installments: form.installments.filter((value) => value.id !== item.id) })}><X /></button>}</div>)}<button type="button" onClick={() => setForm({ ...form, installments: [...form.installments, { id: `installment-${crypto.randomUUID()}`, date: form.startDate, amount: 0, status: 'pending' }] })}>+ Thêm kỳ thanh toán</button></div></fieldset>}<label>Ghi chú<textarea rows={3} maxLength={1000} value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label><footer><button type="button" onClick={() => setFormMode(null)}>Hủy</button><button type="submit" disabled={saving}>{saving ? 'Đang lưu…' : 'Lưu hợp đồng'}</button></footer></form></div>}
 
     {extendOpen && selected && <div className="student360-dialog-layer"><button type="button" className="student360-dialog-backdrop" aria-label="Đóng" onClick={() => setExtendOpen(false)} /><form className="student360-dialog" onSubmit={(event) => { event.preventDefault(); void mutate({ studentId, contractId: selected.id, expectedRevision: selected.revision, action: 'extend', newEndDate, reason }, 'Đã gia hạn ngày và lưu vào CRM Timeline.') }}><header><div><small>GIA HẠN NGÀY</small><h2>Điều chỉnh hạn sử dụng</h2></div><button type="button" onClick={() => setExtendOpen(false)}><X /></button></header><p>Hạn hiện tại: <strong>{dateLabel(selected.endDate)}</strong></p><label>Ngày hết hạn mới<input required type="date" min={selected.endDate} value={newEndDate} onChange={(event) => setNewEndDate(event.target.value)} /></label><label>Lý do<textarea required minLength={2} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ví dụ: bù thời gian gián đoạn đã xác minh…" /></label><footer><button type="button" onClick={() => setExtendOpen(false)}>Hủy</button><button type="submit" disabled={saving}>{saving ? 'Đang lưu…' : 'Xác nhận gia hạn'}</button></footer></form></div>}
+
+    {addSessionsForm && selected && <div className="student360-dialog-layer"><button type="button" className="student360-dialog-backdrop" aria-label="Đóng" onClick={() => setAddSessionsForm(null)} /><form className="student360-dialog student360-contract-addon" onSubmit={(event) => { event.preventDefault(); void saveAddSessions() }}><header><div><small>QUYỀN LỢI BỔ SUNG</small><h2>Mua thêm buổi</h2></div><button type="button" onClick={() => setAddSessionsForm(null)}><X /></button></header><div className="student360-contract-form-grid"><label>Số buổi mua thêm<input required type="number" min="1" max="100000" value={addSessionsForm.extraSessions} onChange={(event) => setAddSessionsForm({ ...addSessionsForm, extraSessions: Number(event.target.value) })} /></label><label>Gia hạn thêm (tháng)<input required type="number" min="0" max="120" value={addSessionsForm.extraDurationMonths} onChange={(event) => setAddSessionsForm({ ...addSessionsForm, extraDurationMonths: Number(event.target.value) })} /></label><label>Giá trị phát sinh<input required type="number" min="0" value={addSessionsForm.extraPrice} onChange={(event) => setAddSessionsForm({ ...addSessionsForm, extraPrice: Number(event.target.value) })} /></label>{addSessionsForm.extraPrice > 0 && <label>Ngày hẹn thanh toán<input required type="date" min={new Date().toISOString().slice(0, 10)} value={addSessionsForm.paymentDueDate} onChange={(event) => setAddSessionsForm({ ...addSessionsForm, paymentDueDate: event.target.value })} /></label>}</div><div className="student360-contract-addon-preview"><span><small>Tổng quyền lợi mới</small><strong>{selected.totalSessions + Math.max(0, addSessionsForm.extraSessions || 0)} buổi</strong></span><span><small>Hạn sử dụng mới</small><strong>{dateLabel(addMonths(selected.endDate, Math.max(0, addSessionsForm.extraDurationMonths || 0)))}</strong></span><span><small>Giá trị hợp đồng mới</small><strong>{money.format((selected.totalPrice || 0) + Math.max(0, addSessionsForm.extraPrice || 0))}đ</strong></span></div><label>Nội dung thỏa thuận<textarea required minLength={2} maxLength={500} rows={3} value={addSessionsForm.reason} onChange={(event) => setAddSessionsForm({ ...addSessionsForm, reason: event.target.value })} placeholder="Ví dụ: mua thêm 12 buổi theo báo giá ngày…" /></label><p className="student360-contract-addon-note"><ShieldCheck /> Aura tạo khoản phải thu riêng; tiền chỉ được ghi nhận sau khi thu qua phiếu thu, không tự tăng số đã thanh toán.</p><footer><button type="button" onClick={() => setAddSessionsForm(null)}>Hủy</button><button type="submit" disabled={saving || addSessionsForm.extraSessions < 1 || addSessionsForm.reason.trim().length < 2}>{saving ? 'Đang ghi nhận…' : 'Xác nhận mua thêm'}</button></footer></form></div>}
 
     {confirmation && <div className="student360-dialog-layer"><button type="button" className="student360-dialog-backdrop" aria-label="Đóng" onClick={() => setConfirmation(null)} /><section className="student360-dialog student360-confirm-dialog" role="alertdialog" aria-modal="true"><header><div><small>XÁC NHẬN NGHIỆP VỤ</small><h2>{confirmation.title}</h2></div><button type="button" onClick={() => setConfirmation(null)}><X /></button></header><p>{confirmation.message}</p>{(confirmation.action === 'cancel' || confirmation.action === 'refund') && <label>{confirmation.action === 'cancel' ? 'Lý do hủy' : 'Lý do hoàn tiền'}<textarea required minLength={2} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} /></label>}<footer><button type="button" onClick={() => setConfirmation(null)}>Quay lại</button><button type="button" className={confirmation.action === 'cancel' ? 'is-danger' : ''} disabled={saving || ((confirmation.action === 'cancel' || confirmation.action === 'refund') && reason.trim().length < 2)} onClick={() => void executeConfirmation()}>{saving ? 'Đang xử lý…' : 'Xác nhận'}</button></footer></section></div>}
 

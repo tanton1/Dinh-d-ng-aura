@@ -307,7 +307,6 @@ exports.syncStudent360LeaveRequest = student360Trigger('leaveRequests/{documentI
 exports.syncStudent360SessionRequest = student360Trigger('sessionRequests/{documentId}')
 exports.syncStudent360Renewal = student360Trigger('contractRenewalCases/{documentId}')
 exports.syncStudent360Payment = student360Trigger('payments/{documentId}')
-exports.syncStudent360FinanceLedger = student360Trigger('ledgerEntries/{documentId}')
 exports.syncStudent360DailyCheckin = student360Trigger('dailyCheckins/{documentId}')
 exports.syncStudent360Profile = student360Trigger('users/{accountUid}')
 exports.syncStudent360MealLog = student360Trigger('users/{accountUid}/mealLogs/{documentId}')
