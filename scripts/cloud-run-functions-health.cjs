@@ -59,6 +59,22 @@ async function listServices(project, region, token) {
   return services
 }
 
+async function revisionFailure(revisionResource, token) {
+  if (!revisionResource) return ''
+  const response = await fetch(`https://run.googleapis.com/v2/${revisionResource}`, {
+    headers: { authorization: `Bearer ${token}` },
+  })
+  if (!response.ok) return `Không đọc được revision mới nhất (${response.status}).`
+  const revision = await response.json()
+  const terminal = condition(revision, 'Ready')
+  const direct = [terminal?.reason, terminal?.message].filter(Boolean).join(': ')
+  if (direct) return direct
+  return (revision.conditions || [])
+    .filter((item) => item.state === 'CONDITION_FAILED' || item.status === 'False')
+    .map((item) => [item.type, item.reason, item.message].filter(Boolean).join(': '))
+    .join(' | ')
+}
+
 async function main() {
   const project = argument('project', process.env.GCLOUD_PROJECT || DEFAULT_PROJECT)
   const region = argument('region', DEFAULT_REGION)
@@ -68,7 +84,7 @@ async function main() {
   const token = await accessToken()
   const allServices = await listServices(project, region, token)
   const services = names.size ? allServices.filter((service) => names.has(serviceName(service))) : allServices
-  const rows = services.map((service) => {
+  const rows = await Promise.all(services.map(async (service) => {
     const name = serviceName(service)
     const readyRevision = String(service.latestReadyRevision || '').split('/').at(-1) || ''
     const createdRevision = String(service.latestCreatedRevision || '').split('/').at(-1) || ''
@@ -84,6 +100,9 @@ async function main() {
     // service is available, but the requested release is not live.
     const latestCreatedIsReady = Boolean(createdRevision) && createdRevision === readyRevision
     const ready = trafficServesReadyRevision && latestCreatedIsReady
+    const latestFailure = !latestCreatedIsReady && names.size
+      ? await revisionFailure(service.latestCreatedRevision, token)
+      : ''
     return {
       name,
       ready,
@@ -92,11 +111,11 @@ async function main() {
       reason: ready
         ? ''
         : !latestCreatedIsReady
-          ? 'Revision mới nhất chưa sẵn sàng; production vẫn đang phục vụ revision cũ.'
+          ? `${latestFailure ? `${latestFailure} ` : ''}Production vẫn đang phục vụ revision cũ.`
           : failureReason(service),
       uri: service.uri || '',
     }
-  }).sort((left, right) => left.name.localeCompare(right.name))
+  })).then((items) => items.sort((left, right) => left.name.localeCompare(right.name)))
   const failed = rows.filter((item) => !item.ready)
 
   if (json) process.stdout.write(`${JSON.stringify({ project, region, total: rows.length, healthy: rows.length - failed.length, failed: failed.length, services: rows }, null, 2)}\n`)
