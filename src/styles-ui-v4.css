@@ -231,6 +231,14 @@ select { font-family: var(--aura-font); }
 .student360-page--v4 .student360-attendance-summary > span { display: grid; gap: 3px; padding: 11px 12px; border-radius: 12px; background: var(--aura-neutral-75); }
 .student360-page--v4 .student360-attendance-summary strong { font-size: 15px; }
 .student360-page--v4 .student360-attendance-summary small { color: var(--aura-neutral-700); font-size: 12px; }
+@media (max-width: 680px) {
+  .student360-page--v4,
+  .student360-page--v4 .student360-header,
+  .student360-page--v4 .student360-header__bar,
+  .student360-page--v4 .student360-identity { min-width: 0; max-width: 100%; }
+  .student360-page--v4 .student360-identity > div { min-width: 0; overflow: hidden; }
+  .student360-page--v4 .student360-identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
 
 @media (max-width: 760px) {
   .student360-page--v4 .student360-overview-grid { grid-template-columns: 1fr; }
