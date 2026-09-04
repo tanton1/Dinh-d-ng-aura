@@ -38,6 +38,11 @@
 .loyalty-policy-toggles label strong { display: block; font-size: 13px; }
 .loyalty-policy-toggles label small { color: #827a81; }
 .loyalty-policy-toggles input { width: 42px; height: 23px; accent-color: #d90068; cursor: pointer; }
+.loyalty-policy-rules { margin-top: 10px; border-top: 1px solid #f0ebef; }
+.loyalty-policy-rules summary { padding: 13px 0 8px; color: #5d555b; font-size: 12px; font-weight: 850; cursor: pointer; }
+.loyalty-policy-rules__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; max-height: 310px; overflow-y: auto; padding: 2px 3px 5px 0; }
+.loyalty-policy-rules__grid label { display: grid; gap: 5px; color: #756e74; font-size: 10px; font-weight: 750; }
+.loyalty-policy-rules__grid input { width: 100%; min-width: 0; min-height: 38px; padding: 7px 9px; border: 1px solid #e3dde1; border-radius: 10px; background: #fff; font: inherit; font-size: 12px; }
 .loyalty-admin-policy__save { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 43px; margin-top: 13px; border: 0; border-radius: 13px; color: #fff; background: #181217; font: inherit; font-weight: 850; cursor: pointer; }
 .loyalty-admin-policy__save svg { width: 17px; }
 .loyalty-admin-queue { margin-top: 15px; }
@@ -108,6 +113,9 @@
 .loyalty-admin-search input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; font: inherit; font-size: 13px; }
 .loyalty-admin-issues > article { grid-template-columns: 34px minmax(240px, 1.5fr) minmax(90px, .5fr) minmax(150px, .7fr) auto; }
 .loyalty-admin-issues > article > svg { width: 28px; height: 28px; padding: 6px; border-radius: 9px; color: #9a4c00; background: #fff2dc; }
+.loyalty-admin-adjustments > article { grid-template-columns: 34px minmax(240px, 1.5fr) minmax(110px, .55fr) minmax(150px, .75fr) auto; }
+.loyalty-admin-adjustments > article > svg { width: 28px; height: 28px; padding: 6px; border-radius: 9px; color: #17603a; background: #eafff2; }
+.loyalty-admin-list .is-positive { color: #17603a; }
 .loyalty-admin-editor { width: min(610px, calc(100% - 28px)); max-height: min(760px, calc(100dvh - 28px)); overflow-y: auto; }
 .loyalty-admin-editor > p { color: #766e74; font-size: 13px; line-height: 1.5; }
 .loyalty-admin-editor__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
@@ -124,7 +132,7 @@
   .loyalty-admin-list > article { grid-template-columns: minmax(180px, 1.2fr) repeat(2, minmax(100px, .6fr)); }
   .loyalty-admin-list > article > :nth-child(n+4) { grid-column: auto; }
   .loyalty-admin-list .loyalty-admin-actions { grid-column: 1 / -1; justify-content: flex-start; }
-  .loyalty-admin-issues > article { grid-template-columns: 34px minmax(220px, 1fr) minmax(100px, auto); }
+  .loyalty-admin-issues > article, .loyalty-admin-adjustments > article { grid-template-columns: 34px minmax(220px, 1fr) minmax(100px, auto); }
 }
 
 @media (max-width: 640px) {
@@ -145,10 +153,11 @@
   .loyalty-admin-operations__tabs button.is-refresh { margin-left: 0; }
   .loyalty-admin-sectionbar { align-items: flex-start; }
   .loyalty-admin-rewards__grid { grid-template-columns: 1fr; }
-  .loyalty-admin-list > article, .loyalty-admin-issues > article { grid-template-columns: 1fr 1fr; gap: 10px; padding: 15px 0; }
-  .loyalty-admin-list__identity, .loyalty-admin-issues .loyalty-admin-list__identity { grid-column: 1 / -1; }
-  .loyalty-admin-issues > article > svg { display: none; }
+  .loyalty-admin-list > article, .loyalty-admin-issues > article, .loyalty-admin-adjustments > article { grid-template-columns: 1fr 1fr; gap: 10px; padding: 15px 0; }
+  .loyalty-admin-list__identity, .loyalty-admin-issues .loyalty-admin-list__identity, .loyalty-admin-adjustments .loyalty-admin-list__identity { grid-column: 1 / -1; }
+  .loyalty-admin-issues > article > svg, .loyalty-admin-adjustments > article > svg { display: none; }
   .loyalty-admin-list .loyalty-admin-actions { grid-column: 1 / -1; }
   .loyalty-admin-editor__grid { grid-template-columns: 1fr; }
   .loyalty-admin-editor__grid label.is-wide { grid-column: auto; }
+  .loyalty-policy-rules__grid { grid-template-columns: 1fr; max-height: 360px; }
 }

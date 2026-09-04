@@ -133,11 +133,12 @@ function ambassadorRateForQualifiedCount(value) {
   return count >= 1 ? 3 : 0
 }
 
-function qualifiesMemberReferral({ contractValueVnd, netCollectedVnd, holdElapsed, isNewCustomer, fraudStatus = 'clear' }) {
+function qualifiesMemberReferral({ contractValueVnd, netCollectedVnd, holdElapsed, isNewCustomer, fraudStatus = 'clear', policy = DEFAULT_POLICY }) {
   const contractValue = nonNegativeInteger(contractValueVnd)
   const netCollected = nonNegativeInteger(netCollectedVnd)
   if (!isNewCustomer || fraudStatus !== 'clear' || !holdElapsed || contractValue <= 0) return false
-  return netCollected * 100 >= contractValue * DEFAULT_POLICY.referralThresholdPercent
+  const thresholdPercent = Math.max(1, Math.min(100, nonNegativeInteger(policy.referralThresholdPercent, DEFAULT_POLICY.referralThresholdPercent)))
+  return netCollected * 100 >= contractValue * thresholdPercent
 }
 
 function normalizeMemberReferralCode(value) {
@@ -145,9 +146,10 @@ function normalizeMemberReferralCode(value) {
   return /^[A-Z0-9_-]{5,32}$/.test(code) ? code : ''
 }
 
-function referralCollectionSummary(entries = [], contractValueVnd = 0) {
+function referralCollectionSummary(entries = [], contractValueVnd = 0, policy = DEFAULT_POLICY) {
   const contractValue = nonNegativeInteger(contractValueVnd)
-  const thresholdVnd = Math.ceil(contractValue * DEFAULT_POLICY.referralThresholdPercent / 100)
+  const thresholdPercent = Math.max(1, Math.min(100, nonNegativeInteger(policy.referralThresholdPercent, DEFAULT_POLICY.referralThresholdPercent)))
+  const thresholdVnd = Math.ceil(contractValue * thresholdPercent / 100)
   const payments = entries
     .filter((entry) => entry?.status === 'posted' && entry.type === 'payment' && Number(entry.cashImpact ?? entry.amount) > 0)
     .map((entry) => ({
@@ -271,6 +273,36 @@ function redeemReservedPoints(accountValue, points) {
   }
 }
 
+function memberReferralRewardActivated({ wasActivated = false, programCanStart = false, qualifies = false }) {
+  return wasActivated === true || (programCanStart === true && qualifies === true)
+}
+
+function redemptionTransitionEffects(nextStatus, points) {
+  const settledPoints = nonNegativeInteger(points)
+  if (nextStatus === 'fulfilled') {
+    return {
+      availableDelta: 0,
+      reservedDelta: -settledPoints,
+      restoreStock: false,
+      settlement: 'redeem',
+    }
+  }
+  if (nextStatus === 'rejected' || nextStatus === 'cancelled') {
+    return {
+      availableDelta: settledPoints,
+      reservedDelta: -settledPoints,
+      restoreStock: true,
+      settlement: 'release',
+    }
+  }
+  return {
+    availableDelta: 0,
+    reservedDelta: 0,
+    restoreStock: false,
+    settlement: 'none',
+  }
+}
+
 function applyAvailableEarning(accountValue, points) {
   const account = normalizeAccount(accountValue)
   const earned = nonNegativeInteger(points)
@@ -322,8 +354,10 @@ module.exports = {
   defaultAccount,
   normalizeAccount,
   qualifiesMemberReferral,
+  memberReferralRewardActivated,
   normalizeMemberReferralCode,
   referralCollectionSummary,
+  redemptionTransitionEffects,
   redeemReservedPoints,
   releaseReservedPoints,
   renewalBonusRate,

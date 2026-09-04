@@ -67,6 +67,7 @@ export interface LoyaltyDashboard {
   account: LoyaltyAccount
   missions: LoyaltyMissionProgress[]
   recognition: LoyaltyRecognition
+  redemptions: LoyaltyMemberRedemption[]
   ambassador: LoyaltyAmbassadorSummary | null
   features: {
     earn: boolean
@@ -75,6 +76,32 @@ export interface LoyaltyDashboard {
     ambassador: boolean
     nutrition: boolean
   }
+}
+
+export interface LoyaltyPolicyConfig {
+  vndPerPoint: number
+  pointValueVnd: number
+  paymentHoldDays: number
+  referralHoldDays: number
+  referralThresholdPercent: number
+  referralRewardPoints: number
+  referredWelcomePoints: number
+  recurringBehaviorMonthlyCap: number
+  nutritionMonthlyCap: number
+  largeAdjustmentThreshold: number
+  ambassadorPayoutMinimumVnd: number
+}
+
+export interface LoyaltyMemberRedemption {
+  id: string
+  rewardId: string
+  rewardName: string
+  pointsCost: number
+  status: 'pending' | 'approved' | 'fulfilled' | 'rejected' | 'cancelled'
+  branchId: string
+  fulfillmentType: 'automatic' | 'staff'
+  createdAt: string
+  updatedAt: string
 }
 
 export interface LoyaltyReward {
@@ -144,6 +171,7 @@ export interface LoyaltyAdminDashboard {
   }
   tiers: Array<{ tier: LoyaltyTier; count: number }>
   features: LoyaltyDashboard['features']
+  policy: LoyaltyPolicyConfig
 }
 
 export interface LoyaltyBackfillSummary {
@@ -207,6 +235,19 @@ export interface LoyaltyReconciliationIssue {
   branchId: string
   errorCode: string
   updatedAt: string
+}
+
+export interface LoyaltyAdjustment {
+  id: string
+  studentId: string
+  studentName: string
+  branchId: string
+  points: number
+  reason: string
+  status: 'pending_approval' | 'applied' | 'rejected'
+  requestedBy: string
+  createdAt: string
+  reviewedAt: string
 }
 
 export type AuraClubTab = 'rewards' | 'missions' | 'levels' | 'referral' | 'history'

@@ -12,9 +12,11 @@ const {
   calculateSpendPoints,
   consumeAvailablePoints,
   defaultAccount,
+  memberReferralRewardActivated,
   normalizeAccount,
   normalizeMemberReferralCode,
   referralCollectionSummary,
+  redemptionTransitionEffects,
   redeemReservedPoints,
   releaseReservedPoints,
   renewalBonusRate,
@@ -28,6 +30,7 @@ const REGION = 'asia-southeast1'
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const MAX_PAGE_SIZE = 100
 const MAX_RECONCILE_DOCUMENTS = 500
+const SUPPORTED_AUTOMATIC_ENTITLEMENTS = new Set(['extra_reschedule'])
 // Fractional Gen-1 CPU keeps the regional fleet quota-safe. Cloud Run only
 // permits request concurrency greater than one with a full CPU, so these
 // low-volume transactional callables must remain single-concurrency.
@@ -50,6 +53,10 @@ function idempotencyKey(value) {
   const result = boundedString(value, 'Mã chống gửi trùng', 160)
   if (!/^[A-Za-z0-9:_-]+$/.test(result)) throw new HttpsError('invalid-argument', 'Mã chống gửi trùng không hợp lệ.')
   return result
+}
+
+function commandFingerprint(action, values = []) {
+  return sourceDocumentId(JSON.stringify([String(action || ''), ...values]))
 }
 
 function integer(value, label, minimum = 0, maximum = Number.MAX_SAFE_INTEGER) {
@@ -180,6 +187,43 @@ function publicLedgerEntry(snapshot) {
     createdAt: timestampIso(value.createdAt || value.effectiveAt),
     availableAt: timestampIso(value.availableAt),
   }
+}
+
+function publicRedemption(snapshot) {
+  const value = snapshot.data()
+  return {
+    id: snapshot.id,
+    rewardId: value.rewardId || '',
+    rewardName: value.rewardSnapshot?.name || 'Quyền lợi Aura',
+    pointsCost: Number(value.pointsCost || 0),
+    status: value.status || 'pending',
+    branchId: value.branchId || '',
+    fulfillmentType: value.rewardSnapshot?.fulfillmentType === 'automatic' ? 'automatic' : 'staff',
+    createdAt: timestampIso(value.createdAt),
+    updatedAt: timestampIso(value.updatedAt),
+  }
+}
+
+function setLoyaltyNotification(transaction, db, {
+  accountUid,
+  notificationId,
+  title,
+  body,
+}) {
+  if (!accountUid || !notificationId || !title || !body) return
+  transaction.set(db.doc(`users/${accountUid}/notifications/${notificationId}`), {
+    schemaVersion: 1,
+    userId: accountUid,
+    type: 'INFO',
+    category: 'loyalty',
+    title,
+    message: body,
+    actionUrl: '#/aura-club',
+    dedupeKey: notificationId,
+    read: false,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true })
 }
 
 function normalizedPolicy(value = {}) {
@@ -409,6 +453,29 @@ async function applySourceTarget({
       createdAt: FieldValue.serverTimestamp(),
       createdBy,
     })
+    const visiblePointDelta = pendingDelta + availableDelta
+    if (visiblePointDelta !== 0 || debtDelta !== 0) {
+      const title = debtDelta > 0
+        ? 'Điểm Aura cần đối soát'
+        : debtDelta < 0
+          ? 'Điểm Aura đã được bù'
+        : visiblePointDelta > 0
+          ? targetState === 'pending' ? 'Điểm Aura đang chờ' : 'Bạn vừa nhận Điểm Aura'
+          : 'Điểm Aura vừa được điều chỉnh'
+      const body = debtDelta > 0
+        ? `${(Math.abs(visiblePointDelta) + debtDelta).toLocaleString('vi-VN')} điểm đã bị đảo; ${debtDelta.toLocaleString('vi-VN')} điểm còn chờ bù do giao dịch nguồn thay đổi.`
+        : debtDelta < 0
+          ? `${Math.abs(debtDelta).toLocaleString('vi-VN')} điểm đã bù vào khoản đối soát${visiblePointDelta > 0 ? `; ${visiblePointDelta.toLocaleString('vi-VN')} điểm còn lại đã vào số dư` : ''}.`
+        : visiblePointDelta > 0
+          ? `${visiblePointDelta.toLocaleString('vi-VN')} điểm từ ${description.toLocaleLowerCase('vi-VN')}.`
+          : `${Math.abs(visiblePointDelta).toLocaleString('vi-VN')} điểm đã được điều chỉnh theo dữ liệu nguồn.`
+      setLoyaltyNotification(transaction, db, {
+        accountUid: account.accountUid,
+        notificationId: `loyalty_${ledgerReference.id}`,
+        title,
+        body,
+      })
+    }
     return { changed: true, account: publicAccount(account), sourceId: sourceReference.id, ledgerEntryId: ledgerReference.id }
   })
 }
@@ -1185,7 +1252,7 @@ async function reconcileMemberReferral({ db, contractId, logger = console, now =
   const samePhone = normalizedContact(referred.phone || referred.phoneNumber) && normalizedContact(referred.phone || referred.phoneNumber) === normalizedContact(referrer.phone || referrer.phoneNumber)
   const sameEmail = normalizedContact(referred.email) && normalizedContact(referred.email) === normalizedContact(referrer.email)
   const fraudStatus = referredStudentId === referrerStudentId || samePhone || sameEmail ? 'blocked_self_referral' : 'clear'
-  const collection = referralCollectionSummary(referralLedgerRows(ledgerSnapshot), contractValueVnd(contract))
+  const collection = referralCollectionSummary(referralLedgerRows(ledgerSnapshot), contractValueVnd(contract), policy)
   const holdUntilMillis = collection.thresholdReachedAtMillis
     ? collection.thresholdReachedAtMillis + Number(policy.referralHoldDays || 14) * 86_400_000
     : 0
@@ -1193,7 +1260,7 @@ async function reconcileMemberReferral({ db, contractId, logger = console, now =
   const qualifies = collection.thresholdReached && isNewCustomer && fraudStatus === 'clear'
   const existing = referralSnapshot?.exists ? referralValue : (await referralReference.get()).data() || {}
   const programCanStart = policy.earnEnabled === true && policy.referralEnabled === true
-  const rewardActivated = existing.rewardActivated === true || (programCanStart && qualifies && !holdElapsed)
+  const rewardActivated = memberReferralRewardActivated({ wasActivated: existing.rewardActivated, programCanStart, qualifies })
   const rewardMode = existing.rewardMode || (programCanStart && ambassadorSnapshot.exists && ambassadorSnapshot.data().status === 'approved' && policy.ambassadorEnabled === true ? 'ambassador' : 'points')
   const status = fraudStatus !== 'clear'
     ? 'blocked'
@@ -1315,6 +1382,7 @@ async function runLoyaltyBackfillBatch({ db, actorUid, mode = 'dry_run', cursor 
   let query = db.collection('contracts').orderBy(FieldPath.documentId()).limit(safeBatchSize)
   if (cursor) query = query.startAfter(cursor)
   const snapshot = await query.get()
+  const policy = await currentPolicy(db)
   const studentIds = [...new Set(snapshot.docs.map((item) => String(item.data().studentId || '')).filter(Boolean))]
   const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((id) => db.doc(`students/${id}`))) : []
   const students = new Map(studentSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
@@ -1355,7 +1423,7 @@ async function runLoyaltyBackfillBatch({ db, actorUid, mode = 'dry_run', cursor 
       issueRows.push({ type: 'backfill_missing_branch', contractId: item.id, studentId })
     }
     const ledger = await db.collection('ledgerEntries').where('contractId', '==', item.id).limit(MAX_RECONCILE_DOCUMENTS).get()
-    const collection = referralCollectionSummary(referralLedgerRows(ledger), contractValueVnd(contract))
+    const collection = referralCollectionSummary(referralLedgerRows(ledger), contractValueVnd(contract), policy)
     summary.eligibleTierCreditVnd += collection.netCollectedVnd
     if (contractActiveOn(contract, launchDate)) activeStudents.add(studentId)
     if (apply) {
@@ -1453,18 +1521,51 @@ async function rewardForId(db, rewardId) {
   return fallback ? rewardView({ ...fallback, active: true }, fallback.id) : null
 }
 
+function publicPolicyConfig(policyValue = {}) {
+  const policy = normalizedPolicy(policyValue)
+  return {
+    vndPerPoint: Number(policy.vndPerPoint),
+    pointValueVnd: Number(policy.pointValueVnd),
+    paymentHoldDays: Number(policy.paymentHoldDays),
+    referralHoldDays: Number(policy.referralHoldDays),
+    referralThresholdPercent: Number(policy.referralThresholdPercent),
+    referralRewardPoints: Number(policy.referralRewardPoints),
+    referredWelcomePoints: Number(policy.referredWelcomePoints),
+    recurringBehaviorMonthlyCap: Number(policy.recurringBehaviorMonthlyCap),
+    nutritionMonthlyCap: Number(policy.nutritionMonthlyCap),
+    largeAdjustmentThreshold: Number(policy.largeAdjustmentThreshold),
+    ambassadorPayoutMinimumVnd: Number(policy.ambassadorPayoutMinimumVnd),
+  }
+}
+
+function mergedRewardCatalog(snapshot, { admin = false } = {}) {
+  const persisted = new Map(snapshot.docs.map((item) => [item.id, item]))
+  const ids = [...new Set([...DEFAULT_REWARDS.map((item) => item.id), ...persisted.keys()])]
+  return ids.map((id) => {
+    const document = persisted.get(id)
+    const fallback = DEFAULT_REWARDS.find((item) => item.id === id) || {}
+    const reward = rewardView({ ...fallback, ...(document?.data() || {}), active: document ? document.data().active !== false : true }, id)
+    return admin ? {
+      ...reward,
+      revision: document ? Math.max(0, Number(document.data().revision || 0)) : 0,
+      persisted: Boolean(document),
+    } : reward
+  })
+}
+
 function createLoyaltyFunctions({ db, onCall, logger = console }) {
   const loyaltyCall = (handler) => onCall({ region: REGION, ...DEFAULT_CALL_OPTIONS }, handler)
   const loyaltyAdminCall = (handler) => onCall({ region: REGION, ...ADMIN_CALL_OPTIONS }, handler)
 
   const getMyLoyaltyDashboard = loyaltyCall(async (request) => {
     const { student } = await studentActor(request, db)
-    const [accountSnapshot, policy, missionSnapshot, ambassadorSnapshot, kudosSnapshot] = await Promise.all([
+    const [accountSnapshot, policy, missionSnapshot, ambassadorSnapshot, kudosSnapshot, redemptionSnapshot] = await Promise.all([
       db.doc(`loyaltyAccounts/${student.id}`).get(),
       currentPolicy(db),
       db.collection('loyaltyMissionProgress').where('studentId', '==', student.id).limit(30).get(),
       db.doc(`ambassadorProfiles/${student.id}`).get(),
       db.collection('sessionKudos').where('studentId', '==', student.id).limit(100).get(),
+      db.collection('loyaltyRedemptions').where('studentId', '==', student.id).limit(30).get(),
     ])
     const account = accountSnapshot.exists ? accountSnapshot.data() : defaultAccount({ studentId: student.id, accountUid: student.accountUid || request.auth.uid })
     const currentWeekId = mondayDateKey()
@@ -1496,6 +1597,10 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
       account: publicAccount(account, policy),
       missions,
       recognition,
+      redemptions: redemptionSnapshot.docs
+        .map(publicRedemption)
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .slice(0, 12),
       ambassador: ambassadorSnapshot.exists ? {
         status: ambassadorSnapshot.data().status || 'pending',
         quarterId: ambassadorSnapshot.data().quarterId || quarterId(),
@@ -1524,35 +1629,44 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
   })
 
   const listMyAvailableRewards = loyaltyCall(async (request) => {
-    await studentActor(request, db)
+    const { student } = await studentActor(request, db)
     const policy = await currentPolicy(db)
     const snapshot = await db.collection('loyaltyRewards').limit(200).get()
-    const rewards = snapshot.empty
-      ? DEFAULT_REWARDS.map((item) => rewardView({ ...item, active: true }, item.id))
-      : snapshot.docs.map((item) => rewardView(item.data(), item.id)).filter((item) => item.active)
-    return { rewards, redeemEnabled: policy.redeemEnabled === true }
+    const rewards = mergedRewardCatalog(snapshot).filter((item) => item.active)
+    const studentBranchId = String(student.branchId || '').trim()
+    return {
+      rewards: rewards.filter((item) => !item.branchIds.length || (studentBranchId && item.branchIds.includes(studentBranchId))),
+      redeemEnabled: policy.redeemEnabled === true,
+      branchId: studentBranchId,
+    }
   })
 
   const redeemMyReward = loyaltyCall(async (request) => {
     const { actor, student } = await studentActor(request, db)
     const key = idempotencyKey(request.data?.idempotencyKey)
     const rewardId = documentId(request.data?.rewardId, 'Mã quyền lợi')
-    const branchId = boundedString(request.data?.branchId, 'Chi nhánh nhận quyền lợi', 200, false)
+    const requestedBranchId = boundedString(request.data?.branchId, 'Chi nhánh nhận quyền lợi', 200, false)
+    const branchId = requestedBranchId || String(student.branchId || '').trim()
     const [policy, reward] = await Promise.all([currentPolicy(db), rewardForId(db, rewardId)])
     if (!policy.redeemEnabled) throw new HttpsError('failed-precondition', 'Đổi Điểm Aura đang tạm dừng.')
     if (!reward?.active) throw new HttpsError('not-found', 'Quyền lợi không còn hoạt động.')
-    if (reward.branchIds.length && !reward.branchIds.includes(branchId)) throw new HttpsError('failed-precondition', 'Quyền lợi không áp dụng tại chi nhánh đã chọn.')
+    if (reward.branchIds.length && !branchId) throw new HttpsError('failed-precondition', 'Hồ sơ chưa có chi nhánh để nhận quyền lợi này.')
+    if (reward.branchIds.length && !reward.branchIds.includes(branchId)) throw new HttpsError('failed-precondition', 'Quyền lợi không áp dụng tại chi nhánh của bạn.')
     const receiptReference = db.doc(`loyaltyCommandReceipts/${commandReceiptId(actor.uid, key)}`)
     const accountReference = db.doc(`loyaltyAccounts/${student.id}`)
     const redemptionReference = db.collection('loyaltyRedemptions').doc()
     const automatic = reward.fulfillmentType === 'automatic'
+    const requestHash = commandFingerprint('redeem', [student.id, rewardId, branchId])
     return db.runTransaction(async (transaction) => {
       const [receiptSnapshot, accountSnapshot, rewardSnapshot] = await Promise.all([
         transaction.get(receiptReference),
         transaction.get(accountReference),
         transaction.get(db.doc(`loyaltyRewards/${rewardId}`)),
       ])
-      if (receiptSnapshot.exists) return receiptSnapshot.data().result
+      if (receiptSnapshot.exists) {
+        if (receiptSnapshot.data().requestHash !== requestHash) throw new HttpsError('already-exists', 'Mã gửi trùng đã được dùng cho một yêu cầu khác.')
+        return receiptSnapshot.data().result
+      }
       const liveReward = rewardSnapshot.exists ? rewardView(rewardSnapshot.data(), rewardSnapshot.id) : reward
       if (!liveReward.active || (liveReward.stock !== null && liveReward.stock <= 0)) throw new HttpsError('failed-precondition', 'Quyền lợi đã hết hoặc tạm ngừng.')
       let account
@@ -1601,6 +1715,14 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
         createdAt: FieldValue.serverTimestamp(),
         createdBy: actor.uid,
       })
+      setLoyaltyNotification(transaction, db, {
+        accountUid: actor.uid,
+        notificationId: `loyalty_redemption_${redemptionReference.id}`,
+        title: automatic ? 'Đã nhận quyền lợi Aura' : 'Đã gửi yêu cầu đổi quyền lợi',
+        body: automatic
+          ? `${liveReward.name} đã được cấp. Bạn đã dùng ${liveReward.pointsCost.toLocaleString('vi-VN')} điểm.`
+          : `${liveReward.pointsCost.toLocaleString('vi-VN')} điểm đang được giữ trong lúc Staff xử lý ${liveReward.name}.`,
+      })
       if (automatic && liveReward.entitlementType) {
         transaction.create(db.doc(`loyaltyEntitlements/${redemptionReference.id}`), {
           schemaVersion: LOYALTY_SCHEMA_VERSION,
@@ -1615,7 +1737,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
         })
       }
       const result = { redemptionId: redemptionReference.id, status, account: publicAccount(account, policy) }
-      transaction.create(receiptReference, { uid: actor.uid, key, action: 'redeem', result, createdAt: FieldValue.serverTimestamp() })
+      transaction.create(receiptReference, { uid: actor.uid, key, action: 'redeem', requestHash, result, createdAt: FieldValue.serverTimestamp() })
       return result
     })
   })
@@ -1627,20 +1749,38 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
     const receiptReference = db.doc(`loyaltyCommandReceipts/${commandReceiptId(actor.uid, key)}`)
     const redemptionReference = db.doc(`loyaltyRedemptions/${redemptionId}`)
     const accountReference = db.doc(`loyaltyAccounts/${student.id}`)
+    const requestHash = commandFingerprint('cancel_redemption', [student.id, redemptionId])
     return db.runTransaction(async (transaction) => {
-      const [receiptSnapshot, redemptionSnapshot, accountSnapshot] = await Promise.all([
-        transaction.get(receiptReference),
-        transaction.get(redemptionReference),
-        transaction.get(accountReference),
-      ])
-      if (receiptSnapshot.exists) return receiptSnapshot.data().result
+      const redemptionSnapshot = await transaction.get(redemptionReference)
       if (!redemptionSnapshot.exists || redemptionSnapshot.data().studentId !== student.id) throw new HttpsError('not-found', 'Không tìm thấy yêu cầu đổi quà.')
+      const rewardId = String(redemptionSnapshot.data().rewardId || '')
+      const rewardReference = rewardId ? db.doc(`loyaltyRewards/${rewardId}`) : null
+      const [receiptSnapshot, accountSnapshot, rewardSnapshot] = await Promise.all([
+        transaction.get(receiptReference),
+        transaction.get(accountReference),
+        rewardReference ? transaction.get(rewardReference) : Promise.resolve(null),
+      ])
+      if (receiptSnapshot.exists) {
+        if (receiptSnapshot.data().requestHash !== requestHash) throw new HttpsError('already-exists', 'Mã gửi trùng đã được dùng cho một yêu cầu khác.')
+        return receiptSnapshot.data().result
+      }
       if (redemptionSnapshot.data().status !== 'pending') throw new HttpsError('failed-precondition', 'Yêu cầu này không còn có thể hủy.')
       const points = Number(redemptionSnapshot.data().pointsCost || 0)
       let account
       try { account = releaseReservedPoints(accountSnapshot.data(), points) } catch { throw new HttpsError('failed-precondition', 'Số điểm đang giữ không còn khớp. Cần đối soát ví.') }
       setAccountProjection(transaction, db, accountReference, account)
       transaction.update(redemptionReference, { status: 'cancelled', revision: Number(redemptionSnapshot.data().revision || 0) + 1, cancelledAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+      if (
+        rewardSnapshot?.exists
+        && redemptionSnapshot.data().rewardSnapshot?.stock !== null
+        && redemptionSnapshot.data().rewardSnapshot?.stock !== undefined
+        && Number.isFinite(Number(redemptionSnapshot.data().rewardSnapshot.stock))
+        && rewardSnapshot.data().stock !== null
+        && rewardSnapshot.data().stock !== undefined
+        && Number.isFinite(Number(rewardSnapshot.data().stock))
+      ) {
+        transaction.update(rewardSnapshot.ref, { stock: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() })
+      }
       transaction.create(db.doc(`loyaltyLedgerEntries/${redemptionId}_release`), {
         schemaVersion: LOYALTY_SCHEMA_VERSION,
         studentId: student.id,
@@ -1659,8 +1799,14 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
         createdAt: FieldValue.serverTimestamp(),
         createdBy: actor.uid,
       })
+      setLoyaltyNotification(transaction, db, {
+        accountUid: actor.uid,
+        notificationId: `loyalty_redemption_cancelled_${redemptionId}`,
+        title: 'Đã hủy yêu cầu đổi quyền lợi',
+        body: `${points.toLocaleString('vi-VN')} điểm đã được hoàn lại vào số dư khả dụng.`,
+      })
       const result = { redemptionId, status: 'cancelled', account: publicAccount(account) }
-      transaction.create(receiptReference, { uid: actor.uid, key, action: 'cancel_redemption', result, createdAt: FieldValue.serverTimestamp() })
+      transaction.create(receiptReference, { uid: actor.uid, key, action: 'cancel_redemption', requestHash, result, createdAt: FieldValue.serverTimestamp() })
       return result
     })
   })
@@ -1775,7 +1921,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
     ])
     const inScope = (studentId) => actor.accessRole !== 'staff' || scopedStudentIds.has(studentId)
     const accounts = accountsSnapshot.docs.filter((item) => inScope(item.id)).map((item) => normalizeAccount(item.data()))
-    const redemptions = redemptionsSnapshot.docs.map((item) => item.data()).filter((item) => inScope(item.studentId) && canAccessBranch(actor, item.branchId || ''))
+    const redemptions = redemptionsSnapshot.docs.map((item) => item.data()).filter((item) => inScope(item.studentId) && (!item.branchId || canAccessBranch(actor, item.branchId)))
     const referrals = referralsSnapshot.docs.map((item) => item.data()).filter((item) => inScope(item.referrerStudentId))
     const ambassadors = ambassadorsSnapshot.docs.map((item) => item.data()).filter((item) => inScope(item.studentId))
     return {
@@ -1799,38 +1945,39 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
       },
       tiers: ['member', 'silver', 'gold', 'diamond'].map((tier) => ({ tier, count: accounts.filter((item) => item.tier === tier).length })),
       features: { earn: policy.earnEnabled, redeem: policy.redeemEnabled, referral: policy.referralEnabled, ambassador: policy.ambassadorEnabled, nutrition: policy.nutritionEnabled },
+      policy: publicPolicyConfig(policy),
     }
   })
 
   const listLoyaltyAccounts = loyaltyAdminCall(async (request) => {
     const actor = await capabilityActor(request, db, 'loyalty.dashboard.read')
     const limit = Math.min(MAX_PAGE_SIZE, Math.max(10, Number(request.data?.pageSize || 50)))
-    const snapshot = await db.collection('loyaltyAccounts').limit(limit).get()
     const policy = await currentPolicy(db)
-    const studentSnapshots = snapshot.empty ? [] : await db.getAll(...snapshot.docs.map((item) => db.doc(`students/${item.id}`)))
+    let accountSnapshots = []
+    let studentSnapshots = []
+    if (actor.accessRole === 'staff') {
+      const branchStudents = await Promise.all(actor.branchIds.slice(0, 10).map((branchId) => db.collection('students').where('branchId', '==', branchId).limit(limit).get()))
+      studentSnapshots = branchStudents.flatMap((snapshot) => snapshot.docs).slice(0, limit)
+      accountSnapshots = studentSnapshots.length ? await db.getAll(...studentSnapshots.map((item) => db.doc(`loyaltyAccounts/${item.id}`))) : []
+    } else {
+      const snapshot = await db.collection('loyaltyAccounts').limit(limit).get()
+      accountSnapshots = snapshot.docs
+      studentSnapshots = accountSnapshots.length ? await db.getAll(...accountSnapshots.map((item) => db.doc(`students/${item.id}`))) : []
+    }
     const students = new Map(studentSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
-    const rows = snapshot.docs.flatMap((item) => {
+    const rows = accountSnapshots.flatMap((item) => {
+      if (!item.exists) return []
       const student = students.get(item.id) || {}
       if (!canAccessBranch(actor, student.branchId || '')) return []
-      return [{
-        ...publicAccount(item.data(), policy),
-        studentName: student.name || student.displayName || 'Học viên Aura',
-        branchId: student.branchId || '',
-      }]
-    })
+      return [{ ...publicAccount(item.data(), policy), studentName: student.name || student.displayName || 'Học viên Aura', branchId: student.branchId || '' }]
+    }).sort((left, right) => left.studentName.localeCompare(right.studentName, 'vi'))
     return { accounts: rows }
   })
 
   const listLoyaltyRewardsAdmin = loyaltyAdminCall(async (request) => {
     await capabilityActor(request, db, 'loyalty.reward.manage')
     const snapshot = await db.collection('loyaltyRewards').limit(200).get()
-    const rewards = snapshot.empty
-      ? DEFAULT_REWARDS.map((item) => ({ ...rewardView({ ...item, active: true }, item.id), revision: 0, persisted: false }))
-      : snapshot.docs.map((item) => ({
-        ...rewardView(item.data(), item.id),
-        revision: Math.max(0, Number(item.data().revision || 0)),
-        persisted: true,
-      }))
+    const rewards = mergedRewardCatalog(snapshot, { admin: true })
     return { rewards: rewards.sort((left, right) => left.pointsCost - right.pointsCost || left.name.localeCompare(right.name, 'vi')) }
   })
 
@@ -1897,14 +2044,53 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
     return { issues }
   })
 
+  const listLoyaltyAdjustments = loyaltyAdminCall(async (request) => {
+    const actor = await capabilityActor(request, db, 'loyalty.adjust.approve')
+    const requestedStatus = boundedString(request.data?.status, 'Trạng thái', 40, false) || 'pending_approval'
+    const snapshot = await db.collection('loyaltyAdjustments').limit(300).get()
+    const values = snapshot.docs
+      .map((item) => ({ id: item.id, ...item.data() }))
+      .filter((item) => !requestedStatus || item.status === requestedStatus)
+    const studentIds = [...new Set(values.map((item) => String(item.studentId || '')).filter(Boolean))]
+    const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((studentId) => db.doc(`students/${studentId}`))) : []
+    const students = new Map(studentSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
+    const adjustments = values
+      .filter((item) => canAccessBranch(actor, item.branchId || students.get(item.studentId)?.branchId || ''))
+      .map((item) => ({
+        id: item.id,
+        studentId: item.studentId || '',
+        studentName: students.get(item.studentId)?.name || students.get(item.studentId)?.displayName || 'Học viên Aura',
+        branchId: item.branchId || students.get(item.studentId)?.branchId || '',
+        points: Number(item.points || 0),
+        reason: String(item.reason || '').slice(0, 500),
+        status: item.status || 'pending_approval',
+        requestedBy: item.requestedBy || '',
+        createdAt: timestampIso(item.createdAt),
+        reviewedAt: timestampIso(item.reviewedAt),
+      }))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    return { adjustments }
+  })
+
   const listLoyaltyRedemptions = loyaltyAdminCall(async (request) => {
     const actor = await capabilityActor(request, db, 'loyalty.redemption.review')
     const snapshot = await db.collection('loyaltyRedemptions').limit(300).get()
     const status = boundedString(request.data?.status, 'Trạng thái', 40, false)
-    const entries = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+    const values = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
       .filter((item) => !status || item.status === status)
-      .filter((item) => canAccessBranch(actor, item.branchId || ''))
-      .map((item) => ({ ...item, createdAt: timestampIso(item.createdAt), updatedAt: timestampIso(item.updatedAt) }))
+    const studentIds = [...new Set(values.map((item) => String(item.studentId || '')).filter(Boolean))]
+    const studentSnapshots = studentIds.length ? await db.getAll(...studentIds.map((studentId) => db.doc(`students/${studentId}`))) : []
+    const students = new Map(studentSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data()]))
+    const entries = values
+      .filter((item) => canAccessBranch(actor, item.branchId || students.get(item.studentId)?.branchId || ''))
+      .map((item) => ({
+        ...item,
+        branchId: item.branchId || students.get(item.studentId)?.branchId || '',
+        studentName: students.get(item.studentId)?.name || students.get(item.studentId)?.displayName || 'Học viên Aura',
+        createdAt: timestampIso(item.createdAt),
+        updatedAt: timestampIso(item.updatedAt),
+      }))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
     return { redemptions: entries }
   })
 
@@ -1918,32 +2104,35 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
       const snapshot = await transaction.get(reference)
       if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy yêu cầu đổi thưởng.')
       const value = snapshot.data()
-      if (!canAccessBranch(actor, value.branchId || '')) throw new HttpsError('permission-denied', 'Yêu cầu không thuộc phạm vi chi nhánh của bạn.')
       const allowed = {
         pending: new Set(['approved', 'rejected', 'cancelled']),
         approved: new Set(['fulfilled', 'cancelled']),
       }
       if (!allowed[value.status]?.has(nextStatus)) throw new HttpsError('failed-precondition', 'Yêu cầu đã đổi trạng thái. Hãy tải lại.')
       const accountReference = db.doc(`loyaltyAccounts/${value.studentId}`)
-      const accountSnapshot = await transaction.get(accountReference)
+      const rewardReference = value.rewardId ? db.doc(`loyaltyRewards/${value.rewardId}`) : null
+      const [accountSnapshot, rewardSnapshot, studentSnapshot] = await Promise.all([
+        transaction.get(accountReference),
+        rewardReference ? transaction.get(rewardReference) : Promise.resolve(null),
+        transaction.get(db.doc(`students/${value.studentId}`)),
+      ])
+      const effectiveBranchId = value.branchId || (studentSnapshot.exists ? studentSnapshot.data().branchId || '' : '')
+      if (!canAccessBranch(actor, effectiveBranchId)) throw new HttpsError('permission-denied', 'Yêu cầu không thuộc phạm vi chi nhánh của bạn.')
       let account = normalizeAccount(accountSnapshot.data())
-      let availableDelta = 0
-      let reservedDelta = 0
-      if (nextStatus === 'fulfilled') {
+      const effects = redemptionTransitionEffects(nextStatus, Number(value.pointsCost || 0))
+      if (effects.settlement === 'redeem') {
         try { account = redeemReservedPoints(account, Number(value.pointsCost || 0)) } catch { throw new HttpsError('failed-precondition', 'Số điểm giữ chỗ không khớp. Cần đối soát trước khi hoàn tất.') }
-        reservedDelta = -Number(value.pointsCost || 0)
-      } else if (['rejected', 'cancelled'].includes(nextStatus)) {
+      } else if (effects.settlement === 'release') {
         try { account = releaseReservedPoints(account, Number(value.pointsCost || 0)) } catch { throw new HttpsError('failed-precondition', 'Số điểm giữ chỗ không khớp. Cần đối soát trước khi hoàn.') }
-        availableDelta = Number(value.pointsCost || 0)
-        reservedDelta = -Number(value.pointsCost || 0)
       }
+      const { availableDelta, reservedDelta } = effects
       if (availableDelta || reservedDelta) {
         setAccountProjection(transaction, db, accountReference, account)
         transaction.create(db.doc(`loyaltyLedgerEntries/${redemptionId}_${nextStatus}`), {
           schemaVersion: LOYALTY_SCHEMA_VERSION,
           studentId: value.studentId,
           accountUid: value.accountUid || null,
-          sourceBranchId: value.branchId || null,
+          sourceBranchId: effectiveBranchId || null,
           kind: nextStatus === 'fulfilled' ? 'redeem' : 'release',
           sourceType: 'reward',
           sourceId: redemptionId,
@@ -1958,15 +2147,36 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
           createdAt: FieldValue.serverTimestamp(),
           createdBy: actor.uid,
         })
+        if (
+          effects.restoreStock
+          && rewardSnapshot?.exists
+          && value.rewardSnapshot?.stock !== null
+          && value.rewardSnapshot?.stock !== undefined
+          && Number.isFinite(Number(value.rewardSnapshot.stock))
+          && rewardSnapshot.data().stock !== null
+          && rewardSnapshot.data().stock !== undefined
+          && Number.isFinite(Number(rewardSnapshot.data().stock))
+        ) {
+          transaction.update(rewardSnapshot.ref, { stock: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() })
+        }
+        setLoyaltyNotification(transaction, db, {
+          accountUid: value.accountUid || '',
+          notificationId: `loyalty_redemption_${nextStatus}_${redemptionId}`,
+          title: nextStatus === 'fulfilled' ? 'Quyền lợi Aura đã sẵn sàng' : 'Yêu cầu đổi quyền lợi đã kết thúc',
+          body: nextStatus === 'fulfilled'
+            ? `${value.rewardSnapshot?.name || 'Quyền lợi Aura'} đã được Staff xác nhận hoàn tất.`
+            : `${Number(value.pointsCost || 0).toLocaleString('vi-VN')} điểm đã được hoàn lại vào tài khoản của bạn.`,
+        })
       }
       transaction.update(reference, {
         status: nextStatus,
+        branchId: effectiveBranchId || null,
         revision: Number(value.revision || 0) + 1,
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: actor.uid,
         [`${nextStatus}At`]: FieldValue.serverTimestamp(),
       })
-      transaction.create(db.collection('loyaltyAuditLogs').doc(), { action: `redemption.${nextStatus}`, actorUid: actor.uid, redemptionId, studentId: value.studentId, branchId: value.branchId || null, createdAt: FieldValue.serverTimestamp() })
+      transaction.create(db.collection('loyaltyAuditLogs').doc(), { action: `redemption.${nextStatus}`, actorUid: actor.uid, redemptionId, studentId: value.studentId, branchId: effectiveBranchId || null, createdAt: FieldValue.serverTimestamp() })
       return { redemptionId, status: nextStatus }
     })
   }
@@ -1979,17 +2189,30 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
     const expectedRevision = integer(request.data?.expectedRevision ?? 0, 'Phiên bản kỳ vọng', 0, 1_000_000)
     const settingsReference = db.doc('loyaltySettings/current')
     const versionReference = db.collection('loyaltyPolicyVersions').doc()
+    const activePolicy = await currentPolicy(db)
     return db.runTransaction(async (transaction) => {
       const settingsSnapshot = await transaction.get(settingsReference)
       const revision = Number(settingsSnapshot.exists ? settingsSnapshot.data().revision || 0 : 0)
       if (revision !== expectedRevision) throw new HttpsError('aborted', 'Chính sách đã được người khác cập nhật. Hãy tải lại.')
       const toggles = request.data?.features || {}
+      const requestedPolicy = request.data?.policy || {}
       if (toggles.earn === true && !storedDateKey(settingsSnapshot.exists ? settingsSnapshot.data().launchDate : '')) {
         throw new HttpsError('failed-precondition', 'Cần chạy đối soát Aura Club và khóa ngày ra mắt trước khi bật tích điểm.')
       }
       const policy = normalizedPolicy({
-        ...DEFAULT_POLICY,
+        ...activePolicy,
         version: versionReference.id,
+        vndPerPoint: integer(requestedPolicy.vndPerPoint ?? activePolicy.vndPerPoint, 'Số đồng cho một điểm', 1_000, 1_000_000),
+        pointValueVnd: integer(requestedPolicy.pointValueVnd ?? activePolicy.pointValueVnd, 'Giá trị danh nghĩa một điểm', 1, 10_000),
+        paymentHoldDays: integer(requestedPolicy.paymentHoldDays ?? activePolicy.paymentHoldDays, 'Số ngày giữ điểm thanh toán', 0, 90),
+        referralHoldDays: integer(requestedPolicy.referralHoldDays ?? activePolicy.referralHoldDays, 'Số ngày giữ referral', 0, 90),
+        referralThresholdPercent: integer(requestedPolicy.referralThresholdPercent ?? activePolicy.referralThresholdPercent, 'Ngưỡng thực thu referral', 1, 100),
+        referralRewardPoints: integer(requestedPolicy.referralRewardPoints ?? activePolicy.referralRewardPoints, 'Điểm người giới thiệu', 0, 100_000),
+        referredWelcomePoints: integer(requestedPolicy.referredWelcomePoints ?? activePolicy.referredWelcomePoints, 'Điểm người được giới thiệu', 0, 100_000),
+        recurringBehaviorMonthlyCap: integer(requestedPolicy.recurringBehaviorMonthlyCap ?? activePolicy.recurringBehaviorMonthlyCap, 'Trần điểm hành vi', 0, 100_000),
+        nutritionMonthlyCap: integer(requestedPolicy.nutritionMonthlyCap ?? activePolicy.nutritionMonthlyCap, 'Trần điểm dinh dưỡng', 0, 100_000),
+        largeAdjustmentThreshold: integer(requestedPolicy.largeAdjustmentThreshold ?? activePolicy.largeAdjustmentThreshold, 'Ngưỡng duyệt hai người', 1, 1_000_000),
+        ambassadorPayoutMinimumVnd: integer(requestedPolicy.ambassadorPayoutMinimumVnd ?? activePolicy.ambassadorPayoutMinimumVnd, 'Mức chi Ambassador tối thiểu', 0, 1_000_000_000),
         earnEnabled: toggles.earn === true,
         redeemEnabled: toggles.redeem === true,
         referralEnabled: toggles.referral === true,
@@ -2011,13 +2234,19 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
     const rewardId = request.data?.id ? documentId(request.data.id, 'Mã quyền lợi') : db.collection('loyaltyRewards').doc().id
     const reference = db.doc(`loyaltyRewards/${rewardId}`)
     const expectedRevision = integer(request.data?.expectedRevision ?? 0, 'Phiên bản kỳ vọng', 0, 1_000_000)
+    const fulfillmentType = request.data?.fulfillmentType
+    if (!['automatic', 'staff'].includes(fulfillmentType)) throw new HttpsError('invalid-argument', 'Cách giao quyền lợi không hợp lệ.')
+    const requestedEntitlementType = boundedString(request.data?.entitlementType, 'Loại quyền lợi tự động', 80, false)
+    if (fulfillmentType === 'automatic' && !SUPPORTED_AUTOMATIC_ENTITLEMENTS.has(requestedEntitlementType)) {
+      throw new HttpsError('invalid-argument', 'Quyền lợi tự động chưa có luồng sử dụng an toàn.')
+    }
     const reward = rewardView({
       name: boundedString(request.data?.name, 'Tên quyền lợi', 160),
       description: boundedString(request.data?.description, 'Mô tả', 1000, false),
       pointsCost: integer(request.data?.pointsCost, 'Điểm đổi', 1, 1_000_000),
       category: boundedString(request.data?.category || 'other', 'Loại quyền lợi', 60),
-      fulfillmentType: request.data?.fulfillmentType,
-      entitlementType: boundedString(request.data?.entitlementType, 'Loại entitlement', 80, false),
+      fulfillmentType,
+      entitlementType: fulfillmentType === 'automatic' ? requestedEntitlementType : null,
       branchIds: Array.isArray(request.data?.branchIds) ? [...new Set(request.data.branchIds.map((item) => documentId(item, 'Mã chi nhánh')))].slice(0, 30) : [],
       stock: request.data?.stock === null || request.data?.stock === undefined ? null : integer(request.data.stock, 'Tồn kho', 0, 1_000_000),
       validityDays: integer(request.data?.validityDays ?? 60, 'Thời hạn', 1, 3650),
@@ -2034,12 +2263,25 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
     })
   })
 
-  async function applyManualAdjustment({ actor, student, points, reason, adjustmentId }) {
+  async function applyManualAdjustment({ actor, student, points, reason, adjustmentId, requestHash = '', approvalActorUid = '' }) {
     const accountReference = db.doc(`loyaltyAccounts/${student.id}`)
     const auditReference = db.doc(`loyaltyAuditLogs/${adjustmentId}`)
+    const adjustmentReference = approvalActorUid ? db.doc(`loyaltyAdjustments/${adjustmentId}`) : null
     return db.runTransaction(async (transaction) => {
-      const [accountSnapshot, auditSnapshot] = await Promise.all([transaction.get(accountReference), transaction.get(auditReference)])
-      if (auditSnapshot.exists && auditSnapshot.data().status === 'applied') return { adjustmentId, account: publicAccount(accountSnapshot.data()) }
+      const [accountSnapshot, auditSnapshot, adjustmentSnapshot] = await Promise.all([
+        transaction.get(accountReference),
+        transaction.get(auditReference),
+        adjustmentReference ? transaction.get(adjustmentReference) : Promise.resolve(null),
+      ])
+      if (auditSnapshot.exists && auditSnapshot.data().status === 'applied') {
+        if (requestHash && auditSnapshot.data().requestHash && auditSnapshot.data().requestHash !== requestHash) throw new HttpsError('already-exists', 'Mã gửi trùng đã được dùng cho một điều chỉnh khác.')
+        return { adjustmentId, account: publicAccount(accountSnapshot.data()) }
+      }
+      if (approvalActorUid) {
+        if (!adjustmentSnapshot?.exists) throw new HttpsError('not-found', 'Không tìm thấy yêu cầu điều chỉnh.')
+        if (adjustmentSnapshot.data().status !== 'pending_approval') throw new HttpsError('failed-precondition', 'Yêu cầu đã được xử lý.')
+        if (adjustmentSnapshot.data().requestedBy === approvalActorUid) throw new HttpsError('permission-denied', 'Người tạo yêu cầu không được tự phê duyệt.')
+      }
       let account = normalizeAccount(accountSnapshot.exists ? accountSnapshot.data() : defaultAccount({ studentId: student.id, accountUid: student.accountUid || '' }), { studentId: student.id, accountUid: student.accountUid || '' })
       let availableDelta = 0
       let debtDelta = 0
@@ -2074,7 +2316,16 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
         createdAt: FieldValue.serverTimestamp(),
         createdBy: actor.uid,
       })
-      transaction.set(auditReference, { action: 'points.adjusted', status: 'applied', actorUid: actor.uid, studentId: student.id, points, reason, createdAt: FieldValue.serverTimestamp() }, { merge: true })
+      transaction.set(auditReference, { action: 'points.adjusted', status: 'applied', actorUid: actor.uid, studentId: student.id, points, reason, requestHash: requestHash || null, createdAt: FieldValue.serverTimestamp() }, { merge: true })
+      if (adjustmentReference && adjustmentSnapshot?.exists) {
+        transaction.update(adjustmentReference, { status: 'applied', reviewedBy: approvalActorUid, reviewedAt: FieldValue.serverTimestamp(), revision: Number(adjustmentSnapshot.data().revision || 0) + 1 })
+      }
+      setLoyaltyNotification(transaction, db, {
+        accountUid: student.accountUid || '',
+        notificationId: `loyalty_adjustment_${adjustmentId}`,
+        title: points > 0 ? 'Admin đã cộng Điểm Aura' : 'Admin đã điều chỉnh Điểm Aura',
+        body: `${Math.abs(points).toLocaleString('vi-VN')} điểm · ${reason}`,
+      })
       return { adjustmentId, account: publicAccount(account) }
     })
   }
@@ -2087,12 +2338,19 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
     const reason = boundedString(request.data?.reason, 'Lý do điều chỉnh', 500)
     const key = idempotencyKey(request.data?.idempotencyKey)
     const adjustmentId = `adjust_${commandReceiptId(actor.uid, key)}`
+    const requestHash = commandFingerprint('adjust', [student.id, points, reason])
     const policy = await currentPolicy(db)
     if (Math.abs(points) >= Number(policy.largeAdjustmentThreshold || 500)) {
-      await db.doc(`loyaltyAdjustments/${adjustmentId}`).create({ schemaVersion: LOYALTY_SCHEMA_VERSION, studentId: student.id, accountUid: student.accountUid || null, branchId: student.branchId || null, points, reason, status: 'pending_approval', requestedBy: actor.uid, createdAt: FieldValue.serverTimestamp(), revision: 1 })
+      const adjustmentReference = db.doc(`loyaltyAdjustments/${adjustmentId}`)
+      const existing = await adjustmentReference.get()
+      if (existing.exists) {
+        if (existing.data().requestHash !== requestHash) throw new HttpsError('already-exists', 'Mã gửi trùng đã được dùng cho một điều chỉnh khác.')
+        return { adjustmentId, status: existing.data().status || 'pending_approval' }
+      }
+      await adjustmentReference.create({ schemaVersion: LOYALTY_SCHEMA_VERSION, studentId: student.id, accountUid: student.accountUid || null, branchId: student.branchId || null, points, reason, requestHash, status: 'pending_approval', requestedBy: actor.uid, createdAt: FieldValue.serverTimestamp(), revision: 1 })
       return { adjustmentId, status: 'pending_approval' }
     }
-    return { ...(await applyManualAdjustment({ actor, student, points, reason, adjustmentId })), status: 'applied' }
+    return { ...(await applyManualAdjustment({ actor, student, points, reason, adjustmentId, requestHash })), status: 'applied' }
   })
 
   const reviewLoyaltyAdjustment = loyaltyAdminCall(async (request) => {
@@ -2108,11 +2366,16 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
     if (value.requestedBy === actor.uid) throw new HttpsError('permission-denied', 'Người tạo yêu cầu không được tự phê duyệt.')
     const student = await scopedStudent(db, actor, value.studentId)
     if (decision === 'reject') {
-      await reference.update({ status: 'rejected', reviewedBy: actor.uid, reviewedAt: FieldValue.serverTimestamp(), revision: Number(value.revision || 0) + 1 })
+      await db.runTransaction(async (transaction) => {
+        const current = await transaction.get(reference)
+        if (!current.exists || current.data().status !== 'pending_approval') throw new HttpsError('failed-precondition', 'Yêu cầu đã được xử lý.')
+        if (current.data().requestedBy === actor.uid) throw new HttpsError('permission-denied', 'Người tạo yêu cầu không được tự từ chối yêu cầu của mình.')
+        transaction.update(reference, { status: 'rejected', reviewedBy: actor.uid, reviewedAt: FieldValue.serverTimestamp(), revision: Number(current.data().revision || 0) + 1 })
+        transaction.create(db.collection('loyaltyAuditLogs').doc(), { action: 'points.adjustment_rejected', actorUid: actor.uid, studentId: current.data().studentId, adjustmentId, points: Number(current.data().points || 0), createdAt: FieldValue.serverTimestamp() })
+      })
       return { adjustmentId, status: 'rejected' }
     }
-    const result = await applyManualAdjustment({ actor, student, points: Number(value.points || 0), reason: value.reason, adjustmentId })
-    await reference.update({ status: 'applied', reviewedBy: actor.uid, reviewedAt: FieldValue.serverTimestamp(), revision: Number(value.revision || 0) + 1 })
+    const result = await applyManualAdjustment({ actor, student, points: Number(value.points || 0), reason: value.reason, adjustmentId, requestHash: value.requestHash || '', approvalActorUid: actor.uid })
     return { adjustmentId, status: 'applied', account: result.account }
   })
 
@@ -2219,7 +2482,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
       if (used >= 5) throw new HttpsError('resource-exhausted', 'Bạn đã dùng hết năm lượt Kudos hôm nay.')
       transaction.create(kudosReference, { schemaVersion: LOYALTY_SCHEMA_VERSION, sessionId, studentId, trainerId: actor.legacyStaffId || actor.uid, accountUid: session.accountUid || null, message, xp: 5, badge: 'great_session', createdAt: FieldValue.serverTimestamp() })
       transaction.set(usageReference, { trainerId: actor.uid, date: dateKey(), count: used + 1, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
-      if (session.accountUid) transaction.set(db.doc(`users/${session.accountUid}/notifications/kudos_${sessionId}`), { schemaVersion: 1, userId: session.accountUid, type: 'loyalty_kudos', category: 'loyalty', title: 'PT vừa gửi bạn một lời khen', body: message, route: 'aura-club', read: false, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+      if (session.accountUid) transaction.set(db.doc(`users/${session.accountUid}/notifications/kudos_${sessionId}`), { schemaVersion: 1, userId: session.accountUid, type: 'MOTIVATION', category: 'loyalty', title: 'PT vừa gửi bạn một lời khen', message, actionUrl: '#/aura-club', dedupeKey: `kudos_${sessionId}`, read: false, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true })
     })
     return { sessionId, studentId, xp: 5, badge: 'great_session' }
   })
@@ -2239,6 +2502,7 @@ function createLoyaltyFunctions({ db, onCall, logger = console }) {
     listLoyaltyRewardsAdmin,
     listLoyaltyAmbassadors,
     listLoyaltyReconciliationIssues,
+    listLoyaltyAdjustments,
     listLoyaltyRedemptions,
     transitionLoyaltyRedemption,
     fulfillLoyaltyRedemption,

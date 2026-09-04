@@ -23,6 +23,7 @@ import {
 import type { ViewId } from '../../types'
 import {
   applyForAmbassador,
+  cancelMyPendingRedemption,
   createMyReferralCode,
   demoLoyaltyDashboard,
   demoRewards,
@@ -62,8 +63,16 @@ function formatMoney(value: number) {
 
 function friendlyError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || '')
-  if (message.includes('Hồ sơ học viên chưa được liên kết')) return message
-  if (message.includes('tạm dừng')) return message
+  if (message && [
+    'Hồ sơ học viên',
+    'tạm dừng',
+    'chưa đủ Điểm',
+    'không áp dụng',
+    'chưa có chi nhánh',
+    'không còn có thể hủy',
+    'đang tạm khóa',
+    'đã hết',
+  ].some((part) => message.includes(part))) return message.replace(/^FirebaseError:\s*/i, '')
   return 'Aura Club chưa tải được dữ liệu mới nhất. Hãy thử lại.'
 }
 
@@ -139,6 +148,7 @@ export default function AuraClubPage({ isDemo = false, ownerId, initialTab = 're
   // dashboard responses do not include recognition yet, so the new card should
   // degrade to an empty state instead of crashing the Levels tab.
   const recognition = dashboard?.recognition || { totalKudos: 0, totalXp: 0, badges: [], recent: [] }
+  const redemptions = dashboard?.redemptions || []
   const availableRewards = useMemo(() => rewards.filter((item) => item.active), [rewards])
 
   const handleRedeem = async () => {
@@ -155,10 +165,33 @@ export default function AuraClubPage({ isDemo = false, ownerId, initialTab = 're
       setDashboard((current) => current ? { ...current, account: result.account } : current)
       setNotice(result.status === 'fulfilled' ? 'Quyền lợi đã được cấp vào tài khoản.' : 'Yêu cầu đã được gửi. Điểm được giữ chỗ trong lúc Staff xử lý.')
       setSelectedReward(null)
-      const nextHistory = await listMyLoyaltyHistory()
+      const [nextDashboard, nextHistory] = await Promise.all([getMyLoyaltyDashboard(), listMyLoyaltyHistory()])
+      setDashboard(nextDashboard)
       setHistory(nextHistory.entries)
     } catch (redeemError) {
       setNotice(friendlyError(redeemError))
+    } finally {
+      setActionPending('')
+    }
+  }
+
+  const handleCancelRedemption = async (redemptionId: string) => {
+    if (!window.confirm('Hủy yêu cầu này và hoàn lại toàn bộ điểm đang giữ?')) return
+    if (isDemo) {
+      setDashboard((current) => current ? { ...current, redemptions: current.redemptions.map((item) => item.id === redemptionId ? { ...item, status: 'cancelled' } : item) } : current)
+      setNotice('Đã hủy yêu cầu demo và hoàn điểm giữ chỗ.')
+      return
+    }
+    setActionPending(`cancel-${redemptionId}`)
+    setNotice('')
+    try {
+      const result = await cancelMyPendingRedemption({ redemptionId, idempotencyKey: `cancel-redemption:${redemptionId}:${crypto.randomUUID()}` })
+      const [nextDashboard, nextHistory] = await Promise.all([getMyLoyaltyDashboard(), listMyLoyaltyHistory()])
+      setDashboard({ ...nextDashboard, account: result.account })
+      setHistory(nextHistory.entries)
+      setNotice('Đã hủy yêu cầu và hoàn lại toàn bộ điểm đang giữ.')
+    } catch (cancelError) {
+      setNotice(friendlyError(cancelError))
     } finally {
       setActionPending('')
     }
@@ -251,6 +284,14 @@ export default function AuraClubPage({ isDemo = false, ownerId, initialTab = 're
           <section aria-labelledby="loyalty-rewards-title">
             <div className="loyalty-section-heading"><div><span>QUYỀN LỢI</span><h2 id="loyalty-rewards-title">Dùng điểm cho điều bạn cần</h2><p>Quyền lợi số được cấp ngay; quà và dịch vụ sẽ được Staff xác nhận.</p></div><WalletCards /></div>
             {!features?.redeem ? <div className="loyalty-feature-pause"><Clock3 /> Danh mục đang ở chế độ xem trước. Admin chưa mở đổi điểm.</div> : null}
+            {redemptions.length ? <div className="loyalty-my-redemptions">
+              <div className="loyalty-my-redemptions__heading"><div><strong>Quyền lợi của bạn</strong><span>Theo dõi yêu cầu gần đây ngay tại đây.</span></div><Clock3 /></div>
+              <div className="loyalty-my-redemptions__list">{redemptions.slice(0, 4).map((item) => <article key={item.id}>
+                <div><strong>{item.rewardName}</strong><small>{item.pointsCost.toLocaleString('vi-VN')} điểm · {item.createdAt ? new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short' }).format(new Date(item.createdAt)) : 'Đang đồng bộ'}</small></div>
+                <span className={`loyalty-status loyalty-status--${item.status}`}>{item.status === 'pending' ? 'Chờ Staff' : item.status === 'approved' ? 'Đã duyệt' : item.status === 'fulfilled' ? 'Đã nhận' : item.status === 'cancelled' ? 'Đã hủy' : 'Đã từ chối'}</span>
+                {item.status === 'pending' ? <button type="button" disabled={actionPending === `cancel-${item.id}`} onClick={() => void handleCancelRedemption(item.id)}>{actionPending === `cancel-${item.id}` ? <LoaderCircle className="loyalty-spin" /> : null} Hủy yêu cầu</button> : null}
+              </article>)}</div>
+            </div> : null}
             <div className="loyalty-reward-grid">
               {availableRewards.map((reward) => {
                 const affordable = account.availablePoints >= reward.pointsCost && account.debtPoints === 0

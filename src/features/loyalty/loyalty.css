@@ -207,6 +207,19 @@
 .loyalty-inline-notice { color: #17603a; background: #eafff2; }
 
 .loyalty-reward-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.loyalty-my-redemptions { margin: 16px 0 20px; padding: 16px; border: 1px solid #eadfe5; border-radius: 20px; background: linear-gradient(135deg, #fff9fc, #fff); }
+.loyalty-my-redemptions__heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+.loyalty-my-redemptions__heading div { min-width: 0; }
+.loyalty-my-redemptions__heading strong, .loyalty-my-redemptions__heading span { display: block; }
+.loyalty-my-redemptions__heading span { margin-top: 2px; color: #7d737a; font-size: 12px; }
+.loyalty-my-redemptions__heading > svg { flex: none; color: #d90068; }
+.loyalty-my-redemptions__list { display: grid; gap: 8px; }
+.loyalty-my-redemptions__list article { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid #f0e5eb; }
+.loyalty-my-redemptions__list article > div { min-width: 0; }
+.loyalty-my-redemptions__list article strong, .loyalty-my-redemptions__list article small { display: block; }
+.loyalty-my-redemptions__list article small { margin-top: 3px; color: #81777e; font-size: 11px; }
+.loyalty-my-redemptions__list article button { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 8px 12px; border: 0; border-radius: 11px; color: #8b2f59; background: #ffeaf4; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
+.loyalty-my-redemptions__list article button svg { width: 15px; height: 15px; }
 .loyalty-reward { display: flex; flex-direction: column; min-height: 260px; padding: 20px; border: 1px solid #ece7eb; border-radius: 22px; background: #fff; box-shadow: 0 10px 32px rgba(31, 19, 26, .055); }
 .loyalty-reward.is-featured { border-color: #ffbddc; background: linear-gradient(145deg, #fff 30%, #fff3f9); }
 .loyalty-reward__icon { display: grid; place-items: center; width: 45px; height: 45px; border-radius: 15px; color: #d90068; background: #fff0f7; }
@@ -366,6 +379,9 @@
   .loyalty-reward__copy { margin-top: 13px; }
   .loyalty-mission { grid-template-columns: auto 1fr; gap: 12px; }
   .loyalty-mission > strong { grid-column: 2; text-align: left; }
+  .loyalty-my-redemptions { margin-inline: -2px; padding: 13px; border-radius: 16px; }
+  .loyalty-my-redemptions__list article { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+  .loyalty-my-redemptions__list article button { grid-column: 1 / -1; justify-content: center; width: 100%; }
   .loyalty-recognition-card { padding: 16px; }
   .loyalty-recognition-card__stats strong { font-size: 16px; }
   .loyalty-level-grid { display: flex; overflow-x: auto; margin-inline: -15px; padding: 0 15px 8px; scroll-snap-type: x mandatory; }

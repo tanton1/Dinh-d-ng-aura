@@ -10,9 +10,11 @@ const {
   calculateSpendPoints,
   consumeAvailablePoints,
   defaultAccount,
+  memberReferralRewardActivated,
   qualifiesMemberReferral,
   normalizeMemberReferralCode,
   referralCollectionSummary,
+  redemptionTransitionEffects,
   redeemReservedPoints,
   releaseReservedPoints,
   renewalBonusRate,
@@ -66,6 +68,28 @@ test('redemption reserves points atomically and cancellation or fulfillment sett
   assert.equal(fulfilled.lifetimeRedeemedPoints, 700)
 })
 
+test('redemption settlement restores finite stock only for rejected or cancelled requests', () => {
+  assert.deepEqual(redemptionTransitionEffects('approved', 700), {
+    availableDelta: 0,
+    reservedDelta: 0,
+    restoreStock: false,
+    settlement: 'none',
+  })
+  assert.deepEqual(redemptionTransitionEffects('fulfilled', 700), {
+    availableDelta: 0,
+    reservedDelta: -700,
+    restoreStock: false,
+    settlement: 'redeem',
+  })
+  assert.deepEqual(redemptionTransitionEffects('cancelled', 700), {
+    availableDelta: 700,
+    reservedDelta: -700,
+    restoreStock: true,
+    settlement: 'release',
+  })
+  assert.equal(redemptionTransitionEffects('rejected', -1).availableDelta, 0)
+})
+
 test('refund after spending creates point debt and new earnings settle debt first', () => {
   const account = { ...defaultAccount({ studentId: 'student-1' }), availablePoints: 100 }
   const reversed = reverseAvailableEarning(account, 250)
@@ -82,6 +106,24 @@ test('referral requires a new customer, 30 percent net collection and elapsed ho
   assert.equal(qualifiesMemberReferral({ contractValueVnd: 10_000_000, netCollectedVnd: 2_999_999, holdElapsed: true, isNewCustomer: true }), false)
   assert.equal(qualifiesMemberReferral({ contractValueVnd: 10_000_000, netCollectedVnd: 4_000_000, holdElapsed: false, isNewCustomer: true }), false)
   assert.equal(qualifiesMemberReferral({ contractValueVnd: 10_000_000, netCollectedVnd: 4_000_000, holdElapsed: true, isNewCustomer: false }), false)
+})
+
+test('referral qualification and collection summary honor the active policy threshold', () => {
+  const policy = { ...DEFAULT_POLICY, referralThresholdPercent: 40 }
+  assert.equal(qualifiesMemberReferral({ contractValueVnd: 10_000_000, netCollectedVnd: 3_999_999, holdElapsed: true, isNewCustomer: true, policy }), false)
+  assert.equal(qualifiesMemberReferral({ contractValueVnd: 10_000_000, netCollectedVnd: 4_000_000, holdElapsed: true, isNewCustomer: true, policy }), true)
+  const summary = referralCollectionSummary([
+    { id: 'payment-1', type: 'payment', status: 'posted', cashImpact: 3_500_000, effectiveAtMillis: 100 },
+    { id: 'payment-2', type: 'payment', status: 'posted', cashImpact: 500_000, effectiveAtMillis: 200 },
+  ], 10_000_000, policy)
+  assert.equal(summary.thresholdVnd, 4_000_000)
+  assert.equal(summary.thresholdReachedAtMillis, 200)
+})
+
+test('a qualifying referral activates even when first processed after the cooling period', () => {
+  assert.equal(memberReferralRewardActivated({ wasActivated: false, programCanStart: true, qualifies: true }), true)
+  assert.equal(memberReferralRewardActivated({ wasActivated: false, programCanStart: false, qualifies: true }), false)
+  assert.equal(memberReferralRewardActivated({ wasActivated: true, programCanStart: false, qualifies: false }), true)
 })
 
 test('Ambassador rates progress 3, 5 and 7 percent without retroactive ambiguity', () => {
@@ -169,6 +211,8 @@ test('Aura Club endpoints and server-owned rules are statically wired', () => {
     'listLoyaltyRewardsAdmin',
     'listLoyaltyAmbassadors',
     'listLoyaltyReconciliationIssues',
+    'listLoyaltyAdjustments',
+    'reviewLoyaltyAdjustment',
     'saveLoyaltyPolicy',
     'adjustLoyaltyBalance',
     'giveSessionKudos',
@@ -180,6 +224,12 @@ test('Aura Club endpoints and server-owned rules are statically wired', () => {
   assert.match(indexSource, /exports\.syncLoyaltyNutritionReview = onDocumentWritten/)
   assert.match(loyaltySource, /DEFAULT_CALL_OPTIONS = \{ cpu: 'gcf_gen1', maxInstances: 3, concurrency: 1/)
   assert.match(loyaltySource, /ADMIN_CALL_OPTIONS = \{ cpu: 'gcf_gen1', maxInstances: 2, concurrency: 1/)
+  assert.match(loyaltySource, /memberReferralRewardActivated\(\{ wasActivated: existing\.rewardActivated, programCanStart, qualifies \}\)/)
+  assert.match(loyaltySource, /message: body/)
+  assert.match(loyaltySource, /actionUrl: '#\/aura-club'/)
+  assert.doesNotMatch(loyaltySource, /type: 'loyalty_update'/)
+  assert.match(loyaltySource, /SUPPORTED_AUTOMATIC_ENTITLEMENTS = new Set\(\['extra_reschedule'\]\)/)
+  assert.match(loyaltySource, /Quyền lợi tự động chưa có luồng sử dụng an toàn/)
   for (const collection of ['loyaltyAccounts', 'loyaltyLedgerEntries', 'loyaltySourceBalances', 'loyaltyRedemptions', 'memberReferrals', 'ambassadorProfiles', 'ambassadorCommissionSources', 'ambassadorQuarterCounters', 'loyaltyReconciliationIssues']) {
     assert.match(rulesSource, new RegExp(`match /${collection}/`))
   }

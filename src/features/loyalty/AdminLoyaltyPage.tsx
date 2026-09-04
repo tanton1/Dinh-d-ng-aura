@@ -24,7 +24,7 @@ import {
   transitionLoyaltyRedemption,
   runLoyaltyBackfill,
 } from './loyaltyService'
-import type { LoyaltyAdminDashboard, LoyaltyBackfillSummary, LoyaltyDashboard } from './types'
+import type { LoyaltyAdminDashboard, LoyaltyBackfillSummary, LoyaltyDashboard, LoyaltyPolicyConfig } from './types'
 import AdminLoyaltyOperations from './AdminLoyaltyOperations'
 import './loyalty.css'
 import './loyalty-admin.css'
@@ -32,6 +32,19 @@ import './loyalty-admin.css'
 type Redemption = Record<string, unknown> & { id: string; status: string }
 
 const defaultFeatures: LoyaltyDashboard['features'] = { earn: false, redeem: false, referral: false, ambassador: false, nutrition: false }
+const defaultPolicy: LoyaltyPolicyConfig = {
+  vndPerPoint: 10_000,
+  pointValueVnd: 100,
+  paymentHoldDays: 14,
+  referralHoldDays: 14,
+  referralThresholdPercent: 30,
+  referralRewardPoints: 1_000,
+  referredWelcomePoints: 200,
+  recurringBehaviorMonthlyCap: 250,
+  nutritionMonthlyCap: 150,
+  largeAdjustmentThreshold: 500,
+  ambassadorPayoutMinimumVnd: 100_000,
+}
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat('vi-VN').format(Number(value) || 0)
@@ -68,6 +81,7 @@ function demoDashboard(): LoyaltyAdminDashboard {
       { tier: 'diamond', count: 15 },
     ],
     features: { earn: true, redeem: true, referral: true, ambassador: true, nutrition: false },
+    policy: defaultPolicy,
   }
 }
 
@@ -80,6 +94,7 @@ interface AdminLoyaltyPageProps {
   canReviewRedemptions?: boolean
   canAudit?: boolean
   canAdjust?: boolean
+  canApproveAdjustments?: boolean
 }
 
 const emptyBackfill: LoyaltyBackfillSummary = { scannedContracts: 0, eligibleTierCreditVnd: 0, activeLaunchStudents: 0, missingStudentId: 0, missingStudentProfile: 0, missingAccountUid: 0, missingBranchId: 0, reconciledContracts: 0, launchBonusesStaged: 0, failures: 0 }
@@ -97,6 +112,7 @@ export default function AdminLoyaltyPage({
   canReviewRedemptions = false,
   canAudit = false,
   canAdjust = false,
+  canApproveAdjustments = false,
 }: AdminLoyaltyPageProps) {
   const [dashboard, setDashboard] = useState<LoyaltyAdminDashboard | null>(isDemo ? demoDashboard() : null)
   const [redemptions, setRedemptions] = useState<Redemption[]>(isDemo ? [
@@ -104,6 +120,7 @@ export default function AdminLoyaltyPage({
     { id: 'demo-2', status: 'approved', pointsCost: 1_200, studentId: 'HV-002', rewardSnapshot: { name: 'Aura Shaker' }, createdAt: new Date().toISOString() },
   ] : [])
   const [features, setFeatures] = useState<LoyaltyDashboard['features']>(isDemo ? demoDashboard().features : defaultFeatures)
+  const [policyConfig, setPolicyConfig] = useState<LoyaltyPolicyConfig>(isDemo ? demoDashboard().policy : defaultPolicy)
   const [loading, setLoading] = useState(!isDemo)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
@@ -122,6 +139,7 @@ export default function AdminLoyaltyPage({
       ])
       setDashboard(overview)
       setFeatures(overview.features)
+      setPolicyConfig(overview.policy || defaultPolicy)
       if (overview.launchDate) setLaunchDate(overview.launchDate)
       setRedemptions(queue.redemptions)
     } catch (loadError) {
@@ -143,10 +161,10 @@ export default function AdminLoyaltyPage({
     setError('')
     try {
       if (!isDemo) {
-        const result = await saveLoyaltyPolicy(dashboard.policyRevision, features)
-        setDashboard((current) => current ? { ...current, policyRevision: result.revision, features } : current)
+        const result = await saveLoyaltyPolicy(dashboard.policyRevision, features, policyConfig)
+        setDashboard((current) => current ? { ...current, policyRevision: result.revision, features, policy: policyConfig } : current)
       } else {
-        setDashboard((current) => current ? { ...current, policyRevision: current.policyRevision + 1, features } : current)
+        setDashboard((current) => current ? { ...current, policyRevision: current.policyRevision + 1, features, policy: policyConfig } : current)
       }
       setNotice('Đã phát hành phiên bản chính sách mới. Giao dịch cũ giữ nguyên policy ban đầu.')
     } catch (saveError) {
@@ -156,13 +174,14 @@ export default function AdminLoyaltyPage({
     }
   }
 
-  const transition = async (id: string, status: 'approved' | 'fulfilled' | 'rejected') => {
+  const transition = async (id: string, status: 'approved' | 'fulfilled' | 'rejected' | 'cancelled') => {
+    if (status === 'cancelled' && !window.confirm('Hủy quyền lợi đã duyệt và hoàn toàn bộ điểm đang giữ cho học viên?')) return
     setBusy(id)
     setError('')
     try {
       if (!isDemo) await transitionLoyaltyRedemption(id, status)
       setRedemptions((current) => current.map((item) => item.id === id ? { ...item, status } : item))
-      setNotice(status === 'fulfilled' ? 'Đã hoàn tất giao quyền lợi.' : status === 'approved' ? 'Đã duyệt yêu cầu.' : 'Đã từ chối và hoàn lại điểm giữ chỗ.')
+      setNotice(status === 'fulfilled' ? 'Đã hoàn tất giao quyền lợi.' : status === 'approved' ? 'Đã duyệt yêu cầu.' : status === 'cancelled' ? 'Đã hủy quyền lợi và hoàn lại điểm giữ chỗ.' : 'Đã từ chối và hoàn lại điểm giữ chỗ.')
     } catch (transitionError) {
       setError(transitionError instanceof Error ? transitionError.message : 'Không thể đổi trạng thái yêu cầu.')
     } finally {
@@ -219,7 +238,7 @@ export default function AdminLoyaltyPage({
         <article><span><Users /> Thành viên</span><strong>{formatNumber(metrics.memberCount)}</strong><small><ArrowUpRight /> Toàn hệ thống</small></article>
         <article><span><Coins /> Điểm khả dụng</span><strong>{formatNumber(metrics.availablePoints)}</strong><small>{formatNumber(metrics.pendingPoints)} đang chờ</small></article>
         <article><span><Gift /> Đã đổi</span><strong>{formatNumber(metrics.lifetimeRedeemedPoints)}</strong><small>{metrics.pendingRedemptions} yêu cầu cần xử lý</small></article>
-        <article className="is-liability"><span><WalletCards /> Nghĩa vụ danh nghĩa</span><strong>{formatMoney(metrics.outstandingNominalValueVnd)}</strong><small><ArrowDownRight /> Theo mốc 100đ/điểm</small></article>
+        <article className="is-liability"><span><WalletCards /> Nghĩa vụ danh nghĩa</span><strong>{formatMoney(metrics.outstandingNominalValueVnd)}</strong><small><ArrowDownRight /> Theo mốc {formatMoney(policyConfig.pointValueVnd)}/điểm</small></article>
       </section>
 
       {canRunBackfill ? <section className="loyalty-admin-card loyalty-admin-reconcile">
@@ -245,16 +264,34 @@ export default function AdminLoyaltyPage({
             {([
               ['earn', 'Tích Điểm Aura', 'Thanh toán và attendance hợp lệ'],
               ['redeem', 'Đổi quyền lợi', 'Giữ điểm và kiểm tra tồn kho'],
-              ['referral', 'Referral học viên', 'Mốc 30% và chờ 14 ngày'],
+              ['referral', 'Referral học viên', `Mốc ${policyConfig.referralThresholdPercent}% và chờ ${policyConfig.referralHoldDays} ngày`],
               ['ambassador', 'Aura Ambassador', 'Hoa hồng thực thu 3/5/7%'],
               ['nutrition', 'Điểm dinh dưỡng', 'Chỉ dữ liệu đã xác minh'],
             ] as const).map(([key, label, description]) => <label key={key}><span><strong>{label}</strong><small>{description}</small></span><input type="checkbox" disabled={!canManagePolicy} checked={features[key]} onChange={(event) => setFeatures((current) => ({ ...current, [key]: event.target.checked }))} /></label>)}
           </div>
+          {canManagePolicy ? <details className="loyalty-policy-rules">
+            <summary>Quy tắc điểm và kiểm soát chi phí</summary>
+            <div className="loyalty-policy-rules__grid">
+              {([
+                ['vndPerPoint', 'Số đồng / 1 điểm', 1_000],
+                ['pointValueVnd', 'Giá trị danh nghĩa / điểm', 1],
+                ['paymentHoldDays', 'Ngày giữ điểm thanh toán', 0],
+                ['referralHoldDays', 'Ngày chờ referral', 0],
+                ['referralThresholdPercent', '% thực thu referral', 1],
+                ['referralRewardPoints', 'Điểm người giới thiệu', 0],
+                ['referredWelcomePoints', 'Điểm người được giới thiệu', 0],
+                ['recurringBehaviorMonthlyCap', 'Trần điểm hành vi / tháng', 0],
+                ['nutritionMonthlyCap', 'Trần dinh dưỡng / tháng', 0],
+                ['largeAdjustmentThreshold', 'Ngưỡng cần hai Admin duyệt', 1],
+                ['ambassadorPayoutMinimumVnd', 'Mức chi Ambassador tối thiểu', 0],
+              ] as const).map(([key, label, min]) => <label key={key}><span>{label}</span><input type="number" min={min} step="1" value={policyConfig[key]} onChange={(event) => setPolicyConfig((current) => ({ ...current, [key]: Number(event.target.value) }))} /></label>)}
+            </div>
+          </details> : null}
           {canManagePolicy ? <button type="button" className="loyalty-admin-policy__save" onClick={() => void saveFeatures()} disabled={busy === 'policy'}>{busy === 'policy' ? <LoaderCircle className="loyalty-spin" /> : <Save />} Phát hành chính sách</button> : null}
         </section>
       </div>
 
-      <AdminLoyaltyOperations isDemo={isDemo} canManageRewards={canManageRewards} canManageAmbassadors={canManageAmbassadors} canAudit={canAudit} canAdjust={canAdjust} />
+      <AdminLoyaltyOperations isDemo={isDemo} canManageRewards={canManageRewards} canManageAmbassadors={canManageAmbassadors} canAudit={canAudit} canAdjust={canAdjust} canApproveAdjustments={canApproveAdjustments} largeAdjustmentThreshold={policyConfig.largeAdjustmentThreshold} />
 
       {canReviewRedemptions ? <section className="loyalty-admin-card loyalty-admin-queue">
         <header><div><span>ĐỔI THƯỞNG</span><h2>Yêu cầu cần xử lý</h2></div><Clock3 /></header>
@@ -262,7 +299,7 @@ export default function AdminLoyaltyPage({
           <div className="loyalty-admin-table__head"><span>Học viên</span><span>Quyền lợi</span><span>Điểm</span><span>Trạng thái</span><span>Thao tác</span></div>
           {pendingQueue.map((item) => {
             const reward = item.rewardSnapshot as { name?: string } | undefined
-            return <article key={item.id}><span><strong>{String(item.studentName || item.studentId || 'Học viên Aura')}</strong><small>{item.id.slice(0, 10)}</small></span><span>{reward?.name || 'Quyền lợi Aura'}</span><span><strong>{formatNumber(Number(item.pointsCost || 0))}</strong></span><span><b className={`loyalty-status-pill loyalty-status-pill--${item.status}`}>{item.status === 'pending' ? 'Chờ duyệt' : 'Đã duyệt'}</b></span><span className="loyalty-admin-actions">{item.status === 'pending' ? <><button type="button" disabled={busy === item.id} onClick={() => void transition(item.id, 'approved')}>Duyệt</button><button type="button" className="is-secondary" disabled={busy === item.id} onClick={() => void transition(item.id, 'rejected')}>Từ chối</button></> : <button type="button" disabled={busy === item.id} onClick={() => void transition(item.id, 'fulfilled')}>Hoàn tất</button>}</span></article>
+            return <article key={item.id}><span><strong>{String(item.studentName || item.studentId || 'Học viên Aura')}</strong><small>{item.id.slice(0, 10)}</small></span><span>{reward?.name || 'Quyền lợi Aura'}</span><span><strong>{formatNumber(Number(item.pointsCost || 0))}</strong></span><span><b className={`loyalty-status-pill loyalty-status-pill--${item.status}`}>{item.status === 'pending' ? 'Chờ duyệt' : 'Đã duyệt'}</b></span><span className="loyalty-admin-actions">{item.status === 'pending' ? <><button type="button" disabled={busy === item.id} onClick={() => void transition(item.id, 'approved')}>Duyệt</button><button type="button" className="is-secondary" disabled={busy === item.id} onClick={() => void transition(item.id, 'rejected')}>Từ chối</button></> : <><button type="button" disabled={busy === item.id} onClick={() => void transition(item.id, 'fulfilled')}>Hoàn tất</button><button type="button" className="is-secondary" disabled={busy === item.id} onClick={() => void transition(item.id, 'cancelled')}>Hủy & hoàn điểm</button></>}</span></article>
           })}
         </div> : <div className="loyalty-empty loyalty-empty--compact"><CheckCircle2 /><h3>Không có yêu cầu tồn</h3><p>Các yêu cầu mới sẽ xuất hiện ở đây theo đúng phạm vi chi nhánh.</p></div>}
       </section> : null}

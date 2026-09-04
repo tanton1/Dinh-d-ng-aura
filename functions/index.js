@@ -404,6 +404,7 @@ exports.listLoyaltyAccounts = loyaltyFunctions.listLoyaltyAccounts
 exports.listLoyaltyRewardsAdmin = loyaltyFunctions.listLoyaltyRewardsAdmin
 exports.listLoyaltyAmbassadors = loyaltyFunctions.listLoyaltyAmbassadors
 exports.listLoyaltyReconciliationIssues = loyaltyFunctions.listLoyaltyReconciliationIssues
+exports.listLoyaltyAdjustments = loyaltyFunctions.listLoyaltyAdjustments
 exports.listLoyaltyRedemptions = loyaltyFunctions.listLoyaltyRedemptions
 exports.transitionLoyaltyRedemption = loyaltyFunctions.transitionLoyaltyRedemption
 exports.fulfillLoyaltyRedemption = loyaltyFunctions.fulfillLoyaltyRedemption

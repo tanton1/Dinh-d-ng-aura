@@ -923,6 +923,7 @@ function AuraApplication() {
           canReviewRedemptions={backendMode === 'demo' || hasCapability('loyalty.redemption.review')}
           canAudit={backendMode === 'demo' || hasCapability('loyalty.audit.read')}
           canAdjust={backendMode === 'demo' || hasCapability('loyalty.adjust.request')}
+          canApproveAdjustments={backendMode === 'demo' || hasCapability('loyalty.adjust.approve')}
         /></AuraOperationsFrame>
       case 'admin-today-sessions': return <AuraOperationsFrame><AdminTodaySessionsPage onNavigate={navigate} /></AuraOperationsFrame>
       case 'admin-courses': return <AdminCoursesPage

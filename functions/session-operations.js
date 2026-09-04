@@ -166,6 +166,11 @@ function storedInstantIso(value) {
   return instant ? instant.toISOString() : null
 }
 
+function timestampMillis(value, fallback = 0) {
+  const instant = requestInstant(value)
+  return instant ? instant.getTime() : fallback
+}
+
 async function documentsById(db, collectionName, values) {
   const ids = [...new Set(values.filter((value) => typeof value === 'string' && /^[A-Za-z0-9_-]+$/.test(value)))]
   const result = new Map()
@@ -1528,6 +1533,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           policySequence: Number(requestData.policySequence || 0),
           complimentary: requestData.complimentary === true,
           complimentaryLimit: Number(requestData.complimentaryLimit || 1),
+          loyaltyEntitlementId: requestData.loyaltyEntitlementId || null,
+          loyaltyEntitlementUsed: Boolean(requestData.loyaltyEntitlementId),
           countsTowardContract: requestData.countsTowardContract === true,
         }
       }
@@ -1577,6 +1584,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       let policyMonth = ''
       let usageReference = null
       let usageSnapshot = null
+      let loyaltyEntitlementReference = null
       let policyDecision = { sequence: 0, complimentary: true, countsTowardContract: false, complimentaryLimit: operationsPolicy.complimentaryChangeCancelPerMonth }
       if (requestedBy === 'student') {
         const submittedAt = requestInstant(requestData.createdAt, requestData.submittedAtIso)
@@ -1595,6 +1603,23 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           Number(usageSnapshot.data()?.approvedChangeCancelCount || 0),
           operationsPolicy.complimentaryChangeCancelPerMonth,
         )
+        if (requestType === 'reschedule' && policyDecision.countsTowardContract) {
+          const entitlementSnapshot = await transaction.get(
+            db.collection('loyaltyEntitlements')
+              .where('studentId', '==', session.studentId)
+              .where('type', '==', 'extra_reschedule')
+              .where('status', '==', 'available')
+              .limit(100),
+          )
+          const nowMillis = now().getTime()
+          const availableEntitlement = entitlementSnapshot.docs
+            .filter((item) => item.data().status === 'available' && (!item.data().expiresAt || timestampMillis(item.data().expiresAt) > nowMillis))
+            .sort((left, right) => timestampMillis(left.data().expiresAt, Number.POSITIVE_INFINITY) - timestampMillis(right.data().expiresAt, Number.POSITIVE_INFINITY))[0]
+          if (availableEntitlement) {
+            loyaltyEntitlementReference = availableEntitlement.ref
+            policyDecision = { ...policyDecision, complimentary: false, countsTowardContract: false, loyaltyEntitlementUsed: true }
+          }
+        }
       }
 
       let newDate = ''
@@ -1743,8 +1768,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           policySequence: policyDecision.sequence || null,
           previousSlotCountsTowardContract: policyDecision.countsTowardContract,
           changeSuggestionId: requestData.candidateId || null,
+          loyaltyEntitlementId: loyaltyEntitlementReference?.id || null,
         })
-        transaction.create(eventReference, { schemaVersion: 2, sessionId, requestId, type: 'rescheduled', from: { date: session.date, hour: session.hour ?? null, trainerId: session.trainerId }, to: { date: newDate, hour: newHour, trainerId }, policyMonth: policyMonth || null, policySequence: policyDecision.sequence || null, previousSlotCountsTowardContract: policyDecision.countsTowardContract, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
+        transaction.create(eventReference, { schemaVersion: 2, sessionId, requestId, type: 'rescheduled', from: { date: session.date, hour: session.hour ?? null, trainerId: session.trainerId }, to: { date: newDate, hour: newHour, trainerId }, policyMonth: policyMonth || null, policySequence: policyDecision.sequence || null, previousSlotCountsTowardContract: policyDecision.countsTowardContract, loyaltyEntitlementId: loyaltyEntitlementReference?.id || null, createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid })
       }
 
       if (requestedBy === 'student') {
@@ -1753,13 +1779,23 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           studentId: session.studentId,
           monthKey: policyMonth,
           approvedChangeCancelCount: policyDecision.sequence,
-          complimentaryUsed: true,
+          complimentaryUsed: policyDecision.complimentary === true,
           lastRequestId: requestId,
           updatedAt: FieldValue.serverTimestamp(),
           updatedBy: actor.uid,
         }
         if (usageSnapshot.exists) transaction.update(usageReference, usageWrite)
         else transaction.create(usageReference, { ...usageWrite, createdAt: FieldValue.serverTimestamp() })
+      }
+      if (loyaltyEntitlementReference) {
+        transaction.update(loyaltyEntitlementReference, {
+          status: 'consumed',
+          consumedFor: 'session_reschedule',
+          consumedRequestId: requestId,
+          consumedSessionId: sessionId,
+          consumedAt: FieldValue.serverTimestamp(),
+          consumedBy: actor.uid,
+        })
       }
       if (policyDecision.countsTowardContract) {
         const chargeId = `policy_${requestId}`
@@ -1804,6 +1840,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         policySequence: policyDecision.sequence || null,
         complimentary: policyDecision.complimentary,
         complimentaryLimit: policyDecision.complimentaryLimit,
+        loyaltyEntitlementId: loyaltyEntitlementReference?.id || null,
         countsTowardContract: policyDecision.countsTowardContract,
         processedSessionRevision: nextRevision,
         revision: Number(requestData.revision || 0) + 1,
@@ -1837,6 +1874,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         policySequence: policyDecision.sequence || null,
         complimentary: policyDecision.complimentary,
         complimentaryLimit: policyDecision.complimentaryLimit,
+        loyaltyEntitlementId: loyaltyEntitlementReference?.id || null,
+        loyaltyEntitlementUsed: Boolean(loyaltyEntitlementReference),
         countsTowardContract: policyDecision.countsTowardContract,
       }
     })

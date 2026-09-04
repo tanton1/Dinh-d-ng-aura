@@ -11,8 +11,10 @@ import type {
   LoyaltyDashboard,
   LoyaltyHistoryEntry,
   LoyaltyBackfillBatchResult,
+  LoyaltyAdjustment,
   LoyaltyReward,
   LoyaltyReconciliationIssue,
+  LoyaltyPolicyConfig,
   ReferralWorkspace,
 } from './types'
 
@@ -39,6 +41,10 @@ export function listMyLoyaltyHistory(offset = 0, pageSize = 30) {
 
 export function redeemMyReward(input: { rewardId: string; branchId?: string; idempotencyKey: string }) {
   return call<typeof input, { redemptionId: string; status: 'pending' | 'fulfilled'; account: LoyaltyAccount }>('redeemMyReward', input)
+}
+
+export function cancelMyPendingRedemption(input: { redemptionId: string; idempotencyKey: string }) {
+  return call<typeof input, { redemptionId: string; status: 'cancelled'; account: LoyaltyAccount }>('cancelMyPendingRedemption', input)
 }
 
 export function getMyReferralWorkspace() {
@@ -125,6 +131,14 @@ export function listLoyaltyReconciliationIssues(status = 'open') {
   return call<{ status: string }, { issues: LoyaltyReconciliationIssue[] }>('listLoyaltyReconciliationIssues', { status })
 }
 
+export function listLoyaltyAdjustments(status = 'pending_approval') {
+  return call<{ status: string }, { adjustments: LoyaltyAdjustment[] }>('listLoyaltyAdjustments', { status })
+}
+
+export function reviewLoyaltyAdjustment(adjustmentId: string, decision: 'approve' | 'reject') {
+  return call<{ adjustmentId: string; decision: string }, { adjustmentId: string; status: 'applied' | 'rejected'; account?: LoyaltyAccount }>('reviewLoyaltyAdjustment', { adjustmentId, decision })
+}
+
 export function reconcileLoyaltyAccount(studentId: string) {
   return call<{ studentId: string }, { studentId: string; mismatch: boolean; account: LoyaltyAccount }>('reconcileLoyaltyAccount', { studentId })
 }
@@ -137,8 +151,8 @@ export function transitionLoyaltyRedemption(redemptionId: string, status: 'appro
   return call<{ redemptionId: string; status: string }, { redemptionId: string; status: string }>('transitionLoyaltyRedemption', { redemptionId, status })
 }
 
-export function saveLoyaltyPolicy(expectedRevision: number, features: LoyaltyDashboard['features']) {
-  return call<{ expectedRevision: number; features: LoyaltyDashboard['features'] }, { policyVersion: string; revision: number }>('saveLoyaltyPolicy', { expectedRevision, features })
+export function saveLoyaltyPolicy(expectedRevision: number, features: LoyaltyDashboard['features'], policy: LoyaltyPolicyConfig) {
+  return call<{ expectedRevision: number; features: LoyaltyDashboard['features']; policy: LoyaltyPolicyConfig }, { policyVersion: string; revision: number }>('saveLoyaltyPolicy', { expectedRevision, features, policy })
 }
 
 export function runLoyaltyBackfill(input: { mode: 'dry_run' | 'apply'; cursor?: string; batchSize?: number; launchDate: string }) {
@@ -188,6 +202,9 @@ export function demoLoyaltyDashboard(): LoyaltyDashboard {
         { id: 'kudos-demo-1', sessionId: 'session-demo-1', trainerId: 'pt-demo', message: 'Hôm nay bạn giữ kỹ thuật rất tốt!', xp: 5, badge: 'great_session', createdAt: new Date().toISOString() },
       ],
     },
+    redemptions: [
+      { id: 'demo-redemption', rewardId: 'guest-pass', rewardName: 'Guest Pass', pointsCost: 700, status: 'pending', branchId: 'CS1', fulfillmentType: 'staff', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    ],
     ambassador: null,
     features: { earn: true, redeem: true, referral: true, ambassador: true, nutrition: true },
   }

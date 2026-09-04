@@ -441,6 +441,62 @@ test('second approved change in a calendar month creates one immutable policy ch
   assert.equal(state.paths().filter((path) => path === 'attendanceEvents/policy_request-charge').length, 1)
 })
 
+test('an available Aura Club reschedule entitlement replaces the policy charge exactly once', async () => {
+  const state = operationsFor({
+    'settings/scheduleConfig': { complimentaryChangeCancelPerMonth: 1, sessionChangeDeadlineHours: 12 },
+    'ptPolicyUsage/student-1_2026-08': { studentId: 'student-1', monthKey: '2026-08', approvedChangeCancelCount: 1 },
+    'sessionRequests/request-entitlement': {
+      status: 'pending', type: 'reschedule', sessionId: 'session-entitlement', studentId: 'student-1', accountUid: 'student-account',
+      contractId: 'contract-1', requestedBy: 'student', originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 0,
+      newDate: '2026-08-25', newHour: 10, newTrainerId: 'trainer-1', submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08',
+    },
+    'sessions/session-entitlement': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-22', hour: 7, revision: 0 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 1, totalPrice: 1_200_000 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T3-10'] },
+    'trainers/trainer-1': { status: 'active', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T3-10'], slotCapacity: 2 },
+    'loyaltyEntitlements/entitlement-1': { studentId: 'student-1', type: 'extra_reschedule', status: 'available', expiresAt: '2026-09-30T16:59:59.000Z' },
+  }, async () => ({ uid: 'admin-1' }), { now: () => new Date('2026-08-20T03:00:00.000Z') })
+
+  const result = await state.approveSessionRequest({ data: { requestId: 'request-entitlement', expectedSessionRevision: 0 } })
+  assert.equal(result.countsTowardContract, false)
+  assert.equal(result.loyaltyEntitlementUsed, true)
+  assert.equal(result.loyaltyEntitlementId, 'entitlement-1')
+  assert.equal(state.read('contracts/contract-1').usedSessions, 1)
+  assert.equal(state.read('loyaltyEntitlements/entitlement-1').status, 'consumed')
+  assert.equal(state.read('loyaltyEntitlements/entitlement-1').consumedRequestId, 'request-entitlement')
+  assert.equal(state.read('sessions/session-entitlement').loyaltyEntitlementId, 'entitlement-1')
+  assert.equal(state.read('attendanceEvents/policy_request-entitlement'), undefined)
+
+  const retry = await state.approveSessionRequest({ data: { requestId: 'request-entitlement', expectedSessionRevision: 0 } })
+  assert.equal(retry.unchanged, true)
+  assert.equal(retry.loyaltyEntitlementId, 'entitlement-1')
+  assert.equal(state.read('loyaltyEntitlements/entitlement-1').status, 'consumed')
+})
+
+test('an expired Aura Club entitlement cannot replace the normal change policy charge', async () => {
+  const state = operationsFor({
+    'settings/scheduleConfig': { complimentaryChangeCancelPerMonth: 1, sessionChangeDeadlineHours: 12 },
+    'ptPolicyUsage/student-1_2026-08': { studentId: 'student-1', monthKey: '2026-08', approvedChangeCancelCount: 1 },
+    'sessionRequests/request-expired-entitlement': {
+      status: 'pending', type: 'reschedule', sessionId: 'session-expired-entitlement', studentId: 'student-1',
+      contractId: 'contract-1', requestedBy: 'student', originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 0,
+      newDate: '2026-08-25', newHour: 10, newTrainerId: 'trainer-1', submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08',
+    },
+    'sessions/session-expired-entitlement': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-22', hour: 7, revision: 0 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 12, usedSessions: 1, totalPrice: 1_200_000 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T3-10'] },
+    'trainers/trainer-1': { status: 'active', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T3-10'], slotCapacity: 2 },
+    'loyaltyEntitlements/entitlement-expired': { studentId: 'student-1', type: 'extra_reschedule', status: 'available', expiresAt: '2026-08-19T16:59:59.000Z' },
+  }, async () => ({ uid: 'admin-1' }), { now: () => new Date('2026-08-20T03:00:00.000Z') })
+
+  const result = await state.approveSessionRequest({ data: { requestId: 'request-expired-entitlement', expectedSessionRevision: 0 } })
+  assert.equal(result.countsTowardContract, true)
+  assert.equal(result.loyaltyEntitlementUsed, false)
+  assert.equal(state.read('loyaltyEntitlements/entitlement-expired').status, 'available')
+  assert.equal(state.read('contracts/contract-1').usedSessions.operand, 1)
+  assert.equal(state.read('attendanceEvents/policy_request-expired-entitlement').type, 'charged_reschedule')
+})
+
 test('approved OFF cancels overlapping scheduled sessions without charging and extends the contract atomically', async () => {
   const state = operationsFor({
     'leaveRequests/off-request-1': { status: 'pending', type: 'off', studentId: 'student-1', contractId: 'contract-1', startDate: '2026-08-24', endDate: '2026-08-30', durationDays: 7, reason: 'Đi công tác', submittedAtIso: '2026-08-19T00:00:00.000Z', revision: 0 },
