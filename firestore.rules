@@ -72,10 +72,6 @@ service cloud.firestore {
       return hasRole(['admin', 'super_admin']);
     }
 
-    function isSuperAdmin() {
-      return hasRole(['super_admin']);
-    }
-
     function managesBranchSchedule(branchId) {
       return signedIn()
              && exists(/databases/$(database)/documents/roleAssignments/$(request.auth.uid))
