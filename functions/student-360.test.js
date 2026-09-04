@@ -295,3 +295,9 @@ test('contract workspace mutations are revisioned, audited and no longer rely on
   assert.match(source, /canManageFinancials/)
   assert.doesNotMatch(source, /paidAmount:\s*finite\(request\.data/)
 })
+
+test('Student 360 callables use quota-safe fractional CPU with bounded concurrency', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'student-360.js'), 'utf8')
+  assert.match(source, /const readCall = \(handler\) => onCall\(\{ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 8/)
+  assert.match(source, /const writeCall = \(handler\) => onCall\(\{ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 4/)
+})

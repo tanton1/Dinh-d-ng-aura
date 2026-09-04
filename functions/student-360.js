@@ -992,8 +992,11 @@ async function reconcileStudent360ProjectionBatch({ db, logger = console, batchS
 }
 
 function createStudent360Functions({ db, onCall, storage, logger = console }) {
-  const readCall = (handler) => onCall({ cpu: 1, concurrency: 40, maxInstances: 6, invoker: 'public' }, handler)
-  const writeCall = (handler) => onCall({ cpu: 1, concurrency: 20, maxInstances: 4, invoker: 'public' }, handler)
+  // These callables are Firestore-I/O bound. Fractional Gen 1 CPU keeps new
+  // revisions deployable inside the regional quota while bounded instances
+  // absorb normal Staff/Admin bursts without reserving full vCPUs per service.
+  const readCall = (handler) => onCall({ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 8, invoker: 'public' }, handler)
+  const writeCall = (handler) => onCall({ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 4, invoker: 'public' }, handler)
 
   const contractWorkspace = async (actor, studentId, projection, permissions) => {
     const contractSnapshot = await db.collection('contracts').where('studentId', '==', studentId).limit(50).get()
