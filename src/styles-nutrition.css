@@ -1054,10 +1054,23 @@
   .nutrition-log-card { padding: 17px 12px; }
   .nutrition-meal { min-height: 86px; }
   .nutrition-quick-fab { right: 15px; bottom: calc(82px + env(safe-area-inset-bottom)); width: 56px; height: 56px; }
-  .nutrition-sheet-backdrop { align-items: end; justify-items: stretch; padding: 0; z-index: 125; }
+  .nutrition-sheet-backdrop {
+    align-items: end;
+    justify-items: stretch;
+    padding: 0 0 calc(var(--shell-mobile-dock-height, 80px) + env(safe-area-inset-bottom, 0px));
+    z-index: 125;
+  }
   .nutrition-quick-sheet,
   .nutrition-water-sheet,
-  .nutrition-exercise-sheet { width: 100%; max-height: 92vh; overflow-y: auto; border-radius: 22px 22px 0 0; padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+  .nutrition-exercise-sheet {
+    width: 100%;
+    max-height: calc(100vh - var(--shell-mobile-dock-height, 80px) - env(safe-area-inset-bottom, 0px));
+    max-height: calc(100dvh - var(--shell-mobile-dock-height, 80px) - env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-radius: 22px 22px 0 0;
+    padding-bottom: 20px;
+  }
   .nutrition-quick-sheet__grid > button { min-height: 104px; }
   .nutrition-water-presets { gap: 7px; }
   .nutrition-water-presets button { min-height: 90px; padding: 10px; }

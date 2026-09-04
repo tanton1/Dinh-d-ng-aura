@@ -113,6 +113,8 @@ const NutritionProfileEditor = React.lazy(() => import('./NutritionProfileEditor
 const NutritionDashboardHome = React.lazy(() => import('./NutritionDashboardHome'))
 const MealPlanPage = React.lazy(() => import('./MealPlanPage'))
 const WorkoutLogSheet = React.lazy(() => import('../../components/workout/WorkoutLogSheet'))
+const QuickAddSheet = React.lazy(() => import('./NutritionQuickSheets').then((module) => ({ default: module.NutritionQuickAddSheet })))
+const WaterLogSheet = React.lazy(() => import('./NutritionQuickSheets').then((module) => ({ default: module.NutritionWaterLogSheet })))
 
 function canLogCatalogFood(food: NutritionFoodCatalogItem): food is NutritionFoodCatalogItem & {
   calories: number
@@ -786,7 +788,7 @@ function NutritionOnboarding({ onComplete, initialProfile = DEFAULT_PROFILE, onC
   )
 }
 
-function QuickAddSheet({ savedCount, onClose, onScan, onCatalog, onSaved, onWater, onExercise }: { savedCount: number; onClose: () => void; onScan?: () => void; onCatalog?: () => void; onSaved?: () => void; onWater: () => void; onExercise: () => void }) {
+function LegacyQuickAddSheet({ savedCount, onClose, onScan, onCatalog, onSaved, onWater, onExercise }: { savedCount: number; onClose: () => void; onScan?: () => void; onCatalog?: () => void; onSaved?: () => void; onWater: () => void; onExercise: () => void }) {
   const dialogRef = useAccessibleDialog(onClose)
   const actions = [
     ...(onScan ? [{ title: 'Chụp / Quét ảnh món ăn', copy: 'Phân tích calo & dinh dưỡng bằng AI', icon: <Camera size={22} />, action: onScan, primary: true }] : []),
@@ -825,7 +827,7 @@ function QuickAddSheet({ savedCount, onClose, onScan, onCatalog, onSaved, onWate
   )
 }
 
-function WaterLogSheet({ 
+function LegacyWaterLogSheet({
   current, 
   goal, 
   dateLabel, 
@@ -2023,7 +2025,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   )
   const editingMeal = editingMealId ? meals.find((meal) => meal.id === editingMealId) ?? null : null
   const quickSheets = <>
-    {quickAddOpen && <QuickAddSheet
+    {quickAddOpen && <React.Suspense fallback={<div role="status" aria-live="polite">Đang mở bảng thêm nhanh…</div>}><QuickAddSheet
       savedCount={savedFoodIds.size}
       onClose={() => setQuickAddOpen(false)}
       onScan={() => { setQuickAddOpen(false); openScan() }}
@@ -2031,8 +2033,8 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       onSaved={() => { setQuickAddOpen(false); openCatalog(true) }}
       onWater={() => { setQuickAddOpen(false); setWaterSheetOpen(true) }}
       onExercise={() => { setQuickAddOpen(false); setExerciseSheetOpen(true) }}
-    />}
-    {waterSheetOpen && <WaterLogSheet 
+    /></React.Suspense>}
+    {waterSheetOpen && <React.Suspense fallback={<div role="status" aria-live="polite">Đang mở nhật ký nước…</div>}><WaterLogSheet
       current={water} 
       goal={waterGoal} 
       dateLabel={selectedDateLabel} 
@@ -2066,7 +2068,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         }
       }} 
       onLog={logWater} 
-    />}
+    /></React.Suspense>}
     {exerciseSheetOpen && <React.Suspense fallback={<div role="status" aria-live="polite">Đang tải nhật ký vận động…</div>}><WorkoutLogSheet dateLabel={selectedDateLabel} weightKg={profileDraft.weightKg} onClose={() => setExerciseSheetOpen(false)} onSave={saveActivity} /></React.Suspense>}
     {pendingFood && <MealEditorSheet food={pendingFood} initialDate={selectedDate} onClose={() => setPendingFood(null)} onConfirm={commitCatalogFood} />}
     {editingMeal && <MealLogEditorSheet meal={editingMeal} onClose={() => setEditingMealId(null)} onConfirm={(draft) => editMeal(editingMeal.id, draft)} />}

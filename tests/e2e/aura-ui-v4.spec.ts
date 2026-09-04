@@ -73,6 +73,29 @@ test('nutrition V4 uses four primary sections and compatible nested routes', asy
   await expectNoHorizontalOverflow(page)
 })
 
+test('nutrition V4 lazy-loads quick add and hydration sheets without covering the mobile dock', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await enableAuraUiV4(page)
+  await page.goto('/#/nutrition')
+
+  await page.getByRole('button', { name: 'Thêm nhanh', exact: true }).last().click()
+  const quickAdd = page.getByRole('dialog', { name: 'Bạn muốn ghi lại gì?' })
+  await expect(quickAdd).toBeVisible()
+  expect(await quickAdd.evaluate((element) => element.contains(document.activeElement))).toBe(true)
+  await quickAdd.getByRole('button', { name: /Ghi lượng nước/ }).click()
+
+  const water = page.getByRole('dialog', { name: 'Ghi lượng nước uống' })
+  await expect(water).toBeVisible()
+  await expect(water.getByRole('button', { name: /Ghi \+250 ml nước/ })).toBeEnabled()
+  const dock = page.getByRole('navigation', { name: 'Điều hướng học viên' })
+  await expect.poll(async () => {
+    const [waterBox, dockBox] = await Promise.all([water.boundingBox(), dock.boundingBox()])
+    if (!waterBox || !dockBox) return Number.POSITIVE_INFINITY
+    return waterBox.y + waterBox.height - dockBox.y
+  }).toBeLessThanOrEqual(1)
+  await expectNoHorizontalOverflow(page)
+})
+
 test('schedule V4 keeps three tabs and opens the read-only package from More', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await enableAuraUiV4(page)
