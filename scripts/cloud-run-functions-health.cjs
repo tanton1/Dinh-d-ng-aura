@@ -78,13 +78,22 @@ async function main() {
       if (target.type === 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST') return createdRevision === readyRevision
       return false
     })
-    const ready = trafficServesReadyRevision
+    // Cloud Functions CLI can report a successful update even when Cloud Run
+    // retires the newly created revision and leaves traffic on an older ready
+    // revision (for example after a regional CPU quota rejection). Such a
+    // service is available, but the requested release is not live.
+    const latestCreatedIsReady = Boolean(createdRevision) && createdRevision === readyRevision
+    const ready = trafficServesReadyRevision && latestCreatedIsReady
     return {
       name,
       ready,
       readyRevision,
       createdRevision,
-      reason: ready ? '' : failureReason(service),
+      reason: ready
+        ? ''
+        : !latestCreatedIsReady
+          ? 'Revision mới nhất chưa sẵn sàng; production vẫn đang phục vụ revision cũ.'
+          : failureReason(service),
       uri: service.uri || '',
     }
   }).sort((left, right) => left.name.localeCompare(right.name))

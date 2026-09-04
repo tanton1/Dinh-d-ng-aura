@@ -439,7 +439,11 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
     'unauthenticated',
     'unavailable',
   ])
-  const observedCall = (operation, handler) => onCall(async (request) => {
+  const observedCall = (operation, handler) => onCall({
+    cpu: 1,
+    maxInstances: 1,
+    concurrency: 20,
+  }, async (request) => {
     try {
       return await handler(request)
     } catch (error) {

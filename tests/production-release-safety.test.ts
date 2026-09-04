@@ -25,4 +25,6 @@ test('production health audit checks the effective traffic revision', () => {
   assert.match(healthAudit, /TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST/)
   assert.match(healthAudit, /latestReadyRevision/)
   assert.match(healthAudit, /latestCreatedRevision/)
+  assert.match(healthAudit, /latestCreatedIsReady/)
+  assert.match(healthAudit, /createdRevision === readyRevision/)
 })

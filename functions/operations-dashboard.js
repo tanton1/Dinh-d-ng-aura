@@ -627,7 +627,10 @@ function createOperationsDashboardFunctions({ db, onCall, logger = console }) {
   const getOperationsDashboard = onCall({
     memory: '512MiB',
     cpu: 1,
-    maxInstances: 3,
+    // One highly-concurrent instance keeps the dashboard within the regional
+    // Cloud Run CPU ceiling during rolling deploys. Cached reads absorb normal
+    // bursts and avoid reserving three CPUs for an admin-only screen.
+    maxInstances: 1,
     concurrency: 8,
   }, async (request) => {
     const startedAt = Date.now()
