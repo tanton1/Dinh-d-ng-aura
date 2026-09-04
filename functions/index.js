@@ -123,7 +123,6 @@ exports.syncLoyaltyContractSpend = onDocumentWritten({
   database: databaseId,
   region: 'asia-southeast1',
   maxInstances: 3,
-  retry: true,
 }, async (event) => {
   const before = event.data?.before?.data?.() || {}
   const after = event.data?.after?.data?.() || {}
@@ -139,7 +138,6 @@ exports.syncLoyaltyAttendance = onDocumentWritten({
   database: databaseId,
   region: 'asia-southeast1',
   maxInstances: 3,
-  retry: true,
 }, async (event) => {
   const afterValue = event.data?.after?.data?.()
   const beforeValue = event.data?.before?.data?.() || {}
@@ -154,7 +152,6 @@ exports.syncLoyaltyNutritionReview = onDocumentWritten({
   database: databaseId,
   region: 'asia-southeast1',
   maxInstances: 2,
-  retry: true,
 }, async (event) => reconcileNutritionReview({
   db,
   reviewId: event.params.reviewId,
