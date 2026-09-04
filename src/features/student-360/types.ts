@@ -193,6 +193,65 @@ export interface Student360TimelineEvent {
   metadata: Record<string, unknown>
 }
 
+export interface Student360ContractInstallment {
+  id: string
+  date: string
+  status: 'pending' | 'paid' | 'cancelled'
+  amount?: number
+}
+
+export interface Student360ContractRecord {
+  id: string
+  studentId: string
+  branchId: string | null
+  packageId: string
+  packageName: string
+  trainerId: string | null
+  trainerIds: string[]
+  nutritionPTIds: string[]
+  startDate: string
+  endDate: string
+  frozenAt: string | null
+  totalSessions: number
+  usedSessions: number
+  status: 'active' | 'future' | 'expired' | 'cancelled' | 'frozen'
+  nextPaymentDate: string | null
+  installments: Student360ContractInstallment[]
+  extensions: Array<{ id: string; oldEndDate: string; newEndDate: string; reason: string; createdAt: string | null }>
+  pausePeriods: Array<{ requestId: string; type: string; startDate: string; endDate: string; durationDays: number }>
+  note: string
+  revision: number
+  updatedAt: string | null
+  updatedByName: string
+  totalPrice?: number
+  paidAmount?: number
+  discount?: number
+}
+
+export interface Student360ContractWorkspace {
+  schemaVersion: 1
+  student: { id: string; name: string; phone: string; email: string }
+  activeContractId: string | null
+  permissions: {
+    canManageContract: boolean
+    canCreateContract: boolean
+    canEditFinancialTerms: boolean
+    canCollectPayments: boolean
+    canViewFinancialAmounts: boolean
+  }
+  contracts: Student360ContractRecord[]
+  packages: Array<{ id: string; name: string; totalSessions: number; price: number; durationMonths: number; branchId: string | null }>
+  trainers: Array<{ id: string; name: string; branchId: string | null }>
+  branches: Array<{ id: string; name: string }>
+}
+
+export type Student360ContractMutation =
+  | { studentId: string; action: 'create'; contract: Record<string, unknown> }
+  | { studentId: string; contractId: string; expectedRevision: number; action: 'edit'; contract: Record<string, unknown> }
+  | { studentId: string; contractId: string; expectedRevision: number; action: 'extend'; newEndDate: string; reason: string }
+  | { studentId: string; contractId: string; expectedRevision: number; action: 'freeze' | 'reopen'; reason?: string }
+  | { studentId: string; contractId: string; expectedRevision: number; action: 'cancel'; reason: string; cancelDebt: boolean }
+
 export interface Student360Photo {
   id: string
   date: string

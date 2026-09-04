@@ -56,7 +56,11 @@ function dashboardPermissions(actor) {
     renewals: administrator || hasCapability(actor, 'renewals.workspace.view'),
     nutritionReviews: administrator || (actor.accessRole === 'staff' && actor.positions.some((position) => ['coach_online', 'trainer_pt'].includes(position))),
     academy: administrator || hasCapability(actor, 'academy.course.view') || hasCapability(actor, 'academy.operations.manage'),
-    payroll: administrator || hasCapability(actor, 'payroll.operations.manage') || hasCapability(actor, 'payroll.self.view'),
+    // This is the administrator dashboard. `payroll.self.view` is intentionally
+    // excluded: staff members may view their own statement from the staff
+    // workspace, but must never cause this page to fan out into the
+    // admin-only payroll roster/statement callables.
+    payroll: administrator || hasCapability(actor, 'payroll.operations.manage'),
     quality: administrator || hasCapability(actor, 'finance.operations.manage'),
   }
 }

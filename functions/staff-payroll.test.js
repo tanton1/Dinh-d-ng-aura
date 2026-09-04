@@ -170,6 +170,8 @@ test('base salary, teaching pay, bonus and deductions remain separate in payroll
 test('staff payroll callables are actor-scoped and browser writes never calculate salary', () => {
   const source = fs.readFileSync(path.join(__dirname, 'staff-payroll.js'), 'utf8')
   const clientSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'staffPayrollService.ts'), 'utf8')
+  const staffPage = fs.readFileSync(path.join(__dirname, '..', 'src', 'pages', 'operations', 'StaffPayrollPage.tsx'), 'utf8')
+  const adminPage = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'admin', 'pt', 'TrainerPayroll.tsx'), 'utf8')
   assert.match(source, /trustedAccessContext/)
   assert.match(source, /requireSelfPayroll/)
   assert.match(source, /payroll\.self\.view/)
@@ -195,6 +197,10 @@ test('staff payroll callables are actor-scoped and browser writes never calculat
   assert.match(clientSource, /payroll_callable_\$\{name\}/)
   assert.match(clientSource, /attempt < 3/)
   assert.match(clientSource, /functions\/internal/)
+  assert.match(staffPage, /code === 'permission-denied'/)
+  assert.match(adminPage, /code === 'permission-denied'/)
+  assert.doesNotMatch(staffPage, /Dịch vụ lương đang cập nhật/)
+  assert.doesNotMatch(adminPage, /Dịch vụ lương đang được cập nhật/)
   assert.doesNotMatch(source, /allow read|allow write/)
 })
 

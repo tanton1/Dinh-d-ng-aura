@@ -3,9 +3,10 @@ const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const test = require('node:test')
-const { dashboardAnalytics, dashboardBranchScope, isEffectiveContract, isExhaustedContract, isExpiringContract, isPreservedContract, ledgerReceiptImpact, ledgerRevenueImpact, receivableSchedule, renewalCaseMatches, summarizeAttendance, summarizeReceivables, todayAttendanceRows } = require('./operations-dashboard')
+const { dashboardAnalytics, dashboardBranchScope, dashboardPermissions, isEffectiveContract, isExhaustedContract, isExpiringContract, isPreservedContract, ledgerReceiptImpact, ledgerRevenueImpact, receivableSchedule, renewalCaseMatches, summarizeAttendance, summarizeReceivables, todayAttendanceRows } = require('./operations-dashboard')
 const source = readFileSync(join(__dirname, 'operations-dashboard.js'), 'utf8')
 const dashboard = readFileSync(join(__dirname, '..', 'src', 'pages', 'admin', 'AdminDashboard.tsx'), 'utf8')
+const application = readFileSync(join(__dirname, '..', 'src', 'AuraApplication.tsx'), 'utf8')
 
 test('operations dashboard separates contract sales from canonical cash collection', () => {
   assert.match(source, /contractSales/)
@@ -29,6 +30,23 @@ test('dashboard and attendance queries are bounded and capability protected', ()
   assert.match(source, /schemaVersion: 7/)
   assert.match(source, /actionSummary/)
   assert.match(source, /analytics/)
+})
+
+test('staff self-payroll access never enables the admin payroll dashboard', () => {
+  const staff = dashboardPermissions({
+    accessRole: 'staff',
+    positions: ['trainer_pt'],
+    capabilities: ['dashboard.view', 'payroll.self.view'],
+  })
+  const admin = dashboardPermissions({
+    accessRole: 'admin',
+    positions: [],
+    capabilities: ['dashboard.view', 'payroll.operations.manage'],
+  })
+  assert.equal(staff.payroll, false)
+  assert.equal(admin.payroll, true)
+  assert.match(dashboard, /const payrollEnabled = canViewPayroll && data\?\.permissions\.payroll === true/)
+  assert.match(application, /canViewPayroll=\{backendMode === 'demo' \|\| hasCapability\('payroll\.operations\.manage'\)\}/)
 })
 
 test('effective contracts require an active date window and remaining sessions', () => {

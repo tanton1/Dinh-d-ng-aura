@@ -280,6 +280,8 @@ exports.listStudent360Timeline = student360Functions.listStudent360Timeline
 exports.createStudentCareActivity = student360Functions.createStudentCareActivity
 exports.getStudent360ProgressPhotos = student360Functions.getStudent360ProgressPhotos
 exports.refreshStudent360Projection = student360Functions.refreshStudent360Projection
+exports.getStudent360ContractWorkspace = student360Functions.getStudent360ContractWorkspace
+exports.mutateStudent360Contract = student360Functions.mutateStudent360Contract
 
 const student360Trigger = (document) => onDocumentWritten({
   document,
@@ -305,6 +307,7 @@ exports.syncStudent360LeaveRequest = student360Trigger('leaveRequests/{documentI
 exports.syncStudent360SessionRequest = student360Trigger('sessionRequests/{documentId}')
 exports.syncStudent360Renewal = student360Trigger('contractRenewalCases/{documentId}')
 exports.syncStudent360Payment = student360Trigger('payments/{documentId}')
+exports.syncStudent360FinanceLedger = student360Trigger('ledgerEntries/{documentId}')
 exports.syncStudent360DailyCheckin = student360Trigger('dailyCheckins/{documentId}')
 exports.syncStudent360Profile = student360Trigger('users/{accountUid}')
 exports.syncStudent360MealLog = student360Trigger('users/{accountUid}/mealLogs/{documentId}')

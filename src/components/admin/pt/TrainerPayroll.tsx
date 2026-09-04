@@ -135,8 +135,20 @@ function payrollProfileLabel(profile: PayrollProfile) {
 
 function friendlyError(cause: unknown) {
   const message = cause instanceof Error ? cause.message : ''
-  if (/permission|unauth|quyền/i.test(message)) return 'Tài khoản chưa có quyền quản lý bảng lương.'
-  if (/not found|internal|unavailable/i.test(message)) return 'Dịch vụ lương đang được cập nhật. Hãy tải lại sau ít phút.'
+  const rawCode = cause && typeof cause === 'object' && 'code' in cause
+    ? String((cause as { code?: unknown }).code || '')
+    : ''
+  const code = rawCode.replace(/^functions\//i, '').toLowerCase()
+  if (code === 'permission-denied' || code === 'unauthenticated' || /permission|unauth|quyền/i.test(message)) {
+    return code === 'unauthenticated'
+      ? 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại để quản lý bảng lương.'
+      : 'Tài khoản chưa có quyền quản lý bảng lương.'
+  }
+  if (code === 'internal' || code === 'unavailable' || code === 'deadline-exceeded' || /^(internal|unavailable)$/i.test(message.trim())) {
+    if (/mã đối soát/i.test(message)) return message
+    return 'Dịch vụ lương tạm thời chưa phản hồi. Hãy thử lại sau ít phút.'
+  }
+  if (code === 'not-found') return 'Chưa có dữ liệu kỳ lương phù hợp.'
   return message || 'Không thể tải dữ liệu lương.'
 }
 

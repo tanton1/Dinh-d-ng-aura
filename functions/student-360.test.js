@@ -2,6 +2,8 @@ const assert = require('node:assert/strict')
 const test = require('node:test')
 const {
   buildHealthScore,
+  contractInstallments,
+  contractMutationTitle,
   contractUsage,
   permissionsFor,
   redactProjection,
@@ -9,6 +11,30 @@ const {
   studentIdFromAccountUid,
   studentAccountProfile,
 } = require('./student-360')
+
+test('contract workspace exposes named, immutable CRM actions', () => {
+  assert.equal(contractMutationTitle('edit'), 'Đã cập nhật hợp đồng')
+  assert.equal(contractMutationTitle('freeze'), 'Đã bảo lưu hợp đồng')
+  assert.equal(contractMutationTitle('reopen'), 'Đã mở lại hợp đồng')
+  assert.equal(contractMutationTitle('cancel'), 'Đã hủy hợp đồng')
+})
+
+test('contract installment edits preserve posted history and reconcile outstanding debt', () => {
+  const previous = [
+    { id: 'paid-1', amount: 2_000_000, date: '2026-09-01', status: 'paid' },
+    { id: 'pending-1', amount: 3_000_000, date: '2026-10-01', status: 'pending' },
+  ]
+  const result = contractInstallments(previous, previous, 3_000_000)
+  assert.equal(result.length, 2)
+  assert.throws(() => contractInstallments([
+    { id: 'paid-1', amount: 1_000_000, date: '2026-09-01', status: 'paid' },
+    previous[1],
+  ], previous, 3_000_000), /không thể chỉnh sửa/i)
+  assert.throws(() => contractInstallments([
+    previous[0],
+    { ...previous[1], amount: 2_000_000 },
+  ], previous, 3_000_000), /công nợ còn lại/i)
+})
 
 test('student profile lookup requires the canonical accountUid and never assumes studentId is an Auth uid', async () => {
   const reads = []
@@ -71,6 +97,20 @@ test('unified timeline includes contract, meal review and daily check-in without
   assert.equal(JSON.stringify(rows).includes('private note'), false)
   assert.equal(JSON.stringify(rows).includes('private'), false)
   assert.deepEqual(rows.find((item) => item.type === 'checkin').metadata, { checkinId: 'checkin-1', compliance: 86 })
+})
+
+test('CRM timeline includes canonical finance ledger cash events and ignores revenue recognition internals', () => {
+  const rows = sourceTimelineEvents('student-1', {
+    contracts: [], sessions: [], workoutLogs: [], leaveRequests: [], sessionRequests: [], mealLogs: [], renewals: [],
+    mealReviews: [], dailyCheckins: [], profile: null, bodyMetrics: [], progressPhotos: [],
+    payments: [
+      { id: 'ledger-payment', timelineSource: 'finance_ledger', type: 'payment', amount: 2_000_000, contractId: 'contract-1', effectiveAt: '2026-09-04T02:00:00.000Z' },
+      { id: 'ledger-recognition', timelineSource: 'finance_ledger', type: 'revenue_recognition', amount: 200_000, contractId: 'contract-1', effectiveAt: '2026-09-04T03:00:00.000Z' },
+    ],
+  })
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].title, 'Đã ghi nhận thanh toán')
+  assert.equal(rows[0].metadata.amount, 2_000_000)
 })
 
 test('health score reweights only available components and exposes confidence', () => {
@@ -216,4 +256,15 @@ test('care activity audit name is server-owned instead of trusting the client pa
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'student-360.js'), 'utf8')
   assert.match(source, /actorName: actor\.actorName/)
   assert.doesNotMatch(source, /actorName: bounded\(request\.data\?\.actorName/)
+})
+
+test('contract workspace mutations are revisioned, audited and no longer rely on legacy student detail writes', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'student-360.js'), 'utf8')
+  assert.match(source, /getStudent360ContractWorkspace/)
+  assert.match(source, /mutateStudent360Contract/)
+  assert.match(source, /expectedRevision/)
+  assert.match(source, /contractAuditLogs/)
+  assert.match(source, /studentTimelineEvents/)
+  assert.match(source, /canManageFinancials/)
+  assert.doesNotMatch(source, /paidAmount:\s*finite\(request\.data/)
 })

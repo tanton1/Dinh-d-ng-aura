@@ -1,7 +1,7 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../../lib/firebaseFunctions'
 import { callReadOnlyFunction } from '../../services/readOnlyCallableService'
-import type { Student360DirectoryItem, Student360Overview, Student360Photo, Student360TimelineEvent } from './types'
+import type { Student360ContractMutation, Student360ContractWorkspace, Student360DirectoryItem, Student360Overview, Student360Photo, Student360TimelineEvent } from './types'
 
 function functionError(cause: unknown, fallback: string) {
   const value = cause && typeof cause === 'object' ? cause as { code?: unknown; message?: unknown } : {}
@@ -44,7 +44,7 @@ export async function listStudent360Directory(input: {
   }
 }
 
-export async function listStudent360Timeline(input: { studentId: string; types?: string[]; cursor?: number | null; pageSize?: number }) {
+export async function listStudent360Timeline(input: { studentId: string; types?: string[]; cursor?: number | null; pageSize?: number; fromMillis?: number }) {
   try {
     return await callReadOnlyFunction<typeof input, { schemaVersion: 1; studentId: string; rows: Student360TimelineEvent[]; hasMore: boolean; nextCursor: number | null }>(
       'listStudent360Timeline',
@@ -90,5 +90,27 @@ export async function refreshStudent360Projection(studentId: string) {
     return (await callable({ studentId })).data
   } catch (cause) {
     throw functionError(cause, 'Không thể đối soát Student 360.')
+  }
+}
+
+export async function getStudent360ContractWorkspace(studentId: string) {
+  try {
+    return await callReadOnlyFunction<{ studentId: string }, Student360ContractWorkspace>(
+      'getStudent360ContractWorkspace',
+      { studentId },
+      { timeoutMs: 30_000 },
+    )
+  } catch (cause) {
+    throw functionError(cause, 'Không thể tải nghiệp vụ hợp đồng.')
+  }
+}
+
+export async function mutateStudent360Contract(input: Student360ContractMutation) {
+  if (!firebaseFunctions) throw new Error('Firebase Functions chưa được cấu hình.')
+  try {
+    const callable = httpsCallable<Student360ContractMutation, { contractId: string; revision: number; action: string }>(firebaseFunctions, 'mutateStudent360Contract')
+    return (await callable(input)).data
+  } catch (cause) {
+    throw functionError(cause, 'Không thể cập nhật hợp đồng.')
   }
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   AlertTriangle,
@@ -50,13 +50,14 @@ import type {
 } from './types'
 import './Student360Page.css'
 
+const Student360ContractWorkspace = lazy(() => import('./Student360ContractWorkspace'))
+
 interface Props {
   studentId: string
   source: string
   isDemo?: boolean
   onBack: () => void
   onNavigate: (view: ViewId, studentId?: string, studentName?: string) => void
-  onOpenContractOperations?: (studentId: string) => void
 }
 
 const tabs: Array<{ id: Student360Tab; label: string; icon: typeof LayoutDashboard }> = [
@@ -74,6 +75,12 @@ const timelineFilters = [
   { id: 'progress', label: 'Tiến độ' },
   { id: 'care', label: 'Chăm sóc' },
   { id: 'contract', label: 'Hợp đồng' },
+] as const
+
+const timelineRanges = [
+  { id: '30d', label: '30 ngày', days: 30 },
+  { id: '90d', label: '90 ngày', days: 90 },
+  { id: 'all', label: 'Toàn bộ', days: 0 },
 ] as const
 
 const currency = new Intl.NumberFormat('vi-VN')
@@ -101,12 +108,6 @@ function healthCopy(status: Student360Overview['health']['status']) {
 
 function confidenceCopy(value: Student360Overview['health']['confidence']) {
   return value === 'high' ? 'Cao' : value === 'medium' ? 'Trung bình' : 'Thấp'
-}
-
-function paymentCopy(status?: string) {
-  if (status === 'paid') return 'Đã thanh toán'
-  if (status === 'overdue') return 'Quá hạn'
-  return 'Còn khoản cần thanh toán'
 }
 
 function availabilityCopy(source: string) {
@@ -184,7 +185,7 @@ function State({ type, children }: { type?: 'error'; children: React.ReactNode }
   return <div className={`student360-state${type ? ` is-${type}` : ''}`}>{children}</div>
 }
 
-export default function Student360Page({ studentId, source, isDemo = false, onBack, onNavigate, onOpenContractOperations }: Props) {
+export default function Student360Page({ studentId, source, isDemo = false, onBack, onNavigate }: Props) {
   const [activeTab, setActiveTab] = useState<Student360Tab>('overview')
   const [overview, setOverview] = useState<Student360Overview | null>(null)
   const [loading, setLoading] = useState(true)
@@ -193,6 +194,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   const [notice, setNotice] = useState('')
   const [timeline, setTimeline] = useState<Student360TimelineEvent[]>([])
   const [timelineFilter, setTimelineFilter] = useState<(typeof timelineFilters)[number]['id']>('all')
+  const [timelineRange, setTimelineRange] = useState<(typeof timelineRanges)[number]['id']>('90d')
   const [timelineCursor, setTimelineCursor] = useState<number | null>(null)
   const [timelineHasMore, setTimelineHasMore] = useState(false)
   const [timelineLoading, setTimelineLoading] = useState(false)
@@ -243,7 +245,8 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
             : timelineFilter === 'care'
               ? ['care', 'checkin']
             : [timelineFilter]
-      const result = await listStudent360Timeline({ studentId, types, cursor: append ? timelineCursor : null, pageSize: 30 })
+      const rangeDays = timelineRanges.find((item) => item.id === timelineRange)?.days || 0
+      const result = await listStudent360Timeline({ studentId, types, cursor: append ? timelineCursor : null, pageSize: 30, ...(rangeDays ? { fromMillis: Date.now() - rangeDays * 86_400_000 } : {}) })
       setTimeline((current) => append ? [...current, ...result.rows] : result.rows)
       setTimelineCursor(result.nextCursor)
       setTimelineHasMore(result.hasMore)
@@ -252,7 +255,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
     } finally {
       setTimelineLoading(false)
     }
-  }, [isDemo, studentId, timelineCursor, timelineFilter, timelineLoading])
+  }, [isDemo, studentId, timelineCursor, timelineFilter, timelineLoading, timelineRange])
 
   useEffect(() => {
     if (activeTab !== 'activity') return
@@ -261,7 +264,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
     // loadTimeline deliberately changes after a page response; pagination is
     // user-triggered and must not cause the first page to load again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, timelineFilter, studentId])
+  }, [activeTab, timelineFilter, timelineRange, studentId])
 
   useEffect(() => {
     activePhotoStudentRef.current = studentId
@@ -364,7 +367,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
     if (item.action === 'progress') return overview.permissions.canViewProgress
     if (item.action === 'renewal') return overview.permissions.canViewRenewal
     if (item.action === 'schedule') return overview.permissions.canManageContract
-    if (item.action === 'contract') return overview.permissions.canManageContract && Boolean(onOpenContractOperations)
+    if (item.action === 'contract') return overview.permissions.canManageContract
     if (item.action === 'finance') return source === 'admin-pt-students' && overview.permissions.canViewFinancialAmounts
     return false
   }
@@ -382,7 +385,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
     if (item.action === 'progress') { setActiveTab('coaching'); return }
     if (item.action === 'nutrition') { setActiveTab('coaching'); return }
     if (item.action === 'renewal') return onNavigate(staff ? 'staff-renewals' : 'admin-renewals', studentId, overview.identity.name)
-    if (item.action === 'contract' && onOpenContractOperations) return onOpenContractOperations(studentId)
+    if (item.action === 'contract') { setActiveTab('contract'); return }
     if (item.action === 'finance') return onNavigate('admin-finance', studentId, overview.identity.name)
     openCare(item.action === 'contact' ? 'call' : 'action_completed', item.id)
   }
@@ -414,7 +417,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
               {permissions.canManageContract && <button type="button" onClick={() => onNavigate('admin-pt-schedule', studentId, identity.name)}><CalendarPlus /> Tạo hoặc điều chỉnh lịch</button>}
               {permissions.canManageCare && <button type="button" onClick={() => openCare('note')}><MessageCircle /> Ghi chú chăm sóc</button>}
               {permissions.canViewRenewal && <button type="button" onClick={() => onNavigate(source.startsWith('staff') ? 'staff-renewals' : 'admin-renewals', studentId, identity.name)}><Sparkles /> Mở hồ sơ gia hạn</button>}
-              {permissions.canManageContract && onOpenContractOperations && <button type="button" onClick={() => onOpenContractOperations(studentId)}><FileText /> Đổi PT · bảo lưu · sửa hợp đồng</button>}
+              {permissions.canManageContract && <button type="button" onClick={() => setActiveTab('contract')}><FileText /> Đổi PT · bảo lưu · sửa hợp đồng</button>}
               {permissions.canRefreshProjection && <button type="button" disabled={refreshing} onClick={() => void loadOverview(true)}><RefreshCw className={refreshing ? 'is-spinning' : ''} /> Đối soát dữ liệu</button>}
             </div>
           </details>
@@ -450,7 +453,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
             <div className="student360-session-list">{schedule.sessions.map((session) => <div key={session.id}><time>{safeDate(session.date)} · {session.hour === null ? '--' : String(session.hour).padStart(2, '0')}:00</time><span className={`is-${session.attendanceStatus}`}>{session.attendanceStatus === 'present' ? 'Đã tập' : session.attendanceStatus === 'late' ? 'Đi trễ' : session.attendanceStatus === 'no_show' ? 'Không đến' : 'Đã xếp'}</span></div>)}{schedule.sessions.length === 0 && <p className="student360-empty">Tuần này chưa có lịch tập.</p>}</div>
           </Card>}
 
-          <Card title="Hợp đồng & quyền lợi" icon={WalletCards} action={permissions.canManageContract && onOpenContractOperations ? <button type="button" className="student360-link" onClick={() => onOpenContractOperations(studentId)}>Nghiệp vụ</button> : undefined}>
+          <Card title="Hợp đồng & quyền lợi" icon={WalletCards} action={<button type="button" className="student360-link" onClick={() => setActiveTab('contract')}>Xem chi tiết</button>}>
             {contract ? <><div className="student360-contract-head"><div><strong>{contract.packageName}</strong><span>{safeDate(contract.startDate)} → {safeDate(contract.endDate)}</span></div><b>{contract.remainingSessions}<small>buổi còn lại</small></b></div><div className="student360-entitlement"><span><i style={{ width: `${Math.min(100, contract.totalSessions ? contract.usedSessions / contract.totalSessions * 100 : 0)}%` }} /></span><small>{contract.usedSessions} đã dùng · {contract.remainingSessions} còn lại</small></div>{contract.reconciliationStatus !== 'matched' && <div className="student360-inline-warning"><AlertTriangle /> Số buổi đang được đối soát theo lịch sử có tính buổi.</div>}</> : <p className="student360-empty">Học viên chưa có hợp đồng.</p>}
           </Card>
 
@@ -485,8 +488,8 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
 
       {activeTab === 'activity' && <section className="student360-section">
         <div className="student360-section-heading"><div><small>CRM TIMELINE</small><h2>Toàn bộ hoạt động</h2><p>Dữ liệu được lọc theo quyền của tài khoản hiện tại.</p></div></div>
-        <div className="student360-filter-chips">{timelineFilters.map((filter) => <button type="button" key={filter.id} className={timelineFilter === filter.id ? 'active' : ''} onClick={() => setTimelineFilter(filter.id)}>{filter.label}</button>)}</div>
-        <div className="student360-timeline">{timeline.map((item) => <article key={item.id}><div className={`student360-timeline-icon is-${item.type}`}>{item.type === 'training' || item.type === 'workout' ? <Dumbbell /> : item.type === 'nutrition' ? <Salad /> : item.type === 'progress' || item.type === 'checkin' ? <Activity /> : item.type === 'finance' ? <CircleDollarSign /> : item.type === 'care' ? <MessageCircle /> : <FileText />}</div><div><time>{safeDate(item.occurredAt, true)}</time><strong>{item.title}</strong><p>{item.description}</p>{typeof item.metadata.amount === 'number' && <small>{currency.format(item.metadata.amount)}đ</small>}</div></article>)}{!timeline.length && !timelineLoading && <State><History /><h3>Chưa có hoạt động</h3><p>Các sự kiện mới sẽ xuất hiện tại đây.</p></State>}{timelineLoading && <State><LoaderCircle className="is-spinning" /> Đang tải hoạt động…</State>}</div>
+        <div className="student360-timeline-toolbar"><div className="student360-filter-chips">{timelineFilters.map((filter) => <button type="button" key={filter.id} className={timelineFilter === filter.id ? 'active' : ''} onClick={() => setTimelineFilter(filter.id)}>{filter.label}</button>)}</div><div className="student360-filter-chips is-range">{timelineRanges.map((range) => <button type="button" key={range.id} className={timelineRange === range.id ? 'active' : ''} onClick={() => setTimelineRange(range.id)}>{range.label}</button>)}</div></div>
+        <div className="student360-timeline">{timeline.map((item) => <article key={item.id}><div className={`student360-timeline-icon is-${item.type}`}>{item.type === 'training' || item.type === 'workout' ? <Dumbbell /> : item.type === 'nutrition' ? <Salad /> : item.type === 'progress' || item.type === 'checkin' ? <Activity /> : item.type === 'finance' ? <CircleDollarSign /> : item.type === 'care' ? <MessageCircle /> : <FileText />}</div><div><time>{safeDate(item.occurredAt, true)}{typeof item.metadata.actorName === 'string' && item.metadata.actorName ? ` · ${item.metadata.actorName}` : ''}</time><strong>{item.title}</strong><p>{item.description}</p>{typeof item.metadata.amount === 'number' && <small>{currency.format(item.metadata.amount)}đ</small>}</div></article>)}{!timeline.length && !timelineLoading && <State><History /><h3>Chưa có hoạt động</h3><p>Không có sự kiện phù hợp bộ lọc hiện tại.</p></State>}{timelineLoading && <State><LoaderCircle className="is-spinning" /> Đang tải hoạt động…</State>}</div>
         {timelineHasMore && <button type="button" className="student360-load-more" disabled={timelineLoading} onClick={() => void loadTimeline(true)}>Tải thêm hoạt động</button>}
       </section>}
 
@@ -512,22 +515,16 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
       </section>}
 
       {activeTab === 'contract' && <section className="student360-section">
-        <div className="student360-section-heading"><div><small>CONTRACT & ENTITLEMENT</small><h2>Hợp đồng và quyền lợi</h2><p>Giải thích minh bạch từng buổi đã dùng và trạng thái thanh toán.</p></div>{permissions.canManageContract && onOpenContractOperations && <button type="button" onClick={() => onOpenContractOperations(studentId)}>Mở nghiệp vụ hợp đồng</button>}</div>
-        {contract ? <div className="student360-contract-grid">
+        <div className="student360-section-heading"><div><small>CONTRACT & ENTITLEMENT</small><h2>Hợp đồng và quyền lợi</h2><p>Xem, sửa, bảo lưu, gia hạn, hủy và quản lý thanh toán ngay trong hồ sơ 360.</p></div></div>
+        {contract && <div className="student360-contract-grid student360-contract-grid--entitlement">
           <Card title={contract.packageName} icon={FileText}>
             <div className="student360-entitlement-tree"><div><strong>{contract.totalSessions}</strong><span>Tổng quyền lợi</span></div><i /><div className="student360-entitlement-branches"><div><strong>{contract.usedSessions}</strong><span>Đã dùng</span><small>{contract.chargedSessions} buổi đã tính{contract.legacyProjectionAdjustment ? ` · ${contract.legacyProjectionAdjustment} buổi dữ liệu cũ` : ''}</small></div><div><strong>{contract.exemptSessions}</strong><span>Miễn trừ</span><small>Không trừ quyền lợi hợp đồng</small></div><div><strong>{contract.pendingReconciliationSessions}</strong><span>Chờ đối soát</span><small>Cần quản lý xác nhận trước khi trừ buổi</small></div><div><strong>{contract.remainingSessions}</strong><span>Còn lại</span><small>Có thể tiếp tục xếp theo hiệu lực hợp đồng</small></div></div></div>
             <dl className="student360-definition-list"><div><dt>Hiệu lực</dt><dd>{safeDate(contract.startDate)} → {safeDate(contract.endDate)}</dd></div><div><dt>Đối soát</dt><dd>{contract.reconciliationStatus === 'matched' ? 'Đã khớp lịch sử' : 'Cần kiểm tra dữ liệu cũ'}</dd></div></dl>
           </Card>
-          <Card title="Thanh toán" icon={CircleDollarSign}>
-            {contract.payment ? <><div className={`student360-payment-status is-${contract.payment.status}`}><WalletCards /><div><strong>{paymentCopy(contract.payment.status)}</strong><span>{contract.payment.nextPaymentDate ? `Hạn ${safeDate(contract.payment.nextPaymentDate)}` : 'Không có kỳ thanh toán tiếp theo'}</span></div></div>{permissions.canViewFinancialAmounts && <div className="student360-finance-values"><div><span>Giá trị</span><strong>{currency.format(contract.payment.total || 0)}đ</strong></div><div><span>Đã thu</span><strong>{currency.format(contract.payment.paid || 0)}đ</strong></div><div><span>Còn lại</span><strong>{currency.format(contract.payment.outstanding || 0)}đ</strong></div></div>}</> : <p className="student360-empty">Chưa có dữ liệu thanh toán.</p>}
-          </Card>
-          <Card title="OFF & bảo lưu" icon={CalendarDays}>
-            <div className="student360-pause-list">{contract.pausePeriods.map((period, index) => <article key={period.requestId || index}><span>{period.type === 'preservation' ? 'Bảo lưu' : 'OFF'}</span><strong>{safeDate(period.startDate)} → {safeDate(period.endDate)}</strong><small>{period.durationDays ? `${period.durationDays} ngày` : 'Đã ghi nhận'}</small></article>)}{contract.pausePeriods.length === 0 && <p className="student360-empty">Chưa có kỳ OFF hoặc bảo lưu.</p>}</div>
-          </Card>
-          {permissions.canViewRenewal && <Card title="Gia hạn" icon={Sparkles}>
-            <div className="student360-renewal"><div><strong>{renewal?.probability ?? 0}%</strong><span>{renewalStage(renewal?.stage)}</span></div><button type="button" onClick={() => onNavigate(source.startsWith('staff') ? 'staff-renewals' : 'admin-renewals', studentId, identity.name)}>Mở hồ sơ renew</button></div>
-          </Card>}
-        </div> : <State><FileText /><h3>Chưa có hợp đồng</h3><p>Học viên cần được liên kết một gói tập trước khi xếp lịch.</p></State>}
+        </div>}
+        <Suspense fallback={<State><LoaderCircle className="is-spinning" /><h3>Đang mở trung tâm nghiệp vụ hợp đồng…</h3></State>}>
+          <Student360ContractWorkspace studentId={studentId} overview={overview} source={source} isDemo={isDemo} onNavigate={onNavigate} onChanged={() => loadOverview(false)} onNotice={setNotice} />
+        </Suspense>
       </section>}
 
       {activeTab === 'more' && <section className="student360-section">

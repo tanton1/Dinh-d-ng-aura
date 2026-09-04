@@ -73,8 +73,23 @@ function payrollProfileLabel(value: MyStaffPayroll['compensationPolicy']['payrol
 
 function friendlyError(cause: unknown) {
   const message = cause instanceof Error ? cause.message : ''
-  if (/permission|quyền|unauth/i.test(message)) return 'Tài khoản chưa được cấp quyền xem bảng lương cá nhân.'
-  if (/internal|unavailable|not found/i.test(message)) return 'Dịch vụ lương đang cập nhật. Hãy tải lại sau ít phút.'
+  const rawCode = cause && typeof cause === 'object' && 'code' in cause
+    ? String((cause as { code?: unknown }).code || '')
+    : ''
+  const code = rawCode.replace(/^functions\//i, '').toLowerCase()
+  if (code === 'permission-denied' || code === 'unauthenticated' || /permission|quyền|unauth/i.test(message)) {
+    return code === 'unauthenticated'
+      ? 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại để xem bảng lương cá nhân.'
+      : 'Tài khoản chưa được cấp quyền xem bảng lương cá nhân.'
+  }
+  if (code === 'internal' || code === 'unavailable' || code === 'deadline-exceeded' || /^(internal|unavailable)$/i.test(message.trim())) {
+    // Preserve the server incident code when one is available so admin can
+    // trace the exact failed request instead of receiving a misleading
+    // permission or empty-data message.
+    if (/mã đối soát/i.test(message)) return message
+    return 'Dịch vụ lương tạm thời chưa phản hồi. Hãy thử lại sau ít phút.'
+  }
+  if (code === 'not-found') return 'Chưa có sao kê cho kỳ lương đã chọn.'
   return message || 'Chưa thể tải dữ liệu lương.'
 }
 

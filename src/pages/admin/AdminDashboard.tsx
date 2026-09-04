@@ -258,6 +258,14 @@ interface Props {
   onNavigate: (view: ViewId) => void
   adminName?: string
   isDemo?: boolean
+  /**
+   * The dashboard is also reachable from legacy staff routes because the
+   * legacy role map grants `dashboard.view`. Payroll roster/statement calls,
+   * however, are admin-only. Keep this explicit capability gate at the UI
+   * boundary so a staff dashboard can never fan out into admin payroll calls
+   * while authz is still resolving or when a stale hash opens this page.
+   */
+  canViewPayroll?: boolean
   canCreate?: boolean
   canManageAcademy?: boolean
   canManageCoaching?: boolean
@@ -268,6 +276,7 @@ export default function AdminDashboard({
   onNavigate,
   adminName = 'Admin Aura',
   isDemo = false,
+  canViewPayroll = false,
   canCreate = false,
   canManageAcademy = false,
   canManageCoaching = false,
@@ -328,10 +337,10 @@ export default function AdminDashboard({
 
   useEffect(() => { void load() }, [load])
 
-  const canViewPayroll = data?.permissions.payroll === true
+  const payrollEnabled = canViewPayroll && data?.permissions.payroll === true
 
   useEffect(() => {
-    if (!canViewPayroll || payrollVisible) return
+    if (!payrollEnabled || payrollVisible) return
     const element = payrollSectionRef.current
     if (!element || typeof IntersectionObserver === 'undefined') {
       setPayrollVisible(true)
@@ -344,11 +353,11 @@ export default function AdminDashboard({
     }, { rootMargin: '240px 0px' })
     observer.observe(element)
     return () => observer.disconnect()
-  }, [canViewPayroll, payrollVisible])
+  }, [payrollEnabled, payrollVisible])
 
   const loadPayrollRoster = useCallback(async () => {
     const generation = ++payrollRosterGeneration.current
-    if (!canViewPayroll) {
+    if (!payrollEnabled) {
       setPayrollRoster([])
       setSelectedPayrollStaffId('')
       setPayrollRosterLoading(false)
@@ -383,7 +392,7 @@ export default function AdminDashboard({
     } finally {
       if (generation === payrollRosterGeneration.current) setPayrollRosterLoading(false)
     }
-  }, [branchId, canViewPayroll, currentPayrollPeriodId, isDemo])
+  }, [branchId, currentPayrollPeriodId, isDemo, payrollEnabled])
 
   useEffect(() => {
     if (payrollVisible) void loadPayrollRoster()
@@ -391,7 +400,7 @@ export default function AdminDashboard({
 
   const loadPayrollStatement = useCallback(async (staffId: string) => {
     const generation = ++payrollStatementGeneration.current
-    if (!canViewPayroll || !staffId) {
+    if (!payrollEnabled || !staffId) {
       setPayrollStatement(null)
       setPayrollStatementLoading(false)
       setPayrollStatementError('')
@@ -413,7 +422,7 @@ export default function AdminDashboard({
     } finally {
       if (generation === payrollStatementGeneration.current) setPayrollStatementLoading(false)
     }
-  }, [canViewPayroll, currentPayrollPeriodId, isDemo])
+  }, [currentPayrollPeriodId, isDemo, payrollEnabled])
 
   useEffect(() => {
     if (payrollVisible) void loadPayrollStatement(selectedPayrollStaffId)
@@ -558,14 +567,14 @@ export default function AdminDashboard({
       data.permissions.schedule && { id: 'schedule', label: 'Xếp lịch', view: 'admin-pt-schedule' as ViewId, icon: <CalendarClock size={20} /> },
       data.permissions.finance && { id: 'finance', label: 'Trả góp', view: 'admin-finance' as ViewId, icon: <WalletCards size={20} /> },
       data.permissions.renewals && { id: 'renewals', label: 'Tái ký', view: 'admin-renewals' as ViewId, icon: <ClipboardCheck size={20} /> },
-      data.permissions.payroll && { id: 'payroll', label: 'Lương', view: 'admin-payroll' as ViewId, icon: <CircleDollarSign size={20} /> },
+      payrollEnabled && { id: 'payroll', label: 'Lương', view: 'admin-payroll' as ViewId, icon: <CircleDollarSign size={20} /> },
       data.permissions.nutritionReviews && { id: 'reviews', label: 'Duyệt món', view: 'admin-nutrition-reviews' as ViewId, icon: <Salad size={20} /> },
       data.permissions.academy && canManageAcademy && { id: 'academy', label: 'Khóa học', view: 'admin-courses' as ViewId, icon: <GraduationCap size={20} /> },
       data.permissions.operations && canManageCoaching && { id: 'history', label: 'Lịch sử tập', view: 'admin-training-history' as ViewId, icon: <BookOpen size={20} /> },
       data.permissions.academy && canManageEnrollments && { id: 'academy-students', label: 'Học viên Academy', view: 'admin-academy-students' as ViewId, icon: <Users size={20} /> },
       data.permissions.academy && canCreate && { id: 'create-course', label: 'Tạo khóa học', view: 'admin-course-editor' as ViewId, icon: <GraduationCap size={20} /> },
     ].filter(Boolean) as Array<{ id: string; label: string; view: ViewId; icon: ReactNode }>
-  }, [canCreate, canManageAcademy, canManageCoaching, canManageEnrollments, data])
+  }, [canCreate, canManageAcademy, canManageCoaching, canManageEnrollments, data, payrollEnabled])
 
   const selectedPayrollStaff = useMemo(
     () => payrollRoster.find((staff) => staff.staffId === selectedPayrollStaffId) || null,
@@ -621,7 +630,7 @@ export default function AdminDashboard({
       </section>
     </div>
 
-    {canViewPayroll && <section ref={payrollSectionRef} className="admin-dashboard__payroll" aria-labelledby="dashboard-payroll-title" aria-busy={!payrollVisible || payrollRosterLoading || payrollStatementLoading}>
+    {payrollEnabled && <section ref={payrollSectionRef} className="admin-dashboard__payroll" aria-labelledby="dashboard-payroll-title" aria-busy={!payrollVisible || payrollRosterLoading || payrollStatementLoading}>
       <header>
         <div><small>QUỸ LƯƠNG · {periodLabel(currentPayrollPeriodId).toUpperCase()}</small><h2 id="dashboard-payroll-title">Lương & hoa hồng ca dạy</h2><p>Chọn từng nhân sự để xem thu nhập đã ghi nhận theo tuần.</p></div>
         <button type="button" onClick={() => goTo('admin-payroll')}>Xem bảng lương<ArrowRight size={15} /></button>

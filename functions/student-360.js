@@ -214,6 +214,135 @@ function timelineEvent(studentId, type, sourceId, occurredAtMillis, title, descr
   }
 }
 
+function contractDateKey(value, label) {
+  const normalized = bounded(value, 30).slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized) || !dateKeyMillis(normalized)) {
+    throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
+  }
+  return normalized
+}
+
+function nonNegativeInteger(value, label, maximum = 1_000_000_000) {
+  const result = Number(value)
+  if (!Number.isSafeInteger(result) || result < 0 || result > maximum) {
+    throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
+  }
+  return result
+}
+
+function addCalendarMonths(value, amount) {
+  const date = new Date(`${contractDateKey(value, 'Ngày bắt đầu')}T12:00:00+07:00`)
+  date.setUTCMonth(date.getUTCMonth() + Math.max(1, Math.min(120, Math.floor(finite(amount, 1)))))
+  return vietnamDateKey(date)
+}
+
+function contractMutationTitle(action) {
+  return {
+    create: 'Đã tạo hợp đồng',
+    edit: 'Đã cập nhật hợp đồng',
+    extend: 'Đã gia hạn ngày hợp đồng',
+    freeze: 'Đã bảo lưu hợp đồng',
+    reopen: 'Đã mở lại hợp đồng',
+    cancel: 'Đã hủy hợp đồng',
+  }[action] || 'Đã cập nhật hợp đồng'
+}
+
+function contractMutationDescription(action, value = {}) {
+  if (action === 'extend') return `Gia hạn đến ${bounded(value.endDate, 10)}`
+  if (action === 'freeze') return 'Tạm dừng nhận lịch mới; quyền lợi và lịch sử vẫn được giữ.'
+  if (action === 'reopen') return `Mở lại hiệu lực đến ${bounded(value.endDate, 10)}`
+  if (action === 'cancel') return bounded(value.reason, 300) || 'Hợp đồng đã ngừng hiệu lực.'
+  return `${bounded(value.packageName, 160) || 'Gói tập Aura'} · ${bounded(value.startDate, 10)} → ${bounded(value.endDate, 10)}`
+}
+
+function contractInstallments(value, previous = [], outstanding = null) {
+  if (!Array.isArray(value)) throw new HttpsError('invalid-argument', 'Lịch thanh toán không hợp lệ.')
+  if (value.length > 24) throw new HttpsError('invalid-argument', 'Mỗi hợp đồng chỉ hỗ trợ tối đa 24 kỳ thanh toán.')
+  const previousById = new Map((Array.isArray(previous) ? previous : []).map((item) => [bounded(item?.id, 100), item]))
+  const ids = new Set()
+  const result = value.map((item, index) => {
+    const id = bounded(item?.id, 100) || `installment-${index + 1}`
+    if (!/^[A-Za-z0-9_-]+$/.test(id) || ids.has(id)) throw new HttpsError('invalid-argument', 'Mã kỳ thanh toán không hợp lệ hoặc bị trùng.')
+    ids.add(id)
+    const prior = previousById.get(id)
+    const status = bounded(item?.status, 20) || 'pending'
+    if (!['pending', 'paid', 'cancelled'].includes(status)) throw new HttpsError('invalid-argument', 'Trạng thái kỳ thanh toán không hợp lệ.')
+    const normalized = {
+      id,
+      amount: nonNegativeInteger(item?.amount, 'Số tiền kỳ thanh toán'),
+      date: contractDateKey(item?.date, 'Ngày thanh toán'),
+      status,
+    }
+    if (prior && ['paid', 'cancelled'].includes(prior.status)) {
+      if (normalized.status !== prior.status || normalized.amount !== Number(prior.amount || 0) || normalized.date !== bounded(prior.date, 10)) {
+        throw new HttpsError('failed-precondition', 'Kỳ đã thu hoặc đã hủy là chứng từ lịch sử và không thể chỉnh sửa.')
+      }
+    } else if (!prior && status !== 'pending') {
+      throw new HttpsError('invalid-argument', 'Kỳ thanh toán mới phải ở trạng thái chờ thu.')
+    }
+    return normalized
+  })
+  const missingLocked = [...previousById.values()].some((item) => ['paid', 'cancelled'].includes(item.status) && !ids.has(bounded(item.id, 100)))
+  if (missingLocked) throw new HttpsError('failed-precondition', 'Không thể xóa kỳ thanh toán đã thu hoặc đã hủy.')
+  if (Number.isFinite(outstanding) && result.some((item) => item.status === 'pending')) {
+    const pendingTotal = result.filter((item) => item.status === 'pending').reduce((sum, item) => sum + item.amount, 0)
+    if (pendingTotal !== outstanding) throw new HttpsError('failed-precondition', 'Tổng các kỳ chờ thu phải bằng công nợ còn lại của hợp đồng.')
+  }
+  return result
+}
+
+function contractWorkspaceRecord(snapshot, canViewFinancialAmounts, canManageContract = false) {
+  const value = snapshot.data ? snapshot.data() : snapshot
+  const id = snapshot.id || value.id
+  const record = {
+    id,
+    studentId: bounded(value.studentId, 200),
+    branchId: bounded(value.branchId, 200) || null,
+    packageId: bounded(value.packageId, 200),
+    packageName: bounded(value.packageName || value.name, 160) || 'Gói tập Aura',
+    trainerId: bounded(value.trainerId, 200) || null,
+    trainerIds: normalizedArray(value.trainerIds?.length ? value.trainerIds : [value.trainerId]),
+    nutritionPTIds: normalizedArray(value.nutritionPTIds),
+    startDate: bounded(value.startDate, 30).slice(0, 10),
+    endDate: bounded(value.endDate, 30).slice(0, 10),
+    frozenAt: iso(value.frozenAt) || bounded(value.frozenAt, 40) || null,
+    totalSessions: Math.max(0, Math.floor(finite(value.totalSessions))),
+    usedSessions: Math.max(0, Math.floor(finite(value.usedSessions))),
+    status: bounded(value.status, 30) || 'active',
+    nextPaymentDate: bounded(value.nextPaymentDate, 30).slice(0, 10) || null,
+    installments: canViewFinancialAmounts && Array.isArray(value.installments) ? value.installments.slice(0, 24).map((item) => ({
+      id: bounded(item?.id, 100),
+      date: bounded(item?.date, 30).slice(0, 10),
+      status: ['pending', 'paid', 'cancelled'].includes(item?.status) ? item.status : 'pending',
+      ...(canViewFinancialAmounts ? { amount: Math.max(0, Math.floor(finite(item?.amount))) } : {}),
+    })) : [],
+    extensions: Array.isArray(value.extensions) ? value.extensions.slice(-30).map((item) => ({
+      id: bounded(item?.id, 100),
+      oldEndDate: bounded(item?.oldEndDate, 30).slice(0, 10),
+      newEndDate: bounded(item?.newEndDate, 30).slice(0, 10),
+      reason: bounded(item?.reason, 300),
+      createdAt: iso(item?.createdAt) || bounded(item?.createdAt, 40) || null,
+    })) : [],
+    pausePeriods: Array.isArray(value.pausePeriods) ? value.pausePeriods.slice(-30).map((item) => ({
+      requestId: bounded(item?.requestId, 100),
+      type: bounded(item?.type, 30),
+      startDate: bounded(item?.startDate, 30).slice(0, 10),
+      endDate: bounded(item?.endDate, 30).slice(0, 10),
+      durationDays: Math.max(0, Math.floor(finite(item?.durationDays))),
+    })) : [],
+    note: canManageContract ? bounded(value.note, 1_000) : '',
+    revision: Math.max(0, Math.floor(finite(value.revision))),
+    updatedAt: iso(value.updatedAt),
+    updatedByName: bounded(value.updatedByName, 160),
+  }
+  if (canViewFinancialAmounts) {
+    record.totalPrice = Math.max(0, Math.floor(finite(value.totalPrice)))
+    record.paidAmount = Math.max(0, Math.floor(finite(value.paidAmount)))
+    record.discount = Math.max(0, Math.floor(finite(value.discount)))
+  }
+  return record
+}
+
 function profileProgress(profile = {}, metricDocs = []) {
   const history = Array.isArray(profile.history) ? profile.history : []
   const values = [...history, ...metricDocs]
@@ -296,7 +425,7 @@ async function projectionSources(db, studentId, weekId) {
   const studentSnapshot = await db.doc(`students/${studentId}`).get()
   if (!studentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy học viên.')
   const student = { id: studentSnapshot.id, ...studentSnapshot.data() }
-  const [contracts, sessions, attendance, leaveRequests, sessionRequests, legacyWorkoutLogs, ptWorkoutLogs, renewals, dailyCheckins, payments, availabilitySnapshot, profileResult] = await Promise.all([
+  const [contracts, sessions, attendance, leaveRequests, sessionRequests, legacyWorkoutLogs, ptWorkoutLogs, renewals, dailyCheckins, payments, ledgerEntries, availabilitySnapshot, profileResult] = await Promise.all([
     queryDocuments(db.collection('contracts').where('studentId', '==', studentId).limit(50)),
     queryDocuments(db.collection('sessions').where('studentId', '==', studentId).limit(1000)),
     queryDocuments(db.collection('attendanceEvents').where('studentId', '==', studentId).limit(1000)),
@@ -307,6 +436,7 @@ async function projectionSources(db, studentId, weekId) {
     queryDocuments(db.collection('contractRenewalCases').where('studentId', '==', studentId).limit(20)),
     queryDocuments(db.collection('dailyCheckins').where('studentId', '==', studentId).limit(180)),
     queryDocuments(db.collection('payments').where('studentId', '==', studentId).limit(250)),
+    queryDocuments(db.collection('ledgerEntries').where('studentId', '==', studentId).limit(250)),
     db.doc(`ptAvailability/${studentId}_${weekId}`).get(),
     studentAccountProfile(db, student),
   ])
@@ -332,7 +462,10 @@ async function projectionSources(db, studentId, weekId) {
     workoutLogs: [...ptWorkoutLogs.map((item) => ({ ...item, source: 'pt_tracking' })), ...legacyWorkoutLogs.map((item) => ({ ...item, source: 'legacy' }))],
     renewals,
     dailyCheckins,
-    payments,
+    payments: [
+      ...payments.map((item) => ({ ...item, timelineSource: 'legacy_payment' })),
+      ...ledgerEntries.map((item) => ({ ...item, timelineSource: 'finance_ledger' })),
+    ],
     availability: availabilitySnapshot.exists ? { id: availabilitySnapshot.id, ...availabilitySnapshot.data() } : null,
     profile,
     accountUid,
@@ -410,8 +543,15 @@ function sourceTimelineEvents(studentId, sources) {
     values.push(timelineEvent(studentId, 'checkin', checkin.id, occurred, 'Check-in cuối ngày', description, 'coaching', { checkinId: checkin.id, compliance }))
   }
   for (const payment of sources.payments) {
-    const occurred = timestampMillis(payment.createdAt) || dateKeyMillis(payment.date)
-    values.push(timelineEvent(studentId, 'finance', payment.id, occurred, 'Đã ghi nhận thanh toán', 'Thanh toán hợp đồng', 'finance', { amount: finite(payment.amount), contractId: payment.contractId || '' }))
+    if (payment.timelineSource === 'finance_ledger' && !['payment', 'refund', 'reversal', 'adjustment'].includes(bounded(payment.type, 40))) continue
+    const occurred = timestampMillis(payment.effectiveAt || payment.createdAt) || dateKeyMillis(payment.date)
+    const type = bounded(payment.type, 40)
+    const title = type === 'refund' ? 'Đã hoàn tiền hợp đồng'
+      : type === 'reversal' ? 'Đã hoàn tác khoản thu'
+        : type === 'payment' || payment.timelineSource === 'legacy_payment' ? 'Đã ghi nhận thanh toán'
+          : 'Cập nhật tài chính hợp đồng'
+    const rawAmount = finite(payment.amount)
+    values.push(timelineEvent(studentId, 'finance', `${payment.timelineSource || 'payment'}:${payment.id}`, occurred, title, payment.note || payment.reason || payment.referenceCode || 'Thanh toán hợp đồng', 'finance', { amount: rawAmount, contractId: payment.contractId || '', referenceCode: bounded(payment.referenceCode, 100), status: bounded(payment.status, 30) }))
   }
   for (const renewal of sources.renewals) {
     const occurred = timestampMillis(renewal.updatedAt || renewal.createdAt) || Date.now()
@@ -839,6 +979,321 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
   const readCall = (handler) => onCall({ cpu: 1, concurrency: 40, maxInstances: 6, invoker: 'public' }, handler)
   const writeCall = (handler) => onCall({ cpu: 1, concurrency: 20, maxInstances: 4, invoker: 'public' }, handler)
 
+  const contractWorkspace = async (actor, studentId, projection, permissions) => {
+    const contractSnapshot = await db.collection('contracts').where('studentId', '==', studentId).limit(50).get()
+    const contracts = contractSnapshot.docs
+      .map((item) => contractWorkspaceRecord(item, permissions.canViewFinancialAmounts, permissions.canManageContract))
+      .sort((left, right) => right.startDate.localeCompare(left.startDate) || right.id.localeCompare(left.id))
+    const canManageFinancials = actor.capabilities.includes('finance.operations.manage')
+    if (!permissions.canManageContract) {
+      return {
+        schemaVersion: 1,
+        student: {
+          id: projection.identity.id,
+          name: projection.identity.name,
+          phone: projection.identity.phone,
+          email: projection.identity.email,
+        },
+        activeContractId: projection.contract?.id || contracts[0]?.id || null,
+        permissions: {
+          canManageContract: false,
+          canCreateContract: false,
+          canEditFinancialTerms: false,
+          canCollectPayments: false,
+          canViewFinancialAmounts: permissions.canViewFinancialAmounts,
+        },
+        contracts,
+        packages: [],
+        trainers: [],
+        branches: [],
+      }
+    }
+
+    const [packageSnapshot, trainerSnapshot, branchSnapshot] = await Promise.all([
+      db.collection('packages').limit(300).get(),
+      db.collection('trainers').limit(300).get(),
+      db.collection('branches').limit(200).get(),
+    ])
+    const systemScope = permissions.scope === 'system'
+    const allowedBranches = new Set(systemScope ? branchSnapshot.docs.map((item) => item.id) : normalizedArray(actor.branchIds))
+    const branchId = projection.assignments.branchId
+    const branches = branchSnapshot.docs
+      .filter((item) => item.data()?.status !== 'archived' && (systemScope || allowedBranches.has(item.id)))
+      .map((item) => ({ id: item.id, name: bounded(item.data()?.name, 160) || item.id }))
+      .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
+    const packages = packageSnapshot.docs
+      .filter((item) => {
+        const itemBranch = bounded(item.data()?.branchId, 200)
+        return !itemBranch || systemScope || allowedBranches.has(itemBranch) || itemBranch === branchId
+      })
+      .map((item) => ({
+        id: item.id,
+        name: bounded(item.data()?.name, 160) || item.id,
+        totalSessions: Math.max(0, Math.floor(finite(item.data()?.totalSessions))),
+        price: Math.max(0, Math.floor(finite(item.data()?.price))),
+        durationMonths: Math.max(1, Math.floor(finite(item.data()?.durationMonths, 1))),
+        branchId: bounded(item.data()?.branchId, 200) || null,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
+    const trainers = trainerSnapshot.docs
+      .filter((item) => {
+        const itemBranch = bounded(item.data()?.branchId, 200)
+        return item.data()?.status !== 'inactive' && (systemScope || !itemBranch || allowedBranches.has(itemBranch) || itemBranch === branchId)
+      })
+      .map((item) => ({ id: item.id, name: bounded(item.data()?.name, 160) || item.id, branchId: bounded(item.data()?.branchId, 200) || null }))
+      .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
+    return {
+      schemaVersion: 1,
+      student: {
+        id: projection.identity.id,
+        name: projection.identity.name,
+        phone: projection.identity.phone,
+        email: projection.identity.email,
+      },
+      activeContractId: projection.contract?.id || contracts[0]?.id || null,
+      permissions: {
+        canManageContract: true,
+        canCreateContract: true,
+        canEditFinancialTerms: canManageFinancials,
+        canCollectPayments: canManageFinancials,
+        canViewFinancialAmounts: permissions.canViewFinancialAmounts,
+      },
+      contracts,
+      packages,
+      trainers,
+      branches,
+    }
+  }
+
+  const getStudent360ContractWorkspace = readCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    const studentId = documentId(request.data?.studentId)
+    const { projection, permissions } = await loadAuthorizedProjection(db, actor, studentId, mondayDateKey(), false)
+    return contractWorkspace(actor, studentId, projection, permissions)
+  })
+
+  const mutateStudent360Contract = writeCall(async (request) => {
+    const actor = await trustedAccessContext(request, db)
+    const studentId = documentId(request.data?.studentId)
+    const action = bounded(request.data?.action, 30)
+    if (!['create', 'edit', 'extend', 'freeze', 'reopen', 'cancel'].includes(action)) {
+      throw new HttpsError('invalid-argument', 'Nghiệp vụ hợp đồng không hợp lệ.')
+    }
+    const { projection, permissions } = await loadAuthorizedProjection(db, actor, studentId, mondayDateKey(), false)
+    if (!permissions.canManageContract) throw new HttpsError('permission-denied', 'Bạn không có quyền thay đổi hợp đồng này.')
+    const canManageFinancials = actor.capabilities.includes('finance.operations.manage')
+    const input = request.data?.contract && typeof request.data.contract === 'object' ? request.data.contract : {}
+    const requestedBranchId = bounded(input.branchId, 200) || projection.assignments.branchId
+    if (!requestedBranchId) throw new HttpsError('failed-precondition', 'Học viên chưa được gắn chi nhánh để quản lý hợp đồng.')
+    if (permissions.scope !== 'system' && !normalizedArray(actor.branchIds).includes(requestedBranchId)) {
+      throw new HttpsError('permission-denied', 'Không thể chuyển hợp đồng ra ngoài chi nhánh được phân quyền.')
+    }
+
+    const contractId = action === 'create' ? db.collection('contracts').doc().id : documentId(request.data?.contractId, 'Mã hợp đồng')
+    const reference = db.doc(`contracts/${contractId}`)
+    const auditReference = db.collection('contractAuditLogs').doc()
+    const now = Date.now()
+    const expectedRevision = action === 'create' ? null : nonNegativeInteger(request.data?.expectedRevision, 'Phiên bản hợp đồng', 10_000_000)
+    const result = await db.runTransaction(async (transaction) => {
+      const currentSnapshot = await transaction.get(reference)
+      if (action === 'create' && currentSnapshot.exists) throw new HttpsError('already-exists', 'Mã hợp đồng đã tồn tại.')
+      if (action !== 'create' && !currentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy hợp đồng.')
+      const current = currentSnapshot.exists ? currentSnapshot.data() : null
+      if (current && bounded(current.studentId, 200) !== studentId) throw new HttpsError('permission-denied', 'Hợp đồng không thuộc học viên đang mở.')
+      if (current && permissions.scope !== 'system' && !normalizedArray(actor.branchIds).includes(bounded(current.branchId, 200))) {
+        throw new HttpsError('permission-denied', 'Hợp đồng lịch sử thuộc chi nhánh ngoài phạm vi được giao.')
+      }
+      const revision = current ? Math.max(0, Math.floor(finite(current.revision))) : 0
+      if (current && revision !== expectedRevision) throw new HttpsError('aborted', 'Hợp đồng vừa được người khác cập nhật. Hãy tải lại trước khi lưu.')
+
+      let next = current ? { ...current } : {}
+      let reason = bounded(request.data?.reason, 500)
+      if (action === 'create' || action === 'edit') {
+        const packageId = documentId(input.packageId, 'Gói tập')
+        const packageSnapshot = await transaction.get(db.doc(`packages/${packageId}`))
+        if (!packageSnapshot.exists) throw new HttpsError('failed-precondition', 'Gói tập đã chọn không còn tồn tại.')
+        const packageValue = packageSnapshot.data()
+        const packageBranchId = bounded(packageValue.branchId, 200)
+        if (packageBranchId && packageBranchId !== requestedBranchId) throw new HttpsError('failed-precondition', 'Gói tập không thuộc chi nhánh đã chọn.')
+        const trainerIds = normalizedArray(input.trainerIds?.length ? input.trainerIds : [input.trainerId]).slice(0, 6)
+        const nutritionPTIds = normalizedArray(input.nutritionPTIds).slice(0, 6)
+        const assigneeIds = [...new Set([...trainerIds, ...nutritionPTIds])]
+        if (assigneeIds.length) {
+          const assignees = await Promise.all(assigneeIds.map((id) => transaction.get(db.doc(`trainers/${documentId(id, 'Nhân sự')}`))))
+          assignees.forEach((item) => {
+            if (!item.exists || item.data()?.status === 'inactive') throw new HttpsError('failed-precondition', 'Một PT/coach đã chọn không còn hoạt động.')
+            const assigneeBranch = bounded(item.data()?.branchId, 200)
+            if (assigneeBranch && assigneeBranch !== requestedBranchId) throw new HttpsError('failed-precondition', 'PT/coach phải thuộc cùng chi nhánh hợp đồng.')
+          })
+        }
+        const startDate = contractDateKey(input.startDate || current?.startDate, 'Ngày bắt đầu')
+        const endDate = contractDateKey(input.endDate || current?.endDate || addCalendarMonths(startDate, packageValue.durationMonths), 'Ngày kết thúc')
+        if (endDate < startDate) throw new HttpsError('invalid-argument', 'Ngày kết thúc phải từ ngày bắt đầu trở đi.')
+        if (action === 'create') {
+          const existingContracts = await transaction.get(db.collection('contracts').where('studentId', '==', studentId).limit(50))
+          const overlap = existingContracts.docs.some((item) => {
+            const value = item.data()
+            if (!['active', 'future', 'frozen'].includes(value.status)) return false
+            const existingStart = bounded(value.startDate, 30).slice(0, 10)
+            const existingEnd = bounded(value.endDate, 30).slice(0, 10)
+            return existingStart && existingEnd && startDate <= existingEnd && endDate >= existingStart
+          })
+          if (overlap) throw new HttpsError('failed-precondition', 'Khoảng hiệu lực bị trùng một hợp đồng đang hoạt động, sắp hiệu lực hoặc bảo lưu. Hãy dùng quy trình tái ký hoặc chọn ngày bắt đầu sau hợp đồng hiện tại.')
+        }
+        const usedSessions = Math.max(0, Math.floor(finite(current?.usedSessions)))
+        const totalSessions = input.totalSessions === undefined
+          ? Math.max(0, Math.floor(finite(packageValue.totalSessions)))
+          : nonNegativeInteger(input.totalSessions, 'Tổng số buổi', 100_000)
+        if (totalSessions < usedSessions) throw new HttpsError('failed-precondition', 'Tổng số buổi không thể thấp hơn số buổi đã sử dụng.')
+        const currentTotalPrice = Math.max(0, Math.floor(finite(current?.totalPrice, packageValue.price)))
+        const currentDiscount = Math.max(0, Math.floor(finite(current?.discount)))
+        const financialFieldsRequested = ['totalPrice', 'discount', 'installments'].some((key) => Object.prototype.hasOwnProperty.call(input, key))
+        if (financialFieldsRequested && !canManageFinancials) throw new HttpsError('permission-denied', 'Chỉ bộ phận tài chính được sửa giá và lịch thanh toán.')
+        const totalPrice = canManageFinancials && input.totalPrice !== undefined ? nonNegativeInteger(input.totalPrice, 'Giá trị hợp đồng') : currentTotalPrice
+        const discount = canManageFinancials && input.discount !== undefined ? nonNegativeInteger(input.discount, 'Giảm giá') : currentDiscount
+        if (discount > totalPrice) throw new HttpsError('invalid-argument', 'Giảm giá không thể lớn hơn giá trị hợp đồng.')
+        const paidAmount = Math.max(0, Math.floor(finite(current?.paidAmount)))
+        const outstanding = totalPrice - discount - paidAmount
+        if (outstanding < 0) throw new HttpsError('failed-precondition', 'Giá trị mới thấp hơn số tiền đã thu; hãy xử lý hoàn tiền trước.')
+        let installments = Array.isArray(current?.installments) ? current.installments : []
+        if (canManageFinancials && Object.prototype.hasOwnProperty.call(input, 'installments')) {
+          installments = contractInstallments(input.installments, current?.installments || [], outstanding)
+        }
+        if (action === 'create' && outstanding > 0 && !installments.some((item) => item.status === 'pending')) {
+          installments = [{ id: `${contractId}-installment-1`, amount: outstanding, date: startDate, status: 'pending' }]
+        }
+        const nextPending = installments.filter((item) => item.status === 'pending').sort((left, right) => bounded(left.date, 10).localeCompare(bounded(right.date, 10)))[0]
+        next = {
+          ...next,
+          studentId,
+          branchId: requestedBranchId,
+          packageId,
+          packageName: bounded(packageValue.name, 160) || packageId,
+          trainerId: trainerIds[0] || null,
+          trainerIds,
+          nutritionPTIds,
+          startDate,
+          endDate,
+          totalSessions,
+          usedSessions,
+          totalPrice,
+          discount,
+          paidAmount,
+          installments,
+          nextPaymentDate: nextPending?.date || null,
+          status: action === 'create' ? (startDate > vietnamDateKey() ? 'future' : 'active') : current.status,
+          note: bounded(input.note, 1_000) || bounded(current?.note, 1_000),
+        }
+      } else if (action === 'extend') {
+        const newEndDate = contractDateKey(request.data?.newEndDate, 'Ngày hết hạn mới')
+        const previousEndDate = contractDateKey(current.endDate, 'Ngày hết hạn hiện tại')
+        if (newEndDate <= previousEndDate) throw new HttpsError('failed-precondition', 'Ngày hết hạn mới phải sau ngày hiện tại của hợp đồng.')
+        if (reason.length < 2) throw new HttpsError('invalid-argument', 'Vui lòng nhập lý do gia hạn.')
+        next.endDate = newEndDate
+        next.extensions = [...(Array.isArray(current.extensions) ? current.extensions : []), {
+          id: auditReference.id,
+          oldEndDate: previousEndDate,
+          newEndDate,
+          reason,
+          createdAt: new Date(now).toISOString(),
+          createdBy: actor.uid,
+        }].slice(-100)
+      } else if (action === 'freeze') {
+        if (current.status !== 'active') throw new HttpsError('failed-precondition', 'Chỉ hợp đồng đang hoạt động mới có thể bảo lưu.')
+        next.status = 'frozen'
+        next.frozenAt = new Date(now).toISOString()
+        reason ||= 'Bảo lưu từ Học viên 360'
+      } else if (action === 'reopen') {
+        if (current.status !== 'frozen') throw new HttpsError('failed-precondition', 'Hợp đồng chưa ở trạng thái bảo lưu.')
+        const frozenAt = timestampMillis(current.frozenAt)
+        const frozenDays = frozenAt ? Math.max(0, Math.ceil((now - frozenAt) / 86_400_000)) : 0
+        const previousEndDate = contractDateKey(current.endDate, 'Ngày hết hạn hiện tại')
+        const newEndDate = addDays(previousEndDate, frozenDays)
+        next.status = 'active'
+        next.frozenAt = null
+        next.endDate = newEndDate
+        next.extensions = frozenDays ? [...(Array.isArray(current.extensions) ? current.extensions : []), {
+          id: auditReference.id,
+          oldEndDate: previousEndDate,
+          newEndDate,
+          reason: `Cộng ${frozenDays} ngày bảo lưu`,
+          createdAt: new Date(now).toISOString(),
+          createdBy: actor.uid,
+        }].slice(-100) : current.extensions || []
+        reason ||= `Mở lại sau ${frozenDays} ngày bảo lưu`
+      } else if (action === 'cancel') {
+        if (current.status === 'cancelled') throw new HttpsError('failed-precondition', 'Hợp đồng đã được hủy trước đó.')
+        if (reason.length < 2) throw new HttpsError('invalid-argument', 'Vui lòng nhập lý do hủy hợp đồng.')
+        const cancelDebt = request.data?.cancelDebt === true
+        if (cancelDebt && !canManageFinancials) throw new HttpsError('permission-denied', 'Chỉ bộ phận tài chính được hủy công nợ còn lại.')
+        next.status = 'cancelled'
+        next.cancelledAt = new Date(now).toISOString()
+        next.cancelledReason = reason
+        next.note = bounded(`${bounded(current.note, 700)}${current.note ? '\n' : ''}Lý do hủy: ${reason}`, 1_000)
+        if (cancelDebt) {
+          next.installments = (Array.isArray(current.installments) ? current.installments : []).map((item) => item.status === 'pending' ? { ...item, status: 'cancelled' } : item)
+          next.nextPaymentDate = null
+        }
+      }
+
+      const changedFields = current
+        ? [...new Set([...Object.keys(current), ...Object.keys(next)])].filter((key) => JSON.stringify(current[key]) !== JSON.stringify(next[key])).slice(0, 80)
+        : Object.keys(next).slice(0, 80)
+      const nextRevision = revision + 1
+      const persisted = {
+        ...next,
+        revision: nextRevision,
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actor.uid,
+        updatedByName: actor.actorName,
+        student360LastActivityId: auditReference.id,
+        student360LastAction: action,
+      }
+      if (action === 'create') {
+        persisted.createdAt = FieldValue.serverTimestamp()
+        persisted.createdBy = actor.uid
+        transaction.create(reference, persisted)
+      } else {
+        transaction.set(reference, persisted, { merge: false })
+      }
+      transaction.create(auditReference, {
+        schemaVersion: 1,
+        action: `student360.contract.${action}`,
+        studentId,
+        contractId,
+        branchId: requestedBranchId,
+        actorUid: actor.uid,
+        actorName: actor.actorName,
+        previousRevision: revision,
+        revision: nextRevision,
+        changedFields,
+        reason: reason || null,
+        beforeStatus: current?.status || null,
+        afterStatus: next.status || null,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      const event = timelineEvent(
+        studentId,
+        'contract',
+        auditReference.id,
+        now,
+        contractMutationTitle(action),
+        contractMutationDescription(action, { ...next, reason }),
+        'finance',
+        { contractId, action, status: next.status || '', actorName: actor.actorName, changedFields },
+      )
+      transaction.set(db.doc(`studentTimelineEvents/${event.id}`), event)
+      return { contractId, revision: nextRevision, action }
+    })
+
+    try {
+      await buildStudent360Projection({ db, studentId, weekId: mondayDateKey(), persist: true })
+    } catch (error) {
+      logger.warn('student_360_contract_projection_refresh_deferred', { studentId, contractId, action, code: error?.code || 'unknown' })
+    }
+    return result
+  })
+
   const getStudent360Overview = readCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
     const studentId = documentId(request.data?.studentId)
@@ -894,10 +1349,13 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const pageSize = Math.max(1, Math.min(50, Math.floor(finite(request.data?.pageSize, 30))))
     const requestedTypes = normalizedArray(request.data?.types).slice(0, 20)
     const cursor = finite(request.data?.cursor, Number.MAX_SAFE_INTEGER)
+    const fromMillis = Math.max(0, Math.floor(finite(request.data?.fromMillis)))
     const queryLimit = Math.min(150, pageSize * 4 + 1)
-    const snapshot = await db.collection('studentTimelineEvents')
+    let query = db.collection('studentTimelineEvents')
       .where('studentId', '==', studentId)
       .where('sortKey', '<', cursor)
+    if (fromMillis) query = query.where('sortKey', '>=', fromMillis * 1000)
+    const snapshot = await query
       .orderBy('sortKey', 'desc')
       .limit(queryLimit)
       .get()
@@ -944,7 +1402,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
       createdAt: FieldValue.serverTimestamp(),
       createdAtMillis: now,
     }
-    const event = timelineEvent(studentId, 'care', activityReference.id, now, type === 'call' ? 'Đã ghi nhận cuộc gọi' : type === 'zalo' ? 'Đã ghi nhận liên hệ Zalo' : type === 'action_completed' ? 'Đã hoàn tất việc chăm sóc' : 'Thêm ghi chú chăm sóc', note || 'Không có ghi chú', visibility, { activityId: activityReference.id, actionId })
+    const event = timelineEvent(studentId, 'care', activityReference.id, now, type === 'call' ? 'Đã ghi nhận cuộc gọi' : type === 'zalo' ? 'Đã ghi nhận liên hệ Zalo' : type === 'action_completed' ? 'Đã hoàn tất việc chăm sóc' : 'Thêm ghi chú chăm sóc', note || 'Không có ghi chú', visibility, { activityId: activityReference.id, actionId, actorName: actor.actorName })
     const batch = db.batch()
     batch.create(activityReference, activity)
     batch.set(db.doc(`studentTimelineEvents/${event.id}`), event)
@@ -1004,7 +1462,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     return { studentId, generatedAt: projection.generatedAt, dataQuality: projection.dataQuality }
   })
 
-  return { getStudent360Overview, listStudent360Directory, listStudent360Timeline, createStudentCareActivity, getStudent360ProgressPhotos, refreshStudent360Projection }
+  return { getStudent360Overview, listStudent360Directory, listStudent360Timeline, createStudentCareActivity, getStudent360ProgressPhotos, refreshStudent360Projection, getStudent360ContractWorkspace, mutateStudent360Contract }
 }
 
 module.exports = {
@@ -1014,6 +1472,8 @@ module.exports = {
   buildHealthScore,
   buildStudent360Projection,
   contractUsage,
+  contractInstallments,
+  contractMutationTitle,
   createStudent360Functions,
   permissionsFor,
   redactProjection,

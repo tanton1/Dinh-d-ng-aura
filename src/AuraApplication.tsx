@@ -876,10 +876,6 @@ function AuraApplication() {
           isDemo={backendMode === 'demo'}
           onBack={() => navigate(source)}
           onNavigate={navigateStaffStudent}
-          onOpenContractOperations={source === 'admin-pt-students' ? (studentId) => {
-            setStaffStudentFocus({ id: studentId, name: '' })
-            goTo('admin-pt-students')
-          } : undefined}
         />
       }
       case 'profile': return <ProfilePage userId={user?.uid} fullProfile={backendMode === 'demo' ? { ...profile, ...localProfile } : profile} displayName={effectiveDisplayName} email={profile?.email} membership={profile?.membership} goals={effectiveGoals} heightCm={effectiveHeight} weightKg={effectiveWeight} targetWeightDeltaKg={effectiveTargetWeightDeltaKg} targetTimeframeMonths={effectiveTargetTimeframeMonths} targetSpeedPace={effectiveTargetSpeedPace} notificationSettings={effectiveNotifications} mealReminderTime={profile?.mealReminderTime} syncState={profileSyncState} onSave={saveProfile} onSignOut={signOut} onChangePassword={changePassword} onEditProfile={() => setForceOnboarding(true)} onUploadAvatar={async (file, onProgress) => {
@@ -906,7 +902,9 @@ function AuraApplication() {
         }} />
       }
       case 'delivery': return <DeliveryPage driverId={user?.uid ?? 'demo-shipper'} displayName={effectiveDisplayName ?? 'Shipper Aura'} onSignOut={signOut} />
-      case 'admin-dashboard': return <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} isDemo={backendMode === 'demo'} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
+      case 'admin-dashboard': return backendMode === 'firebase' && (!authzReady || !hasCapability('pt.operations.manage'))
+        ? <div className="course-detail-state" role="status"><h1>{authzReady ? 'Không có quyền mở Tổng quan' : 'Đang xác minh quyền Tổng quan'}</h1><p>{authzReady ? 'Khu vực này chỉ dành cho quản trị viên hoặc quản lý có quyền vận hành.' : 'Aura đang đối chiếu phạm vi vận hành trước khi tải dữ liệu.'}</p></div>
+        : <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} isDemo={backendMode === 'demo'} canViewPayroll={backendMode === 'demo' || hasCapability('payroll.operations.manage')} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
       case 'admin-today-sessions': return <AuraOperationsFrame><AdminTodaySessionsPage onNavigate={navigate} /></AuraOperationsFrame>
       case 'admin-courses': return <AdminCoursesPage
         courseItems={adminCourseData.courses}
@@ -987,10 +985,14 @@ function AuraApplication() {
       case 'admin-pt-workouts': return <AuraOperationsFrame><PtWorkoutWorkspacePage isDemo={backendMode === 'demo'} canPublishCatalog={accessContext?.accessRole === 'admin' || accessContext?.accessRole === 'super_admin' || role === 'admin' || role === 'super_admin'} initialStudentId={staffStudentFocus?.id} /></AuraOperationsFrame>
       case 'admin-trainer-quality': return <AuraOperationsFrame><TrainerQualityPage isDemo={backendMode === 'demo'} /></AuraOperationsFrame>
       case 'admin-renewals': return <AuraOperationsFrame><ContractRenewals onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
-      case 'admin-report': return <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} isDemo={backendMode === 'demo'} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
+      case 'admin-report': return backendMode === 'firebase' && (!authzReady || !hasCapability('pt.operations.manage'))
+        ? <div className="course-detail-state" role="status"><h1>{authzReady ? 'Không có quyền mở Tổng quan' : 'Đang xác minh quyền Tổng quan'}</h1><p>{authzReady ? 'Khu vực này chỉ dành cho quản trị viên hoặc quản lý có quyền vận hành.' : 'Aura đang đối chiếu phạm vi vận hành trước khi tải dữ liệu.'}</p></div>
+        : <AdminDashboard adminName={effectiveDisplayName ?? 'Admin Aura'} isDemo={backendMode === 'demo'} canViewPayroll={backendMode === 'demo' || hasCapability('payroll.operations.manage')} canCreate={hasPermission(role, 'course.create')} canManageAcademy={canManageAcademy} canManageCoaching={canManageCoaching} canManageEnrollments={hasPermission(role, 'enrollment.manage')} onNavigate={navigate} />
       case 'admin-finance': return <AuraOperationsFrame><AdminFinanceHub user={user as any} profile={profile} /></AuraOperationsFrame>
       case 'admin-hr': return <AuraOperationsFrame><AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} /></AuraOperationsFrame>
-      case 'admin-payroll': return <AuraOperationsFrame><AdminPayroll user={user as any} profile={profile} /></AuraOperationsFrame>
+      case 'admin-payroll': return <AuraOperationsFrame>{backendMode === 'firebase' && (!authzReady || !hasCapability('payroll.operations.manage'))
+        ? <div className="course-detail-state" role="status"><h1>{authzReady ? 'Không có quyền quản lý bảng lương' : 'Đang xác minh quyền bảng lương'}</h1><p>{authzReady ? 'Chỉ quản trị viên được cấp quyền payroll.operations.manage mới có thể xem bảng lương nhân sự.' : 'Aura đang đối chiếu phạm vi quyền trước khi tải dữ liệu lương.'}</p></div>
+        : <AdminPayroll user={user as any} profile={profile} />}</AuraOperationsFrame>
       case 'admin-packages': return <AuraOperationsFrame><div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6"><AdminPackageSettings user={user as any} profile={profile} /></div></AuraOperationsFrame>
       case 'admin-quotes': return <AuraOperationsFrame><AdminQuoteGenerator user={user as any} profile={profile} onNavigate={(view) => navigate(view as ViewId)} /></AuraOperationsFrame>
       case 'admin-schedule-settings': return <AuraOperationsFrame><div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6"><AdminScheduleSettings /></div></AuraOperationsFrame>
