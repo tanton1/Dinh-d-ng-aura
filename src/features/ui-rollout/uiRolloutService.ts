@@ -8,6 +8,7 @@ import type { AuraUiAssignment, AuraUiRolloutConfig, AuraUiRolloutSnapshot, Aura
 
 const sessionCachePrefix = 'aura:ui-rollout:v1:'
 const demoConfigKey = 'aura:ui-rollout:demo-config:v1'
+const demoAssignmentPrefix = 'aura:ui-rollout:demo-assignment:v1:'
 const sessionPromises = new Map<string, Promise<AuraUiRolloutSnapshot>>()
 
 function readJson(key: string) {
@@ -74,6 +75,19 @@ export function loadAuraUiRollout(userId: string, demo = false): Promise<AuraUiR
   return promise
 }
 
+export async function loadAuraUiAssignment(userId: string, demo = false): Promise<AuraUiAssignment | null> {
+  if (!userId) return null
+  if (demo || !firestoreDb) {
+    try {
+      return normalizeAuraUiAssignment(JSON.parse(window.localStorage.getItem(`${demoAssignmentPrefix}${userId}`) ?? 'null'))
+    } catch {
+      return null
+    }
+  }
+  const snapshot = await getDoc(doc(firestoreDb, 'uiRolloutAssignments', userId))
+  return normalizeAuraUiAssignment(snapshot.exists() ? snapshot.data() : null)
+}
+
 export async function saveAuraUiRolloutConfig(config: AuraUiRolloutConfig, actorUid: string, demo = false) {
   const normalized = normalizeAuraUiRolloutConfig({ ...config, updatedBy: actorUid, updatedAt: new Date().toISOString() })
   if (demo || !firebaseFunctions) {
@@ -88,7 +102,11 @@ export async function saveAuraUiRolloutConfig(config: AuraUiRolloutConfig, actor
 }
 
 export async function saveAuraUiAssignment(input: { uid: string; surfaces: AuraUiSurface[]; expiresAt: string | null }, demo = false) {
-  if (demo || !firebaseFunctions) return normalizeAuraUiAssignment({ ...input, updatedAt: new Date().toISOString(), updatedBy: 'demo' })
+  if (demo || !firebaseFunctions) {
+    const assignment = normalizeAuraUiAssignment({ ...input, updatedAt: new Date().toISOString(), updatedBy: 'demo' })
+    if (assignment) safeLocalStorageSet(`${demoAssignmentPrefix}${input.uid}`, JSON.stringify(assignment))
+    return assignment
+  }
   const callable = httpsCallable<{ action: 'assignment'; uid: string; surfaces: AuraUiSurface[]; expiresAt: string | null }, AuraUiAssignment>(firebaseFunctions, 'updateAuraUiRollout')
   const result = await callable({ action: 'assignment', ...input })
   clearAuraUiRolloutCache(input.uid)

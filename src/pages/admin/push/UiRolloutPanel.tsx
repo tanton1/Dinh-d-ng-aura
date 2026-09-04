@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Check, FlaskConical, ShieldCheck, Users } from 'lucide-react'
 import { Badge, Button, ErrorState, LoadingState } from '../../../components/ui'
 import { useAuraUiRollout } from '../../../features/ui-rollout/AuraUiRolloutContext'
-import { saveAuraUiAssignment, saveAuraUiRolloutConfig } from '../../../features/ui-rollout/uiRolloutService'
+import { loadAuraUiAssignment, saveAuraUiAssignment, saveAuraUiRolloutConfig } from '../../../features/ui-rollout/uiRolloutService'
 import { AURA_UI_SURFACES, type AuraUiAudience, type AuraUiRolloutConfig, type AuraUiSurface } from '../../../features/ui-rollout/types'
 import type { AdminUserRecord } from '../../../types'
 
@@ -32,8 +32,34 @@ export function UiRolloutPanel({ users, currentUserUid, canManage, demo }: { use
   const [pilotUid, setPilotUid] = useState('')
   const [pilotSurfaces, setPilotSurfaces] = useState<AuraUiSurface[]>([])
   const [pilotExpiresAt, setPilotExpiresAt] = useState('')
+  const [pilotLoading, setPilotLoading] = useState(false)
 
   useEffect(() => setDraft(rollout.config), [rollout.config])
+  useEffect(() => {
+    let active = true
+    if (!pilotUid) {
+      setPilotSurfaces([])
+      setPilotExpiresAt('')
+      setPilotLoading(false)
+      return () => { active = false }
+    }
+    setPilotLoading(true)
+    setError('')
+    void loadAuraUiAssignment(pilotUid, demo)
+      .then((assignment) => {
+        if (!active) return
+        setPilotSurfaces(assignment?.surfaces ?? [])
+        setPilotExpiresAt(assignment?.expiresAt?.slice(0, 10) ?? '')
+      })
+      .catch((cause) => {
+        if (!active) return
+        setPilotSurfaces([])
+        setPilotExpiresAt('')
+        setError(cause instanceof Error ? cause.message : 'Chưa thể tải cohort cá nhân.')
+      })
+      .finally(() => { if (active) setPilotLoading(false) })
+    return () => { active = false }
+  }, [demo, pilotUid])
   const sortedUsers = useMemo(() => [...users].sort((a, b) => a.displayName.localeCompare(b.displayName, 'vi')), [users])
 
   const saveConfig = async () => {
@@ -52,11 +78,13 @@ export function UiRolloutPanel({ users, currentUserUid, canManage, demo }: { use
     if (!pilotUid || !canManage) return
     setSaving(true); setError(''); setSaved('')
     try {
-      await saveAuraUiAssignment({
+      const assignment = await saveAuraUiAssignment({
         uid: pilotUid,
         surfaces: pilotSurfaces,
         expiresAt: pilotExpiresAt ? new Date(`${pilotExpiresAt}T23:59:59+07:00`).toISOString() : null,
       }, demo)
+      setPilotSurfaces(assignment?.surfaces ?? [])
+      setPilotExpiresAt(assignment?.expiresAt?.slice(0, 10) ?? '')
       setSaved(`Đã cập nhật cohort cá nhân cho ${sortedUsers.find((user) => user.uid === pilotUid)?.displayName || pilotUid}.`)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Chưa thể lưu cohort cá nhân.')
@@ -87,11 +115,10 @@ export function UiRolloutPanel({ users, currentUserUid, canManage, demo }: { use
       <header><div><small>COHORT CÁ NHÂN</small><h3><Users size={18} /> Người dùng thử nghiệm</h3></div><Badge tone="warning">Ưu tiên hơn audience</Badge></header>
       <div className="ui-rollout-pilot">
         <label><span>Người dùng</span><select value={pilotUid} disabled={!canManage || saving} onChange={(event) => setPilotUid(event.target.value)}><option value="">Chọn tài khoản…</option>{sortedUsers.map((user) => <option key={user.uid} value={user.uid}>{user.displayName} · {user.role}</option>)}</select></label>
-        <label><span>Hết hạn thử nghiệm</span><input type="date" value={pilotExpiresAt} disabled={!canManage || saving} onChange={(event) => setPilotExpiresAt(event.target.value)} /></label>
-        <fieldset><legend>Khu vực được bật</legend>{AURA_UI_SURFACES.map((surface) => <label key={surface}><input type="checkbox" checked={pilotSurfaces.includes(surface)} disabled={!canManage || saving} onChange={(event) => setPilotSurfaces((current) => event.target.checked ? [...current, surface] : current.filter((item) => item !== surface))} /><span>{surfaceLabels[surface]}</span></label>)}</fieldset>
+        <label><span>Hết hạn thử nghiệm</span><input type="date" value={pilotExpiresAt} disabled={!canManage || saving || pilotLoading} onChange={(event) => setPilotExpiresAt(event.target.value)} /></label>
+        <fieldset aria-busy={pilotLoading}><legend>{pilotLoading ? 'Đang tải khu vực…' : 'Khu vực được bật'}</legend>{AURA_UI_SURFACES.map((surface) => <label key={surface}><input type="checkbox" checked={pilotSurfaces.includes(surface)} disabled={!canManage || saving || pilotLoading || !pilotUid} onChange={(event) => setPilotSurfaces((current) => event.target.checked ? [...current, surface] : current.filter((item) => item !== surface))} /><span>{surfaceLabels[surface]}</span></label>)}</fieldset>
       </div>
-      <footer><span>Để trống surface để thu hồi pilot; ngày hết hạn có thể bỏ trống.</span><Button variant="secondary" disabled={!canManage || saving || !pilotUid} onClick={() => void savePilot()}>Lưu cohort</Button></footer>
+      <footer><span>Để trống surface để thu hồi pilot; ngày hết hạn có thể bỏ trống.</span><Button variant="secondary" disabled={!canManage || saving || pilotLoading || !pilotUid} onClick={() => void savePilot()}>Lưu cohort</Button></footer>
     </section>
   </div>
 }
-

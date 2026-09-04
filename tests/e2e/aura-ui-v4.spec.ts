@@ -103,6 +103,32 @@ test('legacy next-week schedule deep link selects a date inside next week', asyn
   await expect(page.getByRole('button', { name: 'Tuần sau' })).toBeDisabled()
 })
 
+test('availability V4 defaults to next week and keeps its submit action above the dock', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await enableAuraUiV4(page)
+  await page.goto('/#/student-availability')
+
+  await expect(page.getByRole('heading', { name: 'Thời gian có thể tập', exact: true })).toBeVisible()
+  await expect(page.getByText('Tuần sau', { exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Ma trận thời gian rảnh' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Tuần trước' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Tuần sau' })).toBeEnabled()
+
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  const footer = page.locator('.student-availability-card > footer')
+  const dock = page.getByRole('navigation', { name: 'Điều hướng học viên' })
+  const [footerBox, dockBox] = await Promise.all([footer.boundingBox(), dock.boundingBox()])
+  expect(footerBox).not.toBeNull()
+  expect(dockBox).not.toBeNull()
+  expect(footerBox!.y + footerBox!.height).toBeLessThanOrEqual(dockBox!.y - 8)
+  await expectNoHorizontalOverflow(page)
+
+  await page.locator('.student-schedule-matrix td button[aria-pressed="true"]').first().click()
+  await page.getByRole('button', { name: 'Gửi lịch rảnh' }).click()
+  await expect(page.getByRole('dialog', { name: 'Chỉ gửi 4 khung?' })).toBeVisible()
+  await expectNoHorizontalOverflow(page)
+})
+
 test('Staff V4 uses a role workspace dock and keeps extra routes in More', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await enableAuraUiV4(page)
