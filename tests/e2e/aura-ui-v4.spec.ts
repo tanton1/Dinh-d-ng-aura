@@ -83,17 +83,18 @@ test('nutrition V4 uses four primary sections and compatible nested routes', asy
   await expectNoHorizontalOverflow(page)
 })
 
-test('Aura Academy hero uses the responsive nutrition curriculum artwork', async ({ page }) => {
+test('Aura Academy shows one focused course on the responsive curriculum artwork', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await enableAuraUiV4(page)
   await page.goto('/#/courses')
 
-  const hero = page.locator('.academy-hero-header')
-  const artwork = hero.locator('.academy-hero-media img')
-  await expect(hero.getByRole('heading', { name: /Khóa học dinh dưỡng chuyên sâu/i })).toBeVisible()
-  await expect(hero.getByText('20 chương toàn văn')).toBeVisible()
+  const hero = page.locator('.academy-single-course')
+  const artwork = hero.locator('.academy-single-course__background')
+  await expect(hero.getByRole('heading', { name: /Làm chủ dinh dưỡng cùng AURA/i })).toBeVisible()
+  await expect(hero.getByRole('button', { name: /học/i })).toBeVisible()
   await expect(artwork).toBeVisible()
   expect(await artwork.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= 1200)).toBe(true)
+  await expect(page.locator('.academy-catalog-intro, .catalog-filter-bar, .courses-grid-v2')).toHaveCount(0)
   await expectNoHorizontalOverflow(page)
 })
 
