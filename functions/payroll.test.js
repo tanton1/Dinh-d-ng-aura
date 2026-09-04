@@ -7,8 +7,11 @@ const {
   applyPayrollPolicyPlan,
   payrollRunPolicyPlan,
   periodBounds,
+  periodDateBounds,
+  payrollPeriodClosed,
   payrollPolicyConfiguration,
   teachingSlotsFromAttendance,
+  teachingSlotsFromSessions,
 } = require('./payroll')
 
 test('payroll period uses Asia/Ho_Chi_Minh calendar boundaries', () => {
@@ -23,6 +26,12 @@ test('payroll December period rolls over to the next year', () => {
 
   assert.equal(bounds.start.toDate().toISOString(), '2026-11-30T17:00:00.000Z')
   assert.equal(bounds.end.toDate().toISOString(), '2026-12-31T17:00:00.000Z')
+})
+
+test('payroll date queries and closing guard follow the same Vietnam business period', () => {
+  assert.deepEqual(periodDateBounds('2026-12'), { start: '2026-12-01', end: '2027-01-01' })
+  assert.equal(payrollPeriodClosed('2026-08', new Date('2026-08-31T16:59:59.999Z')), false)
+  assert.equal(payrollPeriodClosed('2026-08', new Date('2026-08-31T17:00:00.000Z')), true)
 })
 
 test('payroll policy rejects impossible dates and unsafe rates', () => {
@@ -81,6 +90,35 @@ test('two learners in the same trainer slot count as one paid class and daily ti
   assert.equal(slots.reduce((sum, slot) => sum + slot.rate, 0), 310_000)
 })
 
+test('canonical completed sessions produce the same paired teaching shifts without attendance fan-out reads', () => {
+  const sessions = [
+    { id: 'session-a', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', branchId: 'branch-a', date: '2026-08-25', hour: 6 },
+    { id: 'session-b', status: 'attended', trainerId: 'trainer-a', studentId: 'student-b', branchId: 'branch-a', date: '2026-08-25', hour: 6 },
+    { id: 'session-cancelled', status: 'cancelled', trainerId: 'trainer-a', studentId: 'student-c', branchId: 'branch-a', date: '2026-08-25', hour: 7 },
+  ]
+  const result = teachingSlotsFromSessions(sessions, {
+    ratePerSession: 20_000,
+    dailySessionThreshold: 8,
+    rateAfterDailyThreshold: 70_000,
+    eveningStartHour: 20,
+    rateAfterDailyThresholdEvening: 80_000,
+  })
+  const slots = result.trainers.get('trainer-a')
+
+  assert.equal(result.attendanceEventCount, 2)
+  assert.equal(result.teachingSlotCount, 1)
+  assert.equal(slots.length, 1)
+  assert.equal(slots[0].studentCount, 2)
+  assert.deepEqual(slots[0].sessionIds.sort(), ['session-a', 'session-b'])
+})
+
+test('a trainer cannot silently merge the same completed hour across two branches', () => {
+  assert.throws(() => teachingSlotsFromSessions([
+    { id: 'session-a', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', branchId: 'branch-a', date: '2026-08-25', hour: 6 },
+    { id: 'session-b', status: 'completed', trainerId: 'trainer-a', studentId: 'student-b', branchId: 'branch-b', date: '2026-08-25', hour: 6 },
+  ], { ratePerSession: 20_000 }), /nhiều chi nhánh/)
+})
+
 test('payroll creation is one deterministic transaction per period', () => {
   const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
   const createBlock = source.match(/const createPayrollRun[\s\S]*?\n  async function transition/)?.[0] || ''
@@ -89,6 +127,9 @@ test('payroll creation is one deterministic transaction per period', () => {
   assert.match(createBlock, /db\.runTransaction/)
   assert.match(createBlock, /transaction\.create\(runReference/)
   assert.match(createBlock, /payrollRunItems\/\$\{periodId\}_\$\{staffId\}/)
+  assert.match(createBlock, /teachingSlotsFromSessions\(sessionSnapshot\.docs/)
+  assert.match(createBlock, /\.select\('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'attendanceEventId'\)/)
+  assert.doesNotMatch(createBlock, /Promise\.all\(sessionIds\.map/)
   assert.doesNotMatch(createBlock, /db\.collection\('payrollRuns'\)\.doc\(\)/)
 })
 
@@ -225,7 +266,7 @@ test('payroll items snapshot trainer identity and attendance evidence source', (
 test('legacy draft payroll is enriched for review but cannot be approved before rebuilding', () => {
   const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
   const getStart = source.indexOf('const getPayrollRun = payrollCall')
-  const getEnd = source.indexOf('const createPayrollRun = payrollCall', getStart)
+  const getEnd = source.indexOf('const createPayrollRun = payrollHeavyCall', getStart)
   const getBlock = getStart >= 0 && getEnd > getStart ? source.slice(getStart, getEnd) : ''
   const transitionStart = source.indexOf('async function transition')
   const transitionEnd = source.indexOf('const reviewPayrollRun', transitionStart)
@@ -237,6 +278,7 @@ test('legacy draft payroll is enriched for review but cannot be approved before 
   assert.match(getBlock, /storedTeachingSlotCount/)
   assert.match(transitionBlock, /schemaVersion/)
   assert.match(transitionBlock, /cần được xóa và lập lại/)
+  assert.match(transitionBlock, /assertPayrollPeriodClosed/)
 })
 
 test('payroll UI surfaces trainer names, teaching-slot evidence and legacy rebuild state', () => {

@@ -161,10 +161,10 @@ export interface PayrollRunDetail {
   items: PayrollRunItem[]
 }
 
-function callable<Input, Output>(name: string) {
+function callable<Input, Output>(name: string, timeoutMs = 45_000) {
   const functions = firebaseScheduleOptimizerFunctions || firebaseFunctions
   if (!functions) throw new Error('Firebase Functions chưa sẵn sàng.')
-  return httpsCallable<Input, Output>(functions, `${name}V2`)
+  return httpsCallable<Input, Output>(functions, `${name}V2`, { timeout: timeoutMs })
 }
 
 function amount(value: unknown) {
@@ -413,7 +413,7 @@ export interface CreatePayrollRunInput {
 }
 
 export async function createPayrollRun(input: CreatePayrollRunInput) {
-  const result = await callable<CreatePayrollRunInput, { runId: string; unchanged: boolean; status: PayrollRunStatus }>('createPayrollRun')(input)
+  const result = await callable<CreatePayrollRunInput, { runId: string; unchanged: boolean; status: PayrollRunStatus }>('createPayrollRun', 300_000)(input)
   return result.data
 }
 

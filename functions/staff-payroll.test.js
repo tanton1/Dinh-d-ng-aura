@@ -211,6 +211,8 @@ test('staff payroll callables are actor-scoped and browser writes never calculat
 test('payroll run includes every active Identity v2 staff account and cash-based referral commission', () => {
   const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
   assert.match(source, /const payrollCall = \(handler\) => onCall\(\{[\s\S]*cpu: 'gcf_gen1'[\s\S]*memory: '256MiB'[\s\S]*maxInstances: 1[\s\S]*concurrency: 1/)
+  assert.match(source, /const payrollHeavyCall = \(handler\) => onCall\(\{[\s\S]*memory: '512MiB'[\s\S]*maxInstances: 1[\s\S]*concurrency: 1/)
+  assert.match(source, /const createPayrollRun = payrollHeavyCall/)
   assert.match(source, /collection\('roleAssignments'\)\.where\('accessRole', '==', 'staff'\)/)
   assert.match(source, /assignment\.crmProfileId/)
   assert.match(source, /calculateReferralCommissions/)

@@ -3,7 +3,7 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { createHash } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { calculateWorkdayPayroll, mergeWorkCalendar, payrollAmounts } = require('./staff-payroll')
-const { calculateReferralCommissions } = require('./referral-commission')
+const { calculateReferralCommissions, referralCashImpact } = require('./referral-commission')
 const { assertFinancePeriodOpen } = require('./finance-ledger')
 const { payrollAccrualJournal, payrollPaymentJournal } = require('./accounting-core')
 
@@ -27,6 +27,27 @@ function periodBounds(periodId) {
     // Payroll is a Vietnam business period, not a UTC calendar month.
     start: Timestamp.fromDate(new Date(`${year}-${String(month).padStart(2, '0')}-01T00:00:00+07:00`)),
     end: Timestamp.fromDate(new Date(`${nextYear}-${String(nextMonth).padStart(2, '0')}-01T00:00:00+07:00`)),
+  }
+}
+
+function periodDateBounds(periodId) {
+  const [year, month] = period(periodId).split('-').map(Number)
+  const nextYear = month === 12 ? year + 1 : year
+  const nextMonth = month === 12 ? 1 : month + 1
+  return {
+    start: `${year}-${String(month).padStart(2, '0')}-01`,
+    end: `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`,
+  }
+}
+
+function payrollPeriodClosed(periodId, now = new Date()) {
+  const date = now?.toDate ? now.toDate() : now instanceof Date ? now : new Date(now)
+  return Number.isFinite(date.getTime()) && date.getTime() >= periodBounds(period(periodId)).end.toMillis()
+}
+
+function assertPayrollPeriodClosed(periodId) {
+  if (!payrollPeriodClosed(periodId)) {
+    throw new HttpsError('failed-precondition', 'Chỉ có thể gửi duyệt hoặc khóa lương sau khi kỳ đã kết thúc.')
   }
 }
 
@@ -264,6 +285,58 @@ function teachingSlotsFromAttendance(attendanceDocuments, sessionsById, policyVa
   return { trainers, attendanceEventCount, teachingSlotCount: slotMap.size, policy }
 }
 
+function teachingSlotsFromSessions(sessionDocuments, policyValue) {
+  const policy = payrollPolicyConfiguration(policyValue)
+  const slotMap = new Map()
+  let attendanceEventCount = 0
+
+  for (const item of sessionDocuments) {
+    const session = typeof item?.data === 'function' ? item.data() : item || {}
+    if (!['completed', 'attended'].includes(session.status)) continue
+    const sessionId = typeof item?.id === 'string' && item.id
+      ? item.id
+      : typeof session.id === 'string' ? session.id : ''
+    const trainerId = typeof session.trainerId === 'string' ? session.trainerId.trim() : ''
+    if (!sessionId) throw new HttpsError('failed-precondition', 'Có ca hoàn thành chưa xác định được mã ca.')
+    if (!trainerId) throw new HttpsError('failed-precondition', 'Ca dạy chưa có HLV phụ trách.')
+    const date = vietnamDateKey(session.date)
+    const hour = teachingHour(session.hour, sessionId)
+    const key = `${trainerId}|${date}|${hour}`
+    let slot = slotMap.get(key)
+    if (!slot) {
+      slot = {
+        key,
+        trainerId,
+        date,
+        hour,
+        branchId: session.branchId || '',
+        sessionIds: new Set(),
+        studentIds: new Set(),
+        attendanceEventIds: new Set(),
+      }
+      slotMap.set(key, slot)
+    } else if (slot.branchId && session.branchId && slot.branchId !== session.branchId) {
+      throw new HttpsError('failed-precondition', `HLV có ca hoàn thành trùng giờ ở nhiều chi nhánh ngày ${date}. Hãy đối soát trước khi lập lương.`)
+    }
+    if (!slot.branchId && session.branchId) slot.branchId = session.branchId
+    slot.sessionIds.add(sessionId)
+    slot.studentIds.add(session.studentId || `unknown_${sessionId}`)
+    slot.attendanceEventIds.add(session.attendanceEventId || sessionId)
+    attendanceEventCount += 1
+  }
+
+  const trainers = new Map()
+  for (const slot of slotMap.values()) {
+    const current = trainers.get(slot.trainerId) || []
+    current.push(slot)
+    trainers.set(slot.trainerId, current)
+  }
+  for (const [trainerId, slots] of trainers) {
+    trainers.set(trainerId, priceTeachingSlots(slots, () => ({ configuration: policy })))
+  }
+  return { trainers, attendanceEventCount, teachingSlotCount: slotMap.size, policy }
+}
+
 function payrollRunPolicyPlan(value = {}) {
   const selectedPolicyIds = Array.isArray(value.policyIds)
     ? [...new Set(value.policyIds.map((item) => payrollDocumentId(item, 'Mã chính sách')))].slice(0, 10)
@@ -470,6 +543,16 @@ function createPayrollFunctions({ db, onCall }) {
   const payrollCall = (handler) => onCall({
     cpu: 'gcf_gen1',
     memory: '256MiB',
+    maxInstances: 1,
+    concurrency: 1,
+    timeoutSeconds: 300,
+  }, handler)
+  // Creating a run initializes Firestore transactions and snapshots a complete
+  // business period. Keep the regular read endpoints lean, but give this one
+  // deterministic write enough headroom to avoid container termination.
+  const payrollHeavyCall = (handler) => onCall({
+    cpu: 'gcf_gen1',
+    memory: '512MiB',
     maxInstances: 1,
     concurrency: 1,
     timeoutSeconds: 300,
@@ -730,10 +813,11 @@ function createPayrollFunctions({ db, onCall }) {
     }
   })
 
-  const createPayrollRun = payrollCall(async (request) => {
+  const createPayrollRun = payrollHeavyCall(async (request) => {
     const actor = await payrollActor(request, db)
     const periodId = period(request.data?.periodId)
     const { start, end } = periodBounds(periodId)
+    const dateBounds = periodDateBounds(periodId)
     const requestedPlan = payrollRunPolicyPlan(request.data || {})
     // One deterministic document per business period prevents two admins from
     // creating duplicate payroll runs concurrently.
@@ -742,17 +826,25 @@ function createPayrollFunctions({ db, onCall }) {
       const existing = await transaction.get(runReference)
       if (existing.exists) return { runId: existing.id, unchanged: true, status: existing.data().status }
 
-      const [attendance, staffSnapshot, trainerRecordsSnapshot, assignmentSnapshot, workdayAttendanceSnapshot, calendarSnapshot, schedulePolicySnapshot, referralLedgerSnapshot] = await Promise.all([
-        transaction.get(db.collection('attendanceEvents').where('occurredAt', '>=', start).where('occurredAt', '<', end)),
+      const [sessionSnapshot, staffSnapshot, trainerRecordsSnapshot, assignmentSnapshot, workdayAttendanceSnapshot, calendarSnapshot, schedulePolicySnapshot, referralLedgerSnapshot] = await Promise.all([
+        transaction.get(db.collection('sessions')
+          .where('date', '>=', dateBounds.start)
+          .where('date', '<', dateBounds.end)
+          .select('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'attendanceEventId')
+          .limit(3001)),
         transaction.get(db.collection('staff').limit(451)),
         transaction.get(db.collection('trainers').limit(451)),
         transaction.get(db.collection('roleAssignments').where('accessRole', '==', 'staff').limit(451)),
         transaction.get(db.collection('staffAttendanceDays').where('periodId', '==', periodId).limit(5001)),
         transaction.get(db.collection('workCalendars').where('periodId', '==', periodId).limit(101)),
         transaction.get(db.doc('settings/scheduleConfig')),
-        transaction.get(db.collection('ledgerEntries').where('effectiveAt', '>=', start).where('effectiveAt', '<', end).limit(5001)),
+        transaction.get(db.collection('ledgerEntries')
+          .where('effectiveAt', '>=', start)
+          .where('effectiveAt', '<', end)
+          .select('type', 'status', 'cashImpact', 'amount', 'contractId', 'referralCode', 'referralStaffId', 'referralCommissionRate')
+          .limit(5001)),
       ])
-      if (staffSnapshot.size > 450 || trainerRecordsSnapshot.size > 450 || assignmentSnapshot.size > 450 || workdayAttendanceSnapshot.size > 5000 || calendarSnapshot.size > 100 || referralLedgerSnapshot.size > 5000) {
+      if (sessionSnapshot.size > 3000 || staffSnapshot.size > 450 || trainerRecordsSnapshot.size > 450 || assignmentSnapshot.size > 450 || workdayAttendanceSnapshot.size > 5000 || calendarSnapshot.size > 100 || referralLedgerSnapshot.size > 5000) {
         throw new HttpsError('resource-exhausted', 'Dữ liệu ngày công của kỳ quá lớn để khóa an toàn trong một giao dịch.')
       }
       const trainerRecordById = new Map(trainerRecordsSnapshot.docs.map((item) => [item.id, item.data() || {}]))
@@ -774,11 +866,12 @@ function createPayrollFunctions({ db, onCall }) {
           status: existing.status || 'active',
         })
       })
-      const referralContractIds = [...new Set(referralLedgerSnapshot.docs.map((item) => String(item.data()?.contractId || '')).filter(Boolean))]
+      const referralLedgerDocuments = referralLedgerSnapshot.docs.filter((item) => referralCashImpact(item) !== 0)
+      const referralContractIds = [...new Set(referralLedgerDocuments.map((item) => String(item.data()?.contractId || '')).filter(Boolean))]
       if (referralContractIds.length > 450) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều hợp đồng giới thiệu để khóa trong một giao dịch.')
       const referralContractSnapshots = await Promise.all(referralContractIds.map((contractId) => transaction.get(db.doc(`contracts/${contractId}`))))
       const referralEvidence = calculateReferralCommissions({
-        ledgerEntries: referralLedgerSnapshot.docs,
+        ledgerEntries: referralLedgerDocuments,
         contracts: referralContractSnapshots,
         staffRecords: [...staffRecordById.values()],
       })
@@ -828,12 +921,7 @@ function createPayrollFunctions({ db, onCall }) {
           .filter(([, staff]) => typeof staff.payrollPolicyId === 'string' && staff.payrollPolicyId)
           .map(([staffId, staff]) => [staffId, staff.payrollPolicyId])),
       }
-      const eligibleAttendance = attendance.docs.filter((item) => !item.data().type || item.data().type === 'attended')
-      const sessionIds = [...new Set(eligibleAttendance.map((item) => item.data().sessionId || item.id).filter(Boolean))]
-      if (sessionIds.length > 3000) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều ca dạy. Hãy liên hệ quản trị để chia kỳ đối soát.')
-      const sessionSnapshots = await Promise.all(sessionIds.map((sessionId) => transaction.get(db.doc(`sessions/${sessionId}`))))
-      const sessionById = new Map(sessionSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, snapshot.data()]))
-      const groupedTeaching = teachingSlotsFromAttendance(eligibleAttendance, sessionById, selectedPolicies[0].configuration)
+      const groupedTeaching = teachingSlotsFromSessions(sessionSnapshot.docs, selectedPolicies[0].configuration)
       const teaching = applyPayrollPolicyPlan(groupedTeaching, policyPlan, selectedPolicies)
       const activeStaff = [...staffRecordById.values()]
       const staffIds = [...new Set([...activeStaff.map((item) => item.id), ...teaching.trainers.keys()])]
@@ -1011,7 +1099,7 @@ function createPayrollFunctions({ db, onCall }) {
           adjustmentAmount: 0,
           finalAmount: amounts.finalAmount,
           status: 'draft',
-          evidenceSource: workdays.workdayEnabled ? 'staffAttendanceDays+attendanceEvents+sessions+ledgerEntries+contracts' : 'attendanceEvents+sessions+ledgerEntries+contracts',
+          evidenceSource: workdays.workdayEnabled ? 'staffAttendanceDays+sessions+ledgerEntries+contracts' : 'sessions+ledgerEntries+contracts',
           createdAt: FieldValue.serverTimestamp(),
         })
       }
@@ -1058,6 +1146,7 @@ function createPayrollFunctions({ db, onCall }) {
       if (!snapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
       if (snapshot.data().status === to) return
       if (snapshot.data().status !== from) throw new HttpsError('failed-precondition', `Kỳ lương phải ở trạng thái ${from}.`)
+      if (to === 'reviewed') assertPayrollPeriodClosed(period(snapshot.data().periodId || runId))
       if (to === 'reviewed' && (Number(snapshot.data().schemaVersion || 0) < 7 || Number(snapshot.data().commissionFormulaVersion || 0) < 2)) {
         throw new HttpsError('failed-precondition', 'Kỳ lương nháp cũ cần được xóa và lập lại để chốt đúng ngày công, tiền ca và hoa hồng giới thiệu theo dòng tiền.')
       }
@@ -1083,6 +1172,7 @@ function createPayrollFunctions({ db, onCall }) {
       if (!run.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
       if (run.data().status === 'locked') return
       if (run.data().status !== 'reviewed') throw new HttpsError('failed-precondition', 'Kỳ lương phải ở trạng thái reviewed.')
+      assertPayrollPeriodClosed(period(run.data().periodId || runId))
       const periodId = period(run.data().periodId)
       const finalAmount = Math.max(0, Number(run.data().finalAmount || run.data().grossAmount || 0))
       if (!Number.isSafeInteger(finalAmount) || finalAmount <= 0) throw new HttpsError('failed-precondition', 'Kỳ lương không có số tiền hợp lệ để khóa.')
@@ -1256,6 +1346,8 @@ function createPayrollFunctions({ db, onCall }) {
 module.exports = {
   createPayrollFunctions,
   periodBounds,
+  periodDateBounds,
+  payrollPeriodClosed,
   policyEffectiveDate,
   policyRate,
   payrollPolicyConfiguration,
@@ -1263,6 +1355,7 @@ module.exports = {
   payrollProfile,
   policySupportsProfile,
   teachingSlotsFromAttendance,
+  teachingSlotsFromSessions,
   payrollRunPolicyPlan,
   applyPayrollPolicyPlan,
   priceTeachingSlots,

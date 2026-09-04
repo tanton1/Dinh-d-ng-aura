@@ -344,6 +344,14 @@
 .payroll-run-setup header strong { color: #34232e; font-size: 21px; }
 .payroll-run-setup header button { display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid #eedde5; border-radius: 50%; background: #fff; color: #695561; }
 .payroll-run-setup__lead { margin: 10px 0 14px; color: #7f6875; font-size: 12px; line-height: 1.55; }
+.payroll-run-setup__preflight { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.payroll-run-setup__preflight > span { display: grid; gap: 3px; min-width: 0; border: 1px solid #f0e2e8; border-radius: 14px; padding: 10px; background: #fff; }
+.payroll-run-setup__preflight small { color: #8c7782; font-size: 9px; font-weight: 800; }
+.payroll-run-setup__preflight b { color: #3f2935; font-size: 18px; }
+.payroll-run-setup__preflight > span.has-warning { border-color: rgba(230, 103, 48, .25); background: #fff8ef; }
+.payroll-run-setup__preflight > span.has-warning b { color: #b75b28; }
+.payroll-run-setup__warning { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 10px; border-radius: 13px; padding: 10px 11px; background: #fff5e9; color: #8b4b22; font-size: 11px; font-weight: 750; line-height: 1.5; }
+.payroll-run-setup__warning svg { flex: 0 0 auto; margin-top: 1px; }
 .payroll-run-setup__policies { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .payroll-run-setup__policies > label { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border: 1px solid #eadce3; border-radius: 16px; padding: 11px; background: #fff; cursor: pointer; }
 .payroll-run-setup__policies > label.is-selected { border-color: rgba(246, 47, 130, .48); background: linear-gradient(115deg, #fff0f6, #fff7ef); box-shadow: 0 8px 20px rgba(246, 47, 130, .09); }
@@ -427,6 +435,7 @@
   .payroll-modal, .payroll-confirm { align-items: end; padding: 0; }
   .payroll-run-setup { width: 100%; max-height: 92dvh; border-radius: 25px 25px 0 0; padding: 16px; }
   .payroll-run-setup__policies { grid-template-columns: 1fr; }
+  .payroll-run-setup__preflight { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .payroll-run-setup__modes { grid-template-columns: 1fr; }
   .payroll-run-setup__trainers > label { grid-template-columns: 1fr; }
   .payroll-run-setup footer { bottom: -16px; margin: 16px -16px -16px; padding-inline: 16px; }

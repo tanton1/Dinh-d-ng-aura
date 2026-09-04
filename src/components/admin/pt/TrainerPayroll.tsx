@@ -85,6 +85,10 @@ function currentDateOnly() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
 }
 
+function payrollPeriodEnded(value: string) {
+  return /^\d{4}-\d{2}$/.test(value) && value < currentPeriod()
+}
+
 function money(value: unknown) {
   const amount = Number(value)
   return `${Math.round(Number.isFinite(amount) ? amount : 0).toLocaleString('vi-VN')}đ`
@@ -148,6 +152,7 @@ function friendlyError(cause: unknown) {
     if (/mã đối soát/i.test(message)) return message
     return 'Dịch vụ lương tạm thời chưa phản hồi. Hãy thử lại sau ít phút.'
   }
+  if (code === 'resource-exhausted') return 'Dữ liệu kỳ lương quá lớn để xử lý trong một lần. Hãy tải lại; nếu vẫn lỗi, dùng chức năng đối soát kỳ trước khi tạo.'
   if (code === 'not-found') return 'Chưa có dữ liệu kỳ lương phù hợp.'
   return message || 'Không thể tải dữ liệu lương.'
 }
@@ -476,6 +481,12 @@ export default function TrainerPayroll({ profile }: Props) {
       return !query || `${run.periodId} ${run.policyName} ${statusMeta[run.status].label}`.toLowerCase().includes(query)
     })
   }, [runs, search, statusFilter])
+  const runPreflight = useMemo(() => ({
+    staffCount: liveRows.length,
+    teachingSlotCount: liveRows.reduce((total, row) => total + row.teachingSlotCount, 0),
+    reviewRequiredCount: liveRows.filter((row) => row.reviewRequired).length,
+    unconfiguredPolicyCount: liveRows.filter((row) => !row.policyConfigured).length,
+  }), [liveRows])
   const subpageActive = showRunSetup || Boolean(pendingConfirmation) || Boolean(detail) || detailLoading
   useEffect(() => { if (subpageActive) window.scrollTo({ top: 0, behavior: 'smooth' }) }, [subpageActive])
 
@@ -526,7 +537,7 @@ export default function TrainerPayroll({ profile }: Props) {
               <p>{run.policyName || `Chính sách v${run.policyVersion}`}<ChevronRight size={17} /></p>
             </button>
             <div className="payroll-run-card__actions">
-              {run.status === 'draft' && <><button className="is-danger-ghost" type="button" disabled={!!busyAction} onClick={() => setPendingConfirmation({ kind: 'delete-run', id: run.id, label: periodLabel(run.periodId) })}><Trash2 size={15} /> Xóa nháp</button><button type="button" disabled={!!busyAction || run.requiresRebuild || run.attendanceReviewRequired} title={run.requiresRebuild ? 'Xóa kỳ nháp cũ và tạo lại trước khi gửi duyệt' : run.attendanceReviewRequired ? 'Chốt đủ ngày công và lịch chuẩn trước khi gửi duyệt' : undefined} onClick={() => void runAction('review', run)}><FileCheck2 size={15} /> {run.requiresRebuild ? 'Cần tạo lại' : run.attendanceReviewRequired ? 'Chờ ngày công' : 'Gửi duyệt'}</button></>}
+              {run.status === 'draft' && <><button className="is-danger-ghost" type="button" disabled={!!busyAction} onClick={() => setPendingConfirmation({ kind: 'delete-run', id: run.id, label: periodLabel(run.periodId) })}><Trash2 size={15} /> Xóa nháp</button><button type="button" disabled={!!busyAction || run.requiresRebuild || run.attendanceReviewRequired || !payrollPeriodEnded(run.periodId)} title={run.requiresRebuild ? 'Xóa kỳ nháp cũ và tạo lại trước khi gửi duyệt' : !payrollPeriodEnded(run.periodId) ? 'Chỉ gửi duyệt sau khi kỳ lương đã kết thúc' : run.attendanceReviewRequired ? 'Chốt đủ ngày công và lịch chuẩn trước khi gửi duyệt' : undefined} onClick={() => void runAction('review', run)}><FileCheck2 size={15} /> {run.requiresRebuild ? 'Cần tạo lại' : !payrollPeriodEnded(run.periodId) ? 'Chờ hết kỳ' : run.attendanceReviewRequired ? 'Chờ ngày công' : 'Gửi duyệt'}</button></>}
               {run.status === 'reviewed' && <button type="button" disabled={!!busyAction} onClick={() => void runAction('lock', run)}><LockKeyhole size={15} /> Khóa kỳ</button>}
               {run.status === 'locked' && <button type="button" onClick={() => void openRun(run.id)}><WalletCards size={15} /> Chi lương</button>}
               {run.status === 'paid' && <span><CheckCircle2 size={15} /> Đã hoàn tất</span>}
@@ -568,6 +579,14 @@ export default function TrainerPayroll({ profile }: Props) {
       <section className="payroll-run-setup">
         <header><div><span>Lập kỳ {periodLabel(periodId)}</span><strong>Chọn chính sách áp dụng</strong></div><button type="button" aria-label="Đóng" onClick={() => setShowRunSetup(false)} disabled={!!busyAction}><X size={20} /></button></header>
         <p className="payroll-run-setup__lead">Kỳ nháp lưu snapshot chính sách. Bạn có thể xóa kỳ nháp và lập lại; kỳ đã duyệt không thể xóa.</p>
+        <div className="payroll-run-setup__preflight" aria-label="Đối soát nhanh trước khi tạo kỳ">
+          <span><small>Nhân viên</small><b>{runPreflight.staffCount}</b></span>
+          <span><small>Ca tính lương</small><b>{runPreflight.teachingSlotCount}</b></span>
+          <span className={runPreflight.reviewRequiredCount ? 'has-warning' : ''}><small>Cần đối soát</small><b>{runPreflight.reviewRequiredCount}</b></span>
+          <span className={runPreflight.unconfiguredPolicyCount ? 'has-warning' : ''}><small>Thiếu chính sách</small><b>{runPreflight.unconfiguredPolicyCount}</b></span>
+        </div>
+        {!payrollPeriodEnded(periodId) && <p className="payroll-run-setup__warning"><Clock3 size={16} /> Có thể tạo bản nháp để xem dự tính, nhưng chỉ được gửi duyệt sau khi tháng này kết thúc.</p>}
+        {(runPreflight.reviewRequiredCount > 0 || runPreflight.unconfiguredPolicyCount > 0) && <p className="payroll-run-setup__warning"><AlertTriangle size={16} /> Bản nháp vẫn có thể tạo. Hãy hoàn tất ngày công, lịch làm việc và chính sách trước khi gửi duyệt.</p>}
         <div className="payroll-run-setup__policies">
           {activePolicies.map((policy) => {
             const selected = selectedPolicyIds.includes(policy.id)
