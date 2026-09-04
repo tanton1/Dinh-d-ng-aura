@@ -65,6 +65,7 @@ type RunStatusFilter = 'all' | PayrollRunStatus
 type PolicyApplicationMode = Exclude<PayrollPolicyApplicationMode, 'single'>
 type PendingConfirmation =
   | { kind: 'delete-run'; id: string; label: string }
+  | { kind: 'rebuild-run'; id: string; label: string }
   | { kind: 'policy'; id: string; label: string; action: 'hide' | 'restore' | 'delete' }
 
 const statusMeta: Record<PayrollRunStatus, { label: string; hint: string }> = {
@@ -104,6 +105,24 @@ function teachingTierLabel(tier: 'standard' | 'after_threshold' | 'after_thresho
   if (tier === 'after_threshold_evening') return 'Tăng ca tối'
   if (tier === 'after_threshold') return 'Từ ca thứ 9'
   return 'Ca tiêu chuẩn'
+}
+
+function payrollWorkdayLabel(status: string, holidayName = '') {
+  if (status === 'present') return 'Có mặt'
+  if (status === 'remote') return 'Làm từ xa'
+  if (status === 'business_trip') return 'Công tác'
+  if (status === 'training') return 'Đào tạo'
+  if (status === 'paid_leave') return 'Nghỉ phép có lương'
+  if (status === 'unpaid_leave') return 'Nghỉ không lương'
+  if (status === 'unexcused_absence') return 'Vắng không phép'
+  if (status === 'sick_leave') return 'Nghỉ ốm · cần duyệt'
+  if (status === 'maternity_leave') return 'Nghỉ thai sản · cần duyệt'
+  if (status === 'auto_present_teaching') return 'Tự tính đủ công'
+  if (status === 'weekly_rest') return 'Nghỉ tuần'
+  if (status === 'paid_holiday') return holidayName || 'Nghỉ lễ'
+  if (status === 'outside_employment') return 'Ngoài thời gian làm việc'
+  if (status === 'upcoming') return 'Chưa đến ngày'
+  return 'Chưa chốt'
 }
 
 function payrollProfileLabel(profile: PayrollProfile) {
@@ -222,6 +241,7 @@ export default function TrainerPayroll({ profile }: Props) {
       setRuns((current) => current.map((run) => run.id === runId ? {
         ...run,
         requiresRebuild: loaded.run.requiresRebuild,
+        storedTeachingSlotCount: loaded.run.storedTeachingSlotCount,
         trainerCount: loaded.run.trainerCount,
         teachingSlotCount: loaded.run.teachingSlotCount,
         attendanceCount: loaded.run.teachingSlotCount,
@@ -355,10 +375,20 @@ export default function TrainerPayroll({ profile }: Props) {
     setError('')
     setMessage('')
     try {
-      if (confirmation.kind === 'delete-run') {
+      if (confirmation.kind === 'delete-run' || confirmation.kind === 'rebuild-run') {
         await deleteDraftPayrollRun(confirmation.id)
         if (detail?.run.id === confirmation.id) setDetail(null)
-        setMessage('Đã xóa kỳ nháp. Bạn có thể tạo lại theo chính sách mới.')
+        if (confirmation.kind === 'rebuild-run' && activePolicies.length) {
+          const initial = activePolicies[0]
+          setSelectedPolicyIds(activePolicies.map((policy) => policy.id))
+          setDefaultPolicyId(initial.id)
+          setPolicyApplicationMode('staff_profile')
+          setTrainerPolicyAssignments({})
+          setShowRunSetup(true)
+          setMessage('Đã gỡ bản nháp công thức cũ. Kiểm tra chính sách rồi lập lại kỳ theo ca dạy độc nhất.')
+        } else {
+          setMessage('Đã xóa kỳ nháp. Bạn có thể tạo lại theo chính sách mới.')
+        }
       } else {
         await managePayrollPolicy(confirmation.id, confirmation.action)
         setMessage(confirmation.action === 'delete'
@@ -480,7 +510,7 @@ export default function TrainerPayroll({ profile }: Props) {
           {visibleRuns.map((run) => <article className="payroll-run-card" key={run.id}>
             <button className="payroll-run-card__open" type="button" onClick={() => void openRun(run.id)} aria-label={`Mở ${periodLabel(run.periodId)}`}>
               <div className="payroll-run-card__head"><div><span>{periodLabel(run.periodId)}</span><strong>{money(run.finalAmount)}</strong></div><em className={`is-${run.status}`}>{run.requiresRebuild ? 'Cần lập lại' : statusMeta[run.status].label}</em></div>
-              <div className="payroll-run-card__metrics"><span><b>{run.staffCount}</b> nhân viên</span><span><b>{run.teachingSlotCount}</b> ca dạy</span><span><b>{run.attendanceReviewRequiredCount + run.calendarReviewRequiredCount}</b> cần đối soát</span></div>
+              <div className="payroll-run-card__metrics"><span><b>{run.staffCount}</b> nhân viên</span><span><b>{run.requiresRebuild ? run.storedTeachingSlotCount || run.attendanceEventCount : run.teachingSlotCount}</b> {run.requiresRebuild ? 'lượt dữ liệu cũ' : 'ca dạy'}</span><span><b>{run.attendanceReviewRequiredCount + run.calendarReviewRequiredCount}</b> cần đối soát</span></div>
               <p>{run.policyName || `Chính sách v${run.policyVersion}`}<ChevronRight size={17} /></p>
             </button>
             <div className="payroll-run-card__actions">
@@ -552,7 +582,7 @@ export default function TrainerPayroll({ profile }: Props) {
       </section>
     </div>}
 
-    {pendingConfirmation && <div className="payroll-confirm" role="region" aria-label="Xác nhận thao tác"><section><span className="payroll-confirm__icon"><AlertTriangle size={24} /></span><strong>{pendingConfirmation.kind === 'delete-run' ? 'Xóa kỳ lương nháp?' : pendingConfirmation.action === 'delete' ? 'Xóa chính sách?' : pendingConfirmation.action === 'hide' ? 'Ẩn chính sách?' : 'Mở lại chính sách?'}</strong><p>{pendingConfirmation.kind === 'delete-run' ? `${pendingConfirmation.label} chưa duyệt sẽ bị xóa cùng các dòng tính lương để bạn lập lại theo chính sách mới.` : pendingConfirmation.action === 'delete' ? `${pendingConfirmation.label} chưa được kỳ lương nào sử dụng và sẽ bị xóa.` : pendingConfirmation.action === 'hide' ? `${pendingConfirmation.label} sẽ không còn xuất hiện khi lập kỳ mới; các kỳ cũ không thay đổi.` : `${pendingConfirmation.label} sẽ lại xuất hiện trong danh sách chính sách có thể chọn.`}</p><div><button type="button" disabled={!!busyAction} onClick={() => setPendingConfirmation(null)}>Giữ lại</button><button className={pendingConfirmation.kind === 'delete-run' || pendingConfirmation.action === 'delete' ? 'is-danger' : ''} type="button" disabled={!!busyAction} onClick={() => void confirmDestructiveAction()}>{busyAction ? 'Đang xử lý…' : 'Xác nhận'}</button></div></section></div>}
+    {pendingConfirmation && <div className="payroll-confirm" role="region" aria-label="Xác nhận thao tác"><section><span className="payroll-confirm__icon"><AlertTriangle size={24} /></span><strong>{pendingConfirmation.kind === 'rebuild-run' ? 'Lập lại kỳ theo ca chuẩn?' : pendingConfirmation.kind === 'delete-run' ? 'Xóa kỳ lương nháp?' : pendingConfirmation.action === 'delete' ? 'Xóa chính sách?' : pendingConfirmation.action === 'hide' ? 'Ẩn chính sách?' : 'Mở lại chính sách?'}</strong><p>{pendingConfirmation.kind === 'rebuild-run' ? `${pendingConfirmation.label} đang là bản nháp công thức cũ. Bản nháp và các dòng tính cũ sẽ được gỡ; sau đó Aura mở ngay bước chọn chính sách để lập lại. Chứng từ đã khóa không bị ảnh hưởng.` : pendingConfirmation.kind === 'delete-run' ? `${pendingConfirmation.label} chưa duyệt sẽ bị xóa cùng các dòng tính lương để bạn lập lại theo chính sách mới.` : pendingConfirmation.action === 'delete' ? `${pendingConfirmation.label} chưa được kỳ lương nào sử dụng và sẽ bị xóa.` : pendingConfirmation.action === 'hide' ? `${pendingConfirmation.label} sẽ không còn xuất hiện khi lập kỳ mới; các kỳ cũ không thay đổi.` : `${pendingConfirmation.label} sẽ lại xuất hiện trong danh sách chính sách có thể chọn.`}</p><div><button type="button" disabled={!!busyAction} onClick={() => setPendingConfirmation(null)}>Giữ lại</button><button className={pendingConfirmation.kind === 'delete-run' || pendingConfirmation.kind === 'rebuild-run' || pendingConfirmation.action === 'delete' ? 'is-danger' : ''} type="button" disabled={!!busyAction} onClick={() => void confirmDestructiveAction()}>{busyAction ? 'Đang xử lý…' : pendingConfirmation.kind === 'rebuild-run' ? 'Gỡ bản cũ & tiếp tục' : 'Xác nhận'}</button></div></section></div>}
 
     {(detail || detailLoading) && <div className="payroll-drawer" role="region" aria-label="Chi tiết kỳ lương">
       <section>
@@ -565,7 +595,7 @@ export default function TrainerPayroll({ profile }: Props) {
             <div><span>Trạng thái</span><strong>{statusMeta[detail.run.status].label}</strong></div>
           </div>
           <p className="payroll-drawer__status"><ShieldCheck size={17} /> {statusMeta[detail.run.status].hint}</p>
-          {detail.run.requiresRebuild && <div className="payroll-drawer__legacy-warning"><AlertTriangle size={20} /><div><strong>Kỳ lương dùng công thức cũ</strong><p>{detail.run.status === 'draft' ? 'Hãy lập lại kỳ để tiền ca không bị cộng chồng và hoa hồng chỉ lấy 2–10% từ dòng tiền thực thu của hợp đồng có mã giới thiệu PT.' : 'Kỳ đã duyệt hoặc khóa được giữ nguyên để bảo toàn chứng từ. Chỉ các kỳ mới dùng công thức hoa hồng theo dòng tiền.'}</p>{detail.run.storedTeachingSlotCount !== detail.run.teachingSlotCount && <small>Dữ liệu cũ: {detail.run.storedTeachingSlotCount || 0} lượt · Preview chuẩn: {detail.run.teachingSlotCount} ca.</small>}</div>{detail.run.status === 'draft' && <button type="button" onClick={() => { setPendingConfirmation({ kind: 'delete-run', id: detail.run.id, label: periodLabel(detail.run.periodId) }); setDetail(null) }}><Trash2 size={15} /> Lập lại kỳ</button>}</div>}
+          {detail.run.requiresRebuild && <div className="payroll-drawer__legacy-warning"><AlertTriangle size={20} /><div><strong>Kỳ lương dùng công thức cũ</strong><p>{detail.run.status === 'draft' ? 'Hãy lập lại kỳ để mỗi PT + ngày + giờ chỉ tính một ca; tiền ca không cộng theo số học viên và hoa hồng giới thiệu chỉ lấy từ dòng tiền thực thu.' : 'Kỳ đã duyệt hoặc khóa được giữ nguyên để bảo toàn chứng từ. Chỉ các kỳ mới dùng công thức ca dạy độc nhất và hoa hồng theo dòng tiền.'}</p>{detail.run.storedTeachingSlotCount !== detail.run.teachingSlotCount && <small>Dữ liệu cũ: {detail.run.storedTeachingSlotCount || 0} lượt · Preview chuẩn: {detail.run.teachingSlotCount} ca.</small>}</div>{detail.run.status === 'draft' && <button type="button" onClick={() => { setPendingConfirmation({ kind: 'rebuild-run', id: detail.run.id, label: periodLabel(detail.run.periodId) }); setDetail(null) }}><RefreshCw size={15} /> Đối soát & lập lại</button>}</div>}
           <div className="payroll-drawer__items">
             <div className="payroll-page__section-title"><div><span>Chi tiết theo nhân viên</span><strong>{detail.items.length} người</strong></div><small>Bấm tên để xem ngày công và ca dạy</small></div>
             {detail.items.map((item) => {
@@ -581,7 +611,17 @@ export default function TrainerPayroll({ profile }: Props) {
                 </button>
                 {expanded && <div className="payroll-trainer-item__detail">
                   <div className="payroll-trainer-item__components"><span>Lương cơ bản <b>{money(item.baseSalaryAmount)}</b></span><span>Ca dạy <b>{money(item.teachingPayAmount)}</b></span><span>Hoa hồng GT <b>{money(item.commissionAmount)}</b><small>{item.referralCommission ? `${item.referralCommission.rate}% trên ${money(item.referralCommission.netCashAmount)} thực thu` : 'Kỳ cũ chưa có bằng chứng dòng tiền'}</small></span><span>Thưởng <b>{money(item.bonusAmount)}</b></span><span>Khấu trừ <b>{money(item.deductionAmount)}</b></span></div>
+                  <p className="payroll-trainer-item__formula"><ShieldCheck size={15} /> {item.attendanceEventCount} lượt điểm danh → <b>{item.sessionCount} ca tính tiền</b>. Hai học viên cùng ngày, giờ và PT chỉ tính một ca; ngày công không nhân thêm tiền ca.</p>
                   {(item.attendanceReviewRequired || item.calendarReviewRequired) && <p className="payroll-trainer-item__review"><AlertTriangle size={15} /> {item.calendarReviewRequired ? 'Lịch làm việc chưa duyệt. ' : ''}{item.attendanceReviewRequired ? 'Ngày công còn thiếu hoặc cần xác minh.' : ''}</p>}
+                  {item.workdayDays.length ? <div className="payroll-workday-table" role="table" aria-label={`Bảng ngày công của ${name}`}>
+                    <div className="payroll-workday-table__head" role="row"><span role="columnheader">Ngày</span><span role="columnheader">Tình trạng</span><span role="columnheader">Ca dạy</span><span role="columnheader">Nguồn</span></div>
+                    {item.workdayDays.map((day) => <div className="payroll-workday-table__row" role="row" key={day.date}>
+                      <time role="cell">{dateLabel(day.date)}</time>
+                      <span role="cell">{payrollWorkdayLabel(day.status, day.holidayName)}</span>
+                      <b role="cell" className={day.teachingSlotCount ? 'has-teaching' : ''}>{day.teachingSlotCount} ca</b>
+                      <small role="cell">{day.source === 'admin_override' ? 'Admin chốt' : day.source === 'teaching_slots' ? 'Ca dạy' : 'Lịch chuẩn'}</small>
+                    </div>)}
+                  </div> : <p className="payroll-trainer-item__legacy">Kỳ cũ chưa lưu bảng ngày công theo ngày. Mở tab Ngày công để đối soát trực tiếp.</p>}
                   <div className="payroll-trainer-item__tiers"><span>Ca 1–8 <b>{item.tierSummary.standardCount}</b><small>{money(item.tierSummary.standardAmount)}</small></span><span>Từ ca 9 <b>{item.tierSummary.afterThresholdCount}</b><small>{money(item.tierSummary.afterThresholdAmount)}</small></span><span>Ca tối <b>{item.tierSummary.afterThresholdEveningCount}</b><small>{money(item.tierSummary.afterThresholdEveningAmount)}</small></span></div>
                   {item.teachingSlots.length ? <div className="payroll-teaching-slots">{item.teachingSlots.map((slot) => <div key={slot.key} className="payroll-teaching-slot"><time>{dateLabel(slot.date)} · {String(slot.hour).padStart(2, '0')}:00</time><span>Ca #{slot.dailyPosition} · {slot.studentCount} học viên{slot.policyName ? ` · ${slot.policyName}` : ''}</span><em>{teachingTierLabel(slot.tier)}</em><strong>{money(slot.rate)}</strong></div>)}</div> : <p className="payroll-trainer-item__legacy">Kỳ cũ chưa lưu snapshot từng ca. Tạo kỳ mới để xem chi tiết ngày, giờ và số học viên.</p>}
                 </div>}

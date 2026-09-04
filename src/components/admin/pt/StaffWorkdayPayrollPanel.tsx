@@ -63,6 +63,10 @@ function statusLabel(day: StaffWorkday) {
   return editableStatuses.find((item) => item.id === day.status)?.label || 'Chưa chốt'
 }
 
+function teachingCountLabel(value: number) {
+  return `${Math.max(0, Math.trunc(value || 0))} ca`
+}
+
 function friendlyError(cause: unknown) {
   const message = cause instanceof Error ? cause.message : ''
   if (/aborted|thay đổi/i.test(message)) return 'Dữ liệu vừa được người khác cập nhật. Hãy tải lại trước khi lưu.'
@@ -225,7 +229,7 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
         {loading && !rows.length ? <div className="staff-workdays__skeleton" /> : visibleRows.length ? visibleRows.map((row) => <button type="button" key={row.staffId} className={selectedId === row.staffId ? 'is-active' : ''} onClick={() => void loadDetail(row.staffId)}>
           <span className="staff-workdays__avatar">{row.name.slice(0, 1).toUpperCase()}</span>
           <span className="staff-workdays__person"><strong>{row.name}</strong><small>{row.employmentType === 'collaborator' ? 'CTV' : 'Nhân viên'} · {branches.find((branch) => branch.id === row.branchId)?.name || 'Chưa gắn chi nhánh'}</small></span>
-          <span className="staff-workdays__numbers"><b>{row.estimatedPaidDays ?? row.paidDays}/{row.eligibleWorkdays}</b><small>{money(row.finalAmount)} tạm tính</small></span>
+          <span className="staff-workdays__numbers"><b>{row.estimatedPaidDays ?? row.paidDays}/{row.eligibleWorkdays} công</b><small>{teachingCountLabel(row.teachingSlotCount)} · {money(row.finalAmount)} tạm tính</small></span>
           {row.reviewRequired && <em>!</em>}<ChevronRight size={17} />
         </button>) : <div className="staff-workdays__empty"><UserRoundCheck size={27} /><strong>Không có nhân sự phù hợp</strong><p>Đổi bộ lọc hoặc kiểm tra hồ sơ đội ngũ.</p></div>}
       </div>}
@@ -237,9 +241,12 @@ export default function StaffWorkdayPayrollPanel({ branches }: Props) {
           <div className="staff-workdays__calendar-card">
             <div className="staff-workdays__calendar-title"><div><CalendarCheck2 size={18} /><span><strong>Lịch ngày công</strong><small>Chọn trạng thái trực tiếp trên từng ngày làm việc</small></span></div>{detail.workdays.reviewRequired && <em>Cần đối soát</em>}</div>
             <div className="staff-workdays__days">
-              {detail.workdays.days.map((day) => <label key={day.date} className={`is-${day.status} ${day.eligible ? '' : 'is-readonly'}`} title={statusLabel(day)}>
+              {detail.workdays.days.map((day) => <label key={day.date} className={`is-${day.status} ${day.eligible ? '' : 'is-readonly'}`} title={`${statusLabel(day)} · ${teachingCountLabel(day.teachingSlotCount)}`}>
                 <time>{Number(day.date.slice(-2))}<small>{weekdayLabels[day.weekday]}</small></time>
-                {day.eligible ? <select aria-label={`Ngày ${day.date}`} value={day.status === 'auto_present_teaching' ? day.status : editableStatuses.some((item) => item.id === day.status) ? day.status : 'pending'} disabled={busyDay === day.date} onChange={(event) => void updateDay(day, event.target.value as StaffAttendanceStatus)}>{day.status === 'auto_present_teaching' && <option value="auto_present_teaching" disabled>Tự tính · {day.teachingSlotCount} ca</option>}{editableStatuses.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select> : <span>{statusLabel(day)}</span>}
+                <span className="staff-workdays__day-content">
+                  {day.eligible ? <select aria-label={`Ngày ${day.date}`} value={day.status === 'auto_present_teaching' ? day.status : editableStatuses.some((item) => item.id === day.status) ? day.status : 'pending'} disabled={busyDay === day.date} onChange={(event) => void updateDay(day, event.target.value as StaffAttendanceStatus)}>{day.status === 'auto_present_teaching' && <option value="auto_present_teaching" disabled>Tự tính đủ công</option>}{editableStatuses.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select> : <span>{statusLabel(day)}</span>}
+                  <b className={day.teachingSlotCount ? 'has-teaching' : ''}>{teachingCountLabel(day.teachingSlotCount)}</b>
+                </span>
               </label>)}
             </div>
           </div>

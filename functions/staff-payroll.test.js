@@ -112,7 +112,7 @@ test('employment starting mid-month prorates salary against full-month standard 
   assert.equal(result.baseSalaryEarned, Math.round(13_000_000 / 26 * result.eligibleWorkdays))
 })
 
-test('five unique teaching slots auto-confirm a workday while four still require review', () => {
+test('five unique teaching slots auto-confirm a workday and learner-level keys never double a paired class', () => {
   const calendar = mergeWorkCalendar('2026-08', {
     periodId: '2026-08', weeklyRestDays: [0], holidays: [], status: 'approved', revision: 1,
   })
@@ -120,7 +120,7 @@ test('five unique teaching slots auto-confirm a workday while four still require
     periodId: '2026-08',
     calendar,
     attendance: [],
-    teachingSlots: [6, 7, 8, 9, 10, 10].map((hour, index) => ({ key: `slot-${index < 5 ? hour : 10}`, date: '2026-08-03', hour })),
+    teachingSlots: [6, 7, 8, 9, 10, 10].map((hour, index) => ({ key: `learner-evidence-${index}`, date: '2026-08-03', hour })),
     staff: { baseSalary: 12_000_000, employmentType: 'full_time' },
     today: '2026-08-04',
   })
@@ -224,4 +224,18 @@ test('admin payroll carousel opens the actor-protected staff statement page', ()
   assert.match(statement, /data-testid="admin-staff-payroll-statement"/)
   assert.match(statement, /Đối soát hoa hồng giới thiệu/)
   assert.match(statement, /Hai học viên cùng giờ chỉ tính một ca/)
+})
+
+test('admin workday review shows teaching shifts per day and the payroll run exposes its workday table', () => {
+  const service = fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'payrollService.ts'), 'utf8')
+  const workdays = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'admin', 'pt', 'StaffWorkdayPayrollPanel.tsx'), 'utf8')
+  const payroll = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'admin', 'pt', 'TrainerPayroll.tsx'), 'utf8')
+
+  assert.match(service, /workdayDays: PayrollWorkday\[\]/)
+  assert.match(workdays, /teachingCountLabel\(day\.teachingSlotCount\)/)
+  assert.match(workdays, /teachingCountLabel\(row\.teachingSlotCount\)/)
+  assert.match(payroll, /payroll-workday-table/)
+  assert.match(payroll, /ngày công không nhân thêm tiền ca/)
+  assert.match(payroll, /lượt dữ liệu cũ/)
+  assert.match(payroll, /Đối soát & lập lại/)
 })

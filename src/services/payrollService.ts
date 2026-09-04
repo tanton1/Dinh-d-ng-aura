@@ -79,6 +79,18 @@ export interface PayrollTierSummary {
   afterThresholdEveningAmount: number
 }
 
+export interface PayrollWorkday {
+  date: string
+  weekday: number
+  status: string
+  eligible: boolean
+  holidayName: string
+  note: string
+  revision: number
+  teachingSlotCount: number
+  source: 'admin_override' | 'teaching_slots' | 'calendar'
+}
+
 export interface PayrollRunItem {
   id: string
   runId: string
@@ -127,6 +139,7 @@ export interface PayrollRunItem {
     benefitReviewDays: number
     estimatedPaidDays: number
   }
+  workdayDays: PayrollWorkday[]
   attendanceReviewRequired: boolean
   calendarReviewRequired: boolean
   grossAmount: number
@@ -258,6 +271,23 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
     }) : []
     const tier = raw.tierSummary && typeof raw.tierSummary === 'object' ? raw.tierSummary as Record<string, unknown> : {}
     const rawWorkdaySummary = raw.workdaySummary && typeof raw.workdaySummary === 'object' ? raw.workdaySummary as Record<string, unknown> : {}
+    const workdayDays: PayrollWorkday[] = Array.isArray(raw.workdayDays) ? raw.workdayDays.flatMap((dayValue) => {
+      if (!dayValue || typeof dayValue !== 'object') return []
+      const day = dayValue as Record<string, unknown>
+      const date = typeof day.date === 'string' ? day.date : ''
+      if (!date) return []
+      return [{
+        date,
+        weekday: Math.max(0, Math.min(6, Math.trunc(amount(day.weekday)))),
+        status: typeof day.status === 'string' ? day.status : 'pending',
+        eligible: day.eligible === true,
+        holidayName: typeof day.holidayName === 'string' ? day.holidayName : '',
+        note: typeof day.note === 'string' ? day.note : '',
+        revision: Math.max(0, Math.trunc(amount(day.revision))),
+        teachingSlotCount: Math.max(0, Math.trunc(amount(day.teachingSlotCount))),
+        source: day.source === 'admin_override' || day.source === 'teaching_slots' ? day.source : 'calendar',
+      }]
+    }) : []
     return [{
       id: typeof raw.id === 'string' ? raw.id : '',
       runId: typeof raw.runId === 'string' ? raw.runId : runId,
@@ -305,6 +335,7 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
         benefitReviewDays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.benefitReviewDays))),
         estimatedPaidDays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.estimatedPaidDays))),
       },
+      workdayDays,
       attendanceReviewRequired: raw.attendanceReviewRequired === true,
       calendarReviewRequired: raw.calendarReviewRequired === true,
       grossAmount: amount(raw.grossAmount),

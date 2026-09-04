@@ -619,6 +619,7 @@ function createPayrollFunctions({ db, onCall }) {
     return {
       runs: snapshot.docs.map((item) => {
         const data = item.data()
+        const storedTeachingSlotCount = Number(data.teachingSlotCount ?? data.attendanceCount ?? 0)
         return {
           id: item.id,
           periodId: data.periodId || '',
@@ -628,8 +629,9 @@ function createPayrollFunctions({ db, onCall }) {
           policyApplicationMode: data.policyApplicationMode || 'single',
           status: data.status || 'draft',
           requiresRebuild: Number(data.schemaVersion || 0) < 7 || Number(data.commissionFormulaVersion || 0) < 2,
-          attendanceCount: Number(data.teachingSlotCount ?? data.attendanceCount ?? 0),
-          teachingSlotCount: Number(data.teachingSlotCount ?? data.attendanceCount ?? 0),
+          storedTeachingSlotCount,
+          attendanceCount: storedTeachingSlotCount,
+          teachingSlotCount: storedTeachingSlotCount,
           attendanceEventCount: Number(data.attendanceEventCount ?? data.attendanceCount ?? 0),
           trainerCount: Number(data.trainerCount || 0),
           staffCount: Number(data.staffCount || data.trainerCount || 0),

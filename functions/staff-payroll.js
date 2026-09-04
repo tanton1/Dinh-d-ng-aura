@@ -204,9 +204,12 @@ function calculateWorkdayPayroll({ periodId, calendar, attendance = [], teaching
   teachingSlots.forEach((slot) => {
     const date = optionalDateKey(slot?.date)
     if (!date || !date.startsWith(`${normalizedPeriod}-`)) return
-    const key = typeof slot?.key === 'string' && slot.key
-      ? slot.key
-      : `${date}-${Number(slot?.hour ?? -1)}`
+    const hour = sessionTeachingHour(slot?.hour, '')
+    if (hour < 0) return
+    // A teaching shift is owned by one trainer at one date and start hour.
+    // Older evidence may retain a different record key for every learner;
+    // those learner-level keys must never double either payroll or workdays.
+    const key = `${date}|${hour}`
     const current = teachingSlotsByDate.get(date) || new Set()
     current.add(key)
     teachingSlotsByDate.set(date, current)
