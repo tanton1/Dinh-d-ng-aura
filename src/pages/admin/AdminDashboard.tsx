@@ -38,6 +38,7 @@ import {
 } from '../../utils/staffDashboardPayroll'
 import { useDebounce } from '../../hooks/useDebounce'
 import { trackProductEvent } from '../../services/analyticsService'
+import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
 
 function money(value: number) {
   const amount = Number(value)
@@ -282,6 +283,7 @@ export default function AdminDashboard({
   canManageCoaching = false,
   canManageEnrollments = false,
 }: Props) {
+  const dashboardV4 = useAuraUiSurface('admin-dashboard')
   const [data, setData] = useState<OperationsDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -586,9 +588,7 @@ export default function AdminDashboard({
   )
   const payrollTeachingSlotCount = payrollChart?.buckets.reduce((sum, bucket) => sum + bucket.teachingSlotCount, 0) || 0
 
-  return <div className="page admin-dashboard admin-dashboard--v2">
-    <AuraMetricCarousel slides={reportSlides} label="Báo cáo nhanh theo kỳ" loading={loading && !data} />
-
+  return <div className={`page admin-dashboard admin-dashboard--v2${dashboardV4 ? ' aura-ui-v4-surface aura-ui-v4-operations admin-dashboard--v4' : ''}`}>
     <section className="admin-dashboard__syncbar" aria-label="Trạng thái tổng quan">
       <div><small>AURA · TỔNG QUAN</small><strong>Chào {adminName}</strong><span className={`admin-dashboard__data-state ${error ? 'is-error' : loading || refreshing ? 'is-loading' : 'is-synced'}`}><i />{data?.generatedAt ? `Đồng bộ ${new Date(data.generatedAt).toLocaleString('vi-VN')}${data.cache.hit ? ' · dữ liệu đệm' : ''}` : error ? 'Chưa đồng bộ dữ liệu' : 'Đang kết nối dữ liệu vận hành'}</span></div>
       <div className="admin-dashboard__sync-actions">
@@ -629,6 +629,8 @@ export default function AdminDashboard({
             </div>}
       </section>
     </div>
+
+    <AuraMetricCarousel slides={reportSlides} label="Báo cáo nhanh theo kỳ" loading={loading && !data} />
 
     {payrollEnabled && <section ref={payrollSectionRef} className="admin-dashboard__payroll" aria-labelledby="dashboard-payroll-title" aria-busy={!payrollVisible || payrollRosterLoading || payrollStatementLoading}>
       <header>
@@ -730,6 +732,6 @@ export default function AdminDashboard({
       </div>
     </section>}
 
-    {shortcuts.length > 0 && <section className="admin-dashboard__shortcuts" aria-label="Lối tắt công việc"><header><small>LỐI TẮT</small><strong>Mở nhanh công việc</strong></header><div>{shortcuts.map((item) => <button key={item.id} type="button" onClick={() => onNavigate(item.view)}>{item.icon}<span>{item.label}</span></button>)}</div></section>}
+    {shortcuts.length > 0 && (dashboardV4 ? <details className="admin-dashboard__shortcuts admin-dashboard__shortcuts--collapsed"><summary><span><small>CÔNG CỤ KHÁC</small><strong>Mở nhanh công việc</strong></span><ArrowRight size={17} /></summary><div>{shortcuts.map((item) => <button key={item.id} type="button" onClick={() => onNavigate(item.view)}>{item.icon}<span>{item.label}</span></button>)}</div></details> : <section className="admin-dashboard__shortcuts" aria-label="Lối tắt công việc"><header><small>LỐI TẮT</small><strong>Mở nhanh công việc</strong></header><div>{shortcuts.map((item) => <button key={item.id} type="button" onClick={() => onNavigate(item.view)}>{item.icon}<span>{item.label}</span></button>)}</div></section>)}
   </div>
 }

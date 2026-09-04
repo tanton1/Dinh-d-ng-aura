@@ -11,14 +11,13 @@ test('staff dock prioritizes work modules and schedule tools share one weekly wo
 
   const dock = page.getByRole('navigation', { name: 'Điều hướng Staff' })
   await expect(dock).toBeVisible()
-  await expect(dock.getByRole('button')).toHaveCount(6)
+  await expect(dock.getByRole('button')).toHaveCount(5)
   expect(await dock.getByRole('button').allTextContents()).toEqual([
     'Tổng quan',
     'Học viên',
     'Lịch',
     'Giáo án',
     'Duyệt món',
-    'Lương',
   ])
 
   await dock.getByRole('button', { name: 'Tổng quan' }).click()

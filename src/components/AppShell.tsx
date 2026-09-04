@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { prefetchRoute } from '../utils/routePreloader'
 import {
   BarChart3,
@@ -9,6 +9,7 @@ import {
   CalendarClock,
   CalendarDays,
   ChevronDown,
+  ChevronRight,
   ClipboardList,
   Cloud,
   Dumbbell,
@@ -35,6 +36,8 @@ import type { StaffPosition } from '../identity/access'
 import type { AppMode, UserRole, ViewId } from '../types'
 import type { AiCoachLearningContext } from '../services/nutritionService'
 import NotificationCenter from './NotificationCenter'
+import { Sheet } from './ui'
+import { useAuraUiSurface } from '../features/ui-rollout/AuraUiRolloutContext'
 
 // Keep the conversation out of the initial shell bundle. The coach is
 // available from every learner page, but its chat UI and Firebase calls are
@@ -50,6 +53,7 @@ interface AppShellProps {
   mobileMenu: boolean
   setMobileMenu: (value: boolean) => void
   userName: string
+  userId: string
   userRole: string
   role: UserRole
   setPreviewRole?: (role: UserRole) => void
@@ -66,6 +70,7 @@ interface AppShellProps {
 }
 
 type ShellNavItem = { id: ViewId; label: string; icon: LucideIcon }
+type ShellMoreNavItem = ShellNavItem & { href?: string }
 type ShellAdminNavItem = ShellNavItem & { permission: Permission }
 type ShellNavSection = { label: string; items: ShellNavItem[] }
 
@@ -103,6 +108,13 @@ const studentMobileNav: ShellNavItem[] = [
   { id: 'nutrition', label: 'Dinh dưỡng', icon: Soup },
   { id: 'pt-workout', label: 'Tập luyện', icon: Dumbbell },
   { id: 'progress', label: 'Tiến độ', icon: BarChart3 },
+]
+
+const studentV4MobileNav: ShellNavItem[] = [
+  { id: 'home', label: 'Hôm nay', icon: Home },
+  { id: 'schedule', label: 'Lịch', icon: CalendarDays },
+  { id: 'nutrition', label: 'Dinh dưỡng', icon: Soup },
+  { id: 'pt-workout', label: 'Tập luyện', icon: Dumbbell },
 ]
 
 const staffNavSections: ShellNavSection[] = [
@@ -159,6 +171,48 @@ const staffPositionRoutes: Record<StaffPosition, ViewId[]> = {
   shipper: ['delivery'],
 }
 
+const staffWorkspaceLabels: Record<StaffPosition, string> = {
+  trainer_pt: 'PT',
+  coach_online: 'Coach online',
+  sales: 'Sales',
+  branch_manager: 'Quản lý',
+  academy_editor: 'Academy',
+  shipper: 'Shipper',
+}
+
+const staffWorkspaceDock: Record<StaffPosition, ShellNavItem[]> = {
+  trainer_pt: [
+    { id: 'staff-dashboard', label: 'Hôm nay', icon: Home },
+    { id: 'staff-students', label: 'Học viên', icon: Users },
+    { id: 'staff-schedule', label: 'Lịch', icon: CalendarDays },
+    { id: 'staff-workouts', label: 'Giáo án', icon: Dumbbell },
+  ],
+  coach_online: [
+    { id: 'staff-dashboard', label: 'Hôm nay', icon: Home },
+    { id: 'staff-students', label: 'Học viên', icon: Users },
+    { id: 'staff-nutrition-reviews', label: 'Duyệt món', icon: Check },
+    { id: 'staff-payroll', label: 'Lương', icon: WalletCards },
+  ],
+  sales: [
+    { id: 'staff-dashboard', label: 'Hôm nay', icon: Home },
+    { id: 'staff-quotes', label: 'Báo giá', icon: ClipboardList },
+    { id: 'staff-renewals', label: 'Tái ký', icon: RefreshCw },
+    { id: 'staff-payroll', label: 'Lương', icon: WalletCards },
+  ],
+  branch_manager: [
+    { id: 'staff-dashboard', label: 'Tổng quan', icon: LayoutDashboard },
+    { id: 'admin-pt-schedule', label: 'Lịch CN', icon: CalendarDays },
+    { id: 'staff-workouts', label: 'Giáo án', icon: Dumbbell },
+    { id: 'staff-renewals', label: 'Tái ký', icon: RefreshCw },
+  ],
+  academy_editor: [
+    { id: 'staff-dashboard', label: 'Tổng quan', icon: LayoutDashboard },
+    { id: 'courses', label: 'Academy', icon: BookOpen },
+    { id: 'staff-payroll', label: 'Lương', icon: WalletCards },
+  ],
+  shipper: [],
+}
+
 function legacyStaffPosition(role: UserRole): StaffPosition | null {
   if (role === 'trainer') return 'trainer_pt'
   if (role === 'coach') return 'coach_online'
@@ -174,6 +228,15 @@ function staffRouteSet(positions: StaffPosition[], role: UserRole) {
   const routes = new Set<ViewId>(['staff-dashboard', 'profile'])
   effectivePositions.forEach((position) => staffPositionRoutes[position].forEach((view) => routes.add(view)))
   return routes
+}
+
+function staffWorkspaceOptions(positions: StaffPosition[], role: UserRole) {
+  const effectivePositions = positions.length ? positions : [legacyStaffPosition(role)].filter((item): item is StaffPosition => Boolean(item))
+  const dockPositions = effectivePositions.filter((position) => position !== 'shipper')
+  // Delivery is an immersive workspace and never participates in the shared
+  // Staff dock. A staff member who also ships orders returns to the first
+  // eligible operational workspace instead of restoring an empty dock.
+  return dockPositions.length ? dockPositions : effectivePositions
 }
 
 const adminNavSections: Array<{ label: string; items: ShellAdminNavItem[] }> = [
@@ -233,6 +296,13 @@ const adminMobileNav: ShellAdminNavItem[] = [
   { id: 'admin-renewals', label: 'Tái ký', icon: RefreshCw, permission: 'dashboard.view' },
   { id: 'admin-finance', label: 'Tài chính', icon: BarChart3, permission: 'analytics.view_all' },
   { id: 'admin-courses', label: 'Academy', icon: GraduationCap, permission: 'course.view' },
+]
+
+const adminV4MobileNav: ShellAdminNavItem[] = [
+  { id: 'admin-dashboard', label: 'Tổng quan', icon: LayoutDashboard, permission: 'dashboard.view' },
+  { id: 'admin-pt-students', label: 'Học viên', icon: Users, permission: 'student.view_assigned' },
+  { id: 'admin-pt-schedule', label: 'Lịch', icon: CalendarDays, permission: 'dashboard.view' },
+  { id: 'admin-finance', label: 'Tài chính', icon: WalletCards, permission: 'analytics.view_all' },
 ]
 
 const viewTitles: Partial<Record<ViewId, string>> = {
@@ -298,7 +368,8 @@ function isNavigationActive(view: ViewId, itemId: ViewId, mobile = false) {
   return false
 }
 
-export default function AppShell({ children, mode, view, onNavigate, onModeChange, mobileMenu, setMobileMenu, userName, userRole, role, setPreviewRole, userPhoto, backendMode, isStaffWorkspace = false, staffPositions = [], onSignOut, onSearch, canNavigate = () => true, authorizationError, aiCoachConversationScope = 'progress-demo', aiCoachLearningContext = null }: AppShellProps) {
+export default function AppShell({ children, mode, view, onNavigate, onModeChange, mobileMenu, setMobileMenu, userName, userId, userRole, role, setPreviewRole, userPhoto, backendMode, isStaffWorkspace = false, staffPositions = [], onSignOut, onSearch, canNavigate = () => true, authorizationError, aiCoachConversationScope = 'progress-demo', aiCoachLearningContext = null }: AppShellProps) {
+  const shellV4 = useAuraUiSurface('shell')
   const allowedStaffRoutes = staffRouteSet(staffPositions, role)
   const navSections: ShellNavSection[] = isStaffWorkspace
     ? staffNavSections
@@ -314,8 +385,27 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
         items: section.items.filter((item) => hasPermission(role, item.permission)),
       }))
       .filter((section) => section.items.length > 0)
-  const mobileAdminItems = adminMobileNav.filter((item) => hasPermission(role, item.permission) && canNavigate(item.id))
-  const mobileStaffItems = staffMobileNav.filter((item) => allowedStaffRoutes.has(item.id) && canNavigate(item.id)).slice(0, 6)
+  const effectiveStaffPositions = useMemo(() => staffWorkspaceOptions(staffPositions, role), [role, staffPositions])
+  const [staffWorkspace, setStaffWorkspace] = useState<StaffPosition>(() => {
+    const availablePositions = staffWorkspaceOptions(staffPositions, role)
+    try {
+      const saved = window.localStorage.getItem(`aura:staff-workspace:v1:${userId}`) as StaffPosition | null
+      if (saved && availablePositions.includes(saved)) return saved
+    } catch { /* storage is optional */ }
+    return availablePositions[0] ?? 'trainer_pt'
+  })
+  useEffect(() => {
+    if (!effectiveStaffPositions.length || effectiveStaffPositions.includes(staffWorkspace)) return
+    setStaffWorkspace(effectiveStaffPositions[0])
+  }, [effectiveStaffPositions, staffWorkspace])
+  useEffect(() => {
+    if (!isStaffWorkspace || !effectiveStaffPositions.includes(staffWorkspace)) return
+    try { window.localStorage.setItem(`aura:staff-workspace:v1:${userId}`, staffWorkspace) } catch { /* storage is optional */ }
+  }, [effectiveStaffPositions, isStaffWorkspace, staffWorkspace, userId])
+  const mobileAdminItems = (shellV4 ? adminV4MobileNav : adminMobileNav).filter((item) => hasPermission(role, item.permission) && canNavigate(item.id))
+  const mobileStaffItems = shellV4
+    ? staffWorkspaceDock[staffWorkspace].filter((item) => allowedStaffRoutes.has(item.id) && canNavigate(item.id)).slice(0, 4)
+    : staffMobileNav.filter((item) => allowedStaffRoutes.has(item.id) && canNavigate(item.id)).slice(0, 5)
   const isImmersive = view === 'workout' || view === 'delivery' || view === 'course-detail' || view === 'student-360'
   const [searchQuery, setSearchQuery] = useState('')
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
@@ -323,6 +413,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
   const [online, setOnline] = useState(navigator.onLine)
   const [mobileDockHidden, setMobileDockHidden] = useState(false)
   const [aiCoachOpen, setAiCoachOpen] = useState(false)
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
   const mobileSearchInputRef = useRef<HTMLInputElement>(null)
   const lastScrollYRef = useRef(0)
   const currentMonth = new Intl.DateTimeFormat('vi-VN', { month: 'numeric' }).format(new Date())
@@ -380,6 +471,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
 
   useEffect(() => {
     setMobileSearchOpen(false)
+    setMobileMoreOpen(false)
   }, [mode, view])
 
   useEffect(() => {
@@ -387,6 +479,34 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
     document.body.classList.toggle('shell-overlay-open', overlayOpen)
     return () => document.body.classList.remove('shell-overlay-open')
   }, [mobileMenu, mobileSearchOpen])
+
+  const selectStaffWorkspace = (position: StaffPosition) => {
+    setStaffWorkspace(position)
+    const destination = staffWorkspaceDock[position][0]?.id
+    if (destination && canNavigate(destination)) onNavigate(destination)
+    setMobileMoreOpen(false)
+    setUserMenuOpen(false)
+  }
+
+  const v4MoreItems = useMemo<ShellMoreNavItem[]>(() => {
+    if (isStaffWorkspace) {
+      const direct = new Set(mobileStaffItems.map((item) => item.id))
+      return staffMobileNav.filter((item) => allowedStaffRoutes.has(item.id) && canNavigate(item.id) && !direct.has(item.id))
+    }
+    if (mode === 'student') {
+      return [
+        { id: 'schedule', label: 'Gói tập', icon: WalletCards, href: '#/schedule?tab=contract' },
+        { id: 'student-availability', label: 'Lịch rảnh', icon: CalendarClock },
+        { id: 'progress', label: 'Tiến độ', icon: BarChart3 },
+        { id: 'courses', label: 'Aura Academy', icon: BookOpen },
+        { id: 'eat-clean', label: 'Eat Clean', icon: ShoppingBasket },
+        { id: 'profile', label: 'Cá nhân', icon: UserRound },
+      ].filter((item) => canNavigate(item.id as ViewId)) as ShellMoreNavItem[]
+    }
+    const direct = new Set(mobileAdminItems.map((item) => item.id))
+    return adminNavSections.flatMap((section) => section.items)
+      .filter((item, index, values) => hasPermission(role, item.permission) && canNavigate(item.id) && !direct.has(item.id) && values.findIndex((candidate) => candidate.id === item.id) === index)
+  }, [allowedStaffRoutes, canNavigate, isStaffWorkspace, mobileAdminItems, mobileStaffItems, mode, role])
 
   const submitSearch = (event: FormEvent) => {
     event.preventDefault()
@@ -430,7 +550,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
   if (isImmersive) return <>{children}{aiCoachSurface}</>
 
   return (
-    <div className={`app-shell ${mode}`} data-view={view}>
+    <div className={`app-shell ${mode}${shellV4 ? ' aura-ui-v4-shell' : ''}`} data-view={view}>
       <a className="skip-link" href="#main-content">Bỏ qua điều hướng</a>
       <aside id="app-sidebar" className={`sidebar ${mobileMenu ? 'open' : ''}`}>
         <button className="brand" type="button" aria-label="Về trang chính" onClick={() => { onNavigate(isStaffWorkspace ? 'staff-dashboard' : mode === 'student' ? 'home' : 'admin-dashboard'); setMobileMenu(false) }}>
@@ -511,6 +631,13 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
                 <>
                   <div className="user-dropdown-layer" onClick={() => setUserMenuOpen(false)} />
                   <div className="user-dropdown-menu">
+                    {isStaffWorkspace && effectiveStaffPositions.length > 1 && (
+                      <>
+                        <strong className="dropdown-label">Không gian làm việc</strong>
+                        {effectiveStaffPositions.map((position) => <button key={position} className={staffWorkspace === position ? 'active' : ''} onClick={() => selectStaffWorkspace(position)}><span>{staffWorkspaceLabels[position]}</span>{staffWorkspace === position && <Check size={14} />}</button>)}
+                        <hr />
+                      </>
+                    )}
                     {mode === 'student' && (
                       <>
                         <button onClick={() => { setUserMenuOpen(false); onNavigate('profile') }}>
@@ -598,7 +725,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
 
         {mode === 'student' || isStaffWorkspace ? (
           <nav className={`mobile-bottom-nav student-mobile-nav${isStaffWorkspace ? ' staff-mobile-nav' : ''}${mobileDockHidden ? ' is-scroll-hidden' : ''}`} aria-label={isStaffWorkspace ? 'Điều hướng Staff' : 'Điều hướng học viên'}>
-            {(isStaffWorkspace ? mobileStaffItems : studentMobileNav.filter((item) => canNavigate(item.id))).map((item) => {
+            {(isStaffWorkspace ? mobileStaffItems : (shellV4 ? studentV4MobileNav : studentMobileNav).filter((item) => canNavigate(item.id))).map((item) => {
               const Icon = item.icon
               const active = isNavigationActive(view, item.id, true)
               return (
@@ -614,6 +741,7 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
                 </button>
               )
             })}
+            {shellV4 && <button type="button" aria-expanded={mobileMoreOpen} onClick={() => setMobileMoreOpen(true)}><Menu size={21} /><span>Thêm</span></button>}
           </nav>
         ) : (
           <nav className={`mobile-bottom-nav admin-mobile-nav${mobileDockHidden ? ' is-scroll-hidden' : ''}`} aria-label="Điều hướng quản trị">
@@ -633,12 +761,17 @@ export default function AppShell({ children, mode, view, onNavigate, onModeChang
                 </button>
               )
             })}
-            <button aria-expanded={mobileMenu} aria-controls="app-sidebar" onClick={() => setMobileMenu(true)}>
+            <button aria-expanded={shellV4 ? mobileMoreOpen : mobileMenu} aria-controls={shellV4 ? undefined : 'app-sidebar'} onClick={() => shellV4 ? setMobileMoreOpen(true) : setMobileMenu(true)}>
               <Menu size={21} /><span>Thêm</span>
             </button>
           </nav>
         )}
       </div>
+      <Sheet open={shellV4 && mobileMoreOpen} onClose={() => setMobileMoreOpen(false)} title={isStaffWorkspace ? `Không gian ${staffWorkspaceLabels[staffWorkspace]}` : 'Thêm trong Aura'} description="Chỉ hiển thị các khu vực tài khoản của bạn được phép sử dụng.">
+        {isStaffWorkspace && effectiveStaffPositions.length > 1 && <div className="aura-mobile-more__workspaces" role="group" aria-label="Chọn không gian làm việc">{effectiveStaffPositions.map((position) => <button key={position} type="button" className={staffWorkspace === position ? 'is-active' : ''} onClick={() => selectStaffWorkspace(position)}>{staffWorkspaceLabels[position]}{staffWorkspace === position && <Check size={15} />}</button>)}</div>}
+        <nav className="aura-mobile-more__routes" aria-label="Các khu vực khác">{v4MoreItems.map((item) => { const Icon = item.icon; const href = item.href; return <button type="button" key={`${item.id}:${item.label}`} onClick={() => { if (href) window.location.hash = href; else onNavigate(item.id); setMobileMoreOpen(false) }}><span><Icon size={19} /></span><strong>{item.label}</strong><ChevronRight size={18} /></button> })}</nav>
+        {backendMode === 'firebase' && <button type="button" className="aura-mobile-more__signout" onClick={() => { setMobileMoreOpen(false); onSignOut() }}><LogOut size={18} /> Đăng xuất</button>}
+      </Sheet>
       {aiCoachSurface}
     </div>
   )

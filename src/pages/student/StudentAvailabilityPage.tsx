@@ -30,6 +30,7 @@ import {
 import type { ViewId } from '../../types'
 import './StudentSchedulePage.css'
 import './StudentAvailabilityPage.css'
+import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
 
 const DEFAULT_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 const DEFAULT_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
@@ -177,6 +178,7 @@ function demoAvailabilityData(today: Date, weekStart: Date, weekId: string): Stu
 }
 
 export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: { onNavigate: (view: ViewId) => void; isDemo?: boolean }) {
+  const availabilityV4 = useAuraUiSurface('member-availability')
   const today = useMemo(() => new Date(), [])
   const [weekOffset, setWeekOffset] = useState<AvailabilityWeekOffset>(1)
   const [data, setData] = useState<StudentPtScheduleData | null>(null)
@@ -226,6 +228,14 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   const weeklyAvailability = availability?.source === 'weekly'
   const missingAvailability = availability?.source === 'none'
   const canConfirmLegacyDefault = legacyDefault && selectedSlots.size > 0
+  const canUseInheritedSchedule = inherited && selectedSlots.size > 0
+  const availabilityQuality = selectedSlots.size >= minimumSlots + 2
+    ? 'Cơ hội xếp lịch rất tốt'
+    : selectedSlots.size >= minimumSlots
+      ? 'Đủ cơ hội xếp lịch'
+      : selectedSlots.size > 0
+        ? `Cần thêm ${minimumSlots - selectedSlots.size} khung`
+        : 'Chưa có cơ hội xếp lịch'
   // A frozen contract remains visible for history and pause context, but it
   // must never be treated as schedulable or as the contract receiving a new
   // availability submission. The backend uses the same rule (status=active).
@@ -325,7 +335,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
   }
 
   const save = async (belowMinimumAccepted = false) => {
-    if (!data?.student || (!dirty && !canConfirmLegacyDefault) || saving || locked) return
+    if (!data?.student || (!dirty && !canConfirmLegacyDefault && !canUseInheritedSchedule) || saving || locked) return
     if (selectedSlots.size === 0) {
       setConfirmBelowMinimum(false)
       setConfirmEmpty(true)
@@ -349,12 +359,25 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
             availableSlots: [...selectedSlots],
             availabilityRevision: current.student.availabilityRevision + 1,
             isScheduleConfirmed: true,
-            availability: current.student.availability ? {
-              ...current.student.availability,
+            availability: {
+              ...(current.student.availability ?? {
+                minimumSlots,
+                requiredSessions: current.student.sessionsPerWeek,
+                revision: current.student.availabilityRevision,
+                locked: false,
+                cutoffAt: '',
+                submittedAt: null,
+              }),
+              weekId,
               slots: [...selectedSlots],
-              revision: current.student.availability.revision + 1,
+              revision: (current.student.availability?.revision ?? current.student.availabilityRevision) + 1,
               status: 'submitted',
-            } : undefined,
+              confirmed: true,
+              submittedAt: new Date().toISOString(),
+              source: 'weekly',
+              sourceWeekId: null,
+              sourceRevision: undefined,
+            },
           },
         } : current)
       } else {
@@ -388,21 +411,21 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
     }
   }
 
-  return <main className="page student-availability-page" aria-busy={loading}>
-    <section className="student-availability-page__hero">
+  return <main className={`page student-availability-page${availabilityV4 ? ' aura-ui-v4-surface aura-ui-v4-member student-availability-page--v4' : ''}`} aria-busy={loading}>
+    {availabilityV4 ? <section className="student-availability-v4-header"><button type="button" aria-label="Quay lại lịch học" onClick={() => onNavigate('schedule')}><ChevronLeft size={20} /></button><div><small>AURA · LỊCH RẢNH</small><h1>Thời gian có thể tập</h1><p>Đang chuẩn bị lịch cho tuần {formatWeekRange(weekId)}</p></div><span aria-label={`${selectedSlots.size} trên ${minimumSlots} khung khuyến nghị. ${availabilityQuality}`}><strong>{selectedSlots.size}/{minimumSlots}</strong><small>{availabilityQuality}</small></span></section> : <section className="student-availability-page__hero">
       <div><small>AURA FITNESS · LỊCH RẢNH</small><h1>Thời gian có thể tập</h1><p>Chọn các khung bạn thực sự có thể đến tập. Mỗi tuần được lưu độc lập và không thay đổi các buổi đã xếp.</p></div>
       <span><CalendarRange size={31} /></span>
       <button type="button" onClick={() => onNavigate('schedule')}><ChevronLeft size={17} /> Quay lại lịch học</button>
-    </section>
+    </section>}
 
     {loading && <div className="student-schedule-state" role="status"><LoaderCircle className="spin" size={28} /><strong>Đang tải lịch rảnh</strong><span>Aura đang kiểm tra tuần và các ca đã xếp.</span></div>}
-    {!loading && issue && issueContent && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={25} /><strong>{issueContent.title}</strong><span>{issueContent.description}</span>{issue.retryable && <button type="button" onClick={() => void load()}><RefreshCw size={16} /> Thử lại</button>}</div>}
+    {!loading && issue && issueContent && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={25} /><strong>{issueContent.title}</strong><span>{issueContent.description}</span>{issue.retryable && <button type="button" onClick={() => void load()}><RefreshCw size={16} /> Thử lại</button>}{availabilityV4 && <details className="student-schedule-technical"><summary>Chi tiết kỹ thuật</summary><code>{issue.issueCode}</code></details>}</div>}
     {!loading && !issue && data && !data.linked && <div className="student-schedule-state is-warning"><Link2 size={26} /><strong>Chưa liên kết hồ sơ học viên</strong><span>Vui lòng liên hệ Aura để ghép tài khoản với hồ sơ PT.</span></div>}
     {message && <div className="student-schedule-message" role="status"><Check size={17} /> {message}</div>}
 
     {!loading && data?.student && <section className="student-availability-card">
       <header><div><small>MA TRẬN THỜI GIAN RẢNH · TUẦN {weekId}</small><h2>Đăng ký thời gian có thể tập</h2><p>Aura khuyến nghị ít nhất {minimumSlots} khung. Lịch khóa lúc 10:00 Chủ nhật trước tuần tập.</p></div><button type="button" className={`student-availability-status-button is-${statusKey}`} onClick={() => document.querySelector('.student-schedule-matrix-scroll')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}><strong>{statusLabel}</strong><span>{selectedSlots.size}/{minimumSlots} khung</span></button></header>
-      <div className="student-availability-week-switch"><button type="button" className={weekOffset === 0 ? 'active' : ''} onClick={() => setWeekOffset(0)}>Tuần này</button><button type="button" className={weekOffset === 1 ? 'active' : ''} onClick={() => setWeekOffset(1)}>Tuần sau</button><button type="button" className={weekOffset === 2 ? 'active' : ''} onClick={() => setWeekOffset(2)}>Tuần kế</button></div>
+      {availabilityV4 ? <div className="student-availability-week-control"><button type="button" aria-label="Tuần trước" disabled={weekOffset === 0} onClick={() => setWeekOffset(Math.max(0, weekOffset - 1) as AvailabilityWeekOffset)}><ChevronLeft size={19} /></button><div><strong>{formatWeekRange(weekId)}</strong><span>{weekOffset === 0 ? 'Tuần này' : weekOffset === 1 ? 'Tuần sau' : 'Tuần kế tiếp'}</span></div><button type="button" aria-label="Tuần sau" disabled={weekOffset === 2} onClick={() => setWeekOffset(Math.min(2, weekOffset + 1) as AvailabilityWeekOffset)}><ChevronRight size={19} /></button></div> : <div className="student-availability-week-switch"><button type="button" className={weekOffset === 0 ? 'active' : ''} onClick={() => setWeekOffset(0)}>Tuần này</button><button type="button" className={weekOffset === 1 ? 'active' : ''} onClick={() => setWeekOffset(1)}>Tuần sau</button><button type="button" className={weekOffset === 2 ? 'active' : ''} onClick={() => setWeekOffset(2)}>Tuần kế</button></div>}
       {weeklyAvailability && <div className="student-availability-source is-weekly" role="status"><span><CalendarDays size={20} /></span><div><strong>Lịch riêng của tuần {formatWeekRange(availability?.weekId ?? weekId)}</strong><p>Đây là lịch bạn đã gửi cho đúng tuần đang chọn. Lịch này được ưu tiên trước lịch gần nhất và lịch mặc định cũ.</p></div></div>}
       {inherited && <div className="student-availability-source is-inherited" role="status"><span><History size={20} /></span><div><strong>Đang dùng lịch đã gửi gần nhất</strong><p>Nguồn từ {formatWeekLabel(availability?.sourceWeekId)}. Nếu bạn không điều chỉnh, Aura tự áp dụng {selectedSlots.size} khung này cho tuần đang chọn.</p></div></div>}
       {legacyDefault && <div className="student-availability-source is-legacy" role="status"><span><CalendarRange size={20} /></span><div><strong>Đây là lịch mặc định cũ trong hồ sơ</strong><p>Aura chỉ dùng lịch này khi chưa có lịch tuần hoặc lịch đã gửi gần nhất. Hãy kiểm tra và bấm “Xác nhận lịch này” để biến nó thành lịch đã gửi của tuần đang chọn.</p></div></div>}
@@ -440,7 +463,7 @@ export default function StudentAvailabilityPage({ onNavigate, isDemo = false }: 
           return <td key={slotId}><button type="button" disabled={locked} className={`${selected ? 'is-available' : ''} ${booked ? 'is-booked' : ''} ${selected && booked ? 'is-linked' : ''}`} aria-pressed={selected} aria-label={`${day} ${hour} giờ, ${selected ? 'đã chọn' : 'chưa chọn'}${booked ? `, có ${linkedSessions.length} ca đã xếp` : ''}`} onClick={() => toggleSlot(slotId)}>{selected && booked ? <Link2 size={16} /> : booked ? <Dumbbell size={16} /> : selected ? <Check size={16} /> : null}{booked && <small>{linkedSessions.length}</small>}</button></td>
         })}</tr>)}</tbody></table>
       </div>
-      <footer><div><strong>{locked ? 'Đã khóa' : dirty ? 'Có thay đổi chưa lưu' : inherited ? 'Đang tự động kế thừa' : legacyDefault ? 'Đang hiển thị lịch mặc định cũ' : weeklyAvailability ? 'Đã lưu riêng cho tuần này' : 'Chưa có lịch đã gửi'}</strong><span>{inherited ? `Nguồn ${formatWeekLabel(availability?.sourceWeekId)} · phiên bản #${availability?.sourceRevision ?? 0}` : legacyDefault ? 'Lớp tương thích cuối cùng' : weeklyAvailability ? `${formatWeekRange(availability?.weekId ?? weekId)} · phiên bản #${availability?.revision ?? data.student.availabilityRevision}` : 'Chọn khung rảnh hoặc đăng ký OFF'}</span></div><button type="button" disabled={(!dirty && !canConfirmLegacyDefault) || saving || locked} onClick={() => void save()}>{saving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}{saving ? 'Đang lưu...' : locked ? 'Tuần đã khóa' : !dirty && canConfirmLegacyDefault ? 'Xác nhận lịch này' : 'Gửi lịch rảnh'}</button></footer>
+      <footer><div><strong>{locked ? 'Đã khóa' : dirty ? 'Có thay đổi chưa lưu' : inherited ? 'Aura đang dùng lịch đã gửi gần nhất' : legacyDefault ? 'Lịch mặc định cũ cần xác nhận' : weeklyAvailability ? 'Đã lưu riêng cho tuần này' : 'Chưa có lịch đã gửi'}</strong><span>{availabilityV4 ? (inherited ? `Lịch từ ${formatWeekLabel(availability?.sourceWeekId)} đang được áp dụng cho tuần này.` : legacyDefault ? 'Xác nhận để tạo lịch riêng cho tuần đang xem.' : weeklyAvailability ? `Đã lưu cho ${formatWeekRange(availability?.weekId ?? weekId)}.` : 'Chọn khung rảnh hoặc đăng ký OFF.') : inherited ? `Nguồn ${formatWeekLabel(availability?.sourceWeekId)} · phiên bản #${availability?.sourceRevision ?? 0}` : legacyDefault ? 'Lớp tương thích cuối cùng' : weeklyAvailability ? `${formatWeekRange(availability?.weekId ?? weekId)} · phiên bản #${availability?.revision ?? data.student.availabilityRevision}` : 'Chọn khung rảnh hoặc đăng ký OFF'}</span></div><button type="button" disabled={(!dirty && !canConfirmLegacyDefault && !canUseInheritedSchedule) || saving || locked} onClick={() => void save()}>{saving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}{saving ? 'Đang lưu...' : locked ? 'Tuần đã khóa' : !dirty && canUseInheritedSchedule ? 'Dùng lịch này' : !dirty && canConfirmLegacyDefault ? 'Xác nhận lịch này' : 'Gửi lịch rảnh'}</button></footer>
     </section>}
 
     {confirmEmpty && <div className="student-availability-confirm" role="presentation">

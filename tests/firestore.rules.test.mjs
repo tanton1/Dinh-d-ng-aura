@@ -51,6 +51,21 @@ async function seedPtSecurityFixtures() {
         membership: 'coach',
         disabled: false,
       }),
+      setDoc(doc(db, 'users', 'super-1'), {
+        uid: 'super-1',
+        displayName: 'Super Admin Aura',
+        role: 'super_admin',
+        membership: 'coach',
+        disabled: false,
+      }),
+      setDoc(doc(db, 'system', 'ui_public_config'), {
+        schemaVersion: 1,
+        surfaces: { shell: 'off' },
+      }),
+      setDoc(doc(db, 'uiRolloutAssignments', 'client-1'), {
+        surfaces: ['shell'],
+        expiresAt: null,
+      }),
       setDoc(doc(db, 'users', 'manager-1'), {
         uid: 'manager-1', displayName: 'Quản lý chi nhánh A', role: 'manager', disabled: false,
       }),
@@ -203,6 +218,27 @@ describe('Aura PT Firestore rules', () => {
 
   after(async () => {
     await testEnvironment?.cleanup()
+  })
+
+  test('UI rollout config is readable by signed-in users and never browser-writable', async () => {
+    const client = authenticatedDb('client-1', 'student')
+    const admin = authenticatedDb('admin-1', 'admin')
+    const superAdmin = authenticatedDb('super-1', 'super_admin')
+    await assertSucceeds(getDoc(doc(client, 'system', 'ui_public_config')))
+    await assertFails(getDoc(doc(testEnvironment.unauthenticatedContext().firestore(), 'system', 'ui_public_config')))
+    await assertFails(setDoc(doc(admin, 'system', 'ui_public_config'), { schemaVersion: 1, surfaces: { shell: 'all' } }))
+    await assertFails(setDoc(doc(superAdmin, 'system', 'ui_public_config'), { schemaVersion: 1, surfaces: { shell: 'all' } }))
+  })
+
+  test('UI rollout assignments are private to their owner and admins', async () => {
+    const client = authenticatedDb('client-1', 'student')
+    const otherClient = authenticatedDb('other-client', 'student')
+    const admin = authenticatedDb('admin-1', 'admin')
+    await assertSucceeds(getDoc(doc(client, 'uiRolloutAssignments', 'client-1')))
+    await assertSucceeds(getDoc(doc(admin, 'uiRolloutAssignments', 'client-1')))
+    await assertFails(getDoc(doc(otherClient, 'uiRolloutAssignments', 'client-1')))
+    await assertFails(updateDoc(doc(client, 'uiRolloutAssignments', 'client-1'), { surfaces: [] }))
+    await assertFails(setDoc(doc(admin, 'uiRolloutAssignments', 'other-client'), { surfaces: ['shell'], expiresAt: null }))
   })
 
   test('assignment cycles are readable only by the client, assigned coach, and admin', async () => {

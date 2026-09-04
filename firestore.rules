@@ -72,6 +72,10 @@ service cloud.firestore {
       return hasRole(['admin', 'super_admin']);
     }
 
+    function isSuperAdmin() {
+      return hasRole(['super_admin']);
+    }
+
     function managesBranchSchedule(branchId) {
       return signedIn()
              && exists(/databases/$(database)/documents/roleAssignments/$(request.auth.uid))
@@ -573,6 +577,18 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // UI rollout is public only to authenticated Aura accounts. Mutations go
+    // through the Super Admin callable so every change receives an audit log.
+    match /system/ui_public_config {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /uiRolloutAssignments/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update, delete: if false;
+    }
+
     match /system/eat_clean_config {
       allow read: if isAdmin();
       // Delivery pricing and rollout flags must pass the callable revision and
@@ -582,7 +598,9 @@ service cloud.firestore {
 
     match /system/{document} {
       allow read: if isAdmin();
-      allow write: if isAdmin() && document != 'eat_clean_config';
+      allow write: if isAdmin()
+                   && document != 'eat_clean_config'
+                   && document != 'ui_public_config';
     }
 
     match /system/{document}/{nested=**} {

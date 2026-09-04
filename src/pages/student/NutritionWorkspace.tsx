@@ -34,7 +34,7 @@ import '../../styles-nutrition-workspace.css'
 
 const ProgressPage = React.lazy(() => import('./ProgressPage'))
 
-export type NutritionWorkspaceSection = 'today' | 'diary' | 'plan' | 'catalog' | 'insights'
+export type NutritionWorkspaceSection = 'today' | 'diary' | 'plan' | 'explore' | 'catalog' | 'insights'
 export type NutritionMealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
 export type NutritionDataConfidence = 'verified' | 'estimated' | 'needs-review'
 export type NutritionActivityIntensity = 'low' | 'moderate' | 'high'
@@ -131,9 +131,10 @@ export interface NutritionSectionNavProps {
   onOpenCatalog?: () => void
   onOpenAskAura: () => void
   className?: string
+  v4?: boolean
 }
 
-const SECTION_ITEMS: Array<{
+const LEGACY_SECTION_ITEMS: Array<{
   id: NutritionWorkspaceSection
   label: string
   icon: typeof Salad
@@ -143,6 +144,17 @@ const SECTION_ITEMS: Array<{
   { id: 'plan', label: 'Thực đơn', icon: ShoppingBasket },
   { id: 'catalog', label: 'Món ăn', icon: Database },
   { id: 'insights', label: 'Tiến độ', icon: BarChart3 },
+]
+
+const V4_SECTION_ITEMS: Array<{
+  id: NutritionWorkspaceSection
+  label: string
+  icon: typeof Salad
+}> = [
+  { id: 'today', label: 'Hôm nay', icon: Salad },
+  { id: 'diary', label: 'Nhật ký', icon: CalendarDays },
+  { id: 'plan', label: 'Kế hoạch', icon: ShoppingBasket },
+  { id: 'explore', label: 'Khám phá', icon: Database },
 ]
 
 const MEAL_TYPE_LABELS: Record<NutritionMealType, string> = {
@@ -177,23 +189,22 @@ export function NutritionSectionNav({
   onSectionChange,
   onOpenCatalog,
   className = '',
+  v4 = false,
 }: Omit<NutritionSectionNavProps, 'onScan' | 'onOpenAskAura'> & { onScan?: () => void; onOpenAskAura?: () => void }) {
+  const sectionItems = v4 ? V4_SECTION_ITEMS : LEGACY_SECTION_ITEMS
   return (
-    <nav className={`nutrition-workspace-nav ${className}`.trim()} aria-label="Điều hướng dinh dưỡng">
+    <nav className={`nutrition-workspace-nav ${v4 ? 'nutrition-workspace-nav--v4' : ''} ${className}`.trim()} aria-label="Điều hướng dinh dưỡng">
       <div className="nutrition-workspace-nav__sections" aria-label="Khu vực dinh dưỡng">
-        {SECTION_ITEMS.filter(({ id }) => id !== 'catalog' || Boolean(onOpenCatalog)).map(({ id, label, icon: Icon }) => {
-          const active = activeSection === id
+        {sectionItems.filter(({ id }) => id !== 'catalog' || Boolean(onOpenCatalog)).map(({ id, label, icon: Icon }) => {
+          const active = activeSection === id || (id === 'explore' && (activeSection === 'catalog' || activeSection === 'insights'))
           return (
             <button
               type="button"
               key={id}
               className={active ? 'is-active' : ''}
               onClick={() => {
-                if (id === 'catalog') {
-                  onOpenCatalog?.()
-                } else {
-                  onSectionChange(id)
-                }
+                if (!v4 && id === 'catalog') onOpenCatalog?.()
+                else onSectionChange(id)
               }}
               aria-current={active ? 'page' : undefined}
             >
@@ -697,12 +708,15 @@ export interface NutritionWorkspaceProps {
   assistant?: AskAuraPanelProps
   onScan: () => void
   onOpenCatalog?: () => void
+  onOpenSaved?: () => void
+  onOpenEatClean?: () => void
   onOpenAskAura: () => void
   className?: string
   weightKg?: number
   targetWeightDeltaKg?: number
   targetTimeframeMonths?: number
   ownerId?: string
+  v4?: boolean
 }
 
 export default React.memo(NutritionWorkspace)
@@ -716,22 +730,26 @@ function NutritionWorkspace({
   assistant,
   onScan,
   onOpenCatalog,
+  onOpenSaved,
+  onOpenEatClean,
   onOpenAskAura,
   className = '',
   weightKg,
   targetWeightDeltaKg,
   targetTimeframeMonths,
   ownerId,
+  v4 = false,
 }: NutritionWorkspaceProps) {
   const assistantIsPage = Boolean(assistant?.open && assistant.variant === 'page')
   return (
     <div className={`nutrition-workspace ${className}`.trim()}>
-      <NutritionSectionNav activeSection={activeSection} onSectionChange={onSectionChange} onScan={onScan} onOpenCatalog={onOpenCatalog} onOpenAskAura={onOpenAskAura} />
+      <NutritionSectionNav activeSection={activeSection} onSectionChange={onSectionChange} onScan={onScan} onOpenCatalog={onOpenCatalog} onOpenAskAura={onOpenAskAura} v4={v4} />
       <div className="nutrition-workspace__content">
         {assistantIsPage && assistant ? <AskAuraPanel {...assistant} /> : <>
           {activeSection === 'today' && <div id="nutrition-workspace-panel-today">{todayContent}</div>}
           {activeSection === 'diary' && <NutritionDiaryPage {...diary} />}
           {activeSection === 'plan' && (menuContent ?? <NutritionPlanPage {...plan} />)}
+          {v4 && activeSection === 'explore' && <section className="nutrition-explore" aria-labelledby="nutrition-explore-title"><header><small>KHÁM PHÁ DINH DƯỠNG</small><h2 id="nutrition-explore-title">Tìm món và hiểu tiến độ</h2><p>Các công cụ tham khảo được gom tại đây để phần Hôm nay luôn tập trung vào việc cần làm.</p></header><div><button type="button" onClick={onOpenCatalog}><span><Database size={21} /></span><strong>Thư viện món ăn</strong><small>Tìm món theo khẩu phần và macro</small><ChevronRight size={18} /></button><button type="button" onClick={onOpenSaved ?? onOpenCatalog}><span><Salad size={21} /></span><strong>Món đã lưu</strong><small>Mở nhanh món bạn dùng thường xuyên</small><ChevronRight size={18} /></button><button type="button" onClick={() => onSectionChange('insights')}><span><BarChart3 size={21} /></span><strong>Tiến độ dinh dưỡng</strong><small>Xem xu hướng cân nặng và thói quen</small><ChevronRight size={18} /></button>{onOpenEatClean && <button type="button" onClick={onOpenEatClean}><span><ShoppingBasket size={21} /></span><strong>Eat Clean</strong><small>Chọn món phù hợp mục tiêu hôm nay</small><ChevronRight size={18} /></button>}</div></section>}
           {activeSection === 'insights' && (
             <React.Suspense fallback={<div role="status" aria-live="polite">Đang tải phân tích tiến độ…</div>}>
               <ProgressPage

@@ -45,7 +45,7 @@ const ptOperationsClientSource = readFileSync(join(repositoryRoot, 'src', 'servi
 const ptScheduleClientSource = readFileSync(join(repositoryRoot, 'src', 'services', 'ptSchedulePublishService.ts'), 'utf8')
 const branchScheduleWorkspaceSource = readFileSync(join(repositoryRoot, 'src', 'components', 'schedule', 'BranchScheduleWorkspace.tsx'), 'utf8')
 const trainerPortalSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'operations', 'TrainerPortalV2.tsx'), 'utf8')
-const nutritionPageSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'student', 'NutritionPage.tsx'), 'utf8')
+const nutritionPageSource = readFileSync(join(repositoryRoot, 'src', 'pages', 'student', 'NutritionPageController.tsx'), 'utf8')
 const dataSyncBannerSource = readFileSync(join(repositoryRoot, 'src', 'components', 'data', 'DataSyncStatusBanner.tsx'), 'utf8')
 const firebaseClientSource = readFileSync(join(repositoryRoot, 'src', 'lib', 'firebase.ts'), 'utf8')
 const indexHtmlSource = readFileSync(join(repositoryRoot, 'index.html'), 'utf8')
@@ -107,7 +107,7 @@ test('shipper is assignable without receiving admin privileges', () => {
 
 test('Eat Clean config writes cannot bypass callable readiness and revision guards', () => {
   assert.match(rules, /match \/system\/eat_clean_config[\s\S]*?allow write: if false/)
-  assert.match(rules, /match \/system\/\{document\}[\s\S]*?allow write: if isAdmin\(\) && document != 'eat_clean_config'/)
+  assert.match(rules, /match \/system\/\{document\}[\s\S]*?allow write: if isAdmin\(\)[\s\S]*?document != 'eat_clean_config'[\s\S]*?document != 'ui_public_config'/)
   assert.match(rules, /match \/eatCleanQuoteRateLimits\/\{userIdHash\}[\s\S]*?allow read, write: if false/)
 })
 

@@ -49,6 +49,7 @@ import type {
   Student360TimelineEvent,
 } from './types'
 import './Student360Page.css'
+import { useAuraUiSurface } from '../ui-rollout/AuraUiRolloutContext'
 
 const Student360ContractWorkspace = lazy(() => import('./Student360ContractWorkspace'))
 
@@ -186,6 +187,7 @@ function State({ type, children }: { type?: 'error'; children: React.ReactNode }
 }
 
 export default function Student360Page({ studentId, source, isDemo = false, onBack, onNavigate }: Props) {
+  const student360V4 = useAuraUiSurface('student-360')
   const [activeTab, setActiveTab] = useState<Student360Tab>('overview')
   const [overview, setOverview] = useState<Student360Overview | null>(null)
   const [loading, setLoading] = useState(true)
@@ -399,7 +401,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   const usedLabel = contract ? `${contract.usedSessions}/${contract.totalSessions}` : '—'
   const daysLabel = contract?.daysRemaining === null || contract?.daysRemaining === undefined ? '—' : Math.max(0, contract.daysRemaining)
 
-  return <main className="student360-page" data-tab={activeTab}>
+  return <main className={`student360-page${student360V4 ? ' aura-ui-v4-surface aura-ui-v4-operations student360-page--v4' : ''}`} data-tab={activeTab}>
     <header className="student360-header">
       <div className="student360-header__bar">
         <button type="button" className="student360-icon-button" aria-label="Quay lại danh sách học viên" onClick={onBack}><ArrowLeft /></button>
@@ -431,8 +433,9 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
         {assignments.nutritionCoachNames.length > 0 && <span>Dinh dưỡng: {assignments.nutritionCoachNames.join(' · ')}</span>}
       </div>
       <section className="student360-metrics" aria-label="Chỉ số nhanh">
-        <Metric label="Health Score" value={health.score} note={`${healthCopy(health.status)} · Tin cậy ${confidenceCopy(health.confidence)}`} tone={health.status} />
-        <Metric label="Số buổi" value={usedLabel} note={contract ? `Còn ${contract.remainingSessions} buổi` : 'Chưa có hợp đồng'} />
+        {student360V4
+          ? <><Metric label="Buổi còn lại" value={contract?.remainingSessions ?? '—'} note={contract?.packageName ?? 'Chưa có hợp đồng'} /><Metric label="Đã sử dụng" value={usedLabel} note={contract ? `${contract.usedSessions} trên ${contract.totalSessions} buổi` : 'Chưa có dữ liệu'} /></>
+          : <><Metric label="Health Score" value={health.score} note={`${healthCopy(health.status)} · Tin cậy ${confidenceCopy(health.confidence)}`} tone={health.status} /><Metric label="Số buổi" value={usedLabel} note={contract ? `Còn ${contract.remainingSessions} buổi` : 'Chưa có hợp đồng'} /></>}
         {permissions.canViewOperations
           ? <Metric label="Attendance 28 ngày" value={attendance.rate28Days === null ? '—' : `${attendance.rate28Days}%`} note={`${attendance.attended} có mặt · ${attendance.noShow} vắng`} />
           : <Metric label="Phạm vi dữ liệu" value={permissions.scope === 'sales' ? 'CSKH' : 'Coach'} note="Đã che lịch vận hành theo quyền" />}
@@ -443,12 +446,16 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
 
     <div className="student360-content">
       {activeTab === 'overview' && <div className="student360-overview-grid">
+        {student360V4 && <section className="student360-v4-priority" aria-labelledby="student360-priority-title"><Card title="Cần xử lý" icon={Zap} className="student360-action-card">
+          <span id="student360-priority-title" className="aura-visually-hidden">Cần xử lý</span>
+          <div className="student360-actions">{overview.nextActions.slice(0, 3).map((item) => <button type="button" key={item.id} className={`is-${item.severity}`} onClick={() => performAction(item)}><span>{item.priority}</span><div><strong>{item.title}</strong><small>{item.description}</small><b>{actionLabel(item.action, canExecuteAction(item))} →</b></div></button>)}{overview.nextActions.length === 0 && <div className="student360-all-good"><Check /><strong>Không có việc khẩn cấp</strong><span>Dữ liệu hiện tại đang ổn định.</span></div>}</div>
+        </Card></section>}
         <section className="student360-main-column">
           {permissions.canViewOperations && <Card title="Buổi tiếp theo" icon={CalendarDays} action={<button type="button" className="student360-link" onClick={() => onNavigate(source.startsWith('staff') ? 'staff-schedule' : 'admin-pt-schedule', studentId, identity.name)}>Mở lịch</button>}>
             {schedule.nextSession ? <div className="student360-next-session"><time><strong>{safeDate(schedule.nextSession.date)}</strong><span>{schedule.nextSession.hour === null ? 'Chưa chốt giờ' : `${String(schedule.nextSession.hour).padStart(2, '0')}:00`}</span></time><div><b>{assignments.trainerNames[0] || 'PT Aura'}</b><span>{assignments.branchName || 'Chi nhánh Aura'}</span></div><span className="student360-pill">Đã xếp lịch</span></div> : <p className="student360-empty">Chưa có buổi tập sắp tới.</p>}
           </Card>}
 
-          {permissions.canViewOperations && <Card title="Lịch tuần này" icon={ClipboardCheck} action={<span className="student360-card-count">{schedule.bookedSessions}/{schedule.requiredSessions} buổi</span>}>
+          {!student360V4 && permissions.canViewOperations && <Card title="Lịch tuần này" icon={ClipboardCheck} action={<span className="student360-card-count">{schedule.bookedSessions}/{schedule.requiredSessions} buổi</span>}>
             <div className="student360-week-progress"><i style={{ width: `${Math.min(100, schedule.requiredSessions ? schedule.bookedSessions / schedule.requiredSessions * 100 : 0)}%` }} /></div>
             <div className="student360-session-list">{schedule.sessions.map((session) => <div key={session.id}><time>{safeDate(session.date)} · {session.hour === null ? '--' : String(session.hour).padStart(2, '0')}:00</time><span className={`is-${session.attendanceStatus}`}>{session.attendanceStatus === 'present' ? 'Đã tập' : session.attendanceStatus === 'late' ? 'Đi trễ' : session.attendanceStatus === 'no_show' ? 'Không đến' : 'Đã xếp'}</span></div>)}{schedule.sessions.length === 0 && <p className="student360-empty">Tuần này chưa có lịch tập.</p>}</div>
           </Card>}
@@ -456,6 +463,11 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
           <Card title="Hợp đồng & quyền lợi" icon={WalletCards} action={<button type="button" className="student360-link" onClick={() => setActiveTab('contract')}>Xem chi tiết</button>}>
             {contract ? <><div className="student360-contract-head"><div><strong>{contract.packageName}</strong><span>{safeDate(contract.startDate)} → {safeDate(contract.endDate)}</span></div><b>{contract.remainingSessions}<small>buổi còn lại</small></b></div><div className="student360-entitlement"><span><i style={{ width: `${Math.min(100, contract.totalSessions ? contract.usedSessions / contract.totalSessions * 100 : 0)}%` }} /></span><small>{contract.usedSessions} đã dùng · {contract.remainingSessions} còn lại</small></div>{contract.reconciliationStatus !== 'matched' && <div className="student360-inline-warning"><AlertTriangle /> Số buổi đang được đối soát theo lịch sử có tính buổi.</div>}</> : <p className="student360-empty">Học viên chưa có hợp đồng.</p>}
           </Card>
+
+          {student360V4 && permissions.canViewOperations && <Card title="Tiến độ 28 ngày" icon={Activity} action={<span className="student360-card-count">{attendance.rate28Days === null ? 'Chưa đủ dữ liệu' : `${attendance.rate28Days}% tham gia`}</span>}>
+            <div className="student360-attendance-chart student360-attendance-chart--wide">{attendance.weeklyTrend.map((week) => <div key={week.weekStart}><span><i style={{ height: `${Math.max(5, week.rate ?? 0)}%` }} /></span><small>{safeDate(week.weekStart).slice(0, 5)}</small><b>{week.rate === null ? '—' : `${week.rate}%`}</b></div>)}</div>
+            <div className="student360-attendance-summary"><span><strong>{attendance.attended}</strong><small>có mặt</small></span><span><strong>{attendance.noShow}</strong><small>vắng</small></span><span><strong>{schedule.bookedSessions}/{schedule.requiredSessions}</strong><small>buổi tuần này</small></span></div>
+          </Card>}
 
           {permissions.canViewProgress && <Card title="Tiến độ gần nhất" icon={Activity} action={<button type="button" className="student360-link" onClick={() => setActiveTab('coaching')}>Xem chi tiết</button>}>
             {progress ? <div className="student360-progress-summary"><div><Scale /><strong>{progress.latestWeightKg ?? '—'}<small>kg</small></strong><span>{progress.weightChangeKg === null ? 'Chưa có so sánh' : `${progress.weightChangeKg > 0 ? '+' : ''}${progress.weightChangeKg}kg`}</span></div><div><Ruler /><strong>{progress.latestWaistCm ?? '—'}<small>cm eo</small></strong><span>{progress.waistChangeCm === null ? 'Chưa có so sánh' : `${progress.waistChangeCm > 0 ? '+' : ''}${progress.waistChangeCm}cm`}</span></div><div><HeartPulse /><strong>{progress.latestBodyFatPercent ?? '—'}<small>% mỡ</small></strong><span>{progress.bodyFatChangePercent === null ? 'Chưa có so sánh' : `${progress.bodyFatChangePercent > 0 ? '+' : ''}${progress.bodyFatChangePercent}%`}</span></div></div> : <p className="student360-empty">Chưa có dữ liệu cân đo hoặc bạn không có quyền xem.</p>}
@@ -467,16 +479,16 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
         </section>
 
         <aside className="student360-side-column">
-          <Card title="Việc cần làm tiếp theo" icon={Zap} className="student360-action-card">
+          {!student360V4 && <Card title="Việc cần làm tiếp theo" icon={Zap} className="student360-action-card">
             <div className="student360-actions">{overview.nextActions.map((item) => <button type="button" key={item.id} className={`is-${item.severity}`} onClick={() => performAction(item)}><span>{item.priority}</span><div><strong>{item.title}</strong><small>{item.description}</small><b>{actionLabel(item.action, canExecuteAction(item))} →</b></div></button>)}{overview.nextActions.length === 0 && <div className="student360-all-good"><Check /><strong>Không có việc khẩn cấp</strong><span>Dữ liệu hiện tại đang ổn định.</span></div>}</div>
-          </Card>
+          </Card>}
 
-          <Card title="Health Score minh bạch" icon={HeartPulse}>
+          <Card title={student360V4 ? 'Sức khỏe hành trình' : 'Health Score minh bạch'} icon={HeartPulse}>
             <div className="student360-score-ring" style={{ '--score': `${health.score * 3.6}deg` } as React.CSSProperties}><div><strong>{health.score}</strong><span>/100</span></div></div>
             <div className="student360-score-components">{health.components.map((component) => <details key={component.id}><summary><span>{component.label}<small>{component.available ? `${component.weight}% trọng số` : 'Chưa đủ dữ liệu'}</small></span><b>{component.score ?? '—'}</b><ChevronDown /></summary><p>{component.reason}</p></details>)}</div>
           </Card>
 
-          {permissions.canViewOperations && <Card title="Tỷ lệ đi tập" icon={Activity}>
+          {!student360V4 && permissions.canViewOperations && <Card title="Tỷ lệ đi tập" icon={Activity}>
             <div className="student360-attendance-chart">{attendance.weeklyTrend.map((week) => <div key={week.weekStart}><span><i style={{ height: `${Math.max(5, week.rate ?? 0)}%` }} /></span><small>{safeDate(week.weekStart).slice(0, 5)}</small><b>{week.rate === null ? '—' : `${week.rate}%`}</b></div>)}</div>
           </Card>}
 

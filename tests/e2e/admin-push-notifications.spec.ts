@@ -16,9 +16,9 @@ test.describe('Admin Push Notifications mobile', () => {
     await expect(page.getByRole('heading', { name: 'Push Notifications' })).toBeVisible()
   })
 
-  test('uses four fixed tabs without horizontal overflow', async ({ page }) => {
+  test('uses five fixed tabs without horizontal overflow', async ({ page }) => {
     const tabList = page.getByRole('tablist', { name: 'Quản trị Push Notifications' })
-    await expect(tabList.getByRole('tab')).toHaveCount(4)
+    await expect(tabList.getByRole('tab')).toHaveCount(5)
     await expect(page.getByTestId('push-overview')).toBeVisible()
 
     const bounds = await tabList.evaluate((element) => ({

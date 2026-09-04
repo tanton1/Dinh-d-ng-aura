@@ -567,6 +567,100 @@ exports.updateUserRole = onCall(async (request) => {
   return { uid: targetUid, role: nextRole, tokenRefreshRequired: true }
 })
 
+const auraUiSurfaces = [
+  'shell',
+  'member-home',
+  'member-schedule',
+  'member-availability',
+  'student-360',
+  'admin-dashboard',
+  'member-nutrition',
+]
+const auraUiSurfaceSet = new Set(auraUiSurfaces)
+const auraUiAudienceSet = new Set(['off', 'admin', 'staff', 'all'])
+
+function normalizeAuraUiSurfaces(value) {
+  if (!isPlainObject(value)) throw new HttpsError('invalid-argument', 'Cấu hình rollout không hợp lệ.')
+  const normalized = {}
+  for (const surface of auraUiSurfaces) {
+    if (!auraUiAudienceSet.has(value[surface])) {
+      throw new HttpsError('invalid-argument', `Audience của ${surface} không hợp lệ.`)
+    }
+    normalized[surface] = value[surface]
+  }
+  if (Object.keys(value).some((surface) => !auraUiSurfaceSet.has(surface))) {
+    throw new HttpsError('invalid-argument', 'Cấu hình chứa surface không được hỗ trợ.')
+  }
+  return normalized
+}
+
+async function requireTrustedSuperAdmin(request) {
+  const actorUid = requireCaller(request)
+  const actorProfile = await db.doc(`users/${actorUid}`).get()
+  if (!actorProfile.exists || !hasTrustedRole(request, actorProfile.data(), new Set(['super_admin']))) {
+    throw new HttpsError('permission-denied', 'Chỉ Super Administrator được thay đổi rollout giao diện.')
+  }
+  return actorUid
+}
+
+exports.updateAuraUiRollout = onCall({
+  memory: '256MiB',
+  cpu: 0.1666,
+  maxInstances: 1,
+  concurrency: 20,
+}, async (request) => {
+  const actorUid = await requireTrustedSuperAdmin(request)
+  const action = request.data?.action
+  const updatedAt = new Date().toISOString()
+  if (action === 'config') {
+    const surfaces = normalizeAuraUiSurfaces(request.data?.surfaces)
+    const reference = db.doc('system/ui_public_config')
+    await db.runTransaction(async (transaction) => {
+      const previous = await transaction.get(reference)
+      transaction.set(reference, { schemaVersion: 1, surfaces, updatedAt, updatedBy: actorUid })
+      transaction.create(db.collection('auditLogs').doc(), {
+        action: 'ui.rollout.config.updated',
+        actorUid,
+        targetId: 'system/ui_public_config',
+        before: previous.exists ? previous.data() : null,
+        after: { schemaVersion: 1, surfaces },
+        createdAt: FieldValue.serverTimestamp(),
+      })
+    })
+    return { schemaVersion: 1, surfaces, updatedAt, updatedBy: actorUid }
+  }
+  if (action === 'assignment') {
+    const targetUid = requireDocumentId(request.data?.uid, 'UID')
+    const requestedSurfaces = Array.isArray(request.data?.surfaces) ? request.data.surfaces : []
+    const surfaces = [...new Set(requestedSurfaces)]
+    if (surfaces.length > auraUiSurfaces.length || surfaces.some((surface) => !auraUiSurfaceSet.has(surface))) {
+      throw new HttpsError('invalid-argument', 'Danh sách surface thử nghiệm không hợp lệ.')
+    }
+    const expiresAt = request.data?.expiresAt === null || request.data?.expiresAt === ''
+      ? null
+      : boundedPushString(request.data?.expiresAt, 'Ngày hết hạn', 40)
+    if (expiresAt && (!Number.isFinite(Date.parse(expiresAt)) || Date.parse(expiresAt) <= Date.now())) {
+      throw new HttpsError('invalid-argument', 'Ngày hết hạn phải nằm trong tương lai.')
+    }
+    const reference = db.doc(`uiRolloutAssignments/${targetUid}`)
+    const assignment = { surfaces, expiresAt, updatedAt, updatedBy: actorUid }
+    await db.runTransaction(async (transaction) => {
+      const previous = await transaction.get(reference)
+      transaction.set(reference, assignment)
+      transaction.create(db.collection('auditLogs').doc(), {
+        action: 'ui.rollout.assignment.updated',
+        actorUid,
+        targetUid,
+        before: previous.exists ? previous.data() : null,
+        after: { surfaces, expiresAt },
+        createdAt: FieldValue.serverTimestamp(),
+      })
+    })
+    return assignment
+  }
+  throw new HttpsError('invalid-argument', 'Thao tác rollout không được hỗ trợ.')
+})
+
 function requireCaller(request) {
   const uid = request.auth?.uid
   if (!uid) throw new HttpsError('unauthenticated', 'Bạn cần đăng nhập để tiếp tục.')

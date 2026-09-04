@@ -48,6 +48,8 @@ import './styles.css'
 import './styles-aura.css'
 import './styles-progress.css'
 import './styles-ai-coach.css'
+import './styles-ui-v4.css'
+import { AuraUiRolloutProvider } from './features/ui-rollout/AuraUiRolloutContext'
 
 const AdminAcademyStudentsPage = lazyWithRetry(() => import('./pages/admin/AdminAcademyStudentsPage'))
 const Onboarding = lazyWithRetry(() => import('./onboarding/Onboarding'))
@@ -954,7 +956,7 @@ function AuraApplication() {
       />
       case 'admin-roles': return <AuraOperationsFrame><AdminRolesPage users={adminUsers} currentRole={role} currentUserUid={user?.uid} loading={adminUsersLoading} onRoleChange={updateUserRole} /></AuraOperationsFrame>
       case 'admin-nutrition-reviews': return <AdminNutritionReviewsPage onNavigate={navigate} />
-      case 'admin-notifications': return <AdminNotificationsPage onNavigate={navigate} users={adminUsers} currentUserUid={user?.uid} />
+      case 'admin-notifications': return <AdminNotificationsPage onNavigate={navigate} users={adminUsers} currentUserUid={user?.uid} canManageUiRollout={role === 'super_admin'} backendMode={backendMode} />
       case 'admin-eat-clean': return <AdminEatCleanPage currentRole={role} isDemo={backendMode === 'demo'} />
 
       // PT Coaching & Gym Management Views
@@ -1100,6 +1102,7 @@ function AuraApplication() {
   }
 
   return (
+    <AuraUiRolloutProvider userId={user?.uid ?? 'demo'} role={role} demo={backendMode === 'demo'}>
     <AppShell
       mode={mode}
       view={view}
@@ -1109,6 +1112,7 @@ function AuraApplication() {
       setMobileMenu={setMobileMenu}
       userName={effectiveDisplayName ?? user?.displayName ?? 'Thành viên Aura'}
       userRole={roleLabels[role]}
+      userId={user?.uid ?? 'demo'}
       role={role}
       setPreviewRole={setPreviewRole}
       userPhoto={profile?.photoURL ?? user?.photoURL}
@@ -1141,6 +1145,7 @@ function AuraApplication() {
         </Suspense>
       </ChunkErrorBoundary>
     </AppShell>
+    </AuraUiRolloutProvider>
   )
 }
 

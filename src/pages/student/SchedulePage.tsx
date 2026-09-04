@@ -32,6 +32,7 @@ import {
 import type { ViewId } from '../../types'
 import '../../styles-coaching.css'
 import './StudentSchedulePage.css'
+import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
 
 const DEFAULT_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 const DEFAULT_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
@@ -162,12 +163,15 @@ function contractDisplayStatus(contract: StudentPtScheduleData['contracts'][numb
 }
 
 export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigate: (view: ViewId) => void; isDemo?: boolean; ownerId?: string }) {
+  const scheduleV4 = useAuraUiSurface('member-schedule')
   const today = useMemo(() => new Date(), [])
   const range = useMemo(() => ({ from: toIsoDate(addDays(today, -180)), to: toIsoDate(addDays(today, 180)) }), [today])
   const [data, setData] = useState<StudentPtScheduleData | null>(null)
   const [activeTab, setActiveTab] = useState<StudentScheduleTab>(() => scheduleTabFromRoute() ?? 'this-week')
-  const [weekOffset, setWeekOffset] = useState(0)
-  const [selectedDate, setSelectedDate] = useState(toIsoDate(today))
+  const [weekOffset, setWeekOffset] = useState<0 | 1>(() => scheduleTabFromRoute() === 'next-week' ? 1 : 0)
+  const [selectedDate, setSelectedDate] = useState(() => scheduleTabFromRoute() === 'next-week'
+    ? toIsoDate(addDays(startOfWeek(today), 7))
+    : toIsoDate(today))
   const [loading, setLoading] = useState(true)
   const [loadIssue, setLoadIssue] = useState<StudentPtScheduleServiceError | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -225,11 +229,20 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   useEffect(() => {
     const syncTabFromRoute = () => {
       const nextTab = scheduleTabFromRoute()
-      if (nextTab) setActiveTab(nextTab)
+      if (!nextTab) return
+      setActiveTab(nextTab)
+      if (nextTab === 'this-week') {
+        setWeekOffset(0)
+        setSelectedDate(toIsoDate(today))
+      }
+      if (nextTab === 'next-week') {
+        setWeekOffset(1)
+        setSelectedDate(toIsoDate(addDays(startOfWeek(today), 7)))
+      }
     }
     window.addEventListener('hashchange', syncTabFromRoute)
     return () => window.removeEventListener('hashchange', syncTabFromRoute)
-  }, [])
+  }, [today])
 
   // Keep schedule, attendance and payment alerts fresh without a full page
   // reload. Poll only while the tab is visible; returning to the tab triggers
@@ -366,16 +379,16 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
     : 'Tài khoản này chưa được ghép với hồ sơ PT đã chuyển dữ liệu. Quản trị viên cần bổ sung crmProfileId cho Role Assignment.'
 
   return (
-    <div className="page schedule-page pt-schedule-page student-schedule-page student-schedule-page--classic" aria-busy={loading}>
+    <div className={`page schedule-page pt-schedule-page student-schedule-page student-schedule-page--classic${scheduleV4 ? ' aura-ui-v4-surface aura-ui-v4-member student-schedule-page--v4' : ''}`} aria-busy={loading}>
       {loading && <div className="student-schedule-state" role="status"><LoaderCircle className="spin" size={30} /><strong>Đang liên kết lịch học viên</strong><span>Aura đang tải lịch tuần và khung giờ rảnh của bạn.</span></div>}
-      {!loading && loadIssue && loadIssueContent && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={28} /><strong>{loadIssueContent.title}</strong><span>{loadIssueContent.description}</span><button type="button" onClick={() => void load()}><RefreshCw size={16} /> {loadIssue.retryable ? 'Thử lại' : 'Kiểm tra lại'}</button></div>}
+      {!loading && loadIssue && loadIssueContent && <div className="student-schedule-state is-error" role="alert"><AlertCircle size={28} /><strong>{loadIssueContent.title}</strong><span>{loadIssueContent.description}</span><button type="button" onClick={() => void load()}><RefreshCw size={16} /> {loadIssue.retryable ? 'Thử lại' : 'Kiểm tra lại'}</button>{scheduleV4 && <details className="student-schedule-technical"><summary>Chi tiết kỹ thuật</summary><code>{loadIssue.issueCode}</code></details>}</div>}
       {!loading && !loadIssue && data && !data.linked && <div className="student-schedule-state is-warning"><Link2 size={28} /><strong>Chưa liên kết hồ sơ học viên</strong><span>{missingProfileDescription}</span></div>}
 
       {!loading && !loadIssue && data?.student && <>
         {attentionAlerts.length > 0 && <section className="student-attention-center" aria-label="Thông tin bạn cần lưu ý">
           <header><span><AlertCircle size={19} /></span><div><small>AURA NHẮC BẠN</small><h2>{attentionAlerts.length} việc cần lưu ý</h2></div></header>
           <div className="student-attention-center__rail">
-            {attentionAlerts.map((alert) => <button type="button" className={`is-${alert.severity}`} key={alert.key} onClick={() => {
+            {attentionAlerts.slice(0, scheduleV4 ? 3 : attentionAlerts.length).map((alert) => <button type="button" className={`is-${alert.severity}`} key={alert.key} onClick={() => {
               if (alert.action === 'availability') return onNavigate('student-availability')
               if (alert.contractId) setSelectedContractId(alert.contractId)
               setActiveTab('contract')
@@ -386,7 +399,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
           </div>
         </section>}
         <SessionFeedbackPrompt isDemo={isDemo} onSubmitted={() => setMessage('Đánh giá PT đã được gửi đến Aura.')} />
-        <section className="student-schedule-hero" aria-roledescription="carousel" aria-label="Tổng quan lịch học viên">
+        {scheduleV4 ? <section className="student-schedule-v4-header"><div><small>AURA · LỊCH TẬP</small><h1>Lịch của bạn</h1><p>{weekSessions.length ? `${weekSessions.length} buổi trong tuần · ${weekCompletion}% đã hoàn thành` : 'Chưa có buổi tập trong tuần đang xem.'}</p></div><div><button type="button" onClick={() => onNavigate('student-availability')}><CalendarRange size={17} /> Lịch rảnh</button></div></section> : <section className="student-schedule-hero" aria-roledescription="carousel" aria-label="Tổng quan lịch học viên">
           <div
             ref={heroTrackRef}
             className="student-schedule-hero__track"
@@ -415,16 +428,20 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
             <div>{[0, 1, 2].map((index) => <button type="button" key={index} className={heroSlide === index ? 'active' : ''} aria-label={`Xem slide ${index + 1}`} aria-current={heroSlide === index ? 'true' : undefined} onClick={() => selectHeroSlide(index)} />)}</div>
             <button type="button" aria-label={heroSlide === 2 ? 'Quay lại slide đầu' : 'Slide tiếp theo'} onClick={() => selectHeroSlide(heroSlide === 2 ? 0 : heroSlide + 1)}><ChevronRight size={17} /></button>
           </footer>
-        </section>
+        </section>}
 
-        <nav className="student-schedule-tabs" aria-label="Nội dung lịch học viên">
+        {scheduleV4 ? <nav className="student-schedule-tabs student-schedule-tabs--v4" aria-label="Nội dung lịch học viên">
+          <button type="button" className={activeTab === 'this-week' || activeTab === 'next-week' ? 'active' : ''} onClick={() => selectWeek(weekOffset)}><CalendarDays size={16} /><span>Lịch</span></button>
+          <button type="button" className={activeTab === 'requests' ? 'active' : ''} onClick={() => setActiveTab('requests')}><ScrollText size={16} /><span>Yêu cầu</span>{pendingRequestCount > 0 && <i>{pendingRequestCount}</i>}</button>
+          <button type="button" className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}><History size={16} /><span>Lịch sử</span></button>
+        </nav> : <nav className="student-schedule-tabs" aria-label="Nội dung lịch học viên">
           <button type="button" className={activeTab === 'this-week' ? 'active' : ''} onClick={() => selectWeek(0)}><CalendarCheck size={16} /><span>Tuần này</span></button>
           <button type="button" className={activeTab === 'next-week' ? 'active' : ''} onClick={() => selectWeek(1)}><CalendarDays size={16} /><span>Tuần sau</span></button>
           <button type="button" onClick={() => onNavigate('student-availability')}><CalendarRange size={16} /><span>Lịch rảnh</span><ChevronRight size={14} /></button>
           <button type="button" className={activeTab === 'contract' ? 'active' : ''} onClick={() => setActiveTab('contract')}><WalletCards size={16} /><span>Hợp đồng</span>{contractAlerts.length > 0 && <i>{contractAlerts.length}</i>}</button>
           <button type="button" className={activeTab === 'requests' ? 'active' : ''} onClick={() => setActiveTab('requests')}><ScrollText size={16} /><span>Yêu cầu</span>{pendingRequestCount > 0 && <i>{pendingRequestCount}</i>}</button>
           <button type="button" className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}><History size={16} /><span>Lịch sử</span></button>
-        </nav>
+        </nav>}
 
         {(activeTab === 'this-week' || activeTab === 'next-week') && <section className="schedule-layout">
           <div className="calendar-panel card">
@@ -440,7 +457,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
               const matched = (data.student?.availableSlots ?? []).includes(slotIdForSession(session))
               return <article className={`timeline-event featured ${session.status}`} key={session.id}>
                 <div className="event-time"><strong>{session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}</strong><span>Buổi PT</span></div><div className="event-line"><i /></div>
-                <div className="event-detail"><div className="event-icon purple"><Dumbbell size={22} /></div><div><span>HUẤN LUYỆN CÁ NHÂN</span><h3>Buổi tập PT</h3><p><UserRound size={13} /> {session.trainerName}</p><em className={`pt-activity-status ${session.status}`}>{statusLabels[session.status] ?? session.status}</em><small className={matched ? 'student-classic-match is-linked' : 'student-classic-match needs-review'}>{matched ? <><Link2 size={12} /> Khớp lịch rảnh</> : <><AlertCircle size={12} /> Cần rà soát lịch rảnh</>}</small>{session.status === 'scheduled' && <button type="button" disabled={!canRequestSessionChange(session, changeDeadlineHours)} title={!canRequestSessionChange(session, changeDeadlineHours) ? `Đã qua hạn gửi trước ${changeDeadlineHours} giờ` : undefined} className="student-session-policy-action" onClick={() => setRequestSession(session)}>{canRequestSessionChange(session, changeDeadlineHours) ? 'Đổi / hủy buổi' : `Đã qua hạn ${changeDeadlineHours} giờ`}</button>}</div></div>
+                <div className="event-detail"><div className="event-icon purple"><Dumbbell size={22} /></div><div><span>HUẤN LUYỆN CÁ NHÂN</span><h3>Buổi tập PT</h3><p><UserRound size={13} /> {session.trainerName}</p><em className={`pt-activity-status ${session.status}`}>{statusLabels[session.status] ?? session.status}</em>{(!scheduleV4 || !matched) && <small className={matched ? 'student-classic-match is-linked' : 'student-classic-match needs-review'}>{matched ? <><Link2 size={12} /> Khớp lịch rảnh</> : <><AlertCircle size={12} /> Cần rà soát lịch rảnh</>}</small>}{session.status === 'scheduled' && <button type="button" disabled={!canRequestSessionChange(session, changeDeadlineHours)} title={!canRequestSessionChange(session, changeDeadlineHours) ? `Đã qua hạn gửi trước ${changeDeadlineHours} giờ` : undefined} className="student-session-policy-action" onClick={() => setRequestSession(session)}>{canRequestSessionChange(session, changeDeadlineHours) ? 'Đổi / hủy buổi' : `Đã qua hạn ${changeDeadlineHours} giờ`}</button>}</div></div>
               </article>
             }) : <div className="schedule-empty-inline"><CalendarDays size={28} /><h3>Chưa có lịch trong ngày này</h3><p>Khi vận hành xếp lịch, buổi tập sẽ xuất hiện tại đây.</p></div>}
           </div>
@@ -461,7 +478,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
         {message && <div className="student-schedule-message" role="status"><Check size={17} /> {message}</div>}
         {data.sessionsTruncated && <div className="student-schedule-state is-warning" role="status"><AlertCircle size={24} /><strong>Khoảng lịch có quá nhiều buổi tập</strong><span>Aura đang hiển thị 1.000 buổi đầu tiên. Hãy chuyển sang khoảng thời gian ngắn hơn để xem đầy đủ.</span></div>}
         {activeTab === 'contract' && <section className="student-contract-center">
-          <header><div><small>AURA · HỢP ĐỒNG & THANH TOÁN</small><h2>Gói tập của bạn</h2><p>Thông tin chỉ đọc, được đồng bộ từ hợp đồng và lịch thanh toán canonical của Aura.</p></div>{selectedContract && <span className={`is-${selectedContract.paymentStatus}`}>{selectedContract.outstandingAmount > 0 ? `Còn ${formatMoney(selectedContract.outstandingAmount)}` : 'Đã thanh toán'}</span>}</header>
+          <header><div><small>AURA · HỢP ĐỒNG & THANH TOÁN</small><h2>Gói tập của bạn</h2><p>Thông tin chỉ đọc, được đồng bộ từ hợp đồng và lịch thanh toán canonical của Aura.</p></div>{scheduleV4 ? <button type="button" className="student-contract-back" onClick={() => selectWeek(weekOffset)}><ChevronLeft size={16} /> Quay lại lịch</button> : selectedContract && <span className={`is-${selectedContract.paymentStatus}`}>{selectedContract.outstandingAmount > 0 ? `Còn ${formatMoney(selectedContract.outstandingAmount)}` : 'Đã thanh toán'}</span>}</header>
           {contracts.length > 0 ? <>
             <div className="student-contract-carousel" aria-label="Danh sách hợp đồng">
               {contracts.map((contract) => <button type="button" key={contract.id} className={`${selectedContract?.id === contract.id ? 'active' : ''} is-${contract.status}`} onClick={() => setSelectedContractId(contract.id)}>

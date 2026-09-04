@@ -1,0 +1,305 @@
+@font-face {
+  font-family: "Be Vietnam Pro";
+  src: url("/fonts/be-vietnam-pro-variable.woff2") format("woff2-variations");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  --aura-brand-pink: #ec2c76;
+  --aura-brand-orange: #ff7a45;
+  --aura-success: #14805e;
+  --aura-warning: #a65a16;
+  --aura-danger: #b82850;
+  --aura-info: #386bc1;
+  --aura-neutral-950: #19161a;
+  --aura-neutral-700: #5f5961;
+  --aura-neutral-500: #817982;
+  --aura-neutral-300: #d9d3da;
+  --aura-neutral-150: #ece8ec;
+  --aura-neutral-75: #f7f4f6;
+  --aura-radius-xs: 8px;
+  --aura-radius-sm: 12px;
+  --aura-radius-md: 16px;
+  --aura-radius-lg: 20px;
+  --radius-sm: var(--aura-radius-sm);
+  --radius-md: var(--aura-radius-md);
+  --radius-lg: var(--aura-radius-lg);
+  --nutrition-green: var(--aura-success);
+  --nutrition-green-dark: #0e664a;
+  --nutrition-green-soft: #e9f5f0;
+  --aura-font: "Be Vietnam Pro", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+html,
+body,
+button,
+input,
+textarea,
+select { font-family: var(--aura-font); }
+
+.aura-button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: var(--aura-radius-sm);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.aura-button--primary { color: #fff; background: var(--aura-brand-pink); }
+.aura-button--secondary { color: var(--aura-neutral-950); border-color: var(--aura-neutral-300); background: #fff; }
+.aura-button--ghost { color: var(--aura-neutral-700); background: transparent; }
+.aura-button.aura-tone--success { background: var(--aura-success); }
+.aura-button.aura-tone--warning { background: var(--aura-warning); }
+.aura-button.aura-tone--danger { background: var(--aura-danger); }
+.aura-button.aura-tone--info { background: var(--aura-info); }
+.aura-button:disabled { cursor: not-allowed; opacity: .48; }
+
+.aura-badge {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: var(--aura-neutral-700);
+  background: var(--aura-neutral-75);
+  font-size: 12px;
+  font-weight: 700;
+}
+.aura-badge.aura-tone--success { color: var(--aura-success); background: #e9f5f0; }
+.aura-badge.aura-tone--warning { color: var(--aura-warning); background: #fff2e4; }
+.aura-badge.aura-tone--danger { color: var(--aura-danger); background: #fff0f4; }
+.aura-badge.aura-tone--info { color: var(--aura-info); background: #edf3ff; }
+.aura-badge.aura-tone--brand { color: var(--aura-brand-pink); background: #fff0f6; }
+
+.aura-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--aura-radius-md);
+  background: var(--aura-neutral-75);
+}
+.aura-tabs > button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 14px;
+  border-radius: var(--aura-radius-sm);
+  color: var(--aura-neutral-700);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 750;
+}
+.aura-tabs > button.is-active { color: var(--aura-neutral-950); background: #fff; box-shadow: 0 2px 8px rgba(25, 22, 26, .08); }
+
+.aura-modal-layer { position: fixed; z-index: 260; inset: 0; display: grid; }
+.aura-modal-backdrop { position: absolute; inset: 0; border: 0; background: rgba(25, 22, 26, .5); backdrop-filter: blur(3px); }
+.aura-sheet,
+.aura-dialog { position: relative; width: min(100% - 24px, 560px); max-height: min(86dvh, 760px); display: flex; flex-direction: column; overflow: hidden; margin: auto; border: 1px solid var(--aura-neutral-150); border-radius: var(--aura-radius-lg); background: #fff; box-shadow: 0 24px 70px rgba(25, 22, 26, .22); }
+.aura-sheet { align-self: end; width: min(100%, 620px); margin-bottom: 0; border-radius: var(--aura-radius-lg) var(--aura-radius-lg) 0 0; }
+.aura-sheet > header,
+.aura-dialog > header { min-height: 68px; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 20px 14px; border-bottom: 1px solid var(--aura-neutral-150); }
+.aura-sheet h2,
+.aura-dialog h2 { margin: 0; font-size: 18px; line-height: 1.3; }
+.aura-sheet header p,
+.aura-dialog header p { margin: 4px 0 0; color: var(--aura-neutral-700); font-size: 12px; }
+.aura-modal-close { width: 44px; height: 44px; display: grid; flex: 0 0 44px; place-items: center; border-radius: var(--aura-radius-sm); color: var(--aura-neutral-700); background: var(--aura-neutral-75); }
+.aura-sheet__body,
+.aura-dialog__body { overflow: auto; padding: 18px 20px; overscroll-behavior: contain; }
+.aura-sheet__footer,
+.aura-dialog__footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px calc(14px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--aura-neutral-150); }
+
+.aura-state { min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 24px; color: var(--aura-neutral-700); text-align: center; }
+.aura-state > svg { width: 25px; height: 25px; color: var(--aura-brand-pink); }
+.aura-state > strong { color: var(--aura-neutral-950); font-size: 14px; }
+.aura-state > span { max-width: 42ch; font-size: 12px; }
+.aura-state--loading > svg { animation: aura-v4-spin .8s linear infinite; }
+.aura-state--error > svg { color: var(--aura-danger); }
+@keyframes aura-v4-spin { to { transform: rotate(360deg); } }
+
+/* V4 surfaces opt into one shared visual language while legacy screens keep
+   their compatibility tokens until their rollout flag is enabled. */
+.aura-ui-v4-surface { color: var(--aura-neutral-950); }
+.aura-ui-v4-member { --aura-surface-gap: 18px; --aura-surface-padding: clamp(16px, 3vw, 32px); }
+.aura-ui-v4-operations { --aura-surface-gap: 12px; --aura-surface-padding: clamp(14px, 2vw, 26px); }
+.aura-ui-v4-surface :where(p, span, small, button, a, label, input, select, textarea, dt, dd, time, em) { font-size: max(12px, 1em); }
+.aura-ui-v4-surface :where(.card, article, section) { scroll-margin-bottom: calc(var(--shell-mobile-dock-height, 80px) + 24px); }
+
+.aura-mobile-more__workspaces { display: flex; gap: 7px; overflow-x: auto; padding: 2px 0 14px; }
+.aura-mobile-more__workspaces button { min-width: max-content; min-height: 42px; display: inline-flex; align-items: center; gap: 7px; padding: 0 13px; border: 1px solid var(--aura-neutral-300); border-radius: var(--aura-radius-sm); color: var(--aura-neutral-700); background: #fff; font-size: 12px; font-weight: 750; }
+.aura-mobile-more__workspaces button.is-active { color: #fff; border-color: var(--aura-brand-pink); background: var(--aura-brand-pink); }
+.aura-mobile-more__routes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.aura-mobile-more__routes > button { min-height: 58px; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 8px 10px; border: 1px solid var(--aura-neutral-150); border-radius: var(--aura-radius-sm); color: var(--aura-neutral-950); background: #fff; text-align: left; }
+.aura-mobile-more__routes > button > span { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; color: var(--aura-brand-pink); background: #fff0f6; }
+.aura-mobile-more__routes strong { overflow: hidden; font-size: 12px; line-height: 1.3; text-overflow: ellipsis; }
+.aura-mobile-more__routes > button > svg { color: var(--aura-neutral-500); }
+.aura-mobile-more__signout { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 14px; border-radius: var(--aura-radius-sm); color: var(--aura-danger); background: #fff0f4; font-size: 12px; font-weight: 750; }
+
+.home-page--v4 { display: grid; gap: 18px; }
+.home-page--v4 .home-v3-week { margin: 0; border-radius: 16px; box-shadow: 0 3px 14px rgba(25,22,26,.05); }
+.home-v4-milestone { overflow: hidden; margin: 0; border: 1px solid var(--aura-neutral-150); border-radius: 16px; background: #fff; }
+.home-v4-milestone > summary { min-height: 68px; display: grid; grid-template-columns: 40px minmax(0,1fr) auto; align-items: center; gap: 11px; padding: 12px 16px; cursor: pointer; list-style: none; }
+.home-v4-milestone > summary::-webkit-details-marker { display: none; }
+.home-v4-milestone > summary > span { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; color: var(--aura-brand-orange); background: #fff2eb; }
+.home-v4-milestone > summary div { min-width: 0; display: grid; gap: 2px; }
+.home-v4-milestone > summary small { color: var(--aura-neutral-500); font-size: 10px; font-weight: 800; letter-spacing: .06em; }
+.home-v4-milestone > summary strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.home-v4-milestone > summary b { color: var(--aura-brand-pink); font-size: 12px; }
+.home-v4-milestone > .home-v3-milestone { margin: 0; border: 0; border-top: 1px solid var(--aura-neutral-150); border-radius: 0; box-shadow: none; }
+
+.student-schedule-page--v4 { display: grid; gap: 14px; }
+.student-schedule-v4-header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; border: 1px solid var(--aura-neutral-150); border-radius: 16px; background: #fff; }
+.student-schedule-v4-header small { color: var(--aura-brand-pink); font-size: 10px; font-weight: 850; letter-spacing: .08em; }
+.student-schedule-v4-header h1 { margin: 3px 0; font-size: clamp(24px, 4vw, 34px); line-height: 1.15; }
+.student-schedule-v4-header p { margin: 0; color: var(--aura-neutral-700); font-size: 12px; }
+.student-schedule-v4-header > div:last-child { display: flex; gap: 8px; }
+.student-schedule-v4-header button { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 13px; border: 1px solid var(--aura-neutral-300); border-radius: 12px; color: var(--aura-neutral-950); background: #fff; font-size: 12px; font-weight: 750; }
+.student-schedule-page--v4 .student-contract-back { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 13px; border: 1px solid var(--aura-neutral-300); border-radius: 12px; color: var(--aura-neutral-950); background: #fff; font-size: 12px; font-weight: 750; }
+.student-schedule-page--v4 .student-schedule-tabs--v4 { width: min(100%, 520px); display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); margin: 0; padding: 4px; border: 0; border-radius: 14px; background: var(--aura-neutral-75); }
+.student-schedule-page--v4 .student-schedule-tabs--v4 button { min-width: 0; min-height: 44px; border-radius: 11px; font-size: 12px; }
+.student-schedule-page--v4 .student-schedule-tabs--v4 button.active { background: #fff; box-shadow: 0 2px 8px rgba(25,22,26,.08); }
+.student-schedule-page--v4 .calendar-panel,
+.student-schedule-page--v4 .schedule-side > article { border-radius: 16px; box-shadow: 0 3px 14px rgba(25,22,26,.045); }
+.student-schedule-page--v4 .calendar-header { min-height: 58px; }
+.student-schedule-page--v4 .calendar-header > button { width: 44px; height: 44px; }
+.student-schedule-technical { width: 100%; margin-top: 8px; padding-top: 8px; border-top: 1px solid currentColor; opacity: .8; }
+.student-schedule-technical summary { cursor: pointer; font-size: 12px; font-weight: 750; }
+.student-schedule-technical code { display: block; margin-top: 6px; font-size: 12px; }
+
+@media (max-width: 600px) {
+  .student-schedule-v4-header { align-items: stretch; flex-direction: column; padding: 16px; }
+  .student-schedule-v4-header > div:last-child { display: grid; grid-template-columns: 1fr; }
+  .student-schedule-v4-header button { justify-content: center; }
+}
+
+.student-availability-page--v4 { display: grid; gap: 14px; }
+.student-availability-v4-header { min-height: 88px; display: grid; grid-template-columns: 44px minmax(0,1fr) auto; align-items: center; gap: 12px; padding: 14px 18px; border: 1px solid var(--aura-neutral-150); border-radius: 16px; background: #fff; }
+.student-availability-v4-header > button { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; color: var(--aura-neutral-950); background: var(--aura-neutral-75); }
+.student-availability-v4-header > div { min-width: 0; }
+.student-availability-v4-header > div small { color: var(--aura-brand-pink); font-size: 10px; font-weight: 850; letter-spacing: .08em; }
+.student-availability-v4-header h1 { margin: 2px 0; font-size: clamp(22px, 4vw, 30px); line-height: 1.2; }
+.student-availability-v4-header p { margin: 0; color: var(--aura-neutral-700); font-size: 12px; }
+.student-availability-v4-header > span { display: grid; justify-items: end; }
+.student-availability-v4-header > span strong { color: var(--aura-success); font-size: 20px; }
+.student-availability-v4-header > span small { color: var(--aura-neutral-500); font-size: 10px; }
+.student-availability-page--v4 .student-availability-card { border-radius: 16px; box-shadow: 0 3px 14px rgba(25,22,26,.045); }
+.student-availability-week-control { min-height: 64px; display: grid; grid-template-columns: 44px minmax(0,1fr) 44px; align-items: center; gap: 10px; margin: 0 18px 14px; padding: 8px; border-radius: 14px; background: var(--aura-neutral-75); }
+.student-availability-week-control > button { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid var(--aura-neutral-150); border-radius: 12px; color: var(--aura-neutral-950); background: #fff; }
+.student-availability-week-control > button:disabled { opacity: .35; }
+.student-availability-week-control > div { display: grid; justify-items: center; gap: 2px; }
+.student-availability-week-control strong { font-size: 13px; }
+.student-availability-week-control span { color: var(--aura-neutral-700); font-size: 11px; }
+.student-availability-page--v4 .student-availability-card > footer { position: sticky; z-index: 5; bottom: calc(var(--shell-mobile-dock-height, 80px) + env(safe-area-inset-bottom, 0px) + 8px); border-radius: 14px; background: rgba(255,255,255,.97); box-shadow: 0 -8px 24px rgba(25,22,26,.09); backdrop-filter: blur(14px); }
+
+@media (max-width: 520px) {
+  .student-availability-v4-header { grid-template-columns: 44px minmax(0,1fr); padding: 12px; }
+  .student-availability-v4-header > span { grid-column: 2; justify-items: start; grid-auto-flow: column; gap: 6px; }
+  .student-availability-v4-header > span strong { font-size: 15px; }
+}
+
+.student360-page--v4 { --student360-ink: var(--aura-neutral-950); --student360-muted: var(--aura-neutral-700); background: var(--aura-neutral-75); }
+.student360-page--v4 :where(p, span, small, button, a, dt, dd, time, em) { font-size: max(12px, 1em); }
+.student360-page--v4 .student360-header { background: #fff; box-shadow: none; }
+.student360-page--v4 .student360-header__bar { min-height: 78px; padding-block: 10px; }
+.student360-page--v4 .student360-avatar { border-radius: 14px; }
+.student360-page--v4 .student360-status-row { min-height: 42px; padding-block: 7px; background: #fff; }
+.student360-page--v4 .student360-metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 0; margin: 12px auto; overflow: hidden; border: 1px solid var(--aura-neutral-150); border-radius: 16px; background: #fff; box-shadow: none; }
+.student360-page--v4 .student360-metric { min-height: 78px; padding: 13px 16px; border: 0; border-right: 1px solid var(--aura-neutral-150); border-radius: 0; background: #fff; box-shadow: none; }
+.student360-page--v4 .student360-metric:last-child { border-right: 0; }
+.student360-page--v4 .student360-metric strong { font-size: clamp(20px, 2.5vw, 28px); }
+.student360-page--v4 .student360-content { padding-top: 14px; }
+.student360-page--v4 .student360-overview-grid { grid-template-columns: minmax(0, 64fr) minmax(290px, 36fr); }
+.student360-page--v4 .student360-v4-priority { grid-column: 1 / -1; }
+.student360-page--v4 .student360-v4-priority > .student360-card { margin: 0; }
+.student360-page--v4 .student360-v4-priority .student360-actions { grid-template-columns: repeat(3, minmax(0,1fr)); }
+.student360-page--v4 .student360-card { border-radius: 16px; box-shadow: 0 3px 14px rgba(25,22,26,.045); }
+.student360-page--v4 .student360-card::before { content: none; }
+.student360-page--v4 .student360-score-ring { background: conic-gradient(var(--aura-success) var(--score), var(--aura-neutral-150) 0); }
+.student360-page--v4 .student360-tabs button { min-height: 44px; }
+.student360-page--v4 .student360-attendance-chart--wide { min-height: 150px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.student360-page--v4 .student360-attendance-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.student360-page--v4 .student360-attendance-summary > span { display: grid; gap: 3px; padding: 11px 12px; border-radius: 12px; background: var(--aura-neutral-75); }
+.student360-page--v4 .student360-attendance-summary strong { font-size: 15px; }
+.student360-page--v4 .student360-attendance-summary small { color: var(--aura-neutral-700); font-size: 12px; }
+
+@media (max-width: 760px) {
+  .student360-page--v4 .student360-overview-grid { grid-template-columns: 1fr; }
+  .student360-page--v4 .student360-v4-priority .student360-actions { grid-template-columns: 1fr; }
+  .student360-page--v4 .student360-metrics { width: auto; grid-template-columns: repeat(2, minmax(0,1fr)); margin-inline: 12px; }
+  .student360-page--v4 .student360-metric:nth-child(2) { border-right: 0; }
+  .student360-page--v4 .student360-metric:nth-child(-n+2) { border-bottom: 1px solid var(--aura-neutral-150); }
+  .student360-page--v4 .student360-content { padding-inline: 12px; }
+  .student360-page--v4 .student360-attendance-summary { grid-template-columns: 1fr 1fr; }
+  .student360-page--v4 .student360-attendance-summary > span:last-child { grid-column: 1 / -1; }
+}
+
+.admin-dashboard--v4 { display: grid; gap: 14px; background: transparent; }
+.admin-dashboard--v4 :where(.admin-dashboard__tasks, .admin-dashboard__attendance, .admin-dashboard__payroll, .admin-dashboard__receivables, .admin-dashboard__chart-card) { border-radius: 16px; background: #fff; box-shadow: 0 3px 14px rgba(25,22,26,.045); }
+.admin-dashboard--v4 .aura-metric-carousel__slide { color: var(--aura-neutral-950); border: 1px solid var(--aura-neutral-150); border-radius: 16px; background: #fff; box-shadow: 0 3px 14px rgba(25,22,26,.045); }
+.admin-dashboard--v4 .aura-metric-carousel__slide::before,
+.admin-dashboard--v4 .aura-metric-carousel__slide::after { content: none; }
+.admin-dashboard--v4 .aura-metric-carousel__icon { color: var(--aura-brand-pink); border: 0; background: #fff0f6; }
+.admin-dashboard--v4 .aura-metric-carousel__number,
+.admin-dashboard--v4 .aura-metric-carousel__eyebrow,
+.admin-dashboard--v4 .aura-metric-carousel__slide small { color: var(--aura-neutral-700); }
+.admin-dashboard--v4 .aura-metric-carousel__action { color: var(--aura-brand-pink); }
+.admin-dashboard.admin-dashboard--v4 > .admin-dashboard__syncbar { order: -10; border-radius: 16px; background: #fff; }
+.admin-dashboard.admin-dashboard--v4 > .aura-metric-carousel { order: -6; }
+.admin-dashboard.admin-dashboard--v4 > .admin-dashboard__main-grid { order: -8; }
+.admin-dashboard.admin-dashboard--v4 > .admin-dashboard__payroll { order: -5; }
+.admin-dashboard.admin-dashboard--v4 > .admin-dashboard__receivables { order: -4; }
+.admin-dashboard.admin-dashboard--v4 > .admin-dashboard__analytics { order: -3; }
+.admin-dashboard__shortcuts--collapsed { order: 10; overflow: hidden; border: 1px solid var(--aura-neutral-150); border-radius: 16px; background: #fff; }
+.admin-dashboard__shortcuts--collapsed > summary { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; cursor: pointer; list-style: none; }
+.admin-dashboard__shortcuts--collapsed > summary::-webkit-details-marker { display: none; }
+.admin-dashboard__shortcuts--collapsed > summary > span { display: grid; gap: 2px; }
+.admin-dashboard__shortcuts--collapsed > summary small { color: var(--aura-neutral-500); font-size: 10px; font-weight: 850; letter-spacing: .07em; }
+.admin-dashboard__shortcuts--collapsed > summary strong { font-size: 13px; }
+.admin-dashboard__shortcuts--collapsed[open] > summary > svg { transform: rotate(90deg); }
+.admin-dashboard__shortcuts--collapsed > div { padding: 0 14px 14px; }
+
+@media (min-width: 900px) {
+  .admin-dashboard--v4 .aura-metric-carousel__viewport { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); grid-auto-columns: unset; overflow: visible; }
+  .admin-dashboard--v4 .aura-metric-carousel__slide { min-width: 0; }
+}
+
+@media (max-width: 767px) {
+  .aura-sheet { max-height: min(88dvh, 780px); }
+  .aura-sheet__body { padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px)); }
+  .app-shell.aura-ui-v4-shell :is(.student-mobile-nav, .admin-mobile-nav) { grid-template-columns: repeat(5, minmax(44px, 1fr)); }
+  .app-shell.aura-ui-v4-shell :is(.student-mobile-nav, .admin-mobile-nav) button { min-width: 44px; min-height: 60px; font-size: 12px; letter-spacing: -.35px; }
+}
+
+@media (max-width: 359px) {
+  .aura-mobile-more__routes { grid-template-columns: 1fr; }
+  .app-shell.aura-ui-v4-shell :is(.student-mobile-nav, .admin-mobile-nav) button { font-size: 12px; letter-spacing: -.55px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-state--loading > svg { animation: none; }
+  .aura-modal-layer,
+  .aura-sheet,
+  .aura-dialog { scroll-behavior: auto; }
+}
+
+/* Readability floor for V4 content. Large values use heading/strong elements,
+   while explanatory copy, controls and status labels never drop below 12px. */
+.home-page--v4 :where(p, span, small, button, a, time, em),
+.student-schedule-page--v4 :where(p, span, small, button, a, time, em, code),
+.student-availability-page--v4 :where(p, span, small, button, a, time, em, code),
+.student360-page--v4 :where(p, span, small, button, a, dt, dd, time, em),
+.admin-dashboard--v4 :where(p, span, small, button, a, label, select, input, em, td, th),
+.nutrition-page--v4 :where(p, small, button, a, label, time, em, li),
+.nutrition-page--v4 :where(.day-name, .day-number-circle, .macro-card-info > span, .burned-subtitle, .nutrition-meal-rhythm__heading span, .nutrition-confidence, .nutrition-diary-event__meta > span:first-child, .nutrition-plan-week button span, .nutrition-plan-meal__content > span, .nutrition-insights-metric > span, .ask-aura__context > span) {
+  font-size: 12px !important;
+}

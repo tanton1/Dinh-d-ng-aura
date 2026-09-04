@@ -1,7 +1,7 @@
 import '../../styles-admin.css'
 import './push/AdminNotificationsPage.css'
 import { useCallback, useEffect, useState } from 'react'
-import { Activity, History, Send, SlidersHorizontal } from 'lucide-react'
+import { Activity, FlaskConical, History, Send, SlidersHorizontal } from 'lucide-react'
 import { PageHeader } from '../../components/ui'
 import type {
   AdminUserRecord,
@@ -37,15 +37,20 @@ import {
   type PushAdminTab,
   type PushComposerDraft,
 } from './push/pushTypes'
+import { UiRolloutPanel } from './push/UiRolloutPanel'
 
 interface AdminNotificationsPageProps {
   onNavigate?: (view: ViewId) => void
   users?: AdminUserRecord[]
   currentUserUid?: string
+  canManageUiRollout?: boolean
+  backendMode?: 'demo' | 'firebase'
 }
 
+type AdminSettingsTab = PushAdminTab | 'ui-rollout'
+
 const TABS: Array<{
-  id: PushAdminTab
+  id: AdminSettingsTab
   label: string
   shortLabel: string
   icon: typeof Activity
@@ -54,6 +59,7 @@ const TABS: Array<{
   { id: 'compose', label: 'Gửi thông báo', shortLabel: 'Gửi', icon: Send },
   { id: 'automation', label: 'Tự động hóa', shortLabel: 'Tự động', icon: SlidersHorizontal },
   { id: 'history', label: 'Lịch sử', shortLabel: 'Lịch sử', icon: History },
+  { id: 'ui-rollout', label: 'Giao diện 4.0', shortLabel: 'UI 4.0', icon: FlaskConical },
 ]
 
 function initialPermission(): NotificationPermission | 'unsupported' {
@@ -85,8 +91,10 @@ function audienceFromTemplate(template: PushTemplate): PushComposerDraft['audien
 export default function AdminNotificationsPage({
   users = [],
   currentUserUid,
+  canManageUiRollout = false,
+  backendMode = 'firebase',
 }: AdminNotificationsPageProps) {
-  const [activeTab, setActiveTab] = useState<PushAdminTab>('overview')
+  const [activeTab, setActiveTab] = useState<AdminSettingsTab>('overview')
   const [settings, setSettings] = useState<SystemPushSettings>({
     ...DEFAULT_PUSH_SETTINGS,
     mealReminderTimes: { ...DEFAULT_PUSH_SETTINGS.mealReminderTimes },
@@ -450,6 +458,9 @@ export default function AdminNotificationsPage({
             loading={loading}
             onReuse={reuseBroadcast}
           />
+        )}
+        {activeTab === 'ui-rollout' && (
+          <UiRolloutPanel users={users} currentUserUid={currentUserUid} canManage={canManageUiRollout} demo={backendMode === 'demo'} />
         )}
       </section>
 

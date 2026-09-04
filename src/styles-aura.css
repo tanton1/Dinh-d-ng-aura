@@ -487,9 +487,9 @@ body.shell-overlay-open { overflow: hidden; }
 .app-shell .nutrition-page {
   --nutrition-purple: var(--aura-pink);
   --nutrition-purple-dark: var(--aura-pink-dark);
-  --nutrition-green: var(--aura-pink);
-  --nutrition-green-dark: var(--aura-pink-dark);
-  --nutrition-green-soft: var(--aura-pink-soft);
+  --nutrition-green: #14805e;
+  --nutrition-green-dark: #0e664a;
+  --nutrition-green-soft: #e9f5f0;
 }
 
 .app-shell .nutrition-workspace {

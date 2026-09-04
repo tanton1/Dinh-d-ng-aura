@@ -360,8 +360,8 @@
   --nutrition-ink: var(--ink, #172033);
   --nutrition-muted: var(--muted, #667085);
   --nutrition-line: var(--line, #e4e7ec);
-  --nutrition-green: var(--purple, #ec4899);
-  --nutrition-green-soft: var(--purple-soft, #eef2ff);
+  --nutrition-green: #14805e;
+  --nutrition-green-soft: #e9f5f0;
   position: relative;
   min-height: calc(100vh - 76px);
   overflow: hidden;
@@ -421,8 +421,8 @@
   --nutrition-ink: #17211d;
   --nutrition-muted: #6e7873;
   --nutrition-line: #e5eae7;
-  --nutrition-green: #ec4899;
-  --nutrition-green-soft: #fdf2f8;
+  --nutrition-green: #14805e;
+  --nutrition-green-soft: #e9f5f0;
   --gradient-primary: linear-gradient(135deg, #ec4899 0%, #fb923c 100%);
   --gradient-primary-soft: linear-gradient(135deg, #fce7f3 0%, #ffedd5 100%);
   position: fixed;

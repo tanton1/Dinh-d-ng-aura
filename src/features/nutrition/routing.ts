@@ -1,10 +1,10 @@
 import type { NutritionWorkspaceSection } from '../../pages/student/NutritionWorkspace'
 
-export type NutritionRouteSection = 'today' | 'diary' | 'scan' | 'catalog' | 'plan' | 'insights' | 'assistant' | 'profile'
+export type NutritionRouteSection = 'today' | 'diary' | 'scan' | 'catalog' | 'plan' | 'explore' | 'insights' | 'assistant' | 'profile'
 export type NutritionPrimarySection = Extract<NutritionRouteSection, NutritionWorkspaceSection>
 export type NutritionAssistantIntent = 'hydration' | 'protein' | 'carbs' | 'fat' | 'fiber' | 'sugar' | 'sodium' | 'workout' | 'allergy' | 'next-meal' | 'energy' | 'getting-started' | 'general'
 
-const nutritionRouteSections = new Set<NutritionRouteSection>(['today', 'diary', 'scan', 'catalog', 'plan', 'insights', 'assistant', 'profile'])
+const nutritionRouteSections = new Set<NutritionRouteSection>(['today', 'diary', 'scan', 'catalog', 'plan', 'explore', 'insights', 'assistant', 'profile'])
 
 export function nutritionFoodIdFromHash() {
   const query = window.location.hash.split('?')[1] ?? ''
@@ -13,16 +13,28 @@ export function nutritionFoodIdFromHash() {
 
 export function nutritionSectionFromHash(): NutritionRouteSection {
   const query = window.location.hash.split('?')[1] ?? ''
-  const rawSection = new URLSearchParams(query).get('section')
+  const params = new URLSearchParams(query)
+  const rawSection = params.get('section')
+  if (rawSection === 'explore') {
+    const view = params.get('view')
+    if (view === 'catalog') return 'catalog'
+    if (view === 'insights') return 'insights'
+    return 'explore'
+  }
   return nutritionRouteSections.has(rawSection as NutritionRouteSection) ? rawSection as NutritionRouteSection : 'today'
 }
 
-export function nutritionSectionHash(section: NutritionRouteSection) {
+export function nutritionSectionHash(section: NutritionRouteSection, v4 = false) {
+  if (v4 && (section === 'catalog' || section === 'insights')) return `#/nutrition?section=explore&view=${section}`
   return section === 'today' ? '#/nutrition' : `#/nutrition?section=${section}`
 }
 
+export function nutritionFoodDetailHash(foodId: string, v4 = false) {
+  return `${nutritionSectionHash('catalog', v4)}&foodId=${encodeURIComponent(foodId)}`
+}
+
 export function toWorkspaceSection(section: NutritionRouteSection): NutritionWorkspaceSection {
-  return section === 'diary' || section === 'catalog' || section === 'plan' || section === 'insights' ? section : 'today'
+  return section === 'diary' || section === 'catalog' || section === 'plan' || section === 'explore' || section === 'insights' ? section : 'today'
 }
 
 export function toLocalDateKey(date: Date) {

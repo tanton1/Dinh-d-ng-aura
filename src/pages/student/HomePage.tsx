@@ -24,6 +24,7 @@ import {
   subscribeToUserWaterLogsForDate,
 } from '../../services/firebaseService'
 import type { NutritionProfileDraft } from './NutritionPage'
+import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
 
 interface DailyPulseMeal {
   id?: string
@@ -92,6 +93,7 @@ export default function HomePage({
   ownerId = 'demo',
   nutritionProfile,
 }: HomePageProps) {
+  const homeV4 = useAuraUiSurface('member-home')
   const now = new Date()
   const firstName = displayName.trim().split(/\s+/).slice(-1)[0] || 'bạn'
   const todayDateId = toLocalDateKey(now)
@@ -522,8 +524,22 @@ export default function HomePage({
     }
   }
 
+  const milestoneContent = <>
+    <span className="home-v3-milestone__icon"><Trophy size={24} /></span>
+    <div className="home-v3-milestone__copy">
+      <span>DẤU MỐC TIẾP THEO</span>
+      <h2 id="home-milestone-title">{nextMilestone.title}</h2>
+      <p>{nextMilestone.detail}</p>
+    </div>
+    <div className="home-v3-milestone__progress">
+      <span><i style={{ width: `${nextMilestone.progress}%` }} /></span>
+      <strong>{nextMilestone.label}</strong>
+    </div>
+    <button type="button" onClick={() => onNavigate('progress')}>Xem hành trình tiến độ <ArrowRight size={18} /></button>
+  </>
+
   return (
-    <div className="page home-page">
+    <div className={`page home-page${homeV4 ? ' aura-ui-v4-surface aura-ui-v4-member home-page--v4' : ''}`}>
       <AuraTodayFlow
         firstName={firstName}
         streak={streak}
@@ -606,19 +622,7 @@ export default function HomePage({
         )}
       </section>
 
-      <section className="home-v3-milestone" aria-labelledby="home-milestone-title">
-          <span className="home-v3-milestone__icon"><Trophy size={24} /></span>
-          <div className="home-v3-milestone__copy">
-            <span>DẤU MỐC TIẾP THEO</span>
-            <h2 id="home-milestone-title">{nextMilestone.title}</h2>
-            <p>{nextMilestone.detail}</p>
-          </div>
-          <div className="home-v3-milestone__progress">
-            <span><i style={{ width: `${nextMilestone.progress}%` }} /></span>
-            <strong>{nextMilestone.label}</strong>
-          </div>
-          <button type="button" onClick={() => onNavigate('progress')}>Xem hành trình tiến độ <ArrowRight size={18} /></button>
-      </section>
+      {homeV4 ? <details className="home-v4-milestone" aria-labelledby="home-milestone-title"><summary><span><Trophy size={19} /></span><div><small>THÀNH TÍCH & ĐỘNG LỰC</small><strong>{nextMilestone.title}</strong></div><b>{nextMilestone.label}</b></summary><div className="home-v3-milestone">{milestoneContent}</div></details> : <section className="home-v3-milestone" aria-labelledby="home-milestone-title">{milestoneContent}</section>}
     </div>
   )
 }
