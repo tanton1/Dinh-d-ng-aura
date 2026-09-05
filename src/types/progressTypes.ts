@@ -23,6 +23,8 @@ export interface BodyMeasurements {
   hipsCm?: number
   thighCm?: number
   armCm?: number
+  /** Optional context recorded with the measurement, never used as a diagnosis. */
+  measurementNote?: string
   updatedAt: string
 }
 

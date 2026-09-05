@@ -432,6 +432,7 @@ export default function ProgressPage({
   }
 
   const userProfile = nutritionProfile
+  const isFemale = userProfile?.biologicalSex === 'female'
 
   // Get actual weight in the last 30 days based on weight history of this user
   const actual30DayWeight = useMemo(() => {
@@ -840,10 +841,9 @@ export default function ProgressPage({
         onOpenCoach={() => setCoachSheetOpen(true)}
       />
 
-      {/* Overview & Specific Tabs Content */}
-      {(category === 'overview' || category === 'body') && (
+      {/* Overview: one scan-friendly summary. Heavy charts, photos and AI stay in their own tabs. */}
+      {category === 'overview' && (
         <>
-          {/* Hero Score Card */}
           <WeeklyScoreCard
             scoreResult={progressScore}
             maxScore={100}
@@ -854,16 +854,14 @@ export default function ProgressPage({
             streakDays={streak}
             insightText={
               progressScore.total >= 85 ? (
-                <><strong style={{ color: '#10b981' }}>Tiến độ xuất sắc!</strong> Bạn đang duy trì kỷ luật và thói quen rất tốt.</>
+                <><strong style={{ color: '#14805e' }}>Tiến độ xuất sắc!</strong> Bạn đang duy trì kỷ luật và thói quen rất tốt.</>
               ) : progressScore.total >= 60 ? (
-                <><strong style={{ color: '#f59e0b' }}>Tiến độ ổn định.</strong> Hãy tiếp tục bổ sung thông tin đều đặn nhé!</>
+                <><strong style={{ color: '#a65a16' }}>Tiến độ ổn định.</strong> Hãy tiếp tục bổ sung thông tin đều đặn nhé!</>
               ) : (
-                <><strong style={{ color: '#ef4444' }}>Cần thêm dữ liệu.</strong> Hãy ghi nhận dinh dưỡng và vận động đầy đủ để theo dõi tốt hơn!</>
+                <><strong style={{ color: '#b82850' }}>Cần thêm dữ liệu.</strong> Hãy ghi nhận dinh dưỡng và vận động đầy đủ để theo dõi tốt hơn!</>
               )
             }
           />
-
-          {/* Daily Actions Checklist */}
           <DailyActionsCard
             todayMealCount={todayMealsCount}
             todayWaterMl={todayWaterMl}
@@ -876,30 +874,11 @@ export default function ProgressPage({
               else setQuickLogOpen(true)
             }}
           />
-
-          {/* Weight Summary & Weight Chart Grid */}
-          <div className="pg-weight-grid">
-            <WeightTrackerCard
-              currentWeightKg={currentWeight}
-              startWeightKg={startWeightKg}
-              goalWeightKg={goalWeightKg}
-              targetDateText={targetDateText}
-              onOpenLogWeight={() => setWeightModalOpen(true)}
-            />
-            <WeightChartCard records={weightRecords} goalWeightKg={goalWeightKg} />
+          <div className="pg-overview-weight">
+            <WeightTrackerCard currentWeightKg={currentWeight} startWeightKg={startWeightKg} goalWeightKg={goalWeightKg} targetDateText={targetDateText} onOpenLogWeight={() => setWeightModalOpen(true)} />
           </div>
-
-          {/* Body Metrics Card */}
-          <BodyMetricsCard
-            metrics={mergedBodyMetrics}
-            onOpenDetails={() => setMetricsModalOpen(true)}
-          />
-        </>
-      )}
-
-      {(category === 'overview' || category === 'nutrition') && (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 20 }}>
+          <BodyMetricsCard metrics={mergedBodyMetrics} heightCm={heightCm} isFemale={isFemale} onOpenDetails={() => setMetricsModalOpen(true)} />
+          <div className="pg-overview-nutrition">
             <NutritionProgressCard
               onOpenDetails={() => onNavigate?.('nutrition')}
               onLogMeal={() => onNavigate?.('nutrition')}
@@ -917,64 +896,68 @@ export default function ProgressPage({
               waterGoal={nutritionProgressData.waterGoal}
               activeDays={nutritionProgressData.activeDays}
             />
-            <EnergyBalanceCard
-              onOpenDetails={() => onNavigate?.('nutrition')}
-              onLogMeal={() => onNavigate?.('nutrition')}
-              onLogWorkout={() => onNavigate?.('pt-workout')}
-              intake={energyBalanceData.intake}
-              basal={energyBalanceData.basal}
-              dailyActivity={energyBalanceData.dailyActivity}
-              workout={energyBalanceData.workout}
-              thermicEffect={energyBalanceData.thermicEffect}
-              confidence={energyBalanceData.confidence}
-              goal={energyBalanceData.goal}
-              periodDays={energyBalanceData.periodDays}
-              totalPeriodDays={energyBalanceData.totalPeriodDays}
-              activeDays={energyBalanceData.activeDays}
-              workoutDays={energyBalanceData.workoutDays}
-            />
-          </div>
-          <div style={{ marginBottom: 20 }}>
-            <NutritionChartsCard mealLogs={allMeals} waterLogs={allWater} />
           </div>
         </>
       )}
 
-      {(category === 'overview' || category === 'workout' || category === 'body') && (
-        <ProgressPhotosCard 
-          ownerId={resolvedOwnerId} 
-          triggerAddPhoto={triggerPhotoUpload}
-          onAddPhotoTriggered={() => setTriggerPhotoUpload(false)}
-          onNavigateToStudio={() => onNavigate?.('progress-photo-studio')}
-        />
+      {category === 'body' && (
+        <>
+          <BodyMetricsCard metrics={mergedBodyMetrics} heightCm={heightCm} isFemale={isFemale} onOpenDetails={() => setMetricsModalOpen(true)} />
+          <div className="pg-weight-grid">
+            <WeightTrackerCard currentWeightKg={currentWeight} startWeightKg={startWeightKg} goalWeightKg={goalWeightKg} targetDateText={targetDateText} onOpenLogWeight={() => setWeightModalOpen(true)} />
+            <WeightChartCard records={weightRecords} goalWeightKg={goalWeightKg} />
+          </div>
+          <ProgressPhotosCard ownerId={resolvedOwnerId} triggerAddPhoto={triggerPhotoUpload} onAddPhotoTriggered={() => setTriggerPhotoUpload(false)} onNavigateToStudio={() => onNavigate?.('progress-photo-studio')} />
+        </>
       )}
 
-      {(category === 'overview' || category === 'achievements') && (
-        <StreaksAndBadgesCard ownerId={resolvedOwnerId} progressItems={progressItems} />
+      {category === 'nutrition' && (
+        <>
+          <div className="pg-nutrition-grid">
+            <NutritionProgressCard
+              onOpenDetails={() => onNavigate?.('nutrition')}
+              onLogMeal={() => onNavigate?.('nutrition')}
+              avgCalories={nutritionProgressData.avgCalories}
+              targetCalories={nutritionProgressData.targetCalories}
+              proteinGrams={nutritionProgressData.avgProtein}
+              proteinGoal={nutritionProgressData.proteinGoal}
+              carbGrams={nutritionProgressData.avgCarbs}
+              carbGoal={nutritionProgressData.carbGoal}
+              fatGrams={nutritionProgressData.avgFat}
+              fatGoal={nutritionProgressData.fatGoal}
+              fiberGrams={nutritionProgressData.avgFiber}
+              fiberGoal={nutritionProgressData.fiberGoal}
+              waterMl={nutritionProgressData.avgWater}
+              waterGoal={nutritionProgressData.waterGoal}
+              activeDays={nutritionProgressData.activeDays}
+            />
+            <EnergyBalanceCard onOpenDetails={() => onNavigate?.('nutrition')} onLogMeal={() => onNavigate?.('nutrition')} onLogWorkout={() => onNavigate?.('pt-workout')} intake={energyBalanceData.intake} basal={energyBalanceData.basal} dailyActivity={energyBalanceData.dailyActivity} workout={energyBalanceData.workout} thermicEffect={energyBalanceData.thermicEffect} confidence={energyBalanceData.confidence} goal={energyBalanceData.goal} periodDays={energyBalanceData.periodDays} totalPeriodDays={energyBalanceData.totalPeriodDays} activeDays={energyBalanceData.activeDays} workoutDays={energyBalanceData.workoutDays} />
+          </div>
+          <NutritionChartsCard mealLogs={allMeals} waterLogs={allWater} />
+        </>
       )}
 
-      {/* AI Analysis Weekly Summary */}
-      <AiWeeklyAnalysisCard summary={aiWeeklySummary} onPrepareCoach={prewarmAiCoachAppCheck} onOpenCoach={() => setCoachSheetOpen(true)} />
+      {category === 'workout' && (
+        <>
+          <DailyActionsCard todayMealCount={todayMealsCount} todayWaterMl={todayWaterMl} waterTargetMl={nutritionProgressData.waterGoal} todayWeightLogged={todayWeightLogged} todayWorkoutLogged={todayWorkoutLogged} onOpenQuickLog={(type) => type === 'weight' ? setWeightModalOpen(true) : type === 'meal' ? onNavigate?.('nutrition') : setQuickLogOpen(true)} />
+          <WeightChartCard records={weightRecords} goalWeightKg={goalWeightKg} />
+          <ProgressPhotosCard ownerId={resolvedOwnerId} triggerAddPhoto={triggerPhotoUpload} onAddPhotoTriggered={() => setTriggerPhotoUpload(false)} onNavigateToStudio={() => onNavigate?.('progress-photo-studio')} />
+        </>
+      )}
+
+      {category === 'achievements' && (
+        <>
+          <StreaksAndBadgesCard ownerId={resolvedOwnerId} progressItems={progressItems} />
+          <AiWeeklyAnalysisCard summary={aiWeeklySummary} onPrepareCoach={prewarmAiCoachAppCheck} onOpenCoach={() => setCoachSheetOpen(true)} />
+        </>
+      )}
 
       {/* Floating Quick Log Button */}
-      <div style={{ position: 'fixed', bottom: 84, right: 20, zIndex: 90 }}>
+      <div className="pg-floating-log">
         <button
           type="button"
           onClick={() => setQuickLogOpen(true)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '12px 20px',
-            borderRadius: 9999,
-            border: 'none',
-            background: 'linear-gradient(110deg, #ec4899 0%, #fb923c 100%)',
-            color: '#ffffff',
-            fontSize: 14,
-            fontWeight: 800,
-            cursor: 'pointer',
-            boxShadow: '0 10px 30px rgba(247, 37, 103, 0.35)',
-          }}
+          className="pg-primary-action pg-quick-log-action"
         >
           <Plus size={20} strokeWidth={3} />
           <span>Ghi nhanh</span>
@@ -1000,6 +983,7 @@ export default function ProgressPage({
       {metricsModalOpen && (
         <BodyMeasurementsModal
           metrics={mergedBodyMetrics}
+          isFemale={isFemale}
           onClose={() => setMetricsModalOpen(false)}
           onSave={handleSaveMetrics}
         />
