@@ -220,6 +220,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [timeline, setTimeline] = useState<Student360TimelineEvent[]>([])
+  const [timelineError, setTimelineError] = useState('')
   const [timelineFilter, setTimelineFilter] = useState<(typeof timelineFilters)[number]['id']>('all')
   const [timelineRange, setTimelineRange] = useState<(typeof timelineRanges)[number]['id']>('90d')
   const [timelineCursor, setTimelineCursor] = useState<number | null>(null)
@@ -267,6 +268,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
   const loadTimeline = useCallback(async (append = false) => {
     if (timelineLoading) return
     setTimelineLoading(true)
+    setTimelineError('')
     try {
       if (isDemo) {
         setTimeline(demoTimeline())
@@ -283,12 +285,18 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
               ? ['care', 'checkin']
             : [timelineFilter]
       const rangeDays = timelineRanges.find((item) => item.id === timelineRange)?.days || 0
-      const result = await listStudent360Timeline({ studentId, types, cursor: append ? timelineCursor : null, pageSize: 30, ...(rangeDays ? { fromMillis: Date.now() - rangeDays * 86_400_000 } : {}) })
+      const result = await listStudent360Timeline({
+        studentId,
+        ...(types ? { types } : {}),
+        ...(append && timelineCursor !== null ? { cursor: timelineCursor } : {}),
+        pageSize: 30,
+        ...(rangeDays ? { fromMillis: Date.now() - rangeDays * 86_400_000 } : {}),
+      })
       setTimeline((current) => append ? mergeTimelineRows(current, result.rows) : mergeTimelineRows([], result.rows))
       setTimelineCursor(result.nextCursor)
       setTimelineHasMore(result.hasMore)
     } catch (cause) {
-      setNotice(cause instanceof Error ? cause.message : 'Không thể tải dòng hoạt động.')
+      setTimelineError(cause instanceof Error ? cause.message : 'Không thể tải dòng hoạt động.')
     } finally {
       setTimelineLoading(false)
     }
@@ -296,7 +304,10 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
 
   useEffect(() => {
     if (activeTab !== 'activity') return
+    setTimeline([])
     setTimelineCursor(null)
+    setTimelineHasMore(false)
+    setTimelineError('')
     void loadTimeline(false)
     // loadTimeline deliberately changes after a page response; pagination is
     // user-triggered and must not cause the first page to load again.
@@ -540,7 +551,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
       {activeTab === 'activity' && <section className="student360-section">
         <div className="student360-section-heading"><div><small>CRM TIMELINE</small><h2>Toàn bộ hoạt động</h2><p>Một dòng thời gian hợp nhất, đã loại bản ghi trùng và tôn trọng quyền truy cập.</p></div><details className="student360-timeline-source-help"><summary><Info size={15} /> Nguồn dữ liệu</summary><div><p>Timeline chỉ đọc từ dữ liệu nghiệp vụ gốc. Mỗi sự kiện có nhãn nguồn; mở rộng để xem trường đối chiếu khi cần.</p>{timelineSourceGuide.map((item) => <article key={item.label}><strong>{item.label}</strong><code>{item.source}</code><span>{item.detail}</span></article>)}</div></details></div>
         <div className="student360-timeline-toolbar"><div className="student360-filter-chips">{timelineFilters.map((filter) => <button type="button" key={filter.id} className={timelineFilter === filter.id ? 'active' : ''} onClick={() => setTimelineFilter(filter.id)}>{filter.label}</button>)}</div><div className="student360-filter-chips is-range">{timelineRanges.map((range) => <button type="button" key={range.id} className={timelineRange === range.id ? 'active' : ''} onClick={() => setTimelineRange(range.id)}>{range.label}</button>)}</div></div>
-        <div className="student360-timeline">{timeline.map((item) => <article key={item.id}><div className={`student360-timeline-icon is-${item.type}`}>{item.type === 'training' || item.type === 'workout' ? <Dumbbell /> : item.type === 'nutrition' ? <Salad /> : item.type === 'progress' || item.type === 'checkin' ? <Activity /> : item.type === 'finance' ? <CircleDollarSign /> : item.type === 'care' ? <MessageCircle /> : <FileText />}</div><div><div className="student360-timeline-meta"><time>{safeDate(item.occurredAt, true)}{typeof item.metadata.actorName === 'string' && item.metadata.actorName ? ` · ${item.metadata.actorName}` : ''}</time><span>{item.groupLabel || item.type}</span></div><strong>{item.title}</strong><p>{item.description}</p>{typeof item.metadata.amount === 'number' && <small>{currency.format(item.metadata.amount)}đ</small>}<details className="student360-timeline-details"><summary>Chi tiết đối chiếu</summary><div><span>Nguồn</span><b>{item.sourceLabel || item.sourceCollection || 'CRM Timeline'}</b>{typeof item.metadata.contractId === 'string' && item.metadata.contractId && <><span>Mã hợp đồng</span><b>{item.metadata.contractId}</b></>}{typeof item.metadata.sessionId === 'string' && item.metadata.sessionId && <><span>Mã buổi</span><b>{item.metadata.sessionId}</b></>}{typeof item.metadata.referenceCode === 'string' && item.metadata.referenceCode && <><span>Mã giao dịch</span><b>{item.metadata.referenceCode}</b></>}</div></details></div></article>)}{!timeline.length && !timelineLoading && <State><History /><h3>{timelineFilter === 'training' ? 'Chưa có buổi tập chuẩn' : 'Chưa có hoạt động'}</h3><p>{timelineFilter === 'training' ? 'Timeline chỉ lấy buổi đã tạo trong sessions. Lịch nháp hoặc ô ma trận cũ chưa phát sinh session sẽ không được tính là lịch sử tập.' : 'Không có sự kiện phù hợp bộ lọc hiện tại.'}</p></State>}{timelineLoading && <State><LoaderCircle className="is-spinning" /> Đang tải hoạt động…</State>}</div>
+        <div className="student360-timeline">{timeline.map((item) => <article key={item.id}><div className={`student360-timeline-icon is-${item.type}`}>{item.type === 'training' || item.type === 'workout' ? <Dumbbell /> : item.type === 'nutrition' ? <Salad /> : item.type === 'progress' || item.type === 'checkin' ? <Activity /> : item.type === 'finance' ? <CircleDollarSign /> : item.type === 'care' ? <MessageCircle /> : <FileText />}</div><div><div className="student360-timeline-meta"><time>{safeDate(item.occurredAt, true)}{typeof item.metadata.actorName === 'string' && item.metadata.actorName ? ` · ${item.metadata.actorName}` : ''}</time><span>{item.groupLabel || item.type}</span></div><strong>{item.title}</strong><p>{item.description}</p>{typeof item.metadata.amount === 'number' && <small>{currency.format(item.metadata.amount)}đ</small>}<details className="student360-timeline-details"><summary>Chi tiết đối chiếu</summary><div><span>Nguồn</span><b>{item.sourceLabel || item.sourceCollection || 'CRM Timeline'}</b>{typeof item.metadata.contractId === 'string' && item.metadata.contractId && <><span>Mã hợp đồng</span><b>{item.metadata.contractId}</b></>}{typeof item.metadata.sessionId === 'string' && item.metadata.sessionId && <><span>Mã buổi</span><b>{item.metadata.sessionId}</b></>}{typeof item.metadata.attendanceEventId === 'string' && item.metadata.attendanceEventId && <><span>Mã điểm danh</span><b>{item.metadata.attendanceEventId}</b></>}{typeof item.metadata.confirmationSource === 'string' && item.metadata.confirmationSource && <><span>Nguồn xác nhận</span><b>{item.metadata.confirmationSource === 'auto_after_48h' ? 'Tự động sau 48 giờ' : item.metadata.confirmationSource === 'manual' ? 'Nhân sự xác nhận' : item.metadata.confirmationSource}</b></>}{typeof item.metadata.confirmedAt === 'string' && item.metadata.confirmedAt && <><span>Xác nhận lúc</span><b>{safeDate(item.metadata.confirmedAt, true)}</b></>}{typeof item.metadata.lateMinutes === 'number' && item.metadata.lateMinutes > 0 && <><span>Đi trễ</span><b>{item.metadata.lateMinutes} phút</b></>}{typeof item.metadata.referenceCode === 'string' && item.metadata.referenceCode && <><span>Mã giao dịch</span><b>{item.metadata.referenceCode}</b></>}</div></details></div></article>)}{timelineError && <State type="error"><AlertTriangle /><h3>Không thể tải CRM Timeline</h3><p>{timelineError}</p><button type="button" onClick={() => void loadTimeline(false)}>Thử lại</button></State>}{!timeline.length && !timelineLoading && !timelineError && <State><History /><h3>{timelineFilter === 'training' ? 'Chưa có buổi tập chuẩn' : 'Chưa có hoạt động'}</h3><p>{timelineFilter === 'training' ? 'Timeline chỉ lấy buổi đã tạo trong sessions. Lịch nháp hoặc ô ma trận cũ chưa phát sinh session sẽ không được tính là lịch sử tập.' : 'Không có sự kiện phù hợp bộ lọc hiện tại.'}</p></State>}{timelineLoading && <State><LoaderCircle className="is-spinning" /> Đang tải hoạt động…</State>}</div>
         {timelineHasMore && <button type="button" className="student360-load-more" disabled={timelineLoading} onClick={() => void loadTimeline(true)}>Tải thêm hoạt động</button>}
       </section>}
 

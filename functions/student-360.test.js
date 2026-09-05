@@ -10,12 +10,28 @@ const {
   normalizeTimelineEvents,
   redactProjection,
   safeTimelineEvent,
+  sessionDateTimeMillis,
   sourceTimelineEvents,
   studentIdFromAccountUid,
   studentAccountProfile,
   uniqueProgressDocuments,
   uniqueProgressPhotos,
+  timelineCursor,
 } = require('./student-360')
+
+test('CRM timeline treats an omitted first-page cursor as the newest boundary', () => {
+  assert.equal(timelineCursor(null), Number.MAX_SAFE_INTEGER)
+  assert.equal(timelineCursor(undefined), Number.MAX_SAFE_INTEGER)
+  assert.equal(timelineCursor(''), Number.MAX_SAFE_INTEGER)
+  assert.equal(timelineCursor(1_725_000_000_123_456), 1_725_000_000_123_456)
+  assert.equal(timelineCursor('1725000000123456'), 1_725_000_000_123_456)
+})
+
+test('CRM timeline converts scheduled hours from Vietnam local time without crossing dates', () => {
+  assert.equal(new Date(sessionDateTimeMillis('2026-09-05', 15)).toISOString(), '2026-09-05T08:00:00.000Z')
+  assert.equal(new Date(sessionDateTimeMillis('2026-09-05', '17:30')).toISOString(), '2026-09-05T10:30:00.000Z')
+  assert.equal(new Date(sessionDateTimeMillis('2026-09-05', null)).toISOString(), '2026-09-05T05:00:00.000Z')
+})
 
 test('contract month duration clamps month-end dates instead of drifting into a later month', () => {
   assert.equal(addCalendarMonths('2026-01-31', 1), '2026-02-28')
@@ -130,6 +146,24 @@ test('unified timeline includes contract, meal review and daily check-in without
   assert.equal(JSON.stringify(rows).includes('private note'), false)
   assert.equal(JSON.stringify(rows).includes('private'), false)
   assert.deepEqual(rows.find((item) => item.type === 'checkin').metadata, { checkinId: 'checkin-1', compliance: 86 })
+})
+
+test('training timeline uses canonical attendance evidence and keeps safe audit metadata', () => {
+  const rows = sourceTimelineEvents('student-1', {
+    contracts: [],
+    sessions: [{ id: 'session-1', date: '2026-09-05', hour: 15, attendanceStatus: 'pending' }],
+    attendance: [{ id: 'attendance-1', sessionId: 'session-1', attendanceStatus: 'late', lateMinutes: 8, confirmationSource: 'manual', confirmedBy: 'admin-1', confirmedAt: '2026-09-05T08:12:00.000Z', note: 'private note' }],
+    workoutLogs: [], leaveRequests: [], sessionRequests: [], mealLogs: [], payments: [], renewals: [],
+    mealReviews: [], dailyCheckins: [], profile: null, bodyMetrics: [], progressPhotos: [],
+  })
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].title, 'Đi tập trễ')
+  assert.equal(rows[0].occurredAt, '2026-09-05T08:00:00.000Z')
+  assert.deepEqual(rows[0].metadata, {
+    sessionId: 'session-1', status: 'late', attendanceEventId: 'attendance-1', confirmationSource: 'manual',
+    confirmedAt: '2026-09-05T08:12:00.000Z', confirmedBy: 'admin-1', lateMinutes: 8,
+  })
+  assert.equal(JSON.stringify(rows[0]).includes('private note'), false)
 })
 
 test('CRM timeline includes canonical finance ledger cash events and ignores revenue recognition internals', () => {

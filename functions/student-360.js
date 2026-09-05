@@ -20,6 +20,11 @@ function finite(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback
 }
 
+function timelineCursor(value) {
+  if (value === null || value === undefined || value === '') return Number.MAX_SAFE_INTEGER
+  return finite(value, Number.MAX_SAFE_INTEGER)
+}
+
 function bounded(value, maximum = 300, fallback = '') {
   return typeof value === 'string' ? value.trim().slice(0, maximum) : fallback
 }
@@ -61,6 +66,19 @@ function dateKeyMillis(value) {
   const normalized = bounded(value, 10)
   const parsed = Date.parse(`${normalized}T12:00:00+07:00`)
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function sessionDateTimeMillis(dateValue, hourValue) {
+  const date = bounded(dateValue, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return 0
+  if (hourValue === null || hourValue === undefined || hourValue === '') return dateKeyMillis(date)
+
+  const match = String(hourValue).trim().match(/^(\d{1,2})(?::(\d{1,2}))?$/)
+  if (!match) return dateKeyMillis(date)
+  const hour = Math.max(0, Math.min(23, Number(match[1])))
+  const minute = Math.max(0, Math.min(59, Number(match[2] || 0)))
+  const parsed = Date.parse(`${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+07:00`)
+  return Number.isFinite(parsed) ? parsed : dateKeyMillis(date)
 }
 
 function addDays(value, amount) {
@@ -681,6 +699,7 @@ async function assignmentNames(db, sources, contract) {
 
 function sourceTimelineEvents(studentId, sources) {
   const values = []
+  const attendanceBySessionId = new Map((sources.attendance || []).map((item) => [bounded(item.sessionId || item.id, 200), item]))
   for (const contract of sources.contracts || []) {
     // Student 360 mutations already create a dedicated immutable audit event.
     // Do not add a second generic event for the same contract revision.
@@ -691,11 +710,22 @@ function sourceTimelineEvents(studentId, sources) {
     values.push(timelineEvent(studentId, 'contract', contract.id, occurred, title, contract.packageName || contract.name || 'Gói tập Aura', 'finance', { contractId: contract.id, status }))
   }
   for (const session of sources.sessions) {
-    const attendance = sessionAttendance(session)
+    const attendanceEvent = attendanceBySessionId.get(session.id)
+    const attendance = sessionAttendance(attendanceEvent || session)
     const date = sessionDate(session)
-    const occurred = dateKeyMillis(date) + Math.max(0, Math.min(23, finite(session.hour))) * 3_600_000
+    const occurred = sessionDateTimeMillis(date, session.hour)
     const label = attendance === 'present' ? 'Đã tập' : attendance === 'late' ? 'Đi tập trễ' : attendance === 'no_show' ? 'Không đến buổi tập' : 'Lịch tập'
-    values.push(timelineEvent(studentId, 'training', session.id, occurred, label, `${date}${session.hour !== undefined ? ` · ${String(session.hour).padStart(2, '0')}:00` : ''}`, 'operations', { sessionId: session.id, status: attendance }))
+    values.push(timelineEvent(studentId, 'training', session.id, occurred, label, `${date}${session.hour !== undefined ? ` · ${String(session.hour).padStart(2, '0')}:00` : ''}`, 'operations', {
+      sessionId: session.id,
+      status: attendance,
+      ...(attendanceEvent ? {
+        attendanceEventId: attendanceEvent.id,
+        confirmationSource: bounded(attendanceEvent.confirmationSource, 60),
+        confirmedAt: iso(attendanceEvent.confirmedAt),
+        confirmedBy: bounded(attendanceEvent.confirmedBy, 200),
+        lateMinutes: attendance === 'late' ? Math.max(0, Math.floor(finite(attendanceEvent.lateMinutes))) : null,
+      } : {}),
+    }))
   }
   for (const log of sources.workoutLogs) {
     const occurred = timestampMillis(log.completedAt || log.updatedAt || log.createdAt) || dateKeyMillis(log.date)
@@ -1627,7 +1657,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const { projection, permissions } = await loadAuthorizedProjection(db, actor, studentId, weekId, false)
     const pageSize = Math.max(1, Math.min(50, Math.floor(finite(request.data?.pageSize, 30))))
     const requestedTypes = normalizedArray(request.data?.types).slice(0, 20)
-    const cursor = finite(request.data?.cursor, Number.MAX_SAFE_INTEGER)
+    const cursor = timelineCursor(request.data?.cursor)
     const fromMillis = Math.max(0, Math.floor(finite(request.data?.fromMillis)))
     const readPage = async () => {
       const scanLimit = 150
@@ -1791,9 +1821,11 @@ module.exports = {
   uniqueProgressDocuments,
   uniqueProgressPhotos,
   sourceTimelineEvents,
+  sessionDateTimeMillis,
   safeTimelineEvent,
   studentIdFromAccountUid,
   studentAccountProfile,
   syncStudent360ProjectionFromEvent,
+  timelineCursor,
   vietnamDateKey,
 }
