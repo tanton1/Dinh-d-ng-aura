@@ -32,7 +32,7 @@ import '../../styles-nutrition-workspace.css'
 
 const ProgressPage = React.lazy(() => import('./ProgressPage'))
 
-export type NutritionWorkspaceSection = 'today' | 'diary' | 'plan' | 'explore' | 'catalog' | 'insights'
+export type NutritionWorkspaceSection = 'today' | 'diary' | 'classic-diary' | 'plan' | 'menu' | 'explore' | 'catalog' | 'insights'
 export type NutritionMealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
 export type NutritionDataConfidence = 'verified' | 'estimated' | 'needs-review'
 export type NutritionActivityIntensity = 'low' | 'moderate' | 'high'
@@ -200,7 +200,7 @@ export function NutritionSectionNav({
     <nav className={`nutrition-workspace-nav ${v4 ? 'nutrition-workspace-nav--v4' : ''} ${className}`.trim()} aria-label="Điều hướng dinh dưỡng">
       <div className="nutrition-workspace-nav__sections" aria-label="Khu vực dinh dưỡng">
         {sectionItems.filter(({ id }) => id !== 'catalog' || Boolean(onOpenCatalog)).map(({ id, label, icon: Icon }) => {
-          const active = activeSection === id || (id === 'explore' && (activeSection === 'catalog' || activeSection === 'insights'))
+          const active = activeSection === id || (id === 'explore' && (activeSection === 'classic-diary' || activeSection === 'menu' || activeSection === 'catalog' || activeSection === 'insights'))
           return (
             <button
               type="button"
@@ -400,6 +400,18 @@ export function NutritionDiaryPage({
     : activeView === 'week'
       ? `${shortDiaryDate(visibleDateKeys[0])} – ${shortDiaryDate(visibleDateKeys[visibleDateKeys.length - 1])}`
       : new Intl.DateTimeFormat('vi-VN', { month: 'long', year: 'numeric' }).format(parseDiaryDate(dateKey))
+  const summaryMeals = activeView === 'day' ? meals.length : periodSummary.mealCount
+  const summaryCalories = activeView === 'day' ? totals.calories : periodSummary.calories
+  const summaryProtein = activeView === 'day' ? totals.protein : periodSummary.protein
+  const summaryWater = activeView === 'day' ? waterMl : periodSummary.waterMl
+  const summaryReviewCount = activeView === 'day' ? needsReviewCount : periodSummary.reviewCount
+  const eligiblePeriodDays = visibleDateKeys.filter((item) => item >= historyFromDate && item <= todayKey).length
+  const overviewProgress = activeView === 'day'
+    ? clampPercent(summaryCalories, targets.calories)
+    : clampPercent(periodSummary.loggedDays, eligiblePeriodDays)
+  const overviewHint = activeView === 'day'
+    ? `${Math.round(overviewProgress)}% mục tiêu năng lượng trong ngày`
+    : `${periodSummary.loggedDays}/${eligiblePeriodDays} ngày đã có dữ liệu`
 
   const chooseDate = (nextDateKey: string) => {
     if (nextDateKey < historyFromDate || nextDateKey > todayKey) return
@@ -427,7 +439,10 @@ export function NutritionDiaryPage({
           <h1>Tra cứu những gì bạn đã ghi</h1>
           <p>Bữa ăn, nước và vận động được lưu theo thời gian để dễ kiểm tra và chỉnh sửa.</p>
         </div>
-        <button type="button" className="nutrition-diary-add" onClick={onAddMeal}><Plus size={18} /> Thêm bản ghi</button>
+        <div className="nutrition-diary-header__actions">
+          <span><Sparkles size={15} /> Dữ liệu 90 ngày gần nhất</span>
+          <button type="button" className="nutrition-diary-add" onClick={onAddMeal}><Plus size={18} /> Thêm bản ghi</button>
+        </div>
       </header>
 
       <section className="nutrition-diary-toolbar" aria-label="Thời gian nhật ký">
@@ -442,12 +457,20 @@ export function NutritionDiaryPage({
         <button type="button" className="nutrition-diary-today" onClick={onGoToday} disabled={dateKey === todayKey && activeView === 'day'}><CalendarDays size={17} /> Về hôm nay</button>
       </section>
 
-      <section className="nutrition-diary-summary" aria-label={`Tóm tắt ${periodLabel}`}>
-        <div><small>{activeView === 'day' ? 'Bữa ăn' : 'Tổng bữa'}</small><strong>{activeView === 'day' ? meals.length : periodSummary.mealCount}</strong></div>
-        <div><small>Năng lượng</small><strong>{formatNumber(activeView === 'day' ? totals.calories : periodSummary.calories)} <em>kcal</em></strong>{activeView === 'day' && <span>/ {formatNumber(targets.calories)} mục tiêu</span>}</div>
-        <div><small>Đạm</small><strong>{formatNumber(activeView === 'day' ? totals.protein : periodSummary.protein)}<em>g</em></strong></div>
-        <div><small>Nước</small><strong>{formatNumber(activeView === 'day' ? waterMl : periodSummary.waterMl)} <em>ml</em></strong></div>
-        <div><small>{activeView === 'day' ? 'Cần kiểm tra' : 'Ngày đã ghi'}</small><strong>{activeView === 'day' ? needsReviewCount : periodSummary.loggedDays}</strong></div>
+      <section className="nutrition-diary-overview" aria-label={`Tóm tắt ${periodLabel}`}>
+        <div className="nutrition-diary-overview__main">
+          <span>{activeView === 'day' ? 'NĂNG LƯỢNG ĐÃ GHI' : 'TỔNG NĂNG LƯỢNG TRONG KỲ'}</span>
+          <div><strong>{formatNumber(summaryCalories)}</strong><em>kcal</em></div>
+          <p><CalendarDays size={15} /> {periodLabel}</p>
+          <small>{overviewHint}</small>
+        </div>
+        <div className="nutrition-diary-overview__stats">
+          <div><span><Utensils size={17} /></span><div><small>{activeView === 'day' ? 'Bữa ăn' : 'Tổng bữa'}</small><strong>{summaryMeals}</strong></div></div>
+          <div><span><Salad size={17} /></span><div><small>Chất đạm</small><strong>{formatNumber(summaryProtein)}<em>g</em></strong></div></div>
+          <div><span><Droplets size={17} /></span><div><small>Lượng nước</small><strong>{formatNumber(summaryWater)}<em>ml</em></strong></div></div>
+          <div className={summaryReviewCount > 0 ? 'needs-attention' : ''}><span><CircleAlert size={17} /></span><div><small>{activeView === 'day' ? 'Cần kiểm tra' : 'Cần xem lại'}</small><strong>{summaryReviewCount}</strong></div></div>
+        </div>
+        <div className="nutrition-diary-overview__bar" aria-hidden="true"><span style={{ width: `${overviewProgress}%` }} /></div>
       </section>
 
       {activeView === 'week' && (
@@ -455,7 +478,7 @@ export function NutritionDiaryPage({
           {visibleDateKeys.map((item) => {
             const summary = summaryByDate.get(item)
             const hasData = Boolean(summary && (summary.mealCount || summary.waterMl || summary.activityCount))
-            return <button type="button" key={item} disabled={item > todayKey || item < historyFromDate} className={`${item === dateKey ? 'is-selected' : ''} ${hasData ? 'has-data' : ''}`.trim()} onClick={() => openDay(item)}><span><strong>{shortDiaryDate(item, true)}</strong>{item === todayKey && <small>Hôm nay</small>}</span><span>{summary?.mealCount ?? 0} bữa</span><span>{formatNumber(summary?.calories ?? 0)} kcal</span><span>{formatNumber(summary?.protein ?? 0)}g đạm</span><i aria-hidden="true" /></button>
+            return <button type="button" key={item} disabled={item > todayKey || item < historyFromDate} className={`${item === dateKey ? 'is-selected' : ''} ${item === todayKey ? 'is-today' : ''} ${hasData ? 'has-data' : ''}`.trim()} onClick={() => openDay(item)}><span><strong>{shortDiaryDate(item, true)}</strong>{item === todayKey && <small>Hôm nay</small>}</span><span>{summary?.mealCount ?? 0} bữa</span><span>{formatNumber(summary?.calories ?? 0)} kcal</span><span>{formatNumber(summary?.protein ?? 0)}g đạm</span><i aria-hidden="true" /></button>
           })}
         </section>
       )}
@@ -467,7 +490,7 @@ export function NutritionDiaryPage({
             {visibleDateKeys.map((item, index) => {
               const summary = summaryByDate.get(item)
               const hasData = Boolean(summary && (summary.mealCount || summary.waterMl || summary.activityCount))
-              return <button type="button" key={item} disabled={item > todayKey || item < historyFromDate} className={`${index === 0 ? 'is-first' : ''} ${item === dateKey ? 'is-selected' : ''} ${hasData ? 'has-data' : ''}`.trim()} onClick={() => openDay(item)} aria-label={`${shortDiaryDate(item, true)}${hasData ? `, ${summary?.mealCount ?? 0} bữa` : ', chưa có dữ liệu'}`}><strong>{parseDiaryDate(item).getDate()}</strong><span>{summary?.mealCount ?? 0} bữa</span><i aria-hidden="true" /></button>
+              return <button type="button" key={item} disabled={item > todayKey || item < historyFromDate} className={`${index === 0 ? 'is-first' : ''} ${item === dateKey ? 'is-selected' : ''} ${item === todayKey ? 'is-today' : ''} ${hasData ? 'has-data' : ''}`.trim()} onClick={() => openDay(item)} aria-label={`${shortDiaryDate(item, true)}${hasData ? `, ${summary?.mealCount ?? 0} bữa` : ', chưa có dữ liệu'}`}><strong>{parseDiaryDate(item).getDate()}</strong><span>{summary?.mealCount ?? 0} bữa</span><i aria-hidden="true" /></button>
             })}
           </div>
           <p>Nhật ký tháng hiển thị dữ liệu trong 90 ngày gần nhất. Chọn một ngày để xem và chỉnh sửa chi tiết.</p>
@@ -477,7 +500,7 @@ export function NutritionDiaryPage({
       {activeView === 'day' && <div className="nutrition-diary-layout">
         <div className="nutrition-diary-timeline">
           <div className="nutrition-workspace-section-heading">
-            <div><h2>Dòng thời gian</h2><p>{timeline.length ? `${filteredTimeline.length}/${timeline.length} bản ghi đang hiển thị` : 'Chưa có bản ghi trong ngày này'}</p></div>
+            <div><span className="nutrition-workspace-eyebrow">CHI TIẾT TRONG NGÀY</span><h2>Dòng thời gian</h2><p>{timeline.length ? `${filteredTimeline.length}/${timeline.length} bản ghi đang hiển thị` : 'Chưa có bản ghi trong ngày này'}</p></div>
           </div>
 
           <div className="nutrition-diary-filters" aria-label="Lọc nhật ký">
@@ -577,6 +600,7 @@ export function NutritionDiaryPage({
         </div>
 
         <aside className="nutrition-diary-quick" aria-label="Thêm bản ghi">
+          <span className="nutrition-workspace-eyebrow">THÊM NHANH</span>
           <h2>Thêm bản ghi</h2>
           <p>Chọn loại dữ liệu cần bổ sung cho {dateLabel.toLocaleLowerCase('vi-VN')}.</p>
           <button type="button" onClick={onAddMeal}><span><Utensils size={18} /></span><div><strong>Bữa ăn</strong><small>Quét ảnh, tìm món hoặc nhập tay</small></div><ChevronRight size={17} /></button>
@@ -585,6 +609,105 @@ export function NutritionDiaryPage({
           <div className="nutrition-diary-quick__note"><CircleAlert size={15} /><p>Kcal vận động chỉ dùng để tham khảo, không tự cộng vào ngân sách ăn.</p></div>
         </aside>
       </div>}
+    </section>
+  )
+}
+
+interface NutritionMetricProgressProps {
+  label: string
+  value: number
+  goal: number
+  unit: string
+  icon: ReactNode
+  tone: 'energy' | 'protein' | 'carbs' | 'fat' | 'water'
+}
+
+function NutritionMetricProgress({ label, value, goal, unit, icon, tone }: NutritionMetricProgressProps) {
+  const percent = clampPercent(value, goal)
+  return (
+    <div className={`nutrition-diary-metric nutrition-diary-metric--${tone}`}>
+      <div className="nutrition-diary-metric__heading"><span>{icon}</span><div><small>{label}</small><strong>{formatNumber(value)}<em> / {formatNumber(goal)}{unit}</em></strong></div></div>
+      <div className="nutrition-diary-metric__track" role="progressbar" aria-label={`${label}: ${value} trên ${goal}${unit}`} aria-valuemin={0} aria-valuemax={goal} aria-valuenow={Math.min(value, goal)}><span style={{ width: `${percent}%` }} /></div>
+    </div>
+  )
+}
+
+export function NutritionClassicDiaryPage({
+  dateKey,
+  dateLabel,
+  todayKey,
+  historyFromDate,
+  targets,
+  meals,
+  activities,
+  waterEntries = [],
+  waterMl,
+  onSelectDate,
+  onGoToday,
+  onAddMeal,
+  onAddWater,
+  onAddExercise,
+  onOpenMeal,
+  onEditMeal,
+  onDeleteMeal,
+}: NutritionDiaryPageProps) {
+  const totals = useMemo(() => meals.reduce((result, meal) => ({
+    calories: result.calories + meal.calories,
+    protein: result.protein + meal.protein,
+    carbs: result.carbs + meal.carbs,
+    fat: result.fat + meal.fat,
+  }), { calories: 0, protein: 0, carbs: 0, fat: 0 }), [meals])
+  const timeline = useMemo<DiaryTimelineEntry[]>(() => [
+    ...meals.map((item) => ({ kind: 'meal' as const, id: `meal-${item.id}`, time: item.time, item })),
+    ...activities.map((item) => ({ kind: 'activity' as const, id: `activity-${item.id}`, time: item.time, item })),
+    ...waterEntries.map((item) => ({ kind: 'water' as const, id: `water-${item.id}`, time: item.time, item })),
+  ].sort((left, right) => left.time.localeCompare(right.time)), [activities, meals, waterEntries])
+  const remaining = targets.calories - totals.calories
+  const reviewCount = meals.filter((meal) => meal.reviewStatus === 'pending' || (meal.confidence && meal.confidence !== 'verified')).length
+  const shiftDay = (direction: -1 | 1) => {
+    const next = shiftDiaryDate(dateKey, direction, 'day')
+    if (next >= historyFromDate && next <= todayKey) onSelectDate(next)
+  }
+  const assistantBrief = meals.length
+    ? remaining > 0
+      ? `Bạn còn khoảng ${formatNumber(remaining)} kcal. Aura sẽ ưu tiên món phù hợp với phần macro còn thiếu.`
+      : `Bạn đã vượt mục tiêu khoảng ${formatNumber(Math.abs(remaining))} kcal. Hãy ưu tiên nước và bữa nhẹ giàu chất xơ.`
+    : 'Chưa có bữa ăn nào trong ngày. Hãy ghi bữa đầu tiên để Aura bắt đầu phân tích.'
+
+  return (
+    <section className="nutrition-workspace-page nutrition-diary nutrition-diary--classic" id="nutrition-workspace-panel-classic-diary" aria-label="Nhật ký dinh dưỡng cổ điển">
+      <header className="nutrition-workspace-page__header">
+        <div><span className="nutrition-workspace-eyebrow">NHẬT KÝ NGÀY · GIAO DIỆN CŨ</span><h1>Mọi lựa chọn trong ngày</h1><p>Bữa ăn, nước và vận động được sắp theo đúng thời gian.</p></div>
+        <div className="nutrition-diary-date"><button type="button" onClick={() => shiftDay(-1)} disabled={dateKey <= historyFromDate} aria-label="Ngày trước"><ChevronLeft size={18} /></button><strong>{dateLabel}</strong><button type="button" onClick={() => shiftDay(1)} disabled={dateKey >= todayKey} aria-label="Ngày sau"><ChevronRight size={18} /></button></div>
+      </header>
+
+      <section className="nutrition-diary-overview" aria-label="Tổng kết dinh dưỡng trong ngày">
+        <div className="nutrition-diary-overview__main"><span>TỔNG KẾT TRONG NGÀY</span><div><strong>{remaining >= 0 ? formatNumber(remaining) : `+${formatNumber(Math.abs(remaining))}`}</strong><em>{remaining >= 0 ? 'kcal còn lại' : 'kcal vượt mục tiêu'}</em></div><p><CalendarDays size={15} /> {dateLabel}</p><small>{formatNumber(totals.calories)} / {formatNumber(targets.calories)} kcal đã ghi</small></div>
+        <div className="nutrition-diary-overview__stats"><div><span><Target size={17} /></span><div><small>Tiến độ</small><strong>{clampPercent(totals.calories, targets.calories)}%</strong></div></div><div><span><Utensils size={17} /></span><div><small>Sự kiện</small><strong>{timeline.length}</strong></div></div><div className={reviewCount ? 'needs-attention' : ''}><span><CircleAlert size={17} /></span><div><small>Cần kiểm tra</small><strong>{reviewCount}</strong></div></div><div><span><Droplets size={17} /></span><div><small>Nước</small><strong>{formatNumber(waterMl)}<em>ml</em></strong></div></div></div>
+        <div className="nutrition-diary-overview__bar" aria-hidden="true"><span style={{ width: `${clampPercent(totals.calories, targets.calories)}%` }} /></div>
+      </section>
+
+      <div className="nutrition-assistant-brief"><span><Sparkles size={18} /></span><div><small>AURA NHẬN XÉT</small><p>{assistantBrief}</p></div><button type="button" onClick={onAddMeal}>Ghi bữa tiếp theo <ChevronRight size={16} /></button></div>
+
+      <div className="nutrition-diary-metrics" aria-label="Tiến độ mục tiêu ngày">
+        <NutritionMetricProgress label="Năng lượng" value={totals.calories} goal={targets.calories} unit=" kcal" icon={<Target size={16} />} tone="energy" />
+        <NutritionMetricProgress label="Đạm" value={totals.protein} goal={targets.protein} unit="g" icon={<Dumbbell size={16} />} tone="protein" />
+        <NutritionMetricProgress label="Carb" value={totals.carbs} goal={targets.carbs} unit="g" icon={<Salad size={16} />} tone="carbs" />
+        <NutritionMetricProgress label="Chất béo" value={totals.fat} goal={targets.fat} unit="g" icon={<Droplets size={16} />} tone="fat" />
+        <NutritionMetricProgress label="Nước" value={waterMl} goal={targets.waterMl} unit="ml" icon={<Droplets size={16} />} tone="water" />
+      </div>
+
+      <div className="nutrition-diary-layout">
+        <div className="nutrition-diary-timeline">
+          <div className="nutrition-workspace-section-heading"><div><h2>Dòng thời gian</h2><p>{timeline.length ? `${timeline.length} hoạt động trong ngày` : 'Chưa có hoạt động'}</p></div><button type="button" onClick={onAddMeal}><Plus size={16} /> Thêm món</button></div>
+          {timeline.length ? <ol className="nutrition-diary-events">{timeline.map((event) => {
+            if (event.kind === 'meal') return <li key={event.id} className="nutrition-diary-event nutrition-diary-event--meal"><time>{event.time}</time><span className="nutrition-diary-event__node"><Utensils size={16} /></span><article><div className="nutrition-diary-event__visual">{event.item.image ? <img src={event.item.image} alt="" /> : <span><Salad size={22} /></span>}</div><div className="nutrition-diary-event__content"><div className="nutrition-diary-event__meta"><span>{event.item.label || MEAL_TYPE_LABELS[event.item.type]}</span><span className={`nutrition-confidence nutrition-confidence--${event.item.confidence ?? 'verified'}`}>{confidenceCopy(event.item.confidence)}</span></div><button type="button" className="nutrition-diary-event__title" onClick={() => onOpenMeal?.(event.item.id)} disabled={!onOpenMeal}>{event.item.title}</button><div className="nutrition-diary-event__nutrition"><strong>{formatNumber(event.item.calories)} kcal</strong><span>{formatNumber(event.item.protein)}g P</span><span>{formatNumber(event.item.carbs)}g C</span><span>{formatNumber(event.item.fat)}g F</span></div></div>{(onEditMeal || onDeleteMeal) && <div className="nutrition-diary-event__actions">{onEditMeal && <button type="button" onClick={() => onEditMeal(event.item.id)} aria-label={`Chỉnh ${event.item.title}`}><MoreHorizontal size={18} /></button>}{onDeleteMeal && <button type="button" onClick={() => onDeleteMeal(event.item.id)} aria-label={`Xóa ${event.item.title}`}><Trash2 size={16} /></button>}</div>}</article></li>
+            if (event.kind === 'activity') return <li key={event.id} className="nutrition-diary-event nutrition-diary-event--activity"><time>{event.time}</time><span className="nutrition-diary-event__node"><Activity size={16} /></span><article><span className="nutrition-diary-event__compact-icon"><Dumbbell size={20} /></span><div className="nutrition-diary-event__content"><div className="nutrition-diary-event__meta"><span>LUYỆN TẬP</span></div><strong className="nutrition-diary-event__plain-title">{event.item.title}</strong><p>{event.item.durationMinutes} phút · {formatNumber(event.item.estimatedCalories)} kcal</p></div></article></li>
+            return <li key={event.id} className="nutrition-diary-event nutrition-diary-event--water"><time>{event.time}</time><span className="nutrition-diary-event__node"><Droplets size={16} /></span><article><span className="nutrition-diary-event__compact-icon"><Droplets size={20} /></span><div className="nutrition-diary-event__content"><div className="nutrition-diary-event__meta"><span>NƯỚC</span></div><strong className="nutrition-diary-event__plain-title">+{formatNumber(event.item.amountMl)} ml</strong></div></article></li>
+          })}</ol> : <div className="nutrition-workspace-empty"><span><Utensils size={23} /></span><h3>Bắt đầu bằng bữa ăn đầu tiên</h3><p>Chụp ảnh hoặc ghi bữa ăn để theo dõi dinh dưỡng nhất quán hơn.</p><button type="button" onClick={onAddMeal}><Plus size={16} /> Ghi bữa ăn</button></div>}
+        </div>
+        <aside className="nutrition-diary-quick" aria-label="Ghi nhanh"><span className="nutrition-workspace-eyebrow">GHI NHANH</span><h2>Thêm trong vài giây</h2><p>Mỗi dữ liệu đều có thời gian và có thể chỉnh lại sau.</p><button type="button" onClick={onAddMeal}><span><Utensils size={18} /></span><div><strong>Bữa ăn</strong><small>Ảnh AI hoặc ghi thủ công</small></div><ChevronRight size={17} /></button><button type="button" onClick={onAddWater}><span><Droplets size={18} /></span><div><strong>Nước</strong><small>Ghi đúng lượng đã uống</small></div><ChevronRight size={17} /></button><button type="button" onClick={onAddExercise}><span><Activity size={18} /></span><div><strong>Vận động</strong><small>Thời lượng và cường độ</small></div><ChevronRight size={17} /></button><button type="button" className="nutrition-classic-diary__today" onClick={onGoToday} disabled={dateKey === todayKey}><CalendarDays size={17} /> Về hôm nay</button></aside>
+      </div>
     </section>
   )
 }
@@ -614,6 +737,38 @@ export interface NutritionPlanPageProps {
   onConfirmPlan?: () => void
   onReload?: () => void
   onShiftWeek?: (direction: -1 | 1) => void
+}
+
+export interface NutritionMenuPageProps {
+  days: NutritionPlanDay[]
+  selectedDayId: string
+  meals: NutritionPlannedMeal[]
+  dailyCalorieGoal: number
+  sourceTitle?: string
+  weekLabel?: string
+  errorMessage?: string
+  isLoading?: boolean
+  onSelectDay: (dayId: string) => void
+  onOpenMeal?: (mealId: string) => void
+  onOpenPlan: () => void
+  onReload?: () => void
+  onShiftWeek?: (direction: -1 | 1) => void
+}
+
+export function NutritionMenuPage({ days, selectedDayId, meals, dailyCalorieGoal, sourceTitle, weekLabel, errorMessage, isLoading = false, onSelectDay, onOpenMeal, onOpenPlan, onReload, onShiftWeek }: NutritionMenuPageProps) {
+  const dayMeals = meals.filter((meal) => meal.dayId === selectedDayId).sort((left, right) => left.time.localeCompare(right.time))
+  const dayCalories = dayMeals.reduce((sum, meal) => sum + meal.calories, 0)
+  const dayProtein = dayMeals.reduce((sum, meal) => sum + meal.protein, 0)
+  const selectedDay = days.find((day) => day.id === selectedDayId)
+  return (
+    <section className="nutrition-workspace-page nutrition-plan nutrition-menu" id="nutrition-workspace-panel-menu" aria-label="Thực đơn đã xác nhận">
+      <header className="nutrition-workspace-page__header"><div><span className="nutrition-workspace-eyebrow">THỰC ĐƠN ĐANG DÙNG</span><h1>Thực đơn đã xác nhận</h1><p>Bản thực đơn ổn định để bạn theo dõi trong tuần, không thay đổi khi đang chỉnh kế hoạch nháp.</p>{sourceTitle && <div className="nutrition-plan-state"><span className="nutrition-plan-state--active">Đã xác nhận</span><small>{sourceTitle}</small></div>}</div><div className="nutrition-workspace-page__header-actions"><button type="button" className="nutrition-workspace-button nutrition-workspace-button--primary" onClick={onOpenPlan}><ShoppingBasket size={17} /> Mở kế hoạch</button></div></header>
+      {errorMessage && <div className="nutrition-plan-error" role="alert"><CircleAlert size={18} /><span>{errorMessage}</span>{onReload && <button type="button" onClick={onReload}>Tải lại</button>}</div>}
+      <div className="nutrition-plan-weekbar">{onShiftWeek && <button type="button" onClick={() => onShiftWeek(-1)} aria-label="Tuần trước"><ChevronLeft size={19} /></button>}<strong>{weekLabel ?? 'Tuần đang chọn'}</strong>{onShiftWeek && <button type="button" onClick={() => onShiftWeek(1)} aria-label="Tuần sau"><ChevronRight size={19} /></button>}</div>
+      <div className="nutrition-plan-week" role="tablist" aria-label="Chọn ngày trong thực đơn" aria-busy={isLoading}>{days.map((day) => <button type="button" key={day.id} className={day.id === selectedDayId ? 'is-active' : ''} onClick={() => onSelectDay(day.id)} role="tab" aria-selected={day.id === selectedDayId}><span>{day.isToday ? 'Hôm nay' : day.weekday}</span><strong>{day.date}</strong>{day.label && <small>{day.label}</small>}</button>)}</div>
+      {meals.length || isLoading ? <><div className={`nutrition-plan-summary ${isLoading ? 'is-loading' : ''}`.trim()}><div><span><Target size={18} /></span><div><small>{selectedDay?.label ?? selectedDay?.weekday ?? 'Ngày đã chọn'}</small><strong>{formatNumber(dayCalories)} / {formatNumber(dailyCalorieGoal)} kcal</strong></div></div><div><small>Tổng đạm</small><strong>{formatNumber(dayProtein)}g</strong></div><div><small>Số bữa</small><strong>{dayMeals.length}</strong></div><div className="nutrition-plan-summary__track"><span style={{ width: `${clampPercent(dayCalories, dailyCalorieGoal)}%` }} /></div></div><div className="nutrition-plan-schedule nutrition-menu__schedule">{isLoading ? <div className="nutrition-plan-loading" role="status"><RefreshCw className="is-spinning" size={20} /><span>Đang tải thực đơn…</span></div> : dayMeals.length ? <ol>{dayMeals.map((meal) => <li key={meal.id}><time>{meal.time}</time><span className="nutrition-plan-meal__line" aria-hidden="true" /><article><div className="nutrition-plan-meal__visual">{meal.image ? <img src={meal.image} alt="" /> : <span><Utensils size={22} /></span>}</div><div className="nutrition-plan-meal__content"><span>{meal.label || MEAL_TYPE_LABELS[meal.type]}</span><button type="button" onClick={() => onOpenMeal?.(meal.id)} disabled={!onOpenMeal}>{meal.title}</button><p>{meal.description ?? `${meal.calories} kcal · ${meal.protein}g đạm`}</p></div></article></li>)}</ol> : <div className="nutrition-workspace-empty"><span><CalendarDays size={23} /></span><h3>Ngày này chưa có món</h3><p>Chọn ngày khác để xem thực đơn đã xác nhận.</p></div>}</div></> : <div className="nutrition-menu-empty"><span><ShoppingBasket size={25} /></span><h2>Tuần này chưa có thực đơn được xác nhận</h2><p>Mở Kế hoạch tuần, tạo hoặc điều chỉnh các món rồi bấm “Xác nhận tuần”.</p><button type="button" onClick={onOpenPlan}><Sparkles size={17} /> Tạo kế hoạch tuần</button></div>}
+    </section>
+  )
 }
 
 export function NutritionPlanPage({
@@ -848,7 +1003,7 @@ export interface NutritionWorkspaceProps {
   todayContent: ReactNode
   diary: NutritionDiaryPageProps
   plan: NutritionPlanPageProps
-  menuContent?: ReactNode
+  menu?: NutritionMenuPageProps
   insights?: any
   assistant?: AskAuraPanelProps
   onScan: () => void
@@ -873,7 +1028,7 @@ function NutritionWorkspace({
   todayContent,
   diary,
   plan,
-  menuContent,
+  menu,
   assistant,
   onScan,
   onOpenCatalog,
@@ -897,8 +1052,10 @@ function NutritionWorkspace({
         {assistantIsPage && assistant ? <AskAuraPanel {...assistant} /> : <>
           {activeSection === 'today' && <div id="nutrition-workspace-panel-today">{todayContent}</div>}
           {activeSection === 'diary' && <NutritionDiaryPage {...diary} />}
-          {activeSection === 'plan' && (menuContent ?? <NutritionPlanPage {...plan} />)}
-          {v4 && activeSection === 'explore' && <section className="nutrition-explore" aria-labelledby="nutrition-explore-title"><header><small>KHÁM PHÁ DINH DƯỠNG</small><h2 id="nutrition-explore-title">Tìm món và hiểu tiến độ</h2><p>Các công cụ tham khảo được gom tại đây để phần Hôm nay luôn tập trung vào việc cần làm.</p></header><div><button type="button" onClick={onOpenCatalog}><span><Database size={21} /></span><strong>Thư viện món ăn</strong><small>Tìm món theo khẩu phần và macro</small><ChevronRight size={18} /></button><button type="button" onClick={onOpenSaved ?? onOpenCatalog}><span><Salad size={21} /></span><strong>Món đã lưu</strong><small>Mở nhanh món bạn dùng thường xuyên</small><ChevronRight size={18} /></button><button type="button" onClick={() => onSectionChange('insights')}><span><BarChart3 size={21} /></span><strong>Tiến độ dinh dưỡng</strong><small>Xem xu hướng cân nặng và thói quen</small><ChevronRight size={18} /></button>{onOpenEatClean && <button type="button" onClick={onOpenEatClean}><span><ShoppingBasket size={21} /></span><strong>Eat Clean</strong><small>Chọn món phù hợp mục tiêu hôm nay</small><ChevronRight size={18} /></button>}</div></section>}
+          {activeSection === 'classic-diary' && <NutritionClassicDiaryPage {...diary} />}
+          {activeSection === 'plan' && <NutritionPlanPage {...plan} />}
+          {activeSection === 'menu' && menu && <NutritionMenuPage {...menu} />}
+          {v4 && activeSection === 'explore' && <section className="nutrition-explore" aria-labelledby="nutrition-explore-title"><header><small>KHÁM PHÁ DINH DƯỠNG</small><h2 id="nutrition-explore-title">Nhật ký, thực đơn và kế hoạch</h2><p>Mỗi khu vực có vai trò riêng: xem lại dữ liệu đã ghi, theo thực đơn đã chốt hoặc chuẩn bị kế hoạch tuần tiếp theo.</p></header><div><button type="button" className="nutrition-explore__primary" onClick={() => onSectionChange('classic-diary')}><span><CalendarDays size={21} /></span><strong>Nhật ký cổ điển</strong><small>Giao diện nhật ký ngày trước đây</small><ChevronRight size={18} /></button><button type="button" className="nutrition-explore__primary" onClick={() => onSectionChange('menu')}><span><Utensils size={21} /></span><strong>Thực đơn đã xác nhận</strong><small>Xem thực đơn ổn định đang áp dụng</small><ChevronRight size={18} /></button><button type="button" className="nutrition-explore__primary" onClick={() => onSectionChange('plan')}><span><ShoppingBasket size={21} /></span><strong>Kế hoạch tuần</strong><small>Tạo, đổi món và xác nhận thực đơn</small><ChevronRight size={18} /></button><button type="button" onClick={onOpenCatalog}><span><Database size={21} /></span><strong>Thư viện món ăn</strong><small>Tìm món theo khẩu phần và macro</small><ChevronRight size={18} /></button><button type="button" onClick={onOpenSaved ?? onOpenCatalog}><span><Salad size={21} /></span><strong>Món đã lưu</strong><small>Mở nhanh món bạn dùng thường xuyên</small><ChevronRight size={18} /></button><button type="button" onClick={() => onSectionChange('insights')}><span><BarChart3 size={21} /></span><strong>Tiến độ dinh dưỡng</strong><small>Xem xu hướng cân nặng và thói quen</small><ChevronRight size={18} /></button>{onOpenEatClean && <button type="button" onClick={onOpenEatClean}><span><ShoppingBasket size={21} /></span><strong>Eat Clean</strong><small>Chọn món phù hợp mục tiêu hôm nay</small><ChevronRight size={18} /></button>}</div></section>}
           {activeSection === 'insights' && (
             <React.Suspense fallback={<div role="status" aria-live="polite">Đang tải phân tích tiến độ…</div>}>
               <ProgressPage

@@ -41,6 +41,7 @@ export interface NutritionPlanRecord {
 
 export interface NutritionPlanWorkspaceResponse {
   plan: NutritionPlanRecord | null
+  activePlan: NutritionPlanRecord | null
   assignedPlanAvailable: boolean
 }
 
@@ -88,8 +89,8 @@ export async function mutateMyNutritionPlanMeal(input: {
 }
 
 export async function confirmMyNutritionPlan(weekStart: string, expectedRevision: number) {
-  const invoke = callable<{ weekStart: string; expectedRevision: number }, { plan: NutritionPlanRecord }>('confirmMyNutritionPlan')
-  return (await invoke({ weekStart, expectedRevision })).data.plan
+  const invoke = callable<{ weekStart: string; expectedRevision: number }, { plan: NutritionPlanRecord; activePlan: NutritionPlanRecord }>('confirmMyNutritionPlan')
+  return (await invoke({ weekStart, expectedRevision })).data
 }
 
 export function nutritionPlanErrorMessage(error: unknown) {

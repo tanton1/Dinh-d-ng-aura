@@ -1064,7 +1064,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const [waterSheetOpen, setWaterSheetOpen] = useState(false)
   const [exerciseSheetOpen, setExerciseSheetOpen] = useState(false)
   const [selectedFood, setSelectedFood] = useState<NutritionFoodCatalogItem | null>(null)
-  const [foodDetailReturnSection, setFoodDetailReturnSection] = useState<'catalog' | 'plan'>('catalog')
+  const [foodDetailReturnSection, setFoodDetailReturnSection] = useState<'catalog' | 'plan' | 'menu'>('catalog')
   const [pendingFood, setPendingFood] = useState<NutritionFoodCatalogItem | null>(null)
   const [planCatalogAction, setPlanCatalogAction] = useState<{
     action: 'add' | 'replace'
@@ -1099,6 +1099,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   })
   const [planGenerated, setPlanGenerated] = useState(isDemo)
   const [nutritionPlan, setNutritionPlan] = useState<NutritionPlanRecord | null>(null)
+  const [activeNutritionPlan, setActiveNutritionPlan] = useState<NutritionPlanRecord | null>(null)
   const [nutritionPlanLoading, setNutritionPlanLoading] = useState(false)
   const [nutritionPlanSaving, setNutritionPlanSaving] = useState(false)
   const [nutritionPlanGenerating, setNutritionPlanGenerating] = useState(false)
@@ -1283,6 +1284,21 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     rationale: meal.rationale,
     source: meal.source,
   }))) ?? []
+  const activePlannedMeals: NutritionPlannedMeal[] = activeNutritionPlan?.days.flatMap((day) => day.meals.map((meal) => ({
+    id: meal.id,
+    catalogId: meal.catalogId,
+    dayId: meal.dayId || day.id,
+    time: meal.time,
+    type: meal.type,
+    label: meal.type === 'breakfast' ? 'Bữa sáng' : meal.type === 'lunch' ? 'Bữa trưa' : meal.type === 'dinner' ? 'Bữa tối' : 'Bữa phụ',
+    title: meal.title,
+    description: meal.description || `${formatNumber(meal.calories)} kcal · ${formatNumber(meal.protein)}g đạm`,
+    calories: meal.calories,
+    protein: meal.protein,
+    image: meal.image,
+    rationale: meal.rationale,
+    source: meal.source,
+  }))) ?? []
   const demoPlannedMeals: NutritionPlannedMeal[] = planGenerated ? workspacePlanDays.flatMap((day) => dailyPlan.map((meal, index) => ({
     id: `${day.id}-plan-${index}`,
     dayId: day.id,
@@ -1297,6 +1313,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     rationale: index === 0 ? 'Ưu tiên năng lượng ổn định đầu ngày' : index === dailyPlan.length - 1 ? 'Bù phần macro còn thiếu trong ngày' : 'Phân bổ theo mục tiêu cá nhân',
   }))) : []
   const workspacePlannedMeals = nutritionPlan ? cloudPlannedMeals : isDemo ? demoPlannedMeals : []
+  const workspaceMenuMeals = activeNutritionPlan ? activePlannedMeals : isDemo ? demoPlannedMeals : []
   const selectedFoodSummary = useMemo(() => selectedFood ? toFoodDetailSummary(selectedFood) : null, [selectedFood])
   const relatedFoodSummaries = useMemo(() => {
     if (!selectedFood) return []
@@ -1329,23 +1346,25 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
 
   useEffect(() => {
     if (isDemo || resolvedOwnerId === 'anonymous' || historySyncStarted) return
-    const needsHistory = activeSection === 'diary' || activeSection === 'plan' || activeSection === 'insights' || activeSection === 'assistant'
+    const needsHistory = activeSection === 'diary' || activeSection === 'classic-diary' || activeSection === 'plan' || activeSection === 'menu' || activeSection === 'insights' || activeSection === 'assistant'
     if (needsHistory) {
       setHistorySyncStarted(true)
     }
   }, [activeSection, historySyncStarted, isDemo, resolvedOwnerId])
 
   useEffect(() => {
-    if (activeSection !== 'plan' || isDemo || resolvedOwnerId === 'anonymous') return
+    if ((activeSection !== 'plan' && activeSection !== 'menu') || isDemo || resolvedOwnerId === 'anonymous') return
     let active = true
     setNutritionPlanLoading(true)
     setNutritionPlanError('')
     void getMyNutritionPlanWorkspace(planWeekStart).then((workspace) => {
       if (!active) return
       setNutritionPlan(workspace.plan)
+      setActiveNutritionPlan(workspace.activePlan ?? (workspace.plan?.status === 'active' ? workspace.plan : null))
     }).catch((error) => {
       if (!active) return
       setNutritionPlan(null)
+      setActiveNutritionPlan(null)
       setNutritionPlanError(nutritionPlanErrorMessage(error))
     }).finally(() => {
       if (active) setNutritionPlanLoading(false)
@@ -1354,7 +1373,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }, [activeSection, isDemo, nutritionPlanReloadToken, planWeekStart, resolvedOwnerId])
 
   useEffect(() => {
-    if (activeSection !== 'diary' || selectedDate <= todayKey) return
+    if ((activeSection !== 'diary' && activeSection !== 'classic-diary') || selectedDate <= todayKey) return
     setHomeWeekStart(getCalendarStart(dateFromLocalKey(todayKey)))
     setSelectedDate(todayKey)
   }, [activeSection, selectedDate, todayKey])
@@ -1548,7 +1567,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }
 
   const openScan = () => {
-    if (activeSection === 'today' || activeSection === 'diary' || activeSection === 'plan' || activeSection === 'explore' || activeSection === 'catalog' || activeSection === 'insights') {
+    if (activeSection === 'today' || activeSection === 'diary' || activeSection === 'classic-diary' || activeSection === 'plan' || activeSection === 'menu' || activeSection === 'explore' || activeSection === 'catalog' || activeSection === 'insights') {
       setTaskReturnSection(activeSection)
     }
     navigateNutrition('scan')
@@ -1565,7 +1584,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }
 
   const openAssistant = () => {
-    if (activeSection === 'today' || activeSection === 'diary' || activeSection === 'plan' || activeSection === 'explore' || activeSection === 'catalog' || activeSection === 'insights') {
+    if (activeSection === 'today' || activeSection === 'diary' || activeSection === 'classic-diary' || activeSection === 'plan' || activeSection === 'menu' || activeSection === 'explore' || activeSection === 'catalog' || activeSection === 'insights') {
       setAssistantReturnSection(activeSection)
     }
     navigateNutrition('assistant')
@@ -1581,6 +1600,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     const nextWeekStart = toLocalDateKey(nextStart)
     setPlanCatalogAction(null)
     setNutritionPlan(null)
+    setActiveNutritionPlan(null)
     setPlanWeekStart(nextWeekStart)
     setPlanSelectedDay(nextWeekStart)
   }
@@ -1621,8 +1641,9 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     setNutritionPlanSaving(true)
     setNutritionPlanError('')
     try {
-      const plan = await confirmMyNutritionPlan(planWeekStart, nutritionPlan.revision)
-      setNutritionPlan(plan)
+      const result = await confirmMyNutritionPlan(planWeekStart, nutritionPlan.revision)
+      setNutritionPlan(result.plan)
+      setActiveNutritionPlan(result.activePlan)
       showMessage('Đã xác nhận thực đơn tuần')
     } catch (error) {
       const message = nutritionPlanErrorMessage(error)
@@ -2181,7 +2202,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     showMessage(`Đã thêm ${food.name} vào ${mealLabels[context.mealType].toLocaleLowerCase('vi-VN')}`)
   }
 
-  const openFoodDetail = (food: NutritionFoodCatalogItem, items: NutritionFoodCatalogItem[] = catalogSnapshot, returnSection: 'catalog' | 'plan' = 'catalog') => {
+  const openFoodDetail = (food: NutritionFoodCatalogItem, items: NutritionFoodCatalogItem[] = catalogSnapshot, returnSection: 'catalog' | 'plan' | 'menu' = 'catalog') => {
     setFoodDetailReturnSection(returnSection)
     setSelectedFood(food)
     if (items.length) setCatalogSnapshot(items)
@@ -2195,8 +2216,8 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     navigateNutrition(foodDetailReturnSection)
   }
 
-  const openPlannedMeal = async (mealId: string) => {
-    const plannedMeal = nutritionPlan?.days.flatMap((day) => day.meals).find((meal) => meal.id === mealId)
+  const openPlanRecordMeal = async (record: NutritionPlanRecord | null, mealId: string, returnSection: 'plan' | 'menu') => {
+    const plannedMeal = record?.days.flatMap((day) => day.meals).find((meal) => meal.id === mealId)
     if (!plannedMeal?.catalogId) {
       showMessage('Món từ thực đơn được giao chưa liên kết với thư viện Aura')
       return
@@ -2206,11 +2227,13 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       const items = known ? [known] : await loadNutritionCatalog({ ids: [plannedMeal.catalogId] })
       const item = known ?? items[0]
       if (!item) throw new Error('not-found')
-      openFoodDetail(item, [...items, ...catalogSnapshot.filter((candidate) => candidate.id !== item.id)], 'plan')
+      openFoodDetail(item, [...items, ...catalogSnapshot.filter((candidate) => candidate.id !== item.id)], returnSection)
     } catch {
       showMessage('Chưa mở được chi tiết món trong thư viện')
     }
   }
+  const openPlannedMeal = (mealId: string) => openPlanRecordMeal(nutritionPlan, mealId, 'plan')
+  const openMenuMeal = (mealId: string) => openPlanRecordMeal(activeNutritionPlan, mealId, 'menu')
 
   const addFoodFromDetail = (record: NutritionFoodDetailRecord, serving: NutritionServingSelection) => {
     void queueCatalogFood({
@@ -2552,6 +2575,21 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
           onRemoveMeal: removeNutritionPlanMeal,
           onOpenMeal: nutritionPlan ? openPlannedMeal : undefined,
           onConfirmPlan: confirmNutritionPlan,
+          onReload: reloadNutritionPlan,
+          onShiftWeek: shiftPlanWeek,
+        }}
+        menu={{
+          days: workspacePlanDays,
+          selectedDayId: planSelectedDay,
+          meals: workspaceMenuMeals,
+          dailyCalorieGoal: activeNutritionPlan?.targets.calories ?? calorieGoal,
+          sourceTitle: activeNutritionPlan?.sourceTitle,
+          weekLabel: `${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit' }).format(dateFromLocalKey(planWeekStart))} – ${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(dateFromLocalKey(planDays[6]?.id ?? planWeekStart))}`,
+          errorMessage: nutritionPlanError,
+          isLoading: nutritionPlanLoading,
+          onSelectDay: setPlanSelectedDay,
+          onOpenMeal: activeNutritionPlan ? openMenuMeal : undefined,
+          onOpenPlan: () => navigateNutrition('plan'),
           onReload: reloadNutritionPlan,
           onShiftWeek: shiftPlanWeek,
         }}

@@ -386,7 +386,7 @@ test('authenticated bootstrap confirms server data and defers nutrition history 
   assert.match(dataSyncBannerSource, /Đang đồng bộ dữ liệu mới nhất/)
   assert.doesNotMatch(dataSyncBannerSource, /Đang hiển thị bản lưu gần nhất/)
   assert.match(nutritionPageSource, /const \[historySyncStarted, setHistorySyncStarted\] = useState\(false\)/)
-  assert.match(nutritionPageSource, /const needsHistory = activeSection === 'diary' \|\| activeSection === 'plan' \|\| activeSection === 'insights' \|\| activeSection === 'assistant'/)
+  assert.match(nutritionPageSource, /const needsHistory = activeSection === 'diary' \|\| activeSection === 'classic-diary' \|\| activeSection === 'plan' \|\| activeSection === 'menu' \|\| activeSection === 'insights' \|\| activeSection === 'assistant'/)
   assert.match(nutritionPageSource, /if \(needsHistory\) \{[\s\S]*?setHistorySyncStarted\(true\)/)
   assert.doesNotMatch(nutritionPageSource, /requestIdleCallback/)
 })

@@ -391,18 +391,35 @@ function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
     const userId = await requireStudent(request)
     const weekStart = validateWeekStart(request.data?.weekStart)
     const draftReference = db.doc(`users/${userId}/nutritionPlanDrafts/${weekStart}`)
-    const [draftSnapshot, assignmentSnapshot] = await Promise.all([
+    const activeReference = db.doc(`users/${userId}/nutritionPlans/${weekStart}`)
+    const [draftSnapshot, activeSnapshot, assignmentSnapshot] = await Promise.all([
       draftReference.get(),
+      activeReference.get(),
       db.doc(`mealPlanAssignments/${userId}`).get(),
     ])
-    if (draftSnapshot.exists) return { plan: publicPlan(draftSnapshot.data()), assignedPlanAvailable: assignmentSnapshot.exists }
-    if (!assignmentSnapshot.exists || assignmentSnapshot.data()?.status !== 'active') return { plan: null, assignedPlanAvailable: false }
-    const planId = assignmentSnapshot.data()?.mealPlanId
-    if (typeof planId !== 'string' || !planId) return { plan: null, assignedPlanAvailable: false }
-    const assignedSnapshot = await db.doc(`mealPlans/${planId}`).get()
-    if (!assignedSnapshot.exists || assignedSnapshot.data()?.status !== 'published') return { plan: null, assignedPlanAvailable: false }
-    const catalog = await loadPlanCatalog(db)
-    return { plan: assignedPlanToWeek(assignedSnapshot.data(), catalog.items, weekStart), assignedPlanAvailable: true }
+    const draftPlan = draftSnapshot.exists ? publicPlan(draftSnapshot.data()) : null
+    let activePlan = activeSnapshot.exists ? publicPlan(activeSnapshot.data()) : null
+    // Before nutritionPlans was introduced, confirmed plans lived only in
+    // nutritionPlanDrafts. Keep those weeks readable without a migration.
+    if (!activePlan && draftPlan?.status === 'active') activePlan = draftPlan
+
+    const assignmentIsActive = assignmentSnapshot.exists && assignmentSnapshot.data()?.status === 'active'
+    let assignedPlan = null
+    if (assignmentIsActive && (!draftPlan || !activePlan)) {
+      const planId = assignmentSnapshot.data()?.mealPlanId
+      if (typeof planId === 'string' && planId) {
+        const assignedSnapshot = await db.doc(`mealPlans/${planId}`).get()
+        if (assignedSnapshot.exists && assignedSnapshot.data()?.status === 'published') {
+          const catalog = await loadPlanCatalog(db)
+          assignedPlan = assignedPlanToWeek(assignedSnapshot.data(), catalog.items, weekStart)
+        }
+      }
+    }
+    return {
+      plan: draftPlan || assignedPlan,
+      activePlan: activePlan || assignedPlan,
+      assignedPlanAvailable: Boolean(assignedPlan || assignmentIsActive),
+    }
   })
 
   const generateMyNutritionPlanDraft = onCall({ cpu: 'gcf_gen1', maxInstances: 2, timeoutSeconds: 120, memory: '512MiB' }, async (request) => {
@@ -526,6 +543,7 @@ function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
     const weekStart = validateWeekStart(request.data?.weekStart)
     const expectedRevision = Math.max(0, Math.trunc(Number(request.data?.expectedRevision) || 0))
     const reference = db.doc(`users/${userId}/nutritionPlanDrafts/${weekStart}`)
+    const activeReference = db.doc(`users/${userId}/nutritionPlans/${weekStart}`)
     let saved = null
     await db.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(reference)
@@ -540,8 +558,12 @@ function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
       if (coveredDays.size !== 7) throw new HttpsError('failed-precondition', 'Kế hoạch cần ít nhất một bữa cho mỗi ngày trước khi xác nhận.')
       saved = { ...current, status: 'active', revision: revision + 1, confirmedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }
       transaction.set(reference, saved)
+      // The confirmed menu is a separate snapshot. Future draft edits must not
+      // mutate the menu that the member is currently following.
+      transaction.set(activeReference, saved)
     })
-    return { plan: publicPlan(saved) }
+    const publicSaved = publicPlan(saved)
+    return { plan: publicSaved, activePlan: publicSaved }
   })
 
   return {

@@ -73,7 +73,10 @@ test('nutrition V4 uses four primary sections and compatible nested routes', asy
   await expect(sections.getByRole('button')).toHaveCount(4, { timeout: 10_000 })
   expect(await sections.getByRole('button').allTextContents()).toEqual(['Hôm nay', 'Nhật ký', 'Kế hoạch', 'Khám phá'])
   await sections.getByRole('button', { name: 'Khám phá' }).click()
-  await expect(page.getByRole('heading', { name: 'Tìm món và hiểu tiến độ' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Nhật ký, thực đơn và kế hoạch' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Nhật ký cổ điển/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Thực đơn đã xác nhận/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Kế hoạch tuần/ })).toBeVisible()
   await page.getByRole('button', { name: /Thư viện món ăn/ }).click()
   await expect(page).toHaveURL(/#\/nutrition\?section=explore&view=catalog$/)
   await expect(page.getByRole('heading', { name: /Món ăn & thực phẩm/i })).toBeVisible()
@@ -81,6 +84,25 @@ test('nutrition V4 uses four primary sections and compatible nested routes', asy
   expect(catalogBox).not.toBeNull()
   expect(catalogBox!.x).toBeLessThanOrEqual(1)
   expect(catalogBox!.x + catalogBox!.width).toBeGreaterThanOrEqual(389)
+  await expectNoHorizontalOverflow(page)
+})
+
+test('Explore restores the classic diary and separates confirmed menu from weekly planning', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await enableAuraUiV4(page)
+  await page.goto('/#/nutrition?section=explore')
+
+  await page.getByRole('button', { name: /Nhật ký cổ điển/ }).click()
+  await expect(page).toHaveURL(/#\/nutrition\?section=explore&view=diary$/)
+  await expect(page.locator('#nutrition-workspace-panel-classic-diary').getByRole('heading', { name: 'Mọi lựa chọn trong ngày' })).toBeVisible()
+  await expectNoHorizontalOverflow(page)
+
+  await page.goto('/#/nutrition?section=explore&view=menu')
+  const menu = page.locator('#nutrition-workspace-panel-menu')
+  await expect(menu.getByRole('heading', { name: 'Thực đơn đã xác nhận' })).toBeVisible()
+  await menu.getByRole('button', { name: /Mở kế hoạch/ }).click()
+  await expect(page).toHaveURL(/#\/nutrition\?section=plan$/)
+  await expect(page.getByRole('heading', { name: 'Kế hoạch tuần của bạn' })).toBeVisible()
   await expectNoHorizontalOverflow(page)
 })
 
@@ -92,6 +114,14 @@ test('nutrition diary is a touch-safe history workspace with day, week and month
   const diary = page.locator('#nutrition-workspace-panel-diary')
   await expect(diary.getByRole('heading', { name: 'Tra cứu những gì bạn đã ghi' })).toBeVisible()
   await expect(page.locator('#nutrition-workspace-panel-today')).toHaveCount(0)
+  await expect(diary.locator('.nutrition-diary-overview')).toBeVisible()
+  await expect(diary.locator('.nutrition-diary-overview__stats > div')).toHaveCount(4)
+
+  const quickBox = await diary.getByRole('complementary', { name: 'Thêm bản ghi' }).boundingBox()
+  const timelineBox = await diary.locator('.nutrition-diary-timeline').boundingBox()
+  expect(quickBox).not.toBeNull()
+  expect(timelineBox).not.toBeNull()
+  expect(quickBox!.y).toBeLessThan(timelineBox!.y)
 
   const views = diary.getByRole('tablist', { name: 'Chế độ xem nhật ký' })
   await expect(views.getByRole('tab')).toHaveCount(3)
