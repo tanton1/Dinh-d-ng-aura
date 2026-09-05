@@ -518,6 +518,8 @@ exports.chargeDuePtSessionsScheduled = onSchedule({
   region: 'asia-southeast1',
   timeZone: 'Asia/Ho_Chi_Minh',
   retryCount: 1,
+  cpu: 'gcf_gen1',
+  concurrency: 1,
   maxInstances: 1,
   timeoutSeconds: 540,
 }, async () => chargeDuePtSessions({ db, now: new Date(), logger }))
@@ -526,6 +528,8 @@ exports.autoConfirmOverduePtAttendanceScheduled = onSchedule({
   region: 'asia-southeast1',
   timeZone: 'Asia/Ho_Chi_Minh',
   retryCount: 1,
+  cpu: 'gcf_gen1',
+  concurrency: 1,
   maxInstances: 1,
   timeoutSeconds: 540,
 }, async () => autoConfirmOverduePtAttendance({ db, now: new Date(), logger }))
