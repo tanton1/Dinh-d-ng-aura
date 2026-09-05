@@ -9,11 +9,11 @@ import {
   resolveDailyNutritionTargets,
 } from '../../features/nutrition/dailyNutritionTargets'
 import NutritionGroupIcon from '../../components/NutritionGroupIcon'
-import type { Recipe as MealPlanRecipe } from './MealPlanPage'
 import NutritionWorkspace, {
   NutritionSectionNav,
   type AuraAssistantImageAttachment,
   type AuraAssistantMessage,
+  type NutritionDiaryDaySummary,
   type NutritionMealEntry,
   type NutritionPlannedMeal,
   type NutritionPlanDay,
@@ -104,6 +104,15 @@ import { nutritionEvidenceLabel } from '../../features/nutrition/analysis'
 import { useAccessibleDialog } from '../../features/nutrition/useAccessibleDialog'
 import { useNutritionAssistantController } from '../../features/nutrition/useNutritionAssistantController'
 import { MealEditorSheet, MealLogEditorSheet, type MealEditorContext, type MealLogEditDraft } from './NutritionMealEditors'
+import {
+  confirmMyNutritionPlan,
+  generateMyNutritionPlanDraft,
+  getMyNutritionPlanWorkspace,
+  mutateMyNutritionPlanMeal,
+  nutritionPlanErrorMessage,
+  type NutritionPlanMeal,
+  type NutritionPlanRecord,
+} from '../../services/nutritionPlanService'
 
 const NutritionFoodDetail = React.lazy(() => import('./NutritionFoodDetail'))
 const FoodScanModal = React.lazy(() => import('./NutritionScanFlow'))
@@ -111,7 +120,6 @@ const FoodCatalogModal = React.lazy(() => import('./NutritionCatalogFlow'))
 const CapturedMealDetail = React.lazy(() => import('./CapturedMealDetail'))
 const NutritionProfileEditor = React.lazy(() => import('./NutritionProfileEditor'))
 const NutritionDashboardHome = React.lazy(() => import('./NutritionDashboardHome'))
-const MealPlanPage = React.lazy(() => import('./MealPlanPage'))
 const WorkoutLogSheet = React.lazy(() => import('../../components/workout/WorkoutLogSheet'))
 const QuickAddSheet = React.lazy(() => import('./NutritionQuickSheets').then((module) => ({ default: module.NutritionQuickAddSheet })))
 const WaterLogSheet = React.lazy(() => import('./NutritionQuickSheets').then((module) => ({ default: module.NutritionWaterLogSheet })))
@@ -1019,6 +1027,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     return toLocalDateKey(firstDay)
   }, [todayKey])
   const [selectedDate, setSelectedDate] = useState(todayKey)
+  const [planWeekStart, setPlanWeekStart] = useState(() => getCalendarStart(dateFromLocalKey(todayKey)))
   const [planSelectedDay, setPlanSelectedDay] = useState(todayKey)
   const [homeWeekStart, setHomeWeekStart] = useState(() => getCalendarStart())
   const [activeSection, setActiveSection] = useState<NutritionRouteSection>(() => nutritionSectionFromHash())
@@ -1028,6 +1037,14 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const [exerciseSheetOpen, setExerciseSheetOpen] = useState(false)
   const [selectedFood, setSelectedFood] = useState<NutritionFoodCatalogItem | null>(null)
   const [pendingFood, setPendingFood] = useState<NutritionFoodCatalogItem | null>(null)
+  const [planCatalogAction, setPlanCatalogAction] = useState<{
+    action: 'add' | 'replace'
+    dayId: string
+    mealId?: string
+    type: NutritionMealDraft['mealType']
+    time: string
+    servingMultiplier: number
+  } | null>(null)
   const [editingMealId, setEditingMealId] = useState<string | null>(null)
   const [selectedLoggedMealId, setSelectedLoggedMealId] = useState<string | null>(null)
   const [catalogSnapshot, setCatalogSnapshot] = useState<NutritionFoodCatalogItem[]>(foodCatalog ?? [])
@@ -1052,6 +1069,12 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     activities: { status: 'synced', revision: 0, cachedAt: null },
   })
   const [planGenerated, setPlanGenerated] = useState(isDemo)
+  const [nutritionPlan, setNutritionPlan] = useState<NutritionPlanRecord | null>(null)
+  const [nutritionPlanLoading, setNutritionPlanLoading] = useState(false)
+  const [nutritionPlanSaving, setNutritionPlanSaving] = useState(false)
+  const [nutritionPlanGenerating, setNutritionPlanGenerating] = useState(false)
+  const [nutritionPlanError, setNutritionPlanError] = useState('')
+  const [nutritionPlanReloadToken, setNutritionPlanReloadToken] = useState(0)
   const [assistantReturnSection, setAssistantReturnSection] = useState<NutritionPrimarySection>('today')
   const [taskReturnSection, setTaskReturnSection] = useState<NutritionPrimarySection>('today')
   const assistantImageUrlsRef = useRef(new Set<string>())
@@ -1077,7 +1100,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     setNutritionLogSyncState(combined)
   }, [])
   const days = useMemo(() => getWeekDays(homeWeekStart, todayKey), [homeWeekStart, todayKey])
-  const planDays = useMemo(() => getWeekDays(getCalendarStart(dateFromLocalKey(todayKey)), todayKey), [todayKey])
+  const planDays = useMemo(() => getWeekDays(planWeekStart, todayKey), [planWeekStart, todayKey])
   const loggedDateIds = useMemo(() => new Set([
     ...meals.filter((meal) => meal.status === 'logged').map((meal) => meal.date),
     ...activities.map((activity) => activity.date),
@@ -1182,8 +1205,33 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     fat: meal.fat,
     image: meal.image,
     confidence: meal.confidence ?? (meal.source === 'ai-scan' ? 'estimated' : 'verified'),
-    sourceLabel: meal.source === 'ai-scan' ? 'Aura Vision + dữ liệu dinh dưỡng' : meal.source === 'catalog' ? 'Viện Dinh dưỡng' : undefined,
+    sourceLabel: meal.source === 'ai-scan' ? 'Aura Vision + dữ liệu dinh dưỡng' : meal.source === 'catalog' ? 'Thư viện dinh dưỡng Aura' : meal.source === 'manual' ? 'Học viên nhập tay' : undefined,
+    reviewStatus: meal.reviewStatus,
+    cookingNote: meal.cookingNote,
+    portionNote: meal.portionNote,
+    coachFeedback: meal.coachFeedback,
   }))
+  const diaryDaySummaries = useMemo<NutritionDiaryDaySummary[]>(() => {
+    const summaries = new Map<string, NutritionDiaryDaySummary>()
+    const read = (date: string) => {
+      const existing = summaries.get(date)
+      if (existing) return existing
+      const created = { date, mealCount: 0, calories: 0, protein: 0, waterMl: 0, activityCount: 0, reviewCount: 0 }
+      summaries.set(date, created)
+      return created
+    }
+    meals.filter((meal) => meal.status === 'logged').forEach((meal) => {
+      const summary = read(meal.date)
+      summary.mealCount += 1
+      summary.calories += Math.max(0, Number(meal.calories) || 0)
+      summary.protein += Math.max(0, Number(meal.protein) || 0)
+      const confidence = meal.confidence ?? (meal.source === 'ai-scan' ? 'estimated' : 'verified')
+      if (meal.reviewStatus === 'pending' || confidence !== 'verified') summary.reviewCount += 1
+    })
+    activities.forEach((activity) => { read(activity.date).activityCount += 1 })
+    Object.entries(waterByDate).forEach(([date, amount]) => { read(date).waterMl = Math.max(0, Number(amount) || 0) })
+    return [...summaries.values()].sort((left, right) => right.date.localeCompare(left.date))
+  }, [activities, meals, waterByDate])
   const workspacePlanDays: NutritionPlanDay[] = planDays.map((day) => ({
     id: day.id,
     weekday: day.day,
@@ -1191,8 +1239,22 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     label: day.isToday ? 'Hôm nay' : undefined,
     isToday: day.isToday,
   }))
-  const planMealTypes: NutritionMealDraft['mealType'][] = ['breakfast', 'snack', 'lunch', 'snack', 'dinner']
-  const workspacePlannedMeals: NutritionPlannedMeal[] = planGenerated ? workspacePlanDays.flatMap((day) => dailyPlan.map((meal, index) => ({
+  const cloudPlannedMeals: NutritionPlannedMeal[] = nutritionPlan?.days.flatMap((day) => day.meals.map((meal) => ({
+    id: meal.id,
+    catalogId: meal.catalogId,
+    dayId: meal.dayId || day.id,
+    time: meal.time,
+    type: meal.type,
+    label: meal.type === 'breakfast' ? 'Bữa sáng' : meal.type === 'lunch' ? 'Bữa trưa' : meal.type === 'dinner' ? 'Bữa tối' : 'Bữa phụ',
+    title: meal.title,
+    description: meal.description || `${formatNumber(meal.calories)} kcal · ${formatNumber(meal.protein)}g đạm`,
+    calories: meal.calories,
+    protein: meal.protein,
+    image: meal.image,
+    rationale: meal.rationale,
+    source: meal.source,
+  }))) ?? []
+  const demoPlannedMeals: NutritionPlannedMeal[] = planGenerated ? workspacePlanDays.flatMap((day) => dailyPlan.map((meal, index) => ({
     id: `${day.id}-plan-${index}`,
     dayId: day.id,
     time: meal.time,
@@ -1205,6 +1267,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     prepMinutes: profileDraft.prepTime === 'quick' ? 10 : profileDraft.prepTime === 'long' ? 45 : 20,
     rationale: index === 0 ? 'Ưu tiên năng lượng ổn định đầu ngày' : index === dailyPlan.length - 1 ? 'Bù phần macro còn thiếu trong ngày' : 'Phân bổ theo mục tiêu cá nhân',
   }))) : []
+  const workspacePlannedMeals = nutritionPlan ? cloudPlannedMeals : isDemo ? demoPlannedMeals : []
   const selectedFoodSummary = useMemo(() => selectedFood ? toFoodDetailSummary(selectedFood) : null, [selectedFood])
   const relatedFoodSummaries = useMemo(() => {
     if (!selectedFood) return []
@@ -1244,8 +1307,34 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }, [activeSection, historySyncStarted, isDemo, resolvedOwnerId])
 
   useEffect(() => {
-    if (!planDays.some((day) => day.id === planSelectedDay)) setPlanSelectedDay(todayKey)
-  }, [planDays, planSelectedDay, todayKey])
+    if (activeSection !== 'plan' || isDemo || resolvedOwnerId === 'anonymous') return
+    let active = true
+    setNutritionPlanLoading(true)
+    setNutritionPlanError('')
+    void getMyNutritionPlanWorkspace(planWeekStart).then((workspace) => {
+      if (!active) return
+      setNutritionPlan(workspace.plan)
+    }).catch((error) => {
+      if (!active) return
+      setNutritionPlan(null)
+      setNutritionPlanError(nutritionPlanErrorMessage(error))
+    }).finally(() => {
+      if (active) setNutritionPlanLoading(false)
+    })
+    return () => { active = false }
+  }, [activeSection, isDemo, nutritionPlanReloadToken, planWeekStart, resolvedOwnerId])
+
+  useEffect(() => {
+    if (activeSection !== 'diary' || selectedDate <= todayKey) return
+    setHomeWeekStart(getCalendarStart(dateFromLocalKey(todayKey)))
+    setSelectedDate(todayKey)
+  }, [activeSection, selectedDate, todayKey])
+
+  useEffect(() => {
+    if (!planDays.some((day) => day.id === planSelectedDay)) {
+      setPlanSelectedDay(planDays.find((day) => day.isToday)?.id ?? planDays[0]?.id ?? planWeekStart)
+    }
+  }, [planDays, planSelectedDay, planWeekStart])
 
   useEffect(() => {
     if (!firestoreDb || resolvedOwnerId === 'anonymous' || !historySyncStarted) return
@@ -1418,6 +1507,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const navigateNutrition = (section: NutritionRouteSection) => {
     const nextHash = nutritionSectionHash(section, nutritionV4)
     setSelectedFood(null)
+    if (section !== 'catalog') setPlanCatalogAction(null)
     setActiveSection(section)
     if (window.location.hash !== nextHash) window.location.hash = nextHash
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -1436,7 +1526,14 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }
 
   const closeScan = () => navigateNutrition(taskReturnSection)
-  const closeCatalog = () => navigateNutrition(nutritionV4 ? 'explore' : 'today')
+  const closeCatalog = () => {
+    if (planCatalogAction) {
+      setPlanCatalogAction(null)
+      navigateNutrition('plan')
+      return
+    }
+    navigateNutrition(nutritionV4 ? 'explore' : 'today')
+  }
 
   const openAssistant = () => {
     if (activeSection === 'today' || activeSection === 'diary' || activeSection === 'plan' || activeSection === 'explore' || activeSection === 'catalog' || activeSection === 'insights') {
@@ -1447,14 +1544,120 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
 
   const closeAssistant = () => navigateNutrition(assistantReturnSection)
 
+  const reloadNutritionPlan = () => setNutritionPlanReloadToken((current) => current + 1)
 
-  const shiftSelectedDate = (direction: -1 | 1) => {
-    const nextDate = dateFromLocalKey(selectedDate)
-    nextDate.setDate(nextDate.getDate() + direction)
-    const nextDateKey = toLocalDateKey(nextDate)
+  const shiftPlanWeek = (direction: -1 | 1) => {
+    const nextStart = dateFromLocalKey(planWeekStart)
+    nextStart.setDate(nextStart.getDate() + direction * 7)
+    const nextWeekStart = toLocalDateKey(nextStart)
+    setPlanCatalogAction(null)
+    setNutritionPlan(null)
+    setPlanWeekStart(nextWeekStart)
+    setPlanSelectedDay(nextWeekStart)
+  }
+
+  const generateNutritionPlan = async () => {
+    if (isDemo) {
+      setPlanGenerated(true)
+      showMessage('Đã tạo thực đơn minh họa 7 ngày')
+      return
+    }
+    setNutritionPlanGenerating(true)
+    setNutritionPlanError('')
+    try {
+      const plan = await generateMyNutritionPlanDraft({
+        weekStart: planWeekStart,
+        expectedRevision: nutritionPlan?.source === 'aura-catalog' ? nutritionPlan.revision : 0,
+        calorieGoal,
+        proteinGoal,
+        mealsPerDay: Math.min(5, Math.max(3, profileDraft.mealsPerDay || 3)),
+        goal: profileDraft.goal,
+        allergies: profileDraft.allergies,
+        dislikes: profileDraft.dislikes,
+      })
+      setNutritionPlan(plan)
+      setPlanSelectedDay(plan.days.find((day) => day.id === todayKey)?.id ?? plan.days[0]?.id ?? planWeekStart)
+      showMessage('Đã tạo bản nháp từ thư viện món Aura')
+    } catch (error) {
+      const message = nutritionPlanErrorMessage(error)
+      setNutritionPlanError(message)
+      if (String((error as { code?: unknown })?.code ?? '').endsWith('aborted')) reloadNutritionPlan()
+    } finally {
+      setNutritionPlanGenerating(false)
+    }
+  }
+
+  const confirmNutritionPlan = async () => {
+    if (!nutritionPlan || nutritionPlan.source !== 'aura-catalog') return
+    setNutritionPlanSaving(true)
+    setNutritionPlanError('')
+    try {
+      const plan = await confirmMyNutritionPlan(planWeekStart, nutritionPlan.revision)
+      setNutritionPlan(plan)
+      showMessage('Đã xác nhận thực đơn tuần')
+    } catch (error) {
+      const message = nutritionPlanErrorMessage(error)
+      setNutritionPlanError(message)
+      showMessage(message)
+      if (String((error as { code?: unknown })?.code ?? '').endsWith('aborted')) reloadNutritionPlan()
+    } finally {
+      setNutritionPlanSaving(false)
+    }
+  }
+
+  const openPlanCatalog = (action: 'add' | 'replace', dayId: string, meal?: NutritionPlanMeal) => {
+    if (!nutritionPlan || nutritionPlan.source !== 'aura-catalog') {
+      showMessage('Hãy tạo bản nháp riêng trước khi chọn món từ thư viện')
+      return
+    }
+    setPlanCatalogAction({
+      action,
+      dayId,
+      mealId: meal?.id,
+      type: meal?.type ?? 'lunch',
+      time: meal?.time ?? '12:00',
+      servingMultiplier: 1,
+    })
+    openCatalog(false)
+  }
+
+  const removeNutritionPlanMeal = async (mealId: string) => {
+    if (!nutritionPlan || nutritionPlan.source !== 'aura-catalog') return
+    const meal = nutritionPlan.days.flatMap((day) => day.meals).find((candidate) => candidate.id === mealId)
+    if (!meal || !window.confirm(`Xóa ${meal.title} khỏi thực đơn ${meal.dayId}?`)) return
+    setNutritionPlanSaving(true)
+    setNutritionPlanError('')
+    try {
+      const plan = await mutateMyNutritionPlanMeal({
+        action: 'remove',
+        weekStart: planWeekStart,
+        dayId: meal.dayId,
+        mealId: meal.id,
+        type: meal.type,
+        time: meal.time,
+        expectedRevision: nutritionPlan.revision,
+      })
+      setNutritionPlan(plan)
+      showMessage(`Đã xóa ${meal.title}`)
+    } catch (error) {
+      const message = nutritionPlanErrorMessage(error)
+      setNutritionPlanError(message)
+      showMessage(message)
+      if (String((error as { code?: unknown })?.code ?? '').endsWith('aborted')) reloadNutritionPlan()
+    } finally {
+      setNutritionPlanSaving(false)
+    }
+  }
+
+
+  const selectDiaryDate = (nextDateKey: string) => {
+    if (nextDateKey < recentNutritionFromDate || nextDateKey > todayKey) return
+    const nextDate = dateFromLocalKey(nextDateKey)
     setHomeWeekStart(getCalendarStart(nextDate))
     setSelectedDate(nextDateKey)
   }
+
+  const selectTodayInDiary = () => selectDiaryDate(todayKey)
 
   const shiftHomeWeek = (direction: -1 | 1) => {
     const nextStart = dateFromLocalKey(homeWeekStart)
@@ -1513,6 +1716,53 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
           return
         }
         showMessage('Đã hoàn tác lần ghi nước')
+      })() },
+    })
+  }
+
+  const deleteWaterEntry = async (entryId: string) => {
+    const deletedEntry = waterEntries.find((entry) => entry.id === entryId)
+    if (!deletedEntry) return
+    const removeLocalEntry = () => {
+      setWaterEntries((current) => current.filter((entry) => entry.id !== entryId))
+      setWaterByDate((current) => ({
+        ...current,
+        [deletedEntry.date]: Math.max(0, (current[deletedEntry.date] ?? 0) - deletedEntry.amountMl),
+      }))
+    }
+    const restoreLocalEntry = () => {
+      setWaterEntries((current) => current.some((entry) => entry.id === entryId) ? current : [deletedEntry, ...current])
+      setWaterByDate((current) => ({
+        ...current,
+        [deletedEntry.date]: Math.min(10000, (current[deletedEntry.date] ?? 0) + deletedEntry.amountMl),
+      }))
+    }
+    removeLocalEntry()
+    beginNutritionMutation('water', entryId)
+    try {
+      if (isCloudLogEnabled) await deleteUserWaterLog(resolvedOwnerId, entryId)
+      completeNutritionMutation('water')
+    } catch (error) {
+      restoreLocalEntry()
+      failNutritionMutation('water', error)
+      showMessage('Không thể xóa lần ghi nước. Dữ liệu đã được giữ lại.')
+      return
+    }
+    showMessage(`Đã xóa ${formatNumber(deletedEntry.amountMl)} ml nước`, {
+      label: 'Hoàn tác',
+      onClick: () => { void (async () => {
+        restoreLocalEntry()
+        beginNutritionMutation('water', entryId)
+        try {
+          if (isCloudLogEnabled) await saveUserWaterLog(resolvedOwnerId, deletedEntry as any)
+          completeNutritionMutation('water')
+        } catch (error) {
+          removeLocalEntry()
+          failNutritionMutation('water', error)
+          showMessage('Không thể khôi phục lần ghi nước vì máy chủ chưa xác nhận.')
+          return
+        }
+        showMessage('Đã khôi phục lần ghi nước')
       })() },
     })
   }
@@ -1798,6 +2048,9 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }
 
   const queueCatalogFood = async (food: NutritionFoodCatalogItem, multiplier = 1, hydrateDetails = true) => {
+    if (planCatalogAction) {
+      setPlanCatalogAction((current) => current ? { ...current, servingMultiplier: multiplier } : current)
+    }
     let pending = food
     if (hydrateDetails) {
       try {
@@ -1822,6 +2075,41 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const commitCatalogFood = async (food: NutritionFoodCatalogItem, context: MealEditorContext) => {
     if (!canLogCatalogFood(food)) {
       showMessage('Bản ghi nguồn còn thiếu kcal hoặc macro nên chưa thể thêm an toàn')
+      return
+    }
+    if (planCatalogAction) {
+      if (!nutritionPlan || nutritionPlan.source !== 'aura-catalog') {
+        showMessage('Bản nháp kế hoạch không còn sẵn sàng. Hãy tải lại.')
+        return
+      }
+      setNutritionPlanSaving(true)
+      setNutritionPlanError('')
+      try {
+        const plan = await mutateMyNutritionPlanMeal({
+          action: planCatalogAction.action,
+          weekStart: planWeekStart,
+          dayId: planCatalogAction.dayId,
+          mealId: planCatalogAction.mealId,
+          catalogId: food.id,
+          type: context.mealType,
+          time: context.time,
+          servingMultiplier: planCatalogAction.servingMultiplier,
+          expectedRevision: nutritionPlan.revision,
+        })
+        setNutritionPlan(plan)
+        setPendingFood(null)
+        setPlanCatalogAction(null)
+        setPlanSelectedDay(context.date)
+        navigateNutrition('plan')
+        showMessage(planCatalogAction.action === 'replace' ? `Đã đổi sang ${food.name}` : `Đã thêm ${food.name} vào thực đơn`)
+      } catch (error) {
+        const message = nutritionPlanErrorMessage(error)
+        setNutritionPlanError(message)
+        showMessage(message)
+        if (String((error as { code?: unknown })?.code ?? '').endsWith('aborted')) reloadNutritionPlan()
+      } finally {
+        setNutritionPlanSaving(false)
+      }
       return
     }
     const mealLabels: Record<NutritionMealDraft['mealType'], string> = { breakfast: 'Bữa sáng', lunch: 'Bữa trưa', dinner: 'Bữa tối', snack: 'Bữa phụ' }
@@ -1875,6 +2163,23 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const closeFoodDetail = () => {
     setSelectedFood(null)
     navigateNutrition('catalog')
+  }
+
+  const openPlannedMeal = async (mealId: string) => {
+    const plannedMeal = nutritionPlan?.days.flatMap((day) => day.meals).find((meal) => meal.id === mealId)
+    if (!plannedMeal?.catalogId) {
+      showMessage('Món từ thực đơn được giao chưa liên kết với thư viện Aura')
+      return
+    }
+    try {
+      const known = catalogSnapshot.find((item) => item.id === plannedMeal.catalogId)
+      const items = known ? [known] : await loadNutritionCatalog({ ids: [plannedMeal.catalogId] })
+      const item = known ?? items[0]
+      if (!item) throw new Error('not-found')
+      openFoodDetail(item, [...items, ...catalogSnapshot.filter((candidate) => candidate.id !== item.id)])
+    } catch {
+      showMessage('Chưa mở được chi tiết món trong thư viện')
+    }
   }
 
   const addFoodFromDetail = (record: NutritionFoodDetailRecord, serving: NutritionServingSelection) => {
@@ -2070,7 +2375,17 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       onLog={logWater} 
     /></React.Suspense>}
     {exerciseSheetOpen && <React.Suspense fallback={<div role="status" aria-live="polite">Đang tải nhật ký vận động…</div>}><WorkoutLogSheet dateLabel={selectedDateLabel} weightKg={profileDraft.weightKg} onClose={() => setExerciseSheetOpen(false)} onSave={saveActivity} /></React.Suspense>}
-    {pendingFood && <MealEditorSheet food={pendingFood} initialDate={selectedDate} onClose={() => setPendingFood(null)} onConfirm={commitCatalogFood} />}
+    {pendingFood && <MealEditorSheet
+      food={pendingFood}
+      initialDate={planCatalogAction?.dayId ?? selectedDate}
+      initialMealType={planCatalogAction?.type}
+      initialTime={planCatalogAction?.time}
+      mode={planCatalogAction ? 'plan' : 'diary'}
+      lockDate={Boolean(planCatalogAction)}
+      isSaving={Boolean(planCatalogAction) && nutritionPlanSaving}
+      onClose={() => setPendingFood(null)}
+      onConfirm={commitCatalogFood}
+    />}
     {editingMeal && <MealLogEditorSheet meal={editingMeal} onClose={() => setEditingMealId(null)} onConfirm={(draft) => editMeal(editingMeal.id, draft)} />}
   </>
 
@@ -2152,53 +2467,45 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
           onDeleteMeal={deleteMeal}
           onDeleteActivity={deleteActivity}
         /></React.Suspense></>}
-        menuContent={<React.Suspense fallback={<div role="status" aria-live="polite">Đang tải thực đơn…</div>}>
-          <MealPlanPage
-            onNavigate={(view) => {
-              window.location.hash = view === 'profile' ? '#/profile' : `#/${view}`
-            }}
-            onLogRecipe={(recipe: MealPlanRecipe) => {
-              void queueCatalogFood({
-                id: `aura-menu:${recipe.id}`,
-                kind: 'dish',
-                name: recipe.name,
-                servingGrams: null,
-                servingLabel: '1 khẩu phần theo công thức',
-                calories: recipe.kcal,
-                protein: recipe.protein,
-                carbs: recipe.carbs,
-                fat: recipe.fat,
-                fiber: recipe.fiber ?? null,
-                source: 'Aura Menu',
-                imageUrl: recipe.image,
-              }, 1, false)
-            }}
-          />
-        </React.Suspense>}
         diary={{
+          dateKey: selectedDate,
           dateLabel: selectedDateLabel,
+          todayKey,
+          historyFromDate: recentNutritionFromDate,
+          daySummaries: diaryDaySummaries,
           targets: { calories: calorieGoal, protein: proteinGoal, carbs: carbGoal, fat: fatGoal, waterMl: waterGoal },
           meals: workspaceDiaryMeals,
           activities: selectedDayActivities.map((activity) => ({ id: activity.id, time: activity.startTime, title: activity.title, durationMinutes: activity.durationMinutes, intensity: activity.intensity, estimatedCalories: activity.estimatedCalories })),
           waterEntries: waterEntries.filter((entry) => entry.date === selectedDate).map((entry) => ({ id: entry.id, time: entry.time, amountMl: entry.amountMl })),
           waterMl: water,
-          assistantBrief: loggedMeals.length ? `Bạn còn ${formatNumber(Math.max(0, calorieGoal - caloriesConsumed))} kcal và ${formatNumber(Math.max(0, proteinGoal - proteinConsumed))}g đạm. Hãy dùng đây như gợi ý, không phải chỉ định.` : undefined,
-          onShiftDate: shiftSelectedDate,
-          onAddMeal: openScan,
+          onSelectDate: selectDiaryDate,
+          onGoToday: selectTodayInDiary,
+          onAddMeal: () => setQuickAddOpen(true),
           onAddWater: () => setWaterSheetOpen(true),
           onAddExercise: () => setExerciseSheetOpen(true),
           onOpenMeal: setSelectedLoggedMealId,
           onEditMeal: setEditingMealId,
           onDeleteMeal: deleteMeal,
           onDeleteActivity: deleteActivity,
+          onDeleteWater: deleteWaterEntry,
         }}
         plan={{
           days: workspacePlanDays,
           selectedDayId: planSelectedDay,
           meals: workspacePlannedMeals,
-          dailyCalorieGoal: calorieGoal,
+          dailyCalorieGoal: nutritionPlan?.targets.calories ?? calorieGoal,
+          status: nutritionPlan?.status ?? (isDemo && planGenerated ? 'draft' : undefined),
+          sourceTitle: nutritionPlan?.sourceTitle,
+          weekLabel: `${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit' }).format(dateFromLocalKey(planWeekStart))} – ${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(dateFromLocalKey(planDays[6]?.id ?? planWeekStart))}`,
+          errorMessage: nutritionPlanError,
+          isLoading: nutritionPlanLoading,
+          isGenerating: nutritionPlanGenerating,
+          isSaving: nutritionPlanSaving,
+          canEdit: isDemo || nutritionPlan?.source === 'aura-catalog',
           strategyTitle: profileDraft.goal === 'gain-muscle' ? 'Đủ đạm, ưu tiên phục hồi' : profileDraft.goal === 'lose-fat' ? 'No lâu, thâm hụt vừa phải' : 'Cân bằng và dễ duy trì',
-          strategyDescription: `Bản nháp dựa trên mục tiêu ${(GOAL_LABELS[profileDraft.goal] || '').toLocaleLowerCase('vi-VN')}, ${profileDraft.trainingSessions} buổi tập/tuần, phong cách ${(profileDraft.eatingStyle || 'linh hoạt').toLocaleLowerCase('vi-VN')}, ${profileDraft.mealsPerDay || 3} bữa/ngày và gu ẩm thực ${profileDraft.favoriteCuisine || 'đa dạng'}.`,
+          strategyDescription: nutritionPlan?.source === 'assigned'
+            ? 'Thực đơn do đội ngũ Aura giao. Bạn có thể dùng ngay hoặc tạo một bản nháp riêng từ thư viện món.'
+            : `Gợi ý dựa trên mục tiêu ${(GOAL_LABELS[profileDraft.goal] || '').toLocaleLowerCase('vi-VN')}, ${profileDraft.trainingSessions} buổi tập/tuần và ${profileDraft.mealsPerDay || 3} bữa/ngày.`,
           constraints: [
             profileDraft.allergies ? `Tránh: ${profileDraft.allergies}` : 'Chưa ghi nhận dị ứng',
             profileDraft.dislikes ? `Không thích: ${profileDraft.dislikes}` : 'Không có món kén ăn',
@@ -2206,19 +2513,17 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
             `${profileDraft.trainingSessions} buổi tập/tuần`
           ],
           onSelectDay: setPlanSelectedDay,
-          onGeneratePlan: () => { setPlanGenerated(true); showMessage('Đã tạo bản nháp 7 ngày; Aura chưa tự lưu hoặc thay đổi mục tiêu của bạn') },
-          onAddMeal: () => openCatalog(false),
-          onReplaceMeal: () => {
-            openCatalog(false)
-            showMessage('Chọn món có macro tương đương trong Catalog dinh dưỡng')
+          onGeneratePlan: generateNutritionPlan,
+          onAddMeal: (dayId) => openPlanCatalog('add', dayId),
+          onReplaceMeal: (mealId) => {
+            const meal = nutritionPlan?.days.flatMap((day) => day.meals).find((candidate) => candidate.id === mealId)
+            if (meal) openPlanCatalog('replace', meal.dayId, meal)
           },
-          onCreateShoppingList: () => {
-            if (!planGenerated) {
-              showMessage('Vui lòng tạo bản nháp trước khi xem danh sách mua sắm')
-              return
-            }
-            showMessage('Đã tạo danh sách mua sắm cho kế hoạch hiện tại (tính năng đang được hoàn thiện)')
-          },
+          onRemoveMeal: removeNutritionPlanMeal,
+          onOpenMeal: openPlannedMeal,
+          onConfirmPlan: confirmNutritionPlan,
+          onReload: reloadNutritionPlan,
+          onShiftWeek: shiftPlanWeek,
         }}
         assistant={{
           open: activeSection === 'assistant',

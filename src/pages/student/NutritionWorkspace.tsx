@@ -11,7 +11,6 @@ import {
   Database,
   Droplets,
   Dumbbell,
-  Flame,
   ImagePlus,
   MessageCircle,
   MoreHorizontal,
@@ -26,7 +25,6 @@ import {
   TrendingUp,
   Utensils,
   WandSparkles,
-  Wheat,
   X,
 } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
@@ -61,6 +59,10 @@ export interface NutritionMealEntry {
   image?: string
   confidence?: NutritionDataConfidence
   sourceLabel?: string
+  reviewStatus?: 'pending' | 'reviewed'
+  cookingNote?: string
+  portionNote?: string
+  coachFeedback?: string
 }
 
 export interface NutritionActivityEntry {
@@ -88,6 +90,7 @@ export interface NutritionPlanDay {
 
 export interface NutritionPlannedMeal {
   id: string
+  catalogId?: string
   dayId: string
   time: string
   type: NutritionMealType
@@ -99,6 +102,7 @@ export interface NutritionPlannedMeal {
   prepMinutes?: number
   image?: string
   rationale?: string
+  source?: string
 }
 
 export interface AuraAssistantMessage {
@@ -218,39 +222,29 @@ export function NutritionSectionNav({
   )
 }
 
-interface NutritionMetricProgressProps {
-  label: string
-  value: number
-  goal: number
-  unit: string
-  icon: ReactNode
-  tone: 'energy' | 'protein' | 'carbs' | 'fat' | 'water'
-}
-
-function NutritionMetricProgress({ label, value, goal, unit, icon, tone }: NutritionMetricProgressProps) {
-  const percent = clampPercent(value, goal)
-  return (
-    <div className={`nutrition-diary-metric nutrition-diary-metric--${tone}`}>
-      <div className="nutrition-diary-metric__heading">
-        <span>{icon}</span>
-        <div><small>{label}</small><strong>{formatNumber(value)}<em> / {formatNumber(goal)}{unit}</em></strong></div>
-      </div>
-      <div className="nutrition-diary-metric__track" role="progressbar" aria-label={`${label}: ${value} trên ${goal}${unit}`} aria-valuemin={0} aria-valuemax={goal} aria-valuenow={Math.min(value, goal)}>
-        <span style={{ width: `${percent}%` }} />
-      </div>
-    </div>
-  )
+export interface NutritionDiaryDaySummary {
+  date: string
+  mealCount: number
+  calories: number
+  protein: number
+  waterMl: number
+  activityCount: number
+  reviewCount: number
 }
 
 export interface NutritionDiaryPageProps {
+  dateKey: string
   dateLabel: string
+  todayKey: string
+  historyFromDate: string
+  daySummaries: NutritionDiaryDaySummary[]
   targets: NutritionDailyTargets
   meals: NutritionMealEntry[]
   activities: NutritionActivityEntry[]
   waterEntries?: NutritionWaterEntry[]
   waterMl: number
-  assistantBrief?: string
-  onShiftDate?: (direction: -1 | 1) => void
+  onSelectDate: (dateKey: string) => void
+  onGoToday: () => void
   onAddMeal: () => void
   onAddWater: () => void
   onAddExercise: () => void
@@ -258,6 +252,7 @@ export interface NutritionDiaryPageProps {
   onEditMeal?: (mealId: string) => void
   onDeleteMeal?: (mealId: string) => void
   onDeleteActivity?: (activityId: string) => void
+  onDeleteWater?: (waterId: string) => void
 }
 
 type DiaryTimelineEntry =
@@ -266,6 +261,7 @@ type DiaryTimelineEntry =
   | { kind: 'water'; id: string; time: string; item: NutritionWaterEntry }
 
 type DiaryFilter = 'all' | 'meal' | 'water' | 'activity' | 'review'
+type DiaryView = 'day' | 'week' | 'month'
 
 const DIARY_FILTERS: Array<{ id: DiaryFilter; label: string }> = [
   { id: 'all', label: 'Tất cả' },
@@ -275,15 +271,80 @@ const DIARY_FILTERS: Array<{ id: DiaryFilter; label: string }> = [
   { id: 'review', label: 'Cần kiểm tra' },
 ]
 
+const DIARY_VIEWS: Array<{ id: DiaryView; label: string }> = [
+  { id: 'day', label: 'Ngày' },
+  { id: 'week', label: 'Tuần' },
+  { id: 'month', label: 'Tháng' },
+]
+
+function parseDiaryDate(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  return new Date(year, Math.max(0, month - 1), day || 1, 12, 0, 0, 0)
+}
+
+function diaryDateKey(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function shiftDiaryDate(dateKey: string, amount: number, unit: DiaryView) {
+  const date = parseDiaryDate(dateKey)
+  if (unit === 'day') date.setDate(date.getDate() + amount)
+  if (unit === 'week') date.setDate(date.getDate() + amount * 7)
+  if (unit === 'month') {
+    const currentDay = date.getDate()
+    date.setDate(1)
+    date.setMonth(date.getMonth() + amount)
+    const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+    date.setDate(Math.min(currentDay, lastDay))
+  }
+  return diaryDateKey(date)
+}
+
+function diaryWeekKeys(dateKey: string) {
+  const date = parseDiaryDate(dateKey)
+  const weekday = date.getDay()
+  date.setDate(date.getDate() - (weekday === 0 ? 6 : weekday - 1))
+  return Array.from({ length: 7 }, (_, index) => {
+    const item = new Date(date)
+    item.setDate(date.getDate() + index)
+    return diaryDateKey(item)
+  })
+}
+
+function diaryMonthKeys(dateKey: string) {
+  const date = parseDiaryDate(dateKey)
+  const total = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+  return Array.from({ length: total }, (_, index) => diaryDateKey(new Date(date.getFullYear(), date.getMonth(), index + 1, 12)))
+}
+
+function diaryPeriodKeys(dateKey: string, view: DiaryView) {
+  if (view === 'week') return diaryWeekKeys(dateKey)
+  if (view === 'month') return diaryMonthKeys(dateKey)
+  return [dateKey]
+}
+
+function shortDiaryDate(dateKey: string, includeWeekday = false) {
+  return new Intl.DateTimeFormat('vi-VN', includeWeekday
+    ? { weekday: 'short', day: '2-digit', month: '2-digit' }
+    : { day: '2-digit', month: '2-digit' }).format(parseDiaryDate(dateKey))
+}
+
 export function NutritionDiaryPage({
+  dateKey,
   dateLabel,
+  todayKey,
+  historyFromDate,
+  daySummaries,
   targets,
   meals,
   activities,
   waterEntries = [],
   waterMl,
-  assistantBrief,
-  onShiftDate,
+  onSelectDate,
+  onGoToday,
   onAddMeal,
   onAddWater,
   onAddExercise,
@@ -291,8 +352,10 @@ export function NutritionDiaryPage({
   onEditMeal,
   onDeleteMeal,
   onDeleteActivity,
+  onDeleteWater,
 }: NutritionDiaryPageProps) {
   const [activeFilter, setActiveFilter] = useState<DiaryFilter>('all')
+  const [activeView, setActiveView] = useState<DiaryView>('day')
   const totals = useMemo(() => meals.reduce((result, meal) => ({
     calories: result.calories + meal.calories,
     protein: result.protein + meal.protein,
@@ -306,68 +369,115 @@ export function NutritionDiaryPage({
     ...waterEntries.map((item) => ({ kind: 'water' as const, id: `water-${item.id}`, time: item.time, item })),
   ].sort((left, right) => left.time.localeCompare(right.time)), [activities, meals, waterEntries])
 
-  const caloriesRemaining = targets.calories - totals.calories
   const filteredTimeline = useMemo(() => timeline.filter((event) => {
     if (activeFilter === 'all') return true
-    if (activeFilter === 'review') return event.kind === 'meal' && event.item.confidence && event.item.confidence !== 'verified'
+    if (activeFilter === 'review') return event.kind === 'meal' && (event.item.reviewStatus === 'pending' || event.item.confidence !== 'verified')
     return event.kind === activeFilter
   }), [activeFilter, timeline])
-  const needsReviewCount = useMemo(() => meals.filter((meal) => meal.confidence && meal.confidence !== 'verified').length, [meals])
-  const dayProgress = clampPercent(totals.calories, targets.calories)
-  const defaultBrief = meals.length
-    ? caloriesRemaining > 0
-      ? `Bạn còn khoảng ${formatNumber(caloriesRemaining)} kcal. Aura sẽ ưu tiên món phù hợp với phần macro còn thiếu.`
-      : `Bạn đã vượt mục tiêu khoảng ${formatNumber(Math.abs(caloriesRemaining))} kcal. Hãy ưu tiên nước và bữa nhẹ giàu chất xơ.`
-    : 'Chưa có bữa ăn nào hôm nay. Hãy ghi bữa đầu tiên để Aura bắt đầu phân tích.'
+  const needsReviewCount = useMemo(() => meals.filter((meal) => meal.reviewStatus === 'pending' || meal.confidence !== 'verified').length, [meals])
+  const summaryByDate = useMemo(() => new Map(daySummaries.map((item) => [item.date, item])), [daySummaries])
+  const visibleDateKeys = diaryPeriodKeys(dateKey, activeView)
+  const periodSummary = visibleDateKeys.reduce((result, item) => {
+    const summary = summaryByDate.get(item)
+    if (!summary) return result
+    result.mealCount += summary.mealCount
+    result.calories += summary.calories
+    result.protein += summary.protein
+    result.waterMl += summary.waterMl
+    result.activityCount += summary.activityCount
+    result.reviewCount += summary.reviewCount
+    result.loggedDays += summary.mealCount || summary.waterMl || summary.activityCount ? 1 : 0
+    return result
+  }, { mealCount: 0, calories: 0, protein: 0, waterMl: 0, activityCount: 0, reviewCount: 0, loggedDays: 0 })
+  const shiftedBack = shiftDiaryDate(dateKey, -1, activeView)
+  const shiftedForward = shiftDiaryDate(dateKey, 1, activeView)
+  const eligibleDates = (anchorDateKey: string) => diaryPeriodKeys(anchorDateKey, activeView)
+    .filter((item) => item >= historyFromDate && item <= todayKey)
+  const canShiftBack = eligibleDates(shiftedBack).length > 0
+  const canShiftForward = eligibleDates(shiftedForward).length > 0
+  const periodLabel = activeView === 'day'
+    ? dateLabel
+    : activeView === 'week'
+      ? `${shortDiaryDate(visibleDateKeys[0])} – ${shortDiaryDate(visibleDateKeys[visibleDateKeys.length - 1])}`
+      : new Intl.DateTimeFormat('vi-VN', { month: 'long', year: 'numeric' }).format(parseDiaryDate(dateKey))
+
+  const chooseDate = (nextDateKey: string) => {
+    if (nextDateKey < historyFromDate || nextDateKey > todayKey) return
+    onSelectDate(nextDateKey)
+  }
+
+  const shiftPeriod = (direction: -1 | 1) => {
+    const next = direction < 0 ? shiftedBack : shiftedForward
+    if ((direction < 0 && !canShiftBack) || (direction > 0 && !canShiftForward)) return
+    const eligible = eligibleDates(next)
+    const boundedNext = next < historyFromDate ? eligible[0] : next > todayKey ? eligible[eligible.length - 1] : next
+    chooseDate(boundedNext)
+  }
+
+  const openDay = (nextDateKey: string) => {
+    chooseDate(nextDateKey)
+    setActiveView('day')
+  }
 
   return (
     <section className="nutrition-workspace-page nutrition-diary" id="nutrition-workspace-panel-diary" aria-label="Nhật ký dinh dưỡng">
-      <header className="nutrition-workspace-page__header">
-        <div>
-          <span className="nutrition-workspace-eyebrow">NHẬT KÝ NGÀY</span>
-          <h1>Mọi lựa chọn trong ngày</h1>
-          <p>Bữa ăn, nước và vận động được sắp theo đúng thời gian.</p>
+      <header className="nutrition-diary-header">
+        <div className="nutrition-diary-header__copy">
+          <span className="nutrition-workspace-eyebrow">NHẬT KÝ DINH DƯỠNG</span>
+          <h1>Tra cứu những gì bạn đã ghi</h1>
+          <p>Bữa ăn, nước và vận động được lưu theo thời gian để dễ kiểm tra và chỉnh sửa.</p>
         </div>
-        <div className="nutrition-diary-date">
-          <button type="button" onClick={() => onShiftDate?.(-1)} disabled={!onShiftDate} aria-label="Ngày trước"><ChevronLeft size={18} /></button>
-          <strong>{dateLabel}</strong>
-          <button type="button" onClick={() => onShiftDate?.(1)} disabled={!onShiftDate} aria-label="Ngày sau"><ChevronRight size={18} /></button>
-        </div>
+        <button type="button" className="nutrition-diary-add" onClick={onAddMeal}><Plus size={18} /> Thêm bản ghi</button>
       </header>
 
-      <section className="nutrition-diary-overview" aria-label="Tổng kết dinh dưỡng trong ngày">
-        <div className="nutrition-diary-overview__main">
-          <span>TỔNG KẾT TRONG NGÀY</span>
-          <div><strong>{caloriesRemaining >= 0 ? formatNumber(caloriesRemaining) : `+${formatNumber(Math.abs(caloriesRemaining))}`}</strong><p>{caloriesRemaining >= 0 ? 'kcal còn lại' : 'kcal vượt mục tiêu'}</p></div>
-          <small>{formatNumber(totals.calories)} / {formatNumber(targets.calories)} kcal đã ghi</small>
+      <section className="nutrition-diary-toolbar" aria-label="Thời gian nhật ký">
+        <div className="nutrition-diary-view-switch" role="tablist" aria-label="Chế độ xem nhật ký">
+          {DIARY_VIEWS.map((view) => <button type="button" role="tab" aria-selected={activeView === view.id} className={activeView === view.id ? 'is-active' : ''} key={view.id} onClick={() => setActiveView(view.id)}>{view.label}</button>)}
         </div>
-        <div className="nutrition-diary-overview__stats">
-          <div><small>Tiến độ</small><strong>{dayProgress}%</strong></div>
-          <div><small>Sự kiện</small><strong>{timeline.length}</strong></div>
-          <div><small>Cần kiểm tra</small><strong>{needsReviewCount}</strong></div>
+        <div className="nutrition-diary-date">
+          <button type="button" onClick={() => shiftPeriod(-1)} disabled={!canShiftBack} aria-label={activeView === 'day' ? 'Ngày trước' : activeView === 'week' ? 'Tuần trước' : 'Tháng trước'}><ChevronLeft size={19} /></button>
+          <strong>{periodLabel}</strong>
+          <button type="button" onClick={() => shiftPeriod(1)} disabled={!canShiftForward} aria-label={activeView === 'day' ? 'Ngày sau' : activeView === 'week' ? 'Tuần sau' : 'Tháng sau'}><ChevronRight size={19} /></button>
         </div>
-        <div className="nutrition-diary-overview__bar" role="progressbar" aria-label={`Tiến độ năng lượng ${dayProgress}%`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={dayProgress}><span style={{ width: `${dayProgress}%` }} /></div>
+        <button type="button" className="nutrition-diary-today" onClick={onGoToday} disabled={dateKey === todayKey && activeView === 'day'}><CalendarDays size={17} /> Về hôm nay</button>
       </section>
 
-      <div className="nutrition-assistant-brief">
-        <span><Sparkles size={18} aria-hidden="true" /></span>
-        <div><small>AURA NHẬN XÉT</small><p>{assistantBrief ?? defaultBrief}</p></div>
-        <button type="button" onClick={onAddMeal}>Ghi bữa tiếp theo <ChevronRight size={16} /></button>
-      </div>
+      <section className="nutrition-diary-summary" aria-label={`Tóm tắt ${periodLabel}`}>
+        <div><small>{activeView === 'day' ? 'Bữa ăn' : 'Tổng bữa'}</small><strong>{activeView === 'day' ? meals.length : periodSummary.mealCount}</strong></div>
+        <div><small>Năng lượng</small><strong>{formatNumber(activeView === 'day' ? totals.calories : periodSummary.calories)} <em>kcal</em></strong>{activeView === 'day' && <span>/ {formatNumber(targets.calories)} mục tiêu</span>}</div>
+        <div><small>Đạm</small><strong>{formatNumber(activeView === 'day' ? totals.protein : periodSummary.protein)}<em>g</em></strong></div>
+        <div><small>Nước</small><strong>{formatNumber(activeView === 'day' ? waterMl : periodSummary.waterMl)} <em>ml</em></strong></div>
+        <div><small>{activeView === 'day' ? 'Cần kiểm tra' : 'Ngày đã ghi'}</small><strong>{activeView === 'day' ? needsReviewCount : periodSummary.loggedDays}</strong></div>
+      </section>
 
-      <div className="nutrition-diary-metrics" aria-label="Tiến độ mục tiêu ngày">
-        <NutritionMetricProgress label="Năng lượng" value={totals.calories} goal={targets.calories} unit=" kcal" icon={<Flame size={16} />} tone="energy" />
-        <NutritionMetricProgress label="Đạm" value={totals.protein} goal={targets.protein} unit="g" icon={<Dumbbell size={16} />} tone="protein" />
-        <NutritionMetricProgress label="Carb" value={totals.carbs} goal={targets.carbs} unit="g" icon={<Wheat size={16} />} tone="carbs" />
-        <NutritionMetricProgress label="Chất béo" value={totals.fat} goal={targets.fat} unit="g" icon={<Droplets size={16} />} tone="fat" />
-        <NutritionMetricProgress label="Nước" value={waterMl} goal={targets.waterMl} unit="ml" icon={<Droplets size={16} />} tone="water" />
-      </div>
+      {activeView === 'week' && (
+        <section className="nutrition-diary-period-list" aria-label="Nhật ký theo tuần">
+          {visibleDateKeys.map((item) => {
+            const summary = summaryByDate.get(item)
+            const hasData = Boolean(summary && (summary.mealCount || summary.waterMl || summary.activityCount))
+            return <button type="button" key={item} disabled={item > todayKey || item < historyFromDate} className={`${item === dateKey ? 'is-selected' : ''} ${hasData ? 'has-data' : ''}`.trim()} onClick={() => openDay(item)}><span><strong>{shortDiaryDate(item, true)}</strong>{item === todayKey && <small>Hôm nay</small>}</span><span>{summary?.mealCount ?? 0} bữa</span><span>{formatNumber(summary?.calories ?? 0)} kcal</span><span>{formatNumber(summary?.protein ?? 0)}g đạm</span><i aria-hidden="true" /></button>
+          })}
+        </section>
+      )}
 
-      <div className="nutrition-diary-layout">
+      {activeView === 'month' && (
+        <section className="nutrition-diary-month" aria-label="Nhật ký theo tháng">
+          <div className="nutrition-diary-month__weekdays" aria-hidden="true">{['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((item) => <span key={item}>{item}</span>)}</div>
+          <div className="nutrition-diary-month__grid" style={{ '--diary-month-offset': parseDiaryDate(visibleDateKeys[0]).getDay() === 0 ? 7 : parseDiaryDate(visibleDateKeys[0]).getDay() } as React.CSSProperties}>
+            {visibleDateKeys.map((item, index) => {
+              const summary = summaryByDate.get(item)
+              const hasData = Boolean(summary && (summary.mealCount || summary.waterMl || summary.activityCount))
+              return <button type="button" key={item} disabled={item > todayKey || item < historyFromDate} className={`${index === 0 ? 'is-first' : ''} ${item === dateKey ? 'is-selected' : ''} ${hasData ? 'has-data' : ''}`.trim()} onClick={() => openDay(item)} aria-label={`${shortDiaryDate(item, true)}${hasData ? `, ${summary?.mealCount ?? 0} bữa` : ', chưa có dữ liệu'}`}><strong>{parseDiaryDate(item).getDate()}</strong><span>{summary?.mealCount ?? 0} bữa</span><i aria-hidden="true" /></button>
+            })}
+          </div>
+          <p>Nhật ký tháng hiển thị dữ liệu trong 90 ngày gần nhất. Chọn một ngày để xem và chỉnh sửa chi tiết.</p>
+        </section>
+      )}
+
+      {activeView === 'day' && <div className="nutrition-diary-layout">
         <div className="nutrition-diary-timeline">
           <div className="nutrition-workspace-section-heading">
-            <div><h2>Dòng thời gian</h2><p>{filteredTimeline.length} / {timeline.length} hoạt động đang hiển thị</p></div>
-            <button type="button" onClick={onAddMeal}><Plus size={16} /> Thêm món</button>
+            <div><h2>Dòng thời gian</h2><p>{timeline.length ? `${filteredTimeline.length}/${timeline.length} bản ghi đang hiển thị` : 'Chưa có bản ghi trong ngày này'}</p></div>
           </div>
 
           <div className="nutrition-diary-filters" aria-label="Lọc nhật ký">
@@ -403,6 +513,8 @@ export function NutritionDiaryPage({
               {filteredTimeline.map((event) => {
                 if (event.kind === 'meal') {
                   const meal = event.item
+                  const statusLabel = meal.reviewStatus === 'reviewed' ? 'Đã duyệt' : meal.reviewStatus === 'pending' ? 'Chờ coach' : confidenceCopy(meal.confidence)
+                  const statusTone = meal.reviewStatus === 'reviewed' ? 'reviewed' : meal.reviewStatus === 'pending' ? 'pending' : meal.confidence ?? 'verified'
                   return (
                     <li key={event.id} className="nutrition-diary-event nutrition-diary-event--meal">
                       <time>{meal.time}</time>
@@ -414,17 +526,19 @@ export function NutritionDiaryPage({
                         <div className="nutrition-diary-event__content">
                           <div className="nutrition-diary-event__meta">
                             <span>{meal.label || MEAL_TYPE_LABELS[meal.type]}</span>
-                            <span className={`nutrition-confidence nutrition-confidence--${meal.confidence ?? 'verified'}`}>{confidenceCopy(meal.confidence)}</span>
+                            <span className={`nutrition-confidence nutrition-confidence--${statusTone}`}>{statusLabel}</span>
                           </div>
                           <button type="button" className="nutrition-diary-event__title" onClick={() => onOpenMeal?.(meal.id)} disabled={!onOpenMeal}>{meal.title}</button>
                           {meal.description && <p>{meal.description}</p>}
                           <div className="nutrition-diary-event__nutrition" onClick={() => onOpenMeal?.(meal.id)} style={{ cursor: onOpenMeal ? 'pointer' : 'default' }}><strong>{formatNumber(meal.calories)} kcal</strong><span>{formatNumber(meal.protein)}g P</span><span>{formatNumber(meal.carbs)}g C</span><span>{formatNumber(meal.fat)}g F</span></div>
+                          {(meal.portionNote || meal.cookingNote || meal.sourceLabel) && <div className="nutrition-diary-event__evidence">{meal.portionNote && <span>Khẩu phần: {meal.portionNote}</span>}{meal.cookingNote && <span>Chế biến: {meal.cookingNote}</span>}{meal.sourceLabel && <span>Nguồn: {meal.sourceLabel}</span>}</div>}
+                          {meal.coachFeedback && <p className="nutrition-diary-event__coach">Coach: {meal.coachFeedback}</p>}
                         </div>
                         {(onEditMeal || onDeleteMeal) && (
-                          <div className="nutrition-diary-event__actions">
-                            {onEditMeal && <button type="button" onClick={() => onEditMeal(meal.id)} aria-label={`Chỉnh ${meal.title}`}><MoreHorizontal size={18} /></button>}
-                            {onDeleteMeal && <button type="button" onClick={() => onDeleteMeal(meal.id)} aria-label={`Xóa ${meal.title}`}><Trash2 size={16} /></button>}
-                          </div>
+                          <details className="nutrition-diary-event__menu">
+                            <summary aria-label={`Thao tác với ${meal.title}`}><MoreHorizontal size={19} /></summary>
+                            <div>{onOpenMeal && <button type="button" onClick={() => onOpenMeal(meal.id)}>Xem chi tiết</button>}{onEditMeal && <button type="button" onClick={() => onEditMeal(meal.id)}>Sửa bản ghi</button>}{onDeleteMeal && <button type="button" className="is-danger" onClick={() => onDeleteMeal(meal.id)}><Trash2 size={15} /> Xóa</button>}</div>
+                          </details>
                         )}
                       </article>
                     </li>
@@ -444,7 +558,7 @@ export function NutritionDiaryPage({
                           <strong className="nutrition-diary-event__plain-title">{activity.title}</strong>
                           <p>{activity.durationMinutes} phút · Cường độ {INTENSITY_LABELS[activity.intensity].toLowerCase()} · {formatNumber(activity.estimatedCalories)} kcal</p>
                         </div>
-                        {onDeleteActivity && <button type="button" className="nutrition-diary-event__delete" onClick={() => onDeleteActivity(activity.id)} aria-label={`Xóa ${activity.title}`}><Trash2 size={16} /></button>}
+                        {onDeleteActivity && <details className="nutrition-diary-event__menu"><summary aria-label={`Thao tác với ${activity.title}`}><MoreHorizontal size={19} /></summary><div><button type="button" className="is-danger" onClick={() => onDeleteActivity(activity.id)}><Trash2 size={15} /> Xóa</button></div></details>}
                       </article>
                     </li>
                   )
@@ -454,7 +568,7 @@ export function NutritionDiaryPage({
                   <li key={event.id} className="nutrition-diary-event nutrition-diary-event--water">
                     <time>{event.time}</time>
                     <span className="nutrition-diary-event__node"><Droplets size={16} /></span>
-                    <article><span className="nutrition-diary-event__compact-icon"><Droplets size={20} /></span><div className="nutrition-diary-event__content"><div className="nutrition-diary-event__meta"><span>NƯỚC</span></div><strong className="nutrition-diary-event__plain-title">+{formatNumber(event.item.amountMl)} ml</strong></div></article>
+                    <article><span className="nutrition-diary-event__compact-icon"><Droplets size={20} /></span><div className="nutrition-diary-event__content"><div className="nutrition-diary-event__meta"><span>NƯỚC</span></div><strong className="nutrition-diary-event__plain-title">+{formatNumber(event.item.amountMl)} ml</strong></div>{onDeleteWater && <details className="nutrition-diary-event__menu"><summary aria-label="Thao tác với lần ghi nước"><MoreHorizontal size={19} /></summary><div><button type="button" className="is-danger" onClick={() => onDeleteWater(event.item.id)}><Trash2 size={15} /> Xóa</button></div></details>}</article>
                   </li>
                 )
               })}
@@ -462,16 +576,15 @@ export function NutritionDiaryPage({
           )}
         </div>
 
-        <aside className="nutrition-diary-quick" aria-label="Ghi nhanh">
-          <span className="nutrition-workspace-eyebrow">GHI NHANH</span>
-          <h2>Thêm trong vài giây</h2>
-          <p>Mỗi dữ liệu đều có thời gian và có thể chỉnh lại sau.</p>
-          <button type="button" onClick={onAddMeal}><span><Utensils size={18} /></span><div><strong>Bữa ăn</strong><small>Ảnh AI hoặc ghi thủ công</small></div><ChevronRight size={17} /></button>
-          <button type="button" onClick={onAddWater}><span><Droplets size={18} /></span><div><strong>Nước</strong><small>250, 500 hoặc 750 ml</small></div><ChevronRight size={17} /></button>
-          <button type="button" onClick={onAddExercise}><span><Activity size={18} /></span><div><strong>Luyện tập</strong><small>Giờ, thời lượng, cường độ</small></div><ChevronRight size={17} /></button>
-          <div className="nutrition-diary-quick__note"><CircleAlert size={15} /><p>Kcal vận động được theo dõi riêng, không tự cộng vào ngân sách ăn.</p></div>
+        <aside className="nutrition-diary-quick" aria-label="Thêm bản ghi">
+          <h2>Thêm bản ghi</h2>
+          <p>Chọn loại dữ liệu cần bổ sung cho {dateLabel.toLocaleLowerCase('vi-VN')}.</p>
+          <button type="button" onClick={onAddMeal}><span><Utensils size={18} /></span><div><strong>Bữa ăn</strong><small>Quét ảnh, tìm món hoặc nhập tay</small></div><ChevronRight size={17} /></button>
+          <button type="button" onClick={onAddWater}><span><Droplets size={18} /></span><div><strong>Nước</strong><small>Ghi đúng lượng đã uống</small></div><ChevronRight size={17} /></button>
+          <button type="button" onClick={onAddExercise}><span><Activity size={18} /></span><div><strong>Vận động</strong><small>Thời lượng và cường độ</small></div><ChevronRight size={17} /></button>
+          <div className="nutrition-diary-quick__note"><CircleAlert size={15} /><p>Kcal vận động chỉ dùng để tham khảo, không tự cộng vào ngân sách ăn.</p></div>
         </aside>
-      </div>
+      </div>}
     </section>
   )
 }
@@ -484,13 +597,23 @@ export interface NutritionPlanPageProps {
   strategyTitle?: string
   strategyDescription?: string
   constraints?: string[]
+  status?: 'draft' | 'active'
+  sourceTitle?: string
+  weekLabel?: string
+  errorMessage?: string
+  isLoading?: boolean
   isGenerating?: boolean
+  isSaving?: boolean
+  canEdit?: boolean
   onSelectDay: (dayId: string) => void
   onGeneratePlan: () => void
   onAddMeal: (dayId: string) => void
   onReplaceMeal?: (mealId: string) => void
+  onRemoveMeal?: (mealId: string) => void
   onOpenMeal?: (mealId: string) => void
-  onCreateShoppingList?: () => void
+  onConfirmPlan?: () => void
+  onReload?: () => void
+  onShiftWeek?: (direction: -1 | 1) => void
 }
 
 export function NutritionPlanPage({
@@ -501,13 +624,23 @@ export function NutritionPlanPage({
   strategyTitle = 'Cân bằng năng lượng, ưu tiên đủ đạm',
   strategyDescription = 'Aura phân bổ khẩu phần theo mục tiêu, lịch tập và những món bạn thường chọn.',
   constraints = [],
+  status,
+  sourceTitle,
+  weekLabel,
+  errorMessage,
+  isLoading = false,
   isGenerating = false,
+  isSaving = false,
+  canEdit = true,
   onSelectDay,
   onGeneratePlan,
   onAddMeal,
   onReplaceMeal,
+  onRemoveMeal,
   onOpenMeal,
-  onCreateShoppingList,
+  onConfirmPlan,
+  onReload,
+  onShiftWeek,
 }: NutritionPlanPageProps) {
   const dayMeals = meals.filter((meal) => meal.dayId === selectedDayId).sort((left, right) => left.time.localeCompare(right.time))
   const dayCalories = dayMeals.reduce((sum, meal) => sum + meal.calories, 0)
@@ -517,21 +650,29 @@ export function NutritionPlanPage({
   return (
     <section className="nutrition-workspace-page nutrition-plan" id="nutrition-workspace-panel-plan" aria-label="Kế hoạch bữa ăn">
       <header className="nutrition-workspace-page__header">
-        <div><span className="nutrition-workspace-eyebrow">KẾ HOẠCH 7 NGÀY</span><h1>Ăn đúng mà không phải nghĩ nhiều</h1><p>Aura đề xuất trước, bạn luôn là người quyết định.</p></div>
+        <div><span className="nutrition-workspace-eyebrow">THỰC ĐƠN 7 NGÀY</span><h1>Kế hoạch tuần của bạn</h1><p>Chọn món từ thư viện, điều chỉnh rồi xác nhận để dùng trong tuần.</p>{(status || sourceTitle) && <div className="nutrition-plan-state"><span className={`nutrition-plan-state--${status ?? 'active'}`}>{status === 'draft' ? 'Bản nháp' : 'Đã xác nhận'}</span>{sourceTitle && <small>{sourceTitle}</small>}</div>}</div>
         <div className="nutrition-workspace-page__header-actions">
-          {onCreateShoppingList && <button type="button" className="nutrition-workspace-button nutrition-workspace-button--secondary" onClick={onCreateShoppingList}><ShoppingBasket size={17} /> Danh sách mua</button>}
-          <button type="button" className="nutrition-workspace-button nutrition-workspace-button--primary" onClick={onGeneratePlan} disabled={isGenerating}>{isGenerating ? <RefreshCw className="is-spinning" size={17} /> : <WandSparkles size={17} />} {isGenerating ? 'Đang tạo...' : 'Tạo bản nháp với Aura'}</button>
+          {status === 'draft' && onConfirmPlan && <button type="button" className="nutrition-workspace-button nutrition-workspace-button--secondary" onClick={onConfirmPlan} disabled={isSaving || isGenerating || !meals.length}><Check size={17} /> {isSaving ? 'Đang lưu…' : 'Xác nhận tuần'}</button>}
+          <button type="button" className="nutrition-workspace-button nutrition-workspace-button--primary" onClick={onGeneratePlan} disabled={isGenerating || isSaving}>{isGenerating ? <RefreshCw className="is-spinning" size={17} /> : <WandSparkles size={17} />} {isGenerating ? 'Đang tạo...' : meals.length ? 'Tạo lại gợi ý' : 'Tạo với Aura'}</button>
         </div>
       </header>
 
-      <div className="nutrition-plan-week" role="tablist" aria-label="Chọn ngày trong kế hoạch">
+      {errorMessage && <div className="nutrition-plan-error" role="alert"><CircleAlert size={18} /><span>{errorMessage}</span>{onReload && <button type="button" onClick={onReload}>Tải lại</button>}</div>}
+
+      <div className="nutrition-plan-weekbar">
+        {onShiftWeek && <button type="button" onClick={() => onShiftWeek(-1)} aria-label="Tuần trước"><ChevronLeft size={19} /></button>}
+        <strong>{weekLabel ?? 'Tuần đang chọn'}</strong>
+        {onShiftWeek && <button type="button" onClick={() => onShiftWeek(1)} aria-label="Tuần sau"><ChevronRight size={19} /></button>}
+      </div>
+
+      <div className="nutrition-plan-week" role="tablist" aria-label="Chọn ngày trong kế hoạch" aria-busy={isLoading}>
         {days.map((day) => {
           const active = day.id === selectedDayId
           return <button type="button" key={day.id} className={active ? 'is-active' : ''} onClick={() => onSelectDay(day.id)} role="tab" aria-selected={active}><span>{day.isToday ? 'Hôm nay' : day.weekday}</span><strong>{day.date}</strong>{day.label && <small>{day.label}</small>}</button>
         })}
       </div>
 
-      <div className="nutrition-plan-summary">
+      <div className={`nutrition-plan-summary ${isLoading ? 'is-loading' : ''}`.trim()}>
         <div><span><Target size={18} /></span><div><small>{selectedDay?.label ?? selectedDay?.weekday ?? 'Ngày đã chọn'}</small><strong>{formatNumber(dayCalories)} / {formatNumber(dailyCalorieGoal)} kcal</strong></div></div>
         <div><small>Tổng đạm</small><strong>{formatNumber(dayProtein)}g</strong></div>
         <div><small>Số bữa</small><strong>{dayMeals.length}</strong></div>
@@ -540,8 +681,10 @@ export function NutritionPlanPage({
 
       <div className="nutrition-plan-layout">
         <div className="nutrition-plan-schedule">
-          <div className="nutrition-workspace-section-heading"><div><h2>Lịch bữa ăn</h2><p>Có thể đổi món mà vẫn giữ mục tiêu tương đương.</p></div><button type="button" onClick={() => onAddMeal(selectedDayId)}><Plus size={16} /> Thêm bữa</button></div>
-          {dayMeals.length ? (
+          <div className="nutrition-workspace-section-heading"><div><h2>Lịch bữa ăn</h2><p>{canEdit ? 'Thêm hoặc đổi món trực tiếp từ thư viện Aura.' : 'Tạo bản nháp riêng để điều chỉnh thực đơn được giao.'}</p></div><button type="button" onClick={() => onAddMeal(selectedDayId)} disabled={!canEdit || isSaving || isLoading}><Plus size={16} /> Thêm bữa</button></div>
+          {isLoading ? (
+            <div className="nutrition-plan-loading" role="status" aria-live="polite"><RefreshCw className="is-spinning" size={20} /><span>Đang tải kế hoạch tuần…</span></div>
+          ) : dayMeals.length ? (
             <ol>
               {dayMeals.map((meal) => (
                 <li key={meal.id}>
@@ -550,13 +693,13 @@ export function NutritionPlanPage({
                   <article>
                     <div className="nutrition-plan-meal__visual">{meal.image ? <img src={meal.image} alt="" /> : <span><Utensils size={22} /></span>}</div>
                     <div className="nutrition-plan-meal__content"><span>{meal.label || MEAL_TYPE_LABELS[meal.type]}</span><button type="button" onClick={() => onOpenMeal?.(meal.id)} disabled={!onOpenMeal}>{meal.title}</button><p>{meal.description ?? `${meal.calories} kcal · ${meal.protein}g đạm${meal.prepMinutes ? ` · ${meal.prepMinutes} phút` : ''}`}</p>{meal.rationale && <small><Sparkles size={13} /> {meal.rationale}</small>}</div>
-                    {onReplaceMeal && <button type="button" className="nutrition-plan-meal__replace" onClick={() => onReplaceMeal(meal.id)}><RefreshCw size={15} /><span>Đổi món</span></button>}
+                    {canEdit && (onReplaceMeal || onRemoveMeal) && <div className="nutrition-plan-meal__actions">{onReplaceMeal && <button type="button" className="nutrition-plan-meal__replace" onClick={() => onReplaceMeal(meal.id)} disabled={isSaving}><RefreshCw size={15} /><span>Đổi</span></button>}{onRemoveMeal && <button type="button" className="nutrition-plan-meal__remove" onClick={() => onRemoveMeal(meal.id)} disabled={isSaving} aria-label={`Xóa ${meal.title}`}><Trash2 size={15} /></button>}</div>}
                   </article>
                 </li>
               ))}
             </ol>
           ) : (
-            <div className="nutrition-workspace-empty"><span><CalendarDays size={23} /></span><h3>Ngày này chưa có kế hoạch</h3><p>Để Aura phân bổ các bữa theo mục tiêu của bạn hoặc tự thêm từng bữa.</p><button type="button" onClick={onGeneratePlan}><Sparkles size={16} /> Tạo bằng Aura</button></div>
+            <div className="nutrition-workspace-empty"><span><CalendarDays size={23} /></span><h3>Ngày này chưa có thực đơn</h3><p>Tạo gợi ý 7 ngày từ thư viện món Aura, sau đó đổi từng món nếu cần.</p><button type="button" onClick={onGeneratePlan} disabled={isGenerating}><Sparkles size={16} /> Tạo bằng Aura</button></div>
           )}
         </div>
 
@@ -570,7 +713,7 @@ export function NutritionPlanPage({
           <ul>
             {(constraints.length ? constraints : ['Mục tiêu và chỉ số cơ thể', 'Lịch tập trong tuần', 'Sở thích và món cần tránh']).map((constraint) => <li key={constraint}><Check size={15} /> {constraint}</li>)}
           </ul>
-          <small><CircleAlert size={14} /> Aura không tự thay đổi mục tiêu hoặc lưu kế hoạch khi bạn chưa xác nhận.</small>
+          <small><CircleAlert size={14} /> {status === 'active' ? 'Đây là thực đơn đang dùng. Mọi lần chỉnh tiếp theo sẽ trở thành bản nháp mới.' : 'Bản nháp chỉ trở thành thực đơn chính sau khi bạn xác nhận.'}</small>
         </aside>
       </div>
     </section>

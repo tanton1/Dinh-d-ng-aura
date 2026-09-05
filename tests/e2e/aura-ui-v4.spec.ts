@@ -84,6 +84,46 @@ test('nutrition V4 uses four primary sections and compatible nested routes', asy
   await expectNoHorizontalOverflow(page)
 })
 
+test('nutrition diary is a touch-safe history workspace with day, week and month views', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await enableAuraUiV4(page)
+  await page.goto('/#/nutrition?section=diary')
+
+  const diary = page.locator('#nutrition-workspace-panel-diary')
+  await expect(diary.getByRole('heading', { name: 'Tra cứu những gì bạn đã ghi' })).toBeVisible()
+  await expect(page.locator('#nutrition-workspace-panel-today')).toHaveCount(0)
+
+  const views = diary.getByRole('tablist', { name: 'Chế độ xem nhật ký' })
+  await expect(views.getByRole('tab')).toHaveCount(3)
+  expect(await views.getByRole('tab').allTextContents()).toEqual(['Ngày', 'Tuần', 'Tháng'])
+
+  await views.getByRole('tab', { name: 'Tuần' }).click()
+  await expect(diary.locator('.nutrition-diary-period-list > button')).toHaveCount(7)
+  await expect(views.getByRole('tab', { name: 'Tuần' })).toHaveAttribute('aria-selected', 'true')
+
+  await views.getByRole('tab', { name: 'Tháng' }).click()
+  expect(await diary.locator('.nutrition-diary-month__grid > button').count()).toBeGreaterThan(27)
+  const periodToolbar = diary.getByRole('region', { name: 'Thời gian nhật ký' })
+  await periodToolbar.getByRole('button', { name: 'Tháng trước' }).click()
+  await diary.locator('.nutrition-diary-month__grid > button:not([disabled])').last().click()
+  await expect(views.getByRole('tab', { name: 'Ngày' })).toHaveAttribute('aria-selected', 'true')
+  await views.getByRole('tab', { name: 'Tháng' }).click()
+  await expect(periodToolbar.getByRole('button', { name: 'Tháng sau' })).toBeEnabled()
+  await periodToolbar.getByRole('button', { name: 'Tháng sau' }).click()
+  await diary.locator('.nutrition-diary-month__grid > button.is-selected').click()
+  await expect(views.getByRole('tab', { name: 'Ngày' })).toHaveAttribute('aria-selected', 'true')
+
+  const shortButtons = await diary.getByRole('button').evaluateAll((buttons) => buttons
+    .filter((button) => {
+      const box = button.getBoundingClientRect()
+      return getComputedStyle(button).display !== 'none' && box.width > 0 && box.height > 0
+    })
+    .filter((button) => button.getBoundingClientRect().height < 44)
+    .map((button) => ({ label: button.textContent?.trim() || button.getAttribute('aria-label'), height: button.getBoundingClientRect().height })))
+  expect(shortButtons).toEqual([])
+  await expectNoHorizontalOverflow(page)
+})
+
 test('Aura Academy shows one focused course on the responsive curriculum artwork', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await enableAuraUiV4(page)
