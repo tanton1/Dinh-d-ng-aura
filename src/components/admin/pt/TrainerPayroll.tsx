@@ -192,7 +192,7 @@ function friendlyError(cause: unknown) {
 
 const remediationLabel: Record<PayrollViolation['remediation'], string> = {
   workdays: 'Mở Ngày công',
-  teaching_history: 'Mở lịch sử ca dạy',
+  teaching_history: 'Xem chi tiết trong popup',
   staff_profile: 'Mở Hồ sơ đội ngũ',
   policy: 'Mở Chính sách',
   delete_rebuild: 'Xử lý kỳ nháp',
@@ -214,11 +214,21 @@ export default function TrainerPayroll({ profile }: Props) {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [payrollFailure, setPayrollFailure] = useState<PayrollFailure | null>(null)
+  const [violationDialog, setViolationDialog] = useState<PayrollViolation | null>(null)
   const [detail, setDetail] = useState<PayrollRunDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [expandedTrainerId, setExpandedTrainerId] = useState('')
   const [payoutAccountId, setPayoutAccountId] = useState('')
   const [payoutReference, setPayoutReference] = useState('')
+
+  useEffect(() => {
+    if (!violationDialog) return undefined
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setViolationDialog(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [violationDialog])
   const [showRunSetup, setShowRunSetup] = useState(false)
   const [showPolicyForm, setShowPolicyForm] = useState(false)
   const [liveRows, setLiveRows] = useState<StaffAttendanceRow[]>([])
@@ -575,8 +585,16 @@ export default function TrainerPayroll({ profile }: Props) {
   }
 
   const handleViolationAction = (violation: PayrollViolation) => {
-    setPayrollFailure(null)
     setError('')
+    if (violation.remediation === 'teaching_history') {
+      // Keep the current payroll run/drawer mounted. Navigating to the legacy
+      // training-history route used to unmount this page and discard the
+      // selected period context. The dialog gives the operator the complete
+      // evidence needed to reconcile the duplicate before leaving this run.
+      setViolationDialog(violation)
+      return
+    }
+    setPayrollFailure(null)
     if (violation.remediation === 'workdays') {
       setShowRunSetup(false)
       setView('workdays')
@@ -589,17 +607,6 @@ export default function TrainerPayroll({ profile }: Props) {
     }
     if (violation.remediation === 'staff_profile') {
       window.location.hash = '#/admin-hr'
-      return
-    }
-    if (violation.remediation === 'teaching_history') {
-      const params = new URLSearchParams()
-      const trainerId = violation.trainerId || violation.staffId
-      const sessionId = violation.sessionId || violation.sessionIds?.[0]
-      if (trainerId) params.set('trainerId', trainerId)
-      else if (violation.studentId || violation.studentIds?.[0]) params.set('studentId', violation.studentId || violation.studentIds?.[0] || '')
-      if (sessionId) params.set('sessionId', sessionId)
-      if (violation.date) params.set('date', violation.date)
-      window.location.hash = `#/admin-training-history${params.size ? `?${params.toString()}` : ''}`
       return
     }
     if (violation.remediation === 'delete_rebuild') {
@@ -836,6 +843,19 @@ export default function TrainerPayroll({ profile }: Props) {
       </section>
     </div>}
 
+    {violationDialog && <div className="payroll-correction-modal" role="dialog" aria-modal="true" aria-labelledby="payroll-correction-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setViolationDialog(null) }}>
+      <section className="payroll-correction-modal__panel">
+        <header><div><span>Đối soát ca dạy</span><strong id="payroll-correction-title">{violationDialog.title}</strong></div><button type="button" aria-label="Đóng chi tiết lỗi" onClick={() => setViolationDialog(null)}><X size={20} /></button></header>
+        <div className="payroll-correction-modal__alert"><AlertTriangle size={21} /><div><strong>Không tự gộp hoặc xóa buổi</strong><p>{violationDialog.detail}</p></div></div>
+        <dl className="payroll-correction-modal__facts">
+          <div><dt>Thông tin đối soát</dt><dd>{violationFacts(violationDialog, trainers, students, branches)}</dd></div>
+          {violationDialog.sessionIds?.length ? <div><dt>Mã các ca liên quan</dt><dd className="payroll-correction-modal__session-list">{violationDialog.sessionIds.map((sessionId) => <code key={sessionId}>{sessionId}</code>)}</dd></div> : null}
+        </dl>
+        <p className="payroll-correction-modal__guide">Hãy kiểm tra từng mã ca trong lịch sử tập và chỉ điều chỉnh bản ghi sai. Kỳ lương hiện tại vẫn được giữ nguyên phía sau popup; nếu kỳ đã duyệt hoặc đã khóa, tạo khoản điều chỉnh/kỳ bù thay vì sửa chứng từ cũ.</p>
+        <footer><button className="payroll-page__secondary" type="button" onClick={() => setViolationDialog(null)}>Đóng, giữ kỳ lương</button></footer>
+      </section>
+    </div>}
+
     {pendingConfirmation && <div className="payroll-confirm" role="region" aria-label="Xác nhận thao tác"><section><span className="payroll-confirm__icon"><AlertTriangle size={24} /></span><strong>{pendingConfirmation.kind === 'rebuild-run' ? 'Lập lại kỳ theo ca chuẩn?' : pendingConfirmation.kind === 'delete-run' ? 'Xóa kỳ lương nháp?' : pendingConfirmation.action === 'delete' ? 'Xóa chính sách?' : pendingConfirmation.action === 'hide' ? 'Ẩn chính sách?' : 'Mở lại chính sách?'}</strong><p>{pendingConfirmation.kind === 'rebuild-run' ? `${pendingConfirmation.label} đang là bản nháp công thức cũ. Bản nháp và các dòng tính cũ sẽ được gỡ; sau đó Aura mở ngay bước chọn chính sách để lập lại. Chứng từ đã khóa không bị ảnh hưởng.` : pendingConfirmation.kind === 'delete-run' ? `${pendingConfirmation.label} chưa duyệt sẽ bị xóa cùng các dòng tính lương để bạn lập lại theo chính sách mới.` : pendingConfirmation.action === 'delete' ? `${pendingConfirmation.label} chưa được kỳ lương nào sử dụng và sẽ bị xóa.` : pendingConfirmation.action === 'hide' ? `${pendingConfirmation.label} sẽ không còn xuất hiện khi lập kỳ mới; các kỳ cũ không thay đổi.` : `${pendingConfirmation.label} sẽ lại xuất hiện trong danh sách chính sách có thể chọn.`}</p><div><button type="button" disabled={!!busyAction} onClick={() => setPendingConfirmation(null)}>Giữ lại</button><button className={pendingConfirmation.kind === 'delete-run' || pendingConfirmation.kind === 'rebuild-run' || pendingConfirmation.action === 'delete' ? 'is-danger' : ''} type="button" disabled={!!busyAction} onClick={() => void confirmDestructiveAction()}>{busyAction ? 'Đang xử lý…' : pendingConfirmation.kind === 'rebuild-run' ? 'Gỡ bản cũ & tiếp tục' : 'Xác nhận'}</button></div></section></div>}
 
     {(detail || detailLoading) && <div className="payroll-drawer" role="region" aria-label="Chi tiết kỳ lương">
@@ -855,7 +875,7 @@ export default function TrainerPayroll({ profile }: Props) {
             <p className="payroll-violations__note">Các bản ghi này không được tự gộp hoặc tự xóa. Hãy mở lịch sử ca dạy để đối soát từng mã ca; kỳ đã duyệt/khóa vẫn giữ nguyên chứng từ và cần xử lý bằng điều chỉnh hoặc kỳ bù.</p>
             <div className="payroll-violations__list">{detail.run.validationViolations.map((violation, index) => <article key={`${violation.code}:${violation.studentId || index}:${violation.date || ''}`}>
               <div><span>{violation.code}</span><strong>{violation.title}</strong><p>{violation.detail}</p><small>{violationFacts(violation, trainers, students, branches)}</small></div>
-              <button type="button" onClick={() => handleViolationAction(violation)}>Mở lịch sử & điều chỉnh<ChevronRight size={15} /></button>
+              <button type="button" onClick={() => handleViolationAction(violation)}>Xem chi tiết & điều chỉnh<ChevronRight size={15} /></button>
             </article>)}</div>
           </section>}
           {detail.run.requiresRebuild && <div className="payroll-drawer__legacy-warning"><AlertTriangle size={20} /><div><strong>{detail.run.sourceDataStale ? 'Dữ liệu ca dạy vừa được điều chỉnh' : 'Kỳ lương dùng công thức cũ'}</strong><p>{detail.run.status === 'draft' ? detail.run.sourceDataStale ? 'Kỳ nháp đang giữ số liệu trước khi điều chỉnh ca. Hãy xóa và lập lại để tiền ca lấy đúng PT, ngày và giờ mới nhất.' : 'Hãy lập lại kỳ để mỗi PT + ngày + giờ chỉ tính một ca; tiền ca không cộng theo số học viên và hoa hồng giới thiệu chỉ lấy từ dòng tiền thực thu.' : 'Kỳ đã duyệt hoặc khóa được giữ nguyên để bảo toàn chứng từ. Chỉ các kỳ mới dùng công thức ca dạy độc nhất và hoa hồng theo dòng tiền.'}</p>{!detail.run.sourceDataStale && detail.run.storedTeachingSlotCount !== detail.run.teachingSlotCount && <small>Dữ liệu cũ: {detail.run.storedTeachingSlotCount || 0} lượt · Preview chuẩn: {detail.run.teachingSlotCount} ca.</small>}</div>{detail.run.status === 'draft' && <button type="button" onClick={() => { setPendingConfirmation({ kind: 'rebuild-run', id: detail.run.id, label: periodLabel(detail.run.periodId) }); setDetail(null) }}><RefreshCw size={15} /> Đối soát & lập lại</button>}</div>}
