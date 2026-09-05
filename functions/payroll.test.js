@@ -426,6 +426,7 @@ test('payroll UI surfaces trainer names, teaching-slot evidence and legacy rebui
 
 test('payroll UI uses canonical runs and cannot edit teaching sessions', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'admin', 'pt', 'TrainerPayroll.tsx'), 'utf8')
+  const styles = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles-payroll-canonical.css'), 'utf8')
 
   assert.match(source, /getPayrollRun/)
   assert.match(source, /listPayrollPolicies/)
@@ -442,6 +443,7 @@ test('payroll UI uses canonical runs and cannot edit teaching sessions', () => {
   assert.match(source, /Xem chi tiết trong popup/)
   assert.match(source, /payroll-correction-modal/)
   assert.doesNotMatch(source, /window\.location\.hash = `#\/admin-training-history/)
+  assert.match(styles, /:not\(\.payroll-correction-modal\)/)
   assert.doesNotMatch(source, /commissionPerSession\s*\|\|\s*20000/)
   assert.doesNotMatch(source, /confirmSessionAttendance|cancelSession|rescheduleSession|swapSessions/)
   assert.doesNotMatch(source, /Ước tính đối soát PT/)

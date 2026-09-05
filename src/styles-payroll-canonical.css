@@ -534,7 +534,7 @@
   .payroll-confirm > section { border-radius: 25px 25px 0 0; padding-bottom: max(26px, env(safe-area-inset-bottom)); }
 }
 
-.payroll-page--subpage > :not(.payroll-modal):not(.payroll-confirm):not(.payroll-drawer) { display: none !important; }
+.payroll-page--subpage > :not(.payroll-modal):not(.payroll-confirm):not(.payroll-drawer):not(.payroll-correction-modal) { display: none !important; }
 .payroll-page--subpage .payroll-modal,
 .payroll-page--subpage .payroll-confirm,
 .payroll-page--subpage .payroll-drawer {
