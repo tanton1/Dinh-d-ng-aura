@@ -73,10 +73,10 @@ test('nutrition V4 uses four primary sections and compatible nested routes', asy
   await expect(sections.getByRole('button')).toHaveCount(4, { timeout: 10_000 })
   expect(await sections.getByRole('button').allTextContents()).toEqual(['Hôm nay', 'Nhật ký', 'Kế hoạch', 'Khám phá'])
   await sections.getByRole('button', { name: 'Khám phá' }).click()
-  await expect(page.getByRole('heading', { name: 'Nhật ký, thực đơn và kế hoạch' })).toBeVisible()
-  await expect(page.getByRole('button', { name: /Nhật ký cổ điển/ })).toBeVisible()
-  await expect(page.getByRole('button', { name: /Thực đơn đã xác nhận/ })).toBeVisible()
-  await expect(page.getByRole('button', { name: /Kế hoạch tuần/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Tìm món và hiểu tiến độ' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Nhật ký cổ điển/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /Thực đơn đã xác nhận/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /Kế hoạch tuần/ })).toHaveCount(0)
   await page.getByRole('button', { name: /Thư viện món ăn/ }).click()
   await expect(page).toHaveURL(/#\/nutrition\?section=explore&view=catalog$/)
   await expect(page.getByRole('heading', { name: /Món ăn & thực phẩm/i })).toBeVisible()
@@ -87,22 +87,18 @@ test('nutrition V4 uses four primary sections and compatible nested routes', asy
   await expectNoHorizontalOverflow(page)
 })
 
-test('Explore restores the classic diary and separates confirmed menu from weekly planning', async ({ page }) => {
+test('nutrition plan restores the classic two-tab meal plan page', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await enableAuraUiV4(page)
-  await page.goto('/#/nutrition?section=explore')
+  await page.goto('/#/nutrition?section=plan')
 
-  await page.getByRole('button', { name: /Nhật ký cổ điển/ }).click()
-  await expect(page).toHaveURL(/#\/nutrition\?section=explore&view=diary$/)
-  await expect(page.locator('#nutrition-workspace-panel-classic-diary').getByRole('heading', { name: 'Mọi lựa chọn trong ngày' })).toBeVisible()
-  await expectNoHorizontalOverflow(page)
-
-  await page.goto('/#/nutrition?section=explore&view=menu')
-  const menu = page.locator('#nutrition-workspace-panel-menu')
-  await expect(menu.getByRole('heading', { name: 'Thực đơn đã xác nhận' })).toBeVisible()
-  await menu.getByRole('button', { name: /Mở kế hoạch/ }).click()
-  await expect(page).toHaveURL(/#\/nutrition\?section=plan$/)
-  await expect(page.getByRole('heading', { name: 'Kế hoạch tuần của bạn' })).toBeVisible()
+  const plan = page.locator('.meal-plan-page-container')
+  await expect(plan).toBeVisible()
+  await expect(plan.getByRole('heading', { name: 'THỰC ĐƠN' })).toBeVisible()
+  await expect(plan.getByRole('button', { name: 'Thực đơn', exact: true })).toBeVisible()
+  await expect(plan.getByRole('button', { name: 'Kế hoạch 7 ngày', exact: true })).toBeVisible()
+  await plan.getByRole('button', { name: 'Kế hoạch 7 ngày', exact: true }).click()
+  await expect(plan.getByRole('button', { name: 'Kế hoạch 7 ngày', exact: true })).toHaveClass(/meal-plan-tab-btn--active/)
   await expectNoHorizontalOverflow(page)
 })
 
@@ -154,17 +150,17 @@ test('nutrition diary is a touch-safe history workspace with day, week and month
   await expectNoHorizontalOverflow(page)
 })
 
-test('nutrition plan uses one weekly menu workspace instead of the disconnected recipe page', async ({ page }) => {
+test('nutrition plan keeps the classic meal and seven-day tabs', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await enableAuraUiV4(page)
   await page.goto('/#/nutrition?section=plan')
 
-  const plan = page.locator('#nutrition-workspace-panel-plan')
-  await expect(plan.getByRole('heading', { name: 'Kế hoạch tuần của bạn' })).toBeVisible()
-  await expect(plan.getByRole('tablist', { name: 'Chọn ngày trong kế hoạch' }).getByRole('tab')).toHaveCount(7)
-  await expect(plan.getByText('Đã xác nhận', { exact: true })).toBeVisible()
-  await expect(plan.getByRole('button', { name: /Tạo lại gợi ý/ })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Khám phá thực đơn phù hợp' })).toHaveCount(0)
+  const plan = page.locator('.meal-plan-page-container')
+  await expect(plan.getByRole('button', { name: 'Thực đơn', exact: true })).toHaveClass(/meal-plan-tab-btn--active/)
+  await expect(plan.getByRole('button', { name: 'Kế hoạch 7 ngày', exact: true })).toBeVisible()
+  await expect(plan.getByText('Ức gà áp chảo & rau củ')).toBeVisible()
+  await plan.getByRole('button', { name: 'Kế hoạch 7 ngày', exact: true }).click()
+  await expect(plan.getByRole('button', { name: 'Kế hoạch 7 ngày', exact: true })).toHaveClass(/meal-plan-tab-btn--active/)
   await expectNoHorizontalOverflow(page)
 })
 

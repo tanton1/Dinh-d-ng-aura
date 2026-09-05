@@ -609,7 +609,7 @@ export default function MealPlanPage({
                 activeTab === 'recipes' ? 'meal-plan-tab-btn--active' : ''
               }`}
             >
-              Thư viện công thức
+              Thực đơn
               {activeTab === 'recipes' && (
                 <span className="meal-plan-tab-indicator" />
               )}

@@ -9,6 +9,7 @@ import {
   resolveDailyNutritionTargets,
 } from '../../features/nutrition/dailyNutritionTargets'
 import NutritionGroupIcon from '../../components/NutritionGroupIcon'
+import MealPlanPage, { type Recipe as MealPlanRecipe } from './MealPlanPage'
 import NutritionWorkspace, {
   NutritionSectionNav,
   type AuraAssistantImageAttachment,
@@ -2484,6 +2485,25 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         heightCm={profileDraft.heightCm}
         nutritionProfile={profileDraft}
         ownerId={resolvedOwnerId}
+        legacyPlanContent={<MealPlanPage
+          onNavigate={(view) => { window.location.hash = view === 'profile' ? '#/profile' : `#/${view}` }}
+          onLogRecipe={(recipe: MealPlanRecipe) => {
+            void queueCatalogFood({
+              id: `aura-menu:${recipe.id}`,
+              kind: 'dish',
+              name: recipe.name,
+              servingGrams: null,
+              servingLabel: '1 khẩu phần theo công thức',
+              calories: recipe.kcal,
+              protein: recipe.protein,
+              carbs: recipe.carbs,
+              fat: recipe.fat,
+              fiber: recipe.fiber ?? null,
+              source: 'Aura Menu',
+              imageUrl: recipe.image,
+            }, 1, false)
+          }}
+        />}
         todayContent={<>{profileSyncBanner}<React.Suspense fallback={<div className="nutrition-dashboard-loading" role="status" aria-live="polite">Đang tải tổng quan dinh dưỡng…</div>}><NutritionDashboardHome
           selectedDate={selectedDate}
           days={days}

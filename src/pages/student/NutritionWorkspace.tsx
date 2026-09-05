@@ -1004,6 +1004,7 @@ export interface NutritionWorkspaceProps {
   diary: NutritionDiaryPageProps
   plan: NutritionPlanPageProps
   menu?: NutritionMenuPageProps
+  legacyPlanContent?: ReactNode
   insights?: any
   assistant?: AskAuraPanelProps
   onScan: () => void
@@ -1029,6 +1030,7 @@ function NutritionWorkspace({
   diary,
   plan,
   menu,
+  legacyPlanContent,
   assistant,
   onScan,
   onOpenCatalog,
@@ -1053,9 +1055,9 @@ function NutritionWorkspace({
           {activeSection === 'today' && <div id="nutrition-workspace-panel-today">{todayContent}</div>}
           {activeSection === 'diary' && <NutritionDiaryPage {...diary} />}
           {activeSection === 'classic-diary' && <NutritionClassicDiaryPage {...diary} />}
-          {activeSection === 'plan' && <NutritionPlanPage {...plan} />}
+          {activeSection === 'plan' && (legacyPlanContent ?? <NutritionPlanPage {...plan} />)}
           {activeSection === 'menu' && menu && <NutritionMenuPage {...menu} />}
-          {v4 && activeSection === 'explore' && <section className="nutrition-explore" aria-labelledby="nutrition-explore-title"><header><small>KHÁM PHÁ DINH DƯỠNG</small><h2 id="nutrition-explore-title">Nhật ký, thực đơn và kế hoạch</h2><p>Mỗi khu vực có vai trò riêng: xem lại dữ liệu đã ghi, theo thực đơn đã chốt hoặc chuẩn bị kế hoạch tuần tiếp theo.</p></header><div><button type="button" className="nutrition-explore__primary" onClick={() => onSectionChange('classic-diary')}><span><CalendarDays size={21} /></span><strong>Nhật ký cổ điển</strong><small>Giao diện nhật ký ngày trước đây</small><ChevronRight size={18} /></button><button type="button" className="nutrition-explore__primary" onClick={() => onSectionChange('menu')}><span><Utensils size={21} /></span><strong>Thực đơn đã xác nhận</strong><small>Xem thực đơn ổn định đang áp dụng</small><ChevronRight size={18} /></button><button type="button" className="nutrition-explore__primary" onClick={() => onSectionChange('plan')}><span><ShoppingBasket size={21} /></span><strong>Kế hoạch tuần</strong><small>Tạo, đổi món và xác nhận thực đơn</small><ChevronRight size={18} /></button><button type="button" onClick={onOpenCatalog}><span><Database size={21} /></span><strong>Thư viện món ăn</strong><small>Tìm món theo khẩu phần và macro</small><ChevronRight size={18} /></button><button type="button" onClick={onOpenSaved ?? onOpenCatalog}><span><Salad size={21} /></span><strong>Món đã lưu</strong><small>Mở nhanh món bạn dùng thường xuyên</small><ChevronRight size={18} /></button><button type="button" onClick={() => onSectionChange('insights')}><span><BarChart3 size={21} /></span><strong>Tiến độ dinh dưỡng</strong><small>Xem xu hướng cân nặng và thói quen</small><ChevronRight size={18} /></button>{onOpenEatClean && <button type="button" onClick={onOpenEatClean}><span><ShoppingBasket size={21} /></span><strong>Eat Clean</strong><small>Chọn món phù hợp mục tiêu hôm nay</small><ChevronRight size={18} /></button>}</div></section>}
+          {v4 && activeSection === 'explore' && <section className="nutrition-explore" aria-labelledby="nutrition-explore-title"><header><small>KHÁM PHÁ DINH DƯỠNG</small><h2 id="nutrition-explore-title">Tìm món và hiểu tiến độ</h2><p>Các công cụ tham khảo được gom tại đây để phần Hôm nay luôn tập trung vào việc cần làm.</p></header><div><button type="button" onClick={onOpenCatalog}><span><Database size={21} /></span><strong>Thư viện món ăn</strong><small>Tìm món theo khẩu phần và macro</small><ChevronRight size={18} /></button><button type="button" onClick={onOpenSaved ?? onOpenCatalog}><span><Salad size={21} /></span><strong>Món đã lưu</strong><small>Mở nhanh món bạn dùng thường xuyên</small><ChevronRight size={18} /></button><button type="button" onClick={() => onSectionChange('insights')}><span><BarChart3 size={21} /></span><strong>Tiến độ dinh dưỡng</strong><small>Xem xu hướng cân nặng và thói quen</small><ChevronRight size={18} /></button>{onOpenEatClean && <button type="button" onClick={onOpenEatClean}><span><ShoppingBasket size={21} /></span><strong>Eat Clean</strong><small>Chọn món phù hợp mục tiêu hôm nay</small><ChevronRight size={18} /></button>}</div></section>}
           {activeSection === 'insights' && (
             <React.Suspense fallback={<div role="status" aria-live="polite">Đang tải phân tích tiến độ…</div>}>
               <ProgressPage
