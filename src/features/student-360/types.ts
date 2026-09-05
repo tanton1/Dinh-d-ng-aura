@@ -185,6 +185,13 @@ export interface Student360Overview {
 export interface Student360TimelineEvent {
   id: string
   type: 'training' | 'workout' | 'off' | 'freeze' | 'schedule_change' | 'nutrition' | 'finance' | 'renewal' | 'progress' | 'care' | 'checkin' | 'contract'
+  /** Normalized display group and provenance. These fields are server-owned so
+   * the UI can explain where an event came from without exposing raw payloads. */
+  group?: 'contract' | 'payment' | 'training' | 'nutrition' | 'care' | 'checkin' | 'renewal' | 'progress'
+  groupLabel?: string
+  sourceCollection?: string
+  sourceLabel?: string
+  dedupeKey?: string
   occurredAt: string
   sortKey: number
   title: string
@@ -226,6 +233,15 @@ export interface Student360ContractRecord {
   totalPrice?: number
   paidAmount?: number
   discount?: number
+  usage?: {
+    storedUsedSessions: number
+    chargedSessions: number
+    exemptSessions: number
+    pendingReconciliationSessions: number
+    usedSessions: number
+    remainingSessions: number
+    reconciliationStatus: 'matched' | 'legacy_projection' | 'projection_behind' | 'over_entitlement'
+  }
 }
 
 export interface Student360ContractWorkspace {

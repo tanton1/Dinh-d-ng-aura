@@ -195,9 +195,122 @@ function eventId(studentId, type, sourceId) {
   return `${studentId}_${digest}`
 }
 
-function timelineEvent(studentId, type, sourceId, occurredAtMillis, title, description, audience = 'operations', metadata = {}) {
+const TIMELINE_GROUPS = {
+  contract: { group: 'contract', label: 'Hợp đồng' },
+  off: { group: 'contract', label: 'Hợp đồng' },
+  freeze: { group: 'contract', label: 'Hợp đồng' },
+  schedule_change: { group: 'contract', label: 'Đổi / hủy lịch' },
+  finance: { group: 'payment', label: 'Thanh toán' },
+  training: { group: 'training', label: 'Buổi tập' },
+  workout: { group: 'training', label: 'Nhật ký tập' },
+  nutrition: { group: 'nutrition', label: 'Dinh dưỡng' },
+  care: { group: 'care', label: 'Chăm sóc' },
+  checkin: { group: 'checkin', label: 'Check-in' },
+  renewal: { group: 'renewal', label: 'Gia hạn' },
+  progress: { group: 'progress', label: 'Tiến độ' },
+}
+
+const TIMELINE_SOURCE_LABELS = {
+  contracts: 'Hợp đồng',
+  contractAuditLogs: 'Audit hợp đồng',
+  sessions: 'Lịch buổi tập',
+  workoutLogs: 'Nhật ký tập',
+  leaveRequests: 'Yêu cầu OFF / bảo lưu',
+  sessionRequests: 'Yêu cầu đổi / hủy lịch',
+  mealLogs: 'Nhật ký bữa ăn',
+  mealReviews: 'Duyệt dinh dưỡng',
+  dailyCheckins: 'Check-in hằng ngày',
+  payments: 'Phiếu thu cũ',
+  ledgerEntries: 'Sổ cái tài chính',
+  contractRenewalCases: 'Hồ sơ gia hạn',
+  bodyMetrics: 'Số đo cơ thể',
+  progressPhotos: 'Ảnh tiến độ',
+  studentCareActivities: 'Nhật ký chăm sóc',
+  studentTimelineEvents: 'CRM Timeline',
+}
+
+function timelineSource(type, sourceId, explicitSource) {
+  if (explicitSource) return explicitSource
+  const value = String(sourceId || '')
+  if (value.startsWith('finance_ledger:')) return 'ledgerEntries'
+  if (value.startsWith('legacy_payment:')) return 'payments'
+  if (value.startsWith('meal-review:')) return 'mealReviews'
+  if (value.startsWith('progress-photo:')) return 'progressPhotos'
+  if (type === 'contract') return 'contracts'
+  if (type === 'training') return 'sessions'
+  if (type === 'workout') return 'workoutLogs'
+  if (type === 'off' || type === 'freeze') return 'leaveRequests'
+  if (type === 'schedule_change') return 'sessionRequests'
+  if (type === 'nutrition') return 'mealLogs'
+  if (type === 'checkin') return 'dailyCheckins'
+  if (type === 'renewal') return 'contractRenewalCases'
+  if (type === 'progress') return 'bodyMetrics'
+  if (type === 'care') return 'studentCareActivities'
+  return 'studentTimelineEvents'
+}
+
+function timelineDedupeKey(type, sourceId, metadata = {}, occurredAtMillis = 0) {
+  const contractId = bounded(metadata.contractId, 200)
+  const amount = finite(metadata.amount, 0)
+  const date = occurredAtMillis ? new Date(occurredAtMillis).toISOString().slice(0, 16) : ''
+  if (type === 'contract' && contractId) {
+    // Generic contract snapshots are intentionally a separate key. They can be
+    // removed at read time whenever an audited mutation exists for the same HĐ.
+    return metadata.action ? `contract:${contractId}:audit:${bounded(metadata.action, 40)}:${date}` : `contract:${contractId}:generic`
+  }
+  if (type === 'finance' && contractId) {
+    const reference = bounded(metadata.referenceCode, 100)
+    return reference ? `finance:${contractId}:ref:${reference}` : `finance:${contractId}:${bounded(metadata.status, 30)}:${amount}:${date}`
+  }
+  const source = bounded(sourceId, 200)
+  return `${type}:${source}`
+}
+
+function timelinePriority(event) {
+  const source = event.sourceCollection || ''
+  if (source === 'contractAuditLogs') return 40
+  if (source === 'ledgerEntries') return 30
+  if (source === 'sessions' || source === 'studentCareActivities') return 25
+  if (source === 'payments') return 20
+  if (source === 'contracts') return 10
+  return 15
+}
+
+function normalizeTimelineEvents(events = []) {
+  const prepared = events.filter(Boolean).map((event) => {
+    const group = TIMELINE_GROUPS[event.type] || { group: event.type, label: event.type }
+    const sourceCollection = event.sourceCollection || timelineSource(event.type, event.sourceId, '')
+    const dedupeKey = event.dedupeKey || timelineDedupeKey(event.type, event.sourceId, event.metadata, event.occurredAtMillis)
+    return { ...event, group: event.group || group.group, groupLabel: event.groupLabel || group.label, sourceCollection, sourceLabel: event.sourceLabel || TIMELINE_SOURCE_LABELS[sourceCollection] || sourceCollection, dedupeKey }
+  })
+
+  // If an audited mutation exists for a contract, the old generic contract
+  // snapshot is only a duplicate summary and should never be rendered beside it.
+  const auditedContracts = new Set(prepared
+    .filter((event) => event.type === 'contract' && event.sourceCollection === 'contractAuditLogs')
+    .map((event) => bounded(event.metadata?.contractId, 200))
+    .filter(Boolean))
+  const withoutGenericContracts = prepared.filter((event) => {
+    if (event.type !== 'contract' || event.sourceCollection !== 'contracts') return true
+    const contractId = bounded(event.metadata?.contractId, 200)
+    return !auditedContracts.has(contractId)
+  })
+
+  const byKey = new Map()
+  for (const event of withoutGenericContracts) {
+    const current = byKey.get(event.dedupeKey)
+    if (!current || timelinePriority(event) > timelinePriority(current) || (timelinePriority(event) === timelinePriority(current) && event.sortKey > current.sortKey)) {
+      byKey.set(event.dedupeKey, event)
+    }
+  }
+  return [...byKey.values()].sort((left, right) => right.sortKey - left.sortKey)
+}
+
+function timelineEvent(studentId, type, sourceId, occurredAtMillis, title, description, audience = 'operations', metadata = {}, explicitSource = '') {
   const stableMillis = Math.max(1, occurredAtMillis || Date.now())
   const suffix = Number.parseInt(createHash('sha1').update(`${type}:${sourceId}`).digest('hex').slice(0, 3), 16) % 1000
+  const group = TIMELINE_GROUPS[type] || { group: type, label: type }
+  const sourceCollection = timelineSource(type, sourceId, explicitSource)
   return {
     id: eventId(studentId, type, sourceId),
     schemaVersion: 1,
@@ -211,6 +324,11 @@ function timelineEvent(studentId, type, sourceId, occurredAtMillis, title, descr
     description: bounded(description, 500),
     audience,
     metadata,
+    group: group.group,
+    groupLabel: group.label,
+    sourceCollection,
+    sourceLabel: TIMELINE_SOURCE_LABELS[sourceCollection] || sourceCollection,
+    dedupeKey: timelineDedupeKey(type, sourceId, metadata, stableMillis),
   }
 }
 
@@ -301,7 +419,7 @@ function contractInstallments(value, previous = [], outstanding = null) {
   return result
 }
 
-function contractWorkspaceRecord(snapshot, canViewFinancialAmounts, canManageContract = false) {
+function contractWorkspaceRecord(snapshot, canViewFinancialAmounts, canManageContract = false, usage = null) {
   const value = snapshot.data ? snapshot.data() : snapshot
   const id = snapshot.id || value.id
   const record = {
@@ -344,6 +462,7 @@ function contractWorkspaceRecord(snapshot, canViewFinancialAmounts, canManageCon
     revision: Math.max(0, Math.floor(finite(value.revision))),
     updatedAt: iso(value.updatedAt),
     updatedByName: bounded(value.updatedByName, 160),
+    ...(usage ? { usage } : {}),
   }
   if (canViewFinancialAmounts) {
     record.totalPrice = Math.max(0, Math.floor(finite(value.totalPrice)))
@@ -579,7 +698,7 @@ function sourceTimelineEvents(studentId, sources) {
     const occurred = timestampMillis(item.createdAt || item.updatedAt) || dateKeyMillis(date)
     values.push(timelineEvent(studentId, 'progress', `progress-photo:${item.id}`, occurred, 'Đã cập nhật ảnh tiến độ', date ? `Ảnh tiến độ ngày ${date}` : 'Ảnh tiến độ mới', 'coaching', { progressPhotoId: item.id }))
   }
-  return values.filter((item) => item.occurredAtMillis > 0).sort((left, right) => right.sortKey - left.sortKey).slice(0, 400)
+  return normalizeTimelineEvents(values.filter((item) => item.occurredAtMillis > 0)).slice(0, 400)
 }
 
 async function upsertTimeline(db, events) {
@@ -999,7 +1118,12 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
   const writeCall = (handler) => onCall({ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 4, invoker: 'public' }, handler)
 
   const contractWorkspace = async (actor, studentId, projection, permissions) => {
-    const contractSnapshot = await db.collection('contracts').where('studentId', '==', studentId).limit(50).get()
+    const [contractSnapshot, sessionSnapshot] = await Promise.all([
+      db.collection('contracts').where('studentId', '==', studentId).limit(50).get(),
+      db.collection('sessions').where('studentId', '==', studentId).limit(1000).get(),
+    ])
+    const sessions = sessionSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+    const usageByContract = new Map(contractSnapshot.docs.map((item) => [item.id, contractUsage({ id: item.id, ...item.data() }, sessions)]))
     const ids = actorIds(actor)
     const contracts = contractSnapshot.docs
       .filter((item) => {
@@ -1010,7 +1134,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         if (permissions.scope === 'sales') return includesActor([value.assignedSalesId], ids)
         return includesActor([value.trainerId, ...normalizedArray(value.trainerIds), ...normalizedArray(value.nutritionPTIds)], ids)
       })
-      .map((item) => contractWorkspaceRecord(item, permissions.canViewFinancialAmounts, permissions.canManageContract))
+      .map((item) => contractWorkspaceRecord(item, permissions.canViewFinancialAmounts, permissions.canManageContract, usageByContract.get(item.id)))
       .sort((left, right) => right.startDate.localeCompare(left.startDate) || right.id.localeCompare(left.id))
     const canManageFinancials = actor.capabilities.includes('finance.operations.manage')
     if (!permissions.canManageContract) {
@@ -1347,6 +1471,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
         contractMutationDescription(action, { ...next, ...eventDetails, reason }),
         'finance',
         { contractId, action, status: next.status || '', actorName: actor.actorName, changedFields, ...(eventDetails || {}) },
+        'contractAuditLogs',
       )
       transaction.set(db.doc(`studentTimelineEvents/${event.id}`), event)
       return { contractId, revision: nextRevision, action }
@@ -1416,21 +1541,50 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const requestedTypes = normalizedArray(request.data?.types).slice(0, 20)
     const cursor = finite(request.data?.cursor, Number.MAX_SAFE_INTEGER)
     const fromMillis = Math.max(0, Math.floor(finite(request.data?.fromMillis)))
-    const queryLimit = Math.min(150, pageSize * 4 + 1)
-    let query = db.collection('studentTimelineEvents')
-      .where('studentId', '==', studentId)
-      .where('sortKey', '<', cursor)
-    if (fromMillis) query = query.where('sortKey', '>=', fromMillis * 1000)
-    const snapshot = await query
-      .orderBy('sortKey', 'desc')
-      .limit(queryLimit)
-      .get()
-    const rows = snapshot.docs
-      .map((item) => safeTimelineEvent({ id: item.id, ...item.data() }, permissions))
-      .filter(Boolean)
-      .filter((item) => !requestedTypes.length || requestedTypes.includes(item.type))
-      .slice(0, pageSize + 1)
-    const hasMore = rows.length > pageSize || snapshot.size === queryLimit
+    const readPage = async () => {
+      const scanLimit = 150
+      const maximumScans = requestedTypes.length ? 4 : 1
+      let scanCursor = cursor
+      let scanned = 0
+      let sourceExhausted = false
+      const candidates = []
+      for (let round = 0; round < maximumScans && candidates.length <= pageSize; round += 1) {
+        let query = db.collection('studentTimelineEvents')
+          .where('studentId', '==', studentId)
+          .where('sortKey', '<', scanCursor)
+        if (fromMillis) query = query.where('sortKey', '>=', fromMillis * 1000)
+        const snapshot = await query.orderBy('sortKey', 'desc').limit(scanLimit).get()
+        scanned += snapshot.size
+        const safeRows = snapshot.docs
+          .map((item) => safeTimelineEvent({ id: item.id, ...item.data() }, permissions))
+          .filter(Boolean)
+          .filter((item) => !requestedTypes.length || requestedTypes.includes(item.type))
+        candidates.push(...safeRows)
+        sourceExhausted = snapshot.size < scanLimit
+        const lastSortKey = snapshot.docs[snapshot.docs.length - 1]?.data()?.sortKey
+        if (sourceExhausted || !Number.isFinite(Number(lastSortKey))) break
+        scanCursor = Number(lastSortKey)
+      }
+      return { rows: normalizeTimelineEvents(candidates).slice(0, pageSize + 1), scanned, sourceExhausted, scanCursor }
+    }
+
+    let result = await readPage()
+    // Historical projects may already have a cached overview while their old
+    // sessions have never been materialized into studentTimelineEvents. Repair
+    // only when the requested training tab is empty and source evidence exists.
+    if (!result.rows.length && requestedTypes.some((type) => ['training', 'workout'].includes(type))) {
+      const [sessionEvidence, workoutEvidence, ptWorkoutEvidence] = await Promise.all([
+        db.collection('sessions').where('studentId', '==', studentId).limit(1).get(),
+        db.collection('workoutLogs').where('studentId', '==', studentId).limit(1).get(),
+        db.collection('ptWorkoutLogs').where('studentId', '==', studentId).limit(1).get(),
+      ])
+      if (!sessionEvidence.empty || !workoutEvidence.empty || !ptWorkoutEvidence.empty) {
+        await buildStudent360Projection({ db, studentId, weekId, persist: true })
+        result = await readPage()
+      }
+    }
+    const rows = result.rows
+    const hasMore = rows.length > pageSize || (!result.sourceExhausted && result.scanned > 0)
     const page = rows.slice(0, pageSize)
     return {
       schemaVersion: 1,
@@ -1438,7 +1592,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
       rows: page,
       hasMore,
       nextCursor: hasMore
-        ? page[page.length - 1]?.sortKey || snapshot.docs[snapshot.docs.length - 1]?.data()?.sortKey || null
+        ? page[page.length - 1]?.sortKey || result.scanCursor || null
         : null,
     }
   })
@@ -1468,7 +1622,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
       createdAt: FieldValue.serverTimestamp(),
       createdAtMillis: now,
     }
-    const event = timelineEvent(studentId, 'care', activityReference.id, now, type === 'call' ? 'Đã ghi nhận cuộc gọi' : type === 'zalo' ? 'Đã ghi nhận liên hệ Zalo' : type === 'action_completed' ? 'Đã hoàn tất việc chăm sóc' : 'Thêm ghi chú chăm sóc', note || 'Không có ghi chú', visibility, { activityId: activityReference.id, actionId, actorName: actor.actorName })
+    const event = timelineEvent(studentId, 'care', activityReference.id, now, type === 'call' ? 'Đã ghi nhận cuộc gọi' : type === 'zalo' ? 'Đã ghi nhận liên hệ Zalo' : type === 'action_completed' ? 'Đã hoàn tất việc chăm sóc' : 'Thêm ghi chú chăm sóc', note || 'Không có ghi chú', visibility, { activityId: activityReference.id, actionId, actorName: actor.actorName }, 'studentCareActivities')
     const batch = db.batch()
     batch.create(activityReference, activity)
     batch.set(db.doc(`studentTimelineEvents/${event.id}`), event)
@@ -1545,6 +1699,7 @@ module.exports = {
   permissionsFor,
   redactProjection,
   reconcileStudent360ProjectionBatch,
+  normalizeTimelineEvents,
   sourceTimelineEvents,
   safeTimelineEvent,
   studentIdFromAccountUid,

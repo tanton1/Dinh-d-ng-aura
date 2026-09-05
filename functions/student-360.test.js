@@ -7,6 +7,7 @@ const {
   contractMutationTitle,
   contractUsage,
   permissionsFor,
+  normalizeTimelineEvents,
   redactProjection,
   safeTimelineEvent,
   sourceTimelineEvents,
@@ -128,6 +129,27 @@ test('CRM timeline avoids duplicate generic contract events after an audited 360
     mealReviews: [], dailyCheckins: [], profile: null, bodyMetrics: [], progressPhotos: [],
   })
   assert.equal(rows.length, 0)
+})
+
+test('timeline normalization keeps audited contract changes and removes the generic snapshot', () => {
+  const rows = normalizeTimelineEvents([
+    { id: 'generic', type: 'contract', sourceId: 'contract-1', sourceCollection: 'contracts', occurredAtMillis: 100, sortKey: 100, metadata: { contractId: 'contract-1' } },
+    { id: 'audit', type: 'contract', sourceId: 'audit-1', sourceCollection: 'contractAuditLogs', occurredAtMillis: 200, sortKey: 200, metadata: { contractId: 'contract-1', action: 'edit' } },
+  ])
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].sourceCollection, 'contractAuditLogs')
+  assert.equal(rows[0].groupLabel, 'Hợp đồng')
+})
+
+test('timeline normalization collapses a legacy payment duplicated in the canonical ledger', () => {
+  const base = { type: 'finance', occurredAtMillis: 100, sortKey: 100, metadata: { contractId: 'contract-1', referenceCode: 'RC-01', amount: 500000 } }
+  const rows = normalizeTimelineEvents([
+    { ...base, id: 'legacy', sourceId: 'legacy_payment:old', sourceCollection: 'payments' },
+    { ...base, id: 'ledger', sourceId: 'finance_ledger:new', sourceCollection: 'ledgerEntries', occurredAtMillis: 110, sortKey: 110 },
+  ])
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].sourceCollection, 'ledgerEntries')
+  assert.equal(rows[0].sourceLabel, 'Sổ cái tài chính')
 })
 
 test('CRM timeline removes amounts from both metadata and descriptions for PT and coach', () => {
@@ -300,4 +322,12 @@ test('Student 360 callables use quota-safe fractional CPU with bounded concurren
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'student-360.js'), 'utf8')
   assert.match(source, /const readCall = \(handler\) => onCall\(\{ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 8/)
   assert.match(source, /const writeCall = \(handler\) => onCall\(\{ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 4/)
+})
+
+test('training timeline scans beyond unrelated recent events and repairs legacy source evidence', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'student-360.js'), 'utf8')
+  assert.match(source, /const maximumScans = requestedTypes\.length \? 4 : 1/)
+  assert.match(source, /requestedTypes\.some\(\(type\) => \['training', 'workout'\]\.includes\(type\)\)/)
+  assert.match(source, /db\.collection\('sessions'\)\.where\('studentId', '==', studentId\)\.limit\(1\)/)
+  assert.match(source, /await buildStudent360Projection\(\{ db, studentId, weekId, persist: true \}\)/)
 })

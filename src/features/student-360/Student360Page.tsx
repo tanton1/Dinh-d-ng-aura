@@ -74,11 +74,23 @@ const tabs: Array<{ id: Student360Tab; label: string; icon: typeof LayoutDashboa
 
 const timelineFilters = [
   { id: 'all', label: 'Tất cả' },
-  { id: 'training', label: 'Tập luyện' },
+  { id: 'training', label: 'Buổi tập' },
+  { id: 'finance', label: 'Thanh toán' },
   { id: 'nutrition', label: 'Dinh dưỡng' },
+  { id: 'checkin', label: 'Check-in' },
   { id: 'progress', label: 'Tiến độ' },
   { id: 'care', label: 'Chăm sóc' },
   { id: 'contract', label: 'Hợp đồng' },
+  { id: 'renewal', label: 'Gia hạn' },
+] as const
+
+const timelineSourceGuide = [
+  { label: 'Hợp đồng', source: 'contracts + contractAuditLogs', detail: 'Tạo, sửa, gia hạn, mua thêm buổi, bảo lưu và hủy. Audit ghi người thao tác, revision và trường thay đổi.' },
+  { label: 'Thanh toán', source: 'ledgerEntries (chuẩn) · payments (cũ)', detail: 'Chỉ lấy payment, refund, reversal hoặc adjustment. Revenue recognition nội bộ không hiển thị để tránh nhân đôi doanh thu.' },
+  { label: 'Buổi tập', source: 'sessions', detail: 'Lịch đã xếp, đã tập, đi trễ, vắng hoặc trạng thái buổi. Mã session là khóa đối chiếu với lịch sử.' },
+  { label: 'Dinh dưỡng', source: 'users/{uid}/mealLogs + mealReviews', detail: 'Bữa ăn học viên gửi và trạng thái PT/coach duyệt; nội dung phân tích riêng tư không đưa vào timeline.' },
+  { label: 'Check-in & tiến độ', source: 'dailyCheckins + bodyMetrics + progressPhotos', detail: 'Check-in hằng ngày, số đo và ảnh tiến độ; chỉ lưu metadata, không nhúng ảnh hoặc ghi chú nhạy cảm.' },
+  { label: 'Chăm sóc & gia hạn', source: 'studentCareActivities + contractRenewalCases', detail: 'Cuộc gọi, Zalo, ghi chú, việc cần làm và các bước chăm sóc tái ký.' },
 ] as const
 
 const timelineRanges = [
@@ -171,10 +183,20 @@ function demoOverview(studentId: string): Student360Overview {
 function demoTimeline(): Student360TimelineEvent[] {
   const now = Date.now()
   return [
-    { id: 'timeline-1', type: 'training', occurredAt: new Date(now - 60 * 60_000).toISOString(), sortKey: now * 1000, title: 'PT xác nhận có mặt', description: 'Buổi Lower Body · 17:00', audience: 'operations', metadata: {} },
-    { id: 'timeline-2', type: 'nutrition', occurredAt: new Date(now - 8 * 60 * 60_000).toISOString(), sortKey: (now - 8 * 60 * 60_000) * 1000, title: 'Đã ghi nhận bữa sáng', description: 'Bữa sáng giàu đạm · 420 kcal', audience: 'coaching', metadata: {} },
-    { id: 'timeline-3', type: 'progress', occurredAt: new Date(now - 86_400_000).toISOString(), sortKey: (now - 86_400_000) * 1000, title: 'Cập nhật chỉ số cơ thể', description: '59,9kg · eo 70cm', audience: 'coaching', metadata: {} },
+    { id: 'timeline-1', type: 'training', group: 'training', groupLabel: 'Buổi tập', sourceLabel: 'Lịch buổi tập', sourceCollection: 'sessions', occurredAt: new Date(now - 60 * 60_000).toISOString(), sortKey: now * 1000, title: 'PT xác nhận có mặt', description: 'Buổi Lower Body · 17:00', audience: 'operations', metadata: {} },
+    { id: 'timeline-2', type: 'nutrition', group: 'nutrition', groupLabel: 'Dinh dưỡng', sourceLabel: 'Nhật ký bữa ăn', sourceCollection: 'mealLogs', occurredAt: new Date(now - 8 * 60 * 60_000).toISOString(), sortKey: (now - 8 * 60 * 60_000) * 1000, title: 'Đã ghi nhận bữa sáng', description: 'Bữa sáng giàu đạm · 420 kcal', audience: 'coaching', metadata: {} },
+    { id: 'timeline-3', type: 'progress', group: 'progress', groupLabel: 'Tiến độ', sourceLabel: 'Số đo cơ thể', sourceCollection: 'bodyMetrics', occurredAt: new Date(now - 86_400_000).toISOString(), sortKey: (now - 86_400_000) * 1000, title: 'Cập nhật chỉ số cơ thể', description: '59,9kg · eo 70cm', audience: 'coaching', metadata: {} },
   ]
+}
+
+function mergeTimelineRows(current: Student360TimelineEvent[], incoming: Student360TimelineEvent[]) {
+  const byKey = new Map<string, Student360TimelineEvent>()
+  ;[...current, ...incoming].forEach((item) => {
+    const key = item.dedupeKey || item.id
+    const previous = byKey.get(key)
+    if (!previous || (item.sortKey || 0) > (previous.sortKey || 0)) byKey.set(key, item)
+  })
+  return [...byKey.values()].sort((left, right) => right.sortKey - left.sortKey)
 }
 
 function Metric({ label, value, note, tone }: { label: string; value: string | number; note: string; tone?: string }) {
@@ -254,7 +276,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
       const types = timelineFilter === 'all'
         ? undefined
         : timelineFilter === 'contract'
-          ? ['off', 'freeze', 'schedule_change', 'finance', 'renewal', 'contract']
+          ? ['off', 'freeze', 'schedule_change', 'contract']
           : timelineFilter === 'training'
             ? ['training', 'workout']
             : timelineFilter === 'care'
@@ -262,7 +284,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
             : [timelineFilter]
       const rangeDays = timelineRanges.find((item) => item.id === timelineRange)?.days || 0
       const result = await listStudent360Timeline({ studentId, types, cursor: append ? timelineCursor : null, pageSize: 30, ...(rangeDays ? { fromMillis: Date.now() - rangeDays * 86_400_000 } : {}) })
-      setTimeline((current) => append ? [...current, ...result.rows] : result.rows)
+      setTimeline((current) => append ? mergeTimelineRows(current, result.rows) : mergeTimelineRows([], result.rows))
       setTimelineCursor(result.nextCursor)
       setTimelineHasMore(result.hasMore)
     } catch (cause) {
@@ -516,9 +538,9 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
       </div>}
 
       {activeTab === 'activity' && <section className="student360-section">
-        <div className="student360-section-heading"><div><small>CRM TIMELINE</small><h2>Toàn bộ hoạt động</h2><p>Dữ liệu được lọc theo quyền của tài khoản hiện tại.</p></div></div>
+        <div className="student360-section-heading"><div><small>CRM TIMELINE</small><h2>Toàn bộ hoạt động</h2><p>Một dòng thời gian hợp nhất, đã loại bản ghi trùng và tôn trọng quyền truy cập.</p></div><details className="student360-timeline-source-help"><summary><Info size={15} /> Nguồn dữ liệu</summary><div><p>Timeline chỉ đọc từ dữ liệu nghiệp vụ gốc. Mỗi sự kiện có nhãn nguồn; mở rộng để xem trường đối chiếu khi cần.</p>{timelineSourceGuide.map((item) => <article key={item.label}><strong>{item.label}</strong><code>{item.source}</code><span>{item.detail}</span></article>)}</div></details></div>
         <div className="student360-timeline-toolbar"><div className="student360-filter-chips">{timelineFilters.map((filter) => <button type="button" key={filter.id} className={timelineFilter === filter.id ? 'active' : ''} onClick={() => setTimelineFilter(filter.id)}>{filter.label}</button>)}</div><div className="student360-filter-chips is-range">{timelineRanges.map((range) => <button type="button" key={range.id} className={timelineRange === range.id ? 'active' : ''} onClick={() => setTimelineRange(range.id)}>{range.label}</button>)}</div></div>
-        <div className="student360-timeline">{timeline.map((item) => <article key={item.id}><div className={`student360-timeline-icon is-${item.type}`}>{item.type === 'training' || item.type === 'workout' ? <Dumbbell /> : item.type === 'nutrition' ? <Salad /> : item.type === 'progress' || item.type === 'checkin' ? <Activity /> : item.type === 'finance' ? <CircleDollarSign /> : item.type === 'care' ? <MessageCircle /> : <FileText />}</div><div><time>{safeDate(item.occurredAt, true)}{typeof item.metadata.actorName === 'string' && item.metadata.actorName ? ` · ${item.metadata.actorName}` : ''}</time><strong>{item.title}</strong><p>{item.description}</p>{typeof item.metadata.amount === 'number' && <small>{currency.format(item.metadata.amount)}đ</small>}</div></article>)}{!timeline.length && !timelineLoading && <State><History /><h3>Chưa có hoạt động</h3><p>Không có sự kiện phù hợp bộ lọc hiện tại.</p></State>}{timelineLoading && <State><LoaderCircle className="is-spinning" /> Đang tải hoạt động…</State>}</div>
+        <div className="student360-timeline">{timeline.map((item) => <article key={item.id}><div className={`student360-timeline-icon is-${item.type}`}>{item.type === 'training' || item.type === 'workout' ? <Dumbbell /> : item.type === 'nutrition' ? <Salad /> : item.type === 'progress' || item.type === 'checkin' ? <Activity /> : item.type === 'finance' ? <CircleDollarSign /> : item.type === 'care' ? <MessageCircle /> : <FileText />}</div><div><div className="student360-timeline-meta"><time>{safeDate(item.occurredAt, true)}{typeof item.metadata.actorName === 'string' && item.metadata.actorName ? ` · ${item.metadata.actorName}` : ''}</time><span>{item.groupLabel || item.type}</span></div><strong>{item.title}</strong><p>{item.description}</p>{typeof item.metadata.amount === 'number' && <small>{currency.format(item.metadata.amount)}đ</small>}<details className="student360-timeline-details"><summary>Chi tiết đối chiếu</summary><div><span>Nguồn</span><b>{item.sourceLabel || item.sourceCollection || 'CRM Timeline'}</b>{typeof item.metadata.contractId === 'string' && item.metadata.contractId && <><span>Mã hợp đồng</span><b>{item.metadata.contractId}</b></>}{typeof item.metadata.sessionId === 'string' && item.metadata.sessionId && <><span>Mã buổi</span><b>{item.metadata.sessionId}</b></>}{typeof item.metadata.referenceCode === 'string' && item.metadata.referenceCode && <><span>Mã giao dịch</span><b>{item.metadata.referenceCode}</b></>}</div></details></div></article>)}{!timeline.length && !timelineLoading && <State><History /><h3>{timelineFilter === 'training' ? 'Chưa có buổi tập chuẩn' : 'Chưa có hoạt động'}</h3><p>{timelineFilter === 'training' ? 'Timeline chỉ lấy buổi đã tạo trong sessions. Lịch nháp hoặc ô ma trận cũ chưa phát sinh session sẽ không được tính là lịch sử tập.' : 'Không có sự kiện phù hợp bộ lọc hiện tại.'}</p></State>}{timelineLoading && <State><LoaderCircle className="is-spinning" /> Đang tải hoạt động…</State>}</div>
         {timelineHasMore && <button type="button" className="student360-load-more" disabled={timelineLoading} onClick={() => void loadTimeline(true)}>Tải thêm hoạt động</button>}
       </section>}
 
@@ -544,13 +566,7 @@ export default function Student360Page({ studentId, source, isDemo = false, onBa
       </section>}
 
       {activeTab === 'contract' && <section className="student360-section">
-        <div className="student360-section-heading"><div><small>CONTRACT & ENTITLEMENT</small><h2>Hợp đồng và quyền lợi</h2><p>Xem, sửa, bảo lưu, gia hạn, hủy và quản lý thanh toán ngay trong hồ sơ 360.</p></div></div>
-        {contract && <div className="student360-contract-grid student360-contract-grid--entitlement">
-          <Card title={contract.packageName} icon={FileText}>
-            <div className="student360-entitlement-tree"><div><strong>{contract.totalSessions}</strong><span>Tổng quyền lợi</span></div><i /><div className="student360-entitlement-branches"><div><strong>{contract.usedSessions}</strong><span>Đã dùng</span><small>{contract.chargedSessions} buổi đã tính{contract.legacyProjectionAdjustment ? ` · ${contract.legacyProjectionAdjustment} buổi dữ liệu cũ` : ''}</small></div><div><strong>{contract.exemptSessions}</strong><span>Miễn trừ</span><small>Không trừ quyền lợi hợp đồng</small></div><div><strong>{contract.pendingReconciliationSessions}</strong><span>Chờ đối soát</span><small>Cần quản lý xác nhận trước khi trừ buổi</small></div><div><strong>{contract.remainingSessions}</strong><span>Còn lại</span><small>Có thể tiếp tục xếp theo hiệu lực hợp đồng</small></div></div></div>
-            <dl className="student360-definition-list"><div><dt>Hiệu lực</dt><dd>{safeDate(contract.startDate)} → {safeDate(contract.endDate)}</dd></div><div><dt>Đối soát</dt><dd>{contract.reconciliationStatus === 'matched' ? 'Đã khớp lịch sử' : 'Cần kiểm tra dữ liệu cũ'}</dd></div></dl>
-          </Card>
-        </div>}
+        <div className="student360-section-heading"><div><small>CONTRACT & ENTITLEMENT</small><h2>Hợp đồng và quyền lợi</h2><p>Một nguồn thông tin duy nhất cho quyền lợi, thanh toán và lịch sử thay đổi. Chọn hợp đồng bên dưới để xem chi tiết.</p></div></div>
         <Suspense fallback={<State><LoaderCircle className="is-spinning" /><h3>Đang mở trung tâm nghiệp vụ hợp đồng…</h3></State>}>
           <Student360ContractWorkspace studentId={studentId} overview={overview} source={source} isDemo={isDemo} onNavigate={onNavigate} onChanged={() => loadOverview(false)} onNotice={setNotice} />
         </Suspense>

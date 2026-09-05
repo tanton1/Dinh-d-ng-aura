@@ -153,9 +153,10 @@ function demoWorkspace(overview: Student360Overview): Workspace {
     installments: [],
     extensions: contract.extensions.map((item, index) => ({ id: item.id || `extension-${index}`, oldEndDate: item.oldEndDate || '', newEndDate: item.newEndDate || '', reason: item.reason || '', createdAt: null })),
     pausePeriods: contract.pausePeriods.map((item, index) => ({ requestId: item.requestId || `pause-${index}`, type: item.type, startDate: item.startDate, endDate: item.endDate, durationDays: item.durationDays || 0 })),
-    note: '', revision: 1, updatedAt: overview.generatedAt, updatedByName: 'Admin Aura',
-    totalPrice: contract.payment?.total || 0, paidAmount: contract.payment?.paid || 0, discount: 0,
-  } : null
+     note: '', revision: 1, updatedAt: overview.generatedAt, updatedByName: 'Admin Aura',
+     totalPrice: contract.payment?.total || 0, paidAmount: contract.payment?.paid || 0, discount: 0,
+     usage: { storedUsedSessions: contract.storedUsedSessions, chargedSessions: contract.chargedSessions, exemptSessions: contract.exemptSessions, pendingReconciliationSessions: contract.pendingReconciliationSessions, usedSessions: contract.usedSessions, remainingSessions: contract.remainingSessions, reconciliationStatus: contract.reconciliationStatus },
+   } : null
   return {
     schemaVersion: 1,
     student: { id: overview.studentId, name: overview.identity.name, phone: overview.identity.phone, email: overview.identity.email },
@@ -221,6 +222,9 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
 
   useEffect(() => { void load() }, [load])
   const selected = useMemo(() => workspace?.contracts.find((item) => item.id === selectedId) || null, [selectedId, workspace])
+  const selectedUsage = selected?.usage
+  const selectedUsedSessions = selectedUsage?.usedSessions ?? selected?.usedSessions ?? 0
+  const selectedRemainingSessions = selectedUsage?.remainingSessions ?? Math.max(0, (selected?.totalSessions || 0) - selectedUsedSessions)
   const outstanding = selected && selected.totalPrice !== undefined
     ? Math.max(0, selected.totalPrice - (selected.discount || 0) - (selected.paidAmount || 0))
     : null
@@ -377,18 +381,20 @@ export default function Student360ContractWorkspace({ studentId, overview, sourc
     </section>
 
     {workspace.contracts.length > 1 && <section className="student360-contract-history-strip" aria-label="Lịch sử hợp đồng">
-      {workspace.contracts.map((item) => <button type="button" key={item.id} className={selectedId === item.id ? 'active' : ''} onClick={() => setSelectedId(item.id)}><span className={`is-${item.status}`}>{statusLabel(item.status)}</span><strong>{item.packageName}</strong><small>{dateLabel(item.startDate)} → {dateLabel(item.endDate)}</small></button>)}
+      {workspace.contracts.map((item) => <button type="button" key={item.id} className={selectedId === item.id ? 'active' : ''} aria-current={selectedId === item.id ? 'true' : undefined} title={`${item.packageName} · ${dateLabel(item.startDate)} → ${dateLabel(item.endDate)}`} onClick={() => setSelectedId(item.id)}><span className={`is-${item.status}`}>{statusLabel(item.status)}</span><strong>{item.packageName}</strong><small>#{item.id.slice(-8)} · {item.usage?.usedSessions ?? item.usedSessions}/{item.totalSessions} buổi</small></button>)}
     </section>}
 
     {!selected ? <div className="student360-contract-workspace-state"><FileText /><strong>Chưa có hợp đồng</strong><span>Tạo hợp đồng đầu tiên ngay tại đây, không cần quay lại hồ sơ cũ.</span>{workspace.permissions.canCreateContract && <button type="button" onClick={() => openForm('create')}>Tạo hợp đồng mới</button>}</div> : <>
       <section className="student360-contract-live-summary">
-        <header><div><span className={`is-${selected.status}`}>{statusLabel(selected.status)}</span><h3>{selected.packageName}</h3><p>Mã {selected.id} · Revision {selected.revision}</p></div><strong>{Math.max(0, selected.totalSessions - selected.usedSessions)}<small>buổi còn lại</small></strong></header>
+        <header><div><span className={`is-${selected.status}`}>{statusLabel(selected.status)}</span><h3>{selected.packageName}</h3><p>Mã {selected.id} · Revision {selected.revision}</p></div><strong>{selectedRemainingSessions}<small>buổi còn lại</small></strong></header>
         <div className="student360-contract-facts">
-          <div><FileText /><span>Quyền lợi<b>{selected.usedSessions}/{selected.totalSessions} buổi</b></span></div>
+          <div><FileText /><span>Quyền lợi<b>{selectedUsedSessions}/{selected.totalSessions} buổi</b></span></div>
           <div><Clock3 /><span>Hiệu lực<b>{dateLabel(selected.startDate)} → {dateLabel(selected.endDate)}</b></span></div>
           <div><UserRoundCog /><span>PT phụ trách<b>{workspace.trainers.filter((item) => selected.trainerIds.includes(item.id)).map((item) => item.name).join(' · ') || 'Chưa phân công'}</b></span></div>
           <div><ShieldCheck /><span>Cập nhật gần nhất<b>{dateLabel(selected.updatedAt)}{selected.updatedByName ? ` · ${selected.updatedByName}` : ''}</b></span></div>
         </div>
+        {selectedUsage && <div className="student360-contract-usage-chips"><span><b>{selectedUsage.chargedSessions}</b> buổi tính quota</span><span><b>{selectedUsage.exemptSessions}</b> buổi miễn trừ</span><span><b>{selectedUsage.pendingReconciliationSessions}</b> chờ đối soát</span></div>}
+        {selectedUsage && selectedUsage.reconciliationStatus !== 'matched' && <div className="student360-contract-reconciliation"><AlertTriangle /><span><strong>Cần đối soát số buổi</strong><small>{selectedUsage.chargedSessions} buổi tính từ lịch sử · {selectedUsage.exemptSessions} buổi miễn trừ · {selectedUsage.pendingReconciliationSessions} buổi chờ xác nhận.</small></span></div>}
       </section>
 
       {workspace.permissions.canViewFinancialAmounts && <section className="student360-contract-payment-board">
