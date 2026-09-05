@@ -146,7 +146,7 @@ export interface PtScheduleUnassignedEntry {
   studentId: string
   studentName?: string
   missingSessions: number
-  blockerType?: 'optimizer_gap' | 'input_or_capacity'
+  blockerType?: 'optimizer_gap' | 'input_or_capacity' | 'search_limit_reached'
   reasonCodes?: string[]
   reasons?: string[]
   suggestedSlots?: string[]
@@ -195,6 +195,11 @@ export interface PtScheduleOptimizationSummary {
   repairRelocations?: number
   repairSearchNodes?: number
   repairSearchLimitReached?: boolean
+  rescueAssignments?: number
+  rescueRelocations?: number
+  rescueSearchNodes?: number
+  rescueEvaluatedPlans?: number
+  rescueSearchLimitReached?: boolean
   /** Các bước xếp mới/đổi chỗ đã thực hiện trong chuỗi sửa sâu. */
   swapTrace?: PtScheduleSwapMove[]
   optimizationPasses?: number
@@ -309,6 +314,7 @@ const conflictLabels: Record<string, string> = {
   WEEKLY_TARGET_EXCEEDS_QUOTA: 'Mục tiêu tuần vượt quota hợp đồng còn lại.',
   WEEKLY_TARGET_BELOW_SCHEDULED: 'Mục tiêu tuần thấp hơn số buổi đã có trong draft.',
   STUDENT_UNSCHEDULED: 'Chưa tìm được đủ ca hợp lệ cho học viên.',
+  SEARCH_LIMIT_REACHED: 'Bộ tối ưu đã hết ngân sách tìm kiếm; vẫn có thể còn phương án hợp lệ chưa được thử.',
   DRAFT_RESET: 'Lịch nháp vừa được đặt lại; học viên đang chờ xếp lại.',
   NO_AVAILABLE_SLOT: 'Không còn khung giờ rảnh chung giữa học viên và PT.',
   STUDENT_AVAILABILITY_MISSING: 'Học viên chưa có lịch rảnh để xếp tự động.',

@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, candidateForSlot, compactPairedSlots, generateSchedule, manualSlotCandidate, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, trainerProfileForWeek, weeklyTargetForStudent } = require('./pt-schedule-v2')
+const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, OPTIMIZER_VERSION, candidateForSlot, compactPairedSlots, generateSchedule, manualSlotCandidate, repairCoverageWithRelocations, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, trainerProfileForWeek, weeklyTargetForStudent } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
@@ -501,6 +501,7 @@ test('the only valid PT receives a ninth teaching slot so learner demand is fulf
   assert.equal(mondayLoad.teachingSlots, 9)
   assert.equal(mondayLoad.status, 'over_target')
   assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 0)
+  assert.ok(!generated.warnings.some((warning) => warning.code === 'TRAINER_OVER_BALANCE_TARGET'))
 })
 
 test('soft target balances equal valid PT choices before overloading one trainer', () => {
@@ -733,7 +734,7 @@ test('deep optimization repeats coverage and pairing until the weekly target is 
   assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 0)
   assert.equal(generated.optimizationSummary.slotUtilization.pairedSlots, 1)
   assert.ok(generated.optimizationSummary.optimizationPasses >= 2)
-  assert.equal(generated.optimizationSummary.generatorVersion, 'optimizer-v9')
+  assert.equal(generated.optimizationSummary.generatorVersion, OPTIMIZER_VERSION)
   assert.equal(generated.optimizationSummary.loadPolicyVersion, 'soft-daily-target-v1')
 })
 
@@ -772,6 +773,43 @@ test('deep repair relocates an earlier flexible session to increase total weekly
   assert.equal(counts.get('student-needs-three'), 2)
   assert.equal(counts.get('student-can-move'), 1)
   assert.equal(generated.schedule['T2-6'][0].studentId, 'student-can-move')
+})
+
+test('rescue pass preserves a scarce paired seat so two missing learners can both be scheduled', () => {
+  const data = fixture()
+  data.config.workingDays = ['T2', 'T3']
+  data.config.workingHours = [6]
+  data.trainers[0].slotCapacity = 2
+  data.trainers[0].availableSlots = ['T2-6', 'T3-6']
+  data.students = [
+    { ...data.students[0], id: 'student-flex', name: 'A cần hai buổi', sessionsPerWeek: 2, maxWeeklySessions: 2, availableSlots: ['T2-6', 'T3-6'] },
+    { ...data.students[0], id: 'student-scarce', name: 'B chỉ còn một ca', sessionsPerWeek: 1, maxWeeklySessions: 1, availableSlots: ['T2-6'] },
+  ]
+  data.contracts = data.students.map((student) => ({
+    ...fixture().contracts[0],
+    id: `contract-${student.id}`,
+    studentId: student.id,
+  }))
+  const protectedEntry = {
+    studentId: 'student-protected',
+    trainerId: 'trainer-a',
+    branchId: BRANCH,
+    type: 'training',
+    source: 'published_existing',
+    isLocked: true,
+  }
+  const result = repairCoverageWithRelocations(
+    data,
+    { 'T2-6': [protectedEntry] },
+    data.students,
+    new Map([['student-flex', 2], ['student-scarce', 1]]),
+    { maxAssignments: 2 },
+  )
+
+  assert.equal(result.assignments, 2)
+  assert.equal(result.schedule['T3-6'][0].studentId, 'student-flex')
+  assert.ok(result.schedule['T2-6'].some((entry) => entry.studentId === 'student-scarce'))
+  assert.ok(result.evaluatedPlans >= 2)
 })
 
 test('deep repair never relocates a locked or manually protected session', () => {

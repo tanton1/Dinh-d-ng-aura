@@ -1,4 +1,4 @@
-# Aura PT Schedule Optimizer V5
+# Aura PT Schedule Optimizer V10
 
 ## Mục tiêu
 
@@ -43,21 +43,44 @@ Vòng đầu dùng matching có đường tăng để mỗi học viên khả th
 
 Chạy nhiều vòng, mỗi vòng tối đa một buổi cho mỗi học viên còn thiếu. Thứ tự lựa chọn trong một vòng:
 
-1. Không tạo chuỗi ba ngày liên tiếp nếu có lựa chọn khác.
-2. Ghép vào ca đang có một học viên.
+1. Ghép vào ca đang có một học viên.
+2. Không tạo chuỗi ba ngày liên tiếp nếu có lựa chọn tương đương.
 3. PT chính.
 4. PT phụ.
 5. PT hỗ trợ cùng chi nhánh.
 6. PT chính thức chưa đạt mục tiêu ca/ngày.
 7. Cân tải theo mục tiêu và hạng PT.
 
-Mục tiêu ca/ngày là ưu tiên phân bổ, không phải trần làm mất lịch của học viên.
+Mục tiêu ca/ngày là ưu tiên phân bổ, không phải trần làm mất lịch của học viên. PT đã đạt hoặc vượt mốc vẫn được xếp thêm nếu đó là cách tăng số buổi được phục vụ; không phát sinh bước xác nhận riêng vì vượt mốc.
 
-### 5. Gom ca lần cuối
+### 5. Pass cứu buổi thiếu
+
+Sau các vòng matching thông thường, optimizer chụp lại toàn bộ học viên còn thiếu và chạy một pass tìm kiếm có giới hạn:
+
+1. Học viên chưa có buổi nào.
+2. Học viên còn thiếu nhiều buổi.
+3. Học viên còn ít phương án khả thi.
+4. Học viên thiếu kéo dài và hợp đồng gần hết hạn.
+
+Với mỗi học viên, hệ thống thử tối đa nhiều phương án thay vì nhận ngay kết quả đầu tiên:
+
+- Ghép vào ca `1/2`.
+- Dùng ca trống của PT còn khả năng nhận.
+- Dùng ca hợp lệ của PT đã vượt mốc tải.
+- Di chuyển một entry tự động linh hoạt.
+- Chạy chuỗi đổi chỗ tối đa bốn bước để giải phóng slot hiếm.
+
+Các phương án được nhìn trước trên nhóm học viên còn thiếu. Thứ tự chọn là: giữ khả năng phủ học viên, giữ tổng buổi có thể cứu, tăng số học viên có thể đủ mục tiêu, tăng ca đôi, giảm ca lẻ, giảm PT hỗ trợ và cuối cùng giảm số lần di chuyển.
+
+Nếu hết ngân sách tìm kiếm, kết quả được ghi `SEARCH_LIMIT_REACHED`; hệ thống không kết luận sai rằng học viên hoàn toàn không thể xếp.
+
+### 6. Gom ca và chạy lại
 
 Chỉ di chuyển các entry tự động chưa khóa. Hệ thống thử ghép hai ca lẻ thành ca đôi nếu vẫn giữ đúng hợp đồng, lịch rảnh, sức chứa, một buổi/ngày và không tạo thêm chuỗi ba ngày liên tiếp.
 
-### 6. Gắn cảnh báo PT hỗ trợ
+Sau khi gom ca, slot vừa trống được đưa lại vào pass phủ và pass cứu thiếu. Chu trình lặp đến khi không còn cải thiện hoặc đạt giới hạn tìm kiếm an toàn.
+
+### 7. Gắn cảnh báo PT hỗ trợ
 
 Nếu hợp đồng có PT chính/phụ nhưng buổi được giao cho PT khác:
 

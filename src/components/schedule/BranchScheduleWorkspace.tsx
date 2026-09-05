@@ -1071,9 +1071,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       const unresolved = result.unassignedEntries?.length || result.unassigned?.length || 0
       const passes = Math.max(1, Number(result.optimizationSummary?.optimizationPasses || 1))
       const refilled = Math.max(0, Number(result.optimizationSummary?.refillAssignments || 0))
-      const repaired = Math.max(0, Number(result.optimizationSummary?.repairAssignments || 0))
-      const relocated = Math.max(0, Number(result.optimizationSummary?.repairRelocations || 0))
-      const searchLimitReached = result.optimizationSummary?.repairSearchLimitReached === true
+      const repaired = Math.max(0, Number(result.optimizationSummary?.rescueAssignments ?? result.optimizationSummary?.repairAssignments ?? 0))
+      const relocated = Math.max(0, Number(result.optimizationSummary?.rescueRelocations ?? result.optimizationSummary?.repairRelocations ?? 0))
+      const searchLimitReached = result.optimizationSummary?.rescueSearchLimitReached === true || result.optimizationSummary?.repairSearchLimitReached === true
       const improvements = [
         refilled ? `lấp thêm ${refilled} buổi` : '',
         repaired ? `cứu thêm ${repaired} buổi bằng ${relocated} lần đổi chỗ` : '',
@@ -1236,7 +1236,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       {releaseUpdateReady && <div className="branch-schedule__update-ready" role="status"><span>Aura có bản cập nhật mới. Lịch đang mở được giữ nguyên để không mất thao tác.</span><button type="button" onClick={() => window.location.reload()}><RefreshCw size={14} /> Cập nhật khi sẵn sàng</button></div>}
       {branchCatalogError && <div className="branch-schedule__error branch-schedule__branch-warning" role="alert"><span>{branchCatalogError}</span><button type="button" onClick={() => void loadBranches()}><RefreshCw size={15} /> Tải lại chi nhánh</button></div>}
       {error && <div className="branch-schedule__error" role="alert">{error}</div>}
-      {optimizationStatus && <div className="branch-schedule__optimization-progress" role="status" aria-live="polite"><RefreshCw className="is-spinning" /><div><strong>Optimizer v8 đang chạy</strong><span>{optimizationStatus}</span></div></div>}
+      {optimizationStatus && <div className="branch-schedule__optimization-progress" role="status" aria-live="polite"><RefreshCw className="is-spinning" /><div><strong>Bộ tối ưu lịch đang chạy</strong><span>{optimizationStatus}</span></div></div>}
       {!optimizationStatus && optimizationTrace.length > 0 && <details className="branch-schedule__optimization-trace">
         <summary><span><Sparkles size={16} /><strong>{optimizationTrace.length} bước xếp/đổi chỗ gần nhất</strong></span><small>Chạm để xem chuỗi tối ưu</small></summary>
         <ol>{optimizationTrace.map((move, index) => {
@@ -1245,7 +1245,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           return <li key={`${move.studentId}-${move.fromSlotId || 'new'}-${move.toSlotId}-${index}`}><b>{index + 1}</b><div><strong>{move.studentName || studentName(move.studentId)}</strong><span>{move.fromSlotId ? `${scheduleSlotLabel(move.fromSlotId, weekDates)} · ${fromTrainer} → ` : 'Bổ sung vào '}{scheduleSlotLabel(move.toSlotId, weekDates)} · {toTrainer}</span></div></li>
         })}</ol>
       </details>}
-      {!optimizationStatus && workspace?.optimizationSummary?.repairSearchLimitReached && <div className="branch-schedule__search-limit" role="status"><AlertTriangle size={16} /> Đã chạm giới hạn tìm kiếm an toàn. Các ca thủ công, ca khóa và ca đã publish vẫn được giữ nguyên; hãy xem hồ sơ còn thiếu trong Cảnh báo.</div>}
+      {!optimizationStatus && (workspace?.optimizationSummary?.rescueSearchLimitReached || workspace?.optimizationSummary?.repairSearchLimitReached) && <div className="branch-schedule__search-limit" role="status"><AlertTriangle size={16} /> Đã chạm giới hạn tìm kiếm an toàn. Các ca thủ công, ca khóa và ca đã publish vẫn được giữ nguyên; hãy xem hồ sơ còn thiếu trong Cảnh báo.</div>}
       {loading && !workspace && <div className="branch-schedule__loading"><RefreshCw className="is-spinning" /> Đang tải workspace theo phạm vi…</div>}
 
       {workspace && tab === 'matrix' && (

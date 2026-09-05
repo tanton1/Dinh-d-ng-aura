@@ -61,6 +61,44 @@ test('validates a legacy branch-less entry and binds it to the exact contract', 
   assert.equal(session.hour, 6)
 })
 
+test('publish accepts a ninth teaching slot because the daily PT target is not a hard cap', () => {
+  const fixture = baseFixture()
+  const slots = Array.from({ length: 9 }, (_, index) => `T2-${index + 6}`)
+  fixture.config.workingHours = slots.map((slotId) => Number(slotId.split('-')[1]))
+  fixture.trainers.set('trainer-a', {
+    ...fixture.trainers.get('trainer-a'),
+    dailySessionTarget: 8,
+    slotCapacity: 2,
+    availableSlots: slots,
+  })
+  fixture.students = new Map()
+  fixture.contracts = []
+  fixture.availability = new Map()
+  fixture.schedule = {}
+  slots.forEach((slotId, index) => {
+    const studentId = `student-${index}`
+    fixture.students.set(studentId, { status: 'active', branchId: BRANCH_ID, sessionsPerWeek: 1 })
+    fixture.contracts.push({
+      id: `contract-${index}`,
+      studentId,
+      branchId: BRANCH_ID,
+      trainerId: 'trainer-a',
+      status: 'active',
+      startDate: '2026-08-01',
+      endDate: '2026-12-31',
+      usedSessions: 0,
+      totalSessions: 36,
+    })
+    fixture.availability.set(studentId, { studentId, status: 'submitted', slots: [slotId] })
+    fixture.schedule[slotId] = [{ studentId, trainerId: 'trainer-a', type: 'training' }]
+  })
+
+  const result = desiredEntries(fixture)
+  assert.equal(result.desired.size, 9)
+  assert.deepEqual(result.errors, [])
+  assert.ok(!result.warnings.includes('TRAINER_OVER_BALANCE_TARGET'))
+})
+
 test('publishes a same-branch support PT as a warning instead of rejecting the learner', () => {
   const fixture = baseFixture()
   fixture.trainers.set('trainer-support', {

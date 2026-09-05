@@ -36,6 +36,7 @@ const MAX_DRAFT_ENTRIES = 440
 const MAX_DRAFT_DOCUMENT_ENTRIES = 700
 const MAX_ENTRIES_PER_SLOT = 100
 const DEFAULT_DAILY_SESSION_TARGET = 8
+const OPTIMIZER_VERSION = 'optimizer-v10'
 const MAX_DEEP_OPTIMIZATION_PASSES = 3
 // A bounded repair search can relocate auto-generated sessions from earlier
 // rounds. This closes the remaining gap between fair one-seat rounds and the
@@ -44,6 +45,8 @@ const MAX_REPAIR_CHAIN_DEPTH = 4
 const MAX_REPAIR_SEARCH_NODES = 12000
 const MAX_REPAIR_DIRECT_CANDIDATES = 80
 const MAX_REPAIR_DISPLACEMENT_CANDIDATES = 120
+const MAX_RESCUE_PLAN_CANDIDATES = 8
+const MAX_RESCUE_LOOKAHEAD_STUDENTS = 120
 const DAY_ORDER = new Map([['T2', 0], ['T3', 1], ['T4', 2], ['T5', 3], ['T6', 4], ['T7', 5], ['CN', 6]])
 const STUDENT_AVAILABILITY_REASON_CODES = new Set(['AVAILABILITY_NOT_SUBMITTED', 'OUTSIDE_STUDENT_AVAILABILITY'])
 
@@ -1304,6 +1307,122 @@ function repairMove(student, origin, candidate) {
   }
 }
 
+function studentHistoricalDeficit(student) {
+  return Math.max(0, Number(
+    student?.consecutiveMissingWeeks
+      ?? student?.missingWeeks
+      ?? student?.priorWeekMissingSessions
+      ?? 0,
+  ) || 0)
+}
+
+function studentContractUrgency(data, student) {
+  const reference = Date.parse(`${data.weekId}T00:00:00.000Z`)
+  const endDates = data.contracts
+    .filter((contract) => contract.studentId === student.id
+      && contract.branchId === data.branch.id
+      && ['active', 'future'].includes(String(contract.status || 'active').toLowerCase()))
+    .map((contract) => Date.parse(`${storedDate(contract.endDate)}T00:00:00.000Z`))
+    .filter(Number.isFinite)
+  if (!endDates.length || !Number.isFinite(reference)) return Number.MAX_SAFE_INTEGER
+  return Math.max(0, Math.floor((Math.min(...endDates) - reference) / 86400000))
+}
+
+function orderedRescueStudents(data, schedule, students, localRemaining) {
+  const counts = scheduleStudentCounts(schedule)
+  const state = buildSchedulingState(schedule)
+  const feasibleSlotIds = feasibilitySlotIndex(data, schedule, state)
+  return students
+    .filter((student) => (localRemaining.get(student.id) || 0) > 0)
+    .map((student) => {
+      const scheduled = counts.get(student.id) || 0
+      const maximumFeasible = maximumFeasibleSessionsForStudent(data, student, schedule, state, feasibleSlotIds)
+      return {
+        student,
+        scheduled,
+        missing: localRemaining.get(student.id) || 0,
+        feasibleAdditional: Math.max(0, maximumFeasible - scheduled),
+        historicalDeficit: studentHistoricalDeficit(student),
+        contractUrgency: studentContractUrgency(data, student),
+      }
+    })
+    .sort((left, right) => Number(left.scheduled > 0) - Number(right.scheduled > 0)
+      || right.missing - left.missing
+      || left.feasibleAdditional - right.feasibleAdditional
+      || right.historicalDeficit - left.historicalDeficit
+      || left.contractUrgency - right.contractUrgency
+      || (left.student.availableSlots?.length || 0) - (right.student.availableSlots?.length || 0)
+      || left.student.name.localeCompare(right.student.name, 'vi')
+      || left.student.id.localeCompare(right.student.id))
+    .map((profile) => profile.student)
+}
+
+function rescueOutcomeScore(data, schedule, students, remainingByStudent, relocations) {
+  const state = buildSchedulingState(schedule)
+  const counts = scheduleStudentCounts(schedule)
+  const feasibleSlotIds = feasibilitySlotIndex(data, schedule, state)
+  const lookahead = orderedRescueStudents(data, schedule, students, remainingByStudent)
+    .slice(0, MAX_RESCUE_LOOKAHEAD_STUDENTS)
+  let futureRescuableSessions = 0
+  let futureCompletableStudents = 0
+  let uncoveredStudentsWithAPath = 0
+  for (const student of lookahead) {
+    const remaining = Math.max(0, Number(remainingByStudent.get(student.id) || 0))
+    if (!remaining) continue
+    const scheduled = counts.get(student.id) || 0
+    const maximumFeasible = maximumFeasibleSessionsForStudent(data, student, schedule, state, feasibleSlotIds)
+    const feasibleAdditional = Math.max(0, maximumFeasible - scheduled)
+    futureRescuableSessions += Math.min(remaining, feasibleAdditional)
+    if (feasibleAdditional >= remaining) futureCompletableStudents += 1
+    if (scheduled === 0 && feasibleAdditional > 0) uncoveredStudentsWithAPath += 1
+  }
+  const utilization = slotUtilizationForSchedule(data, schedule)
+  const supportAssignments = Object.values(schedule).flat().filter((entry) => entry.type !== 'off' && entry.trainerAssignmentWarning === true).length
+  return [
+    uncoveredStudentsWithAPath,
+    futureRescuableSessions,
+    futureCompletableStudents,
+    utilization.pairedSlots,
+    -utilization.singleSlots,
+    -supportAssignments,
+    -relocations,
+  ]
+}
+
+function compareScoreVectors(left, right) {
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const difference = Number(right[index] || 0) - Number(left[index] || 0)
+    if (difference) return difference
+  }
+  return 0
+}
+
+function repairAlternativesForStudent(data, studentMap, student, schedule, budget) {
+  const alternatives = []
+  const forbiddenRootTargets = new Set()
+  while (alternatives.length < MAX_RESCUE_PLAN_CANDIDATES && budget.nodes < budget.limit) {
+    const repaired = tryRepairPlacement(
+      data,
+      studentMap,
+      student,
+      schedule,
+      null,
+      MAX_REPAIR_CHAIN_DEPTH,
+      new Set(),
+      forbiddenRootTargets,
+      budget,
+    )
+    if (!repaired) break
+    alternatives.push(repaired)
+    const rootMove = [...repaired.moves].reverse().find((move) => move.studentId === student.id)
+    if (!rootMove?.toSlotId || !rootMove?.toTrainerId) break
+    const targetKey = `${rootMove.toTrainerId}|${rootMove.toSlotId}`
+    if (forbiddenRootTargets.has(targetKey)) break
+    forbiddenRootTargets.add(targetKey)
+  }
+  return alternatives
+}
+
 function tryRepairPlacement(data, studentMap, student, schedule, origin, depth, visitedStudents, forbiddenTargets, budget) {
   if (!student || visitedStudents.has(student.id) || budget.nodes >= budget.limit) return null
   const nextVisitedStudents = new Set(visitedStudents)
@@ -1391,29 +1510,25 @@ function repairCoverageWithRelocations(data, inputSchedule, students, remainingB
   const assignedStudentIds = []
   const swapTrace = []
   let relocations = 0
+  let evaluatedPlans = 0
   let progress = true
 
   while (progress && assignedStudentIds.length < maxAssignments && budget.nodes < budget.limit) {
     progress = false
-    const missingStudents = students
-      .filter((student) => (localRemaining.get(student.id) || 0) > 0)
-      .sort((left, right) => (left.availableSlots?.length || 0) - (right.availableSlots?.length || 0)
-        || (localRemaining.get(right.id) || 0) - (localRemaining.get(left.id) || 0)
-        || left.name.localeCompare(right.name, 'vi')
-        || left.id.localeCompare(right.id))
+    const missingStudents = orderedRescueStudents(data, schedule, students, localRemaining)
     for (const student of missingStudents) {
       if (assignedStudentIds.length >= maxAssignments || budget.nodes >= budget.limit) break
-      const repaired = tryRepairPlacement(
-        data,
-        studentMap,
-        student,
-        schedule,
-        null,
-        MAX_REPAIR_CHAIN_DEPTH,
-        new Set(),
-        new Set(),
-        budget,
-      )
+      const alternatives = repairAlternativesForStudent(data, studentMap, student, schedule, budget)
+      evaluatedPlans += alternatives.length
+      const nextRemaining = new Map(localRemaining)
+      nextRemaining.set(student.id, Math.max(0, (nextRemaining.get(student.id) || 0) - 1))
+      const repaired = alternatives
+        .map((alternative) => ({
+          ...alternative,
+          rescueScore: rescueOutcomeScore(data, alternative.schedule, students, nextRemaining, alternative.relocations),
+        }))
+        .sort((left, right) => compareScoreVectors(left.rescueScore, right.rescueScore)
+          || JSON.stringify(left.moves).localeCompare(JSON.stringify(right.moves)))[0]
       if (!repaired) continue
       schedule = repaired.schedule
       localRemaining.set(student.id, Math.max(0, (localRemaining.get(student.id) || 0) - 1))
@@ -1431,6 +1546,7 @@ function repairCoverageWithRelocations(data, inputSchedule, students, remainingB
     relocations,
     searchNodes: budget.nodes,
     searchLimitReached: budget.nodes >= budget.limit,
+    evaluatedPlans,
     swapTrace,
   }
 }
@@ -1644,10 +1760,11 @@ function generateSchedule(data) {
   // repair itself.
   let pairingMoves = 0
   let refillAssignments = 0
-  let repairAssignments = 0
-  let repairRelocations = 0
-  let repairSearchNodes = 0
-  let repairSearchLimitReached = false
+  let rescueAssignments = 0
+  let rescueRelocations = 0
+  let rescueSearchNodes = 0
+  let rescueEvaluatedPlans = 0
+  let rescueSearchLimitReached = false
   const swapTrace = []
   let optimizationPasses = 1
   for (let pass = 0; pass < MAX_DEEP_OPTIMIZATION_PASSES; pass += 1) {
@@ -1667,7 +1784,7 @@ function generateSchedule(data) {
       MAX_DRAFT_DOCUMENT_ENTRIES - scheduleDocumentEntryCount(schedule),
     ))
     const repaired = capacityReached || repairCapacity < 1
-      ? { assignments: 0, relocations: 0, searchNodes: 0, searchLimitReached: false, assignedStudentIds: [], swapTrace: [], schedule }
+      ? { assignments: 0, relocations: 0, searchNodes: 0, evaluatedPlans: 0, searchLimitReached: false, assignedStudentIds: [], swapTrace: [], schedule }
       : repairCoverageWithRelocations(data, schedule, students, remainingByStudent, { maxAssignments: repairCapacity })
     if (repaired.assignments > 0) {
       Object.keys(schedule).forEach((slotId) => delete schedule[slotId])
@@ -1677,13 +1794,14 @@ function generateSchedule(data) {
         remainingByStudent.set(studentId, Math.max(0, (remainingByStudent.get(studentId) || 0) - 1))
       }
       entryCount += repaired.assignments
-      repairAssignments += repaired.assignments
-      repairRelocations += repaired.relocations
+      rescueAssignments += repaired.assignments
+      rescueRelocations += repaired.relocations
       swapTrace.push(...repaired.swapTrace)
       capacityReached = entryCount >= MAX_DRAFT_ENTRIES || scheduleDocumentEntryCount(schedule) >= MAX_DRAFT_DOCUMENT_ENTRIES
     }
-    repairSearchNodes += repaired.searchNodes
-    repairSearchLimitReached ||= repaired.searchLimitReached
+    rescueSearchNodes += repaired.searchNodes
+    rescueEvaluatedPlans += repaired.evaluatedPlans
+    rescueSearchLimitReached ||= repaired.searchLimitReached
     optimizationPasses += 1
     if (compacted.moves === 0 && refilled === 0 && repaired.assignments === 0) break
   }
@@ -1705,17 +1823,31 @@ function generateSchedule(data) {
     }
   }
 
+  const finalFeasibility = studentFeasibilityForSchedule(data, schedule, feasibilityBaseSchedule)
+  const feasibilityByStudent = new Map(finalFeasibility.map((item) => [item.studentId, item]))
   const unassignedEntries = []
   for (const student of students) {
     const missingSessions = remainingByStudent.get(student.id) || 0
     if (missingSessions < 1) continue
     const blockers = blockersForStudent(data, student, schedule, schedulingState, contractCache, capacityReached)
+    const feasibility = feasibilityByStudent.get(student.id)
+    const optimizerCouldStillImprove = blockers.suggestedSlots.length > 0
+      || Number(feasibility?.maximumFeasibleSessions || 0) > Number(feasibility?.scheduledSessions || 0)
+    const blockerType = rescueSearchLimitReached && optimizerCouldStillImprove
+      ? 'search_limit_reached'
+      : optimizerCouldStillImprove
+        ? 'optimizer_gap'
+        : 'input_or_capacity'
+    const reasonCodes = blockerType === 'search_limit_reached'
+      ? [...new Set(['SEARCH_LIMIT_REACHED', ...blockers.reasonCodes])]
+      : blockers.reasonCodes
     const unassigned = {
       studentId: student.id,
       studentName: student.name,
       missingSessions,
-      blockerType: blockers.suggestedSlots.length ? 'optimizer_gap' : 'input_or_capacity',
+      blockerType,
       ...blockers,
+      reasonCodes,
     }
     unassignedEntries.push(unassigned)
     warnings.push({ code: 'STUDENT_UNSCHEDULED', ...unassigned })
@@ -1725,18 +1857,24 @@ function generateSchedule(data) {
     objectiveOrder: ['learner_coverage', 'weekly_target_fulfilment', 'pairing', 'trainer_assignment', 'soft_load_balance', 'learner_spacing'],
     loadPolicyVersion: 'soft-daily-target-v1',
     studentCoverage: studentCoverageForSchedule(data, schedule),
-    studentFeasibility: studentFeasibilityForSchedule(data, schedule, feasibilityBaseSchedule),
+    studentFeasibility: finalFeasibility,
     trainerLoads: trainerLoadsForSchedule(data, schedule, schedulingState),
     slotUtilization: slotUtilizationForSchedule(data, schedule),
     pairingMoves,
     refillAssignments,
-    repairAssignments,
-    repairRelocations,
-    repairSearchNodes,
-    repairSearchLimitReached,
+    rescueAssignments,
+    rescueRelocations,
+    rescueSearchNodes,
+    rescueEvaluatedPlans,
+    rescueSearchLimitReached,
+    // Backward-compatible aliases for clients deployed before optimizer v10.
+    repairAssignments: rescueAssignments,
+    repairRelocations: rescueRelocations,
+    repairSearchNodes: rescueSearchNodes,
+    repairSearchLimitReached: rescueSearchLimitReached,
     swapTrace: swapTrace.slice(0, 500),
     optimizationPasses,
-    generatorVersion: 'optimizer-v9',
+    generatorVersion: OPTIMIZER_VERSION,
   }
   return { schedule, warnings, optimizationSummary, unassignedEntries }
 }
@@ -1849,7 +1987,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         schedule: generated.schedule,
         revision: nextRevision,
         status: 'draft',
-        generatorVersion: 'optimizer-v8',
+        generatorVersion: OPTIMIZER_VERSION,
         warnings: generated.warnings,
         optimizationSummary: generated.optimizationSummary,
         unassignedEntries: generated.unassignedEntries,
@@ -1858,7 +1996,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: 'pt_schedule.generated', actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, entryCount: scheduleEntryCount(generated.schedule), studentCoverage: generated.optimizationSummary.studentCoverage, slotUtilization: generated.optimizationSummary.slotUtilization, unassignedCount: generated.unassignedEntries.length, warnings: generated.warnings.slice(0, 100), createdAt: FieldValue.serverTimestamp() })
-      return { draftRevision: nextRevision, schedule: generated.schedule, warnings: generated.warnings, optimizationSummary: generated.optimizationSummary, unassignedEntries: generated.unassignedEntries, generatorVersion: 'optimizer-v9' }
+      return { draftRevision: nextRevision, schedule: generated.schedule, warnings: generated.warnings, optimizationSummary: generated.optimizationSummary, unassignedEntries: generated.unassignedEntries, generatorVersion: OPTIMIZER_VERSION }
     })
   })
 
@@ -2177,6 +2315,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
 
 module.exports = {
   DEFAULT_DAILY_SESSION_TARGET,
+  OPTIMIZER_VERSION,
   MAX_DRAFT_ENTRIES,
   MAX_DRAFT_DOCUMENT_ENTRIES,
   createPtScheduleV2Functions,
