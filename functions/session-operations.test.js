@@ -427,9 +427,46 @@ test('automatic session reconciliation uses bounded ordered pages and durable cu
   assert.match(source, /orderBy\('date', 'asc'\)\.orderBy\(FieldPath\.documentId\(\), 'asc'\)/)
   assert.match(source, /systemJobs\/\$\{jobId\}/)
   assert.match(source, /nextCursor = docs\.length >= pageSize/)
-  assert.match(source, /if \(summary\.failed === 0\) \{[\s\S]*?commitAutomationSessionPage\(catchUp\)/)
+  assert.match(source, /recordAutomaticChargeFailureIssue/)
+  assert.match(source, /await Promise\.all\(\[[\s\S]*?commitAutomationSessionPage\(catchUp\)/)
   const reader = source.match(/async function readAutomationSessionPage[\s\S]*?\n}\n\nasync function commitAutomationSessionPage/)?.[0] || ''
   assert.doesNotMatch(reader, /stateReference\.set/)
+})
+
+test('one invalid legacy session is queued for review without blocking valid automatic charges', async () => {
+  const state = fakeDatabase({
+    'sessions/missing-link': { status: 'scheduled', studentId: 'student-missing', trainerId: 'trainer-1', date: '2026-08-28', hour: 8, revision: 0 },
+    'sessions/valid-link': { status: 'scheduled', studentId: 'student-valid', trainerId: 'trainer-1', contractId: 'contract-valid', date: '2026-08-28', hour: 9, revision: 0 },
+    'contracts/contract-valid': { status: 'active', studentId: 'student-valid', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 12, usedSessions: 0 },
+  })
+  const summary = await chargeDuePtSessions({
+    db: state.db,
+    now: new Date('2026-08-28T10:00:00.000Z'),
+    logger: { info() {}, warn() {} },
+  })
+  assert.equal(summary.charged, 1)
+  assert.equal(summary.failed, 1)
+  assert.equal(summary.issuesQueued, 1)
+  assert.equal(summary.issueQueueFailed, 0)
+  assert.equal(state.read('sessions/valid-link').billingStatus, 'charged')
+  assert.equal(state.read('sessionBillingIssues/missing-link').status, 'open')
+  assert.equal(state.read('sessionBillingIssues/missing-link').issueCode, 'SESSION_CONTRACT_LINK_REQUIRED')
+})
+
+test('a successful retry resolves its automatic charge issue', async () => {
+  const state = fakeDatabase({
+    'sessions/reconciled': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-08-28', hour: 8, revision: 0 },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 12, usedSessions: 0 },
+    'sessionBillingIssues/reconciled': { status: 'open', issueSource: 'automatic_charge', issueCode: 'SESSION_CONTRACT_LINK_REQUIRED', attempts: 3 },
+  })
+  const summary = await chargeDuePtSessions({
+    db: state.db,
+    now: new Date('2026-08-28T10:00:00.000Z'),
+    logger: { info() {}, warn() {} },
+  })
+  assert.equal(summary.charged, 1)
+  assert.equal(state.read('sessionBillingIssues/reconciled').status, 'resolved')
+  assert.equal(state.read('sessionBillingIssues/reconciled').resolution, 'session_charged_after_contract_reconciliation')
 })
 
 test('automation cursor covers more than 2,000 sessions and only advances after an explicit successful commit', async () => {

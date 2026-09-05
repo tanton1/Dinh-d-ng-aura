@@ -662,6 +662,8 @@ test('Firestore delta sync keeps the retired project read-only and applies only 
   assert.match(firestoreDeltaSyncSource, /currentDocument: \{ updateTime: item\.targetUpdateTime \}/)
   assert.match(firestoreDeltaSyncSource, /plan\.planDigest !== approved\.planDigest/)
   assert.match(firestoreDeltaSyncSource, /TARGET_OWNED_FIELDS/)
+  assert.match(firestoreDeltaSyncSource, /session_contract_link_required/)
+  assert.match(firestoreDeltaSyncSource, /field !== 'contractId'/)
   assert.match(firestoreDeltaSyncSource, /confirm-delete-target-only/)
   assert.match(firestoreDeltaSyncSource, /currentDocument: \{ updateTime: item\.targetUpdateTime \}/)
   assert.doesNotMatch(firestoreDeltaSyncSource, /databaseBase\(SOURCE\).*documents:commit/s)

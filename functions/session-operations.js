@@ -35,6 +35,7 @@ const SESSION_CHANGE_DATA_LIMIT = 2000
 const ATTENDANCE_STATUSES = new Set(['present', 'late', 'no_show'])
 const NO_SHOW_REASONS = new Set(['', 'busy', 'sick', 'forgot', 'unreachable', 'other'])
 const BILLING_REVIEW_STATUS = 'review_required'
+const AUTOMATIC_CHARGE_ISSUE_SOURCE = 'automatic_charge'
 
 function id(value, label) {
   const result = typeof value === 'string' ? value.trim() : ''
@@ -507,6 +508,58 @@ async function commitAutomationSessionPage({ stateReference, nextCursor, pageSiz
   } catch { /* checkpoint writes must not prevent billing retries */ }
 }
 
+function automaticChargeIssueCode(error) {
+  const explicit = typeof error?.details?.issueCode === 'string' ? error.details.issueCode.trim() : ''
+  if (explicit) return explicit.slice(0, 100)
+  const message = typeof error?.message === 'string' ? error.message : ''
+  if (message.includes('Hợp đồng liên kết không tồn tại')) return 'SESSION_CONTRACT_NOT_FOUND'
+  if (message.includes('Hợp đồng không thuộc học viên')) return 'SESSION_CONTRACT_STUDENT_MISMATCH'
+  if (message.includes('trạng thái có thể đối soát')) return 'SESSION_CONTRACT_STATUS_INVALID'
+  if (message.includes('ngoài thời hạn hợp đồng')) return 'SESSION_OUTSIDE_CONTRACT_WINDOW'
+  if (message.includes('sổ sự kiện')) return 'SESSION_BILLING_LEDGER_MISMATCH'
+  if (message.includes('Bản ghi hiện diện đã tồn tại')) return 'SESSION_ATTENDANCE_LEDGER_MISMATCH'
+  return 'AUTOMATIC_SESSION_CHARGE_FAILED'
+}
+
+async function recordAutomaticChargeFailureIssue({ db, item, error, now }) {
+  const session = item.data()
+  const reference = db.doc(`sessionBillingIssues/${item.id}`)
+  const issueCode = automaticChargeIssueCode(error)
+  const errorCode = typeof error?.code === 'string' ? error.code.slice(0, 100) : 'unknown'
+  const message = typeof error?.message === 'string' && error.message.trim()
+    ? error.message.trim().slice(0, 500)
+    : 'Không thể tự động tính buổi.'
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(reference)
+    const existing = snapshot.exists ? snapshot.data() : {}
+    const patch = {
+      schemaVersion: 1,
+      status: 'open',
+      issueSource: AUTOMATIC_CHARGE_ISSUE_SOURCE,
+      issueCode,
+      errorCode,
+      message,
+      sessionId: item.id,
+      studentId: session.studentId || '',
+      trainerId: session.trainerId || '',
+      contractId: session.contractId || '',
+      scheduledAt: Timestamp.fromDate(sessionStartInstant(session, item.id)),
+      attempts: Math.max(0, Number(existing.attempts || 0)) + 1,
+      lastFailedAt: Timestamp.fromDate(now),
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: 'system:auto-charge',
+    }
+    if (snapshot.exists) transaction.update(reference, patch)
+    else transaction.create(reference, {
+      ...patch,
+      firstFailedAt: Timestamp.fromDate(now),
+      createdAt: FieldValue.serverTimestamp(),
+      createdBy: 'system:auto-charge',
+    })
+  })
+  return issueCode
+}
+
 // `all` was written by the legacy all-branch scheduler. It is a scope
 // selector, not a physical branch, so it must not make a correction look like
 // a cross-branch ca. We keep the original value in the audit trail and only
@@ -630,15 +683,15 @@ async function chargeSessionTransaction({
       transaction.get(attendanceReference),
       transaction.get(billingIssueReference),
     ])
-    if (!contractSnapshot.exists) throw new HttpsError('failed-precondition', 'Hợp đồng liên kết không tồn tại.')
+    if (!contractSnapshot.exists) throw new HttpsError('failed-precondition', 'Hợp đồng liên kết không tồn tại.', { issueCode: 'SESSION_CONTRACT_NOT_FOUND' })
     const contract = contractSnapshot.data()
-    if (contract.studentId !== session.studentId) throw new HttpsError('failed-precondition', 'Hợp đồng không thuộc học viên của buổi tập.')
-    if (!['active', 'expired'].includes(contract.status)) throw new HttpsError('failed-precondition', 'Hợp đồng liên kết không ở trạng thái có thể đối soát.')
+    if (contract.studentId !== session.studentId) throw new HttpsError('failed-precondition', 'Hợp đồng không thuộc học viên của buổi tập.', { issueCode: 'SESSION_CONTRACT_STUDENT_MISMATCH' })
+    if (!['active', 'expired'].includes(contract.status)) throw new HttpsError('failed-precondition', 'Hợp đồng liên kết không ở trạng thái có thể đối soát.', { issueCode: 'SESSION_CONTRACT_STATUS_INVALID' })
     const sessionDate = storedDateKey(session.date, 'Ngày của buổi tập')
     const contractStart = storedContractDate(contract.startDate, 'Ngày bắt đầu')
     const contractEnd = storedContractDate(contract.endDate, 'Ngày kết thúc')
     if (sessionDate < contractStart || sessionDate > contractEnd) {
-      throw new HttpsError('failed-precondition', 'Ngày tập nằm ngoài thời hạn hợp đồng liên kết.')
+      throw new HttpsError('failed-precondition', 'Ngày tập nằm ngoài thời hạn hợp đồng liên kết.', { issueCode: 'SESSION_OUTSIDE_CONTRACT_WINDOW' })
     }
     const startsAt = sessionStartInstant(session, sessionId)
     if (startsAt.getTime() > now.getTime()) {
@@ -651,7 +704,7 @@ async function chargeSessionTransaction({
     const chargedSessionIds = Array.isArray(contract.chargedSessionIds) ? contract.chargedSessionIds : []
     const attendedClasses = Array.isArray(contract.attendedClasses) ? contract.attendedClasses : []
     if (chargedSessionIds.includes(sessionId) || attendedClasses.includes(sessionId)) {
-      throw new HttpsError('already-exists', 'Buổi tập đã được tính trong hợp đồng nhưng thiếu sổ sự kiện. Cần đối soát trước khi thử lại.')
+      throw new HttpsError('already-exists', 'Buổi tập đã được tính trong hợp đồng nhưng thiếu sổ sự kiện. Cần đối soát trước khi thử lại.', { issueCode: 'SESSION_BILLING_LEDGER_MISMATCH' })
     }
     const startsAtTimestamp = Timestamp.fromDate(startsAt)
     if (Number(contract.usedSessions || 0) >= Number(contract.totalSessions || 0)) {
@@ -665,7 +718,7 @@ async function chargeSessionTransaction({
         }
       }
       if (attendanceSnapshot.exists) {
-        throw new HttpsError('already-exists', 'Bản ghi hiện diện đã tồn tại nhưng chưa có sổ tính buổi. Cần đối soát trước khi thử lại.')
+        throw new HttpsError('already-exists', 'Bản ghi hiện diện đã tồn tại nhưng chưa có sổ tính buổi. Cần đối soát trước khi thử lại.', { issueCode: 'SESSION_ATTENDANCE_LEDGER_MISMATCH' })
       }
       transaction.create(attendanceReference, {
         schemaVersion: 3,
@@ -700,9 +753,10 @@ async function chargeSessionTransaction({
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: actorUid,
       })
-      if (!billingIssueSnapshot.exists) transaction.create(billingIssueReference, {
+      const quotaIssue = {
         schemaVersion: 1,
         status: 'open',
+        issueSource: AUTOMATIC_CHARGE_ISSUE_SOURCE,
         issueCode: 'CONTRACT_QUOTA_EXHAUSTED',
         sessionId,
         studentId: session.studentId,
@@ -711,9 +765,15 @@ async function chargeSessionTransaction({
         scheduledAt: startsAtTimestamp,
         usedSessions: Number(contract.usedSessions || 0),
         totalSessions: Number(contract.totalSessions || 0),
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actorUid,
+      }
+      if (!billingIssueSnapshot.exists) transaction.create(billingIssueReference, {
+        ...quotaIssue,
         createdAt: FieldValue.serverTimestamp(),
         createdBy: actorUid,
       })
+      else transaction.update(billingIssueReference, quotaIssue)
       return {
         unchanged: false,
         revision: revision + 1,
@@ -724,7 +784,7 @@ async function chargeSessionTransaction({
       }
     }
     if (attendanceSnapshot.exists) {
-      throw new HttpsError('already-exists', 'Bản ghi hiện diện đã tồn tại nhưng chưa có sổ tính buổi. Cần đối soát trước khi thử lại.')
+      throw new HttpsError('already-exists', 'Bản ghi hiện diện đã tồn tại nhưng chưa có sổ tính buổi. Cần đối soát trước khi thử lại.', { issueCode: 'SESSION_ATTENDANCE_LEDGER_MISMATCH' })
     }
 
     const serviceOrdinal = Math.max(1, Math.floor(Number(contract.usedSessions || 0)) + 1)
@@ -786,6 +846,16 @@ async function chargeSessionTransaction({
       chargedSessionIds: FieldValue.arrayUnion(sessionId),
       updatedAt: FieldValue.serverTimestamp(),
     })
+    if (billingIssueSnapshot.exists && billingIssueSnapshot.data()?.issueSource === AUTOMATIC_CHARGE_ISSUE_SOURCE) {
+      transaction.update(billingIssueReference, {
+        status: 'resolved',
+        resolvedAt: FieldValue.serverTimestamp(),
+        resolvedBy: actorUid,
+        resolution: 'session_charged_after_contract_reconciliation',
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: actorUid,
+      })
+    }
     return {
       unchanged: false,
       revision: revision + 1,
@@ -1054,7 +1124,7 @@ async function chargeDuePtSessions({ db, now = new Date(), logger = console, lim
     if (!isActiveSessionStatus(session.status) || isSessionCharged(session) || [BILLING_REVIEW_STATUS, 'exempt'].includes(session.billingStatus)) return false
     try { return sessionStartInstant(session, item.id).getTime() <= now.getTime() } catch { return false }
   })
-  const summary = { weekStart, through: today, scanned: documents.length, due: candidates.length, charged: 0, reviewRequired: 0, unchanged: 0, failed: 0, catchUpCursor: catchUp.nextCursor }
+  const summary = { weekStart, through: today, scanned: documents.length, due: candidates.length, charged: 0, reviewRequired: 0, unchanged: 0, failed: 0, issuesQueued: 0, issueQueueFailed: 0, catchUpCursor: catchUp.nextCursor }
   for (let index = 0; index < candidates.length; index += 25) {
     const batch = candidates.slice(index, index + 25)
     const outcomes = await Promise.allSettled(batch.map((item) => chargeSessionTransaction({
@@ -1063,6 +1133,7 @@ async function chargeDuePtSessions({ db, now = new Date(), logger = console, lim
       actorUid: 'system:auto-charge',
       now,
     })))
+    const failures = []
     outcomes.forEach((outcome, outcomeIndex) => {
       if (outcome.status === 'fulfilled') {
         if (outcome.value.unchanged) summary.unchanged += 1
@@ -1070,22 +1141,29 @@ async function chargeDuePtSessions({ db, now = new Date(), logger = console, lim
         else summary.charged += 1
       } else {
         summary.failed += 1
+        failures.push({ item: batch[outcomeIndex], error: outcome.reason })
         logger.warn?.('PT session automatic charge failed', {
           sessionId: batch[outcomeIndex].id,
           code: outcome.reason?.code || 'unknown',
+          issueCode: automaticChargeIssueCode(outcome.reason),
+          message: typeof outcome.reason?.message === 'string' ? outcome.reason.message.slice(0, 500) : 'Unknown automatic charge failure',
         })
       }
     })
+    const issueOutcomes = await Promise.allSettled(failures.map(({ item, error }) => recordAutomaticChargeFailureIssue({ db, item, error, now })))
+    issueOutcomes.forEach((outcome) => {
+      if (outcome.status === 'fulfilled') summary.issuesQueued += 1
+      else summary.issueQueueFailed += 1
+    })
   }
-  // Cursors move only after every transaction in the page succeeds. Failed
-  // records are retried on the next invocation; successful records are
-  // idempotent and safely become unchanged when replayed.
-  if (summary.failed === 0) {
-    await Promise.all([
-      commitAutomationSessionPage(currentWeek),
-      commitAutomationSessionPage(catchUp),
-    ])
-  }
+  // A permanently invalid legacy record must not pin every valid session
+  // behind it. Failures are persisted in sessionBillingIssues and each cursor
+  // advances so the bounded catch-up sweep can continue. When a sweep resets,
+  // unresolved records are retried and successful writes remain idempotent.
+  await Promise.all([
+    commitAutomationSessionPage(currentWeek),
+    commitAutomationSessionPage(catchUp),
+  ])
   logger.info?.('PT automatic charge completed', summary)
   return summary
 }
@@ -1142,16 +1220,16 @@ async function autoConfirmOverduePtAttendance({ db, now = new Date(), logger = c
         logger.warn?.('PT attendance automatic confirmation failed', {
           sessionId: batch[outcomeIndex].id,
           code: outcome.reason?.code || 'unknown',
+          issueCode: typeof outcome.reason?.details?.issueCode === 'string' ? outcome.reason.details.issueCode : 'AUTOMATIC_ATTENDANCE_CONFIRMATION_FAILED',
+          message: typeof outcome.reason?.message === 'string' ? outcome.reason.message.slice(0, 500) : 'Unknown automatic attendance confirmation failure',
         })
       }
     })
   }
-  if (summary.failed === 0) {
-    await Promise.all([
-      commitAutomationSessionPage(recent),
-      commitAutomationSessionPage(catchUp),
-    ])
-  }
+  await Promise.all([
+    commitAutomationSessionPage(recent),
+    commitAutomationSessionPage(catchUp),
+  ])
   logger.info?.('PT attendance automatic confirmation completed', summary)
   return summary
 }

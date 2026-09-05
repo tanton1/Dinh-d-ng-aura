@@ -81,7 +81,9 @@ const TARGET_OWNED_FIELDS = {
 }
 const CREATE_STRIPPED_FIELDS = {
   contracts: TARGET_OWNED_FIELDS.contracts,
-  sessions: TARGET_OWNED_FIELDS.sessions,
+  // A newly imported session must retain its source contract link. Runtime
+  // billing fields remain target-owned and are still stripped on create.
+  sessions: new Set([...TARGET_OWNED_FIELDS.sessions].filter((field) => field !== 'contractId')),
 }
 const PRIVILEGED_ROLES = new Set(['admin', 'super_admin'])
 
@@ -323,6 +325,10 @@ function appendSafeCreate(plan, collection, id, sourceDocument, semanticIndex) {
   const sourceFields = sourceDocument.fields || {}
   if (collection === 'users' && PRIVILEGED_ROLES.has(stringField(sourceFields, 'role'))) {
     addReason(plan, collection, id, 'privileged_new_user_requires_review', ['role'])
+    return
+  }
+  if (collection === 'sessions' && !stringField(sourceFields, 'contractId')) {
+    addReason(plan, collection, id, 'session_contract_link_required', ['contractId'])
     return
   }
   const duplicateKeys = semanticKeys(collection, sourceFields).filter((key) => {
