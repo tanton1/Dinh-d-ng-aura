@@ -1,9 +1,7 @@
-import React, { useState, useMemo, lazy, Suspense } from 'react';
-import { UserProfile, Student, Session, StudentContract } from '../../../types';
+import React, { useState, useMemo } from 'react';
+import { UserProfile, Session, StudentContract } from '../../../types';
 import { useDatabase } from '../../../contexts/DatabaseContext';
-import { Users, User, ArrowRight, Activity, Calendar, ChevronLeft, Calendar as CalendarIcon, Search, AlertCircle, CheckCircle, Clock, Download } from 'lucide-react';
-const StudentManagement = lazy(() => import('./StudentManagement'));
-const StudentDetail = lazy(() => import('./StudentDetail'));
+import { Users, User, ArrowRight, Activity, Calendar, Calendar as CalendarIcon, Search, AlertCircle, CheckCircle, Clock, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 
@@ -14,17 +12,16 @@ interface Props {
   user?: FirebaseUser | null;
   trainerId?: string;
   explicitTrainerId?: string;
-  onNavigate?: (screen: string) => void;
+  onNavigate?: (screen: string, studentId?: string, studentName?: string) => void;
 }
 
 export default function TrainerDashboard({ profile, user, trainerId: propTrainerId, explicitTrainerId, onNavigate }: Props) {
-  const { students, contracts, sessions, packages, trainers, branches, addContract, updateContract } = useDatabase();
+  const { students, contracts, sessions, trainers } = useDatabase();
 
   const getCalculatedUsedSessions = (contract: StudentContract | undefined, _allSessions: Session[]) => contract
     ? Math.max(0, Math.floor(Number(contract.usedSessions || 0)))
     : 0;
   const [activeTab, setActiveTab] = useState<'main' | 'sub' | 'nutrition'>('main');
-  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
@@ -92,35 +89,17 @@ export default function TrainerDashboard({ profile, user, trainerId: propTrainer
      return w;
   }, [mainStudentIds, subStudentIds, nutritionStudentIds, activeContracts, trainerId]);
 
-  if (selectedStudentId) {
-    const s = students.find(stud => stud.id === selectedStudentId);
-    if (s) {
-      return (
-        <div className="p-4 md:p-6 pb-24 max-w-4xl mx-auto">
-          <button 
-            onClick={() => setSelectedStudentId(null)}
-            className="mb-4 text-pink-500 hover:text-pink-400 font-medium text-sm flex items-center gap-1"
-          >
-             <ChevronLeft className="w-4 h-4" /> Quay lại tổng quan
-          </button>
-          <Suspense fallback={<div className="p-8 text-center text-zinc-400">Đang tải...</div>}>
-          <StudentDetail 
-             student={s}
-             contracts={contracts}
-             packages={packages}
-             trainers={trainers}
-             branches={branches}
-             sessions={sessions}
-             profile={profile}
-             onBack={() => setSelectedStudentId(null)}
-             onSaveContract={addContract}
-             onUpdateContract={updateContract}
-          />
-          </Suspense>
-        </div>
-      );
+  const openStudent360 = (studentId: string) => {
+    const student = students.find((item) => item.id === studentId);
+    if (!student) return;
+    if (onNavigate) {
+      onNavigate('student-360', student.id, student.name || '');
+      return;
     }
-  }
+    // This legacy report can still be mounted outside AuraApplication. Keep
+    // the detail action canonical even in that embedding context.
+    window.location.hash = `#/student-360?studentId=${encodeURIComponent(student.id)}&source=admin-pt-students`;
+  };
 
   const renderStudentList = (ids: string[], emptyMessage: string) => {
     let filteredIds = ids.filter(id => {
@@ -175,7 +154,7 @@ export default function TrainerDashboard({ profile, user, trainerId: propTrainer
               return (
                 <div 
                   key={id} 
-                  onClick={() => setSelectedStudentId(id)}
+                  onClick={() => openStudent360(id)}
                   className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between group hover:border-pink-500/50 hover:bg-zinc-900 transition-all cursor-pointer shadow-sm gap-4"
                 >
                   <div className="flex items-center gap-4">
@@ -394,7 +373,7 @@ export default function TrainerDashboard({ profile, user, trainerId: propTrainer
                   return (
                     <div 
                       key={`${w.studentId}-${idx}`}
-                      onClick={() => setSelectedStudentId(w.studentId)}
+                      onClick={() => openStudent360(w.studentId)}
                       className="min-w-[200px] bg-zinc-950 border border-zinc-800 p-3 rounded-xl shrink-0 snap-start cursor-pointer hover:border-orange-500/50 transition-colors"
                     >
                       <p className="text-sm font-bold text-white mb-1 truncate">{s.name}</p>
@@ -520,7 +499,7 @@ export default function TrainerDashboard({ profile, user, trainerId: propTrainer
                                 <p className="text-xs text-zinc-500 truncate">{s.phone || 'Chưa có SĐT'}</p>
                               </div>
                               <button 
-                                onClick={() => setSelectedStudentId(s.id)}
+                                onClick={() => openStudent360(s.id)}
                                 className="w-7 h-7 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors shrink-0"
                               >
                                 <ArrowRight className="w-3.5 h-3.5" />

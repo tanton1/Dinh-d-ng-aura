@@ -55,7 +55,9 @@ export default function AdminDashboard({ user, profile, activeTab, onNavigate }:
       <div className="p-4 pt-6">
         <Suspense fallback={<div className="p-8 text-center text-zinc-400">Đang tải...</div>}>
         {activeTab === 'overview' && <AdminReportDashboard onNavigate={onNavigate} />}
-        {activeTab === 'students' && <StudentManagement user={user} profile={profile} />}
+        {activeTab === 'students' && <StudentManagement user={user} profile={profile} onOpenStudent360={(studentId) => {
+          window.location.hash = `#/student-360?studentId=${encodeURIComponent(studentId)}&source=admin-pt-students`;
+        }} />}
         {activeTab === 'finance' && <FinanceManagement user={user} profile={profile} />}
         {activeTab === 'packages' && <PackageSettings user={user} profile={profile} />}
         {activeTab === 'renewals' && <ContractRenewals onNavigate={onNavigate} />}

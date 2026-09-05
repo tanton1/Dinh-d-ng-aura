@@ -2113,6 +2113,8 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         weightKg={profileDraft.weightKg}
         targetWeightDeltaKg={profileDraft.targetWeightDeltaKg}
         targetTimeframeMonths={profileDraft.targetTimeframeMonths}
+        heightCm={profileDraft.heightCm}
+        nutritionProfile={profileDraft}
         ownerId={resolvedOwnerId}
         todayContent={<>{profileSyncBanner}<React.Suspense fallback={<div className="nutrition-dashboard-loading" role="status" aria-live="polite">Đang tải tổng quan dinh dưỡng…</div>}><NutritionDashboardHome
           selectedDate={selectedDate}

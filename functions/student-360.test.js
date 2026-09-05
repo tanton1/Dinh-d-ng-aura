@@ -13,11 +13,35 @@ const {
   sourceTimelineEvents,
   studentIdFromAccountUid,
   studentAccountProfile,
+  uniqueProgressDocuments,
+  uniqueProgressPhotos,
 } = require('./student-360')
 
 test('contract month duration clamps month-end dates instead of drifting into a later month', () => {
   assert.equal(addCalendarMonths('2026-01-31', 1), '2026-02-28')
   assert.equal(addCalendarMonths('2028-01-31', 1), '2028-02-29')
+})
+
+test('progress migration mirrors are collapsed before Student 360 calculations', () => {
+  const metrics = uniqueProgressDocuments([
+    { id: 'legacy-1', date: '2026-09-01', weightKg: 60, waistCm: 70 },
+    { id: 'canonical-1', date: '2026-09-01', weightKg: 60, waistCm: 70 },
+    { id: 'canonical-2', date: '2026-09-03', weightKg: 59.5, waistCm: 69 },
+  ])
+  assert.equal(metrics.length, 2, 'mirrored measurements with different legacy IDs collapse')
+
+  const sameMeasurement = uniqueProgressDocuments([
+    { date: '2026-09-01', weightKg: 60, waistCm: 70 },
+    { date: '2026-09-01', weightKg: 60, waistCm: 70 },
+  ])
+  assert.equal(sameMeasurement.length, 1)
+
+  const photos = uniqueProgressPhotos([
+    { id: 'photo-1', date: '2026-09-01' },
+    { id: 'photo-1', date: '2026-09-01' },
+    { id: 'photo-2', date: '2026-09-02' },
+  ])
+  assert.deepEqual(photos.map((item) => item.id), ['photo-1', 'photo-2'])
 })
 
 test('contract workspace exposes named, immutable CRM actions', () => {

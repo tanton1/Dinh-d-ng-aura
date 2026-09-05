@@ -313,7 +313,7 @@ export default function AdminReportDashboard({ onNavigate }: Props) {
       {activeTab === 'pt_details' && (
         <div className="space-y-3">
           <div className="flex gap-2 overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-950 p-2">{filteredTrainers.map((trainer) => <button key={trainer.id} onClick={() => setSelectedTrainerId(trainer.id)} className={`min-h-10 shrink-0 rounded-xl px-4 text-sm font-semibold ${selectedTrainerId === trainer.id ? 'bg-gradient-to-r from-pink-500 to-orange-500 text-white' : 'bg-zinc-900 text-zinc-400'}`}>{trainer.name}</button>)}</div>
-          {selectedTrainerId ? <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-2 md:p-4"><React.Suspense fallback={<div className="p-8 text-center text-sm text-zinc-500" role="status">Đang tải chi tiết PT…</div>}><TrainerDashboard trainerId={selectedTrainerId} /></React.Suspense></div> : <p className="rounded-3xl border border-zinc-800 bg-zinc-950 p-8 text-center text-zinc-500">Không có PT trong phạm vi đã chọn.</p>}
+          {selectedTrainerId ? <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-2 md:p-4"><React.Suspense fallback={<div className="p-8 text-center text-sm text-zinc-500" role="status">Đang tải chi tiết PT…</div>}><TrainerDashboard trainerId={selectedTrainerId} onNavigate={onNavigate} /></React.Suspense></div> : <p className="rounded-3xl border border-zinc-800 bg-zinc-950 p-8 text-center text-zinc-500">Không có PT trong phạm vi đã chọn.</p>}
         </div>
       )}
 

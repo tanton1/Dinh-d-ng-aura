@@ -715,6 +715,8 @@ export interface NutritionWorkspaceProps {
   weightKg?: number
   targetWeightDeltaKg?: number
   targetTimeframeMonths?: number
+  heightCm?: number
+  nutritionProfile?: import('../../features/nutrition/types').NutritionProfileDraft | null
   ownerId?: string
   v4?: boolean
 }
@@ -737,6 +739,8 @@ function NutritionWorkspace({
   weightKg,
   targetWeightDeltaKg,
   targetTimeframeMonths,
+  heightCm,
+  nutritionProfile,
   ownerId,
   v4 = false,
 }: NutritionWorkspaceProps) {
@@ -758,6 +762,8 @@ function NutritionWorkspace({
                 weightKg={weightKg}
                 targetWeightDeltaKg={targetWeightDeltaKg}
                 targetTimeframeMonths={targetTimeframeMonths}
+                heightCm={heightCm}
+                nutritionProfile={nutritionProfile}
               />
             </React.Suspense>
           )}

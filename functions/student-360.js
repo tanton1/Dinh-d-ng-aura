@@ -152,6 +152,41 @@ function paymentProjection(contract, today) {
   return { status, total, paid, outstanding, nextPaymentDate }
 }
 
+// During the progress migration the same measurement can be present in both
+// the legacy and canonical collections (or once in profile.history and once
+// in a collection). Normalize and collapse those mirrors before calculating
+// summaries and timeline events so a single check-in is counted once.
+function uniqueProgressDocuments(documents = []) {
+  const unique = new Map()
+  documents.forEach((item, index) => {
+    const value = typeof item?.data === 'function' ? item.data() : item || {}
+    const date = bounded(value.date || value.recordedAt || value.createdAt, 32)
+      || (iso(value.createdAt) || '').slice(0, 10)
+    const weight = value.weightKg ?? value.weight ?? ''
+    const waist = value.waistCm ?? value.waist ?? ''
+    const bodyFat = value.bodyFatPercent ?? value.body_fat ?? value.bodyFat ?? ''
+    const explicitId = bounded(item?.id || value.id, 120)
+    const hasMeasurement = [weight, waist, bodyFat].some((entry) => entry !== '' && entry !== null && entry !== undefined)
+    const key = hasMeasurement ? `${date}|${weight}|${waist}|${bodyFat}` : explicitId
+    // Later sources are preferred: canonical collections are appended after
+    // legacy collections by projectionSources().
+    unique.set(key || `progress-${index}`, item)
+  })
+  return [...unique.values()]
+}
+
+function uniqueProgressPhotos(documents = []) {
+  const unique = new Map()
+  documents.forEach((item, index) => {
+    const value = typeof item?.data === 'function' ? item.data() : item || {}
+    const date = bounded(value.date || value.createdAt || value.updatedAt, 32)
+      || (iso(value.createdAt || value.updatedAt) || '').slice(0, 10)
+    const key = bounded(item?.id || value.id, 120) || `${date}|${value.checksum || value.storagePath || ''}|${index}`
+    unique.set(key, item)
+  })
+  return [...unique.values()]
+}
+
 function scoreComponent(id, label, weight, score, reason, available = true) {
   if (!available || !Number.isFinite(score)) return { id, label, weight, score: null, reason, available: false }
   return { id, label, weight, score: Math.max(0, Math.min(100, Math.round(score))), reason, available: true }
@@ -474,7 +509,7 @@ function contractWorkspaceRecord(snapshot, canViewFinancialAmounts, canManageCon
 
 function profileProgress(profile = {}, metricDocs = []) {
   const history = Array.isArray(profile.history) ? profile.history : []
-  const values = [...history, ...metricDocs]
+  const values = uniqueProgressDocuments([...history, ...metricDocs])
     .map((item, index) => ({
       id: bounded(item.id, 100) || `metric-${index}`,
       date: bounded(item.date || item.recordedAt || item.createdAt, 10) || (iso(item.createdAt) || '').slice(0, 10),
@@ -600,8 +635,8 @@ async function projectionSources(db, studentId, weekId) {
     accountUid,
     mealLogs,
     mealReviews,
-    bodyMetrics: [...bodyMetrics, ...bodyMeasurements, ...weightLogs],
-    progressPhotos: [...legacyProgressPhotos, ...progressPhotos],
+    bodyMetrics: uniqueProgressDocuments([...bodyMetrics, ...bodyMeasurements, ...weightLogs]),
+    progressPhotos: uniqueProgressPhotos([...legacyProgressPhotos, ...progressPhotos]),
     trainingProgram: trainingProgramSnapshot.exists ? { id: trainingProgramSnapshot.id, ...trainingProgramSnapshot.data() } : null,
   }
 }
@@ -1700,6 +1735,8 @@ module.exports = {
   redactProjection,
   reconcileStudent360ProjectionBatch,
   normalizeTimelineEvents,
+  uniqueProgressDocuments,
+  uniqueProgressPhotos,
   sourceTimelineEvents,
   safeTimelineEvent,
   studentIdFromAccountUid,

@@ -16,13 +16,11 @@ import StudentRosterTable from './StudentRosterTable';
 import { studentEligibilityForWeek } from '../../../domain/pt/studentEligibility';
 import './StudentManagement.css';
 
-const StudentDetail = React.lazy(() => import('./StudentDetail'));
-
 interface Props {
   user: User | null;
   profile: UserProfile | null;
   initialStudentId?: string | null;
-  onOpenStudent360?: (studentId: string, studentName: string) => void;
+  onOpenStudent360: (studentId: string, studentName: string) => void;
 }
 
 const ADMIN_STUDENT_LIST_MEMORY = 'aura:student-360:return:admin-pt-students';
@@ -68,7 +66,6 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
   const [dateRange, setDateRange] = useState<{ start: Date, end: Date } | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
-  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(initialStudentId);
   const [error, setError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
@@ -93,6 +90,15 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
   const [cashAccounts, setCashAccounts] = useState<CashAccount[]>([]);
   const filterInitializationRef = useRef(false);
   const listScrollRestoredRef = useRef(false);
+
+  // Student 360 is the only supported detail surface. The initial focus is
+  // kept for backwards-compatible deep links, but it is immediately handed
+  // to the canonical route instead of rendering the legacy StudentDetail.
+  useEffect(() => {
+    if (!initialStudentId) return;
+    const student = students.find((item) => item.id === initialStudentId);
+    if (student) onOpenStudent360(student.id, student.name || '');
+  }, [initialStudentId, onOpenStudent360, students]);
 
   useEffect(() => {
     let active = true;
@@ -331,19 +337,16 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
     }));
   }, [contractFilter, searchTerm, selectedBranchId, selectedNutritionPTId, selectedTrainerId, showAdvancedFilters, studentPage]);
   useEffect(() => {
-    if (listScrollRestoredRef.current || selectedStudentId || visibleStudents.length === 0) return;
+    if (listScrollRestoredRef.current || visibleStudents.length === 0) return;
     listScrollRestoredRef.current = true;
     const scrollY = Math.max(0, Number(adminStudentListMemory().scrollY || 0));
     const frame = window.requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'auto' }));
     return () => window.cancelAnimationFrame(frame);
-  }, [selectedStudentId, visibleStudents.length]);
+  }, [visibleStudents.length]);
   useEffect(() => () => {
     const previous = adminStudentListMemory();
     window.sessionStorage.setItem(ADMIN_STUDENT_LIST_MEMORY, JSON.stringify({ ...previous, scrollY: window.scrollY }));
   }, []);
-  useEffect(() => {
-    if (initialStudentId) setSelectedStudentId(initialStudentId);
-  }, [initialStudentId]);
   useEffect(() => {
     setOverviewSlide(0);
     overviewTrackRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
@@ -576,28 +579,6 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
     setStudentToDelete(null);
   };
 
-  if (selectedStudentId) {
-    const student = students.find(s => s.id === selectedStudentId);
-    if (student) {
-      return (
-        <React.Suspense fallback={<div className="student-management" role="status" aria-live="polite">Đang tải hồ sơ học viên…</div>}>
-          <StudentDetail
-            student={student}
-            profile={profile}
-            contracts={contracts}
-            packages={packages}
-            trainers={trainers}
-            branches={branches}
-            sessions={sessions}
-            onBack={() => setSelectedStudentId(null)}
-            onSaveContract={handleSaveContract}
-            onUpdateContract={handleUpdateContract}
-          />
-        </React.Suspense>
-      );
-    }
-  }
-
   return (
     <div className="student-management space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
       <div className="student-management__heading">
@@ -741,8 +722,7 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
         canManage={canManageStudents}
         onOpen={(studentId) => {
           const student = students.find((item) => item.id === studentId);
-          if (onOpenStudent360) onOpenStudent360(studentId, student?.name || '');
-          else setSelectedStudentId(studentId);
+          onOpenStudent360(studentId, student?.name || '');
         }}
         onEdit={(student) => {
           setEditingStudent(student);
@@ -953,7 +933,7 @@ export default function StudentManagement({ user, profile, initialStudentId = nu
                     Tham gia: {student.joinDate && !isNaN(new Date(student.joinDate).getTime()) ? new Date(student.joinDate).toLocaleDateString('vi-VN') : 'N/A'}
                   </span>
                   <button 
-                    onClick={() => onOpenStudent360 ? onOpenStudent360(student.id, student.name || '') : setSelectedStudentId(student.id)}
+                    onClick={() => onOpenStudent360(student.id, student.name || '')}
                     className="text-xs font-medium text-pink-500 hover:text-pink-400 transition-colors"
                   >
                     Mở Học viên 360 &rarr;

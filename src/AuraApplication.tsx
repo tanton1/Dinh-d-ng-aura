@@ -125,6 +125,33 @@ function legacyStaffPosition(role: UserRole): StaffPosition | null {
   return null
 }
 
+function canonicalNutritionGoal(value: unknown): NutritionProfileDraft['goal'] | undefined {
+  if (value === 'fat_loss' || value === 'lose-fat') return 'lose-fat'
+  if (value === 'muscle_gain' || value === 'gain-muscle') return 'gain-muscle'
+  if (value === 'maintain' || value === 'maintenance') return 'maintain'
+  return undefined
+}
+
+/**
+ * Root profile fields are the compatibility source for shared body metrics.
+ * Nutrition-only fields stay in nutritionProfile, while this reader presents
+ * one consistent object to every nutrition/progress surface during migration.
+ */
+function resolveCanonicalNutritionProfile(profile: any, localProfile: NutritionProfileDraft | null): NutritionProfileDraft | undefined {
+  const base = profile?.nutritionProfile ?? localProfile
+  if (!base) return undefined
+  const rootGoal = canonicalNutritionGoal(profile?.goals?.[0])
+  return {
+    ...base,
+    ...(rootGoal ? { goal: rootGoal } : {}),
+    ...(profile?.heightCm !== null && profile?.heightCm !== undefined ? { heightCm: profile.heightCm } : {}),
+    ...(profile?.weightKg !== null && profile?.weightKg !== undefined ? { weightKg: profile.weightKg } : {}),
+    ...(profile?.targetWeightDeltaKg !== null && profile?.targetWeightDeltaKg !== undefined ? { targetWeightDeltaKg: profile.targetWeightDeltaKg } : {}),
+    ...(profile?.targetTimeframeMonths !== null && profile?.targetTimeframeMonths !== undefined ? { targetTimeframeMonths: profile.targetTimeframeMonths } : {}),
+    ...(profile?.targetSpeedPace ? { targetSpeedPace: profile.targetSpeedPace } : {}),
+  }
+}
+
 const learnerAcademyViews = new Set<ViewId>(['courses', 'course-detail', 'progress'])
 const adminAcademyViews = new Set<ViewId>(['admin-courses', 'admin-course-editor', 'admin-academy-students', 'admin-students'])
 const adminDirectoryViews = new Set<ViewId>(['admin-academy-students', 'admin-students', 'admin-roles', 'admin-hr', 'admin-notifications'])
@@ -179,7 +206,7 @@ function AuraApplication() {
   const mode: AppMode = view === 'student-360'
     ? route.source === 'admin-pt-students' ? 'admin' : 'student'
     : adminViews.includes(view) ? 'admin' : 'student'
-  const effectiveNutritionProfile = profile?.nutritionProfile ?? localNutritionProfile
+  const effectiveNutritionProfile = resolveCanonicalNutritionProfile(profile, localNutritionProfile)
   const dailyNutrition = useDailyNutritionSummary(
     user?.uid ?? 'demo',
     effectiveNutritionProfile,
@@ -257,6 +284,13 @@ function AuraApplication() {
       await saveProfileChanges({
         ...values,
         nutritionProfile: nextNutritionProfile,
+        // Keep the shared root fields synchronized while old clients still
+        // read them. Nutrition/progress pages use the normalized reader above.
+        ...(nextNutritionProfile.heightCm !== undefined ? { heightCm: nextNutritionProfile.heightCm } : {}),
+        ...(nextNutritionProfile.weightKg !== undefined ? { weightKg: nextNutritionProfile.weightKg } : {}),
+        ...(nextNutritionProfile.targetWeightDeltaKg !== undefined ? { targetWeightDeltaKg: nextNutritionProfile.targetWeightDeltaKg } : {}),
+        ...(nextNutritionProfile.targetTimeframeMonths !== undefined ? { targetTimeframeMonths: nextNutritionProfile.targetTimeframeMonths } : {}),
+        ...(nextNutritionProfile.targetSpeedPace !== undefined ? { targetSpeedPace: nextNutritionProfile.targetSpeedPace } : {}),
         onboardingCompleted: true,
       })
       return
@@ -776,7 +810,7 @@ function AuraApplication() {
         isDemo={backendMode === 'demo'}
         storageOwnerId={user?.uid ?? 'demo'}
         hasProfile={!forceOnboarding && Boolean(profile?.nutritionProfile || localNutritionProfile)}
-        profile={profile?.nutritionProfile ?? localNutritionProfile ?? undefined}
+        profile={effectiveNutritionProfile}
         syncState={profileSyncState}
         onStartOnboarding={() => setForceOnboarding(true)}
         onProfileComplete={async (nutritionProfile) => {
@@ -796,7 +830,7 @@ function AuraApplication() {
           setLocalNutritionProfile(nutritionProfile)
         }}
         onAnalyzeImage={async (file, options) => {
-          const p: any = profile?.nutritionProfile ?? localNutritionProfile
+          const p: any = effectiveNutritionProfile
           const goalStr = p?.goal === 'lose-fat' ? 'Giảm mỡ thâm hụt calo' : p?.goal === 'gain-muscle' ? 'Tăng cơ nạc' : 'Duy trì vóc dáng'
           const sexStr = p?.biologicalSex === 'female' ? 'Nữ' : p?.biologicalSex === 'male' ? 'Nam' : ''
           const ageStr = p?.age ? `${p.age} tuổi` : ''
