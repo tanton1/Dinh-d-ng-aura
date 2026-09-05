@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, Timestamp, where } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, setDoc, Timestamp, where } from 'firebase/firestore'
 import { firebaseAuth } from '../lib/firebase'
 import { firestoreDb } from '../lib/firebaseFirestore'
 import type { AcademyLessonMemory, CourseLessonDraft } from '../types'
@@ -32,6 +32,9 @@ export interface AcademyLessonContent {
 
 export type AcademyWorkbookState = {
   schemaVersion: 2
+  definitionVersion: number
+  cloudRevision: number
+  sharedWithCoach: boolean
   answers: Record<string, string>
   challengeDone: Record<string, boolean>
   microCheckAnswers: Record<string, number>
@@ -42,6 +45,16 @@ export type AcademyWorkbookState = {
   reviewAt: string
   safetyAcknowledged: boolean
   updatedAt: number
+}
+
+export class AcademyWorkbookConflictError extends Error {
+  readonly remoteRevision: number
+
+  constructor(remoteRevision: number) {
+    super('Workbook đã có thay đổi mới hơn từ một thiết bị khác.')
+    this.name = 'AcademyWorkbookConflictError'
+    this.remoteRevision = remoteRevision
+  }
 }
 
 export type AcademyReviewRating = 'again' | 'hard' | 'good' | 'easy'
@@ -257,6 +270,9 @@ export async function saveAcademyNoteToCloud(ownerId: string, courseId: string, 
 export function emptyAcademyWorkbookState(): AcademyWorkbookState {
   return {
     schemaVersion: 2,
+    definitionVersion: 1,
+    cloudRevision: 0,
+    sharedWithCoach: false,
     answers: {},
     challengeDone: {},
     microCheckAnswers: {},
@@ -290,6 +306,13 @@ function normalizeWorkbookState(value: Partial<AcademyWorkbookState> | null | un
     : null
   return {
     ...fallback,
+    definitionVersion: Number.isInteger(value?.definitionVersion) && Number(value?.definitionVersion) >= 1
+      ? Number(value?.definitionVersion)
+      : 1,
+    cloudRevision: Number.isInteger(value?.cloudRevision) && Number(value?.cloudRevision) >= 0
+      ? Number(value?.cloudRevision)
+      : 0,
+    sharedWithCoach: value?.sharedWithCoach === true,
     answers,
     challengeDone,
     microCheckAnswers,
@@ -318,7 +341,15 @@ export function loadAcademyWorkbook(ownerId: string, courseId: string, lessonId:
   }
 }
 
-export function saveAcademyWorkbook(ownerId: string, courseId: string, lessonId: string, state: AcademyWorkbookState) {
+function writeAcademyWorkbookToDevice(ownerId: string, courseId: string, lessonId: string, state: AcademyWorkbookState) {
+  try {
+    localStorage.setItem(academyWorkbookStorageKey(ownerId, courseId, lessonId), JSON.stringify(state))
+  } catch {
+    // The panel remains usable for this session when device storage is unavailable.
+  }
+}
+
+export async function saveAcademyWorkbook(ownerId: string, courseId: string, lessonId: string, state: AcademyWorkbookState) {
   const bounded: AcademyWorkbookState = {
     ...normalizeWorkbookState(state),
     answers: Object.fromEntries(Object.entries(state.answers).slice(0, 30).map(([key, value]) => [key, value.slice(0, 2000)])),
@@ -326,47 +357,67 @@ export function saveAcademyWorkbook(ownerId: string, courseId: string, lessonId:
     microCheckAnswers: Object.fromEntries(Object.entries(state.microCheckAnswers).slice(0, 20)),
     updatedAt: Date.now(),
   }
-  try {
-    localStorage.setItem(academyWorkbookStorageKey(ownerId, courseId, lessonId), JSON.stringify(bounded))
-  } catch {
-    // The panel remains usable for this session when device storage is unavailable.
-  }
-  void saveAcademyWorkbookToCloud(ownerId, courseId, lessonId, bounded).catch(() => undefined)
+  writeAcademyWorkbookToDevice(ownerId, courseId, lessonId, bounded)
+  const synchronized = await saveAcademyWorkbookToCloud(ownerId, courseId, lessonId, bounded)
+  writeAcademyWorkbookToDevice(ownerId, courseId, lessonId, synchronized)
+  return synchronized
 }
 
-export async function loadAcademyWorkbookFromCloud(ownerId: string, courseId: string, lessonId: string) {
+export async function loadAcademyWorkbookFromCloud(
+  ownerId: string,
+  courseId: string,
+  lessonId: string,
+  options: { preferRemote?: boolean } = {},
+) {
   const localState = loadAcademyWorkbook(ownerId, courseId, lessonId)
   if (!canSyncAcademyState(ownerId) || !firestoreDb) return localState
   const snapshot = await getDoc(doc(firestoreDb, 'users', ownerId, 'academyWorkbooks', academyStateDocumentId(courseId, lessonId)))
   if (!snapshot.exists()) return localState
   const body = snapshot.data().body
   if (typeof body !== 'string') return localState
+  let parsedRemote: AcademyWorkbookState
   try {
-    const remote = normalizeWorkbookState(JSON.parse(body) as Partial<AcademyWorkbookState>)
-    const merged: AcademyWorkbookState = {
-      ...remote,
-      answers: { ...localState.answers, ...(remote.answers && typeof remote.answers === 'object' ? remote.answers : {}) },
-      challengeDone: { ...localState.challengeDone, ...(remote.challengeDone && typeof remote.challengeDone === 'object' ? remote.challengeDone : {}) },
-      microCheckAnswers: { ...localState.microCheckAnswers, ...remote.microCheckAnswers },
-      updatedAt: typeof remote.updatedAt === 'number' ? remote.updatedAt : localState.updatedAt,
-    }
-    try { localStorage.setItem(academyWorkbookStorageKey(ownerId, courseId, lessonId), JSON.stringify(merged)) } catch { /* noop */ }
-    return merged
+    const documentRevision = Number.isInteger(snapshot.data().revision) && snapshot.data().revision >= 0
+      ? Number(snapshot.data().revision)
+      : 0
+    parsedRemote = { ...normalizeWorkbookState(JSON.parse(body) as Partial<AcademyWorkbookState>), cloudRevision: documentRevision }
   } catch {
     return localState
   }
+  if (!options.preferRemote && localState.updatedAt > parsedRemote.updatedAt) {
+    if (localState.cloudRevision !== parsedRemote.cloudRevision) {
+      throw new AcademyWorkbookConflictError(parsedRemote.cloudRevision)
+    }
+    return localState
+  }
+  writeAcademyWorkbookToDevice(ownerId, courseId, lessonId, parsedRemote)
+  return parsedRemote
 }
 
 async function saveAcademyWorkbookToCloud(ownerId: string, courseId: string, lessonId: string, state: AcademyWorkbookState) {
-  if (!canSyncAcademyState(ownerId) || !firestoreDb) return
+  if (!canSyncAcademyState(ownerId) || !firestoreDb) return state
   const reference = doc(firestoreDb, 'users', ownerId, 'academyWorkbooks', academyStateDocumentId(courseId, lessonId))
-  const existing = await getDoc(reference)
-  await setDoc(reference, {
-    courseId,
-    lessonId,
-    body: JSON.stringify(state).slice(0, 20_000),
-    ...(existing.exists() ? { createdAt: existing.data().createdAt } : { createdAt: serverTimestamp() }),
-    updatedAt: serverTimestamp(),
+  return runTransaction(firestoreDb, async (transaction) => {
+    const existing = await transaction.get(reference)
+    const remoteRevision = existing.exists() && Number.isInteger(existing.data().revision)
+      ? Number(existing.data().revision)
+      : 0
+    if (remoteRevision !== state.cloudRevision) throw new AcademyWorkbookConflictError(remoteRevision)
+    const synchronized = {
+      ...state,
+      cloudRevision: remoteRevision + 1,
+      updatedAt: Date.now(),
+    }
+    transaction.set(reference, {
+      courseId,
+      lessonId,
+      revision: synchronized.cloudRevision,
+      sharedWithCoach: synchronized.sharedWithCoach,
+      body: JSON.stringify(synchronized).slice(0, 20_000),
+      ...(existing.exists() ? { createdAt: existing.data().createdAt } : { createdAt: serverTimestamp() }),
+      updatedAt: serverTimestamp(),
+    })
+    return synchronized
   })
 }
 

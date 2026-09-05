@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   BookOpen,
   Brain,
@@ -19,6 +19,7 @@ import { getAuraNutritionChapter } from '../../data/auraNutritionCurriculum'
 import { buildAuraNutritionLearningDesign } from '../../data/auraNutritionLearningDesign'
 import { auraNutritionStudyGuides } from '../../data/auraNutritionStudyGuides'
 import {
+  AcademyWorkbookConflictError,
   loadAcademyReviewState,
   loadAcademyReviewStateFromCloud,
   loadAcademyWorkbook,
@@ -80,6 +81,11 @@ function studioStorageKey(ownerId: string, chapter: number) {
   return `aura:academy:chapter-studio:v1:${ownerId || 'guest'}:${chapter}`
 }
 
+function workbookContentSignature(workbook: AcademyWorkbookState) {
+  const { cloudRevision: _cloudRevision, updatedAt: _updatedAt, ...content } = workbook
+  return JSON.stringify(content)
+}
+
 function readInitialView(ownerId: string, chapter: number): StudioView {
   try {
     const value = localStorage.getItem(studioStorageKey(ownerId, chapter))
@@ -126,7 +132,21 @@ export default function AcademyChapterLearningStudio({
   const [workbook, setWorkbook] = useState<AcademyWorkbookState>(() => loadAcademyWorkbook(ownerId, courseId, coreLesson.id))
   const [workbookReady, setWorkbookReady] = useState(false)
   const [workbookSaved, setWorkbookSaved] = useState(true)
+  const [workbookDirty, setWorkbookDirty] = useState(false)
+  const [workbookSaving, setWorkbookSaving] = useState(false)
+  const [workbookSyncIssue, setWorkbookSyncIssue] = useState<'conflict' | 'offline' | null>(null)
+  const [workbookSaveNonce, setWorkbookSaveNonce] = useState(0)
+  const workbookRef = useRef(workbook)
+  const workbookScope = `${ownerId}:${courseId}:${coreLesson.id}`
+  const workbookScopeRef = useRef(workbookScope)
+  const mountedRef = useRef(true)
   const [reviews, setReviews] = useState<AcademyReviewState>(() => loadAcademyReviewState(ownerId, courseId))
+
+  useEffect(() => { workbookRef.current = workbook }, [workbook])
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   useEffect(() => {
     setActiveView(readInitialView(ownerId, chapter))
@@ -139,27 +159,53 @@ export default function AcademyChapterLearningStudio({
 
   useEffect(() => {
     let active = true
+    workbookScopeRef.current = workbookScope
     setWorkbook(loadAcademyWorkbook(ownerId, courseId, coreLesson.id))
     setWorkbookReady(false)
+    setWorkbookDirty(false)
+    setWorkbookSaving(false)
+    setWorkbookSyncIssue(null)
     void loadAcademyWorkbookFromCloud(ownerId, courseId, coreLesson.id)
-      .then((remote) => { if (active) { setWorkbook(remote); setWorkbookReady(true) } })
-      .catch(() => { if (active) setWorkbookReady(true) })
+      .then((remote) => { if (active) { setWorkbook(remote); setWorkbookSaved(true); setWorkbookReady(true) } })
+      .catch((error) => {
+        if (active) {
+          setWorkbookDirty(loadAcademyWorkbook(ownerId, courseId, coreLesson.id).updatedAt > 0)
+          setWorkbookSyncIssue(error instanceof AcademyWorkbookConflictError ? 'conflict' : 'offline')
+          setWorkbookSaved(false)
+          setWorkbookReady(true)
+        }
+      })
     setReviews(loadAcademyReviewState(ownerId, courseId))
     void loadAcademyReviewStateFromCloud(ownerId, courseId)
       .then((remote) => { if (active) setReviews(remote) })
       .catch(() => undefined)
     return () => { active = false }
-  }, [coreLesson.id, courseId, ownerId])
+  }, [coreLesson.id, courseId, ownerId, workbookScope])
 
   useEffect(() => {
-    if (!workbookReady || !canStudy) return
-    setWorkbookSaved(false)
+    if (!workbookReady || !canStudy || !workbookDirty || workbookSaving || workbookSyncIssue === 'conflict') return
+    const signature = workbookContentSignature(workbook)
+    const scope = workbookScope
     const timer = window.setTimeout(() => {
-      saveAcademyWorkbook(ownerId, courseId, coreLesson.id, workbook)
-      setWorkbookSaved(true)
+      setWorkbookSaving(true)
+      void saveAcademyWorkbook(ownerId, courseId, coreLesson.id, workbook)
+        .then((synchronized) => {
+          if (!mountedRef.current || workbookScopeRef.current !== scope) return
+          const hasNewerLocalChanges = workbookContentSignature(workbookRef.current) !== signature
+          setWorkbook((current) => ({ ...current, cloudRevision: synchronized.cloudRevision, updatedAt: synchronized.updatedAt }))
+          setWorkbookDirty(hasNewerLocalChanges)
+          setWorkbookSaved(!hasNewerLocalChanges)
+          setWorkbookSyncIssue(null)
+        })
+        .catch((error) => {
+          if (!mountedRef.current || workbookScopeRef.current !== scope) return
+          setWorkbookSaved(false)
+          setWorkbookSyncIssue(error instanceof AcademyWorkbookConflictError ? 'conflict' : 'offline')
+        })
+        .finally(() => { if (mountedRef.current && workbookScopeRef.current === scope) setWorkbookSaving(false) })
     }, 550)
     return () => window.clearTimeout(timer)
-  }, [canStudy, coreLesson.id, courseId, ownerId, workbook, workbookReady])
+  }, [canStudy, coreLesson.id, courseId, ownerId, workbook, workbookDirty, workbookReady, workbookSaveNonce, workbookSaving, workbookScope, workbookSyncIssue])
 
   if (!source || !guide || !design) {
     return <AcademyFullChapterReader chapter={chapter} ownerId={ownerId} />
@@ -185,11 +231,28 @@ export default function AcademyChapterLearningStudio({
   const updateWorkbook = (update: (current: AcademyWorkbookState) => AcademyWorkbookState) => {
     if (!canStudy) return
     setWorkbook(update)
+    setWorkbookDirty(true)
+    setWorkbookSaved(false)
   }
   const updateAnswer = (fieldId: string, value: string) => updateWorkbook((current) => ({
     ...current,
     answers: { ...current.answers, [fieldId]: value.slice(0, 2000) },
   }))
+
+  const reloadWorkbookFromCloud = async () => {
+    setWorkbookReady(false)
+    try {
+      const remote = await loadAcademyWorkbookFromCloud(ownerId, courseId, coreLesson.id, { preferRemote: true })
+      setWorkbook(remote)
+      setWorkbookDirty(false)
+      setWorkbookSaved(true)
+      setWorkbookSyncIssue(null)
+    } catch {
+      setWorkbookSyncIssue('offline')
+    } finally {
+      setWorkbookReady(true)
+    }
+  }
 
   return (
     <section className="academy-learning-studio" aria-labelledby={`academy-learning-studio-${chapter}`}>
@@ -277,7 +340,17 @@ export default function AcademyChapterLearningStudio({
       {activeView === 'practice' ? (
         <div className="academy-learning-studio__panel">
           <section className="academy-practice-studio" aria-labelledby={`practice-${chapter}`}>
-            <header><div><span>04 · ỨNG DỤNG</span><h3 id={`practice-${chapter}`}>{design.practice.title}</h3><p>{design.practice.outcome}</p></div><span className={workbookSaved ? 'is-saved' : ''}><Save size={14} />{workbookSaved ? 'Đã lưu' : 'Đang lưu…'}</span></header>
+            <header><div><span>04 · ỨNG DỤNG</span><h3 id={`practice-${chapter}`}>{design.practice.title}</h3><p>{design.practice.outcome}</p></div><span className={workbookSaved ? 'is-saved' : workbookSyncIssue ? 'has-error' : ''}><Save size={14} />{workbookSaved ? 'Đã lưu' : workbookSyncIssue ? 'Chưa đồng bộ' : 'Đang lưu…'}</span></header>
+            {workbookSyncIssue ? (
+              <div className={`academy-practice-sync academy-practice-sync--${workbookSyncIssue}`} role="alert">
+                <ShieldAlert size={18} />
+                <div>
+                  <strong>{workbookSyncIssue === 'conflict' ? 'Có bản mới từ thiết bị khác' : 'Cloud đang tạm gián đoạn'}</strong>
+                  <p>{workbookSyncIssue === 'conflict' ? 'Bản bạn đang nhập vẫn được giữ trên thiết bị này. Tải bản Cloud mới nhất trước khi tiếp tục để tránh ghi đè.' : 'Bản nhập đã được giữ trên thiết bị. Hãy thử đồng bộ lại khi kết nối ổn định.'}</p>
+                </div>
+                <button type="button" onClick={() => workbookSyncIssue === 'conflict' || !workbookDirty ? void reloadWorkbookFromCloud() : (setWorkbookSyncIssue(null), setWorkbookSaveNonce((value) => value + 1))}>{workbookSyncIssue === 'conflict' ? 'Tải bản mới nhất' : 'Thử lại'}</button>
+              </div>
+            ) : null}
             <div className="academy-practice-studio__evidence">{design.practice.minimumEvidence.map((item) => <span key={item}><CheckCircle2 size={13} />{item}</span>)}</div>
             <div className="academy-practice-studio__fields">
               {design.practice.fields.map((field) => {
@@ -310,6 +383,10 @@ export default function AcademyChapterLearningStudio({
             <label className="academy-practice-safety">
               <input type="checkbox" checked={workbook.safetyAcknowledged} disabled={!canStudy} onChange={(event) => updateWorkbook((current) => ({ ...current, safetyAcknowledged: event.target.checked }))} />
               <span><strong>{design.safetyGate?.title}</strong><small>{design.safetyGate?.body}</small></span>
+            </label>
+            <label className="academy-practice-share">
+              <input type="checkbox" checked={workbook.sharedWithCoach} disabled={!canStudy} onChange={(event) => updateWorkbook((current) => ({ ...current, sharedWithCoach: event.target.checked }))} />
+              <span><strong>Chia sẻ bài thực hành với coach phụ trách</strong><small>Mặc định chỉ bạn xem được. Khi bật, chỉ coach đang được phân công mới có quyền đọc; bạn có thể tắt bất cứ lúc nào.</small></span>
             </label>
           </section>
         </div>

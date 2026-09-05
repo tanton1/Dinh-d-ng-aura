@@ -149,3 +149,18 @@ test('private PDF reader supports mobile pagination without exposing a redundant
   assert.ok(cors[0]?.method.includes('GET'))
   assert.ok(cors[0]?.responseHeader.includes('Range'))
 })
+
+test('Academy practice sync detects device conflicts and sharing stays explicit', () => {
+  const learningService = readFileSync(new URL('../src/services/academyLearningService.ts', import.meta.url), 'utf8')
+  const learningStudio = readFileSync(new URL('../src/components/academy/AcademyChapterLearningStudio.tsx', import.meta.url), 'utf8')
+  const firestoreRules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8')
+
+  assert.match(learningService, /runTransaction\(firestoreDb/)
+  assert.match(learningService, /remoteRevision !== state\.cloudRevision/)
+  assert.match(learningService, /AcademyWorkbookConflictError/)
+  assert.match(learningService, /definitionVersion: number/)
+  assert.match(learningStudio, /Có bản mới từ thiết bị khác/)
+  assert.match(learningStudio, /Chia sẻ bài thực hành với coach phụ trách/)
+  assert.match(firestoreRules, /request\.resource\.data\.revision == resource\.data\.revision \+ 1/)
+  assert.match(firestoreRules, /resource\.data\.sharedWithCoach == true && coachOwnsClient\(userId\)/)
+})

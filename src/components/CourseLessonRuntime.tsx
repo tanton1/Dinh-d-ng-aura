@@ -39,6 +39,7 @@ import type { CourseLessonDraft, LessonResourceDraft } from '../types'
 import { firebaseAuth } from '../lib/firebase'
 import { auraNutritionStudyGuides } from '../data/auraNutritionStudyGuides'
 import {
+  AcademyWorkbookConflictError,
   loadAcademyWorkbookFromCloud,
   loadAcademyWorkbook,
   saveAcademyWorkbook,
@@ -456,6 +457,11 @@ function speakableLessonText(body: string) {
     .slice(0, 18_000)
 }
 
+function workbookContentSignature(workbook: AcademyWorkbookState) {
+  const { cloudRevision: _cloudRevision, updatedAt: _updatedAt, ...content } = workbook
+  return JSON.stringify(content)
+}
+
 function AcademyWorkbookPanel({ lesson, courseId }: { lesson: CourseLessonDraft; courseId: string }) {
   const chapter = lessonChapterNumber(lesson)
   const deepDive = chapter ? auraNutritionStudyGuides[chapter]?.deepDive : undefined
@@ -463,36 +469,97 @@ function AcademyWorkbookPanel({ lesson, courseId }: { lesson: CourseLessonDraft;
   const [state, setState] = useState<AcademyWorkbookState>(() => loadAcademyWorkbook(ownerId, courseId, lesson.id))
   const [ready, setReady] = useState(false)
   const [saved, setSaved] = useState(true)
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [syncIssue, setSyncIssue] = useState<'conflict' | 'offline' | null>(null)
+  const [saveNonce, setSaveNonce] = useState(0)
+  const stateRef = useRef(state)
+  const workbookScope = `${ownerId}:${courseId}:${lesson.id}`
+  const workbookScopeRef = useRef(workbookScope)
+  const mountedRef = useRef(true)
+
+  useEffect(() => { stateRef.current = state }, [state])
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
+    workbookScopeRef.current = workbookScope
+    setReady(false)
+    setDirty(false)
+    setSaving(false)
+    setSyncIssue(null)
     void loadAcademyWorkbookFromCloud(ownerId, courseId, lesson.id).then((remote) => {
       if (!cancelled) {
         setState(remote)
+        setSaved(true)
         setReady(true)
       }
-    }).catch(() => { if (!cancelled) setReady(true) })
+    }).catch((error) => {
+      if (!cancelled) {
+        setDirty(loadAcademyWorkbook(ownerId, courseId, lesson.id).updatedAt > 0)
+        setSyncIssue(error instanceof AcademyWorkbookConflictError ? 'conflict' : 'offline')
+        setSaved(false)
+        setReady(true)
+      }
+    })
     return () => { cancelled = true }
-  }, [courseId, lesson.id, ownerId])
+  }, [courseId, lesson.id, ownerId, workbookScope])
 
   useEffect(() => {
-    if (!ready) return
-    setSaved(false)
+    if (!ready || !dirty || saving || syncIssue === 'conflict') return
+    const signature = workbookContentSignature(state)
+    const scope = workbookScope
     const timer = window.setTimeout(() => {
-      saveAcademyWorkbook(ownerId, courseId, lesson.id, state)
-      setSaved(true)
+      setSaving(true)
+      void saveAcademyWorkbook(ownerId, courseId, lesson.id, state)
+        .then((synchronized) => {
+          if (!mountedRef.current || workbookScopeRef.current !== scope) return
+          const hasNewerLocalChanges = workbookContentSignature(stateRef.current) !== signature
+          setState((current) => ({ ...current, cloudRevision: synchronized.cloudRevision, updatedAt: synchronized.updatedAt }))
+          setDirty(hasNewerLocalChanges)
+          setSaved(!hasNewerLocalChanges)
+          setSyncIssue(null)
+        })
+        .catch((error) => {
+          if (!mountedRef.current || workbookScopeRef.current !== scope) return
+          setSaved(false)
+          setSyncIssue(error instanceof AcademyWorkbookConflictError ? 'conflict' : 'offline')
+        })
+        .finally(() => { if (mountedRef.current && workbookScopeRef.current === scope) setSaving(false) })
     }, 650)
     return () => window.clearTimeout(timer)
-  }, [courseId, lesson.id, ownerId, ready, state])
+  }, [courseId, dirty, lesson.id, ownerId, ready, saveNonce, saving, state, syncIssue, workbookScope])
 
-  const updateAnswer = (id: string, value: string) => setState((current) => ({
+  const changeState = (update: (current: AcademyWorkbookState) => AcademyWorkbookState) => {
+    setState(update)
+    setDirty(true)
+    setSaved(false)
+  }
+  const updateAnswer = (id: string, value: string) => changeState((current) => ({
     ...current,
     answers: { ...current.answers, [id]: value.slice(0, 2000) },
   }))
-  const toggleDay = (day: number) => setState((current) => ({
+  const toggleDay = (day: number) => changeState((current) => ({
     ...current,
     challengeDone: { ...current.challengeDone, [String(day)]: !current.challengeDone[String(day)] },
   }))
+  const reloadFromCloud = async () => {
+    setReady(false)
+    try {
+      const remote = await loadAcademyWorkbookFromCloud(ownerId, courseId, lesson.id, { preferRemote: true })
+      setState(remote)
+      setDirty(false)
+      setSaved(true)
+      setSyncIssue(null)
+    } catch {
+      setSyncIssue('offline')
+    } finally {
+      setReady(true)
+    }
+  }
 
   if (!deepDive) return null
 
@@ -503,8 +570,9 @@ function AcademyWorkbookPanel({ lesson, courseId }: { lesson: CourseLessonDraft;
           <span className="academy-section-kicker"><ClipboardCheck size={17} /><span><small>WORKBOOK TƯƠNG TÁC</small><strong id={`workbook-${lesson.id}`}>Biến bài đọc thành quyết định của bạn</strong></span></span>
           <p>Điền ngắn, lưu tự động. Nội dung chỉ thuộc tài khoản của bạn và có thể chỉnh lại bất cứ lúc nào.</p>
         </div>
-        <span className={`academy-workbook-save ${saved ? 'is-saved' : ''}`} role="status"><Save size={14} />{saved ? 'Đã lưu' : 'Đang lưu…'}</span>
+        <span className={`academy-workbook-save ${saved ? 'is-saved' : syncIssue ? 'has-error' : ''}`} role="status"><Save size={14} />{saved ? 'Đã lưu' : syncIssue ? 'Chưa đồng bộ' : 'Đang lưu…'}</span>
       </header>
+      {syncIssue ? <div className={`academy-workbook-sync academy-workbook-sync--${syncIssue}`} role="alert"><AlertCircle size={18} /><div><strong>{syncIssue === 'conflict' ? 'Có bản mới từ thiết bị khác' : 'Cloud đang tạm gián đoạn'}</strong><p>{syncIssue === 'conflict' ? 'Bản trên thiết bị vẫn được giữ. Tải bản Cloud mới nhất để tránh ghi đè.' : 'Dữ liệu vẫn nằm trên thiết bị này. Hãy thử đồng bộ lại khi kết nối ổn định.'}</p></div><button type="button" onClick={() => syncIssue === 'conflict' || !dirty ? void reloadFromCloud() : (setSyncIssue(null), setSaveNonce((value) => value + 1))}>{syncIssue === 'conflict' ? 'Tải bản mới nhất' : 'Thử lại'}</button></div> : null}
       <div className="academy-workbook-fields">
         {deepDive.workbookFields.map((field) => (
           <label key={field.id} className={`academy-workbook-field is-${field.kind}`}>

@@ -66,6 +66,11 @@ async function seedPtSecurityFixtures() {
         surfaces: ['shell'],
         expiresAt: null,
       }),
+      setDoc(doc(db, 'enrollments', 'client-1_course-learning-v2'), {
+        userId: 'client-1',
+        courseId: 'course-learning-v2',
+        status: 'active',
+      }),
       setDoc(doc(db, 'users', 'manager-1'), {
         uid: 'manager-1', displayName: 'Quản lý chi nhánh A', role: 'manager', disabled: false,
       }),
@@ -239,6 +244,41 @@ describe('Aura PT Firestore rules', () => {
     await assertFails(getDoc(doc(otherClient, 'uiRolloutAssignments', 'client-1')))
     await assertFails(updateDoc(doc(client, 'uiRolloutAssignments', 'client-1'), { surfaces: [] }))
     await assertFails(setDoc(doc(admin, 'uiRolloutAssignments', 'other-client'), { surfaces: ['shell'], expiresAt: null }))
+  })
+
+  test('Academy workbook is owner-only and uses monotonic cloud revisions', async () => {
+    const client = authenticatedDb('client-1', 'student')
+    const otherClient = authenticatedDb('other-client', 'student')
+    const coach = authenticatedDb('coach-1', 'coach')
+    const otherCoach = authenticatedDb('other-coach', 'coach')
+    const reference = doc(client, 'users', 'client-1', 'academyWorkbooks', 'course-learning-v2__lesson-1')
+    const base = {
+      courseId: 'course-learning-v2',
+      lessonId: 'lesson-1',
+      sharedWithCoach: false,
+      body: JSON.stringify({ schemaVersion: 2, cloudRevision: 1, answers: {} }),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }
+
+    await assertSucceeds(setDoc(reference, { ...base, revision: 1 }))
+    await assertFails(getDoc(doc(coach, 'users', 'client-1', 'academyWorkbooks', 'course-learning-v2__lesson-1')))
+    await assertSucceeds(updateDoc(reference, {
+      revision: 2,
+      sharedWithCoach: true,
+      body: JSON.stringify({ schemaVersion: 2, cloudRevision: 2, answers: { context: 'Bữa tối muộn' } }),
+      updatedAt: serverTimestamp(),
+    }))
+    await assertSucceeds(getDoc(doc(coach, 'users', 'client-1', 'academyWorkbooks', 'course-learning-v2__lesson-1')))
+    await assertFails(getDoc(doc(otherCoach, 'users', 'client-1', 'academyWorkbooks', 'course-learning-v2__lesson-1')))
+    await assertFails(updateDoc(reference, {
+      revision: 2,
+      sharedWithCoach: true,
+      body: JSON.stringify({ schemaVersion: 2, cloudRevision: 2, answers: { context: 'Ghi đè cũ' } }),
+      updatedAt: serverTimestamp(),
+    }))
+    await assertFails(getDoc(doc(otherClient, 'users', 'client-1', 'academyWorkbooks', 'course-learning-v2__lesson-1')))
+    await assertFails(setDoc(doc(otherClient, 'users', 'other-client', 'academyWorkbooks', 'course-learning-v2__lesson-1'), { ...base, revision: 1 }))
   })
 
   test('assignment cycles are readable only by the client, assigned coach, and admin', async () => {
