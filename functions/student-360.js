@@ -330,6 +330,15 @@ function timelinePriority(event) {
   return 15
 }
 
+function migratedFinanceMatchKey(event) {
+  if (event.type !== 'finance') return ''
+  const contractId = bounded(event.metadata?.contractId, 200)
+  const amount = finite(event.metadata?.amount)
+  const occurredAtMillis = finite(event.occurredAtMillis)
+  if (!contractId || !amount || !occurredAtMillis) return ''
+  return `${contractId}:${amount}:${vietnamDateKey(new Date(occurredAtMillis))}`
+}
+
 function normalizeTimelineEvents(events = []) {
   const prepared = events.filter(Boolean).map((event) => {
     const group = TIMELINE_GROUPS[event.type] || { group: event.type, label: event.type }
@@ -338,13 +347,33 @@ function normalizeTimelineEvents(events = []) {
     return { ...event, group: event.group || group.group, groupLabel: event.groupLabel || group.label, sourceCollection, sourceLabel: event.sourceLabel || TIMELINE_SOURCE_LABELS[sourceCollection] || sourceCollection, dedupeKey }
   })
 
+  // Finance ledger migration deliberately mirrors evidenced legacy receipts.
+  // Prefer the canonical ledger event, but preserve genuinely distinct same-day
+  // receipts by consuming one legacy row for each migrated ledger row.
+  const migratedLedgerCounts = new Map()
+  prepared.forEach((event) => {
+    const migrated = event.type === 'finance'
+      && event.sourceCollection === 'ledgerEntries'
+      && (/^MIG-/i.test(bounded(event.metadata?.referenceCode, 100)) || /migrated from an evidenced legacy payment record/i.test(event.description || ''))
+    const key = migrated ? migratedFinanceMatchKey(event) : ''
+    if (key) migratedLedgerCounts.set(key, (migratedLedgerCounts.get(key) || 0) + 1)
+  })
+  const withoutMigratedLegacyPayments = prepared.filter((event) => {
+    if (event.type !== 'finance' || event.sourceCollection !== 'payments') return true
+    const key = migratedFinanceMatchKey(event)
+    const remaining = key ? migratedLedgerCounts.get(key) || 0 : 0
+    if (!remaining) return true
+    migratedLedgerCounts.set(key, remaining - 1)
+    return false
+  })
+
   // If an audited mutation exists for a contract, the old generic contract
   // snapshot is only a duplicate summary and should never be rendered beside it.
-  const auditedContracts = new Set(prepared
+  const auditedContracts = new Set(withoutMigratedLegacyPayments
     .filter((event) => event.type === 'contract' && event.sourceCollection === 'contractAuditLogs')
     .map((event) => bounded(event.metadata?.contractId, 200))
     .filter(Boolean))
-  const withoutGenericContracts = prepared.filter((event) => {
+  const withoutGenericContracts = withoutMigratedLegacyPayments.filter((event) => {
     if (event.type !== 'contract' || event.sourceCollection !== 'contracts') return true
     const contractId = bounded(event.metadata?.contractId, 200)
     return !auditedContracts.has(contractId)

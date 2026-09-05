@@ -210,6 +210,23 @@ test('timeline normalization collapses a legacy payment duplicated in the canoni
   assert.equal(rows[0].sourceLabel, 'Sổ cái tài chính')
 })
 
+test('timeline normalization collapses migrated ledger evidence even when legacy timestamps differ', () => {
+  const rows = normalizeTimelineEvents([
+    {
+      id: 'legacy', type: 'finance', sourceId: 'legacy_payment:old', sourceCollection: 'payments',
+      occurredAtMillis: Date.parse('2026-08-21T05:00:00.000Z'), sortKey: Date.parse('2026-08-21T05:00:00.000Z') * 1000,
+      description: 'Thanh toán hợp đồng', metadata: { contractId: 'contract-1', amount: 9_600_000 },
+    },
+    {
+      id: 'ledger', type: 'finance', sourceId: 'finance_ledger:new', sourceCollection: 'ledgerEntries',
+      occurredAtMillis: Date.parse('2026-08-21T08:38:00.000Z'), sortKey: Date.parse('2026-08-21T08:38:00.000Z') * 1000,
+      description: 'Migrated from an evidenced legacy payment record.', metadata: { contractId: 'contract-1', amount: 9_600_000, referenceCode: 'MIG-ABC123' },
+    },
+  ])
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].sourceCollection, 'ledgerEntries')
+})
+
 test('CRM timeline removes amounts from both metadata and descriptions for PT and coach', () => {
   const result = safeTimelineEvent({
     id: 'event-1', type: 'finance', audience: 'finance', title: 'Đã mua thêm buổi',
