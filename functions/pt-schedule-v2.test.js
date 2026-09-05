@@ -563,6 +563,66 @@ test('existing secondary PT pair is preferred over opening a new primary PT clas
   assert.equal(entry.trainerId, 'trainer-secondary')
 })
 
+test('an adjacent PT slot is preferred over an isolated slot when higher priorities tie', () => {
+  const data = fixture()
+  data.students[0].availableSlots = ['T2-7', 'T2-11']
+  data.trainers[0].availableSlots = ['T2-6', 'T2-7', 'T2-11']
+  data.trainers[0].slotCapacity = 1
+  data.schedule = {
+    'T2-6': [{ studentId: 'protected-a', trainerId: 'trainer-a', contractId: 'protected-contract-a', branchId: BRANCH, type: 'training', source: 'manual_v2', isLocked: true }],
+  }
+
+  const generated = generateSchedule(data)
+  const assignment = Object.entries(generated.schedule)
+    .find(([, entries]) => entries.some((entry) => entry.studentId === 'student-a'))
+  assert.equal(assignment?.[0], 'T2-7')
+})
+
+test('completing a three-slot PT block is preferred over starting a shorter adjacent block', () => {
+  const data = fixture()
+  data.students[0].availableSlots = ['T2-8', 'T2-11']
+  data.trainers[0].availableSlots = ['T2-6', 'T2-7', 'T2-8', 'T2-10', 'T2-11']
+  data.trainers[0].slotCapacity = 1
+  data.schedule = {
+    'T2-6': [{ studentId: 'protected-a', trainerId: 'trainer-a', contractId: 'protected-contract-a', branchId: BRANCH, type: 'training', source: 'manual_v2', isLocked: true }],
+    'T2-7': [{ studentId: 'protected-b', trainerId: 'trainer-a', contractId: 'protected-contract-b', branchId: BRANCH, type: 'training', source: 'manual_v2', isLocked: true }],
+    'T2-10': [{ studentId: 'protected-c', trainerId: 'trainer-a', contractId: 'protected-contract-c', branchId: BRANCH, type: 'training', source: 'manual_v2', isLocked: true }],
+  }
+
+  const generated = generateSchedule(data)
+  const assignment = Object.entries(generated.schedule)
+    .find(([, entries]) => entries.some((entry) => entry.studentId === 'student-a'))
+  assert.equal(assignment?.[0], 'T2-8')
+})
+
+test('an isolated PT slot remains valid when it is the only way to fulfil a learner', () => {
+  const data = fixture()
+  data.students[0].availableSlots = ['T2-11']
+  data.trainers[0].availableSlots = ['T2-6', 'T2-11']
+  data.trainers[0].slotCapacity = 1
+  data.schedule = {
+    'T2-6': [{ studentId: 'protected-a', trainerId: 'trainer-a', contractId: 'protected-contract-a', branchId: BRANCH, type: 'training', source: 'manual_v2', isLocked: true }],
+  }
+
+  const generated = generateSchedule(data)
+  assert.ok(generated.schedule['T2-11'].some((entry) => entry.studentId === 'student-a'))
+  assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 0)
+})
+
+test('pairing still wins over opening a new adjacent PT slot', () => {
+  const data = fixture()
+  data.students[0].availableSlots = ['T2-6', 'T2-11']
+  data.trainers[0].availableSlots = ['T2-6', 'T2-10', 'T2-11']
+  data.schedule = {
+    'T2-6': [{ studentId: 'protected-a', trainerId: 'trainer-a', contractId: 'protected-contract-a', branchId: BRANCH, type: 'training', source: 'manual_v2', isLocked: true }],
+    'T2-10': [{ studentId: 'protected-b', trainerId: 'trainer-a', contractId: 'protected-contract-b', branchId: BRANCH, type: 'training', source: 'manual_v2', isLocked: true }],
+  }
+
+  const generated = generateSchedule(data)
+  assert.ok(generated.schedule['T2-6'].some((entry) => entry.studentId === 'student-a'))
+  assert.equal(generated.optimizationSummary.slotUtilization.pairedSlots, 1)
+})
+
 test('cross-branch learner is selectable only inside the explicit admin override context', () => {
   const data = fixture()
   data.students[0].branchId = 'branch-home'
@@ -740,7 +800,7 @@ test('deep optimization repeats coverage and pairing until the weekly target is 
   assert.equal(generated.optimizationSummary.slotUtilization.pairedSlots, 1)
   assert.ok(generated.optimizationSummary.optimizationPasses >= 2)
   assert.equal(generated.optimizationSummary.generatorVersion, OPTIMIZER_VERSION)
-  assert.equal(generated.optimizationSummary.loadPolicyVersion, 'soft-daily-target-v1')
+  assert.equal(generated.optimizationSummary.loadPolicyVersion, 'soft-consecutive-blocks-v2')
 })
 
 test('deep repair relocates an earlier flexible session to increase total weekly coverage', () => {
