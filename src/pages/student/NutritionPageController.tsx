@@ -1036,6 +1036,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const [waterSheetOpen, setWaterSheetOpen] = useState(false)
   const [exerciseSheetOpen, setExerciseSheetOpen] = useState(false)
   const [selectedFood, setSelectedFood] = useState<NutritionFoodCatalogItem | null>(null)
+  const [foodDetailReturnSection, setFoodDetailReturnSection] = useState<'catalog' | 'plan'>('catalog')
   const [pendingFood, setPendingFood] = useState<NutritionFoodCatalogItem | null>(null)
   const [planCatalogAction, setPlanCatalogAction] = useState<{
     action: 'add' | 'replace'
@@ -2152,7 +2153,8 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     showMessage(`Đã thêm ${food.name} vào ${mealLabels[context.mealType].toLocaleLowerCase('vi-VN')}`)
   }
 
-  const openFoodDetail = (food: NutritionFoodCatalogItem, items: NutritionFoodCatalogItem[] = catalogSnapshot) => {
+  const openFoodDetail = (food: NutritionFoodCatalogItem, items: NutritionFoodCatalogItem[] = catalogSnapshot, returnSection: 'catalog' | 'plan' = 'catalog') => {
+    setFoodDetailReturnSection(returnSection)
     setSelectedFood(food)
     if (items.length) setCatalogSnapshot(items)
     const nextHash = nutritionFoodDetailHash(food.id, nutritionV4)
@@ -2162,7 +2164,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
 
   const closeFoodDetail = () => {
     setSelectedFood(null)
-    navigateNutrition('catalog')
+    navigateNutrition(foodDetailReturnSection)
   }
 
   const openPlannedMeal = async (mealId: string) => {
@@ -2176,7 +2178,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       const items = known ? [known] : await loadNutritionCatalog({ ids: [plannedMeal.catalogId] })
       const item = known ?? items[0]
       if (!item) throw new Error('not-found')
-      openFoodDetail(item, [...items, ...catalogSnapshot.filter((candidate) => candidate.id !== item.id)])
+      openFoodDetail(item, [...items, ...catalogSnapshot.filter((candidate) => candidate.id !== item.id)], 'plan')
     } catch {
       showMessage('Chưa mở được chi tiết món trong thư viện')
     }
@@ -2494,14 +2496,14 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
           selectedDayId: planSelectedDay,
           meals: workspacePlannedMeals,
           dailyCalorieGoal: nutritionPlan?.targets.calories ?? calorieGoal,
-          status: nutritionPlan?.status ?? (isDemo && planGenerated ? 'draft' : undefined),
+          status: nutritionPlan?.status ?? (isDemo && planGenerated ? 'active' : undefined),
           sourceTitle: nutritionPlan?.sourceTitle,
           weekLabel: `${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit' }).format(dateFromLocalKey(planWeekStart))} – ${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(dateFromLocalKey(planDays[6]?.id ?? planWeekStart))}`,
           errorMessage: nutritionPlanError,
           isLoading: nutritionPlanLoading,
           isGenerating: nutritionPlanGenerating,
           isSaving: nutritionPlanSaving,
-          canEdit: isDemo || nutritionPlan?.source === 'aura-catalog',
+          canEdit: nutritionPlan?.source === 'aura-catalog',
           strategyTitle: profileDraft.goal === 'gain-muscle' ? 'Đủ đạm, ưu tiên phục hồi' : profileDraft.goal === 'lose-fat' ? 'No lâu, thâm hụt vừa phải' : 'Cân bằng và dễ duy trì',
           strategyDescription: nutritionPlan?.source === 'assigned'
             ? 'Thực đơn do đội ngũ Aura giao. Bạn có thể dùng ngay hoặc tạo một bản nháp riêng từ thư viện món.'
@@ -2520,7 +2522,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
             if (meal) openPlanCatalog('replace', meal.dayId, meal)
           },
           onRemoveMeal: removeNutritionPlanMeal,
-          onOpenMeal: openPlannedMeal,
+          onOpenMeal: nutritionPlan ? openPlannedMeal : undefined,
           onConfirmPlan: confirmNutritionPlan,
           onReload: reloadNutritionPlan,
           onShiftWeek: shiftPlanWeek,

@@ -6,6 +6,7 @@
     "node": "22"
   },
   "scripts": {
+    "precheck": "node --check nutrition-plans.js && node --test nutrition-plans.test.js",
     "check:pt-workout": "node --check pt-workout-tracking.js && node --test pt-workout-tracking.test.js",
     "test:meal-reminders": "node --test meal-reminder-policy.test.js",
     "check:apikey-fun": "node --check apikey-fun.js && node --test apikey-fun.test.js",

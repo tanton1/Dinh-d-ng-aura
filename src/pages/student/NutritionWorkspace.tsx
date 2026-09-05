@@ -646,13 +646,15 @@ export function NutritionPlanPage({
   const dayCalories = dayMeals.reduce((sum, meal) => sum + meal.calories, 0)
   const dayProtein = dayMeals.reduce((sum, meal) => sum + meal.protein, 0)
   const selectedDay = days.find((day) => day.id === selectedDayId)
+  const coveredDayCount = days.filter((day) => meals.some((meal) => meal.dayId === day.id)).length
+  const planIsComplete = coveredDayCount === days.length && days.length === 7
 
   return (
     <section className="nutrition-workspace-page nutrition-plan" id="nutrition-workspace-panel-plan" aria-label="Kế hoạch bữa ăn">
       <header className="nutrition-workspace-page__header">
-        <div><span className="nutrition-workspace-eyebrow">THỰC ĐƠN 7 NGÀY</span><h1>Kế hoạch tuần của bạn</h1><p>Chọn món từ thư viện, điều chỉnh rồi xác nhận để dùng trong tuần.</p>{(status || sourceTitle) && <div className="nutrition-plan-state"><span className={`nutrition-plan-state--${status ?? 'active'}`}>{status === 'draft' ? 'Bản nháp' : 'Đã xác nhận'}</span>{sourceTitle && <small>{sourceTitle}</small>}</div>}</div>
+        <div><span className="nutrition-workspace-eyebrow">THỰC ĐƠN 7 NGÀY</span><h1>Kế hoạch tuần của bạn</h1><p>Chọn món từ thư viện, điều chỉnh rồi xác nhận để dùng trong tuần.</p>{(status || sourceTitle) && <div className="nutrition-plan-state"><span className={`nutrition-plan-state--${status ?? 'active'}`}>{status === 'draft' ? 'Bản nháp' : 'Đã xác nhận'}</span>{sourceTitle && <small>{sourceTitle}</small>}<small>{coveredDayCount}/7 ngày có món</small></div>}</div>
         <div className="nutrition-workspace-page__header-actions">
-          {status === 'draft' && onConfirmPlan && <button type="button" className="nutrition-workspace-button nutrition-workspace-button--secondary" onClick={onConfirmPlan} disabled={isSaving || isGenerating || !meals.length}><Check size={17} /> {isSaving ? 'Đang lưu…' : 'Xác nhận tuần'}</button>}
+          {status === 'draft' && onConfirmPlan && <button type="button" className="nutrition-workspace-button nutrition-workspace-button--secondary" onClick={onConfirmPlan} disabled={isSaving || isGenerating || !planIsComplete} title={planIsComplete ? undefined : 'Mỗi ngày cần ít nhất một món'}><Check size={17} /> {isSaving ? 'Đang lưu…' : 'Xác nhận tuần'}</button>}
           <button type="button" className="nutrition-workspace-button nutrition-workspace-button--primary" onClick={onGeneratePlan} disabled={isGenerating || isSaving}>{isGenerating ? <RefreshCw className="is-spinning" size={17} /> : <WandSparkles size={17} />} {isGenerating ? 'Đang tạo...' : meals.length ? 'Tạo lại gợi ý' : 'Tạo với Aura'}</button>
         </div>
       </header>

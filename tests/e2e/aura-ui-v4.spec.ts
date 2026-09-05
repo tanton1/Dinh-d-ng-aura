@@ -124,6 +124,20 @@ test('nutrition diary is a touch-safe history workspace with day, week and month
   await expectNoHorizontalOverflow(page)
 })
 
+test('nutrition plan uses one weekly menu workspace instead of the disconnected recipe page', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await enableAuraUiV4(page)
+  await page.goto('/#/nutrition?section=plan')
+
+  const plan = page.locator('#nutrition-workspace-panel-plan')
+  await expect(plan.getByRole('heading', { name: 'Kế hoạch tuần của bạn' })).toBeVisible()
+  await expect(plan.getByRole('tablist', { name: 'Chọn ngày trong kế hoạch' }).getByRole('tab')).toHaveCount(7)
+  await expect(plan.getByText('Đã xác nhận', { exact: true })).toBeVisible()
+  await expect(plan.getByRole('button', { name: /Tạo lại gợi ý/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Khám phá thực đơn phù hợp' })).toHaveCount(0)
+  await expectNoHorizontalOverflow(page)
+})
+
 test('Aura Academy shows one focused course on the responsive curriculum artwork', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await enableAuraUiV4(page)

@@ -12,6 +12,7 @@ const { logger } = require('firebase-functions')
 const { createHash } = require('node:crypto')
 const { createGenerativeAiFunctions } = require('./generative-ai')
 const { createNutritionFunctions } = require('./nutrition')
+const { createNutritionPlanFunctions } = require('./nutrition-plans')
 const { createEatCleanFunctions } = require('./eat-clean')
 const { buildCompletedOnboardingDefaultsPatch } = require('./profile-defaults')
 const { createIdentityAccessFunctions } = require('./identity-access')
@@ -274,6 +275,12 @@ setGlobalOptions({
 })
 
 Object.assign(exports, createNutritionFunctions({ app, db }))
+const nutritionPlanFunctions = createNutritionPlanFunctions({ db, onCall, requireStudent: requireStudentAccount })
+Object.assign(exports, nutritionPlanFunctions)
+exports.getMyNutritionPlanWorkspace = nutritionPlanFunctions.getMyNutritionPlanWorkspace
+exports.generateMyNutritionPlanDraft = nutritionPlanFunctions.generateMyNutritionPlanDraft
+exports.mutateMyNutritionPlanMeal = nutritionPlanFunctions.mutateMyNutritionPlanMeal
+exports.confirmMyNutritionPlan = nutritionPlanFunctions.confirmMyNutritionPlan
 Object.assign(exports, createGenerativeAiFunctions({ db }))
 Object.assign(exports, createEatCleanFunctions({ db, realtimeDb, onCall, requireTrustedAdmin, logger }))
 const identityAccessFunctions = createIdentityAccessFunctions({ db, auth, onCall, logger })
@@ -979,6 +986,15 @@ async function mealSlotsLoggedForDate(userId, dateString) {
     logger.warn('Unable to check meal log before scheduled reminder', { userId, code: error?.code || 'unknown' })
     return new Set()
   }
+}
+
+async function requireStudentAccount(request) {
+  const userId = requireCaller(request)
+  const profileSnapshot = await db.doc(`users/${userId}`).get()
+  if (!profileSnapshot.exists || !hasTrustedRole(request, profileSnapshot.data(), studentOnlyRoles)) {
+    throw new HttpsError('permission-denied', 'Tài khoản không thể truy cập kế hoạch dinh dưỡng cá nhân.')
+  }
+  return userId
 }
 
 async function listScheduledReminderUsers(pageSize = 500, maximum = 10_000) {
