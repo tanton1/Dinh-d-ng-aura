@@ -895,7 +895,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       setCandidates([])
       return undefined
     }
-    const cacheKey = `${branchId}|${currentWeekId}|${workspace.draftRevision}|${selectedTrainerId}|${inspectorSlotId}`
+    const normalizedCandidateSearch = candidateSearch.trim().toLocaleLowerCase('vi-VN')
+    const cacheKey = `${branchId}|${currentWeekId}|${workspace.draftRevision}|${selectedTrainerId}|${inspectorSlotId}|${normalizedCandidateSearch}`
     const cached = candidateCache.current.get(cacheKey)
     if (cached) {
       setCandidates(cached)
@@ -904,27 +905,31 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     }
     // Render a safe local preview immediately. The server response remains the
     // source of truth and replaces this preview before a command is confirmed.
-    setCandidates(localSlotCandidates(workspace, selectedTrainerId, inspectorSlotId))
+    if (!normalizedCandidateSearch) setCandidates(localSlotCandidates(workspace, selectedTrainerId, inspectorSlotId))
     let active = true
     setCandidateLoading(true)
-    getPtScheduleSlotCandidates({
-      weekId: currentWeekId,
-      branchId,
-      trainerId: selectedTrainerId,
-      slotId: inspectorSlotId,
-    }).then((result) => {
-      if (!active) return
-      candidateCache.current.set(cacheKey, result.candidates)
-      setCandidates(result.candidates)
-    }).catch((candidateError) => {
-      if (active) setError(asPtSchedulePublishError(candidateError).message)
-    }).finally(() => {
-      if (active) setCandidateLoading(false)
-    })
+    const debounce = window.setTimeout(() => {
+      getPtScheduleSlotCandidates({
+        weekId: currentWeekId,
+        branchId,
+        trainerId: selectedTrainerId,
+        slotId: inspectorSlotId,
+        ...(normalizedCandidateSearch ? { search: normalizedCandidateSearch } : {}),
+      }).then((result) => {
+        if (!active) return
+        candidateCache.current.set(cacheKey, result.candidates)
+        setCandidates(result.candidates)
+      }).catch((candidateError) => {
+        if (active) setError(asPtSchedulePublishError(candidateError).message)
+      }).finally(() => {
+        if (active) setCandidateLoading(false)
+      })
+    }, normalizedCandidateSearch ? 280 : 0)
     return () => {
       active = false
+      window.clearTimeout(debounce)
     }
-  }, [branchId, currentWeekId, inspectorSlotId, selectedTrainerId, workspace, workspace?.draftRevision])
+  }, [branchId, candidateSearch, currentWeekId, inspectorSlotId, selectedTrainerId, workspace, workspace?.draftRevision])
 
   const runCommand = async (command: PtScheduleDraftCommand, payload: Record<string, unknown>, reason?: string) => {
     if (!workspace) return false
@@ -977,12 +982,14 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     const reason = [
       outsideAvailability ? 'Quản lý xác nhận xếp tay ngoài lịch rảnh học viên' : 'Quản lý xác nhận xếp tay',
       pendingManualCandidate.trainerAssignmentWarning ? 'PT hỗ trợ ngoài danh sách PT chính/phụ' : '',
+      pendingManualCandidate.studentBranchWarning ? 'Xác nhận học viên tập khác cơ sở hồ sơ' : '',
     ].filter(Boolean).join(' · ')
     await runCommand('add_student', {
       slotId: inspectorSlotId,
       trainerId: selectedTrainerId,
       studentId: pendingManualCandidate.studentId,
       ...(outsideAvailability ? { allowOutsideStudentAvailability: true } : {}),
+      ...(pendingManualCandidate.studentBranchWarning ? { confirmCrossBranchStudent: true } : {}),
     }, reason)
   }
 
@@ -1412,6 +1419,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                 {candidateLoading && <div className="schedule-candidate-sync"><RefreshCw className="is-spinning" /> Aura đang đối chiếu điều kiện trên máy chủ…</div>}
                 {pendingManualCandidate && !candidateMatchesStudentAvailability(pendingManualCandidate) && <div className="schedule-manual-override-confirm"><AlertTriangle /><div><strong>{pendingManualCandidate.name} nằm ngoài lịch rảnh</strong><p>{ptScheduleConflictLabel(pendingManualCandidate.availabilityReason || pendingManualCandidate.reasons[0])} Chỉ ghi lịch sau khi bạn bấm xác nhận; thao tác ngoại lệ được lưu audit.</p></div></div>}
                 {pendingManualCandidate?.trainerAssignmentWarning && <div className="schedule-assignment-confirm"><AlertTriangle /><div><strong>{selectedTrainer.name} là PT hỗ trợ</strong><p>Học viên có PT chính/phụ khác. Ca vẫn được phép xếp vì cùng chi nhánh và sẽ hiển thị cảnh báo trên lịch.</p></div></div>}
+                {pendingManualCandidate?.studentBranchWarning && <div className="schedule-branch-confirm"><AlertTriangle /><div><strong>Xác nhận tập khác cơ sở</strong><p>{pendingManualCandidate.name} thuộc {branches.find((item) => item.id === pendingManualCandidate.studentHomeBranchId)?.name || 'cơ sở khác'} và sẽ tập tại {branches.find((item) => item.id === branchId)?.name || 'cơ sở đang xếp'}. Ca được chấp nhận sau nút xác nhận và được lưu audit.</p></div></div>}
                 <div className="schedule-candidate-list">{candidateGroups.map((group) => group.items.length > 0 && <section className={`schedule-candidate-group is-${group.key}`} key={group.key}>
                   <header><strong>{group.label}</strong><span>{group.items.length} · {group.hint}</span></header>
                   {group.items.map((candidate) => {
@@ -1419,7 +1427,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                     const outsideAvailability = !candidateMatchesStudentAvailability(candidate)
                     const selected = pendingManualCandidate?.studentId === candidate.studentId
                     const assignmentNote = candidate.trainerAssignmentWarning ? ' · PT hỗ trợ ngoài danh sách chính/phụ' : ''
-                    return <article key={candidate.studentId} className={`${candidate.eligible ? 'is-eligible' : manualSelectable ? 'is-override' : 'is-disabled'}${candidate.trainerAssignmentWarning ? ' has-assignment-warning' : ''}${selected ? ' is-selected' : ''}`}><div><strong>{candidate.name}{candidate.trainerAssignmentWarning && <AlertTriangle size={13} aria-label="PT hỗ trợ" />}</strong><span>{candidate.eligible ? `Đã đăng ký rảnh đúng ca này${assignmentNote}` : manualSelectable && outsideAvailability ? `${ptScheduleConflictLabel(candidate.availabilityReason || candidate.reasons[0])} · Có thể xếp tay${assignmentNote}` : candidate.reasons.map(ptScheduleConflictLabel).join(' · ')}</span></div><button type="button" aria-label={selected ? `Bỏ chọn ${candidate.name}` : `Chọn ${candidate.name}`} aria-pressed={selected} disabled={!manualSelectable || busy || inspectorEntries.filter((entry) => entry.type !== 'off').length >= selectedTrainer.slotCapacity} onClick={() => setPendingManualCandidate((current) => current?.studentId === candidate.studentId ? null : candidate)}>{selected ? <CheckCircle2 /> : <UserPlus />}</button></article>
+                    const branchNote = candidate.studentBranchWarning
+                      ? ` · Khác cơ sở (${branches.find((item) => item.id === candidate.studentHomeBranchId)?.name || 'hồ sơ khác'})`
+                      : ''
+                    return <article key={candidate.studentId} className={`${candidate.eligible ? 'is-eligible' : manualSelectable ? 'is-override' : 'is-disabled'}${candidate.trainerAssignmentWarning ? ' has-assignment-warning' : ''}${candidate.studentBranchWarning ? ' has-branch-warning' : ''}${selected ? ' is-selected' : ''}`}><div><strong>{candidate.name}{(candidate.trainerAssignmentWarning || candidate.studentBranchWarning) && <AlertTriangle size={13} aria-label="Ca cần xác nhận" />}</strong><span>{candidate.eligible ? `Đã đăng ký rảnh đúng ca này${assignmentNote}${branchNote}` : manualSelectable && outsideAvailability ? `${ptScheduleConflictLabel(candidate.availabilityReason || candidate.reasons[0])} · Có thể xếp tay${assignmentNote}${branchNote}` : `${candidate.reasons.map(ptScheduleConflictLabel).join(' · ')}${branchNote}`}</span></div><button type="button" aria-label={selected ? `Bỏ chọn ${candidate.name}` : `Chọn ${candidate.name}`} aria-pressed={selected} disabled={!manualSelectable || busy || inspectorEntries.filter((entry) => entry.type !== 'off').length >= selectedTrainer.slotCapacity} onClick={() => setPendingManualCandidate((current) => current?.studentId === candidate.studentId ? null : candidate)}>{selected ? <CheckCircle2 /> : <UserPlus />}</button></article>
                   })}
                 </section>)}</div>
                 <footer className="schedule-manual-confirm"><div>{pendingManualCandidate ? <><span>Đang chọn</span><strong>{pendingManualCandidate.name}</strong></> : <><span>Chưa chọn học viên</span><strong>Chọn một hồ sơ ở trên</strong></>}</div><button type="button" onClick={() => setPendingManualCandidate(null)} disabled={!pendingManualCandidate || busy}>Hủy</button><button type="button" className="is-confirm" disabled={!pendingManualCandidate || busy} onClick={() => void confirmManualCandidate()}>{busy ? 'Đang xác nhận…' : 'Xác nhận xếp ca'}</button></footer>

@@ -16,6 +16,7 @@ type Props = {
   initialSessions?: TrainerSessionSummary[]
   initialContracts?: TrainerStudentContractDetail[]
   focusSessionId?: string
+  focusDate?: string
 }
 
 function vietnamDateKey(value = new Date()) {
@@ -122,8 +123,16 @@ function correctionFailureMessage(cause: unknown) {
   const message = cause instanceof Error ? cause.message : typeof raw.message === 'string' ? raw.message : ''
   if (issueCode === 'TEACHING_SHIFT_REVISION_CONFLICT') return 'Ca đã được người khác cập nhật. Hãy tải lại lịch sử rồi mở lại ca trước khi lưu.'
   if (issueCode === 'TEACHING_SHIFT_SOURCE_BRANCH_MISMATCH') return 'Ca đang gộp dữ liệu từ nhiều chi nhánh. Hãy điều chỉnh từng ca theo đúng chi nhánh.'
+  if (issueCode === 'TEACHING_SHIFT_SOURCE_MISMATCH') return 'Các học viên được chọn không còn cùng PT, ngày và giờ. Hãy tải lại rồi điều chỉnh từng ca riêng.'
+  if (issueCode === 'TEACHING_SHIFT_STATUS_NOT_EDITABLE') return 'Ca đã hủy hoặc không còn ở trạng thái cho phép điều chỉnh.'
+  if (issueCode === 'TEACHING_SHIFT_TRAINER_INACTIVE') return 'PT thực dạy đã ngừng hoạt động hoặc không còn tồn tại. Hãy chọn PT khác.'
   if (issueCode === 'TEACHING_SHIFT_STUDENT_DAY_CONFLICT') return 'Không thể lưu: học viên đã có một buổi khác trong ngày đích. Hãy chọn ngày khác hoặc xử lý buổi trùng trước.'
   if (issueCode === 'TEACHING_SHIFT_ATTENDANCE_MISSING') return 'Buổi này chưa có bản ghi điểm danh hợp lệ. Hãy tải lại lịch sử và đối soát điểm danh trước.'
+  if (issueCode === 'TEACHING_SHIFT_FUTURE_ATTENDANCE') return 'Ca đã ghi nhận hiện diện không thể chuyển sang thời điểm trong tương lai.'
+  if (issueCode === 'TEACHING_SHIFT_CROSS_PERIOD_CORRECTION') return 'Ca đã tính buổi không thể chuyển sang tháng khác. Hãy dùng khoản bù trừ ở kỳ lương tiếp theo.'
+  if (issueCode === 'TEACHING_SHIFT_CONTRACT_MISMATCH') return 'Buổi chưa liên kết đúng hợp đồng của học viên. Hãy đối soát hợp đồng trước khi đổi ngày.'
+  if (issueCode === 'TEACHING_SHIFT_CONTRACT_DATE_INVALID') return 'Ngày mới nằm ngoài thời hạn hợp đồng hoặc trong thời gian OFF/bảo lưu.'
+  if (issueCode === 'TEACHING_SHIFT_CAPACITY_EXCEEDED') return 'Ca đích đã đủ sức chứa. Hãy chọn giờ hoặc PT khác.'
   if (issueCode === 'PAYROLL_RUN_IMMUTABLE') return 'Kỳ lương đã duyệt/khóa nên không sửa chứng từ ca trực tiếp. Hãy tạo bù trừ ở kỳ lương tiếp theo.'
   if (issueCode === 'FINANCE_PERIOD_LOCKED') return 'Kỳ tài chính đã khóa nên không thể sửa ca trực tiếp. Hãy dùng khoản điều chỉnh có audit.'
   return message.replace(/^Firebase:\s*/i, '').replace(/^FunctionsError:\s*/i, '') || 'Không thể điều chỉnh ca. Hãy tải lại lịch sử và thử lại.'
@@ -210,11 +219,11 @@ function stableContractSignature(contracts: TrainerStudentContractDetail[]) {
   return contracts.map((contract) => `${contract.id}:${contract.usedSessions}:${contract.remainingSessions}:${contract.reconciliationStatus}`).join('|')
 }
 
-export default function TrainingHistoryPanel({ subject, subjectId, subjectName, contractId, isDemo = false, initialSessions = [], initialContracts = [], focusSessionId = '' }: Props) {
+export default function TrainingHistoryPanel({ subject, subjectId, subjectName, contractId, isDemo = false, initialSessions = [], initialContracts = [], focusSessionId = '', focusDate = '' }: Props) {
   const { profile } = useAuth()
   const { trainers } = useDatabase()
-  const [startDate, setStartDate] = useState(() => daysAgoKey(89))
-  const [endDate, setEndDate] = useState(todayKey)
+  const [startDate, setStartDate] = useState(() => focusDate || daysAgoKey(89))
+  const [endDate, setEndDate] = useState(() => focusDate || todayKey())
   const [status, setStatus] = useState<TrainingHistoryStatus>('all')
   const [page, setPage] = useState<TrainingHistoryPage | null>(null)
   const [loading, setLoading] = useState(false)
@@ -238,12 +247,15 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
       ?? null
   }, [contractId, contractUsage, subject])
   const periodUsage = page?.summary.usage
-  const canCorrectTeachingShift = !isDemo && subject === 'trainer' && (profile?.role === 'admin' || profile?.role === 'super_admin')
+  const canCorrectTeachingShift = !isDemo && (
+    profile?.role === 'admin'
+    || profile?.role === 'super_admin'
+    || profile?.accessRole === 'admin'
+    || profile?.accessRole === 'super_admin'
+  )
   const correctionTrainerOptions = useMemo(() => {
-    const branchId = correction?.records.find((record) => record.branchId)?.branchId || ''
     return trainers
       .filter((trainer) => trainer.status !== 'inactive')
-      .filter((trainer) => !branchId || trainer.branchId === branchId)
       .sort((left, right) => (left.name || '').localeCompare(right.name || '', 'vi'))
   }, [correction?.records, trainers])
 
@@ -322,8 +334,9 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
     setCorrectionError('')
     setCorrectionNotice('')
     const sourceTrainerId = shift.records[0]?.trainerId || subjectId
-    const sourceBranchId = normaliseHistoryBranchId(shift.records.find((record) => record.branchId)?.branchId)
-    const sourceTrainerAvailable = trainers.some((trainer) => trainer.id === sourceTrainerId && trainer.status !== 'inactive' && (!sourceBranchId || trainer.branchId === sourceBranchId))
+    // A learner may be served at another branch. Do not hide the current PT
+    // just because the legacy session branch differs from the PT profile.
+    const sourceTrainerAvailable = trainers.some((trainer) => trainer.id === sourceTrainerId && trainer.status !== 'inactive')
     setCorrection({
       records: shift.records,
       date: shift.date,
@@ -342,11 +355,24 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
 
   useEffect(() => {
     if (!focusSessionId || !canCorrectTeachingShift || consumedFocusSession.current === focusSessionId || correction) return
-    const targetShift = trainerShifts.find((shift) => shift.records.some((record) => record.id === focusSessionId))
+    const targetShift = subject === 'trainer'
+      ? trainerShifts.find((shift) => shift.records.some((record) => record.id === focusSessionId))
+      : page?.records.find((record) => record.id === focusSessionId)
+        ? (() => {
+            const record = page.records.find((item) => item.id === focusSessionId)!
+            return { key: record.id, date: record.date, hour: record.hour, branchId: normaliseHistoryBranchId(record.branchId), studentCount: 1, records: [record] }
+          })()
+        : undefined
     if (!targetShift) return
     consumedFocusSession.current = focusSessionId
     openCorrection(targetShift)
-  }, [canCorrectTeachingShift, correction, focusSessionId, trainerShifts]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [canCorrectTeachingShift, correction, focusSessionId, page, subject, trainerShifts]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!focusSessionId || !page) return
+    const target = document.querySelector(`[data-session-id="${focusSessionId}"]`)
+    target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [focusSessionId, page])
 
   useEffect(() => {
     if (!correction) return
@@ -438,10 +464,10 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
     <div className="training-history__records">
       {loading && !page ? <div className="training-history__empty">Đang tải lịch sử an toàn…</div> : null}
       {!loading && !error && page && page.records.length === 0 ? <div className="training-history__empty">Không có buổi tập nào trong bộ lọc này.</div> : null}
-      {subject === 'trainer' ? trainerShifts.map((shift) => <article className="training-history__shift" key={shift.key}>
+      {subject === 'trainer' ? trainerShifts.map((shift) => <article className="training-history__shift" data-session-id={shift.records.some((record) => record.id === focusSessionId) ? focusSessionId : undefined} key={shift.key}>
         <header><div className="training-history__date"><strong>{shift.date.slice(8) || '—'}</strong><span>{shift.date.slice(5, 7) || '—'}</span></div><div><small>CA DẠY</small><h4>{formatDate(shift.date)} {shift.hour !== null ? `· ${String(shift.hour).padStart(2, '0')}:00` : ''}</h4><p><UsersRound size={14} /> {shift.studentCount} học viên</p></div><div className="training-history__shift-actions"><em className={shift.studentCount >= 2 ? 'is-paired' : ''}>{shift.studentCount >= 2 ? 'Ca đôi' : 'Ca đơn'}</em>{canCorrectTeachingShift ? <button type="button" onClick={() => openCorrection(shift)}><PencilLine size={14} /> Điều chỉnh</button> : null}</div></header>
         <div className="training-history__shift-students">{shift.records.map((record, index) => <section key={record.id}><span className="training-history__student-order">{index + 1}</span><div className="training-history__shift-student-main"><strong>{record.counterpartName}</strong><RecordAuditDetails record={record} /></div><div className="training-history__shift-state"><span className={`training-history__status training-history__status--${record.status}`}>{statusLabel(record.status)}</span><small>{record.attendance?.attendanceStatus && record.attendance.attendanceStatus !== 'pending' ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}{attendanceLabel(record)}</small></div></section>)}</div>
-      </article>) : page?.records.map((record) => <article className="training-history__record" key={record.id}><div className="training-history__date"><strong>{record.date.slice(8) || '—'}</strong><span>{record.date.slice(5, 7) || '—'}</span></div><div className="training-history__record-main"><div className="training-history__record-title"><strong>{formatDate(record.date)} {record.hour !== null ? `· ${String(record.hour).padStart(2, '0')}:00` : ''}</strong>{!['completed', 'attended', 'no_show'].includes(record.status) ? <span className={`training-history__status training-history__status--${record.status}`}>{statusLabel(record.status)}</span> : null}</div><p><UserRound size={14} /> {counterpartLabel}: <b>{record.counterpartName}</b></p><RecordAuditDetails record={record} /></div><div className="training-history__attendance">{record.attendance?.attendanceStatus && record.attendance.attendanceStatus !== 'pending' ? <CheckCircle2 size={18} /> : <Clock3 size={18} />}<span>{attendanceLabel(record)}</span></div></article>)}
+      </article>) : page?.records.map((record) => <article className="training-history__record" data-session-id={record.id === focusSessionId ? focusSessionId : undefined} key={record.id}><div className="training-history__date"><strong>{record.date.slice(8) || '—'}</strong><span>{record.date.slice(5, 7) || '—'}</span></div><div className="training-history__record-main"><div className="training-history__record-title"><strong>{formatDate(record.date)} {record.hour !== null ? `· ${String(record.hour).padStart(2, '0')}:00` : ''}</strong>{!['completed', 'attended', 'no_show'].includes(record.status) ? <span className={`training-history__status training-history__status--${record.status}`}>{statusLabel(record.status)}</span> : null}</div><p><UserRound size={14} /> {counterpartLabel}: <b>{record.counterpartName}</b></p><RecordAuditDetails record={record} /></div><div className="training-history__attendance">{record.attendance?.attendanceStatus && record.attendance.attendanceStatus !== 'pending' ? <CheckCircle2 size={18} /> : <Clock3 size={18} />}<span>{attendanceLabel(record)}</span>{canCorrectTeachingShift ? <button type="button" onClick={() => openCorrection({ key: record.id, date: record.date, hour: record.hour, branchId: normaliseHistoryBranchId(record.branchId), studentCount: 1, records: [record] })}><PencilLine size={14} /> Điều chỉnh</button> : null}</div></article>)}
     </div>
     {page?.summary.truncated ? <p className="training-history__truncated">Tóm tắt bị giới hạn để bảo vệ hiệu năng. Hãy thu hẹp khoảng thời gian để xem số liệu đầy đủ.</p> : null}
     {page?.hasMore ? <button type="button" className="training-history__more" disabled={loading} onClick={() => void load(true)}>{loading ? 'Đang tải…' : 'Tải thêm lịch sử'}</button> : null}

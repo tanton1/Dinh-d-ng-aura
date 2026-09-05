@@ -248,6 +248,9 @@ export interface PtScheduleSlotCandidate {
   trainerAssignmentWarning?: boolean
   /** Danh sách PT chính/phụ để UI giải thích cảnh báo mà không chặn xếp lịch. */
   assignedTrainerIds?: string[]
+  /** Ngoại lệ chỉ admin được xác nhận: học viên tập khác cơ sở hồ sơ. */
+  studentBranchWarning?: boolean
+  studentHomeBranchId?: string
 }
 
 export type PtScheduleDraftCommand =
@@ -287,7 +290,7 @@ const conflictLabels: Record<string, string> = {
   STUDENT_NOT_ACTIVE: 'Có học viên không còn hoạt động.',
   ENTRY_BRANCH_REQUIRED: 'Có ca chưa xác định được chi nhánh.',
   TRAINER_BRANCH_MISMATCH: 'PT không thuộc chi nhánh đang publish.',
-  STUDENT_BRANCH_MISMATCH: 'Học viên không thuộc chi nhánh đang publish.',
+  STUDENT_BRANCH_MISMATCH: 'Học viên đang tập khác cơ sở hồ sơ; cần quản lý xác nhận khi xếp tay.',
   STUDENT_MULTIPLE_SESSIONS_PER_DAY: 'Một học viên đang có hơn một buổi trong cùng ngày.',
   OUTSIDE_STUDENT_AVAILABILITY: 'Có buổi nằm ngoài lịch rảnh học viên đã gửi.',
   AVAILABILITY_NOT_SUBMITTED: 'Có học viên chưa gửi lịch rảnh của tuần.',

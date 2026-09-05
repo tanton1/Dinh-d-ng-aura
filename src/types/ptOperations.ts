@@ -290,6 +290,9 @@ export interface ScheduleEntry {
   source?: string
   /** PT cùng chi nhánh đang hỗ trợ ngoài danh sách PT chính/phụ của hợp đồng. */
   trainerAssignmentWarning?: boolean
+  /** Học viên đang tập tại cơ sở khác với cơ sở trên hồ sơ. */
+  studentBranchWarning?: boolean
+  studentHomeBranchId?: string
   availabilityOverride?: boolean
   availabilityOverrideReason?: 'AVAILABILITY_NOT_SUBMITTED' | 'OUTSIDE_STUDENT_AVAILABILITY'
   availabilityOverrideBy?: string

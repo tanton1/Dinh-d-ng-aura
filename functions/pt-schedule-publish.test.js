@@ -96,6 +96,36 @@ test('does not warn for any same-branch PT when contract has no assigned trainer
   assert.equal(result.desired.values().next().value.trainerAssignmentWarning, undefined)
 })
 
+test('publishes an explicitly confirmed cross-branch learner with the physical training branch', () => {
+  const fixture = baseFixture()
+  fixture.students.set('student-a', { status: 'active', branchId: 'branch-home' })
+  fixture.contracts[0].branchId = 'branch-home'
+  fixture.schedule['T2-6'][0] = {
+    ...fixture.schedule['T2-6'][0],
+    branchId: BRANCH_ID,
+    contractId: 'contract-a',
+    source: 'manual_v2',
+    studentBranchWarning: true,
+    studentHomeBranchId: 'branch-home',
+  }
+  const result = desiredEntries(fixture)
+  assert.deepEqual(result.errors, [])
+  assert.ok(result.warnings.includes('STUDENT_BRANCH_MISMATCH'))
+  const session = result.desired.values().next().value
+  assert.equal(session.branchId, BRANCH_ID)
+  assert.equal(session.studentBranchWarning, true)
+  assert.equal(session.studentHomeBranchId, 'branch-home')
+})
+
+test('does not accept a cross-branch contract without the manual confirmation metadata', () => {
+  const fixture = baseFixture()
+  fixture.students.set('student-a', { status: 'active', branchId: 'branch-home' })
+  fixture.contracts[0].branchId = 'branch-home'
+  fixture.schedule['T2-6'][0].branchId = BRANCH_ID
+  const result = desiredEntries(fixture)
+  assert.ok(result.errors.includes('ACTIVE_CONTRACT_NOT_FOUND'))
+})
+
 test('keeps the primary PT assigned when secondary trainer ids are stored separately', () => {
   const fixture = baseFixture()
   fixture.contracts[0].trainerIds = ['trainer-secondary']

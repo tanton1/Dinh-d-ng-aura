@@ -114,6 +114,25 @@ function dateLabel(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('vi-VN')
 }
 
+function violationFacts(violation: PayrollViolation, trainers: Array<{ id: string; name?: string }>, students: Array<{ id: string; name?: string }>, branches: Array<{ id: string; name?: string }>) {
+  const trainerId = violation.trainerId || violation.staffId || ''
+  const trainerName = violation.trainerName || violation.staffName || trainers.find((item) => item.id === trainerId)?.name || trainerId
+  const studentIds = violation.studentIds?.length ? violation.studentIds : violation.studentId ? [violation.studentId] : []
+  const studentNames = violation.studentNames?.length
+    ? violation.studentNames
+    : studentIds.map((id) => students.find((item) => item.id === id)?.name || id)
+  const branchIds = violation.branchIds?.length ? violation.branchIds : violation.branchId ? [violation.branchId] : []
+  const branchNames = branchIds.map((id) => branches.find((item) => item.id === id)?.name || id).filter(Boolean)
+  const sessionIds = violation.sessionIds?.length ? violation.sessionIds : violation.sessionId ? [violation.sessionId] : []
+  return [
+    trainerName ? `PT: ${trainerName}` : '',
+    studentNames.length ? `Học viên: ${studentNames.join(', ')}` : '',
+    violation.date ? `${dateLabel(violation.date)}${violation.hour !== undefined ? ` · ${String(violation.hour).padStart(2, '0')}:00` : ''}` : '',
+    branchNames.length ? `Cơ sở: ${branchNames.join(', ')}` : '',
+    sessionIds.length ? `Mã ca: ${sessionIds.slice(0, 3).join(', ')}${sessionIds.length > 3 ? ` +${sessionIds.length - 3}` : ''}` : '',
+  ].filter(Boolean).join(' · ')
+}
+
 function teachingTierLabel(tier: 'standard' | 'after_threshold' | 'after_threshold_evening') {
   if (tier === 'after_threshold_evening') return 'Tăng ca tối'
   if (tier === 'after_threshold') return 'Từ ca thứ 9'
@@ -177,7 +196,7 @@ const remediationLabel: Record<PayrollViolation['remediation'], string> = {
 }
 
 export default function TrainerPayroll({ profile }: Props) {
-  const { trainers, branches } = useDatabase()
+  const { trainers, branches, students } = useDatabase()
   const [view, setView] = useState<PayrollView>('runs')
   const [runs, setRuns] = useState<PayrollRunSummary[]>([])
   const [policies, setPolicies] = useState<PayrollPolicy[]>([])
@@ -566,8 +585,12 @@ export default function TrainerPayroll({ profile }: Props) {
     }
     if (violation.remediation === 'teaching_history') {
       const params = new URLSearchParams()
-      if (violation.staffId) params.set('trainerId', violation.staffId)
-      if (violation.sessionId) params.set('sessionId', violation.sessionId)
+      const trainerId = violation.trainerId || violation.staffId
+      const sessionId = violation.sessionId || violation.sessionIds?.[0]
+      if (trainerId) params.set('trainerId', trainerId)
+      else if (violation.studentId || violation.studentIds?.[0]) params.set('studentId', violation.studentId || violation.studentIds?.[0] || '')
+      if (sessionId) params.set('sessionId', sessionId)
+      if (violation.date) params.set('date', violation.date)
       window.location.hash = `#/admin-training-history${params.size ? `?${params.toString()}` : ''}`
       return
     }
@@ -672,7 +695,7 @@ export default function TrainerPayroll({ profile }: Props) {
     {payrollFailure && !showRunSetup && <section className="payroll-violations" role="alert" aria-label="Chi tiết lỗi kỳ lương">
       <header><AlertTriangle size={20} /><div><strong>{payrollFailure.message}</strong><span>{payrollFailure.violations.length} vấn đề cần xử lý</span></div><button type="button" aria-label="Đóng cảnh báo" onClick={() => { setPayrollFailure(null); setError('') }}><X size={17} /></button></header>
       <div className="payroll-violations__list">{payrollFailure.violations.length ? payrollFailure.violations.map((violation, index) => <article key={`${violation.code}:${violation.sessionId || violation.staffId || index}`}>
-        <div><span>{violation.code}</span><strong>{violation.title}</strong><p>{violation.detail}</p>{(violation.staffName || violation.staffId || violation.date || violation.sessionId || violation.supportId) && <small>{[violation.staffName || violation.staffId, violation.date ? `${dateLabel(violation.date)}${violation.hour !== undefined ? ` · ${String(violation.hour).padStart(2, '0')}:00` : ''}` : '', violation.sessionId ? `Ca ${violation.sessionId}` : '', violation.supportId ? `Mã đối soát ${violation.supportId}` : ''].filter(Boolean).join(' · ')}</small>}</div>
+        <div><span>{violation.code}</span><strong>{violation.title}</strong><p>{violation.detail}</p>{(violation.staffName || violation.staffId || violation.trainerId || violation.studentId || violation.studentIds?.length || violation.date || violation.sessionId || violation.supportId) && <small>{[violationFacts(violation, trainers, students, branches), violation.supportId ? `Mã đối soát ${violation.supportId}` : ''].filter(Boolean).join(' · ')}</small>}</div>
         <button type="button" onClick={() => handleViolationAction(violation)}>{remediationLabel[violation.remediation]}<ChevronRight size={15} /></button>
       </article>) : <article><div><strong>Chưa nhận được chi tiết từ máy chủ</strong><p>Hãy thử lại một lần. Aura sẽ ghi mã đối soát nếu giao dịch tiếp tục thất bại.</p></div><button type="button" onClick={() => void refresh()}>Thử lại<RefreshCw size={15} /></button></article>}</div>
     </section>}
@@ -768,7 +791,7 @@ export default function TrainerPayroll({ profile }: Props) {
         <p className="payroll-run-setup__lead">Kỳ nháp lưu snapshot chính sách. Bạn có thể xóa kỳ nháp và lập lại; kỳ đã duyệt không thể xóa.</p>
         {payrollFailure && <div className="payroll-violations payroll-violations--modal" role="alert">
           <header><AlertTriangle size={20} /><div><strong>{payrollFailure.message}</strong><span>{payrollFailure.violations.length || 1} vấn đề cần xử lý</span></div><button type="button" aria-label="Đóng cảnh báo" onClick={() => { setPayrollFailure(null); setError('') }}><X size={17} /></button></header>
-          <div className="payroll-violations__list">{payrollFailure.violations.length ? payrollFailure.violations.map((violation, index) => <article key={`${violation.code}:${violation.sessionId || violation.staffId || index}`}><div><span>{violation.code}</span><strong>{violation.title}</strong><p>{violation.detail}</p>{(violation.staffName || violation.staffId || violation.date || violation.sessionId || violation.supportId) && <small>{[violation.staffName || violation.staffId, violation.date ? `${dateLabel(violation.date)}${violation.hour !== undefined ? ` · ${String(violation.hour).padStart(2, '0')}:00` : ''}` : '', violation.sessionId ? `Ca ${violation.sessionId}` : '', violation.supportId ? `Mã đối soát ${violation.supportId}` : ''].filter(Boolean).join(' · ')}</small>}</div><button type="button" onClick={() => handleViolationAction(violation)}>{remediationLabel[violation.remediation]}<ChevronRight size={15} /></button></article>) : <article><div><strong>Chưa nhận được chi tiết từ máy chủ</strong><p>Thử lại để Aura tạo mã đối soát chi tiết.</p></div><button type="button" onClick={() => void createConfiguredRun()}>Thử lại<RefreshCw size={15} /></button></article>}</div>
+          <div className="payroll-violations__list">{payrollFailure.violations.length ? payrollFailure.violations.map((violation, index) => <article key={`${violation.code}:${violation.sessionId || violation.staffId || violation.trainerId || index}`}><div><span>{violation.code}</span><strong>{violation.title}</strong><p>{violation.detail}</p>{(violation.staffName || violation.staffId || violation.trainerId || violation.studentId || violation.studentIds?.length || violation.date || violation.sessionId || violation.supportId) && <small>{[violationFacts(violation, trainers, students, branches), violation.supportId ? `Mã đối soát ${violation.supportId}` : ''].filter(Boolean).join(' · ')}</small>}</div><button type="button" onClick={() => handleViolationAction(violation)}>{remediationLabel[violation.remediation]}<ChevronRight size={15} /></button></article>) : <article><div><strong>Chưa nhận được chi tiết từ máy chủ</strong><p>Thử lại để Aura tạo mã đối soát chi tiết.</p></div><button type="button" onClick={() => void createConfiguredRun()}>Thử lại<RefreshCw size={15} /></button></article>}</div>
         </div>}
         <div className="payroll-run-setup__preflight" aria-label="Đối soát nhanh trước khi tạo kỳ">
           <span><small>Nhân viên</small><b>{runPreflight.staffCount}</b></span>
@@ -818,6 +841,7 @@ export default function TrainerPayroll({ profile }: Props) {
             <div><span>Trạng thái</span><strong>{statusMeta[detail.run.status].label}</strong></div>
           </div>
           <p className="payroll-drawer__status"><ShieldCheck size={17} /> {statusMeta[detail.run.status].hint}</p>
+          {detail.run.crossBranchWarningCount ? <p className="payroll-trainer-item__review"><AlertTriangle size={15} /> {detail.run.crossBranchWarningCount} ca có học viên tập khác cơ sở. Đây là cảnh báo đối soát, không chặn tính lương và mỗi PT + ngày + giờ vẫn chỉ tính một ca.</p> : null}
           {detail.run.requiresRebuild && <div className="payroll-drawer__legacy-warning"><AlertTriangle size={20} /><div><strong>{detail.run.sourceDataStale ? 'Dữ liệu ca dạy vừa được điều chỉnh' : 'Kỳ lương dùng công thức cũ'}</strong><p>{detail.run.status === 'draft' ? detail.run.sourceDataStale ? 'Kỳ nháp đang giữ số liệu trước khi điều chỉnh ca. Hãy xóa và lập lại để tiền ca lấy đúng PT, ngày và giờ mới nhất.' : 'Hãy lập lại kỳ để mỗi PT + ngày + giờ chỉ tính một ca; tiền ca không cộng theo số học viên và hoa hồng giới thiệu chỉ lấy từ dòng tiền thực thu.' : 'Kỳ đã duyệt hoặc khóa được giữ nguyên để bảo toàn chứng từ. Chỉ các kỳ mới dùng công thức ca dạy độc nhất và hoa hồng theo dòng tiền.'}</p>{!detail.run.sourceDataStale && detail.run.storedTeachingSlotCount !== detail.run.teachingSlotCount && <small>Dữ liệu cũ: {detail.run.storedTeachingSlotCount || 0} lượt · Preview chuẩn: {detail.run.teachingSlotCount} ca.</small>}</div>{detail.run.status === 'draft' && <button type="button" onClick={() => { setPendingConfirmation({ kind: 'rebuild-run', id: detail.run.id, label: periodLabel(detail.run.periodId) }); setDetail(null) }}><RefreshCw size={15} /> Đối soát & lập lại</button>}</div>}
           <div className="payroll-drawer__items">
             <div className="payroll-page__section-title"><div><span>Chi tiết theo nhân viên</span><strong>{detail.items.length} người</strong></div><small>Bấm tên để xem ngày công và ca dạy</small></div>
@@ -847,7 +871,7 @@ export default function TrainerPayroll({ profile }: Props) {
                     </div>)}
                   </div> : <p className="payroll-trainer-item__legacy">Kỳ cũ chưa lưu bảng ngày công theo ngày. Mở tab Ngày công để đối soát trực tiếp.</p>}
                   <div className="payroll-trainer-item__tiers"><span>Ca 1–8 <b>{item.tierSummary.standardCount}</b><small>{money(item.tierSummary.standardAmount)}</small></span><span>Từ ca 9 <b>{item.tierSummary.afterThresholdCount}</b><small>{money(item.tierSummary.afterThresholdAmount)}</small></span><span>Ca tối <b>{item.tierSummary.afterThresholdEveningCount}</b><small>{money(item.tierSummary.afterThresholdEveningAmount)}</small></span></div>
-                  {item.teachingSlots.length ? <div className="payroll-teaching-slots">{item.teachingSlots.map((slot) => <div key={slot.key} className="payroll-teaching-slot"><time>{dateLabel(slot.date)} · {String(slot.hour).padStart(2, '0')}:00</time><span>Ca #{slot.dailyPosition} · {slot.studentCount} học viên{slot.policyName ? ` · ${slot.policyName}` : ''}</span><em>{teachingTierLabel(slot.tier)}</em><strong>{money(slot.rate)}</strong></div>)}</div> : <p className="payroll-trainer-item__legacy">Kỳ cũ chưa lưu snapshot từng ca. Tạo kỳ mới để xem chi tiết ngày, giờ và số học viên.</p>}
+                  {item.teachingSlots.length ? <div className="payroll-teaching-slots">{item.teachingSlots.map((slot) => <div key={slot.key} className={`payroll-teaching-slot${slot.crossBranchWarning ? ' is-warning' : ''}`}><time>{dateLabel(slot.date)} · {String(slot.hour).padStart(2, '0')}:00</time><span>Ca #{slot.dailyPosition} · {slot.studentCount} học viên{slot.crossBranchWarning ? ` · khác cơ sở (${slot.branchIds?.map((id) => branchById.get(id)?.name || id).join(', ')})` : ''}{slot.policyName ? ` · ${slot.policyName}` : ''}</span><em>{teachingTierLabel(slot.tier)}</em><strong>{money(slot.rate)}</strong></div>)}</div> : <p className="payroll-trainer-item__legacy">Kỳ cũ chưa lưu snapshot từng ca. Tạo kỳ mới để xem chi tiết ngày, giờ và số học viên.</p>}
                 </div>}
               </article>
             })}

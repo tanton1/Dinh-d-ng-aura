@@ -513,6 +513,32 @@ test('existing secondary PT pair is preferred over opening a new primary PT clas
   assert.equal(entry.trainerId, 'trainer-secondary')
 })
 
+test('cross-branch learner is selectable only inside the explicit admin override context', () => {
+  const data = fixture()
+  data.students[0].branchId = 'branch-home'
+  data.contracts[0].branchId = 'branch-home'
+  let result = manualSlotCandidate(candidateForSlot(data, {
+    student: data.students[0],
+    trainer: data.trainers[0],
+    slotId: 'T2-6',
+    schedule: {},
+  }))
+  assert.equal(result.manualSelectable, false)
+  assert.ok(result.reasons.includes('STUDENT_BRANCH_MISMATCH'))
+
+  data.allowCrossBranchStudentIds = new Set(['student-a'])
+  result = manualSlotCandidate(candidateForSlot(data, {
+    student: data.students[0],
+    trainer: data.trainers[0],
+    slotId: 'T2-6',
+    schedule: {},
+  }))
+  assert.equal(result.eligible, true)
+  assert.equal(result.manualSelectable, true)
+  assert.equal(result.studentBranchWarning, true)
+  assert.equal(result.contractId, 'contract-a')
+})
+
 test('branch capacity blocks auto and manual candidates even when another trainer still has room', () => {
   const data = fixture()
   data.config.branchCapacityBySlot = { [BRANCH]: { default: 1 } }

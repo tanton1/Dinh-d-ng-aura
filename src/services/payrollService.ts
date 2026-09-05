@@ -14,6 +14,16 @@ export interface PayrollViolation {
   remediation: PayrollRemediation
   staffId?: string
   staffName?: string
+  trainerId?: string
+  trainerName?: string
+  studentId?: string
+  studentName?: string
+  studentIds?: string[]
+  studentNames?: string[]
+  branchId?: string
+  branchIds?: string[]
+  sessionIds?: string[]
+  conflictingSessionIds?: string[]
   date?: string
   hour?: number
   sessionId?: string
@@ -57,6 +67,7 @@ export interface PayrollRunSummary {
   storedTeachingSlotCount?: number
   attendanceCount: number
   teachingSlotCount: number
+  crossBranchWarningCount?: number
   attendanceEventCount: number
   trainerCount: number
   staffCount: number
@@ -101,6 +112,8 @@ export interface PayrollTeachingSlot {
   date: string
   hour: number
   branchId: string
+  branchIds?: string[]
+  crossBranchWarning?: boolean
   dailyPosition: number
   tier: PayrollTeachingTier
   rate: number
@@ -108,6 +121,7 @@ export interface PayrollTeachingSlot {
   policyName: string
   studentCount: number
   sessionIds: string[]
+  studentIds?: string[]
 }
 
 export interface PayrollTierSummary {
@@ -150,6 +164,7 @@ export interface PayrollRunItem {
   }
   sessionCount: number
   attendanceEventCount: number
+  crossBranchWarningCount?: number
   teachingDayCount: number
   teachingSlots: PayrollTeachingSlot[]
   tierSummary: PayrollTierSummary
@@ -229,6 +244,16 @@ function violationFromUnknown(value: unknown): PayrollViolation | null {
     remediation,
     staffId: typeof raw.staffId === 'string' ? raw.staffId : undefined,
     staffName: typeof raw.staffName === 'string' ? raw.staffName : undefined,
+    trainerId: typeof raw.trainerId === 'string' ? raw.trainerId : undefined,
+    trainerName: typeof raw.trainerName === 'string' ? raw.trainerName : undefined,
+    studentId: typeof raw.studentId === 'string' ? raw.studentId : undefined,
+    studentName: typeof raw.studentName === 'string' ? raw.studentName : undefined,
+    studentIds: Array.isArray(raw.studentIds) ? raw.studentIds.filter((id): id is string => typeof id === 'string') : undefined,
+    studentNames: Array.isArray(raw.studentNames) ? raw.studentNames.filter((name): name is string => typeof name === 'string') : undefined,
+    branchId: typeof raw.branchId === 'string' ? raw.branchId : undefined,
+    branchIds: Array.isArray(raw.branchIds) ? raw.branchIds.filter((id): id is string => typeof id === 'string') : undefined,
+    sessionIds: Array.isArray(raw.sessionIds) ? raw.sessionIds.filter((id): id is string => typeof id === 'string') : undefined,
+    conflictingSessionIds: Array.isArray(raw.conflictingSessionIds) ? raw.conflictingSessionIds.filter((id): id is string => typeof id === 'string') : undefined,
     date: typeof raw.date === 'string' ? raw.date : undefined,
     hour: Number.isInteger(Number(raw.hour)) ? Number(raw.hour) : undefined,
     sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : undefined,
@@ -287,6 +312,7 @@ function normaliseRun(value: unknown): PayrollRunSummary {
     storedTeachingSlotCount: Math.max(0, Math.trunc(amount(raw.storedTeachingSlotCount))),
     attendanceCount: teachingSlotCount,
     teachingSlotCount,
+    crossBranchWarningCount: Math.max(0, Math.trunc(amount(raw.crossBranchWarningCount))),
     attendanceEventCount: Math.max(0, Math.trunc(amount(raw.attendanceEventCount ?? raw.attendanceCount))),
     trainerCount: Math.max(0, Math.trunc(amount(raw.trainerCount))),
     staffCount: Math.max(0, Math.trunc(amount(raw.staffCount ?? raw.trainerCount))),
@@ -349,6 +375,8 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
         date: typeof slot.date === 'string' ? slot.date : '',
         hour: Math.max(0, Math.min(23, Math.trunc(amount(slot.hour)))),
         branchId: typeof slot.branchId === 'string' ? slot.branchId : '',
+        branchIds: Array.isArray(slot.branchIds) ? slot.branchIds.filter((id): id is string => typeof id === 'string') : undefined,
+        crossBranchWarning: slot.crossBranchWarning === true,
         dailyPosition: Math.max(1, Math.trunc(amount(slot.dailyPosition)) || 1),
         tier,
         rate: amount(slot.rate),
@@ -356,6 +384,7 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
         policyName: typeof slot.policyName === 'string' ? slot.policyName : '',
         studentCount: Math.max(1, Math.trunc(amount(slot.studentCount)) || 1),
         sessionIds: Array.isArray(slot.sessionIds) ? slot.sessionIds.filter((id): id is string => typeof id === 'string') : [],
+        studentIds: Array.isArray(slot.studentIds) ? slot.studentIds.filter((id): id is string => typeof id === 'string') : undefined,
       }]
     }) : []
     const tier = raw.tierSummary && typeof raw.tierSummary === 'object' ? raw.tierSummary as Record<string, unknown> : {}
@@ -388,6 +417,7 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
       trainerSnapshot,
       sessionCount: teachingSlots.length || Math.max(0, Math.trunc(amount(raw.sessionCount))),
       attendanceEventCount: Math.max(0, Math.trunc(amount(raw.attendanceEventCount ?? raw.sessionCount))),
+      crossBranchWarningCount: Math.max(0, Math.trunc(amount(raw.crossBranchWarningCount))),
       teachingDayCount: Math.max(0, Math.trunc(amount(raw.teachingDayCount))),
       teachingSlots,
       tierSummary: {

@@ -438,6 +438,12 @@
 .schedule-assignment-confirm > svg { width:20px; color:#dd6528; }
 .schedule-assignment-confirm strong { font-size:.75rem; }
 .schedule-assignment-confirm p { margin:3px 0 0; color:#846252; font-size:.65rem; line-height:1.45; }
+.schedule-branch-confirm { display:grid; grid-template-columns:22px minmax(0,1fr); gap:9px; margin:8px 0 2px; padding:11px; border:1px solid #e6b9cd; border-radius:12px; color:#76264b; background:linear-gradient(125deg,#fff0f7,#fff9fc); }
+.schedule-branch-confirm > svg { width:20px; color:#d82e73; }
+.schedule-branch-confirm strong { font-size:.75rem; }
+.schedule-branch-confirm p { margin:3px 0 0; color:#865b70; font-size:.65rem; line-height:1.45; }
+.schedule-candidate-list article.has-branch-warning { margin-inline:-6px; padding-inline:6px; border-radius:10px; background:linear-gradient(100deg,rgba(255,235,245,.94),transparent); }
+.schedule-candidate-list article.has-branch-warning strong { display:flex; align-items:center; gap:5px; color:#a2235e; }
 .schedule-publish-warnings { display:grid; grid-template-columns:20px minmax(0,1fr); gap:9px; margin:-10px 0 18px; padding:11px; border:1px solid #efc9ad; border-radius:12px; color:#713d25; background:#fff6e9; }
 .schedule-publish-warnings > svg { color:#dc672c; }
 .schedule-publish-warnings > div { display:grid; gap:3px; }

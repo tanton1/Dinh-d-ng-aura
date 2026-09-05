@@ -112,39 +112,29 @@ test('canonical completed sessions produce the same paired teaching shifts witho
   assert.deepEqual(slots[0].sessionIds.sort(), ['session-a', 'session-b'])
 })
 
-test('a trainer cannot silently merge the same completed hour across two branches', () => {
-  let error
-  try {
-    teachingSlotsFromSessions([
-      { id: 'session-a', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', branchId: 'branch-a', date: '2026-08-25', hour: 6 },
-      { id: 'session-b', status: 'completed', trainerId: 'trainer-a', studentId: 'student-b', branchId: 'branch-b', date: '2026-08-25', hour: 6 },
-    ], { ratePerSession: 20_000 })
-    assert.fail('Expected branch conflict')
-  } catch (cause) {
-    error = cause
-  }
-  assert.equal(error.details.kind, 'payroll_validation')
-  assert.equal(error.details.violations[0].code, 'TRAINER_CROSS_BRANCH_SLOT_CONFLICT')
-  assert.equal(error.details.violations[0].trainerId, 'trainer-a')
-  assert.equal(error.details.violations[0].date, '2026-08-25')
-  assert.equal(error.details.violations[0].remediation, 'teaching_history')
+test('a learner attending another branch remains payable as one teaching slot', () => {
+  const result = teachingSlotsFromSessions([
+    { id: 'session-a', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', branchId: 'branch-a', date: '2026-08-25', hour: 6 },
+    { id: 'session-b', status: 'completed', trainerId: 'trainer-a', studentId: 'student-b', branchId: 'branch-b', date: '2026-08-25', hour: 6 },
+  ], { ratePerSession: 20_000 })
+  const slot = result.trainers.get('trainer-a')[0]
+  assert.equal(result.teachingSlotCount, 1)
+  assert.equal(result.crossBranchWarningCount, 1)
+  assert.equal(slot.studentCount, 2)
+  assert.equal(slot.crossBranchWarning, true)
+  assert.deepEqual(slot.branchIds.sort(), ['branch-a', 'branch-b'])
 })
 
-test('payroll reports every cross-branch slot so admins can repair the month in one pass', () => {
-  let error
-  try {
-    teachingSlotsFromSessions([
-      { id: 'session-a', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', branchId: 'branch-a', date: '2026-08-25', hour: 6 },
-      { id: 'session-b', status: 'completed', trainerId: 'trainer-a', studentId: 'student-b', branchId: 'branch-b', date: '2026-08-25', hour: 6 },
-      { id: 'session-c', status: 'completed', trainerId: 'trainer-a', studentId: 'student-c', branchId: 'branch-a', date: '2026-08-26', hour: 6 },
-      { id: 'session-d', status: 'completed', trainerId: 'trainer-a', studentId: 'student-d', branchId: 'branch-b', date: '2026-08-26', hour: 6 },
-    ], { ratePerSession: 20_000 })
-    assert.fail('Expected branch conflicts')
-  } catch (cause) {
-    error = cause
-  }
-  assert.equal(error.details.violations.length, 2)
-  assert.deepEqual(error.details.violations.map((item) => item.date), ['2026-08-25', '2026-08-26'])
+test('payroll keeps every cross-branch slot as a non-blocking diagnostic', () => {
+  const result = teachingSlotsFromSessions([
+    { id: 'session-a', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', branchId: 'branch-a', date: '2026-08-25', hour: 6 },
+    { id: 'session-b', status: 'completed', trainerId: 'trainer-a', studentId: 'student-b', branchId: 'branch-b', date: '2026-08-25', hour: 6 },
+    { id: 'session-c', status: 'completed', trainerId: 'trainer-a', studentId: 'student-c', branchId: 'branch-a', date: '2026-08-26', hour: 6 },
+    { id: 'session-d', status: 'completed', trainerId: 'trainer-a', studentId: 'student-d', branchId: 'branch-b', date: '2026-08-26', hour: 6 },
+  ], { ratePerSession: 20_000 })
+  assert.equal(result.crossBranchWarningCount, 2)
+  assert.equal(result.teachingSlotCount, 2)
+  assert.equal([...result.trainers.get('trainer-a')].filter((slot) => slot.crossBranchWarning).length, 2)
 })
 
 test('legacy all-branch sentinel does not create a false payroll branch conflict', () => {
@@ -177,6 +167,8 @@ test('invalid completed sessions return actionable payroll validation details', 
     detail: 'Một ca đã hoàn thành nhưng chưa liên kết PT. Hãy gán lại PT cho ca trước khi lập lương.',
     remediation: 'teaching_history',
     sessionId: 'session-invalid',
+    studentId: 'student-a',
+    branchId: 'branch-a',
     date: '2026-08-25',
   })
 })

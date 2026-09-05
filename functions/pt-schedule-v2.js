@@ -48,6 +48,16 @@ const MAX_REPAIR_DISPLACEMENT_CANDIDATES = 120
 const DAY_ORDER = new Map([['T2', 0], ['T3', 1], ['T4', 2], ['T5', 3], ['T6', 4], ['T7', 5], ['CN', 6]])
 const STUDENT_AVAILABILITY_REASON_CODES = new Set(['AVAILABILITY_NOT_SUBMITTED', 'OUTSIDE_STUDENT_AVAILABILITY'])
 
+function normalizedSearchText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'd')
+    .toLocaleLowerCase('vi')
+    .trim()
+}
+
 function draftId(branchId, week) {
   return `${branchId}_${week}`
 }
@@ -140,6 +150,10 @@ function safeSchedule(value) {
         ...(entry?.contractId ? { contractId: String(entry.contractId) } : {}),
         ...(entry?.isLocked === true ? { isLocked: true } : {}),
         ...(entry?.trainerAssignmentWarning === true ? { trainerAssignmentWarning: true } : {}),
+        ...(entry?.studentBranchWarning === true ? {
+          studentBranchWarning: true,
+          studentHomeBranchId: typeof entry?.studentHomeBranchId === 'string' ? entry.studentHomeBranchId.slice(0, 200) : '',
+        } : {}),
         ...(source ? { source } : {}),
         ...(availabilityOverride ? {
           availabilityOverride: true,
@@ -400,7 +414,7 @@ async function loadBranchData(db, branchId, week) {
   }
 }
 
-async function loadManualMutationData(db, branchId, week, trainerId, studentId) {
+async function loadManualMutationData(db, branchId, week, trainerId, studentId, allowCrossBranchStudent = false, loadedBranchData = null) {
   const [branch, legacySchedule, draft, studentSnapshot, trainerSnapshot, exactAvailability, exactTrainerAvailability, config, leaves, contractSnapshot, sessionSnapshot] = await Promise.all([
     db.doc(`branches/${branchId}`).get(),
     db.doc(`schedules/schedule_${week}`).get(),
@@ -415,12 +429,13 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId) 
     db.collection('sessions').where('studentId', '==', studentId).limit(1001).get(),
   ])
   if (!branch.exists || branch.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
-  if (!studentSnapshot.exists || studentSnapshot.data().branchId !== branchId) throw new HttpsError('not-found', 'Không tìm thấy học viên trong chi nhánh.')
+  if (!studentSnapshot.exists || (!allowCrossBranchStudent && studentSnapshot.data().branchId !== branchId)) throw new HttpsError('not-found', 'Không tìm thấy học viên trong phạm vi được phép.')
   if (!trainerSnapshot.exists || trainerSnapshot.data().branchId !== branchId) throw new HttpsError('not-found', 'Không tìm thấy PT trong chi nhánh.')
   if (leaves.size > 1000 || sessionSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu hồ sơ vượt giới hạn chỉnh ca an toàn.')
-  // A legacy-only week still needs the complete branch snapshot so no other
-  // learner is dropped while the first v2 draft document is created.
-  if (!draft.exists) return loadBranchData(db, branchId, week)
+  // A legacy-only week still needs the complete branch schedule so no other
+  // learner is dropped while the first v2 draft document is created. Keep
+  // that schedule, then use the exact learner/PT payload below for validation.
+  const baseData = !draft.exists ? (loadedBranchData || await loadBranchData(db, branchId, week)) : null
 
   const rawStudent = studentSnapshot.data()
   const rawTrainer = trainerProfileForWeek(trainerSnapshot.data(), exactTrainerAvailability.exists ? exactTrainerAvailability.data() : null, week)
@@ -472,14 +487,14 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId) 
       : effectiveAvailability.source === 'legacy_default' && effectiveAvailability.confirmed
         ? 'recurring'
         : 'missing'
-  const eligibility = studentWeekEligibility(contracts, studentId, branchId, week)
+  const eligibility = studentWeekEligibility(contracts, studentId, branchId, week, todayInHoChiMinh(), allowCrossBranchStudent)
   const studentInactive = ['inactive', 'archived', 'deleted'].includes(String(rawStudent.status || '').toLowerCase())
   const student = {
     id: studentId,
     name: rawStudent.name || 'Chưa cập nhật tên',
     phone: rawStudent.phone || '',
     status: rawStudent.status || 'active',
-    branchId,
+    branchId: rawStudent.branchId || '',
     sessionsPerWeek: Math.min(Math.max(0, Number(rawStudent.sessionsPerWeek || 0)), Math.max(0, Number(eligibility.remainingSessions || 0))),
     availableSlots: effectiveAvailability.slots.slice(0, 100),
     availabilityStatus,
@@ -507,10 +522,10 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId) 
     dailySessionLimit,
   }
   const draftData = draft.exists ? draft.data() : null
-  const schedule = safeSchedule(draftData.schedule)
+  const schedule = baseData?.schedule || safeSchedule(draftData.schedule)
   return {
-    branch: { id: branchId, name: branch.data().name || branchId, status: branch.data().status || 'active' },
-    draft: {
+    branch: baseData?.branch || { id: branchId, name: branch.data().name || branchId, status: branch.data().status || 'active' },
+    draft: baseData?.draft || {
       exists: draft.exists,
       revision: Number(draftData?.revision ?? legacySchedule.data()?.draftRevision ?? 0),
     },
@@ -521,6 +536,7 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId) 
     sessions,
     leaves: leaves.docs.map((item) => ({ id: item.id, ...item.data() })).filter((item) => item.status === 'approved'),
     config: normalizedScheduleConfig(config.data()),
+    allowCrossBranchStudentIds: allowCrossBranchStudent ? new Set([studentId]) : new Set(),
   }
 }
 
@@ -553,7 +569,7 @@ function contractCanServeScheduledDate(contract, date) {
   return storedDate(contract.startDate) <= date && storedDate(contract.endDate) >= date
 }
 
-function studentWeekEligibility(contracts, studentId, branchId, week, referenceDate = todayInHoChiMinh()) {
+function studentWeekEligibility(contracts, studentId, branchId, week, referenceDate = todayInHoChiMinh(), allowCrossBranch = false) {
   const reasons = new Set()
   const operationalContracts = contracts.filter((contract) => contract.studentId === studentId
     && ['active', 'future'].includes(String(contract.status || 'active').toLowerCase()))
@@ -564,7 +580,7 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
       reasons.add('CONTRACT_BRANCH_REQUIRED')
       return false
     }
-    if (contract.branchId !== branchId) {
+    if (contract.branchId !== branchId && !allowCrossBranch) {
       reasons.add('STUDENT_BRANCH_MISMATCH')
       return false
     }
@@ -652,7 +668,8 @@ function resolveContract(data, studentId, trainerId, date, schedule = null) {
   const dateCandidates = data.contracts.filter((contract) => contract.studentId === studentId
     && contractCanServeScheduledDate(contract, date))
   if (dateCandidates.some((contract) => !contract.branchId)) return { contract: null, reasons: ['CONTRACT_BRANCH_REQUIRED'] }
-  const candidates = dateCandidates.filter((contract) => contract.branchId === data.branch.id)
+  const allowCrossBranch = data.allowCrossBranchStudentIds instanceof Set && data.allowCrossBranchStudentIds.has(studentId)
+  const candidates = dateCandidates.filter((contract) => allowCrossBranch || contract.branchId === data.branch.id)
   if (!candidates.length) return { contract: null, reasons: ['ACTIVE_CONTRACT_NOT_FOUND'] }
   if (candidates.length > 1) return { contract: null, reasons: ['AMBIGUOUS_ACTIVE_CONTRACT'] }
   const contract = candidates[0]
@@ -785,7 +802,8 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
   }
   if (Array.isArray(student.validScheduleDates) && !student.validScheduleDates.includes(date)) reasons.push('ACTIVE_CONTRACT_NOT_FOUND')
   if (student.status === 'inactive') reasons.push('STUDENT_NOT_ACTIVE')
-  if (student.branchId !== data.branch.id) reasons.push('STUDENT_BRANCH_MISMATCH')
+  const studentBranchWarning = student.branchId !== data.branch.id
+  if (studentBranchWarning && !(data.allowCrossBranchStudentIds instanceof Set && data.allowCrossBranchStudentIds.has(student.id))) reasons.push('STUDENT_BRANCH_MISMATCH')
   if (trainer.status === 'inactive') reasons.push('TRAINER_NOT_ACTIVE')
   if (trainer.branchId !== data.branch.id) reasons.push('TRAINER_BRANCH_MISMATCH')
   if (policy.employmentType === 'collaborator') {
@@ -820,6 +838,7 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
     reasons: [...new Set(reasons)],
     contractId: contractResult.contract?.id || null,
     trainerAssignmentWarning: contractResult.trainerAssignmentWarning === true,
+    studentBranchWarning,
     assignedTrainerIds: contractResult.assignedTrainerIds || [],
     date,
     currentDailyLoad,
@@ -1764,7 +1783,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
   const getPtScheduleWorkspace = onCall(async (request) => {
     const week = weekId(request.data?.weekId)
     const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
-    await scheduleActor(request, db, branchId)
+    const actor = await scheduleActor(request, db, branchId)
     const data = await loadBranchData(db, branchId, week)
     const eligibleStudents = data.students.filter((student) => student.eligibleForWeek === true)
     const draftSnapshot = await draftReference(db, branchId, week).get()
@@ -1858,17 +1877,58 @@ function createPtScheduleV2Functions({ db, onCall }) {
     data.weekId = week
     const trainer = data.trainers.find((item) => item.id === trainerId)
     if (!trainer) throw new HttpsError('not-found', 'Không tìm thấy PT trong chi nhánh.')
-    const search = typeof request.data?.search === 'string' ? request.data.search.trim().toLocaleLowerCase('vi').slice(0, 100) : ''
+    const rawSearch = typeof request.data?.search === 'string' ? request.data.search.trim().slice(0, 100) : ''
+    const search = normalizedSearchText(rawSearch)
     const scheduledCounts = scheduleStudentCounts(data.schedule)
     const studentsById = new Map(data.students.map((student) => [student.id, student]))
+    const branchCandidates = data.students.filter((student) => !search
+      || normalizedSearchText(student.name).includes(search)
+      || normalizedSearchText(student.phone).includes(search)).map((student) => ({
+      studentId: student.id,
+      name: student.name,
+      phone: student.phone,
+      ...manualSlotCandidate(candidateForSlot(data, { student, trainer, slotId, schedule: data.schedule })),
+    }))
+
+    // Tìm học viên khác cơ sở chỉ khi admin chủ động nhập từ khóa.
+    // Mỗi kết quả được nạp lại bằng hồ sơ, hợp đồng, lịch rảnh và
+    // session chính xác trước khi trả về; staff chi nhánh không nhìn thấy dữ liệu này.
+    let crossBranchCandidates = []
+    if (activeAdministrator(actor) && search.length >= 2) {
+      const globalStudents = await db.collection('students').limit((MAX_STUDENTS * 3) + 1).get()
+      const externalMatches = globalStudents.docs
+        .filter((item) => item.data().branchId !== branchId)
+        .filter((item) => {
+          const profile = item.data()
+          return normalizedSearchText(profile.name).includes(search)
+            || normalizedSearchText(profile.phone).includes(search)
+            || normalizedSearchText(profile.email).includes(search)
+        })
+        .slice(0, 12)
+      const enriched = await Promise.all(externalMatches.map(async (item) => {
+        try {
+          const exactData = await loadManualMutationData(db, branchId, week, trainerId, item.id, true, data)
+          exactData.weekId = week
+          const student = exactData.students[0]
+          const result = manualSlotCandidate(candidateForSlot(exactData, { student, trainer: exactData.trainers[0], slotId, schedule: exactData.schedule }))
+          return {
+            studentId: student.id,
+            name: student.name,
+            phone: student.phone,
+            studentBranchWarning: true,
+            studentHomeBranchId: student.branchId || '',
+            ...result,
+          }
+        } catch {
+          return null
+        }
+      }))
+      crossBranchCandidates = enriched.filter(Boolean)
+    }
+    const allCandidates = [...branchCandidates, ...crossBranchCandidates]
     return {
       schemaVersion: 2,
-      candidates: data.students.filter((student) => !search || student.name.toLocaleLowerCase('vi').includes(search) || student.phone.includes(search)).map((student) => ({
-        studentId: student.id,
-        name: student.name,
-        phone: student.phone,
-        ...manualSlotCandidate(candidateForSlot(data, { student, trainer, slotId, schedule: data.schedule })),
-      })).sort((left, right) => {
+      candidates: allCandidates.sort((left, right) => {
         const rank = (candidate) => candidate.eligible ? 0 : candidate.manualSelectable ? 1 : 2
         const leftStudent = studentsById.get(left.studentId)
         const rightStudent = studentsById.get(right.studentId)
@@ -1986,8 +2046,9 @@ function createPtScheduleV2Functions({ db, onCall }) {
     // Adding/moving one learner previously scanned the complete branch and all
     // active sessions. Scope the hot path to the selected learner/PT while
     // preserving the same canonical contract, availability and audit checks.
+    const crossBranchConfirmed = activeAdministrator(actor) && payload.confirmCrossBranchStudent === true
     const data = command === 'add_student' || command === 'move_student'
-      ? await loadManualMutationData(db, branchId, week, trainerId, studentId)
+      ? await loadManualMutationData(db, branchId, week, trainerId, studentId, crossBranchConfirmed)
       : await loadBranchData(db, branchId, week)
     data.weekId = week
     const targetStudent = command === 'set_student_weekly_target'
@@ -2008,6 +2069,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
     let availabilityOverrideMetadata = null
     let selectedManualContractId = ''
     let trainerAssignmentWarningMetadata = null
+    let studentBranchWarningMetadata = null
     if (command === 'add_student' || command === 'move_student') {
       const trainer = data.trainers.find((item) => item.id === trainerId)
       const student = data.students.find((item) => item.id === studentId)
@@ -2033,6 +2095,10 @@ function createPtScheduleV2Functions({ db, onCall }) {
       }
       selectedManualContractId = result.contractId || ''
       if (result.trainerAssignmentWarning) trainerAssignmentWarningMetadata = { trainerAssignmentWarning: true }
+      if (result.studentBranchWarning) {
+        if (!crossBranchConfirmed) throw new HttpsError('failed-precondition', 'Học viên thuộc cơ sở khác. Admin cần xác nhận ngoại lệ trước khi xếp tay.', { issueCode: 'STUDENT_BRANCH_CONFIRMATION_REQUIRED' })
+        studentBranchWarningMetadata = { studentBranchWarning: true, studentHomeBranchId: student.branchId || '' }
+      }
     }
     return db.runTransaction(async (transaction) => {
       const [current, existingReceipt] = await Promise.all([transaction.get(reference), transaction.get(receipt)])
@@ -2057,11 +2123,11 @@ function createPtScheduleV2Functions({ db, onCall }) {
         if (resetWeeklyTarget) delete currentWeeklyTargets[studentId]
         else currentWeeklyTargets[studentId] = weeklyTarget
       }
-      if (command === 'add_student') values.push({ studentId, trainerId, branchId, type: 'training', contractId: selectedManualContractId, source: 'manual_v2', ...(trainerAssignmentWarningMetadata || {}), ...(availabilityOverrideMetadata || {}) })
+      if (command === 'add_student') values.push({ studentId, trainerId, branchId, type: 'training', contractId: selectedManualContractId, source: 'manual_v2', ...(trainerAssignmentWarningMetadata || {}), ...(studentBranchWarningMetadata || {}), ...(availabilityOverrideMetadata || {}) })
       if (command === 'remove_student') schedule[slotId] = values.filter((entry) => !(entry.studentId === studentId && entry.trainerId === trainerId))
       if (command === 'move_student') {
         schedule[fromSlotId] = (schedule[fromSlotId] || []).filter((entry) => entry.studentId !== studentId)
-        values.push({ studentId, trainerId, branchId, type: 'training', contractId: selectedManualContractId, source: 'manual_v2', ...(trainerAssignmentWarningMetadata || {}), ...(availabilityOverrideMetadata || {}) })
+        values.push({ studentId, trainerId, branchId, type: 'training', contractId: selectedManualContractId, source: 'manual_v2', ...(trainerAssignmentWarningMetadata || {}), ...(studentBranchWarningMetadata || {}), ...(availabilityOverrideMetadata || {}) })
       }
       let requeuedEntries = []
       if (command === 'set_trainer_off') {
@@ -2105,7 +2171,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.create(receipt, { actorUid: actor.uid, branchId, weekId: week, command, idempotencyKey, result, createdAt: FieldValue.serverTimestamp() })
-      transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.${command}`, actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, affectedStudentCount: command === 'set_student_weekly_target' ? 1 : command === 'reset_draft' ? resetStudentIds.length : (command === 'add_student' || command === 'move_student') ? 1 : requeuedEntries.length, studentId: command.includes('student') ? studentId : null, weeklyTarget: command === 'set_student_weekly_target' ? (resetWeeklyTarget ? null : weeklyTarget) : null, availabilityOverride: Boolean(availabilityOverrideMetadata), availabilityOverrideReason: availabilityOverrideMetadata?.availabilityOverrideReason || null, trainerAssignmentWarning: Boolean(trainerAssignmentWarningMetadata), reason: typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 300) : '', createdAt: FieldValue.serverTimestamp() })
+      transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: `pt_schedule.${command}`, actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, affectedStudentCount: command === 'set_student_weekly_target' ? 1 : command === 'reset_draft' ? resetStudentIds.length : (command === 'add_student' || command === 'move_student') ? 1 : requeuedEntries.length, studentId: command.includes('student') ? studentId : null, weeklyTarget: command === 'set_student_weekly_target' ? (resetWeeklyTarget ? null : weeklyTarget) : null, availabilityOverride: Boolean(availabilityOverrideMetadata), availabilityOverrideReason: availabilityOverrideMetadata?.availabilityOverrideReason || null, trainerAssignmentWarning: Boolean(trainerAssignmentWarningMetadata), studentBranchWarning: Boolean(studentBranchWarningMetadata), studentHomeBranchId: studentBranchWarningMetadata?.studentHomeBranchId || null, reason: typeof request.data?.reason === 'string' ? request.data.reason.trim().slice(0, 300) : '', createdAt: FieldValue.serverTimestamp() })
       return result
     })
   })

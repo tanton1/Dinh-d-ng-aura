@@ -15,7 +15,13 @@ function historyDeepLink() {
   const query = window.location.hash.includes('?') ? window.location.hash.split('?').slice(1).join('?') : ''
   const params = new URLSearchParams(query)
   const safeId = (value: string | null) => value && /^[A-Za-z0-9_-]+$/.test(value) ? value : ''
-  return { trainerId: safeId(params.get('trainerId')), sessionId: safeId(params.get('sessionId')) }
+  const date = params.get('date') || ''
+  return {
+    trainerId: safeId(params.get('trainerId')),
+    studentId: safeId(params.get('studentId')),
+    sessionId: safeId(params.get('sessionId')),
+    date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '',
+  }
 }
 
 export default function TrainingHistoryWorkspace() {
@@ -23,7 +29,7 @@ export default function TrainingHistoryWorkspace() {
   const [deepLink] = useState(historyDeepLink)
   const [view, setView] = useState<WorkspaceView>(() => deepLink.trainerId ? 'trainer' : 'student')
   const [query, setQuery] = useState('')
-  const [selectedId, setSelectedId] = useState(() => deepLink.trainerId)
+  const [selectedId, setSelectedId] = useState(() => deepLink.trainerId || deepLink.studentId)
   const subject = view === 'trainer' ? 'trainer' : 'student'
   const isHistoryView = view === 'student' || view === 'trainer'
 
@@ -43,8 +49,8 @@ export default function TrainingHistoryWorkspace() {
 
   useEffect(() => {
     setQuery('')
-    setSelectedId(view === 'trainer' ? deepLink.trainerId : '')
-  }, [deepLink.trainerId, view])
+    setSelectedId(view === 'trainer' ? deepLink.trainerId : deepLink.studentId)
+  }, [deepLink.studentId, deepLink.trainerId, view])
 
   useEffect(() => {
     if (!isHistoryView) return
@@ -53,12 +59,13 @@ export default function TrainingHistoryWorkspace() {
       return
     }
     if (!entries.some((entry) => entry.id === selectedId)) {
-      const preferred = subject === 'trainer' && entries.some((entry) => entry.id === deepLink.trainerId)
-        ? deepLink.trainerId
+      const deepLinkedId = subject === 'trainer' ? deepLink.trainerId : deepLink.studentId
+      const preferred = entries.some((entry) => entry.id === deepLinkedId)
+        ? deepLinkedId
         : entries[0].id
       setSelectedId(preferred)
     }
-  }, [deepLink.trainerId, entries, isHistoryView, operationsSync.status, selectedId, subject])
+  }, [deepLink.studentId, deepLink.trainerId, entries, isHistoryView, operationsSync.status, selectedId, subject])
 
   const selected = entries.find((entry) => entry.id === selectedId) || null
   const subjectCopy = subject === 'student'
@@ -89,7 +96,7 @@ export default function TrainingHistoryWorkspace() {
           {entries.map((entry) => <button key={entry.id} type="button" className={entry.id === selectedId ? 'is-selected' : ''} onClick={() => setSelectedId(entry.id)}><span className="training-history-workspace__avatar">{subject === 'student' ? <UserRound size={18} /> : <Dumbbell size={18} />}</span><span className="training-history-workspace__person"><strong>{entry.name || `Chưa cập nhật ${subjectCopy.singular}`}</strong><small>{entry.phone || entry.email || (entry as { employeeCode?: string }).employeeCode || `Mã ${entry.id.slice(-8)}`}</small></span></button>)}
         </div>
       </aside>
-      <main className="training-history-workspace__content">{selected ? <TrainingHistoryPanel subject={subject} subjectId={selected.id} subjectName={selected.name || `Aura ${subjectCopy.singular}`} focusSessionId={subject === 'trainer' && selected.id === deepLink.trainerId ? deepLink.sessionId : ''} /> : <div className="training-history-workspace__placeholder"><History size={28} /><h2>Chọn một {subjectCopy.singular}</h2><p>Danh sách bên trái giúp mở nhật ký đúng người, sau đó chọn thời gian và trạng thái cần xem.</p></div>}</main>
+      <main className="training-history-workspace__content">{selected ? <TrainingHistoryPanel subject={subject} subjectId={selected.id} subjectName={selected.name || `Aura ${subjectCopy.singular}`} focusSessionId={(subject === 'trainer' ? selected.id === deepLink.trainerId : selected.id === deepLink.studentId) ? deepLink.sessionId : ''} focusDate={(subject === 'trainer' ? selected.id === deepLink.trainerId : selected.id === deepLink.studentId) ? deepLink.date : ''} /> : <div className="training-history-workspace__placeholder"><History size={28} /><h2>Chọn một {subjectCopy.singular}</h2><p>Danh sách bên trái giúp mở nhật ký đúng người, sau đó chọn thời gian và trạng thái cần xem.</p></div>}</main>
     </div> : <main className="training-history-workspace__requests"><OperationsRequestCenter kind={view === 'changes' ? 'session' : 'pause'} /></main>}
   </div>
 }

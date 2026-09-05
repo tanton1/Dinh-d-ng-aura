@@ -145,6 +145,18 @@ function exactAvailabilityReferences(db, studentIds, week) {
   return [...studentIds].map((studentId) => db.doc(`ptAvailability/${studentId}_${week}`))
 }
 
+function exactDocumentReferences(db, collectionName, documentIds) {
+  return [...documentIds].map((documentId) => db.doc(`${collectionName}/${documentId}`))
+}
+
+async function exactDocumentSnapshots(db, collectionName, documentIds) {
+  const references = exactDocumentReferences(db, collectionName, documentIds)
+  if (!references.length) return []
+  const batches = []
+  for (let index = 0; index < references.length; index += 100) batches.push(db.getAll(...references.slice(index, index + 100)))
+  return (await Promise.all(batches)).flat()
+}
+
 async function exactAvailabilitySnapshots(db, studentIds, week) {
   const references = exactAvailabilityReferences(db, studentIds, week)
   if (!references.length) return []
@@ -209,6 +221,8 @@ function sameSession(left, right) {
     && storedHour(left.hour, left.id) === right.hour
     && Boolean(left.availabilityOverride) === Boolean(right.availabilityOverride)
     && String(left.availabilityOverrideReason || '') === String(right.availabilityOverrideReason || '')
+    && Boolean(left.studentBranchWarning) === Boolean(right.studentBranchWarning)
+    && String(left.studentHomeBranchId || '') === String(right.studentHomeBranchId || '')
 }
 
 function manualAvailabilityOverride(entry) {
@@ -247,6 +261,10 @@ function branchScheduleSnapshot(schedule, branchId, students, trainers) {
         ...(entry.contractId ? { contractId: entry.contractId } : {}),
         ...(entry.isLocked === true ? { isLocked: true } : {}),
         ...(entry.trainerAssignmentWarning === true ? { trainerAssignmentWarning: true } : {}),
+        ...(entry.studentBranchWarning === true ? {
+          studentBranchWarning: true,
+          studentHomeBranchId: typeof entry.studentHomeBranchId === 'string' ? entry.studentHomeBranchId.slice(0, 200) : '',
+        } : {}),
         ...(typeof entry.source === 'string' && entry.source ? { source: entry.source.slice(0, 40) } : {}),
         ...(manualAvailabilityOverride(entry) || {}),
       }))
@@ -319,6 +337,10 @@ function normalizedDraftSchedule(value, branchId, allowManualAvailabilityOverrid
         ...(entry?.contractId ? { contractId: documentId(entry.contractId, 'Mã hợp đồng') } : {}),
         ...(entry?.isLocked === true ? { isLocked: true } : {}),
         ...(entry?.trainerAssignmentWarning === true ? { trainerAssignmentWarning: true } : {}),
+        ...(allowManualAvailabilityOverrides && entry?.studentBranchWarning === true ? {
+          studentBranchWarning: true,
+          studentHomeBranchId: typeof entry.studentHomeBranchId === 'string' ? entry.studentHomeBranchId.slice(0, 200) : '',
+        } : {}),
         ...(typeof entry?.source === 'string' && entry.source ? { source: entry.source.slice(0, 40) } : {}),
       }
       return allowManualAvailabilityOverrides
@@ -403,16 +425,21 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       // Old generated entries did not persist branchId. Resolve that legacy
       // omission only from canonical member/PT data; never treat the UI filter
       // value "all" as a writable branch identifier.
-      const resolvedEntryBranchId = raw.branchId || student?.branchId || trainer?.branchId
-      if (resolvedEntryBranchId && resolvedEntryBranchId !== branchId) continue
+      const resolvedEntryBranchId = raw.branchId || branchId || student?.branchId || trainer?.branchId
+      // An explicit branch on the schedule is the physical training site and
+      // scopes the publish. A learner's profile branch may differ; that is a
+      // visible warning, not a publish blocker.
+      if (raw.branchId && raw.branchId !== branchId) continue
+      // Keep PT scope strict: a branch manager must not publish a PT from a
+      // different operational branch through this branch's schedule.
+      if (trainer?.branchId && trainer.branchId !== branchId) continue
       if (!resolvedEntryBranchId) {
         errors.push('ENTRY_BRANCH_REQUIRED')
         continue
       }
       if (!trainer || trainer.status === 'inactive') errors.push('TRAINER_NOT_ACTIVE')
       if (!student || student.status === 'inactive') errors.push('STUDENT_NOT_ACTIVE')
-      if (trainer?.branchId && trainer.branchId !== branchId) errors.push('TRAINER_BRANCH_MISMATCH')
-      if (student?.branchId && student.branchId !== branchId) errors.push('STUDENT_BRANCH_MISMATCH')
+      if (student?.branchId && student.branchId !== branchId) warnings.push('STUDENT_BRANCH_MISMATCH')
       const availabilityMode = trainerAvailabilityMode(trainer)
       if (trainer?.employmentType === 'collaborator') {
         if (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.length) errors.push('TRAINER_AVAILABILITY_UNCONFIGURED')
@@ -449,7 +476,15 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         && storedDate(contract.startDate) <= date
         && storedDate(contract.endDate) >= date)
       if (dateCandidates.some((contract) => !contract.branchId)) errors.push('CONTRACT_BRANCH_REQUIRED')
-      const contractCandidates = dateCandidates.filter((contract) => contract.branchId === branchId)
+      const confirmedCrossBranch = raw.source === 'manual_v2'
+        && raw.studentBranchWarning === true
+        && Boolean(raw.contractId)
+        && Boolean(student?.branchId)
+        && student.branchId !== branchId
+        && raw.studentHomeBranchId === student.branchId
+      const contractCandidates = dateCandidates.filter((contract) => confirmedCrossBranch
+        ? contract.id === raw.contractId && contract.branchId === student.branchId
+        : contract.branchId === branchId)
       if (contractCandidates.length !== 1) {
         errors.push(contractCandidates.length ? 'AMBIGUOUS_ACTIVE_CONTRACT' : 'ACTIVE_CONTRACT_NOT_FOUND')
         continue
@@ -491,6 +526,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         billingStatus: 'pending',
         attendanceStatus: 'pending',
         ...(trainerAssignmentWarning ? { trainerAssignmentWarning: true } : {}),
+        ...(confirmedCrossBranch ? { studentBranchWarning: true, studentHomeBranchId: student.branchId } : {}),
         ...(override || {}),
       })
     }
@@ -524,22 +560,28 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
     const scheduleReference = db.doc(`schedules/${scheduleId}`)
     const v2DraftReference = db.doc(`ptScheduleDrafts/${branchId}_${week}`)
     const branchReference = db.doc(`branches/${branchId}`)
-    const [preliminarySchedule, preliminaryDraft, preliminaryStudents] = await Promise.all([
+    const [preliminarySchedule, preliminaryDraft] = await Promise.all([
       scheduleReference.get(),
       v2DraftReference.get(),
-      db.collection('students').where('branchId', '==', branchId).limit(501).get(),
     ])
     const preliminaryData = preliminaryDraft.exists ? preliminaryDraft.data() : preliminarySchedule.data() || {}
     const preliminaryTrainingEntries = Object.values(preliminaryData.schedule || {}).flat()
       .filter((entry) => entry?.type !== 'off' && entry?.studentId)
-    if (preliminaryTrainingEntries.length > MAX_SCHEDULE_ENTRIES || preliminaryStudents.size > 500) {
+    if (preliminaryTrainingEntries.length > MAX_SCHEDULE_ENTRIES) {
       throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn kiểm tra an toàn.')
     }
     const scheduledStudentIds = new Set(preliminaryTrainingEntries
       .map((entry) => entry.studentId))
-    const preliminaryProfiles = new Map(preliminaryStudents.docs
-      .filter((item) => scheduledStudentIds.has(item.id))
+    const scheduledContractIds = new Set(preliminaryTrainingEntries
+      .map((entry) => entry.contractId)
+      .filter((contractId) => typeof contractId === 'string' && contractId))
+    const preliminaryStudents = await exactDocumentSnapshots(db, 'students', scheduledStudentIds)
+    const preliminaryProfiles = new Map(preliminaryStudents
+      .filter((item) => item.exists)
       .map((item) => [item.id, item.data()]))
+    const crossBranchStudentIds = new Set([...scheduledStudentIds]
+      .filter((studentId) => preliminaryProfiles.get(studentId)?.branchId
+        && preliminaryProfiles.get(studentId).branchId !== branchId))
     const preliminaryAvailability = await exactAvailabilitySnapshots(db, scheduledStudentIds, week)
     const preliminaryWeekly = new Map(preliminaryAvailability
       .filter((item) => item.exists)
@@ -548,9 +590,14 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       .map((item) => [item.studentId, item]))
     const inheritedAvailability = await loadLatestSubmittedFallbacks(db, preliminaryProfiles, preliminaryWeekly, week)
     const availabilityReferences = exactAvailabilityReferences(db, scheduledStudentIds, week)
+    const scheduledStudentReferences = exactDocumentReferences(db, 'students', scheduledStudentIds)
+    const scheduledContractReferences = exactDocumentReferences(db, 'contracts', scheduledContractIds)
+    const crossBranchSessionQueries = [...crossBranchStudentIds].map((studentId) => db.collection('sessions')
+      .where('studentId', '==', studentId)
+      .limit(1001))
 
     return db.runTransaction(async (transaction) => {
-      const [scheduleSnapshot, v2DraftSnapshot, branchSnapshot, contractsSnapshot, studentsSnapshot, trainersSnapshot, weekSessionsSnapshot, activeSessionsSnapshot, configSnapshot, trainerLeavesSnapshot, availabilitySnapshots] = await Promise.all([
+      const [scheduleSnapshot, v2DraftSnapshot, branchSnapshot, contractsSnapshot, studentsSnapshot, trainersSnapshot, weekSessionsSnapshot, activeSessionsSnapshot, configSnapshot, trainerLeavesSnapshot, availabilitySnapshots, exactStudentSnapshots, exactContractSnapshots, crossBranchSessionSnapshots] = await Promise.all([
         transaction.get(scheduleReference),
         transaction.get(v2DraftReference),
         transaction.get(branchReference),
@@ -562,10 +609,13 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
         transaction.get(db.doc('settings/scheduleConfig')),
         transaction.get(db.collection('leaveRequests').where('status', '==', 'approved').limit(1001)),
         Promise.all(availabilityReferences.map((reference) => transaction.get(reference))),
+        Promise.all(scheduledStudentReferences.map((reference) => transaction.get(reference))),
+        Promise.all(scheduledContractReferences.map((reference) => transaction.get(reference))),
+        Promise.all(crossBranchSessionQueries.map((query) => transaction.get(query))),
       ])
       if (!scheduleSnapshot.exists && !v2DraftSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy lịch nháp của tuần.')
       if (!branchSnapshot.exists || branchSnapshot.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
-      if (contractsSnapshot.size > 1000 || studentsSnapshot.size > 500 || trainersSnapshot.size > 100 || weekSessionsSnapshot.size > 1000 || activeSessionsSnapshot.size > 3000 || trainerLeavesSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn kiểm tra an toàn.')
+      if (contractsSnapshot.size > 1000 || studentsSnapshot.size > 500 || trainersSnapshot.size > 100 || weekSessionsSnapshot.size > 1000 || activeSessionsSnapshot.size > 3000 || trainerLeavesSnapshot.size > 1000 || crossBranchSessionSnapshots.some((snapshot) => snapshot.size > 1000)) throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn kiểm tra an toàn.')
       const scheduleData = scheduleSnapshot.exists ? scheduleSnapshot.data() : {}
       const activeDraftData = v2DraftSnapshot.exists ? v2DraftSnapshot.data() : scheduleData
       const draftRevision = Number(v2DraftSnapshot.exists ? activeDraftData.revision : scheduleData.draftRevision || 0)
@@ -583,11 +633,13 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       const trainerAvailabilitySnapshots = await Promise.all(trainersSnapshot.docs.map((item) => transaction.get(db.doc(`trainerAvailability/${item.id}_${week}`))))
       const weeklyTrainerAvailability = new Map(trainerAvailabilitySnapshots.filter((item) => item.exists).map((item) => [item.data().trainerId, item.data()]))
 
-      const contracts = contractsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      const contractDocuments = new Map([...contractsSnapshot.docs, ...exactContractSnapshots.filter((item) => item.exists)].map((item) => [item.id, item]))
+      const contracts = [...contractDocuments.values()].map((item) => ({ id: item.id, ...item.data() }))
       const weeklySessionTargets = activeDraftData.weeklySessionTargets && typeof activeDraftData.weeklySessionTargets === 'object' && !Array.isArray(activeDraftData.weeklySessionTargets)
         ? activeDraftData.weeklySessionTargets
         : {}
-      const students = new Map(studentsSnapshot.docs.map((item) => {
+      const studentDocuments = new Map([...studentsSnapshot.docs, ...exactStudentSnapshots.filter((item) => item.exists)].map((item) => [item.id, item]))
+      const students = new Map([...studentDocuments.values()].map((item) => {
         const data = item.data()
         const override = weeklySessionTargets[item.id]
         const sessionsPerWeek = Number.isInteger(Number(override)) && Number(override) >= 0 && Number(override) <= 7
@@ -597,6 +649,12 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       }))
       const trainers = new Map(trainersSnapshot.docs.map((item) => [item.id, trainerProfileForWeek(item.data(), weeklyTrainerAvailability.get(item.id), week)]))
       const availability = new Map(availabilitySnapshots.filter((item) => item.exists).map((item) => [item.data().studentId, item.data()]))
+      const activeSessionDocuments = new Map([
+        ...activeSessionsSnapshot.docs,
+        ...crossBranchSessionSnapshots.flatMap((snapshot) => snapshot.docs)
+          .filter((item) => ACTIVE_SESSION_STATUSES.has(item.data().status)),
+      ].map((item) => [item.id, item]))
+      const activeSessionDocs = [...activeSessionDocuments.values()]
       const prepared = desiredEntries({
         scheduleId,
         week,
@@ -632,7 +690,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       for (const desired of desiredValues) {
         totalBranchLoadBySlot.set(desired.slotId, (totalBranchLoadBySlot.get(desired.slotId) || 0) + 1)
       }
-      for (const item of activeSessionsSnapshot.docs) {
+      for (const item of activeSessionDocs) {
         if (scopedExistingIds.has(item.id)) continue
         const value = item.data()
         const slotId = slotIdForDateHour(week, storedDate(value.date), storedHour(value.hour, item.id))
@@ -642,7 +700,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
         const capacity = branchSlotCapacity(configSnapshot.data(), branchId, slotId)
         if (capacity !== null && count > capacity) throw scheduleError('BRANCH_CAPACITY_REACHED', 'Khung giờ đã vượt công suất tổng của chi nhánh.')
       }
-      for (const item of activeSessionsSnapshot.docs) {
+      for (const item of activeSessionDocs) {
         const session = item.data()
         if (!desiredStudentIds.has(session.studentId) || scopedExistingIds.has(item.id)) continue
         const date = storedDate(session.date)
@@ -651,7 +709,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
           throw scheduleError('STUDENT_MULTIPLE_SESSIONS_PER_DAY', 'Học viên đã có một buổi khác trong ngày được chọn.')
         }
         if (desiredValues.some((desired) => desired.trainerId === session.trainerId && desired.date === date && desired.hour === hour)) {
-          const externalCount = activeSessionsSnapshot.docs.filter((candidate) => {
+          const externalCount = activeSessionDocs.filter((candidate) => {
             const value = candidate.data()
             return !scopedExistingIds.has(candidate.id) && value.trainerId === session.trainerId && storedDate(value.date) === date && storedHour(value.hour, candidate.id) === hour
           }).length
@@ -668,7 +726,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
       }
       for (const [contractId, count] of plannedByContract) {
         const contract = contracts.find((item) => item.id === contractId)
-        const otherPlanned = activeSessionsSnapshot.docs.filter((item) => {
+        const otherPlanned = activeSessionDocs.filter((item) => {
           const value = item.data()
           return !scopedExistingIds.has(item.id)
             && value.contractId === contractId
@@ -722,6 +780,8 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
         transaction.update(existing.ref, {
           ...desired,
           trainerAssignmentWarning: desired.trainerAssignmentWarning === true ? true : FieldValue.delete(),
+          studentBranchWarning: desired.studentBranchWarning === true ? true : FieldValue.delete(),
+          studentHomeBranchId: desired.studentBranchWarning === true ? desired.studentHomeBranchId : FieldValue.delete(),
           scheduleVersion: nextVersion,
           status: 'scheduled',
           scheduleStatus: 'rescheduled',

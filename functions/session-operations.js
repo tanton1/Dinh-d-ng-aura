@@ -1485,18 +1485,12 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       }
       const targetTrainer = trainerSnapshot.data()
       const sourceBranchIds = new Set(sessions.map((session) => normaliseSessionBranchId(session.data.branchId)).filter(Boolean))
-      if (sourceBranchIds.size > 1) {
-        throw new HttpsError('failed-precondition', 'Ca nguồn đang chứa nhiều chi nhánh. Hãy đối soát từng buổi trước.', {
-          issueCode: 'TEACHING_SHIFT_SOURCE_BRANCH_MISMATCH',
-        })
-      }
+      // Branch is operational context, not a hard payroll/edit barrier. A
+      // learner can train at another site and legacy rows may carry different
+      // home branches. Keep the source values in the audit trail and use the
+      // first concrete branch as the physical session branch.
       const sourceBranchId = [...sourceBranchIds][0] || ''
       const targetTrainerBranchIds = new Set([targetTrainer.branchId, ...(Array.isArray(targetTrainer.branchIds) ? targetTrainer.branchIds : [])].map(normaliseSessionBranchId).filter(Boolean))
-      if (sourceBranchId && !targetTrainerBranchIds.has(sourceBranchId)) {
-        throw new HttpsError('failed-precondition', 'PT thực dạy không thuộc chi nhánh của ca.', {
-          issueCode: 'TEACHING_SHIFT_TRAINER_BRANCH_MISMATCH', trainerId: targetTrainerId, branchId: sourceBranchId,
-        })
-      }
       const targetBranchId = sourceBranchId || normaliseSessionBranchId(targetTrainer.branchId) || [...targetTrainerBranchIds][0] || ''
       if (!targetBranchId) throw new HttpsError('failed-precondition', 'Chưa xác định được chi nhánh của ca cần điều chỉnh.')
 
@@ -1597,11 +1591,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         .map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }))
         .filter((session) => !correctedIds.has(session.id) && teachingOccupancyStatus(session.status))
         .filter((session) => storedSessionHour(session.hour, session.id, 'Giờ ca liên quan') === targetHour)
-      if (existingTargetRows.some((session) => normaliseSessionBranchId(session.branchId) && normaliseSessionBranchId(session.branchId) !== targetBranchId)) {
-        throw new HttpsError('failed-precondition', 'PT đã có ca cùng giờ tại chi nhánh khác.', {
-          issueCode: 'TEACHING_SHIFT_CROSS_BRANCH_CONFLICT', date: targetDate, hour: targetHour, trainerId: targetTrainerId,
-        })
-      }
+      // Two sessions at the same PT/time may carry different learner home
+      // branches. This is a warning for the audit/reporting layer, not a
+      // reason to lose an otherwise valid attendance correction.
       const targetStudentIds = new Set([...studentIds, ...existingTargetRows.map((session) => session.studentId).filter(Boolean)])
       if (targetStudentIds.size > normalizedTrainerCapacity(targetTrainer.slotCapacity)) {
         throw new HttpsError('resource-exhausted', 'Ca đích đã vượt sức chứa của PT.', {
@@ -1647,6 +1639,9 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           correctedAt: FieldValue.serverTimestamp(),
           correctedBy: actor.uid,
           correctionReason: reason,
+          ...(targetTrainerBranchIds.size && sourceBranchId && !targetTrainerBranchIds.has(sourceBranchId)
+            ? { trainerBranchWarning: true }
+            : {}),
           revision: nextRevision,
           updatedAt: FieldValue.serverTimestamp(),
           updatedBy: actor.uid,

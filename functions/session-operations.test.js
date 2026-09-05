@@ -206,6 +206,27 @@ test('legacy all-branch session can be normalized while correcting its audited s
   assert.equal(state.read('sessions/session-a').revision, 1)
 })
 
+test('admin correction accepts learner sessions carrying different branch context', async () => {
+  const state = operationsFor({
+    'trainers/trainer-a': { status: 'active', branchId: 'branch-a', slotCapacity: 2 },
+    'sessions/session-a': { status: 'completed', studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: 'branch-a', date: '2026-08-21', hour: 11, revision: 0 },
+    'sessions/session-b': { status: 'completed', studentId: 'student-b', trainerId: 'trainer-a', contractId: 'contract-b', branchId: 'branch-b', date: '2026-08-21', hour: 11, revision: 0 },
+    'financePeriods/2026-08': { status: 'open' },
+  }, async () => ({ uid: 'admin-1', accessRole: 'admin' }))
+
+  const result = await state.correctTeachingShift({ data: {
+    items: [
+      { sessionId: 'session-a', expectedRevision: 0 },
+      { sessionId: 'session-b', expectedRevision: 0 },
+    ],
+    date: '2026-08-21', hour: 11, trainerId: 'trainer-a', reason: 'Xác nhận ca học viên tập khác cơ sở',
+  } })
+
+  assert.equal(result.unchanged, false)
+  assert.deepEqual(result.invalidatedPayrollPeriods, [])
+  assert.equal(state.read('sessions/session-b').branchId, 'branch-a')
+})
+
 test('admin history exposes one audited correction sheet for the complete paired shift', () => {
   assert.match(historyPanel, /canCorrectTeachingShift/)
   assert.match(historyPanel, /Điều chỉnh ca dạy/)
@@ -214,6 +235,8 @@ test('admin history exposes one audited correction sheet for the complete paired
   assert.match(historyPanel, /expectedRevision: record\.revision/)
   assert.match(historyPanel, /Lý do bắt buộc/)
   assert.match(historyWorkspace, /focusSessionId/)
+  assert.match(historyWorkspace, /params\.get\('date'\)/)
+  assert.match(historyWorkspace, /params\.get\('studentId'\)/)
   assert.match(service, /export function correctTeachingShift/)
   assert.match(source, /type: 'teaching_shift_corrected'/)
   assert.match(source, /sourceDataStale: true/)

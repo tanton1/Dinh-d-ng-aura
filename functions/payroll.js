@@ -293,7 +293,15 @@ function priceTeachingSlots(slots, resolvePolicy) {
           'Ca dạy chưa có chính sách lương',
           `Chưa xác định được chính sách cho ca ngày ${slot.date} lúc ${String(slot.hour).padStart(2, '0')}:00.`,
           'policy',
-          { trainerId: slot.trainerId, date: slot.date, hour: slot.hour, sessionIds: slot.sessionIds instanceof Set ? [...slot.sessionIds] : slot.sessionIds },
+          {
+            trainerId: slot.trainerId,
+            date: slot.date,
+            hour: slot.hour,
+            branchId: slot.branchId,
+            branchIds: slot.branchIds instanceof Set ? [...slot.branchIds] : slot.branchIds,
+            studentIds: slot.studentIds instanceof Set ? [...slot.studentIds] : slot.studentIds,
+            sessionIds: slot.sessionIds instanceof Set ? [...slot.sessionIds] : slot.sessionIds,
+          },
         )
       }
       const policy = payrollPolicyConfiguration(selected.configuration)
@@ -307,12 +315,23 @@ function priceTeachingSlots(slots, resolvePolicy) {
         date: slot.date,
         hour: slot.hour,
         branchId: slot.branchId,
+        // A learner may attend a different branch from their profile. Keep
+        // every physical branch observed on the source sessions for audit and
+        // display, but never turn this into a payroll blocker. The pay unit is
+        // still one PT + date + hour teaching slot.
+        branchIds: slot.branchIds instanceof Set
+          ? [...slot.branchIds]
+          : Array.isArray(slot.branchIds) ? slot.branchIds : (slot.branchId ? [slot.branchId] : []),
+        crossBranchWarning: slot.crossBranchWarning === true,
         dailyPosition: position,
         tier: evening ? 'after_threshold_evening' : afterThreshold ? 'after_threshold' : 'standard',
         rate,
         policyId: selected.id || '',
         policyName: selected.name || 'Chính sách lương PT',
         studentCount: slot.studentIds?.size ?? slot.studentCount ?? 0,
+        studentIds: slot.studentIds instanceof Set
+          ? [...slot.studentIds]
+          : Array.isArray(slot.studentIds) ? slot.studentIds : [],
         sessionIds: slot.sessionIds instanceof Set ? [...slot.sessionIds] : [...(slot.sessionIds || [])],
         attendanceEventIds: slot.attendanceEventIds instanceof Set ? [...slot.attendanceEventIds] : [...(slot.attendanceEventIds || [])],
       }
@@ -363,12 +382,15 @@ function teachingSlotsFromAttendance(attendanceDocuments, sessionsById, policyVa
         date,
         hour,
         branchId: normalisePayrollBranchId(session.branchId),
+        branchIds: new Set(),
+        crossBranchWarning: false,
         sessionIds: new Set(),
         studentIds: new Set(),
         attendanceEventIds: new Set(),
       }
       slotMap.set(key, slot)
     }
+    if (normalisePayrollBranchId(session.branchId)) slot.branchIds.add(normalisePayrollBranchId(session.branchId))
     slot.sessionIds.add(sessionId)
     slot.studentIds.add(attendance.studentId || session.studentId || `unknown_${item?.id || sessionId}`)
     slot.attendanceEventIds.add(item?.id || sessionId)
@@ -390,8 +412,6 @@ function teachingSlotsFromAttendance(attendanceDocuments, sessionsById, policyVa
 function teachingSlotsFromSessions(sessionDocuments, policyValue) {
   const policy = payrollPolicyConfiguration(policyValue)
   const slotMap = new Map()
-  const branchConflictKeys = new Set()
-  const branchConflicts = []
   let attendanceEventCount = 0
 
   for (const item of sessionDocuments) {
@@ -413,10 +433,15 @@ function teachingSlotsFromSessions(sessionDocuments, policyValue) {
       'Ca dạy chưa có PT phụ trách',
       'Một ca đã hoàn thành nhưng chưa liên kết PT. Hãy gán lại PT cho ca trước khi lập lương.',
       'teaching_history',
-      { sessionId, date: typeof session.date === 'string' ? session.date : '' },
+      {
+        sessionId,
+        studentId: typeof session.studentId === 'string' ? session.studentId : '',
+        branchId: normalisePayrollBranchId(session.branchId),
+        date: typeof session.date === 'string' ? session.date : '',
+      },
     )
-    const date = vietnamDateKey(session.date, { sessionId, trainerId })
-    const hour = teachingHour(session.hour, sessionId, { trainerId, date })
+    const date = vietnamDateKey(session.date, { sessionId, trainerId, studentId: session.studentId || '' })
+    const hour = teachingHour(session.hour, sessionId, { trainerId, date, studentId: session.studentId || '' })
     const key = `${trainerId}|${date}|${hour}`
     let slot = slotMap.get(key)
     if (!slot) {
@@ -426,36 +451,27 @@ function teachingSlotsFromSessions(sessionDocuments, policyValue) {
         date,
         hour,
         branchId: normalisePayrollBranchId(session.branchId),
+        branchIds: new Set(),
+        crossBranchWarning: false,
         sessionIds: new Set(),
         studentIds: new Set(),
         attendanceEventIds: new Set(),
       }
       slotMap.set(key, slot)
     } else if (slot.branchId && normalisePayrollBranchId(session.branchId) && slot.branchId !== normalisePayrollBranchId(session.branchId)) {
-      if (!branchConflictKeys.has(key)) {
-        branchConflictKeys.add(key)
-        branchConflicts.push({
-          code: 'TRAINER_CROSS_BRANCH_SLOT_CONFLICT',
-          severity: 'error',
-          title: 'PT có ca trùng giờ ở nhiều chi nhánh',
-          detail: `PT có ca hoàn thành trùng giờ ở nhiều chi nhánh ngày ${date}. Hãy xác định lại chi nhánh hoặc PT thực dạy.`,
-          remediation: 'teaching_history',
-          trainerId,
-          date,
-          hour,
-          sessionId,
-          conflictingSessionIds: [...slot.sessionIds],
-        })
-      }
+      // Branch is an operational warning only. A learner can train at a
+      // different site and a PT may have legacy sessions carrying the
+      // learner's home branch. Payroll is grouped by PT/date/hour, so this
+      // must not prevent creating a period.
+      slot.crossBranchWarning = true
     }
     if (!slot.branchId && normalisePayrollBranchId(session.branchId)) slot.branchId = normalisePayrollBranchId(session.branchId)
+    if (normalisePayrollBranchId(session.branchId)) slot.branchIds.add(normalisePayrollBranchId(session.branchId))
     slot.sessionIds.add(sessionId)
     slot.studentIds.add(session.studentId || `unknown_${sessionId}`)
     slot.attendanceEventIds.add(session.attendanceEventId || sessionId)
     attendanceEventCount += 1
   }
-
-  if (branchConflicts.length) throw payrollViolationsError(branchConflicts)
 
   const trainers = new Map()
   for (const slot of slotMap.values()) {
@@ -466,7 +482,13 @@ function teachingSlotsFromSessions(sessionDocuments, policyValue) {
   for (const [trainerId, slots] of trainers) {
     trainers.set(trainerId, priceTeachingSlots(slots, () => ({ configuration: policy })))
   }
-  return { trainers, attendanceEventCount, teachingSlotCount: slotMap.size, policy }
+  return {
+    trainers,
+    attendanceEventCount,
+    teachingSlotCount: slotMap.size,
+    crossBranchWarningCount: [...slotMap.values()].filter((slot) => slot.crossBranchWarning).length,
+    policy,
+  }
 }
 
 function payrollRunPolicyPlan(value = {}) {
@@ -559,7 +581,17 @@ function applyPayrollPolicyPlan(teaching, plan, policies) {
             'Không có chính sách phù hợp nhóm lương',
             `Chưa có chính sách phù hợp nhóm ${profile} cho ca ngày ${slot.date}.`,
             'staff_profile',
-            { trainerId, staffId: trainerId, payrollProfile: profile, date: slot.date, hour: slot.hour, sessionIds: slot.sessionIds },
+            {
+              trainerId,
+              staffId: trainerId,
+              payrollProfile: profile,
+              date: slot.date,
+              hour: slot.hour,
+              branchId: slot.branchId,
+              branchIds: slot.branchIds instanceof Set ? [...slot.branchIds] : slot.branchIds,
+              studentIds: slot.studentIds instanceof Set ? [...slot.studentIds] : slot.studentIds,
+              sessionIds: slot.sessionIds instanceof Set ? [...slot.sessionIds] : slot.sessionIds,
+            },
           )
         }
         return matching
@@ -572,7 +604,7 @@ function applyPayrollPolicyPlan(teaching, plan, policies) {
             'Chưa có chính sách hiệu lực tại ngày dạy',
             `Không có chính sách nào bắt đầu trước hoặc đúng ngày ${slot.date}.`,
             'policy',
-            { trainerId, date: slot.date, hour: slot.hour, sessionIds: slot.sessionIds },
+            { trainerId, date: slot.date, hour: slot.hour, branchId: slot.branchId, branchIds: slot.branchIds instanceof Set ? [...slot.branchIds] : slot.branchIds, studentIds: slot.studentIds instanceof Set ? [...slot.studentIds] : slot.studentIds, sessionIds: slot.sessionIds instanceof Set ? [...slot.sessionIds] : slot.sessionIds },
           )
         }
         return matching
@@ -583,7 +615,7 @@ function applyPayrollPolicyPlan(teaching, plan, policies) {
           'Chính sách chưa hiệu lực tại ngày dạy',
           `Chính sách ${assignedPolicy.name} chưa hiệu lực tại ngày ${slot.date}.`,
           'policy',
-          { trainerId, policyId: assignedPolicy.id, date: slot.date, hour: slot.hour, sessionIds: slot.sessionIds },
+          { trainerId, policyId: assignedPolicy.id, date: slot.date, hour: slot.hour, branchId: slot.branchId, branchIds: slot.branchIds instanceof Set ? [...slot.branchIds] : slot.branchIds, studentIds: slot.studentIds instanceof Set ? [...slot.studentIds] : slot.studentIds, sessionIds: slot.sessionIds instanceof Set ? [...slot.sessionIds] : slot.sessionIds },
         )
       }
       return assignedPolicy
@@ -1421,6 +1453,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         attendanceReviewRequired: attendanceReviewRequiredCount > 0 || calendarReviewRequiredCount > 0,
         attendanceReviewRequiredCount,
         calendarReviewRequiredCount,
+        crossBranchWarningCount: Number(teaching.crossBranchWarningCount || 0),
         baseSalaryAmount: itemRecords.reduce((total, item) => total + item.amounts.baseSalaryAmount, 0),
         teachingPayAmount: itemRecords.reduce((total, item) => total + item.amounts.teachingPayAmount, 0),
         commissionAmount: itemRecords.reduce((total, item) => total + item.amounts.commissionAmount, 0),
