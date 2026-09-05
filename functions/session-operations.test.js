@@ -15,6 +15,7 @@ const studentDetail = readFileSync(join(root, 'src', 'components', 'admin', 'pt'
 const trainerOperations = readFileSync(join(__dirname, 'pt-operations-v2.js'), 'utf8')
 const requestCenter = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'OperationsRequestCenter.tsx'), 'utf8')
 const historyWorkspace = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'TrainingHistoryWorkspace.tsx'), 'utf8')
+const historyPanel = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'TrainingHistoryPanel.tsx'), 'utf8')
 const branchScheduleWorkspace = readFileSync(join(root, 'src', 'components', 'schedule', 'BranchScheduleWorkspace.tsx'), 'utf8')
 
 function clone(value) {
@@ -131,6 +132,74 @@ test('session request approval updates policy usage, session, contract charge an
   assert.match(approval, /assertSessionChangeDeadline/)
   assert.match(approval, /requestedBy === 'trainer'/)
   assert.match(approval, /status: cancellationType/)
+})
+
+test('admin corrects a paired teaching shift atomically and invalidates the related draft payroll', async () => {
+  const state = operationsFor({
+    'trainers/trainer-old': { status: 'active', branchId: 'branch-1', slotCapacity: 2 },
+    'trainers/trainer-new': { status: 'active', branchId: 'branch-1', slotCapacity: 2 },
+    'sessions/session-a': { status: 'completed', attendanceStatus: 'present', studentId: 'student-1', trainerId: 'trainer-old', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-18', hour: 7, revision: 2 },
+    'sessions/session-b': { status: 'completed', attendanceStatus: 'present', studentId: 'student-2', trainerId: 'trainer-old', contractId: 'contract-2', branchId: 'branch-1', date: '2026-08-18', hour: 7, revision: 4 },
+    'attendanceEvents/session-a': { sessionId: 'session-a', attendanceStatus: 'present', type: 'attended', trainerId: 'trainer-old' },
+    'attendanceEvents/session-b': { sessionId: 'session-b', attendanceStatus: 'present', type: 'attended', trainerId: 'trainer-old' },
+    'sessionBillingEvents/session-a': { sessionId: 'session-a', trainerId: 'trainer-old' },
+    'sessionBillingEvents/session-b': { sessionId: 'session-b', trainerId: 'trainer-old' },
+    'payrollRuns/2026-08': { status: 'draft', requiresRebuild: false },
+    'financePeriods/2026-08': { status: 'open' },
+  }, async () => ({ uid: 'admin-1', accessRole: 'admin' }))
+
+  const result = await state.correctTeachingShift({ data: {
+    items: [
+      { sessionId: 'session-a', expectedRevision: 2, attendanceEventId: 'session-a', attendanceStatus: 'late', lateMinutes: 10 },
+      { sessionId: 'session-b', expectedRevision: 4, attendanceEventId: 'session-b', attendanceStatus: 'no_show', noShowReason: 'busy' },
+    ],
+    date: '2026-08-18', hour: 8, trainerId: 'trainer-new', reason: 'Đối soát PT thực dạy theo camera',
+  } })
+
+  assert.equal(result.unchanged, false)
+  assert.deepEqual(result.invalidatedPayrollPeriods, ['2026-08'])
+  assert.equal(state.read('sessions/session-a').trainerId, 'trainer-new')
+  assert.equal(state.read('sessions/session-a').hour, 8)
+  assert.equal(state.read('sessions/session-a').revision, 3)
+  assert.equal(state.read('attendanceEvents/session-a').attendanceStatus, 'late')
+  assert.equal(state.read('attendanceEvents/session-b').attendanceStatus, 'no_show')
+  assert.equal(state.read('payrollRuns/2026-08').requiresRebuild, true)
+  assert.equal(state.paths().filter((path) => path.startsWith('sessionEvents/')).length, 2)
+  assert.equal(state.paths().filter((path) => path.startsWith('attendanceAuditLogs/')).length, 2)
+})
+
+test('teaching shift correction is admin-only and fails closed after payroll is reviewed', async () => {
+  const unauthorized = operationsFor({}, async () => ({ uid: 'staff-1', accessRole: 'staff' }))
+  await assert.rejects(
+    unauthorized.correctTeachingShift({ data: { items: [{ sessionId: 'session-a', expectedRevision: 0 }], date: '2026-08-18', hour: 8, trainerId: 'trainer-1', reason: 'Sửa ca' } }),
+    /Chỉ Admin hoặc Super Admin/,
+  )
+
+  const locked = operationsFor({
+    'trainers/trainer-1': { status: 'active', branchId: 'branch-1', slotCapacity: 2 },
+    'sessions/session-a': { status: 'completed', attendanceStatus: 'present', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-18', hour: 7, revision: 0 },
+    'attendanceEvents/session-a': { sessionId: 'session-a', attendanceStatus: 'present', type: 'attended', trainerId: 'trainer-1' },
+    'payrollRuns/2026-08': { status: 'reviewed' },
+    'financePeriods/2026-08': { status: 'open' },
+  }, async () => ({ uid: 'admin-1', accessRole: 'admin' }))
+  await assert.rejects(
+    locked.correctTeachingShift({ data: { items: [{ sessionId: 'session-a', expectedRevision: 0, attendanceEventId: 'session-a', attendanceStatus: 'late', lateMinutes: 5 }], date: '2026-08-18', hour: 7, trainerId: 'trainer-1', reason: 'Đối soát lại' } }),
+    /tạo khoản bù trừ ở kỳ tiếp theo/,
+  )
+  assert.equal(locked.read('sessions/session-a').revision, 0)
+})
+
+test('admin history exposes one audited correction sheet for the complete paired shift', () => {
+  assert.match(historyPanel, /canCorrectTeachingShift/)
+  assert.match(historyPanel, /Điều chỉnh ca dạy/)
+  assert.match(historyPanel, /correction\.records\.map/)
+  assert.match(historyPanel, /correctTeachingShift/)
+  assert.match(historyPanel, /expectedRevision: record\.revision/)
+  assert.match(historyPanel, /Lý do bắt buộc/)
+  assert.match(historyWorkspace, /focusSessionId/)
+  assert.match(service, /export function correctTeachingShift/)
+  assert.match(source, /type: 'teaching_shift_corrected'/)
+  assert.match(source, /sourceDataStale: true/)
 })
 
 test('learner receives pairing-first change suggestions and a two-request Aura policy snapshot', async () => {

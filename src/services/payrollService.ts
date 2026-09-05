@@ -53,6 +53,7 @@ export interface PayrollRunSummary {
   policyApplicationMode: PayrollPolicyApplicationMode
   status: PayrollRunStatus
   requiresRebuild: boolean
+  sourceDataStale: boolean
   storedTeachingSlotCount?: number
   attendanceCount: number
   teachingSlotCount: number
@@ -282,6 +283,7 @@ function normaliseRun(value: unknown): PayrollRunSummary {
       : 'single',
     status: status(raw.status),
     requiresRebuild: raw.requiresRebuild === true,
+    sourceDataStale: raw.sourceDataStale === true,
     storedTeachingSlotCount: Math.max(0, Math.trunc(amount(raw.storedTeachingSlotCount))),
     attendanceCount: teachingSlotCount,
     teachingSlotCount,

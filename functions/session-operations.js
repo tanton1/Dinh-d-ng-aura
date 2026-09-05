@@ -25,6 +25,7 @@ const AUTOMATIC_CHARGE_QUERY_LIMIT = 2000
 const AUTO_ATTENDANCE_CONFIRM_HOURS = 48
 const AUTO_ATTENDANCE_LOOKBACK_DAYS = 8
 const BULK_ATTENDANCE_LIMIT = 30
+const TEACHING_SHIFT_CORRECTION_LIMIT = 6
 const NO_SHOW_GRACE_MINUTES = 15
 const OPERATIONS_REQUEST_HISTORY_LIMIT = 500
 const SESSION_CHANGE_SUGGESTION_LIMIT = 18
@@ -447,6 +448,32 @@ function normalizedAttendanceNote(value) {
   const result = typeof value === 'string' ? value.trim() : ''
   if (result.length > 300) throw new HttpsError('invalid-argument', 'Ghi chú hiện diện tối đa 300 ký tự.')
   return result
+}
+
+function teachingCorrectionItems(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > TEACHING_SHIFT_CORRECTION_LIMIT) {
+    throw new HttpsError('invalid-argument', `Mỗi lần chỉ điều chỉnh từ 1 đến ${TEACHING_SHIFT_CORRECTION_LIMIT} buổi trong cùng ca.`)
+  }
+  const seen = new Set()
+  return value.map((item) => {
+    const sessionId = id(item?.sessionId, 'Mã buổi tập')
+    if (seen.has(sessionId)) throw new HttpsError('invalid-argument', 'Danh sách điều chỉnh có buổi tập bị trùng.')
+    seen.add(sessionId)
+    const attendanceEventId = item?.attendanceEventId ? id(item.attendanceEventId, 'Mã điểm danh') : ''
+    const attendanceStatus = item?.attendanceStatus ? normalizedAttendanceStatus(item.attendanceStatus) : ''
+    return {
+      sessionId,
+      expectedRevision: sessionRevision(item?.expectedRevision),
+      attendanceEventId,
+      attendanceStatus,
+      lateMinutes: attendanceStatus ? normalizedLateMinutes(attendanceStatus, item?.lateMinutes) : null,
+      noShowReason: attendanceStatus ? normalizedNoShowReason(attendanceStatus, item?.noShowReason) : '',
+    }
+  })
+}
+
+function teachingOccupancyStatus(status) {
+  return ['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'].includes(status)
 }
 
 function isSessionCharged(session) {
@@ -1390,6 +1417,301 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
     })
   })
 
+  const correctTeachingShift = onCall(async (request) => {
+    const actor = await authorizeAdmin(request, db)
+    if (!['admin', 'super_admin'].includes(actor.accessRole)) {
+      throw new HttpsError('permission-denied', 'Chỉ Admin hoặc Super Admin được điều chỉnh ca đã ghi nhận.')
+    }
+    const items = teachingCorrectionItems(request.data?.items)
+    const targetDate = date(request.data?.date)
+    const targetHour = hour(request.data?.hour)
+    const targetTrainerId = id(request.data?.trainerId, 'Mã PT thực dạy')
+    const reason = boundedReason(request.data?.reason, 'Lý do điều chỉnh')
+    const correctionInstant = now()
+
+    return db.runTransaction(async (transaction) => {
+      const sessionReferences = items.map((item) => db.doc(`sessions/${item.sessionId}`))
+      const sessionSnapshots = await Promise.all(sessionReferences.map((reference) => transaction.get(reference)))
+      if (sessionSnapshots.some((snapshot) => !snapshot.exists)) {
+        throw new HttpsError('not-found', 'Không tìm thấy đủ các buổi trong ca cần điều chỉnh.')
+      }
+      const sessions = sessionSnapshots.map((snapshot, index) => ({ id: items[index].sessionId, reference: sessionReferences[index], data: snapshot.data(), item: items[index] }))
+      sessions.forEach((session) => {
+        const revision = Number(session.data.revision || 0)
+        if (revision !== session.item.expectedRevision) {
+          throw new HttpsError('aborted', 'Một buổi trong ca đã thay đổi. Hãy tải lại lịch sử trước khi điều chỉnh.', {
+            issueCode: 'TEACHING_SHIFT_REVISION_CONFLICT',
+            sessionId: session.id,
+            expectedRevision: session.item.expectedRevision,
+            actualRevision: revision,
+          })
+        }
+        if (!teachingOccupancyStatus(session.data.status)) {
+          throw new HttpsError('failed-precondition', 'Ca đã hủy hoặc không còn trạng thái hợp lệ để điều chỉnh tại lịch sử ca dạy.', {
+            issueCode: 'TEACHING_SHIFT_STATUS_NOT_EDITABLE', sessionId: session.id, status: session.data.status || '',
+          })
+        }
+      })
+
+      const sourceKeys = new Set(sessions.map((session) => {
+        const sourceDate = storedDateKey(session.data.date, 'Ngày ca gốc')
+        const sourceHour = storedSessionHour(session.data.hour, session.id, 'Giờ ca gốc')
+        return `${sourceDate}|${sourceHour}|${session.data.trainerId || ''}`
+      }))
+      if (sourceKeys.size !== 1) {
+        throw new HttpsError('failed-precondition', 'Các buổi được chọn không còn thuộc cùng một ca. Hãy tải lại và chọn từng ca riêng.', {
+          issueCode: 'TEACHING_SHIFT_SOURCE_MISMATCH',
+        })
+      }
+
+      const attendanceReferences = sessions.map((session) => db.doc(`attendanceEvents/${session.item.attendanceEventId || session.id}`))
+      const [trainerSnapshot, ...attendanceSnapshots] = await Promise.all([
+        transaction.get(db.doc(`trainers/${targetTrainerId}`)),
+        ...attendanceReferences.map((reference) => transaction.get(reference)),
+      ])
+      if (!trainerSnapshot.exists || trainerSnapshot.data().status === 'inactive') {
+        throw new HttpsError('failed-precondition', 'PT thực dạy không tồn tại hoặc đã ngừng hoạt động.', {
+          issueCode: 'TEACHING_SHIFT_TRAINER_INACTIVE', trainerId: targetTrainerId,
+        })
+      }
+      const targetTrainer = trainerSnapshot.data()
+      const sourceBranchIds = new Set(sessions.map((session) => session.data.branchId).filter(Boolean))
+      if (sourceBranchIds.size > 1) {
+        throw new HttpsError('failed-precondition', 'Ca nguồn đang chứa nhiều chi nhánh. Hãy đối soát từng buổi trước.', {
+          issueCode: 'TEACHING_SHIFT_SOURCE_BRANCH_MISMATCH',
+        })
+      }
+      const sourceBranchId = [...sourceBranchIds][0] || ''
+      const targetTrainerBranchIds = new Set([targetTrainer.branchId, ...(Array.isArray(targetTrainer.branchIds) ? targetTrainer.branchIds : [])].filter(Boolean))
+      if (sourceBranchId && !targetTrainerBranchIds.has(sourceBranchId)) {
+        throw new HttpsError('failed-precondition', 'PT thực dạy không thuộc chi nhánh của ca.', {
+          issueCode: 'TEACHING_SHIFT_TRAINER_BRANCH_MISMATCH', trainerId: targetTrainerId, branchId: sourceBranchId,
+        })
+      }
+      const targetBranchId = sourceBranchId || targetTrainer.branchId || [...targetTrainerBranchIds][0] || ''
+      if (!targetBranchId) throw new HttpsError('failed-precondition', 'Chưa xác định được chi nhánh của ca cần điều chỉnh.')
+
+      attendanceSnapshots.forEach((snapshot, index) => {
+        const item = sessions[index].item
+        if (!item.attendanceStatus) return
+        if (!snapshot.exists || snapshot.data().sessionId !== item.sessionId) {
+          throw new HttpsError('failed-precondition', 'Buổi chưa có bản ghi điểm danh hợp lệ để sửa trạng thái.', {
+            issueCode: 'TEACHING_SHIFT_ATTENDANCE_MISSING', sessionId: item.sessionId, attendanceEventId: item.attendanceEventId || item.sessionId,
+          })
+        }
+      })
+
+      const scheduleChanged = sessions.some((session) => (
+        storedDateKey(session.data.date, 'Ngày ca gốc') !== targetDate
+        || storedSessionHour(session.data.hour, session.id, 'Giờ ca gốc') !== targetHour
+        || session.data.trainerId !== targetTrainerId
+        || session.data.branchId !== targetBranchId
+      ))
+      const attendanceChanged = sessions.some((session, index) => {
+        if (!session.item.attendanceStatus) return false
+        const attendance = attendanceSnapshots[index].data()
+        return attendance.attendanceStatus !== session.item.attendanceStatus
+          || Number(attendance.lateMinutes || 0) !== Number(session.item.lateMinutes || 0)
+          || String(attendance.noShowReason || '') !== session.item.noShowReason
+      })
+      if (!scheduleChanged && !attendanceChanged) {
+        return { unchanged: true, revisions: Object.fromEntries(sessions.map((session) => [session.id, Number(session.data.revision || 0)])), invalidatedPayrollPeriods: [] }
+      }
+
+      const targetInstant = new Date(`${targetDate}T${String(targetHour).padStart(2, '0')}:00:00+07:00`)
+      if ((attendanceChanged || attendanceSnapshots.some((snapshot) => snapshot.exists)) && targetInstant.getTime() > correctionInstant.getTime()) {
+        throw new HttpsError('failed-precondition', 'Ca đã ghi nhận hiện diện không thể được điều chỉnh sang thời điểm trong tương lai.', {
+          issueCode: 'TEACHING_SHIFT_FUTURE_ATTENDANCE', date: targetDate, hour: targetHour,
+        })
+      }
+      const targetDateChanged = sessions.some((session) => storedDateKey(session.data.date, 'Ngày ca gốc') !== targetDate)
+      if (targetDateChanged && sessions.some((session, index) => isSessionCharged(session.data) || attendanceSnapshots[index].exists) && storedDateKey(sessions[0].data.date, 'Ngày ca gốc').slice(0, 7) !== targetDate.slice(0, 7)) {
+        throw new HttpsError('failed-precondition', 'Ca đã tính buổi không thể chuyển sang tháng khác. Hãy giữ kỳ gốc và dùng bù trừ nếu cần.', {
+          issueCode: 'TEACHING_SHIFT_CROSS_PERIOD_CORRECTION', remediation: 'payroll_adjustment',
+        })
+      }
+
+      const sourcePeriods = [...new Set(sessions.map((session) => storedDateKey(session.data.date, 'Ngày ca gốc').slice(0, 7)))]
+      const affectedPeriods = [...new Set([...sourcePeriods, targetDate.slice(0, 7)])]
+      const payrollReferences = affectedPeriods.map((periodId) => db.doc(`payrollRuns/${periodId}`))
+      const financeReferences = affectedPeriods.map((periodId) => db.doc(`financePeriods/${periodId}`))
+      const targetTrainerDayQuery = dailySessionsQuery(db, 'trainerId', targetTrainerId, targetDate)
+      const studentIds = [...new Set(sessions.map((session) => id(session.data.studentId, 'Mã học viên của buổi tập')))]
+      const studentDayQueries = studentIds.map((studentId) => dailySessionsQuery(db, 'studentId', studentId, targetDate))
+      const correctionContractIds = targetDateChanged ? [...new Set(sessions.map((session) => linkedContractId(session.data)))] : []
+      const correctionContractReferences = correctionContractIds.map((contractId) => db.doc(`contracts/${contractId}`))
+      const [payrollSnapshots, financeSnapshots, targetTrainerDay, studentDaySnapshots, correctionContractSnapshots] = await Promise.all([
+        Promise.all(payrollReferences.map((reference) => transaction.get(reference))),
+        Promise.all(financeReferences.map((reference) => transaction.get(reference))),
+        transaction.get(targetTrainerDayQuery),
+        Promise.all(studentDayQueries.map((query) => transaction.get(query))),
+        Promise.all(correctionContractReferences.map((reference) => transaction.get(reference))),
+      ])
+
+      const immutablePayroll = payrollSnapshots.find((snapshot) => snapshot.exists && snapshot.data().status !== 'draft')
+      if (immutablePayroll) {
+        throw new HttpsError('failed-precondition', `Kỳ lương ${immutablePayroll.id} đã ${immutablePayroll.data().status}. Không thể sửa chứng từ ca gốc; hãy tạo khoản bù trừ ở kỳ tiếp theo.`, {
+          issueCode: 'PAYROLL_RUN_IMMUTABLE', periodId: immutablePayroll.id, payrollStatus: immutablePayroll.data().status, remediation: 'payroll_adjustment',
+        })
+      }
+      const lockedFinance = financeSnapshots.find((snapshot) => snapshot.exists && snapshot.data().status === 'locked')
+      if (lockedFinance) {
+        throw new HttpsError('failed-precondition', `Kỳ tài chính ${lockedFinance.id} đã khóa. Không thể thay đổi bằng chứng ca dạy trực tiếp.`, {
+          issueCode: 'FINANCE_PERIOD_LOCKED', periodId: lockedFinance.id, remediation: 'finance_adjustment',
+        })
+      }
+      if (targetTrainerDay.size >= DAILY_SESSION_QUERY_LIMIT || studentDaySnapshots.some((snapshot) => snapshot.size >= DAILY_SESSION_QUERY_LIMIT)) {
+        throw new HttpsError('resource-exhausted', 'Dữ liệu ca trong ngày vượt giới hạn xác minh an toàn.')
+      }
+      if (targetDateChanged) {
+        const contractsById = new Map(correctionContractSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, snapshot.data()]))
+        sessions.forEach((session) => {
+          const contractId = linkedContractId(session.data)
+          const contract = contractsById.get(contractId)
+          if (!contract || contract.studentId !== session.data.studentId) {
+            throw new HttpsError('failed-precondition', 'Không tìm thấy hợp đồng đúng học viên để xác minh ngày điều chỉnh.', {
+              issueCode: 'TEACHING_SHIFT_CONTRACT_MISMATCH', sessionId: session.id, contractId,
+            })
+          }
+          const contractStart = storedContractDate(contract.startDate, 'Ngày bắt đầu')
+          const contractEnd = storedContractDate(contract.endDate, 'Ngày kết thúc')
+          if (targetDate < contractStart || targetDate > contractEnd || pauseCoversDate(contract, targetDate)) {
+            throw new HttpsError('failed-precondition', 'Ngày điều chỉnh nằm ngoài thời hạn hợp đồng hoặc trong thời gian OFF/bảo lưu.', {
+              issueCode: 'TEACHING_SHIFT_CONTRACT_DATE_INVALID', sessionId: session.id, contractId, date: targetDate,
+            })
+          }
+        })
+      }
+
+      const correctedIds = new Set(sessions.map((session) => session.id))
+      const existingTargetRows = targetTrainerDay.docs
+        .map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }))
+        .filter((session) => !correctedIds.has(session.id) && teachingOccupancyStatus(session.status))
+        .filter((session) => storedSessionHour(session.hour, session.id, 'Giờ ca liên quan') === targetHour)
+      if (existingTargetRows.some((session) => session.branchId && session.branchId !== targetBranchId)) {
+        throw new HttpsError('failed-precondition', 'PT đã có ca cùng giờ tại chi nhánh khác.', {
+          issueCode: 'TEACHING_SHIFT_CROSS_BRANCH_CONFLICT', date: targetDate, hour: targetHour, trainerId: targetTrainerId,
+        })
+      }
+      const targetStudentIds = new Set([...studentIds, ...existingTargetRows.map((session) => session.studentId).filter(Boolean)])
+      if (targetStudentIds.size > normalizedTrainerCapacity(targetTrainer.slotCapacity)) {
+        throw new HttpsError('resource-exhausted', 'Ca đích đã vượt sức chứa của PT.', {
+          issueCode: 'TEACHING_SHIFT_CAPACITY_EXCEEDED', date: targetDate, hour: targetHour, trainerId: targetTrainerId,
+        })
+      }
+      studentDaySnapshots.forEach((snapshot, index) => {
+        const conflict = snapshot.docs
+          .map((item) => ({ id: item.id, ...item.data() }))
+          .find((session) => !correctedIds.has(session.id) && teachingOccupancyStatus(session.status))
+        if (conflict) {
+          throw new HttpsError('already-exists', 'Một học viên trong ca đã có buổi tập khác trong ngày đích.', {
+            issueCode: 'TEACHING_SHIFT_STUDENT_DAY_CONFLICT', studentId: studentIds[index], date: targetDate, conflictingSessionId: conflict.id,
+          })
+        }
+      })
+
+      const targetStart = Timestamp.fromDate(targetInstant)
+      const revisions = {}
+      sessions.forEach((session, index) => {
+        const attendanceSnapshot = attendanceSnapshots[index]
+        const before = {
+          date: storedDateKey(session.data.date, 'Ngày ca gốc'),
+          hour: storedSessionHour(session.data.hour, session.id, 'Giờ ca gốc'),
+          trainerId: session.data.trainerId || '',
+          branchId: session.data.branchId || '',
+          attendanceStatus: attendanceSnapshot.exists ? attendanceSnapshot.data().attendanceStatus || 'pending' : session.data.attendanceStatus || 'pending',
+        }
+        const nextAttendanceStatus = session.item.attendanceStatus || before.attendanceStatus
+        const nextSessionStatus = session.item.attendanceStatus
+          ? session.item.attendanceStatus === 'no_show' ? 'no_show' : 'completed'
+          : session.data.status
+        const nextRevision = Number(session.data.revision || 0) + 1
+        revisions[session.id] = nextRevision
+        transaction.update(session.reference, {
+          previousSchedule: FieldValue.arrayUnion({ date: before.date, hour: before.hour, trainerId: before.trainerId, branchId: before.branchId, changedAt: correctionInstant.toISOString(), reason }),
+          date: targetDate,
+          hour: targetHour,
+          trainerId: targetTrainerId,
+          branchId: targetBranchId,
+          status: nextSessionStatus,
+          attendanceStatus: nextAttendanceStatus,
+          correctedAt: FieldValue.serverTimestamp(),
+          correctedBy: actor.uid,
+          correctionReason: reason,
+          revision: nextRevision,
+          updatedAt: FieldValue.serverTimestamp(),
+          updatedBy: actor.uid,
+        })
+        if (attendanceSnapshot.exists) {
+          const attendancePatch = {
+            trainerId: targetTrainerId,
+            scheduledAt: targetStart,
+            occurredAt: targetStart,
+            correctionReason: reason,
+            correctedAt: FieldValue.serverTimestamp(),
+            correctedBy: actor.uid,
+            updatedAt: FieldValue.serverTimestamp(),
+            updatedBy: actor.uid,
+          }
+          if (session.item.attendanceStatus) Object.assign(attendancePatch, {
+            type: session.item.attendanceStatus === 'no_show' ? 'no_show' : 'attended',
+            attendanceStatus: session.item.attendanceStatus,
+            lateMinutes: session.item.lateMinutes,
+            noShowReason: session.item.noShowReason,
+            confirmationSource: 'admin_correction',
+            confirmedAt: FieldValue.serverTimestamp(),
+            confirmedBy: actor.uid,
+          })
+          transaction.update(attendanceReferences[index], attendancePatch)
+        }
+        transaction.create(db.collection('sessionEvents').doc(), {
+          schemaVersion: 2,
+          sessionId: session.id,
+          type: 'teaching_shift_corrected',
+          reason,
+          from: before,
+          to: { date: targetDate, hour: targetHour, trainerId: targetTrainerId, branchId: targetBranchId, attendanceStatus: nextAttendanceStatus },
+          correctedSessionIds: sessions.map((item) => item.id),
+          createdAt: FieldValue.serverTimestamp(),
+          createdBy: actor.uid,
+        })
+        if (session.item.attendanceStatus && before.attendanceStatus !== session.item.attendanceStatus) {
+          transaction.create(db.collection('attendanceAuditLogs').doc(), {
+            schemaVersion: 2,
+            sessionId: session.id,
+            attendanceEventId: attendanceReferences[index].id,
+            studentId: session.data.studentId || '',
+            trainerId: targetTrainerId,
+            contractId: session.data.contractId || '',
+            beforeStatus: before.attendanceStatus,
+            afterStatus: session.item.attendanceStatus,
+            lateMinutes: session.item.lateMinutes,
+            noShowReason: session.item.noShowReason,
+            note: reason,
+            confirmationSource: 'admin_correction',
+            changedAt: FieldValue.serverTimestamp(),
+            changedBy: actor.uid,
+            timeZone: 'Asia/Ho_Chi_Minh',
+          })
+        }
+      })
+      const invalidatedPayrollPeriods = []
+      payrollSnapshots.forEach((snapshot, index) => {
+        if (!snapshot.exists || snapshot.data().status !== 'draft') return
+        invalidatedPayrollPeriods.push(affectedPeriods[index])
+        transaction.update(payrollReferences[index], {
+          requiresRebuild: true,
+          sourceDataStale: true,
+          sourceDataChangedAt: FieldValue.serverTimestamp(),
+          sourceDataChangedBy: actor.uid,
+          sourceDataChangeReason: reason,
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+      })
+      return { unchanged: false, revisions, invalidatedPayrollPeriods }
+    })
+  })
+
   const bulkRecordSessionAttendance = onCall(async (request) => {
     const actor = await authorizeAdmin(request, db)
     const items = Array.isArray(request.data?.items) ? request.data.items : []
@@ -2235,6 +2557,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
     createMySessionRequest,
     confirmSessionAttendance,
     recordSessionAttendance,
+    correctTeachingShift,
     bulkRecordSessionAttendance,
     cancelSession,
     rescheduleSession,

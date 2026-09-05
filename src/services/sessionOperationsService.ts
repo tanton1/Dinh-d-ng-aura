@@ -98,6 +98,27 @@ export function recordSessionAttendance(input: {
   return call<typeof input, { unchanged: boolean; revision: number; attendanceEventId: string; attendanceStatus: string }>('recordSessionAttendance', input)
 }
 
+export interface TeachingShiftCorrectionItem {
+  sessionId: string
+  expectedRevision: number
+  attendanceEventId?: string
+  attendanceStatus?: 'present' | 'late' | 'no_show'
+  lateMinutes?: 5 | 10 | 15
+  noShowReason?: '' | 'busy' | 'sick' | 'forgot' | 'unreachable' | 'other'
+}
+
+export interface TeachingShiftCorrectionInput {
+  items: TeachingShiftCorrectionItem[]
+  date: string
+  hour: number
+  trainerId: string
+  reason: string
+}
+
+export function correctTeachingShift(input: TeachingShiftCorrectionInput) {
+  return call<TeachingShiftCorrectionInput, { unchanged: boolean; revisions: Record<string, number>; invalidatedPayrollPeriods: string[] }>('correctTeachingShift', input)
+}
+
 export function bulkRecordSessionAttendance(items: Array<{ sessionId: string; expectedRevision: number }>) {
   return call<
     { items: Array<{ sessionId: string; expectedRevision: number }> },

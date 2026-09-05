@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CalendarDays, CheckCircle2, ChevronDown, CircleAlert, Clock3, RefreshCw, SlidersHorizontal, UserRound, UsersRound } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { CalendarDays, CheckCircle2, ChevronDown, CircleAlert, Clock3, PencilLine, RefreshCw, Save, SlidersHorizontal, UserRound, UsersRound, X } from 'lucide-react'
+import { useAuth } from '../../../contexts/AuthContext'
+import { useDatabase } from '../../../contexts/DatabaseContext'
 import { getStudentContractUsage, listStudentTrainingHistory, listTrainerTeachingHistory, type ContractUsageSummary, type TrainingHistoryPage, type TrainingHistoryStatus } from '../../../services/businessReportingService'
 import type { TrainerSessionSummary, TrainerStudentContractDetail } from '../../../services/ptOperationsV2Service'
+import { correctTeachingShift } from '../../../services/sessionOperationsService'
 import '../../../styles-training-history.css'
 
 type Props = {
@@ -12,6 +15,7 @@ type Props = {
   isDemo?: boolean
   initialSessions?: TrainerSessionSummary[]
   initialContracts?: TrainerStudentContractDetail[]
+  focusSessionId?: string
 }
 
 function vietnamDateKey(value = new Date()) {
@@ -47,6 +51,7 @@ function statusLabel(status: string) {
   if (status === 'rescheduled') return 'Đã đổi lịch'
   if (status === 'attended') return 'Đã hoàn thành'
   if (status === 'corrected') return 'Đã điều chỉnh'
+  if (status === 'teaching_shift_corrected') return 'Điều chỉnh ca'
   return status || 'Không xác định'
 }
 
@@ -72,6 +77,34 @@ type TrainerTeachingShift = {
   branchId: string
   studentCount: number
   records: TrainingHistoryPage['records']
+}
+
+type EditableAttendanceStatus = '' | 'present' | 'late' | 'no_show'
+
+type TeachingShiftCorrectionDraft = {
+  records: TrainingHistoryPage['records']
+  date: string
+  hour: string
+  trainerId: string
+  reason: string
+  attendanceStatuses: Record<string, EditableAttendanceStatus>
+  attendanceTouched: Record<string, boolean>
+  lateMinutes: Record<string, 5 | 10 | 15>
+  noShowReasons: Record<string, '' | 'busy' | 'sick' | 'forgot' | 'unreachable' | 'other'>
+}
+
+const noShowReasonOptions: Array<{ value: TeachingShiftCorrectionDraft['noShowReasons'][string]; label: string }> = [
+  { value: '', label: 'Chưa ghi lý do' },
+  { value: 'busy', label: 'Khách bận' },
+  { value: 'sick', label: 'Khách ốm' },
+  { value: 'forgot', label: 'Khách quên lịch' },
+  { value: 'unreachable', label: 'Không liên hệ được' },
+  { value: 'other', label: 'Lý do khác' },
+]
+
+function editableAttendanceStatus(record: TrainingHistoryPage['records'][number]): EditableAttendanceStatus {
+  const value = record.attendance?.attendanceStatus
+  return value === 'present' || value === 'late' || value === 'no_show' ? value : ''
 }
 
 function groupTrainerTeachingShifts(records: TrainingHistoryPage['records']): TrainerTeachingShift[] {
@@ -151,7 +184,9 @@ function stableContractSignature(contracts: TrainerStudentContractDetail[]) {
   return contracts.map((contract) => `${contract.id}:${contract.usedSessions}:${contract.remainingSessions}:${contract.reconciliationStatus}`).join('|')
 }
 
-export default function TrainingHistoryPanel({ subject, subjectId, subjectName, contractId, isDemo = false, initialSessions = [], initialContracts = [] }: Props) {
+export default function TrainingHistoryPanel({ subject, subjectId, subjectName, contractId, isDemo = false, initialSessions = [], initialContracts = [], focusSessionId = '' }: Props) {
+  const { profile } = useAuth()
+  const { trainers } = useDatabase()
   const [startDate, setStartDate] = useState(() => daysAgoKey(89))
   const [endDate, setEndDate] = useState(todayKey)
   const [status, setStatus] = useState<TrainingHistoryStatus>('all')
@@ -161,6 +196,11 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
   const [contractUsage, setContractUsage] = useState<ContractUsageSummary[]>([])
   const [usageError, setUsageError] = useState('')
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+  const [correction, setCorrection] = useState<TeachingShiftCorrectionDraft | null>(null)
+  const [correctionSaving, setCorrectionSaving] = useState(false)
+  const [correctionError, setCorrectionError] = useState('')
+  const [correctionNotice, setCorrectionNotice] = useState('')
+  const consumedFocusSession = useRef('')
   const initialSessionSignature = stableSessionSignature(initialSessions)
   const initialContractSignature = stableContractSignature(initialContracts)
   const trainerShifts = useMemo(() => subject === 'trainer' ? groupTrainerTeachingShifts(page?.records ?? []) : [], [page?.records, subject])
@@ -172,6 +212,14 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
       ?? null
   }, [contractId, contractUsage, subject])
   const periodUsage = page?.summary.usage
+  const canCorrectTeachingShift = !isDemo && subject === 'trainer' && (profile?.role === 'admin' || profile?.role === 'super_admin')
+  const correctionTrainerOptions = useMemo(() => {
+    const branchId = correction?.records.find((record) => record.branchId)?.branchId || ''
+    return trainers
+      .filter((trainer) => trainer.status !== 'inactive')
+      .filter((trainer) => !branchId || trainer.branchId === branchId)
+      .sort((left, right) => (left.name || '').localeCompare(right.name || '', 'vi'))
+  }, [correction?.records, trainers])
 
   const load = useCallback(async (append = false) => {
     if (!subjectId) return
@@ -244,6 +292,93 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
     setEndDate(todayKey())
   }
 
+  const openCorrection = (shift: TrainerTeachingShift) => {
+    setCorrectionError('')
+    setCorrectionNotice('')
+    const sourceTrainerId = shift.records[0]?.trainerId || subjectId
+    const sourceBranchId = shift.records.find((record) => record.branchId)?.branchId || ''
+    const sourceTrainerAvailable = trainers.some((trainer) => trainer.id === sourceTrainerId && trainer.status !== 'inactive' && (!sourceBranchId || trainer.branchId === sourceBranchId))
+    setCorrection({
+      records: shift.records,
+      date: shift.date,
+      hour: shift.hour === null ? '' : String(shift.hour),
+      trainerId: sourceTrainerAvailable ? sourceTrainerId : '',
+      reason: '',
+      attendanceStatuses: Object.fromEntries(shift.records.map((record) => [record.id, editableAttendanceStatus(record)])),
+      attendanceTouched: Object.fromEntries(shift.records.map((record) => [record.id, false])),
+      lateMinutes: Object.fromEntries(shift.records.map((record) => [record.id, record.attendance?.lateMinutes === 10 || record.attendance?.lateMinutes === 15 ? record.attendance.lateMinutes : 5])),
+      noShowReasons: Object.fromEntries(shift.records.map((record) => {
+        const value = record.attendance?.noShowReason
+        return [record.id, ['busy', 'sick', 'forgot', 'unreachable', 'other'].includes(value || '') ? value : '']
+      })) as TeachingShiftCorrectionDraft['noShowReasons'],
+    })
+  }
+
+  useEffect(() => {
+    if (!focusSessionId || !canCorrectTeachingShift || consumedFocusSession.current === focusSessionId || correction) return
+    const targetShift = trainerShifts.find((shift) => shift.records.some((record) => record.id === focusSessionId))
+    if (!targetShift) return
+    consumedFocusSession.current = focusSessionId
+    openCorrection(targetShift)
+  }, [canCorrectTeachingShift, correction, focusSessionId, trainerShifts]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!correction) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !correctionSaving) setCorrection(null)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [correction, correctionSaving])
+
+  const submitCorrection = async () => {
+    if (!correction || correctionSaving) return
+    const parsedHour = Number(correction.hour)
+    if (!correction.date || !Number.isInteger(parsedHour) || parsedHour < 0 || parsedHour > 23 || !correction.trainerId) {
+      setCorrectionError('Vui lòng chọn đủ ngày, giờ và PT thực dạy.')
+      return
+    }
+    if (correction.reason.trim().length < 3) {
+      setCorrectionError('Lý do điều chỉnh cần ít nhất 3 ký tự.')
+      return
+    }
+    setCorrectionSaving(true)
+    setCorrectionError('')
+    try {
+      const result = await correctTeachingShift({
+        items: correction.records.map((record) => {
+          const attendanceStatus = correction.attendanceTouched[record.id] ? correction.attendanceStatuses[record.id] : ''
+          return {
+            sessionId: record.id,
+            expectedRevision: record.revision,
+            ...(record.attendance?.id ? { attendanceEventId: record.attendance.id } : {}),
+            ...(attendanceStatus ? {
+              attendanceStatus,
+              ...(attendanceStatus === 'late' ? { lateMinutes: correction.lateMinutes[record.id] } : {}),
+              ...(attendanceStatus === 'no_show' ? { noShowReason: correction.noShowReasons[record.id] } : {}),
+            } : {}),
+          }
+        }),
+        date: correction.date,
+        hour: parsedHour,
+        trainerId: correction.trainerId,
+        reason: correction.reason.trim(),
+      })
+      setCorrection(null)
+      setCorrectionNotice(result.unchanged
+        ? 'Ca không có thay đổi mới.'
+        : result.invalidatedPayrollPeriods.length
+          ? `Đã điều chỉnh ca. Kỳ lương ${result.invalidatedPayrollPeriods.join(', ')} cần xóa nháp và lập lại.`
+          : 'Đã điều chỉnh ca và lưu đầy đủ lịch sử đối soát.')
+      await load(false)
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'Không thể điều chỉnh ca.'
+      setCorrectionError(message.replace(/^Firebase:\s*/i, '').replace(/^FunctionsError:\s*/i, ''))
+    } finally {
+      setCorrectionSaving(false)
+    }
+  }
+
   const counterpartLabel = subject === 'student' ? 'PT phụ trách' : 'Học viên'
   return <section className="training-history" aria-busy={loading}>
     <header className="training-history__header">
@@ -260,6 +395,7 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
       </div>}
     </div>
     {error && <div className="training-history__notice"><CircleAlert size={18} /> {error}</div>}
+    {correctionNotice && <div className="training-history__notice is-success"><CheckCircle2 size={18} /> {correctionNotice}</div>}
     {usageError && subject === 'student' ? <div className="training-history__notice"><CircleAlert size={18} /> {usageError}</div> : null}
     {selectedUsage ? <section className="training-history__contract-usage">
       <header><div><small>GÓI ĐANG ĐỐI CHIẾU</small><strong>{selectedUsage.packageName}</strong></div><span><b>{selectedUsage.usedSessions}</b>/{selectedUsage.totalSessions} buổi</span></header>
@@ -278,11 +414,32 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
       {loading && !page ? <div className="training-history__empty">Đang tải lịch sử an toàn…</div> : null}
       {!loading && !error && page && page.records.length === 0 ? <div className="training-history__empty">Không có buổi tập nào trong bộ lọc này.</div> : null}
       {subject === 'trainer' ? trainerShifts.map((shift) => <article className="training-history__shift" key={shift.key}>
-        <header><div className="training-history__date"><strong>{shift.date.slice(8) || '—'}</strong><span>{shift.date.slice(5, 7) || '—'}</span></div><div><small>CA DẠY</small><h4>{formatDate(shift.date)} {shift.hour !== null ? `· ${String(shift.hour).padStart(2, '0')}:00` : ''}</h4><p><UsersRound size={14} /> {shift.studentCount} học viên</p></div><em className={shift.studentCount >= 2 ? 'is-paired' : ''}>{shift.studentCount >= 2 ? 'Ca đôi' : 'Ca đơn'}</em></header>
+        <header><div className="training-history__date"><strong>{shift.date.slice(8) || '—'}</strong><span>{shift.date.slice(5, 7) || '—'}</span></div><div><small>CA DẠY</small><h4>{formatDate(shift.date)} {shift.hour !== null ? `· ${String(shift.hour).padStart(2, '0')}:00` : ''}</h4><p><UsersRound size={14} /> {shift.studentCount} học viên</p></div><div className="training-history__shift-actions"><em className={shift.studentCount >= 2 ? 'is-paired' : ''}>{shift.studentCount >= 2 ? 'Ca đôi' : 'Ca đơn'}</em>{canCorrectTeachingShift ? <button type="button" onClick={() => openCorrection(shift)}><PencilLine size={14} /> Điều chỉnh</button> : null}</div></header>
         <div className="training-history__shift-students">{shift.records.map((record, index) => <section key={record.id}><span className="training-history__student-order">{index + 1}</span><div className="training-history__shift-student-main"><strong>{record.counterpartName}</strong><RecordAuditDetails record={record} /></div><div className="training-history__shift-state"><span className={`training-history__status training-history__status--${record.status}`}>{statusLabel(record.status)}</span><small>{record.attendance?.attendanceStatus && record.attendance.attendanceStatus !== 'pending' ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}{attendanceLabel(record)}</small></div></section>)}</div>
       </article>) : page?.records.map((record) => <article className="training-history__record" key={record.id}><div className="training-history__date"><strong>{record.date.slice(8) || '—'}</strong><span>{record.date.slice(5, 7) || '—'}</span></div><div className="training-history__record-main"><div className="training-history__record-title"><strong>{formatDate(record.date)} {record.hour !== null ? `· ${String(record.hour).padStart(2, '0')}:00` : ''}</strong>{!['completed', 'attended', 'no_show'].includes(record.status) ? <span className={`training-history__status training-history__status--${record.status}`}>{statusLabel(record.status)}</span> : null}</div><p><UserRound size={14} /> {counterpartLabel}: <b>{record.counterpartName}</b></p><RecordAuditDetails record={record} /></div><div className="training-history__attendance">{record.attendance?.attendanceStatus && record.attendance.attendanceStatus !== 'pending' ? <CheckCircle2 size={18} /> : <Clock3 size={18} />}<span>{attendanceLabel(record)}</span></div></article>)}
     </div>
     {page?.summary.truncated ? <p className="training-history__truncated">Tóm tắt bị giới hạn để bảo vệ hiệu năng. Hãy thu hẹp khoảng thời gian để xem số liệu đầy đủ.</p> : null}
     {page?.hasMore ? <button type="button" className="training-history__more" disabled={loading} onClick={() => void load(true)}>{loading ? 'Đang tải…' : 'Tải thêm lịch sử'}</button> : null}
+    {correction ? <div className="training-history__correction-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !correctionSaving) setCorrection(null) }}>
+      <section className="training-history__correction" role="dialog" aria-modal="true" aria-labelledby="teaching-shift-correction-title">
+        <header><div><small>ĐỐI SOÁT CÓ AUDIT</small><h3 id="teaching-shift-correction-title">Điều chỉnh ca dạy</h3><p>{correction.records.length} học viên · mọi thay đổi được lưu lại</p></div><button type="button" aria-label="Đóng điều chỉnh ca" disabled={correctionSaving} onClick={() => setCorrection(null)}><X size={20} /></button></header>
+        <div className="training-history__correction-grid">
+          <label><span>Ngày thực dạy</span><input type="date" value={correction.date} onChange={(event) => setCorrection((current) => current ? { ...current, date: event.target.value } : current)} /></label>
+          <label><span>Giờ bắt đầu</span><select value={correction.hour} onChange={(event) => setCorrection((current) => current ? { ...current, hour: event.target.value } : current)}>{Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}</select></label>
+          <label className="is-wide"><span>PT thực dạy</span><select value={correction.trainerId} onChange={(event) => setCorrection((current) => current ? { ...current, trainerId: event.target.value } : current)}><option value="" disabled>Chọn PT thực dạy</option>{correctionTrainerOptions.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name || `PT ${trainer.id.slice(-6)}`}</option>)}</select></label>
+        </div>
+        <div className="training-history__correction-attendance">
+          <strong>Hiện diện từng học viên</strong>
+          {correction.records.map((record) => {
+            const attendanceStatus = correction.attendanceStatuses[record.id]
+            return <article key={record.id}><div><UserRound size={16} /><span><b>{record.counterpartName}</b><small>{record.attendance ? attendanceLabel(record) : 'Chưa có bản ghi điểm danh'}</small></span></div><div className="training-history__correction-attendance-fields"><select aria-label={`Hiện diện ${record.counterpartName}`} value={attendanceStatus} disabled={!record.attendance} onChange={(event) => setCorrection((current) => current ? { ...current, attendanceStatuses: { ...current.attendanceStatuses, [record.id]: event.target.value as EditableAttendanceStatus }, attendanceTouched: { ...current.attendanceTouched, [record.id]: true } } : current)}><option value="">Giữ nguyên</option><option value="present">Có tập</option><option value="late">Đi trễ</option><option value="no_show">Không đến</option></select>{attendanceStatus === 'late' ? <select aria-label={`Số phút đi trễ ${record.counterpartName}`} value={correction.lateMinutes[record.id]} onChange={(event) => setCorrection((current) => current ? { ...current, lateMinutes: { ...current.lateMinutes, [record.id]: Number(event.target.value) as 5 | 10 | 15 }, attendanceTouched: { ...current.attendanceTouched, [record.id]: true } } : current)}><option value={5}>5 phút</option><option value={10}>10 phút</option><option value={15}>15+ phút</option></select> : null}{attendanceStatus === 'no_show' ? <select aria-label={`Lý do vắng ${record.counterpartName}`} value={correction.noShowReasons[record.id]} onChange={(event) => setCorrection((current) => current ? { ...current, noShowReasons: { ...current.noShowReasons, [record.id]: event.target.value as TeachingShiftCorrectionDraft['noShowReasons'][string] }, attendanceTouched: { ...current.attendanceTouched, [record.id]: true } } : current)}>{noShowReasonOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : null}</div></article>
+          })}
+        </div>
+        <label className="training-history__correction-reason"><span>Lý do bắt buộc</span><textarea maxLength={500} value={correction.reason} onChange={(event) => setCorrection((current) => current ? { ...current, reason: event.target.value } : current)} placeholder="Ví dụ: PT thực dạy khác với lịch ban đầu; đối soát theo camera và xác nhận quản lý." /></label>
+        <div className="training-history__correction-policy"><CircleAlert size={18} /><p>Kỳ lương nháp liên quan sẽ được đánh dấu cần lập lại. Kỳ đã duyệt, khóa hoặc chi sẽ không được sửa trực tiếp.</p></div>
+        {correctionError ? <div className="training-history__notice"><CircleAlert size={18} /> {correctionError}</div> : null}
+        <footer><button type="button" disabled={correctionSaving} onClick={() => setCorrection(null)}>Hủy</button><button type="button" disabled={correctionSaving || correction.reason.trim().length < 3 || !correction.trainerId} onClick={() => void submitCorrection()}><Save size={16} /> {correctionSaving ? 'Đang đối soát…' : 'Xác nhận điều chỉnh'}</button></footer>
+      </section>
+    </div> : null}
   </section>
 }

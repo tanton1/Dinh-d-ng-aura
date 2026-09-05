@@ -988,7 +988,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           policyIds: Array.isArray(data.policyIds) ? data.policyIds : data.policyId ? [data.policyId] : [],
           policyApplicationMode: data.policyApplicationMode || 'single',
           status: data.status || 'draft',
-          requiresRebuild: Number(data.schemaVersion || 0) < 7 || Number(data.commissionFormulaVersion || 0) < 2,
+          requiresRebuild: data.requiresRebuild === true || data.sourceDataStale === true || Number(data.schemaVersion || 0) < 7 || Number(data.commissionFormulaVersion || 0) < 2,
           storedTeachingSlotCount,
           attendanceCount: storedTeachingSlotCount,
           teachingSlotCount: storedTeachingSlotCount,
@@ -1026,7 +1026,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
     const runData = run.data()
     const itemValues = items.docs.map((item) => ({ id: item.id, ...item.data() }))
     const teachingRequiresRebuild = Number(runData.schemaVersion || 0) < 5 || itemValues.some((item) => !Array.isArray(item.teachingSlots))
-    const requiresRebuild = teachingRequiresRebuild || Number(runData.schemaVersion || 0) < 7 || Number(runData.commissionFormulaVersion || 0) < 2
+    const requiresRebuild = runData.requiresRebuild === true || runData.sourceDataStale === true || teachingRequiresRebuild || Number(runData.schemaVersion || 0) < 7 || Number(runData.commissionFormulaVersion || 0) < 2
     let responseItems = itemValues
     let previewSummary = null
     if (teachingRequiresRebuild && runData.status === 'draft') {
