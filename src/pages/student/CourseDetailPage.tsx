@@ -360,6 +360,7 @@ export default function CourseDetailPage({
           ownerId={noteOwnerId}
           courseId={String(course.id)}
           coreLesson={selectedLesson}
+          reviewLessons={navigationLessons}
           canStudy={canStudy && !previewMode}
           quizCompleted={selectedChapterQuizCompleted}
           quizContent={selectedChapterQuiz

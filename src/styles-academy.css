@@ -51,7 +51,24 @@
 .academy-review-stat { flex: 0 0 auto; min-width: 112px; display: flex; align-items: center; justify-content: center; gap: 9px; padding: 12px; border: 1px solid rgba(255,255,255,.22); border-radius: 13px; background: rgba(255,255,255,.1); }
 .academy-review-stat span { display: flex; flex-direction: column; }
 .academy-review-stat strong { font-size: 19px; line-height: 1; }
-.academy-review-stat small { margin-top: 4px; color: #e4dfff; font-size: 8px; }
+.academy-review-stat small { margin-top: 4px; color: #e4dfff; font-size: 12px; }
+
+.academy-review-queue { overflow: hidden; padding: 16px; border: 1px solid #dbe8e2; border-radius: 16px; background: #f8fcfa; }
+.academy-review-queue.has-due { border-color: #e8c99a; background: #fffaf2; }
+.academy-review-queue > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.academy-review-queue > header > div { min-width: 0; display: flex; align-items: center; gap: 10px; color: #14805e; }
+.academy-review-queue.has-due > header > div { color: #a65a16; }
+.academy-review-queue > header > div > span { min-width: 0; display: grid; gap: 2px; }
+.academy-review-queue > header small { color: #789087; font-size: 12px; font-weight: 850; letter-spacing: .7px; }
+.academy-review-queue > header h3 { margin: 0; color: #273d36; font-size: 15px; }
+.academy-review-queue > header > button { min-height: 44px; flex: 0 0 auto; padding: 0 14px; border: 1px solid #dfba83; border-radius: 12px; color: #8b4c12; background: #fff; font-size: 12px; font-weight: 850; }
+.academy-review-queue > p { margin: 10px 0 0; color: #65756f; font-size: 12px; line-height: 1.55; }
+.academy-review-queue__clear { min-height: 32px; display: inline-flex; align-items: center; gap: 6px; color: #14805e; font-size: 12px; font-weight: 800; }
+.academy-review-queue__session { display: grid; gap: 10px; margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(166,90,22,.18); }
+.academy-review-queue__progress { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #6c5a4b; font-size: 12px; }
+.academy-review-queue__progress span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.academy-review-queue__progress strong { flex: 0 0 auto; color: #8b4c12; font-size: 12px; }
+.academy-review-queue__card { min-height: 190px; background-color: #fff; }
 
 .academy-minute-summary { padding: 18px 20px; border: 1px solid #e1dcff; border-radius: 15px; background: linear-gradient(135deg, #f8f6ff, #fff); }
 .academy-minute-summary > div { display: flex; align-items: center; gap: 7px; margin-bottom: 9px; color: var(--primary); font-size: 9px; font-weight: 850; letter-spacing: 1.2px; }
@@ -88,9 +105,9 @@
 .academy-rating-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
 .academy-rating-grid button { min-height: 54px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 1px solid #e1dee9; border-radius: 10px; background: #fff; }
 .academy-rating-grid button:hover { color: var(--primary); border-color: #c9bdff; background: #faf9ff; }
-.academy-rating-grid strong { font-size: 10px; }
-.academy-rating-grid small { color: var(--muted); font-size: 7px; }
-.academy-review-hint, .academy-review-success { margin: 10px 0 0; color: var(--muted); font-size: 9px; text-align: center; }
+.academy-rating-grid strong { font-size: 12px; }
+.academy-rating-grid small { color: var(--muted); font-size: 12px; }
+.academy-review-hint, .academy-review-success { margin: 10px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
 .academy-review-success { display: flex; align-items: center; justify-content: center; gap: 5px; color: #48762f; }
 .academy-empty { display: grid; place-items: center; padding: 44px 20px; color: var(--muted); text-align: center; }
 .academy-empty h2 { margin: 9px 0 5px; color: var(--ink); font-size: 17px; }
@@ -119,6 +136,9 @@
   .academy-memory-editor > header, .academy-editor-section, .academy-study-section { padding: 14px; }
   .academy-study-hero { flex-direction: column; padding: 16px; }
   .academy-review-stat { width: 100%; justify-content: flex-start; }
+  .academy-review-queue > header { align-items: flex-start; }
+  .academy-review-queue > header > button { min-width: 104px; }
+  .academy-review-queue__progress { align-items: flex-start; flex-direction: column; gap: 4px; }
   .academy-inline-field { grid-template-columns: 24px minmax(0, 1fr) 28px; }
   .academy-flashcard { min-height: 185px; padding: 18px; }
 }
@@ -239,6 +259,11 @@
 .academy-learning-studio__header span { color: #ffd5e5; font-size: 11px; font-weight: 850; letter-spacing: .9px; }
 .academy-learning-studio__header h2 { margin: 6px 0 7px; color: #fff; font-size: clamp(24px, 3vw, 34px); line-height: 1.1; letter-spacing: -.035em; }
 .academy-learning-studio__header p { max-width: 690px; margin: 0; color: rgba(255,255,255,.82); font-size: 14px; line-height: 1.6; }
+.academy-learning-studio__status { flex: 0 0 auto; display: grid; justify-items: center; gap: 8px; align-self: center; }
+.academy-learning-studio__status > span { min-height: 28px; display: inline-flex; align-items: center; padding: 4px 10px; border: 1px solid rgba(255,255,255,.24); border-radius: 999px; color: #fff; background: rgba(255,255,255,.12); font-size: 12px; letter-spacing: 0; }
+.academy-learning-studio__status > span.is-review { color: #fff1d6; border-color: rgba(255,223,164,.38); background: rgba(121,70,17,.34); }
+.academy-learning-studio__status > span.is-ready { color: #def7eb; border-color: rgba(185,237,214,.38); background: rgba(20,128,94,.3); }
+.academy-learning-studio__status > span.is-mastered { color: #e4ffe3; border-color: rgba(197,243,193,.42); background: rgba(42,120,50,.34); }
 .academy-learning-studio__mastery-total { min-width: 104px; display: grid; place-items: center; align-self: center; padding: 14px; border: 1px solid rgba(255,255,255,.2); border-radius: 16px; background: rgba(255,255,255,.1); backdrop-filter: blur(8px); }
 .academy-learning-studio__mastery-total strong { color: #fff; font-size: 24px; line-height: 1; }
 .academy-learning-studio__mastery-total span { margin-top: 5px; color: #ffe7f0; font-size: 12px; letter-spacing: 0; }
@@ -376,6 +401,8 @@
   .academy-learning-studio__header { min-height: 118px; align-items: center; padding: 21px 16px; }
   .academy-learning-studio__header h2 { font-size: 25px; }
   .academy-learning-studio__header p { font-size: 13px; }
+  .academy-learning-studio__status { gap: 6px; }
+  .academy-learning-studio__status > span { min-height: 26px; padding: 3px 8px; }
   .academy-learning-studio__mastery-total { min-width: 72px; padding: 10px 8px; border-radius: 13px; }
   .academy-learning-studio__mastery-total strong { font-size: 20px; }
   .academy-learning-studio__mastery-total span { font-size: 10px; }

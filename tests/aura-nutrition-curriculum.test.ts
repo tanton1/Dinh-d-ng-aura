@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { auraFoundationCourse } from '../src/course-template'
 import { auraNutritionCurriculumStats, auraNutritionPhases } from '../src/data/auraNutritionCurriculum'
+import { getDueAcademyReviewCards } from '../src/features/academy/reviewQueue'
+import type { AcademyReviewState } from '../src/services/academyLearningService'
 
 test('AURA nutrition curriculum contains four phases, 20 chapters and 60 lessons', () => {
   assert.equal(auraNutritionPhases.length, 4)
@@ -163,4 +165,53 @@ test('Academy practice sync detects device conflicts and sharing stays explicit'
   assert.match(learningStudio, /Chia sẻ bài thực hành với coach phụ trách/)
   assert.match(firestoreRules, /request\.resource\.data\.revision == resource\.data\.revision \+ 1/)
   assert.match(firestoreRules, /resource\.data\.sharedWithCoach == true && coachOwnsClient\(userId\)/)
+})
+
+test('Academy review queue includes only previously reviewed cards that are due', () => {
+  const firstLesson = auraFoundationCourse.modules[0].lessons[0]
+  const secondLesson = auraFoundationCourse.modules[1].lessons[0]
+  const dueCard = firstLesson.memory?.flashcards[0]
+  const futureCard = secondLesson.memory?.flashcards[0]
+  assert.ok(dueCard)
+  assert.ok(futureCard)
+  const now = Date.UTC(2026, 8, 6, 9)
+  const state: AcademyReviewState = {
+    version: 1,
+    cards: {
+      [`${firstLesson.id}:${dueCard.id}`]: {
+        lessonId: firstLesson.id,
+        cardId: dueCard.id,
+        rating: 'hard',
+        repetitions: 1,
+        intervalDays: 1,
+        reviewedAt: now - 2 * 86_400_000,
+        dueAt: now - 86_400_000,
+      },
+      [`${secondLesson.id}:${futureCard.id}`]: {
+        lessonId: secondLesson.id,
+        cardId: futureCard.id,
+        rating: 'good',
+        repetitions: 1,
+        intervalDays: 1,
+        reviewedAt: now,
+        dueAt: now + 86_400_000,
+      },
+    },
+  }
+
+  const queue = getDueAcademyReviewCards([
+    {
+      lessonId: secondLesson.id,
+      lessonTitle: secondLesson.title,
+      chapterLabel: 'Chương 2',
+      cards: secondLesson.memory?.flashcards ?? [],
+    },
+    {
+      lessonId: firstLesson.id,
+      lessonTitle: firstLesson.title,
+      chapterLabel: 'Chương 1',
+      cards: firstLesson.memory?.flashcards ?? [],
+    },
+  ], state, now)
+  assert.deepEqual(queue.map((item) => `${item.lessonId}:${item.id}`), [`${firstLesson.id}:${dueCard.id}`])
 })

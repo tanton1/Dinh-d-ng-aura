@@ -21,7 +21,6 @@ import { auraNutritionStudyGuides } from '../../data/auraNutritionStudyGuides'
 import {
   AcademyWorkbookConflictError,
   loadAcademyReviewState,
-  loadAcademyReviewStateFromCloud,
   loadAcademyWorkbook,
   loadAcademyWorkbookFromCloud,
   saveAcademyWorkbook,
@@ -39,6 +38,7 @@ type AcademyChapterLearningStudioProps = {
   ownerId: string
   courseId: string
   coreLesson: CourseLessonDraft
+  reviewLessons?: CourseLessonDraft[]
   canStudy: boolean
   quizCompleted: boolean
   quizContent: ReactNode
@@ -77,6 +77,29 @@ const decisionCopy: Array<{ value: NonNullable<AcademyWorkbookState['decision']>
   { value: 'refer', label: 'Hỏi chuyên môn' },
 ]
 
+function academyStudyLesson(lesson: CourseLessonDraft): CourseLessonDraft {
+  const chapterTag = lesson.tags?.find((tag) => /^Chương\s+\d+$/i.test(tag))
+  const chapter = Number(chapterTag?.match(/\d+/)?.[0])
+  const source = Number.isInteger(chapter) ? getAuraNutritionChapter(chapter) : undefined
+  const guide = Number.isInteger(chapter) ? auraNutritionStudyGuides[chapter] : undefined
+  const design = lesson.learningDesign ?? (source && guide ? buildAuraNutritionLearningDesign(source, guide) : null)
+  if (!source || !design || (lesson.memory?.flashcards.length ?? 0) >= 6) return lesson
+  return {
+    ...lesson,
+    memory: {
+      recap: source.promise,
+      takeaways: [...source.takeaways],
+      glossary: source.glossary.map(([term, definition], index) => ({ id: `${design.chapterId}-term-${index + 1}`, term, definition })),
+      recallPrompts: [
+        { id: `${design.chapterId}-recall-1`, prompt: `Hãy giải thích ý chính của “${source.title}” bằng lời của bạn.`, answer: source.takeaways.join(' ') },
+        { id: `${design.chapterId}-recall-2`, prompt: 'Dữ liệu nào cần quan sát trước khi điều chỉnh?', answer: source.practiceSteps.join(' ') },
+        { id: `${design.chapterId}-recall-3`, prompt: 'Khi nào cần dừng tự thử và hỏi chuyên môn?', answer: source.safety },
+      ],
+      flashcards: design.cards.map((card) => ({ id: card.id, front: card.title, back: [card.body, card.detail].filter(Boolean).join(' '), hint: cardCopy[card.kind].label })),
+    },
+  }
+}
+
 function studioStorageKey(ownerId: string, chapter: number) {
   return `aura:academy:chapter-studio:v1:${ownerId || 'guest'}:${chapter}`
 }
@@ -100,6 +123,7 @@ export default function AcademyChapterLearningStudio({
   ownerId,
   courseId,
   coreLesson,
+  reviewLessons = [],
   canStudy,
   quizCompleted,
   quizContent,
@@ -110,23 +134,14 @@ export default function AcademyChapterLearningStudio({
     if (coreLesson.learningDesign) return coreLesson.learningDesign
     return source && guide ? buildAuraNutritionLearningDesign(source, guide) : null
   }, [coreLesson.learningDesign, guide, source])
-  const studyLesson = useMemo<CourseLessonDraft>(() => {
-    if (!source || !design || (coreLesson.memory?.flashcards.length ?? 0) >= 6) return coreLesson
-    return {
-      ...coreLesson,
-      memory: {
-        recap: source.promise,
-        takeaways: [...source.takeaways],
-        glossary: source.glossary.map(([term, definition], index) => ({ id: `${design.chapterId}-term-${index + 1}`, term, definition })),
-        recallPrompts: [
-          { id: `${design.chapterId}-recall-1`, prompt: `Hãy giải thích ý chính của “${source.title}” bằng lời của bạn.`, answer: source.takeaways.join(' ') },
-          { id: `${design.chapterId}-recall-2`, prompt: 'Dữ liệu nào cần quan sát trước khi điều chỉnh?', answer: source.practiceSteps.join(' ') },
-          { id: `${design.chapterId}-recall-3`, prompt: 'Khi nào cần dừng tự thử và hỏi chuyên môn?', answer: source.safety },
-        ],
-        flashcards: design.cards.map((card) => ({ id: card.id, front: card.title, back: [card.body, card.detail].filter(Boolean).join(' '), hint: cardCopy[card.kind].label })),
-      },
-    }
-  }, [coreLesson, design, source])
+  const studyLessons = useMemo(() => {
+    const candidates = reviewLessons.length ? reviewLessons : [coreLesson]
+    return candidates.map(academyStudyLesson)
+  }, [coreLesson, reviewLessons])
+  const studyLesson = useMemo(
+    () => studyLessons.find((lesson) => lesson.id === coreLesson.id) ?? academyStudyLesson(coreLesson),
+    [coreLesson, studyLessons],
+  )
   const [activeView, setActiveView] = useState<StudioView>(() => readInitialView(ownerId, chapter))
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({})
   const [workbook, setWorkbook] = useState<AcademyWorkbookState>(() => loadAcademyWorkbook(ownerId, courseId, coreLesson.id))
@@ -176,9 +191,6 @@ export default function AcademyChapterLearningStudio({
         }
       })
     setReviews(loadAcademyReviewState(ownerId, courseId))
-    void loadAcademyReviewStateFromCloud(ownerId, courseId)
-      .then((remote) => { if (active) setReviews(remote) })
-      .catch(() => undefined)
     return () => { active = false }
   }, [coreLesson.id, courseId, ownerId, workbookScope])
 
@@ -215,6 +227,10 @@ export default function AcademyChapterLearningStudio({
   const microCheckPercent = design.microChecks.length ? Math.round((correctMicroChecks / design.microChecks.length) * 100) : 0
   const reviewedCards = design.cards.filter((card) => reviews.cards[`${coreLesson.id}:${card.id}`]?.reviewedAt).length
   const memoryPercent = design.cards.length ? Math.round((reviewedCards / design.cards.length) * 100) : 0
+  const dueReviewCount = design.cards.filter((card) => {
+    const progress = reviews.cards[`${coreLesson.id}:${card.id}`]
+    return Boolean(progress?.reviewedAt && progress.dueAt <= Date.now())
+  }).length
   const practiceComplete = design.practice.fields.filter((field) => field.required).every((field) => {
     const value = field.id === 'reviewAt' ? workbook.reviewAt : workbook.answers[field.id]
     return String(value ?? '').trim().length > 0
@@ -227,6 +243,20 @@ export default function AcademyChapterLearningStudio({
   ]
   const masteredCount = mastery.filter((item) => item.done).length
   const nextStep = mastery.find((item) => !item.done)
+  const journeyStatus = masteredCount === mastery.length
+    ? 'Đã nắm vững'
+    : dueReviewCount > 0
+      ? 'Cần ôn'
+      : mastery[0].done && mastery[1].done
+        ? 'Sẵn sàng thực hành'
+        : 'Đang học'
+  const journeyStatusTone = journeyStatus === 'Đã nắm vững'
+    ? 'mastered'
+    : journeyStatus === 'Cần ôn'
+      ? 'review'
+      : journeyStatus === 'Sẵn sàng thực hành'
+        ? 'ready'
+        : 'learning'
 
   const updateWorkbook = (update: (current: AcademyWorkbookState) => AcademyWorkbookState) => {
     if (!canStudy) return
@@ -262,7 +292,7 @@ export default function AcademyChapterLearningStudio({
           <h2 id={`academy-learning-studio-${chapter}`}>Hiểu · Nhớ · Làm · Dùng</h2>
           <p>{source.promise}</p>
         </div>
-        <div className="academy-learning-studio__mastery-total"><strong>{masteredCount}/4</strong><span>năng lực đạt</span></div>
+        <div className="academy-learning-studio__status"><span className={`is-${journeyStatusTone}`}>{journeyStatus}</span><div className="academy-learning-studio__mastery-total"><strong>{masteredCount}/4</strong><span>năng lực đạt</span></div></div>
       </header>
 
       <div className="academy-mastery-strip" aria-label="Mức độ nắm vững chương">
@@ -335,7 +365,7 @@ export default function AcademyChapterLearningStudio({
         </div>
       ) : null}
 
-      {activeView === 'remember' ? <div className="academy-learning-studio__panel"><AcademyLessonStudy ownerId={ownerId} courseId={courseId} lesson={studyLesson} canReview={canStudy} onReviewStateChange={setReviews} /></div> : null}
+      {activeView === 'remember' ? <div className="academy-learning-studio__panel"><AcademyLessonStudy ownerId={ownerId} courseId={courseId} lesson={studyLesson} reviewLessons={studyLessons} canReview={canStudy} onReviewStateChange={setReviews} /></div> : null}
 
       {activeView === 'practice' ? (
         <div className="academy-learning-studio__panel">
