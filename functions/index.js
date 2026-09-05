@@ -991,7 +991,10 @@ async function mealSlotsLoggedForDate(userId, dateString) {
 async function requireStudentAccount(request) {
   const userId = requireCaller(request)
   const profileSnapshot = await db.doc(`users/${userId}`).get()
-  if (!profileSnapshot.exists || !hasTrustedRole(request, profileSnapshot.data(), studentOnlyRoles)) {
+  // These callables only read and write the caller's own plan under users/{uid}.
+  // Aura staff/admin accounts can also use the member nutrition workspace, so
+  // requiring the singular "student" role incorrectly rejects those accounts.
+  if (!profileSnapshot.exists || !hasTrustedRole(request, profileSnapshot.data(), assignableRoles)) {
     throw new HttpsError('permission-denied', 'Tài khoản không thể truy cập kế hoạch dinh dưỡng cá nhân.')
   }
   return userId

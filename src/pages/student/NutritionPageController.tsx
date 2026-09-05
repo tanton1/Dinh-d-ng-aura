@@ -275,6 +275,34 @@ const DEFAULT_PROFILE: NutritionProfileDraft = {
   }
 }
 
+function normalizeNutritionProfileDraft(profile?: NutritionProfileDraft | null): NutritionProfileDraft {
+  const merged = {
+    ...DEFAULT_PROFILE,
+    ...(profile ?? {}),
+    reminders: {
+      ...DEFAULT_PROFILE.reminders,
+      ...(profile?.reminders ?? {}),
+    },
+  }
+  const trainingSessions = Number(merged.trainingSessions)
+  const mealsPerDay = Number(merged.mealsPerDay)
+  return {
+    ...merged,
+    reminders: {
+      water: merged.reminders.water ?? false,
+      breakfast: merged.reminders.breakfast ?? false,
+      lunch: merged.reminders.lunch ?? false,
+      dinner: merged.reminders.dinner ?? false,
+    },
+    trainingSessions: Number.isFinite(trainingSessions)
+      ? Math.min(14, Math.max(0, Math.round(trainingSessions)))
+      : DEFAULT_PROFILE.trainingSessions,
+    mealsPerDay: Number.isFinite(mealsPerDay)
+      ? Math.min(5, Math.max(3, Math.round(mealsPerDay)))
+      : DEFAULT_PROFILE.mealsPerDay,
+  }
+}
+
 function hasCompleteNutritionProfile(profile?: NutritionProfileDraft | null) {
   if (!profile) return false
   const age = Number(profile.age)
@@ -1018,7 +1046,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const activityStorageKey = `${ACTIVITY_STORAGE_PREFIX}:${resolvedOwnerId}`
   const profileIsComplete = isDemo || (hasProfile && hasCompleteNutritionProfile(profile))
   const [profileReady, setProfileReady] = useState(profileIsComplete)
-  const [profileDraft, setProfileDraft] = useState<NutritionProfileDraft>(profile ?? DEFAULT_PROFILE)
+  const [profileDraft, setProfileDraft] = useState<NutritionProfileDraft>(() => normalizeNutritionProfileDraft(profile))
   const [todayKey, setTodayKey] = useState(() => toLocalDateKey(new Date()))
   const recentNutritionFromDate = useMemo(() => {
     const firstDay = new Date()
@@ -1445,7 +1473,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }, [profileIsComplete])
 
   useEffect(() => {
-    if (profile) setProfileDraft(profile)
+    if (profile) setProfileDraft(normalizeNutritionProfileDraft(profile))
   }, [profile])
 
   useEffect(() => {
