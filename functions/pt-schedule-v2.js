@@ -68,6 +68,13 @@ function draftReference(db, branchId, week) {
   return db.doc(`ptScheduleDrafts/${draftId(branchId, week)}`)
 }
 
+function previousWeek(week) {
+  const date = new Date(`${week}T00:00:00.000Z`)
+  if (Number.isNaN(date.getTime())) return ''
+  date.setUTCDate(date.getUTCDate() - 7)
+  return date.toISOString().slice(0, 10)
+}
+
 function safeWeeklySessionTargets(value, allowedStudentIds = null) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   const allowed = allowedStudentIds instanceof Set ? allowedStudentIds : null
@@ -233,19 +240,21 @@ function leaveCovers(leave, trainerId, date) {
 }
 
 async function loadBranchData(db, branchId, week) {
-  const [branch, legacySchedule, draft, students, trainers, weekSessions, activeSessions, config, leaves] = await Promise.all([
+  const priorWeek = previousWeek(week)
+  const [branch, legacySchedule, draft, students, trainers, weekSessions, previousWeekSessions, activeSessions, config, leaves] = await Promise.all([
     db.doc(`branches/${branchId}`).get(),
     db.doc(`schedules/schedule_${week}`).get(),
     draftReference(db, branchId, week).get(),
     db.collection('students').where('branchId', '==', branchId).limit(MAX_STUDENTS + 1).get(),
     db.collection('trainers').where('branchId', '==', branchId).limit(MAX_TRAINERS + 1).get(),
     db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', week).where('date', '<', nextWeek(week)).limit(1001).get(),
+    db.collection('sessions').where('branchId', '==', branchId).where('date', '>=', priorWeek).where('date', '<', week).limit(1001).get(),
     db.collection('sessions').where('branchId', '==', branchId).where('status', 'in', ['scheduled', 'rescheduled']).limit(3001).get(),
     db.doc('settings/scheduleConfig').get(),
     db.collection('leaveRequests').where('status', '==', 'approved').limit(1001).get(),
   ])
   if (!branch.exists || branch.data().status === 'archived') throw new HttpsError('failed-precondition', 'Chi nhánh không hoạt động.')
-  if (students.size > MAX_STUDENTS || trainers.size > MAX_TRAINERS || weekSessions.size > 1000 || activeSessions.size > 3000 || leaves.size > 1000) {
+  if (students.size > MAX_STUDENTS || trainers.size > MAX_TRAINERS || weekSessions.size > 1000 || previousWeekSessions.size > 1000 || activeSessions.size > 3000 || leaves.size > 1000) {
     throw new HttpsError('resource-exhausted', 'Dữ liệu chi nhánh vượt giới hạn workspace an toàn.')
   }
   const studentIds = students.docs.map((item) => item.id)
@@ -266,6 +275,13 @@ async function loadBranchData(db, branchId, week) {
     .filter((item) => studentSet.has(item.studentId))
     .map((item) => [item.id, item]))
   const sessionRows = [...sessionRowsById.values()]
+  const previousWeekSessionCounts = new Map()
+  previousWeekSessions.docs.forEach((item) => {
+    const session = item.data()
+    const status = String(session.status || '').toLowerCase()
+    if (!studentSet.has(session.studentId) || ['cancelled', 'canceled', 'deleted', 'void'].includes(status)) return
+    previousWeekSessionCounts.set(session.studentId, (previousWeekSessionCounts.get(session.studentId) || 0) + 1)
+  })
   const weeklyAvailability = new Map(availability.map((item) => item.data()).filter((item) => studentSet.has(item.studentId)).map((item) => [item.studentId, item]))
   const weeklyTrainerAvailability = new Map(trainerAvailability.map((item) => item.data()).filter((item) => trainerIds.has(item.trainerId)).map((item) => [item.trainerId, item]))
   const inheritedAvailability = await loadLatestSubmittedFallbacks(db, studentMap, weeklyAvailability, week)
@@ -387,6 +403,8 @@ async function loadBranchData(db, branchId, week) {
       activeScheduledSessions: eligibility.activeScheduledSessions,
       activeScheduledThisWeek: eligibility.activeScheduledThisWeek,
       remainingSchedulableSessions: eligibility.remainingSchedulableSessions,
+      previousWeekScheduledSessions: previousWeekSessionCounts.get(item.id) || 0,
+      hadSchedulePreviousWeek: (previousWeekSessionCounts.get(item.id) || 0) > 0,
       contractStatus,
       contractEndDate: latestContractEndDate,
     }
@@ -2529,6 +2547,7 @@ module.exports = {
   repairCoverageWithRelocations,
   studentFeasibilityForSchedule,
   resetDraftSchedule,
+  previousWeek,
   resolveContract,
   safeSchedule,
   safeWeeklySessionTargets,

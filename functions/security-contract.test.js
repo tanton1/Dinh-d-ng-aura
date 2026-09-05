@@ -399,6 +399,8 @@ test('schedule workspace scopes exact availability reads and bounds legacy fallb
   assert.doesNotMatch(ptSchedulePublishSource, /collection\('ptAvailability'\)\.where\('weekId', '==', week\)/)
   assert.match(studentAvailabilitySource, /index \+= 50/)
   assert.match(studentAvailabilitySource, /slice\(index, index \+ 50\)/)
+  assert.match(ptScheduleV2Source, /where\('date', '>=', priorWeek\)\.where\('date', '<', week\)/)
+  assert.match(ptScheduleV2Source, /previousWeekScheduledSessions: previousWeekSessionCounts\.get\(item\.id\) \|\| 0/)
 })
 
 test('access context retries transient infrastructure failures without retrying authorization failures', () => {

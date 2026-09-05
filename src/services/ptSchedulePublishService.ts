@@ -76,6 +76,9 @@ export interface PtScheduleV2Student extends Student {
   activeScheduledSessions?: number
   activeScheduledThisWeek?: number
   remainingSchedulableSessions?: number
+  /** Số buổi có lịch trong tuần liền trước, dùng để chỉ cảnh báo hồ sơ vừa rơi khỏi điều kiện. */
+  previousWeekScheduledSessions?: number
+  hadSchedulePreviousWeek?: boolean
   /** Trạng thái hợp đồng đã đối soát cho tuần đang xem. */
   contractStatus?: 'missing' | 'expired' | 'expiring' | 'quota_exhausted' | 'paused' | 'not_started_or_ended' | 'valid' | string
   contractEndDate?: string | null

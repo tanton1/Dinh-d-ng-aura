@@ -2,10 +2,15 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, OPTIMIZER_VERSION, candidateForSlot, compactPairedSlots, generateSchedule, manualSlotCandidate, repairCoverageWithRelocations, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, trainerProfileForWeek, weeklyTargetForStudent } = require('./pt-schedule-v2')
+const { MAX_DRAFT_DOCUMENT_ENTRIES, MAX_DRAFT_ENTRIES, OPTIMIZER_VERSION, candidateForSlot, compactPairedSlots, generateSchedule, manualSlotCandidate, previousWeek, repairCoverageWithRelocations, resetDraftSchedule, resolveContract, safeSchedule, safeWeeklySessionTargets, slotUtilizationForSchedule, studentWeekEligibility, trainerProfileForWeek, weeklyTargetForStudent } = require('./pt-schedule-v2')
 
 const WEEK = '2026-08-24'
 const BRANCH = 'branch-a'
+
+test('previous week window remains exact across month and year boundaries', () => {
+  assert.equal(previousWeek('2026-09-07'), '2026-08-31')
+  assert.equal(previousWeek('2026-01-05'), '2025-12-29')
+})
 
 function fixture() {
   return {

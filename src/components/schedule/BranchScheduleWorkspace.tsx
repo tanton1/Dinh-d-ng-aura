@@ -64,6 +64,7 @@ interface Props {
 
 type WorkspaceTab = 'matrix' | 'students' | 'warnings' | 'history'
 type StudentFilter = 'all' | 'missing' | 'contract' | 'availability' | 'trainer' | 'ready'
+type WarningFilter = 'needs_schedule' | 'ineligible' | 'pairing' | 'trainer'
 type WorkspaceSyncState = 'connecting' | 'live' | 'syncing' | 'offline'
 const CONFIRMED_AVAILABILITY_STATUSES = new Set(['submitted', 'locked', 'inherited', 'recurring'])
 const QUIET_REFRESH_COOLDOWN_MS = 5_000
@@ -219,6 +220,7 @@ function workspaceRealtimeFingerprint(value: PtScheduleWorkspaceV2Result | null)
     students: value.students.map((student) => [
       student.id, student.status, student.sessionsPerWeek, student.availabilityRevision,
       student.availabilityStatus, student.eligibleForWeek, student.remainingSchedulableSessions,
+      student.previousWeekScheduledSessions,
     ]),
     trainers: value.trainers.map((trainer) => [
       trainer.id, trainer.status, trainer.availabilityRevision, trainer.availabilityMode,
@@ -343,6 +345,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     }
   })
   const [expandedWarningStudentId, setExpandedWarningStudentId] = useState<string | null>(null)
+  const [warningFilter, setWarningFilter] = useState<WarningFilter>('needs_schedule')
   const [availabilityEditorStudentId, setAvailabilityEditorStudentId] = useState<string | null>(null)
   const [availabilityDraft, setAvailabilityDraft] = useState<Set<string>>(new Set())
   const [availabilityBusy, setAvailabilityBusy] = useState(false)
@@ -936,6 +939,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             : null,
       }
     }).filter((profile): profile is NonNullable<typeof profile> => Boolean(profile))
+      // Hồ sơ không đủ điều kiện chỉ còn giá trị vận hành nếu vừa có lịch ở
+      // tuần liền trước, hoặc đang có một ca draft cần xử lý ở tuần hiện tại.
+      // Điều này loại học viên hết hạn từ nhiều tháng/năm trước khỏi cảnh báo.
+      .filter((profile) => profile.student.eligibleForWeek === true
+        || Number(profile.student.previousWeekScheduledSessions || 0) > 0
+        || profile.scheduledEntries.length > 0)
       .sort((left, right) => {
         const priority = (profile: typeof left) => profile.hasConfirmedAvailability && profile.scheduledEntries.length === 0 && profile.missingSessions > 0
           ? 0
@@ -970,14 +979,20 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const warningCount = useMemo(() => {
     return warningProfiles.length + singleSlotWarnings.length + trainerAssignmentWarnings.length + (workspace?.summary.unconfiguredTrainers || 0)
   }, [singleSlotWarnings.length, trainerAssignmentWarnings.length, warningProfiles.length, workspace?.summary.unconfiguredTrainers])
-  const warningCategoryCounts = useMemo(() => ({
-    contract: warningProfiles.filter((profile) => profile.blockerCategory === 'contract'
-      || (Boolean(profile.student.contractStatus) && profile.student.contractStatus !== 'valid')
-      || profile.reasonCodes.some((reason) => reason.includes('CONTRACT') || reason === 'ACTIVE_CONTRACT_NOT_FOUND')).length,
-    availability: warningProfiles.filter((profile) => !profile.hasConfirmedAvailability
-      || profile.blockerCategory === 'learner_availability').length,
-    trainer: warningProfiles.filter((profile) => ['trainer_capacity', 'branch_capacity'].includes(profile.blockerCategory || '')).length,
-  }), [warningProfiles])
+  const schedulableWarningProfiles = useMemo(
+    () => warningProfiles.filter((profile) => profile.student.eligibleForWeek === true),
+    [warningProfiles],
+  )
+  const ineligibleWarningProfiles = useMemo(
+    () => warningProfiles.filter((profile) => profile.student.eligibleForWeek !== true),
+    [warningProfiles],
+  )
+  const visibleWarningProfiles = warningFilter === 'ineligible'
+    ? ineligibleWarningProfiles
+    : warningFilter === 'needs_schedule'
+      ? schedulableWarningProfiles
+      : []
+  const trainerWarningCount = trainerAssignmentWarnings.length + (workspace?.summary.unconfiguredTrainers || 0)
 
   useEffect(() => {
     if (!workspace || !inspectorSlotId || !selectedTrainerId) {
@@ -1444,15 +1459,15 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
       {workspace && tab === 'warnings' && (
         <main id="schedule-panel-warnings" role="tabpanel" aria-labelledby="schedule-tab-warnings" className="branch-schedule__warning-page">
-          <header><p>CẦN XỬ LÝ</p><h2>Cảnh báo xếp lịch</h2><span>Mỗi hồ sơ chỉ hiển thị 1–2 nguyên nhân chính.</span></header>
-          <section className="schedule-warning-summary" aria-label="Tóm tắt cảnh báo">
-            <article><strong>{warningProfiles.length}</strong><span>Hồ sơ cần xử lý</span></article>
-            <article><strong>{warningProfiles.reduce((total, profile) => total + profile.missingSessions, 0)}</strong><span>Buổi còn thiếu</span></article>
-            <article><strong>{warningCategoryCounts.availability}</strong><span>Thiếu lịch rảnh</span></article>
-            <article><strong>{singleSlotWarnings.length}</strong><span>Ca 1/2 có thể ghép</span></article>
-          </section>
-          {singleSlotWarnings.length > 0 && <section className="schedule-pairing-opportunities" aria-label="Ca một học viên còn có thể ghép">
-            <header><div><strong>Ca 1/2 cần ưu tiên ghép</strong><span>Chạm vào ca để mở đúng ô lịch và bổ sung học viên phù hợp.</span></div><b>{slotUtilization.seatUtilizationPercent}% sử dụng ghế</b></header>
+          <header><p>CẦN XỬ LÝ</p><h2>Cảnh báo xếp lịch</h2></header>
+          <nav className="schedule-warning-filters" role="tablist" aria-label="Nhóm cảnh báo">
+            <button type="button" role="tab" aria-selected={warningFilter === 'needs_schedule'} className={warningFilter === 'needs_schedule' ? 'is-active' : ''} onClick={() => setWarningFilter('needs_schedule')}>Cần xếp <b>{schedulableWarningProfiles.length}</b></button>
+            <button type="button" role="tab" aria-selected={warningFilter === 'ineligible'} className={warningFilter === 'ineligible' ? 'is-active' : ''} onClick={() => setWarningFilter('ineligible')}>Không đủ điều kiện <b>{ineligibleWarningProfiles.length}</b></button>
+            <button type="button" role="tab" aria-selected={warningFilter === 'pairing'} className={warningFilter === 'pairing' ? 'is-active' : ''} onClick={() => setWarningFilter('pairing')}>Ca cần ghép <b>{singleSlotWarnings.length}</b></button>
+            <button type="button" role="tab" aria-selected={warningFilter === 'trainer'} className={warningFilter === 'trainer' ? 'is-active' : ''} onClick={() => setWarningFilter('trainer')}>PT <b>{trainerWarningCount}</b></button>
+          </nav>
+          {warningFilter === 'pairing' && singleSlotWarnings.length > 0 && <section className="schedule-pairing-opportunities" aria-label="Ca một học viên còn có thể ghép">
+            <header><div><strong>Ca 1/2 cần ghép</strong></div><b>{slotUtilization.seatUtilizationPercent}% ghế đã dùng</b></header>
             <div>{singleSlotWarnings.map((row) => {
               const [day, hour] = row.slotId.split('-')
               return <button type="button" key={`${row.trainerId}-${row.slotId}`} onClick={() => { setSelectedTrainerId(row.trainerId); setInspectorSlotId(row.slotId); setCandidateSearch(''); setTab('matrix') }}>
@@ -1460,17 +1475,16 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               </button>
             })}</div>
           </section>}
-          {trainerAssignmentWarnings.length > 0 && <section className="schedule-assignment-warnings" aria-label="Ca dùng PT hỗ trợ ngoài danh sách chính phụ">
-            <header><div><strong>PT hỗ trợ ngoài danh sách chính/phụ</strong><span>Ca vẫn hợp lệ trong cùng chi nhánh; cảnh báo giúp quản lý và học viên nhận biết người dạy thay.</span></div><b>{trainerAssignmentWarnings.length} ca</b></header>
+          {warningFilter === 'trainer' && trainerAssignmentWarnings.length > 0 && <section className="schedule-assignment-warnings" aria-label="Ca dùng PT hỗ trợ ngoài danh sách chính phụ">
+            <header><div><strong>PT hỗ trợ ngoài danh sách chính/phụ</strong></div><b>{trainerAssignmentWarnings.length} ca</b></header>
             <div>{trainerAssignmentWarnings.map((row) => <button type="button" key={row.key} onClick={() => { setSelectedTrainerId(row.trainerId); setInspectorSlotId(row.slotId); setCandidateSearch(''); setTab('matrix') }}><AlertTriangle size={16} /><span><strong>{row.studentName}</strong><small>{scheduleSlotLabel(row.slotId, weekDates)} · {row.trainerName}</small></span><ChevronRight size={16} /></button>)}</div>
           </section>}
           <section className="schedule-warning-grid">
-            {workspace.trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').map((trainer) => <article key={trainer.id} className="schedule-warning-trainer is-blocking"><Clock3 /><div><strong>{trainer.name}</strong><span>{trainerEmploymentLabel(trainer.employmentType)} · chưa đăng ký lịch nhận ca nên không được xếp tự động.</span><small>Hạng #{trainer.schedulingPriority || 100} · mốc cân tải {trainer.dailySessionTarget || 8} ca/ngày</small></div></article>)}
-            {warningProfiles.map(({ student, missingSessions: missing, trainerNames, contract, scheduledEntries, reasonCodes, primaryReasonCode, actionCode, diagnostics, candidateSlots, suggestedSlots, hasConfirmedAvailability, offState }) => {
+            {warningFilter === 'trainer' && workspace.trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').map((trainer) => <article key={trainer.id} className="schedule-warning-trainer is-blocking"><Clock3 /><div><strong>{trainer.name}</strong><span>Chưa đăng ký lịch nhận ca</span></div></article>)}
+            {visibleWarningProfiles.map(({ student, missingSessions: missing, trainerNames, contract, scheduledEntries, reasonCodes, primaryReasonCode, actionCode, diagnostics, candidateSlots, suggestedSlots, hasConfirmedAvailability }) => {
               const expanded = expandedWarningStudentId === student.id
-              const quota = contractQuota(contract)
               const primaryReasons = Array.from(new Set([primaryReasonCode, ...reasonCodes])).filter((code): code is string => Boolean(code)).slice(0, 2)
-              const topCandidates = (candidateSlots || []).filter((slot) => slot.availableTrainerIds?.length || slot.blockerCodes?.length).slice(0, 6)
+              const topCandidates = (candidateSlots || []).filter((slot) => slot.availableTrainerIds?.length || slot.blockerCodes?.length).slice(0, 4)
               const openDiagnosticSlot = (slot: NonNullable<typeof candidateSlots>[number]) => {
                 const trainerId = slot.availableTrainerIds?.[0] || slot.blockedTrainerIds?.[0]
                 if (!trainerId) return
@@ -1482,23 +1496,25 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               }
               return <article key={student.id} className={`schedule-warning-student${student.eligibleForWeek ? '' : ' is-blocking'}${expanded ? ' is-expanded' : ''}`}>
                 <button type="button" onClick={() => setExpandedWarningStudentId(expanded ? null : student.id)} aria-expanded={expanded}>
-                  <AlertTriangle /><div><span className="schedule-warning-student__title"><strong>{student.name}</strong>{missing > 0 && <b>Thiếu {missing}</b>}</span><span className="schedule-warning-student__meta"><i className={hasConfirmedAvailability ? 'has-availability' : 'no-availability'}>{hasConfirmedAvailability ? `${student.availableSlots.length} slot rảnh` : 'Chưa có lịch rảnh'}</i><b>{scheduledEntries.length}/{student.sessionsPerWeek} buổi</b></span><em className="schedule-warning-primary">{diagnosticReasonLabel(primaryReasons[0] || primaryReasonCode)}</em></div><ChevronRight />
+                  <AlertTriangle /><div><span className="schedule-warning-student__title"><strong>{student.name}</strong>{missing > 0 && <b>Thiếu {missing}</b>}</span><span className="schedule-warning-student__meta"><i className={hasConfirmedAvailability ? 'has-availability' : 'no-availability'}>{hasConfirmedAvailability ? `${student.availableSlots.length} slot rảnh` : 'Chưa có lịch rảnh'}</i><b>{student.eligibleForWeek ? `${scheduledEntries.length}/${student.sessionsPerWeek} buổi` : `Tuần trước ${student.previousWeekScheduledSessions || 0} buổi`}</b></span><em className="schedule-warning-primary">{primaryReasons.length ? primaryReasons.map(diagnosticReasonLabel).join(' · ') : diagnosticReasonLabel(primaryReasonCode)}</em></div><ChevronRight />
                 </button>
                 {expanded && <div className="schedule-warning-detail">
-                  <section><small>Gói tập · {contractStatusLabel(diagnostics?.contractStatus || student.contractStatus)}</small><strong>{contract?.packageName || 'Chưa có hợp đồng phù hợp'}</strong><em>{contract ? `${quota.entitlement} quyền lợi · ${quota.held} đã giữ chỗ · ${quota.schedulable} xếp thêm · ${String(contract.startDate || '').slice(0, 10)} → ${String(contract.endDate || '').slice(0, 10)}` : 'Cần đối soát hợp đồng'}{(diagnostics?.latestContractEndDate || student.contractEndDate) ? ` · hết hạn ${formatDiagnosticDate(diagnostics?.latestContractEndDate || student.contractEndDate)}` : ''}</em></section>
-                  <section><small>PT phụ trách</small><strong>{trainerNames || 'Chưa phân PT'}</strong><em>{trainerNames ? 'Theo hợp đồng và lịch hiện tại' : 'Sẽ xếp theo hạng PT'}</em></section>
-                  <section className="is-wide schedule-warning-cause"><small>Nguyên nhân chính · {diagnosticActionLabel(actionCode)}</small><strong>{primaryReasons.length ? primaryReasons.map((code) => diagnosticReasonLabel(code)).join(' · ') : 'Chưa tìm được phương án tối ưu'}</strong></section>
-                  {diagnostics && <section className="is-wide schedule-warning-diagnostics"><small>Đối soát khả năng xếp trong tuần</small><div className="schedule-diagnostic-grid"><span><b>{diagnostics.candidateSlotCount || 0}</b><small>ca đã đăng ký</small></span><span><b>{diagnostics.contractValidDateCount || 0}</b><small>ca đúng ngày HĐ</small></span><span><b>{diagnostics.trainerCompatibleSlotCount || 0}</b><small>ca có PT phù hợp</small></span><span><b>{diagnostics.pairedSeatOpportunityCount || 0}</b><small>ghế đôi còn trống</small></span></div><p>{diagnostics.blockedByTrainerOffCount ? `OFF/nghỉ: ${diagnostics.blockedByTrainerOffCount} PT · ` : ''}{diagnostics.blockedByTrainerCapacityCount ? `PT đầy: ${diagnostics.blockedByTrainerCapacityCount} · ` : ''}{diagnostics.blockedByBranchCapacityCount ? `chi nhánh đầy: ${diagnostics.blockedByBranchCapacityCount}` : 'Không có thêm rào cản công suất đã ghi nhận.'}</p></section>}
-                  <section className={`is-wide${hasConfirmedAvailability ? '' : ' is-missing-availability'}`}><small>{hasConfirmedAvailability ? `${availabilityOriginLabel(student)} · ${student.availableSlots.length} khung` : 'Chưa có lịch rảnh'}</small><div>{hasConfirmedAvailability ? student.availableSlots.map((slot) => <span key={slot}>{availabilitySlotLabel(slot)}</span>) : <em>Không có lịch đúng tuần, lịch đã gửi trước đó hoặc lịch mặc định cũ đã xác nhận.</em>}</div></section>
-                  <section className="is-wide"><small>Lịch đã xếp</small><div>{scheduledEntries.length ? scheduledEntries.map((entry) => <span key={`${entry.slotId}-${entry.trainerId}`} className={entry.trainerAssignmentWarning ? 'has-assignment-warning' : ''}>{entry.label}<b>{workspace.trainers.find((trainer) => trainer.id === entry.trainerId)?.name || 'PT chưa cập nhật'}{entry.trainerAssignmentWarning && <AlertTriangle size={12} aria-label="PT hỗ trợ" />}</b></span>) : <em>Chưa có buổi nào trong tuần</em>}</div></section>
-                  <section className="is-wide is-suggestion"><small>Ca hệ thống còn đề xuất / cần mở</small><div>{topCandidates.length ? topCandidates.map((slot) => {
+                  <section><small>Gói tập</small><strong>{contract?.packageName || 'Chưa có hợp đồng phù hợp'}</strong><em>{contractStatusLabel(diagnostics?.contractStatus || student.contractStatus)}{(diagnostics?.latestContractEndDate || student.contractEndDate) ? ` · ${formatDiagnosticDate(diagnostics?.latestContractEndDate || student.contractEndDate)}` : ''}</em></section>
+                  <section><small>PT</small><strong>{trainerNames || 'Chưa phân PT'}</strong></section>
+                  <section className="is-wide schedule-warning-action"><small>Hướng xử lý</small><strong>{diagnosticActionLabel(actionCode)}</strong></section>
+                  <section className={`is-wide${hasConfirmedAvailability ? '' : ' is-missing-availability'}`}><small>Lịch rảnh · {student.availableSlots.length} slot</small><div>{hasConfirmedAvailability ? student.availableSlots.map((slot) => <span key={slot}>{availabilitySlotLabel(slot)}</span>) : <em>Chưa đăng ký</em>}</div></section>
+                  <section className="is-wide"><small>Đã xếp · {scheduledEntries.length}/{student.sessionsPerWeek} buổi</small><div>{scheduledEntries.length ? scheduledEntries.map((entry) => <span key={`${entry.slotId}-${entry.trainerId}`}>{entry.label}</span>) : <em>Chưa có buổi</em>}</div></section>
+                  <section className="is-wide is-suggestion"><small>Ca đề xuất</small><div>{topCandidates.length ? topCandidates.map((slot) => {
                     const trainerNamesForSlot = slot.availableTrainerIds?.map((trainerId) => workspace.trainers.find((trainer) => trainer.id === trainerId)?.name).filter(Boolean).join(', ')
                     return <button type="button" key={slot.slotId} onClick={() => openDiagnosticSlot(slot)}><span>{scheduleSlotLabel(slot.slotId, weekDates)}</span><b>{trainerNamesForSlot || slot.blockerCodes?.slice(0, 1).map(diagnosticReasonLabel).join('')}</b><ChevronRight size={13} /></button>
-                  }) : suggestedSlots.length ? suggestedSlots.map((slot) => <span key={slot}>{scheduleSlotLabel(slot, weekDates)}</span>) : <em>Không còn ca chung hợp lệ; cần bổ sung lịch rảnh hoặc PT.</em>}</div></section>
+                  }) : suggestedSlots.length ? suggestedSlots.map((slot) => <span key={slot}>{scheduleSlotLabel(slot, weekDates)}</span>) : <em>Chưa có ca phù hợp</em>}</div></section>
                 </div>}
               </article>
             })}
-            {!warningProfiles.length && workspace.summary.unconfiguredTrainers === 0 && <div className="schedule-warning-empty"><CheckCircle2 /> Không còn cảnh báo dữ liệu đầu vào.</div>}
+            {warningFilter === 'needs_schedule' && !schedulableWarningProfiles.length && <div className="schedule-warning-empty"><CheckCircle2 /> Không còn học viên cần xếp.</div>}
+            {warningFilter === 'ineligible' && !ineligibleWarningProfiles.length && <div className="schedule-warning-empty"><CheckCircle2 /> Không có học viên vừa mất điều kiện so với tuần trước.</div>}
+            {warningFilter === 'pairing' && !singleSlotWarnings.length && <div className="schedule-warning-empty"><CheckCircle2 /> Không còn ca 1/2 cần ghép.</div>}
+            {warningFilter === 'trainer' && !trainerWarningCount && <div className="schedule-warning-empty"><CheckCircle2 /> Không có cảnh báo PT.</div>}
           </section>
         </main>
       )}
