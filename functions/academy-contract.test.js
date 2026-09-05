@@ -54,6 +54,23 @@ test('Academy save is one server transaction with optimistic concurrency', () =>
   assert.match(block, /Buffer\.byteLength\(revisionPayload, 'utf8'\) > 750 \* 1024/)
 })
 
+test('Academy callables remain browser-invocable and authorize inside their handlers', () => {
+  for (const name of [
+    'saveCourseDraftAtomic',
+    'transitionCoursePublicationStatus',
+    'getCourseRevisionHistory',
+    'getCourseRevisionDiff',
+    'restoreCourseRevisionToDraft',
+    'gradeCourseQuiz',
+  ]) {
+    assert.match(
+      functionsSource,
+      new RegExp(`exports\\.${name} = onCall\\(\\{[^}]*invoker: 'public'[^}]*\\}, async \\(request\\) => \\{`),
+      `${name} must accept the browser request before validating the signed-in actor`,
+    )
+  }
+})
+
 test('Firestore rules cannot bypass the atomic course save contract', () => {
   const courseBlock = firestoreRules.match(/match \/courses\/\{courseId\} \{[\s\S]*?match \/quizKeys/)?.[0] ?? ''
   assert.match(courseBlock, /allow create, update, delete: if false;/)

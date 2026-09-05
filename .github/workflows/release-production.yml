@@ -154,6 +154,10 @@ jobs:
               node scripts/cloud-run-functions-rollback.cjs --functions="$SERVICE_NAME" --confirm=gen-lang-client-0815966909/asia-southeast1 || true
               exit 1
             fi
+            if ! node scripts/cloud-run-functions-promote-latest.cjs --functions="$SERVICE_NAME" --confirm=gen-lang-client-0815966909/asia-southeast1; then
+              node scripts/cloud-run-functions-rollback.cjs --functions="$SERVICE_NAME" --confirm=gen-lang-client-0815966909/asia-southeast1 || true
+              exit 1
+            fi
             if ! node scripts/cloud-run-functions-health.cjs --functions="$SERVICE_NAME" --fail-on-unhealthy; then
               node scripts/cloud-run-functions-rollback.cjs --functions="$SERVICE_NAME" --confirm=gen-lang-client-0815966909/asia-southeast1
               exit 1

@@ -2283,7 +2283,7 @@ async function requireTrustedAcademyStaffContext(request) {
 }
 
 /** Atomically saves the course, private quiz keys, immutable revision and audit event. */
-exports.saveCourseDraftAtomic = onCall({ cpu: 'gcf_gen1', maxInstances: 3 }, async (request) => {
+exports.saveCourseDraftAtomic = onCall({ cpu: 'gcf_gen1', maxInstances: 3, invoker: 'public' }, async (request) => {
   const actor = await requireTrustedAcademyStaffContext(request)
   const normalized = normalizeCourseDraftInput(request.data?.course)
   const expectedRevision = request.data?.expectedRevision
@@ -2429,7 +2429,7 @@ function immutableQuizRevisionSnapshot(snapshot) {
  * Content editing and publication are intentionally separate operations so an
  * editor cannot smuggle an approval status inside a content save.
  */
-exports.transitionCoursePublicationStatus = onCall({ cpu: 'gcf_gen1', maxInstances: 3 }, async (request) => {
+exports.transitionCoursePublicationStatus = onCall({ cpu: 'gcf_gen1', maxInstances: 3, invoker: 'public' }, async (request) => {
   const actor = await requireTrustedAcademyStaffContext(request)
   if (!privilegedAdminRoles.has(actor.role)) {
     throw new HttpsError('permission-denied', 'Chỉ Administrator được duyệt, xuất bản hoặc lưu trữ khóa học.')
@@ -2603,7 +2603,7 @@ function buildCourseRevisionDiff(fromCourse, toCourse) {
 }
 
 /** Returns immutable revision metadata without exposing private quiz answers. */
-exports.getCourseRevisionHistory = onCall(async (request) => {
+exports.getCourseRevisionHistory = onCall({ invoker: 'public' }, async (request) => {
   await requireTrustedAcademyStaffContext(request)
   const targetCourseId = courseId(request.data?.courseId, 'Mã khóa học')
   const snapshot = await db.collection('courseRevisions')
@@ -2626,7 +2626,7 @@ exports.getCourseRevisionHistory = onCall(async (request) => {
 })
 
 /** Returns a bounded, answer-key-free field diff between two immutable revisions. */
-exports.getCourseRevisionDiff = onCall(async (request) => {
+exports.getCourseRevisionDiff = onCall({ invoker: 'public' }, async (request) => {
   await requireTrustedAcademyStaffContext(request)
   const targetCourseId = courseId(request.data?.courseId, 'Mã khóa học')
   const fromRevision = Number(request.data?.fromRevision)
@@ -2662,7 +2662,7 @@ exports.getCourseRevisionDiff = onCall(async (request) => {
 })
 
 /** Restores an immutable revision as a new draft; published history is never edited. */
-exports.restoreCourseRevisionToDraft = onCall(async (request) => {
+exports.restoreCourseRevisionToDraft = onCall({ invoker: 'public' }, async (request) => {
   const actor = await requireTrustedAcademyStaffContext(request)
   if (actor.role === 'editor') throw new HttpsError('permission-denied', 'Biên tập viên không có quyền khôi phục phiên bản.')
   const targetCourseId = courseId(request.data?.courseId, 'Mã khóa học')
@@ -3546,7 +3546,7 @@ exports.completeCourseLesson = onCall(async (request) => {
  * nested lesson.quiz.questions[].correctIndex values when no key document
  * exists. Once a key document exists, malformed key data fails closed.
  */
-exports.gradeCourseQuiz = onCall(async (request) => {
+exports.gradeCourseQuiz = onCall({ invoker: 'public' }, async (request) => {
   const userId = requireCaller(request)
   const courseId = requireDocumentId(request.data?.courseId, 'Mã khóa học')
   const lessonId = requireDocumentId(request.data?.lessonId, 'Mã bài học')
