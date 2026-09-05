@@ -359,7 +359,9 @@ function normalizeTimelineEvents(events = []) {
     if (key) migratedLedgerCounts.set(key, (migratedLedgerCounts.get(key) || 0) + 1)
   })
   const withoutMigratedLegacyPayments = prepared.filter((event) => {
-    if (event.type !== 'finance' || event.sourceCollection !== 'payments') return true
+    // Old materialized rows predate source provenance and therefore identify
+    // themselves as studentTimelineEvents instead of payments.
+    if (event.type !== 'finance' || event.sourceCollection === 'ledgerEntries') return true
     const key = migratedFinanceMatchKey(event)
     const remaining = key ? migratedLedgerCounts.get(key) || 0 : 0
     if (!remaining) return true

@@ -213,7 +213,7 @@ test('timeline normalization collapses a legacy payment duplicated in the canoni
 test('timeline normalization collapses migrated ledger evidence even when legacy timestamps differ', () => {
   const rows = normalizeTimelineEvents([
     {
-      id: 'legacy', type: 'finance', sourceId: 'legacy_payment:old', sourceCollection: 'payments',
+      id: 'legacy', type: 'finance', sourceId: 'legacy_payment:old', sourceCollection: 'studentTimelineEvents',
       occurredAtMillis: Date.parse('2026-08-21T05:00:00.000Z'), sortKey: Date.parse('2026-08-21T05:00:00.000Z') * 1000,
       description: 'Thanh toán hợp đồng', metadata: { contractId: 'contract-1', amount: 9_600_000 },
     },
