@@ -604,10 +604,7 @@
   --branch-ink: #342d35;
   --branch-muted: #857984;
   --branch-line: rgba(105, 78, 96, .11);
-  background:
-    radial-gradient(circle at 12% 0, rgba(247, 161, 193, .13), transparent 31%),
-    radial-gradient(circle at 92% 8%, rgba(255, 205, 163, .15), transparent 28%),
-    linear-gradient(180deg, #faf8fb 0%, #f5f4f7 100%);
+  background: #fcf8f8;
 }
 
 .branch-schedule strong,
@@ -615,9 +612,11 @@
 .branch-schedule__hero,
 .branch-schedule__summary-strip,
 .branch-schedule__toolbar {
-  background: rgba(255, 255, 255, .68);
+  background: rgba(255, 255, 255, .9);
   backdrop-filter: blur(18px);
 }
+.branch-schedule__hero { background: #fff; }
+.branch-schedule__summary-strip { background: #fffdfd; }
 .branch-schedule__hero { border-bottom-color: rgba(105, 78, 96, .09); }
 .branch-schedule__hero > div:first-child > span,
 .branch-schedule__hero-controls label > span,
@@ -642,13 +641,13 @@
 .branch-schedule__warning-page header span { color: #8e818c; }
 .branch-schedule__student-tools { margin-bottom: 16px; }
 .branch-schedule__student-tools > label,
-.branch-schedule__student-tools > select { background: rgba(255, 255, 255, .62); backdrop-filter: blur(14px); }
+.branch-schedule__student-tools > select { background: #fffdfd; backdrop-filter: blur(14px); }
 .branch-schedule__student-list { gap: 11px; }
 .branch-schedule__student-list > article {
   padding: 15px 17px;
   border-color: rgba(126, 94, 112, .12);
   border-radius: 18px;
-  background: rgba(255, 255, 255, .68);
+  background: #fff;
   box-shadow: 0 12px 28px rgba(63, 42, 56, .045);
   backdrop-filter: blur(16px);
 }
@@ -673,7 +672,7 @@
   justify-content: center;
   padding: 12px 14px;
   border-color: rgba(126, 94, 112, .11);
-  background: rgba(255, 255, 255, .62);
+  background: #fff;
   box-shadow: 0 8px 20px rgba(63, 42, 56, .035);
   backdrop-filter: blur(14px);
 }
@@ -684,7 +683,7 @@
 .schedule-pairing-opportunities,
 .schedule-assignment-warnings {
   border-color: rgba(126, 94, 112, .12);
-  background: rgba(255, 255, 255, .56);
+  background: rgba(255, 255, 255, .82);
   box-shadow: 0 10px 24px rgba(63, 42, 56, .035);
   backdrop-filter: blur(16px);
 }
@@ -692,7 +691,7 @@
 .schedule-assignment-warnings > header strong { font-weight: 650; }
 .schedule-warning-grid article {
   border-color: rgba(126, 94, 112, .11);
-  background: rgba(255, 255, 255, .64);
+  background: #fff;
   box-shadow: 0 10px 25px rgba(63, 42, 56, .035);
   backdrop-filter: blur(16px);
 }
