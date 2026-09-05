@@ -793,7 +793,11 @@ function sourceTimelineEvents(studentId, sources) {
         : type === 'payment' || payment.timelineSource === 'legacy_payment' ? 'Đã ghi nhận thanh toán'
           : 'Cập nhật tài chính hợp đồng'
     const rawAmount = finite(payment.amount)
-    values.push(timelineEvent(studentId, 'finance', `${payment.timelineSource || 'payment'}:${payment.id}`, occurred, title, payment.note || payment.reason || payment.referenceCode || 'Thanh toán hợp đồng', 'finance', { amount: rawAmount, contractId: payment.contractId || '', referenceCode: bounded(payment.referenceCode, 100), status: bounded(payment.status, 30) }))
+    const rawDescription = payment.note || payment.reason || payment.referenceCode || 'Thanh toán hợp đồng'
+    const description = /migrated from an evidenced legacy payment record/i.test(String(rawDescription))
+      ? 'Thanh toán đã đối soát từ dữ liệu cũ.'
+      : rawDescription
+    values.push(timelineEvent(studentId, 'finance', `${payment.timelineSource || 'payment'}:${payment.id}`, occurred, title, description, 'finance', { amount: rawAmount, contractId: payment.contractId || '', referenceCode: bounded(payment.referenceCode, 100), status: bounded(payment.status, 30) }))
   }
   for (const renewal of sources.renewals) {
     const occurred = timestampMillis(renewal.updatedAt || renewal.createdAt) || Date.now()

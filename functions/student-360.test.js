@@ -227,6 +227,15 @@ test('timeline normalization collapses migrated ledger evidence even when legacy
   assert.equal(rows[0].sourceCollection, 'ledgerEntries')
 })
 
+test('migrated finance notes are translated into a user-facing timeline description', () => {
+  const rows = sourceTimelineEvents('student-1', {
+    contracts: [], sessions: [], workoutLogs: [], leaveRequests: [], sessionRequests: [], mealLogs: [], renewals: [],
+    mealReviews: [], dailyCheckins: [], profile: null, bodyMetrics: [], progressPhotos: [],
+    payments: [{ id: 'ledger-1', timelineSource: 'finance_ledger', type: 'payment', amount: 9_600_000, contractId: 'contract-1', effectiveAt: '2026-09-04T02:00:00.000Z', note: 'Migrated from an evidenced legacy payment record.' }],
+  })
+  assert.equal(rows[0].description, 'Thanh toán đã đối soát từ dữ liệu cũ.')
+})
+
 test('CRM timeline removes amounts from both metadata and descriptions for PT and coach', () => {
   const result = safeTimelineEvent({
     id: 'event-1', type: 'finance', audience: 'finance', title: 'Đã mua thêm buổi',
