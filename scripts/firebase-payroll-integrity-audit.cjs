@@ -109,6 +109,26 @@ async function main() {
   ])
 
   const eligibleSessions = sessions.filter((session) => ['completed', 'attended'].includes(session.status))
+  const duplicateStudentDayMap = new Map()
+  eligibleSessions.forEach((session) => {
+    const studentId = String(session.studentId || '')
+    const date = typeof session.date === 'string' ? session.date.slice(0, 10) : ''
+    if (!studentId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return
+    const key = `${studentId}|${date}`
+    duplicateStudentDayMap.set(key, [...(duplicateStudentDayMap.get(key) || []), session])
+  })
+  const duplicateStudentDays = [...duplicateStudentDayMap.entries()]
+    .filter(([, rows]) => rows.length > 1)
+    .map(([key, rows]) => {
+      const separator = key.lastIndexOf('|')
+      return {
+        studentHash: digest(`students/${key.slice(0, separator)}`),
+        date: key.slice(separator + 1),
+        sessionHashes: rows.map((session) => digest(`sessions/${session.id}`)),
+        trainerHashes: [...new Set(rows.map((session) => session.trainerId).filter(Boolean))].map((trainerId) => digest(`trainers/${trainerId}`)),
+        hours: [...new Set(rows.map((session) => hour(session.hour)).filter((value) => value !== null))].sort((left, right) => left - right),
+      }
+    })
   const shiftMap = new Map()
   let invalidSessionCount = 0
   eligibleSessions.forEach((session) => {
@@ -144,6 +164,8 @@ async function main() {
       eligibleLearnerSessions: eligibleSessions.length,
       uniqueTeachingShifts: shiftMap.size,
       pairedTeachingShifts: [...shiftMap.values()].filter((slot) => slot.studentIds.size >= 2).length,
+      duplicateStudentDayCount: duplicateStudentDays.length,
+      duplicateStudentSessionCount: duplicateStudentDays.reduce((total, item) => total + item.sessionHashes.length, 0),
       invalidSessionCount,
       truncated: sessions.length > 5000 || items.length > 500,
     },
@@ -163,6 +185,7 @@ async function main() {
       teachingPayMismatchItemCount: itemDiagnostics.filter((item) => item.teachingPayDelta !== 0).length,
       diagnostics: itemDiagnostics,
     },
+    duplicateStudentDays,
   }
   const output = path.resolve('.migration-private', `firebase-payroll-integrity-${period}.json`)
   fs.mkdirSync(path.dirname(output), { recursive: true })
@@ -172,6 +195,8 @@ async function main() {
     eligibleLearnerSessions: report.source.eligibleLearnerSessions,
     uniqueTeachingShifts: report.source.uniqueTeachingShifts,
     pairedTeachingShifts: report.source.pairedTeachingShifts,
+    duplicateStudentDayCount: report.source.duplicateStudentDayCount,
+    duplicateStudentSessionCount: report.source.duplicateStudentSessionCount,
     payrollRunCount: report.payrollRuns.length,
     duplicateSlotItemCount: report.payrollItems.duplicateSlotItemCount,
     teachingPayMismatchItemCount: report.payrollItems.teachingPayMismatchItemCount,

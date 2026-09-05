@@ -115,8 +115,12 @@ function dateLabel(value: string) {
 }
 
 function violationFacts(violation: PayrollViolation, trainers: Array<{ id: string; name?: string }>, students: Array<{ id: string; name?: string }>, branches: Array<{ id: string; name?: string }>) {
-  const trainerId = violation.trainerId || violation.staffId || ''
-  const trainerName = violation.trainerName || violation.staffName || trainers.find((item) => item.id === trainerId)?.name || trainerId
+  const trainerIds = violation.trainerIds?.length
+    ? violation.trainerIds
+    : violation.trainerId || violation.staffId ? [violation.trainerId || violation.staffId || ''] : []
+  const trainerNames = violation.trainerNames?.length
+    ? violation.trainerNames
+    : trainerIds.map((id) => trainers.find((item) => item.id === id)?.name || (id === violation.staffId ? violation.staffName : '') || id)
   const studentIds = violation.studentIds?.length ? violation.studentIds : violation.studentId ? [violation.studentId] : []
   const studentNames = violation.studentNames?.length
     ? violation.studentNames
@@ -125,9 +129,9 @@ function violationFacts(violation: PayrollViolation, trainers: Array<{ id: strin
   const branchNames = branchIds.map((id) => branches.find((item) => item.id === id)?.name || id).filter(Boolean)
   const sessionIds = violation.sessionIds?.length ? violation.sessionIds : violation.sessionId ? [violation.sessionId] : []
   return [
-    trainerName ? `PT: ${trainerName}` : '',
+    trainerNames.length ? `PT: ${trainerNames.join(', ')}` : '',
     studentNames.length ? `Học viên: ${studentNames.join(', ')}` : '',
-    violation.date ? `${dateLabel(violation.date)}${violation.hour !== undefined ? ` · ${String(violation.hour).padStart(2, '0')}:00` : ''}` : '',
+    violation.date ? `${dateLabel(violation.date)}${violation.hours?.length ? ` · ${violation.hours.map((hour) => `${String(hour).padStart(2, '0')}:00`).join(', ')}` : violation.hour !== undefined ? ` · ${String(violation.hour).padStart(2, '0')}:00` : ''}` : '',
     branchNames.length ? `Cơ sở: ${branchNames.join(', ')}` : '',
     sessionIds.length ? `Mã ca: ${sessionIds.slice(0, 3).join(', ')}${sessionIds.length > 3 ? ` +${sessionIds.length - 3}` : ''}` : '',
   ].filter(Boolean).join(' · ')
@@ -311,6 +315,10 @@ export default function TrainerPayroll({ profile }: Props) {
         workdayStaffCount: loaded.run.workdayStaffCount,
         attendanceReviewRequiredCount: loaded.run.attendanceReviewRequiredCount,
         calendarReviewRequiredCount: loaded.run.calendarReviewRequiredCount,
+        teachingEvidenceReviewRequiredCount: loaded.run.teachingEvidenceReviewRequiredCount,
+        teachingEvidenceReviewRequiredSessionIds: loaded.run.teachingEvidenceReviewRequiredSessionIds,
+        validationViolationCount: loaded.run.validationViolationCount,
+        validationViolations: loaded.run.validationViolations,
         attendanceReviewRequired: loaded.run.attendanceReviewRequired,
         baseSalaryAmount: loaded.run.baseSalaryAmount,
         teachingPayAmount: loaded.run.teachingPayAmount,
@@ -717,11 +725,11 @@ export default function TrainerPayroll({ profile }: Props) {
           {visibleRuns.map((run) => <article className="payroll-run-card" key={run.id}>
             <button className="payroll-run-card__open" type="button" onClick={() => void openRun(run.id)} aria-label={`Mở ${periodLabel(run.periodId)}`}>
               <div className="payroll-run-card__head"><div><span>{periodLabel(run.periodId)}</span><strong>{money(run.finalAmount)}</strong></div><em className={`is-${run.status}`}>{run.requiresRebuild ? 'Cần lập lại' : statusMeta[run.status].label}</em></div>
-              <div className="payroll-run-card__metrics"><span><b>{run.staffCount}</b> nhân viên</span><span><b>{run.requiresRebuild ? run.storedTeachingSlotCount || run.attendanceEventCount : run.teachingSlotCount}</b> {run.requiresRebuild ? 'lượt dữ liệu cũ' : 'ca dạy'}</span><span><b>{run.attendanceReviewRequiredCount + run.calendarReviewRequiredCount}</b> cần đối soát</span></div>
+              <div className="payroll-run-card__metrics"><span><b>{run.staffCount}</b> nhân viên</span><span><b>{run.requiresRebuild ? run.storedTeachingSlotCount || run.attendanceEventCount : run.teachingSlotCount}</b> {run.requiresRebuild ? 'lượt dữ liệu cũ' : 'ca dạy'}</span><span><b>{run.attendanceReviewRequiredCount + run.calendarReviewRequiredCount + run.teachingEvidenceReviewRequiredCount + run.validationViolationCount}</b> cần đối soát</span></div>
               <p>{run.policyName || `Chính sách v${run.policyVersion}`}<ChevronRight size={17} /></p>
             </button>
             <div className="payroll-run-card__actions">
-              {run.status === 'draft' && <><button className="is-danger-ghost" type="button" disabled={!!busyAction} onClick={() => setPendingConfirmation({ kind: 'delete-run', id: run.id, label: periodLabel(run.periodId) })}><Trash2 size={15} /> Xóa nháp</button><button type="button" disabled={!!busyAction || run.requiresRebuild || run.attendanceReviewRequired || !payrollPeriodEnded(run.periodId)} title={run.requiresRebuild ? 'Xóa kỳ nháp cũ và tạo lại trước khi gửi duyệt' : !payrollPeriodEnded(run.periodId) ? 'Chỉ gửi duyệt sau khi kỳ lương đã kết thúc' : run.attendanceReviewRequired ? 'Chốt đủ ngày công và lịch chuẩn trước khi gửi duyệt' : undefined} onClick={() => void runAction('review', run)}><FileCheck2 size={15} /> {run.requiresRebuild ? 'Cần tạo lại' : !payrollPeriodEnded(run.periodId) ? 'Chờ hết kỳ' : run.attendanceReviewRequired ? 'Chờ ngày công' : 'Gửi duyệt'}</button></>}
+              {run.status === 'draft' && <><button className="is-danger-ghost" type="button" disabled={!!busyAction} onClick={() => setPendingConfirmation({ kind: 'delete-run', id: run.id, label: periodLabel(run.periodId) })}><Trash2 size={15} /> Xóa nháp</button><button type="button" disabled={!!busyAction || run.requiresRebuild || run.attendanceReviewRequired || !payrollPeriodEnded(run.periodId)} title={run.requiresRebuild ? 'Xóa kỳ nháp cũ và tạo lại trước khi gửi duyệt' : !payrollPeriodEnded(run.periodId) ? 'Chỉ gửi duyệt sau khi kỳ lương đã kết thúc' : run.attendanceReviewRequired ? 'Đối soát đủ ngày công, lịch làm việc và bằng chứng ca dạy trước khi gửi duyệt' : undefined} onClick={() => void runAction('review', run)}><FileCheck2 size={15} /> {run.requiresRebuild ? 'Cần tạo lại' : !payrollPeriodEnded(run.periodId) ? 'Chờ hết kỳ' : run.attendanceReviewRequired ? 'Chờ đối soát' : 'Gửi duyệt'}</button></>}
               {run.status === 'reviewed' && <button type="button" disabled={!!busyAction} onClick={() => void runAction('lock', run)}><LockKeyhole size={15} /> Khóa kỳ</button>}
               {run.status === 'locked' && <button type="button" onClick={() => void openRun(run.id)}><WalletCards size={15} /> Chi lương</button>}
               {run.status === 'paid' && <span><CheckCircle2 size={15} /> Đã hoàn tất</span>}
@@ -842,6 +850,14 @@ export default function TrainerPayroll({ profile }: Props) {
           </div>
           <p className="payroll-drawer__status"><ShieldCheck size={17} /> {statusMeta[detail.run.status].hint}</p>
           {detail.run.crossBranchWarningCount ? <p className="payroll-trainer-item__review"><AlertTriangle size={15} /> {detail.run.crossBranchWarningCount} ca có học viên tập khác cơ sở. Đây là cảnh báo đối soát, không chặn tính lương và mỗi PT + ngày + giờ vẫn chỉ tính một ca.</p> : null}
+          {detail.run.validationViolations.length > 0 && <section className="payroll-violations payroll-violations--drawer" role="alert" aria-label="Cảnh báo trùng buổi trong kỳ lương">
+            <header><AlertTriangle size={20} /><div><strong>Phát hiện {detail.run.validationViolations.length} học viên có nhiều buổi trong cùng ngày</strong><span>Đã rà soát các buổi hoàn thành trong {periodLabel(detail.run.periodId)}</span></div></header>
+            <p className="payroll-violations__note">Các bản ghi này không được tự gộp hoặc tự xóa. Hãy mở lịch sử ca dạy để đối soát từng mã ca; kỳ đã duyệt/khóa vẫn giữ nguyên chứng từ và cần xử lý bằng điều chỉnh hoặc kỳ bù.</p>
+            <div className="payroll-violations__list">{detail.run.validationViolations.map((violation, index) => <article key={`${violation.code}:${violation.studentId || index}:${violation.date || ''}`}>
+              <div><span>{violation.code}</span><strong>{violation.title}</strong><p>{violation.detail}</p><small>{violationFacts(violation, trainers, students, branches)}</small></div>
+              <button type="button" onClick={() => handleViolationAction(violation)}>Mở lịch sử & điều chỉnh<ChevronRight size={15} /></button>
+            </article>)}</div>
+          </section>}
           {detail.run.requiresRebuild && <div className="payroll-drawer__legacy-warning"><AlertTriangle size={20} /><div><strong>{detail.run.sourceDataStale ? 'Dữ liệu ca dạy vừa được điều chỉnh' : 'Kỳ lương dùng công thức cũ'}</strong><p>{detail.run.status === 'draft' ? detail.run.sourceDataStale ? 'Kỳ nháp đang giữ số liệu trước khi điều chỉnh ca. Hãy xóa và lập lại để tiền ca lấy đúng PT, ngày và giờ mới nhất.' : 'Hãy lập lại kỳ để mỗi PT + ngày + giờ chỉ tính một ca; tiền ca không cộng theo số học viên và hoa hồng giới thiệu chỉ lấy từ dòng tiền thực thu.' : 'Kỳ đã duyệt hoặc khóa được giữ nguyên để bảo toàn chứng từ. Chỉ các kỳ mới dùng công thức ca dạy độc nhất và hoa hồng theo dòng tiền.'}</p>{!detail.run.sourceDataStale && detail.run.storedTeachingSlotCount !== detail.run.teachingSlotCount && <small>Dữ liệu cũ: {detail.run.storedTeachingSlotCount || 0} lượt · Preview chuẩn: {detail.run.teachingSlotCount} ca.</small>}</div>{detail.run.status === 'draft' && <button type="button" onClick={() => { setPendingConfirmation({ kind: 'rebuild-run', id: detail.run.id, label: periodLabel(detail.run.periodId) }); setDetail(null) }}><RefreshCw size={15} /> Đối soát & lập lại</button>}</div>}
           <div className="payroll-drawer__items">
             <div className="payroll-page__section-title"><div><span>Chi tiết theo nhân viên</span><strong>{detail.items.length} người</strong></div><small>Bấm tên để xem ngày công và ca dạy</small></div>

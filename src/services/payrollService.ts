@@ -16,6 +16,8 @@ export interface PayrollViolation {
   staffName?: string
   trainerId?: string
   trainerName?: string
+  trainerIds?: string[]
+  trainerNames?: string[]
   studentId?: string
   studentName?: string
   studentIds?: string[]
@@ -26,6 +28,7 @@ export interface PayrollViolation {
   conflictingSessionIds?: string[]
   date?: string
   hour?: number
+  hours?: number[]
   sessionId?: string
   attendanceEventId?: string
   policyId?: string
@@ -74,6 +77,10 @@ export interface PayrollRunSummary {
   workdayStaffCount: number
   attendanceReviewRequiredCount: number
   calendarReviewRequiredCount: number
+  teachingEvidenceReviewRequiredCount: number
+  teachingEvidenceReviewRequiredSessionIds: string[]
+  validationViolationCount: number
+  validationViolations: PayrollViolation[]
   attendanceReviewRequired: boolean
   baseSalaryAmount: number
   teachingPayAmount: number
@@ -246,6 +253,8 @@ function violationFromUnknown(value: unknown): PayrollViolation | null {
     staffName: typeof raw.staffName === 'string' ? raw.staffName : undefined,
     trainerId: typeof raw.trainerId === 'string' ? raw.trainerId : undefined,
     trainerName: typeof raw.trainerName === 'string' ? raw.trainerName : undefined,
+    trainerIds: Array.isArray(raw.trainerIds) ? raw.trainerIds.filter((id): id is string => typeof id === 'string') : undefined,
+    trainerNames: Array.isArray(raw.trainerNames) ? raw.trainerNames.filter((name): name is string => typeof name === 'string') : undefined,
     studentId: typeof raw.studentId === 'string' ? raw.studentId : undefined,
     studentName: typeof raw.studentName === 'string' ? raw.studentName : undefined,
     studentIds: Array.isArray(raw.studentIds) ? raw.studentIds.filter((id): id is string => typeof id === 'string') : undefined,
@@ -256,6 +265,7 @@ function violationFromUnknown(value: unknown): PayrollViolation | null {
     conflictingSessionIds: Array.isArray(raw.conflictingSessionIds) ? raw.conflictingSessionIds.filter((id): id is string => typeof id === 'string') : undefined,
     date: typeof raw.date === 'string' ? raw.date : undefined,
     hour: Number.isInteger(Number(raw.hour)) ? Number(raw.hour) : undefined,
+    hours: Array.isArray(raw.hours) ? raw.hours.map(Number).filter((hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23) : undefined,
     sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : undefined,
     attendanceEventId: typeof raw.attendanceEventId === 'string' ? raw.attendanceEventId : undefined,
     policyId: typeof raw.policyId === 'string' ? raw.policyId : undefined,
@@ -319,6 +329,14 @@ function normaliseRun(value: unknown): PayrollRunSummary {
     workdayStaffCount: Math.max(0, Math.trunc(amount(raw.workdayStaffCount))),
     attendanceReviewRequiredCount: Math.max(0, Math.trunc(amount(raw.attendanceReviewRequiredCount))),
     calendarReviewRequiredCount: Math.max(0, Math.trunc(amount(raw.calendarReviewRequiredCount))),
+    teachingEvidenceReviewRequiredCount: Math.max(0, Math.trunc(amount(raw.teachingEvidenceReviewRequiredCount))),
+    teachingEvidenceReviewRequiredSessionIds: Array.isArray(raw.teachingEvidenceReviewRequiredSessionIds)
+      ? raw.teachingEvidenceReviewRequiredSessionIds.filter((value): value is string => typeof value === 'string').slice(0, 500)
+      : [],
+    validationViolationCount: Math.max(0, Math.trunc(amount(raw.validationViolationCount))),
+    validationViolations: Array.isArray(raw.validationViolations)
+      ? raw.validationViolations.map(violationFromUnknown).filter((item): item is PayrollViolation => Boolean(item)).slice(0, 100)
+      : [],
     attendanceReviewRequired: raw.attendanceReviewRequired === true,
     baseSalaryAmount: amount(raw.baseSalaryAmount),
     teachingPayAmount: amount(raw.teachingPayAmount ?? raw.grossAmount),

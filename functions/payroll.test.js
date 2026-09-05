@@ -5,6 +5,7 @@ const path = require('node:path')
 
 const {
   applyPayrollPolicyPlan,
+  duplicateLearnerDayViolations,
   payrollRunPolicyPlan,
   periodBounds,
   periodDateBounds,
@@ -112,6 +113,30 @@ test('canonical completed sessions produce the same paired teaching shifts witho
   assert.deepEqual(slots[0].sessionIds.sort(), ['session-a', 'session-b'])
 })
 
+test('automatic 48-hour attendance remains review evidence and never becomes teaching pay', () => {
+  const result = teachingSlotsFromSessions([
+    { id: 'manual', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-25', hour: 6, confirmationSource: 'manual', recognitionReviewRequired: false },
+    { id: 'automatic', status: 'completed', trainerId: 'trainer-a', studentId: 'student-b', date: '2026-08-25', hour: 7, confirmationSource: 'auto_after_48h', recognitionReviewRequired: true },
+  ], { ratePerSession: 20_000 })
+
+  assert.equal(result.teachingSlotCount, 1)
+  assert.equal(result.teachingEvidenceReviewRequiredCount, 1)
+  assert.deepEqual(result.teachingEvidenceReviewRequiredSessionIds, ['automatic'])
+  assert.deepEqual(result.trainers.get('trainer-a')[0].sessionIds, ['manual'])
+})
+
+test('legacy attendance rebuild excludes automatic review evidence', () => {
+  const sessions = new Map([
+    ['automatic', { trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-25', hour: 6, confirmationSource: 'auto_after_48h', recognitionReviewRequired: true }],
+  ])
+  const result = teachingSlotsFromAttendance([
+    { id: 'automatic', type: 'attended', sessionId: 'automatic', studentId: 'student-a', confirmationSource: 'auto_after_48h', recognitionReviewRequired: true },
+  ], sessions, { ratePerSession: 20_000 })
+
+  assert.equal(result.teachingSlotCount, 0)
+  assert.equal(result.teachingEvidenceReviewRequiredCount, 1)
+})
+
 test('a learner attending another branch remains payable as one teaching slot', () => {
   const result = teachingSlotsFromSessions([
     { id: 'session-a', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', branchId: 'branch-a', date: '2026-08-25', hour: 6 },
@@ -123,6 +148,41 @@ test('a learner attending another branch remains payable as one teaching slot', 
   assert.equal(slot.studentCount, 2)
   assert.equal(slot.crossBranchWarning, true)
   assert.deepEqual(slot.branchIds.sort(), ['branch-a', 'branch-b'])
+})
+
+test('payroll reports every learner recorded more than once on the same completed day', () => {
+  let error
+  try {
+    teachingSlotsFromSessions([
+      { id: 'session-a', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', branchId: 'branch-a', date: '2026-08-25', hour: 6 },
+      { id: 'session-b', status: 'attended', trainerId: 'trainer-b', studentId: 'student-a', branchId: 'branch-b', date: '2026-08-25', hour: 18 },
+      { id: 'session-c', status: 'completed', trainerId: 'trainer-c', studentId: 'student-c', branchId: 'branch-a', date: '2026-08-26', hour: 7 },
+      { id: 'session-d', status: 'completed', trainerId: 'trainer-c', studentId: 'student-c', branchId: 'branch-a', date: '2026-08-26', hour: 19 },
+    ], { ratePerSession: 20_000 })
+    assert.fail('Expected duplicate learner days')
+  } catch (cause) {
+    error = cause
+  }
+  assert.equal(error.details.kind, 'payroll_validation')
+  assert.equal(error.details.violations.length, 2)
+  assert.deepEqual(error.details.violations[0].sessionIds, ['session-a', 'session-b'])
+  assert.deepEqual(error.details.violations[0].trainerIds, ['trainer-a', 'trainer-b'])
+  assert.deepEqual(error.details.violations[0].branchIds, ['branch-a', 'branch-b'])
+  assert.deepEqual(error.details.violations[0].hours, [6, 18])
+  assert.equal(error.details.violations[0].studentId, 'student-a')
+  assert.equal(error.details.violations[0].remediation, 'teaching_history')
+})
+
+test('legacy payroll diagnostics can be shown without changing the stored run', () => {
+  const violations = duplicateLearnerDayViolations([
+    { id: 'session-a', data: () => ({ status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', branchId: 'branch-a', date: '2026-08-25', hour: 6 }) },
+    { id: 'session-b', data: () => ({ status: 'attended', trainerId: 'trainer-b', studentId: 'student-a', branchId: 'branch-b', date: '2026-08-25', hour: 18 }) },
+  ])
+
+  assert.equal(violations.length, 1)
+  assert.equal(violations[0].code, 'STUDENT_MULTIPLE_COMPLETED_SESSIONS_PER_DAY')
+  assert.deepEqual(violations[0].sessionIds, ['session-a', 'session-b'])
+  assert.equal(violations[0].remediation, 'teaching_history')
 })
 
 test('payroll keeps every cross-branch slot as a non-blocking diagnostic', () => {
@@ -182,7 +242,7 @@ test('payroll creation is one deterministic transaction per period', () => {
   assert.match(createBlock, /transaction\.create\(runReference/)
   assert.match(createBlock, /payrollRunItems\/\$\{periodId\}_\$\{staffId\}/)
   assert.match(createBlock, /teachingSlotsFromSessions\(sessionSnapshot\.docs/)
-  assert.match(createBlock, /\.select\('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'attendanceEventId'\)/)
+  assert.match(createBlock, /\.select\('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'attendanceEventId', 'attendanceStatus', 'confirmationSource', 'recognitionReviewRequired'\)/)
   assert.doesNotMatch(createBlock, /Promise\.all\(sessionIds\.map/)
   assert.doesNotMatch(createBlock, /db\.collection\('payrollRuns'\)\.doc\(\)/)
 })

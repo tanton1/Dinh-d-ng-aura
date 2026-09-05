@@ -342,6 +342,7 @@ function teachingSlotsFromAttendance(attendanceDocuments, sessionsById, policyVa
   const policy = payrollPolicyConfiguration(policyValue)
   const slotMap = new Map()
   let attendanceEventCount = 0
+  const reviewRequiredSessionIds = new Set()
 
   for (const item of attendanceDocuments) {
     const attendance = typeof item?.data === 'function' ? item.data() : item || {}
@@ -360,6 +361,11 @@ function teachingSlotsFromAttendance(attendanceDocuments, sessionsById, policyVa
         'teaching_history',
         { sessionId, attendanceEventId: item?.id || '' },
       )
+    }
+    if (attendance.recognitionReviewRequired === true || attendance.confirmationSource === 'auto_after_48h'
+      || session.recognitionReviewRequired === true || session.confirmationSource === 'auto_after_48h') {
+      if (sessionId) reviewRequiredSessionIds.add(sessionId)
+      continue
     }
     const trainerId = typeof session.trainerId === 'string' && session.trainerId.trim()
       ? session.trainerId.trim()
@@ -406,13 +412,78 @@ function teachingSlotsFromAttendance(attendanceDocuments, sessionsById, policyVa
   for (const [trainerId, slots] of trainers) {
     trainers.set(trainerId, priceTeachingSlots(slots, () => ({ configuration: policy })))
   }
-  return { trainers, attendanceEventCount, teachingSlotCount: slotMap.size, policy }
+  return {
+    trainers,
+    attendanceEventCount,
+    teachingSlotCount: slotMap.size,
+    teachingEvidenceReviewRequiredCount: reviewRequiredSessionIds.size,
+    teachingEvidenceReviewRequiredSessionIds: [...reviewRequiredSessionIds].slice(0, 500),
+    policy,
+  }
+}
+
+function duplicateLearnerDayViolations(sessionDocuments) {
+  const learnerDays = new Map()
+  for (const item of sessionDocuments || []) {
+    const session = typeof item?.data === 'function' ? item.data() : item || {}
+    if (!['completed', 'attended'].includes(session.status)) continue
+    const studentId = typeof session.studentId === 'string' ? session.studentId.trim() : ''
+    const date = typeof session.date === 'string' ? session.date.slice(0, 10) : ''
+    if (!studentId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
+    const sessionId = typeof item?.id === 'string' && item.id
+      ? item.id
+      : typeof session.id === 'string' ? session.id : ''
+    const row = {
+      sessionId,
+      trainerId: typeof session.trainerId === 'string' ? session.trainerId.trim() : '',
+      branchId: normalisePayrollBranchId(session.branchId),
+      hour: Number.isInteger(Number(session.hour)) ? Number(session.hour) : null,
+    }
+    const key = `${studentId}|${date}`
+    learnerDays.set(key, [...(learnerDays.get(key) || []), row])
+  }
+  return [...learnerDays.entries()]
+    .filter(([, rows]) => rows.length > 1)
+    .map(([key, rows]) => {
+      const separator = key.lastIndexOf('|')
+      const studentId = key.slice(0, separator)
+      const date = key.slice(separator + 1)
+      const trainerIds = [...new Set(rows.map((row) => row.trainerId).filter(Boolean))]
+      const branchIds = [...new Set(rows.map((row) => row.branchId).filter(Boolean))]
+      const sessionIds = rows.map((row) => row.sessionId).filter(Boolean)
+      const hours = [...new Set(rows.map((row) => row.hour).filter((hour) => hour !== null))].sort((left, right) => left - right)
+      return {
+        code: 'STUDENT_MULTIPLE_COMPLETED_SESSIONS_PER_DAY',
+        severity: 'error',
+        title: 'Học viên bị ghi nhiều buổi trong cùng ngày',
+        detail: `Ngày ${date} đang có ${rows.length} buổi đã hoàn thành cho cùng một học viên${hours.length ? ` tại ${hours.map((hour) => `${String(hour).padStart(2, '0')}:00`).join(', ')}` : ''}. Hãy mở từng mã ca và đối soát ngày, giờ hoặc bản ghi bị trùng trước khi lập lương.`,
+        remediation: 'teaching_history',
+        studentId,
+        date,
+        hour: hours[0],
+        hours,
+        trainerId: trainerIds[0] || '',
+        trainerIds,
+        branchId: branchIds[0] || '',
+        branchIds,
+        sessionId: sessionIds[0] || '',
+        sessionIds,
+      }
+    })
 }
 
 function teachingSlotsFromSessions(sessionDocuments, policyValue) {
   const policy = payrollPolicyConfiguration(policyValue)
   const slotMap = new Map()
   let attendanceEventCount = 0
+  const reviewRequiredSessionIds = new Set()
+
+  // Schedule publish prevents new duplicate learner days, but migrated or
+  // manually reconciled history can predate that invariant. Payroll must
+  // inspect its own source period so those records cannot silently charge a
+  // learner twice or create misleading PT evidence.
+  const duplicateLearnerDays = duplicateLearnerDayViolations(sessionDocuments)
+  if (duplicateLearnerDays.length) throw payrollViolationsError(duplicateLearnerDays)
 
   for (const item of sessionDocuments) {
     const session = typeof item?.data === 'function' ? item.data() : item || {}
@@ -420,6 +491,10 @@ function teachingSlotsFromSessions(sessionDocuments, policyValue) {
     const sessionId = typeof item?.id === 'string' && item.id
       ? item.id
       : typeof session.id === 'string' ? session.id : ''
+    if (session.recognitionReviewRequired === true || session.confirmationSource === 'auto_after_48h') {
+      if (sessionId) reviewRequiredSessionIds.add(sessionId)
+      continue
+    }
     const trainerId = typeof session.trainerId === 'string' ? session.trainerId.trim() : ''
     if (!sessionId) throw payrollViolationError(
       'SESSION_ID_MISSING',
@@ -486,6 +561,8 @@ function teachingSlotsFromSessions(sessionDocuments, policyValue) {
     trainers,
     attendanceEventCount,
     teachingSlotCount: slotMap.size,
+    teachingEvidenceReviewRequiredCount: reviewRequiredSessionIds.size,
+    teachingEvidenceReviewRequiredSessionIds: [...reviewRequiredSessionIds].slice(0, 500),
     crossBranchWarningCount: [...slotMap.values()].filter((slot) => slot.crossBranchWarning).length,
     policy,
   }
@@ -1066,6 +1143,9 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           workdayStaffCount: Number(data.workdayStaffCount || 0),
           attendanceReviewRequiredCount: Number(data.attendanceReviewRequiredCount || 0),
           calendarReviewRequiredCount: Number(data.calendarReviewRequiredCount || 0),
+          teachingEvidenceReviewRequiredCount: Number(data.teachingEvidenceReviewRequiredCount || 0),
+          validationViolationCount: Number(data.validationViolationCount || 0),
+          validationViolations: Array.isArray(data.validationViolations) ? data.validationViolations : [],
           attendanceReviewRequired: data.attendanceReviewRequired === true,
           baseSalaryAmount: Number(data.baseSalaryAmount || 0),
           teachingPayAmount: Number(data.teachingPayAmount || 0),
@@ -1092,6 +1172,24 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
     ])
     if (!run.exists) throw new HttpsError('not-found', 'Không tìm thấy kỳ lương.')
     const runData = run.data()
+    const runPeriodId = period(runData.periodId || runId)
+    const runDateBounds = periodDateBounds(runPeriodId)
+    const sourceSessionSnapshot = await db.collection('sessions')
+      .where('date', '>=', runDateBounds.start)
+      .where('date', '<', runDateBounds.end)
+      .select('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId')
+      .limit(3001)
+      .get()
+    const validationViolations = sourceSessionSnapshot.size > 3000
+      ? [{
+        code: 'PAYROLL_DATA_LIMIT_EXCEEDED',
+        severity: 'error',
+        title: 'Không thể đối soát toàn bộ buổi của kỳ',
+        detail: 'Kỳ có quá nhiều buổi để kiểm tra trùng ngày trong một lần tải. Hãy dùng báo cáo đối soát dữ liệu nguồn.',
+        remediation: 'retry',
+        periodId: runPeriodId,
+      }]
+      : duplicateLearnerDayViolations(sourceSessionSnapshot.docs)
     const itemValues = items.docs.map((item) => ({ id: item.id, ...item.data() }))
     const teachingRequiresRebuild = Number(runData.schemaVersion || 0) < 5 || itemValues.some((item) => !Array.isArray(item.teachingSlots))
     const requiresRebuild = runData.requiresRebuild === true || runData.sourceDataStale === true || teachingRequiresRebuild || Number(runData.schemaVersion || 0) < 7 || Number(runData.commissionFormulaVersion || 0) < 2
@@ -1116,6 +1214,9 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         ...(previewSummary || {}),
         attendanceCount: previewSummary?.teachingSlotCount ?? Number(runData.teachingSlotCount ?? runData.attendanceCount ?? 0),
         requiresRebuild,
+        validationViolations,
+        validationViolationCount: validationViolations.length,
+        attendanceReviewRequired: runData.attendanceReviewRequired === true || validationViolations.length > 0,
         storedTeachingSlotCount: Number(runData.teachingSlotCount ?? runData.attendanceCount ?? 0),
         createdAt: iso(runData.createdAt),
         updatedAt: iso(runData.updatedAt),
@@ -1165,7 +1266,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         transaction.get(db.collection('sessions')
           .where('date', '>=', dateBounds.start)
           .where('date', '<', dateBounds.end)
-          .select('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'attendanceEventId')
+          .select('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId', 'attendanceEventId', 'attendanceStatus', 'confirmationSource', 'recognitionReviewRequired')
           .limit(3001)),
         transaction.get(db.collection('staff').limit(451)),
         transaction.get(db.collection('trainers').limit(451)),
@@ -1430,6 +1531,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
       const workdayStaffCount = itemRecords.filter((item) => item.workdays.workdayEnabled).length
       const attendanceReviewRequiredCount = itemRecords.filter((item) => item.workdays.attendanceReviewRequired).length
       const calendarReviewRequiredCount = itemRecords.filter((item) => item.workdays.calendarReviewRequired).length
+      const teachingEvidenceReviewRequiredCount = Number(teaching.teachingEvidenceReviewRequiredCount || 0)
       transaction.create(runReference, {
         schemaVersion: 7,
         commissionFormulaVersion: 2,
@@ -1450,9 +1552,11 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         trainerCount: teaching.trainers.size,
         staffCount: itemRecords.length,
         workdayStaffCount,
-        attendanceReviewRequired: attendanceReviewRequiredCount > 0 || calendarReviewRequiredCount > 0,
+        attendanceReviewRequired: attendanceReviewRequiredCount > 0 || calendarReviewRequiredCount > 0 || teachingEvidenceReviewRequiredCount > 0,
         attendanceReviewRequiredCount,
         calendarReviewRequiredCount,
+        teachingEvidenceReviewRequiredCount,
+        teachingEvidenceReviewRequiredSessionIds: teaching.teachingEvidenceReviewRequiredSessionIds || [],
         crossBranchWarningCount: Number(teaching.crossBranchWarningCount || 0),
         baseSalaryAmount: itemRecords.reduce((total, item) => total + item.amounts.baseSalaryAmount, 0),
         teachingPayAmount: itemRecords.reduce((total, item) => total + item.amounts.teachingPayAmount, 0),
@@ -1552,7 +1656,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           createdAt: FieldValue.serverTimestamp(),
         })
       }
-      transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 5, runId: runReference.id, action: 'payroll.created', actorUid: actor.uid, toStatus: 'draft', policyIds, policyApplicationMode: selectedPolicies.length === 1 ? 'single' : policyPlan.applicationMode, staffCount: itemRecords.length, workdayStaffCount, attendanceReviewRequiredCount, calendarReviewRequiredCount, createdAt: FieldValue.serverTimestamp() })
+      transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 5, runId: runReference.id, action: 'payroll.created', actorUid: actor.uid, toStatus: 'draft', policyIds, policyApplicationMode: selectedPolicies.length === 1 ? 'single' : policyPlan.applicationMode, staffCount: itemRecords.length, workdayStaffCount, attendanceReviewRequiredCount, calendarReviewRequiredCount, teachingEvidenceReviewRequiredCount, createdAt: FieldValue.serverTimestamp() })
       return { runId: runReference.id, unchanged: false, status: 'draft' }
       })
     } catch (cause) {
@@ -1624,7 +1728,28 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         throw new HttpsError('failed-precondition', 'Kỳ lương nháp cũ cần được xóa và lập lại để chốt đúng ngày công, tiền ca và hoa hồng giới thiệu theo dòng tiền.')
       }
       if (to === 'reviewed' && snapshot.data().attendanceReviewRequired === true) {
-        throw new HttpsError('failed-precondition', 'Ngày công hoặc lịch làm việc của kỳ chưa được đối soát đầy đủ.')
+        throw new HttpsError('failed-precondition', 'Ngày công, lịch làm việc hoặc bằng chứng ca dạy của kỳ chưa được đối soát đầy đủ.')
+      }
+      if (to === 'reviewed') {
+        const runPeriodId = period(snapshot.data().periodId || runId)
+        const dateBounds = periodDateBounds(runPeriodId)
+        const sessions = await transaction.get(db.collection('sessions')
+          .where('date', '>=', dateBounds.start)
+          .where('date', '<', dateBounds.end)
+          .select('status', 'trainerId', 'studentId', 'date', 'hour', 'branchId')
+          .limit(3001))
+        if (sessions.size > 3000) {
+          throw payrollViolationError(
+            'PAYROLL_DATA_LIMIT_EXCEEDED',
+            'Không thể đối soát toàn bộ buổi của kỳ',
+            'Kỳ có quá nhiều buổi để kiểm tra an toàn trước khi gửi duyệt.',
+            'retry',
+            { periodId: runPeriodId },
+            'resource-exhausted',
+          )
+        }
+        const duplicateLearnerDays = duplicateLearnerDayViolations(sessions.docs)
+        if (duplicateLearnerDays.length) throw payrollViolationsError(duplicateLearnerDays)
       }
       transaction.update(reference, { status: to, ...fields, [`${to}At`]: FieldValue.serverTimestamp(), [`${to}By`]: actor.uid, updatedAt: FieldValue.serverTimestamp() })
       transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 1, runId, action: `payroll.${to}`, actorUid: actor.uid, fromStatus: from, toStatus: to, createdAt: FieldValue.serverTimestamp() })
@@ -1830,6 +1955,7 @@ module.exports = {
   payrollPolicyProfiles,
   payrollProfile,
   policySupportsProfile,
+  duplicateLearnerDayViolations,
   teachingSlotsFromAttendance,
   teachingSlotsFromSessions,
   payrollRunPolicyPlan,
