@@ -189,6 +189,23 @@ test('teaching shift correction is admin-only and fails closed after payroll is 
   assert.equal(locked.read('sessions/session-a').revision, 0)
 })
 
+test('legacy all-branch session can be normalized while correcting its audited shift', async () => {
+  const state = operationsFor({
+    'trainers/trainer-a': { status: 'active', branchId: 'branch-a', slotCapacity: 2 },
+    'sessions/session-a': { status: 'completed', studentId: 'student-a', trainerId: 'trainer-a', contractId: 'contract-a', branchId: 'all', date: '2026-08-08', hour: 9, revision: 0 },
+    'financePeriods/2026-08': { status: 'open' },
+  }, async () => ({ uid: 'admin-1', accessRole: 'admin' }))
+
+  const result = await state.correctTeachingShift({ data: {
+    items: [{ sessionId: 'session-a', expectedRevision: 0 }],
+    date: '2026-08-08', hour: 9, trainerId: 'trainer-a', reason: 'Chuẩn hóa ca legacy theo chi nhánh PT',
+  } })
+
+  assert.equal(result.unchanged, false)
+  assert.equal(state.read('sessions/session-a').branchId, 'branch-a')
+  assert.equal(state.read('sessions/session-a').revision, 1)
+})
+
 test('admin history exposes one audited correction sheet for the complete paired shift', () => {
   assert.match(historyPanel, /canCorrectTeachingShift/)
   assert.match(historyPanel, /Điều chỉnh ca dạy/)
@@ -200,6 +217,8 @@ test('admin history exposes one audited correction sheet for the complete paired
   assert.match(service, /export function correctTeachingShift/)
   assert.match(source, /type: 'teaching_shift_corrected'/)
   assert.match(source, /sourceDataStale: true/)
+  assert.match(historyPanel, /record\.branchId/)
+  assert.match(source, /normaliseSessionBranchId/)
 })
 
 test('learner receives pairing-first change suggestions and a two-request Aura policy snapshot', async () => {

@@ -450,6 +450,15 @@ function normalizedAttendanceNote(value) {
   return result
 }
 
+// `all` was written by the legacy all-branch scheduler. It is a scope
+// selector, not a physical branch, so it must not make a correction look like
+// a cross-branch ca. We keep the original value in the audit trail and only
+// canonicalise it while validating the target.
+function normaliseSessionBranchId(value) {
+  const result = typeof value === 'string' ? value.trim() : ''
+  return result.toLowerCase() === 'all' ? '' : result
+}
+
 function teachingCorrectionItems(value) {
   if (!Array.isArray(value) || value.length < 1 || value.length > TEACHING_SHIFT_CORRECTION_LIMIT) {
     throw new HttpsError('invalid-argument', `Mỗi lần chỉ điều chỉnh từ 1 đến ${TEACHING_SHIFT_CORRECTION_LIMIT} buổi trong cùng ca.`)
@@ -1475,20 +1484,20 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         })
       }
       const targetTrainer = trainerSnapshot.data()
-      const sourceBranchIds = new Set(sessions.map((session) => session.data.branchId).filter(Boolean))
+      const sourceBranchIds = new Set(sessions.map((session) => normaliseSessionBranchId(session.data.branchId)).filter(Boolean))
       if (sourceBranchIds.size > 1) {
         throw new HttpsError('failed-precondition', 'Ca nguồn đang chứa nhiều chi nhánh. Hãy đối soát từng buổi trước.', {
           issueCode: 'TEACHING_SHIFT_SOURCE_BRANCH_MISMATCH',
         })
       }
       const sourceBranchId = [...sourceBranchIds][0] || ''
-      const targetTrainerBranchIds = new Set([targetTrainer.branchId, ...(Array.isArray(targetTrainer.branchIds) ? targetTrainer.branchIds : [])].filter(Boolean))
+      const targetTrainerBranchIds = new Set([targetTrainer.branchId, ...(Array.isArray(targetTrainer.branchIds) ? targetTrainer.branchIds : [])].map(normaliseSessionBranchId).filter(Boolean))
       if (sourceBranchId && !targetTrainerBranchIds.has(sourceBranchId)) {
         throw new HttpsError('failed-precondition', 'PT thực dạy không thuộc chi nhánh của ca.', {
           issueCode: 'TEACHING_SHIFT_TRAINER_BRANCH_MISMATCH', trainerId: targetTrainerId, branchId: sourceBranchId,
         })
       }
-      const targetBranchId = sourceBranchId || targetTrainer.branchId || [...targetTrainerBranchIds][0] || ''
+      const targetBranchId = sourceBranchId || normaliseSessionBranchId(targetTrainer.branchId) || [...targetTrainerBranchIds][0] || ''
       if (!targetBranchId) throw new HttpsError('failed-precondition', 'Chưa xác định được chi nhánh của ca cần điều chỉnh.')
 
       attendanceSnapshots.forEach((snapshot, index) => {
@@ -1588,7 +1597,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         .map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }))
         .filter((session) => !correctedIds.has(session.id) && teachingOccupancyStatus(session.status))
         .filter((session) => storedSessionHour(session.hour, session.id, 'Giờ ca liên quan') === targetHour)
-      if (existingTargetRows.some((session) => session.branchId && session.branchId !== targetBranchId)) {
+      if (existingTargetRows.some((session) => normaliseSessionBranchId(session.branchId) && normaliseSessionBranchId(session.branchId) !== targetBranchId)) {
         throw new HttpsError('failed-precondition', 'PT đã có ca cùng giờ tại chi nhánh khác.', {
           issueCode: 'TEACHING_SHIFT_CROSS_BRANCH_CONFLICT', date: targetDate, hour: targetHour, trainerId: targetTrainerId,
         })

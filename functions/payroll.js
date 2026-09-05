@@ -32,6 +32,20 @@ function payrollViolationError(code, title, detail, remediation, context = {}, h
   })
 }
 
+function payrollViolationsError(violations, httpsCode = 'failed-precondition') {
+  const safeViolations = Array.isArray(violations) ? violations.filter(Boolean) : []
+  const first = safeViolations[0] || {
+    code: 'PAYROLL_VALIDATION_FAILED',
+    title: 'Dữ liệu kỳ lương chưa hợp lệ',
+    detail: 'Hãy đối soát dữ liệu trước khi lập kỳ lương.',
+    remediation: 'retry',
+  }
+  return new HttpsError(httpsCode, first.detail, {
+    kind: PAYROLL_VIOLATION_KIND,
+    violations: safeViolations.length ? safeViolations : [first],
+  })
+}
+
 function isKnownHttpsError(value) {
   return value instanceof HttpsError || Boolean(value && typeof value === 'object' && typeof value.code === 'string' && value.code !== 'internal')
 }
@@ -228,6 +242,16 @@ function teachingHour(value, sessionId, context = {}) {
   )
 }
 
+// Legacy schedule documents used the sentinel `all` when an admin was
+// working across branches. It is not a real branch and must not make a
+// teaching slot look like a cross-branch collision during payroll grouping.
+// Keep the value in the source document for audit; use an empty canonical
+// value only for validation/grouping.
+function normalisePayrollBranchId(value) {
+  const result = typeof value === 'string' ? value.trim() : ''
+  return result.toLowerCase() === 'all' ? '' : result
+}
+
 function payrollDocumentId(value, label) {
   const result = typeof value === 'string' ? value.trim() : ''
   if (!/^[A-Za-z0-9_-]{1,200}$/.test(result)) {
@@ -338,7 +362,7 @@ function teachingSlotsFromAttendance(attendanceDocuments, sessionsById, policyVa
         trainerId,
         date,
         hour,
-        branchId: session.branchId || '',
+        branchId: normalisePayrollBranchId(session.branchId),
         sessionIds: new Set(),
         studentIds: new Set(),
         attendanceEventIds: new Set(),
@@ -366,6 +390,8 @@ function teachingSlotsFromAttendance(attendanceDocuments, sessionsById, policyVa
 function teachingSlotsFromSessions(sessionDocuments, policyValue) {
   const policy = payrollPolicyConfiguration(policyValue)
   const slotMap = new Map()
+  const branchConflictKeys = new Set()
+  const branchConflicts = []
   let attendanceEventCount = 0
 
   for (const item of sessionDocuments) {
@@ -399,27 +425,37 @@ function teachingSlotsFromSessions(sessionDocuments, policyValue) {
         trainerId,
         date,
         hour,
-        branchId: session.branchId || '',
+        branchId: normalisePayrollBranchId(session.branchId),
         sessionIds: new Set(),
         studentIds: new Set(),
         attendanceEventIds: new Set(),
       }
       slotMap.set(key, slot)
-    } else if (slot.branchId && session.branchId && slot.branchId !== session.branchId) {
-      throw payrollViolationError(
-        'TRAINER_CROSS_BRANCH_SLOT_CONFLICT',
-        'PT có ca trùng giờ ở nhiều chi nhánh',
-        `PT có ca hoàn thành trùng giờ ở nhiều chi nhánh ngày ${date}. Hãy xác định lại chi nhánh hoặc PT thực dạy.`,
-        'teaching_history',
-        { trainerId, date, hour, sessionId, conflictingSessionIds: [...slot.sessionIds] },
-      )
+    } else if (slot.branchId && normalisePayrollBranchId(session.branchId) && slot.branchId !== normalisePayrollBranchId(session.branchId)) {
+      if (!branchConflictKeys.has(key)) {
+        branchConflictKeys.add(key)
+        branchConflicts.push({
+          code: 'TRAINER_CROSS_BRANCH_SLOT_CONFLICT',
+          severity: 'error',
+          title: 'PT có ca trùng giờ ở nhiều chi nhánh',
+          detail: `PT có ca hoàn thành trùng giờ ở nhiều chi nhánh ngày ${date}. Hãy xác định lại chi nhánh hoặc PT thực dạy.`,
+          remediation: 'teaching_history',
+          trainerId,
+          date,
+          hour,
+          sessionId,
+          conflictingSessionIds: [...slot.sessionIds],
+        })
+      }
     }
-    if (!slot.branchId && session.branchId) slot.branchId = session.branchId
+    if (!slot.branchId && normalisePayrollBranchId(session.branchId)) slot.branchId = normalisePayrollBranchId(session.branchId)
     slot.sessionIds.add(sessionId)
     slot.studentIds.add(session.studentId || `unknown_${sessionId}`)
     slot.attendanceEventIds.add(session.attendanceEventId || sessionId)
     attendanceEventCount += 1
   }
+
+  if (branchConflicts.length) throw payrollViolationsError(branchConflicts)
 
   const trainers = new Map()
   for (const slot of slotMap.values()) {

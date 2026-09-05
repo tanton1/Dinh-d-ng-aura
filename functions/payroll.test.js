@@ -130,6 +130,34 @@ test('a trainer cannot silently merge the same completed hour across two branche
   assert.equal(error.details.violations[0].remediation, 'teaching_history')
 })
 
+test('payroll reports every cross-branch slot so admins can repair the month in one pass', () => {
+  let error
+  try {
+    teachingSlotsFromSessions([
+      { id: 'session-a', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', branchId: 'branch-a', date: '2026-08-25', hour: 6 },
+      { id: 'session-b', status: 'completed', trainerId: 'trainer-a', studentId: 'student-b', branchId: 'branch-b', date: '2026-08-25', hour: 6 },
+      { id: 'session-c', status: 'completed', trainerId: 'trainer-a', studentId: 'student-c', branchId: 'branch-a', date: '2026-08-26', hour: 6 },
+      { id: 'session-d', status: 'completed', trainerId: 'trainer-a', studentId: 'student-d', branchId: 'branch-b', date: '2026-08-26', hour: 6 },
+    ], { ratePerSession: 20_000 })
+    assert.fail('Expected branch conflicts')
+  } catch (cause) {
+    error = cause
+  }
+  assert.equal(error.details.violations.length, 2)
+  assert.deepEqual(error.details.violations.map((item) => item.date), ['2026-08-25', '2026-08-26'])
+})
+
+test('legacy all-branch sentinel does not create a false payroll branch conflict', () => {
+  const result = teachingSlotsFromSessions([
+    { id: 'session-a', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', branchId: 'branch-a', date: '2026-08-25', hour: 6 },
+    { id: 'session-b', status: 'completed', trainerId: 'trainer-a', studentId: 'student-b', branchId: 'all', date: '2026-08-25', hour: 6 },
+  ], { ratePerSession: 20_000 })
+  const slot = result.trainers.get('trainer-a')[0]
+  assert.equal(result.teachingSlotCount, 1)
+  assert.equal(slot.studentCount, 2)
+  assert.equal(slot.branchId, 'branch-a')
+})
+
 test('invalid completed sessions return actionable payroll validation details', () => {
   let error
   try {

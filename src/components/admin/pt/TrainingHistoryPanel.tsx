@@ -107,15 +107,41 @@ function editableAttendanceStatus(record: TrainingHistoryPage['records'][number]
   return value === 'present' || value === 'late' || value === 'no_show' ? value : ''
 }
 
+function normaliseHistoryBranchId(value: string | undefined) {
+  const result = (value || '').trim()
+  return result.toLowerCase() === 'all' ? '' : result
+}
+
+function correctionFailureMessage(cause: unknown) {
+  const raw = cause && typeof cause === 'object' ? cause as Record<string, unknown> : {}
+  const directDetails = raw.details && typeof raw.details === 'object' ? raw.details as Record<string, unknown> : {}
+  const customData = raw.customData && typeof raw.customData === 'object' ? raw.customData as Record<string, unknown> : {}
+  const nestedDetails = customData.details && typeof customData.details === 'object' ? customData.details as Record<string, unknown> : {}
+  const details = Object.keys(directDetails).length ? directDetails : nestedDetails
+  const issueCode = typeof details.issueCode === 'string' ? details.issueCode : ''
+  const message = cause instanceof Error ? cause.message : typeof raw.message === 'string' ? raw.message : ''
+  if (issueCode === 'TEACHING_SHIFT_REVISION_CONFLICT') return 'Ca đã được người khác cập nhật. Hãy tải lại lịch sử rồi mở lại ca trước khi lưu.'
+  if (issueCode === 'TEACHING_SHIFT_SOURCE_BRANCH_MISMATCH') return 'Ca đang gộp dữ liệu từ nhiều chi nhánh. Hãy điều chỉnh từng ca theo đúng chi nhánh.'
+  if (issueCode === 'TEACHING_SHIFT_STUDENT_DAY_CONFLICT') return 'Không thể lưu: học viên đã có một buổi khác trong ngày đích. Hãy chọn ngày khác hoặc xử lý buổi trùng trước.'
+  if (issueCode === 'TEACHING_SHIFT_ATTENDANCE_MISSING') return 'Buổi này chưa có bản ghi điểm danh hợp lệ. Hãy tải lại lịch sử và đối soát điểm danh trước.'
+  if (issueCode === 'PAYROLL_RUN_IMMUTABLE') return 'Kỳ lương đã duyệt/khóa nên không sửa chứng từ ca trực tiếp. Hãy tạo bù trừ ở kỳ lương tiếp theo.'
+  if (issueCode === 'FINANCE_PERIOD_LOCKED') return 'Kỳ tài chính đã khóa nên không thể sửa ca trực tiếp. Hãy dùng khoản điều chỉnh có audit.'
+  return message.replace(/^Firebase:\s*/i, '').replace(/^FunctionsError:\s*/i, '') || 'Không thể điều chỉnh ca. Hãy tải lại lịch sử và thử lại.'
+}
+
 function groupTrainerTeachingShifts(records: TrainingHistoryPage['records']): TrainerTeachingShift[] {
   const groups = new Map<string, TrainerTeachingShift>()
   records.forEach((record) => {
+    const branchId = normaliseHistoryBranchId(record.branchId)
     const key = record.date && record.hour !== null
-      ? `${record.date}|${record.hour}`
+      // A legacy all-branch row and a physical branch row at the same time
+      // are separate correction targets. Keeping them in one card made the
+      // server reject the whole save as a cross-branch source mismatch.
+      ? `${record.date}|${record.hour}|${branchId || 'unknown'}`
       : `unknown|${record.id}`
     const current = groups.get(key)
     if (current) current.records.push(record)
-    else groups.set(key, { key, date: record.date, hour: record.hour, branchId: record.branchId, studentCount: 1, records: [record] })
+    else groups.set(key, { key, date: record.date, hour: record.hour, branchId, studentCount: 1, records: [record] })
   })
   return [...groups.values()].map((shift) => ({
     ...shift,
@@ -296,7 +322,7 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
     setCorrectionError('')
     setCorrectionNotice('')
     const sourceTrainerId = shift.records[0]?.trainerId || subjectId
-    const sourceBranchId = shift.records.find((record) => record.branchId)?.branchId || ''
+    const sourceBranchId = normaliseHistoryBranchId(shift.records.find((record) => record.branchId)?.branchId)
     const sourceTrainerAvailable = trainers.some((trainer) => trainer.id === sourceTrainerId && trainer.status !== 'inactive' && (!sourceBranchId || trainer.branchId === sourceBranchId))
     setCorrection({
       records: shift.records,
@@ -372,8 +398,7 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
           : 'Đã điều chỉnh ca và lưu đầy đủ lịch sử đối soát.')
       await load(false)
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : 'Không thể điều chỉnh ca.'
-      setCorrectionError(message.replace(/^Firebase:\s*/i, '').replace(/^FunctionsError:\s*/i, ''))
+      setCorrectionError(correctionFailureMessage(cause))
     } finally {
       setCorrectionSaving(false)
     }
