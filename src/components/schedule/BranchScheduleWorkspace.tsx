@@ -63,7 +63,7 @@ interface Props {
 }
 
 type WorkspaceTab = 'matrix' | 'students' | 'warnings' | 'history'
-type StudentFilter = 'all' | 'missing' | 'availability' | 'ready'
+type StudentFilter = 'all' | 'missing' | 'contract' | 'availability' | 'trainer' | 'ready'
 type WorkspaceSyncState = 'connecting' | 'live' | 'syncing' | 'offline'
 const CONFIRMED_AVAILABILITY_STATUSES = new Set(['submitted', 'locked', 'inherited', 'recurring'])
 const QUIET_REFRESH_COOLDOWN_MS = 5_000
@@ -172,6 +172,42 @@ function contractQuota(contract: PtScheduleWorkspaceV2Result['contracts'][number
   return { entitlement, held, schedulable }
 }
 
+function diagnosticReasonLabel(code: string | undefined) {
+  if (!code) return 'Chưa tìm được phương án xếp phù hợp.'
+  return ptScheduleConflictLabel(code)
+}
+
+function diagnosticActionLabel(code: string | undefined) {
+  switch (code) {
+    case 'EDIT_STUDENT_AVAILABILITY': return 'Bổ sung / điều chỉnh lịch rảnh'
+    case 'REVIEW_CONTRACT_QUOTA': return 'Kiểm tra quota hoặc nối tiếp hợp đồng'
+    case 'REVIEW_CONTRACT_DATES': return 'Kiểm tra ngày hiệu lực hợp đồng'
+    case 'ADD_TRAINER_AVAILABILITY': return 'Bổ sung lịch rảnh PT hoặc mở PT hỗ trợ'
+    case 'OPEN_OTHER_SLOT': return 'Mở ca khác còn công suất'
+    case 'RERUN_OPTIMIZER': return 'Chạy tối ưu lần 2 hoặc xếp tay'
+    default: return 'Mở ca đề xuất và xử lý thủ công'
+  }
+}
+
+function contractStatusLabel(status: string | undefined) {
+  switch (status) {
+    case 'expired': return 'Đã hết hạn'
+    case 'expiring': return 'Sắp hết hạn trong tuần'
+    case 'quota_exhausted': return 'Đã hết buổi'
+    case 'paused': return 'Đang OFF / bảo lưu'
+    case 'missing': return 'Chưa có hợp đồng'
+    case 'not_started_or_ended': return 'Chưa có ngày hiệu lực phù hợp'
+    default: return 'Còn hiệu lực'
+  }
+}
+
+function formatDiagnosticDate(value: string | null | undefined) {
+  if (!value) return ''
+  const parsed = new Date(`${value}T00:00:00+07:00`)
+  if (Number.isNaN(parsed.getTime())) return value
+  return new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit' }).format(parsed)
+}
+
 function workspaceRealtimeFingerprint(value: PtScheduleWorkspaceV2Result | null) {
   if (!value) return ''
   return JSON.stringify({
@@ -191,6 +227,10 @@ function workspaceRealtimeFingerprint(value: PtScheduleWorkspaceV2Result | null)
     contracts: value.contracts.map((contract) => [
       contract.id, contract.status, contract.usedSessions, contract.activeScheduledSessions,
       contract.startDate, contract.endDate,
+    ]),
+    unassignedEntries: (value.unassignedEntries || value.unassigned || []).map((entry) => [
+      entry.studentId, entry.missingSessions, entry.primaryReasonCode,
+      entry.diagnostics?.contractStatus, entry.diagnostics?.trainerCompatibleSlotCount,
     ]),
   })
 }
@@ -602,7 +642,12 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     const feasibilityByStudent = new Map<string, PtScheduleStudentFeasibility>(
       (workspace.optimizationSummary?.studentFeasibility || []).map((item) => [item.studentId, item]),
     )
-    return workspace.students.filter((student) => student.eligibleForWeek === true).map((student) => {
+    // Keep learners with an expired/exhausted/paused contract visible. They
+    // are not auto-schedulable, but hiding them makes the operator miss the
+    // actual reason why the weekly target is still empty.
+    return workspace.students
+      .filter((student) => !['archived', 'deleted'].includes(String(student.status || '').toLowerCase()))
+      .map((student) => {
       const scheduledEntries = scheduledEntriesByStudent.get(student.id) || []
       const scheduled = scheduledEntries.length
       const missing = Math.max(0, Number(student.sessionsPerWeek || 0) - scheduled)
@@ -613,7 +658,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       // The latest entitlement is the clearest summary for a renewal chain;
       // each actual schedule entry is still bound to its date-specific
       // source/new contract by the backend.
-      const contract = contracts[contracts.length - 1] || null
+      const contract = contracts[contracts.length - 1]
+        || workspace.contracts.filter((item) => item.studentId === student.id)
+          .sort((left, right) => String(left.endDate || '').localeCompare(String(right.endDate || '')))
+          .pop()
+        || null
       const trainerIds = [...new Set([
         contract?.trainerId,
         ...(contract?.trainerIds || []),
@@ -621,6 +670,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       ].filter((value): value is string => Boolean(value)))]
       const trainerNames = trainerIds.map((id) => workspace.trainers.find((trainer) => trainer.id === id)?.name).filter(Boolean).join(', ')
       const inputWarning = missing > 0
+        || student.eligibleForWeek !== true
+        || student.contractStatus === 'expiring'
         || !CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus)
         || student.eligibilityReasons.includes('AMBIGUOUS_ACTIVE_CONTRACT')
       return { student, scheduled, scheduledEntries, missing, contract, trainerNames, inputWarning, feasibility: feasibilityByStudent.get(student.id) }
@@ -634,24 +685,28 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const missingSessions = studentWarnings.reduce((total, item) => total + item.missing, 0)
   const studentRows = useMemo(() => {
     const needle = studentSearch.trim().toLocaleLowerCase('vi-VN')
+    const diagnosticsByStudent = new Map((workspace?.unassignedEntries || workspace?.unassigned || []).map((entry) => [entry.studentId, entry]))
     return operationalStudentRows.filter((row) => {
       if (studentFilter === 'missing' && row.missing < 1) return false
+      if (studentFilter === 'contract' && row.student.contractStatus !== 'expiring' && row.student.eligibleForWeek === true && !row.student.eligibilityReasons.some((reason) => reason.includes('CONTRACT') || reason === 'ACTIVE_CONTRACT_NOT_FOUND')) return false
       if (studentFilter === 'availability' && CONFIRMED_AVAILABILITY_STATUSES.has(row.student.availabilityStatus)) return false
+      if (studentFilter === 'trainer' && !['trainer_capacity', 'branch_capacity'].includes(diagnosticsByStudent.get(row.student.id)?.blockerCategory || '')) return false
       if (studentFilter === 'ready' && row.inputWarning) return false
       if (!needle) return true
       return [row.student.name, row.student.phone, row.contract?.packageName, row.trainerNames]
         .some((value) => String(value || '').toLocaleLowerCase('vi-VN').includes(needle))
     }).sort((left, right) => right.missing - left.missing || (left.student.name || '').localeCompare(right.student.name || '', 'vi'))
-  }, [operationalStudentRows, studentFilter, studentSearch])
+  }, [operationalStudentRows, studentFilter, studentSearch, workspace?.unassigned, workspace?.unassignedEntries])
 
   const studentCoverage = useMemo(() => {
     const source: PtScheduleStudentCoverage | undefined = workspace?.optimizationSummary?.studentCoverage
       || workspace?.studentCoverage
-    const eligible = finiteCount(source?.eligibleStudents, source?.eligible, operationalStudentRows.length)
-    const withAtLeastOneFallback = operationalStudentRows.filter((row) => row.scheduled > 0).length
-    const fullyScheduledFallback = operationalStudentRows.filter((row) => row.missing === 0).length
-    const totalTargetFallback = operationalStudentRows.reduce((total, row) => total + row.student.sessionsPerWeek, 0)
-    const scheduledFallback = operationalStudentRows.reduce((total, row) => total + row.scheduled, 0)
+    const eligibleRows = operationalStudentRows.filter((row) => row.student.eligibleForWeek === true)
+    const eligible = finiteCount(source?.eligibleStudents, source?.eligible, eligibleRows.length)
+    const withAtLeastOneFallback = eligibleRows.filter((row) => row.scheduled > 0).length
+    const fullyScheduledFallback = eligibleRows.filter((row) => row.missing === 0).length
+    const totalTargetFallback = eligibleRows.reduce((total, row) => total + row.student.sessionsPerWeek, 0)
+    const scheduledFallback = eligibleRows.reduce((total, row) => total + row.scheduled, 0)
     return {
       eligible,
       withAtLeastOne: finiteCount(source?.studentsWithAtLeastOne, source?.receivedAtLeastOne, source?.withAtLeastOne, withAtLeastOneFallback),
@@ -776,7 +831,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       || []
     const byStudent = new Map(raw.filter((entry) => Boolean(entry?.studentId)).map((entry) => [entry.studentId, {
       ...entry,
-      missingSessions: Math.max(1, finiteCount(entry.missingSessions, 1)),
+      missingSessions: Math.max(0, finiteCount(entry.missingSessions, 0)),
       reasonCodes: entry.reasonCodes?.length
         ? entry.reasonCodes
         : (entry as PtScheduleUnassignedEntry & { reason?: string }).reason === 'trainer_off'
@@ -784,10 +839,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           : ['STUDENT_UNSCHEDULED'],
     }]))
     for (const row of operationalStudentRows) {
-      if (row.missing < 1 || byStudent.has(row.student.id)) continue
+      if ((row.missing < 1 && row.student.eligibleForWeek === true) || byStudent.has(row.student.id)) continue
       const reasonCodes: string[] = []
       if (!CONFIRMED_AVAILABILITY_STATUSES.has(row.student.availabilityStatus)) reasonCodes.push('STUDENT_AVAILABILITY_MISSING')
-      if (row.student.eligibilityReasons.includes('AMBIGUOUS_ACTIVE_CONTRACT')) reasonCodes.push('AMBIGUOUS_ACTIVE_CONTRACT')
+      reasonCodes.push(...row.student.eligibilityReasons)
       if (!row.trainerNames) reasonCodes.push('TRAINER_NOT_ASSIGNED')
       if (!reasonCodes.length) reasonCodes.push('STUDENT_UNSCHEDULED')
       byStudent.set(row.student.id, {
@@ -802,6 +857,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       || String(left.studentName || '').localeCompare(String(right.studentName || ''), 'vi'))
   }, [operationalStudentRows, workspace?.unassigned, workspace?.unassignedEntries])
 
+  const unassignedByStudent = useMemo(
+    () => new Map(unassignedEntries.map((entry) => [entry.studentId, entry])),
+    [unassignedEntries],
+  )
+
   const warningProfiles = useMemo(() => {
     if (!workspace) return []
     const operationalByStudent = new Map(operationalStudentRows.map((row) => [row.student.id, row]))
@@ -810,7 +870,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       ...unassignedEntries.map((entry) => entry.studentId),
       ...studentWarnings.map((row) => row.student.id),
       ...ineligibleDraftRows.map((row) => row.student.id),
-      ...workspace.students.filter((student) => student.eligibilityReasons.includes('CONTRACT_PAUSED')).map((student) => student.id),
+      // Contract/date/quota issues must be visible even when the learner has
+      // no draft entry yet; previously only paused contracts reached this list.
+      ...workspace.students.filter((student) => student.eligibleForWeek !== true || student.eligibilityReasons.length > 0).map((student) => student.id),
     ])
     return [...affectedIds].map((studentId) => {
       const student = workspace.students.find((item) => item.id === studentId)
@@ -836,16 +898,35 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         ...(student.eligibleForWeek ? [] : student.eligibilityReasons || []),
       ])
       if (!CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus)) reasonCodes.add('AVAILABILITY_NOT_SUBMITTED')
+      if (student.contractStatus === 'expiring') reasonCodes.add('CONTRACT_EXPIRES_DURING_WEEK')
       if ((row?.missing || unassigned?.missingSessions || 0) > 0 && !reasonCodes.size) reasonCodes.add('STUDENT_UNSCHEDULED')
       const hasConfirmedAvailability = CONFIRMED_AVAILABILITY_STATUSES.has(student.availabilityStatus)
         && student.availableSlots.length > 0
+      const missingSessions = Math.max(0, row?.missing || unassigned?.missingSessions || 0)
+      const primaryReasonCode = unassigned?.primaryReasonCode
+        || (student.contractStatus === 'expiring' ? 'CONTRACT_EXPIRES_DURING_WEEK' : [...reasonCodes][0])
+        || (missingSessions > 0 ? 'STUDENT_UNSCHEDULED' : undefined)
+      const actionCode = unassigned?.actionCode
+        || (student.contractStatus === 'expiring' ? 'REVIEW_CONTRACT_DATES' : undefined)
       return {
         student,
         contract,
         trainerNames,
         scheduledEntries,
-        missingSessions: Math.max(0, row?.missing || unassigned?.missingSessions || 0),
+        missingSessions,
         reasonCodes: [...reasonCodes],
+        primaryReasonCode,
+        blockerCategory: unassigned?.blockerCategory,
+        actionCode,
+        diagnostics: unassigned?.diagnostics || {
+          contractStatus: student.contractStatus,
+          latestContractEndDate: student.contractEndDate,
+          contractQuotaRemaining: student.remainingEntitlementSessions,
+          contractValidDateCount: student.validScheduleDates.length,
+          candidateSlotCount: student.availableSlots.length,
+          learnerAvailabilityCount: hasConfirmedAvailability ? student.availableSlots.length : 0,
+        },
+        candidateSlots: unassigned?.candidateSlots || [],
         suggestedSlots: unassigned?.suggestedSlots || [],
         hasConfirmedAvailability,
         offState: reasonCodes.has('CONTRACT_PAUSED')
@@ -889,6 +970,14 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const warningCount = useMemo(() => {
     return warningProfiles.length + singleSlotWarnings.length + trainerAssignmentWarnings.length + (workspace?.summary.unconfiguredTrainers || 0)
   }, [singleSlotWarnings.length, trainerAssignmentWarnings.length, warningProfiles.length, workspace?.summary.unconfiguredTrainers])
+  const warningCategoryCounts = useMemo(() => ({
+    contract: warningProfiles.filter((profile) => profile.blockerCategory === 'contract'
+      || (Boolean(profile.student.contractStatus) && profile.student.contractStatus !== 'valid')
+      || profile.reasonCodes.some((reason) => reason.includes('CONTRACT') || reason === 'ACTIVE_CONTRACT_NOT_FOUND')).length,
+    availability: warningProfiles.filter((profile) => !profile.hasConfirmedAvailability
+      || profile.blockerCategory === 'learner_availability').length,
+    trainer: warningProfiles.filter((profile) => ['trainer_capacity', 'branch_capacity'].includes(profile.blockerCategory || '')).length,
+  }), [warningProfiles])
 
   useEffect(() => {
     if (!workspace || !inspectorSlotId || !selectedTrainerId) {
@@ -1321,12 +1410,21 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           <header><div><p>HỌC VIÊN TRONG TUẦN</p><h2>Tiến độ xếp lịch</h2><span>Chạm vào từng hồ sơ để xem hoặc điều chỉnh lịch rảnh.</span></div>{onNavigate && <button type="button" onClick={() => onNavigate('admin-pt-students')}><UserPlus size={16} /> Hồ sơ học viên</button>}</header>
           <div className="branch-schedule__student-tools">
             <label><Search size={17} /><input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="Tên, SĐT, gói tập hoặc PT" /></label>
-            <select aria-label="Lọc trạng thái học viên" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value as StudentFilter)}><option value="all">Tất cả học viên</option><option value="missing">Còn thiếu buổi</option><option value="availability">Thiếu lịch rảnh</option><option value="ready">Đã đủ lịch</option></select>
+            <select aria-label="Lọc trạng thái học viên" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value as StudentFilter)}><option value="all">Tất cả học viên</option><option value="missing">Còn thiếu buổi</option><option value="contract">Lỗi hợp đồng / quota</option><option value="availability">Thiếu lịch rảnh</option><option value="trainer">Thiếu PT / công suất</option><option value="ready">Đã đủ lịch</option></select>
           </div>
           <div className="branch-schedule__student-list">
-            {studentRows.map(({ student, scheduled, scheduledEntries, missing, contract, trainerNames, feasibility }) => <article key={student.id} className={`${missing > 0 ? 'is-missing' : 'is-ready'}${availabilityEditorStudentId === student.id ? ' is-editing-availability' : ''}`}>
-              <div className="branch-schedule__student-person"><span><UsersRound size={17} /></span><div><strong>{student.name || 'Chưa cập nhật tên'}</strong><small>{student.phone || `Mã ${student.id.slice(-8)}`}</small></div></div>
-              <div className="branch-schedule__student-contract"><small>Gói &amp; PT</small><strong>{contract?.packageName || 'Cần đối soát hợp đồng'}</strong><span>{trainerNames || 'Chưa phân PT'} · {contract ? `${contractQuota(contract).schedulable} xếp thêm · ${contractQuota(contract).held} đã giữ chỗ` : 'chưa có gói phù hợp'}</span></div>
+            {studentRows.map(({ student, scheduled, scheduledEntries, missing, contract, trainerNames, feasibility }) => {
+              const diagnosis = unassignedByStudent.get(student.id)
+              const contractIssue = student.eligibilityReasons.find((reason) => reason.includes('CONTRACT') || reason === 'ACTIVE_CONTRACT_NOT_FOUND')
+              const primaryReason = diagnosis?.primaryReasonCode || contractIssue || (missing > 0 ? 'STUDENT_UNSCHEDULED' : undefined)
+              const statusText = student.eligibleForWeek !== true
+                ? diagnosticReasonLabel(primaryReason)
+                : missing > 0
+                  ? diagnosticReasonLabel(primaryReason)
+                  : 'Đã đủ lịch tuần'
+              return <article key={student.id} className={`${missing > 0 ? 'is-missing' : 'is-ready'}${student.eligibleForWeek !== true ? ' is-ineligible' : ''}${availabilityEditorStudentId === student.id ? ' is-editing-availability' : ''}`}>
+              <div className="branch-schedule__student-person"><span><UsersRound size={17} /></span><div><strong>{student.name || 'Chưa cập nhật tên'}</strong><small>{student.phone || 'Chưa cập nhật SĐT'}</small><em className={student.eligibleForWeek !== true || missing > 0 ? 'is-warning' : 'is-ok'}>{statusText}</em></div></div>
+              <div className="branch-schedule__student-contract"><small>Gói &amp; PT</small><strong>{contract?.packageName || 'Cần đối soát hợp đồng'}</strong><span>{trainerNames || 'Chưa phân PT · sẽ xếp theo hạng PT'} · {contract ? `${contractQuota(contract).schedulable} xếp thêm · ${contractQuota(contract).held} đã giữ chỗ` : 'chưa có gói phù hợp'}</span>{(diagnosis?.diagnostics?.contractStatus || student.contractStatus) && <em className={`schedule-contract-status is-${diagnosis?.diagnostics?.contractStatus || student.contractStatus}`}>{contractStatusLabel(diagnosis?.diagnostics?.contractStatus || student.contractStatus)}{(diagnosis?.diagnostics?.latestContractEndDate || student.contractEndDate) ? ` · đến ${formatDiagnosticDate(diagnosis?.diagnostics?.latestContractEndDate || student.contractEndDate)}` : ''}</em>}</div>
               <div className="branch-schedule__weekly-target"><small>Mục tiêu tuần</small><div><button type="button" aria-label={`Giảm mục tiêu tuần của ${student.name}`} disabled={busy || student.sessionsPerWeek <= scheduled} onClick={() => void setWeeklyTarget(student.id, student.sessionsPerWeek - 1)}><Minus /></button><strong>{student.sessionsPerWeek}</strong><button type="button" aria-label={`Tăng mục tiêu tuần của ${student.name}`} disabled={busy || student.sessionsPerWeek >= student.maxWeeklySessions} onClick={() => void setWeeklyTarget(student.id, student.sessionsPerWeek + 1)}><Plus /></button>{student.weeklySessionTargetOverridden && <button type="button" className="is-reset" title={`Về ${student.defaultSessionsPerWeek} buổi`} aria-label={`Khôi phục mục tiêu của ${student.name} về ${student.defaultSessionsPerWeek} buổi`} disabled={busy || Math.min(student.defaultSessionsPerWeek, student.maxWeeklySessions) < scheduled} onClick={() => void setWeeklyTarget(student.id, null)}><RotateCcw /></button>}</div>{student.weeklySessionTargetOverridden && <span>Tạm thời</span>}</div>
               <div className="branch-schedule__student-progress"><strong>{scheduled}/{student.sessionsPerWeek}</strong><span>{missing > 0 ? `Thiếu ${missing}` : 'Đã đủ'}{feasibility && feasibility.maximumFeasibleSessions < student.sessionsPerWeek ? ` · Tối đa có thể xếp ${feasibility.maximumFeasibleSessions}` : ''}</span><i><b style={{ width: `${Math.min(100, student.sessionsPerWeek ? scheduled / student.sessionsPerWeek * 100 : 100)}%` }} /></i></div>
               <div className="branch-schedule__student-schedule"><small>Lịch được xếp · {availabilityOriginLabel(student)}</small><div>{scheduledEntries.length ? scheduledEntries.map((entry) => <span key={`${entry.slotId}-${entry.trainerId}`} className={entry.trainerAssignmentWarning ? 'has-assignment-warning' : ''}>{entry.label}<b>{workspace.trainers.find((trainer) => trainer.id === entry.trainerId)?.name || 'PT chưa cập nhật'}{entry.trainerAssignmentWarning && <AlertTriangle size={12} aria-label="PT hỗ trợ" />}</b></span>) : <em>Chưa có buổi nào trong tuần</em>}</div></div>
@@ -1337,7 +1435,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                 {availabilityError && <p role="alert">{availabilityError}</p>}
                 <footer><button type="button" onClick={() => setAvailabilityEditorStudentId(null)}>Đóng</button><button type="button" className="is-save" disabled={availabilityBusy} onClick={() => void saveStudentAvailability(student)}><Save size={16} />{availabilityBusy ? 'Đang lưu' : 'Lưu lịch rảnh'}</button></footer>
               </section>}
-            </article>)}
+              </article>
+            })}
             {!studentRows.length && <div className="schedule-warning-empty"><CheckCircle2 /> Không có học viên phù hợp bộ lọc.</div>}
           </div>
         </main>
@@ -1349,9 +1448,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           <section className="schedule-warning-summary" aria-label="Tóm tắt cảnh báo">
             <article><strong>{warningProfiles.length}</strong><span>Học viên cần xử lý</span></article>
             <article><strong>{warningProfiles.reduce((total, profile) => total + profile.missingSessions, 0)}</strong><span>Buổi còn thiếu</span></article>
+            <article><strong>{warningCategoryCounts.contract}</strong><span>Hợp đồng / quota</span></article>
+            <article><strong>{warningCategoryCounts.availability}</strong><span>Thiếu lịch rảnh</span></article>
+            <article><strong>{warningCategoryCounts.trainer}</strong><span>Thiếu PT / công suất</span></article>
             <article><strong>{singleSlotWarnings.length}</strong><span>Ca 1/2 có thể ghép</span></article>
-            <article><strong>{trainerAssignmentWarnings.length}</strong><span>Ca PT hỗ trợ</span></article>
-            <article><strong>{workspace.trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').length}</strong><span>PT thiếu lịch rảnh</span></article>
           </section>
           {singleSlotWarnings.length > 0 && <section className="schedule-pairing-opportunities" aria-label="Ca một học viên còn có thể ghép">
             <header><div><strong>Ca 1/2 cần ưu tiên ghép</strong><span>Chạm vào ca để mở đúng ô lịch và bổ sung học viên phù hợp.</span></div><b>{slotUtilization.seatUtilizationPercent}% sử dụng ghế</b></header>
@@ -1368,20 +1468,34 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           </section>}
           <section className="schedule-warning-grid">
             {workspace.trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').map((trainer) => <article key={trainer.id} className="schedule-warning-trainer is-blocking"><Clock3 /><div><strong>{trainer.name}</strong><span>{trainerEmploymentLabel(trainer.employmentType)} · chưa đăng ký lịch nhận ca nên không được xếp tự động.</span><small>Hạng #{trainer.schedulingPriority || 100} · mốc cân tải {trainer.dailySessionTarget || 8} ca/ngày</small></div></article>)}
-            {warningProfiles.map(({ student, missingSessions: missing, trainerNames, contract, scheduledEntries, reasonCodes, suggestedSlots, hasConfirmedAvailability, offState }) => {
+            {warningProfiles.map(({ student, missingSessions: missing, trainerNames, contract, scheduledEntries, reasonCodes, primaryReasonCode, actionCode, diagnostics, candidateSlots, suggestedSlots, hasConfirmedAvailability, offState }) => {
               const expanded = expandedWarningStudentId === student.id
               const quota = contractQuota(contract)
+              const topCandidates = (candidateSlots || []).filter((slot) => slot.availableTrainerIds?.length || slot.blockerCodes?.length).slice(0, 6)
+              const openDiagnosticSlot = (slot: NonNullable<typeof candidateSlots>[number]) => {
+                const trainerId = slot.availableTrainerIds?.[0] || slot.blockedTrainerIds?.[0]
+                if (!trainerId) return
+                setSelectedTrainerId(trainerId)
+                setInspectorSlotId(slot.slotId)
+                setCandidateSearch('')
+                setPendingManualCandidate(null)
+                setTab('matrix')
+              }
               return <article key={student.id} className={`schedule-warning-student${student.eligibleForWeek ? '' : ' is-blocking'}${expanded ? ' is-expanded' : ''}`}>
                 <button type="button" onClick={() => setExpandedWarningStudentId(expanded ? null : student.id)} aria-expanded={expanded}>
-                  <AlertTriangle /><div><span className="schedule-warning-student__title"><strong>{student.name}</strong>{missing > 0 && <b>Thiếu {missing}</b>}</span><span>{student.phone || `Mã ${student.id.slice(-8)}`} · <i className={hasConfirmedAvailability ? 'has-availability' : 'no-availability'}>{hasConfirmedAvailability ? `${student.availableSlots.length} khung lịch rảnh` : 'Chưa có lịch rảnh'}</i>{offState === 'trainer' ? ' · PT xin OFF, đang chờ xếp lại' : offState === 'student' ? ' · Học viên đang OFF/bảo lưu' : ''}</span></div><ChevronRight />
+                  <AlertTriangle /><div><span className="schedule-warning-student__title"><strong>{student.name}</strong>{missing > 0 && <b>Thiếu {missing} buổi</b>}</span><span>{student.phone || 'Chưa cập nhật SĐT'} · <i className={hasConfirmedAvailability ? 'has-availability' : 'no-availability'}>{hasConfirmedAvailability ? `${student.availableSlots.length} khung lịch rảnh` : 'Chưa có lịch rảnh'}</i>{offState === 'trainer' ? ' · PT xin OFF, đang chờ xếp lại' : offState === 'student' ? ' · Học viên đang OFF/bảo lưu' : ''}</span><em className="schedule-warning-primary">{diagnosticReasonLabel(primaryReasonCode)}</em></div><ChevronRight />
                 </button>
                 {expanded && <div className="schedule-warning-detail">
-                  <section><small>Gói tập</small><strong>{contract?.packageName || 'Chưa có hợp đồng phù hợp'}</strong><em>{contract ? `${quota.entitlement} quyền lợi · ${quota.held} đã giữ chỗ · ${quota.schedulable} xếp thêm · ${String(contract.startDate || '').slice(0, 10)} → ${String(contract.endDate || '').slice(0, 10)}` : 'Cần đối soát hợp đồng'}</em></section>
+                  <section><small>Gói tập · {contractStatusLabel(diagnostics?.contractStatus || student.contractStatus)}</small><strong>{contract?.packageName || 'Chưa có hợp đồng phù hợp'}</strong><em>{contract ? `${quota.entitlement} quyền lợi · ${quota.held} đã giữ chỗ · ${quota.schedulable} xếp thêm · ${String(contract.startDate || '').slice(0, 10)} → ${String(contract.endDate || '').slice(0, 10)}` : 'Cần đối soát hợp đồng'}{(diagnostics?.latestContractEndDate || student.contractEndDate) ? ` · hết hạn ${formatDiagnosticDate(diagnostics?.latestContractEndDate || student.contractEndDate)}` : ''}</em></section>
                   <section><small>PT phụ trách</small><strong>{trainerNames || 'Chưa phân PT'}</strong><em>{trainerNames ? 'Theo hợp đồng và lịch hiện tại' : 'Sẽ xếp theo hạng PT'}</em></section>
-                  <section className="is-wide"><small>Nguyên nhân cần xử lý</small><div>{reasonCodes.length ? reasonCodes.map((code) => <span key={code}>{ptScheduleConflictLabel(code)}</span>) : <em>Chưa tìm được phương án tối ưu</em>}</div></section>
+                  <section className="is-wide schedule-warning-cause"><small>Nguyên nhân chính · {diagnosticActionLabel(actionCode)}</small><strong>{diagnosticReasonLabel(primaryReasonCode)}</strong><div>{reasonCodes.length ? reasonCodes.map((code) => <span key={code}>{ptScheduleConflictLabel(code)}</span>) : <em>Chưa tìm được phương án tối ưu</em>}</div></section>
+                  {diagnostics && <section className="is-wide schedule-warning-diagnostics"><small>Đối soát khả năng xếp trong tuần</small><div className="schedule-diagnostic-grid"><span><b>{diagnostics.candidateSlotCount || 0}</b><small>ca đã đăng ký</small></span><span><b>{diagnostics.contractValidDateCount || 0}</b><small>ca đúng ngày HĐ</small></span><span><b>{diagnostics.trainerCompatibleSlotCount || 0}</b><small>ca có PT phù hợp</small></span><span><b>{diagnostics.pairedSeatOpportunityCount || 0}</b><small>ghế đôi còn trống</small></span></div><p>{diagnostics.blockedByTrainerOffCount ? `OFF/nghỉ: ${diagnostics.blockedByTrainerOffCount} PT · ` : ''}{diagnostics.blockedByTrainerCapacityCount ? `PT đầy: ${diagnostics.blockedByTrainerCapacityCount} · ` : ''}{diagnostics.blockedByBranchCapacityCount ? `chi nhánh đầy: ${diagnostics.blockedByBranchCapacityCount}` : 'Không có thêm rào cản công suất đã ghi nhận.'}</p></section>}
                   <section className={`is-wide${hasConfirmedAvailability ? '' : ' is-missing-availability'}`}><small>{hasConfirmedAvailability ? `${availabilityOriginLabel(student)} · ${student.availableSlots.length} khung` : 'Chưa có lịch rảnh'}</small><div>{hasConfirmedAvailability ? student.availableSlots.map((slot) => <span key={slot}>{availabilitySlotLabel(slot)}</span>) : <em>Không có lịch đúng tuần, lịch đã gửi trước đó hoặc lịch mặc định cũ đã xác nhận.</em>}</div></section>
                   <section className="is-wide"><small>Lịch đã xếp</small><div>{scheduledEntries.length ? scheduledEntries.map((entry) => <span key={`${entry.slotId}-${entry.trainerId}`} className={entry.trainerAssignmentWarning ? 'has-assignment-warning' : ''}>{entry.label}<b>{workspace.trainers.find((trainer) => trainer.id === entry.trainerId)?.name || 'PT chưa cập nhật'}{entry.trainerAssignmentWarning && <AlertTriangle size={12} aria-label="PT hỗ trợ" />}</b></span>) : <em>Chưa có buổi nào trong tuần</em>}</div></section>
-                  <section className="is-wide is-suggestion"><small>Ca hệ thống còn đề xuất</small><div>{suggestedSlots.length ? suggestedSlots.map((slot) => <span key={slot}>{availabilitySlotLabel(slot)}</span>) : <em>Không còn ca chung hợp lệ; cần bổ sung lịch rảnh hoặc PT.</em>}</div></section>
+                  <section className="is-wide is-suggestion"><small>Ca hệ thống còn đề xuất / cần mở</small><div>{topCandidates.length ? topCandidates.map((slot) => {
+                    const trainerNamesForSlot = slot.availableTrainerIds?.map((trainerId) => workspace.trainers.find((trainer) => trainer.id === trainerId)?.name).filter(Boolean).join(', ')
+                    return <button type="button" key={slot.slotId} onClick={() => openDiagnosticSlot(slot)}><span>{scheduleSlotLabel(slot.slotId, weekDates)}</span><b>{trainerNamesForSlot || slot.blockerCodes?.slice(0, 1).map(diagnosticReasonLabel).join('')}</b><ChevronRight size={13} /></button>
+                  }) : suggestedSlots.length ? suggestedSlots.map((slot) => <span key={slot}>{scheduleSlotLabel(slot, weekDates)}</span>) : <em>Không còn ca chung hợp lệ; cần bổ sung lịch rảnh hoặc PT.</em>}</div></section>
                 </div>}
               </article>
             })}

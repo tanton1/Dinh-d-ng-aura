@@ -76,6 +76,9 @@ export interface PtScheduleV2Student extends Student {
   activeScheduledSessions?: number
   activeScheduledThisWeek?: number
   remainingSchedulableSessions?: number
+  /** Trạng thái hợp đồng đã đối soát cho tuần đang xem. */
+  contractStatus?: 'missing' | 'expired' | 'expiring' | 'quota_exhausted' | 'paused' | 'not_started_or_ended' | 'valid' | string
+  contractEndDate?: string | null
   /** Hồ sơ mặc định; không bị thay đổi khi điều phối riêng một tuần. */
   defaultSessionsPerWeek: number
   /** Override chỉ thuộc draft tuần/chi nhánh hiện tại; null nghĩa là dùng mặc định. */
@@ -147,9 +150,41 @@ export interface PtScheduleUnassignedEntry {
   studentName?: string
   missingSessions: number
   blockerType?: 'optimizer_gap' | 'input_or_capacity' | 'search_limit_reached'
+  primaryReasonCode?: string
+  blockerCategory?: 'contract' | 'learner_availability' | 'trainer_capacity' | 'branch_capacity' | 'optimizer'
+  actionCode?: 'EDIT_STUDENT_AVAILABILITY' | 'REVIEW_CONTRACT_QUOTA' | 'REVIEW_CONTRACT_DATES' | 'ADD_TRAINER_AVAILABILITY' | 'OPEN_OTHER_SLOT' | 'RERUN_OPTIMIZER' | string
   reasonCodes?: string[]
   reasons?: string[]
   suggestedSlots?: string[]
+  diagnostics?: {
+    candidateSlotCount?: number
+    learnerAvailabilityCount?: number
+    contractValidDateCount?: number
+    trainerCompatibleSlotCount?: number
+    pairedSeatOpportunityCount?: number
+    blockedByTrainerOffCount?: number
+    blockedByTrainerAvailabilityCount?: number
+    blockedByTrainerLeaveCount?: number
+    blockedByTrainerCapacityCount?: number
+    blockedByBranchCapacityCount?: number
+    blockedByLearnerDayCount?: number
+    contractStatus?: 'missing' | 'expired' | 'quota_exhausted' | 'paused' | 'not_started_or_ended' | 'expiring' | 'valid' | string
+    nearestContractEndDate?: string | null
+    latestContractEndDate?: string | null
+    contractQuotaRemaining?: number
+    validDates?: string[]
+    weekStart?: string
+    weekEnd?: string
+  }
+  candidateSlots?: Array<{
+    slotId: string
+    date: string
+    hour: number
+    learnerAvailable: boolean
+    availableTrainerIds: string[]
+    blockedTrainerIds?: string[]
+    blockerCodes?: string[]
+  }>
 }
 
 export interface PtScheduleSlotUtilization {
@@ -323,6 +358,16 @@ const conflictLabels: Record<string, string> = {
   TRAINER_NOT_ASSIGNED: 'Chưa có PT phù hợp trong phạm vi chi nhánh.',
   BRANCH_CAPACITY_REACHED: 'Chi nhánh đã đủ công suất trong các khung giờ phù hợp.',
   STUDENT_WEEKLY_TARGET_REACHED: 'Học viên đã đủ mục tiêu số buổi của tuần.',
+  CONTRACT_EXPIRED_BEFORE_WEEK: 'Hợp đồng đã hết hạn trước tuần đang xếp.',
+  CONTRACT_EXPIRES_DURING_WEEK: 'Hợp đồng hết hạn trong tuần; chỉ xếp được đến ngày còn hiệu lực.',
+  CONTRACT_QUOTA_EXHAUSTED: 'Hợp đồng đã hết số buổi có thể xếp.',
+  CONTRACT_NOT_STARTED_IN_WEEK: 'Hợp đồng mới chưa bắt đầu trong tuần đang xếp.',
+  NO_LEARNER_SLOT_ON_VALID_CONTRACT_DATE: 'Lịch rảnh không trùng ngày hợp đồng còn hiệu lực.',
+  NO_AVAILABLE_TRAINER_IN_LEARNER_SLOTS: 'Có lịch rảnh nhưng chưa có PT trống đúng các khung đó.',
+  ALL_TRAINERS_OFF: 'Các PT phù hợp đều đang OFF hoặc nghỉ trong các khung đã đăng ký.',
+  ALL_MATCHING_TRAINERS_FULL: 'Các PT phù hợp đều đã đầy chỗ trong các khung đã đăng ký.',
+  OPTIMIZER_GAP: 'Vẫn còn ca hợp lệ; cần chạy tối ưu lại hoặc xếp tay.',
+  RERUN_OPTIMIZER: 'Thuật toán đã thử nhưng chưa ghép được; nên chạy tối ưu lần 2.',
 }
 
 export function ptScheduleConflictLabel(code: string) {

@@ -284,7 +284,7 @@
 .branch-schedule__availability-editor footer { justify-content:flex-end; }
 .branch-schedule__availability-editor footer button { border:1px solid #efdce3; border-radius:11px; padding:9px 13px; color:#765e69; background:#fff; font-weight:800; }
 .branch-schedule__availability-editor footer button.is-save { display:flex; align-items:center; gap:7px; border:0; color:#fff; background:linear-gradient(135deg,#f72d83,#ff8650); }
-.schedule-warning-summary { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 8px; margin-bottom: 11px; }
+.schedule-warning-summary { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 8px; margin-bottom: 11px; }
 .schedule-warning-summary article { display: grid; gap: 2px; min-width: 0; padding: 11px 13px; border: 1px solid rgba(237,207,219,.9); border-radius: 14px; background: linear-gradient(135deg,#fff2f7,#fff7ef); }
 .schedule-warning-summary strong { color: #cf2d6d; font-size: 1.12rem; }
 .schedule-warning-summary span { color: var(--branch-muted); font-size: .65rem; }
@@ -366,6 +366,27 @@
 .schedule-version-list span,
 .schedule-version-list small { color: var(--branch-muted); font-size: .69rem; }
 .schedule-version-list button { display: inline-flex; align-items: center; gap: 5px; min-height: 36px; padding: 0 10px; border: 1px solid #ead8e0; border-radius: 9px; color: #c1296a; background: #fff; font-size: .69rem; font-weight: 800; }
+.branch-schedule__student-person em { display:block; margin-top:2px; color:#a96a7f; font-size:.6rem; font-style:normal; font-weight:750; line-height:1.3; }
+.branch-schedule__student-person em.is-warning { color:#c2552a; }
+.branch-schedule__student-person em.is-ok { color:#23805d; }
+.branch-schedule__student-list > article.is-ineligible { border-color:#f3cdbd; background:linear-gradient(135deg,#fff9f5,#fff); }
+.schedule-contract-status { display:inline-flex; width:max-content; max-width:100%; padding:3px 7px; border-radius:999px; color:#27795a; background:#ebfaf3; font-size:.58rem; font-style:normal; font-weight:850; }
+.schedule-contract-status.is-expired,.schedule-contract-status.is-quota_exhausted,.schedule-contract-status.is-missing,.schedule-contract-status.is-not_started_or_ended { color:#b64f2a; background:#fff0e9; }
+.schedule-contract-status.is-expiring,.schedule-contract-status.is-paused { color:#a26b1d; background:#fff7de; }
+.schedule-warning-primary { display:block; overflow:hidden; color:#b34c6e; font-size:.62rem; font-style:normal; font-weight:800; text-overflow:ellipsis; white-space:nowrap; }
+.schedule-warning-student.is-blocking .schedule-warning-primary { color:#bd542b; }
+.schedule-warning-cause { border:1px solid #f3d2dd; background:linear-gradient(135deg,#fff4f8,#fff9f2) !important; }
+.schedule-warning-cause > strong { color:#af3f68; font-size:.76rem; }
+.schedule-warning-diagnostics { border:1px solid #e9dce2; background:#fff !important; }
+.schedule-diagnostic-grid { display:grid !important; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+.schedule-diagnostic-grid span { display:grid; gap:2px; min-width:0; padding:7px 6px; border-radius:9px; color:#8b5d70; background:#fff7fa; text-align:center; }
+.schedule-diagnostic-grid b { color:#c6296b; font-size:.86rem; }
+.schedule-diagnostic-grid small { overflow:hidden; font-size:.52rem; text-overflow:ellipsis; white-space:nowrap; }
+.schedule-warning-diagnostics p { margin:6px 0 0; color:#987b88; font-size:.61rem; line-height:1.4; }
+.schedule-warning-detail section.is-suggestion > div > button { display:grid; grid-template-columns:minmax(0,1fr) auto 13px; align-items:center; gap:6px; min-width:145px; border:1px solid #f0d2df; border-radius:8px; padding:5px 7px; color:#8c4566; background:#fff; text-align:left; }
+.schedule-warning-detail section.is-suggestion > div > button span { padding:0; color:#8c4566; background:transparent; font-size:.61rem; }
+.schedule-warning-detail section.is-suggestion > div > button b { overflow:hidden; color:#b15e7a; font-size:.53rem; font-weight:750; text-overflow:ellipsis; white-space:nowrap; }
+.schedule-warning-detail section.is-suggestion > div > button svg { color:#c17491; }
 .branch-schedule__history-page > header > button { display:inline-flex; min-height:36px; align-items:center; gap:5px; margin-top:10px; border:1px solid #ead8e0; border-radius:9px; padding:0 10px; color:#bd2d67; background:#fff; font-size:.67rem; font-weight:820; }
 
 .schedule-inspector-backdrop { position: fixed; inset: 0; z-index: 110; display: flex; justify-content: flex-end; background: rgba(35,22,30,.34); backdrop-filter: blur(5px); }
@@ -570,4 +591,8 @@
   .schedule-manual-confirm { bottom:calc(-14px + 84px + env(safe-area-inset-bottom)); grid-template-columns:minmax(0,1fr) auto; }
   .schedule-manual-confirm .is-confirm { grid-column:1/-1; }
   .schedule-version-list article { align-items: flex-start; }
+}
+.schedule-warning-detail .schedule-diagnostic-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+@media (min-width: 700px) {
+  .schedule-warning-detail .schedule-diagnostic-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
 }

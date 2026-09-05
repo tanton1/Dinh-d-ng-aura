@@ -1069,3 +1069,46 @@ test('deterministic generator preserves locked entries and binds contract ids', 
   const generated = Object.values(first.schedule).flat().find((entry) => entry.studentId === 'student-a')
   assert.equal(generated.contractId, 'contract-a')
 })
+
+test('unassigned diagnostics explain contract expiry before the week', () => {
+  const data = fixture()
+  data.contracts[0].endDate = '2026-08-23'
+  const generated = generateSchedule(data)
+  const entry = generated.unassignedEntries.find((item) => item.studentId === 'student-a')
+  assert.ok(entry)
+  assert.equal(entry.primaryReasonCode, 'CONTRACT_EXPIRED_BEFORE_WEEK')
+  assert.equal(entry.blockerCategory, 'contract')
+  assert.equal(entry.diagnostics.contractValidDateCount, 0)
+  assert.ok(entry.reasonCodes.includes('ACTIVE_CONTRACT_NOT_FOUND'))
+})
+
+test('unassigned diagnostics separate learner availability from trainer capacity', () => {
+  const data = fixture()
+  data.trainers[0].availableSlots = []
+  data.trainers[0].availabilityMode = 'unconfigured'
+  const generated = generateSchedule(data)
+  const entry = generated.unassignedEntries.find((item) => item.studentId === 'student-a')
+  assert.ok(entry)
+  assert.equal(entry.primaryReasonCode, 'TRAINER_AVAILABILITY_UNCONFIGURED')
+  assert.equal(entry.blockerCategory, 'trainer_capacity')
+  assert.equal(entry.diagnostics.contractValidDateCount, 2)
+  assert.equal(entry.diagnostics.trainerCompatibleSlotCount, 0)
+  assert.ok(entry.diagnostics.blockedByTrainerAvailabilityCount > 0)
+})
+
+test('unassigned diagnostics identify that every matching PT slot is full', () => {
+  const data = fixture()
+  data.students[0].availableSlots = ['T2-6']
+  data.schedule = {
+    'T2-6': [
+      { studentId: 'student-other-a', trainerId: 'trainer-a', contractId: 'other-a', branchId: BRANCH, type: 'training', isLocked: true },
+      { studentId: 'student-other-b', trainerId: 'trainer-a', contractId: 'other-b', branchId: BRANCH, type: 'training', isLocked: true },
+    ],
+  }
+  const generated = generateSchedule(data)
+  const entry = generated.unassignedEntries.find((item) => item.studentId === 'student-a')
+  assert.ok(entry)
+  assert.equal(entry.primaryReasonCode, 'ALL_MATCHING_TRAINERS_FULL')
+  assert.equal(entry.blockerCategory, 'trainer_capacity')
+  assert.ok(entry.diagnostics.blockedByTrainerCapacityCount > 0)
+})
