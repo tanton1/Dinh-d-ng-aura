@@ -1786,6 +1786,107 @@ function normalizeCourseMemory(value) {
   }
 }
 
+function normalizeCourseLearningDesign(value) {
+  if (!isPlainObject(value)) return undefined
+  if (value.version !== 1 || !Array.isArray(value.competencyIds) || !Array.isArray(value.cards)
+      || !Array.isArray(value.microChecks) || !isPlainObject(value.practice)) {
+    throw new HttpsError('invalid-argument', 'Thiết kế học tập không hợp lệ.')
+  }
+  const competencyIds = courseStringList(value.competencyIds, 'Năng lực bài học', 30, 200)
+  const allowedCardKinds = new Set(['core', 'compare', 'model', 'vietnam-example', 'myth', 'decision', 'safety', 'reflection'])
+  if (value.cards.length < 1 || value.cards.length > 20) {
+    throw new HttpsError('invalid-argument', 'Số thẻ kiến thức không hợp lệ.')
+  }
+  const cardIds = new Set()
+  const cards = value.cards.map((card, index) => {
+    if (!isPlainObject(card) || !allowedCardKinds.has(card.kind)) {
+      throw new HttpsError('invalid-argument', `Thẻ kiến thức ${index + 1} không hợp lệ.`)
+    }
+    const id = courseId(card.id, 'Mã thẻ kiến thức')
+    if (cardIds.has(id)) throw new HttpsError('invalid-argument', 'Mã thẻ kiến thức bị trùng.')
+    cardIds.add(id)
+    return {
+      id,
+      kind: card.kind,
+      title: courseString(card.title, 'Tiêu đề thẻ kiến thức', 300),
+      body: courseString(card.body, 'Nội dung thẻ kiến thức', 3000),
+      ...(typeof card.detail === 'string' ? { detail: courseString(card.detail, 'Diễn giải thẻ kiến thức', 4000, false) } : {}),
+      ...(typeof card.visualRef === 'string' ? { visualRef: courseString(card.visualRef, 'Tham chiếu trực quan', 500, false) } : {}),
+      competencyIds: courseStringList(card.competencyIds ?? [], 'Năng lực của thẻ', 10, 200),
+    }
+  })
+  if (value.microChecks.length > 20) throw new HttpsError('invalid-argument', 'Số câu micro-check vượt giới hạn.')
+  const microCheckIds = new Set()
+  const microChecks = value.microChecks.map((check, index) => {
+    if (!isPlainObject(check) || !Array.isArray(check.options) || check.options.length < 2 || check.options.length > 6
+        || !Number.isInteger(check.correctIndex) || check.correctIndex < 0 || check.correctIndex >= check.options.length) {
+      throw new HttpsError('invalid-argument', `Micro-check ${index + 1} không hợp lệ.`)
+    }
+    const id = courseId(check.id, 'Mã micro-check')
+    if (microCheckIds.has(id)) throw new HttpsError('invalid-argument', 'Mã micro-check bị trùng.')
+    microCheckIds.add(id)
+    return {
+      id,
+      competencyId: courseId(check.competencyId, 'Mã năng lực micro-check'),
+      prompt: courseString(check.prompt, 'Câu hỏi micro-check', 2000),
+      options: check.options.map((option, optionIndex) => {
+        if (!isPlainObject(option)) throw new HttpsError('invalid-argument', `Lựa chọn micro-check ${optionIndex + 1} không hợp lệ.`)
+        return {
+          label: courseString(option.label, 'Lựa chọn micro-check', 1000),
+          feedback: courseString(option.feedback, 'Phản hồi micro-check', 2000),
+        }
+      }),
+      correctIndex: check.correctIndex,
+      remediationCardIds: courseStringList(check.remediationCardIds ?? [], 'Thẻ cần ôn', 10, 200),
+    }
+  })
+  const practice = value.practice
+  if (!Number.isInteger(practice.version) || practice.version < 1 || !Array.isArray(practice.fields)
+      || practice.fields.length < 1 || practice.fields.length > 20) {
+    throw new HttpsError('invalid-argument', 'Cấu hình bài thực hành không hợp lệ.')
+  }
+  const allowedFieldKinds = new Set(['short', 'long', 'date', 'scale'])
+  const fieldIds = new Set()
+  const fields = practice.fields.map((field, index) => {
+    if (!isPlainObject(field) || !allowedFieldKinds.has(field.kind)) {
+      throw new HttpsError('invalid-argument', `Trường thực hành ${index + 1} không hợp lệ.`)
+    }
+    const id = courseId(field.id, 'Mã trường thực hành')
+    if (fieldIds.has(id)) throw new HttpsError('invalid-argument', 'Mã trường thực hành bị trùng.')
+    fieldIds.add(id)
+    return {
+      id,
+      label: courseString(field.label, 'Nhãn trường thực hành', 300),
+      prompt: courseString(field.prompt, 'Hướng dẫn trường thực hành', 3000),
+      kind: field.kind,
+      required: field.required === true,
+    }
+  })
+  const safetyGate = isPlainObject(value.safetyGate)
+    ? {
+        title: courseString(value.safetyGate.title, 'Tiêu đề cổng an toàn', 300),
+        body: courseString(value.safetyGate.body, 'Nội dung cổng an toàn', 4000),
+        mustAcknowledge: value.safetyGate.mustAcknowledge === true,
+      }
+    : undefined
+  return {
+    version: 1,
+    chapterId: courseId(value.chapterId, 'Mã chương học tập'),
+    competencyIds,
+    cards,
+    microChecks,
+    practice: {
+      version: practice.version,
+      title: courseString(practice.title, 'Tên bài thực hành', 300),
+      outcome: courseString(practice.outcome, 'Đầu ra bài thực hành', 3000),
+      fields,
+      minimumEvidence: courseStringList(practice.minimumEvidence ?? [], 'Dữ liệu tối thiểu', 20, 500),
+      safetyPrompt: courseString(practice.safetyPrompt, 'Cổng an toàn bài thực hành', 4000),
+    },
+    ...(safetyGate ? { safetyGate } : {}),
+  }
+}
+
 function normalizeCourseAssetReference(value, courseIdentifier, lessonIdentifier, resourceKind) {
   if (!isPlainObject(value)) return undefined
   const assetId = courseId(value.assetId, 'Mã học liệu')
@@ -1923,9 +2024,22 @@ function normalizeCourseDraftInput(value) {
             id: questionIdentifier,
             question: courseString(question.question, 'Câu hỏi', 2000, false),
             options,
+            ...(['single', 'multi', 'order', 'match', 'numeric', 'scenario'].includes(question.kind)
+              ? { kind: question.kind }
+              : {}),
+            ...(typeof question.competencyId === 'string'
+              ? { competencyId: courseId(question.competencyId, 'Mã năng lực câu hỏi') }
+              : {}),
+            ...(Number.isInteger(question.difficulty) && question.difficulty >= 1 && question.difficulty <= 3
+              ? { difficulty: question.difficulty }
+              : {}),
             ...(typeof question.explanation === 'string'
               ? { explanation: courseString(question.explanation, 'Giải thích đáp án', 3000, false) }
               : {}),
+            ...(Array.isArray(question.remediationCardIds)
+              ? { remediationCardIds: courseStringList(question.remediationCardIds, 'Thẻ ôn lại', 10, 200) }
+              : {}),
+            ...(question.mustPass === true ? { mustPass: true } : {}),
           }
         })
         const publicSettings = isPlainObject(lesson.quiz.publicSettings) ? lesson.quiz.publicSettings : {}
@@ -1941,6 +2055,11 @@ function normalizeCourseDraftInput(value) {
             ...(Number.isInteger(publicSettings.timeLimitMinutes)
               && publicSettings.timeLimitMinutes >= 1 && publicSettings.timeLimitMinutes <= 600
               ? { timeLimitMinutes: publicSettings.timeLimitMinutes }
+              : {}),
+            ...(Number.isInteger(publicSettings.questionsPerAttempt)
+              && publicSettings.questionsPerAttempt >= 1
+              && publicSettings.questionsPerAttempt <= questions.length
+              ? { questionsPerAttempt: publicSettings.questionsPerAttempt }
               : {}),
             ...(['never', 'after-submit', 'after-pass'].includes(publicSettings.revealMode)
               ? { revealMode: publicSettings.revealMode }
@@ -1991,6 +2110,7 @@ function normalizeCourseDraftInput(value) {
       }
 
       const memory = normalizeCourseMemory(lesson.memory)
+      const learningDesign = normalizeCourseLearningDesign(lesson.learningDesign)
       return {
         id: lessonIdentifier,
         title: courseString(lesson.title, 'Tên bài học', 300, false),
@@ -2002,6 +2122,7 @@ function normalizeCourseDraftInput(value) {
         ...(Array.isArray(lesson.tags) ? { tags: courseStringList(lesson.tags, 'Nhãn bài học', 20, 100) } : {}),
         ...(typeof lesson.coachNotes === 'string' ? { coachNotes: courseString(lesson.coachNotes, 'Ghi chú giảng viên', 10_000, false) } : {}),
         ...(memory ? { memory } : {}),
+        ...(learningDesign ? { learningDesign } : {}),
         ...(quiz ? { quiz } : {}),
         ...(primaryContent ? { primaryContent } : {}),
         ...(completionPolicy ? { completionPolicy } : {}),
@@ -2827,7 +2948,14 @@ function normalizeQuizQuestions(lesson) {
       throw new HttpsError('failed-precondition', `Câu hỏi ${id} có danh sách lựa chọn không hợp lệ.`)
     }
     seenIds.add(id)
-    return { id, question: prompt, options: question.options }
+    return {
+      id,
+      question: prompt,
+      options: question.options,
+      ...(question.mustPass === true ? { mustPass: true } : {}),
+      ...(typeof question.explanation === 'string' ? { explanation: question.explanation } : {}),
+      ...(Array.isArray(question.remediationCardIds) ? { remediationCardIds: question.remediationCardIds } : {}),
+    }
   })
 
   const passPercent = Number(quiz.passPercent)
@@ -2839,14 +2967,35 @@ function normalizeQuizQuestions(lesson) {
       && (!Number.isInteger(rawMaxAttempts) || rawMaxAttempts < 0 || rawMaxAttempts > quizMaxAttemptLimit)) {
     throw new HttpsError('failed-precondition', `Số lượt làm quiz phải là số nguyên từ 0 đến ${quizMaxAttemptLimit}.`)
   }
+  const rawQuestionsPerAttempt = quiz.publicSettings?.questionsPerAttempt
+  if (rawQuestionsPerAttempt !== undefined
+      && (!Number.isInteger(rawQuestionsPerAttempt) || rawQuestionsPerAttempt < 1 || rawQuestionsPerAttempt > questions.length)) {
+    throw new HttpsError('failed-precondition', 'Số câu hỏi mỗi lượt không hợp lệ.')
+  }
 
   return {
     id: typeof quiz.id === 'string' && quiz.id.trim() ? quiz.id.trim() : lesson.id,
     passPercent,
     maxAttempts: rawMaxAttempts && rawMaxAttempts > 0 ? rawMaxAttempts : null,
+    questionsPerAttempt: rawQuestionsPerAttempt ?? questions.length,
     questions,
     legacyQuestions: quiz.questions,
   }
+}
+
+function stableQuizOrderScore(value) {
+  let score = 0
+  for (let index = 0; index < value.length; index += 1) score = Math.imul(31, score) + value.charCodeAt(index) | 0
+  return score
+}
+
+function quizQuestionsForAttempt(quiz, userId, lessonId) {
+  const items = [...quiz.questions]
+  if (quiz.questionsPerAttempt >= items.length) return items
+  items.sort((left, right) => stableQuizOrderScore(`${userId}:${lessonId}:${left.id}`) - stableQuizOrderScore(`${userId}:${lessonId}:${right.id}`))
+  const required = items.filter((question) => question.mustPass === true)
+  const optional = items.filter((question) => question.mustPass !== true)
+  return [...required, ...optional.slice(0, Math.max(0, quiz.questionsPerAttempt - required.length))]
 }
 
 function buildQuizContentHash(quiz, answers) {
@@ -3409,7 +3558,8 @@ exports.gradeCourseQuiz = onCall(async (request) => {
     allowPreview: false,
   })
   const quiz = normalizeQuizQuestions(access.lesson)
-  const answers = normalizeSubmittedAnswers(request.data?.answers, quiz.questions)
+  const attemptQuestions = quizQuestionsForAttempt(quiz, userId, lessonId)
+  const answers = normalizeSubmittedAnswers(request.data?.answers, attemptQuestions)
   const keySnapshot = await access.courseReference.collection('quizKeys').doc(lessonId).get()
   const answerKey = keySnapshot.exists
     ? normalizeQuizAnswerKey(keySnapshot.data(), quiz)
@@ -3420,9 +3570,21 @@ exports.gradeCourseQuiz = onCall(async (request) => {
     (total, answer) => total + (answerKey[answer.questionId] === answer.optionIndex ? 1 : 0),
     0,
   )
-  const totalQuestions = quiz.questions.length
+  const totalQuestions = attemptQuestions.length
   const scorePercent = Math.round((correctAnswers / totalQuestions) * 100)
-  const passed = scorePercent >= quiz.passPercent
+  const answerByQuestionId = new Map(answers.map((answer) => [answer.questionId, answer.optionIndex]))
+  const mustPassQuestionIds = attemptQuestions.filter((question) => question.mustPass === true).map((question) => question.id)
+  const mustPassPassed = mustPassQuestionIds.every((questionId) => answerKey[questionId] === answerByQuestionId.get(questionId))
+  const review = answers.map((answer) => {
+    const question = attemptQuestions.find((candidate) => candidate.id === answer.questionId)
+    return {
+      questionId: answer.questionId,
+      correct: answerKey[answer.questionId] === answer.optionIndex,
+      explanation: typeof question?.explanation === 'string' ? question.explanation : '',
+      remediationCardIds: Array.isArray(question?.remediationCardIds) ? question.remediationCardIds.slice(0, 10) : [],
+    }
+  })
+  const passed = scorePercent >= quiz.passPercent && mustPassPassed
   const attemptReference = db.collection(`users/${userId}/quizAttempts`).doc()
   const scopedLessonId = courseLessonScopedId(courseId, lessonId)
   const counterReference = db.doc(`users/${userId}/quizAttemptCounters/${scopedLessonId}`)
@@ -3437,6 +3599,8 @@ exports.gradeCourseQuiz = onCall(async (request) => {
     scorePercent,
     passPercent: quiz.passPercent,
     passed,
+    mustPassPassed,
+    review,
     feedbackCode: passed ? 'passed' : 'retry',
     contentHash,
     gradingVersion: 2,
@@ -3492,10 +3656,14 @@ exports.gradeCourseQuiz = onCall(async (request) => {
     correctAnswers,
     totalQuestions,
     passed,
+    mustPassPassed,
+    review,
     attemptsRemaining,
     feedback: passed
       ? 'Bạn đã đạt yêu cầu của bài kiểm tra.'
-      : 'Bạn chưa đạt điểm yêu cầu. Hãy xem lại bài học và thử lại.',
+      : !mustPassPassed
+        ? 'Bạn cần trả lời đúng câu an toàn bắt buộc trước khi hoàn thành chương.'
+        : 'Bạn chưa đạt điểm yêu cầu. Hãy xem lại bài học và thử lại.',
   }
 })
 

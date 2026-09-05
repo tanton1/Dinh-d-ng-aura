@@ -409,6 +409,87 @@ export interface AcademyLessonMemory {
   flashcards: AcademyFlashcard[]
 }
 
+export type AcademyLearningCardKind =
+  | 'core'
+  | 'compare'
+  | 'model'
+  | 'vietnam-example'
+  | 'myth'
+  | 'decision'
+  | 'safety'
+  | 'reflection'
+
+export interface AcademyLearningCard {
+  id: string
+  kind: AcademyLearningCardKind
+  title: string
+  body: string
+  detail?: string
+  visualRef?: string
+  competencyIds: string[]
+}
+
+export interface AcademyKnowledgeCheckOption {
+  label: string
+  feedback: string
+}
+
+/** Micro-checks are formative and intentionally client-graded. */
+export interface AcademyKnowledgeCheck {
+  id: string
+  competencyId: string
+  prompt: string
+  options: AcademyKnowledgeCheckOption[]
+  correctIndex: number
+  remediationCardIds: string[]
+}
+
+export interface AcademyPracticeFieldDefinition {
+  id: string
+  label: string
+  prompt: string
+  kind: 'short' | 'long' | 'date' | 'scale'
+  required: boolean
+}
+
+export interface AcademyPracticeDefinition {
+  version: number
+  title: string
+  outcome: string
+  fields: AcademyPracticeFieldDefinition[]
+  minimumEvidence: string[]
+  safetyPrompt: string
+}
+
+export interface AcademySafetyGate {
+  title: string
+  body: string
+  mustAcknowledge: boolean
+}
+
+export interface AcademyLearningDesignV1 {
+  version: 1
+  chapterId: string
+  competencyIds: string[]
+  cards: AcademyLearningCard[]
+  microChecks: AcademyKnowledgeCheck[]
+  practice: AcademyPracticeDefinition
+  safetyGate?: AcademySafetyGate
+}
+
+export interface AcademyPracticeSubmissionV1 {
+  schemaVersion: 1
+  courseId: string
+  chapterId: string
+  definitionVersion: number
+  answers: Record<string, string | number | boolean>
+  evidenceRefs: Array<{ kind: 'meal-log' | 'progress' | 'note'; refId: string }>
+  rubric: Record<'data' | 'mechanism' | 'feasibility' | 'safety', 0 | 1 | 2>
+  decision: 'keep' | 'adjust' | 'stop' | 'refer' | null
+  reviewAt: string | null
+  updatedAt: string
+}
+
 export interface AcademyReviewRating {
   cardId: string
   rating: 'forgot' | 'hard' | 'remembered' | 'easy'
@@ -610,6 +691,12 @@ export interface LessonQuizQuestionDraft {
   id: string
   question: string
   options: string[]
+  kind?: 'single' | 'multi' | 'order' | 'match' | 'numeric' | 'scenario'
+  competencyId?: string
+  difficulty?: 1 | 2 | 3
+  explanation?: string
+  remediationCardIds?: string[]
+  mustPass?: boolean
   /** @deprecated Admin-only legacy field. It is stripped before a course is persisted. */
   correctIndex?: number
 }
@@ -618,6 +705,7 @@ export interface LessonQuizPublicSettings {
   maxAttempts?: number
   timeLimitMinutes?: number
   revealMode?: 'never' | 'after-submit' | 'after-pass'
+  questionsPerAttempt?: number
 }
 
 export interface LessonQuizDraft {
@@ -642,6 +730,7 @@ export interface CourseLessonDraft {
   tags?: string[]
   coachNotes?: string
   memory?: AcademyLessonMemory
+  learningDesign?: AcademyLearningDesignV1
   quiz?: LessonQuizDraft
   primaryContent?: LessonPrimaryContent
   completionPolicy?: LessonCompletionPolicy

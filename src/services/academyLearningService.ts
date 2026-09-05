@@ -31,8 +31,16 @@ export interface AcademyLessonContent {
 }
 
 export type AcademyWorkbookState = {
+  schemaVersion: 2
   answers: Record<string, string>
   challengeDone: Record<string, boolean>
+  microCheckAnswers: Record<string, number>
+  confidenceBefore: 1 | 2 | 3 | 4 | 5 | null
+  confidenceAfter: 1 | 2 | 3 | 4 | 5 | null
+  rubric: Record<'data' | 'mechanism' | 'feasibility' | 'safety', 0 | 1 | 2>
+  decision: 'keep' | 'adjust' | 'stop' | 'refer' | null
+  reviewAt: string
+  safetyAcknowledged: boolean
   updatedAt: number
 }
 
@@ -247,21 +255,64 @@ export async function saveAcademyNoteToCloud(ownerId: string, courseId: string, 
 }
 
 export function emptyAcademyWorkbookState(): AcademyWorkbookState {
-  return { answers: {}, challengeDone: {}, updatedAt: 0 }
+  return {
+    schemaVersion: 2,
+    answers: {},
+    challengeDone: {},
+    microCheckAnswers: {},
+    confidenceBefore: null,
+    confidenceAfter: null,
+    rubric: { data: 0, mechanism: 0, feasibility: 0, safety: 0 },
+    decision: null,
+    reviewAt: '',
+    safetyAcknowledged: false,
+    updatedAt: 0,
+  }
+}
+
+function normalizeWorkbookState(value: Partial<AcademyWorkbookState> | null | undefined): AcademyWorkbookState {
+  const fallback = emptyAcademyWorkbookState()
+  const answers = value?.answers && typeof value.answers === 'object'
+    ? Object.fromEntries(Object.entries(value.answers).filter((entry): entry is [string, string] => typeof entry[1] === 'string').slice(0, 30))
+    : {}
+  const challengeDone = value?.challengeDone && typeof value.challengeDone === 'object'
+    ? Object.fromEntries(Object.entries(value.challengeDone).filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean').slice(0, 20))
+    : {}
+  const microCheckAnswers = value?.microCheckAnswers && typeof value.microCheckAnswers === 'object'
+    ? Object.fromEntries(Object.entries(value.microCheckAnswers).filter((entry): entry is [string, number] => Number.isInteger(entry[1]) && entry[1] >= 0 && entry[1] <= 9).slice(0, 20))
+    : {}
+  const confidence = (candidate: unknown) => Number.isInteger(candidate) && Number(candidate) >= 1 && Number(candidate) <= 5
+    ? candidate as 1 | 2 | 3 | 4 | 5
+    : null
+  const rubricValue = (candidate: unknown): 0 | 1 | 2 => candidate === 1 || candidate === 2 ? candidate : 0
+  const decision = ['keep', 'adjust', 'stop', 'refer'].includes(String(value?.decision))
+    ? value?.decision as AcademyWorkbookState['decision']
+    : null
+  return {
+    ...fallback,
+    answers,
+    challengeDone,
+    microCheckAnswers,
+    confidenceBefore: confidence(value?.confidenceBefore),
+    confidenceAfter: confidence(value?.confidenceAfter),
+    rubric: {
+      data: rubricValue(value?.rubric?.data),
+      mechanism: rubricValue(value?.rubric?.mechanism),
+      feasibility: rubricValue(value?.rubric?.feasibility),
+      safety: rubricValue(value?.rubric?.safety),
+    },
+    decision,
+    reviewAt: typeof value?.reviewAt === 'string' ? value.reviewAt.slice(0, 10) : '',
+    safetyAcknowledged: value?.safetyAcknowledged === true,
+    updatedAt: typeof value?.updatedAt === 'number' ? value.updatedAt : 0,
+  }
 }
 
 export function loadAcademyWorkbook(ownerId: string, courseId: string, lessonId: string): AcademyWorkbookState {
   try {
     const raw = localStorage.getItem(academyWorkbookStorageKey(ownerId, courseId, lessonId))
     if (!raw) return emptyAcademyWorkbookState()
-    const parsed = JSON.parse(raw) as Partial<AcademyWorkbookState>
-    const answers = parsed.answers && typeof parsed.answers === 'object'
-      ? Object.fromEntries(Object.entries(parsed.answers).filter((entry): entry is [string, string] => typeof entry[1] === 'string').slice(0, 20))
-      : {}
-    const challengeDone = parsed.challengeDone && typeof parsed.challengeDone === 'object'
-      ? Object.fromEntries(Object.entries(parsed.challengeDone).filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean').slice(0, 14))
-      : {}
-    return { answers, challengeDone, updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0 }
+    return normalizeWorkbookState(JSON.parse(raw) as Partial<AcademyWorkbookState>)
   } catch {
     return emptyAcademyWorkbookState()
   }
@@ -269,8 +320,10 @@ export function loadAcademyWorkbook(ownerId: string, courseId: string, lessonId:
 
 export function saveAcademyWorkbook(ownerId: string, courseId: string, lessonId: string, state: AcademyWorkbookState) {
   const bounded: AcademyWorkbookState = {
-    answers: Object.fromEntries(Object.entries(state.answers).slice(0, 20).map(([key, value]) => [key, value.slice(0, 2000)])),
-    challengeDone: Object.fromEntries(Object.entries(state.challengeDone).slice(0, 14)),
+    ...normalizeWorkbookState(state),
+    answers: Object.fromEntries(Object.entries(state.answers).slice(0, 30).map(([key, value]) => [key, value.slice(0, 2000)])),
+    challengeDone: Object.fromEntries(Object.entries(state.challengeDone).slice(0, 20)),
+    microCheckAnswers: Object.fromEntries(Object.entries(state.microCheckAnswers).slice(0, 20)),
     updatedAt: Date.now(),
   }
   try {
@@ -289,10 +342,12 @@ export async function loadAcademyWorkbookFromCloud(ownerId: string, courseId: st
   const body = snapshot.data().body
   if (typeof body !== 'string') return localState
   try {
-    const remote = JSON.parse(body) as Partial<AcademyWorkbookState>
+    const remote = normalizeWorkbookState(JSON.parse(body) as Partial<AcademyWorkbookState>)
     const merged: AcademyWorkbookState = {
+      ...remote,
       answers: { ...localState.answers, ...(remote.answers && typeof remote.answers === 'object' ? remote.answers : {}) },
       challengeDone: { ...localState.challengeDone, ...(remote.challengeDone && typeof remote.challengeDone === 'object' ? remote.challengeDone : {}) },
+      microCheckAnswers: { ...localState.microCheckAnswers, ...remote.microCheckAnswers },
       updatedAt: typeof remote.updatedAt === 'number' ? remote.updatedAt : localState.updatedAt,
     }
     try { localStorage.setItem(academyWorkbookStorageKey(ownerId, courseId, lessonId), JSON.stringify(merged)) } catch { /* noop */ }

@@ -14,7 +14,7 @@ import {
   Play,
   Search,
 } from 'lucide-react'
-import AcademyFullChapterReader from '../../components/academy/AcademyFullChapterReader'
+import AcademyChapterLearningStudio from '../../components/academy/AcademyChapterLearningStudio'
 import { ProgressBar } from '../../components/ui'
 import type { Course, CourseLessonDraft, CourseProgress } from '../../types'
 import { flattenCourseLessons, getCourseModules, getInitialDemoCompletedLessonIds } from '../../utils/courseContent'
@@ -160,6 +160,10 @@ export default function CourseDetailPage({
     ? modules.findIndex((module) => module.lessons.some((lesson) => lesson.id === selectedLesson.id))
     : -1
   const selectedModule = selectedModuleIndex >= 0 ? modules[selectedModuleIndex] : undefined
+  const selectedChapterQuiz = isAuraNutritionCurriculum
+    ? selectedModule?.lessons.find((lesson) => lesson.type === 'Quiz')
+    : undefined
+  const selectedChapterQuizCompleted = Boolean(selectedChapterQuiz && completedLessonIds.includes(selectedChapterQuiz.id))
   const selectedLessonIndex = selectedLesson ? navigationLessons.findIndex((lesson) => lesson.id === selectedLesson.id) : -1
   const previousLesson = selectedLessonIndex > 0 ? navigationLessons[selectedLessonIndex - 1] : undefined
   const nextLesson = selectedLessonIndex >= 0 && selectedLessonIndex < navigationLessons.length - 1 ? navigationLessons[selectedLessonIndex + 1] : undefined
@@ -350,7 +354,26 @@ export default function CourseDetailPage({
       if (!canViewContent) {
         return <div className="lesson-empty-state"><LockKeyhole size={28} /><h2>Bài đọc đang được khóa</h2><p>{openToAllMembers ? 'Bấm “Bắt đầu miễn phí” để đọc toàn bộ chương.' : 'Ghi danh khóa học để đọc toàn bộ chương.'}</p></div>
       }
-      return <AcademyFullChapterReader chapter={fullChapterNumber} ownerId={noteOwnerId} />
+      return (
+        <AcademyChapterLearningStudio
+          chapter={fullChapterNumber}
+          ownerId={noteOwnerId}
+          courseId={String(course.id)}
+          coreLesson={selectedLesson}
+          canStudy={canStudy && !previewMode}
+          quizCompleted={selectedChapterQuizCompleted}
+          quizContent={selectedChapterQuiz
+            ? <CourseQuizRunner
+                courseId={String(course.id)}
+                lesson={selectedChapterQuiz}
+                canSubmit={canStudy && !previewMode}
+                demoMode={allowDemoContent}
+                completed={selectedChapterQuizCompleted}
+                onPassed={() => onComplete(String(course.id), selectedChapterQuiz.id)}
+              />
+            : <div className="lesson-empty-state"><ListChecks size={28} /><h2>Checkpoint đang đồng bộ</h2><p>Bài kiểm tra của chương này chưa có trong bản khóa học đang xuất bản.</p></div>}
+        />
+      )
     }
     if (!selectedLesson) return <div className="lesson-empty-state"><BookOpen size={28} /><h2>Chưa có nội dung</h2></div>
     if (selectedLesson.type === 'Quiz') {

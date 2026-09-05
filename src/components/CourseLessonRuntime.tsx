@@ -74,6 +74,7 @@ type RuntimeLesson = CourseLessonDraft & {
       maxAttempts?: number
       timeLimitMinutes?: number
       revealMode?: 'never' | 'after-submit' | 'after-pass'
+      questionsPerAttempt?: number
     }
   }
 }
@@ -799,9 +800,16 @@ export function CourseQuizRunner({
   const [localAttempts, setLocalAttempts] = useState(0)
   const questions = useMemo(() => {
     const items = [...(quiz?.questions ?? [])]
-    if (quiz?.questionOrder !== 'shuffle') return items
-    return items.sort((left, right) => stableOrderScore(`${lesson.id}:${left.id}`) - stableOrderScore(`${lesson.id}:${right.id}`))
-  }, [lesson.id, quiz?.questionOrder, quiz?.questions])
+    if (quiz?.questionOrder === 'shuffle') {
+      const ownerId = firebaseAuth?.currentUser?.uid ?? 'preview'
+      items.sort((left, right) => stableOrderScore(`${ownerId}:${lesson.id}:${left.id}`) - stableOrderScore(`${ownerId}:${lesson.id}:${right.id}`))
+    }
+    const requested = quiz?.publicSettings?.questionsPerAttempt
+    const count = Number.isInteger(requested) ? Math.max(1, Math.min(items.length, Number(requested))) : items.length
+    const required = items.filter((question) => question.mustPass === true)
+    const optional = items.filter((question) => question.mustPass !== true)
+    return [...required, ...optional.slice(0, Math.max(0, count - required.length))]
+  }, [lesson.id, quiz?.publicSettings?.questionsPerAttempt, quiz?.questionOrder, quiz?.questions])
   const configuredMaxAttempts = quiz?.publicSettings?.maxAttempts
   const maxAttempts = typeof configuredMaxAttempts === 'number' && configuredMaxAttempts > 0
     ? configuredMaxAttempts
@@ -887,7 +895,13 @@ export function CourseQuizRunner({
           ))}
         </fieldset>
       ))}
-      {result ? <div className={`learning-action-error ${result.passed ? 'is-success' : ''}`} role="status" aria-live="polite">{result.passed ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}<strong>{result.passed ? 'Bạn đã đạt!' : 'Chưa đạt lần này'}</strong><span>{result.correctCount}/{result.totalQuestions} câu đúng · {result.percent}%</span>{result.attemptsRemaining !== undefined && result.attemptsRemaining !== null ? <small>Còn {result.attemptsRemaining} lượt làm.</small> : null}</div> : null}
+      {result ? <>
+        <div className={`learning-action-error ${result.passed ? 'is-success' : ''}`} role="status" aria-live="polite">{result.passed ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}<strong>{result.passed ? 'Bạn đã đạt!' : 'Chưa đạt lần này'}</strong><span>{result.correctCount}/{result.totalQuestions} câu đúng · {result.percent}%</span>{result.mustPassPassed === false ? <small>Cần đúng câu an toàn bắt buộc.</small> : null}{result.attemptsRemaining !== undefined && result.attemptsRemaining !== null ? <small>Còn {result.attemptsRemaining} lượt làm.</small> : null}</div>
+        {result.review?.length ? <details className="course-quiz-review" open>
+          <summary>Giải thích và thẻ cần xem lại <span>{result.review.filter((item) => !item.correct).length} câu cần ôn</span></summary>
+          <div>{result.review.map((item, index) => <article key={item.questionId}><strong>{item.correct ? '✓' : '×'} Câu {index + 1}</strong><p>{item.explanation || (item.correct ? 'Đáp án của bạn phù hợp với nội dung chương.' : 'Hãy mở lại các thẻ được gợi ý và thử lại khi đã rõ hơn.')}</p>{item.remediationCardIds.length ? <small>Ôn lại: {item.remediationCardIds.join(', ')}</small> : null}</article>)}</div>
+        </details> : null}
+      </> : null}
       {error ? <div className="learning-action-error" role="alert">{error}</div> : null}
       {!canSubmit ? <p><LockKeyhole size={14} /> Hãy ghi danh và mở khóa bài học để nộp quiz.</p> : null}
       {result?.passed && error && !completed ? <button className="outline-button" type="button" onClick={() => void retryCompletion()} disabled={submitState === 'submitting'}><RefreshCw size={15} /> {submitState === 'submitting' ? 'Đang lưu tiến độ...' : 'Thử lưu tiến độ lại'}</button> : result && !result.passed && !attemptsExhausted ? <button className="outline-button" type="button" onClick={retry}><RefreshCw size={15} /> Làm lại quiz</button> : <button className="primary-button" type="button" onClick={submit} disabled={!canSubmit || submitState === 'submitting' || Boolean(result) || attemptsExhausted}>{submitState === 'submitting' ? <><LoaderCircle className="spin" size={16} /> Đang chấm bài...</> : completed || result?.passed ? <><CheckCircle2 size={16} /> Đã hoàn thành</> : 'Nộp bài kiểm tra'}</button>}

@@ -1,4 +1,5 @@
 import type { AcademyLessonMemory, CourseLessonDraft, CourseModuleDraft } from '../types'
+import { buildAuraNutritionLearningDesign, buildAuraNutritionQuestionBank } from './auraNutritionLearningDesign'
 import { auraNutritionStudyGuides } from './auraNutritionStudyGuides'
 
 type QuizQuestion = {
@@ -7,7 +8,7 @@ type QuizQuestion = {
   correctIndex: number
 }
 
-type CurriculumChapter = {
+export type CurriculumChapter = {
   number: number
   title: string
   promise: string
@@ -719,11 +720,15 @@ const chapters: CurriculumChapter[] = [
   },
 ]
 
+export function getAuraNutritionChapter(chapterNumber: number) {
+  return chapters.find((chapter) => chapter.number === chapterNumber) ?? null
+}
+
 function phaseForChapter(number: number) {
   return auraNutritionPhases[Math.min(auraNutritionPhases.length - 1, Math.floor((number - 1) / 5))]
 }
 
-function lessonMemory(chapter: CurriculumChapter): AcademyLessonMemory {
+function lessonMemory(chapter: CurriculumChapter, learningDesign?: ReturnType<typeof buildAuraNutritionLearningDesign>): AcademyLessonMemory {
   const chapterId = `chapter-${String(chapter.number).padStart(2, '0')}`
   return {
     recap: chapter.promise,
@@ -740,13 +745,25 @@ function lessonMemory(chapter: CurriculumChapter): AcademyLessonMemory {
         prompt: 'Trong đời sống của bạn, dữ liệu nào cần quan sát trước khi điều chỉnh?',
         answer: `${chapter.practiceSteps[0]} ${chapter.practiceSteps[1]}`,
       },
+      {
+        id: `${chapterId}-recall-3`,
+        prompt: 'Khi nào bạn cần dừng tự thử và hỏi người có chuyên môn?',
+        answer: chapter.safety,
+      },
     ],
-    flashcards: chapter.glossary.map(([term, definition], index) => ({
-      id: `${chapterId}-card-${index + 1}`,
-      front: term,
-      back: definition,
-      hint: `Thuật ngữ trọng tâm của Chương ${chapter.number}`,
-    })),
+    flashcards: learningDesign
+      ? learningDesign.cards.slice(0, 10).map((card) => ({
+          id: card.id,
+          front: card.kind === 'myth' ? `Đúng hay chưa đủ: ${card.title.replace(/^Hiểu lầm:\s*/i, '')}` : card.title,
+          back: [card.body, card.detail].filter(Boolean).join(' '),
+          hint: card.kind === 'safety' ? 'Cổng an toàn bắt buộc' : `Thẻ ${card.kind} · Chương ${chapter.number}`,
+        }))
+      : chapter.glossary.map(([term, definition], index) => ({
+          id: `${chapterId}-card-${index + 1}`,
+          front: term,
+          back: definition,
+          hint: `Thuật ngữ trọng tâm của Chương ${chapter.number}`,
+        })),
   }
 }
 
@@ -897,6 +914,9 @@ function chapterLessons(chapter: CurriculumChapter): CourseLessonDraft[] {
   const chapterId = `chapter-${String(chapter.number).padStart(2, '0')}`
   const phase = phaseForChapter(chapter.number)
   const quizId = `${chapterId}-checkpoint`
+  const guide = auraNutritionStudyGuides[chapter.number]
+  const learningDesign = buildAuraNutritionLearningDesign(chapter, guide)
+  const questionBank = buildAuraNutritionQuestionBank(chapter, guide)
   return [
     {
       id: `${chapterId}-core`,
@@ -907,7 +927,8 @@ function chapterLessons(chapter: CurriculumChapter): CourseLessonDraft[] {
       summary: chapter.promise,
       tags: [`Chương ${chapter.number}`, phase.title, 'Giáo trình 2026'],
       coachNotes: `Nội dung học trên app được biên tập từ AURA Fitness Academy – Chương ${chapter.number}. Khuyến khích học viên dùng tab Ghi nhớ sâu trước khi chuyển sang thực hành.`,
-      memory: lessonMemory(chapter),
+      memory: lessonMemory(chapter, learningDesign),
+      learningDesign,
       primaryContent: { kind: 'rich-text', body: chapterBody(chapter) },
       completionPolicy: { mode: 'manual' },
     },
@@ -937,20 +958,15 @@ function chapterLessons(chapter: CurriculumChapter): CourseLessonDraft[] {
       id: quizId,
       title: `Checkpoint Chương ${chapter.number}`,
       type: 'Quiz',
-      duration: '6 phút',
-      summary: `Ba câu hỏi kiểm tra khả năng hiểu và áp dụng nội dung “${chapter.title}”.`,
+      duration: '10 phút',
+      summary: `Ngân hàng 12 câu kiểm tra hiểu, áp dụng và giới hạn an toàn của “${chapter.title}”.`,
       tags: [`Chương ${chapter.number}`, 'Checkpoint', phase.title],
       quiz: {
         id: `${quizId}-quiz`,
-        passPercent: 67,
-        questionOrder: 'sequential',
-        publicSettings: { maxAttempts: 5, revealMode: 'after-submit' },
-        questions: chapter.quiz.map((item, index) => ({
-          id: `${quizId}-question-${index + 1}`,
-          question: item.question,
-          options: item.options,
-          correctIndex: item.correctIndex,
-        })),
+        passPercent: 80,
+        questionOrder: 'shuffle',
+        publicSettings: { maxAttempts: 5, revealMode: 'after-submit', questionsPerAttempt: 8 },
+        questions: questionBank,
       },
       completionPolicy: { mode: 'quiz-pass', quizId: `${quizId}-quiz` },
     },

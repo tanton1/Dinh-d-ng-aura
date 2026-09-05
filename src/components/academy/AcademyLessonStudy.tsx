@@ -17,6 +17,7 @@ import {
   reviewAcademyCard,
   saveAcademyRecallAnswers,
   type AcademyReviewRating,
+  type AcademyReviewState,
 } from '../../services/academyLearningService'
 import type { CourseLessonDraft } from '../../types'
 import '../../styles-academy.css'
@@ -27,6 +28,7 @@ interface AcademyLessonStudyProps {
   lesson: CourseLessonDraft
   courseOutcomes?: string[]
   canReview: boolean
+  onReviewStateChange?: (state: AcademyReviewState) => void
 }
 
 const ratingCopy: Array<{ value: AcademyReviewRating; label: string; helper: string }> = [
@@ -36,7 +38,7 @@ const ratingCopy: Array<{ value: AcademyReviewRating; label: string; helper: str
   { value: 'easy', label: 'Rất dễ', helper: 'Giãn lịch ôn' },
 ]
 
-export default function AcademyLessonStudy({ ownerId, courseId, lesson, courseOutcomes = [], canReview }: AcademyLessonStudyProps) {
+export default function AcademyLessonStudy({ ownerId, courseId, lesson, courseOutcomes = [], canReview, onReviewStateChange }: AcademyLessonStudyProps) {
   const material = useMemo(() => academyMaterialForLesson(lesson, courseOutcomes), [courseOutcomes, lesson])
   const cards = useMemo(() => material.flashcards.filter((card) => card.front && card.back), [material.flashcards])
   const [revealedRecall, setRevealedRecall] = useState<Record<string, boolean>>({})
@@ -73,6 +75,7 @@ export default function AcademyLessonStudy({ ownerId, courseId, lesson, courseOu
     if (!activeCard || !canReview) return
     const nextState = reviewAcademyCard({ ownerId, courseId, lessonId: lesson.id, cardId: activeCard.id, rating })
     setReviewState(nextState)
+    onReviewStateChange?.(nextState)
     setReviewMessage(rating === 'again' ? 'Đã đưa thẻ vào lượt ôn gần nhất.' : 'Đã cập nhật lịch ôn cho thẻ này.')
     setCardFlipped(false)
     setActiveCardIndex((index) => cards.length ? (index + 1) % cards.length : 0)

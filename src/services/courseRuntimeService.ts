@@ -14,7 +14,14 @@ export interface QuizGradeResult {
   totalQuestions: number
   percent: number
   passed: boolean
+  mustPassPassed?: boolean
   attemptsRemaining?: number | null
+  review?: Array<{
+    questionId: string
+    correct: boolean
+    explanation: string
+    remediationCardIds: string[]
+  }>
 }
 
 export interface ResolvedCourseMedia {
@@ -108,9 +115,25 @@ export async function gradeCourseQuiz(input: {
     totalQuestions,
     percent: Math.round(percent),
     passed: data.passed,
+    mustPassPassed: typeof data.mustPassPassed === 'boolean' ? data.mustPassPassed : undefined,
     attemptsRemaining: data.attemptsRemaining === null
       ? null
       : optionalFiniteNumber(data.attemptsRemaining),
+    review: Array.isArray(data.review)
+      ? data.review.flatMap((item) => {
+          if (!item || typeof item !== 'object') return []
+          const value = item as Record<string, unknown>
+          if (typeof value.questionId !== 'string' || typeof value.correct !== 'boolean') return []
+          return [{
+            questionId: value.questionId,
+            correct: value.correct,
+            explanation: typeof value.explanation === 'string' ? value.explanation : '',
+            remediationCardIds: Array.isArray(value.remediationCardIds)
+              ? value.remediationCardIds.filter((entry): entry is string => typeof entry === 'string').slice(0, 10)
+              : [],
+          }]
+        })
+      : undefined,
   }
 }
 
