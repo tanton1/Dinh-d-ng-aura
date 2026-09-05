@@ -7,6 +7,35 @@ const { calculateReferralCommissions, referralCashImpact } = require('./referral
 const { assertFinancePeriodOpen } = require('./finance-ledger')
 const { payrollAccrualJournal, payrollPaymentJournal } = require('./accounting-core')
 
+const PAYROLL_VIOLATION_KIND = 'payroll_validation'
+const PAYROLL_REMEDIATIONS = new Set([
+  'workdays',
+  'teaching_history',
+  'staff_profile',
+  'policy',
+  'delete_rebuild',
+  'retry',
+])
+
+function payrollViolationError(code, title, detail, remediation, context = {}, httpsCode = 'failed-precondition') {
+  const violation = {
+    code: String(code || 'PAYROLL_VALIDATION_FAILED'),
+    severity: 'error',
+    title: String(title || 'Dữ liệu kỳ lương chưa hợp lệ'),
+    detail: String(detail || title || 'Hãy đối soát dữ liệu trước khi lập kỳ lương.'),
+    remediation: PAYROLL_REMEDIATIONS.has(remediation) ? remediation : 'retry',
+    ...Object.fromEntries(Object.entries(context || {}).filter(([, value]) => value !== undefined && value !== null && value !== '')),
+  }
+  return new HttpsError(httpsCode, violation.detail, {
+    kind: PAYROLL_VIOLATION_KIND,
+    violations: [violation],
+  })
+}
+
+function isKnownHttpsError(value) {
+  return value instanceof HttpsError || Boolean(value && typeof value === 'object' && typeof value.code === 'string' && value.code !== 'internal')
+}
+
 async function payrollActor(request, db) {
   const actor = await trustedAccessContext(request, db)
   requireCapability(actor, 'payroll.operations.manage')
@@ -160,7 +189,7 @@ function payrollPolicyConfiguration(value = {}) {
   }
 }
 
-function vietnamDateKey(value) {
+function vietnamDateKey(value, context = {}) {
   if (typeof value === 'string') {
     const candidate = value.trim().slice(0, 10)
     if (/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(candidate)) return candidate
@@ -176,15 +205,27 @@ function vietnamDateKey(value) {
     const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
     return `${values.year}-${values.month}-${values.day}`
   }
-  throw new HttpsError('failed-precondition', 'Buổi dạy thiếu ngày hợp lệ để tính lương.')
+  throw payrollViolationError(
+    'SESSION_DATE_INVALID',
+    'Ca dạy thiếu ngày hợp lệ',
+    'Một ca đã hoàn thành nhưng không có ngày tập hợp lệ nên chưa thể tính vào kỳ lương.',
+    'teaching_history',
+    context,
+  )
 }
 
-function teachingHour(value, sessionId) {
+function teachingHour(value, sessionId, context = {}) {
   const direct = Number(value)
   if (Number.isInteger(direct) && direct >= 0 && direct <= 23) return direct
   const legacy = Number(String(sessionId || '').split('-')[1])
   if (Number.isInteger(legacy) && legacy >= 0 && legacy <= 23) return legacy
-  throw new HttpsError('failed-precondition', 'Buổi dạy thiếu giờ hợp lệ để tính lương.')
+  throw payrollViolationError(
+    'SESSION_HOUR_INVALID',
+    'Ca dạy thiếu giờ hợp lệ',
+    'Một ca đã hoàn thành nhưng không có khung giờ hợp lệ nên chưa thể nhóm và tính tiền ca.',
+    'teaching_history',
+    { sessionId, ...context },
+  )
 }
 
 function payrollDocumentId(value, label) {
@@ -192,6 +233,25 @@ function payrollDocumentId(value, label) {
   if (!/^[A-Za-z0-9_-]{1,200}$/.test(result)) {
     throw new HttpsError('invalid-argument', `${label} không hợp lệ.`)
   }
+  return result
+}
+
+function payrollAdjustmentType(value) {
+  if (value === 'bonus' || value === 'deduction') return value
+  throw new HttpsError('invalid-argument', 'Loại thưởng hoặc phạt không hợp lệ.')
+}
+
+function payrollAdjustmentAmount(value) {
+  const result = Number(value)
+  if (!Number.isSafeInteger(result) || result < 1_000 || result > 100_000_000) {
+    throw new HttpsError('invalid-argument', 'Số tiền thưởng hoặc phạt phải từ 1.000đ đến 100.000.000đ.')
+  }
+  return result
+}
+
+function payrollAdjustmentText(value, label, minimum, maximum) {
+  const result = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, maximum) : ''
+  if (result.length < minimum) throw new HttpsError('invalid-argument', `${label} cần tối thiểu ${minimum} ký tự.`)
   return result
 }
 
@@ -204,7 +264,13 @@ function priceTeachingSlots(slots, resolvePolicy) {
       dailyPosition.set(slot.date, position)
       const selected = resolvePolicy(slot)
       if (!selected?.configuration) {
-        throw new HttpsError('failed-precondition', 'Chưa xác định được chính sách cho một ca dạy.')
+        throw payrollViolationError(
+          'TEACHING_SLOT_POLICY_MISSING',
+          'Ca dạy chưa có chính sách lương',
+          `Chưa xác định được chính sách cho ca ngày ${slot.date} lúc ${String(slot.hour).padStart(2, '0')}:00.`,
+          'policy',
+          { trainerId: slot.trainerId, date: slot.date, hour: slot.hour, sessionIds: slot.sessionIds instanceof Set ? [...slot.sessionIds] : slot.sessionIds },
+        )
       }
       const policy = payrollPolicyConfiguration(selected.configuration)
       const afterThreshold = position > policy.dailySessionThreshold
@@ -244,14 +310,26 @@ function teachingSlotsFromAttendance(attendanceDocuments, sessionsById, policyVa
       : typeof item?.id === 'string' ? item.id : ''
     const session = sessionsById.get(sessionId)
     if (!sessionId || !session) {
-      throw new HttpsError('failed-precondition', 'Có điểm danh không liên kết được với ca dạy. Hãy đối soát trước khi lập lương.')
+      throw payrollViolationError(
+        'ATTENDANCE_SESSION_MISSING',
+        'Điểm danh không có ca dạy gốc',
+        'Có lượt điểm danh không liên kết được với session. Hãy sửa hoặc khôi phục ca gốc trước khi lập lương.',
+        'teaching_history',
+        { sessionId, attendanceEventId: item?.id || '' },
+      )
     }
     const trainerId = typeof session.trainerId === 'string' && session.trainerId.trim()
       ? session.trainerId.trim()
       : typeof attendance.trainerId === 'string' ? attendance.trainerId.trim() : ''
-    if (!trainerId) throw new HttpsError('failed-precondition', 'Ca dạy chưa có HLV phụ trách.')
-    const date = vietnamDateKey(session.date || attendance.scheduledFor || attendance.occurredAt)
-    const hour = teachingHour(session.hour, sessionId)
+    if (!trainerId) throw payrollViolationError(
+      'SESSION_TRAINER_MISSING',
+      'Ca dạy chưa có PT phụ trách',
+      'Một ca đã ghi nhận điểm danh nhưng chưa liên kết PT. Hãy gán lại PT cho ca trước khi lập lương.',
+      'teaching_history',
+      { sessionId, attendanceEventId: item?.id || '' },
+    )
+    const date = vietnamDateKey(session.date || attendance.scheduledFor || attendance.occurredAt, { sessionId, trainerId })
+    const hour = teachingHour(session.hour, sessionId, { trainerId, date })
     const key = `${trainerId}|${date}|${hour}`
     let slot = slotMap.get(key)
     if (!slot) {
@@ -297,10 +375,22 @@ function teachingSlotsFromSessions(sessionDocuments, policyValue) {
       ? item.id
       : typeof session.id === 'string' ? session.id : ''
     const trainerId = typeof session.trainerId === 'string' ? session.trainerId.trim() : ''
-    if (!sessionId) throw new HttpsError('failed-precondition', 'Có ca hoàn thành chưa xác định được mã ca.')
-    if (!trainerId) throw new HttpsError('failed-precondition', 'Ca dạy chưa có HLV phụ trách.')
-    const date = vietnamDateKey(session.date)
-    const hour = teachingHour(session.hour, sessionId)
+    if (!sessionId) throw payrollViolationError(
+      'SESSION_ID_MISSING',
+      'Ca hoàn thành thiếu mã ca',
+      'Có dữ liệu ca hoàn thành không có sessionId nên chưa thể lưu bằng chứng tính lương.',
+      'teaching_history',
+      { trainerId },
+    )
+    if (!trainerId) throw payrollViolationError(
+      'SESSION_TRAINER_MISSING',
+      'Ca dạy chưa có PT phụ trách',
+      'Một ca đã hoàn thành nhưng chưa liên kết PT. Hãy gán lại PT cho ca trước khi lập lương.',
+      'teaching_history',
+      { sessionId, date: typeof session.date === 'string' ? session.date : '' },
+    )
+    const date = vietnamDateKey(session.date, { sessionId, trainerId })
+    const hour = teachingHour(session.hour, sessionId, { trainerId, date })
     const key = `${trainerId}|${date}|${hour}`
     let slot = slotMap.get(key)
     if (!slot) {
@@ -316,7 +406,13 @@ function teachingSlotsFromSessions(sessionDocuments, policyValue) {
       }
       slotMap.set(key, slot)
     } else if (slot.branchId && session.branchId && slot.branchId !== session.branchId) {
-      throw new HttpsError('failed-precondition', `HLV có ca hoàn thành trùng giờ ở nhiều chi nhánh ngày ${date}. Hãy đối soát trước khi lập lương.`)
+      throw payrollViolationError(
+        'TRAINER_CROSS_BRANCH_SLOT_CONFLICT',
+        'PT có ca trùng giờ ở nhiều chi nhánh',
+        `PT có ca hoàn thành trùng giờ ở nhiều chi nhánh ngày ${date}. Hãy xác định lại chi nhánh hoặc PT thực dạy.`,
+        'teaching_history',
+        { trainerId, date, hour, sessionId, conflictingSessionIds: [...slot.sessionIds] },
+      )
     }
     if (!slot.branchId && session.branchId) slot.branchId = session.branchId
     slot.sessionIds.add(sessionId)
@@ -362,7 +458,14 @@ function payrollRunPolicyPlan(value = {}) {
 }
 
 function payrollPolicyRecord(snapshot) {
-  if (!snapshot?.exists) throw new HttpsError('not-found', 'Không tìm thấy một chính sách lương đã chọn.')
+  if (!snapshot?.exists) throw payrollViolationError(
+    'PAYROLL_POLICY_NOT_FOUND',
+    'Không tìm thấy chính sách đã chọn',
+    'Chính sách có thể đã bị xóa hoặc không còn khả dụng. Hãy tải lại và chọn chính sách khác.',
+    'policy',
+    { policyId: snapshot?.id || '' },
+    'not-found',
+  )
   const data = snapshot.data()
   return {
     id: snapshot.id,
@@ -391,7 +494,12 @@ function payrollPolicySnapshot(policy) {
 function applyPayrollPolicyPlan(teaching, plan, policies) {
   const policiesById = new Map(policies.map((policy) => [policy.id, policy]))
   const defaultPolicy = policiesById.get(plan.defaultPolicyId) || policies[0]
-  if (!defaultPolicy) throw new HttpsError('failed-precondition', 'Chưa chọn chính sách mặc định cho kỳ lương.')
+  if (!defaultPolicy) throw payrollViolationError(
+    'PAYROLL_DEFAULT_POLICY_MISSING',
+    'Chưa chọn chính sách mặc định',
+    'Chọn một chính sách mặc định để tính cho các PT chưa được gán riêng.',
+    'policy',
+  )
   const effectivePolicies = [...policies].sort((left, right) => left.effectiveDate.localeCompare(right.effectiveDate))
   const trainers = new Map()
   for (const [trainerId, slots] of teaching.trainers) {
@@ -410,19 +518,37 @@ function applyPayrollPolicyPlan(teaching, plan, policies) {
           .filter((policy) => policySupportsProfile(policy, profile) && policy.effectiveDate <= slot.date)
           .at(-1)
         if (!matching) {
-          throw new HttpsError('failed-precondition', `Chưa có chính sách phù hợp nhóm lương ${profile} cho ca ngày ${slot.date}.`)
+          throw payrollViolationError(
+            'STAFF_POLICY_INCOMPATIBLE',
+            'Không có chính sách phù hợp nhóm lương',
+            `Chưa có chính sách phù hợp nhóm ${profile} cho ca ngày ${slot.date}.`,
+            'staff_profile',
+            { trainerId, staffId: trainerId, payrollProfile: profile, date: slot.date, hour: slot.hour, sessionIds: slot.sessionIds },
+          )
         }
         return matching
       }
       if (plan.applicationMode === 'effective_date' && policies.length > 1) {
         const matching = effectivePolicies.filter((policy) => policy.effectiveDate <= slot.date).at(-1)
         if (!matching) {
-          throw new HttpsError('failed-precondition', `Chưa có chính sách hiệu lực cho ca ngày ${slot.date}.`)
+          throw payrollViolationError(
+            'PAYROLL_POLICY_NOT_EFFECTIVE',
+            'Chưa có chính sách hiệu lực tại ngày dạy',
+            `Không có chính sách nào bắt đầu trước hoặc đúng ngày ${slot.date}.`,
+            'policy',
+            { trainerId, date: slot.date, hour: slot.hour, sessionIds: slot.sessionIds },
+          )
         }
         return matching
       }
       if (assignedPolicy.effectiveDate > slot.date) {
-        throw new HttpsError('failed-precondition', `Chính sách ${assignedPolicy.name} chưa hiệu lực tại ngày ${slot.date}.`)
+        throw payrollViolationError(
+          'PAYROLL_POLICY_NOT_EFFECTIVE',
+          'Chính sách chưa hiệu lực tại ngày dạy',
+          `Chính sách ${assignedPolicy.name} chưa hiệu lực tại ngày ${slot.date}.`,
+          'policy',
+          { trainerId, policyId: assignedPolicy.id, date: slot.date, hour: slot.hour, sessionIds: slot.sessionIds },
+        )
       }
       return assignedPolicy
     }))
@@ -536,7 +662,7 @@ async function legacyPayrollPreview(db, runData, itemValues) {
   }
 }
 
-function createPayrollFunctions({ db, onCall }) {
+function createPayrollFunctions({ db, onCall, logger = console }) {
   // Payroll is a low-volume administrative workflow. Fractional Gen-1 CPU
   // keeps new revisions deployable even when the regional Cloud Run CPU quota
   // is tight; concurrency must remain one for fractional CPU functions.
@@ -706,6 +832,146 @@ function createPayrollFunctions({ db, onCall }) {
     })
   })
 
+  const listPayrollAdjustments = payrollCall(async (request) => {
+    await payrollActor(request, db)
+    const periodId = period(request.data?.periodId)
+    const snapshot = await db.collection('payrollAdjustments').where('periodId', '==', periodId).limit(1001).get()
+    if (snapshot.size > 1000) {
+      throw payrollViolationError(
+        'PAYROLL_ADJUSTMENT_LIMIT_EXCEEDED',
+        'Quá nhiều khoản thưởng/phạt trong kỳ',
+        'Kỳ lương có hơn 1.000 khoản thưởng hoặc phạt. Hãy gộp các khoản cùng nhân viên trước khi lập kỳ.',
+        'policy',
+        { periodId },
+        'resource-exhausted',
+      )
+    }
+    return {
+      adjustments: snapshot.docs
+        .map((item) => ({ id: item.id, ...item.data(), createdAt: iso(item.data().createdAt), voidedAt: iso(item.data().voidedAt) }))
+        .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt))),
+    }
+  })
+
+  const savePayrollAdjustment = payrollCall(async (request) => {
+    const actor = await payrollActor(request, db)
+    const periodId = period(request.data?.periodId)
+    const staffId = payrollDocumentId(request.data?.staffId, 'Mã nhân viên')
+    const type = payrollAdjustmentType(request.data?.type)
+    const amount = payrollAdjustmentAmount(request.data?.amount)
+    const reason = payrollAdjustmentText(request.data?.reason, 'Lý do thưởng/phạt', 5, 500)
+    const evidenceReference = typeof request.data?.evidenceReference === 'string'
+      ? request.data.evidenceReference.trim().replace(/\s+/g, ' ').slice(0, 200)
+      : ''
+    const requestId = payrollDocumentId(request.data?.requestId, 'Mã yêu cầu')
+    const adjustmentId = `adjustment_${createHash('sha256').update(`${actor.uid}|${requestId}`).digest('hex').slice(0, 24)}`
+    const reference = db.doc(`payrollAdjustments/${adjustmentId}`)
+    const runReference = db.doc(`payrollRuns/${periodId}`)
+    const staffReference = db.doc(`staff/${staffId}`)
+    const trainerReference = db.doc(`trainers/${staffId}`)
+    return db.runTransaction(async (transaction) => {
+      const [existing, run, staffSnapshot, trainerSnapshot] = await Promise.all([
+        transaction.get(reference),
+        transaction.get(runReference),
+        transaction.get(staffReference),
+        transaction.get(trainerReference),
+      ])
+      if (existing.exists) return { adjustmentId, unchanged: true }
+      if (run.exists) {
+        const status = run.data().status || 'draft'
+        throw payrollViolationError(
+          status === 'draft' ? 'PAYROLL_DRAFT_REBUILD_REQUIRED' : 'PAYROLL_RUN_IMMUTABLE',
+          status === 'draft' ? 'Kỳ nháp cần được lập lại' : 'Kỳ lương đã khóa bằng chứng',
+          status === 'draft'
+            ? 'Hãy xóa kỳ nháp, lưu thưởng/phạt rồi tạo lại để snapshot và tổng tiền khớp nhau.'
+            : 'Không thể sửa kỳ đã duyệt, khóa hoặc chi. Hãy ghi khoản bù trừ có lý do vào kỳ lương tiếp theo.',
+          'delete_rebuild',
+          { periodId, staffId, runStatus: status },
+        )
+      }
+      const staff = staffSnapshot.exists ? staffSnapshot.data() : trainerSnapshot.exists ? trainerSnapshot.data() : null
+      if (!staff || staff.status === 'inactive') {
+        throw payrollViolationError(
+          'PAYROLL_STAFF_NOT_FOUND',
+          'Không tìm thấy nhân viên đang hoạt động',
+          'Hãy kiểm tra hồ sơ đội ngũ và trạng thái làm việc trước khi ghi thưởng/phạt.',
+          'staff_profile',
+          { periodId, staffId },
+          'not-found',
+        )
+      }
+      const staffName = payrollIdentityName(staff) || staffId
+      transaction.create(reference, {
+        schemaVersion: 1,
+        periodId,
+        staffId,
+        staffSnapshot: { name: staffName, employeeCode: staff.employeeCode || '', branchId: staff.branchId || '' },
+        type,
+        amount,
+        reason,
+        evidenceReference,
+        status: 'active',
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: actor.uid,
+      })
+      transaction.create(db.collection('payrollAuditLogs').doc(), {
+        schemaVersion: 6,
+        action: 'payroll.adjustment.created',
+        adjustmentId,
+        periodId,
+        staffId,
+        type,
+        amount,
+        reason,
+        evidenceReference,
+        actorUid: actor.uid,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return { adjustmentId, unchanged: false }
+    })
+  })
+
+  const voidPayrollAdjustment = payrollCall(async (request) => {
+    const actor = await payrollActor(request, db)
+    const adjustmentId = payrollDocumentId(request.data?.adjustmentId, 'Mã thưởng/phạt')
+    const reference = db.doc(`payrollAdjustments/${adjustmentId}`)
+    return db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference)
+      if (!snapshot.exists || snapshot.data().status === 'voided') return { adjustmentId, unchanged: true }
+      const value = snapshot.data()
+      const run = await transaction.get(db.doc(`payrollRuns/${period(value.periodId)}`))
+      if (run.exists) {
+        const status = run.data().status || 'draft'
+        throw payrollViolationError(
+          status === 'draft' ? 'PAYROLL_DRAFT_REBUILD_REQUIRED' : 'PAYROLL_RUN_IMMUTABLE',
+          status === 'draft' ? 'Kỳ nháp cần được lập lại' : 'Kỳ lương đã khóa bằng chứng',
+          status === 'draft'
+            ? 'Hãy xóa kỳ nháp trước, sau đó mới hủy khoản thưởng/phạt và tạo lại kỳ.'
+            : 'Khoản này đã nằm trong kỳ đã duyệt, khóa hoặc chi. Hãy tạo một khoản bù trừ ở kỳ tiếp theo thay vì sửa chứng từ cũ.',
+          'delete_rebuild',
+          { periodId: value.periodId, staffId: value.staffId, runStatus: status, adjustmentId },
+        )
+      }
+      transaction.update(reference, {
+        status: 'voided',
+        voidedAt: FieldValue.serverTimestamp(),
+        voidedBy: actor.uid,
+      })
+      transaction.create(db.collection('payrollAuditLogs').doc(), {
+        schemaVersion: 6,
+        action: 'payroll.adjustment.voided',
+        adjustmentId,
+        periodId: value.periodId,
+        staffId: value.staffId,
+        type: value.type,
+        amount: Number(value.amount || 0),
+        actorUid: actor.uid,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return { adjustmentId, unchanged: false }
+    })
+  })
+
   const listPayrollRuns = payrollCall(async (request) => {
     await payrollActor(request, db)
     const limit = Math.min(36, Math.max(1, Number.isInteger(request.data?.limit) ? request.data.limit : 18))
@@ -822,11 +1088,12 @@ function createPayrollFunctions({ db, onCall }) {
     // One deterministic document per business period prevents two admins from
     // creating duplicate payroll runs concurrently.
     const runReference = db.doc(`payrollRuns/${periodId}`)
-    return db.runTransaction(async (transaction) => {
+    try {
+      return await db.runTransaction(async (transaction) => {
       const existing = await transaction.get(runReference)
       if (existing.exists) return { runId: existing.id, unchanged: true, status: existing.data().status }
 
-      const [sessionSnapshot, staffSnapshot, trainerRecordsSnapshot, assignmentSnapshot, workdayAttendanceSnapshot, calendarSnapshot, schedulePolicySnapshot, referralLedgerSnapshot] = await Promise.all([
+      const [sessionSnapshot, staffSnapshot, trainerRecordsSnapshot, assignmentSnapshot, workdayAttendanceSnapshot, calendarSnapshot, schedulePolicySnapshot, referralLedgerSnapshot, adjustmentSnapshot] = await Promise.all([
         transaction.get(db.collection('sessions')
           .where('date', '>=', dateBounds.start)
           .where('date', '<', dateBounds.end)
@@ -843,9 +1110,23 @@ function createPayrollFunctions({ db, onCall }) {
           .where('effectiveAt', '<', end)
           .select('type', 'status', 'cashImpact', 'amount', 'contractId', 'referralCode', 'referralStaffId', 'referralCommissionRate')
           .limit(5001)),
+        transaction.get(db.collection('payrollAdjustments').where('periodId', '==', periodId).limit(1001)),
       ])
-      if (sessionSnapshot.size > 3000 || staffSnapshot.size > 450 || trainerRecordsSnapshot.size > 450 || assignmentSnapshot.size > 450 || workdayAttendanceSnapshot.size > 5000 || calendarSnapshot.size > 100 || referralLedgerSnapshot.size > 5000) {
-        throw new HttpsError('resource-exhausted', 'Dữ liệu ngày công của kỳ quá lớn để khóa an toàn trong một giao dịch.')
+      if (sessionSnapshot.size > 3000 || staffSnapshot.size > 450 || trainerRecordsSnapshot.size > 450 || assignmentSnapshot.size > 450 || workdayAttendanceSnapshot.size > 5000 || calendarSnapshot.size > 100 || referralLedgerSnapshot.size > 5000 || adjustmentSnapshot.size > 1000) {
+        throw payrollViolationError(
+          'PAYROLL_DATA_LIMIT_EXCEEDED',
+          'Dữ liệu kỳ lương vượt giới hạn an toàn',
+          'Kỳ lương có quá nhiều ca, nhân sự, ngày công hoặc khoản điều chỉnh để lập trong một giao dịch. Hãy liên hệ quản trị để chia nhỏ và đối soát dữ liệu nguồn.',
+          'retry',
+          {
+            periodId,
+            sessionCount: sessionSnapshot.size,
+            staffCount: staffSnapshot.size,
+            attendanceDayCount: workdayAttendanceSnapshot.size,
+            adjustmentCount: adjustmentSnapshot.size,
+          },
+          'resource-exhausted',
+        )
       }
       const trainerRecordById = new Map(trainerRecordsSnapshot.docs.map((item) => [item.id, item.data() || {}]))
       const staffRecordById = new Map(staffSnapshot.docs
@@ -868,7 +1149,14 @@ function createPayrollFunctions({ db, onCall }) {
       })
       const referralLedgerDocuments = referralLedgerSnapshot.docs.filter((item) => referralCashImpact(item) !== 0)
       const referralContractIds = [...new Set(referralLedgerDocuments.map((item) => String(item.data()?.contractId || '')).filter(Boolean))]
-      if (referralContractIds.length > 450) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều hợp đồng giới thiệu để khóa trong một giao dịch.')
+      if (referralContractIds.length > 450) throw payrollViolationError(
+        'REFERRAL_CONTRACT_LIMIT_EXCEEDED',
+        'Quá nhiều hợp đồng giới thiệu cần đối soát',
+        'Kỳ lương có hơn 450 hợp đồng giới thiệu có dòng tiền. Hãy đối soát dữ liệu hoa hồng trước khi lập kỳ.',
+        'retry',
+        { periodId, referralContractCount: referralContractIds.length },
+        'resource-exhausted',
+      )
       const referralContractSnapshots = await Promise.all(referralContractIds.map((contractId) => transaction.get(db.doc(`contracts/${contractId}`))))
       const referralEvidence = calculateReferralCommissions({
         ledgerEntries: referralLedgerDocuments,
@@ -886,9 +1174,21 @@ function createPayrollFunctions({ db, onCall }) {
         policyDocuments = fallback.docs.filter((item) => item.data().status !== 'inactive').slice(0, 1)
       }
       const selectedPolicies = policyDocuments.map(payrollPolicyRecord)
-      if (!selectedPolicies.length) throw new HttpsError('failed-precondition', 'Chưa có chính sách lương hiệu lực cho kỳ này.')
+      if (!selectedPolicies.length) throw payrollViolationError(
+        'PAYROLL_POLICY_MISSING',
+        'Chưa có chính sách lương hiệu lực',
+        'Hãy tạo hoặc chọn ít nhất một chính sách có ngày hiệu lực không sau kỳ lương.',
+        'policy',
+        { periodId },
+      )
       if (selectedPolicies.some((policy) => policy.status !== 'active')) {
-        throw new HttpsError('failed-precondition', 'Một chính sách đã chọn đang bị ẩn. Hãy chọn lại chính sách hoạt động.')
+        throw payrollViolationError(
+          'PAYROLL_POLICY_INACTIVE',
+          'Chính sách đã chọn đang bị ẩn',
+          'Mở lại chính sách hoặc chọn một chính sách đang hoạt động rồi tạo lại kỳ.',
+          'policy',
+          { periodId, policyIds: selectedPolicies.filter((policy) => policy.status !== 'active').map((policy) => policy.id) },
+        )
       }
       const staffWithoutCompatiblePolicy = [...staffRecordById.entries()].find(([, staff]) => {
         const profile = payrollProfile(staff)
@@ -898,20 +1198,53 @@ function createPayrollFunctions({ db, onCall }) {
         const [staffId, staff] = staffWithoutCompatiblePolicy
         const profile = payrollProfile(staff)
         if (profile === 'collaborator') {
-          throw new HttpsError('failed-precondition', `CTV ${staff.name || staff.displayName || staffId} cần được gán chính sách CTV trước khi lập kỳ lương.`)
+          throw payrollViolationError(
+            'STAFF_POLICY_INCOMPATIBLE',
+            'CTV chưa có chính sách phù hợp',
+            `CTV ${staff.name || staff.displayName || staffId} cần được gán chính sách CTV trước khi lập kỳ lương.`,
+            'staff_profile',
+            { periodId, staffId, staffName: staff.name || staff.displayName || staffId, payrollProfile: profile },
+          )
         }
-        throw new HttpsError('failed-precondition', `Nhân viên ${staff.name || staff.displayName || staffId} chưa có chính sách phù hợp với hồ sơ ${profile}.`)
+        throw payrollViolationError(
+          'STAFF_POLICY_INCOMPATIBLE',
+          'Nhân viên chưa có chính sách phù hợp',
+          `Nhân viên ${staff.name || staff.displayName || staffId} chưa có chính sách phù hợp với hồ sơ ${profile}.`,
+          'staff_profile',
+          { periodId, staffId, staffName: staff.name || staff.displayName || staffId, payrollProfile: profile },
+        )
       }
       const policyIds = selectedPolicies.map((policy) => policy.id)
       const defaultPolicyId = requestedPlan.defaultPolicyId || policyIds[0]
       if (!policyIds.includes(defaultPolicyId)) {
-        throw new HttpsError('invalid-argument', 'Chính sách mặc định phải nằm trong danh sách đã chọn.')
+        throw payrollViolationError(
+          'PAYROLL_DEFAULT_POLICY_NOT_SELECTED',
+          'Chính sách mặc định chưa được chọn',
+          'Chính sách mặc định phải nằm trong danh sách chính sách được áp dụng cho kỳ.',
+          'policy',
+          { periodId, policyId: defaultPolicyId },
+          'invalid-argument',
+        )
       }
       for (const policyId of requestedPlan.trainerAssignments.values()) {
-        if (!policyIds.includes(policyId)) throw new HttpsError('invalid-argument', 'Phân chính sách HLV nằm ngoài danh sách đã chọn.')
+        if (!policyIds.includes(policyId)) throw payrollViolationError(
+          'TRAINER_POLICY_NOT_SELECTED',
+          'Phân chính sách PT không hợp lệ',
+          'Một PT đang được gán chính sách nằm ngoài danh sách đã chọn. Hãy chọn lại chính sách cho PT.',
+          'policy',
+          { periodId, policyId },
+          'invalid-argument',
+        )
       }
       if (requestedPlan.applicationMode === 'effective_date' && new Set(selectedPolicies.map((policy) => policy.effectiveDate)).size !== selectedPolicies.length) {
-        throw new HttpsError('invalid-argument', 'Các chính sách áp theo ngày phải có ngày hiệu lực khác nhau.')
+        throw payrollViolationError(
+          'PAYROLL_POLICY_EFFECTIVE_DATE_DUPLICATED',
+          'Chính sách bị trùng ngày hiệu lực',
+          'Khi áp theo ngày, mỗi chính sách phải có một ngày hiệu lực khác nhau.',
+          'policy',
+          { periodId, policyIds },
+          'invalid-argument',
+        )
       }
       const policyPlan = {
         ...requestedPlan,
@@ -923,9 +1256,19 @@ function createPayrollFunctions({ db, onCall }) {
       }
       const groupedTeaching = teachingSlotsFromSessions(sessionSnapshot.docs, selectedPolicies[0].configuration)
       const teaching = applyPayrollPolicyPlan(groupedTeaching, policyPlan, selectedPolicies)
+      const activeAdjustments = adjustmentSnapshot.docs
+        .map((item) => ({ id: item.id, ...item.data() }))
+        .filter((item) => item.status !== 'voided' && (item.type === 'bonus' || item.type === 'deduction') && Number(item.amount || 0) > 0)
       const activeStaff = [...staffRecordById.values()]
-      const staffIds = [...new Set([...activeStaff.map((item) => item.id), ...teaching.trainers.keys()])]
-      if (staffIds.length > 450) throw new HttpsError('resource-exhausted', 'Kỳ lương có quá nhiều nhân sự để khóa trong một giao dịch.')
+      const staffIds = [...new Set([...activeStaff.map((item) => item.id), ...teaching.trainers.keys(), ...activeAdjustments.map((item) => item.staffId).filter(Boolean)])]
+      if (staffIds.length > 450) throw payrollViolationError(
+        'PAYROLL_STAFF_LIMIT_EXCEEDED',
+        'Quá nhiều nhân sự trong kỳ',
+        'Kỳ lương có hơn 450 nhân sự nên chưa thể tạo snapshot an toàn trong một giao dịch.',
+        'retry',
+        { periodId, staffCount: staffIds.length },
+        'resource-exhausted',
+      )
       const identitySnapshots = await Promise.all(staffIds.flatMap((staffId) => [
         transaction.get(db.doc(`trainers/${staffId}`)),
         transaction.get(db.doc(`users/${staffRecordById.get(staffId)?.userId || staffId}`)),
@@ -955,6 +1298,12 @@ function createPayrollFunctions({ db, onCall }) {
       const selectedPolicyById = new Map(selectedPolicies.map((policy) => [policy.id, policy]))
       const policySnapshots = selectedPolicies.map(payrollPolicySnapshot)
       const policyName = selectedPolicies.length === 1 ? selectedPolicies[0].name : `${selectedPolicies.length} chính sách linh hoạt`
+      const adjustmentsByStaff = new Map()
+      activeAdjustments.forEach((item) => {
+        const current = adjustmentsByStaff.get(item.staffId) || []
+        current.push(item)
+        adjustmentsByStaff.set(item.staffId, current)
+      })
       const itemRecords = staffIds.map((staffId) => {
         const staff = { ...(trainerRecordById.get(staffId) || {}), ...(staffRecordById.get(staffId) || {}) }
         const identity = identityById.get(staffId) || {}
@@ -973,20 +1322,40 @@ function createPayrollFunctions({ db, onCall }) {
           cashCollectedAmount: 0, cashReversedAmount: 0, netCashAmount: 0,
           commissionAmount: 0, reversalAmount: 0, contractCount: 0, evidence: [], rate: 0,
         }
-        const amounts = payrollAmounts(workdays, {
+        const baseAmounts = payrollAmounts(workdays, {
           grossAmount: teachingPayAmount,
           commissionAmount: referral.commissionAmount,
           deductionAmount: referral.reversalAmount,
         })
+        const payrollAdjustments = adjustmentsByStaff.get(staffId) || []
+        const manualBonusAmount = payrollAdjustments
+          .filter((item) => item.type === 'bonus')
+          .reduce((total, item) => total + Number(item.amount || 0), 0)
+        const manualDeductionAmount = payrollAdjustments
+          .filter((item) => item.type === 'deduction')
+          .reduce((total, item) => total + Number(item.amount || 0), 0)
+        const amounts = {
+          ...baseAmounts,
+          bonusAmount: baseAmounts.bonusAmount + manualBonusAmount,
+          deductionAmount: baseAmounts.deductionAmount + manualDeductionAmount,
+          grossAmount: baseAmounts.grossAmount + manualBonusAmount,
+          finalAmount: Math.max(0, baseAmounts.finalAmount + manualBonusAmount - manualDeductionAmount),
+        }
         const itemPolicyIds = [...new Set(teachingSlots.map((slot) => slot.policyId).filter(Boolean))]
         const staffPayrollProfile = payrollProfile(staff)
         const unsupportedPolicy = itemPolicyIds
           .map((policyId) => selectedPolicyById.get(policyId))
           .find((policy) => policy && !policySupportsProfile(policy, staffPayrollProfile))
         if (unsupportedPolicy) {
-          throw new HttpsError('failed-precondition', `Chính sách ${unsupportedPolicy.name} không áp dụng cho nhóm lương của ${identity.name || staffId}.`)
+          throw payrollViolationError(
+            'STAFF_POLICY_INCOMPATIBLE',
+            'Chính sách không phù hợp hồ sơ nhân viên',
+            `Chính sách ${unsupportedPolicy.name} không áp dụng cho nhóm lương của ${identity.name || staffId}.`,
+            'staff_profile',
+            { periodId, staffId, staffName: identity.name || staffId, payrollProfile: staffPayrollProfile, policyId: unsupportedPolicy.id },
+          )
         }
-        return { staffId, staff, identity, calendar, workdays, teachingSlots, amounts, referral, itemPolicyIds, staffPayrollProfile }
+        return { staffId, staff, identity, calendar, workdays, teachingSlots, amounts, baseAmounts, referral, itemPolicyIds, staffPayrollProfile, payrollAdjustments, manualBonusAmount, manualDeductionAmount }
       })
       const grossAmount = itemRecords.reduce((total, item) => total + item.amounts.grossAmount, 0)
       const finalAmount = itemRecords.reduce((total, item) => total + item.amounts.finalAmount, 0)
@@ -1026,6 +1395,7 @@ function createPayrollFunctions({ db, onCall }) {
           ambiguousCodeEntryCount: referralEvidence.ambiguousCodeEntryCount,
           invalidRateEntryCount: referralEvidence.invalidRateEntryCount,
         },
+        adjustmentCount: activeAdjustments.length,
         grossAmount,
         adjustmentAmount: 0,
         finalAmount,
@@ -1035,7 +1405,7 @@ function createPayrollFunctions({ db, onCall }) {
         updatedAt: FieldValue.serverTimestamp(),
       })
       for (const item of itemRecords) {
-        const { staffId, identity, calendar, workdays, teachingSlots, amounts, referral, itemPolicyIds, staffPayrollProfile } = item
+        const { staffId, identity, calendar, workdays, teachingSlots, amounts, baseAmounts, referral, itemPolicyIds, staffPayrollProfile, payrollAdjustments, manualBonusAmount, manualDeductionAmount } = item
         const itemReference = db.doc(`payrollRunItems/${periodId}_${staffId}`)
         const tierSummary = teachingSlots.reduce((result, slot) => {
           if (slot.tier === 'standard') { result.standardCount += 1; result.standardAmount += slot.rate }
@@ -1095,6 +1465,16 @@ function createPayrollFunctions({ db, onCall }) {
           },
           bonusAmount: amounts.bonusAmount,
           deductionAmount: amounts.deductionAmount,
+          recurringBonusAmount: baseAmounts.bonusAmount,
+          manualBonusAmount,
+          manualDeductionAmount,
+          payrollAdjustments: payrollAdjustments.map((adjustment) => ({
+            id: adjustment.id,
+            type: adjustment.type,
+            amount: Number(adjustment.amount || 0),
+            reason: adjustment.reason || '',
+            evidenceReference: adjustment.evidenceReference || '',
+          })),
           grossAmount: amounts.grossAmount,
           adjustmentAmount: 0,
           finalAmount: amounts.finalAmount,
@@ -1105,7 +1485,31 @@ function createPayrollFunctions({ db, onCall }) {
       }
       transaction.create(db.collection('payrollAuditLogs').doc(), { schemaVersion: 5, runId: runReference.id, action: 'payroll.created', actorUid: actor.uid, toStatus: 'draft', policyIds, policyApplicationMode: selectedPolicies.length === 1 ? 'single' : policyPlan.applicationMode, staffCount: itemRecords.length, workdayStaffCount, attendanceReviewRequiredCount, calendarReviewRequiredCount, createdAt: FieldValue.serverTimestamp() })
       return { runId: runReference.id, unchanged: false, status: 'draft' }
-    })
+      })
+    } catch (cause) {
+      if (isKnownHttpsError(cause)) throw cause
+      const supportId = createHash('sha256')
+        .update(`${periodId}|${Date.now()}|${cause?.message || cause?.code || 'unknown'}`)
+        .digest('hex')
+        .slice(0, 12)
+        .toUpperCase()
+      logger?.error?.('payroll_create_failed', {
+        supportId,
+        periodId,
+        actorUid: actor.uid,
+        code: cause?.code || '',
+        message: cause?.message || String(cause || ''),
+        stack: cause?.stack || '',
+      })
+      throw payrollViolationError(
+        'PAYROLL_SERVICE_FAILURE',
+        'Không thể hoàn tất đối soát kỳ lương',
+        `Máy chủ không thể hoàn tất giao dịch. Hãy thử lại; nếu lỗi lặp lại, gửi mã đối soát ${supportId} cho quản trị kỹ thuật.`,
+        'retry',
+        { periodId, supportId },
+        'internal',
+      )
+    }
   })
 
   const deleteDraftPayrollRun = payrollCall(async (request) => {
@@ -1333,6 +1737,9 @@ function createPayrollFunctions({ db, onCall }) {
     listPayrollPolicies,
     savePayrollPolicy,
     managePayrollPolicy,
+    listPayrollAdjustments,
+    savePayrollAdjustment,
+    voidPayrollAdjustment,
     listPayrollRuns,
     getPayrollRun,
     createPayrollRun,

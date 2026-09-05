@@ -113,10 +113,44 @@ test('canonical completed sessions produce the same paired teaching shifts witho
 })
 
 test('a trainer cannot silently merge the same completed hour across two branches', () => {
-  assert.throws(() => teachingSlotsFromSessions([
-    { id: 'session-a', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', branchId: 'branch-a', date: '2026-08-25', hour: 6 },
-    { id: 'session-b', status: 'completed', trainerId: 'trainer-a', studentId: 'student-b', branchId: 'branch-b', date: '2026-08-25', hour: 6 },
-  ], { ratePerSession: 20_000 }), /nhiều chi nhánh/)
+  let error
+  try {
+    teachingSlotsFromSessions([
+      { id: 'session-a', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', branchId: 'branch-a', date: '2026-08-25', hour: 6 },
+      { id: 'session-b', status: 'completed', trainerId: 'trainer-a', studentId: 'student-b', branchId: 'branch-b', date: '2026-08-25', hour: 6 },
+    ], { ratePerSession: 20_000 })
+    assert.fail('Expected branch conflict')
+  } catch (cause) {
+    error = cause
+  }
+  assert.equal(error.details.kind, 'payroll_validation')
+  assert.equal(error.details.violations[0].code, 'TRAINER_CROSS_BRANCH_SLOT_CONFLICT')
+  assert.equal(error.details.violations[0].trainerId, 'trainer-a')
+  assert.equal(error.details.violations[0].date, '2026-08-25')
+  assert.equal(error.details.violations[0].remediation, 'teaching_history')
+})
+
+test('invalid completed sessions return actionable payroll validation details', () => {
+  let error
+  try {
+    teachingSlotsFromSessions([
+      { id: 'session-invalid', status: 'completed', trainerId: '', studentId: 'student-a', branchId: 'branch-a', date: '2026-08-25', hour: 6 },
+    ], { ratePerSession: 20_000 })
+    assert.fail('Expected missing trainer')
+  } catch (cause) {
+    error = cause
+  }
+
+  assert.equal(error.details.kind, 'payroll_validation')
+  assert.deepEqual(error.details.violations[0], {
+    code: 'SESSION_TRAINER_MISSING',
+    severity: 'error',
+    title: 'Ca dạy chưa có PT phụ trách',
+    detail: 'Một ca đã hoàn thành nhưng chưa liên kết PT. Hãy gán lại PT cho ca trước khi lập lương.',
+    remediation: 'teaching_history',
+    sessionId: 'session-invalid',
+    date: '2026-08-25',
+  })
 })
 
 test('payroll creation is one deterministic transaction per period', () => {
@@ -281,6 +315,24 @@ test('legacy draft payroll is enriched for review but cannot be approved before 
   assert.match(transitionBlock, /assertPayrollPeriodClosed/)
 })
 
+test('period reward and penalty entries are audited, snapshotted and cannot mutate an existing run', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'payroll.js'), 'utf8')
+  const adjustmentStart = source.indexOf('const listPayrollAdjustments')
+  const adjustmentEnd = source.indexOf('const listPayrollRuns', adjustmentStart)
+  const adjustmentBlock = adjustmentStart >= 0 && adjustmentEnd > adjustmentStart ? source.slice(adjustmentStart, adjustmentEnd) : ''
+  const createBlock = source.match(/const createPayrollRun[\s\S]*?\n  async function transition/)?.[0] || ''
+
+  assert.match(adjustmentBlock, /payrollAdjustments/)
+  assert.match(adjustmentBlock, /PAYROLL_DRAFT_REBUILD_REQUIRED/)
+  assert.match(adjustmentBlock, /PAYROLL_RUN_IMMUTABLE/)
+  assert.match(adjustmentBlock, /payroll\.adjustment\.created/)
+  assert.match(adjustmentBlock, /payroll\.adjustment\.voided/)
+  assert.match(createBlock, /adjustmentsByStaff/)
+  assert.match(createBlock, /manualBonusAmount/)
+  assert.match(createBlock, /manualDeductionAmount/)
+  assert.match(createBlock, /payrollAdjustments: payrollAdjustments\.map/)
+})
+
 test('payroll UI surfaces trainer names, teaching-slot evidence and legacy rebuild state', () => {
   const ui = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'admin', 'pt', 'TrainerPayroll.tsx'), 'utf8')
   const service = fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'payrollService.ts'), 'utf8')
@@ -305,6 +357,9 @@ test('payroll UI uses canonical runs and cannot edit teaching sessions', () => {
   assert.match(source, /Theo từng HLV/)
   assert.match(source, /Theo ngày hiệu lực/)
   assert.match(source, /Theo hồ sơ nhân viên/)
+  assert.match(source, /Thưởng \/ phạt/)
+  assert.match(source, /parsePayrollFailure/)
+  assert.match(source, /Mở lịch sử ca dạy/)
   assert.doesNotMatch(source, /commissionPerSession\s*\|\|\s*20000/)
   assert.doesNotMatch(source, /confirmSessionAttendance|cancelSession|rescheduleSession|swapSessions/)
   assert.doesNotMatch(source, /Ước tính đối soát PT/)

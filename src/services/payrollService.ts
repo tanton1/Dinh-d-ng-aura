@@ -4,6 +4,45 @@ import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/fi
 export type PayrollRunStatus = 'draft' | 'reviewed' | 'locked' | 'paid'
 export type PayrollPolicyApplicationMode = 'single' | 'staff_profile' | 'trainer_assignment' | 'effective_date'
 export type PayrollProfile = 'probation' | 'official' | 'senior' | 'part_time' | 'collaborator'
+export type PayrollRemediation = 'workdays' | 'teaching_history' | 'staff_profile' | 'policy' | 'delete_rebuild' | 'retry'
+
+export interface PayrollViolation {
+  code: string
+  severity: 'error' | 'warning'
+  title: string
+  detail: string
+  remediation: PayrollRemediation
+  staffId?: string
+  staffName?: string
+  date?: string
+  hour?: number
+  sessionId?: string
+  attendanceEventId?: string
+  policyId?: string
+  periodId?: string
+  supportId?: string
+  runStatus?: string
+}
+
+export interface PayrollFailure {
+  message: string
+  code: string
+  violations: PayrollViolation[]
+}
+
+export interface PayrollAdjustment {
+  id: string
+  periodId: string
+  staffId: string
+  staffSnapshot: { name?: string; employeeCode?: string; branchId?: string }
+  type: 'bonus' | 'deduction'
+  amount: number
+  reason: string
+  evidenceReference: string
+  status: 'active' | 'voided'
+  createdAt: string
+  voidedAt: string
+}
 
 export interface PayrollRunSummary {
   id: string
@@ -128,6 +167,10 @@ export interface PayrollRunItem {
   }
   bonusAmount: number
   deductionAmount: number
+  recurringBonusAmount: number
+  manualBonusAmount: number
+  manualDeductionAmount: number
+  payrollAdjustments: Array<Pick<PayrollAdjustment, 'id' | 'type' | 'amount' | 'reason' | 'evidenceReference'>>
   workdaySummary: {
     employmentType: 'full_time' | 'part_time' | 'collaborator'
     standardWorkdays: number
@@ -165,6 +208,49 @@ function callable<Input, Output>(name: string, timeoutMs = 45_000) {
   const functions = firebaseScheduleOptimizerFunctions || firebaseFunctions
   if (!functions) throw new Error('Firebase Functions chưa sẵn sàng.')
   return httpsCallable<Input, Output>(functions, `${name}V2`, { timeout: timeoutMs })
+}
+
+function violationFromUnknown(value: unknown): PayrollViolation | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Record<string, unknown>
+  const code = typeof raw.code === 'string' ? raw.code : ''
+  const title = typeof raw.title === 'string' ? raw.title : ''
+  const detail = typeof raw.detail === 'string' ? raw.detail : ''
+  if (!code && !title && !detail) return null
+  const remediation: PayrollRemediation = ['workdays', 'teaching_history', 'staff_profile', 'policy', 'delete_rebuild', 'retry'].includes(String(raw.remediation))
+    ? raw.remediation as PayrollRemediation
+    : 'retry'
+  return {
+    code: code || 'PAYROLL_VALIDATION_FAILED',
+    severity: raw.severity === 'warning' ? 'warning' : 'error',
+    title: title || 'Dữ liệu kỳ lương chưa hợp lệ',
+    detail: detail || title || 'Hãy đối soát dữ liệu trước khi lập kỳ lương.',
+    remediation,
+    staffId: typeof raw.staffId === 'string' ? raw.staffId : undefined,
+    staffName: typeof raw.staffName === 'string' ? raw.staffName : undefined,
+    date: typeof raw.date === 'string' ? raw.date : undefined,
+    hour: Number.isInteger(Number(raw.hour)) ? Number(raw.hour) : undefined,
+    sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : undefined,
+    attendanceEventId: typeof raw.attendanceEventId === 'string' ? raw.attendanceEventId : undefined,
+    policyId: typeof raw.policyId === 'string' ? raw.policyId : undefined,
+    periodId: typeof raw.periodId === 'string' ? raw.periodId : undefined,
+    supportId: typeof raw.supportId === 'string' ? raw.supportId : undefined,
+    runStatus: typeof raw.runStatus === 'string' ? raw.runStatus : undefined,
+  }
+}
+
+export function parsePayrollFailure(cause: unknown): PayrollFailure {
+  const raw = cause && typeof cause === 'object' ? cause as Record<string, unknown> : {}
+  const message = cause instanceof Error ? cause.message : typeof raw.message === 'string' ? raw.message : ''
+  const code = typeof raw.code === 'string' ? raw.code.replace(/^functions\//i, '').toLowerCase() : ''
+  const directDetails = raw.details && typeof raw.details === 'object' ? raw.details as Record<string, unknown> : {}
+  const customData = raw.customData && typeof raw.customData === 'object' ? raw.customData as Record<string, unknown> : {}
+  const customDetails = customData.details && typeof customData.details === 'object' ? customData.details as Record<string, unknown> : {}
+  const details = Object.keys(directDetails).length ? directDetails : customDetails
+  const violations = Array.isArray(details.violations)
+    ? details.violations.map(violationFromUnknown).filter((item): item is PayrollViolation => Boolean(item))
+    : []
+  return { message, code, violations }
 }
 
 function amount(value: unknown) {
@@ -325,6 +411,22 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
       } : undefined,
       bonusAmount: amount(raw.bonusAmount),
       deductionAmount: amount(raw.deductionAmount),
+      recurringBonusAmount: amount(raw.recurringBonusAmount ?? raw.bonusAmount),
+      manualBonusAmount: amount(raw.manualBonusAmount),
+      manualDeductionAmount: amount(raw.manualDeductionAmount),
+      payrollAdjustments: Array.isArray(raw.payrollAdjustments) ? raw.payrollAdjustments.flatMap((adjustmentValue) => {
+        if (!adjustmentValue || typeof adjustmentValue !== 'object') return []
+        const adjustment = adjustmentValue as Record<string, unknown>
+        const id = typeof adjustment.id === 'string' ? adjustment.id : ''
+        if (!id) return []
+        return [{
+          id,
+          type: adjustment.type === 'deduction' ? 'deduction' as const : 'bonus' as const,
+          amount: amount(adjustment.amount),
+          reason: typeof adjustment.reason === 'string' ? adjustment.reason : '',
+          evidenceReference: typeof adjustment.evidenceReference === 'string' ? adjustment.evidenceReference : '',
+        }]
+      }) : [],
       workdaySummary: {
         employmentType: rawWorkdaySummary.employmentType === 'collaborator' || rawWorkdaySummary.employmentType === 'part_time' ? rawWorkdaySummary.employmentType : 'full_time',
         standardWorkdays: Math.max(0, Math.trunc(amount(rawWorkdaySummary.standardWorkdays))),
@@ -414,6 +516,56 @@ export interface CreatePayrollRunInput {
 
 export async function createPayrollRun(input: CreatePayrollRunInput) {
   const result = await callable<CreatePayrollRunInput, { runId: string; unchanged: boolean; status: PayrollRunStatus }>('createPayrollRun', 300_000)(input)
+  return result.data
+}
+
+export async function listPayrollAdjustments(periodId: string): Promise<PayrollAdjustment[]> {
+  const result = await callable<{ periodId: string }, { adjustments?: unknown[] }>('listPayrollAdjustments')({ periodId })
+  return Array.isArray(result.data.adjustments) ? result.data.adjustments.flatMap((value) => {
+    if (!value || typeof value !== 'object') return []
+    const raw = value as Record<string, unknown>
+    const id = typeof raw.id === 'string' ? raw.id : ''
+    const staffId = typeof raw.staffId === 'string' ? raw.staffId : ''
+    if (!id || !staffId) return []
+    const snapshot = raw.staffSnapshot && typeof raw.staffSnapshot === 'object' ? raw.staffSnapshot as Record<string, unknown> : {}
+    return [{
+      id,
+      periodId: typeof raw.periodId === 'string' ? raw.periodId : periodId,
+      staffId,
+      staffSnapshot: {
+        name: typeof snapshot.name === 'string' ? snapshot.name : undefined,
+        employeeCode: typeof snapshot.employeeCode === 'string' ? snapshot.employeeCode : undefined,
+        branchId: typeof snapshot.branchId === 'string' ? snapshot.branchId : undefined,
+      },
+      type: raw.type === 'deduction' ? 'deduction' as const : 'bonus' as const,
+      amount: amount(raw.amount),
+      reason: typeof raw.reason === 'string' ? raw.reason : '',
+      evidenceReference: typeof raw.evidenceReference === 'string' ? raw.evidenceReference : '',
+      status: raw.status === 'voided' ? 'voided' as const : 'active' as const,
+      createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
+      voidedAt: typeof raw.voidedAt === 'string' ? raw.voidedAt : '',
+    } satisfies PayrollAdjustment]
+  }) : []
+}
+
+export async function savePayrollAdjustment(input: {
+  periodId: string
+  staffId: string
+  type: 'bonus' | 'deduction'
+  amount: number
+  reason: string
+  evidenceReference?: string
+  requestId?: string
+}) {
+  const requestId = input.requestId || (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID().replaceAll('-', '_')
+    : `payroll_${Date.now()}_${Math.random().toString(36).slice(2)}`)
+  const result = await callable<typeof input & { requestId: string }, { adjustmentId: string; unchanged: boolean }>('savePayrollAdjustment')({ ...input, requestId })
+  return result.data
+}
+
+export async function voidPayrollAdjustment(adjustmentId: string) {
+  const result = await callable<{ adjustmentId: string }, { adjustmentId: string; unchanged: boolean }>('voidPayrollAdjustment')({ adjustmentId })
   return result.data
 }
 

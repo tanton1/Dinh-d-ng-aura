@@ -11,8 +11,10 @@ import {
   Eye,
   EyeOff,
   LockKeyhole,
+  Gift,
   Plus,
   RefreshCw,
+  Save,
   Search,
   Settings2,
   ShieldCheck,
@@ -30,19 +32,26 @@ import {
   createPayrollRun,
   deleteDraftPayrollRun,
   getPayrollRun,
+  listPayrollAdjustments,
   listPayrollPolicies,
   listPayrollRuns,
   lockPayrollRun,
   markPayrollRunPaid,
   managePayrollPolicy,
+  parsePayrollFailure,
   reviewPayrollRun,
+  savePayrollAdjustment,
   savePayrollPolicy,
+  voidPayrollAdjustment,
+  type PayrollAdjustment,
+  type PayrollFailure,
   type PayrollPolicy,
   type PayrollProfile,
   type PayrollPolicyApplicationMode,
   type PayrollRunDetail,
   type PayrollRunStatus,
   type PayrollRunSummary,
+  type PayrollViolation,
 } from '../../../services/payrollService'
 import { listCashAccounts, type CashAccount } from '../../../services/cashbookService'
 import '../../../styles-payroll-canonical.css'
@@ -60,7 +69,7 @@ interface Props {
   profile: UserProfile | null
 }
 
-type PayrollView = 'runs' | 'workdays' | 'policies'
+type PayrollView = 'runs' | 'workdays' | 'policies' | 'adjustments'
 type RunStatusFilter = 'all' | PayrollRunStatus
 type PolicyApplicationMode = Exclude<PayrollPolicyApplicationMode, 'single'>
 type PendingConfirmation =
@@ -137,24 +146,34 @@ function payrollProfileLabel(profile: PayrollProfile) {
   return 'Chính thức'
 }
 
-function friendlyError(cause: unknown) {
-  const message = cause instanceof Error ? cause.message : ''
-  const rawCode = cause && typeof cause === 'object' && 'code' in cause
-    ? String((cause as { code?: unknown }).code || '')
-    : ''
-  const code = rawCode.replace(/^functions\//i, '').toLowerCase()
+function friendlyFailure(cause: unknown): PayrollFailure {
+  const parsed = parsePayrollFailure(cause)
+  const { message, code } = parsed
   if (code === 'permission-denied' || code === 'unauthenticated' || /permission|unauth|quyền/i.test(message)) {
-    return code === 'unauthenticated'
+    return { ...parsed, message: code === 'unauthenticated'
       ? 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại để quản lý bảng lương.'
-      : 'Tài khoản chưa có quyền quản lý bảng lương.'
+      : 'Tài khoản chưa có quyền quản lý bảng lương.' }
   }
   if (code === 'internal' || code === 'unavailable' || code === 'deadline-exceeded' || /^(internal|unavailable)$/i.test(message.trim())) {
-    if (/mã đối soát/i.test(message)) return message
-    return 'Dịch vụ lương tạm thời chưa phản hồi. Hãy thử lại sau ít phút.'
+    if (/mã đối soát/i.test(message)) return parsed
+    return { ...parsed, message: 'Dịch vụ lương chưa hoàn tất giao dịch. Hãy thử lại; nếu lỗi lặp lại, dùng mã đối soát trong chi tiết bên dưới.' }
   }
-  if (code === 'resource-exhausted') return 'Dữ liệu kỳ lương quá lớn để xử lý trong một lần. Hãy tải lại; nếu vẫn lỗi, dùng chức năng đối soát kỳ trước khi tạo.'
-  if (code === 'not-found') return 'Chưa có dữ liệu kỳ lương phù hợp.'
-  return message || 'Không thể tải dữ liệu lương.'
+  if (code === 'resource-exhausted') return { ...parsed, message: message || 'Dữ liệu kỳ lương quá lớn để xử lý trong một lần.' }
+  if (code === 'not-found') return { ...parsed, message: message || 'Chưa có dữ liệu kỳ lương phù hợp.' }
+  return { ...parsed, message: message || 'Không thể tải dữ liệu lương.' }
+}
+
+function friendlyError(cause: unknown) {
+  return friendlyFailure(cause).message
+}
+
+const remediationLabel: Record<PayrollViolation['remediation'], string> = {
+  workdays: 'Mở Ngày công',
+  teaching_history: 'Mở lịch sử ca dạy',
+  staff_profile: 'Mở Hồ sơ đội ngũ',
+  policy: 'Mở Chính sách',
+  delete_rebuild: 'Xử lý kỳ nháp',
+  retry: 'Thử lại',
 }
 
 export default function TrainerPayroll({ profile }: Props) {
@@ -162,6 +181,7 @@ export default function TrainerPayroll({ profile }: Props) {
   const [view, setView] = useState<PayrollView>('runs')
   const [runs, setRuns] = useState<PayrollRunSummary[]>([])
   const [policies, setPolicies] = useState<PayrollPolicy[]>([])
+  const [adjustments, setAdjustments] = useState<PayrollAdjustment[]>([])
   const [cashAccounts, setCashAccounts] = useState<CashAccount[]>([])
   const [periodId, setPeriodId] = useState(currentPeriod)
   const [statusFilter, setStatusFilter] = useState<RunStatusFilter>('all')
@@ -170,6 +190,7 @@ export default function TrainerPayroll({ profile }: Props) {
   const [busyAction, setBusyAction] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [payrollFailure, setPayrollFailure] = useState<PayrollFailure | null>(null)
   const [detail, setDetail] = useState<PayrollRunDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [expandedTrainerId, setExpandedTrainerId] = useState('')
@@ -187,6 +208,7 @@ export default function TrainerPayroll({ profile }: Props) {
   const [defaultPolicyId, setDefaultPolicyId] = useState('')
   const [policyApplicationMode, setPolicyApplicationMode] = useState<PolicyApplicationMode>('trainer_assignment')
   const [trainerPolicyAssignments, setTrainerPolicyAssignments] = useState<Record<string, string>>({})
+  const [adjustmentForm, setAdjustmentForm] = useState({ staffId: '', type: 'bonus' as 'bonus' | 'deduction', amount: '', reason: '', evidenceReference: '' })
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null)
   const [policyForm, setPolicyForm] = useState({
     name: 'Chính sách lương PT',
@@ -206,11 +228,12 @@ export default function TrainerPayroll({ profile }: Props) {
   const refresh = useCallback(async () => {
     setLoading(true)
     setError('')
-    const [runsResult, policiesResult, accountsResult, liveResult] = await Promise.allSettled([
+    const [runsResult, policiesResult, accountsResult, liveResult, adjustmentsResult] = await Promise.allSettled([
       listPayrollRuns(36),
       listPayrollPolicies(),
       listCashAccounts(),
       listStaffPayrollAttendance(periodId),
+      listPayrollAdjustments(periodId),
     ])
     if (runsResult.status === 'fulfilled') setRuns(runsResult.value)
     if (policiesResult.status === 'fulfilled') setPolicies(policiesResult.value)
@@ -226,7 +249,9 @@ export default function TrainerPayroll({ profile }: Props) {
       setLiveRows([])
       setLiveAsOfDate('')
     }
-    const failure = [runsResult, policiesResult, accountsResult, liveResult].find((result) => result.status === 'rejected')
+    if (adjustmentsResult.status === 'fulfilled') setAdjustments(adjustmentsResult.value)
+    else setAdjustments([])
+    const failure = [runsResult, policiesResult, accountsResult, liveResult, adjustmentsResult].find((result) => result.status === 'rejected')
     if (failure?.status === 'rejected') setError(friendlyError(failure.reason))
     setLoading(false)
   }, [periodId])
@@ -295,6 +320,7 @@ export default function TrainerPayroll({ profile }: Props) {
     setPolicyApplicationMode('staff_profile')
     setTrainerPolicyAssignments({})
     setError('')
+    setPayrollFailure(null)
     setShowRunSetup(true)
   }
 
@@ -332,6 +358,7 @@ export default function TrainerPayroll({ profile }: Props) {
     setBusyAction(`create:${periodId}`)
     setMessage('')
     setError('')
+    setPayrollFailure(null)
     try {
       const result = await createPayrollRun({
         periodId,
@@ -347,7 +374,9 @@ export default function TrainerPayroll({ profile }: Props) {
       await refresh()
       await openRun(result.runId)
     } catch (cause) {
-      setError(friendlyError(cause))
+      const failure = friendlyFailure(cause)
+      setError(failure.message)
+      setPayrollFailure(failure)
     } finally {
       setBusyAction('')
     }
@@ -459,6 +488,100 @@ export default function TrainerPayroll({ profile }: Props) {
     }
   }
 
+  const submitAdjustment = async () => {
+    if (busyAction) return
+    const amount = Number(adjustmentForm.amount)
+    if (!adjustmentForm.staffId) {
+      setError('Chọn nhân viên nhận thưởng hoặc bị khấu trừ.')
+      return
+    }
+    if (!Number.isSafeInteger(amount) || amount < 1_000) {
+      setError('Số tiền cần là số nguyên từ 1.000đ.')
+      return
+    }
+    if (adjustmentForm.reason.trim().length < 5) {
+      setError('Nhập lý do ít nhất 5 ký tự để lưu bằng chứng.')
+      return
+    }
+    setBusyAction('adjustment:create')
+    setMessage('')
+    setError('')
+    setPayrollFailure(null)
+    try {
+      await savePayrollAdjustment({
+        periodId,
+        staffId: adjustmentForm.staffId,
+        type: adjustmentForm.type,
+        amount,
+        reason: adjustmentForm.reason.trim(),
+        evidenceReference: adjustmentForm.evidenceReference.trim(),
+      })
+      setAdjustmentForm((current) => ({ ...current, amount: '', reason: '', evidenceReference: '' }))
+      setMessage(`Đã lưu ${adjustmentForm.type === 'bonus' ? 'thưởng' : 'khấu trừ'} cho kỳ ${periodLabel(periodId)}. Khoản này sẽ vào snapshot khi tạo kỳ.`)
+      await refresh()
+    } catch (cause) {
+      const failure = friendlyFailure(cause)
+      setError(failure.message)
+      setPayrollFailure(failure)
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  const voidAdjustment = async (adjustmentId: string) => {
+    if (busyAction) return
+    setBusyAction(`adjustment:void:${adjustmentId}`)
+    setMessage('')
+    setError('')
+    setPayrollFailure(null)
+    try {
+      await voidPayrollAdjustment(adjustmentId)
+      setMessage('Đã hủy khoản thưởng/phạt. Lịch sử kiểm toán vẫn được giữ.')
+      await refresh()
+    } catch (cause) {
+      const failure = friendlyFailure(cause)
+      setError(failure.message)
+      setPayrollFailure(failure)
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  const handleViolationAction = (violation: PayrollViolation) => {
+    setPayrollFailure(null)
+    setError('')
+    if (violation.remediation === 'workdays') {
+      setShowRunSetup(false)
+      setView('workdays')
+      return
+    }
+    if (violation.remediation === 'policy') {
+      setShowRunSetup(false)
+      setView('policies')
+      return
+    }
+    if (violation.remediation === 'staff_profile') {
+      window.location.hash = '#/admin-hr'
+      return
+    }
+    if (violation.remediation === 'teaching_history') {
+      const params = new URLSearchParams()
+      if (violation.staffId) params.set('trainerId', violation.staffId)
+      if (violation.sessionId) params.set('sessionId', violation.sessionId)
+      window.location.hash = `#/admin-training-history${params.size ? `?${params.toString()}` : ''}`
+      return
+    }
+    if (violation.remediation === 'delete_rebuild') {
+      const run = runs.find((item) => item.periodId === (violation.periodId || periodId) && item.status === 'draft')
+      setShowRunSetup(false)
+      if (run) setPendingConfirmation({ kind: 'rebuild-run', id: run.id, label: periodLabel(run.periodId) })
+      else setView('runs')
+      return
+    }
+    if (showRunSetup) void createConfiguredRun()
+    else void refresh()
+  }
+
   const slides: AuraMetricSlide[] = liveRows.length ? liveRows.map((row, index) => ({
     id: `staff-${row.staffId}`,
     eyebrow: `${row.name} · ${periodLabel(periodId)}`,
@@ -487,6 +610,35 @@ export default function TrainerPayroll({ profile }: Props) {
     reviewRequiredCount: liveRows.filter((row) => row.reviewRequired).length,
     unconfiguredPolicyCount: liveRows.filter((row) => !row.policyConfigured).length,
   }), [liveRows])
+  const preflightViolations = useMemo<PayrollViolation[]>(() => liveRows.flatMap((row) => {
+    const violations: PayrollViolation[] = []
+    if (!row.policyConfigured) violations.push({
+      code: 'STAFF_POLICY_UNCONFIGURED',
+      severity: 'warning',
+      title: `${row.name} chưa có chính sách phù hợp`,
+      detail: 'Gán chính sách theo đúng nhóm Chính thức, Thử việc, Part-time hoặc CTV trước khi gửi duyệt.',
+      remediation: 'staff_profile',
+      staffId: row.staffId,
+      staffName: row.name,
+      periodId,
+    })
+    if (row.reviewRequired) violations.push({
+      code: 'STAFF_WORKDAY_REVIEW_REQUIRED',
+      severity: 'warning',
+      title: `${row.name} còn ngày công cần đối soát`,
+      detail: `${row.pendingDays} ngày chưa chốt${row.calendarApproved ? '' : ' · lịch làm việc chi nhánh chưa duyệt'}. Ca dạy vẫn được nhóm theo PT + ngày + giờ.`,
+      remediation: 'workdays',
+      staffId: row.staffId,
+      staffName: row.name,
+      periodId,
+    })
+    return violations
+  }), [liveRows, periodId])
+  const adjustmentTotals = useMemo(() => adjustments.filter((item) => item.status === 'active').reduce((result, item) => {
+    if (item.type === 'bonus') result.bonus += item.amount
+    else result.deduction += item.amount
+    return result
+  }, { bonus: 0, deduction: 0 }), [adjustments])
   const subpageActive = showRunSetup || Boolean(pendingConfirmation) || Boolean(detail) || detailLoading
   useEffect(() => { if (subpageActive) window.scrollTo({ top: 0, behavior: 'smooth' }) }, [subpageActive])
 
@@ -506,15 +658,24 @@ export default function TrainerPayroll({ profile }: Props) {
     <div className="payroll-page__nav" role="tablist" aria-label="Quản lý lương">
       <button type="button" role="tab" aria-selected={view === 'runs'} className={view === 'runs' ? 'is-active' : ''} onClick={() => setView('runs')}><FileCheck2 size={17} /> Kỳ lương</button>
       <button type="button" role="tab" aria-selected={view === 'workdays'} className={view === 'workdays' ? 'is-active' : ''} onClick={() => setView('workdays')}><CalendarCheck2 size={17} /> Ngày công</button>
+      <button type="button" role="tab" aria-selected={view === 'adjustments'} className={view === 'adjustments' ? 'is-active' : ''} onClick={() => setView('adjustments')}><Gift size={17} /> Thưởng / phạt</button>
       <button type="button" role="tab" aria-selected={view === 'policies'} className={view === 'policies' ? 'is-active' : ''} onClick={() => setView('policies')}><Settings2 size={17} /> Chính sách</button>
       <AuraHelpPopover title="Cách tính lương" label="Cách tính lương"><p>Tiền ca chỉ lấy từ ca đã điểm danh; hai học viên cùng HLV, ngày và giờ vẫn là một ca. Hoa hồng tách riêng, chỉ bằng 2–10% dòng tiền thực thu trong kỳ của hợp đồng có mã giới thiệu PT; khoản hoàn hoặc đảo thu làm giảm hoa hồng.</p></AuraHelpPopover>
     </div>
 
-    {(message || error) && <div className={`payroll-page__notice ${error ? 'is-error' : 'is-success'}`} role="status">
+    {(message || (error && !payrollFailure)) && <div className={`payroll-page__notice ${error ? 'is-error' : 'is-success'}`} role="status">
       {error ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
       <span>{error || message}</span>
-      <button type="button" aria-label="Đóng thông báo" onClick={() => { setError(''); setMessage('') }}><X size={16} /></button>
+      <button type="button" aria-label="Đóng thông báo" onClick={() => { setError(''); setMessage(''); setPayrollFailure(null) }}><X size={16} /></button>
     </div>}
+
+    {payrollFailure && !showRunSetup && <section className="payroll-violations" role="alert" aria-label="Chi tiết lỗi kỳ lương">
+      <header><AlertTriangle size={20} /><div><strong>{payrollFailure.message}</strong><span>{payrollFailure.violations.length} vấn đề cần xử lý</span></div><button type="button" aria-label="Đóng cảnh báo" onClick={() => { setPayrollFailure(null); setError('') }}><X size={17} /></button></header>
+      <div className="payroll-violations__list">{payrollFailure.violations.length ? payrollFailure.violations.map((violation, index) => <article key={`${violation.code}:${violation.sessionId || violation.staffId || index}`}>
+        <div><span>{violation.code}</span><strong>{violation.title}</strong><p>{violation.detail}</p>{(violation.staffName || violation.staffId || violation.date || violation.sessionId || violation.supportId) && <small>{[violation.staffName || violation.staffId, violation.date ? `${dateLabel(violation.date)}${violation.hour !== undefined ? ` · ${String(violation.hour).padStart(2, '0')}:00` : ''}` : '', violation.sessionId ? `Ca ${violation.sessionId}` : '', violation.supportId ? `Mã đối soát ${violation.supportId}` : ''].filter(Boolean).join(' · ')}</small>}</div>
+        <button type="button" onClick={() => handleViolationAction(violation)}>{remediationLabel[violation.remediation]}<ChevronRight size={15} /></button>
+      </article>) : <article><div><strong>Chưa nhận được chi tiết từ máy chủ</strong><p>Hãy thử lại một lần. Aura sẽ ghi mã đối soát nếu giao dịch tiếp tục thất bại.</p></div><button type="button" onClick={() => void refresh()}>Thử lại<RefreshCw size={15} /></button></article>}</div>
+    </section>}
 
     {view === 'workdays' ? <StaffWorkdayPayrollPanel branches={branches} /> : view === 'runs' ? <>
       <section className="payroll-page__toolbar" aria-label="Bộ lọc kỳ lương">
@@ -545,7 +706,33 @@ export default function TrainerPayroll({ profile }: Props) {
           </article>)}
         </div> : <div className="payroll-page__empty"><UsersRound size={34} /><strong>Chưa có kỳ lương phù hợp</strong><p>Chọn kỳ khác hoặc tạo bản nháp từ dữ liệu điểm danh chính thức.</p></div>}
       </section>
-    </> : <section className={`payroll-policy ${showPolicyForm ? 'is-creating' : ''}`} aria-label="Chính sách lương">
+    </> : view === 'adjustments' ? <section className="payroll-adjustments" aria-label="Thưởng và phạt theo kỳ">
+      <div className="payroll-adjustments__summary">
+        <div><span>Thưởng theo kỳ</span><strong>{money(adjustmentTotals.bonus)}</strong></div>
+        <div><span>Khấu trừ theo kỳ</span><strong>{money(adjustmentTotals.deduction)}</strong></div>
+        <p><ShieldCheck size={17} /> Thưởng tháng cố định được cài ở <button type="button" onClick={() => { window.location.hash = '#/admin-hr' }}>Hồ sơ đội ngũ</button>. Tab này dùng cho khoản phát sinh riêng từng kỳ và luôn lưu người tạo, lý do, bằng chứng.</p>
+      </div>
+      <div className="payroll-adjustments__layout">
+        <div className="payroll-adjustments__form">
+          <div className="payroll-page__section-title"><div><span>Khoản phát sinh</span><strong>Thêm thưởng / phạt</strong></div><small>{periodLabel(periodId)}</small></div>
+          <label><span>Nhân viên</span><select value={adjustmentForm.staffId} onChange={(event) => setAdjustmentForm((current) => ({ ...current, staffId: event.target.value }))}><option value="">Chọn nhân viên</option>{liveRows.map((row) => <option key={row.staffId} value={row.staffId}>{row.name} · {branchById.get(row.branchId)?.name || 'Chưa gắn chi nhánh'}</option>)}</select></label>
+          <div className="payroll-adjustments__type" role="radiogroup" aria-label="Loại điều chỉnh"><button type="button" role="radio" aria-checked={adjustmentForm.type === 'bonus'} className={adjustmentForm.type === 'bonus' ? 'is-active' : ''} onClick={() => setAdjustmentForm((current) => ({ ...current, type: 'bonus' }))}>Thưởng</button><button type="button" role="radio" aria-checked={adjustmentForm.type === 'deduction'} className={adjustmentForm.type === 'deduction' ? 'is-active is-deduction' : ''} onClick={() => setAdjustmentForm((current) => ({ ...current, type: 'deduction' }))}>Phạt / khấu trừ</button></div>
+          <label><span>Số tiền</span><input type="number" min="1000" step="1000" inputMode="numeric" value={adjustmentForm.amount} onChange={(event) => setAdjustmentForm((current) => ({ ...current, amount: event.target.value }))} placeholder="Ví dụ: 200000" /></label>
+          <label><span>Lý do bắt buộc</span><textarea rows={3} maxLength={500} value={adjustmentForm.reason} onChange={(event) => setAdjustmentForm((current) => ({ ...current, reason: event.target.value }))} placeholder="Nêu rõ thành tích hoặc vi phạm" /></label>
+          <label><span>Bằng chứng / tham chiếu</span><input maxLength={200} value={adjustmentForm.evidenceReference} onChange={(event) => setAdjustmentForm((current) => ({ ...current, evidenceReference: event.target.value }))} placeholder="Biên bản, link hoặc mã ca" /></label>
+          <button className="payroll-page__primary" type="button" disabled={!canManage || !!busyAction} onClick={() => void submitAdjustment()}><Save size={17} /> {busyAction === 'adjustment:create' ? 'Đang lưu…' : 'Lưu khoản phát sinh'}</button>
+        </div>
+        <div className="payroll-adjustments__history">
+          <div className="payroll-page__section-title"><div><span>Nhật ký kỳ</span><strong>{adjustments.filter((item) => item.status === 'active').length} khoản đang áp dụng</strong></div><small>Không sửa chứng từ đã duyệt</small></div>
+          {adjustments.length ? <div className="payroll-adjustments__list">{adjustments.map((item) => <article className={item.status === 'voided' ? 'is-voided' : ''} key={item.id}>
+            <span className={item.type === 'bonus' ? 'is-bonus' : 'is-deduction'}>{item.type === 'bonus' ? 'Thưởng' : 'Khấu trừ'}</span>
+            <div><strong>{item.staffSnapshot.name || trainerById.get(item.staffId)?.name || item.staffId}</strong><p>{item.reason}</p><small>{item.evidenceReference || 'Không có tham chiếu bổ sung'}{item.status === 'voided' ? ' · Đã hủy' : ''}</small></div>
+            <b>{item.type === 'bonus' ? '+' : '−'}{money(item.amount)}</b>
+            {item.status === 'active' && <button type="button" aria-label={`Hủy khoản của ${item.staffSnapshot.name || item.staffId}`} disabled={!!busyAction} onClick={() => void voidAdjustment(item.id)}><Trash2 size={15} /> Hủy</button>}
+          </article>)}</div> : <div className="payroll-page__empty"><Gift size={30} /><strong>Chưa có thưởng/phạt phát sinh</strong><p>Thưởng tháng cố định vẫn tự lấy từ hồ sơ nhân viên. Chỉ thêm ở đây khi có khoản riêng của kỳ.</p></div>}
+        </div>
+      </div>
+    </section> : <section className={`payroll-policy ${showPolicyForm ? 'is-creating' : ''}`} aria-label="Chính sách lương">
       <div className="payroll-policy__history">
         <div className="payroll-page__section-title">
           <div><span>Chính sách đang có</span><strong>{policies.length} phiên bản</strong></div>
@@ -579,6 +766,10 @@ export default function TrainerPayroll({ profile }: Props) {
       <section className="payroll-run-setup">
         <header><div><span>Lập kỳ {periodLabel(periodId)}</span><strong>Chọn chính sách áp dụng</strong></div><button type="button" aria-label="Đóng" onClick={() => setShowRunSetup(false)} disabled={!!busyAction}><X size={20} /></button></header>
         <p className="payroll-run-setup__lead">Kỳ nháp lưu snapshot chính sách. Bạn có thể xóa kỳ nháp và lập lại; kỳ đã duyệt không thể xóa.</p>
+        {payrollFailure && <div className="payroll-violations payroll-violations--modal" role="alert">
+          <header><AlertTriangle size={20} /><div><strong>{payrollFailure.message}</strong><span>{payrollFailure.violations.length || 1} vấn đề cần xử lý</span></div><button type="button" aria-label="Đóng cảnh báo" onClick={() => { setPayrollFailure(null); setError('') }}><X size={17} /></button></header>
+          <div className="payroll-violations__list">{payrollFailure.violations.length ? payrollFailure.violations.map((violation, index) => <article key={`${violation.code}:${violation.sessionId || violation.staffId || index}`}><div><span>{violation.code}</span><strong>{violation.title}</strong><p>{violation.detail}</p>{(violation.staffName || violation.staffId || violation.date || violation.sessionId || violation.supportId) && <small>{[violation.staffName || violation.staffId, violation.date ? `${dateLabel(violation.date)}${violation.hour !== undefined ? ` · ${String(violation.hour).padStart(2, '0')}:00` : ''}` : '', violation.sessionId ? `Ca ${violation.sessionId}` : '', violation.supportId ? `Mã đối soát ${violation.supportId}` : ''].filter(Boolean).join(' · ')}</small>}</div><button type="button" onClick={() => handleViolationAction(violation)}>{remediationLabel[violation.remediation]}<ChevronRight size={15} /></button></article>) : <article><div><strong>Chưa nhận được chi tiết từ máy chủ</strong><p>Thử lại để Aura tạo mã đối soát chi tiết.</p></div><button type="button" onClick={() => void createConfiguredRun()}>Thử lại<RefreshCw size={15} /></button></article>}</div>
+        </div>}
         <div className="payroll-run-setup__preflight" aria-label="Đối soát nhanh trước khi tạo kỳ">
           <span><small>Nhân viên</small><b>{runPreflight.staffCount}</b></span>
           <span><small>Ca tính lương</small><b>{runPreflight.teachingSlotCount}</b></span>
@@ -587,6 +778,7 @@ export default function TrainerPayroll({ profile }: Props) {
         </div>
         {!payrollPeriodEnded(periodId) && <p className="payroll-run-setup__warning"><Clock3 size={16} /> Có thể tạo bản nháp để xem dự tính, nhưng chỉ được gửi duyệt sau khi tháng này kết thúc.</p>}
         {(runPreflight.reviewRequiredCount > 0 || runPreflight.unconfiguredPolicyCount > 0) && <p className="payroll-run-setup__warning"><AlertTriangle size={16} /> Bản nháp vẫn có thể tạo. Hãy hoàn tất ngày công, lịch làm việc và chính sách trước khi gửi duyệt.</p>}
+        {preflightViolations.length > 0 && <div className="payroll-preflight-issues" aria-label="Danh sách nhân viên cần đối soát">{preflightViolations.map((violation, index) => <button type="button" key={`${violation.code}:${violation.staffId}:${index}`} onClick={() => handleViolationAction(violation)}><AlertTriangle size={15} /><span><strong>{violation.title}</strong><small>{violation.detail}</small></span><ChevronRight size={15} /></button>)}</div>}
         <div className="payroll-run-setup__policies">
           {activePolicies.map((policy) => {
             const selected = selectedPolicyIds.includes(policy.id)
@@ -641,8 +833,9 @@ export default function TrainerPayroll({ profile }: Props) {
                   <ChevronRight className="payroll-trainer-item__chevron" size={18} />
                 </button>
                 {expanded && <div className="payroll-trainer-item__detail">
-                  <div className="payroll-trainer-item__components"><span>Lương cơ bản <b>{money(item.baseSalaryAmount)}</b></span><span>Ca dạy <b>{money(item.teachingPayAmount)}</b></span><span>Hoa hồng GT <b>{money(item.commissionAmount)}</b><small>{item.referralCommission ? `${item.referralCommission.rate}% trên ${money(item.referralCommission.netCashAmount)} thực thu` : 'Kỳ cũ chưa có bằng chứng dòng tiền'}</small></span><span>Thưởng <b>{money(item.bonusAmount)}</b></span><span>Khấu trừ <b>{money(item.deductionAmount)}</b></span></div>
+                  <div className="payroll-trainer-item__components"><span>Lương cơ bản <b>{money(item.baseSalaryAmount)}</b></span><span>Ca dạy <b>{money(item.teachingPayAmount)}</b></span><span>Hoa hồng GT <b>{money(item.commissionAmount)}</b><small>{item.referralCommission ? `${item.referralCommission.rate}% trên ${money(item.referralCommission.netCashAmount)} thực thu` : 'Kỳ cũ chưa có bằng chứng dòng tiền'}</small></span><span>Thưởng <b>{money(item.bonusAmount)}</b><small>{item.manualBonusAmount ? `${money(item.recurringBonusAmount)} cố định + ${money(item.manualBonusAmount)} theo kỳ` : 'Thưởng tháng từ hồ sơ đội ngũ'}</small></span><span>Khấu trừ <b>{money(item.deductionAmount)}</b><small>{item.manualDeductionAmount ? `${money(item.manualDeductionAmount)} phạt theo kỳ` : 'Hoàn hoa hồng hoặc khoản đã duyệt'}</small></span></div>
                   <p className="payroll-trainer-item__formula"><ShieldCheck size={15} /> {item.attendanceEventCount} lượt điểm danh → <b>{item.sessionCount} ca tính tiền</b>. Hai học viên cùng ngày, giờ và PT chỉ tính một ca; ngày công không nhân thêm tiền ca.</p>
+                  {item.payrollAdjustments.length > 0 && <div className="payroll-item-adjustments">{item.payrollAdjustments.map((adjustment) => <span key={adjustment.id}><em>{adjustment.type === 'bonus' ? 'Thưởng' : 'Phạt'}</em><strong>{adjustment.type === 'bonus' ? '+' : '−'}{money(adjustment.amount)}</strong><small>{adjustment.reason}{adjustment.evidenceReference ? ` · ${adjustment.evidenceReference}` : ''}</small></span>)}</div>}
                   {(item.attendanceReviewRequired || item.calendarReviewRequired) && <p className="payroll-trainer-item__review"><AlertTriangle size={15} /> {item.calendarReviewRequired ? 'Lịch làm việc chưa duyệt. ' : ''}{item.attendanceReviewRequired ? 'Ngày công còn thiếu hoặc cần xác minh.' : ''}</p>}
                   {item.workdayDays.length ? <div className="payroll-workday-table" role="table" aria-label={`Bảng ngày công của ${name}`}>
                     <div className="payroll-workday-table__head" role="row"><span role="columnheader">Ngày</span><span role="columnheader">Tình trạng</span><span role="columnheader">Ca dạy</span><span role="columnheader">Nguồn</span></div>
