@@ -17,6 +17,7 @@ type Props = {
   initialContracts?: TrainerStudentContractDetail[]
   focusSessionId?: string
   focusDate?: string
+  onCorrectionSaved?: () => void
 }
 
 function vietnamDateKey(value = new Date()) {
@@ -135,6 +136,10 @@ function correctionFailureMessage(cause: unknown) {
   if (issueCode === 'TEACHING_SHIFT_CAPACITY_EXCEEDED') return 'Ca đích đã đủ sức chứa. Hãy chọn giờ hoặc PT khác.'
   if (issueCode === 'PAYROLL_RUN_IMMUTABLE') return 'Kỳ lương đã duyệt/khóa nên không sửa chứng từ ca trực tiếp. Hãy tạo bù trừ ở kỳ lương tiếp theo.'
   if (issueCode === 'FINANCE_PERIOD_LOCKED') return 'Kỳ tài chính đã khóa nên không thể sửa ca trực tiếp. Hãy dùng khoản điều chỉnh có audit.'
+  if (issueCode === 'TEACHING_SHIFT_SERVICE_FAILURE') {
+    const supportId = typeof details.supportId === 'string' ? details.supportId : ''
+    return `Máy chủ chưa lưu được điều chỉnh ca${supportId ? ` (mã đối soát ${supportId})` : ''}. Dữ liệu cũ vẫn được giữ nguyên; hãy thử lại sau khi tải lại lịch sử.`
+  }
   return message.replace(/^Firebase:\s*/i, '').replace(/^FunctionsError:\s*/i, '') || 'Không thể điều chỉnh ca. Hãy tải lại lịch sử và thử lại.'
 }
 
@@ -219,7 +224,7 @@ function stableContractSignature(contracts: TrainerStudentContractDetail[]) {
   return contracts.map((contract) => `${contract.id}:${contract.usedSessions}:${contract.remainingSessions}:${contract.reconciliationStatus}`).join('|')
 }
 
-export default function TrainingHistoryPanel({ subject, subjectId, subjectName, contractId, isDemo = false, initialSessions = [], initialContracts = [], focusSessionId = '', focusDate = '' }: Props) {
+export default function TrainingHistoryPanel({ subject, subjectId, subjectName, contractId, isDemo = false, initialSessions = [], initialContracts = [], focusSessionId = '', focusDate = '', onCorrectionSaved }: Props) {
   const { profile } = useAuth()
   const { trainers } = useDatabase()
   const [startDate, setStartDate] = useState(() => focusDate || daysAgoKey(89))
@@ -423,6 +428,7 @@ export default function TrainingHistoryPanel({ subject, subjectId, subjectName, 
           ? `Đã điều chỉnh ca. Kỳ lương ${result.invalidatedPayrollPeriods.join(', ')} cần xóa nháp và lập lại.`
           : 'Đã điều chỉnh ca và lưu đầy đủ lịch sử đối soát.')
       await load(false)
+      onCorrectionSaved?.()
     } catch (cause) {
       setCorrectionError(correctionFailureMessage(cause))
     } finally {

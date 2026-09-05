@@ -1206,7 +1206,7 @@ async function adminActor(request, db) {
   return actor
 }
 
-function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminActor, authorizeStudent = studentActor, now = () => new Date() }) {
+function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminActor, authorizeStudent = studentActor, now = () => new Date(), logger = console }) {
   const listPtOperationsRequests = onCall(async (request) => {
     await authorizeAdmin(request, db)
     const kind = request.data?.kind === 'pause' ? 'pause' : request.data?.kind === 'session' ? 'session' : ''
@@ -1501,7 +1501,11 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
     })
   })
 
-  const correctTeachingShift = onCall(async (request) => {
+  const correctTeachingShift = onCall({
+    memory: '512MiB',
+    timeoutSeconds: 120,
+    maxInstances: 3,
+  }, async (request) => {
     const actor = await authorizeAdmin(request, db)
     if (!['admin', 'super_admin'].includes(actor.accessRole)) {
       throw new HttpsError('permission-denied', 'Chỉ Admin hoặc Super Admin được điều chỉnh ca đã ghi nhận.')
@@ -1513,7 +1517,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
     const reason = boundedReason(request.data?.reason, 'Lý do điều chỉnh')
     const correctionInstant = now()
 
-    return db.runTransaction(async (transaction) => {
+    try {
+      return await db.runTransaction(async (transaction) => {
       const sessionReferences = items.map((item) => db.doc(`sessions/${item.sessionId}`))
       const sessionSnapshots = await Promise.all(sessionReferences.map((reference) => transaction.get(reference)))
       if (sessionSnapshots.some((snapshot) => !snapshot.exists)) {
@@ -1732,15 +1737,20 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
             updatedAt: FieldValue.serverTimestamp(),
             updatedBy: actor.uid,
           }
-          if (session.item.attendanceStatus) Object.assign(attendancePatch, {
-            type: session.item.attendanceStatus === 'no_show' ? 'no_show' : 'attended',
-            attendanceStatus: session.item.attendanceStatus,
-            lateMinutes: session.item.lateMinutes,
-            noShowReason: session.item.noShowReason,
-            confirmationSource: 'admin_correction',
-            confirmedAt: FieldValue.serverTimestamp(),
-            confirmedBy: actor.uid,
-          })
+          if (session.item.attendanceStatus) {
+            Object.assign(attendancePatch, {
+              type: session.item.attendanceStatus === 'no_show' ? 'no_show' : 'attended',
+              attendanceStatus: session.item.attendanceStatus,
+              // Always persist canonical nullable/string values. Older clients
+              // omitted these fields, which could make the Admin SDK reject an
+              // otherwise valid correction as a generic `internal` error.
+              lateMinutes: session.item.attendanceStatus === 'late' ? session.item.lateMinutes : null,
+              noShowReason: session.item.attendanceStatus === 'no_show' ? session.item.noShowReason : '',
+              confirmationSource: 'admin_correction',
+              confirmedAt: FieldValue.serverTimestamp(),
+              confirmedBy: actor.uid,
+            })
+          }
           transaction.update(attendanceReferences[index], attendancePatch)
         }
         transaction.create(db.collection('sessionEvents').doc(), {
@@ -1764,8 +1774,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
             contractId: session.data.contractId || '',
             beforeStatus: before.attendanceStatus,
             afterStatus: session.item.attendanceStatus,
-            lateMinutes: session.item.lateMinutes,
-            noShowReason: session.item.noShowReason,
+            lateMinutes: session.item.attendanceStatus === 'late' ? session.item.lateMinutes : null,
+            noShowReason: session.item.attendanceStatus === 'no_show' ? session.item.noShowReason : '',
             note: reason,
             confirmationSource: 'admin_correction',
             changedAt: FieldValue.serverTimestamp(),
@@ -1787,8 +1797,32 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
           updatedAt: FieldValue.serverTimestamp(),
         })
       })
-      return { unchanged: false, revisions, invalidatedPayrollPeriods }
-    })
+        return { unchanged: false, revisions, invalidatedPayrollPeriods }
+      })
+    } catch (cause) {
+      if (cause instanceof HttpsError) throw cause
+      const supportId = createHash('sha256')
+        .update(`${actor.uid}|${targetDate}|${targetHour}|${targetTrainerId}|${Date.now()}|${cause?.message || cause?.code || 'unknown'}`)
+        .digest('hex')
+        .slice(0, 12)
+        .toUpperCase()
+      logger?.error?.('teaching_shift_correction_failed', {
+        supportId,
+        actorUid: actor.uid,
+        targetDate,
+        targetHour,
+        targetTrainerId,
+        sessionIds: items.map((item) => item.sessionId),
+        code: cause?.code || '',
+        message: cause?.message || String(cause || ''),
+        stack: cause?.stack || '',
+      })
+      throw new HttpsError(
+        'internal',
+        `Không thể lưu điều chỉnh ca. Mã đối soát ${supportId}.`,
+        { issueCode: 'TEACHING_SHIFT_SERVICE_FAILURE', supportId },
+      )
+    }
   })
 
   const bulkRecordSessionAttendance = onCall(async (request) => {

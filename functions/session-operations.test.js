@@ -111,7 +111,7 @@ function operationsFor(seed, authorizeAdmin = async () => ({ uid: 'admin-1' }), 
   const state = fakeDatabase(seed)
   const operations = createSessionOperationFunctions({
     db: state.db,
-    onCall: (handler) => handler,
+    onCall: (...args) => args.at(-1),
     authorizeAdmin,
     authorizeStudent: options.authorizeStudent || (async () => ({ uid: 'student-account', legacyStaffId: 'student-1', accessRole: 'student' })),
     now: options.now || (() => new Date('2026-08-20T03:00:00.000Z')),

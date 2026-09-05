@@ -57,6 +57,7 @@ import { listCashAccounts, type CashAccount } from '../../../services/cashbookSe
 import '../../../styles-payroll-canonical.css'
 import StaffWorkdayPayrollPanel from './StaffWorkdayPayrollPanel'
 import StaffPayrollStatementPanel from './StaffPayrollStatementPanel'
+import TrainingHistoryPanel from './TrainingHistoryPanel'
 import {
   getStaffPayrollStatement,
   listStaffPayrollAttendance,
@@ -120,20 +121,24 @@ function violationFacts(violation: PayrollViolation, trainers: Array<{ id: strin
     : violation.trainerId || violation.staffId ? [violation.trainerId || violation.staffId || ''] : []
   const trainerNames = violation.trainerNames?.length
     ? violation.trainerNames
-    : trainerIds.map((id) => trainers.find((item) => item.id === id)?.name || (id === violation.staffId ? violation.staffName : '') || id)
+    : trainerIds.map((id) => trainers.find((item) => item.id === id)?.name || (id === violation.staffId ? violation.staffName : '') || violation.trainerName || '').filter(Boolean)
+  const resolvedTrainerNames = trainerNames.length ? trainerNames : violation.trainerName ? [violation.trainerName] : []
   const studentIds = violation.studentIds?.length ? violation.studentIds : violation.studentId ? [violation.studentId] : []
   const studentNames = violation.studentNames?.length
     ? violation.studentNames
-    : studentIds.map((id) => students.find((item) => item.id === id)?.name || id)
+    : studentIds.map((id) => students.find((item) => item.id === id)?.name || (id === violation.studentId ? violation.studentName : '') || '').filter(Boolean)
+  const resolvedStudentNames = studentNames.length ? studentNames : violation.studentName ? [violation.studentName] : []
   const branchIds = violation.branchIds?.length ? violation.branchIds : violation.branchId ? [violation.branchId] : []
-  const branchNames = branchIds.map((id) => branches.find((item) => item.id === id)?.name || id).filter(Boolean)
-  const sessionIds = violation.sessionIds?.length ? violation.sessionIds : violation.sessionId ? [violation.sessionId] : []
+  const branchNames = violation.branchNames?.length
+    ? violation.branchNames
+    : branchIds.map((id) => branches.find((item) => item.id === id)?.name || violation.branchName || '').filter(Boolean)
+  const relatedCount = violation.relatedSessions?.length || violation.sessionIds?.length || (violation.sessionId ? 1 : 0)
   return [
-    trainerNames.length ? `PT: ${trainerNames.join(', ')}` : '',
-    studentNames.length ? `Học viên: ${studentNames.join(', ')}` : '',
+    resolvedTrainerNames.length ? `PT: ${resolvedTrainerNames.join(', ')}` : '',
+    resolvedStudentNames.length ? `Học viên: ${resolvedStudentNames.join(', ')}` : '',
     violation.date ? `${dateLabel(violation.date)}${violation.hours?.length ? ` · ${violation.hours.map((hour) => `${String(hour).padStart(2, '0')}:00`).join(', ')}` : violation.hour !== undefined ? ` · ${String(violation.hour).padStart(2, '0')}:00` : ''}` : '',
     branchNames.length ? `Cơ sở: ${branchNames.join(', ')}` : '',
-    sessionIds.length ? `Mã ca: ${sessionIds.slice(0, 3).join(', ')}${sessionIds.length > 3 ? ` +${sessionIds.length - 3}` : ''}` : '',
+    relatedCount ? `${relatedCount} buổi liên quan` : '',
   ].filter(Boolean).join(' · ')
 }
 
@@ -215,6 +220,7 @@ export default function TrainerPayroll({ profile }: Props) {
   const [error, setError] = useState('')
   const [payrollFailure, setPayrollFailure] = useState<PayrollFailure | null>(null)
   const [violationDialog, setViolationDialog] = useState<PayrollViolation | null>(null)
+  const [violationSessionId, setViolationSessionId] = useState('')
   const [detail, setDetail] = useState<PayrollRunDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [expandedTrainerId, setExpandedTrainerId] = useState('')
@@ -591,6 +597,7 @@ export default function TrainerPayroll({ profile }: Props) {
       // training-history route used to unmount this page and discard the
       // selected period context. The dialog gives the operator the complete
       // evidence needed to reconcile the duplicate before leaving this run.
+      setViolationSessionId(violation.relatedSessions?.[0]?.sessionId || violation.sessionIds?.[0] || violation.sessionId || '')
       setViolationDialog(violation)
       return
     }
@@ -849,9 +856,27 @@ export default function TrainerPayroll({ profile }: Props) {
         <div className="payroll-correction-modal__alert"><AlertTriangle size={21} /><div><strong>Không tự gộp hoặc xóa buổi</strong><p>{violationDialog.detail}</p></div></div>
         <dl className="payroll-correction-modal__facts">
           <div><dt>Thông tin đối soát</dt><dd>{violationFacts(violationDialog, trainers, students, branches)}</dd></div>
-          {violationDialog.sessionIds?.length ? <div><dt>Mã các ca liên quan</dt><dd className="payroll-correction-modal__session-list">{violationDialog.sessionIds.map((sessionId) => <code key={sessionId}>{sessionId}</code>)}</dd></div> : null}
+          {(violationDialog.relatedSessions?.length || violationDialog.sessionIds?.length) ? <div><dt>Chọn buổi cần xem</dt><dd className="payroll-correction-modal__session-list">
+            {(violationDialog.relatedSessions || violationDialog.sessionIds?.map((sessionId, index) => ({ sessionId, hour: violationDialog.hours?.[index] })) || []).map((session, index) => {
+              if (!session) return null
+              const trainerName = 'trainerName' in session ? session.trainerName : ''
+              const hour = session.hour === null || session.hour === undefined ? '' : ` · ${String(session.hour).padStart(2, '0')}:00`
+              return <button type="button" className={violationSessionId === session.sessionId ? 'is-active' : ''} key={session.sessionId} onClick={() => setViolationSessionId(session.sessionId)}>{`Buổi ${index + 1}${hour}${trainerName ? ` · ${trainerName}` : ''}`}</button>
+            })}
+          </dd></div> : null}
         </dl>
-        <p className="payroll-correction-modal__guide">Hãy kiểm tra từng mã ca trong lịch sử tập và chỉ điều chỉnh bản ghi sai. Kỳ lương hiện tại vẫn được giữ nguyên phía sau popup; nếu kỳ đã duyệt hoặc đã khóa, tạo khoản điều chỉnh/kỳ bù thay vì sửa chứng từ cũ.</p>
+        <p className="payroll-correction-modal__guide">Chọn đúng buổi bên dưới để mở thẳng lịch sử và bảng điều chỉnh. Không xóa hoặc gộp buổi; kỳ lương hiện tại vẫn được giữ nguyên phía sau popup.</p>
+        {((violationDialog.studentId || violationDialog.studentIds?.[0]) || (violationDialog.trainerId || violationDialog.trainerIds?.[0])) && violationSessionId ? <div className="payroll-correction-modal__history">
+          <TrainingHistoryPanel
+            key={`${violationDialog.code}:${violationSessionId}`}
+            subject={(violationDialog.studentId || violationDialog.studentIds?.[0]) ? 'student' : 'trainer'}
+            subjectId={violationDialog.studentId || violationDialog.studentIds?.[0] || violationDialog.trainerId || violationDialog.trainerIds?.[0] || ''}
+            subjectName={violationDialog.studentName || violationDialog.studentNames?.[0] || violationDialog.trainerName || violationDialog.trainerNames?.[0] || 'Đối soát buổi tập'}
+            focusSessionId={violationSessionId}
+            focusDate={violationDialog.date}
+            onCorrectionSaved={() => { setMessage('Đã lưu điều chỉnh ca. Hãy tải lại/ lập lại kỳ nháp để cập nhật đối soát.'); void refresh() }}
+          />
+        </div> : <div className="payroll-correction-modal__empty">Chưa có mã buổi hợp lệ để mở lịch sử. Hãy tải lại dữ liệu đối soát.</div>}
         <footer><button className="payroll-page__secondary" type="button" onClick={() => setViolationDialog(null)}>Đóng, giữ kỳ lương</button></footer>
       </section>
     </div>}

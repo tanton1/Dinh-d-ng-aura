@@ -23,7 +23,9 @@ export interface PayrollViolation {
   studentIds?: string[]
   studentNames?: string[]
   branchId?: string
+  branchName?: string
   branchIds?: string[]
+  branchNames?: string[]
   sessionIds?: string[]
   conflictingSessionIds?: string[]
   date?: string
@@ -35,6 +37,15 @@ export interface PayrollViolation {
   periodId?: string
   supportId?: string
   runStatus?: string
+  relatedSessions?: Array<{
+    sessionId: string
+    trainerId?: string
+    trainerName?: string
+    branchId?: string
+    branchName?: string
+    date?: string
+    hour?: number | null
+  }>
 }
 
 export interface PayrollFailure {
@@ -260,7 +271,9 @@ function violationFromUnknown(value: unknown): PayrollViolation | null {
     studentIds: Array.isArray(raw.studentIds) ? raw.studentIds.filter((id): id is string => typeof id === 'string') : undefined,
     studentNames: Array.isArray(raw.studentNames) ? raw.studentNames.filter((name): name is string => typeof name === 'string') : undefined,
     branchId: typeof raw.branchId === 'string' ? raw.branchId : undefined,
+    branchName: typeof raw.branchName === 'string' ? raw.branchName : undefined,
     branchIds: Array.isArray(raw.branchIds) ? raw.branchIds.filter((id): id is string => typeof id === 'string') : undefined,
+    branchNames: Array.isArray(raw.branchNames) ? raw.branchNames.filter((name): name is string => typeof name === 'string') : undefined,
     sessionIds: Array.isArray(raw.sessionIds) ? raw.sessionIds.filter((id): id is string => typeof id === 'string') : undefined,
     conflictingSessionIds: Array.isArray(raw.conflictingSessionIds) ? raw.conflictingSessionIds.filter((id): id is string => typeof id === 'string') : undefined,
     date: typeof raw.date === 'string' ? raw.date : undefined,
@@ -272,6 +285,23 @@ function violationFromUnknown(value: unknown): PayrollViolation | null {
     periodId: typeof raw.periodId === 'string' ? raw.periodId : undefined,
     supportId: typeof raw.supportId === 'string' ? raw.supportId : undefined,
     runStatus: typeof raw.runStatus === 'string' ? raw.runStatus : undefined,
+    relatedSessions: Array.isArray(raw.relatedSessions)
+      ? raw.relatedSessions.map((item) => {
+        if (!item || typeof item !== 'object') return null
+        const value = item as Record<string, unknown>
+        const sessionId = typeof value.sessionId === 'string' ? value.sessionId : ''
+        if (!sessionId) return null
+        return {
+          sessionId,
+          trainerId: typeof value.trainerId === 'string' ? value.trainerId : undefined,
+          trainerName: typeof value.trainerName === 'string' ? value.trainerName : undefined,
+          branchId: typeof value.branchId === 'string' ? value.branchId : undefined,
+          branchName: typeof value.branchName === 'string' ? value.branchName : undefined,
+          date: typeof value.date === 'string' ? value.date : undefined,
+          hour: value.hour === null ? null : Number.isInteger(Number(value.hour)) ? Number(value.hour) : undefined,
+        }
+      }).filter((item): item is NonNullable<typeof item> => Boolean(item))
+      : undefined,
   }
 }
 

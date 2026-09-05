@@ -468,8 +468,112 @@ function duplicateLearnerDayViolations(sessionDocuments) {
         branchIds,
         sessionId: sessionIds[0] || '',
         sessionIds,
+        // Keep the mapping between a human-readable slot and its source
+        // session. The old payload only returned parallel arrays, so the UI
+        // could not reliably open the exact duplicate when hours were mixed.
+        relatedSessions: rows.map((row) => ({
+          sessionId: row.sessionId,
+          trainerId: row.trainerId,
+          branchId: row.branchId,
+          date,
+          hour: row.hour,
+        })).filter((row) => row.sessionId),
       }
     })
+}
+
+/**
+ * Payroll validation is intentionally built from lean session projections.
+ * Resolve the IDs only at the boundary so operators see names while the
+ * source data remains immutable and the pure validation helpers stay fast.
+ */
+async function enrichPayrollViolations(db, violations, transaction = null) {
+  const source = Array.isArray(violations) ? violations : []
+  const studentIds = [...new Set(source.flatMap((item) => [
+    item?.studentId,
+    ...(Array.isArray(item?.studentIds) ? item.studentIds : []),
+  ]).filter((value) => typeof value === 'string' && value))]
+  const trainerIds = [...new Set(source.flatMap((item) => [
+    item?.trainerId,
+    ...(Array.isArray(item?.trainerIds) ? item.trainerIds : []),
+    ...(Array.isArray(item?.relatedSessions) ? item.relatedSessions.map((row) => row?.trainerId) : []),
+  ]).filter((value) => typeof value === 'string' && value))]
+  const branchIds = [...new Set(source.flatMap((item) => [
+    item?.branchId,
+    ...(Array.isArray(item?.branchIds) ? item.branchIds : []),
+    ...(Array.isArray(item?.relatedSessions) ? item.relatedSessions.map((row) => row?.branchId) : []),
+  ]).filter((value) => typeof value === 'string' && value))]
+  // Keep name resolution bounded even when a migrated period contains a large
+  // number of duplicate rows. Unresolved entries remain actionable through
+  // the exact session list without making the payroll transaction time out.
+  const references = [
+    ...studentIds.slice(0, 100).map((value) => ({ kind: 'student', id: value, reference: db.doc(`students/${value}`) })),
+    ...trainerIds.slice(0, 100).flatMap((value) => [
+      { kind: 'trainer', id: value, reference: db.doc(`trainers/${value}`) },
+      { kind: 'staff', id: value, reference: db.doc(`staff/${value}`) },
+      { kind: 'user', id: value, reference: db.doc(`users/${value}`) },
+    ]),
+    ...branchIds.slice(0, 50).map((value) => ({ kind: 'branch', id: value, reference: db.doc(`branches/${value}`) })),
+  ]
+  const snapshots = references.length === 0
+    ? []
+    : transaction
+      ? await Promise.all(references.map((item) => transaction.get(item.reference)))
+      : await db.getAll(...references.map((item) => item.reference))
+  const values = new Map()
+  references.forEach((item, index) => {
+    const snapshot = snapshots[index]
+    if (!snapshot?.exists) return
+    const value = snapshot.data() || {}
+    const name = value.name || value.displayName || value.fullName || value.preferredName || ''
+    if (!name) return
+    const key = `${item.kind}:${item.id}`
+    // Prefer the canonical operational collection over staff/user fallbacks.
+    if (!values.has(key) || item.kind === 'student' || item.kind === 'trainer' || item.kind === 'branch') values.set(key, name)
+  })
+  const nameFor = (kind, id, fallback) => {
+    if (!id) return fallback || ''
+    return values.get(`${kind}:${id}`)
+      || (kind === 'trainer' ? values.get(`staff:${id}`) || values.get(`user:${id}`) : '')
+      || fallback
+      || ''
+  }
+  return source.map((item) => {
+    const studentName = nameFor('student', item?.studentId, item?.studentName)
+    const studentNames = Array.isArray(item?.studentIds)
+      ? item.studentIds.map((id) => nameFor('student', id, '')).filter(Boolean)
+      : []
+    const trainerName = nameFor('trainer', item?.trainerId, item?.trainerName)
+    const trainerNames = Array.isArray(item?.trainerIds)
+      ? item.trainerIds.map((id) => nameFor('trainer', id, '')).filter(Boolean)
+      : []
+    const branchName = nameFor('branch', item?.branchId, item?.branchName)
+    const branchNames = Array.isArray(item?.branchIds)
+      ? item.branchIds.map((id) => nameFor('branch', id, '')).filter(Boolean)
+      : []
+    const relatedSessions = Array.isArray(item?.relatedSessions)
+      ? item.relatedSessions.map((row) => ({
+        ...row,
+        trainerName: nameFor('trainer', row?.trainerId, row?.trainerName),
+        branchName: nameFor('branch', row?.branchId, row?.branchName),
+      }))
+      : undefined
+    const result = {
+      ...item,
+      ...(studentName ? { studentName } : {}),
+      ...(studentNames.length ? { studentNames } : {}),
+      ...(trainerName ? { trainerName } : {}),
+      ...(trainerNames.length ? { trainerNames } : {}),
+      ...(branchName ? { branchName } : {}),
+      ...(branchNames.length ? { branchNames } : {}),
+      ...(relatedSessions ? { relatedSessions } : {}),
+    }
+    if (item?.code === 'STUDENT_MULTIPLE_COMPLETED_SESSIONS_PER_DAY') {
+      const displayStudent = studentName || 'chưa xác định tên học viên'
+      result.detail = `Học viên ${displayStudent} ngày ${item.date} đang có ${item.sessionIds?.length || 0} buổi đã hoàn thành${item.hours?.length ? ` tại ${item.hours.map((hour) => `${String(hour).padStart(2, '0')}:00`).join(', ')}` : ''}. Hãy chọn đúng buổi bên dưới để đối soát trước khi lập lương.`
+    }
+    return result
+  })
 }
 
 function teachingSlotsFromSessions(sessionDocuments, policyValue) {
@@ -1189,7 +1293,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         remediation: 'retry',
         periodId: runPeriodId,
       }]
-      : duplicateLearnerDayViolations(sourceSessionSnapshot.docs)
+      : await enrichPayrollViolations(db, duplicateLearnerDayViolations(sourceSessionSnapshot.docs))
     const itemValues = items.docs.map((item) => ({ id: item.id, ...item.data() }))
     const teachingRequiresRebuild = Number(runData.schemaVersion || 0) < 5 || itemValues.some((item) => !Array.isArray(item.teachingSlots))
     const requiresRebuild = runData.requiresRebuild === true || runData.sourceDataStale === true || teachingRequiresRebuild || Number(runData.schemaVersion || 0) < 7 || Number(runData.commissionFormulaVersion || 0) < 2
@@ -1422,6 +1526,10 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         staffPolicyAssignments: new Map([...staffRecordById]
           .filter(([, staff]) => typeof staff.payrollPolicyId === 'string' && staff.payrollPolicyId)
           .map(([staffId, staff]) => [staffId, staff.payrollPolicyId])),
+      }
+      const duplicateLearnerDays = duplicateLearnerDayViolations(sessionSnapshot.docs)
+      if (duplicateLearnerDays.length) {
+        throw payrollViolationsError(await enrichPayrollViolations(db, duplicateLearnerDays, transaction))
       }
       const groupedTeaching = teachingSlotsFromSessions(sessionSnapshot.docs, selectedPolicies[0].configuration)
       const teaching = applyPayrollPolicyPlan(groupedTeaching, policyPlan, selectedPolicies)
@@ -1660,6 +1768,14 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
       return { runId: runReference.id, unchanged: false, status: 'draft' }
       })
     } catch (cause) {
+      if (cause instanceof HttpsError) {
+        const details = cause.details && typeof cause.details === 'object' ? cause.details : {}
+        if (Array.isArray(details.violations) && details.violations.length) {
+          const violations = await enrichPayrollViolations(db, details.violations)
+          throw new HttpsError(cause.code, cause.message, { ...details, violations })
+        }
+        throw cause
+      }
       if (isKnownHttpsError(cause)) throw cause
       const supportId = createHash('sha256')
         .update(`${periodId}|${Date.now()}|${cause?.message || cause?.code || 'unknown'}`)
@@ -1748,7 +1864,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
             'resource-exhausted',
           )
         }
-        const duplicateLearnerDays = duplicateLearnerDayViolations(sessions.docs)
+        const duplicateLearnerDays = await enrichPayrollViolations(db, duplicateLearnerDayViolations(sessions.docs), transaction)
         if (duplicateLearnerDays.length) throw payrollViolationsError(duplicateLearnerDays)
       }
       transaction.update(reference, { status: to, ...fields, [`${to}At`]: FieldValue.serverTimestamp(), [`${to}By`]: actor.uid, updatedAt: FieldValue.serverTimestamp() })

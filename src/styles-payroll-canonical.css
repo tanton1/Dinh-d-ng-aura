@@ -307,7 +307,7 @@
 .payroll-policy__profiles button.is-active { border-color: transparent; color: #fff; background: linear-gradient(110deg, var(--payroll-pink), var(--payroll-orange)); box-shadow: 0 8px 18px rgba(246,47,130,.18); }
 
 .payroll-correction-modal { position: fixed; z-index: 1500; inset: 0; display: grid; place-items: center; padding: 18px; background: rgba(34, 22, 31, .48); backdrop-filter: blur(8px); }
-.payroll-correction-modal__panel { display: grid; width: min(620px, 100%); max-height: min(720px, calc(100dvh - 36px)); overflow-y: auto; gap: 14px; border: 1px solid rgba(246,47,130,.18); border-radius: 24px; padding: 18px; background: linear-gradient(155deg, #fff, #fff7fa 58%, #fff9f2); box-shadow: 0 24px 70px rgba(45, 25, 39, .24); }
+.payroll-correction-modal__panel { display: grid; width: min(980px, 100%); max-height: min(860px, calc(100dvh - 36px)); overflow-y: auto; gap: 14px; border: 1px solid rgba(246,47,130,.18); border-radius: 24px; padding: 18px; background: linear-gradient(155deg, #fff, #fff7fa 58%, #fff9f2); box-shadow: 0 24px 70px rgba(45, 25, 39, .24); }
 .payroll-correction-modal__panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .payroll-correction-modal__panel > header > div { display: grid; gap: 3px; min-width: 0; }
 .payroll-correction-modal__panel > header span { color: var(--payroll-pink); font-size: 10px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
@@ -321,8 +321,14 @@
 .payroll-correction-modal__facts dt { color: #8e6578; font-size: 9px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; }
 .payroll-correction-modal__facts dd { margin: 0; color: #4c2936; font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
 .payroll-correction-modal__session-list { display: flex; flex-wrap: wrap; gap: 6px; }
-.payroll-correction-modal__session-list code { border-radius: 8px; padding: 5px 7px; background: #fff0f5; color: #a72b55; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; }
+.payroll-correction-modal__session-list button { min-height: 32px; border: 1px solid #f1d6e0; border-radius: 9px; padding: 0 9px; background: #fff0f5; color: #a72b55; font: inherit; font-size: 10px; font-weight: 850; cursor: pointer; }
+.payroll-correction-modal__session-list button.is-active { border-color: #df3974; background: #df3974; color: #fff; box-shadow: 0 6px 15px rgba(223,57,116,.18); }
 .payroll-correction-modal__guide { margin: 0; border-radius: 13px; padding: 10px 12px; background: #f7f3f5; color: #7b6872; font-size: 10px; line-height: 1.55; }
+.payroll-correction-modal__history { min-width: 0; overflow: hidden; border: 1px solid #f0dfe6; border-radius: 17px; background: #fff; }
+.payroll-correction-modal__history .training-history { min-height: 0; padding: 12px; }
+.payroll-correction-modal__history .training-history__header { position: static; margin: 0 0 10px; padding: 0; border: 0; }
+.payroll-correction-modal__history .training-history__filters { margin-bottom: 10px; }
+.payroll-correction-modal__empty { border: 1px dashed #e5cbd5; border-radius: 13px; padding: 14px; color: #886b79; font-size: 11px; }
 .payroll-correction-modal__panel > footer { display: flex; justify-content: flex-end; }
 
 .payroll-drawer { position: fixed; z-index: 1350; inset: 0; display: flex; justify-content: flex-end; background: rgba(34, 22, 31, .42); backdrop-filter: blur(7px); }
