@@ -90,7 +90,6 @@ export interface NutritionPlanDay {
 
 export interface NutritionPlannedMeal {
   id: string
-  catalogId?: string
   dayId: string
   time: string
   type: NutritionMealType
@@ -102,7 +101,6 @@ export interface NutritionPlannedMeal {
   prepMinutes?: number
   image?: string
   rationale?: string
-  source?: string
 }
 
 export interface AuraAssistantMessage {
@@ -597,23 +595,13 @@ export interface NutritionPlanPageProps {
   strategyTitle?: string
   strategyDescription?: string
   constraints?: string[]
-  status?: 'draft' | 'active'
-  sourceTitle?: string
-  weekLabel?: string
-  errorMessage?: string
-  isLoading?: boolean
   isGenerating?: boolean
-  isSaving?: boolean
-  canEdit?: boolean
   onSelectDay: (dayId: string) => void
   onGeneratePlan: () => void
   onAddMeal: (dayId: string) => void
   onReplaceMeal?: (mealId: string) => void
-  onRemoveMeal?: (mealId: string) => void
   onOpenMeal?: (mealId: string) => void
-  onConfirmPlan?: () => void
-  onReload?: () => void
-  onShiftWeek?: (direction: -1 | 1) => void
+  onCreateShoppingList?: () => void
 }
 
 export function NutritionPlanPage({
@@ -624,23 +612,13 @@ export function NutritionPlanPage({
   strategyTitle = 'Cân bằng năng lượng, ưu tiên đủ đạm',
   strategyDescription = 'Aura phân bổ khẩu phần theo mục tiêu, lịch tập và những món bạn thường chọn.',
   constraints = [],
-  status,
-  sourceTitle,
-  weekLabel,
-  errorMessage,
-  isLoading = false,
   isGenerating = false,
-  isSaving = false,
-  canEdit = true,
   onSelectDay,
   onGeneratePlan,
   onAddMeal,
   onReplaceMeal,
-  onRemoveMeal,
   onOpenMeal,
-  onConfirmPlan,
-  onReload,
-  onShiftWeek,
+  onCreateShoppingList,
 }: NutritionPlanPageProps) {
   const dayMeals = meals.filter((meal) => meal.dayId === selectedDayId).sort((left, right) => left.time.localeCompare(right.time))
   const dayCalories = dayMeals.reduce((sum, meal) => sum + meal.calories, 0)
@@ -650,29 +628,21 @@ export function NutritionPlanPage({
   return (
     <section className="nutrition-workspace-page nutrition-plan" id="nutrition-workspace-panel-plan" aria-label="Kế hoạch bữa ăn">
       <header className="nutrition-workspace-page__header">
-        <div><span className="nutrition-workspace-eyebrow">THỰC ĐƠN 7 NGÀY</span><h1>Kế hoạch tuần của bạn</h1><p>Chọn món từ thư viện, điều chỉnh rồi xác nhận để dùng trong tuần.</p>{(status || sourceTitle) && <div className="nutrition-plan-state"><span className={`nutrition-plan-state--${status ?? 'active'}`}>{status === 'draft' ? 'Bản nháp' : 'Đã xác nhận'}</span>{sourceTitle && <small>{sourceTitle}</small>}</div>}</div>
+        <div><span className="nutrition-workspace-eyebrow">KẾ HOẠCH 7 NGÀY</span><h1>Ăn đúng mà không phải nghĩ nhiều</h1><p>Aura đề xuất trước, bạn luôn là người quyết định.</p></div>
         <div className="nutrition-workspace-page__header-actions">
-          {status === 'draft' && onConfirmPlan && <button type="button" className="nutrition-workspace-button nutrition-workspace-button--secondary" onClick={onConfirmPlan} disabled={isSaving || isGenerating || !meals.length}><Check size={17} /> {isSaving ? 'Đang lưu…' : 'Xác nhận tuần'}</button>}
-          <button type="button" className="nutrition-workspace-button nutrition-workspace-button--primary" onClick={onGeneratePlan} disabled={isGenerating || isSaving}>{isGenerating ? <RefreshCw className="is-spinning" size={17} /> : <WandSparkles size={17} />} {isGenerating ? 'Đang tạo...' : meals.length ? 'Tạo lại gợi ý' : 'Tạo với Aura'}</button>
+          {onCreateShoppingList && <button type="button" className="nutrition-workspace-button nutrition-workspace-button--secondary" onClick={onCreateShoppingList}><ShoppingBasket size={17} /> Danh sách mua</button>}
+          <button type="button" className="nutrition-workspace-button nutrition-workspace-button--primary" onClick={onGeneratePlan} disabled={isGenerating}>{isGenerating ? <RefreshCw className="is-spinning" size={17} /> : <WandSparkles size={17} />} {isGenerating ? 'Đang tạo...' : 'Tạo bản nháp với Aura'}</button>
         </div>
       </header>
 
-      {errorMessage && <div className="nutrition-plan-error" role="alert"><CircleAlert size={18} /><span>{errorMessage}</span>{onReload && <button type="button" onClick={onReload}>Tải lại</button>}</div>}
-
-      <div className="nutrition-plan-weekbar">
-        {onShiftWeek && <button type="button" onClick={() => onShiftWeek(-1)} aria-label="Tuần trước"><ChevronLeft size={19} /></button>}
-        <strong>{weekLabel ?? 'Tuần đang chọn'}</strong>
-        {onShiftWeek && <button type="button" onClick={() => onShiftWeek(1)} aria-label="Tuần sau"><ChevronRight size={19} /></button>}
-      </div>
-
-      <div className="nutrition-plan-week" role="tablist" aria-label="Chọn ngày trong kế hoạch" aria-busy={isLoading}>
+      <div className="nutrition-plan-week" role="tablist" aria-label="Chọn ngày trong kế hoạch">
         {days.map((day) => {
           const active = day.id === selectedDayId
           return <button type="button" key={day.id} className={active ? 'is-active' : ''} onClick={() => onSelectDay(day.id)} role="tab" aria-selected={active}><span>{day.isToday ? 'Hôm nay' : day.weekday}</span><strong>{day.date}</strong>{day.label && <small>{day.label}</small>}</button>
         })}
       </div>
 
-      <div className={`nutrition-plan-summary ${isLoading ? 'is-loading' : ''}`.trim()}>
+      <div className="nutrition-plan-summary">
         <div><span><Target size={18} /></span><div><small>{selectedDay?.label ?? selectedDay?.weekday ?? 'Ngày đã chọn'}</small><strong>{formatNumber(dayCalories)} / {formatNumber(dailyCalorieGoal)} kcal</strong></div></div>
         <div><small>Tổng đạm</small><strong>{formatNumber(dayProtein)}g</strong></div>
         <div><small>Số bữa</small><strong>{dayMeals.length}</strong></div>
@@ -681,10 +651,8 @@ export function NutritionPlanPage({
 
       <div className="nutrition-plan-layout">
         <div className="nutrition-plan-schedule">
-          <div className="nutrition-workspace-section-heading"><div><h2>Lịch bữa ăn</h2><p>{canEdit ? 'Thêm hoặc đổi món trực tiếp từ thư viện Aura.' : 'Tạo bản nháp riêng để điều chỉnh thực đơn được giao.'}</p></div><button type="button" onClick={() => onAddMeal(selectedDayId)} disabled={!canEdit || isSaving || isLoading}><Plus size={16} /> Thêm bữa</button></div>
-          {isLoading ? (
-            <div className="nutrition-plan-loading" role="status" aria-live="polite"><RefreshCw className="is-spinning" size={20} /><span>Đang tải kế hoạch tuần…</span></div>
-          ) : dayMeals.length ? (
+          <div className="nutrition-workspace-section-heading"><div><h2>Lịch bữa ăn</h2><p>Có thể đổi món mà vẫn giữ mục tiêu tương đương.</p></div><button type="button" onClick={() => onAddMeal(selectedDayId)}><Plus size={16} /> Thêm bữa</button></div>
+          {dayMeals.length ? (
             <ol>
               {dayMeals.map((meal) => (
                 <li key={meal.id}>
@@ -693,7 +661,7 @@ export function NutritionPlanPage({
                   <article>
                     <div className="nutrition-plan-meal__visual">{meal.image ? <img src={meal.image} alt="" /> : <span><Utensils size={22} /></span>}</div>
                     <div className="nutrition-plan-meal__content"><span>{meal.label || MEAL_TYPE_LABELS[meal.type]}</span><button type="button" onClick={() => onOpenMeal?.(meal.id)} disabled={!onOpenMeal}>{meal.title}</button><p>{meal.description ?? `${meal.calories} kcal · ${meal.protein}g đạm${meal.prepMinutes ? ` · ${meal.prepMinutes} phút` : ''}`}</p>{meal.rationale && <small><Sparkles size={13} /> {meal.rationale}</small>}</div>
-                    {canEdit && (onReplaceMeal || onRemoveMeal) && <div className="nutrition-plan-meal__actions">{onReplaceMeal && <button type="button" className="nutrition-plan-meal__replace" onClick={() => onReplaceMeal(meal.id)} disabled={isSaving}><RefreshCw size={15} /><span>Đổi</span></button>}{onRemoveMeal && <button type="button" className="nutrition-plan-meal__remove" onClick={() => onRemoveMeal(meal.id)} disabled={isSaving} aria-label={`Xóa ${meal.title}`}><Trash2 size={15} /></button>}</div>}
+                    {onReplaceMeal && <button type="button" className="nutrition-plan-meal__replace" onClick={() => onReplaceMeal(meal.id)}><RefreshCw size={15} /><span>Đổi món</span></button>}
                   </article>
                 </li>
               ))}
@@ -713,7 +681,7 @@ export function NutritionPlanPage({
           <ul>
             {(constraints.length ? constraints : ['Mục tiêu và chỉ số cơ thể', 'Lịch tập trong tuần', 'Sở thích và món cần tránh']).map((constraint) => <li key={constraint}><Check size={15} /> {constraint}</li>)}
           </ul>
-          <small><CircleAlert size={14} /> {status === 'active' ? 'Đây là thực đơn đang dùng. Mọi lần chỉnh tiếp theo sẽ trở thành bản nháp mới.' : 'Bản nháp chỉ trở thành thực đơn chính sau khi bạn xác nhận.'}</small>
+          <small><CircleAlert size={14} /> Aura không tự thay đổi mục tiêu hoặc lưu kế hoạch khi bạn chưa xác nhận.</small>
         </aside>
       </div>
     </section>
