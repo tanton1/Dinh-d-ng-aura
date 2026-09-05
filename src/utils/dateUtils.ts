@@ -95,6 +95,28 @@ export const formatDate = (dateStr: string | undefined | null): string => {
   return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString('vi-VN');
 };
 
+/**
+ * Resolve an Aura business weekday from a date-only value without depending
+ * on the device timezone. Calendar dates are not instants; using local
+ * `getDay()` after parsing +07:00 can move the value to the previous day on
+ * devices west of Vietnam.
+ */
+export const vietnamBusinessDayCode = (dateStr: string | undefined | null): string => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr || '');
+  if (!match) return '';
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year
+    || parsed.getUTCMonth() !== month - 1
+    || parsed.getUTCDate() !== day
+  ) return '';
+  const weekday = parsed.getUTCDay();
+  return weekday === 0 ? 'CN' : `T${weekday + 1}`;
+};
+
 /** Add calendar months to a date-only value and clamp end-of-month dates. */
 export const addCalendarMonthsDateOnly = (dateStr: string, months: number): string => {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);

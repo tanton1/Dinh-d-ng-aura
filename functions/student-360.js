@@ -2,6 +2,7 @@ const { createHash } = require('node:crypto')
 const { FieldPath, FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext } = require('./identity-access')
+const { PT_OPERATIONS_POLICY_EFFECTIVE_FROM, PT_OPERATIONS_POLICY_VERSION } = require('./pt-policy')
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh'
 const OVERVIEW_SCHEMA_VERSION = 1
@@ -574,6 +575,19 @@ async function queryDocuments(query) {
   return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
 }
 
+// History collections are intentionally bounded for overview latency, so the
+// bounded slice must be the newest records rather than whichever documents
+// Firestore happens to return first. Do not fall back to an unordered limit:
+// that silently makes a healthy-looking overview from stale history. Missing
+// indexes must fail clearly and be provisioned by firestore.indexes.json.
+async function latestDocuments(query, field, limit) {
+  return queryDocuments(query.orderBy(field, 'desc').orderBy(FieldPath.documentId(), 'desc').limit(limit))
+}
+
+async function latestSnapshot(query, field, limit) {
+  return query.orderBy(field, 'desc').orderBy(FieldPath.documentId(), 'desc').limit(limit).get()
+}
+
 async function studentAccountProfile(db, student) {
   const accountUid = bounded(student.accountUid, 200)
   if (!accountUid || accountUid.includes('/')) return { accountUid: '', profile: null }
@@ -590,31 +604,31 @@ async function projectionSources(db, studentId, weekId) {
   if (!studentSnapshot.exists) throw new HttpsError('not-found', 'Không tìm thấy học viên.')
   const student = { id: studentSnapshot.id, ...studentSnapshot.data() }
   const [contracts, sessions, attendance, leaveRequests, sessionRequests, legacyWorkoutLogs, ptWorkoutLogs, renewals, dailyCheckins, payments, ledgerEntries, availabilitySnapshot, profileResult] = await Promise.all([
-    queryDocuments(db.collection('contracts').where('studentId', '==', studentId).limit(50)),
-    queryDocuments(db.collection('sessions').where('studentId', '==', studentId).limit(1000)),
-    queryDocuments(db.collection('attendanceEvents').where('studentId', '==', studentId).limit(1000)),
-    queryDocuments(db.collection('leaveRequests').where('studentId', '==', studentId).limit(150)),
-    queryDocuments(db.collection('sessionRequests').where('studentId', '==', studentId).limit(250)),
-    queryDocuments(db.collection('workoutLogs').where('studentId', '==', studentId).limit(200)),
-    queryDocuments(db.collection('ptWorkoutLogs').where('studentId', '==', studentId).limit(200)),
-    queryDocuments(db.collection('contractRenewalCases').where('studentId', '==', studentId).limit(20)),
-    queryDocuments(db.collection('dailyCheckins').where('studentId', '==', studentId).limit(180)),
-    queryDocuments(db.collection('payments').where('studentId', '==', studentId).limit(250)),
-    queryDocuments(db.collection('ledgerEntries').where('studentId', '==', studentId).limit(250)),
+    latestDocuments(db.collection('contracts').where('studentId', '==', studentId), 'startDate', 50),
+    latestDocuments(db.collection('sessions').where('studentId', '==', studentId), 'date', 1000),
+    latestDocuments(db.collection('attendanceEvents').where('studentId', '==', studentId), 'date', 1000),
+    latestDocuments(db.collection('leaveRequests').where('studentId', '==', studentId), 'startDate', 150),
+    latestDocuments(db.collection('sessionRequests').where('studentId', '==', studentId), 'createdAt', 250),
+    latestDocuments(db.collection('workoutLogs').where('studentId', '==', studentId), 'date', 200),
+    latestDocuments(db.collection('ptWorkoutLogs').where('studentId', '==', studentId), 'date', 200),
+    latestDocuments(db.collection('contractRenewalCases').where('studentId', '==', studentId), 'updatedAt', 20),
+    latestDocuments(db.collection('dailyCheckins').where('studentId', '==', studentId), 'date', 180),
+    latestDocuments(db.collection('payments').where('studentId', '==', studentId), 'effectiveAt', 250),
+    latestDocuments(db.collection('ledgerEntries').where('studentId', '==', studentId), 'effectiveAt', 250),
     db.doc(`ptAvailability/${studentId}_${weekId}`).get(),
     studentAccountProfile(db, student),
   ])
   const profile = profileResult.profile
   const accountUid = profileResult.accountUid
   const [mealLogs, mealReviews, bodyMetrics, bodyMeasurements, weightLogs, trainingProgramSnapshot, legacyProgressPhotos, progressPhotos] = accountUid ? await Promise.all([
-    queryDocuments(db.collection(`users/${accountUid}/mealLogs`).limit(120)),
-    queryDocuments(db.collection('mealReviews').where('userId', '==', accountUid).limit(120)),
-    queryDocuments(db.collection(`users/${accountUid}/bodyMetrics`).limit(100)),
-    queryDocuments(db.collection(`users/${accountUid}/bodyMeasurements`).limit(100)),
-    queryDocuments(db.collection(`users/${accountUid}/weightLogs`).limit(100)),
+    latestDocuments(db.collection(`users/${accountUid}/mealLogs`), 'date', 120),
+    latestDocuments(db.collection('mealReviews').where('userId', '==', accountUid), 'createdAt', 120),
+    latestDocuments(db.collection(`users/${accountUid}/bodyMetrics`), 'date', 100),
+    latestDocuments(db.collection(`users/${accountUid}/bodyMeasurements`), 'date', 100),
+    latestDocuments(db.collection(`users/${accountUid}/weightLogs`), 'date', 100),
     db.doc(`ptTrainingPrograms/${studentId}`).get(),
-    queryDocuments(db.collection(`users/${accountUid}/progress_photos`).select('date', 'createdAt', 'updatedAt').limit(60)),
-    queryDocuments(db.collection(`users/${accountUid}/progressPhotos`).select('date', 'createdAt', 'updatedAt').limit(60)),
+    latestDocuments(db.collection(`users/${accountUid}/progress_photos`).select('date', 'createdAt', 'updatedAt'), 'date', 60),
+    latestDocuments(db.collection(`users/${accountUid}/progressPhotos`).select('date', 'createdAt', 'updatedAt'), 'date', 60),
   ]) : [[], [], [], [], [], await db.doc(`ptTrainingPrograms/${studentId}`).get(), [], []]
   return {
     student,
@@ -1372,6 +1386,10 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
           status: action === 'create' ? (startDate > vietnamDateKey() ? 'future' : 'active') : current.status,
           note: bounded(input.note, 1_000) || bounded(current?.note, 1_000),
         }
+        if (action === 'create') {
+          next.policyVersion = PT_OPERATIONS_POLICY_VERSION
+          next.policyEffectiveFrom = PT_OPERATIONS_POLICY_EFFECTIVE_FROM
+        }
       } else if (action === 'add_sessions') {
         if (!canManageFinancials) throw new HttpsError('permission-denied', 'Chỉ bộ phận tài chính được ghi nhận mua thêm buổi.')
         if (!['active', 'future', 'frozen'].includes(bounded(current.status, 30))) {
@@ -1537,34 +1555,69 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const attention = bounded(request.data?.attention, 40)
     const pageSize = Math.max(1, Math.min(50, Math.floor(finite(request.data?.pageSize, 24))))
     const cursor = bounded(request.data?.cursor, 200)
-    const snapshot = await db.collection('studentOperationalViews').limit(500).get()
+    const sourcePageSize = 100
+    const maximumScanned = 500
     const rows = []
-    for (const item of snapshot.docs) {
-      const projection = item.data()
-      let permissions
-      try { permissions = permissionsFor(actor, projection) } catch { continue }
-      if (branchId && projection.assignments?.branchId !== branchId) continue
-      if (attention && projection.health?.status !== attention) continue
-      const haystack = `${projection.identity?.name || ''} ${projection.identity?.phone || ''} ${projection.identity?.email || ''}`.toLocaleLowerCase('vi')
-      if (queryText && !haystack.includes(queryText)) continue
-      rows.push({
-        studentId: item.id,
-        name: projection.identity?.name || 'Học viên Aura',
-        phone: projection.identity?.phone || '',
-        branchId: projection.assignments?.branchId || '',
-        branchName: projection.assignments?.branchName || '',
-        status: projection.identity?.status || 'active',
-        health: projection.health,
-        remainingSessions: projection.contract?.remainingSessions ?? null,
-        daysRemaining: projection.contract?.daysRemaining ?? null,
-        nextSession: projection.schedule?.nextSession || null,
-        alertCount: projection.alerts?.filter((value) => audienceAllowed(value.audience, permissions)).length || 0,
-      })
+    let scanned = 0
+    let sourceCursor = cursor
+    let sourceExhausted = false
+    let stoppedOnFullPage = false
+
+    directoryScan: while (rows.length < pageSize && scanned < maximumScanned) {
+      const readLimit = Math.min(sourcePageSize, maximumScanned - scanned)
+      let query = db.collection('studentOperationalViews').orderBy(FieldPath.documentId(), 'asc').limit(readLimit)
+      if (sourceCursor) query = query.startAfter(sourceCursor)
+      const snapshot = await query.get()
+      if (snapshot.empty || snapshot.size === 0) {
+        sourceExhausted = true
+        break
+      }
+      for (let index = 0; index < snapshot.docs.length; index += 1) {
+        const item = snapshot.docs[index]
+        sourceCursor = item.id
+        scanned += 1
+        const projection = item.data()
+        let permissions
+        try { permissions = permissionsFor(actor, projection) } catch { continue }
+        if (branchId && projection.assignments?.branchId !== branchId) continue
+        if (attention && projection.health?.status !== attention) continue
+        const haystack = `${projection.identity?.name || ''} ${projection.identity?.phone || ''} ${projection.identity?.email || ''}`.toLocaleLowerCase('vi')
+        if (queryText && !haystack.includes(queryText)) continue
+        rows.push({
+          studentId: item.id,
+          name: projection.identity?.name || 'Học viên Aura',
+          phone: projection.identity?.phone || '',
+          branchId: projection.assignments?.branchId || '',
+          branchName: projection.assignments?.branchName || '',
+          status: projection.identity?.status || 'active',
+          health: projection.health,
+          remainingSessions: projection.contract?.remainingSessions ?? null,
+          daysRemaining: projection.contract?.daysRemaining ?? null,
+          nextSession: projection.schedule?.nextSession || null,
+          alertCount: projection.alerts?.filter((value) => audienceAllowed(value.audience, permissions)).length || 0,
+        })
+        if (rows.length >= pageSize) {
+          stoppedOnFullPage = index < snapshot.docs.length - 1 || snapshot.size >= readLimit
+          break directoryScan
+        }
+      }
+      if (snapshot.size < readLimit) {
+        sourceExhausted = true
+        break
+      }
     }
     rows.sort((left, right) => left.name.localeCompare(right.name, 'vi') || left.studentId.localeCompare(right.studentId))
-    const start = cursor ? Math.max(0, rows.findIndex((row) => row.studentId === cursor) + 1) : 0
-    const page = rows.slice(start, start + pageSize)
-    return { schemaVersion: 1, rows: page, hasMore: start + pageSize < rows.length, nextCursor: start + pageSize < rows.length ? page[page.length - 1]?.studentId || null : null, totalMatched: rows.length }
+    const scanBudgetReached = scanned >= maximumScanned && !sourceExhausted
+    const hasMore = stoppedOnFullPage || scanBudgetReached
+    return {
+      schemaVersion: 1,
+      rows,
+      hasMore,
+      nextCursor: hasMore ? sourceCursor || null : null,
+      totalMatched: sourceExhausted && !cursor ? rows.length : null,
+      scanned,
+      truncated: scanBudgetReached,
+    }
   })
 
   const listStudent360Timeline = readCall(async (request) => {
@@ -1675,8 +1728,8 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     const offset = Math.max(0, Math.min(100, Math.floor(finite(request.data?.cursor, 0))))
     const pageSize = Math.max(1, Math.min(20, Math.floor(finite(request.data?.pageSize, 12))))
     const [legacy, current] = await Promise.all([
-      db.collection(`users/${accountUid}/progress_photos`).limit(30).get(),
-      db.collection(`users/${accountUid}/progressPhotos`).limit(30).get(),
+      latestSnapshot(db.collection(`users/${accountUid}/progress_photos`), 'date', 30),
+      latestSnapshot(db.collection(`users/${accountUid}/progressPhotos`), 'date', 30),
     ])
     const documents = [...new Map([...legacy.docs, ...current.docs].map((item) => [item.id, item])).values()]
     const rows = []
@@ -1703,7 +1756,7 @@ function createStudent360Functions({ db, onCall, storage, logger = console }) {
     rows.sort((left, right) => right.date.localeCompare(left.date))
     const page = rows.slice(offset, offset + pageSize)
     const hasMore = offset + pageSize < rows.length
-    return { schemaVersion: 1, studentId, rows: page, hasMore, nextCursor: hasMore ? String(offset + pageSize) : null, hasLegacyImages: rows.some((row) => row.images.some((image) => image.legacy)), expiresInSeconds: 300 }
+    return { schemaVersion: 1, studentId, rows: page, hasMore, nextCursor: hasMore ? String(offset + pageSize) : null, truncated: legacy.size >= 30 || current.size >= 30, hasLegacyImages: rows.some((row) => row.images.some((image) => image.legacy)), expiresInSeconds: 300 }
   })
 
   const refreshStudent360Projection = writeCall(async (request) => {

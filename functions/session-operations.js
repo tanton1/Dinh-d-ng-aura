@@ -1,4 +1,4 @@
-const { FieldValue, Timestamp } = require('firebase-admin/firestore')
+const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { createHash } = require('node:crypto')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
@@ -24,6 +24,7 @@ const PAUSE_SESSION_QUERY_LIMIT = 200
 const AUTOMATIC_CHARGE_QUERY_LIMIT = 2000
 const AUTO_ATTENDANCE_CONFIRM_HOURS = 48
 const AUTO_ATTENDANCE_LOOKBACK_DAYS = 8
+const AUTOMATION_PAGE_SIZE = 500
 const BULK_ATTENDANCE_LIMIT = 30
 const TEACHING_SHIFT_CORRECTION_LIMIT = 6
 const NO_SHOW_GRACE_MINUTES = 15
@@ -361,15 +362,17 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
         if (occupancy >= capacity) continue
         const uniqueTeachingSlots = new Set(sameTrainerDate.map((item) => storedSessionHour(item.hour, item.id, 'Giờ lịch PT'))).size
         const pairsExistingSession = occupancy > 0
+        const projectedTeachingSlots = uniqueTeachingSlots + (pairsExistingSession ? 0 : 1)
+        const overTargetAfter = projectedTeachingSlots > policyData.dailySessionTarget
         const createsThreeConsecutiveDays = hasThreeConsecutiveTrainingDays(studentTrainingDates, targetDate)
         const daysFromStart = inclusiveDateDays(rangeStart, targetDate) - 1
         const score = (pairsExistingSession ? 20000 : 0)
           + (assigned ? 6000 : 0)
           + (trainer.id === session.trainerId ? 2500 : 0)
           + (policyData.employmentType === 'full_time' ? 1800 : 0)
-          + Math.max(0, policyData.dailySessionTarget - uniqueTeachingSlots) * 180
+          + Math.max(0, policyData.dailySessionTarget - projectedTeachingSlots) * 180
           - policyData.schedulingPriority
-          - uniqueTeachingSlots * 25
+          - projectedTeachingSlots * 25
           - daysFromStart * 5
           - (createsThreeConsecutiveDays ? 3500 : 0)
         candidates.push({
@@ -384,8 +387,14 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
           isAssignedTrainer: assigned,
           isCurrentTrainer: trainer.id === session.trainerId,
           employmentType: policyData.employmentType,
+          // `dailyLoad` remains as a compatibility alias for clients deployed
+          // before soft-load v1. New clients show the projected value.
           dailyLoad: uniqueTeachingSlots,
+          dailyLoadBefore: uniqueTeachingSlots,
+          dailyLoadAfter: projectedTeachingSlots,
           dailyTarget: policyData.dailySessionTarget,
+          overTargetAfter,
+          loadPolicyVersion: 'soft-daily-target-v1',
           createsThreeConsecutiveDays,
           score,
         })
@@ -448,6 +457,54 @@ function normalizedAttendanceNote(value) {
   const result = typeof value === 'string' ? value.trim() : ''
   if (result.length > 300) throw new HttpsError('invalid-argument', 'Ghi chú hiện diện tối đa 300 ký tự.')
   return result
+}
+
+async function readAutomationSessionPage({ db, jobId, lowerDate, upperDate, limit = AUTOMATION_PAGE_SIZE }) {
+  const pageSize = Math.max(1, Math.min(AUTOMATIC_CHARGE_QUERY_LIMIT, Math.floor(Number(limit) || AUTOMATION_PAGE_SIZE)))
+  const stateReference = db.doc(`systemJobs/${jobId}`)
+  let state = null
+  try {
+    if (typeof stateReference.get === 'function') {
+      const snapshot = await stateReference.get()
+      state = snapshot.exists ? snapshot.data() : null
+    }
+  } catch {
+    state = null
+  }
+  let query = db.collection('sessions').where('date', '<', upperDate)
+  if (lowerDate) query = query.where('date', '>=', lowerDate)
+  const cursorDate = typeof state?.cursorDate === 'string' ? state.cursorDate : ''
+  const cursorId = typeof state?.cursorId === 'string' ? state.cursorId : ''
+  try {
+    query = query.orderBy('date', 'asc').orderBy(FieldPath.documentId(), 'asc').limit(pageSize)
+    if (cursorDate && cursorId) query = query.startAfter(cursorDate, cursorId)
+  } catch {
+    // The in-memory test adapter and older emulators do not expose ordering;
+    // the bounded fallback still preserves the safety limit.
+    query = db.collection('sessions').where('date', '<', upperDate)
+    if (lowerDate) query = query.where('date', '>=', lowerDate)
+    query = query.limit(pageSize)
+  }
+  const snapshot = await query.get()
+  const docs = snapshot.docs || []
+  const last = docs[docs.length - 1]
+  const nextCursor = docs.length >= pageSize && last
+    ? { date: last.data()?.date || '', id: last.id }
+    : null
+  return { docs, nextCursor, pageSize, stateReference }
+}
+
+async function commitAutomationSessionPage({ stateReference, nextCursor, pageSize }) {
+  try {
+    if (typeof stateReference.set === 'function') {
+      await stateReference.set({
+        cursorDate: nextCursor?.date || '',
+        cursorId: nextCursor?.id || '',
+        updatedAt: FieldValue.serverTimestamp(),
+        pageSize,
+      }, { merge: true })
+    }
+  } catch { /* checkpoint writes must not prevent billing retries */ }
 }
 
 // `all` was written by the legacy all-branch scheduler. It is a scope
@@ -986,17 +1043,18 @@ async function completeSessionAttendanceTransaction({
 async function chargeDuePtSessions({ db, now = new Date(), logger = console, limit = AUTOMATIC_CHARGE_QUERY_LIMIT }) {
   const today = vietnamDateKey(now)
   const weekStart = vietnamWeekStartDateKey(now)
-  const snapshot = await db.collection('sessions')
-    .where('date', '>=', weekStart)
-    .where('date', '<', nextDateKey(today))
-    .limit(Math.min(AUTOMATIC_CHARGE_QUERY_LIMIT, Math.max(1, Number(limit) || AUTOMATIC_CHARGE_QUERY_LIMIT)))
-    .get()
-  const candidates = snapshot.docs.filter((item) => {
+  const scanLimit = Math.min(AUTOMATIC_CHARGE_QUERY_LIMIT, Math.max(1, Number(limit) || AUTOMATIC_CHARGE_QUERY_LIMIT))
+  const [currentWeek, catchUp] = await Promise.all([
+    readAutomationSessionPage({ db, jobId: 'ptSessionCharge', lowerDate: weekStart, upperDate: nextDateKey(today), limit: scanLimit }),
+    readAutomationSessionPage({ db, jobId: 'ptSessionChargeCatchUp', upperDate: nextDateKey(today), limit: scanLimit }),
+  ])
+  const documents = [...new Map([...currentWeek.docs, ...catchUp.docs].map((item) => [item.id, item])).values()]
+  const candidates = documents.filter((item) => {
     const session = item.data()
     if (!isActiveSessionStatus(session.status) || isSessionCharged(session) || [BILLING_REVIEW_STATUS, 'exempt'].includes(session.billingStatus)) return false
     try { return sessionStartInstant(session, item.id).getTime() <= now.getTime() } catch { return false }
   })
-  const summary = { weekStart, through: today, scanned: snapshot.size, due: candidates.length, charged: 0, reviewRequired: 0, unchanged: 0, failed: 0 }
+  const summary = { weekStart, through: today, scanned: documents.length, due: candidates.length, charged: 0, reviewRequired: 0, unchanged: 0, failed: 0, catchUpCursor: catchUp.nextCursor }
   for (let index = 0; index < candidates.length; index += 25) {
     const batch = candidates.slice(index, index + 25)
     const outcomes = await Promise.allSettled(batch.map((item) => chargeSessionTransaction({
@@ -1019,6 +1077,15 @@ async function chargeDuePtSessions({ db, now = new Date(), logger = console, lim
       }
     })
   }
+  // Cursors move only after every transaction in the page succeeds. Failed
+  // records are retried on the next invocation; successful records are
+  // idempotent and safely become unchanged when replayed.
+  if (summary.failed === 0) {
+    await Promise.all([
+      commitAutomationSessionPage(currentWeek),
+      commitAutomationSessionPage(catchUp),
+    ])
+  }
   logger.info?.('PT automatic charge completed', summary)
   return summary
 }
@@ -1026,12 +1093,13 @@ async function chargeDuePtSessions({ db, now = new Date(), logger = console, lim
 async function autoConfirmOverduePtAttendance({ db, now = new Date(), logger = console, limit = AUTOMATIC_CHARGE_QUERY_LIMIT }) {
   const today = vietnamDateKey(now)
   const from = addDateDays(today, -AUTO_ATTENDANCE_LOOKBACK_DAYS)
-  const snapshot = await db.collection('sessions')
-    .where('date', '>=', from)
-    .where('date', '<', nextDateKey(today))
-    .limit(Math.min(AUTOMATIC_CHARGE_QUERY_LIMIT, Math.max(1, Number(limit) || AUTOMATIC_CHARGE_QUERY_LIMIT)))
-    .get()
-  const candidates = snapshot.docs.filter((item) => {
+  const scanLimit = Math.min(AUTOMATIC_CHARGE_QUERY_LIMIT, Math.max(1, Number(limit) || AUTOMATIC_CHARGE_QUERY_LIMIT))
+  const [recent, catchUp] = await Promise.all([
+    readAutomationSessionPage({ db, jobId: 'ptAttendanceConfirmation', lowerDate: from, upperDate: nextDateKey(today), limit: scanLimit }),
+    readAutomationSessionPage({ db, jobId: 'ptAttendanceConfirmationCatchUp', upperDate: nextDateKey(today), limit: scanLimit }),
+  ])
+  const documents = [...new Map([...recent.docs, ...catchUp.docs].map((item) => [item.id, item])).values()]
+  const candidates = documents.filter((item) => {
     const session = item.data()
     if (!isActiveSessionStatus(session.status) || (!isSessionCharged(session) && session.billingStatus !== BILLING_REVIEW_STATUS) || session.billingStatus === 'exempt') return false
     if (session.attendanceStatus && session.attendanceStatus !== 'pending') return false
@@ -1046,11 +1114,12 @@ async function autoConfirmOverduePtAttendance({ db, now = new Date(), logger = c
     from,
     through: today,
     confirmationAfterHours: AUTO_ATTENDANCE_CONFIRM_HOURS,
-    scanned: snapshot.size,
+    scanned: documents.length,
     overdue: candidates.length,
     confirmedPresent: 0,
     unchanged: 0,
     failed: 0,
+    catchUpCursor: catchUp.nextCursor,
   }
   for (let index = 0; index < candidates.length; index += 25) {
     const batch = candidates.slice(index, index + 25)
@@ -1076,6 +1145,12 @@ async function autoConfirmOverduePtAttendance({ db, now = new Date(), logger = c
         })
       }
     })
+  }
+  if (summary.failed === 0) {
+    await Promise.all([
+      commitAutomationSessionPage(recent),
+      commitAutomationSessionPage(catchUp),
+    ])
   }
   logger.info?.('PT attendance automatic confirmation completed', summary)
   return summary
@@ -2578,8 +2653,10 @@ module.exports = {
   autoConfirmOverduePtAttendance,
   chargeDuePtSessions,
   chargeSessionTransaction,
+  commitAutomationSessionPage,
   completeSessionAttendanceTransaction,
   createSessionOperationFunctions,
+  readAutomationSessionPage,
   recordSessionAttendanceTransaction,
   remindUnconfirmedPtAttendance,
 }

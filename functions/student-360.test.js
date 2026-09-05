@@ -342,6 +342,13 @@ test('contract workspace mutations are revisioned, audited and no longer rely on
   assert.doesNotMatch(source, /paidAmount:\s*finite\(request\.data/)
 })
 
+test('new contracts snapshot the effective operations policy without rewriting legacy rights', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'student-360.js'), 'utf8')
+  assert.match(source, /if \(action === 'create'\) \{\n\s+next\.policyVersion = PT_OPERATIONS_POLICY_VERSION/)
+  assert.match(source, /policyEffectiveFrom = PT_OPERATIONS_POLICY_EFFECTIVE_FROM/)
+  assert.match(source, /next\.policyVersion = PT_OPERATIONS_POLICY_VERSION/)
+})
+
 test('Student 360 callables use quota-safe fractional CPU with bounded concurrency', () => {
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'student-360.js'), 'utf8')
   assert.match(source, /const readCall = \(handler\) => onCall\(\{ cpu: 'gcf_gen1', concurrency: 1, maxInstances: 8/)
@@ -354,4 +361,21 @@ test('training timeline scans beyond unrelated recent events and repairs legacy 
   assert.match(source, /requestedTypes\.some\(\(type\) => \['training', 'workout'\]\.includes\(type\)\)/)
   assert.match(source, /db\.collection\('sessions'\)\.where\('studentId', '==', studentId\)\.limit\(1\)/)
   assert.match(source, /await buildStudent360Projection\(\{ db, studentId, weekId, persist: true \}\)/)
+})
+
+test('Student 360 projection slices history newest-first before applying overview limits', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'student-360.js'), 'utf8')
+  assert.match(source, /async function latestDocuments\(query, field, limit\)/)
+  assert.doesNotMatch(source, /async function latestDocuments[\s\S]*?queryDocuments\(query\.limit\(limit\)\)/)
+  assert.match(source, /latestDocuments\(db\.collection\('sessions'\)\.where\('studentId', '==', studentId\), 'date', 1000\)/)
+  assert.match(source, /latestSnapshot\(db\.collection\(`users\/\$\{accountUid\}\/progressPhotos`\), 'date', 30\)/)
+})
+
+test('Student 360 directory advances a source cursor instead of repeating the first 500 projections', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'student-360.js'), 'utf8')
+  const directory = source.match(/const listStudent360Directory[\s\S]*?\n  const listStudent360Timeline/)?.[0] || ''
+  assert.match(directory, /orderBy\(FieldPath\.documentId\(\), 'asc'\)/)
+  assert.match(directory, /query = query\.startAfter\(sourceCursor\)/)
+  assert.match(directory, /nextCursor: hasMore \? sourceCursor \|\| null : null/)
+  assert.doesNotMatch(directory, /collection\('studentOperationalViews'\)\.limit\(500\)/)
 })

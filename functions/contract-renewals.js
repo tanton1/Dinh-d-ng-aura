@@ -1,4 +1,5 @@
 const { FieldValue, Timestamp } = require('firebase-admin/firestore')
+const { PT_OPERATIONS_POLICY_EFFECTIVE_FROM, PT_OPERATIONS_POLICY_VERSION } = require('./pt-policy')
 const { HttpsError } = require('firebase-functions/v2/https')
 const { trustedAccessContext, requireCapability } = require('./identity-access')
 const { cashAccountForMovement, createCashMovement, createReceiptVoucher, assertFinancePeriodOpen } = require('./finance-ledger')
@@ -993,6 +994,7 @@ function createContractRenewalFunctions({ db, onCall, onSchedule, logger }) {
         referralStaffId: source.referralStaffId || null,
         referralCommissionRate: Number(source.referralCommissionRate || 0) >= 2 && Number(source.referralCommissionRate || 0) <= 10 ? Number(source.referralCommissionRate) : null,
         renewalQuoteId: quoteId || null, renewalApprovalId: approvalId || null, renewalType: 'renewal', revision: 0, note,
+        policyVersion: PT_OPERATIONS_POLICY_VERSION, policyEffectiveFrom: PT_OPERATIONS_POLICY_EFFECTIVE_FROM,
         createdAt: FieldValue.serverTimestamp(), createdBy: actor.uid, updatedAt: FieldValue.serverTimestamp(),
       }
       transaction.create(newContractReference, newContract)

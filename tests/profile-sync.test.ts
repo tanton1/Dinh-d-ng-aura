@@ -37,6 +37,18 @@ test('missing profile data never opens onboarding during application loading', (
   assert.doesNotMatch(application, /!isOnboardingDone/)
 })
 
+test('authenticated deep links wait for canonical authorization before redirecting', () => {
+  const application = fs.readFileSync(new URL('../src/AuraApplication.tsx', import.meta.url), 'utf8')
+  const guardStart = application.indexOf('const requiredPermission = adminViewPermissions[view]')
+  const guardEnd = application.indexOf('}, [authzReady', guardStart)
+  const guard = guardStart >= 0 && guardEnd > guardStart ? application.slice(guardStart, guardEnd) : ''
+  assert.match(guard, /backendMode === 'firebase' && user && !authzReady/)
+  assert.ok(
+    guard.indexOf("backendMode === 'firebase' && user && !authzReady") < guard.indexOf("role === 'shipper'"),
+    'role redirects must run only after authorization has resolved',
+  )
+})
+
 function installWindow() {
   const localStorage = new MemoryStorage()
   Object.defineProperty(globalThis, 'window', { value: { localStorage }, configurable: true })

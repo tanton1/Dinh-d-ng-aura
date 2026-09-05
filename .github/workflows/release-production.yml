@@ -30,10 +30,17 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    outputs:
+      sha: ${{ steps.revision.outputs.sha }}
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.git_ref }}
+
+      - name: Resolve immutable release revision
+        id: revision
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@v5
         with:
@@ -75,12 +82,17 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.git_ref }}
+          ref: ${{ needs.verify.outputs.sha }}
 
       - name: Resolve immutable release revision
         id: revision
         shell: bash
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          VERIFIED_SHA: ${{ needs.verify.outputs.sha }}
+        run: |
+          DEPLOY_SHA="$(git rev-parse HEAD)"
+          test "$DEPLOY_SHA" = "$VERIFIED_SHA"
+          echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@v5
         with:

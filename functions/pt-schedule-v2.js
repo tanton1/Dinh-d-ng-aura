@@ -36,7 +36,6 @@ const MAX_DRAFT_ENTRIES = 440
 const MAX_DRAFT_DOCUMENT_ENTRIES = 700
 const MAX_ENTRIES_PER_SLOT = 100
 const DEFAULT_DAILY_SESSION_TARGET = 8
-const DEFAULT_DAILY_SESSION_LIMIT = 10
 const MAX_DEEP_OPTIMIZATION_PASSES = 3
 // A bounded repair search can relocate auto-generated sessions from earlier
 // rounds. This closes the remaining gap between fair one-seat rounds and the
@@ -373,7 +372,6 @@ async function loadBranchData(db, branchId, week) {
     const data = trainerProfileForWeek(item.data(), weeklyTrainerAvailability.get(item.id), week)
     const schedulingPriority = Math.max(1, Math.min(999, Math.trunc(Number(data.schedulingPriority ?? data.priority ?? 100) || 100)))
     const dailySessionTarget = Math.max(1, Math.min(12, Math.trunc(Number(data.dailySessionTarget ?? DEFAULT_DAILY_SESSION_TARGET) || DEFAULT_DAILY_SESSION_TARGET)))
-    const dailySessionLimit = Math.max(dailySessionTarget, Math.min(16, Math.trunc(Number(data.dailySessionLimit ?? DEFAULT_DAILY_SESSION_LIMIT) || DEFAULT_DAILY_SESSION_LIMIT)))
     return {
       id: item.id,
       name: data.name || 'PT chưa cập nhật tên',
@@ -389,7 +387,6 @@ async function loadBranchData(db, branchId, week) {
       slotCapacity: normalizedCapacity(data.slotCapacity),
       schedulingPriority,
       dailySessionTarget,
-      dailySessionLimit,
     }
   })
   return {
@@ -506,7 +503,6 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
   }
   const schedulingPriority = Math.max(1, Math.min(999, Math.trunc(Number(rawTrainer.schedulingPriority ?? rawTrainer.priority ?? 100) || 100)))
   const dailySessionTarget = Math.max(1, Math.min(12, Math.trunc(Number(rawTrainer.dailySessionTarget ?? DEFAULT_DAILY_SESSION_TARGET) || DEFAULT_DAILY_SESSION_TARGET)))
-  const dailySessionLimit = Math.max(dailySessionTarget, Math.min(16, Math.trunc(Number(rawTrainer.dailySessionLimit ?? DEFAULT_DAILY_SESSION_LIMIT) || DEFAULT_DAILY_SESSION_LIMIT)))
   const trainer = {
     id: trainerId,
     name: rawTrainer.name || 'PT chưa cập nhật tên',
@@ -519,7 +515,6 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
     slotCapacity: normalizedCapacity(rawTrainer.slotCapacity),
     schedulingPriority,
     dailySessionTarget,
-    dailySessionLimit,
   }
   const draftData = draft.exists ? draft.data() : null
   const schedule = baseData?.schedule || safeSchedule(draftData.schedule)
@@ -704,14 +699,13 @@ function assignedTrainerIds(contract) {
 function trainerSchedulingPolicy(trainer) {
   const schedulingPriority = Math.max(1, Math.min(999, Math.trunc(Number(trainer?.schedulingPriority ?? trainer?.priority ?? 100) || 100)))
   const dailySessionTarget = Math.max(1, Math.min(12, Math.trunc(Number(trainer?.dailySessionTarget ?? DEFAULT_DAILY_SESSION_TARGET) || DEFAULT_DAILY_SESSION_TARGET)))
-  const dailySessionLimit = Math.max(dailySessionTarget, Math.min(16, Math.trunc(Number(trainer?.dailySessionLimit ?? DEFAULT_DAILY_SESSION_LIMIT) || DEFAULT_DAILY_SESSION_LIMIT)))
   const employmentType = ['full_time', 'part_time', 'collaborator'].includes(trainer?.employmentType)
     ? trainer.employmentType
     : 'full_time'
   const employmentLevel = ['probation', 'official', 'senior'].includes(trainer?.employmentLevel)
     ? trainer.employmentLevel
     : 'official'
-  return { schedulingPriority, dailySessionTarget, dailySessionLimit, employmentType, employmentLevel }
+  return { schedulingPriority, dailySessionTarget, employmentType, employmentLevel }
 }
 
 function schedulingTier(candidate) {
@@ -1728,6 +1722,8 @@ function generateSchedule(data) {
   }
   if (capacityReached) warnings.unshift({ code: 'DRAFT_CAPACITY_REACHED', entryCount, maxEntries: MAX_DRAFT_ENTRIES })
   const optimizationSummary = {
+    objectiveOrder: ['learner_coverage', 'weekly_target_fulfilment', 'pairing', 'trainer_assignment', 'soft_load_balance', 'learner_spacing'],
+    loadPolicyVersion: 'soft-daily-target-v1',
     studentCoverage: studentCoverageForSchedule(data, schedule),
     studentFeasibility: studentFeasibilityForSchedule(data, schedule, feasibilityBaseSchedule),
     trainerLoads: trainerLoadsForSchedule(data, schedule, schedulingState),
@@ -1740,7 +1736,7 @@ function generateSchedule(data) {
     repairSearchLimitReached,
     swapTrace: swapTrace.slice(0, 500),
     optimizationPasses,
-    generatorVersion: 'optimizer-v8',
+    generatorVersion: 'optimizer-v9',
   }
   return { schedule, warnings, optimizationSummary, unassignedEntries }
 }
@@ -1862,7 +1858,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         createdAt: current.exists ? current.data().createdAt || FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
       }, { merge: true })
       transaction.create(db.collection('ptOperationsAuditLogs').doc(), { schemaVersion: 2, action: 'pt_schedule.generated', actorUid: actor.uid, branchId, weekId: week, previousDraftRevision: revision, nextDraftRevision: nextRevision, entryCount: scheduleEntryCount(generated.schedule), studentCoverage: generated.optimizationSummary.studentCoverage, slotUtilization: generated.optimizationSummary.slotUtilization, unassignedCount: generated.unassignedEntries.length, warnings: generated.warnings.slice(0, 100), createdAt: FieldValue.serverTimestamp() })
-      return { draftRevision: nextRevision, schedule: generated.schedule, warnings: generated.warnings, optimizationSummary: generated.optimizationSummary, unassignedEntries: generated.unassignedEntries, generatorVersion: 'optimizer-v8' }
+      return { draftRevision: nextRevision, schedule: generated.schedule, warnings: generated.warnings, optimizationSummary: generated.optimizationSummary, unassignedEntries: generated.unassignedEntries, generatorVersion: 'optimizer-v9' }
     })
   })
 
@@ -2180,7 +2176,6 @@ function createPtScheduleV2Functions({ db, onCall }) {
 }
 
 module.exports = {
-  DEFAULT_DAILY_SESSION_LIMIT,
   DEFAULT_DAILY_SESSION_TARGET,
   MAX_DRAFT_ENTRIES,
   MAX_DRAFT_DOCUMENT_ENTRIES,

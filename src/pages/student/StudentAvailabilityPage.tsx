@@ -28,6 +28,7 @@ import {
   type StudentPtSession,
 } from '../../services/studentPtScheduleService'
 import type { ViewId } from '../../types'
+import { vietnamBusinessDayCode } from '../../utils/dateUtils'
 import './StudentSchedulePage.css'
 import './StudentAvailabilityPage.css'
 import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
@@ -54,14 +55,8 @@ function startOfWeek(date: Date) {
   return addDays(date, weekday === 0 ? -6 : 1 - weekday)
 }
 
-function dayCode(dateValue: string) {
-  const date = new Date(`${dateValue}T00:00:00+07:00`)
-  const weekday = date.getDay()
-  return weekday === 0 ? 'CN' : `T${weekday + 1}`
-}
-
 function slotIdForSession(session: StudentPtSession) {
-  return session.hour === null ? '' : `${dayCode(session.date)}-${session.hour}`
+  return session.hour === null ? '' : `${vietnamBusinessDayCode(session.date)}-${session.hour}`
 }
 
 function sameSlots(left: Iterable<string>, right: Iterable<string>) {

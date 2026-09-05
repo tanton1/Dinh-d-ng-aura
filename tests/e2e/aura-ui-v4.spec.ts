@@ -41,6 +41,7 @@ for (const width of [320, 360, 390, 430]) {
     await page.goto('/#/home')
 
     const dock = page.getByRole('navigation', { name: 'Điều hướng học viên' })
+    await expect(dock.getByRole('button', { name: 'Thêm' })).toBeVisible()
     await expect(dock.getByRole('button')).toHaveCount(5)
     expect(await dock.getByRole('button').allTextContents()).toEqual(['Hôm nay', 'Lịch', 'Dinh dưỡng', 'Tập luyện', 'Thêm'])
     expect(await dock.getByRole('button').evaluateAll((buttons) => buttons.every((button) => Number.parseFloat(getComputedStyle(button).fontSize) >= 12))).toBe(true)
@@ -106,17 +107,18 @@ test('nutrition V4 lazy-loads quick add and hydration sheets without covering th
   await page.getByRole('button', { name: 'Thêm nhanh', exact: true }).last().click()
   const quickAdd = page.getByRole('dialog', { name: 'Bạn muốn ghi lại gì?' })
   await expect(quickAdd).toBeVisible()
-  expect(await quickAdd.evaluate((element) => element.contains(document.activeElement))).toBe(true)
+  await expect.poll(() => quickAdd.evaluate((element) => element.contains(document.activeElement))).toBe(true)
   await quickAdd.getByRole('button', { name: /Ghi lượng nước/ }).click()
 
   const water = page.getByRole('dialog', { name: 'Ghi lượng nước uống' })
   await expect(water).toBeVisible()
   await expect(water.getByRole('button', { name: /Ghi \+250 ml nước/ })).toBeEnabled()
   const dock = page.getByRole('navigation', { name: 'Điều hướng học viên' })
+  await expect(dock).toBeHidden()
   await expect.poll(async () => {
-    const [waterBox, dockBox] = await Promise.all([water.boundingBox(), dock.boundingBox()])
-    if (!waterBox || !dockBox) return Number.POSITIVE_INFINITY
-    return waterBox.y + waterBox.height - dockBox.y
+    const waterBox = await water.boundingBox()
+    if (!waterBox) return Number.POSITIVE_INFINITY
+    return waterBox.y + waterBox.height - 844
   }).toBeLessThanOrEqual(1)
   await expectNoHorizontalOverflow(page)
 })
@@ -162,9 +164,10 @@ test('availability V4 defaults to next week and keeps its submit action above th
   await expect(page.getByRole('button', { name: 'Tuần trước' })).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Tuần sau' })).toBeEnabled()
 
-  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
   const footer = page.locator('.student-availability-card > footer')
   const dock = page.getByRole('navigation', { name: 'Điều hướng học viên' })
+  await footer.scrollIntoViewIfNeeded()
+  await expect(footer).toBeVisible()
   const [footerBox, dockBox] = await Promise.all([footer.boundingBox(), dock.boundingBox()])
   expect(footerBox).not.toBeNull()
   expect(dockBox).not.toBeNull()

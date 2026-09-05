@@ -90,8 +90,6 @@ export interface Trainer {
   schedulingPriority?: number
   /** Soft target of distinct teaching slots per day. */
   dailySessionTarget?: number
-  /** @deprecated Legacy field; scheduler no longer treats it as a hard ceiling. */
-  dailySessionLimit?: number
   availableSlots?: string[]
   /** Number of learners this trainer can safely serve in one time slot. */
   slotCapacity?: number

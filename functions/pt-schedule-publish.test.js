@@ -187,7 +187,7 @@ test('publish rejects a draft that exceeds a learner weekly target', () => {
   assert.ok(desiredEntries(fixture).errors.includes('STUDENT_WEEKLY_TARGET_REACHED'))
 })
 
-test('counts a paired session as one teaching slot for the PT daily limit', () => {
+test('publishes a paired session without treating the PT load target as a ceiling', () => {
   const fixture = baseFixture()
   fixture.trainers.set('trainer-a', {
     status: 'active',
@@ -195,7 +195,7 @@ test('counts a paired session as one teaching slot for the PT daily limit', () =
     availabilityMode: 'configured',
     availableSlots: ['T2-6'],
     slotCapacity: 2,
-    dailySessionLimit: 1,
+    dailySessionTarget: 1,
   })
   fixture.students.set('student-b', { status: 'active', branchId: BRANCH_ID })
   fixture.contracts.push({ ...fixture.contracts[0], id: 'contract-b', studentId: 'student-b' })
@@ -203,7 +203,7 @@ test('counts a paired session as one teaching slot for the PT daily limit', () =
   fixture.schedule['T2-6'].push({ studentId: 'student-b', trainerId: 'trainer-a', type: 'training' })
 
   const result = desiredEntries(fixture)
-  assert.ok(!result.errors.includes('TRAINER_DAILY_SESSION_LIMIT_EXCEEDED'))
+  assert.deepEqual(result.errors, [])
 })
 
 test('daily workload target does not block publishing additional valid slots', () => {
@@ -213,7 +213,7 @@ test('daily workload target does not block publishing additional valid slots', (
     branchId: BRANCH_ID,
     availabilityMode: 'configured',
     availableSlots: ['T2-6', 'T2-7'],
-    dailySessionLimit: 1,
+    dailySessionTarget: 1,
   })
   fixture.students.set('student-b', { status: 'active', branchId: BRANCH_ID })
   fixture.contracts.push({ ...fixture.contracts[0], id: 'contract-b', studentId: 'student-b' })
@@ -221,7 +221,7 @@ test('daily workload target does not block publishing additional valid slots', (
   fixture.schedule['T2-7'] = [{ studentId: 'student-b', trainerId: 'trainer-a', type: 'training' }]
 
   const result = desiredEntries(fixture)
-  assert.ok(!result.errors.includes('TRAINER_DAILY_SESSION_LIMIT_EXCEEDED'))
+  assert.deepEqual(result.errors, [])
 })
 
 test('collaborator publish requires an explicitly registered slot', () => {

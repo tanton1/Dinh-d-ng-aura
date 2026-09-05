@@ -12,7 +12,7 @@ import type {
 } from '../../features/nutrition/types'
 import {
   getFoodAnalysisErrorMessage, getUsableFoodAnalysisText, normalizeAnalysis,
-  perGramNutrition,
+  nutritionConfidenceLabel, perGramNutrition,
 } from '../../features/nutrition/analysis'
 import { useAccessibleDialog } from '../../features/nutrition/useAccessibleDialog'
 
@@ -772,7 +772,9 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                   <Check size={13} />
                   <span>
                     {resultMode === 'live'
-                      ? `AI Nhận Diện · Độ tin cậy ${analysisConfidence === null ? '90%' : `${Math.round(analysisConfidence * 100)}%`}`
+                      ? analysisConfidence === null
+                        ? 'AI nhận diện · Ước tính từ ảnh'
+                        : `AI nhận diện · Độ tin cậy ${Math.round(analysisConfidence * 100)}%`
                       : 'Món ăn mẫu'}
                   </span>
                 </span>
@@ -982,13 +984,13 @@ const FoodScanModal = React.memo(function FoodScanModal({ initialDate, storageOw
                         {/* Row 2: Confidence Bar and Trash Button */}
                         <div className="nutrition-scan-result__ingredient-meta">
                           <div className="nutrition-scan-result__confidence-row">
-                            <span>Độ tin cậy:</span>
-                            <strong>
-                              {item.confidenceValue !== undefined ? Math.round(item.confidenceValue * 100) : (item.confidence === 'low' ? 40 : 92)}%
-                            </strong>
-                            <div className="nutrition-scan-result__confidence-track">
-                              <div style={{ width: `${item.confidenceValue !== undefined ? Math.round(item.confidenceValue * 100) : (item.confidence === 'low' ? 40 : 92)}%` }} />
-                            </div>
+                            <span>Nguồn nhận diện:</span>
+                            <strong>{nutritionConfidenceLabel(item)}</strong>
+                            {item.confidenceValue !== undefined && Number.isFinite(item.confidenceValue) ? (
+                              <div className="nutrition-scan-result__confidence-track" aria-hidden="true">
+                                <div style={{ width: `${Math.round(Math.max(0, Math.min(1, item.confidenceValue)) * 100)}%` }} />
+                              </div>
+                            ) : null}
                           </div>
 
                           <button

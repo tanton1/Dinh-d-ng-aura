@@ -41,6 +41,8 @@ const DEFAULT_SCHEDULE_CONFIG: ScheduleConfig = {
   offLimitsByDuration: { threeMonths: 1, sixMonths: 3, twelveMonths: 6 },
 }
 const LEGACY_DIRECTORY_LIMIT = 2500
+const LEGACY_SESSION_LIMIT = 3000
+const LEGACY_AVAILABILITY_LIMIT = 1000
 
 // Deterministic browser-layout fixtures only. Production starts empty and
 // receives canonical operations data exclusively from Firestore.
@@ -362,7 +364,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
         : ''
       const requiresPaging = error instanceof Error && error.message === 'DIRECTORY_PAGE_REQUIRED'
       const message = requiresPaging
-        ? `Dữ liệu ${source} đã vượt ${LEGACY_DIRECTORY_LIMIT.toLocaleString('vi-VN')} bản ghi. Hãy dùng bộ lọc/phân trang máy chủ thay vì tải toàn bộ.`
+        ? `Dữ liệu ${source} đã vượt giới hạn tải an toàn. Aura đang hiển thị một phần; hãy dùng bộ lọc hoặc phân trang máy chủ.`
         : code === 'permission-denied'
         ? 'Firestore đang từ chối quyền đọc dữ liệu vận hành. Hãy đăng xuất và đăng nhập lại tài khoản admin.'
         : `Không thể đồng bộ ${source}.`
@@ -409,8 +411,11 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       const sessionsQuery = query(
         collection(db, 'sessions'),
         where('date', '>=', sessionWindowStart.toISOString().slice(0, 10)),
-        orderBy('date', 'asc'),
-        limit(3000),
+        // Keep the newest operational rows when the transitional adapter is
+        // forced to truncate; future/current scheduling must not disappear
+        // behind older sessions from the 180-day compatibility window.
+        orderBy('date', 'desc'),
+        limit(LEGACY_SESSION_LIMIT + 1),
       )
       const availabilityStart = new Date()
       const availabilityWeekday = availabilityStart.getDay()
@@ -419,7 +424,7 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
         collection(db, 'ptAvailability'),
         where('weekId', '>=', availabilityStart.toISOString().slice(0, 10)),
         orderBy('weekId', 'asc'),
-        limit(1000),
+        limit(LEGACY_AVAILABILITY_LIMIT + 1),
       )
       if (activeSources.has('sessions')) unsubs.push(onSnapshot(sessionsQuery, (snapshot) => {
         const parsedSessions = snapshot.docs.map(document => {
@@ -435,8 +440,9 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
           }
           return data
         })
-        setSessions(parsedSessions)
-        markReady('sessions')
+        setSessions(parsedSessions.slice(0, LEGACY_SESSION_LIMIT))
+        if (snapshot.size > LEGACY_SESSION_LIMIT) listenerError('sessions', new Error('DIRECTORY_PAGE_REQUIRED'))
+        else markReady('sessions')
       }, (err) => listenerError('sessions', err)))
 
       if (activeSources.has('payments')) unsubs.push(onSnapshot(collection(db, 'payments'), (snapshot) => {
@@ -515,8 +521,9 @@ export const DatabaseProvider = ({ children }: { children: ReactNode }) => {
       }, (err) => listenerError('schedules', err)))
 
       if (activeSources.has('ptAvailability')) unsubs.push(onSnapshot(availabilityQuery, (snapshot) => {
-        setPtAvailability(snapshot.docs.map(document => withDocumentId<PtAvailabilityDocument>(document)))
-        markReady('ptAvailability')
+        setPtAvailability(snapshot.docs.slice(0, LEGACY_AVAILABILITY_LIMIT).map(document => withDocumentId<PtAvailabilityDocument>(document)))
+        if (snapshot.size > LEGACY_AVAILABILITY_LIMIT) listenerError('ptAvailability', new Error('DIRECTORY_PAGE_REQUIRED'))
+        else markReady('ptAvailability')
       }, (err) => listenerError('ptAvailability', err)))
 
     } catch (e) {

@@ -1,6 +1,11 @@
 const VIETNAM_OFFSET_MS = 7 * 60 * 60 * 1000
 const HOUR_MS = 60 * 60 * 1000
 const DAY_MS = 24 * HOUR_MS
+// Versioned metadata is attached only to contracts created after the policy
+// rollout. Existing contracts retain their original rights and are never
+// silently reinterpreted by a later default change.
+const PT_OPERATIONS_POLICY_VERSION = 'pt-operations-v3'
+const PT_OPERATIONS_POLICY_EFFECTIVE_FROM = '2026-09-05'
 
 function validDateKey(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
@@ -158,6 +163,8 @@ function storedDateShape(original, dateValue) {
 
 module.exports = {
   DAY_MS,
+  PT_OPERATIONS_POLICY_EFFECTIVE_FROM,
+  PT_OPERATIONS_POLICY_VERSION,
   addDateDays,
   assertSessionChangeDeadline,
   assertWeeklyOffDeadline,

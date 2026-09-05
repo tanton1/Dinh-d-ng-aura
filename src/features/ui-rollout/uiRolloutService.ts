@@ -28,6 +28,18 @@ function readDemoConfig() {
   }
 }
 
+export function readAuraUiRolloutCache(userId: string, demo = false): AuraUiRolloutSnapshot | null {
+  if (!userId) return null
+  if (demo || !firestoreDb) return { config: readDemoConfig(), assignment: null, source: 'fallback' }
+  const cached = readJson(`${sessionCachePrefix}${userId}`) as Partial<AuraUiRolloutSnapshot> | null
+  if (!cached?.config) return null
+  return {
+    config: normalizeAuraUiRolloutConfig(cached.config),
+    assignment: normalizeAuraUiAssignment(cached.assignment),
+    source: 'session-cache',
+  }
+}
+
 export function clearAuraUiRolloutCache(userId?: string) {
   if (userId) {
     sessionPromises.delete(userId)
@@ -46,19 +58,16 @@ export function loadAuraUiRollout(userId: string, demo = false): Promise<AuraUiR
   const existing = sessionPromises.get(userId)
   if (existing) return existing
   const promise = (async () => {
-    if (demo || !firestoreDb) return { config: readDemoConfig(), assignment: null, source: 'fallback' as const }
-    const cached = readJson(`${sessionCachePrefix}${userId}`) as Partial<AuraUiRolloutSnapshot> | null
-    if (cached?.config) {
-      return {
-        config: normalizeAuraUiRolloutConfig(cached.config),
-        assignment: normalizeAuraUiAssignment(cached.assignment),
-        source: 'session-cache' as const,
-      }
+    const cached = readAuraUiRolloutCache(userId, demo)
+    if (cached) return cached
+    const database = firestoreDb
+    if (!database) {
+      return { config: readDemoConfig(), assignment: null, source: 'fallback' as const }
     }
     try {
       const [configSnapshot, assignmentSnapshot] = await Promise.all([
-        getDoc(doc(firestoreDb, 'system', 'ui_public_config')),
-        getDoc(doc(firestoreDb, 'uiRolloutAssignments', userId)),
+        getDoc(doc(database, 'system', 'ui_public_config')),
+        getDoc(doc(database, 'uiRolloutAssignments', userId)),
       ])
       const value: AuraUiRolloutSnapshot = {
         config: normalizeAuraUiRolloutConfig(configSnapshot.exists() ? configSnapshot.data() : null),

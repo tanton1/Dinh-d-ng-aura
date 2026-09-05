@@ -32,6 +32,8 @@ export function calculateNutritionTargets(data: UserProfileData) {
       stepsPerDay: 0,
       targetDelta: 0,
       timeframeMonths: 0,
+      macroCaloriesKcal: 0,
+      targetAdjustmentReason: null,
     }
   }
   
@@ -86,11 +88,19 @@ export function calculateNutritionTargets(data: UserProfileData) {
   const floorCalories = Math.max(1200, Math.round(bmr * 0.95));
   if (targetCalories < floorCalories) targetCalories = floorCalories;
   if (targetCalories > 4500) targetCalories = 4500;
+  const calorieTargetBeforeMacroReconciliation = targetCalories;
   
   const proteinPerKg = goalStr.includes('muscle') ? 2.2 : goalStr.includes('fat') ? 2.0 : 1.6;
   const proteinGoal = Math.round(weight * proteinPerKg);
   const fatGoal = Math.max(45, Math.round(weight * 0.8));
-  const carbGoal = Math.max(80, Math.round((targetCalories - proteinGoal * 4 - fatGoal * 9) / 4));
+  // Keep the displayed calorie target physically consistent with its macros.
+  // If an aggressive pace conflicts with the minimum protein, fat and carb
+  // floors, the safer macro minimums win and the calorie goal is raised.
+  const minimumMacroCalories = proteinGoal * 4 + fatGoal * 9 + 80 * 4;
+  const reconciledEnergyBudget = Math.max(targetCalories, minimumMacroCalories);
+  const carbGoal = Math.max(80, Math.round((reconciledEnergyBudget - proteinGoal * 4 - fatGoal * 9) / 4));
+  const macroCaloriesKcal = proteinGoal * 4 + carbGoal * 4 + fatGoal * 9;
+  targetCalories = macroCaloriesKcal;
   const waterGoal = Math.min(4000, Math.max(1500, Math.round((weight * 35) / 100) * 100));
   const stepsGoal = mappedActivity === 'high' ? 10000 : mappedActivity === 'moderate' ? 8000 : 5000;
 
@@ -105,6 +115,8 @@ export function calculateNutritionTargets(data: UserProfileData) {
     waterLiters: waterGoal / 1000,
     stepsPerDay: stepsGoal,
     targetDelta,
-    timeframeMonths
+    timeframeMonths,
+    macroCaloriesKcal,
+    targetAdjustmentReason: targetCalories > calorieTargetBeforeMacroReconciliation ? 'macro_minimums' : null,
   };
 }

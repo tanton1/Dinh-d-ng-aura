@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { UserRole } from '../../types'
 import { DEFAULT_AURA_UI_ROLLOUT, isAuraUiSurfaceEnabled } from './config'
-import { loadAuraUiRollout } from './uiRolloutService'
+import { loadAuraUiRollout, readAuraUiRolloutCache } from './uiRolloutService'
 import type { AuraUiAssignment, AuraUiRolloutConfig, AuraUiSurface } from './types'
 
 interface AuraUiRolloutValue {
@@ -19,9 +19,10 @@ const AuraUiRolloutContext = createContext<AuraUiRolloutValue>({
 })
 
 export function AuraUiRolloutProvider({ userId, role, demo = false, children }: { userId: string; role: UserRole; demo?: boolean; children: ReactNode }) {
-  const [config, setConfig] = useState(DEFAULT_AURA_UI_ROLLOUT)
-  const [assignment, setAssignment] = useState<AuraUiAssignment | null>(null)
-  const [loading, setLoading] = useState(Boolean(userId))
+  const initialSnapshot = readAuraUiRolloutCache(userId, demo)
+  const [config, setConfig] = useState(initialSnapshot?.config ?? DEFAULT_AURA_UI_ROLLOUT)
+  const [assignment, setAssignment] = useState<AuraUiAssignment | null>(initialSnapshot?.assignment ?? null)
+  const [loading, setLoading] = useState(Boolean(userId && !initialSnapshot))
 
   useEffect(() => {
     let active = true
@@ -31,7 +32,14 @@ export function AuraUiRolloutProvider({ userId, role, demo = false, children }: 
       setLoading(false)
       return () => { active = false }
     }
-    setLoading(true)
+    const cached = readAuraUiRolloutCache(userId, demo)
+    if (cached) {
+      setConfig(cached.config)
+      setAssignment(cached.assignment)
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
     void loadAuraUiRollout(userId, demo).then((snapshot) => {
       if (!active) return
       setConfig(snapshot.config)

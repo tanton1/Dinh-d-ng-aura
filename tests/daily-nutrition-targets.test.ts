@@ -41,6 +41,21 @@ test('incomplete profile does not receive fabricated body defaults', () => {
   assert.equal(resolveDailyNutritionTargets(null).configured, false)
 })
 
+test('calorie target always equals the energy represented by canonical macros', () => {
+  const profiles = [
+    { age: 37, biologicalSex: 'female' as const, heightCm: 160, weightKg: 80, targetWeightDeltaKg: -15, targetTimeframeMonths: 3, activityLevel: 'sedentary' as const, primaryGoal: 'fat_loss' as const },
+    { age: 28, biologicalSex: 'female' as const, heightCm: 168, weightKg: 58, activityLevel: 'moderate' as const, primaryGoal: 'maintenance' as const },
+    { age: 32, biologicalSex: 'male' as const, heightCm: 178, weightKg: 82, activityLevel: 'high' as const, primaryGoal: 'muscle_gain' as const },
+  ]
+
+  profiles.forEach((profile) => {
+    const result = calculateNutritionTargets(profile)
+    assert.equal(result.targetCaloriesKcal, result.proteinG * 4 + result.carbsG * 4 + result.fatG * 9)
+    assert.equal(result.targetCaloriesKcal, result.macroCaloriesKcal)
+  })
+  assert.equal(calculateNutritionTargets(profiles[0]).targetAdjustmentReason, 'macro_minimums')
+})
+
 test('recent weight average includes only valid entries in the latest 30 days', () => {
   const result = recentAverageWeight([
     { date: '2026-08-01', weightKg: 84 },

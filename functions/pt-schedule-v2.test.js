@@ -395,7 +395,7 @@ test('unassigned learners balance unique teaching slots by daily target', () => 
   const data = fixture()
   const slots = ['T2-6', 'T2-7', 'T2-8', 'T2-9']
   data.trainers = ['trainer-a', 'trainer-b'].map((id) => ({
-    ...data.trainers[0], id, availableSlots: slots, slotCapacity: 1, dailySessionTarget: 8, dailySessionLimit: 10,
+    ...data.trainers[0], id, availableSlots: slots, slotCapacity: 1, dailySessionTarget: 8,
   }))
   data.students = Array.from({ length: 4 }, (_, index) => ({
     ...data.students[0], id: `student-${index}`, name: `Student ${index}`, availableSlots: slots,
@@ -434,7 +434,6 @@ test('primary trainer remains ahead of secondary trainer regardless of rank', ()
 test('paired learners count as one teaching slot and daily target never blocks an extra class', () => {
   const data = fixture()
   data.trainers[0].dailySessionTarget = 1
-  data.trainers[0].dailySessionLimit = 1
   data.trainers[0].availableSlots.push('T2-7')
   data.students.push({ ...data.students[0], id: 'student-b', name: 'B', availableSlots: ['T2-6', 'T2-7'] })
   data.contracts.push({ ...data.contracts[0], id: 'contract-b', studentId: 'student-b' })
@@ -480,6 +479,51 @@ test('collaborator receives work after full-time trainer reaches the daily targe
   ]
   const generated = generateSchedule(data)
   assert.equal(generated.schedule['T2-14'][0].trainerId, 'trainer-ctv')
+})
+
+test('the only valid PT receives a ninth teaching slot so learner demand is fulfilled', () => {
+  const data = fixture()
+  const occupiedSlots = Array.from({ length: 8 }, (_, index) => `T2-${index + 6}`)
+  data.schedule = Object.fromEntries(occupiedSlots.map((slotId, index) => [slotId, [{
+    studentId: `locked-${index}`,
+    trainerId: 'trainer-a',
+    branchId: BRANCH,
+    type: 'training',
+    isLocked: true,
+  }]]))
+  data.students[0].availableSlots = ['T2-14']
+  data.trainers[0].availableSlots = [...occupiedSlots, 'T2-14']
+  data.trainers[0].dailySessionTarget = 8
+
+  const generated = generateSchedule(data)
+  assert.equal(generated.schedule['T2-14'][0].studentId, 'student-a')
+  const mondayLoad = generated.optimizationSummary.trainerLoads.find((load) => load.trainerId === 'trainer-a' && load.day === 'T2')
+  assert.equal(mondayLoad.teachingSlots, 9)
+  assert.equal(mondayLoad.status, 'over_target')
+  assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 0)
+})
+
+test('soft target balances equal valid PT choices before overloading one trainer', () => {
+  const data = fixture()
+  const trainerALoad = Array.from({ length: 7 }, (_, index) => `T2-${index + 6}`)
+  const trainerBLoad = Array.from({ length: 8 }, (_, index) => `T2-${index + 6}`)
+  data.schedule = {}
+  trainerALoad.forEach((slotId, index) => {
+    data.schedule[slotId] = [...(data.schedule[slotId] || []), { studentId: `locked-a-${index}`, trainerId: 'trainer-a', branchId: BRANCH, type: 'training', isLocked: true }]
+  })
+  trainerBLoad.forEach((slotId, index) => {
+    data.schedule[slotId] = [...(data.schedule[slotId] || []), { studentId: `locked-b-${index}`, trainerId: 'trainer-b', branchId: BRANCH, type: 'training', isLocked: true }]
+  })
+  data.students[0].availableSlots = ['T2-14']
+  data.contracts[0].trainerId = ''
+  data.trainers = [
+    { ...data.trainers[0], id: 'trainer-a', dailySessionTarget: 8, availableSlots: [...trainerALoad, 'T2-14'] },
+    { ...data.trainers[0], id: 'trainer-b', dailySessionTarget: 8, availableSlots: [...trainerBLoad, 'T2-14'] },
+  ]
+
+  const generated = generateSchedule(data)
+  assert.equal(generated.schedule['T2-14'][0].trainerId, 'trainer-a')
+  assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 0)
 })
 
 test('pairing an existing class is preferred over opening another trainer slot', () => {
@@ -689,7 +733,8 @@ test('deep optimization repeats coverage and pairing until the weekly target is 
   assert.equal(generated.optimizationSummary.studentCoverage.missingSessions, 0)
   assert.equal(generated.optimizationSummary.slotUtilization.pairedSlots, 1)
   assert.ok(generated.optimizationSummary.optimizationPasses >= 2)
-  assert.equal(generated.optimizationSummary.generatorVersion, 'optimizer-v8')
+  assert.equal(generated.optimizationSummary.generatorVersion, 'optimizer-v9')
+  assert.equal(generated.optimizationSummary.loadPolicyVersion, 'soft-daily-target-v1')
 })
 
 test('deep repair relocates an earlier flexible session to increase total weekly coverage', () => {

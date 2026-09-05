@@ -138,8 +138,8 @@ test('Student 360 activity timeline keeps filters compact and remains mobile-saf
   const activity = page.locator('.student360-section')
   await expect(activity.getByRole('heading', { name: 'Toàn bộ hoạt động' })).toBeVisible()
   const typeFilters = activity.locator('.student360-filter-chips').first()
-  await expect(typeFilters.getByRole('button')).toHaveCount(6)
-  await typeFilters.getByRole('button', { name: 'Tập luyện' }).click()
+  await expect(typeFilters.getByRole('button')).toHaveCount(9)
+  await typeFilters.getByRole('button', { name: 'Buổi tập' }).click()
   await expect(activity.locator('.student360-timeline')).toBeVisible()
 
   const dimensions = await page.evaluate(() => ({

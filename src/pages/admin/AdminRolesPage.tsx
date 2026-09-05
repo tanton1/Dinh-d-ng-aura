@@ -63,7 +63,6 @@ type StaffOperationsRecord = {
   priority?: number
   schedulingPriority?: number
   dailySessionTarget?: number
-  dailySessionLimit?: number
   name?: string; email?: string; phone?: string; role?: string; status?: string
   employmentType?: EmploymentType
   employmentLevel?: EmploymentLevel
@@ -81,7 +80,6 @@ type StaffEditorState = {
   isTrainer: boolean
   schedulingPriority: number
   dailySessionTarget: number
-  dailySessionLimit: number
   employmentType: EmploymentType
   employmentLevel: EmploymentLevel
   payrollPolicyId: string
@@ -232,7 +230,7 @@ function teamConfirmationCopy(action: TeamConfirmation) {
   if (action.kind === 'reset_pt_workload') return {
     title: 'Áp dụng chuẩn ca PT',
     subject: 'Toàn bộ PT đang hoạt động',
-    detail: 'Mục tiêu cân tải sẽ được đặt thành 8 ca/ngày cho PT chính thức.',
+    detail: 'Mốc cân bằng tải sẽ được đặt thành 8 ca/ngày cho PT đang hoạt động.',
     note: 'Đây không phải trần. Hệ thống vẫn xếp thêm khi cần đủ lịch học viên; CTV nhận ca sau theo lịch đã đăng ký.',
     confirmLabel: 'Áp dụng mục tiêu 8',
     danger: false,
@@ -430,7 +428,6 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
       isTrainer: Boolean(assignment?.positions.includes('trainer_pt') || member.role === 'trainer' || record.role === 'trainer'),
       schedulingPriority: Number.isInteger(record.schedulingPriority ?? record.priority) ? Math.max(1, Math.min(999, Number(record.schedulingPriority ?? record.priority))) : 100,
       dailySessionTarget,
-      dailySessionLimit: Number.isInteger(record.dailySessionLimit) ? Math.max(dailySessionTarget, Math.min(16, Number(record.dailySessionLimit))) : 10,
       employmentType: record.employmentType === 'collaborator' || record.employmentType === 'part_time' ? record.employmentType : 'full_time',
       employmentLevel: record.employmentLevel === 'probation' || record.employmentLevel === 'senior' ? record.employmentLevel : 'official',
       payrollPolicyId: typeof record.payrollPolicyId === 'string' ? record.payrollPolicyId : '',
@@ -441,7 +438,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
   const saveStaffProfile = async () => {
     if (!staffEditor) return
     setStaffSaving(true); setError(null)
-    try { await saveStaffOperationsProfile({ uid: staffEditor.uid, displayName: staffEditor.displayName, email: staffEditor.email, phoneNumber: staffEditor.phoneNumber, contactChanges: { email: normalizeStaffEmail(staffEditor.email) !== normalizeStaffEmail(staffEditor.initialEmail), phoneNumber: normalizeStaffPhone(staffEditor.phoneNumber) !== normalizeStaffPhone(staffEditor.initialPhoneNumber) }, employmentType: staffEditor.employmentType, employmentLevel: staffEditor.employmentLevel, payrollPolicyId: staffEditor.payrollPolicyId, availabilitySlots: staffEditor.slots, slotCapacity: staffEditor.slotCapacity, schedulingPriority: staffEditor.schedulingPriority, dailySessionTarget: staffEditor.dailySessionTarget, dailySessionLimit: staffEditor.dailySessionLimit, compensation: staffEditor.compensation }); setStaffEditor(null); setSuccess('Đã lưu hồ sơ, lịch rảnh và chính sách phân ca của nhân viên.') }
+    try { await saveStaffOperationsProfile({ uid: staffEditor.uid, displayName: staffEditor.displayName, email: staffEditor.email, phoneNumber: staffEditor.phoneNumber, contactChanges: { email: normalizeStaffEmail(staffEditor.email) !== normalizeStaffEmail(staffEditor.initialEmail), phoneNumber: normalizeStaffPhone(staffEditor.phoneNumber) !== normalizeStaffPhone(staffEditor.initialPhoneNumber) }, employmentType: staffEditor.employmentType, employmentLevel: staffEditor.employmentLevel, payrollPolicyId: staffEditor.payrollPolicyId, availabilitySlots: staffEditor.slots, slotCapacity: staffEditor.slotCapacity, schedulingPriority: staffEditor.schedulingPriority, dailySessionTarget: staffEditor.dailySessionTarget, compensation: staffEditor.compensation }); setStaffEditor(null); setSuccess('Đã lưu hồ sơ, lịch rảnh và mốc cân bằng tải của nhân viên.') }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể lưu hồ sơ vận hành nhân viên.') }
     finally { setStaffSaving(false) }
   }
@@ -571,7 +568,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
         setSuccess(`Đã xóa tài khoản mới tạo ${member.displayName || member.email || member.uid}.`)
       } else if (teamConfirmation.kind === 'reset_pt_workload') {
         const result = await applyDefaultTrainerSchedulingPolicy()
-        setSuccess(`Đã áp dụng mục tiêu 8 ca và giới hạn 10 ca/ngày cho ${result.updated} PT đang hoạt động.`)
+        setSuccess(`Đã áp dụng mốc cân bằng tải 8 ca/ngày cho ${result.updated} PT đang hoạt động. Hệ thống vẫn có thể xếp thêm để đủ lịch học viên.`)
       } else {
         await deleteBranch(teamConfirmation.branch.id)
         setSuccess(`Đã lưu trữ chi nhánh ${teamConfirmation.branch.name}.`)
@@ -671,7 +668,7 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
           <div className="identity-staff-card__head"><span className="identity-staff-card__person"><i>{initials(member.displayName, member.email)}</i><span><strong>{member.displayName || 'Chưa cập nhật tên'}</strong><small>{member.email || member.phoneNumber || 'Chưa cập nhật liên hệ'}</small></span></span><i className={`status-badge ${isSuspended ? 'attention' : 'published'}`}>{isSuspended ? 'Đã khóa' : 'Hoạt động'}</i></div>
           <div className="identity-staff-card__scope"><strong>{positions}</strong><span><MapPin size={13} />{assignedBranches.length ? assignedBranches.join(' · ') : 'Toàn hệ thống'}</span></div>
           <div className="identity-staff-card__metrics"><span><small>PT chính</small><strong>{countManagedClients(member.uid, 'main')}</strong></span><span><small>Phối hợp</small><strong>{countManagedClients(member.uid, 'secondary')}</strong></span><span><small>Dinh dưỡng</small><strong>{countManagedClients(member.uid, 'nutrition')}</strong></span></div>
-          <div className="identity-staff-card__facts"><span><WalletCards size={14} />{employmentTypeLabel(record.employmentType)}{record.employmentType === 'full_time' ? ` · ${employmentLevelLabel(record.employmentLevel)}` : ''}</span><span><ShieldCheck size={14} />{payrollPolicies.find((policy) => policy.id === record.payrollPolicyId)?.name || 'Chưa gán chính sách'}</span><span><CalendarClock size={14} />{Array.isArray(record.availableSlots) && record.availableSlots.length ? `${record.availableSlots.length} khung rảnh` : 'Chưa có lịch rảnh'}</span>{(assignment?.positions.includes('trainer_pt') || member.role === 'trainer' || record.role === 'trainer') && <span><SlidersHorizontal size={14} />Hạng {Number(record.schedulingPriority ?? record.priority ?? 100)} · mục tiêu {Number(record.dailySessionTarget ?? 8)} ca/ngày</span>}</div>
+          <div className="identity-staff-card__facts"><span><WalletCards size={14} />{employmentTypeLabel(record.employmentType)}{record.employmentType === 'full_time' ? ` · ${employmentLevelLabel(record.employmentLevel)}` : ''}</span><span><ShieldCheck size={14} />{payrollPolicies.find((policy) => policy.id === record.payrollPolicyId)?.name || 'Chưa gán chính sách'}</span><span><CalendarClock size={14} />{Array.isArray(record.availableSlots) && record.availableSlots.length ? `${record.availableSlots.length} khung rảnh` : 'Chưa có lịch rảnh'}</span>{(assignment?.positions.includes('trainer_pt') || member.role === 'trainer' || record.role === 'trainer') && <span><SlidersHorizontal size={14} />Hạng {Number(record.schedulingPriority ?? record.priority ?? 100)} · mốc cân tải {Number(record.dailySessionTarget ?? 8)} ca/ngày</span>}</div>
           {canAssignRole && <div className="identity-staff-card__actions">{canEditAccess && <button type="button" className="identity-staff-card__primary" onClick={() => openAccessEditor(member, assignment)}><KeyRound size={15} />Quyền</button>}<button type="button" className="outline-button" onClick={() => openStaffEditor(member)}><CalendarClock size={15} />Hồ sơ</button>{!isSuspended && member.uid !== currentUserUid && <><button type="button" className="outline-button identity-staff-card__archive identity-staff-card__icon-action" aria-label={`Khóa ${member.displayName || member.email || 'nhân viên'}`} title="Khóa tài khoản" onClick={() => void suspendStaff(member)} disabled={savingUid === member.uid}><ShieldCheck size={16} /></button><button type="button" className="outline-button identity-staff-card__delete identity-staff-card__icon-action" aria-label={`Xóa ${member.displayName || member.email || 'nhân viên'}`} title="Xóa tài khoản" onClick={() => void deleteStaff(member)} disabled={savingUid === member.uid}><Trash2 size={16} /></button></>}</div>}
         </article>
       })}{!filteredStaffRows.length && <div className="empty-state"><Users size={30} /><h3>Không tìm thấy nhân viên</h3></div>}</div>
@@ -730,8 +727,8 @@ export default function AdminRolesPage({ users, currentRole, currentUserUid, onR
           <div className="identity-form-grid identity-form-grid--compensation"><label><span>Lương cơ bản / tháng</span><input type="number" min="0" value={staffEditor.compensation.baseSalary} disabled={staffEditor.employmentType === 'collaborator'} onChange={(event) => setStaffEditor((current) => current ? { ...current, compensation: { ...current.compensation, baseSalary: Number(event.target.value) } } : current)} /></label><label><span>Thưởng tháng</span><input type="number" min="0" value={staffEditor.compensation.bonusMonthly} onChange={(event) => setStaffEditor((current) => current ? { ...current, compensation: { ...current.compensation, bonusMonthly: Number(event.target.value) } } : current)} /></label><label><span>Hoa hồng giới thiệu (%)</span><input type="number" min="0" max="10" value={staffEditor.compensation.commissionRate} onChange={(event) => setStaffEditor((current) => current ? { ...current, compensation: { ...current.compensation, commissionRate: Number(event.target.value) } } : current)} /></label><label><span>Sức chứa mỗi ca PT</span><input type="number" min="1" max="4" value={staffEditor.slotCapacity} onChange={(event) => setStaffEditor((current) => current ? { ...current, slotCapacity: Math.max(1, Math.min(4, Number(event.target.value) || 1)) } : current)} /></label></div>
         </section>
         {staffEditor.isTrainer && <section className="identity-form-section identity-scheduling-policy">
-          <header><span><strong>Ưu tiên phân ca PT</strong><small>PT chính thức được lấp đến mục tiêu trước; CTV nhận ca theo lịch đăng ký và thứ hạng.</small></span><button type="button" onClick={() => setStaffEditor((current) => current ? { ...current, dailySessionTarget: 8, dailySessionLimit: 10 } : current)}>Mục tiêu 8 ca</button></header>
-          <div className="identity-form-grid identity-form-grid--scheduling"><label><span>Thứ tự ưu tiên</span><input type="number" min="1" max="999" value={staffEditor.schedulingPriority} onChange={(event) => setStaffEditor((current) => current ? { ...current, schedulingPriority: Math.max(1, Math.min(999, Number(event.target.value) || 1)) } : current)} /><small>Số nhỏ được ưu tiên khi cùng loại nhân sự và cùng tải ca.</small></label><label><span>Mục tiêu ca / ngày</span><input type="number" min="1" max="12" value={staffEditor.dailySessionTarget} onChange={(event) => setStaffEditor((current) => { if (!current) return current; const target = Math.max(1, Math.min(12, Number(event.target.value) || 1)); return { ...current, dailySessionTarget: target, dailySessionLimit: Math.max(target, current.dailySessionLimit) } })} /><small>Ca đôi cùng giờ chỉ tính một ca; mục tiêu không phải giới hạn.</small></label></div>
+          <header><span><strong>Ưu tiên phân ca PT</strong><small>Ưu tiên xếp đủ buổi cho học viên; mốc tải chỉ dùng để phân bổ đều giữa các PT hợp lệ.</small></span><button type="button" onClick={() => setStaffEditor((current) => current ? { ...current, dailySessionTarget: 8 } : current)}>Mốc cân tải 8 ca</button></header>
+          <div className="identity-form-grid identity-form-grid--scheduling"><label><span>Thứ tự ưu tiên</span><input type="number" min="1" max="999" value={staffEditor.schedulingPriority} onChange={(event) => setStaffEditor((current) => current ? { ...current, schedulingPriority: Math.max(1, Math.min(999, Number(event.target.value) || 1)) } : current)} /><small>Số nhỏ được ưu tiên khi cùng loại nhân sự và cùng tải ca.</small></label><label><span>Mốc cân bằng tải / ngày</span><input type="number" min="1" max="12" value={staffEditor.dailySessionTarget} onChange={(event) => setStaffEditor((current) => current ? { ...current, dailySessionTarget: Math.max(1, Math.min(12, Number(event.target.value) || 1)) } : current)} /><small>Ca đôi cùng giờ chỉ tính một ca. Đây là mốc tham chiếu, không phải giới hạn xếp lịch.</small></label></div>
         </section>}
         <section className="identity-staff-availability">
           <header><span><strong>Ma trận thời gian rảnh</strong></span><em>{staffEditor.slots.length} khung đã chọn</em></header>

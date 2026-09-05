@@ -95,8 +95,6 @@ export interface PtScheduleV2Trainer extends Trainer {
   schedulingPriority?: number
   /** Mục tiêu số ca duy nhất trong một ngày. Ca đôi vẫn chỉ tính một ca. */
   dailySessionTarget?: number
-  /** @deprecated Chỉ giữ để đọc dữ liệu cũ; thuật toán không chặn theo trần. */
-  dailySessionLimit?: number
   employmentType?: 'full_time' | 'part_time' | 'collaborator'
   employmentLevel?: 'probation' | 'official' | 'senior'
 }
@@ -121,7 +119,6 @@ export interface PtScheduleTrainerDayLoad {
   date: string
   teachingSlots: number
   target: number
-  limit?: number
   remainingToTarget?: number
   status?: 'under_target' | 'target' | 'over_target'
 }
@@ -139,9 +136,7 @@ export interface PtScheduleTrainerDailyLoad {
   teachingSlots?: number
   sessions?: number
   target?: number
-  limit?: number
   dailySessionTarget?: number
-  dailySessionLimit?: number
   studentSessions?: number
   days?: PtScheduleTrainerDayLoad[]
   status?: 'under_target' | 'target' | 'over_target'
@@ -187,6 +182,8 @@ export interface PtScheduleSwapMove {
 }
 
 export interface PtScheduleOptimizationSummary {
+  objectiveOrder?: string[]
+  loadPolicyVersion?: 'soft-daily-target-v1' | string
   studentCoverage?: PtScheduleStudentCoverage
   /** Fast preflight showing whether a missing buổi is realistically schedulable this week. */
   studentFeasibility?: PtScheduleStudentFeasibility[]
@@ -316,9 +313,7 @@ const conflictLabels: Record<string, string> = {
   NO_AVAILABLE_SLOT: 'Không còn khung giờ rảnh chung giữa học viên và PT.',
   STUDENT_AVAILABILITY_MISSING: 'Học viên chưa có lịch rảnh để xếp tự động.',
   MANUAL_STUDENT_AVAILABILITY_OVERRIDE: 'Có học viên được quản lý xếp tay ngoài lịch rảnh đã đăng ký.',
-  TRAINER_DAILY_TARGET_REACHED: 'Các PT phù hợp đã đạt mục tiêu ca trong ngày.',
-  TRAINER_DAILY_LIMIT_REACHED: 'Các PT phù hợp đã chạm giới hạn ca trong ngày.',
-  TRAINER_DAILY_SESSION_LIMIT_EXCEEDED: 'PT đã vượt giới hạn ca được cấu hình trong ngày.',
+  TRAINER_OVER_BALANCE_TARGET: 'PT đang cao hơn mốc cân bằng tải; đây là lưu ý và không chặn xếp lịch.',
   TRAINER_NOT_ASSIGNED: 'Chưa có PT phù hợp trong phạm vi chi nhánh.',
   BRANCH_CAPACITY_REACHED: 'Chi nhánh đã đủ công suất trong các khung giờ phù hợp.',
   STUDENT_WEEKLY_TARGET_REACHED: 'Học viên đã đủ mục tiêu số buổi của tuần.',

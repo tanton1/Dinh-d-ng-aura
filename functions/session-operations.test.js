@@ -2,7 +2,13 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
-const { autoConfirmOverduePtAttendance, chargeDuePtSessions, createSessionOperationFunctions } = require('./session-operations')
+const {
+  autoConfirmOverduePtAttendance,
+  chargeDuePtSessions,
+  commitAutomationSessionPage,
+  createSessionOperationFunctions,
+  readAutomationSessionPage,
+} = require('./session-operations')
 
 const root = join(__dirname, '..')
 const source = readFileSync(join(__dirname, 'session-operations.js'), 'utf8')
@@ -272,6 +278,56 @@ test('learner receives pairing-first change suggestions and a two-request Aura p
   assert.equal(saved.policyVersion, 'pt-change-cancel-v2')
 })
 
+test('change suggestions keep a valid ninth PT slot and label it as soft-target overload', async () => {
+  const occupied = Object.fromEntries(Array.from({ length: 8 }, (_, index) => [`sessions/load-${index}`, {
+    status: 'scheduled', studentId: `other-${index}`, trainerId: 'trainer-1', contractId: `other-contract-${index}`,
+    branchId: 'branch-1', date: '2026-08-21', hour: index, revision: 0,
+  }]))
+  const state = operationsFor({
+    'settings/scheduleConfig': { complimentaryChangeCancelPerMonth: 2, sessionChangeDeadlineHours: 12 },
+    'sessions/source-session-nine': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-22', hour: 7, revision: 1 },
+    ...occupied,
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 24, usedSessions: 2 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T6-10'] },
+    'trainers/trainer-1': { status: 'active', name: 'PT Chính', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-10'], slotCapacity: 2, dailySessionTarget: 8, schedulingPriority: 1 },
+  })
+
+  const page = await state.getMySessionChangeSuggestions({ data: { sessionId: 'source-session-nine', expectedRevision: 1 } })
+  const candidate = page.suggestions.find((item) => item.date === '2026-08-21' && item.hour === 10)
+  assert.ok(candidate)
+  assert.equal(candidate.dailyLoadBefore, 8)
+  assert.equal(candidate.dailyLoadAfter, 9)
+  assert.equal(candidate.dailyTarget, 8)
+  assert.equal(candidate.overTargetAfter, true)
+  assert.equal(candidate.loadPolicyVersion, 'soft-daily-target-v1')
+})
+
+test('approval allows a ninth PT teaching slot while preserving hard collision checks', async () => {
+  const occupied = Object.fromEntries(Array.from({ length: 8 }, (_, index) => [`sessions/approval-load-${index}`, {
+    status: 'scheduled', studentId: `other-${index}`, trainerId: 'trainer-1', contractId: `other-contract-${index}`,
+    branchId: 'branch-1', date: '2026-08-25', hour: index + 6, revision: 0,
+  }]))
+  const state = operationsFor({
+    'settings/scheduleConfig': { complimentaryChangeCancelPerMonth: 2, sessionChangeDeadlineHours: 12 },
+    'sessionRequests/request-nine': {
+      status: 'pending', type: 'reschedule', sessionId: 'session-nine', studentId: 'student-1', contractId: 'contract-1', requestedBy: 'student',
+      originalDate: '2026-08-22', originalHour: 7, originalSessionRevision: 0, newDate: '2026-08-25', newHour: 14,
+      newTrainerId: 'trainer-1', submittedAtIso: '2026-08-20T00:00:00.000Z', policyMonth: '2026-08',
+    },
+    'sessions/session-nine': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', branchId: 'branch-1', date: '2026-08-22', hour: 7, revision: 0 },
+    ...occupied,
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-08-31', totalSessions: 20, usedSessions: 1 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', isScheduleConfirmed: true, availableSlots: ['T3-14'] },
+    'trainers/trainer-1': { status: 'active', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T3-14'], slotCapacity: 2, dailySessionTarget: 8 },
+  }, async () => ({ uid: 'admin-1' }), { now: () => new Date('2026-08-20T03:00:00.000Z') })
+
+  const result = await state.approveSessionRequest({ data: { requestId: 'request-nine', expectedSessionRevision: 0 } })
+  assert.equal(result.unchanged, false)
+  assert.equal(state.read('sessions/session-nine').date, '2026-08-25')
+  assert.equal(state.read('sessions/session-nine').hour, 14)
+  assert.equal(state.read('sessionRequests/request-nine').status, 'approved')
+})
+
 test('collision checks cover trainer capacity, student double booking, legacy ISO dates, and bounded query overflow', () => {
   assert.match(source, /const DAILY_SESSION_QUERY_LIMIT = 200/)
   assert.match(source, /function dailySessionsQuery/)
@@ -342,7 +398,7 @@ test('attendance uses the session contract link and a deterministic event id', a
   assert.equal(state.paths().filter((path) => path === 'sessionBillingEvents/session-attendance-1').length, 1)
 })
 
-test('automatic charge backfills every elapsed session in the current Vietnam week', async () => {
+test('automatic charge backfills elapsed sessions across week boundaries', async () => {
   const state = fakeDatabase({
     'sessions/monday-due': { status: 'scheduled', studentId: 'student-1', trainerId: 'trainer-1', contractId: 'contract-1', date: '2026-08-24', hour: 8, revision: 0 },
     'sessions/today-due': { status: 'scheduled', studentId: 'student-2', trainerId: 'trainer-1', contractId: 'contract-2', date: '2026-08-28', hour: 17, revision: 0 },
@@ -359,11 +415,74 @@ test('automatic charge backfills every elapsed session in the current Vietnam we
     logger: { info() {}, warn() {} },
   })
   assert.equal(summary.weekStart, '2026-08-24')
-  assert.equal(summary.charged, 2)
+  assert.equal(summary.charged, 3)
   assert.equal(state.read('sessions/monday-due').attendanceStatus, 'pending')
   assert.equal(state.read('sessions/today-due').billingStatus, 'charged')
   assert.equal(state.read('sessions/today-future').billingStatus, undefined)
-  assert.equal(state.read('sessions/previous-week').billingStatus, undefined)
+  assert.equal(state.read('sessions/previous-week').billingStatus, 'charged')
+})
+
+test('automatic session reconciliation uses bounded ordered pages and durable cursors', () => {
+  assert.match(source, /readAutomationSessionPage\(\{ db, jobId: 'ptSessionChargeCatchUp'/)
+  assert.match(source, /orderBy\('date', 'asc'\)\.orderBy\(FieldPath\.documentId\(\), 'asc'\)/)
+  assert.match(source, /systemJobs\/\$\{jobId\}/)
+  assert.match(source, /nextCursor = docs\.length >= pageSize/)
+  assert.match(source, /if \(summary\.failed === 0\) \{[\s\S]*?commitAutomationSessionPage\(catchUp\)/)
+  const reader = source.match(/async function readAutomationSessionPage[\s\S]*?\n}\n\nasync function commitAutomationSessionPage/)?.[0] || ''
+  assert.doesNotMatch(reader, /stateReference\.set/)
+})
+
+test('automation cursor covers more than 2,000 sessions and only advances after an explicit successful commit', async () => {
+  const sessions = Array.from({ length: 2_105 }, (_, index) => ({
+    id: `session-${String(index).padStart(4, '0')}`,
+    date: index < 2_000 ? '2026-08-01' : '2026-08-02',
+  }))
+  const checkpoints = new Map()
+  const documentReference = (path) => ({
+    path,
+    async get() {
+      const value = checkpoints.get(path)
+      return { exists: Boolean(value), data: () => clone(value) }
+    },
+    async set(value) {
+      checkpoints.set(path, { ...(checkpoints.get(path) || {}), ...clone(value) })
+    },
+  })
+  const query = (filters = [], maximum = sessions.length, cursor = null) => ({
+    where(field, operator, value) { return query([...filters, { field, operator, value }], maximum, cursor) },
+    orderBy() { return this },
+    limit(value) { return query(filters, value, cursor) },
+    startAfter(date, id) { return query(filters, maximum, { date, id }) },
+    async get() {
+      const matches = sessions
+        .filter((item) => filters.every((filter) => filter.operator === '<' ? item[filter.field] < filter.value : item[filter.field] >= filter.value))
+        .filter((item) => !cursor || item.date > cursor.date || (item.date === cursor.date && item.id > cursor.id))
+        .slice(0, maximum)
+        .map((item) => ({ id: item.id, data: () => ({ date: item.date }) }))
+      return { docs: matches, size: matches.length, empty: matches.length === 0 }
+    },
+  })
+  const db = {
+    doc: documentReference,
+    collection(name) {
+      assert.equal(name, 'sessions')
+      return query()
+    },
+  }
+
+  const first = await readAutomationSessionPage({ db, jobId: 'large-retry', upperDate: '2026-08-03', limit: 2_000 })
+  assert.equal(first.docs.length, 2_000)
+  assert.deepEqual(first.nextCursor, { date: '2026-08-01', id: 'session-1999' })
+  assert.equal(checkpoints.has('systemJobs/large-retry'), false, 'read alone must not advance the durable cursor')
+
+  const retry = await readAutomationSessionPage({ db, jobId: 'large-retry', upperDate: '2026-08-03', limit: 2_000 })
+  assert.equal(retry.docs[0].id, first.docs[0].id, 'a failed page is retried from the same source record')
+
+  await commitAutomationSessionPage(first)
+  const second = await readAutomationSessionPage({ db, jobId: 'large-retry', upperDate: '2026-08-03', limit: 2_000 })
+  assert.equal(second.docs.length, 105)
+  assert.equal(second.docs[0].id, 'session-2000')
+  assert.equal(second.nextCursor, null)
 })
 
 test('unconfirmed charged attendance becomes present after 48 hours with an explicit audit source', async () => {

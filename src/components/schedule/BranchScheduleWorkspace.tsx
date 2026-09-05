@@ -141,9 +141,9 @@ function normalizedTrainerLoadStatus(value: PtScheduleTrainerDailyLoad['status']
 }
 
 const TRAINER_LOAD_LABELS = {
-  under_target: 'Còn tải',
-  target: 'Đạt mục tiêu',
-  over_target: 'Vượt mục tiêu',
+  under_target: 'Dưới mốc cân tải',
+  target: 'Đạt mốc cân tải',
+  over_target: 'Cao hơn mốc tham chiếu',
 } as const
 
 const STUDENT_AVAILABILITY_CONFLICTS = new Set(['AVAILABILITY_NOT_SUBMITTED', 'OUTSIDE_STUDENT_AVAILABILITY'])
@@ -1256,7 +1256,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           </section>
 
           <details className="branch-schedule__trainer-details">
-            <summary><span><strong>Phân bổ ca PT</strong><small>Chạm để xem tải ca và thứ tự ưu tiên</small></span>{selectedTrainer && <b>{selectedTrainerLoads.reduce((total, load) => total + load.count, 0)} ca tuần <ChevronRight size={15} /></b>}</summary>
+            <summary><span><strong>Phân bổ ca PT</strong><small>Mốc tải chỉ dùng để cân bằng; Aura vẫn ưu tiên xếp đủ buổi học viên</small></span>{selectedTrainer && <b>{selectedTrainerLoads.reduce((total, load) => total + load.count, 0)} ca tuần <ChevronRight size={15} /></b>}</summary>
             <section className="trainer-workload" aria-label="Tải ca huấn luyện viên theo ngày">
               <div className="trainer-workload__rail">
                 {workspace.trainers.map((trainer) => {
@@ -1265,8 +1265,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                   const priority = finiteCount(trainer.schedulingPriority, trainer.priority)
                   const target = loads[0]?.target || trainer.dailySessionTarget || 8
                   return <button type="button" key={trainer.id} className={`trainer-workload__card${trainer.id === selectedTrainerId ? ' is-active' : ''}`} onClick={() => setSelectedTrainerId(trainer.id)}>
-                    <span className="trainer-workload__identity"><strong>{trainer.name} · {total} ca</strong><small>{trainerEmploymentLabel(trainer.employmentType)} · {priority > 0 ? `hạng #${priority}` : 'tự cân tải'} · mục tiêu {target}</small></span>
-                    <span className="trainer-workload__days">{loads.map((load) => <i key={load.day} className={`is-${load.status}`} title={`${DAY_LABELS[load.day] || load.day}: ${load.count}/${load.target} ca · ${TRAINER_LOAD_LABELS[load.status]}`}><small>{load.day}</small><b>{load.count}/{load.target}</b></i>)}</span>
+                    <span className="trainer-workload__identity"><strong>{trainer.name} · {total} ca</strong><small>{trainerEmploymentLabel(trainer.employmentType)} · {priority > 0 ? `hạng #${priority}` : 'tự cân tải'} · mốc cân tải {target}</small></span>
+                    <span className="trainer-workload__days">{loads.map((load) => <i key={load.day} className={`is-${load.status}`} title={`${DAY_LABELS[load.day] || load.day}: ${load.count} ca · mốc ${load.target} · ${TRAINER_LOAD_LABELS[load.status]}`}><small>{load.day}</small><b>{load.count}{load.status === 'over_target' ? ` · mốc ${load.target}` : `/${load.target}`}</b></i>)}</span>
                   </button>
                 })}
               </div>
@@ -1367,7 +1367,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             <div>{trainerAssignmentWarnings.map((row) => <button type="button" key={row.key} onClick={() => { setSelectedTrainerId(row.trainerId); setInspectorSlotId(row.slotId); setCandidateSearch(''); setTab('matrix') }}><AlertTriangle size={16} /><span><strong>{row.studentName}</strong><small>{scheduleSlotLabel(row.slotId, weekDates)} · {row.trainerName}</small></span><ChevronRight size={16} /></button>)}</div>
           </section>}
           <section className="schedule-warning-grid">
-            {workspace.trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').map((trainer) => <article key={trainer.id} className="schedule-warning-trainer is-blocking"><Clock3 /><div><strong>{trainer.name}</strong><span>{trainerEmploymentLabel(trainer.employmentType)} · chưa đăng ký lịch nhận ca nên không được xếp tự động.</span><small>Hạng #{trainer.schedulingPriority || 100} · mục tiêu {trainer.dailySessionTarget || 8} ca/ngày</small></div></article>)}
+            {workspace.trainers.filter((trainer) => trainer.availabilityMode === 'unconfigured').map((trainer) => <article key={trainer.id} className="schedule-warning-trainer is-blocking"><Clock3 /><div><strong>{trainer.name}</strong><span>{trainerEmploymentLabel(trainer.employmentType)} · chưa đăng ký lịch nhận ca nên không được xếp tự động.</span><small>Hạng #{trainer.schedulingPriority || 100} · mốc cân tải {trainer.dailySessionTarget || 8} ca/ngày</small></div></article>)}
             {warningProfiles.map(({ student, missingSessions: missing, trainerNames, contract, scheduledEntries, reasonCodes, suggestedSlots, hasConfirmedAvailability, offState }) => {
               const expanded = expandedWarningStudentId === student.id
               const quota = contractQuota(contract)

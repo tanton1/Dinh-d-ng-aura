@@ -14,8 +14,10 @@ for (const width of [360, 390, 430]) {
 
     await localNavigation.getByRole('button', { name: 'Hợp đồng' }).click()
     await expect(page.getByRole('heading', { name: 'Hợp đồng và quyền lợi' })).toBeVisible()
+    const contractSummary = page.locator('.student360-contract-live-summary')
+    await expect(contractSummary).toBeVisible()
     const dockBox = await localNavigation.boundingBox()
-    const lastCardBox = await page.locator('.student360-contract-grid .student360-card').last().boundingBox()
+    const lastCardBox = await contractSummary.boundingBox()
     expect(dockBox).not.toBeNull()
     expect(lastCardBox).not.toBeNull()
     expect(lastCardBox!.x + lastCardBox!.width).toBeLessThanOrEqual(width)

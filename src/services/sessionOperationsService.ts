@@ -161,8 +161,13 @@ export interface SessionChangeSuggestion {
   isAssignedTrainer: boolean
   isCurrentTrainer: boolean
   employmentType: 'full_time' | 'part_time' | 'collaborator'
+  /** Compatibility value: load after removing the source session and before opening the candidate slot. */
   dailyLoad: number
+  dailyLoadBefore?: number
+  dailyLoadAfter?: number
   dailyTarget: number
+  overTargetAfter?: boolean
+  loadPolicyVersion?: 'soft-daily-target-v1' | string
   createsThreeConsecutiveDays: boolean
   rank: number
 }

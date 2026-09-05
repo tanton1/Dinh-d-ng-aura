@@ -19,11 +19,11 @@ export default defineConfig({
   use: {
     baseURL: e2eBaseUrl,
     trace: 'on-first-retry',
-    launchOptions: localChromeExecutable ? { executablePath: localChromeExecutable } : undefined,
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    { name: 'mobile-chromium', use: { ...devices['Pixel 7'] } },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'], launchOptions: localChromeExecutable ? { executablePath: localChromeExecutable } : undefined } },
+    { name: 'mobile-chromium', use: { ...devices['Pixel 7'], launchOptions: localChromeExecutable ? { executablePath: localChromeExecutable } : undefined } },
+    { name: 'mobile-webkit', use: { ...devices['iPhone 14'] } },
   ],
   webServer: {
     command: previewCommand,

@@ -122,6 +122,17 @@
   .student-availability-page > .student-schedule-message { width: auto; margin-inline: 10px; }
   .student-availability-confirm { align-items: end; padding: 10px; }
   .student-availability-confirm > section { padding: 19px 16px calc(18px + env(safe-area-inset-bottom, 0px)); border-radius: 24px 24px 18px 18px; }
+
+  .student-availability-page--v4 > .student-availability-card { overflow: visible; }
+  .student-availability-page--v4 .student-availability-card > footer {
+    position: sticky;
+    z-index: 8;
+    bottom: calc(var(--shell-mobile-dock-height, 80px) + env(safe-area-inset-bottom, 0px) + 8px);
+    border-radius: 14px;
+    background: rgba(255,255,255,.97);
+    box-shadow: 0 -8px 24px rgba(25,22,26,.09);
+    backdrop-filter: blur(14px);
+  }
 }
 
 @media (max-width: 390px) {

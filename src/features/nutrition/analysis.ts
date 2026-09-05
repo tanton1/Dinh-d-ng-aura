@@ -121,6 +121,15 @@ export function nutritionEvidenceLabel(item: AiFoodItem) {
   return 'Nguồn số: AI ước tính · cần bạn chấp nhận'
 }
 
+export function nutritionConfidenceLabel(item: AiFoodItem) {
+  if (item.confidenceValue !== undefined && Number.isFinite(item.confidenceValue)) {
+    return `${Math.round(Math.max(0, Math.min(1, item.confidenceValue)) * 100)}%`
+  }
+  if (item.confidence === 'low') return 'Cần kiểm tra khẩu phần'
+  if (item.catalogMatch || item.calculationSource === 'database') return 'Có đối chiếu thư viện'
+  return 'Ước tính từ ảnh'
+}
+
 export function normalizeAnalysis(response: NutritionImageAnalysisResponse) {
   const analysis = response.analysis
   if (!analysis?.isFood) return null

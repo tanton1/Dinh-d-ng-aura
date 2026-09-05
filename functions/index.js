@@ -1,7 +1,7 @@
 const { initializeApp } = require('firebase-admin/app')
 const { getAuth } = require('firebase-admin/auth')
 const { getDatabase } = require('firebase-admin/database')
-const { FieldValue, getFirestore } = require('firebase-admin/firestore')
+const { FieldPath, FieldValue, getFirestore } = require('firebase-admin/firestore')
 const { getMessaging } = require('firebase-admin/messaging')
 const { getStorage } = require('firebase-admin/storage')
 const { HttpsError, onCall: firebaseOnCall } = require('firebase-functions/v2/https')
@@ -35,6 +35,7 @@ const { createContractRenewalFunctions } = require('./contract-renewals')
 const { createLoyaltyFunctions, reconcileAttendance: reconcileLoyaltyAttendance, reconcileAttendanceMissions, reconcileContractSpend: reconcileLoyaltyContractSpend, reconcileMemberReferral, reconcileNutritionReview, reconcilePendingMemberReferrals, vestPendingSources } = require('./loyalty')
 const { syncContractUsageProjection } = require('./contract-usage')
 const { createStudent360Functions, reconcileStudent360ProjectionBatch, syncStudent360ProjectionFromEvent } = require('./student-360')
+const { loggedMealSlots } = require('./meal-reminder-policy')
 
 const app = initializeApp()
 // Keep callable writes on the same named database used by the production web app.
@@ -963,17 +964,34 @@ function selectScheduledTemplate(templates, profile, category, slot) {
     || categoryMatches[0]
 }
 
-async function hasMealLoggedForDate(userId, dateString) {
+async function mealSlotsLoggedForDate(userId, dateString) {
   try {
     const snapshot = await db.collection(`users/${userId}/mealLogs`)
       .where('date', '==', dateString)
-      .limit(1)
+      .limit(100)
       .get()
-    return !snapshot.empty
+    return loggedMealSlots(snapshot.docs)
   } catch (error) {
     logger.warn('Unable to check meal log before scheduled reminder', { userId, code: error?.code || 'unknown' })
-    return false
+    return new Set()
   }
+}
+
+async function listScheduledReminderUsers(pageSize = 500, maximum = 10_000) {
+  const documents = []
+  let cursor = null
+  while (documents.length < maximum) {
+    const remaining = maximum - documents.length
+    const requested = Math.min(pageSize, remaining)
+    let query = db.collection('users').orderBy(FieldPath.documentId()).limit(requested)
+    if (cursor) query = query.startAfter(cursor)
+    const snapshot = await query.get()
+    documents.push(...snapshot.docs)
+    if (snapshot.size < requested) break
+    cursor = snapshot.docs[snapshot.docs.length - 1]
+  }
+  if (documents.length >= maximum) logger.warn('Scheduled reminder user scan reached its bounded safety cap', { maximum })
+  return documents
 }
 
 async function countScheduledNotificationsForDate(userId, dateString) {
@@ -1088,10 +1106,10 @@ exports.dispatchScheduledReminders = onSchedule({
   memory: '256MiB',
   maxInstances: 1,
 }, async () => {
-  const [settingsSnapshot, templatesSnapshot, usersSnapshot] = await Promise.all([
+  const [settingsSnapshot, templatesSnapshot, userDocuments] = await Promise.all([
     db.doc('system/push_settings').get(),
     db.collection('system/push_templates/templates').get(),
-    db.collection('users').limit(2000).get(),
+    listScheduledReminderUsers(),
   ])
   const settings = normalizedReminderSettings(settingsSnapshot.exists ? settingsSnapshot.data() : {})
   if (!settings.enabled || !settings.automationEnabled) {
@@ -1106,10 +1124,10 @@ exports.dispatchScheduledReminders = onSchedule({
     ['dinner', 'Bữa tối', 'dinner'],
   ]
   const deliveries = []
-  const userDocuments = usersSnapshot.docs.filter((snapshot) => snapshot.data()?.disabled !== true)
+  const enabledUserDocuments = userDocuments.filter((snapshot) => snapshot.data()?.disabled !== true)
 
-  for (let offset = 0; offset < userDocuments.length; offset += 20) {
-    const batch = await Promise.all(userDocuments.slice(offset, offset + 20).map(async (snapshot) => {
+  for (let offset = 0; offset < enabledUserDocuments.length; offset += 20) {
+    const batch = await Promise.all(enabledUserDocuments.slice(offset, offset + 20).map(async (snapshot) => {
       const userId = snapshot.id
       const profile = snapshot.data() || {}
       const preferences = profile.notificationSettings && typeof profile.notificationSettings === 'object'
@@ -1129,8 +1147,11 @@ exports.dispatchScheduledReminders = onSchedule({
       const maxDaily = Math.min(8, Math.max(1, Number.isFinite(preferences.maxDaily) ? Math.round(preferences.maxDaily) : settings.maxDailyPerUser))
       const candidates = []
       if (settings.autoMealReminders) {
-        const dueDefinitions = definitions.filter(([slot]) => isReminderWindow(clock.currentMinutes, reminderTimes[slot]))
-        if (dueDefinitions.length && await hasMealLoggedForDate(userId, clock.dateString)) return []
+        let dueDefinitions = definitions.filter(([slot]) => isReminderWindow(clock.currentMinutes, reminderTimes[slot]))
+        if (dueDefinitions.length) {
+          const loggedSlots = await mealSlotsLoggedForDate(userId, clock.dateString)
+          dueDefinitions = dueDefinitions.filter(([slot]) => !loggedSlots.has(slot))
+        }
         const alreadyScheduled = dueDefinitions.length
           ? await countScheduledNotificationsForDate(userId, clock.dateString)
           : 0

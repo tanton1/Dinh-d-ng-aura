@@ -103,7 +103,7 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
         <form onSubmit={handleSubmit}>
           <div className="student-policy-segment" aria-label="Loại yêu cầu"><button type="button" className={type === 'cancel' ? 'active' : ''} onClick={() => setType('cancel')}>Hủy buổi</button><button type="button" className={type === 'reschedule' ? 'active' : ''} onClick={() => setType('reschedule')}>Đổi lịch</button></div>
           {type === 'reschedule' && <section className="student-change-suggestions" aria-busy={isLoadingSuggestions}>
-            <header><div><strong>Ca Aura đề xuất</strong><span>Ưu tiên ca ghép 1/2, PT phụ trách và PT chính thức còn thiếu mục tiêu.</span></div><button type="button" onClick={() => void loadSuggestions()} disabled={isLoadingSuggestions} aria-label="Tải lại ca gợi ý"><RefreshCw className={isLoadingSuggestions ? 'is-spinning' : ''} size={17} /></button></header>
+            <header><div><strong>Ca Aura đề xuất</strong><span>Ưu tiên xếp đủ buổi, ghép ca phù hợp và cân tải giữa các PT hợp lệ.</span></div><button type="button" onClick={() => void loadSuggestions()} disabled={isLoadingSuggestions} aria-label="Tải lại ca gợi ý"><RefreshCw className={isLoadingSuggestions ? 'is-spinning' : ''} size={17} /></button></header>
             {isLoadingSuggestions && !suggestionPage && <div className="student-change-suggestions__empty"><RefreshCw className="is-spinning" /> Đang tìm ca phù hợp…</div>}
             {!isLoadingSuggestions && suggestionPage && !suggestionPage.suggestions.length && <div className="student-change-suggestions__empty"><CircleAlert /> Chưa có ca trống khớp lịch rảnh trong 21 ngày tới. Aura sẽ hỗ trợ xếp thủ công.</div>}
             <div className="student-change-suggestions__rail">
@@ -111,9 +111,10 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
                 <span className="student-change-suggestion__check">{selectedCandidateId === candidate.candidateId ? <Check size={14} /> : candidate.rank}</span>
                 <strong>{formatDate(candidate.date)} · {String(candidate.hour).padStart(2, '0')}:00</strong>
                 <span>{candidate.trainerName}</span>
-                <small><UsersRound size={13} /> {candidate.occupancy}/{candidate.capacity} học viên · {candidate.dailyLoad}/{candidate.dailyTarget} ca</small>
+                <small><UsersRound size={13} /> {candidate.occupancy}/{candidate.capacity} học viên · dự kiến {candidate.dailyLoadAfter ?? (candidate.dailyLoad + Number(!candidate.pairsExistingSession))} ca · mốc cân tải {candidate.dailyTarget}</small>
                 <em>{candidate.pairsExistingSession ? 'Ưu tiên ghép ca' : candidate.isCurrentTrainer ? 'PT hiện tại' : candidate.isAssignedTrainer ? 'PT phụ trách' : 'PT chính thức'}</em>
                 {candidate.createsThreeConsecutiveDays && <i>3 ngày liên tiếp</i>}
+                {(candidate.overTargetAfter ?? ((candidate.dailyLoadAfter ?? candidate.dailyLoad) > candidate.dailyTarget)) && <i>Tải cao hơn mốc tham chiếu</i>}
               </button>)}
             </div>
           </section>}

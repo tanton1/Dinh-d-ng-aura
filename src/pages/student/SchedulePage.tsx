@@ -33,6 +33,7 @@ import type { ViewId } from '../../types'
 import '../../styles-coaching.css'
 import './StudentSchedulePage.css'
 import { useAuraUiSurface } from '../../features/ui-rollout/AuraUiRolloutContext'
+import { vietnamBusinessDayCode } from '../../utils/dateUtils'
 
 const DEFAULT_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 const DEFAULT_HOURS = [6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20]
@@ -119,14 +120,8 @@ function startOfWeek(date: Date) {
   return addDays(date, weekday === 0 ? -6 : 1 - weekday)
 }
 
-function dayCode(dateValue: string) {
-  const date = new Date(`${dateValue}T00:00:00+07:00`)
-  const weekday = date.getDay()
-  return weekday === 0 ? 'CN' : `T${weekday + 1}`
-}
-
 function slotIdForSession(session: StudentPtSession) {
-  return session.hour === null ? '' : `${dayCode(session.date)}-${session.hour}`
+  return session.hour === null ? '' : `${vietnamBusinessDayCode(session.date)}-${session.hour}`
 }
 
 function formatSessionDate(value: string) {

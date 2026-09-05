@@ -502,6 +502,11 @@ function AuraApplication() {
     // a valid user continue to the requested workspace after authentication,
     // instead of being silently sent to Home before sign-in completes.
     if (backendMode === 'firebase' && !user) return
+    // AuthContext intentionally exposes a provisional student profile while
+    // Firebase claims and the canonical access context are still resolving.
+    // Keep the requested deep-link intact until that authorization result is
+    // final; otherwise a valid Staff/Admin URL can be redirected to Home.
+    if (backendMode === 'firebase' && user && !authzReady) return
     if (role === 'shipper' && view !== 'delivery') {
       goTo('delivery')
       return

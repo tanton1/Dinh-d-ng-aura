@@ -114,17 +114,10 @@ function normalizedTrainerSchedulingPolicy(value = {}, fallback = {}) {
     1,
     12,
   )
-  const dailySessionLimit = integer(
-    value.dailySessionLimit,
-    fallback.dailySessionLimit ?? 10,
-    'Giới hạn ca mỗi ngày',
-    1,
-    16,
-  )
-  if (dailySessionLimit < dailySessionTarget) {
-    throw new HttpsError('invalid-argument', 'Giới hạn ca mỗi ngày không được thấp hơn mục tiêu ca.')
-  }
-  return { schedulingPriority, dailySessionTarget, dailySessionLimit }
+  // This is deliberately a soft balancing target. Legacy
+  // `dailySessionLimit` values are accepted in input for compatibility but
+  // never normalized, persisted, or enforced as a scheduling ceiling.
+  return { schedulingPriority, dailySessionTarget }
 }
 
 function staffPayrollProfile(employmentType, employmentLevel) {
@@ -776,14 +769,14 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
           id: uid, name: displayName, email, phone: phoneNumber,
           role: claims.role, branchId: branchIds[0] || '', status: 'active',
           positions, branchIds, employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: [], slotCapacity: 2,
-          schedulingPriority: 100, priority: 100, dailySessionTarget: 8, dailySessionLimit: 10, baseSalary: 0, bonusMonthly: 0,
+          schedulingPriority: 100, priority: 100, dailySessionTarget: 8, baseSalary: 0, bonusMonthly: 0,
           commissionPerSession: 0, commissionRate: 0,
           createdBy: actor.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
         if (positions.includes('trainer_pt')) transaction.create(trainerRef, {
           id: uid, name: displayName, email, phone: phoneNumber,
           branchId: branchIds[0] || '', status: 'active', employmentType, employmentLevel, payrollProfile, payrollPolicyId, availableSlots: [], slotCapacity: 2,
-          schedulingPriority: 100, priority: 100, dailySessionTarget: 8, dailySessionLimit: 10,
+          schedulingPriority: 100, priority: 100, dailySessionTarget: 8,
           baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0,
           createdBy: actor.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         })
@@ -954,7 +947,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
             id: targetUid, name: profileName, email: profileEmail, phone: profilePhone,
             role: nextClaims.role, branchId: branchIds[0] || '', positions, branchIds,
             status: 'active', updatedBy: actor.uid,
-            ...(!currentStaff.exists ? { employmentType: 'full_time', availableSlots: [], slotCapacity: 2, schedulingPriority: 100, priority: 100, dailySessionTarget: 8, dailySessionLimit: 10, baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0, createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
+            ...(!currentStaff.exists ? { employmentType: 'full_time', availableSlots: [], slotCapacity: 2, schedulingPriority: 100, priority: 100, dailySessionTarget: 8, baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0, createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
             updatedAt: FieldValue.serverTimestamp(),
           }, { merge: true })
         } else if (currentStaff.exists) {
@@ -964,7 +957,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
           transaction.set(trainerReference, {
             id: targetUid, name: profileName, email: profileEmail, phone: profilePhone,
             branchId: branchIds[0] || '', positions, branchIds, status: 'active', updatedBy: actor.uid,
-            ...(!currentTrainer.exists ? { employmentType: 'full_time', availableSlots: [], slotCapacity: 2, schedulingPriority: 100, priority: 100, dailySessionTarget: 8, dailySessionLimit: 10, baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0, createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
+            ...(!currentTrainer.exists ? { employmentType: 'full_time', availableSlots: [], slotCapacity: 2, schedulingPriority: 100, priority: 100, dailySessionTarget: 8, baseSalary: 0, bonusMonthly: 0, commissionPerSession: 0, commissionRate: 0, createdBy: actor.uid, createdAt: FieldValue.serverTimestamp() } : {}),
             updatedAt: FieldValue.serverTimestamp(),
           }, { merge: true })
         } else if (currentTrainer.exists) {
@@ -1284,9 +1277,6 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
         dailySessionTarget: Number.isInteger(previousStaff.dailySessionTarget ?? previousTrainer.dailySessionTarget)
           ? Number(previousStaff.dailySessionTarget ?? previousTrainer.dailySessionTarget)
           : 8,
-        dailySessionLimit: Number.isInteger(previousStaff.dailySessionLimit ?? previousTrainer.dailySessionLimit)
-          ? Number(previousStaff.dailySessionLimit ?? previousTrainer.dailySessionLimit)
-          : 10,
       }
       const schedulingProjection = {
         ...schedulingPolicy,
@@ -1334,9 +1324,8 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
     const schedulingPolicy = normalizedTrainerSchedulingPolicy({
       schedulingPriority: request.data?.schedulingPriority ?? 100,
       dailySessionTarget: request.data?.dailySessionTarget ?? 8,
-      dailySessionLimit: request.data?.dailySessionLimit ?? 10,
     })
-    // This action intentionally resets the workload target/limit for every
+    // This action intentionally resets the soft workload target for every
     // active PT in the actor's scope. Individual priority remains untouched
     // unless the caller explicitly supplies a priority.
     const activeTrainerSnapshot = await db.collection('trainers').where('status', '==', 'active').limit(140).get()
@@ -1345,7 +1334,7 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       const branchId = snapshot.data()?.branchId
       return typeof branchId === 'string' && actor.branchIds.includes(branchId)
     })
-    if (!scopedTrainers.length) return { updated: 0, dailySessionTarget: schedulingPolicy.dailySessionTarget, dailySessionLimit: schedulingPolicy.dailySessionLimit }
+    if (!scopedTrainers.length) return { updated: 0, dailySessionTarget: schedulingPolicy.dailySessionTarget }
     const batch = db.batch()
     const updatedTrainerIds = []
     scopedTrainers.forEach((snapshot) => {
@@ -1356,7 +1345,6 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
         schedulingPriority: currentPriority,
         priority: currentPriority,
         dailySessionTarget: schedulingPolicy.dailySessionTarget,
-        dailySessionLimit: schedulingPolicy.dailySessionLimit,
         updatedBy: actor.uid,
         updatedAt: FieldValue.serverTimestamp(),
       }
@@ -1368,11 +1356,11 @@ function createIdentityAccessFunctions({ db, auth, onCall, logger }) {
       action: 'trainer_scheduling_policy.bulk_default_applied',
       actorUid: actor.uid,
       targetUids: updatedTrainerIds,
-      after: { dailySessionTarget: schedulingPolicy.dailySessionTarget, dailySessionLimit: schedulingPolicy.dailySessionLimit },
+      after: { dailySessionTarget: schedulingPolicy.dailySessionTarget, enforcement: 'soft_balance_target' },
       createdAt: FieldValue.serverTimestamp(),
     })
     await batch.commit()
-    return { updated: updatedTrainerIds.length, dailySessionTarget: schedulingPolicy.dailySessionTarget, dailySessionLimit: schedulingPolicy.dailySessionLimit }
+    return { updated: updatedTrainerIds.length, dailySessionTarget: schedulingPolicy.dailySessionTarget }
   })
 
   return {

@@ -8,13 +8,21 @@ test.describe('Aura mobile shell behavior', () => {
   test('hides the dock while scrolling down and restores it when scrolling up', async ({ page }) => {
     await page.goto('/#/home')
     const dock = page.locator('.student-mobile-nav')
+    await expect(page.locator('.aura-today-flow')).toBeVisible()
     await expect(dock).toBeVisible()
 
-    await page.evaluate(() => window.scrollTo(0, Math.min(700, document.documentElement.scrollHeight - innerHeight)))
+    await page.evaluate(async () => {
+      window.scrollTo(0, Math.min(700, document.documentElement.scrollHeight - innerHeight))
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    })
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(56)
     await expect(dock).toHaveClass(/is-scroll-hidden/)
     await expect(dock).toHaveCSS('pointer-events', 'none')
 
-    await page.evaluate(() => window.scrollBy(0, -120))
+    await page.evaluate(async () => {
+      window.scrollBy(0, -120)
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    })
     await expect(dock).not.toHaveClass(/is-scroll-hidden/)
     await expect(dock).toHaveCSS('pointer-events', 'auto')
   })

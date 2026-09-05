@@ -232,7 +232,6 @@ export interface StaffOperationsProfileInput {
   slotCapacity: number
   schedulingPriority: number
   dailySessionTarget: number
-  dailySessionLimit: number
   employmentType: 'full_time' | 'part_time' | 'collaborator'
   employmentLevel: 'probation' | 'official' | 'senior'
   payrollPolicyId: string
@@ -251,11 +250,11 @@ export async function saveStaffOperationsProfile(input: StaffOperationsProfileIn
 
 export async function applyDefaultTrainerSchedulingPolicy() {
   const callable = httpsCallable<
-    { dailySessionTarget: number; dailySessionLimit: number },
-    { updated: number; dailySessionTarget: number; dailySessionLimit: number }
+    { dailySessionTarget: number },
+    { updated: number; dailySessionTarget: number }
   >(requireFunctions(), 'applyDefaultTrainerSchedulingPolicy', { timeout: 30_000 })
   try {
-    return (await callable({ dailySessionTarget: 8, dailySessionLimit: 10 })).data
+    return (await callable({ dailySessionTarget: 8 })).data
   } catch (error) {
     throw presentInviteError(error)
   }

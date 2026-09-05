@@ -55,7 +55,7 @@ export async function listStudent360Directory(input: {
   pageSize?: number
 } = {}) {
   try {
-    return await callStudent360Read<typeof input, { schemaVersion: 1; rows: Student360DirectoryItem[]; hasMore: boolean; nextCursor: string | null; totalMatched: number }>(
+    return await callStudent360Read<typeof input, { schemaVersion: 1; rows: Student360DirectoryItem[]; hasMore: boolean; nextCursor: string | null; totalMatched: number | null; scanned: number; truncated: boolean }>(
       'listStudent360Directory',
       input,
     )

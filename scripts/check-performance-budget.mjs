@@ -19,7 +19,7 @@ const budgets = {
   adminDashboardCssGzip: 10_000,
   courseDetailJsGzip: 15_000,
   courseRuntimeJsGzip: 56_000,
-  studentDetailJsGzip: 20_000,
+  student360JsGzip: 20_000,
   schedulerWorkspaceJsGzip: 29_000,
 }
 
@@ -57,7 +57,7 @@ function assertWithinBudget(label, asset, budget) {
   console.log(`✓ ${label}: ${formatBytes(asset.bytes)} / ${formatBytes(budget)}`)
 }
 
-const [entryCss, entryJs, firebaseAuthVendor, firebaseFirestoreVendor, adminDashboardJs, adminDashboardCss, courseDetailJs, courseRuntimeJs, studentDetailJs, schedulerWorkspaceJs, splashStats, html, builtHtml, appSource, onboardingSource] = await Promise.all([
+const [entryCss, entryJs, firebaseAuthVendor, firebaseFirestoreVendor, adminDashboardJs, adminDashboardCss, courseDetailJs, courseRuntimeJs, student360Js, schedulerWorkspaceJs, splashStats, html, builtHtml, appSource, onboardingSource] = await Promise.all([
   largestMatchingAsset(/^index-[\w-]+\.css$/),
   largestMatchingAsset(/^index-[\w-]+\.js$/),
   largestMatchingAsset(/^vendor-firebase-auth-[\w-]+\.js$/),
@@ -66,7 +66,7 @@ const [entryCss, entryJs, firebaseAuthVendor, firebaseFirestoreVendor, adminDash
   gzipMatchingAsset(/^AdminDashboard-[\w-]+\.css$/),
   gzipMatchingAsset(/^CourseDetailPage-[\w-]+\.js$/),
   gzipMatchingAsset(/^CourseLessonRuntime-[\w-]+\.js$/),
-  gzipMatchingAsset(/^StudentDetail-[\w-]+\.js$/),
+  gzipMatchingAsset(/^Student360Page-[\w-]+\.js$/),
   gzipMatchingAsset(/^SchedulerWrapper-[\w-]+\.js$/),
   stat(path.join(rootDir, 'public', 'aura-onboarding.webp')),
   readFile(path.join(rootDir, 'index.html'), 'utf8'),
@@ -83,7 +83,7 @@ assertWithinBudget('Admin Dashboard JS gzip', adminDashboardJs, budgets.adminDas
 assertWithinBudget('Admin Dashboard CSS gzip', adminDashboardCss, budgets.adminDashboardCssGzip)
 assertWithinBudget('Trang đọc khóa học JS gzip', courseDetailJs, budgets.courseDetailJsGzip)
 assertWithinBudget('Runtime media khóa học JS gzip', courseRuntimeJs, budgets.courseRuntimeJsGzip)
-assertWithinBudget('Chi tiết học viên JS gzip', studentDetailJs, budgets.studentDetailJsGzip)
+assertWithinBudget('Học viên 360 JS gzip', student360Js, budgets.student360JsGzip)
 assertWithinBudget('Workspace xếp lịch JS gzip', schedulerWorkspaceJs, budgets.schedulerWorkspaceJsGzip)
 assertWithinBudget('Ảnh splash WebP', { file: 'aura-onboarding.webp', bytes: splashStats.size }, budgets.splashImage)
 

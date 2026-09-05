@@ -21,21 +21,19 @@ const sharedIdentityContract = JSON.parse(readFileSync(join(root, 'shared', 'ide
 const functionsIdentityContract = JSON.parse(readFileSync(join(__dirname, 'identity-contract.json'), 'utf8'))
 const { normalizedTrainerSchedulingPolicy } = require('./identity-access')
 
-test('trainer scheduling policy defaults and validates the daily workload ceiling', () => {
+test('trainer scheduling policy exposes a soft daily workload target and ignores the legacy ceiling', () => {
   assert.deepEqual(normalizedTrainerSchedulingPolicy(), {
     schedulingPriority: 100,
     dailySessionTarget: 8,
-    dailySessionLimit: 10,
   })
   assert.deepEqual(normalizedTrainerSchedulingPolicy({}, { priority: 7, dailySessionTarget: 6, dailySessionLimit: 9 }), {
     schedulingPriority: 7,
     dailySessionTarget: 6,
-    dailySessionLimit: 9,
   })
-  assert.throws(
-    () => normalizedTrainerSchedulingPolicy({ schedulingPriority: 1, dailySessionTarget: 10, dailySessionLimit: 8 }),
-    /không được thấp hơn mục tiêu/,
-  )
+  assert.deepEqual(normalizedTrainerSchedulingPolicy({ schedulingPriority: 1, dailySessionTarget: 10, dailySessionLimit: 8 }), {
+    schedulingPriority: 1,
+    dailySessionTarget: 10,
+  })
   assert.match(functionsIndex, /exports\.applyDefaultTrainerSchedulingPolicy = identityAccessFunctions\.applyDefaultTrainerSchedulingPolicy/)
   assert.match(identity, /trainer_scheduling_policy\.bulk_default_applied/)
   assert.match(identity, /batch\.set\(db\.doc\(`staff\/\$\{snapshot\.id\}`\)/)

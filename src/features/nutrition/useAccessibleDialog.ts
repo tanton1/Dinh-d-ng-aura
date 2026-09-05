@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 
 /**
  * Keeps modal focus inside the active dialog and restores the opener on close.
@@ -9,7 +9,7 @@ export function useAccessibleDialog(onClose: () => void) {
   const closeRef = useRef(onClose)
   closeRef.current = onClose
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = dialogRef.current
     if (!dialog) return
     const previousActive = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -19,7 +19,10 @@ export function useAccessibleDialog(onClose: () => void) {
     const focusables = () => [...dialog.querySelectorAll<HTMLElement>(focusableSelector)]
       .filter((element) => !element.hidden && element.offsetParent !== null && element.tabIndex >= 0)
     const initialFocus = dialog.querySelector<HTMLElement>('[data-dialog-autofocus]') ?? focusables()[0]
-    window.requestAnimationFrame(() => initialFocus?.focus())
+    initialFocus?.focus({ preventScroll: true })
+    const focusFrame = window.requestAnimationFrame(() => {
+      if (!dialog.contains(document.activeElement)) initialFocus?.focus({ preventScroll: true })
+    })
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -45,6 +48,7 @@ export function useAccessibleDialog(onClose: () => void) {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => {
+      window.cancelAnimationFrame(focusFrame)
       document.removeEventListener('keydown', onKeyDown)
       document.body.style.overflow = previousOverflow
       previousActive?.focus()
