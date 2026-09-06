@@ -99,6 +99,8 @@ export interface NutritionPlannedMeal {
   description?: string
   calories: number
   protein: number
+  carbs?: number
+  fat?: number
   prepMinutes?: number
   image?: string
   rationale?: string

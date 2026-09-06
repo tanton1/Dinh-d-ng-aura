@@ -180,6 +180,10 @@ export interface NutritionPageProps {
 
 export interface MealLog {
   id: string
+  /** Stable library reference used to reconcile a planned meal with its diary record. */
+  catalogId?: string
+  /** Exact weekly-plan meal that produced this diary entry. */
+  plannedMealId?: string
   date: string
   type: NutritionMealDraft['mealType']
   label: string

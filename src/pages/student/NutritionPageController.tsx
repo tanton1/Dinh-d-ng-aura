@@ -9,7 +9,7 @@ import {
   resolveDailyNutritionTargets,
 } from '../../features/nutrition/dailyNutritionTargets'
 import NutritionGroupIcon from '../../components/NutritionGroupIcon'
-import MealPlanPage, { type Recipe as MealPlanRecipe } from './MealPlanPage'
+import ConnectedMealPlanPage from './ConnectedMealPlanPage'
 import NutritionWorkspace, {
   NutritionSectionNav,
   type AuraAssistantImageAttachment,
@@ -410,6 +410,8 @@ function loadPersistedMeals(storageKey: string, fallback: MealLog[]) {
       const tone = validTones.has(item.tone as MealLog['tone']) ? item.tone as MealLog['tone'] : 'green'
       return {
         id: item.id,
+        catalogId: typeof item.catalogId === 'string' ? item.catalogId : undefined,
+        plannedMealId: typeof item.plannedMealId === 'string' ? item.plannedMealId : undefined,
         date: typeof item.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.date) ? item.date : toLocalDateKey(new Date()),
         type,
         label: typeof item.label === 'string' ? item.label : 'Bữa ăn',
@@ -1067,6 +1069,12 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const [selectedFood, setSelectedFood] = useState<NutritionFoodCatalogItem | null>(null)
   const [foodDetailReturnSection, setFoodDetailReturnSection] = useState<'catalog' | 'plan' | 'menu'>('catalog')
   const [pendingFood, setPendingFood] = useState<NutritionFoodCatalogItem | null>(null)
+  const [diaryCatalogDefaults, setDiaryCatalogDefaults] = useState<{
+    date: string
+    type: NutritionMealDraft['mealType']
+    time: string
+    plannedMealId?: string
+  } | null>(null)
   const [planCatalogAction, setPlanCatalogAction] = useState<{
     action: 'add' | 'replace'
     dayId: string
@@ -1281,6 +1289,8 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     description: meal.description || `${formatNumber(meal.calories)} kcal · ${formatNumber(meal.protein)}g đạm`,
     calories: meal.calories,
     protein: meal.protein,
+    carbs: meal.carbs,
+    fat: meal.fat,
     image: meal.image,
     rationale: meal.rationale,
     source: meal.source,
@@ -1296,6 +1306,8 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     description: meal.description || `${formatNumber(meal.calories)} kcal · ${formatNumber(meal.protein)}g đạm`,
     calories: meal.calories,
     protein: meal.protein,
+    carbs: meal.carbs,
+    fat: meal.fat,
     image: meal.image,
     rationale: meal.rationale,
     source: meal.source,
@@ -1315,6 +1327,10 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }))) : []
   const workspacePlannedMeals = nutritionPlan ? cloudPlannedMeals : isDemo ? demoPlannedMeals : []
   const workspaceMenuMeals = activeNutritionPlan ? activePlannedMeals : isDemo ? demoPlannedMeals : []
+  const loggedPlanMealKeys = useMemo(() => new Set(meals.filter((meal) => meal.status === 'logged').flatMap((meal) => [
+    meal.plannedMealId ? `${meal.date}|${meal.plannedMealId}` : '',
+    `${meal.date}|${meal.catalogId || meal.title.trim().toLocaleLowerCase('vi-VN')}`,
+  ].filter(Boolean))), [meals])
   const selectedFoodSummary = useMemo(() => selectedFood ? toFoodDetailSummary(selectedFood) : null, [selectedFood])
   const relatedFoodSummaries = useMemo(() => {
     if (!selectedFood) return []
@@ -1501,6 +1517,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     setWaterSheetOpen(false)
     setExerciseSheetOpen(false)
     setPendingFood(null)
+    setDiaryCatalogDefaults(null)
     setEditingMealId(null)
     setSelectedLoggedMealId(null)
   }, [activeSection])
@@ -2166,6 +2183,8 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     const mealLabels: Record<NutritionMealDraft['mealType'], string> = { breakfast: 'Bữa sáng', lunch: 'Bữa trưa', dinner: 'Bữa tối', snack: 'Bữa phụ' }
     const newMealLog: MealLog = {
       id: `catalog-${Date.now()}`,
+      catalogId: food.id,
+      plannedMealId: diaryCatalogDefaults?.plannedMealId,
       date: context.date,
       type: context.mealType,
       label: mealLabels[context.mealType],
@@ -2197,6 +2216,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       return
     }
     setPendingFood(null)
+    setDiaryCatalogDefaults(null)
     setHomeWeekStart(getCalendarStart(dateFromLocalKey(context.date)))
     setSelectedDate(context.date)
     navigateNutrition('today')
@@ -2235,6 +2255,30 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   }
   const openPlannedMeal = (mealId: string) => openPlanRecordMeal(nutritionPlan, mealId, 'plan')
   const openMenuMeal = (mealId: string) => openPlanRecordMeal(activeNutritionPlan, mealId, 'menu')
+
+  const logPlannedMeal = async (meal: NutritionPlannedMeal) => {
+    const exactKey = `${meal.dayId}|${meal.id}`
+    const legacyKey = `${meal.dayId}|${meal.catalogId || meal.title.trim().toLocaleLowerCase('vi-VN')}`
+    if (loggedPlanMealKeys.has(exactKey) || loggedPlanMealKeys.has(legacyKey)) {
+      showMessage('Món này đã có trong nhật ký của ngày đã chọn')
+      return
+    }
+    if (!meal.catalogId) {
+      showMessage('Món này chưa liên kết với thư viện Aura nên chưa thể ghi tự động')
+      return
+    }
+    try {
+      const known = catalogSnapshot.find((item) => item.id === meal.catalogId)
+      const loaded = known ? [known] : await loadNutritionCatalog({ ids: [meal.catalogId] })
+      const food = known ?? loaded[0]
+      if (!food) throw new Error('catalog-item-not-found')
+      setDiaryCatalogDefaults({ date: meal.dayId, type: meal.type, time: meal.time, plannedMealId: meal.id })
+      await queueCatalogFood(food, 1, !isDemo)
+    } catch {
+      setDiaryCatalogDefaults(null)
+      showMessage('Chưa tải được dữ liệu món để ghi nhật ký')
+    }
+  }
 
   const addFoodFromDetail = (record: NutritionFoodDetailRecord, serving: NutritionServingSelection) => {
     void queueCatalogFood({
@@ -2431,13 +2475,13 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     {exerciseSheetOpen && <React.Suspense fallback={<div role="status" aria-live="polite">Đang tải nhật ký vận động…</div>}><WorkoutLogSheet dateLabel={selectedDateLabel} weightKg={profileDraft.weightKg} onClose={() => setExerciseSheetOpen(false)} onSave={saveActivity} /></React.Suspense>}
     {pendingFood && <MealEditorSheet
       food={pendingFood}
-      initialDate={planCatalogAction?.dayId ?? selectedDate}
-      initialMealType={planCatalogAction?.type}
-      initialTime={planCatalogAction?.time}
+      initialDate={planCatalogAction?.dayId ?? diaryCatalogDefaults?.date ?? selectedDate}
+      initialMealType={planCatalogAction?.type ?? diaryCatalogDefaults?.type}
+      initialTime={planCatalogAction?.time ?? diaryCatalogDefaults?.time}
       mode={planCatalogAction ? 'plan' : 'diary'}
       lockDate={Boolean(planCatalogAction)}
       isSaving={Boolean(planCatalogAction) && nutritionPlanSaving}
-      onClose={() => setPendingFood(null)}
+      onClose={() => { setPendingFood(null); setDiaryCatalogDefaults(null) }}
       onConfirm={commitCatalogFood}
     />}
     {editingMeal && <MealLogEditorSheet meal={editingMeal} onClose={() => setEditingMealId(null)} onConfirm={(draft) => editMeal(editingMeal.id, draft)} />}
@@ -2485,24 +2529,49 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         heightCm={profileDraft.heightCm}
         nutritionProfile={profileDraft}
         ownerId={resolvedOwnerId}
-        legacyPlanContent={<MealPlanPage
-          onNavigate={(view) => { window.location.hash = view === 'profile' ? '#/profile' : `#/${view}` }}
-          onLogRecipe={(recipe: MealPlanRecipe) => {
-            void queueCatalogFood({
-              id: `aura-menu:${recipe.id}`,
-              kind: 'dish',
-              name: recipe.name,
-              servingGrams: null,
-              servingLabel: '1 khẩu phần theo công thức',
-              calories: recipe.kcal,
-              protein: recipe.protein,
-              carbs: recipe.carbs,
-              fat: recipe.fat,
-              fiber: recipe.fiber ?? null,
-              source: 'Aura Menu',
-              imageUrl: recipe.image,
-            }, 1, false)
+        legacyPlanContent={<ConnectedMealPlanPage
+          days={workspacePlanDays}
+          selectedDayId={planSelectedDay}
+          meals={workspacePlannedMeals}
+          dailyCalorieGoal={nutritionPlan?.targets.calories ?? calorieGoal}
+          status={nutritionPlan?.status ?? (isDemo && planGenerated ? 'active' : undefined)}
+          sourceTitle={nutritionPlan?.sourceTitle}
+          weekLabel={`${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit' }).format(dateFromLocalKey(planWeekStart))} – ${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(dateFromLocalKey(planDays[6]?.id ?? planWeekStart))}`}
+          errorMessage={nutritionPlanError}
+          isLoading={nutritionPlanLoading}
+          isGenerating={nutritionPlanGenerating}
+          isSaving={nutritionPlanSaving}
+          canEdit={nutritionPlan?.source === 'aura-catalog'}
+          strategyTitle={profileDraft.goal === 'gain-muscle' ? 'Đủ đạm, ưu tiên phục hồi' : profileDraft.goal === 'lose-fat' ? 'No lâu, thâm hụt vừa phải' : 'Cân bằng và dễ duy trì'}
+          strategyDescription={nutritionPlan?.source === 'assigned'
+            ? 'Thực đơn do đội ngũ Aura giao. Bạn có thể theo dõi hoặc tạo bản nháp riêng từ thư viện.'
+            : `Dựa trên mục tiêu ${(GOAL_LABELS[profileDraft.goal] || '').toLocaleLowerCase('vi-VN')}, ${profileDraft.trainingSessions} buổi tập/tuần và ${profileDraft.mealsPerDay || 3} bữa/ngày.`}
+          constraints={[
+            profileDraft.allergies ? `Tránh: ${profileDraft.allergies}` : 'Chưa ghi nhận dị ứng',
+            profileDraft.dislikes ? `Không thích: ${profileDraft.dislikes}` : 'Không có món kén ăn',
+            `Mục tiêu ${formatNumber(calorieGoal)} kcal/ngày`,
+            `${profileDraft.trainingSessions} buổi tập/tuần`,
+          ]}
+          initialCatalog={foodCatalog}
+          savedFoodIds={savedFoodIds}
+          allowDemo={isDemo}
+          loggedMealKeys={loggedPlanMealKeys}
+          onSelectDay={setPlanSelectedDay}
+          onGeneratePlan={generateNutritionPlan}
+          onAddMeal={(dayId) => openPlanCatalog('add', dayId)}
+          onReplaceMeal={(mealId) => {
+            const meal = nutritionPlan?.days.flatMap((day) => day.meals).find((candidate) => candidate.id === mealId)
+            if (meal) openPlanCatalog('replace', meal.dayId, meal)
           }}
+          onRemoveMeal={removeNutritionPlanMeal}
+          onOpenMeal={nutritionPlan ? openPlannedMeal : undefined}
+          onConfirmPlan={confirmNutritionPlan}
+          onReload={reloadNutritionPlan}
+          onShiftWeek={shiftPlanWeek}
+          onOpenCatalogFood={(food, items) => openFoodDetail(food, items, 'plan')}
+          onLogCatalogFood={(food) => { setDiaryCatalogDefaults(null); return queueCatalogFood(food, 1, !isDemo) }}
+          onLogPlannedMeal={logPlannedMeal}
+          onToggleSaved={(food, saved) => setFoodSaved(food.id, saved)}
         />}
         todayContent={<>{profileSyncBanner}<React.Suspense fallback={<div className="nutrition-dashboard-loading" role="status" aria-live="polite">Đang tải tổng quan dinh dưỡng…</div>}><NutritionDashboardHome
           selectedDate={selectedDate}
