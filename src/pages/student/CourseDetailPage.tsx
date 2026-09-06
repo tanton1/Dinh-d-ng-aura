@@ -14,7 +14,6 @@ import {
   Play,
   Search,
 } from 'lucide-react'
-import AcademyChapterLearningStudio from '../../components/academy/AcademyChapterLearningStudio'
 import { ProgressBar } from '../../components/ui'
 import type { Course, CourseLessonDraft, CourseProgress } from '../../types'
 import { flattenCourseLessons, getCourseModules, getInitialDemoCompletedLessonIds } from '../../utils/courseContent'
@@ -26,6 +25,7 @@ const CoursePdfReader = lazy(() => import('../../components/CourseLessonRuntime'
 const CoursePrimaryContent = lazy(() => import('../../components/CourseLessonRuntime').then((module) => ({ default: module.CoursePrimaryContent })))
 const CourseQuizRunner = lazy(() => import('../../components/CourseLessonRuntime').then((module) => ({ default: module.CourseQuizRunner })))
 const CourseResourceItem = lazy(() => import('../../components/CourseLessonRuntime').then((module) => ({ default: module.CourseResourceItem })))
+const AcademyChapterLearningStudio = lazy(() => import('../../components/academy/AcademyChapterLearningStudio'))
 
 function CourseRuntimeFallback() {
   return <div className="lesson-empty-state" role="status"><BookOpen size={28} /><h2>Đang chuẩn bị bài học…</h2><p>Aura đang tải đúng định dạng nội dung cho chương này.</p></div>

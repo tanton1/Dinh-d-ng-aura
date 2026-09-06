@@ -4,7 +4,13 @@ import test from 'node:test'
 import { auraFoundationCourse } from '../src/course-template'
 import { auraNutritionCurriculumStats, auraNutritionPhases } from '../src/data/auraNutritionCurriculum'
 import { getDueAcademyReviewCards } from '../src/features/academy/reviewQueue'
-import type { AcademyReviewState } from '../src/services/academyLearningService'
+import {
+  academyPortfolioStages,
+  getAcademyPortfolioStage,
+  isAcademyPortfolioComplete,
+  isAcademyPracticeArtifactComplete,
+} from '../src/features/academy/portfolio'
+import type { AcademyReviewState, AcademyWorkbookState } from '../src/services/academyLearningService'
 
 test('AURA nutrition curriculum contains four phases, 20 chapters and 60 lessons', () => {
   assert.equal(auraNutritionPhases.length, 4)
@@ -112,6 +118,7 @@ test('focused lesson reader keeps searchable outlines and real pagination on eve
   assert.match(courseContentSource, /buildAuraReaderDemoModules/)
   assert.match(courseContentSource, /auraReaderChapterTitles\.map/)
   assert.match(pageSource, /const navigationLessons = useMemo/)
+  assert.match(pageSource, /lazy\(\(\) => import\('\.\.\/\.\.\/components\/academy\/AcademyChapterLearningStudio'\)\)/)
   assert.match(pageSource, /\$\{modules\.length\} chương toàn văn/)
   assert.match(pageSource, /className="course-reader-outline"/)
   assert.match(pageSource, /className="course-reader-search"/)
@@ -214,4 +221,56 @@ test('Academy review queue includes only previously reviewed cards that are due'
     },
   ], state, now)
   assert.deepEqual(queue.map((item) => `${item.lessonId}:${item.id}`), [`${firstLesson.id}:${dueCard.id}`])
+})
+
+test('Academy portfolio creates four capstones without treating incomplete chapter drafts as finished', () => {
+  const newWorkbook = (): AcademyWorkbookState => ({
+    schemaVersion: 2,
+    definitionVersion: 1,
+    cloudRevision: 0,
+    sharedWithCoach: false,
+    answers: {},
+    challengeDone: {},
+    microCheckAnswers: {},
+    confidenceBefore: null,
+    confidenceAfter: null,
+    rubric: { data: 0, mechanism: 0, feasibility: 0, safety: 0 },
+    decision: null,
+    reviewAt: '',
+    safetyAcknowledged: false,
+    updatedAt: 0,
+  })
+  assert.deepEqual(academyPortfolioStages.map((stage) => stage.milestoneChapter), [5, 10, 15, 20])
+  assert.deepEqual(academyPortfolioStages.map((stage) => stage.chapterRange), [[1, 5], [6, 10], [11, 15], [16, 20]])
+  assert.equal(getAcademyPortfolioStage(4), null)
+  assert.equal(getAcademyPortfolioStage(20)?.title, 'Hệ điều hành dinh dưỡng 1.0')
+
+  const fieldIds = academyPortfolioStages.flatMap((stage) => stage.fields.map((field) => `${stage.id}:${field.id}`))
+  assert.equal(new Set(fieldIds).size, fieldIds.length)
+  assert.ok(academyPortfolioStages.every((stage) => stage.fields.length >= 6))
+
+  const practice = newWorkbook()
+  assert.equal(isAcademyPracticeArtifactComplete(practice), false)
+  practice.answers = Object.fromEntries(['context', 'hypothesis', 'action', 'minimum', 'data', 'stop'].map((key) => [key, 'Đã có dữ liệu']))
+  practice.reviewAt = '2026-09-20'
+  practice.safetyAcknowledged = true
+  assert.equal(isAcademyPracticeArtifactComplete(practice), true)
+
+  const finalStage = academyPortfolioStages[3]
+  const portfolio = newWorkbook()
+  portfolio.answers = Object.fromEntries(finalStage.fields.map((field) => [field.id, 'Nội dung đã tổng hợp']))
+  portfolio.reviewAt = '2026-10-01'
+  portfolio.safetyAcknowledged = true
+  portfolio.rubric = { data: 2, mechanism: 2, feasibility: 1, safety: 1 }
+  assert.equal(isAcademyPortfolioComplete(finalStage, portfolio), true)
+  portfolio.rubric.safety = 0
+  assert.equal(isAcademyPortfolioComplete(finalStage, portfolio), false)
+
+  const studioSource = readFileSync(new URL('../src/components/academy/AcademyChapterLearningStudio.tsx', import.meta.url), 'utf8')
+  const portfolioSource = readFileSync(new URL('../src/components/academy/AcademyPortfolioStudio.tsx', import.meta.url), 'utf8')
+  assert.match(studioSource, /lazy\(\(\) => import\('\.\/AcademyPortfolioStudio'\)\)/)
+  assert.match(portfolioSource, /Portfolio chặng/)
+  assert.match(portfolioSource, /Chia sẻ portfolio với coach phụ trách/)
+  assert.match(portfolioSource, /loadAcademyWorkbookFromCloud/)
+  assert.match(portfolioSource, /AcademyWorkbookConflictError/)
 })

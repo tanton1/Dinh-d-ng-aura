@@ -188,6 +188,16 @@ test('Aura Academy shows one focused course on the responsive curriculum artwork
   const sharing = studio.getByText('Chia sẻ bài thực hành với coach phụ trách').locator('..')
   await expect(sharing).toBeVisible()
   expect((await sharing.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
+
+  await page.getByRole('button', { name: 'Mục lục' }).click()
+  const outline = page.getByRole('dialog', { name: 'Mục lục khóa học' })
+  await outline.getByRole('button', { name: /CHƯƠNG 5 Tiêu hóa và hấp thu/i }).click()
+  await studio.getByRole('navigation', { name: 'Các bước học trong chương' }).getByRole('button', { name: 'Làm' }).click()
+  const portfolio = studio.getByRole('region', { name: 'Bản đồ nền tảng' })
+  await expect(portfolio).toContainText('0/5 bài thực hành')
+  await portfolio.getByRole('button', { name: /Mở portfolio để tổng hợp/ }).click()
+  await expect(portfolio.getByText('RUBRIC CAPSTONE')).toBeVisible()
+  await expect(portfolio.getByText('Chia sẻ portfolio với coach phụ trách')).toBeVisible()
   await expectNoHorizontalOverflow(page)
 })
 

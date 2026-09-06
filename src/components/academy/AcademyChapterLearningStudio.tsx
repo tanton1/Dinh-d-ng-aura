@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   BookOpen,
   Brain,
@@ -30,6 +30,8 @@ import {
 import type { AcademyLearningCardKind, CourseLessonDraft } from '../../types'
 import AcademyFullChapterReader from './AcademyFullChapterReader'
 import AcademyLessonStudy from './AcademyLessonStudy'
+
+const AcademyPortfolioStudio = lazy(() => import('./AcademyPortfolioStudio'))
 
 type StudioView = 'learn' | 'remember' | 'practice' | 'quiz' | 'reader'
 
@@ -134,6 +136,7 @@ export default function AcademyChapterLearningStudio({
     if (coreLesson.learningDesign) return coreLesson.learningDesign
     return source && guide ? buildAuraNutritionLearningDesign(source, guide) : null
   }, [coreLesson.learningDesign, guide, source])
+  const portfolioMilestone = chapter === 5 || chapter === 10 || chapter === 15 || chapter === 20
   const studyLessons = useMemo(() => {
     const candidates = reviewLessons.length ? reviewLessons : [coreLesson]
     return candidates.map(academyStudyLesson)
@@ -369,6 +372,15 @@ export default function AcademyChapterLearningStudio({
 
       {activeView === 'practice' ? (
         <div className="academy-learning-studio__panel">
+          {portfolioMilestone ? <Suspense fallback={<div className="academy-portfolio-loading" role="status">Đang chuẩn bị portfolio chặng…</div>}><AcademyPortfolioStudio
+            chapter={chapter}
+            ownerId={ownerId}
+            courseId={courseId}
+            lessons={studyLessons}
+            currentLessonId={coreLesson.id}
+            currentWorkbook={workbook}
+            canStudy={canStudy}
+          /></Suspense> : null}
           <section className="academy-practice-studio" aria-labelledby={`practice-${chapter}`}>
             <header><div><span>04 · ỨNG DỤNG</span><h3 id={`practice-${chapter}`}>{design.practice.title}</h3><p>{design.practice.outcome}</p></div><span className={workbookSaved ? 'is-saved' : workbookSyncIssue ? 'has-error' : ''}><Save size={14} />{workbookSaved ? 'Đã lưu' : workbookSyncIssue ? 'Chưa đồng bộ' : 'Đang lưu…'}</span></header>
             {workbookSyncIssue ? (
