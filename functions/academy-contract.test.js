@@ -17,6 +17,15 @@ const firebaseConfig = JSON.parse(readFileSync(join(repositoryRoot, 'firebase.js
 const appletConfig = JSON.parse(readFileSync(join(repositoryRoot, 'firebase-applet-config.json'), 'utf8'))
 const serverSource = readFileSync(join(repositoryRoot, 'server.ts'), 'utf8')
 
+test('learner runtime uses fractional CPU with bounded concurrency and keeps server checks', () => {
+  assert.match(functionsSource, /const academyLearnerRuntime = \{ cpu: 'gcf_gen1', memory: '256MiB', concurrency: 1, minInstances: 0, maxInstances: 2/)
+  for (const name of ['listAcademyCourses', 'getCourseMediaUrl', 'enrollInCourse', 'completeCourseLesson']) {
+    assert.ok(functionsSource.includes('exports.' + name + ' = onCall(academyLearnerRuntime, async (request) => {'))
+  }
+  assert.match(serviceSource, /callReadOnlyFunction[^\n]*'listAcademyCourses'/)
+  assert.match(serviceSource, /maximumAttempts: 2, timeoutMs: 20_000/)
+})
+
 test('web, Functions and Firestore Rules share the canonical named database', () => {
   const functionDefault = functionsSource.match(/defaultFirestoreDatabaseId = '([^']+)'/)?.[1]
   const rulesDatabase = firebaseConfig.firestore?.[0]?.database

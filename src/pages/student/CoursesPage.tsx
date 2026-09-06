@@ -1,12 +1,14 @@
 import { ArrowRight, BookOpen, CheckCircle2, Clock3 } from 'lucide-react'
 import type { Course } from '../../types'
 import '../../styles-academy-catalog.css'
+import AcademyLoadError from '../../components/academy/AcademyLoadError'
 
 interface CoursesPageProps {
   courseItems?: Course[]
   onOpenCourse: (courseId: string) => void
   loading?: boolean
   error?: string | null
+  onRetry?: () => void
   warning?: string | null
   initialQuery?: string
 }
@@ -22,6 +24,7 @@ export default function CoursesPage({
   courseItems = [],
   loading = false,
   error,
+  onRetry,
   warning,
 }: CoursesPageProps) {
   const course = currentAuraCourse(courseItems)
@@ -79,7 +82,7 @@ export default function CoursesPage({
           <h1>Đang tải khóa học</h1>
           <p>Aura đang chuẩn bị giáo trình của bạn.</p>
         </div>
-      ) : (
+      ) : error ? <AcademyLoadError error={error} onRetry={onRetry} /> : (
         <div className="academy-single-state" role="alert">
           <BookOpen size={32} />
           <h1>Chưa thể mở khóa học</h1>

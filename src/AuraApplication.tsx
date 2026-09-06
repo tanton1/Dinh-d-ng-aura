@@ -801,8 +801,8 @@ function AuraApplication() {
   const renderPage = () => {
     switch (view) {
       case 'aura-club': return <AuraClubPage isDemo={backendMode === 'demo'} ownerId={user?.uid ?? 'demo'} initialTab={route.loyaltyTab} onNavigate={navigate} />
-      case 'courses': return <CoursesPage onOpenCourse={openCourse} courseItems={studentCourses} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error} warning={learningData.error} initialQuery={globalSearchQuery} />
-      case 'course-detail': return <CourseDetailPage course={selectedCourse} progress={selectedProgress} activeLessonId={selectedLessonId} enrolled={selectedEnrollment} enrolledAt={selectedEnrollmentRecord?.enrolledAt} noteOwnerId={user?.uid ?? 'demo'} onNoteDirtyChange={setCourseNoteDirty} accessLocked={selectedCourseLocked} learningWarning={learningData.error} loading={studentCourseData.loading || learningData.loading} allowDemoContent={backendMode === 'demo'} previewMode={isAdminCoursePreview} onBack={() => {
+      case 'courses': return <CoursesPage onOpenCourse={openCourse} courseItems={studentCourses} loading={studentCourseData.loading || learningData.loading} error={studentCourseData.error} onRetry={studentCourseData.retry} warning={learningData.error} initialQuery={globalSearchQuery} />
+      case 'course-detail': return <CourseDetailPage course={selectedCourse} progress={selectedProgress} activeLessonId={selectedLessonId} enrolled={selectedEnrollment} enrolledAt={selectedEnrollmentRecord?.enrolledAt} noteOwnerId={user?.uid ?? 'demo'} onNoteDirtyChange={setCourseNoteDirty} accessLocked={selectedCourseLocked} learningWarning={learningData.error} loadError={isAdminCoursePreview ? adminCourseData.error : studentCourseData.error} onRetry={isAdminCoursePreview ? adminCourseData.retry : studentCourseData.retry} loading={(isAdminCoursePreview ? adminCourseData.loading : studentCourseData.loading) || learningData.loading} allowDemoContent={backendMode === 'demo'} previewMode={isAdminCoursePreview} onBack={() => {
         if (isAdminCoursePreview) {
           setAdminPreviewCourseId(null)
           navigate('admin-courses')

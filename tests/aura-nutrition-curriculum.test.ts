@@ -4,6 +4,9 @@ import test from 'node:test'
 import { auraFoundationCourse } from '../src/course-template'
 import { auraNutritionCurriculumStats, auraNutritionPhases } from '../src/data/auraNutritionCurriculum'
 import { getDueAcademyReviewCards } from '../src/features/academy/reviewQueue'
+import { courseLoadErrorMessage } from '../src/features/academy/courseLoadError'
+import { academyMastery } from '../src/features/academy/mastery'
+import { emptyReaderState, flattenPdfOutline, normalizeReaderState, readerStorageKey } from '../src/features/academy/readerState'
 import {
   academyPortfolioStages,
   getAcademyPortfolioStage,
@@ -11,6 +14,53 @@ import {
   isAcademyPracticeArtifactComplete,
 } from '../src/features/academy/portfolio'
 import type { AcademyReviewState, AcademyWorkbookState } from '../src/services/academyLearningService'
+
+test('Academy outages do not masquerade as deleted courses or leak raw internal errors', () => {
+  for (const error of [new Error('internal'), { code: 'functions/internal' }, { code: 'functions/resource-exhausted' }, new Error('wrapper', { cause: { code: 'functions/unavailable' } })]) {
+    assert.match(courseLoadErrorMessage(error), /tạm gián đoạn hoặc quá tải/)
+    assert.doesNotMatch(courseLoadErrorMessage(error), /^internal$|Không tìm thấy khóa học/)
+  }
+  assert.match(courseLoadErrorMessage({ code: 'functions/permission-denied' }), /chưa có quyền/)
+  assert.match(courseLoadErrorMessage({ code: 'functions/unauthenticated' }), /đăng nhập lại/)
+  assert.equal(courseLoadErrorMessage(new Error('Quiz hết lượt.')), 'Quiz hết lượt.')
+  const page = readFileSync(new URL('../src/pages/student/CourseDetailPage.tsx', import.meta.url), 'utf8')
+  assert.ok(page.indexOf('if (loadError)') < page.indexOf('<h1>Không tìm thấy khóa học'))
+  const lazyLoader = readFileSync(new URL('../src/components/ChunkErrorBoundary.tsx', import.meta.url), 'utf8')
+  assert.match(lazyLoader, /if \(!component\?\.default\) throw new Error/)
+  assert.match(lazyLoader, /if \(!retryComponent\?\.default\) throw new Error/)
+})
+
+test('PDF reading state is bounded, versioned, and account/resource scoped', () => {
+  assert.deepEqual(normalizeReaderState(null), emptyReaderState())
+  assert.deepEqual(normalizeReaderState({ version: 1, page: 900, bookmarks: [2, 2, 0, -1, 10, 3, '2'] }, 5), { version: 1, page: 5, bookmarks: [2, 3] })
+  assert.equal(normalizeReaderState({ version: 1, page: 0 }).page, 1)
+  assert.equal(normalizeReaderState({ version: 1, bookmarks: Array.from({ length: 70 }, (_, i) => i + 1) }).bookmarks.length, 50)
+  assert.notEqual(readerStorageKey('a', 'course', 'lesson', 'pdf'), readerStorageKey('b', 'course', 'lesson', 'pdf'))
+  assert.notEqual(readerStorageKey('a:b', 'c', 'd', 'e'), readerStorageKey('a', 'b:c', 'd', 'e'))
+  const outline = flattenPdfOutline([{ title: 'A', dest: 'a', items: [{ title: 'B', dest: [0] }] }, { title: 'C', dest: 'c' }], 2)
+  assert.deepEqual(outline.map((item) => [item.title, item.depth]), [['A', 0], ['B', 1]])
+})
+
+test('mastery distinguishes reviewed cards from remembered cards and counts partial practice', () => {
+  const core = auraFoundationCourse.modules[0].lessons[0]
+  const design = core.learningDesign!
+  const workbook = { microCheckAnswers: {}, answers: {}, reviewAt: '', safetyAcknowledged: false } as AcademyWorkbookState
+  const reviews: AcademyReviewState = { version: 1, cards: Object.fromEntries(design.cards.map((card) => [`${core.id}:${card.id}`, { lessonId: core.id, cardId: card.id, rating: 'again' as const, repetitions: 0, intervalDays: 0, reviewedAt: 1, dueAt: 2 }])) }
+  const initial = academyMastery(design, workbook, reviews, core.id, 3)
+  assert.equal(initial.reviewed, 12)
+  assert.equal(initial.remembered, 0)
+  assert.equal(initial.memoryPercent, 0)
+  assert.equal(initial.practiceComplete, false)
+  assert.equal(initial.due, 12)
+  reviews.cards[`${core.id}:${design.cards[0].id}`].rating = 'good'
+  workbook.answers.context = 'Dữ kiện thực tế'
+  assert.equal(academyMastery(design, workbook, reviews, core.id).remembered, 1)
+  assert.ok(academyMastery(design, workbook, reviews, core.id).practicePercent > 0)
+  design.practice.fields.forEach((field) => { if (field.id === 'reviewAt') workbook.reviewAt = '2026-09-20'; else workbook.answers[field.id] = 'Đã điền' })
+  assert.equal(academyMastery(design, workbook, reviews, core.id).practiceComplete, false)
+  workbook.safetyAcknowledged = true
+  assert.equal(academyMastery(design, workbook, reviews, core.id).practiceComplete, true)
+})
 
 test('AURA nutrition curriculum contains four phases, 20 chapters and 60 lessons', () => {
   assert.equal(auraNutritionPhases.length, 4)
@@ -126,6 +176,7 @@ test('focused lesson reader keeps searchable outlines and real pagination on eve
   assert.match(pageSource, /\$\{modules\.length\} chương toàn văn/)
   assert.match(pageSource, /className="course-reader-outline"/)
   assert.match(pageSource, /className="course-reader-search"/)
+  assert.match(pageSource, /className="course-reader-outline__chapter-copy"/)
   assert.match(pageSource, /onOpenResources=\{\(\) => setReaderView\('resources'\)\}/)
   assert.match(pageSource, /Nội Dung/)
   assert.match(pageSource, /Nội Dung[\s\S]*Học cùng Aura/)

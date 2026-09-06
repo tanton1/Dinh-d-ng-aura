@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { courses as demoCourses } from '../data'
 import { isFirebaseConfigured } from '../lib/firebase'
 import { academyDemoFallbackEnabled, subscribeToCourses } from '../services/firebaseService'
 import type { Course } from '../types'
+import { courseLoadErrorMessage } from '../features/academy/courseLoadError'
 
 export function useCourses(enabled: boolean, includeDrafts = false, refreshKey = '') {
   const [items, setItems] = useState<Course[]>(isFirebaseConfigured || !academyDemoFallbackEnabled ? [] : demoCourses)
@@ -13,6 +14,12 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
   const [error, setError] = useState<string | null>(null)
   const [refreshNonce, setRefreshNonce] = useState(0)
   const lastAutoRefreshAt = useRef(0)
+  const retry = useCallback(() => {
+    if (!enabled || loading) return
+    setError(null)
+    setLoading(true)
+    setRefreshNonce((value) => value + 1)
+  }, [enabled, loading])
 
   useEffect(() => {
     if (!enabled || includeDrafts) return
@@ -44,6 +51,7 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
     }
 
     setLoading(true)
+    setError(null)
     lastAutoRefreshAt.current = Date.now()
     return subscribeToCourses(
       includeDrafts,
@@ -54,7 +62,7 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
         setLoading(false)
       },
       (subscriptionError) => {
-        setError(subscriptionError.message)
+        setError(courseLoadErrorMessage(subscriptionError))
         setItems(academyDemoFallbackEnabled ? demoCourses : [])
         setSource('firebase')
         setLoading(false)
@@ -62,5 +70,5 @@ export function useCourses(enabled: boolean, includeDrafts = false, refreshKey =
     )
   }, [enabled, includeDrafts, refreshKey, refreshNonce])
 
-  return { courses: items, source, loading, error }
+  return { courses: items, source, loading, error, retry }
 }

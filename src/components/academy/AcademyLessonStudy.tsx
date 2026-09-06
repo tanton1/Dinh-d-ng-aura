@@ -3,6 +3,8 @@ import {
   Brain,
   CalendarClock,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Eye,
   Layers3,
@@ -70,6 +72,11 @@ export default function AcademyLessonStudy({ ownerId, courseId, lesson, reviewLe
   )
   const activeQueueCard = courseDueCards[0]
   const activeCard = cards[Math.min(activeCardIndex, Math.max(0, cards.length - 1))]
+  const moveCard = (index: number) => {
+    setActiveCardIndex(Math.max(0, Math.min(cards.length - 1, index)))
+    setCardFlipped(false)
+    setReviewMessage('')
+  }
 
   useEffect(() => {
     setRevealedRecall({})
@@ -150,7 +157,7 @@ export default function AcademyLessonStudy({ ownerId, courseId, lesson, reviewLe
           <div><CalendarClock size={19} /><span><small>ÔN CÁCH QUÃNG</small><h3 id="academy-review-queue-title">Hôm nay cần ôn</h3></span></div>
           {courseDueCards.length
             ? <button type="button" aria-expanded={reviewQueueOpen} onClick={() => { setReviewQueueOpen((value) => !value); setQueueCardFlipped(false) }}>{reviewQueueOpen ? 'Thu gọn' : `Ôn ${courseDueCards.length} thẻ`}</button>
-            : <span className="academy-review-queue__clear"><CheckCircle2 size={15} /> Đã ôn xong</span>}
+            : <span className="academy-review-queue__clear"><CheckCircle2 size={15} /> Không có thẻ đến hạn</span>}
         </header>
         <p>{courseDueCards.length
           ? `${courseDueCards.length} thẻ đã học đang đến hạn. Aura chỉ đưa kiến thức bạn từng xem vào hàng đợi này.`
@@ -202,7 +209,7 @@ export default function AcademyLessonStudy({ ownerId, courseId, lesson, reviewLe
               <article key={recall.id}>
                 <span>CÂU TỰ NHỚ {index + 1}</span>
                 <h4>{recall.prompt}</h4>
-                <textarea value={recallDrafts[recall.id] ?? ''} onChange={(event) => updateRecallDraft(recall.id, event.target.value)} placeholder="Viết lại điều bạn nhớ, không cần hoàn hảo..." rows={3} />
+                <textarea aria-label={`Câu tự nhớ ${index + 1}`} maxLength={2000} value={recallDrafts[recall.id] ?? ''} onChange={(event) => updateRecallDraft(recall.id, event.target.value)} placeholder="Viết lại điều bạn nhớ, không cần hoàn hảo..." rows={3} />
                 <button className="outline-button small" type="button" onClick={() => setRevealedRecall((current) => ({ ...current, [recall.id]: !current[recall.id] }))}><Eye size={14} /> {revealedRecall[recall.id] ? 'Ẩn đáp án gợi ý' : 'So sánh với đáp án'}</button>
                 {revealedRecall[recall.id] ? <div className="academy-recall-answer"><CheckCircle2 size={16} /><p>{recall.answer}</p></div> : null}
               </article>
@@ -214,6 +221,12 @@ export default function AcademyLessonStudy({ ownerId, courseId, lesson, reviewLe
       {cards.length && activeCard ? (
         <section className="academy-study-section academy-flashcard-section">
           <header><RefreshCw size={18} /><div><h3>Flashcard & lịch ôn</h3><p>Thẻ được lên lịch lại theo mức độ bạn ghi nhớ.</p></div><span>{activeCardIndex + 1}/{cards.length}</span></header>
+          <nav className="academy-flashcard-navigation" aria-label="Chọn flashcard">
+            <button type="button" disabled={activeCardIndex <= 0} onClick={() => moveCard(activeCardIndex - 1)} aria-label="Thẻ trước"><ChevronLeft size={18} /></button>
+            <label><span>Thẻ</span><select aria-label="Chọn thẻ ghi nhớ" value={activeCardIndex} onChange={(event) => moveCard(Number(event.target.value))}>{cards.map((card, index) => <option key={card.id} value={index}>{index + 1}. {card.front}</option>)}</select></label>
+            <button type="button" disabled={activeCardIndex >= cards.length - 1} onClick={() => moveCard(activeCardIndex + 1)} aria-label="Thẻ sau"><ChevronRight size={18} /></button>
+          </nav>
+          <p className="academy-review-hint">Xem trước/sau không thay đổi lịch ôn. Chỉ tự đánh giá sau khi đã thử nhớ câu trả lời.</p>
           <button className={`academy-flashcard ${cardFlipped ? 'is-flipped' : ''}`} type="button" onClick={() => setCardFlipped((value) => !value)} aria-label={cardFlipped ? 'Ẩn đáp án flashcard' : 'Mở đáp án flashcard'}>
             <span>{cardFlipped ? 'ĐÁP ÁN' : 'CÂU HỎI'}</span>
             <strong>{cardFlipped ? activeCard.back : activeCard.front}</strong>

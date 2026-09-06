@@ -3178,7 +3178,11 @@ function academyModulesForLearner(modules, mode, maxFullModuleIndex = Number.POS
 }
 
 /** Returns catalog metadata and only the Academy content the caller may consume. */
-exports.listAcademyCourses = onCall(async (request) => {
+// These I/O-bound learner endpoints do not need a whole CPU per instance.
+// Fractional CPU requires concurrency 1. Keep zero reserved instances and a
+// bounded scale-out without changing entitlement or grading handlers.
+const academyLearnerRuntime = { cpu: 'gcf_gen1', memory: '256MiB', concurrency: 1, minInstances: 0, maxInstances: 2, timeoutSeconds: 60 }
+exports.listAcademyCourses = onCall(academyLearnerRuntime, async (request) => {
   const userId = requireCaller(request)
   const [profileSnapshot, courseSnapshot, enrollmentSnapshot] = await Promise.all([
     db.doc(`users/${userId}`).get(),
@@ -3300,7 +3304,7 @@ exports.manageAcademyEnrollment = onCall(async (request) => {
   return { userId, courseId, status: action === 'assign' ? 'active' : 'cancelled' }
 })
 
-exports.enrollInCourse = onCall(async (request) => {
+exports.enrollInCourse = onCall(academyLearnerRuntime, async (request) => {
   const userId = requireCaller(request)
   const courseId = requireDocumentId(request.data?.courseId, 'Mã khóa học')
   const enrollmentId = `${userId}_${courseId}`
@@ -3367,7 +3371,7 @@ exports.enrollInCourse = onCall(async (request) => {
   return { enrollmentId, status: enrollmentStatus }
 })
 
-exports.completeCourseLesson = onCall(async (request) => {
+exports.completeCourseLesson = onCall(academyLearnerRuntime, async (request) => {
   const userId = requireCaller(request)
   const courseId = requireDocumentId(request.data?.courseId, 'Mã khóa học')
   const lessonId = requireDocumentId(request.data?.lessonId, 'Mã bài học')
@@ -3546,7 +3550,7 @@ exports.completeCourseLesson = onCall(async (request) => {
  * nested lesson.quiz.questions[].correctIndex values when no key document
  * exists. Once a key document exists, malformed key data fails closed.
  */
-exports.gradeCourseQuiz = onCall({ invoker: 'public' }, async (request) => {
+exports.gradeCourseQuiz = onCall({ ...academyLearnerRuntime, invoker: 'public' }, async (request) => {
   const userId = requireCaller(request)
   const courseId = requireDocumentId(request.data?.courseId, 'Mã khóa học')
   const lessonId = requireDocumentId(request.data?.lessonId, 'Mã bài học')
@@ -3672,7 +3676,7 @@ exports.gradeCourseQuiz = onCall({ invoker: 'public' }, async (request) => {
  * Learners never receive broad Storage read permission; every file must be
  * bound to the same course and lesson in both its path and custom metadata.
  */
-exports.getCourseMediaUrl = onCall(async (request) => {
+exports.getCourseMediaUrl = onCall(academyLearnerRuntime, async (request) => {
   const userId = requireCaller(request)
   const courseId = requireDocumentId(request.data?.courseId, 'Mã khóa học')
   const lessonId = requireDocumentId(request.data?.lessonId, 'Mã bài học')

@@ -18,6 +18,9 @@ import { ProgressBar } from '../../components/ui'
 import type { Course, CourseLessonDraft, CourseProgress } from '../../types'
 import { flattenCourseLessons, getCourseModules, getInitialDemoCompletedLessonIds } from '../../utils/courseContent'
 import '../../styles-academy.css'
+import AcademyLoadError from '../../components/academy/AcademyLoadError'
+import { courseLoadErrorMessage } from '../../features/academy/courseLoadError'
+import '../../components/academy/academy-module-upgrades.css'
 
 type ReaderView = 'content' | 'resources'
 
@@ -42,6 +45,8 @@ interface CourseDetailPageProps {
   accessLocked?: boolean
   learningWarning?: string | null
   loading?: boolean
+  loadError?: string | null
+  onRetry?: () => void
   allowDemoContent?: boolean
   previewMode?: boolean
   onBack: () => void
@@ -113,6 +118,8 @@ export default function CourseDetailPage({
   accessLocked = false,
   learningWarning,
   loading = false,
+  loadError,
+  onRetry,
   allowDemoContent = false,
   previewMode = false,
   onBack,
@@ -219,12 +226,15 @@ export default function CourseDetailPage({
 
   useEffect(() => {
     setCompleteState(lessonCompleted ? 'saved' : 'idle')
+  }, [lessonCompleted, selectedLesson?.id])
+
+  useEffect(() => {
     // The canonical handbook is the first stop for Aura chapters. Learners can
     // still switch to the guided study layer when they want active practice.
     setReaderView(selectedPdfResource ? 'resources' : 'content')
     setMediaProgress(0)
     setActionError(null)
-  }, [isAuraNutritionCurriculum, lessonCompleted, selectedLesson?.id, selectedPdfResource?.id])
+  }, [selectedLesson?.id, selectedPdfResource?.id])
 
   useEffect(() => {
     if (!mobileLessonsOpen) return
@@ -250,6 +260,7 @@ export default function CourseDetailPage({
     return <div className="course-detail-state"><BookOpen size={34} /><h1>Đang tải khóa học</h1><p>Aura đang đồng bộ nội dung và tiến độ của bạn.</p></div>
   }
   if (!course) {
+    if (loadError) return <AcademyLoadError error={loadError} onRetry={onRetry} onBack={onBack} />
     return <div className="course-detail-state"><BookOpen size={34} /><h1>Không tìm thấy khóa học</h1><p>Khóa học có thể đã bị ẩn hoặc đường dẫn không đúng.</p><button className="primary-button" onClick={onBack}>Về thư viện</button></div>
   }
 
@@ -262,7 +273,7 @@ export default function CourseDetailPage({
       setCompleteState('saved')
     } catch (error) {
       setCompleteState('error')
-      setActionError(error instanceof Error ? error.message : 'Không thể lưu tiến độ. Vui lòng thử lại.')
+      setActionError(courseLoadErrorMessage(error))
     }
   }
 
@@ -274,7 +285,7 @@ export default function CourseDetailPage({
       setEnrollState('idle')
     } catch (error) {
       setEnrollState('error')
-      setActionError(error instanceof Error ? error.message : 'Không thể ghi danh. Vui lòng thử lại.')
+      setActionError(courseLoadErrorMessage(error))
     }
   }
 
@@ -329,7 +340,7 @@ export default function CourseDetailPage({
         const supplementalResources = selectedLesson.resources.filter((resource) => resource.id !== selectedPdfResource.id)
         return (
           <article className="course-reader-resources">
-            <CoursePdfReader courseId={String(course.id)} lessonId={selectedLesson.id} resource={selectedPdfResource} canAccess={canViewContent} />
+            <CoursePdfReader key={`${noteOwnerId}:${course.id}:${selectedLesson.id}`} ownerId={noteOwnerId} courseId={String(course.id)} lessonId={selectedLesson.id} resource={selectedPdfResource} canAccess={canViewContent} />
             {supplementalResources.length ? (
               <details className="course-reader-supplemental" open>
                 <summary>Tài nguyên bổ sung <span>{supplementalResources.length}</span></summary>
@@ -356,6 +367,7 @@ export default function CourseDetailPage({
       }
       return (
         <AcademyChapterLearningStudio
+          key={`${noteOwnerId}:${course.id}:${selectedLesson.id}`}
           chapter={fullChapterNumber}
           ownerId={noteOwnerId}
           courseId={String(course.id)}
@@ -363,13 +375,15 @@ export default function CourseDetailPage({
           reviewLessons={navigationLessons}
           canStudy={canStudy && !previewMode}
           quizCompleted={selectedChapterQuizCompleted}
-          quizContent={selectedChapterQuiz
+          quizContent={(onReviewCards, remediationCards) => selectedChapterQuiz
             ? <CourseQuizRunner
                 courseId={String(course.id)}
                 lesson={selectedChapterQuiz}
                 canSubmit={canStudy && !previewMode}
                 demoMode={allowDemoContent}
                 completed={selectedChapterQuizCompleted}
+                onReviewCards={onReviewCards}
+                remediationCards={remediationCards}
                 onPassed={() => onComplete(String(course.id), selectedChapterQuiz.id)}
               />
             : <div className="lesson-empty-state"><ListChecks size={28} /><h2>Checkpoint đang đồng bộ</h2><p>Bài kiểm tra của chương này chưa có trong bản khóa học đang xuất bản.</p></div>}
@@ -401,7 +415,7 @@ export default function CourseDetailPage({
                 <button key={lesson.id} className={`${active ? 'is-active' : ''} ${completed ? 'is-complete' : ''}`} disabled={locked && !lesson.preview} onClick={() => mobile ? selectMobileLesson(lesson.id) : selectLesson(lesson.id)} aria-current={active ? 'page' : undefined}>
                   <span>{completed ? <CheckCircle2 size={16} /> : locked ? <LockKeyhole size={15} /> : <Circle size={15} />}</span>
                   {isAuraNutritionCurriculum ? <span className="course-reader-outline__chapter-copy"><small>CHƯƠNG {moduleIndex + 1}</small><strong>{moduleDisplayTitle(module.title)}</strong></span> : <strong>{lesson.title}</strong>}
-                  <i>{String(lessonNumber).padStart(2, '0')}</i>
+                  <i>{String(isAuraNutritionCurriculum ? moduleIndex + 1 : lessonNumber).padStart(2, '0')}</i>
                 </button>
               )
             })}
@@ -440,7 +454,7 @@ export default function CourseDetailPage({
 
           <nav className="course-reader-toolbar" aria-label="Công cụ đọc">
             <div role="tablist" aria-label="Loại nội dung">
-              {selectedLesson?.resources?.length ? <button type="button" role="tab" aria-selected={readerView === 'resources'} className={readerView === 'resources' ? 'is-active' : ''} onClick={() => setReaderView('resources')}><FileText size={15} /><span>{selectedPdfResource ? 'Nội Dung' : 'Tài nguyên'}</span>{selectedLesson.resources.length ? <span>{selectedLesson.resources.length}</span> : null}</button> : null}
+              {selectedLesson?.resources?.length ? <button type="button" role="tab" aria-selected={readerView === 'resources'} className={readerView === 'resources' ? 'is-active' : ''} onClick={() => setReaderView('resources')}><FileText size={15} />{selectedPdfResource ? 'Nội Dung' : 'Tài nguyên'}{selectedLesson.resources.length ? <span className="course-reader-resource-count">{selectedLesson.resources.length}</span> : null}</button> : null}
               {(!selectedPdfResource || isAuraNutritionCurriculum) ? <button type="button" role="tab" aria-selected={readerView === 'content'} className={readerView === 'content' ? 'is-active' : ''} onClick={() => setReaderView('content')}><BookOpen size={15} /> {isAuraNutritionCurriculum ? 'Học cùng Aura' : 'Nội dung'}</button> : null}
             </div>
             <div className="course-reader-lesson-pager">

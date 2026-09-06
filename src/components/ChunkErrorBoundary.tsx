@@ -12,12 +12,16 @@ export function lazyWithRetry<T extends ComponentType<any>>(
   return lazy(async () => {
     try {
       const component = await factory()
+      // Vite's prevented preload error may resolve with undefined while the
+      // shell is refreshing. Never pass it to React.lazy as a valid module.
+      if (!component?.default) throw new Error('Failed to load module script: missing component export.')
       clearStaleReleaseRecoveryMarker()
       return component
     } catch {
       try {
         await new Promise((resolve) => setTimeout(resolve, 500))
         const retryComponent = await factory()
+        if (!retryComponent?.default) throw new Error('Failed to load module script: missing component export.')
         clearStaleReleaseRecoveryMarker()
         return retryComponent
       } catch (error) {

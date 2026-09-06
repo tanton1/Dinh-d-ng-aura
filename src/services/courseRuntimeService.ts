@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions } from '../lib/firebaseFunctions'
+import { callReadOnlyFunction } from './readOnlyCallableService'
 
 export type QuizAnswers = Record<string, number>
 
@@ -149,13 +150,12 @@ export async function getCourseMediaUrl(input: {
     throw new Error('Đường dẫn media không thuộc bài học hiện tại.')
   }
   const payload = { courseId: input.courseId, lessonId: input.lessonId, path: input.storagePath }
-  const callable = httpsCallable<typeof payload, unknown>(requireFunctions(), 'getCourseMediaUrl')
-  const response = await callable(payload)
-  if (!response.data || typeof response.data !== 'object') {
+  const response = await callReadOnlyFunction<typeof payload, unknown>('getCourseMediaUrl', payload, { maximumAttempts: 2, timeoutMs: 20_000 })
+  if (!response || typeof response !== 'object') {
     throw new Error('Phản hồi media không hợp lệ.')
   }
 
-  const data = response.data as Record<string, unknown>
+  const data = response as Record<string, unknown>
   if (data.path !== input.storagePath) {
     throw new Error('Phản hồi media không khớp với tài nguyên được yêu cầu.')
   }

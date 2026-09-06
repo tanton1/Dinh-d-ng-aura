@@ -12,6 +12,8 @@ const previewCommand = `npx vite build --mode e2e && npm run preview -- --host 1
 
 export default defineConfig({
   testDir: './tests/e2e',
+  // This suite uses its own Vite fixture server; run with playwright.academy.config.ts.
+  testIgnore: ['**/academy-modules.spec.ts'],
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,

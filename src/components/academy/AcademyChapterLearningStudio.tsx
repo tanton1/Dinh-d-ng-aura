@@ -5,6 +5,7 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   ClipboardCheck,
   Compass,
   Layers3,
@@ -18,6 +19,7 @@ import {
 import { getAuraNutritionChapter } from '../../data/auraNutritionCurriculum'
 import { buildAuraNutritionLearningDesign } from '../../data/auraNutritionLearningDesign'
 import { auraNutritionStudyGuides } from '../../data/auraNutritionStudyGuides'
+import { academyMastery } from '../../features/academy/mastery'
 import {
   AcademyWorkbookConflictError,
   loadAcademyReviewState,
@@ -43,7 +45,7 @@ type AcademyChapterLearningStudioProps = {
   reviewLessons?: CourseLessonDraft[]
   canStudy: boolean
   quizCompleted: boolean
-  quizContent: ReactNode
+  quizContent: ReactNode | ((onReviewCards: (ids: string[]) => void, cards: Array<{ id: string; title: string }>) => ReactNode)
 }
 
 const views: Array<{ id: StudioView; label: string; shortLabel: string; icon: typeof BookOpen }> = [
@@ -147,7 +149,11 @@ export default function AcademyChapterLearningStudio({
     [coreLesson, studyLessons],
   )
   const [activeView, setActiveView] = useState<StudioView>(() => readInitialView(ownerId, chapter))
+  const [quizOpened, setQuizOpened] = useState(false)
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({})
+  const [remediationIds, setRemediationIds] = useState<string[]>([])
+  const cardsRef = useRef<HTMLElement>(null)
+  const panelHeadingRef = useRef<HTMLHeadingElement>(null)
   const [workbook, setWorkbook] = useState<AcademyWorkbookState>(() => loadAcademyWorkbook(ownerId, courseId, coreLesson.id))
   const [workbookReady, setWorkbookReady] = useState(false)
   const [workbookSaved, setWorkbookSaved] = useState(true)
@@ -162,6 +168,7 @@ export default function AcademyChapterLearningStudio({
   const [reviews, setReviews] = useState<AcademyReviewState>(() => loadAcademyReviewState(ownerId, courseId))
 
   useEffect(() => { workbookRef.current = workbook }, [workbook])
+  useEffect(() => { if (activeView === 'quiz') setQuizOpened(true) }, [activeView])
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
@@ -227,23 +234,16 @@ export default function AcademyChapterLearningStudio({
     return <AcademyFullChapterReader chapter={chapter} ownerId={ownerId} />
   }
 
-  const correctMicroChecks = design.microChecks.filter((check) => workbook.microCheckAnswers[check.id] === check.correctIndex).length
-  const microCheckPercent = design.microChecks.length ? Math.round((correctMicroChecks / design.microChecks.length) * 100) : 0
-  const reviewedCards = design.cards.filter((card) => reviews.cards[`${coreLesson.id}:${card.id}`]?.reviewedAt).length
-  const memoryPercent = design.cards.length ? Math.round((reviewedCards / design.cards.length) * 100) : 0
-  const dueReviewCount = design.cards.filter((card) => {
-    const progress = reviews.cards[`${coreLesson.id}:${card.id}`]
-    return Boolean(progress?.reviewedAt && progress.dueAt <= Date.now())
-  }).length
-  const practiceComplete = design.practice.fields.filter((field) => field.required).every((field) => {
-    const value = field.id === 'reviewAt' ? workbook.reviewAt : workbook.answers[field.id]
-    return String(value ?? '').trim().length > 0
-  }) && workbook.safetyAcknowledged
+  const learningProgress = academyMastery(design, workbook, reviews, coreLesson.id)
+  const microCheckPercent = learningProgress.understandPercent
+  const memoryPercent = learningProgress.memoryPercent
+  const dueReviewCount = learningProgress.due
+  const practiceComplete = learningProgress.practiceComplete
   const mastery = [
     { label: 'Hiểu', value: microCheckPercent, done: microCheckPercent >= 80, view: 'learn' as StudioView },
     { label: 'Nhớ', value: memoryPercent, done: memoryPercent >= 70, view: 'remember' as StudioView },
     { label: 'Làm', value: quizCompleted ? 100 : 0, done: quizCompleted, view: 'quiz' as StudioView },
-    { label: 'Dùng', value: practiceComplete ? 100 : 0, done: practiceComplete, view: 'practice' as StudioView },
+    { label: 'Dùng', value: learningProgress.practicePercent, done: practiceComplete, view: 'practice' as StudioView },
   ]
   const masteredCount = mastery.filter((item) => item.done).length
   const nextStep = mastery.find((item) => !item.done)
@@ -263,10 +263,24 @@ export default function AcademyChapterLearningStudio({
         : 'learning'
 
   const updateWorkbook = (update: (current: AcademyWorkbookState) => AcademyWorkbookState) => {
-    if (!canStudy) return
+    if (!canStudy || !workbookReady) return
     setWorkbook(update)
     setWorkbookDirty(true)
     setWorkbookSaved(false)
+  }
+
+  const reviewCards = (ids: string[]) => {
+    const valid = ids.filter((id) => design.cards.some((card) => card.id === id))
+    setRemediationIds(valid)
+    setExpandedCards((current) => ({ ...current, ...Object.fromEntries(valid.map((id) => [id, true])) }))
+    setActiveView('learn')
+    window.requestAnimationFrame(() => { cardsRef.current?.scrollIntoView({ block: 'start' }); cardsRef.current?.focus({ preventScroll: true }) })
+  }
+  const moduleDescriptions: Record<StudioView, string> = {
+    learn: `${design.cards.length} thẻ kiến thức · ${design.microChecks.length} câu tự kiểm. Đọc nguyên lý, xem tình huống và sửa cách hiểu.`,
+    remember: `${learningProgress.remembered}/${design.cards.length} thẻ tự đánh giá đã nhớ · ${learningProgress.reviewed} thẻ đã ôn. Lật thẻ trước khi tự đánh giá.`,
+    practice: `${learningProgress.practiceFilled}/${learningProgress.practiceTotal} mục bắt buộc đã điền. Thử một thay đổi nhỏ và ghi dữ liệu để rà lại.`,
+    quiz: 'Bài kiểm tra được chấm trên Aura. Sau khi nộp, mở lại thẻ gợi ý để hiểu vì sao cần sửa.',
   }
   const updateAnswer = (fieldId: string, value: string) => updateWorkbook((current) => ({
     ...current,
@@ -306,8 +320,10 @@ export default function AcademyChapterLearningStudio({
             <strong>{item.label}</strong>
           </button>
         ))}
-        <div><small>BƯỚC TIẾP THEO</small><strong>{nextStep ? `${nextStep.label}: ${nextStep.value}%` : 'Đã nắm vững chương'}</strong></div>
+        <div><small>BƯỚC TIẾP THEO</small>{nextStep ? <button type="button" onClick={() => { setActiveView(nextStep.view); window.requestAnimationFrame(() => panelHeadingRef.current?.focus()) }}>Tiếp tục {views.find((item) => item.id === nextStep.view)?.label.toLowerCase()} <ChevronRight size={15} /></button> : <strong>Đã hoàn tất 4 phần</strong>}</div>
       </div>
+
+      <details className="academy-progress-help"><summary>Tiến độ này được tính thế nào?</summary><p>Hiểu: đúng từ 80% câu tự kiểm. Nhớ: tự đánh giá “Đã nhớ” hoặc “Rất dễ” từ 70% thẻ; “Quên/Khó” không tính đã nhớ. Làm: đạt checkpoint trên Aura. Dùng: điền đủ bài thực hành và xác nhận an toàn. Đây là tín hiệu học tập, không phải đánh giá chuyên môn.</p></details>
 
       <nav className="academy-learning-studio__tabs" aria-label="Các bước học trong chương">
         {views.map((view) => {
@@ -315,22 +331,25 @@ export default function AcademyChapterLearningStudio({
           return <button key={view.id} type="button" className={activeView === view.id ? 'is-active' : ''} aria-current={activeView === view.id ? 'page' : undefined} onClick={() => setActiveView(view.id)}><Icon size={16} /><span>{view.label}</span><small>{view.shortLabel}</small></button>
         })}
       </nav>
+      <div className="academy-module-intro"><h3 ref={panelHeadingRef} tabIndex={-1}>{views.find((item) => item.id === activeView)?.label}</h3><p>{moduleDescriptions[activeView]}</p>{!workbookReady ? <small role="status">Đang tải bài thực hành đã lưu…</small> : null}</div>
 
       {activeView === 'learn' ? (
         <div className="academy-learning-studio__panel">
           <section className="academy-learning-warmup">
             <div><span>01 · KHỞI ĐỘNG</span><h3>{guide.bigQuestion}</h3><p>{guide.opening}</p></div>
-            <fieldset disabled={!canStudy}>
+            <fieldset disabled={!canStudy || !workbookReady}>
               <legend>Mức tự tin trước khi học</legend>
               {[1, 2, 3, 4, 5].map((value) => <button key={value} type="button" className={workbook.confidenceBefore === value ? 'is-selected' : ''} aria-pressed={workbook.confidenceBefore === value} onClick={() => updateWorkbook((current) => ({ ...current, confidenceBefore: value as 1 | 2 | 3 | 4 | 5 }))}>{value}</button>)}
               <small>1 · Chưa rõ &nbsp; 5 · Có thể giải thích</small>
             </fieldset>
           </section>
 
-          <section className="academy-card-deck" aria-labelledby={`card-deck-${chapter}`}>
+          <section ref={cardsRef} tabIndex={-1} className="academy-card-deck" aria-labelledby={`card-deck-${chapter}`}>
             <header><div><span>02 · NẮM LÕI</span><h3 id={`card-deck-${chapter}`}>{design.cards.length} thẻ kiến thức</h3><p>Mỗi thẻ giữ một ý. Mở phần “Vì sao” để kiểm tra cách bạn diễn giải.</p></div><strong>{Object.values(expandedCards).filter(Boolean).length}/{design.cards.length} đã mở</strong></header>
+            {remediationIds.length ? <p className="academy-remediation-notice" role="status">Đang xem {remediationIds.length} thẻ gợi ý từ checkpoint. <button type="button" onClick={() => setRemediationIds([])}>Xem tất cả thẻ</button></p> : null}
             <div>
-              {design.cards.map((card, index) => {
+              {design.cards.filter((card) => !remediationIds.length || remediationIds.includes(card.id)).map((card) => {
+                const index = design.cards.findIndex((item) => item.id === card.id)
                 const copy = cardCopy[card.kind]
                 const Icon = copy.icon
                 const expanded = Boolean(expandedCards[card.id])
@@ -353,7 +372,7 @@ export default function AcademyChapterLearningStudio({
               const selected = workbook.microCheckAnswers[check.id]
               const answered = Number.isInteger(selected)
               return (
-                <fieldset key={check.id} disabled={!canStudy}>
+                <fieldset key={check.id} disabled={!canStudy || !workbookReady}>
                   <legend>{index + 1}. {check.prompt}</legend>
                   {check.options.map((option, optionIndex) => (
                     <label key={`${check.id}-${optionIndex}`} className={answered && selected === optionIndex ? (optionIndex === check.correctIndex ? 'is-correct' : 'is-wrong') : ''}>
@@ -373,6 +392,11 @@ export default function AcademyChapterLearningStudio({
 
       {activeView === 'practice' ? (
         <div className="academy-learning-studio__panel">
+          {guide.deepDive?.challenge ? <section className="academy-challenge-card" aria-label="Thử nghiệm 7 ngày">
+            <div className="academy-challenge-card__title"><ClipboardCheck size={20} /><div><small>THỬ TRONG ĐỜI SỐNG</small><strong>{guide.deepDive.challenge.title}</strong></div><span>{guide.deepDive.challenge.days.filter((day) => workbook.challengeDone[`day-${day.day}`]).length}/7</span></div>
+            <p className="academy-review-hint">Đánh dấu khi đã làm; không bắt buộc hoàn thành trong 7 ngày liên tiếp. Giữ điều kiện an toàn của chương.</p>
+            <div className="academy-challenge-days">{guide.deepDive.challenge.days.map((day) => <label key={day.day} className={workbook.challengeDone[`day-${day.day}`] ? 'is-done' : ''}><input type="checkbox" disabled={!canStudy || !workbookReady} checked={Boolean(workbook.challengeDone[`day-${day.day}`])} onChange={(event) => updateWorkbook((current) => ({ ...current, challengeDone: { ...current.challengeDone, [`day-${day.day}`]: event.target.checked } }))} /><span><b>Ngày {day.day}</b>{day.task}<small>{day.reflection}</small></span></label>)}</div>
+          </section> : null}
           {portfolioMilestone ? <Suspense fallback={<div className="academy-portfolio-loading" role="status">Đang chuẩn bị portfolio chặng…</div>}><AcademyPortfolioStudio
             chapter={chapter}
             ownerId={ownerId}
@@ -380,7 +404,7 @@ export default function AcademyChapterLearningStudio({
             lessons={studyLessons}
             currentLessonId={coreLesson.id}
             currentWorkbook={workbook}
-            canStudy={canStudy}
+            canStudy={canStudy && workbookReady}
           /></Suspense> : null}
           <section className="academy-practice-studio" aria-labelledby={`practice-${chapter}`}>
             <header><div><span>04 · ỨNG DỤNG</span><h3 id={`practice-${chapter}`}>{design.practice.title}</h3><p>{design.practice.outcome}</p></div><span className={workbookSaved ? 'is-saved' : workbookSyncIssue ? 'has-error' : ''}><Save size={14} />{workbookSaved ? 'Đã lưu' : workbookSyncIssue ? 'Chưa đồng bộ' : 'Đang lưu…'}</span></header>
@@ -403,8 +427,8 @@ export default function AcademyChapterLearningStudio({
                     <span>{field.label}{field.required ? <b aria-label="Bắt buộc">*</b> : null}</span>
                     <small>{field.prompt}</small>
                     {field.kind === 'long'
-                      ? <textarea rows={4} value={value} disabled={!canStudy} onChange={(event) => updateAnswer(field.id, event.target.value)} placeholder="Viết ngắn và dựa trên điều bạn quan sát được…" />
-                      : <input type={field.kind === 'date' ? 'date' : 'text'} value={value} disabled={!canStudy} onChange={(event) => field.id === 'reviewAt' ? updateWorkbook((current) => ({ ...current, reviewAt: event.target.value })) : updateAnswer(field.id, event.target.value)} />}
+                      ? <textarea rows={4} value={value} disabled={!canStudy || !workbookReady} onChange={(event) => updateAnswer(field.id, event.target.value)} placeholder="Viết ngắn và dựa trên điều bạn quan sát được…" />
+                      : <input type={field.kind === 'date' ? 'date' : 'text'} value={value} disabled={!canStudy || !workbookReady} onChange={(event) => field.id === 'reviewAt' ? updateWorkbook((current) => ({ ...current, reviewAt: event.target.value })) : updateAnswer(field.id, event.target.value)} />}
                   </label>
                 )
               })}
@@ -435,7 +459,9 @@ export default function AcademyChapterLearningStudio({
         </div>
       ) : null}
 
-      {activeView === 'quiz' ? <div className="academy-learning-studio__panel academy-learning-studio__quiz">{quizContent}</div> : null}
+      {activeView === 'quiz' || quizOpened ? <div hidden={activeView !== 'quiz'}><div className="academy-learning-studio__panel academy-learning-studio__quiz">{typeof quizContent === 'function' ? quizContent(reviewCards, design.cards) : quizContent}
+        {quizCompleted ? <fieldset className="academy-confidence-after" disabled={!canStudy || !workbookReady}><legend>Sau khi học, bạn tự tin giải thích ở mức nào?</legend><p>So với trước khi học: {workbook.confidenceBefore ?? 'chưa đánh giá'}/5. Tự tin không thay thế kết quả kiểm tra.</p><div>{[1, 2, 3, 4, 5].map((score) => <button key={score} type="button" aria-pressed={workbook.confidenceAfter === score} onClick={() => updateWorkbook((current) => ({ ...current, confidenceAfter: score as 1 | 2 | 3 | 4 | 5 }))}>{score}</button>)}</div></fieldset> : null}
+      </div></div> : null}
     </section>
   )
 }

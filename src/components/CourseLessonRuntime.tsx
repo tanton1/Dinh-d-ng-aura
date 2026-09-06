@@ -6,6 +6,8 @@ import {
   AlertCircle,
   Brain,
   BookOpen,
+  Bookmark,
+  List,
   Check,
   CheckCircle2,
   ChevronLeft,
@@ -37,6 +39,8 @@ import {
 } from 'lucide-react'
 import type { CourseLessonDraft, LessonResourceDraft } from '../types'
 import { firebaseAuth } from '../lib/firebase'
+import { courseLoadErrorMessage } from '../features/academy/courseLoadError'
+import { emptyReaderState, flattenPdfOutline, loadReaderState, normalizeReaderState, readerStorageKey, saveReaderState } from '../features/academy/readerState'
 import { auraNutritionStudyGuides } from '../data/auraNutritionStudyGuides'
 import {
   AcademyWorkbookConflictError,
@@ -211,18 +215,27 @@ export function CoursePdfReader({
   lessonId,
   resource,
   canAccess = true,
+  ownerId = firebaseAuth?.currentUser?.uid ?? 'guest',
 }: {
   courseId: string
   lessonId: string
   resource: LessonResourceDraft
   canAccess?: boolean
+  ownerId?: string
 }) {
   const runtime = runtimeResource(resource)
   const media = useResolvedMedia(courseId, lessonId, runtime, canAccess)
   const stageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const renderTaskRef = useRef<RenderTask | null>(null)
-  const touchStartXRef = useRef<number | null>(null)
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
+  const storageKey = readerStorageKey(ownerId, courseId, lessonId, runtime.assetRef?.assetId || runtime.id)
+  const [readingState, setReadingState] = useState(() => ownerId === 'guest' ? emptyReaderState() : loadReaderState(storageKey))
+  const [storageMessage, setStorageMessage] = useState('Vị trí đọc và đánh dấu chỉ lưu trên thiết bị này.')
+  const [outlineOpen, setOutlineOpen] = useState(false)
+  const [outlineStatus, setOutlineStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [outline, setOutline] = useState<ReturnType<typeof flattenPdfOutline>>([])
+  const [outlineQuery, setOutlineQuery] = useState('')
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null)
   const [documentStatus, setDocumentStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
@@ -235,8 +248,44 @@ export function CoursePdfReader({
   const pageCount = pdfDocument?.numPages ?? 0
 
   const goToPage = (page: number) => {
-    if (!pageCount) return
-    setPageNumber(Math.max(1, Math.min(pageCount, page)))
+    if (!pageCount || !Number.isInteger(page)) return
+    const next = normalizeReaderState({ ...readingState, page }, pageCount)
+    setPageNumber(next.page)
+    setReadingState(next)
+    if (ownerId !== 'guest' && !saveReaderState(storageKey, next)) setStorageMessage('Thiết bị không cho lưu vị trí đọc. Bạn vẫn có thể đọc trong phiên này.')
+    stageRef.current?.scrollTo({ top: 0, left: 0 })
+  }
+
+  const toggleBookmark = () => {
+    const exists = readingState.bookmarks.includes(pageNumber)
+    if (!exists && readingState.bookmarks.length >= 50) {
+      setStorageMessage('Đã đủ 50 dấu trang. Bỏ một dấu cũ trước khi thêm.'); return
+    }
+    const next = normalizeReaderState({ ...readingState, page: pageNumber, bookmarks: exists ? readingState.bookmarks.filter((page) => page !== pageNumber) : [...readingState.bookmarks, pageNumber] }, pageCount)
+    setReadingState(next)
+    setStorageMessage(ownerId === 'guest' ? 'Dấu trang khách chỉ giữ trong phiên này.' : saveReaderState(storageKey, next) ? 'Đã lưu đánh dấu trên thiết bị này.' : 'Đánh dấu chỉ giữ trong phiên này vì thiết bị không cho lưu.')
+  }
+
+  useEffect(() => {
+    if (!outlineOpen || !pdfDocument) return
+    let cancelled = false
+    setOutlineStatus('loading')
+    void pdfDocument.getOutline().then((items) => {
+      if (cancelled) return
+      setOutline(flattenPdfOutline(items ?? [])); setOutlineStatus('ready')
+    }).catch(() => { if (!cancelled) setOutlineStatus('error') })
+    return () => { cancelled = true }
+  }, [outlineOpen, pdfDocument])
+
+  const openOutlineItem = async (dest: string | unknown[] | null) => {
+    if (!pdfDocument || !dest) return
+    try {
+      const resolved = typeof dest === 'string' ? await pdfDocument.getDestination(dest) : dest
+      if (!resolved) throw new Error('Missing destination')
+      const ref = resolved[0]
+      const page = typeof ref === 'number' ? ref + 1 : await pdfDocument.getPageIndex(ref as { num: number; gen: number }) + 1
+      goToPage(page)
+    } catch { setStorageMessage('Không xác định được trang của mục này. Hãy chọn số trang bên dưới.') }
   }
 
   useEffect(() => {
@@ -244,9 +293,15 @@ export function CoursePdfReader({
     setPdfDocument(null)
     setDocumentStatus('idle')
     setDocumentError('')
-    setPageNumber(1)
+    const stored = ownerId === 'guest' ? emptyReaderState() : loadReaderState(storageKey)
+    setReadingState(stored)
+    setPageNumber(stored.page)
     setZoom(1)
-  }, [runtime.id])
+    setOutlineOpen(false)
+    setOutlineStatus('idle')
+    setOutline([])
+    setOutlineQuery('')
+  }, [storageKey])
 
   useEffect(() => {
     if (!isFullscreen) return
@@ -278,12 +333,15 @@ export function CoursePdfReader({
     setDocumentStatus('loading')
     setDocumentError('')
     void import('pdfjs-dist').then(async (pdfjs) => {
+      if (cancelled) return
       pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
       loadingTask = pdfjs.getDocument({ url: media.url as string })
       const document = await loadingTask.promise
       if (cancelled) return
       setPdfDocument(document)
+      setOutlineStatus('idle')
       setPageNumber((current) => Math.max(1, Math.min(document.numPages, current)))
+      setReadingState((current) => normalizeReaderState(current, document.numPages))
       setDocumentStatus('ready')
     }).catch((error) => {
       if (cancelled) return
@@ -295,7 +353,7 @@ export function CoursePdfReader({
       renderTaskRef.current?.cancel()
       void loadingTask?.destroy()
     }
-  }, [media.status, media.url])
+  }, [media.status, media.url, storageKey])
 
   useEffect(() => {
     if (!pdfDocument || documentStatus !== 'ready' || !stageWidth || !canvasRef.current) return
@@ -357,6 +415,8 @@ export function CoursePdfReader({
       <header className="lesson-pdf-reader__header">
         <div className="lesson-pdf-reader__title"><span><FileType size={17} /></span><div><small>ĐANG ĐỌC</small><strong>{title}</strong></div></div>
         <div className="lesson-pdf-reader__actions">
+          <button type="button" className="outline-button small" aria-expanded={outlineOpen} aria-controls="pdf-reading-tools" onClick={() => setOutlineOpen((value) => !value)}><List size={15} /> Mục lục PDF</button>
+          <button type="button" className="outline-button small" aria-pressed={readingState.bookmarks.includes(pageNumber)} onClick={toggleBookmark}><Bookmark size={15} />{readingState.bookmarks.includes(pageNumber) ? 'Đã đánh dấu' : 'Đánh dấu'}</button>
           <div className="lesson-pdf-reader__zoom" aria-label="Điều chỉnh kích thước trang">
             <button type="button" onClick={() => setZoom((value) => Math.max(.75, Math.round((value - .25) * 100) / 100))} disabled={zoom <= .75} aria-label="Thu nhỏ trang"><ZoomOut size={13} /></button>
             <button type="button" onClick={() => setZoom(1)} aria-label="Vừa chiều ngang">{Math.round(zoom * 100)}%</button>
@@ -366,22 +426,35 @@ export function CoursePdfReader({
           <MediaActions url={media.url} downloadUrl={media.downloadUrl} fileName={media.fileName} kind="document" compact />
         </div>
       </header>
+      {outlineOpen ? <section id="pdf-reading-tools" className="academy-pdf-tools" aria-label="Mục lục và dấu trang PDF">
+        <label>Tìm trong mục lục PDF<input type="search" value={outlineQuery} onChange={(event) => setOutlineQuery(event.target.value)} placeholder="Tên mục trong tệp PDF…" /></label>
+        {outlineStatus === 'loading' ? <p role="status">Đang đọc mục lục của tệp…</p> : outlineStatus === 'error' ? <p role="alert">Chưa đọc được mục lục. Bạn vẫn có thể dùng phân trang.</p> : !outline.length ? <p>Tệp này không có mục lục điện tử. Hãy chọn trang hoặc lưu dấu trang để quay lại.</p> : <nav aria-label="Các mục trong PDF">{outline.filter((item) => item.title.toLocaleLowerCase('vi-VN').includes(outlineQuery.toLocaleLowerCase('vi-VN'))).map((item, index) => <button key={index} type="button" style={{ paddingLeft: 12 + item.depth * 12 }} onClick={() => void openOutlineItem(item.dest)}>{item.title}</button>)}</nav>}
+        <strong>Dấu trang của bạn</strong>
+        <div className="academy-pdf-bookmarks">{readingState.bookmarks.length ? readingState.bookmarks.map((page) => <button key={page} type="button" onClick={() => goToPage(page)} aria-current={pageNumber === page ? 'page' : undefined}>Trang {page}</button>) : <p>Chưa có dấu trang. Bấm “Đánh dấu” ở trang cần ghi nhớ.</p>}</div>
+        <p role="status">{storageMessage}</p>
+      </section> : null}
       <nav className="lesson-pdf-reader__pager" aria-label="Chuyển trang tài liệu">
         <button type="button" onClick={() => goToPage(pageNumber - 1)} disabled={pageNumber <= 1}><ChevronLeft size={16} /> Trang trước</button>
         <label><span>Trang</span><select value={pageNumber} onChange={(event) => goToPage(Number(event.target.value))} aria-label="Chọn trang PDF">{Array.from({ length: pageCount }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} / {pageCount}</option>)}</select></label>
         <button type="button" onClick={() => goToPage(pageNumber + 1)} disabled={pageNumber >= pageCount}>Trang sau <ChevronRight size={16} /></button>
       </nav>
+      {documentError ? <div className="lesson-pdf-reader-state is-error" role="alert"><p>Chưa hiển thị được trang này. Bạn có thể chọn trang khác hoặc thử tải lại.</p><button type="button" className="outline-button small" onClick={media.retry}>Tải lại PDF</button></div> : null}
       <div
         ref={stageRef}
         className="lesson-pdf-reader__stage"
-        onTouchStart={(event) => { touchStartXRef.current = event.changedTouches[0]?.clientX ?? null }}
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget || zoom > 1) return
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); goToPage(pageNumber + (event.key === 'ArrowRight' ? 1 : -1)) }
+        }}
+        onTouchStart={(event) => { const touch = event.changedTouches[0]; touchStartRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null }}
         onTouchEnd={(event) => {
-          const startX = touchStartXRef.current
-          const endX = event.changedTouches[0]?.clientX
-          touchStartXRef.current = null
-          if (startX === null || endX === undefined || zoom > 1) return
-          const distance = endX - startX
-          if (Math.abs(distance) < 52) return
+          const start = touchStartRef.current
+          const end = event.changedTouches[0]
+          touchStartRef.current = null
+          if (!start || !end || zoom > 1) return
+          const distance = end.clientX - start.x
+          if (Math.abs(distance) < 52 || Math.abs(distance) <= Math.abs(end.clientY - start.y) * 1.5) return
           goToPage(distance < 0 ? pageNumber + 1 : pageNumber - 1)
         }}
       >
@@ -851,6 +924,8 @@ export function CourseQuizRunner({
   demoMode,
   completed,
   onPassed,
+  onReviewCards,
+  remediationCards = [],
 }: {
   courseId: string
   lesson: CourseLessonDraft
@@ -858,6 +933,8 @@ export function CourseQuizRunner({
   demoMode: boolean
   completed: boolean
   onPassed: () => Promise<void>
+  onReviewCards?: (ids: string[]) => void
+  remediationCards?: Array<{ id: string; title: string }>
 }) {
   const runtimeLesson = lesson as RuntimeLesson
   const quiz = runtimeLesson.quiz
@@ -866,6 +943,8 @@ export function CourseQuizRunner({
   const [result, setResult] = useState<QuizGradeResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [localAttempts, setLocalAttempts] = useState(0)
+  const [questionIndex, setQuestionIndex] = useState(0)
+  const questionRef = useRef<HTMLFieldSetElement>(null)
   const questions = useMemo(() => {
     const items = [...(quiz?.questions ?? [])]
     if (quiz?.questionOrder === 'shuffle') {
@@ -878,6 +957,11 @@ export function CourseQuizRunner({
     const optional = items.filter((question) => question.mustPass !== true)
     return [...required, ...optional.slice(0, Math.max(0, count - required.length))]
   }, [lesson.id, quiz?.publicSettings?.questionsPerAttempt, quiz?.questionOrder, quiz?.questions])
+  const answeredCount = questions.filter((question) => answers[question.id] !== undefined).length
+  const moveQuestion = (index: number) => {
+    setQuestionIndex(Math.max(0, Math.min(questions.length - 1, index)))
+    window.requestAnimationFrame(() => { questionRef.current?.scrollIntoView({ block: 'start' }); questionRef.current?.focus({ preventScroll: true }) })
+  }
   const configuredMaxAttempts = quiz?.publicSettings?.maxAttempts
   const maxAttempts = typeof configuredMaxAttempts === 'number' && configuredMaxAttempts > 0
     ? configuredMaxAttempts
@@ -893,6 +977,7 @@ export function CourseQuizRunner({
     setResult(null)
     setError(null)
     setLocalAttempts(0)
+    setQuestionIndex(0)
   }, [lesson.id])
 
   if (!quiz || questions.length === 0) {
@@ -903,6 +988,7 @@ export function CourseQuizRunner({
     if (!canSubmit || submitState === 'submitting' || attemptsExhausted) return
     if (questions.some((question) => answers[question.id] === undefined)) {
       setError('Hãy chọn một đáp án cho tất cả câu hỏi trước khi nộp bài.')
+      moveQuestion(questions.findIndex((question) => answers[question.id] === undefined))
       return
     }
     setSubmitState('submitting')
@@ -914,7 +1000,8 @@ export function CourseQuizRunner({
         if (!hasLegacyKey) throw new Error('Quiz demo chưa có khóa đáp án để chấm thử.')
         const correctCount = questions.filter((question) => answers[question.id] === question.correctIndex).length
         const percent = Math.round((correctCount / questions.length) * 100)
-        grade = { correctCount, totalQuestions: questions.length, percent, passed: percent >= quiz.passPercent }
+        const mustPassPassed = questions.filter((question) => question.mustPass).every((question) => answers[question.id] === question.correctIndex)
+        grade = { correctCount, totalQuestions: questions.length, percent, mustPassPassed, passed: percent >= quiz.passPercent && mustPassPassed, review: questions.map((question) => ({ questionId: question.id, correct: answers[question.id] === question.correctIndex, explanation: question.explanation ?? '', remediationCardIds: question.remediationCardIds ?? [] })) }
       } else {
         grade = await gradeCourseQuiz({ courseId, lessonId: lesson.id, answers })
       }
@@ -924,7 +1011,7 @@ export function CourseQuizRunner({
       setSubmitState('idle')
     } catch (caught) {
       setSubmitState('error')
-      setError(caught instanceof Error ? caught.message : 'Không thể chấm bài lúc này. Vui lòng thử lại.')
+      setError(courseLoadErrorMessage(caught))
     }
   }
 
@@ -933,6 +1020,7 @@ export function CourseQuizRunner({
     setResult(null)
     setError(null)
     setSubmitState('idle')
+    setQuestionIndex(0)
   }
 
   const retryCompletion = async () => {
@@ -952,9 +1040,11 @@ export function CourseQuizRunner({
     <section className="quiz-outline course-quiz-runner" aria-labelledby={`quiz-${lesson.id}`}>
       <div className="quiz-overview"><span><ShieldCheck size={15} /> Đáp án được chấm bảo mật trên Aura</span><span>Điểm đạt: {quiz.passPercent}%</span>{maxAttempts ? <span>Tối đa: {maxAttempts} lần</span> : null}</div>
       <h2 id={`quiz-${lesson.id}`}>{lesson.title}</h2>
-      {questions.map((question, questionIndex) => (
-        <fieldset key={question.id} disabled={submitState === 'submitting' || Boolean(result)}>
-          <legend>Câu {questionIndex + 1}. {question.question || `Câu hỏi ${questionIndex + 1}`}</legend>
+      <div className="academy-quiz-progress" role="status">Đã trả lời {answeredCount}/{questions.length} câu · Ngân hàng {quiz.questions.length} câu{questions.some((question) => question.mustPass) ? ' · Cần đúng câu an toàn' : ''}</div>
+      <nav className="academy-quiz-question-nav" aria-label="Điều hướng câu hỏi">{questions.map((question, index) => <button key={question.id} type="button" aria-label={`Câu ${index + 1}${answers[question.id] !== undefined ? ', đã trả lời' : ', chưa trả lời'}`} aria-current={questionIndex === index ? 'step' : undefined} className={answers[question.id] !== undefined ? 'is-answered' : ''} onClick={() => moveQuestion(index)}>{index + 1}</button>)}</nav>
+      {questions.slice(questionIndex, questionIndex + 1).map((question) => (
+        <fieldset ref={questionRef} tabIndex={-1} key={question.id} disabled={!canSubmit || submitState === 'submitting' || Boolean(result)}>
+          <legend>Câu {questionIndex + 1}. {question.question || `Câu hỏi ${questionIndex + 1}`}{question.mustPass ? <small className="academy-quiz-required">An toàn · Bắt buộc đúng</small> : null}</legend>
           {question.options.map((option, optionIndex) => (
             <label key={`${question.id}-${optionIndex}`}>
               <input type="radio" name={`quiz-${lesson.id}-${question.id}`} checked={answers[question.id] === optionIndex} onChange={() => { setAnswers((current) => ({ ...current, [question.id]: optionIndex })); setError(null) }} />
@@ -963,11 +1053,12 @@ export function CourseQuizRunner({
           ))}
         </fieldset>
       ))}
+      <nav className="academy-quiz-pager" aria-label="Chuyển câu hỏi"><button type="button" disabled={questionIndex === 0} onClick={() => moveQuestion(questionIndex - 1)}><ChevronLeft size={16} /> Câu trước</button><span>{questionIndex + 1}/{questions.length}</span><button type="button" disabled={questionIndex >= questions.length - 1} onClick={() => moveQuestion(questionIndex + 1)}>Câu sau <ChevronRight size={16} /></button></nav>
       {result ? <>
         <div className={`learning-action-error ${result.passed ? 'is-success' : ''}`} role="status" aria-live="polite">{result.passed ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}<strong>{result.passed ? 'Bạn đã đạt!' : 'Chưa đạt lần này'}</strong><span>{result.correctCount}/{result.totalQuestions} câu đúng · {result.percent}%</span>{result.mustPassPassed === false ? <small>Cần đúng câu an toàn bắt buộc.</small> : null}{result.attemptsRemaining !== undefined && result.attemptsRemaining !== null ? <small>Còn {result.attemptsRemaining} lượt làm.</small> : null}</div>
         {result.review?.length ? <details className="course-quiz-review" open>
           <summary>Giải thích và thẻ cần xem lại <span>{result.review.filter((item) => !item.correct).length} câu cần ôn</span></summary>
-          <div>{result.review.map((item, index) => <article key={item.questionId}><strong>{item.correct ? '✓' : '×'} Câu {index + 1}</strong><p>{item.explanation || (item.correct ? 'Đáp án của bạn phù hợp với nội dung chương.' : 'Hãy mở lại các thẻ được gợi ý và thử lại khi đã rõ hơn.')}</p>{item.remediationCardIds.length ? <small>Ôn lại: {item.remediationCardIds.join(', ')}</small> : null}</article>)}</div>
+          <div>{result.review.map((item) => { const index = questions.findIndex((question) => question.id === item.questionId); const cards = remediationCards.filter((card) => item.remediationCardIds.includes(card.id)); return <article key={item.questionId}><strong>{item.correct ? '✓' : '×'} {index >= 0 ? `Câu ${index + 1}` : 'Câu cần xem lại'}</strong><p>{item.explanation || (item.correct ? 'Đáp án của bạn phù hợp với nội dung chương.' : 'Hãy mở lại các thẻ được gợi ý và thử lại khi đã rõ hơn.')}</p>{cards.length && onReviewCards ? <button type="button" className="outline-button" onClick={() => onReviewCards(cards.map((card) => card.id))}>Ôn lại: {cards.map((card) => card.title).join(' · ')}</button> : item.remediationCardIds.length ? <small>Ôn lại phần Nắm lõi của chương này.</small> : null}</article> })}</div>
         </details> : null}
       </> : null}
       {error ? <div className="learning-action-error" role="alert">{error}</div> : null}

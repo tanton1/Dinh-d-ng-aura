@@ -26,6 +26,7 @@ import { firestoreDb } from '../lib/firebaseFirestore'
 import { firebaseStorage } from '../lib/firebaseStorage'
 import { safeLocalStorageSet } from '../lib/safeStorage'
 import { reportClientIssue } from './clientTelemetryService'
+import { callReadOnlyFunction } from './readOnlyCallableService'
 import { compressBase64Image } from './firebaseNutritionLogService'
 export {
   cleanMealForStorage,
@@ -297,12 +298,14 @@ export function subscribeToCourses(
   // Learners receive entitlement-filtered content through a callable. The
   // underlying course document is staff-only because it contains full modules.
   let active = true
-  const callable = httpsCallable<Record<string, never>, unknown>(requireFunctions(), 'listAcademyCourses')
-  void callable({})
-    .then((response) => {
+  const controller = new AbortController()
+  void callReadOnlyFunction<Record<string, never>, unknown>('listAcademyCourses', {}, {
+    maximumAttempts: 2, timeoutMs: 20_000, signal: controller.signal,
+  }).then((data) => {
       if (!active) return
-      const payload = response.data && typeof response.data === 'object' ? response.data as Record<string, unknown> : {}
-      const courses = Array.isArray(payload.courses) ? payload.courses : []
+      const payload = data && typeof data === 'object' ? data as Record<string, unknown> : {}
+      if (!Array.isArray(payload.courses)) throw new Error('Phản hồi khóa học chưa đầy đủ. Vui lòng thử tải lại.')
+      const courses = payload.courses
       const mapped = courses.flatMap((value) => {
         if (!value || typeof value !== 'object') return []
         const course = value as Record<string, unknown>
@@ -312,10 +315,9 @@ export function subscribeToCourses(
     })
     .catch((error: Error) => {
       if (!active) return
-      onData(academyDemoFallbackEnabled ? demoCourses : [])
       onError(error)
     })
-  return () => { active = false }
+  return () => { active = false; controller.abort() }
 }
 
 export function subscribeToAllEnrollments(
