@@ -752,7 +752,7 @@ function lessonMemory(chapter: CurriculumChapter, learningDesign?: ReturnType<ty
       },
     ],
     flashcards: learningDesign
-      ? learningDesign.cards.slice(0, 10).map((card) => ({
+      ? learningDesign.cards.slice(0, 12).map((card) => ({
           id: card.id,
           front: card.kind === 'myth' ? `Đúng hay chưa đủ: ${card.title.replace(/^Hiểu lầm:\s*/i, '')}` : card.title,
           back: [card.body, card.detail].filter(Boolean).join(' '),
@@ -867,7 +867,7 @@ function chapterBody(chapter: CurriculumChapter) {
     `> **Cổng an toàn:** ${chapter.safety}`,
     '',
     '## Học tiếp như thế nào?',
-    'Mở tab **Tài liệu** để xem giáo trình PDF đầy đủ với infographic, case study, workbook, checklist và nguồn tham khảo. Sau đó dùng tab **Ghi nhớ sâu**, hoàn thành bài thực hành và làm checkpoint. Nội dung phục vụ giáo dục, không thay thế chẩn đoán hoặc điều trị cá nhân.',
+    'Mở tab **Nội Dung** để xem giáo trình PDF đầy đủ với infographic, case study, workbook, checklist và nguồn tham khảo. Sau đó dùng tab **Học cùng Aura**, hoàn thành bài thực hành và làm checkpoint. Nội dung phục vụ giáo dục, không thay thế chẩn đoán hoặc điều trị cá nhân.',
   ].join('\n')
 }
 
@@ -926,7 +926,7 @@ function chapterLessons(chapter: CurriculumChapter): CourseLessonDraft[] {
       preview: chapter.number === 1,
       summary: chapter.promise,
       tags: [`Chương ${chapter.number}`, phase.title, 'Giáo trình 2026'],
-      coachNotes: `Nội dung học trên app được biên tập từ AURA Fitness Academy – Chương ${chapter.number}. Khuyến khích học viên dùng tab Ghi nhớ sâu trước khi chuyển sang thực hành.`,
+      coachNotes: `Nội dung học trên app được biên tập từ AURA Fitness Academy – Chương ${chapter.number}. Khuyến khích học viên dùng tab Học cùng Aura trước khi chuyển sang thực hành.`,
       memory: lessonMemory(chapter, learningDesign),
       learningDesign,
       primaryContent: { kind: 'rich-text', body: chapterBody(chapter) },
@@ -959,7 +959,7 @@ function chapterLessons(chapter: CurriculumChapter): CourseLessonDraft[] {
       title: `Checkpoint Chương ${chapter.number}`,
       type: 'Quiz',
       duration: '10 phút',
-      summary: `Ngân hàng 12 câu kiểm tra hiểu, áp dụng và giới hạn an toàn của “${chapter.title}”.`,
+      summary: `Ngân hàng 16 câu kiểm tra hiểu, áp dụng và giới hạn an toàn của “${chapter.title}”.`,
       tags: [`Chương ${chapter.number}`, 'Checkpoint', phase.title],
       quiz: {
         id: `${quizId}-quiz`,

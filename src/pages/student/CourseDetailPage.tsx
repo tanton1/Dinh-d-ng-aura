@@ -219,9 +219,9 @@ export default function CourseDetailPage({
 
   useEffect(() => {
     setCompleteState(lessonCompleted ? 'saved' : 'idle')
-    // Chapters with a PDF open directly in the in-app reader. Chapters that
-    // only have the bundled text reader keep the normal content view.
-    setReaderView(isAuraNutritionCurriculum ? 'content' : selectedPdfResource ? 'resources' : 'content')
+    // The canonical handbook is the first stop for Aura chapters. Learners can
+    // still switch to the guided study layer when they want active practice.
+    setReaderView(selectedPdfResource ? 'resources' : 'content')
     setMediaProgress(0)
     setActionError(null)
   }, [isAuraNutritionCurriculum, lessonCompleted, selectedLesson?.id, selectedPdfResource?.id])
@@ -280,7 +280,7 @@ export default function CourseDetailPage({
 
   const selectLesson = (lessonId: string) => {
     const nextLesson = lessons.find((lesson) => lesson.id === lessonId)
-    setReaderView(isAuraNutritionCurriculum ? 'content' : firstPdfResource(nextLesson) ? 'resources' : 'content')
+    setReaderView(firstPdfResource(nextLesson) ? 'resources' : 'content')
     onSelectLesson(lessonId)
   }
   const selectMobileLesson = (lessonId: string) => {
@@ -440,8 +440,8 @@ export default function CourseDetailPage({
 
           <nav className="course-reader-toolbar" aria-label="Công cụ đọc">
             <div role="tablist" aria-label="Loại nội dung">
-              {(!selectedPdfResource || isAuraNutritionCurriculum) ? <button type="button" role="tab" aria-selected={readerView === 'content'} className={readerView === 'content' ? 'is-active' : ''} onClick={() => setReaderView('content')}><BookOpen size={15} /> Nội dung</button> : null}
-              {selectedLesson?.resources?.length ? <button type="button" role="tab" aria-selected={readerView === 'resources'} className={readerView === 'resources' ? 'is-active' : ''} onClick={() => setReaderView('resources')}><span>{selectedPdfResource ? 'PDF gốc' : 'Tài nguyên'}</span>{selectedLesson.resources.length ? <span>{selectedLesson.resources.length}</span> : null}</button> : null}
+              {selectedLesson?.resources?.length ? <button type="button" role="tab" aria-selected={readerView === 'resources'} className={readerView === 'resources' ? 'is-active' : ''} onClick={() => setReaderView('resources')}><FileText size={15} /><span>{selectedPdfResource ? 'Nội Dung' : 'Tài nguyên'}</span>{selectedLesson.resources.length ? <span>{selectedLesson.resources.length}</span> : null}</button> : null}
+              {(!selectedPdfResource || isAuraNutritionCurriculum) ? <button type="button" role="tab" aria-selected={readerView === 'content'} className={readerView === 'content' ? 'is-active' : ''} onClick={() => setReaderView('content')}><BookOpen size={15} /> {isAuraNutritionCurriculum ? 'Học cùng Aura' : 'Nội dung'}</button> : null}
             </div>
             <div className="course-reader-lesson-pager">
               <button type="button" disabled={!previousLesson} onClick={() => previousLesson && selectLesson(previousLesson.id)} aria-label="Bài trước"><ChevronLeft size={17} /></button>

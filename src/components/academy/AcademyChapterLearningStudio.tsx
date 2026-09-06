@@ -33,7 +33,7 @@ import AcademyLessonStudy from './AcademyLessonStudy'
 
 const AcademyPortfolioStudio = lazy(() => import('./AcademyPortfolioStudio'))
 
-type StudioView = 'learn' | 'remember' | 'practice' | 'quiz' | 'reader'
+type StudioView = 'learn' | 'remember' | 'practice' | 'quiz'
 
 type AcademyChapterLearningStudioProps = {
   chapter: number
@@ -51,7 +51,6 @@ const views: Array<{ id: StudioView; label: string; shortLabel: string; icon: ty
   { id: 'remember', label: 'Ghi nhớ', shortLabel: 'Nhớ', icon: Brain },
   { id: 'practice', label: 'Thực hành', shortLabel: 'Làm', icon: ClipboardCheck },
   { id: 'quiz', label: 'Kiểm tra', shortLabel: 'Kiểm', icon: ListChecks },
-  { id: 'reader', label: 'Toàn văn', shortLabel: 'Đọc', icon: BookOpen },
 ]
 
 const cardCopy: Record<AcademyLearningCardKind, { label: string; icon: typeof BookOpen }> = {
@@ -84,8 +83,10 @@ function academyStudyLesson(lesson: CourseLessonDraft): CourseLessonDraft {
   const chapter = Number(chapterTag?.match(/\d+/)?.[0])
   const source = Number.isInteger(chapter) ? getAuraNutritionChapter(chapter) : undefined
   const guide = Number.isInteger(chapter) ? auraNutritionStudyGuides[chapter] : undefined
-  const design = lesson.learningDesign ?? (source && guide ? buildAuraNutritionLearningDesign(source, guide) : null)
-  if (!source || !design || (lesson.memory?.flashcards.length ?? 0) >= 6) return lesson
+  const design = lesson.learningDesign && lesson.learningDesign.cards.length >= 12
+    ? lesson.learningDesign
+    : source && guide ? buildAuraNutritionLearningDesign(source, guide) : null
+  if (!source || !design || ((lesson.memory?.flashcards.length ?? 0) >= 12 && design.cards.length >= 12)) return lesson
   return {
     ...lesson,
     memory: {
@@ -133,7 +134,7 @@ export default function AcademyChapterLearningStudio({
   const source = getAuraNutritionChapter(chapter)
   const guide = auraNutritionStudyGuides[chapter]
   const design = useMemo(() => {
-    if (coreLesson.learningDesign) return coreLesson.learningDesign
+    if (coreLesson.learningDesign && coreLesson.learningDesign.cards.length >= 12) return coreLesson.learningDesign
     return source && guide ? buildAuraNutritionLearningDesign(source, guide) : null
   }, [coreLesson.learningDesign, guide, source])
   const portfolioMilestone = chapter === 5 || chapter === 10 || chapter === 15 || chapter === 20
@@ -435,7 +436,6 @@ export default function AcademyChapterLearningStudio({
       ) : null}
 
       {activeView === 'quiz' ? <div className="academy-learning-studio__panel academy-learning-studio__quiz">{quizContent}</div> : null}
-      {activeView === 'reader' ? <div className="academy-learning-studio__panel is-reader"><AcademyFullChapterReader chapter={chapter} ownerId={ownerId} /></div> : null}
     </section>
   )
 }

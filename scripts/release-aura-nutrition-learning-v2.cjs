@@ -14,6 +14,8 @@ const TARGET = Object.freeze({
 const ACTOR = 'migration:aura-nutrition-learning-v2'
 const CONFIRMATION = `projects/${TARGET.projectId}/databases/${TARGET.databaseId}/courses/${TARGET.courseId}:release-learning-v2`
 const REPORT_PATH = path.resolve('.migration-private', 'academy-learning-v2-release.json')
+const EXPECTED_QUESTIONS_PER_CHECKPOINT = 16
+const EXPECTED_TOTAL_QUESTIONS = 320
 
 function sha256(value) { return crypto.createHash('sha256').update(value).digest('hex') }
 function canonical(value) {
@@ -179,16 +181,16 @@ function validateLearningV2(modules, quizKeys) {
   for (const lesson of checkpoints) {
     const questions = lesson.quiz?.questions || []
     const key = quizKeys[lesson.id]
-    if (questions.length !== 12 || lesson.quiz.passPercent !== 80
+    if (questions.length !== EXPECTED_QUESTIONS_PER_CHECKPOINT || lesson.quiz.passPercent !== 80
         || lesson.quiz.publicSettings?.questionsPerAttempt !== 8
         || lesson.quiz.publicSettings?.revealMode !== 'after-submit'
         || questions.filter((question) => question.mustPass === true).length !== 1
         || questions.some((question) => Number.isInteger(question.correctIndex))) {
       throw new Error(`Safety stop: ${lesson.id} does not match the V2 public quiz contract.`)
     }
-    if (!key || key.questionCount !== 12 || Object.keys(key.answers).length !== 12
+    if (!key || key.questionCount !== EXPECTED_QUESTIONS_PER_CHECKPOINT || Object.keys(key.answers).length !== EXPECTED_QUESTIONS_PER_CHECKPOINT
         || Object.values(key.answers).some((answer) => !Number.isInteger(answer))) {
-      throw new Error(`Safety stop: ${lesson.id} does not have 12 private answer keys.`)
+      throw new Error(`Safety stop: ${lesson.id} does not have ${EXPECTED_QUESTIONS_PER_CHECKPOINT} private answer keys.`)
     }
     if (buildQuizContentHash(lesson.quiz, key.answers) !== key.contentHash) {
       throw new Error(`Safety stop: ${lesson.id} content hash does not match its private key.`)
@@ -232,7 +234,9 @@ async function buildPlan(token) {
   }
   const revisionPayloadBytes = Buffer.byteLength(JSON.stringify({ course: nextCourse, quizKeys }), 'utf8')
   if (revisionPayloadBytes > 750 * 1024) {
-    throw new Error(`Safety stop: immutable revision payload is ${revisionPayloadBytes} bytes.`)
+    const coursePayloadBytes = Buffer.byteLength(JSON.stringify(nextCourse), 'utf8')
+    const quizKeyPayloadBytes = Buffer.byteLength(JSON.stringify(quizKeys), 'utf8')
+    throw new Error(`Safety stop: immutable revision payload is ${revisionPayloadBytes} bytes (course ${coursePayloadBytes}, quiz keys ${quizKeyPayloadBytes}).`)
   }
   const revisionId = `${TARGET.courseId}_${String(nextRevision).padStart(6, '0')}`
   const auditId = `academy-learning-v2_${revisionId}`
@@ -376,7 +380,7 @@ async function verifyRelease(token) {
     auditExists: Boolean(audit?.name),
   }
   if (result.status !== 'published' || result.modules !== 20 || result.lessons !== 60
-      || result.checkpoints !== 20 || result.questions !== 240
+      || result.checkpoints !== 20 || result.questions !== EXPECTED_TOTAL_QUESTIONS
       || result.questionsPerAttempt.length !== 1 || result.questionsPerAttempt[0] !== 8
       || result.mustPassQuestions !== 20 || result.privateQuizKeys !== 20
       || result.pdfResources !== 20 || !result.revisionExists || !result.auditExists) {

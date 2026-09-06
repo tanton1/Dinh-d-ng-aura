@@ -86,6 +86,14 @@ function buildCards(source: LearningChapterSource, guide: AuraNutritionStudyGuid
       detail: 'Nội dung này phục vụ giáo dục. Khi xuất hiện cờ đỏ, lựa chọn đúng là dừng tự thử và liên hệ người có chuyên môn phù hợp.',
       competencyIds: [safety],
     },
+    ...(deepDive?.caseStudies?.slice(0, 3).map((caseStudy, index): AcademyLearningCard => ({
+      id: cardId(source.number, `case-${index + 1}`),
+      kind: 'decision',
+      title: `Ca thực tế: ${caseStudy.name}`,
+      body: sentence(`${caseStudy.context} Tín hiệu cần đọc: ${caseStudy.signal}`),
+      detail: sentence(`Diễn giải: ${caseStudy.interpretation} Bước tiếp theo: ${caseStudy.nextStep}`, 620),
+      competencyIds: [decision, concepts[index % concepts.length] ?? decision],
+    })) ?? []),
     {
       id: cardId(source.number, 'reflection'),
       kind: 'reflection',
@@ -247,5 +255,36 @@ export function buildAuraNutritionQuestionBank(
       mustPass: true,
     },
   ]
-  return [...original, ...conceptQuestions, ...misconceptionQuestions, ...scenarioQuestions]
+  const caseQuestions = (guide.deepDive?.caseStudies ?? []).slice(0, 3).map((caseStudy, index): LessonQuizQuestionDraft => ({
+    id: `${id}-checkpoint-question-${index + 13}`,
+    kind: 'scenario',
+    competencyId: competencyId(source.number, 'decision'),
+    difficulty: 3,
+    question: `Ca thực tế “${caseStudy.name}”: tín hiệu nào nên dẫn đường cho bước tiếp theo? ${sentence(caseStudy.context, 260)}`,
+    options: [
+      sentence(`${caseStudy.signal} ${caseStudy.nextStep}`, 260),
+      'Đổi đồng thời nhiều biến mà không cần thêm dữ liệu.',
+      'Kết luận nguyên nhân chắc chắn chỉ từ một lần quan sát.',
+    ],
+    correctIndex: 0,
+    explanation: sentence(caseStudy.interpretation, 500),
+    remediationCardIds: [card(`case-${index + 1}`), card('decision')],
+  }))
+  const challenge = guide.deepDive?.challenge
+  const challengeQuestion: LessonQuizQuestionDraft = {
+    id: `${id}-checkpoint-question-16`,
+    kind: 'scenario',
+    competencyId: competencyId(source.number, 'decision'),
+    difficulty: 3,
+    question: `Để biến kiến thức Chương ${source.number} thành một thử nghiệm an toàn, lựa chọn nào đầy đủ nhất? ${sentence(challenge?.title ?? source.practiceTitle, 260)}`,
+    options: [
+      'Chọn một thay đổi nhỏ, ghi dữ liệu tối thiểu, đặt ngày rà và nêu điều kiện dừng.',
+      'Theo một thực đơn cứng trong thời gian dài mà không cần rà dữ liệu.',
+      'Đổi nhiều biến cùng lúc để kết quả xuất hiện nhanh hơn.',
+    ],
+    correctIndex: 0,
+    explanation: sentence(challenge?.days?.[0]?.reflection ?? 'Một thử nghiệm tốt cần giới hạn rõ, dữ liệu tối thiểu và mốc rà để biết nên giữ, chỉnh hay dừng.', 500),
+    remediationCardIds: [card('decision'), card('reflection')],
+  }
+  return [...original, ...conceptQuestions, ...misconceptionQuestions, ...scenarioQuestions, ...caseQuestions, challengeQuestion]
 }
