@@ -1,3 +1,4 @@
+import { useNutritionWeight } from '../../hooks/useNutritionWeight'
 import React, { useState, useEffect, useMemo } from 'react'
 import { safeLocalStorageSet } from '../../lib/safeStorage'
 import {
@@ -191,10 +192,7 @@ export default function HomePage({
     return () => { active = false }
   }, [isDemo, ownerId])
 
-  const effectiveNutritionWeight = useMemo(
-    () => readRecentAverageWeight(ownerId, nutritionProfile?.weightKg ?? 0),
-    [nutritionProfile?.weightKg, ownerId],
-  )
+  const effectiveNutritionWeight = useNutritionWeight(ownerId, nutritionProfile?.weightKg ?? 0, !isDemo)
   const dailyPulseTargets = useMemo(
     () => resolveDailyNutritionTargets(nutritionProfile, effectiveNutritionWeight),
     [effectiveNutritionWeight, nutritionProfile],

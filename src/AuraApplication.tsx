@@ -2,7 +2,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import AppShell from './components/AppShell'
 import { normalizeOnboardingProfile } from './onboarding/defaults'
 import { hasPermission, type Permission } from './config/permissions'
-import { calculateNutritionTargets } from './services/nutritionSyncService'
+import { calculateNutritionTargets, canonicalNutritionProfile } from './services/nutritionSyncService'
 import { useAuth } from './contexts/AuthContext'
 import { useCourses } from './hooks/useCourses'
 import { useLearningProgress } from './hooks/useLearningProgress'
@@ -142,7 +142,7 @@ function resolveCanonicalNutritionProfile(profile: any, localProfile: NutritionP
   if (!base) return undefined
   const rootGoal = canonicalNutritionGoal(profile?.goals?.[0])
   return {
-    ...base,
+    ...canonicalNutritionProfile({ ...profile, nutritionProfile: base }),
     ...(rootGoal ? { goal: rootGoal } : {}),
     ...(profile?.heightCm !== null && profile?.heightCm !== undefined ? { heightCm: profile.heightCm } : {}),
     ...(profile?.weightKg !== null && profile?.weightKg !== undefined ? { weightKg: profile.weightKg } : {}),
@@ -264,12 +264,15 @@ function AuraApplication() {
       mergedProfileData.biologicalSex,
       mergedProfileData.goal,
     ].every((value) => value !== null && value !== undefined && value !== '')
+    if (values.targetWeightDeltaKg !== undefined && values.targetWeightDeltaKg !== baseNutritionProfile.targetWeightDeltaKg) {
+      mergedProfileData.targetWeightKg = Number(mergedProfileData.weightKg) + Number(values.targetWeightDeltaKg)
+    }
     const newTargets = hasCompleteNutritionInputs
       ? calculateNutritionTargets(mergedProfileData as any)
       : null
 
     const nextNutritionProfile = {
-      ...mergedProfileData,
+      ...canonicalNutritionProfile(mergedProfileData),
       ...(newTargets ? {
         targetCalories: newTargets.targetCaloriesKcal,
         protein: newTargets.proteinG,
@@ -1114,6 +1117,7 @@ function AuraApplication() {
             ...persistedProfile,
             age: plan.age || (persistedProfile.birthYear ? new Date().getFullYear() - persistedProfile.birthYear : 30),
             goal: persistedProfile.primaryGoal === 'fat_loss' ? 'lose-fat' : persistedProfile.primaryGoal === 'muscle_gain' ? 'gain-muscle' : 'maintain',
+            targetWeightKg: persistedProfile.targetWeightKg ?? undefined,
             targetWeightDeltaKg: persistedProfile.targetWeightKg && persistedProfile.weightKg ? persistedProfile.targetWeightKg - persistedProfile.weightKg : 0,
             targetTimeframeMonths: Math.max(1, Math.round((plan.estimatedWeeks || 12) / 4.33)) || 3,
             targetCalories: plan.targetCaloriesKcal,

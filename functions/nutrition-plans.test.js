@@ -11,16 +11,28 @@ const {
   validateWeekStart,
 } = require('./nutrition-plans')
 
+const testProfile = { age: 30, biologicalSex: 'female', heightCm: 165, weightKg: 60, activityLevel: 'sedentary', goal: 'maintain', mealsPerDay: 3 }
+const testDish = { kind: 'dish', nameVi: 'Cơm cân bằng', energyKcal: 528, macros: { proteinG: 32, carbohydrateG: 64, fatG: 16 }, basis: { amount: 300, unit: 'g' } }
 function nutritionPlanFunctionsFor(seed) {
-  const documents = new Map(Object.entries(seed))
+  const documents = new Map(Object.entries({ 'users/student-1': { nutritionProfile: testProfile }, 'nutritionCatalog/dish-test': testDish, ...seed }))
   const snapshot = (path) => ({ exists: documents.has(path), data: () => documents.get(path) })
   const reference = (path) => ({ path, get: async () => snapshot(path) })
+  const collectionRef = (path, filters = []) => {
+    const query = { path, filters, isQuery: true, where: (key, op, value) => collectionRef(path, [...filters, [key, op, value]]), select: () => query, get: async () => querySnapshot(query) }
+    return query
+  }
+  const querySnapshot = (query) => {
+    const docs = [...documents].filter(([path, value]) => path.startsWith(query.path + '/') && !path.slice(query.path.length + 1).includes('/') && query.filters.every(([key, op, match]) => op === '>=' ? value[key] >= match : value[key] <= match))
+      .map(([path, value]) => ({ id: path.split('/').at(-1), data: () => value }))
+    return { docs, size: docs.length }
+  }
   const db = {
     doc: reference,
+    collection: collectionRef,
     async runTransaction(handler) {
       const writes = []
       const result = await handler({
-        get: async (ref) => snapshot(ref.path),
+        get: async (ref) => ref.isQuery ? querySnapshot(ref) : snapshot(ref.path),
         set: (ref, value) => writes.push([ref.path, value]),
       })
       writes.forEach(([path, value]) => documents.set(path, value))
@@ -45,12 +57,12 @@ function completeDraft(overrides = {}) {
     revision: 1,
     source: 'aura-catalog',
     sourceTitle: 'Aura test',
-    targets: { calories: 1800, protein: 100, mealsPerDay: 3 },
+    targets: { calories: 1584, protein: 96, carbs: 192, fat: 48, mealsPerDay: 3 },
     days: Array.from({ length: 7 }, (_, index) => {
       const date = new Date('2026-09-07T12:00:00.000Z')
       date.setUTCDate(date.getUTCDate() + index)
       const dayId = date.toISOString().slice(0, 10)
-      return { dayId, id: dayId, meals: [{ id: `${dayId}-meal`, dayId, type: 'lunch', time: '12:00', title: `Món ${index + 1}`, calories: 400, protein: 25 }] }
+      return { dayId, id: dayId, meals: ['breakfast', 'lunch', 'dinner'].map((type, i) => ({ id: type === 'lunch' ? `${dayId}-meal` : `${dayId}-${type}`, catalogId: 'dish-test', dayId, type, time: ['07:30', '12:00', '18:30'][i], title: `Món ${index + 1}`, calories: 528, protein: 32, carbs: 64, fat: 16, servingMultiplier: 1 })) }
     }),
     ...overrides,
   }
@@ -99,7 +111,8 @@ test('catalog generator creates seven complete days and avoids duplicate dishes 
     name: `Món nữ cân bằng ${index}`,
     nameAscii: `mon nu can bang ${index}`,
     category: index % 2 ? 'Món chính' : 'Bữa nhẹ',
-    calories: 180 + (index % 12) * 20,
+    basis: { amount: 300, unit: 'g' },
+    calories: (12 + index % 10) * 4 + (20 + index % 15) * 4 + (5 + index % 6) * 9,
     protein: 12 + (index % 10),
     carbs: 20 + (index % 15),
     fat: 5 + (index % 6),
@@ -124,21 +137,20 @@ test('catalog generator creates seven complete days and avoids duplicate dishes 
   assert.equal(new Set(titles).size, titles.length)
 })
 
-test('Gemini planner can only replace known catalog slots and preserves safe fallbacks', () => {
-  const catalog = [
-    { id: 'dish-a', kind: 'dish', name: 'Ức gà', nameAscii: 'uc ga', category: 'Món chính', calories: 400, protein: 35, carbs: 40, fat: 10, image: '', source: 'Aura' },
-    { id: 'dish-b', kind: 'dish', name: 'Cá hồi', nameAscii: 'ca hoi', category: 'Món chính', calories: 450, protein: 32, carbs: 30, fat: 20, image: '', source: 'Aura' },
-  ]
-  const days = [{ id: '2026-09-07', meals: [{ id: 'meal-a', catalogId: 'dish-a', dayId: '2026-09-07', type: 'lunch', time: '12:00', title: 'Ức gà', calories: 400, protein: 35, carbs: 40, fat: 10 }] }]
-  const input = { calorieGoal: 1800, proteinGoal: 110, mealsPerDay: 3, profile: { goal: 'gain-muscle', allergies: '', dislikes: '' } }
-  const result = applyGeminiPlanChoices(days, catalog, [
+test('Gemini accepts only known, nutritionally valid replacements and retains valid day totals', () => {
+  const item = catalogItemFromSnapshot({ id: 'dish-test', data: () => testDish })
+  const alternative = { ...item, id: 'dish-b', name: 'Cá hồi', calories: 500, protein: 30, carbs: 59, fat: 16 }
+  const days = completeDraft().days.slice(0, 1)
+  const input = { weekStart: '2026-09-07', calorieGoal: 1584, proteinGoal: 96, carbGoal: 192, fatGoal: 48, mealsPerDay: 3, profile: testProfile }
+  const result = applyGeminiPlanChoices(days, [item, alternative], [
     { dayId: '2026-09-07', type: 'lunch', time: '12:00', catalogId: 'dish-b', servingMultiplier: 1.2 },
     { dayId: '2026-09-07', type: 'dinner', time: '18:30', catalogId: 'unknown', servingMultiplier: 1 },
   ], input)
   assert.equal(result.assisted, true)
-  assert.equal(result.days[0].meals[0].id, 'meal-a')
-  assert.equal(result.days[0].meals[0].catalogId, 'dish-b')
-  assert.equal(result.days[0].meals[0].calories, 540)
+  assert.equal(result.days[0].meals[1].id, days[0].meals[1].id)
+  assert.equal(result.days[0].meals[1].catalogId, 'dish-b')
+  assert.equal(result.days[0].meals[1].calories, 600)
+  assert.equal(result.days[0].meals[2].catalogId, 'dish-test')
 })
 
 test('Gemini prompt carries profile constraints and catalog ids without treating them as instructions', () => {
@@ -177,9 +189,9 @@ test('confirming a weekly plan saves a separate active menu snapshot', async () 
     },
   })
   assert.equal(api.read('users/student-1/nutritionPlanDrafts/2026-09-07').status, 'draft')
-  assert.equal(api.read('users/student-1/nutritionPlanDrafts/2026-09-07').days[0].meals.length, 0)
+  assert.equal(api.read('users/student-1/nutritionPlanDrafts/2026-09-07').days[0].meals.length, 2)
   assert.equal(api.read('users/student-1/nutritionPlans/2026-09-07').status, 'active')
-  assert.equal(api.read('users/student-1/nutritionPlans/2026-09-07').days[0].meals.length, 1)
+  assert.equal(api.read('users/student-1/nutritionPlans/2026-09-07').days[0].meals.length, 3)
 })
 
 test('legacy active drafts remain available as confirmed menus', async () => {
@@ -190,4 +202,41 @@ test('legacy active drafts remain available as confirmed menus', async () => {
   assert.equal(result.plan.status, 'active')
   assert.equal(result.activePlan.status, 'active')
   assert.equal(result.activePlan.weekStart, '2026-09-07')
+})
+
+test('invalid confirmation never overwrites active menu or advances draft revision', async () => {
+  const invalid = completeDraft()
+  invalid.days[2].meals.pop()
+  const api = nutritionPlanFunctionsFor({
+    'users/student-1/nutritionPlanDrafts/2026-09-07': invalid,
+    'users/student-1/nutritionPlans/2026-09-07': completeDraft({ status: 'active', revision: 9 }),
+  })
+  await assert.rejects(api.confirmMyNutritionPlan({ data: { weekStart: '2026-09-07', expectedRevision: 1 } }), /2026-09-09/)
+  assert.equal(api.read('users/student-1/nutritionPlans/2026-09-07').revision, 9)
+  assert.equal(api.read('users/student-1/nutritionPlanDrafts/2026-09-07').revision, 1)
+})
+
+test('confirmation rechecks catalog changes and stale revisions', async () => {
+  const api = nutritionPlanFunctionsFor({
+    'users/student-1/nutritionPlanDrafts/2026-09-07': completeDraft(),
+    'nutritionCatalog/dish-test': { ...testDish, basis: null },
+  })
+  await assert.rejects(api.confirmMyNutritionPlan({ data: { weekStart: '2026-09-07', expectedRevision: 0 } }), /đã thay đổi/)
+  await assert.rejects(api.confirmMyNutritionPlan({ data: { weekStart: '2026-09-07', expectedRevision: 1 } }), /khẩu phần chuẩn/)
+  assert.equal(api.read('users/student-1/nutritionPlans/2026-09-07'), undefined)
+})
+
+test('generation ignores client calorie/profile overrides and stores server targets', async () => {
+  const api = nutritionPlanFunctionsFor({})
+  const result = await api.generateMyNutritionPlanDraft({ data: {
+    weekStart: '2026-09-07', expectedRevision: 0, aiAssist: false,
+    calorieGoal: 800, proteinGoal: 25, mealsPerDay: 5, goal: 'lose-fat',
+    profile: { age: 13, eatingStyle: 'untrusted' },
+  } })
+  assert.equal(result.plan.targets.calories, 1584)
+  assert.equal(result.plan.targets.protein, 96)
+  assert.equal(result.plan.targets.mealsPerDay, 3)
+  assert.equal(result.plan.targets.formulaVersion, 'aura-nutrition-v2')
+  assert.ok(result.plan.days.every((day) => day.meals.length === 3))
+  assert.equal(api.read('users/student-1/nutritionPlanDrafts/2026-09-07').profileSnapshot.age, 30)
 })

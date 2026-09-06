@@ -27,7 +27,8 @@ import { AiCoachBottomSheet } from '../../components/progress/AiCoachBottomSheet
 import { prewarmAiCoachAppCheck } from '../../services/nutritionService'
 import { calculateProgressScore } from '../../utils/progressScoreCalculator'
 import type { NutritionProfileDraft } from '../../features/nutrition/types'
-import { resolveDailyNutritionTargets } from '../../features/nutrition/dailyNutritionTargets'
+import { completeMealDates, periodEnergy } from '../../features/nutrition/progressNutrition'
+import { resolveDailyNutritionTargets, recentAverageWeight } from '../../features/nutrition/dailyNutritionTargets'
 import { toLocalDateKey } from '../../features/nutrition/routing'
 import {
   saveUserWeightLog,
@@ -435,25 +436,7 @@ export default function ProgressPage({
   const isFemale = userProfile?.biologicalSex === 'female'
 
   // Get actual weight in the last 30 days based on weight history of this user
-  const actual30DayWeight = useMemo(() => {
-    const today = new Date()
-    const thirtyDaysAgo = new Date()
-    thirtyDaysAgo.setDate(today.getDate() - 30)
-    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0]
-    const todayStr = today.toISOString().split('T')[0]
-
-    // Filter records within the last 30 days
-    const last30DaysRecords = weightRecords.filter(r => r.date >= thirtyDaysAgoStr && r.date <= todayStr)
-    
-    if (last30DaysRecords.length > 0) {
-      const sumWeight = last30DaysRecords.reduce((sum, r) => sum + (Number(r.weightKg) || 0), 0)
-      return Number((sumWeight / last30DaysRecords.length).toFixed(1))
-    } else if (weightRecords.length > 0) {
-      // Fallback to the latest record
-      return Number(weightRecords[weightRecords.length - 1].weightKg) || baseWeight
-    }
-    return baseWeight
-  }, [weightRecords, baseWeight])
+  const actual30DayWeight = useMemo(() => recentAverageWeight(weightRecords, baseWeight), [weightRecords, baseWeight])
 
   // Progress, Home and Nutrition must read the same canonical targets.  Do
   // not silently invent age/height/sex/goal values for a real member; an
@@ -507,61 +490,9 @@ export default function ProgressPage({
       dateKeys.push(`${yr}-${mo}-${dy}`)
     }
 
-    const configuredProfile = nutritionTargets.configured
-      && userProfile
-      && Number(userProfile.heightCm) > 0
-      && Number(userProfile.age) > 0
-      && actual30DayWeight > 0
-    const goal = configuredProfile ? userProfile.goal : 'chưa thiết lập'
-    const h = configuredProfile ? Number(userProfile.heightCm) : 0
-    const w = configuredProfile ? actual30DayWeight : 0
-    const age = configuredProfile ? Number(userProfile.age) : 0
-    const act = configuredProfile ? userProfile.activityLevel : 'low'
-
-    const sexOffset = configuredProfile && userProfile.biologicalSex === 'male' ? 5 : -161
-    const resting = configuredProfile ? 10 * w + 6.25 * h - 5 * age + sexOffset : 0
-    const factors: Record<string, number> = { low: 1.375, moderate: 1.55, high: 1.725 }
-    const dailyBase = configuredProfile ? Math.round(resting * factors[act]) : 0
-    
-    const isMealLogged = (m: any) => !m.status || m.status === 'logged'
-    const periodMeals = allMeals.filter((m: any) => isMealLogged(m) && dateKeys.includes(m.date))
-    const totalIntake = periodMeals.reduce((sum: number, m: any) => sum + (Number(m.calories) || 0), 0)
-    
-    const periodActivities = allActivities.filter((a: any) => dateKeys.includes(a.date))
-    
-    const activeMealDates = new Set(periodMeals.map((m: any) => m.date))
-    const uniqueDaysWithMeals = activeMealDates.size
-    
-    // Only sum workouts on days where meals are logged to make the energy balance 100% mathematically sound
-    const periodActivitiesOnLoggedDays = periodActivities.filter((a: any) => activeMealDates.has(a.date))
-    const totalWorkout = periodActivitiesOnLoggedDays.reduce((sum: number, a: any) => sum + (Number(a.estimatedCalories) || 0), 0)
-    
-    const daysWithWorkout = new Set(periodActivities.map((a: any) => a.date)).size
-    const nutritionCoverage = uniqueDaysWithMeals / daysCount
-    const activityCoverage = Math.min(1.0, daysWithWorkout / Math.max(1, Math.round(daysCount * 0.4)))
-    const confidenceScore = nutritionCoverage * 0.6 + activityCoverage * 0.4
-    const confidence: 'Cao' | 'Trung bình' | 'Thấp' = confidenceScore > 0.75 ? 'Cao' : (confidenceScore > 0.4 ? 'Trung bình' : 'Thấp')
-
-    // BMR and Daily Activities are only calculated for the days where data is logged (uniqueDaysWithMeals)
-    const totalBasal = configuredProfile ? Math.round(resting * uniqueDaysWithMeals) : 0
-    const totalDailyActivity = configuredProfile ? Math.round((dailyBase - resting) * uniqueDaysWithMeals) : 0
-    const totalThermicEffect = configuredProfile ? Math.round(totalIntake * 0.10) : 0
-
-    return {
-      intake: totalIntake,
-      workout: totalWorkout,
-      basal: totalBasal,
-      dailyActivity: totalDailyActivity,
-      thermicEffect: totalThermicEffect,
-      confidence,
-      goal,
-      periodDays: uniqueDaysWithMeals,
-      totalPeriodDays: daysCount,
-      activeDays: uniqueDaysWithMeals,
-      workoutDays: daysWithWorkout,
-      configured: Boolean(configuredProfile),
-    }
-  }, [period, resolvedOwnerId, actual30DayWeight, allMeals, allActivities, userProfile, nutritionTargets])
+    const energy = periodEnergy(allMeals, dateKeys, nutritionTargets, userProfile?.mealsPerDay || 3)
+    return { ...energy, goal: userProfile?.goal || 'maintain', workoutDays: new Set(allActivities.filter((a: any) => dateKeys.includes(a.date)).map((a: any) => a.date)).size, configured: nutritionTargets.configured }
+  }, [period, allMeals, allActivities, userProfile, nutritionTargets])
 
   // Nutrition progress calculation based on real log history and actual 30-day weight
   const nutritionProgressData = useMemo(() => {
@@ -581,11 +512,13 @@ export default function ProgressPage({
     const proteinGoal = nutritionTargets.proteinGoal
     const carbGoal = nutritionTargets.carbGoal
     const fatGoal = nutritionTargets.fatGoal
-    const fiberGoal = nutritionTargets.configured ? 30 : 0
+    const fiberGoal = nutritionTargets.configured ? 25 : 0
     const waterGoal = nutritionTargets.waterGoal
 
     const isMealLogged = (m: any) => !m.status || m.status === 'logged'
-    const periodMeals = allMeals.filter((m: any) => isMealLogged(m) && dateKeys.includes(m.date))
+    const observedMeals = allMeals.filter((m: any) => isMealLogged(m) && dateKeys.includes(m.date))
+    const completeDates = completeMealDates(observedMeals, userProfile?.mealsPerDay || 3)
+    const periodMeals = observedMeals.filter((m: any) => completeDates.has(m.date))
     const uniqueDaysWithMeals = new Set(periodMeals.map((m: any) => m.date)).size
     const divisor = Math.max(1, uniqueDaysWithMeals)
     
@@ -596,7 +529,8 @@ export default function ProgressPage({
     const avgFiber = Math.round(periodMeals.reduce((sum: number, m: any) => sum + (Number(m.fiber) || 0), 0) / divisor)
 
     const periodWater = allWater.filter((w: any) => dateKeys.includes(w.date))
-    const avgWater = uniqueDaysWithMeals > 0 ? Math.round(periodWater.reduce((sum: number, w: any) => sum + (Number(w.amountMl) || 0), 0) / divisor) : 0
+    const waterDays = new Set(periodWater.map((w: any) => w.date)).size
+    const avgWater = waterDays > 0 ? Math.round(periodWater.reduce((sum: number, w: any) => sum + (Number(w.amountMl) || 0), 0) / waterDays) : 0
 
     return {
       avgCalories: uniqueDaysWithMeals > 0 ? avgCalories : 0,
@@ -614,7 +548,7 @@ export default function ProgressPage({
       activeDays: uniqueDaysWithMeals,
       configured: nutritionTargets.configured,
     }
-  }, [period, resolvedOwnerId, allMeals, allWater, nutritionTargets])
+  }, [period, resolvedOwnerId, allMeals, allWater, nutritionTargets, userProfile])
 
   // Real Progress Score calculation based on real user logged data
   const realProgressInput = useMemo(() => {
@@ -644,22 +578,25 @@ export default function ProgressPage({
 
     dateKeys.forEach(date => {
       const dayMeals = periodMeals.filter((m: any) => m.date === date)
-      if (dayMeals.length > 0 && canScoreNutrition) {
+      if (completeMealDates(dayMeals, userProfile?.mealsPerDay || 3).has(date) && canScoreNutrition) {
         const dayCalories = dayMeals.reduce((sum: number, m: any) => sum + (Number(m.calories) || 0), 0)
         const dayProtein = dayMeals.reduce((sum: number, m: any) => sum + (Number(m.protein) || 0), 0)
         
-        const cRatio = targetCal > 0 ? dayCalories / targetCal : 0
-        const cScore = cRatio === 0 ? 0 : cRatio >= 0.85 && cRatio <= 1.15 ? 100 : Math.max(30, Math.round((1 - Math.min(1, Math.abs(1 - cRatio))) * 100))
+        const daySnapshot = dayMeals.find((m: any) => m.targetSnapshot?.calories > 0)?.targetSnapshot
+        const dayTargetCal = daySnapshot?.calories ?? targetCal
+        const dayTargetProtein = daySnapshot?.protein ?? targetProt
+        const cRatio = dayTargetCal > 0 ? dayCalories / dayTargetCal : 0
+        const cScore = cRatio === 0 ? 0 : cRatio >= 0.85 && cRatio <= 1.15 ? 100 : Math.max(0, Math.round((1 - Math.min(1, Math.abs(1 - cRatio))) * 100))
         totalCalorieScoreSum += cScore
 
-        const pRatio = targetProt > 0 ? dayProtein / targetProt : 0
-        const pScore = pRatio === 0 ? 0 : pRatio >= 0.85 && pRatio <= 1.15 ? 100 : Math.max(30, Math.round((1 - Math.min(1, Math.abs(1 - pRatio))) * 100))
+        const pRatio = dayTargetProtein > 0 ? dayProtein / dayTargetProtein : 0
+        const pScore = pRatio === 0 ? 0 : pRatio >= 0.85 && pRatio <= 1.15 ? 100 : Math.max(0, Math.round((1 - Math.min(1, Math.abs(1 - pRatio))) * 100))
         totalProteinScoreSum += pScore
       }
     })
 
-    const calorieTargetRate = uniqueDaysWithMeals > 0 ? Math.round(totalCalorieScoreSum / uniqueDaysWithMeals) : 0
-    const proteinTargetRate = uniqueDaysWithMeals > 0 ? Math.round(totalProteinScoreSum / uniqueDaysWithMeals) : 0
+    const calorieTargetRate = uniqueDaysWithMeals > 0 ? Math.round(totalCalorieScoreSum / daysCount) : 0
+    const proteinTargetRate = uniqueDaysWithMeals > 0 ? Math.round(totalProteinScoreSum / daysCount) : 0
 
     // Hydration rate
     const periodWater = allWater.filter((w: any) => dateKeys.includes(w.date))
@@ -677,8 +614,8 @@ export default function ProgressPage({
     // Workouts
     const periodActivities = allActivities.filter((a: any) => dateKeys.includes(a.date))
     const daysWithWorkout = new Set(periodActivities.map((a: any) => a.date)).size
-    const expectedWorkouts = Math.max(1, Math.round(daysCount * (3 / 7))) // target 3 workouts/week
-    const workoutCompletionScore = Math.min(100, Math.round((daysWithWorkout / expectedWorkouts) * 100))
+    const expectedWorkouts = Math.max(0, Math.round(daysCount * ((userProfile?.trainingSessions ?? 0) / 7)))
+    const workoutCompletionScore = expectedWorkouts > 0 ? Math.min(100, Math.round((daysWithWorkout / expectedWorkouts) * 100)) : 0
 
     // Weight tracking rate
     const limitDateStr = new Date(today.getTime() - daysCount * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
@@ -723,7 +660,7 @@ export default function ProgressPage({
         measurementTrackingRate: bodyMetrics.updatedAt ? 100 : 0,
       }
     }
-  }, [allMeals, allWater, allActivities, weightRecords, nutritionProgressData, nutritionTargets, period])
+  }, [allMeals, allWater, allActivities, weightRecords, nutritionProgressData, nutritionTargets, period, userProfile])
 
   const trackedDataDays = useMemo(() => {
     const dates = new Set<string>()
@@ -894,7 +831,7 @@ export default function ProgressPage({
               fiberGoal={nutritionProgressData.fiberGoal}
               waterMl={nutritionProgressData.avgWater}
               waterGoal={nutritionProgressData.waterGoal}
-              activeDays={nutritionProgressData.activeDays}
+              activeDays={nutritionProgressData.activeDays} totalPeriodDays={period === '7-days' ? 7 : period === '30-days' ? 30 : 90}
             />
           </div>
         </>
@@ -929,7 +866,7 @@ export default function ProgressPage({
               fiberGoal={nutritionProgressData.fiberGoal}
               waterMl={nutritionProgressData.avgWater}
               waterGoal={nutritionProgressData.waterGoal}
-              activeDays={nutritionProgressData.activeDays}
+              activeDays={nutritionProgressData.activeDays} totalPeriodDays={period === '7-days' ? 7 : period === '30-days' ? 30 : 90}
             />
             <EnergyBalanceCard onOpenDetails={() => onNavigate?.('nutrition')} onLogMeal={() => onNavigate?.('nutrition')} onLogWorkout={() => onNavigate?.('pt-workout')} intake={energyBalanceData.intake} basal={energyBalanceData.basal} dailyActivity={energyBalanceData.dailyActivity} workout={energyBalanceData.workout} thermicEffect={energyBalanceData.thermicEffect} confidence={energyBalanceData.confidence} goal={energyBalanceData.goal} periodDays={energyBalanceData.periodDays} totalPeriodDays={energyBalanceData.totalPeriodDays} activeDays={energyBalanceData.activeDays} workoutDays={energyBalanceData.workoutDays} />
           </div>

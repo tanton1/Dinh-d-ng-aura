@@ -75,11 +75,9 @@ test('AI Health Coach context uses bounded server records and real nutrition tot
   assert.deepEqual(summary.context, {
     goalLabel: 'Giảm mỡ bền vững',
     latestWeightKg: 70,
-    targetWeightKg: 65,
+    targetWeightKg: 67,
     todayCalories: 500,
-    calorieGoal: 1800,
     todayProteinG: 35,
-    proteinGoalG: 120,
     loggedDays7: 3,
     workoutDays7: 1,
     updatedAt: '2026-08-31T04:00:00.000Z',
@@ -94,7 +92,7 @@ test('AI Health Coach context uses bounded server records and real nutrition tot
   assert.equal(summary.missingData.includes('Chưa có chỉ số vòng đo hoặc thành phần cơ thể'), false)
 })
 
-test('weight-loss target is omitted without an explicit delta and timeframe', () => {
+test('AI Coach uses the same default starting target as the nutrition page', () => {
   const summary = summarizeHealthCoachContext({
     now: new Date('2026-08-31T04:00:00.000Z'),
     profile: {
@@ -109,10 +107,10 @@ test('weight-loss target is omitted without an explicit delta and timeframe', ()
     },
   })
 
-  assert.equal(Object.hasOwn(summary.context, 'calorieGoal'), false)
-  assert.equal(Object.hasOwn(summary.context, 'targetWeightKg'), false)
-  assert.ok(summary.context.proteinGoalG > 0)
-  assert.match(summary.missingData.join(' | '), /mức thay đổi cân nặng và thời hạn mục tiêu/)
+  const { calculateNutritionTargets } = require('./nutrition-core.mjs')
+  const expected = calculateNutritionTargets({ goal: 'lose-fat', age: 30, biologicalSex: 'female', heightCm: 165, weightKg: 68, activityLevel: 'moderate' })
+  assert.equal(summary.context.calorieGoal, expected.targetCaloriesKcal)
+  assert.equal(summary.context.proteinGoalG, expected.proteinG)
 })
 
 test('AI Health Coach reports missing data instead of inventing profile defaults', () => {
@@ -182,10 +180,10 @@ test('context cache accepts only current, complete and unexpired server summarie
     missingData: [],
     suggestedReplies: [],
   }
-  assert.equal(validHealthCoachContextCache({ schemaVersion: 1, expiresAtMs: 2_000, summary }, 1_000), true)
-  assert.equal(validHealthCoachContextCache({ schemaVersion: 1, expiresAtMs: 999, summary }, 1_000), false)
-  assert.equal(validHealthCoachContextCache({ schemaVersion: 2, expiresAtMs: 2_000, summary }, 1_000), false)
-  assert.equal(validHealthCoachContextCache({ schemaVersion: 1, expiresAtMs: 2_000, summary: {} }, 1_000), false)
+  assert.equal(validHealthCoachContextCache({ schemaVersion: 2, expiresAtMs: 2_000, summary }, 1_000), true)
+  assert.equal(validHealthCoachContextCache({ schemaVersion: 2, expiresAtMs: 999, summary }, 1_000), false)
+  assert.equal(validHealthCoachContextCache({ schemaVersion: 1, expiresAtMs: 2_000, summary }, 1_000), false)
+  assert.equal(validHealthCoachContextCache({ schemaVersion: 2, expiresAtMs: 2_000, summary: {} }, 1_000), false)
 })
 
 test('rate limit mutation bounds both burst and daily AI usage before a receipt is written', () => {

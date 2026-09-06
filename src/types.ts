@@ -73,7 +73,10 @@ export interface UserProfile {
     targetWeightDeltaKg?: number
     targetTimeframeMonths?: number
     targetSpeedPace?: 'slow' | 'standard' | 'fast'
-    activityLevel: 'low' | 'moderate' | 'high'
+    targetWeightKg?: number
+    targetTimeframeMode?: 'duration' | 'pace'
+    healthConditions?: string[]
+    activityLevel: 'sedentary' | 'light' | 'low' | 'moderate' | 'high'
     trainingSessions: number
     eatingStyle: string
     allergies: string

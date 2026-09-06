@@ -109,7 +109,7 @@ const FoodCatalogModal = React.memo(function FoodCatalogModal({ catalog, savedFo
   const addCatalogFood = async (food: NutritionFoodCatalogItem, multiplier: number) => {
     setAddingFoodId(food.id)
     try {
-      await onAdd(scaleCatalogFood(food, multiplier), multiplier)
+      await onAdd(food, multiplier)
     } finally {
       setAddingFoodId(null)
     }

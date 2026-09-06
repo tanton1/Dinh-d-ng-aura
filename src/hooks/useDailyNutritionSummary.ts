@@ -1,3 +1,4 @@
+import { useNutritionWeight } from './useNutritionWeight'
 import { useEffect, useMemo, useState } from 'react'
 import type { NutritionProfileDraft } from '../features/nutrition/types'
 import {
@@ -25,6 +26,7 @@ export function useDailyNutritionSummary(
   profile?: NutritionProfileDraft | null,
   enabled = true,
 ) {
+  const effectiveWeight = useNutritionWeight(ownerId, profile?.weightKg ?? 0, enabled)
   const [meals, setMeals] = useState<DailyMealSummary[]>([])
 
   useEffect(() => {
@@ -37,7 +39,6 @@ export function useDailyNutritionSummary(
   }, [enabled, ownerId])
 
   return useMemo(() => {
-    const effectiveWeight = readRecentAverageWeight(ownerId, profile?.weightKg ?? 0)
     const targets = resolveDailyNutritionTargets(profile, effectiveWeight)
     const calorieTarget = Math.max(0, Math.round(targets.calorieGoal))
     const proteinTarget = Math.max(0, Math.round(targets.proteinGoal))
@@ -55,5 +56,5 @@ export function useDailyNutritionSummary(
       remainingCalories: Math.max(0, calorieTarget - caloriesConsumed),
       remainingProtein: Math.max(0, proteinTarget - proteinConsumed),
     }
-  }, [meals, ownerId, profile])
+  }, [meals, ownerId, profile, effectiveWeight])
 }

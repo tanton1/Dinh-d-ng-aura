@@ -15,9 +15,12 @@ export interface NutritionProfileDraft {
   heightCm: number
   weightKg: number
   targetWeightDeltaKg?: number
+  targetWeightKg?: number
+  targetTimeframeMode?: 'duration' | 'pace'
+  healthConditions?: string[]
   targetTimeframeMonths?: number
   targetSpeedPace?: 'slow' | 'standard' | 'fast'
-  activityLevel: 'low' | 'moderate' | 'high'
+  activityLevel: 'sedentary' | 'light' | 'low' | 'moderate' | 'high'
   trainingSessions: number
   eatingStyle: string
   allergies: string
@@ -184,6 +187,8 @@ export interface MealLog {
   catalogId?: string
   /** Exact weekly-plan meal that produced this diary entry. */
   plannedMealId?: string
+  servingMultiplier?: number
+  targetSnapshot?: { formulaVersion: string; calories: number; protein: number; carbs: number; fat: number; tdee: number; waterMl: number; capturedAt: string }
   date: string
   type: NutritionMealDraft['mealType']
   label: string

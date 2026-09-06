@@ -47,7 +47,7 @@ const HEALTH_COACH_MESSAGE_MAX_LENGTH = 3000
 const HEALTH_COACH_RATE_LIMIT_WINDOW_REQUESTS = 20
 const HEALTH_COACH_DAILY_REQUESTS = 100
 const HEALTH_COACH_TIME_ZONE = 'Asia/Ho_Chi_Minh'
-const HEALTH_COACH_CONTEXT_CACHE_VERSION = 1
+const HEALTH_COACH_CONTEXT_CACHE_VERSION = 2
 const HEALTH_COACH_CONTEXT_CACHE_TTL_MS = 60 * 1000
 const HEALTH_COACH_TURN_RECEIPT_TTL_MS = 24 * 60 * 60 * 1000
 const HEALTH_COACH_PROVIDER_BUDGET_MS = 45 * 1000
@@ -1978,82 +1978,17 @@ function normalizeHealthCoachGoal(profile) {
 }
 
 function calculateHealthCoachTargets(profile, effectiveWeightKg) {
-  const nutritionProfile = isPlainObject(profile?.nutritionProfile) ? profile.nutritionProfile : {}
-  const explicitCalories = finiteHealthCoachNumber(
-    nutritionProfile.targetCalories,
-    nutritionProfile.calorieTarget,
-    nutritionProfile.calorieGoal,
-    profile?.calorieTarget,
-    profile?.calorieGoal,
-  )
-  const explicitProtein = finiteHealthCoachNumber(
-    nutritionProfile.protein,
-    nutritionProfile.proteinTarget,
-    nutritionProfile.proteinGoal,
-    profile?.proteinTarget,
-    profile?.proteinGoal,
-  )
-  const heightCm = finiteHealthCoachNumber(nutritionProfile.heightCm, profile?.heightCm, profile?.height)
-  const age = finiteHealthCoachNumber(
-    nutritionProfile.age,
-    profile?.age,
-    Number.isInteger(profile?.birthYear) ? new Date().getFullYear() - profile.birthYear : null,
-  )
-  const biologicalSex = nutritionProfile.biologicalSex || profile?.biologicalSex
-  const rawActivity = boundedHealthCoachText(nutritionProfile.activityLevel || profile?.activityLevel, 30)
-  const activityMultipliers = { sedentary: 1.2, light: 1.375, low: 1.375, moderate: 1.55, high: 1.725 }
-  const goal = normalizeHealthCoachGoal(profile)
-  let calculatedCalories = null
-  let calculatedProtein = null
-  let calculatedCaloriesSource = null
-
-  if (effectiveWeightKg && heightCm && age && ['female', 'male'].includes(biologicalSex)) {
-    const bmr = 10 * effectiveWeightKg + 6.25 * heightCm - 5 * age + (biologicalSex === 'male' ? 5 : -161)
-    const maintenance = bmr * (activityMultipliers[rawActivity] || activityMultipliers.low)
-    const savedTargetDelta = finiteHealthCoachNumber(
-      nutritionProfile.targetWeightDeltaKg,
-      profile?.targetWeightDeltaKg,
-    )
-    const savedTargetWeightKg = finiteHealthCoachNumber(
-      nutritionProfile.targetWeightKg,
-      profile?.targetWeightKg,
-    )
-    const targetDelta = savedTargetDelta !== null
-      ? savedTargetDelta
-      : savedTargetWeightKg && savedTargetWeightKg > 0
-        ? savedTargetWeightKg - effectiveWeightKg
-        : null
-    const timeframeMonths = finiteHealthCoachNumber(
-      nutritionProfile.targetTimeframeMonths,
-      profile?.targetTimeframeMonths,
-    )
-    const hasExplicitWeightPlan = targetDelta !== null && timeframeMonths !== null && timeframeMonths > 0
-    if (goal.key === 'maintain' || hasExplicitWeightPlan) {
-      const dailyAdjustment = hasExplicitWeightPlan
-        ? (targetDelta * 7700) / (timeframeMonths * 4.33 * 7)
-        : 0
-      calculatedCalories = Math.min(4500, Math.max(Math.max(1200, Math.round(bmr * 0.95)), Math.round(maintenance + dailyAdjustment)))
-      calculatedCaloriesSource = hasExplicitWeightPlan ? 'calculated_from_explicit_weight_plan' : 'estimated_maintenance'
-    }
-    const proteinPerKg = goal.key === 'gain-muscle' ? 2.2 : goal.key === 'lose-fat' ? 2 : 1.6
-    calculatedProtein = Math.round(effectiveWeightKg * proteinPerKg)
-  }
-
-  const calorieGoal = explicitCalories && explicitCalories > 0
-    ? Math.round(explicitCalories)
-    : calculatedCalories
-  const proteinGoalG = explicitProtein && explicitProtein > 0
-    ? Math.round(explicitProtein)
-    : calculatedProtein
+  const { calculateNutritionTargets, canonicalNutritionProfile } = require('./nutrition-core.mjs')
+  const targets = calculateNutritionTargets(canonicalNutritionProfile(profile), effectiveWeightKg || undefined)
   return {
-    calorieGoal,
-    proteinGoalG,
-    calorieSource: explicitCalories && explicitCalories > 0 ? 'saved_profile' : calculatedCaloriesSource,
-    proteinSource: explicitProtein && explicitProtein > 0 ? 'saved_profile' : (proteinGoalG ? 'calculated_from_profile' : null),
-    hasCompleteTargetInputs: Boolean(effectiveWeightKg && heightCm && age && ['female', 'male'].includes(biologicalSex)),
+    calorieGoal: targets.configured ? targets.targetCaloriesKcal : null,
+    proteinGoalG: targets.configured ? targets.proteinG : null,
+    calorieSource: targets.configured ? targets.formulaVersion : null,
+    proteinSource: targets.configured ? targets.formulaVersion : null,
+    hasCompleteTargetInputs: targets.configured,
+    issues: targets.issues,
   }
 }
-
 function healthCoachRecordDate(record) {
   if (typeof record?.date === 'string') return record.date.slice(0, 10)
   for (const value of [record?.recordedAt, record?.updatedAt, record?.createdAt]) {
@@ -2109,11 +2044,7 @@ function summarizeHealthCoachContext({
     nutritionProfile.targetWeightKg,
     profile?.targetWeightKg,
   )
-  const targetWeightKg = explicitTargetWeight && explicitTargetWeight > 0
-    ? explicitTargetWeight
-    : latestWeightKg && targetDelta !== null
-      ? Number((latestWeightKg + targetDelta).toFixed(1))
-      : null
+  const targetWeightKg = require('./nutrition-core.mjs').canonicalNutritionProfile(profile).targetWeightKg ?? null
   const targets = calculateHealthCoachTargets(profile, effectiveNutritionWeightKg)
   const mealDates = new Set(loggedMeals.map(healthCoachRecordDate))
   const loggedActivities = activities
@@ -2153,7 +2084,7 @@ function summarizeHealthCoachContext({
   })
   const bodyHasData = Object.keys(body).length > 0
   const dataUsed = []
-  const missingData = []
+  const missingData = [...targets.issues]
 
   if (goal.label) dataUsed.push(`Mục tiêu: ${goal.label}`)
   else missingData.push('Mục tiêu cơ thể chưa được cập nhật')

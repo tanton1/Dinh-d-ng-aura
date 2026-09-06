@@ -1,3 +1,5 @@
+import { useNutritionWeight } from '../../hooks/useNutritionWeight'
+import { scaleCatalogServing } from '../../features/nutrition/servings'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import type {
@@ -102,6 +104,7 @@ import {
   toFoodDetailSummary,
 } from '../../features/nutrition/catalog'
 import { nutritionEvidenceLabel } from '../../features/nutrition/analysis'
+import { nutritionQuality, canonicalNutritionProfile, calculateNutritionTargets, NUTRITION_FORMULA_VERSION } from '../../services/nutritionSyncService'
 import { useAccessibleDialog } from '../../features/nutrition/useAccessibleDialog'
 import { useNutritionAssistantController } from '../../features/nutrition/useNutritionAssistantController'
 import { MealEditorSheet, MealLogEditorSheet, type MealEditorContext, type MealLogEditDraft } from './NutritionMealEditors'
@@ -132,6 +135,7 @@ function canLogCatalogFood(food: NutritionFoodCatalogItem): food is NutritionFoo
   fat: number
 } {
   return food.calories !== null && food.protein !== null && food.carbs !== null && food.fat !== null
+    && nutritionQuality({ calories: food.calories, protein: food.protein, carbs: food.carbs, fat: food.fat }).length === 0
 }
 const INITIAL_MEALS: Array<Omit<MealLog, 'date'>> = [
   {
@@ -211,11 +215,6 @@ const WEEK_PLAN = [
   { time: '19:00', label: 'Bữa tối', title: 'Cá hồi & khoai lang', calories: 470, protein: 34 },
 ]
 
-const ACTIVITY_FACTORS: Record<NutritionProfileDraft['activityLevel'], number> = {
-  low: 1.3,
-  moderate: 1.45,
-  high: 1.65,
-}
 
 const ACTIVITY_OPTIONS: Array<{ value: NutritionActivityKind; label: string; met: Record<NutritionActivityIntensity, number> }> = [
   { value: 'strength', label: 'Tập tạ', met: { low: 3, moderate: 5, high: 6 } },
@@ -289,6 +288,7 @@ function normalizeNutritionProfileDraft(profile?: NutritionProfileDraft | null):
   const mealsPerDay = Number(merged.mealsPerDay)
   return {
     ...merged,
+    ...canonicalNutritionProfile(merged),
     reminders: {
       water: merged.reminders.water ?? false,
       breakfast: merged.reminders.breakfast ?? false,
@@ -596,7 +596,13 @@ function NutritionOnboarding({ onComplete, initialProfile = DEFAULT_PROFILE, onC
   const [profile, setProfile] = useState<NutritionProfileDraft>(initialProfile)
 
   const setField = <K extends keyof NutritionProfileDraft>(field: K, value: NutritionProfileDraft[K]) => {
-    setProfile((current) => ({ ...current, [field]: value }))
+    setProfile((current) => {
+      const next = { ...current, [field]: value }
+      if (field === 'targetWeightDeltaKg') next.targetWeightKg = current.weightKg + Number(value)
+      if (field === 'targetSpeedPace') next.targetTimeframeMode = 'pace'
+      if (field === 'targetTimeframeMonths') next.targetTimeframeMode = 'duration'
+      return next
+    })
   }
 
   return (
@@ -738,7 +744,7 @@ function NutritionOnboarding({ onComplete, initialProfile = DEFAULT_PROFILE, onC
               <label className="nutrition-field">
                 <span>Mức vận động hằng ngày</span>
                 <select value={profile.activityLevel} onChange={(event) => setField('activityLevel', event.target.value as NutritionProfileDraft['activityLevel'])}>
-                  <option value="low">Ít vận động</option>
+                  <option value="sedentary">Ít vận động, không tập</option><option value="light">Vận động nhẹ</option><option value="low">Vận động nhẹ (hồ sơ cũ)</option>
                   <option value="moderate">Vận động vừa</option>
                   <option value="high">Vận động nhiều</option>
                 </select>
@@ -1074,6 +1080,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     type: NutritionMealDraft['mealType']
     time: string
     plannedMealId?: string
+    servingMultiplier?: number
   } | null>(null)
   const [planCatalogAction, setPlanCatalogAction] = useState<{
     action: 'add' | 'replace'
@@ -1148,13 +1155,11 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   const firstName = displayName.trim().split(/\s+/).slice(-1)[0] || 'bạn'
 
   // Get actual weight in the last 30 days based on weight history of this user
-  const actual30DayWeight = useMemo(
-    () => readRecentAverageWeight(resolvedOwnerId, profileDraft.weightKg),
-    [resolvedOwnerId, profileDraft.weightKg],
-  )
+  const actual30DayWeight = useNutritionWeight(resolvedOwnerId, profileDraft.weightKg, !isDemo)
 
   const nutritionTargets = resolveDailyNutritionTargets(profileDraft, actual30DayWeight)
   const { calorieGoal, proteinGoal, carbGoal, fatGoal, waterGoal } = nutritionTargets
+  const targetSnapshot = nutritionTargets.configured ? { formulaVersion: NUTRITION_FORMULA_VERSION, calories: calorieGoal, protein: proteinGoal, carbs: carbGoal, fat: fatGoal, tdee: nutritionTargets.maintenanceCalories, waterMl: waterGoal, capturedAt: new Date().toISOString() } : undefined
   const dailyPlan = getDailyPlan(calorieGoal, profileDraft)
   const selectedDayMeals = meals.filter((meal) => meal.date === selectedDate)
   const loggedMeals = selectedDayMeals.filter((meal) => meal.status === 'logged')
@@ -1186,8 +1191,9 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     : 0
   const qualityMetrics = [
     { label: 'Chất xơ', value: fiberConsumed, goal: 25, unit: 'g', tone: 'fiber', inverse: false, complete: fiberDataComplete },
-    { label: 'Đường', value: sugarConsumed, goal: 50, unit: 'g', tone: 'sugar', inverse: true, complete: sugarDataComplete },
-    { label: 'Natri', value: sodiumConsumed, goal: 2300, unit: 'mg', tone: 'sodium', inverse: true, complete: sodiumDataComplete },
+    // Total sugar is not free sugar; do not score it against the WHO free-sugar limit.
+
+    { label: 'Natri', value: sodiumConsumed, goal: 2000, unit: 'mg', tone: 'sodium', inverse: true, complete: sodiumDataComplete },
   ]
   const assistantSuggestions = !nutritionTargets.configured
     ? ['Tôi cần bổ sung gì để thiết lập mục tiêu?', 'Cách cập nhật hồ sơ dinh dưỡng?', 'Phân tích các bữa tôi đã ghi']
@@ -1294,6 +1300,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     image: meal.image,
     rationale: meal.rationale,
     source: meal.source,
+    servingMultiplier: meal.servingMultiplier,
   }))) ?? []
   const activePlannedMeals: NutritionPlannedMeal[] = activeNutritionPlan?.days.flatMap((day) => day.meals.map((meal) => ({
     id: meal.id,
@@ -1311,6 +1318,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     image: meal.image,
     rationale: meal.rationale,
     source: meal.source,
+    servingMultiplier: meal.servingMultiplier,
   }))) ?? []
   const demoPlannedMeals: NutritionPlannedMeal[] = planGenerated ? workspacePlanDays.flatMap((day) => dailyPlan.map((meal, index) => ({
     id: `${day.id}-plan-${index}`,
@@ -2018,10 +2026,11 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     })
   }
 
-  const completeProfile = (profile: NutritionProfileDraft) => {
-    setProfileDraft(profile)
+  const completeProfile = async (input: NutritionProfileDraft) => {
+    const next = canonicalNutritionProfile(input)
+    await onProfileComplete?.(next)
+    setProfileDraft(next)
     setProfileReady(true)
-    onProfileComplete?.(profile)
   }
 
   const saveScannedMeal = async (meal: NutritionMealDraft) => {
@@ -2041,6 +2050,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     const canonicalDishName = meal.dishName?.trim() || meal.name.trim() || 'Bữa ăn dinh dưỡng'
     const mealLabels: Record<NutritionMealDraft['mealType'], string> = { breakfast: 'Bữa sáng', lunch: 'Bữa trưa', dinner: 'Bữa tối', snack: 'Bữa phụ' }
     const newMealLog: MealLog = {
+      targetSnapshot: loggedDate === todayKey ? targetSnapshot : undefined,
       id: `ai-${Date.now()}`,
       date: loggedDate,
       type: meal.mealType,
@@ -2130,7 +2140,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     if (planCatalogAction) {
       setPlanCatalogAction((current) => current ? { ...current, servingMultiplier: multiplier } : current)
     }
-    let pending = food
+    let pending = scaleCatalogServing(food, multiplier)
     if (hydrateDetails) {
       try {
         let detail = catalogDetailCache.current.get(food.id) ?? null
@@ -2139,7 +2149,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
           catalogDetailCache.current.set(food.id, detail)
         }
         pending = {
-          ...food,
+          ...pending,
           fiber: scaleOptionalNumber(detailNutrientValue(detail, 'fiber'), multiplier),
           sugar: scaleOptionalNumber(detailNutrientValue(detail, 'sugars_total') ?? detailNutrientValue(detail, 'sugar'), multiplier),
           sodium: scaleOptionalNumber(detailNutrientValue(detail, 'sodium'), multiplier),
@@ -2153,7 +2163,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
 
   const commitCatalogFood = async (food: NutritionFoodCatalogItem, context: MealEditorContext) => {
     if (!canLogCatalogFood(food)) {
-      showMessage('Bản ghi nguồn còn thiếu kcal hoặc macro nên chưa thể thêm an toàn')
+      showMessage(nutritionQuality(food).join('; ') || 'Món chưa đủ dữ liệu kcal/macro')
       return
     }
     if (planCatalogAction) {
@@ -2193,9 +2203,11 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     }
     const mealLabels: Record<NutritionMealDraft['mealType'], string> = { breakfast: 'Bữa sáng', lunch: 'Bữa trưa', dinner: 'Bữa tối', snack: 'Bữa phụ' }
     const newMealLog: MealLog = {
+      targetSnapshot: context.date === todayKey ? targetSnapshot : undefined,
       id: `catalog-${Date.now()}`,
       catalogId: food.id,
       plannedMealId: diaryCatalogDefaults?.plannedMealId,
+      servingMultiplier: diaryCatalogDefaults?.servingMultiplier ?? 1,
       date: context.date,
       type: context.mealType,
       label: mealLabels[context.mealType],
@@ -2213,7 +2225,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       tone: 'green',
       image: food.imageUrl,
       source: 'catalog',
-      confidence: 'verified',
+      confidence: food.servingGrams === null ? 'needs-review' : 'verified',
     }
     setMeals((current) => [newMealLog, ...current])
     beginNutritionMutation('meals', newMealLog.id)
@@ -2283,8 +2295,8 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       const loaded = known ? [known] : await loadNutritionCatalog({ ids: [meal.catalogId] })
       const food = known ?? loaded[0]
       if (!food) throw new Error('catalog-item-not-found')
-      setDiaryCatalogDefaults({ date: meal.dayId, type: meal.type, time: meal.time, plannedMealId: meal.id })
-      await queueCatalogFood(food, 1, !isDemo)
+      setDiaryCatalogDefaults({ date: meal.dayId, type: meal.type, time: meal.time, plannedMealId: meal.id, servingMultiplier: meal.servingMultiplier || 1 })
+      await queueCatalogFood(food, meal.servingMultiplier || 1, !isDemo)
     } catch {
       setDiaryCatalogDefaults(null)
       showMessage('Chưa tải được dữ liệu món để ghi nhật ký')
@@ -2300,21 +2312,21 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       nameEn: record.nameEn ?? undefined,
       category: record.category ?? undefined,
       region: record.region ?? null,
-      servingGrams: serving.unit === 'g' ? serving.amount : null,
-      servingLabel: serving.label,
-      calories: scaleOptionalNumber(record.energyKcal, serving.multiplier),
-      protein: scaleOptionalNumber(detailNutrientValue(record, 'protein'), serving.multiplier),
-      carbs: scaleOptionalNumber(detailNutrientValue(record, 'carbohydrate'), serving.multiplier),
-      fat: scaleOptionalNumber(detailNutrientValue(record, 'fat'), serving.multiplier),
-      fiber: scaleOptionalNumber(detailNutrientValue(record, 'fiber'), serving.multiplier),
-      sugar: scaleOptionalNumber(detailNutrientValue(record, 'sugars_total') ?? detailNutrientValue(record, 'sugar'), serving.multiplier),
-      sodium: scaleOptionalNumber(detailNutrientValue(record, 'sodium'), serving.multiplier),
+      servingGrams: record.basis?.unit === 'g' ? record.basis.amount ?? null : null,
+      servingLabel: record.basis?.labelVi ?? 'Khẩu phần theo nguồn',
+      calories: scaleOptionalNumber(record.energyKcal, 1),
+      protein: scaleOptionalNumber(detailNutrientValue(record, 'protein'), 1),
+      carbs: scaleOptionalNumber(detailNutrientValue(record, 'carbohydrate'), 1),
+      fat: scaleOptionalNumber(detailNutrientValue(record, 'fat'), 1),
+      fiber: scaleOptionalNumber(detailNutrientValue(record, 'fiber'), 1),
+      sugar: scaleOptionalNumber(detailNutrientValue(record, 'sugars_total') ?? detailNutrientValue(record, 'sugar'), 1),
+      sodium: scaleOptionalNumber(detailNutrientValue(record, 'sodium'), 1),
       source: record.source?.publisher ?? 'Viện Dinh dưỡng Quốc gia',
       sourceUrl: record.source?.pageUrl ?? undefined,
       sourceId: record.source?.sourceId ?? undefined,
       imageUrl: record.imageUrl ?? undefined,
       detailBucket: selectedFood?.detailBucket,
-    }, 1, false)
+    }, serving.multiplier, false)
     closeFoodDetail()
   }
 
@@ -2371,7 +2383,8 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
     ? { status: 'pending-local-change', revision: nutritionMutation.id.length, cachedAt: new Date().toISOString(), message: 'Aura đang xác nhận thay đổi với máy chủ…' }
     : nutritionLogSyncState
   const displayedSyncState = syncState && syncState.status !== 'synced' ? syncState : mutationSyncState
-  const profileSyncBanner = <DataSyncStatusBanner state={displayedSyncState} compact={displayedSyncState.status === 'synced'} />
+  const profileSyncBanner = <><DataSyncStatusBanner state={displayedSyncState} compact={displayedSyncState.status === 'synced'} />
+    {calculateNutritionTargets(profileDraft, actual30DayWeight).issues.map((issue) => <p className="nutrition-profile-sync-guard" role="status" key={issue}>{issue} Nhật ký và thực đơn đã xác nhận vẫn được giữ.</p>)}</>
 
   if (activeSection === 'profile') return profileReadOnly ? (
     <div className={`page nutrition-page nutrition-page--workspace ${nutritionV4 ? 'nutrition-page--v4 aura-ui-v4-surface aura-ui-v4-member' : ''}`.trim()} data-testid="nutrition-profile-readonly">
@@ -2386,8 +2399,9 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
   ) : (
     <React.Suspense fallback={<div role="status" aria-live="polite">Đang tải hồ sơ dinh dưỡng…</div>}>
       <NutritionProfileEditor
-        onSave={(nextProfile) => { completeProfile(nextProfile); navigateNutrition('today') }}
+        onSave={async (nextProfile) => { await completeProfile(nextProfile); navigateNutrition('today') }}
         initialProfile={profileDraft}
+        effectiveWeight={actual30DayWeight || profileDraft.weightKg}
         onCancel={() => navigateNutrition('today')}
       />
     </React.Suspense>
@@ -2491,7 +2505,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
       initialTime={planCatalogAction?.time ?? diaryCatalogDefaults?.time}
       mode={planCatalogAction ? 'plan' : 'diary'}
       lockDate={Boolean(planCatalogAction)}
-      isSaving={Boolean(planCatalogAction) && nutritionPlanSaving}
+      isSaving={nutritionPlanSaving || nutritionMutation?.scope === 'meals'}
       onClose={() => { setPendingFood(null); setDiaryCatalogDefaults(null) }}
       onConfirm={commitCatalogFood}
     />}
@@ -2548,7 +2562,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
           status={nutritionPlan?.status ?? (isDemo && planGenerated ? 'active' : undefined)}
           sourceTitle={nutritionPlan?.sourceTitle}
           weekLabel={`${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit' }).format(dateFromLocalKey(planWeekStart))} – ${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(dateFromLocalKey(planDays[6]?.id ?? planWeekStart))}`}
-          errorMessage={nutritionPlanError}
+          errorMessage={nutritionPlanError || nutritionPlan?.validationIssues?.slice(0, 3).join(' · ')}
           isLoading={nutritionPlanLoading}
           isGenerating={nutritionPlanGenerating}
           isSaving={nutritionPlanSaving}
@@ -2650,7 +2664,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
           status: nutritionPlan?.status ?? (isDemo && planGenerated ? 'active' : undefined),
           sourceTitle: nutritionPlan?.sourceTitle,
           weekLabel: `${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit' }).format(dateFromLocalKey(planWeekStart))} – ${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(dateFromLocalKey(planDays[6]?.id ?? planWeekStart))}`,
-          errorMessage: nutritionPlanError,
+          errorMessage: nutritionPlanError || nutritionPlan?.validationIssues?.slice(0, 3).join(' · '),
           isLoading: nutritionPlanLoading,
           isGenerating: nutritionPlanGenerating,
           isSaving: nutritionPlanSaving,
@@ -2685,7 +2699,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
           dailyCalorieGoal: activeNutritionPlan?.targets.calories ?? calorieGoal,
           sourceTitle: activeNutritionPlan?.sourceTitle,
           weekLabel: `${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit' }).format(dateFromLocalKey(planWeekStart))} – ${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(dateFromLocalKey(planDays[6]?.id ?? planWeekStart))}`,
-          errorMessage: nutritionPlanError,
+          errorMessage: nutritionPlanError || nutritionPlan?.validationIssues?.slice(0, 3).join(' · '),
           isLoading: nutritionPlanLoading,
           onSelectDay: setPlanSelectedDay,
           onOpenMeal: activeNutritionPlan ? openMenuMeal : undefined,

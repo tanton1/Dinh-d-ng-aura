@@ -103,10 +103,7 @@ export function resolveDailyNutritionTargets(
     }
   }
 
-  const targets = calculateNutritionTargets({
-    ...profile,
-    weightKg: effectiveWeight ?? profile.weightKg,
-  })
+  const targets = calculateNutritionTargets(profile, effectiveWeight)
 
   return {
     configured: targets.configured !== false,
@@ -117,7 +114,7 @@ export function resolveDailyNutritionTargets(
     waterGoal: targets.waterLiters * 1_000,
     maintenanceCalories: targets.tdee,
     dailyAdjustment: targets.targetCaloriesKcal - targets.tdee,
-    targetDelta: profile.targetWeightDeltaKg ?? 0,
-    timeframeMonths: profile.targetTimeframeMonths ?? 3,
+    targetDelta: targets.targetDelta,
+    timeframeMonths: targets.timeframeMonths,
   }
 }

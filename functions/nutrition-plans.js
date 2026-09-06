@@ -6,6 +6,8 @@ const {
   getOpenRouterModelCandidates,
   requestOpenRouterStructured,
 } = require('./openrouter')
+const { nutritionQuality, NUTRITION_FORMULA_VERSION } = require('./nutrition-core.mjs')
+const { planItemIssues, validatePlanDays, serverPlanProfile } = require('./nutrition-plan-policy')
 
 const PLAN_STATUS = new Set(['draft', 'active'])
 const MEAL_TYPES = new Set(['breakfast', 'lunch', 'snack', 'dinner'])
@@ -122,6 +124,10 @@ function catalogItemFromSnapshot(snapshot) {
     fat: finiteNumber(macros.fatG) ?? nutrientValue(value.nutrients, ['fat', 'total-fat']),
     image: typeof value.imageUrl === 'string' ? value.imageUrl : '',
     source: typeof source.publisher === 'string' ? source.publisher : 'Thư viện dinh dưỡng Aura',
+    dietaryTags: Array.isArray(value.dietaryTags) ? value.dietaryTags : [],
+    allergens: Array.isArray(value.allergens) ? value.allergens : [],
+    allergensVerified: value.allergensVerified === true,
+    basis: value.basis && typeof value.basis === 'object' ? value.basis : null,
     generatedAt: typeof value.catalogGeneratedAt === 'string' ? value.catalogGeneratedAt : '',
   }
 }
@@ -130,14 +136,16 @@ async function loadPlanCatalog(db) {
   if (catalogCache.expiresAt > Date.now() && catalogCache.items.length) return catalogCache
   if (catalogRequest) return catalogRequest
   catalogRequest = db.collection('nutritionCatalog')
-    .select('kind', 'nameVi', 'nameAscii', 'category', 'energyKcal', 'macros', 'nutrients', 'imageUrl', 'source', 'catalogGeneratedAt')
+    .select('kind', 'nameVi', 'nameAscii', 'category', 'energyKcal', 'macros', 'nutrients', 'basis', 'dietaryTags', 'allergens', 'allergensVerified', 'imageUrl', 'source', 'catalogGeneratedAt')
     .get()
     .then((snapshot) => {
       let version = ''
-      const items = snapshot.docs.map(catalogItemFromSnapshot).filter((item) => {
+      const referenceItems = snapshot.docs.map(catalogItemFromSnapshot)
+      const items = referenceItems.filter((item) => {
         if (item.kind !== 'dish' || !item.name) return false
         if (item.calories === null || item.protein === null || item.carbs === null || item.fat === null) return false
         return item.calories >= 40 && item.calories <= 1600 && item.protein >= 0 && item.carbs >= 0 && item.fat >= 0
+          && nutritionQuality(item, { requireBasis: true }).length === 0
       })
       snapshot.docs.forEach((document) => {
         const generatedAt = document.data()?.catalogGeneratedAt
@@ -145,6 +153,7 @@ async function loadPlanCatalog(db) {
       })
       catalogCache = {
         items,
+        referenceItems,
         version: version || `catalog-${snapshot.size}`,
         expiresAt: Date.now() + PLAN_CACHE_MS,
       }
@@ -231,16 +240,16 @@ function toPlanMeal(item, { dayId, type, time, index, targetCalories, targetProt
     source: item.source,
     servingMultiplier: roundedMultiplier,
     rationale,
+    basis: item.basis,
   }
 }
 
 function choosePlanItem(items, input) {
-  const { type, targetCalories, targetProtein, goal, usedNames, usedCategories, avoid, seed } = input
+  const { type, targetCalories, targetProtein, targetCarbs, targetFat, goal, usedNames, usedCategories, avoid, seed } = input
   let pool = items.filter((item) => preferredForMeal(item, type))
   if (!pool.length) pool = items
   if (avoid.length) {
-    const safe = pool.filter((item) => !avoid.some((token) => item.nameAscii.includes(token)))
-    if (safe.length >= 12) pool = safe
+    pool = pool.filter((item) => !avoid.some((token) => item.nameAscii.includes(token)))
   }
   const unused = pool.filter((item) => !usedNames.has(item.nameAscii))
   if (unused.length >= 8) pool = unused
@@ -251,7 +260,9 @@ function choosePlanItem(items, input) {
       const protein = item.protein * multiplier
       const fatRatio = calories > 0 ? (item.fat * multiplier * 9) / calories : 0
       let score = Math.abs(calories - targetCalories) / Math.max(targetCalories, 1) * 80
-      score += Math.max(0, targetProtein - protein) / Math.max(targetProtein, 1) * (goal === 'gain-muscle' ? 45 : 24)
+      score += Math.abs(targetProtein - protein) / Math.max(targetProtein, 1) * (goal === 'gain-muscle' ? 45 : 24)
+      if (targetCarbs > 0) score += Math.abs(item.carbs * multiplier - targetCarbs) / targetCarbs * 20
+      if (targetFat > 0) score += Math.abs(item.fat * multiplier - targetFat) / targetFat * 20
       if (goal === 'lose-fat' && fatRatio > 0.42) score += (fatRatio - 0.42) * 70
       if (usedCategories.get(foldText(item.category)) >= 3) score += 12
       score += stableTieBreaker(`${seed}:${item.id}`) * 8
@@ -261,6 +272,7 @@ function choosePlanItem(items, input) {
 }
 
 function generatePlanDays(items, input) {
+  items = items.filter((item) => planItemIssues(item, input.profile).length === 0)
   const slots = mealSlots(input.mealsPerDay)
   const avoid = avoidTokens(input.profile)
   const usedNames = new Set()
@@ -274,6 +286,8 @@ function generatePlanDays(items, input) {
         type: slot.type,
         targetCalories,
         targetProtein,
+        targetCarbs: input.carbGoal * slot.ratio,
+        targetFat: input.fatGoal * slot.ratio,
         goal: input.profile.goal,
         usedNames,
         usedCategories,
@@ -301,10 +315,10 @@ function generatePlanDays(items, input) {
 function aiCandidateItems(items, days, input) {
   const baselineIds = new Set(days.flatMap((day) => day.meals.map((meal) => meal.catalogId)).filter(Boolean))
   const goalPool = items
-    .filter((item) => !avoidTokens(input.profile).some((token) => item.nameAscii.includes(token)))
+    .filter((item) => planItemIssues(item, input.profile).length === 0)
     .sort((left, right) => {
-      const leftScore = Math.abs(left.calories - input.calorieGoal / Math.max(3, input.mealsPerDay)) - left.protein * 2
-      const rightScore = Math.abs(right.calories - input.calorieGoal / Math.max(3, input.mealsPerDay)) - right.protein * 2
+      const leftScore = Math.abs(left.calories - input.calorieGoal / Math.max(3, input.mealsPerDay)) + Math.abs(left.protein - input.proteinGoal / input.mealsPerDay) * 2
+      const rightScore = Math.abs(right.calories - input.calorieGoal / Math.max(3, input.mealsPerDay)) + Math.abs(right.protein - input.proteinGoal / input.mealsPerDay) * 2
       return leftScore - rightScore
     })
   const ordered = [
@@ -331,7 +345,7 @@ function buildGeminiPlanPrompt(items, days, input) {
   return `Bạn là chuyên gia dinh dưỡng của Aura. Hãy tối ưu kế hoạch 7 ngày cho đúng hồ sơ khách hàng, nhưng chỉ được chọn món trong danh sách catalog được cung cấp. Không bịa món, không bịa catalogId, không đưa hướng dẫn ngoài JSON.
 
 Hồ sơ: ${JSON.stringify(input.profile)}
-Mục tiêu ngày: ${input.calorieGoal} kcal, ${input.proteinGoal}g đạm, ${input.mealsPerDay} bữa/ngày.
+Mục tiêu ngày: ${input.calorieGoal} kcal, ${input.proteinGoal}g đạm, ${input.carbGoal || 0}g carb, ${input.fatGoal || 0}g béo, ${input.mealsPerDay} bữa/ngày.
 Khung bữa bắt buộc: ${JSON.stringify(mealSlots(input.mealsPerDay).map((slot) => slot.type))}.
 Kế hoạch nền do Aura tính: ${JSON.stringify(baseline)}
 Danh sách món hợp lệ: ${JSON.stringify(candidates)}
@@ -354,7 +368,7 @@ function applyGeminiPlanChoices(days, items, choices, input) {
     const multiplier = Number(choice?.servingMultiplier)
     const slotKey = `${dayId}|${type}|${time}`
     if (!validDays.has(dayId) || !type || !time || !item || !Number.isFinite(multiplier) || multiplier < 0.5 || multiplier > 1.5 || seenSlots.has(slotKey)) return
-    if (avoidTokens(input.profile).some((token) => item.nameAscii.includes(token))) return
+    if (planItemIssues(item, input.profile).length) return
     seenSlots.add(slotKey)
     choiceBySlot.set(slotKey, { item, multiplier: Math.round(multiplier * 10) / 10 })
   })
@@ -384,9 +398,10 @@ function applyGeminiPlanChoices(days, items, choices, input) {
         description: `${selected.multiplier} khẩu phần theo nguồn · ${selected.item.source}`,
       }
     })
-    return { ...day, meals: nextMeals }
+    const candidate = { ...day, meals: nextMeals }
+    return validatePlanDays([candidate], input, false).length ? day : candidate
   })
-  return { days: nextDays, assisted: true }
+  return { days: nextDays, assisted: nextDays.some((day, i) => day !== days[i]) }
 }
 
 async function optimizePlanWithGemini(days, items, input) {
@@ -417,6 +432,7 @@ function publicPlan(value) {
     revision: Number.isInteger(value.revision) ? value.revision : 0,
     source: value.source === 'assigned' ? 'assigned' : 'aura-catalog',
     sourceTitle: typeof value.sourceTitle === 'string' ? value.sourceTitle : '',
+    validationIssues: Array.isArray(value.validationIssues) ? value.validationIssues.slice(0, 30) : [],
     planner: value.planner === 'gemini' ? 'gemini' : 'catalog',
     targets: value.targets && typeof value.targets === 'object' ? value.targets : {},
     days: Array.isArray(value.days) ? value.days.slice(0, 7).map((day) => ({
@@ -551,7 +567,7 @@ function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
         const assignedSnapshot = await db.doc(`mealPlans/${planId}`).get()
         if (assignedSnapshot.exists && assignedSnapshot.data()?.status === 'published') {
           const catalog = await loadPlanCatalog(db)
-          assignedPlan = assignedPlanToWeek(assignedSnapshot.data(), catalog.items, weekStart)
+          assignedPlan = assignedPlanToWeek(assignedSnapshot.data(), catalog.referenceItems || catalog.items, weekStart)
         }
       }
     }
@@ -566,27 +582,14 @@ function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
     const userId = await requireStudent(request)
     const weekStart = validateWeekStart(request.data?.weekStart)
     const expectedRevision = Math.max(0, Math.trunc(Number(request.data?.expectedRevision) || 0))
-    const calorieGoal = boundedNumber(request.data?.calorieGoal, 'Mục tiêu năng lượng', 800, 5000)
-    const proteinGoal = boundedNumber(request.data?.proteinGoal, 'Mục tiêu đạm', 20, 500)
-    const mealsPerDay = Math.min(5, Math.max(3, Math.trunc(Number(request.data?.mealsPerDay) || 4)))
-    const goal = ['lose-fat', 'gain-muscle', 'maintain'].includes(request.data?.goal) ? request.data.goal : 'maintain'
-    const profileInput = request.data?.profile && typeof request.data.profile === 'object' ? request.data.profile : {}
-    const profile = {
-      goal,
-      allergies: boundedString(request.data?.allergies, 'Thông tin dị ứng', 600, false),
-      dislikes: boundedString(request.data?.dislikes, 'Món không thích', 600, false),
-      eatingStyle: boundedString(profileInput.eatingStyle, 'Phong cách ăn', 120, false),
-      favoriteCuisine: boundedString(profileInput.favoriteCuisine, 'Ẩm thực ưa thích', 120, false),
-      budget: boundedString(profileInput.budget, 'Ngân sách', 40, false),
-      prepTime: boundedString(profileInput.prepTime, 'Thời gian chuẩn bị', 40, false),
-      biologicalSex: boundedString(profileInput.biologicalSex, 'Giới tính sinh học', 20, false),
-      activityLevel: boundedString(profileInput.activityLevel, 'Mức độ vận động', 40, false),
-      age: Number.isFinite(Number(profileInput.age)) ? Math.min(100, Math.max(13, Math.round(Number(profileInput.age)))) : null,
-      trainingSessions: Number.isFinite(Number(profileInput.trainingSessions)) ? Math.min(14, Math.max(0, Math.round(Number(profileInput.trainingSessions)))) : null,
-    }
+    const { profile, targets } = await serverPlanProfile(db, userId)
+    const calorieGoal = targets.targetCaloriesKcal
+    const proteinGoal = targets.proteinG
+    const mealsPerDay = Math.min(5, Math.max(3, Math.trunc(Number(profile.mealsPerDay) || 3)))
     const catalog = await loadPlanCatalog(db)
-    if (catalog.items.length < 20) throw new HttpsError('failed-precondition', 'Thư viện món chưa đủ dữ liệu để tạo kế hoạch.')
-    const generationInput = { userId, weekStart, calorieGoal, proteinGoal, mealsPerDay, profile }
+    if (!catalog.items.length) throw new HttpsError('failed-precondition', 'Chưa có món đủ kcal, macro và khẩu phần chuẩn để tự tạo kế hoạch. Thư viện tham khảo và thực đơn đã xác nhận vẫn được giữ. Cần admin đối soát khẩu phần nguồn.')
+    const generationInput = { userId, weekStart, calorieGoal, proteinGoal, carbGoal: targets.carbsG, fatGoal: targets.fatG, mealsPerDay, profile }
+    if (!catalog.items.some((item) => !planItemIssues(item, profile).length)) throw new HttpsError('failed-precondition', 'Chưa có món đã xác minh phù hợp dị ứng/chế độ ăn của bạn. Cần chuyên gia chuẩn bị thực đơn.')
     let days = generatePlanDays(catalog.items, generationInput)
     let planner = 'catalog'
     if (request.data?.aiAssist !== false) {
@@ -602,6 +605,7 @@ function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
         console.warn('Gemini nutrition plan assist unavailable:', error?.message || error)
       }
     }
+    const validationIssues = validatePlanDays(days, generationInput)
     const reference = db.doc(`users/${userId}/nutritionPlanDrafts/${weekStart}`)
     let saved = null
     await db.runTransaction(async (transaction) => {
@@ -621,7 +625,8 @@ function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
           ? `Gemini hỗ trợ · ${catalog.items.length} món đủ dữ liệu`
           : `Gợi ý từ ${catalog.items.length} món đủ dữ liệu`,
         planner,
-        targets: { calories: calorieGoal, protein: proteinGoal, mealsPerDay },
+        targets: { calories: calorieGoal, protein: proteinGoal, carbs: targets.carbsG, fat: targets.fatG, mealsPerDay, formulaVersion: NUTRITION_FORMULA_VERSION },
+        validationIssues,
         profileSnapshot: profile,
         catalogVersion: catalog.version,
         days,
@@ -641,7 +646,7 @@ function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
     const catalogSnapshot = catalogReference ? await catalogReference.get() : null
     const item = catalogSnapshot?.exists ? catalogItemFromSnapshot(catalogSnapshot) : null
     if (input.action !== 'remove') {
-      if (!item || !item.name || item.calories === null || item.protein === null || item.carbs === null || item.fat === null) {
+      if (!item || !item.name || item.calories === null || item.protein === null || item.carbs === null || item.fat === null || nutritionQuality(item).length) {
         throw new HttpsError('failed-precondition', 'Món ăn chưa đủ kcal và macro để thêm vào kế hoạch.')
       }
     }
@@ -652,6 +657,11 @@ function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
       const current = snapshot.data() || {}
       const revision = Number(current.revision) || 0
       if (revision !== input.expectedRevision) throw new HttpsError('aborted', 'Kế hoạch đã thay đổi ở nơi khác. Hãy tải lại rồi thử lại.')
+      if (input.action !== 'remove') {
+        const { profile } = await serverPlanProfile(db, userId, transaction)
+        const issues = planItemIssues(item, profile)
+        if (issues.length) throw new HttpsError('failed-precondition', `${item.name}: ${issues.join('; ')}`)
+      }
       const days = Array.isArray(current.days) ? current.days.map((day) => ({ ...day, meals: Array.isArray(day.meals) ? [...day.meals] : [] })) : []
       let day = days.find((candidate) => candidate.id === input.dayId)
       if (!day) {
@@ -697,6 +707,7 @@ function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
         status: 'draft',
         revision: revision + 1,
         days,
+        validationIssues: validatePlanDays(days, { weekStart: input.weekStart, mealsPerDay: Number(current.targets?.mealsPerDay) || 3, calorieGoal: current.targets?.calories, proteinGoal: current.targets?.protein, carbGoal: current.targets?.carbs, fatGoal: current.targets?.fat }),
         updatedAt: FieldValue.serverTimestamp(),
       }
       delete saved.confirmedAt
@@ -718,12 +729,28 @@ function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
       const current = snapshot.data() || {}
       const revision = Number(current.revision) || 0
       if (revision !== expectedRevision) throw new HttpsError('aborted', 'Kế hoạch đã thay đổi. Hãy tải lại trước khi xác nhận.')
-      const expectedDays = new Set(Array.from({ length: 7 }, (_, index) => addUtcDays(weekStart, index)))
-      const coveredDays = new Set(Array.isArray(current.days)
-        ? current.days.filter((day) => expectedDays.has(day?.id) && Array.isArray(day?.meals) && day.meals.length > 0).map((day) => day.id)
-        : [])
-      if (coveredDays.size !== 7) throw new HttpsError('failed-precondition', 'Kế hoạch cần ít nhất một bữa cho mỗi ngày trước khi xác nhận.')
-      saved = { ...current, status: 'active', revision: revision + 1, confirmedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }
+      const { profile, targets } = await serverPlanProfile(db, userId, transaction)
+      const input = { weekStart, profile, calorieGoal: targets.targetCaloriesKcal, proteinGoal: targets.proteinG, carbGoal: targets.carbsG, fatGoal: targets.fatG, mealsPerDay: Math.min(5, Math.max(3, Math.trunc(Number(profile.mealsPerDay) || 3))) }
+      const days = Array.isArray(current.days) ? current.days : []
+      const issues = validatePlanDays(days, input)
+      const ids = [...new Set(days.flatMap((day) => (day.meals || []).map((meal) => meal.catalogId)))]
+      if (ids.length > 42 || ids.some((id) => typeof id !== 'string' || !id || id.includes('/'))) throw new HttpsError('failed-precondition', 'Kế hoạch có mã món không hợp lệ; hãy tạo lại.')
+      // Re-read every source inside the same transaction as activation.
+      const records = await Promise.all(ids.map((id) => transaction.get(db.doc(`nutritionCatalog/${id}`))))
+      const catalog = new Map(records.map((record, index) => [ids[index], record.exists ? catalogItemFromSnapshot({ id: ids[index], data: () => record.data() }) : null]))
+      for (const day of days) for (const meal of day.meals || []) {
+        const item = catalog.get(meal.catalogId)
+        const reasons = item ? planItemIssues(item, profile) : ['Món không còn trong thư viện']
+        if (reasons.length) issues.push(`${day.id} · ${meal.title}: ${reasons.join('; ')}`)
+        else for (const key of ['calories', 'protein', 'carbs', 'fat']) {
+          if (Math.abs(item[key] * meal.servingMultiplier - meal[key]) > 1) {
+            issues.push(`${day.id} · ${meal.title}: dữ liệu nguồn đã thay đổi; hãy chọn lại món.`)
+            break
+          }
+        }
+      }
+      if (issues.length) throw new HttpsError('failed-precondition', issues.slice(0, 6).join('\n'), { issues: issues.slice(0, 30) })
+      saved = { ...current, targets: { calories: targets.targetCaloriesKcal, protein: targets.proteinG, carbs: targets.carbsG, fat: targets.fatG, mealsPerDay: input.mealsPerDay, formulaVersion: NUTRITION_FORMULA_VERSION }, validationIssues: [], status: 'active', revision: revision + 1, confirmedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }
       transaction.set(reference, saved)
       // The confirmed menu is a separate snapshot. Future draft edits must not
       // mutate the menu that the member is currently following.

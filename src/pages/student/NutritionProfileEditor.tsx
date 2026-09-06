@@ -2,18 +2,39 @@ import { useState, useMemo } from 'react'
 import { motion } from 'motion/react'
 import { ArrowLeft, Target, Activity, Check, Info, Scale } from 'lucide-react'
 import type { NutritionProfileDraft } from './NutritionPage'
+import { calculateNutritionTargets, canonicalNutritionProfile, normalizeActivity } from '../../services/nutritionSyncService'
 
 interface NutritionProfileEditorProps {
   initialProfile: NutritionProfileDraft
-  onSave: (profile: NutritionProfileDraft) => void
+  onSave: (profile: NutritionProfileDraft) => void | Promise<void>
   onCancel: () => void
+  effectiveWeight?: number
 }
 
-export default function NutritionProfileEditor({ initialProfile, onSave, onCancel }: NutritionProfileEditorProps) {
-  const [profile, setProfile] = useState<NutritionProfileDraft>(initialProfile)
+export default function NutritionProfileEditor({ initialProfile, onSave, onCancel, effectiveWeight }: NutritionProfileEditorProps) {
+  const [profile, setProfile] = useState<NutritionProfileDraft>(() => canonicalNutritionProfile(initialProfile))
 
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const save = async () => {
+    if (saving) return
+    setSaving(true); setSaveError('')
+    try { await onSave(canonicalNutritionProfile(profile)) }
+    catch { setSaveError('Chưa lưu được hồ sơ. Thay đổi vẫn giữ trên màn hình, hãy thử lại.') }
+    finally { setSaving(false) }
+  }
   const setField = <K extends keyof NutritionProfileDraft>(field: K, value: NutritionProfileDraft[K]) => {
-    setProfile((current) => ({ ...current, [field]: value }))
+    setProfile((current) => {
+      const next = { ...current, [field]: value }
+      if (field === 'goal') {
+        next.targetWeightDeltaKg = value === 'lose-fat' ? -4 : value === 'gain-muscle' ? 3 : 0
+        next.targetWeightKg = current.weightKg + next.targetWeightDeltaKg
+      }
+      if (field === 'targetWeightDeltaKg') next.targetWeightKg = current.weightKg + Number(value)
+      if (field === 'targetSpeedPace') next.targetTimeframeMode = 'pace'
+      if (field === 'targetTimeframeMonths') next.targetTimeframeMode = 'duration'
+      return next
+    })
   }
 
   const metrics = useMemo(() => {
@@ -29,48 +50,30 @@ export default function NutritionProfileEditor({ initialProfile, onSave, onCance
     else if (bmi < 30) { bmiCategory = 'Thừa cân'; bmiColor = '#f59e0b'; }
     else { bmiCategory = 'Béo phì'; bmiColor = '#ef4444'; }
 
-    let bmr = 10 * profile.weightKg + 6.25 * profile.heightCm - 5 * profile.age;
-    bmr += (profile.biologicalSex === 'male' ? 5 : -161);
-
-    const activityMultipliers = {
-      'low': 1.25,
-      'moderate': 1.45,
-      'high': 1.65
-    };
-    const tdee = bmr * activityMultipliers[profile.activityLevel];
-
-    let targetCalories = tdee;
-    let expectation = 'Ổn định cân nặng';
-    let macroRatio = 'Protein (20%) - Lipid (25%) - Glucid (55%)';
-    let action = 'Duy trì năng lượng';
-
-    if (profile.goal === 'lose-fat') {
-      targetCalories = tdee - 500;
-      expectation = 'Giảm mỡ, duy trì cơ bắp';
-      macroRatio = 'Protein (30%) - Lipid (25%) - Glucid (45%)';
-      action = 'Thâm hụt calo';
-    } else if (profile.goal === 'gain-muscle') {
-      targetCalories = tdee + 300;
-      expectation = 'Tăng cơ, hỗ trợ tập luyện';
-      macroRatio = 'Protein (25%) - Lipid (25%) - Glucid (50%)';
-      action = 'Dư thừa calo hợp lý';
-    }
-
+    const targets = calculateNutritionTargets(profile, effectiveWeight)
+    const tdee = targets.tdee
+    const targetCalories = targets.targetCaloriesKcal
+    const expectation = 'Ước tính ban đầu cho người trưởng thành khỏe mạnh; theo dõi cân nặng để điều chỉnh.'
+    const macroRatio = `${targets.proteinG} g đạm · ${targets.carbsG} g carb · ${targets.fatG} g béo`
+    const action = profile.goal === 'lose-fat' ? 'Giảm mỡ' : profile.goal === 'gain-muscle' ? 'Tăng cơ' : 'Duy trì'
     const idealWeightLow = 18.5 * (heightM * heightM);
     const idealWeightHigh = 24.9 * (heightM * heightM);
 
     return { bmi, bmiCategory, bmiColor, tdee, targetCalories, expectation, macroRatio, action, idealWeightLow, idealWeightHigh };
-  }, [profile]);
+  }, [profile, effectiveWeight]);
 
   return (
     <div className="nutrition-profile-editor">
       <header className="nutrition-profile-editor__header">
         <button className="back-button" onClick={onCancel}><ArrowLeft size={20} /></button>
         <h2>Hồ sơ & Kế hoạch</h2>
-        <button className="save-button" onClick={() => onSave(profile)}>Lưu</button>
+        <button className="save-button" disabled={saving} onClick={() => void save()}>{saving ? 'Đang lưu…' : 'Lưu'}</button>
       </header>
 
       <div className="nutrition-profile-editor__content">
+        {saveError && <p role="alert">{saveError}</p>}
+        {calculateNutritionTargets(profile, effectiveWeight).issues.map((issue) => <p role="alert" key={issue}>{issue}</p>)}
+        {calculateNutritionTargets(profile, effectiveWeight).targetAdjustmentReason && <p role="status">Mục tiêu kcal đã được điều chỉnh để phù hợp giới hạn khởi điểm và đủ macro. Thời gian đạt đích có thể dài hơn dự tính.</p>}
         {metrics && (
           <section className="nutrition-profile-editor__summary">
             <h3 style={{ color: metrics.bmiColor }}>{metrics.bmiCategory}</h3>
@@ -152,7 +155,7 @@ export default function NutritionProfileEditor({ initialProfile, onSave, onCance
             </label>
 
             <label>
-              <span>Thời gian hoàn thành</span>
+              <span>Thời gian hoàn thành {profile.targetTimeframeMode === 'pace' ? '(đang dùng tốc độ)' : '(đang áp dụng)'}</span>
               <select
                 value={profile.targetTimeframeMonths ?? 3}
                 onChange={(e) => setField('targetTimeframeMonths', Number(e.target.value))}
@@ -168,7 +171,7 @@ export default function NutritionProfileEditor({ initialProfile, onSave, onCance
             </label>
 
             <label className="span-2">
-              <span>Tốc độ thực hiện</span>
+              <span>Tốc độ thay cho thời hạn</span>
               <select
                 value={profile.targetSpeedPace || 'standard'}
                 onChange={(e) => setField('targetSpeedPace', e.target.value as any)}
@@ -184,8 +187,10 @@ export default function NutritionProfileEditor({ initialProfile, onSave, onCance
           <div className="form-grid">
             <label>
               <span>Mức vận động</span>
-              <select value={profile.activityLevel} onChange={(e) => setField('activityLevel', e.target.value as any)}>
-                <option value="low">Ít</option>
+              <select value={normalizeActivity(profile.activityLevel) ?? ''} onChange={(e) => setField('activityLevel', e.target.value as any)}>
+                <option value="">Chọn mức vận động</option>
+                <option value="sedentary">Ít vận động, không tập</option>
+                <option value="light">Vận động nhẹ</option>
                 <option value="moderate">Vừa</option>
                 <option value="high">Nhiều</option>
               </select>

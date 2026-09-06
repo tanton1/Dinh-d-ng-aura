@@ -176,10 +176,10 @@ const submitAssistantQuestion = async (question: string, attachment?: AuraAssist
         content = answerQualityMetric('Chất xơ', fiberConsumed, 25, 'g', fiberDataComplete, false)
         evidence = [`${loggedMeals.length} bữa đã ghi`, fiberDataComplete ? 'Tất cả bữa đã ghi có dữ liệu chất xơ' : 'Có món thiếu dữ liệu chất xơ']
       } else if (intent === 'sugar') {
-        content = answerQualityMetric('Đường', sugarConsumed, 50, 'g', sugarDataComplete, true)
+        content = `Nhật ký có ${formatNumber(sugarConsumed)}g tổng đường${sugarDataComplete ? '' : ' (còn thiếu dữ liệu)'}. Tổng đường không phải đường tự do; Aura chưa đủ dữ liệu để chấm vượt ngưỡng. Mức tham khảo đường tự do dưới 10% năng lượng không áp dụng trực tiếp cho tổng đường.`
         evidence = [`${loggedMeals.length} bữa đã ghi`, sugarDataComplete ? 'Tất cả bữa đã ghi có dữ liệu đường' : 'Có món thiếu dữ liệu đường']
       } else if (intent === 'sodium') {
-        content = answerQualityMetric('Natri', sodiumConsumed, 2300, 'mg', sodiumDataComplete, true)
+        content = answerQualityMetric('Natri', sodiumConsumed, 2000, 'mg', sodiumDataComplete, true)
         evidence = [`${loggedMeals.length} bữa đã ghi`, sodiumDataComplete ? 'Tất cả bữa đã ghi có dữ liệu natri' : 'Có món thiếu dữ liệu natri']
       } else if (intent === 'energy') {
         content = !nutritionTargets.configured || calorieGoal <= 0

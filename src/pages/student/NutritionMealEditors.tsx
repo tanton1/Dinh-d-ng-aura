@@ -1,3 +1,4 @@
+import { nutritionQuality } from '../../services/nutritionSyncService'
 import React, { useState } from 'react'
 import { Check, Info, Scale, X } from 'lucide-react'
 import NutritionGroupIcon from '../../components/NutritionGroupIcon'
@@ -27,7 +28,7 @@ function canLogCatalogFood(food: NutritionFoodCatalogItem): food is NutritionFoo
   carbs: number
   fat: number
 } {
-  return food.calories !== null && food.protein !== null && food.carbs !== null && food.fat !== null
+  return food.calories !== null && food.protein !== null && food.carbs !== null && food.fat !== null && nutritionQuality(food).length === 0
 }
 
 interface MealEditorSheetProps {
@@ -57,6 +58,7 @@ export const MealEditorSheet = React.memo(function MealEditorSheet({ food, initi
         <span><NutritionGroupIcon categoryName={food.category?.nameVi} kind={food.kind ?? 'food'} size={24} /></span>
         <div><strong>{food.name}</strong><p>{food.servingLabel ?? (food.servingGrams !== null ? `${formatNumber(food.servingGrams)} g` : 'Khẩu phần theo nguồn')} · {food.calories === null ? 'Chưa có kcal' : `${formatNumber(food.calories)} kcal`}</p></div>
       </div>
+      {nutritionQuality(food).map((reason) => <p role="alert" key={reason}>{reason}</p>)}
       <div className="nutrition-meal-editor__grid">
         <label><span>Ngày</span><input data-dialog-autofocus type="date" value={date} onChange={(event) => setDate(event.target.value)} disabled={lockDate || isSaving} /></label>
         <label><span>Thời gian</span><input type="time" value={time} onChange={(event) => setTime(event.target.value)} disabled={isSaving} /></label>

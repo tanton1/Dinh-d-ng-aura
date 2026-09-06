@@ -105,6 +105,7 @@ export interface NutritionPlannedMeal {
   image?: string
   rationale?: string
   source?: string
+  servingMultiplier?: number
 }
 
 export interface AuraAssistantMessage {

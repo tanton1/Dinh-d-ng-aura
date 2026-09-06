@@ -30,10 +30,14 @@ export interface NutritionPlanRecord {
   revision: number
   source: NutritionPlanSource
   sourceTitle: string
+  validationIssues?: string[]
   planner?: 'catalog' | 'gemini'
   targets: {
     calories?: number
     protein?: number
+    carbs?: number
+    fat?: number
+    formulaVersion?: string
     mealsPerDay?: number
   }
   days: Array<{ id: string; meals: NutritionPlanMeal[] }>

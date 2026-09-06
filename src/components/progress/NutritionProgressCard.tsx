@@ -17,6 +17,7 @@ interface NutritionProgressCardProps {
   waterMl?: number
   waterGoal?: number
   activeDays?: number
+  totalPeriodDays?: number
 }
 
 function getNutrientStatus(actual: number, target: number, label: string) {
@@ -48,6 +49,7 @@ export function NutritionProgressCard({
   waterMl = 0,
   waterGoal = 2000,
   activeDays = 0,
+  totalPeriodDays = 7,
 }: NutritionProgressCardProps = {}) {
   const calPercent = targetCalories > 0 ? Math.round((avgCalories / targetCalories) * 100) : 0
 
@@ -68,7 +70,7 @@ export function NutritionProgressCard({
       <div className="pg-card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h2 style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', margin: 0 }}>Dinh dưỡng tuần này</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', margin: 0 }}>Dinh dưỡng trong kỳ</h2>
             <span style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>
               Chưa ghi nhận dữ liệu
             </span>
@@ -78,7 +80,7 @@ export function NutritionProgressCard({
         <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 12, padding: '24px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 14 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span style={{ fontSize: 14, fontWeight: 800, color: '#1e293b' }}>
-              Chưa có dữ liệu dinh dưỡng tuần này
+              Chưa có ngày đủ khung bữa trong kỳ
             </span>
             <span style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>
               Hãy bắt đầu ghi nhận các bữa ăn hôm nay để Aura phân tích lượng calo và dinh dưỡng đa lượng cho bạn.
@@ -111,9 +113,9 @@ export function NutritionProgressCard({
     <div className="pg-card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <h2 style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', margin: 0 }}>Dinh dưỡng tuần này</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', margin: 0 }}>Dinh dưỡng trong kỳ</h2>
           <span style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>
-            Dữ liệu ghi nhận: <strong style={{ color: '#0f172a' }}>{activeDays}/7 ngày</strong>
+            Ngày đủ khung bữa: <strong style={{ color: '#0f172a' }}>{activeDays}/{totalPeriodDays} ngày</strong>
           </span>
         </div>
         <button
