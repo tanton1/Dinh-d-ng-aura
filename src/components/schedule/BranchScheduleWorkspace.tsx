@@ -348,8 +348,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [candidateLoading, setCandidateLoading] = useState(false)
   const [pendingManualCandidate, setPendingManualCandidate] = useState<PtScheduleSlotCandidate | null>(null)
   const [pendingMove, setPendingMove] = useState<{ studentId: string; fromSlotId: string; fromTrainerId: string; slotId: string; trainerId: string } | null>(null)
-  const [hoveredStudentId, setHoveredStudentId] = useState<string | null>(null)
-  const [highlightedStudentId, setHighlightedStudentId] = useState<string | null>(null)
   const [offConfirmation, setOffConfirmation] = useState(false)
   const [studentSearch, setStudentSearch] = useState('')
   const [studentFilter, setStudentFilter] = useState<StudentFilter>('all')
@@ -529,8 +527,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     setInspectorSlotId(null)
     setPendingManualCandidate(null)
     setPendingMove(null)
-    setHoveredStudentId(null)
-    setHighlightedStudentId(null)
     candidateCache.current.clear()
     setMobilePage(0)
   }, [branchId, currentWeekId, loadWorkspace, workspaceScope])
@@ -1376,8 +1372,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   }
 
   const studentName = (studentId: string) => workspace?.students.find((student) => student.id === studentId)?.name || 'Học viên đã xóa'
-  const highlightedStudent = workspace?.students.find((student) => student.id === highlightedStudentId) || null
-  const hoveredStudent = workspace?.students.find((student) => student.id === hoveredStudentId) || null
   const selectedDays = mobileGroups[mobilePage] || mobileGroups[0] || []
 
   if (!branchId && branchCatalogState === 'loading') {
@@ -1496,11 +1490,6 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
             <button type="button" disabled={mobilePage >= mobileGroups.length - 1} onClick={() => setMobilePage((value) => Math.min(mobileGroups.length - 1, value + 1))}><ChevronRight /></button>
           </div>
 
-          {(highlightedStudent || hoveredStudent) && <div className={`schedule-student-focus${highlightedStudent ? ' is-pinned' : ''}`} role="status">
-            <span>{highlightedStudent ? <><strong>{highlightedStudent.name}</strong> · ô đỏ là lịch đã xếp trong tuần</> : <><strong>{hoveredStudent?.name}</strong> · ô xanh là lịch rảnh đã đăng ký</>}</span>
-            {highlightedStudent && <button type="button" onClick={() => setHighlightedStudentId(null)}>Bỏ đánh dấu</button>}
-          </div>}
-
           <div className="branch-schedule__matrix-shell">
             <table className="branch-schedule__grid">
               <thead><tr><th>Giờ</th>{workingDays.map((day) => {
@@ -1511,11 +1500,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
               <tbody>{workingHours.map((hour) => <tr key={hour}><th>{String(hour).padStart(2, '0')}:00</th>{workingDays.map((day) => {
                 const slotId = `${day}-${hour}`
                 const entries = (workspace.schedule[slotId] || []).filter((entry) => entry.trainerId === selectedTrainerId)
-                const allSlotEntries = workspace.schedule[slotId] || []
                 const isOff = entries.some((entry) => entry.type === 'off')
                 const holiday = holidayDates.has(weekDates[day as keyof typeof weekDates]?.full || '')
-                const showsAvailability = Boolean(hoveredStudent?.availableSlots.includes(slotId))
-                const showsStudentSchedule = Boolean(highlightedStudentId && allSlotEntries.some((entry) => entry.type !== 'off' && entry.studentId === highlightedStudentId))
                 const openInspector = () => {
                   if (!selectedTrainerId || holiday) return
                   setInspectorSlotId(slotId)
@@ -1523,9 +1509,19 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                   setOffConfirmation(false)
                   setPendingManualCandidate(null)
                 }
-                return <td key={slotId} className={`${selectedDays.includes(day) ? 'is-mobile-visible' : ''}${holiday ? ' is-holiday' : ''}`}><div role="button" tabIndex={!selectedTrainerId || holiday ? -1 : 0} aria-disabled={!selectedTrainerId || holiday} className={`schedule-cell${holiday ? ' is-holiday' : ''}${isOff ? ' is-off' : ''}${entries.length ? ' has-entry' : ''}${showsAvailability ? ' is-availability-hover' : ''}${showsStudentSchedule ? ' is-student-highlight' : ''}`} onClick={openInspector} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInspector() } }}><span className="schedule-cell__count">{holiday ? 'NGHỈ' : isOff ? 'OFF' : `${entries.filter((entry) => entry.type !== 'off').length}/${selectedTrainer?.slotCapacity || 2}`}</span>{holiday ? <><CalendarOff /><small>Không xếp lịch</small></> : isOff ? <CalendarOff /> : entries.length ? entries.filter((entry) => entry.type !== 'off').map((entry) => {
+                const trainingEntries = entries.filter((entry) => entry.type !== 'off')
+                const cellDescription = holiday
+                  ? `${scheduleSlotLabel(slotId, weekDates)} · Ngày nghỉ`
+                  : isOff
+                    ? `${scheduleSlotLabel(slotId, weekDates)} · ${selectedTrainer?.name || 'PT'} nghỉ`
+                    : `${scheduleSlotLabel(slotId, weekDates)} · ${selectedTrainer?.name || 'PT'} · ${trainingEntries.length} học viên`
+                return <td key={slotId} className={`${selectedDays.includes(day) ? 'is-mobile-visible' : ''}${holiday ? ' is-holiday' : ''}`}><div role="button" tabIndex={!selectedTrainerId || holiday ? -1 : 0} aria-label={cellDescription} aria-disabled={!selectedTrainerId || holiday} className={`schedule-cell${holiday ? ' is-holiday' : ''}${isOff ? ' is-off' : ''}${entries.length ? ' has-entry' : ''}`} onClick={openInspector} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInspector() } }}><span className="schedule-cell__count">{holiday ? 'NGHỈ' : isOff ? 'OFF' : `${trainingEntries.length}/${selectedTrainer?.slotCapacity || 2}`}</span>{holiday ? <><CalendarOff /><small>Không xếp lịch</small></> : isOff ? <CalendarOff /> : trainingEntries.length ? trainingEntries.map((entry) => {
                   const assignmentWarning = trainerAssignmentWarningKeys.has(`${slotId}|${entry.studentId}|${entry.trainerId}`)
-                  return <button type="button" className={`schedule-cell__student${highlightedStudentId === entry.studentId ? ' is-selected' : ''}${assignmentWarning ? ' has-assignment-warning' : ''}`} key={`${entry.studentId}-${entry.trainerId}`} onMouseEnter={() => setHoveredStudentId(entry.studentId)} onMouseLeave={() => setHoveredStudentId((current) => current === entry.studentId ? null : current)} onFocus={() => setHoveredStudentId(entry.studentId)} onBlur={() => setHoveredStudentId((current) => current === entry.studentId ? null : current)} onClick={(event) => { event.stopPropagation(); setHighlightedStudentId((current) => current === entry.studentId ? null : entry.studentId) }} aria-pressed={highlightedStudentId === entry.studentId} title={assignmentWarning ? 'PT hỗ trợ ngoài danh sách PT chính/phụ · Rê chuột xem lịch rảnh · Bấm đánh dấu lịch tuần' : 'Rê chuột: xem lịch rảnh · Bấm: đánh dấu lịch tuần'}><span>{studentName(entry.studentId)}</span>{assignmentWarning && <AlertTriangle size={11} aria-label="PT hỗ trợ" />}{entry.isLocked && <Lock size={11} />}</button>
+                  // Keep the matrix cell as the only interactive control. A
+                  // nested button previously captured clicks on the lock icon,
+                  // toggled a full-grid highlight and looked like a screen
+                  // flash on touch devices instead of opening the inspector.
+                  return <span className={`schedule-cell__student${assignmentWarning ? ' has-assignment-warning' : ''}`} key={`${entry.studentId}-${entry.trainerId}`}><span>{studentName(entry.studentId)}</span>{assignmentWarning && <AlertTriangle size={11} aria-label="PT hỗ trợ" />}{entry.isLocked && <Lock size={11} aria-label="Ca đã khóa" />}</span>
                 }) : <small>Chạm để xếp</small>}</div></td>
               })}</tr>)}</tbody>
             </table>

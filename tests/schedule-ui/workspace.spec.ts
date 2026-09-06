@@ -45,3 +45,17 @@ test('publish error opens the exact slot popup without navigating away', async (
   await expect(page.locator('.schedule-assigned-row').filter({ hasText: 'Lan' })).toBeVisible()
   await expect(page).toHaveURL(/tests\/schedule-ui\/index.html$/)
 })
+
+test('clicking a locked learner opens one stable inspector without flashing the matrix', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/tests/schedule-ui/index.html')
+
+  const lockedCell = page.locator('.schedule-cell').filter({ hasText: 'Bình' })
+  await expect(lockedCell.locator('svg[aria-label="Ca đã khóa"]')).toBeVisible()
+  await expect(lockedCell.locator('button')).toHaveCount(0)
+  await lockedCell.getByText('Bình', { exact: true }).click()
+
+  await expect(page.getByRole('dialog', { name: 'Chỉnh ô lịch' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Mở khóa', exact: true })).toBeVisible()
+  await expect(page.locator('.schedule-student-focus, .schedule-cell.is-student-highlight, .schedule-cell.is-availability-hover')).toHaveCount(0)
+})

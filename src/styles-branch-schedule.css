@@ -194,25 +194,16 @@
 .schedule-cell[aria-disabled="true"] { cursor:not-allowed; }
 .schedule-cell:hover { border-color: rgba(246,47,130,.26); background: #fff5f9; }
 .schedule-cell.has-entry { border-style: solid; border-color: rgba(246,47,130,.18); background: linear-gradient(145deg,#fff3f8,#fff8f3); }
-.schedule-cell.is-availability-hover { border-style:solid; border-color:#2eb779; background:linear-gradient(145deg,rgba(222,250,237,.98),rgba(239,255,247,.96)); box-shadow:inset 0 0 0 2px rgba(46,183,121,.13),0 7px 16px rgba(30,137,91,.10); }
-.schedule-cell.is-student-highlight { border-style:solid; border-color:#e32b67; color:#fff; background:linear-gradient(135deg,#cb1859 0%,#f03f73 48%,#ff7b62 100%); box-shadow:0 9px 22px rgba(210,30,91,.24); }
-.schedule-cell.is-student-highlight .schedule-cell__count,.schedule-cell.is-student-highlight small { color:rgba(255,255,255,.88); }
 .schedule-cell.is-off { place-items: center; align-content: center; color: #a34c2b; background: #fff1e9; }
 .schedule-cell.is-off svg { width: 18px; }
 .schedule-cell.is-holiday { place-items: center; align-content: center; cursor: not-allowed; color: #a44f36; background: transparent; opacity: .82; }
 .schedule-cell.is-holiday svg { width: 17px; }
 .schedule-cell__count { justify-self: end; color: #c1296a; font-size: .57rem; font-weight: 900; }
-.schedule-cell__student { display:flex; width:100%; min-width:0; align-items:center; justify-content:space-between; gap:3px; border:0; border-radius:7px; padding:3px 4px; color:#392830; background:transparent; font-size:.66rem; font-weight:800; text-align:left; }
+.schedule-cell__student { display:flex; width:100%; min-width:0; align-items:center; justify-content:space-between; gap:3px; border:0; border-radius:7px; padding:3px 4px; color:#392830; background:transparent; font-size:.66rem; font-weight:800; text-align:left; pointer-events:none; user-select:none; }
 .schedule-cell__student span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.schedule-cell__student:hover,.schedule-cell__student:focus-visible { outline:0; color:#087a52; background:rgba(255,255,255,.76); box-shadow:0 0 0 2px rgba(38,175,113,.20); }
-.schedule-cell__student.is-selected { color:#fff; background:rgba(102,0,38,.24); }
 .schedule-cell__student.has-assignment-warning { color:#a9471e; background:linear-gradient(105deg,rgba(255,239,224,.96),rgba(255,248,241,.8)); box-shadow:inset 3px 0 0 #ef7c3a; }
 .schedule-cell__student.has-assignment-warning > svg { flex:0 0 auto; color:#df6728; }
-.schedule-cell.is-student-highlight .schedule-cell__student { color:#fff; }
 .schedule-cell small { align-self: center; justify-self: center; color: #b6a6af; font-size: .61rem; }
-.schedule-student-focus { display:flex; min-height:36px; align-items:center; justify-content:space-between; gap:10px; margin:0 2px 8px; border:1px solid rgba(35,168,109,.25); border-radius:11px; padding:7px 10px; color:#177552; background:linear-gradient(110deg,#ecfbf4,#f6fff9); font-size:.68rem; }
-.schedule-student-focus.is-pinned { border-color:rgba(220,37,99,.26); color:#a52555; background:linear-gradient(110deg,#fff0f6,#fff5ef); }
-.schedule-student-focus button { min-height:28px; flex:0 0 auto; border:0; border-radius:8px; padding:0 9px; color:#b12559; background:#fff; font-size:.61rem; font-weight:850; }
 
 .branch-schedule__students-page,
 .branch-schedule__warning-page,
@@ -557,7 +548,6 @@
   .branch-schedule__grid td { height: 76px; }
   .schedule-cell { min-height: 66px; padding: 5px; }
   .schedule-cell__student { font-size: .62rem; }
-  .schedule-student-focus { margin-inline:0; }
   .schedule-warning-grid { grid-template-columns: 1fr; }
   .schedule-warning-summary { gap: 5px; }
   .schedule-warning-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
