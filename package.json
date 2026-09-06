@@ -15,6 +15,7 @@
     "test:rtdb": "npx --yes firebase-tools@15.9.1 emulators:exec --only database --project demo-aura-fitness-rtdb \"node --test tests/database.rules.test.mjs\"",
     "test:functions": "npm --prefix functions test",
     "test:profile-sync": "tsx --test tests/profile-sync.test.ts tests/date-utils.test.ts tests/finance-ledger-normalization.test.ts tests/operations-dashboard-normalization.test.ts tests/nutrition-review-display.test.ts tests/student-eligibility.test.ts tests/staff-dashboard-payroll.test.ts tests/daily-nutrition-targets.test.ts tests/nutrition-progress-safety.test.ts tests/student-home-schedule.test.ts tests/exercise-muscle-groups.test.ts tests/read-only-callable.test.ts tests/production-release-safety.test.ts tests/aura-nutrition-curriculum.test.ts tests/student-360-routing.test.ts tests/ui-rollout.test.ts tests/nutrition-routing.test.ts",
+    "test:schedule-ui": "playwright test --config playwright.schedule.config.ts",
     "test:e2e": "playwright test",
     "test": "npm run test:profile-sync && npm run test:functions",
     "performance:check": "node scripts/check-performance-budget.mjs",

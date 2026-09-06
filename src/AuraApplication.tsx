@@ -1040,7 +1040,7 @@ function AuraApplication() {
         ? !authzReady
           ? <div className="course-detail-state" role="status"><h1>Đang xác minh phạm vi lịch</h1><p>Aura đang tải quyền chi nhánh trước khi mở công cụ xếp lịch.</p></div>
           : accessContext?.capabilities.includes('pt.schedule.branch.publish')
-            ? <BranchScheduleWorkspace accessContext={accessContext} onNavigate={(view) => navigate(view)} />
+            ? <BranchScheduleWorkspace key={`${accessContext.uid}:${accessContext.authzVersion}`} accessContext={accessContext} onNavigate={(view) => navigate(view)} />
             : <div className="course-detail-state" role="alert"><h1>Chưa được cấp quyền xếp lịch</h1><p>Trang lịch được khóa an toàn vì tài khoản chưa có phạm vi chi nhánh phù hợp.</p></div>
         : <SchedulerWrapper user={user as any} profile={profile} accessContext={accessContext} backendMode={backendMode} onNavigate={(view) => navigate(view as ViewId)} />}</AuraOperationsFrame>
       case 'admin-training-history': return <AuraOperationsFrame><TrainingHistoryWorkspace /></AuraOperationsFrame>

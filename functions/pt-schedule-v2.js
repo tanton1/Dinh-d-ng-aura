@@ -36,13 +36,14 @@ const MAX_DRAFT_ENTRIES = 440
 const MAX_DRAFT_DOCUMENT_ENTRIES = 700
 const MAX_ENTRIES_PER_SLOT = 100
 const DEFAULT_DAILY_SESSION_TARGET = 8
-const OPTIMIZER_VERSION = 'optimizer-v11'
+const OPTIMIZER_VERSION = 'optimizer-v12'
 const MAX_DEEP_OPTIMIZATION_PASSES = 3
 // A bounded repair search can relocate auto-generated sessions from earlier
 // rounds. This closes the remaining gap between fair one-seat rounds and the
 // maximum weekly coverage without making the callable response unpredictable.
 const MAX_REPAIR_CHAIN_DEPTH = 4
 const MAX_REPAIR_SEARCH_NODES = 12000
+const MAX_CONTINUATION_SEARCH_NODES = 36000
 const MAX_REPAIR_DIRECT_CANDIDATES = 80
 const MAX_REPAIR_DISPLACEMENT_CANDIDATES = 120
 const MAX_RESCUE_PLAN_CANDIDATES = 8
@@ -562,7 +563,8 @@ async function loadManualMutationData(db, branchId, week, trainerId, studentId, 
     phone: rawStudent.phone || '',
     status: rawStudent.status || 'active',
     branchId: rawStudent.branchId || '',
-    sessionsPerWeek: Math.min(Math.max(0, Number(rawStudent.sessionsPerWeek || 0)), Math.max(0, Number(eligibility.remainingSessions || 0))),
+    ...weeklyTargetForStudent(rawStudent.sessionsPerWeek,
+      safeWeeklySessionTargets(draft.data()?.weeklySessionTargets)[studentId] ?? null, eligibility),
     availableSlots: effectiveAvailability.slots.slice(0, 100),
     availabilityStatus,
     eligibleForWeek: !studentInactive && eligibility.eligible,
@@ -758,7 +760,7 @@ function studentWeekEligibility(contracts, studentId, branchId, week, referenceD
   }
 }
 
-function resolveContract(data, studentId, trainerId, date, schedule = null) {
+function resolveContract(data, studentId, trainerId, date, schedule = null, schedulingState = null) {
   const dateCandidates = data.contracts.filter((contract) => contract.studentId === studentId
     && contractCanServeScheduledDate(contract, date))
   if (dateCandidates.some((contract) => !contract.branchId)) return { contract: null, reasons: ['CONTRACT_BRANCH_REQUIRED'] }
@@ -774,18 +776,31 @@ function resolveContract(data, studentId, trainerId, date, schedule = null) {
   // thể dạy để không bỏ sót quyền lợi của học viên. Entry sẽ mang cờ cảnh báo
   // để UI, publish và audit cùng nhận diện đây là ca PT hỗ trợ.
   const trainerAssignmentWarning = assigned.length > 0 && !assigned.includes(trainerId)
-  const activeForContract = data.sessions.filter((session) => session.contractId === contract.id
-    && ['scheduled', 'rescheduled'].includes(session.status)
-    && session.billingStatus !== 'charged').length
-  const draftForContract = schedule && typeof schedule === 'object'
-    ? Object.values(schedule).flat().filter((entry) => entry?.type !== 'off'
-      && entry?.contractId === contract.id
-      && entry?.source !== 'published_existing').length
-    : 0
+  const reservations = contractReservationCounts(data, schedule, schedulingState)
+  const activeForContract = reservations.active.get(contract.id) || 0
+  const draftForContract = reservations.draft.get(contract.id) || 0
   if (contract.usedSessions + activeForContract + draftForContract >= contract.totalSessions) {
     return { contract: null, reasons: ['CONTRACT_SESSION_QUOTA_EXCEEDED'] }
   }
   return { contract, reasons: [], trainerAssignmentWarning, assignedTrainerIds: assigned }
+}
+
+function contractReservationCounts(data, schedule, state) {
+  if (state?.reservationCounts) return state.reservationCounts
+  const active = new Map(), draft = new Map(), identities = new Set()
+  for (const session of data.sessions || []) {
+    if (['scheduled', 'rescheduled'].includes(session.status) && session.billingStatus !== 'charged') active.set(session.contractId, (active.get(session.contractId) || 0) + 1)
+    if (session.branchId === data.branch.id && (['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'].includes(session.status) || session.billingStatus === 'charged')) {
+      identities.add(`${session.contractId}|${session.studentId}|${publishedSessionSlotId(data.weekId, session)}`)
+    }
+  }
+  for (const [slotId, entries] of Object.entries(schedule || {})) for (const entry of entries) {
+    if (entry.type === 'off' || !entry.contractId || identities.has(`${entry.contractId}|${entry.studentId}|${slotId}`)) continue
+    draft.set(entry.contractId, (draft.get(entry.contractId) || 0) + 1)
+  }
+  const counts = { active, draft }
+  if (state) state.reservationCounts = counts
+  return counts
 }
 
 function assignedTrainerIds(contract) {
@@ -861,6 +876,7 @@ function buildSchedulingState(schedule) {
 }
 
 function addEntryToSchedulingState(state, slotId, entry) {
+  delete state.reservationCounts
   const [day] = slotId.split('-')
   if (!state.studentDays.has(entry.studentId)) state.studentDays.set(entry.studentId, new Set())
   state.studentDays.get(entry.studentId).add(day)
@@ -914,6 +930,7 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
   if ((workingDays.length && !workingDays.includes(day))
     || (workingHours.length && !workingHours.includes(hour))
     || holidays.includes(date)) reasons.push('OUTSIDE_WORKING_CALENDAR')
+  if (data.referenceNow && slotIsPast(data.weekId, slotId, data.referenceNow)) reasons.push('OUTSIDE_WORKING_CALENDAR')
   if (student.eligibleForWeek === false) {
     reasons.push(...(Array.isArray(student.eligibilityReasons) && student.eligibilityReasons.length
       ? student.eligibilityReasons
@@ -934,9 +951,13 @@ function candidateForSlot(data, { student, trainer, slotId, schedule, scheduling
   if (!['submitted', 'locked', 'inherited', 'recurring'].includes(student.availabilityStatus)) reasons.push('AVAILABILITY_NOT_SUBMITTED')
   else if (!student.availableSlots.includes(slotId)) reasons.push('OUTSIDE_STUDENT_AVAILABILITY')
   const contractCacheKey = `${student.id}|${trainer.id}|${date}|${scheduleEntryCount(schedule)}`
+  if (contractCache && contractCache.scheduleIdentity !== schedule) {
+    contractCache.clear()
+    contractCache.scheduleIdentity = schedule
+  }
   const contractResult = contractCache?.has(contractCacheKey)
     ? contractCache.get(contractCacheKey)
-    : resolveContract(data, student.id, trainer.id, date, schedule)
+    : resolveContract(data, student.id, trainer.id, date, schedule, state)
   if (contractCache && !contractCache.has(contractCacheKey)) contractCache.set(contractCacheKey, contractResult)
   reasons.push(...contractResult.reasons)
   if (state.studentDays.get(student.id)?.has(day)) reasons.push('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
@@ -1017,7 +1038,6 @@ function compareCandidatePriorities(left, right, leftOpensTeachingSlot, rightOpe
   // aligned with Aura's operating goal while still preferring non-consecutive
   // days whenever the utilization result is otherwise equal.
   if (leftOpensTeachingSlot !== rightOpensTeachingSlot) return Number(leftOpensTeachingSlot) - Number(rightOpensTeachingSlot)
-  if (left.consecutiveDayPenalty !== right.consecutiveDayPenalty) return left.consecutiveDayPenalty - right.consecutiveDayPenalty
   if (left.assignmentOrder !== right.assignmentOrder) return left.assignmentOrder - right.assignmentOrder
   const tierComparison = schedulingTier(left) - schedulingTier(right)
   if (tierComparison !== 0) return tierComparison
@@ -1035,6 +1055,7 @@ function compareCandidatePriorities(left, right, leftOpensTeachingSlot, rightOpe
   if (left.schedulingPriority !== right.schedulingPriority) {
     return left.schedulingPriority - right.schedulingPriority
   }
+  if (left.consecutiveDayPenalty !== right.consecutiveDayPenalty) return left.consecutiveDayPenalty - right.consecutiveDayPenalty
   if (left.score !== right.score) return right.score - left.score
   return compareSlots(left.slotId, right.slotId) || left.trainer.id.localeCompare(right.trainer.id)
 }
@@ -1410,8 +1431,10 @@ function boundedRepairCandidates(data, student, schedule, forbiddenTargets, budg
   const candidates = []
   const state = buildSchedulingState(schedule)
   const contractCache = new Map()
-  const trainers = [...data.trainers].sort((left, right) => left.id.localeCompare(right.id))
-  search: for (const slotId of [...new Set(student.availableSlots || [])].sort(compareSlots)) {
+  const trainers = [...data.trainers].sort((left, right) => trainerSchedulingPolicy(left).schedulingPriority - trainerSchedulingPolicy(right).schedulingPriority || left.id.localeCompare(right.id))
+  const slots = [...new Set(student.availableSlots || [])].sort(compareSlots)
+  const offset = Number(budget.offset || 0) % Math.max(1, slots.length)
+  search: for (const slotId of [...slots.slice(offset), ...slots.slice(0, offset)]) {
     for (const trainer of trainers) {
       if (budget.nodes >= budget.limit) break search
       budget.nodes += 1
@@ -1420,10 +1443,15 @@ function boundedRepairCandidates(data, student, schedule, forbiddenTargets, budg
       candidates.push(candidate)
       // Direct seats are only an escape route for a displaced entry. A bounded
       // best-candidate set keeps repair latency stable on large branches.
-      if (candidates.length >= MAX_REPAIR_DIRECT_CANDIDATES) break search
+      // Keep the best candidates across the whole bounded scan, not just the
+      // first 80 chronological cells (which starved late-week opportunities).
+      if (candidates.length > MAX_REPAIR_DIRECT_CANDIDATES * 2) {
+        candidates.sort(compareCandidates)
+        candidates.length = MAX_REPAIR_DIRECT_CANDIDATES
+      }
     }
   }
-  return candidates.sort(compareCandidates)
+  return candidates.sort(compareCandidates).slice(0, MAX_REPAIR_DIRECT_CANDIDATES)
 }
 
 /**
@@ -1582,9 +1610,12 @@ function tryRepairPlacement(data, studentMap, student, schedule, origin, depth, 
       if (budget.nodes >= budget.limit) break displacementSearch
       const targetKey = `${trainer.id}|${slotId}`
       if (forbiddenTargets.has(targetKey)) continue
-      const trainerEntries = (schedule[slotId] || []).filter((entry) => entry.type !== 'off' && entry.trainerId === trainer.id)
-      if (trainerEntries.length < Math.max(1, Number(trainer.slotCapacity || 1))) continue
-      const movableEntries = trainerEntries.filter((entry) => entry.source === 'auto_v4'
+      const branchEntries = (schedule[slotId] || []).filter((entry) => entry.type !== 'off')
+      const trainerEntries = branchEntries.filter((entry) => entry.trainerId === trainer.id)
+      const branchCapacity = branchSlotCapacity(data.config, data.branch.id, slotId)
+      const branchFull = branchCapacity !== null && branchEntries.length >= branchCapacity
+      if (!branchFull && trainerEntries.length < Math.max(1, Number(trainer.slotCapacity || 1))) continue
+      const movableEntries = (branchFull ? branchEntries : trainerEntries).filter((entry) => entry.source === 'auto_v4'
         && entry.isLocked !== true
         && studentMap.has(entry.studentId)
         && !nextVisitedStudents.has(entry.studentId))
@@ -1617,7 +1648,9 @@ function tryRepairPlacement(data, studentMap, student, schedule, origin, depth, 
       data,
       studentMap,
       attempt.occupantStudent,
-      attempt.schedule,
+      // Reserve the newly freed seat BEFORE moving its occupant. Otherwise
+      // the relocation can consume the same branch capacity via another PT.
+      scheduleWithEntry(attempt.schedule, attempt.candidate.slotId, autoEntryForCandidate(data, student, attempt.candidate, origin?.entry || null)),
       { entry: attempt.occupantEntry, slotId: attempt.candidate.slotId },
       depth - 1,
       nextVisitedStudents,
@@ -1626,11 +1659,7 @@ function tryRepairPlacement(data, studentMap, student, schedule, origin, depth, 
     )
     if (!relocated) continue
     return {
-      schedule: scheduleWithEntry(
-        relocated.schedule,
-        attempt.candidate.slotId,
-        autoEntryForCandidate(data, student, attempt.candidate, origin?.entry || null),
-      ),
+      schedule: relocated.schedule,
       relocations: relocated.relocations + 1,
       moves: [...relocated.moves, repairMove(student, origin, attempt.candidate)],
     }
@@ -1643,19 +1672,27 @@ function repairCoverageWithRelocations(data, inputSchedule, students, remainingB
   const studentMap = new Map(students.map((student) => [student.id, student]))
   const localRemaining = new Map(students.map((student) => [student.id, Math.max(0, Number(remainingByStudent.get(student.id) || 0))]))
   const maxAssignments = Math.max(0, Number(options.maxAssignments ?? MAX_DRAFT_ENTRIES))
-  const budget = { nodes: 0, limit: Math.max(1, Number(options.maxSearchNodes || MAX_REPAIR_SEARCH_NODES)) }
+  const budget = { nodes: 0, limit: Math.max(1, Number(options.maxSearchNodes || MAX_REPAIR_SEARCH_NODES)), offset: Number(options.searchOffset || 0) }
   const assignedStudentIds = []
   const swapTrace = []
   let relocations = 0
   let evaluatedPlans = 0
+  let learnerSearchLimitReached = false
   let progress = true
 
   while (progress && assignedStudentIds.length < maxAssignments && budget.nodes < budget.limit) {
     progress = false
     const missingStudents = orderedRescueStudents(data, schedule, students, localRemaining)
-    for (const student of missingStudents) {
+    const offset = budget.offset % Math.max(1, missingStudents.length)
+    const fairStudents = [...missingStudents.slice(offset), ...missingStudents.slice(0, offset)]
+      .sort((a, b) => Number((scheduleStudentCounts(schedule).get(a.id) || 0) > 0) - Number((scheduleStudentCounts(schedule).get(b.id) || 0) > 0))
+    for (const student of fairStudents) {
       if (assignedStudentIds.length >= maxAssignments || budget.nodes >= budget.limit) break
-      const alternatives = repairAlternativesForStudent(data, studentMap, student, schedule, budget)
+      // Allocate a per-learner slice, leaving search for other missing people.
+      const localBudget = { nodes: 0, limit: Math.min(budget.limit - budget.nodes, Math.max(600, Math.floor(budget.limit / Math.max(1, fairStudents.length)))), offset: budget.offset }
+      const alternatives = repairAlternativesForStudent(data, studentMap, student, schedule, localBudget)
+      budget.nodes += localBudget.nodes
+      learnerSearchLimitReached ||= localBudget.nodes >= localBudget.limit
       evaluatedPlans += alternatives.length
       const nextRemaining = new Map(localRemaining)
       nextRemaining.set(student.id, Math.max(0, (nextRemaining.get(student.id) || 0) - 1))
@@ -1682,7 +1719,7 @@ function repairCoverageWithRelocations(data, inputSchedule, students, remainingB
     assignments: assignedStudentIds.length,
     relocations,
     searchNodes: budget.nodes,
-    searchLimitReached: budget.nodes >= budget.limit,
+    searchLimitReached: budget.nodes >= budget.limit || learnerSearchLimitReached,
     evaluatedPlans,
     swapTrace,
   }
@@ -1698,6 +1735,7 @@ function compactPairedSlots(data, inputSchedule) {
   const studentsById = new Map(data.students.map((student) => [student.id, student]))
   let changed = true
   let moves = 0
+  let commonSearchNodes = 0
   while (changed && moves < MAX_DRAFT_ENTRIES) {
     changed = false
     const groups = teachingSlotGroups(data, schedule)
@@ -1740,6 +1778,38 @@ function compactPairedSlots(data, inputSchedule) {
       moves += 1
       changed = true
       break
+    }
+    // Two singles may share a third, currently empty, slot even when neither
+    // learner can attend the other's original slot. Explore that intersection.
+    if (!changed) {
+      commonSearch: for (let i = 0; i < sources.length; i += 1) for (let j = i + 1; j < sources.length; j += 1) {
+        if (commonSearchNodes >= 3000) break commonSearch
+        const left = sources[i], right = sources[j]
+        const a = studentsById.get(left.entries[0].studentId), b = studentsById.get(right.entries[0].studentId)
+        if (!a || !b || a.id === b.id) continue
+        const temp = scheduleWithoutEntry(scheduleWithoutEntry(schedule, left.slotId, left.entries[0]), right.slotId, right.entries[0])
+        const commonSlots = (a.availableSlots || []).filter((slot) => (b.availableSlots || []).includes(slot)).sort(compareSlots)
+        for (const slotId of commonSlots) for (const trainer of data.trainers) {
+          commonSearchNodes += 1
+          if (commonSearchNodes > 3000) break commonSearch
+          if (trainer.slotCapacity < 2 || (temp[slotId] || []).some((entry) => entry.trainerId === trainer.id)) continue
+          const state = buildSchedulingState(temp)
+          const ca = candidateRecord(data, temp, state, new Map(), a, trainer, slotId)
+          if (!ca) continue
+          const withA = scheduleWithEntry(temp, slotId, autoEntryForCandidate(data, a, ca))
+          const cb = candidateRecord(data, withA, buildSchedulingState(withA), new Map(), b, trainer, slotId)
+          if (!cb) continue
+          const oldState = buildSchedulingState(schedule)
+          if ([a, b].some((student) => !hasThreeConsecutiveTrainingDays(oldState.studentDays.get(student.id))
+            && hasThreeConsecutiveTrainingDays(new Set([...(state.studentDays.get(student.id) || []), slotId.split('-')[0]])))) continue
+          const merged = scheduleWithEntry(withA, slotId, autoEntryForCandidate(data, b, cb))
+          Object.keys(schedule).forEach((key) => delete schedule[key])
+          Object.assign(schedule, merged)
+          moves += 2
+          changed = true
+          break commonSearch
+        }
+      }
     }
   }
   return { schedule, moves }
@@ -1931,6 +2001,16 @@ function publishedSessionSlotId(week, session) {
   return day && dateForSlot(week, day) === date ? `${day}-${hour}` : null
 }
 
+function slotIsPast(week, slotId, now = Date.now()) {
+  const [day, hour] = String(slotId).split('-')
+  return Date.parse(`${dateForSlot(week, day)}T${String(hour).padStart(2, '0')}:00:00+07:00`) < now
+}
+
+function protectedFromOptimizer(entry) {
+  return entry.type === 'off' || entry.isLocked === true || entry.source === 'manual_v2'
+    || entry.source === 'published_existing' || entry.availabilityOverride === true
+}
+
 function mergePublishedSessions(data, schedule, warnings) {
   const retainedStatuses = new Set(['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'])
   for (const session of [...(data.sessions || [])].sort((left, right) => String(left.id || '').localeCompare(String(right.id || '')))) {
@@ -1973,10 +2053,11 @@ function mergePublishedSessions(data, schedule, warnings) {
   }
 }
 
-function generateSchedule(data) {
+function generateScheduleAttempt(data) {
+  const mode = data.generationMode || 'optimize'
   const schedule = {}
   for (const [slotId, entries] of Object.entries(data.schedule || {})) {
-    const retained = entries.filter((entry) => entry.type === 'off' || entry.isLocked === true)
+    const retained = mode === 'supplement' || mode === 'continue' ? entries : entries.filter(protectedFromOptimizer)
     if (retained.length) schedule[slotId] = retained
   }
   const warnings = data.trainers
@@ -2054,7 +2135,7 @@ function generateSchedule(data) {
   let rescueSearchLimitReached = false
   const swapTrace = []
   let optimizationPasses = 1
-  for (let pass = 0; pass < MAX_DEEP_OPTIMIZATION_PASSES; pass += 1) {
+  for (let pass = 0; mode !== 'supplement' && pass < MAX_DEEP_OPTIMIZATION_PASSES; pass += 1) {
     const compacted = compactPairedSlots(data, schedule)
     if (compacted.moves > 0) {
       Object.keys(schedule).forEach((slotId) => delete schedule[slotId])
@@ -2072,7 +2153,11 @@ function generateSchedule(data) {
     ))
     const repaired = capacityReached || repairCapacity < 1
       ? { assignments: 0, relocations: 0, searchNodes: 0, evaluatedPlans: 0, searchLimitReached: false, assignedStudentIds: [], swapTrace: [], schedule }
-      : repairCoverageWithRelocations(data, schedule, students, remainingByStudent, { maxAssignments: repairCapacity })
+      : repairCoverageWithRelocations(data, schedule, students, remainingByStudent, {
+        maxAssignments: repairCapacity,
+        maxSearchNodes: mode === 'continue' ? MAX_CONTINUATION_SEARCH_NODES : MAX_REPAIR_SEARCH_NODES,
+        searchOffset: Number(data.searchOffset || 0) + pass,
+      })
     if (repaired.assignments > 0) {
       Object.keys(schedule).forEach((slotId) => delete schedule[slotId])
       Object.assign(schedule, repaired.schedule)
@@ -2164,8 +2249,39 @@ function generateSchedule(data) {
     swapTrace: swapTrace.slice(0, 500),
     optimizationPasses,
     generatorVersion: OPTIMIZER_VERSION,
+    generationMode: mode,
   }
   return { schedule, warnings, optimizationSummary, unassignedEntries }
+}
+
+function scheduleOutcome(data, schedule) {
+  const counts = scheduleStudentCounts(schedule)
+  const students = data.students.filter((student) => student.eligibleForWeek !== false && student.sessionsPerWeek > 0)
+  const utilization = slotUtilizationForSchedule(data, schedule)
+  return [students.filter((s) => (counts.get(s.id) || 0) > 0).length,
+    students.reduce((sum, s) => sum + Math.min(s.sessionsPerWeek, counts.get(s.id) || 0), 0),
+    students.filter((s) => (counts.get(s.id) || 0) >= s.sessionsPerWeek).length,
+    utilization.pairedSlots, -utilization.singleSlots]
+}
+
+function generateSchedule(data) {
+  let result = generateScheduleAttempt(data)
+  const baseline = safeSchedule(data.schedule)
+  if ((data.generationMode || 'optimize') === 'optimize' && compareScoreVectors(scheduleOutcome(data, baseline), scheduleOutcome(data, result.schedule)) < 0) {
+    // Retain the incumbent only when its mutable entries remain valid under
+    // today's input. Invalid old auto entries must not bypass revalidation.
+    const valid = Object.entries(baseline).every(([slotId, entries]) => entries.every((entry) => {
+      if (protectedFromOptimizer(entry)) return true
+      const student = data.students.find((s) => s.id === entry.studentId), trainer = data.trainers.find((t) => t.id === entry.trainerId)
+      return student && trainer && candidateForSlot(data, { student, trainer, slotId, schedule: scheduleWithoutEntry(baseline, slotId, entry) }).eligible
+    }))
+    if (valid) result = generateScheduleAttempt({ ...data, generationMode: 'continue' })
+  }
+  const before = scheduleOutcome(data, baseline), after = scheduleOutcome(data, result.schedule)
+  const oldLocations = new Map(Object.entries(baseline).flatMap(([slotId, entries]) => entries.filter((e) => e.type !== 'off').map((e) => [`${e.studentId}|${slotId}|${e.trainerId}`, e])))
+  const changedEntries = Object.entries(result.schedule).reduce((sum, [slotId, entries]) => sum + entries.filter((e) => e.type !== 'off' && !oldLocations.has(`${e.studentId}|${slotId}|${e.trainerId}`)).length, 0)
+  result.optimizationSummary.comparison = { before: { covered: before[0], sessions: before[1], complete: before[2], paired: before[3], singles: -before[4] }, after: { covered: after[0], sessions: after[1], complete: after[2], paired: after[3], singles: -after[4] }, addedSessions: after[1] - before[1], changedEntries }
+  return result
 }
 
 function commandReceiptId(actorUid, branchId, week, idempotencyKey) {
@@ -2190,7 +2306,7 @@ function resetDraftSchedule(data, currentSchedule) {
   return schedule
 }
 
-function createPtScheduleV2Functions({ db, onCall }) {
+function createPtScheduleV2Functions({ db, onCall, actorForBranch = scheduleActor, branchData = loadBranchData, manualData = loadManualMutationData }) {
   const listPtScheduleBranches = onCall(async (request) => {
     const actor = await trustedAccessContext(request, db)
     requireCapability(actor, 'pt.schedule.branch.publish')
@@ -2206,8 +2322,8 @@ function createPtScheduleV2Functions({ db, onCall }) {
   const getPtScheduleWorkspace = onCall(async (request) => {
     const week = weekId(request.data?.weekId)
     const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
-    const actor = await scheduleActor(request, db, branchId)
-    const data = await loadBranchData(db, branchId, week)
+    const actor = await actorForBranch(request, db, branchId)
+    const data = await branchData(db, branchId, week)
     const eligibleStudents = data.students.filter((student) => student.eligibleForWeek === true)
     const workloadSchedule = safeSchedule(data.schedule)
     mergePublishedSessions({ ...data, weekId: week }, workloadSchedule, [])
@@ -2242,7 +2358,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
       publishedRevision: data.draft.publishedRevision,
       updatedAt: data.draft.updatedAt,
       updatedBy: data.draft.updatedBy,
-      schedule: data.schedule,
+      schedule: workloadSchedule,
       students: data.students,
       trainers: data.trainers,
       // The UI needs date-valid contracts, contracts bound to draft entries,
@@ -2279,9 +2395,12 @@ function createPtScheduleV2Functions({ db, onCall }) {
     const branchId = documentId(request.data?.branchId, 'Mã chi nhánh')
     const expectedRevision = Number(request.data?.expectedDraftRevision)
     if (!Number.isInteger(expectedRevision) || expectedRevision < 0) throw new HttpsError('invalid-argument', 'Phiên bản draft không hợp lệ.')
-    const actor = await scheduleActor(request, db, branchId)
-    const data = await loadBranchData(db, branchId, week)
-    const generated = generateSchedule({ ...data, weekId: week })
+    const actor = await actorForBranch(request, db, branchId)
+    const data = await branchData(db, branchId, week)
+    if (data.draft.revision !== expectedRevision) throw new HttpsError('aborted', 'Draft đã thay đổi. Hãy tải lại trước khi tối ưu.')
+    const mode = request.data?.mode || 'optimize'
+    if (!['optimize', 'supplement', 'continue'].includes(mode)) throw new HttpsError('invalid-argument', 'Chế độ xếp lịch không hợp lệ.')
+    const generated = generateSchedule({ ...data, weekId: week, generationMode: mode, searchOffset: expectedRevision, referenceNow: Date.now() })
     const reference = draftReference(db, branchId, week)
     return db.runTransaction(async (transaction) => {
       const current = await transaction.get(reference)
@@ -2314,8 +2433,8 @@ function createPtScheduleV2Functions({ db, onCall }) {
     const trainerId = documentId(request.data?.trainerId, 'Mã PT')
     const slotId = typeof request.data?.slotId === 'string' ? request.data.slotId : ''
     if (!/^(T[2-7]|CN)-(?:[0-9]|1[0-9]|2[0-3])$/.test(slotId)) throw new HttpsError('invalid-argument', 'Ô lịch không hợp lệ.')
-    await scheduleActor(request, db, branchId)
-    const data = await loadBranchData(db, branchId, week)
+    const actor = await actorForBranch(request, db, branchId)
+    const data = await branchData(db, branchId, week)
     data.weekId = week
     const trainer = data.trainers.find((item) => item.id === trainerId)
     if (!trainer) throw new HttpsError('not-found', 'Không tìm thấy PT trong chi nhánh.')
@@ -2349,7 +2468,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
         .slice(0, 12)
       const enriched = await Promise.all(externalMatches.map(async (item) => {
         try {
-          const exactData = await loadManualMutationData(db, branchId, week, trainerId, item.id, true, data)
+          const exactData = await manualData(db, branchId, week, trainerId, item.id, true, data)
           exactData.weekId = week
           const student = exactData.students[0]
           const result = manualSlotCandidate(candidateForSlot(exactData, { student, trainer: exactData.trainers[0], slotId, schedule: exactData.schedule }))
@@ -2391,7 +2510,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
     const studentId = documentId(request.data?.studentId, 'Mã học viên')
     const expectedRevision = Number(request.data?.expectedRevision)
     if (!Number.isInteger(expectedRevision) || expectedRevision < 0) throw new HttpsError('invalid-argument', 'Phiên bản lịch rảnh không hợp lệ.')
-    const actor = await scheduleActor(request, db, branchId)
+    const actor = await actorForBranch(request, db, branchId)
     const [studentSnapshot, configSnapshot] = await Promise.all([
       db.doc(`students/${studentId}`).get(),
       db.doc('settings/scheduleConfig').get(),
@@ -2475,8 +2594,12 @@ function createPtScheduleV2Functions({ db, onCall }) {
     const command = commandInput(request.data?.command)
     const idempotencyKey = typeof request.data?.idempotencyKey === 'string' ? request.data.idempotencyKey.trim() : ''
     if (!/^[A-Za-z0-9:_-]{8,200}$/.test(idempotencyKey)) throw new HttpsError('invalid-argument', 'Khóa chống lặp không hợp lệ.')
-    const actor = await scheduleActor(request, db, branchId)
+    const actor = await actorForBranch(request, db, branchId)
     const payload = request.data?.payload && typeof request.data.payload === 'object' ? request.data.payload : {}
+    const reference = draftReference(db, branchId, week)
+    const receipt = db.doc(`ptScheduleCommandReceipts/${commandReceiptId(actor.uid, branchId, week, idempotencyKey)}`)
+    const priorReceipt = await receipt.get()
+    if (priorReceipt.exists) return priorReceipt.data().result
     const slotId = typeof payload.slotId === 'string' ? payload.slotId : ''
     const fromSlotId = typeof payload.fromSlotId === 'string' ? payload.fromSlotId : ''
     const slotPattern = /^(T[2-7]|CN)-(?:[0-9]|1[0-9]|2[0-3])$/
@@ -2484,15 +2607,23 @@ function createPtScheduleV2Functions({ db, onCall }) {
     if (!commandWithoutSlot && !slotPattern.test(slotId)) throw new HttpsError('invalid-argument', 'Ô lịch không hợp lệ.')
     if (command === 'move_student' && !slotPattern.test(fromSlotId)) throw new HttpsError('invalid-argument', 'Ô lịch nguồn không hợp lệ.')
     const trainerId = commandWithoutSlot ? '' : documentId(payload.trainerId, 'Mã PT')
+    const fromTrainerId = command === 'move_student' ? documentId(payload.fromTrainerId || trainerId, 'Mã PT nguồn') : trainerId
     const studentId = command.includes('student') || command.includes('entry') ? documentId(payload.studentId, 'Mã học viên') : ''
     // Adding/moving one learner previously scanned the complete branch and all
     // active sessions. Scope the hot path to the selected learner/PT while
     // preserving the same canonical contract, availability and audit checks.
     const crossBranchConfirmed = activeAdministrator(actor) && payload.confirmCrossBranchStudent === true
     const data = command === 'add_student' || command === 'move_student'
-      ? await loadManualMutationData(db, branchId, week, trainerId, studentId, crossBranchConfirmed)
-      : await loadBranchData(db, branchId, week)
+      ? await manualData(db, branchId, week, trainerId, studentId, crossBranchConfirmed)
+      : await branchData(db, branchId, week)
     data.weekId = week
+    if (Number(data.draft.revision) !== expectedRevision) throw new HttpsError('aborted', 'Draft đã thay đổi. Hãy tải lại trước khi chỉnh.')
+    if (['add_student', 'move_student', 'set_trainer_off'].includes(command) && slotIsPast(week, slotId)) throw new HttpsError('failed-precondition', 'Ca đã qua giờ. Hãy dùng chức năng điều chỉnh lịch sử có audit.')
+    if (command === 'move_student') {
+      const source = (data.schedule[fromSlotId] || []).filter((entry) => entry.studentId === studentId && entry.trainerId === fromTrainerId && entry.type !== 'off')
+      if (source.length !== 1) throw new HttpsError('failed-precondition', 'Không tìm thấy duy nhất một ca nguồn để chuyển.')
+      if (fromSlotId === slotId && fromTrainerId === trainerId) throw new HttpsError('invalid-argument', 'Ca đích trùng ca nguồn.')
+    }
     const targetStudent = command === 'set_student_weekly_target'
       ? data.students.find((item) => item.id === studentId)
       : null
@@ -2505,8 +2636,6 @@ function createPtScheduleV2Functions({ db, onCall }) {
     if (command === 'set_student_weekly_target' && !resetWeeklyTarget && weeklyTarget > targetStudent.maxWeeklySessions) {
       throw new HttpsError('failed-precondition', `Mục tiêu tuần không thể vượt ${targetStudent.maxWeeklySessions} buổi còn lại theo quota hợp đồng.`, { issueCode: 'WEEKLY_TARGET_EXCEEDS_QUOTA' })
     }
-    const reference = draftReference(db, branchId, week)
-    const receipt = db.doc(`ptScheduleCommandReceipts/${commandReceiptId(actor.uid, branchId, week, idempotencyKey)}`)
     let schedule = safeSchedule(data.schedule)
     let availabilityOverrideMetadata = null
     let selectedManualContractId = ''
@@ -2519,7 +2648,7 @@ function createPtScheduleV2Functions({ db, onCall }) {
       const candidateSchedule = command === 'move_student'
         ? Object.fromEntries(Object.entries(schedule).map(([key, entries]) => [
           key,
-          key === fromSlotId ? entries.filter((entry) => entry.studentId !== studentId) : entries,
+          key === fromSlotId ? entries.filter((entry) => !(entry.studentId === studentId && entry.trainerId === fromTrainerId)) : entries,
         ]))
         : schedule
       const result = manualSlotCandidate(candidateForSlot(data, { student, trainer, slotId, schedule: candidateSchedule }))
@@ -2552,8 +2681,24 @@ function createPtScheduleV2Functions({ db, onCall }) {
         ? Object.values(schedule).flat().filter((entry) => entry.type !== 'off' && entry.isLocked !== true && entry.source !== 'published_existing')
         : []
       if (command === 'reset_draft') schedule = resetDraftSchedule({ ...data, weekId: week }, schedule)
+      const destructiveSlot = command === 'move_student' ? fromSlotId : slotId
+      const destructiveTrainer = command === 'move_student' ? fromTrainerId : trainerId
+      if (['move_student', 'remove_student', 'set_trainer_off', 'unlock_entry'].includes(command)) {
+        const affected = (schedule[destructiveSlot] || []).filter((entry) => entry.type !== 'off' && entry.trainerId === destructiveTrainer
+          && (command === 'set_trainer_off' || entry.studentId === studentId))
+        const protectedEntry = affected.find((entry) => entry.source === 'published_existing'
+          || entry.isLocked === true && command !== 'unlock_entry'
+          || data.sessions.some((session) => session.studentId === entry.studentId && session.trainerId === entry.trainerId
+            && publishedSessionSlotId(week, session) === destructiveSlot
+            && (session.billingStatus === 'charged' || ['scheduled', 'rescheduled', 'completed', 'attended', 'no_show'].includes(session.status)))
+          || slotIsPast(week, destructiveSlot))
+        if (protectedEntry) throw new HttpsError('failed-precondition', 'Ca đã khóa, đã publish hoặc đã qua giờ. Hãy mở khóa ca nháp, hoặc dùng luồng điều chỉnh lịch sử cho ca đã publish.', { issueCode: 'PROTECTED_SESSION', studentId: protectedEntry.studentId, trainerId: destructiveTrainer, slotId: destructiveSlot })
+      }
+      if (command === 'move_student') schedule[fromSlotId] = (schedule[fromSlotId] || []).filter((entry) => !(entry.studentId === studentId && entry.trainerId === fromTrainerId))
       const values = Array.isArray(schedule[slotId]) ? [...schedule[slotId]] : []
-      const currentWeeklyTargets = safeWeeklySessionTargets(current.exists ? current.data()?.weeklySessionTargets : {}, new Set(data.students.map((item) => item.id)))
+      // A scoped add/move only loads one learner. Never filter other learners'
+      // weekly overrides using that partial data set.
+      const currentWeeklyTargets = safeWeeklySessionTargets(current.exists ? current.data()?.weeklySessionTargets : {})
       if (command === 'set_student_weekly_target') {
         const scheduledCount = Object.values(schedule).flat().filter((entry) => entry.type !== 'off' && entry.studentId === studentId).length
         const nextTarget = resetWeeklyTarget
@@ -2568,8 +2713,8 @@ function createPtScheduleV2Functions({ db, onCall }) {
       if (command === 'add_student') values.push({ studentId, trainerId, branchId, type: 'training', contractId: selectedManualContractId, source: 'manual_v2', ...(trainerAssignmentWarningMetadata || {}), ...(studentBranchWarningMetadata || {}), ...(availabilityOverrideMetadata || {}) })
       if (command === 'remove_student') schedule[slotId] = values.filter((entry) => !(entry.studentId === studentId && entry.trainerId === trainerId))
       if (command === 'move_student') {
-        schedule[fromSlotId] = (schedule[fromSlotId] || []).filter((entry) => entry.studentId !== studentId)
         values.push({ studentId, trainerId, branchId, type: 'training', contractId: selectedManualContractId, source: 'manual_v2', ...(trainerAssignmentWarningMetadata || {}), ...(studentBranchWarningMetadata || {}), ...(availabilityOverrideMetadata || {}) })
+        schedule[slotId] = values
       }
       let requeuedEntries = []
       if (command === 'set_trainer_off') {
@@ -2627,6 +2772,7 @@ module.exports = {
   MAX_DRAFT_ENTRIES,
   MAX_DRAFT_DOCUMENT_ENTRIES,
   createPtScheduleV2Functions,
+  loadManualMutationData,
   candidateForSlot,
   compactPairedSlots,
   createsThreeConsecutiveTrainingDays,

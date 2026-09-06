@@ -372,6 +372,9 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
   const calendar = normalizedScheduleConfig(config)
   const desired = new Map()
   const errors = []
+  const errorDetails = []
+  let context = {}
+  const addError = (code) => { errors.push(code); if (errorDetails.length < 100) errorDetails.push({ code, ...context }) }
   const warnings = []
   const studentDays = new Set()
   const studentSessions = new Map()
@@ -383,26 +386,28 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
   const holidays = new Set(calendar.holidays)
 
   for (const [slotId, rawEntries] of Object.entries(schedule || {})) {
+    context = { slotId }
     if (!Array.isArray(rawEntries)) continue
     const match = /^(T[2-7]|CN)-(\d{1,2})$/.exec(slotId)
     if (!match) {
-      errors.push('INVALID_SLOT')
+      addError('INVALID_SLOT')
       continue
     }
     const day = match[1]
     const hour = Number(match[2])
     const date = dateForSlot(week, day)
     if (!workingDays.has(day) || (workingHours.size && !workingHours.has(hour)) || holidays.has(date)) {
-      if (rawEntries.some((entry) => entry?.branchId === branchId)) errors.push('OUTSIDE_WORKING_CALENDAR')
+      if (rawEntries.some((entry) => entry?.branchId === branchId)) addError('OUTSIDE_WORKING_CALENDAR')
       continue
     }
     for (const raw of rawEntries) {
       if (!raw) continue
+      context = { slotId, date, hour, studentId: raw.studentId || null, studentName: students.get(raw.studentId)?.name || null, trainerId: raw.trainerId || null, trainerName: trainers.get(raw.trainerId)?.name || null }
       let trainerId
       try {
         trainerId = documentId(raw.trainerId, 'Mã PT')
       } catch {
-        errors.push('TRAINER_REQUIRED')
+        addError('TRAINER_REQUIRED')
         continue
       }
       const trainerSlot = `${date}|${hour}|${trainerId}`
@@ -410,7 +415,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       if (raw.type === 'off') {
         const offBranchId = raw.branchId || trainer?.branchId
         if (offBranchId !== branchId) continue
-        if (!trainer || trainer.status === 'inactive') errors.push('TRAINER_NOT_ACTIVE')
+        if (!trainer || trainer.status === 'inactive') addError('TRAINER_NOT_ACTIVE')
         offSlots.add(trainerSlot)
         continue
       }
@@ -418,7 +423,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       try {
         studentId = documentId(raw.studentId, 'Mã học viên')
       } catch {
-        errors.push('STUDENT_REQUIRED')
+        addError('STUDENT_REQUIRED')
         continue
       }
       const student = students.get(studentId)
@@ -434,22 +439,22 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       // different operational branch through this branch's schedule.
       if (trainer?.branchId && trainer.branchId !== branchId) continue
       if (!resolvedEntryBranchId) {
-        errors.push('ENTRY_BRANCH_REQUIRED')
+        addError('ENTRY_BRANCH_REQUIRED')
         continue
       }
-      if (!trainer || trainer.status === 'inactive') errors.push('TRAINER_NOT_ACTIVE')
-      if (!student || student.status === 'inactive') errors.push('STUDENT_NOT_ACTIVE')
+      if (!trainer || trainer.status === 'inactive') addError('TRAINER_NOT_ACTIVE')
+      if (!student || student.status === 'inactive') addError('STUDENT_NOT_ACTIVE')
       if (student?.branchId && student.branchId !== branchId) warnings.push('STUDENT_BRANCH_MISMATCH')
       const availabilityMode = trainerAvailabilityMode(trainer)
       if (trainer?.employmentType === 'collaborator') {
-        if (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.length) errors.push('TRAINER_AVAILABILITY_UNCONFIGURED')
-        else if (!trainer.availableSlots.includes(slotId)) errors.push('OUTSIDE_TRAINER_AVAILABILITY')
-      } else if (availabilityMode === 'unconfigured') errors.push('TRAINER_AVAILABILITY_UNCONFIGURED')
-      else if (!trainerIsAvailable(trainer, slotId)) errors.push('OUTSIDE_TRAINER_AVAILABILITY')
-      if (trainerIsOnLeave(trainerId, date, trainerLeaves)) errors.push('TRAINER_ON_LEAVE')
+        if (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.length) addError('TRAINER_AVAILABILITY_UNCONFIGURED')
+        else if (!trainer.availableSlots.includes(slotId)) addError('OUTSIDE_TRAINER_AVAILABILITY')
+      } else if (availabilityMode === 'unconfigured') addError('TRAINER_AVAILABILITY_UNCONFIGURED')
+      else if (!trainerIsAvailable(trainer, slotId)) addError('OUTSIDE_TRAINER_AVAILABILITY')
+      if (trainerIsOnLeave(trainerId, date, trainerLeaves)) addError('TRAINER_ON_LEAVE')
 
       const studentDay = `${studentId}|${date}`
-      if (studentDays.has(studentDay)) errors.push('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
+      if (studentDays.has(studentDay)) addError('STUDENT_MULTIPLE_SESSIONS_PER_DAY')
       studentDays.add(studentDay)
       studentSessions.set(studentId, (studentSessions.get(studentId) || 0) + 1)
       trainerSlots.set(trainerSlot, (trainerSlots.get(trainerSlot) || 0) + 1)
@@ -467,7 +472,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
       if (!effectiveAvailability.confirmed) availabilityIssue = 'AVAILABILITY_NOT_SUBMITTED'
       else if (!slots.has(slotId)) availabilityIssue = 'OUTSIDE_STUDENT_AVAILABILITY'
       if (availabilityIssue && override) warnings.push('MANUAL_STUDENT_AVAILABILITY_OVERRIDE')
-      else if (availabilityIssue) errors.push(availabilityIssue)
+      else if (availabilityIssue) addError(availabilityIssue)
       if (effectiveAvailability.source === 'inherited_weekly') warnings.push('INHERITED_AVAILABILITY_FALLBACK')
       if (effectiveAvailability.source === 'legacy_default') warnings.push('LEGACY_AVAILABILITY_FALLBACK')
 
@@ -475,7 +480,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         && ['active', 'future'].includes(String(contract.status || 'active').toLowerCase())
         && storedDate(contract.startDate) <= date
         && storedDate(contract.endDate) >= date)
-      if (dateCandidates.some((contract) => !contract.branchId)) errors.push('CONTRACT_BRANCH_REQUIRED')
+      if (dateCandidates.some((contract) => !contract.branchId)) addError('CONTRACT_BRANCH_REQUIRED')
       const confirmedCrossBranch = raw.source === 'manual_v2'
         && raw.studentBranchWarning === true
         && Boolean(raw.contractId)
@@ -486,7 +491,7 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         ? contract.id === raw.contractId && contract.branchId === student.branchId
         : contract.branchId === branchId)
       if (contractCandidates.length !== 1) {
-        errors.push(contractCandidates.length ? 'AMBIGUOUS_ACTIVE_CONTRACT' : 'ACTIVE_CONTRACT_NOT_FOUND')
+        addError(contractCandidates.length ? 'AMBIGUOUS_ACTIVE_CONTRACT' : 'ACTIVE_CONTRACT_NOT_FOUND')
         continue
       }
       const contract = contractCandidates[0]
@@ -502,12 +507,12 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
         const pauseEnd = storedDate(period?.endDate)
         return pauseStart && pauseEnd && date >= pauseStart && date <= pauseEnd
       })) {
-        errors.push('CONTRACT_PAUSED')
+        addError('CONTRACT_PAUSED')
         continue
       }
       const key = entryKey(scheduleId, slotId, studentId)
       if (desired.has(key)) {
-        errors.push('DUPLICATE_SCHEDULE_ENTRY')
+        addError('DUPLICATE_SCHEDULE_ENTRY')
         continue
       }
       desired.set(key, {
@@ -534,19 +539,23 @@ function desiredEntries({ scheduleId, week, branchId, schedule, trainers, studen
 
   for (const [key, count] of trainerSlots) {
     const trainerId = key.split('|').at(-1)
-    if (offSlots.has(key)) errors.push('TRAINER_OFF_CONFLICT')
-    if (count > normalizedCapacity(trainers.get(trainerId)?.slotCapacity)) errors.push('TRAINER_CAPACITY_EXCEEDED')
+    const [date, hour] = key.split('|')
+    context = { date, hour: Number(hour), slotId: slotIdForDateHour(week, date, Number(hour)), trainerId, trainerName: trainers.get(trainerId)?.name || null }
+    if (offSlots.has(key)) addError('TRAINER_OFF_CONFLICT')
+    if (count > normalizedCapacity(trainers.get(trainerId)?.slotCapacity)) addError('TRAINER_CAPACITY_EXCEEDED')
   }
   for (const [slotId, count] of branchSlots) {
+    context = { slotId }
     const capacity = branchSlotCapacity(calendar, branchId, slotId)
-    if (capacity !== null && count > capacity) errors.push('BRANCH_CAPACITY_REACHED')
+    if (capacity !== null && count > capacity) addError('BRANCH_CAPACITY_REACHED')
   }
   for (const [studentId, count] of studentSessions) {
+    context = { studentId, studentName: students.get(studentId)?.name || null }
     const target = Number(students.get(studentId)?.sessionsPerWeek)
-    if (Number.isInteger(target) && target >= 0 && count > target) errors.push('STUDENT_WEEKLY_TARGET_REACHED')
+    if (Number.isInteger(target) && target >= 0 && count > target) addError('STUDENT_WEEKLY_TARGET_REACHED')
   }
-  if (desired.size > MAX_SCHEDULE_ENTRIES) errors.push('SCHEDULE_TOO_LARGE')
-  return { desired, errors: [...new Set(errors)], warnings: [...new Set(warnings)] }
+  if (desired.size > MAX_SCHEDULE_ENTRIES) addError('SCHEDULE_TOO_LARGE')
+  return { desired, errorDetails, errors: [...new Set(errors)], warnings: [...new Set(warnings)] }
 }
 
 function createPtSchedulePublishFunctions({ db, onCall }) {
@@ -668,7 +677,7 @@ function createPtSchedulePublishFunctions({ db, onCall }) {
         config: configSnapshot.data() || {},
         trainerLeaves: trainerLeavesSnapshot.docs.map((item) => item.data()),
       })
-      if (prepared.errors.length) throw scheduleError('SCHEDULE_VALIDATION_FAILED', 'Lịch nháp còn xung đột và chưa thể publish.', { errors: prepared.errors })
+      if (prepared.errors.length) throw scheduleError('SCHEDULE_VALIDATION_FAILED', 'Lịch nháp còn xung đột và chưa thể publish.', { errors: prepared.errors, errorDetails: prepared.errorDetails })
 
       const existingScoped = weekSessionsSnapshot.docs.filter((item) => {
         const session = item.data()

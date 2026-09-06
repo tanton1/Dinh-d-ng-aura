@@ -220,6 +220,8 @@ export interface PtScheduleSwapMove {
 }
 
 export interface PtScheduleOptimizationSummary {
+  generationMode?: 'optimize' | 'supplement' | 'continue'
+  comparison?: { before: { covered: number; sessions: number; complete: number; paired: number; singles: number }; after: { covered: number; sessions: number; complete: number; paired: number; singles: number }; addedSessions: number; changedEntries: number }
   objectiveOrder?: string[]
   loadPolicyVersion?: 'soft-daily-target-v1' | string
   studentCoverage?: PtScheduleStudentCoverage
@@ -304,7 +306,9 @@ export type PtScheduleDraftCommand =
   | 'set_student_weekly_target'
   | 'reset_draft'
 
+export interface PtScheduleErrorDetail { code: string; slotId?: string; date?: string; hour?: number; studentId?: string; studentName?: string; trainerId?: string; trainerName?: string }
 export class PtSchedulePublishError extends Error {
+  errorDetails: PtScheduleErrorDetail[] = []
   readonly issueCode: string
   readonly conflicts: string[]
   readonly retryable: boolean
@@ -437,12 +441,16 @@ export function asPtSchedulePublishError(error: unknown) {
     ? details.errors.filter((item): item is string => typeof item === 'string')
     : []
   const rawMessage = typeof source.message === 'string' ? source.message : ''
-  return new PtSchedulePublishError(
+  const normalized = new PtSchedulePublishError(
     friendlyCallableMessage(code, rawMessage),
     issueCode,
     conflicts,
     code === 'aborted' || retryableCallableCodes.has(code),
   )
+  normalized.errorDetails = Array.isArray(details.errorDetails)
+    ? details.errorDetails.filter((item: any) => item && typeof item.code === 'string').slice(0, 100) as PtScheduleErrorDetail[]
+    : []
+  return normalized
 }
 
 async function invoke<TInput extends Record<string, unknown>, TOutput>(name: string, input: TInput) {
@@ -512,7 +520,7 @@ export function getPtScheduleWorkspace(input: { weekId: string; branchId: string
   return invoke<typeof input, PtScheduleWorkspaceV2Result>('getPtScheduleWorkspace', input)
 }
 
-export function generatePtScheduleDraft(input: { weekId: string; branchId: string; expectedDraftRevision: number }) {
+export function generatePtScheduleDraft(input: { weekId: string; branchId: string; expectedDraftRevision: number; mode?: 'optimize' | 'supplement' | 'continue' }) {
   type Result = {
     draftRevision: number
     schedule: Schedule

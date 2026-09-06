@@ -50,6 +50,19 @@ test('publish resolves the same exact PT weekly availability as auto scheduling'
   assert.equal(trainerProfileForWeek(recurring, { ...weekly, status: 'draft' }, WEEK), recurring)
 })
 
+test('publish validation identifies learner, trainer and exact slot instead of only a generic code', () => {
+  const data = baseFixture()
+  data.students.get('student-a').name = 'Lan'
+  data.trainers.get('trainer-a').name = 'Mai'
+  data.availability.set('student-a', { status: 'submitted', slots: ['T3-6'] })
+  const result = desiredEntries(data)
+  const detail = result.errorDetails.find((item) => item.code === 'OUTSIDE_STUDENT_AVAILABILITY')
+  assert.equal(detail.studentName, 'Lan')
+  assert.equal(detail.trainerName, 'Mai')
+  assert.equal(detail.slotId, 'T2-6')
+  assert.equal(detail.date, WEEK)
+})
+
 test('validates a legacy branch-less entry and binds it to the exact contract', () => {
   const result = desiredEntries(baseFixture())
   assert.deepEqual(result.errors, [])

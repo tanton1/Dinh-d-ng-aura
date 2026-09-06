@@ -98,6 +98,9 @@ jobs:
         run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Run browser tests
         run: npm run test:e2e -- --project=${{ matrix.project }}
+      - name: Test production branch scheduling workspace
+        if: matrix.project == 'chromium'
+        run: npm run test:schedule-ui
       - name: Upload browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4

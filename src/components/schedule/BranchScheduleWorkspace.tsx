@@ -99,8 +99,8 @@ function writeWorkspaceCache(scope: string, value: PtScheduleWorkspaceV2Result) 
   }
 }
 
-function prefetchWorkspace(branchId: string, weekId: string) {
-  const scope = `${branchId}|${weekId}`
+function prefetchWorkspace(branchId: string, weekId: string, ownerScope: string) {
+  const scope = `${ownerScope}|${branchId}|${weekId}`
   if (readWorkspaceCache(scope) || workspacePrefetches.has(scope)) return
   const request = getPtScheduleWorkspace({ branchId, weekId })
     .then((value) => writeWorkspaceCache(scope, value))
@@ -248,30 +248,9 @@ function formatDiagnosticDate(value: string | null | undefined) {
 
 function workspaceRealtimeFingerprint(value: PtScheduleWorkspaceV2Result | null) {
   if (!value) return ''
-  return JSON.stringify({
-    branchId: value.branch.id,
-    weekId: value.weekId,
-    draftRevision: value.draftRevision,
-    publishedVersion: value.publishedVersion,
-    summary: value.summary,
-    students: value.students.map((student) => [
-      student.id, student.status, student.sessionsPerWeek, student.availabilityRevision,
-      student.availabilityStatus, student.eligibleForWeek, student.remainingSchedulableSessions,
-      student.previousWeekScheduledSessions,
-    ]),
-    trainers: value.trainers.map((trainer) => [
-      trainer.id, trainer.status, trainer.availabilityRevision, trainer.availabilityMode,
-      trainer.slotCapacity, trainer.dailySessionTarget, trainer.schedulingPriority,
-    ]),
-    contracts: value.contracts.map((contract) => [
-      contract.id, contract.status, contract.usedSessions, contract.activeScheduledSessions,
-      contract.startDate, contract.endDate,
-    ]),
-    unassignedEntries: (value.unassignedEntries || value.unassigned || []).map((entry) => [
-      entry.studentId, entry.missingSessions, entry.primaryReasonCode,
-      entry.diagnostics?.contractStatus, entry.diagnostics?.trainerCompatibleSlotCount,
-    ]),
-  })
+  // Include scheduling inputs, labels and calendars, not only revisions.
+  const { updatedAt, updatedBy, ...content } = value
+  return JSON.stringify(content)
 }
 
 function localSlotCandidates(
@@ -358,6 +337,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [publishIssues, setPublishIssues] = useState<Array<{ code: string; slotId?: string; studentId?: string; studentName?: string; trainerId?: string; trainerName?: string }>>([])
   const [notice, setNotice] = useState<string | null>(null)
   const [publishPreview, setPublishPreview] = useState<PtSchedulePublishResult | null>(null)
   const [history, setHistory] = useState<PtScheduleVersionListResult | null>(null)
@@ -367,6 +347,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   const [candidates, setCandidates] = useState<PtScheduleSlotCandidate[]>([])
   const [candidateLoading, setCandidateLoading] = useState(false)
   const [pendingManualCandidate, setPendingManualCandidate] = useState<PtScheduleSlotCandidate | null>(null)
+  const [pendingMove, setPendingMove] = useState<{ studentId: string; fromSlotId: string; fromTrainerId: string; slotId: string; trainerId: string } | null>(null)
   const [hoveredStudentId, setHoveredStudentId] = useState<string | null>(null)
   const [highlightedStudentId, setHighlightedStudentId] = useState<string | null>(null)
   const [offConfirmation, setOffConfirmation] = useState(false)
@@ -401,7 +382,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
   const weekDates = useMemo(() => getDatesForWeek(weekOffset), [weekOffset])
   const currentWeekId = weekDates.T2.full
-  const workspaceScope = `${branchId}|${currentWeekId}`
+  const ownerScope = `${accessContext.uid}|${accessContext.authzVersion}|${accessContext.accessRole}|${accessContext.branchIds.join(',')}`
+  const workspaceScope = `${ownerScope}|${branchId}|${currentWeekId}`
+  activeWorkspaceScopeRef.current = workspaceScope
   const workingDays = workspace?.scheduleConfig.workingDays?.length
     ? workspace.scheduleConfig.workingDays
     : ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -436,6 +419,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       if (inspectorSlotId) {
         setInspectorSlotId(null)
         setPendingManualCandidate(null)
+        setPendingMove(null)
       } else if (publishPreview) setPublishPreview(null)
       else if (resetDraftOpen) setResetDraftOpen(false)
       else if (restoreCandidate) setRestoreCandidate(null)
@@ -449,7 +433,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
   const loadWorkspace = useCallback(async (quiet = false) => {
     if (!branchId) return
-    const requestScope = `${branchId}|${currentWeekId}`
+    const requestScope = `${ownerScope}|${branchId}|${currentWeekId}`
     const inFlight = workspaceRequestRef.current
     if (inFlight?.scope === requestScope) {
       await inFlight.promise
@@ -464,6 +448,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         const result = await getPtScheduleWorkspace({ weekId: currentWeekId, branchId })
         writeWorkspaceCache(requestScope, result)
         if (activeWorkspaceScopeRef.current !== requestScope) return
+        if (workspaceRef.current && result.draftRevision < workspaceRef.current.draftRevision) return
         const changed = workspaceRealtimeFingerprint(workspaceRef.current) !== workspaceRealtimeFingerprint(result)
         if (!quiet) setWorkspace(result)
         else if (changed) startTransition(() => setWorkspace(result))
@@ -491,7 +476,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     } finally {
       if (workspaceRequestRef.current?.promise === request) workspaceRequestRef.current = null
     }
-  }, [branchId, currentWeekId])
+  }, [branchId, currentWeekId, ownerScope])
 
   const loadBranches = useCallback(async () => {
     setBranchCatalogState('loading')
@@ -539,9 +524,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     }
     setNotice(null)
     setPublishPreview(null)
+    setPublishIssues([])
     setHistory(null)
     setInspectorSlotId(null)
     setPendingManualCandidate(null)
+    setPendingMove(null)
     setHoveredStudentId(null)
     setHighlightedStudentId(null)
     candidateCache.current.clear()
@@ -552,10 +539,10 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     if (!workspace || workspace.branch.id !== branchId || workspace.weekId !== currentWeekId) return undefined
     const timer = window.setTimeout(() => {
       const adjacentOffsets = weekOffset > 0 ? [weekOffset - 1, weekOffset + 1] : [weekOffset + 1]
-      adjacentOffsets.forEach((offset) => prefetchWorkspace(branchId, getDatesForWeek(offset).T2.full))
+      adjacentOffsets.forEach((offset) => prefetchWorkspace(branchId, getDatesForWeek(offset).T2.full, ownerScope))
     }, 900)
     return () => window.clearTimeout(timer)
-  }, [branchId, currentWeekId, weekOffset, workspace])
+  }, [branchId, currentWeekId, weekOffset, workspace, ownerScope])
 
   useEffect(() => {
     if (!notice) return undefined
@@ -595,7 +582,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         doc(firestoreDb, 'ptScheduleDrafts', `${branchId}_${currentWeekId}`),
         (snapshot) => {
           const revision = Number(snapshot.data()?.revision ?? 0)
-          if (revision > Number(workspaceRef.current?.draftRevision || 0)) scheduleQuietRefresh()
+          if (revision > Number(workspaceRef.current?.draftRevision || 0)
+            || Number(snapshot.data()?.publishedVersion || 0) !== Number(workspaceRef.current?.publishedVersion || 0)) scheduleQuietRefresh()
         },
         () => setSyncState((current) => current === 'connecting' ? 'offline' : current),
       )
@@ -914,7 +902,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       const reasonCodes: string[] = []
       if (!CONFIRMED_AVAILABILITY_STATUSES.has(row.student.availabilityStatus)) reasonCodes.push('STUDENT_AVAILABILITY_MISSING')
       reasonCodes.push(...row.student.eligibilityReasons)
-      if (!row.trainerNames) reasonCodes.push('TRAINER_NOT_ASSIGNED')
+      // No primary PT is not a blocker: any compatible same-branch PT can teach.
       if (!reasonCodes.length) reasonCodes.push('STUDENT_UNSCHEDULED')
       byStudent.set(row.student.id, {
         studentId: row.student.id,
@@ -1104,7 +1092,9 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
   }, [branchId, candidateSearch, currentWeekId, inspectorSlotId, selectedTrainerId, workspace, workspace?.draftRevision])
 
   const runCommand = async (command: PtScheduleDraftCommand, payload: Record<string, unknown>, reason?: string) => {
-    if (!workspace) return false
+    if (!workspace || busyRef.current) return false
+    const commandScope = workspaceScope
+    busyRef.current = true
     setBusy(true)
     setError(null)
     try {
@@ -1117,6 +1107,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         reason,
         idempotencyKey: commandKey(),
       })
+      if (activeWorkspaceScopeRef.current !== commandScope) return false
       if (command === 'set_student_weekly_target') {
         await loadWorkspace(true)
       } else {
@@ -1139,11 +1130,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       if (command === 'add_student' || command === 'move_student') setPendingManualCandidate(null)
       return true
     } catch (commandError) {
+      if (activeWorkspaceScopeRef.current !== commandScope) return false
       const normalized = asPtSchedulePublishError(commandError)
       setError(normalized.message)
       if (normalized.issueCode === 'REVISION_CONFLICT') await loadWorkspace(true)
       return false
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }
@@ -1165,6 +1158,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     }, reason)
   }
 
+  const confirmMove = async () => {
+    if (!pendingMove) return
+    const student = workspace?.students.find((item) => item.id === pendingMove.studentId)
+    const outside = !student?.availableSlots.includes(pendingMove.slotId)
+    if (await runCommand('move_student', { ...pendingMove, ...(outside ? { allowOutsideStudentAvailability: true } : {}) }, 'Quản lý xác nhận chuyển ca nháp; giữ ca cũ nếu chuyển không thành công')) setPendingMove(null)
+  }
+
   const setWeeklyTarget = async (studentId: string, targetSessions: number | null) => {
     await runCommand('set_student_weekly_target', targetSessions === null
       ? { studentId, resetToDefault: true }
@@ -1173,7 +1173,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
   const resetDraft = async () => {
     if (!workspace || draftResetSummary.resettableEntries < 1) return
-    await runCommand('reset_draft', {}, 'Đặt lại lịch nháp chưa publish')
+    if (!await runCommand('reset_draft', {}, 'Đặt lại lịch nháp chưa publish')) return
     setResetDraftOpen(false)
     setTab('warnings')
   }
@@ -1186,6 +1186,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
 
   const saveStudentAvailability = async (student: PtScheduleWorkspaceV2Result['students'][number]) => {
     if (availabilityBusy) return
+    const commandScope = workspaceScope
     setAvailabilityBusy(true); setAvailabilityError('')
     try {
       const result = await savePtStudentAvailability({
@@ -1195,6 +1196,8 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         availableSlots: [...availabilityDraft],
         expectedRevision: student.availabilityRevision,
       })
+      if (activeWorkspaceScopeRef.current !== commandScope) return
+      candidateCache.current.clear()
       setWorkspace((current) => current ? {
         ...current,
         students: current.students.map((item) => item.id === student.id ? {
@@ -1215,20 +1218,24 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
     } finally { setAvailabilityBusy(false) }
   }
 
-  const autoArrange = async () => {
-    if (!workspace) return
+  const autoArrange = async (mode: 'optimize' | 'supplement' | 'continue' = 'optimize') => {
+    if (!workspace || busyRef.current) return
+    const commandScope = workspaceScope
+    busyRef.current = true
     setBusy(true)
     setError(null)
     setOptimizationStatus('Đang đối chiếu lịch rảnh, hợp đồng và công suất từng khung…')
     const deepSearchTimer = window.setTimeout(() => {
-      setOptimizationStatus('Đang thử các chuỗi đổi chỗ an toàn để lấp những buổi còn thiếu…')
+      setOptimizationStatus('Đang chờ kết quả từ máy chủ. Ca chỉnh tay, ca khóa và lịch đã publish được giữ nguyên…')
     }, 1_200)
     try {
       const result = await generatePtScheduleDraft({
         weekId: currentWeekId,
         branchId,
         expectedDraftRevision: workspace.draftRevision,
+        mode,
       })
+      if (activeWorkspaceScopeRef.current !== commandScope) return
       setWorkspace((current) => current ? {
         ...current,
         schedule: result.schedule,
@@ -1257,37 +1264,48 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         : `Đã tối ưu draft r${result.draftRevision}; đã ưu tiên đủ học viên, ca đôi và PT chính/phụ.${deepRun}${searchNote}`)
       if (unresolved) setTab('warnings')
     } catch (arrangeError) {
+      if (activeWorkspaceScopeRef.current !== commandScope) return
       const normalized = asPtSchedulePublishError(arrangeError)
       setError(normalized.message)
       if (normalized.issueCode === 'REVISION_CONFLICT') await loadWorkspace(true)
     } finally {
       window.clearTimeout(deepSearchTimer)
       setOptimizationStatus(null)
+      busyRef.current = false
       setBusy(false)
     }
   }
 
   const validatePublish = async () => {
-    if (!workspace) return
+    if (!workspace || busyRef.current) return
+    const commandScope = workspaceScope
+    busyRef.current = true
     setBusy(true)
     setError(null)
+    setPublishIssues([])
     try {
-      setPublishPreview(await validatePtScheduleDraft({
+      const preview = await validatePtScheduleDraft({
         weekId: currentWeekId,
         branchId,
         expectedDraftRevision: workspace.draftRevision,
-      }))
+      })
+      if (activeWorkspaceScopeRef.current === commandScope) setPublishPreview(preview)
     } catch (validateError) {
+      if (activeWorkspaceScopeRef.current !== commandScope) return
       const normalized = asPtSchedulePublishError(validateError)
+      setPublishIssues(normalized.errorDetails || [])
       setError([normalized.message, ...normalized.conflicts.map(ptScheduleConflictLabel)].join(' · '))
       setTab('warnings')
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }
 
   const confirmPublish = async () => {
-    if (!publishPreview) return
+    if (!publishPreview || busyRef.current) return
+    const commandScope = workspaceScope
+    busyRef.current = true
     setBusy(true)
     setError(null)
     try {
@@ -1296,31 +1314,44 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         branchId,
         expectedDraftRevision: publishPreview.draftRevision,
       })
+      if (activeWorkspaceScopeRef.current !== commandScope) return
       setPublishPreview(null)
       setNotice(result.unchanged ? `Lịch đã ở phiên bản v${result.version}.` : `Đã publish an toàn phiên bản v${result.version}.`)
       await loadWorkspace(true)
     } catch (publishError) {
-      setError(asPtSchedulePublishError(publishError).message)
+      if (activeWorkspaceScopeRef.current !== commandScope) return
+      const normalized = asPtSchedulePublishError(publishError)
+      setError(normalized.message)
+      setPublishIssues(normalized.errorDetails || [])
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }
 
   const openHistory = async () => {
+    if (busyRef.current) return
+    const commandScope = workspaceScope
+    busyRef.current = true
     setTab('history')
     setBusy(true)
     setError(null)
     try {
-      setHistory(await listPtScheduleVersions({ weekId: currentWeekId, branchId }))
+      const history = await listPtScheduleVersions({ weekId: currentWeekId, branchId })
+      if (activeWorkspaceScopeRef.current === commandScope) setHistory(history)
     } catch (historyError) {
+      if (activeWorkspaceScopeRef.current !== commandScope) return
       setError(asPtSchedulePublishError(historyError).message)
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }
 
   const restoreVersion = async () => {
-    if (!history || !restoreCandidate) return
+    if (!history || !restoreCandidate || busyRef.current) return
+    const commandScope = workspaceScope
+    busyRef.current = true
     setBusy(true)
     try {
       const result = await restorePtScheduleVersionToDraft({
@@ -1329,14 +1360,17 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
         version: restoreCandidate.version,
         expectedDraftRevision: history.currentDraftRevision,
       })
+      if (activeWorkspaceScopeRef.current !== commandScope) return
       setRestoreCandidate(null)
       setHistory(null)
       setTab('matrix')
       setNotice(`Đã tạo draft r${result.draftRevision} từ phiên bản v${result.version}.`)
       await loadWorkspace(true)
     } catch (restoreError) {
+      if (activeWorkspaceScopeRef.current !== commandScope) return
       setError(asPtSchedulePublishError(restoreError).message)
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }
@@ -1366,11 +1400,11 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           <h1>Xếp lịch PT</h1>
         </div>
         <div className="branch-schedule__hero-controls">
-          <label><span>Chi nhánh</span><select aria-label="Chọn chi nhánh" value={branchId} onChange={(event) => setBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+          <label><span>Chi nhánh</span><select aria-label="Chọn chi nhánh" disabled={busy || availabilityBusy} value={branchId} onChange={(event) => setBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
           <div className="branch-schedule__week">
-            <button type="button" aria-label="Tuần trước" onClick={() => setWeekOffset((value) => Math.max(0, value - 1))}><ChevronLeft /></button>
+            <button type="button" aria-label="Tuần trước" disabled={busy || availabilityBusy} onClick={() => setWeekOffset((value) => Math.max(0, value - 1))}><ChevronLeft /></button>
             <div><span>Tuần</span><strong>{weekDates.T2.display} – {weekDates.CN.display}</strong></div>
-            <button type="button" aria-label="Tuần sau" onClick={() => setWeekOffset((value) => value + 1)}><ChevronRight /></button>
+            <button type="button" aria-label="Tuần sau" disabled={busy || availabilityBusy} onClick={() => setWeekOffset((value) => value + 1)}><ChevronRight /></button>
           </div>
           <span className={`branch-schedule__sync is-${syncState}`} title={lastSyncedAt ? `Cập nhật lúc ${lastSyncedAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Đang kết nối dữ liệu'}><Activity size={14} />{syncState === 'live' ? 'Trực tiếp' : syncState === 'offline' ? 'Mất kết nối' : 'Đang đồng bộ'}</span>
         </div>
@@ -1390,11 +1424,13 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           <button id="schedule-tab-students" type="button" role="tab" aria-selected={tab === 'students'} aria-controls="schedule-panel-students" tabIndex={tab === 'students' ? 0 : -1} className={tab === 'students' ? 'is-active' : ''} onClick={() => setTab('students')}>Học viên</button>
         </div>
         <div className="branch-schedule__actions">
-          <button type="button" onClick={() => void autoArrange()} disabled={!workspace || busy}><Sparkles size={16} /><span>Xếp tối ưu</span></button>
+          <button type="button" aria-label="Xếp tối ưu" onClick={() => void autoArrange()} disabled={!workspace || busy}><Sparkles size={16} /><span>Xếp tối ưu</span></button>
+          <button type="button" aria-label="Tối ưu tiếp" onClick={() => void autoArrange('continue')} disabled={!workspace || busy}><RefreshCw size={16} /><span>Tối ưu tiếp</span></button>
           <button type="button" className="is-publish" onClick={() => void validatePublish()} title="Kiểm tra & Publish" disabled={!workspace || busy}><CheckCircle2 size={16} /><span>Publish</span></button>
           <details className="branch-schedule__more" ref={moreMenuRef}>
             <summary aria-label="Mở thêm công cụ" title="Thêm công cụ"><MoreHorizontal size={18} /></summary>
             <div>
+              <button type="button" onClick={() => { moreMenuRef.current?.removeAttribute('open'); void autoArrange('supplement') }} disabled={!workspace || busy}><Plus size={16} /><span><strong>Bổ sung lịch thiếu</strong><small>Giữ nguyên mọi ca hiện có, chỉ thêm buổi</small></span></button>
               <header><strong>Công cụ khác</strong><span>Draft r{workspace?.draftRevision || 0} · lịch v{workspace?.publishedVersion || 0}</span></header>
               <button type="button" onClick={() => { moreMenuRef.current?.removeAttribute('open'); void openHistory() }}><History size={16} /><span><strong>Lịch sử & khôi phục</strong><small>Dùng khi cần quay lại lịch đã publish</small></span></button>
               <button type="button" onClick={() => { moreMenuRef.current?.removeAttribute('open'); setResetDraftOpen(true) }} disabled={!workspace || busy || draftResetSummary.resettableEntries < 1}><RotateCcw size={16} /><span><strong>Đặt lại draft</strong><small>Giữ nguyên ca khóa, OFF và đã publish</small></span></button>
@@ -1408,7 +1444,16 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       {releaseUpdateReady && <div className="branch-schedule__update-ready" role="status"><span>Aura có bản cập nhật mới. Lịch đang mở được giữ nguyên để không mất thao tác.</span><button type="button" onClick={() => window.location.reload()}><RefreshCw size={14} /> Cập nhật khi sẵn sàng</button></div>}
       {branchCatalogError && <div className="branch-schedule__error branch-schedule__branch-warning" role="alert"><span>{branchCatalogError}</span><button type="button" onClick={() => void loadBranches()}><RefreshCw size={15} /> Tải lại chi nhánh</button></div>}
       {error && <div className="branch-schedule__error" role="alert">{error}</div>}
+      {publishIssues.length > 0 && <section className="branch-schedule__publish-issues" aria-label="Chi tiết lỗi công bố">{publishIssues.map((issue, i) => <button type="button" key={i} disabled={!issue.slotId || busy} onClick={() => {
+        if (!issue.slotId) return
+        const trainer = issue.trainerId || workspace?.schedule[issue.slotId]?.find((entry) => !issue.studentId || entry.studentId === issue.studentId)?.trainerId
+        if (!trainer) return
+        setSelectedTrainerId(trainer); setInspectorSlotId(issue.slotId); setPendingMove(null); setPendingManualCandidate(null)
+      }}>{[issue.studentName, issue.trainerName, issue.slotId ? scheduleSlotLabel(issue.slotId, weekDates) : '', ptScheduleConflictLabel(issue.code)].filter(Boolean).join(' · ')}</button>)}</section>}
       {optimizationStatus && <div className="branch-schedule__optimization-progress" role="status" aria-live="polite"><RefreshCw className="is-spinning" /><div><strong>Bộ tối ưu lịch đang chạy</strong><span>{optimizationStatus}</span></div></div>}
+      {!optimizationStatus && workspace?.optimizationSummary?.comparison && <p className="branch-schedule__notice" role="status">
+        Trước → sau: {workspace.optimizationSummary.comparison.before.sessions} → {workspace.optimizationSummary.comparison.after.sessions} buổi · {workspace.optimizationSummary.comparison.before.complete} → {workspace.optimizationSummary.comparison.after.complete} học viên đủ lịch · {workspace.optimizationSummary.comparison.before.paired} → {workspace.optimizationSummary.comparison.after.paired} ca đôi.
+      </p>}
       {!optimizationStatus && optimizationTrace.length > 0 && <details className="branch-schedule__optimization-trace">
         <summary><span><Sparkles size={16} /><strong>{optimizationTrace.length} bước xếp/đổi chỗ gần nhất</strong></span><small>Chạm để xem chuỗi tối ưu</small></summary>
         <ol>{optimizationTrace.map((move, index) => {
@@ -1597,19 +1642,28 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       )}
 
       {workspace && inspectorSlotId && selectedTrainer && (
-        <div className="schedule-inspector-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) { setInspectorSlotId(null); setPendingManualCandidate(null) } }}>
+        <div className="schedule-inspector-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) { setInspectorSlotId(null); setPendingManualCandidate(null); setPendingMove(null) } }}>
           <aside ref={activeDialogRef} className="schedule-inspector" role="dialog" aria-modal="true" aria-label="Chỉnh ô lịch">
             <header><div><p>{DAY_LABELS[inspectorSlotId.split('-')[0]]} · {String(inspectorSlotId.split('-')[1]).padStart(2, '0')}:00</p><h2>{selectedTrainer.name}</h2><span>Sức chứa {inspectorEntries.filter((entry) => entry.type !== 'off').length}/{selectedTrainer.slotCapacity}</span></div><button type="button" aria-label="Đóng" onClick={() => { setInspectorSlotId(null); setPendingManualCandidate(null) }}><X /></button></header>
             <div className="schedule-inspector__body">
               <section><div className="schedule-inspector__section-title"><strong>Trong ca</strong><span>{inspectorEntries.some((entry) => entry.type === 'off') ? 'PT nghỉ' : `${inspectorEntries.filter((entry) => entry.type !== 'off').length} học viên`}</span></div>
                 {inspectorEntries.filter((entry) => entry.type !== 'off').map((entry) => {
                   const assignmentWarning = trainerAssignmentWarningKeys.has(`${inspectorSlotId}|${entry.studentId}|${entry.trainerId}`)
-                  return <article className={`schedule-assigned-row${assignmentWarning ? ' has-assignment-warning' : ''}`} key={entry.studentId}><div><strong>{studentName(entry.studentId)}{assignmentWarning && <AlertTriangle size={14} aria-label="PT hỗ trợ" />}</strong><span>{assignmentWarning ? 'PT hỗ trợ ngoài danh sách PT chính/phụ' : entry.isLocked ? 'Đã khóa khỏi auto-arrange' : 'Có thể xếp lại'}</span></div><div><button type="button" title={entry.isLocked ? 'Mở khóa' : 'Khóa'} disabled={busy} onClick={() => void runCommand(entry.isLocked ? 'unlock_entry' : 'lock_entry', { slotId: inspectorSlotId, trainerId: selectedTrainerId, studentId: entry.studentId })}>{entry.isLocked ? <Unlock /> : <Lock />}</button><button type="button" className="is-remove" disabled={busy} onClick={() => void runCommand('remove_student', { slotId: inspectorSlotId, trainerId: selectedTrainerId, studentId: entry.studentId })}><X /></button></div></article>
+                  return <article className={`schedule-assigned-row${assignmentWarning ? ' has-assignment-warning' : ''}`} key={entry.studentId}><div><strong>{studentName(entry.studentId)}{assignmentWarning && <AlertTriangle size={14} aria-label="PT hỗ trợ" />}</strong><span>{assignmentWarning ? 'PT hỗ trợ ngoài danh sách PT chính/phụ' : entry.source === 'published_existing' ? 'Đã publish · điều chỉnh qua lịch sử' : entry.isLocked ? 'Đã khóa khỏi auto-arrange' : entry.source === 'manual_v2' ? 'Xếp tay · được giữ khi tối ưu' : 'Có thể xếp lại'}</span></div><div><button type="button" title={entry.isLocked ? 'Mở khóa' : 'Khóa'} disabled={busy} onClick={() => void runCommand(entry.isLocked ? 'unlock_entry' : 'lock_entry', { slotId: inspectorSlotId, trainerId: selectedTrainerId, studentId: entry.studentId })}>{entry.isLocked ? <Unlock /> : <Lock />}</button><button type="button" title="Chuyển ca" aria-label={`Chuyển ca của ${studentName(entry.studentId)}`} disabled={busy || entry.isLocked || entry.source === 'published_existing'} onClick={() => setPendingMove({ studentId: entry.studentId, fromSlotId: inspectorSlotId!, fromTrainerId: selectedTrainerId, slotId: inspectorSlotId!, trainerId: selectedTrainerId })}><CalendarRange /></button><button type="button" className="is-remove" disabled={busy || entry.isLocked || entry.source === 'published_existing'} onClick={() => void runCommand('remove_student', { slotId: inspectorSlotId, trainerId: selectedTrainerId, studentId: entry.studentId })}><X /></button></div></article>
                 })}
                 {!inspectorEntries.filter((entry) => entry.type !== 'off').length && !inspectorEntries.some((entry) => entry.type === 'off') && <div className="schedule-inspector__empty">Ca đang trống.</div>}
                 {inspectorEntries.some((entry) => entry.type === 'off') ? <button className="schedule-off-action" type="button" disabled={busy} onClick={() => void runCommand('clear_trainer_off', { slotId: inspectorSlotId, trainerId: selectedTrainerId }, 'Mở lại ca PT')}>Mở lại ca</button> : !offConfirmation ? <button className="schedule-off-action" type="button" onClick={() => setOffConfirmation(true)}><CalendarOff /> Đánh dấu PT nghỉ</button> : <div className="schedule-off-confirm"><strong>Đưa {inspectorEntries.filter((entry) => entry.type !== 'off').length} học viên về danh sách chưa xếp?</strong><p>Lịch sử thay đổi và lý do sẽ được lưu audit.</p><div><button type="button" onClick={() => setOffConfirmation(false)}>Quay lại</button><button type="button" disabled={busy} onClick={() => void runCommand('set_trainer_off', { slotId: inspectorSlotId, trainerId: selectedTrainerId, disposition: 'requeue' }, 'PT nghỉ, đưa học viên về hàng chờ')}>Xác nhận PT nghỉ</button></div></div>}
               </section>
 
+              {pendingMove && <section className="schedule-move-form" aria-label="Chuyển ca nháp">
+                <strong>Chuyển ca · {studentName(pendingMove.studentId)}</strong>
+                <label>Ca đích<select aria-label="Ca đích" value={pendingMove.slotId} onChange={(e) => setPendingMove({ ...pendingMove, slotId: e.target.value })} disabled={busy}>{workingDays.flatMap((day) => workingHours.map((hour) => <option key={`${day}-${hour}`} value={`${day}-${hour}`}>{scheduleSlotLabel(`${day}-${hour}`, weekDates)}</option>))}</select></label>
+                <label>PT đích<select aria-label="PT đích" value={pendingMove.trainerId} onChange={(e) => setPendingMove({ ...pendingMove, trainerId: e.target.value })} disabled={busy}>{workspace.trainers.map((trainer) => <option key={trainer.id} value={trainer.id}>{trainer.name}</option>)}</select></label>
+                {!workspace.students.find((item) => item.id === pendingMove.studentId)?.availableSlots.includes(pendingMove.slotId) && <p role="status">Ngoài lịch rảnh đã đăng ký. Xác nhận chuyển ca sẽ ghi nhận ngoại lệ này.</p>}
+                <p>Máy chủ kiểm tra PT, hợp đồng và sức chứa. Ca cũ chỉ được chuyển khi ca mới hợp lệ.</p>
+                <button type="button" onClick={() => setPendingMove(null)} disabled={busy}>Hủy chuyển</button>
+                <button type="button" onClick={() => void confirmMove()} disabled={busy || pendingMove.fromSlotId === pendingMove.slotId && pendingMove.fromTrainerId === pendingMove.trainerId}>Xác nhận chuyển ca</button>
+              </section>}
               {!inspectorEntries.some((entry) => entry.type === 'off') && <section>
                 <div className="schedule-inspector__section-title"><strong>Thêm học viên</strong><span>Rảnh đúng ca được ưu tiên</span></div>
                 <label className="schedule-candidate-search"><Search /><input value={candidateSearch} onChange={(event) => setCandidateSearch(event.target.value)} placeholder="Tên hoặc số điện thoại" /></label>
