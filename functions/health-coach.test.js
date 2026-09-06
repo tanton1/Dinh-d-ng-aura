@@ -464,6 +464,6 @@ test('Health Coach provider calls have a bounded total budget and local circuit 
   assert.match(nutritionSource, /deadlineAt: Date\.now\(\) \+ HEALTH_COACH_PROVIDER_BUDGET_MS/)
   assert.match(nutritionSource, /consecutiveFailures >= HEALTH_COACH_PROVIDER_CIRCUIT_FAILURES/)
   assert.match(nutritionSource, /apiKeyFunApiKey: healthCoachPrimaryApiKey\(apiKeyFunApiKey\)/)
-  assert.match(nutritionSource, /minInstances: 1,[\s\S]*maxInstances: 3,[\s\S]*concurrency: 12/)
+  assert.match(nutritionSource, /minInstances: 0,[\s\S]*maxInstances: 3,[\s\S]*concurrency: 12/)
   assert.doesNotMatch(nutritionSource, /globalHealthCoachRateLimit|aiCoachGlobalCircuit/)
 })

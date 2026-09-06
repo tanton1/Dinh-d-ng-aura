@@ -521,7 +521,7 @@ exports.createMyContractPauseRequest = sessionOperationFunctions.createMyContrac
 exports.approveContractPauseRequest = sessionOperationFunctions.approveContractPauseRequest
 exports.rejectContractPauseRequest = sessionOperationFunctions.rejectContractPauseRequest
 exports.chargeDuePtSessionsScheduled = onSchedule({
-  schedule: 'every 5 minutes',
+  schedule: 'every 30 minutes',
   region: 'asia-southeast1',
   timeZone: 'Asia/Ho_Chi_Minh',
   retryCount: 1,
@@ -529,9 +529,9 @@ exports.chargeDuePtSessionsScheduled = onSchedule({
   concurrency: 1,
   maxInstances: 1,
   timeoutSeconds: 540,
-}, async () => chargeDuePtSessions({ db, now: new Date(), logger }))
+}, async () => chargeDuePtSessions({ db, now: new Date(), logger, limit: 500, includeRecent: true, includeCatchUp: false, pendingOnly: true }))
 exports.autoConfirmOverduePtAttendanceScheduled = onSchedule({
-  schedule: 'every 5 minutes',
+  schedule: 'every 30 minutes',
   region: 'asia-southeast1',
   timeZone: 'Asia/Ho_Chi_Minh',
   retryCount: 1,
@@ -539,7 +539,24 @@ exports.autoConfirmOverduePtAttendanceScheduled = onSchedule({
   concurrency: 1,
   maxInstances: 1,
   timeoutSeconds: 540,
-}, async () => autoConfirmOverduePtAttendance({ db, now: new Date(), logger }))
+}, async () => autoConfirmOverduePtAttendance({ db, now: new Date(), logger, limit: 500, includeRecent: true, includeCatchUp: false, pendingOnly: true }))
+exports.reconcilePtSessionAutomationScheduled = onSchedule({
+  schedule: '17 2 * * *',
+  region: 'asia-southeast1',
+  timeZone: 'Asia/Ho_Chi_Minh',
+  retryCount: 1,
+  cpu: 'gcf_gen1',
+  concurrency: 1,
+  maxInstances: 1,
+  timeoutSeconds: 540,
+}, async () => {
+  const now = new Date()
+  const [charge, attendance] = await Promise.all([
+    chargeDuePtSessions({ db, now, logger, limit: 2000, includeRecent: false, includeCatchUp: true }),
+    autoConfirmOverduePtAttendance({ db, now, logger, limit: 2000, includeRecent: false, includeCatchUp: true }),
+  ])
+  return { charge, attendance }
+})
 exports.remindUnconfirmedPtAttendanceScheduled = onSchedule({
   schedule: '0 21 * * *',
   region: 'asia-southeast1',
@@ -1129,16 +1146,19 @@ exports.dispatchScheduledReminders = onSchedule({
   memory: '256MiB',
   maxInstances: 1,
 }, async () => {
-  const [settingsSnapshot, templatesSnapshot, userDocuments] = await Promise.all([
-    db.doc('system/push_settings').get(),
-    db.collection('system/push_templates/templates').get(),
-    listScheduledReminderUsers(),
-  ])
+  // Read the cheap feature flag first. The previous Promise.all scanned every
+  // user every 15 minutes even while reminder automation was disabled.
+  const settingsSnapshot = await db.doc('system/push_settings').get()
   const settings = normalizedReminderSettings(settingsSnapshot.exists ? settingsSnapshot.data() : {})
   if (!settings.enabled || !settings.automationEnabled) {
     logger.info('Scheduled push skipped because the channel is disabled')
     return { skipped: true, reason: 'disabled' }
   }
+
+  const [templatesSnapshot, userDocuments] = await Promise.all([
+    db.collection('system/push_templates/templates').get(),
+    listScheduledReminderUsers(),
+  ])
 
   const templates = templatesSnapshot.docs.map((snapshot) => snapshot.data())
   const definitions = [

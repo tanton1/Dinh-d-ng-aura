@@ -23,7 +23,10 @@ const REQUEST_QUERY_LIMIT = 200
 const PAUSE_SESSION_QUERY_LIMIT = 200
 const AUTOMATIC_CHARGE_QUERY_LIMIT = 2000
 const AUTO_ATTENDANCE_CONFIRM_HOURS = 48
-const AUTO_ATTENDANCE_LOOKBACK_DAYS = 8
+// The frequent worker only needs a narrow recovery window. Older legacy
+// sessions are reconciled by the daily catch-up worker instead of being
+// re-read every few minutes.
+const AUTO_ATTENDANCE_LOOKBACK_DAYS = 4
 const AUTOMATION_PAGE_SIZE = 500
 const BULK_ATTENDANCE_LIMIT = 30
 const TEACHING_SHIFT_CORRECTION_LIMIT = 6
@@ -460,7 +463,7 @@ function normalizedAttendanceNote(value) {
   return result
 }
 
-async function readAutomationSessionPage({ db, jobId, lowerDate, upperDate, limit = AUTOMATION_PAGE_SIZE }) {
+async function readAutomationSessionPage({ db, jobId, lowerDate, upperDate, filters = [], limit = AUTOMATION_PAGE_SIZE }) {
   const pageSize = Math.max(1, Math.min(AUTOMATIC_CHARGE_QUERY_LIMIT, Math.floor(Number(limit) || AUTOMATION_PAGE_SIZE)))
   const stateReference = db.doc(`systemJobs/${jobId}`)
   let state = null
@@ -472,7 +475,9 @@ async function readAutomationSessionPage({ db, jobId, lowerDate, upperDate, limi
   } catch {
     state = null
   }
-  let query = db.collection('sessions').where('date', '<', upperDate)
+  let query = db.collection('sessions')
+  filters.forEach(({ field, operator = '==', value }) => { query = query.where(field, operator, value) })
+  query = query.where('date', '<', upperDate)
   if (lowerDate) query = query.where('date', '>=', lowerDate)
   const cursorDate = typeof state?.cursorDate === 'string' ? state.cursorDate : ''
   const cursorId = typeof state?.cursorId === 'string' ? state.cursorId : ''
@@ -482,7 +487,9 @@ async function readAutomationSessionPage({ db, jobId, lowerDate, upperDate, limi
   } catch {
     // The in-memory test adapter and older emulators do not expose ordering;
     // the bounded fallback still preserves the safety limit.
-    query = db.collection('sessions').where('date', '<', upperDate)
+    query = db.collection('sessions')
+    filters.forEach(({ field, operator = '==', value }) => { query = query.where(field, operator, value) })
+    query = query.where('date', '<', upperDate)
     if (lowerDate) query = query.where('date', '>=', lowerDate)
     query = query.limit(pageSize)
   }
@@ -1110,21 +1117,41 @@ async function completeSessionAttendanceTransaction({
   }
 }
 
-async function chargeDuePtSessions({ db, now = new Date(), logger = console, limit = AUTOMATIC_CHARGE_QUERY_LIMIT }) {
+async function chargeDuePtSessions({
+  db,
+  now = new Date(),
+  logger = console,
+  limit = AUTOMATIC_CHARGE_QUERY_LIMIT,
+  includeRecent = true,
+  includeCatchUp = true,
+  pendingOnly = false,
+}) {
   const today = vietnamDateKey(now)
   const weekStart = vietnamWeekStartDateKey(now)
   const scanLimit = Math.min(AUTOMATIC_CHARGE_QUERY_LIMIT, Math.max(1, Number(limit) || AUTOMATIC_CHARGE_QUERY_LIMIT))
   const [currentWeek, catchUp] = await Promise.all([
-    readAutomationSessionPage({ db, jobId: 'ptSessionCharge', lowerDate: weekStart, upperDate: nextDateKey(today), limit: scanLimit }),
-    readAutomationSessionPage({ db, jobId: 'ptSessionChargeCatchUp', upperDate: nextDateKey(today), limit: scanLimit }),
+    includeRecent
+      ? readAutomationSessionPage({
+        db,
+        jobId: 'ptSessionCharge',
+        lowerDate: weekStart,
+        upperDate: nextDateKey(today),
+        filters: pendingOnly ? [{ field: 'billingStatus', value: 'pending' }] : [],
+        limit: scanLimit,
+      })
+      : Promise.resolve(null),
+    includeCatchUp
+      ? readAutomationSessionPage({ db, jobId: 'ptSessionChargeCatchUp', upperDate: nextDateKey(today), limit: scanLimit })
+      : Promise.resolve(null),
   ])
-  const documents = [...new Map([...currentWeek.docs, ...catchUp.docs].map((item) => [item.id, item])).values()]
+  const pages = [currentWeek, catchUp].filter(Boolean)
+  const documents = [...new Map(pages.flatMap((page) => page.docs).map((item) => [item.id, item])).values()]
   const candidates = documents.filter((item) => {
     const session = item.data()
     if (!isActiveSessionStatus(session.status) || isSessionCharged(session) || [BILLING_REVIEW_STATUS, 'exempt'].includes(session.billingStatus)) return false
     try { return sessionStartInstant(session, item.id).getTime() <= now.getTime() } catch { return false }
   })
-  const summary = { weekStart, through: today, scanned: documents.length, due: candidates.length, charged: 0, reviewRequired: 0, unchanged: 0, failed: 0, issuesQueued: 0, issueQueueFailed: 0, catchUpCursor: catchUp.nextCursor }
+  const summary = { weekStart, through: today, scanned: documents.length, due: candidates.length, charged: 0, reviewRequired: 0, unchanged: 0, failed: 0, issuesQueued: 0, issueQueueFailed: 0, catchUpCursor: catchUp?.nextCursor || null }
   for (let index = 0; index < candidates.length; index += 25) {
     const batch = candidates.slice(index, index + 25)
     const outcomes = await Promise.allSettled(batch.map((item) => chargeSessionTransaction({
@@ -1157,26 +1184,42 @@ async function chargeDuePtSessions({ db, now = new Date(), logger = console, lim
     })
   }
   // A permanently invalid legacy record must not pin every valid session
-  // behind it. Failures are persisted in sessionBillingIssues and each cursor
-  // advances so the bounded catch-up sweep can continue. When a sweep resets,
-  // unresolved records are retried and successful writes remain idempotent.
-  await Promise.all([
-    commitAutomationSessionPage(currentWeek),
-    commitAutomationSessionPage(catchUp),
-  ])
+  // behind it. Failures are persisted in sessionBillingIssues and the daily
+  // catch-up cursor advances independently from the narrow frequent worker.
+  await Promise.all(pages.map(commitAutomationSessionPage))
   logger.info?.('PT automatic charge completed', summary)
   return summary
 }
 
-async function autoConfirmOverduePtAttendance({ db, now = new Date(), logger = console, limit = AUTOMATIC_CHARGE_QUERY_LIMIT }) {
+async function autoConfirmOverduePtAttendance({
+  db,
+  now = new Date(),
+  logger = console,
+  limit = AUTOMATIC_CHARGE_QUERY_LIMIT,
+  includeRecent = true,
+  includeCatchUp = true,
+  pendingOnly = false,
+}) {
   const today = vietnamDateKey(now)
   const from = addDateDays(today, -AUTO_ATTENDANCE_LOOKBACK_DAYS)
   const scanLimit = Math.min(AUTOMATIC_CHARGE_QUERY_LIMIT, Math.max(1, Number(limit) || AUTOMATIC_CHARGE_QUERY_LIMIT))
   const [recent, catchUp] = await Promise.all([
-    readAutomationSessionPage({ db, jobId: 'ptAttendanceConfirmation', lowerDate: from, upperDate: nextDateKey(today), limit: scanLimit }),
-    readAutomationSessionPage({ db, jobId: 'ptAttendanceConfirmationCatchUp', upperDate: nextDateKey(today), limit: scanLimit }),
+    includeRecent
+      ? readAutomationSessionPage({
+        db,
+        jobId: 'ptAttendanceConfirmation',
+        lowerDate: from,
+        upperDate: nextDateKey(today),
+        filters: pendingOnly ? [{ field: 'attendanceStatus', value: 'pending' }] : [],
+        limit: scanLimit,
+      })
+      : Promise.resolve(null),
+    includeCatchUp
+      ? readAutomationSessionPage({ db, jobId: 'ptAttendanceConfirmationCatchUp', upperDate: nextDateKey(today), limit: scanLimit })
+      : Promise.resolve(null),
   ])
-  const documents = [...new Map([...recent.docs, ...catchUp.docs].map((item) => [item.id, item])).values()]
+  const pages = [recent, catchUp].filter(Boolean)
+  const documents = [...new Map(pages.flatMap((page) => page.docs).map((item) => [item.id, item])).values()]
   const candidates = documents.filter((item) => {
     const session = item.data()
     if (!isActiveSessionStatus(session.status) || (!isSessionCharged(session) && session.billingStatus !== BILLING_REVIEW_STATUS) || session.billingStatus === 'exempt') return false
@@ -1197,7 +1240,7 @@ async function autoConfirmOverduePtAttendance({ db, now = new Date(), logger = c
     confirmedPresent: 0,
     unchanged: 0,
     failed: 0,
-    catchUpCursor: catchUp.nextCursor,
+    catchUpCursor: catchUp?.nextCursor || null,
   }
   for (let index = 0; index < candidates.length; index += 25) {
     const batch = candidates.slice(index, index + 25)
@@ -1226,10 +1269,7 @@ async function autoConfirmOverduePtAttendance({ db, now = new Date(), logger = c
       }
     })
   }
-  await Promise.all([
-    commitAutomationSessionPage(recent),
-    commitAutomationSessionPage(catchUp),
-  ])
+  await Promise.all(pages.map(commitAutomationSessionPage))
   logger.info?.('PT attendance automatic confirmation completed', summary)
   return summary
 }

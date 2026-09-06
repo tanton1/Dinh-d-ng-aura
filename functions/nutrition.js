@@ -2891,7 +2891,10 @@ Hãy viết một nhận xét ngắn gọn (khoảng 2-3 câu), chỉ ra điểm
   const getAiCoachOverview = onCall({
     timeoutSeconds: 20,
     memory: '256MiB',
-    minInstances: 1,
+    // Scale to zero between conversations. Keeping one Gen 2 instance warm
+    // consumed the majority of the gross Functions allowance while the
+    // endpoint itself has low traffic.
+    minInstances: 0,
     maxInstances: 3,
     concurrency: 12,
     enforceAppCheck: ENFORCE_AI_APP_CHECK,

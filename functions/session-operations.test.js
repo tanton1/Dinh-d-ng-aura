@@ -12,6 +12,7 @@ const {
 
 const root = join(__dirname, '..')
 const source = readFileSync(join(__dirname, 'session-operations.js'), 'utf8')
+const functionsIndex = readFileSync(join(__dirname, 'index.js'), 'utf8')
 const service = readFileSync(join(root, 'src', 'services', 'sessionOperationsService.ts'), 'utf8')
 const requestApprovals = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'SessionRequestApprovals.tsx'), 'utf8')
 const leaveApprovals = readFileSync(join(root, 'src', 'components', 'admin', 'pt', 'LeaveApprovals.tsx'), 'utf8')
@@ -118,6 +119,40 @@ function operationsFor(seed, authorizeAdmin = async () => ({ uid: 'admin-1' }), 
   })
   return { ...state, ...operations }
 }
+
+test('frequent PT automation scans only the recent window and daily catch-up owns historical sessions', async () => {
+  const state = fakeDatabase({
+    'sessions/recent-session': { status: 'scheduled', billingStatus: 'pending', attendanceStatus: 'pending', studentId: 'student-recent', trainerId: 'trainer-1', contractId: 'contract-recent', date: '2026-08-28', hour: 8, revision: 0 },
+    'sessions/historical-session': { status: 'scheduled', billingStatus: 'pending', attendanceStatus: 'pending', studentId: 'student-old', trainerId: 'trainer-1', contractId: 'contract-old', date: '2026-07-01', hour: 8, revision: 0 },
+    'contracts/contract-recent': { status: 'active', studentId: 'student-recent', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 12, usedSessions: 0 },
+    'contracts/contract-old': { status: 'active', studentId: 'student-old', startDate: '2026-06-01', endDate: '2026-09-30', totalSessions: 12, usedSessions: 0 },
+  })
+  const now = new Date('2026-08-28T10:00:00.000Z')
+
+  const frequent = await chargeDuePtSessions({ db: state.db, now, logger: { info() {}, warn() {} }, limit: 500, includeCatchUp: false, pendingOnly: true })
+  assert.equal(frequent.scanned, 1)
+  assert.equal(state.read('sessions/recent-session').billingStatus, 'charged')
+  assert.equal(state.read('sessions/historical-session').billingStatus, 'pending')
+
+  const catchUp = await chargeDuePtSessions({
+    db: state.db,
+    now,
+    logger: { info() {}, warn() {} },
+    limit: 2000,
+    includeRecent: false,
+    includeCatchUp: true,
+  })
+  assert.ok(catchUp.scanned >= 1)
+  assert.equal(state.read('sessions/historical-session').billingStatus, 'charged')
+})
+
+test('production PT automation uses low-frequency bounded workers plus one daily catch-up', () => {
+  assert.match(functionsIndex, /chargeDuePtSessionsScheduled = onSchedule\(\{[\s\S]*?schedule: 'every 30 minutes'[\s\S]*?limit: 500, includeRecent: true, includeCatchUp: false, pendingOnly: true/)
+  assert.match(functionsIndex, /autoConfirmOverduePtAttendanceScheduled = onSchedule\(\{[\s\S]*?schedule: 'every 30 minutes'[\s\S]*?limit: 500, includeRecent: true, includeCatchUp: false, pendingOnly: true/)
+  assert.match(functionsIndex, /reconcilePtSessionAutomationScheduled = onSchedule\(\{[\s\S]*?schedule: '17 2 \* \* \*'[\s\S]*?includeRecent: false, includeCatchUp: true/)
+  assert.match(source, /filters: pendingOnly \? \[\{ field: 'billingStatus', value: 'pending' \}\] : \[\]/)
+  assert.match(source, /filters: pendingOnly \? \[\{ field: 'attendanceStatus', value: 'pending' \}\] : \[\]/)
+})
 
 test('session request approval updates policy usage, session, contract charge and audit in one transaction', () => {
   const approval = source.match(/const approveSessionRequest[\s\S]*?\n  const createMyContractPauseRequest/)?.[0] ?? ''
@@ -428,7 +463,7 @@ test('automatic session reconciliation uses bounded ordered pages and durable cu
   assert.match(source, /systemJobs\/\$\{jobId\}/)
   assert.match(source, /nextCursor = docs\.length >= pageSize/)
   assert.match(source, /recordAutomaticChargeFailureIssue/)
-  assert.match(source, /await Promise\.all\(\[[\s\S]*?commitAutomationSessionPage\(catchUp\)/)
+  assert.match(source, /await Promise\.all\(pages\.map\(commitAutomationSessionPage\)\)/)
   const reader = source.match(/async function readAutomationSessionPage[\s\S]*?\n}\n\nasync function commitAutomationSessionPage/)?.[0] || ''
   assert.doesNotMatch(reader, /stateReference\.set/)
 })

@@ -422,8 +422,7 @@ test('legacy operations listeners are route scoped and never load the admin dash
   assert.match(viewScope, /'admin-finance': \['branches', 'contracts', 'students'\]/)
   assert.match(viewScope, /'admin-payroll': \['trainers', 'branches'\]/)
   assert.match(viewScope, /'admin-schedule-settings': \['scheduleConfig', 'branches'\]/)
-  assert.match(viewScope, /'admin-pt-schedule': \['students', 'trainers', 'branches', 'contracts', 'schedules', 'scheduleConfig', 'ptAvailability', 'leaveRequests', 'sessionRequests'\]/)
-  assert.doesNotMatch(viewScope, /'admin-pt-schedule':[^\n]*'sessions'/, 'the V2 schedule workspace must not attach the legacy global sessions listener')
+  assert.doesNotMatch(viewScope, /'admin-pt-schedule':/, 'the V2 schedule workspace must not attach any legacy collection listener')
   assert.match(databaseContextSource, /const activeSources = new Set<LegacyOperationSource>\(LEGACY_OPERATIONS_VIEW_SOURCES\[operationsView\]\)/)
   assert.match(databaseContextSource, /const expectedInitialSnapshots = new Set<LegacyOperationSource>\(activeSources\)/)
 

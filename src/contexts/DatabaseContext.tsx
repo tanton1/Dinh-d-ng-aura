@@ -96,13 +96,10 @@ const LEGACY_OPERATIONS_VIEW_SOURCES = {
   // Check-ins, requests and workout logs are fetched by student only when the
   // detail drawer opens; the roster must not subscribe to those collections.
   'admin-pt-students': ['students', 'contracts', 'packages', 'trainers', 'branches', 'sessions', 'ptAvailability'],
-  // The V2 schedule workspace loads sessions scoped to the selected branch
-  // and week through its callable API. Keeping the unbounded legacy sessions
-  // listener here would fetch thousands of historical records and surface the
-  // "dữ liệu sessions đã vượt giới hạn" warning even though the workspace has
-  // all data it needs. Other legacy views (for example student roster) still
-  // subscribe to sessions where they need the fallback history data.
-  'admin-pt-schedule': ['students', 'trainers', 'branches', 'contracts', 'schedules', 'scheduleConfig', 'ptAvailability', 'leaveRequests', 'sessionRequests'],
+  // The V2 schedule workspace is fully actor/branch/week scoped through its
+  // callable API and owns its one-document revision listener. Do not register
+  // this route here: doing so duplicated the same data through nine broad
+  // legacy subscriptions every time an administrator opened the matrix.
   // The history workspace resolves the selected subject locally, while all
   // historical sessions are fetched cursor-first from a callable API.
   'admin-training-history': ['students', 'trainers'],

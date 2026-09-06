@@ -121,6 +121,12 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
 
+      # New queries must never become live before their supporting indexes are
+      # READY. The deploy helper is create-only and leaves every existing index
+      # untouched.
+      - name: Deploy Firestore indexes and wait until ready
+        run: node scripts/firebase-firestore-index-deploy.cjs apply --confirm=projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7:create-missing-indexes
+
       - name: Validate backend deployment scope
         id: backend
         shell: bash
@@ -164,9 +170,6 @@ jobs:
               exit 1
             fi
           done
-
-      - name: Deploy Firestore indexes and wait until ready
-        run: node scripts/firebase-firestore-index-deploy.cjs apply --confirm=projects/gen-lang-client-0815966909/databases/ai-studio-aurafitnesselear-0f7609b4-b8d1-4fb3-9d62-99a2c03e1ce7:create-missing-indexes
 
       - name: Deploy Security Rules
         run: npx --yes firebase-tools@15.9.1 deploy --only firestore:rules,storage --project gen-lang-client-0815966909 --non-interactive
