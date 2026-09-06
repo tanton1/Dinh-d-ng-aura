@@ -90,7 +90,7 @@ test('profile rules prevent client role and membership changes', () => {
 test('privileged rules require matching token and stored roles', () => {
   assert.match(rules, /currentUser\(\)\.get\('role', 'student'\) == authRole\(\)/)
   assert.match(rules, /match \/system\/\{document\}[\s\S]*?allow read: if isAdmin\(\)/)
-  assert.match(rules, /match \/system\/\{document\}\/\{nested=\*\*\}[\s\S]*?allow read, write: if isAdmin\(\)/)
+  assert.match(rules, /match \/system\/\{document\}\/\{subcollection\}\/\{childDocument\}\/\{nested=\*\*\}[\s\S]*?allow read, write: if isAdmin\(\)/)
   assert.doesNotMatch(rules, /match \/system\/\{document=\*\*\}[\s\S]*?allow read, write: if true/)
   assert.match(functionsSource, /function hasTrustedRole\(request, profile, allowedRoles\)/)
   assert.match(functionsSource, /profile\?\.role === tokenRole/)

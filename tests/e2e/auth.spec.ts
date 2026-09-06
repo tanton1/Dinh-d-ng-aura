@@ -52,6 +52,8 @@ for (const viewport of [
     const layout = await page.evaluate(() => {
       const button = document.querySelector<HTMLButtonElement>('.auth-primary-button')!
       const bounds = button.getBoundingClientRect()
+      const textSizeAdjustSupported = CSS.supports('text-size-adjust', '100%')
+        || CSS.supports('-webkit-text-size-adjust', '100%')
       return {
         bodyScrollHeight: document.body.scrollHeight,
         bodyScrollWidth: document.body.scrollWidth,
@@ -62,7 +64,12 @@ for (const viewport of [
         buttonTop: bounds.top,
         buttonBottom: bounds.bottom,
         scrollY: window.scrollY,
-        textSizeAdjust: getComputedStyle(document.documentElement).webkitTextSizeAdjust,
+        textSizeAdjustSupported,
+        // Chromium exposes the prefixed CSSOM property while current WebKit
+        // may not expose either property at all. The layout contract is still
+        // covered by the fixed viewport and button-bound assertions above.
+        textSizeAdjust: getComputedStyle(document.documentElement).getPropertyValue('text-size-adjust').trim()
+          || getComputedStyle(document.documentElement).getPropertyValue('-webkit-text-size-adjust').trim(),
       }
     })
     expect(layout.bodyScrollHeight).toBeLessThanOrEqual(layout.viewportHeight + 1)
@@ -72,7 +79,7 @@ for (const viewport of [
     expect(layout.buttonTop).toBeGreaterThanOrEqual(0)
     expect(layout.buttonBottom).toBeLessThanOrEqual(layout.viewportHeight + 1)
     expect(layout.scrollY).toBe(0)
-    expect(layout.textSizeAdjust).toBe('100%')
+    if (layout.textSizeAdjustSupported) expect(layout.textSizeAdjust).toBe('100%')
   })
 }
 

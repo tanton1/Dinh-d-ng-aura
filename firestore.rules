@@ -615,7 +615,11 @@ service cloud.firestore {
                    && document != 'ui_public_config';
     }
 
-    match /system/{document}/{nested=**} {
+    // Require at least one real subcollection/document pair. In rules_version
+    // 2, a recursive wildcard may match zero path segments, so the previous
+    // pattern also matched top-level documents such as ui_public_config and
+    // accidentally bypassed their explicit deny rule for admins.
+    match /system/{document}/{subcollection}/{childDocument}/{nested=**} {
       allow read, write: if isAdmin();
     }
 

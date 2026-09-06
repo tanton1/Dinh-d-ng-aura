@@ -401,9 +401,11 @@
 }
 
 @media (max-width: 767px) {
-  .admin-push-page {
+  .page.admin-push-page {
     /* The fixed admin dock sits outside document flow. Reserve enough real
-       scroll space so the last status/message can move fully above it. */
+       scroll space so the last status/message can move fully above it. The
+       two-class selector intentionally wins over the shared mobile .page
+       padding that is loaded by the application shell. */
     padding: 12px 12px calc(var(--shell-mobile-dock-height, 68px) + env(safe-area-inset-bottom) + 56px);
     scroll-padding-bottom: calc(var(--shell-mobile-dock-height, 68px) + env(safe-area-inset-bottom) + 24px);
   }

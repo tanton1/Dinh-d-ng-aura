@@ -144,11 +144,11 @@ test('nutrition exposes both the goal-based meal plan and full food catalog whil
   await page.goto('/#/meal-plan')
   await expect(page).toHaveURL(/#\/nutrition\?section=plan$/)
   await expect(page.getByRole('heading', { name: /^THỰC ĐƠN$/i })).toBeVisible()
-  await expect(page.getByText(/^THEO MỨC NĂNG LƯỢNG$/i)).toBeVisible()
-  await expect(page.getByRole('heading', { name: /^THEO MỤC TIÊU$/i })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Gợi ý phù hợp cho bạn' })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Lọc nhanh thực đơn' })).toBeVisible()
   await expect(page.getByText(/kcal/).first()).toBeVisible()
 
-  await page.getByRole('button', { name: 'Món ăn' }).click()
+  await page.getByRole('button', { name: 'Món ăn', exact: true }).click()
   await expect(page).toHaveURL(/#\/nutrition\?section=catalog$/)
   await expect(page.getByRole('heading', { name: /Món ăn & thực phẩm/i })).toBeVisible()
 
@@ -281,7 +281,7 @@ test('Today Flow belongs to Home while nutrition guidance follows the three-slid
   expect(todayOverflow).toBeLessThanOrEqual(1)
 
   await page.getByRole('button', { name: 'Nhật ký' }).click()
-  await expect(page.getByText('TỔNG KẾT TRONG NGÀY')).toBeVisible()
+  await expect(page.getByText('NĂNG LƯỢNG ĐÃ GHI')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Cần kiểm tra' })).toBeVisible()
   await page.getByRole('button', { name: 'Cần kiểm tra' }).click()
   await expect(page.getByText('Không có dữ liệu trong bộ lọc này')).toBeVisible()

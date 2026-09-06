@@ -36,7 +36,12 @@ test.describe('Admin Push Notifications mobile', () => {
     const bottomNav = page.locator('.admin-mobile-nav')
 
     await finalCard.scrollIntoViewIfNeeded()
-    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+    // The global shell uses smooth scrolling for navigation. Disable it for
+    // this geometry assertion so WebKit does not report an intermediate frame.
+    await page.evaluate(() => {
+      document.documentElement.style.scrollBehavior = 'auto'
+      window.scrollTo(0, document.documentElement.scrollHeight)
+    })
 
     const scrollState = await page.evaluate(() => ({
       scrollY: window.scrollY,

@@ -141,9 +141,13 @@ function resolveCanonicalNutritionProfile(profile: any, localProfile: NutritionP
   const base = profile?.nutritionProfile ?? localProfile
   if (!base) return undefined
   const rootGoal = canonicalNutritionGoal(profile?.goals?.[0])
+  const baseGoal = canonicalNutritionGoal(base.goal)
   return {
     ...canonicalNutritionProfile({ ...profile, nutritionProfile: base }),
-    ...(rootGoal ? { goal: rootGoal } : {}),
+    // Some legacy account profiles carry a non-nutrition goal at the root.
+    // Never let that overwrite the valid nutrition goal stored in the
+    // nutrition profile; Home and Nutrition must resolve the same target.
+    ...(rootGoal ? { goal: rootGoal } : baseGoal ? { goal: baseGoal } : {}),
     ...(profile?.heightCm !== null && profile?.heightCm !== undefined ? { heightCm: profile.heightCm } : {}),
     ...(profile?.weightKg !== null && profile?.weightKg !== undefined ? { weightKg: profile.weightKg } : {}),
     ...(profile?.targetWeightDeltaKg !== null && profile?.targetWeightDeltaKg !== undefined ? { targetWeightDeltaKg: profile.targetWeightDeltaKg } : {}),
@@ -1068,7 +1072,7 @@ function AuraApplication() {
           isDemo={backendMode === 'demo'}
           ownerId={user?.uid ?? 'demo'}
           progressItems={backendMode === 'firebase' ? learningData.progress : Array.from(demoProgressByCourseId.values())}
-          nutritionProfile={profile?.nutritionProfile ?? localNutritionProfile}
+          nutritionProfile={effectiveNutritionProfile}
         />
       )
     }
