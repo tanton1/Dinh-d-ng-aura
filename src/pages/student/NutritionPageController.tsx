@@ -11,7 +11,6 @@ import {
   resolveDailyNutritionTargets,
 } from '../../features/nutrition/dailyNutritionTargets'
 import NutritionGroupIcon from '../../components/NutritionGroupIcon'
-import ConnectedMealPlanPage from './ConnectedMealPlanPage'
 import NutritionWorkspace, {
   NutritionSectionNav,
   type AuraAssistantImageAttachment,
@@ -119,6 +118,7 @@ import {
 } from '../../services/nutritionPlanService'
 
 const NutritionFoodDetail = React.lazy(() => import('./NutritionFoodDetail'))
+const ConnectedMealPlanPage = React.lazy(() => import('./ConnectedMealPlanPage'))
 const FoodScanModal = React.lazy(() => import('./NutritionScanFlow'))
 const FoodCatalogModal = React.lazy(() => import('./NutritionCatalogFlow'))
 const CapturedMealDetail = React.lazy(() => import('./CapturedMealDetail'))
@@ -2554,7 +2554,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         heightCm={profileDraft.heightCm}
         nutritionProfile={profileDraft}
         ownerId={resolvedOwnerId}
-        legacyPlanContent={<ConnectedMealPlanPage
+        legacyPlanContent={<React.Suspense fallback={<div role="status">Đang tải kế hoạch…</div>}><ConnectedMealPlanPage
           days={workspacePlanDays}
           selectedDayId={planSelectedDay}
           meals={workspacePlannedMeals}
@@ -2597,7 +2597,7 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
           onLogCatalogFood={(food) => { setDiaryCatalogDefaults(null); return queueCatalogFood(food, 1, !isDemo) }}
           onLogPlannedMeal={logPlannedMeal}
           onToggleSaved={(food, saved) => setFoodSaved(food.id, saved)}
-        />}
+        /></React.Suspense>}
         todayContent={<>{profileSyncBanner}<React.Suspense fallback={<div className="nutrition-dashboard-loading" role="status" aria-live="polite">Đang tải tổng quan dinh dưỡng…</div>}><NutritionDashboardHome
           selectedDate={selectedDate}
           days={days}
