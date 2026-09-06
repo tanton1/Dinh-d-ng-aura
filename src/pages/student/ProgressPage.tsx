@@ -113,9 +113,9 @@ export default function ProgressPage({
   const baseWeight = weightKg ?? nutritionProfile?.weightKg ?? (ownerId === 'demo' ? 65.0 : 0)
   const startWeightKg = baseWeight
   const configuredTargetDelta = targetWeightDeltaKg ?? nutritionProfile?.targetWeightDeltaKg ?? null
-  const goalWeightKg = baseWeight > 0 && configuredTargetDelta !== null
+  const goalWeightKg = nutritionProfile?.targetWeightKg ?? (baseWeight > 0 && configuredTargetDelta !== null
     ? Number((baseWeight + configuredTargetDelta).toFixed(1))
-    : 0
+    : 0)
 
   // Live Nutrition Data States
   const [allMeals, setAllMeals] = useState<any[]>(() => {
