@@ -30,6 +30,7 @@ export interface NutritionPlanRecord {
   revision: number
   source: NutritionPlanSource
   sourceTitle: string
+  planner?: 'catalog' | 'gemini'
   targets: {
     calories?: number
     protein?: number
@@ -68,6 +69,17 @@ export async function generateMyNutritionPlanDraft(input: {
   goal: 'lose-fat' | 'gain-muscle' | 'maintain'
   allergies?: string
   dislikes?: string
+  aiAssist?: boolean
+  profile?: {
+    age?: number
+    biologicalSex?: string
+    activityLevel?: string
+    trainingSessions?: number
+    eatingStyle?: string
+    favoriteCuisine?: string
+    budget?: string
+    prepTime?: string
+  }
 }) {
   const invoke = callable<typeof input, { plan: NutritionPlanRecord }>('generateMyNutritionPlanDraft', 120_000)
   return (await invoke(input)).data.plan

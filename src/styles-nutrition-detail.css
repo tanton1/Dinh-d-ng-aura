@@ -915,6 +915,67 @@
   font-size: 15px;
 }
 
+/* Aura member detail polish. Keep the source image's aspect ratio intact and
+   use a quiet, pink–orange Aura accent system on narrow screens. */
+.nutrition-food-detail {
+  --nfd-purple: #ec3f78;
+  --nfd-aura-orange: #ff8240;
+  --nfd-green-soft: #eef9f4;
+  background: linear-gradient(180deg, #fffdfd 0%, #fff8f6 100%);
+}
+.nutrition-food-detail__hero,
+.nutrition-food-detail__section,
+.nutrition-food-detail__portion-card,
+.nutrition-food-detail__notice-card,
+.nutrition-food-detail__related,
+.nutrition-food-detail__source {
+  border-color: #f0e4e4;
+}
+.nutrition-food-detail__hero { box-shadow: 0 12px 32px rgba(115, 50, 66, .06); }
+.nutrition-food-detail__media img { object-fit: cover; object-position: center; }
+.nutrition-food-detail__primary,
+.nutrition-food-detail__scan-card { background: linear-gradient(115deg, #ec3f78, var(--nfd-aura-orange)); }
+.nutrition-food-detail__primary { box-shadow: 0 10px 22px rgba(236, 63, 120, .2); }
+.nutrition-food-detail__section-heading > div > span,
+.nutrition-food-detail__source > div > span { color: #d73569; }
+.nutrition-food-detail__macro--energy > span { color: #d73569; background: #fff0f4; }
+.nutrition-food-detail__macro--energy strong { color: #d73569; }
+
+@media (max-width: 720px) {
+  .nutrition-food-detail {
+    padding: 0 0 calc(96px + env(safe-area-inset-bottom));
+    background: #fff;
+  }
+  .nutrition-food-detail__topbar {
+    margin: 0;
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, .96);
+    border-bottom: 1px solid #f1e7e7;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    backdrop-filter: blur(14px);
+  }
+  .nutrition-food-detail__hero {
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .nutrition-food-detail__media {
+    aspect-ratio: 4 / 3;
+    min-height: 0;
+  }
+  .nutrition-food-detail__intro { padding: 22px 17px 20px; }
+  .nutrition-food-detail__layout { padding-inline: 12px; }
+  .nutrition-food-detail__section,
+  .nutrition-food-detail__portion-card,
+  .nutrition-food-detail__notice-card,
+  .nutrition-food-detail__related { border-radius: 15px; }
+  .nutrition-food-detail__source { margin-inline: 12px; border-radius: 15px; }
+  .nutrition-food-detail__primary { background: linear-gradient(115deg, #ec3f78, #ff8240); }
+}
+
 .fdet-ai-title__icon {
   flex: 0 0 auto;
   display: inline-flex;

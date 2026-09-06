@@ -29,6 +29,8 @@ import '../../styles-meal-plan.css'
 
 type CalorieFilter = 'all' | 'under-300' | '300-500' | 'over-500'
 type ProteinFilter = 'all' | 'high-protein'
+type GoalFilter = 'all' | 'lose-fat' | 'gain-muscle' | 'maintain'
+type MealTypeFilter = 'all' | 'breakfast' | 'lunch' | 'snack' | 'dinner'
 
 const DEMO_DISHES: NutritionFoodCatalogItem[] = [
   { id: 'demo-chicken', kind: 'dish', name: 'Ức gà áp chảo & rau củ', category: { nameVi: 'Món chính' }, servingGrams: null, servingLabel: '1 khẩu phần', calories: 428, protein: 42, carbs: 36, fat: 12, source: 'Aura Menu', imageUrl: 'https://images.unsplash.com/photo-1532550907401-a500c9a57435?auto=format&fit=crop&w=800&q=80' },
@@ -87,6 +89,33 @@ function calorieMatches(value: number | null, filter: CalorieFilter) {
   return value > 500
 }
 
+function foldMealText(value: unknown) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[đĐ]/g, 'd')
+    .toLocaleLowerCase('vi-VN')
+}
+
+function itemMatchesGoal(item: NutritionFoodCatalogItem, goal: GoalFilter) {
+  if (goal === 'all') return true
+  const calories = Number(item.calories)
+  const protein = Number(item.protein)
+  if (!Number.isFinite(calories) || !Number.isFinite(protein)) return false
+  if (goal === 'gain-muscle') return protein >= 20 || (calories > 0 && protein / calories >= 0.055)
+  if (goal === 'lose-fat') return calories <= 500 && protein >= 12 && (item.fat == null || item.fat <= 24)
+  return calories >= 250 && calories <= 650 && protein >= 10
+}
+
+function itemMatchesMealType(item: NutritionFoodCatalogItem, type: MealTypeFilter): boolean {
+  if (type === 'all') return true
+  const text = foldMealText(`${item.name} ${item.category?.nameVi || ''}`)
+  if (type === 'breakfast') return /\b(sang|sua|trung|yen mach|chao|banh mi|xoi|ngu coc|pho|bun)\b/.test(text)
+  if (type === 'snack') return /\b(phu|trai cay|sua chua|hat|sinh to|salad|nuoc ep|chuoi|tao|bo|che)\b/.test(text) || Number(item.calories) <= 280
+  if (type === 'dinner') return /\b(t?oi|salad|ca|ga|tom|rau|sup)\b/.test(text) && Number(item.calories) <= 700
+  return !itemMatchesMealType(item, 'breakfast') && !itemMatchesMealType(item, 'snack')
+}
+
 function planMealKey(meal: NutritionPlannedMeal) {
   return `${meal.dayId}|${meal.id}`
 }
@@ -100,6 +129,9 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
   const [category, setCategory] = useState('all')
   const [calorieFilter, setCalorieFilter] = useState<CalorieFilter>('all')
   const [proteinFilter, setProteinFilter] = useState<ProteinFilter>('all')
+  const [goalFilter, setGoalFilter] = useState<GoalFilter>('all')
+  const [mealTypeFilter, setMealTypeFilter] = useState<MealTypeFilter>('all')
+  const [mobileColumns, setMobileColumns] = useState<1 | 2>(2)
   const [savedOnly, setSavedOnly] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [catalogState, setCatalogState] = useState<'loading' | 'live' | 'demo' | 'error'>('loading')
@@ -152,8 +184,10 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
     if (savedOnly && !props.savedFoodIds.has(item.id)) return false
     if (!calorieMatches(item.calories, calorieFilter)) return false
     if (proteinFilter === 'high-protein' && (item.protein ?? 0) < 20) return false
+    if (!itemMatchesGoal(item, goalFilter)) return false
+    if (!itemMatchesMealType(item, mealTypeFilter)) return false
     return true
-  }), [calorieFilter, items, proteinFilter, props.savedFoodIds, savedOnly])
+  }), [calorieFilter, goalFilter, items, mealTypeFilter, proteinFilter, props.savedFoodIds, savedOnly])
 
   const selectedDay = props.days.find((day) => day.id === props.selectedDayId) ?? props.days[0]
   const selectedDayMeals = useMemo(() => props.meals
@@ -165,7 +199,7 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
     carbs: sum.carbs + (Number(meal.carbs) || 0),
     fat: sum.fat + (Number(meal.fat) || 0),
   }), { calories: 0, protein: 0, carbs: 0, fat: 0 }), [selectedDayMeals])
-  const filterCount = (category !== 'all' ? 1 : 0) + (calorieFilter !== 'all' ? 1 : 0) + (proteinFilter !== 'all' ? 1 : 0) + (savedOnly ? 1 : 0)
+  const filterCount = (category !== 'all' ? 1 : 0) + (calorieFilter !== 'all' ? 1 : 0) + (proteinFilter !== 'all' ? 1 : 0) + (goalFilter !== 'all' ? 1 : 0) + (mealTypeFilter !== 'all' ? 1 : 0) + (savedOnly ? 1 : 0)
 
   const reloadCatalog = () => {
     resetNutritionCatalog()
@@ -248,6 +282,25 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
             {filterOpen && (
               <section id="meal-plan-filter-panel" className="meal-plan-filter-panel" aria-label="Bộ lọc thực đơn">
                 <div>
+                  <span>Mục tiêu</span>
+                  <select value={goalFilter} onChange={(event) => setGoalFilter(event.target.value as GoalFilter)} aria-label="Mục tiêu dinh dưỡng">
+                    <option value="all">Tất cả mục tiêu</option>
+                    <option value="lose-fat">Giảm mỡ</option>
+                    <option value="gain-muscle">Tăng cơ</option>
+                    <option value="maintain">Duy trì</option>
+                  </select>
+                </div>
+                <div>
+                  <span>Loại bữa</span>
+                  <select value={mealTypeFilter} onChange={(event) => setMealTypeFilter(event.target.value as MealTypeFilter)} aria-label="Loại bữa ăn">
+                    <option value="all">Tất cả bữa</option>
+                    <option value="breakfast">Bữa sáng</option>
+                    <option value="lunch">Bữa chính</option>
+                    <option value="snack">Bữa phụ</option>
+                    <option value="dinner">Bữa tối</option>
+                  </select>
+                </div>
+                <div>
                   <span>Nhóm món</span>
                   <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Nhóm món">
                     <option value="all">Tất cả nhóm món</option>
@@ -255,7 +308,7 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
                   </select>
                 </div>
                 <div>
-                  <span>Năng lượng</span>
+                  <span>Kcal mong muốn</span>
                   <select value={calorieFilter} onChange={(event) => setCalorieFilter(event.target.value as CalorieFilter)} aria-label="Mức năng lượng">
                     <option value="all">Mọi mức kcal</option>
                     <option value="under-300">Dưới 300 kcal</option>
@@ -265,20 +318,32 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
                 </div>
                 <button type="button" className={proteinFilter === 'high-protein' ? 'is-active' : ''} onClick={() => setProteinFilter((current) => current === 'all' ? 'high-protein' : 'all')} aria-pressed={proteinFilter === 'high-protein'}>Giàu đạm ≥ 20g</button>
                 <button type="button" className={savedOnly ? 'is-active' : ''} onClick={() => setSavedOnly((current) => !current)} aria-pressed={savedOnly}><Heart size={15} /> Món đã lưu</button>
-                {filterCount > 0 && <button type="button" className="meal-plan-filter-panel__clear" onClick={() => { setCategory('all'); setCalorieFilter('all'); setProteinFilter('all'); setSavedOnly(false) }}>Xóa lọc</button>}
+                {filterCount > 0 && <button type="button" className="meal-plan-filter-panel__clear" onClick={() => { setCategory('all'); setCalorieFilter('all'); setProteinFilter('all'); setGoalFilter('all'); setMealTypeFilter('all'); setSavedOnly(false) }}>Xóa lọc</button>}
               </section>
             )}
 
+            <div className="meal-plan-quick-filters" role="group" aria-label="Lọc nhanh thực đơn">
+              <span>Lọc nhanh</span>
+              <button type="button" className={goalFilter === 'lose-fat' ? 'is-active' : ''} onClick={() => setGoalFilter((current) => current === 'lose-fat' ? 'all' : 'lose-fat')} aria-pressed={goalFilter === 'lose-fat'}>Giảm mỡ</button>
+              <button type="button" className={goalFilter === 'gain-muscle' ? 'is-active' : ''} onClick={() => setGoalFilter((current) => current === 'gain-muscle' ? 'all' : 'gain-muscle')} aria-pressed={goalFilter === 'gain-muscle'}>Tăng cơ</button>
+              <button type="button" className={mealTypeFilter === 'breakfast' ? 'is-active' : ''} onClick={() => setMealTypeFilter((current) => current === 'breakfast' ? 'all' : 'breakfast')} aria-pressed={mealTypeFilter === 'breakfast'}>Bữa sáng</button>
+              <button type="button" className={calorieFilter === 'under-300' ? 'is-active' : ''} onClick={() => setCalorieFilter((current) => current === 'under-300' ? 'all' : 'under-300')} aria-pressed={calorieFilter === 'under-300'}>≤ 300 kcal</button>
+            </div>
+
             <section className="meal-plan-live-section" aria-labelledby="meal-plan-catalog-title">
               <div className="meal-plan-live-heading">
-                <div><span><Sparkles size={18} /></span><div><h2 id="meal-plan-catalog-title">Gợi ý phù hợp cho bạn</h2><p>{catalogState === 'demo' ? 'Dữ liệu minh họa' : `${formatNumber(totalCount)} món trong thư viện Aura`}</p></div></div>
+              <div><span><Sparkles size={18} /></span><div><h2 id="meal-plan-catalog-title">Gợi ý phù hợp cho bạn</h2><p>{catalogState === 'demo' ? 'Dữ liệu minh họa' : `${formatNumber(totalCount)} món trong thư viện Aura`}</p></div></div>
+              <div className="meal-plan-display-toggle" role="group" aria-label="Mật độ hiển thị trên điện thoại">
+                <button type="button" className={mobileColumns === 1 ? 'is-active' : ''} onClick={() => setMobileColumns(1)} aria-pressed={mobileColumns === 1}>1 cột</button>
+                <button type="button" className={mobileColumns === 2 ? 'is-active' : ''} onClick={() => setMobileColumns(2)} aria-pressed={mobileColumns === 2}>2 cột</button>
+              </div>
                 {catalogState === 'error' && <button type="button" onClick={reloadCatalog}><RefreshCw size={15} /> Tải lại</button>}
               </div>
 
               {catalogState === 'loading' ? (
                 <div className="meal-plan-live-loading" role="status"><LoaderCircle className="is-spinning" size={22} /> Đang tải thực đơn…</div>
               ) : visibleItems.length ? (
-                <div className="meal-plan-live-grid">
+                <div className={`meal-plan-live-grid meal-plan-live-grid--mobile-${mobileColumns}`}>
                   {visibleItems.map((food) => {
                     const saved = props.savedFoodIds.has(food.id)
                     return (
@@ -298,7 +363,7 @@ export default function ConnectedMealPlanPage(props: ConnectedMealPlanPageProps)
                   })}
                 </div>
               ) : (
-                <div className="meal-plan-live-empty"><Utensils size={25} /><h3>Chưa tìm thấy món phù hợp</h3><p>Thử bỏ bớt bộ lọc hoặc tìm bằng tên món khác.</p><button type="button" onClick={() => { setQuery(''); setCategory('all'); setCalorieFilter('all'); setProteinFilter('all'); setSavedOnly(false) }}>Xóa bộ lọc</button></div>
+                <div className="meal-plan-live-empty"><Utensils size={25} /><h3>Chưa tìm thấy món phù hợp</h3><p>Thử bỏ bớt bộ lọc hoặc tìm bằng tên món khác.</p><button type="button" onClick={() => { setQuery(''); setCategory('all'); setCalorieFilter('all'); setProteinFilter('all'); setGoalFilter('all'); setMealTypeFilter('all'); setSavedOnly(false) }}>Xóa bộ lọc</button></div>
               )}
               {hasMore && catalogState === 'live' && <button type="button" className="meal-plan-load-more" onClick={loadMore} disabled={loadingMore}>{loadingMore ? <LoaderCircle className="is-spinning" size={17} /> : <Plus size={17} />} Xem thêm món</button>}
             </section>

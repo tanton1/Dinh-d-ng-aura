@@ -1641,10 +1641,21 @@ export default function NutritionPageController({ displayName = 'Thành viên Au
         goal: profileDraft.goal,
         allergies: profileDraft.allergies,
         dislikes: profileDraft.dislikes,
+        aiAssist: true,
+        profile: {
+          age: profileDraft.age,
+          biologicalSex: profileDraft.biologicalSex,
+          activityLevel: profileDraft.activityLevel,
+          trainingSessions: profileDraft.trainingSessions,
+          eatingStyle: profileDraft.eatingStyle,
+          favoriteCuisine: profileDraft.favoriteCuisine,
+          budget: profileDraft.budget,
+          prepTime: profileDraft.prepTime,
+        },
       })
       setNutritionPlan(plan)
       setPlanSelectedDay(plan.days.find((day) => day.id === todayKey)?.id ?? plan.days[0]?.id ?? planWeekStart)
-      showMessage('Đã tạo bản nháp từ thư viện món Aura')
+      showMessage(plan.planner === 'gemini' ? 'Gemini đã hỗ trợ tạo kế hoạch theo hồ sơ của bạn' : 'Đã tạo bản nháp từ thư viện món Aura')
     } catch (error) {
       const message = nutritionPlanErrorMessage(error)
       setNutritionPlanError(message)

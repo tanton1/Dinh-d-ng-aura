@@ -1,5 +1,11 @@
 const { FieldValue } = require('firebase-admin/firestore')
 const { HttpsError } = require('firebase-functions/v2/https')
+const {
+  OPENROUTER_API_KEY,
+  getOpenRouterApiKey,
+  getOpenRouterModelCandidates,
+  requestOpenRouterStructured,
+} = require('./openrouter')
 
 const PLAN_STATUS = new Set(['draft', 'active'])
 const MEAL_TYPES = new Set(['breakfast', 'lunch', 'snack', 'dinner'])
@@ -9,6 +15,28 @@ const MEAL_TIMES = {
   lunch: '12:00',
   snack: '15:30',
   dinner: '18:30',
+}
+
+const geminiPlanSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    choices: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          dayId: { type: 'string' },
+          type: { type: 'string', enum: ['breakfast', 'lunch', 'snack', 'dinner'] },
+          catalogId: { type: 'string' },
+          servingMultiplier: { type: 'number' },
+        },
+        required: ['dayId', 'type', 'catalogId', 'servingMultiplier'],
+      },
+    },
+  },
+  required: ['choices'],
 }
 
 let catalogCache = { items: [], version: 'unavailable', expiresAt: 0 }
@@ -269,6 +297,115 @@ function generatePlanDays(items, input) {
   })
 }
 
+function aiCandidateItems(items, days, input) {
+  const baselineIds = new Set(days.flatMap((day) => day.meals.map((meal) => meal.catalogId)).filter(Boolean))
+  const goalPool = items
+    .filter((item) => !avoidTokens(input.profile).some((token) => item.nameAscii.includes(token)))
+    .sort((left, right) => {
+      const leftScore = Math.abs(left.calories - input.calorieGoal / Math.max(3, input.mealsPerDay)) - left.protein * 2
+      const rightScore = Math.abs(right.calories - input.calorieGoal / Math.max(3, input.mealsPerDay)) - right.protein * 2
+      return leftScore - rightScore
+    })
+  const ordered = [
+    ...items.filter((item) => baselineIds.has(item.id)),
+    ...goalPool,
+  ]
+  return [...new Map(ordered.map((item) => [item.id, item])).values()].slice(0, 140)
+}
+
+function buildGeminiPlanPrompt(items, days, input) {
+  const candidates = aiCandidateItems(items, days, input).map((item) => ({
+    id: item.id,
+    name: item.name,
+    category: item.category,
+    calories: item.calories,
+    protein: item.protein,
+    carbs: item.carbs,
+    fat: item.fat,
+  }))
+  const baseline = days.map((day) => ({
+    dayId: day.id,
+    meals: day.meals.map((meal) => ({ type: meal.type, catalogId: meal.catalogId, calories: meal.calories, protein: meal.protein })),
+  }))
+  return `Bạn là chuyên gia dinh dưỡng của Aura. Hãy tối ưu kế hoạch 7 ngày cho đúng hồ sơ khách hàng, nhưng chỉ được chọn món trong danh sách catalog được cung cấp. Không bịa món, không bịa catalogId, không đưa hướng dẫn ngoài JSON.
+
+Hồ sơ: ${JSON.stringify(input.profile)}
+Mục tiêu ngày: ${input.calorieGoal} kcal, ${input.proteinGoal}g đạm, ${input.mealsPerDay} bữa/ngày.
+Khung bữa bắt buộc: ${JSON.stringify(mealSlots(input.mealsPerDay).map((slot) => slot.type))}.
+Kế hoạch nền do Aura tính: ${JSON.stringify(baseline)}
+Danh sách món hợp lệ: ${JSON.stringify(candidates)}
+
+Trả về JSON theo schema. Mỗi lựa chọn gồm dayId, type, catalogId và servingMultiplier từ 0.5 đến 1.5. Có thể trả về một phần choices; Aura sẽ giữ món nền cho phần còn thiếu. Ưu tiên đa dạng, đúng dị ứng/món không thích, hợp mục tiêu ${input.profile.goal}, và giữ tổng kcal/đạm mỗi ngày gần mục tiêu.`
+}
+
+function applyGeminiPlanChoices(days, items, choices, input) {
+  if (!Array.isArray(choices)) return { days, assisted: false }
+  const byId = new Map(items.map((item) => [item.id, item]))
+  const validDays = new Set(days.map((day) => day.id))
+  const seenSlots = new Set()
+  const choiceBySlot = new Map()
+  choices.slice(0, 40).forEach((choice) => {
+    const dayId = typeof choice?.dayId === 'string' ? choice.dayId : ''
+    const type = MEAL_TYPES.has(choice?.type) ? choice.type : ''
+    const catalogId = typeof choice?.catalogId === 'string' ? choice.catalogId : ''
+    const item = byId.get(catalogId)
+    const multiplier = Number(choice?.servingMultiplier)
+    const slotKey = `${dayId}|${type}`
+    if (!validDays.has(dayId) || !type || !item || !Number.isFinite(multiplier) || multiplier < 0.5 || multiplier > 1.5 || seenSlots.has(slotKey)) return
+    if (avoidTokens(input.profile).some((token) => item.nameAscii.includes(token))) return
+    seenSlots.add(slotKey)
+    choiceBySlot.set(slotKey, { item, multiplier: Math.round(multiplier * 10) / 10 })
+  })
+  if (!choiceBySlot.size) return { days, assisted: false }
+  const slots = mealSlots(input.mealsPerDay)
+  const nextDays = days.map((day) => {
+    const nextMeals = day.meals.map((meal, index) => {
+      const selected = choiceBySlot.get(`${day.id}|${meal.type}`)
+      if (!selected) return meal
+      const slot = slots.find((candidate) => candidate.type === meal.type) || slots[index] || { ratio: 1 / Math.max(1, input.mealsPerDay), type: meal.type }
+      return {
+        ...toPlanMeal(selected.item, {
+          dayId: day.id,
+          type: meal.type,
+          time: meal.time,
+          index,
+          targetCalories: input.calorieGoal * slot.ratio,
+          targetProtein: input.proteinGoal * slot.ratio,
+          goal: input.profile.goal,
+        }),
+        id: meal.id,
+        servingMultiplier: selected.multiplier,
+        calories: Math.round(selected.item.calories * selected.multiplier),
+        protein: roundedMacro(selected.item.protein, selected.multiplier),
+        carbs: roundedMacro(selected.item.carbs, selected.multiplier),
+        fat: roundedMacro(selected.item.fat, selected.multiplier),
+        description: `${selected.multiplier} khẩu phần theo nguồn · ${selected.item.source}`,
+      }
+    })
+    return { ...day, meals: nextMeals }
+  })
+  return { days: nextDays, assisted: true }
+}
+
+async function optimizePlanWithGemini(days, items, input) {
+  const apiKey = getOpenRouterApiKey()
+  if (!apiKey) return { days, assisted: false }
+  const result = await requestOpenRouterStructured({
+    apiKey,
+    prompt: buildGeminiPlanPrompt(items, days, input),
+    schema: geminiPlanSchema,
+    schemaName: 'aura_nutrition_plan_choices',
+    maxOutputTokens: 5000,
+    operation: 'nutrition-plan-gemini',
+    modelCandidates: getOpenRouterModelCandidates({
+      modelEnv: process.env.OPENROUTER_TEXT_MODEL || 'google/gemini-3.7-flash',
+      fallbackModelEnv: process.env.OPENROUTER_TEXT_FALLBACK_MODEL || 'google/gemini-3.6-flash',
+    }),
+    timeoutMs: 22000,
+  })
+  return applyGeminiPlanChoices(days, items, result.data?.choices, input)
+}
+
 function publicPlan(value) {
   if (!value || typeof value !== 'object') return null
   return {
@@ -278,6 +415,7 @@ function publicPlan(value) {
     revision: Number.isInteger(value.revision) ? value.revision : 0,
     source: value.source === 'assigned' ? 'assigned' : 'aura-catalog',
     sourceTitle: typeof value.sourceTitle === 'string' ? value.sourceTitle : '',
+    planner: value.planner === 'gemini' ? 'gemini' : 'catalog',
     targets: value.targets && typeof value.targets === 'object' ? value.targets : {},
     days: Array.isArray(value.days) ? value.days.slice(0, 7).map((day) => ({
       id: typeof day?.id === 'string' ? day.id : '',
@@ -422,7 +560,7 @@ function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
     }
   })
 
-  const generateMyNutritionPlanDraft = onCall({ cpu: 'gcf_gen1', maxInstances: 2, timeoutSeconds: 120, memory: '512MiB' }, async (request) => {
+  const generateMyNutritionPlanDraft = onCall({ cpu: 'gcf_gen1', maxInstances: 2, timeoutSeconds: 120, memory: '512MiB', secrets: [OPENROUTER_API_KEY] }, async (request) => {
     const userId = await requireStudent(request)
     const weekStart = validateWeekStart(request.data?.weekStart)
     const expectedRevision = Math.max(0, Math.trunc(Number(request.data?.expectedRevision) || 0))
@@ -430,14 +568,38 @@ function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
     const proteinGoal = boundedNumber(request.data?.proteinGoal, 'Mục tiêu đạm', 20, 500)
     const mealsPerDay = Math.min(5, Math.max(3, Math.trunc(Number(request.data?.mealsPerDay) || 4)))
     const goal = ['lose-fat', 'gain-muscle', 'maintain'].includes(request.data?.goal) ? request.data.goal : 'maintain'
+    const profileInput = request.data?.profile && typeof request.data.profile === 'object' ? request.data.profile : {}
     const profile = {
       goal,
       allergies: boundedString(request.data?.allergies, 'Thông tin dị ứng', 600, false),
       dislikes: boundedString(request.data?.dislikes, 'Món không thích', 600, false),
+      eatingStyle: boundedString(profileInput.eatingStyle, 'Phong cách ăn', 120, false),
+      favoriteCuisine: boundedString(profileInput.favoriteCuisine, 'Ẩm thực ưa thích', 120, false),
+      budget: boundedString(profileInput.budget, 'Ngân sách', 40, false),
+      prepTime: boundedString(profileInput.prepTime, 'Thời gian chuẩn bị', 40, false),
+      biologicalSex: boundedString(profileInput.biologicalSex, 'Giới tính sinh học', 20, false),
+      activityLevel: boundedString(profileInput.activityLevel, 'Mức độ vận động', 40, false),
+      age: Number.isFinite(Number(profileInput.age)) ? Math.min(100, Math.max(13, Math.round(Number(profileInput.age)))) : null,
+      trainingSessions: Number.isFinite(Number(profileInput.trainingSessions)) ? Math.min(14, Math.max(0, Math.round(Number(profileInput.trainingSessions)))) : null,
     }
     const catalog = await loadPlanCatalog(db)
     if (catalog.items.length < 20) throw new HttpsError('failed-precondition', 'Thư viện món chưa đủ dữ liệu để tạo kế hoạch.')
-    const days = generatePlanDays(catalog.items, { userId, weekStart, calorieGoal, proteinGoal, mealsPerDay, profile })
+    const generationInput = { userId, weekStart, calorieGoal, proteinGoal, mealsPerDay, profile }
+    let days = generatePlanDays(catalog.items, generationInput)
+    let planner = 'catalog'
+    if (request.data?.aiAssist !== false) {
+      try {
+        const optimized = await optimizePlanWithGemini(days, catalog.items, generationInput)
+        if (optimized.assisted) {
+          days = optimized.days
+          planner = 'gemini'
+        }
+      } catch (error) {
+        // The catalog planner remains the safe source of truth if Gemini is
+        // unavailable, rate-limited or returns an unusable choice set.
+        console.warn('Gemini nutrition plan assist unavailable:', error?.message || error)
+      }
+    }
     const reference = db.doc(`users/${userId}/nutritionPlanDrafts/${weekStart}`)
     let saved = null
     await db.runTransaction(async (transaction) => {
@@ -453,7 +615,10 @@ function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
         status: 'draft',
         revision,
         source: 'aura-catalog',
-        sourceTitle: `Gợi ý từ ${catalog.items.length} món đủ dữ liệu`,
+        sourceTitle: planner === 'gemini'
+          ? `Gemini hỗ trợ · ${catalog.items.length} món đủ dữ liệu`
+          : `Gợi ý từ ${catalog.items.length} món đủ dữ liệu`,
+        planner,
         targets: { calories: calorieGoal, protein: proteinGoal, mealsPerDay },
         profileSnapshot: profile,
         catalogVersion: catalog.version,
@@ -576,6 +741,8 @@ function createNutritionPlanFunctions({ db, onCall, requireStudent }) {
 
 module.exports = {
   catalogItemFromSnapshot,
+  applyGeminiPlanChoices,
+  buildGeminiPlanPrompt,
   createNutritionPlanFunctions,
   foldText,
   generatePlanDays,

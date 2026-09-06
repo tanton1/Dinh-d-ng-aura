@@ -1901,3 +1901,97 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Connected workspace refinements: quick filters, compact mobile density and
+   image-safe cards. These overrides intentionally sit at the end so they win
+   over the legacy classic-plan rules above. */
+.meal-plan-quick-filters {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow-x: auto;
+  margin: 12px 20px 0;
+  padding: 1px 1px 4px;
+  scrollbar-width: none;
+}
+.meal-plan-quick-filters::-webkit-scrollbar { display: none; }
+.meal-plan-quick-filters > span {
+  flex: 0 0 auto;
+  color: #8e7e82;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.meal-plan-quick-filters > button {
+  min-height: 32px;
+  flex: 0 0 auto;
+  padding: 0 11px;
+  border: 1px solid #eadbdd;
+  border-radius: 999px;
+  color: #716468;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.meal-plan-quick-filters > button:hover,
+.meal-plan-quick-filters > button.is-active {
+  border-color: #ff7a99;
+  color: #c82f5e;
+  background: #fff0f4;
+}
+.meal-plan-display-toggle {
+  display: none;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  padding: 3px;
+  border: 1px solid #f0e0e1;
+  border-radius: 11px;
+  background: #fff;
+}
+.meal-plan-display-toggle > button {
+  min-height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  color: #95878b;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.meal-plan-display-toggle > button.is-active {
+  color: #c82f5e;
+  background: #fff0f4;
+}
+.meal-plan-live-card__visual,
+.meal-plan-day-meal__image { aspect-ratio: 4 / 3; }
+.meal-plan-live-card__visual { height: auto; }
+.meal-plan-live-card__visual img,
+.meal-plan-day-meal__image img { object-fit: cover; object-position: center; }
+.meal-plan-live-heading { flex-wrap: wrap; }
+.meal-plan-live-heading > div:first-child { flex: 1 1 auto; }
+.meal-plan-live-heading > .meal-plan-display-toggle { margin-left: auto; }
+
+@media (max-width: 560px) {
+  .meal-plan-quick-filters { margin-inline: 14px; }
+  .meal-plan-live-section { padding-inline: 0; }
+  .meal-plan-display-toggle { display: inline-flex; }
+  .meal-plan-live-heading { padding-inline: 14px; }
+  .meal-plan-live-grid { padding-inline: 8px; }
+  .meal-plan-live-grid--mobile-1 { grid-template-columns: 1fr; }
+  .meal-plan-live-grid--mobile-1 .meal-plan-live-card__visual { aspect-ratio: 16 / 9; }
+  .meal-plan-live-grid--mobile-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .meal-plan-live-card__visual { height: auto; min-height: 0; }
+  .meal-plan-live-heading > .meal-plan-display-toggle { margin-left: 0; }
+  .meal-plan-filter-panel { margin-inline: 14px; }
+}
+
+@media (max-width: 360px) {
+  .meal-plan-live-grid { padding-inline: 6px; gap: 8px; }
+  .meal-plan-live-card__body { padding: 9px; }
+  .meal-plan-live-card__title-row > button:last-child { width: 30px; height: 30px; flex-basis: 30px; }
+  .meal-plan-display-toggle > button { padding-inline: 6px; }
+}

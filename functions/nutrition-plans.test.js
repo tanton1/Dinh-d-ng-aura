@@ -3,6 +3,8 @@ const test = require('node:test')
 
 const {
   catalogItemFromSnapshot,
+  applyGeminiPlanChoices,
+  buildGeminiPlanPrompt,
   createNutritionPlanFunctions,
   generatePlanDays,
   mealSlots,
@@ -120,6 +122,37 @@ test('catalog generator creates seven complete days and avoids duplicate dishes 
   assert.ok(days.every((day) => day.meals.length === 4))
   const titles = days.flatMap((day) => day.meals.map((meal) => meal.title))
   assert.equal(new Set(titles).size, titles.length)
+})
+
+test('Gemini planner can only replace known catalog slots and preserves safe fallbacks', () => {
+  const catalog = [
+    { id: 'dish-a', kind: 'dish', name: 'Ức gà', nameAscii: 'uc ga', category: 'Món chính', calories: 400, protein: 35, carbs: 40, fat: 10, image: '', source: 'Aura' },
+    { id: 'dish-b', kind: 'dish', name: 'Cá hồi', nameAscii: 'ca hoi', category: 'Món chính', calories: 450, protein: 32, carbs: 30, fat: 20, image: '', source: 'Aura' },
+  ]
+  const days = [{ id: '2026-09-07', meals: [{ id: 'meal-a', catalogId: 'dish-a', dayId: '2026-09-07', type: 'lunch', time: '12:00', title: 'Ức gà', calories: 400, protein: 35, carbs: 40, fat: 10 }] }]
+  const input = { calorieGoal: 1800, proteinGoal: 110, mealsPerDay: 3, profile: { goal: 'gain-muscle', allergies: '', dislikes: '' } }
+  const result = applyGeminiPlanChoices(days, catalog, [
+    { dayId: '2026-09-07', type: 'lunch', catalogId: 'dish-b', servingMultiplier: 1.2 },
+    { dayId: '2026-09-07', type: 'dinner', catalogId: 'unknown', servingMultiplier: 1 },
+  ], input)
+  assert.equal(result.assisted, true)
+  assert.equal(result.days[0].meals[0].id, 'meal-a')
+  assert.equal(result.days[0].meals[0].catalogId, 'dish-b')
+  assert.equal(result.days[0].meals[0].calories, 540)
+})
+
+test('Gemini prompt carries profile constraints and catalog ids without treating them as instructions', () => {
+  const prompt = buildGeminiPlanPrompt([
+    { id: 'dish-a', name: 'Ức gà', nameAscii: 'uc ga', category: 'Món chính', calories: 400, protein: 35, carbs: 40, fat: 10 },
+  ], [{ id: '2026-09-07', meals: [{ type: 'lunch', catalogId: 'dish-a', calories: 400, protein: 35 }] }], {
+    calorieGoal: 1800,
+    proteinGoal: 110,
+    mealsPerDay: 3,
+    profile: { goal: 'lose-fat', allergies: 'đậu phộng', dislikes: 'cần tây' },
+  })
+  assert.match(prompt, /đậu phộng/)
+  assert.match(prompt, /dish-a/)
+  assert.match(prompt, /không bịa catalogId/i)
 })
 
 test('confirming a weekly plan saves a separate active menu snapshot', async () => {
