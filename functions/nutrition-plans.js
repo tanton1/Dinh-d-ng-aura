@@ -29,10 +29,11 @@ const geminiPlanSchema = {
         properties: {
           dayId: { type: 'string' },
           type: { type: 'string', enum: ['breakfast', 'lunch', 'snack', 'dinner'] },
+          time: { type: 'string' },
           catalogId: { type: 'string' },
           servingMultiplier: { type: 'number' },
         },
-        required: ['dayId', 'type', 'catalogId', 'servingMultiplier'],
+        required: ['dayId', 'type', 'time', 'catalogId', 'servingMultiplier'],
       },
     },
   },
@@ -325,7 +326,7 @@ function buildGeminiPlanPrompt(items, days, input) {
   }))
   const baseline = days.map((day) => ({
     dayId: day.id,
-    meals: day.meals.map((meal) => ({ type: meal.type, catalogId: meal.catalogId, calories: meal.calories, protein: meal.protein })),
+    meals: day.meals.map((meal) => ({ type: meal.type, time: meal.time, catalogId: meal.catalogId, calories: meal.calories, protein: meal.protein })),
   }))
   return `Bạn là chuyên gia dinh dưỡng của Aura. Hãy tối ưu kế hoạch 7 ngày cho đúng hồ sơ khách hàng, nhưng chỉ được chọn món trong danh sách catalog được cung cấp. Không bịa món, không bịa catalogId, không đưa hướng dẫn ngoài JSON.
 
@@ -335,7 +336,7 @@ Khung bữa bắt buộc: ${JSON.stringify(mealSlots(input.mealsPerDay).map((slo
 Kế hoạch nền do Aura tính: ${JSON.stringify(baseline)}
 Danh sách món hợp lệ: ${JSON.stringify(candidates)}
 
-Trả về JSON theo schema. Mỗi lựa chọn gồm dayId, type, catalogId và servingMultiplier từ 0.5 đến 1.5. Có thể trả về một phần choices; Aura sẽ giữ món nền cho phần còn thiếu. Ưu tiên đa dạng, đúng dị ứng/món không thích, hợp mục tiêu ${input.profile.goal}, và giữ tổng kcal/đạm mỗi ngày gần mục tiêu.`
+Trả về JSON theo schema. Mỗi lựa chọn gồm dayId, type, time, catalogId và servingMultiplier từ 0.5 đến 1.5. Có thể trả về một phần choices; Aura sẽ giữ món nền cho phần còn thiếu. Ưu tiên đa dạng, đúng dị ứng/món không thích, hợp mục tiêu ${input.profile.goal}, và giữ tổng kcal/đạm mỗi ngày gần mục tiêu.`
 }
 
 function applyGeminiPlanChoices(days, items, choices, input) {
@@ -347,11 +348,12 @@ function applyGeminiPlanChoices(days, items, choices, input) {
   choices.slice(0, 40).forEach((choice) => {
     const dayId = typeof choice?.dayId === 'string' ? choice.dayId : ''
     const type = MEAL_TYPES.has(choice?.type) ? choice.type : ''
+    const time = typeof choice?.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(choice.time) ? choice.time : ''
     const catalogId = typeof choice?.catalogId === 'string' ? choice.catalogId : ''
     const item = byId.get(catalogId)
     const multiplier = Number(choice?.servingMultiplier)
-    const slotKey = `${dayId}|${type}`
-    if (!validDays.has(dayId) || !type || !item || !Number.isFinite(multiplier) || multiplier < 0.5 || multiplier > 1.5 || seenSlots.has(slotKey)) return
+    const slotKey = `${dayId}|${type}|${time}`
+    if (!validDays.has(dayId) || !type || !time || !item || !Number.isFinite(multiplier) || multiplier < 0.5 || multiplier > 1.5 || seenSlots.has(slotKey)) return
     if (avoidTokens(input.profile).some((token) => item.nameAscii.includes(token))) return
     seenSlots.add(slotKey)
     choiceBySlot.set(slotKey, { item, multiplier: Math.round(multiplier * 10) / 10 })
@@ -360,7 +362,7 @@ function applyGeminiPlanChoices(days, items, choices, input) {
   const slots = mealSlots(input.mealsPerDay)
   const nextDays = days.map((day) => {
     const nextMeals = day.meals.map((meal, index) => {
-      const selected = choiceBySlot.get(`${day.id}|${meal.type}`)
+      const selected = choiceBySlot.get(`${day.id}|${meal.type}|${meal.time}`)
       if (!selected) return meal
       const slot = slots.find((candidate) => candidate.type === meal.type) || slots[index] || { ratio: 1 / Math.max(1, input.mealsPerDay), type: meal.type }
       return {

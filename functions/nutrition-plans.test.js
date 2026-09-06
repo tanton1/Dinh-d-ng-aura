@@ -132,8 +132,8 @@ test('Gemini planner can only replace known catalog slots and preserves safe fal
   const days = [{ id: '2026-09-07', meals: [{ id: 'meal-a', catalogId: 'dish-a', dayId: '2026-09-07', type: 'lunch', time: '12:00', title: 'Ức gà', calories: 400, protein: 35, carbs: 40, fat: 10 }] }]
   const input = { calorieGoal: 1800, proteinGoal: 110, mealsPerDay: 3, profile: { goal: 'gain-muscle', allergies: '', dislikes: '' } }
   const result = applyGeminiPlanChoices(days, catalog, [
-    { dayId: '2026-09-07', type: 'lunch', catalogId: 'dish-b', servingMultiplier: 1.2 },
-    { dayId: '2026-09-07', type: 'dinner', catalogId: 'unknown', servingMultiplier: 1 },
+    { dayId: '2026-09-07', type: 'lunch', time: '12:00', catalogId: 'dish-b', servingMultiplier: 1.2 },
+    { dayId: '2026-09-07', type: 'dinner', time: '18:30', catalogId: 'unknown', servingMultiplier: 1 },
   ], input)
   assert.equal(result.assisted, true)
   assert.equal(result.days[0].meals[0].id, 'meal-a')
