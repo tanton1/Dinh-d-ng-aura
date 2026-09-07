@@ -72,3 +72,15 @@ test('learner name controls reveal availability and scheduled sessions without o
   await expect(page.locator('.schedule-cell.is-student-highlight')).toHaveCount(1)
   await expect(page.getByRole('dialog', { name: 'Chỉnh ô lịch' })).toBeHidden()
 })
+
+test('manager opportunity pool shows strict tiers and filters against learner availability on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/tests/schedule-ui/index.html')
+  await page.getByRole('tab', { name: /Kho ca/ }).click()
+  await expect(page.getByRole('heading', { name: 'Điều phối ca trống' })).toBeVisible()
+  await expect(page.getByText('Ưu tiên 1 · Ghép vào ca 1/2')).toBeVisible()
+  await expect(page.getByText('Ưu tiên 3 · PT khác còn lịch rảnh')).toBeVisible()
+  await page.getByLabel('Học viên cần xếp / đổi').selectOption('a')
+  await expect(page.getByText('Ưu tiên 2 · PT chính chưa đủ mốc 8 ca')).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+})

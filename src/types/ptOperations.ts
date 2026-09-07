@@ -142,11 +142,18 @@ export interface SessionRequest {
   trainerId?: string
   requestedBy?: 'student' | 'trainer'
   originalSessionRevision?: number
-  originalDate: string
+  originalDate: string | null
   originalHour?: number 
-  type: 'cancel' | 'reschedule'
+  type: 'cancel' | 'reschedule' | 'additional'
   newDate?: string 
   newHour?: number
+  newTrainerId?: string
+  priorityTier?: 1 | 2 | 3
+  pairsExistingSession?: boolean
+  isPrimaryTrainer?: boolean
+  requiresManagerApproval?: boolean
+  weeklyScheduled?: number
+  weeklyTarget?: number
   reason: string
   status: 'pending' | 'approved' | 'rejected'
   adminNote?: string

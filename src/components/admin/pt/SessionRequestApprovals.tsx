@@ -13,7 +13,8 @@ interface Props {
   canManage: boolean
 }
 
-function formatSlot(date: string, hour?: number | null) {
+function formatSlot(date: string | null | undefined, hour?: number | null) {
+  if (!date) return 'Chưa cập nhật'
   const label = new Intl.DateTimeFormat('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit' }).format(new Date(`${date}T00:00:00+07:00`))
   return `${label} · ${Number.isInteger(hour) ? `${String(hour).padStart(2, '0')}:00` : '--:--'}`
 }
@@ -28,9 +29,14 @@ export default function SessionRequestApprovals({ students, sessions, canManage 
   const handleApprove = async (request: SessionRequest) => {
     if (!canManage) return alert(permissionMessage)
     const requestedByTrainer = isTrainerRequest(request)
-    if (!confirm(`Duyệt yêu cầu ${request.type === 'cancel' ? 'hủy' : 'đổi'} lịch do ${requestedByTrainer ? 'PT' : 'học viên'} gửi?`)) return
+    if (!confirm(`Duyệt yêu cầu ${request.type === 'additional' ? 'thêm buổi' : request.type === 'cancel' ? 'hủy' : 'đổi'} lịch do ${requestedByTrainer ? 'PT' : 'học viên'} gửi?`)) return
     setProcessingId(request.id)
     try {
+      if (request.type === 'additional') {
+        const result = await approveSessionRequest({ requestId: request.id, expectedSessionRevision: 0 })
+        alert(result.unchanged ? 'Yêu cầu đã được duyệt trước đó.' : 'Đã duyệt và tạo thêm buổi tập.')
+        return
+      }
       if (!request.sessionId) throw new Error('Yêu cầu chưa liên kết với buổi tập.')
       const loadedSession = sessions.find((session) => session.id === request.sessionId)
       let expectedSessionRevision = loadedSession ? Number(loadedSession.revision || 0) : null
@@ -68,11 +74,11 @@ export default function SessionRequestApprovals({ students, sessions, canManage 
       const trainerRequest = isTrainerRequest(request)
       const isBusy = processingId === request.id
       return <article className="schedule-request-card" key={request.id}>
-        <header><span className={`schedule-request-kind is-${request.type}`}>{request.type === 'cancel' ? 'Hủy buổi' : 'Đổi lịch'}</span><span className="schedule-request-source"><UserRound size={13} /> {trainerRequest ? 'PT gửi' : 'Học viên gửi'}</span></header>
+        <header><span className={`schedule-request-kind is-${request.type}`}>{request.type === 'additional' ? 'Thêm buổi' : request.type === 'cancel' ? 'Hủy buổi' : 'Đổi lịch'}</span><span className="schedule-request-source"><UserRound size={13} /> {trainerRequest ? 'PT gửi' : 'Học viên gửi'}</span></header>
         <h3>{student?.name || 'Học viên chưa xác định'}</h3>
-        <div className="schedule-request-slots"><span><Clock3 size={15} /><small>Buổi gốc</small><strong>{formatSlot(request.originalDate, request.originalHour)}</strong></span>{request.type === 'reschedule' && request.newDate && <span className="is-new"><CalendarClock size={15} /><small>Đề xuất mới</small><strong>{formatSlot(request.newDate, request.newHour)}</strong></span>}</div>
+        <div className="schedule-request-slots">{request.type !== 'additional' && <span><Clock3 size={15} /><small>Buổi gốc</small><strong>{formatSlot(request.originalDate, request.originalHour)}</strong></span>}{request.type !== 'cancel' && request.newDate && <span className="is-new"><CalendarClock size={15} /><small>{request.type === 'additional' ? 'Ca đăng ký thêm' : 'Đề xuất mới'}</small><strong>{formatSlot(request.newDate, request.newHour)}</strong></span>}</div>
         <p>{request.reason}</p>
-        {!trainerRequest && <aside>{request.expectedCountsTowardContract ? `Lượt dự kiến ${request.expectedPolicySequence ?? 2}: có tính buổi` : 'Lượt miễn tính buổi trong tháng'}</aside>}
+        {!trainerRequest && <aside>{request.type === 'additional' ? `Ưu tiên ${request.priorityTier || 3}/3 · ${request.weeklyScheduled || 0}/${request.weeklyTarget || 0} buổi mục tiêu tuần${request.requiresManagerApproval ? ' · cần quản lý xác nhận' : ''}` : request.expectedCountsTowardContract ? `Lượt dự kiến ${request.expectedPolicySequence ?? 2}: có tính buổi` : 'Lượt miễn tính buổi trong tháng'}</aside>}
         <footer><button type="button" className="is-approve" disabled={isBusy || !canManage} onClick={() => void handleApprove(request)}><Check size={16} /> Duyệt</button><button type="button" className="is-reject" disabled={isBusy || !canManage} onClick={() => void handleReject(request)}><X size={16} /> Từ chối</button></footer>
       </article>
     })}

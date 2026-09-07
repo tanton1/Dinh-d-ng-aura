@@ -65,9 +65,9 @@ export interface StudentPtSession {
 
 export interface StudentPtSessionRequestSummary {
   id: string
-  type: 'cancel' | 'reschedule'
+  type: 'cancel' | 'reschedule' | 'additional'
   status: 'pending' | 'approved' | 'rejected'
-  originalDate: string
+  originalDate: string | null
   originalHour?: number
   newDate?: string | null
   newHour?: number | null

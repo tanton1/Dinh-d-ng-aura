@@ -3,6 +3,7 @@ import {
   AlertCircle,
   CalendarCheck,
   CalendarDays,
+  CalendarPlus,
   CalendarRange,
   Check,
   Clock3,
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react'
 import LeaveRequestModal from '../../components/schedule/LeaveRequestModal'
 import SessionRequestModal from '../../components/schedule/SessionRequestModal'
+import AdditionalSessionModal from '../../components/schedule/AdditionalSessionModal'
 import SessionFeedbackPrompt from '../../components/student/SessionFeedbackPrompt'
 import {
   asStudentPtScheduleError,
@@ -172,6 +174,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
   const [message, setMessage] = useState<string | null>(null)
   const [requestSession, setRequestSession] = useState<StudentPtSession | null>(null)
   const [showPauseRequest, setShowPauseRequest] = useState(false)
+  const [showAdditionalRequest, setShowAdditionalRequest] = useState(false)
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null)
   const [heroSlide, setHeroSlide] = useState(0)
   const heroTrackRef = useRef<HTMLDivElement>(null)
@@ -501,10 +504,10 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
         </section>}
 
         {activeTab === 'requests' && <section className="student-request-center">
-          <header><div><small>AURA · YÊU CẦU LỊCH</small><h2>Đổi, hủy, OFF và bảo lưu</h2><p>Theo dõi toàn bộ yêu cầu và kết quả xử lý trong một nơi.</p></div><button type="button" onClick={() => selectWeek(0)}>Chọn buổi để đổi/hủy</button></header>
-          <div className="student-request-policy-grid"><article><Clock3 size={18} /><strong>Đổi/Hủy buổi</strong><span>Gửi trước {changeDeadlineHours} giờ. Mỗi tháng có {complimentaryChangeCancelPerMonth} lượt không tính buổi.</span></article><article><CalendarRange size={18} /><strong>OFF/Bảo lưu</strong><span>OFF tối đa {offMaxDaysPerRequest} ngày; dài hơn chuyển sang bảo lưu.</span><button type="button" disabled={!activeContract} onClick={() => setShowPauseRequest(true)}>Tạo yêu cầu</button></article></div>
+          <header><div><small>AURA · YÊU CẦU LỊCH</small><h2>Đổi, hủy, thêm buổi, OFF và bảo lưu</h2><p>Theo dõi toàn bộ yêu cầu và kết quả xử lý trong một nơi.</p></div><div className="student-request-center__actions"><button type="button" onClick={() => setShowAdditionalRequest(true)}>Đăng ký thêm buổi</button><button type="button" onClick={() => selectWeek(0)}>Chọn buổi để đổi/hủy</button></div></header>
+          <div className="student-request-policy-grid"><article><Clock3 size={18} /><strong>Đổi/Hủy buổi</strong><span>Gửi trước {changeDeadlineHours} giờ. Mỗi tháng có {complimentaryChangeCancelPerMonth} lượt không tính buổi.</span></article><article><CalendarPlus size={18} /><strong>Thêm buổi</strong><span>Ca trống được xếp theo thứ tự ghép ca 1/2 → PT chính → PT Aura.</span><button type="button" disabled={!activeContract} onClick={() => setShowAdditionalRequest(true)}>Chọn ca</button></article><article><CalendarRange size={18} /><strong>OFF/Bảo lưu</strong><span>OFF tối đa {offMaxDaysPerRequest} ngày; dài hơn chuyển sang bảo lưu.</span><button type="button" disabled={!activeContract} onClick={() => setShowPauseRequest(true)}>Tạo yêu cầu</button></article></div>
           <div className="student-request-history-list">
-            {[...scheduleRequests.map((request) => ({ id: request.id, kind: request.type === 'cancel' ? 'Hủy buổi' : 'Đổi lịch', status: request.status, date: request.originalDate, detail: request.type === 'reschedule' && request.newDate ? `Đề xuất ${request.newDate} · ${String(request.newHour ?? '--').padStart(2, '0')}:00` : request.reason, charged: request.countsTowardContract ?? request.expectedCountsTowardContract })), ...pauseRequests.map((request) => ({ id: request.id, kind: request.type === 'preservation' ? 'Bảo lưu hợp đồng' : 'OFF hợp đồng', status: request.status, date: `${request.startDate} → ${request.endDate}`, detail: request.newContractEndDate ? `Hạn mới: ${request.newContractEndDate}` : request.reason, charged: false }))]
+            {[...scheduleRequests.map((request) => ({ id: request.id, kind: request.type === 'additional' ? 'Đăng ký thêm buổi' : request.type === 'cancel' ? 'Hủy buổi' : 'Đổi lịch', status: request.status, date: request.type === 'additional' ? request.newDate || 'Chưa xác định' : request.originalDate || 'Chưa xác định', detail: request.type === 'additional' && request.newDate ? `Ca đề xuất ${request.newDate} · ${String(request.newHour ?? '--').padStart(2, '0')}:00` : request.type === 'reschedule' && request.newDate ? `Đề xuất ${request.newDate} · ${String(request.newHour ?? '--').padStart(2, '0')}:00` : request.reason, charged: request.countsTowardContract ?? request.expectedCountsTowardContract })), ...pauseRequests.map((request) => ({ id: request.id, kind: request.type === 'preservation' ? 'Bảo lưu hợp đồng' : 'OFF hợp đồng', status: request.status, date: `${request.startDate} → ${request.endDate}`, detail: request.newContractEndDate ? `Hạn mới: ${request.newContractEndDate}` : request.reason, charged: false }))]
               .map((request) => <article key={request.id}><span className={`student-request-status is-${request.status}`}>{request.status === 'approved' ? 'Đã duyệt' : request.status === 'rejected' ? 'Từ chối' : 'Chờ duyệt'}</span><div><strong>{request.kind}</strong><small>{request.date}</small><p>{request.detail}</p></div>{request.charged && <em>Có tính buổi</em>}</article>)}
             {!scheduleRequests.length && !pauseRequests.length && <div className="student-session-empty"><ScrollText size={28} /><strong>Chưa có yêu cầu nào</strong><span>Chọn một buổi trong Tuần này/Tuần sau hoặc tạo OFF/Bảo lưu tại đây.</span></div>}
           </div>
@@ -512,6 +515,7 @@ export default function SchedulePage({ onNavigate, isDemo = false }: { onNavigat
 
         {activeTab === 'history' && <section className="student-session-history"><header><div><small>AURA · NHẬT KÝ TẬP LUYỆN</small><h2>Lịch sử buổi tập</h2><p>Hiển thị tối đa 180 ngày gần nhất, gồm buổi hoàn thành, đổi, hủy và vắng.</p></div><span>{historySessions.length} buổi</span></header>{historySessions.length > 0 ? <div>{historySessions.map((session) => <article key={session.id}><span>{formatSessionDate(session.date)} · {session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}</span><strong>{session.trainerName}</strong><em>{statusLabels[session.status] ?? session.status}</em></article>)}</div> : <div className="student-session-empty"><History size={28} /><strong>Chưa có lịch sử tập luyện</strong><span>Các buổi đã hoàn thành hoặc được điều chỉnh sẽ xuất hiện tại đây.</span></div>}</section>}
         {requestSession && <SessionRequestModal session={requestSession} onClose={() => setRequestSession(null)} onCreated={(value) => { setMessage(value); setActiveTab('requests'); void load() }} />}
+        {showAdditionalRequest && <AdditionalSessionModal onClose={() => setShowAdditionalRequest(false)} onCreated={(value) => { setMessage(value); setActiveTab('requests'); void load() }} />}
         {showPauseRequest && activeContract && <LeaveRequestModal contractId={activeContract.id} policy={data.scheduleConfig} onClose={() => setShowPauseRequest(false)} onCreated={(value) => { setMessage(value); setActiveTab('requests'); void load() }} />}
       </>}
     </div>

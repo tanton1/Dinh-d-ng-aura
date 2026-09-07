@@ -41,13 +41,13 @@ interface PtOperationsRequestBase {
 
 export interface PtSessionOperationsRequest extends PtOperationsRequestBase {
   kind: 'session'
-  type: 'cancel' | 'reschedule'
+  type: 'cancel' | 'reschedule' | 'additional'
   sessionId: string
   sessionRevision: number
   trainerId: string
   trainerName: string
   requestedBy: 'student' | 'trainer'
-  originalDate: string
+  originalDate: string | null
   originalHour: number | null
   newDate: string | null
   newHour: number | null
@@ -59,6 +59,11 @@ export interface PtSessionOperationsRequest extends PtOperationsRequestBase {
   policySequence: number | null
   complimentaryLimit: number
   countsTowardContract: boolean
+  priorityTier?: 1 | 2 | 3 | null
+  isPrimaryTrainer?: boolean
+  requiresManagerApproval?: boolean
+  weeklyScheduled?: number
+  weeklyTarget?: number
 }
 
 export interface PtPauseOperationsRequest extends PtOperationsRequestBase {
@@ -158,8 +163,11 @@ export interface SessionChangeSuggestion {
   occupancy: number
   capacity: number
   pairsExistingSession: boolean
+  /** Strict opportunity tier: 1=ghép ca 1/2, 2=PT chính dưới mốc, 3=PT khác. */
+  priorityTier?: 1 | 2 | 3
   isAssignedTrainer: boolean
   isCurrentTrainer: boolean
+  isPrimaryTrainer?: boolean
   employmentType: 'full_time' | 'part_time' | 'collaborator'
   /** Compatibility value: load after removing the source session and before opening the candidate slot. */
   dailyLoad: number
@@ -197,8 +205,48 @@ export function createMySessionRequest(input: CreateMySessionRequestInput) {
   return call<typeof input, SessionRequestPolicyResult>('createMySessionRequest', input)
 }
 
+export interface AdditionalSessionSuggestion extends Omit<SessionChangeSuggestion, 'isCurrentTrainer'> {
+  contractId: string
+  trainerName: string
+  isPrimaryTrainer?: boolean
+  requiresManagerApproval?: boolean
+  weeklyScheduled?: number
+  weeklyTarget?: number
+  weeklyMaximum?: number
+}
+
+export interface AdditionalSessionSuggestionPage {
+  schemaVersion: number
+  contractId: string | null
+  contractName?: string | null
+  weeklyTarget: number
+  weeklyMaximum: number
+  policy: {
+    sessionChangeDeadlineHours: number
+  }
+  suggestions: AdditionalSessionSuggestion[]
+  issueCodes: string[]
+}
+
+export function getMyAdditionalSessionSuggestions() {
+  return call<Record<string, never>, AdditionalSessionSuggestionPage>('getMyAdditionalSessionSuggestions', {})
+}
+
+export interface CreateMyAdditionalSessionRequestInput {
+  candidateId: string
+  newDate?: string
+  newHour?: number
+  newTrainerId?: string
+  reason: string
+  idempotencyKey: string
+}
+
+export function createMyAdditionalSessionRequest(input: CreateMyAdditionalSessionRequestInput) {
+  return call<typeof input, { unchanged: boolean; requestId: string; status: 'pending'; type: 'additional'; priorityTier?: 1 | 2 | 3; requiresManagerApproval?: boolean }>('createMyAdditionalSessionRequest', input)
+}
+
 export function approveSessionRequest(input: { requestId: string; expectedSessionRevision: number }) {
-  return call<typeof input, { unchanged: boolean; status: 'approved'; type: 'cancel' | 'reschedule'; revision: number; policyMonth: string | null; policySequence: number | null; complimentary: boolean; complimentaryLimit: number; countsTowardContract: boolean }>('approveSessionRequest', input)
+  return call<typeof input, { unchanged: boolean; status: 'approved'; type: 'cancel' | 'reschedule' | 'additional'; revision: number; policyMonth?: string | null; policySequence?: number | null; complimentary?: boolean; complimentaryLimit?: number; countsTowardContract?: boolean; sessionId?: string; date?: string; hour?: number; trainerId?: string }>('approveSessionRequest', input)
 }
 
 export function rejectSessionRequest(input: { requestId: string; reason: string }) {

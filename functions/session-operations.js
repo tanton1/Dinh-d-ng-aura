@@ -351,7 +351,8 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
         return leave.trainerId === trainer.id && start && end && targetDate >= start && targetDate <= end
       })
       if (trainerOnLeave) continue
-      const assigned = assignedTrainerIds.has(trainer.id)
+        const assigned = assignedTrainerIds.has(trainer.id)
+        const isPrimaryTrainer = trainer.id === contract.trainerId
       for (let targetHour = 0; targetHour <= 23; targetHour += 1) {
         const slotId = `${dayCode}-${targetHour}`
         if (!studentSlots.includes(slotId) || !trainerSlots.includes(slotId)) continue
@@ -365,14 +366,25 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
         const capacity = normalizedTrainerCapacity(trainer.slotCapacity)
         if (occupancy >= capacity) continue
         const uniqueTeachingSlots = new Set(sameTrainerDate.map((item) => storedSessionHour(item.hour, item.id, 'Giờ lịch PT'))).size
-        const pairsExistingSession = occupancy > 0
+        const pairsExistingSession = occupancy === 1 && capacity === 2
         const projectedTeachingSlots = uniqueTeachingSlots + (pairsExistingSession ? 0 : 1)
         const overTargetAfter = projectedTeachingSlots > policyData.dailySessionTarget
         const createsThreeConsecutiveDays = hasThreeConsecutiveTrainingDays(studentTrainingDates, targetDate)
         const daysFromStart = inclusiveDateDays(rangeStart, targetDate) - 1
-        const score = (pairsExistingSession ? 20000 : 0)
+        // Opportunity tiers are deliberately strict. A free seat in an
+        // existing 1/2 class always wins; only then do we open a new slot
+        // for the primary PT while they are below the soft daily target;
+        // other available PT slots are the final fallback. The target is a
+        // balancing hint, never a hard scheduling limit.
+        const priorityTier = pairsExistingSession
+          ? 1
+          : isPrimaryTrainer && projectedTeachingSlots <= policyData.dailySessionTarget
+            ? 2
+            : 3
+        const score = (4 - priorityTier) * 100000
           + (assigned ? 6000 : 0)
           + (trainer.id === session.trainerId ? 2500 : 0)
+          + (isPrimaryTrainer ? 2200 : 0)
           + (policyData.employmentType === 'full_time' ? 1800 : 0)
           + Math.max(0, policyData.dailySessionTarget - projectedTeachingSlots) * 180
           - policyData.schedulingPriority
@@ -388,6 +400,8 @@ async function buildSessionChangeSuggestions({ db, sessionId, expectedRevision, 
           occupancy,
           capacity,
           pairsExistingSession,
+          priorityTier,
+          isPrimaryTrainer,
           isAssignedTrainer: assigned,
           isCurrentTrainer: trainer.id === session.trainerId,
           employmentType: policyData.employmentType,
@@ -461,6 +475,144 @@ function normalizedAttendanceNote(value) {
   const result = typeof value === 'string' ? value.trim() : ''
   if (result.length > 300) throw new HttpsError('invalid-argument', 'Ghi chú hiện diện tối đa 300 ký tự.')
   return result
+}
+
+// Build the same opportunity tiers for a learner who wants to add a session
+// (there is no source session to reschedule). This intentionally mirrors the
+// change-session policy so management and learner surfaces share one ordering:
+// fill a 1/2 seat, then the primary trainer below the soft target, then any
+// other valid trainer slot. The daily target is never a hard ceiling.
+async function buildAdditionalSessionSuggestions({ db, studentId, now }) {
+  const [policy, studentSnapshot, contractsSnapshot] = await Promise.all([
+    readOperationsPolicy(db),
+    db.getAll(db.doc(`students/${studentId}`)).then((values) => values[0]),
+    db.collection('contracts').where('studentId', '==', studentId).limit(50).get(),
+  ])
+  if (!studentSnapshot?.exists) throw new HttpsError('not-found', 'Không tìm thấy hồ sơ học viên.')
+  const student = studentSnapshot.data()
+  const today = vietnamDateKey(now)
+  const activeContracts = contractsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+    .filter((contract) => contract.status === 'active')
+    .filter((contract) => {
+      try {
+        const start = storedContractDate(contract.startDate, 'Ngày bắt đầu')
+        const end = storedContractDate(contract.endDate, 'Ngày kết thúc')
+        return start <= end && end >= today && Number(contract.usedSessions || 0) < Number(contract.totalSessions || 0)
+      } catch { return false }
+    })
+    .sort((left, right) => String(left.endDate).localeCompare(String(right.endDate)) || left.id.localeCompare(right.id))
+  const contract = activeContracts[0]
+  if (!contract) return { policy, contractId: null, weeklyTarget: Number(student.sessionsPerWeek || 0), weeklyMaximum: Math.max(1, Number(student.maxWeeklySessions || 7)), suggestions: [], issueCodes: ['NO_ACTIVE_CONTRACT'] }
+  const contractStart = storedContractDate(contract.startDate, 'Ngày bắt đầu')
+  const contractEnd = storedContractDate(contract.endDate, 'Ngày kết thúc')
+  const rangeStart = today < contractStart ? contractStart : addDateDays(today, 1)
+  const rangeEndCandidate = addDateDays(rangeStart, SESSION_CHANGE_WINDOW_DAYS)
+  const rangeEnd = rangeEndCandidate < contractEnd ? rangeEndCandidate : contractEnd
+  if (rangeStart > rangeEnd) return { policy, contractId: contract.id, weeklyTarget: Number(student.sessionsPerWeek || 0), weeklyMaximum: Math.max(1, Number(student.maxWeeklySessions || 7)), suggestions: [], issueCodes: ['NO_CONTRACT_DATE_AVAILABLE'] }
+
+  const weekIds = new Set()
+  for (let targetDate = rangeStart; targetDate <= rangeEnd; targetDate = addDateDays(targetDate, 1)) weekIds.add(mondayForDate(targetDate))
+  const availabilityReferences = [...weekIds].map((weekId) => db.doc(`ptAvailability/${studentId}_${weekId}`))
+  const [trainersSnapshot, sessionsSnapshot, leavesSnapshot, requestsSnapshot, contractSessionsSnapshot, studentSessionsSnapshot, ...availabilitySnapshots] = await Promise.all([
+    db.collection('trainers').where('branchId', '==', contract.branchId || student.branchId || '').limit(201).get(),
+    db.collection('sessions').where('date', '>=', rangeStart).where('date', '<', addDateDays(rangeEnd, 1)).limit(SESSION_CHANGE_DATA_LIMIT + 1).get(),
+    db.collection('leaveRequests').where('status', '==', 'approved').limit(1001).get(),
+    db.collection('sessionRequests').where('studentId', '==', studentId).limit(100).get(),
+    db.collection('sessions').where('contractId', '==', contract.id).limit(SESSION_CHANGE_DATA_LIMIT + 1).get(),
+    db.collection('sessions').where('studentId', '==', studentId).limit(SESSION_CHANGE_DATA_LIMIT + 1).get(),
+    ...availabilityReferences.map((reference) => db.getAll(reference).then((values) => values[0])),
+  ])
+  if (trainersSnapshot.size > 200 || sessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || contractSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || studentSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || leavesSnapshot.size > 1000) {
+    throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn an toàn để gợi ý ca bổ sung.')
+  }
+  if (requestsSnapshot.docs.some((item) => item.data().type === 'additional' && item.data().status === 'pending')) {
+    return { policy, contractId: contract.id, weeklyTarget: Number(student.sessionsPerWeek || 0), weeklyMaximum: Math.max(1, Number(student.maxWeeklySessions || 7)), suggestions: [], issueCodes: ['ADDITIONAL_REQUEST_PENDING'] }
+  }
+  const sessions = activeSessionRows(sessionsSnapshot)
+  const studentSessions = activeSessionRows(studentSessionsSnapshot)
+  const contractScheduled = activeSessionRows(contractSessionsSnapshot).length
+  if (Number(contract.usedSessions || 0) + contractScheduled >= Number(contract.totalSessions || 0)) {
+    return { policy, contractId: contract.id, weeklyTarget: Number(student.sessionsPerWeek || 0), weeklyMaximum: Math.max(1, Number(student.maxWeeklySessions || 7)), suggestions: [], issueCodes: ['CONTRACT_QUOTA_EXHAUSTED'] }
+  }
+  const availabilityByWeek = new Map(availabilitySnapshots.filter((item) => item?.exists).map((item) => [item.id.slice(-(10)), item.data()]))
+  const assignedTrainerIds = new Set([contract.trainerId, ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : [])].filter(Boolean))
+  const trainers = trainersSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+    .filter((trainer) => trainer.status !== 'inactive')
+    .filter((trainer) => assignedTrainerIds.has(trainer.id) || trainerPolicy(trainer).employmentType === 'full_time')
+  const studentTrainingDates = new Set(studentSessions.map((item) => storedDateKey(item.date, 'Ngày buổi liên quan')))
+  const candidates = []
+  for (let targetDate = rangeStart; targetDate <= rangeEnd; targetDate = addDateDays(targetDate, 1)) {
+    if (pauseCoversDate(contract, targetDate)) continue
+    const dayCode = dayCodeForDate(targetDate)
+    if (dayCode === 'CN') continue
+    const weekly = availabilityByWeek.get(mondayForDate(targetDate))
+    const weeklyReady = weekly && ['submitted', 'locked', 'recurring'].includes(weekly.status)
+    const studentSlots = weeklyReady && Array.isArray(weekly.slots)
+      ? weekly.slots
+      : student.isScheduleConfirmed === true && Array.isArray(student.availableSlots) ? student.availableSlots : []
+    if (!studentSlots.length) continue
+    const weekStart = mondayForDate(targetDate)
+    const weekScheduled = studentSessions.filter((item) => storedDateKey(item.date, 'Ngày lịch học viên') >= weekStart && storedDateKey(item.date, 'Ngày lịch học viên') <= addDateDays(weekStart, 6)).length
+    const weeklyMaximum = Math.max(1, Number(student.maxWeeklySessions || 7))
+    if (weekScheduled >= weeklyMaximum) continue
+    for (const trainer of trainers) {
+      const policyData = trainerPolicy(trainer)
+      const trainerSlots = Array.isArray(trainer.availableSlots) ? trainer.availableSlots : []
+      if (!trainerSlots.length && trainer.availabilityMode !== 'unrestricted') continue
+      const trainerOnLeave = leavesSnapshot.docs.some((item) => {
+        const leave = item.data()
+        const start = typeof leave.startDate === 'string' ? leave.startDate.slice(0, 10) : ''
+        const end = typeof leave.endDate === 'string' ? leave.endDate.slice(0, 10) : start
+        return leave.trainerId === trainer.id && start && end && targetDate >= start && targetDate <= end
+      })
+      if (trainerOnLeave) continue
+      const assigned = assignedTrainerIds.has(trainer.id)
+      const isPrimaryTrainer = trainer.id === contract.trainerId
+      for (const targetHour of Array.from({ length: 24 }, (_, value) => value)) {
+        const slotId = `${dayCode}-${targetHour}`
+        if (!studentSlots.includes(slotId)) continue
+        if (trainer.availabilityMode !== 'unrestricted' && !trainerSlots.includes(slotId)) continue
+        if (sessions.some((item) => item.studentId === studentId && storedDateKey(item.date, 'Ngày lịch học viên') === targetDate && storedSessionHour(item.hour, item.id, 'Giờ lịch học viên') === targetHour)) continue
+        const sameTrainerDate = sessions.filter((item) => item.trainerId === trainer.id && storedDateKey(item.date, 'Ngày lịch PT') === targetDate)
+        const atSlot = sameTrainerDate.filter((item) => storedSessionHour(item.hour, item.id, 'Giờ lịch PT') === targetHour)
+        const occupancy = new Set(atSlot.map((item) => item.studentId)).size
+        const capacity = normalizedTrainerCapacity(trainer.slotCapacity)
+        if (occupancy >= capacity) continue
+        const uniqueTeachingSlots = new Set(sameTrainerDate.map((item) => storedSessionHour(item.hour, item.id, 'Giờ lịch PT'))).size
+        const pairsExistingSession = occupancy === 1 && capacity === 2
+        const projectedTeachingSlots = uniqueTeachingSlots + (pairsExistingSession ? 0 : 1)
+        const priorityTier = pairsExistingSession ? 1 : isPrimaryTrainer && projectedTeachingSlots <= policyData.dailySessionTarget ? 2 : 3
+        const slotStart = new Date(`${targetDate}T${String(targetHour).padStart(2, '0')}:00:00+07:00`)
+        if (slotStart.getTime() - now.getTime() < policy.sessionChangeDeadlineHours * 60 * 60 * 1000) continue
+        const createsThreeConsecutiveDays = hasThreeConsecutiveTrainingDays(studentTrainingDates, targetDate)
+        const daysFromStart = inclusiveDateDays(rangeStart, targetDate) - 1
+        const score = (4 - priorityTier) * 100000 + (assigned ? 6000 : 0) + (isPrimaryTrainer ? 2200 : 0)
+          + (policyData.employmentType === 'full_time' ? 1800 : 0) + Math.max(0, policyData.dailySessionTarget - projectedTeachingSlots) * 180
+          - policyData.schedulingPriority - projectedTeachingSlots * 25 - daysFromStart * 5 - (createsThreeConsecutiveDays ? 3500 : 0)
+        candidates.push({
+          candidateId: createHash('sha256').update(`additional|${contract.id}|${targetDate}|${targetHour}|${trainer.id}`).digest('hex').slice(0, 32),
+          contractId: contract.id, date: targetDate, hour: targetHour, trainerId: trainer.id,
+          trainerName: optionalText(trainer.name, 160) || 'PT chưa cập nhật tên', occupancy, capacity,
+          pairsExistingSession, priorityTier, isPrimaryTrainer, isAssignedTrainer: assigned,
+          employmentType: policyData.employmentType, dailyLoad: uniqueTeachingSlots, dailyLoadBefore: uniqueTeachingSlots,
+          dailyLoadAfter: projectedTeachingSlots, dailyTarget: policyData.dailySessionTarget,
+          overTargetAfter: projectedTeachingSlots > policyData.dailySessionTarget, createsThreeConsecutiveDays,
+          requiresManagerApproval: weekScheduled >= Number(student.sessionsPerWeek || 0), weeklyScheduled: weekScheduled,
+          weeklyTarget: Number(student.sessionsPerWeek || 0), score,
+        })
+      }
+    }
+  }
+  candidates.sort((left, right) => left.priorityTier - right.priorityTier || right.score - left.score || left.date.localeCompare(right.date) || left.hour - right.hour || left.trainerName.localeCompare(right.trainerName, 'vi'))
+  return {
+    policy,
+    contractId: contract.id,
+    contractName: optionalText(contract.packageName, 160) || null,
+    weeklyTarget: Number(student.sessionsPerWeek || 0),
+    weeklyMaximum: Math.max(1, Number(student.maxWeeklySessions || 7)),
+    suggestions: candidates.slice(0, SESSION_CHANGE_SUGGESTION_LIMIT).map(({ score, ...candidate }, index) => ({ ...candidate, rank: index + 1 })),
+    issueCodes: candidates.length ? [] : ['NO_MATCHING_SLOT'],
+  }
 }
 
 async function readAutomationSessionPage({ db, jobId, lowerDate, upperDate, filters = [], limit = AUTOMATION_PAGE_SIZE }) {
@@ -1392,19 +1544,24 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       }
       return {
         ...common,
-        type: item.type === 'cancel' ? 'cancel' : 'reschedule',
+        type: item.type === 'cancel' ? 'cancel' : item.type === 'additional' ? 'additional' : 'reschedule',
         sessionId: optionalText(item.sessionId, 128),
         sessionRevision: Number(session.revision || 0),
         trainerId,
         trainerName: optionalText(trainer.name, 160) || 'PT chưa xác định',
         requestedBy: item.requestedBy === 'trainer' ? 'trainer' : 'student',
-        originalDate: optionalText(item.originalDate, 10),
+        originalDate: optionalText(item.originalDate, 10) || null,
         originalHour: Number.isInteger(item.originalHour) ? item.originalHour : Number.isInteger(session.hour) ? session.hour : null,
         newDate: optionalText(item.newDate, 10) || null,
         newHour: Number.isInteger(item.newHour) ? item.newHour : null,
         newTrainerId: newTrainerId || null,
         newTrainerName: newTrainerId ? optionalText(newTrainer.name, 160) || 'PT chưa xác định' : null,
         suggestionRank: Number(item.suggestionRank || 0) || null,
+        priorityTier: Number.isInteger(item.priorityTier) && item.priorityTier >= 1 && item.priorityTier <= 3 ? item.priorityTier : null,
+        isPrimaryTrainer: item.isPrimaryTrainer === true,
+        requiresManagerApproval: item.requiresManagerApproval === true,
+        weeklyScheduled: Number(item.weeklyScheduled || 0),
+        weeklyTarget: Number(item.weeklyTarget || 0),
         pairsExistingSession: item.pairsExistingSession === true,
         policyMonth: optionalText(item.policyMonth, 7) || null,
         policySequence: Number(item.policySequence || item.expectedPolicySequence || 0) || null,
@@ -1444,6 +1601,157 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       suggestions: result.suggestions,
       issueCodes: result.issueCodes,
     }
+  })
+
+  const getMyAdditionalSessionSuggestions = onCall(async (request) => {
+    const actor = await authorizeStudent(request, db)
+    const studentId = linkedStudentId(actor)
+    const result = await buildAdditionalSessionSuggestions({ db, studentId, now: now() })
+    return {
+      schemaVersion: 1,
+      contractId: result.contractId || null,
+      contractName: result.contractName || null,
+      weeklyTarget: result.weeklyTarget || 0,
+      weeklyMaximum: result.weeklyMaximum || 7,
+      policy: result.policy,
+      suggestions: result.suggestions,
+      issueCodes: result.issueCodes,
+    }
+  })
+
+  const createMyAdditionalSessionRequest = onCall(async (request) => {
+    const actor = await authorizeStudent(request, db)
+    const studentId = linkedStudentId(actor)
+    const reason = boundedReason(request.data?.reason, 'Lý do đăng ký thêm buổi')
+    const idempotencyKey = id(request.data?.idempotencyKey, 'Khóa chống gửi trùng')
+    const requestReference = db.doc(`sessionRequests/student-${actor.uid}-${idempotencyKey}`)
+    const [existingBeforeSuggestion] = await db.getAll(requestReference)
+    if (existingBeforeSuggestion?.exists) {
+      const existing = existingBeforeSuggestion.data()
+      return { unchanged: true, requestId: existingBeforeSuggestion.id, status: existing.status, type: 'additional' }
+    }
+    const submittedAt = now()
+    const suggestionResult = await buildAdditionalSessionSuggestions({ db, studentId, now: submittedAt })
+    const requestedCandidateId = optionalText(request.data?.candidateId, 64)
+    const selectedSuggestion = suggestionResult.suggestions.find((candidate) => (
+      (requestedCandidateId && candidate.candidateId === requestedCandidateId)
+      || (!requestedCandidateId
+        && candidate.date === request.data?.newDate
+        && candidate.hour === request.data?.newHour
+        && (!request.data?.newTrainerId || candidate.trainerId === request.data.newTrainerId))
+    )) || null
+    if (!selectedSuggestion) {
+      throw new HttpsError('failed-precondition', 'Ca đăng ký thêm không còn phù hợp. Hãy tải lại danh sách ca trống.', { issueCode: 'ADDITIONAL_SESSION_SUGGESTION_STALE' })
+    }
+    const contractReference = db.doc(`contracts/${selectedSuggestion.contractId}`)
+    const studentReference = db.doc(`students/${studentId}`)
+
+    return db.runTransaction(async (transaction) => {
+      const [existingRequest, contractSnapshot, studentSnapshot, requestsSnapshot, contractSessionsSnapshot] = await Promise.all([
+        transaction.get(requestReference),
+        transaction.get(contractReference),
+        transaction.get(studentReference),
+        transaction.get(db.collection('sessionRequests').where('studentId', '==', studentId).limit(100)),
+        transaction.get(db.collection('sessions').where('contractId', '==', selectedSuggestion.contractId).limit(SESSION_CHANGE_DATA_LIMIT + 1)),
+      ])
+      if (existingRequest.exists) {
+        const existing = existingRequest.data()
+        return { unchanged: true, requestId: existingRequest.id, status: existing.status, type: 'additional' }
+      }
+      if (!contractSnapshot.exists || !studentSnapshot.exists) throw new HttpsError('failed-precondition', 'Thiếu hợp đồng hoặc hồ sơ học viên để tạo yêu cầu.')
+      if (requestsSnapshot.size >= 100) throw new HttpsError('resource-exhausted', 'Học viên có quá nhiều yêu cầu lịch sử để xác minh an toàn.')
+      if (requestsSnapshot.docs.some((item) => item.data().type === 'additional' && item.data().status === 'pending')) {
+        throw new HttpsError('already-exists', 'Bạn đã có một yêu cầu đăng ký thêm buổi đang chờ xử lý.')
+      }
+      const contract = contractSnapshot.data()
+      const student = studentSnapshot.data()
+      if (contract.studentId !== studentId || contract.status !== 'active') throw new HttpsError('failed-precondition', 'Hợp đồng không còn hoạt động cho học viên này.')
+      const contractStart = storedContractDate(contract.startDate, 'Ngày bắt đầu')
+      const contractEnd = storedContractDate(contract.endDate, 'Ngày kết thúc')
+      if (selectedSuggestion.date < contractStart || selectedSuggestion.date > contractEnd) throw new HttpsError('failed-precondition', 'Ca đăng ký nằm ngoài thời hạn hợp đồng.')
+      if (pauseCoversDate(contract, selectedSuggestion.date)) throw new HttpsError('failed-precondition', 'Ngày đăng ký nằm trong thời gian OFF hoặc bảo lưu.')
+      const contractSessions = activeSessionRows(contractSessionsSnapshot)
+      if (contractSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || Number(contract.usedSessions || 0) + contractSessions.filter((item) => item.contractId === selectedSuggestion.contractId).length >= Number(contract.totalSessions || 0)) {
+        throw new HttpsError('failed-precondition', 'Hợp đồng đã hết số buổi có thể xếp.')
+      }
+      const [trainerSnapshot, trainerDay, studentDay, availabilitySnapshot, leavesSnapshot, studentSessionsSnapshot, configSnapshot] = await Promise.all([
+        transaction.get(db.doc(`trainers/${selectedSuggestion.trainerId}`)),
+        transaction.get(dailySessionsQuery(db, 'trainerId', selectedSuggestion.trainerId, selectedSuggestion.date)),
+        transaction.get(dailySessionsQuery(db, 'studentId', studentId, selectedSuggestion.date)),
+        transaction.get(db.doc(`ptAvailability/${studentId}_${mondayForDate(selectedSuggestion.date)}`)),
+        transaction.get(db.collection('leaveRequests').where('status', '==', 'approved').limit(1001)),
+        transaction.get(db.collection('sessions').where('studentId', '==', studentId).limit(SESSION_CHANGE_DATA_LIMIT + 1)),
+        transaction.get(db.doc('settings/scheduleConfig')),
+      ])
+      if (!trainerSnapshot.exists || trainerSnapshot.data().status === 'inactive') throw new HttpsError('failed-precondition', 'PT của ca đăng ký không còn hoạt động.')
+      if (leavesSnapshot.size > 1000 || studentSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT) throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn xác minh an toàn.')
+      const trainer = trainerSnapshot.data()
+      const expectedBranchId = contract.branchId || student.branchId
+      if (expectedBranchId && trainer.branchId !== expectedBranchId) throw new HttpsError('failed-precondition', 'PT của ca đăng ký không thuộc đúng chi nhánh.')
+      const assignedTrainerIds = new Set([contract.trainerId, ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : [])].filter(Boolean))
+      if (!assignedTrainerIds.has(selectedSuggestion.trainerId) && trainerPolicy(trainer).employmentType !== 'full_time') throw new HttpsError('failed-precondition', 'Ca ngoài PT phụ trách chỉ được chọn PT chính thức toàn thời gian.')
+      const slotId = `${dayCodeForDate(selectedSuggestion.date)}-${selectedSuggestion.hour}`
+      if (trainer.availabilityMode !== 'unrestricted' && (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.includes(slotId))) throw new HttpsError('failed-precondition', 'Ca đăng ký không còn nằm trong lịch rảnh PT.')
+      const weeklyAvailability = availabilitySnapshot.exists ? availabilitySnapshot.data() : null
+      const studentSlots = weeklyAvailability && ['submitted', 'locked', 'recurring'].includes(weeklyAvailability.status) && Array.isArray(weeklyAvailability.slots)
+        ? weeklyAvailability.slots
+        : student.isScheduleConfirmed === true && Array.isArray(student.availableSlots) ? student.availableSlots : []
+      if (!studentSlots.includes(slotId)) throw new HttpsError('failed-precondition', 'Ca đăng ký không còn nằm trong lịch rảnh học viên.')
+      const trainerUnavailable = leavesSnapshot.docs.some((item) => {
+        const leave = item.data()
+        const start = typeof leave.startDate === 'string' ? leave.startDate.slice(0, 10) : ''
+        const end = typeof leave.endDate === 'string' ? leave.endDate.slice(0, 10) : start
+        return leave.trainerId === selectedSuggestion.trainerId && start && end && selectedSuggestion.date >= start && selectedSuggestion.date <= end
+      })
+      if (trainerUnavailable) throw new HttpsError('failed-precondition', 'PT đang OFF ở ngày đăng ký.')
+      const targetCapacity = normalizedTrainerCapacity(trainer.slotCapacity)
+      if (activeHourDocuments(trainerDay, selectedSuggestion.hour).length >= targetCapacity) throw new HttpsError('resource-exhausted', 'Khung giờ của PT đã đủ học viên.')
+      if (activeHourDocuments(studentDay, selectedSuggestion.hour).length > 0) throw new HttpsError('already-exists', 'Học viên đã có buổi khác trong khung giờ này.')
+      const weeklyStart = mondayForDate(selectedSuggestion.date)
+      const weeklyScheduled = activeSessionRows(studentSessionsSnapshot).filter((item) => {
+        const itemDate = storedDateKey(item.date, 'Ngày lịch học viên')
+        return itemDate >= weeklyStart && itemDate <= addDateDays(weeklyStart, 6)
+      }).length
+      const weeklyMaximum = Math.max(1, Number(student.maxWeeklySessions || 7))
+      if (weeklyScheduled >= weeklyMaximum) throw new HttpsError('failed-precondition', 'Bạn đã đạt số buổi tối đa trong tuần.')
+      const operationsPolicy = normalizedPtOperationsPolicy(configSnapshot.exists ? configSnapshot.data() : {})
+      try {
+        assertSessionChangeDeadline(selectedSuggestion.date, selectedSuggestion.hour, submittedAt, operationsPolicy.sessionChangeDeadlineHours)
+      } catch (error) {
+        throw policyFailure(error)
+      }
+      const expectedCandidateId = createHash('sha256').update(`additional|${selectedSuggestion.contractId}|${selectedSuggestion.date}|${selectedSuggestion.hour}|${selectedSuggestion.trainerId}`).digest('hex').slice(0, 32)
+      if (selectedSuggestion.candidateId !== expectedCandidateId) throw new HttpsError('aborted', 'Ca đăng ký đã thay đổi. Hãy tải lại danh sách ca trống.')
+      transaction.create(requestReference, {
+        schemaVersion: 1,
+        policyVersion: 'additional-session-v1',
+        type: 'additional',
+        sessionId: null,
+        studentId,
+        accountUid: actor.uid,
+        contractId: selectedSuggestion.contractId,
+        trainerId: selectedSuggestion.trainerId,
+        newTrainerId: selectedSuggestion.trainerId,
+        newDate: selectedSuggestion.date,
+        newHour: selectedSuggestion.hour,
+        candidateId: expectedCandidateId,
+        priorityTier: selectedSuggestion.priorityTier,
+        isPrimaryTrainer: selectedSuggestion.isPrimaryTrainer === true,
+        pairsExistingSession: selectedSuggestion.pairsExistingSession === true,
+        weeklyScheduled,
+        weeklyTarget: Number(student.sessionsPerWeek || 0),
+        requiresManagerApproval: weeklyScheduled >= Number(student.sessionsPerWeek || 0),
+        reason,
+        status: 'pending',
+        submittedAtIso: submittedAt.toISOString(),
+        expectedSessionRevision: 0,
+        idempotencyKey,
+        revision: 0,
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: actor.uid,
+      })
+      return { unchanged: false, requestId: requestReference.id, status: 'pending', type: 'additional', candidateId: expectedCandidateId, priorityTier: selectedSuggestion.priorityTier, requiresManagerApproval: weeklyScheduled >= Number(student.sessionsPerWeek || 0) }
+    })
   })
 
   const createMySessionRequest = onCall(async (request) => {
@@ -2093,8 +2401,143 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
       }
       if (requestData.status !== 'pending') throw new HttpsError('failed-precondition', 'Yêu cầu này không còn chờ duyệt.')
 
-      const requestType = requestData.type === 'cancel' ? 'cancel' : requestData.type === 'reschedule' ? 'reschedule' : ''
+      const requestType = requestData.type === 'cancel' ? 'cancel' : requestData.type === 'reschedule' ? 'reschedule' : requestData.type === 'additional' ? 'additional' : ''
       if (!requestType) throw new HttpsError('failed-precondition', 'Loại yêu cầu lịch không hợp lệ.')
+
+      // Additional-session requests do not have a source session to mutate.
+      // They still use the same transactional collision and availability
+      // checks as a reschedule, and only create one scheduled session after
+      // an authorised manager approves the request.
+      if (requestType === 'additional') {
+        const studentId = id(requestData.studentId, 'Mã học viên')
+        const contractId = id(requestData.contractId, 'Mã hợp đồng')
+        const targetDate = date(requestData.newDate)
+        const targetHour = hour(requestData.newHour)
+        const trainerId = id(requestData.newTrainerId || requestData.trainerId, 'Mã HLV')
+        const sessionId = `additional-${requestId}`
+        const sessionReference = db.doc(`sessions/${sessionId}`)
+        const [contractSnapshot, studentSnapshot, trainerSnapshot, trainerDay, studentDay, availabilitySnapshot, leavesSnapshot, contractSessionsSnapshot, studentSessionsSnapshot, existingSession, configSnapshot] = await Promise.all([
+          transaction.get(db.doc(`contracts/${contractId}`)),
+          transaction.get(db.doc(`students/${studentId}`)),
+          transaction.get(db.doc(`trainers/${trainerId}`)),
+          transaction.get(dailySessionsQuery(db, 'trainerId', trainerId, targetDate)),
+          transaction.get(dailySessionsQuery(db, 'studentId', studentId, targetDate)),
+          transaction.get(db.doc(`ptAvailability/${studentId}_${mondayForDate(targetDate)}`)),
+          transaction.get(db.collection('leaveRequests').where('status', '==', 'approved').limit(1001)),
+          transaction.get(db.collection('sessions').where('contractId', '==', contractId).limit(SESSION_CHANGE_DATA_LIMIT + 1)),
+          transaction.get(db.collection('sessions').where('studentId', '==', studentId).limit(SESSION_CHANGE_DATA_LIMIT + 1)),
+          transaction.get(sessionReference),
+          transaction.get(db.doc('settings/scheduleConfig')),
+        ])
+        if (existingSession.exists) throw new HttpsError('already-exists', 'Buổi đăng ký thêm đã được tạo; hãy tải lại danh sách yêu cầu.')
+        if (!contractSnapshot.exists || !studentSnapshot.exists) throw new HttpsError('failed-precondition', 'Thiếu hợp đồng hoặc hồ sơ học viên.')
+        const contract = contractSnapshot.data()
+        const student = studentSnapshot.data()
+        if (contract.studentId !== studentId || contract.status !== 'active') throw new HttpsError('failed-precondition', 'Hợp đồng không còn hoạt động cho học viên này.')
+        const contractStart = storedContractDate(contract.startDate, 'Ngày bắt đầu')
+        const contractEnd = storedContractDate(contract.endDate, 'Ngày kết thúc')
+        if (targetDate < contractStart || targetDate > contractEnd) throw new HttpsError('failed-precondition', 'Ca đăng ký nằm ngoài thời hạn hợp đồng.')
+        if (pauseCoversDate(contract, targetDate)) throw new HttpsError('failed-precondition', 'Ngày đăng ký nằm trong thời gian OFF hoặc bảo lưu.')
+        if (contractSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || studentSessionsSnapshot.size > SESSION_CHANGE_DATA_LIMIT || leavesSnapshot.size > 1000) throw new HttpsError('resource-exhausted', 'Dữ liệu lịch vượt giới hạn xác minh an toàn.')
+        const contractSessions = activeSessionRows(contractSessionsSnapshot)
+        if (Number(contract.usedSessions || 0) + contractSessions.filter((item) => item.contractId === contractId).length >= Number(contract.totalSessions || 0)) throw new HttpsError('failed-precondition', 'Hợp đồng đã hết số buổi có thể xếp.')
+        if (!trainerSnapshot.exists || trainerSnapshot.data().status === 'inactive') throw new HttpsError('failed-precondition', 'PT của ca đăng ký không còn hoạt động.')
+        const trainer = trainerSnapshot.data()
+        const expectedBranchId = contract.branchId || student.branchId
+        if (expectedBranchId && trainer.branchId !== expectedBranchId) throw new HttpsError('failed-precondition', 'PT của ca đăng ký không thuộc đúng chi nhánh.')
+        const assignedTrainerIds = new Set([contract.trainerId, ...(Array.isArray(contract.trainerIds) ? contract.trainerIds : [])].filter(Boolean))
+        if (!assignedTrainerIds.has(trainerId) && trainerPolicy(trainer).employmentType !== 'full_time') throw new HttpsError('failed-precondition', 'Ca ngoài PT phụ trách chỉ được chọn PT chính thức toàn thời gian.')
+        const slotId = `${dayCodeForDate(targetDate)}-${targetHour}`
+        if (trainer.availabilityMode !== 'unrestricted' && (!Array.isArray(trainer.availableSlots) || !trainer.availableSlots.includes(slotId))) throw new HttpsError('failed-precondition', 'Ca đăng ký không còn nằm trong lịch rảnh PT.')
+        const weeklyAvailability = availabilitySnapshot.exists ? availabilitySnapshot.data() : null
+        const studentSlots = weeklyAvailability && ['submitted', 'locked', 'recurring'].includes(weeklyAvailability.status) && Array.isArray(weeklyAvailability.slots)
+          ? weeklyAvailability.slots
+          : student.isScheduleConfirmed === true && Array.isArray(student.availableSlots) ? student.availableSlots : []
+        if (!studentSlots.includes(slotId)) throw new HttpsError('failed-precondition', 'Ca đăng ký không còn nằm trong lịch rảnh học viên.')
+        const trainerUnavailable = leavesSnapshot.docs.some((item) => {
+          const leave = item.data()
+          const start = typeof leave.startDate === 'string' ? leave.startDate.slice(0, 10) : ''
+          const end = typeof leave.endDate === 'string' ? leave.endDate.slice(0, 10) : start
+          return leave.trainerId === trainerId && start && end && targetDate >= start && targetDate <= end
+        })
+        if (trainerUnavailable) throw new HttpsError('failed-precondition', 'PT đang OFF ở ngày đăng ký.')
+        if (activeHourDocuments(trainerDay, targetHour).length >= normalizedTrainerCapacity(trainer.slotCapacity)) throw new HttpsError('resource-exhausted', 'Khung giờ của PT đã đủ học viên.')
+        if (activeHourDocuments(studentDay, targetHour).length > 0) throw new HttpsError('already-exists', 'Học viên đã có buổi khác trong khung giờ này.')
+        const weeklyStart = mondayForDate(targetDate)
+        const weeklyScheduled = activeSessionRows(studentSessionsSnapshot).filter((item) => {
+          const itemDate = storedDateKey(item.date, 'Ngày lịch học viên')
+          return itemDate >= weeklyStart && itemDate <= addDateDays(weeklyStart, 6)
+        }).length
+        const weeklyMaximum = Math.max(1, Number(student.maxWeeklySessions || 7))
+        if (weeklyScheduled >= weeklyMaximum) throw new HttpsError('failed-precondition', 'Học viên đã đạt số buổi tối đa trong tuần.')
+        const operationsPolicy = normalizedPtOperationsPolicy(configSnapshot.exists ? configSnapshot.data() : {})
+        try {
+          assertSessionChangeDeadline(targetDate, targetHour, now(), operationsPolicy.sessionChangeDeadlineHours)
+        } catch (error) {
+          throw policyFailure(error)
+        }
+        const branchId = contract.branchId || student.branchId || trainer.branchId || ''
+        transaction.create(sessionReference, {
+          schemaVersion: 1,
+          studentId,
+          accountUid: requestData.accountUid || null,
+          trainerId,
+          contractId,
+          branchId,
+          date: targetDate,
+          hour: targetHour,
+          status: 'scheduled',
+          scheduleStatus: 'scheduled',
+          billingStatus: 'pending',
+          attendanceStatus: 'pending',
+          source: 'student_additional_request',
+          sessionRequestId: requestId,
+          revision: 0,
+          createdAt: FieldValue.serverTimestamp(),
+          createdBy: actor.uid,
+          updatedAt: FieldValue.serverTimestamp(),
+          updatedBy: actor.uid,
+        })
+        transaction.create(db.collection('sessionEvents').doc(), {
+          schemaVersion: 2,
+          type: 'additional_session_approved',
+          sessionId,
+          requestId,
+          studentId,
+          trainerId,
+          contractId,
+          to: { date: targetDate, hour: targetHour, trainerId },
+          priorityTier: Number(requestData.priorityTier || 3),
+          createdAt: FieldValue.serverTimestamp(),
+          createdBy: actor.uid,
+        })
+        transaction.update(requestReference, {
+          status: 'approved',
+          approvedAt: FieldValue.serverTimestamp(),
+          approvedBy: actor.uid,
+          processedSessionId: sessionId,
+          processedSessionRevision: 0,
+          revision: Number(requestData.revision || 0) + 1,
+        })
+        const notificationTargets = new Set([requestData.accountUid, trainerId])
+        for (const targetUid of notificationTargets) {
+          if (typeof targetUid !== 'string' || !/^[A-Za-z0-9_-]+$/.test(targetUid)) continue
+          const notificationReference = db.doc(`users/${targetUid}/notifications/pt-session-request-${requestId}-approved`)
+          transaction.create(notificationReference, {
+            id: notificationReference.id,
+            userId: targetUid,
+            title: 'Đăng ký thêm buổi đã được duyệt',
+            message: `${targetDate} · ${String(targetHour).padStart(2, '0')}:00 · lịch đã được thêm vào gói tập`,
+            type: 'pt_schedule',
+            category: 'workout',
+            actionUrl: targetUid === requestData.accountUid ? '#/schedule' : '#/staff-schedule',
+            dedupeKey: notificationReference.id,
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          })
+        }
+        return { unchanged: false, status: 'approved', type: 'additional', sessionId, revision: 0, date: targetDate, hour: targetHour, trainerId }
+      }
       const requestedBy = requestData.requestedBy === 'trainer' || (requestData.requestedBy !== 'student' && requestData.trainerId)
         ? 'trainer'
         : 'student'
@@ -2768,7 +3211,7 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
         transaction.create(notificationReference, {
           id: notificationReference.id,
           userId: data.accountUid,
-          title: data.type === 'cancel' ? 'Yêu cầu hủy ca chưa được duyệt' : 'Yêu cầu đổi ca chưa được duyệt',
+          title: data.type === 'additional' ? 'Yêu cầu thêm buổi chưa được duyệt' : data.type === 'cancel' ? 'Yêu cầu hủy ca chưa được duyệt' : 'Yêu cầu đổi ca chưa được duyệt',
           message: reason,
           type: 'pt_schedule',
           category: 'workout',
@@ -2785,6 +3228,8 @@ function createSessionOperationFunctions({ db, onCall, authorizeAdmin = adminAct
   return {
     listPtOperationsRequests,
     getMySessionChangeSuggestions,
+    getMyAdditionalSessionSuggestions,
+    createMyAdditionalSessionRequest,
     createMySessionRequest,
     confirmSessionAttendance,
     recordSessionAttendance,

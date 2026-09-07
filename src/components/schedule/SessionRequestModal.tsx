@@ -38,6 +38,15 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
   const sessionLabel = useMemo(() => `${formatDate(session.date)} · ${session.hour === null ? '--:--' : `${String(session.hour).padStart(2, '0')}:00`}`, [session.date, session.hour])
   const selectedSuggestion = suggestionPage?.suggestions.find((candidate) => candidate.candidateId === selectedCandidateId) ?? null
   const policy = suggestionPage?.policy
+  const suggestionGroups = useMemo(() => {
+    const suggestions = suggestionPage?.suggestions ?? []
+    return ([1, 2, 3] as const).map((tier) => ({
+      tier,
+      label: tier === 1 ? 'Ưu tiên ghép ca 1/2' : tier === 2 ? 'PT chính dưới mốc cân tải' : 'PT Aura còn lịch',
+      hint: tier === 1 ? 'Lấp ghế trống, không mở thêm ca cho PT.' : tier === 2 ? 'Mở ca mới khi PT chính chưa đủ mốc 8 ca/ngày.' : 'Phương án dự phòng, vẫn ưu tiên xếp đủ buổi.',
+      items: suggestions.filter((candidate) => (candidate.priorityTier ?? (candidate.pairsExistingSession ? 1 : candidate.isPrimaryTrainer ? 2 : 3)) === tier),
+    })).filter((group) => group.items.length > 0)
+  }, [suggestionPage?.suggestions])
 
   const loadSuggestions = async () => {
     setIsLoadingSuggestions(true)
@@ -106,16 +115,21 @@ export default function SessionRequestModal({ onClose, onCreated, session }: Pro
             <header><div><strong>Ca Aura đề xuất</strong><span>Ưu tiên xếp đủ buổi, ghép ca phù hợp và cân tải giữa các PT hợp lệ.</span></div><button type="button" onClick={() => void loadSuggestions()} disabled={isLoadingSuggestions} aria-label="Tải lại ca gợi ý"><RefreshCw className={isLoadingSuggestions ? 'is-spinning' : ''} size={17} /></button></header>
             {isLoadingSuggestions && !suggestionPage && <div className="student-change-suggestions__empty"><RefreshCw className="is-spinning" /> Đang tìm ca phù hợp…</div>}
             {!isLoadingSuggestions && suggestionPage && !suggestionPage.suggestions.length && <div className="student-change-suggestions__empty"><CircleAlert /> Chưa có ca trống khớp lịch rảnh trong 21 ngày tới. Aura sẽ hỗ trợ xếp thủ công.</div>}
-            <div className="student-change-suggestions__rail">
-              {suggestionPage?.suggestions.map((candidate) => <button type="button" key={candidate.candidateId} className={selectedCandidateId === candidate.candidateId ? 'is-selected' : ''} onClick={() => setSelectedCandidateId(candidate.candidateId)}>
+            <div className="student-change-suggestions__groups">
+              {suggestionGroups.map((group) => <section className={`student-change-suggestions__group is-tier-${group.tier}`} key={group.tier}>
+                <header><strong>{group.label}</strong><span>{group.items.length} ca · {group.hint}</span></header>
+                <div className="student-change-suggestions__rail">
+              {group.items.map((candidate) => <button type="button" key={candidate.candidateId} className={selectedCandidateId === candidate.candidateId ? 'is-selected' : ''} onClick={() => setSelectedCandidateId(candidate.candidateId)}>
                 <span className="student-change-suggestion__check">{selectedCandidateId === candidate.candidateId ? <Check size={14} /> : candidate.rank}</span>
                 <strong>{formatDate(candidate.date)} · {String(candidate.hour).padStart(2, '0')}:00</strong>
                 <span>{candidate.trainerName}</span>
                 <small><UsersRound size={13} /> {candidate.occupancy}/{candidate.capacity} học viên · dự kiến {candidate.dailyLoadAfter ?? (candidate.dailyLoad + Number(!candidate.pairsExistingSession))} ca · mốc cân tải {candidate.dailyTarget}</small>
-                <em>{candidate.pairsExistingSession ? 'Ưu tiên ghép ca' : candidate.isCurrentTrainer ? 'PT hiện tại' : candidate.isAssignedTrainer ? 'PT phụ trách' : 'PT chính thức'}</em>
+                <em>{candidate.pairsExistingSession ? 'Còn 1 ghế trong ca' : candidate.isPrimaryTrainer ? 'PT chính' : candidate.isCurrentTrainer ? 'PT hiện tại' : candidate.isAssignedTrainer ? 'PT phụ trách' : 'PT chính thức'}</em>
                 {candidate.createsThreeConsecutiveDays && <i>3 ngày liên tiếp</i>}
                 {(candidate.overTargetAfter ?? ((candidate.dailyLoadAfter ?? candidate.dailyLoad) > candidate.dailyTarget)) && <i>Tải cao hơn mốc tham chiếu</i>}
               </button>)}
+                </div>
+              </section>)}
             </div>
           </section>}
           <label className="student-policy-reason"><span>Lý do</span><textarea required maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Cho Aura biết lý do để vận hành hỗ trợ tốt hơn…" /></label>

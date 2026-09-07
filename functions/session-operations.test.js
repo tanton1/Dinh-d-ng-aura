@@ -313,6 +313,68 @@ test('learner receives pairing-first change suggestions and a two-request Aura p
   assert.equal(saved.policyVersion, 'pt-change-cancel-v2')
 })
 
+test('additional-session opportunities strictly rank open 1/2 seat, primary PT under target, then another PT', async () => {
+  const state = operationsFor({
+    'settings/scheduleConfig': { sessionChangeDeadlineHours: 12 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', sessionsPerWeek: 2, maxWeeklySessions: 7, isScheduleConfirmed: true, availableSlots: ['T6-10', 'T6-11', 'T6-12'] },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-primary', branchId: 'branch-1', packageName: 'PT Aura', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 24, usedSessions: 2 },
+    'trainers/trainer-primary': { status: 'active', name: 'PT Chính', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-11'], slotCapacity: 2, dailySessionTarget: 8, schedulingPriority: 1 },
+    'trainers/trainer-pair': { status: 'active', name: 'PT Ghép', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-10'], slotCapacity: 2, dailySessionTarget: 8, schedulingPriority: 2 },
+    'trainers/trainer-other': { status: 'active', name: 'PT Hỗ trợ', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-12'], slotCapacity: 2, dailySessionTarget: 8, schedulingPriority: 3 },
+    'sessions/open-pair': { status: 'scheduled', studentId: 'student-2', trainerId: 'trainer-pair', contractId: 'contract-2', branchId: 'branch-1', date: '2026-08-21', hour: 10, revision: 0 },
+  })
+
+  const page = await state.getMyAdditionalSessionSuggestions({ data: {} })
+  assert.equal(page.contractId, 'contract-1')
+  const tiers = page.suggestions.map((item) => item.priorityTier)
+  assert.equal(tiers[0], 1)
+  assert.ok(tiers.indexOf(1) < tiers.indexOf(2))
+  assert.ok(tiers.indexOf(2) < tiers.indexOf(3))
+  assert.equal(page.suggestions[0].pairsExistingSession, true)
+  assert.equal(page.suggestions.find((item) => item.priorityTier === 2).isPrimaryTrainer, true)
+  assert.equal(page.suggestions.find((item) => item.priorityTier === 3).trainerId, 'trainer-other')
+})
+
+test('additional-session request is idempotent and approval atomically rechecks before creating one session', async () => {
+  const state = operationsFor({
+    'settings/scheduleConfig': { sessionChangeDeadlineHours: 12 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', sessionsPerWeek: 1, maxWeeklySessions: 7, isScheduleConfirmed: true, availableSlots: ['T6-10'] },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', packageName: 'PT Aura', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 24, usedSessions: 2 },
+    'trainers/trainer-1': { status: 'active', name: 'PT Chính', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-10'], slotCapacity: 2, dailySessionTarget: 8 },
+  })
+  const page = await state.getMyAdditionalSessionSuggestions({ data: {} })
+  const candidate = page.suggestions[0]
+  assert.ok(candidate)
+  const created = await state.createMyAdditionalSessionRequest({ data: { candidateId: candidate.candidateId, reason: 'Muốn tăng thêm một buổi', idempotencyKey: 'add-one' } })
+  assert.equal(created.status, 'pending')
+  const request = state.read('sessionRequests/student-student-account-add-one')
+  assert.equal(request.type, 'additional')
+  const retryCreate = await state.createMyAdditionalSessionRequest({ data: { candidateId: candidate.candidateId, reason: 'Muốn tăng thêm một buổi', idempotencyKey: 'add-one' } })
+  assert.equal(retryCreate.unchanged, true)
+
+  const approved = await state.approveSessionRequest({ data: { requestId: created.requestId, expectedSessionRevision: 0 } })
+  assert.equal(approved.type, 'additional')
+  assert.equal(state.read(`sessions/additional-${created.requestId}`).status, 'scheduled')
+  assert.equal(state.read(`sessions/additional-${created.requestId}`).contractId, 'contract-1')
+  assert.equal(state.read(`sessionRequests/${created.requestId}`).status, 'approved')
+  const retryApprove = await state.approveSessionRequest({ data: { requestId: created.requestId, expectedSessionRevision: 0 } })
+  assert.equal(retryApprove.unchanged, true)
+  assert.equal(state.paths().filter((path) => path === `sessions/additional-${created.requestId}`).length, 1)
+})
+
+test('additional-session request blocks a second pending request for the learner', async () => {
+  const state = operationsFor({
+    'settings/scheduleConfig': { sessionChangeDeadlineHours: 12 },
+    'students/student-1': { status: 'active', branchId: 'branch-1', sessionsPerWeek: 2, isScheduleConfirmed: true, availableSlots: ['T6-10'] },
+    'contracts/contract-1': { status: 'active', studentId: 'student-1', trainerId: 'trainer-1', branchId: 'branch-1', startDate: '2026-08-01', endDate: '2026-09-30', totalSessions: 24, usedSessions: 2 },
+    'trainers/trainer-1': { status: 'active', name: 'PT Chính', branchId: 'branch-1', employmentType: 'full_time', availableSlots: ['T6-10'], slotCapacity: 2 },
+    'sessionRequests/existing-additional': { type: 'additional', status: 'pending', studentId: 'student-1', contractId: 'contract-1', newDate: '2026-08-22', newHour: 10 },
+  })
+  const page = await state.getMyAdditionalSessionSuggestions({ data: {} })
+  assert.deepEqual(page.issueCodes, ['ADDITIONAL_REQUEST_PENDING'])
+  assert.equal(page.suggestions.length, 0)
+})
+
 test('change suggestions keep a valid ninth PT slot and label it as soft-target overload', async () => {
   const occupied = Object.fromEntries(Array.from({ length: 8 }, (_, index) => [`sessions/load-${index}`, {
     status: 'scheduled', studentId: `other-${index}`, trainerId: 'trainer-1', contractId: `other-contract-${index}`,
@@ -1025,7 +1087,8 @@ test('request history resolves operational identities and current session revisi
 })
 
 test('new branch schedule keeps learners in a dedicated operational tab without restoring request tabs', () => {
-  assert.match(branchScheduleWorkspace, /WorkspaceTab = 'matrix' \| 'students' \| 'warnings' \| 'history'/)
+  assert.match(branchScheduleWorkspace, /WorkspaceTab = 'matrix' \| 'opportunities' \| 'students' \| 'warnings' \| 'history'/)
+  assert.match(branchScheduleWorkspace, /Kho ca/)
   assert.match(branchScheduleWorkspace, /Tiến độ xếp lịch/)
   assert.match(branchScheduleWorkspace, /Thiếu lịch rảnh/)
   assert.match(branchScheduleWorkspace, /Lịch sử & khôi phục/)
