@@ -168,6 +168,24 @@ service firebase.storage {
       allow delete: if isOwner(userId) || isAdmin();
     }
 
+    match /performance-evidence/{userId}/{periodId}/{evidenceId}/{fileName} {
+      // The owner uploads immutable screenshots. Reviewers receive short-lived
+      // signed URLs only after the callable verifies their branch scope.
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId)
+                    && periodId.matches('\\d{4}-(0[1-9]|1[0-2])')
+                    && evidenceId.matches('[A-Za-z0-9_-]{8,200}')
+                    && fileName.matches('[A-Za-z0-9._-]{1,240}')
+                    && request.resource.size > 0
+                    && request.resource.size <= 10 * 1024 * 1024
+                    && request.resource.contentType.matches('image/(jpeg|png|webp)')
+                    && request.resource.metadata.ownerUid == userId
+                    && request.resource.metadata.periodId == periodId
+                    && request.resource.metadata.evidenceId == evidenceId
+                    && request.resource.metadata.resourceKind == 'performance-evidence';
+      allow update, delete: if false;
+    }
+
     match /recipe-images/{recipeId}/{fileName} {
       allow read: if signedIn();
       allow create, update: if isAdmin()

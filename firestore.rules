@@ -1301,6 +1301,29 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Performance Score and Brand evidence are exposed only through actor-
+    // scoped callables. This keeps review state, branch scope and immutable
+    // audit records enforceable even when a browser client is modified.
+    match /performancePolicies/{policyId} {
+      allow read, write: if false;
+    }
+
+    match /performanceSnapshots/{snapshotId} {
+      allow read, write: if false;
+    }
+
+    match /performanceEvidence/{evidenceId} {
+      allow read, write: if false;
+    }
+
+    match /performanceEvidenceDedupe/{dedupeId} {
+      allow read, write: if false;
+    }
+
+    match /performanceAuditLogs/{auditId} {
+      allow read, write: if false;
+    }
+
     match /renewCohortSnapshots/{snapshotId} {
       allow read, write: if false;
     }

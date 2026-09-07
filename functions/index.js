@@ -24,6 +24,7 @@ const { createFinanceLedgerFunctions } = require('./finance-ledger')
 const { autoConfirmOverduePtAttendance, chargeDuePtSessions, createSessionOperationFunctions, remindUnconfirmedPtAttendance } = require('./session-operations')
 const { createPayrollFunctions, priceTeachingSlots, payrollPolicyProfiles, payrollProfile, policySupportsProfile } = require('./payroll')
 const { createStaffPayrollFunctions } = require('./staff-payroll')
+const { createPerformanceScoreFunctions } = require('./performance-score')
 const { createOperationsDashboardFunctions } = require('./operations-dashboard')
 const { pruneExpiredDashboardCache } = require('./operations-dashboard-cache')
 const { rebuildOperationsDailyAggregates, syncDailyAggregateWrite } = require('./operations-dashboard-aggregates')
@@ -622,6 +623,14 @@ exports.fillMissingStaffAttendanceDaysV2 = staffPayrollV2Functions.fillMissingSt
 exports.saveWorkCalendarV2 = staffPayrollV2Functions.saveWorkCalendar
 exports.submitMyPayrollInquiryV2 = staffPayrollV2Functions.submitMyPayrollInquiry
 exports.submitMyPayrollInquiry = staffPayrollFunctions.submitMyPayrollInquiry
+const performanceScoreV2Functions = createPerformanceScoreFunctions({ db, onCall: payrollOverflowOnCall, storage, logger })
+exports.getMyPerformanceScoreV2 = performanceScoreV2Functions.getMyPerformanceScore
+exports.listMyPerformanceEvidenceV2 = performanceScoreV2Functions.listMyPerformanceEvidence
+exports.submitPerformanceBrandEvidenceV2 = performanceScoreV2Functions.submitPerformanceBrandEvidence
+exports.withdrawPerformanceBrandEvidenceV2 = performanceScoreV2Functions.withdrawPerformanceBrandEvidence
+exports.listPerformanceReviewQueueV2 = performanceScoreV2Functions.listPerformanceReviewQueue
+exports.reviewPerformanceBrandEvidenceV2 = performanceScoreV2Functions.reviewPerformanceBrandEvidence
+exports.savePerformanceProfileChecklistV2 = performanceScoreV2Functions.savePerformanceProfileChecklist
 const businessReportingFunctions = createBusinessReportingFunctions({ db, onCall })
 Object.assign(exports, businessReportingFunctions)
 // Static exports make the three endpoints selectable in a safe rollout.
