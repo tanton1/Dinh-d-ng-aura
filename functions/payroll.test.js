@@ -91,6 +91,27 @@ test('two learners in the same trainer slot count as one paid class and daily ti
   assert.equal(slots.reduce((sum, slot) => sum + slot.rate, 0), 310_000)
 })
 
+test('every evening class uses the evening rate even when it is within the first eight classes', () => {
+  const result = teachingSlotsFromSessions([
+    { id: 'morning', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', date: '2026-08-26', hour: 7 },
+    { id: 'evening-a', status: 'completed', trainerId: 'trainer-a', studentId: 'student-b', date: '2026-08-26', hour: 20 },
+    { id: 'evening-b', status: 'completed', trainerId: 'trainer-a', studentId: 'student-c', date: '2026-08-26', hour: 21 },
+  ], {
+    ratePerSession: 20_000,
+    dailySessionThreshold: 8,
+    rateAfterDailyThreshold: 70_000,
+    eveningStartHour: 20,
+    rateAfterDailyThresholdEvening: 80_000,
+  })
+  const slots = result.trainers.get('trainer-a')
+
+  assert.equal(slots[0].rate, 20_000)
+  assert.equal(slots[1].dailyPosition, 2)
+  assert.equal(slots[1].tier, 'after_threshold_evening')
+  assert.equal(slots[1].rate, 80_000)
+  assert.equal(slots[2].rate, 80_000)
+})
+
 test('canonical completed sessions produce the same paired teaching shifts without attendance fan-out reads', () => {
   const sessions = [
     { id: 'session-a', status: 'completed', trainerId: 'trainer-a', studentId: 'student-a', branchId: 'branch-a', date: '2026-08-25', hour: 6 },
@@ -433,6 +454,7 @@ test('payroll UI uses canonical runs and cannot edit teaching sessions', () => {
   assert.match(source, /Nguồn: ngày công \+ ca dạy đã điểm danh/)
   assert.match(source, /Đơn giá ca 1–8/)
   assert.match(source, /Từ ca thứ 9/)
+  assert.match(source, /Ca từ 20h/)
   assert.match(source, /deleteDraftPayrollRun/)
   assert.match(source, /managePayrollPolicy/)
   assert.match(source, /Theo từng HLV/)

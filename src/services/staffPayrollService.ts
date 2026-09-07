@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions'
 import { firebaseFunctions, firebaseScheduleOptimizerFunctions } from '../lib/firebaseFunctions'
+import type { PayrollIntelligenceSnapshot } from './payrollService'
 import { reportClientIssue } from './clientTelemetryService'
 
 export type StaffAttendanceStatus =
@@ -118,6 +119,7 @@ export interface MyStaffPayroll {
   amounts: StaffPayrollAmounts
   teachingSlots: StaffTeachingSlot[]
   teachingEvidence?: { slotCount: number; truncated: boolean; source: string }
+  intelligence?: PayrollIntelligenceSnapshot
   referralCommission: {
     rate: number
     contractCount: number
@@ -385,6 +387,7 @@ function normalizeStaffPayrollStatement(rawValue: unknown, periodId: string, sta
     workdays: normalizeWorkdays(raw.workdays),
     amounts: normalizeAmounts(raw.amounts),
     teachingSlots: normalizeTeachingSlots(raw.teachingSlots),
+    intelligence: raw.intelligence && typeof raw.intelligence === 'object' ? raw.intelligence as PayrollIntelligenceSnapshot : undefined,
     teachingEvidence: raw.teachingEvidence && typeof raw.teachingEvidence === 'object' ? {
       slotCount: integer(object(raw.teachingEvidence).slotCount),
       truncated: object(raw.teachingEvidence).truncated === true,

@@ -81,6 +81,18 @@
 .staff-payroll__breakdown > footer span { color: #6e5e69; font-size: 12px; font-weight: 800; }
 .staff-payroll__breakdown > footer strong { color: #e92d76; font-size: 22px; }
 
+.staff-payroll__intelligence { display: grid; gap: 12px; }
+.staff-payroll__intelligence-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.staff-payroll__intelligence-grid article { display: flex; align-items: center; gap: 9px; border-radius: 14px; padding: 11px 12px; background: linear-gradient(145deg, #fff7fb, #fffaf5); }
+.staff-payroll__intelligence-grid article > span { display: grid; place-items: center; width: 29px; height: 29px; flex: none; border-radius: 10px; background: #fff; color: #e72f76; }
+.staff-payroll__intelligence-grid article > div { display: grid; gap: 2px; min-width: 0; }
+.staff-payroll__intelligence-grid small, .staff-payroll__intelligence-grid em { color: var(--sp-muted); font-size: 10px; font-style: normal; }
+.staff-payroll__intelligence-grid strong { color: #453340; font-size: 15px; }
+.staff-payroll__intelligence-metrics { display: flex; flex-wrap: wrap; gap: 6px; }
+.staff-payroll__intelligence-metrics span { display: grid; gap: 2px; border-radius: 10px; padding: 7px 9px; background: #faf5f8; }
+.staff-payroll__intelligence-metrics small { color: var(--sp-muted); font-size: 9px; }.staff-payroll__intelligence-metrics b { color: #5b4654; font-size: 10px; }
+.staff-payroll__intelligence-note { margin: 0; color: var(--sp-muted); font-size: 10px; }
+
 .staff-payroll__weekday, .staff-payroll__days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 7px; }
 .staff-payroll__weekday { margin-bottom: 7px; color: #8c7b87; font-size: 10px; font-weight: 900; text-align: center; }
 .staff-payroll__days article, .staff-payroll__days > i { min-height: 58px; border-radius: 13px; }
@@ -139,13 +151,14 @@
   .staff-payroll__statement-head > button { width: 40px; padding: 0; font-size: 0; justify-content: center; }
   .staff-payroll__statement-head > div strong { font-size: 17px; }
   .staff-payroll__statement-head > em { grid-column: 2; justify-self: start; }
-  .staff-payroll__breakdown, .staff-payroll__calendar, .staff-payroll__teaching, .staff-payroll__referrals, .staff-payroll__inquiry { border-inline: 0; border-radius: 0; padding: 15px 14px; box-shadow: 0 8px 24px rgba(87, 39, 62, .06); }
+  .staff-payroll__breakdown, .staff-payroll__calendar, .staff-payroll__teaching, .staff-payroll__referrals, .staff-payroll__inquiry, .staff-payroll__intelligence { border-inline: 0; border-radius: 0; padding: 15px 14px; box-shadow: 0 8px 24px rgba(87, 39, 62, .06); }
   .staff-payroll__state { margin-inline: 14px; }
   .staff-payroll__policy { grid-template-columns: auto minmax(0, 1fr); margin-inline: 14px; border-radius: 18px; padding: 13px; }
   .staff-payroll__policy-status { grid-column: 2; justify-self: start; margin-top: 2px; }
   .staff-payroll__money-grid { gap: 8px; }.staff-payroll__money-grid article { grid-template-columns: 1fr; padding: 11px; }.staff-payroll__money-grid article > span { width: 31px; height: 31px; }
   .staff-payroll__days article, .staff-payroll__days > i { min-height: 48px; border-radius: 10px; }.staff-payroll__days { gap: 4px; }.staff-payroll__days article { padding: 5px; }
   .staff-payroll__teaching-list article { grid-template-columns: 84px minmax(0, 1fr) auto; gap: 8px; padding: 10px; }
+  .staff-payroll__intelligence-grid { grid-template-columns: 1fr; }
   .staff-payroll__referral-list article { grid-template-columns: minmax(0,1fr) auto; gap: 7px; }
   .staff-payroll__referral-list article > span:nth-child(2) { grid-column: 1; grid-row: 2; }
   .staff-payroll__referral-list article > em { grid-column: 2; grid-row: 1 / span 2; }

@@ -101,6 +101,22 @@ export interface PayrollRunSummary {
   grossAmount: number
   adjustmentAmount: number
   finalAmount: number
+  intelligenceSchemaVersion?: number
+  intelligencePolicyId?: string
+  intelligenceSummary?: {
+    enabled: boolean
+    policyId: string
+    policyVersion: number
+    policyName: string
+    staffCount: number
+    evidenceCount: number
+    reviewCount: number
+    renewalWonCount: number
+    attributedRevenue: number
+    rankCounts: Record<string, number>
+    amountImpact: 'none'
+    sourceTruncated: boolean
+  }
   createdAt: string
   updatedAt: string
 }
@@ -121,6 +137,61 @@ export interface PayrollPolicy {
   usageCount: number
   canDelete: boolean
   createdAt: string
+}
+
+export interface PayrollIntelligenceMetric {
+  id: string
+  label: string
+  source: string
+  enabled: boolean
+  weight: number
+  target: number
+  direction: 'higher_is_better' | 'lower_is_better'
+  cap: number
+}
+
+export interface PayrollIntelligencePolicy {
+  id: string
+  name: string
+  version: number
+  effectiveFrom: string
+  status: 'active' | 'inactive'
+  enabled: boolean
+  metrics: Record<string, PayrollIntelligenceMetric>
+  attributionRules: Array<{ sourceType: string; priority: string[]; splitMode: 'single' | 'equal' }>
+  rankBands: Array<{ code: string; label: string; minScore: number; maxScore: number }>
+  renew: { wonStages: string[]; creditAssisted: boolean }
+  amountImpact: 'none'
+}
+
+export interface PayrollEvidenceLedgerEntry {
+  id: string
+  sourceType: string
+  sourceId: string
+  date: string
+  staffId: string
+  role: string
+  quantity: number
+  value: number
+  status: 'verified' | 'review'
+  attributionConflict?: boolean
+  reason: string
+}
+
+export interface PayrollIntelligenceSnapshot {
+  schemaVersion: number
+  enabled: boolean
+  policyId: string
+  policyVersion: number
+  policyName: string
+  policySnapshot?: PayrollIntelligencePolicy | null
+  evidenceLedger: PayrollEvidenceLedgerEntry[]
+  evidenceLedgerSummary: { count: number; reviewCount: number; truncated: boolean; bySource: Record<string, number>; byRole: Record<string, number> }
+  attribution: { conflictCount: number; sourceCount: number; attributedRevenue: number; attributedCommission: number; bySource: Record<string, number>; byRole: Record<string, number> }
+  renew: { wonCount: number; assistedCount: number; attributedRevenue: number; reviewCount: number }
+  kpi: { enabled: boolean; score: number | null; weightTotal: number; metrics: Array<{ id: string; label: string; source: string; target: number; actual: number; weight: number; score: number; weightedScore: number }>; reason?: string }
+  rank: { code: string; label: string; score: number | null; configured: boolean }
+  amountImpact: 'none'
 }
 
 export type PayrollTeachingTier = 'standard' | 'after_threshold' | 'after_threshold_evening'
@@ -222,6 +293,17 @@ export interface PayrollRunItem {
   grossAmount: number
   adjustmentAmount: number
   finalAmount: number
+  intelligenceSchemaVersion?: number
+  incentivePolicyId?: string
+  incentivePolicySnapshot?: PayrollIntelligencePolicy | null
+  evidenceLedger?: PayrollEvidenceLedgerEntry[]
+  evidenceLedgerSummary?: PayrollIntelligenceSnapshot['evidenceLedgerSummary']
+  attributionSummary?: PayrollIntelligenceSnapshot['attribution']
+  renewSummary?: PayrollIntelligenceSnapshot['renew']
+  kpiSummary?: PayrollIntelligenceSnapshot['kpi']
+  rankSummary?: PayrollIntelligenceSnapshot['rank']
+  incentiveAmount?: number
+  incentiveAmountImpact?: 'none'
   status: PayrollRunStatus
   requiresRebuild?: boolean
   storedSessionCount?: number
@@ -376,8 +458,89 @@ function normaliseRun(value: unknown): PayrollRunSummary {
     grossAmount: amount(raw.grossAmount),
     adjustmentAmount: amount(raw.adjustmentAmount),
     finalAmount: amount(raw.finalAmount || raw.grossAmount),
+    intelligenceSchemaVersion: amount(raw.intelligenceSchemaVersion),
+    intelligencePolicyId: typeof raw.intelligencePolicyId === 'string' ? raw.intelligencePolicyId : '',
+    intelligenceSummary: raw.intelligenceSummary && typeof raw.intelligenceSummary === 'object' ? {
+      enabled: (raw.intelligenceSummary as Record<string, unknown>).enabled === true,
+      policyId: typeof (raw.intelligenceSummary as Record<string, unknown>).policyId === 'string' ? String((raw.intelligenceSummary as Record<string, unknown>).policyId) : '',
+      policyVersion: amount((raw.intelligenceSummary as Record<string, unknown>).policyVersion),
+      policyName: typeof (raw.intelligenceSummary as Record<string, unknown>).policyName === 'string' ? String((raw.intelligenceSummary as Record<string, unknown>).policyName) : '',
+      staffCount: amount((raw.intelligenceSummary as Record<string, unknown>).staffCount), evidenceCount: amount((raw.intelligenceSummary as Record<string, unknown>).evidenceCount), reviewCount: amount((raw.intelligenceSummary as Record<string, unknown>).reviewCount), renewalWonCount: amount((raw.intelligenceSummary as Record<string, unknown>).renewalWonCount), attributedRevenue: amount((raw.intelligenceSummary as Record<string, unknown>).attributedRevenue), rankCounts: ((raw.intelligenceSummary as Record<string, unknown>).rankCounts && typeof (raw.intelligenceSummary as Record<string, unknown>).rankCounts === 'object' ? (raw.intelligenceSummary as Record<string, unknown>).rankCounts : {}) as Record<string, number>, amountImpact: 'none', sourceTruncated: (raw.intelligenceSummary as Record<string, unknown>).sourceTruncated === true,
+    } : undefined,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : '',
+  }
+}
+
+function normaliseIntelligencePolicy(value: unknown): PayrollIntelligencePolicy | null {
+  const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const metrics = raw.metrics && typeof raw.metrics === 'object' ? Object.fromEntries(Object.entries(raw.metrics as Record<string, unknown>).flatMap(([key, value]) => {
+    const item = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+    return [[key, {
+        id: typeof item.id === 'string' ? item.id : key,
+        label: typeof item.label === 'string' ? item.label : key,
+        source: typeof item.source === 'string' ? item.source : '',
+        enabled: item.enabled === true,
+        weight: amount(item.weight),
+        target: amount(item.target),
+        direction: item.direction === 'lower_is_better' ? 'lower_is_better' as const : 'higher_is_better' as const,
+        cap: amount(item.cap) || 100,
+      }]]
+  })) : {}
+  return {
+    id: typeof raw.id === 'string' ? raw.id : '',
+    name: typeof raw.name === 'string' ? raw.name : 'Phân tích hiệu suất Aura',
+    version: amount(raw.version) || 1,
+    effectiveFrom: typeof raw.effectiveFrom === 'string' ? raw.effectiveFrom : '',
+    status: raw.status === 'inactive' ? 'inactive' : 'active',
+    enabled: raw.enabled !== false,
+    metrics,
+    attributionRules: Array.isArray(raw.attributionRules) ? raw.attributionRules.flatMap((value) => {
+      const item = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+      const sourceType = typeof item.sourceType === 'string' ? item.sourceType : ''
+      const priority = Array.isArray(item.priority) ? item.priority.filter((entry): entry is string => typeof entry === 'string') : []
+      return sourceType && priority.length ? [{ sourceType, priority, splitMode: item.splitMode === 'equal' ? 'equal' as const : 'single' as const }] : []
+    }) : [],
+    rankBands: Array.isArray(raw.rankBands) ? raw.rankBands.flatMap((value) => {
+      const item = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+      const label = typeof item.label === 'string' ? item.label : ''
+      return label ? [{ code: typeof item.code === 'string' ? item.code : label, label, minScore: amount(item.minScore), maxScore: amount(item.maxScore) || 100 }] : []
+    }) : [],
+    renew: raw.renew && typeof raw.renew === 'object' ? {
+      wonStages: Array.isArray((raw.renew as Record<string, unknown>).wonStages) ? ((raw.renew as Record<string, unknown>).wonStages as unknown[]).filter((value): value is string => typeof value === 'string') : ['won'],
+      creditAssisted: (raw.renew as Record<string, unknown>).creditAssisted === true,
+    } : { wonStages: ['won'], creditAssisted: false },
+    amountImpact: 'none',
+  }
+}
+
+function normaliseIntelligence(value: unknown): PayrollIntelligenceSnapshot | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  const summary = raw.evidenceLedgerSummary && typeof raw.evidenceLedgerSummary === 'object' ? raw.evidenceLedgerSummary as Record<string, unknown> : {}
+  const attribution = raw.attributionSummary && typeof raw.attributionSummary === 'object' ? raw.attributionSummary as Record<string, unknown> : {}
+  const renew = raw.renewSummary && typeof raw.renewSummary === 'object' ? raw.renewSummary as Record<string, unknown> : {}
+  const kpi = raw.kpiSummary && typeof raw.kpiSummary === 'object' ? raw.kpiSummary as Record<string, unknown> : {}
+  const rank = raw.rankSummary && typeof raw.rankSummary === 'object' ? raw.rankSummary as Record<string, unknown> : {}
+  const ledger = Array.isArray(raw.evidenceLedger) ? raw.evidenceLedger.flatMap((value) => {
+    if (!value || typeof value !== 'object') return []
+    const item = value as Record<string, unknown>
+    const id = typeof item.id === 'string' ? item.id : ''
+    return id ? [{ id, sourceType: typeof item.sourceType === 'string' ? item.sourceType : '', sourceId: typeof item.sourceId === 'string' ? item.sourceId : '', date: typeof item.date === 'string' ? item.date : '', staffId: typeof item.staffId === 'string' ? item.staffId : '', role: typeof item.role === 'string' ? item.role : '', quantity: amount(item.quantity), value: amount(item.value), status: item.status === 'review' ? 'review' as const : 'verified' as const, attributionConflict: item.attributionConflict === true, reason: typeof item.reason === 'string' ? item.reason : '' }] : []
+  }) : []
+  const metricRows = Array.isArray(kpi.metrics) ? kpi.metrics.flatMap((value) => {
+    if (!value || typeof value !== 'object') return []
+    const item = value as Record<string, unknown>
+    const id = typeof item.id === 'string' ? item.id : ''
+    return id ? [{ id, label: typeof item.label === 'string' ? item.label : id, source: typeof item.source === 'string' ? item.source : '', target: amount(item.target), actual: amount(item.actual), weight: amount(item.weight), score: amount(item.score), weightedScore: amount(item.weightedScore) }] : []
+  }) : []
+  return {
+    schemaVersion: Math.max(1, Math.trunc(amount(raw.schemaVersion) || 1)), enabled: raw.enabled === true, policyId: typeof raw.policyId === 'string' ? raw.policyId : '', policyVersion: amount(raw.policyVersion), policyName: typeof raw.policyName === 'string' ? raw.policyName : '', policySnapshot: normaliseIntelligencePolicy(raw.policySnapshot), evidenceLedger: ledger,
+    evidenceLedgerSummary: { count: amount(summary.count), reviewCount: amount(summary.reviewCount), truncated: summary.truncated === true, bySource: (summary.bySource && typeof summary.bySource === 'object' ? summary.bySource : {}) as Record<string, number>, byRole: (summary.byRole && typeof summary.byRole === 'object' ? summary.byRole : {}) as Record<string, number> },
+    attribution: { conflictCount: amount(attribution.conflictCount), sourceCount: amount(attribution.sourceCount), attributedRevenue: amount(attribution.attributedRevenue), attributedCommission: amount(attribution.attributedCommission), bySource: (attribution.bySource && typeof attribution.bySource === 'object' ? attribution.bySource : {}) as Record<string, number>, byRole: (attribution.byRole && typeof attribution.byRole === 'object' ? attribution.byRole : {}) as Record<string, number> },
+    renew: { wonCount: amount(renew.wonCount), assistedCount: amount(renew.assistedCount), attributedRevenue: amount(renew.attributedRevenue), reviewCount: amount(renew.reviewCount) },
+    kpi: { enabled: kpi.enabled === true, score: kpi.score === null || kpi.score === undefined ? null : amount(kpi.score), weightTotal: amount(kpi.weightTotal), metrics: metricRows },
+    rank: { code: typeof rank.code === 'string' ? rank.code : 'unconfigured', label: typeof rank.label === 'string' ? rank.label : 'Chưa xếp hạng', score: rank.score === null || rank.score === undefined ? null : amount(rank.score), configured: rank.configured === true }, amountImpact: 'none',
   }
 }
 
@@ -412,6 +575,7 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
       employeeCode: typeof rawStaffSnapshot.employeeCode === 'string' ? rawStaffSnapshot.employeeCode : undefined,
       branchId: typeof rawStaffSnapshot.branchId === 'string' ? rawStaffSnapshot.branchId : undefined,
     } : undefined
+    const intelligence = normaliseIntelligence(raw)
     const teachingSlots: PayrollTeachingSlot[] = Array.isArray(raw.teachingSlots) ? raw.teachingSlots.flatMap((slotValue) => {
       if (!slotValue || typeof slotValue !== 'object') return []
       const slot = slotValue as Record<string, unknown>
@@ -524,6 +688,17 @@ export async function getPayrollRun(runId: string): Promise<PayrollRunDetail> {
       grossAmount: amount(raw.grossAmount),
       adjustmentAmount: amount(raw.adjustmentAmount),
       finalAmount: amount(raw.finalAmount || raw.grossAmount),
+      intelligenceSchemaVersion: amount(raw.intelligenceSchemaVersion),
+      incentivePolicyId: typeof raw.incentivePolicyId === 'string' ? raw.incentivePolicyId : '',
+      incentivePolicySnapshot: intelligence?.policySnapshot || null,
+      evidenceLedger: intelligence?.evidenceLedger || [],
+      evidenceLedgerSummary: intelligence?.evidenceLedgerSummary,
+      attributionSummary: intelligence?.attribution,
+      renewSummary: intelligence?.renew,
+      kpiSummary: intelligence?.kpi,
+      rankSummary: intelligence?.rank,
+      incentiveAmount: amount(raw.incentiveAmount),
+      incentiveAmountImpact: 'none',
       status: status(raw.status),
       requiresRebuild: raw.requiresRebuild === true,
       storedSessionCount: Math.max(0, Math.trunc(amount(raw.storedSessionCount))),
@@ -569,6 +744,32 @@ export async function listPayrollPolicies(): Promise<PayrollPolicy[]> {
       createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
     } satisfies PayrollPolicy]
   }) : []
+}
+
+export async function listPayrollIntelligencePolicies(): Promise<PayrollIntelligencePolicy[]> {
+  const result = await callable<Record<string, never>, { policies?: unknown[] }>('listPayrollIntelligencePolicies')({})
+  return Array.isArray(result.data.policies) ? result.data.policies.flatMap((value) => {
+    const policy = normaliseIntelligencePolicy(value)
+    return policy?.id ? [policy] : []
+  }) : []
+}
+
+export async function savePayrollIntelligencePolicy(input: {
+  name: string
+  effectiveFrom: string
+  enabled: boolean
+  metrics: Record<string, Partial<PayrollIntelligenceMetric> & { source: string }>
+  attributionRules: Array<{ sourceType: string; priority: string[]; splitMode?: 'single' | 'equal' }>
+  rankBands: Array<{ code?: string; label: string; minScore: number; maxScore: number }>
+  renew: { wonStages: string[]; creditAssisted: boolean }
+}) {
+  const result = await callable<typeof input, { policyId: string; unchanged: boolean }>('savePayrollIntelligencePolicy')(input)
+  return result.data
+}
+
+export async function managePayrollIntelligencePolicy(policyId: string, action: 'hide' | 'restore' | 'delete') {
+  const result = await callable<{ policyId: string; action: typeof action }, { policyId: string; action: string; unchanged: boolean }>('managePayrollIntelligencePolicy')({ policyId, action })
+  return result.data
 }
 
 export async function savePayrollPolicy(input: {

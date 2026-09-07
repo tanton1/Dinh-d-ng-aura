@@ -1272,6 +1272,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // KPI, renewal attribution and evidence policies are read through the
+    // payroll callables so every change is permission-checked and audited.
+    match /payrollIncentivePolicies/{policyId} {
+      allow read, write: if false;
+    }
+
     match /payrollRuns/{runId} {
       allow read: if isAdmin();
       allow write: if false;

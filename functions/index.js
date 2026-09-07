@@ -588,6 +588,9 @@ const payrollOverflowOnCall = (optionsOrHandler, maybeHandler) => {
 }
 const payrollV2Functions = createPayrollFunctions({ db, onCall: payrollOverflowOnCall, logger })
 exports.listPayrollPoliciesV2 = payrollV2Functions.listPayrollPolicies
+exports.listPayrollIntelligencePoliciesV2 = payrollV2Functions.listPayrollIntelligencePolicies
+exports.savePayrollIntelligencePolicyV2 = payrollV2Functions.savePayrollIntelligencePolicy
+exports.managePayrollIntelligencePolicyV2 = payrollV2Functions.managePayrollIntelligencePolicy
 exports.savePayrollPolicyV2 = payrollV2Functions.savePayrollPolicy
 exports.managePayrollPolicyV2 = payrollV2Functions.managePayrollPolicy
 exports.listPayrollAdjustmentsV2 = payrollV2Functions.listPayrollAdjustments

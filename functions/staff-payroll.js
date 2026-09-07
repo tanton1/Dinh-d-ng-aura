@@ -562,6 +562,23 @@ function createStaffPayrollFunctions({ db, onCall, logger, priceTeachingSlots, p
         truncated: teachingEvidence.truncated,
         source: Array.isArray(payrollItem.teachingSlots) && payrollItem.teachingSlots.length ? 'payroll_run' : previewPolicy ? 'attendance_sessions+assigned_policy' : 'attendance_sessions',
       },
+      intelligence: itemSnapshot.exists && payrollItem.intelligenceSchemaVersion
+        ? {
+          schemaVersion: Number(payrollItem.intelligenceSchemaVersion || 1),
+          enabled: payrollItem.kpiSummary?.enabled === true,
+          policyId: payrollItem.incentivePolicyId || '',
+          policyVersion: Number(payrollItem.incentivePolicySnapshot?.version || 0),
+          policyName: payrollItem.incentivePolicySnapshot?.name || '',
+          policySnapshot: payrollItem.incentivePolicySnapshot || null,
+          evidenceLedger: Array.isArray(payrollItem.evidenceLedger) ? payrollItem.evidenceLedger.slice(0, 500) : [],
+          evidenceLedgerSummary: payrollItem.evidenceLedgerSummary || { count: 0, reviewCount: 0, truncated: false, bySource: {}, byRole: {} },
+          attribution: payrollItem.attributionSummary || { conflictCount: 0, sourceCount: 0, attributedRevenue: 0, attributedCommission: 0, bySource: {}, byRole: {} },
+          renew: payrollItem.renewSummary || { wonCount: 0, assistedCount: 0, attributedRevenue: 0, reviewCount: 0 },
+          kpi: payrollItem.kpiSummary || { enabled: false, score: null, weightTotal: 0, metrics: [], reason: 'Chưa bật chính sách KPI.' },
+          rank: payrollItem.rankSummary || { code: 'unconfigured', label: 'Chưa xếp hạng', score: null, configured: false },
+          amountImpact: 'none',
+        }
+        : undefined,
       referralCommission: {
         rate: statementReferral.rate || 0,
         contractCount: statementReferral.contractCount || 0,

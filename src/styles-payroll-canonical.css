@@ -585,3 +585,22 @@
 @media (prefers-reduced-motion: reduce) {
   .payroll-page__skeleton { animation: none; }
 }
+.payroll-intelligence-policy { display: grid; gap: 12px; margin-top: 16px; border: 1px solid #f0dfe7; border-radius: 18px; padding: 15px; background: linear-gradient(145deg, #fffafd, #fffaf6); }
+.payroll-intelligence-policy__list { display: grid; gap: 8px; }
+.payroll-intelligence-policy__list article { display: flex; justify-content: space-between; gap: 12px; border-radius: 13px; padding: 11px 12px; background: #fff; }
+.payroll-intelligence-policy__list article > div { display: grid; gap: 4px; min-width: 0; }
+.payroll-intelligence-policy__list article > div:last-child { justify-items: end; }
+.payroll-intelligence-policy__list strong { color: #473541; font-size: 12px; }.payroll-intelligence-policy__list span,.payroll-intelligence-policy__list small { color: #8a7782; font-size: 10px; }.payroll-intelligence-policy__list button { min-height: 28px; border: 1px solid #ead6df; border-radius: 999px; padding: 0 10px; background: #fff; color: #8d4a69; font-size: 10px; font-weight: 800; }
+.payroll-intelligence-policy__list article.is-inactive { opacity: .6; }
+.payroll-intelligence-policy__empty { margin: 0; color: #8a7782; font-size: 11px; }
+.payroll-trainer-item__intelligence { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 7px; margin: 10px 0; }
+.payroll-trainer-item__intelligence > span { display: grid; gap: 2px; border-radius: 10px; padding: 8px; background: #fff7fb; }
+.payroll-trainer-item__intelligence strong { color: #8a7782; font-size: 9px; font-weight: 700; }.payroll-trainer-item__intelligence b { color: #e72f76; font-size: 13px; }.payroll-trainer-item__intelligence small { color: #8a7782; font-size: 9px; }
+.payroll-intelligence-policy__form { display: grid; gap: 10px; border-top: 1px solid #f1e1e8; padding-top: 12px; }
+.payroll-intelligence-policy__form > label { display: grid; gap: 5px; color: #725f6b; font-size: 10px; font-weight: 800; }
+.payroll-intelligence-policy__form input,.payroll-intelligence-policy__form textarea,.payroll-intelligence-policy__form select { width: 100%; border: 1px solid #eadce4; border-radius: 11px; padding: 9px 10px; background: #fff; color: #473541; font: inherit; }
+.payroll-intelligence-policy__metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.payroll-intelligence-policy__metrics label { display: grid; grid-template-columns: minmax(0,1fr) 70px 88px; align-items: center; gap: 6px; border-radius: 11px; padding: 8px; background: #fff; color: #725f6b; font-size: 10px; }
+.payroll-intelligence-policy__metrics input { min-width: 0; padding: 7px; }
+@media (max-width: 600px) { .payroll-intelligence-policy { border-inline: 0; border-radius: 0; margin-inline: 0; padding: 14px; }.payroll-intelligence-policy__list article { display: grid; }.payroll-intelligence-policy__list article > div:last-child { justify-items: start; }.payroll-intelligence-policy__metrics { grid-template-columns: 1fr; }.payroll-intelligence-policy__metrics label { grid-template-columns: minmax(0,1fr) 62px 80px; } }
+@media (max-width: 600px) { .payroll-trainer-item__intelligence { grid-template-columns: repeat(2,minmax(0,1fr)); } }

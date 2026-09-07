@@ -6,6 +6,13 @@ const { calculateWorkdayPayroll, mergeWorkCalendar, payrollAmounts } = require('
 const { calculateReferralCommissions, referralCashImpact } = require('./referral-commission')
 const { assertFinancePeriodOpen } = require('./finance-ledger')
 const { payrollAccrualJournal, payrollPaymentJournal } = require('./accounting-core')
+const {
+  INTELLIGENCE_SCHEMA_VERSION,
+  chooseEffectivePayrollIntelligencePolicy,
+  normalizePayrollIntelligencePolicy,
+  payrollIntelligencePolicySnapshot,
+  buildPayrollIntelligence,
+} = require('./payroll-intelligence')
 
 const PAYROLL_VIOLATION_KIND = 'payroll_validation'
 const PAYROLL_REMEDIATIONS = new Set([
@@ -306,7 +313,9 @@ function priceTeachingSlots(slots, resolvePolicy) {
       }
       const policy = payrollPolicyConfiguration(selected.configuration)
       const afterThreshold = position > policy.dailySessionThreshold
-      const evening = afterThreshold && slot.hour >= policy.eveningStartHour
+      // The evening tier is independent from the daily threshold: every slot
+      // beginning at the configured evening hour uses the evening rate.
+      const evening = slot.hour >= policy.eveningStartHour
       const rate = evening
         ? policy.rateAfterDailyThresholdEvening
         : afterThreshold ? policy.rateAfterDailyThreshold : policy.ratePerSession
@@ -730,6 +739,25 @@ function payrollPolicySnapshot(policy) {
   }
 }
 
+function payrollIntelligencePolicyInput(value = {}) {
+  const effective = policyEffectiveDate(value.effectiveFrom)
+  const normalized = normalizePayrollIntelligencePolicy({
+    ...value,
+    effectiveFrom: effective.value,
+  })
+  const name = policyName(value.name || normalized.name)
+  const metrics = Object.fromEntries(Object.entries(normalized.metrics || {}).slice(0, 30))
+  if (!Object.keys(metrics).length) {
+    throw new HttpsError('invalid-argument', 'Cần cấu hình ít nhất một chỉ số KPI hợp lệ.')
+  }
+  return {
+    ...normalized,
+    name,
+    metrics,
+    effectiveTimestamp: effective.timestamp,
+  }
+}
+
 function applyPayrollPolicyPlan(teaching, plan, policies) {
   const policiesById = new Map(policies.map((policy) => [policy.id, policy]))
   const defaultPolicy = policiesById.get(plan.defaultPolicyId) || policies[0]
@@ -971,6 +999,104 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         }
       }),
     }
+  })
+
+  const listPayrollIntelligencePolicies = payrollCall(async (request) => {
+    await payrollActor(request, db)
+    const snapshot = await db.collection('payrollIncentivePolicies').limit(100).get()
+    return {
+      policies: snapshot.docs
+        .map((item) => normalizePayrollIntelligencePolicy({ id: item.id, ...item.data() }, item.id))
+        .sort((left, right) => right.effectiveFrom.localeCompare(left.effectiveFrom) || right.version - left.version)
+        .map((policy) => ({ ...policy, effectiveFrom: policy.effectiveFrom })),
+    }
+  })
+
+  const savePayrollIntelligencePolicy = payrollCall(async (request) => {
+    const actor = await payrollActor(request, db)
+    const policy = payrollIntelligencePolicyInput(request.data || {})
+    const fingerprint = createHash('sha256')
+      .update(JSON.stringify({
+        name: policy.name,
+        effectiveFrom: policy.effectiveFrom,
+        metrics: policy.metrics,
+        attributionRules: policy.attributionRules,
+        rankBands: policy.rankBands,
+        renew: policy.renew,
+        enabled: policy.enabled,
+      }))
+      .digest('hex')
+      .slice(0, 16)
+    const policyId = `incentive_${policy.effectiveFrom.replaceAll('-', '')}_${fingerprint}`
+    const reference = db.doc(`payrollIncentivePolicies/${policyId}`)
+    return db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(reference)
+      if (existing.exists) {
+        const current = normalizePayrollIntelligencePolicy({ id: policyId, ...existing.data() }, policyId)
+        if (JSON.stringify(payrollIntelligencePolicySnapshot(current)) === JSON.stringify(payrollIntelligencePolicySnapshot({ ...policy, id: policyId }))) {
+          return { policyId, unchanged: true }
+        }
+        throw new HttpsError('already-exists', 'Mã chính sách KPI đã tồn tại nhưng khác dữ liệu. Hãy đổi tên hoặc ngày hiệu lực.')
+      }
+      transaction.create(reference, {
+        schemaVersion: INTELLIGENCE_SCHEMA_VERSION,
+        name: policy.name,
+        version: Math.max(1, policy.version),
+        effectiveFrom: policy.effectiveTimestamp,
+        status: 'active',
+        enabled: policy.enabled,
+        metrics: policy.metrics,
+        attributionRules: policy.attributionRules,
+        rankBands: policy.rankBands,
+        renew: policy.renew,
+        amountImpact: 'none',
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: actor.uid,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      transaction.create(db.collection('payrollAuditLogs').doc(), {
+        schemaVersion: INTELLIGENCE_SCHEMA_VERSION,
+        action: 'payroll.incentive_policy.created',
+        policyId,
+        actorUid: actor.uid,
+        snapshot: payrollIntelligencePolicySnapshot({ ...policy, id: policyId }),
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return { policyId, unchanged: false }
+    })
+  })
+
+  const managePayrollIntelligencePolicy = payrollCall(async (request) => {
+    const actor = await payrollActor(request, db)
+    const policyId = payrollDocumentId(request.data?.policyId, 'Mã chính sách KPI')
+    const action = request.data?.action
+    if (!['hide', 'restore', 'delete'].includes(action)) throw new HttpsError('invalid-argument', 'Thao tác chính sách KPI không hợp lệ.')
+    const reference = db.doc(`payrollIncentivePolicies/${policyId}`)
+    return db.runTransaction(async (transaction) => {
+      const [snapshot, usage] = await Promise.all([
+        transaction.get(reference),
+        transaction.get(db.collection('payrollRuns').where('intelligencePolicyId', '==', policyId).limit(1)),
+      ])
+      if (!snapshot.exists) return { policyId, action, unchanged: true }
+      const used = !usage.empty
+      if (action === 'delete') {
+        if (used) throw new HttpsError('failed-precondition', 'Chính sách KPI đã nằm trong kỳ lương nên chỉ có thể ẩn.')
+        transaction.delete(reference)
+      } else {
+        const nextStatus = action === 'hide' ? 'inactive' : 'active'
+        if ((snapshot.data().status === 'inactive' ? 'inactive' : 'active') === nextStatus) return { policyId, action, unchanged: true }
+        transaction.update(reference, { status: nextStatus, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid })
+      }
+      transaction.create(db.collection('payrollAuditLogs').doc(), {
+        schemaVersion: INTELLIGENCE_SCHEMA_VERSION,
+        action: `payroll.incentive_policy.${action}`,
+        policyId,
+        actorUid: actor.uid,
+        usageProtected: used,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return { policyId, action, unchanged: false }
+    })
   })
 
   const savePayrollPolicy = payrollCall(async (request) => {
@@ -1259,6 +1385,9 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           grossAmount: Number(data.grossAmount || 0),
           adjustmentAmount: Number(data.adjustmentAmount || 0),
           finalAmount: Number(data.finalAmount || data.grossAmount || 0),
+          intelligenceSchemaVersion: Number(data.intelligenceSchemaVersion || 0),
+          intelligencePolicyId: data.intelligencePolicyId || '',
+          intelligenceSummary: data.intelligenceSummary && typeof data.intelligenceSummary === 'object' ? data.intelligenceSummary : undefined,
           createdAt: iso(data.createdAt),
           updatedAt: iso(data.updatedAt),
         }
@@ -1366,7 +1495,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
       const existing = await transaction.get(runReference)
       if (existing.exists) return { runId: existing.id, unchanged: true, status: existing.data().status }
 
-      const [sessionSnapshot, staffSnapshot, trainerRecordsSnapshot, assignmentSnapshot, workdayAttendanceSnapshot, calendarSnapshot, schedulePolicySnapshot, referralLedgerSnapshot, adjustmentSnapshot] = await Promise.all([
+      const [sessionSnapshot, staffSnapshot, trainerRecordsSnapshot, assignmentSnapshot, workdayAttendanceSnapshot, calendarSnapshot, schedulePolicySnapshot, referralLedgerSnapshot, adjustmentSnapshot, intelligencePolicySnapshot, renewalSnapshot, feedbackSnapshot] = await Promise.all([
         transaction.get(db.collection('sessions')
           .where('date', '>=', dateBounds.start)
           .where('date', '<', dateBounds.end)
@@ -1384,6 +1513,17 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           .select('type', 'status', 'cashImpact', 'amount', 'contractId', 'referralCode', 'referralStaffId', 'referralCommissionRate')
           .limit(5001)),
         transaction.get(db.collection('payrollAdjustments').where('periodId', '==', periodId).limit(1001)),
+        // Supplemental performance data is read as evidence only. It never
+        // participates in the existing salary/teaching-pay/commission math.
+        transaction.get(db.collection('payrollIncentivePolicies').limit(100)),
+        transaction.get(db.collection('contractRenewalCases')
+          .where('updatedAt', '>=', start)
+          .where('updatedAt', '<', end)
+          .limit(3001)),
+        transaction.get(db.collection('sessionFeedback')
+          .where('submittedAt', '>=', start)
+          .where('submittedAt', '<', end)
+          .limit(3001)),
       ])
       if (sessionSnapshot.size > 3000 || staffSnapshot.size > 450 || trainerRecordsSnapshot.size > 450 || assignmentSnapshot.size > 450 || workdayAttendanceSnapshot.size > 5000 || calendarSnapshot.size > 100 || referralLedgerSnapshot.size > 5000 || adjustmentSnapshot.size > 1000) {
         throw payrollViolationError(
@@ -1453,6 +1593,10 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         'Hãy tạo hoặc chọn ít nhất một chính sách có ngày hiệu lực không sau kỳ lương.',
         'policy',
         { periodId },
+      )
+      const intelligencePolicy = chooseEffectivePayrollIntelligencePolicy(
+        intelligencePolicySnapshot.docs.map((item) => ({ id: item.id, ...item.data() })),
+        dateBounds.start,
       )
       if (selectedPolicies.some((policy) => policy.status !== 'active')) {
         throw payrollViolationError(
@@ -1618,6 +1762,15 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
           grossAmount: baseAmounts.grossAmount + manualBonusAmount,
           finalAmount: Math.max(0, baseAmounts.finalAmount + manualBonusAmount - manualDeductionAmount),
         }
+        const intelligence = buildPayrollIntelligence({
+          staffId,
+          teachingSlots,
+          referralEvidence: referral,
+          feedback: feedbackSnapshot.docs,
+          renewals: renewalSnapshot.docs,
+          workdays,
+          policy: intelligencePolicy,
+        })
         const itemPolicyIds = [...new Set(teachingSlots.map((slot) => slot.policyId).filter(Boolean))]
         const staffPayrollProfile = payrollProfile(staff)
         const unsupportedPolicy = itemPolicyIds
@@ -1632,7 +1785,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
             { periodId, staffId, staffName: identity.name || staffId, payrollProfile: staffPayrollProfile, policyId: unsupportedPolicy.id },
           )
         }
-        return { staffId, staff, identity, calendar, workdays, teachingSlots, amounts, baseAmounts, referral, itemPolicyIds, staffPayrollProfile, payrollAdjustments, manualBonusAmount, manualDeductionAmount }
+        return { staffId, staff, identity, calendar, workdays, teachingSlots, amounts, baseAmounts, referral, intelligence, itemPolicyIds, staffPayrollProfile, payrollAdjustments, manualBonusAmount, manualDeductionAmount }
       })
       const grossAmount = itemRecords.reduce((total, item) => total + item.amounts.grossAmount, 0)
       const finalAmount = itemRecords.reduce((total, item) => total + item.amounts.finalAmount, 0)
@@ -1640,6 +1793,27 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
       const attendanceReviewRequiredCount = itemRecords.filter((item) => item.workdays.attendanceReviewRequired).length
       const calendarReviewRequiredCount = itemRecords.filter((item) => item.workdays.calendarReviewRequired).length
       const teachingEvidenceReviewRequiredCount = Number(teaching.teachingEvidenceReviewRequiredCount || 0)
+      const intelligenceItems = itemRecords.map((item) => item.intelligence).filter(Boolean)
+      const intelligenceRankCounts = intelligenceItems.reduce((result, item) => {
+        const key = item.rank?.code || 'unconfigured'
+        result[key] = Number(result[key] || 0) + 1
+        return result
+      }, {})
+      const intelligenceSummary = {
+        schemaVersion: INTELLIGENCE_SCHEMA_VERSION,
+        enabled: intelligenceItems.some((item) => item.enabled),
+        policyId: intelligencePolicy?.id || '',
+        policyVersion: intelligencePolicy?.version || 0,
+        policyName: intelligencePolicy?.name || '',
+        staffCount: intelligenceItems.length,
+        evidenceCount: intelligenceItems.reduce((sum, item) => sum + Number(item.evidenceLedgerSummary?.count || 0), 0),
+        reviewCount: intelligenceItems.reduce((sum, item) => sum + Number(item.evidenceLedgerSummary?.reviewCount || 0), 0),
+        renewalWonCount: intelligenceItems.reduce((sum, item) => sum + Number(item.renew?.wonCount || 0), 0),
+        attributedRevenue: intelligenceItems.reduce((sum, item) => sum + Number(item.attribution?.attributedRevenue || 0), 0),
+        rankCounts: intelligenceRankCounts,
+        amountImpact: 'none',
+        sourceTruncated: renewalSnapshot.size > 3000 || feedbackSnapshot.size > 3000,
+      }
       transaction.create(runReference, {
         schemaVersion: 7,
         commissionFormulaVersion: 2,
@@ -1666,6 +1840,10 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         teachingEvidenceReviewRequiredCount,
         teachingEvidenceReviewRequiredSessionIds: teaching.teachingEvidenceReviewRequiredSessionIds || [],
         crossBranchWarningCount: Number(teaching.crossBranchWarningCount || 0),
+        intelligenceSchemaVersion: INTELLIGENCE_SCHEMA_VERSION,
+        intelligencePolicyId: intelligencePolicy?.id || '',
+        intelligencePolicySnapshot: payrollIntelligencePolicySnapshot(intelligencePolicy),
+        intelligenceSummary,
         baseSalaryAmount: itemRecords.reduce((total, item) => total + item.amounts.baseSalaryAmount, 0),
         teachingPayAmount: itemRecords.reduce((total, item) => total + item.amounts.teachingPayAmount, 0),
         commissionAmount: itemRecords.reduce((total, item) => total + item.amounts.commissionAmount, 0),
@@ -1686,7 +1864,7 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
         updatedAt: FieldValue.serverTimestamp(),
       })
       for (const item of itemRecords) {
-        const { staffId, identity, calendar, workdays, teachingSlots, amounts, baseAmounts, referral, itemPolicyIds, staffPayrollProfile, payrollAdjustments, manualBonusAmount, manualDeductionAmount } = item
+        const { staffId, identity, calendar, workdays, teachingSlots, amounts, baseAmounts, referral, intelligence, itemPolicyIds, staffPayrollProfile, payrollAdjustments, manualBonusAmount, manualDeductionAmount } = item
         const itemReference = db.doc(`payrollRunItems/${periodId}_${staffId}`)
         const tierSummary = teachingSlots.reduce((result, slot) => {
           if (slot.tier === 'standard') { result.standardCount += 1; result.standardAmount += slot.rate }
@@ -1744,6 +1922,17 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
             reversalAmount: referral.reversalAmount || 0,
             evidence: referral.evidence || [],
           },
+          intelligenceSchemaVersion: INTELLIGENCE_SCHEMA_VERSION,
+          incentivePolicyId: intelligence.policyId || '',
+          incentivePolicySnapshot: intelligence.policySnapshot || null,
+          evidenceLedger: intelligence.evidenceLedger || [],
+          evidenceLedgerSummary: intelligence.evidenceLedgerSummary || { count: 0, reviewCount: 0, truncated: false, bySource: {}, byRole: {} },
+          attributionSummary: intelligence.attribution || { conflictCount: 0, sourceCount: 0, attributedRevenue: 0, attributedCommission: 0, bySource: {}, byRole: {} },
+          renewSummary: intelligence.renew || { wonCount: 0, assistedCount: 0, attributedRevenue: 0, reviewCount: 0 },
+          kpiSummary: intelligence.kpi || { enabled: false, score: null, weightTotal: 0, metrics: [], reason: 'Chưa bật chính sách KPI.' },
+          rankSummary: intelligence.rank || { code: 'unconfigured', label: 'Chưa xếp hạng', score: null, configured: false },
+          incentiveAmount: 0,
+          incentiveAmountImpact: 'none',
           bonusAmount: amounts.bonusAmount,
           deductionAmount: amounts.deductionAmount,
           recurringBonusAmount: baseAmounts.bonusAmount,
@@ -2045,6 +2234,9 @@ function createPayrollFunctions({ db, onCall, logger = console }) {
 
   return {
     listPayrollPolicies,
+    listPayrollIntelligencePolicies,
+    savePayrollIntelligencePolicy,
+    managePayrollIntelligencePolicy,
     savePayrollPolicy,
     managePayrollPolicy,
     listPayrollAdjustments,
@@ -2077,4 +2269,5 @@ module.exports = {
   payrollRunPolicyPlan,
   applyPayrollPolicyPlan,
   priceTeachingSlots,
+  payrollIntelligencePolicyInput,
 }

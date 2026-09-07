@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import {
   AlertCircle,
+  Award,
   ArrowLeft,
   Banknote,
   CalendarCheck2,
@@ -76,7 +77,7 @@ function profileLabel(data: MyStaffPayroll) {
 }
 
 function tierLabel(tier: StaffTeachingSlot['tier']) {
-  if (tier === 'after_threshold_evening') return 'Tăng ca tối'
+  if (tier === 'after_threshold_evening') return 'Ca từ 20h'
   if (tier === 'after_threshold') return 'Từ ca thứ 9'
   return 'Ca tiêu chuẩn'
 }
@@ -159,6 +160,17 @@ export default function StaffPayrollStatementPanel({ data, periodId, loading, er
         <footer><span>{data.run.official ? 'Tổng thực nhận' : 'Tổng dự tính toàn kỳ'}</span><strong>{money(amounts?.finalAmount)}</strong></footer>
       </section>
 
+      {data.intelligence && <section className="staff-payroll__intelligence" aria-label="KPI, gia hạn và bằng chứng hiệu suất">
+        <div className="staff-payroll__section-title"><div><span>Hiệu suất & bằng chứng</span><strong>{data.intelligence.rank.label}</strong></div><small>{data.intelligence.policyName || 'Chưa bật chính sách phân tích'}</small></div>
+        <div className="staff-payroll__intelligence-grid">
+          <article><span><Award size={16} /></span><div><small>Điểm KPI</small><strong>{data.intelligence.kpi.score === null ? '—' : `${data.intelligence.kpi.score}/100`}</strong></div></article>
+          <article><span><RefreshCw size={16} /></span><div><small>Gia hạn ghi nhận</small><strong>{data.intelligence.renew.wonCount}</strong><em>{money(data.intelligence.renew.attributedRevenue)}</em></div></article>
+          <article><span><ShieldCheck size={16} /></span><div><small>Bằng chứng</small><strong>{data.intelligence.evidenceLedgerSummary.count}</strong><em>{data.intelligence.evidenceLedgerSummary.reviewCount ? `${data.intelligence.evidenceLedgerSummary.reviewCount} chờ rà` : 'Đã xác minh'}</em></div></article>
+        </div>
+        {data.intelligence.kpi.metrics.length > 0 && <div className="staff-payroll__intelligence-metrics">{data.intelligence.kpi.metrics.map((metric) => <span key={metric.id}><small>{metric.label}</small><b>{metric.actual} / {metric.target}</b></span>)}</div>}
+        <p className="staff-payroll__intelligence-note">Lớp này chỉ phân tích KPI, gia hạn và nguồn dữ liệu; không tự thay đổi lương cơ bản, tiền ca hoặc hoa hồng hiện hữu.</p>
+      </section>}
+
       <section className="staff-payroll__calendar" aria-label="Chi tiết ngày công nhân viên">
         <div className="staff-payroll__section-title"><div><span>Ngày công đã ghi nhận</span><strong>{workdays?.paidDays || 0}/{workdays?.eligibleWorkdays || 0} ngày</strong></div><small>Dự tính toàn kỳ {workdays?.estimatedPaidDays || 0}/{workdays?.eligibleWorkdays || 0} · {workdays?.autoPaidDays || 0} ngày tự tính từ ≥5 ca</small></div>
         <div className="staff-payroll__weekday"><span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span></div>
@@ -172,7 +184,7 @@ export default function StaffPayrollStatementPanel({ data, periodId, loading, er
       <section className="staff-payroll__teaching" aria-label="Chi tiết ca dạy nhân viên">
         <div className="staff-payroll__section-title"><div><span>Ca dạy PT</span><strong>{filteredTeaching.length}/{data.teachingSlots.length} ca</strong></div><small>Hai học viên cùng giờ chỉ tính một ca</small></div>
         <div className="staff-payroll__segmented" role="group" aria-label="Lọc loại ca dạy">
-          {([['all', 'Tất cả'], ['standard', 'Ca 1–8'], ['after_threshold', 'Từ ca 9'], ['after_threshold_evening', 'Ca tối']] as const).map(([id, label]) => <button type="button" className={teachingFilter === id ? 'is-active' : ''} onClick={() => setTeachingFilter(id)} key={id}>{label}</button>)}
+          {([['all', 'Tất cả'], ['standard', 'Ca 1–8'], ['after_threshold', 'Từ ca 9'], ['after_threshold_evening', 'Ca từ 20h']] as const).map(([id, label]) => <button type="button" className={teachingFilter === id ? 'is-active' : ''} onClick={() => setTeachingFilter(id)} key={id}>{label}</button>)}
         </div>
         {filteredTeaching.length ? <div className="staff-payroll__teaching-list">{filteredTeaching.map((slot) => <article key={slot.key}><time>{dateLabel(slot.date)}<b>{String(slot.hour).padStart(2, '0')}:00</b></time><div><strong>{slot.studentCount} học viên · {tierLabel(slot.tier)}</strong><span>{slot.policyName || 'Chính sách kỳ lương'} · ca thứ {slot.dailyPosition}</span></div><em>{money(slot.rate)}</em></article>)}</div> : <div className="staff-payroll__empty"><Dumbbell size={27} /><strong>Không có ca thuộc bộ lọc</strong><p>Ca chỉ được tính sau khi điểm danh hợp lệ.</p></div>}
       </section>

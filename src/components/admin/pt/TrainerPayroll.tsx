@@ -34,6 +34,8 @@ import {
   getPayrollRun,
   listPayrollAdjustments,
   listPayrollPolicies,
+  listPayrollIntelligencePolicies,
+  managePayrollIntelligencePolicy,
   listPayrollRuns,
   lockPayrollRun,
   markPayrollRunPaid,
@@ -42,10 +44,12 @@ import {
   reviewPayrollRun,
   savePayrollAdjustment,
   savePayrollPolicy,
+  savePayrollIntelligencePolicy,
   voidPayrollAdjustment,
   type PayrollAdjustment,
   type PayrollFailure,
   type PayrollPolicy,
+  type PayrollIntelligencePolicy,
   type PayrollProfile,
   type PayrollPolicyApplicationMode,
   type PayrollRunDetail,
@@ -143,7 +147,7 @@ function violationFacts(violation: PayrollViolation, trainers: Array<{ id: strin
 }
 
 function teachingTierLabel(tier: 'standard' | 'after_threshold' | 'after_threshold_evening') {
-  if (tier === 'after_threshold_evening') return 'Tăng ca tối'
+  if (tier === 'after_threshold_evening') return 'Ca từ 20h'
   if (tier === 'after_threshold') return 'Từ ca thứ 9'
   return 'Ca tiêu chuẩn'
 }
@@ -209,6 +213,7 @@ export default function TrainerPayroll({ profile }: Props) {
   const [view, setView] = useState<PayrollView>('runs')
   const [runs, setRuns] = useState<PayrollRunSummary[]>([])
   const [policies, setPolicies] = useState<PayrollPolicy[]>([])
+  const [intelligencePolicies, setIntelligencePolicies] = useState<PayrollIntelligencePolicy[]>([])
   const [adjustments, setAdjustments] = useState<PayrollAdjustment[]>([])
   const [cashAccounts, setCashAccounts] = useState<CashAccount[]>([])
   const [periodId, setPeriodId] = useState(currentPeriod)
@@ -237,6 +242,7 @@ export default function TrainerPayroll({ profile }: Props) {
   }, [violationDialog])
   const [showRunSetup, setShowRunSetup] = useState(false)
   const [showPolicyForm, setShowPolicyForm] = useState(false)
+  const [showIntelligenceForm, setShowIntelligenceForm] = useState(false)
   const [liveRows, setLiveRows] = useState<StaffAttendanceRow[]>([])
   const [liveAsOfDate, setLiveAsOfDate] = useState('')
   const [staffStatementId, setStaffStatementId] = useState('')
@@ -258,6 +264,20 @@ export default function TrainerPayroll({ profile }: Props) {
     rateAfterDailyThreshold: '70000',
     rateAfterDailyThresholdEvening: '80000',
   })
+  const [intelligenceForm, setIntelligenceForm] = useState({
+    name: 'KPI & Attribution Aura',
+    effectiveFrom: currentDateOnly(),
+    enabled: true,
+    metrics: {
+      teaching_slots: { source: 'teaching_slots', label: 'Ca dạy xác minh', enabled: true, weight: '40', target: '80' },
+      feedback_score: { source: 'feedback_score', label: 'Điểm đánh giá PT', enabled: true, weight: '20', target: '4.5' },
+      renewals_won: { source: 'renewals_won', label: 'Hồ sơ gia hạn thành công', enabled: true, weight: '25', target: '5' },
+      attributed_revenue: { source: 'attributed_revenue', label: 'Doanh thu được quy thuộc', enabled: true, weight: '15', target: '50000000' },
+    },
+    rankBandsText: 'A:90-100\nB:75-89.99\nC:60-74.99\nD:0-59.99',
+    wonStages: 'won',
+    attributionText: 'revenue:referralStaffId,assignedSalesId\nrenewal:assignedSalesId,trainerId,trainerIds,nutritionPTIds\nfeedback:actualTrainerId,trainerId\nteaching:trainerId\nworkdays:trainerId',
+  })
 
   const canManage = profile?.role === 'admin' || profile?.role === 'super_admin'
   const trainerById = useMemo(() => new Map(trainers.map((trainer) => [trainer.id, trainer])), [trainers])
@@ -267,12 +287,13 @@ export default function TrainerPayroll({ profile }: Props) {
   const refresh = useCallback(async () => {
     setLoading(true)
     setError('')
-    const [runsResult, policiesResult, accountsResult, liveResult, adjustmentsResult] = await Promise.allSettled([
+    const [runsResult, policiesResult, accountsResult, liveResult, adjustmentsResult, intelligencePoliciesResult] = await Promise.allSettled([
       listPayrollRuns(36),
       listPayrollPolicies(),
       listCashAccounts(),
       listStaffPayrollAttendance(periodId),
       listPayrollAdjustments(periodId),
+      listPayrollIntelligencePolicies(),
     ])
     if (runsResult.status === 'fulfilled') setRuns(runsResult.value)
     if (policiesResult.status === 'fulfilled') setPolicies(policiesResult.value)
@@ -290,7 +311,9 @@ export default function TrainerPayroll({ profile }: Props) {
     }
     if (adjustmentsResult.status === 'fulfilled') setAdjustments(adjustmentsResult.value)
     else setAdjustments([])
-    const failure = [runsResult, policiesResult, accountsResult, liveResult, adjustmentsResult].find((result) => result.status === 'rejected')
+    if (intelligencePoliciesResult.status === 'fulfilled') setIntelligencePolicies(intelligencePoliciesResult.value)
+    else setIntelligencePolicies([])
+    const failure = [runsResult, policiesResult, accountsResult, liveResult, adjustmentsResult, intelligencePoliciesResult].find((result) => result.status === 'rejected')
     if (failure?.status === 'rejected') setError(friendlyError(failure.reason))
     setLoading(false)
   }, [periodId])
@@ -523,6 +546,74 @@ export default function TrainerPayroll({ profile }: Props) {
       })
       setMessage(result.unchanged ? 'Chính sách này đã tồn tại.' : 'Đã lưu phiên bản chính sách mới; kỳ cũ không bị thay đổi.')
       setShowPolicyForm(false)
+      await refresh()
+    } catch (cause) {
+      setError(friendlyError(cause))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  const submitIntelligencePolicy = async () => {
+    if (busyAction) return
+    const metrics = Object.fromEntries(Object.entries(intelligenceForm.metrics).map(([id, metric]) => [id, {
+      source: metric.source,
+      label: metric.label,
+      enabled: metric.enabled,
+      weight: Number(metric.weight),
+      target: Number(metric.target),
+      direction: 'higher_is_better' as const,
+      cap: 100,
+    }]))
+    if (Object.values(metrics).some((metric) => !Number.isFinite(metric.weight) || metric.weight < 0 || !Number.isFinite(metric.target) || metric.target <= 0)) {
+      setError('Mỗi chỉ số KPI cần trọng số hợp lệ và mục tiêu lớn hơn 0.')
+      return
+    }
+    const rankBands = intelligenceForm.rankBandsText.split(/\r?\n/).flatMap((line) => {
+      const match = /^\s*([^:]+):\s*(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)\s*$/.exec(line)
+      if (!match) return []
+      return [{ label: match[1].trim(), minScore: Number(match[2]), maxScore: Number(match[3]) }]
+    })
+    const attributionRules = intelligenceForm.attributionText.split(/\r?\n/).flatMap((line) => {
+      const [sourceType, priorityText] = line.split(':')
+      const priority = priorityText?.split(',').map((item) => item.trim()).filter(Boolean) || []
+      return sourceType?.trim() && priority.length ? [{ sourceType: sourceType.trim(), priority, splitMode: 'single' as const }] : []
+    })
+    if (!rankBands.length || !attributionRules.length) {
+      setError('Cần có ít nhất một nhóm xếp hạng và một quy tắc quy thuộc.')
+      return
+    }
+    setBusyAction('intelligence-policy')
+    setError('')
+    setMessage('')
+    try {
+      const result = await savePayrollIntelligencePolicy({
+        name: intelligenceForm.name,
+        effectiveFrom: intelligenceForm.effectiveFrom,
+        enabled: intelligenceForm.enabled,
+        metrics,
+        attributionRules,
+        rankBands,
+        renew: { wonStages: intelligenceForm.wonStages.split(',').map((item) => item.trim()).filter(Boolean), creditAssisted: false },
+      })
+      setMessage(result.unchanged ? 'Chính sách phân tích này đã tồn tại.' : 'Đã lưu chính sách KPI – Renew – Attribution. Không thay đổi số tiền lương hiện hữu.')
+      setShowIntelligenceForm(false)
+      await refresh()
+    } catch (cause) {
+      setError(friendlyError(cause))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  const toggleIntelligencePolicy = async (policyId: string, status: 'active' | 'inactive') => {
+    if (busyAction) return
+    setBusyAction(`intelligence-policy:${policyId}`)
+    setError('')
+    setMessage('')
+    try {
+      await managePayrollIntelligencePolicy(policyId, status === 'active' ? 'hide' : 'restore')
+      setMessage(status === 'active' ? 'Đã ẩn chính sách phân tích.' : 'Đã mở lại chính sách phân tích.')
       await refresh()
     } catch (cause) {
       setError(friendlyError(cause))
@@ -800,11 +891,26 @@ export default function TrainerPayroll({ profile }: Props) {
           <label><span>Hiệu lực từ</span><input type="date" value={policyForm.effectiveFrom} onChange={(event) => setPolicyForm((current) => ({ ...current, effectiveFrom: event.target.value }))} /></label>
           <label><span>Đơn giá ca 1–8</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.ratePerSession} onChange={(event) => setPolicyForm((current) => ({ ...current, ratePerSession: event.target.value }))} /></label>
           <label><span>Từ ca thứ 9</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.rateAfterDailyThreshold} onChange={(event) => setPolicyForm((current) => ({ ...current, rateAfterDailyThreshold: event.target.value }))} /></label>
-          <label><span>Từ ca thứ 9 · sau 20h</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.rateAfterDailyThresholdEvening} onChange={(event) => setPolicyForm((current) => ({ ...current, rateAfterDailyThresholdEvening: event.target.value }))} /></label>
+          <label><span>Ca từ 20h</span><input type="number" min="1000" step="1000" inputMode="numeric" value={policyForm.rateAfterDailyThresholdEvening} onChange={(event) => setPolicyForm((current) => ({ ...current, rateAfterDailyThresholdEvening: event.target.value }))} /></label>
           <div className="payroll-policy__form-actions"><button className="payroll-page__secondary" type="button" onClick={() => setShowPolicyForm(false)}>Hủy</button><button className="payroll-page__primary" type="button" disabled={!canManage || !!busyAction} onClick={() => void submitPolicy()}><ShieldCheck size={17} /> Lưu phiên bản</button></div>
         </div>
-        <p className="payroll-policy__scope">Áp dụng cho: {policyForm.eligibleProfiles.map(payrollProfileLabel).join(' · ')}. {policyForm.eligibleProfiles.includes('collaborator') ? 'Chính sách có CTV phải dùng đơn giá 50.000–100.000đ/ca.' : 'Nhân viên hưởng lương cơ bản theo ngày công và tiền ca theo chính sách.'} Một khung giờ có hai học viên vẫn chỉ tính một ca.</p>
+        <p className="payroll-policy__scope">Áp dụng cho: {policyForm.eligibleProfiles.map(payrollProfileLabel).join(' · ')}. {policyForm.eligibleProfiles.includes('collaborator') ? 'Chính sách có CTV phải dùng đơn giá 50.000–100.000đ/ca.' : 'Nhân viên hưởng lương cơ bản theo ngày công và tiền ca theo chính sách.'} Ca từ 20h luôn dùng mức ca tối; một khung giờ có hai học viên vẫn chỉ tính một ca.</p>
       </div>}
+
+      <div className="payroll-intelligence-policy">
+        <div className="payroll-page__section-title"><div><span>Lớp phân tích bổ sung</span><strong>KPI · Renew · Attribution · Rank</strong></div><button className="payroll-policy__create" type="button" disabled={!canManage || !!busyAction} onClick={() => setShowIntelligenceForm((current) => !current)}><Plus size={15} /> {showIntelligenceForm ? 'Đóng' : 'Cấu hình'}</button></div>
+        <p className="payroll-policy__scope">Chỉ tạo snapshot bằng chứng cho từng dòng lương, không cộng/trừ vào lương cơ bản, tiền ca hoặc hoa hồng hiện tại.</p>
+        {intelligencePolicies.length ? <div className="payroll-intelligence-policy__list">{intelligencePolicies.map((policy) => <article key={policy.id} className={policy.status === 'inactive' ? 'is-inactive' : ''}><div><strong>{policy.name}</strong><span>{policy.enabled ? 'Đang phân tích' : 'Đang tắt'} · hiệu lực {dateLabel(policy.effectiveFrom)} · {Object.values(policy.metrics).filter((metric) => metric.enabled).length} chỉ số</span></div><div><small>{policy.rankBands.length} bậc xếp hạng · {policy.attributionRules.length} quy tắc quy thuộc</small><button type="button" disabled={!!busyAction} onClick={() => void toggleIntelligencePolicy(policy.id, policy.status)}>{policy.status === 'active' ? 'Ẩn' : 'Mở lại'}</button></div></article>)}</div> : <p className="payroll-intelligence-policy__empty">Chưa bật lớp KPI bổ sung. Kỳ lương hiện tại vẫn hoạt động theo lõi cũ.</p>}
+        {showIntelligenceForm && <div className="payroll-intelligence-policy__form">
+          <label><span>Tên chính sách</span><input value={intelligenceForm.name} onChange={(event) => setIntelligenceForm((current) => ({ ...current, name: event.target.value }))} /></label>
+          <label><span>Hiệu lực từ</span><input type="date" value={intelligenceForm.effectiveFrom} onChange={(event) => setIntelligenceForm((current) => ({ ...current, effectiveFrom: event.target.value }))} /></label>
+          <div className="payroll-intelligence-policy__metrics">{Object.entries(intelligenceForm.metrics).map(([id, metric]) => <label key={id}><span>{metric.label}</span><input aria-label={`${metric.label} · trọng số`} type="number" min="0" max="100" value={metric.weight} onChange={(event) => setIntelligenceForm((current) => ({ ...current, metrics: { ...current.metrics, [id]: { ...metric, weight: event.target.value } } }))} /><input aria-label={`${metric.label} · mục tiêu`} type="number" min="0.01" value={metric.target} onChange={(event) => setIntelligenceForm((current) => ({ ...current, metrics: { ...current.metrics, [id]: { ...metric, target: event.target.value } } }))} /></label>)}</div>
+          <label><span>Bậc xếp hạng · mỗi dòng Tên:min-max</span><textarea rows={4} value={intelligenceForm.rankBandsText} onChange={(event) => setIntelligenceForm((current) => ({ ...current, rankBandsText: event.target.value }))} /></label>
+          <label><span>Quy tắc quy thuộc · mỗi dòng nguồn:trường ưu tiên</span><textarea rows={4} value={intelligenceForm.attributionText} onChange={(event) => setIntelligenceForm((current) => ({ ...current, attributionText: event.target.value }))} /></label>
+          <label><span>Trạng thái</span><select value={intelligenceForm.enabled ? 'on' : 'off'} onChange={(event) => setIntelligenceForm((current) => ({ ...current, enabled: event.target.value === 'on' }))}><option value="on">Bật phân tích</option><option value="off">Tắt phân tích</option></select></label>
+          <button className="payroll-page__primary" type="button" disabled={!canManage || !!busyAction} onClick={() => void submitIntelligencePolicy()}><ShieldCheck size={17} /> Lưu chính sách phân tích</button>
+        </div>}
+      </div>
     </section>}
 
     {showRunSetup && <div className="payroll-modal" role="region" aria-label="Thiết lập kỳ lương">
@@ -920,6 +1026,7 @@ export default function TrainerPayroll({ profile }: Props) {
                 {expanded && <div className="payroll-trainer-item__detail">
                   <div className="payroll-trainer-item__components"><span>Lương cơ bản <b>{money(item.baseSalaryAmount)}</b></span><span>Ca dạy <b>{money(item.teachingPayAmount)}</b></span><span>Hoa hồng GT <b>{money(item.commissionAmount)}</b><small>{item.referralCommission ? `${item.referralCommission.rate}% trên ${money(item.referralCommission.netCashAmount)} thực thu` : 'Kỳ cũ chưa có bằng chứng dòng tiền'}</small></span><span>Thưởng <b>{money(item.bonusAmount)}</b><small>{item.manualBonusAmount ? `${money(item.recurringBonusAmount)} cố định + ${money(item.manualBonusAmount)} theo kỳ` : 'Thưởng tháng từ hồ sơ đội ngũ'}</small></span><span>Khấu trừ <b>{money(item.deductionAmount)}</b><small>{item.manualDeductionAmount ? `${money(item.manualDeductionAmount)} phạt theo kỳ` : 'Hoàn hoa hồng hoặc khoản đã duyệt'}</small></span></div>
                   <p className="payroll-trainer-item__formula"><ShieldCheck size={15} /> {item.attendanceEventCount} lượt điểm danh → <b>{item.sessionCount} ca tính tiền</b>. Hai học viên cùng ngày, giờ và PT chỉ tính một ca; ngày công không nhân thêm tiền ca.</p>
+                  {item.kpiSummary && <div className="payroll-trainer-item__intelligence"><span><strong>KPI</strong><b>{item.kpiSummary.score === null ? '—' : `${item.kpiSummary.score}/100`}</b></span><span><strong>Gia hạn</strong><b>{item.renewSummary?.wonCount || 0}</b><small>{money(item.renewSummary?.attributedRevenue || 0)}</small></span><span><strong>Bằng chứng</strong><b>{item.evidenceLedgerSummary?.count || 0}</b><small>{item.evidenceLedgerSummary?.reviewCount ? `${item.evidenceLedgerSummary.reviewCount} chờ rà` : 'đã xác minh'}</small></span><span><strong>Xếp hạng</strong><b>{item.rankSummary?.label || 'Chưa xếp hạng'}</b><small>Không ảnh hưởng tiền lương</small></span></div>}
                   {item.payrollAdjustments.length > 0 && <div className="payroll-item-adjustments">{item.payrollAdjustments.map((adjustment) => <span key={adjustment.id}><em>{adjustment.type === 'bonus' ? 'Thưởng' : 'Phạt'}</em><strong>{adjustment.type === 'bonus' ? '+' : '−'}{money(adjustment.amount)}</strong><small>{adjustment.reason}{adjustment.evidenceReference ? ` · ${adjustment.evidenceReference}` : ''}</small></span>)}</div>}
                   {(item.attendanceReviewRequired || item.calendarReviewRequired) && <p className="payroll-trainer-item__review"><AlertTriangle size={15} /> {item.calendarReviewRequired ? 'Lịch làm việc chưa duyệt. ' : ''}{item.attendanceReviewRequired ? 'Ngày công còn thiếu hoặc cần xác minh.' : ''}</p>}
                   {item.workdayDays.length ? <div className="payroll-workday-table" role="table" aria-label={`Bảng ngày công của ${name}`}>
@@ -931,7 +1038,7 @@ export default function TrainerPayroll({ profile }: Props) {
                       <small role="cell">{day.source === 'admin_override' ? 'Admin chốt' : day.source === 'teaching_slots' ? 'Ca dạy' : 'Lịch chuẩn'}</small>
                     </div>)}
                   </div> : <p className="payroll-trainer-item__legacy">Kỳ cũ chưa lưu bảng ngày công theo ngày. Mở tab Ngày công để đối soát trực tiếp.</p>}
-                  <div className="payroll-trainer-item__tiers"><span>Ca 1–8 <b>{item.tierSummary.standardCount}</b><small>{money(item.tierSummary.standardAmount)}</small></span><span>Từ ca 9 <b>{item.tierSummary.afterThresholdCount}</b><small>{money(item.tierSummary.afterThresholdAmount)}</small></span><span>Ca tối <b>{item.tierSummary.afterThresholdEveningCount}</b><small>{money(item.tierSummary.afterThresholdEveningAmount)}</small></span></div>
+                  <div className="payroll-trainer-item__tiers"><span>Ca 1–8 <b>{item.tierSummary.standardCount}</b><small>{money(item.tierSummary.standardAmount)}</small></span><span>Từ ca 9 <b>{item.tierSummary.afterThresholdCount}</b><small>{money(item.tierSummary.afterThresholdAmount)}</small></span><span>Từ 20h <b>{item.tierSummary.afterThresholdEveningCount}</b><small>{money(item.tierSummary.afterThresholdEveningAmount)}</small></span></div>
                   {item.teachingSlots.length ? <div className="payroll-teaching-slots">{item.teachingSlots.map((slot) => <div key={slot.key} className={`payroll-teaching-slot${slot.crossBranchWarning ? ' is-warning' : ''}`}><time>{dateLabel(slot.date)} · {String(slot.hour).padStart(2, '0')}:00</time><span>Ca #{slot.dailyPosition} · {slot.studentCount} học viên{slot.crossBranchWarning ? ` · khác cơ sở (${slot.branchIds?.map((id) => branchById.get(id)?.name || id).join(', ')})` : ''}{slot.policyName ? ` · ${slot.policyName}` : ''}</span><em>{teachingTierLabel(slot.tier)}</em><strong>{money(slot.rate)}</strong></div>)}</div> : <p className="payroll-trainer-item__legacy">Kỳ cũ chưa lưu snapshot từng ca. Tạo kỳ mới để xem chi tiết ngày, giờ và số học viên.</p>}
                 </div>}
               </article>
