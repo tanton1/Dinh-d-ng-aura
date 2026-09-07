@@ -830,7 +830,40 @@
 .schedule-opportunities__legend .is-tier-1 { color:#c52e6b; background:#fff0f5; }
 .schedule-opportunities__legend .is-tier-2 { color:#217653; background:#eefaf3; }
 .schedule-opportunities__legend .is-tier-3 { color:#386bc1; background:#eff5ff; }
-.schedule-opportunities__legend .is-assigned { color:#8f3e64; background:#fff0f6; box-shadow:inset 0 0 0 1px rgba(197,46,107,.15); }
+.schedule-opportunities__legend .is-assigned { color:#6f626a; background:#f4f1f3; font-weight:650; }
+.schedule-opportunity-matrix { display:grid; gap:10px; min-width:0; padding:14px; border:1px solid rgba(126,94,112,.14); border-radius:16px; background:#fff; box-shadow:0 10px 28px rgba(63,42,56,.04); }
+.schedule-opportunity-matrix > header { display:flex; align-items:center; justify-content:space-between; gap:14px; }
+.schedule-opportunity-matrix > header > div:first-child { display:grid; gap:3px; }
+.schedule-opportunity-matrix > header strong { color:var(--branch-ink); font-size:.84rem; }
+.schedule-opportunity-matrix > header small { color:var(--branch-muted); font-size:.64rem; line-height:1.4; }
+.schedule-opportunity-matrix__legend { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:5px; }
+.schedule-opportunity-matrix__legend span { border-radius:999px; padding:5px 8px; font-size:.56rem; font-weight:750; }
+.schedule-opportunity-matrix__legend .is-tier-1 { color:#a8245d; background:#ffe7f0; }
+.schedule-opportunity-matrix__legend .is-tier-2 { color:#176744; background:#e3f7eb; }
+.schedule-opportunity-matrix__legend .is-tier-3 { color:#285caa; background:#e8f1ff; }
+.schedule-opportunity-matrix__legend .is-empty { color:#756b71; background:#f1eef0; }
+.schedule-opportunity-matrix__mobile-days { display:none; }
+.schedule-opportunity-matrix__shell { min-width:0; overflow:hidden; border:1px solid #eee5e9; border-radius:12px; }
+.schedule-opportunity-matrix table { width:100%; border-spacing:0; table-layout:fixed; }
+.schedule-opportunity-matrix th { padding:8px 5px; color:#7d6c76; background:#faf8f9; font-size:.6rem; text-align:center; }
+.schedule-opportunity-matrix th:first-child { width:58px; }
+.schedule-opportunity-matrix thead th span,.schedule-opportunity-matrix thead th small { display:block; }
+.schedule-opportunity-matrix thead th span { color:#594b53; font-weight:800; }
+.schedule-opportunity-matrix thead th small { margin-top:2px; font-size:.53rem; font-weight:600; }
+.schedule-opportunity-matrix td { border-top:1px solid #f0e8ec; border-left:1px solid #f0e8ec; padding:4px; background:#fff; }
+.schedule-opportunity-matrix td button { display:grid; width:100%; min-height:70px; align-content:center; justify-items:center; gap:2px; border:1px solid transparent; border-radius:9px; padding:6px 3px; color:#655862; font:inherit; cursor:pointer; transition:transform .15s ease,box-shadow .15s ease; }
+.schedule-opportunity-matrix td button:not(:disabled):hover { position:relative; z-index:1; transform:translateY(-1px); box-shadow:0 7px 16px rgba(73,51,64,.12); }
+.schedule-opportunity-matrix td button > strong { font-size:.9rem; font-weight:850; }
+.schedule-opportunity-matrix td button > small { font-size:.54rem; font-weight:650; }
+.schedule-opportunity-matrix td button > span { display:flex; flex-wrap:wrap; justify-content:center; gap:2px; min-height:15px; }
+.schedule-opportunity-matrix td button i { border-radius:999px; padding:2px 4px; font-size:.48rem; font-style:normal; font-weight:750; }
+.schedule-opportunity-matrix td button.is-priority-1 { border-color:#f2bfd3; color:#9f2357; background:#fff0f5; }
+.schedule-opportunity-matrix td button.is-priority-2 { border-color:#bfe2d0; color:#176744; background:#edf9f2; }
+.schedule-opportunity-matrix td button.is-priority-3 { border-color:#cbdcf4; color:#285caa; background:#eff5ff; }
+.schedule-opportunity-matrix td button.is-empty { color:#94878e; background:#f5f3f4; cursor:default; }
+.schedule-opportunity-matrix td button i.is-tier-1 { color:#a8245d; background:#ffdbe9; }
+.schedule-opportunity-matrix td button i.is-tier-2 { color:#176744; background:#d9f2e4; }
+.schedule-opportunity-matrix td button i.is-tier-3 { color:#285caa; background:#dce9fc; }
 .schedule-opportunities__groups { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
 .schedule-opportunities__group { min-width:0; overflow:hidden; border:1px solid rgba(126,94,112,.12); border-radius:15px; background:#fff; }
 .schedule-opportunities__group > header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:13px 14px; border-bottom:1px solid rgba(126,94,112,.1); }
@@ -839,13 +872,10 @@
 .schedule-opportunities__group > div { display:grid; max-height:480px; overflow:auto; }
 .schedule-opportunities__group > div > button { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:9px; min-height:58px; border:0; border-bottom:1px solid rgba(126,94,112,.08); padding:9px 12px; color:var(--branch-ink); background:#fff; text-align:left; cursor:pointer; }
 .schedule-opportunities__group > div > button:hover { background:#fff9fb; }
-.schedule-opportunities__group > div > button.is-assigned-match { position:relative; background:linear-gradient(90deg,#fff1f6 0,#fff 55%); box-shadow:inset 4px 0 0 #d92e72; }
-.schedule-opportunities__group > div > button.is-assigned-match:hover { background:linear-gradient(90deg,#ffe8f1 0,#fff9fb 62%); }
 .schedule-opportunities__group > div > button > span { display:grid; gap:3px; min-width:0; }
 .schedule-opportunities__group > div strong { overflow:hidden; font-size:.69rem; text-overflow:ellipsis; white-space:nowrap; }
-.schedule-opportunities__group > div > button.is-assigned-match strong { color:#a8245d; font-weight:900; }
 .schedule-opportunities__group > div small { color:var(--branch-muted); font-size:.62rem; }
-.schedule-opportunity-assignment { width:max-content; max-width:100%; overflow:hidden; border-radius:999px; padding:3px 7px; color:#a8245d; background:#ffe5ef; font-size:.56rem; font-weight:850; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
+.schedule-opportunity-assignment { width:max-content; max-width:100%; overflow:hidden; color:#786c73 !important; font-size:.56rem !important; font-weight:600 !important; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
 .schedule-opportunities__group > div em { color:#806b77; font-size:.6rem; font-style:normal; font-weight:750; white-space:nowrap; }
 .schedule-opportunities__group > div svg { color:#bf7896; }
 .schedule-opportunities__group.is-tier-1 { border-color:#f1cada; }
@@ -877,6 +907,17 @@
   .schedule-opportunities__toolbar { align-items:stretch; flex-direction:column; gap:10px; }
   .schedule-opportunities__toolbar label { min-width:0; }
   .schedule-opportunities__legend { justify-content:flex-start; }
+  .schedule-opportunity-matrix { padding:10px 8px; }
+  .schedule-opportunity-matrix > header { align-items:flex-start; flex-direction:column; }
+  .schedule-opportunity-matrix__legend { justify-content:flex-start; }
+  .schedule-opportunity-matrix__mobile-days { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .schedule-opportunity-matrix__mobile-days button { display:grid; width:38px; height:38px; place-items:center; border:1px solid #eadde4; border-radius:10px; color:#775d6b; background:#fff; }
+  .schedule-opportunity-matrix__mobile-days button:disabled { opacity:.35; }
+  .schedule-opportunity-matrix__mobile-days strong { font-size:.7rem; }
+  .schedule-opportunity-matrix th:not(:first-child),.schedule-opportunity-matrix td:not(:first-child) { display:none; }
+  .schedule-opportunity-matrix th.is-mobile-visible,.schedule-opportunity-matrix td.is-mobile-visible { display:table-cell; }
+  .schedule-opportunity-matrix th:first-child { width:48px; }
+  .schedule-opportunity-matrix td button { min-height:66px; }
   .schedule-opportunities__groups { grid-template-columns:1fr; }
   .schedule-opportunities__group > div { max-height:300px; }
 }

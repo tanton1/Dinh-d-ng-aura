@@ -980,6 +980,27 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
       || left.trainerName.localeCompare(right.trainerName, 'vi'))
   }, [holidayDates, operationalStudentRows, opportunityStudentId, weekDates, weekDates.T2.full, workingDays, workingHours, workspace])
 
+  const scheduleOpportunitiesBySlot = useMemo(() => {
+    const grouped = new Map<string, typeof scheduleOpportunities>()
+    for (const opportunity of scheduleOpportunities) {
+      const rows = grouped.get(opportunity.slotId) || []
+      rows.push(opportunity)
+      grouped.set(opportunity.slotId, rows)
+    }
+    return grouped
+  }, [scheduleOpportunities])
+
+  const openScheduleOpportunity = (opportunity: (typeof scheduleOpportunities)[number]) => {
+    if (!workspace) return
+    setSelectedTrainerId(opportunity.trainerId)
+    setInspectorSlotId(opportunity.slotId)
+    setCandidateSearch(opportunityStudentId
+      ? (workspace.students.find((student) => student.id === opportunityStudentId)?.name || '')
+      : '')
+    setPendingManualCandidate(null)
+    setTab('matrix')
+  }
+
   const trainerLoads = useMemo(() => {
     if (!workspace) return []
     const backendLoads: PtScheduleTrainerDailyLoad[] = workspace.optimizationSummary?.trainerLoads
@@ -1744,8 +1765,27 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
           <header><div><p>KHO CA KHẢ DỤNG</p><h2>Điều phối ca trống</h2><span>Chọn học viên để lọc đúng lịch rảnh; ưu tiên ghép ca 1/2, ca trống của PT chính thức cùng chi nhánh đang dưới 8 ca/ngày, rồi các PT cùng chi nhánh còn lại.</span></div><div className="schedule-opportunities__stats"><strong>{scheduleOpportunities.filter((item) => item.priorityTier === 1).length}</strong><span>ghế ghép</span><strong>{scheduleOpportunities.filter((item) => item.priorityTier === 2).length}</strong><span>PT chính thức dưới 8</span><strong>{scheduleOpportunities.filter((item) => item.priorityTier === 3).length}</strong><span>PT còn lại</span></div></header>
           <div className="schedule-opportunities__toolbar">
             <label><span>Học viên cần xếp / đổi</span><select value={opportunityStudentId} onChange={(event) => setOpportunityStudentId(event.target.value)}><option value="">Tất cả học viên · xem toàn chi nhánh</option>{workspace.students.filter((student) => student.eligibleForWeek !== false).sort((left, right) => left.name.localeCompare(right.name, 'vi')).map((student) => <option key={student.id} value={student.id}>{student.name} · {student.availableSlots.length} slot rảnh</option>)}</select></label>
-            <div className="schedule-opportunities__legend"><span className="is-tier-1">1 · Ghép ca 1/2</span><span className="is-tier-2">2 · PT chính thức dưới 8</span><span className="is-tier-3">3 · PT cùng CN còn lại</span><span className="is-assigned">Đậm · Khớp PT chính/phụ</span></div>
+            <div className="schedule-opportunities__legend"><span className="is-tier-1">1 · Ghép ca 1/2</span><span className="is-tier-2">2 · PT chính thức dưới 8</span><span className="is-tier-3">3 · PT cùng CN còn lại</span><span className="is-assigned">PT chính/phụ được xếp đầu</span></div>
           </div>
+          <section className="schedule-opportunity-matrix" aria-label="Ma trận tải ca còn trống">
+            <header><div><strong>Ma trận tải ca còn trống</strong><small>Mỗi ô hiển thị tổng chỗ còn nhận và số PT theo từng mức ưu tiên.</small></div><div className="schedule-opportunity-matrix__legend"><span className="is-tier-1">Ưu tiên 1</span><span className="is-tier-2">Ưu tiên 2</span><span className="is-tier-3">Ưu tiên 3</span><span className="is-empty">Hết ca</span></div></header>
+            <div className="schedule-opportunity-matrix__mobile-days">
+              <button type="button" aria-label="Xem nhóm ngày trước" disabled={mobilePage === 0} onClick={() => setMobilePage((value) => Math.max(0, value - 1))}><ChevronLeft /></button>
+              <strong>{selectedDays.map((day) => DAY_LABELS[day] || day).join(' · ')}</strong>
+              <button type="button" aria-label="Xem nhóm ngày sau" disabled={mobilePage >= mobileGroups.length - 1} onClick={() => setMobilePage((value) => Math.min(mobileGroups.length - 1, value + 1))}><ChevronRight /></button>
+            </div>
+            <div className="schedule-opportunity-matrix__shell"><table><thead><tr><th>Giờ</th>{workingDays.map((day) => <th key={day} className={selectedDays.includes(day) ? 'is-mobile-visible' : ''}><span>{DAY_LABELS[day] || day}</span><small>{weekDates[day as keyof typeof weekDates]?.display}</small></th>)}</tr></thead><tbody>{workingHours.map((hour) => <tr key={hour}><th>{String(hour).padStart(2, '0')}:00</th>{workingDays.map((day) => {
+              const slotId = `${day}-${hour}`
+              const opportunities = scheduleOpportunitiesBySlot.get(slotId) || []
+              const priority = opportunities.length ? Math.min(...opportunities.map((item) => item.priorityTier)) as 1 | 2 | 3 : null
+              const availableSeats = opportunities.reduce((sum, item) => sum + Math.max(0, item.capacity - item.occupancy), 0)
+              const trainerCount = new Set(opportunities.map((item) => item.trainerId)).size
+              const tierCounts = ([1, 2, 3] as const).map((tier) => ({ tier, count: opportunities.filter((item) => item.priorityTier === tier).length }))
+              const bestOpportunity = opportunities[0]
+              const label = `${scheduleSlotLabel(slotId, weekDates)} · ${availableSeats} chỗ trống · ${trainerCount} PT khả dụng${priority ? ` · ưu tiên ${priority}` : ''}`
+              return <td key={slotId} className={selectedDays.includes(day) ? 'is-mobile-visible' : ''}><button type="button" className={priority ? `is-priority-${priority}` : 'is-empty'} disabled={!bestOpportunity} aria-label={label} onClick={() => bestOpportunity && openScheduleOpportunity(bestOpportunity)}><strong>{availableSeats}</strong><small>{availableSeats ? `${trainerCount} PT` : 'Hết ca'}</small><span>{tierCounts.filter((item) => item.count > 0).map((item) => <i key={item.tier} className={`is-tier-${item.tier}`}>{item.tier}:{item.count}</i>)}</span></button></td>
+            })}</tr>)}</tbody></table></div>
+          </section>
           <div className="schedule-opportunities__groups">
             {([1, 2, 3] as const).map((tier) => {
               const items = scheduleOpportunities.filter((item) => item.priorityTier === tier).slice(0, 120)
@@ -1754,7 +1794,7 @@ export default function BranchScheduleWorkspace({ accessContext, onNavigate }: P
                 const assignedLabel = opportunityStudentId
                   ? item.isPrimaryTrainer ? 'Khớp PT chính' : item.secondaryMatchCount > 0 ? 'Khớp PT phụ' : ''
                   : item.assignedMatchCount > 0 ? `Khớp PT chính/phụ của ${item.assignedMatchCount} học viên` : ''
-                return <button type="button" className={item.isAssignedTrainer ? 'is-assigned-match' : ''} key={`${item.trainerId}|${item.slotId}`} onClick={() => { setSelectedTrainerId(item.trainerId); setInspectorSlotId(item.slotId); setCandidateSearch(opportunityStudentId ? (workspace.students.find((student) => student.id === opportunityStudentId)?.name || '') : ''); setPendingManualCandidate(null); setTab('matrix') }}><span><strong>{scheduleSlotLabel(item.slotId, weekDates)}</strong><small>{item.trainerName}{item.priorityTier === 2 ? ' · PT chính thức · dưới 8 ca' : ' · cùng chi nhánh'}</small>{assignedLabel && <b className="schedule-opportunity-assignment">{assignedLabel}</b>}</span><em>{item.occupancy}/{item.capacity} · {item.occupancy === 1 ? 'còn 1 ghế' : `${item.dailyLoad}/8 ca/ngày`}</em><ChevronRight size={16} /></button>
+                return <button type="button" key={`${item.trainerId}|${item.slotId}`} onClick={() => openScheduleOpportunity(item)}><span><strong>{scheduleSlotLabel(item.slotId, weekDates)}</strong><small>{item.trainerName}{item.priorityTier === 2 ? ' · PT chính thức · dưới 8 ca' : ' · cùng chi nhánh'}</small>{assignedLabel && <small className="schedule-opportunity-assignment">{assignedLabel} · xếp trước</small>}</span><em>{item.occupancy}/{item.capacity} · {item.occupancy === 1 ? 'còn 1 ghế' : `${item.dailyLoad}/8 ca/ngày`}</em><ChevronRight size={16} /></button>
               }) : <p className="schedule-opportunities__empty">Chưa có cơ hội ở tầng này cho bộ lọc hiện tại.</p>}</div></section>
             })}
           </div>
