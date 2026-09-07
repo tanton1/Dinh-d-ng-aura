@@ -301,10 +301,16 @@
 .branch-schedule__availability-editor footer { justify-content:flex-end; }
 .branch-schedule__availability-editor footer button { border:1px solid #efdce3; border-radius:11px; padding:9px 13px; color:#765e69; background:#fff; font-weight:800; }
 .branch-schedule__availability-editor footer button.is-save { display:flex; align-items:center; gap:7px; border:0; color:#fff; background:linear-gradient(135deg,#f72d83,#ff8650); }
-.schedule-warning-summary { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 8px; margin-bottom: 11px; }
-.schedule-warning-summary article { display: grid; gap: 2px; min-width: 0; padding: 11px 13px; border: 1px solid rgba(237,207,219,.9); border-radius: 14px; background: linear-gradient(135deg,#fff2f7,#fff7ef); }
+.schedule-warning-summary { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; margin-bottom: 11px; }
+.schedule-warning-summary button { display: grid; gap: 2px; min-width: 0; padding: 11px 13px; border: 1px solid rgba(237,207,219,.9); border-radius: 14px; color:var(--branch-ink); background:#fff; font:inherit; text-align:left; }
 .schedule-warning-summary strong { color: #cf2d6d; font-size: 1.12rem; }
 .schedule-warning-summary span { color: var(--branch-muted); font-size: .65rem; }
+.schedule-warning-summary small { color:#9d8d95; font-size:.57rem; line-height:1.3; }
+.schedule-warning-summary button[aria-pressed="true"] { border-color:rgba(218,50,110,.35); box-shadow:0 0 0 3px rgba(229,47,113,.08); }
+.schedule-warning-summary button.is-contract strong { color:#b35325; }
+.schedule-warning-summary button.is-learner strong { color:#a16a18; }
+.schedule-warning-summary button.is-capacity strong { color:#386bc1; }
+.schedule-warning-summary button.is-system strong { color:#6d5a91; }
 .schedule-warning-grid { display: grid; grid-template-columns: minmax(0,1fr); gap: 8px; max-width: 1120px; }
 .schedule-pairing-opportunities { display:grid; gap:9px; max-width:1120px; margin-bottom:12px; padding:12px; border:1px solid #f0d7e2; border-radius:16px; background:linear-gradient(135deg,#fff8fb,#fff9f4); }
 .schedule-pairing-opportunities > header { display:flex; align-items:center; justify-content:space-between; gap:10px; }
@@ -569,7 +575,7 @@
   .schedule-warning-grid { grid-template-columns: 1fr; }
   .schedule-warning-summary { gap: 5px; }
   .schedule-warning-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
-  .schedule-warning-summary article { padding: 9px 7px; border-radius: 12px; text-align: center; }
+  .schedule-warning-summary button { padding: 9px 7px; border-radius: 12px; text-align: center; }
   .schedule-warning-summary strong { font-size: 1rem; }
   .schedule-warning-summary span { font-size: .56rem; line-height: 1.25; }
   .schedule-pairing-opportunities { margin-inline:-3px; padding:9px; }
@@ -691,7 +697,7 @@
   gap: 10px;
   margin-bottom: 16px;
 }
-.schedule-warning-summary article {
+.schedule-warning-summary button {
   min-height: 64px;
   justify-content: center;
   padding: 12px 14px;
@@ -780,6 +786,15 @@
   font-size: .61rem;
   font-weight: 600;
 }
+.schedule-warning-cause-label { display:inline-flex; width:max-content; max-width:100%; align-items:center; border-radius:999px; padding:3px 7px; font-size:.55rem; font-weight:750; line-height:1.25; }
+.schedule-warning-cause-label.is-contract { color:#a84e25; background:#fff0e8; }
+.schedule-warning-cause-label.is-learner { color:#946410; background:#fff6db; }
+.schedule-warning-cause-label.is-capacity { color:#2d60a9; background:#edf4ff; }
+.schedule-warning-cause-label.is-system { color:#655181; background:#f4effa; }
+.schedule-warning-student.is-cause-contract { border-left:3px solid #df7a42; }
+.schedule-warning-student.is-cause-learner { border-left:3px solid #d5a12c; }
+.schedule-warning-student.is-cause-capacity { border-left:3px solid #4d82cc; }
+.schedule-warning-student.is-cause-system { border-left:3px solid #8069a6; }
 .schedule-warning-student > button i { font-weight: 600; }
 .schedule-warning-primary {
   color: #a85872;
@@ -815,6 +830,7 @@
 .schedule-opportunities__legend .is-tier-1 { color:#c52e6b; background:#fff0f5; }
 .schedule-opportunities__legend .is-tier-2 { color:#217653; background:#eefaf3; }
 .schedule-opportunities__legend .is-tier-3 { color:#386bc1; background:#eff5ff; }
+.schedule-opportunities__legend .is-assigned { color:#8f3e64; background:#fff0f6; box-shadow:inset 0 0 0 1px rgba(197,46,107,.15); }
 .schedule-opportunities__groups { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
 .schedule-opportunities__group { min-width:0; overflow:hidden; border:1px solid rgba(126,94,112,.12); border-radius:15px; background:#fff; }
 .schedule-opportunities__group > header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:13px 14px; border-bottom:1px solid rgba(126,94,112,.1); }
@@ -823,9 +839,13 @@
 .schedule-opportunities__group > div { display:grid; max-height:480px; overflow:auto; }
 .schedule-opportunities__group > div > button { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:9px; min-height:58px; border:0; border-bottom:1px solid rgba(126,94,112,.08); padding:9px 12px; color:var(--branch-ink); background:#fff; text-align:left; cursor:pointer; }
 .schedule-opportunities__group > div > button:hover { background:#fff9fb; }
+.schedule-opportunities__group > div > button.is-assigned-match { position:relative; background:linear-gradient(90deg,#fff1f6 0,#fff 55%); box-shadow:inset 4px 0 0 #d92e72; }
+.schedule-opportunities__group > div > button.is-assigned-match:hover { background:linear-gradient(90deg,#ffe8f1 0,#fff9fb 62%); }
 .schedule-opportunities__group > div > button > span { display:grid; gap:3px; min-width:0; }
 .schedule-opportunities__group > div strong { overflow:hidden; font-size:.69rem; text-overflow:ellipsis; white-space:nowrap; }
+.schedule-opportunities__group > div > button.is-assigned-match strong { color:#a8245d; font-weight:900; }
 .schedule-opportunities__group > div small { color:var(--branch-muted); font-size:.62rem; }
+.schedule-opportunity-assignment { width:max-content; max-width:100%; overflow:hidden; border-radius:999px; padding:3px 7px; color:#a8245d; background:#ffe5ef; font-size:.56rem; font-weight:850; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
 .schedule-opportunities__group > div em { color:#806b77; font-size:.6rem; font-style:normal; font-weight:750; white-space:nowrap; }
 .schedule-opportunities__group > div svg { color:#bf7896; }
 .schedule-opportunities__group.is-tier-1 { border-color:#f1cada; }
@@ -845,7 +865,7 @@
   .branch-schedule__history-page { padding: 18px 10px 28px; }
   .branch-schedule__student-list > article { padding: 13px 12px; }
   .schedule-warning-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
-  .schedule-warning-summary article { min-height: 58px; padding: 9px 7px; }
+  .schedule-warning-summary button { min-height: 58px; padding: 9px 7px; text-align:center; }
   .schedule-warning-filters { margin-inline: -2px; }
   .schedule-warning-student > button { padding: 13px 12px; }
   .schedule-warning-detail { padding-left: 12px; }

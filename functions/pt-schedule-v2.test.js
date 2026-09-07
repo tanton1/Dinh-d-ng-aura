@@ -1177,3 +1177,41 @@ test('unassigned diagnostics identify that every matching PT slot is full', () =
   assert.equal(entry.blockerCategory, 'trainer_capacity')
   assert.ok(entry.diagnostics.blockedByTrainerCapacityCount > 0)
 })
+
+test('unassigned diagnostics classify too few learner availability days before trainer capacity', () => {
+  const data = fixture()
+  data.students[0].sessionsPerWeek = 2
+  data.students[0].availableSlots = ['T2-6', 'T2-7']
+  data.trainers[0].availableSlots = ['T2-6', 'T2-7']
+  const generated = generateSchedule(data)
+  const entry = generated.unassignedEntries.find((item) => item.studentId === 'student-a')
+  assert.ok(entry)
+  assert.equal(entry.primaryReasonCode, 'STUDENT_AVAILABILITY_DAYS_INSUFFICIENT')
+  assert.equal(entry.blockerCategory, 'learner_availability')
+  assert.equal(entry.diagnostics.learnerAvailabilityDayCount, 1)
+  assert.equal(entry.diagnostics.validLearnerAvailabilityDayCount, 0)
+  assert.equal(entry.diagnostics.availabilityDayShortfall, 1)
+})
+
+test('unassigned diagnostics prioritize a contract ending inside the week when too few valid days remain', () => {
+  const data = fixture()
+  data.students[0].sessionsPerWeek = 2
+  data.contracts[0].endDate = WEEK
+  const generated = generateSchedule(data)
+  const entry = generated.unassignedEntries.find((item) => item.studentId === 'student-a')
+  assert.ok(entry)
+  assert.equal(entry.primaryReasonCode, 'CONTRACT_EXPIRES_DURING_WEEK')
+  assert.equal(entry.blockerCategory, 'contract')
+  assert.equal(entry.diagnostics.contractRemainingDayCount, 0)
+})
+
+test('unassigned diagnostics classify exhausted quota as a contract input issue', () => {
+  const data = fixture()
+  data.contracts[0].usedSessions = data.contracts[0].totalSessions
+  const generated = generateSchedule(data)
+  const entry = generated.unassignedEntries.find((item) => item.studentId === 'student-a')
+  assert.ok(entry)
+  assert.equal(entry.primaryReasonCode, 'CONTRACT_SESSION_QUOTA_EXCEEDED')
+  assert.equal(entry.blockerCategory, 'contract')
+  assert.equal(entry.diagnostics.contractStatus, 'quota_exhausted')
+})

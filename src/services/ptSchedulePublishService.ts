@@ -162,6 +162,13 @@ export interface PtScheduleUnassignedEntry {
   diagnostics?: {
     candidateSlotCount?: number
     learnerAvailabilityCount?: number
+    learnerAvailabilityDayCount?: number
+    validLearnerAvailabilityDayCount?: number
+    contractRemainingDayCount?: number
+    requiredSessions?: number
+    scheduledSessions?: number
+    missingSessions?: number
+    availabilityDayShortfall?: number
     contractValidDateCount?: number
     trainerCompatibleSlotCount?: number
     pairedSeatOpportunityCount?: number
@@ -360,6 +367,7 @@ const conflictLabels: Record<string, string> = {
   DRAFT_RESET: 'Lịch nháp vừa được đặt lại; học viên đang chờ xếp lại.',
   NO_AVAILABLE_SLOT: 'Không còn khung giờ rảnh chung giữa học viên và PT.',
   STUDENT_AVAILABILITY_MISSING: 'Học viên chưa có lịch rảnh để xếp tự động.',
+  STUDENT_AVAILABILITY_DAYS_INSUFFICIENT: 'Học viên đăng ký chưa đủ số ngày rảnh để hoàn thành mục tiêu tuần.',
   MANUAL_STUDENT_AVAILABILITY_OVERRIDE: 'Có học viên được quản lý xếp tay ngoài lịch rảnh đã đăng ký.',
   TRAINER_OVER_BALANCE_TARGET: 'PT đang cao hơn mốc cân bằng tải; đây là lưu ý và không chặn xếp lịch.',
   TRAINER_NOT_ASSIGNED: 'Chưa có PT phù hợp trong phạm vi chi nhánh.',

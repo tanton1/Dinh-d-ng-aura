@@ -1820,11 +1820,23 @@ function blockersForStudent(data, student, schedule, schedulingState, contractCa
   const suggestedSlots = new Set()
   const compatibleSlotIds = new Set()
   const pairedOpportunitySlotIds = new Set()
+  const validLearnerAvailabilityDates = new Set()
   const trainers = [...data.trainers].sort((left, right) => left.id.localeCompare(right.id))
   const rawSlots = Array.isArray(student.availableSlots) ? [...new Set(student.availableSlots)].sort(compareSlots) : []
+  const scheduledDayCodes = new Set(schedulingState.studentDays.get(student.id) || [])
+  const scheduledSessions = Number(schedulingState.studentSessionCounts.get(student.id) || 0)
+  const requiredSessions = Math.max(0, Number(student.sessionsPerWeek || 0))
+  const missingSessions = Math.max(0, requiredSessions - scheduledSessions)
   const diagnostics = {
     candidateSlotCount: rawSlots.length,
     learnerAvailabilityCount: 0,
+    learnerAvailabilityDayCount: 0,
+    validLearnerAvailabilityDayCount: 0,
+    contractRemainingDayCount: 0,
+    requiredSessions,
+    scheduledSessions,
+    missingSessions,
+    availabilityDayShortfall: 0,
     contractValidDateCount: 0,
     trainerCompatibleSlotCount: 0,
     pairedSeatOpportunityCount: 0,
@@ -1845,6 +1857,9 @@ function blockersForStudent(data, student, schedule, schedulingState, contractCa
   const validDates = new Set(Array.isArray(student.validScheduleDates) && student.validScheduleDates.length
     ? student.validScheduleDates
     : weekDates.filter((date) => operationalContracts.some((contract) => contractCanServeScheduledDate(contract, date) && !contractPaused(contract, date))))
+  const dayCodeByDate = new Map([...DAY_ORDER.keys()].map((day) => [dateForSlot(data.weekId, day), day]))
+  diagnostics.contractRemainingDayCount = [...validDates]
+    .filter((date) => !scheduledDayCodes.has(dayCodeByDate.get(date))).length
   const nearestEndDate = branchContracts
     .map((contract) => storedDate(contract.endDate))
     .filter(Boolean)
@@ -1872,6 +1887,7 @@ function blockersForStudent(data, student, schedule, schedulingState, contractCa
 
   if (student.availabilityStatus && ['submitted', 'locked', 'inherited', 'recurring'].includes(student.availabilityStatus)) {
     diagnostics.learnerAvailabilityCount = rawSlots.length
+    diagnostics.learnerAvailabilityDayCount = new Set(rawSlots.map((slotId) => String(slotId).split('-')[0])).size
   } else if (!rawSlots.length) {
     reasons.add('AVAILABILITY_NOT_SUBMITTED')
   } else {
@@ -1881,7 +1897,10 @@ function blockersForStudent(data, student, schedule, schedulingState, contractCa
   for (const slotId of rawSlots) {
     const [day, rawHour] = String(slotId).split('-')
     const date = dateForSlot(data.weekId, day)
-    if (validDates.has(date)) diagnostics.contractValidDateCount += 1
+    if (validDates.has(date)) {
+      diagnostics.contractValidDateCount += 1
+      if (!scheduledDayCodes.has(day)) validLearnerAvailabilityDates.add(date)
+    }
     const slotResult = {
       slotId,
       date,
@@ -1920,6 +1939,13 @@ function blockersForStudent(data, student, schedule, schedulingState, contractCa
   }
   diagnostics.trainerCompatibleSlotCount = compatibleSlotIds.size
   diagnostics.pairedSeatOpportunityCount = pairedOpportunitySlotIds.size
+  diagnostics.validLearnerAvailabilityDayCount = validLearnerAvailabilityDates.size
+  diagnostics.availabilityDayShortfall = Math.max(0, missingSessions - diagnostics.validLearnerAvailabilityDayCount)
+
+  if (contractStatus === 'expiring') reasons.add('CONTRACT_EXPIRES_DURING_WEEK')
+  if (diagnostics.learnerAvailabilityCount > 0 && diagnostics.availabilityDayShortfall > 0) {
+    reasons.add('STUDENT_AVAILABILITY_DAYS_INSUFFICIENT')
+  }
 
   if (rawSlots.length && !diagnostics.contractValidDateCount) {
     reasons.add('NO_LEARNER_SLOT_ON_VALID_CONTRACT_DATE')
@@ -1938,17 +1964,23 @@ function blockersForStudent(data, student, schedule, schedulingState, contractCa
   let primaryReasonCode = 'STUDENT_UNSCHEDULED'
   let blockerCategory = 'optimizer'
   let actionCode = 'RERUN_OPTIMIZER'
+  const contractDaysInsufficient = contractStatus === 'expiring'
+    && diagnostics.contractRemainingDayCount < missingSessions
   if (!diagnostics.learnerAvailabilityCount) {
     primaryReasonCode = 'AVAILABILITY_NOT_SUBMITTED'
     blockerCategory = 'learner_availability'
     actionCode = 'EDIT_STUDENT_AVAILABILITY'
-  } else if (!diagnostics.contractValidDateCount) {
+  } else if (contractStatus === 'quota_exhausted' || !diagnostics.contractValidDateCount || contractDaysInsufficient) {
     primaryReasonCode = reasons.has('CONTRACT_SESSION_QUOTA_EXCEEDED') ? 'CONTRACT_SESSION_QUOTA_EXCEEDED'
       : reasons.has('CONTRACT_EXPIRES_DURING_WEEK') ? 'CONTRACT_EXPIRES_DURING_WEEK'
         : reasons.has('CONTRACT_EXPIRED_BEFORE_WEEK') ? 'CONTRACT_EXPIRED_BEFORE_WEEK'
           : reasons.has('CONTRACT_PAUSED') ? 'CONTRACT_PAUSED' : 'ACTIVE_CONTRACT_NOT_FOUND'
     blockerCategory = 'contract'
     actionCode = primaryReasonCode === 'CONTRACT_SESSION_QUOTA_EXCEEDED' ? 'REVIEW_CONTRACT_QUOTA' : 'REVIEW_CONTRACT_DATES'
+  } else if (diagnostics.availabilityDayShortfall > 0) {
+    primaryReasonCode = 'STUDENT_AVAILABILITY_DAYS_INSUFFICIENT'
+    blockerCategory = 'learner_availability'
+    actionCode = 'EDIT_STUDENT_AVAILABILITY'
   } else if (diagnostics.trainerCompatibleSlotCount === 0) {
     primaryReasonCode = reasons.has('BRANCH_CAPACITY_REACHED') ? 'BRANCH_CAPACITY_REACHED'
       : reasons.has('ALL_TRAINERS_OFF') ? 'ALL_TRAINERS_OFF'
